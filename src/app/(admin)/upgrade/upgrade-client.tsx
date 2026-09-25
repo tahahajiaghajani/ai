@@ -6,7 +6,7 @@ import { ExternalLink, Eye, GitMerge, GitPullRequest, Rocket, RotateCcw, Undo2, 
 import { useRealtimeRows } from "@/hooks/use-realtime";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { Badge, Button, Card, CardHeader, EmptyState, Field, Input, Spinner, Switch, Textarea } from "@/components/ui/primitives";
-import { FileDropzone, type UploadedFile } from "@/components/ui/file-dropzone";
+import { FileDropzone, useUploads } from "@/components/ui/file-dropzone";
 import { LiveLog } from "@/components/tasks/live-log";
 import { Markdown } from "@/components/ui/markdown";
 import { cancelUpgradeAction, createUpgradeAction, mergeUpgradeAction, refreshPreviewAction, rollbackUpgradeAction } from "@/app/actions/admin";
@@ -46,10 +46,9 @@ export function UpgradeClient({ userId, initial }: { userId: string; initial: Up
   const [title, setTitle] = React.useState("");
   const [prompt, setPrompt] = React.useState("");
   const [autoMerge, setAutoMerge] = React.useState(false);
-  const [files, setFiles] = React.useState<UploadedFile[]>([]);
+  const { files, onChange: onFiles, blocker: uploadBlocker } = useUploads();
   const [busy, setBusy] = React.useState(false);
   const [open, setOpen] = React.useState<string | null>(null);
-  const onFiles = React.useCallback((f: UploadedFile[]) => setFiles(f), []);
 
   const submit = async () => {
     setBusy(true);
@@ -96,7 +95,7 @@ export function UpgradeClient({ userId, initial }: { userId: string; initial: Up
           </Field>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <Switch checked={autoMerge} onChange={setAutoMerge} label={<span className="text-sm">انتشار خودکار پس از موفقیت build (بدون بازبینی)</span>} />
-            <Button onClick={submit} loading={busy} disabled={!prompt.trim()}>
+            <Button onClick={submit} loading={busy} disabled={!prompt.trim() || !!uploadBlocker} title={uploadBlocker ?? undefined}>
               <Rocket className="size-4" /> ارسال به Claude
             </Button>
           </div>

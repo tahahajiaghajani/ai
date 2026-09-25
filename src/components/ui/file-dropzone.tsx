@@ -1,8 +1,8 @@
 "use client";
 import * as React from "react";
-import { CheckCircle2, FileUp, Loader2, Paperclip, Trash2, XCircle } from "lucide-react";
+import { CheckCircle2, FileUp, Loader2, Paperclip, RotateCcw, Trash2, XCircle } from "lucide-react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
-import { cn, formatBytes, randomId } from "@/lib/utils";
+import { cn, formatBytes, randomId, storageSafeName } from "@/lib/utils";
 
 export interface UploadedFile {
   storage_path: string;
@@ -21,35 +21,79 @@ interface Item {
 
 const MAX = 50 * 1024 * 1024;
 
+export interface UploadStatus {
+  uploading: number;
+  failed: number;
+}
+
+function uploadError(message: string): string {
+  if (/invalid key/i.test(message)) return "نام فایل برای ذخیره‌سازی نامعتبر بود";
+  if (/payload too large|exceeded the maximum|too large/i.test(message)) return "حجم فایل بیش از حد مجاز است";
+  if (/mime type/i.test(message)) return "این نوع فایل مجاز نیست";
+  if (/row-level security|unauthorized|jwt/i.test(message)) return "اجازه‌ی بارگذاری ندارید؛ دوباره وارد شوید";
+  if (/fetch|network/i.test(message)) return "خطای شبکه؛ دوباره تلاش کنید";
+  return `بارگذاری ناموفق: ${message}`;
+}
+
+/** Collects the uploaded files of a FileDropzone and tells whether the form may be submitted yet. */
+export function useUploads() {
+  const [files, setFiles] = React.useState<UploadedFile[]>([]);
+  const [status, setStatus] = React.useState<UploadStatus>({ uploading: 0, failed: 0 });
+  const onChange = React.useCallback((f: UploadedFile[], s: UploadStatus) => {
+    setFiles(f);
+    setStatus(s);
+  }, []);
+  const blocker = status.uploading
+    ? "صبر کنید تا بارگذاری فایل‌ها تمام شود"
+    : status.failed
+      ? "بارگذاری بعضی فایل‌ها ناموفق بود؛ آن‌ها را دوباره بارگذاری یا حذف کنید"
+      : null;
+  return { files, onChange, status, blocker };
+}
+
 /**
  * Uploads any file type straight from the browser to Supabase Storage (bypassing the
  * serverless body limit). The parent receives the uploaded file descriptors.
  */
-export function FileDropzone({ userId, onChange, compact, label = "فایل‌ها را اینجا رها کنید یا کلیک کنید" }: { userId: string; onChange: (files: UploadedFile[]) => void; compact?: boolean; label?: string }) {
+export function FileDropzone({
+  userId,
+  onChange,
+  compact,
+  label = "فایل‌ها را اینجا رها کنید یا کلیک کنید",
+}: {
+  userId: string;
+  /** Called with the successfully uploaded files and the number still uploading / failed. */
+  onChange: (files: UploadedFile[], status: UploadStatus) => void;
+  compact?: boolean;
+  label?: string;
+}) {
   const [items, setItems] = React.useState<Item[]>([]);
   const [drag, setDrag] = React.useState(false);
   const inputRef = React.useRef<HTMLInputElement>(null);
 
   React.useEffect(() => {
-    onChange(items.filter((i) => i.status === "done" && i.uploaded).map((i) => i.uploaded!));
+    onChange(
+      items.filter((i) => i.status === "done" && i.uploaded).map((i) => i.uploaded!),
+      { uploading: items.filter((i) => i.status === "uploading").length, failed: items.filter((i) => i.status === "error").length },
+    );
   }, [items, onChange]);
 
-  const upload = async (file: File) => {
-    const key = randomId(10);
+  const upload = async (file: File, existingKey?: string) => {
+    const key = existingKey ?? randomId(10);
     if (file.size > MAX) {
       setItems((s) => [...s, { key, file, status: "error", error: "حداکثر حجم ۵۰ مگابایت است" }]);
       return;
     }
-    setItems((s) => [...s, { key, file, status: "uploading" }]);
+    setItems((s) => (existingKey ? s.map((it) => (it.key === key ? { ...it, status: "uploading", error: undefined } : it)) : [...s, { key, file, status: "uploading" }]));
     const month = new Date().toISOString().slice(0, 7);
-    const safe = file.name.replace(/[^\p{L}\p{N}._-]+/gu, "_").slice(-120);
-    const path = `${userId}/${month}/${key}-${safe}`;
+    // Storage keys must be ASCII; the original (e.g. Persian) name is stored with the file record.
+    const path = `${userId}/${month}/${key}-${storageSafeName(file.name)}`;
     const { error } = await supabaseBrowser().storage.from("task-files").upload(path, file, { contentType: file.type || "application/octet-stream", upsert: false });
     setItems((s) =>
       s.map((it) =>
         it.key === key
           ? error
-            ? { ...it, status: "error", error: error.message }
+            ? { ...it, status: "error", error: uploadError(error.message) }
             : { ...it, status: "done", uploaded: { storage_path: path, name: file.name, mime: file.type || null, size: file.size } }
           : it,
       ),
@@ -104,8 +148,13 @@ export function FileDropzone({ userId, onChange, compact, label = "فایل‌ه
               ) : (
                 <XCircle className="size-4 text-danger" />
               )}
-              <span className="ltr min-w-0 flex-1 truncate text-start">{it.file.name}</span>
-              <span className="shrink-0 text-xs text-faint">{it.error ?? formatBytes(it.file.size)}</span>
+              <span dir="auto" className="min-w-0 flex-1 truncate text-start">{it.file.name}</span>
+              <span className={cn("shrink-0 text-xs", it.error ? "text-danger" : "text-faint")}>{it.error ?? formatBytes(it.file.size)}</span>
+              {it.status === "error" && it.file.size <= MAX ? (
+                <button type="button" onClick={() => void upload(it.file, it.key)} className="rounded-lg p-1 text-muted hover:text-primary" aria-label="تلاش دوباره" title="تلاش دوباره">
+                  <RotateCcw className="size-3.5" />
+                </button>
+              ) : null}
               <button type="button" onClick={() => void remove(it.key)} className="rounded-lg p-1 text-muted hover:text-danger" aria-label="حذف">
                 <Trash2 className="size-3.5" />
               </button>

@@ -108,6 +108,23 @@ export function extractJson<T = unknown>(text: string): T {
   }
 }
 
+/**
+ * ASCII-only object name for Supabase Storage, which rejects keys with non-ASCII characters
+ * (e.g. Persian file names). The original name is kept separately in the database.
+ */
+export function storageSafeName(name: string): string {
+  const dot = name.lastIndexOf(".");
+  const rawExt = dot > 0 ? name.slice(dot + 1) : "";
+  const ext = /^[A-Za-z0-9]{1,10}$/.test(rawExt) ? rawExt.toLowerCase() : "";
+  const base = (dot > 0 ? name.slice(0, dot) : name)
+    .normalize("NFKD")
+    .replace(/[^A-Za-z0-9._-]+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^[._-]+|[._-]+$/g, "")
+    .slice(0, 60);
+  return `${base || "file"}${ext ? `.${ext}` : ""}`;
+}
+
 export function randomId(len = 8): string {
   const alphabet = "abcdefghijkmnpqrstuvwxyz23456789";
   let out = "";
