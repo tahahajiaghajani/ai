@@ -1,0 +1,42 @@
+# TaskFlow AI — اعمال خودکار migrationهای Supabase پس از ادغام در شاخه‌ی اصلی
+# نیاز به secret با نام SUPABASE_DB_URL دارد (Connection string از نوع Session pooler).
+name: "TaskFlow · Database migrations"
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "supabase/migrations/**"
+  workflow_dispatch:
+
+concurrency:
+  group: taskflow-db-migrate
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: بررسی تنظیمات
+        id: check
+        run: |
+          if [ -z "$SUPABASE_DB_URL" ]; then
+            echo "SUPABASE_DB_URL تنظیم نشده؛ migrationها را دستی در SQL Editor اجرا کنید."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: supabase/setup-cli@v1
+        if: steps.check.outputs.skip != 'true'
+        with:
+          version: latest
+
+      - name: اعمال migrationها
+        if: steps.check.outputs.skip != 'true'
+        run: echo "y" | supabase db push --db-url "$SUPABASE_DB_URL" --include-all

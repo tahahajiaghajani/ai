@@ -1,0 +1,363 @@
+@import "tailwindcss";
+@import "@xyflow/react/dist/style.css";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ------------------------------------------------------------------ */
+/*  Design tokens                                                      */
+/* ------------------------------------------------------------------ */
+:root {
+  --bg: #f4f6fb;
+  --bg-elevated: #ffffff;
+  --surface: rgba(255, 255, 255, 0.78);
+  --surface-strong: #ffffff;
+  --surface-muted: #eef1f8;
+  --border: rgba(15, 23, 42, 0.09);
+  --border-strong: rgba(15, 23, 42, 0.16);
+  --text: #0f172a;
+  --text-muted: #5b6477;
+  --text-faint: #8a93a6;
+  --primary: #6d4aff;
+  --primary-2: #0ea5e9;
+  --primary-soft: rgba(109, 74, 255, 0.1);
+  --ring: rgba(109, 74, 255, 0.35);
+  --success: #10b981;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+  --info: #0ea5e9;
+
+  --stage-approval: #f59e0b;
+  --stage-prework-queue: #0ea5e9;
+  --stage-prework: #8b5cf6;
+  --stage-main-queue: #14b8a6;
+  --stage-main: #f97316;
+  --stage-closure: #ec4899;
+  --stage-closed: #10b981;
+
+  --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 24px -12px rgba(15, 23, 42, 0.12);
+  --shadow-pop: 0 20px 50px -20px rgba(30, 20, 80, 0.35);
+  --grid-color: rgba(15, 23, 42, 0.045);
+  color-scheme: light;
+}
+
+.dark {
+  --bg: #070a14;
+  --bg-elevated: #0d1222;
+  --surface: rgba(19, 25, 46, 0.72);
+  --surface-strong: #121931;
+  --surface-muted: #161d36;
+  --border: rgba(148, 163, 255, 0.1);
+  --border-strong: rgba(148, 163, 255, 0.2);
+  --text: #e8ebf7;
+  --text-muted: #9aa3bf;
+  --text-faint: #6b7392;
+  --primary: #8b6dff;
+  --primary-2: #22d3ee;
+  --primary-soft: rgba(139, 109, 255, 0.14);
+  --ring: rgba(139, 109, 255, 0.45);
+  --shadow-card: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 10px 30px -15px rgba(0, 0, 0, 0.6);
+  --shadow-pop: 0 30px 60px -20px rgba(0, 0, 0, 0.7);
+  --grid-color: rgba(148, 163, 255, 0.05);
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-elevated: var(--bg-elevated);
+  --color-surface: var(--surface);
+  --color-surface-strong: var(--surface-strong);
+  --color-surface-muted: var(--surface-muted);
+  --color-line: var(--border);
+  --color-line-strong: var(--border-strong);
+  --color-fg: var(--text);
+  --color-muted: var(--text-muted);
+  --color-faint: var(--text-faint);
+  --color-primary: var(--primary);
+  --color-primary-2: var(--primary-2);
+  --color-primary-soft: var(--primary-soft);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --color-info: var(--info);
+  --font-sans: var(--font-vazir), "Vazirmatn", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", "Cascadia Code", Menlo, monospace;
+  --shadow-card: var(--shadow-card);
+  --shadow-pop: var(--shadow-pop);
+  --animate-pulse-soft: pulse-soft 2.4s ease-in-out infinite;
+  --animate-shimmer: shimmer 2.2s linear infinite;
+  --animate-float-in: float-in 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes pulse-soft {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.55;
+    transform: scale(0.92);
+  }
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+@keyframes float-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes dash {
+  to {
+    stroke-dashoffset: -24;
+  }
+}
+
+@keyframes ring-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in oklab, var(--glow, var(--primary)) 45%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 8px color-mix(in oklab, var(--glow, var(--primary)) 0%, transparent);
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/*  Base                                                               */
+/* ------------------------------------------------------------------ */
+html,
+body {
+  background: var(--bg);
+  color: var(--text);
+}
+
+body {
+  font-family: var(--font-sans);
+  font-feature-settings: "ss01", "ss02";
+  -webkit-font-smoothing: antialiased;
+  min-height: 100dvh;
+}
+
+.app-backdrop {
+  background-image:
+    radial-gradient(60rem 40rem at 110% -10%, color-mix(in oklab, var(--primary) 16%, transparent), transparent 60%),
+    radial-gradient(50rem 35rem at -10% 110%, color-mix(in oklab, var(--primary-2) 12%, transparent), transparent 60%),
+    linear-gradient(var(--grid-color) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
+  background-size:
+    auto,
+    auto,
+    32px 32px,
+    32px 32px;
+  background-attachment: fixed;
+}
+
+::selection {
+  background: color-mix(in oklab, var(--primary) 30%, transparent);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+/* prevent CSS grid "blowout" on narrow screens (long words/code inside grid items) */
+.grid > * {
+  min-width: 0;
+}
+
+.ltr {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+.glass {
+  background: var(--surface);
+  backdrop-filter: blur(14px) saturate(1.2);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-card);
+}
+
+.text-gradient {
+  background: linear-gradient(120deg, var(--primary), var(--primary-2));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.bg-gradient-brand {
+  background: linear-gradient(120deg, var(--primary), var(--primary-2));
+}
+
+.shimmer {
+  background: linear-gradient(90deg, transparent, color-mix(in oklab, var(--text) 8%, transparent), transparent);
+  background-size: 200% 100%;
+  animation: shimmer 2.2s linear infinite;
+}
+
+.live-dot {
+  position: relative;
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  background: var(--glow, var(--success));
+  animation: ring-glow 1.8s ease-in-out infinite;
+}
+
+.safe-bottom {
+  padding-bottom: max(env(safe-area-inset-bottom), 0.5rem);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Markdown                                                           */
+/* ------------------------------------------------------------------ */
+.md {
+  line-height: 1.95;
+  font-size: 0.92rem;
+  overflow-wrap: anywhere;
+}
+.md h1,
+.md h2,
+.md h3,
+.md h4 {
+  font-weight: 800;
+  margin: 1.4em 0 0.6em;
+  line-height: 1.5;
+}
+.md h1 {
+  font-size: 1.3rem;
+}
+.md h2 {
+  font-size: 1.12rem;
+  padding-bottom: 0.35em;
+  border-bottom: 1px solid var(--border);
+}
+.md h3 {
+  font-size: 1rem;
+  color: var(--primary);
+}
+.md p {
+  margin: 0.6em 0;
+}
+.md ul,
+.md ol {
+  margin: 0.5em 0;
+  padding-inline-start: 1.4em;
+}
+.md ul {
+  list-style: disc;
+}
+.md ol {
+  list-style: decimal;
+}
+.md li {
+  margin: 0.2em 0;
+}
+.md a {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.md code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  padding: 0.1em 0.4em;
+  border-radius: 6px;
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+.md pre {
+  direction: ltr;
+  text-align: left;
+  background: color-mix(in oklab, var(--bg) 70%, black 30%);
+  color: #e6e8f2;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1em;
+  overflow-x: auto;
+  margin: 0.8em 0;
+  font-size: 0.82rem;
+  line-height: 1.7;
+}
+.md pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+}
+.md table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.8em 0;
+  font-size: 0.85rem;
+  display: block;
+  overflow-x: auto;
+}
+.md th,
+.md td {
+  border: 1px solid var(--border);
+  padding: 0.45em 0.7em;
+  text-align: start;
+  vertical-align: top;
+}
+.md th {
+  background: var(--surface-muted);
+  font-weight: 700;
+}
+.md blockquote {
+  border-inline-start: 3px solid var(--primary);
+  padding-inline-start: 1em;
+  color: var(--text-muted);
+  margin: 0.8em 0;
+}
+.md hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 1.4em 0;
+}
+
+/* ------------------------------------------------------------------ */
+/*  React Flow (live workflow)                                         */
+/* ------------------------------------------------------------------ */
+.react-flow {
+  --xy-background-color: transparent;
+  --xy-edge-stroke: var(--border-strong);
+  --xy-edge-stroke-width: 2;
+  --xy-controls-button-background-color: var(--surface-strong);
+  --xy-controls-button-background-color-hover: var(--surface-muted);
+  --xy-controls-button-color: var(--text);
+  --xy-controls-button-border-color: var(--border);
+  --xy-minimap-background-color: var(--surface-strong);
+  --xy-attribution-background-color: transparent;
+}
+.react-flow__attribution {
+  display: none;
+}
+.react-flow__node {
+  font-family: var(--font-sans);
+}
+.react-flow__edge.flowing .react-flow__edge-path {
+  stroke-dasharray: 6 6;
+  animation: dash 0.9s linear infinite;
+}
+.react-flow__handle {
+  opacity: 0;
+}

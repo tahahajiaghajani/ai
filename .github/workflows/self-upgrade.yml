@@ -1,0 +1,66 @@
+# TaskFlow AI — ارتقای خودکار اپلیکیشن با Claude Code
+# اپ این ورکفلو را از بخش «ارتقا» اجرا می‌کند: Claude تغییر را پیاده می‌کند، build را بررسی و در صورت
+# خطا خودش اصلاح می‌کند، سپس یک شاخه و Pull Request می‌سازد (Vercel برایش پیش‌نمایش می‌سازد).
+name: "TaskFlow · Self-upgrade"
+
+on:
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: "TaskFlow job id"
+        required: true
+        type: string
+      app_url:
+        description: "TaskFlow app url"
+        required: true
+        type: string
+
+concurrency:
+  group: taskflow-self-upgrade
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  upgrade:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    env:
+      TASKFLOW_JOB_ID: ${{ inputs.job_id }}
+      TASKFLOW_APP_URL: ${{ inputs.app_url }}
+      TASKFLOW_RUNNER_SECRET: ${{ secrets.TASKFLOW_RUNNER_SECRET }}
+      TASKFLOW_BASE_BRANCH: ${{ github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: دریافت درخواست ارتقا از اپ
+        id: spec
+        run: node workspace-template/.github/scripts/taskflow.mjs spec
+
+      - name: نصب وابستگی‌ها و Claude Code
+        if: steps.spec.outputs.skip != 'true'
+        run: |
+          npm ci
+          npm install -g @anthropic-ai/claude-code
+
+      - name: دانلود فایل‌های پیوست
+        if: steps.spec.outputs.skip != 'true'
+        run: node workspace-template/.github/scripts/taskflow.mjs inputs
+
+      - name: پیاده‌سازی، بررسی build و ساخت Pull Request
+        if: steps.spec.outputs.skip != 'true'
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: node workspace-template/.github/scripts/taskflow.mjs upgrade

@@ -1,0 +1,68 @@
+# TaskFlow AI — اجرای «کار اصلی» با Claude Code (headless) و ارسال لاگ زنده به اپ
+name: "TaskFlow · Claude"
+
+on:
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: "TaskFlow job id"
+        required: true
+        type: string
+      app_url:
+        description: "TaskFlow app url"
+        required: true
+        type: string
+
+# یک حساب Claude کار موازی انجام نمی‌دهد: اجراها پشت سر هم
+concurrency:
+  group: taskflow-claude
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  claude:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    env:
+      TASKFLOW_JOB_ID: ${{ inputs.job_id }}
+      TASKFLOW_APP_URL: ${{ inputs.app_url }}
+      TASKFLOW_RUNNER_SECRET: ${{ secrets.TASKFLOW_RUNNER_SECRET }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: دریافت مشخصات کار از اپ
+        id: spec
+        run: node .github/scripts/taskflow.mjs spec
+
+      - name: نصب Claude Code و graphify
+        if: steps.spec.outputs.skip != 'true'
+        run: |
+          npm install -g @anthropic-ai/claude-code
+          pipx install graphifyy || echo "graphify install failed (optional)"
+
+      - name: دانلود فایل‌های ورودی بزرگ
+        if: steps.spec.outputs.skip != 'true'
+        run: node .github/scripts/taskflow.mjs inputs
+
+      - name: بازیابی جلسه‌ی قبلی Claude (ادامه‌ی همان پروژه)
+        if: steps.spec.outputs.skip != 'true'
+        run: node .github/scripts/taskflow.mjs restore-session
+
+      - name: اجرای Claude Code
+        if: steps.spec.outputs.skip != 'true'
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: node .github/scripts/taskflow.mjs run-claude
+
+      - name: ذخیره‌ی جلسه، دیتا مپینگ، commit و گزارش نهایی
+        if: always() && steps.spec.outputs.skip != 'true'
+        run: node .github/scripts/taskflow.mjs finalize
