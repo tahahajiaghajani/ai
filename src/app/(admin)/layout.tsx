@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { BookOpenText, Brain, Cpu, Inbox, Plus, Rocket, Settings, Users, Workflow } from "lucide-react";
+import { BookOpenText, Brain, Cpu, Inbox, Plus, Rocket, Settings, Users, Workflow, Network } from "lucide-react";
 import { requireAdmin } from "@/lib/auth";
 import { db } from "@/lib/supabase/admin";
 import { RtlProvider } from "@/components/ui/overlays";
@@ -30,6 +30,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             <NavLink href="/inbox" icon={<Inbox className="size-[18px]" />} label="کارتابل" badge={pending.count ?? 0} />
             <NavLink href="/queue" icon={<Cpu className="size-[18px]" />} label="صف و اجرا" />
             <NavLink href="/knowledge" icon={<BookOpenText className="size-[18px]" />} label="پایگاه دانش" />
+            <NavLink href="/graph" icon={<Network className="size-[18px]" />} label="گراف دانش" />
             <NavLink href="/learning" icon={<Brain className="size-[18px]" />} label="یادگیری و پرامپت‌ها" />
             <NavLink href="/upgrade" icon={<Rocket className="size-[18px]" />} label="ارتقای اپلیکیشن" />
             <NavLink href="/users" icon={<Users className="size-[18px]" />} label="کاربران" badge={users.count ?? 0} />
