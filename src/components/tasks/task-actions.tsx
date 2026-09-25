@@ -4,9 +4,9 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Bot, CheckCheck, Flag, MoreHorizontal, Paperclip, RotateCcw, Sparkles, Undo2, XCircle, Ban, Shuffle } from "lucide-react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
-import { Button, Field, Select, Textarea } from "@/components/ui/primitives";
+import { Button, Field, Input, Select, Textarea } from "@/components/ui/primitives";
 import { Menu, Modal } from "@/components/ui/overlays";
-import { FileDropzone, type UploadedFile } from "@/components/ui/file-dropzone";
+import { FileDropzone, type UploadStatus, type UploadedFile } from "@/components/ui/file-dropzone";
 import {
   approveTasksAction,
   cancelJobAction,
@@ -18,8 +18,11 @@ import {
   sendToPreworkAction,
 } from "@/app/actions/tasks";
 import { CLOSABLE, STATUS_META } from "@/lib/status";
+import { CLAUDE_EFFORTS, CLAUDE_MODELS, CLAUDE_THINKING, CLAUDE_THINKING_HINT } from "@/lib/claude/options";
 import { faNum } from "@/lib/utils";
 import type { Task, TaskFile, TaskStatus } from "@/lib/types";
+import type { ClaudeRunOptions } from "@/lib/settings";
+import type { DispatchDefaults } from "@/lib/settings";
 
 type Result = { ok: true } | { ok: false; error: string };
 
@@ -34,22 +37,45 @@ export async function run(p: Promise<Result | { ok: boolean; error?: string }>, 
 
 export type DispatchTask = Pick<Task, "id" | "code" | "title" | "description" | "status">;
 
+const NO_CLAUDE: ClaudeRunOptions = { model: "", effort: "", thinking: "auto" };
+
 /** State + submit for sending tasks to pre-work (Gemini) or the main work (Claude). */
-export function useDispatch(mode: "prework" | "main", ids: string[], onDone?: () => void) {
+export function useDispatch(mode: "prework" | "main", ids: string[], onDone?: () => void, claudeDefaults: ClaudeRunOptions = NO_CLAUDE) {
   const [prompt, setPrompt] = React.useState("");
+  const [claude, setClaude] = React.useState<ClaudeRunOptions>(claudeDefaults);
+  // A ref keeps `reset` stable when a router refresh hands us an equal-but-new defaults object.
+  const claudeDefaultsRef = React.useRef(claudeDefaults);
+  React.useEffect(() => {
+    claudeDefaultsRef.current = claudeDefaults;
+  }, [claudeDefaults]);
   const [files, setFiles] = React.useState<UploadedFile[]>([]);
+  const [upload, setUpload] = React.useState<UploadStatus>({ uploading: 0, failed: 0 });
   const [busy, setBusy] = React.useState(false);
   const [dropKey, setDropKey] = React.useState(0);
-  const onFiles = React.useCallback((f: UploadedFile[]) => setFiles(f), []);
+  const onFiles = React.useCallback((f: UploadedFile[], s: UploadStatus) => {
+    setFiles(f);
+    setUpload(s);
+  }, []);
   const reset = React.useCallback(() => {
     setPrompt("");
+    setClaude(claudeDefaultsRef.current);
     setFiles([]);
+    setUpload({ uploading: 0, failed: 0 });
     setDropKey((k) => k + 1);
   }, []);
+  // Never send while an attachment is still uploading or failed: the AI would silently miss it.
+  const blocker = upload.uploading
+    ? "صبر کنید تا بارگذاری فایل‌ها تمام شود"
+    : upload.failed
+      ? "بارگذاری بعضی فایل‌ها ناموفق بود؛ آن‌ها را دوباره بارگذاری یا حذف کنید"
+      : null;
   const submit = async () => {
+    if (blocker) return false;
     setBusy(true);
-    const action = mode === "prework" ? sendToPreworkAction : sendToMainAction;
-    const ok = await run(action(ids, prompt, files), mode === "prework" ? "در صف پیش‌کار Gemini قرار گرفت" : "برای Claude ارسال شد");
+    const ok = await run(
+      mode === "prework" ? sendToPreworkAction(ids, prompt, files) : sendToMainAction(ids, prompt, files, claude),
+      mode === "prework" ? "در صف پیش‌کار Gemini قرار گرفت" : "برای Claude ارسال شد",
+    );
     setBusy(false);
     if (ok) {
       reset();
@@ -57,7 +83,54 @@ export function useDispatch(mode: "prework" | "main", ids: string[], onDone?: ()
     }
     return ok;
   };
-  return { prompt, setPrompt, files, onFiles, busy, submit, reset, dropKey };
+  return { prompt, setPrompt, files, onFiles, busy, submit, reset, dropKey, blocker, claude, setClaude };
+}
+
+const optionLabel = (list: { value: string; label: string }[], v: string) => list.find((o) => o.value === v)?.label.split(" — ")[0] ?? v;
+
+/** Model, effort and thinking for this one Claude run (pre-filled from Settings). */
+function ClaudeRunFields({ value, onChange }: { value: ClaudeRunOptions; onChange: (v: ClaudeRunOptions) => void }) {
+  const custom = !CLAUDE_MODELS.some((m) => m.value === value.model);
+  return (
+    <details className="rounded-xl border border-line px-3 py-2 text-xs">
+      <summary className="cursor-pointer font-semibold text-muted">
+        مدل Claude: <span className="text-fg">{custom ? <span className="ltr">{value.model}</span> : optionLabel(CLAUDE_MODELS, value.model)}</span> · Effort:{" "}
+        <span className="text-fg">{optionLabel(CLAUDE_EFFORTS, value.effort)}</span> · Thinking: <span className="text-fg">{optionLabel(CLAUDE_THINKING, value.thinking)}</span>
+      </summary>
+      <div className="mt-3 grid gap-3 sm:grid-cols-3">
+        <Field label="مدل">
+          <Select value={custom ? "custom" : value.model} onChange={(e) => onChange({ ...value, model: e.target.value === "custom" ? value.model || "claude-" : e.target.value })}>
+            {CLAUDE_MODELS.map((m) => (
+              <option key={m.value} value={m.value}>
+                {m.label}
+              </option>
+            ))}
+            <option value="custom">نام کامل مدل…</option>
+          </Select>
+          {custom ? <Input dir="ltr" className="mt-2" value={value.model} onChange={(e) => onChange({ ...value, model: e.target.value })} placeholder="claude-opus-5-5" /> : null}
+        </Field>
+        <Field label="Effort">
+          <Select value={value.effort} onChange={(e) => onChange({ ...value, effort: e.target.value as ClaudeRunOptions["effort"] })}>
+            {CLAUDE_EFFORTS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="Thinking">
+          <Select value={value.thinking} onChange={(e) => onChange({ ...value, thinking: e.target.value as ClaudeRunOptions["thinking"] })}>
+            {CLAUDE_THINKING.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      </div>
+      <p className="mt-2 leading-6 text-muted">{CLAUDE_THINKING_HINT}</p>
+    </details>
+  );
 }
 
 /** Prompt textarea, default-prompt preview and attachment dropzone shared by the dialog and the task drawer. */
@@ -95,6 +168,8 @@ export function DispatchFields({ mode, userId, defaultPrompt, state }: { mode: "
       >
         <FileDropzone key={state.dropKey} userId={userId} onChange={state.onFiles} compact />
       </Field>
+      {mode === "main" ? <ClaudeRunFields value={state.claude} onChange={state.setClaude} /> : null}
+      {state.blocker ? <p className="text-xs font-semibold text-amber-600">{state.blocker}</p> : null}
     </div>
   );
 }
@@ -161,6 +236,7 @@ export function PromptDialog({
   defaultPrompt,
   title,
   onDone,
+  claudeDefaults,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
@@ -170,12 +246,18 @@ export function PromptDialog({
   defaultPrompt: string;
   title?: string;
   onDone?: () => void;
+  claudeDefaults?: ClaudeRunOptions;
 }) {
   const ids = tasks.map((t) => t.id);
-  const state = useDispatch(mode, ids, () => {
-    onOpenChange(false);
-    onDone?.();
-  });
+  const state = useDispatch(
+    mode,
+    ids,
+    () => {
+      onOpenChange(false);
+      onDone?.();
+    },
+    claudeDefaults,
+  );
   const { reset } = state;
   React.useEffect(() => {
     if (open) reset();
@@ -189,15 +271,15 @@ export function PromptDialog({
       title={title ?? (mode === "prework" ? "ارسال به پیش‌کار (Gemini)" : "ارسال به کار اصلی (Claude)")}
       description={
         mode === "prework"
-          ? "عنوان، شرح و فایل‌های تسک همراه پرامپت و فایل‌های شما به ورکفلوی چندعاملی پیش‌کار داده می‌شود: تحقیق ← WBS ← روش انجام ← اجرای کارهای ساده ← انتشار در GitHub"
-          : "Claude Code عنوان و شرح تسک، همه‌ی فایل‌های پیش‌کار در GitHub و پرامپت و فایل‌های شما را می‌گیرد، کار را تمام می‌کند و خروجی نهایی را با دیتا مپینگ در پوشه‌ی final ذخیره می‌کند."
+          ? "عنوان، شرح و فایل‌های تسک همراه پرامپت و فایل‌های شما به Gemini داده می‌شود: تحلیل درخواست و فایل‌ها ← دستور کار کوتاه و کامل (و در صورت نیاز چند فایل کمکی)."
+          : "Claude Code پرامپت شما، عنوان و شرح تسک، دستور کار پیش‌کار و فایل‌ها را می‌گیرد و دقیقاً خروجی خواسته‌شده را می‌سازد؛ پاسخ متنی و فایل‌های خروجی در گفت‌وگوی تسک نمایش داده و قابل دانلود می‌شوند."
       }
       footer={
         <>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             انصراف
           </Button>
-          <Button onClick={() => void state.submit()} loading={state.busy} disabled={!ids.length}>
+          <Button onClick={() => void state.submit()} loading={state.busy} disabled={!ids.length || !!state.blocker}>
             {mode === "prework" ? <Sparkles className="size-4" /> : <Bot className="size-4" />}
             {mode === "prework" ? "شروع پیش‌کار" : "ارسال به Claude"}
           </Button>
@@ -283,7 +365,7 @@ export function TaskActions({
 }: {
   task: Task;
   userId: string;
-  defaults: { prework: string; main: string };
+  defaults: DispatchDefaults;
   activeJobId?: string | null;
   size?: "sm" | "md";
   onChanged?: () => void;
@@ -374,6 +456,7 @@ export function TaskActions({
         tasks={[task]}
         userId={userId}
         defaultPrompt={defaults.main}
+        claudeDefaults={defaults.claude}
         title={s === "main_done" ? "دستور تکمیلی به Claude (ادامه‌ی همان پروژه)" : undefined}
         onDone={refresh}
       />

@@ -55,20 +55,28 @@
 فایل: `src/lib/agents/prework.ts`
 
 ```
-prepare → upload_inputs* → agent_research → wbs_outline → wbs_detail* → agent_methods* → agent_execute* → agent_report → extract_knowledge → publish
-                                                (* = حلقه روی فازها/دسته‌ی فعالیت‌ها)
+prepare → upload_inputs* → agent_analyze → agent_plan → agent_helper* → extract_knowledge → publish
+                                           (* = حلقه؛ فایل‌های کمکی ۰ تا pipeline.maxHelperFiles)
 ```
+
+- **هدف: کم ولی کامل.** ایجنت «تحلیل» درخواست و **محتوای کامل فایل‌های پیوست** را می‌خواند (سازوکار، منابع داده، نام دقیق فیلدها/توابع، کمبودها). ایجنت «برنامه‌ریز» یک `BRIEF.md` می‌نویسد با بخش‌های ثابت: هدف و خروجی نهایی، آنچه از فایل‌های موجود استفاده می‌شود، جدول نگاشت نیازمندی ← منبع/فیلد ← وضعیت، کمبودها و نحوه‌ی علامت‌گذاری، ۳ تا ۸ گام، معیار پذیرش؛ به‌همراه یک پاسخ کوتاه چت برای مدیر. فایل کمکی فقط وقتی ساخته می‌شود که واقعاً لازم باشد. پرامپت‌ها عمومی‌اند و به نوع خاصی از تسک وابسته نیستند (`src/lib/ai/prompts.ts`).
+- **خروجی در GitHub:** `iterations/NN_…/prework/BRIEF.md` (دستور کار + پیوست تحلیل کامل) و `prework/files/*` (در صورت وجود).
+- **خروجی در اپ:** پاسخ در `ai_messages` با agent=`reply` و فایل‌ها در `task_files` با context=`output` و `storage_path = github:<path>` (دانلود از GitHub از طریق `/api/files/:id`) — `src/lib/tasks/outputs.ts`.
 
 - **هر فراخوانی ورکر دقیقاً یک گره** را اجرا می‌کند: snapshot گراف از `job_data.graph` بازیابی، با `updateState(asNode)` ادامه داده و دوباره ذخیره می‌شود. این الگو محدودیت ۶۰ ثانیه‌ی Vercel را حل می‌کند.
 - **خروجی نیمه‌کاره:** اگر زمان تمام شود، متن تولیدشده در `job_data.partial` ذخیره و در اجرای بعدی با «ادامه بده از همان نقطه» تکمیل می‌شود.
 - **RAG پیش از هر کار:** جستجوی ترکیبی (برداری + کلیدواژه با Reciprocal Rank Fusion) در `knowledge_items` + پروفایل تسک‌دهنده.
 - **فایل‌ها:** PDF/تصویر/صوت/ویدیو از طریق Gemini Files API، متن و Word به‌صورت متن، بقیه فقط در GitHub برای Claude.
-- **مدل‌ها:** زنجیره‌ی قابل تنظیم؛ با `limit: 0` یا سقف روزانه مدل بعدی، با سقف دقیقه‌ای مکث کوتاه (`RateLimitError`).
+- **مدل‌ها:** مقدار `auto` با `models.list` به جدیدترین مدل‌های `gemini-X.Y-flash` (جدیدتر اول) و در آخر Flash-Lite تبدیل می‌شود (`resolveModels` در `src/lib/ai/gemini.ts`). سهمیه‌ی رایگان روزانه برای هر مدل جداست (جدیدترین‌ها حدود ۲۰ درخواست در روز)، پس با `limit: 0` یا سقف روزانه مدل بعدی، با شلوغی (۵۰۳) یک تلاش دوباره و سپس مدل بعدی، و با سقف دقیقه‌ای مکث کوتاه (`RateLimitError`).
 - **LangChain:** `Embeddings` و `VectorStore` سفارشی (Gemini embedding + Supabase pgvector)، `RecursiveCharacterTextSplitter` برای قطعه‌بندی دانش.
 
 ## کار اصلی با Claude Code
 
 - `src/lib/queue/handlers/main.ts`: پرامپت، دانش مرتبط (`CONTEXT-main.md`) و پیوست‌ها را در GitHub می‌گذارد و ورکفلوی `claude-task.yml` را در `ai-workspace` اجرا می‌کند.
+- **پرامپت Claude** (`mainPrompt` در `src/lib/claude/spec.ts`) با «# درخواست» = پرامپت مدیر شروع می‌شود؛ بعد مشخصات تسک، مسیر `BRIEF.md` و مسیر دقیق فایل‌های پیوست و ۸ قانون: فقط خروجی خواسته‌شده در `final/`، استفاده/تقلید از فایل‌های پیوست، بدون فایل مستندات/تست اضافه، علامت‌گذاری اطلاعات ناموجود با کامنت، و پیام پایانی فارسی که عیناً در گفت‌وگوی اپ نمایش داده می‌شود.
+- **مدل، effort و thinking:** پیش‌فرض در تنظیمات (`claude.model/effort/thinking`) و قابل تغییر برای هر ارسال (`payload.claude`)؛ runner آن‌ها را به `--model`، `--effort` و برای thinking به `--settings {"alwaysThinkingEnabled":true}` یا `MAX_THINKING_TOKENS=0` تبدیل می‌کند.
+- **خروجی در اپ:** پس از اتمام، فایل‌های تغییرکرده‌ی پوشه‌ی تسک به‌جز فایل‌های سیستمی (`isDeliverablePath`) به‌عنوان خروجی و آخرین پیام Claude به‌عنوان پاسخ ثبت می‌شوند (`src/lib/claude/ingest.ts`).
+- **به‌روزرسانی خودکار قالب runner:** اگر `.github/taskflow-version` مخزن کاری با `TEMPLATE_VERSION` اپ فرق کند، پیش از اجرای Claude فایل‌های قالب همگام می‌شوند (`ensureWorkspaceTemplate`).
 - `workspace-template/.github/scripts/taskflow.mjs` روی runner:
   - مشخصات کار را از `/api/runner/jobs/:id` می‌گیرد،
   - Claude Code را با `--output-format stream-json` اجرا و **هر رویداد** (اجرای دستور، ایجاد/ویرایش فایل، TodoWrite، …) را به `/api/runner/events` می‌فرستد،
@@ -90,7 +98,7 @@ prepare → upload_inputs* → agent_research → wbs_outline → wbs_detail* �
 
 - **ارتقا (`/upgrade`)**: پرامپت ← کار `upgrade` ← ورکفلوی `self-upgrade.yml` در مخزن `ai` ← Claude تغییر را پیاده، typecheck/build را اجرا و خطاها را خودش رفع می‌کند ← شاخه‌ی `upgrade/u-000N` و Pull Request ← پیش‌نمایش Vercel ← «انتشار» (merge با توکن مدیر) ← Vercel منتشر و `db-migrate.yml` migrationها را اعمال می‌کند. «بازگرداندن» یک commit معکوس می‌سازد.
 - پیوستگی با «همین جلسه»: تزریق مستقیم پرامپت به یک جلسه‌ی چت Claude از بیرون ممکن نیست؛ به‌جای آن `CLAUDE.md` و همین سند، حافظه‌ی ماندگار پروژه‌اند و هر اجرای Claude ابتدا آن‌ها را می‌خواند.
-- **یادگیری (`/learning`)**: بازخورد 👍/👎 روی خروجی هر ایجنت ← «بهینه‌ساز پرامپت» نسخه‌ی بهتر پیشنهاد می‌دهد ← شما فعال می‌کنید (نسخه‌بندی کامل در `agent_prompts`).
+- **یادگیری (`/learning`)**: بازخورد 👍/👎 روی پاسخ‌های گفت‌وگوی تسک (پیش‌کار ← ایجنت «برنامه‌ریز») ← «بهینه‌ساز پرامپت» نسخه‌ی بهتر پیشنهاد می‌دهد ← شما فعال می‌کنید (نسخه‌بندی کامل در `agent_prompts`).
 
 ## امنیت
 

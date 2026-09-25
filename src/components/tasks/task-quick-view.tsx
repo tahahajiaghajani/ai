@@ -9,10 +9,12 @@ import { PriorityBadge, RelationBadge, StatusBadge } from "@/components/tasks/ba
 import { LiveLog } from "@/components/tasks/live-log";
 import { TaskActions } from "@/components/tasks/task-actions";
 import { InlineDispatch, QueuedNotice, TaskDetailsEditor, TaskFilesManager } from "@/components/tasks/task-prep";
+import { TaskConversation } from "@/components/tasks/task-conversation";
 import { MiniPreworkFlow, TodoList } from "@/components/workflow/mini-flow";
 import { formatJalali, formatRange, timeAgo } from "@/lib/jalali";
 import { faNum } from "@/lib/utils";
 import type { Job, Profile, Task, TaskEvent } from "@/lib/types";
+import type { DispatchDefaults } from "@/lib/settings";
 
 export function TaskQuickView({
   task,
@@ -24,7 +26,7 @@ export function TaskQuickView({
   task: Task | null;
   onClose: () => void;
   userId: string;
-  defaults: { prework: string; main: string };
+  defaults: DispatchDefaults;
   liveJob?: Job | null;
 }) {
   const [events, setEvents] = React.useState<TaskEvent[] | null>(null);
@@ -50,7 +52,7 @@ export function TaskQuickView({
   const activeJob = liveJob ?? job;
   const running = task && ["prework_running", "main_running", "prework_queued", "main_queued"].includes(task.status);
   // Tasks waiting for the admin in the two queue stages get the send form right here.
-  const inlineMode = task?.status === "approved" ? "prework" : task?.status === "prework_done" ? "main" : undefined;
+  const inlineMode = task?.status === "approved" ? "prework" : task?.status === "prework_done" || task?.status === "main_done" ? "main" : undefined;
 
   return (
     <Drawer open={!!task} onOpenChange={(o) => !o && onClose()} title={task?.title ?? ""}>
@@ -115,8 +117,13 @@ export function TaskQuickView({
 
             <TaskFilesManager key={`files-${task.id}`} task={task} userId={userId} />
 
+            <div>
+              <p className="mb-3 text-sm font-bold">گفت‌وگو با Gemini و Claude</p>
+              <TaskConversation key={`conv-${task.id}`} taskId={task.id} />
+            </div>
+
             {inlineMode ? (
-              <InlineDispatch key={`${task.id}-${inlineMode}`} task={task} userId={userId} mode={inlineMode} defaultPrompt={inlineMode === "prework" ? defaults.prework : defaults.main} />
+              <InlineDispatch key={`${task.id}-${inlineMode}`} task={task} userId={userId} mode={inlineMode} defaultPrompt={inlineMode === "prework" ? defaults.prework : defaults.main} claudeDefaults={defaults.claude} />
             ) : null}
             {task.status === "prework_queued" || task.status === "main_queued" ? (
               <QueuedNotice provider={task.status === "prework_queued" ? "gemini" : "claude"} prompt={activeJob?.status === "queued" ? String(activeJob.payload?.prompt ?? "") : null} />

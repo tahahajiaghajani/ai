@@ -3,7 +3,7 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { ArrowRight, ArrowUpLeft, CalendarRange, ExternalLink, FileText, FolderGit2, GitBranch, Network, Paperclip, Save, ThumbsDown, ThumbsUp } from "lucide-react";
+import { ArrowRight, ArrowUpLeft, CalendarRange, ExternalLink, FileText, FolderGit2, GitBranch, Network, Paperclip, Save } from "lucide-react";
 import { useRealtimeRows } from "@/hooks/use-realtime";
 import { Avatar, Badge, Button, Card, CardHeader, EmptyState, Progress, Textarea } from "@/components/ui/primitives";
 import { Tabs } from "@/components/ui/overlays";
@@ -11,16 +11,19 @@ import { PriorityBadge, RelationBadge, StageChip, StatusBadge } from "@/componen
 import { LiveLog } from "@/components/tasks/live-log";
 import { TaskActions } from "@/components/tasks/task-actions";
 import { MiniPreworkFlow, TodoList } from "@/components/workflow/mini-flow";
+import { TaskConversation } from "@/components/tasks/task-conversation";
+import { InlineDispatch } from "@/components/tasks/task-prep";
 import { FileGraph } from "@/components/workflow/file-graph";
 import { Markdown } from "@/components/ui/markdown";
-import { feedbackAction, saveAdminNoteAction } from "@/app/actions/tasks";
+import { saveAdminNoteAction } from "@/app/actions/tasks";
 import { formatDuration, formatJalali, formatRange, timeAgo } from "@/lib/jalali";
 import { RELATION_META } from "@/lib/status";
 import { cn, faNum, formatBytes } from "@/lib/utils";
 import type { Job, Profile, Task, TaskEvent, TaskFile } from "@/lib/types";
 import type { Manifest } from "@/lib/github/workspace";
+import type { DispatchDefaults } from "@/lib/settings";
 
-const AGENT_TITLES: Record<string, string> = { research: "ایجنت ۱ — تحقیق و راهکار", wbs: "ایجنت ۲ — WBS", report: "گزارش پیش‌کار" };
+const FEEDBACK_AGENT: Record<string, string> = { plan: "پیش‌کار (Gemini)", claude: "کار اصلی (Claude)", research: "تحقیق", wbs_detail: "WBS", report: "گزارش" };
 const KIND_LABEL: Record<string, string> = { prework: "پیش‌کار", main: "کار اصلی", knowledge: "استخراج دانش", graphify: "graphify", upgrade: "ارتقا", optimize: "بهینه‌سازی" };
 const JOB_STATUS: Record<string, { label: string; tone: "info" | "violet" | "success" | "danger" | "neutral" }> = {
   queued: { label: "در صف", tone: "info" },
@@ -30,31 +33,6 @@ const JOB_STATUS: Record<string, { label: string; tone: "info" | "violet" | "suc
   cancelled: { label: "لغو شد", tone: "neutral" },
 };
 
-function FeedbackBar({ taskId, agent, jobId }: { taskId: string; agent: string; jobId: string | null }) {
-  const [comment, setComment] = React.useState("");
-  const [sent, setSent] = React.useState<number | null>(null);
-  const send = async (rating: -1 | 1) => {
-    const r = await feedbackAction({ task_id: taskId, job_id: jobId, agent: agent === "wbs" ? "wbs_detail" : agent, rating, comment });
-    if (r.ok) {
-      setSent(rating);
-      toast.success("بازخورد ثبت شد؛ در بهینه‌سازی پرامپت‌ها استفاده می‌شود");
-    } else toast.error(r.error);
-  };
-  return (
-    <div className="mt-3 flex flex-col gap-2 border-t border-line pt-3 sm:flex-row sm:items-center">
-      <input value={comment} onChange={(e) => setComment(e.target.value)} placeholder="نظر شما درباره‌ی کیفیت این خروجی (برای یادگیری سیستم)…" className="h-9 flex-1 rounded-xl border border-line bg-surface-strong px-3 text-xs" />
-      <div className="flex gap-1.5">
-        <Button size="sm" variant={sent === 1 ? "success" : "secondary"} onClick={() => send(1)}>
-          <ThumbsUp className="size-4" /> خوب
-        </Button>
-        <Button size="sm" variant={sent === -1 ? "danger" : "secondary"} onClick={() => send(-1)}>
-          <ThumbsDown className="size-4" /> ضعیف
-        </Button>
-      </div>
-    </div>
-  );
-}
-
 export function TaskDetailClient({
   userId,
   task: initialTask,
@@ -63,7 +41,6 @@ export function TaskDetailClient({
   events,
   jobs: initialJobs,
   files,
-  outputs,
   feedback,
   manifest,
   github,
@@ -76,14 +53,15 @@ export function TaskDetailClient({
   events: TaskEvent[];
   jobs: Job[];
   files: TaskFile[];
-  outputs: { id: number; agent: string; content: string; job_id: string | null; created_at: string }[];
   feedback: { agent: string; rating: number; comment: string | null; created_at: string }[];
   manifest: Manifest | null;
   github: { folder: string; repo: string } | null;
-  defaults: { prework: string; main: string };
+  defaults: DispatchDefaults;
 }) {
   const router = useRouter();
-  const [tasks] = useRealtimeRows<Task & Record<string, unknown>>("tasks", [initialTask] as (Task & Record<string, unknown>)[], { filter: `id=eq.${initialTask.id}` });
+  // A stable array: a new one each render would make the realtime hook reset its rows in a loop.
+  const initialRows = React.useMemo(() => [initialTask] as (Task & Record<string, unknown>)[], [initialTask]);
+  const [tasks] = useRealtimeRows<Task & Record<string, unknown>>("tasks", initialRows, { filter: `id=eq.${initialTask.id}` });
   const task = (tasks[0] as Task) ?? initialTask;
   const [jobs] = useRealtimeRows<Job & Record<string, unknown>>("jobs", initialJobs as (Job & Record<string, unknown>)[], {
     filter: `task_id=eq.${initialTask.id}`,
@@ -158,7 +136,7 @@ export function TaskDetailClient({
                 <a href={`/api/files/${f.id}`} className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs hover:bg-surface-muted">
                   <FileText className="size-3.5 text-muted" />
                   <span className="ltr flex-1 truncate text-start">{f.name}</span>
-                  <Badge>{f.context === "request" ? "درخواست" : f.context === "prework" ? "پیش‌کار" : "کار اصلی"}</Badge>
+                  <Badge tone={f.context === "output" ? "success" : "neutral"}>{f.context === "request" ? "درخواست" : f.context === "prework" ? "پیش‌کار" : f.context === "output" ? "خروجی AI" : "کار اصلی"}</Badge>
                   <span className="text-faint">{formatBytes(f.size)}</span>
                 </a>
               </li>
@@ -231,37 +209,33 @@ export function TaskDetailClient({
     </div>
   );
 
-  const outputsTab = outputs.length ? (
-    <div className="space-y-4">
-      {github ? (
-        <a href={github.folder} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 text-sm font-semibold text-primary">
-          <FolderGit2 className="size-4" /> همه‌ی فایل‌ها (روش‌ها، اجرای کارهای ساده، خروجی نهایی Claude) در GitHub <ExternalLink className="size-3.5" />
-        </a>
+  const inlineMode = task.status === "approved" ? "prework" : task.status === "prework_done" || task.status === "main_done" ? "main" : undefined;
+  const chatTab = (
+    <div className="mx-auto max-w-4xl space-y-4">
+      <Card className="p-5">
+        <TaskConversation taskId={task.id} />
+      </Card>
+      {inlineMode ? (
+        <InlineDispatch
+          key={`${task.id}-${inlineMode}-${task.status}`}
+          task={task}
+          userId={userId}
+          mode={inlineMode}
+          defaultPrompt={inlineMode === "prework" ? defaults.prework : defaults.main}
+          claudeDefaults={defaults.claude}
+        />
       ) : null}
-      {outputs.map((o) => (
-        <Card key={o.id} className="p-5">
-          <details open={o.agent !== "wbs"}>
-            <summary className="cursor-pointer text-[15px] font-extrabold">
-              {AGENT_TITLES[o.agent] ?? o.agent} <span className="text-xs font-normal text-muted">— {timeAgo(o.created_at)}</span>
-            </summary>
-            <Markdown className="mt-3">{o.content}</Markdown>
-          </details>
-          <FeedbackBar taskId={task.id} agent={o.agent} jobId={o.job_id} />
-        </Card>
-      ))}
       {feedback.length ? (
         <Card className="p-5">
           <h3 className="mb-2 text-sm font-bold">بازخوردهای ثبت‌شده</h3>
           {feedback.map((f, i) => (
             <p key={i} className="text-xs text-muted">
-              {f.rating > 0 ? "👍" : "👎"} {f.agent}: {f.comment || "—"} · {timeAgo(f.created_at)}
+              {f.rating > 0 ? "👍" : "👎"} {FEEDBACK_AGENT[f.agent] ?? f.agent}: {f.comment || "—"} · {timeAgo(f.created_at)}
             </p>
           ))}
         </Card>
       ) : null}
     </div>
-  ) : (
-    <EmptyState icon={<FileText className="size-7" />} title="هنوز خروجی‌ای تولید نشده" description="پس از اجرای پیش‌کار، خروجی ایجنت‌ها اینجا نمایش داده می‌شود." />
   );
 
   const graphLink = (
@@ -343,12 +317,12 @@ export function TaskDetailClient({
       </Card>
 
       <Tabs
-        defaultValue={running ? "log" : "overview"}
+        defaultValue={running ? "log" : allJobs.some((j) => j.kind === "prework" || j.kind === "main") ? "chat" : "overview"}
         items={[
           { value: "overview", label: "نمای کلی", content: overview },
           { value: "log", label: running ? <span className="flex items-center gap-2"><span className="live-dot" /> لاگ زنده</span> : "لاگ", content: <LiveLog initial={events} taskId={task.id} live={running} maxHeight="70vh" /> },
           { value: "workflow", label: "ورکفلو و اجراها", content: workflow },
-          { value: "outputs", label: "خروجی ایجنت‌ها", content: outputsTab },
+          { value: "chat", label: "گفت‌وگو و خروجی‌ها", content: chatTab },
           { value: "files", label: "گراف فایل‌ها", content: filesTab },
         ]}
       />
