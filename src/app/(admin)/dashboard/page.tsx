@@ -1,6 +1,6 @@
 import { requireAdmin } from "@/lib/auth";
 import { db } from "@/lib/supabase/admin";
-import { getSettings } from "@/lib/settings";
+import { getSettings, dispatchDefaults } from "@/lib/settings";
 import { DashboardClient } from "./dashboard-client";
 import type { Job, Profile, ProviderState, Task } from "@/lib/types";
 
@@ -20,7 +20,7 @@ export default async function DashboardPage() {
   return (
     <DashboardClient
       userId={me.id}
-      defaults={{ prework: settings.prework.defaultPrompt, main: settings.claude.defaultPrompt }}
+      defaults={dispatchDefaults(settings)}
       data={{
         tasks: (tasks.data ?? []) as Task[],
         jobs: (jobs.data ?? []) as Job[],

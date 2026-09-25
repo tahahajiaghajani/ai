@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { CalendarClock, ListTodo, Send } from "lucide-react";
 import { Button, Card, Field, Input, Select, Textarea } from "@/components/ui/primitives";
 import { JalaliDatePicker, JalaliDateTimePicker } from "@/components/ui/jalali-date-picker";
-import { FileDropzone, type UploadedFile } from "@/components/ui/file-dropzone";
+import { FileDropzone, useUploads } from "@/components/ui/file-dropzone";
 import { createTaskAction, updateTaskAction } from "@/app/actions/tasks";
 import { PRIORITY_META, RELATION_META } from "@/lib/status";
 import { cn } from "@/lib/utils";
@@ -31,9 +31,8 @@ export function TaskForm({
   const [eventAt, setEventAt] = React.useState<string | null>(task?.event_at ?? null);
   const [priority, setPriority] = React.useState<Priority>(task?.priority ?? "medium");
   const [relation, setRelation] = React.useState<RelationType>(parent?.relation ?? "continuation");
-  const [files, setFiles] = React.useState<UploadedFile[]>([]);
+  const { files, onChange: onFiles, blocker: uploadBlocker } = useUploads();
   const [busy, setBusy] = React.useState(false);
-  const onFiles = React.useCallback((f: UploadedFile[]) => setFiles(f), []);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -149,7 +148,7 @@ export function TaskForm({
         <Button type="button" variant="ghost" onClick={() => router.push(backHref)}>
           انصراف
         </Button>
-        <Button type="submit" size="lg" loading={busy} disabled={!title.trim()}>
+        <Button type="submit" size="lg" loading={busy} disabled={!title.trim() || !!uploadBlocker} title={uploadBlocker ?? undefined}>
           <Send className="size-4" /> {task ? "ذخیره‌ی تغییرات" : "ثبت و ارسال برای تایید"}
         </Button>
       </div>

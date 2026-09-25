@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { requireAdmin } from "@/lib/auth";
 import { db } from "@/lib/supabase/admin";
-import { getSettings } from "@/lib/settings";
+import { getSettings, dispatchDefaults } from "@/lib/settings";
 import { getFileText, repoRef, repoUrl, defaultBranch } from "@/lib/github/client";
 import { env } from "@/lib/env";
 import { TaskDetailClient } from "./task-detail-client";
@@ -17,13 +17,12 @@ export default async function TaskPage(props: PageProps<"/tasks/[id]">) {
   if (!task) notFound();
   const rootId = task.root_id ?? task.id;
 
-  const [family, requester, events, jobs, files, messages, feedback, settings] = await Promise.all([
+  const [family, requester, events, jobs, files, feedback, settings] = await Promise.all([
     db().from("tasks").select("*").or(`id.eq.${rootId},root_id.eq.${rootId}`).order("seq_in_root"),
     db().from("profiles").select("*").eq("id", task.requester_id).maybeSingle<Profile>(),
     db().from("task_events").select("*").eq("task_id", id).order("id", { ascending: false }).limit(400),
     db().from("jobs").select("*").eq("task_id", id).order("created_at", { ascending: false }),
     db().from("task_files").select("*").eq("task_id", id).order("created_at"),
-    db().from("ai_messages").select("id, agent, role, content, job_id, created_at").eq("task_id", id).eq("role", "model").in("agent", ["research", "wbs", "report"]).order("id"),
     db().from("feedback").select("*").eq("task_id", id).order("created_at", { ascending: false }),
     getSettings(),
   ]);
@@ -51,11 +50,10 @@ export default async function TaskPage(props: PageProps<"/tasks/[id]">) {
       events={((events.data ?? []) as TaskEvent[]).reverse()}
       jobs={(jobs.data ?? []) as Job[]}
       files={(files.data ?? []) as TaskFile[]}
-      outputs={(messages.data ?? []) as { id: number; agent: string; content: string; job_id: string | null; created_at: string }[]}
       feedback={(feedback.data ?? []) as { agent: string; rating: number; comment: string | null; created_at: string }[]}
       manifest={manifest}
       github={github}
-      defaults={{ prework: settings.prework.defaultPrompt, main: settings.claude.defaultPrompt }}
+      defaults={dispatchDefaults(settings)}
     />
   );
 }

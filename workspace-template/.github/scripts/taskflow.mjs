@@ -245,12 +245,17 @@ function claudeEnv() {
 }
 
 /** Run Claude Code once, streaming every event to the app. */
-function runClaudeOnce({ prompt, resume, model, maxTurns }) {
+function runClaudeOnce({ prompt, resume, model, maxTurns, effort, thinking }) {
   return new Promise((resolve) => {
     const args = ["-p", "--output-format", "stream-json", "--verbose", "--dangerously-skip-permissions", "--max-turns", String(maxTurns || 250)];
     if (resume) args.push("--resume", resume);
     if (model) args.push("--model", model);
-    const child = spawn("claude", args, { cwd: REPO, env: claudeEnv(), stdio: ["pipe", "pipe", "pipe"] });
+    if (effort) args.push("--effort", effort);
+    // Newer models always think adaptively (effort sets the depth); "on"/"off" matter for older ones.
+    if (thinking === "on") args.push("--settings", JSON.stringify({ alwaysThinkingEnabled: true }));
+    const env = claudeEnv();
+    if (thinking === "off") env.MAX_THINKING_TOKENS = "0";
+    const child = spawn("claude", args, { cwd: REPO, env, stdio: ["pipe", "pipe", "pipe"] });
     child.stdin.end(prompt);
 
     let sessionId = null;
@@ -286,10 +291,12 @@ function runClaudeOnce({ prompt, resume, model, maxTurns }) {
 
 async function cmdRunClaude() {
   const spec = readSpec();
-  let out = await runClaudeOnce({ prompt: spec.prompt, resume: spec.resume_session_id, model: spec.model, maxTurns: spec.max_turns });
+  const opts = { prompt: spec.prompt, model: spec.model, maxTurns: spec.max_turns, effort: spec.effort, thinking: spec.thinking };
+  emit({ type: "log", title: `Claude: مدل ${spec.model || "پیش‌فرض حساب"}${spec.effort ? ` · effort ${spec.effort}` : ""}${spec.thinking && spec.thinking !== "auto" ? ` · thinking ${spec.thinking}` : ""}` });
+  let out = await runClaudeOnce({ ...opts, resume: spec.resume_session_id });
   if (spec.resume_session_id && !out.result && /no conversation found|session.*not found|could not resume/i.test(out.stderr)) {
     emit({ type: "log", level: "warning", title: "ادامه‌ی جلسه‌ی قبلی ممکن نشد؛ شروع جلسه‌ی جدید" });
-    out = await runClaudeOnce({ prompt: spec.prompt, resume: null, model: spec.model, maxTurns: spec.max_turns });
+    out = await runClaudeOnce({ ...opts, resume: null });
   }
   await flush();
   fs.writeFileSync(RESULT_FILE, JSON.stringify(out, null, 2));
@@ -386,7 +393,7 @@ async function cmdFinalize() {
     type: "result",
     status: verdict.status,
     error: verdict.error,
-    summary: clip(out?.result?.result || "", 6000),
+    summary: clip(out?.result?.result || "", 30000),
     session_id: out?.sessionId || null,
     commit_sha: commit.sha,
     commit_url: commitUrl(commit.sha),
@@ -401,7 +408,7 @@ async function cmdUpgrade() {
   const branch = spec.branch || `upgrade/${JOB_ID.slice(0, 8)}`;
   try {
     sh("git", ["checkout", "-B", branch]);
-    let out = await runClaudeOnce({ prompt: spec.prompt, resume: null, model: spec.model, maxTurns: spec.max_turns });
+    let out = await runClaudeOnce({ prompt: spec.prompt, resume: null, model: spec.model, maxTurns: spec.max_turns, effort: spec.effort, thinking: spec.thinking });
     let verdict = classify(out);
     // Self-healing: build must pass; feed errors back to the same Claude session (max 2 rounds).
     for (let round = 0; verdict.status === "success" && round < 3; round++) {
@@ -422,6 +429,8 @@ async function cmdUpgrade() {
         resume: out.sessionId,
         model: spec.model,
         maxTurns: 80,
+        effort: spec.effort,
+        thinking: spec.thinking,
       });
       verdict = classify(out);
     }

@@ -4,11 +4,14 @@ import { generateJson } from "@/lib/ai/gemini";
 import { addKnowledge, KNOWLEDGE_KINDS } from "@/lib/ai/knowledge";
 import { AGENT_LABELS, getAgentPrompt, KNOWLEDGE_SCHEMA, OPTIMIZER_SCHEMA, type AgentKey } from "@/lib/ai/prompts";
 import { getSettings } from "@/lib/settings";
-import { commitFiles, getFileText, listTree, repoRef, type CommitFile } from "@/lib/github/client";
+import { commitFiles, getFileText, repoRef, type CommitFile } from "@/lib/github/client";
 import { notifyAdmins } from "@/lib/events";
 import { slugify, truncate } from "@/lib/utils";
 import type { JobRun, StepResult } from "@/lib/queue/run";
 import type { Task } from "@/lib/types";
+
+/** Which ai_messages rows hold a given agent's output. */
+const MESSAGE_AGENT: Partial<Record<AgentKey, string>> = { analyze: "analysis", plan: "brief" };
 
 const TEXT_FILE = /\.(md|txt|sql|ts|tsx|js|jsx|py|json|yml|yaml|cs|java|go|sh|html|css)$/i;
 
@@ -19,15 +22,17 @@ export async function knowledgeHandler(run: JobRun): Promise<StepResult> {
   if (!task) return { type: "fail", error: "تسک یافت نشد" };
   const path = String(run.job.payload.path ?? task.github_path ?? "");
   const ref = await repoRef("workspace");
-  const finalDir = `${path}/final`;
 
-  const tree = await listTree(ref, finalDir);
-  const explanation = (await getFileText(ref, `${finalDir}/EXPLANATION.md`)) ?? "";
-  const filesMd = (await getFileText(ref, `${finalDir}/FILES.md`)) ?? "";
+  // Claude's closing message explains the work; the deliverables it produced are the task outputs.
+  const { data: replies } = await db().from("ai_messages").select("content").eq("task_id", task.id).eq("agent", "reply").order("id", { ascending: false }).limit(1);
+  const explanation = replies?.[0]?.content ?? "";
+  const { data: outputs } = await db().from("task_files").select("github_path, size").eq("task_id", task.id).eq("context", "output").not("github_path", "like", "%/prework/%");
+  const tree = ((outputs ?? []) as { github_path: string | null; size: number | null }[]).filter((o) => o.github_path).map((o) => ({ path: o.github_path!, size: o.size ?? 0 }));
+  const filesMd = tree.map((t) => `- ${t.path.replace(`${path}/`, "")}`).join("\n");
   const samples: string[] = [];
   let budget = 30_000;
-  for (const f of tree.filter((t) => t.type === "blob" && TEXT_FILE.test(t.path) && (t.size ?? 0) < 40_000).slice(0, 14)) {
-    if (budget <= 0 || /EXPLANATION|FILES\.md|CHANGELOG/.test(f.path)) continue;
+  for (const f of tree.filter((t) => TEXT_FILE.test(t.path) && (t.size ?? 0) < 60_000).slice(0, 10)) {
+    if (budget <= 0) continue;
     const text = await getFileText(ref, f.path);
     if (!text) continue;
     const piece = `### ${f.path.replace(`${path}/`, "")}\n${truncate(text, 3000)}`;
@@ -46,7 +51,7 @@ export async function knowledgeHandler(run: JobRun): Promise<StepResult> {
     system: await getAgentPrompt("knowledge"),
     userParts: [
       {
-        text: `# تسک ${task.code}: ${task.title}\n${task.description}\n\n## توضیحات نهایی (EXPLANATION.md)\n${truncate(explanation, 15000)}\n\n## نقشه‌ی فایل‌ها\n${truncate(filesMd, 5000)}\n\n## نمونه‌ی فایل‌های نهایی\n${samples.join("\n\n")}`,
+        text: `# تسک ${task.code}: ${task.title}\n${task.description}\n\n## پیام پایانی Claude\n${truncate(explanation, 15000)}\n\n## فایل‌های خروجی\n${truncate(filesMd, 5000)}\n\n## نمونه‌ی فایل‌های خروجی\n${samples.join("\n\n")}`,
       },
     ],
     jsonSchema: KNOWLEDGE_SCHEMA,
@@ -100,7 +105,7 @@ export async function optimizeHandler(run: JobRun): Promise<StepResult> {
     .limit(30);
   const negJobs = (feedback ?? []).filter((f) => f.rating < 0 && f.job_id).map((f) => f.job_id as string).slice(0, 3);
   const { data: samples } = negJobs.length
-    ? await db().from("ai_messages").select("content").in("job_id", negJobs).eq("agent", agent === "wbs_outline" || agent === "wbs_detail" ? "wbs" : agent).limit(3)
+    ? await db().from("ai_messages").select("content").in("job_id", negJobs).eq("agent", MESSAGE_AGENT[agent] ?? agent).limit(3)
     : { data: [] as { content: string }[] };
 
   const { data } = await generateJson<{ improved_prompt: string; rationale: string; changes?: string[] }>({

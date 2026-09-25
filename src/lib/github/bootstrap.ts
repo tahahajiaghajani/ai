@@ -5,6 +5,7 @@ import {
   commitFiles,
   defaultBranch,
   ensureRepo,
+  getFileText,
   gh,
   listSecretNames,
   listTree,
@@ -17,6 +18,21 @@ import {
 } from "@/lib/github/client";
 import { genai } from "@/lib/ai/gemini";
 import { getProvider } from "@/lib/queue/run";
+
+/**
+ * Version of `workspace-template/` (must equal `workspace-template/.github/taskflow-version`).
+ * Bump it whenever the template changes: the workspace repo is re-synced before the next run.
+ */
+export const TEMPLATE_VERSION = "2026.09.26-1";
+
+/** Re-sync the workspace repo when its runner files are older than this app version. */
+export async function ensureWorkspaceTemplate(): Promise<"current" | "synced"> {
+  const workspace = await repoRef("workspace");
+  const current = (await getFileText(workspace, ".github/taskflow-version"))?.trim();
+  if (current === TEMPLATE_VERSION) return "current";
+  await syncWorkspaceTemplate();
+  return "synced";
+}
 
 /** Copy `workspace-template/` from the app repo into the workspace repo (creating it if needed). */
 export async function syncWorkspaceTemplate(): Promise<{ created: boolean; files: number; url: string }> {

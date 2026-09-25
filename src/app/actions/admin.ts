@@ -2,7 +2,8 @@
 import { headers } from "next/headers";
 import { assertAdmin } from "@/lib/auth";
 import { db } from "@/lib/supabase/admin";
-import { saveSettings, type AppSettings } from "@/lib/settings";
+import { getSettings, saveSettings, type AppSettings } from "@/lib/settings";
+import { resolveModels } from "@/lib/ai/gemini";
 import { configureScheduler, integrationStatus, setAppSecrets, setWorkspaceSecrets, syncWorkspaceTemplate } from "@/lib/github/bootstrap";
 import { addKnowledge } from "@/lib/ai/knowledge";
 import { searchKnowledge } from "@/lib/ai/knowledge";
@@ -21,6 +22,22 @@ async function origin() {
 }
 
 // ------------------------------------------------------------------ setup
+/** The concrete Gemini models "auto" currently expands to (newest first). */
+/** Which Gemini models the pre-work and knowledge chains resolve to right now ("auto" → newest free Flash). */
+export async function geminiModelsAction(chains?: { prework?: string[]; knowledge?: string[] }) {
+  return act(async () => {
+    await assertAdmin();
+    const s = await getSettings();
+    const pick = (v: unknown, fallback: string[]) =>
+      Array.isArray(v) && v.length ? v.filter((m): m is string => typeof m === "string" && m.trim() !== "").slice(0, 10) : fallback;
+    const [prework, knowledge] = await Promise.all([
+      resolveModels(pick(chains?.prework, s.models.prework)),
+      resolveModels(pick(chains?.knowledge, s.models.knowledge)),
+    ]);
+    return { prework, knowledge };
+  });
+}
+
 export async function integrationStatusAction() {
   return act(async () => {
     await assertAdmin();

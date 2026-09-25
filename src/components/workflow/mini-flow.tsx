@@ -23,7 +23,7 @@ const NODE_STYLE: Record<string, string> = {
 };
 
 /**
- * The pre-work sub-workflow (8 agent steps) with live status.
+ * The pre-work sub-workflow (analyze → brief → helper files → publish) with live status.
  * `vertical` is used inside the React Flow node and on mobile.
  */
 export function MiniPreworkFlow({ state, vertical, compact }: { state: JobState | null | undefined; vertical?: boolean; compact?: boolean }) {

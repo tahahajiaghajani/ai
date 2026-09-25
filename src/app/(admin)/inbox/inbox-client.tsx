@@ -12,6 +12,7 @@ import { approveTasksAction } from "@/app/actions/tasks";
 import { formatJalali, formatRange, timeAgo } from "@/lib/jalali";
 import { cn, faNum } from "@/lib/utils";
 import type { Job, Profile, Task, TaskStatus } from "@/lib/types";
+import type { DispatchDefaults } from "@/lib/settings";
 
 const TABS: { key: string; label: string; statuses: TaskStatus[]; bulk?: "approve" | "prework" | "main" }[] = [
   { key: "approval", label: "در انتظار تایید", statuses: ["pending_approval", "returned"], bulk: "approve" },
@@ -33,7 +34,7 @@ export function InboxClient({
   jobs: Job[];
   profiles: Pick<Profile, "id" | "full_name" | "email" | "org_unit" | "avatar_url">[];
   userId: string;
-  defaults: { prework: string; main: string };
+  defaults: DispatchDefaults;
 }) {
   useNow();
   const router = useRouter();
@@ -222,6 +223,7 @@ export function InboxClient({
         tasks={dialog.tasks}
         userId={userId}
         defaultPrompt={dialog.mode === "main" ? defaults.main : defaults.prework}
+        claudeDefaults={defaults.claude}
         onDone={() => {
           setSelected(new Set());
           router.refresh();

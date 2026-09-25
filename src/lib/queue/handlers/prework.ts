@@ -42,7 +42,7 @@ export async function preworkHandler(run: JobRun): Promise<StepResult> {
   });
   await notifyAdmins({
     title: `پیش‌کار ${task.code} تمام شد`,
-    body: `${task.title} — ${v.items?.length ?? 0} فعالیت، ${v.execFiles?.length ?? 0} فایل آماده. آماده‌ی ارسال به Claude.`,
+    body: `${task.title} — دستور کار${v.helperFiles?.length ? ` و ${v.helperFiles.length} فایل کمکی` : ""} آماده است. آماده‌ی ارسال به Claude.`,
     link: `/tasks/${task.id}`,
     task_id: task.id,
   });
@@ -53,7 +53,7 @@ export async function preworkHandler(run: JobRun): Promise<StepResult> {
   }
   return {
     type: "done",
-    result: { commit: v.commit ?? null, items: v.items?.length ?? 0, files: v.execFiles?.length ?? 0, path: v.rootPath, models: v.models ?? [] },
+    result: { commit: v.commit ?? null, files: 1 + (v.helperFiles?.length ?? 0), path: v.rootPath, models: v.models ?? [] },
   };
 }
 

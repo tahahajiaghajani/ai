@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { CheckCircle2, Send, ThumbsDown } from "lucide-react";
 import { Button, Field, Textarea } from "@/components/ui/primitives";
 import { Modal } from "@/components/ui/overlays";
-import { FileDropzone, type UploadedFile } from "@/components/ui/file-dropzone";
+import { FileDropzone, useUploads } from "@/components/ui/file-dropzone";
 import { confirmClosureAction, rejectClosureAction, resubmitTaskAction } from "@/app/actions/tasks";
 import type { Task } from "@/lib/types";
 
@@ -14,8 +14,7 @@ export function RequesterActions({ task, userId }: { task: Task; userId: string 
   const [busy, setBusy] = React.useState(false);
   const [rejecting, setRejecting] = React.useState(false);
   const [reason, setReason] = React.useState("");
-  const [files, setFiles] = React.useState<UploadedFile[]>([]);
-  const onFiles = React.useCallback((f: UploadedFile[]) => setFiles(f), []);
+  const { files, onChange: onFiles, blocker: uploadBlocker } = useUploads();
   if (task.requester_id !== userId) return null;
 
   const done = (ok: boolean, msg: string, err?: string) => {
@@ -68,7 +67,8 @@ export function RequesterActions({ task, userId }: { task: Task; userId: string 
           <Button
             variant="danger"
             loading={busy}
-            disabled={!reason.trim()}
+            disabled={!reason.trim() || !!uploadBlocker}
+            title={uploadBlocker ?? undefined}
             onClick={async () => {
               setBusy(true);
               const r = await rejectClosureAction(task.id, reason, files);

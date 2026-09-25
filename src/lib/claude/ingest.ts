@@ -8,6 +8,8 @@ import { pauseProvider } from "@/lib/queue/run";
 import { getSettings } from "@/lib/settings";
 import { gh, repoRef } from "@/lib/github/client";
 import { formatJalali } from "@/lib/jalali";
+import { isDeliverablePath } from "@/lib/agents/parse";
+import { registerOutputs, saveReply } from "@/lib/tasks/outputs";
 import type { Job, JobState, Task, TodoItem, Upgrade } from "@/lib/types";
 
 export type RunnerEvent =
@@ -131,7 +133,7 @@ export async function completeExternal(
   // ---------------------------------------------------------------- per kind
   if (job.kind === "main") {
     if (r.status === "success") {
-      await finalizeMainSuccess(job, r);
+      await finalizeMainSuccess(job, { ...r, summary: r.lastText?.trim() || r.summary });
     } else {
       await handleExternalError(job, r.error ?? r.lastText ?? "خطای نامشخص");
     }
@@ -182,6 +184,10 @@ async function finalizeMainSuccess(job: Job, r: { summary?: string; session_id?:
   await finishJob(job, "done", { summary: r.summary ?? null, commit: r.commit_sha ?? null, commit_url: r.commit_url ?? null, files: r.files_changed ?? [] });
   const { data: task } = await db().from("tasks").select("*").eq("id", job.task_id).single<Task>();
   if (!task) return;
+  // Claude's closing message is its chat reply; the files it produced become downloadable outputs.
+  const deliverables = task.github_path ? (r.files_changed ?? []).filter((p) => isDeliverablePath(task.github_path!, p)) : [];
+  await registerOutputs(task.id, job.id, deliverables.map((path) => ({ path })));
+  await saveReply(task.id, job.id, r.summary ?? "");
   if (r.session_id) await saveSession(task.id, r.session_id);
   await db().from("tasks").update({ status: "main_done", progress: 90, main_done_at: new Date().toISOString() }).eq("id", task.id);
   await logEvent({ task_id: task.id, job_id: job.id, kind: "status", title: "وضعیت: کار اصلی انجام شد — در حال نهایی‌سازی", visibility: "requester" });
@@ -190,7 +196,7 @@ async function finalizeMainSuccess(job: Job, r: { summary?: string; session_id?:
     job_id: job.id,
     source: "claude",
     kind: "result",
-    title: `خروجی نهایی در GitHub ذخیره شد${r.files_changed?.length ? ` (${r.files_changed.length} فایل)` : ""}`,
+    title: `خروجی نهایی در GitHub ذخیره شد${deliverables.length ? ` (${deliverables.length} فایل)` : ""}`,
     detail: r.summary ?? null,
     data: { url: r.commit_url },
   });

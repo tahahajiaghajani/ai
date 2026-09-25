@@ -6,6 +6,7 @@ import { TaskQuickView } from "@/components/tasks/task-quick-view";
 import { cn, faNum } from "@/lib/utils";
 import { STAGES } from "@/lib/status";
 import type { Task } from "@/lib/types";
+import type { DispatchDefaults } from "@/lib/settings";
 
 function Kpi({ icon, label, value, color, sub }: { icon: React.ReactNode; label: string; value: number; color: string; sub?: string }) {
   return (
@@ -23,7 +24,7 @@ function Kpi({ icon, label, value, color, sub }: { icon: React.ReactNode; label:
   );
 }
 
-export function DashboardClient({ data, userId, defaults }: { data: WorkflowData; userId: string; defaults: { prework: string; main: string } }) {
+export function DashboardClient({ data, userId, defaults }: { data: WorkflowData; userId: string; defaults: DispatchDefaults }) {
   const state = useWorkflowState(data);
   const [selected, setSelected] = React.useState<Task | null>(null);
   const [view, setView] = React.useState<"graph" | "pipeline">("graph");

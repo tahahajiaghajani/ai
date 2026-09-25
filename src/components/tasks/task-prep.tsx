@@ -4,13 +4,14 @@ import { useRouter } from "next/navigation";
 import { Bot, Download, Eye, File, FileArchive, FileAudio, FileImage, FileSpreadsheet, FileText, FileVideo, Pencil, Plus, Sparkles, Trash2 } from "lucide-react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { Button, Field, Input, Spinner, Textarea } from "@/components/ui/primitives";
-import { FileDropzone, type UploadedFile } from "@/components/ui/file-dropzone";
+import { FileDropzone, type UploadStatus, type UploadedFile } from "@/components/ui/file-dropzone";
 import { Markdown } from "@/components/ui/markdown";
 import { DispatchFields, run, useDispatch } from "@/components/tasks/task-actions";
 import { addTaskFilesAction, deleteTaskFileAction, updateTaskDetailsAction } from "@/app/actions/tasks";
 import { timeAgo } from "@/lib/jalali";
 import { cn, faNum, formatBytes } from "@/lib/utils";
 import type { Task, TaskFile, TaskStatus } from "@/lib/types";
+import type { ClaudeRunOptions } from "@/lib/settings";
 
 const LOCKED: TaskStatus[] = ["closed", "cancelled"];
 const RUNNING: TaskStatus[] = ["prework_running", "main_running"];
@@ -116,11 +117,15 @@ export function TaskDetailsEditor({ task, defaultOpen = true }: { task: Task; de
 export function TaskFilesManager({ task, userId }: { task: Task; userId: string }) {
   const [files, setFiles] = React.useState<TaskFile[] | null>(null);
   const [adding, setAdding] = React.useState<UploadedFile[]>([]);
+  const [addingStatus, setAddingStatus] = React.useState<UploadStatus>({ uploading: 0, failed: 0 });
   const [dropKey, setDropKey] = React.useState(0);
   const [busy, setBusy] = React.useState(false);
   const [confirming, setConfirming] = React.useState<string | null>(null);
   const [deleting, setDeleting] = React.useState<string | null>(null);
-  const onAdding = React.useCallback((f: UploadedFile[]) => setAdding(f), []);
+  const onAdding = React.useCallback((f: UploadedFile[], st: UploadStatus) => {
+    setAdding(f);
+    setAddingStatus(st);
+  }, []);
   const locked = LOCKED.includes(task.status);
   const running = RUNNING.includes(task.status);
 
@@ -163,7 +168,8 @@ export function TaskFilesManager({ task, userId }: { task: Task; userId: string 
     if (ok) void load();
   };
 
-  const shown = files?.filter((f) => f.context !== "upgrade") ?? [];
+  // AI outputs are listed in the conversation under the reply that produced them.
+  const shown = files?.filter((f) => f.context !== "upgrade" && f.context !== "output") ?? [];
 
   return (
     <div className="rounded-2xl border border-line bg-surface-strong/60 p-3">
@@ -226,7 +232,7 @@ export function TaskFilesManager({ task, userId }: { task: Task; userId: string 
         <div className="mt-3 space-y-2">
           <FileDropzone key={dropKey} userId={userId} onChange={onAdding} compact label="بارگذاری فایل جدید برای تسک (هر نوع فایل)" />
           {adding.length ? (
-            <Button size="sm" variant="secondary" onClick={add} loading={busy}>
+            <Button size="sm" variant="secondary" onClick={add} loading={busy} disabled={addingStatus.uploading > 0}>
               <Plus className="size-4" /> افزودن {faNum(adding.length)} فایل به تسک
             </Button>
           ) : null}
@@ -237,26 +243,48 @@ export function TaskFilesManager({ task, userId }: { task: Task; userId: string 
 }
 
 /** "Send to pre-work / Claude" form rendered inside the task drawer, right before dispatch. */
-export function InlineDispatch({ task, userId, mode, defaultPrompt, onSent }: { task: Task; userId: string; mode: "prework" | "main"; defaultPrompt: string; onSent?: () => void }) {
+export function InlineDispatch({
+  task,
+  userId,
+  mode,
+  defaultPrompt,
+  claudeDefaults,
+  onSent,
+}: {
+  task: Task;
+  userId: string;
+  mode: "prework" | "main";
+  defaultPrompt: string;
+  claudeDefaults?: ClaudeRunOptions;
+  onSent?: () => void;
+}) {
   const router = useRouter();
-  const state = useDispatch(mode, [task.id], () => {
-    router.refresh();
-    onSent?.();
-  });
+  const followup = mode === "main" && task.status === "main_done";
+  const state = useDispatch(
+    mode,
+    [task.id],
+    () => {
+      router.refresh();
+      onSent?.();
+    },
+    claudeDefaults,
+  );
   const Icon = mode === "prework" ? Sparkles : Bot;
   return (
     <div className={cn("rounded-2xl border p-3", mode === "prework" ? "border-violet-500/30 bg-violet-500/5" : "border-orange-500/30 bg-orange-500/5")}>
       <p className={cn("mb-1 flex items-center gap-2 text-sm font-extrabold", mode === "prework" ? "text-violet-600 dark:text-violet-300" : "text-orange-600 dark:text-orange-300")}>
-        <Icon className="size-4" /> {mode === "prework" ? "ارسال به پیش‌کار (Gemini)" : "ارسال به کار اصلی (Claude)"}
+        <Icon className="size-4" /> {mode === "prework" ? "ارسال به پیش‌کار (Gemini)" : followup ? "پیام تکمیلی به Claude" : "ارسال به کار اصلی (Claude)"}
       </p>
       <p className="mb-3 text-xs leading-6 text-muted">
         {mode === "prework"
-          ? "عنوان، شرح و فایل‌های بالا همراه پرامپت و فایل‌های شما به ورکفلوی چندعاملی پیش‌کار داده می‌شوند."
-          : "Claude عنوان، شرح، فایل‌های تسک و همه‌ی خروجی‌های پیش‌کار را همراه پرامپت و فایل‌های شما می‌گیرد و کار را تمام می‌کند."}
+          ? "عنوان، شرح و فایل‌های بالا همراه پرامپت و فایل‌های شما به Gemini داده می‌شوند تا یک دستور کار کوتاه و کامل آماده کند."
+          : followup
+            ? "Claude همان جلسه و فایل‌های قبلی را ادامه می‌دهد؛ بنویسید چه چیزی را اصلاح یا اضافه کند."
+            : "Claude پرامپت شما، عنوان و شرح، دستور کار پیش‌کار و فایل‌ها را می‌گیرد و دقیقاً خروجی خواسته‌شده را تحویل می‌دهد."}
       </p>
       <DispatchFields mode={mode} userId={userId} defaultPrompt={defaultPrompt} state={state} />
-      <Button className="mt-4 w-full" onClick={() => void state.submit()} loading={state.busy}>
-        <Icon className="size-4" /> {mode === "prework" ? "شروع پیش‌کار" : "ارسال به Claude"}
+      <Button className="mt-4 w-full" onClick={() => void state.submit()} loading={state.busy} disabled={!!state.blocker}>
+        <Icon className="size-4" /> {mode === "prework" ? "شروع پیش‌کار" : followup ? "ارسال پیام تکمیلی" : "ارسال به Claude"}
       </Button>
     </div>
   );
