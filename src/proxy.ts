@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { normalizeSupabaseUrl } from "@/lib/supabase/url";
 
 const PUBLIC_PATHS = ["/login", "/signup", "/auth", "/setup-required", "/manifest.webmanifest", "/icon"];
 
@@ -8,8 +9,8 @@ const PUBLIC_PATHS = ["/login", "/signup", "/auth", "/setup-required", "/manifes
  * unauthenticated visitors on the login page.
  */
 export async function proxy(request: NextRequest) {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+  const url = normalizeSupabaseUrl(process.env.NEXT_PUBLIC_SUPABASE_URL);
+  const key = (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || "").trim();
   const path = request.nextUrl.pathname;
 
   if (!url || !key) {

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { normalizeSupabaseUrl } from "@/lib/supabase/url";
 
 /**
  * All environment access goes through here so that a missing variable produces a
@@ -11,7 +12,7 @@ function read(name: string): string | undefined {
 
 export const env = {
   get supabaseUrl() {
-    return read("NEXT_PUBLIC_SUPABASE_URL") ?? "";
+    return normalizeSupabaseUrl(read("NEXT_PUBLIC_SUPABASE_URL"));
   },
   get supabaseAnonKey() {
     return read("NEXT_PUBLIC_SUPABASE_ANON_KEY") ?? read("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY") ?? "";
@@ -65,7 +66,7 @@ export type EnvCheck = { key: string; label: string; ok: boolean; hint: string }
 
 export function checkEnv(): EnvCheck[] {
   return [
-    { key: "NEXT_PUBLIC_SUPABASE_URL", label: "آدرس Supabase", ok: !!env.supabaseUrl, hint: "Project Settings → API → Project URL" },
+    { key: "NEXT_PUBLIC_SUPABASE_URL", label: "آدرس Supabase", ok: !!env.supabaseUrl, hint: "Project URL — فقط https://<ref>.supabase.co (بدون ‎/rest/v1)" },
     { key: "NEXT_PUBLIC_SUPABASE_ANON_KEY", label: "کلید عمومی Supabase", ok: !!env.supabaseAnonKey, hint: "anon / publishable key" },
     { key: "SUPABASE_SERVICE_ROLE_KEY", label: "کلید سرویس Supabase", ok: !!env.supabaseServiceKey, hint: "service_role / secret key" },
     { key: "ADMIN_EMAIL", label: "ایمیل مدیر", ok: !!env.adminEmail, hint: "ایمیلی که با آن وارد اپ اصلی می‌شوید" },

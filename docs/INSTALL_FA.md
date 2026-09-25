@@ -50,7 +50,7 @@
    - باکت خصوصی فایل‌ها و Realtime
    > اجرای دوباره‌ی این کوئری بی‌خطر است (ایدمپوتنت).
 8. **کلیدها را بردارید:** Project Settings (چرخ‌دنده) ← **API Keys** (و Data API):
-   - `Project URL` ← برای `NEXT_PUBLIC_SUPABASE_URL`
+   - `Project URL` ← برای `NEXT_PUBLIC_SUPABASE_URL` — فقط به شکل `https://<ref>.supabase.co` (نه آدرس RESTful که به `/rest/v1/` ختم می‌شود)
    - کلید **anon / publishable** ← برای `NEXT_PUBLIC_SUPABASE_ANON_KEY`
    - کلید **service_role / secret** ← برای `SUPABASE_SERVICE_ROLE_KEY` (محرمانه — هرگز جایی منتشر نکنید)
 
@@ -89,7 +89,7 @@
 
 | Name | Value |
 |---|---|
-| `NEXT_PUBLIC_SUPABASE_URL` | Project URL از Supabase |
+| `NEXT_PUBLIC_SUPABASE_URL` | Project URL از Supabase، دقیقاً `https://<ref>.supabase.co` (بدون `/rest/v1/`) |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | کلید anon/publishable |
 | `SUPABASE_SERVICE_ROLE_KEY` | کلید service_role/secret |
 | `ADMIN_EMAIL` | ایمیل خودتان (همان Gmail) — با آن مدیر می‌شوید |
@@ -103,8 +103,10 @@
 5. **Deploy** را بزنید و ۱–۲ دقیقه صبر کنید.
 6. **گرفتن زیردامنه‌ی رایگان:** Project ← **Settings → Domains** ← روی دامنه‌ی `….vercel.app` بزنید ← **Edit** ← یک نام دلخواه و آزاد بنویسید، مثلاً `taha-tasks` ← Save. آدرس اپ شما می‌شود: **`https://taha-tasks.vercel.app`**
    (رایگان است و گواهی HTTPS هم خودکار صادر می‌شود. اگر بعداً دامنه‌ی شخصی خریدید، همین‌جا Add Domain کنید.)
+   اگر Vercel پرسید با دامنه‌ی قبلی چه کند، **Redirect old domain to new** را انتخاب کنید تا لینک‌های قدیمی هم به آدرس جدید بروند.
 7. (پیشنهادی) یک متغیر دیگر اضافه کنید: `APP_URL` = `https://taha-tasks.vercel.app` و از تب **Deployments** روی آخرین استقرار **Redeploy** بزنید.
 8. به مرحله‌ی ۲-۲ برگردید و Site URL را در Supabase تنظیم کنید.
+9. اگر زمان‌بند یا مخزن کاری را قبل از تغییر نام راه‌اندازی کرده‌اید، در **تنظیمات و اتصال‌ها** یک بار دیگر «فعال‌سازی زمان‌بند» و «راه‌اندازی / همگام‌سازی قالب» را بزنید تا آدرس جدید در pg_cron و secretهای GitHub ثبت شود (فراخوانی‌های پس‌زمینه از ریدایرکت پیروی نمی‌کنند).
 
 > اگر هنوز متغیری جا مانده باشد، اپ صفحه‌ی «اپ هنوز تنظیم نشده است» را با فهرست متغیرهای ناقص نشان می‌دهد.
 
@@ -162,6 +164,7 @@ Claude Code به‌صورت headless روی **GitHub Actions** اجرا می‌�
 | مشکل | راه‌حل |
 |---|---|
 | صفحه‌ی «اپ هنوز تنظیم نشده است» | متغیرهای محیطی Vercel را کامل کنید و Redeploy بزنید. |
+| «Invalid path specified in request URL» هنگام ورود یا ثبت‌نام | مقدار `NEXT_PUBLIC_SUPABASE_URL` در Vercel را دقیقاً `https://<ref>.supabase.co` بگذارید (بدون `/rest/v1/`) و Redeploy بزنید. |
 | «ایمیل یا رمز عبور اشتباه است» پس از ثبت‌نام | در Supabase گزینه‌ی **Confirm email** را خاموش کنید. |
 | تسک در «در صف اجرای پیش‌کار» می‌ماند | تنظیمات ← وضعیت «زمان‌بند» را ببینید؛ دوباره «فعال‌سازی» بزنید. صفحه‌ی «صف و اجرا» ← «اجرای فوری ورکر». |
 | «⏸ سقف مصرف Gemini» | عادی است؛ سیستم خودکار صبر می‌کند و ادامه می‌دهد (سقف روزانه در نیمه‌شب به وقت آمریکا ریست می‌شود). در صف و اجرا می‌توانید «تلاش دوباره الان» بزنید. |
