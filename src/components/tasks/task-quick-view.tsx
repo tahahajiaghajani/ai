@@ -8,8 +8,8 @@ import { Avatar, Button, Progress, Spinner } from "@/components/ui/primitives";
 import { PriorityBadge, RelationBadge, StatusBadge } from "@/components/tasks/badges";
 import { LiveLog } from "@/components/tasks/live-log";
 import { TaskActions } from "@/components/tasks/task-actions";
+import { InlineDispatch, QueuedNotice, TaskDetailsEditor, TaskFilesManager } from "@/components/tasks/task-prep";
 import { MiniPreworkFlow, TodoList } from "@/components/workflow/mini-flow";
-import { Markdown } from "@/components/ui/markdown";
 import { formatJalali, formatRange, timeAgo } from "@/lib/jalali";
 import { faNum } from "@/lib/utils";
 import type { Job, Profile, Task, TaskEvent } from "@/lib/types";
@@ -49,6 +49,8 @@ export function TaskQuickView({
 
   const activeJob = liveJob ?? job;
   const running = task && ["prework_running", "main_running", "prework_queued", "main_queued"].includes(task.status);
+  // Tasks waiting for the admin in the two queue stages get the send form right here.
+  const inlineMode = task?.status === "approved" ? "prework" : task?.status === "prework_done" ? "main" : undefined;
 
   return (
     <Drawer open={!!task} onOpenChange={(o) => !o && onClose()} title={task?.title ?? ""}>
@@ -72,7 +74,7 @@ export function TaskQuickView({
             <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-muted">
               {requester ? (
                 <span className="flex items-center gap-1.5">
-                  <Avatar name={requester.full_name ?? requester.email ?? "?"} size={20} />
+                  <Avatar name={requester.full_name ?? requester.email ?? "?"} src={requester.avatar_url} size={20} />
                   {requester.full_name} {requester.org_unit ? `· ${requester.org_unit}` : ""}
                 </span>
               ) : null}
@@ -89,7 +91,7 @@ export function TaskQuickView({
               <span className="text-xs font-bold">{faNum(task.progress)}٪</span>
             </div>
             <div className="mt-4 flex flex-wrap items-center gap-2">
-              <TaskActions task={task} userId={userId} defaults={defaults} activeJobId={activeJob?.id} size="sm" onChanged={onClose} />
+              <TaskActions task={task} userId={userId} defaults={defaults} activeJobId={activeJob?.id} size="sm" onChanged={onClose} inlineMode={inlineMode} />
               <Link href={`/tasks/${task.id}`} className="ms-auto">
                 <Button size="sm" variant="outline">
                   صفحه‌ی کامل <ArrowUpLeft className="size-4" />
@@ -99,12 +101,7 @@ export function TaskQuickView({
           </div>
 
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
-            {task.description ? (
-              <details className="rounded-2xl border border-line bg-surface-strong/60 p-3" open={!running}>
-                <summary className="cursor-pointer text-sm font-bold">شرح تسک</summary>
-                <Markdown className="mt-2">{task.description}</Markdown>
-              </details>
-            ) : null}
+            <TaskDetailsEditor key={task.id} task={task} defaultOpen={!running} />
             {task.return_reason && task.status === "returned" ? (
               <div className="rounded-2xl border border-rose-500/30 bg-rose-500/5 p-3 text-sm">
                 <b>دلیل برگشت:</b> {task.return_reason}
@@ -114,6 +111,15 @@ export function TaskQuickView({
               <div className="rounded-2xl border border-rose-500/30 bg-rose-500/5 p-3 text-sm">
                 <b>دلیل رد خاتمه:</b> {task.closure_reject_reason}
               </div>
+            ) : null}
+
+            <TaskFilesManager key={`files-${task.id}`} task={task} userId={userId} />
+
+            {inlineMode ? (
+              <InlineDispatch key={`${task.id}-${inlineMode}`} task={task} userId={userId} mode={inlineMode} defaultPrompt={inlineMode === "prework" ? defaults.prework : defaults.main} />
+            ) : null}
+            {task.status === "prework_queued" || task.status === "main_queued" ? (
+              <QueuedNotice provider={task.status === "prework_queued" ? "gemini" : "claude"} prompt={activeJob?.status === "queued" ? String(activeJob.payload?.prompt ?? "") : null} />
             ) : null}
 
             {activeJob && activeJob.kind === "prework" ? (

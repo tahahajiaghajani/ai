@@ -2,12 +2,15 @@
 import * as React from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Bell, Bot, LogOut, Moon, PauseCircle, Sparkles, Sun, Zap } from "lucide-react";
+import { toast } from "sonner";
+import { Bell, Bot, Camera, LogOut, Moon, PauseCircle, Sparkles, Sun, Zap } from "lucide-react";
 import { useRealtimeRows, useNow } from "@/hooks/use-realtime";
-import { Pop, Menu } from "@/components/ui/overlays";
+import { Pop, Menu, Modal } from "@/components/ui/overlays";
+import { AvatarPicker } from "@/components/ui/avatar-picker";
 import { Avatar, Button } from "@/components/ui/primitives";
 import { markNotificationsReadAction } from "@/app/actions/tasks";
 import { signOutAction } from "@/app/actions/auth";
+import { removeAvatarAction, setAvatarAction } from "@/app/actions/profile";
 import { timeAgo } from "@/lib/jalali";
 import { cn, faNum } from "@/lib/utils";
 import type { NotificationRow, ProviderState } from "@/lib/types";
@@ -126,21 +129,71 @@ export function ProviderPills({ initial }: { initial: ProviderState[] }) {
   );
 }
 
-export function UserMenu({ name, email, role }: { name: string; email: string; role: string }) {
+export function UserMenu({ name, email, role, avatarUrl }: { name: string; email: string; role: string; avatarUrl?: string | null }) {
+  const [editing, setEditing] = React.useState(false);
   return (
-    <Menu
-      trigger={
-        <button className="flex items-center gap-2 rounded-full p-0.5 hover:bg-surface-muted" aria-label="حساب کاربری">
-          <Avatar name={name} size={32} />
-        </button>
+    <>
+      <Menu
+        trigger={
+          <button className="flex items-center gap-2 rounded-full p-0.5 hover:bg-surface-muted" aria-label="حساب کاربری">
+            <Avatar name={name} src={avatarUrl} size={32} />
+          </button>
+        }
+        items={[
+          { label: <span className="flex flex-col"><b>{name}</b><span className="ltr text-xs text-muted">{email}</span></span>, onSelect: () => undefined, disabled: true },
+          { label: role === "admin" ? "مدیر سیستم" : "تسک‌دهنده", onSelect: () => undefined, disabled: true },
+          "sep",
+          { label: "تصویر پروفایل", icon: <Camera className="size-4" />, onSelect: () => setEditing(true) },
+          { label: "خروج", icon: <LogOut className="size-4" />, danger: true, onSelect: () => void signOutAction() },
+        ]}
+      />
+      <ProfilePictureDialog open={editing} onOpenChange={setEditing} name={name} current={avatarUrl ?? null} />
+    </>
+  );
+}
+
+/** Change or remove the signed-in user's own profile picture. */
+export function ProfilePictureDialog({ open, onOpenChange, name, current }: { open: boolean; onOpenChange: (o: boolean) => void; name: string; current: string | null }) {
+  const router = useRouter();
+  const [value, setValue] = React.useState<string | null>(current);
+  const [busy, setBusy] = React.useState(false);
+  React.useEffect(() => {
+    if (open) setValue(current);
+  }, [open, current]);
+  const changed = value !== current;
+
+  const save = async () => {
+    setBusy(true);
+    const r = value ? await setAvatarAction(value) : await removeAvatarAction();
+    setBusy(false);
+    if (!r.ok) {
+      toast.error(r.error);
+      return;
+    }
+    toast.success(value ? "تصویر پروفایل ذخیره شد" : "تصویر پروفایل حذف شد");
+    onOpenChange(false);
+    router.refresh();
+  };
+
+  return (
+    <Modal
+      open={open}
+      onOpenChange={onOpenChange}
+      title="تصویر پروفایل"
+      description="این تصویر کنار نام شما در ورکفلو، کارتابل و فهرست کاربران نمایش داده می‌شود."
+      footer={
+        <>
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>
+            انصراف
+          </Button>
+          <Button onClick={save} loading={busy} disabled={!changed}>
+            ذخیره
+          </Button>
+        </>
       }
-      items={[
-        { label: <span className="flex flex-col"><b>{name}</b><span className="ltr text-xs text-muted">{email}</span></span>, onSelect: () => undefined, disabled: true },
-        { label: role === "admin" ? "مدیر سیستم" : "تسک‌دهنده", onSelect: () => undefined, disabled: true },
-        "sep",
-        { label: "خروج", icon: <LogOut className="size-4" />, danger: true, onSelect: () => void signOutAction() },
-      ]}
-    />
+    >
+      <AvatarPicker name={name} value={value} onChange={setValue} onError={(m) => toast.error(m)} disabled={busy} />
+    </Modal>
   );
 }
 

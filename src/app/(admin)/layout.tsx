@@ -55,7 +55,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
                 </Link>
                 <NotificationBell userId={me.id} initial={(notifs.data ?? []) as NotificationRow[]} />
                 <ThemeToggle />
-                <UserMenu name={name} email={me.email} role="admin" />
+                <UserMenu name={name} email={me.email} role="admin" avatarUrl={me.profile.avatar_url} />
               </div>
             </div>
           </header>

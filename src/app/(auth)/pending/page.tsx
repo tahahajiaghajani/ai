@@ -3,6 +3,7 @@ import { Hourglass, LogOut } from "lucide-react";
 import { getSessionUser } from "@/lib/auth";
 import { signOutAction } from "@/app/actions/auth";
 import { Button } from "@/components/ui/primitives";
+import { ProfilePictureButton } from "@/components/shell/profile-picture-button";
 
 export const metadata = { title: "در انتظار تایید" };
 
@@ -19,6 +20,9 @@ export default async function PendingPage() {
       <p className="mt-3 text-sm leading-7 text-muted">
         {user.profile.full_name} عزیز، ثبت‌نام شما انجام شد و برای مدیر ارسال شد. پس از تایید می‌توانید تسک ثبت کنید. این صفحه را بعداً دوباره باز کنید.
       </p>
+      <div className="mt-8">
+        <ProfilePictureButton name={user.profile.full_name || user.email} avatarUrl={user.profile.avatar_url ?? null} />
+      </div>
       <form action={signOutAction} className="mt-8">
         <Button variant="secondary" type="submit">
           <LogOut className="size-4" /> خروج

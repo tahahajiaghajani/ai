@@ -31,7 +31,7 @@ export function InboxClient({
 }: {
   initial: Task[];
   jobs: Job[];
-  profiles: Pick<Profile, "id" | "full_name" | "email" | "org_unit">[];
+  profiles: Pick<Profile, "id" | "full_name" | "email" | "org_unit" | "avatar_url">[];
   userId: string;
   defaults: { prework: string; main: string };
 }) {
@@ -47,6 +47,7 @@ export function InboxClient({
   const openDialog = (mode: "prework" | "main", list: DispatchTask[]) => setDialog({ open: true, mode, tasks: list });
   const [busy, setBusy] = React.useState(false);
   const names = React.useMemo(() => new Map(profiles.map((p) => [p.id, p.full_name || p.email || "—"])), [profiles]);
+  const avatars = React.useMemo(() => new Map(profiles.map((p) => [p.id, p.avatar_url])), [profiles]);
 
   React.useEffect(() => setSelected(new Set()), [tab]);
 
@@ -100,7 +101,7 @@ export function InboxClient({
                 <p className="line-clamp-1 font-bold">{t.title}</p>
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">
                   <span className="flex items-center gap-1.5">
-                    <Avatar name={names.get(t.requester_id) ?? "?"} size={18} />
+                    <Avatar name={names.get(t.requester_id) ?? "?"} src={avatars.get(t.requester_id)} size={18} />
                     {names.get(t.requester_id)}
                   </span>
                   <span>{t.kind === "event" ? `رویداد: ${formatJalali(t.event_at, { withTime: true })}` : formatRange(t.start_date, t.end_date)}</span>

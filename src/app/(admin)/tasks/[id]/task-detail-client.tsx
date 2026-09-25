@@ -130,7 +130,7 @@ export function TaskDetailClient({
       <div className="space-y-4">
         <Card className="space-y-3 p-5 text-sm">
           <div className="flex items-center gap-2.5">
-            <Avatar name={requester?.full_name ?? "?"} size={36} />
+            <Avatar name={requester?.full_name ?? "?"} src={requester?.avatar_url} size={36} />
             <div>
               <p className="font-bold">{requester?.full_name}</p>
               <p className="text-xs text-muted">{requester?.org_unit ?? requester?.email}</p>

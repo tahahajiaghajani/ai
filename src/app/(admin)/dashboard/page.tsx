@@ -12,7 +12,7 @@ export default async function DashboardPage() {
   const [tasks, jobs, profiles, providers, settings] = await Promise.all([
     db().from("tasks").select("*").or(`status.not.in.(closed,cancelled),closed_at.gte.${since}`).order("created_at", { ascending: false }).limit(500),
     db().from("jobs").select("*").in("status", ["running", "queued"]).order("created_at"),
-    db().from("profiles").select("id, full_name, email, org_unit"),
+    db().from("profiles").select("*"),
     db().from("provider_state").select("*"),
     getSettings(),
   ]);
@@ -24,7 +24,7 @@ export default async function DashboardPage() {
       data={{
         tasks: (tasks.data ?? []) as Task[],
         jobs: (jobs.data ?? []) as Job[],
-        profiles: (profiles.data ?? []) as Pick<Profile, "id" | "full_name" | "email" | "org_unit">[],
+        profiles: (profiles.data ?? []) as Pick<Profile, "id" | "full_name" | "email" | "org_unit" | "avatar_url">[],
         providers: (providers.data ?? []) as ProviderState[],
       }}
     />

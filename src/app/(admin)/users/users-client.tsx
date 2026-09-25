@@ -30,7 +30,7 @@ export function UsersClient({ me, profiles, stats }: { me: string; profiles: Pro
 
   const row = (p: Profile) => (
     <div key={p.id} className="flex flex-wrap items-center gap-3 px-5 py-3.5">
-      <Avatar name={p.full_name ?? p.email ?? "?"} size={38} />
+      <Avatar name={p.full_name ?? p.email ?? "?"} src={p.avatar_url} size={38} />
       <div className="min-w-0 flex-1">
         <p className="flex items-center gap-2 font-bold">
           {p.full_name}

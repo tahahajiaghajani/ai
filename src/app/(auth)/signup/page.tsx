@@ -4,16 +4,36 @@ import Link from "next/link";
 import { UserPlus } from "lucide-react";
 import { signUpAction, type AuthState } from "@/app/actions/auth";
 import { Button, Field, Input } from "@/components/ui/primitives";
+import { AvatarPicker } from "@/components/ui/avatar-picker";
 
 export default function SignupPage() {
   const [state, action, pending] = React.useActionState<AuthState, FormData>(signUpAction, null);
+  const [name, setName] = React.useState("");
+  const [avatar, setAvatar] = React.useState<string | null>(null);
+  const [avatarError, setAvatarError] = React.useState<string | null>(null);
   return (
     <div>
       <h1 className="text-2xl font-black">ثبت‌نام تسک‌دهنده</h1>
       <p className="mt-2 text-sm text-muted">پس از ثبت‌نام، حساب شما باید توسط مدیر تایید شود.</p>
       <form action={action} className="mt-8 space-y-4">
+        <div className="space-y-1.5">
+          <span className="text-[13px] font-semibold">تصویر پروفایل (اختیاری)</span>
+          <AvatarPicker
+            name={name}
+            value={avatar}
+            onChange={(v) => {
+              setAvatar(v);
+              setAvatarError(null);
+            }}
+            onError={setAvatarError}
+            size={72}
+            disabled={pending}
+          />
+          {avatarError ? <p className="text-xs text-rose-600">{avatarError}</p> : null}
+          <input type="hidden" name="avatar" value={avatar ?? ""} />
+        </div>
         <Field label="نام و نام خانوادگی" required>
-          <Input name="full_name" required autoComplete="name" />
+          <Input name="full_name" required autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
         <Field label="واحد / بانک / سازمان">
           <Input name="org_unit" />
