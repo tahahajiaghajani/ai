@@ -194,7 +194,9 @@ export function colorFor(key: string) {
   return AVATAR_COLORS[h % AVATAR_COLORS.length];
 }
 
-export function Avatar({ name, size = 28, className }: { name: string; size?: number; className?: string }) {
+export function Avatar({ name, size = 28, className, src }: { name: string; size?: number; className?: string; src?: string | null }) {
+  const [broken, setBroken] = React.useState(false);
+  React.useEffect(() => setBroken(false), [src]);
   const initials = (name || "?")
     .trim()
     .split(/\s+/)
@@ -202,6 +204,21 @@ export function Avatar({ name, size = 28, className }: { name: string; size?: nu
     .map((p) => p[0])
     .join("");
   const color = colorFor(name || "?");
+  if (src && !broken) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={src}
+        alt={name}
+        title={name}
+        width={size}
+        height={size}
+        onError={() => setBroken(true)}
+        className={cn("inline-block shrink-0 rounded-full object-cover ring-2 ring-[var(--bg-elevated)]", className)}
+        style={{ width: size, height: size }}
+      />
+    );
+  }
   return (
     <span
       className={cn("inline-grid shrink-0 place-items-center rounded-full font-bold text-white ring-2 ring-[var(--bg-elevated)]", className)}

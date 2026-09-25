@@ -49,6 +49,7 @@
    - صف اتمیک کارها (جایگزین Celery)، جستجوی معنایی pgvector، زمان‌بند pg_cron
    - باکت خصوصی فایل‌ها و Realtime
    > اجرای دوباره‌ی این کوئری بی‌خطر است (ایدمپوتنت).
+   - سپس فایل‌های بعدی پوشه‌ی [`supabase/migrations`](../supabase/migrations) را هم به ترتیب نامشان همین‌طور اجرا کنید؛ فعلاً [`20260926000000_avatars.sql`](../supabase/migrations/20260926000000_avatars.sql) (تصویر پروفایل کاربران). اجرای دوباره‌ی آن‌ها هم بی‌خطر است.
 8. **کلیدها را بردارید:** Project Settings (چرخ‌دنده) ← **API Keys** (و Data API):
    - `Project URL` ← برای `NEXT_PUBLIC_SUPABASE_URL` — فقط به شکل `https://<ref>.supabase.co` (نه آدرس RESTful که به `/rest/v1/` ختم می‌شود)
    - کلید **anon / publishable** ← برای `NEXT_PUBLIC_SUPABASE_ANON_KEY`
@@ -171,6 +172,7 @@ Claude Code به‌صورت headless روی **GitHub Actions** اجرا می‌�
 | Claude اجرا نمی‌شود | تنظیمات ← «مخزن کاری» و «secrets» باید سبز باشند. در GitHub مخزن `ai-workspace` ← تب **Actions** را ببینید (بار اول ممکن است لازم باشد Actions را Enable کنید). |
 | «You've hit your … limit» در لاگ Claude | عادی است؛ صف Claude تا زمان ریست متوقف می‌شود و از همان نقطه (همان جلسه) ادامه می‌دهد. |
 | ارتقا PR ساخت ولی پیش‌نمایش ندارد | Vercel برای هر شاخه یک Preview Deployment می‌سازد؛ چند دقیقه بعد «پیش‌نمایش» را بزنید. |
+| «تصویر پروفایل» ذخیره نمی‌شود یا در تنظیمات «به‌روزرسانی دیتابیس: تصویر پروفایل» زرد است | فایل `supabase/migrations/20260926000000_avatars.sql` را یک بار در SQL Editor سوپابیس اجرا کنید. |
 | migration ارتقا روی دیتابیس اعمال نشد | secret `SUPABASE_DB_URL` را تنظیم کنید یا فایل جدید `supabase/migrations/*.sql` را دستی در SQL Editor اجرا کنید. |
 
 ---

@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { createSupabaseServer } from "@/lib/supabase/server";
 import { notifyAdmins } from "@/lib/events";
 import { env } from "@/lib/env";
+import { saveAvatar } from "@/lib/profile/avatar";
 
 export type AuthState = { error?: string; message?: string } | null;
 
@@ -34,6 +35,7 @@ export async function signUpAction(_: AuthState, form: FormData): Promise<AuthSt
   const full_name = String(form.get("full_name") ?? "").trim();
   const org_unit = String(form.get("org_unit") ?? "").trim();
   const phone = String(form.get("phone") ?? "").trim();
+  const avatar = String(form.get("avatar") ?? "");
   if (!email || !password || !full_name) return { error: "نام، ایمیل و رمز عبور الزامی است" };
   if (password.length < 8) return { error: "رمز عبور حداقل باید ۸ کاراکتر باشد" };
 
@@ -44,6 +46,10 @@ export async function signUpAction(_: AuthState, form: FormData): Promise<AuthSt
     options: { data: { full_name, org_unit, phone }, emailRedirectTo: env.appUrl ? `${env.appUrl}/auth/callback` : undefined },
   });
   if (error) return { error: translate(error.message) };
+  if (data.user && avatar) {
+    // A missing picture must never block the sign-up itself; it can be added later from the account menu.
+    await saveAvatar(data.user.id, avatar).catch((err) => console.error("signup avatar", err));
+  }
   if (data.user && email !== env.adminEmail) {
     await notifyAdmins({ title: "درخواست عضویت جدید", body: `${full_name} (${email})${org_unit ? ` — ${org_unit}` : ""}`, link: "/users" });
   }

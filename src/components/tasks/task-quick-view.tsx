@@ -72,7 +72,7 @@ export function TaskQuickView({
             <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-muted">
               {requester ? (
                 <span className="flex items-center gap-1.5">
-                  <Avatar name={requester.full_name ?? requester.email ?? "?"} size={20} />
+                  <Avatar name={requester.full_name ?? requester.email ?? "?"} src={requester.avatar_url} size={20} />
                   {requester.full_name} {requester.org_unit ? `· ${requester.org_unit}` : ""}
                 </span>
               ) : null}

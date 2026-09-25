@@ -43,7 +43,7 @@ const ICONS: Record<string, React.ReactNode> = {
 export interface WorkflowData {
   tasks: Task[];
   jobs: Job[];
-  profiles: Pick<Profile, "id" | "full_name" | "email" | "org_unit">[];
+  profiles: Pick<Profile, "id" | "full_name" | "email" | "org_unit" | "avatar_url">[];
   providers: ProviderState[];
 }
 
@@ -52,6 +52,7 @@ interface StageNodeData extends Record<string, unknown> {
   tasks: Task[];
   jobs: Job[];
   names: Map<string, string>;
+  avatars: Map<string, string | null | undefined>;
   paused: ProviderState | null;
   onOpen: (task: Task) => void;
 }
@@ -98,7 +99,7 @@ function tint(color: string, percent: number) {
 }
 
 function StageNode({ data }: NodeProps<Node<StageNodeData>>) {
-  const { stage, tasks, jobs, names, paused, onOpen } = data;
+  const { stage, tasks, jobs, names, avatars, paused, onOpen } = data;
   const groups = groupByRequester(tasks, names);
   const runningJobs = jobs.filter((j) => j.status === "running");
   const isRunningStage = stage.key === "prework_running" || stage.key === "main_running";
@@ -173,7 +174,7 @@ function StageNode({ data }: NodeProps<Node<StageNodeData>>) {
           groups.map((g) => (
             <div key={g.id}>
               <div className="mb-1.5 flex items-center gap-1.5">
-                <Avatar name={g.name} size={20} />
+                <Avatar name={g.name} src={avatars.get(g.id)} size={20} />
                 <span className="truncate text-[11.5px] font-bold text-muted">{g.name}</span>
                 <span className="text-[10.5px] text-faint">({faNum(g.list.length)})</span>
               </div>
@@ -316,7 +317,8 @@ export function useWorkflowState(initial: WorkflowData) {
     idKey: "provider",
   });
   const names = React.useMemo(() => new Map(initial.profiles.map((p) => [p.id, p.full_name || p.email || "—"])), [initial.profiles]);
-  return { tasks: tasks as Task[], jobs: jobs as Job[], providers: providers as ProviderState[], names };
+  const avatars = React.useMemo(() => new Map(initial.profiles.map((p) => [p.id, p.avatar_url])), [initial.profiles]);
+  return { tasks: tasks as Task[], jobs: jobs as Job[], providers: providers as ProviderState[], names, avatars };
 }
 
 function byStage(tasks: Task[]) {
@@ -352,6 +354,7 @@ function WorkflowCanvas({ data, onOpen }: { data: ReturnType<typeof useWorkflowS
     tasks: grouped.get(s.key) ?? [],
     jobs: data.jobs.filter((j) => (s.key === "prework_running" ? j.kind === "prework" : s.key === "main_running" ? j.kind === "main" : false)),
     names: data.names,
+    avatars: data.avatars,
     paused: s.key === "prework_running" ? gemini : s.key === "main_running" ? claude : null,
     onOpen,
   });
@@ -366,7 +369,7 @@ function WorkflowCanvas({ data, onOpen }: { data: ReturnType<typeof useWorkflowS
   React.useEffect(() => {
     setNodes((ns) => ns.map((n) => ({ ...n, data: stageData(STAGES.find((s) => s.key === n.id)!) })));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data.tasks, data.jobs, data.providers, data.names, onOpen, now]);
+  }, [data.tasks, data.jobs, data.providers, data.names, data.avatars, onOpen, now]);
 
   const applyPositions = React.useCallback(
     (positions: Positions, animate = true) => {
@@ -523,7 +526,7 @@ export function LiveWorkflowMobile({ data, onOpen }: { data: ReturnType<typeof u
                   {groupByRequester(list, names).map((g) => (
                     <div key={g.id}>
                       <div className="mb-1.5 flex items-center gap-1.5">
-                        <Avatar name={g.name} size={20} />
+                        <Avatar name={g.name} src={data.avatars.get(g.id)} size={20} />
                         <span className="text-xs font-bold text-muted">{truncate(g.name, 30)}</span>
                       </div>
                       <div className="grid gap-1.5">

@@ -37,7 +37,7 @@ export default async function PortalLayout({ children }: { children: React.React
             </Link>
             <NotificationBell userId={me.id} initial={(notifs ?? []) as NotificationRow[]} />
             <ThemeToggle />
-            <UserMenu name={me.profile.full_name || me.email} email={me.email} role={me.profile.role} />
+            <UserMenu name={me.profile.full_name || me.email} email={me.email} role={me.profile.role} avatarUrl={me.profile.avatar_url} />
           </div>
         </div>
       </header>

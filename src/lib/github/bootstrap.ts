@@ -112,6 +112,18 @@ export async function integrationStatus(): Promise<{ checks: Check[]; env: Retur
     checks.push({ key: "supabase", label: "اتصال به Supabase و اسکیمای دیتابیس", ok: false, detail: (err as Error).message });
   }
 
+  // Later migrations (run in the SQL Editor when SUPABASE_DB_URL is not set for automatic migrations)
+  {
+    const { error } = await db().from("profiles").select("avatar_url").limit(1);
+    checks.push({
+      key: "migration-avatars",
+      label: "به‌روزرسانی دیتابیس: تصویر پروفایل",
+      ok: !error,
+      level: "warning",
+      detail: error ? "فایل supabase/migrations/20260926000000_avatars.sql را یک بار در SQL Editor سوپابیس اجرا کنید" : undefined,
+    });
+  }
+
   // Scheduler
   try {
     const { data, error } = await db().rpc("scheduler_status");

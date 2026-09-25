@@ -28,6 +28,8 @@ export interface Profile {
   role: Role;
   status: ProfileStatus;
   color: string | null;
+  /** public URL of the profile picture (column added by the avatars migration) */
+  avatar_url?: string | null;
   created_at: string;
   last_seen_at: string | null;
 }
