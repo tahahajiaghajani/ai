@@ -1,0 +1,56 @@
+# TaskFlow AI — ساخت گراف دانش فایل‌های هر تسک با graphify
+name: "TaskFlow · graphify"
+
+on:
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: "TaskFlow job id"
+        required: true
+        type: string
+      app_url:
+        description: "TaskFlow app url"
+        required: true
+        type: string
+
+concurrency:
+  group: taskflow-graphify
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  graphify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      TASKFLOW_JOB_ID: ${{ inputs.job_id }}
+      TASKFLOW_APP_URL: ${{ inputs.app_url }}
+      TASKFLOW_RUNNER_SECRET: ${{ secrets.TASKFLOW_RUNNER_SECRET }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: دریافت مشخصات کار
+        id: spec
+        run: node .github/scripts/taskflow.mjs spec
+
+      - name: نصب graphify
+        if: steps.spec.outputs.skip != 'true'
+        run: pipx install "graphifyy[gemini]" || pipx install graphifyy
+
+      - name: ساخت گراف
+        if: steps.spec.outputs.skip != 'true'
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: node .github/scripts/taskflow.mjs graphify

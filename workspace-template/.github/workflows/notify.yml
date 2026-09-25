@@ -1,0 +1,28 @@
+# TaskFlow AI — تغییرات دستی (مثلاً از Claude Code یا خود GitHub) در لاگ تسک ثبت می‌شود
+name: "TaskFlow · notify"
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - "tasks/**"
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    if: ${{ !startsWith(github.event.head_commit.message, '[TaskFlow') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      TASKFLOW_APP_URL: ${{ secrets.TASKFLOW_APP_URL }}
+      TASKFLOW_RUNNER_SECRET: ${{ secrets.TASKFLOW_RUNNER_SECRET }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: .github/scripts
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - run: node .github/scripts/taskflow.mjs notify-push
