@@ -137,3 +137,11 @@ export function formatDuration(ms: number): string {
 export function todayJalali(): JDate {
   return toJDate(new Date());
 }
+
+/** "۱ مهر ۱۴۰۵ ← ۱۵ مهر ۱۴۰۵" or a friendly fallback when dates are missing. */
+export function formatRange(start: string | null | undefined, end: string | null | undefined): string {
+  if (!start && !end) return "بدون تاریخ";
+  if (!start) return `مهلت: ${formatJalali(end)}`;
+  if (!end) return `از ${formatJalali(start)}`;
+  return `${formatJalali(start)} ← ${formatJalali(end)}`;
+}

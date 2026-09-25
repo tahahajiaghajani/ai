@@ -249,6 +249,10 @@ create table if not exists public.jobs (
 );
 
 create index if not exists idx_jobs_claim on public.jobs(provider, status, run_after, priority desc, created_at);
+
+drop trigger if exists trg_jobs_updated on public.jobs;
+create trigger trg_jobs_updated before update on public.jobs
+  for each row execute function public.set_updated_at();
 create index if not exists idx_jobs_task  on public.jobs(task_id);
 
 -- داده‌ی حجیم هر کار (وضعیت گراف LangGraph و خروجی نیمه‌کاره) — جدا از jobs تا Realtime سبک بماند

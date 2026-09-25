@@ -215,7 +215,14 @@ export async function returnTask(admin: SessionUser, id: string, reason: string)
   });
 }
 
-export async function sendToPrework(admin: SessionUser, ids: string[], prompt: string, files: UploadedFile[] = [], origin?: string) {
+export async function sendToPrework(
+  admin: SessionUser,
+  ids: string[],
+  prompt: string,
+  files: UploadedFile[] = [],
+  origin?: string,
+  opts: { resumeFromJobId?: string } = {},
+) {
   const settings = await getSettings();
   const finalPrompt = prompt.trim() || settings.prework.defaultPrompt;
   await registerFiles(admin, ids, "prework", files);
@@ -224,16 +231,32 @@ export async function sendToPrework(admin: SessionUser, ids: string[], prompt: s
     if (!["approved", "prework_done", "main_done", "closure_rejected"].includes(task.status)) {
       throw new Error(`تسک ${task.code} در وضعیت «${STATUS_META[task.status].label}» قابل ارسال به پیش‌کار نیست`);
     }
-    await enqueueJob({
+    const job = await enqueueJob({
       kind: "prework",
       task_id: id,
-      payload: { prompt: finalPrompt },
+      payload: { prompt: finalPrompt, resumed_from: opts.resumeFromJobId ?? null },
       priority: PRIORITY_META[task.priority].weight,
       created_by: admin.id,
     });
-    await setStatus(task, "prework_queued", {}, admin, "در صف پیش‌کار Gemini قرار گرفت");
+    if (opts.resumeFromJobId) await copyCheckpoint(opts.resumeFromJobId, job.id);
+    await setStatus(task, "prework_queued", {}, admin, opts.resumeFromJobId ? "ادامه‌ی پیش‌کار از آخرین مرحله‌ی موفق" : "در صف پیش‌کار Gemini قرار گرفت");
   }
   await kickWorker(origin);
+}
+
+/** Retrying a failed pre-work continues from its last saved LangGraph checkpoint (no repeated model calls). */
+async function copyCheckpoint(fromJobId: string, toJobId: string) {
+  const [{ data: data }, { data: old }] = await Promise.all([
+    db().from("job_data").select("graph, partial").eq("job_id", fromJobId).maybeSingle(),
+    db().from("jobs").select("state").eq("id", fromJobId).maybeSingle(),
+  ]);
+  if (data?.graph && Object.keys(data.graph).length) {
+    await db().from("job_data").upsert({ job_id: toJobId, graph: data.graph, partial: data.partial ?? null });
+  }
+  if (old?.state) {
+    const { nodes, counts, usage } = old.state as Record<string, unknown>;
+    await db().from("jobs").update({ state: { nodes, counts, usage } }).eq("id", toJobId);
+  }
 }
 
 export async function sendToMain(admin: SessionUser, ids: string[], prompt: string, files: UploadedFile[] = [], origin?: string) {

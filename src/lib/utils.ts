@@ -1,5 +1,6 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
+import { jsonrepair } from "jsonrepair";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -78,19 +79,32 @@ export function safeJson<T>(text: string, fallback: T): T {
   }
 }
 
-/** Extract the first JSON object/array from a model response (handles ```json fences). */
+/**
+ * Extract JSON from a model response: handles ```json fences, leading/trailing prose,
+ * and repairs truncated or slightly malformed JSON (unclosed strings/arrays, stray commas).
+ */
 export function extractJson<T = unknown>(text: string): T {
-  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const body = (fenced ? fenced[1] : text).trim();
+  const trimmed = text.trim();
+  try {
+    return JSON.parse(trimmed) as T;
+  } catch {
+    // fall through
+  }
+  // Only strip a fence that wraps the WHOLE answer — JSON strings may contain ``` code blocks.
+  const fence = trimmed.match(/^```(?:json)?\s*([\s\S]*?)(?:```\s*)?$/i);
+  const body = fence ? fence[1].trim() : trimmed;
   try {
     return JSON.parse(body) as T;
   } catch {
     const startObj = body.indexOf("{");
     const startArr = body.indexOf("[");
     const start = startArr >= 0 && (startArr < startObj || startObj < 0) ? startArr : startObj;
-    const end = Math.max(body.lastIndexOf("}"), body.lastIndexOf("]"));
-    if (start >= 0 && end > start) return JSON.parse(body.slice(start, end + 1)) as T;
-    throw new Error("پاسخ مدل JSON معتبر نبود");
+    const candidate = start >= 0 ? body.slice(start) : body;
+    try {
+      return JSON.parse(jsonrepair(candidate)) as T;
+    } catch {
+      throw new Error(`پاسخ مدل JSON معتبر نبود (${text.length} کاراکتر؛ انتها: «${text.slice(-120)}»)`);
+    }
   }
 }
 

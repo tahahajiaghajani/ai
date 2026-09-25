@@ -62,19 +62,19 @@ const PreworkAnnotation = Annotation.Root({
 
 export type PreworkState = typeof PreworkAnnotation.State;
 
-export const PREWORK_GRAPH_NODES = ["prepare", "inputs", "research", "wbs_outline", "wbs_detail", "methods", "execute", "report", "knowledge", "publish"] as const;
+export const PREWORK_GRAPH_NODES = ["prepare", "upload_inputs", "agent_research", "wbs_outline", "wbs_detail", "agent_methods", "agent_execute", "agent_report", "extract_knowledge", "publish"] as const;
 
 /** Graph node → mini-workflow display node */
 export const DISPLAY_NODE: Record<string, string> = {
   prepare: "prepare",
-  inputs: "prepare",
-  research: "research",
+  upload_inputs: "prepare",
+  agent_research: "research",
   wbs_outline: "wbs",
   wbs_detail: "wbs",
-  methods: "methods",
-  execute: "execute",
-  report: "report",
-  knowledge: "knowledge",
+  agent_methods: "methods",
+  agent_execute: "execute",
+  agent_report: "report",
+  extract_knowledge: "knowledge",
   publish: "publish",
 };
 
@@ -294,7 +294,7 @@ async function inputs(state: PreworkState, config: LangGraphRunnableConfig): Pro
 async function research(state: PreworkState, config: LangGraphRunnableConfig): Promise<Partial<PreworkState>> {
   const run = runOf(config);
   const settings = await getSettings();
-  await beginNode(run, "research", "ایجنت ۱: تحقیق درباره‌ی نحوه‌ی انجام تسک");
+  await beginNode(run, "agent_research", "ایجنت ۱: تحقیق درباره‌ی نحوه‌ی انجام تسک");
   const userText = [
     state.request,
     state.context ? `\n## دانش بازیابی‌شده از پایگاه دانش (اول از این‌ها استفاده کن)\n${state.context}` : "",
@@ -315,7 +315,7 @@ async function research(state: PreworkState, config: LangGraphRunnableConfig): P
   });
   run.commitUsage();
   await saveMessage(run, state, "research", "model", res.text);
-  await finishNode(run, "research", "تحقیق کامل شد", `${wordCount(res.text)} کلمه — مدل ${res.model}`, { model: res.model });
+  await finishNode(run, "agent_research", "تحقیق کامل شد", `${wordCount(res.text)} کلمه — مدل ${res.model}`, { model: res.model });
   return { research: res.text, models: [...(state.models ?? []), res.model] };
 }
 
@@ -391,7 +391,7 @@ async function methods(state: PreworkState, config: LangGraphRunnableConfig): Pr
   const run = runOf(config);
   const settings = await getSettings();
   const cursor = state.methodsCursor ?? 0;
-  if (cursor === 0) await beginNode(run, "methods", "ایجنت ۳: تحقیق و نوشتن روش انجام هر زیرفعالیت");
+  if (cursor === 0) await beginNode(run, "agent_methods", "ایجنت ۳: تحقیق و نوشتن روش انجام هر زیرفعالیت");
   const batch = state.items.slice(cursor, cursor + settings.pipeline.methodsBatch);
   if (!batch.length) {
     await run.setNode("methods", { status: "skipped" });
@@ -422,7 +422,7 @@ async function methods(state: PreworkState, config: LangGraphRunnableConfig): Pr
   await run.setNode("methods", { status: done >= state.items.length ? "done" : "running", done, total: state.items.length, model: res.model });
   await run.log({ source: "gemini", kind: "log", title: `روش انجام ${batch.map((b) => b.id).join("، ")} نوشته شد`, data: { model: res.model } });
   if (done >= state.items.length) {
-    await finishNode(run, "methods", "روش انجام همه‌ی زیرفعالیت‌ها نوشته شد", `${state.items.length} فعالیت`, { done, total: state.items.length });
+    await finishNode(run, "agent_methods", "روش انجام همه‌ی زیرفعالیت‌ها نوشته شد", `${state.items.length} فعالیت`, { done, total: state.items.length });
   }
   return {
     methods: merged,
@@ -440,7 +440,7 @@ async function execute(state: PreworkState, config: LangGraphRunnableConfig): Pr
   let execIds = state.execIds ?? [];
   if (!execIds.length) {
     execIds = pickExecutionItems(state.items, settings.pipeline.maxExecuteItems).map((i) => i.id);
-    await beginNode(run, "execute", `ایجنت ۴: انجام کارهای ساده و آماده‌سازی کارهای پیچیده (${execIds.length} فعالیت)`);
+    await beginNode(run, "agent_execute", `ایجنت ۴: انجام کارهای ساده و آماده‌سازی کارهای پیچیده (${execIds.length} فعالیت)`);
   }
   const cursor = state.execCursor ?? 0;
   if (cursor >= execIds.length) return { execIds, execCursor: cursor };
@@ -489,7 +489,7 @@ async function execute(state: PreworkState, config: LangGraphRunnableConfig): Pr
   }
   await run.log({ source: "gemini", kind: "log", title: `فعالیت‌های ${batch.map((b) => b.id).join("، ")} انجام/آماده شد (${files.length} فایل)` });
   if (done >= execIds.length) {
-    await finishNode(run, "execute", "کارهای ساده انجام و کارهای پیچیده آماده شد", `${allFiles.length} فایل تولید شد`, { done, total: execIds.length });
+    await finishNode(run, "agent_execute", "کارهای ساده انجام و کارهای پیچیده آماده شد", `${allFiles.length} فایل تولید شد`, { done, total: execIds.length });
     await run.patchState({ counts: { ...(run.state.counts ?? {}), files: allFiles.length } });
   }
   return { execIds, execCursor: done, execFiles: allFiles, execReports: reports };
@@ -498,7 +498,7 @@ async function execute(state: PreworkState, config: LangGraphRunnableConfig): Pr
 async function report(state: PreworkState, config: LangGraphRunnableConfig): Promise<Partial<PreworkState>> {
   const run = runOf(config);
   const settings = await getSettings();
-  await beginNode(run, "report", "تهیه‌ی گزارش پیش‌کار برای Claude");
+  await beginNode(run, "agent_report", "تهیه‌ی گزارش پیش‌کار برای Claude");
   const wbsMd = renderWbsMarkdown(state.wbsSummary, state.phases, state.items);
   const res = await generate({
     agent: "report",
@@ -525,7 +525,7 @@ async function report(state: PreworkState, config: LangGraphRunnableConfig): Pro
   });
   run.commitUsage();
   await saveMessage(run, state, "report", "model", res.text);
-  await finishNode(run, "report", "گزارش پیش‌کار آماده شد", `${wordCount(res.text)} کلمه`);
+  await finishNode(run, "agent_report", "گزارش پیش‌کار آماده شد", `${wordCount(res.text)} کلمه`);
   return { report: res.text, knowledgeItems: state.knowledgeItems ?? [] };
 }
 
@@ -536,7 +536,7 @@ async function knowledge(state: PreworkState, config: LangGraphRunnableConfig): 
     await run.setNode("knowledge", { status: "skipped" });
     return { knowledgeItems: [] };
   }
-  await beginNode(run, "knowledge", "استخراج دانش قابل استفاده‌ی مجدد (برای RAG و NotebookLM)");
+  await beginNode(run, "extract_knowledge", "استخراج دانش قابل استفاده‌ی مجدد (برای RAG و NotebookLM)");
   const task = await loadTask(state.taskId);
   try {
     const { data } = await generateJson<{ items: PreworkState["knowledgeItems"] }>({
@@ -568,7 +568,7 @@ async function knowledge(state: PreworkState, config: LangGraphRunnableConfig): 
         source: "prework",
       })),
     );
-    await finishNode(run, "knowledge", `${items.length} مورد دانش استخراج و در پایگاه دانش ذخیره شد`, `${stored} قطعه‌ی برداری`);
+    await finishNode(run, "extract_knowledge", `${items.length} مورد دانش استخراج و در پایگاه دانش ذخیره شد`, `${stored} قطعه‌ی برداری`);
     return { knowledgeItems: items };
   } catch (err) {
     if (err instanceof RateLimitError || err instanceof DeadlineError) throw err;
@@ -667,29 +667,29 @@ async function publish(state: PreworkState, config: LangGraphRunnableConfig): Pr
 // ---------------------------------------------------------------------------
 export const preworkGraph = new StateGraph(PreworkAnnotation)
   .addNode("prepare", prepare)
-  .addNode("inputs", inputs)
-  .addNode("research", research)
+  .addNode("upload_inputs", inputs)
+  .addNode("agent_research", research)
   .addNode("wbs_outline", wbsOutline)
   .addNode("wbs_detail", wbsDetail)
-  .addNode("methods", methods)
-  .addNode("execute", execute)
-  .addNode("report", report)
-  .addNode("knowledge", knowledge)
+  .addNode("agent_methods", methods)
+  .addNode("agent_execute", execute)
+  .addNode("agent_report", report)
+  .addNode("extract_knowledge", knowledge)
   .addNode("publish", publish)
   .addEdge(START, "prepare")
-  .addEdge("prepare", "inputs")
-  .addConditionalEdges("inputs", (s) => ((s.inputsCursor ?? 0) < (s.inputs ?? []).length ? "inputs" : "research"), ["inputs", "research"])
-  .addEdge("research", "wbs_outline")
+  .addEdge("prepare", "upload_inputs")
+  .addConditionalEdges("upload_inputs", (s) => ((s.inputsCursor ?? 0) < (s.inputs ?? []).length ? "upload_inputs" : "agent_research"), ["upload_inputs", "agent_research"])
+  .addEdge("agent_research", "wbs_outline")
   .addEdge("wbs_outline", "wbs_detail")
-  .addConditionalEdges("wbs_detail", (s) => ((s.phaseCursor ?? 0) < (s.phases ?? []).length ? "wbs_detail" : "methods"), ["wbs_detail", "methods"])
-  .addConditionalEdges("methods", (s) => ((s.methodsCursor ?? 0) < (s.items ?? []).length ? "methods" : "execute"), ["methods", "execute"])
+  .addConditionalEdges("wbs_detail", (s) => ((s.phaseCursor ?? 0) < (s.phases ?? []).length ? "wbs_detail" : "agent_methods"), ["wbs_detail", "agent_methods"])
+  .addConditionalEdges("agent_methods", (s) => ((s.methodsCursor ?? 0) < (s.items ?? []).length ? "agent_methods" : "agent_execute"), ["agent_methods", "agent_execute"])
   .addConditionalEdges(
-    "execute",
-    (s) => ((s.execIds ?? []).length && (s.execCursor ?? 0) < (s.execIds ?? []).length ? "execute" : "report"),
-    ["execute", "report"],
+    "agent_execute",
+    (s) => ((s.execIds ?? []).length && (s.execCursor ?? 0) < (s.execIds ?? []).length ? "agent_execute" : "agent_report"),
+    ["agent_execute", "agent_report"],
   )
-  .addEdge("report", "knowledge")
-  .addEdge("knowledge", "publish")
+  .addEdge("agent_report", "extract_knowledge")
+  .addEdge("extract_knowledge", "publish")
   .addEdge("publish", END);
 
 /**

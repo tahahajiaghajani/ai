@@ -34,3 +34,27 @@ describe("prework parsers", () => {
     expect(md).toContain("تعداد فعالیت‌ها: 2");
   });
 });
+
+describe("robust model output handling", () => {
+  it("strips a leading task-code folder from generated paths", async () => {
+    const { parseExecOutput } = await import("@/lib/agents/parse");
+    const out = parseExecOutput(`<<<FILE path="T-0001/1.2/a.json" desc="x">>>\n{}\n<<<END FILE>>>`);
+    expect(out.files[0].path).toBe("1.2/a.json");
+    expect(out.files[0].wbs_id).toBe("1.2");
+  });
+
+  it("repairs truncated JSON from the model", async () => {
+    const { extractJson } = await import("@/lib/utils");
+    const data = extractJson<{ items: { title: string }[] }>('```json\n{"items":[{"title":"a"},{"title":"b"');
+    expect(data.items.map((i) => i.title)).toEqual(["a", "b"]);
+  });
+});
+
+describe("extractJson with code fences inside strings", () => {
+  it("does not confuse ``` inside JSON string values with a wrapping fence", async () => {
+    const { extractJson } = await import("@/lib/utils");
+    const raw = JSON.stringify({ items: [{ title: "q", content: "```sql\nselect 1;\n```\nمتن" }] }, null, 2);
+    expect(extractJson<{ items: { content: string }[] }>(raw).items[0].content).toContain("select 1;");
+    expect(extractJson<{ a: number }>("```json\n{\"a\": 1}\n```").a).toBe(1);
+  });
+});

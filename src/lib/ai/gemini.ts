@@ -3,7 +3,7 @@ import { GoogleGenAI, ThinkingLevel, type Content, type Part, type GenerateConte
 import { env } from "@/lib/env";
 import { DeadlineError, RateLimitError, TransientError } from "@/lib/errors";
 import { nextPacificMidnight, parseGeminiError } from "@/lib/ai/quota";
-import { extractJson, wordCount } from "@/lib/utils";
+import { extractJson, sleep, wordCount } from "@/lib/utils";
 import type { LogInput } from "@/lib/events";
 
 let client: GoogleGenAI | null = null;
@@ -94,6 +94,7 @@ export async function generate(opts: GenOptions): Promise<GenResult> {
   let lastErr: unknown = null;
   let useSearch = !!opts.useSearch;
   let thinking = opts.thinking;
+  const overloadRetried = new Set<string>();
 
   for (let i = 0; i < chain.length; i++) {
     const model = chain[i];
@@ -135,7 +136,19 @@ export async function generate(opts: GenOptions): Promise<GenResult> {
       }
 
       if (info.isOverloaded) {
-        await opts.ctx.log({ source: "gemini", kind: "warning", title: `مدل ${model} شلوغ است`, detail: info.message.slice(0, 300) });
+        // Overload spikes are short: retry the same (stronger) model once before falling back.
+        if (!overloadRetried.has(model) && opts.deadline - Date.now() > 25_000) {
+          overloadRetried.add(model);
+          await sleep(3_500);
+          i--;
+          continue;
+        }
+        await opts.ctx.log({
+          source: "gemini",
+          kind: "log",
+          title: `مدل ${model} شلوغ است${chain[i + 1] ? `؛ ادامه با ${chain[i + 1]}` : ""}`,
+          detail: info.message.slice(0, 300),
+        });
         continue;
       }
       throw err;
@@ -175,7 +188,7 @@ async function streamOnce(opts: GenOptions, model: string, prefix: string): Prom
     const config: GenerateContentConfig = {
       systemInstruction: opts.system,
       temperature: opts.temperature ?? (opts.jsonSchema ? 0.4 : 0.8),
-      maxOutputTokens: opts.maxOutputTokens ?? 32768,
+      maxOutputTokens: opts.maxOutputTokens ?? (opts.jsonSchema ? 65536 : 32768),
       thinkingConfig: { includeThoughts: true, ...(opts.thinking ? { thinkingLevel: ThinkingLevel[opts.thinking] } : {}) },
     };
     if (opts.jsonSchema && !isContinuation) {

@@ -42,7 +42,8 @@ export function safeRelPath(p: string): string {
 export function parseExecOutput(text: string): { files: ExecFile[]; report: string } {
   const files: ExecFile[] = [];
   for (const m of text.matchAll(FILE_RE)) {
-    const path = safeRelPath(m[1]);
+    // Models sometimes prefix paths with the task code (T-0007/…); the folder already carries it.
+    const path = safeRelPath(m[1]).replace(/^T-\d+(?:\.\d+)?\//i, "") || "output.txt";
     const wbs = path.match(/^(\d+(?:\.\d+)+)\//)?.[1];
     files.push({ path, desc: (m[2] ?? "").trim(), content: m[3].replace(/\s+$/, "") + "\n", wbs_id: wbs });
   }

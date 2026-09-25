@@ -42,6 +42,17 @@ const HANDLERS: Record<JobKind, Handler> = {
   optimize: { run: optimizeHandler },
 };
 
+/** Add actionable Persian hints to common integration errors. */
+function humanizeError(message: string): string {
+  if (/Bad credentials/i.test(message)) return `توکن GitHub نامعتبر یا منقضی است (GITHUB_TOKEN در Vercel). — ${message}`;
+  if (/Resource not accessible by personal access token|Must have admin rights/i.test(message)) {
+    return `توکن GitHub دسترسی کافی ندارد (repo و workflow لازم است). — ${message}`;
+  }
+  if (/Not Found - https:\/\/docs\.github\.com/i.test(message)) return `مخزن یا فایل در GitHub پیدا نشد؛ «راه‌اندازی مخزن کاری» را در تنظیمات بزنید. — ${message}`;
+  if (/API key not valid|API_KEY_INVALID/i.test(message)) return `کلید Gemini نامعتبر است (GEMINI_API_KEY). — ${message}`;
+  return message;
+}
+
 type Outcome = "continue" | "wait" | "done" | "failed" | "paused" | "error";
 
 async function claim(provider: Provider, workerId: string, leaseSeconds: number): Promise<Job | null> {
@@ -99,7 +110,7 @@ async function applyError(run: JobRun, h: Handler, err: unknown): Promise<Outcom
     return "paused";
   }
 
-  const message = errorMessage(err);
+  const message = humanizeError(errorMessage(err));
   const attempts = run.job.attempts + 1;
   if (attempts >= run.job.max_attempts) {
     await release(run, { status: "failed", attempts, error: message, finished_at: new Date().toISOString(), locked_by: null, locked_until: null });

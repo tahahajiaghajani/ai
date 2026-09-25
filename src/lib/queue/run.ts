@@ -91,7 +91,12 @@ export class JobRun {
     this.lastLiveWrite = now;
     this.job.state = { ...this.job.state, live: this.pendingLive };
     this.pendingLive = null;
-    void db().from("jobs").update({ state: this.job.state, heartbeat_at: new Date().toISOString() }).eq("id", this.job.id);
+    // Supabase query builders are lazy: .then() is required to actually send the request.
+    db()
+      .from("jobs")
+      .update({ state: this.job.state, heartbeat_at: new Date().toISOString() })
+      .eq("id", this.job.id)
+      .then(({ error }) => error && console.error("live update", error.message));
   }
 
   genContext(node: string): GenContext {

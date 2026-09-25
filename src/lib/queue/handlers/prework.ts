@@ -12,19 +12,17 @@ export async function preworkHandler(run: JobRun): Promise<StepResult> {
   const { data: task } = await db().from("tasks").select("*").eq("id", run.job.task_id).single<Task>();
   if (!task) return { type: "fail", error: "تسک یافت نشد" };
 
-  if (!run.data.graph) {
-    if (task.status !== "prework_running") {
-      await db()
-        .from("tasks")
-        .update({ status: "prework_running", progress: 20, prework_started_at: new Date().toISOString() })
-        .eq("id", task.id);
-      await logEvent({ task_id: task.id, job_id: run.job.id, kind: "status", title: "وضعیت: در حال انجام پیش‌کار", visibility: "requester" });
-    }
-    if (!run.state.nodes) {
-      const nodes: Record<string, NodeState> = {};
-      for (const n of PREWORK_NODES) nodes[n.key] = { status: "pending" };
-      await run.patchState({ nodes });
-    }
+  if (task.status !== "prework_running") {
+    await db()
+      .from("tasks")
+      .update({ status: "prework_running", progress: Math.max(task.progress, 20), prework_started_at: task.prework_started_at ?? new Date().toISOString() })
+      .eq("id", task.id);
+    await logEvent({ task_id: task.id, job_id: run.job.id, kind: "status", title: "وضعیت: در حال انجام پیش‌کار", visibility: "requester" });
+  }
+  if (!run.state.nodes) {
+    const nodes: Record<string, NodeState> = {};
+    for (const n of PREWORK_NODES) nodes[n.key] = { status: "pending" };
+    await run.patchState({ nodes });
   }
 
   const res = await runPreworkStep(run, { taskId: task.id, prompt: String(run.job.payload.prompt ?? "") });
