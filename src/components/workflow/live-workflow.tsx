@@ -1,7 +1,26 @@
 "use client";
 import * as React from "react";
-import { ReactFlow, Controls, Handle, Position, type Edge, type Node, type NodeProps, ReactFlowProvider, MarkerType } from "@xyflow/react";
-import { Bot, CheckCircle2, Flag, Inbox, Layers, ListOrdered, PauseCircle, Sparkles, ChevronDown } from "lucide-react";
+import {
+  ReactFlow,
+  BaseEdge,
+  Controls,
+  Handle,
+  MarkerType,
+  Panel,
+  Position,
+  ReactFlowProvider,
+  getBezierPath,
+  useInternalNode,
+  useNodesState,
+  useReactFlow,
+  type Edge,
+  type EdgeProps,
+  type InternalNode,
+  type Node,
+  type NodeProps,
+  type XYPosition,
+} from "@xyflow/react";
+import { Bot, CheckCircle2, Flag, Inbox, Layers, ListOrdered, PauseCircle, Sparkles, ChevronDown, Move, RotateCcw } from "lucide-react";
 import { STAGES, type StageDef, type StageKey } from "@/lib/status";
 import { useRealtimeRows, useNow } from "@/hooks/use-realtime";
 import { Avatar, Progress } from "@/components/ui/primitives";
@@ -73,6 +92,11 @@ function TaskChip({ task, job, onOpen, stage }: { task: Task; job?: Job; onOpen:
   );
 }
 
+/** CSS color with transparency; works with literals and CSS variables alike. */
+function tint(color: string, percent: number) {
+  return `color-mix(in oklab, ${color} ${percent}%, transparent)`;
+}
+
 function StageNode({ data }: NodeProps<Node<StageNodeData>>) {
   const { stage, tasks, jobs, names, paused, onOpen } = data;
   const groups = groupByRequester(tasks, names);
@@ -80,65 +104,69 @@ function StageNode({ data }: NodeProps<Node<StageNodeData>>) {
   const isRunningStage = stage.key === "prework_running" || stage.key === "main_running";
   const active = isRunningStage && tasks.length > 0;
   const pausedNow = paused && ((paused.paused_until && new Date(paused.paused_until).getTime() > Date.now()) || paused.manual_pause);
-  const wide = stage.key === "prework_running";
 
   return (
     <div
-      className={cn("glass flex flex-col overflow-hidden rounded-3xl", wide ? "w-[380px]" : "w-[290px]")}
-      style={{ ["--glow" as string]: stage.color, boxShadow: active ? `0 0 0 1px ${stage.color}55, 0 20px 50px -25px ${stage.color}` : undefined }}
+      dir="rtl"
+      className="glass flex flex-col overflow-hidden rounded-3xl"
+      style={{
+        width: nodeWidth(stage.key),
+        maxHeight: NODE_MAX_H,
+        ["--glow" as string]: stage.hex,
+        boxShadow: active ? `0 0 0 1.5px ${tint(stage.hex, 45)}, 0 20px 50px -25px ${stage.hex}` : undefined,
+      }}
     >
-      <Handle type="target" position={Position.Right} />
-      <Handle type="source" position={Position.Left} />
-      <Handle type="target" position={Position.Top} id="top" />
-      <Handle type="source" position={Position.Bottom} id="bottom" />
-      <div className="relative flex items-center gap-2.5 px-4 py-3" style={{ background: `linear-gradient(135deg, ${stage.color}22, transparent 70%)` }}>
-        <div className="grid size-8 place-items-center rounded-xl text-white" style={{ background: stage.color }}>
+      {/* Edges attach to the node border themselves (see FlowEdge); these handles only satisfy React Flow. */}
+      <Handle type="target" position={Position.Right} isConnectable={false} />
+      <Handle type="source" position={Position.Left} isConnectable={false} />
+      <div
+        className="relative flex shrink-0 cursor-grab items-center gap-2.5 px-4 py-3 active:cursor-grabbing"
+        style={{ height: HEADER_H, background: `linear-gradient(135deg, ${tint(stage.hex, 16)}, transparent 70%)` }}
+        title="برای جابه‌جایی بکشید"
+      >
+        <div className="grid size-8 shrink-0 place-items-center rounded-xl text-white" style={{ background: stage.hex }}>
           {ICONS[stage.icon]}
         </div>
         <div className="min-w-0 flex-1">
           <p className="truncate text-[13.5px] font-extrabold">{stage.label}</p>
           <p className="truncate text-[10.5px] text-muted">{stage.description}</p>
         </div>
-        <span className="grid min-w-8 place-items-center rounded-full px-2 py-0.5 text-sm font-black" style={{ background: `${stage.color}22`, color: stage.color }}>
+        <span className="grid min-w-8 place-items-center rounded-full px-2 py-0.5 text-sm font-black" style={{ background: tint(stage.hex, 14), color: stage.hex }}>
           {faNum(tasks.length)}
         </span>
         {active ? <span className="live-dot absolute left-3 top-3" /> : null}
       </div>
 
       {pausedNow ? (
-        <div className="mx-3 mb-1 flex items-center gap-2 rounded-xl bg-amber-500/12 px-2.5 py-1.5 text-[11px] font-semibold text-amber-700 dark:text-amber-300">
+        <div className="mx-3 mb-1 flex shrink-0 items-center gap-2 rounded-xl bg-amber-500/12 px-2.5 py-1.5 text-[11px] font-semibold text-amber-700 dark:text-amber-300">
           <PauseCircle className="size-3.5" />
           {paused!.manual_pause ? "متوقف (دستی)" : `لیمیت — ادامه ${timeAgo(paused!.paused_until)}`}
         </div>
       ) : null}
 
-      {stage.key === "prework_running" && runningJobs.length ? (
-        <div className="mx-3 mb-2 space-y-2">
-          {runningJobs.slice(0, 2).map((j) => {
-            const t = tasks.find((x) => x.id === j.task_id);
-            return (
-              <div key={j.id} className="rounded-2xl border border-violet-500/25 bg-violet-500/5 p-2.5">
-                <p className="mb-2 flex items-center gap-1.5 text-[11px] font-bold text-violet-600 dark:text-violet-300">
-                  <Sparkles className="size-3.5" /> ورکفلوی پیش‌کار {t ? `— ${t.code}` : ""}
-                </p>
-                <MiniPreworkFlow state={j.state} vertical compact />
+      <div className="nowheel nodrag min-h-0 flex-1 space-y-3 overflow-y-auto px-3 pb-3">
+        {stage.key === "prework_running"
+          ? runningJobs.slice(0, 2).map((j) => {
+              const t = tasks.find((x) => x.id === j.task_id);
+              return (
+                <div key={j.id} className="rounded-2xl border border-violet-500/25 bg-violet-500/5 p-2.5">
+                  <p className="mb-2 flex items-center gap-1.5 text-[11px] font-bold text-violet-600 dark:text-violet-300">
+                    <Sparkles className="size-3.5" /> ورکفلوی پیش‌کار {t ? `— ${t.code}` : ""}
+                  </p>
+                  <MiniPreworkFlow state={j.state} vertical compact />
+                </div>
+              );
+            })
+          : null}
+
+        {stage.key === "main_running"
+          ? runningJobs.slice(0, 1).map((j) => (
+              <div key={j.id} className="rounded-2xl border border-orange-500/25 bg-orange-500/5 p-2.5">
+                <TodoList todos={j.state?.todos} compact />
               </div>
-            );
-          })}
-        </div>
-      ) : null}
+            ))
+          : null}
 
-      {stage.key === "main_running" && runningJobs.length ? (
-        <div className="mx-3 mb-2 space-y-2">
-          {runningJobs.slice(0, 1).map((j) => (
-            <div key={j.id} className="rounded-2xl border border-orange-500/25 bg-orange-500/5 p-2.5">
-              <TodoList todos={j.state?.todos} compact />
-            </div>
-          ))}
-        </div>
-      ) : null}
-
-      <div className="nowheel max-h-[360px] space-y-3 overflow-y-auto px-3 pb-3">
         {groups.length === 0 ? (
           <p className="py-6 text-center text-xs text-faint">خالی</p>
         ) : (
@@ -163,18 +191,121 @@ function StageNode({ data }: NodeProps<Node<StageNodeData>>) {
   );
 }
 
-const nodeTypes = { stage: StageNode };
+// ---------------------------------------------------------------------------
+// Layout
+// ---------------------------------------------------------------------------
+const NODE_W = 290;
+const WIDE_W = 370;
+const NODE_MAX_H = 500;
+const HEADER_H = 60;
+const COL_GAP = 90;
+const ROW_GAP = 120;
+const TOP_ROW = new Set<StageKey>(STAGES.slice(0, 4).map((s) => s.key));
 
-// Snake layout (RTL): top row right→left, bottom row left→right.
-const POSITIONS: Record<StageKey, { x: number; y: number }> = {
-  approval: { x: 1290, y: 0 },
-  prework_queue: { x: 950, y: 0 },
-  prework_running: { x: 520, y: 0 },
-  main_queue: { x: 180, y: 0 },
-  main_running: { x: 180, y: 620 },
-  closure: { x: 560, y: 620 },
-  closed: { x: 920, y: 620 },
-};
+function nodeWidth(key: StageKey) {
+  return key === "prework_running" ? WIDE_W : NODE_W;
+}
+
+export type LayoutPreset = "rows" | "line";
+type Positions = Record<string, XYPosition>;
+
+/** RTL presets: the flow starts at the right. "rows" wraps into a U-turn on two rows, "line" keeps all 7 stages in one row. */
+function presetPositions(preset: LayoutPreset): Positions {
+  const pos: Positions = {};
+  const row = (stages: StageDef[], y: number, rightToLeft: boolean) => {
+    const ordered = rightToLeft ? [...stages].reverse() : stages;
+    let x = 0;
+    for (const s of ordered) {
+      pos[s.key] = { x, y };
+      x += nodeWidth(s.key) + COL_GAP;
+    }
+  };
+  if (preset === "line") row(STAGES, 0, true);
+  else {
+    row(STAGES.slice(0, 4), 0, true);
+    row(STAGES.slice(4), NODE_MAX_H + ROW_GAP, false);
+  }
+  return pos;
+}
+
+const LAYOUT_KEY = "taskflow.workflow.layout.v2";
+type SavedLayout = { preset: LayoutPreset | "custom"; positions?: Positions };
+
+function loadLayout(): SavedLayout | null {
+  try {
+    const raw = localStorage.getItem(LAYOUT_KEY);
+    return raw ? (JSON.parse(raw) as SavedLayout) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveLayout(layout: SavedLayout) {
+  try {
+    localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout));
+  } catch {
+    // private mode / storage disabled: layout just isn't remembered
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Floating edge: always leaves the side of the source that faces the target and
+// enters the facing side of the target, wherever the nodes are dragged.
+// ---------------------------------------------------------------------------
+type Box = { x: number; y: number; w: number; h: number };
+
+function box(n: InternalNode): Box {
+  return { x: n.internals.positionAbsolute.x, y: n.internals.positionAbsolute.y, w: n.measured.width ?? 0, h: n.measured.height ?? 0 };
+}
+
+export function edgeSides(s: Box, t: Box): [Position, Position] {
+  const gapX = Math.max(t.x - (s.x + s.w), s.x - (t.x + t.w));
+  const gapY = Math.max(t.y - (s.y + s.h), s.y - (t.y + t.h));
+  if (gapX >= gapY) return t.x + t.w / 2 >= s.x + s.w / 2 ? [Position.Right, Position.Left] : [Position.Left, Position.Right];
+  return t.y + t.h / 2 >= s.y + s.h / 2 ? [Position.Bottom, Position.Top] : [Position.Top, Position.Bottom];
+}
+
+/** Side anchors sit at header height so nodes side by side are joined by a straight line even when their heights differ. */
+export function anchorPoint(b: Box, side: Position): XYPosition {
+  const midY = b.y + Math.min(HEADER_H / 2, b.h / 2);
+  switch (side) {
+    case Position.Left:
+      return { x: b.x, y: midY };
+    case Position.Right:
+      return { x: b.x + b.w, y: midY };
+    case Position.Top:
+      return { x: b.x + b.w / 2, y: b.y };
+    default:
+      return { x: b.x + b.w / 2, y: b.y + b.h };
+  }
+}
+
+type FlowEdgeData = { flowing: boolean; color: string };
+
+function FlowEdge({ id, source, target, markerEnd, style, data }: EdgeProps<Edge<FlowEdgeData>>) {
+  const s = useInternalNode(source);
+  const t = useInternalNode(target);
+  if (!s?.measured.width || !t?.measured.width) return null;
+  const sb = box(s);
+  const tb = box(t);
+  const [sp, tp] = edgeSides(sb, tb);
+  const a = anchorPoint(sb, sp);
+  const b = anchorPoint(tb, tp);
+  const [path] = getBezierPath({ sourceX: a.x, sourceY: a.y, sourcePosition: sp, targetX: b.x, targetY: b.y, targetPosition: tp, curvature: 0.35 });
+  return (
+    <>
+      <BaseEdge id={id} path={path} markerEnd={markerEnd} style={style} />
+      {data?.flowing ? (
+        <circle r={4.5} fill={data.color} style={{ filter: `drop-shadow(0 0 4px ${data.color})` }}>
+          <animateMotion dur="2.2s" repeatCount="indefinite" path={path} />
+        </circle>
+      ) : null}
+    </>
+  );
+}
+
+const nodeTypes = { stage: StageNode };
+const edgeTypes = { flow: FlowEdge };
 
 export function useWorkflowState(initial: WorkflowData) {
   const [tasks] = useRealtimeRows<Task & Record<string, unknown>>("tasks", initial.tasks as (Task & Record<string, unknown>)[]);
@@ -198,52 +329,154 @@ function byStage(tasks: Task[]) {
   return map;
 }
 
-export function LiveWorkflowGraph({ data, onOpen }: { data: ReturnType<typeof useWorkflowState>; onOpen: (t: Task) => void }) {
-  useNow(30_000);
+export function LiveWorkflowGraph(props: { data: ReturnType<typeof useWorkflowState>; onOpen: (t: Task) => void }) {
+  return (
+    <div dir="ltr" className="h-[78vh] min-h-[640px] w-full overflow-hidden rounded-3xl border border-line">
+      <ReactFlowProvider>
+        <WorkflowCanvas {...props} />
+      </ReactFlowProvider>
+    </div>
+  );
+}
+
+function WorkflowCanvas({ data, onOpen }: { data: ReturnType<typeof useWorkflowState>; onOpen: (t: Task) => void }) {
+  const now = useNow(30_000);
+  const { fitView, getNodes } = useReactFlow();
   const grouped = byStage(data.tasks);
   const gemini = data.providers.find((p) => p.provider === "gemini") ?? null;
   const claude = data.providers.find((p) => p.provider === "claude") ?? null;
+  const [preset, setPreset] = React.useState<LayoutPreset | "custom">("rows");
 
-  const nodes: Node<StageNodeData>[] = STAGES.map((s) => ({
-    id: s.key,
-    type: "stage",
-    position: POSITIONS[s.key],
-    data: {
-      stage: s,
-      tasks: grouped.get(s.key) ?? [],
-      jobs: data.jobs.filter((j) => (s.key === "prework_running" ? j.kind === "prework" : s.key === "main_running" ? j.kind === "main" : false)),
-      names: data.names,
-      paused: s.key === "prework_running" ? gemini : s.key === "main_running" ? claude : null,
-      onOpen,
+  const stageData = (s: StageDef): StageNodeData => ({
+    stage: s,
+    tasks: grouped.get(s.key) ?? [],
+    jobs: data.jobs.filter((j) => (s.key === "prework_running" ? j.kind === "prework" : s.key === "main_running" ? j.kind === "main" : false)),
+    names: data.names,
+    paused: s.key === "prework_running" ? gemini : s.key === "main_running" ? claude : null,
+    onOpen,
+  });
+
+  const initialPositions = React.useMemo(() => presetPositions("rows"), []);
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node<StageNodeData>>(
+    STAGES.map((s) => ({ id: s.key, type: "stage", position: initialPositions[s.key], data: stageData(s) })),
+  );
+
+  // Live data flows into the existing nodes without touching their (possibly dragged) positions;
+  // `now` re-renders relative times such as the pause countdown.
+  React.useEffect(() => {
+    setNodes((ns) => ns.map((n) => ({ ...n, data: stageData(STAGES.find((s) => s.key === n.id)!) })));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data.tasks, data.jobs, data.providers, data.names, onOpen, now]);
+
+  const applyPositions = React.useCallback(
+    (positions: Positions, animate = true) => {
+      setNodes((ns) => ns.map((n) => (positions[n.id] ? { ...n, position: positions[n.id] } : n)));
+      requestAnimationFrame(() => void fitView({ padding: 0.08, duration: animate ? 400 : 0 }));
     },
-    draggable: true,
-  }));
+    [setNodes, fitView],
+  );
 
-  const edges: Edge[] = STAGES.slice(0, -1).map((s, i) => {
+  // Restore the viewer's own arrangement after mount (localStorage is not available during SSR).
+  React.useEffect(() => {
+    const saved = loadLayout();
+    if (!saved) return;
+    if (saved.preset === "custom" && saved.positions) {
+      setPreset("custom");
+      applyPositions(saved.positions, false);
+    } else if (saved.preset === "line") {
+      setPreset("line");
+      applyPositions(presetPositions("line"), false);
+    }
+  }, [applyPositions]);
+
+  // In the two-row preset the second row sits just below the tallest node of the first row
+  // (measured, so the gap stays tight whether the stages are empty or full).
+  const topRowHeight = Math.max(0, ...nodes.filter((n) => TOP_ROW.has(n.id as StageKey)).map((n) => n.measured?.height ?? 0));
+  const fittedRows = React.useRef(false);
+  React.useEffect(() => {
+    if (preset !== "rows" || !topRowHeight) return;
+    const y = Math.ceil(topRowHeight) + ROW_GAP;
+    setNodes((ns) => (ns.some((n) => !TOP_ROW.has(n.id as StageKey) && Math.abs(n.position.y - y) > 8) ? ns.map((n) => (TOP_ROW.has(n.id as StageKey) ? n : { ...n, position: { ...n.position, y } })) : ns));
+    if (!fittedRows.current) {
+      fittedRows.current = true;
+      requestAnimationFrame(() => void fitView({ padding: 0.08 }));
+    }
+  }, [preset, topRowHeight, setNodes, fitView]);
+
+  const choose = (p: LayoutPreset) => {
+    setPreset(p);
+    saveLayout({ preset: p });
+    applyPositions(presetPositions(p));
+  };
+
+  const onNodeDragStop = React.useCallback(() => {
+    setPreset("custom");
+    saveLayout({ preset: "custom", positions: Object.fromEntries(getNodes().map((n) => [n.id, n.position])) });
+  }, [getNodes]);
+
+  const edges: Edge<FlowEdgeData>[] = STAGES.slice(0, -1).map((s, i) => {
     const next = STAGES[i + 1];
-    const flowing = (grouped.get(next.key)?.length ?? 0) > 0 && ["prework_running", "main_running"].includes(next.key);
-    const vertical = s.key === "main_queue";
+    const busy = (grouped.get(next.key)?.length ?? 0) > 0;
+    const flowing = busy && (next.key === "prework_running" || next.key === "main_running");
+    const color = busy ? next.hex : "#94a3b8";
     return {
       id: `${s.key}-${next.key}`,
       source: s.key,
       target: next.key,
-      sourceHandle: vertical ? "bottom" : undefined,
-      targetHandle: vertical ? "top" : undefined,
-      type: "smoothstep",
+      type: "flow",
       className: flowing ? "flowing" : undefined,
-      style: { stroke: flowing ? next.color : undefined, strokeWidth: flowing ? 2.5 : 2 },
-      markerEnd: { type: MarkerType.ArrowClosed, color: flowing ? next.color : "var(--border-strong)" },
+      data: { flowing, color: next.hex },
+      style: { stroke: color, strokeWidth: busy ? 2.5 : 2, opacity: busy ? 1 : 0.75 },
+      markerEnd: { type: MarkerType.ArrowClosed, color, width: 16, height: 16 },
     };
   });
 
   return (
-    <div dir="ltr" className="h-[78vh] min-h-[640px] w-full overflow-hidden rounded-3xl border border-line">
-      <ReactFlowProvider>
-        <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} fitView fitViewOptions={{ padding: 0.08 }} minZoom={0.3} maxZoom={1.6} proOptions={{ hideAttribution: true }} nodesConnectable={false} panOnScroll>
-          <Controls showInteractive={false} position="bottom-right" />
-        </ReactFlow>
-      </ReactFlowProvider>
-    </div>
+    <ReactFlow
+      nodes={nodes}
+      edges={edges}
+      onNodesChange={onNodesChange}
+      onNodeDragStop={onNodeDragStop}
+      nodeTypes={nodeTypes}
+      edgeTypes={edgeTypes}
+      fitView
+      fitViewOptions={{ padding: 0.08 }}
+      minZoom={0.25}
+      maxZoom={1.6}
+      proOptions={{ hideAttribution: true }}
+      nodesConnectable={false}
+      edgesFocusable={false}
+      elementsSelectable={false}
+      panOnScroll
+    >
+      <Panel position="top-right">
+        <div dir="rtl" className="glass flex items-center gap-1 rounded-xl p-1 text-xs">
+          <span className="hidden items-center gap-1 px-2 text-muted sm:flex">
+            <Move className="size-3.5" /> گره‌ها را بکشید
+          </span>
+          {(
+            [
+              { k: "rows", label: "دو ردیف" },
+              { k: "line", label: "یک خط" },
+            ] as const
+          ).map((o) => (
+            <button
+              key={o.k}
+              onClick={() => choose(o.k)}
+              className={cn("rounded-lg px-2.5 py-1.5 font-bold transition", preset === o.k ? "bg-surface-strong text-fg shadow-card" : "text-muted hover:text-fg")}
+            >
+              {o.label}
+            </button>
+          ))}
+          {preset === "custom" ? (
+            <button onClick={() => choose("rows")} className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 font-bold text-muted hover:text-fg" title="بازگشت به چیدمان پیش‌فرض">
+              <RotateCcw className="size-3.5" /> بازنشانی
+            </button>
+          ) : null}
+        </div>
+      </Panel>
+      <Controls showInteractive={false} position="bottom-right" />
+    </ReactFlow>
   );
 }
 
@@ -269,7 +502,7 @@ export function LiveWorkflowMobile({ data, onOpen }: { data: ReturnType<typeof u
               <button className="flex w-full items-center gap-2 px-4 py-3 text-start" onClick={() => setOpen((o) => ({ ...o, [s.key]: !isOpen }))}>
                 <span className="flex-1 text-sm font-extrabold">{s.label}</span>
                 {jobs.length ? <span className="live-dot" /> : null}
-                <span className="rounded-full px-2 text-sm font-black" style={{ background: `${s.color}22`, color: s.color }}>
+                <span className="rounded-full px-2 text-sm font-black" style={{ background: tint(s.hex, 14), color: s.hex }}>
                   {faNum(list.length)}
                 </span>
                 <ChevronDown className={cn("size-4 text-muted transition", isOpen && "rotate-180")} />

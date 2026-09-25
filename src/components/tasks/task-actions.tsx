@@ -2,7 +2,8 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Bot, CheckCheck, Flag, MoreHorizontal, RotateCcw, Sparkles, Undo2, XCircle, Ban, Shuffle } from "lucide-react";
+import { Bot, CheckCheck, Flag, MoreHorizontal, Paperclip, RotateCcw, Sparkles, Undo2, XCircle, Ban, Shuffle } from "lucide-react";
+import { supabaseBrowser } from "@/lib/supabase/browser";
 import { Button, Field, Select, Textarea } from "@/components/ui/primitives";
 import { Menu, Modal } from "@/components/ui/overlays";
 import { FileDropzone, type UploadedFile } from "@/components/ui/file-dropzone";
@@ -17,7 +18,8 @@ import {
   sendToPreworkAction,
 } from "@/app/actions/tasks";
 import { CLOSABLE, STATUS_META } from "@/lib/status";
-import type { Task, TaskStatus } from "@/lib/types";
+import { faNum } from "@/lib/utils";
+import type { Task, TaskFile, TaskStatus } from "@/lib/types";
 
 type Result = { ok: true } | { ok: false; error: string };
 
@@ -30,12 +32,18 @@ export async function run(p: Promise<Result | { ok: boolean; error?: string }>, 
   return r.ok;
 }
 
-/** Prompt + attachments dialog used for "send to pre-work" and "send to Claude" (single or bulk). */
+export type DispatchTask = Pick<Task, "id" | "code" | "title" | "description" | "status">;
+
+/**
+ * Prompt + attachments dialog used for "send to pre-work" and "send to Claude" (single or bulk).
+ * The task title and description always travel with the prompt; an empty prompt falls back to
+ * the default prompt from Settings (resolved on the server).
+ */
 export function PromptDialog({
   open,
   onOpenChange,
   mode,
-  taskIds,
+  tasks,
   userId,
   defaultPrompt,
   title,
@@ -44,31 +52,49 @@ export function PromptDialog({
   open: boolean;
   onOpenChange: (o: boolean) => void;
   mode: "prework" | "main";
-  taskIds: string[];
+  tasks: DispatchTask[];
   userId: string;
   defaultPrompt: string;
   title?: string;
   onDone?: () => void;
 }) {
-  const [prompt, setPrompt] = React.useState(defaultPrompt);
+  const [prompt, setPrompt] = React.useState("");
   const [files, setFiles] = React.useState<UploadedFile[]>([]);
+  const [attached, setAttached] = React.useState<Pick<TaskFile, "task_id" | "name" | "context">[] | null>(null);
   const [busy, setBusy] = React.useState(false);
   const onFiles = React.useCallback((f: UploadedFile[]) => setFiles(f), []);
+  const ids = tasks.map((t) => t.id);
+  const idsKey = ids.join(",");
 
   React.useEffect(() => {
-    if (open) setPrompt(defaultPrompt);
-  }, [open, defaultPrompt]);
+    if (!open) return;
+    setPrompt("");
+    setFiles([]);
+    setAttached(null);
+    if (!ids.length) return;
+    void supabaseBrowser()
+      .from("task_files")
+      .select("task_id, name, context")
+      .in("task_id", ids)
+      .in("context", mode === "prework" ? ["request"] : ["request", "prework", "output"])
+      .order("created_at")
+      .then(({ data }) => setAttached((data ?? []) as Pick<TaskFile, "task_id" | "name" | "context">[]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, idsKey, mode]);
 
   const submit = async () => {
     setBusy(true);
     const action = mode === "prework" ? sendToPreworkAction : sendToMainAction;
-    const ok = await run(action(taskIds, prompt, files), mode === "prework" ? "در صف پیش‌کار Gemini قرار گرفت" : "برای Claude ارسال شد");
+    const ok = await run(action(ids, prompt, files), mode === "prework" ? "در صف پیش‌کار Gemini قرار گرفت" : "برای Claude ارسال شد");
     setBusy(false);
     if (ok) {
       onOpenChange(false);
       onDone?.();
     }
   };
+
+  const usingDefault = !prompt.trim();
+  const single = tasks.length === 1 ? tasks[0] : null;
 
   return (
     <Modal
@@ -78,15 +104,15 @@ export function PromptDialog({
       title={title ?? (mode === "prework" ? "ارسال به پیش‌کار (Gemini)" : "ارسال به کار اصلی (Claude)")}
       description={
         mode === "prework"
-          ? `${taskIds.length > 1 ? `${taskIds.length} تسک` : "این تسک"} پس از ثبت پرامپت وارد ورکفلوی چندعاملی پیش‌کار می‌شود: تحقیق ← WBS ← روش انجام ← اجرای کارهای ساده ← انتشار در GitHub`
-          : "Claude Code با همه‌ی فایل‌های پیش‌کار در GitHub کار را تمام می‌کند و خروجی نهایی را با دیتا مپینگ در پوشه‌ی final ذخیره می‌کند."
+          ? "عنوان، شرح و فایل‌های تسک همراه پرامپت و فایل‌های شما به ورکفلوی چندعاملی پیش‌کار داده می‌شود: تحقیق ← WBS ← روش انجام ← اجرای کارهای ساده ← انتشار در GitHub"
+          : "Claude Code عنوان و شرح تسک، همه‌ی فایل‌های پیش‌کار در GitHub و پرامپت و فایل‌های شما را می‌گیرد، کار را تمام می‌کند و خروجی نهایی را با دیتا مپینگ در پوشه‌ی final ذخیره می‌کند."
       }
       footer={
         <>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             انصراف
           </Button>
-          <Button onClick={submit} loading={busy}>
+          <Button onClick={submit} loading={busy} disabled={!ids.length}>
             {mode === "prework" ? <Sparkles className="size-4" /> : <Bot className="size-4" />}
             {mode === "prework" ? "شروع پیش‌کار" : "ارسال به Claude"}
           </Button>
@@ -94,10 +120,68 @@ export function PromptDialog({
       }
     >
       <div className="space-y-4">
-        <Field label="پرامپت" hint="هر توضیح، محدودیت یا خواسته‌ای که ایجنت‌ها باید رعایت کنند">
-          <Textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} className="min-h-40" />
+        <div className="rounded-2xl border border-line bg-surface-muted/50 p-3">
+          <p className="mb-2 text-xs font-bold text-muted">{single ? "تسک ارسالی" : `${faNum(tasks.length)} تسک ارسالی`}</p>
+          <div className="max-h-44 space-y-2 overflow-y-auto">
+            {tasks.map((t) => {
+              const own = attached?.filter((f) => f.task_id === t.id) ?? [];
+              return (
+                <details key={t.id} className="rounded-xl bg-surface-strong px-3 py-2" open={!!single}>
+                  <summary className="cursor-pointer text-sm font-bold">
+                    <span className="ltr mx-1.5 inline-block text-xs text-muted">{t.code}</span>
+                    {t.title}
+                  </summary>
+                  {t.description ? <p className="mt-1.5 line-clamp-4 whitespace-pre-line text-xs leading-6 text-muted">{t.description}</p> : null}
+                  {own.length ? (
+                    <p className="mt-1.5 flex flex-wrap items-center gap-1 text-[11px] text-muted">
+                      <Paperclip className="size-3" />
+                      {own.slice(0, 6).map((f, i) => (
+                        <span key={i} className="ltr rounded bg-surface-muted px-1.5">
+                          {f.name}
+                        </span>
+                      ))}
+                      {own.length > 6 ? <span>+{faNum(own.length - 6)}</span> : null}
+                    </p>
+                  ) : null}
+                </details>
+              );
+            })}
+          </div>
+        </div>
+
+        <Field
+          label="پرامپت شما"
+          hint={
+            usingDefault
+              ? "خالی است؛ پرامپت پیش‌فرض «تنظیمات و اتصال‌ها» ارسال می‌شود."
+              : "این پرامپت به‌جای پرامپت پیش‌فرض همراه عنوان و شرح تسک ارسال می‌شود."
+          }
+        >
+          <Textarea
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            className="min-h-36"
+            placeholder={mode === "prework" ? "خواسته‌ها، محدودیت‌ها، منابع یا نکاتی که ایجنت‌های Gemini باید رعایت کنند…" : "دستور شما به Claude برای تکمیل کار…"}
+          />
         </Field>
-        <Field label="فایل‌های همراه پرامپت" hint={mode === "prework" ? "PDF، تصویر، صوت و ویدیو مستقیماً به Gemini داده می‌شوند؛ متن و Word استخراج می‌شود؛ همه‌چیز در GitHub هم ذخیره می‌شود." : "در پوشه‌ی inputs/main در GitHub قرار می‌گیرند."}>
+        {defaultPrompt ? (
+          <details className="rounded-xl border border-dashed border-line px-3 py-2 text-xs">
+            <summary className="cursor-pointer font-semibold text-muted">پرامپت پیش‌فرض (در صورت خالی بودن)</summary>
+            <p className="mt-2 whitespace-pre-line leading-6 text-muted">{defaultPrompt}</p>
+            <Button type="button" size="sm" variant="outline" className="mt-2" onClick={() => setPrompt(defaultPrompt)}>
+              درج در کادر برای ویرایش
+            </Button>
+          </details>
+        ) : null}
+
+        <Field
+          label="فایل‌های همراه پرامپت (هر نوع فایل)"
+          hint={
+            mode === "prework"
+              ? "PDF، تصویر، صوت و ویدیو مستقیماً به Gemini داده می‌شوند؛ متن و Word استخراج می‌شود؛ همه‌چیز در GitHub هم ذخیره می‌شود."
+              : "در پوشه‌ی inputs/main همان تسک در GitHub قرار می‌گیرند و Claude آن‌ها را می‌خواند."
+          }
+        >
           <FileDropzone userId={userId} onChange={onFiles} compact />
         </Field>
       </div>
@@ -256,14 +340,14 @@ export function TaskActions({
         ]}
       />
 
-      <PromptDialog open={dialog === "prework"} onOpenChange={(o) => setDialog(o ? "prework" : null)} mode="prework" taskIds={[task.id]} userId={userId} defaultPrompt={defaults.prework} onDone={refresh} />
+      <PromptDialog open={dialog === "prework"} onOpenChange={(o) => setDialog(o ? "prework" : null)} mode="prework" tasks={[task]} userId={userId} defaultPrompt={defaults.prework} onDone={refresh} />
       <PromptDialog
         open={dialog === "main"}
         onOpenChange={(o) => setDialog(o ? "main" : null)}
         mode="main"
-        taskIds={[task.id]}
+        tasks={[task]}
         userId={userId}
-        defaultPrompt={s === "main_done" ? "" : defaults.main}
+        defaultPrompt={defaults.main}
         title={s === "main_done" ? "دستور تکمیلی به Claude (ادامه‌ی همان پروژه)" : undefined}
         onDone={refresh}
       />

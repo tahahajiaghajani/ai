@@ -7,7 +7,7 @@ import { useRealtimeRows, useNow } from "@/hooks/use-realtime";
 import { Avatar, Badge, Button, Card, EmptyState, Input, Progress } from "@/components/ui/primitives";
 import { Tabs } from "@/components/ui/overlays";
 import { PriorityDot, RelationBadge, StatusBadge } from "@/components/tasks/badges";
-import { PromptDialog, run } from "@/components/tasks/task-actions";
+import { PromptDialog, run, type DispatchTask } from "@/components/tasks/task-actions";
 import { approveTasksAction } from "@/app/actions/tasks";
 import { formatJalali, formatRange, timeAgo } from "@/lib/jalali";
 import { cn, faNum } from "@/lib/utils";
@@ -42,7 +42,9 @@ export function InboxClient({
   const [q, setQ] = React.useState("");
   const [requester, setRequester] = React.useState("all");
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
-  const [dialog, setDialog] = React.useState<null | "prework" | "main">(null);
+  // mode/tasks are kept while the dialog animates closed
+  const [dialog, setDialog] = React.useState<{ open: boolean; mode: "prework" | "main"; tasks: DispatchTask[] }>({ open: false, mode: "prework", tasks: [] });
+  const openDialog = (mode: "prework" | "main", list: DispatchTask[]) => setDialog({ open: true, mode, tasks: list });
   const [busy, setBusy] = React.useState(false);
   const names = React.useMemo(() => new Map(profiles.map((p) => [p.id, p.full_name || p.email || "—"])), [profiles]);
 
@@ -69,6 +71,7 @@ export function InboxClient({
     return n;
   });
   const ids = [...selected];
+  const selectedTasks = (tasks as Task[]).filter((t) => selected.has(t.id));
   const requesterIds = [...new Set((tasks as Task[]).map((t) => t.requester_id))];
 
   const renderList = (items: Task[]) =>
@@ -115,6 +118,16 @@ export function InboxClient({
                   onClick={() => run(approveTasksAction([t.id]), `${t.code} تایید شد`, () => router.refresh())}
                 >
                   <CheckCheck className="size-4" /> <span className="hidden sm:inline">تایید</span>
+                </Button>
+              ) : null}
+              {t.status === "approved" ? (
+                <Button size="sm" className="self-center" onClick={() => openDialog("prework", [t])}>
+                  <Sparkles className="size-4" /> <span className="hidden sm:inline">ارسال به پیش‌کار</span>
+                </Button>
+              ) : null}
+              {t.status === "prework_done" || t.status === "main_done" ? (
+                <Button size="sm" className="self-center" onClick={() => openDialog("main", [t])}>
+                  <Bot className="size-4" /> <span className="hidden sm:inline">{t.status === "main_done" ? "دستور تکمیلی" : "ارسال به Claude"}</span>
                 </Button>
               ) : null}
               <ChevronLeft className="size-5 shrink-0 self-center text-faint" />
@@ -164,12 +177,12 @@ export function InboxClient({
               </Button>
             ) : null}
             {current.bulk === "prework" ? (
-              <Button size="sm" onClick={() => setDialog("prework")}>
+              <Button size="sm" onClick={() => openDialog("prework", selectedTasks)}>
                 <Sparkles className="size-4" /> ارسال به پیش‌کار
               </Button>
             ) : null}
             {current.bulk === "main" ? (
-              <Button size="sm" onClick={() => setDialog("main")}>
+              <Button size="sm" onClick={() => openDialog("main", selectedTasks)}>
                 <Bot className="size-4" /> ارسال به Claude
               </Button>
             ) : null}
@@ -187,29 +200,27 @@ export function InboxClient({
           value: t.key,
           label: t.label,
           badge: <span className="rounded-full bg-surface-muted px-1.5 text-[10.5px]">{faNum(filtered(t.statuses).length)}</span>,
-          content: t.key === tab ? renderList(list) : null,
+          content:
+            t.key === tab ? (
+              <>
+                {t.bulk === "prework" || t.bulk === "main" ? (
+                  <p className="mb-3 text-xs text-muted">
+                    روی «{t.bulk === "prework" ? "ارسال به پیش‌کار" : "ارسال به Claude"}» هر تسک بزنید، یا چند تسک را تیک بزنید و گروهی بفرستید؛ در پنجره‌ی ارسال می‌توانید پرامپت و فایل خودتان را اضافه کنید.
+                  </p>
+                ) : null}
+                {renderList(list)}
+              </>
+            ) : null,
         }))}
       />
 
       <PromptDialog
-        open={dialog === "prework"}
-        onOpenChange={(o) => setDialog(o ? "prework" : null)}
-        mode="prework"
-        taskIds={ids}
+        open={dialog.open}
+        onOpenChange={(o) => setDialog((d) => ({ ...d, open: o }))}
+        mode={dialog.mode}
+        tasks={dialog.tasks}
         userId={userId}
-        defaultPrompt={defaults.prework}
-        onDone={() => {
-          setSelected(new Set());
-          router.refresh();
-        }}
-      />
-      <PromptDialog
-        open={dialog === "main"}
-        onOpenChange={(o) => setDialog(o ? "main" : null)}
-        mode="main"
-        taskIds={ids}
-        userId={userId}
-        defaultPrompt={defaults.main}
+        defaultPrompt={dialog.mode === "main" ? defaults.main : defaults.prework}
         onDone={() => {
           setSelected(new Set());
           router.refresh();

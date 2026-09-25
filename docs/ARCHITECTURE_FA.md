@@ -78,7 +78,7 @@ prepare → upload_inputs* → agent_research → wbs_outline → wbs_detail* �
 
 ## graphify
 
-پس از پیش‌کار و کار اصلی، کار `graphify` در صف Gemini قرار می‌گیرد و ورکفلوی `graphify.yml` با `graphify extract . --backend gemini` (یا `--code-only`) گراف دانش پوشه‌ی تسک را در `graphify-out/` می‌سازد. Claude طبق `CLAUDE.md` ابتدا `GRAPH_REPORT.md` را می‌خواند و از `graphify query` استفاده می‌کند. در اپ، گراف دیتا مپینگ از `manifest.json` نمایش داده می‌شود.
+پس از پیش‌کار و کار اصلی، کار `graphify` در صف Gemini قرار می‌گیرد و ورکفلوی `graphify.yml` با `graphify extract . --backend gemini` (یا `--code-only`) گراف دانش پوشه‌ی تسک را در `graphify-out/` می‌سازد. Claude طبق `CLAUDE.md` ابتدا `GRAPH_REPORT.md` را می‌خواند و از `graphify query` استفاده می‌کند. در اپ، گراف دیتا مپینگ از `manifest.json` در صفحه‌ی هر تسک نمایش داده می‌شود و صفحه‌ی **«گراف دانش»** (`/graph`) فایل `graphify-out/graph.json` هر پروژه را از GitHub می‌خواند (`src/app/actions/graph.ts`)، با پروژه‌ها، تسک‌های مرتبط، تسک‌دهنده‌ها، فایل‌ها و دانش ثبت‌شده در دیتابیس ادغام می‌کند (`src/lib/graph/model.ts`) و به صورت گراف نیرو-محور تعاملی (`react-force-graph-2d`) نشان می‌دهد؛ دکمه‌ی «ساخت گراف graphify» اجرای جدید را در صف قرار می‌دهد.
 
 ## پایگاه دانش و NotebookLM
 

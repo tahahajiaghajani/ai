@@ -3,7 +3,7 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { ArrowRight, CalendarRange, ExternalLink, FileText, FolderGit2, GitBranch, Paperclip, Save, ThumbsDown, ThumbsUp } from "lucide-react";
+import { ArrowRight, ArrowUpLeft, CalendarRange, ExternalLink, FileText, FolderGit2, GitBranch, Network, Paperclip, Save, ThumbsDown, ThumbsUp } from "lucide-react";
 import { useRealtimeRows } from "@/hooks/use-realtime";
 import { Avatar, Badge, Button, Card, CardHeader, EmptyState, Progress, Textarea } from "@/components/ui/primitives";
 import { Tabs } from "@/components/ui/overlays";
@@ -264,8 +264,18 @@ export function TaskDetailClient({
     <EmptyState icon={<FileText className="size-7" />} title="هنوز خروجی‌ای تولید نشده" description="پس از اجرای پیش‌کار، خروجی ایجنت‌ها اینجا نمایش داده می‌شود." />
   );
 
+  const graphLink = (
+    <Link href={`/graph?task=${task.id}`} className="flex items-center justify-between gap-3 rounded-2xl border border-primary/25 bg-primary-soft px-4 py-3 text-sm font-bold text-primary transition hover:-translate-y-px">
+      <span className="flex items-center gap-2">
+        <Network className="size-4" /> نمایش این پروژه در «گراف دانش» (graphify)
+      </span>
+      <ArrowUpLeft className="size-4" />
+    </Link>
+  );
+
   const filesTab = manifest ? (
     <div className="space-y-4">
+      {graphLink}
       <FileGraph manifest={manifest} />
       <Card>
         <CardHeader title="دیتا مپینگ (manifest.json)" subtitle={`${faNum(manifest.files.length)} فایل در ${faNum(manifest.iterations.length)} تکرار`} />
@@ -294,7 +304,10 @@ export function TaskDetailClient({
       </Card>
     </div>
   ) : (
-    <EmptyState icon={<FolderGit2 className="size-7" />} title="هنوز نقشه‌ی فایلی وجود ندارد" description="پس از انتشار پیش‌کار در GitHub، گراف و دیتا مپینگ فایل‌ها اینجا نمایش داده می‌شود." />
+    <div className="space-y-4">
+      {graphLink}
+      <EmptyState icon={<FolderGit2 className="size-7" />} title="هنوز نقشه‌ی فایلی وجود ندارد" description="پس از انتشار پیش‌کار در GitHub، گراف و دیتا مپینگ فایل‌ها اینجا نمایش داده می‌شود." />
+    </div>
   );
 
   return (

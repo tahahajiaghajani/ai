@@ -17,6 +17,8 @@ export interface StageDef {
   statuses: TaskStatus[];
   /** CSS color token used across graph & badges */
   color: string;
+  /** Same color as a literal (SVG markers and alpha mixing cannot always use CSS variables) */
+  hex: string;
   icon: string;
 }
 
@@ -29,6 +31,7 @@ export const STAGES: StageDef[] = [
     description: "تسک‌های تازه و برگشت‌خورده که منتظر بررسی شما هستند",
     statuses: ["pending_approval", "returned"],
     color: "var(--stage-approval)",
+    hex: "#f59e0b",
     icon: "inbox",
   },
   {
@@ -38,6 +41,7 @@ export const STAGES: StageDef[] = [
     description: "تایید شده؛ منتظر انتخاب و پرامپت شما یا نوبت Gemini",
     statuses: ["approved", "prework_queued"],
     color: "var(--stage-prework-queue)",
+    hex: "#0ea5e9",
     icon: "list-ordered",
   },
   {
@@ -47,6 +51,7 @@ export const STAGES: StageDef[] = [
     description: "ایجنت‌های Gemini در حال تحقیق، WBS و انجام کارهای ساده",
     statuses: ["prework_running"],
     color: "var(--stage-prework)",
+    hex: "#8b5cf6",
     icon: "sparkles",
   },
   {
@@ -56,6 +61,7 @@ export const STAGES: StageDef[] = [
     description: "پیش‌کار تمام شده؛ منتظر ارسال به Claude",
     statuses: ["prework_done", "main_queued"],
     color: "var(--stage-main-queue)",
+    hex: "#14b8a6",
     icon: "layers",
   },
   {
@@ -65,6 +71,7 @@ export const STAGES: StageDef[] = [
     description: "Claude Code در حال انجام و تکمیل تسک",
     statuses: ["main_running", "main_done"],
     color: "var(--stage-main)",
+    hex: "#f97316",
     icon: "bot",
   },
   {
@@ -74,6 +81,7 @@ export const STAGES: StageDef[] = [
     description: "منتظر تایید خاتمه توسط تسک‌دهنده",
     statuses: ["closure_pending", "closure_rejected"],
     color: "var(--stage-closure)",
+    hex: "#ec4899",
     icon: "flag",
   },
   {
@@ -83,6 +91,7 @@ export const STAGES: StageDef[] = [
     description: "تسک‌های بسته‌شده",
     statuses: ["closed", "cancelled"],
     color: "var(--stage-closed)",
+    hex: "#10b981",
     icon: "check-circle",
   },
 ];
