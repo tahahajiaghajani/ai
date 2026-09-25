@@ -3,7 +3,7 @@ import { StateGraph, Annotation, START, END, MemorySaver, type LangGraphRunnable
 import type { Content } from "@google/genai";
 import { db } from "@/lib/supabase/admin";
 import { generate, generateJson } from "@/lib/ai/gemini";
-import { getAgentPrompt, KNOWLEDGE_SCHEMA, WBS_DETAIL_SCHEMA, WBS_OUTLINE_SCHEMA } from "@/lib/ai/prompts";
+import { getAgentPrompt, KNOWLEDGE_SCHEMA, PLAN_SCHEMA } from "@/lib/ai/prompts";
 import { addKnowledge, formatKnowledgeContext, searchKnowledge, KNOWLEDGE_KINDS } from "@/lib/ai/knowledge";
 import { fileRefsToParts, prepareFilesForGemini, downloadStorage, type FileRef } from "@/lib/ai/files";
 import { getSettings } from "@/lib/settings";
@@ -19,7 +19,8 @@ import {
   type Manifest,
   type ManifestFile,
 } from "@/lib/github/workspace";
-import { itemBrief, parseExecOutput, pickExecutionItems, renderWbsMarkdown, splitByItemHeadings, type ExecFile, type WbsItem, type WbsPhase } from "@/lib/agents/parse";
+import { helperFileName, stripCodeFence } from "@/lib/agents/parse";
+import { registerOutputs, saveReply } from "@/lib/tasks/outputs";
 import { PRIORITY_META, RELATION_META } from "@/lib/status";
 import { formatJalali } from "@/lib/jalali";
 import { errorMessage, slugify, truncate, wordCount } from "@/lib/utils";
@@ -29,6 +30,12 @@ import type { Profile, Task, TaskFile } from "@/lib/types";
 // ---------------------------------------------------------------------------
 // State (every channel is "last value" so the snapshot can round-trip through the DB)
 // ---------------------------------------------------------------------------
+export interface HelperSpec {
+  path: string;
+  purpose: string;
+  instructions: string;
+}
+
 const PreworkAnnotation = Annotation.Root({
   taskId: Annotation<string>(),
   prompt: Annotation<string>(),
@@ -43,18 +50,12 @@ const PreworkAnnotation = Annotation.Root({
   inputs: Annotation<{ id: string; name: string; storage_path: string; size: number | null }[]>(),
   inputsCursor: Annotation<number>(),
   inputPaths: Annotation<string[]>(),
-  research: Annotation<string>(),
-  wbsSummary: Annotation<string>(),
-  phases: Annotation<WbsPhase[]>(),
-  phaseCursor: Annotation<number>(),
-  items: Annotation<WbsItem[]>(),
-  methods: Annotation<Record<string, string>>(),
-  methodsCursor: Annotation<number>(),
-  execIds: Annotation<string[]>(),
-  execCursor: Annotation<number>(),
-  execFiles: Annotation<ExecFile[]>(),
-  execReports: Annotation<Record<string, string>>(),
-  report: Annotation<string>(),
+  analysis: Annotation<string>(),
+  reply: Annotation<string>(),
+  brief: Annotation<string>(),
+  helperSpecs: Annotation<HelperSpec[]>(),
+  helperCursor: Annotation<number>(),
+  helperFiles: Annotation<{ path: string; purpose: string; content: string }[]>(),
   knowledgeItems: Annotation<{ kind: string; title: string; content: string; tags?: string[]; score?: number }[]>(),
   commit: Annotation<{ sha: string; url: string } | null>(),
   models: Annotation<string[]>(),
@@ -62,32 +63,30 @@ const PreworkAnnotation = Annotation.Root({
 
 export type PreworkState = typeof PreworkAnnotation.State;
 
-export const PREWORK_GRAPH_NODES = ["prepare", "upload_inputs", "agent_research", "wbs_outline", "wbs_detail", "agent_methods", "agent_execute", "agent_report", "extract_knowledge", "publish"] as const;
+export const PREWORK_GRAPH_NODES = ["prepare", "upload_inputs", "agent_analyze", "agent_plan", "agent_helper", "extract_knowledge", "publish"] as const;
 
 /** Graph node → mini-workflow display node */
 export const DISPLAY_NODE: Record<string, string> = {
   prepare: "prepare",
   upload_inputs: "prepare",
-  agent_research: "research",
-  wbs_outline: "wbs",
-  wbs_detail: "wbs",
-  agent_methods: "methods",
-  agent_execute: "execute",
-  agent_report: "report",
+  agent_analyze: "analyze",
+  agent_plan: "plan",
+  agent_helper: "helper",
   extract_knowledge: "knowledge",
   publish: "publish",
 };
 
 const NODE_PROGRESS: Record<string, number> = {
   prepare: 22,
-  research: 28,
-  wbs: 34,
-  methods: 40,
-  execute: 45,
-  report: 47,
+  analyze: 32,
+  plan: 42,
+  helper: 46,
   knowledge: 48,
   publish: 50,
 };
+
+/** Text attachments are repeated for the planner/helper only when small enough to stay cheap. */
+const REPEAT_FILES_MAX_CHARS = 150_000;
 
 // The JobRun is looked up by thread id so it never ends up inside a checkpoint.
 const RUNS = new Map<string, JobRun>();
@@ -221,7 +220,7 @@ async function prepare(state: PreworkState, config: LangGraphRunnableConfig): Pr
       .select("agent, role, content, task_id")
       .eq("root_task_id", root.id)
       .neq("task_id", task.id)
-      .in("agent", ["request", "research", "wbs", "report"])
+      .in("agent", ["request", "analysis", "brief", "reply"])
       .order("id", { ascending: true });
     let budget = settings.pipeline.historyChars;
     const picked: PreworkState["history"] = [];
@@ -291,242 +290,112 @@ async function inputs(state: PreworkState, config: LangGraphRunnableConfig): Pro
   return { inputsCursor: cursor, inputPaths: [...(state.inputPaths ?? []), ...paths] };
 }
 
-async function research(state: PreworkState, config: LangGraphRunnableConfig): Promise<Partial<PreworkState>> {
+function textFilesSize(refs: FileRef[]) {
+  return refs.reduce((n, r) => n + (r.text?.length ?? 0), 0);
+}
+
+/** Agent 1: understand the request and the attachments before planning anything. */
+async function analyze(state: PreworkState, config: LangGraphRunnableConfig): Promise<Partial<PreworkState>> {
   const run = runOf(config);
   const settings = await getSettings();
-  await beginNode(run, "agent_research", "ایجنت ۱: تحقیق درباره‌ی نحوه‌ی انجام تسک");
+  await beginNode(run, "agent_analyze", "ایجنت ۱: تحلیل درخواست و فایل‌های پیوست");
+  const refs = state.fileRefs ?? [];
   const userText = [
     state.request,
-    state.context ? `\n## دانش بازیابی‌شده از پایگاه دانش (اول از این‌ها استفاده کن)\n${state.context}` : "",
-    `\n## دستور مدیر\n${state.prompt}`,
-    "\nاین تسک باید انجام شود؛ درباره‌ی آن تحقیق کن و بگو چگونه می‌توان آن را به بهترین شکل انجام داد.",
+    `\n## دستور مدیر\n${state.prompt || "—"}`,
+    refs.length
+      ? `\n## فایل‌های پیوست (${refs.length} فایل)\n${refs.map((r) => `- ${r.name}${r.note ? ` — ${r.note}` : ""}`).join("\n")}\nمحتوای فایل‌ها در ادامه آمده است؛ آن‌ها را کامل و دقیق بررسی کن.`
+      : "\n## فایل‌های پیوست\nهیچ فایلی پیوست نشده است.",
+    state.context ? `\n## دانش بازیابی‌شده از پایگاه دانش (فقط موارد مرتبط را به کار ببر)\n${truncate(state.context, 20000)}` : "",
   ].join("\n");
   const res = await generate({
-    agent: "research",
-    models: settings.models.research,
-    system: await getAgentPrompt("research"),
+    agent: "analyze",
+    models: settings.models.prework,
+    system: await getAgentPrompt("analyze"),
     history: historyContents(state.history),
-    userParts: [{ text: userText }, ...fileRefsToParts(state.fileRefs ?? [])],
+    userParts: [{ text: userText }, ...fileRefsToParts(refs)],
     thinking: settings.pipeline.thinkingLevel,
     useSearch: settings.pipeline.useGoogleSearch,
+    maxOutputTokens: 32000,
     deadline: run.deadline,
-    partialKey: "research",
-    ctx: run.genContext("research"),
+    partialKey: "analyze",
+    ctx: run.genContext("analyze"),
   });
   run.commitUsage();
-  await saveMessage(run, state, "research", "model", res.text);
-  await finishNode(run, "agent_research", "تحقیق کامل شد", `${wordCount(res.text)} کلمه — مدل ${res.model}`, { model: res.model });
-  return { research: res.text, models: [...(state.models ?? []), res.model] };
+  await saveMessage(run, state, "analysis", "model", res.text);
+  await finishNode(run, "agent_analyze", "تحلیل کامل شد", `${wordCount(res.text)} کلمه — مدل ${res.model}`, { model: res.model });
+  return { analysis: res.text, models: [...(state.models ?? []), res.model] };
 }
 
-async function wbsOutline(state: PreworkState, config: LangGraphRunnableConfig): Promise<Partial<PreworkState>> {
+/** Agent 2: the work order for Claude, a chat reply for the admin and (rarely) helper files to prepare. */
+async function plan(state: PreworkState, config: LangGraphRunnableConfig): Promise<Partial<PreworkState>> {
   const run = runOf(config);
   const settings = await getSettings();
-  await beginNode(run, "wbs_outline", "ایجنت ۲: ساخت WBS — تعیین فازهای اصلی");
-  const { data, model } = await generateJson<{ summary?: string; phases: WbsPhase[] }>({
-    agent: "wbs_outline",
-    models: settings.models.structure,
-    system: await getAgentPrompt("wbs_outline"),
+  await beginNode(run, "agent_plan", "ایجنت ۲: برنامه‌ریزی و نوشتن دستور کار");
+  const refs = state.fileRefs ?? [];
+  const repeatFiles = textFilesSize(refs) <= REPEAT_FILES_MAX_CHARS;
+  const { data, model } = await generateJson<{ reply?: string; brief?: string; helper_files?: HelperSpec[] }>({
+    agent: "plan",
+    models: settings.models.prework,
+    system: await getAgentPrompt("plan"),
     history: historyContents(state.history),
-    userParts: [{ text: `${requestBrief(state)}\n\n## دستور مدیر\n${state.prompt}\n\n## نتیجه‌ی تحقیق (ایجنت ۱)\n${truncate(state.research, 30000)}` }],
-    jsonSchema: WBS_OUTLINE_SCHEMA,
-    thinking: "LOW",
-    deadline: run.deadline,
-    partialKey: "wbs_outline",
-    ctx: run.genContext("wbs"),
-  });
-  run.commitUsage();
-  const phases = (data.phases ?? []).map((p, i) => ({ ...p, id: String(p.id ?? i + 1).replace(/\.$/, "") }));
-  if (!phases.length) throw new Error("ایجنت WBS هیچ فازی تولید نکرد");
-  await run.setNode("wbs", { status: "running", done: 0, total: phases.length, model });
-  await run.log({ source: "gemini", kind: "log", title: `${phases.length} فاز اصلی تعیین شد`, detail: phases.map((p) => `${p.id}. ${p.title}`).join("\n") });
-  return { phases, wbsSummary: data.summary ?? "", phaseCursor: 0, items: [], models: [...(state.models ?? []), model] };
-}
-
-async function wbsDetail(state: PreworkState, config: LangGraphRunnableConfig): Promise<Partial<PreworkState>> {
-  const run = runOf(config);
-  const settings = await getSettings();
-  const cursor = state.phaseCursor ?? 0;
-  const phase = state.phases[cursor];
-  run.live({ node: "wbs", thought: `شکستن فاز ${phase.id}: ${phase.title}` });
-  const { data } = await generateJson<{ items: Omit<WbsItem, "phase">[] }>({
-    agent: "wbs_detail",
-    models: settings.models.structure,
-    system: await getAgentPrompt("wbs_detail"),
     userParts: [
-      {
-        text: `${requestBrief(state, 5000)}\n\n## خلاصه‌ی تحقیق\n${truncate(state.research, 18000)}\n\n## همه‌ی فازها\n${state.phases
-          .map((p) => `${p.id}. ${p.title} — ${p.goal}`)
-          .join("\n")}\n\n## فاز مورد نظر برای شکستن\nفاز ${phase.id}: ${phase.title}\nهدف: ${phase.goal}${phase.deliverable ? `\nخروجی: ${phase.deliverable}` : ""}\n\nشناسه‌ی فعالیت‌ها با «${phase.id}.» شروع شود.`,
-      },
+      { text: `${state.request}\n\n## دستور مدیر\n${state.prompt || "—"}\n\n## تحلیل (ایجنت ۱)\n${truncate(state.analysis, 40000)}` },
+      ...(repeatFiles ? fileRefsToParts(refs.filter((r) => r.text)) : []),
     ],
-    jsonSchema: WBS_DETAIL_SCHEMA,
-    thinking: "LOW",
-    deadline: run.deadline,
-    partialKey: `wbs_detail:${cursor}`,
-    ctx: run.genContext("wbs"),
-  });
-  run.commitUsage();
-  const newItems: WbsItem[] = (data.items ?? []).map((it, i) => {
-    const id = String(it.id ?? "").startsWith(`${phase.id}.`) ? String(it.id) : `${phase.id}.${i + 1}`;
-    const complexity = (["simple", "medium", "complex"].includes(it.complexity) ? it.complexity : "medium") as WbsItem["complexity"];
-    return { ...it, id, complexity, phase: phase.id, depends_on: it.depends_on ?? [] };
-  });
-  const items = [...(state.items ?? []).filter((i) => i.phase !== phase.id), ...newItems];
-  const done = cursor + 1;
-  await run.setNode("wbs", { status: done >= state.phases.length ? "done" : "running", done, total: state.phases.length });
-  await run.log({ source: "gemini", kind: "log", title: `فاز ${phase.id} «${phase.title}» به ${newItems.length} فعالیت شکسته شد` });
-
-  if (done >= state.phases.length) {
-    const md = renderWbsMarkdown(state.wbsSummary, state.phases, items);
-    await saveMessage(run, state, "wbs", "model", md);
-    await saveMessage(run, state, "wbs_json", "model", JSON.stringify({ phases: state.phases, items }));
-    await finishNode(run, "wbs_detail", "WBS کامل شد", `${state.phases.length} فاز، ${items.length} فعالیت`, { done, total: state.phases.length });
-    await run.patchState({ counts: { ...(run.state.counts ?? {}), phases: state.phases.length, items: items.length } });
-  }
-  return { items, phaseCursor: done, methods: state.methods ?? {}, methodsCursor: state.methodsCursor ?? 0 };
-}
-
-async function methods(state: PreworkState, config: LangGraphRunnableConfig): Promise<Partial<PreworkState>> {
-  const run = runOf(config);
-  const settings = await getSettings();
-  const cursor = state.methodsCursor ?? 0;
-  if (cursor === 0) await beginNode(run, "agent_methods", "ایجنت ۳: تحقیق و نوشتن روش انجام هر زیرفعالیت");
-  const batch = state.items.slice(cursor, cursor + settings.pipeline.methodsBatch);
-  if (!batch.length) {
-    await run.setNode("methods", { status: "skipped" });
-    return { methods: state.methods ?? {}, methodsCursor: state.items.length, execIds: [], execCursor: 0, execFiles: [], execReports: {} };
-  }
-  const res = await generate({
-    agent: "methods",
-    models: settings.models.methods,
-    system: await getAgentPrompt("methods"),
-    userParts: [
-      {
-        text: `${requestBrief(state, 4000)}\n\n## خلاصه‌ی راهکار (از تحقیق)\n${truncate(state.research, 12000)}\n\n## فهرست کل فعالیت‌ها (برای کانتکست)\n${state.items
-          .map((i) => `${i.id} ${i.title}`)
-          .join("\n")}\n\n## فعالیت‌هایی که باید روش انجامشان را بنویسی\n${batch.map(itemBrief).join("\n\n")}`,
-      },
-    ],
-    thinking: settings.pipeline.thinkingLevel === "HIGH" ? "MEDIUM" : settings.pipeline.thinkingLevel,
-    deadline: run.deadline,
-    partialKey: `methods:${cursor}`,
-    ctx: run.genContext("methods"),
-  });
-  run.commitUsage();
-  const split = splitByItemHeadings(res.text);
-  const merged = { ...(state.methods ?? {}) };
-  for (const it of batch) merged[it.id] = split[it.id] ?? (batch.length === 1 ? res.text : merged[it.id] ?? "");
-  if (batch.length > 1 && !Object.keys(split).length) merged[batch[0].id] = res.text;
-  const done = Math.min(cursor + batch.length, state.items.length);
-  await run.setNode("methods", { status: done >= state.items.length ? "done" : "running", done, total: state.items.length, model: res.model });
-  await run.log({ source: "gemini", kind: "log", title: `روش انجام ${batch.map((b) => b.id).join("، ")} نوشته شد`, data: { model: res.model } });
-  if (done >= state.items.length) {
-    await finishNode(run, "agent_methods", "روش انجام همه‌ی زیرفعالیت‌ها نوشته شد", `${state.items.length} فعالیت`, { done, total: state.items.length });
-  }
-  return {
-    methods: merged,
-    methodsCursor: done,
-    execIds: state.execIds ?? [],
-    execCursor: state.execCursor ?? 0,
-    execFiles: state.execFiles ?? [],
-    execReports: state.execReports ?? {},
-  };
-}
-
-async function execute(state: PreworkState, config: LangGraphRunnableConfig): Promise<Partial<PreworkState>> {
-  const run = runOf(config);
-  const settings = await getSettings();
-  let execIds = state.execIds ?? [];
-  if (!execIds.length) {
-    execIds = pickExecutionItems(state.items, settings.pipeline.maxExecuteItems).map((i) => i.id);
-    await beginNode(run, "agent_execute", `ایجنت ۴: انجام کارهای ساده و آماده‌سازی کارهای پیچیده (${execIds.length} فعالیت)`);
-  }
-  const cursor = state.execCursor ?? 0;
-  if (cursor >= execIds.length) return { execIds, execCursor: cursor };
-  const byId = new Map(state.items.map((i) => [i.id, i]));
-  const batch = execIds.slice(cursor, cursor + settings.pipeline.executeBatch).map((id) => byId.get(id)!).filter(Boolean);
-
-  const res = await generate({
-    agent: "execute",
-    models: settings.models.execute,
-    system: await getAgentPrompt("execute"),
-    userParts: [
-      {
-        text: `${requestBrief(state, 4000)}\n\n## خلاصه‌ی راهکار\n${truncate(state.research, 8000)}\n${
-          state.context ? `\n## دانش قابل استفاده‌ی مجدد\n${truncate(state.context, 6000)}\n` : ""
-        }\n## فعالیت‌هایی که باید انجام/آماده‌سازی کنی\n${batch
-          .map((it) => `${itemBrief(it)}\n\n#### روش انجام\n${truncate(state.methods?.[it.id] ?? "", 5000)}`)
-          .join("\n\n---\n\n")}`,
-      },
-      ...fileRefsToParts((state.fileRefs ?? []).filter((f) => f.text)).slice(0, 6),
-    ],
+    jsonSchema: PLAN_SCHEMA,
     thinking: settings.pipeline.thinkingLevel,
-    maxOutputTokens: 60000,
+    maxOutputTokens: 32000,
     deadline: run.deadline,
-    partialKey: `execute:${cursor}`,
-    ctx: run.genContext("execute"),
+    partialKey: "plan",
+    ctx: run.genContext("plan"),
   });
   run.commitUsage();
-
-  const parsed = parseExecOutput(res.text);
-  const files = parsed.files.map((f) => {
-    if (f.wbs_id || batch.length !== 1) return f;
-    return { ...f, path: `${batch[0].id}/${f.path}`, wbs_id: batch[0].id };
-  });
-  const reports = { ...(state.execReports ?? {}) };
-  const sections = parsed.report.split(/^###\s*گزارش\s*\[([^\]]+)\][^\n]*$/m);
-  if (sections.length > 1) {
-    for (let i = 1; i < sections.length; i += 2) reports[sections[i].trim()] = sections[i + 1]?.trim() ?? "";
-  } else {
-    reports[batch[0].id] = parsed.report;
-  }
-  const done = Math.min(cursor + batch.length, execIds.length);
-  const allFiles = [...(state.execFiles ?? []).filter((f) => !files.some((n) => n.path === f.path)), ...files];
-  await run.setNode("execute", { status: done >= execIds.length ? "done" : "running", done, total: execIds.length, model: res.model });
-  for (const f of files) {
-    await run.log({ source: "gemini", kind: "file", title: `ایجاد فایل ${f.path}`, detail: f.desc || null });
-  }
-  await run.log({ source: "gemini", kind: "log", title: `فعالیت‌های ${batch.map((b) => b.id).join("، ")} انجام/آماده شد (${files.length} فایل)` });
-  if (done >= execIds.length) {
-    await finishNode(run, "agent_execute", "کارهای ساده انجام و کارهای پیچیده آماده شد", `${allFiles.length} فایل تولید شد`, { done, total: execIds.length });
-    await run.patchState({ counts: { ...(run.state.counts ?? {}), files: allFiles.length } });
-  }
-  return { execIds, execCursor: done, execFiles: allFiles, execReports: reports };
+  const brief = (data.brief ?? "").trim();
+  if (!brief) throw new Error("ایجنت برنامه‌ریز دستور کار تولید نکرد");
+  const helperSpecs = (data.helper_files ?? [])
+    .filter((h) => h?.path && h.instructions)
+    .slice(0, Math.max(0, settings.pipeline.maxHelperFiles))
+    .map((h, i) => ({ ...h, path: helperFileName(h.path, i) }));
+  const reply = (data.reply ?? "").trim() || "دستور کار آماده شد.";
+  await saveMessage(run, state, "brief", "model", brief);
+  if (!helperSpecs.length) await run.setNode("helper", { status: "skipped" });
+  await finishNode(run, "agent_plan", "دستور کار آماده شد", `${wordCount(brief)} کلمه${helperSpecs.length ? ` — ${helperSpecs.length} فایل کمکی` : ""}`, { model });
+  return { brief, reply, helperSpecs, helperCursor: 0, helperFiles: [], models: [...(state.models ?? []), model] };
 }
 
-async function report(state: PreworkState, config: LangGraphRunnableConfig): Promise<Partial<PreworkState>> {
+/** Agent 3: one small helper file per step (only those the planner asked for). */
+async function helper(state: PreworkState, config: LangGraphRunnableConfig): Promise<Partial<PreworkState>> {
   const run = runOf(config);
   const settings = await getSettings();
-  await beginNode(run, "agent_report", "تهیه‌ی گزارش پیش‌کار برای Claude");
-  const wbsMd = renderWbsMarkdown(state.wbsSummary, state.phases, state.items);
+  const cursor = state.helperCursor ?? 0;
+  const spec = state.helperSpecs?.[cursor];
+  if (!spec) return { helperCursor: cursor };
+  if (cursor === 0) await beginNode(run, "agent_helper", `ایجنت ۳: آماده‌سازی ${state.helperSpecs.length} فایل کمکی`);
+  const refs = (state.fileRefs ?? []).filter((r) => r.text);
   const res = await generate({
-    agent: "report",
-    models: settings.models.report,
-    system: await getAgentPrompt("report"),
+    agent: "helper",
+    models: settings.models.prework,
+    system: await getAgentPrompt("helper"),
     userParts: [
       {
-        text: `${requestBrief(state, 5000)}\n\n## دستور مدیر\n${state.prompt}\n\n## تحقیق\n${truncate(state.research, 15000)}\n\n${truncate(wbsMd, 15000)}\n\n## گزارش اجرای فعالیت‌ها\n${Object.entries(
-          state.execReports ?? {},
-        )
-          .map(([id, r]) => `### ${id}\n${truncate(r, 1500)}`)
-          .join("\n\n")}\n\n## فایل‌های تولیدشده در پیش‌کار\n${(state.execFiles ?? [])
-          .map((f) => `- prework/04-execution/${f.path} — ${f.desc}`)
-          .join("\n")}\n\n## فعالیت‌هایی که اجرا/آماده نشدند\n${state.items
-          .filter((i) => !(state.execIds ?? []).includes(i.id))
-          .map((i) => `- ${i.id} ${i.title}`)
-          .join("\n") || "—"}`,
+        text: `## فایل مورد نیاز\n- نام: ${spec.path}\n- هدف: ${spec.purpose}\n- دستور ساخت: ${spec.instructions}\n\n## دستور کار پروژه\n${truncate(state.brief, 20000)}\n\n## تحلیل\n${truncate(state.analysis, 20000)}`,
       },
+      ...(textFilesSize(refs) <= REPEAT_FILES_MAX_CHARS ? fileRefsToParts(refs) : []),
     ],
-    thinking: "LOW",
+    thinking: "MEDIUM",
+    maxOutputTokens: 32000,
     deadline: run.deadline,
-    partialKey: "report",
-    ctx: run.genContext("report"),
+    partialKey: `helper:${cursor}`,
+    ctx: run.genContext("helper"),
   });
   run.commitUsage();
-  await saveMessage(run, state, "report", "model", res.text);
-  await finishNode(run, "agent_report", "گزارش پیش‌کار آماده شد", `${wordCount(res.text)} کلمه`);
-  return { report: res.text, knowledgeItems: state.knowledgeItems ?? [] };
+  const files = [...(state.helperFiles ?? []).filter((f) => f.path !== spec.path), { path: spec.path, purpose: spec.purpose, content: stripCodeFence(res.text) }];
+  const done = cursor + 1;
+  await run.log({ source: "gemini", kind: "file", title: `ایجاد فایل کمکی ${spec.path}`, detail: spec.purpose });
+  await run.setNode("helper", { status: done >= state.helperSpecs.length ? "done" : "running", done, total: state.helperSpecs.length, model: res.model });
+  if (done >= state.helperSpecs.length) await finishNode(run, "agent_helper", "فایل‌های کمکی آماده شد", `${files.length} فایل`);
+  return { helperFiles: files, helperCursor: done, models: [...(state.models ?? []), res.model] };
 }
 
 async function knowledge(state: PreworkState, config: LangGraphRunnableConfig): Promise<Partial<PreworkState>> {
@@ -545,10 +414,7 @@ async function knowledge(state: PreworkState, config: LangGraphRunnableConfig): 
       system: await getAgentPrompt("knowledge"),
       userParts: [
         {
-          text: `${requestBrief(state, 4000)}\n\n## تحقیق\n${truncate(state.research, 12000)}\n\n## گزارش پیش‌کار\n${truncate(state.report, 10000)}\n\n## نمونه‌ی فایل‌های تولیدشده\n${(state.execFiles ?? [])
-            .slice(0, 12)
-            .map((f) => `### ${f.path}\n${truncate(f.content, 1500)}`)
-            .join("\n\n")}`,
+          text: `${requestBrief(state, 4000)}\n\n## دستور مدیر\n${truncate(state.prompt, 3000)}\n\n## تحلیل\n${truncate(state.analysis, 14000)}\n\n## دستور کار\n${truncate(state.brief, 10000)}`,
         },
       ],
       jsonSchema: KNOWLEDGE_SCHEMA,
@@ -578,16 +444,32 @@ async function knowledge(state: PreworkState, config: LangGraphRunnableConfig): 
   }
 }
 
+/** Work order + appendix in one document; the only pre-work file most tasks need. */
+function briefDocument(task: Task, state: PreworkState): string {
+  return [
+    `# دستور کار — ${task.code}: ${task.title}`,
+    "",
+    state.brief.trim(),
+    "",
+    ...(state.helperFiles?.length ? ["## فایل‌های کمکی", "", ...state.helperFiles.map((f) => `- \`files/${f.path}\` — ${f.purpose}`), ""] : []),
+    "---",
+    "",
+    "## پیوست: تحلیل کامل درخواست و فایل‌ها",
+    "",
+    state.analysis.trim(),
+    "",
+  ].join("\n");
+}
+
 async function publish(state: PreworkState, config: LangGraphRunnableConfig): Promise<Partial<PreworkState>> {
   const run = runOf(config);
-  await beginNode(run, "publish", "انتشار خروجی‌ها در GitHub با دیتا مپینگ دقیق");
+  await beginNode(run, "publish", "انتشار دستور کار در GitHub");
   const task = await loadTask(state.taskId);
   const root = task.root_id && task.root_id !== task.id ? await loadTask(task.root_id) : task;
   const { data: requester } = await db().from("profiles").select("*").eq("id", task.requester_id).maybeSingle<Profile>();
   const workspace = await repoRef("workspace");
   const it = state.iterPath;
   const pw = `${it}/prework`;
-  const agentName = "Gemini (پیش‌کار)";
   const now = new Date().toISOString();
 
   const files: CommitFile[] = [];
@@ -599,25 +481,11 @@ async function publish(state: PreworkState, config: LangGraphRunnableConfig): Pr
 
   add(`${it}/request.md`, requestMarkdown(task, requester, root), "request", "تسک‌دهنده", "درخواست و مشخصات تسک");
   add(`${it}/PROMPT-prework.md`, `# پرامپت پیش‌کار\n\n${state.prompt}\n`, "prompt", "مدیر", "دستور مدیر برای پیش‌کار");
-  if (state.context) add(`${pw}/00-context.md`, `# دانش بازیابی‌شده (RAG)\n\n${state.context}\n`, "context", "RAG", "دانش مرتبط بازیابی‌شده از پایگاه دانش");
-  add(`${pw}/01-research.md`, `# تحقیق و راهکار\n\n${state.research}\n`, "research", "ایجنت ۱", "تحقیق درباره‌ی نحوه‌ی انجام تسک", { depends_on: [`${it}/request.md`] });
-  add(`${pw}/02-wbs.md`, renderWbsMarkdown(state.wbsSummary, state.phases, state.items), "wbs", "ایجنت ۲", "ساختار شکست کار", { depends_on: [`${pw}/01-research.md`] });
-  add(`${pw}/02-wbs.json`, JSON.stringify({ summary: state.wbsSummary, phases: state.phases, items: state.items }, null, 2), "wbs", "ایجنت ۲", "WBS ماشینی", {
-    depends_on: [`${pw}/01-research.md`],
-  });
-  const methodsMd = ["# روش انجام زیرفعالیت‌ها", "", ...state.items.map((i) => state.methods?.[i.id] || `### [${i.id}] ${i.title}\n\n—`)].join("\n\n");
-  add(`${pw}/03-methods.md`, methodsMd, "methods", "ایجنت ۳", "روش انجام هر زیرفعالیت", { depends_on: [`${pw}/02-wbs.md`] });
-  for (const f of state.execFiles ?? []) {
-    add(`${pw}/04-execution/${f.path}`, f.content, "execution", "ایجنت ۴", f.desc || "خروجی اجرای پیش‌کار", {
-      wbs_id: f.wbs_id,
-      depends_on: [`${pw}/03-methods.md`],
-    });
+  const briefPath = `${pw}/BRIEF.md`;
+  add(briefPath, briefDocument(task, state), "brief", "Gemini", "دستور کار برای Claude (همراه تحلیل کامل)", { depends_on: [`${it}/request.md`, ...(state.inputPaths ?? [])] });
+  for (const f of state.helperFiles ?? []) {
+    add(`${pw}/files/${f.path}`, f.content, "helper", "Gemini", f.purpose, { depends_on: [briefPath] });
   }
-  const logMd = ["# گزارش اجرای فعالیت‌ها", "", ...Object.entries(state.execReports ?? {}).map(([id, r]) => `## [${id}]\n\n${r}`)].join("\n\n");
-  add(`${pw}/04-execution-log.md`, logMd, "execution-log", "ایجنت ۴", "گزارش اجرای کارهای ساده/آماده‌سازی", { depends_on: [`${pw}/03-methods.md`] });
-  add(`${pw}/05-report.md`, `# گزارش پیش‌کار\n\n${state.report}\n`, "report", "گزارش", "خلاصه و برنامه‌ی پیشنهادی برای Claude", {
-    depends_on: [`${pw}/01-research.md`, `${pw}/02-wbs.md`, `${pw}/04-execution-log.md`],
-  });
   for (const p of state.inputPaths ?? []) mf.push({ path: p, role: "input", agent: "تسک‌دهنده", iteration: task.seq_in_root, description: "فایل پیوست", updated_at: now });
 
   for (const k of state.knowledgeItems ?? []) {
@@ -636,7 +504,7 @@ async function publish(state: PreworkState, config: LangGraphRunnableConfig): Pr
     title: task.title,
     relation: task.relation_type,
     folder: it,
-    prework: { job_id: run.job.id, completed_at: now, models: [...new Set(state.models ?? [])], files: mf.length },
+    prework: { job_id: run.job.id, completed_at: now, models: [...new Set(state.models ?? [])], files: 1 + (state.helperFiles?.length ?? 0) },
   });
   const { data: family } = await db().from("tasks").select("*").or(`id.eq.${root.id},root_id.eq.${root.id}`);
   files.push({ path: `${state.rootPath}/manifest.json`, content: JSON.stringify(manifest, null, 2) });
@@ -644,21 +512,26 @@ async function publish(state: PreworkState, config: LangGraphRunnableConfig): Pr
   const history = (await getFileText(workspace, `${state.rootPath}/HISTORY.md`)) ?? `# تاریخچه‌ی ${root.code}\n`;
   files.push({
     path: `${state.rootPath}/HISTORY.md`,
-    content: `${history.trim()}\n\n## ${formatJalali(now, { withTime: true })} — پیش‌کار تکرار ${String(task.seq_in_root).padStart(2, "0")} (${task.code})\n- ${task.title}\n- فعالیت‌ها: ${state.items.length}، فایل‌های تولیدی: ${(state.execFiles ?? []).length}\n- پوشه: \`${it.replace(`${state.rootPath}/`, "")}\`\n`,
+    content: `${history.trim()}\n\n## ${formatJalali(now, { withTime: true })} — پیش‌کار تکرار ${String(task.seq_in_root).padStart(2, "0")} (${task.code})\n- ${task.title}\n- دستور کار: \`${briefPath.replace(`${state.rootPath}/`, "")}\`${state.helperFiles?.length ? `، ${state.helperFiles.length} فایل کمکی` : ""}\n`,
   });
   if (!(await getFileText(workspace, `${state.rootPath}/.graphifyignore`))) {
     files.push({ path: `${state.rootPath}/.graphifyignore`, content: ".claude-session/\ngraphify-out/cache/\n*.jsonl\n" });
   }
 
   const commit = await commitFiles(workspace, files, `[TaskFlow] پیش‌کار ${task.code}: ${task.title}`);
+  await registerOutputs(task.id, run.job.id, [
+    { path: briefPath, size: Buffer.byteLength(briefDocument(task, state)), name: "دستور کار (BRIEF.md)" },
+    ...(state.helperFiles ?? []).map((f) => ({ path: `${pw}/files/${f.path}`, size: Buffer.byteLength(f.content) })),
+  ]);
+  await saveReply(task.id, run.job.id, state.reply);
   await run.log({
     source: "github",
     kind: "commit",
-    title: `${files.length} فایل در GitHub منتشر شد`,
+    title: `دستور کار${state.helperFiles?.length ? ` و ${state.helperFiles.length} فایل کمکی` : ""} در GitHub منتشر شد`,
     detail: commit?.url ?? null,
     data: { url: commit?.url, path: state.rootPath },
   });
-  await finishNode(run, "publish", "خروجی‌ها در GitHub منتشر شد", commit?.sha.slice(0, 7));
+  await finishNode(run, "publish", "خروجی پیش‌کار منتشر شد", commit?.sha.slice(0, 7));
   return { commit };
 }
 
@@ -668,27 +541,17 @@ async function publish(state: PreworkState, config: LangGraphRunnableConfig): Pr
 export const preworkGraph = new StateGraph(PreworkAnnotation)
   .addNode("prepare", prepare)
   .addNode("upload_inputs", inputs)
-  .addNode("agent_research", research)
-  .addNode("wbs_outline", wbsOutline)
-  .addNode("wbs_detail", wbsDetail)
-  .addNode("agent_methods", methods)
-  .addNode("agent_execute", execute)
-  .addNode("agent_report", report)
+  .addNode("agent_analyze", analyze)
+  .addNode("agent_plan", plan)
+  .addNode("agent_helper", helper)
   .addNode("extract_knowledge", knowledge)
   .addNode("publish", publish)
   .addEdge(START, "prepare")
   .addEdge("prepare", "upload_inputs")
-  .addConditionalEdges("upload_inputs", (s) => ((s.inputsCursor ?? 0) < (s.inputs ?? []).length ? "upload_inputs" : "agent_research"), ["upload_inputs", "agent_research"])
-  .addEdge("agent_research", "wbs_outline")
-  .addEdge("wbs_outline", "wbs_detail")
-  .addConditionalEdges("wbs_detail", (s) => ((s.phaseCursor ?? 0) < (s.phases ?? []).length ? "wbs_detail" : "agent_methods"), ["wbs_detail", "agent_methods"])
-  .addConditionalEdges("agent_methods", (s) => ((s.methodsCursor ?? 0) < (s.items ?? []).length ? "agent_methods" : "agent_execute"), ["agent_methods", "agent_execute"])
-  .addConditionalEdges(
-    "agent_execute",
-    (s) => ((s.execIds ?? []).length && (s.execCursor ?? 0) < (s.execIds ?? []).length ? "agent_execute" : "agent_report"),
-    ["agent_execute", "agent_report"],
-  )
-  .addEdge("agent_report", "extract_knowledge")
+  .addConditionalEdges("upload_inputs", (s) => ((s.inputsCursor ?? 0) < (s.inputs ?? []).length ? "upload_inputs" : "agent_analyze"), ["upload_inputs", "agent_analyze"])
+  .addEdge("agent_analyze", "agent_plan")
+  .addConditionalEdges("agent_plan", (s) => ((s.helperSpecs ?? []).length ? "agent_helper" : "extract_knowledge"), ["agent_helper", "extract_knowledge"])
+  .addConditionalEdges("agent_helper", (s) => ((s.helperCursor ?? 0) < (s.helperSpecs ?? []).length ? "agent_helper" : "extract_knowledge"), ["agent_helper", "extract_knowledge"])
   .addEdge("extract_knowledge", "publish")
   .addEdge("publish", END);
 
@@ -702,7 +565,13 @@ export async function runPreworkStep(run: JobRun, initial: Partial<PreworkState>
   const config = { configurable: { thread_id: threadId }, recursionLimit: 1000 };
   RUNS.set(threadId, run);
   try {
-    const saved = run.data.graph;
+    let saved = run.data.graph;
+    if (saved?.lastNode && !(PREWORK_GRAPH_NODES as readonly string[]).includes(saved.lastNode)) {
+      // Snapshot from an older version of this pipeline: start the job over with the new agents.
+      saved = null;
+      run.data.graph = null;
+      await run.log({ source: "gemini", kind: "warning", title: "پیش‌کار با ایجنت‌های جدید از ابتدا شروع می‌شود" });
+    }
     let ran: string;
     if (!saved) {
       ran = "prepare";

@@ -3,12 +3,14 @@ import * as React from "react";
 import { ReactFlow, Controls, MarkerType, type Edge, type Node, ReactFlowProvider } from "@xyflow/react";
 import type { Manifest } from "@/lib/github/workspace";
 
-const COLUMNS = ["request", "input", "prompt", "context", "research", "wbs", "methods", "execution", "execution-log", "report", "knowledge", "final", "data-map", "explanation", "changelog"];
+const COLUMNS = ["request", "input", "prompt", "context", "brief", "helper", "research", "wbs", "methods", "execution", "execution-log", "report", "knowledge", "final", "data-map", "explanation", "changelog"];
 const COLORS: Record<string, string> = {
   request: "#f59e0b",
   input: "#f59e0b",
   prompt: "#64748b",
   context: "#0ea5e9",
+  brief: "#8b5cf6",
+  helper: "#a855f7",
   research: "#8b5cf6",
   wbs: "#8b5cf6",
   methods: "#8b5cf6",

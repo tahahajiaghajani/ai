@@ -159,11 +159,9 @@ export const REQUESTER_EDITABLE: TaskStatus[] = ["pending_approval", "returned"]
 /** Prework graph nodes shown in the mini-workflow inside the "prework running" node. */
 export const PREWORK_NODES: { key: string; label: string; agent: string }[] = [
   { key: "prepare", label: "آماده‌سازی و بازیابی دانش", agent: "RAG" },
-  { key: "research", label: "تحقیق و راهکار", agent: "ایجنت ۱" },
-  { key: "wbs", label: "شکست کار (WBS)", agent: "ایجنت ۲" },
-  { key: "methods", label: "روش انجام زیرفعالیت‌ها", agent: "ایجنت ۳" },
-  { key: "execute", label: "انجام کارهای ساده و آماده‌سازی", agent: "ایجنت ۴" },
-  { key: "report", label: "گزارش پیش‌کار", agent: "گزارش" },
+  { key: "analyze", label: "تحلیل درخواست و فایل‌ها", agent: "ایجنت ۱" },
+  { key: "plan", label: "برنامه و دستور کار", agent: "ایجنت ۲" },
+  { key: "helper", label: "فایل‌های کمکی", agent: "ایجنت ۳" },
   { key: "knowledge", label: "استخراج دانش", agent: "دانش" },
   { key: "publish", label: "انتشار در GitHub", agent: "GitHub" },
 ];

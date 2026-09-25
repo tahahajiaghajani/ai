@@ -3,7 +3,8 @@ import * as React from "react";
 import { toast } from "sonner";
 import { AlertTriangle, CheckCircle2, Clock, FolderGit2, KeyRound, Plug, RefreshCw, Save, SlidersHorizontal, Timer, XCircle } from "lucide-react";
 import { Button, Card, CardHeader, Field, Input, Select, Spinner, Switch, Textarea } from "@/components/ui/primitives";
-import { bootstrapWorkspaceAction, configureSchedulerAction, integrationStatusAction, saveSettingsAction, setClaudeTokenAction } from "@/app/actions/admin";
+import { bootstrapWorkspaceAction, configureSchedulerAction, geminiModelsAction, integrationStatusAction, saveSettingsAction, setClaudeTokenAction } from "@/app/actions/admin";
+import { CLAUDE_EFFORTS, CLAUDE_MODELS, CLAUDE_THINKING, CLAUDE_THINKING_HINT } from "@/lib/claude/options";
 import { cn, faNum } from "@/lib/utils";
 import type { AppSettings } from "@/lib/settings";
 
@@ -23,7 +24,7 @@ function Row({ ok, label, detail, level }: { ok: boolean; label: string; detail?
 
 function ChainInput({ label, value, onChange }: { label: string; value: string[]; onChange: (v: string[]) => void }) {
   return (
-    <Field label={label} hint="مدل‌ها به ترتیب؛ با پر شدن سهمیه‌ی هر مدل، سیستم خودکار سراغ بعدی می‌رود">
+    <Field label={label} hint="auto = جدیدترین مدل‌های Flash که رایگان در دسترس‌اند (auto-lite برای نسخه‌های Lite)؛ می‌توانید نام مدل‌ها را هم به ترتیب بنویسید">
       <Input dir="ltr" value={value.join(", ")} onChange={(e) => onChange(e.target.value.split(",").map((s) => s.trim()).filter(Boolean))} />
     </Field>
   );
@@ -36,6 +37,7 @@ export function SettingsClient({ settings: initial, info }: { settings: AppSetti
   const [claudeToken, setClaudeToken] = React.useState("");
   const [anthropicKey, setAnthropicKey] = React.useState("");
   const [dbUrl, setDbUrl] = React.useState("");
+  const [models, setModels] = React.useState<{ prework: string[]; knowledge: string[] } | null>(null);
   const [busy, setBusy] = React.useState<string | null>(null);
 
   const load = React.useCallback(async () => {
@@ -54,6 +56,14 @@ export function SettingsClient({ settings: initial, info }: { settings: AppSetti
       toast.success(msg);
       void load();
     } else toast.error(r.error ?? "خطا");
+  };
+
+  const loadModels = async () => {
+    setBusy("models");
+    const r = await geminiModelsAction({ prework: s.models.prework, knowledge: s.models.knowledge });
+    setBusy(null);
+    if (r.ok) setModels(r.data);
+    else toast.error(r.error);
   };
 
   const set = <K extends keyof AppSettings>(k: K, v: Partial<AppSettings[K]>) => setS((prev) => ({ ...prev, [k]: { ...prev[k], ...v } }));
@@ -164,12 +174,21 @@ export function SettingsClient({ settings: initial, info }: { settings: AppSetti
           }
         />
         <div className="grid gap-4 p-5 md:grid-cols-2">
-          <ChainInput label="ایجنت تحقیق" value={s.models.research} onChange={(v) => set("models", { research: v })} />
-          <ChainInput label="ساختاردهی (WBS)" value={s.models.structure} onChange={(v) => set("models", { structure: v })} />
-          <ChainInput label="روش انجام" value={s.models.methods} onChange={(v) => set("models", { methods: v })} />
-          <ChainInput label="اجرای کارهای ساده" value={s.models.execute} onChange={(v) => set("models", { execute: v })} />
-          <ChainInput label="گزارش" value={s.models.report} onChange={(v) => set("models", { report: v })} />
+          <ChainInput label="مدل‌های ایجنت‌های پیش‌کار" value={s.models.prework} onChange={(v) => set("models", { prework: v })} />
           <ChainInput label="استخراج دانش" value={s.models.knowledge} onChange={(v) => set("models", { knowledge: v })} />
+          <div className="rounded-xl bg-surface-muted/60 p-3 text-xs leading-6 md:col-span-2">
+            <div className="flex items-center gap-2">
+              <b>مدل‌هایی که الان استفاده می‌شوند:</b>
+              <Button size="sm" variant="ghost" loading={busy === "models"} onClick={loadModels}>
+                <RefreshCw className="size-3.5" /> بررسی
+              </Button>
+            </div>
+            {models ? (
+              <p className="ltr mt-1 text-start text-muted">پیش‌کار: {models.prework.join(" → ")}<br />دانش: {models.knowledge.join(" → ")}</p>
+            ) : (
+              <p className="mt-1 text-muted">برای دیدن فهرست دقیق «بررسی» را بزنید. اگر مدلی شلوغ باشد یا سهمیه‌ی رایگانش تمام شود، مدل بعدی به‌کار می‌رود.</p>
+            )}
+          </div>
           <Field label="مدل embedding" hint="تغییر آن نیاز به ساخت دوباره‌ی بردارهای قبلی دارد">
             <Input dir="ltr" value={s.models.embedding} onChange={(e) => set("models", { embedding: e.target.value })} />
           </Field>
@@ -180,20 +199,14 @@ export function SettingsClient({ settings: initial, info }: { settings: AppSetti
               <option value="HIGH">زیاد (دقیق‌تر)</option>
             </Select>
           </Field>
-          <Field label="تعداد فعالیت در هر فراخوانی «روش انجام»">
-            <Input type="number" min={1} max={12} value={s.pipeline.methodsBatch} onChange={(e) => set("pipeline", { methodsBatch: Number(e.target.value) })} />
-          </Field>
-          <Field label="تعداد فعالیت در هر فراخوانی «اجرا»">
-            <Input type="number" min={1} max={6} value={s.pipeline.executeBatch} onChange={(e) => set("pipeline", { executeBatch: Number(e.target.value) })} />
-          </Field>
-          <Field label="حداکثر فعالیت‌های اجراشونده در پیش‌کار">
-            <Input type="number" min={0} max={80} value={s.pipeline.maxExecuteItems} onChange={(e) => set("pipeline", { maxExecuteItems: Number(e.target.value) })} />
+          <Field label="حداکثر فایل‌های کمکی پیش‌کار" hint="کنار دستور کار؛ ایجنت فقط وقتی واقعاً لازم باشد فایل می‌سازد (۰ = هیچ‌وقت)">
+            <Input type="number" min={0} max={6} value={s.pipeline.maxHelperFiles} onChange={(e) => set("pipeline", { maxHelperFiles: Number(e.target.value) })} />
           </Field>
           <Field label="تعداد نتایج بازیابی دانش (RAG)">
             <Input type="number" min={0} max={20} value={s.pipeline.ragResults} onChange={(e) => set("pipeline", { ragResults: Number(e.target.value) })} />
           </Field>
           <div className="space-y-3 md:col-span-2">
-            <Switch checked={s.pipeline.useGoogleSearch} onChange={(v) => set("pipeline", { useGoogleSearch: v })} label="جستجوی گوگل (Grounding) برای ایجنت تحقیق — اگر کلید رایگان پشتیبانی نکند خودکار غیرفعال می‌شود" />
+            <Switch checked={s.pipeline.useGoogleSearch} onChange={(v) => set("pipeline", { useGoogleSearch: v })} label="جستجوی گوگل (Grounding) برای ایجنت تحلیل — فقط وقتی درخواست به اطلاعات بیرونی نیاز دارد؛ اگر کلید رایگان پشتیبانی نکند خودکار غیرفعال می‌شود" />
             <Switch checked={s.knowledge.autoExtract} onChange={(v) => set("knowledge", { autoExtract: v })} label="استخراج خودکار دانش پس از پیش‌کار و کار اصلی" />
             <Switch checked={s.claude.resumeSessions} onChange={(v) => set("claude", { resumeSessions: v })} label="ادامه‌ی همان جلسه‌ی Claude برای تسک‌های مرتبط" />
             <Switch checked={s.upgrade.autoMerge} onChange={(v) => set("upgrade", { autoMerge: v })} label="انتشار خودکار همه‌ی ارتقاها پس از build موفق" />
@@ -205,8 +218,36 @@ export function SettingsClient({ settings: initial, info }: { settings: AppSetti
               <option value="off">خاموش</option>
             </Select>
           </Field>
-          <Field label="مدل Claude (اختیاری)" hint="خالی = پیش‌فرض اشتراک شما؛ مثلاً opus یا sonnet">
-            <Input dir="ltr" value={s.claude.model} onChange={(e) => set("claude", { model: e.target.value })} />
+          <Field label="مدل Claude" hint="پیش‌فرض هر ارسال؛ در پنجره‌ی ارسال به Claude هم قابل تغییر است">
+            <Select value={CLAUDE_MODELS.some((m) => m.value === s.claude.model) ? s.claude.model : "custom"} onChange={(e) => set("claude", { model: e.target.value === "custom" ? s.claude.model || "claude-" : e.target.value })}>
+              {CLAUDE_MODELS.map((m) => (
+                <option key={m.value} value={m.value}>
+                  {m.label}
+                </option>
+              ))}
+              <option value="custom">نام کامل مدل…</option>
+            </Select>
+            {!CLAUDE_MODELS.some((m) => m.value === s.claude.model) ? (
+              <Input dir="ltr" className="mt-2" value={s.claude.model} onChange={(e) => set("claude", { model: e.target.value })} placeholder="مثلاً claude-opus-5-5" />
+            ) : null}
+          </Field>
+          <Field label="Effort (عمق کار و فکر)">
+            <Select value={s.claude.effort} onChange={(e) => set("claude", { effort: e.target.value as AppSettings["claude"]["effort"] })}>
+              {CLAUDE_EFFORTS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="حالت Thinking" hint={CLAUDE_THINKING_HINT}>
+            <Select value={s.claude.thinking} onChange={(e) => set("claude", { thinking: e.target.value as AppSettings["claude"]["thinking"] })}>
+              {CLAUDE_THINKING.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </Select>
           </Field>
           <Field label="حداکثر نوبت‌های Claude در هر اجرا">
             <Input type="number" min={20} max={1000} value={s.claude.maxTurns} onChange={(e) => set("claude", { maxTurns: Number(e.target.value) })} />

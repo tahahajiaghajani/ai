@@ -14,6 +14,73 @@ export function genai(): GoogleGenAI {
   return client;
 }
 
+// ---------------------------------------------------------------------------
+// Automatic model choice: always the newest Flash models this key can use
+// ---------------------------------------------------------------------------
+
+/** Settings value meaning "newest Flash models first" (and "newest Flash-Lite first"). */
+export const AUTO_MODEL = "auto";
+export const AUTO_LITE_MODEL = "auto-lite";
+const STATIC_FALLBACK = ["gemini-flash-latest", "gemini-flash-lite-latest"];
+let listed: { at: number; flash: string[]; lite: string[] } | null = null;
+
+function versionOf(name: string): number[] {
+  return (name.match(/gemini-(\d+(?:\.\d+)*)-flash/)?.[1] ?? "0").split(".").map(Number);
+}
+
+function newestFirst(a: string, b: string): number {
+  const va = versionOf(a);
+  const vb = versionOf(b);
+  for (let i = 0; i < Math.max(va.length, vb.length); i++) {
+    const d = (vb[i] ?? 0) - (va[i] ?? 0);
+    if (d) return d;
+  }
+  return 0;
+}
+
+/** Stable (non-preview) Flash and Flash-Lite text models, newest first. */
+export function pickFlashModels(names: string[]): { flash: string[]; lite: string[] } {
+  const clean = names.map((n) => n.replace(/^models\//, ""));
+  return {
+    flash: clean.filter((n) => /^gemini-\d+(?:\.\d+)*-flash$/.test(n)).sort(newestFirst),
+    lite: clean.filter((n) => /^gemini-\d+(?:\.\d+)*-flash-lite$/.test(n)).sort(newestFirst),
+  };
+}
+
+async function listFlashModels(): Promise<{ flash: string[]; lite: string[] }> {
+  if (listed && Date.now() - listed.at < 6 * 3600_000) return listed;
+  try {
+    const names: string[] = [];
+    const pager = await genai().models.list({ config: { pageSize: 200 } });
+    for await (const m of pager) {
+      if (m.name && (m.supportedActions ?? []).includes("generateContent")) names.push(m.name);
+    }
+    listed = { at: Date.now(), ...pickFlashModels(names) };
+  } catch {
+    listed = { at: Date.now() - 5 * 3600_000, flash: [], lite: [] }; // retry the listing in an hour
+  }
+  return listed;
+}
+
+/**
+ * Expands "auto" / "auto-lite" into concrete model names (newest first, then the -latest aliases).
+ * The generator walks this chain, so a model that is busy or has no free quota left is skipped.
+ */
+export async function resolveModels(models: string[]): Promise<string[]> {
+  if (!models.some((m) => m === AUTO_MODEL || m === AUTO_LITE_MODEL)) return models;
+  const { flash, lite } = await listFlashModels();
+  const out: string[] = [];
+  for (const m of models) {
+    // Free-tier daily quotas are per model (the newest ones allow only ~20 requests/day), so walk
+    // several Flash generations; Lite is the last resort so a task never stalls for a whole day.
+    if (m === AUTO_MODEL) out.push(...flash.slice(0, 4), "gemini-flash-latest", ...lite.slice(0, 1), "gemini-flash-lite-latest");
+    else if (m === AUTO_LITE_MODEL) out.push(...lite.slice(0, 2), "gemini-flash-lite-latest");
+    else out.push(m);
+  }
+  const chain = [...new Set(out)];
+  return chain.length ? chain : STATIC_FALLBACK;
+}
+
 /** Job-bound hooks the generator uses to persist progress and report live status. */
 export interface GenContext {
   getPartial(): { key: string; text: string; model?: string } | null | undefined;
@@ -71,6 +138,7 @@ function thoughtHeadline(t: string): string | null {
  *  - thought summaries surfaced to the live log
  */
 export async function generate(opts: GenOptions): Promise<GenResult> {
+  opts = { ...opts, models: await resolveModels(opts.models) };
   const blocked = await opts.ctx.blockedModels();
   const now = Date.now();
   const partial = opts.ctx.getPartial();

@@ -106,6 +106,20 @@ export async function getFileText(ref: RepoRef, path: string, branch?: string): 
   }
 }
 
+/** Raw bytes of a repository file (null when it does not exist). */
+export async function getFileBytes(ref: RepoRef, path: string, branch?: string): Promise<Buffer | null> {
+  try {
+    const { data } = await gh().rest.repos.getContent({ ...ref, path, ref: branch });
+    if (Array.isArray(data) || data.type !== "file") return null;
+    if ("content" in data && data.content) return Buffer.from(data.content, "base64");
+    const blob = await gh().rest.git.getBlob({ ...ref, file_sha: data.sha });
+    return Buffer.from(blob.data.content, "base64");
+  } catch (err) {
+    if ((err as { status?: number }).status === 404) return null;
+    throw err;
+  }
+}
+
 export interface TreeItem {
   path: string;
   type: "blob" | "tree";

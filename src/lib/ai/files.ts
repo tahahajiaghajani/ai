@@ -17,7 +17,7 @@ export interface FileRef {
 
 const TEXT_EXT = /\.(txt|md|markdown|csv|tsv|json|xml|yaml|yml|sql|js|jsx|ts|tsx|py|java|cs|go|rb|php|html|htm|css|scss|sh|ps1|ini|env|log|conf|toml|kt|swift|c|cpp|h|hpp|rs|vue|svelte)$/i;
 const GEMINI_NATIVE = /^(application\/pdf|image\/(png|jpeg|jpg|webp|heic|heif)|audio\/.+|video\/.+)$/i;
-const MAX_INLINE_CHARS = 120_000;
+const MAX_INLINE_CHARS = 300_000;
 
 export async function downloadStorage(path: string): Promise<Blob> {
   const { data, error } = await db().storage.from("task-files").download(path);
@@ -25,7 +25,7 @@ export async function downloadStorage(path: string): Promise<Blob> {
   return data;
 }
 
-function guessMime(name: string, mime: string | null): string {
+export function guessMime(name: string, mime: string | null): string {
   if (mime && mime !== "application/octet-stream") return mime;
   const ext = name.split(".").pop()?.toLowerCase() ?? "";
   const map: Record<string, string> = {
@@ -39,6 +39,14 @@ function guessMime(name: string, mime: string | null): string {
     mp4: "video/mp4",
     docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    html: "text/html",
+    htm: "text/html",
+    md: "text/markdown",
+    json: "application/json",
+    css: "text/css",
+    js: "text/javascript",
+    csv: "text/csv",
+    txt: "text/plain",
   };
   return map[ext] ?? (TEXT_EXT.test(name) ? "text/plain" : "application/octet-stream");
 }
@@ -74,7 +82,7 @@ export async function prepareFilesForGemini(files: TaskFile[], deadline: number,
         await onFile?.(`فایل «${f.name}» در Gemini بارگذاری شد`);
       } else if (mime.startsWith("text/") || TEXT_EXT.test(f.name) || mime === "application/json") {
         const text = await (await downloadStorage(f.storage_path)).text();
-        refs.push({ id: f.id, name: f.name, mime, text: text.slice(0, MAX_INLINE_CHARS) });
+        refs.push({ id: f.id, name: f.name, mime, text: text.length > MAX_INLINE_CHARS ? `${text.slice(0, MAX_INLINE_CHARS)}\n…[ادامه‌ی فایل به دلیل حجم زیاد حذف شد]` : text });
         await onFile?.(`متن فایل «${f.name}» خوانده شد`);
       } else if (/\.docx$/i.test(f.name)) {
         const mammoth = await import("mammoth");

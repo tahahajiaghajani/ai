@@ -7,6 +7,7 @@ import { db } from "@/lib/supabase/admin";
 import { enqueueJob, kickWorker } from "@/lib/queue/jobs";
 import { act } from "./_util";
 import type { RelationType, TaskStatus } from "@/lib/types";
+import type { ClaudeRunOptions } from "@/lib/settings";
 
 async function origin() {
   const h = await headers();
@@ -66,8 +67,8 @@ export async function sendToPreworkAction(ids: string[], prompt: string, files: 
   return act(async () => svc.sendToPrework(await assertAdmin(), ids, prompt, files, await origin()).then(() => null));
 }
 
-export async function sendToMainAction(ids: string[], prompt: string, files: svc.UploadedFile[]) {
-  return act(async () => svc.sendToMain(await assertAdmin(), ids, prompt, files, await origin()).then(() => null));
+export async function sendToMainAction(ids: string[], prompt: string, files: svc.UploadedFile[], claude: Partial<ClaudeRunOptions> = {}) {
+  return act(async () => svc.sendToMain(await assertAdmin(), ids, prompt, files, await origin(), claude).then(() => null));
 }
 
 export async function updateTaskDetailsAction(id: string, title: string, description: string) {

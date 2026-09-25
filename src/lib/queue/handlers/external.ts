@@ -2,6 +2,8 @@ import "server-only";
 import { db } from "@/lib/supabase/admin";
 import { env } from "@/lib/env";
 import { dispatchWorkflow, getRun, listWorkflowFiles, repoRef } from "@/lib/github/client";
+import { ensureWorkspaceTemplate } from "@/lib/github/bootstrap";
+import { errorMessage } from "@/lib/utils";
 import type { JobRun, StepResult } from "@/lib/queue/run";
 
 export interface ExternalOptions {
@@ -16,6 +18,15 @@ export interface ExternalOptions {
 export async function dispatchExternal(run: JobRun, opts: ExternalOptions): Promise<StepResult> {
   if (!env.appUrl) throw new Error("آدرس اپ (APP_URL) مشخص نیست؛ در Vercel متغیر APP_URL را تنظیم کنید");
   const ref = await repoRef(opts.repo);
+  if (opts.repo === "workspace") {
+    try {
+      if ((await ensureWorkspaceTemplate()) === "synced") {
+        await run.log({ source: "github", kind: "log", title: "فایل‌های runner در مخزن کاری با نسخه‌ی جدید اپ همگام شد" });
+      }
+    } catch (err) {
+      await run.log({ source: "github", kind: "warning", title: "همگام‌سازی خودکار قالب مخزن کاری ناموفق بود؛ از «تنظیمات» دستی همگام کنید", detail: errorMessage(err) });
+    }
+  }
   const workflows = await listWorkflowFiles(ref);
   if (!workflows.includes(opts.workflow)) {
     return {

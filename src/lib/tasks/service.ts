@@ -3,7 +3,7 @@ import { db, must } from "@/lib/supabase/admin";
 import { logEvent, notify, notifyAdmins } from "@/lib/events";
 import { enqueueJob, kickWorker } from "@/lib/queue/jobs";
 import { CLOSABLE, PRIORITY_META, REQUESTER_EDITABLE, STATUS_META } from "@/lib/status";
-import { getSettings } from "@/lib/settings";
+import { getSettings, type ClaudeRunOptions } from "@/lib/settings";
 import { gh, repoRef } from "@/lib/github/client";
 import type { SessionUser } from "@/lib/auth";
 import type { Priority, RelationType, Task, TaskFile, TaskStatus } from "@/lib/types";
@@ -73,7 +73,7 @@ async function setStatus(task: Task, status: TaskStatus, patch: Partial<Task> = 
   return updated;
 }
 
-export async function registerFiles(user: SessionUser, taskIds: string[], context: "request" | "prework" | "main", files: UploadedFile[]) {
+export async function registerFiles(user: SessionUser, taskIds: string[], context: "request" | "prework" | "main", files: UploadedFile[], jobId?: string) {
   if (!files.length) return;
   for (const f of files) {
     if (!f.storage_path.startsWith(`${user.id}/`)) throw new Error("مسیر فایل نامعتبر است");
@@ -87,6 +87,7 @@ export async function registerFiles(user: SessionUser, taskIds: string[], contex
       mime: f.mime ?? null,
       size: f.size ?? null,
       uploaded_by: user.id,
+      job_id: jobId ?? null,
     })),
   );
   must(await db().from("task_files").insert(rows).select("id"), "ثبت فایل‌ها");
@@ -290,19 +291,23 @@ export async function sendToPrework(
 ) {
   const settings = await getSettings();
   const finalPrompt = prompt.trim() || settings.prework.defaultPrompt;
-  await registerFiles(admin, ids, "prework", files);
-  for (const id of ids) {
-    const task = await getTask(id);
+  const tasks = await Promise.all(ids.map(getTask));
+  for (const task of tasks) {
     if (!["approved", "prework_done", "main_done", "closure_rejected"].includes(task.status)) {
       throw new Error(`تسک ${task.code} در وضعیت «${STATUS_META[task.status].label}» قابل ارسال به پیش‌کار نیست`);
     }
+  }
+  for (const task of tasks) {
+    const id = task.id;
     const job = await enqueueJob({
       kind: "prework",
       task_id: id,
-      payload: { prompt: finalPrompt, resumed_from: opts.resumeFromJobId ?? null },
+      // user_prompt = what the admin typed (empty = default prompt), shown in the conversation
+      payload: { prompt: finalPrompt, user_prompt: prompt.trim(), resumed_from: opts.resumeFromJobId ?? null },
       priority: PRIORITY_META[task.priority].weight,
       created_by: admin.id,
     });
+    await registerFiles(admin, [id], "prework", files, job.id);
     if (opts.resumeFromJobId) await copyCheckpoint(opts.resumeFromJobId, job.id);
     await setStatus(task, "prework_queued", {}, admin, opts.resumeFromJobId ? "ادامه‌ی پیش‌کار از آخرین مرحله‌ی موفق" : "در صف پیش‌کار Gemini قرار گرفت");
   }
@@ -324,22 +329,46 @@ async function copyCheckpoint(fromJobId: string, toJobId: string) {
   }
 }
 
-export async function sendToMain(admin: SessionUser, ids: string[], prompt: string, files: UploadedFile[] = [], origin?: string) {
+const EFFORTS = ["", "low", "medium", "high", "xhigh", "max"];
+
+/** Only the per-send Claude choices that differ from "use the Settings default". */
+/** Per-send Claude choices; a key that is present (even "") overrides the Settings default. */
+export function pickClaudeOptions(o: Partial<ClaudeRunOptions> | null | undefined): Partial<ClaudeRunOptions> | null {
+  const out: Partial<ClaudeRunOptions> = {};
+  if (!o || typeof o !== "object") return null;
+  if (typeof o.model === "string" && /^[\w.:\[\]-]{0,80}$/.test(o.model.trim())) out.model = o.model.trim();
+  if (typeof o.effort === "string" && EFFORTS.includes(o.effort)) out.effort = o.effort;
+  if (typeof o.thinking === "string" && ["auto", "on", "off"].includes(o.thinking)) out.thinking = o.thinking;
+  return Object.keys(out).length ? out : null;
+}
+
+export async function sendToMain(
+  admin: SessionUser,
+  ids: string[],
+  prompt: string,
+  files: UploadedFile[] = [],
+  origin?: string,
+  claude: Partial<ClaudeRunOptions> = {},
+) {
   const settings = await getSettings();
   const finalPrompt = prompt.trim() || settings.claude.defaultPrompt;
-  await registerFiles(admin, ids, "main", files);
-  for (const id of ids) {
-    const task = await getTask(id);
+  const tasks = await Promise.all(ids.map(getTask));
+  for (const task of tasks) {
     if (!["prework_done", "main_done", "closure_rejected", "approved"].includes(task.status)) {
       throw new Error(`تسک ${task.code} در وضعیت «${STATUS_META[task.status].label}» قابل ارسال به Claude نیست`);
     }
-    await enqueueJob({
+  }
+  const run = pickClaudeOptions(claude);
+  for (const task of tasks) {
+    const id = task.id;
+    const job = await enqueueJob({
       kind: "main",
       task_id: id,
-      payload: { prompt: finalPrompt, followup: task.status === "main_done" },
+      payload: { prompt: finalPrompt, user_prompt: prompt.trim(), followup: task.status === "main_done", ...(run ? { claude: run } : {}) },
       priority: PRIORITY_META[task.priority].weight,
       created_by: admin.id,
     });
+    await registerFiles(admin, [id], "main", files, job.id);
     await setStatus(task, "main_queued", {}, admin, "در صف انجام کار اصلی (Claude) قرار گرفت");
   }
   await kickWorker(origin);

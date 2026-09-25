@@ -45,7 +45,7 @@ export function LearningClient({
     setDraft((versions.find((v) => v.agent === agent && v.is_active)?.content ?? agents.find((a) => a.key === agent)?.defaultPrompt) || "");
   }, [agent, versions, agents]);
 
-  const fb = feedback.filter((f) => f.agent === agent || (agent === "wbs_detail" && f.agent === "wbs"));
+  const fb = feedback.filter((f) => f.agent === agent);
   const pos = feedback.filter((f) => f.rating > 0).length;
   const neg = feedback.filter((f) => f.rating < 0).length;
   const aiPending = versions.filter((v) => v.source === "ai" && !v.is_active);
