@@ -12,6 +12,8 @@ function translate(msg: string): string {
   if (/already registered|already been registered/i.test(msg)) return "با این ایمیل قبلاً ثبت‌نام شده است";
   if (/password/i.test(msg) && /characters/i.test(msg)) return "رمز عبور حداقل باید ۸ کاراکتر باشد";
   if (/rate limit/i.test(msg)) return "تعداد تلاش‌ها زیاد است؛ کمی بعد دوباره امتحان کنید";
+  if (/invalid path specified|no api key found|invalid api key/i.test(msg))
+    return "اتصال به Supabase درست تنظیم نشده است: در Vercel مقدار NEXT_PUBLIC_SUPABASE_URL باید فقط https://<ref>.supabase.co و کلید anon همان پروژه باشد؛ سپس Redeploy کنید";
   return msg;
 }
 
