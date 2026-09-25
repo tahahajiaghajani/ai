@@ -41,7 +41,15 @@ export const getSessionUser = cache(async (): Promise<SessionUser | null> => {
   if (!profile) return null;
 
   const email = (user.email ?? "").toLowerCase();
-  if (env.adminEmail && email === env.adminEmail && (profile.role !== "admin" || profile.status !== "active")) {
+  // Bootstrap admin: only while no other active admin exists (prevents takeover later on).
+  const isBootstrapAdmin =
+    env.adminEmail &&
+    email === env.adminEmail &&
+    (profile.role !== "admin" || profile.status !== "active") &&
+    !(
+      (await admin.from("profiles").select("id", { count: "exact", head: true }).eq("role", "admin").eq("status", "active").neq("id", user.id)).count ?? 0
+    );
+  if (isBootstrapAdmin) {
     const upd = await admin
       .from("profiles")
       .update({ role: "admin", status: "active" })

@@ -33,7 +33,9 @@ export async function bootstrapWorkspaceAction(claudeToken?: string, anthropicKe
     await assertAdmin();
     const sync = await syncWorkspaceTemplate();
     const secrets = await setWorkspaceSecrets({ claudeToken, anthropicKey });
-    return { ...sync, secrets };
+    // the self-upgrade runner in the app repo authenticates with the same derived secret
+    const appSecrets = await setAppSecrets({ claudeToken, anthropicKey }).catch(() => [] as string[]);
+    return { ...sync, secrets, appSecrets };
   });
 }
 
