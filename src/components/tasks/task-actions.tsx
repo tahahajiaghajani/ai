@@ -34,6 +34,119 @@ export async function run(p: Promise<Result | { ok: boolean; error?: string }>, 
 
 export type DispatchTask = Pick<Task, "id" | "code" | "title" | "description" | "status">;
 
+/** State + submit for sending tasks to pre-work (Gemini) or the main work (Claude). */
+export function useDispatch(mode: "prework" | "main", ids: string[], onDone?: () => void) {
+  const [prompt, setPrompt] = React.useState("");
+  const [files, setFiles] = React.useState<UploadedFile[]>([]);
+  const [busy, setBusy] = React.useState(false);
+  const [dropKey, setDropKey] = React.useState(0);
+  const onFiles = React.useCallback((f: UploadedFile[]) => setFiles(f), []);
+  const reset = React.useCallback(() => {
+    setPrompt("");
+    setFiles([]);
+    setDropKey((k) => k + 1);
+  }, []);
+  const submit = async () => {
+    setBusy(true);
+    const action = mode === "prework" ? sendToPreworkAction : sendToMainAction;
+    const ok = await run(action(ids, prompt, files), mode === "prework" ? "در صف پیش‌کار Gemini قرار گرفت" : "برای Claude ارسال شد");
+    setBusy(false);
+    if (ok) {
+      reset();
+      onDone?.();
+    }
+    return ok;
+  };
+  return { prompt, setPrompt, files, onFiles, busy, submit, reset, dropKey };
+}
+
+/** Prompt textarea, default-prompt preview and attachment dropzone shared by the dialog and the task drawer. */
+export function DispatchFields({ mode, userId, defaultPrompt, state }: { mode: "prework" | "main"; userId: string; defaultPrompt: string; state: ReturnType<typeof useDispatch> }) {
+  const usingDefault = !state.prompt.trim();
+  return (
+    <div className="space-y-4">
+      <Field
+        label="پرامپت شما"
+        hint={usingDefault ? "خالی است؛ پرامپت پیش‌فرض «تنظیمات و اتصال‌ها» ارسال می‌شود." : "این پرامپت به‌جای پرامپت پیش‌فرض همراه عنوان و شرح تسک ارسال می‌شود."}
+      >
+        <Textarea
+          value={state.prompt}
+          onChange={(e) => state.setPrompt(e.target.value)}
+          className="min-h-36"
+          placeholder={mode === "prework" ? "خواسته‌ها، محدودیت‌ها، منابع یا نکاتی که ایجنت‌های Gemini باید رعایت کنند…" : "دستور شما به Claude برای تکمیل کار…"}
+        />
+      </Field>
+      {defaultPrompt ? (
+        <details className="rounded-xl border border-dashed border-line px-3 py-2 text-xs">
+          <summary className="cursor-pointer font-semibold text-muted">پرامپت پیش‌فرض (در صورت خالی بودن)</summary>
+          <p className="mt-2 whitespace-pre-line leading-6 text-muted">{defaultPrompt}</p>
+          <Button type="button" size="sm" variant="outline" className="mt-2" onClick={() => state.setPrompt(defaultPrompt)}>
+            درج در کادر برای ویرایش
+          </Button>
+        </details>
+      ) : null}
+      <Field
+        label="فایل‌های همراه پرامپت (هر نوع فایل)"
+        hint={
+          mode === "prework"
+            ? "PDF، تصویر، صوت و ویدیو مستقیماً به Gemini داده می‌شوند؛ متن و Word استخراج می‌شود؛ همه‌چیز در GitHub هم ذخیره می‌شود."
+            : "در پوشه‌ی inputs/main همان تسک در GitHub قرار می‌گیرند و Claude آن‌ها را می‌خواند."
+        }
+      >
+        <FileDropzone key={state.dropKey} userId={userId} onChange={state.onFiles} compact />
+      </Field>
+    </div>
+  );
+}
+
+/** Title, description and attachment names of the tasks about to be sent. */
+function DispatchSummary({ tasks, mode, open }: { tasks: DispatchTask[]; mode: "prework" | "main"; open: boolean }) {
+  const [attached, setAttached] = React.useState<Pick<TaskFile, "task_id" | "name" | "context">[] | null>(null);
+  const idsKey = tasks.map((t) => t.id).join(",");
+  React.useEffect(() => {
+    if (!open || !idsKey) return;
+    setAttached(null);
+    void supabaseBrowser()
+      .from("task_files")
+      .select("task_id, name, context")
+      .in("task_id", idsKey.split(","))
+      .in("context", mode === "prework" ? ["request"] : ["request", "prework", "output"])
+      .order("created_at")
+      .then(({ data }) => setAttached((data ?? []) as Pick<TaskFile, "task_id" | "name" | "context">[]));
+  }, [open, idsKey, mode]);
+  const single = tasks.length === 1;
+  return (
+    <div className="rounded-2xl border border-line bg-surface-muted/50 p-3">
+      <p className="mb-2 text-xs font-bold text-muted">{single ? "تسک ارسالی" : `${faNum(tasks.length)} تسک ارسالی`}</p>
+      <div className="max-h-44 space-y-2 overflow-y-auto">
+        {tasks.map((t) => {
+          const own = attached?.filter((f) => f.task_id === t.id) ?? [];
+          return (
+            <details key={t.id} className="rounded-xl bg-surface-strong px-3 py-2" open={single}>
+              <summary className="cursor-pointer text-sm font-bold">
+                <span className="ltr mx-1.5 inline-block text-xs text-muted">{t.code}</span>
+                {t.title}
+              </summary>
+              {t.description ? <p className="mt-1.5 line-clamp-4 whitespace-pre-line text-xs leading-6 text-muted">{t.description}</p> : null}
+              {own.length ? (
+                <p className="mt-1.5 flex flex-wrap items-center gap-1 text-[11px] text-muted">
+                  <Paperclip className="size-3" />
+                  {own.slice(0, 6).map((f, i) => (
+                    <span key={i} className="ltr rounded bg-surface-muted px-1.5">
+                      {f.name}
+                    </span>
+                  ))}
+                  {own.length > 6 ? <span>+{faNum(own.length - 6)}</span> : null}
+                </p>
+              ) : null}
+            </details>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 /**
  * Prompt + attachments dialog used for "send to pre-work" and "send to Claude" (single or bulk).
  * The task title and description always travel with the prompt; an empty prompt falls back to
@@ -58,43 +171,15 @@ export function PromptDialog({
   title?: string;
   onDone?: () => void;
 }) {
-  const [prompt, setPrompt] = React.useState("");
-  const [files, setFiles] = React.useState<UploadedFile[]>([]);
-  const [attached, setAttached] = React.useState<Pick<TaskFile, "task_id" | "name" | "context">[] | null>(null);
-  const [busy, setBusy] = React.useState(false);
-  const onFiles = React.useCallback((f: UploadedFile[]) => setFiles(f), []);
   const ids = tasks.map((t) => t.id);
-  const idsKey = ids.join(",");
-
+  const state = useDispatch(mode, ids, () => {
+    onOpenChange(false);
+    onDone?.();
+  });
+  const { reset } = state;
   React.useEffect(() => {
-    if (!open) return;
-    setPrompt("");
-    setFiles([]);
-    setAttached(null);
-    if (!ids.length) return;
-    void supabaseBrowser()
-      .from("task_files")
-      .select("task_id, name, context")
-      .in("task_id", ids)
-      .in("context", mode === "prework" ? ["request"] : ["request", "prework", "output"])
-      .order("created_at")
-      .then(({ data }) => setAttached((data ?? []) as Pick<TaskFile, "task_id" | "name" | "context">[]));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, idsKey, mode]);
-
-  const submit = async () => {
-    setBusy(true);
-    const action = mode === "prework" ? sendToPreworkAction : sendToMainAction;
-    const ok = await run(action(ids, prompt, files), mode === "prework" ? "در صف پیش‌کار Gemini قرار گرفت" : "برای Claude ارسال شد");
-    setBusy(false);
-    if (ok) {
-      onOpenChange(false);
-      onDone?.();
-    }
-  };
-
-  const usingDefault = !prompt.trim();
-  const single = tasks.length === 1 ? tasks[0] : null;
+    if (open) reset();
+  }, [open, reset]);
 
   return (
     <Modal
@@ -112,7 +197,7 @@ export function PromptDialog({
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             انصراف
           </Button>
-          <Button onClick={submit} loading={busy} disabled={!ids.length}>
+          <Button onClick={() => void state.submit()} loading={state.busy} disabled={!ids.length}>
             {mode === "prework" ? <Sparkles className="size-4" /> : <Bot className="size-4" />}
             {mode === "prework" ? "شروع پیش‌کار" : "ارسال به Claude"}
           </Button>
@@ -120,70 +205,8 @@ export function PromptDialog({
       }
     >
       <div className="space-y-4">
-        <div className="rounded-2xl border border-line bg-surface-muted/50 p-3">
-          <p className="mb-2 text-xs font-bold text-muted">{single ? "تسک ارسالی" : `${faNum(tasks.length)} تسک ارسالی`}</p>
-          <div className="max-h-44 space-y-2 overflow-y-auto">
-            {tasks.map((t) => {
-              const own = attached?.filter((f) => f.task_id === t.id) ?? [];
-              return (
-                <details key={t.id} className="rounded-xl bg-surface-strong px-3 py-2" open={!!single}>
-                  <summary className="cursor-pointer text-sm font-bold">
-                    <span className="ltr mx-1.5 inline-block text-xs text-muted">{t.code}</span>
-                    {t.title}
-                  </summary>
-                  {t.description ? <p className="mt-1.5 line-clamp-4 whitespace-pre-line text-xs leading-6 text-muted">{t.description}</p> : null}
-                  {own.length ? (
-                    <p className="mt-1.5 flex flex-wrap items-center gap-1 text-[11px] text-muted">
-                      <Paperclip className="size-3" />
-                      {own.slice(0, 6).map((f, i) => (
-                        <span key={i} className="ltr rounded bg-surface-muted px-1.5">
-                          {f.name}
-                        </span>
-                      ))}
-                      {own.length > 6 ? <span>+{faNum(own.length - 6)}</span> : null}
-                    </p>
-                  ) : null}
-                </details>
-              );
-            })}
-          </div>
-        </div>
-
-        <Field
-          label="پرامپت شما"
-          hint={
-            usingDefault
-              ? "خالی است؛ پرامپت پیش‌فرض «تنظیمات و اتصال‌ها» ارسال می‌شود."
-              : "این پرامپت به‌جای پرامپت پیش‌فرض همراه عنوان و شرح تسک ارسال می‌شود."
-          }
-        >
-          <Textarea
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            className="min-h-36"
-            placeholder={mode === "prework" ? "خواسته‌ها، محدودیت‌ها، منابع یا نکاتی که ایجنت‌های Gemini باید رعایت کنند…" : "دستور شما به Claude برای تکمیل کار…"}
-          />
-        </Field>
-        {defaultPrompt ? (
-          <details className="rounded-xl border border-dashed border-line px-3 py-2 text-xs">
-            <summary className="cursor-pointer font-semibold text-muted">پرامپت پیش‌فرض (در صورت خالی بودن)</summary>
-            <p className="mt-2 whitespace-pre-line leading-6 text-muted">{defaultPrompt}</p>
-            <Button type="button" size="sm" variant="outline" className="mt-2" onClick={() => setPrompt(defaultPrompt)}>
-              درج در کادر برای ویرایش
-            </Button>
-          </details>
-        ) : null}
-
-        <Field
-          label="فایل‌های همراه پرامپت (هر نوع فایل)"
-          hint={
-            mode === "prework"
-              ? "PDF، تصویر، صوت و ویدیو مستقیماً به Gemini داده می‌شوند؛ متن و Word استخراج می‌شود؛ همه‌چیز در GitHub هم ذخیره می‌شود."
-              : "در پوشه‌ی inputs/main همان تسک در GitHub قرار می‌گیرند و Claude آن‌ها را می‌خواند."
-          }
-        >
-          <FileDropzone userId={userId} onChange={onFiles} compact />
-        </Field>
+        <DispatchSummary tasks={tasks} mode={mode} open={open} />
+        <DispatchFields mode={mode} userId={userId} defaultPrompt={defaultPrompt} state={state} />
       </div>
     </Modal>
   );
@@ -256,6 +279,7 @@ export function TaskActions({
   activeJobId,
   size = "md",
   onChanged,
+  inlineMode,
 }: {
   task: Task;
   userId: string;
@@ -263,6 +287,8 @@ export function TaskActions({
   activeJobId?: string | null;
   size?: "sm" | "md";
   onChanged?: () => void;
+  /** send form already shown inline (task drawer): skip the button that would open the same dialog */
+  inlineMode?: "prework" | "main";
 }) {
   const router = useRouter();
   const [dialog, setDialog] = React.useState<null | "prework" | "main" | "return" | "close" | "cancel" | "force">(null);
@@ -290,14 +316,14 @@ export function TaskActions({
       </Button>,
     );
   }
-  if (["approved", "prework_done", "main_done", "closure_rejected"].includes(s)) {
+  if (["approved", "prework_done", "main_done", "closure_rejected"].includes(s) && inlineMode !== "prework") {
     primary.push(
       <Button key="pw" size={btn} variant={s === "approved" ? "primary" : "secondary"} onClick={() => setDialog("prework")}>
         <Sparkles className="size-4" /> {s === "approved" ? "ارسال به پیش‌کار" : "پیش‌کار جدید"}
       </Button>,
     );
   }
-  if (["prework_done", "main_done", "closure_rejected", "approved"].includes(s)) {
+  if (["prework_done", "main_done", "closure_rejected", "approved"].includes(s) && inlineMode !== "main") {
     primary.push(
       <Button key="main" size={btn} variant={s === "prework_done" ? "primary" : "secondary"} onClick={() => setDialog("main")}>
         <Bot className="size-4" /> {s === "main_done" ? "دستور تکمیلی به Claude" : "ارسال به Claude"}

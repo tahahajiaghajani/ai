@@ -6,7 +6,7 @@ import { CLOSABLE, PRIORITY_META, REQUESTER_EDITABLE, STATUS_META } from "@/lib/
 import { getSettings } from "@/lib/settings";
 import { gh, repoRef } from "@/lib/github/client";
 import type { SessionUser } from "@/lib/auth";
-import type { Priority, RelationType, Task, TaskStatus } from "@/lib/types";
+import type { Priority, RelationType, Task, TaskFile, TaskStatus } from "@/lib/types";
 
 export interface TaskInput {
   title: string;
@@ -212,6 +212,71 @@ export async function returnTask(admin: SessionUser, id: string, reason: string)
     body: reason.trim(),
     link: `/portal/tasks/${task.id}`,
     task_id: task.id,
+  });
+}
+
+const LOCKED: TaskStatus[] = ["closed", "cancelled"];
+const RUNNING: TaskStatus[] = ["prework_running", "main_running"];
+
+/** Admin edit of the request itself (title/description), e.g. right before sending it to pre-work or Claude. */
+export async function updateTaskDetails(admin: SessionUser, id: string, input: { title: string; description: string }) {
+  const task = await getTask(id);
+  if (LOCKED.includes(task.status)) throw new Error("تسک بسته یا لغو شده قابل ویرایش نیست");
+  const title = input.title.trim();
+  const description = input.description.trim();
+  if (!title) throw new Error("عنوان تسک الزامی است");
+  if (title.length > 200) throw new Error("عنوان حداکثر ۲۰۰ کاراکتر است");
+  if (description.length > 20000) throw new Error("شرح تسک حداکثر ۲۰٬۰۰۰ کاراکتر است");
+  if (title === task.title && description === task.description) return;
+  must(await db().from("tasks").update({ title, description }).eq("id", id).select("id").single(), "ویرایش تسک");
+  const changed = [title !== task.title ? "عنوان" : null, description !== task.description ? "شرح" : null].filter(Boolean).join(" و ");
+  await logEvent({
+    task_id: id,
+    source: "user",
+    kind: "log",
+    title: `مدیر ${changed} تسک را ویرایش کرد`,
+    detail: title !== task.title ? `عنوان قبلی: ${task.title}` : null,
+    visibility: "requester",
+    actor_id: admin.id,
+  });
+}
+
+/** Admin adds attachments to the task itself (they travel with the request to pre-work and Claude). */
+export async function addTaskFiles(admin: SessionUser, id: string, files: UploadedFile[]) {
+  const task = await getTask(id);
+  if (LOCKED.includes(task.status)) throw new Error("به تسک بسته یا لغو شده نمی‌توان فایل افزود");
+  if (!files.length) return;
+  await registerFiles(admin, [id], "request", files);
+  await logEvent({
+    task_id: id,
+    source: "user",
+    kind: "file",
+    title: `مدیر ${files.length} فایل به تسک افزود`,
+    detail: files.map((f) => f.name).join("، "),
+    visibility: "requester",
+    actor_id: admin.id,
+  });
+}
+
+/** Removes an attachment (row + stored object when no other task still references it). */
+export async function deleteTaskFile(admin: SessionUser, fileId: string) {
+  const { data: file } = await db().from("task_files").select("*").eq("id", fileId).maybeSingle<TaskFile>();
+  if (!file?.task_id) throw new Error("فایل پیدا نشد");
+  const task = await getTask(file.task_id);
+  if (LOCKED.includes(task.status)) throw new Error("فایل‌های تسک بسته یا لغو شده قابل حذف نیستند");
+  if (RUNNING.includes(task.status)) throw new Error("تسک در حال اجراست؛ پس از پایان اجرا فایل را حذف کنید");
+  if (file.context === "output") throw new Error("خروجی‌های نهایی از اینجا حذف نمی‌شوند");
+  must(await db().from("task_files").delete().eq("id", file.id).select("id"), "حذف فایل");
+  const { count } = await db().from("task_files").select("id", { count: "exact", head: true }).eq("storage_path", file.storage_path);
+  if (!count) await db().storage.from("task-files").remove([file.storage_path]);
+  await logEvent({
+    task_id: task.id,
+    source: "user",
+    kind: "file",
+    title: `مدیر فایل «${file.name}» را حذف کرد`,
+    detail: file.github_path ? `نسخه‌ی قبلاً منتشرشده در GitHub باقی می‌ماند: ${file.github_path}` : null,
+    visibility: "requester",
+    actor_id: admin.id,
   });
 }
 

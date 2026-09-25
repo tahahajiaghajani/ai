@@ -70,6 +70,18 @@ export async function sendToMainAction(ids: string[], prompt: string, files: svc
   return act(async () => svc.sendToMain(await assertAdmin(), ids, prompt, files, await origin()).then(() => null));
 }
 
+export async function updateTaskDetailsAction(id: string, title: string, description: string) {
+  return act(async () => svc.updateTaskDetails(await assertAdmin(), id, { title, description }).then(() => null));
+}
+
+export async function addTaskFilesAction(id: string, files: svc.UploadedFile[]) {
+  return act(async () => svc.addTaskFiles(await assertAdmin(), id, files).then(() => null));
+}
+
+export async function deleteTaskFileAction(fileId: string) {
+  return act(async () => svc.deleteTaskFile(await assertAdmin(), fileId).then(() => null));
+}
+
 export async function requestClosureAction(id: string, note: string) {
   return act(async () => svc.requestClosure(await assertAdmin(), id, note).then(() => null));
 }
