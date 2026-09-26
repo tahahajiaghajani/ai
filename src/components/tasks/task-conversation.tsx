@@ -4,7 +4,8 @@ import { toast } from "sonner";
 import { Bot, Download, Eye, FileText, MessagesSquare, Paperclip, Sparkles, ThumbsDown, ThumbsUp, User } from "lucide-react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { Badge, Button, Spinner } from "@/components/ui/primitives";
-import { Markdown } from "@/components/ui/markdown";
+import { BidiText, Markdown } from "@/components/ui/markdown";
+import { textDir } from "@/lib/bidi";
 import { feedbackAction } from "@/app/actions/tasks";
 import { PREWORK_NODES } from "@/lib/status";
 import { formatJalali } from "@/lib/jalali";
@@ -59,7 +60,7 @@ function FileChip({ file, output }: { file: TaskFile; output?: boolean }) {
   return (
     <div className={cn("flex items-center gap-2 rounded-xl border px-2.5 py-1.5 text-xs", output ? "border-line bg-surface-strong" : "border-line/70 bg-surface-muted/60")}>
       <FileText className={cn("size-4 shrink-0", output ? "text-primary" : "text-muted")} />
-      <span className="min-w-0 flex-1 truncate font-semibold" dir="auto" title={file.name}>
+      <span className="line-clamp-2 min-w-0 flex-1 break-all text-right font-semibold" dir={textDir(file.name)} title={file.name}>
         {file.name}
       </span>
       {file.size ? <span className="shrink-0 text-faint">{formatBytes(file.size)}</span> : null}
@@ -152,11 +153,12 @@ function AiTurn({ turn, taskId }: { turn: Turn; taskId: string }) {
   const meta = gemini ? models.slice(0, 2).join("، ") : [claude.model, claude.effort && `effort ${claude.effort}`].filter(Boolean).join(" · ");
   const busy = job.status === "queued" || job.status === "running";
   return (
-    <div className="flex gap-3">
+    // RTL page: row-reverse puts the AI's icon on the far left and its bubble right next to it
+    <div dir="rtl" className="flex flex-row-reverse items-start gap-2.5">
       <span className={cn("mt-0.5 grid size-8 shrink-0 place-items-center rounded-full", gemini ? "bg-violet-500/12 text-violet-600 dark:text-violet-300" : "bg-orange-500/12 text-orange-600 dark:text-orange-300")}>
         <Icon className="size-4" />
       </span>
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 max-w-[92%] flex-1 rounded-2xl rounded-se-md border border-line bg-surface-muted/40 px-4 py-3 text-right">
         <p className="flex flex-wrap items-center gap-x-2 text-xs text-muted">
           <b className="text-fg">{gemini ? "Gemini · پیش‌کار" : "Claude · کار اصلی"}</b>
           {meta ? <span className="ltr">{meta}</span> : null}
@@ -212,14 +214,18 @@ function AiTurn({ turn, taskId }: { turn: Turn; taskId: string }) {
 
 function UserTurn({ turn }: { turn: Turn }) {
   return (
-    <div className="flex justify-end gap-3">
-      <div className="max-w-[88%] rounded-2xl rounded-se-md bg-primary-soft px-4 py-3">
+    // RTL page: the first child sits on the right, so the user's icon and bubble are on the right
+    <div dir="rtl" className="flex items-start gap-2.5">
+      <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-full bg-primary-soft text-primary">
+        <User className="size-4" />
+      </span>
+      <div className="min-w-0 max-w-[85%] rounded-2xl rounded-ss-md bg-primary-soft px-4 py-3 text-right">
         <p className="mb-1 flex items-center gap-2 text-xs text-muted">
           <b className="text-fg">{turn.job.kind === "prework" ? "به Gemini" : turn.job.payload?.followup ? "پیام تکمیلی به Claude" : "به Claude"}</b>
           <span>{formatJalali(turn.job.created_at, { withTime: true })}</span>
           {!turn.customPrompt ? <Badge>پرامپت پیش‌فرض</Badge> : null}
         </p>
-        {turn.prompt ? <p className="whitespace-pre-line text-sm leading-7" dir="auto">{turn.prompt}</p> : null}
+        {turn.prompt ? <BidiText text={turn.prompt} className="text-sm leading-7" /> : null}
         {turn.inputs.length ? (
           <div className="mt-2 grid gap-1.5">
             {turn.inputs.map((f) => (
@@ -228,9 +234,6 @@ function UserTurn({ turn }: { turn: Turn }) {
           </div>
         ) : null}
       </div>
-      <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-full bg-surface-muted text-muted">
-        <User className="size-4" />
-      </span>
     </div>
   );
 }
