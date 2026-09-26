@@ -30,9 +30,10 @@ jobs:
       TASKFLOW_APP_URL: ${{ inputs.app_url }}
       TASKFLOW_RUNNER_SECRET: ${{ secrets.TASKFLOW_RUNNER_SECRET }}
     steps:
+      # Only the latest commit: a full-history clone gets slower with every task (and binary inputs).
       - uses: actions/checkout@v5
         with:
-          fetch-depth: 0
+          fetch-depth: 1
 
       - uses: actions/setup-node@v5
         with:
@@ -44,9 +45,11 @@ jobs:
 
       - name: نصب Claude Code و graphify
         if: steps.spec.outputs.skip != 'true'
+        # both installs run at the same time; graphify is optional
         run: |
-          npm install -g @anthropic-ai/claude-code
-          pipx install graphifyy || echo "graphify install failed (optional)"
+          (pipx install graphifyy > /tmp/graphify-install.log 2>&1 || echo "graphify install failed (optional)") &
+          npm install -g @anthropic-ai/claude-code --no-audit --no-fund --loglevel=error
+          wait
 
       - name: دانلود فایل‌های ورودی بزرگ
         if: steps.spec.outputs.skip != 'true'

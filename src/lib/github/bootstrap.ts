@@ -23,7 +23,7 @@ import { getProvider } from "@/lib/queue/run";
  * Version of `workspace-template/` (must equal `workspace-template/.github/taskflow-version`).
  * Bump it whenever the template changes: the workspace repo is re-synced before the next run.
  */
-export const TEMPLATE_VERSION = "2026.09.26-1";
+export const TEMPLATE_VERSION = "2026.09.27-1";
 
 /** Re-sync the workspace repo when its runner files are older than this app version. */
 export async function ensureWorkspaceTemplate(): Promise<"current" | "synced"> {

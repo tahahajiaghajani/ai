@@ -1,3 +1,4 @@
+import type { FlowSummary } from "@/lib/workflow/types";
 export type Role = "admin" | "requester";
 export type ProfileStatus = "pending" | "active" | "disabled";
 
@@ -94,6 +95,8 @@ export interface NodeState {
 export interface JobState {
   nodes?: Record<string, NodeState>;
   todos?: TodoItem[];
+  /** the workflow this job runs (agents and their dependencies), for the live view */
+  flow?: FlowSummary;
   live?: { node?: string; chars?: number; thought?: string; at?: string; model?: string };
   usage?: { input: number; output: number; thoughts: number; calls: number };
   counts?: Record<string, number>;

@@ -66,7 +66,7 @@ export function Drawer({ open, onOpenChange, children, title }: { open: boolean;
         <D.Overlay className="fixed inset-0 z-50 bg-black/40 backdrop-blur-[2px]" />
         <D.Content
           dir="rtl"
-          className="fixed inset-y-0 left-0 z-50 flex w-full max-w-2xl flex-col border-r border-line bg-elevated shadow-pop outline-none data-[state=open]:animate-float-in"
+          className="safe-y fixed inset-y-0 left-0 z-50 flex w-full max-w-2xl flex-col border-r border-line bg-elevated shadow-pop outline-none data-[state=open]:animate-float-in"
         >
           <D.Title className="sr-only">{title}</D.Title>
           <D.Description className="sr-only">{title}</D.Description>

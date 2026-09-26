@@ -8,11 +8,10 @@ import { Modal } from "@/components/ui/overlays";
 import { activatePromptAction, runOptimizerAction, savePromptVersionAction } from "@/app/actions/admin";
 import { timeAgo } from "@/lib/jalali";
 import { cn, faNum } from "@/lib/utils";
-import type { AgentKey } from "@/lib/ai/prompts";
 
 interface Version {
   id: string;
-  agent: AgentKey;
+  agent: string;
   version: number;
   content: string;
   is_active: boolean;
@@ -26,14 +25,16 @@ export function LearningClient({
   versions,
   feedback,
   knowledgeCount,
+  initialAgent,
 }: {
-  agents: { key: AgentKey; label: string; defaultPrompt: string }[];
+  agents: { key: string; label: string; defaultPrompt: string }[];
+  initialAgent?: string;
   versions: Version[];
   feedback: { agent: string; rating: number; comment: string | null; created_at: string }[];
   knowledgeCount: number;
 }) {
   const router = useRouter();
-  const [agent, setAgent] = React.useState<AgentKey>(agents[0].key);
+  const [agent, setAgent] = React.useState<string>(agents.some((a) => a.key === initialAgent) ? initialAgent! : agents[0].key);
   const current = agents.find((a) => a.key === agent)!;
   const list = versions.filter((v) => v.agent === agent);
   const active = list.find((v) => v.is_active);

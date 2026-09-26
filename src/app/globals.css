@@ -224,6 +224,19 @@ body {
   padding-bottom: max(env(safe-area-inset-bottom), 0.5rem);
 }
 
+/* The app draws under the iPhone status bar (viewport-fit=cover, black-translucent): anything
+   pinned to the top must start below the clock/notch/battery area, where iOS takes the taps. */
+.safe-top {
+  padding-top: env(safe-area-inset-top);
+}
+.safe-y {
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.sticky-below-header {
+  top: calc(4.5rem + env(safe-area-inset-top));
+}
+
 /* ------------------------------------------------------------------ */
 /*  Markdown                                                           */
 /* ------------------------------------------------------------------ */
@@ -360,6 +373,24 @@ body {
 }
 .react-flow__handle {
   opacity: 0;
+}
+/* workflow builder: handles are how steps get connected */
+.wf-builder .react-flow__handle {
+  opacity: 1;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--surface-strong);
+  background: var(--border-strong);
+}
+.wf-builder .react-flow__handle.handle-yes {
+  background: var(--success);
+}
+.wf-builder .react-flow__handle.handle-no {
+  background: var(--danger);
+}
+.wf-builder .react-flow__handle-connecting,
+.wf-builder .react-flow__handle:hover {
+  background: var(--primary);
 }
 
 /* ------------------------------------------------------------------ */

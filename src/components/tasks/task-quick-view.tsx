@@ -123,7 +123,7 @@ export function TaskQuickView({
             </div>
 
             {inlineMode ? (
-              <InlineDispatch key={`${task.id}-${inlineMode}`} task={task} userId={userId} mode={inlineMode} defaultPrompt={inlineMode === "prework" ? defaults.prework : defaults.main} claudeDefaults={defaults.claude} />
+              <InlineDispatch key={`${task.id}-${inlineMode}`} task={task} userId={userId} mode={inlineMode} defaultPrompt={inlineMode === "prework" ? defaults.prework : defaults.main} claudeDefaults={defaults.claude} workflows={defaults.workflows} />
             ) : null}
             {task.status === "prework_queued" || task.status === "main_queued" ? (
               <QueuedNotice provider={task.status === "prework_queued" ? "gemini" : "claude"} prompt={activeJob?.status === "queued" ? String(activeJob.payload?.prompt ?? "") : null} />
@@ -131,12 +131,13 @@ export function TaskQuickView({
 
             {activeJob && activeJob.kind === "prework" ? (
               <div className="rounded-2xl border border-violet-500/25 bg-violet-500/5 p-4">
-                <p className="mb-3 text-sm font-bold text-violet-600 dark:text-violet-300">ورکفلوی پیش‌کار (زنده)</p>
+                <p className="mb-3 text-sm font-bold text-violet-600 dark:text-violet-300">ورکفلوی پیش‌کار (زنده){activeJob.state?.flow ? ` — ${activeJob.state.flow.workflow}` : ""}</p>
                 <MiniPreworkFlow state={activeJob.state} />
               </div>
             ) : null}
             {activeJob && activeJob.kind === "main" ? (
-              <div className="rounded-2xl border border-orange-500/25 bg-orange-500/5 p-4">
+              <div className="space-y-4 rounded-2xl border border-orange-500/25 bg-orange-500/5 p-4">
+                {(activeJob.state?.flow?.nodes.length ?? 0) > 3 ? <MiniPreworkFlow state={activeJob.state} /> : null}
                 <TodoList todos={activeJob.state?.todos} />
                 {activeJob.external_url ? (
                   <a href={activeJob.external_url} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-primary">

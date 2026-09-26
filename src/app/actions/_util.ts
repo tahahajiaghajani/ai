@@ -1,4 +1,5 @@
 import "server-only";
+import { refresh } from "next/cache";
 import { errorMessage } from "@/lib/utils";
 
 export type ActionResult<T = null> = { ok: true; data: T } | { ok: false; error: string };
@@ -13,4 +14,14 @@ export async function act<T>(fn: () => Promise<T>): Promise<ActionResult<T>> {
     console.error(err);
     return { ok: false, error: errorMessage(err) };
   }
+}
+
+/**
+ * Like `act`, for actions that change what the current page shows: the refreshed page travels back
+ * in the same response, so the client must not call router.refresh() afterwards (one round-trip less).
+ */
+export async function mutate<T>(fn: () => Promise<T>): Promise<ActionResult<T>> {
+  const r = await act(fn);
+  if (r.ok) refresh();
+  return r;
 }

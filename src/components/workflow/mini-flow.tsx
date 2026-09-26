@@ -1,6 +1,7 @@
 "use client";
 import { Check, Loader2, Pause, X, Minus } from "lucide-react";
 import { PREWORK_NODES } from "@/lib/status";
+import { summaryLayers } from "@/lib/workflow/types";
 import { cn, faNum } from "@/lib/utils";
 import type { JobState, NodeState, TodoItem } from "@/lib/types";
 
@@ -22,47 +23,71 @@ const NODE_STYLE: Record<string, string> = {
   pending: "bg-surface-strong text-faint border-line-strong",
 };
 
+const TYPE_TEXT: Record<string, string> = { gemini: "Gemini", router: "شرط", claude: "Claude", system: "سیستم" };
+
+interface FlowItem {
+  key: string;
+  label: string;
+  sub: string;
+}
+
+/** Layers of the job's workflow (parallel steps share a layer); older jobs use the fixed pre-work steps. */
+function flowLayers(state: JobState | null | undefined): FlowItem[][] {
+  if (state?.flow?.nodes?.length) {
+    return summaryLayers(state.flow).map((layer) => layer.map((n) => ({ key: n.id, label: n.label, sub: TYPE_TEXT[n.type] ?? "" })));
+  }
+  return PREWORK_NODES.map((n) => [{ key: n.key, label: n.label, sub: n.agent }]);
+}
+
 /**
- * The pre-work sub-workflow (analyze → brief → helper files → publish) with live status.
+ * The workflow of a pre-work/main job with live status: steps in order, parallel steps side by side.
  * `vertical` is used inside the React Flow node and on mobile.
  */
 export function MiniPreworkFlow({ state, vertical, compact }: { state: JobState | null | undefined; vertical?: boolean; compact?: boolean }) {
   const nodes = state?.nodes ?? {};
   const live = state?.live;
+  const layers = flowLayers(state);
+  const layerStatus = (layer: FlowItem[]) => (layer.every((n) => ["done", "skipped"].includes(nodes[n.key]?.status ?? "")) ? "done" : layer.some((n) => nodes[n.key]?.status && nodes[n.key]!.status !== "pending") ? "active" : "pending");
+
+  const item = (n: FlowItem) => {
+    const s = nodes[n.key]?.status ?? "pending";
+    const node = nodes[n.key];
+    return (
+      <div key={n.key} className={cn("flex min-w-0", vertical ? "items-start gap-2" : "flex-col items-center text-center")}>
+        <div className={cn("grid shrink-0 place-items-center rounded-full border-2 transition-all", compact ? "size-5" : "size-7", NODE_STYLE[s])}>
+          <NodeIcon s={s} />
+        </div>
+        <div className={cn("min-w-0", vertical ? "" : "mt-1.5 px-1")}>
+          <p className={cn("font-semibold leading-5", compact ? "text-[10.5px]" : "text-[11.5px]", s === "running" ? "text-violet-600 dark:text-violet-300" : s === "pending" || s === "skipped" ? "text-faint" : "text-fg")}>
+            {n.label}
+          </p>
+          {!compact ? (
+            <p className="text-[10px] leading-4 text-faint">
+              {n.sub}
+              {node?.total ? ` · ${faNum(node.done ?? 0)}/${faNum(node.total)}` : ""}
+            </p>
+          ) : null}
+          {s === "running" && live?.node === n.key && live.thought ? <p className="mt-0.5 line-clamp-2 max-w-[220px] text-[10px] italic leading-4 text-violet-500">{live.thought}</p> : null}
+        </div>
+      </div>
+    );
+  };
+
   return (
-    <div className={cn("relative", vertical ? "flex flex-col gap-0" : "flex items-start gap-0 overflow-x-auto pb-1")}>
-      {PREWORK_NODES.map((n, i) => {
-        const s = nodes[n.key]?.status ?? "pending";
-        const node = nodes[n.key];
-        const last = i === PREWORK_NODES.length - 1;
+    <div className={cn("relative", vertical ? "flex flex-col" : "flex items-start overflow-x-auto pb-1")}>
+      {layers.map((layer, i) => {
+        const last = i === layers.length - 1;
+        const done = layerStatus(layer) === "done";
         return (
-          <div key={n.key} className={cn("relative flex", vertical ? "items-start gap-2.5" : "min-w-[68px] flex-1 flex-col items-center text-center")}>
-            <div className={cn("flex", vertical ? "flex-col items-center" : "w-full items-center")}>
-              {!vertical ? <div className={cn("h-0.5 flex-1", i === 0 ? "opacity-0" : s === "pending" ? "bg-line-strong" : "bg-emerald-500/60")} /> : null}
-              <div className={cn("grid shrink-0 place-items-center rounded-full border-2 transition-all", compact ? "size-5" : "size-7", NODE_STYLE[s])}>
-                <NodeIcon s={s} />
-              </div>
-              {!vertical ? <div className={cn("h-0.5 flex-1", last ? "opacity-0" : nodes[PREWORK_NODES[i + 1]?.key]?.status && nodes[PREWORK_NODES[i + 1].key].status !== "pending" ? "bg-emerald-500/60" : "bg-line-strong")} /> : null}
-              {vertical && !last ? <div className={cn("w-0.5", compact ? "h-3" : "h-5", s === "done" ? "bg-emerald-500/60" : "bg-line-strong")} /> : null}
-            </div>
-            <div className={cn(vertical ? "pb-1" : "mt-1.5 px-1")}>
-              <p className={cn("font-semibold leading-5", compact ? "text-[10.5px]" : "text-[11.5px]", s === "running" ? "text-violet-600 dark:text-violet-300" : s === "pending" ? "text-faint" : "text-fg")}>
-                {n.label}
-              </p>
-              {!compact ? (
-                <p className="text-[10px] leading-4 text-faint">
-                  {n.agent}
-                  {node?.total ? ` · ${faNum(node.done ?? 0)}/${faNum(node.total)}` : ""}
-                </p>
-              ) : node?.total && s === "running" ? (
-                <p className="text-[10px] text-faint">
-                  {faNum(node.done ?? 0)}/{faNum(node.total)}
-                </p>
-              ) : null}
-              {s === "running" && live?.node === n.key && live.thought ? (
-                <p className="mt-0.5 line-clamp-2 max-w-[220px] text-[10px] italic leading-4 text-violet-500">{live.thought}</p>
-              ) : null}
-            </div>
+          <div key={layer.map((n) => n.key).join("|")} className={cn("flex", vertical ? "flex-col" : "min-w-[76px] flex-1 items-start")}>
+            <div className={cn(vertical ? "flex flex-wrap gap-x-4 gap-y-1.5" : "flex flex-1 flex-col items-stretch gap-2")}>{layer.map(item)}</div>
+            {!last ? (
+              vertical ? (
+                <div className={cn("ms-2.5 w-0.5", compact ? "my-1 h-3" : "my-1 h-4", done ? "bg-emerald-500/60" : "bg-line-strong")} />
+              ) : (
+                <div className={cn("mt-3.5 h-0.5 w-4 shrink-0", done ? "bg-emerald-500/60" : "bg-line-strong")} />
+              )
+            ) : null}
           </div>
         );
       })}

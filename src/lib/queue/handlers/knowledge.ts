@@ -2,7 +2,8 @@ import "server-only";
 import { db } from "@/lib/supabase/admin";
 import { generateJson } from "@/lib/ai/gemini";
 import { addKnowledge, KNOWLEDGE_KINDS } from "@/lib/ai/knowledge";
-import { AGENT_LABELS, getAgentPrompt, KNOWLEDGE_SCHEMA, OPTIMIZER_SCHEMA, type AgentKey } from "@/lib/ai/prompts";
+import { getAgentPrompt, KNOWLEDGE_SCHEMA, OPTIMIZER_SCHEMA } from "@/lib/ai/prompts";
+import { getAgents, SYSTEM_AGENT_LABELS } from "@/lib/workflow/registry";
 import { getSettings } from "@/lib/settings";
 import { commitFiles, getFileText, repoRef, type CommitFile } from "@/lib/github/client";
 import { notifyAdmins } from "@/lib/events";
@@ -11,7 +12,8 @@ import type { JobRun, StepResult } from "@/lib/queue/run";
 import type { Task } from "@/lib/types";
 
 /** Which ai_messages rows hold a given agent's output. */
-const MESSAGE_AGENT: Partial<Record<AgentKey, string>> = { analyze: "analysis", plan: "brief" };
+/** Feedback agent → the ai_messages agent holding its outputs (workflow steps save under their own id). */
+const MESSAGE_AGENT: Record<string, string> = { plan: "brief" };
 
 const TEXT_FILE = /\.(md|txt|sql|ts|tsx|js|jsx|py|json|yml|yaml|cs|java|go|sh|html|css)$/i;
 
@@ -83,11 +85,14 @@ export async function knowledgeHandler(run: JobRun): Promise<StepResult> {
 /** Self-improvement: propose better system prompts from admin feedback. */
 export async function optimizeHandler(run: JobRun): Promise<StepResult> {
   const settings = await getSettings();
-  let agents = (run.state.agents as AgentKey[] | undefined) ?? null;
+  const registry = await getAgents();
+  const labels: Record<string, string> = { ...SYSTEM_AGENT_LABELS, ...Object.fromEntries(registry.map((a) => [a.id, a.name])) };
+  const defaults: Record<string, string> = Object.fromEntries(registry.map((a) => [a.id, a.prompt]));
+  let agents = (run.state.agents as string[] | undefined) ?? null;
   if (!agents) {
     const { data: fb } = await db().from("feedback").select("agent").not("agent", "is", null).order("created_at", { ascending: false }).limit(300);
-    const requested = (run.job.payload.agents as AgentKey[] | undefined) ?? [];
-    agents = requested.length ? requested : [...new Set((fb ?? []).map((f) => f.agent as AgentKey))].filter((a) => a in AGENT_LABELS);
+    const requested = (run.job.payload.agents as string[] | undefined) ?? [];
+    agents = requested.length ? requested : [...new Set((fb ?? []).map((f) => (f.agent === "plan" ? "brief" : (f.agent as string))))].filter((a) => a in labels);
     await run.patchState({ agents, cursor: 0 });
   }
   const cursor = Number(run.state.cursor ?? 0);
@@ -96,7 +101,7 @@ export async function optimizeHandler(run: JobRun): Promise<StepResult> {
     return { type: "done", result: { agents: agents.length } };
   }
   const agent = agents[cursor];
-  const current = await getAgentPrompt(agent);
+  const current = await getAgentPrompt(agent, defaults[agent]);
   const { data: feedback } = await db()
     .from("feedback")
     .select("rating, comment, job_id, created_at")
@@ -114,7 +119,7 @@ export async function optimizeHandler(run: JobRun): Promise<StepResult> {
     system: await getAgentPrompt("optimizer"),
     userParts: [
       {
-        text: `# ایجنت: ${AGENT_LABELS[agent]}\n\n## پرامپت فعلی\n${current}\n\n## بازخوردها (۱+ مثبت، ۱- منفی)\n${(feedback ?? [])
+        text: `# ایجنت: ${labels[agent] ?? agent}\n\n## پرامپت فعلی\n${current}\n\n## بازخوردها (۱+ مثبت، ۱- منفی)\n${(feedback ?? [])
           .map((f) => `- [${f.rating > 0 ? "+" : f.rating < 0 ? "-" : "0"}] ${f.comment ?? ""}`)
           .join("\n") || "—"}\n\n## نمونه خروجی‌هایی که بازخورد منفی گرفتند\n${(samples ?? []).map((s) => truncate(s.content, 4000)).join("\n\n---\n\n") || "—"}`,
       },
@@ -137,7 +142,7 @@ export async function optimizeHandler(run: JobRun): Promise<StepResult> {
       source: "ai",
       rationale: [data.rationale, ...(data.changes ?? []).map((c) => `• ${c}`)].join("\n"),
     });
-  await run.log({ source: "system", kind: "result", title: `نسخه‌ی پیشنهادی جدید برای «${AGENT_LABELS[agent]}» ساخته شد` });
+  await run.log({ source: "system", kind: "result", title: `نسخه‌ی پیشنهادی جدید برای «${labels[agent] ?? agent}» ساخته شد` });
   await run.patchState({ cursor: cursor + 1 });
   if (cursor + 1 >= agents.length) {
     await notifyAdmins({ title: "پیشنهاد بهبود پرامپت‌ها آماده است", body: `${agents.length} ایجنت`, link: "/learning" });

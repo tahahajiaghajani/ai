@@ -6,10 +6,13 @@ import type { Profile } from "@/lib/types";
 export const metadata = { title: "کاربران" };
 
 export default async function UsersPage() {
-  const me = await requireAdmin();
-  const [profiles, tasks] = await Promise.all([
-    db().from("profiles").select("*").order("created_at", { ascending: false }),
-    db().from("tasks").select("requester_id, status"),
+  // Page data loads in parallel with the session check; it is only rendered once the check passes.
+  const [me, [profiles, tasks]] = await Promise.all([
+    requireAdmin(),
+    Promise.all([
+      db().from("profiles").select("*").order("created_at", { ascending: false }),
+      db().from("tasks").select("requester_id, status"),
+    ]),
   ]);
   const stats = new Map<string, { total: number; open: number }>();
   for (const t of tasks.data ?? []) {

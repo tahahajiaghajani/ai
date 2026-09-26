@@ -1,7 +1,6 @@
 "use client";
 import * as React from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { Bot, CheckCheck, ChevronLeft, Inbox, Search, Sparkles } from "lucide-react";
 import { useRealtimeRows, useNow } from "@/hooks/use-realtime";
 import { Avatar, Badge, Button, Card, EmptyState, Input, Progress } from "@/components/ui/primitives";
@@ -37,7 +36,6 @@ export function InboxClient({
   defaults: DispatchDefaults;
 }) {
   useNow();
-  const router = useRouter();
   const [tasks] = useRealtimeRows<Task & Record<string, unknown>>("tasks", initial as (Task & Record<string, unknown>)[]);
   const [tab, setTab] = React.useState("approval");
   const [q, setQ] = React.useState("");
@@ -117,7 +115,7 @@ export function InboxClient({
                   size="sm"
                   variant="success"
                   className="self-center"
-                  onClick={() => run(approveTasksAction([t.id]), `${t.code} تایید شد`, () => router.refresh())}
+                  onClick={() => run(approveTasksAction([t.id]), `${t.code} تایید شد`)}
                 >
                   <CheckCheck className="size-4" /> <span className="hidden sm:inline">تایید</span>
                 </Button>
@@ -163,16 +161,13 @@ export function InboxClient({
       </div>
 
       {selected.size ? (
-        <div className="glass sticky top-18 z-20 flex flex-wrap items-center gap-2 rounded-2xl px-4 py-3">
+        <div className="glass sticky-below-header sticky z-20 flex flex-wrap items-center gap-2 rounded-2xl px-4 py-3">
           <span className="text-sm font-bold">{faNum(selected.size)} تسک انتخاب شد</span>
           <div className="ms-auto flex gap-2">
             {current.bulk === "approve" ? (
               <Button size="sm" variant="success" loading={busy} onClick={async () => {
                 setBusy(true);
-                await run(approveTasksAction(ids), "تسک‌ها تایید شدند", () => {
-                  setSelected(new Set());
-                  router.refresh();
-                });
+                await run(approveTasksAction(ids), "تسک‌ها تایید شدند", () => setSelected(new Set()));
                 setBusy(false);
               }}>
                 <CheckCheck className="size-4" /> تایید همه
@@ -224,10 +219,8 @@ export function InboxClient({
         userId={userId}
         defaultPrompt={dialog.mode === "main" ? defaults.main : defaults.prework}
         claudeDefaults={defaults.claude}
-        onDone={() => {
-          setSelected(new Set());
-          router.refresh();
-        }}
+        workflows={defaults.workflows}
+        onDone={() => setSelected(new Set())}
       />
     </div>
   );

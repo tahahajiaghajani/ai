@@ -1,5 +1,6 @@
 /**
- * Live check of the pre-work agents (analyze → plan) on real attachments; prints the brief.
+ * Live check of the default pre-work workflow's agents on real attachments:
+ * analyze → brief → (helpers ‖ summary, in parallel). Writes the outputs to PREWORK_OUT.
  * Run with:
  *   LIVE=1 GEMINI_API_KEY=... PREWORK_FILES="a.html,b.html" PREWORK_PROMPT_FILE=prompt.txt \
  *   PREWORK_OUT=/tmp/out npx vitest run tests/live/prework.live.test.ts
@@ -8,7 +9,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { generate, generateJson, resolveModels, type GenContext } from "@/lib/ai/gemini";
-import { DEFAULT_PROMPTS, PLAN_SCHEMA } from "@/lib/ai/prompts";
+import { DEFAULT_AGENTS } from "@/lib/workflow/registry";
 import { fileRefsToParts, type FileRef } from "@/lib/ai/files";
 
 const files = (process.env.PREWORK_FILES ?? "").split(",").filter(Boolean);
@@ -41,32 +42,53 @@ describe.skipIf(!live)("pre-work agents (live)", () => {
     console.log("models:", models.join(" → "));
     const deadline = () => Date.now() + 10 * 60_000;
 
+    const agent = (id: string) => DEFAULT_AGENTS.find((a) => a.id === id)!;
+    const head = `${request}\n\n## دستور مدیر\n${prompt}`;
+    const attached = `\n\n## فایل‌های پیوست (${refs.length} فایل)\n${refs.map((r) => `- ${r.name}`).join("\n")}\nمحتوای فایل‌ها در ادامه آمده است؛ آن‌ها را کامل و دقیق بررسی کن.`;
     const analysis = await generate({
       agent: "analyze",
       models,
-      system: DEFAULT_PROMPTS.analyze,
-      userParts: [
-        { text: `${request}\n\n## دستور مدیر\n${prompt}\n\n## فایل‌های پیوست (${refs.length} فایل)\n${refs.map((r) => `- ${r.name}`).join("\n")}\nمحتوای فایل‌ها در ادامه آمده است؛ آن‌ها را کامل و دقیق بررسی کن.` },
-        ...fileRefsToParts(refs),
-      ],
+      system: agent("analyze").prompt,
+      userParts: [{ text: head + attached }, ...fileRefsToParts(refs)],
       thinking: "HIGH",
       maxOutputTokens: 32000,
       deadline: deadline(),
       partialKey: "analyze",
       ctx: ctx(),
     });
-    const { data } = await generateJson<{ reply?: string; brief?: string; helper_files?: { path: string; purpose: string; instructions: string }[] }>({
-      agent: "plan",
+    const brief = await generate({
+      agent: "brief",
       models,
-      system: DEFAULT_PROMPTS.plan,
-      userParts: [{ text: `${request}\n\n## دستور مدیر\n${prompt}\n\n## تحلیل (ایجنت ۱)\n${analysis.text}` }, ...fileRefsToParts(refs)],
-      jsonSchema: PLAN_SCHEMA,
+      system: agent("brief").prompt,
+      userParts: [{ text: `${head}\n\n## خروجی مراحل قبل\n### تحلیل\n${analysis.text}${attached}` }, ...fileRefsToParts(refs)],
       thinking: "HIGH",
       maxOutputTokens: 32000,
       deadline: deadline(),
-      partialKey: "plan",
+      partialKey: "brief",
       ctx: ctx(),
     });
+    const after = `${head}\n\n## خروجی مراحل قبل\n### دستور کار\n${brief.text}`;
+    // the two steps after the brief run at the same time, like in the workflow
+    const [helpers, summary] = await Promise.all([
+      generateJson<{ files?: { name: string; purpose: string; content: string }[] }>({
+        agent: "helpers",
+        models,
+        system: agent("helpers").prompt,
+        userParts: [{ text: after + attached }, ...fileRefsToParts(refs)],
+        jsonSchema: {
+          type: "object",
+          properties: { files: { type: "array", maxItems: 3, items: { type: "object", properties: { name: { type: "string" }, purpose: { type: "string" }, content: { type: "string" } }, required: ["name", "purpose", "content"] } } },
+          required: ["files"],
+        },
+        thinking: "MEDIUM",
+        maxOutputTokens: 32000,
+        deadline: deadline(),
+        partialKey: "helpers",
+        ctx: ctx(),
+      }),
+      generate({ agent: "summary", models, system: agent("summary").prompt, userParts: [{ text: after }], thinking: "LOW", deadline: deadline(), partialKey: "summary", ctx: ctx() }),
+    ]);
+    const data = { brief: brief.text, reply: summary.text, helper_files: helpers.data.files ?? [] };
     const out = process.env.PREWORK_OUT;
     if (out) {
       fs.mkdirSync(out, { recursive: true });

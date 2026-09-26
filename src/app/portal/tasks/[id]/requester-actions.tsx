@@ -1,6 +1,5 @@
 "use client";
 import * as React from "react";
-import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { CheckCircle2, Send, ThumbsDown } from "lucide-react";
 import { Button, Field, Textarea } from "@/components/ui/primitives";
@@ -10,7 +9,6 @@ import { confirmClosureAction, rejectClosureAction, resubmitTaskAction } from "@
 import type { Task } from "@/lib/types";
 
 export function RequesterActions({ task, userId }: { task: Task; userId: string }) {
-  const router = useRouter();
   const [busy, setBusy] = React.useState(false);
   const [rejecting, setRejecting] = React.useState(false);
   const [reason, setReason] = React.useState("");
@@ -19,10 +17,9 @@ export function RequesterActions({ task, userId }: { task: Task; userId: string 
 
   const done = (ok: boolean, msg: string, err?: string) => {
     setBusy(false);
-    if (ok) {
-      toast.success(msg);
-      router.refresh();
-    } else toast.error(err ?? "خطا");
+    // these actions return the refreshed page themselves
+    if (ok) toast.success(msg);
+    else toast.error(err ?? "خطا");
   };
 
   return (

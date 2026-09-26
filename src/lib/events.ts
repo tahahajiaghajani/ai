@@ -1,4 +1,5 @@
 import "server-only";
+import { after } from "next/server";
 import { db } from "@/lib/supabase/admin";
 import type { EventKind, EventSource } from "@/lib/types";
 
@@ -16,6 +17,19 @@ export interface LogInput {
 }
 
 const MAX_DETAIL = 12_000;
+
+/**
+ * Runs a non-critical write (activity log, notification) after the response has been sent, so a
+ * button press does not wait for it. Outside a request (tests, scripts) it just runs in the background.
+ */
+export function background(fn: () => Promise<unknown>) {
+  const run = () => fn().catch((err) => console.error("background", err));
+  try {
+    after(run);
+  } catch {
+    void run();
+  }
+}
 
 function normalize(e: LogInput) {
   return {
@@ -47,22 +61,24 @@ export async function logEvent(e: LogInput) {
   await logEvents([e]);
 }
 
+/** In-app notification; written after the response (see `background`). */
 export async function notify(userId: string | null | undefined, n: { title: string; body?: string; link?: string; task_id?: string | null }) {
   if (!userId) return;
-  try {
-    await db().from("notifications").insert({
+  background(async () => {
+    const { error } = await db().from("notifications").insert({
       user_id: userId,
       title: n.title,
       body: n.body ?? null,
       link: n.link ?? null,
       task_id: n.task_id ?? null,
     });
-  } catch (err) {
-    console.error("notify", err);
-  }
+    if (error) console.error("notify", error.message);
+  });
 }
 
 export async function notifyAdmins(n: { title: string; body?: string; link?: string; task_id?: string | null }) {
-  const { data } = await db().from("profiles").select("id").eq("role", "admin").eq("status", "active");
-  await Promise.all((data ?? []).map((a) => notify(a.id, n)));
+  background(async () => {
+    const { data } = await db().from("profiles").select("id").eq("role", "admin").eq("status", "active");
+    await Promise.all((data ?? []).map((a) => notify(a.id, n)));
+  });
 }
