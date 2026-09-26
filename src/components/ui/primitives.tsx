@@ -159,12 +159,13 @@ export function Switch({ checked, onChange, label, disabled }: { checked: boolea
       aria-checked={checked}
       disabled={disabled}
       onClick={() => onChange(!checked)}
-      className="inline-flex items-center gap-2.5 text-sm disabled:opacity-50"
+      className="inline-flex max-w-full items-center gap-2.5 text-start text-sm disabled:opacity-50"
     >
-      <span className={cn("relative h-6 w-11 rounded-full transition-colors", checked ? "bg-primary" : "bg-line-strong")}>
-        <span className={cn("absolute top-0.5 size-5 rounded-full bg-white shadow transition-all", checked ? "right-5.5" : "right-0.5")} />
+      {/* fixed size (long labels must not squeeze it); on = knob to the right and colored, like everywhere else */}
+      <span dir="ltr" className={cn("relative h-6 w-11 shrink-0 rounded-full transition-colors", checked ? "bg-primary" : "bg-line-strong")}>
+        <span className={cn("absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow transition-transform", checked ? "translate-x-5" : "translate-x-0")} />
       </span>
-      {label}
+      {label ? <span className="min-w-0 leading-6">{label}</span> : null}
     </button>
   );
 }
