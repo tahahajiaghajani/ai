@@ -10,6 +10,7 @@ import { gh, repoRef } from "@/lib/github/client";
 import { formatJalali } from "@/lib/jalali";
 import { isDeliverablePath } from "@/lib/agents/parse";
 import { registerOutputs, saveReply } from "@/lib/tasks/outputs";
+import { completeClaudeNode } from "@/lib/workflow/engine";
 import type { Job, JobState, Task, TodoItem, Upgrade } from "@/lib/types";
 
 export type RunnerEvent =
@@ -133,7 +134,14 @@ export async function completeExternal(
   // ---------------------------------------------------------------- per kind
   if (job.kind === "main") {
     if (r.status === "success") {
-      await finalizeMainSuccess(job, { ...r, summary: r.lastText?.trim() || r.summary });
+      const summary = r.lastText?.trim() || r.summary;
+      // a workflow step: record it and let the queue run the rest of the workflow
+      if (await completeClaudeNode(job, { ...r, summary })) {
+        if (r.session_id && job.task_id) await saveSession(job.task_id, r.session_id);
+        await logEvent({ ...base, source: "claude", kind: "result", title: "مرحله‌ی Claude تمام شد", detail: summary ?? null, data: { url: r.commit_url } });
+        return;
+      }
+      await finalizeMainSuccess(job, { ...r, summary });
     } else {
       await handleExternalError(job, r.error ?? r.lastText ?? "خطای نامشخص");
     }
@@ -210,7 +218,10 @@ async function finalizeMainSuccess(job: Job, r: { summary?: string; session_id?:
 
 /** Watchdog saw a successful run without a callback. */
 export async function finalizeFromWatchdog(job: Job) {
-  if (job.kind === "main") await finalizeMainSuccess(job, { summary: "اجرا در GitHub با موفقیت تمام شد (گزارش نهایی دریافت نشد)" });
+  if (job.kind === "main") {
+    const summary = "اجرا در GitHub با موفقیت تمام شد (گزارش نهایی دریافت نشد)";
+    if (!(await completeClaudeNode(job, { summary }))) await finalizeMainSuccess(job, { summary });
+  }
   if (job.kind === "upgrade") await db().from("upgrades").update({ status: "review" }).eq("id", job.upgrade_id);
 }
 

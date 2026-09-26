@@ -99,13 +99,48 @@ function Rate({ taskId, jobId, agent }: { taskId: string; jobId: string; agent: 
 
 function progressText(job: ConvJob): string {
   if (job.status === "queued") return "در صف اجرا…";
-  if (job.kind === "prework") {
-    const running = Object.entries(job.state?.nodes ?? {}).find(([, n]) => n.status === "running")?.[0];
-    const label = PREWORK_NODES.find((n) => n.key === running)?.label;
-    return label ? `${label}…` : "در حال کار…";
-  }
+  const running = Object.entries(job.state?.nodes ?? {}).filter(([, n]) => n.status === "running").map(([id]) => id);
+  const labels = running.map((id) => job.state?.flow?.nodes.find((n) => n.id === id)?.label ?? PREWORK_NODES.find((n) => n.key === id)?.label).filter(Boolean);
   const todo = job.state?.todos?.find((t) => t.status === "in_progress");
-  return todo ? `${todo.activeForm ?? todo.content}…` : "Claude در حال کار است…";
+  if (job.kind === "main" && todo) return `${todo.activeForm ?? todo.content}…`;
+  if (labels.length) return `${labels.join(" و ")}…`;
+  return job.kind === "prework" ? "در حال کار…" : "Claude در حال کار است…";
+}
+
+const STEP_STATUS: Record<string, { label: string; tone: string }> = {
+  done: { label: "انجام شد", tone: "text-success" },
+  running: { label: "در حال اجرا", tone: "text-violet-600 dark:text-violet-300" },
+  skipped: { label: "رد شد (این مسیر انتخاب نشد)", tone: "text-faint" },
+  error: { label: "خطا", tone: "text-danger" },
+  pending: { label: "در انتظار", tone: "text-faint" },
+  paused: { label: "متوقف", tone: "text-warning" },
+};
+
+/** Result of every step of a custom workflow (condition decisions, skipped branches, file counts). */
+function WorkflowSteps({ job }: { job: ConvJob }) {
+  const flow = job.state?.flow;
+  const steps = flow?.nodes.filter((n) => n.type !== "system") ?? [];
+  if (!flow || steps.length < 2) return null;
+  return (
+    <details className="mt-3 rounded-xl border border-line px-3 py-2">
+      <summary className="cursor-pointer text-xs font-bold text-muted">
+        مراحل ورکفلو «{flow.workflow}» ({faNum(steps.length)})
+      </summary>
+      <ol className="mt-2 space-y-1.5 text-xs leading-6">
+        {steps.map((n) => {
+          const st = job.state?.nodes?.[n.id];
+          const meta = STEP_STATUS[st?.status ?? "pending"] ?? STEP_STATUS.pending;
+          return (
+            <li key={n.id} className="flex flex-wrap gap-x-2">
+              <b>{n.label}</b>
+              <span className={meta.tone}>{meta.label}</span>
+              {st?.detail && st.status !== "skipped" ? <span className="w-full text-muted">{st.detail}</span> : null}
+            </li>
+          );
+        })}
+      </ol>
+    </details>
+  );
 }
 
 function AiTurn({ turn, taskId }: { turn: Turn; taskId: string }) {
@@ -151,6 +186,8 @@ function AiTurn({ turn, taskId }: { turn: Turn; taskId: string }) {
           </div>
         ) : null}
 
+        <WorkflowSteps job={job} />
+
         {turn.brief ? (
           <details className="mt-3 rounded-xl border border-line px-3 py-2">
             <summary className="cursor-pointer text-xs font-bold text-muted">نمایش کامل دستور کار</summary>
@@ -160,7 +197,7 @@ function AiTurn({ turn, taskId }: { turn: Turn; taskId: string }) {
 
         {job.status === "done" ? (
           <div className="mt-2 flex items-center gap-2 text-xs text-muted">
-            <Rate taskId={taskId} jobId={job.id} agent={gemini ? "plan" : "claude"} />
+            <Rate taskId={taskId} jobId={job.id} agent={gemini ? "brief" : "claude"} />
             {job.external_url ? (
               <a href={job.external_url} target="_blank" rel="noreferrer" className="font-semibold text-primary">
                 اجرای GitHub

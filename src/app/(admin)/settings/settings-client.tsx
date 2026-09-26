@@ -6,6 +6,7 @@ import { Button, Card, CardHeader, Field, Input, Select, Spinner, Switch, Textar
 import { bootstrapWorkspaceAction, configureSchedulerAction, geminiModelsAction, integrationStatusAction, saveSettingsAction, setClaudeTokenAction } from "@/app/actions/admin";
 import { CLAUDE_EFFORTS, CLAUDE_MODELS, CLAUDE_THINKING, CLAUDE_THINKING_HINT } from "@/lib/claude/options";
 import { cn, faNum } from "@/lib/utils";
+import { SpeedCard } from "@/components/settings/speed-card";
 import type { AppSettings } from "@/lib/settings";
 
 type Status = Awaited<ReturnType<typeof integrationStatusAction>>;
@@ -76,6 +77,8 @@ export function SettingsClient({ settings: initial, info }: { settings: AppSetti
           آدرس اپ: <span className="ltr font-mono">{info.appUrl || "—"}</span> · مخزن کاری: <span className="ltr font-mono">{info.owner ? `${info.owner}/` : ""}{info.workspaceRepo}</span>
         </p>
       </div>
+
+      <SpeedCard />
 
       <div className="grid gap-4 xl:grid-cols-2">
         <Card>

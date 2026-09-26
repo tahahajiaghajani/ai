@@ -1,7 +1,6 @@
 "use client";
 import * as React from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { ArrowUpToLine, Bot, ExternalLink, Pause, Play, RefreshCw, RotateCcw, Sparkles, XCircle, Zap } from "lucide-react";
 import { useNow, useRealtimeRows } from "@/hooks/use-realtime";
 import { Badge, Button, Card, CardHeader, EmptyState } from "@/components/ui/primitives";
@@ -15,7 +14,6 @@ import type { Job, ProviderState, Task } from "@/lib/types";
 const KIND: Record<string, string> = { prework: "پیش‌کار", main: "کار اصلی", knowledge: "استخراج دانش", graphify: "گراف graphify", upgrade: "ارتقای اپ", optimize: "بهینه‌سازی پرامپت" };
 
 function ProviderCard({ p, jobs }: { p: ProviderState; jobs: Job[] }) {
-  const router = useRouter();
   const paused = p.manual_pause || (p.paused_until && new Date(p.paused_until).getTime() > Date.now());
   const isGemini = p.provider === "gemini";
   const runningJob = jobs.find((j) => j.provider === p.provider && j.status === "running");
@@ -55,16 +53,16 @@ function ProviderCard({ p, jobs }: { p: ProviderState; jobs: Job[] }) {
       ) : null}
       <div className="mt-4 flex flex-wrap gap-2">
         {p.manual_pause ? (
-          <Button size="sm" variant="success" onClick={() => run(providerPauseAction(p.provider as "gemini" | "claude", false), "ادامه یافت", () => router.refresh())}>
+          <Button size="sm" variant="success" onClick={() => run(providerPauseAction(p.provider as "gemini" | "claude", false), "ادامه یافت")}>
             <Play className="size-4" /> ادامه
           </Button>
         ) : (
-          <Button size="sm" variant="secondary" onClick={() => run(providerPauseAction(p.provider as "gemini" | "claude", true), "متوقف شد", () => router.refresh())}>
+          <Button size="sm" variant="secondary" onClick={() => run(providerPauseAction(p.provider as "gemini" | "claude", true), "متوقف شد")}>
             <Pause className="size-4" /> توقف دستی
           </Button>
         )}
         {isGemini && (blocked.length || paused) ? (
-          <Button size="sm" variant="ghost" onClick={() => run(clearModelBlocksAction(), "محدودیت‌ها پاک شد؛ تلاش دوباره", () => router.refresh())}>
+          <Button size="sm" variant="ghost" onClick={() => run(clearModelBlocksAction(), "محدودیت‌ها پاک شد؛ تلاش دوباره")}>
             <RotateCcw className="size-4" /> تلاش دوباره الان
           </Button>
         ) : null}
@@ -74,7 +72,6 @@ function ProviderCard({ p, jobs }: { p: ProviderState; jobs: Job[] }) {
 }
 
 function JobRow({ job, task, position }: { job: Job; task?: Pick<Task, "id" | "code" | "title">; position?: number }) {
-  const router = useRouter();
   const ms = job.started_at ? (job.finished_at ? new Date(job.finished_at).getTime() : Date.now()) - new Date(job.started_at).getTime() : 0;
   return (
     <div className="px-5 py-3.5">
@@ -117,17 +114,17 @@ function JobRow({ job, task, position }: { job: Job; task?: Pick<Task, "id" | "c
           </a>
         ) : null}
         {job.status === "queued" ? (
-          <Button size="sm" variant="ghost" onClick={() => run(bumpJobAction(job.id), "به ابتدای صف رفت", () => router.refresh())}>
+          <Button size="sm" variant="ghost" onClick={() => run(bumpJobAction(job.id), "به ابتدای صف رفت")}>
             <ArrowUpToLine className="size-4" /> اول صف
           </Button>
         ) : null}
         {job.status === "queued" || job.status === "running" ? (
-          <Button size="sm" variant="ghost" className="text-danger" onClick={() => run(cancelJobAction(job.id), "لغو شد", () => router.refresh())}>
+          <Button size="sm" variant="ghost" className="text-danger" onClick={() => run(cancelJobAction(job.id), "لغو شد")}>
             <XCircle className="size-4" /> لغو
           </Button>
         ) : null}
         {job.status === "failed" || job.status === "cancelled" ? (
-          <Button size="sm" variant="ghost" onClick={() => run(retryJobAction(job.id), "دوباره در صف قرار گرفت", () => router.refresh())}>
+          <Button size="sm" variant="ghost" onClick={() => run(retryJobAction(job.id), "دوباره در صف قرار گرفت")}>
             <RefreshCw className="size-4" /> اجرای دوباره
           </Button>
         ) : null}

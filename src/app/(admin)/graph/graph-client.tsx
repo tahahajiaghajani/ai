@@ -449,7 +449,7 @@ export function GraphClient({
         </div>
       ) : null}
 
-      <div className={cn(full ? "fixed inset-0 z-50 grid bg-[var(--bg)] p-3 lg:grid-cols-[1fr_340px] lg:gap-3" : "grid gap-4 lg:grid-cols-[1fr_340px]")}>
+      <div className={cn(full ? "safe-y fixed inset-0 z-50 grid bg-[var(--bg)] p-3 lg:grid-cols-[1fr_340px] lg:gap-3" : "grid gap-4 lg:grid-cols-[1fr_340px]")}>
         <div ref={boxRef} dir="ltr" className={cn("glass relative overflow-hidden rounded-3xl", full ? "h-full min-h-[60vh]" : "h-[72vh] min-h-[520px]")}>
           {full ? (
             <button onClick={() => setFull(false)} className="glass absolute right-3 top-3 z-10 rounded-xl p-2" aria-label="بستن تمام‌صفحه">

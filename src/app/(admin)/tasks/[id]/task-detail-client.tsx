@@ -1,11 +1,10 @@
 "use client";
 import * as React from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { ArrowRight, ArrowUpLeft, CalendarRange, ExternalLink, FileText, FolderGit2, GitBranch, Network, Paperclip, Save } from "lucide-react";
 import { useRealtimeRows } from "@/hooks/use-realtime";
-import { Avatar, Badge, Button, Card, CardHeader, EmptyState, Progress, Textarea } from "@/components/ui/primitives";
+import { Avatar, Badge, Button, Card, CardHeader, EmptyState, Progress, Spinner, Textarea } from "@/components/ui/primitives";
 import { Tabs } from "@/components/ui/overlays";
 import { PriorityBadge, RelationBadge, StageChip, StatusBadge } from "@/components/tasks/badges";
 import { LiveLog } from "@/components/tasks/live-log";
@@ -15,7 +14,7 @@ import { TaskConversation } from "@/components/tasks/task-conversation";
 import { InlineDispatch } from "@/components/tasks/task-prep";
 import { FileGraph } from "@/components/workflow/file-graph";
 import { Markdown } from "@/components/ui/markdown";
-import { saveAdminNoteAction } from "@/app/actions/tasks";
+import { saveAdminNoteAction, taskRepoInfoAction } from "@/app/actions/tasks";
 import { formatDuration, formatJalali, formatRange, timeAgo } from "@/lib/jalali";
 import { RELATION_META } from "@/lib/status";
 import { cn, faNum, formatBytes } from "@/lib/utils";
@@ -42,8 +41,6 @@ export function TaskDetailClient({
   jobs: initialJobs,
   files,
   feedback,
-  manifest,
-  github,
   defaults,
 }: {
   userId: string;
@@ -54,11 +51,19 @@ export function TaskDetailClient({
   jobs: Job[];
   files: TaskFile[];
   feedback: { agent: string; rating: number; comment: string | null; created_at: string }[];
-  manifest: Manifest | null;
-  github: { folder: string; repo: string } | null;
   defaults: DispatchDefaults;
 }) {
-  const router = useRouter();
+  // GitHub folder link + data map need several GitHub API calls: fetched after the page is shown.
+  const [repo, setRepo] = React.useState<{ manifest: Manifest | null; github: { folder: string; repo: string } | null } | null>(null);
+  React.useEffect(() => {
+    let alive = true;
+    void taskRepoInfoAction(initialTask.id).then((r) => alive && setRepo(r.ok ? r.data : { manifest: null, github: null }));
+    return () => {
+      alive = false;
+    };
+  }, [initialTask.id]);
+  const manifest = repo?.manifest ?? null;
+  const github = repo?.github ?? null;
   // A stable array: a new one each render would make the realtime hook reset its rows in a loop.
   const initialRows = React.useMemo(() => [initialTask] as (Task & Record<string, unknown>)[], [initialTask]);
   const [tasks] = useRealtimeRows<Task & Record<string, unknown>>("tasks", initialRows, { filter: `id=eq.${initialTask.id}` });
@@ -161,7 +166,7 @@ export function TaskDetailClient({
   const workflow = (
     <div className="grid gap-4 lg:grid-cols-2">
       <Card className="p-5">
-        <h3 className="mb-4 text-sm font-bold text-violet-600 dark:text-violet-300">ورکفلوی پیش‌کار (Gemini + LangGraph)</h3>
+        <h3 className="mb-4 text-sm font-bold text-violet-600 dark:text-violet-300">ورکفلوی پیش‌کار (Gemini){lastPrework?.state?.flow ? ` — ${lastPrework.state.flow.workflow}` : ""}</h3>
         {lastPrework ? (
           <>
             <MiniPreworkFlow state={lastPrework.state} vertical />
@@ -179,6 +184,11 @@ export function TaskDetailClient({
         <h3 className="mb-4 text-sm font-bold text-orange-600 dark:text-orange-300">کار اصلی (Claude Code)</h3>
         {lastMain ? (
           <>
+            {(lastMain.state?.flow?.nodes.length ?? 0) > 3 ? (
+              <div className="mb-4">
+                <MiniPreworkFlow state={lastMain.state} vertical />
+              </div>
+            ) : null}
             <TodoList todos={lastMain.state?.todos} />
             {lastMain.external_url ? (
               <a href={lastMain.external_url} target="_blank" rel="noreferrer" className="mt-4 inline-flex items-center gap-1 text-xs font-semibold text-primary">
@@ -223,6 +233,7 @@ export function TaskDetailClient({
           mode={inlineMode}
           defaultPrompt={inlineMode === "prework" ? defaults.prework : defaults.main}
           claudeDefaults={defaults.claude}
+          workflows={defaults.workflows}
         />
       ) : null}
       {feedback.length ? (
@@ -280,7 +291,11 @@ export function TaskDetailClient({
   ) : (
     <div className="space-y-4">
       {graphLink}
-      <EmptyState icon={<FolderGit2 className="size-7" />} title="هنوز نقشه‌ی فایلی وجود ندارد" description="پس از انتشار پیش‌کار در GitHub، گراف و دیتا مپینگ فایل‌ها اینجا نمایش داده می‌شود." />
+      {repo ? (
+        <EmptyState icon={<FolderGit2 className="size-7" />} title="هنوز نقشه‌ی فایلی وجود ندارد" description="پس از انتشار پیش‌کار در GitHub، گراف و دیتا مپینگ فایل‌ها اینجا نمایش داده می‌شود." />
+      ) : (
+        <Spinner />
+      )}
     </div>
   );
 
@@ -311,7 +326,7 @@ export function TaskDetailClient({
           <span className="text-sm font-black">{faNum(task.progress)}٪</span>
         </div>
         <div className="mt-5">
-          <TaskActions task={task} userId={userId} defaults={defaults} activeJobId={active?.id} onChanged={() => router.refresh()} />
+          <TaskActions task={task} userId={userId} defaults={defaults} activeJobId={active?.id} />
         </div>
         {related.length ? <p className="mt-3 text-xs text-muted">{faNum(related.length)} تسک مرتبط در این پروژه</p> : null}
       </Card>

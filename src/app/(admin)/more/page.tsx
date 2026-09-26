@@ -1,11 +1,12 @@
 import Link from "next/link";
-import { Brain, ChevronLeft, Network, Plus, Rocket, Settings, Users } from "lucide-react";
+import { Blocks, Brain, ChevronLeft, Network, Plus, Rocket, Settings, Users } from "lucide-react";
 import { Card } from "@/components/ui/primitives";
 
 export const metadata = { title: "بیشتر" };
 
 const LINKS = [
   { href: "/portal/new", label: "ثبت تسک جدید", icon: Plus },
+  { href: "/agents", label: "ایجنت‌ها و ورکفلوها", icon: Blocks },
   { href: "/graph", label: "گراف دانش (graphify)", icon: Network },
   { href: "/learning", label: "یادگیری و پرامپت‌ها", icon: Brain },
   { href: "/upgrade", label: "ارتقای اپلیکیشن", icon: Rocket },

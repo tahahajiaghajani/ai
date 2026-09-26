@@ -1,19 +1,20 @@
 "use client";
 import * as React from "react";
-import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { KeyRound, MoreHorizontal, ShieldCheck, UserCheck, UserPlus, UserX } from "lucide-react";
+import { KeyRound, MoreHorizontal, ShieldCheck, Trash2, UserCheck, UserPlus, UserX } from "lucide-react";
 import { Avatar, Badge, Button, Card, CardHeader, Field, Input } from "@/components/ui/primitives";
 import { Menu, Modal } from "@/components/ui/overlays";
-import { createUserAction, resetUserPasswordAction, setUserRoleAction, setUserStatusAction } from "@/app/actions/admin";
+import { createUserAction, deleteUserAction, resetUserPasswordAction, setUserRoleAction, setUserStatusAction } from "@/app/actions/admin";
 import { formatJalali, timeAgo } from "@/lib/jalali";
 import { faNum } from "@/lib/utils";
 import type { Profile } from "@/lib/types";
 
 export function UsersClient({ me, profiles, stats }: { me: string; profiles: Profile[]; stats: Record<string, { total: number; open: number }> }) {
-  const router = useRouter();
   const [creating, setCreating] = React.useState(false);
   const [resetFor, setResetFor] = React.useState<Profile | null>(null);
+  const [deleting, setDeleting] = React.useState<Profile | null>(null);
+  const [deleteMode, setDeleteMode] = React.useState<"delete" | "transfer">("transfer");
+  const [deleteBusy, setDeleteBusy] = React.useState(false);
   const [form, setForm] = React.useState({ full_name: "", email: "", password: "", org_unit: "", phone: "" });
   const [pw, setPw] = React.useState("");
   const pending = profiles.filter((p) => p.status === "pending");
@@ -21,10 +22,9 @@ export function UsersClient({ me, profiles, stats }: { me: string; profiles: Pro
 
   const act = async (p: Promise<{ ok: boolean; error?: string }>, msg: string) => {
     const r = await p;
-    if (r.ok) {
-      toast.success(msg);
-      router.refresh();
-    } else toast.error(r.error ?? "خطا");
+    // user actions return the refreshed page themselves
+    if (r.ok) toast.success(msg);
+    else toast.error(r.error ?? "خطا");
     return r.ok;
   };
 
@@ -54,6 +54,12 @@ export function UsersClient({ me, profiles, stats }: { me: string; profiles: Pro
           <Button size="sm" variant="ghost" className="text-danger" onClick={() => act(setUserStatusAction(p.id, "disabled"), "رد شد")}>
             <UserX className="size-4" /> رد
           </Button>
+          <Button size="icon" variant="ghost" className="text-danger" aria-label="حذف" onClick={() => {
+            setDeleteMode("delete");
+            setDeleting(p);
+          }}>
+            <Trash2 className="size-4" />
+          </Button>
         </div>
       ) : p.id !== me ? (
         <Menu
@@ -70,6 +76,16 @@ export function UsersClient({ me, profiles, stats }: { me: string; profiles: Pro
               ? { label: "تبدیل به تسک‌دهنده", icon: <ShieldCheck className="size-4" />, onSelect: () => void act(setUserRoleAction(p.id, "requester"), "نقش تغییر کرد") }
               : { label: "تبدیل به مدیر", icon: <ShieldCheck className="size-4" />, onSelect: () => void act(setUserRoleAction(p.id, "admin"), "نقش تغییر کرد") },
             { label: "تعیین رمز عبور جدید", icon: <KeyRound className="size-4" />, onSelect: () => setResetFor(p) },
+            "sep",
+            {
+              label: "حذف کاربر",
+              icon: <Trash2 className="size-4" />,
+              danger: true,
+              onSelect: () => {
+                setDeleteMode("transfer");
+                setDeleting(p);
+              },
+            },
           ]}
         />
       ) : (
@@ -156,6 +172,63 @@ export function UsersClient({ me, profiles, stats }: { me: string; profiles: Pro
         <Field label="رمز عبور جدید" hint="حداقل ۸ کاراکتر">
           <Input dir="ltr" value={pw} onChange={(e) => setPw(e.target.value)} />
         </Field>
+      </Modal>
+
+      <Modal
+        open={!!deleting}
+        onOpenChange={(o) => !o && setDeleting(null)}
+        title={`حذف کاربر ${deleting?.full_name ?? ""}`}
+        description="حساب کاربر، تصویر پروفایل، دانش ثبت‌شده درباره‌ی او و فایل‌های بارگذاری‌شده‌ای که به تسکی وصل نیستند حذف می‌شوند. این کار برگشت‌پذیر نیست."
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setDeleting(null)}>
+              انصراف
+            </Button>
+            <Button
+              variant="danger"
+              loading={deleteBusy}
+              onClick={async () => {
+                if (!deleting) return;
+                setDeleteBusy(true);
+                const r = await deleteUserAction(deleting.id, deleteMode);
+                setDeleteBusy(false);
+                if (!r.ok) {
+                  toast.error(r.error);
+                  return;
+                }
+                toast.success(
+                  deleteMode === "delete"
+                    ? `${r.data.name} حذف شد؛ ${faNum(r.data.tasks)} تسک، ${faNum(r.data.files)} فایل و ${faNum(r.data.knowledge)} مورد دانش هم حذف شد`
+                    : `${r.data.name} حذف شد؛ پروژه‌هایش به شما منتقل شد`,
+                );
+                for (const w of r.data.warnings) toast.warning(w);
+                setDeleting(null);
+              }}
+            >
+              <Trash2 className="size-4" /> حذف همیشگی
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-2 text-sm">
+          <p className="text-muted">
+            {faNum(deleting ? stats[deleting.id]?.total ?? 0 : 0)} تسک از این کاربر ثبت شده است. با پروژه‌هایش چه شود؟
+          </p>
+          {(
+            [
+              ["transfer", "پروژه‌ها بمانند و به نام من منتقل شوند", "تسک‌ها، فایل‌ها و خروجی‌ها دست‌نخورده می‌مانند."],
+              ["delete", "همه‌ی پروژه‌هایش هم کامل حذف شوند", "تسک‌ها، فایل‌ها، خروجی‌ها، دانش و پوشه‌های GitHub آن‌ها هم حذف می‌شوند."],
+            ] as const
+          ).map(([value, label, hint]) => (
+            <label key={value} className="flex cursor-pointer items-start gap-2.5 rounded-xl border border-line p-3 has-[:checked]:border-primary has-[:checked]:bg-primary-soft">
+              <input type="radio" name="delete-mode" className="mt-1" checked={deleteMode === value} onChange={() => setDeleteMode(value)} />
+              <span>
+                <b>{label}</b>
+                <span className="block text-xs text-muted">{hint}</span>
+              </span>
+            </label>
+          ))}
+        </div>
       </Modal>
     </div>
   );

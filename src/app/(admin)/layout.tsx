@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { BookOpenText, Brain, Cpu, Inbox, Plus, Rocket, Settings, Users, Workflow, Network } from "lucide-react";
+import { Blocks, BookOpenText, Brain, Cpu, Inbox, Plus, Rocket, Settings, Users, Workflow, Network } from "lucide-react";
 import { requireAdmin } from "@/lib/auth";
 import { db } from "@/lib/supabase/admin";
 import { RtlProvider } from "@/components/ui/overlays";
@@ -29,6 +29,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             <NavLink href="/dashboard" icon={<Workflow className="size-[18px]" />} label="ورکفلو زنده" />
             <NavLink href="/inbox" icon={<Inbox className="size-[18px]" />} label="کارتابل" badge={pending.count ?? 0} />
             <NavLink href="/queue" icon={<Cpu className="size-[18px]" />} label="صف و اجرا" />
+            <NavLink href="/agents" icon={<Blocks className="size-[18px]" />} label="ایجنت‌ها و ورکفلوها" />
             <NavLink href="/knowledge" icon={<BookOpenText className="size-[18px]" />} label="پایگاه دانش" />
             <NavLink href="/graph" icon={<Network className="size-[18px]" />} label="گراف دانش" />
             <NavLink href="/learning" icon={<Brain className="size-[18px]" />} label="یادگیری و پرامپت‌ها" />
@@ -41,7 +42,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         </aside>
 
         <div className="min-w-0">
-          <header className="sticky top-0 z-30 border-b border-line bg-[color-mix(in_oklab,var(--bg)_78%,transparent)] backdrop-blur-xl">
+          <header className="safe-top sticky top-0 z-30 border-b border-line bg-[color-mix(in_oklab,var(--bg)_78%,transparent)] backdrop-blur-xl">
             <div className="flex h-16 items-center gap-2 px-4 lg:px-8">
               <Link href="/dashboard" className="lg:hidden">
                 <Logo className="size-8" />

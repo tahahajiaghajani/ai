@@ -6,6 +6,7 @@ import { resolveModels } from "@/lib/ai/gemini";
 import { iterationFolder, rootFolder } from "@/lib/github/workspace";
 import { PRIORITY_META, RELATION_META } from "@/lib/status";
 import { formatJalali } from "@/lib/jalali";
+import { claudeStepPrompt, readEngine } from "@/lib/workflow/engine";
 import type { Job, Task, TaskFile, Upgrade, Profile } from "@/lib/types";
 
 export interface RunnerSpec {
@@ -82,7 +83,7 @@ export function mainPrompt(opts: {
     "## مواد کار (مسیرها نسبت به ریشه‌ی مخزن)",
   );
   if (materials.brief) lines.push(`- **دستور کار پیش‌کار — اول این را بخوان:** \`${materials.brief}\``);
-  for (const h of materials.helpers) lines.push(`- فایل کمکی پیش‌کار: \`${h}\``);
+  for (const h of materials.helpers) lines.push(`- خروجی دیگر پیش‌کار: \`${h}\``);
   if (materials.inputs.length) {
     lines.push("- **فایل‌های پیوست (نمونه‌ها و داده‌های واقعی؛ مبنای کار):**");
     for (const f of materials.inputs) lines.push(`  - \`${f.path}\`${f.current ? " — پیوست همین درخواست" : ""}`);
@@ -122,14 +123,16 @@ async function mainMaterials(task: Task, root: Task, jobId: string, remote: { pa
   const family = [task.id, ...(root.id !== task.id ? [root.id] : [])];
   const { data: outs } = await db()
     .from("task_files")
-    .select("github_path, job_id, created_at")
+    .select("github_path, name, job_id, created_at")
     .in("task_id", family)
     .eq("context", "output")
     .like("github_path", "%/prework/%")
     .order("created_at", { ascending: false });
-  const rows = (outs ?? []) as { github_path: string; job_id: string | null }[];
-  const briefRow = rows.find((r) => r.github_path.endsWith("/prework/BRIEF.md"));
-  const helpers = briefRow ? rows.filter((r) => r.job_id === briefRow.job_id && r.github_path !== briefRow.github_path).map((r) => r.github_path) : [];
+  const rows = (outs ?? []) as { github_path: string; name: string; job_id: string | null }[];
+  // outputs of the latest pre-work run; its work order (brief node, or BRIEF.md) is read first
+  const latest = rows.filter((r) => r.job_id === rows[0]?.job_id);
+  const briefRow = latest.find((r) => r.name.startsWith("دستور کار")) ?? latest.find((r) => r.github_path.endsWith("/BRIEF.md")) ?? null;
+  const helpers = latest.filter((r) => r !== briefRow).map((r) => r.github_path);
 
   const { data: files } = await db()
     .from("task_files")
@@ -174,7 +177,12 @@ export async function buildRunnerSpec(job: Job): Promise<RunnerSpec> {
         remoteInfo.push({ path, name: f.name, current: f.context === "main" && f.job_id === job.id });
       }
     }
-    const run = claudeRunOptions(settings, job.payload.claude);
+    // the workflow step being run: its instructions/inputs and its own model settings (if any)
+    const engine = await readEngine(job.id);
+    const step = engine ? await claudeStepPrompt(engine) : { text: "", agent: null };
+    const agentOpts = Object.fromEntries(Object.entries(step.agent?.claude ?? {}).filter(([, v]) => !!v));
+    const run = claudeRunOptions(settings, { ...((job.payload.claude as object) ?? {}), ...agentOpts });
+    const adminPrompt = String(job.payload.prompt ?? settings.claude.defaultPrompt);
     return {
       ...base,
       kind: "main",
@@ -182,7 +190,7 @@ export async function buildRunnerSpec(job: Job): Promise<RunnerSpec> {
       task_path: rootPath,
       iteration_path: iterPath,
       prompt: mainPrompt({
-        adminPrompt: String(job.payload.prompt ?? settings.claude.defaultPrompt),
+        adminPrompt: step.text ? `${adminPrompt}\n\n${step.text}` : adminPrompt,
         task,
         root,
         requester,

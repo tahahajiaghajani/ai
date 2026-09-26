@@ -1,12 +1,11 @@
 import "server-only";
 import { db } from "@/lib/supabase/admin";
-import { runPreworkStep } from "@/lib/agents/prework";
+import { engineStep } from "@/lib/workflow/engine";
 import { enqueueJob } from "@/lib/queue/jobs";
 import { getSettings } from "@/lib/settings";
 import { logEvent, notifyAdmins } from "@/lib/events";
-import { PREWORK_NODES } from "@/lib/status";
 import type { JobRun, StepResult } from "@/lib/queue/run";
-import type { NodeState, Task } from "@/lib/types";
+import type { Task } from "@/lib/types";
 
 export async function preworkHandler(run: JobRun): Promise<StepResult> {
   const { data: task } = await db().from("tasks").select("*").eq("id", run.job.task_id).single<Task>();
@@ -19,16 +18,11 @@ export async function preworkHandler(run: JobRun): Promise<StepResult> {
       .eq("id", task.id);
     await logEvent({ task_id: task.id, job_id: run.job.id, kind: "status", title: "وضعیت: در حال انجام پیش‌کار", visibility: "requester" });
   }
-  if (!run.state.nodes) {
-    const nodes: Record<string, NodeState> = {};
-    for (const n of PREWORK_NODES) nodes[n.key] = { status: "pending" };
-    await run.patchState({ nodes });
-  }
+  const step = await engineStep(run, "prework");
+  if (step.type === "fail") return { type: "fail", error: step.error };
+  if (step.type !== "done") return { type: "continue", step: "run" };
 
-  const res = await runPreworkStep(run, { taskId: task.id, prompt: String(run.job.payload.prompt ?? "") });
-  if (!res.done) return { type: "continue", step: res.ran ?? undefined };
-
-  const v = res.values;
+  const outputs = await db().from("task_files").select("id", { count: "exact", head: true }).eq("job_id", run.job.id).eq("context", "output");
   await db()
     .from("tasks")
     .update({ status: "prework_done", progress: 50, prework_done_at: new Date().toISOString() })
@@ -42,19 +36,17 @@ export async function preworkHandler(run: JobRun): Promise<StepResult> {
   });
   await notifyAdmins({
     title: `پیش‌کار ${task.code} تمام شد`,
-    body: `${task.title} — دستور کار${v.helperFiles?.length ? ` و ${v.helperFiles.length} فایل کمکی` : ""} آماده است. آماده‌ی ارسال به Claude.`,
+    body: `${task.title} — ${outputs.count ? `${outputs.count} فایل خروجی` : "پاسخ"} آماده است. آماده‌ی ارسال به Claude.`,
     link: `/tasks/${task.id}`,
     task_id: task.id,
   });
 
   const settings = await getSettings();
-  if (settings.graphify.mode !== "off" && v.rootPath) {
-    await enqueueJob({ kind: "graphify", task_id: task.id, payload: { path: v.rootPath }, priority: 40 });
+  const path = (await db().from("tasks").select("github_path").eq("id", task.root_id ?? task.id).maybeSingle<{ github_path: string | null }>()).data?.github_path;
+  if (settings.graphify.mode !== "off" && path) {
+    await enqueueJob({ kind: "graphify", task_id: task.id, payload: { path }, priority: 40 });
   }
-  return {
-    type: "done",
-    result: { commit: v.commit ?? null, files: 1 + (v.helperFiles?.length ?? 0), path: v.rootPath, models: v.models ?? [] },
-  };
+  return { type: "done", result: { files: outputs.count ?? 0, path: path ?? null } };
 }
 
 export async function preworkOnFail(run: JobRun, error: string) {

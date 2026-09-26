@@ -1,0 +1,20 @@
+/** Supabase region → closest Vercel function region (Vercel → Settings → Functions → Function Region). */
+export const SUPABASE_TO_VERCEL: { supabase: string; label: string; vercel: string }[] = [
+  { supabase: "eu-central-1", label: "Frankfurt", vercel: "fra1" },
+  { supabase: "eu-central-2", label: "Zurich", vercel: "fra1" },
+  { supabase: "eu-west-1", label: "Ireland", vercel: "dub1" },
+  { supabase: "eu-west-2", label: "London", vercel: "lhr1" },
+  { supabase: "eu-west-3", label: "Paris", vercel: "cdg1" },
+  { supabase: "eu-north-1", label: "Stockholm", vercel: "arn1" },
+  { supabase: "us-east-1", label: "N. Virginia", vercel: "iad1" },
+  { supabase: "us-east-2", label: "Ohio", vercel: "cle1" },
+  { supabase: "us-west-1", label: "N. California", vercel: "sfo1" },
+  { supabase: "us-west-2", label: "Oregon", vercel: "pdx1" },
+  { supabase: "ca-central-1", label: "Canada", vercel: "yul1" },
+  { supabase: "sa-east-1", label: "São Paulo", vercel: "gru1" },
+  { supabase: "ap-south-1", label: "Mumbai", vercel: "bom1" },
+  { supabase: "ap-southeast-1", label: "Singapore", vercel: "sin1" },
+  { supabase: "ap-southeast-2", label: "Sydney", vercel: "syd1" },
+  { supabase: "ap-northeast-1", label: "Tokyo", vercel: "hnd1" },
+  { supabase: "ap-northeast-2", label: "Seoul", vercel: "icn1" },
+];

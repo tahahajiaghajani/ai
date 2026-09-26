@@ -1,6 +1,5 @@
 "use client";
 import * as React from "react";
-import { useRouter } from "next/navigation";
 import { Bot, Download, Eye, File, FileArchive, FileAudio, FileImage, FileSpreadsheet, FileText, FileVideo, Pencil, Plus, Sparkles, Trash2 } from "lucide-react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { Button, Field, Input, Spinner, Textarea } from "@/components/ui/primitives";
@@ -11,7 +10,7 @@ import { addTaskFilesAction, deleteTaskFileAction, updateTaskDetailsAction } fro
 import { timeAgo } from "@/lib/jalali";
 import { cn, faNum, formatBytes } from "@/lib/utils";
 import type { Task, TaskFile, TaskStatus } from "@/lib/types";
-import type { ClaudeRunOptions } from "@/lib/settings";
+import type { ClaudeRunOptions, DispatchDefaults } from "@/lib/settings";
 
 const LOCKED: TaskStatus[] = ["closed", "cancelled"];
 const RUNNING: TaskStatus[] = ["prework_running", "main_running"];
@@ -45,7 +44,6 @@ function FileIcon({ mime, name, className }: { mime: string | null; name: string
 
 /** Title + description, editable by the admin until the task is closed. */
 export function TaskDetailsEditor({ task, defaultOpen = true }: { task: Task; defaultOpen?: boolean }) {
-  const router = useRouter();
   const [editing, setEditing] = React.useState(false);
   const [title, setTitle] = React.useState(task.title);
   const [description, setDescription] = React.useState(task.description);
@@ -63,11 +61,8 @@ export function TaskDetailsEditor({ task, defaultOpen = true }: { task: Task; de
     setBusy(true);
     const ok = await run(updateTaskDetailsAction(task.id, title, description), "عنوان و شرح تسک ذخیره شد");
     setBusy(false);
-    if (ok) {
-      setEditing(false);
-      // realtime delivers the change too; refreshing shows it immediately
-      router.refresh();
-    }
+    // the action returns the refreshed page with it
+    if (ok) setEditing(false);
   };
 
   if (editing) {
@@ -249,6 +244,7 @@ export function InlineDispatch({
   mode,
   defaultPrompt,
   claudeDefaults,
+  workflows,
   onSent,
 }: {
   task: Task;
@@ -256,19 +252,11 @@ export function InlineDispatch({
   mode: "prework" | "main";
   defaultPrompt: string;
   claudeDefaults?: ClaudeRunOptions;
+  workflows?: DispatchDefaults["workflows"];
   onSent?: () => void;
 }) {
-  const router = useRouter();
   const followup = mode === "main" && task.status === "main_done";
-  const state = useDispatch(
-    mode,
-    [task.id],
-    () => {
-      router.refresh();
-      onSent?.();
-    },
-    claudeDefaults,
-  );
+  const state = useDispatch(mode, [task.id], () => onSent?.(), claudeDefaults, workflows);
   const Icon = mode === "prework" ? Sparkles : Bot;
   return (
     <div className={cn("rounded-2xl border p-3", mode === "prework" ? "border-violet-500/30 bg-violet-500/5" : "border-orange-500/30 bg-orange-500/5")}>

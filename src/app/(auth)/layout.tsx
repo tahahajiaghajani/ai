@@ -3,7 +3,7 @@ import { ThemeToggle } from "@/components/shell/shell-parts";
 
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="relative grid min-h-dvh lg:grid-cols-[1fr_1.1fr]">
+    <div className="safe-y relative grid min-h-dvh lg:grid-cols-[1fr_1.1fr]">
       <div className="relative hidden overflow-hidden lg:block">
         <div className="absolute inset-0 bg-gradient-brand opacity-90" />
         <div className="absolute inset-0 bg-[radial-gradient(40rem_30rem_at_80%_20%,rgba(255,255,255,0.25),transparent)]" />

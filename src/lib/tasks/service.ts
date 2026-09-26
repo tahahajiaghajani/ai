@@ -1,6 +1,6 @@
 import "server-only";
 import { db, must } from "@/lib/supabase/admin";
-import { logEvent, notify, notifyAdmins } from "@/lib/events";
+import { background, logEvent, notify, notifyAdmins } from "@/lib/events";
 import { enqueueJob, kickWorker } from "@/lib/queue/jobs";
 import { CLOSABLE, PRIORITY_META, REQUESTER_EDITABLE, STATUS_META } from "@/lib/status";
 import { getSettings, type ClaudeRunOptions } from "@/lib/settings";
@@ -60,7 +60,8 @@ async function setStatus(task: Task, status: TaskStatus, patch: Partial<Task> = 
       .single<Task>(),
     "تغییر وضعیت",
   );
-  await logEvent({
+  // The status is already saved; the log line can be written after the response.
+  background(() => logEvent({
     task_id: task.id,
     source: actor ? "user" : "system",
     kind: "status",
@@ -69,7 +70,7 @@ async function setStatus(task: Task, status: TaskStatus, patch: Partial<Task> = 
     visibility: "requester",
     actor_id: actor?.id ?? null,
     data: { from: task.status, to: status },
-  });
+  }));
   return updated;
 }
 
@@ -287,7 +288,7 @@ export async function sendToPrework(
   prompt: string,
   files: UploadedFile[] = [],
   origin?: string,
-  opts: { resumeFromJobId?: string } = {},
+  opts: { resumeFromJobId?: string; workflowId?: string | null } = {},
 ) {
   const settings = await getSettings();
   const finalPrompt = prompt.trim() || settings.prework.defaultPrompt;
@@ -303,7 +304,7 @@ export async function sendToPrework(
       kind: "prework",
       task_id: id,
       // user_prompt = what the admin typed (empty = default prompt), shown in the conversation
-      payload: { prompt: finalPrompt, user_prompt: prompt.trim(), resumed_from: opts.resumeFromJobId ?? null },
+      payload: { prompt: finalPrompt, user_prompt: prompt.trim(), resumed_from: opts.resumeFromJobId ?? null, workflow_id: opts.workflowId || null },
       priority: PRIORITY_META[task.priority].weight,
       created_by: admin.id,
     });
@@ -314,7 +315,7 @@ export async function sendToPrework(
   await kickWorker(origin);
 }
 
-/** Retrying a failed pre-work continues from its last saved LangGraph checkpoint (no repeated model calls). */
+/** Retrying a failed pre-work continues from its last saved workflow state (finished steps are not repeated). */
 async function copyCheckpoint(fromJobId: string, toJobId: string) {
   const [{ data: data }, { data: old }] = await Promise.all([
     db().from("job_data").select("graph, partial").eq("job_id", fromJobId).maybeSingle(),
@@ -324,8 +325,8 @@ async function copyCheckpoint(fromJobId: string, toJobId: string) {
     await db().from("job_data").upsert({ job_id: toJobId, graph: data.graph, partial: data.partial ?? null });
   }
   if (old?.state) {
-    const { nodes, counts, usage } = old.state as Record<string, unknown>;
-    await db().from("jobs").update({ state: { nodes, counts, usage } }).eq("id", toJobId);
+    const { nodes, counts, usage, flow } = old.state as Record<string, unknown>;
+    await db().from("jobs").update({ state: { nodes, counts, usage, flow } }).eq("id", toJobId);
   }
 }
 
@@ -349,6 +350,7 @@ export async function sendToMain(
   files: UploadedFile[] = [],
   origin?: string,
   claude: Partial<ClaudeRunOptions> = {},
+  workflowId?: string | null,
 ) {
   const settings = await getSettings();
   const finalPrompt = prompt.trim() || settings.claude.defaultPrompt;
@@ -364,7 +366,7 @@ export async function sendToMain(
     const job = await enqueueJob({
       kind: "main",
       task_id: id,
-      payload: { prompt: finalPrompt, user_prompt: prompt.trim(), followup: task.status === "main_done", ...(run ? { claude: run } : {}) },
+      payload: { prompt: finalPrompt, user_prompt: prompt.trim(), followup: task.status === "main_done", workflow_id: workflowId || null, ...(run ? { claude: run } : {}) },
       priority: PRIORITY_META[task.priority].weight,
       created_by: admin.id,
     });

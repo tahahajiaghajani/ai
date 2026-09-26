@@ -10,9 +10,12 @@ import { searchKnowledge } from "@/lib/ai/knowledge";
 import { enqueueJob, kickWorker } from "@/lib/queue/jobs";
 import { mergeUpgrade } from "@/lib/claude/ingest";
 import { previewUrlForSha, repoRef, gh } from "@/lib/github/client";
-import { DEFAULT_PROMPTS, type AgentKey } from "@/lib/ai/prompts";
+import { clearPromptCache, DEFAULT_PROMPTS, type AgentKey } from "@/lib/ai/prompts";
+import { agentMap, savePromptVersion } from "@/lib/workflow/registry";
 import { registerFiles, type UploadedFile } from "@/lib/tasks/service";
-import { act } from "./_util";
+import { act, mutate } from "./_util";
+import { measureSpeed } from "@/lib/speed";
+import { deleteUser } from "@/lib/tasks/delete";
 import type { Upgrade } from "@/lib/types";
 
 async function origin() {
@@ -22,6 +25,14 @@ async function origin() {
 }
 
 // ------------------------------------------------------------------ setup
+/** Server ↔ Supabase / GitHub round-trip times and the Vercel region (Settings → speed check). */
+export async function speedCheckAction() {
+  return act(async () => {
+    await assertAdmin();
+    return measureSpeed();
+  });
+}
+
 /** The concrete Gemini models "auto" currently expands to (newest first). */
 /** Which Gemini models the pre-work and knowledge chains resolve to right now ("auto" → newest free Flash). */
 export async function geminiModelsAction(chains?: { prework?: string[]; knowledge?: string[] }) {
@@ -82,31 +93,34 @@ export async function saveSettingsAction(patch: Partial<AppSettings>) {
 }
 
 // ------------------------------------------------------------------ prompts / learning
-export async function savePromptVersionAction(agent: AgentKey, content: string, activate: boolean) {
+/** Default prompt of any versioned agent (workflow agents and the system ones). */
+async function defaultPromptOf(agent: string): Promise<string> {
+  if (agent in DEFAULT_PROMPTS) return DEFAULT_PROMPTS[agent as AgentKey];
+  const a = (await agentMap())[agent];
+  if (!a) throw new Error("ایجنت یافت نشد");
+  return a.prompt;
+}
+
+export async function savePromptVersionAction(agent: string, content: string, activate: boolean) {
   return act(async () => {
     const admin = await assertAdmin();
     if (!content.trim()) throw new Error("متن پرامپت خالی است");
-    const { data: last } = await db().from("agent_prompts").select("version").eq("agent", agent).order("version", { ascending: false }).limit(1).maybeSingle();
-    if (!last) {
-      await db().from("agent_prompts").insert({ agent, version: 1, content: DEFAULT_PROMPTS[agent], is_active: false, source: "default" });
-    }
-    const version = (last?.version ?? 1) + 1;
-    if (activate) await db().from("agent_prompts").update({ is_active: false }).eq("agent", agent);
-    await db().from("agent_prompts").insert({ agent, version, content, is_active: activate, source: "human", created_by: admin.id });
+    const version = await savePromptVersion(agent, content, activate, admin.id, await defaultPromptOf(agent));
     return { version };
   });
 }
 
-export async function activatePromptAction(agent: AgentKey, version: number | null) {
+export async function activatePromptAction(agent: string, version: number | null) {
   return act(async () => {
     await assertAdmin();
     await db().from("agent_prompts").update({ is_active: false }).eq("agent", agent);
     if (version !== null) await db().from("agent_prompts").update({ is_active: true }).eq("agent", agent).eq("version", version);
+    clearPromptCache(agent);
     return null;
   });
 }
 
-export async function runOptimizerAction(agents: AgentKey[]) {
+export async function runOptimizerAction(agents: string[]) {
   return act(async () => {
     const admin = await assertAdmin();
     await enqueueJob({ kind: "optimize", payload: { agents }, priority: 20, created_by: admin.id });
@@ -239,7 +253,7 @@ export async function rollbackUpgradeAction(id: string) {
 
 // ------------------------------------------------------------------ users
 export async function setUserStatusAction(userId: string, status: "active" | "disabled" | "pending") {
-  return act(async () => {
+  return mutate(async () => {
     const admin = await assertAdmin();
     if (userId === admin.id) throw new Error("نمی‌توانید وضعیت حساب خودتان را تغییر دهید");
     await db().from("profiles").update({ status }).eq("id", userId);
@@ -248,7 +262,7 @@ export async function setUserStatusAction(userId: string, status: "active" | "di
 }
 
 export async function setUserRoleAction(userId: string, role: "admin" | "requester") {
-  return act(async () => {
+  return mutate(async () => {
     const admin = await assertAdmin();
     if (userId === admin.id) throw new Error("نمی‌توانید نقش خودتان را تغییر دهید");
     await db().from("profiles").update({ role }).eq("id", userId);
@@ -257,7 +271,7 @@ export async function setUserRoleAction(userId: string, role: "admin" | "request
 }
 
 export async function createUserAction(input: { email: string; password: string; full_name: string; org_unit?: string; phone?: string }) {
-  return act(async () => {
+  return mutate(async () => {
     await assertAdmin();
     if (input.password.length < 8) throw new Error("رمز عبور حداقل ۸ کاراکتر باشد");
     const { data, error } = await db().auth.admin.createUser({
@@ -289,5 +303,15 @@ export async function attachFilesToTaskAction(taskId: string, context: "prework"
     const admin = await assertAdmin();
     await registerFiles(admin, [taskId], context, files);
     return null;
+  });
+}
+
+// ------------------------------------------------------------------ deletion
+/** Deletes a user; their projects are deleted with everything in them or transferred to the admin. */
+export async function deleteUserAction(userId: string, mode: "delete" | "transfer") {
+  return mutate(async () => {
+    const admin = await assertAdmin();
+    if (mode !== "delete" && mode !== "transfer") throw new Error("حالت حذف نامعتبر است");
+    return deleteUser(admin, userId, mode);
   });
 }

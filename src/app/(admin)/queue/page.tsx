@@ -6,12 +6,15 @@ import type { Job, ProviderState, Task } from "@/lib/types";
 export const metadata = { title: "صف و اجرا" };
 
 export default async function QueuePage() {
-  await requireAdmin();
-  const [active, recent, providers, tasks] = await Promise.all([
-    db().from("jobs").select("*").in("status", ["running", "queued"]).order("priority", { ascending: false }).order("created_at"),
-    db().from("jobs").select("*").in("status", ["done", "failed", "cancelled"]).order("finished_at", { ascending: false }).limit(40),
-    db().from("provider_state").select("*"),
-    db().from("tasks").select("id, code, title"),
+  // Page data loads in parallel with the session check; it is only rendered once the check passes.
+  const [, [active, recent, providers, tasks]] = await Promise.all([
+    requireAdmin(),
+    Promise.all([
+      db().from("jobs").select("*").in("status", ["running", "queued"]).order("priority", { ascending: false }).order("created_at"),
+      db().from("jobs").select("*").in("status", ["done", "failed", "cancelled"]).order("finished_at", { ascending: false }).limit(40),
+      db().from("provider_state").select("*"),
+      db().from("tasks").select("id, code, title"),
+    ]),
   ]);
   return (
     <QueueClient

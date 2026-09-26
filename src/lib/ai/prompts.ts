@@ -1,17 +1,11 @@
 import "server-only";
 import { db } from "@/lib/supabase/admin";
 
-export type AgentKey = "analyze" | "plan" | "helper" | "knowledge" | "optimizer";
+/** System agents (not workflow steps); workflow agents live in the registry (lib/workflow/registry). */
+export type AgentKey = "knowledge" | "optimizer";
 
-export const AGENT_LABELS: Record<AgentKey, string> = {
-  analyze: "ایجنت ۱ — تحلیل درخواست و فایل‌ها",
-  plan: "ایجنت ۲ — برنامه و دستور کار",
-  helper: "ایجنت ۳ — فایل‌های کمکی",
-  knowledge: "استخراج دانش",
-  optimizer: "بهینه‌ساز پرامپت‌ها",
-};
-
-const BASE = `تو عضوی از یک تیم کوچک هوش مصنوعی در یک شرکت نرم‌افزاری هستی که برای بانک‌ها نرم‌افزار مدیریتی می‌سازد.
+/** Shared ground rules at the top of every built-in agent prompt. */
+export const BASE = `تو عضوی از یک تیم کوچک هوش مصنوعی در یک شرکت نرم‌افزاری هستی که برای بانک‌ها نرم‌افزار مدیریتی می‌سازد.
 مدیر پروژه خودش توسعه‌دهنده و مهندس IT است؛ پاسخ باید فنی، دقیق، عملی و بدون حاشیه باشد.
 زبان: فارسی روان (نام‌ها، کد، فیلدها و دستورات به همان شکل اصلی).
 
@@ -23,43 +17,6 @@ const BASE = `تو عضوی از یک تیم کوچک هوش مصنوعی در �
 5. اگر «دانش بازیابی‌شده» داده شده، فقط موارد واقعاً مرتبط را به کار ببر.`;
 
 export const DEFAULT_PROMPTS: Record<AgentKey, string> = {
-  analyze: `${BASE}
-
-نقش تو: «تحلیل‌گر». هنوز راه‌حل نساز؛ فقط درخواست و مواد موجود را عمیق و دقیق بفهم.
-خروجی (Markdown، فشرده ولی کامل):
-# درک درخواست
-خروجی نهایی مورد انتظار در یک تا سه خط (قالب، تعداد فایل، محل استفاده) + فهرست نیازمندی‌ها با شماره.
-# بررسی فایل‌های پیوست
-برای هر فایل: چیست، چطور کار می‌کند (سازوکار اصلی، روش دریافت/پردازش داده، ساختار، وابستگی‌ها) و چه بخش‌هایی مستقیماً قابل استفاده‌ی مجدد است. نام‌ها، آدرس‌ها، شناسه‌ها و نام داخلی فیلدها را عیناً نقل کن.
-# منابع و داده‌های موجود
-فهرست منابع داده (مثلاً لیست/جدول/API) و فیلدهای مرتبط با درخواست، با نام دقیق.
-# نگاشت نیازمندی‌ها
-برای هر نیازمندی: از کدام منبع/فیلد به دست می‌آید، یا «کمبود» است.
-# کمبودها و سوال‌ها
-فقط موارد واقعی و لازم.
-# ساده‌ترین رویکرد درست
-چند خط: چطور با تکیه بر مواد موجود انجامش بدهیم.
-اگر فایلی پیوست نشده، همین را صریح بگو و تحلیل را بر درخواست بنا کن.`,
-
-  plan: `${BASE}
-
-نقش تو: «برنامه‌ریز». بر اساس درخواست، دستور مدیر و تحلیل، یک «دستور کار» کوتاه و کامل برای مجری نهایی (Claude Code) بنویس و یک پیام کوتاه برای مدیر.
-فقط JSON مطابق اسکیما برگردان:
-- reply: پیام به مدیر، مثل یک پاسخ چت (۴ تا ۱۰ خط Markdown): چه فهمیدی، رویکرد، کمبودهای مهم، و اینکه دستور کار آماده است. بدون سلام و تعارف؛ مستقیم از نتیجه شروع کن.
-- brief: دستور کار (Markdown) با این بخش‌ها و فقط همین‌ها:
-  # هدف و خروجی نهایی — دقیقاً چه چیزی تحویل شود (نام/قالب/تعداد فایل)
-  # آنچه از فایل‌های موجود استفاده می‌شود — بخش‌ها، توابع، الگوها و تنظیماتی که باید کپی یا تقلید شوند
-  # نگاشت نیازمندی‌ها به داده — جدول: نیازمندی | منبع و نام دقیق فیلد | وضعیت (موجود/کمبود)
-  # کمبودها — و اینکه در خروجی چطور علامت‌گذاری شوند
-  # مراحل انجام — ۳ تا ۸ گام، هر گام حداکثر ۳ خط «چطور»
-  # معیار پذیرش — چند بند قابل بررسی
-- helper_files: فقط اگر یک فایل کوچک و آماده واقعاً کار مجری را سریع‌تر و دقیق‌تر می‌کند (مثلاً نگاشت فیلدها، پیکربندی یا داده‌ی نمونه)؛ در غیر این صورت آرایه‌ی خالی. برای هر فایل: path (نام ساده با پسوند)، purpose، instructions.
-هرگز خود خروجی نهایی را در helper_files نساز؛ آن کار مجری است.`,
-
-  helper: `${BASE}
-
-نقش تو: «آماده‌ساز». فقط محتوای کامل یک فایل کمکی را طبق توضیح داده‌شده بنویس؛ بدون مقدمه، بدون توضیح اضافه و بدون قرار دادن محتوا داخل بلوک کد.`,
-
   knowledge: `${BASE}
 
 نقش تو: «مدیر دانش سازمانی».
@@ -86,7 +43,14 @@ export const DEFAULT_PROMPTS: Record<AgentKey, string> = {
 
 const cache = new Map<string, { at: number; value: string }>();
 
-export async function getAgentPrompt(agent: AgentKey): Promise<string> {
+/** Forget cached prompts after a new version was saved or activated. */
+export function clearPromptCache(agent?: string) {
+  if (agent) cache.delete(agent);
+  else cache.clear();
+}
+
+/** Active prompt version of an agent (built-in or custom), else its default. */
+export async function getAgentPrompt(agent: string, fallback?: string): Promise<string> {
   const hit = cache.get(agent);
   if (hit && Date.now() - hit.at < 30_000) return hit.value;
   const { data } = await db()
@@ -97,7 +61,7 @@ export async function getAgentPrompt(agent: AgentKey): Promise<string> {
     .order("version", { ascending: false })
     .limit(1)
     .maybeSingle();
-  const value = data?.content || DEFAULT_PROMPTS[agent];
+  const value = data?.content || fallback || DEFAULT_PROMPTS[agent as AgentKey] || "";
   cache.set(agent, { at: Date.now(), value });
   return value;
 }
@@ -105,27 +69,6 @@ export async function getAgentPrompt(agent: AgentKey): Promise<string> {
 // ---------------------------------------------------------------------------
 // JSON schemas for structured outputs
 // ---------------------------------------------------------------------------
-
-export const PLAN_SCHEMA = {
-  type: "object",
-  properties: {
-    reply: { type: "string", description: "پیام کوتاه به مدیر (Markdown)" },
-    brief: { type: "string", description: "دستور کار کامل برای مجری (Markdown)" },
-    helper_files: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          path: { type: "string", description: "نام فایل با پسوند، بدون پوشه" },
-          purpose: { type: "string" },
-          instructions: { type: "string" },
-        },
-        required: ["path", "purpose", "instructions"],
-      },
-    },
-  },
-  required: ["reply", "brief", "helper_files"],
-};
 
 export const KNOWLEDGE_SCHEMA = {
   type: "object",

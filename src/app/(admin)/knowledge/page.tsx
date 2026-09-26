@@ -7,10 +7,13 @@ import type { KnowledgeRow } from "@/lib/types";
 export const metadata = { title: "پایگاه دانش" };
 
 export default async function KnowledgePage() {
-  await requireAdmin();
-  const [items, total] = await Promise.all([
-    db().from("knowledge_items").select("id, content, metadata, use_count, score, created_at").order("created_at", { ascending: false }).limit(120),
-    db().from("knowledge_items").select("id", { count: "exact", head: true }),
+  // Page data loads in parallel with the session check; it is only rendered once the check passes.
+  const [, [items, total]] = await Promise.all([
+    requireAdmin(),
+    Promise.all([
+      db().from("knowledge_items").select("id, content, metadata, use_count, score, created_at").order("created_at", { ascending: false }).limit(120),
+      db().from("knowledge_items").select("id", { count: "exact", head: true }),
+    ]),
   ]);
   const owner = env.githubOwner;
   return (

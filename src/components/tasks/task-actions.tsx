@@ -1,8 +1,8 @@
 "use client";
 import * as React from "react";
-import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Bot, CheckCheck, Flag, MoreHorizontal, Paperclip, RotateCcw, Sparkles, Undo2, XCircle, Ban, Shuffle } from "lucide-react";
+import { Bot, CheckCheck, Flag, MoreHorizontal, Paperclip, RotateCcw, Sparkles, Undo2, XCircle, Ban, Shuffle, Trash2 } from "lucide-react";
+import { DeleteProjectDialog } from "@/components/tasks/delete-project";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { Button, Field, Input, Select, Textarea } from "@/components/ui/primitives";
 import { Menu, Modal } from "@/components/ui/overlays";
@@ -40,7 +40,16 @@ export type DispatchTask = Pick<Task, "id" | "code" | "title" | "description" | 
 const NO_CLAUDE: ClaudeRunOptions = { model: "", effort: "", thinking: "auto" };
 
 /** State + submit for sending tasks to pre-work (Gemini) or the main work (Claude). */
-export function useDispatch(mode: "prework" | "main", ids: string[], onDone?: () => void, claudeDefaults: ClaudeRunOptions = NO_CLAUDE) {
+export function useDispatch(
+  mode: "prework" | "main",
+  ids: string[],
+  onDone?: () => void,
+  claudeDefaults: ClaudeRunOptions = NO_CLAUDE,
+  workflowChoices: DispatchDefaults["workflows"] = [],
+) {
+  const workflows = workflowChoices.filter((w) => w.stage === mode);
+  const defaultWorkflow = workflows.find((w) => w.isDefault)?.id ?? workflows[0]?.id ?? "";
+  const [workflowId, setWorkflowId] = React.useState(defaultWorkflow);
   const [prompt, setPrompt] = React.useState("");
   const [claude, setClaude] = React.useState<ClaudeRunOptions>(claudeDefaults);
   // A ref keeps `reset` stable when a router refresh hands us an equal-but-new defaults object.
@@ -73,7 +82,7 @@ export function useDispatch(mode: "prework" | "main", ids: string[], onDone?: ()
     if (blocker) return false;
     setBusy(true);
     const ok = await run(
-      mode === "prework" ? sendToPreworkAction(ids, prompt, files) : sendToMainAction(ids, prompt, files, claude),
+      mode === "prework" ? sendToPreworkAction(ids, prompt, files, workflowId || null) : sendToMainAction(ids, prompt, files, claude, workflowId || null),
       mode === "prework" ? "در صف پیش‌کار Gemini قرار گرفت" : "برای Claude ارسال شد",
     );
     setBusy(false);
@@ -83,7 +92,7 @@ export function useDispatch(mode: "prework" | "main", ids: string[], onDone?: ()
     }
     return ok;
   };
-  return { prompt, setPrompt, files, onFiles, busy, submit, reset, dropKey, blocker, claude, setClaude };
+  return { prompt, setPrompt, files, onFiles, busy, submit, reset, dropKey, blocker, claude, setClaude, workflows, workflowId, setWorkflowId };
 }
 
 const optionLabel = (list: { value: string; label: string }[], v: string) => list.find((o) => o.value === v)?.label.split(" — ")[0] ?? v;
@@ -138,6 +147,18 @@ export function DispatchFields({ mode, userId, defaultPrompt, state }: { mode: "
   const usingDefault = !state.prompt.trim();
   return (
     <div className="space-y-4">
+      {state.workflows.length > 1 ? (
+        <Field label="ورکفلو" hint={<>ترتیب ایجنت‌ها را در <a href="/agents" className="font-bold text-primary">ایجنت‌ها و ورکفلوها</a> می‌سازید.</>}>
+          <Select value={state.workflowId} onChange={(e) => state.setWorkflowId(e.target.value)}>
+            {state.workflows.map((w) => (
+              <option key={w.id} value={w.id}>
+                {w.name}
+                {w.isDefault ? " (پیش‌فرض)" : ""}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      ) : null}
       <Field
         label="پرامپت شما"
         hint={usingDefault ? "خالی است؛ پرامپت پیش‌فرض «تنظیمات و اتصال‌ها» ارسال می‌شود." : "این پرامپت به‌جای پرامپت پیش‌فرض همراه عنوان و شرح تسک ارسال می‌شود."}
@@ -237,6 +258,7 @@ export function PromptDialog({
   title,
   onDone,
   claudeDefaults,
+  workflows,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
@@ -247,6 +269,7 @@ export function PromptDialog({
   title?: string;
   onDone?: () => void;
   claudeDefaults?: ClaudeRunOptions;
+  workflows?: DispatchDefaults["workflows"];
 }) {
   const ids = tasks.map((t) => t.id);
   const state = useDispatch(
@@ -257,6 +280,7 @@ export function PromptDialog({
       onDone?.();
     },
     claudeDefaults,
+    workflows,
   );
   const { reset } = state;
   React.useEffect(() => {
@@ -372,14 +396,11 @@ export function TaskActions({
   /** send form already shown inline (task drawer): skip the button that would open the same dialog */
   inlineMode?: "prework" | "main";
 }) {
-  const router = useRouter();
-  const [dialog, setDialog] = React.useState<null | "prework" | "main" | "return" | "close" | "cancel" | "force">(null);
+  const [dialog, setDialog] = React.useState<null | "prework" | "main" | "return" | "close" | "cancel" | "force" | "delete">(null);
   const [forceTo, setForceTo] = React.useState<TaskStatus>("approved");
   const [busy, setBusy] = React.useState(false);
-  const refresh = () => {
-    router.refresh();
-    onChanged?.();
-  };
+  // mutating actions return the refreshed page themselves (see `mutate`)
+  const refresh = () => onChanged?.();
   const s = task.status;
   const btn = size === "sm" ? "sm" : "md";
 
@@ -445,10 +466,12 @@ export function TaskActions({
             : []),
           "sep",
           { label: "لغو تسک", icon: <Ban className="size-4" />, danger: true, disabled: s === "cancelled" || s === "closed", onSelect: () => setDialog("cancel") },
+          { label: "حذف کامل پروژه", icon: <Trash2 className="size-4" />, danger: true, onSelect: () => setDialog("delete") },
         ]}
       />
 
-      <PromptDialog open={dialog === "prework"} onOpenChange={(o) => setDialog(o ? "prework" : null)} mode="prework" tasks={[task]} userId={userId} defaultPrompt={defaults.prework} onDone={refresh} />
+      <DeleteProjectDialog task={task} open={dialog === "delete"} onOpenChange={(o) => setDialog(o ? "delete" : null)} onDeleted={onChanged} />
+      <PromptDialog open={dialog === "prework"} onOpenChange={(o) => setDialog(o ? "prework" : null)} mode="prework" tasks={[task]} userId={userId} defaultPrompt={defaults.prework} workflows={defaults.workflows} onDone={refresh} />
       <PromptDialog
         open={dialog === "main"}
         onOpenChange={(o) => setDialog(o ? "main" : null)}
@@ -457,6 +480,7 @@ export function TaskActions({
         userId={userId}
         defaultPrompt={defaults.main}
         claudeDefaults={defaults.claude}
+        workflows={defaults.workflows}
         title={s === "main_done" ? "دستور تکمیلی به Claude (ادامه‌ی همان پروژه)" : undefined}
         onDone={refresh}
       />

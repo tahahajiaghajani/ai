@@ -5,9 +5,13 @@ import { assertActive, assertAdmin } from "@/lib/auth";
 import * as svc from "@/lib/tasks/service";
 import { db } from "@/lib/supabase/admin";
 import { enqueueJob, kickWorker } from "@/lib/queue/jobs";
-import { act } from "./_util";
+import { deleteProject } from "@/lib/tasks/delete";
+import { act, mutate } from "./_util";
 import type { RelationType, TaskStatus } from "@/lib/types";
 import type { ClaudeRunOptions } from "@/lib/settings";
+import { defaultBranch, getFileText, repoRef, repoUrl } from "@/lib/github/client";
+import { env } from "@/lib/env";
+import type { Manifest } from "@/lib/github/workspace";
 
 async function origin() {
   const h = await headers();
@@ -36,15 +40,15 @@ export async function updateTaskAction(id: string, input: svc.TaskInput, files: 
 }
 
 export async function resubmitTaskAction(id: string) {
-  return act(async () => svc.resubmitTask(await assertActive(), id).then(() => null));
+  return mutate(async () => svc.resubmitTask(await assertActive(), id).then(() => null));
 }
 
 export async function confirmClosureAction(id: string) {
-  return act(async () => svc.confirmClosure(await assertActive(), id).then(() => null));
+  return mutate(async () => svc.confirmClosure(await assertActive(), id).then(() => null));
 }
 
 export async function rejectClosureAction(id: string, reason: string, files: svc.UploadedFile[] = []) {
-  return act(async () => {
+  return mutate(async () => {
     const related = await svc.rejectClosure(await assertActive(), id, reason, files);
     return { id: related.id, code: related.code };
   });
@@ -52,7 +56,7 @@ export async function rejectClosureAction(id: string, reason: string, files: svc
 
 // ------------------------------------------------------------------ admin
 export async function approveTasksAction(ids: string[], note?: string) {
-  return act(async () => {
+  return mutate(async () => {
     const admin = await assertAdmin();
     for (const id of ids) await svc.approveTask(admin, id, note);
     return null;
@@ -60,19 +64,23 @@ export async function approveTasksAction(ids: string[], note?: string) {
 }
 
 export async function returnTaskAction(id: string, reason: string) {
-  return act(async () => svc.returnTask(await assertAdmin(), id, reason).then(() => null));
+  return mutate(async () => svc.returnTask(await assertAdmin(), id, reason).then(() => null));
 }
 
-export async function sendToPreworkAction(ids: string[], prompt: string, files: svc.UploadedFile[]) {
-  return act(async () => svc.sendToPrework(await assertAdmin(), ids, prompt, files, await origin()).then(() => null));
+export async function sendToPreworkAction(ids: string[], prompt: string, files: svc.UploadedFile[], workflowId?: string | null) {
+  return mutate(async () => svc.sendToPrework(await assertAdmin(), ids, prompt, files, await origin(), { workflowId: cleanId(workflowId) }).then(() => null));
 }
 
-export async function sendToMainAction(ids: string[], prompt: string, files: svc.UploadedFile[], claude: Partial<ClaudeRunOptions> = {}) {
-  return act(async () => svc.sendToMain(await assertAdmin(), ids, prompt, files, await origin(), claude).then(() => null));
+export async function sendToMainAction(ids: string[], prompt: string, files: svc.UploadedFile[], claude: Partial<ClaudeRunOptions> = {}, workflowId?: string | null) {
+  return mutate(async () => svc.sendToMain(await assertAdmin(), ids, prompt, files, await origin(), claude, cleanId(workflowId)).then(() => null));
+}
+
+function cleanId(id: unknown): string | null {
+  return typeof id === "string" && /^[\w-]{1,60}$/.test(id) ? id : null;
 }
 
 export async function updateTaskDetailsAction(id: string, title: string, description: string) {
-  return act(async () => svc.updateTaskDetails(await assertAdmin(), id, { title, description }).then(() => null));
+  return mutate(async () => svc.updateTaskDetails(await assertAdmin(), id, { title, description }).then(() => null));
 }
 
 export async function addTaskFilesAction(id: string, files: svc.UploadedFile[]) {
@@ -84,15 +92,15 @@ export async function deleteTaskFileAction(fileId: string) {
 }
 
 export async function requestClosureAction(id: string, note: string) {
-  return act(async () => svc.requestClosure(await assertAdmin(), id, note).then(() => null));
+  return mutate(async () => svc.requestClosure(await assertAdmin(), id, note).then(() => null));
 }
 
 export async function cancelTaskAction(id: string, reason: string) {
-  return act(async () => svc.cancelTask(await assertAdmin(), id, reason).then(() => null));
+  return mutate(async () => svc.cancelTask(await assertAdmin(), id, reason).then(() => null));
 }
 
 export async function forceStatusAction(id: string, status: TaskStatus, note?: string) {
-  return act(async () => svc.forceStatus(await assertAdmin(), id, status, note).then(() => null));
+  return mutate(async () => svc.forceStatus(await assertAdmin(), id, status, note).then(() => null));
 }
 
 export async function saveAdminNoteAction(id: string, note: string) {
@@ -113,7 +121,7 @@ export async function feedbackAction(input: { task_id: string; job_id?: string |
 
 // ------------------------------------------------------------------ queue
 export async function cancelJobAction(jobId: string) {
-  return act(async () => {
+  return mutate(async () => {
     await assertAdmin();
     const { data: job } = await db().from("jobs").select("*").eq("id", jobId).single();
     if (!job) throw new Error("کار یافت نشد");
@@ -132,7 +140,7 @@ export async function cancelJobAction(jobId: string) {
 }
 
 export async function retryJobAction(jobId: string) {
-  return act(async () => {
+  return mutate(async () => {
     const admin = await assertAdmin();
     const { data: job } = await db().from("jobs").select("*").eq("id", jobId).single();
     if (!job) throw new Error("کار یافت نشد");
@@ -153,7 +161,7 @@ export async function retryJobAction(jobId: string) {
 }
 
 export async function bumpJobAction(jobId: string) {
-  return act(async () => {
+  return mutate(async () => {
     await assertAdmin();
     const { data } = await db().from("jobs").select("priority").order("priority", { ascending: false }).limit(1).single();
     await db().from("jobs").update({ priority: (data?.priority ?? 50) + 1 }).eq("id", jobId);
@@ -162,7 +170,7 @@ export async function bumpJobAction(jobId: string) {
 }
 
 export async function providerPauseAction(provider: "gemini" | "claude", paused: boolean) {
-  return act(async () => {
+  return mutate(async () => {
     await assertAdmin();
     await svc.setProviderPause(provider, paused);
     if (!paused) await kickWorker(await origin());
@@ -171,7 +179,7 @@ export async function providerPauseAction(provider: "gemini" | "claude", paused:
 }
 
 export async function clearModelBlocksAction() {
-  return act(async () => {
+  return mutate(async () => {
     await assertAdmin();
     await db().from("provider_state").update({ models: {}, paused_until: null, pause_reason: null }).eq("provider", "gemini");
     await kickWorker(await origin());
@@ -192,5 +200,35 @@ export async function markNotificationsReadAction() {
     const user = await assertActive();
     await db().from("notifications").update({ read_at: new Date().toISOString() }).eq("user_id", user.id).is("read_at", null);
     return null;
+  });
+}
+
+/** GitHub folder link and data map (manifest.json) of a task; loaded lazily by the task page. */
+export async function taskRepoInfoAction(taskId: string) {
+  return act(async () => {
+    await assertAdmin();
+    const { data: task } = await db().from("tasks").select("github_path").eq("id", taskId).maybeSingle<{ github_path: string | null }>();
+    if (!task?.github_path || !env.githubToken) return { manifest: null, github: null };
+    const ref = await repoRef("workspace");
+    const [branch, text] = await Promise.all([defaultBranch(ref), getFileText(ref, `${task.github_path}/manifest.json`).catch(() => null)]);
+    let manifest: Manifest | null = null;
+    try {
+      manifest = text ? (JSON.parse(text) as Manifest) : null;
+    } catch {
+      manifest = null;
+    }
+    return { manifest, github: { folder: repoUrl(ref, task.github_path, branch), repo: repoUrl(ref) } };
+  });
+}
+
+/** Deletes the whole project of a task (root task, related tasks, files, knowledge, GitHub folder). */
+export async function deleteProjectAction(taskId: string, confirmCode: string) {
+  return act(async () => {
+    await assertAdmin();
+    const { data: task } = await db().from("tasks").select("code, root_id").eq("id", taskId).maybeSingle<{ code: string; root_id: string | null }>();
+    if (!task) throw new Error("تسک یافت نشد");
+    const { data: root } = task.root_id ? await db().from("tasks").select("code").eq("id", task.root_id).maybeSingle<{ code: string }>() : { data: { code: task.code } };
+    if (confirmCode.trim() !== root?.code) throw new Error("برای تایید، کد پروژه را دقیقاً وارد کنید");
+    return deleteProject(taskId);
   });
 }

@@ -73,10 +73,12 @@ export interface DispatchDefaults {
   prework: string;
   main: string;
   claude: ClaudeRunOptions;
+  /** workflows that can be chosen when sending (the stage default is preselected) */
+  workflows: { id: string; name: string; stage: "prework" | "main"; isDefault: boolean }[];
 }
 
 export function dispatchDefaults(s: AppSettings): DispatchDefaults {
-  return { prework: s.prework.defaultPrompt, main: s.claude.defaultPrompt, claude: { model: s.claude.model, effort: s.claude.effort, thinking: s.claude.thinking } };
+  return { prework: s.prework.defaultPrompt, main: s.claude.defaultPrompt, claude: { model: s.claude.model, effort: s.claude.effort, thinking: s.claude.thinking }, workflows: [] };
 }
 
 /** Old saved settings: fixed model chains of earlier versions and legacy default prompts. */

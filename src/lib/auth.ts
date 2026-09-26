@@ -19,9 +19,18 @@ export interface SessionUser {
  */
 export const getSessionUser = cache(async (): Promise<SessionUser | null> => {
   const supabase = await createSupabaseServer();
-  const { data } = await supabase.auth.getUser();
-  const user = data.user;
-  if (!user) return null;
+  // getClaims verifies the session JWT locally (asymmetric signing keys, JWKS cached per instance);
+  // only projects on the legacy shared secret fall back to a network call to Supabase Auth.
+  // Saves one round-trip on every page and every action; disabled accounts are still caught by
+  // the profile status check below.
+  const { data } = await supabase.auth.getClaims();
+  const claims = data?.claims;
+  if (!claims?.sub) return null;
+  const user = {
+    id: claims.sub,
+    email: typeof claims.email === "string" ? claims.email : undefined,
+    user_metadata: (claims.user_metadata ?? {}) as Record<string, unknown>,
+  };
 
   const admin = db();
   let { data: profile } = await admin.from("profiles").select("*").eq("id", user.id).maybeSingle<Profile>();

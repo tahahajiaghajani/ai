@@ -6,6 +6,7 @@ import { formatKnowledgeContext, searchKnowledge } from "@/lib/ai/knowledge";
 import { downloadStorage } from "@/lib/ai/files";
 import { logEvent } from "@/lib/events";
 import { dispatchExternal, watchExternal, type ExternalOptions } from "@/lib/queue/handlers/external";
+import { engineStep } from "@/lib/workflow/engine";
 import { errorMessage } from "@/lib/utils";
 import { RateLimitError, DeadlineError } from "@/lib/errors";
 import type { JobRun, StepResult } from "@/lib/queue/run";
@@ -13,9 +14,20 @@ import type { Task, TaskFile } from "@/lib/types";
 
 const OPTS: ExternalOptions = { repo: "workspace", workflow: "claude-task.yml", leaseSeconds: 3 * 3600, label: "Claude" };
 
+/**
+ * prepare → run (the main-stage workflow: Gemini steps inline, each Claude step dispatched to GitHub
+ * Actions and resumed here when the runner reports back) → done.
+ */
 export async function mainHandler(run: JobRun): Promise<StepResult> {
   const step = run.job.step ?? "prepare";
   if (step === "prepare") return prepareMain(run);
+  if (step === "run") {
+    const r = await engineStep(run, "main");
+    if (r.type === "fail") return { type: "fail", error: r.error };
+    if (r.type === "done") return { type: "done", result: { workflow: true } };
+    if (r.type === "claude") return dispatchExternal(run, OPTS);
+    return { type: "continue", step: "run" };
+  }
   if (step === "dispatch") return dispatchExternal(run, OPTS);
   return watchExternal(run, OPTS);
 }
@@ -65,5 +77,5 @@ async function prepareMain(run: JobRun): Promise<StepResult> {
   const commit = await commitFiles(await repoRef("workspace"), files, `[TaskFlow] آماده‌سازی کار اصلی ${task.code}`);
   await run.log({ source: "github", kind: "commit", title: `پرامپت و ورودی‌های Claude در GitHub ذخیره شد (${files.length} فایل)`, data: { url: commit?.url } });
   await run.patchState({ round: n, todos: [] });
-  return { type: "continue", step: "dispatch" };
+  return { type: "continue", step: "run" };
 }
