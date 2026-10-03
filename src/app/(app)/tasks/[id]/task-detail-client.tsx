@@ -96,9 +96,9 @@ export function TaskDetailClient({
         </Card>
 
         <Card>
-          <CardHeader title="تسک‌های مرتبط" subtitle="ادامه‌ها و توضیحات رد — در همان پوشه و همان پروژه انجام می‌شوند" icon={<GitBranch className="size-4" />} />
+          <CardHeader title="تسک‌های مرتبط" icon={<GitBranch className="size-4" />} />
           <div className="divide-y divide-line">
-            {family.length <= 1 ? <p className="px-5 py-6 text-sm text-muted">تسک مرتبطی ثبت نشده است.</p> : null}
+            {family.length <= 1 ? <p className="px-5 py-6 text-sm text-muted">—</p> : null}
             {family.length > 1
               ? family.map((f) => (
                   <Link key={f.id} href={`/tasks/${f.id}`} className={cn("flex items-center gap-3 px-5 py-3 hover:bg-surface-muted", f.id === task.id && "bg-primary-soft")}>
@@ -195,7 +195,7 @@ export function TaskDetailClient({
             ) : null}
           </>
         ) : (
-          <p className="text-sm text-muted">هنوز پیش‌کاری اجرا نشده است.</p>
+          <p className="text-sm text-muted">—</p>
         )}
       </Card>
       <Card className="p-5">
@@ -215,13 +215,13 @@ export function TaskDetailClient({
             ) : null}
           </>
         ) : (
-          <p className="text-sm text-muted">هنوز به کار اصلی ارسال نشده است.</p>
+          <p className="text-sm text-muted">—</p>
         )}
       </Card>
       <Card className="lg:col-span-2">
-        <CardHeader title="تاریخچه‌ی اجراها" subtitle="همه‌ی کارهای صف برای این تسک" />
+        <CardHeader title="تاریخچه‌ی اجراها" />
         <div className="divide-y divide-line">
-          {allJobs.length === 0 ? <p className="px-5 py-6 text-sm text-muted">اجرایی ثبت نشده است.</p> : null}
+          {allJobs.length === 0 ? <p className="px-5 py-6 text-sm text-muted">—</p> : null}
           {allJobs.map((j) => (
             <div key={j.id} className="flex flex-wrap items-center gap-3 px-5 py-3 text-sm">
               <Badge tone={JOB_STATUS[j.status].tone}>{JOB_STATUS[j.status].label}</Badge>
@@ -286,9 +286,9 @@ export function TaskDetailClient({
     </div>
   ) : repo ? (
     <EmptyState
-      icon={<FolderGit2 className="size-7" />}
+      icon={<FolderGit2 className="size-6" />}
       title="هنوز سابقه‌ای در GitHub نیست"
-      description={github ? "پس از هر اجرای پیش‌کار یا کار اصلی، پرامپت، فایل‌های تولیدشده و پاسخ در پوشه‌ی تسک در مخزن شما ذخیره و اینجا فهرست می‌شوند." : "GitHub وصل نیست؛ خروجی‌ها در بخش «گفت‌وگو و خروجی‌ها» قابل دانلودند."}
+      description={github ? undefined : "GitHub وصل نیست؛ خروجی‌ها در «گفت‌وگو» هستند."}
     />
   ) : (
     <Spinner />
@@ -297,10 +297,9 @@ export function TaskDetailClient({
   return (
     <div className="space-y-5">
       <Link href="/inbox" className="inline-flex items-center gap-1 text-sm text-muted hover:text-fg">
-        <ArrowRight className="size-4" /> کارتابل من
+        <ArrowRight className="size-4" /> کارها
       </Link>
       <Card className="relative overflow-hidden p-5 sm:p-6">
-        <div className="absolute -left-20 -top-20 size-64 rounded-full bg-gradient-brand opacity-10 blur-3xl" />
         <div className="flex flex-wrap items-center gap-2">
           <span className="ltr rounded-lg bg-surface-muted px-2 py-0.5 text-xs font-black">{task.code}</span>
           <StatusBadge status={task.status} />
@@ -329,11 +328,11 @@ export function TaskDetailClient({
       <Tabs
         defaultValue={running ? "log" : allJobs.some((j) => j.kind === "prework" || j.kind === "main") ? "chat" : "overview"}
         items={[
-          { value: "overview", label: "نمای کلی", content: overview },
+          { value: "overview", label: "جزئیات", content: overview },
           { value: "log", label: running ? <span className="flex items-center gap-2"><span className="live-dot" /> لاگ زنده</span> : "لاگ", content: <LiveLog initial={events} taskId={task.id} live={running} maxHeight="70vh" /> },
-          { value: "workflow", label: "ورکفلو و اجراها", content: workflow },
-          { value: "chat", label: "گفت‌وگو و خروجی‌ها", content: chatTab },
-          { value: "files", label: "سوابق و فایل‌ها", content: filesTab },
+          { value: "workflow", label: "اجراها", content: workflow },
+          { value: "chat", label: "گفت‌وگو", content: chatTab },
+          { value: "files", label: "فایل‌ها", content: filesTab },
         ]}
       />
     </div>

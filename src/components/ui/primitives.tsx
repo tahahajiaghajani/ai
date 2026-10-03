@@ -9,12 +9,12 @@ type ButtonSize = "sm" | "md" | "lg" | "icon";
 
 const BTN_VARIANTS: Record<ButtonVariant, string> = {
   primary:
-    "bg-gradient-brand text-white shadow-[0_8px_24px_-10px_var(--primary)] hover:brightness-110 active:brightness-95 disabled:opacity-60",
-  secondary: "bg-surface-muted text-fg hover:bg-[color-mix(in_oklab,var(--surface-muted)_80%,var(--text)_8%)] border border-line",
-  ghost: "text-muted hover:text-fg hover:bg-surface-muted",
+    "bg-brand text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_6px_18px_-8px_var(--brand)] hover:bg-brand-deep active:translate-y-px disabled:opacity-55 disabled:shadow-none",
+  secondary: "border border-line bg-surface-strong text-fg shadow-[0_1px_2px_rgba(11,18,34,0.04)] hover:border-line-strong hover:bg-surface-muted",
+  ghost: "text-muted hover:bg-surface-muted hover:text-fg",
   outline: "border border-line-strong text-fg hover:bg-surface-muted",
-  danger: "bg-danger/90 text-white hover:bg-danger",
-  success: "bg-success/90 text-white hover:bg-success",
+  danger: "bg-danger text-white hover:brightness-95",
+  success: "bg-success text-white hover:brightness-95",
 };
 const BTN_SIZES: Record<ButtonSize, string> = {
   sm: "h-8 px-3 text-xs gap-1.5 rounded-lg",
@@ -53,14 +53,14 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(function 
 
 // ---------------------------------------------------------------- Card
 export function Card({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn("glass rounded-2xl", className)} {...props} />;
+  return <div className={cn("rounded-2xl border border-line bg-surface-strong shadow-card", className)} {...props} />;
 }
 
 export function CardHeader({ title, subtitle, icon, actions, className }: { title: React.ReactNode; subtitle?: React.ReactNode; icon?: React.ReactNode; actions?: React.ReactNode; className?: string }) {
   return (
     <div className={cn("flex items-start justify-between gap-3 border-b border-line px-5 py-4", className)}>
       <div className="flex min-w-0 items-center gap-3">
-        {icon ? <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-primary-soft text-primary">{icon}</div> : null}
+        {icon ? <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary-soft text-primary">{icon}</div> : null}
         <div className="min-w-0">
           <h3 className="truncate text-[15px] font-bold">{title}</h3>
           {subtitle ? <p className="mt-0.5 text-xs text-muted">{subtitle}</p> : null}
@@ -162,7 +162,7 @@ export function Switch({ checked, onChange, label, disabled }: { checked: boolea
       className="inline-flex max-w-full items-center gap-2.5 text-start text-sm disabled:opacity-50"
     >
       {/* fixed size (long labels must not squeeze it); on = knob to the right and colored, like everywhere else */}
-      <span dir="ltr" className={cn("relative h-6 w-11 shrink-0 rounded-full transition-colors", checked ? "bg-primary" : "bg-line-strong")}>
+      <span dir="ltr" className={cn("relative h-6 w-11 shrink-0 rounded-full transition-colors", checked ? "bg-brand" : "bg-line-strong")}>
         <span className={cn("absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow transition-transform", checked ? "translate-x-5" : "translate-x-0")} />
       </span>
       {label ? <span className="min-w-0 leading-6">{label}</span> : null}
@@ -178,7 +178,7 @@ export function Progress({ value, className, tone = "brand" }: { value: number; 
       <div
         className={cn(
           "h-full rounded-full transition-[width] duration-700 ease-out",
-          tone === "brand" ? "bg-gradient-brand" : tone === "success" ? "bg-success" : "bg-warning",
+          tone === "brand" ? "bg-flow" : tone === "success" ? "bg-success" : "bg-warning",
         )}
         style={{ width: `${v}%` }}
       />
@@ -187,7 +187,7 @@ export function Progress({ value, className, tone = "brand" }: { value: number; 
 }
 
 // ---------------------------------------------------------------- Avatar
-const AVATAR_COLORS = ["#8b5cf6", "#0ea5e9", "#f97316", "#10b981", "#ec4899", "#f59e0b", "#14b8a6", "#6366f1"];
+const AVATAR_COLORS = ["#2f5bff", "#0e9ad8", "#6366f1", "#12a170", "#d97706", "#db2777", "#0f766e", "#7c3aed"];
 
 export function colorFor(key: string) {
   let h = 0;
@@ -239,7 +239,7 @@ export function Spinner({ className }: { className?: string }) {
 export function EmptyState({ icon, title, description, action, className }: { icon?: React.ReactNode; title: string; description?: string; action?: React.ReactNode; className?: string }) {
   return (
     <div className={cn("flex flex-col items-center justify-center gap-3 px-6 py-12 text-center", className)}>
-      {icon ? <div className="grid size-14 place-items-center rounded-2xl bg-primary-soft text-primary">{icon}</div> : null}
+      {icon ? <div className="grid size-12 place-items-center rounded-2xl bg-primary-soft text-primary">{icon}</div> : null}
       <div>
         <p className="font-bold">{title}</p>
         {description ? <p className="mt-1 max-w-sm text-sm text-muted">{description}</p> : null}

@@ -3,7 +3,7 @@ import { textDir } from "@/lib/bidi";
 
 describe("text direction for mixed Persian/English", () => {
   it("keeps Persian text right-to-left even when it starts with an English word", () => {
-    expect(textDir("PWA مدیریت پروژه بانک تجارت: یک فایل html بساز")).toBe("rtl");
+    expect(textDir("PWA مدیریت پروژه‌های شرکت: یک فایل html بساز")).toBe("rtl");
     expect(textDir("project_managers_report.html آماده است")).toBe("rtl");
     expect(textDir("فایل‌های تیم با TODO(FIELD) علامت خورده‌اند")).toBe("rtl");
   });

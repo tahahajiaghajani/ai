@@ -5,7 +5,7 @@ import { dispatchDefaults } from "@/lib/capabilities";
 import { DashboardClient } from "./dashboard-client";
 import type { ConnectionStateRow, Job, Profile, Task } from "@/lib/types";
 
-export const metadata = { title: "ورکفلو زنده" };
+export const metadata = { title: "خانه" };
 
 export default async function DashboardPage(props: PageProps<"/dashboard">) {
   const me = await requireFull();
@@ -33,6 +33,7 @@ export default async function DashboardPage(props: PageProps<"/dashboard">) {
       userId={me.id}
       isOwner={me.isOwner}
       all={all}
+      firstName={me.profile.full_name?.split(" ")[0] ?? ""}
       defaults={defaults}
       data={{
         tasks: (tasks.data ?? []) as Task[],

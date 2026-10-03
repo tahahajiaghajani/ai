@@ -4,8 +4,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import type { ForceGraphMethods, LinkObject, NodeObject } from "react-force-graph-2d";
-import { ArrowUpLeft, ExternalLink, Focus, Maximize2, Minimize2, Network, RefreshCw, Search, Sparkles, Tags, X } from "lucide-react";
+import { ArrowUpLeft, ExternalLink, Focus, Maximize2, Minimize2, RefreshCw, Search, Sparkles, Tags, X } from "lucide-react";
 import { forceX, forceY } from "d3-force";
+import { PageHeader, SECTIONS } from "@/components/shell/page-header";
 import { Button, Card, Input, Select, Spinner } from "@/components/ui/primitives";
 import { buildGraphifyAction, loadGraphifyGraphsAction, type GraphifyLoad } from "@/app/actions/graph";
 import { KIND_META, mergeGraphs, projectNodeId, projectSubgraph, relationLabel, taskNodeId, type GraphData, type GraphKind, type GraphLink, type GraphNode } from "@/lib/graph/model";
@@ -332,30 +333,26 @@ export function GraphClient({
 
   const scopeProject = scope !== "all" ? projects.find((p) => p.id === scope) : undefined;
   const scopeLoad = scope !== "all" ? loaded[scope] : undefined;
-  const graphifyCount = Object.values(loaded).filter((l) => l.status === "ok").length;
 
   // ------------------------------------------------------------ render
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="flex items-center gap-2 text-2xl font-black tracking-tight">
-            <Network className="size-6 text-primary" /> گراف <span className="text-gradient">دانش</span>
-          </h1>
-          <p className="mt-1 max-w-3xl text-sm leading-7 text-muted">
-            نقشه‌ی تعاملی پروژه‌های شما: فایل‌ها، نمادهای اصلی و وابستگی‌ها (import) بین فایل‌ها، تسک‌هایی که روی هر پروژه کار کرده‌اند و گراف graphify (کد، اسناد و مفاهیم). روی هر گره بزنید تا جزئیات و ارتباط‌هایش را ببینید.
-          </p>
-        </div>
-        <div className="flex items-center gap-2 text-xs text-muted">
-          {loading ? <Spinner className="size-4" /> : null}
-          <span>
-            {faNum(visible.nodes.length)} گره · {faNum(visible.links.length)} ارتباط · graphify: {faNum(graphifyCount)} پروژه
-          </span>
-          <Button size="sm" variant="outline" onClick={refresh}>
-            <RefreshCw className="size-4" /> به‌روزرسانی
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title="پروژه‌ها"
+        tabs={SECTIONS.projects}
+       
+        actions={
+          <>
+            {loading ? <Spinner className="size-4" /> : null}
+            <span className="text-xs text-muted">
+              {faNum(visible.nodes.length)} گره · {faNum(visible.links.length)} ارتباط
+            </span>
+            <Button size="icon" variant="ghost" onClick={refresh} aria-label="به‌روزرسانی" title="به‌روزرسانی">
+              <RefreshCw className="size-4" />
+            </Button>
+          </>
+        }
+      />
 
       <Card className="relative z-20 flex flex-wrap items-center gap-2 p-3">
         <Select value={scope} onChange={(e) => setScope(e.target.value)} className="h-10 w-full sm:w-72">
@@ -377,7 +374,8 @@ export function GraphClient({
                 setQuery("");
               }
             }}
-            placeholder="جستجوی فایل، نماد یا کد تسک…"
+            placeholder="جستجو"
+            aria-label="جستجو"
             className="h-10 pr-9"
           />
           {matches.length ? (

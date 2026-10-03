@@ -1,6 +1,6 @@
-# TaskFlow AI — اعمال خودکار migrationهای Supabase پس از ادغام در شاخه‌ی اصلی
+# Task Flow — اعمال خودکار migrationهای Supabase پس از ادغام در شاخه‌ی اصلی
 # نیاز به secret با نام SUPABASE_DB_URL دارد (Connection string از نوع Session pooler).
-name: "TaskFlow · Database migrations"
+name: "Task Flow · Database migrations"
 
 on:
   push:

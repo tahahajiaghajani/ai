@@ -95,9 +95,14 @@ export function Tabs({
   className?: string;
   listClassName?: string;
 }) {
+  const listRef = React.useRef<HTMLDivElement>(null);
+  // on phones the strip scrolls: keep the chosen tab in view
+  React.useEffect(() => {
+    listRef.current?.querySelector<HTMLElement>('[data-state="active"]')?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [value]);
   return (
     <T.Root dir="rtl" value={value} onValueChange={onValueChange} defaultValue={defaultValue ?? items[0]?.value} className={className}>
-      <T.List className={cn("flex gap-1 overflow-x-auto rounded-2xl border border-line bg-surface p-1 [scrollbar-width:none]", listClassName)}>
+      <T.List ref={listRef} className={cn("flex gap-1 overflow-x-auto rounded-2xl border border-line bg-surface p-1 [scrollbar-width:none]", listClassName)}>
         {items.map((it) => (
           <T.Trigger
             key={it.value}

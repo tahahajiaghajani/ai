@@ -1,7 +1,6 @@
 "use client";
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { toast } from "sonner";
 import {
   AlertTriangle,
@@ -15,8 +14,6 @@ import {
   Plus,
   RefreshCw,
   Save,
-  Server,
-  SlidersHorizontal,
   Trash2,
   Unplug,
   XCircle,
@@ -24,6 +21,7 @@ import {
 } from "lucide-react";
 import { Badge, Button, Card, CardHeader, Field, Input, Select, Spinner, Switch, Textarea } from "@/components/ui/primitives";
 import { Modal, Tabs } from "@/components/ui/overlays";
+import { PageHeader } from "@/components/shell/page-header";
 import { Combobox, type ComboOption } from "@/components/ui/combobox";
 import {
   connectGithubAction,
@@ -60,7 +58,7 @@ export interface SettingsConnection {
 
 type Check = { key: string; label: string; ok: boolean; detail?: string; level?: "error" | "warning" };
 
-const GH_TOKEN_URL = "https://github.com/settings/tokens/new?scopes=repo,workflow&description=TaskFlow%20AI";
+const GH_TOKEN_URL = "https://github.com/settings/tokens/new?scopes=repo,workflow&description=Task%20Flow";
 
 function StatusIcon({ ok, level }: { ok: boolean; level?: "error" | "warning" }) {
   if (ok) return <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-success" />;
@@ -120,7 +118,7 @@ function ConnectionDialog({ open, onOpenChange, edit }: { open: boolean; onOpenC
       onOpenChange={onOpenChange}
       size="lg"
       title={edit ? `ویرایش «${edit.label}»` : "افزودن کلید هوش مصنوعی"}
-      description="کلید رمزنگاری‌شده ذخیره می‌شود و هیچ‌وقت به مرورگر برنمی‌گردد. فقط کارهای خودتان با آن اجرا می‌شوند."
+      description="رمزنگاری‌شده ذخیره می‌شود و فقط برای کارهای خودتان است."
       footer={
         <>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
@@ -171,7 +169,7 @@ function ConnectionDialog({ open, onOpenChange, edit }: { open: boolean; onOpenC
             <Input dir="ltr" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />
           </Field>
         ) : null}
-        <Field label="مدل‌های جایگزین (اختیاری)" hint="اگر مدل انتخابی شلوغ بود یا سقف مصرفش پر شد، به ترتیب این‌ها امتحان می‌شوند؛ با ویرگول جدا کنید.">
+        <Field label="مدل‌های جایگزین (اختیاری)" hint="با ویرگول جدا کنید">
           <Input dir="ltr" value={fallbacks} onChange={(e) => setFallbacks(e.target.value)} placeholder={p.protocol === "google" ? "gemini-flash-latest" : ""} />
         </Field>
       </div>
@@ -337,22 +335,15 @@ function GithubSection({ github, anthropic, templateVersion }: { github: Setting
   if (!github) {
     return (
       <Card className="p-5">
-        <CardHeader title="اتصال GitHub" subtitle="برای پروژه‌ها، دانش، گراف و اجرای Claude Code" icon={<FolderGit2 className="size-4" />} className="-m-5 mb-4" />
-        <ol className="mb-4 list-decimal space-y-1.5 ps-5 text-sm leading-7 text-muted">
-          <li>
-            یک توکن GitHub با دسترسی <span className="ltr font-mono">repo</span> و <span className="ltr font-mono">workflow</span> بسازید:{" "}
-            <a href={GH_TOKEN_URL} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-bold text-primary">
-              ساخت توکن <ExternalLink className="size-3" />
-            </a>
-          </li>
-          <li>توکن را این‌جا وارد کنید؛ اپ یک مخزن خصوصی به نام دلخواه (پیش‌فرض taskflow-workspace) در حساب شما می‌سازد و فایل‌های اجرا را در آن قرار می‌دهد.</li>
-          <li>پروژه‌ها، فایل دانش، گراف و سوابق تسک‌ها فقط در همین مخزن شما ذخیره می‌شوند.</li>
-        </ol>
+        <CardHeader title="اتصال GitHub" subtitle="یک مخزن خصوصی برای پروژه‌های شما ساخته می‌شود" icon={<FolderGit2 className="size-4" />} className="-m-5 mb-4" />
+        <a href={GH_TOKEN_URL} target="_blank" rel="noreferrer" className="mb-4 inline-flex items-center gap-1.5 text-sm font-bold text-primary">
+          ساخت توکن (repo، workflow) <ExternalLink className="size-3.5" />
+        </a>
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="توکن GitHub" required>
             <Input dir="ltr" type="password" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} placeholder="ghp_… یا github_pat_…" />
           </Field>
-          <Field label="نام مخزن (اختیاری)" hint="خالی = taskflow-workspace؛ برای مخزن یک سازمان: org/name">
+          <Field label="نام مخزن (اختیاری)" hint="خالی = taskflow-workspace">
             <Input dir="ltr" value={repo} onChange={(e) => setRepo(e.target.value)} placeholder="taskflow-workspace" />
           </Field>
         </div>
@@ -365,7 +356,7 @@ function GithubSection({ github, anthropic, templateVersion }: { github: Setting
             setBusy(null);
           }}
         >
-          <FolderGit2 className="size-4" /> اتصال و آماده‌سازی مخزن
+          <FolderGit2 className="size-4" /> اتصال
         </Button>
       </Card>
     );
@@ -418,7 +409,7 @@ function GithubSection({ github, anthropic, templateVersion }: { github: Setting
               void loadChecks();
             }}
           >
-            <RefreshCw className="size-4" /> {outdated ? "به‌روزرسانی فایل‌های اجرا (نسخه‌ی جدید)" : "همگام‌سازی دوباره"}
+            <RefreshCw className="size-4" /> {outdated ? "به‌روزرسانی (نسخه‌ی جدید)" : "همگام‌سازی"}
           </Button>
           <Button
             size="sm"
@@ -458,8 +449,7 @@ function GithubSection({ github, anthropic, templateVersion }: { github: Setting
           <KeyRound className="size-4" /> Claude Code در GitHub Actions {cfg.claudeCode ? <Badge tone="success">فعال</Badge> : <Badge>غیرفعال</Badge>}
         </p>
         <p className="mt-1 text-xs leading-6 text-muted">
-          اختیاری: کار اصلی می‌تواند به‌جای مجری داخل اپ با Claude Code روی GitHub Actions مخزن شما اجرا شود. توکن اشتراک Claude را با دستور <span className="ltr font-mono">claude setup-token</span> روی کامپیوتر خودتان بسازید، یا یک کلید API
-          Anthropic بدهید. این مقدار فقط به‌صورت Secret در مخزن شما ذخیره می‌شود.
+          اختیاری · توکن با <span className="ltr font-mono">claude setup-token</span> · فقط به‌صورت Secret در مخزن شما
         </p>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           <Field label="توکن اشتراک Claude (CLAUDE_CODE_OAUTH_TOKEN)">
@@ -520,6 +510,11 @@ export function SettingsClient({ config, connections, isOwner, templateVersion }
   const [dialog, setDialog] = React.useState<{ edit: SettingsConnection | null } | null>(null);
   const [saving, setSaving] = React.useState(false);
   const [tab, setTab] = React.useState(() => (connections.some((c) => c.kind === "ai") ? "stages" : "connections"));
+  // links like /settings#github open that tab
+  React.useEffect(() => {
+    const h = window.location.hash.slice(1);
+    if (["connections", "stages", "github", "defaults", "mode"].includes(h)) setTab(h);
+  }, []);
   React.useEffect(() => setCfg(config), [config]);
 
   const ai = connections.filter((c) => c.kind === "ai");
@@ -550,7 +545,6 @@ export function SettingsClient({ config, connections, isOwner, templateVersion }
   const connectionsTab = (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <p className="text-sm text-muted">کلیدهای هوش مصنوعی خودتان را وصل کنید؛ هر مرحله (پیش‌کار، کار اصلی، دانش) می‌تواند از اتصال و مدل جداگانه استفاده کند.</p>
         <Button className="ms-auto" onClick={() => setDialog({ edit: null })}>
           <Plus className="size-4" /> افزودن کلید
         </Button>
@@ -563,7 +557,7 @@ export function SettingsClient({ config, connections, isOwner, templateVersion }
         </div>
       ) : (
         <Card className="p-6 text-sm leading-7 text-muted">
-          هنوز کلیدی وصل نشده است. پیشنهاد: <b className="text-fg">Claude (Anthropic)</b> برای بهترین کیفیت، یا <b className="text-fg">Google AI Studio</b> / <b className="text-fg">NVIDIA</b> برای شروع رایگان.
+          کلیدی وصل نشده · بهترین: <b className="text-fg">Claude</b> · رایگان: <b className="text-fg">Google AI Studio</b>، <b className="text-fg">NVIDIA</b>
         </Card>
       )}
       <ConnectionDialog open={!!dialog} onOpenChange={(o) => !o && setDialog(null)} edit={dialog?.edit ?? null} />
@@ -573,13 +567,13 @@ export function SettingsClient({ config, connections, isOwner, templateVersion }
   const stagesTab = (
     <div className="space-y-4">
       {!ai.length ? (
-        <Card className="p-5 text-sm">
-          اول در زبانه‌ی «کلیدهای هوش مصنوعی» یک اتصال اضافه کنید.
+        <Card className="p-5 text-sm text-muted">
+          اول یک کلید هوش مصنوعی اضافه کنید.
         </Card>
       ) : null}
       <StagePicker
         title="پیش‌کار"
-        hint="فهم درخواست و فایل‌ها و آماده کردن دستور کار؛ مدل سریع و ارزان کافی است."
+        hint="مدل سریع و ارزان کافی است"
         value={cfg.stages.prework}
         onChange={(v) => setStage("prework", v)}
         connections={ai}
@@ -589,8 +583,8 @@ export function SettingsClient({ config, connections, isOwner, templateVersion }
         <div className="grid gap-2 sm:grid-cols-2">
           {(
             [
-              { k: "agent", t: "مجری داخل اپ", d: "با هر کلیدی کار می‌کند؛ فایل‌ها را پیدا، ویرایش، ایجاد و در GitHub ثبت می‌کند. بهترین نتیجه با Claude." },
-              { k: "claude_code", t: "Claude Code (GitHub Actions)", d: claudeCode ? "روی Actions مخزن شما با اشتراک یا کلید Claude اجرا می‌شود." : "ابتدا در زبانه‌ی GitHub فعالش کنید." },
+              { k: "agent", t: "مجری داخل اپ", d: "با هر کلیدی؛ بهترین با Claude" },
+              { k: "claude_code", t: "Claude Code", d: claudeCode ? "روی GitHub Actions شما" : "ابتدا در GitHub فعالش کنید" },
             ] as const
           ).map((o) => (
             <button
@@ -606,7 +600,7 @@ export function SettingsClient({ config, connections, isOwner, templateVersion }
           ))}
         </div>
         {cfg.stages.main.engine === "agent" ? (
-          <StagePicker title="مدل مجری" hint="مدلی که از ابزار (tool calling) پشتیبانی کند؛ برای کد، Claude بهترین است." value={cfg.stages.main} onChange={(v) => setStage("main", v)} connections={ai} />
+          <StagePicker title="مدل مجری" hint="با پشتیبانی از tool calling" value={cfg.stages.main} onChange={(v) => setStage("main", v)} connections={ai} />
         ) : (
           <div className="grid gap-3 sm:grid-cols-3">
             <Field label="مدل Claude Code">
@@ -641,7 +635,7 @@ export function SettingsClient({ config, connections, isOwner, templateVersion }
       </div>
       <StagePicker
         title="دانش پروژه و خلاصه‌ی فایل‌ها"
-        hint="به‌روز کردن فایل KNOWLEDGE.md پروژه بعد از هر کار و خلاصه‌ی فایل‌های واردشده."
+        hint="فایل KNOWLEDGE.md و خلاصه‌ی فایل‌ها"
         value={cfg.stages.knowledge}
         onChange={(v) => setStage("knowledge", v)}
         connections={ai}
@@ -686,7 +680,7 @@ export function SettingsClient({ config, connections, isOwner, templateVersion }
           <Switch checked={cfg.knowledge.autoUpdate} onChange={(v) => set("knowledge", { autoUpdate: v })} label="به‌روزرسانی خودکار فایل دانش پروژه بعد از هر کار" />
           <Switch checked={cfg.claude.resumeSessions} onChange={(v) => set("claude", { resumeSessions: v })} label="Claude Code: ادامه‌ی همان جلسه در دستورهای تکمیلی" />
         </div>
-        <Field label="graphify (گراف پروژه‌ها)" hint="با کلید Gemini شما در GitHub Actions اجرا می‌شود؛ بدون آن فقط کد تحلیل می‌شود.">
+        <Field label="graphify (گراف پروژه‌ها)">
           <Select value={cfg.graphify.mode} onChange={(e) => set("graphify", { mode: e.target.value as UserConfig["graphify"]["mode"] })}>
             <option value="llm">کامل (کد + اسناد)</option>
             <option value="code-only">فقط کد</option>
@@ -702,62 +696,39 @@ export function SettingsClient({ config, connections, isOwner, templateVersion }
   );
 
   const modeTab = (
-    <div className="space-y-4">
-      {!isOwner ? (
-        <Card className="p-5">
-          <p className="flex items-center gap-2 font-extrabold">
-            <Home className="size-4" /> بازگشت به حالت ساده
-          </p>
-          <p className="mt-1 text-sm leading-7 text-muted">
-            در حالت ساده فقط تسک می‌دهید، تسک‌های سپرده به خودتان را می‌بینید و وضعیتشان را دستی به‌روز می‌کنید. اتصال‌ها، پروژه‌ها و تنظیمات شما پاک نمی‌شوند و هر وقت خواستید برمی‌گردید.
-          </p>
-          <Button
-            className="mt-3"
-            variant="secondary"
-            onClick={async () => {
-              const d = await go(setModeAction("simple"), "به حالت ساده رفتید");
-              if (d) {
-                router.push(d.redirect);
-                router.refresh();
-              }
-            }}
-          >
-            <Home className="size-4" /> رفتن به حالت ساده
-          </Button>
-        </Card>
-      ) : (
-        <Card className="p-5">
-          <p className="flex items-center gap-2 font-extrabold">
-            <Server className="size-4" /> مدیریت اپ
-          </p>
-          <p className="mt-1 text-sm text-muted">تنظیمات Vercel و Supabase، زمان‌بند، صف‌ها، ثبت‌نام و کاربران فقط برای مالک در بخش «سیستم و سرویس‌ها» است.</p>
-          <Link href="/system">
-            <Button className="mt-3" variant="secondary">
-              <Server className="size-4" /> سیستم و سرویس‌ها
-            </Button>
-          </Link>
-        </Card>
-      )}
-    </div>
+    <Card className="p-5">
+      <p className="flex items-center gap-2 font-extrabold">
+        <Home className="size-4" /> بازگشت به حالت ساده
+      </p>
+      <p className="mt-1 text-sm text-muted">چیزی پاک نمی‌شود و هر وقت بخواهید برمی‌گردید.</p>
+      <Button
+        className="mt-3"
+        variant="secondary"
+        onClick={async () => {
+          const d = await go(setModeAction("simple"), "به حالت ساده رفتید");
+          if (d) {
+            router.push(d.redirect);
+            router.refresh();
+          }
+        }}
+      >
+        <Home className="size-4" /> رفتن به حالت ساده
+      </Button>
+    </Card>
   );
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="flex items-center gap-2 text-2xl font-black">
-          <SlidersHorizontal className="size-6 text-primary" /> تنظیمات و اتصال‌ها
-        </h1>
-        <p className="mt-1 text-sm text-muted">همه‌ی این تنظیمات شخصی‌اند: کلیدها، مخزن GitHub، مدل‌ها و ایجنت‌های شما فقط برای کارهای خودتان استفاده می‌شوند.</p>
-      </div>
+      <PageHeader title="تنظیمات" />
       <Tabs
         value={tab}
         onValueChange={setTab}
         items={[
-          { value: "connections", label: "کلیدهای هوش مصنوعی", badge: ai.length ? <span className="rounded-full bg-surface-muted px-1.5 text-[10.5px]">{faNum(ai.length)}</span> : null, content: connectionsTab },
-          { value: "stages", label: "مدل هر مرحله", content: stagesTab },
-          { value: "github", label: "GitHub و Claude Code", content: <GithubSection github={github} anthropic={ai.filter((c) => c.provider === "anthropic")} templateVersion={templateVersion} /> },
+          { value: "connections", label: "کلیدها", badge: ai.length ? <span className="rounded-full bg-surface-muted px-1.5 text-[10.5px]">{faNum(ai.length)}</span> : null, content: connectionsTab },
+          { value: "stages", label: "مدل‌ها", content: stagesTab },
+          { value: "github", label: "GitHub", content: <GithubSection github={github} anthropic={ai.filter((c) => c.provider === "anthropic")} templateVersion={templateVersion} /> },
           { value: "defaults", label: "پیش‌فرض‌ها", content: defaultsTab },
-          { value: "mode", label: isOwner ? "مدیریت اپ" : "حالت اپ", content: modeTab },
+          ...(isOwner ? [] : [{ value: "mode", label: "حالت اپ", content: modeTab }]),
         ]}
       />
     </div>

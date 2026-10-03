@@ -4,7 +4,7 @@ import { DEFAULT_PROMPTS } from "@/lib/ai/prompts";
 import { getAgents, SYSTEM_AGENT_LABELS } from "@/lib/workflow/registry";
 import { LearningClient } from "./learning-client";
 
-export const metadata = { title: "یادگیری و پرامپت‌ها" };
+export const metadata = { title: "یادگیری" };
 
 export default async function LearningPage(props: PageProps<"/learning">) {
   const me = await requireFull();

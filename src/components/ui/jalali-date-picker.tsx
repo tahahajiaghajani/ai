@@ -127,7 +127,7 @@ export function JalaliDatePicker({
                   "aspect-square rounded-xl text-sm transition hover:bg-primary-soft disabled:opacity-30",
                   weekend && "text-danger/80",
                   isToday && "ring-1 ring-primary",
-                  isSel && "bg-gradient-brand font-bold text-white hover:bg-none",
+                  isSel && "bg-brand font-bold text-white hover:bg-brand",
                 )}
               >
                 {faNum(d)}

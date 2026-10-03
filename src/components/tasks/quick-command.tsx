@@ -60,19 +60,18 @@ export function QuickCommand({ userId, defaults, projectId: fixedProject, classN
   if (!defaults.caps.ai) {
     return (
       <div className={cn("rounded-2xl border border-dashed border-line p-4 text-sm text-muted", className)}>
-        <Wand2 className="me-1 inline size-4" /> برای «دستور سریع» اول یک کلید هوش مصنوعی وصل کنید:{" "}
-        <Link href="/settings" className="font-bold text-primary">
-          تنظیمات و اتصال‌ها
+        <Wand2 className="me-1 inline size-4" /> دستور سریع با هوش مصنوعی ·{" "}
+        <Link href="/settings#connections" className="font-bold text-primary">
+          اتصال کلید
         </Link>
       </div>
     );
   }
 
   return (
-    <div className={cn("glass rounded-2xl p-3 sm:p-4", className)}>
+    <div className={cn("rounded-2xl border border-line bg-surface-strong p-3 shadow-card sm:p-4", className)}>
       <p className="mb-2 flex items-center gap-2 text-sm font-extrabold">
         <Wand2 className="size-4 text-primary" /> دستور سریع
-        <span className="hidden text-xs font-normal text-muted sm:inline">— بنویسید چه کاری روی کدام پروژه انجام شود؛ تسکش ساخته و همان لحظه اجرا می‌شود.</span>
       </p>
       <Textarea
         value={prompt}
@@ -131,7 +130,11 @@ export function QuickCommand({ userId, defaults, projectId: fixedProject, classN
           <Send className="size-4" /> اجرا
         </Button>
       </div>
-      {!ready ? <p className="mt-2 text-xs text-amber-600">برای {stage === "main" ? "کار اصلی" : "پیش‌کار"} هنوز مدل یا موتور انتخاب نشده است (تنظیمات ← مدل هر مرحله).</p> : null}
+      {!ready ? (
+        <Link href="/settings#stages" className="mt-2 block text-xs font-semibold text-amber-600 dark:text-amber-300">
+          مدل {stage === "main" ? "کار اصلی" : "پیش‌کار"} انتخاب نشده ←
+        </Link>
+      ) : null}
     </div>
   );
 }

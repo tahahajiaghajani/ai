@@ -4,7 +4,7 @@ import { listConnections, type GithubConfig } from "@/lib/connections";
 import { QueueClient, type QueueConnection } from "./queue-client";
 import type { ConnectionStateRow, Job, Task } from "@/lib/types";
 
-export const metadata = { title: "صف و اجرا" };
+export const metadata = { title: "صف اجرا" };
 
 export default async function QueuePage(props: PageProps<"/queue">) {
   const me = await requireFull();

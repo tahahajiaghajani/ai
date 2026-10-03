@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { assertOwner } from "@/lib/auth";
 import { db } from "@/lib/supabase/admin";
 import { saveSystemSettings, type SystemSettings } from "@/lib/settings";
+import { saveBanner, type BannerTone } from "@/lib/banner";
 import { configureScheduler, setAppSecrets, systemStatus } from "@/lib/system";
 import { enqueueJob, kickWorker } from "@/lib/queue/jobs";
 import { mergeUpgrade } from "@/lib/claude/ingest";
@@ -52,6 +53,14 @@ export async function saveSystemSettingsAction(patch: Partial<SystemSettings>) {
   return act(async () => {
     await assertOwner();
     return saveSystemSettings(patch);
+  });
+}
+
+/** The message every user sees at the top of the app. */
+export async function saveBannerAction(input: { text: string; link?: string | null; tone?: BannerTone; active: boolean }) {
+  return mutate(async () => {
+    await assertOwner();
+    return saveBanner(input);
   });
 }
 

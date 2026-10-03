@@ -1,15 +1,15 @@
-# TaskFlow AI — اجرای «کار اصلی» با Claude Code (headless) و ارسال لاگ زنده به اپ
-name: "TaskFlow · Claude"
+# Task Flow — اجرای «کار اصلی» با Claude Code (headless) و ارسال لاگ زنده به اپ
+name: "Task Flow · Claude"
 
 on:
   workflow_dispatch:
     inputs:
       job_id:
-        description: "TaskFlow job id"
+        description: "Task Flow job id"
         required: true
         type: string
       app_url:
-        description: "TaskFlow app url"
+        description: "Task Flow app url"
         required: true
         type: string
 

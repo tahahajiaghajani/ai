@@ -4,7 +4,7 @@ import { activePeople } from "@/lib/people";
 import { TaskForm } from "@/components/tasks/task-form";
 import type { RelationType, Task } from "@/lib/types";
 
-export const metadata = { title: "ثبت تسک" };
+export const metadata = { title: "تسک جدید" };
 
 export default async function NewTaskPage(props: PageProps<"/portal/new">) {
   const me = await requireUser();
@@ -25,9 +25,8 @@ export default async function NewTaskPage(props: PageProps<"/portal/new">) {
   const defaultAssignee = wanted ?? parentAssignee ?? (me.mode === "full" ? me.id : null);
   return (
     <div className="mx-auto max-w-3xl">
-      <h1 className="mb-1 text-2xl font-black">{parent ? "ثبت تسک مرتبط" : "ثبت تسک جدید"}</h1>
-      <p className="mb-6 text-sm text-muted">برای هر کسی (یا خودتان) تسک ثبت کنید؛ مسئول آن را می‌پذیرد و وضعیتش را همین‌جا زنده دنبال می‌کنید.</p>
-      <TaskForm userId={me.id} parent={parent} backHref={parent ? `/t/${parent.id}` : "/portal"} people={people} defaultAssignee={defaultAssignee} />
+      <h1 className="mb-5 text-[22px] font-black tracking-tight">{parent ? "تسک مرتبط" : "تسک جدید"}</h1>
+      <TaskForm userId={me.id} parent={parent} backHref={parent ? `/t/${parent.id}` : me.mode === "full" ? "/dashboard" : "/portal"} people={people} defaultAssignee={defaultAssignee} />
     </div>
   );
 }

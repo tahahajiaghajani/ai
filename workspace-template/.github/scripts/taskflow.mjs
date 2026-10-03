@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * TaskFlow AI — GitHub Actions runner helper.
+ * Task Flow — GitHub Actions runner helper.
  *
- * Talks to the TaskFlow app (job spec, live events, final result), runs Claude Code headless
+ * Talks to the Task Flow app (job spec, live events, final result), runs Claude Code headless
  * with a live activity stream, keeps Claude sessions per task so related tasks continue the
  * same work, and commits the results (the app then updates the project's file map and knowledge).
  *
@@ -144,7 +144,7 @@ async function walk(dir) {
 }
 
 function gitCommitAndPush(message, branch, { exclude = [] } = {}) {
-  sh("git", ["config", "user.name", "TaskFlow Runner"]);
+  sh("git", ["config", "user.name", "Task Flow Runner"]);
   sh("git", ["config", "user.email", "taskflow-runner@users.noreply.github.com"]);
   sh("git", ["add", "-A", "--", ".", ...exclude.map((e) => `:!${e}`)]);
   const staged = trySh("git", ["diff", "--cached", "--name-only"]) || "";
@@ -398,7 +398,7 @@ async function cmdUpgrade() {
       await flush();
       return;
     }
-    const pr = await createPullRequest({ branch, base, title: spec.commit_message, body: `${out?.result?.result || ""}\n\n---\nساخته‌شده به صورت خودکار توسط بخش «ارتقا»ی TaskFlow AI.` });
+    const pr = await createPullRequest({ branch, base, title: spec.commit_message, body: `${out?.result?.result || ""}\n\n---\nساخته‌شده به صورت خودکار توسط بخش «ارتقا»ی Task Flow.` });
     emit({
       type: "result",
       status: "success",

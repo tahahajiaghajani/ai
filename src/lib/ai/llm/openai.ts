@@ -134,7 +134,7 @@ export function openaiAdapter(provider: string, apiKey: string, baseUrl: string 
   const headers = {
     Authorization: `Bearer ${apiKey}`,
     "Content-Type": "application/json",
-    ...(provider === "openrouter" ? { "HTTP-Referer": "https://github.com/taskflow-ai", "X-Title": "TaskFlow AI" } : {}),
+    ...(provider === "openrouter" ? { "HTTP-Referer": "https://github.com/taskflow-ai", "X-Title": "Task Flow" } : {}),
   };
 
   async function post(body: Msg, signal?: AbortSignal): Promise<Response> {

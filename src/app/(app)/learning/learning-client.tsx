@@ -3,6 +3,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Brain, CheckCircle2, History, Sparkles, ThumbsDown, ThumbsUp, Wand2 } from "lucide-react";
+import { PageHeader, SECTIONS } from "@/components/shell/page-header";
 import { Badge, Button, Card, CardHeader, Textarea } from "@/components/ui/primitives";
 import { Modal } from "@/components/ui/overlays";
 import { activatePromptAction, runOptimizerAction, savePromptVersionAction } from "@/app/actions/workflows";
@@ -53,52 +54,39 @@ export function LearningClient({
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-black">یادگیری و بهبود مستمر</h1>
-          <p className="mt-1 max-w-3xl text-sm text-muted">
-            ایجنت‌های شما از سه راه بهتر می‌شوند: (۱) فایل دانش هر پروژه که بعد از هر کار به‌روز می‌شود ({faNum(projectCount)} پروژه)، (۲) بازخورد شما روی خروجی‌ها، (۳) بهینه‌ساز که با تحلیل بازخوردها نسخه‌ی بهتر پرامپت‌ها را پیشنهاد می‌دهد.
-          </p>
-        </div>
-        <Button
-          loading={busy}
-          onClick={async () => {
-            setBusy(true);
-            const r = await runOptimizerAction([]);
-            setBusy(false);
-            if (r.ok) toast.success("بهینه‌ساز در صف قرار گرفت؛ پیشنهادها در همین صفحه ظاهر می‌شوند");
-            else toast.error(r.error);
-          }}
-        >
-          <Wand2 className="size-4" /> اجرای بهینه‌ساز پرامپت‌ها
-        </Button>
-      </div>
+      <PageHeader
+        title="ایجنت‌ها"
+        tabs={SECTIONS.agents}
+       
+        actions={
+          <Button
+            loading={busy}
+            onClick={async () => {
+              setBusy(true);
+              const r = await runOptimizerAction([]);
+              setBusy(false);
+              if (r.ok) toast.success("بهینه‌ساز در صف قرار گرفت");
+              else toast.error(r.error);
+            }}
+          >
+            <Wand2 className="size-4" /> بهبود پرامپت‌ها
+          </Button>
+        }
+      />
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Card className="p-4">
-          <p className="text-xs text-muted">بازخورد مثبت</p>
-          <p className="mt-1 flex items-center gap-2 text-2xl font-black text-success">
-            <ThumbsUp className="size-5" /> {faNum(pos)}
-          </p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-xs text-muted">بازخورد منفی</p>
-          <p className="mt-1 flex items-center gap-2 text-2xl font-black text-danger">
-            <ThumbsDown className="size-5" /> {faNum(neg)}
-          </p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-xs text-muted">پیشنهادهای بهینه‌ساز</p>
-          <p className="mt-1 flex items-center gap-2 text-2xl font-black text-primary">
-            <Sparkles className="size-5" /> {faNum(aiPending.length)}
-          </p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-xs text-muted">پروژه‌ها (دانش)</p>
-          <p className="mt-1 flex items-center gap-2 text-2xl font-black">
-            <Brain className="size-5" /> {faNum(projectCount)}
-          </p>
-        </Card>
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm font-bold">
+        <span className="flex items-center gap-1.5 text-success" title="بازخورد مثبت">
+          <ThumbsUp className="size-4" /> {faNum(pos)}
+        </span>
+        <span className="flex items-center gap-1.5 text-danger" title="بازخورد منفی">
+          <ThumbsDown className="size-4" /> {faNum(neg)}
+        </span>
+        <span className="flex items-center gap-1.5 text-primary">
+          <Sparkles className="size-4" /> {faNum(aiPending.length)} پیشنهاد
+        </span>
+        <span className="flex items-center gap-1.5 text-muted">
+          <Brain className="size-4" /> {faNum(projectCount)} پروژه با دانش
+        </span>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
@@ -154,7 +142,7 @@ export function LearningClient({
           <Card>
             <CardHeader title="نسخه‌ها" icon={<History className="size-4" />} />
             <div className="divide-y divide-line">
-              {list.length === 0 ? <p className="px-5 py-6 text-sm text-muted">هنوز نسخه‌ای ثبت نشده است.</p> : null}
+              {list.length === 0 ? <p className="px-5 py-6 text-sm text-muted">نسخه‌ای نیست</p> : null}
               {list.map((v) => (
                 <div key={v.id} className="flex flex-wrap items-center gap-2 px-5 py-3 text-sm">
                   <span className="font-black">v{faNum(v.version)}</span>
@@ -178,12 +166,14 @@ export function LearningClient({
           </Card>
 
           <Card>
-            <CardHeader title="بازخوردهای این ایجنت" />
+            <CardHeader title="بازخوردها" />
             <div className="max-h-72 divide-y divide-line overflow-y-auto">
-              {fb.length === 0 ? <p className="px-5 py-6 text-sm text-muted">از صفحه‌ی هر تسک، زیر خروجی ایجنت‌ها بازخورد بدهید.</p> : null}
+              {fb.length === 0 ? <p className="px-5 py-6 text-sm text-muted">بازخوردی نیست</p> : null}
               {fb.map((f, i) => (
-                <p key={i} className="px-5 py-2.5 text-sm">
-                  {f.rating > 0 ? "👍" : "👎"} {f.comment || "بدون توضیح"} <span className="text-xs text-faint">· {timeAgo(f.created_at)}</span>
+                <p key={i} className="flex items-center gap-2 px-5 py-2.5 text-sm">
+                  {f.rating > 0 ? <ThumbsUp className="size-4 shrink-0 text-success" /> : <ThumbsDown className="size-4 shrink-0 text-danger" />}
+                  <span className="min-w-0 flex-1">{f.comment || "بدون توضیح"}</span>
+                  <span className="text-xs text-faint">{timeAgo(f.created_at)}</span>
                 </p>
               ))}
             </div>

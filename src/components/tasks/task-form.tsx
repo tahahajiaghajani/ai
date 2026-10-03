@@ -73,7 +73,6 @@ export function TaskForm({
           <p className="text-sm">
             تسک مرتبط با <b className="ltr">{parent.code}</b> — {parent.title}
           </p>
-          <p className="mt-1 text-xs text-muted">این تسک جدید حساب نمی‌شود؛ زیر همان تسک اصلی و در ادامه‌ی همان پروژه انجام می‌شود.</p>
           <Field label="نوع ارتباط" className="mt-3 max-w-xs">
             <Select value={relation} onChange={(e) => setRelation(e.target.value as RelationType)}>
               {(Object.keys(RELATION_META) as RelationType[])
@@ -89,7 +88,7 @@ export function TaskForm({
       ) : null}
 
       <Card className="space-y-5 p-5 sm:p-6">
-        <Field label="مسئول" required hint="چه کسی این کار را انجام می‌دهد؟ (خودتان یا هر کاربر دیگر اپ)">
+        <Field label="مسئول" required>
           <Combobox
             options={people.map((p) => ({
               value: p.id,
@@ -104,10 +103,10 @@ export function TaskForm({
           />
         </Field>
         <Field label="عنوان" required>
-          <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="یک عنوان کوتاه و روشن" maxLength={200} required />
+          <Input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={200} required />
         </Field>
-        <Field label="توضیحات" hint="هر چه دقیق‌تر بنویسید، نتیجه بهتر و سریع‌تر می‌شود (پشتیبانی از Markdown)">
-          <Textarea value={description} onChange={(e) => setDescription(e.target.value)} className="min-h-44" placeholder="شرح کامل کار، انتظارات، محدودیت‌ها، معیار انجام…" />
+        <Field label="توضیحات">
+          <Textarea value={description} onChange={(e) => setDescription(e.target.value)} className="min-h-44" />
         </Field>
 
         <div>
@@ -164,7 +163,7 @@ export function TaskForm({
           </div>
         </div>
 
-        <Field label="فایل‌های پیوست" hint="هر نوع فایلی (سند، تصویر، اکسل، PDF، صوت…) — تا ۵۰ مگابایت">
+        <Field label="پیوست" hint="تا ۵۰ مگابایت">
           <FileDropzone userId={userId} onChange={onFiles} />
         </Field>
       </Card>

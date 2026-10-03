@@ -1,5 +1,6 @@
 "use client";
 import * as React from "react";
+import { PageHeader, SECTIONS } from "@/components/shell/page-header";
 import { toast } from "sonner";
 import { AlertTriangle, CheckCircle2, Clock, KeyRound, Layers, RefreshCw, Save, Server, Users, XCircle } from "lucide-react";
 import { Badge, Button, Card, CardHeader, Field, Input, Select, Spinner, Switch } from "@/components/ui/primitives";
@@ -87,6 +88,25 @@ function LaneCard({ lane }: { lane: LaneRow }) {
   );
 }
 
+/** Problems first; the healthy ones fold into one line. */
+function ServiceRows({ rows }: { rows: { key: string; ok: boolean; label: string; detail?: string; level?: "warning" | "error" }[] }) {
+  const [all, setAll] = React.useState(false);
+  const bad = rows.filter((r) => !r.ok);
+  const good = rows.filter((r) => r.ok);
+  return (
+    <div className="divide-y divide-line">
+      {bad.map((r) => (
+        <Row key={r.key} ok={false} label={r.label} detail={r.detail} level={r.level} />
+      ))}
+      {all ? good.map((r) => <Row key={r.key} ok label={r.label} detail={r.detail} />) : null}
+      <button type="button" onClick={() => setAll((v) => !v)} className="flex w-full items-center gap-3 px-5 py-3 text-start text-sm font-semibold text-success hover:bg-surface-muted">
+        <CheckCircle2 className="size-5 shrink-0" />
+        {all ? "پنهان کردن موارد سالم" : `${faNum(good.length)} مورد سالم`}
+      </button>
+    </div>
+  );
+}
+
 export function SystemClient({
   settings: initial,
   lanes,
@@ -123,16 +143,9 @@ export function SystemClient({
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="flex items-center gap-2 text-2xl font-black">
-          <Server className="size-6 text-primary" /> سیستم و سرویس‌ها
-        </h1>
-        <p className="mt-1 text-sm text-muted">
-          فقط مالک اپ این صفحه را می‌بیند: Vercel و Supabase مشترک، زمان‌بند، ظرفیت اجرا و ثبت‌نام. آدرس اپ: <span className="ltr font-mono">{info.appUrl || "—"}</span> · بودجه‌ی هر اجرای ورکر: {faNum(info.budget)} ثانیه
-        </p>
-      </div>
+      <PageHeader title="مدیریت" tabs={SECTIONS.admin} />
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+      <Card className="grid grid-cols-2 divide-line sm:grid-cols-5 sm:divide-x sm:divide-x-reverse">
         {[
           { label: "کاربران فعال", value: stats.users },
           { label: "منتظر تایید", value: stats.pending },
@@ -140,12 +153,12 @@ export function SystemClient({
           { label: "با کلید هوش مصنوعی", value: stats.withAi },
           { label: "با GitHub", value: stats.withGithub },
         ].map((k) => (
-          <Card key={k.label} className="p-4">
+          <div key={k.label} className="px-4 py-3">
             <p className="text-xs text-muted">{k.label}</p>
-            <p className="mt-1 text-2xl font-black">{faNum(k.value)}</p>
-          </Card>
+            <p className="mt-0.5 text-xl font-black">{faNum(k.value)}</p>
+          </div>
         ))}
-      </div>
+      </Card>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
@@ -165,14 +178,12 @@ export function SystemClient({
           ) : !status.ok ? (
             <p className="p-5 text-sm text-danger">{status.error}</p>
           ) : (
-            <div className="divide-y divide-line">
-              {status.data.env.map((e) => (
-                <Row key={e.key} ok={e.ok} label={`${e.label} (${e.key})`} detail={e.ok ? undefined : e.hint} level={e.optional ? "warning" : "error"} />
-              ))}
-              {status.data.checks.map((c) => (
-                <Row key={c.key} ok={c.ok} label={c.label} detail={c.detail} level={c.level} />
-              ))}
-            </div>
+            <ServiceRows
+              rows={[
+                ...status.data.env.map((e) => ({ key: e.key, ok: e.ok, label: `${e.label} (${e.key})`, detail: e.ok ? undefined : e.hint, level: (e.optional ? "warning" : "error") as "warning" | "error" })),
+                ...status.data.checks.map((c) => ({ key: c.key, ok: c.ok, label: c.label, detail: c.detail, level: c.level })),
+              ]}
+            />
           )}
         </Card>
 
@@ -181,9 +192,7 @@ export function SystemClient({
             <p className="flex items-center gap-2 font-extrabold">
               <Clock className="size-4" /> زمان‌بند ورکر (pg_cron)
             </p>
-            <p className="mt-1 text-xs leading-6 text-muted">
-              Supabase هر چند ثانیه ورکر اپ را صدا می‌زند تا کارهای صف همه‌ی کاربران اجرا شوند. آخرین اجرا: {lastTick ? timeAgo(lastTick) : "هنوز"}
-            </p>
+            <p className="mt-1 text-xs text-muted">آخرین اجرا: {lastTick ? timeAgo(lastTick) : "هنوز"}</p>
             <div className="mt-3 flex flex-wrap gap-2">
               <Select value={interval} onChange={(e) => setInterval_(e.target.value)} className="w-48">
                 <option value="20 seconds">هر ۲۰ ثانیه</option>
@@ -209,14 +218,13 @@ export function SystemClient({
 
           <Card className="space-y-3 p-5">
             <p className="flex items-center gap-2 font-extrabold">
-              <Users className="size-4" /> ثبت‌نام و ارتقا
+              <Users className="size-4" /> ثبت‌نام
             </p>
             <Switch
               checked={settings.registration.autoApprove}
               onChange={(v) => void saveSettings({ registration: { autoApprove: v } })}
-              label="کاربران جدید بدون تایید مالک فعال شوند"
+              label="فعال شدن کاربران جدید بدون تایید"
             />
-            <Switch checked={settings.upgrade.autoMerge} onChange={(v) => void saveSettings({ upgrade: { autoMerge: v } })} label="ارتقای اپ پس از سبز شدن تست‌ها خودکار ادغام شود" />
           </Card>
         </div>
       </div>
@@ -225,10 +233,6 @@ export function SystemClient({
         <h2 className="mb-3 flex items-center gap-2 text-lg font-black">
           <Layers className="size-5" /> ظرفیت اجرا
         </h2>
-        <p className="mb-3 text-xs leading-6 text-muted">
-          کارهای هر کاربر با کلیدهای خودش اجرا می‌شوند؛ «هر کاربر» جلوی اشغال همه‌ی ظرفیت توسط یک نفر را می‌گیرد و لیمیت یک کلید فقط کارهای همان کاربر را متوقف می‌کند. روی Vercel Hobby هر اجرای ورکر حداکثر چند دقیقه طول
-          می‌کشد؛ اعداد بزرگ‌تر فقط وقتی مفیدند که کاربران زیادی هم‌زمان کار کنند.
-        </p>
         <div className="grid gap-3 md:grid-cols-3">
           {lanes.map((l) => (
             <LaneCard key={l.lane} lane={l} />
@@ -242,14 +246,8 @@ export function SystemClient({
           <p className="flex items-center gap-2 font-extrabold">
             <KeyRound className="size-4" /> Secrets مخزن اپ (ارتقای خودکار)
           </p>
-          <p className="mt-1 text-xs leading-6 text-muted">
-            {info.appRepo ? (
-              <>
-                در مخزن <span className="ltr font-mono">{info.appRepo}</span> ذخیره می‌شوند و فقط ورکفلوی ارتقای اپ از آن‌ها استفاده می‌کند. اپ این مقادیر را نگه نمی‌دارد.
-              </>
-            ) : (
-              "برای ارتقای خودکار اپ، GITHUB_TOKEN (و GITHUB_OWNER / GITHUB_APP_REPO) را در Vercel تنظیم کنید."
-            )}
+          <p className="mt-1 text-xs text-muted">
+            {info.appRepo ? <span className="ltr font-mono">{info.appRepo}</span> : "GITHUB_TOKEN، GITHUB_OWNER و GITHUB_APP_REPO در Vercel تنظیم نشده"}
           </p>
           <div className="mt-3 space-y-3">
             <Field label="CLAUDE_CODE_OAUTH_TOKEN">
@@ -258,7 +256,7 @@ export function SystemClient({
             <Field label="یا ANTHROPIC_API_KEY">
               <Input dir="ltr" type="password" autoComplete="off" value={secrets.anthropicKey} onChange={(e) => setSecrets((s) => ({ ...s, anthropicKey: e.target.value }))} />
             </Field>
-            <Field label="SUPABASE_DB_URL (برای اجرای خودکار migration ها)">
+            <Field label="SUPABASE_DB_URL (migrationها)">
               <Input dir="ltr" type="password" autoComplete="off" value={secrets.dbUrl} onChange={(e) => setSecrets((s) => ({ ...s, dbUrl: e.target.value }))} />
             </Field>
             <Button

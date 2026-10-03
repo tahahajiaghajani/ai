@@ -32,13 +32,6 @@ export const env = {
   get appSecretKey() {
     return read("APP_SECRET_KEY") ?? "";
   },
-  /** Public page with the install guide ("full experience" link); defaults to the app repository on GitHub. */
-  get guideUrl() {
-    const explicit = read("APP_GUIDE_URL");
-    if (explicit) return explicit;
-    const owner = read("GITHUB_OWNER");
-    return owner ? `https://github.com/${owner}/${read("GITHUB_APP_REPO") ?? "ai"}/blob/main/docs/SETUP_USER_FA.md` : "";
-  },
   get githubOwner() {
     return read("GITHUB_OWNER") ?? "";
   },

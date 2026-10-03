@@ -9,7 +9,8 @@ import { Badge, Button, Card, CardHeader, EmptyState, Field, Input, Spinner, Swi
 import { FileDropzone, useUploads } from "@/components/ui/file-dropzone";
 import { LiveLog } from "@/components/tasks/live-log";
 import { Markdown } from "@/components/ui/markdown";
-import { cancelUpgradeAction, createUpgradeAction, mergeUpgradeAction, refreshPreviewAction, rollbackUpgradeAction } from "@/app/actions/owner";
+import { PageHeader, SECTIONS } from "@/components/shell/page-header";
+import { cancelUpgradeAction, createUpgradeAction, mergeUpgradeAction, refreshPreviewAction, rollbackUpgradeAction, saveSystemSettingsAction } from "@/app/actions/owner";
 import { formatJalali } from "@/lib/jalali";
 import type { TaskEvent, Upgrade } from "@/lib/types";
 
@@ -38,14 +39,19 @@ function UpgradeLog({ id, live }: { id: string; live: boolean }) {
   return events ? <LiveLog initial={events} upgradeId={id} live={live} maxHeight="50vh" /> : <Spinner />;
 }
 
-export function UpgradeClient({ userId, initial }: { userId: string; initial: Upgrade[] }) {
+export function UpgradeClient({ userId, initial, autoMergeDefault }: { userId: string; initial: Upgrade[]; autoMergeDefault: boolean }) {
   const router = useRouter();
   const [rows] = useRealtimeRows<Upgrade & Record<string, unknown>>("upgrades", initial as (Upgrade & Record<string, unknown>)[], {
     sort: (a, b) => new Date(String(b.created_at)).getTime() - new Date(String(a.created_at)).getTime(),
   });
   const [title, setTitle] = React.useState("");
   const [prompt, setPrompt] = React.useState("");
-  const [autoMerge, setAutoMerge] = React.useState(false);
+  const [autoMerge, setAutoMerge] = React.useState(autoMergeDefault);
+  // one switch: the choice is remembered for the next upgrades too
+  const changeAutoMerge = (v: boolean) => {
+    setAutoMerge(v);
+    void saveSystemSettingsAction({ upgrade: { autoMerge: v } });
+  };
   const { files, onChange: onFiles, blocker: uploadBlocker } = useUploads();
   const [busy, setBusy] = React.useState(false);
   const [open, setOpen] = React.useState<string | null>(null);
@@ -72,29 +78,22 @@ export function UpgradeClient({ userId, initial }: { userId: string; initial: Up
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-2xl font-black">
-          ارتقای <span className="text-gradient">خودکار</span> اپلیکیشن
-        </h1>
-        <p className="mt-1 max-w-3xl text-sm text-muted">
-          فقط پرامپت بنویسید: Claude Code روی مخزن همین اپ تغییر را پیاده می‌کند، typecheck و build را اجرا و خطاها را خودش رفع می‌کند، یک Pull Request می‌سازد و Vercel پیش‌نمایش آن را منتشر می‌کند. با «انتشار»، نسخه‌ی جدید روی Vercel می‌رود و migrationهای Supabase اعمال می‌شوند.
-        </p>
-      </div>
+      <PageHeader title="مدیریت" tabs={SECTIONS.admin} />
 
       <Card>
-        <CardHeader title="درخواست ارتقای جدید" icon={<Rocket className="size-4" />} />
+        <CardHeader title="ارتقای اپلیکیشن با Claude Code" icon={<Rocket className="size-4" />} />
         <div className="space-y-4 p-5">
           <Field label="عنوان کوتاه (اختیاری)">
             <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="مثلاً: گزارش هفتگی ایمیلی" />
           </Field>
-          <Field label="پرامپت ارتقا" required hint="هر قدر دقیق‌تر بنویسید نتیجه بهتر است؛ Claude به کل کد و مستندات معماری دسترسی دارد.">
+          <Field label="پرامپت ارتقا" required>
             <Textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} className="min-h-44" placeholder="مثلاً: یک صفحه‌ی گزارش اضافه کن که تعداد تسک‌های بسته‌شده‌ی هر تسک‌دهنده را در ماه جاری با نمودار نشان دهد…" />
           </Field>
           <Field label="فایل‌های همراه (طرح، اسکرین‌شات، سند)">
             <FileDropzone userId={userId} onChange={onFiles} compact />
           </Field>
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <Switch checked={autoMerge} onChange={setAutoMerge} label={<span className="text-sm">انتشار خودکار پس از موفقیت build (بدون بازبینی)</span>} />
+            <Switch checked={autoMerge} onChange={changeAutoMerge} label={<span className="text-sm">انتشار خودکار پس از build موفق</span>} />
             <Button onClick={submit} loading={busy} disabled={!prompt.trim() || !!uploadBlocker} title={uploadBlocker ?? undefined}>
               <Rocket className="size-4" /> ارسال به Claude
             </Button>

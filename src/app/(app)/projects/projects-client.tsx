@@ -6,12 +6,11 @@ import { toast } from "sonner";
 import { Brain, ChevronLeft, FolderGit2, FolderPlus, Network, Search } from "lucide-react";
 import { Badge, Button, Card, EmptyState, Field, Input, Textarea } from "@/components/ui/primitives";
 import { Modal } from "@/components/ui/overlays";
-import { QuickCommand } from "@/components/tasks/quick-command";
+import { PageHeader, SECTIONS } from "@/components/shell/page-header";
 import { createProjectAction } from "@/app/actions/projects";
 import { projectSlug } from "@/lib/projects/paths";
 import { timeAgo } from "@/lib/jalali";
 import { faNum, formatBytes } from "@/lib/utils";
-import type { DispatchDefaults } from "@/lib/settings";
 import type { ProjectSummary } from "@/lib/types";
 
 export function ProjectStatus({ p }: { p: Pick<ProjectSummary, "status" | "status_detail"> }) {
@@ -24,7 +23,7 @@ export function ProjectStatus({ p }: { p: Pick<ProjectSummary, "status" | "statu
   );
 }
 
-export function ProjectsClient({ userId, github, projects, defaults }: { userId: string; github: boolean; projects: ProjectSummary[]; defaults: DispatchDefaults }) {
+export function ProjectsClient({ github, projects }: { github: boolean; projects: ProjectSummary[] }) {
   const router = useRouter();
   const [q, setQ] = React.useState("");
   const [creating, setCreating] = React.useState(false);
@@ -45,57 +44,46 @@ export function ProjectsClient({ userId, github, projects, defaults }: { userId:
 
   if (!github) {
     return (
-      <Card>
-        <EmptyState
-          icon={<FolderGit2 className="size-7" />}
-          title="پروژه‌ها در GitHub خودتان نگه داشته می‌شوند"
-          description="برای ساخت پروژه، افزودن فایل‌های کد و سند، دانش پروژه و گراف، ابتدا GitHub را در تنظیمات وصل کنید. پیش‌کار و کار اصلی بدون GitHub هم کار می‌کنند."
-          action={
-            <Link href="/settings">
-              <Button>تنظیمات و اتصال‌ها</Button>
-            </Link>
-          }
-        />
-      </Card>
+      <div className="space-y-5">
+        <PageHeader title="پروژه‌ها" tabs={SECTIONS.projects} />
+        <Card>
+          <EmptyState
+            icon={<FolderGit2 className="size-6" />}
+            title="GitHub وصل نیست"
+            description="پروژه‌ها در مخزن GitHub خودتان نگه داشته می‌شوند."
+            action={
+              <Link href="/settings#github">
+                <Button>اتصال GitHub</Button>
+              </Link>
+            }
+          />
+        </Card>
+      </div>
     );
   }
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-black">پروژه‌ها و دانش</h1>
-          <p className="mt-1 max-w-3xl text-sm leading-7 text-muted">
-            هر پروژه یک پوشه در مخزن GitHub شماست: فایل‌های کد و سند کامل و بدون تکه‌تکه شدن، یک فایل دانش که بعد از هر کار به‌روز می‌شود و نقشه‌ی فایل‌ها. در «دستور سریع» یا هنگام ارسال تسک، پروژه را انتخاب کنید
-            تا مجری فایل‌های درست را پیدا، ویرایش یا ایجاد کند.
-          </p>
-        </div>
-        <Button onClick={() => setCreating(true)}>
-          <FolderPlus className="size-4" /> پروژه‌ی جدید
-        </Button>
-      </div>
-
-      {projects.length ? <QuickCommand userId={userId} defaults={defaults} compact /> : null}
+      <PageHeader
+        title="پروژه‌ها"
+        tabs={SECTIONS.projects}
+        actions={
+          <Button onClick={() => setCreating(true)}>
+            <FolderPlus className="size-4" /> پروژه‌ی جدید
+          </Button>
+        }
+      />
 
       {projects.length > 6 ? (
         <div className="relative max-w-sm">
           <Search className="absolute right-3 top-1/2 size-4 -translate-y-1/2 text-faint" />
-          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="جستجوی پروژه…" className="pr-9" />
+          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="جستجو" aria-label="جستجو" className="pr-9" />
         </div>
       ) : null}
 
       {!projects.length ? (
         <Card>
-          <EmptyState
-            icon={<FolderGit2 className="size-7" />}
-            title="هنوز پروژه‌ای ندارید"
-            description="یک پروژه بسازید و فایل‌ها، پوشه، فایل zip یا یک مخزن GitHub (مثلاً اپ ذخیره‌شده از Google AI Studio) را واردش کنید."
-            action={
-              <Button onClick={() => setCreating(true)}>
-                <FolderPlus className="size-4" /> ساخت اولین پروژه
-              </Button>
-            }
-          />
+          <EmptyState icon={<FolderGit2 className="size-6" />} title="هنوز پروژه‌ای ندارید" description="فایل، پوشه، zip یا مخزن GitHub" />
         </Card>
       ) : (
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -139,7 +127,6 @@ export function ProjectsClient({ userId, github, projects, defaults }: { userId:
         open={creating}
         onOpenChange={setCreating}
         title="پروژه‌ی جدید"
-        description="پوشه‌ی پروژه در مخزن GitHub شما ساخته می‌شود؛ بعد از ساخت، فایل‌ها را اضافه کنید."
         footer={
           <Button
             loading={busy}
@@ -162,10 +149,10 @@ export function ProjectsClient({ userId, github, projects, defaults }: { userId:
           <Field label="نام پروژه" required>
             <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="مثلاً Renew" />
           </Field>
-          <Field label="نام پوشه (لاتین)" hint={`خالی = ${name ? projectSlug(name) : "از روی نام"}؛ در دستورها می‌توانید با همین نام به پروژه اشاره کنید.`}>
+          <Field label="نام پوشه (لاتین)" hint={`خالی = ${name ? projectSlug(name) : "از روی نام"}`}>
             <Input dir="ltr" value={slug} onChange={(e) => setSlug(e.target.value.toLowerCase())} placeholder={name ? projectSlug(name) : "renew"} />
           </Field>
-          <Field label="توضیح پروژه" hint="هدف، فناوری‌ها و نکات مهم؛ به همه‌ی ایجنت‌ها داده می‌شود.">
+          <Field label="توضیح پروژه" hint="به همه‌ی ایجنت‌ها داده می‌شود">
             <Textarea className="min-h-28" value={desc} onChange={(e) => setDesc(e.target.value)} />
           </Field>
         </div>

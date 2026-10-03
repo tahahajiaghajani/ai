@@ -1,56 +1,40 @@
 import Link from "next/link";
-import { Blocks, Brain, ChevronLeft, Cpu, Home, Network, Plus, Rocket, Server, Settings, Users } from "lucide-react";
+import { Blocks, ChevronLeft, LifeBuoy, Settings, ShieldCheck } from "lucide-react";
 import { requireFull } from "@/lib/auth";
+import { db } from "@/lib/supabase/admin";
+import { faNum } from "@/lib/utils";
 import { Card } from "@/components/ui/primitives";
+import { Signature } from "@/components/shell/logo";
 
 export const metadata = { title: "بیشتر" };
 
-const LINKS = [
-  { href: "/portal/new", label: "ثبت تسک جدید", icon: Plus },
-  { href: "/queue", label: "صف و اجرا", icon: Cpu },
-  { href: "/graph", label: "گراف دانش (graphify)", icon: Network },
-  { href: "/agents", label: "ایجنت‌ها و ورکفلوها", icon: Blocks },
-  { href: "/learning", label: "یادگیری و پرامپت‌ها", icon: Brain },
-  { href: "/settings", label: "تنظیمات و اتصال‌ها", icon: Settings },
-  { href: "/portal", label: "نمای ساده‌ی تسک‌ها", icon: Home },
-];
-
-const OWNER_LINKS = [
-  { href: "/system", label: "سیستم و سرویس‌ها", icon: Server },
-  { href: "/users", label: "کاربران", icon: Users },
-  { href: "/upgrade", label: "ارتقای اپلیکیشن", icon: Rocket },
-];
-
-function Item({ href, label, icon: Icon }: (typeof LINKS)[number]) {
-  return (
-    <Link href={href}>
-      <Card className="mb-3 flex items-center gap-3 px-4 py-4 transition hover:-translate-y-px">
-        <span className="grid size-10 place-items-center rounded-xl bg-primary-soft text-primary">
-          <Icon className="size-5" />
-        </span>
-        <span className="flex-1 font-bold">{label}</span>
-        <ChevronLeft className="size-5 text-muted" />
-      </Card>
-    </Link>
-  );
-}
-
+/** Phones: the menu items that do not fit in the bottom bar. */
 export default async function MorePage() {
   const me = await requireFull();
+  const pending = me.isOwner ? ((await db().from("profiles").select("id", { count: "exact", head: true }).eq("status", "pending")).count ?? 0) : 0;
+  const links = [
+    { href: "/agents", label: "ایجنت‌ها", icon: Blocks },
+    ...(me.isOwner ? [{ href: "/system", label: "مدیریت", icon: ShieldCheck, badge: pending }] : []),
+    { href: "/settings", label: "تنظیمات", icon: Settings },
+    { href: "/help", label: "راهنما", icon: LifeBuoy },
+  ];
   return (
-    <div className="mx-auto max-w-lg space-y-3">
-      <h1 className="mb-4 text-xl font-black">بخش‌های دیگر</h1>
-      {LINKS.map((l) => (
-        <Item key={l.href} {...l} />
-      ))}
-      {me.isOwner ? (
-        <>
-          <p className="px-1 pt-3 text-xs font-bold text-faint">مدیریت اپ (فقط مالک)</p>
-          {OWNER_LINKS.map((l) => (
-            <Item key={l.href} {...l} />
-          ))}
-        </>
-      ) : null}
+    <div className="mx-auto max-w-lg">
+      <Card className="divide-y divide-line overflow-hidden">
+        {links.map(({ href, label, icon: Icon, ...l }) => (
+          <Link key={href} href={href} className="flex items-center gap-3 px-4 py-3.5 transition hover:bg-surface-muted">
+            <span className="grid size-9 place-items-center rounded-xl bg-primary-soft text-primary">
+              <Icon className="size-[18px]" />
+            </span>
+            <span className="flex-1 font-bold">{label}</span>
+            {"badge" in l && l.badge ? <span className="grid min-w-5 place-items-center rounded-full bg-danger px-1.5 text-[11px] font-bold text-white">{faNum(l.badge)}</span> : null}
+            <ChevronLeft className="size-5 text-faint" />
+          </Link>
+        ))}
+      </Card>
+      <p className="mt-8 text-center">
+        <Signature />
+      </p>
     </div>
   );
 }

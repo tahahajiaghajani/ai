@@ -1,14 +1,14 @@
 @AGENTS.md
 
-# TaskFlow AI — project memory for Claude
+# Task Flow — project memory for Claude
 
-This repo is the **TaskFlow AI** app: a Persian (RTL) multi-user task app with AI agents, deployed once on **Vercel (Hobby, Fluid compute)** with **Supabase (Free)** and shared by everyone. Anyone gives tasks to anyone (assignee field). In **simple mode** users only give/track tasks and update status by hand; in **full mode** each user connects their **own** AI keys (Anthropic, Google, OpenAI-compatible) and **own** GitHub workspace repo, and pre-work / main work run as configurable agent workflows. The **owner** (`OWNER_EMAIL`) manages the shared system, users and app upgrades.
+This repo is the **Task Flow** app: a Persian (RTL) multi-user task app with AI agents, deployed once on **Vercel (Hobby, Fluid compute)** with **Supabase (Free)** and shared by everyone. Anyone gives tasks to anyone (assignee field). In **simple mode** users only give/track tasks and update status by hand; in **full mode** each user connects their **own** AI keys (Anthropic, Google, OpenAI-compatible) and **own** GitHub workspace repo, and pre-work / main work run as configurable agent workflows. The **owner** (`OWNER_EMAIL`) manages the shared system, users and app upgrades.
 
-Read `docs/ARCHITECTURE_FA.md` (architecture), `docs/INSTALL_FA.md` (owner setup) and `docs/SETUP_USER_FA.md` (users) before larger changes.
+Read `docs/ARCHITECTURE_FA.md` (architecture), `docs/INSTALL_FA.md` (owner setup), `docs/SETUP_USER_FA.md` (users) and `docs/BRAND_FA.md` (brand and UI rules) before larger changes.
 
 ## Stack
 - Next.js 16 App Router (`src/proxy.ts` instead of middleware, async `params`/`searchParams`, `after()`), React 19, TypeScript strict.
-- Tailwind CSS v4 (tokens in `src/app/globals.css` — use `bg-surface`, `text-muted`, `border-line`, `bg-primary-soft`, `glass`, stage colors `var(--stage-*)`).
+- Tailwind CSS v4 (tokens in `src/app/globals.css` — use `bg-surface-strong`, `text-muted`, `border-line`, `bg-primary-soft`, `bg-brand` (filled buttons), `text-primary`, `bg-flow` (decoration only), `text-gold` (signature only), stage colors `var(--stage-*)`; never raw hex). Fonts: Vazirmatn (UI), Sora via `font-brand` (Latin brand text).
 - Supabase: `@supabase/ssr` (user session), service-role client `db()` in `src/lib/supabase/admin.ts` for server writes.
 - AI: provider adapters in `src/lib/ai/llm/` (`google.ts` via `@google/genai`, `anthropic.ts` via `@anthropic-ai/sdk`, `openai.ts` raw fetch+SSE for every OpenAI-compatible service), `generate.ts` (single calls, model fallback, error classes), `agent.ts` (resumable tool loop). Presets in `providers.ts` (client-safe).
 - Users' connections: `src/lib/connections.ts` (secrets AES-256-GCM via `src/lib/crypto.ts`), per-user settings `src/lib/settings.ts` (`getUserConfig`), what a user can use: `src/lib/capabilities.ts`.
@@ -18,8 +18,9 @@ Read `docs/ARCHITECTURE_FA.md` (architecture), `docs/INSTALL_FA.md` (owner setup
 
 ## Conventions
 - **All UI text is Persian and RTL.** Use logical Tailwind utilities (`ms-`, `me-`, `ps-`, `pe-`, `start`, `end`). Latin/code snippets get `className="ltr"` or `dir="ltr"`. Dates: `formatJalali()` from `src/lib/jalali.ts`; numbers: `faNum()`.
+- **Simple, quiet UI** (see `docs/BRAND_FA.md`): every page starts with `PageHeader` (`src/components/shell/page-header.tsx`) — a title, the section's `SECTIONS` tabs and at most one or two main actions; **no description paragraphs, no long hints, no duplicate buttons**. Explanations belong in `/help`. All signed-in pages render inside `AppShell` (`src/components/shell/app-shell.tsx`); new top-level sections go into one of the five menu groups instead of adding menu items. User-visible changes get a short entry at the top of `src/lib/changelog.ts` («تازه‌ها»).
 - Mutations go through **Server Actions** in `src/app/actions/*` that call `assertActive()` / `assertFull()` / `assertOwner()` first and return `ActionResult` via `act()`. Never export helpers without auth checks from `"use server"` files. Owner-only actions live in `actions/owner.ts`.
-- Pages: `(app)` group = full mode (`requireFull()`), `/portal` = simple mode (`requireUser()`), owner pages call `requireOwner()`. Every query is scoped to the user (`assignee_id`/`owner_id`/`user_id`) unless the owner explicitly asks for `?scope=all`.
+- Pages: `(app)` group = full mode (`requireFull()`), `/portal` = the simple app (`requireUser()`; full-mode users see `/portal/*` pages inside the full frame and `/portal` itself sends them to `/inbox`), owner pages call `requireOwner()`. Every query is scoped to the user (`assignee_id`/`owner_id`/`user_id`) unless the owner explicitly asks for `?scope=all`.
 - Only the user's **prompt and the files of that send** go to the models — never the task title/description.
 - Task status transitions live in `src/lib/tasks/service.ts`; stage/status metadata in `src/lib/status.ts`.
 - Background work = rows in `jobs` (`owner_id`, `connection_id`, `lane` llm/external/system), claimed fairly per lane and per owner by `claim_job` and processed by `src/lib/queue/tick.ts` handlers. Handlers must finish a step within the worker budget (~240s): throw `DeadlineError` to continue next tick, `RateLimitError` to pause only that connection/model, `FatalError` for clear user errors; return `{type:"continue"|"wait"|"done"|"fail"}`.

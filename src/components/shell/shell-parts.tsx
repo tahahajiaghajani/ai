@@ -3,7 +3,7 @@ import * as React from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Bell, Camera, LogOut, Moon, PauseCircle, Rocket, Settings, Sparkles, Sun, Zap } from "lucide-react";
+import { ArrowLeft, Bell, Camera, LifeBuoy, LogOut, Moon, PauseCircle, Rocket, Sparkles, Sun, X } from "lucide-react";
 import { useRealtimeRows, useNow } from "@/hooks/use-realtime";
 import { Pop, Menu, Modal } from "@/components/ui/overlays";
 import { AvatarPicker } from "@/components/ui/avatar-picker";
@@ -13,24 +13,53 @@ import { signOutAction } from "@/app/actions/auth";
 import { removeAvatarAction, setAvatarAction } from "@/app/actions/profile";
 import { timeAgo } from "@/lib/jalali";
 import { cn, faNum } from "@/lib/utils";
+import { LATEST_RELEASE, SEEN_RELEASE_KEY } from "@/lib/changelog";
 import type { ConnectionStateRow, NotificationRow } from "@/lib/types";
+import type { BannerTone } from "@/lib/banner";
 
-export function ThemeToggle() {
+function setTheme(dark: boolean) {
+  document.documentElement.classList.toggle("dark", dark);
+  try {
+    localStorage.setItem("tf-theme", dark ? "dark" : "light");
+  } catch {}
+}
+
+function useDark() {
   const [dark, setDark] = React.useState<boolean | null>(null);
   React.useEffect(() => setDark(document.documentElement.classList.contains("dark")), []);
   const toggle = () => {
     const next = !document.documentElement.classList.contains("dark");
-    document.documentElement.classList.toggle("dark", next);
-    try {
-      localStorage.setItem("tf-theme", next ? "dark" : "light");
-    } catch {}
+    setTheme(next);
     setDark(next);
   };
+  return [dark, toggle] as const;
+}
+
+/** Only where there is no user menu (sign-in pages). */
+export function ThemeToggle() {
+  const [dark, toggle] = useDark();
   return (
     <Button variant="ghost" size="icon" onClick={toggle} aria-label="تغییر تم">
       {dark ? <Sun className="size-5" /> : <Moon className="size-5" />}
     </Button>
   );
+}
+
+/** True while the newest «تازه‌ها» entry has not been opened on this device. */
+export function useNewRelease() {
+  const [fresh, setFresh] = React.useState(false);
+  React.useEffect(() => {
+    try {
+      setFresh(localStorage.getItem(SEEN_RELEASE_KEY) !== LATEST_RELEASE);
+    } catch {}
+  }, []);
+  return fresh;
+}
+
+export function markReleaseSeen() {
+  try {
+    localStorage.setItem(SEEN_RELEASE_KEY, LATEST_RELEASE);
+  } catch {}
 }
 
 export function NotificationBell({ userId, initial }: { userId: string; initial: NotificationRow[] }) {
@@ -100,42 +129,38 @@ export function NotificationBell({ userId, initial }: { userId: string; initial:
   );
 }
 
-/** The user's AI connections with their live state (paused on a limit, or active). */
-export function ConnectionPills({ userId, connections, initial }: { userId: string; connections: { id: string; label: string; provider: string; status: string }[]; initial: ConnectionStateRow[] }) {
+/** Shown only when something needs attention: no AI key yet, or a key paused on a limit / invalid. */
+export function ConnectionAlert({ userId, connections, initial }: { userId: string; connections: { id: string; label: string; provider: string; status: string }[]; initial: ConnectionStateRow[] }) {
   useNow(20_000);
   const [rows] = useRealtimeRows<ConnectionStateRow & Record<string, unknown>>("connection_state", initial as (ConnectionStateRow & Record<string, unknown>)[], {
     idKey: "connection_id",
     filter: `user_id=eq.${userId}`,
   });
+  const pill = "flex min-w-0 items-center gap-1.5 rounded-full border border-amber-500/35 bg-amber-500/10 px-2.5 py-1 text-[11.5px] font-bold text-amber-700 transition hover:bg-amber-500/15 dark:text-amber-300";
   if (!connections.length) {
     return (
-      <Link href="/settings#connections" className="flex items-center gap-1.5 rounded-full border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-[11px] font-bold text-amber-700 dark:text-amber-300">
-        <Sparkles className="size-3.5" /> <span>اتصال هوش مصنوعی</span>
+      <Link href="/settings#connections" className={pill}>
+        <Sparkles className="size-3.5 shrink-0" /> <span className="truncate">اتصال هوش مصنوعی</span>
       </Link>
     );
   }
+  const paused = connections.filter((c) => {
+    const st = rows.find((r) => r.connection_id === c.id);
+    return c.status === "error" || st?.manual_pause || (st?.paused_until && new Date(st.paused_until).getTime() > Date.now());
+  });
+  if (!paused.length) return null;
+  const first = paused[0];
+  const st = rows.find((r) => r.connection_id === first.id);
   return (
-    <div className="flex min-w-0 items-center gap-1.5 overflow-x-auto">
-      {connections.slice(0, 3).map((c) => {
-        const st = rows.find((r) => r.connection_id === c.id);
-        const paused = c.status === "error" || st?.manual_pause || (st?.paused_until && new Date(st.paused_until).getTime() > Date.now());
-        return (
-          <Link
-            key={c.id}
-            href="/queue"
-            title={c.status === "error" ? "کلید نامعتبر" : paused ? `${st?.pause_reason ?? "متوقف"}${st?.paused_until ? ` — ${timeAgo(st.paused_until)}` : ""}` : "فعال"}
-            className={cn(
-              "flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold transition hover:brightness-110",
-              paused ? "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300" : "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-            )}
-          >
-            <Sparkles className="size-3.5" />
-            <span className="hidden max-w-28 truncate sm:inline">{c.label}</span>
-            {paused ? <PauseCircle className="size-3.5" /> : <Zap className="size-3.5" />}
-          </Link>
-        );
-      })}
-    </div>
+    <Link
+      href={first.status === "error" ? "/settings#connections" : "/queue"}
+      title={first.status === "error" ? "کلید نامعتبر" : `${st?.pause_reason ?? "متوقف"}${st?.paused_until ? ` — ${timeAgo(st.paused_until)}` : ""}`}
+      className={pill}
+    >
+      <PauseCircle className="size-3.5 shrink-0" />
+      <span className="max-w-32 truncate">{first.label}</span>
+      {paused.length > 1 ? <span>+{faNum(paused.length - 1)}</span> : null}
+    </Link>
   );
 }
 
@@ -145,35 +170,43 @@ export function FullExperienceButton() {
     <Link
       href="/portal/setup"
       title="آیا تجربه کامل اپلیکیشن را می‌خواهید؟"
-      className="group flex items-center gap-1.5 rounded-full bg-gradient-brand px-2.5 py-1.5 text-[11px] font-bold text-white shadow-sm transition hover:brightness-110"
+      aria-label="تجربه‌ی کامل"
+      className="flex h-9 items-center gap-1.5 rounded-xl px-2.5 text-xs font-bold text-primary transition hover:bg-primary-soft"
     >
-      <Rocket className="size-4" />
-      <span className="hidden sm:inline">تجربه‌ی کامل؟</span>
+      <Rocket className="size-[18px]" />
+      <span className="hidden sm:inline">تجربه‌ی کامل</span>
     </Link>
   );
 }
 
-export function UserMenu({ name, email, role, avatarUrl, mode }: { name: string; email: string; role: string; avatarUrl?: string | null; mode: "simple" | "full" }) {
+export function UserMenu({ name, email, avatarUrl, mode, isOwner }: { name: string; email: string; avatarUrl?: string | null; mode: "simple" | "full"; isOwner: boolean }) {
   const [editing, setEditing] = React.useState(false);
+  const [dark, toggleDark] = useDark();
+  const fresh = useNewRelease();
   const router = useRouter();
+  // full mode keeps help and settings in the side menu («بیشتر» on phones)
+  const simple = mode === "simple";
   return (
     <>
       <Menu
         trigger={
-          <button className="flex items-center gap-2 rounded-full p-0.5 hover:bg-surface-muted" aria-label="حساب کاربری">
+          <button className="relative flex items-center rounded-full p-0.5 transition hover:ring-4 hover:ring-[var(--ring)]" aria-label="حساب کاربری">
             <Avatar name={name} src={avatarUrl} size={32} />
+            {simple && fresh ? <span className="absolute -top-0.5 -left-0.5 size-2.5 rounded-full bg-flow ring-2 ring-[var(--bg)]" /> : null}
           </button>
         }
         items={[
           { label: <span className="flex flex-col"><b>{name}</b><span className="ltr text-xs text-muted">{email}</span></span>, onSelect: () => undefined, disabled: true },
-          { label: role === "owner" ? "مالک اپ" : mode === "full" ? "حالت کامل" : "حالت ساده", onSelect: () => undefined, disabled: true },
           "sep",
           { label: "تصویر پروفایل", icon: <Camera className="size-4" />, onSelect: () => setEditing(true) },
-          ...(mode === "full"
-            ? [{ label: "تنظیمات و اتصال‌ها", icon: <Settings className="size-4" />, onSelect: () => router.push("/settings") }]
-            : role === "owner"
-              ? []
-              : [{ label: "تجربه‌ی کامل اپلیکیشن", icon: <Rocket className="size-4" />, onSelect: () => router.push("/portal/setup") }]),
+          { label: dark ? "تم روشن" : "تم تیره", icon: dark ? <Sun className="size-4" /> : <Moon className="size-4" />, onSelect: toggleDark },
+          ...(simple
+            ? [
+                { label: <span className="flex items-center gap-2">راهنما{fresh ? <span className="size-2 rounded-full bg-flow" /> : null}</span>, icon: <LifeBuoy className="size-4" />, onSelect: () => router.push("/help") },
+                ...(isOwner ? [] : [{ label: "تجربه‌ی کامل", icon: <Rocket className="size-4" />, onSelect: () => router.push("/portal/setup") }]),
+              ]
+            : []),
+          "sep",
           { label: "خروج", icon: <LogOut className="size-4" />, danger: true, onSelect: () => void signOutAction() },
         ]}
       />
@@ -210,7 +243,6 @@ export function ProfilePictureDialog({ open, onOpenChange, name, current }: { op
       open={open}
       onOpenChange={onOpenChange}
       title="تصویر پروفایل"
-      description="این تصویر کنار نام شما در ورکفلو، کارتابل و فهرست کاربران نمایش داده می‌شود."
       footer={
         <>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
@@ -227,34 +259,93 @@ export function ProfilePictureDialog({ open, onOpenChange, name, current }: { op
   );
 }
 
-export function NavLink({ href, icon, label, exact, badge, muted }: { href: string; icon: React.ReactNode; label: string; exact?: boolean; badge?: number; muted?: boolean }) {
+function useActive(href: string, match?: string[]) {
   const path = usePathname();
-  const active = exact ? path === href : path === href || path.startsWith(`${href}/`);
+  return [href, ...(match ?? [])].some((m) => path === m || path.startsWith(`${m}/`));
+}
+
+export function NavLink({ href, icon, label, match, badge, muted, dot }: { href: string; icon: React.ReactNode; label: string; match?: string[]; badge?: number; muted?: boolean; dot?: "release" }) {
+  const active = useActive(href, match);
+  const fresh = useNewRelease();
   return (
     <Link
       href={href}
+      aria-current={active ? "page" : undefined}
       className={cn(
-        "group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition",
+        "relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition",
         active ? "bg-primary-soft text-primary" : "text-muted hover:bg-surface-muted hover:text-fg",
         muted && !active && "opacity-55",
       )}
       title={muted ? "برای این بخش GitHub را در تنظیمات وصل کنید" : undefined}
     >
-      {active ? <span className="absolute inset-y-2 right-0 w-1 rounded-l-full bg-gradient-brand" /> : null}
-      <span className={cn("transition", active && "scale-110")}>{icon}</span>
+      {active ? <span className="absolute inset-y-2.5 right-0 w-[3px] rounded-l-full bg-flow" /> : null}
+      {icon}
       <span className="flex-1">{label}</span>
-      {badge ? <span className="rounded-full bg-danger px-1.5 text-[10px] font-bold text-white">{faNum(badge)}</span> : null}
+      {badge ? <span className="grid min-w-5 place-items-center rounded-full bg-danger px-1.5 text-[10.5px] font-bold text-white">{faNum(badge)}</span> : null}
+      {dot === "release" && fresh ? <span className="size-2 rounded-full bg-flow" /> : null}
     </Link>
   );
 }
 
-export function BottomNavLink({ href, icon, label }: { href: string; icon: React.ReactNode; label: string }) {
-  const path = usePathname();
-  const active = path === href || path.startsWith(`${href}/`);
+export function BottomNavLink({ href, icon, label, match, badge }: { href: string; icon: React.ReactNode; label: string; match?: string[]; badge?: number }) {
+  const active = useActive(href, match);
   return (
-    <Link href={href} className={cn("flex flex-1 flex-col items-center gap-0.5 rounded-xl py-1.5 text-[10.5px] font-semibold", active ? "text-primary" : "text-muted")}>
-      <span className={cn("grid h-7 w-12 place-items-center rounded-full transition", active && "bg-primary-soft")}>{icon}</span>
+    <Link href={href} aria-current={active ? "page" : undefined} className={cn("flex flex-1 flex-col items-center gap-0.5 rounded-xl py-1.5 text-[10.5px] font-semibold", active ? "text-primary" : "text-muted")}>
+      <span className={cn("relative grid h-7 w-12 place-items-center rounded-full transition", active && "bg-primary-soft")}>
+        {icon}
+        {badge ? <span className="absolute -top-1 left-1.5 grid min-w-4 place-items-center rounded-full bg-danger px-1 text-[9.5px] font-bold text-white">{faNum(badge)}</span> : null}
+      </span>
       {label}
     </Link>
+  );
+}
+
+const BANNER_TONES: Record<BannerTone, string> = {
+  brand: "from-[color-mix(in_oklab,var(--brand)_14%,transparent)] to-[color-mix(in_oklab,var(--flow)_10%,transparent)] border-[color-mix(in_oklab,var(--brand)_28%,transparent)]",
+  gold: "from-[color-mix(in_oklab,var(--gold)_16%,transparent)] to-[color-mix(in_oklab,var(--gold)_6%,transparent)] border-[color-mix(in_oklab,var(--gold)_34%,transparent)]",
+  success: "from-emerald-500/14 to-emerald-500/5 border-emerald-500/30",
+  warning: "from-amber-500/16 to-amber-500/5 border-amber-500/35",
+};
+const BANNER_DOT: Record<BannerTone, string> = { brand: "bg-flow", gold: "bg-gold", success: "bg-success", warning: "bg-warning" };
+
+/**
+ * The owner's message for everyone. Closing it hides this version on this device; a new message
+ * shows again. Hidden before paint through a <html data-banner> flag set in the root layout.
+ */
+export function AnnouncementBanner({ text, link, tone, version, preview }: { text: string; link: string | null; tone: BannerTone; version: string; preview?: boolean }) {
+  const v = version.replace(/[^0-9A-Za-z:.-]/g, "");
+  const close = () => {
+    try {
+      localStorage.setItem("tf-banner", v);
+    } catch {}
+    document.documentElement.dataset.banner = v;
+  };
+  const body = (
+    <>
+      <span className={cn("size-2 shrink-0 rounded-full", BANNER_DOT[tone])} />
+      <span className="min-w-0 flex-1 text-[13.5px] font-semibold leading-6">{text}</span>
+      {link ? <ArrowLeft className="size-4 shrink-0 opacity-60" /> : null}
+    </>
+  );
+  return (
+    <div id={preview ? undefined : "tf-banner"} className={cn("flex items-center gap-1 rounded-2xl border bg-gradient-to-l ps-4 pe-1.5", !preview && "mb-5 animate-float-in", BANNER_TONES[tone])}>
+      {preview ? null : <style>{`html[data-banner="${v}"] #tf-banner{display:none}`}</style>}
+      {link ? (
+        link.startsWith("/") ? (
+          <Link href={link} className="flex min-w-0 flex-1 items-center gap-3 py-2.5">
+            {body}
+          </Link>
+        ) : (
+          <a href={link} target="_blank" rel="noreferrer" className="flex min-w-0 flex-1 items-center gap-3 py-2.5">
+            {body}
+          </a>
+        )
+      ) : (
+        <div className="flex min-w-0 flex-1 items-center gap-3 py-2.5">{body}</div>
+      )}
+      <button onClick={preview ? undefined : close} aria-label="بستن" className="grid size-8 shrink-0 place-items-center rounded-lg text-muted transition hover:bg-[color-mix(in_oklab,var(--text)_6%,transparent)] hover:text-fg">
+        <X className="size-4" />
+      </button>
+    </div>
   );
 }

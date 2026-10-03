@@ -1,5 +1,6 @@
 "use client";
 import * as React from "react";
+import { PageHeader, SECTIONS } from "@/components/shell/page-header";
 import { toast } from "sonner";
 import { KeyRound, MoreHorizontal, ShieldCheck, Trash2, UserCheck, UserPlus, UserX } from "lucide-react";
 import { Avatar, Badge, Button, Card, CardHeader, Field, Input } from "@/components/ui/primitives";
@@ -117,19 +118,20 @@ export function UsersClient({ me, profiles, stats }: { me: string; profiles: Pro
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-black">کاربران</h1>
-          <p className="mt-1 text-sm text-muted">کاربران جدید (اگر تایید خودکار خاموش باشد) تا تایید شما فقط صفحه‌ی انتظار را می‌بینند. می‌توانید مستقیماً هم برایشان حساب بسازید.</p>
-        </div>
-        <Button onClick={() => setCreating(true)}>
-          <UserPlus className="size-4" /> ساخت حساب کاربر
-        </Button>
-      </div>
+      <PageHeader
+        title="مدیریت"
+        tabs={SECTIONS.admin}
+       
+        actions={
+          <Button onClick={() => setCreating(true)}>
+            <UserPlus className="size-4" /> کاربر جدید
+          </Button>
+        }
+      />
 
       {pending.length ? (
         <Card className="border-amber-500/40">
-          <CardHeader title={`درخواست‌های عضویت (${faNum(pending.length)})`} subtitle="قبل از تایید، هویت فرد را بررسی کنید" />
+          <CardHeader title={`درخواست‌های عضویت (${faNum(pending.length)})`} />
           <div className="divide-y divide-line">{pending.map(row)}</div>
         </Card>
       ) : null}
@@ -160,7 +162,7 @@ export function UsersClient({ me, profiles, stats }: { me: string; profiles: Pro
           <Field label="نام و نام خانوادگی" required>
             <Input value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} />
           </Field>
-          <Field label="واحد / بانک / سازمان">
+          <Field label="سازمان">
             <Input value={form.org_unit} onChange={(e) => setForm({ ...form, org_unit: e.target.value })} />
           </Field>
           <Field label="ایمیل" required>

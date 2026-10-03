@@ -1,5 +1,5 @@
-# TaskFlow AI — بررسی هر Pull Request: typecheck، تست‌ها و build بدون هیچ متغیر محیطی
-name: "TaskFlow · CI"
+# Task Flow — بررسی هر Pull Request: typecheck، تست‌ها و build بدون هیچ متغیر محیطی
+name: "Task Flow · CI"
 
 on:
   pull_request:
