@@ -1,9 +1,10 @@
 "use client";
 import * as React from "react";
 import Link from "next/link";
-import { AlertCircle, ChevronLeft, Plus, Search, Send } from "lucide-react";
+import { AlertCircle, ChevronLeft, Search, Send } from "lucide-react";
 import { useNow, useRealtimeRows } from "@/hooks/use-realtime";
-import { Avatar, Button, Card, EmptyState, Input, Progress } from "@/components/ui/primitives";
+import { Avatar, Card, EmptyState, Input, Progress } from "@/components/ui/primitives";
+import { PageHeader, SECTIONS } from "@/components/shell/page-header";
 import { PriorityDot, StatusBadge } from "@/components/tasks/badges";
 import { formatJalali, timeAgo } from "@/lib/jalali";
 import { cn, faNum } from "@/lib/utils";
@@ -31,35 +32,27 @@ export function GivenClient({ userId, initial, people }: { userId: string; initi
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-black">تسک‌های داده‌شده</h1>
-          <p className="mt-1 text-sm text-muted">تسک‌هایی که به دیگران سپرده‌اید؛ پیشرفت را دنبال کنید و خاتمه را تایید یا رد کنید.</p>
-        </div>
-        <Link href="/portal/new">
-          <Button>
-            <Plus className="size-4" /> تسک جدید
-          </Button>
-        </Link>
-      </div>
+      <PageHeader title="کارها" tabs={SECTIONS.tasks} />
       <div className="flex flex-wrap gap-2">
         <div className="relative min-w-52 flex-1">
           <Search className="absolute right-3 top-1/2 size-4 -translate-y-1/2 text-faint" />
-          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="جستجو در عنوان یا کد…" className="pr-9" />
+          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="جستجو" aria-label="جستجو" className="pr-9" />
         </div>
-        <select value={who} onChange={(e) => setWho(e.target.value)} className="h-11 rounded-xl border border-line bg-surface-strong px-3 text-sm">
-          <option value="all">همه‌ی مسئول‌ها</option>
-          {assignees.map((id) => (
-            <option key={id} value={id}>
-              {byId.get(id)?.full_name ?? "—"}
-            </option>
-          ))}
-        </select>
+        {assignees.length > 1 ? (
+          <select value={who} onChange={(e) => setWho(e.target.value)} aria-label="مسئول" className="h-11 rounded-xl border border-line bg-surface-strong px-3 text-sm">
+            <option value="all">همه‌ی مسئول‌ها</option>
+            {assignees.map((id) => (
+              <option key={id} value={id}>
+                {byId.get(id)?.full_name ?? "—"}
+              </option>
+            ))}
+          </select>
+        ) : null}
       </div>
 
       {!tasks.length ? (
         <Card>
-          <EmptyState icon={<Send className="size-7" />} title="تسکی به کسی نداده‌اید" description="در فرم «تسک جدید» فیلد «مسئول» را روی همکارتان بگذارید." />
+          <EmptyState icon={<Send className="size-6" />} title="تسکی به کسی نداده‌اید" />
         </Card>
       ) : null}
 

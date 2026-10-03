@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Bot, CheckCheck, ChevronLeft, Inbox, Search, Sparkles } from "lucide-react";
 import { useRealtimeRows, useNow } from "@/hooks/use-realtime";
 import { Avatar, Badge, Button, Card, EmptyState, Input, Progress } from "@/components/ui/primitives";
+import { PageHeader, SECTIONS } from "@/components/shell/page-header";
 import { Tabs } from "@/components/ui/overlays";
 import { PriorityDot, RelationBadge, StatusBadge } from "@/components/tasks/badges";
 import { PromptDialog, run, type DispatchTask } from "@/components/tasks/task-actions";
@@ -37,7 +38,8 @@ export function InboxClient({
 }) {
   useNow();
   const [tasks] = useRealtimeRows<Task & Record<string, unknown>>("tasks", initial as (Task & Record<string, unknown>)[], { filter: `assignee_id=eq.${userId}` });
-  const [tab, setTab] = React.useState("approval");
+  // open on the first stage that has work in it
+  const [tab, setTab] = React.useState(() => TABS.find((t) => t.key !== "closed" && (initial as Task[]).some((x) => t.statuses.includes(x.status)))?.key ?? "approval");
   const [q, setQ] = React.useState("");
   const [requester, setRequester] = React.useState("all");
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
@@ -76,7 +78,7 @@ export function InboxClient({
 
   const renderList = (items: Task[]) =>
     items.length === 0 ? (
-      <EmptyState icon={<Inbox className="size-7" />} title="موردی نیست" description="تسکی در این بخش وجود ندارد." />
+      <EmptyState icon={<Inbox className="size-6" />} title="موردی نیست" />
     ) : (
       <div className="space-y-2">
         {items.map((t) => {
@@ -139,17 +141,14 @@ export function InboxClient({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-black">کارتابل من</h1>
-          <p className="mt-1 text-sm text-muted">تسک‌هایی که به شما سپرده شده: پذیرش، برگشت و ارسال گروهی به پیش‌کار و کار اصلی</p>
+      <PageHeader title="کارها" tabs={SECTIONS.tasks} />
+      <div className="flex flex-wrap gap-2">
+        <div className="relative min-w-52 flex-1">
+          <Search className="absolute right-3 top-1/2 size-4 -translate-y-1/2 text-faint" />
+          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="جستجو" aria-label="جستجو" className="pr-9" />
         </div>
-        <div className="flex w-full gap-2 sm:w-auto">
-          <div className="relative flex-1 sm:w-64">
-            <Search className="absolute right-3 top-1/2 size-4 -translate-y-1/2 text-faint" />
-            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="جستجو در عنوان، کد…" className="pr-9" />
-          </div>
-          <select value={requester} onChange={(e) => setRequester(e.target.value)} className="h-11 rounded-xl border border-line bg-surface-strong px-3 text-sm">
+        {requesterIds.length > 1 ? (
+          <select value={requester} onChange={(e) => setRequester(e.target.value)} aria-label="تسک‌دهنده" className="h-11 rounded-xl border border-line bg-surface-strong px-3 text-sm">
             <option value="all">همه‌ی تسک‌دهنده‌ها</option>
             {requesterIds.map((id) => (
               <option key={id} value={id}>
@@ -157,11 +156,11 @@ export function InboxClient({
               </option>
             ))}
           </select>
-        </div>
+        ) : null}
       </div>
 
       {selected.size ? (
-        <div className="glass sticky-below-header sticky z-20 flex flex-wrap items-center gap-2 rounded-2xl px-4 py-3">
+        <div className="sticky-below-header sticky z-20 border border-line bg-surface-strong shadow-pop flex flex-wrap items-center gap-2 rounded-2xl px-4 py-3">
           <span className="text-sm font-bold">{faNum(selected.size)} تسک انتخاب شد</span>
           <div className="ms-auto flex gap-2">
             {current.bulk === "approve" ? (
@@ -200,11 +199,6 @@ export function InboxClient({
           content:
             t.key === tab ? (
               <>
-                {t.bulk === "prework" || t.bulk === "main" ? (
-                  <p className="mb-3 text-xs text-muted">
-                    روی «{t.bulk === "prework" ? "ارسال به پیش‌کار" : "کار اصلی"}» هر تسک بزنید، یا چند تسک را تیک بزنید و گروهی بفرستید؛ در پنجره‌ی ارسال می‌توانید پرامپت و فایل خودتان را اضافه کنید.
-                  </p>
-                ) : null}
                 {renderList(list)}
               </>
             ) : null,

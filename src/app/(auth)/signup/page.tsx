@@ -13,11 +13,10 @@ export default function SignupPage() {
   const [avatarError, setAvatarError] = React.useState<string | null>(null);
   return (
     <div>
-      <h1 className="text-2xl font-black">ثبت‌نام تسک‌دهنده</h1>
-      <p className="mt-2 text-sm text-muted">پس از ثبت‌نام (اگر تایید خودکار خاموش باشد) حساب شما باید توسط مالک اپ تایید شود.</p>
-      <form action={action} className="mt-8 space-y-4">
+      <h1 className="text-2xl font-black">ثبت‌نام</h1>
+      <form action={action} className="mt-7 space-y-4">
         <div className="space-y-1.5">
-          <span className="text-[13px] font-semibold">تصویر پروفایل (اختیاری)</span>
+          <span className="text-[13px] font-semibold">تصویر پروفایل</span>
           <AvatarPicker
             name={name}
             value={avatar}
@@ -35,7 +34,7 @@ export default function SignupPage() {
         <Field label="نام و نام خانوادگی" required>
           <Input name="full_name" required autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
-        <Field label="واحد / بانک / سازمان">
+        <Field label="سازمان">
           <Input name="org_unit" />
         </Field>
         <div className="grid gap-4 sm:grid-cols-2">

@@ -3,6 +3,7 @@ import * as React from "react";
 import Link from "next/link";
 import { ArrowUpToLine, Bot, Cpu, ExternalLink, GitBranch, Pause, Play, RefreshCw, RotateCcw, XCircle, Zap } from "lucide-react";
 import { useNow, useRealtimeRows } from "@/hooks/use-realtime";
+import { PageHeader } from "@/components/shell/page-header";
 import { Badge, Button, Card, CardHeader, EmptyState } from "@/components/ui/primitives";
 import { run } from "@/components/tasks/task-actions";
 import { MiniPreworkFlow, TodoList } from "@/components/workflow/mini-flow";
@@ -38,14 +39,13 @@ function ConnectionCard({ c, state, jobs }: { c: QueueConnection; state?: Connec
   const blocked = Object.entries(state?.models ?? {}).filter(([, v]) => v.blocked_until && new Date(v.blocked_until).getTime() > Date.now());
   return (
     <Card className="relative overflow-hidden p-5">
-      <div className="absolute -left-10 -top-10 size-40 rounded-full bg-violet-500 opacity-15 blur-3xl" />
       <div className="flex items-start gap-3">
         <div className="grid size-11 place-items-center rounded-2xl bg-violet-500 text-white">
           <Cpu className="size-5" />
         </div>
         <div className="min-w-0 flex-1">
           <p className="truncate text-lg font-black">{c.label}</p>
-          <p className="text-xs text-muted">{providerPreset(c.provider)?.label ?? c.provider}</p>
+          {(providerPreset(c.provider)?.label ?? c.provider) !== c.label ? <p className="text-xs text-muted">{providerPreset(c.provider)?.label ?? c.provider}</p> : null}
         </div>
         {paused ? (
           <Badge tone="warning" dot>
@@ -226,33 +226,31 @@ export function QueueClient({
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-black">صف و اجرا</h1>
-          <p className="mt-1 text-sm text-muted">
-            کارهای هر کاربر جدا و منصفانه اجرا می‌شوند؛ هر اتصال با رسیدن به لیمیت متوقف و پس از ریست خودکار ادامه می‌دهد و کار بقیه را متوقف نمی‌کند.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
-          {isOwner ? (
-            <div className="flex rounded-xl border border-line bg-surface p-1 font-bold">
-              <Link href="/queue" className={cn("rounded-lg px-3 py-1.5", !all ? "bg-surface-strong text-fg shadow-card" : "text-muted")}>
-                کارهای من
-              </Link>
-              <Link href="/queue?scope=all" className={cn("rounded-lg px-3 py-1.5", all ? "bg-surface-strong text-fg shadow-card" : "text-muted")}>
-                همه‌ی کاربران
-              </Link>
-            </div>
-          ) : null}
-          <span className="flex items-center gap-1.5" suppressHydrationWarning>
-            <span className="live-dot" style={{ ["--glow" as string]: lastTick && Date.now() - new Date(lastTick).getTime() < 120_000 ? "var(--success)" : "var(--danger)" }} />
-            آخرین اجرای ورکر: {lastTick ? timeAgo(lastTick) : "هنوز"}
-          </span>
-          <Button size="sm" variant="secondary" onClick={() => run(kickWorkerAction(), "ورکر فراخوانی شد")}>
-            <Zap className="size-4" /> اجرای فوری ورکر
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title="صف اجرا"
+       
+        actions={
+          <>
+            {isOwner ? (
+              <div className="flex rounded-xl bg-surface-muted p-1 text-xs font-bold">
+                <Link href="/queue" className={cn("rounded-lg px-3 py-1.5", !all ? "bg-surface-strong text-fg shadow-[0_1px_3px_rgba(11,18,34,0.08)]" : "text-muted")}>
+                  من
+                </Link>
+                <Link href="/queue?scope=all" className={cn("rounded-lg px-3 py-1.5", all ? "bg-surface-strong text-fg shadow-[0_1px_3px_rgba(11,18,34,0.08)]" : "text-muted")}>
+                  همه
+                </Link>
+              </div>
+            ) : null}
+            <span className="flex items-center gap-1.5 text-xs text-muted" suppressHydrationWarning title="آخرین اجرای ورکر">
+              <span className="live-dot" style={{ ["--glow" as string]: lastTick && Date.now() - new Date(lastTick).getTime() < 120_000 ? "var(--success)" : "var(--danger)" }} />
+              {lastTick ? timeAgo(lastTick) : "هنوز اجرا نشده"}
+            </span>
+            <Button size="sm" variant="secondary" onClick={() => run(kickWorkerAction(), "ورکر فراخوانی شد")}>
+              <Zap className="size-4" /> اجرای فوری
+            </Button>
+          </>
+        }
+      />
 
       {connections.length ? (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -261,31 +259,27 @@ export function QueueClient({
           ))}
         </div>
       ) : (
-        <Card className="p-5 text-sm">
-          هنوز هیچ کلید هوش مصنوعی وصل نکرده‌اید.{" "}
-          <Link href="/settings" className="font-bold text-primary">
-            تنظیمات و اتصال‌ها
+        <Card className="flex items-center gap-3 p-4 text-sm">
+          <span className="flex-1 text-muted">کلید هوش مصنوعی وصل نشده</span>
+          <Link href="/settings#connections" className="font-bold text-primary">
+            اتصال کلید ←
           </Link>
         </Card>
       )}
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
-          <CardHeader title="اجرای داخل اپ" subtitle="پیش‌کار، مجری داخل اپ، دانش و ورود فایل‌ها — با کلیدهای خودتان" icon={<Bot className="size-4" />} />
+          <CardHeader title="داخل اپ" icon={<Bot className="size-4" />} />
           {rows(active(false))}
         </Card>
         <Card>
-          <CardHeader
-            title="GitHub Actions"
-            subtitle={claudeCode ? "Claude Code و graphify در مخزن کاری شما" : "Claude Code هنوز در مخزن شما راه‌اندازی نشده"}
-            icon={<GitBranch className="size-4" />}
-          />
+          <CardHeader title="GitHub Actions" subtitle={claudeCode ? undefined : "Claude Code راه‌اندازی نشده"} icon={<GitBranch className="size-4" />} />
           {rows(active(true))}
         </Card>
       </div>
 
       <Card>
-        <CardHeader title="تاریخچه‌ی اخیر" />
+        <CardHeader title="تاریخچه" />
         {history.length ? (
           <div className="divide-y divide-line">
             {history.slice(0, 40).map((j) => (

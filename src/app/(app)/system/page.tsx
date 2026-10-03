@@ -4,7 +4,7 @@ import { env } from "@/lib/env";
 import { getSystemSettings } from "@/lib/settings";
 import { SystemClient, type LaneRow } from "./system-client";
 
-export const metadata = { title: "سیستم و سرویس‌ها" };
+export const metadata = { title: "مدیریت" };
 
 /** Owner only: the shared Vercel / Supabase parts, the scheduler, worker lanes and registration. */
 export default async function SystemPage() {

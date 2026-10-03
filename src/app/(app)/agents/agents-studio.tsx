@@ -4,7 +4,8 @@ import { toast } from "sonner";
 import { Bot, GitBranch, History, Pencil, Plus, RotateCcw, Sparkles, Star, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { Badge, Button, Card, Field, Input, Select, Switch, Textarea } from "@/components/ui/primitives";
-import { Modal, Tabs } from "@/components/ui/overlays";
+import { Modal } from "@/components/ui/overlays";
+import { PageHeader, SECTIONS } from "@/components/shell/page-header";
 import { WorkflowEditor } from "@/components/workflow/workflow-editor";
 import { deleteAgentAction, deleteWorkflowAction, restoreDefaultWorkflowsAction, saveAgentAction } from "@/app/actions/workflows";
 import { CLAUDE_EFFORTS, CLAUDE_MODELS, CLAUDE_THINKING } from "@/lib/claude/options";
@@ -76,7 +77,7 @@ function AgentEditor({
       onOpenChange={onOpenChange}
       size="xl"
       title={isNew ? "ایجنت جدید" : `ویرایش «${agent?.name}»`}
-      description={agent?.builtin ? "ایجنت پیش‌فرض: تنظیمات و پرامپتش قابل تغییر است؛ هر تغییر پرامپت یک نسخه‌ی جدید در «یادگیری و پرامپت‌ها» می‌سازد." : "هر تغییر پرامپت یک نسخه‌ی جدید در «یادگیری و پرامپت‌ها» می‌سازد و قابل بازگشت است."}
+      description="هر تغییر پرامپت نسخه‌ی تازه‌ای در «یادگیری» می‌سازد."
       footer={
         <>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
@@ -215,13 +216,12 @@ function AgentEditor({
   );
 }
 
-export function AgentsStudio({ initial, models }: { initial: { agents: AgentDef[]; workflows: WorkflowDef[]; prompts: Record<string, string> }; models: string[] }) {
+export function AgentsStudio({ initial, models, tab }: { initial: { agents: AgentDef[]; workflows: WorkflowDef[]; prompts: Record<string, string> }; models: string[]; tab: "workflows" | "agents" }) {
   const [agents, setAgents] = React.useState(initial.agents);
   const [prompts, setPrompts] = React.useState(initial.prompts);
   const [workflows, setWorkflows] = React.useState(initial.workflows);
   const [drafts, setDrafts] = React.useState<WorkflowDef[]>([]);
   const [current, setCurrent] = React.useState<string | undefined>(() => initial.workflows.find((w) => w.stage === "prework" && w.isDefault)?.id ?? initial.workflows[0]?.id);
-  const [tab, setTab] = React.useState("workflows");
   const [editing, setEditing] = React.useState<{ agent: AgentDef | null } | null>(null);
 
   const all = [...workflows, ...drafts.filter((d) => !workflows.some((w) => w.id === d.id))];
@@ -310,7 +310,6 @@ export function AgentsStudio({ initial, models }: { initial: { agents: AgentDef[
   const agentsTab = (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <p className="text-sm text-muted">ایجنت‌ها «پرامپت + تنظیمات» قابل استفاده در هر ورکفلو هستند. تغییر یک ایجنت در همه‌ی ورکفلوهایی که از آن استفاده می‌کنند اعمال می‌شود.</p>
         <Button className="ms-auto" onClick={() => setEditing({ agent: null })}>
           <Plus className="size-4" /> ایجنت جدید
         </Button>
@@ -373,20 +372,8 @@ export function AgentsStudio({ initial, models }: { initial: { agents: AgentDef[
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-2xl font-black">ایجنت‌ها و ورکفلوها</h1>
-        <p className="mt-1 text-sm text-muted">
-          برای پیش‌کار و کار اصلی ورکفلو بسازید: ایجنت‌ها را اضافه و به هم وصل کنید؛ شاخه‌های موازی هم‌زمان اجرا می‌شوند و «شرط» مسیر را انتخاب می‌کند. ورکفلوی پیش‌فرض هر مرحله هنگام ارسال از پیش انتخاب شده است. این ایجنت‌ها و ورکفلوها فقط مال شما هستند.
-        </p>
-      </div>
-      <Tabs
-        value={tab}
-        onValueChange={setTab}
-        items={[
-          { value: "workflows", label: "ورکفلوها", content: workflowsTab },
-          { value: "agents", label: `ایجنت‌ها (${faNum(agents.length)})`, content: agentsTab },
-        ]}
-      />
+      <PageHeader title="ایجنت‌ها" tabs={SECTIONS.agents} />
+      {tab === "agents" ? agentsTab : workflowsTab}
       <AgentEditor
         open={!!editing}
         onOpenChange={(o) => !o && setEditing(null)}

@@ -17,10 +17,10 @@ import {
   type NodeProps,
 } from "@xyflow/react";
 import { toast } from "sonner";
-import { AlertTriangle, Bot, Copy, FileText, GitBranch, LayoutGrid, MessageSquareText, Plus, Save, ScrollText, Sparkles, Star, Trash2 } from "lucide-react";
+import { AlertTriangle, Bot, Copy, GitBranch, LayoutGrid, Plus, Save, Sparkles, Star, Trash2 } from "lucide-react";
 import { Badge, Button, Field, Input, Select, Switch, Textarea } from "@/components/ui/primitives";
 import { saveWorkflowAction } from "@/app/actions/workflows";
-import { cn, faNum } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { AGENT_TYPE_META, layers, newId, STAGE_LABEL, validateWorkflow, type AgentDef, type Branch, type WorkflowDef, type WorkflowNode } from "@/lib/workflow/types";
 
 type StepData = Omit<WorkflowNode, "id" | "x" | "y"> & { agent?: AgentDef };
@@ -291,7 +291,7 @@ function Editor({ workflow, agents, onSaved, onDuplicate, onDelete, onEditAgent 
           </Select>
         </Field>
       ) : (
-        <p className="text-xs text-muted">خروجی مرحله‌ی اول ورودی مرحله‌ی دوم است. مرحله‌هایی که ورودی مشترک دارند هم‌زمان اجرا می‌شوند.</p>
+        <p className="text-xs text-muted">خروجی اولی، ورودی دومی است.</p>
       )}
     </div>
   ) : (
@@ -323,9 +323,7 @@ function Editor({ workflow, agents, onSaved, onDuplicate, onDelete, onEditAgent 
         }}
         label={`ورکفلوی پیش‌فرض ${STAGE_LABEL[workflow.stage]}`}
       />
-      <p className="text-xs leading-6 text-muted">
-        روی یک مرحله بزنید تا تنظیماتش را ببینید. برای وصل کردن، از نقطه‌ی سمت چپ یک مرحله به نقطه‌ی سمت راست مرحله‌ی بعد بکشید. مرحله‌هایی که به یک ورودی وصل‌اند هم‌زمان اجرا می‌شوند.
-      </p>
+      <p className="text-xs leading-6 text-muted">برای اتصال، از نقطه‌ی یک مرحله تا مرحله‌ی بعد بکشید. شاخه‌های موازی هم‌زمان اجرا می‌شوند.</p>
     </div>
   );
 
@@ -400,7 +398,7 @@ function Editor({ workflow, agents, onSaved, onDuplicate, onDelete, onEditAgent 
         <div className="rounded-2xl border border-line bg-surface p-4">{panel}</div>
         <div className="rounded-2xl border border-line bg-surface p-4">
           <p className="mb-1 text-sm font-extrabold">افزودن ایجنت</p>
-          <p className="mb-3 text-xs text-muted">{node ? "بعد از مرحله‌ی انتخاب‌شده اضافه و به آن وصل می‌شود." : "یک مرحله را انتخاب کنید تا ایجنت جدید بعد از آن وصل شود."}</p>
+          <p className="mb-3 text-xs text-muted">{node ? "وصل به مرحله‌ی انتخاب‌شده" : "برای اتصال خودکار، اول یک مرحله را انتخاب کنید"}</p>
           <div className="max-h-[42vh] space-y-1.5 overflow-y-auto">
             {palette.map((a) => {
               const Icon = ICON[a.type];
@@ -423,16 +421,6 @@ function Editor({ workflow, agents, onSaved, onDuplicate, onDelete, onEditAgent 
               );
             })}
           </div>
-        </div>
-        <div className="rounded-2xl border border-dashed border-line p-3 text-[11px] leading-6 text-muted">
-          <p className="flex items-center gap-1.5 font-bold text-fg">
-            <ScrollText className="size-3.5" /> هر مرحله چه می‌گیرد؟
-          </p>
-          پرامپت شما، خروجی مرحله‌های وصل‌شده به آن، و در صورت فعال بودن در ایجنت: فایل‌های جدید و اطلاعات پروژه.
-          <p className="mt-1 flex items-center gap-1.5">
-            <FileText className="size-3.5" /> <MessageSquareText className="size-3.5" /> خروجی‌ها با «ذخیره به‌عنوان فایل» و «پاسخ چت» در گفت‌وگوی تسک نمایش داده می‌شوند.
-          </p>
-          <p className="mt-1">{faNum(nodes.length)} مرحله · {faNum(edges.length)} اتصال</p>
         </div>
       </div>
     </div>

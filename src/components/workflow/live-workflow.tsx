@@ -20,7 +20,7 @@ import {
   type NodeProps,
   type XYPosition,
 } from "@xyflow/react";
-import { Bot, CheckCircle2, Flag, Inbox, Layers, ListOrdered, PauseCircle, Sparkles, ChevronDown, Move, RotateCcw } from "lucide-react";
+import { Bot, CheckCircle2, Flag, Inbox, Layers, ListOrdered, PauseCircle, Sparkles, ChevronDown, RotateCcw } from "lucide-react";
 import { STAGES, type StageDef, type StageKey } from "@/lib/status";
 import { useRealtimeRows, useNow } from "@/hooks/use-realtime";
 import { Avatar, Progress } from "@/components/ui/primitives";
@@ -89,7 +89,7 @@ function TaskChip({ task, job, onOpen, stage }: { task: Task; job?: Job; onOpen:
         {queued ? <span className="ms-auto rounded bg-sky-500/12 px-1.5 text-[9.5px] font-bold text-sky-600 dark:text-sky-300">در صف اجرا</span> : null}
         {task.status === "returned" ? <span className="ms-auto rounded bg-rose-500/12 px-1.5 text-[9.5px] font-bold text-rose-600">برگشتی</span> : null}
         {task.status === "closure_rejected" ? <span className="ms-auto rounded bg-rose-500/12 px-1.5 text-[9.5px] font-bold text-rose-600">رد شد</span> : null}
-        {task.status === "main_done" ? <span className="ms-auto rounded bg-emerald-500/12 px-1.5 text-[9.5px] font-bold text-emerald-600">آماده‌ی بازبینی</span> : null}
+        {task.status === "main_done" ? <span className="ms-auto rounded bg-emerald-500/12 px-1.5 text-[9.5px] font-bold text-emerald-700">آماده‌ی بازبینی</span> : null}
         {running ? <span className="live-dot ms-auto" /> : null}
       </div>
       <p className="mt-0.5 line-clamp-2 text-[12px] font-semibold leading-5">{task.title}</p>
@@ -136,7 +136,6 @@ function StageNode({ data }: NodeProps<Node<StageNodeData>>) {
         </div>
         <div className="min-w-0 flex-1">
           <p className="truncate text-[13.5px] font-extrabold">{stage.label}</p>
-          <p className="truncate text-[10.5px] text-muted">{stage.description}</p>
         </div>
         <span className="grid min-w-8 place-items-center rounded-full px-2 py-0.5 text-sm font-black" style={{ background: tint(stage.hex, 14), color: stage.hex }}>
           {faNum(tasks.length)}
@@ -462,32 +461,17 @@ function WorkflowCanvas({ data, onOpen }: { data: ReturnType<typeof useWorkflowS
       elementsSelectable={false}
       panOnScroll
     >
-      <Panel position="top-right">
-        <div dir="rtl" className="glass flex items-center gap-1 rounded-xl p-1 text-xs">
-          <span className="hidden items-center gap-1 px-2 text-muted sm:flex">
-            <Move className="size-3.5" /> گره‌ها را بکشید
-          </span>
-          {(
-            [
-              { k: "rows", label: "دو ردیف" },
-              { k: "line", label: "یک خط" },
-            ] as const
-          ).map((o) => (
-            <button
-              key={o.k}
-              onClick={() => choose(o.k)}
-              className={cn("rounded-lg px-2.5 py-1.5 font-bold transition", preset === o.k ? "bg-surface-strong text-fg shadow-card" : "text-muted hover:text-fg")}
-            >
-              {o.label}
-            </button>
-          ))}
-          {preset === "custom" ? (
-            <button onClick={() => choose("rows")} className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 font-bold text-muted hover:text-fg" title="بازگشت به چیدمان پیش‌فرض">
-              <RotateCcw className="size-3.5" /> بازنشانی
-            </button>
-          ) : null}
-        </div>
-      </Panel>
+      {preset !== "rows" ? (
+        <Panel position="top-right">
+          <button
+            dir="rtl"
+            onClick={() => choose("rows")}
+            className="flex items-center gap-1.5 rounded-xl border border-line bg-surface-strong px-3 py-1.5 text-xs font-bold text-muted shadow-card hover:text-fg"
+          >
+            <RotateCcw className="size-3.5" /> چیدمان پیش‌فرض
+          </button>
+        </Panel>
+      ) : null}
       <Controls showInteractive={false} position="bottom-right" />
     </ReactFlow>
   );

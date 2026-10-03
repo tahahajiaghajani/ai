@@ -477,7 +477,6 @@ export function ProjectDetailClient({
       </Link>
 
       <Card className="relative overflow-hidden p-5">
-        <div className="absolute -left-16 -top-16 size-56 rounded-full bg-gradient-brand opacity-10 blur-3xl" />
         <div className="flex flex-wrap items-start gap-3">
           <span className="grid size-12 shrink-0 place-items-center rounded-2xl bg-primary-soft text-primary">
             <FolderGit2 className="size-6" />

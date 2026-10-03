@@ -23,7 +23,7 @@ import { TEMPLATE_FILES } from "@/lib/github/template.generated";
  * Version of `workspace-template/` (must equal `workspace-template/.github/taskflow-version`).
  * Bump it whenever the template changes: users' repos are re-synced before their next run.
  */
-export const TEMPLATE_VERSION = "2026.10.03-1";
+export const TEMPLATE_VERSION = "2026.10.03-2";
 
 const REPO_NAME = /^[A-Za-z0-9._-]{1,100}$/;
 
@@ -41,7 +41,7 @@ export async function connectGithub(userId: string, token: string, repoName?: st
   const r: Repo = { gh: octokitFor(token.trim()), owner, repo: name };
   let created = false;
   try {
-    created = await ensureRepo(r, "TaskFlow AI — فضای کار شخصی: پروژه‌ها، دانش و خروجی کارها");
+    created = await ensureRepo(r, "Task Flow — فضای کار شخصی: پروژه‌ها، دانش و خروجی کارها");
   } catch (err) {
     throw new Error(`ساخت مخزن ${owner}/${name} ممکن نشد (${(err as Error).message}). یا به توکن دسترسی ساخت مخزن بدهید، یا خودتان یک مخزن خصوصی خالی با همین نام بسازید و دوباره وصل کنید.`);
   }

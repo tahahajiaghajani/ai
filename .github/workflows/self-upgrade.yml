@@ -1,17 +1,17 @@
-# TaskFlow AI — ارتقای خودکار اپلیکیشن با Claude Code
+# Task Flow — ارتقای خودکار اپلیکیشن با Claude Code
 # اپ این ورکفلو را از بخش «ارتقا» اجرا می‌کند: Claude تغییر را پیاده می‌کند، build را بررسی و در صورت
 # خطا خودش اصلاح می‌کند، سپس یک شاخه و Pull Request می‌سازد (Vercel برایش پیش‌نمایش می‌سازد).
-name: "TaskFlow · Self-upgrade"
+name: "Task Flow · Self-upgrade"
 
 on:
   workflow_dispatch:
     inputs:
       job_id:
-        description: "TaskFlow job id"
+        description: "Task Flow job id"
         required: true
         type: string
       app_url:
-        description: "TaskFlow app url"
+        description: "Task Flow app url"
         required: true
         type: string
 

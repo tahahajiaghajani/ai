@@ -1,5 +1,5 @@
-# TaskFlow AI — تغییرات دستی (مثلاً از Claude Code یا خود GitHub) در لاگ تسک ثبت می‌شود
-name: "TaskFlow · notify"
+# Task Flow — تغییرات دستی (مثلاً از Claude Code یا خود GitHub) در لاگ تسک ثبت می‌شود
+name: "Task Flow · notify"
 
 on:
   push:

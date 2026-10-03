@@ -8,6 +8,7 @@ import { defaultBranch, userRepoOrNull } from "@/lib/github/client";
 import { resolveImport } from "@/lib/projects/symbols";
 import { buildProjectsOverview, type ProjectFileLite, type ProjectLite, type TaskLite } from "@/lib/graph/model";
 import { Button, Card, EmptyState } from "@/components/ui/primitives";
+import { PageHeader, SECTIONS } from "@/components/shell/page-header";
 import { GraphClient } from "./graph-client";
 
 export const metadata = { title: "گراف دانش" };
@@ -18,18 +19,21 @@ export default async function GraphPage(props: PageProps<"/graph">) {
   const caps = await capabilities(me);
   if (!caps.github) {
     return (
-      <Card>
-        <EmptyState
-          icon={<Network className="size-7" />}
-          title="گراف دانش به GitHub نیاز دارد"
-          description="پروژه‌ها و گراف آن‌ها در مخزن GitHub خودتان نگه داشته می‌شوند. ابتدا GitHub را در تنظیمات وصل کنید."
-          action={
-            <Link href="/settings">
-              <Button>تنظیمات و اتصال‌ها</Button>
-            </Link>
-          }
-        />
-      </Card>
+      <div className="space-y-5">
+        <PageHeader title="پروژه‌ها" tabs={SECTIONS.projects} />
+        <Card>
+          <EmptyState
+            icon={<Network className="size-6" />}
+            title="GitHub وصل نیست"
+            description="پروژه‌ها و گراف آن‌ها در مخزن GitHub خودتان نگه داشته می‌شوند."
+            action={
+              <Link href="/settings#github">
+                <Button>اتصال GitHub</Button>
+              </Link>
+            }
+          />
+        </Card>
+      </div>
     );
   }
   const [projects, cfg, repo] = await Promise.all([

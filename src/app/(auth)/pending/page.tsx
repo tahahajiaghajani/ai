@@ -16,10 +16,8 @@ export default async function PendingPage() {
       <div className="mx-auto grid size-16 place-items-center rounded-3xl bg-primary-soft text-primary">
         <Hourglass className="size-8" />
       </div>
-      <h1 className="mt-6 text-2xl font-black">حساب شما در انتظار تایید است</h1>
-      <p className="mt-3 text-sm leading-7 text-muted">
-        {user.profile.full_name} عزیز، ثبت‌نام شما انجام شد و برای مالک اپ ارسال شد. پس از تایید می‌توانید تسک بدهید و تسک بگیرید. این صفحه را بعداً دوباره باز کنید.
-      </p>
+      <h1 className="mt-6 text-2xl font-black">در انتظار تایید</h1>
+      <p className="mt-3 text-sm leading-7 text-muted">{user.profile.full_name}، حساب شما پس از تایید مالک فعال می‌شود.</p>
       <div className="mt-8">
         <ProfilePictureButton name={user.profile.full_name || user.email} avatarUrl={user.profile.avatar_url ?? null} />
       </div>

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowRight, CalendarRange, FileText, GitBranchPlus, LayoutDashboard, Pencil } from "lucide-react";
+import { ArrowRight, Bot, CalendarRange, FileText, GitBranchPlus, Pencil } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/supabase/admin";
 import { peopleById } from "@/lib/people";
@@ -38,12 +38,14 @@ export default async function PortalTaskPage(props: PageProps<"/portal/tasks/[id
   return (
     <div className="space-y-5">
       <PortalLive userId={me.id} />
-      <Link href={isAssignee ? "/portal" : "/portal?tab=given"} className="inline-flex items-center gap-1 text-sm text-muted hover:text-fg">
-        <ArrowRight className="size-4" /> تسک‌های من
+      <Link
+        href={me.mode === "full" ? (isAssignee ? "/inbox" : "/given") : isAssignee ? "/portal" : "/portal?tab=given"}
+        className="inline-flex items-center gap-1 text-sm text-muted hover:text-fg"
+      >
+        <ArrowRight className="size-4" /> کارها
       </Link>
 
       <Card className="relative overflow-hidden p-5 sm:p-6">
-        <div className="absolute -left-16 -top-16 size-56 rounded-full bg-gradient-brand opacity-10 blur-3xl" />
         <div className="flex flex-wrap items-center gap-2">
           <span className="ltr rounded-lg bg-surface-muted px-2 py-0.5 text-xs font-black">{task.code}</span>
           <StatusBadge status={task.status} requester={!isAssignee} />
@@ -84,7 +86,7 @@ export default async function PortalTaskPage(props: PageProps<"/portal/tasks/[id
           {isAssignee && me.mode === "full" ? (
             <Link href={`/tasks/${task.id}`}>
               <Button variant="secondary">
-                <LayoutDashboard className="size-4" /> انجام با هوش مصنوعی (اپ کامل)
+                <Bot className="size-4" /> انجام با هوش مصنوعی
               </Button>
             </Link>
           ) : null}
@@ -97,7 +99,7 @@ export default async function PortalTaskPage(props: PageProps<"/portal/tasks/[id
           ) : null}
           <Link href={`/portal/new?parent=${task.root_id ?? task.id}&relation=continuation`}>
             <Button variant="ghost">
-              <GitBranchPlus className="size-4" /> ثبت تسک مرتبط (ادامه/توضیح)
+              <GitBranchPlus className="size-4" /> تسک مرتبط
             </Button>
           </Link>
         </div>
@@ -105,16 +107,14 @@ export default async function PortalTaskPage(props: PageProps<"/portal/tasks/[id
 
       {task.status === "returned" && task.return_reason ? (
         <Card className="border-rose-500/40 p-5">
-          <p className="text-sm font-bold text-rose-600">توضیحات مسئول برای اصلاح:</p>
+          <p className="text-sm font-bold text-rose-600">برگشت برای اصلاح</p>
           <p className="mt-2 text-sm leading-7">{task.return_reason}</p>
-          <p className="mt-3 text-xs text-muted">تسک را ویرایش کنید و سپس «ارسال مجدد» را بزنید.</p>
         </Card>
       ) : null}
       {task.status === "closure_pending" ? (
         <Card className="border-amber-500/40 p-5">
-          <p className="text-sm font-bold">مسئول این تسک را انجام‌شده اعلام کرده است.</p>
+          <p className="text-sm font-bold">مسئول کار را انجام‌شده اعلام کرده است</p>
           {task.closure_note ? <p className="mt-2 text-sm leading-7">{task.closure_note}</p> : null}
-          <p className="mt-2 text-xs text-muted">اگر کار مطابق انتظار است خاتمه را تایید کنید؛ در غیر این صورت با توضیحات رد کنید تا به‌عنوان تسک مرتبط پیگیری شود.</p>
         </Card>
       ) : null}
 
@@ -125,7 +125,7 @@ export default async function PortalTaskPage(props: PageProps<"/portal/tasks/[id
             {task.description ? <Markdown>{task.description}</Markdown> : <p className="text-sm text-muted">—</p>}
           </Card>
           <Card>
-            <CardHeader title="روند انجام" subtitle="تغییرات وضعیت تسک" />
+            <CardHeader title="روند انجام" />
             <ol className="relative space-y-4 px-6 py-5">
               <div className="absolute inset-y-6 right-[29px] w-0.5 bg-line" />
               {timeline.length === 0 ? <p className="text-sm text-muted">—</p> : null}

@@ -188,7 +188,7 @@ export async function buildRunnerSpec(job: Job): Promise<RunnerSpec> {
       task_code: up.code,
       branch: up.branch ?? `upgrade/${up.code.toLowerCase()}`,
       prompt: [
-        `# درخواست ارتقای اپلیکیشن TaskFlow AI (${up.code})`,
+        `# درخواست ارتقای اپلیکیشن Task Flow (${up.code})`,
         "",
         up.prompt,
         "",

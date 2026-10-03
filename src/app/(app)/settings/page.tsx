@@ -4,7 +4,7 @@ import { listConnections } from "@/lib/connections";
 import { TEMPLATE_VERSION } from "@/lib/github/bootstrap";
 import { SettingsClient, type SettingsConnection } from "./settings-client";
 
-export const metadata = { title: "تنظیمات و اتصال‌ها" };
+export const metadata = { title: "تنظیمات" };
 
 /** Each user's own settings: AI keys, GitHub, the model of each stage, defaults and app mode. */
 export default async function SettingsPage() {

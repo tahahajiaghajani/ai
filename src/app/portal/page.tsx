@@ -1,16 +1,17 @@
 import Link from "next/link";
-import { AlertCircle, ChevronLeft, ClipboardList, Inbox, Plus, Send } from "lucide-react";
+import { redirect } from "next/navigation";
+import { AlertCircle, ChevronLeft, ClipboardList, Inbox, Send } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/supabase/admin";
 import { peopleById } from "@/lib/people";
-import { Avatar, Button, Card, EmptyState, Progress } from "@/components/ui/primitives";
+import { Avatar, Card, EmptyState, Progress } from "@/components/ui/primitives";
 import { PriorityDot, StatusBadge } from "@/components/tasks/badges";
 import { formatJalali, timeAgo } from "@/lib/jalali";
 import { cn, faNum } from "@/lib/utils";
 import { PortalLive } from "./portal-live";
 import type { PersonLite, Task } from "@/lib/types";
 
-export const metadata = { title: "تسک‌های من" };
+export const metadata = { title: "خانه" };
 
 function TaskCard({ t, other, otherLabel, mine }: { t: Task; other?: PersonLite; otherLabel: string; mine: boolean }) {
   return (
@@ -67,6 +68,8 @@ export default async function PortalPage(props: PageProps<"/portal">) {
   const me = await requireUser();
   const sp = await props.searchParams;
   const tab = sp.tab === "given" ? "given" : "mine";
+  // the full app has the same lists (with more tools) under «کارها»
+  if (me.mode === "full") redirect(tab === "given" ? "/given" : "/inbox");
   const [assigned, given] = await Promise.all([
     db().from("tasks").select("*").eq("assignee_id", me.id).order("status_changed_at", { ascending: false }).limit(300),
     db().from("tasks").select("*").eq("requester_id", me.id).neq("assignee_id", me.id).order("status_changed_at", { ascending: false }).limit(300),
@@ -85,19 +88,9 @@ export default async function PortalPage(props: PageProps<"/portal">) {
   return (
     <div className="space-y-6">
       <PortalLive userId={me.id} />
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-black">سلام {me.profile.full_name?.split(" ")[0] ?? ""} 👋</h1>
-          <p className="mt-1 text-sm text-muted">به هر کسی تسک بدهید، تسک‌هایی که به شما سپرده شده را انجام دهید و وضعیتشان را به‌روز کنید.</p>
-        </div>
-        <Link href="/portal/new">
-          <Button size="lg">
-            <Plus className="size-5" /> ثبت تسک جدید
-          </Button>
-        </Link>
-      </div>
+      <h1 className="text-[22px] font-black tracking-tight">سلام {me.profile.full_name?.split(" ")[0] ?? ""}</h1>
 
-      <div className="flex gap-2 rounded-2xl bg-surface-muted p-1">
+      <div className="flex gap-1 rounded-xl bg-surface-muted p-1">
         {[
           { key: "mine", label: "سپرده به من", icon: <Inbox className="size-4" />, count: mineAction.length + mineActive.length },
           { key: "given", label: "داده‌شده توسط من", icon: <Send className="size-4" />, count: gaveAction.length + gaveActive.length },
@@ -105,7 +98,7 @@ export default async function PortalPage(props: PageProps<"/portal">) {
           <Link
             key={t.key}
             href={t.key === "mine" ? "/portal" : "/portal?tab=given"}
-            className={cn("flex flex-1 items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-bold transition", tab === t.key ? "bg-surface-strong text-fg shadow-sm" : "text-muted")}
+            className={cn("flex flex-1 items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-bold transition", tab === t.key ? "bg-surface-strong text-fg shadow-[0_1px_3px_rgba(11,18,34,0.08)]" : "text-muted")}
           >
             {t.icon} {t.label} {t.count ? <span className="rounded-full bg-primary-soft px-1.5 text-[11px] text-primary">{faNum(t.count)}</span> : null}
           </Link>
@@ -126,11 +119,7 @@ export default async function PortalPage(props: PageProps<"/portal">) {
 
       {!list.filter(open).length ? (
         <Card>
-          <EmptyState
-            icon={<ClipboardList className="size-7" />}
-            title={tab === "mine" ? "تسک فعالی به شما سپرده نشده" : "تسک فعالی به کسی نداده‌اید"}
-            description="با دکمه‌ی «ثبت تسک جدید» برای خودتان یا دیگران تسک ثبت کنید."
-          />
+          <EmptyState icon={<ClipboardList className="size-6" />} title={tab === "mine" ? "تسک فعالی به شما سپرده نشده" : "تسک فعالی به کسی نداده‌اید"} />
         </Card>
       ) : null}
 

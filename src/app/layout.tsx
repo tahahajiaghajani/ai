@@ -1,15 +1,20 @@
 import type { Metadata, Viewport } from "next";
-import { Vazirmatn } from "next/font/google";
+import { Sora, Vazirmatn } from "next/font/google";
 import { Toaster } from "sonner";
+import { BrandIntro } from "@/components/shell/brand-intro";
+import { bootScript } from "@/components/shell/boot-script";
 import "./globals.css";
 
 const vazir = Vazirmatn({ subsets: ["arabic", "latin"], variable: "--font-vazir", display: "swap" });
+// brand typeface (Latin): wordmark, signature and Latin display text
+const sora = Sora({ subsets: ["latin"], variable: "--font-sora", display: "swap", weight: ["300", "400", "600", "700"] });
 
 export const metadata: Metadata = {
-  title: { default: "TaskFlow AI — اتوماسیون هوشمند کارها", template: "%s · TaskFlow AI" },
-  description: "تسک‌دهی، پیگیری و انجام خودکار کارها با ایجنت‌های هوش مصنوعی",
-  applicationName: "TaskFlow AI",
-  appleWebApp: { capable: true, title: "TaskFlow", statusBarStyle: "black-translucent" },
+  title: { default: "Task Flow", template: "%s · Task Flow" },
+  description: "تسک‌دهی و انجام هوشمند کارها — By Taha Aghajani",
+  applicationName: "Task Flow",
+  authors: [{ name: "Taha Aghajani" }],
+  appleWebApp: { capable: true, title: "Task Flow", statusBarStyle: "black-translucent" },
 };
 
 export const viewport: Viewport = {
@@ -17,21 +22,19 @@ export const viewport: Viewport = {
   initialScale: 1,
   viewportFit: "cover",
   themeColor: [
-    { media: "(prefers-color-scheme: dark)", color: "#070a14" },
-    { media: "(prefers-color-scheme: light)", color: "#f4f6fb" },
+    { media: "(prefers-color-scheme: dark)", color: "#060a13" },
+    { media: "(prefers-color-scheme: light)", color: "#f5f7fb" },
   ],
 };
 
-// Applies the saved/system theme before paint to avoid a flash.
-const themeScript = `(function(){try{var t=localStorage.getItem('tf-theme');var d=t?t==='dark':window.matchMedia('(prefers-color-scheme: dark)').matches;document.documentElement.classList.toggle('dark',d);}catch(e){document.documentElement.classList.add('dark')}})();`;
-
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="fa" dir="rtl" className={`${vazir.variable} h-full`} suppressHydrationWarning>
+    <html lang="fa" dir="rtl" className={`${vazir.variable} ${sora.variable} h-full`} suppressHydrationWarning>
       <head>
-        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+        <script dangerouslySetInnerHTML={{ __html: bootScript }} />
       </head>
       <body className="app-backdrop min-h-full antialiased">
+        <BrandIntro />
         {children}
         <Toaster dir="rtl" position="top-center" richColors closeButton toastOptions={{ style: { fontFamily: "var(--font-vazir)" } }} />
       </body>

@@ -170,7 +170,7 @@ export function TaskFilesManager({ task, userId }: { task: Task; userId: string 
     <div className="rounded-2xl border border-line bg-surface-strong/60 p-3">
       <div className="mb-2 flex items-center gap-2">
         <p className="flex-1 text-sm font-bold">فایل‌های تسک {files ? <span className="text-xs font-normal text-muted">({faNum(shown.length)})</span> : null}</p>
-        {running ? <span className="text-[11px] text-amber-600">در حال اجرا — حذف غیرفعال است</span> : null}
+        {running ? <span className="text-[11px] text-amber-700">در حال اجرا — حذف غیرفعال است</span> : null}
       </div>
       {files === null ? (
         <Spinner />
@@ -255,7 +255,7 @@ export function InlineDispatch({ task, userId, mode, defaults, onSent }: { task:
             ? "ادامه‌ی همین کار: بنویسید چه چیزی را اصلاح یا اضافه کند."
             : "مجری فایل‌های مرتبط را پیدا، ویرایش یا ایجاد می‌کند و نتیجه را در گفت‌وگوی تسک گزارش می‌دهد."}
       </p>
-      {!ready ? <p className="mb-3 text-xs font-semibold text-amber-600">برای این مرحله هنوز اتصال هوش مصنوعی انتخاب نشده است (تنظیمات ← اتصال‌ها و مدل‌ها).</p> : null}
+      {!ready ? <p className="mb-3 text-xs font-semibold text-amber-700">برای این مرحله هنوز اتصال هوش مصنوعی انتخاب نشده است (تنظیمات ← اتصال‌ها و مدل‌ها).</p> : null}
       <DispatchFields mode={mode} userId={userId} defaults={defaults} state={state} />
       <Button className="mt-4 w-full" onClick={() => void state.submit()} loading={state.busy} disabled={!!state.blocker || !ready}>
         <Icon className="size-4" /> {mode === "prework" ? "شروع پیش‌کار" : followup ? "ارسال دستور تکمیلی" : "شروع کار اصلی"}
