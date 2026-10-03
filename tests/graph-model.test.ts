@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import fixture from "./fixtures/graphify-graph.json";
-import { buildOverview, mergeGraphs, parseGraphify, projectSubgraph, relationLabel, taskNodeId, type GraphData } from "@/lib/graph/model";
+import { buildProjectsOverview, mergeGraphs, parseGraphify, projectNodeId, projectSubgraph, relationLabel, type GraphData } from "@/lib/graph/model";
+import { resolveImport } from "@/lib/projects/symbols";
 
 function assertConsistent(g: GraphData) {
   const ids = new Set(g.nodes.map((n) => n.id));
@@ -14,12 +15,12 @@ function assertConsistent(g: GraphData) {
 }
 
 describe("parseGraphify (real graphify graph.json)", () => {
-  const root = taskNodeId("t1");
-  const g = parseGraphify(fixture, { prefix: "g:t1", rootId: root, taskId: "t1", taskCode: "T-0001", fileUrl: (p) => `https://github.com/o/r/tree/main/tasks/x/${p}` });
+  const root = projectNodeId("p1");
+  const g = parseGraphify(fixture, { prefix: "g:p1", rootId: root, projectId: "p1", fileUrl: (p) => `https://github.com/o/r/blob/main/projects/x/${p}` });
 
   it("keeps every graphify node, scoped and linked", () => {
     expect(g.nodes.length).toBe((fixture as { nodes: unknown[] }).nodes.length);
-    expect(g.nodes.every((n) => n.id.startsWith("g:t1:") && n.graphify && n.taskId === "t1")).toBe(true);
+    expect(g.nodes.every((n) => n.id.startsWith("g:p1:") && n.graphify && n.projectId === "p1")).toBe(true);
     // root is external (the project node lives in the overview), so check links after merging
     assertConsistent(mergeGraphs({ nodes: [{ id: root, label: "p", kind: "project" }], links: [] }, g));
   });
@@ -70,46 +71,44 @@ describe("parseGraphify (real graphify graph.json)", () => {
   });
 });
 
-describe("buildOverview / projectSubgraph", () => {
-  const tasks = [
-    { id: "p1", code: "T-0001", title: "پروژه یک", status: "closed", root_id: null, parent_id: null, relation_type: null, requester_id: "u1", github_path: "tasks/T-0001" },
-    { id: "c1", code: "T-0001.2", title: "ادامه", status: "main_done", root_id: "p1", parent_id: "p1", relation_type: "continuation", requester_id: "u1", github_path: "tasks/T-0001" },
-    { id: "p2", code: "T-0002", title: "پروژه دو", status: "approved", root_id: null, parent_id: null, relation_type: null, requester_id: "u2", github_path: null },
+describe("buildProjectsOverview / projectSubgraph", () => {
+  const projects = [
+    { id: "p1", name: "Renew", slug: "renew", root_path: "projects/renew" },
+    { id: "p2", name: "CRM", slug: "crm", root_path: "projects/crm" },
   ];
-  const g = buildOverview({
-    tasks,
-    profiles: [
-      { id: "u1", full_name: "علی", email: null },
-      { id: "u2", full_name: null, email: "b@x.ir" },
-    ],
-    files: [{ id: "f1", task_id: "c1", name: "brief.pdf", context: "request", github_path: "tasks/T-0001/inputs/brief.pdf" }],
-    knowledge: [
-      { id: "k1", metadata: { title: "روش", task_id: "p1", tags: ["BPM", "بانک"] } },
-      { id: "k2", metadata: { title: "روش دو", task_id: "p2", tags: ["bpm"] } },
-    ],
-    fileUrl: (p) => `https://gh/${p}`,
-  });
+  const files = [
+    { project_id: "p1", path: "src/app.ts", kind: "code", summary: "نقطه‌ی شروع", symbols: ["main"], imports: ["./audit", "react"] },
+    { project_id: "p1", path: "src/audit.ts", kind: "code", summary: null, symbols: ["Audit", "save"], imports: [] },
+    { project_id: "p1", path: "docs/guide.md", kind: "doc", summary: "راهنما", symbols: [], imports: [] },
+    { project_id: "p2", path: "index.ts", kind: "code", summary: null, symbols: [], imports: [] },
+  ];
+  const tasks = [
+    { id: "t1", code: "T-0001", title: "باگ audit", status: "main_done", project_id: "p1" },
+    { id: "t2", code: "T-0002", title: "بی‌پروژه", status: "approved", project_id: null },
+  ];
+  const g = buildProjectsOverview({ projects, files, tasks, resolve: resolveImport, fileUrl: (p, path) => `https://gh/${p.root_path}/${path}` });
 
-  it("builds projects, related tasks, requesters, files and knowledge", () => {
+  it("builds projects, their files, import links and the tasks that worked on them", () => {
     assertConsistent(g);
-    expect(g.nodes.find((n) => n.id === "task:p1")?.kind).toBe("project");
-    expect(g.nodes.find((n) => n.id === "task:c1")?.kind).toBe("task");
-    expect(g.links).toContainEqual({ source: "task:p1", target: "task:c1", relation: "continuation" });
-    // same requester as the parent: no duplicate requester link for the child
-    expect(g.links.filter((l) => l.source === "user:u1")).toHaveLength(1);
-    expect(g.nodes.find((n) => n.id === "tf:f1")?.url).toBe("https://gh/tasks/T-0001/inputs/brief.pdf");
-    // tags are shared case-insensitively and connect the two projects' knowledge
-    expect(g.links.filter((l) => l.target === "tag:bpm")).toHaveLength(2);
+    expect(g.nodes.find((n) => n.id === projectNodeId("p1"))?.kind).toBe("project");
+    expect(g.links.filter((l) => l.source === projectNodeId("p1") && l.relation === "has_file")).toHaveLength(3);
+    expect(g.links).toContainEqual({ source: "pf:p1:src/app.ts", target: "pf:p1:src/audit.ts", relation: "imports" });
+    // package imports do not create links
+    expect(g.links.filter((l) => l.relation === "imports")).toHaveLength(1);
+    expect(g.nodes.find((n) => n.id === "pf:p1:src/audit.ts")?.detail).toBe("Audit، save");
+    expect(g.nodes.find((n) => n.id === "pf:p1:docs/guide.md")?.kind).toBe("document");
+    expect(g.nodes.find((n) => n.id === "pf:p1:src/app.ts")?.url).toBe("https://gh/projects/renew/src/app.ts");
+    expect(g.links).toContainEqual({ source: "task:t1", target: projectNodeId("p1"), relation: "worked_on" });
+    expect(g.nodes.some((n) => n.id === "task:t2")).toBe(false);
   });
 
-  it("project view does not leak into other projects through shared tags", () => {
-    const sub = projectSubgraph(g, "task:p1");
+  it("project view does not leak into other projects", () => {
+    const sub = projectSubgraph(g, projectNodeId("p1"));
     const ids = new Set(sub.nodes.map((n) => n.id));
-    expect(ids.has("task:c1")).toBe(true);
-    expect(ids.has("tf:f1")).toBe(true);
-    expect(ids.has("tag:bpm")).toBe(true);
-    expect(ids.has("kn:k2")).toBe(false);
-    expect(ids.has("task:p2")).toBe(false);
+    expect(ids.has("pf:p1:src/audit.ts")).toBe(true);
+    expect(ids.has("task:t1")).toBe(true);
+    expect(ids.has(projectNodeId("p2"))).toBe(false);
+    expect(ids.has("pf:p2:index.ts")).toBe(false);
   });
 
   it("translates relations to Persian", () => {

@@ -4,10 +4,10 @@
  *
  * Talks to the TaskFlow app (job spec, live events, final result), runs Claude Code headless
  * with a live activity stream, keeps Claude sessions per task so related tasks continue the
- * same project, updates the data map (manifest.json) and commits the results.
+ * same work, and commits the results (the app then updates the project's file map and knowledge).
  *
  * Subcommands:
- *   spec | inputs | restore-session | run-claude | finalize | upgrade | graphify | kb "<query>" | notify-push
+ *   spec | inputs | restore-session | run-claude | finalize | upgrade | graphify | notify-push
  *
  * Only Node.js built-ins are used on purpose (no npm install needed on the runner).
  */
@@ -215,7 +215,8 @@ async function cmdInputs() {
 }
 
 function sessionDir(spec) {
-  return spec.task_path ? path.join(REPO, spec.task_path, ".claude-session") : null;
+  const dir = spec.session_dir || (spec.task_path ? `${spec.task_path}/.claude-session` : null);
+  return dir ? path.join(REPO, dir) : null;
 }
 
 async function cmdRestoreSession() {
@@ -318,53 +319,6 @@ async function saveSession(spec, sessionId) {
   );
 }
 
-function roleOf(rel) {
-  const name = path.basename(rel).toUpperCase();
-  if (name === "EXPLANATION.MD") return "explanation";
-  if (name === "CHANGELOG.MD") return "changelog";
-  if (name === "FILES.MD") return "data-map";
-  return "final";
-}
-
-async function updateManifest(spec) {
-  const base = path.join(REPO, spec.task_path);
-  const manifestPath = path.join(base, "manifest.json");
-  if (!fs.existsSync(manifestPath)) return;
-  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
-  const iteration = Number((spec.iteration_path || "").split("/").pop()?.split("_")[0]) || 1;
-  const now = new Date().toISOString();
-  const finals = (await walk(path.join(base, "final"))).map((f) => path.relative(REPO, f).split(path.sep).join("/"));
-  const byPath = new Map((manifest.files || []).map((f) => [f.path, f]));
-  for (const p of finals) {
-    const prev = byPath.get(p);
-    byPath.set(p, { ...(prev || {}), path: p, role: prev?.role || roleOf(p), agent: "Claude (کار اصلی)", iteration: prev?.iteration || iteration, updated_at: now, description: prev?.description || "خروجی نهایی" });
-  }
-  for (const [p] of byPath) if (p.startsWith(`${spec.task_path}/final/`) && !finals.includes(p)) byPath.delete(p);
-  manifest.files = [...byPath.values()].sort((a, b) => a.path.localeCompare(b.path));
-  manifest.iterations = manifest.iterations || [];
-  let it = manifest.iterations.find((i) => i.seq === iteration);
-  if (!it) {
-    it = { seq: iteration, code: spec.task_code, title: "", relation: null, folder: spec.iteration_path };
-    manifest.iterations.push(it);
-  }
-  it.main = { job_id: spec.job_id, completed_at: now, status: "done" };
-  manifest.updated_at = now;
-  fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
-
-  const readmePath = path.join(base, "README.md");
-  if (fs.existsSync(readmePath)) {
-    const table = finals
-      .map((p) => `| \`${p.replace(`${spec.task_path}/`, "")}\` | ${roleOf(p)} |`)
-      .join("\n");
-    const section = `<!-- final:start -->\n## خروجی نهایی (Claude)\n\n| مسیر | نقش |\n|---|---|\n${table || "| — | — |"}\n<!-- final:end -->`;
-    let readme = fs.readFileSync(readmePath, "utf-8");
-    readme = /<!-- final:start -->[\s\S]*<!-- final:end -->/.test(readme)
-      ? readme.replace(/<!-- final:start -->[\s\S]*<!-- final:end -->/, section)
-      : `${readme.trim()}\n\n${section}\n`;
-    fs.writeFileSync(readmePath, readme);
-  }
-}
-
 function classify(out) {
   const text = `${out?.result?.result || ""}\n${out?.stderr || ""}`;
   if (LIMIT_RE.test(text)) return { status: "rate_limited", error: clip(text, 4000) };
@@ -380,7 +334,6 @@ async function cmdFinalize() {
   let commit = { sha: null, files: [] };
   try {
     await saveSession(spec, out?.sessionId);
-    if (verdict.status === "success") await updateManifest(spec);
     commit = gitCommitAndPush(
       verdict.status === "success" ? spec.commit_message : `${spec.commit_message} (نیمه‌کاره: ${verdict.status})`,
       currentBranch(),
@@ -499,8 +452,11 @@ async function cmdGraphify() {
     return;
   }
   const env = { ...process.env, GOOGLE_API_KEY: process.env.GEMINI_API_KEY || "" };
+  // the app's own files and earlier graphs are not part of the project
+  const ignore = path.join(dir, ".graphifyignore");
+  if (!fs.existsSync(ignore)) fs.writeFileSync(ignore, ".taskflow/graph/\n.claude-session/\ngraphify-out/\n*.jsonl\n");
   const attempts = [];
-  if (g.mode === "gemini" && process.env.GEMINI_API_KEY) attempts.push(["extract", ".", "--backend", "gemini", "--model", g.model || "gemini-flash-latest", "--max-concurrency", "1"]);
+  if (g.mode === "llm" && process.env.GEMINI_API_KEY) attempts.push(["extract", ".", "--backend", "gemini", "--model", g.model || "gemini-flash-latest", "--max-concurrency", "1"]);
   attempts.push(["extract", ".", "--code-only"]);
   let ok = false;
   let lastErr = "";
@@ -515,10 +471,13 @@ async function cmdGraphify() {
       lastErr = `${err.stdout || ""}\n${err.stderr || ""}`.slice(-3000) || err.message;
     }
   }
-  // graphify writes graphify-out/ next to where it runs; make sure it lives inside the task folder.
-  const rootOut = path.join(REPO, "graphify-out");
-  if (ok && !fs.existsSync(path.join(dir, "graphify-out")) && fs.existsSync(rootOut) && dir !== REPO) {
-    await fsp.rename(rootOut, path.join(dir, "graphify-out"));
+  // graphify writes graphify-out/ where it runs; the app keeps it in <project>/.taskflow/graph
+  const produced = [path.join(dir, "graphify-out"), path.join(REPO, "graphify-out")].find((p) => fs.existsSync(p));
+  if (ok && produced && g.out) {
+    const target = path.join(REPO, g.out);
+    await fsp.rm(target, { recursive: true, force: true });
+    await fsp.mkdir(path.dirname(target), { recursive: true });
+    await fsp.rename(produced, target);
   }
   let commit = { sha: null, files: [] };
   if (ok) {
@@ -532,15 +491,6 @@ async function cmdGraphify() {
   }
   emit({ type: "result", status: ok ? "success" : "error", summary: ok ? `graph.json و GRAPH_REPORT.md ساخته شد` : undefined, error: ok ? undefined : lastErr, commit_sha: commit.sha, commit_url: commitUrl(commit.sha) });
   await flush();
-}
-
-async function cmdKb(query) {
-  if (!query) {
-    console.log('usage: node .github/scripts/taskflow.mjs kb "پرسش"');
-    return;
-  }
-  const res = await api(`/api/runner/knowledge?q=${encodeURIComponent(query)}&k=6`, { raw: true });
-  console.log(await res.text());
 }
 
 async function cmdNotifyPush() {
@@ -557,7 +507,7 @@ async function cmdNotifyPush() {
 }
 
 // ---------------------------------------------------------------------------
-const [cmd, ...rest] = process.argv.slice(2);
+const [cmd] = process.argv.slice(2);
 const commands = {
   spec: cmdSpec,
   inputs: cmdInputs,
@@ -566,7 +516,6 @@ const commands = {
   finalize: cmdFinalize,
   upgrade: cmdUpgrade,
   graphify: cmdGraphify,
-  kb: () => cmdKb(rest.join(" ")),
   "notify-push": cmdNotifyPush,
 };
 
@@ -578,7 +527,7 @@ commands[cmd]()
   .then(() => flush())
   .catch(async (err) => {
     console.error(err);
-    if (JOB_ID && cmd !== "kb" && cmd !== "notify-push") {
+    if (JOB_ID && cmd !== "notify-push") {
       emit({ type: "log", level: "error", title: `خطای runner در مرحله‌ی ${cmd}`, detail: String(err.stack || err) });
       if (cmd === "spec" || cmd === "finalize") emit({ type: "result", status: "error", error: String(err.message || err) });
       await flush();

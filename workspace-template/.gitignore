@@ -1,4 +1,6 @@
 graphify-out/cache/
 graphify-out/cost.json
+**/.taskflow/graph/cache/
+**/.taskflow/graph/cost.json
 node_modules/
 .DS_Store

@@ -1,11 +1,13 @@
 import type { FlowSummary } from "@/lib/workflow/types";
-export type Role = "admin" | "requester";
+export type Role = "owner" | "member";
+export type AppMode = "simple" | "full";
 export type ProfileStatus = "pending" | "active" | "disabled";
 
 export type TaskStatus =
   | "pending_approval"
   | "returned"
   | "approved"
+  | "in_progress"
   | "prework_queued"
   | "prework_running"
   | "prework_done"
@@ -27,6 +29,7 @@ export interface Profile {
   org_unit: string | null;
   phone: string | null;
   role: Role;
+  mode: AppMode;
   status: ProfileStatus;
   color: string | null;
   /** public URL of the profile picture (column added by the avatars migration) */
@@ -51,7 +54,12 @@ export interface Task {
   priority: Priority;
   status: TaskStatus;
   progress: number;
+  /** who gave the task */
   requester_id: string;
+  /** who is responsible for doing it (the AI work runs with this user's connections and GitHub) */
+  assignee_id: string;
+  /** project the work belongs to (files, knowledge), chosen when sending */
+  project_id: string | null;
   return_reason: string | null;
   closure_note: string | null;
   closure_reject_reason: string | null;
@@ -72,8 +80,9 @@ export interface Task {
   updated_at: string;
 }
 
-export type JobKind = "prework" | "main" | "knowledge" | "graphify" | "upgrade" | "optimize";
-export type Provider = "gemini" | "claude" | "system";
+export type JobKind = "prework" | "main" | "knowledge" | "graphify" | "upgrade" | "optimize" | "import" | "index";
+/** llm = AI work inside the app (user's own keys), external = GitHub Actions, system = file operations */
+export type Lane = "llm" | "external" | "system";
 export type JobStatus = "queued" | "running" | "done" | "failed" | "cancelled";
 
 export interface TodoItem {
@@ -107,8 +116,12 @@ export interface Job {
   id: string;
   task_id: string | null;
   upgrade_id: string | null;
+  project_id: string | null;
+  /** the user whose connections, repository and quota this job uses */
+  owner_id: string | null;
+  connection_id: string | null;
   kind: JobKind;
-  provider: Provider;
+  lane: Lane;
   status: JobStatus;
   priority: number;
   step: string | null;
@@ -131,7 +144,7 @@ export interface Job {
   updated_at: string;
 }
 
-export type EventSource = "system" | "user" | "gemini" | "claude" | "github" | "graphify" | "knowledge";
+export type EventSource = "system" | "user" | "ai" | "gemini" | "claude" | "github" | "graphify" | "knowledge" | "project";
 export type EventKind =
   | "status"
   | "log"
@@ -152,6 +165,7 @@ export interface TaskEvent {
   id: number;
   task_id: string | null;
   upgrade_id: string | null;
+  project_id?: string | null;
   job_id: string | null;
   source: EventSource;
   kind: EventKind;
@@ -180,15 +194,32 @@ export interface TaskFile {
   created_at: string;
 }
 
-export interface ProviderState {
-  provider: Provider;
-  max_concurrency: number;
+/** Live state of one of a user's AI connections (automatic pause on limits, models without quota). */
+export interface ConnectionStateRow {
+  connection_id: string;
+  user_id: string;
   paused_until: string | null;
   pause_reason: string | null;
   manual_pause: boolean;
   models: Record<string, { blocked_until?: string; reason?: string }>;
   stats: Record<string, unknown>;
   updated_at: string;
+}
+
+/** What a user can use right now (drives which parts of the app are enabled). */
+export interface Capabilities {
+  mode: AppMode;
+  isOwner: boolean;
+  /** number of AI connections */
+  ai: number;
+  /** a connection is chosen for pre-work / the in-app executor */
+  prework: boolean;
+  main: boolean;
+  /** GitHub connected and the workspace repository set up: projects, knowledge and graphs */
+  github: boolean;
+  /** Claude Code can run in the user's GitHub Actions */
+  claudeCode: boolean;
+  mainEngine: "agent" | "claude_code";
 }
 
 export interface Upgrade {
@@ -221,20 +252,25 @@ export interface NotificationRow {
   created_at: string;
 }
 
-export interface KnowledgeRow {
+export interface ProjectSummary {
   id: string;
-  content: string;
-  metadata: {
-    kind?: string;
-    title?: string;
-    tags?: string[];
-    task_id?: string;
-    task_code?: string;
-    requester_id?: string;
-    source?: string;
-    chunk?: number;
-  };
-  use_count: number;
-  score: number;
-  created_at: string;
+  slug: string;
+  name: string;
+  description: string;
+  status: "importing" | "indexing" | "ready" | "error";
+  status_detail: string | null;
+  file_count: number;
+  total_size: number;
+  updated_at: string;
+  knowledge_at: string | null;
+  graph_at: string | null;
+}
+
+/** A user in pickers (assignee field, filters): never more than this. */
+export interface PersonLite {
+  id: string;
+  full_name: string | null;
+  avatar_url: string | null;
+  org_unit: string | null;
+  color: string | null;
 }

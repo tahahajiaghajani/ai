@@ -1,15 +1,16 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowRight, CalendarRange, FileText, GitBranchPlus, Pencil } from "lucide-react";
+import { ArrowRight, CalendarRange, FileText, GitBranchPlus, LayoutDashboard, Pencil } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/supabase/admin";
-import { Badge, Button, Card, CardHeader, Progress } from "@/components/ui/primitives";
+import { peopleById } from "@/lib/people";
+import { Avatar, Badge, Button, Card, CardHeader, Progress } from "@/components/ui/primitives";
 import { PriorityBadge, RelationBadge, StatusBadge } from "@/components/tasks/badges";
 import { Markdown } from "@/components/ui/markdown";
 import { formatJalali, formatRange, timeAgo } from "@/lib/jalali";
 import { REQUESTER_EDITABLE, RELATION_META, STAGES, stageOf } from "@/lib/status";
 import { cn, faNum, formatBytes } from "@/lib/utils";
-import { RequesterActions } from "./requester-actions";
+import { AssigneeActions, RequesterActions } from "./requester-actions";
 import { PortalLive } from "../../portal-live";
 import type { Task, TaskEvent, TaskFile } from "@/lib/types";
 
@@ -19,21 +20,25 @@ export default async function PortalTaskPage(props: PageProps<"/portal/tasks/[id
   const me = await requireUser();
   const { id } = await props.params;
   const { data: task } = await db().from("tasks").select("*").eq("id", id).maybeSingle<Task>();
-  if (!task || (task.requester_id !== me.id && !me.isAdmin)) notFound();
+  if (!task || (task.requester_id !== me.id && task.assignee_id !== me.id && !me.isOwner)) notFound();
   const rootId = task.root_id ?? task.id;
-  const [family, events, files] = await Promise.all([
+  const [family, events, files, people] = await Promise.all([
     db().from("tasks").select("*").or(`id.eq.${rootId},root_id.eq.${rootId}`).order("seq_in_root"),
     db().from("task_events").select("*").eq("task_id", id).eq("visibility", "requester").order("id", { ascending: false }).limit(100),
-    db().from("task_files").select("*").eq("task_id", id).eq("context", "request").order("created_at"),
+    db().from("task_files").select("*").eq("task_id", id).in("context", ["request", "output"]).order("created_at"),
+    peopleById([task.requester_id, task.assignee_id]),
   ]);
+  const requester = people.get(task.requester_id);
+  const assignee = people.get(task.assignee_id);
+  const isAssignee = task.assignee_id === me.id;
   const stage = stageOf(task.status);
   const stageIdx = STAGES.findIndex((s) => s.key === stage.key);
   const timeline = (events.data ?? []) as TaskEvent[];
 
   return (
     <div className="space-y-5">
-      <PortalLive userId={task.requester_id} />
-      <Link href="/portal" className="inline-flex items-center gap-1 text-sm text-muted hover:text-fg">
+      <PortalLive userId={me.id} />
+      <Link href={isAssignee ? "/portal" : "/portal?tab=given"} className="inline-flex items-center gap-1 text-sm text-muted hover:text-fg">
         <ArrowRight className="size-4" /> تسک‌های من
       </Link>
 
@@ -41,14 +46,22 @@ export default async function PortalTaskPage(props: PageProps<"/portal/tasks/[id
         <div className="absolute -left-16 -top-16 size-56 rounded-full bg-gradient-brand opacity-10 blur-3xl" />
         <div className="flex flex-wrap items-center gap-2">
           <span className="ltr rounded-lg bg-surface-muted px-2 py-0.5 text-xs font-black">{task.code}</span>
-          <StatusBadge status={task.status} requester />
+          <StatusBadge status={task.status} requester={!isAssignee} />
           <PriorityBadge priority={task.priority} />
           <RelationBadge relation={task.relation_type} />
         </div>
         <h1 className="mt-3 text-xl font-black leading-9 sm:text-2xl">{task.title}</h1>
-        <div className="mt-2 flex items-center gap-1.5 text-xs text-muted">
-          <CalendarRange className="size-4" />
-          {task.kind === "event" ? `رویداد: ${formatJalali(task.event_at, { withTime: true })}` : formatRange(task.start_date, task.end_date)}
+        <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-muted">
+          <span className="flex items-center gap-1.5">
+            <CalendarRange className="size-4" />
+            {task.kind === "event" ? `رویداد: ${formatJalali(task.event_at, { withTime: true })}` : formatRange(task.start_date, task.end_date)}
+          </span>
+          <span className="flex items-center gap-1.5">
+            <Avatar name={requester?.full_name ?? "?"} src={requester?.avatar_url} size={18} /> تسک‌دهنده: <b className="text-fg">{requester?.full_name ?? "—"}</b>
+          </span>
+          <span className="flex items-center gap-1.5">
+            <Avatar name={assignee?.full_name ?? "?"} src={assignee?.avatar_url} size={18} /> مسئول: <b className="text-fg">{assignee?.full_name ?? "—"}</b>
+          </span>
         </div>
         <div className="mt-5 flex items-center gap-3">
           <Progress value={task.progress} className="h-2.5 flex-1" tone={task.status === "closed" ? "success" : "brand"} />
@@ -67,7 +80,15 @@ export default async function PortalTaskPage(props: PageProps<"/portal/tasks/[id
 
         <div className="mt-6 flex flex-wrap gap-2">
           <RequesterActions task={task} userId={me.id} />
-          {REQUESTER_EDITABLE.includes(task.status) ? (
+          {isAssignee ? <AssigneeActions task={task} /> : null}
+          {isAssignee && me.mode === "full" ? (
+            <Link href={`/tasks/${task.id}`}>
+              <Button variant="secondary">
+                <LayoutDashboard className="size-4" /> انجام با هوش مصنوعی (اپ کامل)
+              </Button>
+            </Link>
+          ) : null}
+          {task.requester_id === me.id && REQUESTER_EDITABLE.includes(task.status) ? (
             <Link href={`/portal/tasks/${task.id}/edit`}>
               <Button variant="secondary">
                 <Pencil className="size-4" /> ویرایش
@@ -84,14 +105,14 @@ export default async function PortalTaskPage(props: PageProps<"/portal/tasks/[id
 
       {task.status === "returned" && task.return_reason ? (
         <Card className="border-rose-500/40 p-5">
-          <p className="text-sm font-bold text-rose-600">توضیحات مدیر برای اصلاح:</p>
+          <p className="text-sm font-bold text-rose-600">توضیحات مسئول برای اصلاح:</p>
           <p className="mt-2 text-sm leading-7">{task.return_reason}</p>
           <p className="mt-3 text-xs text-muted">تسک را ویرایش کنید و سپس «ارسال مجدد» را بزنید.</p>
         </Card>
       ) : null}
       {task.status === "closure_pending" ? (
         <Card className="border-amber-500/40 p-5">
-          <p className="text-sm font-bold">مدیر این تسک را انجام‌شده اعلام کرده است.</p>
+          <p className="text-sm font-bold">مسئول این تسک را انجام‌شده اعلام کرده است.</p>
           {task.closure_note ? <p className="mt-2 text-sm leading-7">{task.closure_note}</p> : null}
           <p className="mt-2 text-xs text-muted">اگر کار مطابق انتظار است خاتمه را تایید کنید؛ در غیر این صورت با توضیحات رد کنید تا به‌عنوان تسک مرتبط پیگیری شود.</p>
         </Card>
@@ -125,7 +146,7 @@ export default async function PortalTaskPage(props: PageProps<"/portal/tasks/[id
         </div>
         <div className="space-y-4">
           <Card className="p-5">
-            <h3 className="mb-2 text-sm font-bold">پیوست‌ها</h3>
+            <h3 className="mb-2 text-sm font-bold">پیوست‌ها و خروجی‌ها</h3>
             {(files.data ?? []).length === 0 ? <p className="text-xs text-muted">بدون پیوست</p> : null}
             <ul className="space-y-1">
               {((files.data ?? []) as TaskFile[]).map((f) => (
@@ -133,6 +154,7 @@ export default async function PortalTaskPage(props: PageProps<"/portal/tasks/[id
                   <a href={`/api/files/${f.id}`} className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs hover:bg-surface-muted">
                     <FileText className="size-3.5 text-muted" />
                     <span className="ltr flex-1 truncate text-start">{f.name}</span>
+                    {f.context === "output" ? <Badge tone="success">خروجی</Badge> : null}
                     <span className="text-faint">{formatBytes(f.size)}</span>
                   </a>
                 </li>
@@ -140,7 +162,7 @@ export default async function PortalTaskPage(props: PageProps<"/portal/tasks/[id
             </ul>
           </Card>
           <Card className="p-5">
-            <h3 className="mb-2 text-sm font-bold">تسک‌های این پروژه</h3>
+            <h3 className="mb-2 text-sm font-bold">تسک‌های مرتبط</h3>
             <ul className="space-y-1">
               {((family.data ?? []) as Task[]).map((f) => (
                 <li key={f.id}>

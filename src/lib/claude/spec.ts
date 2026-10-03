@@ -1,13 +1,11 @@
 import "server-only";
 import { db } from "@/lib/supabase/admin";
 import { env } from "@/lib/env";
-import { getSettings, type AppSettings, type ClaudeRunOptions } from "@/lib/settings";
-import { resolveModels } from "@/lib/ai/gemini";
-import { iterationFolder, rootFolder } from "@/lib/github/workspace";
-import { PRIORITY_META, RELATION_META } from "@/lib/status";
-import { formatJalali } from "@/lib/jalali";
-import { claudeStepPrompt, readEngine } from "@/lib/workflow/engine";
-import type { Job, Task, TaskFile, Upgrade, Profile } from "@/lib/types";
+import { getUserConfig, type ClaudeRunOptions, type UserConfig } from "@/lib/settings";
+import { externalStepPrompt, readEngine } from "@/lib/workflow/engine";
+import { getProject } from "@/lib/projects/store";
+import { metaPath } from "@/lib/projects/paths";
+import type { Job, Task, TaskFile, Upgrade } from "@/lib/types";
 
 export interface RunnerSpec {
   job_id: string;
@@ -15,8 +13,10 @@ export interface RunnerSpec {
   app_url: string;
   prompt?: string;
   task_code?: string;
+  /** folder Claude works in (project root, or the task's records folder) */
   task_path?: string;
-  iteration_path?: string;
+  /** where the Claude session is kept so related runs continue it */
+  session_dir?: string;
   resume_session_id?: string | null;
   model?: string;
   /** Claude Code --effort level ("" = model default) */
@@ -25,194 +25,157 @@ export interface RunnerSpec {
   thinking?: "auto" | "on" | "off";
   max_turns?: number;
   branch?: string;
-  base_branch?: string;
   commit_message: string;
   remote_inputs?: { url: string; path: string }[];
-  graphify?: { mode: string; model: string; path: string };
+  graphify?: { mode: string; model: string; path: string; out: string };
 }
 
-async function loadTaskFamily(taskId: string) {
-  const { data: task } = await db().from("tasks").select("*").eq("id", taskId).single<Task>();
-  if (!task) throw new Error("تسک یافت نشد");
-  const root =
-    task.root_id && task.root_id !== task.id ? (await db().from("tasks").select("*").eq("id", task.root_id).single<Task>()).data ?? task : task;
-  const { data: requester } = await db().from("profiles").select("*").eq("id", task.requester_id).maybeSingle<Profile>();
-  return { task, root, requester };
-}
-
-export interface MainMaterials {
-  /** pre-work work order (latest in this project) */
-  brief: string | null;
-  helpers: string[];
-  /** attachments already in the repo or downloaded by the runner before Claude starts */
-  inputs: { path: string; name: string; current: boolean }[];
-  hasContext: boolean;
-}
-
-/** The admin's request comes first; everything after it is context and ground rules. */
-export function mainPrompt(opts: {
-  adminPrompt: string;
-  task: Task;
-  root: Task;
-  requester: Profile | null;
-  rootPath: string;
-  iterPath: string;
-  followup: boolean;
-  resumed: boolean;
-  materials: MainMaterials;
-}): string {
-  const { task, root, rootPath, iterPath, requester, materials } = opts;
-  const isRelated = !!task.parent_id;
-  const finalDir = `${rootPath}/final`;
-  const lines: string[] = ["# درخواست", "", opts.adminPrompt.trim(), "", "---", ""];
-  if (opts.followup) {
-    lines.push(`> این یک **دستور تکمیلی** در ادامه‌ی همین کار است. خروجی‌های قبلی در \`${finalDir}/\` هستند؛ فقط همین درخواست را روی آن‌ها اعمال کن.`, "");
-  } else if (isRelated) {
-    lines.push(
-      `> این «${RELATION_META[task.relation_type ?? "other"]}» تسک اصلی **${root.code} — ${root.title}** است؛ پروژه‌ی جدید نیست. روی خروجی‌های موجود در \`${finalDir}/\` ادامه بده.`,
-      "",
-    );
-  }
-  lines.push(
-    `## تسک ${task.code}: ${task.title}`,
-    `- اولویت: ${PRIORITY_META[task.priority].label} | ${task.kind === "event" ? `زمان رویداد: ${formatJalali(task.event_at, { withTime: true })}` : `بازه: ${formatJalali(task.start_date)} تا ${formatJalali(task.end_date)}`}`,
-    `- تسک‌دهنده: ${requester?.full_name ?? "—"}${requester?.org_unit ? ` (${requester.org_unit})` : ""}`,
-    "",
-    task.description || "—",
-    "",
-    "## مواد کار (مسیرها نسبت به ریشه‌ی مخزن)",
-  );
-  if (materials.brief) lines.push(`- **دستور کار پیش‌کار — اول این را بخوان:** \`${materials.brief}\``);
-  for (const h of materials.helpers) lines.push(`- خروجی دیگر پیش‌کار: \`${h}\``);
-  if (materials.inputs.length) {
-    lines.push("- **فایل‌های پیوست (نمونه‌ها و داده‌های واقعی؛ مبنای کار):**");
-    for (const f of materials.inputs) lines.push(`  - \`${f.path}\`${f.current ? " — پیوست همین درخواست" : ""}`);
-  } else {
-    lines.push("- فایل پیوستی وجود ندارد.");
-  }
-  if (opts.followup || isRelated) lines.push(`- خروجی‌های قبلی: \`${finalDir}/\``);
-  if (materials.hasContext) lines.push(`- دانش مرتبط از کارهای قبلی (در صورت نیاز): \`${iterPath}/CONTEXT-main.md\``);
-  lines.push(
-    "",
-    "## قوانین",
-    "1. هدف فقط انجام «درخواست» بالاست. خروجی باید دقیقاً همان چیزی باشد که خواسته شده (نوع، قالب و تعداد فایل).",
-    "2. فایل‌های پیوست مبنای کارند: سازوکار، الگوها، کد و تنظیمات آن‌ها را بخوان و تا جای ممکن استفاده یا تقلید کن. فناوری، زیرساخت یا ساختاری که خواسته نشده اضافه نکن.",
-    `3. فایل(های) خروجی را با نام گویا در \`${finalDir}/\` بساز. فایل مستندات، تست، اسکریپت یا فایل جانبی که خواسته نشده نساز.`,
-    "4. اگر اطلاعاتی (مثلاً نام یک فیلد) در مواد کار نیست، کار را متوقف نکن: در خروجی با یک علامت واضح و کامنت مشخص کن و در پیام پایانی فهرستش را بده.",
-    "5. در ابتدای کار با TodoWrite برنامه بریز و به‌روز نگه دار (در اپ زنده نمایش داده می‌شود).",
-    "6. پیام پایانی تو عیناً در اپ به مدیر نشان داده می‌شود: به فارسی و کوتاه بگو چه تحویل دادی (نام فایل‌ها)، چطور استفاده شود و چه چیزهایی باید تکمیل شود.",
-    "7. پوشه‌های `iterations/` و فایل‌های پیوست را تغییر نده. commit یا push نکن؛ runner این کار را می‌کند.",
-    '8. برای جستجوی دانش و تجربه‌های قبلی در صورت نیاز: `node .github/scripts/taskflow.mjs kb "پرسش"`.',
-  );
-  if (opts.resumed) lines.push("", "_(این جلسه ادامه‌ی همان جلسه‌ی قبلی Claude روی این پروژه است.)_");
-  return lines.join("\n");
-}
-
-/** Per-send choices override the Settings defaults. */
-export function claudeRunOptions(settings: AppSettings, override: unknown): ClaudeRunOptions {
+/** Per-send choices override the user's Settings defaults. */
+export function claudeRunOptions(cfg: Pick<UserConfig, "claude">, override: unknown): ClaudeRunOptions {
   const o = (override && typeof override === "object" ? override : {}) as Partial<ClaudeRunOptions>;
   return {
-    model: typeof o.model === "string" ? o.model.trim() : settings.claude.model,
-    effort: typeof o.effort === "string" ? o.effort : settings.claude.effort,
-    thinking: o.thinking || settings.claude.thinking,
+    model: typeof o.model === "string" ? o.model.trim() : cfg.claude.model,
+    effort: typeof o.effort === "string" ? o.effort : cfg.claude.effort,
+    thinking: o.thinking || cfg.claude.thinking,
   };
 }
 
-/** Latest pre-work work order of the project and the attachments Claude will find in the repo. */
-async function mainMaterials(task: Task, root: Task, jobId: string, remote: { path: string; name: string; current: boolean }[]): Promise<MainMaterials> {
-  const family = [task.id, ...(root.id !== task.id ? [root.id] : [])];
-  const { data: outs } = await db()
-    .from("task_files")
-    .select("github_path, name, job_id, created_at")
-    .in("task_id", family)
-    .eq("context", "output")
-    .like("github_path", "%/prework/%")
-    .order("created_at", { ascending: false });
-  const rows = (outs ?? []) as { github_path: string; name: string; job_id: string | null }[];
-  // outputs of the latest pre-work run; its work order (brief node, or BRIEF.md) is read first
-  const latest = rows.filter((r) => r.job_id === rows[0]?.job_id);
-  const briefRow = latest.find((r) => r.name.startsWith("دستور کار")) ?? latest.find((r) => r.github_path.endsWith("/BRIEF.md")) ?? null;
-  const helpers = latest.filter((r) => r !== briefRow).map((r) => r.github_path);
+/** The user's request comes first; everything after it is where to work and the ground rules. */
+export function mainPrompt(opts: {
+  prompt: string;
+  step: string;
+  project: { name: string; root: string } | null;
+  selected: string[];
+  finalDir: string;
+  brief: string | null;
+  helpers: string[];
+  inputs: string[];
+  resumed: boolean;
+}): string {
+  const lines: string[] = ["# درخواست", "", opts.prompt.trim() || "—", ""];
+  if (opts.step) lines.push(opts.step, "");
+  lines.push("---", "", "## محل کار");
+  if (opts.project) {
+    const root = opts.project.root;
+    lines.push(
+      `روی پروژه‌ی «${opts.project.name}» در پوشه‌ی \`${root}/\` کار کن.`,
+      `- اول این‌ها را بخوان: \`${root}/.taskflow/PROJECT.md\` (توضیحات)، \`${root}/.taskflow/KNOWLEDGE.md\` (دانش پروژه) و \`${root}/.taskflow/INDEX.md\` (نقشه‌ی فایل‌ها)؛ اگر \`${root}/.taskflow/graph/GRAPH_REPORT.md\` هست از آن هم کمک بگیر.`,
+      "- فایل‌ها را در جای خودشان ویرایش کن؛ فایل جدید را کنار فایل‌های هم‌نوعش بساز. هیچ فایلی را تکه‌تکه یا کپی جداگانه نساز.",
+    );
+    if (opts.selected.length) lines.push(`- فایل‌هایی که کاربر به آن‌ها اشاره کرده: ${opts.selected.map((p) => `\`${root}/${p}\``).join("، ")}`);
+  } else {
+    lines.push(`خروجی(های) خواسته‌شده را به صورت فایل کامل با نام گویا در \`${opts.finalDir}/\` بساز.`);
+  }
+  lines.push("", "## مواد کار (مسیرها نسبت به ریشه‌ی مخزن)");
+  if (opts.brief) lines.push(`- **دستور کار پیش‌کار — اول این را بخوان:** \`${opts.brief}\``);
+  for (const h of opts.helpers) lines.push(`- خروجی دیگر پیش‌کار: \`${h}\``);
+  if (opts.inputs.length) {
+    lines.push("- **فایل‌های پیوست همین درخواست:**");
+    for (const p of opts.inputs) lines.push(`  - \`${p}\``);
+  }
+  if (!opts.brief && !opts.helpers.length && !opts.inputs.length) lines.push("- (موردی نیست)");
+  lines.push(
+    "",
+    "## قوانین",
+    "1. هدف فقط انجام «درخواست» بالاست؛ دقیقاً همان چیزی را تحویل بده که خواسته شده.",
+    "2. سبک، کتابخانه‌ها و ساختار موجود را حفظ کن؛ فناوری یا فایل جانبی که خواسته نشده اضافه نکن.",
+    "3. پوشه‌ی `.taskflow/` و پوشه‌های runs/ را تغییر نده. commit یا push نکن؛ runner این کار را می‌کند.",
+    "4. در ابتدای کار با TodoWrite برنامه بریز و به‌روز نگه دار (در اپ زنده نمایش داده می‌شود).",
+    "5. پیام پایانی تو عیناً در اپ نشان داده می‌شود: به فارسی و کوتاه بگو چه کردی، کدام فایل‌ها تغییر کرد یا ساخته شد و چه چیزی باید تکمیل شود.",
+  );
+  if (opts.resumed) lines.push("", "_(این جلسه ادامه‌ی جلسه‌ی قبلی Claude روی همین کار است.)_");
+  return lines.join("\n");
+}
 
-  const { data: files } = await db()
-    .from("task_files")
-    .select("github_path, name, context, job_id, task_id")
-    .in("task_id", family)
-    .in("context", ["request", "prework", "main"])
-    .not("github_path", "is", null)
-    .order("created_at");
-  const inRepo = ((files ?? []) as { github_path: string; name: string; context: string; job_id: string | null }[]).map((f) => ({
-    path: f.github_path,
-    name: f.name,
-    current: f.context === "main" && f.job_id === jobId,
-  }));
-  const seen = new Set<string>();
-  const inputs = [...inRepo, ...remote].filter((f) => (seen.has(f.path) ? false : (seen.add(f.path), true)));
-  return { brief: briefRow?.github_path ?? null, helpers, inputs, hasContext: true };
+async function loadTask(id: string): Promise<{ task: Task; root: Task }> {
+  const { data: task } = await db().from("tasks").select("*").eq("id", id).single<Task>();
+  if (!task) throw new Error("تسک یافت نشد");
+  const root = task.root_id && task.root_id !== task.id ? ((await db().from("tasks").select("*").eq("id", task.root_id).single<Task>()).data ?? task) : task;
+  return { task, root };
 }
 
 export async function buildRunnerSpec(job: Job): Promise<RunnerSpec> {
-  const settings = await getSettings();
   const base = { job_id: job.id, app_url: env.appUrl };
 
   if (job.kind === "main") {
-    const { task, root, requester } = await loadTaskFamily(job.task_id!);
-    const rootPath = rootFolder(root);
-    const iterPath = iterationFolder({ ...root, github_path: rootPath }, task);
-    const resume = settings.claude.resumeSessions && root.claude_session_id ? root.claude_session_id : null;
-    const { data: bigFiles } = await db()
+    const cfg = await getUserConfig(job.owner_id!);
+    const { task, root } = await loadTask(job.task_id!);
+    const st = await readEngine(job.id);
+    if (!st?.ctx.recordsDir) throw new Error("وضعیت کار برای اجرای Claude Code آماده نیست");
+    const project = st.ctx.projectId ? await getProject(st.ctx.projectId) : null;
+    const step = externalStepPrompt(st);
+
+    // latest pre-work outputs of the task (its work order first)
+    const { data: outs } = await db()
       .from("task_files")
-      .select("*")
-      .eq("task_id", task.id)
-      .is("github_path", null)
-      .in("context", ["request", "prework", "main"]);
+      .select("github_path, name, job_id, created_at")
+      .in("task_id", [...new Set([task.id, root.id])])
+      .eq("context", "output")
+      .like("github_path", "%-prework/%")
+      .order("created_at", { ascending: false });
+    const rows = (outs ?? []) as { github_path: string; name: string; job_id: string | null }[];
+    const latest = rows.filter((r) => r.job_id === rows[0]?.job_id);
+    const brief = latest.find((r) => r.name.startsWith("دستور کار")) ?? latest.find((r) => r.github_path.endsWith("/BRIEF.md")) ?? null;
+    const helpers = latest.filter((r) => r !== brief).map((r) => r.github_path);
+
+    // attachments already in the repo, and big ones the runner downloads before Claude starts
+    const inputs = [...st.ctx.inputPaths];
     const remote: { url: string; path: string }[] = [];
-    const remoteInfo: { path: string; name: string; current: boolean }[] = [];
-    for (const f of (bigFiles ?? []) as TaskFile[]) {
-      if (f.storage_path.startsWith("github:")) continue;
+    const { data: big } = await db().from("task_files").select("*").in("id", st.ctx.inputs.map((f) => f.id)).is("github_path", null);
+    for (const f of (big ?? []) as TaskFile[]) {
       const { data } = await db().storage.from("task-files").createSignedUrl(f.storage_path, 3 * 3600);
-      const path = `${iterPath}/inputs/${f.context === "main" ? "main/" : ""}${f.name.replace(/[\\/]/g, "_")}`;
+      const path = `${st.ctx.runDir}/inputs/${f.name.replace(/[\\/]/g, "_")}`;
       if (data?.signedUrl) {
         remote.push({ url: data.signedUrl, path });
-        remoteInfo.push({ path, name: f.name, current: f.context === "main" && f.job_id === job.id });
+        inputs.push(path);
       }
     }
-    // the workflow step being run: its instructions/inputs and its own model settings (if any)
-    const engine = await readEngine(job.id);
-    const step = engine ? await claudeStepPrompt(engine) : { text: "", agent: null };
     const agentOpts = Object.fromEntries(Object.entries(step.agent?.claude ?? {}).filter(([, v]) => !!v));
-    const run = claudeRunOptions(settings, { ...((job.payload.claude as object) ?? {}), ...agentOpts });
-    const adminPrompt = String(job.payload.prompt ?? settings.claude.defaultPrompt);
+    const run = claudeRunOptions(cfg, { ...((job.payload.claude as object) ?? {}), ...agentOpts });
+    const resume = cfg.claude.resumeSessions && root.claude_session_id ? root.claude_session_id : null;
     return {
       ...base,
       kind: "main",
       task_code: task.code,
-      task_path: rootPath,
-      iteration_path: iterPath,
+      task_path: project ? project.root_path : st.ctx.recordsDir,
+      session_dir: `${st.ctx.recordsDir}/.claude-session`,
       prompt: mainPrompt({
-        adminPrompt: step.text ? `${adminPrompt}\n\n${step.text}` : adminPrompt,
-        task,
-        root,
-        requester,
-        rootPath,
-        iterPath,
-        followup: !!job.payload.followup,
+        prompt: st.ctx.prompt,
+        step: step.text,
+        project: project ? { name: project.name, root: project.root_path } : null,
+        selected: st.ctx.selected,
+        finalDir: `${st.ctx.recordsDir}/final`,
+        brief: brief?.github_path ?? null,
+        helpers,
+        inputs,
         resumed: !!resume,
-        materials: await mainMaterials(task, root, job.id, remoteInfo),
       }),
       resume_session_id: resume,
       model: run.model || undefined,
       effort: run.effort || undefined,
       thinking: run.thinking,
-      max_turns: settings.claude.maxTurns,
-      commit_message: `[TaskFlow] کار اصلی ${task.code}: ${task.title}`,
+      max_turns: cfg.claude.maxTurns,
+      commit_message: `[TaskFlow] ${task.code} کار اصلی (Claude Code): ${st.ctx.prompt.split("\n")[0].slice(0, 60) || task.title}`,
       remote_inputs: remote,
+    };
+  }
+
+  if (job.kind === "graphify") {
+    const cfg = await getUserConfig(job.owner_id!);
+    const project = await getProject(String(job.payload.project_id ?? job.project_id));
+    return {
+      ...base,
+      kind: "graphify",
+      task_path: project.root_path,
+      commit_message: `[TaskFlow] گراف پروژه‌ی ${project.name}`,
+      graphify: { mode: cfg.graphify.mode, model: "gemini-flash-latest", path: project.root_path, out: metaPath(project.slug, "graph") },
     };
   }
 
   if (job.kind === "upgrade") {
     const { data: up } = await db().from("upgrades").select("*").eq("id", job.upgrade_id).single<Upgrade>();
     if (!up) throw new Error("درخواست ارتقا یافت نشد");
+    const cfg = await getUserConfig(job.owner_id!);
     const { data: files } = await db().from("task_files").select("*").eq("upgrade_id", up.id);
     const remote: { url: string; path: string }[] = [];
     for (const f of (files ?? []) as TaskFile[]) {
@@ -242,23 +205,12 @@ export async function buildRunnerSpec(job: Job): Promise<RunnerSpec> {
       ]
         .filter(Boolean)
         .join("\n"),
-      model: settings.claude.model || undefined,
-      effort: settings.claude.effort || undefined,
-      thinking: settings.claude.thinking,
-      max_turns: settings.claude.maxTurns,
+      model: cfg.claude.model || undefined,
+      effort: cfg.claude.effort || undefined,
+      thinking: cfg.claude.thinking,
+      max_turns: cfg.claude.maxTurns,
       commit_message: `[TaskFlow ${up.code}] ${up.title ?? up.prompt.slice(0, 60)}`,
       remote_inputs: remote,
-    };
-  }
-
-  if (job.kind === "graphify") {
-    const path = String(job.payload.path ?? "");
-    return {
-      ...base,
-      kind: "graphify",
-      task_path: path,
-      commit_message: `[TaskFlow] گراف فایل‌ها: ${path.split("/")[1] ?? path}`,
-      graphify: { mode: settings.graphify.mode, model: (await resolveModels([settings.graphify.model || "auto"]))[0], path },
     };
   }
 

@@ -27,7 +27,7 @@ type StepData = Omit<WorkflowNode, "id" | "x" | "y"> & { agent?: AgentDef };
 type StepNode = Node<StepData, "step">;
 type StepEdge = Edge<{ when?: Branch }>;
 
-const ICON = { gemini: Sparkles, router: GitBranch, claude: Bot };
+const ICON = { llm: Sparkles, router: GitBranch, coder: Bot };
 const GAP_X = 300;
 const GAP_Y = 150;
 
@@ -45,7 +45,7 @@ function edgeLook(when?: Branch): Partial<StepEdge> {
 
 function StepCard({ data, selected }: NodeProps<StepNode>) {
   const agent = data.agent;
-  const type = agent?.type ?? "gemini";
+  const type = agent?.type ?? "llm";
   const Icon = ICON[type];
   const color = agent?.color ?? AGENT_TYPE_META[type].color;
   return (
@@ -65,7 +65,7 @@ function StepCard({ data, selected }: NodeProps<StepNode>) {
         </div>
         {data.saveAs || data.reply || data.brief || data.instructions ? (
           <div className="mt-2 flex flex-wrap gap-1">
-            {data.brief ? <Badge tone="violet">دستور کار Claude</Badge> : null}
+            {data.brief ? <Badge tone="violet">دستور کار</Badge> : null}
             {data.saveAs ? (
               <Badge tone="info">
                 <span className="ltr">{data.saveAs}</span>
@@ -121,7 +121,7 @@ function Editor({ workflow, agents, onSaved, onDuplicate, onDelete, onEditAgent 
   const [busy, setBusy] = React.useState(false);
   const [dirty, setDirty] = React.useState(false);
   const { fitView } = useReactFlow();
-  const palette = agents.filter((a) => workflow.stage === "main" || a.type !== "claude");
+  const palette = agents.filter((a) => workflow.stage === "main" || a.type !== "coder");
 
   // agent edits (name, color, type) show up on the canvas right away
   React.useEffect(() => {
@@ -248,9 +248,9 @@ function Editor({ workflow, agents, onSaved, onDuplicate, onDelete, onEditAgent 
       <Field label="دستور ویژه‌ی این مرحله (اختیاری)" hint="به پرامپت ایجنت اضافه می‌شود؛ فقط در همین ورکفلو">
         <Textarea className="min-h-24" value={node.data.instructions ?? ""} onChange={(e) => patchNode(node.id, { instructions: e.target.value || undefined })} />
       </Field>
-      {node.data.agent?.type === "gemini" ? (
+      {node.data.agent?.type === "llm" ? (
         <>
-          <Field label="ذخیره‌ی خروجی متنی به‌عنوان فایل" hint={workflow.stage === "prework" ? "در پوشه‌ی prework در GitHub و قابل دانلود در گفت‌وگو" : "در پوشه‌ی final کنار خروجی‌های Claude"}>
+          <Field label="ذخیره‌ی خروجی متنی به‌عنوان فایل" hint={workflow.stage === "prework" ? "در پوشه‌ی اجرای پیش‌کار و قابل دانلود در گفت‌وگو" : "در پوشه‌ی اجرای کار اصلی، کنار سوابق تسک"}>
             <Input dir="ltr" value={node.data.saveAs ?? ""} placeholder="BRIEF.md" onChange={(e) => patchNode(node.id, { saveAs: e.target.value || undefined })} />
           </Field>
           {node.data.saveAs ? (
@@ -261,8 +261,8 @@ function Editor({ workflow, agents, onSaved, onDuplicate, onDelete, onEditAgent 
       {node.data.agent?.type !== "router" ? (
         <Switch checked={!!node.data.reply} onChange={(v) => patchNode(node.id, { reply: v || undefined })} label="خروجی این مرحله پاسخ چت باشد" />
       ) : null}
-      {workflow.stage === "prework" && node.data.agent?.type === "gemini" ? (
-        <Switch checked={!!node.data.brief} onChange={(v) => patchNode(node.id, { brief: v || undefined })} label="دستور کار اصلی برای Claude (اول خوانده می‌شود)" />
+      {workflow.stage === "prework" && node.data.agent?.type === "llm" ? (
+        <Switch checked={!!node.data.brief} onChange={(v) => patchNode(node.id, { brief: v || undefined })} label="دستور کار اصلی برای مجری (اول خوانده می‌شود)" />
       ) : null}
     </div>
   ) : edge ? (
@@ -428,7 +428,7 @@ function Editor({ workflow, agents, onSaved, onDuplicate, onDelete, onEditAgent 
           <p className="flex items-center gap-1.5 font-bold text-fg">
             <ScrollText className="size-3.5" /> هر مرحله چه می‌گیرد؟
           </p>
-          درخواست و شرح تسک، دستور مدیر، خروجی مرحله‌های وصل‌شده به آن، و در صورت فعال بودن در ایجنت: فایل‌های پیوست و دانش مرتبط.
+          پرامپت شما، خروجی مرحله‌های وصل‌شده به آن، و در صورت فعال بودن در ایجنت: فایل‌های جدید و اطلاعات پروژه.
           <p className="mt-1 flex items-center gap-1.5">
             <FileText className="size-3.5" /> <MessageSquareText className="size-3.5" /> خروجی‌ها با «ذخیره به‌عنوان فایل» و «پاسخ چت» در گفت‌وگوی تسک نمایش داده می‌شوند.
           </p>

@@ -1,64 +1,60 @@
 "use server";
 import { headers } from "next/headers";
-import { assertAdmin } from "@/lib/auth";
+import { assertFull } from "@/lib/auth";
 import { db } from "@/lib/supabase/admin";
-import { env } from "@/lib/env";
-import { getSettings } from "@/lib/settings";
-import { defaultBranch, getFileText, repoRef, repoUrl } from "@/lib/github/client";
+import { getUserConfig } from "@/lib/settings";
+import { defaultBranch, getFileText, repoUrl, userRepoOrNull } from "@/lib/github/client";
 import { enqueueJob, kickWorker } from "@/lib/queue/jobs";
-import { parseGraphify, taskNodeId, type GraphData } from "@/lib/graph/model";
+import { metaPath } from "@/lib/projects/paths";
+import { parseGraphify, projectNodeId, type GraphData } from "@/lib/graph/model";
 import { act } from "./_util";
-import type { Task } from "@/lib/types";
 
-export type GraphifyLoad = { taskId: string; status: "ok" | "missing" | "error"; graph?: GraphData; error?: string };
+export type GraphifyLoad = { projectId: string; status: "ok" | "missing" | "error"; graph?: GraphData; error?: string };
 
-/** Reads `graphify-out/graph.json` of each project folder in the workspace repo. */
-export async function loadGraphifyGraphsAction(taskIds: string[]) {
+/** Reads `.taskflow/graph/graph.json` (graphify) of the user's projects. */
+export async function loadGraphifyGraphsAction(projectIds: string[]) {
   return act(async (): Promise<GraphifyLoad[]> => {
-    await assertAdmin();
-    const ids = [...new Set(taskIds)].slice(0, 20);
+    const user = await assertFull();
+    const ids = [...new Set(projectIds)].slice(0, 20);
     if (!ids.length) return [];
-    if (!env.githubToken) return ids.map((taskId) => ({ taskId, status: "error" as const, error: "GitHub متصل نیست" }));
-    const { data } = await db().from("tasks").select("id, code, github_path").in("id", ids);
-    const ref = await repoRef("workspace");
-    const branch = await defaultBranch(ref);
-    const tasks = (data ?? []) as Pick<Task, "id" | "code" | "github_path">[];
+    const repo = await userRepoOrNull(user.id);
+    if (!repo) return ids.map((projectId) => ({ projectId, status: "error" as const, error: "GitHub وصل نیست" }));
+    const { data } = await db().from("projects").select("id, slug, name, root_path").eq("owner_id", user.id).in("id", ids);
+    const branch = await defaultBranch(repo);
+    const projects = (data ?? []) as { id: string; slug: string; name: string; root_path: string }[];
     return Promise.all(
-      ids.map(async (taskId): Promise<GraphifyLoad> => {
-        const t = tasks.find((x) => x.id === taskId);
-        if (!t?.github_path) return { taskId, status: "missing" };
+      ids.map(async (projectId): Promise<GraphifyLoad> => {
+        const p = projects.find((x) => x.id === projectId);
+        if (!p) return { projectId, status: "missing" };
         try {
-          const text = await getFileText(ref, `${t.github_path}/graphify-out/graph.json`, branch);
-          if (!text) return { taskId, status: "missing" };
+          const text = await getFileText(repo, metaPath(p.slug, "graph/graph.json"), branch);
+          if (!text) return { projectId, status: "missing" };
           const graph = parseGraphify(JSON.parse(text), {
-            prefix: `g:${t.id}`,
-            rootId: taskNodeId(t.id),
-            taskId: t.id,
-            taskCode: t.code,
-            fileUrl: (p) => repoUrl(ref, `${t.github_path}/${p}`, branch),
+            prefix: `g:${p.id}`,
+            rootId: projectNodeId(p.id),
+            projectId: p.id,
+            fileUrl: (path) => repoUrl(repo, `${p.root_path}/${path}`, branch).replace("/tree/", "/blob/"),
           });
-          return { taskId, status: "ok", graph };
+          return { projectId, status: "ok", graph };
         } catch (err) {
-          return { taskId, status: "error", error: err instanceof Error ? err.message : String(err) };
+          return { projectId, status: "error", error: err instanceof Error ? err.message : String(err) };
         }
       }),
     );
   });
 }
 
-/** Queues a graphify run (GitHub Actions) for a project's folder. */
-export async function buildGraphifyAction(taskId: string) {
+/** Queues a graphify run (in the user's GitHub Actions) for a project. */
+export async function buildGraphifyAction(projectId: string) {
   return act(async () => {
-    const admin = await assertAdmin();
-    const { data: task } = await db().from("tasks").select("id, root_id, github_path").eq("id", taskId).maybeSingle<Pick<Task, "id" | "root_id" | "github_path">>();
-    if (!task) throw new Error("تسک پیدا نشد");
-    if (!task.github_path) throw new Error("این پروژه هنوز پوشه‌ای در GitHub ندارد؛ graphify بعد از اولین پیش‌کار قابل اجراست");
-    if (!env.githubToken) throw new Error("GitHub متصل نیست");
-    const settings = await getSettings();
-    if (settings.graphify.mode === "off") throw new Error("graphify در تنظیمات خاموش است");
-    const { data: running } = await db().from("jobs").select("id").eq("task_id", task.id).eq("kind", "graphify").in("status", ["queued", "running"]).limit(1);
+    const user = await assertFull();
+    const { data: project } = await db().from("projects").select("id").eq("id", projectId).eq("owner_id", user.id).maybeSingle();
+    if (!project) throw new Error("پروژه پیدا نشد");
+    const cfg = await getUserConfig(user.id);
+    if (cfg.graphify.mode === "off") throw new Error("graphify در تنظیمات خاموش است");
+    const { data: running } = await db().from("jobs").select("id").eq("project_id", projectId).eq("kind", "graphify").in("status", ["queued", "running"]).limit(1);
     if (running?.length) throw new Error("ساخت گراف این پروژه از قبل در صف است");
-    await enqueueJob({ kind: "graphify", task_id: task.id, payload: { path: task.github_path }, priority: 30, created_by: admin.id });
+    await enqueueJob({ kind: "graphify", owner_id: user.id, project_id: projectId, payload: { project_id: projectId }, priority: 30, created_by: user.id });
     const h = await headers();
     const host = h.get("x-forwarded-host") ?? h.get("host");
     await kickWorker(host ? `${h.get("x-forwarded-proto") ?? "https"}://${host}` : undefined);

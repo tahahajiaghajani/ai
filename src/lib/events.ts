@@ -6,6 +6,7 @@ import type { EventKind, EventSource } from "@/lib/types";
 export interface LogInput {
   task_id?: string | null;
   upgrade_id?: string | null;
+  project_id?: string | null;
   job_id?: string | null;
   source?: EventSource;
   kind?: EventKind;
@@ -35,6 +36,7 @@ function normalize(e: LogInput) {
   return {
     task_id: e.task_id ?? null,
     upgrade_id: e.upgrade_id ?? null,
+    project_id: e.project_id ?? null,
     job_id: e.job_id ?? null,
     source: e.source ?? "system",
     kind: e.kind ?? "log",
@@ -76,9 +78,10 @@ export async function notify(userId: string | null | undefined, n: { title: stri
   });
 }
 
-export async function notifyAdmins(n: { title: string; body?: string; link?: string; task_id?: string | null }) {
+/** The app owner(s): account approvals, upgrades and other app-wide events. */
+export async function notifyOwners(n: { title: string; body?: string; link?: string; task_id?: string | null }) {
   background(async () => {
-    const { data } = await db().from("profiles").select("id").eq("role", "admin").eq("status", "active");
+    const { data } = await db().from("profiles").select("id").eq("role", "owner").eq("status", "active");
     await Promise.all((data ?? []).map((a) => notify(a.id, n)));
   });
 }

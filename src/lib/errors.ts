@@ -1,9 +1,10 @@
-/** Provider hit a quota: the job should pause and resume automatically at `until`. */
+/** A connection hit a quota: the job pauses and resumes automatically at `until`. */
 export class RateLimitError extends Error {
   constructor(
-    public provider: "gemini" | "claude",
+    /** the user's AI connection (null for Claude Code in GitHub Actions) */
+    public connectionId: string | null,
     public until: Date,
-    public scope: "provider" | "model",
+    public scope: "connection" | "model",
     public reason: string,
     public model?: string,
   ) {
@@ -28,6 +29,14 @@ export class TransientError extends Error {
   ) {
     super(message);
     this.name = "TransientError";
+  }
+}
+
+/** Retrying cannot help (invalid key, unknown model, missing connection): the job fails right away. */
+export class FatalError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "FatalError";
   }
 }
 

@@ -26,9 +26,9 @@ export interface StageDef {
 export const STAGES: StageDef[] = [
   {
     key: "approval",
-    label: "در انتظار تایید",
-    short: "تایید",
-    description: "تسک‌های تازه و برگشت‌خورده که منتظر بررسی شما هستند",
+    label: "منتظر پذیرش",
+    short: "پذیرش",
+    description: "تسک‌های تازه و برگشت‌خورده که منتظر پذیرش مسئول هستند",
     statuses: ["pending_approval", "returned"],
     color: "var(--stage-approval)",
     hex: "#f59e0b",
@@ -38,7 +38,7 @@ export const STAGES: StageDef[] = [
     key: "prework_queue",
     label: "در صف پیش‌کار",
     short: "صف پیش‌کار",
-    description: "تایید شده؛ منتظر انتخاب و پرامپت شما یا نوبت Gemini",
+    description: "پذیرفته شده؛ منتظر پرامپت شما یا نوبت هوش مصنوعی",
     statuses: ["approved", "prework_queued"],
     color: "var(--stage-prework-queue)",
     hex: "#0ea5e9",
@@ -48,7 +48,7 @@ export const STAGES: StageDef[] = [
     key: "prework_running",
     label: "در حال انجام پیش‌کار",
     short: "پیش‌کار",
-    description: "ایجنت‌های Gemini در حال تحقیق، WBS و انجام کارهای ساده",
+    description: "ایجنت‌ها در حال تحلیل و آماده‌کردن دستور کار",
     statuses: ["prework_running"],
     color: "var(--stage-prework)",
     hex: "#8b5cf6",
@@ -58,7 +58,7 @@ export const STAGES: StageDef[] = [
     key: "main_queue",
     label: "در صف انجام کار اصلی",
     short: "صف کار اصلی",
-    description: "پیش‌کار تمام شده؛ منتظر ارسال به Claude",
+    description: "پیش‌کار تمام شده؛ منتظر ارسال به کار اصلی",
     statuses: ["prework_done", "main_queued"],
     color: "var(--stage-main-queue)",
     hex: "#14b8a6",
@@ -68,8 +68,8 @@ export const STAGES: StageDef[] = [
     key: "main_running",
     label: "در حال انجام کار اصلی",
     short: "کار اصلی",
-    description: "Claude Code در حال انجام و تکمیل تسک",
-    statuses: ["main_running", "main_done"],
+    description: "مجری در حال انجام کار (یا انجام دستی توسط مسئول)",
+    statuses: ["in_progress", "main_running", "main_done"],
     color: "var(--stage-main)",
     hex: "#f97316",
     icon: "bot",
@@ -110,13 +110,14 @@ export interface StatusMeta {
 }
 
 export const STATUS_META: Record<TaskStatus, StatusMeta> = {
-  pending_approval: { label: "در انتظار تایید", requesterLabel: "ارسال شد — در انتظار تایید", tone: "warning", progress: 0 },
+  pending_approval: { label: "منتظر پذیرش", requesterLabel: "ارسال شد — در انتظار پذیرش", tone: "warning", progress: 0 },
   returned: { label: "برگشت‌خورده", requesterLabel: "برگشت خورد — نیاز به اصلاح", tone: "danger", progress: 0 },
-  approved: { label: "تایید شده", requesterLabel: "تایید شد — در صف انجام", tone: "info", progress: 10 },
+  approved: { label: "پذیرفته شده", requesterLabel: "پذیرفته شد — در صف انجام", tone: "info", progress: 10 },
+  in_progress: { label: "در حال انجام", requesterLabel: "در حال انجام", tone: "violet", progress: 40 },
   prework_queued: { label: "در صف اجرای پیش‌کار", requesterLabel: "در صف انجام", tone: "info", progress: 15 },
   prework_running: { label: "در حال پیش‌کار", requesterLabel: "در حال انجام", tone: "violet", progress: 20 },
   prework_done: { label: "پیش‌کار تمام شد", requesterLabel: "در حال انجام", tone: "cyan", progress: 50 },
-  main_queued: { label: "در صف Claude", requesterLabel: "در حال انجام", tone: "cyan", progress: 55 },
+  main_queued: { label: "در صف کار اصلی", requesterLabel: "در حال انجام", tone: "cyan", progress: 55 },
   main_running: { label: "در حال انجام کار اصلی", requesterLabel: "در حال انجام", tone: "violet", progress: 60 },
   main_done: { label: "کار اصلی انجام شد", requesterLabel: "در حال نهایی‌سازی", tone: "success", progress: 90 },
   closure_pending: { label: "منتظر تایید خاتمه", requesterLabel: "انجام شد — لطفاً خاتمه را تایید کنید", tone: "warning", progress: 95 },
@@ -143,6 +144,7 @@ export const RELATION_META: Record<RelationType, string> = {
 /** Statuses from which the admin may close (request closure) at any point. */
 export const CLOSABLE: TaskStatus[] = [
   "approved",
+  "in_progress",
   "prework_queued",
   "prework_running",
   "prework_done",
@@ -158,10 +160,9 @@ export const REQUESTER_EDITABLE: TaskStatus[] = ["pending_approval", "returned"]
 
 /** Prework graph nodes shown in the mini-workflow inside the "prework running" node. */
 export const PREWORK_NODES: { key: string; label: string; agent: string }[] = [
-  { key: "prepare", label: "آماده‌سازی و بازیابی دانش", agent: "RAG" },
+  { key: "prepare", label: "آماده‌سازی", agent: "سیستم" },
   { key: "analyze", label: "تحلیل درخواست و فایل‌ها", agent: "ایجنت ۱" },
-  { key: "plan", label: "برنامه و دستور کار", agent: "ایجنت ۲" },
-  { key: "helper", label: "فایل‌های کمکی", agent: "ایجنت ۳" },
-  { key: "knowledge", label: "استخراج دانش", agent: "دانش" },
-  { key: "publish", label: "انتشار در GitHub", agent: "GitHub" },
+  { key: "brief", label: "دستور کار", agent: "ایجنت ۲" },
+  { key: "helpers", label: "فایل‌های کمکی", agent: "ایجنت ۳" },
+  { key: "publish", label: "ثبت خروجی", agent: "سیستم" },
 ];

@@ -1,7 +1,7 @@
 "use server";
 import { redirect } from "next/navigation";
 import { createSupabaseServer } from "@/lib/supabase/server";
-import { notifyAdmins } from "@/lib/events";
+import { notifyOwners } from "@/lib/events";
 import { env } from "@/lib/env";
 import { saveAvatar } from "@/lib/profile/avatar";
 
@@ -50,8 +50,8 @@ export async function signUpAction(_: AuthState, form: FormData): Promise<AuthSt
     // A missing picture must never block the sign-up itself; it can be added later from the account menu.
     await saveAvatar(data.user.id, avatar).catch((err) => console.error("signup avatar", err));
   }
-  if (data.user && email !== env.adminEmail) {
-    await notifyAdmins({ title: "درخواست عضویت جدید", body: `${full_name} (${email})${org_unit ? ` — ${org_unit}` : ""}`, link: "/users" });
+  if (data.user && email !== env.ownerEmail) {
+    await notifyOwners({ title: "درخواست عضویت جدید", body: `${full_name} (${email})${org_unit ? ` — ${org_unit}` : ""}`, link: "/users" });
   }
   if (!data.session) return { message: "ثبت‌نام انجام شد. اگر تایید ایمیل فعال است، ایمیل خود را بررسی کنید." };
   redirect("/");

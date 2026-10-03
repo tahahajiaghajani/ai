@@ -1,98 +1,123 @@
 import "server-only";
 import { db } from "@/lib/supabase/admin";
-import { generateJson } from "@/lib/ai/gemini";
-import { addKnowledge, KNOWLEDGE_KINDS } from "@/lib/ai/knowledge";
-import { getAgentPrompt, KNOWLEDGE_SCHEMA, OPTIMIZER_SCHEMA } from "@/lib/ai/prompts";
-import { getAgents, SYSTEM_AGENT_LABELS } from "@/lib/workflow/registry";
-import { getSettings } from "@/lib/settings";
-import { commitFiles, getFileText, repoRef, type CommitFile } from "@/lib/github/client";
-import { notifyAdmins } from "@/lib/events";
-import { slugify, truncate } from "@/lib/utils";
+import { generate, generateJson } from "@/lib/ai/generate";
+import { getAgentPrompt, OPTIMIZER_SCHEMA, SUMMARY_SCHEMA, withAbout } from "@/lib/ai/prompts";
+import { getConnection } from "@/lib/connections";
+import { getUserConfig, stageModel } from "@/lib/settings";
+import { FatalError } from "@/lib/errors";
+import { commitFiles, getBlobBytes, getFileText, userRepo } from "@/lib/github/client";
+import { getProject, projectFiles, refreshStats, writeIndexFile } from "@/lib/projects/store";
+import { isTextPath, metaPath } from "@/lib/projects/paths";
+import { getAgents, SYSTEM_AGENT_LABELS, savePromptVersion } from "@/lib/workflow/registry";
+import { notify } from "@/lib/events";
+import { stripCodeFence } from "@/lib/agents/parse";
+import { truncate } from "@/lib/utils";
 import type { JobRun, StepResult } from "@/lib/queue/run";
-import type { Task } from "@/lib/types";
 
-/** Which ai_messages rows hold a given agent's output. */
-/** Feedback agent → the ai_messages agent holding its outputs (workflow steps save under their own id). */
-const MESSAGE_AGENT: Record<string, string> = { plan: "brief" };
-
-const TEXT_FILE = /\.(md|txt|sql|ts|tsx|js|jsx|py|json|yml|yaml|cs|java|go|sh|html|css)$/i;
-
-/** Extract reusable knowledge from Claude's final outputs (after main work). */
-export async function knowledgeHandler(run: JobRun): Promise<StepResult> {
-  const settings = await getSettings();
-  const { data: task } = await db().from("tasks").select("*").eq("id", run.job.task_id).single<Task>();
-  if (!task) return { type: "fail", error: "تسک یافت نشد" };
-  const path = String(run.job.payload.path ?? task.github_path ?? "");
-  const ref = await repoRef("workspace");
-
-  // Claude's closing message explains the work; the deliverables it produced are the task outputs.
-  const { data: replies } = await db().from("ai_messages").select("content").eq("task_id", task.id).eq("agent", "reply").order("id", { ascending: false }).limit(1);
-  const explanation = replies?.[0]?.content ?? "";
-  const { data: outputs } = await db().from("task_files").select("github_path, size").eq("task_id", task.id).eq("context", "output").not("github_path", "like", "%/prework/%");
-  const tree = ((outputs ?? []) as { github_path: string | null; size: number | null }[]).filter((o) => o.github_path).map((o) => ({ path: o.github_path!, size: o.size ?? 0 }));
-  const filesMd = tree.map((t) => `- ${t.path.replace(`${path}/`, "")}`).join("\n");
-  const samples: string[] = [];
-  let budget = 30_000;
-  for (const f of tree.filter((t) => TEXT_FILE.test(t.path) && (t.size ?? 0) < 60_000).slice(0, 10)) {
-    if (budget <= 0) continue;
-    const text = await getFileText(ref, f.path);
-    if (!text) continue;
-    const piece = `### ${f.path.replace(`${path}/`, "")}\n${truncate(text, 3000)}`;
-    budget -= piece.length;
-    samples.push(piece);
-  }
-  if (!explanation && !samples.length) {
-    await run.log({ source: "knowledge", kind: "warning", title: "خروجی نهایی برای استخراج دانش یافت نشد" });
-    return { type: "done", result: { items: 0 } };
-  }
-
-  await run.log({ source: "knowledge", kind: "log", title: "استخراج دانش از خروجی نهایی Claude" });
-  const { data } = await generateJson<{ items: { kind: string; title: string; content: string; tags?: string[]; score?: number }[] }>({
-    agent: "knowledge",
-    models: settings.models.knowledge,
-    system: await getAgentPrompt("knowledge"),
-    userParts: [
-      {
-        text: `# تسک ${task.code}: ${task.title}\n${task.description}\n\n## پیام پایانی Claude\n${truncate(explanation, 15000)}\n\n## فایل‌های خروجی\n${truncate(filesMd, 5000)}\n\n## نمونه‌ی فایل‌های خروجی\n${samples.join("\n\n")}`,
-      },
-    ],
-    jsonSchema: KNOWLEDGE_SCHEMA,
-    thinking: "LOW",
-    deadline: run.deadline,
-    partialKey: "knowledge-main",
-    ctx: run.genContext("knowledge"),
-  });
-  run.commitUsage();
-  const items = (data.items ?? []).filter((i) => (i.score ?? 0) >= settings.knowledge.minScore && i.content?.trim());
-  const stored = await addKnowledge(
-    items.map((i) => ({
-      ...i,
-      task_id: task.id,
-      task_code: task.code,
-      requester_id: i.kind === "requester_profile" ? task.requester_id : null,
-      source: "main",
-    })),
-  );
-  const files: CommitFile[] = items.map((k) => ({
-    path: `knowledge/${k.kind}/${task.code}_final_${slugify(k.title, 40)}.md`,
-    content: `# ${k.title}\n\n- نوع: ${KNOWLEDGE_KINDS[k.kind] ?? k.kind}\n- منبع: خروجی نهایی تسک ${task.code} «${task.title}»\n- برچسب‌ها: ${(k.tags ?? []).join("، ")}\n\n${k.content}\n`,
-  }));
-  if (files.length) await commitFiles(ref, files, `[TaskFlow] دانش استخراج‌شده از ${task.code}`);
-  await run.log({ source: "knowledge", kind: "result", title: `${items.length} مورد دانش از کار اصلی ذخیره شد`, detail: `${stored} قطعه‌ی برداری` });
-  return { type: "done", result: { items: items.length } };
+async function connectionFor(run: JobRun) {
+  const cfg = await getUserConfig(run.job.owner_id!);
+  const id = run.job.connection_id ?? stageModel(cfg, "knowledge").connectionId;
+  if (!id) throw new FatalError("برای دانش پروژه هیچ اتصال هوش مصنوعی انتخاب نشده است");
+  return { conn: await getConnection(id, run.job.owner_id!), model: stageModel(cfg, "knowledge").model, about: cfg.about };
 }
 
-/** Self-improvement: propose better system prompts from admin feedback. */
+/**
+ * Keeps a project's single knowledge file up to date after work on it: the model merges what the
+ * last run taught into KNOWLEDGE.md (one file, separate from the project's own files).
+ */
+export async function knowledgeHandler(run: JobRun): Promise<StepResult> {
+  const project = await getProject(run.job.project_id!);
+  const repo = await userRepo(project.owner_id);
+  const { conn, model, about } = await connectionFor(run);
+  const path = metaPath(project.slug, "KNOWLEDGE.md");
+  const current = (await getFileText(repo, path)) ?? `# دانش پروژه‌ی ${project.name}\n`;
+  const p = run.job.payload as { stage?: string; prompt?: string; reply?: string; changed?: string[] };
+  const res = await generate({
+    agent: "knowledge",
+    conn,
+    model,
+    system: withAbout(await getAgentPrompt(project.owner_id, "knowledge"), about),
+    user: [
+      {
+        type: "text",
+        text: `# پروژه: ${project.name}\n${project.description}\n\n## KNOWLEDGE.md فعلی\n${current}\n\n## آخرین کار (${p.stage === "main" ? "کار اصلی" : "پیش‌کار"})\n### درخواست\n${p.prompt ?? "—"}\n\n### نتیجه\n${p.reply ?? "—"}\n\n### فایل‌های تغییرکرده\n${(p.changed ?? []).map((c) => `- ${c}`).join("\n") || "—"}`,
+      },
+    ],
+    effort: "LOW",
+    deadline: run.deadline,
+    partialKey: "knowledge",
+    ctx: run.genContext("knowledge", conn.id),
+  });
+  run.commitUsage();
+  const next = stripCodeFence(res.text);
+  if (next.trim().length < 40) return { type: "done", result: { skipped: true } };
+  await commitFiles(repo, [{ path, content: next }], `[TaskFlow] دانش پروژه‌ی ${project.name}`);
+  await db().from("projects").update({ knowledge_at: new Date().toISOString() }).eq("id", project.id);
+  await run.log({ source: "knowledge", kind: "result", title: `دانش پروژه‌ی «${project.name}» به‌روز شد`, detail: `مدل ${res.model}` });
+  return { type: "done", result: { model: res.model } };
+}
+
+/**
+ * One-line summaries of a project's files (the file map the models search). Runs in batches across
+ * ticks; files that already have a summary for their current content are skipped.
+ */
+export async function indexHandler(run: JobRun): Promise<StepResult> {
+  const project = await getProject(run.job.project_id!);
+  const repo = await userRepo(project.owner_id);
+  const { conn, model, about } = await connectionFor(run);
+  const todo = (await projectFiles(project.id)).filter((f) => !f.summary);
+  if (!todo.length) {
+    await writeIndexFile(project, repo);
+    await refreshStats(project.id, { status: "ready", status_detail: null, indexed_at: new Date().toISOString() });
+    await run.log({ source: "project", kind: "result", title: `نقشه‌ی فایل‌های «${project.name}» کامل شد` });
+    return { type: "done" };
+  }
+  await db().from("projects").update({ status: "indexing", status_detail: `${todo.length} فایل باقی مانده` }).eq("id", project.id);
+  // one request covers many small files (free tiers count requests, not tokens)
+  const batch: { path: string; text: string }[] = [];
+  let budget = 90_000;
+  for (const f of todo.slice(0, 60)) {
+    if (budget <= 0) break;
+    let text = `[${f.kind}, ${f.size} بایت]`;
+    if (isTextPath(f.path) && f.sha && f.size < 300_000) text = (await getBlobBytes(repo, f.sha).catch(() => null))?.toString("utf-8") ?? text;
+    const piece = truncate(text, Math.min(budget, 8_000));
+    budget -= piece.length;
+    batch.push({ path: f.path, text: piece });
+  }
+  const { data, model: used } = await generateJson<{ files?: { path: string; summary: string }[] }>({
+    agent: "summarize",
+    conn,
+    model,
+    system: withAbout(await getAgentPrompt(project.owner_id, "summarize"), about),
+    user: [{ type: "text", text: `# پروژه: ${project.name}\n${project.description}\n\n${batch.map((b) => `--- فایل ${b.path} ---\n${b.text}`).join("\n\n")}` }],
+    jsonSchema: SUMMARY_SCHEMA,
+    effort: "LOW",
+    deadline: run.deadline,
+    partialKey: `index:${batch[0]?.path}`,
+    ctx: run.genContext("index", conn.id),
+  });
+  run.commitUsage();
+  const got = new Map((data.files ?? []).map((f) => [f.path, f.summary]));
+  for (const b of batch) {
+    const summary = (got.get(b.path) ?? "").trim().slice(0, 300) || "—";
+    await db().from("project_files").update({ summary }).eq("project_id", project.id).eq("path", b.path);
+  }
+  await run.log({ source: "project", kind: "log", title: `خلاصه‌ی ${batch.length} فایل ساخته شد (${todo.length - batch.length} فایل باقی مانده)`, detail: `مدل ${used}` });
+  return { type: "continue" };
+}
+
+/** Self-improvement: propose better system prompts from the user's own feedback. */
 export async function optimizeHandler(run: JobRun): Promise<StepResult> {
-  const settings = await getSettings();
-  const registry = await getAgents();
+  const userId = run.job.owner_id!;
+  const { conn, model, about } = await connectionFor(run);
+  const registry = await getAgents(userId);
   const labels: Record<string, string> = { ...SYSTEM_AGENT_LABELS, ...Object.fromEntries(registry.map((a) => [a.id, a.name])) };
   const defaults: Record<string, string> = Object.fromEntries(registry.map((a) => [a.id, a.prompt]));
   let agents = (run.state.agents as string[] | undefined) ?? null;
   if (!agents) {
-    const { data: fb } = await db().from("feedback").select("agent").not("agent", "is", null).order("created_at", { ascending: false }).limit(300);
+    const { data: fb } = await db().from("feedback").select("agent").eq("created_by", userId).not("agent", "is", null).order("created_at", { ascending: false }).limit(300);
     const requested = (run.job.payload.agents as string[] | undefined) ?? [];
-    agents = requested.length ? requested : [...new Set((fb ?? []).map((f) => (f.agent === "plan" ? "brief" : (f.agent as string))))].filter((a) => a in labels);
+    agents = requested.length ? requested : [...new Set((fb ?? []).map((f) => f.agent as string))].filter((a) => a in labels);
     await run.patchState({ agents, cursor: 0 });
   }
   const cursor = Number(run.state.cursor ?? 0);
@@ -101,51 +126,41 @@ export async function optimizeHandler(run: JobRun): Promise<StepResult> {
     return { type: "done", result: { agents: agents.length } };
   }
   const agent = agents[cursor];
-  const current = await getAgentPrompt(agent, defaults[agent]);
-  const { data: feedback } = await db()
-    .from("feedback")
-    .select("rating, comment, job_id, created_at")
-    .eq("agent", agent)
-    .order("created_at", { ascending: false })
-    .limit(30);
+  const current = await getAgentPrompt(userId, agent, defaults[agent]);
+  const { data: feedback } = await db().from("feedback").select("rating, comment, job_id").eq("created_by", userId).eq("agent", agent).order("created_at", { ascending: false }).limit(30);
   const negJobs = (feedback ?? []).filter((f) => f.rating < 0 && f.job_id).map((f) => f.job_id as string).slice(0, 3);
-  const { data: samples } = negJobs.length
-    ? await db().from("ai_messages").select("content").in("job_id", negJobs).eq("agent", MESSAGE_AGENT[agent] ?? agent).limit(3)
-    : { data: [] as { content: string }[] };
+  const { data: samples } = negJobs.length ? await db().from("ai_messages").select("content").in("job_id", negJobs).in("agent", ["reply", "brief"]).limit(3) : { data: [] as { content: string }[] };
 
   const { data } = await generateJson<{ improved_prompt: string; rationale: string; changes?: string[] }>({
     agent: "optimizer",
-    models: settings.models.optimizer,
-    system: await getAgentPrompt("optimizer"),
-    userParts: [
+    conn,
+    model,
+    system: withAbout(await getAgentPrompt(userId, "optimizer"), about),
+    user: [
       {
-        text: `# ایجنت: ${labels[agent] ?? agent}\n\n## پرامپت فعلی\n${current}\n\n## بازخوردها (۱+ مثبت، ۱- منفی)\n${(feedback ?? [])
-          .map((f) => `- [${f.rating > 0 ? "+" : f.rating < 0 ? "-" : "0"}] ${f.comment ?? ""}`)
-          .join("\n") || "—"}\n\n## نمونه خروجی‌هایی که بازخورد منفی گرفتند\n${(samples ?? []).map((s) => truncate(s.content, 4000)).join("\n\n---\n\n") || "—"}`,
+        type: "text",
+        text: `# ایجنت: ${labels[agent] ?? agent}\n\n## پرامپت فعلی\n${current}\n\n## بازخوردها (۱+ مثبت، ۱- منفی)\n${(feedback ?? []).map((f) => `- [${f.rating > 0 ? "+" : f.rating < 0 ? "-" : "0"}] ${f.comment ?? ""}`).join("\n") || "—"}\n\n## نمونه خروجی‌هایی که بازخورد منفی گرفتند\n${(samples ?? []).map((s) => truncate(s.content, 4000)).join("\n\n---\n\n") || "—"}`,
       },
     ],
     jsonSchema: OPTIMIZER_SCHEMA,
-    thinking: "MEDIUM",
+    effort: "MEDIUM",
     deadline: run.deadline,
     partialKey: `optimize:${agent}`,
-    ctx: run.genContext("optimize"),
+    ctx: run.genContext("optimize", conn.id),
   });
   run.commitUsage();
-  const { data: last } = await db().from("agent_prompts").select("version").eq("agent", agent).order("version", { ascending: false }).limit(1).maybeSingle();
+  await savePromptVersion(userId, agent, data.improved_prompt, false, defaults[agent] ?? "", "ai");
   await db()
     .from("agent_prompts")
-    .insert({
-      agent,
-      version: (last?.version ?? 0) + 1,
-      content: data.improved_prompt,
-      is_active: false,
-      source: "ai",
-      rationale: [data.rationale, ...(data.changes ?? []).map((c) => `• ${c}`)].join("\n"),
-    });
+    .update({ rationale: [data.rationale, ...(data.changes ?? []).map((c) => `• ${c}`)].join("\n") })
+    .eq("user_id", userId)
+    .eq("agent", agent)
+    .eq("source", "ai")
+    .is("rationale", null);
   await run.log({ source: "system", kind: "result", title: `نسخه‌ی پیشنهادی جدید برای «${labels[agent] ?? agent}» ساخته شد` });
   await run.patchState({ cursor: cursor + 1 });
   if (cursor + 1 >= agents.length) {
-    await notifyAdmins({ title: "پیشنهاد بهبود پرامپت‌ها آماده است", body: `${agents.length} ایجنت`, link: "/learning" });
+    await notify(userId, { title: "پیشنهاد بهبود پرامپت‌ها آماده است", body: `${agents.length} ایجنت`, link: "/learning" });
     return { type: "done", result: { agents: agents.length } };
   }
   return { type: "continue" };

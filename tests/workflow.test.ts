@@ -24,7 +24,7 @@ describe("workflow scheduling", () => {
       id: "w",
       name: "w",
       stage: "main",
-      nodes: [node("build", "claude"), node("check", "reviewer"), node("fix", "claude"), node("polish", "summary"), node("done", "summary")],
+      nodes: [node("build", "coder"), node("check", "reviewer"), node("fix", "coder"), node("polish", "summary"), node("done", "summary")],
       edges: [
         { id: "1", source: "build", target: "check" },
         { id: "2", source: "check", target: "fix", when: "no" },
@@ -63,21 +63,21 @@ describe("engine batches", () => {
 
   it("resumes a step interrupted by the time limit instead of waiting forever", () => {
     const b = nextBatch(prework, { analyze: { status: "done" }, brief: { status: "running" } }, never);
-    expect(b.gemini).toEqual(["brief"]);
+    expect(b.llm).toEqual(["brief"]);
     expect(b.finished).toBe(false);
   });
 
-  it("runs parallel Gemini steps together and Claude steps one at a time after them", () => {
+  it("runs parallel model steps together and executor steps one at a time after them", () => {
     const wf: WorkflowDef = {
       id: "m",
       name: "m",
       stage: "main",
-      nodes: [node("g1"), node("g2"), node("c", "claude")],
+      nodes: [node("g1"), node("g2"), node("c", "coder")],
       edges: [],
     };
-    const isClaude = (id: string) => id === "c";
-    expect(nextBatch(wf, {}, isClaude)).toMatchObject({ gemini: ["g1", "g2"], claude: null });
-    expect(nextBatch(wf, { g1: { status: "done" }, g2: { status: "done" } }, isClaude)).toMatchObject({ gemini: [], claude: "c" });
+    const isCoder = (id: string) => id === "c";
+    expect(nextBatch(wf, {}, isCoder)).toMatchObject({ llm: ["g1", "g2"], coder: null });
+    expect(nextBatch(wf, { g1: { status: "done" }, g2: { status: "done" } }, isCoder)).toMatchObject({ llm: [], coder: "c" });
   });
 });
 
@@ -86,12 +86,12 @@ describe("workflow validation", () => {
     for (const wf of DEFAULT_WORKFLOWS) expect(validateWorkflow(wf, agents)).toEqual([]);
   });
 
-  it("rejects cycles, Claude in pre-work, unlabeled condition branches and bad file names", () => {
+  it("rejects cycles, the executor in pre-work, unlabeled condition branches and bad file names", () => {
     const wf: WorkflowDef = {
       id: "bad",
       name: "bad",
       stage: "prework",
-      nodes: [node("a"), { ...node("b", "reviewer") }, { ...node("c", "claude") }, { ...node("d"), saveAs: "../x" }],
+      nodes: [node("a"), { ...node("b", "reviewer") }, { ...node("c", "coder") }, { ...node("d"), saveAs: "../x" }],
       edges: [
         { id: "1", source: "a", target: "b" },
         { id: "2", source: "b", target: "a" },
@@ -100,7 +100,7 @@ describe("workflow validation", () => {
     };
     const errors = validateWorkflow(wf, agents).join("\n");
     expect(errors).toContain("حلقه");
-    expect(errors).toContain("Claude فقط در ورکفلوی کار اصلی");
+    expect(errors).toContain("مجری فقط در ورکفلوی کار اصلی");
     expect(errors).toContain("«بله» یا «خیر»");
     expect(errors).toContain("نام فایل خروجی");
     expect(findCycle(wf)).not.toBeNull();

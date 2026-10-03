@@ -1,16 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { claudeRunOptions, mainPrompt } from "@/lib/claude/spec";
 import { pickClaudeOptions } from "@/lib/tasks/service";
-import { pickFlashModels } from "@/lib/ai/gemini";
-import type { AppSettings } from "@/lib/settings";
-import type { Task } from "@/lib/types";
+import { pickFlashModels } from "@/lib/ai/llm/google";
+import { DEFAULT_USER_CONFIG, type UserConfig } from "@/lib/settings";
 
-const settings = { claude: { model: "opus", effort: "high", thinking: "on" } } as unknown as AppSettings;
+const cfg = { ...DEFAULT_USER_CONFIG, claude: { ...DEFAULT_USER_CONFIG.claude, model: "opus", effort: "high", thinking: "on" } } as UserConfig;
 
 describe("Claude run options", () => {
   it("falls back to Settings, but an explicit per-send value (even empty) wins", () => {
-    expect(claudeRunOptions(settings, undefined)).toEqual({ model: "opus", effort: "high", thinking: "on" });
-    expect(claudeRunOptions(settings, { model: "", effort: "low", thinking: "auto" })).toEqual({ model: "", effort: "low", thinking: "auto" });
+    expect(claudeRunOptions(cfg, undefined)).toEqual({ model: "opus", effort: "high", thinking: "on" });
+    expect(claudeRunOptions(cfg, { model: "", effort: "low", thinking: "auto" })).toEqual({ model: "", effort: "low", thinking: "auto" });
   });
 
   it("keeps only valid choices from the client", () => {
@@ -39,41 +38,30 @@ describe("Gemini auto model", () => {
   });
 });
 
-describe("main prompt", () => {
-  const task = {
-    id: "t1",
-    code: "T-0007",
-    title: "داشبورد گزارش مدیران پروژه",
-    description: "هشت شاخص",
-    priority: "medium",
-    kind: "task",
-    start_date: null,
-    end_date: null,
-    parent_id: null,
-    relation_type: null,
-  } as unknown as Task;
-
-  it("puts the admin's request first and lists the brief and exact attachment paths", () => {
+describe("main prompt (Claude Code)", () => {
+  it("starts with the user's prompt only (no task title or description) and points at the project", () => {
     const text = mainPrompt({
-      adminPrompt: "یک فایل HTML کامل از کل داشبورد بساز",
-      task,
-      root: task,
-      requester: null,
-      rootPath: "tasks/T-0007_x",
-      iterPath: "tasks/T-0007_x/iterations/01_T-0007",
-      followup: false,
+      prompt: "در فایل audit.cs متد Save باگ دارد؛ درستش کن",
+      step: "",
+      project: { name: "Renew", root: "projects/renew" },
+      selected: ["src/Audit.cs"],
+      finalDir: "tasks/T-0007_x/final",
+      brief: "tasks/T-0007_x/runs/01-prework/BRIEF.md",
+      helpers: [],
+      inputs: ["tasks/T-0007_x/runs/02-main/inputs/log.txt"],
       resumed: false,
-      materials: {
-        brief: "tasks/T-0007_x/iterations/01_T-0007/prework/BRIEF.md",
-        helpers: [],
-        inputs: [{ path: "tasks/T-0007_x/iterations/01_T-0007/inputs/request/امتیازات.html", name: "امتیازات.html", current: false }],
-        hasContext: false,
-      },
     });
-    expect(text.startsWith("# درخواست\n\nیک فایل HTML کامل از کل داشبورد بساز")).toBe(true);
-    expect(text).toContain("prework/BRIEF.md");
-    expect(text).toContain("inputs/request/امتیازات.html");
-    expect(text).toContain("tasks/T-0007_x/final/");
-    expect(text).not.toMatch(/EXPLANATION|CHANGELOG|FILES\.md/);
+    expect(text.startsWith("# درخواست\n\nدر فایل audit.cs متد Save باگ دارد؛ درستش کن")).toBe(true);
+    expect(text).toContain("projects/renew/.taskflow/KNOWLEDGE.md");
+    expect(text).toContain("`projects/renew/src/Audit.cs`");
+    expect(text).toContain("runs/01-prework/BRIEF.md");
+    expect(text).toContain("inputs/log.txt");
+    expect(text).not.toContain("T-0007_x/final/");
+  });
+
+  it("without a project asks for complete files in the task's final folder", () => {
+    const text = mainPrompt({ prompt: "یک گزارش بساز", step: "", project: null, selected: [], finalDir: "tasks/T-1_x/final", brief: null, helpers: [], inputs: [], resumed: false });
+    expect(text).toContain("tasks/T-1_x/final/");
+    expect(text).toContain("(موردی نیست)");
   });
 });

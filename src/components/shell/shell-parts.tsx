@@ -3,7 +3,7 @@ import * as React from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Bell, Bot, Camera, LogOut, Moon, PauseCircle, Sparkles, Sun, Zap } from "lucide-react";
+import { Bell, Camera, LogOut, Moon, PauseCircle, Rocket, Settings, Sparkles, Sun, Zap } from "lucide-react";
 import { useRealtimeRows, useNow } from "@/hooks/use-realtime";
 import { Pop, Menu, Modal } from "@/components/ui/overlays";
 import { AvatarPicker } from "@/components/ui/avatar-picker";
@@ -13,7 +13,7 @@ import { signOutAction } from "@/app/actions/auth";
 import { removeAvatarAction, setAvatarAction } from "@/app/actions/profile";
 import { timeAgo } from "@/lib/jalali";
 import { cn, faNum } from "@/lib/utils";
-import type { NotificationRow, ProviderState } from "@/lib/types";
+import type { ConnectionStateRow, NotificationRow } from "@/lib/types";
 
 export function ThemeToggle() {
   const [dark, setDark] = React.useState<boolean | null>(null);
@@ -100,27 +100,37 @@ export function NotificationBell({ userId, initial }: { userId: string; initial:
   );
 }
 
-export function ProviderPills({ initial }: { initial: ProviderState[] }) {
+/** The user's AI connections with their live state (paused on a limit, or active). */
+export function ConnectionPills({ userId, connections, initial }: { userId: string; connections: { id: string; label: string; provider: string; status: string }[]; initial: ConnectionStateRow[] }) {
   useNow(20_000);
-  const [rows] = useRealtimeRows<ProviderState & Record<string, unknown>>("provider_state", initial as (ProviderState & Record<string, unknown>)[], { idKey: "provider" });
-  const show = rows.filter((r) => r.provider !== "system");
+  const [rows] = useRealtimeRows<ConnectionStateRow & Record<string, unknown>>("connection_state", initial as (ConnectionStateRow & Record<string, unknown>)[], {
+    idKey: "connection_id",
+    filter: `user_id=eq.${userId}`,
+  });
+  if (!connections.length) {
+    return (
+      <Link href="/settings#connections" className="flex items-center gap-1.5 rounded-full border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-[11px] font-bold text-amber-700 dark:text-amber-300">
+        <Sparkles className="size-3.5" /> <span>اتصال هوش مصنوعی</span>
+      </Link>
+    );
+  }
   return (
-    <div className="flex items-center gap-1.5">
-      {show.map((p) => {
-        const paused = p.manual_pause || (p.paused_until && new Date(p.paused_until).getTime() > Date.now());
-        const Icon = p.provider === "gemini" ? Sparkles : Bot;
+    <div className="flex min-w-0 items-center gap-1.5 overflow-x-auto">
+      {connections.slice(0, 3).map((c) => {
+        const st = rows.find((r) => r.connection_id === c.id);
+        const paused = c.status === "error" || st?.manual_pause || (st?.paused_until && new Date(st.paused_until).getTime() > Date.now());
         return (
           <Link
-            key={p.provider}
+            key={c.id}
             href="/queue"
-            title={paused ? `${p.pause_reason ?? "متوقف"} — ${p.paused_until ? timeAgo(p.paused_until) : ""}` : "فعال"}
+            title={c.status === "error" ? "کلید نامعتبر" : paused ? `${st?.pause_reason ?? "متوقف"}${st?.paused_until ? ` — ${timeAgo(st.paused_until)}` : ""}` : "فعال"}
             className={cn(
-              "flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold transition hover:brightness-110",
+              "flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold transition hover:brightness-110",
               paused ? "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300" : "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
             )}
           >
-            <Icon className="size-3.5" />
-            <span className="hidden sm:inline">{p.provider === "gemini" ? "Gemini" : "Claude"}</span>
+            <Sparkles className="size-3.5" />
+            <span className="hidden max-w-28 truncate sm:inline">{c.label}</span>
             {paused ? <PauseCircle className="size-3.5" /> : <Zap className="size-3.5" />}
           </Link>
         );
@@ -129,8 +139,23 @@ export function ProviderPills({ initial }: { initial: ProviderState[] }) {
   );
 }
 
-export function UserMenu({ name, email, role, avatarUrl }: { name: string; email: string; role: string; avatarUrl?: string | null }) {
+/** «آیا تجربه کامل اپلیکیشن را می‌خواهید؟» — for users in simple mode (never for the owner). */
+export function FullExperienceButton() {
+  return (
+    <Link
+      href="/portal/setup"
+      title="آیا تجربه کامل اپلیکیشن را می‌خواهید؟"
+      className="group flex items-center gap-1.5 rounded-full bg-gradient-brand px-2.5 py-1.5 text-[11px] font-bold text-white shadow-sm transition hover:brightness-110"
+    >
+      <Rocket className="size-4" />
+      <span className="hidden sm:inline">تجربه‌ی کامل؟</span>
+    </Link>
+  );
+}
+
+export function UserMenu({ name, email, role, avatarUrl, mode }: { name: string; email: string; role: string; avatarUrl?: string | null; mode: "simple" | "full" }) {
   const [editing, setEditing] = React.useState(false);
+  const router = useRouter();
   return (
     <>
       <Menu
@@ -141,9 +166,14 @@ export function UserMenu({ name, email, role, avatarUrl }: { name: string; email
         }
         items={[
           { label: <span className="flex flex-col"><b>{name}</b><span className="ltr text-xs text-muted">{email}</span></span>, onSelect: () => undefined, disabled: true },
-          { label: role === "admin" ? "مدیر سیستم" : "تسک‌دهنده", onSelect: () => undefined, disabled: true },
+          { label: role === "owner" ? "مالک اپ" : mode === "full" ? "حالت کامل" : "حالت ساده", onSelect: () => undefined, disabled: true },
           "sep",
           { label: "تصویر پروفایل", icon: <Camera className="size-4" />, onSelect: () => setEditing(true) },
+          ...(mode === "full"
+            ? [{ label: "تنظیمات و اتصال‌ها", icon: <Settings className="size-4" />, onSelect: () => router.push("/settings") }]
+            : role === "owner"
+              ? []
+              : [{ label: "تجربه‌ی کامل اپلیکیشن", icon: <Rocket className="size-4" />, onSelect: () => router.push("/portal/setup") }]),
           { label: "خروج", icon: <LogOut className="size-4" />, danger: true, onSelect: () => void signOutAction() },
         ]}
       />
@@ -197,7 +227,7 @@ export function ProfilePictureDialog({ open, onOpenChange, name, current }: { op
   );
 }
 
-export function NavLink({ href, icon, label, exact, badge }: { href: string; icon: React.ReactNode; label: string; exact?: boolean; badge?: number }) {
+export function NavLink({ href, icon, label, exact, badge, muted }: { href: string; icon: React.ReactNode; label: string; exact?: boolean; badge?: number; muted?: boolean }) {
   const path = usePathname();
   const active = exact ? path === href : path === href || path.startsWith(`${href}/`);
   return (
@@ -206,7 +236,9 @@ export function NavLink({ href, icon, label, exact, badge }: { href: string; ico
       className={cn(
         "group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition",
         active ? "bg-primary-soft text-primary" : "text-muted hover:bg-surface-muted hover:text-fg",
+        muted && !active && "opacity-55",
       )}
+      title={muted ? "برای این بخش GitHub را در تنظیمات وصل کنید" : undefined}
     >
       {active ? <span className="absolute inset-y-2 right-0 w-1 rounded-l-full bg-gradient-brand" /> : null}
       <span className={cn("transition", active && "scale-110")}>{icon}</span>

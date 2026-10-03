@@ -1,12 +1,13 @@
 /**
  * Agents and workflows (shared by the server engine and the visual builder).
  * A workflow is a DAG of agent nodes; independent branches run in parallel and "router" agents
- * pick a branch (yes/no). Pre-work workflows run Gemini agents; main-work workflows can also run
- * Claude Code steps in GitHub Actions.
+ * pick a branch (yes/no). Every agent runs on the AI connection the user chose for the stage (any
+ * provider). Main-work workflows also have "coder" steps that change files: the in-app code agent,
+ * or Claude Code in the user's GitHub Actions.
  */
 
 export type Stage = "prework" | "main";
-export type AgentType = "gemini" | "router" | "claude";
+export type AgentType = "llm" | "router" | "coder";
 export type ThinkingLevel = "LOW" | "MEDIUM" | "HIGH";
 export type Branch = "yes" | "no";
 
@@ -20,18 +21,22 @@ export interface AgentDef {
   prompt: string;
   color?: string;
   builtin?: boolean;
-  /** Gemini model chain ("auto" = newest free Flash); empty = Settings → pre-work models */
-  models?: string[];
+  /** model of the stage's connection to use instead of the stage default ("" = Settings) */
+  model?: string;
   thinking?: ThinkingLevel;
   useSearch?: boolean;
-  /** give the task's attached files to the model */
+  /** give the files attached to the request to the model */
   attachments?: boolean;
-  /** give related items from the knowledge base (RAG) */
+  /** give the selected project's description, knowledge file, file map and selected files */
   knowledge?: boolean;
-  /** gemini: one Markdown text, or several files (JSON list) */
+  /** may look into the project's files itself (list / search / read) before answering */
+  tools?: boolean;
+  /** llm: one Markdown text, or several files (JSON list) */
   output?: "text" | "files";
   maxFiles?: number;
-  /** claude: run options ("" = the choice made when sending / Settings) */
+  /** coder: "" = Settings → main work; "agent" = in-app code agent; "claude_code" = Claude Code in GitHub Actions */
+  engine?: "" | "agent" | "claude_code";
+  /** coder with Claude Code: run options ("" = the choice made when sending / Settings) */
   claude?: { model?: string; effort?: string; thinking?: "" | "auto" | "on" | "off" };
 }
 
@@ -48,7 +53,7 @@ export interface WorkflowNode {
   appendInputs?: boolean;
   /** this output is the chat reply of the stage */
   reply?: boolean;
-  /** pre-work: this output is the work order Claude reads first */
+  /** pre-work: this output is the work order the executor reads first */
   brief?: boolean;
   x: number;
   y: number;
@@ -87,9 +92,9 @@ export const SYSTEM_NODES = ["prepare", "publish"] as const;
 export const STAGE_LABEL: Record<Stage, string> = { prework: "پیش‌کار", main: "کار اصلی" };
 
 export const AGENT_TYPE_META: Record<AgentType, { label: string; hint: string; color: string }> = {
-  gemini: { label: "ایجنت Gemini", hint: "متن یا چند فایل تولید می‌کند (رایگان)", color: "#8b5cf6" },
-  router: { label: "شرط / مسیریاب", hint: "Gemini تصمیم می‌گیرد مسیر «بله» یا «خیر» ادامه یابد", color: "#0ea5e9" },
-  claude: { label: "Claude Code", hint: "کار را در GitHub Actions انجام می‌دهد و فایل می‌سازد (فقط کار اصلی)", color: "#f97316" },
+  llm: { label: "ایجنت هوش مصنوعی", hint: "متن یا چند فایل تولید می‌کند (با مدل اتصالِ همان مرحله)", color: "#8b5cf6" },
+  router: { label: "شرط / مسیریاب", hint: "مدل تصمیم می‌گیرد مسیر «بله» یا «خیر» ادامه یابد", color: "#0ea5e9" },
+  coder: { label: "مجری (ویرایش فایل‌ها)", hint: "فایل‌های پروژه را پیدا، ویرایش یا ایجاد می‌کند (فقط کار اصلی)", color: "#f97316" },
 };
 
 export function incoming(wf: Pick<WorkflowDef, "edges">, id: string): WorkflowEdge[] {
@@ -188,19 +193,21 @@ export function schedule(wf: Pick<WorkflowDef, "nodes" | "edges">, outcomes: Rec
 }
 
 /**
- * The next batch for the engine: Gemini/condition steps to run now (steps interrupted by the time
- * limit or a rate limit first, so they resume their partial output), or else the next Claude step.
+ * The next batch for the engine: model/condition steps to run now in parallel (steps interrupted by
+ * the time limit or a rate limit first, so they resume their partial output), or else the next
+ * executor step (one at a time; an interrupted executor continues first).
  */
 export function nextBatch(
   wf: Pick<WorkflowDef, "nodes" | "edges">,
   outcomes: Record<string, NodeOutcome | undefined>,
-  isClaude: (id: string) => boolean,
+  isCoder: (id: string) => boolean,
   max = 3,
-): { gemini: string[]; claude: string | null; skip: string[]; finished: boolean } {
+): { llm: string[]; coder: string | null; skip: string[]; finished: boolean } {
   const { ready, skip, finished } = schedule(wf, outcomes);
-  const interrupted = wf.nodes.filter((n) => outcomes[n.id]?.status === "running" && !isClaude(n.id)).map((n) => n.id);
-  const gemini = [...new Set([...interrupted, ...ready.filter((id) => !isClaude(id))])].slice(0, max);
-  return { gemini, claude: gemini.length ? null : (ready.find(isClaude) ?? null), skip, finished };
+  const interrupted = wf.nodes.filter((n) => outcomes[n.id]?.status === "running").map((n) => n.id);
+  const runningCoder = interrupted.find(isCoder) ?? null;
+  const llm = [...new Set([...interrupted.filter((id) => !isCoder(id)), ...ready.filter((id) => !isCoder(id))])].slice(0, max);
+  return { llm, coder: llm.length ? null : (runningCoder ?? ready.find(isCoder) ?? null), skip, finished };
 }
 
 const SAFE_FILE = /^[^\\/:*?"<>|\u0000-\u001f]{1,80}\.[A-Za-z0-9]{1,10}$/;
@@ -222,10 +229,10 @@ export function validateWorkflow(wf: WorkflowDef, agents: Record<string, AgentDe
       errors.push(`ایجنت گره «${name}» پیدا نشد`);
       continue;
     }
-    if (wf.stage === "prework" && a.type === "claude") errors.push(`«${name}»: Claude فقط در ورکفلوی کار اصلی قابل استفاده است`);
+    if (wf.stage === "prework" && a.type === "coder") errors.push(`«${name}»: مجری فقط در ورکفلوی کار اصلی قابل استفاده است`);
     if (n.saveAs && !SAFE_FILE.test(n.saveAs)) errors.push(`«${name}»: نام فایل خروجی باید نام ساده با پسوند باشد (مثلاً BRIEF.md)`);
-    if (n.saveAs && a.type !== "gemini") errors.push(`«${name}»: ذخیره به‌عنوان فایل فقط برای ایجنت‌های Gemini است`);
-    if (n.brief && wf.stage !== "prework") errors.push(`«${name}»: «دستور کار برای Claude» فقط در پیش‌کار معنا دارد`);
+    if (n.saveAs && a.type !== "llm") errors.push(`«${name}»: ذخیره به‌عنوان فایل فقط برای ایجنت‌های هوش مصنوعی است`);
+    if (n.brief && wf.stage !== "prework") errors.push(`«${name}»: «دستور کار برای مجری» فقط در پیش‌کار معنا دارد`);
   }
   const seen = new Set<string>();
   for (const e of wf.edges) {
@@ -261,10 +268,10 @@ export function flowSummary(wf: WorkflowDef, agents: Record<string, AgentDef | u
       ...wf.nodes.map((n) => ({
         id: n.id,
         label: n.label || agents[n.agentId]?.name || n.agentId,
-        type: agents[n.agentId]?.type ?? "gemini",
+        type: agents[n.agentId]?.type ?? "llm",
         deps: roots.includes(n.id) ? ["prepare", ...incoming(wf, n.id).map((e) => e.source)] : incoming(wf, n.id).map((e) => e.source),
       })),
-      { id: "publish", label: wf.stage === "prework" ? "انتشار در GitHub" : "ثبت خروجی", type: "system", deps: sinks },
+      { id: "publish", label: wf.stage === "prework" ? "ثبت خروجی" : "ثبت تغییرات", type: "system", deps: sinks },
     ],
   };
 }

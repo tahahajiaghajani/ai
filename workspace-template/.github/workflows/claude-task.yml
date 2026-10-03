@@ -13,7 +13,7 @@ on:
         required: true
         type: string
 
-# یک حساب Claude کار موازی انجام نمی‌دهد: اجراها پشت سر هم
+# یک حساب Claude کار موازی انجام نمی‌دهد: اجراهای این مخزن پشت سر هم
 concurrency:
   group: taskflow-claude
   cancel-in-progress: false

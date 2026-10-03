@@ -28,7 +28,7 @@ import { PriorityDot } from "@/components/tasks/badges";
 import { MiniPreworkFlow, TodoList } from "@/components/workflow/mini-flow";
 import { cn, faNum, truncate } from "@/lib/utils";
 import { timeAgo } from "@/lib/jalali";
-import type { Job, Profile, ProviderState, Task } from "@/lib/types";
+import type { ConnectionStateRow, Job, Profile, Task } from "@/lib/types";
 
 const ICONS: Record<string, React.ReactNode> = {
   inbox: <Inbox className="size-4" />,
@@ -44,7 +44,13 @@ export interface WorkflowData {
   tasks: Task[];
   jobs: Job[];
   profiles: Pick<Profile, "id" | "full_name" | "email" | "org_unit" | "avatar_url">[];
-  providers: ProviderState[];
+  /** live state of the user's AI connections (paused on a limit) */
+  states: ConnectionStateRow[];
+  /** which connection each stage runs on */
+  stageConn: { prework: string | null; main: string | null };
+  userId: string;
+  /** only tasks assigned to this user (null = every task the viewer may see) */
+  assignee: string | null;
 }
 
 interface StageNodeData extends Record<string, unknown> {
@@ -53,7 +59,7 @@ interface StageNodeData extends Record<string, unknown> {
   jobs: Job[];
   names: Map<string, string>;
   avatars: Map<string, string | null | undefined>;
-  paused: ProviderState | null;
+  paused: ConnectionStateRow | null;
   onOpen: (task: Task) => void;
 }
 
@@ -309,16 +315,20 @@ const nodeTypes = { stage: StageNode };
 const edgeTypes = { flow: FlowEdge };
 
 export function useWorkflowState(initial: WorkflowData) {
-  const [tasks] = useRealtimeRows<Task & Record<string, unknown>>("tasks", initial.tasks as (Task & Record<string, unknown>)[]);
+  const [tasks] = useRealtimeRows<Task & Record<string, unknown>>("tasks", initial.tasks as (Task & Record<string, unknown>)[], {
+    filter: initial.assignee ? `assignee_id=eq.${initial.assignee}` : undefined,
+  });
   const [jobs] = useRealtimeRows<Job & Record<string, unknown>>("jobs", initial.jobs as (Job & Record<string, unknown>)[], {
     accept: (j) => j.status === "running" || j.status === "queued",
+    filter: initial.assignee ? `owner_id=eq.${initial.assignee}` : undefined,
   });
-  const [providers] = useRealtimeRows<ProviderState & Record<string, unknown>>("provider_state", initial.providers as (ProviderState & Record<string, unknown>)[], {
-    idKey: "provider",
+  const [states] = useRealtimeRows<ConnectionStateRow & Record<string, unknown>>("connection_state", initial.states as (ConnectionStateRow & Record<string, unknown>)[], {
+    idKey: "connection_id",
+    filter: `user_id=eq.${initial.userId}`,
   });
   const names = React.useMemo(() => new Map(initial.profiles.map((p) => [p.id, p.full_name || p.email || "—"])), [initial.profiles]);
   const avatars = React.useMemo(() => new Map(initial.profiles.map((p) => [p.id, p.avatar_url])), [initial.profiles]);
-  return { tasks: tasks as Task[], jobs: jobs as Job[], providers: providers as ProviderState[], names, avatars };
+  return { tasks: tasks as Task[], jobs: jobs as Job[], states: states as ConnectionStateRow[], stageConn: initial.stageConn, names, avatars };
 }
 
 function byStage(tasks: Task[]) {
@@ -345,8 +355,8 @@ function WorkflowCanvas({ data, onOpen }: { data: ReturnType<typeof useWorkflowS
   const now = useNow(30_000);
   const { fitView, getNodes } = useReactFlow();
   const grouped = byStage(data.tasks);
-  const gemini = data.providers.find((p) => p.provider === "gemini") ?? null;
-  const claude = data.providers.find((p) => p.provider === "claude") ?? null;
+  const prework = data.states.find((p) => p.connection_id === data.stageConn.prework) ?? null;
+  const main = data.states.find((p) => p.connection_id === data.stageConn.main) ?? null;
   const [preset, setPreset] = React.useState<LayoutPreset | "custom">("rows");
 
   const stageData = (s: StageDef): StageNodeData => ({
@@ -355,7 +365,7 @@ function WorkflowCanvas({ data, onOpen }: { data: ReturnType<typeof useWorkflowS
     jobs: data.jobs.filter((j) => (s.key === "prework_running" ? j.kind === "prework" : s.key === "main_running" ? j.kind === "main" : false)),
     names: data.names,
     avatars: data.avatars,
-    paused: s.key === "prework_running" ? gemini : s.key === "main_running" ? claude : null,
+    paused: s.key === "prework_running" ? prework : s.key === "main_running" ? main : null,
     onOpen,
   });
 
@@ -369,7 +379,7 @@ function WorkflowCanvas({ data, onOpen }: { data: ReturnType<typeof useWorkflowS
   React.useEffect(() => {
     setNodes((ns) => ns.map((n) => ({ ...n, data: stageData(STAGES.find((s) => s.key === n.id)!) })));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data.tasks, data.jobs, data.providers, data.names, data.avatars, onOpen, now]);
+  }, [data.tasks, data.jobs, data.states, data.names, data.avatars, onOpen, now]);
 
   const applyPositions = React.useCallback(
     (positions: Positions, animate = true) => {

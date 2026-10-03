@@ -1,8 +1,9 @@
 /**
  * Knowledge-graph model shared by the server (building) and the browser (rendering).
  * Two sources are merged into one graph:
- *  - the app database: projects (root tasks), related tasks, requesters, uploaded files, knowledge items and their tags
- *  - graphify output (`graphify-out/graph.json` in each task folder of the workspace repo):
+ *  - the app's own map of each project: its files (with the main symbols) and which file imports
+ *    which, plus the tasks that worked on the project
+ *  - graphify output (`.taskflow/graph/graph.json` of each project in the user's repo):
  *    files, code symbols, documents, concepts and the relations between them
  */
 
@@ -28,6 +29,8 @@ export interface GraphNode {
   /** task this node belongs to (for links to the task page) */
   taskId?: string;
   taskCode?: string;
+  /** project this node belongs to (for links to the project page) */
+  projectId?: string;
   /** path inside the task folder / workspace repo */
   path?: string;
   url?: string;
@@ -51,8 +54,8 @@ export interface GraphData {
 
 export const KIND_META: Record<GraphKind, { label: string; color: string }> = {
   project: { label: "پروژه", color: "#7c5cff" },
-  task: { label: "تسک مرتبط", color: "#a78bfa" },
-  requester: { label: "تسک‌دهنده", color: "#f59e0b" },
+  task: { label: "تسک", color: "#a78bfa" },
+  requester: { label: "شخص", color: "#f59e0b" },
   file: { label: "فایل", color: "#0ea5e9" },
   knowledge: { label: "دانش", color: "#10b981" },
   tag: { label: "برچسب", color: "#14b8a6" },
@@ -82,6 +85,7 @@ const RELATION_FA: Record<string, string> = {
   knowledge: "دانش استخراج‌شده",
   tagged: "برچسب",
   has_file: "فایل پروژه",
+  worked_on: "روی پروژه کار کرد",
   // graphify
   contains: "شامل",
   calls: "فراخوانی",
@@ -139,7 +143,7 @@ function endpoint(v: unknown): string | null {
  */
 export function parseGraphify(
   raw: unknown,
-  opts: { prefix: string; rootId: string; taskId?: string; taskCode?: string; fileUrl?: (path: string) => string; maxNodes?: number },
+  opts: { prefix: string; rootId: string; projectId?: string; taskId?: string; taskCode?: string; fileUrl?: (path: string) => string; maxNodes?: number },
 ): GraphData {
   const obj = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
   const rawNodes = Array.isArray(obj.nodes) ? (obj.nodes as Record<string, unknown>[]) : [];
@@ -188,6 +192,7 @@ export function parseGraphify(
       detail: typeof n.rationale === "string" ? n.rationale : typeof n.source_location === "string" ? n.source_location : undefined,
       taskId: opts.taskId,
       taskCode: opts.taskCode,
+      projectId: opts.projectId,
       graphify: true,
     });
     known.add(id(rawId));
@@ -199,7 +204,7 @@ export function parseGraphify(
     if (!n.path || fileNodeOf.has(n.path)) continue;
     const fid = id(`file:${n.path}`);
     fileNodeOf.set(n.path, fid);
-    nodes.push({ id: fid, label: basename(n.path), kind: "file", path: n.path, url: opts.fileUrl?.(n.path), taskId: opts.taskId, taskCode: opts.taskCode, graphify: true });
+    nodes.push({ id: fid, label: basename(n.path), kind: "file", path: n.path, url: opts.fileUrl?.(n.path), taskId: opts.taskId, taskCode: opts.taskCode, projectId: opts.projectId, graphify: true });
     known.add(fid);
   }
 
@@ -219,81 +224,70 @@ export function parseGraphify(
   return { nodes, links };
 }
 
+export const taskNodeId = (taskId: string) => `task:${taskId}`;
+export const projectNodeId = (projectId: string) => `proj:${projectId}`;
+
+export interface ProjectLite {
+  id: string;
+  name: string;
+  slug: string;
+  root_path: string;
+}
+export interface ProjectFileLite {
+  project_id: string;
+  path: string;
+  kind: string;
+  summary: string | null;
+  symbols: string[];
+  imports: string[];
+}
 export interface TaskLite {
   id: string;
   code: string;
   title: string;
   status: string;
-  root_id: string | null;
-  parent_id: string | null;
-  relation_type: string | null;
-  requester_id: string;
-  github_path: string | null;
-}
-export interface ProfileLite {
-  id: string;
-  full_name: string | null;
-  email: string | null;
-}
-export interface FileLite {
-  id: string;
-  task_id: string | null;
-  name: string;
-  context: string;
-  github_path: string | null;
-}
-export interface KnowledgeLite {
-  id: string;
-  metadata: { title?: string; kind?: string; tags?: string[]; task_id?: string; task_code?: string } | null;
+  project_id: string | null;
 }
 
-export const taskNodeId = (taskId: string) => `task:${taskId}`;
+const FILE_KIND: Record<string, GraphKind> = { code: "code", doc: "document", data: "file", asset: "image", other: "file" };
 
-/** Projects, related tasks, requesters, files and knowledge from the app database. */
-export function buildOverview(input: { tasks: TaskLite[]; profiles: ProfileLite[]; files: FileLite[]; knowledge: KnowledgeLite[]; fileUrl?: (path: string) => string }): GraphData {
+/**
+ * Each project with its files, the main symbols of each file and the import links between files
+ * (built from the app's own file map — available without graphify), plus the tasks that worked on it.
+ */
+export function buildProjectsOverview(input: {
+  projects: ProjectLite[];
+  files: ProjectFileLite[];
+  tasks: TaskLite[];
+  resolve: (from: string, spec: string, paths: Set<string>) => string | null;
+  fileUrl?: (project: ProjectLite, path: string) => string;
+  maxFilesPerProject?: number;
+}): GraphData {
   const nodes: GraphNode[] = [];
   const links: GraphLink[] = [];
-  const ids = new Set<string>();
-  const add = (n: GraphNode) => {
-    if (ids.has(n.id)) return;
-    ids.add(n.id);
-    nodes.push(n);
-  };
-  const names = new Map(input.profiles.map((p) => [p.id, p.full_name || p.email || "تسک‌دهنده"]));
-  const byId = new Map(input.tasks.map((t) => [t.id, t]));
-
-  for (const t of input.tasks) {
-    const root = !t.root_id || t.root_id === t.id;
-    add({ id: taskNodeId(t.id), label: `${t.code} · ${t.title}`, kind: root ? "project" : "task", taskId: t.id, taskCode: t.code, path: t.github_path ?? undefined, url: t.github_path ? input.fileUrl?.(t.github_path) : undefined, detail: t.status });
-  }
-  for (const t of input.tasks) {
-    const parent = t.parent_id ?? (t.root_id && t.root_id !== t.id ? t.root_id : null);
-    if (parent && byId.has(parent)) links.push({ source: taskNodeId(parent), target: taskNodeId(t.id), relation: t.relation_type ?? "child" });
-    const parentRequester = parent ? byId.get(parent)?.requester_id : undefined;
-    if (!parent || parentRequester !== t.requester_id) {
-      const uid = `user:${t.requester_id}`;
-      add({ id: uid, label: names.get(t.requester_id) ?? "تسک‌دهنده", kind: "requester" });
-      links.push({ source: uid, target: taskNodeId(t.id), relation: "requested" });
+  const max = input.maxFilesPerProject ?? 400;
+  for (const p of input.projects) {
+    const pid = projectNodeId(p.id);
+    nodes.push({ id: pid, label: p.name, kind: "project", projectId: p.id, path: p.root_path });
+    const files = input.files.filter((f) => f.project_id === p.id).slice(0, max);
+    const paths = new Set(files.map((f) => f.path));
+    const fid = (path: string) => `pf:${p.id}:${path}`;
+    for (const f of files) {
+      nodes.push({ id: fid(f.path), label: basename(f.path), kind: FILE_KIND[f.kind] ?? "file", path: f.path, projectId: p.id, url: input.fileUrl?.(p, f.path), detail: f.summary ?? (f.symbols.length ? f.symbols.slice(0, 6).join("، ") : undefined) });
+      links.push({ source: pid, target: fid(f.path), relation: "has_file" });
+    }
+    for (const f of files) {
+      for (const spec of f.imports) {
+        const target = input.resolve(f.path, spec, paths);
+        if (target && target !== f.path) links.push({ source: fid(f.path), target: fid(target), relation: "imports" });
+      }
     }
   }
-  for (const f of input.files) {
-    if (!f.task_id || !ids.has(taskNodeId(f.task_id))) continue;
-    const task = byId.get(f.task_id);
-    add({ id: `tf:${f.id}`, label: f.name, kind: "file", taskId: f.task_id, taskCode: task?.code, path: f.github_path ?? undefined, url: f.github_path ? input.fileUrl?.(f.github_path) : undefined, detail: f.context });
-    links.push({ source: taskNodeId(f.task_id), target: `tf:${f.id}`, relation: `file_${f.context}` });
-  }
-  for (const k of input.knowledge) {
-    const m = k.metadata ?? {};
-    const kid = `kn:${k.id}`;
-    add({ id: kid, label: m.title || "دانش", kind: "knowledge", taskId: m.task_id, taskCode: m.task_code, detail: m.kind });
-    if (m.task_id && ids.has(taskNodeId(m.task_id))) links.push({ source: taskNodeId(m.task_id), target: kid, relation: "knowledge" });
-    for (const tag of (m.tags ?? []).slice(0, 8)) {
-      const clean = String(tag).trim();
-      if (!clean) continue;
-      const tid = `tag:${clean.toLowerCase()}`;
-      add({ id: tid, label: `#${clean}`, kind: "tag" });
-      links.push({ source: kid, target: tid, relation: "tagged" });
-    }
+  const projectIds = new Set(input.projects.map((p) => p.id));
+  for (const t of input.tasks) {
+    if (!t.project_id || !projectIds.has(t.project_id)) continue;
+    nodes.push({ id: taskNodeId(t.id), label: `${t.code} · ${t.title}`, kind: "task", taskId: t.id, taskCode: t.code, projectId: t.project_id, detail: t.status });
+    links.push({ source: taskNodeId(t.id), target: projectNodeId(t.project_id), relation: "worked_on" });
   }
   return { nodes, links };
 }

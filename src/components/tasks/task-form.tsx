@@ -3,26 +3,33 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { CalendarClock, ListTodo, Send } from "lucide-react";
-import { Button, Card, Field, Input, Select, Textarea } from "@/components/ui/primitives";
+import { Avatar, Button, Card, Field, Input, Select, Textarea } from "@/components/ui/primitives";
+import { Combobox } from "@/components/ui/combobox";
 import { JalaliDatePicker, JalaliDateTimePicker } from "@/components/ui/jalali-date-picker";
 import { FileDropzone, useUploads } from "@/components/ui/file-dropzone";
 import { createTaskAction, updateTaskAction } from "@/app/actions/tasks";
 import { PRIORITY_META, RELATION_META } from "@/lib/status";
 import { cn } from "@/lib/utils";
-import type { Priority, RelationType, Task } from "@/lib/types";
+import type { PersonLite, Priority, RelationType, Task } from "@/lib/types";
 
 export function TaskForm({
   userId,
   task,
   parent,
   backHref = "/portal",
+  people,
+  defaultAssignee,
 }: {
   userId: string;
   task?: Task;
   parent?: { id: string; code: string; title: string; relation?: RelationType };
   backHref?: string;
+  /** active users who can be made responsible («مسئول») */
+  people: PersonLite[];
+  defaultAssignee?: string | null;
 }) {
   const router = useRouter();
+  const [assignee, setAssignee] = React.useState<string>(task?.assignee_id ?? defaultAssignee ?? "");
   const [title, setTitle] = React.useState(task?.title ?? "");
   const [description, setDescription] = React.useState(task?.description ?? "");
   const [kind, setKind] = React.useState<"task" | "event">(task?.kind ?? "task");
@@ -38,8 +45,12 @@ export function TaskForm({
     e.preventDefault();
     setBusy(true);
     const input = { title, description, kind, start_date: start, end_date: end, event_at: eventAt, priority };
+    if (!assignee) {
+      setBusy(false);
+      return void toast.error("مسئول انجام تسک را انتخاب کنید");
+    }
     if (task) {
-      const r = await updateTaskAction(task.id, input, files);
+      const r = await updateTaskAction(task.id, input, files, assignee);
       setBusy(false);
       if (!r.ok) return void toast.error(r.error);
       toast.success("تغییرات ذخیره شد");
@@ -47,11 +58,11 @@ export function TaskForm({
       router.refresh();
       return;
     }
-    const r = await createTaskAction(input, files, parent ? { id: parent.id, relation } : undefined);
+    const r = await createTaskAction(input, files, { assigneeId: assignee, parent: parent ? { id: parent.id, relation } : undefined });
     setBusy(false);
     if (!r.ok) return void toast.error(r.error);
-    toast.success(`تسک ${r.data.code} ثبت و برای تایید ارسال شد`);
-    router.push(`/portal/tasks/${r.data.id}`);
+    toast.success(r.data.self ? `تسک ${r.data.code} ثبت شد` : `تسک ${r.data.code} برای مسئول ارسال شد`);
+    router.push(`/t/${r.data.id}`);
     router.refresh();
   };
 
@@ -78,6 +89,20 @@ export function TaskForm({
       ) : null}
 
       <Card className="space-y-5 p-5 sm:p-6">
+        <Field label="مسئول" required hint="چه کسی این کار را انجام می‌دهد؟ (خودتان یا هر کاربر دیگر اپ)">
+          <Combobox
+            options={people.map((p) => ({
+              value: p.id,
+              label: p.id === userId ? `${p.full_name ?? "خودم"} (خودم)` : (p.full_name ?? "—"),
+              hint: p.org_unit ?? undefined,
+              icon: <Avatar name={p.full_name ?? "?"} src={p.avatar_url} size={20} />,
+            }))}
+            value={assignee ? [assignee] : []}
+            onChange={(v) => setAssignee(v[0] ?? "")}
+            placeholder="انتخاب مسئول…"
+            searchPlaceholder="نام یا واحد را جستجو کنید…"
+          />
+        </Field>
         <Field label="عنوان" required>
           <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="یک عنوان کوتاه و روشن" maxLength={200} required />
         </Field>
@@ -149,7 +174,7 @@ export function TaskForm({
           انصراف
         </Button>
         <Button type="submit" size="lg" loading={busy} disabled={!title.trim() || !!uploadBlocker} title={uploadBlocker ?? undefined}>
-          <Send className="size-4" /> {task ? "ذخیره‌ی تغییرات" : "ثبت و ارسال برای تایید"}
+          <Send className="size-4" /> {task ? "ذخیره‌ی تغییرات" : assignee === userId ? "ثبت تسک" : "ثبت و ارسال برای مسئول"}
         </Button>
       </div>
     </form>

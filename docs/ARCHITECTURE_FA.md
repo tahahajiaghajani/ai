@@ -1,150 +1,112 @@
-# معماری TaskFlow AI
+# معماری TaskFlow AI (چندکاربره)
 
 ## نمای کلی
 
 ```
-                  ┌──────────────────────────── Vercel (Next.js 16) ─────────────────────────────┐
- تسک‌دهنده ──►   │  پنل تسک‌دهنده (/portal)          اپ اصلی مدیر (/dashboard، /inbox، …)         │
- (موبایل/دسکتاپ) │        │ Server Actions                     │  Supabase Realtime (زنده)        │
-                  │        ▼                                    ▼                                   │
-                  │  سرویس تسک‌ها ──► صف کارها (jobs) ◄── /api/worker/tick  ◄── pg_cron (هر ۳۰ ثانیه)│
-                  │                                  │  هر بار یک گام موتور ورکفلو (≤۵۰ ثانیه)      │
-                  │                                  ├─► Gemini (ورکفلوی DAG + LangChain + RAG)     │
-                  │                                  └─► dispatch GitHub Actions (Claude / graphify)│
-                  │  /api/runner/*  ◄──── رویدادهای زنده و نتیجه از runnerها                          │
-                  └──────────────────────────────────────────────────────────────────────────────┘
-                         │                                  │
-          Supabase (Postgres + pgvector + Auth + Storage + Realtime + pg_cron + pg_net)
+                   ┌───────────────────────────── Vercel (Next.js 16) ─────────────────────────────┐
+ همه‌ی کاربران ─►  │  حالت ساده (/portal)            حالت کامل (/dashboard، /inbox، /projects، …)   │
+ (موبایل/دسکتاپ)  │        │ Server Actions                  │  Supabase Realtime (زنده)              │
+                   │        ▼                                 ▼                                         │
+                   │  سرویس تسک‌ها ─► صف کارها (jobs، با lane) ◄─ /api/worker/tick ◄─ pg_cron (۳۰ث)   │
+                   │                          │  هر اجرا تا ~۲۴۰ثانیه، گام‌به‌گام و قابل ادامه       │
+                   │                          ├─► اتصال‌های هر کاربر: Claude / Gemini / OpenAI-سازگار  │
+                   │                          └─► GitHub Actions مخزن هر کاربر (Claude Code، graphify) │
+                   │  /api/runner/*  ◄── رویدادها و نتیجه، با توکن مخصوص هر کاربر                     │
+                   └───────────────────────────────────────────────────────────────────────────────┘
                          │
-          GitHub: ai-workspace (tasks/, knowledge/, ورکفلوهای Claude/graphify)  ·  ai (کد اپ + self-upgrade)
+     Supabase (Postgres + Auth + Storage + Realtime + pg_cron + pg_net) — مشترک، با RLS
+                         │
+     GitHub هر کاربر: <user>/taskflow-workspace (projects/، tasks/، ورکفلوها)   ·   مخزن اپ (فقط مالک، ارتقا)
 ```
 
-## چرا این معماری؟ (و جایگزین Celery/Redis)
+- **یک اپ، یک دیتابیس، چند کاربر.** هیچ کاربری چیزی نصب نمی‌کند؛ هر کاربر کلیدهای هوش مصنوعی و GitHub خودش را داخل اپ وصل می‌کند.
+- **نقش‌ها:** `owner` (مالک: سیستم، کاربران، ارتقا، نظارت بر همه) و `member`. **حالت‌ها:** `simple` / `full` روی `profiles.mode`؛ مالک همیشه کامل.
+- **قابلیت‌ها** (`src/lib/capabilities.ts`): بر اساس اتصال‌های کاربر — بدون کلید: فقط حالت ساده؛ کلید بدون GitHub: پیش‌کار و کار اصلی (خروجی در Storage)؛ با GitHub: پروژه‌ها، دانش، گراف و Claude Code.
 
-درخواست اولیه استفاده از Celery و Redis بود، اما هم‌زمان خواسته شده بود **همه‌چیز روی Vercel رایگان و Supabase رایگان** باشد و **هیچ چیز لوکال** نباشد. Celery به یک پروسه‌ی worker دائمی نیاز دارد که روی Vercel (سرورلس، حداکثر ۶۰ ثانیه) امکان‌پذیر نیست. به همین دلیل همان قابلیت‌ها روی Postgres پیاده شده است:
+## داده‌ها (migration `20261003000000_multi_tenant.sql`)
 
-| Celery / Redis | TaskFlow AI |
+| جدول | نقش |
 |---|---|
-| Broker و صف | جدول `jobs` + تابع اتمیک `claim_job` با `FOR UPDATE SKIP LOCKED` و advisory lock |
-| Worker | `/api/worker/tick` روی Vercel (با `after()` و self-chaining تا وقتی کار باقی است) |
-| Celery beat | `pg_cron` + `pg_net` داخل Supabase (هر ۳۰ ثانیه) |
-| Concurrency=1 برای هر حساب | `provider_state.max_concurrency` (Gemini=۱، Claude=۱) |
-| Retry با backoff | `attempts`، `run_after`، backoff نمایی، تشخیص crash با lease |
-| Rate limiting | `provider_state.paused_until` + بلاک مدل‌به‌مدل در `provider_state.models` |
-| Result backend | `jobs.result` + `job_data` + `task_events` |
+| `profiles` | `role` (owner/member)، `mode` (simple/full) |
+| `tasks` | `requester_id` (تسک‌دهنده)، **`assignee_id` (مسئول)**، `project_id`؛ وضعیت دستی `in_progress` برای حالت ساده |
+| `user_connections` | اتصال‌های هر کاربر (`kind` ai/github، `provider`، `base_url`، `secret_enc` رمزنگاری AES-256-GCM، `config`: مدل‌ها، جایگزین‌ها، مخزن، Claude Code) — بدون policy خواندن؛ فقط سرور |
+| `connection_state` | توقف هر اتصال (لیمیت/دستی) و بلاک مدل‌به‌مدل — Realtime |
+| `user_settings` | تنظیمات، ایجنت‌ها و ورکفلوهای هر کاربر (`config`، `agents`، `workflows`) |
+| `agent_prompts` | نسخه‌های پرامپت هر ایجنت **برای هر کاربر** (`user_id`) |
+| `projects`، `project_files` | پروژه‌ها و نقشه‌ی فایل‌ها (مسیر، اندازه، sha، نوع، خلاصه، نمادها، importها) — فایل‌ها خودشان در GitHub |
+| `jobs` | `owner_id`، `connection_id`، `project_id`، `lane` (llm/external/system) |
+| `worker_lanes` | ظرفیت هر lane: `max_running` (همه) و `per_owner` (هر کاربر) |
+| `app_settings` | فقط تنظیمات سیستمی مالک (`system`: ثبت‌نام خودکار، ادغام خودکار ارتقا) |
 
-اگر روزی سرور دائمی (مثلاً Railway/Fly) اضافه شد، می‌توان همین handlerها را داخل Celery هم صدا زد؛ منطق کارها در `src/lib/queue/handlers/*` مستقل از زمان‌بند است.
+**RLS:** هر کاربر فقط تسک‌هایی که داده یا به او سپرده شده، کارها، اتصال‌ها (وضعیت)، پروژه‌ها و تنظیمات خودش را می‌خواند؛ مالک همه را. همه‌ی نوشتن‌ها با service role در Server Actionها، بعد از `assertActive/assertFull/assertOwner`.
+**Realtime:** `tasks`, `task_events`, `jobs`, `notifications`, `upgrades`, `connection_state`.
 
-## ورکفلوی تسک (state machine)
+## صف منصفانه‌ی چندکاربره
 
-| گره‌ی ورکفلو | وضعیت‌ها |
+- `claim_job(p_lane, …)` با advisory lock: کار با بیشترین اولویت و قدیمی‌ترین heartbeat را برمی‌دارد، به شرطی که lane متوقف نباشد، سقف `max_running` و `per_owner` پر نشده باشد و **اتصال آن کار متوقف نباشد**. لیمیت یک کاربر هیچ‌وقت صف بقیه را نگه نمی‌دارد.
+- `runTick` چند حلقه را موازی اجرا می‌کند (external، system و ۳ حلقه‌ی llm) و تا وقتی کار هست خودش را دوباره صدا می‌زند (`after()` + زنجیره).
+- خطاها: `RateLimitError` (اتصال یا مدل، با زمان ادامه)، `DeadlineError` (ادامه در اجرای بعد)، `TransientError` (تلاش دوباره)، `FatalError` (شکست فوری با پیام روشن).
+
+## لایه‌ی چند‌ارائه‌دهنده‌ی LLM (`src/lib/ai/llm/`)
+
+سه پروتکل همه‌ی سرویس‌ها را پوشش می‌دهند (`providers.ts`):
+
+| آداپتر | سرویس‌ها | نکته‌ها |
+|---|---|---|
+| `google.ts` (`@google/genai`) | Google AI Studio | مدل `auto` = جدیدترین Flashهای رایگان؛ thought signature حفظ می‌شود (برای فراخوانی بدون امضا، placeholder مستند گوگل) |
+| `anthropic.ts` (SDK رسمی) | Claude | thinking تطبیقی، effort، خروجی ساخت‌یافته، استریم ابزار |
+| `openai.ts` (fetch + SSE) | OpenAI، Kimi، NVIDIA، OpenRouter، سفارشی | `max_completion_tokens`/`max_tokens`، `reasoning_content`، `extra_content` (امضای Gemini) |
+
+- انواع خنثی `Block`/`LlmMessage` با `raw` (محتوای اصلی هر ارائه‌دهنده برای بازپخش دقیق).
+- `generate`/`generateJson`: زنجیره‌ی مدل‌ها با جایگزینی، ادامه‌ی خروجی نیمه‌کاره، حذف رسانه برای مدل‌های متنی، دسته‌بندی خطاها (دقیقه‌ای/روزانه/بی‌اعتبار/شلوغ).
+- `runAgent` (`agent.ts`): حلقه‌ی ابزار قابل ادامه بین اجراها، تاریخچه‌ی فقط-افزودنی، فشرده‌سازی نتایج قدیمی فقط برای پروتکل OpenAI.
+
+## موتور ورکفلو (`src/lib/workflow/`)
+
+- **ایجنت‌ها** (هر کاربر جدا): `llm` (متن یا چند فایل، با/بدون ابزار خواندن پروژه)، `router` (شرط بله/خیر)، `coder` (مجری: داخل اپ یا Claude Code). **ورکفلو** = DAG برای `prework` یا `main`.
+- **مراحل هر اجرا:** `prepare` → `inputs` → `run` → `publish`؛ وضعیت در `job_data.graph`، هر اجرای ورکر یک گام.
+- **ورودی مدل فقط پرامپت و فایل‌های جدید** همان ارسال است (عنوان و شرح تسک فرستاده نمی‌شود)، به‌علاوه‌ی تاریخچه‌ی همان تسک و — اگر پروژه انتخاب شده — توضیح، دانش، نقشه‌ی فایل‌ها و فایل‌های انتخاب‌شده.
+- **تشخیص از متن:** `mentionedProject` (دستور سریع) و `mentionedFiles` (در `prepare`) پروژه و فایل‌های نام‌برده در پرامپت را پیدا می‌کنند.
+- **مجری داخل اپ:** ابزارهای `list_files`، `search_code`، `read_file`، `write_file`، `append_file`، `edit_file`، `delete_file`، `finish` روی `WorkFS` (خواندن از GitHub، تغییرات staged و در `publish` یک commit).
+- **Claude Code:** گام `coder` با موتور `claude_code` در GitHub Actions مخزن کاربر اجرا می‌شود (`external` lane)؛ runner با توکن `u.<userId>.<hmac>` فقط به کارهای همان کاربر دسترسی دارد.
+- **publish:** سوابق (`PROMPT.md`، خروجی‌ها، `REPLY.md`، `manifest.json` با اسکیمای `taskflow.task/v2`)، فایل‌های پروژه، به‌روزرسانی نقشه‌ی فایل‌ها، صف «دانش پروژه» و graphify. بدون GitHub، خروجی‌ها در Supabase Storage (`<owner>/outputs/<task>/<job>/…`).
+
+## پروژه‌ها و دانش (`src/lib/projects/`)
+
+```
+projects/<slug>/                 فایل‌های پروژه — کامل، بدون تکه‌تکه شدن
+projects/<slug>/.taskflow/
+  PROJECT.md   KNOWLEDGE.md   INDEX.md   graph/   tasks/<code>/runs/NN-stage/
+tasks/<code>_<slug>/             سوابق تسک‌های بدون پروژه
+```
+
+- **ورود:** فایل‌ها، پوشه، zip (fflate) یا zipball یک مخزن GitHub؛ commitهای حداکثر ۶MB با cursor (قابل ادامه)؛ پوشه‌های build/وابستگی کنار گذاشته می‌شوند.
+- **نقشه:** `project_files` با نمادها و importها (استخراج regex) و خلاصه‌ی هر فایل (کار `index`).
+- **دانش:** یک فایل واحد `KNOWLEDGE.md` که بعد از هر کار با کار `knowledge` بازنویسی و تکمیل می‌شود (بدون قطعه‌قطعه کردن و بدون پایگاه برداری).
+- **graphify vs archify:** graphify حفظ شد (کد + اسناد، با کلید Gemini کاربر یا فقط کد)؛ archify ابزار رسم دیاگرام است و نقشه‌ی دانش نمی‌سازد، پس استفاده نشد.
+
+## GitHub هر کاربر (`src/lib/github/`)
+
+- `connectGithub`: بررسی توکن، ساخت مخزن خصوصی (پیش‌فرض `taskflow-workspace`)، کپی قالب (`workspace-template/` که با `npm run template` در `template.generated.ts` بسته‌بندی می‌شود — پس توکن کاربر هرگز به مخزن اپ مالک نیاز ندارد) و secrets (`TASKFLOW_RUNNER_SECRET`، `TASKFLOW_APP_URL`؛ در صورت نیاز `CLAUDE_CODE_OAUTH_TOKEN`/`ANTHROPIC_API_KEY` و `GEMINI_API_KEY` برای graphify).
+- مخزن اپ (`GITHUB_TOKEN` مالک) فقط برای «ارتقای اپلیکیشن» استفاده می‌شود.
+
+## وضعیت تسک‌ها
+
+| گره | وضعیت‌ها |
 |---|---|
-| در انتظار تایید | `pending_approval`, `returned` |
-| در صف پیش‌کار | `approved`, `prework_queued` |
-| در حال انجام پیش‌کار | `prework_running` |
-| در صف انجام کار اصلی | `prework_done`, `main_queued` |
-| در حال انجام کار اصلی | `main_running`, `main_done` |
-| در صف تایید برای خاتمه | `closure_pending`, `closure_rejected` |
-| خاتمه یافته‌ها | `closed`, `cancelled` |
+| منتظر پذیرش | `pending_approval`, `returned` |
+| صف پیش‌کار | `approved`, `prework_queued` |
+| پیش‌کار | `prework_running` |
+| صف کار اصلی | `prework_done`, `main_queued` |
+| کار اصلی | `main_running`, `main_done`, `in_progress` (دستی) |
+| تایید خاتمه | `closure_pending`, `closure_rejected` |
+| خاتمه | `closed`, `cancelled` |
 
-- **تسک مرتبط** (`parent_id`, `root_id`, `seq_in_root`, `relation_type`): کد به صورت `T-0007.2` ساخته می‌شود؛ در GitHub زیر همان پوشه (`iterations/02_…`)، در Gemini ادامه‌ی همان گفت‌وگو (پیام‌های قبلی از `ai_messages`) و در Claude ادامه‌ی همان جلسه (`claude_session_id` + فایل جلسه در `.claude-session/`).
-- **رد خاتمه** توسط تسک‌دهنده خودکار یک تسک مرتبط از نوع `rejection` می‌سازد؛ تایید خاتمه‌ی آن، تسک اصلی را هم می‌بندد.
-
-## ایجنت‌ها و ورکفلوها (پیش‌کار و کار اصلی)
-
-فایل‌ها: `src/lib/workflow/types.ts` (مدل و منطق گراف، مشترک با UI)، `registry.ts` (ایجنت‌ها و ورکفلوهای پیش‌فرض، ذخیره در `app_settings`)، `engine.ts` (موتور اجرا)، صفحه‌ی `/agents` (سازنده‌ی بصری با React Flow).
-
-- **ایجنت** = پرامپت + تنظیمات: نوع (`gemini` متن یا چند فایل، `router` شرط بله/خیر، `claude` اجرای Claude Code در GitHub Actions)، مدل‌ها، سطح تفکر، دیدن فایل‌های پیوست، دانش مرتبط (RAG)، جستجوی گوگل. پرامپت هر ایجنت در `agent_prompts` نسخه‌بندی می‌شود (همان «یادگیری و پرامپت‌ها»).
-- **ورکفلو** = گراف جهت‌دار بدون حلقه برای یک مرحله (`prework` یا `main`). هر مرحله (گره) یک ایجنت با تنظیمات همان ورکفلو است: عنوان، دستور ویژه، «ذخیره به‌عنوان فایل» (`saveAs`)، «پاسخ چت» (`reply`)، «دستور کار Claude» (`brief`). اتصال خروجی شرط «بله» یا «خیر» دارد.
-- **ذخیره بدون migration:** ایجنت‌ها و ورکفلوها در `app_settings` (کلیدهای `agents` و `workflows`)؛ ایجنت‌ها و ورکفلوهای پیش‌فرض در کد هستند و همیشه وجود دارند.
-- **پیش‌فرض‌ها:** پیش‌کار «تحلیل ← دستور کار ← (فایل‌های کمکی ‖ گزارش به مدیر، هم‌زمان)» و کار اصلی «Claude». هنگام ارسال می‌توان ورکفلو را انتخاب کرد (`payload.workflow_id`).
-
-### موتور اجرا
-
-```
-prepare → (پیش‌کار: upload_inputs*) → run* (گره‌های آماده) → (پیش‌کار: knowledge) → publish
-```
-
-- هر فراخوانی ورکر **یک گام** اجرا می‌کند و وضعیت کامل (snapshot ورکفلو، پرامپت‌ها، نتیجه‌ی هر گره) در `job_data.graph` می‌ماند؛ نمای زنده (`jobs.state.flow` و `jobs.state.nodes`) در Realtime است.
-- `schedule()` گره‌های آماده را پیدا می‌کند: گره‌ای که همه‌ی ورودی‌هایش تمام شده و دست‌کم یک ورودی «فعال» دارد (تمام‌شده و روی شاخه‌ای که شرط انتخاب کرد). گره‌هایی که هیچ ورودی فعالی به آن‌ها نمی‌رسد رد می‌شوند (skipped).
-- گره‌های Gemini آماده **موازی** اجرا می‌شوند (حداکثر ۳ هم‌زمان)؛ هر گره خروجی نیمه‌کاره‌ی خودش را ذخیره می‌کند، پس رسیدن به سقف زمان فقط همان گره را به گام بعد می‌برد. خطای یک گره تا ۳ بار دوباره امتحان می‌شود و بعد کار را متوقف می‌کند.
-- ورودی هر گره: درخواست و شرح تسک، دستور مدیر، دستور ویژه‌ی گره، خروجی گره‌های وصل‌شده (برای Claude: خلاصه و محتوای فایل‌های متنی ساخته‌شده) و در صورت فعال بودن فایل‌های پیوست و دانش مرتبط.
-- **گره Claude** (فقط کار اصلی): موتور `claudeNode` را ثبت و GitHub Actions را dispatch می‌کند؛ `buildRunnerSpec` دستور و ورودی‌های همین گره را به پرامپت Claude اضافه می‌کند و تنظیمات مدل ایجنت (در صورت تعیین) بر انتخاب هنگام ارسال مقدم است. وقتی runner نتیجه را می‌فرستد، `completeClaudeNode` نتیجه را ثبت و کار را به صف برمی‌گرداند تا بقیه‌ی ورکفلو (مثلاً بازبینی با Gemini) اجرا شود. جلسه‌ی Claude بین گره‌های Claude ادامه پیدا می‌کند.
-- **publish:** پیش‌کار: فایل‌های `saveAs` و خروجی‌های چندفایلی در `iterations/NN_…/prework/`، manifest، README، HISTORY و دانش؛ کار اصلی: فایل‌های Gemini در `final/` کنار خروجی‌های Claude. خروجی‌ها در `task_files` (context=`output`، `storage_path = github:<path>`) و پاسخ گره‌های «پاسخ چت» در `ai_messages` (agent=`reply`) ثبت می‌شوند — `src/lib/tasks/outputs.ts`.
-
-- **خروجی نیمه‌کاره:** اگر زمان تمام شود، متن تولیدشده‌ی هر گره در وضعیت همان گره ذخیره و در اجرای بعدی با «ادامه بده از همان نقطه» تکمیل می‌شود.
-- **RAG پیش از هر کار:** جستجوی ترکیبی (برداری + کلیدواژه با Reciprocal Rank Fusion) در `knowledge_items` + پروفایل تسک‌دهنده.
-- **فایل‌ها:** PDF/تصویر/صوت/ویدیو از طریق Gemini Files API، متن و Word به‌صورت متن، بقیه فقط در GitHub برای Claude.
-- **مدل‌ها:** مقدار `auto` با `models.list` به جدیدترین مدل‌های `gemini-X.Y-flash` (جدیدتر اول) و در آخر Flash-Lite تبدیل می‌شود (`resolveModels` در `src/lib/ai/gemini.ts`). سهمیه‌ی رایگان روزانه برای هر مدل جداست (جدیدترین‌ها حدود ۲۰ درخواست در روز)، پس با `limit: 0` یا سقف روزانه مدل بعدی، با شلوغی (۵۰۳) یک تلاش دوباره و سپس مدل بعدی، و با سقف دقیقه‌ای مکث کوتاه (`RateLimitError`).
-- **LangChain:** `Embeddings` و `VectorStore` سفارشی (Gemini embedding + Supabase pgvector)، `RecursiveCharacterTextSplitter` برای قطعه‌بندی دانش.
-
-## کار اصلی با Claude Code
-
-- `src/lib/queue/handlers/main.ts`: پرامپت، دانش مرتبط (`CONTEXT-main.md`) و پیوست‌ها را در GitHub می‌گذارد و ورکفلوی `claude-task.yml` را در `ai-workspace` اجرا می‌کند.
-- **پرامپت Claude** (`mainPrompt` در `src/lib/claude/spec.ts`) با «# درخواست» = پرامپت مدیر شروع می‌شود؛ بعد مشخصات تسک، مسیر `BRIEF.md` و مسیر دقیق فایل‌های پیوست و ۸ قانون: فقط خروجی خواسته‌شده در `final/`، استفاده/تقلید از فایل‌های پیوست، بدون فایل مستندات/تست اضافه، علامت‌گذاری اطلاعات ناموجود با کامنت، و پیام پایانی فارسی که عیناً در گفت‌وگوی اپ نمایش داده می‌شود.
-- **مدل، effort و thinking:** پیش‌فرض در تنظیمات (`claude.model/effort/thinking`) و قابل تغییر برای هر ارسال (`payload.claude`)؛ runner آن‌ها را به `--model`، `--effort` و برای thinking به `--settings {"alwaysThinkingEnabled":true}` یا `MAX_THINKING_TOKENS=0` تبدیل می‌کند.
-- **خروجی در اپ:** پس از اتمام، فایل‌های تغییرکرده‌ی پوشه‌ی تسک به‌جز فایل‌های سیستمی (`isDeliverablePath`) به‌عنوان خروجی و آخرین پیام Claude به‌عنوان پاسخ ثبت می‌شوند (`src/lib/claude/ingest.ts`).
-- **به‌روزرسانی خودکار قالب runner:** اگر `.github/taskflow-version` مخزن کاری با `TEMPLATE_VERSION` اپ فرق کند، پیش از اجرای Claude فایل‌های قالب همگام می‌شوند (`ensureWorkspaceTemplate`).
-- `workspace-template/.github/scripts/taskflow.mjs` روی runner:
-  - مشخصات کار را از `/api/runner/jobs/:id` می‌گیرد،
-  - Claude Code را با `--output-format stream-json` اجرا و **هر رویداد** (اجرای دستور، ایجاد/ویرایش فایل، TodoWrite، …) را به `/api/runner/events` می‌فرستد،
-  - جلسه را برای ادامه در تسک‌های مرتبط ذخیره، `manifest.json` را به‌روز و نتایج را commit می‌کند،
-  - پیام‌های لیمیت را تشخیص می‌دهد تا صف تا زمان ریست متوقف و سپس از همان جلسه ادامه دهد.
-- کار دستی: می‌توانید مستقیماً با Claude Code (وب یا دسکتاپ) روی `ai-workspace` کار کنید؛ push‌ها از طریق `notify.yml` در لاگ همان تسک ثبت می‌شوند. از صفحه‌ی تسک هم «دستور تکمیلی به Claude» در همان پروژه ارسال می‌شود.
-
-## graphify
-
-پس از پیش‌کار و کار اصلی، کار `graphify` در صف Gemini قرار می‌گیرد و ورکفلوی `graphify.yml` با `graphify extract . --backend gemini` (یا `--code-only`) گراف دانش پوشه‌ی تسک را در `graphify-out/` می‌سازد. Claude طبق `CLAUDE.md` ابتدا `GRAPH_REPORT.md` را می‌خواند و از `graphify query` استفاده می‌کند. در اپ، گراف دیتا مپینگ از `manifest.json` در صفحه‌ی هر تسک نمایش داده می‌شود و صفحه‌ی **«گراف دانش»** (`/graph`) فایل `graphify-out/graph.json` هر پروژه را از GitHub می‌خواند (`src/app/actions/graph.ts`)، با پروژه‌ها، تسک‌های مرتبط، تسک‌دهنده‌ها، فایل‌ها و دانش ثبت‌شده در دیتابیس ادغام می‌کند (`src/lib/graph/model.ts`) و به صورت گراف نیرو-محور تعاملی (`react-force-graph-2d`) نشان می‌دهد؛ دکمه‌ی «ساخت گراف graphify» اجرای جدید را در صف قرار می‌دهد.
-
-## پایگاه دانش و NotebookLM
-
-- استخراج خودکار پس از پیش‌کار و کار اصلی: قطعه‌کد، ورکفلو، درس آموخته، بن‌بست، پرامپت موفق، تصمیم فنی، مرجع و «نحوه‌ی کار با تسک‌دهنده».
-- ذخیره در Supabase (pgvector، ۷۶۸ بعد، `gemini-embedding-2`) + فایل Markdown در `ai-workspace/knowledge/`.
-- **NotebookLM** نسخه‌ی عمومی API ندارد (فقط NotebookLM Enterprise روی Google Cloud)؛ بنابراین هر روز بسته‌ی تجمیعی در `knowledge/notebooklm/` ساخته می‌شود و از صفحه‌ی «پایگاه دانش» به صورت zip قابل دانلود است تا به‌عنوان منبع به NotebookLM اضافه شود. RAG واقعی ایجنت‌ها روی Supabase انجام می‌شود.
-
-## خودارتقایی و یادگیری
-
-- **ارتقا (`/upgrade`)**: پرامپت ← کار `upgrade` ← ورکفلوی `self-upgrade.yml` در مخزن `ai` ← Claude تغییر را پیاده، typecheck/build را اجرا و خطاها را خودش رفع می‌کند ← شاخه‌ی `upgrade/u-000N` و Pull Request ← پیش‌نمایش Vercel ← «انتشار» (merge با توکن مدیر) ← Vercel منتشر و `db-migrate.yml` migrationها را اعمال می‌کند. «بازگرداندن» یک commit معکوس می‌سازد.
-- پیوستگی با «همین جلسه»: تزریق مستقیم پرامپت به یک جلسه‌ی چت Claude از بیرون ممکن نیست؛ به‌جای آن `CLAUDE.md` و همین سند، حافظه‌ی ماندگار پروژه‌اند و هر اجرای Claude ابتدا آن‌ها را می‌خواند.
-- **یادگیری (`/learning`)**: بازخورد 👍/👎 روی پاسخ‌های گفت‌وگوی تسک (پیش‌کار ← ایجنت «برنامه‌ریز») ← «بهینه‌ساز پرامپت» نسخه‌ی بهتر پیشنهاد می‌دهد ← شما فعال می‌کنید (نسخه‌بندی کامل در `agent_prompts`).
+- مسئول تسک را می‌پذیرد/برمی‌گرداند و (در حالت کامل) به هوش مصنوعی می‌فرستد؛ تسک‌دهنده خاتمه را تایید یا رد می‌کند. تسکی که کسی به خودش بدهد بدون پذیرش شروع و با «خاتمه» بسته می‌شود.
+- **تسک مرتبط** (`parent_id`, `root_id`): ادامه‌ی همان پوشه‌ی سوابق، همان تاریخچه و همان جلسه‌ی Claude.
 
 ## امنیت
 
-- RLS روی همه‌ی جدول‌ها؛ تسک‌دهنده فقط تسک‌ها و رویدادهای «قابل مشاهده برای تسک‌دهنده»ی خودش را می‌بیند؛ همه‌ی نوشتن‌ها از سرور و پس از بررسی نقش انجام می‌شود.
-- فایل‌ها در باکت خصوصی؛ دانلود با لینک امضاشده‌ی ۲ دقیقه‌ای پس از بررسی دسترسی.
-- runnerها با `TASKFLOW_RUNNER_SECRET` (مشتق از `CRON_SECRET`) احراز هویت می‌شوند؛ توکن Claude فقط در GitHub Secrets ذخیره می‌شود.
-- حساب‌های جدید تا تایید مدیر غیرفعال‌اند.
-
-## ساختار کد
-
-```
-src/
-  app/(admin)/…        صفحه‌های مدیر: dashboard, inbox, tasks/[id], queue, agents, knowledge, learning, upgrade, users, settings
-  app/portal/…         پنل تسک‌دهنده
-  app/(auth)/…         ورود، ثبت‌نام، انتظار تایید
-  app/api/worker/tick  ورکر صف (pg_cron)
-  app/api/runner/*     API ی runnerهای GitHub Actions
-  app/actions/*        Server Actions
-  lib/workflow/*             ایجنت‌ها، ورکفلوها (DAG) و موتور اجرای پیش‌کار و کار اصلی
-  lib/tasks/delete.ts        حذف کامل پروژه‌ها و کاربران (دیتابیس، Storage، دانش، GitHub)
-  lib/ai/*                   Gemini، سهمیه، پرامپت‌ها، RAG، فایل‌ها، NotebookLM
-  lib/claude/*               spec، نگاشت رویدادها، تشخیص لیمیت، دریافت نتایج
-  lib/queue/*                صف، ورکر و handlerها
-  lib/github/*               Git Data API، secrets، bootstrap
-  lib/tasks/service.ts       منطق وضعیت تسک‌ها
-supabase/migrations/          اسکیمای دیتابیس (هر تغییر = فایل جدید)
-workspace-template/           فایل‌هایی که در مخزن ai-workspace کپی می‌شوند
-.github/workflows/            self-upgrade و db-migrate
-```
-
-## سرعت
-
-- هر صفحه: بررسی ورود با `getClaims()` (تأیید محلی JWT، بدون درخواست به Supabase Auth در پروژه‌های دارای JWT Signing Keys)، و کوئری‌های صفحه هم‌زمان با بررسی ورود (`Promise.all`)؛ یک رفت‌وبرگشت به‌جای سه.
-- هر دکمه: Server Actionهای تغییردهنده با `mutate()` (`refresh()` داخل اکشن) صفحه‌ی به‌روز را در همان پاسخ برمی‌گردانند؛ نوشتن لاگ وضعیت و اعلان‌ها با `after()` پس از پاسخ انجام می‌شود (`background()` در `src/lib/events.ts`).
-- `loading.tsx` در بخش مدیر و تسک‌دهنده: اسکلت صفحه فوراً پس از لمس نمایش داده می‌شود.
-- مهم‌ترین عامل: فاصله‌ی منطقه‌ی توابع Vercel تا منطقه‌ی Supabase؛ «تنظیمات ← سرعت و منطقه‌ی سرور» آن را اندازه می‌گیرد (`src/lib/speed.ts`) و منطقه‌ی معادل را پیشنهاد می‌دهد.
-- runner Claude: clone سطحی (`fetch-depth: 1`) و نصب هم‌زمان Claude Code و graphify.
-
-## حذف پروژه و کاربر
-
-`src/lib/tasks/delete.ts`: حذف پروژه (تسک اصلی و همه‌ی تسک‌های مرتبط) ابتدا کارهای فعال را لغو می‌کند، سپس فایل‌های Storage که تسک دیگری از آن‌ها استفاده نمی‌کند، دانش استخراج‌شده (`metadata.task_id`)، پوشه‌ی پروژه و یادداشت‌های دانش آن در GitHub (یک commit) و در آخر ردیف‌ها (بقیه cascade). حذف کاربر: پروژه‌هایش حذف یا به مدیر منتقل می‌شوند، دانش «نحوه‌ی کار با تسک‌دهنده»، فایل‌های بارگذاری‌شده‌ی بی‌استفاده و تصویر پروفایل حذف و ستون‌های `created_by/uploaded_by` خالی می‌شوند، سپس حساب Auth حذف می‌شود.
+- کلیدها: AES-256-GCM با `APP_SECRET_KEY` (`src/lib/crypto.ts`)، هرگز به مرورگر فرستاده نمی‌شوند.
+- runnerها: توکن HMAC مخصوص هر کاربر؛ runner مخزن اپ فقط کارهای `upgrade`.
+- فایل‌ها (`/api/files/[id]`): مسئول و مالک همه‌ی فایل‌های تسک؛ تسک‌دهنده فایل‌های درخواست و خروجی.
