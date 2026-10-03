@@ -28,8 +28,10 @@ import type { TaskEvent } from "@/lib/types";
 const SOURCE_LABEL: Record<string, string> = {
   system: "سیستم",
   user: "کاربر",
+  ai: "هوش مصنوعی",
   gemini: "Gemini",
-  claude: "Claude",
+  claude: "Claude Code",
+  project: "پروژه",
   github: "GitHub",
   graphify: "graphify",
   knowledge: "دانش",
@@ -51,7 +53,7 @@ function iconFor(e: TaskEvent) {
   if (e.kind === "status") return <CircleDot className={cn(cls, "text-primary")} />;
   if (e.source === "user") return <UserRound className={cn(cls, "text-muted")} />;
   if (e.source === "claude") return <Bot className={cn(cls, "text-orange-500")} />;
-  if (e.source === "gemini") return <Sparkles className={cn(cls, "text-violet-500")} />;
+  if (e.source === "gemini" || e.source === "ai") return <Sparkles className={cn(cls, "text-violet-500")} />;
   return <CircleDot className={cn(cls, "text-muted")} />;
 }
 

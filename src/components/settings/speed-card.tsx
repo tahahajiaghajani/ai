@@ -3,7 +3,7 @@ import * as React from "react";
 import { toast } from "sonner";
 import { Gauge } from "lucide-react";
 import { Button, Card, CardHeader } from "@/components/ui/primitives";
-import { speedCheckAction } from "@/app/actions/admin";
+import { speedCheckAction } from "@/app/actions/owner";
 import { SUPABASE_TO_VERCEL } from "@/lib/regions";
 import { cn, faNum } from "@/lib/utils";
 import type { SpeedReport } from "@/lib/speed";

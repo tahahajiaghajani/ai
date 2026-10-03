@@ -23,7 +23,7 @@ const NODE_STYLE: Record<string, string> = {
   pending: "bg-surface-strong text-faint border-line-strong",
 };
 
-const TYPE_TEXT: Record<string, string> = { gemini: "Gemini", router: "شرط", claude: "Claude", system: "سیستم" };
+const TYPE_TEXT: Record<string, string> = { llm: "مدل", router: "شرط", coder: "مجری", system: "سیستم" };
 
 interface FlowItem {
   key: string;

@@ -1,10 +1,17 @@
 "use server";
-import { assertAdmin } from "@/lib/auth";
+import { headers } from "next/headers";
+import { assertFull } from "@/lib/auth";
+import { db } from "@/lib/supabase/admin";
 import { agentMap, agentPrompt, getAgents, getWorkflows, saveAgents, savePromptVersion, saveWorkflows, DEFAULT_WORKFLOWS } from "@/lib/workflow/registry";
 import { validateWorkflow, type AgentDef, type AgentType, type Stage, type WorkflowDef } from "@/lib/workflow/types";
+import { clearPromptCache, DEFAULT_PROMPTS, type AgentKey } from "@/lib/ai/prompts";
+import { enqueueJob, kickWorker } from "@/lib/queue/jobs";
+import { getUserConfig, stageModel } from "@/lib/settings";
 import { act } from "./_util";
 
-const TYPES: AgentType[] = ["gemini", "router", "claude"];
+/* Each user's own agents, workflows and prompt versions. */
+
+const TYPES: AgentType[] = ["llm", "router", "coder"];
 const THINKING = ["LOW", "MEDIUM", "HIGH"];
 const EFFORTS = ["", "low", "medium", "high", "xhigh", "max"];
 const CLAUDE_THINKING = ["", "auto", "on", "off"];
@@ -13,8 +20,8 @@ const str = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice
 const bool = (v: unknown) => v === true;
 
 function cleanAgent(input: AgentDef, existing?: AgentDef): AgentDef {
-  const type = existing?.builtin ? existing.type : TYPES.includes(input.type) ? input.type : "gemini";
-  const models = Array.isArray(input.models) ? input.models.map((m) => str(m, 60)).filter((m) => /^[\w.:-]+$/.test(m)).slice(0, 10) : [];
+  const type = existing?.builtin ? existing.type : TYPES.includes(input.type) ? input.type : "llm";
+  const model = /^[\w.:/@[\]-]{0,120}$/.test(input.model ?? "") ? (input.model ?? "") : "";
   const agent: AgentDef = {
     id: input.id,
     name: str(input.name, 60) || "ایجنت بدون نام",
@@ -24,20 +31,19 @@ function cleanAgent(input: AgentDef, existing?: AgentDef): AgentDef {
     color: /^#[0-9a-f]{6}$/i.test(input.color ?? "") ? input.color : undefined,
     builtin: !!existing?.builtin,
   };
-  if (type !== "claude") {
-    Object.assign(agent, {
-      models,
-      thinking: THINKING.includes(input.thinking ?? "") ? input.thinking : undefined,
-      useSearch: bool(input.useSearch),
-      attachments: bool(input.attachments),
-      knowledge: bool(input.knowledge),
-    });
-  }
-  if (type === "gemini") {
+  Object.assign(agent, {
+    model,
+    thinking: THINKING.includes(input.thinking ?? "") ? input.thinking : undefined,
+    attachments: bool(input.attachments),
+    knowledge: bool(input.knowledge),
+  });
+  if (type !== "coder") Object.assign(agent, { useSearch: bool(input.useSearch), tools: bool(input.tools) });
+  if (type === "llm") {
     agent.output = input.output === "files" ? "files" : "text";
     agent.maxFiles = Math.max(1, Math.min(Number(input.maxFiles) || 3, 10));
   }
-  if (type === "claude") {
+  if (type === "coder") {
+    agent.engine = input.engine === "agent" || input.engine === "claude_code" ? input.engine : "";
     const c = input.claude ?? {};
     agent.claude = {
       model: /^[\w.:[\]-]{0,80}$/.test(c.model ?? "") ? c.model ?? "" : "",
@@ -83,68 +89,68 @@ function cleanWorkflow(input: WorkflowDef): WorkflowDef {
 /** Everything the agents & workflows page needs (with each agent's effective prompt). */
 export async function studioDataAction() {
   return act(async () => {
-    await assertAdmin();
-    const [agents, workflows] = await Promise.all([getAgents(), getWorkflows()]);
-    const prompts = Object.fromEntries(await Promise.all(agents.map(async (a) => [a.id, await agentPrompt(a)] as const)));
+    const user = await assertFull();
+    const [agents, workflows] = await Promise.all([getAgents(user.id), getWorkflows(user.id)]);
+    const prompts = Object.fromEntries(await Promise.all(agents.map(async (a) => [a.id, await agentPrompt(user.id, a)] as const)));
     return { agents, workflows, prompts };
   });
 }
 
 export async function saveWorkflowAction(input: WorkflowDef) {
   return act(async () => {
-    await assertAdmin();
+    const user = await assertFull();
     const wf = cleanWorkflow(input);
-    const problems = validateWorkflow(wf, await agentMap());
+    const problems = validateWorkflow(wf, await agentMap(user.id));
     if (problems.length) throw new Error(problems.join("\n"));
-    let list = await getWorkflows();
+    let list = await getWorkflows(user.id);
     const prev = list.find((w) => w.id === wf.id);
     if (prev?.builtin) wf.builtin = true;
     list = prev ? list.map((w) => (w.id === wf.id ? wf : w)) : [...list, wf];
     if (wf.isDefault) list = list.map((w) => (w.stage === wf.stage && w.id !== wf.id ? { ...w, isDefault: false } : w));
-    await saveWorkflows(list);
-    return { workflows: await getWorkflows(), id: wf.id };
+    await saveWorkflows(user.id, list);
+    return { workflows: await getWorkflows(user.id), id: wf.id };
   });
 }
 
 export async function setDefaultWorkflowAction(id: string) {
   return act(async () => {
-    await assertAdmin();
-    const list = await getWorkflows();
+    const user = await assertFull();
+    const list = await getWorkflows(user.id);
     const wf = list.find((w) => w.id === id);
     if (!wf) throw new Error("ورکفلو یافت نشد");
-    await saveWorkflows(list.map((w) => (w.stage === wf.stage ? { ...w, isDefault: w.id === id } : w)));
-    return { workflows: await getWorkflows() };
+    await saveWorkflows(user.id, list.map((w) => (w.stage === wf.stage ? { ...w, isDefault: w.id === id } : w)));
+    return { workflows: await getWorkflows(user.id) };
   });
 }
 
 export async function deleteWorkflowAction(id: string) {
   return act(async () => {
-    await assertAdmin();
-    const list = await getWorkflows();
+    const user = await assertFull();
+    const list = await getWorkflows(user.id);
     const wf = list.find((w) => w.id === id);
     if (!wf) throw new Error("ورکفلو یافت نشد");
     if (list.filter((w) => w.stage === wf.stage).length <= 1) throw new Error("هر مرحله حداقل یک ورکفلو لازم دارد");
-    await saveWorkflows(list.filter((w) => w.id !== id));
-    return { workflows: await getWorkflows() };
+    await saveWorkflows(user.id, list.filter((w) => w.id !== id));
+    return { workflows: await getWorkflows(user.id) };
   });
 }
 
 /** Brings back the built-in workflows (if deleted) without touching the others. */
 export async function restoreDefaultWorkflowsAction() {
   return act(async () => {
-    await assertAdmin();
-    const list = await getWorkflows();
+    const user = await assertFull();
+    const list = await getWorkflows(user.id);
     const missing = DEFAULT_WORKFLOWS.filter((d) => !list.some((w) => w.id === d.id)).map((d) => ({ ...d, isDefault: false }));
-    await saveWorkflows([...list, ...missing]);
-    return { workflows: await getWorkflows() };
+    await saveWorkflows(user.id, [...list, ...missing]);
+    return { workflows: await getWorkflows(user.id) };
   });
 }
 
 /** Creates or updates an agent; a changed prompt becomes a new active prompt version. */
 export async function saveAgentAction(input: AgentDef, prompt: string) {
   return act(async () => {
-    const admin = await assertAdmin();
-    const list = await getAgents();
+    const user = await assertFull();
+    const list = await getAgents(user.id);
     const isNew = !input.id || !list.some((a) => a.id === input.id);
     let id = input.id;
     if (isNew) {
@@ -153,26 +159,68 @@ export async function saveAgentAction(input: AgentDef, prompt: string) {
     }
     const existing = list.find((a) => a.id === id);
     const agent = cleanAgent({ ...input, id, prompt: isNew ? prompt : existing?.prompt ?? "" }, existing);
-    await saveAgents(isNew ? [...list, agent] : list.map((a) => (a.id === id ? agent : a)));
-    if (!isNew && prompt.trim() && prompt !== (await agentPrompt(existing!))) {
-      await savePromptVersion(id, prompt, true, admin.id, existing!.prompt);
+    await saveAgents(user.id, isNew ? [...list, agent] : list.map((a) => (a.id === id ? agent : a)));
+    if (!isNew && prompt.trim() && prompt !== (await agentPrompt(user.id, existing!))) {
+      await savePromptVersion(user.id, id, prompt, true, existing!.prompt);
     }
-    const agents = await getAgents();
-    const prompts = Object.fromEntries(await Promise.all(agents.map(async (a) => [a.id, await agentPrompt(a)] as const)));
+    const agents = await getAgents(user.id);
+    const prompts = Object.fromEntries(await Promise.all(agents.map(async (a) => [a.id, await agentPrompt(user.id, a)] as const)));
     return { agents, prompts, id };
   });
 }
 
 export async function deleteAgentAction(id: string) {
   return act(async () => {
-    await assertAdmin();
-    const list = await getAgents();
+    const user = await assertFull();
+    const list = await getAgents(user.id);
     const agent = list.find((a) => a.id === id);
     if (!agent) throw new Error("ایجنت یافت نشد");
     if (agent.builtin) throw new Error("ایجنت‌های پیش‌فرض حذف نمی‌شوند (می‌توانید از ورکفلوها حذفشان کنید)");
-    const users = (await getWorkflows()).filter((w) => w.nodes.some((n) => n.agentId === id));
+    const users = (await getWorkflows(user.id)).filter((w) => w.nodes.some((n) => n.agentId === id));
     if (users.length) throw new Error(`این ایجنت در ورکفلوهای ${users.map((w) => `«${w.name}»`).join("، ")} استفاده شده؛ اول از آن‌ها حذفش کنید`);
-    await saveAgents(list.filter((a) => a.id !== id));
-    return { agents: await getAgents() };
+    await saveAgents(user.id, list.filter((a) => a.id !== id));
+    return { agents: await getAgents(user.id) };
+  });
+}
+
+// ------------------------------------------------------------------ prompt versions (learning)
+/** Default prompt of any versioned agent (workflow agents and the system ones). */
+async function defaultPromptOf(userId: string, agent: string): Promise<string> {
+  if (agent in DEFAULT_PROMPTS) return DEFAULT_PROMPTS[agent as AgentKey];
+  const a = (await agentMap(userId))[agent];
+  if (!a) throw new Error("ایجنت یافت نشد");
+  return a.prompt;
+}
+
+export async function savePromptVersionAction(agent: string, content: string, activate: boolean) {
+  return act(async () => {
+    const user = await assertFull();
+    if (!content.trim()) throw new Error("متن پرامپت خالی است");
+    const version = await savePromptVersion(user.id, agent, content, activate, await defaultPromptOf(user.id, agent));
+    return { version };
+  });
+}
+
+export async function activatePromptAction(agent: string, version: number | null) {
+  return act(async () => {
+    const user = await assertFull();
+    await db().from("agent_prompts").update({ is_active: false }).eq("user_id", user.id).eq("agent", agent);
+    if (version !== null) await db().from("agent_prompts").update({ is_active: true }).eq("user_id", user.id).eq("agent", agent).eq("version", version);
+    clearPromptCache(user.id, agent);
+    return null;
+  });
+}
+
+export async function runOptimizerAction(agents: string[]) {
+  return act(async () => {
+    const user = await assertFull();
+    const cfg = await getUserConfig(user.id);
+    const conn = stageModel(cfg, "knowledge").connectionId;
+    if (!conn) throw new Error("برای بهینه‌سازی پرامپت‌ها یک اتصال هوش مصنوعی لازم است");
+    await enqueueJob({ kind: "optimize", owner_id: user.id, connection_id: conn, payload: { agents }, priority: 20, created_by: user.id });
+    const h = await headers();
+    const host = h.get("x-forwarded-host") ?? h.get("host");
+    await kickWorker(host ? `${h.get("x-forwarded-proto") ?? "https"}://${host}` : undefined);
+    return null;
   });
 }

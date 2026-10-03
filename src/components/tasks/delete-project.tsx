@@ -6,12 +6,12 @@ import { Trash2 } from "lucide-react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { Button, Field, Input } from "@/components/ui/primitives";
 import { Modal } from "@/components/ui/overlays";
-import { deleteProjectAction } from "@/app/actions/tasks";
+import { deleteTaskAction } from "@/app/actions/tasks";
 import { faNum } from "@/lib/utils";
 import type { Task } from "@/lib/types";
 
-/** Confirmation for deleting a whole project; the admin types the project code to confirm. */
-export function DeleteProjectDialog({ task, open, onOpenChange, onDeleted }: { task: Task; open: boolean; onOpenChange: (o: boolean) => void; onDeleted?: () => void }) {
+/** Confirmation for deleting a whole task (with its related tasks); the user types the task code to confirm. */
+export function DeleteTaskDialog({ task, open, onOpenChange, onDeleted }: { task: Task; open: boolean; onOpenChange: (o: boolean) => void; onDeleted?: () => void }) {
   const router = useRouter();
   const pathname = usePathname();
   const [root, setRoot] = React.useState<{ code: string; title: string; count: number } | null>(null);
@@ -31,14 +31,14 @@ export function DeleteProjectDialog({ task, open, onOpenChange, onDeleted }: { t
 
   const remove = async () => {
     setBusy(true);
-    const r = await deleteProjectAction(task.id, typed);
+    const r = await deleteTaskAction(task.id, typed);
     setBusy(false);
     if (!r.ok) {
       toast.error(r.error);
       return;
     }
     const d = r.data;
-    toast.success(`پروژه‌ی ${d.code} حذف شد: ${faNum(d.tasks)} تسک، ${faNum(d.files)} فایل، ${faNum(d.knowledge)} مورد دانش، ${faNum(d.github)} فایل در GitHub`);
+    toast.success(`تسک ${d.code} حذف شد: ${faNum(d.tasks)} تسک، ${faNum(d.files)} فایل، ${faNum(d.github)} فایل سابقه در GitHub`);
     for (const w of d.warnings) toast.warning(w);
     onOpenChange(false);
     onDeleted?.();
@@ -50,7 +50,7 @@ export function DeleteProjectDialog({ task, open, onOpenChange, onDeleted }: { t
     <Modal
       open={open}
       onOpenChange={onOpenChange}
-      title="حذف کامل پروژه"
+      title="حذف کامل تسک"
       description="این کار برگشت‌پذیر نیست."
       footer={
         <>
@@ -65,16 +65,15 @@ export function DeleteProjectDialog({ task, open, onOpenChange, onDeleted }: { t
     >
       <div className="space-y-3 text-sm leading-7">
         <p>
-          پروژه‌ی <b className="ltr inline-block">{root?.code ?? "…"}</b> «{root?.title ?? task.title}»
+          تسک <b className="ltr inline-block">{root?.code ?? "…"}</b> «{root?.title ?? task.title}»
           {root && root.count > 1 ? ` همراه ${faNum(root.count - 1)} تسک مرتبط` : ""} و همه‌ی این موارد حذف می‌شوند:
         </p>
         <ul className="list-disc space-y-0.5 ps-5 text-muted">
-          <li>تسک‌ها، لاگ‌ها، اجراها و گفت‌وگوهای Gemini و Claude</li>
+          <li>تسک‌ها، لاگ‌ها، اجراها و گفت‌وگوهای هوش مصنوعی</li>
           <li>فایل‌های بارگذاری‌شده و فایل‌های خروجی</li>
-          <li>دانش استخراج‌شده از این پروژه در پایگاه دانش</li>
-          <li>پوشه‌ی پروژه و یادداشت‌های دانش آن در مخزن GitHub</li>
+          <li>پوشه‌ی سابقه‌ی این تسک در GitHub (فایل‌های پروژه‌ها دست نمی‌خورند)</li>
         </ul>
-        <Field label={<>برای تایید، کد پروژه (<span className="ltr inline-block">{root?.code ?? "…"}</span>) را بنویسید</>}>
+        <Field label={<>برای تایید، کد تسک (<span className="ltr inline-block">{root?.code ?? "…"}</span>) را بنویسید</>}>
           <Input dir="ltr" value={typed} onChange={(e) => setTyped(e.target.value)} placeholder={root?.code} />
         </Field>
       </div>

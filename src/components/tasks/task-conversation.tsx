@@ -105,7 +105,7 @@ function progressText(job: ConvJob): string {
   const todo = job.state?.todos?.find((t) => t.status === "in_progress");
   if (job.kind === "main" && todo) return `${todo.activeForm ?? todo.content}…`;
   if (labels.length) return `${labels.join(" و ")}…`;
-  return job.kind === "prework" ? "در حال کار…" : "Claude در حال کار است…";
+  return "در حال کار…";
 }
 
 const STEP_STATUS: Record<string, { label: string; tone: string }> = {
@@ -148,9 +148,9 @@ function AiTurn({ turn, taskId }: { turn: Turn; taskId: string }) {
   const { job } = turn;
   const gemini = job.kind === "prework";
   const Icon = gemini ? Sparkles : Bot;
-  const models = Array.isArray(job.result?.models) ? (job.result.models as string[]).filter(Boolean) : [];
+  const models = [...new Set(Object.values(job.state?.nodes ?? {}).map((n) => n.model).filter(Boolean) as string[])];
   const claude = (job.payload?.claude ?? {}) as { model?: string; effort?: string };
-  const meta = gemini ? models.slice(0, 2).join("، ") : [claude.model, claude.effort && `effort ${claude.effort}`].filter(Boolean).join(" · ");
+  const meta = models.length ? models.slice(0, 2).join("، ") : [claude.model, claude.effort && `effort ${claude.effort}`].filter(Boolean).join(" · ");
   const busy = job.status === "queued" || job.status === "running";
   return (
     // RTL page: row-reverse puts the AI's icon on the far left and its bubble right next to it
@@ -160,7 +160,7 @@ function AiTurn({ turn, taskId }: { turn: Turn; taskId: string }) {
       </span>
       <div className="min-w-0 max-w-[92%] flex-1 rounded-2xl rounded-se-md border border-line bg-surface-muted/40 px-4 py-3 text-right">
         <p className="flex flex-wrap items-center gap-x-2 text-xs text-muted">
-          <b className="text-fg">{gemini ? "Gemini · پیش‌کار" : "Claude · کار اصلی"}</b>
+          <b className="text-fg">{gemini ? "پیش‌کار" : "کار اصلی"}</b>
           {meta ? <span className="ltr">{meta}</span> : null}
           {job.finished_at ? <span>{formatJalali(job.finished_at, { withTime: true })}</span> : null}
         </p>
@@ -199,7 +199,7 @@ function AiTurn({ turn, taskId }: { turn: Turn; taskId: string }) {
 
         {job.status === "done" ? (
           <div className="mt-2 flex items-center gap-2 text-xs text-muted">
-            <Rate taskId={taskId} jobId={job.id} agent={gemini ? "brief" : "claude"} />
+            <Rate taskId={taskId} jobId={job.id} agent={gemini ? "brief" : "coder"} />
             {job.external_url ? (
               <a href={job.external_url} target="_blank" rel="noreferrer" className="font-semibold text-primary">
                 اجرای GitHub
@@ -221,7 +221,7 @@ function UserTurn({ turn }: { turn: Turn }) {
       </span>
       <div className="min-w-0 max-w-[85%] rounded-2xl rounded-ss-md bg-primary-soft px-4 py-3 text-right">
         <p className="mb-1 flex items-center gap-2 text-xs text-muted">
-          <b className="text-fg">{turn.job.kind === "prework" ? "به Gemini" : turn.job.payload?.followup ? "پیام تکمیلی به Claude" : "به Claude"}</b>
+          <b className="text-fg">{turn.job.kind === "prework" ? "پیش‌کار" : turn.job.payload?.followup ? "دستور تکمیلی" : "کار اصلی"}</b>
           <span>{formatJalali(turn.job.created_at, { withTime: true })}</span>
           {!turn.customPrompt ? <Badge>پرامپت پیش‌فرض</Badge> : null}
         </p>
@@ -239,7 +239,7 @@ function UserTurn({ turn }: { turn: Turn }) {
 }
 
 /**
- * The task as a chat: every send to Gemini (pre-work) or Claude (main work) is a user turn with
+ * The task as a chat: every send to pre-work or main work is a user turn with
  * its prompt and attachments, followed by the AI's text answer and the files it produced.
  * Bookkeeping files (manifest, sessions, graph) stay out; only deliverables are listed.
  */
@@ -302,7 +302,7 @@ export function TaskConversation({ taskId, className, empty }: { taskId: string;
     return (
       empty ?? (
         <div className={cn("flex items-center gap-3 rounded-2xl border border-dashed border-line p-4 text-sm text-muted", className)}>
-          <MessagesSquare className="size-5" /> هنوز به Gemini یا Claude ارسال نشده است؛ پرامپت، پاسخ‌ها و فایل‌های خروجی اینجا نمایش داده می‌شوند.
+          <MessagesSquare className="size-5" /> هنوز به هوش مصنوعی ارسال نشده است؛ پرامپت، پاسخ‌ها و فایل‌های خروجی اینجا نمایش داده می‌شوند.
         </div>
       )
     );

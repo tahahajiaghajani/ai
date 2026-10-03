@@ -4,7 +4,7 @@ import { runTick } from "@/lib/queue/tick";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 function authorized(req: NextRequest) {
   const header = req.headers.get("authorization") ?? "";

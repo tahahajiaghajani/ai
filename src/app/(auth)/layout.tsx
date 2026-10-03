@@ -16,10 +16,10 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
               خودکار و زنده.
             </h2>
             <ul className="space-y-3 text-[15px] leading-8 text-white/90">
-              <li>● ثبت و پیگیری تسک با وضعیت و درصد پیشرفت زنده</li>
-              <li>● پیش‌کار چندعاملی با Gemini: تحقیق، WBS و انجام کارهای ساده</li>
-              <li>● تکمیل کار با Claude Code و ذخیره‌ی خروجی در GitHub</li>
-              <li>● پایگاه دانشی که با هر تسک هوشمندتر می‌شود</li>
+              <li>● به هر کسی تسک بدهید و پیشرفتش را زنده دنبال کنید</li>
+              <li>● پیش‌کار و کار اصلی با کلیدهای خودتان: Claude، Gemini، ChatGPT، Kimi، NVIDIA</li>
+              <li>● پروژه‌های کد و سند در GitHub خودتان؛ پیدا، ویرایش و جایگزینی فایل‌ها با یک پرامپت</li>
+              <li>● دانش و گراف هر پروژه که با هر تسک کامل‌تر می‌شود</li>
             </ul>
           </div>
           <p className="text-xs text-white/70">روی موبایل و دسکتاپ — از هر جا، هر زمان</p>

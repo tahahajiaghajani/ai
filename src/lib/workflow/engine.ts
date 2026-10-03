@@ -1,32 +1,33 @@
 import "server-only";
-import type { Content, Part } from "@google/genai";
 import { db } from "@/lib/supabase/admin";
-import { generate, generateJson, type GenContext } from "@/lib/ai/gemini";
-import { getAgentPrompt, KNOWLEDGE_SCHEMA } from "@/lib/ai/prompts";
-import { addKnowledge, formatKnowledgeContext, searchKnowledge, KNOWLEDGE_KINDS } from "@/lib/ai/knowledge";
-import { fileRefsToParts, prepareFilesForGemini, downloadStorage, type FileRef } from "@/lib/ai/files";
-import { getSettings } from "@/lib/settings";
-import { DeadlineError, RateLimitError } from "@/lib/errors";
-import { commitFiles, getFileText, repoRef, type CommitFile } from "@/lib/github/client";
-import { emptyManifest, iterationFolder, mergeManifest, readmeMarkdown, requestMarkdown, rootFolder, type Manifest, type ManifestFile } from "@/lib/github/workspace";
-import { helperFileName, isDeliverablePath, stripCodeFence } from "@/lib/agents/parse";
-import { registerOutputs, saveReply } from "@/lib/tasks/outputs";
+import { generate, generateJson, type GenContext } from "@/lib/ai/generate";
+import { runAgent, type AgentTranscript } from "@/lib/ai/agent";
+import { inputBlocks, downloadStorage, type InputFile } from "@/lib/ai/files";
+import { withAbout } from "@/lib/ai/prompts";
+import { getConnection, githubInfo, type GithubConfig } from "@/lib/connections";
+import { getUserConfig, stageModel, type MainEngine } from "@/lib/settings";
+import { DeadlineError, FatalError, RateLimitError } from "@/lib/errors";
+import { commitFiles, getFileText, userRepoOrNull, type CommitFile, type Repo } from "@/lib/github/client";
+import { getProject, indexRow, projectContext, projectFiles, refreshStats, removeFromIndex, upsertIndex, writeIndexFile, type Project } from "@/lib/projects/store";
+import { WorkFS, workTools, type Staged } from "@/lib/projects/fs";
+import { mentionedFiles, metaPath } from "@/lib/projects/paths";
+import { helperFileName, stripCodeFence } from "@/lib/agents/parse";
+import { registerOutputs, saveReply, storeOutputs, type OutputFile } from "@/lib/tasks/outputs";
 import { enqueueJob, kickWorker } from "@/lib/queue/jobs";
-import { logEvent, notifyAdmins } from "@/lib/events";
-import { PRIORITY_META, RELATION_META } from "@/lib/status";
-import { formatJalali } from "@/lib/jalali";
+import { logEvent, notify } from "@/lib/events";
 import { errorMessage, slugify, truncate, wordCount } from "@/lib/utils";
 import { agentMap, agentPrompt, resolveWorkflow, DEFAULT_WORKFLOWS } from "@/lib/workflow/registry";
 import { flowSummary, incoming, nextBatch, validateWorkflow, type AgentDef, type Branch, type NodeRunStatus, type Stage, type WorkflowDef, type WorkflowNode } from "@/lib/workflow/types";
+import type { Block, LlmMessage } from "@/lib/ai/llm/types";
 import type { JobRun } from "@/lib/queue/run";
-import type { Job, NodeState, Profile, Task, TaskFile } from "@/lib/types";
+import type { Job, NodeState, Task } from "@/lib/types";
 
-const STATE_VERSION = 1;
-/** Parallel Gemini calls per step (free-tier friendly). */
+const STATE_VERSION = 2;
+/** Parallel model calls per step. */
 const MAX_PARALLEL = 3;
 /** A node that failed this many times fails the whole job. */
 const MAX_NODE_ATTEMPTS = 3;
-/** Text of previous steps (and Claude's text deliverables) passed to the next agent. */
+/** Text of previous steps passed to the next agent. */
 const MAX_INPUT_CHARS = 60_000;
 
 export interface GenFile {
@@ -44,23 +45,36 @@ export interface NodeResult {
   model?: string;
   error?: string;
   partial?: { key: string; text: string; model?: string } | null;
-  /** claude: deliverable paths in the workspace repo */
-  deliverables?: string[];
+  /** coder: paths (inside the project, or output names) created/changed/deleted */
+  changed?: string[];
   commitUrl?: string | null;
 }
 
 interface StageContext {
   taskId: string;
+  ownerId: string;
+  /** what the user asked (with the attached files, the only request text the models get) */
   prompt: string;
-  rootPath: string;
-  iterPath: string;
-  request: string;
-  context: string;
+  projectId: string | null;
+  selected: string[];
+  /** run number of this stage within the task (records folder runs/NN-stage) */
+  run: number;
+  /** task records folder in the user's GitHub repo; null = no GitHub (outputs go to Storage) */
+  recordsDir: string | null;
+  runDir: string | null;
   history: { role: "user" | "model"; text: string }[];
-  fileRefs: FileRef[];
-  inputs: { id: string; name: string; storage_path: string; size: number | null }[];
+  projectText: string;
+  inputs: InputFile[];
   inputsCursor: number;
   inputPaths: string[];
+  /** AI connections: model steps and the in-app executor */
+  llmConn: string | null;
+  coderConn: string | null;
+  llmModel: string;
+  coderModel: string;
+  engine: MainEngine;
+  claudeCode: boolean;
+  about: string;
 }
 
 export interface EngineState {
@@ -70,16 +84,19 @@ export interface EngineState {
   agents: Record<string, AgentDef>;
   /** agent prompts resolved when the run started, so an edit mid-run does not mix versions */
   prompts: Record<string, string>;
-  phase: "prepare" | "inputs" | "run" | "knowledge" | "publish" | "done";
+  phase: "prepare" | "inputs" | "run" | "publish" | "done";
   ctx: StageContext;
   results: Record<string, NodeResult>;
-  /** main: the Claude node the GitHub runner is working on */
-  claudeNode: string | null;
-  knowledgeItems: { kind: string; title: string; content: string; tags?: string[]; score?: number }[];
+  /** a coder step running in the user's GitHub Actions (Claude Code) */
+  externalNode: string | null;
+  /** pending file changes of in-app executor steps (committed in publish) */
+  staged: Staged;
+  transcripts: Record<string, AgentTranscript>;
   models: string[];
+  maxAgentTurns: number;
 }
 
-export type EngineStep = { type: "continue" } | { type: "claude" } | { type: "done" } | { type: "fail"; error: string };
+export type EngineStep = { type: "continue" } | { type: "external" } | { type: "done" } | { type: "fail"; error: string };
 
 // ---------------------------------------------------------------------------
 // persistence (job_data.graph holds the engine state; jobs.state the light live view)
@@ -101,9 +118,7 @@ export async function readEngine(jobId: string): Promise<EngineState | null> {
 }
 
 async function writeEngine(jobId: string, st: EngineState) {
-  await db()
-    .from("job_data")
-    .upsert({ job_id: jobId, graph: { values: st, lastNode: st.phase, next: [] }, updated_at: new Date().toISOString() });
+  await db().from("job_data").upsert({ job_id: jobId, graph: { values: st, lastNode: st.phase, next: [] }, updated_at: new Date().toISOString() });
 }
 
 async function loadTask(id: string): Promise<Task> {
@@ -116,23 +131,30 @@ function nodeLabel(st: EngineState, n: WorkflowNode) {
   return n.label || st.agents[n.agentId]?.name || n.agentId;
 }
 
-function historyContents(history: StageContext["history"]): Content[] {
-  const out: Content[] = [];
+function isCoder(st: EngineState, id: string) {
+  return st.agents[st.workflow.nodes.find((n) => n.id === id)?.agentId ?? ""]?.type === "coder";
+}
+
+function engineOf(st: EngineState, agent: AgentDef): MainEngine {
+  return agent.engine === "agent" || agent.engine === "claude_code" ? agent.engine : st.ctx.engine;
+}
+
+function historyMessages(history: StageContext["history"]): LlmMessage[] {
+  const out: LlmMessage[] = [];
   for (const h of history ?? []) {
+    const role = h.role === "model" ? "assistant" : "user";
     const last = out[out.length - 1];
-    if (last && last.role === h.role) last.parts!.push({ text: `\n\n${h.text}` });
-    else out.push({ role: h.role, parts: [{ text: h.text }] });
+    if (last && last.role === role) (last.content[0] as { text: string }).text += `\n\n${h.text}`;
+    else out.push({ role, content: [{ type: "text", text: h.text }] });
   }
-  if (out.length && out[0].role !== "user") out.unshift({ role: "user", parts: [{ text: "سابقه‌ی گفت‌وگوی این پروژه:" }] });
-  if (out.length && out[out.length - 1].role === "user") out.push({ role: "model", parts: [{ text: "متوجه شدم." }] });
+  if (out.length && out[0].role !== "user") out.unshift({ role: "user", content: [{ type: "text", text: "سابقه‌ی همین کار:" }] });
+  if (out.length && out[out.length - 1].role === "user") out.push({ role: "assistant", content: [{ type: "text", text: "متوجه شدم." }] });
   return out;
 }
 
 async function saveMessage(st: EngineState, jobId: string, agent: string, role: "user" | "model", content: string) {
   const task = await loadTask(st.ctx.taskId);
-  await db()
-    .from("ai_messages")
-    .insert({ root_task_id: task.root_id ?? task.id, task_id: task.id, job_id: jobId, agent, role, content });
+  await db().from("ai_messages").insert({ root_task_id: task.root_id ?? task.id, task_id: task.id, job_id: jobId, agent, role, content });
 }
 
 async function setProgress(run: JobRun, st: EngineState) {
@@ -144,12 +166,19 @@ async function setProgress(run: JobRun, st: EngineState) {
   await db().from("tasks").update({ progress }).eq("id", run.job.task_id).lt("progress", progress);
 }
 
+/** Folder of a task's records: inside its project (`.taskflow/tasks/<code>`) or `tasks/<code>_<title>`. */
+export function recordsFolder(root: Pick<Task, "code" | "title">, project: Pick<Project, "slug"> | null): string {
+  return project ? metaPath(project.slug, `tasks/${root.code}`) : `tasks/${root.code}_${slugify(root.title)}`;
+}
+
 // ---------------------------------------------------------------------------
 // start
 // ---------------------------------------------------------------------------
 async function start(run: JobRun, stage: Stage): Promise<EngineState> {
-  const agents = await agentMap();
-  let workflow = await resolveWorkflow(stage, run.job.payload.workflow_id);
+  const ownerId = run.job.owner_id!;
+  const cfg = await getUserConfig(ownerId);
+  const agents = await agentMap(ownerId);
+  let workflow = await resolveWorkflow(ownerId, stage, run.job.payload.workflow_id);
   const problems = validateWorkflow(workflow, agents);
   if (problems.length) {
     await run.log({ source: "system", kind: "warning", title: `ورکفلوی «${workflow.name}» ایراد دارد؛ ورکفلوی استاندارد اجرا می‌شود`, detail: problems.join("\n") });
@@ -160,8 +189,12 @@ async function start(run: JobRun, stage: Stage): Promise<EngineState> {
   for (const n of workflow.nodes) {
     const a = agents[n.agentId];
     used[a.id] = a;
-    prompts[a.id] ??= await agentPrompt(a);
+    prompts[a.id] ??= await agentPrompt(ownerId, a);
   }
+  const gh = await githubInfo(ownerId);
+  const pre = stageModel(cfg, "prework");
+  const main = cfg.stages.main;
+  const llm = stage === "prework" ? pre : main.connectionId ? main : pre;
   const st: EngineState = {
     v: STATE_VERSION,
     stage,
@@ -169,11 +202,34 @@ async function start(run: JobRun, stage: Stage): Promise<EngineState> {
     agents: used,
     prompts,
     phase: "prepare",
-    ctx: { taskId: run.job.task_id!, prompt: String(run.job.payload.prompt ?? ""), rootPath: "", iterPath: "", request: "", context: "", history: [], fileRefs: [], inputs: [], inputsCursor: 0, inputPaths: [] },
+    ctx: {
+      taskId: run.job.task_id!,
+      ownerId,
+      prompt: String(run.job.payload.prompt ?? ""),
+      projectId: run.job.project_id ?? null,
+      selected: Array.isArray(run.job.payload.files_selected) ? (run.job.payload.files_selected as string[]).slice(0, 40) : [],
+      run: 1,
+      recordsDir: null,
+      runDir: null,
+      history: [],
+      projectText: "",
+      inputs: [],
+      inputsCursor: 0,
+      inputPaths: [],
+      llmConn: llm.connectionId,
+      coderConn: main.connectionId,
+      llmModel: llm.model,
+      coderModel: main.model,
+      engine: (run.job.payload.engine as MainEngine | undefined) ?? main.engine,
+      claudeCode: !!(gh?.config as GithubConfig | undefined)?.claudeCode,
+      about: cfg.about,
+    },
     results: {},
-    claudeNode: null,
-    knowledgeItems: [],
+    externalNode: null,
+    staged: {},
+    transcripts: {},
     models: [],
+    maxAgentTurns: cfg.pipeline.maxAgentTurns,
   };
   const flow = flowSummary(workflow, used);
   const nodes: Record<string, NodeState> = {};
@@ -184,134 +240,113 @@ async function start(run: JobRun, stage: Stage): Promise<EngineState> {
   return st;
 }
 
+/** Fails early with a clear message when a step has no AI connection to run on. */
+function checkConnections(st: EngineState) {
+  const needsLlm = st.workflow.nodes.some((n) => st.agents[n.agentId]?.type !== "coder");
+  if (needsLlm && !st.ctx.llmConn) throw new FatalError(`برای ${st.stage === "prework" ? "پیش‌کار" : "کار اصلی"} هیچ اتصال هوش مصنوعی انتخاب نشده است (تنظیمات ← مدل هر مرحله)`);
+  for (const n of st.workflow.nodes.filter((x) => st.agents[x.agentId]?.type === "coder")) {
+    const engine = engineOf(st, st.agents[n.agentId]);
+    if (engine === "agent" && !st.ctx.coderConn) throw new FatalError("برای مجری کار اصلی هیچ اتصال هوش مصنوعی انتخاب نشده است (تنظیمات ← مدل هر مرحله)");
+    if (engine === "claude_code" && !st.ctx.claudeCode) throw new FatalError("اجرای Claude Code در GitHub Actions راه‌اندازی نشده است (تنظیمات ← اتصال‌ها ← Claude Code)؛ یا مجری داخل اپ را انتخاب کنید");
+  }
+}
+
 // ---------------------------------------------------------------------------
 // system steps
 // ---------------------------------------------------------------------------
 async function prepare(run: JobRun, st: EngineState) {
   await run.setNode("prepare", { status: "running" });
-  const settings = await getSettings();
+  checkConnections(st);
+  const cfg = await getUserConfig(st.ctx.ownerId);
   const task = await loadTask(st.ctx.taskId);
   const root = task.root_id && task.root_id !== task.id ? await loadTask(task.root_id) : task;
-  const parent = task.parent_id ? await loadTask(task.parent_id) : null;
-  const { data: requester } = await db().from("profiles").select("*").eq("id", task.requester_id).maybeSingle<Profile>();
+  const project = st.ctx.projectId ? await getProject(st.ctx.projectId).catch(() => null) : null;
+  const repo = await userRepoOrNull(st.ctx.ownerId);
+  if (st.ctx.projectId && (!project || !repo)) throw new FatalError("پروژه‌ی انتخاب‌شده در دسترس نیست (GitHub وصل نیست یا پروژه حذف شده)");
 
-  const rootPath = rootFolder(root);
-  if (!root.github_path) await db().from("tasks").update({ github_path: rootPath }).or(`id.eq.${root.id},root_id.eq.${root.id}`);
-  const iterPath = iterationFolder({ ...root, github_path: rootPath }, task);
-
-  const isRelated = !!task.parent_id;
-  const lines = [
-    `# تسک: ${task.title} (${task.code})`,
-    `- نوع: ${task.kind === "event" ? "رویداد" : "تسک"} | اولویت: ${PRIORITY_META[task.priority].label}`,
-    task.kind === "event" ? `- زمان رویداد: ${formatJalali(task.event_at, { withTime: true })}` : `- بازه‌ی زمانی: ${formatJalali(task.start_date)} تا ${formatJalali(task.end_date)}`,
-    `- تسک‌دهنده: ${requester?.full_name ?? "—"}${requester?.org_unit ? ` (${requester.org_unit})` : ""}`,
-    "",
-    "## شرح تسک",
-    task.description || "—",
-  ];
-  if (isRelated) {
-    lines.push(
-      "",
-      "## ارتباط با تسک اصلی",
-      `این یک «${RELATION_META[task.relation_type ?? "other"]}» برای تسک اصلی ${root.code} «${root.title}» است${parent && parent.id !== root.id ? ` (مستقیماً مرتبط با ${parent.code} «${parent.title}»)` : ""}.`,
-      "این تسک جدید نیست؛ کار را در ادامه‌ی همان پروژه و بر اساس سابقه‌ی قبلی انجام بده و فقط آنچه لازم است تغییر/اضافه کن.",
-    );
-    if (parent?.closure_reject_reason) lines.push(`- دلیل رد خاتمه توسط تسک‌دهنده: ${parent.closure_reject_reason}`);
+  // run number of this stage within the task family (records folder runs/NN-stage)
+  const { count } = await db()
+    .from("jobs")
+    .select("id", { count: "exact", head: true })
+    .eq("kind", st.stage)
+    .in("task_id", [...new Set([task.id, root.id])])
+    .lt("created_at", run.job.created_at);
+  st.ctx.run = (count ?? 0) + 1;
+  if (repo) {
+    st.ctx.recordsDir = recordsFolder(root, project);
+    st.ctx.runDir = `${st.ctx.recordsDir}/runs/${String(st.ctx.run).padStart(2, "0")}-${st.stage}`;
+    if (!project && !root.github_path) await db().from("tasks").update({ github_path: st.ctx.recordsDir }).or(`id.eq.${root.id},root_id.eq.${root.id}`);
   }
-  const agents = Object.values(st.agents).filter((a) => a.type !== "claude");
 
-  // knowledge base search only when an agent of this workflow uses it
-  let context = "";
-  if (agents.some((a) => a.knowledge)) {
-    try {
-      const q = `${task.title}\n${task.description}\n${st.ctx.prompt}`;
-      const [general, profileHits] = await Promise.all([
-        searchKnowledge(q, settings.pipeline.ragResults),
-        searchKnowledge(q, 3, { kind: "requester_profile", requester_id: task.requester_id }),
-      ]);
-      const seen = new Set<string>();
-      const hits = [...profileHits, ...general].filter((h) => (seen.has(h.id) ? false : (seen.add(h.id), true)));
-      context = formatKnowledgeContext(hits);
-      await run.log({
-        source: "knowledge",
-        kind: "search",
-        title: hits.length ? `بازیابی ${hits.length} مورد دانش مرتبط از پایگاه دانش` : "دانش مرتبطی در پایگاه دانش یافت نشد",
-        detail: hits.map((h) => `• ${h.title}`).join("\n") || null,
-      });
-    } catch (err) {
-      if (err instanceof RateLimitError || err instanceof DeadlineError) throw err;
-      await run.log({ source: "knowledge", kind: "warning", title: "جستجوی پایگاه دانش ناموفق بود", detail: errorMessage(err) });
+  // earlier prompts and answers of the same task continue the conversation
+  const { data: msgs } = await db()
+    .from("ai_messages")
+    .select("agent, role, content, job_id")
+    .eq("root_task_id", root.id)
+    .in("agent", ["prompt", "brief", "reply"])
+    .order("id", { ascending: true });
+  let budget = cfg.pipeline.historyChars;
+  const history: StageContext["history"] = [];
+  for (const m of [...(msgs ?? [])].filter((m) => m.job_id !== run.job.id).reverse()) {
+    if (budget <= 0) break;
+    const text = m.content.length > budget ? `${m.content.slice(0, budget)}\n…` : m.content;
+    budget -= text.length;
+    history.unshift({ role: m.role as "user" | "model", text });
+  }
+
+  // files the prompt names ("فایل audit.cs …") are picked when none were chosen by hand
+  if (project && !st.ctx.selected.length) {
+    const named = mentionedFiles(st.ctx.prompt, (await projectFiles(project.id)).map((f) => f.path));
+    if (named.length) {
+      st.ctx.selected = named;
+      await run.log({ source: "project", kind: "search", title: `فایل‌های نام‌برده در پرامپت پیدا شد: ${named.join("، ")}` });
     }
   }
 
-  // earlier iterations of the same project continue the same conversation
-  let history: StageContext["history"] = [];
-  if (isRelated && agents.length) {
-    const { data: msgs } = await db()
-      .from("ai_messages")
-      .select("agent, role, content")
-      .eq("root_task_id", root.id)
-      .neq("task_id", task.id)
-      .in("agent", ["request", "analyze", "analysis", "brief", "reply"])
-      .order("id", { ascending: true });
-    let budget = settings.pipeline.historyChars;
-    for (const m of [...(msgs ?? [])].reverse()) {
-      if (budget <= 0) break;
-      const text = m.content.length > budget ? `${m.content.slice(0, budget)}\n…` : m.content;
-      budget -= text.length;
-      history.unshift({ role: m.role as "user" | "model", text });
-    }
-    if (history.length) await run.log({ source: "gemini", kind: "log", title: `ادامه‌ی گفت‌وگوی پروژه ${root.code}: ${history.length} پیام از تکرارهای قبلی بارگذاری شد` });
-  } else history = [];
+  let projectText = "";
+  if (project && Object.values(st.agents).some((a) => a.knowledge || a.type === "coder")) {
+    const ctx = await projectContext(project, st.ctx.selected);
+    projectText = ctx.text;
+    await run.log({ source: "project", kind: "search", title: `پروژه‌ی «${project.name}»: نقشه و دانش پروژه${ctx.files.length ? ` + ${ctx.files.length} فایل انتخاب‌شده` : ""} آماده شد` });
+  }
 
-  const contexts = st.stage === "prework" ? ["request", "prework"] : ["request", "prework", "main"];
-  const { data: files } = await db().from("task_files").select("*").eq("task_id", task.id).in("context", contexts).order("created_at");
-  const all = (files ?? []) as TaskFile[];
-  const fileRefs = agents.some((a) => a.attachments)
-    ? await prepareFilesForGemini(all, run.deadline, (msg) => run.log({ source: "gemini", kind: "file", title: msg }))
-    : [];
+  // only the files of the request and of this send (never the task title or description)
+  const { data: files } = await db()
+    .from("task_files")
+    .select("id, name, storage_path, mime, size, context, job_id")
+    .eq("task_id", task.id)
+    .or(`context.eq.request,job_id.eq.${run.job.id}`)
+    .neq("context", "output")
+    .order("created_at");
+  const inputs = ((files ?? []) as InputFile[]).filter((f) => !f.storage_path.startsWith("github:"));
 
-  st.ctx = {
-    ...st.ctx,
-    rootPath,
-    iterPath,
-    request: lines.join("\n"),
-    context,
-    history,
-    fileRefs,
-    // pre-work publishes the attachments to GitHub; the main stage already did in its own prepare step
-    inputs: st.stage === "prework" ? all.map((f) => ({ id: f.id, name: f.name, storage_path: f.storage_path, size: f.size })) : [],
-    inputsCursor: 0,
-    inputPaths: [],
-  };
-  if (st.stage === "prework") await saveMessage(st, run.job.id, "request", "user", `${st.ctx.request}\n\n## دستور مدیر\n${st.ctx.prompt}`);
-  await run.setNode("prepare", { status: "done", detail: `${fileRefs.length} فایل، ${history.length} پیام سابقه` });
+  st.ctx = { ...st.ctx, history, projectText, inputs, inputsCursor: 0, inputPaths: [] };
+  await saveMessage(st, run.job.id, "prompt", "user", st.ctx.prompt);
+  await run.setNode("prepare", { status: "done", detail: `${inputs.length} فایل${project ? ` · پروژه ${project.name}` : ""}${history.length ? ` · ${history.length} پیام سابقه` : ""}` });
 }
 
-/** Commit attachments to GitHub incrementally (resumable across ticks). */
+/** Copy this run's attachments into the records folder in GitHub (resumable across ticks). */
 async function uploadInputs(run: JobRun, st: EngineState): Promise<boolean> {
   const list = st.ctx.inputs;
   let cursor = st.ctx.inputsCursor;
-  if (cursor >= list.length) return true;
+  if (!st.ctx.runDir || cursor >= list.length) return true;
+  const repo = await userRepoOrNull(st.ctx.ownerId);
+  if (!repo) return true;
   const batch: CommitFile[] = [];
   const paths: string[] = [];
-  while (cursor < list.length && run.timeLeft() > 20_000) {
+  while (cursor < list.length && run.timeLeft() > 25_000) {
     const f = list[cursor];
-    if ((f.size ?? 0) > 20 * 1024 * 1024) {
-      await run.log({ source: "github", kind: "warning", title: `فایل «${f.name}» بزرگ‌تر از ۲۰ مگابایت است؛ Claude آن را مستقیماً از Storage دریافت می‌کند` });
-      cursor++;
-      continue;
-    }
+    cursor++;
+    if ((f.size ?? 0) > 25 * 1024 * 1024) continue;
     const blob = await downloadStorage(f.storage_path);
-    const path = `${st.ctx.iterPath}/inputs/${f.name.replace(/[\\/]/g, "_")}`;
+    const path = `${st.ctx.runDir}/inputs/${f.name.replace(/[\\/]/g, "_")}`;
     batch.push({ path, content: new Uint8Array(await blob.arrayBuffer()) });
     paths.push(path);
     await db().from("task_files").update({ github_path: path }).eq("id", f.id);
-    cursor++;
   }
   if (batch.length) {
-    const c = await commitFiles(await repoRef("workspace"), batch, `[TaskFlow] پیوست‌های ${st.ctx.iterPath.split("/")[1] ?? "task"}`);
-    await run.log({ source: "github", kind: "commit", title: `${batch.length} فایل پیوست در GitHub ذخیره شد`, data: { url: c?.url } });
+    const c = await commitFiles(repo, batch, `[TaskFlow] ورودی‌های ${st.ctx.runDir.split("/").slice(-3).join("/")}`);
+    await run.log({ source: "github", kind: "commit", title: `${batch.length} فایل ورودی در GitHub ذخیره شد`, data: { url: c?.url } });
   }
   st.ctx.inputsCursor = cursor;
   st.ctx.inputPaths = [...st.ctx.inputPaths, ...paths];
@@ -346,7 +381,7 @@ function filesSchema(max: number) {
 }
 
 /** Outputs of the steps feeding this node (only the branches actually taken). */
-async function inputsOf(st: EngineState, nodeId: string): Promise<string> {
+function inputsOf(st: EngineState, nodeId: string): string {
   const parts: string[] = [];
   let budget = MAX_INPUT_CHARS;
   for (const e of incoming(st.workflow, nodeId)) {
@@ -358,15 +393,7 @@ async function inputsOf(st: EngineState, nodeId: string): Promise<string> {
     if (agent?.type === "router") block.push(`تصمیم: ${r.decision === "yes" ? "بله" : "خیر"}`);
     if (r.text) block.push(r.text);
     for (const f of r.files ?? []) block.push(`#### فایل ${f.name} — ${f.purpose}\n${f.content}`);
-    if (agent?.type === "claude" && r.deliverables?.length) {
-      block.push(`فایل‌های ساخته‌شده: ${r.deliverables.map((p) => `\`${p}\``).join("، ")}`);
-      const ref = await repoRef("workspace");
-      for (const p of r.deliverables) {
-        if (budget < 5_000 || !/\.(html?|md|txt|json|csv|css|js|ts|tsx|jsx|sql|xml|ya?ml|py|cs|java)$/i.test(p)) continue;
-        const text = await getFileText(ref, p).catch(() => null);
-        if (text) block.push(`#### محتوای ${p}\n${truncate(text, Math.min(budget, 40_000))}`);
-      }
-    }
+    if (agent?.type === "coder" && r.changed?.length) block.push(`فایل‌های ساخته/تغییرداده‌شده: ${r.changed.map((p) => `\`${p}\``).join("، ")}`);
     const joined = block.join("\n\n");
     parts.push(truncate(joined, Math.max(2_000, budget)));
     budget -= joined.length;
@@ -374,8 +401,8 @@ async function inputsOf(st: EngineState, nodeId: string): Promise<string> {
   return parts.join("\n\n");
 }
 
-function nodeGen(run: JobRun, st: EngineState, id: string): GenContext {
-  const base = run.genContext(id);
+function nodeGen(run: JobRun, st: EngineState, id: string, connId: string): GenContext {
+  const base = run.genContext(id, connId);
   return {
     ...base,
     getPartial: () => st.results[id]?.partial ?? null,
@@ -386,175 +413,246 @@ function nodeGen(run: JobRun, st: EngineState, id: string): GenContext {
   };
 }
 
-async function runNode(run: JobRun, st: EngineState, id: string) {
+/** The request as the models get it: the prompt, this step's instructions, earlier steps, project, files. */
+async function userBlocks(run: JobRun, st: EngineState, node: WorkflowNode, agent: AgentDef): Promise<Block[]> {
+  const inputs = inputsOf(st, node.id);
+  const files = agent.attachments ? st.ctx.inputs : [];
+  const text = [
+    `## درخواست\n${st.ctx.prompt.trim() || "—"}`,
+    node.instructions?.trim() ? `\n## دستور این مرحله\n${node.instructions.trim()}` : "",
+    inputs ? `\n## خروجی مراحل قبل\n${inputs}` : "",
+    (agent.knowledge || agent.type === "coder") && st.ctx.projectText ? `\n${st.ctx.projectText}` : "",
+    files.length ? `\n## فایل‌های پیوست (${files.length} فایل)\n${files.map((f) => `- ${f.name}`).join("\n")}\nمحتوای فایل‌ها در ادامه آمده است؛ آن‌ها را کامل و دقیق بررسی کن.` : "",
+  ].join("\n");
+  const blocks: Block[] = [{ type: "text", text }];
+  if (files.length) blocks.push(...(await inputBlocks(files, run.deadline)));
+  return blocks;
+}
+
+function toolTitle(name: string, input: Record<string, unknown>): string {
+  const p = String(input.path ?? "");
+  switch (name) {
+    case "list_files":
+      return `فهرست فایل‌ها${input.query ? `: ${String(input.query)}` : p ? `: ${p}` : ""}`;
+    case "search_code":
+      return `جستجو: ${String(input.query ?? "")}`;
+    case "read_file":
+      return `خواندن ${p}`;
+    case "write_file":
+      return `نوشتن ${p}`;
+    case "append_file":
+      return `ادامه‌ی ${p}`;
+    case "edit_file":
+      return `ویرایش ${p}`;
+    case "delete_file":
+      return `حذف ${p}`;
+    default:
+      return name;
+  }
+}
+
+async function runLlmNode(run: JobRun, st: EngineState, id: string) {
   const node = st.workflow.nodes.find((n) => n.id === id)!;
   const agent = st.agents[node.agentId];
   const label = nodeLabel(st, node);
-  const settings = await getSettings();
   const prev = st.results[id];
   if (prev?.status !== "running") {
     st.results[id] = { status: "running", attempts: prev?.attempts ?? 0, partial: prev?.partial ?? null };
     await run.setNode(id, { status: "running" });
-    await run.log({ source: "gemini", kind: "node", title: `${label}: شروع`, data: { node: id } });
+    await run.log({ source: "ai", kind: "node", title: `${label}: شروع`, data: { node: id } });
   }
-
-  const inputs = await inputsOf(st, id);
-  const refs = agent.attachments ? st.ctx.fileRefs : [];
-  const text = [
-    st.ctx.request,
-    `\n## دستور مدیر\n${st.ctx.prompt || "—"}`,
-    node.instructions?.trim() ? `\n## دستور این مرحله\n${node.instructions.trim()}` : "",
-    inputs ? `\n## خروجی مراحل قبل\n${inputs}` : "",
-    refs.length ? `\n## فایل‌های پیوست (${refs.length} فایل)\n${refs.map((r) => `- ${r.name}${r.note ? ` — ${r.note}` : ""}`).join("\n")}\nمحتوای فایل‌ها در ادامه آمده است؛ آن‌ها را کامل و دقیق بررسی کن.` : "",
-    agent.knowledge && st.ctx.context ? `\n## دانش بازیابی‌شده از پایگاه دانش (فقط موارد مرتبط را به کار ببر)\n${truncate(st.ctx.context, 20_000)}` : "",
-  ].join("\n");
-  const userParts: Part[] = [{ text }, ...fileRefsToParts(refs)];
-  const common = {
-    agent: agent.id,
-    models: agent.models?.length ? agent.models : settings.models.prework,
-    system: st.prompts[agent.id] || agent.prompt,
-    history: historyContents(st.ctx.history),
-    userParts,
-    thinking: agent.thinking ?? settings.pipeline.thinkingLevel,
-    maxOutputTokens: 32000,
-    deadline: run.deadline,
-    partialKey: `node:${id}`,
-    ctx: nodeGen(run, st, id),
-  };
+  const conn = await getConnection(st.ctx.llmConn!, st.ctx.ownerId);
+  const cfg = await getUserConfig(st.ctx.ownerId);
+  const system = withAbout(st.prompts[agent.id] || agent.prompt, st.ctx.about);
+  const ctx = nodeGen(run, st, id, conn.id);
+  const model = agent.model?.trim() || st.ctx.llmModel;
+  const effort = agent.thinking ?? cfg.pipeline.thinking;
+  const history = historyMessages(st.ctx.history);
+  const withTools = agent.tools && st.ctx.projectId && agent.type === "llm" && agent.output !== "files";
 
   let result: NodeResult;
-  if (agent.type === "router") {
-    const { data, model } = await generateJson<{ decision?: string; reason?: string }>({ ...common, jsonSchema: ROUTER_SCHEMA, thinking: agent.thinking ?? "MEDIUM" });
-    const decision: Branch = data.decision === "no" ? "no" : "yes";
-    result = { status: "done", attempts: prev?.attempts ?? 0, text: (data.reason ?? "").trim(), decision, model };
-  } else if (agent.output === "files") {
-    const max = Math.max(0, Math.min(agent.maxFiles ?? 3, 10));
-    const { data, model } = await generateJson<{ files?: GenFile[] }>({ ...common, jsonSchema: filesSchema(max) });
-    const files = (data.files ?? [])
-      .filter((f) => f?.name && f.content?.trim())
-      .slice(0, max)
-      .map((f, i) => ({ name: helperFileName(f.name, i), purpose: (f.purpose ?? "").trim(), content: stripCodeFence(f.content) }));
-    result = { status: "done", attempts: prev?.attempts ?? 0, files, text: files.length ? files.map((f) => `- \`${f.name}\` — ${f.purpose}`).join("\n") : "فایل کمکی لازم نبود.", model };
+  if (withTools) {
+    // looks into the project's files itself before answering (read-only tools)
+    const project = await getProject(st.ctx.projectId!);
+    const fs = new WorkFS({}, await userRepoOrNull(st.ctx.ownerId), project);
+    let transcript = st.transcripts[id];
+    if (!transcript) {
+      transcript = { messages: [...history, { role: "user", content: await userBlocks(run, st, node, agent) }], turns: 0 };
+      st.transcripts[id] = transcript;
+    }
+    const res = await runAgent({
+      agent: agent.id,
+      conn,
+      model,
+      system: `${system}\n\nبرای پیدا کردن و خواندن فایل‌های مرتبط پروژه از ابزارها استفاده کن (فقط خواندنی) و در پایان پاسخ نهایی‌ات را بدون صدا زدن ابزار بنویس.`,
+      tools: workTools(fs, { write: false }),
+      transcript,
+      effort,
+      maxTurns: 30,
+      deadline: run.deadline,
+      ctx,
+      save: async () => save(run, st),
+      onTool: async (name, input) => run.live({ node: id, thought: toolTitle(name, input) }),
+    });
+    result = { status: "done", attempts: prev?.attempts ?? 0, text: res.summary, model: res.model };
   } else {
-    const res = await generate({ ...common, useSearch: agent.useSearch ?? false });
-    result = { status: "done", attempts: prev?.attempts ?? 0, text: res.text.trim(), model: res.model };
+    const common = { agent: agent.id, conn, model, system, history, user: await userBlocks(run, st, node, agent), effort, maxOutputTokens: 32000, deadline: run.deadline, partialKey: `node:${id}`, ctx };
+    if (agent.type === "router") {
+      const { data, model: used } = await generateJson<{ decision?: string; reason?: string }>({ ...common, jsonSchema: ROUTER_SCHEMA, effort: agent.thinking ?? "MEDIUM" });
+      result = { status: "done", attempts: prev?.attempts ?? 0, text: (data.reason ?? "").trim(), decision: data.decision === "no" ? "no" : "yes", model: used };
+    } else if (agent.output === "files") {
+      const max = Math.max(0, Math.min(agent.maxFiles ?? 3, 10));
+      const { data, model: used } = await generateJson<{ files?: GenFile[] }>({ ...common, jsonSchema: filesSchema(max) });
+      const files = (data.files ?? [])
+        .filter((f) => f?.name && f.content?.trim())
+        .slice(0, max)
+        .map((f, i) => ({ name: helperFileName(f.name, i), purpose: (f.purpose ?? "").trim(), content: stripCodeFence(f.content) }));
+      result = { status: "done", attempts: prev?.attempts ?? 0, files, text: files.length ? files.map((f) => `- \`${f.name}\` — ${f.purpose}`).join("\n") : "فایل کمکی لازم نبود.", model: used };
+    } else {
+      const res = await generate({ ...common, useSearch: agent.useSearch ?? false });
+      result = { status: "done", attempts: prev?.attempts ?? 0, text: res.text.trim(), model: res.model };
+    }
   }
   run.commitUsage();
   st.results[id] = result;
+  delete st.transcripts[id];
   st.models = [...st.models, result.model ?? ""].filter(Boolean);
-
-  const msgAgent = node.brief ? "brief" : node.reply ? null : agent.id;
-  if (msgAgent && result.text) await saveMessage(st, run.job.id, msgAgent, "model", result.text);
+  if (node.brief && result.text) await saveMessage(st, run.job.id, "brief", "model", result.text);
   const detail =
-    agent.type === "router"
-      ? `تصمیم: ${result.decision === "yes" ? "بله" : "خیر"} — ${truncate(result.text ?? "", 600)}`
-      : result.files
-        ? `${result.files.length} فایل`
-        : `${wordCount(result.text ?? "")} کلمه`;
+    agent.type === "router" ? `تصمیم: ${result.decision === "yes" ? "بله" : "خیر"} — ${truncate(result.text ?? "", 600)}` : result.files ? `${result.files.length} فایل` : `${wordCount(result.text ?? "")} کلمه`;
   await run.setNode(id, { status: "done", model: result.model, detail });
-  await run.log({ source: "gemini", kind: "node", title: `${label}: انجام شد`, detail: `${detail} — مدل ${result.model}`, data: { node: id, done: true } });
+  await run.log({ source: "ai", kind: "node", title: `${label}: انجام شد`, detail: `${detail} — مدل ${result.model}`, data: { node: id, done: true } });
+}
+
+/** The in-app executor: finds, reads, edits and creates files with tools (any provider). */
+async function runCoderNode(run: JobRun, st: EngineState, id: string) {
+  const node = st.workflow.nodes.find((n) => n.id === id)!;
+  const agent = st.agents[node.agentId];
+  const label = nodeLabel(st, node);
+  const prev = st.results[id];
+  if (prev?.status !== "running") {
+    st.results[id] = { status: "running", attempts: prev?.attempts ?? 0 };
+    await run.setNode(id, { status: "running", detail: "ایجنت مجری داخل اپ" });
+    await run.log({ source: "ai", kind: "node", title: `${label}: شروع`, data: { node: id } });
+  }
+  const conn = await getConnection(st.ctx.coderConn!, st.ctx.ownerId);
+  const cfg = await getUserConfig(st.ctx.ownerId);
+  const project = st.ctx.projectId ? await getProject(st.ctx.projectId) : null;
+  const fs = new WorkFS(st.staged, project ? await userRepoOrNull(st.ctx.ownerId) : null, project);
+  let transcript = st.transcripts[id];
+  if (!transcript) {
+    const user = await userBlocks(run, st, node, agent);
+    if (!project) user.push({ type: "text", text: "\n\n(پروژه‌ای انتخاب نشده: خروجی‌ها را به صورت فایل‌های کامل با نام گویا بساز؛ همین فایل‌ها به کاربر تحویل داده می‌شوند.)" });
+    transcript = { messages: [...historyMessages(st.ctx.history), { role: "user", content: user }], turns: 0 };
+    st.transcripts[id] = transcript;
+  }
+  const changed = new Set<string>(prev?.changed ?? []);
+  const res = await runAgent({
+    agent: agent.id,
+    conn,
+    model: agent.model?.trim() || st.ctx.coderModel,
+    system: withAbout(st.prompts[agent.id] || agent.prompt, st.ctx.about),
+    tools: workTools(fs, { write: true, onWrite: (p) => changed.add(p) }),
+    transcript,
+    effort: agent.thinking ?? cfg.pipeline.thinking,
+    maxTurns: st.maxAgentTurns,
+    deadline: run.deadline,
+    ctx: nodeGen(run, st, id, conn.id),
+    finishTool: "finish",
+    save: async () => {
+      st.results[id] = { ...(st.results[id] ?? { status: "running", attempts: 0 }), changed: [...changed] };
+      await save(run, st);
+    },
+    onTool: async (name, input, r) => {
+      run.live({ node: id, thought: toolTitle(name, input) });
+      if (["write_file", "edit_file", "delete_file"].includes(name)) {
+        await run.log({ source: "ai", kind: name === "delete_file" ? "file" : "tool", title: toolTitle(name, input), detail: r.ok ? null : r.text, data: { node: id } });
+      }
+    },
+  });
+  run.commitUsage();
+  const files = [...changed].filter((p) => p in st.staged);
+  st.results[id] = { status: "done", attempts: prev?.attempts ?? 0, text: res.summary, model: res.model, changed: files };
+  delete st.transcripts[id];
+  st.models = [...st.models, res.model ?? ""].filter(Boolean);
+  const detail = `${files.length} فایل`;
+  await run.setNode(id, { status: "done", model: res.model, detail });
+  await run.log({ source: "ai", kind: "node", title: `${label}: انجام شد`, detail: `${detail}${res.model ? ` — مدل ${res.model}` : ""}`, data: { node: id, done: true } });
 }
 
 async function runStep(run: JobRun, st: EngineState): Promise<EngineStep> {
   const outcomes = Object.fromEntries(Object.entries(st.results).map(([id, r]) => [id, { status: r.status, decision: r.decision }]));
-  const isClaude = (id: string) => st.agents[st.workflow.nodes.find((n) => n.id === id)!.agentId]?.type === "claude";
-  const { gemini, claude, skip, finished } = nextBatch(st.workflow, outcomes, isClaude, MAX_PARALLEL);
+  const { llm, coder, skip, finished } = nextBatch(st.workflow, outcomes, (id) => isCoder(st, id), MAX_PARALLEL);
   for (const id of skip) {
     st.results[id] = { status: "skipped", attempts: 0 };
     await run.setNode(id, { status: "skipped", detail: "این مسیر انتخاب نشد" });
   }
   if (skip.length) await save(run, st);
   if (finished) {
-    const settings = await getSettings();
-    st.phase = st.stage === "prework" && settings.knowledge.autoExtract ? "knowledge" : "publish";
+    st.phase = "publish";
     await save(run, st);
     return { type: "continue" };
   }
-  if (st.claudeNode) return { type: "claude" };
+  if (st.externalNode) return { type: "external" };
 
-  if (gemini.length) {
-    const settled = await Promise.allSettled(gemini.map((id) => runNode(run, st, id)));
-    await setProgress(run, st);
-    let rate: RateLimitError | null = null;
-    for (const [i, s] of settled.entries()) {
-      if (s.status === "fulfilled") continue;
-      const id = gemini[i];
-      const err = s.reason;
-      if (err instanceof DeadlineError) continue; // partial output saved; continues next step
-      if (err instanceof RateLimitError) {
-        rate ??= err;
-        continue;
-      }
-      const r = st.results[id] ?? { status: "pending", attempts: 0 };
-      const attempts = r.attempts + 1;
-      const label = nodeLabel(st, st.workflow.nodes.find((n) => n.id === id)!);
-      if (attempts >= MAX_NODE_ATTEMPTS) {
-        st.results[id] = { ...r, status: "error", attempts, error: errorMessage(err) };
-        await run.setNode(id, { status: "error", detail: errorMessage(err) });
-        await save(run, st);
-        return { type: "fail", error: `«${label}»: ${errorMessage(err)}` };
-      }
-      st.results[id] = { ...r, status: "pending", attempts };
-      await run.setNode(id, { status: "pending", detail: `خطا؛ تلاش دوباره (${attempts})` });
-      await run.log({ source: "gemini", kind: "warning", title: `${label}: خطا؛ تلاش دوباره (${attempts}/${MAX_NODE_ATTEMPTS})`, detail: errorMessage(err) });
+  if (coder && !llm.length && engineOf(st, st.agents[st.workflow.nodes.find((n) => n.id === coder)!.agentId]) === "claude_code") {
+    const prev = st.results[coder];
+    st.results[coder] = { status: "running", attempts: (prev?.attempts ?? 0) + 1 };
+    st.externalNode = coder;
+    await save(run, st);
+    await run.setNode(coder, { status: "running", detail: "Claude Code در GitHub Actions" });
+    return { type: "external" };
+  }
+
+  const batch = llm.length ? llm : coder ? [coder] : [];
+  if (!batch.length) return { type: "continue" };
+  const settled = await Promise.allSettled(batch.map((id) => (isCoder(st, id) ? runCoderNode(run, st, id) : runLlmNode(run, st, id))));
+  await setProgress(run, st);
+  let rate: RateLimitError | null = null;
+  let deadline = false;
+  for (const [i, s] of settled.entries()) {
+    if (s.status === "fulfilled") continue;
+    const id = batch[i];
+    const err = s.reason;
+    if (err instanceof DeadlineError) {
+      deadline = true; // partial output / transcript saved; continues next step
+      continue;
     }
-    await save(run, st);
-    if (rate) throw rate;
-    return { type: "continue" };
+    if (err instanceof RateLimitError) {
+      rate ??= err;
+      continue;
+    }
+    if (err instanceof FatalError) {
+      await save(run, st);
+      throw err;
+    }
+    const r = st.results[id] ?? { status: "pending", attempts: 0 };
+    const attempts = r.attempts + 1;
+    const label = nodeLabel(st, st.workflow.nodes.find((n) => n.id === id)!);
+    if (attempts >= MAX_NODE_ATTEMPTS) {
+      st.results[id] = { ...r, status: "error", attempts, error: errorMessage(err) };
+      await run.setNode(id, { status: "error", detail: errorMessage(err) });
+      await save(run, st);
+      return { type: "fail", error: `«${label}»: ${errorMessage(err)}` };
+    }
+    st.results[id] = { ...r, status: "pending", attempts };
+    await run.setNode(id, { status: "pending", detail: `خطا؛ تلاش دوباره (${attempts})` });
+    await run.log({ source: "ai", kind: "warning", title: `${label}: خطا؛ تلاش دوباره (${attempts}/${MAX_NODE_ATTEMPTS})`, detail: errorMessage(err) });
   }
-
-  if (claude) {
-    const prev = st.results[claude];
-    st.results[claude] = { status: "running", attempts: (prev?.attempts ?? 0) + 1 };
-    st.claudeNode = claude;
-    await save(run, st);
-    await run.setNode(claude, { status: "running", detail: "اجرا در GitHub Actions" });
-    return { type: "claude" };
-  }
+  await save(run, st);
+  if (rate) throw rate;
+  if (deadline) throw new DeadlineError();
   return { type: "continue" };
 }
 
 // ---------------------------------------------------------------------------
-// knowledge + publish
+// publish
 // ---------------------------------------------------------------------------
-async function extractKnowledge(run: JobRun, st: EngineState) {
-  await run.setNode("publish", { status: "running", detail: "استخراج دانش" });
-  const settings = await getSettings();
-  const task = await loadTask(st.ctx.taskId);
-  const outputs = st.workflow.nodes
-    .filter((n) => st.results[n.id]?.status === "done" && st.results[n.id]?.text)
-    .map((n) => `## ${nodeLabel(st, n)}\n${truncate(st.results[n.id].text ?? "", 12_000)}`)
-    .join("\n\n");
-  try {
-    const { data } = await generateJson<{ items: EngineState["knowledgeItems"] }>({
-      agent: "knowledge",
-      models: settings.models.knowledge,
-      system: await getAgentPrompt("knowledge"),
-      userParts: [{ text: `${truncate(st.ctx.request, 4000)}\n\n## دستور مدیر\n${truncate(st.ctx.prompt, 3000)}\n\n${truncate(outputs, 24_000)}` }],
-      jsonSchema: KNOWLEDGE_SCHEMA,
-      thinking: "LOW",
-      deadline: run.deadline,
-      partialKey: "knowledge",
-      ctx: run.genContext("publish"),
-    });
-    run.commitUsage();
-    const items = (data.items ?? []).filter((i) => (i.score ?? 0) >= settings.knowledge.minScore && i.content?.trim());
-    const stored = await addKnowledge(
-      items.map((i) => ({ ...i, task_id: task.id, task_code: task.code, requester_id: i.kind === "requester_profile" ? task.requester_id : null, source: "prework" })),
-    );
-    st.knowledgeItems = items;
-    await run.log({ source: "knowledge", kind: "result", title: `${items.length} مورد دانش استخراج و در پایگاه دانش ذخیره شد`, detail: `${stored} قطعه‌ی برداری` });
-  } catch (err) {
-    if (err instanceof RateLimitError || err instanceof DeadlineError) throw err;
-    await run.log({ source: "knowledge", kind: "warning", title: "استخراج دانش ناموفق بود (ادامه می‌یابد)", detail: errorMessage(err) });
-  }
-}
-
 /** Saved text of a node, optionally followed by the outputs it received. */
-async function fileContent(st: EngineState, n: WorkflowNode): Promise<string> {
+function fileContent(st: EngineState, n: WorkflowNode): string {
   const body = (st.results[n.id].text ?? "").trim();
   if (!n.appendInputs) return `${body}\n`;
-  const inputs = await inputsOf(st, n.id);
+  const inputs = inputsOf(st, n.id);
   return inputs ? `${body}\n\n---\n\n## پیوست: خروجی مراحل قبل\n\n${inputs}\n` : `${body}\n`;
 }
 
@@ -563,134 +661,143 @@ function replyText(st: EngineState): string {
   const flagged = done.filter((n) => n.reply).map((n) => st.results[n.id].text ?? "").filter(Boolean);
   if (flagged.length) return flagged.join("\n\n");
   const last = done.filter((n) => st.agents[n.agentId]?.type !== "router").pop();
-  return last ? truncate(st.results[last.id].text ?? "", 4000) : "";
+  return last ? truncate(st.results[last.id].text ?? "", 6000) : "";
 }
 
-async function publishPrework(run: JobRun, st: EngineState) {
-  await run.setNode("publish", { status: "running" });
-  const task = await loadTask(st.ctx.taskId);
-  const root = task.root_id && task.root_id !== task.id ? await loadTask(task.root_id) : task;
-  const { data: requester } = await db().from("profiles").select("*").eq("id", task.requester_id).maybeSingle<Profile>();
-  const workspace = await repoRef("workspace");
-  const it = st.ctx.iterPath;
-  const pw = `${it}/prework`;
-  const now = new Date().toISOString();
-
-  const files: CommitFile[] = [];
-  const mf: ManifestFile[] = [];
-  const outputs: { path: string; size: number; name?: string }[] = [];
-  const add = (path: string, content: string, role: string, agent: string, description: string, extra: Partial<ManifestFile> = {}) => {
-    files.push({ path, content });
-    mf.push({ path, role, agent, iteration: task.seq_in_root, description, updated_at: now, ...extra });
-  };
-
-  add(`${it}/request.md`, requestMarkdown(task, requester, root), "request", "تسک‌دهنده", "درخواست و مشخصات تسک");
-  add(`${it}/PROMPT-prework.md`, `# پرامپت پیش‌کار\n\n${st.ctx.prompt}\n`, "prompt", "مدیر", "دستور مدیر برای پیش‌کار");
+/** Text outputs of model steps (saveAs / files) as record files of this run. */
+function recordFiles(st: EngineState): { path: string; content: string; name?: string }[] {
+  const out: { path: string; content: string; name?: string }[] = [];
   const ordered = [...st.workflow.nodes].sort((a, b) => Number(!!b.brief) - Number(!!a.brief));
-  const briefPaths: string[] = [];
   for (const n of ordered) {
     const r = st.results[n.id];
-    if (r?.status !== "done") continue;
-    const label = nodeLabel(st, n);
-    if (n.saveAs && r.text) {
-      const path = `${pw}/${helperFileName(n.saveAs, 0)}`;
-      const content = await fileContent(st, n);
-      add(path, content, n.brief ? "brief" : "prework", "Gemini", n.brief ? "دستور کار برای Claude" : label, { depends_on: [`${it}/request.md`, ...st.ctx.inputPaths] });
-      outputs.push({ path, size: Buffer.byteLength(content), name: n.brief ? `دستور کار (${n.saveAs})` : n.saveAs });
-      if (n.brief) briefPaths.push(path);
-    }
-    for (const f of r.files ?? []) {
-      const path = `${pw}/files/${f.name}`;
-      add(path, f.content, "helper", "Gemini", f.purpose || label, { depends_on: briefPaths });
-      outputs.push({ path, size: Buffer.byteLength(f.content) });
-    }
+    if (r?.status !== "done" || st.agents[n.agentId]?.type === "coder") continue;
+    if (n.saveAs && r.text) out.push({ path: helperFileName(n.saveAs, 0), content: fileContent(st, n), name: n.brief ? `دستور کار (${n.saveAs})` : n.saveAs });
+    for (const f of r.files ?? []) out.push({ path: `files/${f.name}`, content: f.content });
   }
-  for (const p of st.ctx.inputPaths) mf.push({ path: p, role: "input", agent: "تسک‌دهنده", iteration: task.seq_in_root, description: "فایل پیوست", updated_at: now });
-  for (const k of st.knowledgeItems) {
-    files.push({
-      path: `knowledge/${k.kind}/${task.code}_${slugify(k.title, 40)}.md`,
-      content: `# ${k.title}\n\n- نوع: ${KNOWLEDGE_KINDS[k.kind] ?? k.kind}\n- منبع: تسک ${task.code} «${task.title}»\n- برچسب‌ها: ${(k.tags ?? []).join("، ")}\n- ارزش استفاده‌ی مجدد: ${k.score ?? "—"}/5\n\n${k.content}\n`,
-    });
-  }
-
-  const existing = await getFileText(workspace, `${st.ctx.rootPath}/manifest.json`);
-  let manifest: Manifest = existing ? JSON.parse(existing) : emptyManifest(root, requester);
-  manifest = mergeManifest(manifest, mf, {
-    seq: task.seq_in_root,
-    code: task.code,
-    title: task.title,
-    relation: task.relation_type,
-    folder: it,
-    prework: { job_id: run.job.id, completed_at: now, models: [...new Set(st.models)], files: outputs.length },
-  });
-  const { data: family } = await db().from("tasks").select("*").or(`id.eq.${root.id},root_id.eq.${root.id}`);
-  files.push({ path: `${st.ctx.rootPath}/manifest.json`, content: JSON.stringify(manifest, null, 2) });
-  files.push({ path: `${st.ctx.rootPath}/README.md`, content: readmeMarkdown(root, manifest, (family ?? []) as Task[]) });
-  const history = (await getFileText(workspace, `${st.ctx.rootPath}/HISTORY.md`)) ?? `# تاریخچه‌ی ${root.code}\n`;
-  files.push({
-    path: `${st.ctx.rootPath}/HISTORY.md`,
-    content: `${history.trim()}\n\n## ${formatJalali(now, { withTime: true })} — پیش‌کار تکرار ${String(task.seq_in_root).padStart(2, "0")} (${task.code})\n- ${task.title}\n- ورکفلو: ${st.workflow.name}\n- خروجی‌ها: ${outputs.map((o) => `\`${o.path.replace(`${st.ctx.rootPath}/`, "")}\``).join("، ") || "—"}\n`,
-  });
-  if (!(await getFileText(workspace, `${st.ctx.rootPath}/.graphifyignore`))) {
-    files.push({ path: `${st.ctx.rootPath}/.graphifyignore`, content: ".claude-session/\ngraphify-out/cache/\n*.jsonl\n" });
-  }
-
-  const commit = await commitFiles(workspace, files, `[TaskFlow] پیش‌کار ${task.code}: ${task.title}`);
-  await registerOutputs(task.id, run.job.id, outputs);
-  await saveReply(task.id, run.job.id, replyText(st) || "پیش‌کار انجام شد.");
-  await run.log({ source: "github", kind: "commit", title: `خروجی پیش‌کار در GitHub منتشر شد (${outputs.length} فایل)`, detail: commit?.url ?? null, data: { url: commit?.url, path: st.ctx.rootPath } });
-  await run.setNode("publish", { status: "done", detail: commit?.sha.slice(0, 7) });
+  return out;
 }
 
-async function publishMain(run: JobRun, st: EngineState) {
+interface Manifest {
+  schema: "taskflow.task/v2";
+  task: { code: string; title: string; project: string | null };
+  runs: { n: number; stage: Stage; job_id: string; at: string; folder: string; workflow: string; models: string[]; outputs: string[]; changed?: string[] }[];
+}
+
+async function manifestFile(repo: Repo, st: EngineState, task: Task, project: Project | null, entry: Manifest["runs"][number]): Promise<CommitFile> {
+  const path = `${st.ctx.recordsDir}/manifest.json`;
+  const existing = await getFileText(repo, path).catch(() => null);
+  let m: Manifest = { schema: "taskflow.task/v2", task: { code: task.code, title: task.title, project: project?.root_path ?? null }, runs: [] };
+  try {
+    if (existing) m = { ...m, ...(JSON.parse(existing) as Manifest) };
+  } catch {
+    /* rewrite a broken manifest */
+  }
+  m.runs = [...(m.runs ?? []).filter((r) => !(r.n === entry.n && r.stage === entry.stage)), entry].sort((a, b) => a.at.localeCompare(b.at));
+  return { path, content: JSON.stringify(m, null, 2) };
+}
+
+async function publish(run: JobRun, st: EngineState) {
   await run.setNode("publish", { status: "running" });
   const task = await loadTask(st.ctx.taskId);
-  const finalDir = `${st.ctx.rootPath}/final`;
-  const files: CommitFile[] = [];
-  const outputs: { path: string; size?: number | null; name?: string }[] = [];
-  const seen = new Set<string>();
-  for (const n of st.workflow.nodes) {
-    const r = st.results[n.id];
-    if (r?.status !== "done") continue;
-    for (const p of r.deliverables ?? []) {
-      if (!seen.has(p)) outputs.push({ path: p });
-      seen.add(p);
-    }
-    // Gemini steps of the main stage deliver into final/ as well
-    if (n.saveAs && r.text) {
-      const path = `${finalDir}/${helperFileName(n.saveAs, 0)}`;
-      const content = await fileContent(st, n);
-      files.push({ path, content });
-      outputs.push({ path, size: Buffer.byteLength(content), name: n.saveAs });
-    }
-    for (const f of r.files ?? []) {
-      const path = `${finalDir}/${f.name}`;
+  const project = st.ctx.projectId ? await getProject(st.ctx.projectId).catch(() => null) : null;
+  const repo = st.ctx.recordsDir ? await userRepoOrNull(st.ctx.ownerId) : null;
+  const records = recordFiles(st);
+  const reply = replyText(st) || (st.stage === "prework" ? "پیش‌کار انجام شد." : "کار انجام شد.");
+  const outputs: OutputFile[] = [];
+  let commitUrl: string | null = null;
+
+  // files of in-app executor steps, and files Claude Code changed in GitHub Actions (already committed)
+  const stagedEntries = Object.entries(st.staged);
+  const external = st.workflow.nodes.flatMap((n) => (isCoder(st, n.id) && engineOf(st, st.agents[n.agentId]) === "claude_code" ? (st.results[n.id]?.changed ?? []) : []));
+
+  if (repo && st.ctx.runDir) {
+    const files: CommitFile[] = [{ path: `${st.ctx.runDir}/PROMPT.md`, content: `# پرامپت ${st.stage === "prework" ? "پیش‌کار" : "کار اصلی"}\n\n${st.ctx.prompt}\n` }];
+    for (const f of records) {
+      const path = `${st.ctx.runDir}/${f.path}`;
       files.push({ path, content: f.content });
-      outputs.push({ path, size: Buffer.byteLength(f.content) });
+      outputs.push({ path, size: Buffer.byteLength(f.content), name: f.name });
+    }
+    files.push({ path: `${st.ctx.runDir}/REPLY.md`, content: `${reply}\n` });
+    for (const [p, content] of stagedEntries) {
+      const path = project ? `${project.root_path}/${p}` : `${st.ctx.recordsDir}/final/${p}`;
+      files.push({ path, content });
+      if (content !== null) outputs.push({ path, size: Buffer.byteLength(content), name: p });
+    }
+    for (const p of external) outputs.push({ path: p });
+    files.push(
+      await manifestFile(repo, st, task, project, {
+        n: st.ctx.run,
+        stage: st.stage,
+        job_id: run.job.id,
+        at: new Date().toISOString(),
+        folder: st.ctx.runDir,
+        workflow: st.workflow.name,
+        models: [...new Set(st.models)],
+        outputs: outputs.map((o) => o.path ?? "").filter(Boolean),
+        ...(stagedEntries.length || external.length ? { changed: [...stagedEntries.map(([p]) => p), ...external] } : {}),
+      }),
+    );
+    const title = st.ctx.prompt.split("\n")[0].slice(0, 70) || task.title;
+    const commit = await commitFiles(repo, files, `[TaskFlow] ${task.code} ${st.stage === "prework" ? "پیش‌کار" : "کار اصلی"}: ${title}`);
+    commitUrl = commit?.url ?? null;
+    await run.log({
+      source: "github",
+      kind: "commit",
+      title: project && stagedEntries.length ? `${stagedEntries.length} فایل در پروژه‌ی «${project.name}» به‌روز شد` : `خروجی‌ها در GitHub ذخیره شد (${outputs.length} فایل)`,
+      detail: commitUrl,
+      data: { url: commitUrl },
+    });
+  } else {
+    // no GitHub: outputs are kept in Supabase Storage
+    const plain = [...records.map((r) => ({ path: r.path, content: r.content })), ...stagedEntries.filter(([, c]) => c !== null).map(([p, c]) => ({ path: p, content: c as string }))];
+    outputs.push(...(await storeOutputs(st.ctx.ownerId, task.id, run.job.id, plain)));
+    if (plain.length) await run.log({ source: "system", kind: "file", title: `${plain.length} فایل خروجی ذخیره شد` });
+  }
+
+  // keep the project's file map in step with what changed
+  if (project) {
+    const rows = stagedEntries.filter(([, c]) => c !== null).map(([p, c]) => indexRow(project.id, p, c as string));
+    if (rows.length) await upsertIndex(rows);
+    const removed = stagedEntries.filter(([, c]) => c === null).map(([p]) => p);
+    if (removed.length) await removeFromIndex(project.id, removed);
+    const ext = external.filter((p) => p.startsWith(`${project.root_path}/`) && !p.includes("/.taskflow/")).map((p) => p.slice(project.root_path.length + 1));
+    for (const p of ext) {
+      const text = repo ? await getFileText(repo, `${project.root_path}/${p}`).catch(() => null) : null;
+      if (text === null) await removeFromIndex(project.id, [p]);
+      else await upsertIndex([indexRow(project.id, p, text)]);
+    }
+    if (rows.length || removed.length || ext.length) {
+      await refreshStats(project.id);
+      await writeIndexFile(project, repo ?? undefined).catch(() => undefined);
     }
   }
-  let commitUrl: string | null = null;
-  if (files.length) commitUrl = (await commitFiles(await repoRef("workspace"), files, `[TaskFlow] خروجی کار اصلی ${task.code}`))?.url ?? null;
+
   await registerOutputs(task.id, run.job.id, outputs);
-  const reply = replyText(st);
-  await saveReply(task.id, run.job.id, reply || "کار اصلی انجام شد.");
-  await db().from("tasks").update({ status: "main_done", progress: 90, main_done_at: new Date().toISOString() }).eq("id", task.id);
-  await logEvent({ task_id: task.id, job_id: run.job.id, kind: "status", title: "وضعیت: کار اصلی انجام شد — در حال نهایی‌سازی", visibility: "requester" });
-  await logEvent({
-    task_id: task.id,
-    job_id: run.job.id,
-    source: "claude",
-    kind: "result",
-    title: `خروجی نهایی در GitHub ذخیره شد${outputs.length ? ` (${outputs.length} فایل)` : ""}`,
-    detail: reply || null,
-    data: { url: commitUrl ?? st.workflow.nodes.map((n) => st.results[n.id]?.commitUrl).filter(Boolean).pop() ?? null },
-  });
-  await notifyAdmins({ title: `کار اصلی ${task.code} تمام شد`, body: (reply || task.title).slice(0, 240), link: `/tasks/${task.id}`, task_id: task.id });
-  const settings = await getSettings();
-  const path = task.github_path;
-  if (settings.knowledge.autoExtract && path) await enqueueJob({ kind: "knowledge", task_id: task.id, payload: { path, source: "main" }, priority: 35 });
-  if (settings.graphify.mode !== "off" && path) await enqueueJob({ kind: "graphify", task_id: task.id, payload: { path }, priority: 30 });
+  await saveReply(task.id, run.job.id, reply);
   await run.setNode("publish", { status: "done", detail: `${outputs.length} فایل` });
+
+  const cfg = await getUserConfig(st.ctx.ownerId);
+  const changedAll = [...stagedEntries.map(([p]) => p), ...external];
+  if (project && cfg.knowledge.autoUpdate) {
+    await enqueueJob({
+      kind: "knowledge",
+      owner_id: st.ctx.ownerId,
+      connection_id: stageModel(cfg, "knowledge").connectionId,
+      project_id: project.id,
+      task_id: task.id,
+      payload: { stage: st.stage, prompt: truncate(st.ctx.prompt, 6000), reply: truncate(reply, 8000), changed: changedAll.slice(0, 200) },
+      priority: 35,
+    });
+  }
+  if (project && st.stage === "main" && cfg.graphify.mode !== "off" && changedAll.length) {
+    await enqueueJob({ kind: "graphify", owner_id: st.ctx.ownerId, project_id: project.id, payload: { project_id: project.id }, priority: 30 });
+  }
+  if (st.stage === "main") {
+    await db().from("tasks").update({ status: "main_done", progress: 90, main_done_at: new Date().toISOString() }).eq("id", task.id);
+    await logEvent({ task_id: task.id, job_id: run.job.id, kind: "status", title: "وضعیت: کار اصلی انجام شد — در حال نهایی‌سازی", visibility: "requester" });
+    await logEvent({ task_id: task.id, job_id: run.job.id, source: "ai", kind: "result", title: `کار اصلی تمام شد${outputs.length ? ` (${outputs.length} فایل)` : ""}`, detail: reply, data: { url: commitUrl } });
+    await notify(st.ctx.ownerId, { title: `کار اصلی ${task.code} تمام شد`, body: truncate(reply, 240), link: `/tasks/${task.id}`, task_id: task.id });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -698,18 +805,15 @@ async function publishMain(run: JobRun, st: EngineState) {
 // ---------------------------------------------------------------------------
 /**
  * Advances a stage's workflow by one step (serverless friendly: every step fits the worker budget
- * and the state lives in job_data). Returns "claude" when a Claude node must run in GitHub Actions.
+ * and the state lives in job_data). Returns "external" when a coder step must run in GitHub Actions.
  */
 export async function engineStep(run: JobRun, stage: Stage): Promise<EngineStep> {
   let st = load(run);
-  if (!st || st.stage !== stage) {
-    if (run.data.graph?.values && !st) await run.log({ source: "system", kind: "warning", title: "این اجرا با موتور ورکفلوی جدید از ابتدا شروع می‌شود" });
-    st = await start(run, stage);
-  }
+  if (!st || st.stage !== stage) st = await start(run, stage);
   switch (st.phase) {
     case "prepare":
       await prepare(run, st);
-      st.phase = stage === "prework" ? "inputs" : "run";
+      st.phase = st.ctx.runDir && st.ctx.inputs.length ? "inputs" : "run";
       await save(run, st);
       return { type: "continue" };
     case "inputs":
@@ -718,14 +822,8 @@ export async function engineStep(run: JobRun, stage: Stage): Promise<EngineStep>
       return { type: "continue" };
     case "run":
       return runStep(run, st);
-    case "knowledge":
-      await extractKnowledge(run, st);
-      st.phase = "publish";
-      await save(run, st);
-      return { type: "continue" };
     case "publish":
-      if (stage === "prework") await publishPrework(run, st);
-      else await publishMain(run, st);
+      await publish(run, st);
       st.phase = "done";
       await save(run, st);
       return { type: "done" };
@@ -734,36 +832,34 @@ export async function engineStep(run: JobRun, stage: Stage): Promise<EngineStep>
   }
 }
 
-/** The part of Claude's prompt that belongs to the current workflow step (its instructions and inputs). */
-export async function claudeStepPrompt(st: EngineState): Promise<{ text: string; agent: AgentDef | null }> {
-  const id = st.claudeNode;
-  const node = id ? st.workflow.nodes.find((n) => n.id === id) : null;
-  if (!node) return { text: "", agent: null };
-  const agent = st.agents[node.agentId] ?? null;
-  const claudeSteps = st.workflow.nodes.filter((n) => st.agents[n.agentId]?.type === "claude");
+/** Material for the Claude Code step running in GitHub Actions. */
+export function externalStepPrompt(st: EngineState): { text: string; agent: AgentDef | null; node: WorkflowNode | null } {
+  const id = st.externalNode;
+  const node = id ? (st.workflow.nodes.find((n) => n.id === id) ?? null) : null;
+  if (!node) return { text: "", agent: null, node: null };
   const lines: string[] = [];
-  const own = [st.prompts[node.agentId], node.instructions].map((s) => s?.trim()).filter((s): s is string => !!s);
-  if (claudeSteps.length > 1 || own.length) lines.push(`## این مرحله: ${nodeLabel(st, node)}`, ...own);
-  const inputs = await inputsOf(st, node.id);
+  if (node.instructions?.trim()) lines.push("## دستور این مرحله", node.instructions.trim());
+  const inputs = inputsOf(st, node.id);
   if (inputs) lines.push("## خروجی مراحل قبل همین ورکفلو", inputs);
-  return { text: lines.join("\n\n"), agent };
+  return { text: lines.join("\n\n"), agent: st.agents[node.agentId] ?? null, node };
 }
 
 /**
- * The GitHub runner finished a Claude node: record its result and hand the job back to the queue so
- * the rest of the workflow (or the final publish step) runs. Returns false for jobs without a workflow.
+ * The GitHub runner finished a Claude Code step: record it and hand the job back to the queue so the
+ * rest of the workflow (and publishing) runs. Returns false for jobs without a workflow.
  */
-export async function completeClaudeNode(job: Job, r: { summary?: string; files_changed?: string[]; commit_url?: string | null }): Promise<boolean> {
+export async function completeExternalNode(job: Job, r: { summary?: string; files_changed?: string[]; commit_url?: string | null }): Promise<boolean> {
   const st = await readEngine(job.id);
-  if (!st?.claudeNode) return false;
-  const id = st.claudeNode;
-  const { data: task } = await db().from("tasks").select("github_path").eq("id", job.task_id).maybeSingle<{ github_path: string | null }>();
-  const deliverables = task?.github_path ? (r.files_changed ?? []).filter((p) => isDeliverablePath(task.github_path!, p)) : [];
-  st.results[id] = { ...(st.results[id] ?? { attempts: 1 }), status: "done", text: (r.summary ?? "").trim(), deliverables, commitUrl: r.commit_url ?? null };
-  st.claudeNode = null;
+  if (!st?.externalNode) return false;
+  const id = st.externalNode;
+  const project = st.ctx.projectId ? await getProject(st.ctx.projectId).catch(() => null) : null;
+  const okPrefix = project ? `${project.root_path}/` : st.ctx.recordsDir ? `${st.ctx.recordsDir}/final/` : "";
+  const changed = (r.files_changed ?? []).filter((p) => okPrefix && p.startsWith(okPrefix) && !p.includes("/.taskflow/") && !p.includes("/.claude-session/"));
+  st.results[id] = { ...(st.results[id] ?? { attempts: 1 }), status: "done", text: (r.summary ?? "").trim(), changed, commitUrl: r.commit_url ?? null };
+  st.externalNode = null;
   await writeEngine(job.id, st);
   const nodes = { ...(job.state?.nodes ?? {}) };
-  nodes[id] = { ...(nodes[id] ?? {}), status: "done", finished_at: new Date().toISOString(), detail: `${deliverables.length} فایل` };
+  nodes[id] = { ...(nodes[id] ?? {}), status: "done", finished_at: new Date().toISOString(), detail: `${changed.length} فایل` };
   await db()
     .from("jobs")
     .update({

@@ -1,27 +1,34 @@
 import Link from "next/link";
-import { AlertCircle, ChevronLeft, ClipboardList, Plus } from "lucide-react";
+import { AlertCircle, ChevronLeft, ClipboardList, Inbox, Plus, Send } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/supabase/admin";
-import { Button, Card, EmptyState, Progress } from "@/components/ui/primitives";
+import { peopleById } from "@/lib/people";
+import { Avatar, Button, Card, EmptyState, Progress } from "@/components/ui/primitives";
 import { PriorityDot, StatusBadge } from "@/components/tasks/badges";
 import { formatJalali, timeAgo } from "@/lib/jalali";
-import { faNum } from "@/lib/utils";
+import { cn, faNum } from "@/lib/utils";
 import { PortalLive } from "./portal-live";
-import type { Task } from "@/lib/types";
+import type { PersonLite, Task } from "@/lib/types";
 
 export const metadata = { title: "تسک‌های من" };
 
-function TaskCard({ t, related }: { t: Task; related: Task[] }) {
+function TaskCard({ t, other, otherLabel, mine }: { t: Task; other?: PersonLite; otherLabel: string; mine: boolean }) {
   return (
     <Link href={`/portal/tasks/${t.id}`}>
       <Card className="group p-4 transition hover:-translate-y-0.5 hover:shadow-pop sm:p-5">
         <div className="flex flex-wrap items-center gap-2">
           <PriorityDot priority={t.priority} />
           <span className="ltr text-xs font-bold text-muted">{t.code}</span>
-          <StatusBadge status={t.status} requester />
+          <StatusBadge status={t.status} requester={!mine} />
           <ChevronLeft className="ms-auto size-5 text-faint transition group-hover:-translate-x-1" />
         </div>
         <p className="mt-2 text-[15px] font-extrabold leading-7">{t.title}</p>
+        {other ? (
+          <p className="mt-1.5 flex items-center gap-1.5 text-xs text-muted">
+            <Avatar name={other.full_name ?? "?"} src={other.avatar_url} size={18} />
+            {otherLabel}: <b className="text-fg">{other.full_name}</b>
+          </p>
+        ) : null}
         <div className="mt-3 flex items-center gap-3">
           <Progress value={t.progress} className="flex-1" tone={t.status === "closed" ? "success" : "brand"} />
           <span className="text-xs font-bold">{faNum(t.progress)}٪</span>
@@ -29,30 +36,59 @@ function TaskCard({ t, related }: { t: Task; related: Task[] }) {
         <div className="mt-2 flex flex-wrap gap-x-4 text-xs text-muted">
           <span>{t.kind === "event" ? `رویداد: ${formatJalali(t.event_at, { withTime: true })}` : t.end_date ? `مهلت: ${formatJalali(t.end_date)}` : "بدون مهلت"}</span>
           <span>به‌روزرسانی {timeAgo(t.status_changed_at)}</span>
-          {related.length ? <span>{faNum(related.length)} تسک مرتبط</span> : null}
         </div>
       </Card>
     </Link>
   );
 }
 
-export default async function PortalPage() {
+function Section({ title, tasks, people, mine, tone }: { title: React.ReactNode; tasks: Task[]; people: Map<string, PersonLite>; mine: boolean; tone?: string }) {
+  if (!tasks.length) return null;
+  return (
+    <section>
+      <h2 className={cn("mb-3 flex items-center gap-2 text-base font-extrabold", tone)}>{title}</h2>
+      <div className="grid gap-3 md:grid-cols-2">
+        {tasks.map((t) => (
+          <TaskCard
+            key={t.id}
+            t={t}
+            other={mine ? (t.requester_id !== t.assignee_id ? people.get(t.requester_id) : undefined) : people.get(t.assignee_id)}
+            otherLabel={mine ? "از طرف" : "مسئول"}
+            mine={mine}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/** Simple app home: tasks given to me (update their status by hand) and tasks I gave others. */
+export default async function PortalPage(props: PageProps<"/portal">) {
   const me = await requireUser();
-  const { data } = await db().from("tasks").select("*").eq("requester_id", me.id).order("created_at", { ascending: false });
-  const tasks = (data ?? []) as Task[];
-  const roots = tasks.filter((t) => !t.parent_id);
-  const relatedOf = (id: string) => tasks.filter((t) => t.root_id === id && t.id !== id);
-  const needAction = tasks.filter((t) => t.status === "returned" || t.status === "closure_pending");
-  const active = roots.filter((t) => !["closed", "cancelled"].includes(t.status));
-  const done = roots.filter((t) => ["closed", "cancelled"].includes(t.status));
+  const sp = await props.searchParams;
+  const tab = sp.tab === "given" ? "given" : "mine";
+  const [assigned, given] = await Promise.all([
+    db().from("tasks").select("*").eq("assignee_id", me.id).order("status_changed_at", { ascending: false }).limit(300),
+    db().from("tasks").select("*").eq("requester_id", me.id).neq("assignee_id", me.id).order("status_changed_at", { ascending: false }).limit(300),
+  ]);
+  const mine = (assigned.data ?? []) as Task[];
+  const gave = (given.data ?? []) as Task[];
+  const people = await peopleById([...mine.map((t) => t.requester_id), ...gave.map((t) => t.assignee_id)]);
+  const open = (t: Task) => !["closed", "cancelled"].includes(t.status);
+
+  const mineAction = mine.filter((t) => t.status === "pending_approval" || t.status === "closure_rejected");
+  const mineActive = mine.filter((t) => open(t) && !mineAction.includes(t));
+  const gaveAction = gave.filter((t) => t.status === "returned" || t.status === "closure_pending");
+  const gaveActive = gave.filter((t) => open(t) && !gaveAction.includes(t));
+  const list = tab === "mine" ? mine : gave;
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <PortalLive userId={me.id} />
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-black">سلام {me.profile.full_name?.split(" ")[0] ?? ""} 👋</h1>
-          <p className="mt-1 text-sm text-muted">تسک‌هایتان را ثبت کنید و وضعیت و پیشرفت آن‌ها را زنده دنبال کنید.</p>
+          <p className="mt-1 text-sm text-muted">به هر کسی تسک بدهید، تسک‌هایی که به شما سپرده شده را انجام دهید و وضعیتشان را به‌روز کنید.</p>
         </div>
         <Link href="/portal/new">
           <Button size="lg">
@@ -61,44 +97,44 @@ export default async function PortalPage() {
         </Link>
       </div>
 
-      {needAction.length ? (
-        <section>
-          <h2 className="mb-3 flex items-center gap-2 text-base font-extrabold text-rose-600 dark:text-rose-300">
-            <AlertCircle className="size-5" /> نیاز به اقدام شما ({faNum(needAction.length)})
-          </h2>
-          <div className="grid gap-3 md:grid-cols-2">
-            {needAction.map((t) => (
-              <TaskCard key={t.id} t={t} related={relatedOf(t.id)} />
-            ))}
-          </div>
-        </section>
+      <div className="flex gap-2 rounded-2xl bg-surface-muted p-1">
+        {[
+          { key: "mine", label: "سپرده به من", icon: <Inbox className="size-4" />, count: mineAction.length + mineActive.length },
+          { key: "given", label: "داده‌شده توسط من", icon: <Send className="size-4" />, count: gaveAction.length + gaveActive.length },
+        ].map((t) => (
+          <Link
+            key={t.key}
+            href={t.key === "mine" ? "/portal" : "/portal?tab=given"}
+            className={cn("flex flex-1 items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-bold transition", tab === t.key ? "bg-surface-strong text-fg shadow-sm" : "text-muted")}
+          >
+            {t.icon} {t.label} {t.count ? <span className="rounded-full bg-primary-soft px-1.5 text-[11px] text-primary">{faNum(t.count)}</span> : null}
+          </Link>
+        ))}
+      </div>
+
+      {tab === "mine" ? (
+        <>
+          <Section title={<><AlertCircle className="size-5" /> منتظر شما ({faNum(mineAction.length)})</>} tasks={mineAction} people={people} mine tone="text-rose-600 dark:text-rose-300" />
+          <Section title={<>در جریان ({faNum(mineActive.length)})</>} tasks={mineActive} people={people} mine />
+        </>
+      ) : (
+        <>
+          <Section title={<><AlertCircle className="size-5" /> نیاز به اقدام شما ({faNum(gaveAction.length)})</>} tasks={gaveAction} people={people} mine={false} tone="text-rose-600 dark:text-rose-300" />
+          <Section title={<>در جریان ({faNum(gaveActive.length)})</>} tasks={gaveActive} people={people} mine={false} />
+        </>
+      )}
+
+      {!list.filter(open).length ? (
+        <Card>
+          <EmptyState
+            icon={<ClipboardList className="size-7" />}
+            title={tab === "mine" ? "تسک فعالی به شما سپرده نشده" : "تسک فعالی به کسی نداده‌اید"}
+            description="با دکمه‌ی «ثبت تسک جدید» برای خودتان یا دیگران تسک ثبت کنید."
+          />
+        </Card>
       ) : null}
 
-      <section>
-        <h2 className="mb-3 text-base font-extrabold">در جریان ({faNum(active.length)})</h2>
-        {active.length ? (
-          <div className="grid gap-3 md:grid-cols-2">
-            {active.map((t) => (
-              <TaskCard key={t.id} t={t} related={relatedOf(t.id)} />
-            ))}
-          </div>
-        ) : (
-          <Card>
-            <EmptyState icon={<ClipboardList className="size-7" />} title="تسک فعالی ندارید" description="با دکمه‌ی «ثبت تسک جدید» اولین تسک را ثبت کنید." />
-          </Card>
-        )}
-      </section>
-
-      {done.length ? (
-        <section>
-          <h2 className="mb-3 text-base font-extrabold text-muted">خاتمه‌یافته ({faNum(done.length)})</h2>
-          <div className="grid gap-3 md:grid-cols-2">
-            {done.slice(0, 30).map((t) => (
-              <TaskCard key={t.id} t={t} related={relatedOf(t.id)} />
-            ))}
-          </div>
-        </section>
-      ) : null}
+      <Section title={<span className="text-muted">خاتمه‌یافته</span>} tasks={list.filter((t) => !open(t)).slice(0, 30)} people={people} mine={tab === "mine"} />
     </div>
   );
 }

@@ -10,7 +10,7 @@ import { addTaskFilesAction, deleteTaskFileAction, updateTaskDetailsAction } fro
 import { timeAgo } from "@/lib/jalali";
 import { cn, faNum, formatBytes } from "@/lib/utils";
 import type { Task, TaskFile, TaskStatus } from "@/lib/types";
-import type { ClaudeRunOptions, DispatchDefaults } from "@/lib/settings";
+import type { DispatchDefaults } from "@/lib/settings";
 
 const LOCKED: TaskStatus[] = ["closed", "cancelled"];
 const RUNNING: TaskStatus[] = ["prework_running", "main_running"];
@@ -18,7 +18,7 @@ const RUNNING: TaskStatus[] = ["prework_running", "main_running"];
 const CONTEXT_LABEL: Record<TaskFile["context"], string> = {
   request: "فایل تسک",
   prework: "همراه پرامپت پیش‌کار",
-  main: "همراه دستور Claude",
+  main: "همراه دستور کار اصلی",
   output: "خروجی",
   upgrade: "ارتقا",
 };
@@ -42,7 +42,7 @@ function FileIcon({ mime, name, className }: { mime: string | null; name: string
   return <Icon className={className} />;
 }
 
-/** Title + description, editable by the admin until the task is closed. */
+/** Title + description, editable by the assignee until the task is closed. */
 export function TaskDetailsEditor({ task, defaultOpen = true }: { task: Task; defaultOpen?: boolean }) {
   const [editing, setEditing] = React.useState(false);
   const [title, setTitle] = React.useState(task.title);
@@ -71,7 +71,7 @@ export function TaskDetailsEditor({ task, defaultOpen = true }: { task: Task; de
         <Field label="عنوان تسک" required>
           <Input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={200} />
         </Field>
-        <Field label="شرح تسک" hint="Markdown پشتیبانی می‌شود؛ همین متن همراه پرامپت به پیش‌کار و Claude می‌رود.">
+        <Field label="شرح تسک" hint="Markdown پشتیبانی می‌شود؛ برای شما و تسک‌دهنده است (به مدل فرستاده نمی‌شود مگر آن را در پرامپت درج کنید).">
           <Textarea value={description} onChange={(e) => setDescription(e.target.value)} className="min-h-44" />
         </Field>
         <div className="flex gap-2">
@@ -108,7 +108,7 @@ export function TaskDetailsEditor({ task, defaultOpen = true }: { task: Task; de
   );
 }
 
-/** Attachments of a task: preview, download, delete and add (admin). */
+/** Attachments of a task: preview, download, delete and add (assignee). */
 export function TaskFilesManager({ task, userId }: { task: Task; userId: string }) {
   const [files, setFiles] = React.useState<TaskFile[] | null>(null);
   const [adding, setAdding] = React.useState<UploadedFile[]>([]);
@@ -237,53 +237,39 @@ export function TaskFilesManager({ task, userId }: { task: Task; userId: string 
   );
 }
 
-/** "Send to pre-work / Claude" form rendered inside the task drawer, right before dispatch. */
-export function InlineDispatch({
-  task,
-  userId,
-  mode,
-  defaultPrompt,
-  claudeDefaults,
-  workflows,
-  onSent,
-}: {
-  task: Task;
-  userId: string;
-  mode: "prework" | "main";
-  defaultPrompt: string;
-  claudeDefaults?: ClaudeRunOptions;
-  workflows?: DispatchDefaults["workflows"];
-  onSent?: () => void;
-}) {
+/** "Send to pre-work / main work" form rendered inside the task drawer, right before dispatch. */
+export function InlineDispatch({ task, userId, mode, defaults, onSent }: { task: Task; userId: string; mode: "prework" | "main"; defaults: DispatchDefaults; onSent?: () => void }) {
   const followup = mode === "main" && task.status === "main_done";
-  const state = useDispatch(mode, [task.id], () => onSent?.(), claudeDefaults, workflows);
+  const state = useDispatch(mode, [task], defaults, () => onSent?.());
   const Icon = mode === "prework" ? Sparkles : Bot;
+  const ready = mode === "prework" ? defaults.caps.prework : state.engine === "claude_code" ? defaults.caps.claudeCode : defaults.caps.main;
   return (
     <div className={cn("rounded-2xl border p-3", mode === "prework" ? "border-violet-500/30 bg-violet-500/5" : "border-orange-500/30 bg-orange-500/5")}>
       <p className={cn("mb-1 flex items-center gap-2 text-sm font-extrabold", mode === "prework" ? "text-violet-600 dark:text-violet-300" : "text-orange-600 dark:text-orange-300")}>
-        <Icon className="size-4" /> {mode === "prework" ? "ارسال به پیش‌کار (Gemini)" : followup ? "پیام تکمیلی به Claude" : "ارسال به کار اصلی (Claude)"}
+        <Icon className="size-4" /> {mode === "prework" ? "ارسال به پیش‌کار" : followup ? "دستور تکمیلی" : "ارسال به کار اصلی"}
       </p>
       <p className="mb-3 text-xs leading-6 text-muted">
         {mode === "prework"
-          ? "عنوان، شرح و فایل‌های بالا همراه پرامپت و فایل‌های شما به Gemini داده می‌شوند تا یک دستور کار کوتاه و کامل آماده کند."
+          ? "پرامپت و فایل‌های شما (و در صورت انتخاب، پروژه) به ایجنت‌ها داده می‌شود تا یک دستور کار کوتاه و کامل آماده کنند."
           : followup
-            ? "Claude همان جلسه و فایل‌های قبلی را ادامه می‌دهد؛ بنویسید چه چیزی را اصلاح یا اضافه کند."
-            : "Claude پرامپت شما، عنوان و شرح، دستور کار پیش‌کار و فایل‌ها را می‌گیرد و دقیقاً خروجی خواسته‌شده را تحویل می‌دهد."}
+            ? "ادامه‌ی همین کار: بنویسید چه چیزی را اصلاح یا اضافه کند."
+            : "مجری فایل‌های مرتبط را پیدا، ویرایش یا ایجاد می‌کند و نتیجه را در گفت‌وگوی تسک گزارش می‌دهد."}
       </p>
-      <DispatchFields mode={mode} userId={userId} defaultPrompt={defaultPrompt} state={state} />
-      <Button className="mt-4 w-full" onClick={() => void state.submit()} loading={state.busy} disabled={!!state.blocker}>
-        <Icon className="size-4" /> {mode === "prework" ? "شروع پیش‌کار" : followup ? "ارسال پیام تکمیلی" : "ارسال به Claude"}
+      {!ready ? <p className="mb-3 text-xs font-semibold text-amber-600">برای این مرحله هنوز اتصال هوش مصنوعی انتخاب نشده است (تنظیمات ← اتصال‌ها و مدل‌ها).</p> : null}
+      <DispatchFields mode={mode} userId={userId} defaults={defaults} state={state} />
+      <Button className="mt-4 w-full" onClick={() => void state.submit()} loading={state.busy} disabled={!!state.blocker || !ready}>
+        <Icon className="size-4" /> {mode === "prework" ? "شروع پیش‌کار" : followup ? "ارسال دستور تکمیلی" : "شروع کار اصلی"}
       </Button>
     </div>
   );
 }
 
 /** Shown for tasks already waiting in a provider queue: the prompt that was sent. */
-export function QueuedNotice({ provider, prompt }: { provider: "gemini" | "claude"; prompt?: string | null }) {
+export function QueuedNotice({ stage, prompt }: { stage: "prework" | "main"; prompt?: string | null }) {
   return (
     <div className="rounded-2xl border border-sky-500/30 bg-sky-500/5 p-3 text-xs leading-6">
-      <p className="font-bold text-sky-700 dark:text-sky-300">در صف اجرای {provider === "gemini" ? "Gemini" : "Claude"}</p>
-      <p className="text-muted">تا شروع اجرا می‌توانید عنوان، شرح و فایل‌های تسک را اصلاح کنید؛ تغییرات در همین اجرا لحاظ می‌شوند.</p>
+      <p className="font-bold text-sky-700 dark:text-sky-300">در صف {stage === "prework" ? "پیش‌کار" : "کار اصلی"}</p>
+      <p className="text-muted">تا شروع اجرا می‌توانید فایل‌های تسک را اصلاح کنید؛ تغییرات در همین اجرا لحاظ می‌شوند.</p>
       {prompt ? (
         <details className="mt-1">
           <summary className="cursor-pointer font-semibold text-muted">پرامپت ارسال‌شده</summary>

@@ -7,7 +7,7 @@ const vazir = Vazirmatn({ subsets: ["arabic", "latin"], variable: "--font-vazir"
 
 export const metadata: Metadata = {
   title: { default: "TaskFlow AI — اتوماسیون هوشمند کارها", template: "%s · TaskFlow AI" },
-  description: "مدیریت، ارکستراسیون چندعاملی و اتوماسیون تسک‌ها با Gemini و Claude",
+  description: "تسک‌دهی، پیگیری و انجام خودکار کارها با ایجنت‌های هوش مصنوعی",
   applicationName: "TaskFlow AI",
   appleWebApp: { capable: true, title: "TaskFlow", statusBarStyle: "black-translucent" },
 };

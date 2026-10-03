@@ -52,7 +52,18 @@ export function TaskQuickView({
   const activeJob = liveJob ?? job;
   const running = task && ["prework_running", "main_running", "prework_queued", "main_queued"].includes(task.status);
   // Tasks waiting for the admin in the two queue stages get the send form right here.
-  const inlineMode = task?.status === "approved" ? "prework" : task?.status === "prework_done" || task?.status === "main_done" ? "main" : undefined;
+  const inlineMode =
+    task?.assignee_id !== userId
+      ? undefined
+      : task.status === "approved" || task.status === "in_progress"
+        ? defaults.caps.prework
+          ? "prework"
+          : defaults.caps.main
+            ? "main"
+            : undefined
+        : task.status === "prework_done" || task.status === "main_done"
+          ? "main"
+          : undefined;
 
   return (
     <Drawer open={!!task} onOpenChange={(o) => !o && onClose()} title={task?.title ?? ""}>
@@ -118,15 +129,15 @@ export function TaskQuickView({
             <TaskFilesManager key={`files-${task.id}`} task={task} userId={userId} />
 
             <div>
-              <p className="mb-3 text-sm font-bold">گفت‌وگو با Gemini و Claude</p>
+              <p className="mb-3 text-sm font-bold">گفت‌وگو با هوش مصنوعی</p>
               <TaskConversation key={`conv-${task.id}`} taskId={task.id} />
             </div>
 
             {inlineMode ? (
-              <InlineDispatch key={`${task.id}-${inlineMode}`} task={task} userId={userId} mode={inlineMode} defaultPrompt={inlineMode === "prework" ? defaults.prework : defaults.main} claudeDefaults={defaults.claude} workflows={defaults.workflows} />
+              <InlineDispatch key={`${task.id}-${inlineMode}`} task={task} userId={userId} mode={inlineMode} defaults={defaults} />
             ) : null}
             {task.status === "prework_queued" || task.status === "main_queued" ? (
-              <QueuedNotice provider={task.status === "prework_queued" ? "gemini" : "claude"} prompt={activeJob?.status === "queued" ? String(activeJob.payload?.prompt ?? "") : null} />
+              <QueuedNotice stage={task.status === "prework_queued" ? "prework" : "main"} prompt={activeJob?.status === "queued" ? String(activeJob.payload?.prompt ?? "") : null} />
             ) : null}
 
             {activeJob && activeJob.kind === "prework" ? (
@@ -137,7 +148,7 @@ export function TaskQuickView({
             ) : null}
             {activeJob && activeJob.kind === "main" ? (
               <div className="space-y-4 rounded-2xl border border-orange-500/25 bg-orange-500/5 p-4">
-                {(activeJob.state?.flow?.nodes.length ?? 0) > 3 ? <MiniPreworkFlow state={activeJob.state} /> : null}
+                {(activeJob.state?.flow?.nodes.length ?? 0) > 1 ? <MiniPreworkFlow state={activeJob.state} /> : null}
                 <TodoList todos={activeJob.state?.todos} />
                 {activeJob.external_url ? (
                   <a href={activeJob.external_url} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-primary">

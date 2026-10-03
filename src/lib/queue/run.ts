@@ -1,8 +1,9 @@
 import "server-only";
 import { db } from "@/lib/supabase/admin";
 import { logEvent, type LogInput } from "@/lib/events";
-import type { GenContext } from "@/lib/ai/gemini";
-import type { Job, JobState, NodeState, Provider, ProviderState } from "@/lib/types";
+import { blockModel, connectionState } from "@/lib/connections";
+import type { GenContext } from "@/lib/ai/generate";
+import type { Job, JobState, NodeState } from "@/lib/types";
 
 export interface GraphSnapshot {
   values: Record<string, unknown>;
@@ -45,9 +46,10 @@ export class JobRun {
   }
 
   async saveData() {
-    await db()
+    const { error } = await db()
       .from("job_data")
       .upsert({ job_id: this.job.id, graph: this.data.graph ?? {}, partial: this.data.partial, updated_at: new Date().toISOString() });
+    if (error) throw new Error(`ذخیره‌ی وضعیت کار: ${error.message}`);
   }
 
   get state(): JobState {
@@ -80,8 +82,8 @@ export class JobRun {
     await this.save();
   }
 
-  async log(e: Omit<LogInput, "task_id" | "job_id" | "upgrade_id">) {
-    await logEvent({ ...e, task_id: this.job.task_id, upgrade_id: this.job.upgrade_id, job_id: this.job.id });
+  async log(e: Omit<LogInput, "task_id" | "job_id" | "upgrade_id" | "project_id">) {
+    await logEvent({ ...e, task_id: this.job.task_id, upgrade_id: this.job.upgrade_id, project_id: this.job.project_id, job_id: this.job.id });
   }
 
   live(update: JobState["live"]) {
@@ -99,7 +101,8 @@ export class JobRun {
       .then(({ error }) => error && console.error("live update", error.message));
   }
 
-  genContext(node: string): GenContext {
+  /** Model-call hooks bound to this job and the AI connection the call uses. */
+  genContext(node: string, connectionId: string): GenContext {
     return {
       getPartial: () => this.data.partial,
       savePartial: async (p) => {
@@ -108,60 +111,31 @@ export class JobRun {
       },
       live: (u) => this.live({ node, ...u }),
       log: (e) => this.log(e),
-      blockedModels: async () => (await getProvider("gemini"))?.models ?? {},
-      blockModel: (model, until, reason) => blockModel("gemini", model, until, reason),
+      blockedModels: async () => (await connectionState(connectionId))?.models ?? {},
+      blockModel: (model, until, reason) => blockModel(connectionId, model, until, reason),
       addUsage: (u) => {
-        this.usage.input = Math.max(this.usage.input, u.input ?? 0);
-        this.usage.output = Math.max(this.usage.output, u.output ?? 0);
-        this.usage.thoughts = Math.max(this.usage.thoughts, u.thoughts ?? 0);
+        this.usage.input += u.input ?? 0;
+        this.usage.output += u.output ?? 0;
+        this.usage.thoughts += u.thoughts ?? 0;
       },
     };
   }
 
-  /** Fold the per-call token maxima into cumulative usage (call after each model call). */
+  /** Fold this step's token usage into the job's cumulative usage (call after each model call). */
   commitUsage() {
-    const prev = (this.job.state.usage as { input: number; output: number; thoughts: number; calls: number } | undefined) ?? {
-      input: 0,
-      output: 0,
-      thoughts: 0,
-      calls: 0,
-    };
+    const prev = (this.job.state.usage as { input: number; output: number; thoughts: number; calls: number } | undefined) ?? { input: 0, output: 0, thoughts: 0, calls: 0 };
     this.job.state = {
       ...this.job.state,
-      usage: {
-        input: prev.input + this.usage.input,
-        output: prev.output + this.usage.output,
-        thoughts: prev.thoughts + this.usage.thoughts,
-        calls: prev.calls + 1,
-      },
+      usage: { input: prev.input + this.usage.input, output: prev.output + this.usage.output, thoughts: prev.thoughts + this.usage.thoughts, calls: prev.calls + 1 },
     };
     this.usage = { input: 0, output: 0, thoughts: 0, calls: 0 };
   }
 }
 
-export async function getProvider(p: Provider): Promise<ProviderState | null> {
-  const { data } = await db().from("provider_state").select("*").eq("provider", p).maybeSingle<ProviderState>();
-  return data;
-}
-
-export async function pauseProvider(p: Provider, until: Date, reason: string) {
+export async function bumpLaneStats(lane: "llm" | "external" | "system", patch: Record<string, unknown>) {
+  const { data } = await db().from("worker_lanes").select("stats").eq("lane", lane).maybeSingle();
   await db()
-    .from("provider_state")
-    .update({ paused_until: until.toISOString(), pause_reason: reason, updated_at: new Date().toISOString() })
-    .eq("provider", p);
-}
-
-export async function blockModel(p: Provider, model: string, until: Date, reason: string) {
-  const state = await getProvider(p);
-  const models = { ...(state?.models ?? {}) };
-  models[model] = { blocked_until: until.toISOString(), reason };
-  await db().from("provider_state").update({ models, updated_at: new Date().toISOString() }).eq("provider", p);
-}
-
-export async function bumpProviderStats(p: Provider, patch: Record<string, unknown>) {
-  const state = await getProvider(p);
-  await db()
-    .from("provider_state")
-    .update({ stats: { ...(state?.stats ?? {}), ...patch }, updated_at: new Date().toISOString() })
-    .eq("provider", p);
+    .from("worker_lanes")
+    .update({ stats: { ...((data?.stats as Record<string, unknown>) ?? {}), ...patch }, updated_at: new Date().toISOString() })
+    .eq("lane", lane);
 }

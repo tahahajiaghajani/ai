@@ -1,17 +1,19 @@
 import "server-only";
 import { db } from "@/lib/supabase/admin";
 import { env } from "@/lib/env";
-import { logEvent } from "@/lib/events";
-import { DeadlineError, RateLimitError, TransientError } from "@/lib/errors";
-import { bumpProviderStats, JobRun, pauseProvider, type StepResult } from "@/lib/queue/run";
+import { logEvent, notify } from "@/lib/events";
+import { pauseConnection } from "@/lib/connections";
+import { DeadlineError, FatalError, RateLimitError, TransientError } from "@/lib/errors";
+import { bumpLaneStats, JobRun, type StepResult } from "@/lib/queue/run";
 import { preworkHandler, preworkOnFail } from "@/lib/queue/handlers/prework";
-import { mainHandler } from "@/lib/queue/handlers/main";
+import { mainHandler, mainOnFail } from "@/lib/queue/handlers/main";
 import { graphifyHandler, upgradeHandler } from "@/lib/queue/handlers/upgrade";
-import { knowledgeHandler, optimizeHandler } from "@/lib/queue/handlers/knowledge";
+import { indexHandler, knowledgeHandler, optimizeHandler } from "@/lib/queue/handlers/knowledge";
+import { importHandler, importOnFail } from "@/lib/queue/handlers/import";
 import { finalizeFromWatchdog } from "@/lib/claude/ingest";
 import { formatJalali } from "@/lib/jalali";
 import { errorMessage, randomId } from "@/lib/utils";
-import type { Job, JobKind, Provider } from "@/lib/types";
+import type { Job, JobKind, Lane } from "@/lib/types";
 
 interface Handler {
   run: (r: JobRun) => Promise<StepResult>;
@@ -21,15 +23,7 @@ interface Handler {
 
 const HANDLERS: Record<JobKind, Handler> = {
   prework: { run: preworkHandler, onFail: preworkOnFail },
-  main: {
-    run: mainHandler,
-    onDone: (r) => finalizeFromWatchdog(r.job),
-    onFail: async (r, error) => {
-      if (!r.job.task_id) return;
-      await db().from("tasks").update({ status: "prework_done", progress: 50 }).eq("id", r.job.task_id);
-      await logEvent({ task_id: r.job.task_id, job_id: r.job.id, source: "claude", kind: "error", title: "کار اصلی ناموفق بود؛ تسک به صف کار اصلی برگشت", detail: error });
-    },
-  },
+  main: { run: mainHandler, onDone: (r) => finalizeFromWatchdog(r.job), onFail: mainOnFail },
   upgrade: {
     run: upgradeHandler,
     onDone: (r) => finalizeFromWatchdog(r.job),
@@ -39,27 +33,27 @@ const HANDLERS: Record<JobKind, Handler> = {
   },
   graphify: { run: graphifyHandler },
   knowledge: { run: knowledgeHandler },
+  index: { run: indexHandler },
   optimize: { run: optimizeHandler },
+  import: { run: importHandler, onFail: importOnFail },
 };
 
 /** Add actionable Persian hints to common integration errors. */
 function humanizeError(message: string): string {
-  if (/Bad credentials/i.test(message)) return `توکن GitHub نامعتبر یا منقضی است (GITHUB_TOKEN در Vercel). — ${message}`;
+  if (/Bad credentials/i.test(message)) return `توکن GitHub نامعتبر یا منقضی است (تنظیمات ← اتصال‌ها). — ${message}`;
   if (/Resource not accessible by personal access token|Must have admin rights/i.test(message)) {
-    return `توکن GitHub دسترسی کافی ندارد (repo و workflow لازم است). — ${message}`;
+    return `توکن GitHub دسترسی کافی ندارد (Contents، Actions، Secrets و Workflows لازم است). — ${message}`;
   }
-  if (/Not Found - https:\/\/docs\.github\.com/i.test(message)) return `مخزن یا فایل در GitHub پیدا نشد؛ «راه‌اندازی مخزن کاری» را در تنظیمات بزنید. — ${message}`;
-  if (/API key not valid|API_KEY_INVALID/i.test(message)) return `کلید Gemini نامعتبر است (GEMINI_API_KEY). — ${message}`;
+  if (/Not Found - https:\/\/docs\.github\.com/i.test(message)) return `مخزن یا فایل در GitHub پیدا نشد؛ در «تنظیمات ← اتصال‌ها» GitHub را دوباره راه‌اندازی کنید. — ${message}`;
   return message;
 }
 
 type Outcome = "continue" | "wait" | "done" | "failed" | "paused" | "error";
 
-async function claim(provider: Provider, workerId: string, leaseSeconds: number): Promise<Job | null> {
-  const { data, error } = await db().rpc("claim_job", { p_provider: provider, p_worker: workerId, p_lease_seconds: leaseSeconds });
+async function claim(lane: Lane, workerId: string, leaseSeconds: number): Promise<Job | null> {
+  const { data, error } = await db().rpc("claim_job", { p_lane: lane, p_worker: workerId, p_lease_seconds: leaseSeconds });
   if (error) throw new Error(`claim_job: ${error.message}`);
-  const rows = (data ?? []) as Job[];
-  return rows[0] ?? null;
+  return ((data ?? []) as Job[])[0] ?? null;
 }
 
 async function release(run: JobRun, patch: Record<string, unknown>) {
@@ -68,6 +62,12 @@ async function release(run: JobRun, patch: Record<string, unknown>) {
     .update({ state: run.job.state, updated_at: new Date().toISOString(), ...patch })
     .eq("id", run.job.id)
     .eq("status", "running");
+}
+
+async function fail(run: JobRun, h: Handler, message: string, attempts?: number) {
+  await release(run, { status: "failed", error: message, finished_at: new Date().toISOString(), locked_by: null, locked_until: null, ...(attempts ? { attempts } : {}) });
+  await run.log({ source: "system", kind: "error", title: "کار متوقف شد", detail: message });
+  await h.onFail?.(run, message);
 }
 
 async function applyResult(run: JobRun, h: Handler, res: StepResult): Promise<Outcome> {
@@ -84,9 +84,7 @@ async function applyResult(run: JobRun, h: Handler, res: StepResult): Promise<Ou
       if (h.onDone && res.result?.missing_callback) await h.onDone(run, res.result);
       return "done";
     case "fail":
-      await release(run, { status: "failed", error: res.error, finished_at: now.toISOString(), locked_by: null, locked_until: null });
-      await run.log({ source: "system", kind: "error", title: "کار متوقف شد", detail: res.error });
-      await h.onFail?.(run, res.error);
+      await fail(run, h, res.error);
       return "failed";
   }
 }
@@ -97,25 +95,23 @@ async function applyError(run: JobRun, h: Handler, err: unknown): Promise<Outcom
     return "continue";
   }
   if (err instanceof RateLimitError) {
-    if (err.scope === "provider") await pauseProvider(run.job.provider, err.until, err.reason);
+    if (err.scope === "connection" && err.connectionId) await pauseConnection(err.connectionId, err.until, err.reason);
     await release(run, { locked_by: null, locked_until: null, run_after: err.until.toISOString() });
     const live = run.state.live?.node;
     if (live) await run.setNode(live, { status: "paused", detail: `ادامه ${formatJalali(err.until, { withTime: true })}` });
-    await run.log({
-      source: run.job.provider === "claude" ? "claude" : "gemini",
-      kind: "warning",
-      title: `⏸ ${err.reason} — ادامه‌ی خودکار در ${formatJalali(err.until, { withTime: true })}`,
-      data: { until: err.until.toISOString(), model: err.model },
-    });
+    await run.log({ source: "ai", kind: "warning", title: `⏸ ${err.reason} — ادامه‌ی خودکار در ${formatJalali(err.until, { withTime: true })}`, data: { until: err.until.toISOString(), model: err.model } });
     return "paused";
+  }
+  if (err instanceof FatalError) {
+    await fail(run, h, err.message);
+    if (run.job.owner_id) await notify(run.job.owner_id, { title: "کار متوقف شد", body: err.message.slice(0, 240), link: run.job.task_id ? `/tasks/${run.job.task_id}` : "/queue", task_id: run.job.task_id });
+    return "failed";
   }
 
   const message = humanizeError(errorMessage(err));
   const attempts = run.job.attempts + 1;
   if (attempts >= run.job.max_attempts) {
-    await release(run, { status: "failed", attempts, error: message, finished_at: new Date().toISOString(), locked_by: null, locked_until: null });
-    await run.log({ source: "system", kind: "error", title: "کار پس از چند تلاش ناموفق ماند", detail: message });
-    await h.onFail?.(run, message);
+    await fail(run, h, message, attempts);
     return "failed";
   }
   const delay = err instanceof TransientError ? err.delayMs : Math.min(60_000 * 2 ** (attempts - 1), 30 * 60_000);
@@ -127,8 +123,8 @@ async function applyError(run: JobRun, h: Handler, err: unknown): Promise<Outcom
 async function execute(job: Job, workerId: string, deadline: number): Promise<Outcome> {
   const h = HANDLERS[job.kind];
   const run = new JobRun(job, workerId, deadline);
-  await run.loadData();
   try {
+    await run.loadData();
     const res = await h.run(run);
     return await applyResult(run, h, res);
   } catch (err) {
@@ -144,10 +140,13 @@ export interface TickReport {
   ms: number;
 }
 
+/** AI jobs of different users run side by side in one invocation (each user has their own keys). */
+const LLM_PARALLEL = 3;
+
 /**
  * One worker invocation (called by pg_cron every ~30s and self-chained while work remains).
- * Claude/external jobs only need quick steps (dispatch / watchdog); Gemini jobs run one graph
- * node per step until the time budget is used.
+ * Several loops claim jobs at the same time; claim_job lets each user have one running AI job, so
+ * one user's long job never blocks the others.
  */
 export async function runTick(): Promise<TickReport> {
   const started = Date.now();
@@ -156,29 +155,25 @@ export async function runTick(): Promise<TickReport> {
   const outcomes: string[] = [];
   let more = false;
 
-  await bumpProviderStats("system", { last_tick_at: new Date().toISOString() });
+  await bumpLaneStats("system", { last_tick_at: new Date().toISOString() });
 
-  for (let i = 0; i < 3 && Date.now() < deadline - 15_000; i++) {
-    const job = await claim("claude", workerId, 90);
-    if (!job) break;
-    const o = await execute(job, workerId, Math.min(deadline, Date.now() + 45_000));
-    outcomes.push(`${job.kind}:${o}`);
-    if (o === "continue") more = true;
-  }
-
-  while (Date.now() < deadline - 12_000) {
-    const lease = Math.ceil((deadline - Date.now()) / 1000) + 25;
-    const job = await claim("gemini", workerId, lease);
-    if (!job) {
-      more = false;
-      break;
+  const loop = async (lane: Lane, maxJobs: number) => {
+    for (let i = 0; i < maxJobs && Date.now() < deadline - 20_000; i++) {
+      const lease = Math.ceil((deadline - Date.now()) / 1000) + 25;
+      const job = await claim(lane, workerId, lease);
+      if (!job) return;
+      const o = await execute(job, workerId, deadline);
+      outcomes.push(`${job.kind}:${o}`);
+      if (o === "continue") more = true;
     }
-    const o = await execute(job, workerId, deadline);
-    outcomes.push(`${job.kind}:${o}`);
-    more = o === "continue";
-    if (o === "paused" || o === "error") break;
-  }
+    if (Date.now() >= deadline - 20_000) more = true;
+  };
 
-  await bumpProviderStats("gemini", { last_worker_at: new Date().toISOString() });
+  await Promise.all([loop("external", 10), loop("system", 6), ...Array.from({ length: LLM_PARALLEL }, () => loop("llm", 50))]);
   return { worker: workerId, processed: outcomes.length, more, outcomes, ms: Date.now() - started };
+}
+
+/** Log line for a job that belongs to no task (project imports etc.) — shown in the project's activity. */
+export async function projectLog(projectId: string, title: string, detail?: string) {
+  await logEvent({ project_id: projectId, source: "project", kind: "log", title, detail: detail ?? null });
 }

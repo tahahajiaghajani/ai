@@ -60,16 +60,20 @@ export function FileDropzone({
   onChange,
   compact,
   label = "فایل‌ها را اینجا رها کنید یا کلیک کنید",
+  folders,
 }: {
   userId: string;
   /** Called with the successfully uploaded files and the number still uploading / failed. */
   onChange: (files: UploadedFile[], status: UploadStatus) => void;
   compact?: boolean;
   label?: string;
+  /** also offer picking a whole folder; names then keep their folder path ("src/app.tsx") */
+  folders?: boolean;
 }) {
   const [items, setItems] = React.useState<Item[]>([]);
   const [drag, setDrag] = React.useState(false);
   const inputRef = React.useRef<HTMLInputElement>(null);
+  const folderRef = React.useRef<HTMLInputElement>(null);
 
   React.useEffect(() => {
     onChange(
@@ -94,7 +98,7 @@ export function FileDropzone({
         it.key === key
           ? error
             ? { ...it, status: "error", error: uploadError(error.message) }
-            : { ...it, status: "done", uploaded: { storage_path: path, name: file.name, mime: file.type || null, size: file.size } }
+            : { ...it, status: "done", uploaded: { storage_path: path, name: (folders && file.webkitRelativePath) || file.name, mime: file.type || null, size: file.size } }
           : it,
       ),
     );
@@ -137,6 +141,21 @@ export function FileDropzone({
         {!compact ? <span className="text-xs text-faint">هر نوع فایل — تا ۵۰ مگابایت</span> : null}
       </button>
       <input ref={inputRef} type="file" multiple className="hidden" onChange={(e) => addFiles(e.target.files)} />
+      {folders ? (
+        <>
+          <button type="button" onClick={() => folderRef.current?.click()} className="text-xs font-semibold text-primary">
+            یا انتخاب یک پوشه‌ی کامل (با زیرپوشه‌ها)
+          </button>
+          <input
+            ref={folderRef}
+            type="file"
+            multiple
+            className="hidden"
+            {...({ webkitdirectory: "", directory: "" } as Record<string, string>)}
+            onChange={(e) => addFiles(e.target.files)}
+          />
+        </>
+      ) : null}
       {items.length ? (
         <ul className="space-y-1.5">
           {items.map((it) => (
@@ -148,7 +167,7 @@ export function FileDropzone({
               ) : (
                 <XCircle className="size-4 text-danger" />
               )}
-              <span dir="auto" className="min-w-0 flex-1 truncate text-start">{it.file.name}</span>
+              <span dir="auto" className="min-w-0 flex-1 truncate text-start">{(folders && it.file.webkitRelativePath) || it.file.name}</span>
               <span className={cn("shrink-0 text-xs", it.error ? "text-danger" : "text-faint")}>{it.error ?? formatBytes(it.file.size)}</span>
               {it.status === "error" && it.file.size <= MAX ? (
                 <button type="button" onClick={() => void upload(it.file, it.key)} className="rounded-lg p-1 text-muted hover:text-primary" aria-label="تلاش دوباره" title="تلاش دوباره">

@@ -5,10 +5,11 @@ import { db } from "@/lib/supabase/admin";
 import { background } from "@/lib/events";
 import { RtlProvider } from "@/components/ui/overlays";
 import { Brand, Logo } from "@/components/shell/logo";
-import { NotificationBell, ThemeToggle, UserMenu } from "@/components/shell/shell-parts";
+import { FullExperienceButton, NotificationBell, ThemeToggle, UserMenu } from "@/components/shell/shell-parts";
 import { Button } from "@/components/ui/primitives";
 import type { NotificationRow } from "@/lib/types";
 
+/** The simple app: give tasks to anyone, and track and update the tasks given to you. */
 export default async function PortalLayout({ children }: { children: React.ReactNode }) {
   const me = await requireUser();
   const { data: notifs } = await db().from("notifications").select("*").eq("user_id", me.id).order("id", { ascending: false }).limit(40);
@@ -26,12 +27,14 @@ export default async function PortalLayout({ children }: { children: React.React
             <Logo className="size-8" />
           </Link>
           <div className="ms-auto flex items-center gap-1">
-            {me.isAdmin ? (
+            {me.mode === "full" ? (
               <Link href="/dashboard">
                 <Button size="sm" variant="ghost">
-                  <LayoutDashboard className="size-4" /> اپ اصلی
+                  <LayoutDashboard className="size-4" /> اپ کامل
                 </Button>
               </Link>
+            ) : !me.isOwner ? (
+              <FullExperienceButton />
             ) : null}
             <Link href="/portal/new">
               <Button size="sm">
@@ -40,7 +43,7 @@ export default async function PortalLayout({ children }: { children: React.React
             </Link>
             <NotificationBell userId={me.id} initial={(notifs ?? []) as NotificationRow[]} />
             <ThemeToggle />
-            <UserMenu name={me.profile.full_name || me.email} email={me.email} role={me.profile.role} avatarUrl={me.profile.avatar_url} />
+            <UserMenu name={me.profile.full_name || me.email} email={me.email} role={me.isOwner ? "owner" : "member"} avatarUrl={me.profile.avatar_url} mode={me.mode} />
           </div>
         </div>
       </header>

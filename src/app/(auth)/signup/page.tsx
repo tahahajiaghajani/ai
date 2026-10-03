@@ -14,7 +14,7 @@ export default function SignupPage() {
   return (
     <div>
       <h1 className="text-2xl font-black">ثبت‌نام تسک‌دهنده</h1>
-      <p className="mt-2 text-sm text-muted">پس از ثبت‌نام، حساب شما باید توسط مدیر تایید شود.</p>
+      <p className="mt-2 text-sm text-muted">پس از ثبت‌نام (اگر تایید خودکار خاموش باشد) حساب شما باید توسط مالک اپ تایید شود.</p>
       <form action={action} className="mt-8 space-y-4">
         <div className="space-y-1.5">
           <span className="text-[13px] font-semibold">تصویر پروفایل (اختیاری)</span>

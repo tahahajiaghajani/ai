@@ -1,6 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/supabase/admin";
+import { activePeople } from "@/lib/people";
 import { TaskForm } from "@/components/tasks/task-form";
 import { REQUESTER_EDITABLE } from "@/lib/status";
 import type { Task } from "@/lib/types";
@@ -11,12 +12,12 @@ export default async function EditTaskPage(props: PageProps<"/portal/tasks/[id]/
   const me = await requireUser();
   const { id } = await props.params;
   const { data: task } = await db().from("tasks").select("*").eq("id", id).maybeSingle<Task>();
-  if (!task || (task.requester_id !== me.id && !me.isAdmin)) notFound();
+  if (!task || (task.requester_id !== me.id && !me.isOwner)) notFound();
   if (!REQUESTER_EDITABLE.includes(task.status)) redirect(`/portal/tasks/${id}`);
   return (
     <div className="mx-auto max-w-3xl">
       <h1 className="mb-6 text-2xl font-black">ویرایش {task.code}</h1>
-      <TaskForm userId={me.id} task={task} backHref={`/portal/tasks/${id}`} />
+      <TaskForm userId={me.id} task={task} backHref={`/portal/tasks/${id}`} people={await activePeople()} />
     </div>
   );
 }

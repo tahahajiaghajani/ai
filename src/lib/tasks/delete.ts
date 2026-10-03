@@ -1,7 +1,7 @@
 import "server-only";
 import { db } from "@/lib/supabase/admin";
-import { env } from "@/lib/env";
-import { commitFiles, listTree, repoRef } from "@/lib/github/client";
+import { commitFiles, listTree, userRepoOrNull } from "@/lib/github/client";
+import { projectRoot } from "@/lib/projects/paths";
 import { cancelActiveJobs } from "@/lib/tasks/service";
 import { GITHUB_PREFIX } from "@/lib/tasks/outputs";
 import { errorMessage } from "@/lib/utils";
@@ -18,7 +18,7 @@ export interface DeleteReport {
   warnings: string[];
 }
 
-type FamilyTask = Pick<Task, "id" | "code" | "title" | "github_path" | "root_id" | "requester_id">;
+type FamilyTask = Pick<Task, "id" | "code" | "title" | "github_path" | "root_id" | "requester_id" | "assignee_id" | "project_id">;
 
 function chunks<T>(list: T[], size: number): T[][] {
   const out: T[][] = [];
@@ -29,7 +29,7 @@ function chunks<T>(list: T[], size: number): T[][] {
 /** Every task of the given projects (root tasks and their related tasks). */
 async function familyOf(rootIds: string[]): Promise<FamilyTask[]> {
   if (!rootIds.length) return [];
-  const cols = "id, code, title, github_path, root_id, requester_id";
+  const cols = "id, code, title, github_path, root_id, requester_id, assignee_id, project_id";
   const [roots, children] = await Promise.all([
     db().from("tasks").select(cols).in("id", rootIds),
     db().from("tasks").select(cols).in("root_id", rootIds),
@@ -55,25 +55,35 @@ async function removeStorage(taskIds: string[]): Promise<number> {
 }
 
 /**
- * Knowledge notes of these tasks in the workspace repo (and, for whole projects, their folders),
- * removed in one commit. Related tasks share the project folder, so a lone related task keeps it.
+ * The tasks' record folders in their assignees' GitHub repos, removed in one commit per repo: a task
+ * without a project keeps everything in `tasks/<code>_…/`; a project task keeps its records in the
+ * project's `.taskflow/tasks/<code>/` (the project's own files stay — they belong to the project).
  */
 async function removeFromGithub(tasks: FamilyTask[], label: string, folders: boolean): Promise<number> {
-  if (!env.githubToken) return 0;
-  const ref = await repoRef("workspace");
-  const tree = (await listTree(ref)).filter((t) => t.type === "blob");
-  const dirs = folders ? [...new Set(tasks.map((t) => t.github_path).filter((p): p is string => !!p))] : [];
-  const codes = tasks.map((t) => `${t.code}_`);
-  const paths = tree
-    .map((t) => t.path)
-    .filter((p) => dirs.some((f) => p.startsWith(`${f}/`)) || (p.startsWith("knowledge/") && codes.some((c) => (p.split("/").pop() ?? "").startsWith(c))));
-  if (!paths.length) return 0;
-  await commitFiles(
-    ref,
-    paths.map((path) => ({ path, content: null })),
-    `[TaskFlow] حذف ${label}`,
-  );
-  return paths.length;
+  let removed = 0;
+  const byOwner = new Map<string, FamilyTask[]>();
+  for (const t of tasks) byOwner.set(t.assignee_id, [...(byOwner.get(t.assignee_id) ?? []), t]);
+  for (const [ownerId, list] of byOwner) {
+    const repo = await userRepoOrNull(ownerId);
+    if (!repo) continue;
+    const projectIds = [...new Set(list.map((t) => t.project_id).filter((p): p is string => !!p))];
+    const { data: projects } = projectIds.length ? await db().from("projects").select("id, slug").in("id", projectIds) : { data: [] as { id: string; slug: string }[] };
+    const slugOf = new Map((projects ?? []).map((p) => [p.id as string, p.slug as string]));
+    const dirs = new Set<string>();
+    for (const t of list) {
+      if (t.root_id && t.root_id !== t.id && !folders) continue;
+      if (t.github_path) dirs.add(t.github_path);
+      const slug = t.project_id ? slugOf.get(t.project_id) : null;
+      if (slug) dirs.add(`${projectRoot(slug)}/.taskflow/tasks/${t.code}`);
+    }
+    if (!dirs.size) continue;
+    const tree = (await listTree(repo)).filter((t) => t.type === "blob");
+    const paths = tree.map((t) => t.path).filter((p) => [...dirs].some((d) => p.startsWith(`${d}/`)));
+    if (!paths.length) continue;
+    await commitFiles(repo, paths.map((path) => ({ path, content: null })), `[TaskFlow] حذف ${label}`);
+    removed += paths.length;
+  }
+  return removed;
 }
 
 /** Cancels work and removes everything that belongs to these tasks, then the task rows themselves. */
@@ -91,12 +101,6 @@ async function purge(tasks: FamilyTask[], label: string, folders: boolean): Prom
     report.warnings.push(`حذف فایل‌ها از Storage: ${errorMessage(err)}`);
   }
 
-  for (const part of chunks(ids, 100)) {
-    const { data, error } = await db().from("knowledge_items").delete().in("metadata->>task_id", part).select("id");
-    if (error) report.warnings.push(`حذف دانش: ${error.message}`);
-    report.knowledge += data?.length ?? 0;
-  }
-
   try {
     report.github = await removeFromGithub(tasks, label, folders);
   } catch (err) {
@@ -112,22 +116,21 @@ async function purge(tasks: FamilyTask[], label: string, folders: boolean): Prom
 }
 
 /**
- * Deletes whole projects: every related task, their jobs, logs, AI messages and outputs (DB
- * cascades), uploaded files in Storage, knowledge items extracted from them, and their folders
- * and knowledge notes in the GitHub workspace repo. Irreversible.
+ * Deletes whole tasks: every related task, their jobs, logs, AI messages and outputs (DB cascades),
+ * uploaded files in Storage and their record folders in the assignees' GitHub repos. Irreversible.
  */
-export async function deleteProjects(rootIds: string[], label: string): Promise<DeleteReport> {
+export async function deleteTaskFamilies(rootIds: string[], label: string): Promise<DeleteReport> {
   return purge(await familyOf(rootIds), label, true);
 }
 
-/** Deletes the project a task belongs to (its root task and every related task). */
-export async function deleteProject(taskId: string): Promise<DeleteReport & { code: string }> {
+/** Deletes the task (its root task and every related task); the giver, the assignee or the owner may. */
+export async function deleteTaskFamily(actor: SessionUser, taskId: string): Promise<DeleteReport & { code: string }> {
   const { data: task } = await db().from("tasks").select("id, code, title, root_id").eq("id", taskId).maybeSingle<Pick<Task, "id" | "code" | "title" | "root_id">>();
   if (!task) throw new Error("تسک یافت نشد");
   const rootId = task.root_id ?? task.id;
-  const { data: root } = await db().from("tasks").select("code, title").eq("id", rootId).maybeSingle<Pick<Task, "code" | "title">>();
-  const code = root?.code ?? task.code;
-  return { ...(await deleteProjects([rootId], `پروژه ${code} «${root?.title ?? task.title}»`)), code };
+  const { data: root } = await db().from("tasks").select("code, title, requester_id, assignee_id").eq("id", rootId).maybeSingle<Pick<Task, "code" | "title" | "requester_id" | "assignee_id">>();
+  if (!root || (!actor.isOwner && root.requester_id !== actor.id && root.assignee_id !== actor.id)) throw new Error("دسترسی ندارید");
+  return { ...(await deleteTaskFamilies([rootId], `تسک ${root.code} «${root.title}»`)), code: root.code };
 }
 
 async function removeUserUploads(userId: string): Promise<number> {
@@ -155,9 +158,10 @@ async function removeUserUploads(userId: string): Promise<number> {
 }
 
 /**
- * Deletes a user account. Their projects are either deleted with everything in them ("delete") or
- * handed over to the admin doing the deletion ("transfer"). Knowledge about the user (requester
- * profile) and their unattached uploads are removed; authorship fields elsewhere are cleared.
+ * Deletes a user account (owner only). Their tasks (given or assigned) are either deleted with
+ * everything in them ("delete") or handed over to the owner ("transfer"). Their connections,
+ * settings, projects' rows and unattached uploads are removed; their own GitHub repository is theirs
+ * and is not touched.
  */
 export async function deleteUser(actor: SessionUser, userId: string, mode: "delete" | "transfer"): Promise<DeleteReport & { name: string }> {
   if (userId === actor.id) throw new Error("نمی‌توانید حساب خودتان را حذف کنید");
@@ -166,23 +170,17 @@ export async function deleteUser(actor: SessionUser, userId: string, mode: "dele
   const name = target.full_name || target.email || "کاربر";
 
   let report: DeleteReport = { tasks: 0, files: 0, knowledge: 0, github: 0, warnings: [] };
-  const { data: own } = await db().from("tasks").select("id, root_id").eq("requester_id", userId);
+  const { data: own } = await db().from("tasks").select("id, root_id").or(`requester_id.eq.${userId},assignee_id.eq.${userId}`);
   if (mode === "delete") {
-    // whole projects the user started, plus their own related tasks inside other people's projects
-    const rootIds = (own ?? []).filter((t) => !t.root_id).map((t) => t.id as string);
-    report = await deleteProjects(rootIds, `پروژه‌های ${name}`);
-    const { data: rest } = await db().from("tasks").select("id, code, title, github_path, root_id, requester_id").eq("requester_id", userId);
-    if (rest?.length) {
-      const more = await purge(rest as FamilyTask[], `تسک‌های ${name}`, false);
-      report = { ...report, tasks: report.tasks + more.tasks, files: report.files + more.files, knowledge: report.knowledge + more.knowledge, github: report.github + more.github, warnings: [...report.warnings, ...more.warnings] };
-    }
+    const rootIds = [...new Set((own ?? []).map((t) => (t.root_id as string | null) ?? (t.id as string)))];
+    report = await deleteTaskFamilies(rootIds, `تسک‌های ${name}`);
   } else if (own?.length) {
-    const { error } = await db().from("tasks").update({ requester_id: actor.id }).eq("requester_id", userId);
-    if (error) throw new Error(`انتقال پروژه‌ها: ${error.message}`);
+    await Promise.all([
+      db().from("tasks").update({ requester_id: actor.id }).eq("requester_id", userId),
+      db().from("tasks").update({ assignee_id: actor.id, project_id: null }).eq("assignee_id", userId),
+    ]);
   }
-
-  const { data: kn } = await db().from("knowledge_items").delete().eq("metadata->>requester_id", userId).select("id");
-  report.knowledge += kn?.length ?? 0;
+  await db().from("jobs").update({ status: "cancelled", error: "کاربر حذف شد" }).eq("owner_id", userId).in("status", ["queued", "running"]);
 
   // authorship columns reference the profile without ON DELETE: clear them so the account can go
   await Promise.all([

@@ -5,5 +5,5 @@ export default async function Home() {
   const user = await getSessionUser();
   if (!user) redirect("/login");
   if (user.profile.status !== "active") redirect("/pending");
-  redirect(user.isAdmin ? "/dashboard" : "/portal");
+  redirect(user.mode === "full" ? "/dashboard" : "/portal");
 }
