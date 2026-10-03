@@ -27,7 +27,7 @@ export default async function MorePage() {
               <Icon className="size-[18px]" />
             </span>
             <span className="flex-1 font-bold">{label}</span>
-            {"badge" in l && l.badge ? <span className="grid min-w-5 place-items-center rounded-full bg-danger px-1.5 text-[11px] font-bold text-white">{faNum(l.badge)}</span> : null}
+            {"badge" in l && l.badge ? <span className="grid min-w-5 place-items-center rounded-full bg-danger-fill px-1.5 text-[11px] font-bold text-white">{faNum(l.badge)}</span> : null}
             <ChevronLeft className="size-5 text-faint" />
           </Link>
         ))}

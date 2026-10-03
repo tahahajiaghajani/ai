@@ -90,7 +90,7 @@ export function NotificationBell({ userId, initial }: { userId: string; initial:
       trigger={
         <Button variant="ghost" size="icon" aria-label="اعلان‌ها" className="relative">
           <Bell className="size-5" />
-          {unread ? <span className="absolute -top-0.5 -left-0.5 grid min-w-4.5 place-items-center rounded-full bg-danger px-1 text-[10px] font-bold text-white">{faNum(unread)}</span> : null}
+          {unread ? <span className="absolute -top-0.5 -left-0.5 grid min-w-4.5 place-items-center rounded-full bg-danger-fill px-1 text-[10px] font-bold text-white">{faNum(unread)}</span> : null}
         </Button>
       }
     >
@@ -281,7 +281,7 @@ export function NavLink({ href, icon, label, match, badge, muted, dot }: { href:
       {active ? <span className="absolute inset-y-2.5 right-0 w-[3px] rounded-l-full bg-flow" /> : null}
       {icon}
       <span className="flex-1">{label}</span>
-      {badge ? <span className="grid min-w-5 place-items-center rounded-full bg-danger px-1.5 text-[10.5px] font-bold text-white">{faNum(badge)}</span> : null}
+      {badge ? <span className="grid min-w-5 place-items-center rounded-full bg-danger-fill px-1.5 text-[10.5px] font-bold text-white">{faNum(badge)}</span> : null}
       {dot === "release" && fresh ? <span className="size-2 rounded-full bg-flow" /> : null}
     </Link>
   );
@@ -293,7 +293,7 @@ export function BottomNavLink({ href, icon, label, match, badge }: { href: strin
     <Link href={href} aria-current={active ? "page" : undefined} className={cn("flex flex-1 flex-col items-center gap-0.5 rounded-xl py-1.5 text-[10.5px] font-semibold", active ? "text-primary" : "text-muted")}>
       <span className={cn("relative grid h-7 w-12 place-items-center rounded-full transition", active && "bg-primary-soft")}>
         {icon}
-        {badge ? <span className="absolute -top-1 left-1.5 grid min-w-4 place-items-center rounded-full bg-danger px-1 text-[9.5px] font-bold text-white">{faNum(badge)}</span> : null}
+        {badge ? <span className="absolute -top-1 left-1.5 grid min-w-4 place-items-center rounded-full bg-danger-fill px-1 text-[9.5px] font-bold text-white">{faNum(badge)}</span> : null}
       </span>
       {label}
     </Link>

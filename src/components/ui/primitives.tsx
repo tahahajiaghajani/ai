@@ -13,8 +13,8 @@ const BTN_VARIANTS: Record<ButtonVariant, string> = {
   secondary: "border border-line bg-surface-strong text-fg shadow-[0_1px_2px_rgba(11,18,34,0.04)] hover:border-line-strong hover:bg-surface-muted",
   ghost: "text-muted hover:bg-surface-muted hover:text-fg",
   outline: "border border-line-strong text-fg hover:bg-surface-muted",
-  danger: "bg-danger text-white hover:brightness-95",
-  success: "bg-success text-white hover:brightness-95",
+  danger: "bg-danger-fill text-white hover:brightness-95",
+  success: "bg-success-fill text-white hover:brightness-95",
 };
 const BTN_SIZES: Record<ButtonSize, string> = {
   sm: "h-8 px-3 text-xs gap-1.5 rounded-lg",

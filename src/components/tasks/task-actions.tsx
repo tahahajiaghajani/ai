@@ -276,7 +276,7 @@ export function DispatchFields({ mode, userId, defaults, state }: { mode: "prewo
         </Field>
       ) : null}
       {mode === "main" && state.engine === "claude_code" ? <ClaudeRunFields value={state.claude} onChange={state.setClaude} /> : null}
-      {state.blocker ? <p className="text-xs font-semibold text-amber-600">{state.blocker}</p> : null}
+      {state.blocker ? <p className="text-xs font-semibold text-amber-700">{state.blocker}</p> : null}
     </div>
   );
 }

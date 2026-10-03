@@ -90,7 +90,7 @@ export function DashboardClient({
 
       {!caps.prework || !caps.main ? (
         <Link href="/settings" className="flex items-center gap-2.5 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm font-semibold">
-          <AlertTriangle className="size-[18px] shrink-0 text-amber-600 dark:text-amber-300" />
+          <AlertTriangle className="size-[18px] shrink-0 text-amber-700 dark:text-amber-300" />
           <span className="flex-1">{!caps.ai ? "کلید هوش مصنوعی وصل نشده" : !caps.prework ? "مدل پیش‌کار انتخاب نشده" : "موتور کار اصلی آماده نیست"}</span>
           <span className="text-primary">تنظیمات ←</span>
         </Link>

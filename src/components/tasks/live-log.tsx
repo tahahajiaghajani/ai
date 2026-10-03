@@ -115,7 +115,7 @@ export function LiveLog({
     <div className={cn("flex flex-col", className)}>
       <div className="mb-2 flex flex-wrap items-center gap-2">
         {live ? (
-          <span className="inline-flex items-center gap-2 rounded-full bg-emerald-500/12 px-2.5 py-1 text-[11px] font-bold text-emerald-600 dark:text-emerald-300">
+          <span className="inline-flex items-center gap-2 rounded-full bg-emerald-500/12 px-2.5 py-1 text-[11px] font-bold text-emerald-700 dark:text-emerald-300">
             <span className="live-dot" /> زنده
           </span>
         ) : null}

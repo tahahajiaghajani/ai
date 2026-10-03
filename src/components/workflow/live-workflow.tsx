@@ -89,7 +89,7 @@ function TaskChip({ task, job, onOpen, stage }: { task: Task; job?: Job; onOpen:
         {queued ? <span className="ms-auto rounded bg-sky-500/12 px-1.5 text-[9.5px] font-bold text-sky-600 dark:text-sky-300">در صف اجرا</span> : null}
         {task.status === "returned" ? <span className="ms-auto rounded bg-rose-500/12 px-1.5 text-[9.5px] font-bold text-rose-600">برگشتی</span> : null}
         {task.status === "closure_rejected" ? <span className="ms-auto rounded bg-rose-500/12 px-1.5 text-[9.5px] font-bold text-rose-600">رد شد</span> : null}
-        {task.status === "main_done" ? <span className="ms-auto rounded bg-emerald-500/12 px-1.5 text-[9.5px] font-bold text-emerald-600">آماده‌ی بازبینی</span> : null}
+        {task.status === "main_done" ? <span className="ms-auto rounded bg-emerald-500/12 px-1.5 text-[9.5px] font-bold text-emerald-700">آماده‌ی بازبینی</span> : null}
         {running ? <span className="live-dot ms-auto" /> : null}
       </div>
       <p className="mt-0.5 line-clamp-2 text-[12px] font-semibold leading-5">{task.title}</p>

@@ -131,7 +131,7 @@ export function QuickCommand({ userId, defaults, projectId: fixedProject, classN
         </Button>
       </div>
       {!ready ? (
-        <Link href="/settings#stages" className="mt-2 block text-xs font-semibold text-amber-600 dark:text-amber-300">
+        <Link href="/settings#stages" className="mt-2 block text-xs font-semibold text-amber-700 dark:text-amber-300">
           مدل {stage === "main" ? "کار اصلی" : "پیش‌کار"} انتخاب نشده ←
         </Link>
       ) : null}

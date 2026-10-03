@@ -42,8 +42,9 @@ export function UsersClient({ me, profiles, stats }: { me: string; profiles: Pro
   const row = (p: Profile) => (
     <div key={p.id} className="flex flex-wrap items-center gap-3 px-5 py-3.5">
       <Avatar name={p.full_name ?? p.email ?? "?"} src={p.avatar_url} size={38} />
-      <div className="min-w-0 flex-1">
-        <p className="flex items-center gap-2 font-bold">
+      {/* takes the row on phones; counts and actions wrap below it */}
+      <div className="min-w-0 flex-1 basis-60">
+        <p className="flex flex-wrap items-center gap-x-2 gap-y-1 font-bold">
           {p.full_name}
           {p.role === "owner" ? <Badge tone="violet">مالک</Badge> : null}
           {p.status === "active" ? <Badge tone={p.mode === "full" ? "info" : "neutral"}>{p.mode === "full" ? "حالت کامل" : "حالت ساده"}</Badge> : null}

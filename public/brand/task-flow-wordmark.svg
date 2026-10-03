@@ -3,5 +3,5 @@
     <linearGradient id="tf-flow" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#2F5BFF"/><stop offset="1" stop-color="#13B5D6"/></linearGradient>
   </defs>
   <text x="0" y="40" font-family="Sora, 'Segoe UI', sans-serif" font-size="40" font-weight="600" letter-spacing="-1.4" fill="#0B1222">task <tspan fill="url(#tf-flow)">flow</tspan></text>
-  <text x="2" y="60" font-family="Sora, 'Segoe UI', sans-serif" font-size="10" font-weight="300" letter-spacing="3.2" fill="#A8822F">BY TAHA AGHAJANI</text>
+  <text x="2" y="60" font-family="Sora, 'Segoe UI', sans-serif" font-size="10" font-weight="300" letter-spacing="3.2" fill="#86661F">BY TAHA AGHAJANI</text>
 </svg>

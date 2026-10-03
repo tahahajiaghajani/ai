@@ -18,7 +18,7 @@
   --border-strong: rgba(11, 18, 34, 0.15);
   --text: #0b1222;
   --text-muted: #556079;
-  --text-faint: #8992a8;
+  --text-faint: #646d85;
   /* accent for text, icons and focus */
   --primary: #2f5bff;
   --primary-2: #13b5d6;
@@ -27,12 +27,15 @@
   --brand: #2f5bff;
   --brand-deep: #1f3fd6;
   --flow: #13b5d6;
-  --gold: #a8822f;
+  --gold: #86661f;
   --ink: #0b1222;
   --ring: rgba(47, 91, 255, 0.28);
-  --success: #12a170;
-  --warning: #d98a06;
-  --danger: #e5484d;
+  --success: #0a7d55;
+  --warning: #9a5b00;
+  --danger: #c9292f;
+  /* fills that carry white text (count badges, success/danger buttons) */
+  --success-fill: #0a7d55;
+  --danger-fill: #c9292f;
   --info: #0e9ad8;
 
   --stage-approval: #e3a008;
@@ -60,7 +63,7 @@
   --border-strong: rgba(140, 165, 230, 0.2);
   --text: #e9edf7;
   --text-muted: #98a2bc;
-  --text-faint: #66708c;
+  --text-faint: #7d87a3;
   --primary: #7e98ff;
   --primary-2: #3fe0f5;
   --primary-soft: rgba(126, 152, 255, 0.12);
@@ -73,6 +76,8 @@
   --success: #2fc28c;
   --warning: #f2b33d;
   --danger: #f2686c;
+  --success-fill: #0e8459;
+  --danger-fill: #cf3439;
   --info: #38bdf8;
   --shadow-card: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 10px 30px -18px rgba(0, 0, 0, 0.7);
   --shadow-pop: 0 30px 70px -24px rgba(0, 0, 0, 0.75);
@@ -98,6 +103,8 @@
   --color-success: var(--success);
   --color-warning: var(--warning);
   --color-danger: var(--danger);
+  --color-success-fill: var(--success-fill);
+  --color-danger-fill: var(--danger-fill);
   --color-info: var(--info);
   --color-brand: var(--brand);
   --color-brand-deep: var(--brand-deep);

@@ -431,7 +431,7 @@ export function GraphClient({
 
       {scopeProject && githubReady && graphifyEnabled && scopeLoad && scopeLoad.status !== "ok" ? (
         <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/8 px-4 py-3 text-sm">
-          <Sparkles className="size-4 text-amber-600" />
+          <Sparkles className="size-4 text-amber-700" />
           <span className="flex-1">
             {scopeLoad.status === "missing"
               ? "graphify هنوز برای این پروژه اجرا نشده است؛ فعلاً نقشه‌ی فایل‌ها و وابستگی‌های ثبت‌شده در اپ نمایش داده می‌شود."
