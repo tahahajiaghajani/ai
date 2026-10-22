@@ -115,6 +115,8 @@ export interface NewTicket {
   product: TicketProduct;
   category: TicketCategory;
   source: string;
+  /** the account that submitted it */
+  user_id?: string;
 }
 
 export async function createTicket(input: NewTicket): Promise<{ code: string; key: string; id: string }> {

@@ -10,6 +10,7 @@ const ITEMS: { href: string; label: string; icon: IconName }[] = [
   { href: "/admin/chats", label: "گفتگوهای دستیار", icon: "eye" },
   { href: "/admin/knowledge", label: "دانش پارس", icon: "rag" },
   { href: "/admin/blog", label: "وبلاگ", icon: "article" },
+  { href: "/admin/users", label: "کاربران", icon: "human" },
   { href: "/admin/ai", label: "هوش مصنوعی", icon: "ai" },
   { href: "/admin/demos", label: "دموها", icon: "play" },
   { href: "/admin/site", label: "محتوای سایت", icon: "globe" },

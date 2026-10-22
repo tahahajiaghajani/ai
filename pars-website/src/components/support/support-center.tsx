@@ -3,12 +3,13 @@
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
 import type { Copy } from "@/content/fa";
-import type { Lang } from "@/lib/i18n";
+import { href, type Lang } from "@/lib/i18n";
 import { CATEGORIES, CATEGORY_LABEL, PRODUCTS, PRODUCT_LABEL, isCategory, type TicketCategory, type TicketProduct } from "@/lib/ticket-meta";
 import { findTicket, submitTicket, suggestAnswer } from "@/app/actions/support";
 import { Markdown } from "@/components/chat/markdown";
 import { Button, Input, Label, Select, Spinner, Textarea } from "@/components/ui/field";
 import { Icon } from "@/components/site/icons";
+import { useAccount } from "@/components/account/use-account";
 
 interface Saved {
   code: string;
@@ -18,6 +19,19 @@ interface Saved {
 }
 
 const STORE = "pars-tickets";
+/** the request typed before signing in, restored when the visitor comes back */
+const DRAFT = "pars-ticket-draft";
+type Draft = { category: TicketCategory; product: TicketProduct; subject: string; body: string };
+
+function takeDraft(): Draft | null {
+  try {
+    const raw = sessionStorage.getItem(DRAFT);
+    sessionStorage.removeItem(DRAFT);
+    return raw ? (JSON.parse(raw) as Draft) : null;
+  } catch {
+    return null;
+  }
+}
 
 /** A Server Action that rejects (dropped connection, new deployment, server error) — shown inline, the form keeps its values. */
 const NET_ERROR = { fa: "ارتباط برقرار نشد؛ اتصال اینترنت را بررسی کنید و دوباره امتحان کنید.", en: "Couldn't connect — check your connection and try again." };
@@ -34,7 +48,7 @@ function loadSaved(): Saved[] {
   }
 }
 
-export function SupportCenter({ lang, t }: { lang: Lang; t: Copy["support"] }) {
+export function SupportCenter({ lang, t, account }: { lang: Lang; t: Copy["support"]; account: Copy["account"] }) {
   const params = useSearchParams();
   const [tab, setTab] = useState<"new" | "track">(params.get("tab") === "track" ? "track" : "new");
   const [saved, setSaved] = useState<Saved[]>([]);
@@ -61,6 +75,7 @@ export function SupportCenter({ lang, t }: { lang: Lang; t: Copy["support"] }) {
             <NewTicket
               lang={lang}
               t={t}
+              ta={account}
               initialCategory={isCategory(params.get("category")) ? (params.get("category") as TicketCategory) : "support"}
               onCreated={(s) => {
                 const next = [s, ...loadSaved().filter((x) => x.code !== s.code)].slice(0, 10);
@@ -105,7 +120,8 @@ export function SupportCenter({ lang, t }: { lang: Lang; t: Copy["support"] }) {
   );
 }
 
-function NewTicket({ lang, t, initialCategory, onCreated }: { lang: Lang; t: Copy["support"]; initialCategory: TicketCategory; onCreated: (s: Saved) => void }) {
+function NewTicket({ lang, t, ta, initialCategory, onCreated }: { lang: Lang; t: Copy["support"]; ta: Copy["account"]; initialCategory: TicketCategory; onCreated: (s: Saved) => void }) {
+  const me = useAccount();
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [category, setCategory] = useState<TicketCategory>(initialCategory);
   const [product, setProduct] = useState<TicketProduct>("other");
@@ -121,6 +137,23 @@ function NewTicket({ lang, t, initialCategory, onCreated }: { lang: Lang; t: Cop
   const [copied, setCopied] = useState(false);
 
   const L = (x: { fa: string; en: string }) => x[lang];
+
+  // back from signing in: pick up the request where it was left
+  useEffect(() => {
+    const d = takeDraft();
+    if (!d) return;
+    if (isCategory(d.category)) setCategory(d.category);
+    if (PRODUCTS.includes(d.product)) setProduct(d.product);
+    setSubject(d.subject ?? "");
+    setBody(d.body ?? "");
+    if ((d.subject ?? "").trim().length >= 3 && (d.body ?? "").trim().length >= 10) setStep(2);
+  }, []);
+
+  const keepDraft = () => {
+    try {
+      sessionStorage.setItem(DRAFT, JSON.stringify({ category, product, subject, body } satisfies Draft));
+    } catch {}
+  };
 
   const next = () => {
     setError("");
@@ -309,7 +342,21 @@ function NewTicket({ lang, t, initialCategory, onCreated }: { lang: Lang; t: Cop
         </div>
       )}
 
-      {step === 2 && (
+      {step === 2 && me === undefined && (
+        <div className="flex justify-center py-10">
+          <Spinner />
+        </div>
+      )}
+
+      {step === 2 && me === null && <SignInGate lang={lang} ta={ta} onLeave={keepDraft} />}
+
+      {step === 2 && !me && (
+        <Button type="button" variant="soft" onClick={() => setStep(1)}>
+          {t.back}
+        </Button>
+      )}
+
+      {step === 2 && me && (
         <div className="space-y-5 animate-[fade-in_.4s_both]">
           <div className="rounded-2xl border border-line bg-ink-2/60 px-4 py-3 text-sm">
             <span className="text-faint">{L(CATEGORY_LABEL[category])} · </span>
@@ -320,21 +367,22 @@ function NewTicket({ lang, t, initialCategory, onCreated }: { lang: Lang; t: Cop
               <Label htmlFor="name" hint={t.required}>
                 {t.name}
               </Label>
-              <Input id="name" name="name" defaultValue={contact.name} autoComplete="name" maxLength={80} required />
+              <Input id="name" name="name" defaultValue={contact.name ?? me.name} autoComplete="name" maxLength={80} required />
             </div>
             <div>
               <Label htmlFor="email" hint={t.required}>
                 {t.email}
               </Label>
-              <Input id="email" name="email" defaultValue={contact.email} type="email" autoComplete="email" maxLength={120} dir="ltr" required />
+              {/* the account's e-mail: replies go there */}
+              <Input id="email" value={me.email} type="email" dir="ltr" readOnly aria-readonly className="text-muted" />
             </div>
             <div>
               <Label htmlFor="phone">{t.phone}</Label>
-              <Input id="phone" name="phone" defaultValue={contact.phone} type="tel" autoComplete="tel" maxLength={30} dir="ltr" />
+              <Input id="phone" name="phone" defaultValue={contact.phone ?? me.phone} type="tel" autoComplete="tel" maxLength={30} dir="ltr" />
             </div>
             <div>
               <Label htmlFor="organization">{t.organization}</Label>
-              <Input id="organization" name="organization" defaultValue={contact.organization} autoComplete="organization" maxLength={120} />
+              <Input id="organization" name="organization" defaultValue={contact.organization ?? me.organization} autoComplete="organization" maxLength={120} />
             </div>
           </div>
           <div>
@@ -371,6 +419,28 @@ function NewTicket({ lang, t, initialCategory, onCreated }: { lang: Lang; t: Cop
 
       {error && <p className="rounded-2xl border border-danger/30 bg-danger/10 px-4 py-3 text-sm">{error}</p>}
     </form>
+  );
+}
+
+function SignInGate({ lang, ta, onLeave }: { lang: Lang; ta: Copy["account"]; onLeave: () => void }) {
+  const next = encodeURIComponent(href(lang, "/support"));
+  const login = href(lang, "/account/login");
+  return (
+    <div className="animate-[fade-in_.4s_both] rounded-3xl border border-violet/30 bg-violet/[0.06] p-6 text-center sm:p-8">
+      <span className="mx-auto grid size-12 place-items-center rounded-2xl bg-reverse text-white">
+        <Icon name="human" className="size-6" />
+      </span>
+      <h3 className="mt-4 text-lg font-semibold">{ta.gateTitle}</h3>
+      <p className="mx-auto mt-2 max-w-md text-sm leading-7 text-muted">{ta.gateLead}</p>
+      <div className="mt-6 flex flex-wrap justify-center gap-3">
+        <a href={`${login}?next=${next}`} onClick={onLeave} className="inline-flex h-11 items-center rounded-full bg-magenta px-6 text-sm font-semibold text-white hover:bg-magenta-deep">
+          {ta.signIn}
+        </a>
+        <a href={`${login}?mode=signup&next=${next}`} onClick={onLeave} className="inline-flex h-11 items-center rounded-full border border-line-strong px-6 text-sm text-fg hover:bg-white/5">
+          {ta.signUp}
+        </a>
+      </div>
+    </div>
   );
 }
 

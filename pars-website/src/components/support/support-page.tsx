@@ -20,7 +20,7 @@ export function SupportPage({ lang }: { lang: Lang }) {
           </p>
         </div>
         <Suspense fallback={<div className="skeleton h-[520px] rounded-3xl" />}>
-          <SupportCenter lang={lang} t={t.support} />
+          <SupportCenter lang={lang} t={t.support} account={t.account} />
         </Suspense>
       </div>
     </section>

@@ -1,6 +1,7 @@
 "use server";
 
 import { after } from "next/server";
+import { currentUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { hashIp } from "@/lib/crypto";
 import { clientIp } from "@/lib/request";
@@ -33,6 +34,7 @@ const MSG = {
   denied: { fa: "دسترسی به این درخواست مجاز نیست.", en: "You don't have access to this request." },
   closed: { fa: "این درخواست بسته شده است؛ برای موضوع جدید درخواست تازه ثبت کنید.", en: "This request is closed — please open a new one." },
   failed: { fa: "مشکلی پیش آمد؛ دوباره امتحان کنید.", en: "Something went wrong — please try again." },
+  signIn: { fa: "برای ثبت درخواست، اول وارد حساب کاربری شوید.", en: "Please sign in to submit a request." },
 };
 
 function text(v: unknown, max: number): string {
@@ -60,11 +62,15 @@ export async function suggestAnswer(input: { subject: string; body: string; lang
 export async function submitTicket(input: Record<string, unknown>): Promise<Result<{ code: string; key: string; url: string }>> {
   const lang: Lang = input.lang === "en" ? "en" : "fa";
   if (text(input.website, 200)) return { ok: false, error: MSG.invalid[lang] }; // honeypot
+  // tickets need an account: the reply e-mail and "my requests" come from it
+  const me = await currentUser();
+  if (!me) return { ok: false, error: MSG.signIn[lang] };
   const data = {
-    name: text(input.name, 80),
-    email: text(input.email, 120).toLowerCase(),
-    phone: text(input.phone, 30),
-    organization: text(input.organization, 120),
+    name: text(input.name, 80) || me.name,
+    email: me.email,
+    user_id: me.id,
+    phone: text(input.phone, 30) || me.phone,
+    organization: text(input.organization, 120) || me.organization,
     subject: text(input.subject, 160),
     body: text(input.body, 6000),
     source: text(input.source, 160),
