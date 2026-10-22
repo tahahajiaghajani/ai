@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Copy } from "@/content/fa";
 import type { Lang } from "@/lib/i18n";
+import { lockScroll } from "@/lib/scroll-lock";
 
 export interface ChatMsg {
   id: string;
@@ -24,7 +25,8 @@ interface ChatApi {
   open: boolean;
   messages: ChatMsg[];
   busy: boolean;
-  ask: (q: string) => void;
+  /** Opens the chat and sends `q`; false when nothing was sent (empty, or an answer is still streaming). */
+  ask: (q: string) => boolean;
   show: () => void;
   hide: () => void;
   stop: () => void;
@@ -45,6 +47,20 @@ const loadPanel = () => import("@/components/chat/chat-panel");
 const ChatPanel = dynamic(loadPanel, { ssr: false });
 
 const uid = () => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`);
+
+/** same note the chat route appends when the provider breaks off */
+const CUT_OFF: Record<Lang, string> = { fa: "\n\n…پاسخ ناتمام ماند. لطفاً دوباره بپرسید.", en: "\n\n…The answer was cut off. Please ask again." };
+
+/**
+ * What an answer shows when its stream ends early: what arrived (stopped by the visitor, or cut off
+ * with a note, so it stays on screen and in the history), else the localized error — never the
+ * browser's own message ("Failed to fetch", "Load failed").
+ */
+export function endedEarly(acc: string, o: { stopped: boolean; error: string; lang: Lang }): Pick<ChatMsg, "content" | "status"> {
+  if (o.stopped) return { content: acc, status: "done" };
+  const kept = acc.replace(/\[\[[^\]]*$/, "").trimEnd();
+  return kept ? { content: kept + CUT_OFF[o.lang], status: "done" } : { content: o.error, status: "error" };
+}
 
 export function ChatProvider(props: { lang: Lang; t: Copy["chat"]; greeting: string; suggestions: string[]; supportHref: string; contactHref: string; children: ReactNode }) {
   const { lang, t } = props;
@@ -78,29 +94,26 @@ export function ChatProvider(props: { lang: Lang; t: Copy["chat"]; greeting: str
     } catch {}
   }, [messages, busy, storeKey]);
 
-  // lock page scroll and pause the hero shader while the chat is open
+  // pause the hero shader and lock page scroll while the chat is open — already before the lazy
+  // panel has loaded; it is the shared counted lock, so the «demos» action never unlocks the sheet
   useEffect(() => {
+    if (!open) return;
     const d = document.documentElement;
-    if (open) {
-      d.dataset.chat = "open";
-      d.style.overflow = "hidden";
-    } else {
+    d.dataset.chat = "open";
+    const unlock = lockScroll();
+    return () => {
       delete d.dataset.chat;
-      d.style.overflow = "";
-    }
+      unlock();
+    };
   }, [open]);
 
   const patch = useCallback((id: string, p: Partial<ChatMsg>) => {
     setMessages((ms) => ms.map((m) => (m.id === id ? { ...m, ...p } : m)));
   }, []);
 
-  const ask = useCallback(
-    async (q: string) => {
-      const text = q.trim();
-      if (!text) return;
-      setMounted(true);
-      setOpen(true);
-      if (abortRef.current) return;
+  // runs synchronously up to the fetch, so abortRef is set before ask() returns
+  const send = useCallback(
+    async (text: string) => {
       const history = messagesRef.current.filter((m) => m.status !== "error" && m.content);
       const user: ChatMsg = { id: uid(), role: "user", content: text.slice(0, 4000), status: "done" };
       const answer: ChatMsg = { id: uid(), role: "assistant", content: "", status: "streaming", logId: uid() };
@@ -109,6 +122,7 @@ export function ChatProvider(props: { lang: Lang; t: Copy["chat"]; greeting: str
       const ac = new AbortController();
       abortRef.current = ac;
       let acc = "";
+      let failure = t.errorNet;
       let frame = 0;
       const flush = () => {
         frame = 0;
@@ -123,7 +137,8 @@ export function ChatProvider(props: { lang: Lang; t: Copy["chat"]; greeting: str
         });
         if (!res.ok || !res.body) {
           const j = (await res.json().catch(() => ({}))) as { error?: string };
-          throw new Error(j.error === "rate" ? t.errorRate : j.error === "busy" ? t.errorBusy : t.errorNet);
+          failure = j.error === "rate" ? t.errorRate : j.error === "busy" ? t.errorBusy : t.errorNet;
+          throw new Error(failure);
         }
         const reader = res.body.getReader();
         const dec = new TextDecoder();
@@ -135,10 +150,9 @@ export function ChatProvider(props: { lang: Lang; t: Copy["chat"]; greeting: str
         }
         cancelAnimationFrame(frame);
         patch(answer.id, { content: acc, status: "done" });
-      } catch (e) {
+      } catch {
         cancelAnimationFrame(frame);
-        if (ac.signal.aborted) patch(answer.id, { content: acc, status: "done" });
-        else patch(answer.id, { content: e instanceof Error && e.message ? e.message : t.errorNet, status: "error" });
+        patch(answer.id, endedEarly(acc, { stopped: ac.signal.aborted, error: failure, lang }));
       } finally {
         abortRef.current = null;
         setBusy(false);
@@ -146,6 +160,51 @@ export function ChatProvider(props: { lang: Lang; t: Copy["chat"]; greeting: str
     },
     [lang, patch, t],
   );
+
+  // stable callbacks: the panel's open effect depends on hide, so it must not change per streamed chunk
+  const ask = useCallback(
+    (q: string) => {
+      const text = q.trim();
+      if (!text) return false;
+      setMounted(true);
+      setOpen(true);
+      if (abortRef.current) return false;
+      void send(text);
+      return true;
+    },
+    [send],
+  );
+
+  const show = useCallback(() => {
+    setMounted(true);
+    setOpen(true);
+  }, []);
+
+  const hide = useCallback(() => setOpen(false), []);
+
+  const stop = useCallback(() => abortRef.current?.abort(), []);
+
+  const reset = useCallback(() => {
+    abortRef.current?.abort();
+    sessionRef.current = uid();
+    setMessages([]);
+  }, []);
+
+  const rate = useCallback(
+    (id: string, rating: 1 | -1) => {
+      const m = messagesRef.current.find((x) => x.id === id);
+      if (!m?.logId || m.rating) return;
+      const logId = m.logId;
+      patch(id, { rating });
+      // roll back when the save can't go out, so the buttons come back for another try
+      void import("@/app/actions/support")
+        .then(({ rateAnswer }) => rateAnswer({ logId, rating }))
+        .catch(() => patch(id, { rating: undefined }));
+    },
+    [patch],
+  );
+
+  const prefetch = useCallback(() => void loadPanel(), []);
 
   const api = useMemo<ChatApi>(
     () => ({
@@ -158,27 +217,15 @@ export function ChatProvider(props: { lang: Lang; t: Copy["chat"]; greeting: str
       open,
       messages,
       busy,
-      ask: (q) => void ask(q),
-      show: () => {
-        setMounted(true);
-        setOpen(true);
-      },
-      hide: () => setOpen(false),
-      stop: () => abortRef.current?.abort(),
-      reset: () => {
-        abortRef.current?.abort();
-        sessionRef.current = uid();
-        setMessages([]);
-      },
-      rate: (id, rating) => {
-        const m = messagesRef.current.find((x) => x.id === id);
-        if (!m?.logId || m.rating) return;
-        patch(id, { rating });
-        void import("@/app/actions/support").then(({ rateAnswer }) => rateAnswer({ logId: m.logId!, rating }));
-      },
-      prefetch: () => void loadPanel(),
+      ask,
+      show,
+      hide,
+      stop,
+      reset,
+      rate,
+      prefetch,
     }),
-    [lang, t, props.greeting, props.suggestions, props.supportHref, props.contactHref, open, messages, busy, ask, patch],
+    [lang, t, props.greeting, props.suggestions, props.supportHref, props.contactHref, open, messages, busy, ask, show, hide, stop, reset, rate, prefetch],
   );
 
   return (
@@ -190,17 +237,22 @@ export function ChatProvider(props: { lang: Lang; t: Copy["chat"]; greeting: str
   );
 }
 
-/** Floating button that reopens the assistant from anywhere on the page. */
+/**
+ * Floating button that reopens the assistant from anywhere on the page. It stays mounted (only
+ * faded out under the chat) and keeps its focus while the chat opens, so closing hands focus back
+ * to it — unmounting it, or hiding it with display:none, would drop focus to <body>.
+ */
 function ChatLauncher() {
   const { open, show, prefetch, t, messages } = useChat();
-  if (open) return null;
   return (
     <button
       type="button"
       onClick={show}
       onPointerEnter={prefetch}
       aria-label={t.open}
-      className="group fixed bottom-5 end-5 z-40 flex items-center gap-2.5 rounded-full border border-line-strong bg-ink-3/80 py-2 ps-2 pe-4 text-sm font-semibold text-fg shadow-[0_18px_50px_-12px_rgb(223_17_115/0.55)] backdrop-blur-md transition hover:-translate-y-0.5 hover:border-pink/50"
+      data-open={open || undefined}
+      tabIndex={open ? -1 : undefined}
+      className="group fixed bottom-5 end-5 z-40 flex items-center gap-2.5 rounded-full border border-line-strong bg-ink-3/80 py-2 ps-2 pe-4 text-sm font-semibold text-fg shadow-[0_18px_50px_-12px_rgb(223_17_115/0.55)] backdrop-blur-md transition hover:-translate-y-0.5 hover:border-pink/50 data-[open]:pointer-events-none data-[open]:opacity-0"
     >
       <span className="relative grid size-9 place-items-center rounded-full bg-reverse">
         <svg viewBox="0 0 24 24" className="size-4.5 text-white" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>

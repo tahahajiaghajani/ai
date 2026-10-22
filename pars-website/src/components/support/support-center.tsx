@@ -19,6 +19,13 @@ interface Saved {
 
 const STORE = "pars-tickets";
 
+/** A Server Action that rejects (dropped connection, new deployment, server error) — shown inline, the form keeps its values. */
+const NET_ERROR = { fa: "ارتباط برقرار نشد؛ اتصال اینترنت را بررسی کنید و دوباره امتحان کنید.", en: "Couldn't connect — check your connection and try again." };
+
+/** Step-2 fields, kept while the visitor goes back to step 1 (step 2 unmounts). */
+const CONTACT = ["name", "email", "phone", "organization", "source"] as const;
+type Contact = Partial<Record<(typeof CONTACT)[number], string>>;
+
 function loadSaved(): Saved[] {
   try {
     return JSON.parse(localStorage.getItem(STORE) || "[]") as Saved[];
@@ -85,7 +92,7 @@ export function SupportCenter({ lang, t }: { lang: Lang; t: Copy["support"] }) {
               {saved.map((s) => (
                 <li key={s.code}>
                   <a href={s.url} className="block rounded-xl border border-line px-3.5 py-2.5 transition hover:border-pink/40">
-                    <span className="ltr block text-start font-brand text-xs text-pink">{s.code}</span>
+                    <span className="ltr block font-brand text-xs text-pink rtl:text-right">{s.code}</span>
                     <span className="mt-0.5 block truncate text-sm">{s.subject}</span>
                   </a>
                 </li>
@@ -104,6 +111,7 @@ function NewTicket({ lang, t, initialCategory, onCreated }: { lang: Lang; t: Cop
   const [product, setProduct] = useState<TicketProduct>("other");
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
+  const [contact, setContact] = useState<Contact>({});
   const [suggestion, setSuggestion] = useState<string | null>(null);
   const [solved, setSolved] = useState(false);
   const [checking, startCheck] = useTransition();
@@ -121,9 +129,13 @@ function NewTicket({ lang, t, initialCategory, onCreated }: { lang: Lang; t: Cop
       return;
     }
     startCheck(async () => {
-      const r = await suggestAnswer({ subject, body, lang });
-      if (r.ok && r.answer) setSuggestion(r.answer);
-      else setStep(2);
+      try {
+        const r = await suggestAnswer({ subject, body, lang });
+        if (r.ok && r.answer) setSuggestion(r.answer);
+        else setStep(2);
+      } catch {
+        setStep(2); // the suggestion is optional
+      }
     });
   };
 
@@ -158,7 +170,7 @@ function NewTicket({ lang, t, initialCategory, onCreated }: { lang: Lang; t: Cop
           <Button
             variant="ghost"
             onClick={() => {
-              void navigator.clipboard?.writeText(done.url).then(() => {
+              void navigator.clipboard?.writeText(new URL(done.url, window.location.href).href).then(() => {
                 setCopied(true);
                 setTimeout(() => setCopied(false), 1600);
               });
@@ -179,22 +191,26 @@ function NewTicket({ lang, t, initialCategory, onCreated }: { lang: Lang; t: Cop
         const fd = new FormData(e.currentTarget);
         setError("");
         startSend(async () => {
-          const r = await submitTicket({
-            lang,
-            category,
-            product,
-            subject,
-            body,
-            name: fd.get("name"),
-            email: fd.get("email"),
-            phone: fd.get("phone"),
-            organization: fd.get("organization"),
-            source: fd.get("source"),
-            website: fd.get("website"),
-          });
-          if (!r.ok) return setError(r.error);
-          setDone({ code: r.code, url: r.url });
-          onCreated({ code: r.code, url: r.url, subject, at: new Date().toISOString() });
+          try {
+            const r = await submitTicket({
+              lang,
+              category,
+              product,
+              subject,
+              body,
+              name: fd.get("name"),
+              email: fd.get("email"),
+              phone: fd.get("phone"),
+              organization: fd.get("organization"),
+              source: fd.get("source"),
+              website: fd.get("website"),
+            });
+            if (!r.ok) return setError(r.error);
+            setDone({ code: r.code, url: r.url });
+            onCreated({ code: r.code, url: r.url, subject, at: new Date().toISOString() });
+          } catch {
+            setError(NET_ERROR[lang]);
+          }
         });
       }}
       className="space-y-6"
@@ -304,31 +320,39 @@ function NewTicket({ lang, t, initialCategory, onCreated }: { lang: Lang; t: Cop
               <Label htmlFor="name" hint={t.required}>
                 {t.name}
               </Label>
-              <Input id="name" name="name" autoComplete="name" maxLength={80} required />
+              <Input id="name" name="name" defaultValue={contact.name} autoComplete="name" maxLength={80} required />
             </div>
             <div>
               <Label htmlFor="email" hint={t.required}>
                 {t.email}
               </Label>
-              <Input id="email" name="email" type="email" autoComplete="email" maxLength={120} dir="ltr" required />
+              <Input id="email" name="email" defaultValue={contact.email} type="email" autoComplete="email" maxLength={120} dir="ltr" required />
             </div>
             <div>
               <Label htmlFor="phone">{t.phone}</Label>
-              <Input id="phone" name="phone" type="tel" autoComplete="tel" maxLength={30} dir="ltr" />
+              <Input id="phone" name="phone" defaultValue={contact.phone} type="tel" autoComplete="tel" maxLength={30} dir="ltr" />
             </div>
             <div>
               <Label htmlFor="organization">{t.organization}</Label>
-              <Input id="organization" name="organization" autoComplete="organization" maxLength={120} />
+              <Input id="organization" name="organization" defaultValue={contact.organization} autoComplete="organization" maxLength={120} />
             </div>
           </div>
           <div>
             <Label htmlFor="source">{t.source}</Label>
-            <Input id="source" name="source" maxLength={160} />
+            <Input id="source" name="source" defaultValue={contact.source} maxLength={160} />
           </div>
           {/* honeypot */}
           <input type="text" name="website" tabIndex={-1} autoComplete="off" aria-hidden className="absolute -start-[9999px] h-0 w-0 opacity-0" />
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <Button type="button" variant="soft" onClick={() => setStep(1)}>
+            <Button
+              type="button"
+              variant="soft"
+              onClick={(e) => {
+                const fd = new FormData(e.currentTarget.form ?? undefined);
+                setContact(Object.fromEntries(CONTACT.map((k) => [k, String(fd.get(k) ?? "")])));
+                setStep(1);
+              }}
+            >
               {t.back}
             </Button>
             <Button type="submit" disabled={sending}>
@@ -360,9 +384,13 @@ function Track({ lang, t }: { lang: Lang; t: Copy["support"] }) {
         const fd = new FormData(e.currentTarget);
         setError("");
         start(async () => {
-          const r = await findTicket({ code: String(fd.get("code") ?? ""), email: String(fd.get("email") ?? ""), lang });
-          if (!r.ok) return setError(r.error);
-          window.location.assign(r.url);
+          try {
+            const r = await findTicket({ code: String(fd.get("code") ?? ""), email: String(fd.get("email") ?? ""), lang });
+            if (!r.ok) return setError(r.error);
+            window.location.assign(r.url);
+          } catch {
+            setError(NET_ERROR[lang]);
+          }
         });
       }}
       className="space-y-5"

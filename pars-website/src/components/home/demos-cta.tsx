@@ -13,10 +13,9 @@ export function DemosCta({ lang, t }: { lang: Lang; t: Copy }) {
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img aria-hidden src="/brand/pars-mark-white.svg" alt="" loading="lazy" className="absolute -bottom-24 -end-16 -z-10 w-[420px] opacity-[0.07] sm:w-[560px]" />
           <span className="kicker justify-center !text-white/80">
-            <span className="h-px w-8 bg-white/40" />
             {d.kicker}
           </span>
-          <h2 className="display mx-auto mt-5 max-w-3xl text-[clamp(2rem,4.8vw,3.75rem)] text-balance">{d.title}</h2>
+          <h2 className="display mx-auto mt-5 max-w-3xl text-[clamp(1.65rem,3.4vw,2.7rem)] text-balance">{d.title}</h2>
           <p className="mx-auto mt-5 max-w-xl text-base leading-8 text-white/75 sm:text-lg">{d.lead}</p>
           <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
             <DemosButton className="group inline-flex h-14 items-center gap-3 rounded-full bg-white px-8 font-bold text-midnight shadow-[0_20px_60px_-20px_rgb(255_255_255/0.6)] transition hover:scale-[1.03]">

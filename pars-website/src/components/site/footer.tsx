@@ -4,6 +4,7 @@ import type { SiteContent } from "@/lib/settings-types";
 import { DemosButton } from "@/components/site/demo-sheet";
 import { Icon, type IconName } from "@/components/site/icons";
 import { MotionToggle } from "@/components/site/motion-toggle";
+import { latinDigits } from "@/lib/digits";
 
 export function Footer({ lang, t, site }: { lang: Lang; t: Copy; site: SiteContent }) {
   const home = href(lang, "/");
@@ -38,10 +39,13 @@ export function Footer({ lang, t, site }: { lang: Lang; t: Copy; site: SiteConte
           <div>
             <h2 className="text-sm font-semibold text-faint">{t.footer.explore}</h2>
             <ul className="mt-4 space-y-2.5 text-[15px]">
+              <li><a className="text-muted hover:text-fg" href={`${home}#about`}>{t.nav.about}</a></li>
               <li><a className="text-muted hover:text-fg" href={`${home}#services`}>{t.nav.services}</a></li>
               <li><a className="text-muted hover:text-fg" href={`${home}#ai`}>{t.nav.ai}</a></li>
               <li><a className="text-muted hover:text-fg" href={`${home}#work`}>{t.nav.work}</a></li>
               <li><a className="text-muted hover:text-fg" href={`${home}#ceo`}>{t.nav.ceo}</a></li>
+              <li><a className="text-muted hover:text-fg" href={href(lang, "/records")}>{t.nav.records}</a></li>
+              <li><a className="text-muted hover:text-fg" href={href(lang, "/blog")}>{t.nav.blog}</a></li>
               <li><DemosButton className="text-muted hover:text-fg">{t.nav.demos}</DemosButton></li>
             </ul>
           </div>
@@ -51,7 +55,7 @@ export function Footer({ lang, t, site }: { lang: Lang; t: Copy; site: SiteConte
               <li><a className="text-muted hover:text-fg" href={href(lang, "/support")}>{t.supportCta.cta}</a></li>
               <li><a className="text-muted hover:text-fg" href={`${href(lang, "/support")}?tab=track`}>{t.supportCta.track}</a></li>
               {site.contact.phones.map((p) => (
-                <li key={p}><a className="ltr inline-block text-muted hover:text-fg" href={`tel:${p.replace(/[^\d+]/g, "")}`}>{num(p, lang)}</a></li>
+                <li key={p}><a className="ltr inline-block text-muted hover:text-fg" href={`tel:${latinDigits(p).replace(/[^\d+]/g, "")}`}>{num(p, lang)}</a></li>
               ))}
               <li><a className="ltr inline-block text-muted hover:text-fg" href={`mailto:${site.contact.email}`}>{site.contact.email}</a></li>
             </ul>

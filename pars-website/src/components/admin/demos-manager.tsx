@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { deleteDemo, reorderDemos, upsertDemo } from "@/app/actions/admin";
 import type { DemoLink } from "@/lib/demos";
-import { Button, Input, Label, Spinner, Textarea } from "@/components/ui/field";
+import { Button, Field, Input, Spinner, Textarea } from "@/components/ui/field";
 import { Empty, Panel, Toggle } from "@/components/admin/ui";
 import { useAction } from "@/components/admin/toast";
 import { Icon } from "@/components/site/icons";
@@ -71,30 +71,24 @@ function DemoEditor({ draft, onDone }: { draft: Draft; onDone: () => void }) {
   const set = (k: keyof Draft) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setD({ ...d, [k]: e.target.value });
   return (
     <div className="space-y-4">
-      <div>
-        <Label>عنوان (فارسی)</Label>
+      <Field label="عنوان (فارسی)">
         <Input value={d.title_fa} onChange={set("title_fa")} />
-      </div>
-      <div>
-        <Label>Title (English)</Label>
+      </Field>
+      <Field label="Title (English)">
         <Input value={d.title_en} onChange={set("title_en")} dir="ltr" />
-      </div>
-      <div>
-        <Label>آدرس دمو</Label>
+      </Field>
+      <Field label="آدرس دمو">
         <Input value={d.url} onChange={set("url")} dir="ltr" placeholder="https://demo.example.com" />
-      </div>
-      <div>
-        <Label hint="مثلاً EPM یا AI">برچسب</Label>
+      </Field>
+      <Field label="برچسب" hint="مثلاً EPM یا AI">
         <Input value={d.tag} onChange={set("tag")} />
-      </div>
-      <div>
-        <Label>توضیح کوتاه (فارسی)</Label>
+      </Field>
+      <Field label="توضیح کوتاه (فارسی)">
         <Textarea value={d.description_fa} onChange={set("description_fa")} rows={2} />
-      </div>
-      <div>
-        <Label>Description (English)</Label>
+      </Field>
+      <Field label="Description (English)">
         <Textarea value={d.description_en} onChange={set("description_en")} rows={2} dir="ltr" />
-      </div>
+      </Field>
       <Toggle checked={d.enabled} onChange={(v) => setD({ ...d, enabled: v })} label="نمایش در سایت" />
       <div className="flex flex-wrap justify-between gap-2">
         <div className="flex gap-2">

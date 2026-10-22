@@ -6,6 +6,7 @@ import { after } from "next/server";
 import { assertAdmin, checkPassword, endSession, startSession } from "@/lib/admin-auth";
 import { hashIp, encrypt } from "@/lib/crypto";
 import { db, requireDb } from "@/lib/db";
+import { latinDigits as toLatinDigits } from "@/lib/digits";
 import { clientIp } from "@/lib/request";
 import { allow } from "@/lib/rate-limit";
 import { getSettingsFresh, saveSettings } from "@/lib/settings";
@@ -17,7 +18,7 @@ import { chatSystemPrompt, complete, runtimeFrom } from "@/lib/ai/runtime";
 import { ProviderError } from "@/lib/ai/providers";
 import { notifyTeam } from "@/lib/notify";
 import { addMessage, getTicket, noticeStaffReply, setStatus, triageTicket } from "@/lib/tickets";
-import { isCategory, isPriority, isStatus } from "@/lib/ticket-meta";
+import { dueAt, isCategory, isPriority, isStatus } from "@/lib/ticket-meta";
 
 export type AdminResult<T = object> = ({ ok: true; message?: string } & T) | { ok: false; error: string };
 
@@ -35,7 +36,19 @@ async function guard<R extends AdminResult>(fn: () => Promise<R>): Promise<R | {
 }
 
 function str(v: unknown, max = 20000): string {
-  return typeof v === "string" ? v.trim().slice(0, max) : "";
+  // Postgres text and jsonb reject NUL
+  return typeof v === "string" ? v.replace(/\u0000/g, "").trim().slice(0, max) : "";
+}
+
+/** A sort value for an int4 column: 0 and negatives are kept, fractions rounded, anything else → fallback. */
+function toSort(v: unknown, fallback: number): number {
+  const n = typeof v === "number" ? v : typeof v === "string" && v.trim() !== "" ? Number(v) : NaN;
+  return Number.isFinite(n) ? Math.max(-2147483648, Math.min(2147483647, Math.round(n))) : fallback;
+}
+
+/** Persian and Arabic-Indic digits (and ٪) → ASCII, for values the pages parse (tel: links, counters); num() shows them in Persian again. */
+function latinDigits(s: string): string {
+  return toLatinDigits(s).replace(/٪/g, "%");
 }
 
 function refreshAdmin() {
@@ -150,6 +163,7 @@ export async function saveSite(input: SiteContent): Promise<AdminResult> {
       const u = str(v, 400);
       return /^https?:\/\//i.test(u) ? u : "";
     };
+    const list = (v: unknown) => (Array.isArray(v) ? v : []).map((x) => str(x, 60)).filter(Boolean).slice(0, 6);
     await saveSettings("site", {
       ceo: {
         nameFa: str(c.nameFa, 120),
@@ -160,9 +174,12 @@ export async function saveSite(input: SiteContent): Promise<AdminResult> {
         quoteEn: str(c.quoteEn, 1200),
         bioFa: str(c.bioFa, 1500),
         bioEn: str(c.bioEn, 1500),
+        years: latinDigits(str(c.years, 12)),
+        highlightsFa: list(c.highlightsFa),
+        highlightsEn: list(c.highlightsEn),
       },
       contact: {
-        phones: (Array.isArray(k.phones) ? k.phones : []).map((p) => str(p, 40)).filter(Boolean).slice(0, 4),
+        phones: (Array.isArray(k.phones) ? k.phones : []).map((p) => latinDigits(str(p, 40))).filter(Boolean).slice(0, 4),
         email: str(k.email, 120),
         addressFa: str(k.addressFa, 300),
         addressEn: str(k.addressEn, 300),
@@ -171,7 +188,7 @@ export async function saveSite(input: SiteContent): Promise<AdminResult> {
         hoursEn: str(k.hoursEn, 120),
       },
       social: { linkedin: url(so.linkedin), telegram: url(so.telegram), instagram: url(so.instagram), bale: url(so.bale), aparat: url(so.aparat) },
-      stats: (Array.isArray(input.stats) ? input.stats : d.stats).slice(0, 4).map((s) => ({ value: str(s.value, 12), labelFa: str(s.labelFa, 80), labelEn: str(s.labelEn, 80) })),
+      stats: (Array.isArray(input.stats) ? input.stats : d.stats).slice(0, 4).map((s) => ({ value: latinDigits(str(s.value, 12)), labelFa: str(s.labelFa, 80), labelEn: str(s.labelEn, 80) })),
     });
     refreshAdmin();
     return { ok: true, message: "محتوای سایت ذخیره شد و صفحه‌ها به‌روز شدند." };
@@ -201,7 +218,8 @@ export async function testNotify(): Promise<AdminResult> {
   return guard(async () => {
     const n = (await getSettingsFresh()).notify;
     if (n.channel === "none" || !n.chatId || !n.botTokenEnc) return { ok: false, error: "ابتدا کانال، توکن ربات و شناسه‌ی گفتگو را ذخیره کنید." };
-    await notifyTeam(n, "✅ پیام آزمایشی از سایت مدیریت پروژه پارس — اعلان‌ها درست کار می‌کنند.");
+    const r = await notifyTeam(n, "✅ پیام آزمایشی از سایت مدیریت پروژه پارس — اعلان‌ها درست کار می‌کنند.");
+    if (!r.ok) return { ok: false, error: `ارسال نشد (${r.error})؛ توکن ربات، شناسه‌ی گفتگو و عضویت ربات در گروه را بررسی کنید.` };
     return { ok: true, message: "پیام آزمایشی ارسال شد؛ گفتگوی ربات را بررسی کنید." };
   });
 }
@@ -222,7 +240,7 @@ export async function upsertKnowledge(input: { id?: string; title: string; body:
       tags: (Array.isArray(input.tags) ? input.tags : []).map((t) => str(t, 60)).filter(Boolean).slice(0, 20),
       pinned: Boolean(input.pinned),
       enabled: Boolean(input.enabled),
-      sort: Math.round(Number(input.sort) || 100),
+      sort: toSort(input.sort, 100),
       updated_at: new Date().toISOString(),
     };
     if (!row.title || !row.body) return { ok: false, error: "عنوان و متن الزامی است." };
@@ -258,15 +276,19 @@ export async function importKnowledge(input: { mode: "defaults" | "json"; json?:
       if (!Array.isArray(parsed)) return { ok: false, error: "فایل باید آرایه‌ای از مدخل‌ها باشد." };
       rows = parsed
         .filter((r) => r && typeof r.title === "string" && typeof r.body === "string")
-        .slice(0, 500)
-        .map((r, i) => ({ title: str(r.title, 200), body: str(r.body, 20000), tags: Array.isArray(r.tags) ? r.tags.map((t: unknown) => str(t, 60)).filter(Boolean) : [], pinned: Boolean(r.pinned), enabled: r.enabled !== false, sort: Number(r.sort) || (i + 1) * 10 }));
+        .map((r, i) => ({ title: str(r.title, 200), body: str(r.body, 20000), tags: Array.isArray(r.tags) ? r.tags.map((t: unknown) => str(t, 60)).filter(Boolean).slice(0, 20) : [], pinned: Boolean(r.pinned), enabled: r.enabled !== false, sort: toSort(r.sort, (i + 1) * 10) }))
+        .filter((r) => r.title && r.body)
+        .slice(0, 500);
     }
+    if (!rows.length) return { ok: false, error: "هیچ مدخل معتبری (با title و body) در فایل نبود؛ چیزی تغییر نکرد." };
+    // insert first: if it fails, the current entries are still there
+    const { data, error } = await c.from("pars_knowledge").insert(rows).select("created_at");
+    if (error) throw new Error(error.message);
     if (input.replace) {
-      const { error } = await c.from("pars_knowledge").delete().not("id", "is", null);
-      if (error) throw new Error(error.message);
-    }
-    if (rows.length) {
-      const { error } = await c.from("pars_knowledge").insert(rows);
+      // one insert = one transaction, so every new row has the same created_at (now()) and all older rows are before it
+      const since = (data?.[0] as { created_at?: string } | undefined)?.created_at;
+      if (!since) throw new Error("import: missing created_at");
+      const { error } = await c.from("pars_knowledge").delete().lt("created_at", since);
       if (error) throw new Error(error.message);
     }
     refreshKnowledge();
@@ -306,7 +328,7 @@ export async function upsertDemo(input: { id?: string; title_fa: string; title_e
       url,
       tag: str(input.tag, 40),
       enabled: Boolean(input.enabled),
-      sort: Math.round(Number(input.sort) || 100),
+      sort: toSort(input.sort, 100),
     };
     if (!row.title_fa) return { ok: false, error: "عنوان فارسی الزامی است." };
     const { error } = input.id ? await c.from("pars_demos").update(row).eq("id", input.id) : await c.from("pars_demos").insert(row);
@@ -345,10 +367,12 @@ export async function staffReply(input: { code: string; body: string; internal: 
     if (!t) return { ok: false, error: "تیکت پیدا نشد." };
     const body = str(input.body, 8000);
     if (body.length < 2) return { ok: false, error: "متن پاسخ خالی است." };
-    await addMessage(t, "staff", body, Boolean(input.internal));
+    const status = await addMessage(t, "staff", body, Boolean(input.internal));
     if (!input.internal) {
-      if (isStatus(input.status) && input.status !== "answered") await setStatus(t, input.status);
-      after(() => noticeStaffReply(t, body));
+      // "answered" is the default choice: it leaves a closed ticket closed; any other choice sets that status
+      const chosen = isStatus(input.status) && input.status !== "answered" ? input.status : null;
+      if (chosen) await setStatus(t, chosen);
+      after(() => noticeStaffReply(t, body, chosen ?? status));
     }
     refreshAdmin();
     return { ok: true, message: input.internal ? "یادداشت داخلی ثبت شد." : "پاسخ برای مشتری ارسال شد." };
@@ -357,11 +381,22 @@ export async function staffReply(input: { code: string; body: string; internal: 
 
 export async function updateTicket(input: { code: string; status?: string; priority?: string; category?: string }): Promise<AdminResult> {
   return guard(async () => {
-    const patch: Record<string, string> = { updated_at: new Date().toISOString() };
-    if (isStatus(input.status)) patch.status = input.status;
-    if (isPriority(input.priority)) patch.priority = input.priority;
+    const t = await getTicket(str(input.code, 20));
+    if (!t) return { ok: false, error: "تیکت پیدا نشد." };
+    const now = new Date().toISOString();
+    const patch: Record<string, string> = { updated_at: now };
+    if (isStatus(input.status)) {
+      patch.status = input.status;
+      // marked answered by hand (e.g. after a call): the first response is done, so it no longer counts as overdue
+      if (input.status === "answered" && !t.first_response_at) patch.first_response_at = now;
+    }
+    if (isPriority(input.priority)) {
+      patch.priority = input.priority;
+      // the first-response deadline follows the priority, counted from when the ticket was created
+      patch.due_at = dueAt(t.created_at, input.priority);
+    }
     if (isCategory(input.category)) patch.category = input.category;
-    const { error } = await requireDb().from("pars_tickets").update(patch).eq("code", str(input.code, 20));
+    const { error } = await requireDb().from("pars_tickets").update(patch).eq("id", t.id);
     if (error) throw new Error(error.message);
     refreshAdmin();
     return { ok: true, message: "به‌روز شد." };
@@ -372,7 +407,8 @@ export async function retriage(code: string): Promise<AdminResult> {
   return guard(async () => {
     const t = await getTicket(str(code, 20));
     if (!t) return { ok: false, error: "تیکت پیدا نشد." };
-    await triageTicket(t.id);
+    const r = await triageTicket(t.id, { manual: true });
+    if (r !== "ok") return { ok: false, error: r === "no_ai" ? "هوش مصنوعی خاموش است یا کلید API تنظیم نشده است." : "تحلیل انجام نشد؛ کلید و سهمیه‌ی مدل را بررسی کنید." };
     refreshAdmin();
     return { ok: true, message: "تحلیل هوش مصنوعی به‌روز شد." };
   });

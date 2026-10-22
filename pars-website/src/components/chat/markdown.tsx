@@ -34,6 +34,26 @@ function inline(text: string, key: string): ReactNode[] {
   return out;
 }
 
+const LETTER = /\p{L}/gu;
+const RTL_SCRIPT = /[\p{Script=Arabic}\p{Script=Hebrew}]/u;
+const RTL_LETTER = /(?=\p{L})[\p{Script=Arabic}\p{Script=Hebrew}]/gu;
+
+/**
+ * Direction of a block, so an English answer on the Persian page (or the reverse) lines up. A block
+ * that starts in Persian/Arabic is RTL, as with dir="auto" (first strong letter), however many English
+ * product names follow. Unlike dir="auto", a Persian line that starts with an English term stays RTL
+ * once at least a third of its letters are Persian/Arabic. Code, URLs and link targets don't count.
+ * Undefined when there are no letters — the block keeps the page direction.
+ */
+export function textDir(text: string): "rtl" | "ltr" | undefined {
+  const words = text.replace(/`[^`]*`/g, "").replace(/\]\([^)]*\)/g, "]").replace(/(?:https?:\/\/|mailto:|www\.)\S+/g, "");
+  const letters = words.match(LETTER);
+  if (!letters) return undefined;
+  if (RTL_SCRIPT.test(letters[0])) return "rtl";
+  const rtl = words.match(RTL_LETTER)?.length ?? 0;
+  return rtl * 3 >= letters.length ? "rtl" : "ltr";
+}
+
 function lines(text: string, key: string): ReactNode[] {
   return text.split("\n").flatMap((l, i, arr) => [<Fragment key={`${key}-l${i}`}>{inline(l, `${key}-${i}`)}</Fragment>, i < arr.length - 1 ? <br key={`${key}-br${i}`} /> : null]);
 }
@@ -51,7 +71,11 @@ export function Markdown({ text, className = "prose-chat" }: { text: string; cla
     }
     const heading = line.match(/^#{1,6}\s+(.*)$/);
     if (heading) {
-      blocks.push(<h4 key={b++}>{inline(heading[1], `h${b}`)}</h4>);
+      blocks.push(
+        <h4 key={b++} dir={textDir(heading[1])}>
+          {inline(heading[1], `h${b}`)}
+        </h4>,
+      );
       i++;
       continue;
     }
@@ -77,8 +101,9 @@ export function Markdown({ text, className = "prose-chat" }: { text: string; cla
         i++;
       }
       const List = ordered ? "ol" : "ul";
+      // on the list, not each item, so the marker side and padding follow the text
       blocks.push(
-        <List key={b++}>
+        <List key={b++} dir={textDir(items.join("\n"))}>
           {items.map((it, j) => (
             <li key={j}>{inline(it, `li${b}-${j}`)}</li>
           ))}
@@ -89,7 +114,7 @@ export function Markdown({ text, className = "prose-chat" }: { text: string; cla
     const para: string[] = [];
     while (i < src.length && src[i].trim() && !isUl(src[i]) && !isOl(src[i]) && !/^#{1,6}\s/.test(src[i]) && !/^```/.test(src[i])) para.push(src[i++]);
     blocks.push(
-      <p key={b++} dir="auto">
+      <p key={b++} dir={textDir(para.join("\n"))}>
         {lines(para.join("\n"), `p${b}`)}
       </p>,
     );

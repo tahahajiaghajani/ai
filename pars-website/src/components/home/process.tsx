@@ -28,7 +28,9 @@ export function Process({ lang, t }: { lang: Lang; t: Copy }) {
                   {num(String(i + 1).padStart(2, "0"), lang)}
                 </span>
                 <div className="lg:mt-6">
-                  <div className="ltr font-brand text-xs text-faint">{lang === "fa" ? s.en : ""}</div>
+                  <div className="font-brand text-xs text-faint">
+                    <span className="ltr">{lang === "fa" ? s.en : ""}</span>
+                  </div>
                   <h3 className="mt-1 text-lg font-bold">{s.title}</h3>
                   <p className="mt-2 text-[15px] leading-7 text-muted">{s.body}</p>
                 </div>

@@ -4,25 +4,22 @@ import { useEffect, useRef, useState } from "react";
 import { useChat, type ChatMsg } from "@/components/chat/chat-context";
 import { Markdown } from "@/components/chat/markdown";
 import { parseMarkers, type ChatAction } from "@/lib/markers";
+import { useOverlay } from "@/components/site/use-overlay";
 
 /** Full-screen conversation, like opening ChatGPT or Claude. Loaded on first use. */
 export default function ChatPanel() {
   const { open, hide, messages, busy, ask, stop, reset, t, greeting, suggestions } = useChat();
   const [draft, setDraft] = useState("");
+  const rootRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const stick = useRef(true);
+  // answers restored from this tab before the panel first opened are not read out again
+  const [restored] = useState(() => new Set(messages.filter((m) => m.status !== "streaming").map((m) => m.id)));
+  const last = messages[messages.length - 1];
+  const said = last?.role === "assistant" && last.status !== "streaming" && !restored.has(last.id) ? announcement(last) : "";
 
-  useEffect(() => {
-    if (!open) return;
-    const id = window.setTimeout(() => inputRef.current?.focus({ preventScroll: true }), 120);
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && hide();
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.clearTimeout(id);
-      window.removeEventListener("keydown", onKey);
-    };
-  }, [open, hide]);
+  useOverlay(open, rootRef, { onClose: hide, focus: inputRef, delay: 120 });
 
   // follow the stream unless the reader scrolled up
   useEffect(() => {
@@ -40,6 +37,7 @@ export default function ChatPanel() {
 
   return (
     <div
+      ref={rootRef}
       role="dialog"
       aria-modal="true"
       aria-label={t.title}
@@ -87,7 +85,6 @@ export default function ChatPanel() {
             stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
           }}
           className="scroll-thin -mx-2 flex-1 overflow-y-auto px-2 pb-6"
-          aria-live="polite"
         >
           {messages.length === 0 ? (
             <Welcome greeting={greeting} suggestions={suggestions} onPick={(s) => ask(s)} />
@@ -98,6 +95,9 @@ export default function ChatPanel() {
               ))}
             </ol>
           )}
+        </div>
+        <div className="sr-only" aria-live="polite" aria-atomic="true">
+          {said && <p key={last.id}>{said}</p>}
         </div>
 
         {/* composer */}
@@ -127,7 +127,7 @@ export default function ChatPanel() {
                   submit();
                 }
               }}
-              className="max-h-[200px] min-h-12 flex-1 resize-none bg-transparent px-4 py-3 text-[15px] leading-7 text-fg outline-none placeholder:text-faint focus-visible:outline-none"
+              className="max-h-[200px] min-h-12 flex-1 resize-none bg-transparent px-4 py-3 text-[16px] leading-7 sm:text-[15px] text-fg outline-none placeholder:text-faint focus-visible:outline-none"
             />
             {busy ? (
               <button type="button" onClick={stop} aria-label={t.stop} className="grid size-12 shrink-0 place-items-center rounded-full bg-white/10 text-fg transition hover:bg-white/15">
@@ -152,6 +152,21 @@ export function SendIcon() {
       <path d="M5 12h14M13 6l6 6-6 6" />
     </svg>
   );
+}
+
+/**
+ * What the polite region reads once an answer has finished: its text without markers or Markdown
+ * syntax (the localized message for an error). The conversation itself is not a live region, so
+ * the stream is never read out chunk by chunk.
+ */
+export function announcement(m: Pick<ChatMsg, "content" | "status">): string {
+  if (m.status === "error") return m.content;
+  return parseMarkers(m.content)
+    .text.replace(/\[([^\]]+)\]\([^)\s]+\)/g, "$1")
+    .replace(/\*\*([^*]+)\*\*|`([^`]+)`|\*([^*\s][^*]*)\*/g, (_m, b?: string, c?: string, i?: string) => b ?? c ?? i ?? "")
+    .replace(/^[ \t]*(?:#{1,6}[ \t]+|[-*][ \t]+)/gm, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function Welcome({ greeting, suggestions, onPick }: { greeting: string; suggestions: string[]; onPick: (s: string) => void }) {
@@ -216,7 +231,7 @@ function Answer({ m }: { m: ChatMsg }) {
             {t.thinking}
           </span>
         ) : (
-          <div className={streaming ? "streaming" : undefined}>
+          <div className={streaming ? "streaming" : undefined} aria-busy={streaming || undefined}>
             <Markdown text={parsed.text} />
           </div>
         )}

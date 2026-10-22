@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { requireAdminPage } from "@/lib/admin-auth";
 import { chatCounts, health, listChats, listTickets, ticketCounts } from "@/lib/admin-data";
 import { formatDate } from "@/lib/i18n";
 import { PRIORITY_LABEL, STATUS_LABEL } from "@/lib/ticket-meta";
@@ -18,6 +19,7 @@ function Check({ ok, warn, label, detail }: { ok: boolean; warn?: boolean; label
 }
 
 export default async function Dashboard() {
+  await requireAdminPage();
   const [h, t, c, tickets, chats] = await Promise.all([health(), ticketCounts(), chatCounts(), listTickets({ status: "open", limit: 6 }), listChats("unreviewed", 40)]);
   const problems = chats.filter((x) => x.unknown || x.rating === -1).slice(0, 6);
   return (
@@ -61,11 +63,14 @@ export default async function Dashboard() {
           <ul className="divide-y divide-line">
             <Check ok={h.db === "ok"} label="پایگاه داده (Supabase)" detail={h.db === "ok" ? "متصل است." : h.db === "no_tables" ? "متصل است اما جدول‌ها ساخته نشده‌اند؛ فایل SQL را اجرا کنید." : "تنظیم نشده است (SUPABASE_URL و SUPABASE_SERVICE_ROLE_KEY)."} />
             <Check ok={h.ai === "settings" || h.ai === "env"} warn={h.ai === "disabled"} label="دستیار هوش مصنوعی" detail={{ settings: "کلید API از تنظیمات همین پنل.", env: "از کلید GEMINI_API_KEY محیط استفاده می‌شود.", missing: "کلید API تنظیم نشده؛ دستیار پیام «در دسترس نیست» نشان می‌دهد.", disabled: "دستیار غیرفعال است." }[h.ai]} />
-            <Check ok={h.explicitSecret} warn={h.secret && !h.explicitSecret} label="کلید رمزنگاری (APP_SECRET)" detail={h.explicitSecret ? "تنظیم شده است." : h.secret ? "از کلید Supabase استفاده می‌شود؛ بهتر است APP_SECRET جداگانه تنظیم شود." : "تنظیم نشده است."} />
+            <Check ok={h.explicitSecret} warn={h.secret && !h.explicitSecret} label="کلید رمزنگاری (APP_SECRET)" detail={h.explicitSecret ? "تنظیم شده است. برای تعویض، مقدار فعلی را در APP_SECRET_PREVIOUS بگذارید تا داده‌های قبلی خوانا بمانند." : h.secret ? "از کلید Supabase استفاده می‌شود؛ بهتر است APP_SECRET جداگانه تنظیم شود (داده‌های قبلی خوانا می‌مانند). اگر کلید Supabase را عوض کردید، مقدار قبلی‌اش را در APP_SECRET_PREVIOUS بگذارید." : "تنظیم نشده است."} />
             <Check ok={h.notify} warn label="اعلان تیکت‌ها (تلگرام / بله)" detail={h.notify ? "فعال است." : "اختیاری — از «محتوای سایت» تنظیم کنید."} />
             <Check ok={h.email} warn label="ایمیل به مشتری" detail={h.email ? "فعال است (Resend)." : "اختیاری — RESEND_API_KEY و MAIL_FROM."} />
             <Check ok={!h.siteUrl.includes("localhost")} warn label="آدرس سایت" detail={h.siteUrl} />
           </ul>
+          <Link href="/admin/connections" className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-violet hover:text-fg">
+            جزئیات، ثبت کلیدها و آزمایش در «اتصالات» <span aria-hidden>←</span>
+          </Link>
         </Panel>
       </div>
 

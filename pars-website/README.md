@@ -1,6 +1,6 @@
 # Pars Project Management — website
 
-Bilingual (Persian RTL primary, English) website of **Pars Project Management** (مدیریت پروژه پارس) with an AI-first hero, a hidden admin panel, smart ticketing and a demo catalogue.
+Bilingual (Persian RTL primary, English) website of **Pars Project Management** (مدیریت پروژه پارس) with an AI-first hero, a hidden admin panel, smart ticketing, a blog, a track-record page and a demo catalogue.
 
 > «جایی که مدیریت و هوش به هم می‌رسند» · *Where management meets intelligence.*
 
@@ -13,9 +13,12 @@ Bilingual (Persian RTL primary, English) website of **Pars Project Management** 
 - **AI-first hero** — a large "Ask Pars" composer opens a full-screen, streaming chat (like ChatGPT/Claude). Answers are grounded only in the admin-managed knowledge base (BM25 retrieval for Persian when it grows large), with action buttons (demos / ticket / contact), 👍/👎 feedback and logging for review.
 - **Providers** — Google Gemini (free AI Studio key, automatic model fallback on quota), Anthropic Claude, any OpenAI-compatible API; optional custom base URL (relay). Keys are AES-256-GCM encrypted in the database.
 - **Smart ticketing** — AI answer suggestions before submitting (deflection), AI triage (category, priority, sentiment, summary, draft reply), tracking codes (`PP-XXXXXX`), magic links, customer replies, resolve/close + rating, SLA deadlines, Telegram/Bale notifications, optional e-mail (Resend).
-- **Hidden admin** (`/admin`, password + signed cookie) — dashboard & health checks, tickets, chat logs → "add to knowledge", knowledge editor with playground and JSON import/export, AI settings with connection test, unlimited demo links, CEO/contact/stats content.
-- **Visual identity** — the official logo vectorised 1:1 (`public/brand`), a WebGL shader of the logo's ribbons meeting at one point (adaptive: still frame on software GL / reduced motion), scroll-driven logo assembly, CEO portrait reveal, bento services, CSS-only motion elsewhere.
-- **Performance** — static pages (ISR), self-hosted fonts (only the Persian subset preloaded), lazy chat/mark chunks, `content-visibility`, compositor-only animations. Lighthouse (no GPU, simulated slow 4G): mobile 89–94, desktop 99; accessibility/best-practices/SEO 100.
+- **Hidden admin** (`/admin`, password + signed cookie; after the first login a small «پنل مدیریت» chip appears on public pages in that browser) — dashboard & health checks, tickets, chat logs → "add to knowledge", knowledge editor with playground and JSON import/export, AI settings with connection test, unlimited demo links, CEO/contact/stats content.
+- **Connections** (`/admin/connections`) — live status of Supabase (every table/function, with the SQL to paste when something is missing), AI provider, ticket notifications, e-mail (Resend), panel secrets, site URL and the keep-alive cron; most can be fixed and tested right there.
+- **Blog** (`/blog`, `/en/blog`) — Markdown posts in `pars_posts` (safe renderer, table of contents, BlogPosting JSON-LD, sitemap), an admin editor with preview and an AI first draft grounded in the knowledge base; four starter posts show until the first post is saved.
+- **Track record** (`/records`, `/en/records`) — every software, consulting and training engagement from the company profile, in Persian and English.
+- **Visual identity** — IBM Plex Sans Arabic in light weights for Persian (Sora/Inter for Latin), the official logo vectorised 1:1 (`public/brand`), a WebGL shader of the logo's ribbons meeting at one point (adaptive: still frame on software GL / reduced motion), scroll-driven logo assembly, CEO portrait reveal, bento services, CSS-only motion elsewhere.
+- **Performance** — static pages (ISR), self-hosted fonts (only the Persian subset preloaded), lazy chat/mark chunks, `content-visibility`, compositor-only animations. Lighthouse (no GPU, simulated slow 4G): mobile 88–92, desktop 99; accessibility/best-practices/SEO 100.
 - **SEO/GEO** — hreflang, sitemap, robots, Organization JSON-LD, OG image, `llms.txt` generated from the knowledge base.
 
 ## Stack

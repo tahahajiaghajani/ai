@@ -1,9 +1,11 @@
+import { requireAdminPage } from "@/lib/admin-auth";
 import { getSettingsFresh } from "@/lib/settings";
 import { env } from "@/lib/env";
 import { PageTitle } from "@/components/admin/ui";
 import { AiForm, ChatForm, SupportForm } from "@/components/admin/ai-forms";
 
 export default async function AiPage() {
+  await requireAdminPage();
   const s = await getSettingsFresh();
   const { apiKeyEnc, ...ai } = s.ai;
   return (

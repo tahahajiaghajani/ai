@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Copy } from "@/content/fa";
 import type { Lang } from "@/lib/i18n";
 import { Icon } from "@/components/site/icons";
+import { useOverlay } from "@/components/site/use-overlay";
 
 interface Demo {
   id: string;
@@ -14,6 +15,9 @@ interface Demo {
   url: string;
   tag: string;
 }
+
+/** the demos copy has no close label of its own */
+const CLOSE: Record<Lang, string> = { fa: "بستن", en: "Close" };
 
 export function openDemos() {
   window.dispatchEvent(new CustomEvent("pars:demos"));
@@ -32,6 +36,7 @@ export function DemosButton({ className, children }: { className?: string; child
 export function DemoSheet({ lang, t, customHref }: { lang: Lang; t: Copy["demos"]; customHref: string }) {
   const [open, setOpen] = useState(false);
   const [demos, setDemos] = useState<Demo[] | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
 
   const load = useCallback(async () => {
@@ -53,20 +58,10 @@ export function DemoSheet({ lang, t, customHref }: { lang: Lang; t: Copy["demos"
     return () => window.removeEventListener("pars:demos", onOpen);
   }, [demos, load]);
 
-  useEffect(() => {
-    if (!open) return;
-    closeRef.current?.focus();
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
-    window.addEventListener("keydown", onKey);
-    document.documentElement.style.overflow = "hidden";
-    return () => {
-      window.removeEventListener("keydown", onKey);
-      document.documentElement.style.overflow = "";
-    };
-  }, [open]);
+  useOverlay(open, rootRef, { onClose: () => setOpen(false), focus: closeRef });
 
   return (
-    <div data-open={open || undefined} inert={!open} className="pointer-events-none fixed inset-0 z-[70] data-[open]:pointer-events-auto" role="dialog" aria-modal="true" aria-label={t.sheetTitle}>
+    <div ref={rootRef} data-open={open || undefined} inert={!open} className="pointer-events-none fixed inset-0 z-[70] data-[open]:pointer-events-auto" role="dialog" aria-modal="true" aria-label={t.sheetTitle}>
       <div className="absolute inset-0 bg-ink/70 opacity-0 backdrop-blur-sm transition-opacity duration-500 [[data-open]>&]:opacity-100" onClick={() => setOpen(false)} />
       <aside className="absolute inset-y-0 end-0 flex w-full max-w-md translate-x-full flex-col border-s border-line bg-ink-2 shadow-2xl transition-transform duration-700 ease-[var(--ease-out-expo)] rtl:-translate-x-full [[data-open]>&]:translate-x-0">
         <div className="relative overflow-hidden px-6 pb-6 pt-7">
@@ -76,7 +71,7 @@ export function DemoSheet({ lang, t, customHref }: { lang: Lang; t: Copy["demos"
               <h2 className="text-xl font-extrabold">{t.sheetTitle}</h2>
               <p className="mt-1 text-sm text-muted">{t.sheetLead}</p>
             </div>
-            <button ref={closeRef} type="button" onClick={() => setOpen(false)} aria-label="close" className="grid size-10 shrink-0 place-items-center rounded-full border border-line text-muted hover:text-fg">
+            <button ref={closeRef} type="button" onClick={() => setOpen(false)} aria-label={CLOSE[lang]} className="grid size-10 shrink-0 place-items-center rounded-full border border-line text-muted hover:text-fg">
               <Icon name="close" />
             </button>
           </div>
@@ -107,7 +102,7 @@ export function DemoSheet({ lang, t, customHref }: { lang: Lang; t: Copy["demos"
                           {d.tag && <span className="shrink-0 rounded-full border border-line px-2 py-0.5 text-[11px] text-violet">{d.tag}</span>}
                         </span>
                         {desc && <span className="mt-0.5 line-clamp-2 block text-sm leading-6 text-muted">{desc}</span>}
-                        <span className="ltr mt-1 block truncate text-start text-[11px] text-faint">{d.url.replace(/^https?:\/\//, "")}</span>
+                        <span className="ltr mt-1 block truncate text-[11px] text-faint rtl:text-right">{d.url.replace(/^https?:\/\//, "")}</span>
                       </span>
                       <Icon name="external" className="size-4.5 shrink-0 text-faint transition group-hover:text-pink" />
                     </a>

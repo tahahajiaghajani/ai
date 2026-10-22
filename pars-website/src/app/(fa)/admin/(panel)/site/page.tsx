@@ -1,8 +1,10 @@
+import { requireAdminPage } from "@/lib/admin-auth";
 import { getSettingsFresh } from "@/lib/settings";
 import { PageTitle } from "@/components/admin/ui";
 import { NotifyForm, SiteForm } from "@/components/admin/site-forms";
 
 export default async function SitePage() {
+  await requireAdminPage();
   const s = await getSettingsFresh();
   const { botTokenEnc, ...notify } = s.notify;
   return (

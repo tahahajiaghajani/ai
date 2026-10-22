@@ -7,12 +7,13 @@ import { getSettings } from "@/lib/settings";
 import { getKnowledge } from "@/lib/knowledge";
 import { selectKnowledge } from "@/lib/retrieval";
 import { complete, getRuntime, knowledgeBlock, parseJsonObject } from "@/lib/ai/runtime";
+import { allowAi } from "@/lib/rate-limit";
 import { canEmail, emailCustomer, notifyTeam } from "@/lib/notify";
 import {
   CATEGORY_LABEL,
   PRIORITY_LABEL,
-  SLA_HOURS,
   STATUS_LABEL,
+  dueAt,
   isCategory,
   isPriority,
   ticketCode,
@@ -70,8 +71,14 @@ export function toPublic(t: TicketRow): PublicTicket {
   return { code, name, subject, body, lang, product, category, status, rating, created_at, updated_at };
 }
 
+/** Same-origin path of the customer's ticket page, for navigation in the browser. */
+export function ticketPath(code: string, key: string, lang: "fa" | "en"): string {
+  return `${lang === "en" ? "/en" : ""}/support/t/${code}?k=${encodeURIComponent(key)}`;
+}
+
+/** Absolute link of the customer's ticket page, for e-mails and links copied outside the site. */
 export function ticketLink(code: string, key: string, lang: "fa" | "en"): string {
-  return `${env.siteUrl}${lang === "en" ? "/en" : ""}/support/t/${code}?k=${encodeURIComponent(key)}`;
+  return `${env.siteUrl}${ticketPath(code, key, lang)}`;
 }
 
 export function accessKeyOf(t: TicketRow): string {
@@ -125,7 +132,7 @@ export async function createTicket(input: NewTicket): Promise<{ code: string; ke
         access_enc: encrypt(key),
         priority,
         status: "new",
-        due_at: new Date(Date.now() + SLA_HOURS[priority] * 3600_000).toISOString(),
+        due_at: dueAt(Date.now(), priority),
       })
       .select("id")
       .single();
@@ -135,20 +142,24 @@ export async function createTicket(input: NewTicket): Promise<{ code: string; ke
   throw new Error("could not allocate a ticket code");
 }
 
-export async function addMessage(t: TicketRow, author: "customer" | "staff", body: string, internal = false): Promise<void> {
+/** Adds a message and returns the ticket's status after it. */
+export async function addMessage(t: TicketRow, author: "customer" | "staff", body: string, internal = false): Promise<TicketStatus> {
   const c = requireDb();
   const now = new Date().toISOString();
   const { error } = await c.from("pars_ticket_messages").insert({ ticket_id: t.id, author, body, internal });
   if (error) throw new Error(error.message);
   if (internal) {
     await c.from("pars_tickets").update({ updated_at: now }).eq("id", t.id);
-    return;
+    return t.status;
   }
+  // a staff reply on a closed ticket keeps it closed; staff reopen it with the status control
+  const status: TicketStatus = author === "staff" ? (t.status === "closed" ? "closed" : "answered") : t.status === "new" ? "new" : "in_progress";
   const patch: Partial<TicketRow> =
     author === "staff"
-      ? { status: "answered", last_staff_at: now, updated_at: now, first_response_at: t.first_response_at ?? now }
-      : { status: t.status === "new" ? "new" : "in_progress", last_customer_at: now, updated_at: now };
+      ? { status, last_staff_at: now, updated_at: now, first_response_at: t.first_response_at ?? now }
+      : { status, last_customer_at: now, updated_at: now };
   await c.from("pars_tickets").update(patch).eq("id", t.id);
+  return status;
 }
 
 export async function setStatus(t: TicketRow, status: TicketStatus): Promise<void> {
@@ -169,16 +180,22 @@ interface Triage {
   needs_human?: boolean;
 }
 
-/** AI triage: category, priority, sentiment, a summary for the team and a draft reply. */
-export async function triageTicket(ticketId: string): Promise<void> {
+export type TriageResult = "ok" | "disabled" | "no_ai" | "limit" | "failed";
+
+/**
+ * AI triage: category, priority, sentiment, a summary for the team and a draft reply.
+ * `manual` (the admin's "analyse again") skips the automatic-triage switch and the visitors' daily AI budget.
+ */
+export async function triageTicket(ticketId: string, opts: { manual?: boolean } = {}): Promise<TriageResult> {
   const settings = await getSettings();
-  if (!settings.support.triage) return;
+  if (!opts.manual && !settings.support.triage) return "disabled";
   const rt = await getRuntime();
   const c = db();
-  if (!rt || !c) return;
+  if (!rt || !c) return "no_ai";
   const { data } = await c.from("pars_tickets").select("*").eq("id", ticketId).single();
   const t = data as TicketRow | null;
-  if (!t) return;
+  if (!t) return "failed";
+  if (!opts.manual && !(await allowAi())) return "limit";
   const { entries } = await getKnowledge();
   const knowledge = knowledgeBlock(selectKnowledge(entries, `${t.subject}\n${t.body}`, 16000));
   const system = `You are the triage assistant of the support desk of Pars Project Management (شرکت مدیریت پروژه پارس), an enterprise software company (EPM/EPPM, custom enterprise software, AI agents, training).
@@ -193,7 +210,7 @@ ${knowledge}
   try {
     const { text, model } = await complete({ ...rt, temperature: 0.2 }, system, [{ role: "user", content: user }], { json: true, maxTokens: 900 });
     const j = parseJsonObject<Triage>(text);
-    if (!j) return;
+    if (!j) return "failed";
     const priority = isPriority(j.priority) ? j.priority : t.priority;
     const patch: Partial<TicketRow> = {
       priority,
@@ -202,18 +219,24 @@ ${knowledge}
       ai_summary: typeof j.summary === "string" ? j.summary.slice(0, 600) : null,
       ai_reply: typeof j.reply === "string" ? j.reply.slice(0, 4000) : null,
       ai_triage: { ...j, reply: undefined, model, at: new Date().toISOString() },
-      due_at: new Date(new Date(t.created_at).getTime() + SLA_HOURS[priority] * 3600_000).toISOString(),
+      due_at: dueAt(t.created_at, priority),
     };
-    await c.from("pars_tickets").update(patch).eq("id", t.id);
+    const { error } = await c.from("pars_tickets").update(patch).eq("id", t.id);
+    if (error) {
+      console.error("[triage] update failed", error);
+      return "failed";
+    }
+    return "ok";
   } catch (e) {
     console.error("[triage] failed", e);
+    return "failed";
   }
 }
 
 /** Before a ticket is submitted: a short answer from the knowledge base, or null. */
 export async function suggestFromKnowledge(subject: string, body: string, lang: "fa" | "en"): Promise<string | null> {
   const rt = await getRuntime();
-  if (!rt) return null;
+  if (!rt || !(await allowAi())) return null;
   const { entries } = await getKnowledge();
   const knowledge = knowledgeBlock(selectKnowledge(entries, `${subject}\n${body}`, 16000));
   const system = `You help customers of Pars Project Management before they submit a support ticket.
@@ -249,19 +272,21 @@ export async function noticeCustomerReply(t: TicketRow, body: string): Promise<v
   await notifyTeam(s.notify, `💬 پاسخ مشتری در ${t.code}\n${t.subject}\n\n${body.slice(0, 600)}\n\n${env.siteUrl}/admin/tickets/${t.code}`);
 }
 
-export async function noticeStaffReply(t: TicketRow, body: string): Promise<void> {
+/** E-mails a staff reply to the customer; `status` is the ticket's status after the reply (a closed ticket takes no replies). */
+export async function noticeStaffReply(t: TicketRow, body: string, status: TicketStatus): Promise<void> {
   const s = await getSettings();
-  if (!s.notify.emailCustomers || !canEmail()) return;
+  if (!s.notify.emailCustomers || !(await canEmail())) return;
   const key = accessKeyOf(t);
   if (!key) return;
   const link = ticketLink(t.code, key, t.lang);
   const fa = t.lang !== "en";
+  const closed = status === "closed";
   const esc = (x: string) => x.replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[ch]!);
   const html = `<div dir="${fa ? "rtl" : "ltr"}" style="font-family:Tahoma,Arial,sans-serif;line-height:1.9;color:#1a183a;max-width:560px">
 <p>${fa ? `${esc(t.name)} عزیز، سلام` : `Hello ${esc(t.name)},`}</p>
 <p>${fa ? `پاسخ جدیدی برای درخواست <b>${t.code}</b> («${esc(t.subject)}») ثبت شد:` : `There is a new reply to your request <b>${t.code}</b> (“${esc(t.subject)}”):`}</p>
 <blockquote style="border-${fa ? "right" : "left"}:3px solid #df1173;margin:0;padding:8px 14px;background:#f7f3fa;white-space:pre-wrap">${esc(body)}</blockquote>
-<p><a href="${link}" style="display:inline-block;background:#df1173;color:#fff;padding:10px 18px;border-radius:999px;text-decoration:none">${fa ? "مشاهده و پاسخ" : "View and reply"}</a></p>
-<p style="color:#6b6880;font-size:12px">${fa ? "مدیریت پروژه پارس" : "Pars Project Management"} · ${STATUS_LABEL.answered[fa ? "fa" : "en"]}</p></div>`;
+<p><a href="${link}" style="display:inline-block;background:#df1173;color:#fff;padding:10px 18px;border-radius:999px;text-decoration:none">${closed ? (fa ? "مشاهده‌ی پاسخ" : "View the reply") : fa ? "مشاهده و پاسخ" : "View and reply"}</a></p>
+<p style="color:#6b6880;font-size:12px">${fa ? "مدیریت پروژه پارس" : "Pars Project Management"} · ${STATUS_LABEL[status][fa ? "fa" : "en"]}</p></div>`;
   await emailCustomer(t.email, fa ? `پاسخ به درخواست ${t.code}` : `Reply to your request ${t.code}`, html);
 }

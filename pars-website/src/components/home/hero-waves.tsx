@@ -5,8 +5,9 @@ import { useEffect, useRef } from "react";
 /**
  * Hero background: silk ribbons in the brand gradient flowing through one point of intersection
  * (the idea of the Pars logo). One full-screen fragment shader — no libraries. Renders at reduced
- * resolution, pauses off-screen / in hidden tabs / behind the chat, and draws a single still frame
- * for reduced motion. Falls back to the section's CSS gradient when WebGL is unavailable.
+ * resolution, pauses off-screen / in hidden tabs / behind the chat, and holds a still frame for
+ * reduced motion (the OS setting or the site's switch, followed live). Falls back to the section's
+ * CSS gradient when WebGL is unavailable.
  */
 
 const VERT = `attribute vec2 a;void main(){gl_Position=vec4(a,0.,1.);}`;
@@ -115,18 +116,21 @@ export function HeroWaves({ dir }: { dir: "rtl" | "ltr" }) {
     const uMouse = gl.getUniformLocation(prog, "uMouse");
     gl.uniform1f(gl.getUniformLocation(prog, "uDir"), dir === "rtl" ? -1 : 1);
 
-    const still = software || window.matchMedia("(prefers-reduced-motion: reduce)").matches || document.documentElement.dataset.motion === "reduced";
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const isStill = () => software || reducedMotion.matches || document.documentElement.dataset.motion === "reduced";
+    let still = isStill();
     let quality = window.innerWidth < 768 ? 0.55 : 0.7;
+    /** Returns true when the canvas size changed, which also clears it. */
     const resize = () => {
       const scale = Math.min(window.devicePixelRatio || 1, 1.5) * (software ? 0.4 : quality);
       const w = Math.max(1, Math.round(canvas.clientWidth * scale));
       const h = Math.max(1, Math.round(canvas.clientHeight * scale));
-      if (canvas.width !== w || canvas.height !== h) {
-        canvas.width = w;
-        canvas.height = h;
-        gl.viewport(0, 0, w, h);
-      }
       gl.uniform2f(uRes, w, h);
+      if (canvas.width === w && canvas.height === h) return false;
+      canvas.width = w;
+      canvas.height = h;
+      gl.viewport(0, 0, w, h);
+      return true;
     };
     resize();
 
@@ -146,6 +150,11 @@ export function HeroWaves({ dir }: { dir: "rtl" | "ltr" }) {
     let skip = false;
     let slow = 0;
     let stopped = false;
+    const draw = () => {
+      gl.uniform1f(uTime, time);
+      gl.uniform2f(uMouse, mouse.x, mouse.y);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+    };
     const frame = (now: number) => {
       raf = 0;
       const dt = Math.min(0.05, (now - last) / 1000);
@@ -156,9 +165,7 @@ export function HeroWaves({ dir }: { dir: "rtl" | "ltr" }) {
         time += fps30 ? dt * 2 : dt;
         mouse.x += (mouse.tx - mouse.x) * 0.04;
         mouse.y += (mouse.ty - mouse.y) * 0.04;
-        gl.uniform1f(uTime, time);
-        gl.uniform2f(uMouse, mouse.x, mouse.y);
-        gl.drawArrays(gl.TRIANGLES, 0, 3);
+        draw();
         const cost = performance.now() - t0;
         slow = dt > 0.034 || cost > 12 ? slow + 1 : Math.max(0, slow - 1);
         if (slow > 40) {
@@ -166,14 +173,14 @@ export function HeroWaves({ dir }: { dir: "rtl" | "ltr" }) {
           if (!fps30) fps30 = true;
           else if (quality > 0.4) {
             quality = 0.4;
-            resize();
+            if (resize()) draw();
           } else stopped = true;
         }
       }
       if (!still && !stopped && visible && !document.hidden) raf = requestAnimationFrame(frame);
     };
     const start = () => {
-      if (ready && !raf && !stopped) {
+      if (ready && !raf && !stopped && !still) {
         last = performance.now();
         raf = requestAnimationFrame(frame);
       }
@@ -185,21 +192,36 @@ export function HeroWaves({ dir }: { dir: "rtl" | "ltr" }) {
     });
     io.observe(canvas);
     const onVis = () => !document.hidden && visible && start();
+    // a resize clears the canvas: redraw it unless the running loop draws the next frame
+    // (raf is 0 whenever the loop is not running: still, stopped, off-screen, not started yet)
     const onResize = () => {
-      resize();
+      if (!resize()) return;
+      if (raf && document.documentElement.dataset.chat !== "open") skip = true; // so a 30 fps loop draws next
+      else draw();
+    };
+    // follow the OS setting and the site's switch (it only flips html[data-motion]) live:
+    // hold the current frame, or resume
+    const onMotion = () => {
+      if (still === isStill()) return;
+      still = !still;
       if (still) {
-        gl.uniform1f(uTime, time);
-        gl.drawArrays(gl.TRIANGLES, 0, 3);
+        cancelAnimationFrame(raf);
+        raf = 0;
+        window.removeEventListener("pointermove", onMove);
+      } else {
+        window.addEventListener("pointermove", onMove, { passive: true });
+        if (visible && !document.hidden) start();
       }
     };
+    const mo = new MutationObserver(onMotion);
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-motion"] });
+    reducedMotion.addEventListener("change", onMotion);
     document.addEventListener("visibilitychange", onVis);
     window.addEventListener("resize", onResize, { passive: true });
     if (!still) window.addEventListener("pointermove", onMove, { passive: true });
 
     // first frame, then fade the canvas in over the CSS fallback; animate once the page is idle
-    gl.uniform2f(uMouse, 0, 0);
-    gl.uniform1f(uTime, time);
-    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    draw();
     canvas.dataset.ready = "1";
     const idle = (cb: () => void) => (typeof window.requestIdleCallback === "function" ? window.requestIdleCallback(cb, { timeout: 2500 }) : setTimeout(cb, 1200));
     const begin = () =>
@@ -213,6 +235,8 @@ export function HeroWaves({ dir }: { dir: "rtl" | "ltr" }) {
     return () => {
       cancelAnimationFrame(raf);
       io.disconnect();
+      mo.disconnect();
+      reducedMotion.removeEventListener("change", onMotion);
       document.removeEventListener("visibilitychange", onVis);
       window.removeEventListener("resize", onResize);
       window.removeEventListener("pointermove", onMove);

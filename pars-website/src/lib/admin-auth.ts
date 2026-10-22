@@ -5,6 +5,8 @@ import { env } from "@/lib/env";
 import { hasSecret, safeEqual, sha256, sign } from "@/lib/crypto";
 
 const COOKIE = "pars_admin";
+/** readable by the page script: only shows the admin shortcut on public pages, grants nothing */
+const HINT = "pars_admin_ui";
 const DAYS = 7;
 
 function fingerprint(): string {
@@ -23,11 +25,15 @@ export function checkPassword(input: string): boolean {
 export async function startSession(): Promise<void> {
   const exp = Date.now() + DAYS * 86400_000;
   const value = `${exp}.${sign(`admin:${exp}:${fingerprint()}`)}`;
-  (await cookies()).set(COOKIE, value, { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "strict", path: "/", maxAge: DAYS * 86400 });
+  const jar = await cookies();
+  jar.set(COOKIE, value, { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "strict", path: "/", maxAge: DAYS * 86400 });
+  jar.set(HINT, "1", { httpOnly: false, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/", maxAge: DAYS * 86400 });
 }
 
 export async function endSession(): Promise<void> {
-  (await cookies()).delete(COOKIE);
+  const jar = await cookies();
+  jar.delete(COOKIE);
+  jar.delete(HINT);
 }
 
 export async function isAdmin(): Promise<boolean> {
@@ -39,12 +45,12 @@ export async function isAdmin(): Promise<boolean> {
   return safeEqual(sig, sign(`admin:${exp}:${fingerprint()}`));
 }
 
-/** For admin pages: redirects to the login screen. */
+/** For admin pages: redirects to the login screen. Call it first in every page, not only the layout (layouts can be skipped). */
 export async function requireAdminPage(): Promise<void> {
   if (!(await isAdmin())) redirect("/admin/login");
 }
 
-/** For admin Server Actions: throws when not signed in. */
+/** For admin Server Actions and admin-only data helpers: throws when not signed in. */
 export async function assertAdmin(): Promise<void> {
   if (!(await isAdmin())) throw new Error("unauthorized");
 }

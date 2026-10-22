@@ -1,5 +1,6 @@
 import "server-only";
 import { db } from "@/lib/db";
+import { env } from "@/lib/env";
 
 const memory = new Map<string, { start: number; count: number }>();
 
@@ -19,4 +20,12 @@ export async function allow(key: string, windowSeconds: number, max: number): Pr
   }
   cur.count++;
   return cur.count <= max;
+}
+
+/**
+ * One daily budget shared by all visitors for every public call that spends the site's AI key
+ * (AI_DAILY_LIMIT). Check it after the per-visitor limits, so visitors who are already blocked don't use it up.
+ */
+export function allowAi(): Promise<boolean> {
+  return allow("ai:global:day", 86400, env.aiDailyLimit);
 }

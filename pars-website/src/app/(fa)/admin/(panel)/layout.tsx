@@ -9,6 +9,7 @@ import { Icon } from "@/components/site/icons";
 export const dynamic = "force-dynamic";
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
+  // every page checks again: an RSC request can render a page without re-running this layout
   await requireAdminPage();
   const [t, c] = await Promise.all([ticketCounts(), chatCounts()]);
   const badges = { "/admin/tickets": t.byStatus.new + t.byStatus.in_progress, "/admin/chats": c.unknown + c.negative };

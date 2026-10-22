@@ -16,7 +16,7 @@ import {
   noticeNewTicket,
   setStatus,
   suggestFromKnowledge,
-  ticketLink,
+  ticketPath,
   triageTicket,
 } from "@/lib/tickets";
 import { isCategory, isProduct, normalizeCode } from "@/lib/ticket-meta";
@@ -53,6 +53,7 @@ export async function suggestAnswer(input: { subject: string; body: string; lang
   const s = await getSettings();
   if (!s.support.deflection) return { ok: true, answer: null };
   if (!(await allow(`suggest:${await visitor()}`, 600, 8))) return { ok: true, answer: null };
+  // suggestFromKnowledge also returns null once the visitors' shared daily AI budget is used up
   return { ok: true, answer: await suggestFromKnowledge(subject, body, lang) };
 }
 
@@ -81,7 +82,8 @@ export async function submitTicket(input: Record<string, unknown>): Promise<Resu
       await triageTicket(id);
       await noticeNewTicket(code);
     });
-    return { ok: true, code, key, url: ticketLink(code, key, lang) };
+    // a same-origin path: the browser stays on the deployment the visitor is using (e-mails use the absolute ticketLink)
+    return { ok: true, code, key, url: ticketPath(code, key, lang) };
   } catch (e) {
     console.error("[ticket] create failed", e);
     return { ok: false, error: MSG.failed[lang] };
@@ -97,7 +99,7 @@ export async function findTicket(input: { code: string; email: string; lang: Lan
   if (!t || t.email.toLowerCase() !== email) return { ok: false, error: MSG.notFound[lang] };
   const key = accessKeyOf(t);
   if (!key) return { ok: false, error: MSG.failed[lang] };
-  return { ok: true, url: ticketLink(t.code, key, lang) };
+  return { ok: true, url: ticketPath(t.code, key, lang) };
 }
 
 export async function replyTicket(input: { code: string; key: string; body: string; lang: Lang }): Promise<Result> {

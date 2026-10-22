@@ -1,13 +1,16 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { requireAdminPage } from "@/lib/admin-auth";
 import { accessKeyOf, getTicket, listMessages, ticketLink } from "@/lib/tickets";
 import { formatDate } from "@/lib/i18n";
+import { num } from "@/lib/digits";
 import { CATEGORY_LABEL, PRODUCT_LABEL, SLA_HOURS } from "@/lib/ticket-meta";
 import { Markdown } from "@/components/chat/markdown";
 import { Panel } from "@/components/admin/ui";
 import { TicketControls, TicketReply } from "@/components/admin/ticket-admin";
 
 export default async function TicketAdmin({ params }: { params: Promise<{ code: string }> }) {
+  await requireAdminPage();
   const { code } = await params;
   const t = await getTicket(decodeURIComponent(code));
   if (!t) notFound();
@@ -40,7 +43,7 @@ export default async function TicketAdmin({ params }: { params: Promise<{ code: 
               {t.ai_summary && <p className="text-[15px] leading-8">{t.ai_summary}</p>}
               <div className="mt-3 flex flex-wrap gap-2 text-xs">
                 {t.sentiment && <span className="rounded-full bg-white/5 px-2.5 py-1">لحن: {{ positive: "مثبت", neutral: "خنثی", negative: "ناراضی", angry: "عصبانی" }[t.sentiment] ?? t.sentiment}</span>}
-                {typeof triage.confidence === "number" && <span className="rounded-full bg-white/5 px-2.5 py-1">اطمینان: {Math.round(triage.confidence * 100)}٪</span>}
+                {typeof triage.confidence === "number" && <span className="rounded-full bg-white/5 px-2.5 py-1">اطمینان: {num(Math.round(triage.confidence * 100), "fa")}٪</span>}
                 {triage.needs_human && <span className="rounded-full bg-warning/15 px-2.5 py-1 text-warning">نیاز به کارشناس</span>}
                 {triage.tags?.map((x) => (
                   <span key={x} className="rounded-full border border-line px-2.5 py-1 text-muted">
@@ -118,7 +121,7 @@ export default async function TicketAdmin({ params }: { params: Promise<{ code: 
                 </div>
               )}
               <div>
-                <dt className="text-xs text-faint">مهلت اولین پاسخ ({SLA_HOURS[t.priority]} ساعت)</dt>
+                <dt className="text-xs text-faint">مهلت اولین پاسخ ({num(SLA_HOURS[t.priority], "fa")} ساعت)</dt>
                 <dd>{t.first_response_at ? `پاسخ داده شد: ${formatDate(t.first_response_at, "fa")}` : t.due_at ? formatDate(t.due_at, "fa") : "—"}</dd>
               </div>
               {t.rating && (

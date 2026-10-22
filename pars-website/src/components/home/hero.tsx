@@ -24,7 +24,7 @@ export function Hero({ t }: { t: Copy }) {
           {h.eyebrow}
         </span>
 
-        <h1 style={d(1)} className="display mt-7 text-[clamp(2.5rem,7.2vw,5.75rem)] text-balance">
+        <h1 style={d(1)} className="display mt-7 text-[clamp(2.05rem,5.4vw,4.25rem)] text-balance">
           <span className="block">{h.titleA}</span>
           <span className="block">
             {h.titleB}

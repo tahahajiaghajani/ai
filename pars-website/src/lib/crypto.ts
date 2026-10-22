@@ -2,10 +2,23 @@ import "server-only";
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { env } from "@/lib/env";
 
+function derive(purpose: string, secret: string): Buffer {
+  return createHash("sha256").update(`pars:${purpose}:${secret}`).digest();
+}
+
+/** Encryption and signing always use the current secret. */
 function key(purpose: string): Buffer {
   const secret = env.appSecret;
   if (!secret) throw new Error("APP_SECRET is not set");
-  return createHash("sha256").update(`pars:${purpose}:${secret}`).digest();
+  return derive(purpose, secret);
+}
+
+/**
+ * Every secret a stored value may have been encrypted with: the current one, APP_SECRET_PREVIOUS
+ * (after a rotation) and the service-role key (the fallback before APP_SECRET was set).
+ */
+function decryptionKeys(): Buffer[] {
+  return [...new Set([env.appSecret, env.appSecretPrevious, env.supabaseKey].filter(Boolean))].map((s) => derive("enc", s));
 }
 
 export function hasSecret(): boolean {
@@ -20,17 +33,21 @@ export function encrypt(plain: string): string {
   return ["v1", iv.toString("base64url"), c.getAuthTag().toString("base64url"), ct.toString("base64url")].join(".");
 }
 
+/** Tries each known secret; GCM authenticates, so a wrong key fails instead of returning garbage. */
 export function decrypt(box: string | null | undefined): string {
   if (!box) return "";
   const [v, iv, tag, ct] = box.split(".");
   if (v !== "v1" || !iv || !tag || !ct) return "";
-  try {
-    const d = createDecipheriv("aes-256-gcm", key("enc"), Buffer.from(iv, "base64url"));
-    d.setAuthTag(Buffer.from(tag, "base64url"));
-    return Buffer.concat([d.update(Buffer.from(ct, "base64url")), d.final()]).toString("utf8");
-  } catch {
-    return "";
+  for (const k of decryptionKeys()) {
+    try {
+      const d = createDecipheriv("aes-256-gcm", k, Buffer.from(iv, "base64url"));
+      d.setAuthTag(Buffer.from(tag, "base64url"));
+      return Buffer.concat([d.update(Buffer.from(ct, "base64url")), d.final()]).toString("utf8");
+    } catch {
+      // next secret
+    }
   }
+  return "";
 }
 
 export function sign(payload: string): string {
