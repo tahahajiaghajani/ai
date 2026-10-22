@@ -28,9 +28,11 @@ export function AccountButton({ lang, t }: { lang: Lang; t: Copy["account"] }) {
 
   if (!me) {
     return (
-      <a href={href(lang, "/account/login")} className="hidden h-10 items-center gap-1.5 rounded-full px-3 text-sm text-muted transition hover:text-fg sm:inline-flex">
+      <a href={href(lang, "/account/login")} className="hidden h-10 items-center gap-1.5 whitespace-nowrap rounded-full px-3 text-sm text-muted transition hover:text-fg sm:inline-flex">
         <Icon name="human" className="size-4" />
-        {t.entry}
+        {/* the full label only where the header has room for it */}
+        <span className="lg:hidden xl:inline">{t.entry}</span>
+        <span className="hidden lg:inline xl:hidden">{t.signIn}</span>
       </a>
     );
   }
