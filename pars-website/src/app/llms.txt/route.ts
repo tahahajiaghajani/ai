@@ -11,7 +11,7 @@ export async function GET() {
   const body = [
     "# Pars Project Management (مدیریت پروژه پارس)",
     "",
-    "> Enterprise project & portfolio management systems (EPM/EPPM), management software (request & contract management, performance evaluation, dashboards) and AI agents for banks and large organizations in Iran. Founded 2010 (1389 SH); systems running at 20 banks and organizations. Tagline: Experience knows the way. Intelligence gets you there sooner. — «تجربه راه را می‌شناسد، هوش کوتاهش می‌کند».",
+    "> Enterprise project & portfolio management systems (EPM/EPPM), management software (request & contract management, performance evaluation, dashboards) and AI agents for banks and large organizations in Iran. Founded 2010 (1389 SH); systems running at 20 banks and organizations. Tagline: Where management meets intelligence — «جایی که مدیریت و هوش به هم می‌رسند».",
     "",
     "## Links",
     `- [Home (Persian)](${u}/)`,

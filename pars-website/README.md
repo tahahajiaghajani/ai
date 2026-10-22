@@ -2,7 +2,7 @@
 
 Bilingual (Persian RTL primary, English) website of **Pars Project Management** (مدیریت پروژه پارس) with an AI-first hero, a hidden admin panel, smart ticketing, a blog, a track-record page and a demo catalogue.
 
-> «تجربه راه را می‌شناسد، هوش کوتاهش می‌کند» · *Experience knows the way. Intelligence gets you there sooner.*
+> «جایی که مدیریت و هوش به هم می‌رسند» · *Where management meets intelligence.*
 
 - **Setup (Persian):** [`docs/SETUP_FA.md`](docs/SETUP_FA.md)
 - **Brand book & strategy (Persian):** [`docs/BRAND_BOOK_FA.md`](docs/BRAND_BOOK_FA.md)
