@@ -9,7 +9,7 @@ function Head({ id, title, lead }: { id: string; title: string; lead: string }) 
       <h2 id={id} className="scroll-mt-28 text-[clamp(1.2rem,2.1vw,1.55rem)] font-semibold">
         {title}
       </h2>
-      <p className="mt-2 text-[15px] leading-8 text-muted">{lead}</p>
+      <p className="justified mt-2 text-[15px] leading-8 text-muted">{lead}</p>
     </div>
   );
 }
@@ -34,7 +34,7 @@ export function RecordsPage({ lang }: { lang: Lang }) {
           <h1 style={{ "--d": 1 } as CSSProperties} className="display mt-4 text-[clamp(1.65rem,3.2vw,2.35rem)]">
             {t.title}
           </h1>
-          <p style={{ "--d": 2 } as CSSProperties} className="mt-3 text-base leading-8 text-muted">
+          <p style={{ "--d": 2 } as CSSProperties} className="justified mt-3 text-base leading-8 text-muted">
             {t.lead}
           </p>
         </div>

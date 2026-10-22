@@ -113,7 +113,7 @@ Return ONLY a JSON object: {"excerpt": "1–2 sentences", "tags": ["3–5 short 
 ${knowledgeBlock(selectKnowledge(entries, `${title} ${notes}`, 16000))}
 </knowledge>`;
     const user = `${fa ? "عنوان" : "Title"}: ${title}${notes ? `\n${fa ? "نکته‌ها" : "Notes"}: ${notes}` : ""}`;
-    const { text } = await complete(rt, system, [{ role: "user", content: user }], { json: true, maxTokens: 3000 });
+    const { text } = await complete(rt, system, [{ role: "user", content: user }], { json: true, maxTokens: 3000, signal: AbortSignal.timeout(120_000) });
     const j = parseJsonObject<{ body?: unknown; excerpt?: unknown; tags?: unknown }>(text);
     // the editor replaces the admin's text with this body, so an empty or non-text body is an error
     const body = str(j?.body, 100000);

@@ -15,8 +15,9 @@ import { DEFAULT_SETTINGS, type AiSettings, type ChatSettings, type NotifySettin
 import { DEFAULT_KNOWLEDGE } from "@/lib/knowledge-default";
 import { getKnowledge } from "@/lib/knowledge";
 import { selectKnowledge } from "@/lib/retrieval";
-import { chatSystemPrompt, complete, runtimeFrom } from "@/lib/ai/runtime";
+import { chatSystemPrompt, complete, noteAi, runtimeFrom, type Attempt } from "@/lib/ai/runtime";
 import { ProviderError } from "@/lib/ai/providers";
+import { aiErrorText } from "@/lib/ai-errors";
 import { notifyTeam } from "@/lib/notify";
 import { addMessage, getTicket, noticeStaffReply, setStatus, triageTicket } from "@/lib/tickets";
 import { dueAt, isCategory, isPriority, isStatus } from "@/lib/ticket-meta";
@@ -31,6 +32,8 @@ async function guard<R extends AdminResult>(fn: () => Promise<R>): Promise<R | {
     const msg = e instanceof Error ? e.message : String(e);
     if (msg === "unauthorized") return { ok: false, error: "نشست شما منقضی شده است؛ دوباره وارد شوید." };
     if (msg === "db_missing") return { ok: false, error: "پایگاه داده تنظیم نشده است." };
+    if (e instanceof ProviderError) return { ok: false, error: aiErrorText(e) };
+    if (e instanceof Error && e.name === "TimeoutError") return { ok: false, error: "سرویس در زمان مقرر پاسخ نداد؛ کمی بعد دوباره امتحان کنید." };
     console.error("[admin]", e);
     return { ok: false, error: msg.slice(0, 300) };
   }
@@ -39,6 +42,11 @@ async function guard<R extends AdminResult>(fn: () => Promise<R>): Promise<R | {
 function str(v: unknown, max = 20000): string {
   // Postgres text and jsonb reject NUL
   return typeof v === "string" ? v.replace(/\u0000/g, "").trim().slice(0, max) : "";
+}
+
+/** An API key as pasted: spaces, line breaks and invisible direction marks (common when copying in RTL pages) removed. */
+function cleanKey(v: unknown): string {
+  return str(v, 500).replace(/[\s\p{Cf}]/gu, "");
 }
 
 /** A sort value for an int4 column: 0 and negatives are kept, fractions rounded, anything else → fallback. */
@@ -100,7 +108,7 @@ export async function saveAi(input: Omit<AiSettings, "apiKeyEnc" | "apiKeyHint">
       apiKeyEnc: cur.apiKeyEnc,
       apiKeyHint: cur.apiKeyHint,
     };
-    const key = str(input.apiKey, 500);
+    const key = cleanKey(input.apiKey);
     if (input.clearKey) {
       next.apiKeyEnc = undefined;
       next.apiKeyHint = undefined;
@@ -114,25 +122,47 @@ export async function saveAi(input: Omit<AiSettings, "apiKeyEnc" | "apiKeyHint">
   });
 }
 
-/** Sends one short question with the saved settings (or the unsaved form values) and reports the result. */
-export async function testAi(input?: { provider: ProviderId; model: string; baseUrl: string; apiKey?: string }): Promise<AdminResult<{ answer: string; model: string; ms: number }>> {
+export type AiTest = { success: boolean; answer: string; model: string; ms: number; attempts: Attempt[]; error: string };
+
+/**
+ * Sends one short question through the whole model chain with the saved settings (or the unsaved form values) and
+ * reports every model's result with the provider's own message, so the admin sees which models this key can use.
+ */
+export async function testAi(input?: { provider: ProviderId; model: string; baseUrl: string; apiKey?: string; fallbackModels?: string[] }): Promise<AdminResult<AiTest>> {
   return guard(async () => {
     const s = await getSettingsFresh();
-    const ai: AiSettings = input ? { ...s.ai, provider: input.provider, model: input.model, baseUrl: input.baseUrl, enabled: true } : s.ai;
-    if (input?.apiKey) ai.apiKeyEnc = encrypt(input.apiKey);
+    const ai: AiSettings = input
+      ? {
+          ...s.ai,
+          provider: input.provider,
+          model: str(input.model, 120),
+          baseUrl: str(input.baseUrl, 300).replace(/\/$/, ""),
+          enabled: true,
+          // the stored fallbacks belong to the stored provider
+          fallbackModels: Array.isArray(input.fallbackModels) ? input.fallbackModels.map((m) => str(m, 120)).filter(Boolean).slice(0, 6) : input.provider === s.ai.provider ? s.ai.fallbackModels : [],
+        }
+      : s.ai;
+    const key = cleanKey(input?.apiKey);
+    if (key) ai.apiKeyEnc = encrypt(key);
     const rt = runtimeFrom(ai);
     if (!rt) return { ok: false, error: "کلید API تنظیم نشده است." };
     const started = Date.now();
+    const attempts: Attempt[] = [];
     try {
       const { entries } = await getKnowledge();
-      const { text, model } = await complete({ ...rt, models: [rt.models[0]] }, chatSystemPrompt(selectKnowledge(entries, "معرفی پارس"), rt.instructions), [{ role: "user", content: "در یک جمله، پارس چه کاری انجام می‌دهد؟" }], { maxTokens: 300 });
-      return { ok: true, answer: text.replace(/\[\[[^\]]*\]\]/g, "").trim(), model, ms: Date.now() - started };
+      const { text, model } = await complete(rt, chatSystemPrompt(selectKnowledge(entries, "معرفی پارس"), rt.instructions), [{ role: "user", content: "در یک جمله، پارس چه کاری انجام می‌دهد؟" }], {
+        maxTokens: 300,
+        fresh: true,
+        signal: AbortSignal.timeout(90_000),
+        onAttempt: (x) => attempts.push(x),
+      });
+      // a passing test of the setup visitors actually use clears the "last error" warning on the connections page
+      const saved = !key && (!input || (input.provider === s.ai.provider && ai.model === s.ai.model && ai.baseUrl === s.ai.baseUrl));
+      if (saved && s.ai.enabled) await noteAi({ ok: true, model }, { force: true });
+      return { ok: true, success: true, answer: text.replace(/\[\[[^\]]*\]\]/g, "").trim(), model, ms: Date.now() - started, attempts, error: "" };
     } catch (e) {
-      if (e instanceof ProviderError) {
-        const hint = { auth: "کلید نامعتبر است یا دسترسی ندارد.", quota: "سهمیه‌ی این مدل تمام شده است.", model: "نام مدل درست نیست یا در دسترس نیست.", overloaded: "سرویس شلوغ است؛ کمی بعد امتحان کنید.", invalid: "درخواست نامعتبر بود.", blocked: "پاسخ توسط فیلتر ایمنی مسدود شد.", other: "خطای سرویس." }[e.kind];
-        return { ok: false, error: `${hint} (${e.status}) ${e.message.slice(0, 160)}` };
-      }
-      throw e;
+      const error = e instanceof ProviderError ? aiErrorText(e) : e instanceof Error && e.name === "TimeoutError" ? "آزمایش در ۹۰ ثانیه تمام نشد." : e instanceof Error ? e.message.slice(0, 300) : "خطا";
+      return { ok: true, success: false, answer: "", model: "", ms: Date.now() - started, attempts, error };
     }
   });
 }
@@ -317,7 +347,7 @@ export async function askAssistant(question: string): Promise<AdminResult<{ answ
       const { text, model } = await complete(rt, chatSystemPrompt(used, rt.instructions), [{ role: "user", content: str(question, 4000) }]);
       return { ok: true, answer: text, model, used: used.map((e) => e.title) };
     } catch (e) {
-      return { ok: false, error: e instanceof Error ? e.message.slice(0, 300) : "خطا" };
+      return { ok: false, error: e instanceof ProviderError ? aiErrorText(e) : e instanceof Error ? e.message.slice(0, 300) : "خطا" };
     }
   });
 }

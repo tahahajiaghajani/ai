@@ -1,24 +1,25 @@
 "use client";
 
 import { useState } from "react";
-import { saveAi, saveChat, saveSupport, testAi } from "@/app/actions/admin";
+import { saveAi, saveChat, saveSupport, testAi, type AiTest } from "@/app/actions/admin";
 import { PROVIDERS, type AiSettings, type ChatSettings, type ProviderId, type SupportSettings } from "@/lib/settings-types";
 import { Button, Field, Input, Select, Spinner, Textarea } from "@/components/ui/field";
 import { Panel, Toggle } from "@/components/admin/ui";
 import { useAction } from "@/components/admin/toast";
+import { AiTestReport } from "@/components/admin/ai-test";
 
-type AiInitial = Omit<AiSettings, "apiKeyEnc"> & { hasKey: boolean };
+type AiInitial = Omit<AiSettings, "apiKeyEnc"> & { hasKey: boolean; keyUnreadable?: boolean };
 
 export function AiForm({ initial, envKey }: { initial: AiInitial; envKey: boolean }) {
   const [f, setF] = useState(initial);
   const [apiKey, setApiKey] = useState("");
   const [fallbacks, setFallbacks] = useState(initial.fallbackModels.join("\n"));
-  const [test, setTest] = useState<{ answer: string; model: string; ms: number } | null>(null);
+  const [test, setTest] = useState<AiTest | null>(null);
   const { pending, run } = useAction();
   const preset = PROVIDERS.find((p) => p.id === f.provider) ?? PROVIDERS[0];
 
   return (
-    <Panel title="مدل هوش مصنوعی" sub="کلید API رمزنگاری‌شده ذخیره می‌شود و هرگز به مرورگر بازنمی‌گردد. برای نسخه‌ی نهایی کافی است کلید و مدل قوی‌تر را اینجا عوض کنید.">
+    <Panel title="مدل هوش مصنوعی" sub="کلید API رمزنگاری‌شده ذخیره می‌شود و هرگز به مرورگر بازنمی‌گردد. «آزمایش اتصال» همه‌ی مدل‌ها را به‌ترتیب امتحان می‌کند و پاسخ خود سرویس را برای هر کدام نشان می‌دهد.">
       <div className="space-y-5">
         <Toggle checked={f.enabled} onChange={(v) => setF({ ...f, enabled: v })} label="دستیار فعال است" hint="اگر خاموش باشد، به بازدیدکننده پیشنهاد ثبت درخواست یا تماس داده می‌شود." />
         <Field label="سرویس‌دهنده">
@@ -27,7 +28,7 @@ export function AiForm({ initial, envKey }: { initial: AiInitial; envKey: boolea
             onChange={(e) => {
               const p = PROVIDERS.find((x) => x.id === e.target.value)!;
               setF({ ...f, provider: p.id as ProviderId, model: p.models[0], baseUrl: "" });
-              setFallbacks(p.id === "google" ? "gemini-flash-lite-latest\ngemini-2.5-flash-lite" : "");
+              setFallbacks(p.id === "google" ? "gemini-3.6-flash\ngemini-3.1-flash-lite" : "");
             }}
           >
             {PROVIDERS.map((p) => (
@@ -45,10 +46,10 @@ export function AiForm({ initial, envKey }: { initial: AiInitial; envKey: boolea
             )}
           </p>
         </Field>
-        <Field label="کلید API" hint={f.hasKey ? `ذخیره‌شده ${f.apiKeyHint ?? ""}` : envKey ? "فعلاً از GEMINI_API_KEY محیط" : "تنظیم نشده"}>
+        <Field label="کلید API" hint={f.keyUnreadable ? "کلید ذخیره‌شده خوانده نمی‌شود (APP_SECRET عوض شده)؛ دوباره واردش کنید" : f.hasKey ? `ذخیره‌شده ${f.apiKeyHint ?? ""}` : envKey ? "فعلاً از GEMINI_API_KEY محیط" : "تنظیم نشده"}>
           <Input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={f.hasKey ? "برای تغییر، کلید تازه را وارد کنید" : preset.hint} dir="ltr" autoComplete="off" />
           {f.hasKey && (
-            <button type="button" className="mt-2 text-xs text-danger hover:underline" onClick={() => confirm("کلید ذخیره‌شده حذف شود؟") && run(() => saveAi({ ...f, fallbackModels: fallbacks.split(/\s+/).filter(Boolean), clearKey: true }), { onOk: () => setF({ ...f, hasKey: false }) })}>
+            <button type="button" className="mt-2 text-xs text-danger hover:underline" onClick={() => confirm("کلید ذخیره‌شده حذف شود؟") && run(() => saveAi({ ...f, fallbackModels: fallbacks.split(/\s+/).filter(Boolean), clearKey: true }), { onOk: () => setF({ ...f, hasKey: false, keyUnreadable: false }) })}>
               حذف کلید ذخیره‌شده
             </button>
           )}
@@ -61,7 +62,7 @@ export function AiForm({ initial, envKey }: { initial: AiInitial; envKey: boolea
             ))}
           </datalist>
         </Field>
-        <Field label="مدل‌های جایگزین (وقتی سهمیه تمام شود)" hint="هر خط یک مدل">
+        <Field label="مدل‌های جایگزین (وقتی مدل اصلی شلوغ باشد یا سهمیه‌اش تمام شود)" hint={f.provider === "google" ? "هر خط یک مدل؛ بعد از این‌ها مدل‌های رایگان پیش‌فرض هم امتحان می‌شوند" : "هر خط یک مدل"}>
           <Textarea value={fallbacks} onChange={(e) => setFallbacks(e.target.value)} rows={3} dir="ltr" className="font-mono text-sm" />
         </Field>
         <Field label="آدرس پایه‌ی API" hint="اختیاری">
@@ -69,7 +70,7 @@ export function AiForm({ initial, envKey }: { initial: AiInitial; envKey: boolea
           <p className="mt-2 text-xs leading-6 text-muted">برای درگاه‌های واسط (Relay) یا سرویس‌های سازگار با OpenAI؛ اگر سایت روی سرور داخل ایران میزبانی شود، از یک درگاه واسط استفاده کنید.</p>
         </Field>
         <div className="grid grid-cols-2 gap-4">
-          <Field label="دما (خلاقیت)" hint="۰ تا ۱٫۵">
+          <Field label="دما (خلاقیت)" hint={f.provider === "google" ? "Gemini 3 به بعد مقدار پیش‌فرض خودش را به کار می‌برد" : "۰ تا ۱٫۵"}>
             <Input type="number" step="0.1" min="0" max="1.5" value={f.temperature} onChange={(e) => setF({ ...f, temperature: Number(e.target.value) })} dir="ltr" />
           </Field>
           <Field label="حداکثر طول پاسخ (توکن)">
@@ -85,7 +86,9 @@ export function AiForm({ initial, envKey }: { initial: AiInitial; envKey: boolea
             onClick={() =>
               run(() => saveAi({ ...f, fallbackModels: fallbacks.split(/\s+/).filter(Boolean), apiKey }), {
                 onOk: () => {
-                  if (apiKey) setF({ ...f, hasKey: true, apiKeyHint: `…${apiKey.slice(-4)}` });
+                  // same cleaning as the server (spaces and invisible marks), so the hint shows the stored key's end
+                  const k = apiKey.replace(/[\s\p{Cf}]/gu, "");
+                  if (k) setF({ ...f, hasKey: true, keyUnreadable: false, apiKeyHint: `…${k.slice(-4)}` });
                   setApiKey("");
                 },
               })
@@ -94,18 +97,19 @@ export function AiForm({ initial, envKey }: { initial: AiInitial; envKey: boolea
             {pending && <Spinner />}
             ذخیره
           </Button>
-          <Button variant="soft" disabled={pending} onClick={() => run(() => testAi({ provider: f.provider, model: f.model, baseUrl: f.baseUrl, apiKey: apiKey || undefined }), { silent: true, onOk: (r) => setTest({ answer: r.answer, model: r.model, ms: r.ms }) })}>
+          <Button
+            variant="soft"
+            disabled={pending}
+            onClick={() => {
+              setTest(null);
+              run(() => testAi({ provider: f.provider, model: f.model, baseUrl: f.baseUrl, apiKey: apiKey || undefined, fallbackModels: fallbacks.split(/\s+/).filter(Boolean) }), { silent: true, onOk: (r) => setTest(r) });
+            }}
+          >
+            {pending && <Spinner />}
             آزمایش اتصال
           </Button>
         </div>
-        {test && (
-          <div className="rounded-2xl border border-success/30 bg-success/[0.06] p-4 text-sm leading-7">
-            <div className="mb-1 text-xs text-success">
-              ✓ اتصال برقرار است · <span className="ltr">{test.model}</span> · {new Intl.NumberFormat("fa-IR").format(test.ms)} میلی‌ثانیه
-            </div>
-            {test.answer}
-          </div>
-        )}
+        {test && <AiTestReport test={test} />}
       </div>
     </Panel>
   );

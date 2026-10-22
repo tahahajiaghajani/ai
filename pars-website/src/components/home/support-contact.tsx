@@ -31,7 +31,7 @@ export function SupportContact({ lang, t, site }: { lang: Lang; t: Copy; site: S
             {s.kicker}
           </span>
           <h2 className="display mt-5 text-[clamp(1.4rem,2.3vw,1.95rem)]">{s.title}</h2>
-          <p className="mt-4 text-[15px] leading-8 text-muted">{s.lead}</p>
+          <p className="justified mt-4 text-[15px] leading-8 text-muted">{s.lead}</p>
           <div className="mt-auto flex flex-wrap gap-3 pt-10">
             <a href={href(lang, "/support")} className="inline-flex h-12 items-center gap-2 rounded-full bg-magenta px-6 font-semibold text-white transition hover:bg-magenta-deep">
               {s.cta}

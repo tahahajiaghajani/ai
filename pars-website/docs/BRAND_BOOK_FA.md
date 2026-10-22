@@ -1,6 +1,6 @@
 # کتاب برند مدیریت پروژه پارس
 
-> **جایی که مدیریت و هوش به هم می‌رسند.** · *Where management meets intelligence.*
+> **تجربه راه را می‌شناسد، هوش کوتاهش می‌کند.** · *Experience knows the way. Intelligence gets you there sooner.*
 >
 > نسخه‌ی ۱٫۱ — مهر ۱۴۰۵، با داده‌های پروفایل رسمی شرکت. این سند پایه‌ی برند، وب‌سایت و بازاریابی پارس است. منابع تحقیق به‌طور کامل در پوشه‌ی [`docs/research`](research/) آمده است.
 
@@ -103,7 +103,8 @@
 | **مأموریت رسمی (Mission)** | تولید «سامانه‌ی جامع مدیریت» (Management Total System) برای سازمان‌های بزرگ — مدیریت پروژه، استراتژی، وظایف، ارزیابی عملکرد، مستندات و داشبورد مدیریت — با متخصصان علمی و بر پایه‌ی مفاهیم علمی نوین. | Build a Management Total System for large organizations — project management, strategy, tasks, performance evaluation, documents and management dashboards — with specialists and modern management science. |
 | **روایت برند** | سامانه‌ی جامع مدیریت، حالا با ایجنت‌های هوش مصنوعی: داده‌های بزرگ به تصمیم و اقدام تبدیل می‌شوند و ۹۰٪ اتوماسیون استاندارد می‌شود. | The Management Total System, now with AI agents: big data becomes decisions and action, and 90% automation becomes the norm. |
 | **وعده‌ی برند** | کار هوشمند، بی‌خطا و قابل اعتماد. | Intelligent, error-free, trustworthy work. |
-| **شعار** | جایی که مدیریت و هوش به هم می‌رسند. | Where management meets intelligence. |
+| **شعار** | تجربه راه را می‌شناسد، هوش کوتاهش می‌کند. | Experience knows the way. Intelligence gets you there sooner. |
+| **ایده‌ی شعار** | دو جریان لوگو، هر کدام با نقشی روشن: تجربه‌ی مدیریتی مسیر درست را می‌شناسد و هوش مصنوعی آن را کوتاه می‌کند. یادآور «همسفر خوب راه را کوتاه می‌کند»؛ ساده، بی‌اغراق و بی‌ادعا. در عنوان صفحه‌ی اول، واژه‌ی «هوش» با گرادیان برند برجسته می‌شود. | The logo's two flows, each with a clear role: management experience knows the right path, and AI shortens it. Plain and unboastful. |
 
 ### ارزش‌های بنیادی (رسمی)
 
@@ -201,6 +202,7 @@
 - در انیمیشن، متن فارسی را **کلمه‌به‌کلمه** یا خط‌به‌خط حرکت دهید، نه حرف‌به‌حرف.
 - اعداد در متن فارسی، فارسی‌اند (۹۰٪، ۱۵+)؛ کدها و نشانی‌ها لاتین و چپ‌به‌راست.
 - نیم‌فاصله را درست بنویسید: «سامانه‌ها»، «می‌کند»، «پروژه‌ی».
+- متن بدنه دوطرفه (justify) چیده می‌شود: `justified` برای پاراگراف‌های پهن و نوشته‌های وبلاگ (در انگلیسی با شکستن واژه)، `justified-center` برای پاراگراف‌های وسط‌چین، و `justified-fa` (فقط فارسی) برای کارت‌های باریک و نقل‌قول‌های درشت. تیتر، برچسب، دکمه، حباب گفتگو و راهنمای فرم‌ها راست‌چین می‌مانند. هرگز `text-justify: inter-character` یا کشیده‌ی دستی (ـ).
 
 ### آیکون و تصویر
 

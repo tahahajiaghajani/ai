@@ -40,6 +40,7 @@ vi.mock("@/lib/ai/runtime", () => ({
   getRuntime: async () => h.rt,
   complete: (...a: unknown[]) => h.complete(...a),
   knowledgeBlock: () => "",
+  noteAi: async () => {},
   parseJsonObject: (text: string) => {
     try {
       return JSON.parse(text);

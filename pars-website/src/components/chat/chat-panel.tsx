@@ -261,7 +261,7 @@ function Answer({ m }: { m: ChatMsg }) {
               >
                 {copied ? <path d="M5 12l5 5L20 7" /> : <path d="M9 9h10v10H9zM5 15V5h10" />}
               </IconBtn>
-              {m.rating ? (
+              {m.offline ? null : m.rating ? (
                 <span className="px-2 text-xs">{t.thanks}</span>
               ) : (
                 <>

@@ -107,8 +107,8 @@ export const DEFAULT_SETTINGS: Settings = {
   ai: {
     enabled: true,
     provider: "google",
-    model: "gemini-flash-latest",
-    fallbackModels: ["gemini-flash-lite-latest", "gemini-2.5-flash-lite"],
+    model: "gemini-3.5-flash-lite",
+    fallbackModels: ["gemini-3.6-flash", "gemini-3.1-flash-lite"],
     baseUrl: "",
     temperature: 0.3,
     maxTokens: 1200,
@@ -183,9 +183,10 @@ export const PROVIDERS: { id: ProviderId; label: string; keyUrl: string; hint: s
     id: "google",
     label: "Google AI Studio (Gemini)",
     keyUrl: "https://aistudio.google.com/apikey",
-    hint: "AIza…",
-    models: ["gemini-flash-latest", "gemini-flash-lite-latest", "gemini-pro-latest", "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.5-pro"],
-    note: "پلن رایگان دارد. اگر سهمیه‌ی مدل اصلی تمام شود، مدل‌های جایگزین به‌ترتیب امتحان می‌شوند.",
+    hint: "AQ.… یا AIza…",
+    // free tier for new keys (Oct 2026): 3.x Flash and Flash-Lite; 4 Argon and 3.1 Pro are paid only; 2.5 is closed to new keys
+    models: ["gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3.8-flash", "gemini-3.1-flash-lite", "gemini-flash-latest", "gemini-flash-lite-latest", "gemini-4-argon", "gemini-3.1-pro-preview"],
+    note: "پلن رایگان برای مدل‌های Flash و Flash-Lite. اگر مدلی شلوغ باشد یا سهمیه‌اش تمام شود، مدل‌های جایگزین و بعد مدل‌های رایگان 3.5 Flash-Lite، 3.1 Flash-Lite، 3.6 Flash و 3.8 Flash خودکار امتحان می‌شوند. Gemini 4 Argon و 3.1 Pro پلن رایگان ندارند و مدل‌های 2.5 برای کلیدهای جدید بسته‌اند.",
   },
   {
     id: "anthropic",

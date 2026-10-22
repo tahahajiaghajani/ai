@@ -157,6 +157,37 @@
   line-height: 1.22;
 }
 
+/* --------------------------------------------------- justified text */
+/* Running text is justified, as in Persian print. Browsers justify Persian by widening word spaces only (no kashida),
+   so no text-justify value is set (never inter-character: it letter-spaces the Latin words). English hyphenates so
+   justified lines don't gape. :where() keeps specificity at one class. Don't combine with text-center / text-start. */
+@utility justified {
+  text-align: justify;
+  &:where(:lang(en)) {
+    -webkit-hyphens: auto;
+    hyphens: auto;
+  }
+  & :where(code) {
+    -webkit-hyphens: manual;
+    hyphens: manual;
+  }
+}
+/* centered blocks: full lines justified, the last line stays centered */
+@utility justified-center {
+  text-align: justify;
+  text-align-last: center;
+  &:where(:lang(en)) {
+    -webkit-hyphens: auto;
+    hyphens: auto;
+  }
+}
+/* narrow cards and display type: Persian only (English would leave wide gaps at these measures) */
+@utility justified-fa {
+  &:where(:lang(fa)) {
+    text-align: justify;
+  }
+}
+
 @layer components {
   html[lang="en"] .display {
     letter-spacing: -0.025em;

@@ -15,7 +15,7 @@ export function SupportPage({ lang }: { lang: Lang }) {
           <h1 style={{ "--d": 1 } as React.CSSProperties} className="display mt-4 text-[clamp(1.7rem,3.3vw,2.45rem)]">
             {t.support.title}
           </h1>
-          <p style={{ "--d": 2 } as React.CSSProperties} className="mt-3 text-base leading-8 text-muted">
+          <p style={{ "--d": 2 } as React.CSSProperties} className="justified mt-3 text-base leading-8 text-muted">
             {t.support.lead}
           </p>
         </div>

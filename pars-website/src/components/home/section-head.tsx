@@ -10,7 +10,7 @@ export function SectionHead({ kicker, title, lead, center = false, children }: {
         {title}
       </h2>
       {lead && (
-        <p data-reveal style={{ "--d": 2 } as React.CSSProperties} className={`mt-5 text-pretty text-base leading-8 text-muted sm:text-lg sm:leading-9 ${center ? "mx-auto max-w-2xl" : "max-w-2xl"}`}>
+        <p data-reveal style={{ "--d": 2 } as React.CSSProperties} className={`mt-5 text-pretty text-base leading-8 text-muted sm:text-lg sm:leading-9 ${center ? "justified-center mx-auto max-w-2xl" : "justified max-w-2xl"}`}>
           {lead}
         </p>
       )}

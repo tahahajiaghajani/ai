@@ -17,7 +17,7 @@ export default async function Connections() {
   return (
     <>
       <PageTitle title="اتصالات" sub="وضعیت پایگاه داده، هوش مصنوعی، اعلان‌ها، ایمیل و امنیت؛ هر جا ممکن است، همین‌جا وصل و آزمایش کنید." />
-      <ConnectionsBoard report={report} sql={sql} ai={{ ...ai, hasKey: Boolean(apiKeyEnc) }} notify={{ ...notify, hasToken: Boolean(botTokenEnc) }} />
+      <ConnectionsBoard report={report} sql={sql} ai={{ ...ai, hasKey: !report.ai.keyUnreadable && Boolean(apiKeyEnc) }} notify={{ ...notify, hasToken: Boolean(botTokenEnc) }} />
     </>
   );
 }

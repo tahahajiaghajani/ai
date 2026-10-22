@@ -13,6 +13,8 @@ export interface ChatMsg {
   status?: "streaming" | "done" | "error";
   logId?: string;
   rating?: 1 | -1;
+  /** the site's own "assistant not available" text: shown, but never sent back to the model or rated */
+  offline?: boolean;
 }
 
 interface ChatApi {
@@ -114,7 +116,7 @@ export function ChatProvider(props: { lang: Lang; t: Copy["chat"]; greeting: str
   // runs synchronously up to the fetch, so abortRef is set before ask() returns
   const send = useCallback(
     async (text: string) => {
-      const history = messagesRef.current.filter((m) => m.status !== "error" && m.content);
+      const history = messagesRef.current.filter((m) => m.status !== "error" && !m.offline && m.content);
       const user: ChatMsg = { id: uid(), role: "user", content: text.slice(0, 4000), status: "done" };
       const answer: ChatMsg = { id: uid(), role: "assistant", content: "", status: "streaming", logId: uid() };
       setMessages((ms) => [...ms, user, answer]);
@@ -137,7 +139,8 @@ export function ChatProvider(props: { lang: Lang; t: Copy["chat"]; greeting: str
         });
         if (!res.ok || !res.body) {
           const j = (await res.json().catch(() => ({}))) as { error?: string };
-          failure = j.error === "rate" ? t.errorRate : j.error === "busy" ? t.errorBusy : t.errorNet;
+          // a platform 5xx page (timeout, crash) is the service failing, not the visitor's connection
+          failure = j.error === "rate" ? t.errorRate : j.error === "busy" || res.status >= 500 ? t.errorBusy : t.errorNet;
           throw new Error(failure);
         }
         const reader = res.body.getReader();
@@ -149,7 +152,7 @@ export function ChatProvider(props: { lang: Lang; t: Copy["chat"]; greeting: str
           if (!frame) frame = requestAnimationFrame(flush);
         }
         cancelAnimationFrame(frame);
-        patch(answer.id, { content: acc, status: "done" });
+        patch(answer.id, { content: acc, status: "done", ...(res.headers.get("x-pars-offline") ? { offline: true, logId: undefined } : {}) });
       } catch {
         cancelAnimationFrame(frame);
         patch(answer.id, endedEarly(acc, { stopped: ac.signal.aborted, error: failure, lang }));

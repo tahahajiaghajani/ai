@@ -6,7 +6,8 @@ import { env } from "@/lib/env";
 import { getSettings } from "@/lib/settings";
 import { getKnowledge } from "@/lib/knowledge";
 import { selectKnowledge } from "@/lib/retrieval";
-import { complete, getRuntime, knowledgeBlock, parseJsonObject } from "@/lib/ai/runtime";
+import { complete, getRuntime, knowledgeBlock, noteAi, parseJsonObject } from "@/lib/ai/runtime";
+import { ProviderError } from "@/lib/ai/providers";
 import { allowAi } from "@/lib/rate-limit";
 import { canEmail, emailCustomer, notifyTeam } from "@/lib/notify";
 import {
@@ -210,7 +211,7 @@ ${knowledge}
 </knowledge>`;
   const user = `Customer: ${t.name}${t.organization ? ` (${t.organization})` : ""}\nCustomer-selected type: ${t.category}\nProduct: ${t.product}\nSubject: ${t.subject}\n\n${t.body}`;
   try {
-    const { text, model } = await complete({ ...rt, temperature: 0.2 }, system, [{ role: "user", content: user }], { json: true, maxTokens: 900 });
+    const { text, model } = await complete({ ...rt, temperature: 0.2 }, system, [{ role: "user", content: user }], { json: true, maxTokens: 900, signal: AbortSignal.timeout(120_000) });
     const j = parseJsonObject<Triage>(text);
     if (!j) return "failed";
     const priority = isPriority(j.priority) ? j.priority : t.priority;
@@ -223,6 +224,7 @@ ${knowledge}
       ai_triage: { ...j, reply: undefined, model, at: new Date().toISOString() },
       due_at: dueAt(t.created_at, priority),
     };
+    await noteAi({ ok: true, model }).catch(() => {});
     const { error } = await c.from("pars_tickets").update(patch).eq("id", t.id);
     if (error) {
       console.error("[triage] update failed", error);
@@ -231,6 +233,7 @@ ${knowledge}
     return "ok";
   } catch (e) {
     console.error("[triage] failed", e);
+    await noteAi({ ok: false, error: e, where: "triage" }).catch(() => {});
     return "failed";
   }
 }
@@ -248,11 +251,15 @@ If the knowledge does not clearly answer it, or the message reports a problem th
 ${knowledge}
 </knowledge>`;
   try {
-    const { text } = await complete({ ...rt, temperature: 0.2 }, system, [{ role: "user", content: `${subject}\n\n${body}`.slice(0, 4000) }], { maxTokens: 500 });
+    // the visitor is waiting on the form: give up quickly and let them submit the ticket
+    const { text, model } = await complete({ ...rt, temperature: 0.2 }, system, [{ role: "user", content: `${subject}\n\n${body}`.slice(0, 4000) }], { maxTokens: 500, signal: AbortSignal.timeout(25_000) });
+    await noteAi({ ok: true, model }).catch(() => {});
     const out = text.trim();
     if (!out || /^NONE\b/i.test(out) || out.length < 20) return null;
     return out;
-  } catch {
+  } catch (e) {
+    console.error("[suggest] failed", e instanceof ProviderError ? `${e.model} ${e.kind} ${e.status} ${e.message}` : e);
+    await noteAi({ ok: false, error: e, where: "ticket-suggestion" }).catch(() => {});
     return null;
   }
 }

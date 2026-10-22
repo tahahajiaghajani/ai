@@ -5,7 +5,7 @@ import { listPosts } from "@/lib/blog";
 import { env } from "@/lib/env";
 import { copy, href, type Lang } from "@/lib/i18n";
 import { ArticleBody, headings } from "@/components/blog/article-body";
-import { textDir } from "@/components/chat/markdown";
+import { langOf, textDir } from "@/components/chat/markdown";
 import { AskButton } from "@/components/blog/ask-button";
 import { PostCard, PostMeta } from "@/components/blog/post-card";
 import { RevealObserver } from "@/components/site/reveal-observer";
@@ -50,7 +50,7 @@ export async function PostView({ post, lang }: { post: Post; lang: Lang }) {
             <PostMeta post={post} lang={lang} t={t} />
           </div>
           {post.excerpt && (
-            <p style={{ "--d": 3 } as CSSProperties} className="mt-6 text-[1.05rem] leading-9 text-fg/80">
+            <p style={{ "--d": 3 } as CSSProperties} dir={textDir(post.excerpt)} lang={langOf(textDir(post.excerpt))} className="justified mt-6 text-[1.05rem] leading-9 text-fg/80">
               {post.excerpt}
             </p>
           )}
@@ -92,7 +92,7 @@ export async function PostView({ post, lang }: { post: Post; lang: Lang }) {
 
         <div className="mt-14 rounded-3xl border border-line-strong bg-[radial-gradient(120%_120%_at_100%_0%,rgb(223_17_115/0.12),transparent_60%)] p-7 sm:p-9">
           <h2 className="text-xl font-semibold">{t.ctaTitle}</h2>
-          <p className="mt-2 text-[15px] leading-8 text-muted">{t.ctaLead}</p>
+          <p className="justified mt-2 text-[15px] leading-8 text-muted">{t.ctaLead}</p>
           <div className="mt-6 flex flex-wrap gap-3">
             <AskButton className="inline-flex h-11 items-center rounded-full bg-reverse px-5 text-sm font-semibold text-white">{t.ctaAsk}</AskButton>
             <Link href={`${href(lang, "/support")}?category=demo`} className="inline-flex h-11 items-center rounded-full border border-line-strong px-5 text-sm text-fg hover:bg-white/5">
