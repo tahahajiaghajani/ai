@@ -4,12 +4,11 @@ import { useTransition, type ReactNode } from "react";
 import { signOut } from "@/app/actions/account";
 
 /** Signs out, then reloads the page from the server so no part of it still shows the old account. */
-export function SignOutButton({ to, className, role, children }: { to: string; className?: string; role?: string; children: ReactNode }) {
+export function SignOutButton({ to, className, children }: { to: string; className?: string; children: ReactNode }) {
   const [pending, start] = useTransition();
   return (
     <button
       type="button"
-      role={role}
       disabled={pending}
       className={className}
       onClick={() =>

@@ -19,14 +19,25 @@ function load(): Promise<Me | null> {
   return pending;
 }
 
+const CHANGED = "pars-account-changed";
+
+/** Call after the account's name or details change: every useAccount() on the page asks again. */
+export function accountChanged() {
+  pending = null;
+  window.dispatchEvent(new Event(CHANGED));
+}
+
 /** The signed-in account; `undefined` while it is being checked. */
 export function useAccount(): Me | null | undefined {
   const [me, setMe] = useState<Me | null | undefined>(undefined);
   useEffect(() => {
     let live = true;
-    void load().then((m) => live && setMe(m));
+    const get = () => void load().then((m) => live && setMe(m));
+    get();
+    window.addEventListener(CHANGED, get);
     return () => {
       live = false;
+      window.removeEventListener(CHANGED, get);
     };
   }, []);
   return me;

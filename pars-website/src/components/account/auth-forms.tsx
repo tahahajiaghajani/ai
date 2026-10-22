@@ -1,10 +1,12 @@
 "use client";
 
 import { useState, useTransition, type FormEvent, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
 import type { Copy } from "@/content/fa";
 import { href, type Lang } from "@/lib/i18n";
 import { changePassword, requestReset, resetPassword, signIn, signUp, updateProfile, type Result } from "@/app/actions/account";
 import { Button, Input, Label, Spinner } from "@/components/ui/field";
+import { accountChanged } from "@/components/account/use-account";
 
 type T = Copy["account"];
 
@@ -160,7 +162,11 @@ export function ResetPasswordForm({ lang, t, token }: { lang: Lang; t: T; token:
 }
 
 export function ProfileForm({ lang, t, initial }: { lang: Lang; t: T; initial: { name: string; email: string; phone: string; organization: string } }) {
-  const f = useSubmit(lang, updateProfile);
+  const router = useRouter();
+  const f = useSubmit(lang, updateProfile, () => {
+    router.refresh(); // the page heading shows the name
+    accountChanged(); // and so does the header
+  });
   return (
     <form onSubmit={f.submit} className="space-y-5">
       <Field id="name" label={t.name}>

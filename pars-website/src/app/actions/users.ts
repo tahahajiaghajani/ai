@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import type { AdminResult } from "@/app/actions/admin";
 import { guard, str } from "@/lib/admin-action";
-import { EMAIL_RE, PASSWORD_MAX, PASSWORD_MIN, USERS, currentUser, getProfile, hashPassword, type Role } from "@/lib/auth";
+import { EMAIL_RE, PASSWORD_MAX, PASSWORD_MIN, USERS, currentUser, getProfile, hashPassword, startUserSession, type Role } from "@/lib/auth";
 import { requireDb } from "@/lib/db";
 
 /** Site accounts only (pars_users); nothing here reads or writes Supabase Auth users. */
@@ -78,6 +78,8 @@ export async function setUserPassword(id: string, password: string): Promise<Adm
       .update({ password_hash: await hashPassword(password), session_version: p.session_version + 1, updated_at: new Date().toISOString() })
       .eq("id", id);
     if (error) throw new Error(error.message);
+    // your own password: the new session version would otherwise sign you out on the next request
+    if ((await currentUser())?.id === id) await startUserSession({ ...p, session_version: p.session_version + 1 });
     return done("رمز تازه ذخیره شد؛ کاربر باید با آن دوباره وارد شود.");
   });
 }

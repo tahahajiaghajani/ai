@@ -350,6 +350,12 @@ function NewTicket({ lang, t, ta, initialCategory, onCreated }: { lang: Lang; t:
 
       {step === 2 && me === null && <SignInGate lang={lang} ta={ta} onLeave={keepDraft} />}
 
+      {step === 2 && !me && (
+        <Button type="button" variant="soft" onClick={() => setStep(1)}>
+          {t.back}
+        </Button>
+      )}
+
       {step === 2 && me && (
         <div className="space-y-5 animate-[fade-in_.4s_both]">
           <div className="rounded-2xl border border-line bg-ink-2/60 px-4 py-3 text-sm">
