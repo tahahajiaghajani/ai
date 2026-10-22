@@ -30,4 +30,8 @@ export const env = {
   get mailFrom() {
     return process.env.MAIL_FROM || "";
   },
+  /** optional: protects the daily keep-alive cron (Vercel sends it as a Bearer token) */
+  get cronSecret() {
+    return process.env.CRON_SECRET || "";
+  },
 };
