@@ -14,7 +14,7 @@ export function Header({ lang, t }: { lang: Lang; t: Copy }) {
     { href: `${home}#services`, label: t.nav.services },
     { href: `${home}#ai`, label: t.nav.ai },
     { href: `${home}#work`, label: t.nav.work },
-    { href: `${home}#ceo`, label: t.nav.ceo },
+    { href: href(lang, "/blog"), label: t.nav.blog },
     { href: href(lang, "/support"), label: t.nav.support },
   ];
   const other: Lang = lang === "fa" ? "en" : "fa";
@@ -27,7 +27,7 @@ export function Header({ lang, t }: { lang: Lang; t: Copy }) {
         <Link href={home} aria-label={t.meta.short} className="shrink-0">
           <LogoLockup />
         </Link>
-        <nav className="hidden items-center gap-1 lg:flex" aria-label="main">
+        <nav className="hidden items-center gap-1 lg:flex" aria-label={t.nav.main}>
           {links.map((l) => (
             <a key={l.href} href={l.href} className="rounded-full px-3.5 py-2 text-[15px] text-muted transition hover:bg-white/5 hover:text-fg">
               {l.label}

@@ -8,6 +8,7 @@ import { AiSection } from "@/components/home/ai-section";
 import { Services } from "@/components/home/services";
 import { Work } from "@/components/home/work";
 import { About } from "@/components/home/about";
+import { BlogTeaser } from "@/components/home/blog-teaser";
 import { Stats } from "@/components/home/stats";
 import { Process } from "@/components/home/process";
 import { Ceo } from "@/components/home/ceo";
@@ -32,7 +33,7 @@ export async function HomePage({ lang }: { lang: Lang }) {
       </div>
       <Stats lang={lang} site={site} />
       <div className="cv-auto">
-        <Work t={t} />
+        <Work lang={lang} t={t} />
       </div>
       <div className="cv-auto">
         <About lang={lang} t={t} />
@@ -42,6 +43,9 @@ export async function HomePage({ lang }: { lang: Lang }) {
       </div>
       <div className="cv-auto">
         <Process lang={lang} t={t} />
+      </div>
+      <div className="cv-auto">
+        <BlogTeaser lang={lang} t={t} />
       </div>
       <DemosCta lang={lang} t={t} />
       <SupportContact lang={lang} t={t} site={site} />

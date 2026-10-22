@@ -80,12 +80,11 @@ export function Ceo({ lang, t, site }: { lang: Lang; t: Copy; site: SiteContent 
 
         <div>
           <span data-reveal className="kicker">
-            <span className="h-px w-8 bg-violet/60" />
             {t.ceo.kicker}
           </span>
           <blockquote data-reveal style={{ "--d": 1 } as CSSProperties} className="relative mt-8">
             <span aria-hidden className="absolute -top-10 -start-2 font-brand text-[7rem] leading-none text-pink/25">“</span>
-            <p className="display relative text-[clamp(1.45rem,2.7vw,2.25rem)] font-bold leading-[1.75] [html[lang=en]_&]:text-[clamp(1.3rem,2.1vw,1.8rem)] [html[lang=en]_&]:leading-[1.4]">{quote}</p>
+            <p className="display relative text-[clamp(1.18rem,2.05vw,1.7rem)] font-medium leading-[1.75] [html[lang=en]_&]:text-[clamp(1.12rem,1.75vw,1.45rem)] [html[lang=en]_&]:leading-[1.4]">{quote}</p>
           </blockquote>
           <div data-reveal style={{ "--d": 2 } as CSSProperties} className="mt-10 flex items-center gap-4">
             <span className="h-12 w-1 rounded-full bg-reverse" />

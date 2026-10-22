@@ -78,6 +78,13 @@ export interface NotifySettings {
   emailCustomers: boolean;
 }
 
+/** Customer e-mail through Resend; the panel value wins over RESEND_API_KEY / MAIL_FROM. */
+export interface EmailSettings {
+  mailFrom: string;
+  resendKeyEnc?: string;
+  resendKeyHint?: string;
+}
+
 export interface SupportSettings {
   /** AI suggests an answer from the knowledge base before a ticket is submitted */
   deflection: boolean;
@@ -90,6 +97,7 @@ export interface Settings {
   chat: ChatSettings;
   site: SiteContent;
   notify: NotifySettings;
+  email: EmailSettings;
   support: SupportSettings;
 }
 
@@ -113,7 +121,7 @@ export const DEFAULT_SETTINGS: Settings = {
       "پارس دقیقاً چه کاری انجام می‌دهد؟",
       "ایجنت‌های هوش مصنوعی شما چطور کار را تا ۹۰٪ خودکار می‌کنند؟",
       "پارس برای کدام بانک‌ها و سازمان‌ها سامانه ساخته است؟",
-      "پشتیبانی Project Server 2016 تمام شده؛ چه کنم؟",
+      "سامانه‌ی EPM ما قدیمی شده؛ مسیر نوسازی چیست؟",
       "«سایمپ» و «سماپ» چه سامانه‌هایی هستند؟",
       "دوره‌های آموزشی مدیریت پروژه دارید؟",
     ],
@@ -121,7 +129,7 @@ export const DEFAULT_SETTINGS: Settings = {
       "What exactly does Pars do?",
       "How do your AI agents automate up to 90% of the work?",
       "Which banks and organizations run Pars systems?",
-      "Project Server 2016 support has ended — what now?",
+      "Our EPM system is aging — how do we modernize it?",
       "What are «Saymp» and «Samap»?",
       "Do you offer project management training?",
     ],
@@ -148,23 +156,25 @@ export const DEFAULT_SETTINGS: Settings = {
       highlightsEn: ["PMP", "PSM", "MSc, Sharif University", "3 books on project management", "250+ courses taught"],
     },
     contact: {
-      phones: ["021-88614256", "021-88614257"],
-      email: "info@parspmi.com",
-      addressFa: "تهران، خیابان سهروردی شمالی، خیابان خرمشهر، خیابان عشقیار، خیابان ۱۴، پلاک ۴، طبقه‌ی ۴",
-      addressEn: "4th floor, No. 4, 14th St., Eshghyar St., Khorramshahr St., North Sohrevardi St., Tehran, Iran",
-      mapUrl: "https://www.google.com/maps/search/?api=1&query=Eshghyar+Street+Khorramshahr+Tehran",
-      hoursFa: "شنبه تا چهارشنبه، ۸ تا ۱۷",
-      hoursEn: "Sat–Wed, 8:00–17:00 (Tehran)",
+      phones: ["021-88731601", "021-82803565"],
+      email: "info@parspmi.ir",
+      addressFa: "تهران، خیابان سهروردی شمالی، خیابان خرمشهر (آپادانا)، پلاک ۱۱۸، واحد ۱۳",
+      addressEn: "Unit 13, No. 118, Khorramshahr (Apadana) St., North Sohrevardi St., Tehran, Iran",
+      mapUrl: "https://www.google.com/maps/search/?api=1&query=118+Khorramshahr+(Apadana)+St+Tehran",
+      // no source gives office hours yet: empty hides the row until the admin sets them
+      hoursFa: "",
+      hoursEn: "",
     },
     social: { linkedin: "", telegram: "", instagram: "", bale: "", aparat: "" },
     stats: [
       { value: "15+", labelFa: "سال تجربه، از ۱۳۸۹", labelEn: "years of experience, since 2010" },
-      { value: "20+", labelFa: "بانک و سازمان بزرگ با سامانه‌های پارس", labelEn: "banks and organizations run Pars systems" },
+      { value: "20", labelFa: "بانک و سازمان با سامانه‌های پارس", labelEn: "banks and organizations run Pars systems" },
       { value: "60+", labelFa: "سازمان در آموزش، مشاوره و نرم‌افزار", labelEn: "organizations trained, advised or served" },
       { value: "90%", labelFa: "اتوماسیون کارهای تکراری با ایجنت‌ها", labelEn: "of repetitive work automated by agents" },
     ],
   },
   notify: { channel: "none", chatId: "", emailCustomers: true },
+  email: { mailFrom: "" },
   support: { deflection: true, triage: true },
 };
 
@@ -191,6 +201,6 @@ export const PROVIDERS: { id: ProviderId; label: string; keyUrl: string; hint: s
     keyUrl: "https://platform.openai.com/api-keys",
     hint: "sk-…",
     models: ["gpt-5", "gpt-5-mini", "gpt-4.1-mini"],
-    note: "برای OpenAI، OpenRouter یا درگاه‌های داخلی سازگار با OpenAI؛ آدرس پایه را (معمولاً با ‎/v1) وارد کنید.",
+    note: "برای OpenAI،\u200F OpenRouter یا درگاه‌های داخلی سازگار با OpenAI؛ آدرس پایه را (معمولاً با ‎/v1) وارد کنید.",
   },
 ];

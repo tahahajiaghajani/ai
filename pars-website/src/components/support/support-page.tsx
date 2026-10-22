@@ -10,10 +10,9 @@ export function SupportPage({ lang }: { lang: Lang }) {
       <div className="mx-auto max-w-6xl px-5 sm:px-8">
         <div className="hero-in mb-10 max-w-2xl">
           <span style={{ "--d": 0 } as React.CSSProperties} className="kicker">
-            <span className="h-px w-8 bg-violet/60" />
             {t.supportCta.kicker}
           </span>
-          <h1 style={{ "--d": 1 } as React.CSSProperties} className="display mt-4 text-[clamp(2rem,4.5vw,3.25rem)]">
+          <h1 style={{ "--d": 1 } as React.CSSProperties} className="display mt-4 text-[clamp(1.7rem,3.3vw,2.45rem)]">
             {t.support.title}
           </h1>
           <p style={{ "--d": 2 } as React.CSSProperties} className="mt-3 text-base leading-8 text-muted">

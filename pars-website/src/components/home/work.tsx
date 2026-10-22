@@ -1,5 +1,7 @@
+import Link from "next/link";
 import type { CSSProperties } from "react";
 import type { Copy } from "@/content/fa";
+import { href, type Lang } from "@/lib/i18n";
 import { SectionHead } from "@/components/home/section-head";
 
 function Visual({ kind }: { kind: string }) {
@@ -52,7 +54,7 @@ function Visual({ kind }: { kind: string }) {
   );
 }
 
-export function Work({ t }: { t: Copy }) {
+export function Work({ lang, t }: { lang: Lang; t: Copy }) {
   const w = t.work;
   return (
     <section id="work" className="relative py-28 sm:py-36">
@@ -86,7 +88,6 @@ export function Work({ t }: { t: Copy }) {
 
         <div data-reveal className="mt-24">
           <h3 className="kicker">
-            <span className="h-px w-8 bg-violet/60" />
             {w.clientsTitle}
           </h3>
         </div>
@@ -101,6 +102,10 @@ export function Work({ t }: { t: Copy }) {
             <span className="text-sm leading-6 text-muted">{w.clientsMore}</span>
           </li>
         </ul>
+        <Link data-reveal href={href(lang, "/records")} className="mt-6 inline-flex items-center gap-2 text-sm font-semibold text-violet hover:text-fg">
+          {t.records.all}
+          <span aria-hidden>{lang === "fa" ? "←" : "→"}</span>
+        </Link>
       </div>
     </section>
   );

@@ -1,10 +1,14 @@
 import "server-only";
+import { cache } from "react";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { assertAdmin } from "@/lib/admin-auth";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { hasSecret, decrypt } from "@/lib/crypto";
 import { canEmail } from "@/lib/notify";
 import { getSettingsFresh } from "@/lib/settings";
-import { OPEN_STATUSES, type TicketPriority, type TicketStatus } from "@/lib/ticket-meta";
+import { DEFAULT_SETTINGS } from "@/lib/settings-types";
+import { OPEN_STATUSES, STATUSES, type TicketPriority, type TicketStatus } from "@/lib/ticket-meta";
 import type { TicketRow } from "@/lib/tickets";
 
 export interface Health {
@@ -17,14 +21,22 @@ export interface Health {
   siteUrl: string;
 }
 
+// Admin-only reads: each one checks the session itself, so a page that forgets requireAdminPage() still leaks nothing.
+
 export async function health(): Promise<Health> {
+  await assertAdmin();
   const c = db();
   let dbState: Health["db"] = "missing";
   if (c) {
-    const { error } = await c.from("pars_settings").select("key", { head: true, count: "exact" });
+    // GET, not HEAD: postgrest-js reports a HEAD request on a missing table as success
+    const { error } = await c.from("pars_settings").select("key").limit(1);
     dbState = error ? "no_tables" : "ok";
   }
-  const s = await getSettingsFresh();
+  // Read-only diagnostic: a settings read error must not take the dashboard down (the DB check above already shows it).
+  const s = await getSettingsFresh().catch((e) => {
+    console.error("[health]", e);
+    return DEFAULT_SETTINGS;
+  });
   const hasKey = Boolean(s.ai.apiKeyEnc && decrypt(s.ai.apiKeyEnc));
   return {
     db: dbState,
@@ -32,28 +44,80 @@ export async function health(): Promise<Health> {
     secret: hasSecret(),
     explicitSecret: Boolean(process.env.APP_SECRET),
     notify: s.notify.channel !== "none" && Boolean(s.notify.chatId && s.notify.botTokenEnc),
-    email: canEmail(),
+    email: await canEmail(),
     siteUrl: env.siteUrl,
   };
 }
 
-export async function ticketCounts(): Promise<{ byStatus: Record<TicketStatus, number>; overdue: number; week: number; avgRating: number | null }> {
-  const c = db();
-  const byStatus = { new: 0, in_progress: 0, answered: 0, resolved: 0, closed: 0 } as Record<TicketStatus, number>;
-  if (!c) return { byStatus, overdue: 0, week: 0, avgRating: null };
-  const { data } = await c.from("pars_tickets").select("status, due_at, first_response_at, created_at, rating").order("created_at", { ascending: false }).limit(2000);
-  const rows = (data ?? []) as Pick<TicketRow, "status" | "due_at" | "first_response_at" | "created_at" | "rating">[];
+export interface TicketCounts {
+  byStatus: Record<TicketStatus, number>;
+  overdue: number;
+  week: number;
+  avgRating: number | null;
+}
+
+export interface ChatCounts {
+  today: number;
+  week: number;
+  unknown: number;
+  negative: number;
+  sessions: number;
+}
+
+const DAY = 86400_000;
+
+function emptyStatus(): Record<TicketStatus, number> {
+  return Object.fromEntries(STATUSES.map((s) => [s, 0])) as Record<TicketStatus, number>;
+}
+
+const count = (q: PromiseLike<{ count: number | null }>) => Promise.resolve(q).then((r) => r.count ?? 0);
+
+/** Until pars_admin_counts() is installed: exact head counts; sessions and the rating come from the newest 1000 rows. */
+async function countWithQueries(c: SupabaseClient): Promise<{ tickets: TicketCounts; chats: ChatCounts }> {
   const now = Date.now();
-  let overdue = 0;
-  let week = 0;
-  const ratings: number[] = [];
-  for (const r of rows) {
-    byStatus[r.status] = (byStatus[r.status] ?? 0) + 1;
-    if (OPEN_STATUSES.includes(r.status) && !r.first_response_at && r.due_at && new Date(r.due_at).getTime() < now) overdue++;
-    if (now - new Date(r.created_at).getTime() < 7 * 86400_000) week++;
-    if (r.rating) ratings.push(r.rating);
-  }
-  return { byStatus, overdue, week, avgRating: ratings.length ? ratings.reduce((a, b) => a + b, 0) / ratings.length : null };
+  const since = new Date(now - 7 * DAY).toISOString();
+  const tickets = () => c.from("pars_tickets").select("id", { count: "exact", head: true });
+  const chats = () => c.from("pars_chat_logs").select("id", { count: "exact", head: true }).gte("created_at", since);
+  const [byStatus, overdue, week, rated, today, chatWeek, unknown, negative, sample] = await Promise.all([
+    Promise.all(STATUSES.map((s) => count(tickets().eq("status", s)))),
+    count(tickets().in("status", OPEN_STATUSES).is("first_response_at", null).lt("due_at", new Date(now).toISOString())),
+    count(tickets().gte("created_at", since)),
+    c.from("pars_tickets").select("rating").not("rating", "is", null).order("created_at", { ascending: false }).limit(1000),
+    count(chats().gte("created_at", new Date(now - DAY).toISOString())),
+    count(chats()),
+    count(chats().eq("unknown", true).eq("reviewed", false)),
+    count(chats().eq("rating", -1).eq("reviewed", false)),
+    c.from("pars_chat_logs").select("session_id").gte("created_at", since).order("created_at", { ascending: false }).limit(1000),
+  ]);
+  const ratings = ((rated.data ?? []) as { rating: number }[]).map((r) => r.rating);
+  return {
+    tickets: {
+      byStatus: Object.fromEntries(STATUSES.map((s, i) => [s, byStatus[i]])) as Record<TicketStatus, number>,
+      overdue,
+      week,
+      avgRating: ratings.length ? ratings.reduce((a, b) => a + b, 0) / ratings.length : null,
+    },
+    chats: { today, week: chatWeek, unknown, negative, sessions: new Set(((sample.data ?? []) as { session_id: string }[]).map((r) => r.session_id)).size },
+  };
+}
+
+/**
+ * Counted in the database (PostgREST returns at most 1000 rows per read): one call to
+ * pars_admin_counts() from migration 20261022120000, or head counts while it is missing.
+ * Memoised per request, since the panel layout and the dashboard both ask.
+ */
+const loadCounts = cache(async (): Promise<{ tickets: TicketCounts; chats: ChatCounts } | null> => {
+  const c = db();
+  if (!c) return null;
+  const { data, error } = await c.rpc("pars_admin_counts", { p_open: OPEN_STATUSES });
+  if (error || !data) return countWithQueries(c);
+  const r = data as { tickets: TicketCounts; chats: ChatCounts };
+  return { tickets: { ...r.tickets, byStatus: { ...emptyStatus(), ...r.tickets.byStatus } }, chats: r.chats };
+});
+
+export async function ticketCounts(): Promise<TicketCounts> {
+  await assertAdmin();
+  return (await loadCounts())?.tickets ?? { byStatus: emptyStatus(), overdue: 0, week: 0, avgRating: null };
 }
 
 export interface ChatRow {
@@ -69,23 +133,13 @@ export interface ChatRow {
   created_at: string;
 }
 
-export async function chatCounts(): Promise<{ today: number; week: number; unknown: number; negative: number; sessions: number }> {
-  const c = db();
-  if (!c) return { today: 0, week: 0, unknown: 0, negative: 0, sessions: 0 };
-  const since = new Date(Date.now() - 7 * 86400_000).toISOString();
-  const { data } = await c.from("pars_chat_logs").select("session_id, unknown, rating, reviewed, created_at").gte("created_at", since).limit(5000);
-  const rows = (data ?? []) as Pick<ChatRow, "session_id" | "unknown" | "rating" | "reviewed" | "created_at">[];
-  const dayStart = Date.now() - 86400_000;
-  return {
-    today: rows.filter((r) => new Date(r.created_at).getTime() > dayStart).length,
-    week: rows.length,
-    unknown: rows.filter((r) => r.unknown && !r.reviewed).length,
-    negative: rows.filter((r) => r.rating === -1 && !r.reviewed).length,
-    sessions: new Set(rows.map((r) => r.session_id)).size,
-  };
+export async function chatCounts(): Promise<ChatCounts> {
+  await assertAdmin();
+  return (await loadCounts())?.chats ?? { today: 0, week: 0, unknown: 0, negative: 0, sessions: 0 };
 }
 
 export async function listTickets(f: { status?: string; priority?: string; q?: string; limit?: number }): Promise<TicketRow[]> {
+  await assertAdmin();
   const c = db();
   if (!c) return [];
   let q = c.from("pars_tickets").select("*").order("updated_at", { ascending: false }).limit(f.limit ?? 200);
@@ -101,6 +155,7 @@ export async function listTickets(f: { status?: string; priority?: string; q?: s
 }
 
 export async function listChats(filter: string, limit = 150): Promise<ChatRow[]> {
+  await assertAdmin();
   const c = db();
   if (!c) return [];
   let q = c.from("pars_chat_logs").select("*").order("created_at", { ascending: false }).limit(limit);

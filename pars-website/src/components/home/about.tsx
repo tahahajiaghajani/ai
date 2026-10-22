@@ -30,10 +30,9 @@ export function About({ lang, t }: { lang: Lang; t: Copy }) {
             <div aria-hidden className="absolute -end-24 -top-24 size-64 rounded-full bg-[radial-gradient(closest-side,rgb(223_17_115/0.22),transparent)]" />
             <div className="relative">
               <span className="kicker">
-                <span className="h-px w-8 bg-violet/60" />
                 {a.missionLabel}
               </span>
-              <h3 className="display mt-4 text-[clamp(1.6rem,2.6vw,2.2rem)]">{a.missionTitle}</h3>
+              <h3 className="display mt-4 text-[clamp(1.3rem,2.1vw,1.75rem)]">{a.missionTitle}</h3>
               {lang === "fa" && (
                 <div className="mt-1">
                   <span className="ltr inline-block font-brand text-sm text-faint">{a.missionEn}</span>
@@ -50,7 +49,6 @@ export function About({ lang, t }: { lang: Lang; t: Copy }) {
               <div className="hairline mt-8" />
               <div className="mt-6">
                 <span className="kicker">
-                  <span className="h-px w-8 bg-violet/60" />
                   {a.visionLabel}
                 </span>
               </div>
@@ -61,7 +59,6 @@ export function About({ lang, t }: { lang: Lang; t: Copy }) {
 
         <div data-reveal className="mt-24">
           <h3 className="kicker">
-            <span className="h-px w-8 bg-violet/60" />
             {a.valuesTitle}
           </h3>
         </div>

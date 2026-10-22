@@ -2,6 +2,7 @@ import type { Copy } from "@/content/fa";
 import { href, num, type Lang } from "@/lib/i18n";
 import type { SiteContent } from "@/lib/settings-types";
 import { Icon, type IconName } from "@/components/site/icons";
+import { latinDigits } from "@/lib/digits";
 
 function Row({ icon, label, children }: { icon: IconName; label: string; children: React.ReactNode }) {
   return (
@@ -29,7 +30,7 @@ export function SupportContact({ lang, t, site }: { lang: Lang; t: Copy; site: S
             <Icon name="ticket" className="size-4" />
             {s.kicker}
           </span>
-          <h2 className="display mt-5 text-[clamp(1.7rem,3vw,2.5rem)]">{s.title}</h2>
+          <h2 className="display mt-5 text-[clamp(1.4rem,2.3vw,1.95rem)]">{s.title}</h2>
           <p className="mt-4 text-[15px] leading-8 text-muted">{s.lead}</p>
           <div className="mt-auto flex flex-wrap gap-3 pt-10">
             <a href={href(lang, "/support")} className="inline-flex h-12 items-center gap-2 rounded-full bg-magenta px-6 font-semibold text-white transition hover:bg-magenta-deep">
@@ -43,15 +44,14 @@ export function SupportContact({ lang, t, site }: { lang: Lang; t: Copy; site: S
         </div>
         <div data-reveal style={{ "--d": 1 } as React.CSSProperties} className="card p-8 sm:p-12">
           <span className="kicker">
-            <span className="h-px w-8 bg-violet/60" />
             {t.contact.kicker}
           </span>
-          <h2 className="display mt-5 text-[clamp(1.7rem,3vw,2.5rem)]">{t.contact.title}</h2>
+          <h2 className="display mt-5 text-[clamp(1.4rem,2.3vw,1.95rem)]">{t.contact.title}</h2>
           <div className="mt-6">
             <Row icon="phone" label={t.contact.phone}>
               <span className="flex flex-wrap gap-x-4">
                 {c.phones.map((p) => (
-                  <a key={p} href={`tel:${p.replace(/[^\d+]/g, "")}`} className="ltr hover:text-pink">
+                  <a key={p} href={`tel:${latinDigits(p).replace(/[^\d+]/g, "")}`} className="ltr hover:text-pink">
                     {num(p, lang)}
                   </a>
                 ))}
