@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { Copy } from "@/content/fa";
 import { href, type Lang } from "@/lib/i18n";
 import { LogoLockup } from "@/components/brand/logo";
+import { AccountButton, AccountMenuLink } from "@/components/account/account-button";
 import { DemosButton } from "@/components/site/demo-sheet";
 import { HeaderShell, MobileMenu } from "@/components/site/header-client";
 import { Icon } from "@/components/site/icons";
@@ -39,6 +40,7 @@ export function Header({ lang, t }: { lang: Lang; t: Copy }) {
             <Icon name="globe" className="size-4" />
             <span className={other === "en" ? "font-brand" : ""}>{t.nav.langShort}</span>
           </LangLink>
+          <AccountButton lang={lang} t={t.account} />
           <DemosButton className="hidden h-10 items-center gap-2 rounded-full border border-line-strong bg-white/[0.03] px-4 text-sm font-semibold text-fg transition hover:border-pink/60 sm:inline-flex">
             <Icon name="play" className="size-3.5 text-pink" />
             {t.nav.demos}
@@ -53,6 +55,7 @@ export function Header({ lang, t }: { lang: Lang; t: Copy }) {
                   <Icon name="play" className="size-4" />
                   {t.nav.demos}
                 </DemosButton>
+                <AccountMenuLink lang={lang} t={t.account} className="flex h-12 items-center justify-center gap-2 rounded-full border border-line-strong" />
                 <LangLink to={other} className="flex h-12 items-center justify-center gap-2 rounded-full border border-line-strong">
                   <Icon name="globe" className="size-4" />
                   {t.nav.langLabel}
