@@ -129,13 +129,13 @@ export const DEFAULT_SETTINGS: Settings = {
       titleFa: "مدیرعامل",
       titleEn: "Chief Executive Officer",
       quoteFa:
-        "مدیریت پروژه‌ی آینده هوشمند است؛ سامانه‌هایی که فقط ثبت نمی‌کنند، بلکه می‌فهمند، پیش‌بینی می‌کنند و انجام می‌دهند. مأموریت ما این است که سازمان‌ها وقتشان را صرف تصمیم‌های مهم کنند، نه کارهای تکراری.",
+        "بیش از ۱۵ سال کنار تیم‌های پروژه‌ی بانک‌ها و سازمان‌های بزرگ بوده‌ایم و دیده‌ایم چقدر از وقتشان صرف گزارش‌های تکراری می‌شود. جایی که این تجربه به هوش مصنوعی می‌رسد، ایجنت‌ها بیشتر این بار سنگین را به دوش می‌گیرند و آدم‌ها به کار اصلی‌شان برمی‌گردند: تصمیم و قضاوت. فناوری کار را پیش می‌برد؛ حرف آخر را انسان می‌زند.",
       quoteEn:
-        "The future of project management is intelligent — systems that don't just record, but understand, predict and act. Our mission is to let organizations spend their time on decisions that matter, not on repetitive work.",
+        "For over fifteen years we've worked alongside project teams in banks and large organizations, watching their best hours disappear into repetitive reports. Where that experience meets AI, agents carry most of the load and people return to their real work: decisions and judgment. Technology moves the work forward; people make the final call.",
       bioFa:
-        "بیش از پانزده سال تجربه در طراحی، استقرار و آموزش سامانه‌های مدیریت پروژه‌ی سازمانی برای بانک‌ها و سازمان‌های بزرگ، و پیشگام به‌کارگیری هوش مصنوعی در مدیریت پروژه.",
+        "امیر محمودی شرکت مدیریت پروژه پارس را هدایت می‌کند. این شرکت بیش از ۱۵ سال تجربه‌ی طراحی، استقرار و آموزش سامانه‌های EPM برای بانک‌ها و سازمان‌های بزرگ دارد و امروز ایجنت‌های هوش مصنوعی می‌سازد.",
       bioEn:
-        "Over fifteen years designing, deploying and teaching enterprise project management systems for banks and large organizations — and a pioneer of AI in project management.",
+        "Amir Mahmoudi leads Pars Project Management, which has over 15 years of experience designing, deploying and teaching EPM systems for banks and large organizations, and now builds AI agents.",
     },
     contact: {
       phones: ["021-88731601", "021-82803565"],

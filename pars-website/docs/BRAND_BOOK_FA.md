@@ -45,7 +45,6 @@
 ### شکاف‌ها (برای تکمیل)
 
 - اعداد قابل انتشار نمونه‌کارها (مثلاً کاهش زمان گزارش‌گیری، تعداد پروژه‌ها یا کاربران).
-- متن نهایی پیام مدیرعامل، امیر محمودی (در پنل مدیریت قابل ویرایش است).
 - صفحه‌ی امنیت و اعتماد (Trust Center): نحوه‌ی استقرار، رتبه‌ی انفورماتیک، مجوزها.
 - حضور منظم در لینکدین/تلگرام/بله و انتشار محتوای تخصصی.
 
@@ -238,10 +237,39 @@
 
 ---
 
+## پیام مدیرعامل — امیر محمودی
+
+متن کوتاه در بخش «پیام مدیرعامل» صفحه‌ی اول نمایش داده می‌شود. نسخه‌ی کامل زیر برای صفحه‌ی «درباره‌ی ما»، لینکدین، پروفایل شرکت و ارائه‌ها است. هر دو با همان قواعد لحن این سند و فقط بر پایه‌ی داده‌های قطعی نوشته شده‌اند.
+
+**متن کوتاه (سایت):**
+> بیش از ۱۵ سال کنار تیم‌های پروژه‌ی بانک‌ها و سازمان‌های بزرگ بوده‌ایم و دیده‌ایم چقدر از وقتشان صرف گزارش‌های تکراری می‌شود. جایی که این تجربه به هوش مصنوعی می‌رسد، ایجنت‌ها بیشتر این بار سنگین را به دوش می‌گیرند و آدم‌ها به کار اصلی‌شان برمی‌گردند: تصمیم و قضاوت. فناوری کار را پیش می‌برد؛ حرف آخر را انسان می‌زند.
+
+**نسخه‌ی کامل (فارسی):**
+
+بیش از ۱۵ سال است با Project Server، Primavera و Jira سامانه‌های مدیریت پروژه‌ی سازمانی می‌سازیم و آموزش می‌دهیم. برای بانک‌ها و سازمان‌های بزرگ کار کرده‌ایم؛ از سامانه‌های EPM بانک تجارت و پروژه‌ی Renew آن تا «سایمپ» بانک ملت. یک تصویر را بارها دیده‌ایم: آدم‌های توانمندی که بهترین ساعت‌هایشان صرف گزارش‌های تکراری می‌شود.
+
+فناوری را برای تغییر همین تصویر می‌سازیم. ایجنت‌های ما تا حدود ۹۰٪ کارهای تکراری را خودکار می‌کنند و باقی را با کمترین دخالت انسان پیش می‌برند. RAG پاسخ را از دانش خود سازمان می‌آورد، نه از حدس مدل؛ تحلیل پیش‌بین هم تأخیر و ریسک را زودتر نشان می‌دهد. هوش مصنوعی جای تجربه را نمی‌گیرد؛ به آن سرعت و دقت می‌دهد و وقت آدم‌ها را به تصمیم‌های مهم برمی‌گرداند.
+
+در سامانه‌ی یک بانک، خطای کوچک هم کوچک نمی‌ماند. برای همین هر اقدام ایجنت قابل ردیابی است، تصمیم‌های حساس با تأیید انسان نهایی می‌شوند و معیار ما خطای صفر است.
+
+دستیار سایت ما نمونه‌ی کوچک همین رویکرد است: فقط از دانش ما پاسخ می‌دهد و اگر چیزی نداند، همین را می‌گوید. بپرسید این مسیر در سازمان شما چه شکلی دارد، یا در بخش پشتیبانی درخواست جلسه ثبت کنید؛ خوشحال می‌شویم گفتگو را شروع کنیم.
+
+**Full letter (English):**
+
+For over fifteen years we've built enterprise project management systems on Project Server, Primavera and Jira, and trained teams to use them. We've worked for banks and large organizations, from Bank Tejarat's EPM systems and their Renew project to Bank Mellat's Saymp. One picture kept repeating: capable people spending their best hours on repetitive reports.
+
+We build technology to change that picture. Our AI agents automate around 90% of repetitive work and handle the rest with minimal human involvement. RAG draws answers from the organization's own knowledge, not a model's guess; predictive analytics flags delays and risks sooner. AI doesn't replace experience; it adds speed and precision, and returns people's time to the decisions that matter.
+
+In banking, a small error never stays small. So every agent action is traceable, sensitive decisions wait for human approval, and our standard is zero errors.
+
+Our website's AI assistant shows this in miniature: it answers only from our knowledge, and when it doesn't know, it says so. Ask it how this could work in your organization, or request a meeting in our Support section. We'd be glad to talk.
+
+---
+
 ## ۸. نیازمند تأیید شما
 
 - [x] نام مدیرعامل: **امیر محمودی** (Amir Mahmoudi).
-- [ ] متن پیام و معرفی کوتاه مدیرعامل (پنل مدیریت → «محتوای سایت»). متن فعلی پیش‌نویس است.
+- [x] پیام و معرفی کوتاه مدیرعامل نوشته شد (در پنل مدیریت → «محتوای سایت» قابل ویرایش است؛ متن کامل در بخش «پیام مدیرعامل» همین سند).
 - [ ] املای انگلیسی سامانه‌ی «سایمپ» (فعلاً Saymp نوشته شده است).
 - [ ] منظور از فناوری «jev» در توضیحات؛ اگر نام دقیق مدل یا فناوری است (مثلاً JEPA)، به دانش پارس اضافه شود.
 - [ ] اعداد قابل انتشار نمونه‌کارها و آمار صفحه‌ی اول (۱۵+، ۹۰٪، ۲۴/۷، خطای صفر).
