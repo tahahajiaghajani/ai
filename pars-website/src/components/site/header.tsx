@@ -10,6 +10,7 @@ import { LangLink } from "@/components/site/lang-link";
 export function Header({ lang, t }: { lang: Lang; t: Copy }) {
   const home = href(lang, "/");
   const links = [
+    { href: `${home}#about`, label: t.nav.about },
     { href: `${home}#services`, label: t.nav.services },
     { href: `${home}#ai`, label: t.nav.ai },
     { href: `${home}#work`, label: t.nav.work },

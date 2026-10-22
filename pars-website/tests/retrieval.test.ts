@@ -36,4 +36,12 @@ describe("rank / selectKnowledge", () => {
   it("finds the migration entry in the starter knowledge", () => {
     expect(rank(DEFAULT_KNOWLEDGE, "پشتیبانی Project Server 2016 تمام شده")[0].entry.title).toMatch(/مهاجرت/);
   });
+  it("finds the profile facts in the starter knowledge", () => {
+    expect(rank(DEFAULT_KNOWLEDGE, "سماپ چیست؟")[0].entry.title).toMatch(/سماپ/);
+    expect(rank(DEFAULT_KNOWLEDGE, "امیر محمودی چند کتاب نوشته و کجا تدریس کرده؟")[0].entry.title).toMatch(/مدیرعامل/);
+    expect(rank(DEFAULT_KNOWLEDGE, "ارزش‌های سازمانی شما چیست؟")[0].entry.title).toMatch(/ارزش/);
+  });
+  it("sends the whole starter knowledge (it fits the default budget)", () => {
+    expect(selectKnowledge(DEFAULT_KNOWLEDGE, "x")).toHaveLength(DEFAULT_KNOWLEDGE.length);
+  });
 });

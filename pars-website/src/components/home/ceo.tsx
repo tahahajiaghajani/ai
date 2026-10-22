@@ -46,6 +46,7 @@ export function Ceo({ lang, t, site }: { lang: Lang; t: Copy; site: SiteContent 
   const title = realName ? (lang === "fa" ? c.titleFa : c.titleEn) : t.ceo.company;
   const quote = lang === "fa" ? c.quoteFa : c.quoteEn;
   const bio = lang === "fa" ? c.bioFa : c.bioEn;
+  const highlights = (lang === "fa" ? c.highlightsFa : c.highlightsEn).filter(Boolean);
   const hasName = Boolean(realName);
   return (
     <section id="ceo" className="relative isolate overflow-hidden py-28 sm:py-40">
@@ -65,10 +66,12 @@ export function Ceo({ lang, t, site }: { lang: Lang; t: Copy; site: SiteContent 
                 </div>
               </div>
             </div>
-            <div aria-hidden className="absolute -start-5 top-10 animate-float rounded-2xl border border-line-strong bg-ink-3/80 px-4 py-3 backdrop-blur-md [transform:translateZ(40px)]">
-              <div className="font-brand text-2xl font-bold text-gradient" dir="ltr">{num("15+", lang)}</div>
-              <div className="text-[11px] text-muted">{t.ceo.years}</div>
-            </div>
+            {c.years && (
+              <div aria-hidden className="absolute -start-5 top-10 animate-float rounded-2xl border border-line-strong bg-ink-3/80 px-4 py-3 backdrop-blur-md [transform:translateZ(40px)]">
+                <div className="font-brand text-2xl font-bold text-gradient" dir="ltr">{num(c.years, lang)}</div>
+                <div className="text-[11px] text-muted">{t.ceo.years}</div>
+              </div>
+            )}
             <div aria-hidden className="absolute -end-4 bottom-24 animate-float rounded-full border border-line-strong bg-ink-3/80 px-4 py-2 text-xs font-semibold backdrop-blur-md [animation-delay:-3s]">
               <span className="ltr font-brand text-violet">AI-native</span>
             </div>
@@ -91,8 +94,17 @@ export function Ceo({ lang, t, site }: { lang: Lang; t: Copy; site: SiteContent 
               <div className="text-sm text-muted">{title}</div>
             </div>
           </div>
+          {highlights.length > 0 && (
+            <ul data-reveal style={{ "--d": 3 } as CSSProperties} className="mt-6 flex flex-wrap gap-2">
+              {highlights.map((h) => (
+                <li key={h} className="rounded-full border border-line-strong bg-white/[0.03] px-3.5 py-1.5 text-[13px] font-semibold text-fg/85">
+                  {/^[\x00-\x7F]+$/.test(h) ? <span className="ltr font-brand">{h}</span> : num(h, lang)}
+                </li>
+              ))}
+            </ul>
+          )}
           {bio && (
-            <p data-reveal style={{ "--d": 3 } as CSSProperties} className="mt-6 max-w-xl text-[15px] leading-8 text-muted">
+            <p data-reveal style={{ "--d": 4 } as CSSProperties} className="mt-6 max-w-xl text-[15px] leading-8 text-muted">
               {bio}
             </p>
           )}

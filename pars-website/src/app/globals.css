@@ -554,3 +554,27 @@ html.js .process:not([data-in]) .proc-step {
   opacity: 0;
   transform: translateY(20px);
 }
+
+/* about: the timeline line draws down, then the milestones arrive in order */
+html.js .tl-line {
+  transform-origin: top center;
+  transition: transform 1.8s var(--ease-in-out-quart);
+}
+html.js .timeline[data-reveal]:not([data-in]) {
+  filter: none;
+  opacity: 1;
+  transform: none;
+}
+html.js .timeline:not([data-in]) .tl-line {
+  transform: scaleY(0);
+}
+html.js .tl-step {
+  transition:
+    opacity 0.8s var(--ease-out-expo),
+    transform 0.8s var(--ease-out-expo);
+  transition-delay: calc(var(--i) * 220ms + 200ms);
+}
+html.js .timeline:not([data-in]) .tl-step {
+  opacity: 0;
+  transform: translateY(18px);
+}

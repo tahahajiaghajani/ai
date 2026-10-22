@@ -11,6 +11,7 @@ export function SiteForm({ initial }: { initial: SiteContent }) {
   const [s, setS] = useState(initial);
   const { pending, run } = useAction();
   const ceo = (k: keyof SiteContent["ceo"]) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setS({ ...s, ceo: { ...s.ceo, [k]: e.target.value } });
+  const lines = (k: "highlightsFa" | "highlightsEn") => (e: React.ChangeEvent<HTMLTextAreaElement>) => setS({ ...s, ceo: { ...s.ceo, [k]: e.target.value.split("\n") } });
   const contact = (k: keyof SiteContent["contact"]) => (e: React.ChangeEvent<HTMLInputElement>) => setS({ ...s, contact: { ...s.contact, [k]: e.target.value } });
   const social = (k: keyof SiteContent["social"]) => (e: React.ChangeEvent<HTMLInputElement>) => setS({ ...s, social: { ...s.social, [k]: e.target.value } });
 
@@ -51,6 +52,20 @@ export function SiteForm({ initial }: { initial: SiteContent }) {
           <div>
             <Label>Short bio</Label>
             <Textarea value={s.ceo.bioEn} onChange={ceo("bioEn")} rows={3} dir="ltr" />
+          </div>
+        </div>
+        <div className="mt-4 grid gap-4 sm:grid-cols-[8rem_1fr_1fr]">
+          <div>
+            <Label hint="خالی = پنهان">سال تجربه</Label>
+            <Input value={s.ceo.years} onChange={ceo("years")} dir="ltr" placeholder="20+" />
+          </div>
+          <div>
+            <Label hint="هر خط یک مورد">مدارک و افتخارات</Label>
+            <Textarea value={s.ceo.highlightsFa.join("\n")} onChange={lines("highlightsFa")} rows={3} />
+          </div>
+          <div>
+            <Label hint="one per line">Credentials</Label>
+            <Textarea value={s.ceo.highlightsEn.join("\n")} onChange={lines("highlightsEn")} rows={3} dir="ltr" />
           </div>
         </div>
       </Panel>

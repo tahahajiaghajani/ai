@@ -50,6 +50,11 @@ export interface SiteContent {
     quoteEn: string;
     bioFa: string;
     bioEn: string;
+    /** floating badge on the portrait, e.g. "20+" (empty hides it) */
+    years: string;
+    /** short credential chips under the name */
+    highlightsFa: string[];
+    highlightsEn: string[];
   };
   contact: {
     phones: string[];
@@ -107,15 +112,17 @@ export const DEFAULT_SETTINGS: Settings = {
     suggestionsFa: [
       "پارس دقیقاً چه کاری انجام می‌دهد؟",
       "ایجنت‌های هوش مصنوعی شما چطور کار را تا ۹۰٪ خودکار می‌کنند؟",
-      "تجربه‌ی شما با سامانه‌های EPM بانک‌ها چیست؟",
+      "پارس برای کدام بانک‌ها و سازمان‌ها سامانه ساخته است؟",
       "پشتیبانی Project Server 2016 تمام شده؛ چه کنم؟",
+      "«سایمپ» و «سماپ» چه سامانه‌هایی هستند؟",
       "دوره‌های آموزشی مدیریت پروژه دارید؟",
     ],
     suggestionsEn: [
       "What exactly does Pars do?",
       "How do your AI agents automate up to 90% of the work?",
-      "What's your experience with bank EPM systems?",
+      "Which banks and organizations run Pars systems?",
       "Project Server 2016 support has ended — what now?",
+      "What are «Saymp» and «Samap»?",
       "Do you offer project management training?",
     ],
     perTenMinutes: 20,
@@ -133,25 +140,28 @@ export const DEFAULT_SETTINGS: Settings = {
       quoteEn:
         "For over fifteen years we've worked alongside project teams in banks and large organizations, watching their best hours disappear into repetitive reports. Where that experience meets AI, agents carry most of the load and people return to their real work: decisions and judgment. Technology moves the work forward; people make the final call.",
       bioFa:
-        "امیر محمودی شرکت مدیریت پروژه پارس را هدایت می‌کند. این شرکت بیش از ۱۵ سال تجربه‌ی طراحی، استقرار و آموزش سامانه‌های EPM برای بانک‌ها و سازمان‌های بزرگ دارد و امروز ایجنت‌های هوش مصنوعی می‌سازد.",
+        "امیر محمودی ۲۰ سال است به‌عنوان مشاور و مدیر پروژه، راهکارهای مدیریتی را در سازمان‌ها راه‌اندازی می‌کند؛ به‌ویژه مدیریت پروژه، ارزیابی عملکرد و BI. کارشناسی و کارشناسی ارشد مهندسی صنایع را در دانشگاه علم و صنعت ایران و دانشگاه صنعتی شریف گذرانده، مدارک PMP (از PMI) و PSM (از Scrum.org) را دارد، سه کتاب در استانداردها و نرم‌افزارهای مدیریت پروژه نوشته و در بیش از ۲۵۰ دوره‌ی آموزشی مدیریت پروژه تدریس کرده است.",
       bioEn:
-        "Amir Mahmoudi leads Pars Project Management, which has over 15 years of experience designing, deploying and teaching EPM systems for banks and large organizations, and now builds AI agents.",
+        "For 20 years Amir Mahmoudi has set up management solutions in organizations as a consultant and project manager — especially project management, performance evaluation and BI. He studied industrial engineering at Iran University of Science and Technology (BSc) and Sharif University of Technology (MSc), is PMP (PMI) and PSM (Scrum.org) certified, has written three books on project management standards and software, and has taught more than 250 project management courses.",
+      years: "20+",
+      highlightsFa: ["PMP", "PSM", "کارشناسی ارشد، دانشگاه شریف", "۳ کتاب مدیریت پروژه", "۲۵۰+ دوره‌ی آموزشی"],
+      highlightsEn: ["PMP", "PSM", "MSc, Sharif University", "3 books on project management", "250+ courses taught"],
     },
     contact: {
-      phones: ["021-88731601", "021-82803565"],
-      email: "info@parspmi.ir",
-      addressFa: "تهران، خیابان سهروردی شمالی",
-      addressEn: "North Sohrevardi St., Tehran, Iran",
-      mapUrl: "https://www.google.com/maps/search/?api=1&query=North+Sohrevardi+Street+Tehran",
+      phones: ["021-88614256", "021-88614257"],
+      email: "info@parspmi.com",
+      addressFa: "تهران، خیابان سهروردی شمالی، خیابان خرمشهر، خیابان عشقیار، خیابان ۱۴، پلاک ۴، طبقه‌ی ۴",
+      addressEn: "4th floor, No. 4, 14th St., Eshghyar St., Khorramshahr St., North Sohrevardi St., Tehran, Iran",
+      mapUrl: "https://www.google.com/maps/search/?api=1&query=Eshghyar+Street+Khorramshahr+Tehran",
       hoursFa: "شنبه تا چهارشنبه، ۸ تا ۱۷",
       hoursEn: "Sat–Wed, 8:00–17:00 (Tehran)",
     },
     social: { linkedin: "", telegram: "", instagram: "", bale: "", aparat: "" },
     stats: [
-      { value: "15+", labelFa: "سال تجربه در سامانه‌های سازمانی", labelEn: "years of enterprise systems" },
+      { value: "15+", labelFa: "سال تجربه، از ۱۳۸۹", labelEn: "years of experience, since 2010" },
+      { value: "20+", labelFa: "بانک و سازمان بزرگ با سامانه‌های پارس", labelEn: "banks and organizations run Pars systems" },
+      { value: "60+", labelFa: "سازمان در آموزش، مشاوره و نرم‌افزار", labelEn: "organizations trained, advised or served" },
       { value: "90%", labelFa: "اتوماسیون کارهای تکراری با ایجنت‌ها", labelEn: "of repetitive work automated by agents" },
-      { value: "24/7", labelFa: "دستیار هوشمند و پشتیبانی آنلاین", labelEn: "AI assistant and online support" },
-      { value: "0", labelFa: "خطا؛ خط‌مشی ما در دقت", labelEn: "errors — our standard for accuracy" },
     ],
   },
   notify: { channel: "none", chatId: "", emailCustomers: true },

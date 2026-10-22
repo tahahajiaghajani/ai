@@ -83,6 +83,24 @@ export function Work({ t }: { t: Copy }) {
           ))}
         </div>
         <p data-reveal className="mt-6 text-sm text-faint">{w.note}</p>
+
+        <div data-reveal className="mt-24">
+          <h3 className="kicker">
+            <span className="h-px w-8 bg-violet/60" />
+            {w.clientsTitle}
+          </h3>
+        </div>
+        <ul data-reveal className="mt-8 grid grid-cols-2 gap-px overflow-hidden rounded-3xl border border-line bg-line sm:grid-cols-3 lg:grid-cols-5">
+          {w.clients.map((c) => (
+            <li key={c.name} className="group flex min-h-28 flex-col items-center justify-center gap-1.5 bg-ink-2 px-4 py-6 text-center transition-colors duration-300 hover:bg-ink-3">
+              <span className="text-[15px] font-bold leading-6 text-fg/90 transition-colors group-hover:text-fg">{c.name}</span>
+              <span className="text-xs text-faint">{c.sector}</span>
+            </li>
+          ))}
+          <li className="flex min-h-28 items-center justify-center bg-ink-2 px-5 py-6 text-center sm:col-span-3 lg:col-span-1">
+            <span className="text-sm leading-6 text-muted">{w.clientsMore}</span>
+          </li>
+        </ul>
       </div>
     </section>
   );

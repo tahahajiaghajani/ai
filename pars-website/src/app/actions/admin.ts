@@ -150,6 +150,7 @@ export async function saveSite(input: SiteContent): Promise<AdminResult> {
       const u = str(v, 400);
       return /^https?:\/\//i.test(u) ? u : "";
     };
+    const list = (v: unknown) => (Array.isArray(v) ? v : []).map((x) => str(x, 60)).filter(Boolean).slice(0, 6);
     await saveSettings("site", {
       ceo: {
         nameFa: str(c.nameFa, 120),
@@ -160,6 +161,9 @@ export async function saveSite(input: SiteContent): Promise<AdminResult> {
         quoteEn: str(c.quoteEn, 1200),
         bioFa: str(c.bioFa, 1500),
         bioEn: str(c.bioEn, 1500),
+        years: str(c.years, 12),
+        highlightsFa: list(c.highlightsFa),
+        highlightsEn: list(c.highlightsEn),
       },
       contact: {
         phones: (Array.isArray(k.phones) ? k.phones : []).map((p) => str(p, 40)).filter(Boolean).slice(0, 4),

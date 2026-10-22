@@ -38,6 +38,7 @@ export function Footer({ lang, t, site }: { lang: Lang; t: Copy; site: SiteConte
           <div>
             <h2 className="text-sm font-semibold text-faint">{t.footer.explore}</h2>
             <ul className="mt-4 space-y-2.5 text-[15px]">
+              <li><a className="text-muted hover:text-fg" href={`${home}#about`}>{t.nav.about}</a></li>
               <li><a className="text-muted hover:text-fg" href={`${home}#services`}>{t.nav.services}</a></li>
               <li><a className="text-muted hover:text-fg" href={`${home}#ai`}>{t.nav.ai}</a></li>
               <li><a className="text-muted hover:text-fg" href={`${home}#work`}>{t.nav.work}</a></li>
