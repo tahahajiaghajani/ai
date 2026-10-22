@@ -102,6 +102,8 @@ export function BlogEditor({ post, lang }: { post: Post | null; lang: PostLang }
     published_at: toLocalInput(post?.published_at ?? null),
   });
   const [slugTouched, setSlugTouched] = useState(Boolean(post));
+  // the public address as last saved; the fields may hold unsaved edits
+  const [saved, setSaved] = useState({ lang: post?.lang ?? lang, slug: post?.slug ?? "" });
   const [preview, setPreview] = useState(false);
   const [notes, setNotes] = useState("");
   const dir = d.lang === "en" ? "ltr" : "rtl";
@@ -125,6 +127,7 @@ export function BlogEditor({ post, lang }: { post: Post | null; lang: PostLang }
       {
         onOk: (r) => {
           setD((x) => ({ ...x, status, slug: r.slug, published_at: toLocalInput(r.published_at) }));
+          setSaved({ lang: d.lang, slug: r.slug });
           if (!post) router.replace(`/admin/blog/${r.id}`);
         },
       },
@@ -221,7 +224,7 @@ export function BlogEditor({ post, lang }: { post: Post | null; lang: PostLang }
             </div>
             <p className="text-xs text-faint">وضعیت فعلی: {d.status === "published" ? "منتشرشده" : "پیش‌نویس"}</p>
             {post && d.status === "published" && (
-              <a href={postHref({ lang: d.lang, slug: d.slug })} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-sm text-violet hover:text-fg">
+              <a href={postHref(saved)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-sm text-violet hover:text-fg">
                 دیدن در سایت <Icon name="external" className="size-3.5" />
               </a>
             )}

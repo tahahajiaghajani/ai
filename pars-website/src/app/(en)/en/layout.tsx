@@ -7,7 +7,7 @@ import "../../globals.css";
 // both root layouts share one CSS chunk, so preloading here would also preload on Persian pages
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap", preload: false });
 const sora = Sora({ subsets: ["latin"], variable: "--font-sora", display: "swap", preload: false });
-const fa = IBM_Plex_Sans_Arabic({ subsets: ["arabic"], weight: ["300", "500"], variable: "--font-fa", display: "swap", preload: false });
+const fa = IBM_Plex_Sans_Arabic({ subsets: ["arabic"], weight: ["300", "500", "600"], variable: "--font-fa", display: "swap", preload: false });
 
 export const metadata: Metadata = siteMetadata("en");
 export const viewport: Viewport = siteViewport;

@@ -66,10 +66,10 @@ export function HeroComposer({ placeholders, label, send, hint }: { placeholders
                 submit();
               }
             }}
-            className="block max-h-[180px] min-h-14 w-full resize-none bg-transparent px-2 py-4 text-base leading-7 text-fg outline-none focus-visible:outline-none sm:text-lg"
+            className="block max-h-[180px] min-h-14 w-full resize-none bg-transparent px-2 py-4 text-[16px] leading-7 text-fg outline-none focus-visible:outline-none sm:text-lg"
           />
           {!value && (
-            <span key={ph} aria-hidden className="pointer-events-none absolute inset-x-2 top-4 truncate text-base leading-7 text-faint animate-[fade-in_.7s_both] sm:text-lg">
+            <span key={ph} aria-hidden className="pointer-events-none absolute inset-x-2 top-4 truncate text-[16px] leading-7 text-faint animate-[fade-in_.7s_both] sm:text-lg">
               {placeholders[ph]}
             </span>
           )}

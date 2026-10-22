@@ -127,7 +127,7 @@ export default function ChatPanel() {
                   submit();
                 }
               }}
-              className="max-h-[200px] min-h-12 flex-1 resize-none bg-transparent px-4 py-3 text-[15px] leading-7 text-fg outline-none placeholder:text-faint focus-visible:outline-none"
+              className="max-h-[200px] min-h-12 flex-1 resize-none bg-transparent px-4 py-3 text-[16px] leading-7 sm:text-[15px] text-fg outline-none placeholder:text-faint focus-visible:outline-none"
             />
             {busy ? (
               <button type="button" onClick={stop} aria-label={t.stop} className="grid size-12 shrink-0 place-items-center rounded-full bg-white/10 text-fg transition hover:bg-white/15">

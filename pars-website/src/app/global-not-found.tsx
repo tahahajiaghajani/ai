@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { IBM_Plex_Sans_Arabic } from "next/font/google";
 import "./globals.css";
 
-const fa = IBM_Plex_Sans_Arabic({ subsets: ["arabic"], weight: ["300", "500"], variable: "--font-fa", display: "swap", preload: false });
+const fa = IBM_Plex_Sans_Arabic({ subsets: ["arabic"], weight: ["300", "500", "600"], variable: "--font-fa", display: "swap", preload: false });
 
 export const metadata: Metadata = { title: "۴۰۴ | مدیریت پروژه پارس", robots: { index: false } };
 

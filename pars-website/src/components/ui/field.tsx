@@ -1,7 +1,7 @@
 import { Children, cloneElement, isValidElement, useId, type InputHTMLAttributes, type ReactElement, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from "react";
 
 const base =
-  "w-full rounded-2xl border border-line bg-ink-2/80 px-4 py-3 text-[15px] text-fg outline-none transition placeholder:text-faint focus:border-violet/60 focus:bg-ink-2 focus-visible:outline-none focus:shadow-[0_0_0_4px_rgb(169_162_255/0.12)]";
+  "w-full rounded-2xl border border-line bg-ink-2/80 px-4 py-3 text-[16px] text-fg outline-none sm:text-[15px] transition placeholder:text-faint focus:border-violet/60 focus:bg-ink-2 focus-visible:outline-none focus:shadow-[0_0_0_4px_rgb(169_162_255/0.12)]";
 
 export function Label({ children, hint, htmlFor }: { children: ReactNode; hint?: string; htmlFor?: string }) {
   return (
