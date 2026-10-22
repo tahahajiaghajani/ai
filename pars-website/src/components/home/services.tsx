@@ -67,7 +67,7 @@ export function Services({ t }: { t: Copy }) {
                   )}
                 </div>
                 <h3 className={`relative mt-6 font-bold ${featured ? "text-2xl sm:text-3xl" : "text-xl"}`}>{item.title}</h3>
-                <p className={`relative mt-3 text-muted ${featured ? "max-w-xl text-base leading-8" : "text-[15px] leading-7"}`}>{item.body}</p>
+                <p className={`justified-fa relative mt-3 text-muted ${featured ? "max-w-xl text-base leading-8" : "text-[15px] leading-7"}`}>{item.body}</p>
                 {featured && <GanttArt />}
                 <div className="relative mt-auto flex flex-wrap gap-1.5 pt-6">
                   {item.tags.map((tag) => (

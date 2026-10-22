@@ -19,13 +19,22 @@ export interface StreamRequest {
   signal?: AbortSignal;
 }
 
-export type ProviderErrorKind = "auth" | "quota" | "overloaded" | "model" | "invalid" | "blocked" | "other";
+/**
+ * What went wrong, as far as the caller cares: `auth` (key rejected, project blocked) and `region` (the server's
+ * location) fail every model; `quota` is a daily or hard limit on this model; `rate` a short per-minute limit;
+ * `overloaded`, `timeout` and `network` are transient; `model` means the model is unknown or closed to this key.
+ */
+export type ProviderErrorKind = "auth" | "region" | "quota" | "rate" | "overloaded" | "timeout" | "network" | "model" | "invalid" | "blocked" | "other";
 
 export class ProviderError extends Error {
+  /** the model that failed (set by openStream) */
+  model = "";
   constructor(
     message: string,
     public status: number,
     public kind: ProviderErrorKind,
+    /** how long the service asked us to wait before retrying (429 RetryInfo), 0 when it did not say */
+    public retryAfterMs = 0,
   ) {
     super(message);
   }
@@ -41,23 +50,48 @@ export class EmptyResponseError extends ProviderError {
 /** Thinking / reasoning tokens count against the output limit: extra room so they don't eat the answer (the prompts bound its length). */
 const THINKING_ROOM = 4096;
 
-function classify(status: number, text: string): ProviderErrorKind {
-  if (status === 401 || status === 403 || /api[_ ]?key|PERMISSION_DENIED|unauthori[sz]ed|invalid x-api-key/i.test(text)) return "auth";
-  if (status === 429 || /RESOURCE_EXHAUSTED|quota|rate.?limit/i.test(text)) return "quota";
-  if (status === 404 || /not found|does not exist|unknown model|model_not_found/i.test(text)) return "model";
-  if (status === 503 || status === 529 || status === 500 || status === 502 || /overloaded|UNAVAILABLE/i.test(text)) return "overloaded";
+/** Error kind from an HTTP status and the raw error body (Gemini, Anthropic and OpenAI-compatible formats). */
+export function classify(status: number, text: string): ProviderErrorKind {
+  // Gemini answers 400 FAILED_PRECONDITION when the calling server is in an unsupported country
+  if (/User location is not supported|unsupported_country|country, region,? or territory/i.test(text)) return "region";
+  if (status === 402) return "quota";
+  if (status === 429 || /RESOURCE_EXHAUSTED|rate_limit_error|insufficient_quota/i.test(text)) {
+    // a daily quota (Gemini quotaId …PerDay…), no free tier for this model ("limit: 0") or no credit left: waiting a few seconds won't help
+    return /PerDay|limit: 0\b|insufficient_quota|credit balance|credits are depleted|prepayment/i.test(text) ? "quota" : "rate";
+  }
+  if ([500, 502, 503, 504, 529].includes(status) || /overloaded|UNAVAILABLE|high demand/i.test(text)) return "overloaded";
+  if (status === 401 || status === 403 || /api[_ ]?key|PERMISSION_DENIED|UNAUTHENTICATED|unauthori[sz]ed|invalid x-api-key|reported as leaked|denied access/i.test(text)) return "auth";
+  if (status === 404 || /not found|does not exist|unknown model|model_not_found|no longer available/i.test(text)) return "model";
   if (status === 400) return "invalid";
   return "other";
 }
 
-async function fail(res: Response): Promise<never> {
-  const text = await res.text().catch(() => "");
+/** Gemini's google.rpc.RetryInfo ("retryDelay": "45s" / "1.5s") in milliseconds, 0 when absent. */
+function retryDelay(text: string): number {
+  const m = /"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"/.exec(text) ?? /retry in (\d+(?:\.\d+)?)s/i.exec(text);
+  return m ? Math.round(Number(m[1]) * 1000) : 0;
+}
+
+export function errorFrom(status: number, text: string): ProviderError {
   let message = text;
   try {
     const j = JSON.parse(text);
     message = j?.error?.message || j?.message || text;
   } catch {}
-  throw new ProviderError(message.slice(0, 400) || `HTTP ${res.status}`, res.status, classify(res.status, text));
+  return new ProviderError(String(message).slice(0, 400) || `HTTP ${status}`, status, classify(status, text), retryDelay(text));
+}
+
+async function fail(res: Response): Promise<never> {
+  throw errorFrom(res.status, await res.text().catch(() => ""));
+}
+
+/** Parses one SSE `data:` payload; a line that isn't JSON is skipped rather than failing the whole answer. */
+function parse(data: string): Record<string, any> | null {
+  try {
+    return JSON.parse(data);
+  } catch {
+    return null;
+  }
 }
 
 /** Server-sent events → `data:` payloads. */
@@ -80,43 +114,62 @@ async function* sse(res: Response): AsyncGenerator<string> {
   if (buf.startsWith("data:")) yield buf.slice(5).trim();
 }
 
-function geminiThinking(model: string): Record<string, unknown> | undefined {
-  if (/gemini-2\.5-flash/.test(model)) return { thinkingBudget: 0 };
-  if (/gemini-2\.5-pro/.test(model)) return { thinkingBudget: 1024 }; // cannot be turned off
-  if (/gemini-3/.test(model)) return { thinkingLevel: "low" };
-  return undefined; // aliases (gemini-flash-latest, gemini-pro-latest) may point at either generation: model default
+/**
+ * What a Gemini model accepts (October 2026). 2.x models take thinkingBudget and sampling settings. Gemini 3+ takes
+ * thinkingLevel; 3.6+ and 4 ignore temperature (and will reject it), and Google asks to keep earlier 3.x at the
+ * default, so it is only sent to 2.x. 3.8 Flash, 4 and the Pro models have no "minimal" level; "low" works on every
+ * 3.x / 4 model, so aliases (gemini-flash-latest …) and unknown newer models get "low".
+ */
+export function geminiProfile(model: string): { thinking?: Record<string, unknown>; temperature: boolean; mayThink: boolean } {
+  const m = model.toLowerCase().replace(/^models\//, "");
+  if (/^(gemini-(1\.|2\.0)|gemma)/.test(m)) return { temperature: true, mayThink: false };
+  if (/^gemini-2\.5-flash/.test(m)) return { thinking: { thinkingBudget: 0 }, temperature: true, mayThink: false };
+  if (/^gemini-2\.5/.test(m)) return { thinking: { thinkingBudget: 1024 }, temperature: true, mayThink: true }; // 2.5 Pro cannot turn it off
+  const minimal = /^gemini-3(\.1|\.5|\.6)?-flash/.test(m); // 3 Flash preview, 3.1 / 3.5 Flash-Lite, 3.5 / 3.6 Flash
+  return { thinking: { thinkingLevel: minimal ? "minimal" : "low" }, temperature: false, mayThink: true };
 }
 
 async function* google(r: StreamRequest): AsyncGenerator<string> {
   const base = (r.baseUrl || "https://generativelanguage.googleapis.com").replace(/\/$/, "");
-  const thinking = geminiThinking(r.model);
-  const mayThink = thinking?.thinkingBudget !== 0 && !/gemini-(1\.|2\.0)|gemma/.test(r.model);
-  const res = await fetch(`${base}/v1beta/models/${encodeURIComponent(r.model)}:streamGenerateContent?alt=sse`, {
-    method: "POST",
-    headers: { "content-type": "application/json", "x-goog-api-key": r.apiKey },
-    signal: r.signal,
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: r.system }] },
-      contents: r.messages.map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] })),
-      generationConfig: {
-        temperature: r.temperature,
-        maxOutputTokens: mayThink ? r.maxTokens + THINKING_ROOM : r.maxTokens,
-        ...(r.json ? { responseMimeType: "application/json" } : {}),
-        ...(thinking ? { thinkingConfig: thinking } : {}),
-      },
-      safetySettings: [
-        { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_ONLY_HIGH" },
-        { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_ONLY_HIGH" },
-      ],
-    }),
-  });
+  const p = geminiProfile(r.model);
+  const turns = r.messages.map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] }));
+  // the whole conversation as one user turn, for a model that insists on thought signatures in earlier model turns
+  const folded = [{ role: "user", parts: [{ text: r.messages.map((m) => `${m.role === "assistant" ? "Assistant" : "User"}: ${m.content}`).join("\n\n") }] }];
+  const call = (plain: boolean, fold = false) =>
+    fetch(`${base}/v1beta/models/${encodeURIComponent(r.model)}:streamGenerateContent?alt=sse`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-goog-api-key": r.apiKey },
+      signal: r.signal,
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: r.system }] },
+        contents: fold ? folded : turns,
+        generationConfig: {
+          ...(p.temperature && !plain ? { temperature: r.temperature } : {}),
+          maxOutputTokens: p.mayThink ? r.maxTokens + THINKING_ROOM : r.maxTokens,
+          ...(r.json ? { responseMimeType: "application/json" } : {}),
+          ...(p.thinking && !plain ? { thinkingConfig: p.thinking } : {}),
+        },
+        safetySettings: [
+          { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_ONLY_HIGH" },
+          { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_ONLY_HIGH" },
+        ],
+      }),
+    });
+  let res = await call(false);
+  if (res.status === 400) {
+    // a model (or an alias's new target) that rejects our thinking or sampling settings: once more with its defaults
+    const text = await res.text().catch(() => "");
+    const signature = /signature/i.test(text) && r.messages.length > 1;
+    if (!signature && !/thinking|temperature|generation_?config/i.test(text)) throw errorFrom(400, text);
+    res = await call(true, signature);
+  }
   if (!res.ok) await fail(res);
   let finish = "";
   let yielded = false;
   for await (const data of sse(res)) {
-    if (!data) continue;
-    const j = JSON.parse(data);
-    if (j.error) throw new ProviderError(j.error.message ?? "error", j.error.code ?? 500, classify(j.error.code ?? 500, j.error.message ?? ""));
+    const j = data ? parse(data) : null;
+    if (!j) continue;
+    if (j.error) throw errorFrom(Number(j.error.code) || 500, JSON.stringify(j));
     if (j.promptFeedback?.blockReason) throw new ProviderError(`blocked: ${j.promptFeedback.blockReason}`, 400, "blocked");
     const c = j.candidates?.[0];
     for (const part of c?.content?.parts ?? []) {
@@ -154,15 +207,15 @@ async function* anthropic(r: StreamRequest): AsyncGenerator<string> {
   let stop = "";
   let yielded = false;
   for await (const data of sse(res)) {
-    if (!data) continue;
-    const j = JSON.parse(data);
+    const j = data ? parse(data) : null;
+    if (!j) continue;
     if (j.type === "content_block_delta" && j.delta?.type === "text_delta") {
       if (j.delta.text) {
         yielded = true;
         yield j.delta.text as string;
       }
     } else if (j.type === "message_delta" && j.delta?.stop_reason) stop = j.delta.stop_reason;
-    else if (j.type === "error") throw new ProviderError(j.error?.message ?? "error", 500, j.error?.type === "overloaded_error" ? "overloaded" : "other");
+    else if (j.type === "error") throw new ProviderError(j.error?.message ?? "error", 500, j.error?.type === "overloaded_error" ? "overloaded" : j.error?.type === "rate_limit_error" ? "rate" : "other");
   }
   if (!yielded) throw new EmptyResponseError(stop);
 }
@@ -190,9 +243,9 @@ async function* openai(r: StreamRequest): AsyncGenerator<string> {
   let finish = "";
   let yielded = false;
   for await (const data of sse(res)) {
-    if (!data || data === "[DONE]") continue;
-    const j = JSON.parse(data);
-    if (j.error) throw new ProviderError(j.error.message ?? "error", 500, classify(500, j.error.message ?? ""));
+    const j = data && data !== "[DONE]" ? parse(data) : null;
+    if (!j) continue;
+    if (j.error) throw errorFrom(Number(j.error.code) || 500, JSON.stringify(j));
     const c = j.choices?.[0];
     if (c?.delta?.content) {
       yielded = true;

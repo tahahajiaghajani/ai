@@ -2,12 +2,14 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition, type ReactNode } from "react";
-import { saveAi, testAi, testNotify } from "@/app/actions/admin";
+import { saveAi, testAi, testNotify, type AiTest } from "@/app/actions/admin";
 import { saveEmail, testEmail } from "@/app/actions/connections";
 import type { ConnectionReport, Status } from "@/lib/connections";
 import { PROVIDERS, type AiSettings, type NotifySettings, type ProviderId } from "@/lib/settings-types";
 import { Button, Field, Input, Select, Spinner } from "@/components/ui/field";
 import { NotifyForm } from "@/components/admin/site-forms";
+import { AiTestReport } from "@/components/admin/ai-test";
+import { aiErrorText } from "@/lib/ai-errors";
 import { toast, useAction } from "@/components/admin/toast";
 import { Icon, type IconName } from "@/components/site/icons";
 
@@ -226,7 +228,7 @@ function AiCard({ r, ai, onSaved }: { r: ConnectionReport; ai: AiInitial; onSave
   const [provider, setProvider] = useState<ProviderId>(ai.provider);
   const [model, setModel] = useState(ai.model);
   const [key, setKey] = useState("");
-  const [answer, setAnswer] = useState("");
+  const [test, setTest] = useState<AiTest | null>(null);
   const p = PROVIDERS.find((x) => x.id === provider) ?? PROVIDERS[0];
   const envNote = r.ai.provider === "google" ? "کلید GEMINI_API_KEY در Vercel" : "بدون کلید پنل؛ دستیار با GEMINI_API_KEY در Vercel روی Gemini کار می‌کند";
   const source = { panel: `کلید ذخیره‌شده در پنل (${r.ai.keyHint})`, env: envNote, none: "هیچ کلیدی تنظیم نشده" }[r.ai.keySource];
@@ -237,10 +239,10 @@ function AiCard({ r, ai, onSaved }: { r: ConnectionReport; ai: AiInitial; onSave
     setProvider(id);
     setModel(id === ai.provider ? ai.model : (PROVIDERS.find((x) => x.id === id)?.models[0] ?? ""));
   };
-  const test = () =>
-    run(() => testAi({ provider, model, baseUrl, apiKey: key || undefined }), {
-      onOk: (res) => setAnswer(`${res.model} · ${fa(res.ms)} ms — ${res.answer}`),
-    });
+  const runTest = () => {
+    setTest(null);
+    run(() => testAi({ provider, model, baseUrl, apiKey: key || undefined }), { silent: true, onOk: (res) => setTest(res) });
+  };
   const save = () => {
     const { hasKey, ...rest } = ai;
     void hasKey;
@@ -258,6 +260,24 @@ function AiCard({ r, ai, onSaved }: { r: ConnectionReport; ai: AiInitial; onSave
         <Row ok={r.ai.keySource !== "none"}>
           {PROVIDERS.find((x) => x.id === r.ai.provider)?.label} · <span className="ltr">{r.ai.model}</span> · {source}
         </Row>
+        {r.ai.keyUnreadable && <Row ok={false}>کلید ذخیره‌شده خوانده نمی‌شود (APP_SECRET عوض شده)؛ کلید را دوباره وارد و ذخیره کنید.</Row>}
+        {(r.ai.lastOk || r.ai.lastError) && (
+          <Row ok={r.ai.status === "ok"}>
+            {r.ai.lastOk ? (
+              <>
+                آخرین پاسخ موفق دستیار سایت: {when(r.ai.lastOk.at)} · <span className="ltr">{r.ai.lastOk.model}</span>
+              </>
+            ) : (
+              "هنوز پاسخ موفقی ثبت نشده است."
+            )}
+            {r.ai.lastError && (
+              <span className="mt-1 block text-xs leading-6 text-faint">
+                آخرین خطا: {when(r.ai.lastError.at)}
+                {r.ai.lastError.model ? <> · <span className="ltr">{r.ai.lastError.model}</span></> : null} — {aiErrorText(r.ai.lastError)}
+              </span>
+            )}
+          </Row>
+        )}
       </ul>
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label="سرویس‌دهنده">
@@ -288,14 +308,14 @@ function AiCard({ r, ai, onSaved }: { r: ConnectionReport; ai: AiInitial; onSave
         </a>
       </p>
       <div className="flex flex-wrap gap-2">
-        <Button variant="soft" disabled={pending} onClick={test}>
+        <Button variant="soft" disabled={pending} onClick={runTest}>
           {pending ? <Spinner /> : null} آزمایش
         </Button>
         <Button disabled={pending} onClick={save}>
           ذخیره و فعال‌سازی
         </Button>
       </div>
-      {answer && <p className="rounded-xl border border-success/30 bg-success/[0.06] p-3 text-fg/90">{answer}</p>}
+      {test && <AiTestReport test={test} />}
     </Card>
   );
 }

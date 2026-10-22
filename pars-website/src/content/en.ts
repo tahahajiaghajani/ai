@@ -5,7 +5,7 @@ export const en: Copy = {
   lang: "en",
   dir: "ltr",
   meta: {
-    title: "Pars Project Management | Where management meets intelligence",
+    title: "Pars Project Management | Experience knows the way. Intelligence gets you there sooner",
     short: "Pars Project Management",
     description:
       "Project management training, consulting and software — EPM / EPPM and management systems — plus AI agents that automate up to 90% of the work. Working with Iran's banks and large organizations since 2010.",
@@ -32,10 +32,10 @@ export const en: Copy = {
   },
   hero: {
     eyebrow: "Pars AI is online",
-    titleA: "Where management",
-    titleB: "meets ",
-    titleHi: "intelligence",
-    titleC: ".",
+    titleA: "Experience knows the way.",
+    titleB: "",
+    titleHi: "Intelligence",
+    titleC: " gets you there sooner.",
     lead: "Over fifteen years in project management training, consulting and systems — now with AI agents that automate up to 90% of the work. Ask anything about Pars, right here.",
     placeholder: "Ask Pars anything…",
     placeholders: [
@@ -51,7 +51,7 @@ export const en: Copy = {
   marquee: ["EPM", "EPPM", "Project Server", "Primavera P6", "Jira", "Agile · Scrum", "AI Agents", "RAG", "Predictive Analytics", "Semantic Search", "Big Data", ".NET", "PMO"],
   manifesto: {
     kicker: "The intersection",
-    text: "Two flows, one point of intersection. On one side, over fifteen years of project management and the systems banks and large organizations rely on every day. On the other, an AI that reads, understands, predicts and acts. The Pars logo says exactly this: where the two flows meet, work becomes intelligent.",
+    text: "Two flows, one point of intersection. On one side, over fifteen years of project management and the systems banks and large organizations rely on every day. On the other, an AI that reads, understands, predicts and acts. The Pars logo shows exactly this: two flows becoming one. Experience knows the way; intelligence gets you there sooner.",
     left: "Enterprise experience",
     right: "Artificial intelligence",
   },
@@ -226,7 +226,7 @@ export const en: Copy = {
     map: "Directions",
   },
   footer: {
-    tagline: "Where management meets intelligence.",
+    tagline: "Experience knows the way. Intelligence gets you there sooner.",
     company: "Pars Project Management",
     rights: "All rights reserved.",
     explore: "Pars",

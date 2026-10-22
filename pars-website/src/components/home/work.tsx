@@ -73,7 +73,7 @@ export function Work({ lang, t }: { lang: Lang; t: Copy }) {
               <div className="flex flex-1 flex-col p-7">
                 <span className="text-sm font-semibold text-pink">{item.client}</span>
                 <h3 className="mt-2 text-xl font-bold">{item.title}</h3>
-                <p className="mt-3 text-[15px] leading-7 text-muted">{item.body}</p>
+                <p className="justified-fa mt-3 text-[15px] leading-7 text-muted">{item.body}</p>
                 <div className="mt-auto flex flex-wrap gap-1.5 pt-6">
                   {item.tags.map((tag) => (
                     <span key={tag} className="ltr rounded-full bg-white/[0.05] px-2.5 py-1 font-brand text-[11px] text-muted">

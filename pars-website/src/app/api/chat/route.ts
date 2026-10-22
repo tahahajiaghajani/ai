@@ -4,7 +4,7 @@ import { allow, allowAi } from "@/lib/rate-limit";
 import { getSettings } from "@/lib/settings";
 import { getKnowledge } from "@/lib/knowledge";
 import { selectKnowledge } from "@/lib/retrieval";
-import { chatSystemPrompt, openStream, runtimeFrom } from "@/lib/ai/runtime";
+import { chatSystemPrompt, noteAi, openStream, runtimeFrom, TRANSIENT } from "@/lib/ai/runtime";
 import { ProviderError, type ChatMessage } from "@/lib/ai/providers";
 import { parseMarkers } from "@/lib/markers";
 import { logChat } from "@/lib/chat-log";
@@ -26,8 +26,9 @@ function json(status: number, error: string) {
   return Response.json({ error }, { status, headers: { "cache-control": "no-store" } });
 }
 
-function textStream(text: string) {
-  return new Response(text, { headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" } });
+/** The fixed "assistant not available" answer; flagged so the client keeps it out of the history it sends back. */
+function offline(lang: "fa" | "en") {
+  return new Response(OFFLINE[lang], { headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store", "x-pars-offline": "1" } });
 }
 
 export async function POST(req: Request) {
@@ -61,7 +62,7 @@ export async function POST(req: Request) {
   if (!okShort || !okDay) return json(429, "rate");
 
   const rt = settings.ai.enabled ? runtimeFrom(settings.ai) : null;
-  if (!rt) return textStream(OFFLINE[lang]);
+  if (!rt) return offline(lang);
   // one daily budget shared by every visitor, so a few addresses cannot use up the key for everyone
   if (!(await allowAi())) return json(503, "busy");
 
@@ -71,12 +72,22 @@ export async function POST(req: Request) {
 
   let opened: Awaited<ReturnType<typeof openStream>>;
   try {
-    opened = await openStream(rt, system, messages, { signal: deadline });
+    opened = await openStream(rt, system, messages, {
+      signal: deadline,
+      // every failed try in the logs, not only the last one
+      onAttempt: (x) => {
+        if (!x.ok && x.kind !== "skipped") console.warn("[chat] attempt failed", x.model, x.kind, x.status, x.message);
+      },
+    });
   } catch (e) {
-    console.error("[chat] provider error", e instanceof ProviderError ? `${e.kind} ${e.status} ${e.message}` : e);
-    if (e instanceof ProviderError && e.kind === "quota") return json(503, "busy");
-    return textStream(OFFLINE[lang]);
+    if (req.signal.aborted) return json(499, "aborted");
+    console.error("[chat] provider error", e instanceof ProviderError ? `${e.model} ${e.kind} ${e.status} ${e.message}` : e);
+    after(() => noteAi({ ok: false, error: e, where: "chat" }));
+    // busy, rate-limited, out of quota or out of time: "try again shortly"; a setup problem (key, model, location): offline
+    if (deadline.aborted || (e instanceof ProviderError && TRANSIENT.includes(e.kind))) return json(503, "busy");
+    return offline(lang);
   }
+  after(() => noteAi({ ok: true, model: opened.model }));
 
   let answer = "";
   let finished: () => void = () => {};

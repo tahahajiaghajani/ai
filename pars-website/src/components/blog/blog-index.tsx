@@ -18,7 +18,7 @@ export async function BlogIndex({ lang }: { lang: Lang }) {
           <h1 style={{ "--d": 1 } as CSSProperties} className="display mt-4 text-[clamp(1.65rem,3.2vw,2.35rem)]">
             {t.title}
           </h1>
-          <p style={{ "--d": 2 } as CSSProperties} className="mt-3 text-base leading-8 text-muted">
+          <p style={{ "--d": 2 } as CSSProperties} className="justified mt-3 text-base leading-8 text-muted">
             {t.lead}
           </p>
         </div>

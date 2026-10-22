@@ -28,7 +28,7 @@ export function PostCard({ post, lang, t, i = 0, heading: Heading = "h3" }: { po
           {post.title}
         </Link>
       </Heading>
-      <p className="mt-3 line-clamp-3 text-[15px] leading-7 text-muted">{post.excerpt}</p>
+      <p className="mt-3 line-clamp-3 text-[15px] leading-7 text-muted max-md:justified-fa lg:justified-fa">{post.excerpt}</p>
       <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-6">
         {post.tags.slice(0, 3).map((tag, j) => (
           <span key={`${j}-${tag}`} className="rounded-full bg-white/[0.05] px-2.5 py-1 text-[11px] text-muted">

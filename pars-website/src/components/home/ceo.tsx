@@ -84,7 +84,7 @@ export function Ceo({ lang, t, site }: { lang: Lang; t: Copy; site: SiteContent 
           </span>
           <blockquote data-reveal style={{ "--d": 1 } as CSSProperties} className="relative mt-8">
             <span aria-hidden className="absolute -top-10 -start-2 font-brand text-[7rem] leading-none text-pink/25">“</span>
-            <p className="display relative text-[clamp(1.18rem,2.05vw,1.7rem)] font-medium leading-[1.75] [html[lang=en]_&]:text-[clamp(1.12rem,1.75vw,1.45rem)] [html[lang=en]_&]:leading-[1.4]">{quote}</p>
+            <p className="display justified-fa relative text-[clamp(1.18rem,2.05vw,1.7rem)] font-medium leading-[1.75] [html[lang=en]_&]:text-[clamp(1.12rem,1.75vw,1.45rem)] [html[lang=en]_&]:leading-[1.4]">{quote}</p>
           </blockquote>
           <div data-reveal style={{ "--d": 2 } as CSSProperties} className="mt-10 flex items-center gap-4">
             <span className="h-12 w-1 rounded-full bg-reverse" />
@@ -103,7 +103,7 @@ export function Ceo({ lang, t, site }: { lang: Lang; t: Copy; site: SiteContent 
             </ul>
           )}
           {bio && (
-            <p data-reveal style={{ "--d": 4 } as CSSProperties} className="mt-6 max-w-xl text-[15px] leading-8 text-muted">
+            <p data-reveal style={{ "--d": 4 } as CSSProperties} className="justified mt-6 max-w-xl text-[15px] leading-8 text-muted">
               {bio}
             </p>
           )}

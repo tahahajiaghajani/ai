@@ -18,6 +18,8 @@ vi.mock("@/lib/knowledge", () => ({ getKnowledge: async () => ({ entries: [] }) 
 vi.mock("@/lib/chat-log", () => ({ logChat: vi.fn(async () => {}) }));
 vi.mock("next/server", () => ({ after: vi.fn() }));
 vi.mock("@/lib/ai/runtime", () => ({
+  TRANSIENT: ["overloaded", "rate", "network", "timeout", "quota"],
+  noteAi: vi.fn(async () => {}),
   chatSystemPrompt: () => "system",
   runtimeFrom: () => ({ provider: "google", apiKey: "k", baseUrl: "", models: ["m"], temperature: 0.4, maxTokens: 900, instructions: "" }),
   openStream: vi.fn(async (_rt: unknown, _system: string, messages: { role: string; content: string }[]) => {
@@ -34,6 +36,7 @@ vi.mock("@/lib/ai/runtime", () => ({
 import { POST } from "@/app/api/chat/route";
 import { allow, allowAi } from "@/lib/rate-limit";
 import { openStream } from "@/lib/ai/runtime";
+import { ProviderError } from "@/lib/ai/providers";
 
 const ask = (messages: { role: string; content: string }[]) =>
   POST(new Request("http://localhost/api/chat", { method: "POST", body: JSON.stringify({ messages, lang: "en" }), headers: { "x-forwarded-for": "1.2.3.4" } }));
@@ -79,6 +82,28 @@ describe("chat route limits", () => {
     const res = await ask(q);
     expect(await res.text()).toMatch(/not available/);
     expect(allowAi).not.toHaveBeenCalled();
+  });
+});
+
+describe("chat route provider failures", () => {
+  it.each(["overloaded", "rate", "quota", "timeout", "network"] as const)("answers busy when every model failed with %s", async (kind) => {
+    vi.mocked(openStream).mockRejectedValueOnce(new ProviderError("x", 503, kind));
+    const res = await ask(q);
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: "busy" });
+  });
+
+  it.each(["auth", "region", "model", "invalid"] as const)("answers the flagged offline text for a setup problem (%s)", async (kind) => {
+    vi.mocked(openStream).mockRejectedValueOnce(new ProviderError("x", 400, kind));
+    const res = await ask(q);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("x-pars-offline")).toBe("1");
+    expect(await res.text()).toMatch(/not available/);
+  });
+
+  it("flags the offline text when no model is configured", async () => {
+    h.aiEnabled = false;
+    expect((await ask(q)).headers.get("x-pars-offline")).toBe("1");
   });
 });
 

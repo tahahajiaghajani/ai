@@ -29,7 +29,7 @@ export function Manifesto({ t }: { t: Copy }) {
               <span className="kicker">
                 {t.manifesto.kicker}
               </span>
-              <p className="display mt-6 text-[clamp(1.02rem,2.1vw,1.8rem)] font-medium leading-[1.75] [html[lang=en]_&]:leading-[1.28]" style={{ "--n": words.length } as CSSProperties}>
+              <p className="display justified-fa mt-6 text-[clamp(1.02rem,2.1vw,1.8rem)] font-medium leading-[1.75] [html[lang=en]_&]:leading-[1.28]" style={{ "--n": words.length } as CSSProperties}>
                 {words.map((w, i) => (
                   <span key={i} className="scrub-word" style={{ "--i": i } as CSSProperties}>
                     {w}{" "}

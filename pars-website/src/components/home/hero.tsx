@@ -33,7 +33,7 @@ export function Hero({ t }: { t: Copy }) {
           </span>
         </h1>
 
-        <p style={d(2)} className="mt-6 max-w-2xl text-pretty text-base leading-8 text-muted sm:text-lg sm:leading-9">
+        <p style={d(2)} className="justified-center mt-6 max-w-2xl text-pretty text-base leading-8 text-muted sm:text-lg sm:leading-9">
           {h.lead}
         </p>
 

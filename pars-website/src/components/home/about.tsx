@@ -21,7 +21,7 @@ export function About({ lang, t }: { lang: Lang; t: Copy }) {
                 </span>
                 <div className="text-sm font-bold text-pink">{s.mark}</div>
                 <h3 className="mt-1.5 text-xl font-bold">{s.title}</h3>
-                <p className="mt-2 max-w-xl text-[15px] leading-7 text-muted">{s.body}</p>
+                <p className="justified mt-2 max-w-xl text-[15px] leading-7 text-muted">{s.body}</p>
               </li>
             ))}
           </ol>
@@ -38,7 +38,7 @@ export function About({ lang, t }: { lang: Lang; t: Copy }) {
                   <span className="ltr inline-block font-brand text-sm text-faint">{a.missionEn}</span>
                 </div>
               )}
-              <p className="mt-5 text-[15px] leading-8 text-muted">{a.mission}</p>
+              <p className="justified-fa mt-5 text-[15px] leading-8 text-muted">{a.mission}</p>
               <ul className="mt-6 grid grid-cols-2 gap-2">
                 {a.modules.map((m) => (
                   <li key={m} className="rounded-xl border border-line bg-white/[0.03] px-3 py-2.5 text-center text-sm font-semibold">

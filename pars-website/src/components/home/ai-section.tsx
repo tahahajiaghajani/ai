@@ -108,7 +108,7 @@ export function AiSection({ lang, t }: { lang: Lang; t: Copy }) {
                 <span className="ltr font-brand text-xs text-faint">{c.en}</span>
               </div>
               <h3 className="mt-6 text-xl font-bold">{c.title}</h3>
-              <p className="mt-2.5 text-[15px] leading-7 text-muted">{c.body}</p>
+              <p className="justified-fa mt-2.5 text-[15px] leading-7 text-muted">{c.body}</p>
             </article>
           ))}
         </SpotlightGroup>

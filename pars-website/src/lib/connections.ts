@@ -8,6 +8,7 @@ import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { getSettingsFresh } from "@/lib/settings";
 import { DEFAULT_SETTINGS, type ProviderId, type Settings } from "@/lib/settings-types";
+import { AI_LAST_ERROR, AI_LAST_OK, type AiOutcome } from "@/lib/ai/runtime";
 
 export type Status = "ok" | "warn" | "error" | "off";
 
@@ -22,7 +23,19 @@ export interface ConnectionReport {
   checkedAt: string;
   supabase: { status: Status; urlSet: boolean; keySet: boolean; reachable: boolean; error: string; projectRef: string; objects: DbObject[]; missingFiles: string[] };
   security: { status: Status; appSecret: "own" | "fallback" | "missing"; previous: boolean };
-  ai: { status: Status; enabled: boolean; provider: ProviderId; model: string; keySource: "panel" | "env" | "none"; keyHint: string };
+  ai: {
+    status: Status;
+    enabled: boolean;
+    provider: ProviderId;
+    model: string;
+    keySource: "panel" | "env" | "none";
+    keyHint: string;
+    /** a key is stored but cannot be decrypted (APP_SECRET changed) */
+    keyUnreadable: boolean;
+    /** what the site's own AI calls last did (written by noteAi) */
+    lastOk: AiOutcome | null;
+    lastError: AiOutcome | null;
+  };
   notify: { status: Status; channel: Settings["notify"]["channel"]; hasToken: boolean; chatId: boolean };
   email: { status: Status; source: "panel" | "env" | "none"; from: string; keyHint: string };
   site: { status: Status; configured: string; current: string; explicit: boolean };
@@ -81,6 +94,8 @@ export async function connectionReport(): Promise<ConnectionReport> {
   let objects: DbObject[] = OBJECTS.map((o) => ({ ...o, ok: false }));
   let s: Settings = DEFAULT_SETTINGS;
   let keepaliveAt: string | null = null;
+  let aiOk: AiOutcome | null = null;
+  let aiError: AiOutcome | null = null;
   if (c) {
     const ping = await c.from("pars_settings").select("key, value");
     // a missing table still proves the URL and key work; a network/auth failure does not
@@ -89,8 +104,10 @@ export async function connectionReport(): Promise<ConnectionReport> {
     if (reachable) objects = await Promise.all(OBJECTS.map(checkObject));
     if (!ping.error) {
       s = await getSettingsFresh().catch(() => DEFAULT_SETTINGS);
-      const k = (ping.data as { key: string; value: { at?: string } }[]).find((r) => r.key === "keepalive");
-      keepaliveAt = k?.value?.at ?? null;
+      const rows = ping.data as { key: string; value: { at?: string } }[];
+      keepaliveAt = rows.find((r) => r.key === "keepalive")?.value?.at ?? null;
+      aiOk = (rows.find((r) => r.key === AI_LAST_OK)?.value as AiOutcome | undefined) ?? null;
+      aiError = (rows.find((r) => r.key === AI_LAST_ERROR)?.value as AiOutcome | undefined) ?? null;
     }
   }
   const missing = objects.filter((o) => !o.ok);
@@ -122,7 +139,18 @@ export async function connectionReport(): Promise<ConnectionReport> {
     checkedAt: new Date().toISOString(),
     supabase: { status: supabaseStatus, urlSet, keySet, reachable, error, projectRef: projectRef(env.supabaseUrl), objects, missingFiles },
     security: { status: appSecret === "own" ? "ok" : appSecret === "fallback" ? "warn" : "error", appSecret, previous: Boolean(process.env.APP_SECRET_PREVIOUS) },
-    ai: { status: !s.ai.enabled ? "off" : keySource === "none" ? "error" : "ok", enabled: s.ai.enabled, provider: s.ai.provider, model: s.ai.model, keySource, keyHint: panelKey ? (s.ai.apiKeyHint ?? "") : "" },
+    ai: {
+      // a failure newer than the last success (within a day) means visitors are probably seeing "busy" or "not available"
+      status: !s.ai.enabled ? "off" : keySource === "none" ? "error" : aiError && Date.now() - Date.parse(aiError.at) < day && (!aiOk || aiOk.at < aiError.at) ? "warn" : "ok",
+      enabled: s.ai.enabled,
+      provider: s.ai.provider,
+      model: s.ai.model,
+      keySource,
+      keyHint: panelKey ? (s.ai.apiKeyHint ?? "") : "",
+      keyUnreadable: Boolean(s.ai.apiKeyEnc) && !panelKey,
+      lastOk: aiOk,
+      lastError: aiError,
+    },
     notify: { status: notifyStatus, channel: n.channel, hasToken, chatId: Boolean(n.chatId) },
     email: { status: emailSource === "none" ? "off" : from ? "ok" : "warn", source: emailSource, from, keyHint: panelMail ? (s.email.resendKeyHint ?? "") : "" },
     site: { status: !explicit ? "warn" : current && new URL(configured).host !== new URL(current).host ? "warn" : "ok", configured, current, explicit },

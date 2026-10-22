@@ -16,7 +16,7 @@ export function DemosCta({ lang, t }: { lang: Lang; t: Copy }) {
             {d.kicker}
           </span>
           <h2 className="display mx-auto mt-5 max-w-3xl text-[clamp(1.65rem,3.4vw,2.7rem)] text-balance">{d.title}</h2>
-          <p className="mx-auto mt-5 max-w-xl text-base leading-8 text-white/75 sm:text-lg">{d.lead}</p>
+          <p className="justified-center mx-auto mt-5 max-w-xl text-base leading-8 text-white/75 sm:text-lg">{d.lead}</p>
           <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
             <DemosButton className="group inline-flex h-14 items-center gap-3 rounded-full bg-white px-8 font-bold text-midnight shadow-[0_20px_60px_-20px_rgb(255_255_255/0.6)] transition hover:scale-[1.03]">
               <span className="grid size-8 place-items-center rounded-full bg-magenta text-white">

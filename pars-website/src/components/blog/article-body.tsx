@@ -140,7 +140,7 @@ export function ArticleBody({ text }: { text: string }) {
       while (i < src.length && src[i].trim().startsWith(">")) q.push(src[i++].trim().replace(/^>\s?/, ""));
       const joined = q.join(" ");
       blocks.push(
-        <blockquote key={key} dir={textDir(joined)} className="my-6 border-s-2 border-pink/60 ps-5 text-[1.05rem] leading-9 text-fg/90">
+        <blockquote key={key} dir={textDir(joined)} className="justified my-6 border-s-2 border-pink/60 ps-5 text-[1.05rem] leading-9 text-fg/90">
           {inline(joined, key)}
         </blockquote>,
       );
@@ -155,7 +155,7 @@ export function ArticleBody({ text }: { text: string }) {
       // numbered lists keep their first number (e.g. a list split by a blank line) and use Persian numerals in rtl text
       const style = ordered === null ? "list-disc" : dir === "rtl" ? "list-[persian]" : "list-decimal";
       blocks.push(
-        <List key={key} start={ordered !== null && ordered !== 1 ? ordered : undefined} dir={dir} className={`my-5 space-y-2 ps-6 marker:text-pink ${style}`}>
+        <List key={key} start={ordered !== null && ordered !== 1 ? ordered : undefined} dir={dir} className={`justified my-5 space-y-2 ps-6 marker:text-pink ${style}`}>
           {items.map((it, j) => (
             <li key={j} className="ps-1">
               {inline(it, `${key}-${j}`)}
@@ -171,7 +171,7 @@ export function ArticleBody({ text }: { text: string }) {
     while (i < src.length && src[i].trim() && !BLOCK_START.test(src[i].trim())) para.push(src[i++].trim());
     const joined = para.join(" ");
     blocks.push(
-      <p key={key} dir={textDir(joined)} className="my-5">
+      <p key={key} dir={textDir(joined)} className="justified my-5">
         {inline(joined, key)}
       </p>,
     );
