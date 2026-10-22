@@ -1,8 +1,23 @@
 "use server";
 
-import { redirect } from "next/navigation";
 import { endSession } from "@/lib/admin-auth";
-import { EMAIL_RE, currentUser, endUserSession, getProfile, readResetToken, resetToken, resetTokenValid, startUserSession, verifyPassword, type Account } from "@/lib/auth";
+import {
+  EMAIL_RE,
+  PASSWORD_MAX,
+  PASSWORD_MIN,
+  PROFILE_COLUMNS,
+  USERS,
+  checkPassword,
+  currentUser,
+  endUserSession,
+  getProfile,
+  hashPassword,
+  readResetToken,
+  resetToken,
+  resetTokenValid,
+  startUserSession,
+  type Account,
+} from "@/lib/auth";
 import { hashIp, sha256 } from "@/lib/crypto";
 import { db } from "@/lib/db";
 import { emailConfig, sendEmail } from "@/lib/email";
@@ -45,14 +60,12 @@ function safeNext(v: unknown, lang: Lang): string {
   return /^\/(?![/\\])[^\s]*$/.test(s) && !s.startsWith("/admin/login") ? s : href(lang, "/account");
 }
 
-const goodPassword = (p: string) => p.length >= 8 && p.length <= 72;
+const goodPassword = (p: string) => p.length >= PASSWORD_MIN && p.length <= PASSWORD_MAX;
 const missingTable = (e: { code?: string } | null) => ["42P01", "PGRST205"].includes(e?.code ?? "");
 
 async function ipKey(): Promise<string> {
   return hashIp(await clientIp());
 }
-
-const pause = () => new Promise((r) => setTimeout(r, 400));
 
 export async function signUp(input: Record<string, unknown>): Promise<Result<{ next: string }>> {
   const lang = langOf(input.lang);
@@ -67,23 +80,21 @@ export async function signUp(input: Record<string, unknown>): Promise<Result<{ n
   if (!c) return { ok: false, error: MSG.db[lang] };
   if (!(await allow(`signup:${await ipKey()}`, 3600, 5))) return { ok: false, error: MSG.rate[lang] };
 
-  // confirmed right away: the free Supabase mailer allows only a few messages an hour
-  const { data, error } = await c.auth.admin.createUser({ email, password, email_confirm: true, user_metadata: { name } });
-  if (error || !data.user) {
-    if (error && (error.code === "email_exists" || /already|registered|exists/i.test(error.message))) return { ok: false, error: MSG.exists[lang] };
-    if (error && (error.code === "weak_password" || /password/i.test(error.message))) return { ok: false, error: MSG.password[lang] };
-    console.error("[account] create user", error?.message);
-    return { ok: false, error: MSG.failed[lang] };
-  }
-  const profile = { id: data.user.id, email, name, phone: text(input.phone, 30), organization: text(input.organization, 120), last_sign_in_at: new Date().toISOString() };
-  const ins = await c.from("pars_profiles").insert(profile);
-  if (ins.error) {
-    // no orphan login without a profile
-    await c.auth.admin.deleteUser(data.user.id).catch(() => undefined);
-    console.error("[account] profile insert", ins.error.message);
+  const row = {
+    email,
+    password_hash: await hashPassword(password),
+    name,
+    phone: text(input.phone, 30),
+    organization: text(input.organization, 120),
+    last_sign_in_at: new Date().toISOString(),
+  };
+  const { data, error } = await c.from(USERS).insert(row).select("id").single();
+  if (error || !data) {
+    if (error?.code === "23505") return { ok: false, error: MSG.exists[lang] };
+    console.error("[account] sign-up", error?.message, missingTable(error) ? "(run the accounts migration)" : "");
     return { ok: false, error: MSG.db[lang] };
   }
-  await startUserSession({ id: data.user.id, session_version: 0, role: "user" });
+  await startUserSession({ id: (data as { id: string }).id, session_version: 0, role: "user" });
   return { ok: true, next: safeNext(input.next, lang) };
 }
 
@@ -91,38 +102,34 @@ export async function signIn(input: Record<string, unknown>): Promise<Result<{ n
   const lang = langOf(input.lang);
   const email = text(input.email, 160).toLowerCase();
   const password = typeof input.password === "string" ? input.password : "";
-  if (!EMAIL_RE.test(email) || !password) return { ok: false, error: MSG.wrong[lang] };
+  if (!EMAIL_RE.test(email) || !password || password.length > PASSWORD_MAX) return { ok: false, error: MSG.wrong[lang] };
   const c = db();
   if (!c) return { ok: false, error: MSG.db[lang] };
-  if (!(await allow(`signin:${await ipKey()}`, 600, 10)) || !(await allow(`signin-email:${sha256(email).slice(0, 24)}`, 900, 8))) return { ok: false, error: MSG.rate[lang] };
+  // per IP, per IP and e-mail (a stranger cannot lock someone else out from another network) and a looser
+  // per-e-mail ceiling against guessing from many addresses
+  const ip = await ipKey();
+  const who = sha256(email).slice(0, 24);
+  if (!(await allow(`signin:${ip}`, 600, 10)) || !(await allow(`signin:${ip}:${who}`, 900, 6)) || !(await allow(`signin-email:${who}`, 3600, 40))) {
+    return { ok: false, error: MSG.rate[lang] };
+  }
 
-  const v = await verifyPassword(email, password);
-  if (!v) {
-    await pause();
-    return { ok: false, error: MSG.wrong[lang] };
+  const { data, error } = await c.from(USERS).select(`${PROFILE_COLUMNS}, password_hash`).eq("email", email).limit(1).maybeSingle();
+  if (error) {
+    console.error("[account] sign-in", error.message, missingTable(error) ? "(run the accounts migration)" : "");
+    return { ok: false, error: MSG.db[lang] };
   }
-  let p = await getProfile(v.id);
-  if (!p) {
-    // an account made in the Supabase dashboard: give it a profile on first sign-in
-    const ins = await c.from("pars_profiles").insert({ id: v.id, email, name: v.name || email.split("@")[0] });
-    if (ins.error && !/duplicate|unique/i.test(ins.error.message)) {
-      console.error("[account] profile on sign-in", ins.error.message, missingTable(ins.error) ? "(run the accounts migration)" : "");
-      return { ok: false, error: MSG.db[lang] };
-    }
-    p = await getProfile(v.id);
-  }
-  if (!p) return { ok: false, error: MSG.db[lang] };
-  if (p.disabled) return { ok: false, error: MSG.disabled[lang] };
-  await c.from("pars_profiles").update({ last_sign_in_at: new Date().toISOString() }).eq("id", p.id);
-  await startUserSession(p);
+  const user = data as (Account & { password_hash: string }) | null;
+  if (!(await checkPassword(password, user?.password_hash)) || !user) return { ok: false, error: MSG.wrong[lang] };
+  if (user.disabled) return { ok: false, error: MSG.disabled[lang] };
+  await c.from(USERS).update({ last_sign_in_at: new Date().toISOString() }).eq("id", user.id);
+  await startUserSession(user);
   return { ok: true, next: safeNext(input.next, lang) };
 }
 
-/** Signs out of the account (and of an admin password session in this browser). */
-export async function signOut(lang: Lang = "fa"): Promise<void> {
+/** Signs out of the account (and of an admin password session in this browser); the page then reloads. */
+export async function signOut(): Promise<void> {
   await endUserSession();
   await endSession();
-  redirect(href(langOf(lang), "/"));
 }
 
 async function signedIn(lang: Lang): Promise<Account | { ok: false; error: string }> {
@@ -137,7 +144,7 @@ export async function updateProfile(input: Record<string, unknown>): Promise<Res
   const name = text(input.name, 80);
   if (name.length < 2) return { ok: false, error: MSG.name[lang] };
   const { error } = await db()!
-    .from("pars_profiles")
+    .from(USERS)
     .update({ name, phone: text(input.phone, 30), organization: text(input.organization, 120), updated_at: new Date().toISOString() })
     .eq("id", me.id);
   if (error) {
@@ -147,16 +154,18 @@ export async function updateProfile(input: Record<string, unknown>): Promise<Res
   return { ok: true, message: MSG.saved[lang] };
 }
 
-/** New password for a user, then every older session (and reset link) stops working. */
+/** New password; the session version moves on, so every older session and reset link stops working. */
 async function setPassword(p: Account, password: string): Promise<boolean> {
-  const c = db()!;
-  const { error } = await c.auth.admin.updateUserById(p.id, { password });
+  const ver = p.session_version + 1;
+  const { error } = await db()!
+    .from(USERS)
+    .update({ password_hash: await hashPassword(password), session_version: ver, updated_at: new Date().toISOString() })
+    .eq("id", p.id)
+    .eq("session_version", p.session_version);
   if (error) {
     console.error("[account] set password", error.message);
     return false;
   }
-  const ver = p.session_version + 1;
-  await c.from("pars_profiles").update({ session_version: ver, updated_at: new Date().toISOString() }).eq("id", p.id);
   await startUserSession({ ...p, session_version: ver });
   return true;
 }
@@ -169,11 +178,8 @@ export async function changePassword(input: Record<string, unknown>): Promise<Re
   const next = typeof input.password === "string" ? input.password : "";
   if (!goodPassword(next)) return { ok: false, error: MSG.password[lang] };
   if (!(await allow(`password:${me.id}`, 900, 6))) return { ok: false, error: MSG.rate[lang] };
-  const v = await verifyPassword(me.email, current);
-  if (!v || v.id !== me.id) {
-    await pause();
-    return { ok: false, error: MSG.currentWrong[lang] };
-  }
+  const { data } = await db()!.from(USERS).select("password_hash").eq("id", me.id).maybeSingle();
+  if (!(await checkPassword(current, (data as { password_hash: string } | null)?.password_hash))) return { ok: false, error: MSG.currentWrong[lang] };
   return (await setPassword(me, next)) ? { ok: true, message: MSG.passwordChanged[lang] } : { ok: false, error: MSG.failed[lang] };
 }
 
@@ -187,7 +193,7 @@ export async function requestReset(input: Record<string, unknown>): Promise<Resu
   if (!mail) return { ok: false, error: MSG.resetOff[lang] };
   if (!(await allow(`reset:${await ipKey()}`, 3600, 5)) || !(await allow(`reset-email:${sha256(email).slice(0, 24)}`, 3600, 3))) return { ok: false, error: MSG.rate[lang] };
   // exact match (emails are stored lower-case); ilike would treat _ and % in the input as wildcards
-  const { data } = await c.from("pars_profiles").select("id, email, name, disabled, session_version").eq("email", email).limit(1).maybeSingle();
+  const { data } = await c.from(USERS).select("id, email, name, disabled, session_version").eq("email", email).limit(1).maybeSingle();
   const p = data as Pick<Account, "id" | "email" | "name" | "disabled" | "session_version"> | null;
   if (p && !p.disabled) {
     const link = `${env.siteUrl}${href(lang, "/account/reset")}?t=${encodeURIComponent(resetToken(p.id, p.session_version))}`;

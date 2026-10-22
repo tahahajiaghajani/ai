@@ -20,7 +20,7 @@ export function UsersManager({ rows, meId }: { rows: UserRow[]; meId: string | n
         <div className="flex flex-wrap items-center gap-3">
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="جستجوی نام، ایمیل یا سازمان…" aria-label="جستجوی کاربران" className="h-11 min-w-48 flex-1 rounded-full border border-line bg-ink-2 px-4 text-sm outline-none focus:border-violet/60" />
           <span className="text-xs text-muted">
-            {fa(rows.length)} کاربر · {fa(admins)} مدیر
+            {fa(rows.length)} کاربر، {fa(admins)} مدیر
           </span>
         </div>
         {shown.length === 0 ? (

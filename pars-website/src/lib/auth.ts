@@ -1,15 +1,15 @@
 import "server-only";
 import { cache } from "react";
+import { randomBytes, scrypt as scryptCb, timingSafeEqual, type ScryptOptions } from "node:crypto";
 import { cookies } from "next/headers";
-import { createClient } from "@supabase/supabase-js";
 import { hasSecret, safeEqual, sign } from "@/lib/crypto";
 import { db } from "@/lib/db";
-import { env } from "@/lib/env";
 
 /**
- * Visitor accounts. Supabase Auth keeps the credentials (auth.users); pars_profiles keeps name, role and
- * a session version. The browser holds a signed, httpOnly cookie with the user id, so public pages stay
- * static: only the account button asks /api/me, and only when the readable hint cookie says someone is signed in.
+ * Visitor accounts in their own table (pars_users), not in Supabase Auth: the Supabase project may be shared
+ * with another app whose user list is auth.users. Passwords are scrypt hashes. The browser holds a signed,
+ * httpOnly cookie with the user id and a session version, so public pages stay static: only the account
+ * button asks /api/me, and only when the readable hint cookie says someone is signed in.
  */
 
 export type Role = "user" | "admin";
@@ -33,6 +33,40 @@ export const ADMIN_HINT = "pars_admin_ui";
 const DAYS = 30;
 
 export const PROFILE_COLUMNS = "id, email, name, phone, organization, role, disabled, session_version";
+export const USERS = "pars_users";
+
+// ------------------------------------------------------------------ passwords
+
+const N = 32768;
+const R = 8;
+const P = 1;
+const KEYLEN = 32;
+export const PASSWORD_MIN = 8;
+export const PASSWORD_MAX = 128;
+
+function scrypt(password: string, salt: Buffer, n: number, r: number, p: number): Promise<Buffer> {
+  const opts: ScryptOptions = { N: n, r, p, maxmem: 256 * n * r };
+  return new Promise((ok, fail) => scryptCb(password.normalize("NFKC"), salt, KEYLEN, opts, (e, key) => (e ? fail(e) : ok(key))));
+}
+
+export async function hashPassword(password: string): Promise<string> {
+  const salt = randomBytes(16);
+  const key = await scrypt(password, salt, N, R, P);
+  return `scrypt$${N}$${R}$${P}$${salt.toString("base64url")}$${key.toString("base64url")}`;
+}
+
+/** Constant-time check; a malformed or missing hash never matches. */
+export async function checkPassword(password: string, stored: string | null | undefined): Promise<boolean> {
+  const parts = (stored ?? "").split("$");
+  if (parts.length !== 6 || parts[0] !== "scrypt") {
+    await scrypt(password, Buffer.alloc(16), N, R, P); // same cost as a real check: no timing hint that the account is missing
+    return false;
+  }
+  const [, n, r, p, salt, hash] = parts;
+  const want = Buffer.from(hash, "base64url");
+  const got = await scrypt(password, Buffer.from(salt, "base64url"), Number(n), Number(r), Number(p));
+  return want.length === got.length && timingSafeEqual(want, got);
+}
 
 const payload = (id: string, exp: number, ver: number) => `session:${id}:${exp}:${ver}`;
 
@@ -72,42 +106,52 @@ export async function endUserSession(): Promise<void> {
   jar.delete(ADMIN_HINT);
 }
 
-export async function getProfile(id: string): Promise<Account | null> {
+/** The account row, `null` when there is none; throws on a database error (callers decide how to fail). */
+export async function loadAccount(id: string): Promise<Account | null> {
   const c = db();
   if (!c) return null;
-  const { data, error } = await c.from("pars_profiles").select(PROFILE_COLUMNS).eq("id", id).maybeSingle();
-  if (error) {
-    console.error("[auth] profile read", error.message);
-    return null;
-  }
+  const { data, error } = await c.from(USERS).select(PROFILE_COLUMNS).eq("id", id).maybeSingle();
+  if (error) throw new Error(`account_read_failed: ${error.message}`);
   return (data as Account | null) ?? null;
 }
 
-/** The signed-in account for this request (null when signed out, disabled or the session was revoked). */
-export const currentUser = cache(async (): Promise<Account | null> => {
+/** Like loadAccount, but a database error reads as "no account" (logged). */
+export async function getProfile(id: string): Promise<Account | null> {
+  try {
+    return await loadAccount(id);
+  } catch (e) {
+    console.error("[auth]", e);
+    return null;
+  }
+}
+
+/**
+ * The session of this request: "none" (no valid cookie), "revoked" (account gone, disabled or signed out
+ * elsewhere), "error" (could not check right now) or the signed-in account.
+ */
+export const sessionState = cache(async (): Promise<{ state: "none" | "revoked" | "error" } | { state: "ok"; user: Account }> => {
   const s = readSession((await cookies()).get(COOKIE)?.value);
-  if (!s) return null;
-  const p = await getProfile(s.id);
-  if (!p || p.disabled || p.session_version !== s.ver) return null;
-  return p;
+  if (!s) return { state: "none" };
+  try {
+    const p = await loadAccount(s.id);
+    if (!p || p.disabled || p.session_version !== s.ver) return { state: "revoked" };
+    return { state: "ok", user: p };
+  } catch (e) {
+    console.error("[auth]", e);
+    return { state: "error" };
+  }
 });
+
+/** The signed-in account for this request (null when signed out, disabled, revoked or not checkable). */
+export async function currentUser(): Promise<Account | null> {
+  const s = await sessionState();
+  return s.state === "ok" ? s.user : null;
+}
 
 export async function isAdminAccount(): Promise<boolean> {
   return (await currentUser())?.role === "admin";
 }
 
-/**
- * Checks an e-mail and password with Supabase Auth. Uses a throwaway client: signing in on the shared
- * service-role client would make its later queries run as this user.
- */
-export async function verifyPassword(email: string, password: string): Promise<{ id: string; name: string } | null> {
-  if (!env.supabaseUrl || !env.supabaseKey) return null;
-  const c = createClient(env.supabaseUrl, env.supabaseKey, { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } });
-  const { data, error } = await c.auth.signInWithPassword({ email, password });
-  if (error || !data.user) return null;
-  const meta = (data.user.user_metadata ?? {}) as { name?: unknown };
-  return { id: data.user.id, name: typeof meta.name === "string" ? meta.name : "" };
-}
 
 /** Signed, short-lived token for a password-reset link; it dies once the password (session version) changes. */
 export function resetToken(id: string, ver: number, now = Date.now()): string {

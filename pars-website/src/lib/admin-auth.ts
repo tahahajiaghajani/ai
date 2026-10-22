@@ -6,7 +6,7 @@ import { ADMIN_HINT as HINT, isAdminAccount } from "@/lib/auth";
 import { hasSecret, safeEqual, sha256, sign } from "@/lib/crypto";
 
 /**
- * Two ways in: an account whose role is "admin" (pars_profiles), or the ADMIN_PASSWORD session below,
+ * Two ways in: an account whose role is "admin" (pars_users), or the ADMIN_PASSWORD session below,
  * which is the break-glass login and the way to promote the first account (see actions/admin.ts login).
  */
 const COOKIE = "pars_admin";

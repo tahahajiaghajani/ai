@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Copy } from "@/content/fa";
 import { href, type Lang } from "@/lib/i18n";
-import { signOut } from "@/app/actions/account";
+import { SignOutButton } from "@/components/account/sign-out-button";
 import { Icon } from "@/components/site/icons";
 import { useAccount } from "@/components/account/use-account";
 
@@ -65,12 +65,10 @@ export function AccountButton({ lang, t }: { lang: Lang; t: Copy["account"] }) {
               {t.admin}
             </a>
           )}
-          <form action={signOut.bind(null, lang)}>
-            <button role="menuitem" type="submit" className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-start text-sm text-muted hover:bg-white/5 hover:text-fg">
-              <Icon name="close" className="size-4" />
-              {t.signOut}
-            </button>
-          </form>
+          <SignOutButton to={href(lang, "/")} role="menuitem" className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-start text-sm text-muted hover:bg-white/5 hover:text-fg">
+            <Icon name="close" className="size-4" />
+            {t.signOut}
+          </SignOutButton>
         </div>
       )}
     </div>

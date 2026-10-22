@@ -7,9 +7,9 @@ import { db } from "@/lib/db";
 import { copy, formatDate, href, type Lang } from "@/lib/i18n";
 import { STATUS_LABEL, type TicketStatus } from "@/lib/ticket-meta";
 import { ticketPath } from "@/lib/tickets";
-import { signOut } from "@/app/actions/account";
 import { AuthForm, PasswordForm, ProfileForm, ResetPasswordForm, ResetRequestForm } from "@/components/account/auth-forms";
 import { Icon } from "@/components/site/icons";
+import { SignOutButton } from "@/components/account/sign-out-button";
 
 function Shell({ children, wide = false }: { children: ReactNode; wide?: boolean }) {
   return (
@@ -72,11 +72,9 @@ export async function AccountView({ lang }: { lang: Lang }) {
               {t.admin}
             </a>
           )}
-          <form action={signOut.bind(null, lang)}>
-            <button type="submit" className="inline-flex h-10 items-center rounded-full px-4 text-sm text-muted hover:text-fg">
-              {t.signOut}
-            </button>
-          </form>
+          <SignOutButton to={href(lang, "/")} className="inline-flex h-10 items-center rounded-full px-4 text-sm text-muted hover:text-fg">
+            {t.signOut}
+          </SignOutButton>
         </div>
       </div>
 

@@ -42,7 +42,7 @@ const OBJECTS: Omit<DbObject, "ok">[] = [
   { name: "pars_hit_rate_limit", kind: "function", file: SITE },
   { name: "pars_admin_counts", kind: "function", file: "20261022120000_pars_admin_counts.sql" },
   { name: "pars_posts", kind: "table", file: "20261022140000_pars_posts.sql" },
-  { name: "pars_profiles", kind: "table", file: "20261022160000_pars_accounts.sql" },
+  { name: "pars_users", kind: "table", file: "20261022160000_pars_accounts.sql" },
 ];
 
 /** Project ref from https://<ref>.supabase.co (for the SQL editor link). */

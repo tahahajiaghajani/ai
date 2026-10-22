@@ -4,7 +4,7 @@ import { revalidatePath, revalidateTag } from "next/cache";
 import { redirect } from "next/navigation";
 import { after } from "next/server";
 import { assertAdmin, checkPassword, endSession, startSession } from "@/lib/admin-auth";
-import { currentUser, endUserSession, startUserSession } from "@/lib/auth";
+import { USERS, currentUser, endUserSession, startUserSession } from "@/lib/auth";
 import { hashIp, encrypt } from "@/lib/crypto";
 import { db, requireDb } from "@/lib/db";
 import { latinDigits as toLatinDigits } from "@/lib/digits";
@@ -69,7 +69,7 @@ export async function login(_prev: { error: string } | null, form: FormData): Pr
   // the password also promotes the account signed in in this browser, so from now on it is recognized as admin
   const me = await currentUser();
   if (me && me.role !== "admin") {
-    const { error } = await requireDb().from("pars_profiles").update({ role: "admin", updated_at: new Date().toISOString() }).eq("id", me.id);
+    const { error } = await requireDb().from(USERS).update({ role: "admin", updated_at: new Date().toISOString() }).eq("id", me.id);
     if (error) console.error("[admin] promote", error.message);
     else await startUserSession({ ...me, role: "admin" });
   }

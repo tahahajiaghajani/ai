@@ -49,3 +49,19 @@ describe("password reset token", () => {
     expect(t && resetTokenValid(t, 0)).toBe(false);
   });
 });
+
+describe("password hashing", () => {
+  it("verifies the right password and rejects others", async () => {
+    const { checkPassword, hashPassword } = await import("@/lib/auth");
+    const h = await hashPassword("رمز-عبور-خوب-1");
+    expect(h).toMatch(/^scrypt\$32768\$8\$1\$[\w-]+\$[\w-]+$/);
+    expect(await checkPassword("رمز-عبور-خوب-1", h)).toBe(true);
+    expect(await checkPassword("رمز-عبور-خوب-2", h)).toBe(false);
+    expect(await checkPassword("anything", null)).toBe(false);
+    expect(await checkPassword("anything", "plain-text")).toBe(false);
+  });
+  it("salts every hash", async () => {
+    const { hashPassword } = await import("@/lib/auth");
+    expect(await hashPassword("same-password")).not.toBe(await hashPassword("same-password"));
+  });
+});
