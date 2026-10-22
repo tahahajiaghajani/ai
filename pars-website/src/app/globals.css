@@ -1,0 +1,556 @@
+@import "tailwindcss";
+
+/* ------------------------------------------------------------------ */
+/*  Pars brand tokens (see docs/BRAND_BOOK_FA.md)                       */
+/*  Midnight #1a183a → Plum #7b235a → Magenta #df1173 (logo gradient)  */
+/*  On dark: Iris #8f86ff → Orchid #c2479f → Pink #ff2b8f (reverse)     */
+/* ------------------------------------------------------------------ */
+@theme static {
+  --color-ink: #07061a;
+  --color-ink-2: #0c0b22;
+  --color-ink-3: #13122f;
+  --color-ink-4: #1b1a3f;
+  --color-line: rgb(196 190 255 / 0.1);
+  --color-line-strong: rgb(196 190 255 / 0.2);
+  --color-fg: #efedf9;
+  --color-muted: #aaa7c6;
+  --color-faint: #8582a6;
+  --color-midnight: #1a183a;
+  --color-plum: #7b235a;
+  --color-magenta: #df1173;
+  --color-magenta-deep: #b80d5f;
+  --color-pink: #ff4fa3;
+  --color-orchid: #c2479f;
+  --color-iris: #8f86ff;
+  --color-violet: #a9a2ff;
+  --color-mist: #f6f4fb;
+  --color-success: #3ddc97;
+  --color-warning: #ffb547;
+  --color-danger: #ff5c7a;
+
+  --font-sans: var(--font-body), var(--font-vazir), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-display-face), var(--font-vazir), ui-sans-serif, system-ui, sans-serif;
+  --font-brand: var(--font-sora), ui-sans-serif, system-ui, sans-serif;
+
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out-quart: cubic-bezier(0.76, 0, 0.24, 1);
+
+  --animate-marquee: marquee 38s linear infinite;
+  --animate-pulse-dot: pulse-dot 2.4s ease-out infinite;
+  --animate-float: float 7s ease-in-out infinite;
+}
+
+:root {
+  color-scheme: dark;
+  --gradient-brand: linear-gradient(90deg, #1a183a 0%, #7b235a 55%, #df1173 100%);
+  --gradient-reverse: linear-gradient(90deg, #8f86ff 0%, #c2479f 50%, #ff2b8f 100%);
+  --gradient-text: linear-gradient(100deg, #b8b1ff 0%, #e06bc0 45%, #ff4fa3 100%);
+  --header-h: 72px;
+}
+
+@layer base {
+  html {
+    background: var(--color-ink);
+    color: var(--color-fg);
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    scroll-padding-top: calc(var(--header-h) + 12px);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    html:not([data-motion="reduced"]) {
+      scroll-behavior: smooth;
+    }
+  }
+
+  body {
+    background: var(--color-ink);
+    min-height: 100dvh;
+    overflow-x: clip;
+    line-height: 1.85;
+  }
+
+  html[lang="en"] body {
+    line-height: 1.65;
+  }
+
+  ::selection {
+    background: rgb(223 17 115 / 0.45);
+    color: #fff;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-violet);
+    outline-offset: 3px;
+    border-radius: 6px;
+  }
+}
+
+/* Latin snippets inside Persian text */
+.ltr {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+/* ---------------------------------------------------------- utilities */
+@utility text-gradient {
+  background: var(--gradient-text);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+@utility bg-brand {
+  background: var(--gradient-brand);
+}
+
+@utility bg-reverse {
+  background: var(--gradient-reverse);
+}
+
+@utility glass {
+  background: rgb(19 18 47 / 0.62);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  backdrop-filter: blur(16px) saturate(140%);
+}
+
+@utility card {
+  background: linear-gradient(180deg, rgb(27 26 63 / 0.55), rgb(13 12 34 / 0.55));
+  border: 1px solid var(--color-line);
+  border-radius: 1.5rem;
+}
+
+@utility kicker {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--color-violet);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+/* display headings: tight leading for Persian, never letter-spacing on Persian */
+@utility display {
+  font-family: var(--font-display);
+  font-weight: 800;
+  line-height: 1.22;
+}
+
+@layer components {
+  html[lang="en"] .display {
+    letter-spacing: -0.025em;
+    line-height: 1.06;
+  }
+}
+
+/* grain overlay: kills gradient banding, adds texture */
+.grain::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.07;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .9 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+}
+
+/* the hairline that separates sections, drawn as a soft gradient */
+.hairline {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgb(169 162 255 / 0.25), rgb(255 79 163 / 0.25), transparent);
+}
+
+/* --------------------------------------------------------- keyframes */
+@keyframes marquee {
+  to {
+    transform: translateX(-50%);
+  }
+}
+html[dir="rtl"] .marquee-track {
+  animation-direction: reverse;
+}
+
+@keyframes pulse-dot {
+  0% {
+    box-shadow: 0 0 0 0 rgb(61 220 151 / 0.55);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgb(61 220 151 / 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgb(61 220 151 / 0);
+  }
+}
+
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+@keyframes rise {
+  from {
+    transform: translateY(0.5em);
+    filter: blur(6px);
+    opacity: 0.001;
+  }
+}
+
+@keyframes rise-solid {
+  from {
+    transform: translateY(18px);
+    filter: blur(8px);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes caret {
+  50% {
+    opacity: 0;
+  }
+}
+
+@keyframes shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+@keyframes spin-angle {
+  to {
+    --angle: 360deg;
+  }
+}
+
+@keyframes dash-flow {
+  to {
+    stroke-dashoffset: -400;
+  }
+}
+
+@keyframes travel {
+  from {
+    offset-distance: 0%;
+  }
+  to {
+    offset-distance: 100%;
+  }
+}
+
+@property --angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+
+/* ------------------------------------------------- reveal on scroll */
+/* Content is visible without JS; the class "js" (set before paint) enables the effect. */
+html.js [data-reveal] {
+  transition:
+    opacity 0.9s var(--ease-out-expo),
+    transform 0.9s var(--ease-out-expo),
+    filter 0.9s var(--ease-out-expo);
+  transition-delay: calc(var(--d, 0) * 90ms);
+}
+html.js [data-reveal]:not([data-in]) {
+  opacity: 0;
+  transform: translateY(28px);
+  filter: blur(6px);
+}
+html.js [data-reveal="scale"]:not([data-in]) {
+  transform: scale(0.94) translateY(16px);
+}
+
+/* hero entrance (the heading stays opaque for LCP; it only rises and un-blurs) */
+.hero-in > * {
+  animation: rise-solid 1.1s var(--ease-out-expo) both;
+  animation-delay: calc(var(--d, 0) * 110ms + 80ms);
+}
+.word-in {
+  display: inline-block;
+  animation: rise 1s var(--ease-out-expo) both;
+  animation-delay: calc(var(--w, 0) * 70ms + 260ms);
+}
+
+/* scroll-driven reveal where supported: words light up with the section's progress */
+.scrub-word {
+  opacity: clamp(0.14, calc((var(--p, 1) * (var(--n) + 6) - var(--i))), 1);
+  transition: opacity 0.2s linear;
+}
+
+/* animated conic border used on the CEO portrait and the composer */
+.ring-border {
+  --angle: 200deg;
+  background:
+    linear-gradient(var(--color-ink-2), var(--color-ink-2)) padding-box,
+    conic-gradient(from var(--angle), #8f86ff, #c2479f, #ff2b8f, #8f86ff00 60%, #8f86ff) border-box;
+  border: 1.5px solid transparent;
+}
+/* the light only travels while the element is in use (or marked .ring-spin), saving repaints */
+.ring-border:hover,
+.ring-border:focus-within,
+.ring-border.ring-spin {
+  animation: spin-angle 6s linear infinite;
+}
+
+/* spotlight that follows the pointer inside cards */
+.spotlight {
+  position: relative;
+  isolation: isolate;
+}
+.spotlight::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  z-index: -1;
+  opacity: 0;
+  transition: opacity 0.4s;
+  background: radial-gradient(420px circle at var(--x, 50%) var(--y, 50%), rgb(169 162 255 / 0.12), transparent 60%);
+}
+.spotlight:hover::before {
+  opacity: 1;
+}
+
+.flow-dot {
+  offset-rotate: 0deg;
+  animation: travel var(--t, 3.6s) linear infinite;
+  animation-delay: var(--delay, 0s);
+}
+
+.dash-flow {
+  stroke-dasharray: 6 10;
+  animation: dash-flow 9s linear infinite;
+}
+
+.caret::after,
+.streaming .prose-chat > :last-child::after {
+  content: "";
+  display: inline-block;
+  width: 0.5em;
+  height: 1.05em;
+  margin-inline-start: 2px;
+  vertical-align: -0.15em;
+  border-radius: 2px;
+  background: var(--color-pink);
+  animation: caret 1s steps(1) infinite;
+}
+
+.skeleton {
+  background: linear-gradient(90deg, rgb(255 255 255 / 0.04) 25%, rgb(255 255 255 / 0.1) 37%, rgb(255 255 255 / 0.04) 63%);
+  background-size: 400% 100%;
+  animation: shimmer 1.4s ease infinite;
+}
+
+/* below-the-fold sections render lazily */
+.cv-auto {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 900px;
+}
+
+/* prose for assistant answers and ticket messages */
+.prose-chat {
+  line-height: 1.95;
+}
+html[lang="en"] .prose-chat {
+  line-height: 1.7;
+}
+.prose-chat p + p,
+.prose-chat p + ul,
+.prose-chat ul + p,
+.prose-chat p + ol,
+.prose-chat ol + p {
+  margin-top: 0.6em;
+}
+.prose-chat ul,
+.prose-chat ol {
+  padding-inline-start: 1.2em;
+}
+.prose-chat ul {
+  list-style: disc;
+}
+.prose-chat ol {
+  list-style: decimal;
+}
+.prose-chat li::marker {
+  color: var(--color-pink);
+}
+.prose-chat strong {
+  color: #fff;
+  font-weight: 700;
+}
+.prose-chat a {
+  color: var(--color-violet);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.prose-chat code {
+  font-size: 0.88em;
+  background: rgb(255 255 255 / 0.07);
+  border-radius: 6px;
+  padding: 0.1em 0.4em;
+}
+.prose-chat h3,
+.prose-chat h4 {
+  font-weight: 700;
+  margin: 0.8em 0 0.3em;
+}
+
+/* thin scrollbars inside panels */
+.scroll-thin {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(169 162 255 / 0.25) transparent;
+}
+
+/* --------------------------------------------------- reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+html[data-motion="reduced"] *,
+html[data-motion="reduced"] *::before,
+html[data-motion="reduced"] *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+}
+
+/* fonts per language (variables come from next/font in each root layout) */
+html[lang="fa"] {
+  --font-body: var(--font-vazir);
+  --font-display-face: var(--font-vazir);
+}
+html[lang="en"] {
+  --font-body: var(--font-inter);
+  --font-display-face: var(--font-sora);
+}
+
+/* manifesto: the mark assembles as the section scrolls (--p from ScrollProgress) */
+.mx-mark .rb {
+  transform-box: fill-box;
+  transition: transform 0.25s linear, opacity 0.25s linear;
+}
+.mx-mark .rb-left {
+  transform: translateX(calc((1 - var(--p, 1)) * (-120px - var(--k) * 9px)));
+  opacity: calc(0.15 + var(--p, 1) * 1.2);
+}
+.mx-mark .rb-right {
+  transform: translateX(calc((1 - var(--p, 1)) * (120px + var(--k) * 9px)));
+  opacity: calc(0.15 + var(--p, 1) * 1.2);
+}
+.mx-glow {
+  opacity: clamp(0, calc((var(--p, 1) - 0.55) * 2.6), 1);
+  scale: calc(0.4 + var(--p, 1) * 0.8);
+}
+
+/* AI flow */
+/* the dot rides a full-width track moved with transform (compositor-only, mirrored in RTL) */
+@keyframes stream {
+  from {
+    transform: translateX(0);
+    opacity: 0;
+  }
+  15%,
+  85% {
+    opacity: 1;
+  }
+  to {
+    transform: translateX(calc(100% * var(--flow-dir, 1)));
+    opacity: 0;
+  }
+}
+html[dir="rtl"] .stream-track {
+  --flow-dir: -1;
+}
+.stream-track {
+  animation: stream 2.7s linear infinite backwards;
+}
+@keyframes step-glow {
+  0%,
+  20% {
+    border-color: rgb(255 79 163 / 0.6);
+    color: #fff;
+    background: rgb(255 79 163 / 0.12);
+  }
+  30%,
+  100% {
+    border-color: var(--color-line);
+  }
+}
+.agent-step {
+  animation: step-glow 4s linear infinite;
+  animation-delay: calc(var(--i) * 1s);
+}
+html.js .ring-wrap .ring-auto,
+html.js .ring-wrap .ring-human {
+  transition: stroke-dashoffset 1.8s var(--ease-out-expo);
+}
+html.js [data-reveal]:not([data-in]) .ring-auto {
+  stroke-dashoffset: var(--c);
+}
+
+/* timeline bars grow in when their card is revealed */
+html.js .gantt-bar {
+  transform-origin: left center;
+  transition: transform 1.2s var(--ease-out-expo);
+  transition-delay: calc(var(--i, 0) * 110ms + 200ms);
+}
+html.js [data-reveal]:not([data-in]) .gantt-bar {
+  transform: scaleX(0);
+}
+
+/* CEO portrait: mask reveal */
+html.js .ceo-photo .ceo-img {
+  transition:
+    clip-path 1.6s var(--ease-in-out-quart),
+    scale 2.2s var(--ease-out-expo);
+}
+html.js .ceo-photo:not([data-in]) .ceo-img {
+  clip-path: inset(100% 0 0 0 round 2rem);
+  scale: 1.18;
+}
+html.js .ceo-photo[data-in] .ceo-img {
+  clip-path: inset(0 0 0 0 round 0);
+  scale: 1.02;
+}
+html.js .ceo-photo[data-reveal]:not([data-in]) {
+  filter: none;
+  opacity: 1;
+  transform: none;
+}
+
+/* process: the wave draws itself, then the steps arrive in order */
+html.js .proc-path {
+  stroke-dasharray: 1;
+  transition: stroke-dashoffset 2.2s var(--ease-in-out-quart);
+}
+html.js .process:not([data-in]) .proc-path {
+  stroke-dashoffset: 1;
+}
+html.js .proc-step {
+  transition:
+    opacity 0.8s var(--ease-out-expo),
+    transform 0.8s var(--ease-out-expo);
+  transition-delay: calc(var(--i) * 160ms + 300ms);
+}
+html.js .process:not([data-in]) .proc-step {
+  opacity: 0;
+  transform: translateY(20px);
+}

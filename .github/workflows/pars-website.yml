@@ -1,0 +1,36 @@
+# Pars website — typecheck, tests and build (without environment variables) for changes in pars-website/
+name: "Pars website · CI"
+
+on:
+  pull_request:
+    paths:
+      - "pars-website/**"
+      - ".github/workflows/pars-website.yml"
+  push:
+    branches: [main]
+    paths:
+      - "pars-website/**"
+
+concurrency:
+  group: pars-website-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: pars-website
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: pars-website/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
