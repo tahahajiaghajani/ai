@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { askAssistant, deleteKnowledge, importKnowledge, upsertKnowledge } from "@/app/actions/admin";
 import { Markdown } from "@/components/chat/markdown";
-import { Button, Input, Label, Spinner, Textarea } from "@/components/ui/field";
+import { Button, Field, Input, Spinner, Textarea } from "@/components/ui/field";
 import { Empty, Panel, Toggle } from "@/components/admin/ui";
 import { useAction } from "@/components/admin/toast";
 
@@ -64,7 +64,7 @@ export function KnowledgeManager({ rows, defaultsCount, prefill }: { rows: Row[]
               }}
             />
           </label>
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="جستجو در دانش…" className="h-12 min-w-48 flex-1 rounded-full border border-line bg-ink-2 px-4 text-sm outline-none focus:border-violet/60" />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="جستجو در دانش…" aria-label="جستجو در دانش" className="h-12 min-w-48 flex-1 rounded-full border border-line bg-ink-2 px-4 text-sm outline-none focus:border-violet/60" />
         </div>
 
         <div className="card p-4">
@@ -128,24 +128,20 @@ function Editor({ row, onClose }: { row: Row; onClose: () => void }) {
   return (
     <Panel title={row.id ? "ویرایش مدخل" : "مدخل تازه"} sub="جمله‌های کوتاه و دقیق بنویسید؛ عدد، نام و تاریخ فقط اگر قطعی است.">
       <div className="space-y-4">
-        <div>
-          <Label>عنوان</Label>
+        <Field label="عنوان">
           <Input value={r.title} onChange={(e) => setR({ ...r, title: e.target.value })} maxLength={200} />
-        </div>
-        <div>
-          <Label hint={`${fa(r.body.length)} نویسه`}>متن</Label>
+        </Field>
+        <Field label="متن" hint={`${fa(r.body.length)} نویسه`}>
           <Textarea value={r.body} onChange={(e) => setR({ ...r, body: e.target.value })} rows={12} dir="auto" />
-        </div>
-        <div>
-          <Label hint="با ویرگول جدا کنید">کلیدواژه‌ها</Label>
+        </Field>
+        <Field label="کلیدواژه‌ها" hint="با ویرگول جدا کنید">
           <Input value={tags} onChange={(e) => setTags(e.target.value)} placeholder="EPM، بانک، مهاجرت" />
-        </div>
+        </Field>
         <Toggle checked={r.pinned} onChange={(v) => setR({ ...r, pinned: v })} label="همیشه به دستیار داده شود" hint="برای معرفی، تماس و قواعد مهم." />
         <Toggle checked={r.enabled} onChange={(v) => setR({ ...r, enabled: v })} label="فعال" />
-        <div>
-          <Label hint="عدد کوچک‌تر = بالاتر">ترتیب</Label>
+        <Field label="ترتیب" hint="عدد کوچک‌تر = بالاتر">
           <Input type="number" value={r.sort} onChange={(e) => setR({ ...r, sort: Number(e.target.value) })} dir="ltr" />
-        </div>
+        </Field>
         <div className="flex flex-wrap justify-between gap-2 pt-2">
           <div className="flex gap-2">
             <Button
@@ -187,7 +183,7 @@ function Playground() {
   const { pending, run } = useAction();
   return (
     <Panel title="آزمایش دستیار" sub="پرسشی بپرسید تا ببینید دستیار با دانش فعلی چه پاسخی می‌دهد و از کدام مدخل‌ها استفاده می‌کند.">
-      <Textarea value={q} onChange={(e) => setQ(e.target.value)} rows={3} placeholder="مثلاً: آیا دوره‌ی Primavera دارید؟" />
+      <Textarea value={q} onChange={(e) => setQ(e.target.value)} rows={3} placeholder="مثلاً: آیا دوره‌ی Primavera دارید؟" aria-label="پرسش آزمایشی" />
       <Button className="mt-3 w-full" disabled={pending || !q.trim()} onClick={() => run(() => askAssistant(q), { silent: true, onOk: (r) => setRes({ answer: r.answer, model: r.model, used: r.used }) })}>
         {pending && <Spinner />}
         بپرس

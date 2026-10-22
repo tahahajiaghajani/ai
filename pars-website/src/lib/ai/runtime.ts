@@ -4,7 +4,7 @@ import { env } from "@/lib/env";
 import { getSettings } from "@/lib/settings";
 import type { AiSettings, ProviderId } from "@/lib/settings-types";
 import { entryText, type KnowledgeEntry } from "@/lib/retrieval";
-import { ProviderError, streamText, type ChatMessage } from "@/lib/ai/providers";
+import { EmptyResponseError, ProviderError, streamText, type ChatMessage } from "@/lib/ai/providers";
 
 export interface AiRuntime {
   provider: ProviderId;
@@ -55,7 +55,7 @@ async function* prepend(first: string, rest: AsyncGenerator<string>): AsyncGener
   yield* rest;
 }
 
-/** Opens a stream on the first model that answers (quota / busy / unknown model → next model). */
+/** Opens a stream on the first model that answers with text (quota / busy / unknown model / no text → next model). */
 export async function openStream(
   rt: AiRuntime,
   system: string,
@@ -78,9 +78,16 @@ export async function openStream(
     });
     try {
       const first = await gen.next();
-      return { model, chunks: prepend(first.done ? "" : first.value, gen) };
+      if (first.done) {
+        // finished without any text: never hand an empty answer to the caller
+        last = new EmptyResponseError("");
+        continue;
+      }
+      return { model, chunks: prepend(first.value, gen) };
     } catch (e) {
       last = e;
+      // EmptyResponseError: a safety stop, refusal or output limit before any text — another model may still answer
+      if (e instanceof EmptyResponseError) continue;
       if (e instanceof ProviderError && (e.kind === "quota" || e.kind === "overloaded" || e.kind === "model")) continue;
       throw e;
     }

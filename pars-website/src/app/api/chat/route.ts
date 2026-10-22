@@ -1,6 +1,6 @@
 import { after } from "next/server";
 import { hashIp } from "@/lib/crypto";
-import { allow } from "@/lib/rate-limit";
+import { allow, allowAi } from "@/lib/rate-limit";
 import { getSettings } from "@/lib/settings";
 import { getKnowledge } from "@/lib/knowledge";
 import { selectKnowledge } from "@/lib/retrieval";
@@ -10,6 +10,10 @@ import { parseMarkers } from "@/lib/markers";
 import { logChat } from "@/lib/chat-log";
 
 export const maxDuration = 60;
+/** the provider call ends well before maxDuration, so the cut-off text and the after() log still go out */
+const DEADLINE_MS = 45_000;
+/** the history sent to the model, in characters; older turns beyond it are dropped */
+const HISTORY_CHARS = 12_000;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -27,6 +31,7 @@ function textStream(text: string) {
 }
 
 export async function POST(req: Request) {
+  const deadline = AbortSignal.any([req.signal, AbortSignal.timeout(DEADLINE_MS)]);
   let body: { messages?: ChatMessage[]; lang?: string; sessionId?: string; logId?: string };
   try {
     body = await req.json();
@@ -38,6 +43,9 @@ export async function POST(req: Request) {
     .filter((m) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string")
     .map((m) => ({ role: m.role, content: m.content.slice(0, 4000) }))
     .slice(-12);
+  // keep the newest turns within the size budget (the new question alone always fits)
+  let size = messages.reduce((n, m) => n + m.content.length, 0);
+  while (messages.length > 1 && size > HISTORY_CHARS) size -= messages.shift()!.content.length;
   // the conversation must start with the user and end with the new question
   while (messages.length && messages[0].role !== "user") messages.shift();
   const last = messages[messages.length - 1];
@@ -54,6 +62,8 @@ export async function POST(req: Request) {
 
   const rt = settings.ai.enabled ? runtimeFrom(settings.ai) : null;
   if (!rt) return textStream(OFFLINE[lang]);
+  // one daily budget shared by every visitor, so a few addresses cannot use up the key for everyone
+  if (!(await allowAi())) return json(503, "busy");
 
   const { entries } = await getKnowledge();
   const query = messages.filter((m) => m.role === "user").slice(-2).map((m) => m.content).join("\n");
@@ -61,7 +71,7 @@ export async function POST(req: Request) {
 
   let opened: Awaited<ReturnType<typeof openStream>>;
   try {
-    opened = await openStream(rt, system, messages, { signal: req.signal });
+    opened = await openStream(rt, system, messages, { signal: deadline });
   } catch (e) {
     console.error("[chat] provider error", e instanceof ProviderError ? `${e.kind} ${e.status} ${e.message}` : e);
     if (e instanceof ProviderError && e.kind === "quota") return json(503, "busy");

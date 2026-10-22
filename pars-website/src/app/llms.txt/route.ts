@@ -1,5 +1,5 @@
 import { env } from "@/lib/env";
-import { getKnowledge } from "@/lib/knowledge";
+import { CONTACT_ENTRY_ID, getKnowledge } from "@/lib/knowledge";
 import { getSettings } from "@/lib/settings";
 
 export const revalidate = 3600;
@@ -11,7 +11,7 @@ export async function GET() {
   const body = [
     "# Pars Project Management (مدیریت پروژه پارس)",
     "",
-    "> Enterprise project & portfolio management systems (EPM/EPPM), management software (request & contract management, performance evaluation, dashboards) and AI agents for banks and large organizations in Iran. Founded 2010 (1389 SH); systems running at 20+ banks and organizations. Tagline: Where management meets intelligence — «جایی که مدیریت و هوش به هم می‌رسند».",
+    "> Enterprise project & portfolio management systems (EPM/EPPM), management software (request & contract management, performance evaluation, dashboards) and AI agents for banks and large organizations in Iran. Founded 2010 (1389 SH); systems running at 20 banks and organizations. Tagline: Where management meets intelligence — «جایی که مدیریت و هوش به هم می‌رسند».",
     "",
     "## Links",
     `- [Home (Persian)](${u}/)`,
@@ -24,7 +24,7 @@ export async function GET() {
     `- Address: ${site.contact.addressEn}`,
     "",
     "## Knowledge",
-    ...entries.filter((e) => e.enabled).map((e) => `### ${e.title}\n${e.body.trim()}\n`),
+    ...entries.filter((e) => e.enabled && e.id !== CONTACT_ENTRY_ID).map((e) => `### ${e.title}\n${e.body.trim()}\n`),
   ].join("\n");
   return new Response(body, { headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "public, s-maxage=3600, stale-while-revalidate=86400" } });
 }

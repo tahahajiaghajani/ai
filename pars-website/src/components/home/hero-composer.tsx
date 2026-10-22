@@ -22,7 +22,8 @@ export function HeroComposer({ placeholders, label, send, hint }: { placeholders
       ref.current?.focus();
       return;
     }
-    ask(value);
+    // refused while an answer is still streaming: the chat reopens on it and the text stays here
+    if (!ask(value)) return;
     setValue("");
     if (ref.current) ref.current.style.height = "";
   };

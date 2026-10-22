@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { requireAdminPage } from "@/lib/admin-auth";
 import { db } from "@/lib/db";
 import { listChats } from "@/lib/admin-data";
 import { formatDate } from "@/lib/i18n";
@@ -15,6 +16,7 @@ const FILTERS: [string, string][] = [
 ];
 
 export default async function Chats({ searchParams }: { searchParams: Promise<{ f?: string }> }) {
+  await requireAdminPage();
   const f = (await searchParams).f ?? "all";
   const rows = await listChats(f);
   return (

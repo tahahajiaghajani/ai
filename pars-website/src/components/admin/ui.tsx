@@ -33,7 +33,7 @@ export function Empty({ children }: { children: ReactNode }) {
 export function DbMissing() {
   return (
     <Empty>
-      پایگاه داده هنوز وصل نشده است. متغیرهای <span className="ltr font-mono">SUPABASE_URL</span> و <span className="ltr font-mono">SUPABASE_SERVICE_ROLE_KEY</span> را در Vercel تنظیم کنید و فایل SQL پوشه‌ی <span className="ltr font-mono">supabase/migrations</span> را در Supabase اجرا کنید
+      پایگاه داده هنوز وصل نشده است. متغیرهای <span className="ltr font-mono">SUPABASE_URL</span> و <span className="ltr font-mono">SUPABASE_SERVICE_ROLE_KEY</span> را در Vercel تنظیم کنید و فایل‌های SQL پوشه‌ی <span className="ltr font-mono">supabase/migrations</span> را به ترتیب نام در Supabase اجرا کنید
       (راهنما: <span className="ltr font-mono">docs/SETUP_FA.md</span>).
     </Empty>
   );

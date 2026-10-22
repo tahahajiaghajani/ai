@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { requireAdminPage } from "@/lib/admin-auth";
 import { db } from "@/lib/db";
 import { listTickets } from "@/lib/admin-data";
 import { formatDate } from "@/lib/i18n";
@@ -7,6 +8,7 @@ import { DbMissing, Empty, PageTitle } from "@/components/admin/ui";
 import { PRIORITY_STYLE, STATUS_STYLE } from "@/components/support/status-style";
 
 export default async function Tickets({ searchParams }: { searchParams: Promise<{ status?: string; priority?: string; q?: string }> }) {
+  await requireAdminPage();
   const sp = await searchParams;
   const status = sp.status ?? "open";
   const priority = sp.priority ?? "all";
@@ -33,8 +35,8 @@ export default async function Tickets({ searchParams }: { searchParams: Promise<
           </div>
           <form className="mb-5 flex flex-wrap gap-2" action="/admin/tickets">
             <input type="hidden" name="status" value={status} />
-            <input name="q" defaultValue={sp.q} placeholder="جستجو: کد، عنوان، نام، ایمیل، سازمان…" className="h-11 min-w-64 flex-1 rounded-full border border-line bg-ink-2 px-4 text-sm outline-none focus:border-violet/60" />
-            <select name="priority" defaultValue={priority} className="h-11 rounded-full border border-line bg-ink-2 px-4 text-sm">
+            <input name="q" aria-label="جستجوی تیکت‌ها" defaultValue={sp.q} placeholder="جستجو: کد، عنوان، نام، ایمیل، سازمان…" className="h-11 min-w-64 flex-1 rounded-full border border-line bg-ink-2 px-4 text-sm outline-none focus:border-violet/60" />
+            <select name="priority" aria-label="اولویت" defaultValue={priority} className="h-11 rounded-full border border-line bg-ink-2 px-4 text-sm">
               <option value="all">همه‌ی اولویت‌ها</option>
               {PRIORITIES.map((p) => (
                 <option key={p} value={p}>

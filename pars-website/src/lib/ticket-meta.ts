@@ -39,7 +39,7 @@ export const CATEGORY_LABEL: Record<TicketCategory, L> = {
 
 export const PRODUCT_LABEL: Record<TicketProduct, L> = {
   epm: { fa: "سامانه‌های EPM / EPPM", en: "EPM / EPPM systems" },
-  migration: { fa: "نوسازی و مهاجرت EPM", en: "EPM renewal & migration" },
+  migration: { fa: "نوسازی و مهاجرت EPM", en: "EPM modernization & migration" },
   ai: { fa: "ایجنت‌ها و هوش مصنوعی", en: "AI agents & assistants" },
   custom: { fa: "نرم‌افزار سازمانی سفارشی", en: "Custom enterprise software" },
   training: { fa: "آموزش", en: "Training" },
@@ -48,6 +48,11 @@ export const PRODUCT_LABEL: Record<TicketProduct, L> = {
 
 /** first-response targets in hours */
 export const SLA_HOURS: Record<TicketPriority, number> = { urgent: 2, high: 8, normal: 24, low: 72 };
+
+/** First-response deadline (ISO) of a ticket created at `createdAt` with this priority. */
+export function dueAt(createdAt: string | number | Date, priority: TicketPriority): string {
+  return new Date(new Date(createdAt).getTime() + SLA_HOURS[priority] * 3600_000).toISOString();
+}
 
 export const OPEN_STATUSES: TicketStatus[] = ["new", "in_progress", "answered"];
 

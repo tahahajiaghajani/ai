@@ -18,22 +18,40 @@ export function mergeDeep<T>(base: T, over: unknown): T {
   return out as T;
 }
 
+/** PostgREST "table not found" (PGRST205, or 42P01 on older versions): the migration has not run yet, so nothing is stored. */
+function isMissingTable(error: { code?: string }): boolean {
+  return error.code === "PGRST205" || error.code === "42P01";
+}
+
+/** Stored values merged over defaults. Throws on a read error, so a failure is never cached or saved back. */
 async function loadSettings(): Promise<Settings> {
   const c = db();
   if (!c) return DEFAULT_SETTINGS;
   const { data, error } = await c.from("pars_settings").select("key, value");
-  if (error || !data) return DEFAULT_SETTINGS;
+  if (error && !isMissingTable(error)) throw new Error(`تنظیمات از پایگاه داده خوانده نشد (${error.message})`);
   let s: Settings = DEFAULT_SETTINGS;
-  for (const row of data as { key: SettingsKey; value: unknown }[]) {
+  for (const row of (data ?? []) as { key: SettingsKey; value: unknown }[]) {
     if (row.key in DEFAULT_SETTINGS) s = { ...s, [row.key]: mergeDeep(DEFAULT_SETTINGS[row.key], row.value) };
   }
   return s;
 }
 
-/** Cached for 5 minutes; saving in the admin panel invalidates it immediately. */
-export const getSettings = unstable_cache(loadSettings, ["pars-settings-v1"], { tags: ["settings"], revalidate: 300 });
+const cachedSettings = unstable_cache(loadSettings, ["pars-settings-v1"], { tags: ["settings"], revalidate: 300 });
 
-/** Uncached read for the admin panel. */
+/**
+ * Cached for 5 minutes; saving in the admin panel invalidates it immediately. A failed read is never
+ * cached: a stale entry keeps being served, and with no entry this call alone falls back to the defaults.
+ */
+export async function getSettings(): Promise<Settings> {
+  try {
+    return await cachedSettings();
+  } catch (e) {
+    console.error("[settings]", e);
+    return DEFAULT_SETTINGS;
+  }
+}
+
+/** Uncached, strict read for the admin panel: throws on a read error, so saveAi/saveNotify never write defaults over stored keys. */
 export const getSettingsFresh = loadSettings;
 
 export async function saveSettings<K extends SettingsKey>(key: K, value: Settings[K]): Promise<void> {

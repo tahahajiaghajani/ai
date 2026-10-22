@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { saveAi, saveChat, saveSupport, testAi } from "@/app/actions/admin";
 import { PROVIDERS, type AiSettings, type ChatSettings, type ProviderId, type SupportSettings } from "@/lib/settings-types";
-import { Button, Input, Label, Select, Spinner, Textarea } from "@/components/ui/field";
+import { Button, Field, Input, Select, Spinner, Textarea } from "@/components/ui/field";
 import { Panel, Toggle } from "@/components/admin/ui";
 import { useAction } from "@/components/admin/toast";
 
@@ -21,8 +21,7 @@ export function AiForm({ initial, envKey }: { initial: AiInitial; envKey: boolea
     <Panel title="مدل هوش مصنوعی" sub="کلید API رمزنگاری‌شده ذخیره می‌شود و هرگز به مرورگر بازنمی‌گردد. برای نسخه‌ی نهایی کافی است کلید و مدل قوی‌تر را اینجا عوض کنید.">
       <div className="space-y-5">
         <Toggle checked={f.enabled} onChange={(v) => setF({ ...f, enabled: v })} label="دستیار فعال است" hint="اگر خاموش باشد، به بازدیدکننده پیشنهاد ثبت درخواست یا تماس داده می‌شود." />
-        <div>
-          <Label>سرویس‌دهنده</Label>
+        <Field label="سرویس‌دهنده">
           <Select
             value={f.provider}
             onChange={(e) => {
@@ -45,48 +44,41 @@ export function AiForm({ initial, envKey }: { initial: AiInitial; envKey: boolea
               </a>
             )}
           </p>
-        </div>
-        <div>
-          <Label hint={f.hasKey ? `ذخیره‌شده ${f.apiKeyHint ?? ""}` : envKey ? "فعلاً از GEMINI_API_KEY محیط" : "تنظیم نشده"}>کلید API</Label>
+        </Field>
+        <Field label="کلید API" hint={f.hasKey ? `ذخیره‌شده ${f.apiKeyHint ?? ""}` : envKey ? "فعلاً از GEMINI_API_KEY محیط" : "تنظیم نشده"}>
           <Input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={f.hasKey ? "برای تغییر، کلید تازه را وارد کنید" : preset.hint} dir="ltr" autoComplete="off" />
           {f.hasKey && (
             <button type="button" className="mt-2 text-xs text-danger hover:underline" onClick={() => confirm("کلید ذخیره‌شده حذف شود؟") && run(() => saveAi({ ...f, fallbackModels: fallbacks.split(/\s+/).filter(Boolean), clearKey: true }), { onOk: () => setF({ ...f, hasKey: false }) })}>
               حذف کلید ذخیره‌شده
             </button>
           )}
-        </div>
-        <div>
-          <Label>مدل اصلی</Label>
+        </Field>
+        <Field label="مدل اصلی">
           <Input value={f.model} onChange={(e) => setF({ ...f, model: e.target.value })} list="models" dir="ltr" />
           <datalist id="models">
             {preset.models.map((m) => (
               <option key={m} value={m} />
             ))}
           </datalist>
-        </div>
-        <div>
-          <Label hint="هر خط یک مدل">مدل‌های جایگزین (وقتی سهمیه تمام شود)</Label>
+        </Field>
+        <Field label="مدل‌های جایگزین (وقتی سهمیه تمام شود)" hint="هر خط یک مدل">
           <Textarea value={fallbacks} onChange={(e) => setFallbacks(e.target.value)} rows={3} dir="ltr" className="font-mono text-sm" />
-        </div>
-        <div>
-          <Label hint="اختیاری">آدرس پایه‌ی API</Label>
+        </Field>
+        <Field label="آدرس پایه‌ی API" hint="اختیاری">
           <Input value={f.baseUrl} onChange={(e) => setF({ ...f, baseUrl: e.target.value })} placeholder={f.provider === "openai" ? "https://api.openai.com/v1" : "پیش‌فرض سرویس"} dir="ltr" />
           <p className="mt-2 text-xs leading-6 text-muted">برای درگاه‌های واسط (Relay) یا سرویس‌های سازگار با OpenAI؛ اگر سایت روی سرور داخل ایران میزبانی شود، از یک درگاه واسط استفاده کنید.</p>
-        </div>
+        </Field>
         <div className="grid grid-cols-2 gap-4">
-          <div>
-            <Label hint="۰ تا ۱٫۵">دما (خلاقیت)</Label>
+          <Field label="دما (خلاقیت)" hint="۰ تا ۱٫۵">
             <Input type="number" step="0.1" min="0" max="1.5" value={f.temperature} onChange={(e) => setF({ ...f, temperature: Number(e.target.value) })} dir="ltr" />
-          </div>
-          <div>
-            <Label>حداکثر طول پاسخ (توکن)</Label>
+          </Field>
+          <Field label="حداکثر طول پاسخ (توکن)">
             <Input type="number" min="200" max="8000" value={f.maxTokens} onChange={(e) => setF({ ...f, maxTokens: Number(e.target.value) })} dir="ltr" />
-          </div>
+          </Field>
         </div>
-        <div>
-          <Label hint="اختیاری">دستورهای تکمیلی برای دستیار</Label>
+        <Field label="دستورهای تکمیلی برای دستیار" hint="اختیاری">
           <Textarea value={f.instructions} onChange={(e) => setF({ ...f, instructions: e.target.value })} rows={4} placeholder="مثلاً: در پایان پاسخ‌های فروش، جلسه‌ی معرفی رایگان را پیشنهاد کن." />
-        </div>
+        </Field>
         <div className="flex flex-wrap gap-2">
           <Button
             disabled={pending}
@@ -127,33 +119,27 @@ export function ChatForm({ initial }: { initial: ChatSettings }) {
   return (
     <Panel title="گفتگو" sub="پیام خوشامد، پرسش‌های پیشنهادی صفحه‌ی اول و محدودیت استفاده برای جلوگیری از سوءاستفاده.">
       <div className="space-y-4">
-        <div>
-          <Label>پیام خوشامد (فارسی)</Label>
+        <Field label="پیام خوشامد (فارسی)">
           <Textarea value={f.greetingFa} onChange={(e) => setF({ ...f, greetingFa: e.target.value })} rows={2} />
-        </div>
-        <div>
-          <Label>Greeting (English)</Label>
+        </Field>
+        <Field label="Greeting (English)">
           <Textarea value={f.greetingEn} onChange={(e) => setF({ ...f, greetingEn: e.target.value })} rows={2} dir="ltr" />
-        </div>
+        </Field>
         <div className="grid gap-4 sm:grid-cols-2">
-          <div>
-            <Label hint="هر خط یکی">پرسش‌های پیشنهادی</Label>
+          <Field label="پرسش‌های پیشنهادی" hint="هر خط یکی">
             <Textarea value={sFa} onChange={(e) => setSFa(e.target.value)} rows={5} />
-          </div>
-          <div>
-            <Label hint="one per line">Suggestions</Label>
+          </Field>
+          <Field label="Suggestions" hint="one per line">
             <Textarea value={sEn} onChange={(e) => setSEn(e.target.value)} rows={5} dir="ltr" />
-          </div>
+          </Field>
         </div>
         <div className="grid grid-cols-2 gap-4">
-          <div>
-            <Label>پیام در ۱۰ دقیقه (هر بازدیدکننده)</Label>
+          <Field label="پیام در ۱۰ دقیقه (هر بازدیدکننده)">
             <Input type="number" min="1" value={f.perTenMinutes} onChange={(e) => setF({ ...f, perTenMinutes: Number(e.target.value) })} dir="ltr" />
-          </div>
-          <div>
-            <Label>پیام در روز (هر بازدیدکننده)</Label>
+          </Field>
+          <Field label="پیام در روز (هر بازدیدکننده)">
             <Input type="number" min="1" value={f.perDay} onChange={(e) => setF({ ...f, perDay: Number(e.target.value) })} dir="ltr" />
-          </div>
+          </Field>
         </div>
         <Toggle checked={f.logChats} onChange={(v) => setF({ ...f, logChats: v })} label="ثبت گفتگوها برای نظارت" hint="پرسش و پاسخ‌ها (بدون IP) در «گفتگوهای دستیار» دیده می‌شوند." />
         <Button disabled={pending} onClick={() => run(() => saveChat({ ...f, suggestionsFa: sFa.split("\n").map((x) => x.trim()).filter(Boolean), suggestionsEn: sEn.split("\n").map((x) => x.trim()).filter(Boolean) }))}>

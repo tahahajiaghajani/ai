@@ -1,4 +1,4 @@
-import type { InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
+import { Children, cloneElement, isValidElement, useId, type InputHTMLAttributes, type ReactElement, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from "react";
 
 const base =
   "w-full rounded-2xl border border-line bg-ink-2/80 px-4 py-3 text-[15px] text-fg outline-none transition placeholder:text-faint focus:border-violet/60 focus:bg-ink-2 focus-visible:outline-none focus:shadow-[0_0_0_4px_rgb(169_162_255/0.12)]";
@@ -9,6 +9,26 @@ export function Label({ children, hint, htmlFor }: { children: ReactNode; hint?:
       <span>{children}</span>
       {hint && <span className="text-xs font-normal text-faint">{hint}</span>}
     </label>
+  );
+}
+
+/**
+ * A label and its control, linked by id. The first element child is the control: it gets a generated id
+ * (or keeps its own); anything after it (a note, a datalist, a button) is rendered below it.
+ */
+export function Field({ label, hint, className, children }: { label: ReactNode; hint?: string; className?: string; children: ReactNode }) {
+  const auto = useId();
+  const items = Children.toArray(children);
+  const at = items.findIndex((c) => isValidElement(c));
+  const control = at < 0 ? null : (items[at] as ReactElement<{ id?: string }>);
+  const id = control?.props.id ?? auto;
+  return (
+    <div className={className}>
+      <Label htmlFor={id} hint={hint}>
+        {label}
+      </Label>
+      {control ? items.map((c, i) => (i === at ? cloneElement(control, { id }) : c)) : items}
+    </div>
   );
 }
 

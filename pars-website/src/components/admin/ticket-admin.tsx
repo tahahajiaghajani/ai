@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useOptimistic, useState } from "react";
 import { deleteTicket, retriage, staffReply, updateTicket } from "@/app/actions/admin";
 import { CATEGORIES, CATEGORY_LABEL, PRIORITIES, PRIORITY_LABEL, STATUSES, STATUS_LABEL } from "@/lib/ticket-meta";
 import { Button, Select, Spinner, Textarea } from "@/components/ui/field";
@@ -16,7 +16,7 @@ export function TicketReply({ code, draft, closed }: { code: string; draft: stri
   return (
     <Panel title={internal ? "یادداشت داخلی (مشتری نمی‌بیند)" : "پاسخ به مشتری"}>
       {closed && <p className="mb-3 text-sm text-warning">این تیکت بسته است؛ پاسخ شما آن را دوباره باز نمی‌کند مگر وضعیت را تغییر دهید.</p>}
-      <Textarea value={body} onChange={(e) => setBody(e.target.value)} rows={7} placeholder="متن پاسخ… (Markdown ساده پشتیبانی می‌شود)" dir="auto" />
+      <Textarea value={body} onChange={(e) => setBody(e.target.value)} rows={7} placeholder="متن پاسخ… (Markdown ساده پشتیبانی می‌شود)" aria-label={internal ? "متن یادداشت داخلی" : "متن پاسخ"} dir="auto" />
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
           {draft && (
@@ -31,7 +31,7 @@ export function TicketReply({ code, draft, closed }: { code: string; draft: stri
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {!internal && (
-            <select value={after} onChange={(e) => setAfter(e.target.value)} className="h-12 rounded-full border border-line bg-ink-2 px-4 text-sm">
+            <select value={after} onChange={(e) => setAfter(e.target.value)} aria-label="وضعیت بعد از ارسال" className="h-12 rounded-full border border-line bg-ink-2 px-4 text-sm">
               <option value="answered">بعد از ارسال: پاسخ داده شد</option>
               <option value="resolved">بعد از ارسال: حل شد</option>
               <option value="in_progress">بعد از ارسال: در حال بررسی</option>
@@ -54,15 +54,25 @@ export function TicketReply({ code, draft, closed }: { code: string; draft: stri
   );
 }
 
-export function TicketControls({ code, status, priority, category, link }: { code: string; status: string; priority: string; category: string; link: string }) {
+type Fields = { status: string; priority: string; category: string };
+
+export function TicketControls({ code, status, priority, category, link }: Fields & { code: string; link: string }) {
   const router = useRouter();
   const { pending, run } = useAction();
+  // Controlled by the saved values, so a reply that changes the status shows here; the choice shows while it
+  // saves and falls back to the stored value if the save fails.
+  const [shown, show] = useOptimistic<Fields, Partial<Fields>>({ status, priority, category }, (cur, patch) => ({ ...cur, ...patch }));
+  const save = (patch: Partial<Fields>) =>
+    run(() => {
+      show(patch);
+      return updateTicket({ code, ...patch });
+    });
   return (
     <Panel title="مدیریت تیکت">
       <div className="space-y-3">
         <label className="block text-xs text-faint">
           وضعیت
-          <Select className="mt-1.5" defaultValue={status} onChange={(e) => run(() => updateTicket({ code, status: e.target.value }))}>
+          <Select className="mt-1.5" value={shown.status} onChange={(e) => save({ status: e.target.value })}>
             {STATUSES.map((s) => (
               <option key={s} value={s}>
                 {STATUS_LABEL[s].fa}
@@ -72,7 +82,7 @@ export function TicketControls({ code, status, priority, category, link }: { cod
         </label>
         <label className="block text-xs text-faint">
           اولویت
-          <Select className="mt-1.5" defaultValue={priority} onChange={(e) => run(() => updateTicket({ code, priority: e.target.value }))}>
+          <Select className="mt-1.5" value={shown.priority} onChange={(e) => save({ priority: e.target.value })}>
             {PRIORITIES.map((s) => (
               <option key={s} value={s}>
                 {PRIORITY_LABEL[s].fa}
@@ -82,7 +92,7 @@ export function TicketControls({ code, status, priority, category, link }: { cod
         </label>
         <label className="block text-xs text-faint">
           نوع
-          <Select className="mt-1.5" defaultValue={category} onChange={(e) => run(() => updateTicket({ code, category: e.target.value }))}>
+          <Select className="mt-1.5" value={shown.category} onChange={(e) => save({ category: e.target.value })}>
             {CATEGORIES.map((s) => (
               <option key={s} value={s}>
                 {CATEGORY_LABEL[s].fa}
