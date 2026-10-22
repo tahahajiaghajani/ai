@@ -1,6 +1,8 @@
 /**
  * The "most important clients" page of the company profile, with what Pars did for each.
  * Engagements are derived from the verified track record (records.ts), so the two never disagree.
+ * Logos (public/clients): bank emblems from @iran-utils/iranian-banks-icons-core (MIT, see docs/CREDITS.md);
+ * IGMC and the Shahid Rajaei group traced from the company profile. Each is the trademark of its owner.
  */
 import { CONSULTING, SOFTWARE, TRAINING } from "@/content/records";
 
@@ -25,12 +27,12 @@ export const KEY_CLIENTS: KeyClient[] = [
   { key: "sepah", name: o("بانک سپه", "Bank Sepah"), sector: o("بانک", "Bank"), logo: "/clients/sepah.svg", match: ["بانک سپه"] },
   { key: "postbank", name: o("پست بانک ایران", "Post Bank of Iran"), sector: o("بانک", "Bank"), logo: "/clients/postbank.svg", match: ["پست بانک"] },
   { key: "ayandeh", name: o("بانک آینده", "Ayandeh Bank"), sector: o("بانک", "Bank"), logo: "/clients/ayandeh.svg", match: ["بانک آینده"] },
-  { key: "igmc", name: o("شرکت مدیریت شبکه برق ایران", "Iran Grid Management Co."), sector: o("صنعت برق", "Power grid"), logo: "/clients/igmc.svg", match: ["شرکت مدیریت شبکه برق ایران", "مدیریت شبکه برق ایران"] },
+  { key: "igmc", name: o("شرکت مدیریت شبکه برق ایران", "Iran Grid Management Co."), sector: o("صنعت برق", "Power grid"), logo: "/clients/igmc.webp", match: ["شرکت مدیریت شبکه برق ایران", "مدیریت شبکه برق ایران"] },
   {
     key: "rajaee",
     name: o("قرارگاه خاتم‌الانبیاء — گروه تخصصی شهید رجائی", "Khatam al-Anbiya HQ — Shahid Rajaei Group"),
     sector: o("عمرانی، نفت و گاز", "Construction, oil & gas"),
-    logo: "/clients/rajaee.svg",
+    logo: "/clients/rajaee.webp",
     match: ["قرارگاه خاتم‌الانبیاء – گروه تخصصی شهید رجائی"],
   },
 ];

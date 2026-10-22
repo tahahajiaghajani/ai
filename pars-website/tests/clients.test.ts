@@ -21,8 +21,7 @@ describe("key clients", () => {
     expect(mellat.training.map((x) => [x.label.en, x.count])).toEqual([["PMBOK", 6], ["MSP", 6]]);
     expect(mellat.consulting).toHaveLength(2);
   });
-  // TODO(logos): enabled once the official logos are in public/clients
-  it.skip("ship a logo file for every client", () => {
+  it("ship a logo file for every client", () => {
     for (const c of KEY_CLIENTS) expect(existsSync(path.join(process.cwd(), "public", c.logo)), c.logo).toBe(true);
   });
 });
