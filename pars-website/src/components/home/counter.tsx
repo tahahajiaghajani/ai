@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { num } from "@/lib/digits";
 
 /** Counts up the numeric part of a stat (e.g. "15+", "90%") when it scrolls into view. */
 export function Counter({ value, lang }: { value: string; lang: "fa" | "en" }) {
-  const m = value.match(/^(\D*)(\d+)(.*)$/);
+  // only a single quantity animates ("15+", "90%"); values like "24/7" stay static
+  const m = value.match(/^(\D*)(\d+)(\D*)$/);
   const target = m ? Number(m[2]) : 0;
   const ref = useRef<HTMLSpanElement>(null);
   const [n, setN] = useState(target);
@@ -34,7 +36,8 @@ export function Counter({ value, lang }: { value: string; lang: "fa" | "en" }) {
   }, [target]);
   const fmt = (x: number) => (lang === "fa" ? new Intl.NumberFormat("fa-IR", { useGrouping: false }).format(x) : String(x));
   const rest = (m?.[3] ?? "").replace("%", lang === "fa" ? "٪" : "%");
-  const text = m ? `${m[1]}${fmt(n)}${rest}` : lang === "fa" ? value.replace(/\d+/g, (d) => fmt(Number(d))) : value;
+  // a lone Persian zero is just a dot — spell it out
+  const text = lang === "fa" && value.trim() === "0" ? "صفر" : m ? `${m[1]}${fmt(n)}${rest}` : num(value, lang);
   return (
     <span ref={ref} className="tabular-nums" dir="ltr">
       {text}

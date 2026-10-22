@@ -14,7 +14,8 @@ const raw: Omit<KnowledgeEntry, "id" | "enabled" | "sort">[] = [
 - تمرکز اصلی: سامانه‌های مدیریت پروژه و سبد پروژه‌ی سازمانی (EPM / EPPM)، نرم‌افزارهای سازمانی سفارشی و راهکارهای هوش مصنوعی.
 - مشتریان: بانک‌ها و سازمان‌های بزرگ؛ همه‌ی محصولات در سطح Enterprise و برای مدیریت و مهندسی داده‌های حجیم طراحی می‌شوند. گاهی اپلیکیشن‌های تجاری برای استفاده‌ی عموم هم می‌سازیم.
 - ادعای اثبات‌شده‌ی پارس پیشگامی در به‌کارگیری هوش مصنوعی در جاهایی است که طراحی هوشمندانه و خارج از چارچوب (out of the box) لازم است.
-- خط‌مشی: اتوماسیون حداکثری کارها با بالاترین دقت و هدف «خطای صفر».`,
+- خط‌مشی: اتوماسیون حداکثری کارها با بالاترین دقت و هدف «خطای صفر».
+- مدیرعامل: امیر محمودی (Amir Mahmoudi).`,
   },
   {
     title: "اطلاعات تماس و ساعات کاری",
@@ -137,7 +138,7 @@ const raw: Omit<KnowledgeEntry, "id" | "enabled" | "sort">[] = [
     title: "Company overview (English)",
     pinned: false,
     tags: ["english", "overview"],
-    body: `Pars Project Management (Persian: مدیریت پروژه پارس) is a Tehran-based enterprise software company with 15+ years of experience designing, deploying, supporting and teaching enterprise project & portfolio management systems (EPM/EPPM on Microsoft Project Server and Oracle Primavera P6, Agile with Jira) for banks and large organizations — e.g. the EPM systems of Bank Tejarat (and their Renew project) and the .NET system «Saymp» (سایمپ) for Bank Mellat. Pars is AI-native: AI agents that bring work close to 90% automation, RAG over organizational knowledge, predictive analytics, pattern discovery and smart search — with human-in-the-loop control and a zero-error standard.`,
+    body: `Pars Project Management (Persian: مدیریت پروژه پارس) is a Tehran-based enterprise software company with 15+ years of experience designing, deploying, supporting and teaching enterprise project & portfolio management systems (EPM/EPPM on Microsoft Project Server and Oracle Primavera P6, Agile with Jira) for banks and large organizations — e.g. the EPM systems of Bank Tejarat (and their Renew project) and the .NET system «Saymp» (سایمپ) for Bank Mellat. Pars is AI-native: AI agents that bring work close to 90% automation, RAG over organizational knowledge, predictive analytics, pattern discovery and smart search — with human-in-the-loop control and a zero-error standard. CEO: Amir Mahmoudi (امیر محمودی).`,
   },
 ];
 

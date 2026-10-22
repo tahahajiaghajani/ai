@@ -124,8 +124,8 @@ export const DEFAULT_SETTINGS: Settings = {
   },
   site: {
     ceo: {
-      nameFa: "",
-      nameEn: "",
+      nameFa: "امیر محمودی",
+      nameEn: "Amir Mahmoudi",
       titleFa: "مدیرعامل",
       titleEn: "Chief Executive Officer",
       quoteFa:

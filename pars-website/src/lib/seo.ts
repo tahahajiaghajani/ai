@@ -59,6 +59,18 @@ export function organizationJsonLd(lang: Lang, site: SiteContent): string {
         knowsAbout: ["Enterprise Project Management", "EPM", "EPPM", "Project Portfolio Management", "Microsoft Project Server", "Oracle Primavera P6", "AI agents", "Retrieval-Augmented Generation", "Predictive analytics", "Agile", "Scrum", "PMO"],
         sameAs: Object.values(site.social).filter(Boolean),
       },
+      ...(site.ceo.nameEn || site.ceo.nameFa
+        ? [
+            {
+              "@type": "Person",
+              "@id": `${url}/#ceo`,
+              name: (lang === "fa" ? site.ceo.nameFa : site.ceo.nameEn) || site.ceo.nameFa || site.ceo.nameEn,
+              alternateName: [site.ceo.nameFa, site.ceo.nameEn].filter(Boolean),
+              jobTitle: lang === "fa" ? site.ceo.titleFa : site.ceo.titleEn,
+              worksFor: { "@id": `${url}/#org` },
+            },
+          ]
+        : []),
       {
         "@type": "WebSite",
         "@id": `${url}/#website`,
