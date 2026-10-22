@@ -279,11 +279,68 @@ describe("openStream", () => {
     expect((await openStream({ ...rt, apiKey: "k-slow" }, "sys", base.messages, { firstTokenMs: 30, onAttempt: (a) => tries.push(a) })).model).toBe("second");
     expect(tries[0]).toMatchObject({ model: "first", ok: false, kind: "timeout" });
   });
-  it("lets the caller's own abort through", async () => {
-    vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => new Promise<Response>((_resolve, reject) => init?.signal?.addEventListener("abort", () => reject(init.signal?.reason)))));
+  const hang = vi.fn(async (_url: string, init?: RequestInit) => new Promise<Response>((_resolve, reject) => init?.signal?.addEventListener("abort", () => reject(init.signal?.reason))));
+  it("turns the caller's time limit into a timeout that names the model", async () => {
+    vi.stubGlobal("fetch", hang);
     const ac = new AbortController();
     setTimeout(() => ac.abort(new DOMException("deadline", "TimeoutError")), 20);
-    await expect(openStream({ ...rt, apiKey: "k-abort" }, "sys", base.messages, { signal: ac.signal })).rejects.toMatchObject({ name: "TimeoutError" });
+    await expect(openStream({ ...rt, apiKey: "k-deadline" }, "sys", base.messages, { signal: ac.signal })).rejects.toMatchObject({ kind: "timeout", model: "first" });
+  });
+  it("lets a visitor's cancel through as it is", async () => {
+    vi.stubGlobal("fetch", hang);
+    const ac = new AbortController();
+    setTimeout(() => ac.abort(), 20);
+    await expect(openStream({ ...rt, apiKey: "k-cancel" }, "sys", base.messages, { signal: ac.signal })).rejects.toMatchObject({ name: "AbortError" });
+  });
+
+  /** An SSE response whose events trickle in; the body errors when the request is aborted, like a real fetch. */
+  function trickle(events: unknown[], every: number, init?: RequestInit): Response {
+    const enc = new TextEncoder();
+    let timer: ReturnType<typeof setTimeout>;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        let i = 0;
+        const next = () => {
+          if (i === events.length) return controller.close();
+          controller.enqueue(enc.encode(`data: ${JSON.stringify(events[i++])}\n\n`));
+          timer = setTimeout(next, every);
+        };
+        timer = setTimeout(next, every);
+        init?.signal?.addEventListener("abort", () => {
+          clearTimeout(timer);
+          controller.error(new DOMException("aborted", "AbortError"));
+        });
+      },
+    });
+    return new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } });
+  }
+  it("keeps waiting while a reasoning model streams its thinking", async () => {
+    const thinking = Array.from({ length: 8 }, () => ({ choices: [{ delta: { reasoning_content: "…" } }] }));
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => trickle([...thinking, { choices: [{ delta: { content: "answer" } }] }], 40, init)));
+    const r = { ...rt, provider: "openai" as const, apiKey: "k-reason", models: ["deepseek-reasoner"] };
+    const { chunks } = await openStream(r, "sys", base.messages, { firstTokenMs: 150 });
+    expect(await collect(chunks)).toBe("answer");
+  });
+  it("still gives up on a stream that goes quiet", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => trickle([{ choices: [{ delta: { content: "late" } }] }], 400, init)));
+    const r = { ...rt, provider: "openai" as const, apiKey: "k-quiet", models: ["m"] };
+    await expect(openStream(r, "sys", base.messages, { firstTokenMs: 100 })).rejects.toMatchObject({ kind: "timeout", model: "m" });
+  });
+  it("reports why resting models rest instead of a made-up quota", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ type: "error", error: { type: "not_found_error", message: "model: claude-x" } }), { status: 404 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const r = { ...rt, provider: "anthropic" as const, apiKey: "k-held", models: ["claude-x"] };
+    await expect(openStream(r, "sys", base.messages)).rejects.toMatchObject({ kind: "model" });
+    await expect(openStream(r, "sys", base.messages)).rejects.toMatchObject({ kind: "model", model: "claude-x" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+  it("does not rest a model that only can't afford this request's size", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ error: { code: 402, message: "This request requires more credits, or fewer max_tokens. You requested up to 7096 tokens, but can only afford 3000." } }), { status: 402 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const r = { ...rt, provider: "openai" as const, apiKey: "k-sized", models: ["m"] };
+    await expect(openStream(r, "sys", base.messages, { maxTokens: 3000 })).rejects.toMatchObject({ kind: "quota" });
+    await expect(openStream(r, "sys", base.messages)).rejects.toMatchObject({ kind: "quota" });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -298,9 +355,11 @@ describe("classify", () => {
     [429, '{"error":{"code":429,"message":"Quota exceeded … limit: 0, model: gemini-3.1-pro"}}', "quota"],
     [429, '{"error":{"code":429,"message":"rate limited","details":[{"quotaId":"GenerateRequestsPerMinutePerProjectPerModel-FreeTier"}]}}', "rate"],
     [402, '{"error":{"message":"Your prepayment credits are depleted."}}', "quota"],
+    [400, '{"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API."}}', "quota"],
     [529, '{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}', "overloaded"],
     [429, '{"error":{"type":"insufficient_quota","message":"You exceeded your current quota"}}', "quota"],
     [400, '{"error":{"message":"bad request"}}', "invalid"],
+    [403, '{"error":{"message":"The model `gpt-9` does not exist or you do not have access to it.","type":"invalid_request_error","code":"model_not_found"}}', "model"],
   ] as const)("%i %s → %s", (status, body, kind) => {
     expect(classify(status, body)).toBe(kind);
   });

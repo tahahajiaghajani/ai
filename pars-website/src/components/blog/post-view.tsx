@@ -5,7 +5,7 @@ import { listPosts } from "@/lib/blog";
 import { env } from "@/lib/env";
 import { copy, href, type Lang } from "@/lib/i18n";
 import { ArticleBody, headings } from "@/components/blog/article-body";
-import { textDir } from "@/components/chat/markdown";
+import { langOf, textDir } from "@/components/chat/markdown";
 import { AskButton } from "@/components/blog/ask-button";
 import { PostCard, PostMeta } from "@/components/blog/post-card";
 import { RevealObserver } from "@/components/site/reveal-observer";
@@ -50,7 +50,7 @@ export async function PostView({ post, lang }: { post: Post; lang: Lang }) {
             <PostMeta post={post} lang={lang} t={t} />
           </div>
           {post.excerpt && (
-            <p style={{ "--d": 3 } as CSSProperties} dir={textDir(post.excerpt)} className="justified mt-6 text-[1.05rem] leading-9 text-fg/80">
+            <p style={{ "--d": 3 } as CSSProperties} dir={textDir(post.excerpt)} lang={langOf(textDir(post.excerpt))} className="justified mt-6 text-[1.05rem] leading-9 text-fg/80">
               {post.excerpt}
             </p>
           )}

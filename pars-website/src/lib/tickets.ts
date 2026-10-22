@@ -224,6 +224,7 @@ ${knowledge}
       ai_triage: { ...j, reply: undefined, model, at: new Date().toISOString() },
       due_at: dueAt(t.created_at, priority),
     };
+    await noteAi({ ok: true, model }).catch(() => {});
     const { error } = await c.from("pars_tickets").update(patch).eq("id", t.id);
     if (error) {
       console.error("[triage] update failed", error);
@@ -251,7 +252,8 @@ ${knowledge}
 </knowledge>`;
   try {
     // the visitor is waiting on the form: give up quickly and let them submit the ticket
-    const { text } = await complete({ ...rt, temperature: 0.2 }, system, [{ role: "user", content: `${subject}\n\n${body}`.slice(0, 4000) }], { maxTokens: 500, signal: AbortSignal.timeout(25_000) });
+    const { text, model } = await complete({ ...rt, temperature: 0.2 }, system, [{ role: "user", content: `${subject}\n\n${body}`.slice(0, 4000) }], { maxTokens: 500, signal: AbortSignal.timeout(25_000) });
+    await noteAi({ ok: true, model }).catch(() => {});
     const out = text.trim();
     if (!out || /^NONE\b/i.test(out) || out.length < 20) return null;
     return out;

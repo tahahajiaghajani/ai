@@ -17,6 +17,8 @@ export interface StreamRequest {
   maxTokens: number;
   json?: boolean;
   signal?: AbortSignal;
+  /** called whenever the provider sends anything (headers, thinking / reasoning events, pings), before visible text too */
+  onProgress?: () => void;
 }
 
 /**
@@ -54,12 +56,15 @@ const THINKING_ROOM = 4096;
 export function classify(status: number, text: string): ProviderErrorKind {
   // Gemini answers 400 FAILED_PRECONDITION when the calling server is in an unsupported country
   if (/User location is not supported|unsupported_country|country, region,? or territory/i.test(text)) return "region";
-  if (status === 402) return "quota";
-  if (status === 429 || /RESOURCE_EXHAUSTED|rate_limit_error|insufficient_quota/i.test(text)) {
-    // a daily quota (Gemini quotaId …PerDay…), no free tier for this model ("limit: 0") or no credit left: waiting a few seconds won't help
-    return /PerDay|limit: 0\b|insufficient_quota|credit balance|credits are depleted|prepayment/i.test(text) ? "quota" : "rate";
+  // no credit left (OpenAI 429, Anthropic 400, prepaid Gemini 429, relays 402): waiting won't help
+  if (status === 402 || /insufficient_quota|credit balance|credits are depleted|prepayment/i.test(text)) return "quota";
+  if (status === 429 || /RESOURCE_EXHAUSTED|rate_limit_error/i.test(text)) {
+    // a daily quota (Gemini quotaId …PerDay…) or no free tier for this model ("limit: 0") vs a per-minute limit
+    return /PerDay|limit: 0\b/i.test(text) ? "quota" : "rate";
   }
   if ([500, 502, 503, 504, 529].includes(status) || /overloaded|UNAVAILABLE|high demand/i.test(text)) return "overloaded";
+  // OpenAI answers 403 for a model the key may not use: another model may still work
+  if (/model_not_found|does not have access to (the )?model/i.test(text)) return "model";
   if (status === 401 || status === 403 || /api[_ ]?key|PERMISSION_DENIED|UNAUTHENTICATED|unauthori[sz]ed|invalid x-api-key|reported as leaked|denied access/i.test(text)) return "auth";
   if (status === 404 || /not found|does not exist|unknown model|model_not_found|no longer available/i.test(text)) return "model";
   if (status === 400) return "invalid";
@@ -95,7 +100,7 @@ function parse(data: string): Record<string, any> | null {
 }
 
 /** Server-sent events → `data:` payloads. */
-async function* sse(res: Response): AsyncGenerator<string> {
+async function* sse(res: Response, onData?: () => void): AsyncGenerator<string> {
   if (!res.body) return;
   const reader = res.body.getReader();
   const dec = new TextDecoder();
@@ -103,6 +108,7 @@ async function* sse(res: Response): AsyncGenerator<string> {
   for (;;) {
     const { value, done } = await reader.read();
     if (done) break;
+    onData?.();
     buf += dec.decode(value, { stream: true });
     let i: number;
     while ((i = buf.indexOf("\n")) >= 0) {
@@ -164,9 +170,10 @@ async function* google(r: StreamRequest): AsyncGenerator<string> {
     res = await call(true, signature);
   }
   if (!res.ok) await fail(res);
+  r.onProgress?.();
   let finish = "";
   let yielded = false;
-  for await (const data of sse(res)) {
+  for await (const data of sse(res, r.onProgress)) {
     const j = data ? parse(data) : null;
     if (!j) continue;
     if (j.error) throw errorFrom(Number(j.error.code) || 500, JSON.stringify(j));
@@ -204,9 +211,10 @@ async function* anthropic(r: StreamRequest): AsyncGenerator<string> {
     }),
   });
   if (!res.ok) await fail(res);
+  r.onProgress?.();
   let stop = "";
   let yielded = false;
-  for await (const data of sse(res)) {
+  for await (const data of sse(res, r.onProgress)) {
     const j = data ? parse(data) : null;
     if (!j) continue;
     if (j.type === "content_block_delta" && j.delta?.type === "text_delta") {
@@ -240,9 +248,10 @@ async function* openai(r: StreamRequest): AsyncGenerator<string> {
     }),
   });
   if (!res.ok) await fail(res);
+  r.onProgress?.();
   let finish = "";
   let yielded = false;
-  for await (const data of sse(res)) {
+  for await (const data of sse(res, r.onProgress)) {
     const j = data && data !== "[DONE]" ? parse(data) : null;
     if (!j) continue;
     if (j.error) throw errorFrom(Number(j.error.code) || 500, JSON.stringify(j));

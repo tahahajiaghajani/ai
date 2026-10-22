@@ -15,7 +15,7 @@ import { DEFAULT_SETTINGS, type AiSettings, type ChatSettings, type NotifySettin
 import { DEFAULT_KNOWLEDGE } from "@/lib/knowledge-default";
 import { getKnowledge } from "@/lib/knowledge";
 import { selectKnowledge } from "@/lib/retrieval";
-import { chatSystemPrompt, complete, runtimeFrom, type Attempt } from "@/lib/ai/runtime";
+import { chatSystemPrompt, complete, noteAi, runtimeFrom, type Attempt } from "@/lib/ai/runtime";
 import { ProviderError } from "@/lib/ai/providers";
 import { aiErrorText } from "@/lib/ai-errors";
 import { notifyTeam } from "@/lib/notify";
@@ -156,6 +156,9 @@ export async function testAi(input?: { provider: ProviderId; model: string; base
         signal: AbortSignal.timeout(90_000),
         onAttempt: (x) => attempts.push(x),
       });
+      // a passing test of the setup visitors actually use clears the "last error" warning on the connections page
+      const saved = !key && (!input || (input.provider === s.ai.provider && ai.model === s.ai.model && ai.baseUrl === s.ai.baseUrl));
+      if (saved && s.ai.enabled) await noteAi({ ok: true, model }, { force: true });
       return { ok: true, success: true, answer: text.replace(/\[\[[^\]]*\]\]/g, "").trim(), model, ms: Date.now() - started, attempts, error: "" };
     } catch (e) {
       const error = e instanceof ProviderError ? aiErrorText(e) : e instanceof Error && e.name === "TimeoutError" ? "آزمایش در ۹۰ ثانیه تمام نشد." : e instanceof Error ? e.message.slice(0, 300) : "خطا";

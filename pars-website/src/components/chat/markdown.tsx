@@ -45,6 +45,11 @@ const RTL_LETTER = /(?=\p{L})[\p{Script=Arabic}\p{Script=Hebrew}]/gu;
  * once at least a third of its letters are Persian/Arabic. Code, URLs and link targets don't count.
  * Undefined when there are no letters — the block keeps the page direction.
  */
+/** The language a direction implies on this site (lets English blocks in Persian posts hyphenate when justified). */
+export function langOf(dir: "rtl" | "ltr" | undefined): "fa" | "en" | undefined {
+  return dir === "ltr" ? "en" : dir === "rtl" ? "fa" : undefined;
+}
+
 export function textDir(text: string): "rtl" | "ltr" | undefined {
   const words = text.replace(/`[^`]*`/g, "").replace(/\]\([^)]*\)/g, "]").replace(/(?:https?:\/\/|mailto:|www\.)\S+/g, "");
   const letters = words.match(LETTER);

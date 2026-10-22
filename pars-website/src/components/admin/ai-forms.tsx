@@ -49,7 +49,7 @@ export function AiForm({ initial, envKey }: { initial: AiInitial; envKey: boolea
         <Field label="کلید API" hint={f.keyUnreadable ? "کلید ذخیره‌شده خوانده نمی‌شود (APP_SECRET عوض شده)؛ دوباره واردش کنید" : f.hasKey ? `ذخیره‌شده ${f.apiKeyHint ?? ""}` : envKey ? "فعلاً از GEMINI_API_KEY محیط" : "تنظیم نشده"}>
           <Input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={f.hasKey ? "برای تغییر، کلید تازه را وارد کنید" : preset.hint} dir="ltr" autoComplete="off" />
           {f.hasKey && (
-            <button type="button" className="mt-2 text-xs text-danger hover:underline" onClick={() => confirm("کلید ذخیره‌شده حذف شود؟") && run(() => saveAi({ ...f, fallbackModels: fallbacks.split(/\s+/).filter(Boolean), clearKey: true }), { onOk: () => setF({ ...f, hasKey: false }) })}>
+            <button type="button" className="mt-2 text-xs text-danger hover:underline" onClick={() => confirm("کلید ذخیره‌شده حذف شود؟") && run(() => saveAi({ ...f, fallbackModels: fallbacks.split(/\s+/).filter(Boolean), clearKey: true }), { onOk: () => setF({ ...f, hasKey: false, keyUnreadable: false }) })}>
               حذف کلید ذخیره‌شده
             </button>
           )}
@@ -86,7 +86,9 @@ export function AiForm({ initial, envKey }: { initial: AiInitial; envKey: boolea
             onClick={() =>
               run(() => saveAi({ ...f, fallbackModels: fallbacks.split(/\s+/).filter(Boolean), apiKey }), {
                 onOk: () => {
-                  if (apiKey) setF({ ...f, hasKey: true, apiKeyHint: `…${apiKey.slice(-4)}` });
+                  // same cleaning as the server (spaces and invisible marks), so the hint shows the stored key's end
+                  const k = apiKey.replace(/[\s\p{Cf}]/gu, "");
+                  if (k) setF({ ...f, hasKey: true, keyUnreadable: false, apiKeyHint: `…${k.slice(-4)}` });
                   setApiKey("");
                 },
               })
