@@ -6,6 +6,7 @@ import { Footer } from "@/components/site/footer";
 import { DemoSheet } from "@/components/site/demo-sheet";
 import { ChatProvider } from "@/components/chat/chat-context";
 import { AdminShortcut } from "@/components/site/admin-shortcut";
+import { AnchorScroll } from "@/components/site/anchor-scroll";
 
 /** Header, footer, the assistant and the demo sheet around every public page. */
 export async function SiteChrome({ lang, children }: { lang: Lang; children: ReactNode }) {
@@ -25,6 +26,7 @@ export async function SiteChrome({ lang, children }: { lang: Lang; children: Rea
       <Footer lang={lang} t={t} site={s.site} />
       <DemoSheet lang={lang} t={t.demos} customHref={`${href(lang, "/support")}?category=demo`} />
       <AdminShortcut label={t.nav.admin} />
+      <AnchorScroll />
     </ChatProvider>
   );
 }

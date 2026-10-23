@@ -408,6 +408,12 @@ html.js [data-reveal="scale"]:not([data-in]) {
   content-visibility: auto;
   contain-intrinsic-size: auto 900px;
 }
+/* rendered for real before a jump to a section (anchor-scroll.tsx) or when the page opens on one, so the browser
+   measures real heights, not the 900 px placeholders */
+html[data-cv="all"] .cv-auto,
+html:has(:target) .cv-auto {
+  content-visibility: visible;
+}
 
 /* prose for assistant answers and ticket messages */
 .prose-chat {
