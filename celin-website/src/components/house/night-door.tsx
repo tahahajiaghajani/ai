@@ -45,7 +45,7 @@ export function NightDoor({
       <Grain />
       <div className="container-lux relative flex flex-col items-center py-16 text-center">
         {top}
-        <div className="relative grid aspect-[4/3] w-[min(86vw,520px)] place-items-end justify-center">
+        <div className="relative grid aspect-[4/3] w-[min(88vw,560px)] place-items-end justify-center">
           <ArchLines count={6} tone="champagne" immediate delay={80} className="pointer-events-none absolute inset-0 size-full" />
           <span aria-hidden className="absolute inset-x-[-8%] bottom-0 block h-px bg-[image:var(--metal-champagne)] opacity-60" />
           <div className="relative pb-[9%]">
@@ -53,7 +53,7 @@ export function NightDoor({
               <RhombusDigits
                 text={code}
                 lang={lang}
-                className="display text-[clamp(6.5rem,26vw,11rem)] leading-[1.1] font-bold text-metal-light metal-live"
+                className="display text-[clamp(5rem,20vw,8rem)] leading-[1.1] font-bold text-metal-light metal-live"
                 zeroClassName="drop-shadow-[0_0_18px_rgb(233_185_138/0.35)]"
               />
             ) : (
