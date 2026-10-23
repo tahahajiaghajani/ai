@@ -88,7 +88,7 @@ async function uploadVideo(file: File, stage: (s: Stage) => void): Promise<Video
   return done.video;
 }
 
-export function SlotVideoField({ video, poster, ratio, onChange }: { video: Video | null; poster: Media; ratio: string; onChange: (v: Video | null) => void }) {
+export function SlotVideoField({ video, poster, ratio, onChange, onBusy }: { video: Video | null; poster: Media; ratio: string; onChange: (v: Video | null) => void; onBusy?: (busy: boolean) => void }) {
   const input = useRef<HTMLInputElement>(null);
   const [stage, setStage] = useState<Stage>(null);
   const [error, setError] = useState("");
@@ -97,6 +97,7 @@ export function SlotVideoField({ video, poster, ratio, onChange }: { video: Vide
   const pick = async (file: File | undefined) => {
     if (!file) return;
     setError("");
+    onBusy?.(true);
     try {
       const v = await uploadVideo(file, setStage);
       onChange(v);
@@ -104,6 +105,7 @@ export function SlotVideoField({ video, poster, ratio, onChange }: { video: Vide
       setError(e instanceof Error ? e.message : "بارگذاری انجام نشد.");
     } finally {
       setStage(null);
+      onBusy?.(false);
     }
   };
 

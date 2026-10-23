@@ -179,6 +179,7 @@ function SlotForm({
   onDone: () => void;
 }) {
   const [focalOpen, setFocalOpen] = useState(false);
+  const [videoBusy, setVideoBusy] = useState(false);
   const adopt = useAction();
   const save = useAction();
   const reset = useAction();
@@ -304,7 +305,7 @@ function SlotForm({
         </div>
       )}
 
-      {def.video && <SlotVideoField video={draft.video} poster={shown} ratio={cssRatio(def.ratio)} onChange={(video) => patch({ video })} />}
+      {def.video && <SlotVideoField video={draft.video} poster={shown} ratio={cssRatio(def.ratio)} onChange={(video) => patch({ video })} onBusy={setVideoBusy} />}
 
       {def.texts.length > 0 && (
         <div className="space-y-4 border-t border-line pt-5">
@@ -347,7 +348,7 @@ function SlotForm({
           <Button variant="ghost" onClick={onDone}>
             انصراف
           </Button>
-          <Button icon="check" pending={save.pending} onClick={onSave}>
+          <Button icon="check" pending={save.pending} disabled={videoBusy} onClick={onSave}>
             ذخیره
           </Button>
         </div>
