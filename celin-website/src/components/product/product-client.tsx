@@ -106,7 +106,7 @@ function Gallery({ lang, product, images, index, setIndex }: { lang: Lang; produ
 
       {/* the arch window */}
       <div className="relative min-w-0 flex-1 pt-9 pb-5 lg:py-0">
-        <div className="relative mx-auto lg:w-[min(100%,calc((100svh-var(--header-h)-9rem)*0.8))]">
+        <div className="relative mx-auto lg:w-[min(100%,calc((100svh-var(--header-h)-15rem)*0.8))]">
           <div aria-hidden className="pointer-events-none absolute inset-x-[3vw] -top-[7%] bottom-0 lg:inset-x-[-24%] lg:-top-[10%]">
             <ArchLines count={4} className="size-full opacity-80" />
           </div>
