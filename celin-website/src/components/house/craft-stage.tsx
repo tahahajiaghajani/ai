@@ -23,7 +23,7 @@ export interface CraftStep {
  * scroll past it, and each step fills the arch with its own picture from the crown down (a column of
  * numerals marks the step). On phones every step carries its own arch. Without JS the first picture stays.
  */
-export function CraftStage({ lang, steps, label }: { lang: Lang; steps: CraftStep[]; label: (n: string) => string }) {
+export function CraftStage({ lang, steps, label }: { lang: Lang; steps: CraftStep[]; /** «مرحله‌ی» / "Step" */ label: string }) {
   const [active, setActive] = useState(0);
   const list = useRef<HTMLOListElement>(null);
 
@@ -99,7 +99,7 @@ export function CraftStage({ lang, steps, label }: { lang: Lang; steps: CraftSte
               <span aria-hidden className="display block text-[clamp(5rem,12vw,8.5rem)] leading-[1.1]! font-bold text-metal">
                 {ordinal(i + 1, lang)}
               </span>
-              <p className="label mt-1 text-gold-text!">{label(num(i + 1, lang))}</p>
+              <p className="label mt-1 text-gold-text!">{`${label} ${num(i + 1, lang)}`}</p>
               <SplitWords as="h3" text={s.title} className="display mt-4 text-[2.125rem] leading-[1.4]! font-bold text-ink sm:text-5xl" />
               <p className="mt-6 max-w-xl text-lg leading-10 text-ink-2" data-reveal>
                 {s.body}

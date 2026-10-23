@@ -15,7 +15,7 @@ export const craftCopy = {
     steps: {
       eyebrow: "چهار مرحله",
       title: "مسیر ساخت یک قطعه",
-      step: (n: string) => `مرحله‌ی ${n}`,
+      step: "مرحله‌ی",
       tags: [
         ["به‌روزترین طرح‌های روز دنیا", "دیزاینرهای بین‌المللی"],
         ["کیوبیک زیرکونیا", "تراش اتمی"],
@@ -40,7 +40,7 @@ export const craftCopy = {
     steps: {
       eyebrow: "Four steps",
       title: "How a piece is made",
-      step: (n: string) => `Step ${n}`,
+      step: "Step",
       tags: [
         ["The latest designs of the world", "International designers"],
         ["Cubic zirconia", "Atomic cut"],

@@ -26,12 +26,12 @@ export function ServicesStrip({ lang }: { lang: Lang }) {
       <ul className="container-lux grid gap-10 py-14 sm:grid-cols-3 sm:gap-0 sm:py-16">
         {c.services.map((s, i) => (
           <li key={s.title} className="flex items-start gap-5 sm:border-s sm:border-gold/20 sm:px-8 sm:first:border-s-0 sm:first:ps-0 lg:px-12" data-reveal style={{ "--d": i } as CSSProperties}>
-            <span aria-hidden className="relative grid h-14 w-11 shrink-0 place-items-center">
+            <span aria-hidden className="relative grid h-16 w-12 shrink-0 place-items-center">
               <span className="arch absolute inset-0 border border-gold/45 border-b-0" />
               <svg viewBox="0 0 10 10" className="absolute left-1/2 top-0 size-1.5 -translate-x-1/2 -translate-y-1/2 text-gold">
                 <path d="M5 0 10 5 5 10 0 5Z" fill="currentColor" />
               </svg>
-              <span className="display mt-2 text-xl font-bold text-metal">{num(String(i + 1).padStart(2, "0"), lang)}</span>
+              <span className="display mt-3 text-2xl font-bold text-metal">{num(String(i + 1).padStart(2, "0"), lang)}</span>
             </span>
             <span>
               <span className="display block text-xl font-bold text-ink">{s.title}</span>
