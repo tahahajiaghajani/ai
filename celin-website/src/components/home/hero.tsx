@@ -4,13 +4,15 @@ import Link from "next/link";
 import { useEffect, useRef, type CSSProperties } from "react";
 import type { Lang } from "@/lib/format";
 import { href } from "@/lib/i18n";
-import type { Media } from "@/lib/media";
+import { mediaUrl, type Media } from "@/lib/media";
+import type { Video } from "@/lib/video";
 import { Arch } from "@/components/fx/arch";
 import { ArchLines } from "@/components/fx/arch-lines";
 import { Aura } from "@/components/fx/aura";
 import { Grain } from "@/components/fx/grain";
 import { Magnetic } from "@/components/fx/magnetic";
 import { SplitWords } from "@/components/fx/split-words";
+import { SlotVideo } from "@/components/fx/slot-video";
 import { finePointer, motionReduced } from "@/components/fx/motion";
 import { gsap } from "@/components/fx/gsap";
 import { useGsap } from "@/components/fx/use-gsap";
@@ -23,7 +25,7 @@ export interface HeroData {
   cta: string;
   href: string;
   all: string;
-  a: { media: Media; mobile: Media | null };
+  a: { media: Media; mobile: Media | null; video?: Video | null };
   b: Media;
   c: Media;
 }
@@ -96,7 +98,9 @@ export function HomeHero({ lang, d }: { lang: Lang; d: HeroData }) {
             </div>
             <div data-part="centre" className="w-[45%] origin-bottom" data-depth="7" data-cursor="view">
               <Link href={href(lang, d.href)} aria-label={d.cta} className="block">
-                <Arch media={d.a.media} mobile={d.a.mobile} lang={lang} sizes="(min-width: 1024px) 27vw, 45vw" ratio="3/4.3" priority ring="champagne" keystone unveil afterIntro delay={150} sparkle={14} />
+                <Arch media={d.a.media} mobile={d.a.mobile} lang={lang} sizes="(min-width: 1024px) 27vw, 45vw" ratio="3/4.3" priority ring="champagne" keystone unveil afterIntro delay={150} sparkle={14}>
+                  {d.a.video && <SlotVideo video={d.a.video} poster={mediaUrl(d.a.media, 960)} position={`${d.a.media.fx}% ${d.a.media.fy}%`} />}
+                </Arch>
               </Link>
             </div>
             <div data-part="end" className="w-[27.5%]" data-depth="14">
@@ -108,8 +112,8 @@ export function HomeHero({ lang, d }: { lang: Lang; d: HeroData }) {
         </div>
 
         {/* the words */}
-        <div data-part="copy" className="relative order-2 text-center [--reveal-base:calc(var(--intro-delay,0s)_+_400ms)] lg:order-1 lg:col-span-5 lg:text-start">
-          <p className="label flex items-center justify-center gap-3 text-gold-on-dark! lg:justify-start" data-reveal style={{ "--d": 1 } as CSSProperties}>
+        <div data-part="copy" className="relative order-2 text-center lg:order-1 lg:col-span-5 lg:text-start">
+          <p className="fx-in label flex items-center justify-center gap-3 text-gold-on-dark! lg:justify-start" style={{ "--in": 0 } as CSSProperties}>
             <svg viewBox="0 0 10 10" className="size-2 text-gold-glow" aria-hidden>
               <path d="M5 0 10 5 5 10 0 5Z" fill="currentColor" />
             </svg>
@@ -123,10 +127,10 @@ export function HomeHero({ lang, d }: { lang: Lang; d: HeroData }) {
             className="display mt-4 text-[clamp(2.75rem,11vw,4rem)] leading-[1.3]! font-bold sm:text-6xl lg:mt-6 lg:text-[clamp(4rem,6.4vw,7rem)]"
             wordClassName="text-metal-light metal-live"
           />
-          <p className="mx-auto mt-5 max-w-md text-lg leading-9 text-on-night-muted lg:mx-0 lg:mt-7 lg:text-xl lg:leading-10" data-reveal style={{ "--d": 6 } as CSSProperties}>
+          <p className="mx-auto mt-5 max-w-md text-lg leading-9 text-on-night-muted lg:mx-0 lg:mt-7 lg:text-xl lg:leading-10 fx-in" style={{ "--in": 4 } as CSSProperties}>
             {d.subtitle}
           </p>
-          <div className="mt-8 flex flex-wrap items-center justify-center gap-x-6 gap-y-4 lg:mt-10 lg:justify-start" data-reveal style={{ "--d": 8 } as CSSProperties}>
+          <div className="mt-8 flex flex-wrap items-center justify-center gap-x-6 gap-y-4 lg:mt-10 lg:justify-start fx-in" style={{ "--in": 5 } as CSSProperties}>
             <Magnetic>
               <Link href={href(lang, d.href)} className="btn btn-metal h-13 px-8 text-[0.9375rem]">
                 {d.cta}

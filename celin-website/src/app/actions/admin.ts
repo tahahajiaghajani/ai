@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { after } from "next/server";
 import { checkPassword, endSession, startSession } from "@/lib/admin-auth";
 import { USERS, currentUser, startUserSession } from "@/lib/auth";
 import { cleanKey, guard } from "@/lib/admin-action";
@@ -16,6 +17,8 @@ import { clientIp } from "@/lib/request";
 import { getSettingsFresh, saveSettings } from "@/lib/settings";
 import { DEFAULT_SETTINGS, type NotifyChannel, type SmsProvider } from "@/lib/settings-types";
 import { resetSlot, saveSlot } from "@/lib/slots";
+import { createVideoUpload, finishVideoUpload, pruneVideos } from "@/lib/admin-video";
+import type { Video } from "@/lib/video";
 import { sendSms } from "@/lib/sms";
 import { text, type Result } from "@/lib/action";
 
@@ -207,7 +210,7 @@ export async function resetSettingsGroup(input: Record<string, unknown>): Promis
 
 export async function adminSaveSlot(input: Record<string, unknown>): Promise<Result> {
   return guard(async () => {
-    await saveSlot(text(input.key, 60), { media_id: input.media_id, media_mobile_id: input.media_mobile_id, texts: input.texts });
+    await saveSlot(text(input.key, 60), { media_id: input.media_id, media_mobile_id: input.media_mobile_id, ...("video_id" in input ? { video_id: input.video_id } : {}), texts: input.texts });
     refresh();
     return { ok: true, message: "تصویر و متن این بخش ذخیره شد و در سایت نمایش داده می‌شود." };
   });
@@ -218,5 +221,22 @@ export async function adminResetSlot(input: Record<string, unknown>): Promise<Re
     await resetSlot(text(input.key, 60));
     refresh();
     return { ok: true, message: "این بخش به تصویر و متن پیش‌فرض برگشت." };
+  });
+}
+
+/** Slot video, step 1: checks the picked file (type, size) and returns a one-time upload URL for the browser. */
+export async function adminVideoUploadUrl(input: Record<string, unknown>): Promise<Result<{ path: string; url: string }>> {
+  return guard(async () => {
+    const r = await createVideoUpload({ type: input.type, name: input.name, size: input.size });
+    return { ok: true, ...r };
+  });
+}
+
+/** Slot video, step 2: after the browser's upload — checks the stored file and records it. */
+export async function adminFinishVideo(input: Record<string, unknown>): Promise<Result<{ video: Video }>> {
+  return guard(async () => {
+    const video = await finishVideoUpload({ path: input.path, width: input.width, height: input.height, duration: input.duration });
+    after(() => pruneVideos().catch((e) => console.error("[admin] video cleanup", e)));
+    return { ok: true, message: "ویدئو بارگذاری شد؛ برای نمایش در سایت «ذخیره» را بزنید.", video };
   });
 }

@@ -28,6 +28,8 @@ export interface SlotDef {
   mobileRatio?: string;
   /** a separate phone picture may be set */
   mobile?: boolean;
+  /** a looping background video may be set (the picture stays its poster and fallback) */
+  video?: boolean;
   /** what kind of photo works best (fa) */
   hint: string;
   image: SeedKey;
@@ -48,6 +50,7 @@ export const SLOTS: SlotDef[] = [
     ratio: "3:4",
     mobileRatio: "4:5",
     mobile: true,
+    video: true,
     hint: "عکس روی مدل (گردن یا دست)، روشن، با جواهر در مرکز",
     image: "choker-rose",
     texts: [
@@ -103,6 +106,7 @@ export const SLOTS: SlotDef[] = [
     section: "بخش تیره — هنر تراش اتمی",
     ratio: "3:4",
     mobileRatio: "4:5",
+    video: true,
     hint: "عکس استودیویی نگین روی زمینه‌ی تیره",
     image: "ring-paraiba-oval",
     texts: [
@@ -241,18 +245,56 @@ export const SLOTS: SlotDef[] = [
     section: "تصویر سرآغاز",
     ratio: "3:4",
     mobileRatio: "4:5",
+    video: true,
     hint: "عکس روی مدل",
     image: "set-tennis-lace",
     texts: [
-      { key: "title", label: "عنوان", fa: "گالری اعتماد", en: "Etemad Gallery" },
-      { key: "subtitle", label: "یک جمله", multiline: true, fa: "جایی که سلین طراحی، نشانده و پرداخت می‌شود.", en: "Where CELIN is designed, set and finished." },
+      { key: "eyebrow", label: "برچسب کوچک بالای عنوان", fa: "گالری اعتماد · از ۱۳۸۵", en: "Etemad Gallery · since 2006" },
+      { key: "title", label: "عنوان", fa: "فراتر از یک زیور", en: "More than an ornament" },
+      { key: "subtitle", label: "یک جمله", multiline: true, fa: "امضایی از ظرافت، کیفیت و اصالت", en: "A signature of finesse, quality and authenticity" },
     ],
+  },
+  {
+    key: "maison.chapter.1",
+    page: "گالری اعتماد (درباره‌ی ما)",
+    section: "فصل ۱ — با الهام از طلا و جواهر",
+    ratio: "3:4",
+    hint: "عکس روی مدل از قطعه‌ای با ساختار جواهری",
+    image: "necklace-triple-tennis",
+    texts: [],
+  },
+  {
+    key: "maison.chapter.2",
+    page: "گالری اعتماد (درباره‌ی ما)",
+    section: "فصل ۲ — طرح‌هایی متمایز",
+    ratio: "3:4",
+    hint: "عکس روی مدل از یک طرح شاخص",
+    image: "set-bow-ruby",
+    texts: [],
+  },
+  {
+    key: "maison.chapter.3",
+    page: "گالری اعتماد (درباره‌ی ما)",
+    section: "فصل ۳ — اعتماد، مسیر ما را ساخت",
+    ratio: "3:4",
+    hint: "عکس گرم روی دست",
+    image: "rings-heart-signet",
+    texts: [],
+  },
+  {
+    key: "maison.chapter.4",
+    page: "گالری اعتماد (درباره‌ی ما)",
+    section: "فصل ۴ — فراتر از تعریف متداول",
+    ratio: "3:4",
+    hint: "عکس استودیویی یک نگین درخشان",
+    image: "ring-paraiba-oval-side",
+    texts: [],
   },
   {
     key: "maison.story",
     page: "گالری اعتماد (درباره‌ی ما)",
-    section: "تصویر داستان",
-    ratio: "4:5",
+    section: "تصویر کنار جمله‌ی «سلین؛ برای کسانی که…»",
+    ratio: "3:4",
     hint: "عکس جزئیات روی دست",
     image: "rings-heart-leaf",
     texts: [],
@@ -263,29 +305,47 @@ export const SLOTS: SlotDef[] = [
     section: "تصویر سرآغاز",
     ratio: "3:4",
     mobileRatio: "4:5",
+    video: true,
     hint: "عکس استودیویی نگین روی زمینه‌ی تیره",
-    image: "ring-paraiba-cushion",
+    image: "ring-paraiba-oval",
     texts: [
-      { key: "title", label: "عنوان", fa: "هنر تراش اتمی", en: "The art of the atomic cut" },
-      { key: "subtitle", label: "یک جمله", multiline: true, fa: "هر وجه، سنجیده.", en: "Every facet, considered." },
+      { key: "eyebrow", label: "برچسب کوچک بالای عنوان", fa: "هنر ساخت", en: "The craft" },
+      { key: "title", label: "عنوان", fa: "از طرح تا درخشش", en: "From design to brilliance" },
+      { key: "subtitle", label: "یک جمله", multiline: true, fa: "در سلین، هر قطعه با الهام از ساختار و ظرافت طلا و جواهر طراحی و ساخته می‌شود.", en: "At CELIN, every piece is designed and made after the structure and finesse of gold and fine jewelry." },
     ],
   },
   {
     key: "craft.plating",
     page: "هنر تراش",
-    section: "تصویر آبکاری",
-    ratio: "4:5",
+    section: "تصویر آبکاری (رودیوم و طلا)",
+    ratio: "3:4",
     hint: "عکسی که دو رنگ طلایی و نقره‌ای را کنار هم نشان دهد",
-    image: "bangles-sapphire",
-    texts: [],
+    image: "bangles-emerald",
+    texts: [
+      { key: "title", label: "عنوان", fa: "آبکاری رودیوم و طلا", en: "Rhodium & gold plating" },
+      { key: "body", label: "متن کوتاه", multiline: true, fa: "آبکاری‌های باکیفیت رودیوم و طلا، برای درخششی ماندگار در رنگ‌های نقره‌ای و طلایی.", en: "Quality rhodium and gold plating, for a lasting shine in silver and gold tones." },
+    ],
   },
   {
     key: "care.hero",
     page: "نگهداری و ضمانت",
     section: "تصویر سرآغاز",
-    ratio: "4:5",
+    ratio: "3:4",
     hint: "عکس روی دست با پس‌زمینه‌ی روشن",
     image: "ring-gold-pave-rows",
+    texts: [
+      { key: "eyebrow", label: "برچسب کوچک بالای عنوان", fa: "نگهداری و ضمانت", en: "Care & warranty" },
+      { key: "title", label: "عنوان", fa: "برای درخششی ماندگار", en: "For a lasting shine" },
+      { key: "subtitle", label: "یک جمله", multiline: true, fa: "نگهداری، بسته‌بندی و ارسال، و پشتیبانی آثار سلین.", en: "Caring for your CELIN pieces, packaging and delivery, and our support." },
+    ],
+  },
+  {
+    key: "care.packaging",
+    page: "نگهداری و ضمانت",
+    section: "تصویر بسته‌بندی و ارسال",
+    ratio: "3:4",
+    hint: "عکس جعبه و بسته‌بندی سلین، یا یک قطعه کنار جعبه",
+    image: "set-baguette-drops",
     texts: [],
   },
   // ------------------------------------------------------------ account & Pro
@@ -314,10 +374,14 @@ export const SLOTS: SlotDef[] = [
     key: "contact.hero",
     page: "تماس",
     section: "تصویر صفحه‌ی تماس",
-    ratio: "4:5",
+    ratio: "3:4",
     hint: "عکس روی مدل",
     image: "earrings-sunburst",
-    texts: [],
+    texts: [
+      { key: "eyebrow", label: "برچسب کوچک بالای عنوان", fa: "تماس با سلین", en: "Contact CELIN" },
+      { key: "title", label: "عنوان", fa: "با ما در تماس باشید", en: "Get in touch" },
+      { key: "subtitle", label: "یک جمله", multiline: true, fa: "برای پرسش درباره‌ی آثار، سفارش‌ها و اشتراک Pro، از هر راهی که برایتان آسان‌تر است با ما گفتگو کنید.", en: "For questions about a piece, an order or Pro membership, reach us whichever way suits you best." },
+    ],
   },
 ];
 

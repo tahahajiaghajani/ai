@@ -1,10 +1,13 @@
 /** Client-safe slot shapes (see src/content/slots.ts and src/lib/slots.ts). */
 import type { Media } from "@/lib/media";
+import type { Video } from "@/lib/video";
 
 export interface ResolvedSlot {
   key: string;
   media: Media;
   mobile: Media | null;
+  /** optional looping background video (slots with `video: true`); `media` stays its poster and fallback */
+  video?: Video | null;
   texts: Record<string, { fa: string; en: string }>;
   /** changed in the admin (vs. the built-in default) */
   custom: boolean;

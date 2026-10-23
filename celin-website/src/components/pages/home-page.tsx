@@ -33,7 +33,7 @@ export async function HomePage({ lang }: { lang: Lang }) {
           cta: txt("home.hero.a", "cta"),
           href: txt("home.hero.a", "href") || "/shop",
           all: c.all,
-          a: { media: s("home.hero.a").media, mobile: s("home.hero.a").mobile },
+          a: { media: s("home.hero.a").media, mobile: s("home.hero.a").mobile, video: s("home.hero.a").video ?? null },
           b: s("home.hero.b").media,
           c: s("home.hero.c").media,
         }}
@@ -66,6 +66,7 @@ export async function HomePage({ lang }: { lang: Lang }) {
           href: txt("home.interlude", "href") || "/craft",
           media: s("home.interlude").media,
           mobile: s("home.interlude").mobile,
+          video: s("home.interlude").video ?? null,
         }}
       />
       {featured.length > 0 && <Featured lang={lang} products={featured} collectionNames={collectionNames} copy={c.featured} />}

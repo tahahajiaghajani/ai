@@ -6,6 +6,7 @@ import { adminResetSlot, adminSaveSlot } from "@/app/actions/admin";
 import type { SlotDef } from "@/content/slots";
 import type { SlotMap } from "@/lib/slot-types";
 import type { Media } from "@/lib/media";
+import type { Video } from "@/lib/video";
 import type { Result } from "@/lib/action";
 import { num } from "@/lib/format";
 import { Badge, Button, ConfirmButton, Dialog, Input, Textarea } from "@/components/admin/ui";
@@ -14,6 +15,7 @@ import { FocalPointEditor } from "@/components/admin/focal-point";
 import { ImageDropzone } from "@/components/admin/image-dropzone";
 import { MediaEditDialog } from "@/components/admin/media-edit";
 import { MediaPicker } from "@/components/admin/media-picker";
+import { SlotVideoField } from "@/components/admin/video-upload";
 import { Icon } from "@/components/ui/icons";
 import { Picture } from "@/components/ui/picture";
 
@@ -23,7 +25,7 @@ import { Picture } from "@/components/ui/picture";
  * picture itself (a built-in picture is first copied into the library for that).
  */
 
-export type SlotInfo = Pick<SlotDef, "key" | "page" | "section" | "ratio" | "mobileRatio" | "mobile" | "hint" | "image" | "texts">;
+export type SlotInfo = Pick<SlotDef, "key" | "page" | "section" | "ratio" | "mobileRatio" | "mobile" | "video" | "hint" | "image" | "texts">;
 
 const cssRatio = (r: string) => r.replace(":", "/");
 const shapeOf = (r: string) => {
@@ -37,6 +39,8 @@ interface Draft {
   /** null = the built-in picture */
   media: Media | null;
   mobile: Media | null;
+  /** slots with `video: true` only */
+  video: Video | null;
   texts: Record<string, { fa: string; en: string }>;
   fx: number;
   fy: number;
@@ -65,6 +69,7 @@ export function SlotsBoard({ defs, slots, defaults }: { defs: SlotInfo[]; slots:
       key: d.key,
       media: chosen,
       mobile: r?.mobile ?? null,
+      video: r?.video ?? null,
       texts: Object.fromEntries(d.texts.map((t) => [t.key, { fa: r?.texts[t.key]?.fa ?? t.fa, en: r?.texts[t.key]?.en ?? t.en }])),
       fx: shown.fx,
       fy: shown.fy,
@@ -108,6 +113,7 @@ export function SlotsBoard({ defs, slots, defaults }: { defs: SlotInfo[]; slots:
                           <Badge>{shapeLabel(d.ratio)}</Badge>
                           {d.mobileRatio && <Badge>موبایل {num(d.mobileRatio, "fa")}</Badge>}
                           {r?.mobile && <Badge tone="gold">عکس موبایل جدا</Badge>}
+                          {r?.video && <Badge tone="gold">ویدئو</Badge>}
                         </div>
                       </div>
                     </button>
@@ -201,7 +207,7 @@ function SlotForm({
           const r = await adminUpdateMedia({ id: draft.media.id, focal_x: draft.fx, focal_y: draft.fy });
           if (!r.ok) return r;
         }
-        return adminSaveSlot({ key: def.key, media_id: draft.media?.id ?? null, media_mobile_id: draft.mobile?.id ?? null, texts: draft.texts });
+        return adminSaveSlot({ key: def.key, media_id: draft.media?.id ?? null, media_mobile_id: draft.mobile?.id ?? null, ...(def.video ? { video_id: draft.video?.id ?? null } : {}), texts: draft.texts });
       },
       { onOk: onDone },
     );
@@ -297,6 +303,8 @@ function SlotForm({
           </div>
         </div>
       )}
+
+      {def.video && <SlotVideoField video={draft.video} poster={shown} ratio={cssRatio(def.ratio)} onChange={(video) => patch({ video })} />}
 
       {def.texts.length > 0 && (
         <div className="space-y-4 border-t border-line pt-5">

@@ -71,6 +71,7 @@ const TABLES = [
   "celin_settings",
   "celin_media",
   "celin_slots",
+  "celin_videos",
   "celin_categories",
   "celin_collections",
   "celin_products",

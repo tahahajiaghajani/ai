@@ -44,7 +44,7 @@ export default async function ImagesPage({ searchParams }: { searchParams: Promi
   }
 
   const slots = await getSlotsFresh();
-  const defs: SlotInfo[] = SLOTS.map(({ key, page, section, ratio, mobileRatio, mobile, hint, image, texts }) => ({ key, page, section, ratio, mobileRatio, mobile, hint, image, texts }));
+  const defs: SlotInfo[] = SLOTS.map(({ key, page, section, ratio, mobileRatio, mobile, video, hint, image, texts }) => ({ key, page, section, ratio, mobileRatio, mobile, video, hint, image, texts }));
   const defaults: Record<string, Media> = Object.fromEntries(SLOTS.map((s) => [s.key, SEED_MEDIA[s.image]]));
   return (
     <>

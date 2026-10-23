@@ -4,12 +4,14 @@ import Link from "next/link";
 import { useRef, type CSSProperties } from "react";
 import type { Lang } from "@/lib/format";
 import { href } from "@/lib/i18n";
-import type { Media } from "@/lib/media";
+import { mediaUrl, type Media } from "@/lib/media";
+import type { Video } from "@/lib/video";
 import { ArchLines } from "@/components/fx/arch-lines";
 import { Aura } from "@/components/fx/aura";
 import { Grain } from "@/components/fx/grain";
 import { gsap } from "@/components/fx/gsap";
 import { Sparkles } from "@/components/fx/sparkles";
+import { SlotVideo } from "@/components/fx/slot-video";
 import { SplitWords } from "@/components/fx/split-words";
 import { useGsap } from "@/components/fx/use-gsap";
 import { Picture } from "@/components/ui/picture";
@@ -22,6 +24,7 @@ export interface ApertureData {
   href: string;
   media: Media;
   mobile: Media | null;
+  video?: Video | null;
 }
 
 /**
@@ -70,6 +73,7 @@ export function Aperture({ lang, d }: { lang: Lang; d: ApertureData }) {
             <div data-ap="img" className="absolute inset-0 origin-bottom">
               <Picture media={d.media} mobile={d.mobile} lang={lang} sizes="(min-width: 1024px) 36vw, 78vw" className="absolute inset-0" />
               <Sparkles count={16} intensity={1.15} />
+              {d.video && <SlotVideo video={d.video} poster={mediaUrl(d.media, 960)} position={`${d.media.fx}% ${d.media.fy}%`} />}
             </div>
           </div>
           <span aria-hidden className="absolute inset-x-[-14%] -bottom-px block h-px bg-[image:var(--metal-champagne)] opacity-60" />
