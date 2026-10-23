@@ -18,6 +18,7 @@ export function NightDoor({
   body,
   background,
   under = false,
+  top,
   children,
 }: {
   lang: Lang;
@@ -30,6 +31,8 @@ export function NightDoor({
   background?: ReactNode;
   /** sits under the transparent header (site pages) */
   under?: boolean;
+  /** above the doorway (the logo on the global 404, which has no header) */
+  top?: ReactNode;
   children?: ReactNode;
 }) {
   return (
@@ -41,6 +44,7 @@ export function NightDoor({
       {background}
       <Grain />
       <div className="container-lux relative flex flex-col items-center py-16 text-center">
+        {top}
         <div className="relative grid aspect-[4/3] w-[min(86vw,520px)] place-items-end justify-center">
           <ArchLines count={6} tone="champagne" immediate delay={80} className="pointer-events-none absolute inset-0 size-full" />
           <span aria-hidden className="absolute inset-x-[-8%] bottom-0 block h-px bg-[image:var(--metal-champagne)] opacity-60" />
