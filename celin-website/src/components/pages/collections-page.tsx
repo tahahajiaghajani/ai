@@ -40,7 +40,7 @@ export async function CollectionsPage({ lang }: { lang: Lang }) {
                 {c.index.eyebrow}
               </Eyebrow>
               <SplitWords as="h1" text={c.index.title} immediate delay={150} className="display mt-5 text-[clamp(2.6rem,10vw,3.6rem)] leading-[1.3]! font-bold sm:text-7xl lg:text-[clamp(4.5rem,7vw,7rem)]" wordClassName="text-metal-light metal-live" />
-              <p className="mt-5 font-label text-xs tracking-[0.3em] text-on-night-muted" data-reveal style={{ "--d": 4 } as CSSProperties}>
+              <p className="label mt-5 text-on-night-muted!" data-reveal style={{ "--d": 4 } as CSSProperties}>
                 {c.index.count(num(collections.length, lang))}
               </p>
             </div>
@@ -67,7 +67,7 @@ export async function CollectionsPage({ lang }: { lang: Lang }) {
                     <span aria-hidden className="mx-auto block h-px w-[112%] -translate-x-[5.4%] bg-[image:var(--metal-champagne)] opacity-50 rtl:translate-x-[5.4%]" />
                     <h2 className="display mt-6 text-[1.65rem] leading-[1.35] font-bold text-on-night transition-colors duration-500 group-hover:text-gold-glow sm:text-4xl">{t(k, "name", lang)}</h2>
                     <p className="mx-auto mt-2 max-w-[17rem] text-sm leading-7 text-on-night-muted">{t(k, "tagline", lang)}</p>
-                    {list.length > 0 && <p className="mt-3 font-label text-[11px] tracking-[0.2em] text-gold-on-dark">{c.pieces(num(list.length, lang))}</p>}
+                    {list.length > 0 && <p className="label mt-3 text-gold-on-dark!">{c.pieces(num(list.length, lang))}</p>}
                   </Link>
                 </li>
               );
