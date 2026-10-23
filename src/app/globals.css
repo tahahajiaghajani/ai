@@ -1,7 +1,8 @@
 @import "tailwindcss";
 @import "@xyflow/react/dist/style.css";
-/* the Pars website in pars-website/ is a separate app with its own styles */
+/* the Pars website in pars-website/ and the CELIN website in celin-website/ are separate apps with their own styles */
 @source not "../../pars-website";
+@source not "../../celin-website";
 
 @custom-variant dark (&:where(.dark, .dark *));
 
