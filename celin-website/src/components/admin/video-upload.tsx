@@ -44,9 +44,8 @@ function put(url: string, file: File, type: string, onProgress: (p: number) => v
   return new Promise((ok, fail) => {
     const x = new XMLHttpRequest();
     x.open("PUT", url);
+    // only the type: the file is new (the URL was signed without upsert) and the site sets its own cache headers
     x.setRequestHeader("content-type", type);
-    x.setRequestHeader("cache-control", "max-age=31536000");
-    x.setRequestHeader("x-upsert", "false");
     x.upload.onprogress = (e) => {
       if (e.lengthComputable) onProgress(e.loaded / e.total);
     };

@@ -6,6 +6,8 @@
  * fallback. Pure helpers here are shared by the admin form, the server and the tests.
  */
 
+import { num } from "@/lib/format";
+
 export interface Video {
   id: string;
   /** same-origin URL, e.g. /media/u/v/<uuid>.mp4 */
@@ -73,7 +75,7 @@ export function checkVideoFile(file: { type?: string; name?: string; size: numbe
   const mime = videoMimeOf(file);
   if (!mime) return /\.(mov|qt)$/i.test(file.name ?? "") || file.type === "video/quicktime" ? "فایل MOV پذیرفته نمی‌شود؛ ویدئو را با خروجی MP4 و کدک H.264 ذخیره کنید." : "فقط ویدئوی MP4 با کدک H.264 یا WebM پذیرفته می‌شود.";
   if (!Number.isFinite(file.size) || file.size <= 0) return "فایل ویدئو خالی است.";
-  if (file.size > VIDEO_MAX_BYTES) return `حجم ویدئو زیاد است (${(file.size / 1048576).toFixed(1)} مگابایت)؛ حداکثر ۲۵ مگابایت.`;
+  if (file.size > VIDEO_MAX_BYTES) return `حجم ویدئو زیاد است (${num((file.size / 1048576).toFixed(1), "fa").replace(".", "٫")} مگابایت)؛ حداکثر ۲۵ مگابایت.`;
   return null;
 }
 

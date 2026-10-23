@@ -86,6 +86,7 @@ describe("video upload checks", () => {
     expect(checkVideoFile({ type: "image/gif", name: "a.gif", size: 10 })).toMatch(/MP4/);
     expect(checkVideoFile({ type: "video/mp4", name: "a.mp4", size: 0 })).toMatch(/خالی/);
     expect(checkVideoFile({ type: "video/mp4", name: "a.mp4", size: VIDEO_MAX_BYTES + 1 })).toMatch(/۲۵/);
+    expect(checkVideoFile({ type: "video/webm", name: "a.webm", size: 30 * 1048576 })).toContain("۳۰٫۰ مگابایت");
     expect(checkVideoFile({ type: "video/mp4", name: "a.mp4", size: NaN })).not.toBeNull();
   });
   it("recognises the file by its first bytes", () => {
