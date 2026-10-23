@@ -17,7 +17,7 @@ import { checkVideoFile, mp4Info, playsEverywhere, sniffVideo, SNIFF_BYTES, VIDE
 
 type Stage = { step: "check" | "upload" | "verify"; progress: number } | null;
 
-const mb = (bytes: number) => num((bytes / 1048576).toFixed(1), "fa");
+const mb = (bytes: number) => num((bytes / 1048576).toFixed(1), "fa").replace(".", "٫");
 
 /** Width, height and length as the browser reads them (null when this browser cannot open the file). */
 function probe(file: File): Promise<{ width: number; height: number; duration: number } | null> {
