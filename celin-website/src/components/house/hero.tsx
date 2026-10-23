@@ -74,7 +74,7 @@ export function HouseHero({
 
   const titleSize =
     size === "xl"
-      ? "text-[clamp(3.4rem,15vw,5rem)] leading-[1.25]! sm:text-7xl lg:text-[clamp(5rem,8vw,8.5rem)]"
+      ? "text-[clamp(3.4rem,15vw,5rem)] leading-[1.25]! sm:text-7xl lg:text-[clamp(5.5rem,9.5vw,10rem)]"
       : "text-[clamp(2.4rem,9vw,3.4rem)] leading-[1.32]! sm:text-6xl lg:text-[clamp(3.4rem,5vw,5.4rem)]";
 
   return (
