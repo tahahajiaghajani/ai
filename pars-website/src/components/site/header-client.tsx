@@ -53,7 +53,7 @@ export function MobileMenu({ label, closeLabel, links, footer }: { label: string
         aria-label={label}
         data-open={open || undefined}
         inert={!open}
-        className="fixed inset-0 z-[80] bg-ink/95 opacity-0 backdrop-blur-xl transition-opacity duration-500 pointer-events-none data-[open]:pointer-events-auto data-[open]:opacity-100 lg:hidden"
+        className="fixed inset-0 z-[80] overflow-y-auto overscroll-contain bg-ink/95 pb-8 opacity-0 backdrop-blur-xl transition-opacity duration-500 pointer-events-none data-[open]:pointer-events-auto data-[open]:opacity-100 lg:hidden"
       >
         <div className="flex h-[var(--header-h)] items-center justify-end px-5">
           <button ref={closeRef} type="button" onClick={() => setOpen(false)} aria-label={closeLabel} className="grid size-10 place-items-center rounded-full border border-line">

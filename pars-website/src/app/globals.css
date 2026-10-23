@@ -103,6 +103,11 @@
     outline-offset: 3px;
     border-radius: 6px;
   }
+
+  /* a section that received focus after a jump to it (anchor-scroll.tsx), as the browser's own jump: no ring */
+  [data-jumped]:focus-visible {
+    outline: none;
+  }
 }
 
 /* Latin snippets inside Persian text */
