@@ -40,9 +40,7 @@ export async function ShopPage({ lang, category }: { lang: Lang; category?: stri
 
   const arches = {
     lang,
-    items: catalog.categories
-      .filter((k) => k.visible !== false)
-      .map((k) => ({ slug: k.slug, name: t(k, "name", lang), media: k.media, count: s.pieces(num(catalog.products.filter((p) => p.category === k.slug).length, lang)) })),
+    items: catalog.categories.map((k) => ({ slug: k.slug, name: t(k, "name", lang), media: k.media, count: s.pieces(num(catalog.products.filter((p) => p.category === k.slug).length, lang)) })),
     current: cat?.slug ?? null,
     label: s.categories,
     allLabel: s.all,

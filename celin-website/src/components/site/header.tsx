@@ -16,7 +16,7 @@ import { useCartCount } from "@/components/cart/cart-store";
 import { num } from "@/lib/format";
 
 export interface MenuData {
-  categories: { slug: string; name: string }[];
+  categories: { slug: string; name: string; media: Media | null }[];
   collections: { slug: string; name: string; tagline: string }[];
   promo: { media: Media; title: string; cta: string; href: string } | null;
 }

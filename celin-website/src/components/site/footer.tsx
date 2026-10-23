@@ -74,7 +74,7 @@ export function Footer({ lang, contact }: { lang: Lang; contact: ContactSettings
         {/* the brand under its arcade */}
         <div className="relative mx-auto max-w-4xl pb-14 text-center sm:pb-20">
           <div aria-hidden className="pointer-events-none absolute inset-x-0 -top-12 bottom-0 sm:-top-16">
-            <ArchLines count={6} tone="champagne" className="size-full opacity-80" />
+            <ArchLines count={6} tone="champagne" className="size-full opacity-55" />
           </div>
           <div className="relative">
             {/* eslint-disable-next-line @next/next/no-img-element */}

@@ -18,7 +18,7 @@ export async function SiteChrome({ lang, children }: { lang: Lang; children: Rea
   const [catalog, settings, slots] = await Promise.all([getCatalog(), getSettings(), getSlots()]);
   const promo = slots["menu.promo"];
   const menu: MenuData = {
-    categories: catalog.categories.map((c) => ({ slug: c.slug, name: t(c, "name", lang) })),
+    categories: catalog.categories.map((c) => ({ slug: c.slug, name: t(c, "name", lang), media: c.media })),
     collections: catalog.collections.map((c) => ({ slug: c.slug, name: t(c, "name", lang), tagline: t(c, "tagline", lang) })),
     promo: promo ? { media: promo.media, title: slotText(promo, "title", lang), cta: slotText(promo, "cta", lang), href: slotText(promo, "href", lang) || "/shop" } : null,
   };
