@@ -219,6 +219,7 @@ export function ShopGrid({ lang, products, collections, editorial }: { lang: Lan
   // the overlay pushed, which would otherwise undo a URL change made just before it
   const pending = useRef<ShopFilters | null>(null);
   useEffect(() => {
+    console.log("DBG effect", open, JSON.stringify(pending.current));
     if (open || !pending.current) return;
     const next = pending.current;
     pending.current = null;
@@ -228,6 +229,7 @@ export function ShopGrid({ lang, products, collections, editorial }: { lang: Lan
       done = true;
       window.removeEventListener("popstate", go);
       clearTimeout(timer);
+      console.log("DBG go", JSON.stringify(next));
       push(next);
     };
     window.addEventListener("popstate", go);
