@@ -38,11 +38,11 @@ function sceneIntro() {
   tl.fromTo(mark, { opacity: 0, scale: 0.6, filter: "blur(20px)" }, { opacity: 1, scale: 1, filter: "blur(0px)", duration: 1.4, ease: "pars" }, 3.6);
   tl.fromTo(word, { opacity: 0, y: 30, filter: "blur(10px)" }, { opacity: 1, y: 0, filter: "blur(0px)", duration: 1.1, ease: "pars" }, 4.3);
   tl.add(rise(tw, { stagger: 0.09, dur: 1 }), 5.1);
-  tl.to([mark, word], { opacity: 0, scale: 0.92, filter: "blur(8px)", duration: 0.8, ease: "power2.in" }, 9.1);
-  tl.add(sink(tw), 9.1);
+  tl.to([mark, word], { opacity: 0, scale: 0.92, filter: "blur(8px)", duration: 0.8, ease: "power2.in" }, 10.2);
+  tl.add(sink(tw), 10.2);
   // the streams part again and settle behind the chapters at a calmer level, below any text
-  tl.to(BG, { converge: 0, ribbons: 0.5, duration: 2, ease: "parsInOut" }, 9.3);
-  tl.to(BG.glowC, { a: 0, duration: 1.4 }, 9.3);
+  tl.to(BG, { converge: 0, ribbons: 0.4, duration: 1.6, ease: "parsInOut" }, 10.4);
+  tl.to(BG.glowC, { a: 0, duration: 1.4 }, 10.4);
   return wrap(n, tl, 0.4);
 }
 
@@ -95,6 +95,8 @@ function sceneStats(items, { kicker, title }) {
   });
   tl.to({}, { duration: 3.2 });
   tl.to([head, row], { opacity: 0, y: -30, duration: 0.6, ease: "power2.in" });
+  // the ribbons step back behind the numbers (placed last: appended tweens above follow the timeline's end)
+  tl.to(BG, { ribbons: 0.22, duration: 1.2, ease: "power1.inOut" }, 0).to(BG, { ribbons: 0.4, duration: 1, ease: "power1.inOut" }, tl.duration() - 1);
   return wrap(n, tl, 0.3);
 }
 
@@ -177,11 +179,13 @@ function shotDemo(n, tl, p, s, t0) {
       t += (pg.scroll.dur ?? 3.5) + 0.15;
     }
     (pg.callouts ?? []).forEach((c, ci) => {
-      const side = c.side ?? (coN % 2 ? "right" : "left");
+      const mid = c.x + c.w / 2;
+      const side = c.side ?? (mid < 40 ? "left" : mid > 60 ? "right" : coN % 2 ? "right" : "left");
       coN++;
       const co = b.callout(page, c, { n: coN, label: c.label, text: c.text, side, cardY: c.cardY ?? 150, big: c.big });
       glide(side === "left" ? X_RIGHT : X_LEFT, t);
-      const target = page.frame(c, { zmax: c.zmax ?? 1.45, fill: c.fill ?? 0.7, zmin: c.zmin, dx: c.dx, dy: c.dy });
+      // camRegion: frame something else than the highlight (e.g. keep a clipped page title out of view)
+      const target = c.camRegion ? page.frame(c.camRegion, c.camOpt ?? {}) : page.frame(c, { zmax: c.zmax ?? 1.45, fill: c.fill ?? 0.7, zmin: c.zmin, dx: c.dx, dy: c.dy, fitWidth: c.fitWidth });
       // pan: a longer, scroll-like camera move down a tall page before the card shows
       const md = c.pan ?? 1.25;
       tl.add(camTo(page, target, md, c.pan ? "sine.inOut" : "parsInOut"), t);
@@ -265,7 +269,7 @@ function aiLayer(n, tl, b, page, p, t, glide, pg) {
     tl.fromTo(r.li, { opacity: 0, x: -30 }, { opacity: 1, x: 0, duration: 0.7, ease: "pars" }, t + 1.5 + i * 0.4);
     tl.add(rise(r.w, { stagger: 0.03, dur: 0.6 }), t + 1.55 + i * 0.4);
   });
-  const end = t + 7.8;
+  const end = t + (p.aiHold ?? 9);
   tl.to(panel, { opacity: 0, x: -40, duration: 0.6, ease: "power2.in" }, end - 0.7);
   tl.to([tint, ...spots], { opacity: 0, duration: 0.6 }, end - 0.7);
   return end;
@@ -429,6 +433,7 @@ const INFO = {
       return { d, ln };
     });
     svg.insertAdjacentHTML("afterbegin", `<defs><linearGradient id="og"><stop offset="0" stop-color="#8f86ff"/><stop offset="1" stop-color="#ff4fa3"/></linearGradient></defs>`);
+    tl.to(BG, { ribbons: 0.22, duration: 1, ease: "power1.inOut" }, t0).to(BG, { ribbons: 0.4, duration: 1, ease: "power1.inOut" }, t0 + 5.4);
     tl.add(fadeIn(k, 0.6), t0 + 0.1).add(rise(tw, { stagger: 0.07 }), t0 + 0.25).add(rise(lw, { stagger: 0.035, dur: 0.7 }), t0 + 0.8);
     hit(tl, t0 + 0.3, "sparkle");
     tl.fromTo(me, { opacity: 0, scale: 0.5 }, { opacity: 1, scale: 1, duration: 1, ease: "back.out(1.6)" }, t0 + 0.3);
@@ -450,13 +455,14 @@ function sceneCopilot(c) {
   const n = sceneBox();
   const tl = gsap.timeline();
   tl.to(BG.glowA, { x: 0.25, y: 0.5, a: 0.3, duration: 2.4, ease: "parsInOut" }, 0).to(BG.glowB, { x: 0.75, y: 0.35, a: 0.24, duration: 2.4, ease: "parsInOut" }, 0);
+  tl.to(BG, { ribbons: 0.25, duration: 1.5, ease: "power1.inOut" }, 0);
 
   // A · the claim
   const A = h("div", "layer", n);
   const head = place(h("div", "abs", A), { left: "160px", right: "160px", top: "330px", textAlign: "center" });
   const k = h("div", "kicker", head);
   place(k, { justifyContent: "center" });
-  k.innerHTML = `<span class="rule"></span><span style="color:#ff4fa3;display:inline-grid">${icon("ai")}</span><span>${c.kicker}</span><span class="rule" style="transform:scaleX(-1)"></span>`;
+  k.innerHTML = `<span class="rule"></span><span style="color:#b8b1ff;display:inline-grid">${icon("ai")}</span><span>${c.kicker}</span><span class="rule" style="transform:scaleX(-1)"></span>`;
   k.querySelector("svg").style.cssText = "width:30px;height:30px";
   const tt = place(h("div", "h1", head), { marginTop: "24px", fontSize: "88px" });
   const tw = words(tt, c.title);
@@ -474,7 +480,7 @@ function sceneCopilot(c) {
   t = navigate(tl, b, p0, p1, c.chip, t + 1.0, () => {});
 
   // C · the panel lifts out into its own device frame
-  const D = { x: 150, y: 92, w: 560, h: 896 };
+  const D = { x: 150, y: 118, w: 550, h: 880 };
   const dev = new Browser(n, D, c.url, { chrome: false });
   const pages = c.steps.map((s) => {
     const pg = dev.page(s.screen);
@@ -502,7 +508,7 @@ function sceneCopilot(c) {
     const box = h("div", "", cap);
     place(box, { position: "absolute", left: "0", right: "0", top: "0" });
     const num = place(h("div", "kicker", box), {});
-    num.innerHTML = `<span class="n">${fa(String(i + 1).padStart(2, "0"))}</span><span class="rule" style="transform:scaleX(-1)"></span>`;
+    num.innerHTML = `<span>گام ${fa(i + 1)} از ${fa(c.steps.length)}</span><span class="rule" style="transform:scaleX(-1)"></span>`;
     const st = place(h("div", "h2", box), { marginTop: "16px", fontSize: "62px" });
     const sw = words(st, s.title);
     const ln = place(h("div", "lead", box), { marginTop: "18px", fontSize: "34px" });
@@ -538,6 +544,7 @@ function sceneCopilot(c) {
   tl.to(BG.glowC, { x: 0.5, y: 0.5, r: 0.5, a: 0.2, duration: 1.4 }, t + 0.4).to(BG.glowC, { a: 0, duration: 1 }, t + 4.6);
   tl.add(sink(ew, { stagger: 0.02 }), t + 4.8);
   t += 5.5;
+  tl.to(BG, { ribbons: 0.4, duration: 1, ease: "power1.inOut" }, t - 1);
   tl.to({}, { duration: 0.1 }, t);
   return wrap(n, tl, 0.3);
 }
@@ -558,7 +565,7 @@ function sceneOutro({ qr, url }) {
   const logo = place(h("img", "abs", n), { right: "160px", top: "700px", width: "190px" });
   logo.src = "assets/brand/pars-logo-reverse.svg";
   const tl = gsap.timeline();
-  tl.to(BG, { ribbons: 0.42, duration: 2, ease: "parsInOut" }, 0);
+  tl.to(BG, { ribbons: 0.25, duration: 2, ease: "parsInOut" }, 0);
   tl.add(rise(tw, { stagger: 0.08 }), 0.3);
   tl.add(rise(lw, { stagger: 0.04, dur: 0.8 }), 1.1);
   tl.fromTo(tile, { opacity: 0, scale: 0.8, rotationY: -25, transformPerspective: 1600 }, { opacity: 1, scale: 1, rotationY: 0, duration: 1.3, ease: "pars" }, 0.6);
@@ -708,12 +715,13 @@ function sceneCapabilities({ kicker, title, items }) {
     return d;
   });
   const tl = gsap.timeline();
+  tl.to(BG, { ribbons: 0.22, duration: 1, ease: "power1.inOut" }, 0).to(BG, { ribbons: 0.4, duration: 1, ease: "power1.inOut" }, 8.4);
   tl.add(fadeIn(k, 0.7), 0.2).add(rise(tw, { stagger: 0.07 }), 0.35);
   tl.fromTo(mark, { opacity: 0, scale: 0.5, rotation: -20 }, { opacity: 1, scale: 1, rotation: 0, duration: 1.2, ease: "pars" }, 0.4);
   tl.fromTo(ring, { opacity: 0, scale: 0.6, rotation: -60 }, { opacity: 1, scale: 1, rotation: 0, duration: 1.6, ease: "pars" }, 0.5);
-  tl.to(ring, { rotation: 30, duration: 7, ease: "none" }, 2);
+  tl.to(ring, { rotation: 30, duration: 8, ease: "none" }, 2);
   nodes.forEach((d, i) => tl.fromTo(d, { opacity: 0, scale: 0.6, x: (cx - parseFloat(d.style.left) - 170) * 0.6, y: (cy - parseFloat(d.style.top) - 52) * 0.6 }, { opacity: 1, scale: 1, x: 0, y: 0, duration: 1, ease: "pars" }, 1.1 + i * 0.22));
-  tl.to([head, mark, ring, ...nodes], { opacity: 0, duration: 0.6, ease: "power2.in" }, 7.8);
+  tl.to([head, mark, ring, ...nodes], { opacity: 0, duration: 0.6, ease: "power2.in" }, 8.8);
   return wrap(n, tl, 0.3);
 }
 

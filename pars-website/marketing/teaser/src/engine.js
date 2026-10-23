@@ -41,17 +41,24 @@ function words(n, text) {
   };
   for (const node of [...src.childNodes]) {
     if (node.nodeType === 3) {
-      const parts = node.textContent.split(/(\s+)/);
-      for (const p of parts) {
-        if (!p) continue;
-        if (/^\s+$/.test(p)) n.appendChild(document.createTextNode(" "));
-        else word(p);
-      }
+      // spaces break; a no-break space (U+00A0) glues a term; a short function word never ends a line
+      const parts = node.textContent.split(/[ \t\n]+/);
+      if (/^[ \t\n]/.test(node.textContent) && n.childNodes.length) n.appendChild(document.createTextNode(" "));
+      let carry = "";
+      parts.forEach((p, i) => {
+        if (!p) return;
+        if (STICKY.has(p) && i < parts.length - 1 && parts.slice(i + 1).some(Boolean)) { carry += p + "\u00a0"; return; }
+        word(carry + p);
+        carry = "";
+        if (i < parts.length - 1) n.appendChild(document.createTextNode(" "));
+      });
+      if (carry) word(carry.trimEnd());
     } else if (node.nodeName === "BR") n.appendChild(document.createElement("br"));
     else word(node);
   }
   return [...n.querySelectorAll("w-i")];
 }
+const STICKY = new Set(["و", "در", "به", "از", "با", "تا", "بر", "برای", "روی", "کنار", "هر", "یک", "این", "آن"]);
 /** word-by-word rise, in reading order */
 function rise(targets, opt = {}) {
   return gsap.fromTo(targets, { yPercent: 115, opacity: 0, filter: "blur(10px)" },
@@ -315,7 +322,7 @@ class Page {
   frame(r, opt = {}) {
     const sw = this.screen.w, sh = this.screen.h;
     const rw = (r.w / 100) * sw, rh = (r.h / 100) * sh;
-    const zlo = Math.max(opt.zmin ?? 1, this.zmin);
+    const zlo = opt.fitWidth ? 1 : Math.max(opt.zmin ?? 1, this.zmin); // fitWidth: a region wider than the zoomed view may zoom out to the full width
     const z = clamp(Math.min((this.vw * (opt.fill ?? 0.78)) / (rw * this.fit), (this.vh * (opt.fill ?? 0.78)) / (rh * this.fit)), zlo, Math.max(zlo, opt.zmax ?? 1.45));
     const sc = this.fit * z;
     const halfW = this.vw / 2 / sc, halfH = this.vh / 2 / sc;

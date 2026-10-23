@@ -42,9 +42,10 @@ const probe = await openPage(browser);
 const duration = await probe.page.evaluate(() => window.TEASER.duration);
 console.log(`duration ${duration.toFixed(2)} s`);
 // the cue sheet for the music: chapter starts and kinds, in seconds
-const sheet = await probe.page.evaluate(() => ({ duration: window.TEASER.duration, sections: window.TEASER.chapters.map((c) => ({ start: c.start, end: c.end, kind: c.kind, name: c.name })), hits: window.TEASER.cues.sort((a, b) => a.t - b.t) }));
+const sheet = await probe.page.evaluate(() => ({ duration: window.TEASER.duration, sections: window.TEASER.chapters.map((c) => ({ start: c.start, end: c.end, sceneEnd: c.sceneEnd, kind: c.kind, name: c.name })), hits: window.TEASER.cues.sort((a, b) => a.t - b.t) }));
 fs.writeFileSync(path.join(OUT, "cues.json"), JSON.stringify(sheet, null, 1));
-if (args.chapters) for (const c of sheet.sections) console.log(c.start.toFixed(1).padStart(6), c.end.toFixed(1).padStart(6), c.kind.padEnd(12), c.name);
+// the gap is the background-only time before the next chapter (negative: crossfade overlap)
+if (args.chapters) for (const c of sheet.sections) console.log(c.start.toFixed(1).padStart(6), c.end.toFixed(1).padStart(6), ("gap " + (c.end - c.sceneEnd).toFixed(2)).padEnd(10), c.kind.padEnd(12), c.name);
 
 if (args.stills) {
   fs.mkdirSync(path.join(OUT, "stills"), { recursive: true });
