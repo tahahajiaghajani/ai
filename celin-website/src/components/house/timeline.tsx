@@ -73,14 +73,15 @@ export function Timeline({ lang, d }: { lang: Lang; d: TimelineData }) {
           {d.eyebrow}
         </Eyebrow>
         <div className="relative mt-10 w-full max-w-5xl">
-          <div data-tl="lines" className="pointer-events-none absolute inset-x-[12%] bottom-[-10%] top-[-30%] origin-bottom sm:inset-x-[24%]">
-            <ArchLines count={6} tone="champagne" className="size-full" />
-          </div>
-          <p className="relative" aria-label={`${num(d.count, lang)} ${d.years}`}>
-            <span ref={count} aria-hidden className="display block text-[clamp(7rem,30vw,15rem)] leading-[1.05]! font-bold text-metal-light metal-live">
+          <p className="relative mx-auto w-fit">
+            <span className="sr-only">{`${num(d.count, lang)} ${d.years}`}</span>
+            <span data-tl="lines" aria-hidden className="pointer-events-none absolute inset-x-[-70%] bottom-[-6%] top-[-22%] origin-bottom">
+              <ArchLines count={6} tone="champagne" className="size-full" />
+            </span>
+            <span ref={count} aria-hidden className="display relative block text-[clamp(7rem,30vw,15rem)] leading-[1.05]! font-bold text-metal-light metal-live">
               {num(d.count, lang)}
             </span>
-            <span aria-hidden className="display mt-2 block text-2xl font-semibold text-on-night sm:text-3xl">
+            <span aria-hidden className="display relative mt-2 block text-2xl font-semibold text-on-night sm:text-3xl">
               {d.years}
             </span>
           </p>

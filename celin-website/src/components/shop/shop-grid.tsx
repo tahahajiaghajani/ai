@@ -119,31 +119,37 @@ const showCell = (el: Element) => el.setAttribute("data-in", "");
 function useGridReveal(deps: unknown[]) {
   const ref = useRef<HTMLUListElement>(null);
   const first = useRef(true);
-  const io = useRef<IntersectionObserver | null>(null);
-  useEffect(() => {
-    io.current = "IntersectionObserver" in window ? new IntersectionObserver((entries) => {
-      for (const e of entries) if (e.isIntersecting) {
-        showCell(e.target);
-        io.current?.unobserve(e.target);
-      }
-    }, { rootMargin: "0px 0px -6% 0px", threshold: 0.06 }) : null;
-    return () => io.current?.disconnect();
-  }, []);
   useEffect(() => {
     const ul = ref.current;
-    if (!ul) return;
     const initial = first.current;
     first.current = false;
+    if (!ul) return;
     for (const el of ul.querySelectorAll<HTMLElement>("[data-r]:not([data-seen])")) {
       el.setAttribute("data-seen", "");
       const r = el.getBoundingClientRect();
-      const onScreen = r.top < window.innerHeight && r.bottom > 0;
       if (initial && r.top < window.innerHeight) continue;
       el.setAttribute("data-reveal", "");
-      if (!io.current) showCell(el);
-      else if (onScreen) requestAnimationFrame(() => requestAnimationFrame(() => showCell(el)));
-      else io.current.observe(el);
+      if (r.top < window.innerHeight && r.bottom > 0) requestAnimationFrame(() => requestAnimationFrame(() => showCell(el)));
     }
+    // every run watches all cells still waiting (Strict Mode and re-renders disconnect the previous observer)
+    const waiting = ul.querySelectorAll("[data-reveal]:not([data-in])");
+    if (!waiting.length) return;
+    if (!("IntersectionObserver" in window)) {
+      waiting.forEach(showCell);
+      return;
+    }
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries)
+          if (e.isIntersecting) {
+            showCell(e.target);
+            io.unobserve(e.target);
+          }
+      },
+      { rootMargin: "0px 0px -6% 0px", threshold: 0.06 },
+    );
+    waiting.forEach((el) => io.observe(el));
+    return () => io.disconnect();
   }, deps); // eslint-disable-line react-hooks/exhaustive-deps
   return ref;
 }

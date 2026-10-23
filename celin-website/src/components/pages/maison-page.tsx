@@ -45,9 +45,9 @@ export async function MaisonPage({ lang }: { lang: Lang }) {
       />
 
       {/* the year of birth */}
-      <section id="story" className="relative isolate scroll-mt-[var(--header-h)] overflow-clip bg-mesh-porcelain py-24 sm:py-36">
-        <span aria-hidden className="fx-drift pointer-events-none absolute inset-x-0 top-1/2 -translate-y-1/2 text-center [--drift:60px]">
-          <span className="display inline-block text-[clamp(9rem,30vw,26rem)] leading-none! font-bold text-metal opacity-[0.13]">{num(c.prologue.year, lang)}</span>
+      <section id="story" className="relative isolate scroll-mt-[var(--header-h)] overflow-clip bg-mesh-porcelain py-28 sm:py-44">
+        <span aria-hidden className="fx-drift pointer-events-none absolute inset-x-0 top-1/2 -translate-y-1/2 text-center [--drift:50px]">
+          <span className="display inline-block text-[clamp(8rem,24vw,21rem)] leading-none! font-bold text-metal opacity-[0.12]">{num(c.prologue.year, lang)}</span>
         </span>
         <div className="container-lux relative mx-auto max-w-5xl text-center">
           <Eyebrow center>{c.prologue.eyebrow}</Eyebrow>
@@ -68,23 +68,28 @@ export async function MaisonPage({ lang }: { lang: Lang }) {
               const even = i % 2 === 0;
               const slot = s(`maison.chapter.${i + 1}`);
               return (
-                <article key={ch.key} className="relative grid items-center gap-10 py-12 ps-10 sm:py-16 lg:grid-cols-12 lg:gap-8 lg:ps-0 lg:py-24">
+                <article key={ch.key} className="relative grid items-center gap-10 py-12 ps-10 sm:py-16 lg:grid-cols-12 lg:gap-8 lg:ps-0 lg:py-14">
                   {/* the knot on the thread */}
                   <span aria-hidden className="absolute start-0 top-14 grid size-[15px] place-items-center lg:start-1/2 lg:top-1/2 lg:-translate-y-1/2 ltr:lg:-translate-x-1/2 rtl:lg:translate-x-1/2">
                     <span className="size-[15px] rotate-45 border border-gold/60 bg-bone" />
                     <span className="absolute size-[5px] rotate-45 bg-gold" />
                   </span>
-                  <div className={`relative mx-auto w-[min(76vw,400px)] lg:col-span-4 lg:w-full ${even ? "lg:col-start-2" : "lg:order-2 lg:col-start-8"}`} data-cursor="view">
-                    <ArchLines count={3} className="pointer-events-none absolute inset-x-[-18%] bottom-0 top-[-9%] h-[109%] w-[136%] opacity-80" />
-                    <Arch media={slot.media} mobile={slot.mobile} lang={lang} sizes="(min-width: 1024px) 28vw, 76vw" ring="copper" keystone={i === 0} unveil parallax={6} sparkle={8} />
-                  </div>
-                  <div className={`relative lg:col-span-5 ${even ? "lg:col-start-7" : "lg:order-1 lg:col-start-2"}`}>
-                    <span aria-hidden className="fx-drift display pointer-events-none absolute -top-[0.55em] start-[-0.08em] text-[clamp(6rem,14vw,11rem)] leading-none! font-bold text-metal opacity-20 select-none [--drift:24px]">
+                  <div className={`relative mx-auto w-[min(72vw,380px)] lg:col-span-4 lg:w-full ${even ? "lg:col-start-2" : "lg:order-2 lg:col-start-8"}`} data-cursor="view">
+                    {/* a large numeral behind the arch, drifting slower than the page */}
+                    <span aria-hidden className={`fx-drift display pointer-events-none absolute -bottom-[0.12em] text-[clamp(7rem,15vw,14rem)] leading-none! font-bold text-metal opacity-25 select-none [--drift:36px] ${even ? "start-[-22%]" : "end-[-22%]"}`}>
                       {ordinal(i + 1, lang)}
                     </span>
-                    <p className="label relative text-gold-text!">{c.chapter(num(i + 1, lang))}</p>
-                    <SplitWords as="h2" text={ch.title} className="display relative mt-3 text-[2rem] leading-[1.4]! font-bold text-ink sm:text-5xl" />
-                    <p className="relative mt-6 max-w-xl text-lg leading-10 text-ink-2" data-reveal style={{ "--d": 1 } as CSSProperties}>
+                    <ArchLines count={3} className="pointer-events-none absolute inset-x-[-18%] bottom-0 top-[-9%] h-[109%] w-[136%] opacity-80" />
+                    <Arch media={slot.media} mobile={slot.mobile} lang={lang} sizes="(min-width: 1024px) 28vw, 72vw" ring="copper" keystone={i === 0} unveil parallax={6} sparkle={8} />
+                  </div>
+                  <div className={`relative lg:col-span-4 ${even ? "lg:col-start-8" : "lg:order-1 lg:col-start-2"}`}>
+                    <p className="flex items-center gap-4">
+                      <span className="display text-4xl leading-none! font-bold text-metal">{ordinal(i + 1, lang)}</span>
+                      <span aria-hidden className="hairline w-12" />
+                      <span className="label text-gold-text!">{c.chapter(num(i + 1, lang))}</span>
+                    </p>
+                    <SplitWords as="h2" text={ch.title} className="display mt-5 text-[2rem] leading-[1.4]! font-bold text-ink sm:text-5xl lg:text-[2.75rem]" />
+                    <p className="mt-6 max-w-xl text-lg leading-10 text-ink-2" data-reveal style={{ "--d": 1 } as CSSProperties}>
                       {ch.text}
                     </p>
                   </div>
@@ -135,7 +140,7 @@ export async function MaisonPage({ lang }: { lang: Lang }) {
               <p className="mt-8 border-s-2 border-gold/60 ps-5 text-xl leading-10 font-semibold text-ink" data-reveal>
                 {st.anniversary.welcome}
               </p>
-              <p className="display mt-12 text-center text-4xl font-bold text-metal metal-live sm:text-5xl" aria-label={c.letter.signatureLabel} data-reveal>
+              <p className="display mt-12 py-2 text-center text-4xl leading-[1.7]! font-bold text-metal metal-live sm:text-5xl" aria-label={c.letter.signatureLabel} data-reveal>
                 <span aria-hidden>{c.letter.signature}</span>
               </p>
             </div>
