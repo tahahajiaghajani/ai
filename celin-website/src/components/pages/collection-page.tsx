@@ -45,8 +45,9 @@ export async function CollectionPage({ lang, slug }: { lang: Lang; slug: string 
   const storyText = t(col, "story", lang);
   const products = catalog.products.filter((p) => p.collection === col.slug);
   const others = catalog.collections.filter((k) => k.slug !== col.slug && k.visible !== false && k.media);
-  // the story's picture: a second (worn) photo of a piece, else its cover
-  const worn = products.find((p) => p.images[1])?.images[1] ?? products[0]?.images[0] ?? null;
+  // the story's picture: a worn (second) photo of a piece, else a cover — never the hero's own picture
+  const pictures = [...products.flatMap((p) => p.images.slice(1)), ...products.map((p) => p.images[0])].filter(Boolean);
+  const worn = pictures.find((m) => m.src !== col.media?.src) ?? null;
   const arches = products.length <= 8;
   const url = `${env.siteUrl}${href(lang, `/collections/${col.slug}`)}`;
 
