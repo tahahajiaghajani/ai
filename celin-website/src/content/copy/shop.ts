@@ -13,7 +13,7 @@ export const shopCopy = {
     intro: "Brilliant cubic zirconia, precise setting, rhodium and gold plating.",
     categories: "Jewelry categories",
     all: "All",
-    pieces: (n: string) => `${n} pieces`,
+    pieces: (n: string) => (n === "1" ? "1 piece" : `${n} pieces`),
     editorial: "From the collections",
   },
 };

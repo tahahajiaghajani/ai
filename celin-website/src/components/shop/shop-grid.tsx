@@ -62,8 +62,8 @@ const TONES = ["gold", "silver", "rose"] as const;
 const EMPTY: ShopFilters = { metal: [], stone: [], collection: [], sort: "featured" };
 
 const T = {
-  fa: { filter: "فیلتر و مرتب‌سازی", filterShort: "فیلتر", sort: "مرتب‌سازی", featured: "پیشنهاد سلین", new: "تازه‌ترین", priceAsc: "قیمت: کم به زیاد", priceDesc: "قیمت: زیاد به کم", tone: "رنگ پوشش", stone: "رنگ نگین", collection: "مجموعه", clear: "پاک کردن", show: (n: string) => `نمایش ${n} اثر`, count: (n: string) => `${n} اثر`, more: "نمایش بیشتر", none: "اثری با این انتخاب‌ها پیدا نشد.", reset: "نمایش همه", all: "همه", quick: "رنگ پوشش" },
-  en: { filter: "Filter & sort", filterShort: "Filter", sort: "Sort", featured: "Our selection", new: "Newest", priceAsc: "Price: low to high", priceDesc: "Price: high to low", tone: "Finish", stone: "Stone color", collection: "Collection", clear: "Clear", show: (n: string) => `Show ${n} pieces`, count: (n: string) => `${n} pieces`, more: "Show more", none: "No pieces match these choices.", reset: "Show all", all: "All", quick: "Finish" },
+  fa: { filter: "فیلتر و مرتب‌سازی", filterShort: "فیلتر", sort: "مرتب‌سازی", featured: "پیشنهاد سلین", new: "تازه‌ترین", priceAsc: "قیمت: کم به زیاد", priceDesc: "قیمت: زیاد به کم", tone: "رنگ پوشش", stone: "رنگ نگین", collection: "مجموعه", clear: "پاک کردن", show: (n: string) => `نمایش ${n} اثر`, count: (n: string) => `${n} اثر`, more: "نمایش بیشتر", none: "اثری با این انتخاب‌ها پیدا نشد.", reset: "نمایش همه", quick: "رنگ پوشش" },
+  en: { filter: "Filter & sort", filterShort: "Filter", sort: "Sort", featured: "Our selection", new: "Newest", priceAsc: "Price: low to high", priceDesc: "Price: high to low", tone: "Finish", stone: "Stone color", collection: "Collection", clear: "Clear", show: (n: string) => (n === "1" ? "Show 1 piece" : `Show ${n} pieces`), count: (n: string) => (n === "1" ? "1 piece" : `${n} pieces`), more: "Show more", none: "No pieces match these choices.", reset: "Show all", quick: "Finish" },
 };
 
 const GRID = "container-lux grid grid-cols-2 gap-x-3 gap-y-10 sm:gap-x-6 sm:gap-y-14 lg:grid-cols-3 lg:gap-x-8 xl:grid-cols-4";
