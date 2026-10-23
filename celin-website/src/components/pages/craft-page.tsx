@@ -63,7 +63,7 @@ export async function CraftPage({ lang }: { lang: Lang }) {
       </section>
 
       {/* four steps */}
-      <section className="relative isolate bg-mesh-bone py-20 sm:py-28 lg:pb-12">
+      <section className="relative isolate overflow-x-clip bg-mesh-bone py-20 sm:py-28 lg:pb-12">
         <div className="container-lux">
           <SectionHead eyebrow={c.steps.eyebrow} title={c.steps.title} align="center" />
           <div className="mt-10 lg:mt-6">
