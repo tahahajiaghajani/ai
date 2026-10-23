@@ -23,7 +23,7 @@ Folds on the outside are 100 and 200 mm from the left trim; on the inside 97 and
 cd pars-website/marketing/brochure
 npm install
 CHROME_PATH=/path/to/chrome npm run brochure     # or a Chromium installed for Playwright
-npm run build -- https://parspmi.ir              # another QR target
+npm run build -- https://parspmi.ir              # another address (QR and printed URL)
 ```
 
 `out/` gets the print PDF (`pars-brochure-print.pdf`), a proof with crop and fold marks (`pars-brochure-print-marks.pdf`), 300-dpi spreads and panels, and a 3D mockup. The render fails if any panel overflows or the QR stops decoding at print or phone-like resolutions.

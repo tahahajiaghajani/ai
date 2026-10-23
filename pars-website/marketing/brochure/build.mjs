@@ -1,5 +1,6 @@
 // Builds out/brochure.html: copies the brand and client assets from ../../public and injects the QR code
 // (vector, error correction H, 4-module quiet zone, the Pars mark on a plate in the middle).
+// The printed address on the cover and the back is taken from the same URL, so the two never disagree.
 // Usage: node build.mjs [url]   (or BROCHURE_URL=…)
 import QRCode from "qrcode";
 import fs from "node:fs";
@@ -9,7 +10,9 @@ import { fileURLToPath } from "node:url";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.resolve(HERE, "../../public");
 const OUT = path.join(HERE, "out");
-const URL_ = process.argv[2] ?? process.env.BROCHURE_URL ?? "https://parspmi.ir";
+const URL_ = process.argv[2] ?? process.env.BROCHURE_URL ?? "https://parspmi.vercel.app";
+const host = new URL(URL_).host;
+const dot = host.indexOf(".");
 
 const q = QRCode.create(URL_, { errorCorrectionLevel: "H" });
 const N = q.modules.size;
@@ -36,5 +39,11 @@ fs.mkdirSync(path.join(OUT, "assets"), { recursive: true });
 const assets = ["brand/pars-logo-reverse.svg", "brand/pars-mark.svg", "brand/pars-wordmark-reverse.svg", ...fs.readdirSync(path.join(PUBLIC, "clients")).map((f) => "clients/" + f)];
 for (const a of assets) fs.copyFileSync(path.join(PUBLIC, a), path.join(OUT, "assets", path.basename(a)));
 for (const f of ["art.js", "mockup.html"]) fs.copyFileSync(path.join(HERE, f), path.join(OUT, f));
-fs.writeFileSync(path.join(OUT, "brochure.html"), fs.readFileSync(path.join(HERE, "brochure.html"), "utf8").replace("{{QR}}", svg));
+const html = fs.readFileSync(path.join(HERE, "brochure.html"), "utf8")
+  .replace("{{QR}}", svg)
+  .replace("{{HOST_UPPER}}", host.toUpperCase())
+  .replace("{{HOST_NAME}}", host.slice(0, dot))
+  .replace("{{HOST_REST}}", host.slice(dot));
+if (html.includes("{{")) throw new Error("unfilled placeholder in brochure.html");
+fs.writeFileSync(path.join(OUT, "brochure.html"), html);
 console.log(`QR version ${q.version} (${N}×${N}) → ${URL_}`);
