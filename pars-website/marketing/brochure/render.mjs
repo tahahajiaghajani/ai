@@ -1,11 +1,13 @@
 // Renders out/brochure.html with Chromium:
-//   out/pars-brochure-print.pdf        2 pages, 303×216 mm (A4 landscape 297×210 trim + 3 mm bleed), fonts embedded
-//   out/pars-brochure-print-marks.pdf  the same on 323×236 mm pages with crop marks, fold marks and a slug line
+//   out/pars-brochure-print.pdf        2 pages, 303 × 216 mm (A4 landscape 297 × 210 trim + 3 mm bleed), fonts embedded,
+//                                      TrimBox and BleedBox set for imposition
+//   out/pars-brochure-print-marks.pdf  the same on 323 × 236 mm pages with crop marks, fold marks and a slug line
 //   out/outside.png, out/inside.png    300-dpi spreads with bleed; out/panels/*.png  each trimmed panel
 //   out/mockup.png                     a 3D mockup
-// and checks that the QR decodes at print and at phone-like resolutions.
+// and fails if a panel overflows, a gradient word wraps, or the QR stops decoding at print or phone-like resolutions.
 // Chromium: CHROME_PATH=… or Playwright's installed browser.
 import { chromium } from "playwright-core";
+import { PDFDocument } from "pdf-lib";
 import jsQR from "jsqr";
 import { PNG } from "pngjs";
 import fs from "node:fs";
@@ -15,16 +17,32 @@ import { fileURLToPath } from "node:url";
 const OUT = path.join(path.dirname(fileURLToPath(import.meta.url)), "out");
 const browser = await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {});
 const DPI = 300 / 96;
+const PT = 72 / 25.4; // points per mm
 
 async function open(query = "", dsf = DPI) {
   const page = await browser.newPage({ viewport: { width: 1400, height: 1000 }, deviceScaleFactor: dsf });
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
+  page.on("requestfailed", (r) => errors.push("failed to load " + r.url()));
   await page.emulateMedia({ media: "print" });
   await page.goto("file://" + path.join(OUT, "brochure.html") + query, { waitUntil: "networkidle" });
-  await page.waitForSelector("html[data-ready='1']", { timeout: 30000 });
-  if (errors.length) throw new Error("page errors: " + errors.join("; "));
+  await page.waitForSelector("html[data-ready]", { timeout: 30000 });
+  const failed = await page.evaluate(() => document.documentElement.dataset.error);
+  if (failed) errors.push(failed);
+  if (errors.length) throw new Error(errors.join("; "));
   return page;
+}
+
+/** TrimBox and BleedBox on every page: the trim starts `offset` mm from the top-left corner. */
+async function setBoxes(file, offset) {
+  const doc = await PDFDocument.load(fs.readFileSync(file));
+  for (const page of doc.getPages()) {
+    const { height } = page.getSize();
+    const top = height - offset * PT;
+    page.setTrimBox(offset * PT, top - 210 * PT, 297 * PT, 210 * PT);
+    page.setBleedBox((offset - 3) * PT, top - 213 * PT, 303 * PT, 216 * PT);
+  }
+  fs.writeFileSync(file, await doc.save());
 }
 
 const page = await open();
@@ -54,9 +72,13 @@ for (const [dsf, label] of [[DPI, "300 dpi"], [1, "96 dpi"], [0.6, "58 dpi"]]) {
   if (p !== page) await p.close();
 }
 
-await page.pdf({ path: path.join(OUT, "pars-brochure-print.pdf"), preferCSSPageSize: true, printBackground: true });
+const print = path.join(OUT, "pars-brochure-print.pdf");
+await page.pdf({ path: print, preferCSSPageSize: true, printBackground: true });
+await setBoxes(print, 3);
 const marks = await open("?marks", 1);
-await marks.pdf({ path: path.join(OUT, "pars-brochure-print-marks.pdf"), preferCSSPageSize: true, printBackground: true });
+const proof = path.join(OUT, "pars-brochure-print-marks.pdf");
+await marks.pdf({ path: proof, preferCSSPageSize: true, printBackground: true });
+await setBoxes(proof, 13);
 
 const mock = await browser.newPage({ viewport: { width: 1200, height: 760 }, deviceScaleFactor: 2 });
 await mock.goto("file://" + path.join(OUT, "mockup.html"), { waitUntil: "networkidle" });

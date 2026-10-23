@@ -16,6 +16,9 @@ const drawArt = () => {
       span.append(...g.childNodes);
       g.append(span);
     }
+    // bidi runs can split one line into several boxes; boxes on different lines mean the word wrapped
+    const rects = [...span.getClientRects()];
+    if (rects.some((r) => Math.abs(r.top - rects[0].top) > 1)) throw new Error("gradient text wraps onto two lines: " + span.textContent);
     const cs = getComputedStyle(span);
     const mark = document.createElement("span");
     mark.style.cssText = "display:inline-block;width:0;height:0;vertical-align:baseline";
@@ -94,7 +97,7 @@ const drawArt = () => {
    * offset = W · (u·cosφ + κ·(u² − 1/12)·sinφ) — the curved cross-section keeps threads apart when the strip turns edge-on.
    */
   const ribbon = (g, o) => {
-    const { pts, width, turns = 1, phase0 = 0, n = 26, sw = 0.13, op = 0.6, kappa = 0.55, S = 220, stroke, edgeBoost = 0.55, fill } = o;
+    const { pts, width, turns = 1, phase0 = 0, n = 26, sw = 0.18, op = 0.6, kappa = 0.55, S = 220, stroke, edgeBoost = 0.55, fill } = o;
     const C = spline(pts), W = profile(width);
     const P = [], N = [];
     for (let s = 0; s <= S; s++) {
@@ -119,20 +122,12 @@ const drawArt = () => {
       let d = "";
       for (let s = 0; s <= S; s++) { const [x, y] = at(s, u); d += (s ? "L" : "M") + f(x) + " " + f(y); }
       const e = Math.pow(Math.abs(2 * u), 1.4);
-      const p = el(g, "path", { d, fill: "none", stroke: typeof stroke === "function" ? stroke(u, k) : stroke, "stroke-width": sw * (0.8 + 0.5 * e), opacity: f(op * (1 - edgeBoost + edgeBoost * e) * (0.85 + 0.3 * rnd())), "stroke-linecap": "round" });
+      const p = el(g, "path", { d, fill: "none", stroke: typeof stroke === "function" ? stroke(u, k) : stroke, "stroke-width": f(sw * (1 + 0.3 * e)), opacity: f(op * (1 - edgeBoost + edgeBoost * e) * (0.85 + 0.3 * rnd())), "stroke-linecap": "round" });
       lines.push({ u, p });
     }
     return { at, S, C, W };
   };
 
-  const dotGrid = (svg, g, x, y, w, h, step = 4, op = 0.09) => {
-    let d = "";
-    for (let yy = y + step / 2; yy < y + h; yy += step) for (let xx = x + step / 2; xx < x + w; xx += step) d += `M${f(xx)} ${f(yy)}h0`;
-    el(g, "path", { d, stroke: "#c4beff", "stroke-width": 0.34, "stroke-linecap": "round", opacity: op, fill: "none" });
-  };
-  const cross = (g, x, y, s = 1.4, op = 0.32) => {
-    el(g, "path", { d: `M${x - s} ${y}H${x + s}M${x} ${y - s}V${y + s}`, stroke: "#a9a2ff", "stroke-width": 0.12, opacity: op, fill: "none" });
-  };
   const particles = (g, rib, count, spread, colorFn, rMax = 0.42) => {
     for (let i = 0; i < count; i++) {
       const s = Math.floor(rnd() * rib.S), u = (rnd() - 0.5) * spread;
@@ -152,8 +147,6 @@ const drawArt = () => {
     const svg = document.getElementById("art-out");
     const base = el(svg, "g");
     el(base, "rect", { x: 0, y: 0, width: 303, height: 216, fill: "#07061a" });
-    // flap a touch lighter, so the fold-in reads as its own leaf
-    el(base, "rect", { x: 203, y: 0, width: 100, height: 216, fill: linear(svg, "flapbg", 0, 0, 0, 216, [[0, "#0d0c26"], [1, "#08071c"]]) });
 
     const tile = box(sheet, document.getElementById("qr"));
     const h1 = box(sheet, document.querySelector(".cover h1"));
@@ -167,14 +160,14 @@ const drawArt = () => {
     glow(svg, glows, 270, 8, 58, 40, radial(svg, "gF", [[0, "#8f86ff", 0.2], [1, "#8f86ff", 0]]));
     glow(svg, glows, 60, 214, 70, 26, radial(svg, "gB", [[0, "#df1173", 0.14], [1, "#df1173", 0]]));
 
-    const grid = el(svg, "g");
-    dotGrid(svg, grid, 0, 0, 303, 216, 4, 0.085);
-
     // rings around the meeting point and around the QR: "signal"
-    const rings = el(svg, "g", { fill: "none", stroke: "#a9a2ff", "stroke-width": 0.12 });
-    [5, 10, 16, 23].forEach((r, i) => el(rings, "circle", { cx: f(P[0]), cy: f(P[1]), r, opacity: 0.32 - i * 0.06, "stroke-dasharray": i % 2 ? "0.6 1.2" : "none" }));
-    [3.2, 6.6, 10.4].forEach((d, i) =>
-      el(rings, "rect", { x: f(tile.x0 - d), y: f(tile.y0 - d), width: f(tile.x1 - tile.x0 + 2 * d), height: f(tile.y1 - tile.y0 + 2 * d), rx: 5 + d, opacity: 0.4 - i * 0.11, "stroke-dasharray": i === 1 ? "0.6 1.2" : "none" }),
+    const rings = el(svg, "g", { fill: "none", stroke: "#a9a2ff", "stroke-width": 0.2 });
+    [5, 10, 16].forEach((r, i) => el(rings, "circle", { cx: f(P[0]), cy: f(P[1]), r, opacity: 0.5 - i * 0.1, "stroke-dasharray": i === 1 ? "0.8 1.4" : "none" }));
+    const open = el(defs(svg), "clipPath", { id: "qropen" });
+    el(open, "rect", { x: 0, y: 0, width: 303, height: f(tile.y1 + 2.4) });
+    const qrRings = el(rings, "g", { "clip-path": "url(#qropen)" });
+    [3.2, 6.4].forEach((d, i) =>
+      el(qrRings, "rect", { x: f(tile.x0 - d), y: f(tile.y0 - d), width: f(tile.x1 - tile.x0 + 2 * d), height: f(tile.y1 - tile.y0 + 2 * d), rx: 5 + d, opacity: 0.5 - i * 0.1, "stroke-dasharray": i === 1 ? "0.8 1.4" : "none" }),
     );
 
     const gV = linear(svg, "gV", tile.cx, 0, P[0], 0, [[0, "#b8b1ff"], [0.55, "#8f86ff"], [1, "#e06bc0"]]);
@@ -185,12 +178,12 @@ const drawArt = () => {
     const spine = 103;
     // violet: from the QR, out of its top-left, over the spine, down into the point
     const v = ribbon(ribs, {
-      pts: [[tile.cx, tile.cy - 6], [tile.x0 - 6, tile.y0 + 6], [spine + 10, tile.y0 - 2], [spine - 6, P[1] - 30], [P[0] + 30, P[1] - 30], [P[0] + 10, P[1] - 10], P],
+      pts: [[tile.cx, tile.cy - 6], [tile.x0 - 6, tile.y0 + 7], [spine + 10, tile.y0 + 2], [spine - 6, P[1] - 30], [P[0] + 30, P[1] - 30], [P[0] + 10, P[1] - 10], P],
       width: [3, 6, 11, 15, 17, 9, 0.2], turns: 1.35, phase0: 0.4, n: 28, stroke: gV, op: 0.62, fill: gV, fillOp: 0.05,
     });
     // magenta: out of the QR's lower-left, over the spine lower down, up into the point
     const m = ribbon(ribs, {
-      pts: [[tile.cx, tile.cy + 6], [tile.x0 - 6, tile.y1 - 6], [spine + 10, tile.y1 + 14], [spine - 8, P[1] + 34], [P[0] + 30, P[1] + 28], [P[0] + 10, P[1] + 9], P],
+      pts: [[tile.cx, tile.cy + 5], [tile.x0 - 5, tile.cy + 9], [spine + 9, tile.cy + 17], [spine - 8, P[1] + 34], [P[0] + 30, P[1] + 28], [P[0] + 10, P[1] + 9], P],
       width: [3, 6, 12, 16, 18, 9, 0.2], turns: 1.6, phase0: 2.1, n: 28, stroke: gM, op: 0.6, fill: gM, fillOp: 0.05,
     });
     // joined: one stream leaves the point towards the free edge
@@ -206,29 +199,23 @@ const drawArt = () => {
     node(parts, svg, f(P[0]), f(P[1]), 0.9, 8);
 
     // annotations, like a technical drawing: what each stream is
-    const notes = el(svg, "g", { fill: "none", stroke: "#c4beff", "stroke-width": 0.13, opacity: 0.7 });
-    const annotate = (cls, [ax, ay], dx, dy, run, fa, en) => {
+    const notes = el(svg, "g", { fill: "none", stroke: "#c4beff", "stroke-width": 0.2, opacity: 0.8 });
+    const annotate = (cls, [ax, ay], dx, dy, run, fa) => {
       const bx = ax + dx, by = ay + dy, cx = bx + run;
       el(notes, "path", { d: `M${f(ax)} ${f(ay)}L${f(bx)} ${f(by)}H${f(cx)}` });
-      el(svg, "circle", { cx: f(ax), cy: f(ay), r: 0.7, fill: "#07061a", stroke: cls === "m" ? "#ff4fa3" : "#a9a2ff", "stroke-width": 0.25 });
+      el(svg, "circle", { cx: f(ax), cy: f(ay), r: 0.8, fill: "#07061a", stroke: cls === "m" ? "#ff4fa3" : "#a9a2ff", "stroke-width": 0.3 });
       const d = document.createElement("div");
-      d.className = "note " + cls;
-      d.innerHTML = `<b>${fa}</b><span>${en}</span>`;
+      d.className = "note";
+      d.textContent = fa;
       sheet.appendChild(d);
       const w = d.getBoundingClientRect().width * MM, h = d.getBoundingClientRect().height * MM;
       d.style.top = f(by - h / 2) + "mm";
       d.style.left = f(run < 0 ? cx - 1.2 - w : cx + 1.2) + "mm";
-      d.style.alignItems = run < 0 ? "flex-end" : "flex-start";
     };
     const on = (r, t) => r.at(Math.round(t * r.S), 0);
-    annotate("v", on(v, 0.76), -6, -12, -4, "تجربه‌ی سازمانی", "EXPERIENCE · SINCE 2010");
-    annotate("m", on(m, 0.84), -6, 11, -4, "هوش مصنوعی", "INTELLIGENCE · AI AGENTS");
-    annotate("c", P, -7, -14, -3, "نقطه‌ی تلاقی", "CONVERGENCE");
-
-    const marks = el(svg, "g");
-    for (const [x0, x1] of [[3, 103], [103, 203], [203, 300]]) {
-      for (const [x, y] of [[x0 + 4.5, 7.5], [x1 - 4.5, 7.5], [x0 + 4.5, 208.5], [x1 - 4.5, 208.5]]) cross(marks, x, y);
-    }
+    annotate("v", on(v, 0.76), -6, -12, -4, "تجربه‌ی سازمانی");
+    annotate("m", on(m, 0.84), -6, 11, -4, "هوش مصنوعی");
+    annotate("c", P, -7, -14, -3, "نقطه‌ی تلاقی");
   }
 
   /* ═════════ INSIDE ═════════ */
@@ -237,15 +224,12 @@ const drawArt = () => {
     const svg = document.getElementById("art-in");
     const base = el(svg, "g");
     el(base, "rect", { x: 0, y: 0, width: 303, height: 216, fill: "#07061a" });
-    el(base, "rect", { x: 0, y: 0, width: 100, height: 216, fill: linear(svg, "fibg", 0, 0, 0, 216, [[0, "#0b0a22"], [1, "#07061a"]]) });
 
     const core = box(sheet, document.getElementById("core"));
     const glows = el(svg, "g");
     glow(svg, glows, core.cx, core.cy, 60, 58, radial(svg, "gC", [[0, "#df1173", 0.24], [0.5, "#7b235a", 0.1], [1, "#07061a", 0]]));
     glow(svg, glows, 292, 18, 64, 50, radial(svg, "gR", [[0, "#8f86ff", 0.22], [1, "#8f86ff", 0]]));
     glow(svg, glows, 10, 200, 70, 50, radial(svg, "gL", [[0, "#8f86ff", 0.2], [1, "#8f86ff", 0]]));
-    const grid = el(svg, "g");
-    dotGrid(svg, grid, 0, 0, 303, 216, 4, 0.08);
 
     // the agent flow: inputs converge into the agents, results fan out
     const flow = el(svg, "g", { fill: "none", "stroke-linecap": "round" });
@@ -258,7 +242,7 @@ const drawArt = () => {
         const u = k / (n - 1) - 0.5;
         const a = x0 + u * spread0, b = x1 + u * spread1, my = (y0 + y1) / 2;
         const tw = Math.sin(u * Math.PI) * 0.8;
-        el(flow, "path", { d: `M${f(a)} ${f(y0)}C${f(a + tw)} ${f(my)} ${f(b - tw)} ${f(my)} ${f(b)} ${f(y1)}`, stroke, "stroke-width": 0.14, opacity: f(0.4 + 0.5 * Math.abs(2 * u)) });
+        el(flow, "path", { d: `M${f(a)} ${f(y0)}C${f(a + tw)} ${f(my)} ${f(b - tw)} ${f(my)} ${f(b)} ${f(y1)}`, stroke, "stroke-width": 0.2, opacity: f(0.45 + 0.5 * Math.abs(2 * u)) });
       }
     };
     ins.forEach((n, i) => bundle(n.cx, n.y1, core.cx + (i - 1.5) * 4.2, core.y0, gin, 4.4, 1.2));
@@ -282,20 +266,25 @@ const drawArt = () => {
     const dots = [...document.querySelectorAll("#steps .dot")].map((n) => box(sheet, n));
     const thread = el(svg, "g");
     const gs = linear(svg, "gs", dots[0].cx, 0, dots[4].cx, 0, [[0, "#8f86ff"], [0.5, "#c2479f"], [1, "#ff2b8f"]]);
-    ribbon(thread, { pts: [[dots[0].cx + 6, dots[0].cy], ...dots.map((d) => [d.cx, d.cy]), [dots[4].cx - 6, dots[4].cy]], width: [0.4, 2.6, 3.2, 3.2, 3.2, 2.6, 0.4], turns: 3, n: 9, sw: 0.12, stroke: gs, op: 0.8, edgeBoost: 0.3 });
+    ribbon(thread, { pts: [[dots[0].cx + 6, dots[0].cy], ...dots.map((d) => [d.cx, d.cy]), [dots[4].cx - 6, dots[4].cy]], width: [0.4, 2.6, 3.2, 3.2, 3.2, 2.6, 0.4], turns: 3, n: 9, sw: 0.18, stroke: gs, op: 0.85, edgeBoost: 0.3 });
 
     // a quiet stream under the opening panel, entering from the trim edge
     const q = box(sheet, document.querySelector(".cin .quote"));
     const gq = linear(svg, "gq", 303, 0, 200, 0, [[0, "#ff4fa3", 0.9], [0.6, "#8f86ff", 0.6], [1, "#8f86ff", 0]]);
     const quiet = el(svg, "g");
     ribbon(quiet, { pts: [[306, q.y0 - 22], [282, q.y0 - 12], [256, q.y0 - 16], [228, q.y0 - 8], [201, q.y0 - 10]], width: [12, 10, 8, 6, 2], turns: 1.1, n: 22, stroke: gq, op: 0.38 });
-
-    const marks = el(svg, "g");
-    for (const [x0, x1] of [[3, 100], [100, 200], [200, 300]]) {
-      for (const [x, y] of [[x0 + 4.5, 7.5], [x1 - 4.5, 7.5], [x0 + 4.5, 208.5], [x1 - 4.5, 208.5]]) cross(marks, x, y);
-    }
   }
-  document.documentElement.dataset.ready = "1";
 };
-// layout depends on the web fonts and the logo images: draw once both are in
-window.addEventListener("load", () => document.fonts.ready.then(drawArt));
+// layout depends on the fonts and the logo images: draw once both are in; render.mjs waits for data-ready
+window.addEventListener("load", () =>
+  document.fonts.ready.then(() => {
+    const root = document.documentElement;
+    try {
+      drawArt();
+      root.dataset.ready = "1";
+    } catch (e) {
+      root.dataset.error = e.message;
+      root.dataset.ready = "error";
+    }
+  }),
+);
