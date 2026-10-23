@@ -109,17 +109,56 @@ function useStickUnderHeader() {
   return ref;
 }
 
-function cardsOf({ lang, list, colName, editorial, withEditorial, reveal }: { lang: Lang; list: Product[]; colName: Map<string, string>; editorial?: ReactNode; withEditorial: boolean; reveal: boolean }) {
+/**
+ * Fade-and-rise for grid cells (marked data-r) as they scroll into view. The site-wide RevealObserver is
+ * not used here: the grid sits in a Suspense boundary, which it would mark before hydration. Cells already
+ * on screen at first paint are left alone (no flash); cells added later (filters, «more») rise in.
+ */
+const showCell = (el: Element) => el.setAttribute("data-in", "");
+
+function useGridReveal(deps: unknown[]) {
+  const ref = useRef<HTMLUListElement>(null);
+  const first = useRef(true);
+  const io = useRef<IntersectionObserver | null>(null);
+  useEffect(() => {
+    io.current = "IntersectionObserver" in window ? new IntersectionObserver((entries) => {
+      for (const e of entries) if (e.isIntersecting) {
+        showCell(e.target);
+        io.current?.unobserve(e.target);
+      }
+    }, { rootMargin: "0px 0px -6% 0px", threshold: 0.06 }) : null;
+    return () => io.current?.disconnect();
+  }, []);
+  useEffect(() => {
+    const ul = ref.current;
+    if (!ul) return;
+    const initial = first.current;
+    first.current = false;
+    for (const el of ul.querySelectorAll<HTMLElement>("[data-r]:not([data-seen])")) {
+      el.setAttribute("data-seen", "");
+      const r = el.getBoundingClientRect();
+      const onScreen = r.top < window.innerHeight && r.bottom > 0;
+      if (initial && r.top < window.innerHeight) continue;
+      el.setAttribute("data-reveal", "");
+      if (!io.current) showCell(el);
+      else if (onScreen) requestAnimationFrame(() => requestAnimationFrame(() => showCell(el)));
+      else io.current.observe(el);
+    }
+  }, deps); // eslint-disable-line react-hooks/exhaustive-deps
+  return ref;
+}
+
+function cardsOf({ lang, list, colName, editorial, withEditorial }: { lang: Lang; list: Product[]; colName: Map<string, string>; editorial?: ReactNode; withEditorial: boolean }) {
   const cards: ReactNode[] = [];
   list.forEach((p, i) => {
     cards.push(
-      <li key={p.id} data-reveal={reveal && i >= 4 ? "" : undefined} style={{ "--d": i % 4 } as CSSProperties}>
+      <li key={p.id} data-r="" style={{ "--d": i % 4 } as CSSProperties}>
         <ProductCard product={p} lang={lang} collectionName={p.collection ? colName.get(p.collection) : undefined} priority={i < 4} ground={false} />
       </li>,
     );
     if (i === 5 && editorial && withEditorial) {
       cards.push(
-        <li key="editorial" className="col-span-2" data-reveal={reveal ? "" : undefined}>
+        <li key="editorial" className="col-span-2" data-r="">
           {editorial}
         </li>,
       );
@@ -149,7 +188,7 @@ export function ShopGridFallback({ lang, products, collections, editorial }: { l
           </span>
         </div>
       </div>
-      <ul className={`${GRID} pt-10 sm:pt-12`}>{cardsOf({ lang, list: products.slice(0, PAGE), colName, editorial, withEditorial: true, reveal: false })}</ul>
+      <ul className={`${GRID} pt-10 sm:pt-12`}>{cardsOf({ lang, list: products.slice(0, PAGE), colName, editorial, withEditorial: true })}</ul>
     </div>
   );
 }
@@ -200,7 +239,8 @@ export function ShopGrid({ lang, products, collections, editorial }: { lang: Lan
   const quickTones = facet("metal", TONES.map((v) => ({ v, label: c.tones[v] })), f);
 
   const colName = useMemo(() => new Map(collections.map((k) => [k.slug, k.name])), [collections]);
-  const cards = cardsOf({ lang, list: list.slice(0, limit), colName, editorial, withEditorial: !chips.length && f.sort === "featured", reveal: true });
+  const cards = cardsOf({ lang, list: list.slice(0, limit), colName, editorial, withEditorial: !chips.length && f.sort === "featured" });
+  const grid = useGridReveal([list, limit]);
 
   const sortOptions: { v: SortKey; label: string }[] = [
     { v: "featured", label: tr.featured },
@@ -272,7 +312,9 @@ export function ShopGrid({ lang, products, collections, editorial }: { lang: Lan
           </button>
         </div>
       ) : (
-        <ul className={`${GRID} pt-10 sm:pt-12`}>{cards}</ul>
+        <ul ref={grid} className={`${GRID} pt-10 sm:pt-12`}>
+          {cards}
+        </ul>
       )}
       {list.length > limit && (
         <div className="flex flex-col items-center gap-4 pt-16 text-center">
