@@ -27,6 +27,14 @@ export function siteMetadata(lang: Lang): Metadata {
     openGraph: { type: "website", locale: lang === "fa" ? "fa_IR" : "en_US", siteName: s.name, title: s.title, description: s.description, images: [{ url: "/og.png", width: 1200, height: 630, alt: s.name }] },
     twitter: { card: "summary_large_image", title: s.title, description: s.description, images: ["/og.png"] },
     manifest: href(lang, "/manifest.webmanifest"),
+    // static files in /public, made from the official mark (public/brand/celin-mark-reverse.svg) on the espresso ground
+    icons: {
+      icon: [
+        { url: "/favicon.ico", sizes: "48x48" },
+        { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
+      ],
+      apple: [{ url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
+    },
   };
 }
 
@@ -65,6 +73,7 @@ export function webManifest(lang: Lang): MetadataRoute.Manifest {
     icons: [
       { src: "/icon-192.png", sizes: "192x192", type: "image/png" },
       { src: "/icon-512.png", sizes: "512x512", type: "image/png" },
+      { src: "/icon-maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
     ],
   };
 }

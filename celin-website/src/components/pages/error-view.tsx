@@ -26,12 +26,12 @@ export function ErrorView({ lang, error, retry }: { lang: Lang; error: Error & {
         <Link href={href(lang, "/")} className="btn btn-line-light h-13">
           {c.home}
         </Link>
+        {error.digest && (
+          <p className="mt-4 basis-full text-xs text-on-night-muted">
+            {c.ref}: <span className="ltr font-label">{error.digest}</span>
+          </p>
+        )}
       </NightDoor>
-      {error.digest && (
-        <p className="bg-night pb-8 text-center text-xs text-on-night-muted">
-          {c.ref}: <span className="ltr font-label">{error.digest}</span>
-        </p>
-      )}
     </main>
   );
 }
