@@ -42,8 +42,13 @@ export function AuthForms({ lang, tab: initial, next, contact }: { lang: Lang; t
 
   return (
     <div>
-      <p className="label">{c.auth.eyebrow}</p>
-      <h1 className="display mt-3 text-3xl sm:text-4xl">{c.auth.titles[tab]}</h1>
+      <p className="label flex items-center gap-2.5 text-gold-text!">
+        <svg viewBox="0 0 10 10" className="size-1.5 text-gold" aria-hidden>
+          <path d="M5 0 10 5 5 10 0 5Z" fill="currentColor" />
+        </svg>
+        {c.auth.eyebrow}
+      </p>
+      <h1 className="display mt-3 text-4xl font-bold sm:text-5xl">{c.auth.titles[tab]}</h1>
       <p className="mt-3 text-sm leading-7 text-muted">{c.auth.leads[tab]}</p>
 
       <div role="tablist" aria-label={c.auth.eyebrow} className="mt-8 grid grid-cols-3 border-b border-line text-sm">
@@ -66,7 +71,7 @@ export function AuthForms({ lang, tab: initial, next, contact }: { lang: Lang; t
               setTab(nextTab);
               document.getElementById(`${base}-tab-${nextTab}`)?.focus();
             }}
-            className={`-mb-px min-h-12 border-b px-1 leading-5 transition-colors ${tab === t ? "border-ink text-ink" : "border-transparent text-muted hover:text-ink"}`}
+            className={`-mb-px min-h-12 border-b-2 px-1 leading-5 transition-colors ${tab === t ? "border-gold text-ink" : "border-transparent text-muted hover:text-ink"}`}
           >
             {c.auth.tabs[t]}
           </button>
@@ -153,7 +158,7 @@ function SignInForm({ lang, next, onDone, onCode, onSignup, contact }: { lang: L
       <TextField id="login" label={c.fields.login} value={login} onChange={(e) => setLogin(e.target.value)} autoComplete="username" dir="ltr" spellCheck={false} autoCapitalize="none" maxLength={160} required />
       <PasswordField id="password" label={c.fields.password} value={password} onChange={setPassword} autoComplete="current-password" lang={lang} />
       <div aria-live="polite">{error && <FormNote tone="error">{error}</FormNote>}</div>
-      <button type="submit" disabled={pending} className={`${btn.primary} w-full`}>
+      <button type="submit" disabled={pending} className={`${btn.metal} w-full`}>
         {pending ? c.auth.pending : c.auth.signIn}
       </button>
       <div className="space-y-4 border-t border-line pt-6 text-sm leading-7">
@@ -249,7 +254,7 @@ function SignUpForm({ lang, next, onDone, onSignin }: { lang: Lang; next: string
         <input id="website" name="website" tabIndex={-1} autoComplete="off" value={f.website} onChange={set("website")} />
       </div>
       <div aria-live="polite">{error && <FormNote tone="error">{error}</FormNote>}</div>
-      <button type="submit" disabled={pending} className={`${btn.primary} w-full`}>
+      <button type="submit" disabled={pending} className={`${btn.metal} w-full`}>
         {pending ? c.auth.pending : c.auth.signUp}
       </button>
       <p className="text-xs leading-6 text-muted">{c.auth.terms}</p>

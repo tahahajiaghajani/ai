@@ -620,6 +620,18 @@ html.js .fx-words[data-fx="now"] .w > span {
   }
 }
 
+/* hero copy enters from the first paint (no wait for JS), after the intro; --in = order */
+html.js .fx-in {
+  animation: fx-in 1.1s var(--ease-out-expo) both;
+  animation-delay: calc(var(--intro-delay, 0s) + var(--in, 0) * 110ms + 300ms);
+}
+@keyframes fx-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+}
+
 /*
  * image reveals: a curtain opens (clip-path on .fx-frame), the picture settles from a slight zoom.
  * The trigger (data-fx / data-in) sits on the unclipped .fx-unveil box: IntersectionObserver ignores a
@@ -760,8 +772,13 @@ html[dir="rtl"] .fx-marquee-track {
   background: rgb(156 94 52 / 0.12);
 }
 .fx-cursor[data-mode="hidden"] .fx-cursor-ring,
-.fx-cursor[data-mode="hidden"] .fx-cursor-dot {
+.fx-cursor-dot[data-mode="hidden"] {
   opacity: 0;
+}
+/* over pictures the «view» disc replaces the system cursor */
+.fx-has-cursor [data-cursor="view"],
+.fx-has-cursor [data-cursor="view"] * {
+  cursor: none;
 }
 .fx-cursor[data-tone="light"] .fx-cursor-ring {
   border-color: rgb(245 236 223 / 0.6);
@@ -797,7 +814,6 @@ html.intro-seen .fx-intro {
 .fx-intro-mark {
   width: min(28vw, 132px);
   opacity: 0;
-  filter: drop-shadow(0 0 24px rgb(233 185 138 / 0.35));
   animation:
     intro-mark 1.3s var(--ease-out-expo) 0.1s forwards,
     intro-mark-out 0.6s var(--ease-lux) 1.4s forwards;
@@ -1045,6 +1061,7 @@ html.js .fx-draw[data-fx="now"] path {
   html:not(.intro-seen) {
     --intro-delay: 0s;
   }
+  html.js .fx-in,
   html.js [data-fx="now"],
   html.js [data-fx="now"] img,
   html.js [data-fx="now"] .w > span,
@@ -1055,6 +1072,7 @@ html.js .fx-draw[data-fx="now"] path {
 html[data-motion="reduced"]:not(.intro-seen) {
   --intro-delay: 0s;
 }
+html[data-motion="reduced"].js .fx-in,
 html[data-motion="reduced"].js [data-fx="now"],
 html[data-motion="reduced"].js [data-fx="now"] img,
 html[data-motion="reduced"].js [data-fx="now"] .w > span,

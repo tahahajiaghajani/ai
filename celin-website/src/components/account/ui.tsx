@@ -9,8 +9,10 @@ import { Icon } from "@/components/ui/icons";
 /** Small building blocks of the member pages (recipes from docs/DESIGN_SYSTEM.md). Hook-free: usable on both sides. */
 
 export const btn = {
-  primary: "inline-flex h-12 items-center justify-center gap-2 bg-ink px-7 text-sm text-bone transition-colors hover:bg-ink-2 disabled:cursor-not-allowed disabled:opacity-40",
-  outline: "inline-flex h-12 items-center justify-center gap-2 border border-ink px-7 text-sm text-ink transition-colors hover:bg-ink hover:text-bone disabled:cursor-not-allowed disabled:opacity-40",
+  primary: "btn btn-ink h-12 disabled:cursor-not-allowed disabled:opacity-40",
+  /** the main action of a page (submit sign-in, send a request, place an order) */
+  metal: "btn btn-metal h-12 disabled:cursor-not-allowed disabled:opacity-40",
+  outline: "btn btn-line h-12 text-ink disabled:cursor-not-allowed disabled:opacity-40",
   // text links keep their look; an invisible ::after extends the tap area to ≥ 44px
   text: "relative text-sm text-gold-text underline-offset-8 hover:underline after:absolute after:inset-x-0 after:-inset-y-3.5",
   quiet: "relative border-b border-ink pb-0.5 text-sm text-ink after:absolute after:inset-x-0 after:-inset-y-3.5",

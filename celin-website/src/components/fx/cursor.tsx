@@ -21,6 +21,7 @@ export function Cursor({ label }: { label: string }) {
     if (!r || !d || !finePointer() || motionReduced()) return;
     r.hidden = false;
     d.hidden = false;
+    document.documentElement.classList.add("fx-has-cursor");
     const pos = { x: -100, y: -100, rx: -100, ry: -100 };
     let raf = 0;
     let shown = false;
@@ -60,6 +61,7 @@ export function Cursor({ label }: { label: string }) {
     window.addEventListener("pointermove", move, { passive: true });
     document.documentElement.addEventListener("pointerleave", leave);
     return () => {
+      document.documentElement.classList.remove("fx-has-cursor");
       cancelAnimationFrame(raf);
       window.removeEventListener("pointermove", move);
       document.documentElement.removeEventListener("pointerleave", leave);
