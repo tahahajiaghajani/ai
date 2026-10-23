@@ -235,7 +235,8 @@ export function ShopGrid({ lang, products, collections, editorial }: { lang: Lan
   // from the sheet: its own history entry becomes the filtered page (the native call is synced with
   // useSearchParams), and closing no longer steps back over it — which would undo the change
   const applySheet = () => {
-    history.replaceState({ ...(history.state ?? {}), celinOverlay: false }, "", urlFor(draft));
+    // (no spread of history.state: Next's own marker in it would make the router skip the sync)
+    history.replaceState({ celinOverlay: false }, "", urlFor(draft));
     setLimit(PAGE);
     setOpen(false);
   };

@@ -2,18 +2,18 @@
 
 import { useRef, type CSSProperties, type ReactNode } from "react";
 import type { Lang } from "@/lib/format";
-import type { Media } from "@/lib/media";
+import { mediaUrl, type Media } from "@/lib/media";
 import type { Video } from "@/lib/video";
 import { Arch } from "@/components/fx/arch";
 import { ArchLines } from "@/components/fx/arch-lines";
 import { Aura, type AuraPalette } from "@/components/fx/aura";
 import { Grain } from "@/components/fx/grain";
+import { SlotVideo } from "@/components/fx/slot-video";
 import { SplitWords } from "@/components/fx/split-words";
 import { gsap } from "@/components/fx/gsap";
 import { useGsap } from "@/components/fx/use-gsap";
 import { usePointerDepth } from "@/components/fx/use-pointer-depth";
 import { Eyebrow, NightCrumbs } from "@/components/house/bits";
-import { SlotVideo } from "@/components/house/slot-video";
 
 export interface HouseHeroData {
   eyebrow: string;
@@ -122,7 +122,7 @@ export function HouseHero({
               delay={150}
               sparkle={d.video ? false : sparkle}
             >
-              <SlotVideo video={d.video} />
+              {d.video && d.media && <SlotVideo video={d.video} poster={mediaUrl(d.media, 960)} position={`${d.media.fx}% ${d.media.fy}%`} />}
             </Arch>
           </div>
           <span aria-hidden className="absolute inset-x-[-22%] -bottom-px block h-px bg-[image:var(--metal-champagne)] opacity-60" />
