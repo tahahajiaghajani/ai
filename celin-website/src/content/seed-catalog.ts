@@ -158,7 +158,8 @@ const RS: Spec = { label_fa: "پوشش", label_en: "Finish", value_fa: "رزگل
 const TT: Spec = { label_fa: "پوشش", label_en: "Finish", value_fa: "طلایی یا نقره‌ای (رودیوم)", value_en: "Gold-tone or silver-tone (rhodium plated)" };
 const stones = (fa: string, en: string): Spec => ({ label_fa: "نگین", label_en: "Stones", value_fa: fa, value_en: en });
 const WHITE = stones("زیرکونیای مکعبی سفید با تراش اتمی", "White cubic zirconia, atomic cut");
-const HAND: Spec = { label_fa: "پرداخت", label_en: "Finishing", value_fa: "نشانده و پرداخت‌شده با دست", value_en: "Hand-set and hand-finished" };
+// the brand's own wording (story.ts): precise setting — no "by hand" claims
+const HAND: Spec = { label_fa: "نشاندن نگین", label_en: "Setting", value_fa: "مخراج‌کاری دقیق", value_en: "Precise stone setting" };
 const includes = (fa: string, en: string): Spec => ({ label_fa: "شامل", label_en: "Includes", value_fa: fa, value_en: en });
 
 export const SEED_PRODUCTS: SeedProduct[] = [
