@@ -269,7 +269,7 @@ export function ShopGrid({ lang, products, collections, editorial }: { lang: Lan
   return (
     <div>
       {/* the bar: count · quick finish chips · filter & sort */}
-      <div ref={bar} className="group/bar glass sticky top-0 z-30 border-y border-gold/15 transition-shadow duration-500 data-stuck:shadow-[0_18px_36px_-28px_rgb(26_19_16/0.45)]">
+      <div ref={bar} className="group/bar glass sticky top-0 z-30 border-y border-gold/15 transition-shadow duration-500 data-stuck:shadow-[0_18px_36px_-28px_color-mix(in_srgb,var(--color-ink)_45%,transparent)]">
         <div className="container-lux flex h-14 items-center justify-between gap-4">
           <div className="flex min-w-0 items-center gap-6">
             <Count lang={lang} n={list.length} />

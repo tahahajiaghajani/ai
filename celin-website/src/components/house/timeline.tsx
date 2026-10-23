@@ -63,7 +63,7 @@ export function Timeline({ lang, d }: { lang: Lang; d: TimelineData }) {
     [lang],
   );
 
-  const year = "display block font-bold text-metal-light leading-none! text-[clamp(2.4rem,9vw,3.5rem)] lg:text-8xl";
+  const year = "display inline-block whitespace-nowrap font-bold text-metal-light leading-none! text-[clamp(2.4rem,9vw,3.5rem)] lg:text-8xl";
   return (
     <section ref={root} data-tone="light" className="relative isolate overflow-clip bg-night-teal text-on-night">
       <Aura palette="paraiba" light={0.75} />
@@ -87,9 +87,9 @@ export function Timeline({ lang, d }: { lang: Lang; d: TimelineData }) {
           </p>
           {/* the thread from the first year to the twentieth */}
           <div data-tl="row" className="relative mt-14 grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-4 sm:gap-8 lg:mt-20" style={{ "--p": 1 } as CSSProperties}>
-            <div className="w-[min(30vw,13rem)] text-center">
+            <div className="text-center">
               <span className={year}>{num(d.from, lang)}</span>
-              <span className="mt-3 block text-sm leading-6 text-on-night-muted sm:text-base">{d.fromLabel}</span>
+              <span className="mx-auto mt-3 block max-w-[min(30vw,13rem)] text-sm leading-6 text-on-night-muted sm:text-base">{d.fromLabel}</span>
             </div>
             <div className="relative mt-[clamp(1.2rem,4.5vw,1.75rem)] h-px lg:mt-12">
               <span aria-hidden className="absolute inset-0 bg-on-night/15" />
@@ -98,9 +98,9 @@ export function Timeline({ lang, d }: { lang: Lang; d: TimelineData }) {
                 <path d="M5 0 10 5 5 10 0 5Z" fill="currentColor" />
               </svg>
             </div>
-            <div data-tl="to" className="w-[min(30vw,13rem)] text-center">
+            <div data-tl="to" className="text-center">
               <span className={year}>{num(d.to, lang)}</span>
-              <span className="mt-3 block text-sm leading-6 text-on-night-muted sm:text-base">{d.toLabel}</span>
+              <span className="mx-auto mt-3 block max-w-[min(30vw,13rem)] text-sm leading-6 text-on-night-muted sm:text-base">{d.toLabel}</span>
             </div>
           </div>
           <p data-tl="closing" className="mx-auto mt-14 max-w-2xl text-lg leading-9 text-on-night-muted sm:text-xl sm:leading-10">

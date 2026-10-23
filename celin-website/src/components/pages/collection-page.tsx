@@ -102,10 +102,10 @@ export async function CollectionPage({ lang, slug }: { lang: Lang; slug: string 
           {products.length === 0 ? (
             <p className="py-20 text-center text-lg text-muted">{c.empty}</p>
           ) : arches ? (
-            <div className={`mt-10 grid grid-cols-2 gap-x-3 gap-y-12 sm:gap-x-6 lg:gap-x-8 lg:pb-16 ${products.length >= 4 ? "lg:grid-cols-4" : "lg:grid-cols-3"} ${products.length < 3 ? "mx-auto max-w-3xl" : ""}`}>
+            <div className={`mt-10 lg:pb-16 ${products.length < 3 ? "flex flex-wrap justify-center gap-x-3 gap-y-12 sm:gap-x-8" : `grid grid-cols-2 gap-x-3 gap-y-12 sm:gap-x-6 lg:gap-x-8 ${products.length >= 4 ? "lg:grid-cols-4" : "lg:grid-cols-3"}`}`}>
               {products.map((p, i) => (
-                <div key={p.id} className={i % 2 === 1 ? "lg:translate-y-16" : ""} data-reveal style={{ "--d": i % 4 } as CSSProperties}>
-                  <ProductCard product={p} lang={lang} collectionName={name} variant="arch" sizes="(min-width: 1024px) 25vw, 46vw" />
+                <div key={p.id} className={`${products.length < 3 ? "w-[calc(50%-0.375rem)] sm:w-[300px]" : ""} ${i % 2 === 1 ? "lg:translate-y-16" : ""}`} data-reveal style={{ "--d": i % 4 } as CSSProperties}>
+                  <ProductCard product={p} lang={lang} collectionName={name} variant="arch" sizes={products.length < 3 ? "(min-width: 640px) 300px, 46vw" : "(min-width: 1024px) 25vw, 46vw"} />
                 </div>
               ))}
             </div>

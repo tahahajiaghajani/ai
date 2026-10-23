@@ -255,7 +255,7 @@ export function Header({ lang, menu }: { lang: Lang; menu: MenuData }) {
             id={`menu-${panel}`}
             onPointerEnter={(e) => e.pointerType === "mouse" && hover(panel)}
             onPointerLeave={(e) => e.pointerType === "mouse" && hover(null)}
-            className="absolute inset-x-0 top-full hidden animate-[rise_.35s_var(--ease-lux)_both] overflow-hidden border-b border-gold/20 bg-mesh-porcelain text-ink shadow-[0_40px_60px_-44px_rgb(26_19_16/0.4)] lg:block"
+            className="absolute inset-x-0 top-full hidden animate-[rise_.35s_var(--ease-lux)_both] overflow-hidden border-b border-gold/20 bg-mesh-porcelain text-ink shadow-[0_40px_60px_-44px_color-mix(in_srgb,var(--color-ink)_40%,transparent)] lg:block"
           >
             <div className="container-lux grid grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)_minmax(0,1fr)_auto] items-start gap-12 py-11 xl:gap-16">
               {panel === "jewellery" ? (
@@ -328,7 +328,7 @@ export function Header({ lang, menu }: { lang: Lang; menu: MenuData }) {
               {(menu.promo || peekCat) && (
                 <Link href={peekCat ? href(lang, `/shop/${peekCat.slug}`) : href(lang, menu.promo!.href)} className="group block w-52 xl:w-56" tabIndex={-1}>
                   <span className="relative block aspect-[3/4] [--ring-gap:8px]">
-                    <span className="arch-ring" style={{ "--ring": "rgb(156 94 52 / 0.5)" } as CSSProperties} aria-hidden />
+                    <span className="arch-ring" style={{ "--ring": "color-mix(in srgb, var(--color-gold) 50%, transparent)" } as CSSProperties} aria-hidden />
                     <svg viewBox="0 0 10 10" className="absolute left-1/2 top-[-8px] z-[2] size-2 -translate-x-1/2 -translate-y-1/2 text-gold-bright" aria-hidden>
                       <path d="M5 0 10 5 5 10 0 5Z" fill="currentColor" />
                     </svg>

@@ -112,7 +112,7 @@ function Gallery({ lang, product, images, index, setIndex }: { lang: Lang; produ
           </div>
           {/* the ring and keystone stay put; the pictures pass beneath them */}
           <div aria-hidden className="pointer-events-none absolute inset-y-0 inset-x-[12vw] z-[2] lg:inset-x-0">
-            <span className="arch-ring" style={{ "--ring": "rgb(156 94 52 / 0.5)" } as CSSProperties} />
+            <span className="arch-ring" style={{ "--ring": "color-mix(in srgb, var(--color-gold) 50%, transparent)" } as CSSProperties} />
             <svg viewBox="0 0 10 10" className="absolute left-1/2 top-[-12px] size-2.5 -translate-x-1/2 -translate-y-1/2 text-gold-bright">
               <path d="M5 0 10 5 5 10 0 5Z" fill="currentColor" />
             </svg>
