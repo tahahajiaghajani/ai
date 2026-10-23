@@ -11,6 +11,7 @@ export const en: Copy = {
       "Project management training, consulting and software — EPM / EPPM and management systems — plus AI agents that automate up to 90% of the work. Working with Iran's banks and large organizations since 2010.",
   },
   nav: {
+    home: "Home",
     about: "About",
     blog: "Blog",
     records: "Track record",

@@ -103,6 +103,11 @@
     outline-offset: 3px;
     border-radius: 6px;
   }
+
+  /* a section that received focus after a jump to it (anchor-scroll.tsx), as the browser's own jump: no ring */
+  [data-jumped]:focus-visible {
+    outline: none;
+  }
 }
 
 /* Latin snippets inside Persian text */
@@ -407,6 +412,12 @@ html.js [data-reveal="scale"]:not([data-in]) {
 .cv-auto {
   content-visibility: auto;
   contain-intrinsic-size: auto 900px;
+}
+/* rendered for real before a jump to a section (anchor-scroll.tsx) or when the page opens on one, so the browser
+   measures real heights, not the 900 px placeholders */
+html[data-cv="all"] .cv-auto,
+html:has(:target) .cv-auto {
+  content-visibility: visible;
 }
 
 /* prose for assistant answers and ticket messages */

@@ -18,7 +18,11 @@ export function LangLink({ to, className, title, children }: { to: "fa" | "en"; 
     const sync = () => setSuffix(window.location.search + window.location.hash);
     sync();
     window.addEventListener("hashchange", sync);
-    return () => window.removeEventListener("hashchange", sync);
+    window.addEventListener("pars:hash", sync);
+    return () => {
+      window.removeEventListener("hashchange", sync);
+      window.removeEventListener("pars:hash", sync);
+    };
   }, [path]);
   return (
     <a href={target + suffix} hrefLang={to} lang={to} className={className} title={title}>
