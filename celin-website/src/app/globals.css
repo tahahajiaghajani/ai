@@ -1,0 +1,1063 @@
+@import "tailwindcss";
+
+/* ------------------------------------------------------------------------ */
+/*  CELIN brand tokens (docs/DESIGN_SYSTEM.md, docs/BRAND_BOOK_FA.md)        */
+/*  From the logo and the brand's photographs: bone and porcelain grounds,   */
+/*  the logo's copper (#9C5E34) as a living metal, espresso and cocoa nights, */
+/*  the deep paraiba teal of the studio shots, champagne light, a drop of     */
+/*  pomegranate. Colours are layered (mesh grounds, metal gradients, aura),   */
+/*  never flat blocks side by side.                                          */
+/* ------------------------------------------------------------------------ */
+@theme {
+  /* grounds (light) */
+  --color-ground: #faf6ef;
+  --color-porcelain: #fdfaf5;
+  --color-bone: #f2e9da;
+  --color-bone-2: #eadfcb;
+  --color-tile: #f1e8da;
+  --color-tile-2: #f7f1e7;
+  --color-sand: #dfcdb1;
+  --color-champagne: #e6d0ab;
+  --color-champagne-2: #f3e5cc;
+  --color-blush: #efdccd;
+  --color-white: #ffffff;
+
+  /* ink (warm espresso, never neutral black) */
+  --color-ink: #1a1310;
+  --color-ink-2: #31261f;
+  --color-muted: #6e6259;
+  --color-faint: #a0948a;
+  --color-line: rgb(26 19 16 / 0.12);
+  --color-line-strong: rgb(26 19 16 / 0.26);
+  /* form-control borders need 3:1 against the ground (WCAG 1.4.11) */
+  --color-control: #8c8178;
+
+  /* copper (logo) */
+  --color-gold: #9c5e34;
+  --color-gold-text: #8a5230;
+  --color-gold-deep: #6e3f1f;
+  --color-gold-bright: #c8885a;
+  --color-gold-glow: #e9b98a;
+  --color-gold-soft: #ead6be;
+  --color-gold-mist: #f4e9db;
+  --color-gold-on-dark: #d4ad82;
+
+  /* nights: espresso / cocoa, paraiba teal */
+  --color-night: #120d0b;
+  --color-night-2: #1d1512;
+  --color-night-3: #2b201b;
+  --color-cocoa: #3b2a22;
+  --color-mocha: #5a4236;
+  --color-night-teal: #04201f;
+  --color-paraiba: #0b3a39;
+  --color-paraiba-2: #0f5652;
+  --color-paraiba-glow: #3ccabe;
+  --color-pomegranate: #6d1a26;
+  --color-pomegranate-2: #922637;
+  --color-on-night: #f5ecdf;
+  --color-on-night-muted: #bcae9e;
+  --color-night-line: rgb(245 236 223 / 0.14);
+
+  /* states (quiet, never saturated) */
+  --color-success: #3e6b4f;
+  --color-success-soft: #e3ece4;
+  --color-warning: #8a6114;
+  --color-warning-soft: #f4ead3;
+  --color-danger: #9b2c2c;
+  --color-danger-soft: #f6e1de;
+
+  /* swatches for plating colours */
+  --color-swatch-gold: #c99a5b;
+  --color-swatch-silver: #c9cbcd;
+  --color-swatch-rose: #d4a088;
+  --color-swatch-black: #2b2b2b;
+
+  /*
+   * type — the Latin faces carry Latin glyphs everywhere, the Persian faces everything else:
+   * sans = running text (Jost / Noto Naskh 500), ui = controls and small UI (Jost / Vazirmatn),
+   * display = headings (Bodoni Moda / Noto Naskh 600–700).
+   */
+  --font-sans: var(--font-latin-ui), var(--font-fa-naskh), ui-sans-serif, system-ui, sans-serif;
+  --font-ui: var(--font-latin-ui), var(--font-fa-ui), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-latin-display), var(--font-fa-naskh), ui-serif, Georgia, serif;
+  --font-naskh: var(--font-fa-naskh), ui-serif, serif;
+  --font-label: var(--font-latin-ui), var(--font-fa-ui), ui-sans-serif, system-ui, sans-serif;
+  --font-didone: var(--font-latin-display), ui-serif, Georgia, serif;
+
+  --text-2xs: 0.6875rem;
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-base: 0.9375rem;
+  --text-md: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.375rem;
+  --text-2xl: 1.75rem;
+  --text-3xl: 2.25rem;
+  --text-4xl: 2.875rem;
+  --text-5xl: 3.5rem;
+  --text-6xl: 4.5rem;
+  --text-7xl: 5.75rem;
+  --text-8xl: 7.5rem;
+
+  --radius-sm: 2px;
+  --radius-md: 4px;
+
+  --ease-lux: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-header: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  --ease-silk: cubic-bezier(0.65, 0, 0.35, 1);
+
+  --animate-fade-in: fade-in 0.6s var(--ease-lux) both;
+}
+
+:root {
+  color-scheme: light;
+  --header-h: 64px;
+  --utility-h: 32px;
+  --gutter: 1rem;
+
+  /* living metals — copper for light grounds (large text, marks, lines), champagne for dark grounds */
+  --metal-copper: linear-gradient(100deg, #5e3418 0%, #8a5230 16%, #b4733f 34%, #c98d5c 46%, #9c5e34 60%, #6e3f1f 80%, #a8693c 100%);
+  --metal-champagne: linear-gradient(100deg, #a77c52 0%, #dcb88c 22%, #fff0da 40%, #e4c49c 54%, #b08257 74%, #ecd0a8 100%);
+  --metal-rose: linear-gradient(100deg, #9b6150 0%, #d6a48e 30%, #f8dccd 46%, #c98f78 66%, #a46b58 100%);
+  --metal-silver: linear-gradient(100deg, #7f858b 0%, #c7ccd1 28%, #f6f7f8 44%, #b5bbc1 64%, #8a9096 100%);
+  /* a filled copper surface (buttons, seals) — ink text on it is ≥ 5:1 */
+  --metal-fill: linear-gradient(115deg, #a96a3c 0%, #d29a69 28%, #f1cfa6 46%, #cf9463 62%, #a4653a 100%);
+
+  /* mesh grounds: several soft lights over a base, never one flat colour */
+  --mesh-porcelain:
+    radial-gradient(60% 55% at 88% 0%, rgb(230 208 171 / 0.55), transparent 70%),
+    radial-gradient(55% 50% at 0% 35%, rgb(239 220 205 / 0.7), transparent 70%),
+    radial-gradient(45% 45% at 65% 100%, rgb(60 202 190 / 0.08), transparent 70%), var(--color-ground);
+  --mesh-bone:
+    radial-gradient(70% 60% at 100% 100%, rgb(200 136 90 / 0.18), transparent 70%),
+    radial-gradient(60% 60% at 0% 0%, rgb(255 255 255 / 0.65), transparent 70%), var(--color-bone);
+  --mesh-espresso:
+    radial-gradient(70% 60% at 85% 8%, rgb(156 94 52 / 0.42), transparent 66%),
+    radial-gradient(65% 65% at 8% 95%, rgb(15 86 82 / 0.5), transparent 70%),
+    radial-gradient(35% 35% at 50% 50%, rgb(230 208 171 / 0.06), transparent 70%), var(--color-night);
+  --mesh-paraiba:
+    radial-gradient(55% 50% at 72% 28%, rgb(60 202 190 / 0.34), transparent 70%),
+    radial-gradient(60% 55% at 12% 88%, rgb(156 94 52 / 0.22), transparent 70%),
+    linear-gradient(165deg, #0b3433 0%, #04201f 58%, #021413 100%);
+  --mesh-cocoa:
+    radial-gradient(65% 60% at 15% 10%, rgb(233 185 138 / 0.22), transparent 70%),
+    radial-gradient(60% 60% at 95% 90%, rgb(109 26 38 / 0.35), transparent 70%), var(--color-night-2);
+
+  --grain: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.5  0 0 0 0 0.45  0 0 0 0 0.4  0 0 0 0.6 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+}
+@media (min-width: 768px) {
+  :root {
+    --gutter: 2rem;
+    --header-h: 76px;
+  }
+}
+@media (min-width: 1280px) {
+  :root {
+    --gutter: 3.5rem;
+  }
+}
+
+@layer base {
+  html {
+    background: var(--color-ground);
+    color: var(--color-ink);
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    scroll-padding-top: calc(var(--header-h) + 16px);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    html:not([data-motion="reduced"]):not(.lenis) {
+      scroll-behavior: smooth;
+    }
+  }
+
+  body {
+    background: var(--color-ground);
+    min-height: 100dvh;
+    overflow-x: clip;
+    font-size: var(--text-md);
+    line-height: 1.95;
+    font-weight: 500;
+  }
+
+  html[lang="en"] body {
+    line-height: 1.7;
+    font-weight: 400;
+  }
+
+  /* controls and dense UI read best in Vazirmatn; running text and headings stay Naskh */
+  button,
+  input,
+  select,
+  textarea,
+  table,
+  label {
+    font-family: var(--font-ui);
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  ::selection {
+    background: var(--color-gold-soft);
+    color: var(--color-ink);
+  }
+
+  :focus-visible {
+    outline: 1.5px solid var(--color-gold);
+    outline-offset: 3px;
+  }
+
+  input,
+  textarea,
+  select,
+  button {
+    font-size: inherit;
+    line-height: inherit;
+    color: inherit;
+  }
+
+  img,
+  video {
+    -webkit-user-drag: none;
+  }
+}
+
+/* Latin snippets inside Persian text (codes, numbers to copy, Latin names) */
+.ltr {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+/* ---------------------------------------------------------- utilities */
+
+/* small labels: Latin = tracked caps; Persian = plain, never letter-spaced or upper-cased */
+@utility label {
+  font-family: var(--font-label);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  font-weight: 500;
+  color: var(--color-muted);
+  &:where(:lang(en)) {
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    font-size: var(--text-2xs);
+  }
+}
+
+/* display headings: Naskh 600 in Persian (close to «گالری اعتماد» of the logo), Bodoni in Latin */
+@utility display {
+  font-family: var(--font-display);
+  font-weight: 600;
+  line-height: 1.45;
+  &:where(:lang(en)) {
+    font-weight: 400;
+    line-height: 1.06;
+    letter-spacing: -0.02em;
+  }
+}
+
+/* living metal text — large text only (≥ 24px); the sheen moves when .metal-live is added */
+@utility text-metal {
+  background-image: var(--metal-copper);
+  background-size: 220% 100%;
+  background-position: 0% 50%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+}
+@utility text-metal-light {
+  background-image: var(--metal-champagne);
+  background-size: 220% 100%;
+  background-position: 0% 50%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+}
+@utility metal-live {
+  animation: metal-sheen 9s var(--ease-silk) infinite alternate;
+}
+@keyframes metal-sheen {
+  to {
+    background-position: 100% 50%;
+  }
+}
+
+@utility bg-mesh-porcelain {
+  background: var(--mesh-porcelain);
+}
+@utility bg-mesh-bone {
+  background: var(--mesh-bone);
+}
+@utility bg-mesh-espresso {
+  background: var(--mesh-espresso);
+}
+@utility bg-mesh-paraiba {
+  background: var(--mesh-paraiba);
+}
+@utility bg-mesh-cocoa {
+  background: var(--mesh-cocoa);
+}
+@utility bg-metal {
+  background-image: var(--metal-fill);
+  background-size: 200% 100%;
+}
+
+/* film grain over a band: an empty aria-hidden span with this class, last child of a relative box */
+@utility grain {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: var(--grain);
+  background-size: 180px;
+  opacity: 0.22;
+  mix-blend-mode: overlay;
+}
+
+/* a 1px metal frame (champagne on dark, copper on light via --frame) */
+@utility frame-metal {
+  position: relative;
+  &::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    padding: 1px;
+    border-radius: inherit;
+    background: var(--frame, var(--metal-champagne));
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+}
+
+/* the copper hairline */
+@utility hairline {
+  height: 1px;
+  background: var(--metal-copper);
+  opacity: 0.7;
+}
+@utility hairline-light {
+  height: 1px;
+  background: var(--metal-champagne);
+  opacity: 0.55;
+}
+
+/* warm glass for floating bars and panels */
+@utility glass {
+  background: rgb(250 246 239 / 0.72);
+  -webkit-backdrop-filter: blur(18px) saturate(1.4);
+  backdrop-filter: blur(18px) saturate(1.4);
+}
+@utility glass-dark {
+  background: rgb(18 13 11 / 0.55);
+  -webkit-backdrop-filter: blur(18px) saturate(1.3);
+  backdrop-filter: blur(18px) saturate(1.3);
+}
+
+/* buttons (see docs/DESIGN_SYSTEM.md): the copper one is the main action on any ground */
+@utility btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  min-height: 3rem;
+  padding-inline: 1.75rem;
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  line-height: 1.2;
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  transition:
+    color 0.4s var(--ease-lux),
+    background-color 0.4s var(--ease-lux),
+    border-color 0.4s var(--ease-lux),
+    background-position 0.9s var(--ease-silk);
+  &:disabled {
+    opacity: 0.5;
+    pointer-events: none;
+  }
+}
+@utility btn-metal {
+  background-image: var(--metal-fill);
+  background-size: 220% 100%;
+  background-position: 0% 50%;
+  color: var(--color-ink);
+  &:hover {
+    background-position: 100% 50%;
+  }
+}
+@utility btn-ink {
+  background-color: var(--color-ink);
+  color: var(--color-bone);
+  &:hover {
+    background-color: var(--color-cocoa);
+  }
+}
+@utility btn-line {
+  border: 1px solid currentColor;
+  &:hover {
+    background-color: var(--color-ink);
+    border-color: var(--color-ink);
+    color: var(--color-bone);
+  }
+}
+@utility btn-line-light {
+  border: 1px solid rgb(245 236 223 / 0.45);
+  color: var(--color-on-night);
+  &:hover {
+    background-color: rgb(245 236 223 / 0.1);
+    border-color: var(--color-gold-on-dark);
+  }
+}
+
+@utility container-lux {
+  width: 100%;
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+  max-width: 1440px;
+}
+
+/* --------------------------------------------------------- keyframes */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+}
+
+@keyframes draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* ------------------------------------------------------- overlays */
+dialog::backdrop {
+  transition: opacity 0.45s var(--ease-lux);
+}
+dialog[open].celin-sheet {
+  animation: sheet-in 0.45s var(--ease-lux) both;
+}
+dialog[open].celin-side-start {
+  animation: side-in-start 0.45s var(--ease-lux) both;
+}
+dialog[open].celin-side-end {
+  animation: side-in-end 0.45s var(--ease-lux) both;
+}
+dialog[open].celin-top {
+  animation: top-in 0.4s var(--ease-lux) both;
+}
+@keyframes sheet-in {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+}
+@keyframes side-in-start {
+  from {
+    transform: translateX(var(--side-from, 100%));
+  }
+}
+html[dir="ltr"] {
+  --side-from: -100%;
+  --side-from-end: 100%;
+}
+html[dir="rtl"] {
+  --side-from: 100%;
+  --side-from-end: -100%;
+}
+@keyframes side-in-end {
+  from {
+    transform: translateX(var(--side-from-end, 100%));
+  }
+}
+@keyframes top-in {
+  from {
+    opacity: 0;
+    transform: translateY(-16px);
+  }
+}
+
+/* shared-element morph from a product card to its page (React <ViewTransition share="morph">) */
+::view-transition-group(.morph) {
+  animation-duration: 400ms;
+  animation-timing-function: var(--ease-lux);
+}
+::view-transition-image-pair(.morph) {
+  animation-name: via-blur;
+}
+@keyframes via-blur {
+  30% {
+    filter: blur(3px);
+  }
+}
+::view-transition {
+  pointer-events: none;
+}
+
+/* ------------------------------------------------- reveal on scroll */
+/* Content is visible without JS; the class "js" (set before paint) enables the effect. The LCP heading is never hidden. */
+html.js [data-reveal] {
+  transition:
+    opacity 0.7s var(--ease-lux),
+    transform 0.7s var(--ease-lux);
+  transition-delay: calc(var(--reveal-base, 0ms) + var(--d, 0) * 80ms);
+}
+html.js [data-reveal]:not([data-in]) {
+  opacity: 0;
+  transform: translateY(16px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  html.js [data-reveal]:not([data-in]) {
+    opacity: 1;
+    transform: none;
+  }
+}
+html[data-motion="reduced"] *,
+html[data-motion="reduced"] *::before,
+html[data-motion="reduced"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+}
+html[data-motion="reduced"].js [data-reveal]:not([data-in]) {
+  opacity: 1;
+  transform: none;
+}
+
+/* Custom classes live in a layer so Tailwind utilities on the same element still win. */
+@layer components {
+/* ================================================================== */
+/*  Immersive layer (src/components/fx/*). Everything here degrades:  */
+/*  no JS → content visible and still; reduced motion → no movement.  */
+/* ================================================================== */
+
+/* Lenis smooth scroll (enabled by <SmoothScroll/> on fine pointers) */
+html.lenis,
+html.lenis body {
+  height: auto;
+}
+.lenis:not(.lenis-autoToggle).lenis-stopped {
+  overflow: clip;
+}
+.lenis [data-lenis-prevent],
+.lenis dialog {
+  overscroll-behavior: contain;
+}
+.lenis.lenis-smooth iframe {
+  pointer-events: none;
+}
+
+/* split headings: words rise from a soft mask (never letters — Persian letters join) */
+.fx-words .w {
+  display: inline-block;
+  /* room for Naskh ascenders/descenders and dots, so the mask never cuts them */
+  padding-block: 0.18em;
+  margin-block: -0.18em;
+  overflow: clip;
+  vertical-align: top;
+}
+.fx-words .w > span {
+  display: inline-block;
+  will-change: transform;
+}
+html.js .fx-words:not([data-in]):not([data-fx="now"]) .w > span {
+  transform: translateY(105%);
+  opacity: 0;
+}
+html.js .fx-words .w > span {
+  transition:
+    transform 1.1s var(--ease-out-expo),
+    opacity 0.9s var(--ease-lux);
+  transition-delay: calc(var(--delay, 0ms) + var(--i, 0) * 70ms);
+}
+/* heroes play from the first paint (CSS animation — no wait for JS) */
+html.js .fx-words[data-fx="now"] .w > span {
+  animation: fx-rise 1.1s var(--ease-out-expo) both;
+  animation-delay: calc(var(--delay, 0ms) + var(--i, 0) * 70ms);
+}
+@keyframes fx-rise {
+  from {
+    transform: translateY(105%);
+    opacity: 0;
+  }
+}
+
+/*
+ * image reveals: a curtain opens (clip-path on .fx-frame), the picture settles from a slight zoom.
+ * The trigger (data-fx / data-in) sits on the unclipped .fx-unveil box: IntersectionObserver ignores a
+ * target whose own clip-path hides it.
+ */
+html.js .fx-unveil:not([data-in]):not([data-fx="now"]) .fx-frame {
+  clip-path: inset(0 0 100% 0);
+}
+html.js .fx-unveil .fx-frame {
+  clip-path: inset(0 0 0 0);
+  transition: clip-path 1.4s var(--ease-out-expo);
+  transition-delay: var(--delay, 0ms);
+}
+html.js .fx-unveil .fx-frame img {
+  transition: transform 2.2s var(--ease-out-expo);
+  transition-delay: var(--delay, 0ms);
+}
+html.js .fx-unveil:not([data-in]):not([data-fx="now"]) .fx-frame img {
+  transform: scale(1.18);
+}
+html.js .fx-unveil[data-fx="now"] .fx-frame {
+  animation: fx-unveil 1.4s var(--ease-out-expo) var(--delay, 0ms) both;
+}
+html.js .fx-unveil[data-fx="now"] .fx-frame img {
+  animation: fx-settle 2.2s var(--ease-out-expo) var(--delay, 0ms) both;
+}
+@keyframes fx-unveil {
+  from {
+    clip-path: inset(0 0 100% 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+@keyframes fx-settle {
+  from {
+    transform: scale(1.18);
+  }
+}
+
+/* a light sweep across a picture on hover (jewellery catching light) */
+/* (the element is positioned by its own utilities: relative or absolute) */
+.fx-sheen {
+  overflow: hidden;
+}
+.fx-sheen::after {
+  content: "";
+  position: absolute;
+  inset: -20% -60%;
+  background: linear-gradient(105deg, transparent 38%, rgb(255 247 233 / 0.38) 48%, rgb(255 255 255 / 0.05) 54%, transparent 62%);
+  transform: translateX(-60%);
+  pointer-events: none;
+  mix-blend-mode: soft-light;
+  transition: transform 1.3s var(--ease-silk);
+}
+.fx-sheen:hover::after,
+.group:hover .fx-sheen::after {
+  transform: translateX(60%);
+}
+
+/* marquee ribbon */
+.fx-marquee {
+  display: flex;
+  overflow: clip;
+  user-select: none;
+  mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+}
+.fx-marquee-track {
+  display: flex;
+  flex-shrink: 0;
+  min-width: 100%;
+  align-items: center;
+  justify-content: space-around;
+  animation: marquee var(--marquee-s, 38s) linear infinite;
+}
+html[dir="rtl"] .fx-marquee-track {
+  animation-name: marquee-rtl;
+}
+.fx-marquee:hover .fx-marquee-track {
+  animation-play-state: paused;
+}
+@keyframes marquee {
+  to {
+    transform: translateX(-100%);
+  }
+}
+@keyframes marquee-rtl {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+/* custom cursor (fine pointers only; native cursor kept over fields) */
+.fx-cursor {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 90;
+  pointer-events: none;
+  translate: -50% -50%;
+}
+.fx-cursor-ring {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 999px;
+  border: 1px solid rgb(156 94 52 / 0.7);
+  color: var(--color-ink);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  transition:
+    width 0.45s var(--ease-out-expo),
+    height 0.45s var(--ease-out-expo),
+    background-color 0.45s var(--ease-lux),
+    border-color 0.45s var(--ease-lux),
+    opacity 0.3s;
+}
+.fx-cursor-ring > span {
+  opacity: 0;
+  transition: opacity 0.25s;
+  white-space: nowrap;
+}
+.fx-cursor[data-mode="view"] .fx-cursor-ring {
+  width: 92px;
+  height: 92px;
+  border-color: transparent;
+  background: rgb(250 246 239 / 0.86);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+.fx-cursor[data-mode="view"] .fx-cursor-ring > span {
+  opacity: 1;
+}
+.fx-cursor[data-mode="link"] .fx-cursor-ring {
+  width: 56px;
+  height: 56px;
+  background: rgb(156 94 52 / 0.12);
+}
+.fx-cursor[data-mode="hidden"] .fx-cursor-ring,
+.fx-cursor[data-mode="hidden"] .fx-cursor-dot {
+  opacity: 0;
+}
+.fx-cursor[data-tone="light"] .fx-cursor-ring {
+  border-color: rgb(245 236 223 / 0.6);
+}
+.fx-cursor-dot {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 91;
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--color-gold);
+  pointer-events: none;
+  translate: -50% -50%;
+  transition: opacity 0.3s;
+}
+
+/* first-visit intro: the monogram draws in copper light, then a curtain lifts. Pure CSS: it ends even without JS. */
+.fx-intro {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  background: var(--mesh-espresso);
+  pointer-events: none;
+  animation: intro-out 0.9s var(--ease-silk) 1.5s forwards;
+}
+html.intro-seen .fx-intro {
+  display: none;
+}
+.fx-intro-mark {
+  width: min(28vw, 132px);
+  opacity: 0;
+  filter: drop-shadow(0 0 24px rgb(233 185 138 / 0.35));
+  animation:
+    intro-mark 1.3s var(--ease-out-expo) 0.1s forwards,
+    intro-mark-out 0.6s var(--ease-lux) 1.4s forwards;
+}
+.fx-intro-line {
+  position: absolute;
+  inset-inline: 50%;
+  bottom: 22%;
+  height: 1px;
+  background: var(--metal-champagne);
+  animation: intro-line 1.3s var(--ease-out-expo) 0.2s forwards;
+}
+@keyframes intro-mark {
+  from {
+    opacity: 0;
+    transform: scale(0.86);
+    clip-path: inset(0 0 100% 0);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+    clip-path: inset(0 0 0 0);
+  }
+}
+@keyframes intro-mark-out {
+  to {
+    opacity: 0;
+    transform: scale(1.08);
+  }
+}
+@keyframes intro-line {
+  to {
+    inset-inline: 30%;
+    opacity: 0;
+  }
+}
+@keyframes intro-out {
+  to {
+    clip-path: inset(0 0 100% 0);
+    visibility: hidden;
+  }
+}
+
+/* aura canvas fallback (CSS) — drifting lights when WebGL is off */
+.fx-aura-css {
+  position: absolute;
+  inset: -20%;
+  background:
+    radial-gradient(30% 35% at 30% 30%, var(--aura-a, rgb(60 202 190 / 0.35)), transparent 70%),
+    radial-gradient(35% 30% at 70% 60%, var(--aura-b, rgb(200 136 90 / 0.35)), transparent 70%),
+    radial-gradient(25% 25% at 50% 90%, var(--aura-c, rgb(230 208 171 / 0.2)), transparent 70%);
+  filter: blur(30px);
+  animation: aura-drift 18s var(--ease-silk) infinite alternate;
+}
+@keyframes aura-drift {
+  50% {
+    transform: translate3d(4%, -3%, 0) rotate(8deg) scale(1.05);
+  }
+  to {
+    transform: translate3d(-3%, 4%, 0) rotate(-6deg) scale(1.1);
+  }
+}
+
+/* scroll cue */
+.fx-scroll-cue {
+  width: 1px;
+  height: 56px;
+  background: linear-gradient(to bottom, transparent, currentColor);
+  transform-origin: top;
+  animation: cue 2.4s var(--ease-silk) infinite;
+}
+@keyframes cue {
+  0% {
+    transform: scaleY(0);
+    transform-origin: top;
+  }
+  45% {
+    transform: scaleY(1);
+    transform-origin: top;
+  }
+  55% {
+    transform: scaleY(1);
+    transform-origin: bottom;
+  }
+  100% {
+    transform: scaleY(0);
+    transform-origin: bottom;
+  }
+}
+
+/* reading progress hairline under the header */
+.fx-progress {
+  transform-origin: var(--progress-origin, left);
+  transform: scaleX(var(--p, 0));
+}
+html[dir="rtl"] .fx-progress {
+  --progress-origin: right;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html.js .fx-words .w > span,
+  html.js .fx-unveil .fx-frame img {
+    transform: none !important;
+    opacity: 1 !important;
+  }
+  html.js .fx-unveil .fx-frame {
+    clip-path: none !important;
+  }
+  .fx-intro,
+  .fx-cursor,
+  .fx-cursor-dot {
+    display: none;
+  }
+  .fx-marquee-track,
+  .fx-aura-css,
+  .metal-live {
+    animation: none;
+  }
+}
+html[data-motion="reduced"] .fx-intro,
+html[data-motion="reduced"] .fx-cursor,
+html[data-motion="reduced"] .fx-cursor-dot {
+  display: none;
+}
+html[data-motion="reduced"].js .fx-words .w > span,
+html[data-motion="reduced"].js .fx-unveil .fx-frame img {
+  transform: none !important;
+  opacity: 1 !important;
+}
+html[data-motion="reduced"].js .fx-unveil .fx-frame {
+  clip-path: none !important;
+}
+}
+
+/* full-height heroes leave room for the announcement bar above the header */
+html:has([data-announcement]) {
+  --announce-h: 2rem;
+}
+
+/* the hero waits for the first-visit intro */
+html:not(.intro-seen) {
+  --intro-delay: 1.65s;
+}
+
+/* ------------------------------------------------------------------ */
+/*  The arch — CELIN's architectural signature (a plain round arch,   */
+/*  as in Spanish courtyards). A huge top radius is scaled down by    */
+/*  the browser to exactly half the width: a true semicircle at any   */
+/*  size. Use <Arch> (src/components/fx/arch.tsx) for pictures.       */
+/* ------------------------------------------------------------------ */
+@utility arch {
+  border-radius: 100vmax 100vmax 0 0;
+}
+@utility arch-full {
+  border-radius: 100vmax;
+}
+/* a copper (or champagne) hairline arch drawn around a framed box, a little outside it */
+@utility arch-ring {
+  position: absolute;
+  inset: calc(var(--ring-gap, 12px) * -1);
+  border-radius: 100vmax 100vmax 0 0;
+  border: 1px solid var(--ring, rgb(156 94 52 / 0.55));
+  border-bottom: 0;
+  pointer-events: none;
+}
+/* the arch window opens on scroll: --open goes 0 → 1 (set by <ArchAperture/>) */
+.fx-aperture {
+  clip-path: inset(calc((1 - var(--open, 1)) * 18%) calc((1 - var(--open, 1)) * 30%) 0 calc((1 - var(--open, 1)) * 30%) round 100vmax 100vmax 0 0);
+}
+/* stroke drawing for SVG arch lines (pathLength="1"; per-line delay in --pd) */
+html.js .fx-draw path,
+html.js .fx-draw line {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 0;
+  transition: stroke-dashoffset 2.2s var(--ease-out-expo);
+  transition-delay: var(--pd, 0ms);
+}
+html.js .fx-draw:not([data-in]):not([data-fx="now"]) path,
+html.js .fx-draw:not([data-in]):not([data-fx="now"]) line {
+  stroke-dashoffset: 1;
+}
+html.js .fx-draw[data-fx="now"] path {
+  animation: fx-draw 2.4s var(--ease-out-expo) var(--pd, 0ms) both;
+}
+@keyframes fx-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  html.js .fx-draw path,
+  html.js .fx-draw line {
+    stroke-dashoffset: 0 !important;
+  }
+}
+
+/* pictures drift inside their frame as the page scrolls (scroll-driven, compositor only) */
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    html:not([data-motion="reduced"]) .fx-parallax {
+      scale: 1.16;
+      animation: fx-parallax linear both;
+      animation-timeline: view();
+      animation-range: cover 0% cover 100%;
+    }
+    /* a photograph drifting inside large letters (background-clip: text) */
+    html:not([data-motion="reduced"]) .fx-pan {
+      animation: fx-pan linear both;
+      animation-timeline: view();
+      animation-range: cover 0% cover 100%;
+    }
+    /* a band that drifts slower than the page (decor, big words) */
+    html:not([data-motion="reduced"]) .fx-drift {
+      animation: fx-drift linear both;
+      animation-timeline: view();
+      animation-range: cover 0% cover 100%;
+    }
+  }
+}
+@keyframes fx-parallax {
+  from {
+    translate: 0 calc(var(--px, 7) * -1%);
+  }
+  to {
+    translate: 0 calc(var(--px, 7) * 1%);
+  }
+}
+@keyframes fx-pan {
+  from {
+    background-position: 50% 15%;
+  }
+  to {
+    background-position: 50% 85%;
+  }
+}
+@keyframes fx-drift {
+  from {
+    translate: 0 calc(var(--drift, 40px) * -1);
+  }
+  to {
+    translate: 0 var(--drift, 40px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  html:not(.intro-seen) {
+    --intro-delay: 0s;
+  }
+  html.js [data-fx="now"],
+  html.js [data-fx="now"] img,
+  html.js [data-fx="now"] .w > span,
+  html.js [data-fx="now"] path {
+    animation: none !important;
+  }
+}
+html[data-motion="reduced"]:not(.intro-seen) {
+  --intro-delay: 0s;
+}
+html[data-motion="reduced"].js [data-fx="now"],
+html[data-motion="reduced"].js [data-fx="now"] img,
+html[data-motion="reduced"].js [data-fx="now"] .w > span,
+html[data-motion="reduced"].js [data-fx="now"] path {
+  animation: none !important;
+}

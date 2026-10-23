@@ -1,0 +1,14 @@
+@AGENTS.md
+
+# CELIN website — notes for Claude
+
+Standalone Next.js 16 app in a sub-folder of the Task Flow repository (deployed as its own Vercel project with Root Directory `celin-website`). Luxury bilingual site of the jewellery brand **CELIN / سلین** (Etemad Gallery): Persian (RTL) at `/`, English at `/en`. Read `README.md`, `docs/SETUP_FA.md`, `docs/BRAND_BOOK_FA.md` and `docs/DESIGN_SYSTEM.md` before larger changes.
+
+- **Languages:** two root layouts in route groups `(fa)` and `(en)`. Page bodies are shared components in `src/components/pages/*` that take `lang`; route files are thin wrappers. UI copy lives in `src/content/copy.ts` (`fa` / `en`, same shape). Persian digits via `num()` / `formatPrice()` (`src/lib/format.ts`); logical Tailwind utilities (`ms-`, `pe-`, `start-`, `end-`). No `letter-spacing` on Persian text; tracking only on Latin labels.
+- **Brand:** tokens in `src/app/globals.css` (`@theme`), never raw hex in components. The logo files in `public/brand/` are vectorised 1:1 from the official logo — never redraw, recolour outside the documented variants, or distort them.
+- **Data:** server-only service-role client `db()` (`src/lib/db.ts`); tables `celin_*` with RLS on and no policies; one idempotent SQL file per change in `supabase/migrations/` (never edit a shipped one). Stock and prices change only through `celin_place_order` / `celin_set_order_status` or the admin.
+- **Prices are private:** public pages are static and identical for everyone, so public catalogue objects (`src/lib/catalog-types.ts`) never carry price or stock. Pro members get them from `/api/pro/prices` (session checked on every call) through `usePriceBook()`; never put a price into HTML, RSC payloads, JSON-LD, metadata or alt text.
+- **Pictures:** every design picture is a slot (`src/content/slots.ts`), every product/category picture a `celin_media` row; render them with `<Picture>` (`src/components/ui/picture.tsx`, plain `<img srcset>`, blur placeholder, focal point). Uploads are resized in the browser (`src/components/admin/resize.ts`) and stored via `/api/admin/upload`.
+- **Auth:** accounts in `celin_users` (phone + password, or the Pro code as sign-in), signed cookie (`src/lib/auth.ts`); admin = account with role admin or the `ADMIN_PASSWORD` session (`src/lib/admin-auth.ts`). Every admin Server Action goes through `guard()`; every admin page calls `requireAdminPage()`; every `src/lib/admin-*.ts` / `members.ts` function calls `assertAdmin()` itself.
+- **Performance:** keep public pages static (catalogue and slots are cached with tags `catalog` / `slots`, invalidated by admin changes); no third-party requests at runtime (Iran); fonts are self-hosted by `next/font`.
+- Commands: `npm run typecheck` · `npm test` · `npm run build` (must pass with no env vars).
