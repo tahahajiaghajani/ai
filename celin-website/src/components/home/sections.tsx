@@ -24,7 +24,7 @@ const diamond = (className = "size-2 text-gold") => (
 /** Section heading: a small label with a diamond, a large Naskh title (words rise), an optional link. */
 export function SectionHead({ eyebrow, title, link, tone = "dark", align = "start", className = "" }: { eyebrow: string; title: string; link?: { href: string; label: string }; tone?: "dark" | "light"; align?: "start" | "center"; className?: string }) {
   return (
-    <div className={`flex flex-wrap items-end gap-x-10 gap-y-6 ${align === "center" ? "flex-col items-center text-center" : "justify-between"} ${className}`}>
+    <div className={`flex flex-wrap gap-x-10 gap-y-6 ${align === "center" ? "flex-col items-center text-center" : "items-end justify-between"} ${className}`}>
       <div className={align === "center" ? "max-w-3xl" : "max-w-2xl"}>
         <p className={`label flex items-center gap-2.5 ${align === "center" ? "justify-center" : ""} ${tone === "light" ? "text-gold-on-dark!" : "text-gold-text!"}`}>
           {diamond(`size-1.5 ${tone === "light" ? "text-gold-glow" : "text-gold"}`)}
