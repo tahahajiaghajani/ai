@@ -215,39 +215,29 @@ export function ShopGrid({ lang, products, collections, editorial }: { lang: Lan
   const [draft, setDraft] = useState<ShopFilters>(f);
   const [limit, setLimit] = useState(PAGE);
   const bar = useStickUnderHeader();
-  // the sheet's choice is applied once the overlay has closed: closing steps back over the history entry
-  // the overlay pushed, which would otherwise undo a URL change made just before it
-  const pending = useRef<ShopFilters | null>(null);
-  useEffect(() => {
-    console.log("DBG effect", open, JSON.stringify(pending.current));
-    if (open || !pending.current) return;
-    const next = pending.current;
-    pending.current = null;
-    let done = false;
-    const go = () => {
-      if (done) return;
-      done = true;
-      window.removeEventListener("popstate", go);
-      clearTimeout(timer);
-      console.log("DBG go", JSON.stringify(next));
-      push(next);
-    };
-    window.addEventListener("popstate", go);
-    const timer = setTimeout(go, 400);
-  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const list = useMemo(() => applyFilters(products, f, book?.prices), [products, f.metal.join(), f.stone.join(), f.collection.join(), f.sort, book]); // eslint-disable-line react-hooks/exhaustive-deps
   const draftCount = useMemo(() => applyFilters(products, draft).length, [products, draft]);
 
-  const push = (next: ShopFilters) => {
+  const urlFor = (next: ShopFilters) => {
     const q = new URLSearchParams();
     if (next.metal.length) q.set("metal", next.metal.join(","));
     if (next.stone.length) q.set("stone", next.stone.join(","));
     if (next.collection.length) q.set("collection", next.collection.join(","));
     if (next.sort !== "featured") q.set("sort", next.sort);
     const s = q.toString();
-    router.replace(s ? `${path}?${s}` : path, { scroll: false });
+    return s ? `${path}?${s}` : path;
+  };
+  const push = (next: ShopFilters) => {
+    router.replace(urlFor(next), { scroll: false });
     setLimit(PAGE);
+  };
+  // from the sheet: its own history entry becomes the filtered page (the native call is synced with
+  // useSearchParams), and closing no longer steps back over it — which would undo the change
+  const applySheet = () => {
+    history.replaceState({ ...(history.state ?? {}), celinOverlay: false }, "", urlFor(draft));
+    setLimit(PAGE);
+    setOpen(false);
   };
 
   // facet options with counts over the other facets' current choice
@@ -405,10 +395,7 @@ export function ShopGrid({ lang, products, collections, editorial }: { lang: Lan
             </button>
             <button
               type="button"
-              onClick={() => {
-                pending.current = draft;
-                setOpen(false);
-              }}
+              onClick={applySheet}
               className="btn btn-ink flex-1"
             >
               {tr.show(num(draftCount, lang))}
