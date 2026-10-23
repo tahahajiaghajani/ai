@@ -6,9 +6,12 @@ import { openProSheet } from "@/components/pro/events";
 import { useMe } from "@/components/pro/session";
 
 /** The copper PRO seal: a small arch of living metal (decorative; the text beside it says what it means). */
-export function ProSeal({ className = "" }: { className?: string }) {
+export function ProSeal({ className = "", large = false }: { className?: string; large?: boolean }) {
   return (
-    <span aria-hidden className={`arch relative inline-grid h-9 w-8 shrink-0 items-end justify-items-center bg-metal pb-1.5 font-label text-[8.5px] leading-none font-semibold tracking-[0.12em] text-ink shadow-[0_6px_14px_-8px_var(--color-gold-deep)] ltr ${className}`}>
+    <span
+      aria-hidden
+      className={`arch relative inline-grid shrink-0 items-end justify-items-center bg-metal font-label leading-none font-semibold text-ink shadow-[0_6px_14px_-8px_var(--color-gold-deep)] ltr ${large ? "h-16 w-13 pb-3 text-[11px] tracking-[0.18em]" : "h-9 w-8 pb-1.5 text-[8.5px] tracking-[0.12em]"} ${className}`}
+    >
       PRO
     </span>
   );

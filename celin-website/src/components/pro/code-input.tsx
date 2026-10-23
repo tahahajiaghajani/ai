@@ -98,7 +98,7 @@ export function CodeInput({ lang, next, onDone, autoFocus }: { lang: Lang; next?
       <button
         type="submit"
         disabled={state === "pending" || state === "ok" || digits.length < 12}
-        className="h-12 w-full bg-ink text-sm text-bone transition-colors hover:bg-ink-2 disabled:cursor-not-allowed disabled:opacity-40"
+        className="btn btn-metal w-full disabled:cursor-not-allowed disabled:opacity-45"
       >
         {state === "pending" ? "…" : c.submit}
       </button>

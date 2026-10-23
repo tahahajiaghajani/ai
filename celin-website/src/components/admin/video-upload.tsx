@@ -70,13 +70,13 @@ async function uploadVideo(file: File, stage: (s: Stage) => void): Promise<Video
   if (kind === "mp4") {
     const info = await mp4Info(async (o, l) => new Uint8Array(await file.slice(o, o + l).arrayBuffer()), file.size).catch(() => null);
     if (info && !playsEverywhere(info.codec)) {
-      throw new Error(info.codec === "hvc1" || info.codec === "hev1" ? "این ویدئو HEVC (H.265) است و در همه‌ی مرورگرها پخش نمی‌شود؛ با کدک H.264 خروجی بگیرید." : "کدک این ویدئو در همه‌ی مرورگرها پخش نمی‌شود؛ با کدک H.264 خروجی بگیرید.");
+      throw new Error(info.codec === "hvc1" || info.codec === "hev1" ? "کدک این ویدئو HEVC است و در همه‌ی مرورگرها پخش نمی‌شود؛ با کدک H.264 خروجی بگیرید." : "کدک این ویدئو در همه‌ی مرورگرها پخش نمی‌شود؛ با کدک H.264 خروجی بگیرید.");
     }
     h264 = info?.codec === "avc1" || info?.codec === "avc3";
   }
   const meta = await probe(file);
   // some Linux builds of Chromium have no H.264 decoder: a file that is surely H.264 is still accepted
-  if (!meta && !h264) throw new Error("این مرورگر نتوانست ویدئو را باز کند؛ فایل را با خروجی MP4 (H.264) دوباره ذخیره کنید.");
+  if (!meta && !h264) throw new Error("این مرورگر نتوانست ویدئو را باز کند؛ فایل را با خروجی MP4 و کدک H.264 دوباره ذخیره کنید.");
 
   const signed = await adminVideoUploadUrl({ type: mime, name: file.name, size: file.size });
   if (!signed.ok) throw new Error(signed.error);
@@ -117,7 +117,7 @@ export function SlotVideoField({ video, poster, ratio, onChange, onBusy }: { vid
     <div className="space-y-3 border-t border-line pt-5" data-video-field>
       <div>
         <div className="text-sm font-medium">ویدئو (اختیاری)</div>
-        <p className="mt-0.5 text-xs leading-5 text-muted">MP4 (H.264) یا WebM، بی‌صدا و حلقه‌ای، تا ۲۵ مگابایت. تصویر همین بخش پوستر ویدئو است و هر جا ویدئو پخش نشود (کاهش حرکت، صرفه‌جویی داده) نمایش داده می‌شود.</p>
+        <p className="mt-0.5 text-xs leading-5 text-muted">MP4 با کدک H.264 یا WebM، بی‌صدا و حلقه‌ای، تا ۲۵ مگابایت. تصویر همین بخش پوستر ویدئو است و هر جا ویدئو پخش نشود (کاهش حرکت، صرفه‌جویی داده) به‌جای آن نمایش داده می‌شود.</p>
       </div>
       <input
         ref={input}
