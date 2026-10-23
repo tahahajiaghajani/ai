@@ -18,7 +18,7 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   const tagline = t(col, "tagline", "en");
   return pageMetadata("en", {
     path: `/collections/${col.slug}`,
-    title: t(col, "name", "en"),
+    title: `The ${t(col, "name", "en")} collection`,
     description: [tagline, t(col, "story", "en")].filter(Boolean).join(" — ").slice(0, 200),
     image: col.media ? mediaUrl(col.media, 1280) : undefined,
   });
