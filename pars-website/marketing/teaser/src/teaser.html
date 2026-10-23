@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>تیزر مدیریت پروژه پارس</title>
+<style>
+@font-face { font-family: "Plex"; font-weight: 300; src: url(assets/fonts/ibm-plex-sans-arabic-arabic-300-normal.woff2) format("woff2"); unicode-range: U+0600-06FF, U+0750-077F, U+200C-200E, U+2010-2011, U+FB50-FDFF, U+FE70-FEFC; }
+@font-face { font-family: "Plex"; font-weight: 400; src: url(assets/fonts/ibm-plex-sans-arabic-arabic-400-normal.woff2) format("woff2"); unicode-range: U+0600-06FF, U+0750-077F, U+200C-200E, U+2010-2011, U+FB50-FDFF, U+FE70-FEFC; }
+@font-face { font-family: "Plex"; font-weight: 500; src: url(assets/fonts/ibm-plex-sans-arabic-arabic-500-normal.woff2) format("woff2"); unicode-range: U+0600-06FF, U+0750-077F, U+200C-200E, U+2010-2011, U+FB50-FDFF, U+FE70-FEFC; }
+@font-face { font-family: "Plex"; font-weight: 600; src: url(assets/fonts/ibm-plex-sans-arabic-arabic-600-normal.woff2) format("woff2"); unicode-range: U+0600-06FF, U+0750-077F, U+200C-200E, U+2010-2011, U+FB50-FDFF, U+FE70-FEFC; }
+@font-face { font-family: "Plex"; font-weight: 700; src: url(assets/fonts/ibm-plex-sans-arabic-arabic-700-normal.woff2) format("woff2"); unicode-range: U+0600-06FF, U+0750-077F, U+200C-200E, U+2010-2011, U+FB50-FDFF, U+FE70-FEFC; }
+@font-face { font-family: "Plex"; font-weight: 300; src: url(assets/fonts/ibm-plex-sans-arabic-latin-300-normal.woff2) format("woff2"); unicode-range: U+0000-00FF, U+2000-206F, U+2122, U+2212; }
+@font-face { font-family: "Plex"; font-weight: 400; src: url(assets/fonts/ibm-plex-sans-arabic-latin-400-normal.woff2) format("woff2"); unicode-range: U+0000-00FF, U+2000-206F, U+2122, U+2212; }
+@font-face { font-family: "Plex"; font-weight: 500; src: url(assets/fonts/ibm-plex-sans-arabic-latin-500-normal.woff2) format("woff2"); unicode-range: U+0000-00FF, U+2000-206F, U+2122, U+2212; }
+@font-face { font-family: "Plex"; font-weight: 600; src: url(assets/fonts/ibm-plex-sans-arabic-latin-600-normal.woff2) format("woff2"); unicode-range: U+0000-00FF, U+2000-206F, U+2122, U+2212; }
+@font-face { font-family: "Plex"; font-weight: 700; src: url(assets/fonts/ibm-plex-sans-arabic-latin-700-normal.woff2) format("woff2"); unicode-range: U+0000-00FF, U+2000-206F, U+2122, U+2212; }
+@font-face { font-family: "Sora"; font-weight: 300; src: url(assets/fonts/sora-latin-300-normal.woff2) format("woff2"); }
+@font-face { font-family: "Sora"; font-weight: 400; src: url(assets/fonts/sora-latin-400-normal.woff2) format("woff2"); }
+@font-face { font-family: "Sora"; font-weight: 600; src: url(assets/fonts/sora-latin-600-normal.woff2) format("woff2"); }
+@font-face { font-family: "Sora"; font-weight: 700; src: url(assets/fonts/sora-latin-700-normal.woff2) format("woff2"); }
+
+:root {
+  --ink: #07061a; --ink2: #0c0b22; --ink3: #13122f; --ink4: #1b1a3f;
+  --fg: #ffffff; --muted: #c3bfdc; --faint: #9a97bd; --line: rgba(196, 190, 255, .22); --line2: rgba(196, 190, 255, .36);
+  --iris: #8f86ff; --violet: #a9a2ff; --lilac: #b8b1ff; --orchid: #c2479f; --magenta: #df1173; --pink: #ff4fa3; --hot: #ff2b8f;
+  --edge: linear-gradient(120deg, #8f86ff, #c2479f 55%, #ff2b8f);
+  --grad: linear-gradient(100deg, #b8b1ff, #e06bc0 48%, #ff4fa3);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 1920px; height: 1080px; overflow: hidden; background: var(--ink); }
+body { font-family: "Plex", sans-serif; color: var(--fg); -webkit-font-smoothing: antialiased; text-rendering: geometricPrecision; }
+#stage { position: relative; width: 1920px; height: 1080px; overflow: hidden; background: var(--ink); }
+#bg { position: absolute; inset: 0; }
+.layer { position: absolute; inset: 0; }
+.abs { position: absolute; }
+.latin { font-family: "Sora", sans-serif; direction: ltr; unicode-bidi: isolate; }
+.g { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+/* word reveal: each word masked so it rises into place */
+w-o { display: inline-block; overflow: hidden; vertical-align: top; padding: .1em .04em .18em; margin: -.1em -.04em -.18em; }
+w-i { display: inline-block; will-change: transform; }
+
+/* persistent brand bug and chapter bar */
+#bug { position: absolute; top: 44px; right: 64px; width: 64px; opacity: .92; }
+/* the site's address stays on screen through the loop (hidden in the intro and outro, which carry their own) */
+#url { position: absolute; top: 56px; left: 64px; display: flex; align-items: center; gap: 10px; direction: ltr; font: 600 22px "Sora", sans-serif; color: var(--muted); }
+#url svg { width: 22px; height: 22px; color: var(--violet); }
+#chapters { position: absolute; left: 96px; right: 96px; bottom: 44px; display: flex; gap: 10px; direction: rtl; }
+#chapters .seg { flex: 1; height: 4px; border-radius: 2px; background: rgba(196, 190, 255, .18); overflow: hidden; }
+#chapters .seg i { display: block; height: 100%; width: 0; background: var(--edge); }
+#chapterLabel { position: absolute; right: 96px; bottom: 62px; font-size: 22px; font-weight: 500; color: var(--muted); display: flex; gap: 14px; align-items: baseline; }
+#chapterLabel b { font-weight: 600; color: var(--pink); }
+
+/* kinetic type */
+.kicker { font-size: 26px; font-weight: 500; color: var(--violet); display: flex; align-items: center; gap: 18px; }
+.kicker .n { color: var(--pink); font-weight: 600; }
+.kicker .rule { width: 120px; height: 2px; background: linear-gradient(90deg, rgba(169,162,255,0), rgba(169,162,255,.8)); }
+.h1 { font-size: 96px; font-weight: 600; line-height: 1.35; }
+.h2 { font-size: 72px; font-weight: 600; line-height: 1.4; }
+.h3 { font-size: 46px; font-weight: 600; line-height: 1.45; }
+.lead { font-size: 34px; font-weight: 400; line-height: 1.7; color: var(--muted); text-wrap: pretty; }
+
+/* browser frame for the demos */
+.browser { position: absolute; border-radius: 18px; background: #0f0e28; box-shadow: 0 50px 120px rgba(0, 0, 0, .55), 0 0 0 1px rgba(196, 190, 255, .22); transform-style: preserve-3d; }
+.browser .bar { position: absolute; left: 0; right: 0; top: 0; height: 46px; display: flex; align-items: center; gap: 14px; padding: 0 20px; direction: ltr; }
+.browser .dots { display: flex; gap: 8px; }
+.browser .dots i { width: 12px; height: 12px; border-radius: 50%; background: #3a3860; }
+.browser .dots i:first-child { background: #ff5c7a; } .browser .dots i:nth-child(2) { background: #ffb547; } .browser .dots i:nth-child(3) { background: #3ddc97; }
+.browser .url { flex: 1; max-width: 520px; margin: 0 auto; height: 28px; border-radius: 14px; background: rgba(196, 190, 255, .1); display: flex; align-items: center; justify-content: center; gap: 8px; font-family: "Sora"; font-size: 15px; color: var(--muted); }
+.browser .url svg { width: 13px; height: 13px; }
+.browser .vp { position: absolute; left: 10px; right: 10px; top: 46px; bottom: 10px; overflow: hidden; border-radius: 10px; background: #fff; }
+.browser .vp .imgl { position: absolute; left: 0; top: 0; transform-origin: 0 0; will-change: transform; }
+.browser .vp img, .browser .vp canvas { position: absolute; left: 0; top: 0; }
+.browser .patch { position: absolute; overflow: hidden; }
+.browser.device { border-radius: 28px; background: #0f0e28; box-shadow: 0 60px 140px rgba(0, 0, 0, .6), 0 0 0 2px rgba(196, 190, 255, .3), 0 0 120px rgba(143, 134, 255, .25); }
+.ai-spot { position: absolute; display: grid; place-items: center; overflow: visible; }
+.ai-spot svg { flex: none; width: 54px; height: 54px; margin: -17px; color: #fff; fill: rgba(143, 134, 255, .95); stroke: #fff; stroke-width: 1.2; filter: drop-shadow(0 0 14px rgba(143, 134, 255, .95)); }
+.browser .load { position: absolute; left: 10px; top: 44px; height: 3px; width: 0; border-radius: 2px; background: var(--edge); box-shadow: 0 0 12px rgba(255, 79, 163, .8); z-index: 3; }
+.cursor { position: absolute; left: 0; top: 0; width: 34px; height: 34px; z-index: 5; pointer-events: none; opacity: 0; transform-origin: 6px 4px; }
+.cursor svg { width: 34px; height: 34px; fill: #fff; stroke: #1a183a; stroke-width: 1.6; stroke-linejoin: round; filter: drop-shadow(0 6px 10px rgba(0, 0, 0, .35)); }
+.cursor .ripple { position: absolute; left: 6px; top: 4px; width: 90px; height: 90px; border-radius: 50%; border: 3px solid #ff4fa3; background: rgba(255, 79, 163, .18); opacity: 0; }
+.browser .ov { position: absolute; inset: 0; pointer-events: none; }
+.hl { position: absolute; border-radius: 10px; box-shadow: 0 0 0 4px #ff4fa3, 0 0 0 9999px rgba(7, 6, 26, 0); }
+.hl::after { content: ""; position: absolute; inset: -4px; border-radius: 12px; box-shadow: 0 0 40px 8px rgba(255, 79, 163, .45); }
+.scan { position: absolute; left: 0; right: 0; height: 180px; background: linear-gradient(180deg, rgba(143, 134, 255, 0), rgba(143, 134, 255, .28) 60%, rgba(255, 79, 163, .55) 98%, rgba(255, 255, 255, .9) 100%); mix-blend-mode: screen; }
+
+/* callout card */
+.card { position: absolute; width: 470px; padding: 26px 30px 28px; border-radius: 22px; direction: rtl;
+  background: linear-gradient(rgba(16, 15, 42, .94), rgba(16, 15, 42, .94)) padding-box, var(--edge) border-box; border: 2px solid transparent;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, .5); }
+.card .num { font-size: 20px; font-weight: 600; color: var(--pink); margin-bottom: 8px; display: flex; align-items: center; gap: 10px; }
+.card .num::after { content: ""; flex: 1; height: 2px; background: linear-gradient(90deg, rgba(169,162,255,0), rgba(169,162,255,.5)); }
+.card b { display: block; font-size: 32px; font-weight: 600; line-height: 1.45; }
+.card p { margin-top: 8px; font-size: 25px; line-height: 1.7; color: var(--muted); text-wrap: pretty; }
+.card.big .big-v { font-size: 118px; font-weight: 600; line-height: 1.1; margin: 2px 0 6px; direction: rtl; }
+.card.big b { font-size: 30px; }
+/* an explicit box: an SVG without width/height is a 300×150 replaced element, pinned right in this RTL page */
+svg.lead-line { position: absolute; left: 0; top: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+
+/* AI panel */
+.ai-panel { position: absolute; width: 520px; padding: 32px 34px; border-radius: 26px; direction: rtl;
+  background: linear-gradient(rgba(12, 11, 34, .92), rgba(12, 11, 34, .92)) padding-box, var(--edge) border-box; border: 2px solid transparent; box-shadow: 0 40px 100px rgba(0, 0, 0, .55), 0 0 80px rgba(223, 17, 115, .25); }
+.ai-panel .tag { display: inline-flex; align-items: center; gap: 10px; font-size: 22px; font-weight: 600; color: #fff; padding: 8px 18px; border-radius: 999px; background: var(--edge); white-space: nowrap; }
+.ai-panel .tag svg { width: 24px; height: 24px; }
+.ai-panel h3 { margin-top: 18px; font-size: 36px; font-weight: 600; line-height: 1.45; text-wrap: balance; }
+.ai-panel ul { list-style: none; margin-top: 22px; display: grid; gap: 20px; }
+.ai-panel li { display: grid; grid-template-columns: 44px 1fr; gap: 16px; align-items: start; }
+.ai-panel li .ic { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; background: rgba(143, 134, 255, .16); border: 1.5px solid rgba(169, 162, 255, .55); color: var(--lilac); }
+.ai-panel li .ic svg { width: 24px; height: 24px; }
+.ai-panel li .t { display: block; font-size: 30px; font-weight: 600; line-height: 1.35; }
+.ai-panel li .d { display: block; margin-top: 2px; font-size: 24px; line-height: 1.5; color: var(--muted); }
+
+/* full-screen transitions */
+#sweep { position: absolute; top: -200px; bottom: -200px; width: 900px; left: 0; pointer-events: none; opacity: 0;
+  background: linear-gradient(90deg, rgba(143,134,255,0), rgba(184,177,255,.16) 35%, rgba(255,79,163,.30) 50%, rgba(184,177,255,.16) 65%, rgba(143,134,255,0)); transform: skewX(-20deg); mix-blend-mode: screen; }
+.pill { display: inline-flex; align-items: center; gap: 12px; padding: 14px 26px; border-radius: 999px; font-size: 30px; font-weight: 500; white-space: nowrap;
+  background: linear-gradient(rgba(19,18,47,.95), rgba(19,18,47,.95)) padding-box, linear-gradient(140deg, rgba(196,190,255,.55), rgba(255,79,163,.45)) border-box; border: 1.5px solid transparent; }
+.pill .k { font-size: 24px; font-weight: 600; color: var(--pink); }
+.glass { background: linear-gradient(rgba(19,18,47,.92), rgba(19,18,47,.92)) padding-box, linear-gradient(140deg, rgba(196,190,255,.45), rgba(196,190,255,.08) 45%, rgba(255,79,163,.4)) border-box; border: 1.5px solid transparent; border-radius: 24px; }
+svg.i { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="bg" width="1920" height="1080"></canvas>
+  <div id="scenes" class="layer"></div>
+  <div id="sweep"></div>
+  <img id="bug" src="assets/brand/pars-mark-reverse.svg" alt="">
+  <div id="url"></div>
+  <div id="chapterLabel"></div>
+  <div id="chapters"></div>
+</div>
+<script src="assets/gsap/gsap.min.js"></script>
+<script src="assets/gsap/CustomEase.min.js"></script>
+<script src="qr.js"></script>
+<script src="data.js"></script>
+<script src="engine.js"></script>
+<script src="scenes.js"></script>
+<script src="main.js"></script>
+</body>
+</html>
