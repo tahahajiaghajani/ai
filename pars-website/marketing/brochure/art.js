@@ -146,7 +146,7 @@ const drawArt = () => {
     const sheet = document.getElementById("outside");
     const svg = document.getElementById("art-out");
     const base = el(svg, "g");
-    el(base, "rect", { x: 0, y: 0, width: 303, height: 216, fill: "#07061a" });
+    el(base, "rect", { x: 0, y: 0, width: 306, height: 219, fill: "#07061a" });
 
     const tile = box(sheet, document.getElementById("qr"));
     const h1 = box(sheet, document.querySelector(".cover h1"));
@@ -223,7 +223,7 @@ const drawArt = () => {
     const sheet = document.getElementById("inside");
     const svg = document.getElementById("art-in");
     const base = el(svg, "g");
-    el(base, "rect", { x: 0, y: 0, width: 303, height: 216, fill: "#07061a" });
+    el(base, "rect", { x: 0, y: 0, width: 306, height: 219, fill: "#07061a" });
 
     const core = box(sheet, document.getElementById("core"));
     const glows = el(svg, "g");

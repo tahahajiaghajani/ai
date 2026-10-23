@@ -4,7 +4,7 @@ The Pars Project Management exhibition brochure: a Persian (RTL) roll-fold on A4
 
 ## Concept
 
-The brochure reads like a conversation with the site's AI assistant: each panel opens with a visitor's question and answers it, and the back hands the conversation over to the site («نوبت سؤال شماست») through the QR code. The logo's two streams — violet for organisational experience, magenta for intelligence — leave the QR on the back, wrap around the spine and meet at one point on the cover: the tagline drawn.
+The logo's two streams — violet for organisational experience, magenta for intelligence — leave the QR on the back, wrap around the spine and meet at one point on the cover: the tagline drawn. Inside, five numbered sections: about Pars, clients, AI agents (a flow diagram from inputs to agents to results, with human approval), services and the path of collaboration, and contact with the QR to the site.
 
 ## Layout
 
@@ -26,7 +26,7 @@ CHROME_PATH=/path/to/chrome npm run brochure     # or a Chromium installed for P
 npm run build -- https://parspmi.ir              # another address (QR and printed URL)
 ```
 
-`out/` gets the print PDF (`pars-brochure-print.pdf`, TrimBox and BleedBox set), a proof with crop and fold marks (`pars-brochure-print-marks.pdf`), 300-dpi spreads and panels, and a 3D mockup. The render fails if any panel overflows, a gradient word wraps, an asset fails to load, or the QR stops decoding at print or phone-like resolutions.
+`out/` gets the finished-size PDF (`pars-brochure-A4.pdf`, exactly 297 × 210 mm), the print PDF (`pars-brochure-print.pdf`, exactly 303 × 216 mm with TrimBox and BleedBox), a proof with crop and fold marks (`pars-brochure-print-marks.pdf`), A4 PNGs at 300 dpi, spreads with bleed, panels and a 3D mockup. The render fails if any panel overflows, a gradient word wraps, an asset fails to load, or the QR stops decoding at print or phone-like resolutions.
 
 Print instructions for the print shop (Persian): [`PRINT_FA.md`](PRINT_FA.md). The PDF is RGB; the shop converts it to CMYK (FOGRA39, PDF/X-4, controlled rich black) and pulls a contract proof.
 
@@ -37,4 +37,4 @@ Print instructions for the print shop (Persian): [`PRINT_FA.md`](PRINT_FA.md). T
 - `build.mjs` — copies the logo and client logos from `public/` and static font files from `@fontsource` (no web-font service at print time, no Type 3 fonts in the PDF), and draws the QR code (error correction Q, 4-module quiet zone, solid dark modules on white).
 - `render.mjs` — PDF, PNGs, mockup and checks; sets the PDF page boxes with `pdf-lib`.
 
-Print rules the layout keeps: no text under 6.6 pt (most reverse text 7 pt and up), threads, rules and borders at 0.18–0.25 mm, nothing important within 8 mm of a fold or 9 mm of the trim. Chromium sizes PDF pages in 0.01 in steps, so the page is 11.93 × 8.51 in and the sheet fills it exactly.
+Print rules the layout keeps: no text under 6.6 pt and small reverse text at weight 500, threads, rules and borders at 0.18–0.25 mm, nothing important within 8 mm of a fold or 9 mm of the trim. Chromium sizes PDF pages in 0.01 in steps, so it prints an oversized page with the art running past the bleed, and `render.mjs` crops the PDFs to the exact bleed and trim boxes; it also gives every embedded font subset its own name.

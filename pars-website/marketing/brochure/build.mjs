@@ -43,7 +43,6 @@ for (const f of ["art.js", "mockup.html"]) fs.copyFileSync(path.join(HERE, f), p
 
 const html = fs.readFileSync(path.join(HERE, "brochure.html"), "utf8")
   .replace("{{QR}}", svg)
-  .replace("{{HOST}}", host)
   .replace("{{HOST_NAME}}", host.slice(0, dot))
   .replace("{{HOST_REST}}", host.slice(dot));
 if (html.includes("{{")) throw new Error("unfilled placeholder in brochure.html");

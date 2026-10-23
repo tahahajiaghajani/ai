@@ -4,11 +4,12 @@
 <meta charset="utf-8">
 <title>بروشور نمایشگاهی — مدیریت پروژه پارس</title>
 <style>
-/* Roll fold (tri-fold), A4 landscape 297 × 210 mm trim, 3 mm bleed (slightly more on the right and bottom: Chromium sizes
-   PDF pages in 0.01 in steps, so the page is 11.93 × 8.51 in = 303.02 × 216.15 mm and the sheet is exactly that size).
+/* Standard A4 tri-fold: roll fold, 297 × 210 mm trim (folded 100 × 210), 3 mm bleed → 303 × 216 mm.
+   Chromium sizes PDF pages in 0.01 in steps, so it prints an oversized 12 × 8.6 in page and render.mjs crops it to the exact
+   bleed box (print file) and to the exact trim box (A4 file). The art runs 3 mm past the bleed on the right and bottom.
    Persian opens to the right, so on the outside the cover is the LEFT panel and the narrow fold-in flap the RIGHT one.
    outside (L-R): cover 100 | back 100 | flap 97      inside (L-R): fold-in 97 | middle 100 | cover-inner 100 */
-@page { size: 11.93in 8.51in; margin: 0; }
+@page { size: 12in 8.6in; margin: 0; }
 
 /* static font files (build.mjs copies them from @fontsource): no web-font service at print time, no Type 3 fonts in the PDF */
 @font-face { font-family: "Plex Arabic"; font-weight: 400; src: url(assets/fonts/ibm-plex-sans-arabic-arabic-400-normal.woff2) format("woff2"); unicode-range: U+0600-06FF, U+0750-077F, U+200C-200E, U+2010-2011, U+FB50-FDFF, U+FE70-FEFC; }
@@ -30,12 +31,12 @@
   --edge: linear-gradient(120deg, #8f86ff, #c2479f 55%, #ff2b8f);
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
-html { background: var(--ink); }
+html { background: var(--ink); -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 body { font-family: "Plex Arabic", sans-serif; color: var(--fg); font-weight: 400; -webkit-print-color-adjust: exact; print-color-adjust: exact; text-rendering: geometricPrecision; }
 @media screen { html { background: #23223a; } body { padding: 10mm; display: grid; gap: 10mm; justify-content: center; } .sheet { box-shadow: 0 6mm 20mm rgba(0, 0, 0, .45); } }
-.sheet { position: relative; width: 11.93in; height: 8.51in; overflow: hidden; background: var(--ink); break-after: page; }
+.sheet { position: relative; width: 12in; height: 8.6in; overflow: hidden; background: var(--ink); break-after: page; }
 .sheet:last-of-type { break-after: auto; }
-.art { position: absolute; left: 0; top: 0; width: 303mm; height: 216mm; }
+.art { position: absolute; left: 0; top: 0; width: 306mm; height: 219mm; }
 .p { position: absolute; top: 3mm; height: 210mm; display: flex; flex-direction: column; }
 .ltr { direction: ltr; unicode-bidi: isolate; }
 .latin { font-family: "Sora", sans-serif; font-weight: 600; }
@@ -49,20 +50,14 @@ svg.i { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width:
 #inside .middle { left: 100mm; width: 100mm; padding: 12mm 9mm 10mm 9mm; }
 #inside .cin { left: 200mm; width: 100mm; padding: 12mm 9mm 10mm 8mm; }
 
-/* the conversation: the visitor's question (left, like the site's chat) and the assistant's answer */
-.q { display: flex; align-items: center; gap: 2mm; width: max-content; max-width: 100%; margin-inline-start: auto; padding: 1.5mm 2.2mm 1.5mm 3.4mm; border-radius: 4mm 4mm 4mm 1.2mm;
-  background: rgba(27, 26, 63, .92); border: .25mm solid var(--line2); font-size: 7.8pt; font-weight: 500; color: var(--fg); line-height: 1.5; }
-.q .av { width: 4.4mm; height: 4.4mm; border-radius: 50%; background: var(--edge); display: grid; place-items: center; color: #fff; font-size: 2.8mm; flex: none; }
-.q .av svg.i { stroke-width: 2.2; }
-.ans { display: flex; align-items: center; gap: 1.6mm; font-size: 7pt; font-weight: 500; color: var(--violet); }
-.ans .av { width: 4.4mm; height: 4.4mm; border-radius: 50%; background: var(--ink4); border: .25mm solid var(--line2); display: grid; place-items: center; color: var(--pink); font-size: 2.8mm; flex: none; }
-.ans .rule { flex: 1; height: .25mm; background: linear-gradient(90deg, rgba(169, 162, 255, 0), rgba(169, 162, 255, .6)); }
-.ans .n { color: var(--faint); }
-.q + .ans { margin-top: 5mm; }
-.h { margin-top: 3.4mm; font-size: 15.5pt; font-weight: 600; line-height: 1.55; color: var(--fg); }
+/* section header: number, name, a rule to the fold */
+.kicker { display: flex; align-items: center; gap: 2mm; font-size: 8pt; font-weight: 500; color: var(--violet); }
+.kicker .n { font-weight: 600; color: var(--pink); }
+.kicker .rule { flex: 1; height: .25mm; background: linear-gradient(90deg, rgba(169, 162, 255, 0), rgba(169, 162, 255, .6)); }
+.h { margin-top: 4.5mm; font-size: 15.5pt; font-weight: 600; line-height: 1.55; color: var(--fg); }
 .b { margin-top: 2mm; font-size: 8.4pt; line-height: 1.9; color: var(--muted); text-align: justify; text-align-last: right; }
 .b strong { color: var(--fg); font-weight: 500; }
-.label { font-size: 7pt; color: var(--faint); margin-bottom: 2.2mm; display: flex; align-items: center; gap: 1.6mm; }
+.label { font-size: 7pt; font-weight: 500; color: var(--faint); margin-bottom: 2.2mm; display: flex; align-items: center; gap: 1.6mm; }
 .label::after { content: ""; flex: 1; height: .25mm; background: var(--line); }
 
 /* ── outside · cover ───────────────────────────── */
@@ -73,55 +68,38 @@ svg.i { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width:
 .cover .hero { margin-top: auto; }
 .cover h1 { font-size: 25pt; font-weight: 600; line-height: 1.5; }
 .cover .sub { margin-top: 3.5mm; font-size: 9.6pt; line-height: 1.75; font-weight: 400; color: var(--fg); }
-.prompt { margin-top: 6.5mm; display: flex; align-items: center; gap: 2.4mm; height: 12.5mm; padding: 0 3.2mm 0 1.6mm; border-radius: 6.25mm;
-  background: linear-gradient(rgba(19, 18, 47, .94), rgba(19, 18, 47, .94)) padding-box, var(--edge) border-box; border: .35mm solid transparent; }
-.prompt .spark { color: var(--violet); font-size: 4.4mm; }
-.prompt .ph { flex: 1; font-size: 9pt; color: var(--muted); display: flex; align-items: center; }
-.cur { display: inline-block; width: .6mm; height: 4.2mm; margin-inline-start: .8mm; border-radius: .3mm; background: linear-gradient(#a9a2ff, #ff2b8f); }
-.send { width: 9.2mm; height: 9.2mm; border-radius: 50%; background: var(--edge); display: grid; place-items: center; color: #fff; font-size: 4.2mm; flex: none; }
-.send svg.i { transform: scaleX(-1); stroke-width: 2.2; }
-.cover .foot { margin-top: 6.5mm; display: flex; justify-content: space-between; align-items: center; font-size: 7pt; color: var(--muted); }
-.cover .foot .latin { font-size: 7.2pt; color: var(--fg); }
+.cover .foot { margin-top: 8mm; padding-top: 3.6mm; border-top: .25mm solid var(--line); display: flex; justify-content: space-between; align-items: center; font-size: 7.6pt; font-weight: 500; color: var(--muted); }
+.cover .foot i { width: 1.2mm; height: 1.2mm; border-radius: 50%; background: var(--pink); }
 
 /* ── outside · back (the end: QR) ─────────────── */
 .back .h { font-size: 17pt; }
-.qrwrap { margin: 8.5mm auto 0; width: 44mm; }
-.tile { width: 44mm; height: 44mm; border-radius: 5mm; background: #fff; }
+.qrwrap { margin: 10mm auto 0; width: 50mm; }
+.tile { width: 50mm; height: 50mm; border-radius: 3mm; background: #fff; }
 .tile svg { width: 100%; height: 100%; display: block; }
 .scan { margin-top: 3.8mm; text-align: center; }
 .scan .l1 { font-size: 7.6pt; color: var(--muted); display: flex; align-items: center; justify-content: center; gap: 1.4mm; }
 .scan .l1 svg.i { color: var(--pink); font-size: 3.6mm; }
-.scan .url { margin-top: 1mm; font-size: 13pt; letter-spacing: .01em; direction: ltr; color: var(--fg); }
-.scan .url b { color: var(--pink); font-weight: 600; }
-.onsite { margin-top: 4mm; display: grid; grid-template-columns: auto auto; justify-content: center; gap: 1.4mm; }
-.onsite span { font-size: 6.8pt; padding: .8mm 2.2mm; border-radius: 3mm; border: .25mm solid var(--line2); color: var(--muted); background: rgba(19, 18, 47, .75); display: inline-flex; align-items: center; justify-content: center; gap: 1mm; }
-.onsite span svg.i { color: var(--violet); font-size: 2.9mm; stroke-width: 2.2; }
-.asks { margin-top: 6mm; display: grid; gap: 1.6mm; justify-items: end; }
-.asks .label { justify-self: stretch; margin-bottom: .6mm; }
-.asks span { font-size: 7pt; line-height: 1.5; padding: 1.1mm 2.6mm; border-radius: 3mm 3mm 3mm .8mm; background: rgba(27, 26, 63, .92); border: .25mm solid var(--line2); color: var(--fg); }
-.contact { margin-top: auto; list-style: none; display: grid; gap: 2mm; padding-top: 4mm; border-top: .25mm solid var(--line); }
+.scan .url { margin-top: 1mm; font-size: 13pt; letter-spacing: .01em; direction: ltr; color: var(--muted); }
+.scan .url b { color: var(--fg); font-weight: 600; }
+.contact { margin-top: 10mm; list-style: none; display: grid; gap: 2.2mm; padding-top: 4.4mm; border-top: .25mm solid var(--line); }
 .contact li { display: flex; align-items: flex-start; gap: 2.2mm; font-size: 7.4pt; line-height: 1.7; color: var(--muted); }
 .contact li svg.i { color: var(--violet); font-size: 3.6mm; margin-top: .5mm; }
 .contact .sep { color: var(--faint); margin: 0 1.2mm; }
-.back .sign { margin-top: 4.5mm; display: flex; align-items: center; justify-content: space-between; }
-.back .sign img { height: 3.1mm; }
+.back .sign { margin-top: auto; display: flex; flex-direction: column; align-items: center; gap: 2.4mm; }
+.back .sign img { width: 24mm; }
 .back .sign span { font-size: 7.4pt; font-weight: 500; color: var(--muted); }
 
 /* ── outside · flap (who has worked with Pars) ── */
-.logos { margin-top: 5.5mm; display: grid; grid-template-columns: repeat(3, 1fr); gap: 2.6mm 2.4mm; }
+.logos { margin-top: 7mm; display: grid; grid-template-columns: repeat(3, 1fr); gap: 3.6mm 2.6mm; }
 .logos figure { display: flex; flex-direction: column; align-items: center; gap: 1.4mm; }
-.logos .t { width: 100%; height: 18mm; border-radius: 2.6mm; background: #fff; display: grid; place-items: center; }
-.logos img { max-height: 11.5mm; max-width: 72%; object-fit: contain; }
-.logos figcaption { font-size: 6.8pt; line-height: 1.45; color: var(--muted); text-align: center; }
-.more { margin-top: 5mm; padding-top: 4.2mm; border-top: .25mm solid var(--line); display: flex; align-items: center; gap: 2.4mm; font-size: 7.8pt; color: var(--fg); }
+.logos .t { width: 100%; height: 23mm; border-radius: 1.6mm; background: #fff; display: grid; place-items: center; }
+.logos img { max-height: 14.5mm; max-width: 72%; object-fit: contain; }
+.logos figcaption { font-size: 6.8pt; font-weight: 500; line-height: 1.45; color: var(--muted); text-align: center; }
+.more { margin-top: auto; padding-top: 4.2mm; border-top: .25mm solid var(--line); display: flex; align-items: center; gap: 2.4mm; font-size: 7.8pt; color: var(--fg); }
 .more b { font-size: 14pt; font-weight: 600; line-height: 1; }
-.chips { margin-top: 5.5mm; display: flex; flex-wrap: wrap; gap: 1.6mm; }
+.chips { margin-top: 6mm; display: flex; flex-wrap: wrap; gap: 1.6mm; }
 .chips .label { flex-basis: 100%; margin: 0; }
-.chips span { font-size: 6.8pt; padding: .9mm 2.4mm; border-radius: 3mm; border: .25mm solid var(--line2); color: var(--muted); background: rgba(19, 18, 47, .7); }
-.trust { margin-top: auto; display: flex; gap: 2.4mm; align-items: flex-start; padding: 3mm 3.2mm; border-radius: 3mm; background: rgba(143, 134, 255, .1); border: .25mm solid var(--line2); }
-.trust svg.i { font-size: 4.4mm; color: var(--violet); margin-top: .4mm; }
-.trust p { font-size: 7.2pt; line-height: 1.75; color: var(--muted); }
-.trust b { color: var(--fg); font-weight: 500; }
+.chips span { font-size: 6.8pt; font-weight: 500; padding: .9mm 2.4mm; border-radius: 3mm; border: .25mm solid var(--line2); color: var(--muted); background: rgba(19, 18, 47, .7); }
 
 /* ── inside · cover-inner (who we are) ────────── */
 .stats { margin-top: 5mm; display: grid; grid-template-columns: 1fr 1fr; border-top: .25mm solid var(--line); }
@@ -129,7 +107,7 @@ svg.i { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width:
 .stats div:nth-child(odd) { padding-inline-end: 3mm; border-inline-end: .25mm solid var(--line); }
 .stats div:nth-child(even) { padding-inline-start: 4mm; }
 .stats b { display: block; font-size: 23pt; font-weight: 600; line-height: 1.15; }
-.stats span { display: block; margin-top: 1.4mm; font-size: 7pt; line-height: 1.65; color: var(--muted); }
+.stats span { display: block; margin-top: 1.4mm; font-size: 7pt; font-weight: 500; line-height: 1.65; color: var(--muted); }
 .journey { margin-top: 5.5mm; }
 .journey ol { list-style: none; position: relative; display: grid; gap: 2.4mm; padding-inline-start: 6mm; }
 .journey ol::before { content: ""; position: absolute; inset-inline-start: 1.6mm; top: 1.4mm; bottom: 1.4mm; width: .35mm; background: linear-gradient(#8f86ff, #ff2b8f); border-radius: .2mm; }
@@ -137,17 +115,17 @@ svg.i { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width:
 .journey li::before { content: ""; position: absolute; inset-inline-start: -5.6mm; top: 1.1mm; width: 2.4mm; height: 2.4mm; border-radius: 50%; background: var(--ink); border: .35mm solid var(--iris); }
 .journey li:last-child::before { background: var(--hot); border-color: #ffb3d6; box-shadow: 0 0 0 .9mm rgba(255, 43, 143, .25); }
 .journey li b { color: var(--fg); font-weight: 500; }
-.journey li em { font-style: normal; font-size: 7pt; color: var(--faint); margin-inline-start: 1.6mm; }
+.journey li em { display: inline-block; font-style: normal; font-size: 7pt; font-weight: 500; color: var(--faint); margin-inline-start: 1.6mm; }
 .journey li:last-child em { color: var(--pink); }
 .quote { margin-top: auto; position: relative; padding-inline-start: 4.4mm; }
 .quote::before { content: ""; position: absolute; inset-inline-start: 0; top: .8mm; bottom: .8mm; width: .6mm; border-radius: .3mm; background: linear-gradient(#a9a2ff, #ff2b8f); }
 .quote p { font-size: 12.5pt; font-weight: 500; line-height: 1.7; color: var(--fg); }
-.quote cite { display: block; margin-top: 1.6mm; font-style: normal; font-size: 7pt; color: var(--faint); }
+.quote cite { display: block; margin-top: 1.6mm; font-style: normal; font-size: 7pt; font-weight: 500; color: var(--faint); }
 
 /* ── inside · middle (AI agents) ──────────────── */
-.flow { margin-top: 6mm; position: relative; }
+.flow { margin-top: 7mm; position: relative; }
 .row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2mm; position: relative; z-index: 1; }
-.node { border-radius: 2.4mm; padding: 2.2mm 1.2mm 2mm; text-align: center; font-size: 6.8pt; line-height: 1.5; color: var(--fg); background: rgba(19, 18, 47, .96); border: .25mm solid var(--line2); }
+.node { border-radius: 2.4mm; padding: 2.2mm 1.2mm 2mm; text-align: center; font-size: 6.8pt; font-weight: 500; line-height: 1.5; color: var(--fg); background: rgba(19, 18, 47, .96); border: .25mm solid var(--line2); }
 .node svg.i { display: block; margin: 0 auto 1.2mm; font-size: 3.8mm; color: var(--violet); }
 .row.out .node svg.i { color: var(--pink); }
 .core { position: relative; z-index: 1; margin: 12mm 0; border-radius: 4mm; padding: 3mm 3mm 3.4mm;
@@ -155,7 +133,7 @@ svg.i { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width:
 .core .ct { display: flex; align-items: center; justify-content: space-between; }
 .core .ct b { font-size: 9pt; font-weight: 600; display: flex; align-items: center; gap: 1.6mm; }
 .core .ct b svg.i { color: var(--pink); font-size: 4mm; }
-.core .ct span { display: inline-flex; align-items: center; gap: 1mm; font-size: 6.8pt; color: var(--lilac); padding: .6mm 2mm; border-radius: 3mm; border: .25mm solid var(--line2); }
+.core .ct span { display: inline-flex; align-items: center; gap: 1mm; font-size: 6.8pt; font-weight: 500; color: var(--lilac); padding: .6mm 2mm; border-radius: 3mm; border: .25mm solid var(--line2); }
 .core .ct span svg.i { font-size: 2.8mm; stroke-width: 2.2; }
 .stages { margin-top: 3mm; display: grid; grid-template-columns: 1fr auto 1fr auto 1fr auto 1fr; align-items: center; gap: 1mm; list-style: none; }
 .stages li { text-align: center; }
@@ -166,15 +144,15 @@ svg.i { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width:
 .bar { display: flex; height: 6.6mm; border-radius: 3.3mm; overflow: hidden; border: .25mm solid var(--line2); }
 .bar .a { flex: 9; background: var(--edge); display: flex; align-items: center; padding-inline-start: 2.6mm; font-size: 7.4pt; font-weight: 600; color: #fff; }
 .bar .m { flex: 1.2; display: grid; place-items: center; color: var(--lilac); font-size: 3.4mm; background: rgba(27, 26, 63, .9); }
-.split .cap { margin-top: 2.2mm; display: flex; justify-content: space-between; font-size: 6.8pt; color: var(--muted); }
+.split .cap { margin-top: 2.2mm; display: flex; justify-content: space-between; font-size: 6.8pt; font-weight: 500; color: var(--muted); }
 .split .cap b { color: var(--fg); font-weight: 500; }
 .middle .b2 { margin-top: 3mm; font-size: 7.6pt; line-height: 1.85; color: var(--muted); text-align: justify; text-align-last: right; }
 .caps { margin-top: auto; display: flex; flex-wrap: wrap; gap: 1.3mm; justify-content: space-between; }
 .caps .label { flex-basis: 100%; margin: 0 0 .6mm; }
-.caps span { font-size: 6.6pt; padding: .9mm 1.5mm; border-radius: 3mm; background: rgba(143, 134, 255, .14); border: .25mm solid var(--line2); color: var(--lilac); }
+.caps span { font-size: 6.6pt; font-weight: 500; padding: .9mm 1.5mm; border-radius: 3mm; background: rgba(143, 134, 255, .14); border: .25mm solid var(--line2); color: var(--lilac); }
 
 /* ── inside · fold-in (what we build + path) ─── */
-.svc { margin-top: 7mm; list-style: none; display: grid; gap: 7mm; }
+.svc { margin-top: 7mm; list-style: none; display: grid; gap: 9mm; }
 .svc li { display: grid; grid-template-columns: 7.6mm 1fr; gap: 2.6mm; align-items: start; }
 .svc .ic { width: 7.6mm; height: 7.6mm; border-radius: 2.2mm; display: grid; place-items: center; font-size: 4mm; color: var(--violet);
   background: rgba(143, 134, 255, .12); border: .25mm solid var(--line2); }
@@ -196,7 +174,7 @@ svg.i { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width:
 
 <!-- ═════════════ OUTSIDE ═════════════ -->
 <section class="sheet" id="outside">
-  <svg class="art" id="art-out" viewBox="0 0 303 216" xmlns="http://www.w3.org/2000/svg"></svg>
+  <svg class="art" id="art-out" viewBox="0 0 306 219" xmlns="http://www.w3.org/2000/svg"></svg>
 
   <!-- cover -->
   <div class="p cover">
@@ -207,48 +185,35 @@ svg.i { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width:
     <div class="hero">
       <h1>جایی که مدیریت<br>و <span class="g">هوش</span> به هم می‌رسند.</h1>
       <p class="sub">سامانه‌های مدیریت پروژه‌ی بانک‌ها و سازمان‌های بزرگ،<br>حالا با ایجنت‌های هوش مصنوعی.</p>
-      <div class="prompt">
-        <i data-i="ai" class="spark"></i>
-        <div class="ph">از پارس بپرسید…<span class="cur"></span></div>
-        <div class="send"><i data-i="arrow"></i></div>
-      </div>
     </div>
-    <div class="foot"><span>دستیار هوشمند پارس</span><span class="ltr latin">{{HOST}}</span></div>
+    <div class="foot"><span>سامانه‌های EPM</span><i></i><span>ایجنت‌های هوش مصنوعی</span><i></i><span>آموزش و مشاوره</span></div>
   </div>
 
   <!-- back: the end of the conversation, the QR -->
   <div class="p back">
-    <div class="ans"><span class="av"><i data-i="ai"></i></span>دستیار هوشمند پارس<span class="rule"></span><span class="n">۰۵</span></div>
-    <h2 class="h">نوبت پرسیدن <span class="g">شماست.</span></h2>
-    <p class="b">با یک اسکن، سؤالتان را از دستیار هوشمند پارس بپرسید؛ فقط از دانش ما پاسخ&nbsp;می‌دهد. دموها را ببینید یا درخواست جلسه ثبت کنید.</p>
+    <div class="kicker"><span class="n">۰۵</span><span>ارتباط با ما</span><span class="rule"></span></div>
+    <h2 class="h">گام بعدی <span class="g">با شماست.</span></h2>
+    <p class="b">برای دیدن سوابق، دموی محصولات و درخواست جلسه، کد زیر را اسکن کنید یا با ما تماس&nbsp;بگیرید؛ خوشحال می‌شویم گفتگو را شروع&nbsp;کنیم.</p>
     <div class="qrwrap">
       <div class="tile" id="qr">{{QR}}</div>
     </div>
     <div class="scan">
-      <div class="l1"><i data-i="scan"></i>با دوربین گوشی اسکن کنید</div>
-      <div class="url latin">{{HOST_NAME}}<b>{{HOST_REST}}</b></div>
-    </div>
-    <div class="onsite"><span><i data-i="ai"></i>دستیار هوشمند</span><span><i data-i="play"></i>دموی محصولات</span><span><i data-i="ticket"></i>پشتیبانی و تیکت</span><span><i data-i="article"></i>سوابق و وبلاگ</span></div>
-    <div class="asks">
-      <div class="label">مثلاً بپرسید</div>
-      <span>ایجنت‌ها کدام کارهای دفتر پروژه‌ی ما را خودکار می‌کنند؟</span>
-      <span>سامانه‌ی EPM ما قدیمی شده؛ مسیر نوسازی چیست؟</span>
-      <span>دوره‌های آموزشی مدیریت پروژه دارید؟</span>
+      <div class="l1"><i data-i="scan"></i>برای ورود به سایت اسکن کنید</div>
+      <div class="url latin"><b>{{HOST_NAME}}</b>{{HOST_REST}}</div>
     </div>
     <ul class="contact">
       <li><i data-i="phone"></i><span><span class="ltr">۰۲۱-۸۸۷۳۱۶۰۱</span><span class="sep">و</span><span class="ltr">۰۲۱-۸۲۸۰۳۵۶۵</span></span></li>
       <li><i data-i="mail"></i><span class="ltr">info@parspmi.ir</span></li>
       <li><i data-i="pin"></i><span>تهران، خیابان سهروردی شمالی، خیابان خرمشهر (آپادانا)، پلاک ۱۱۸، واحد ۱۳</span></li>
     </ul>
-    <div class="sign"><span>شرکت مدیریت پروژه پارس</span><img src="assets/pars-wordmark-reverse.svg" alt="PARS PROJECT"></div>
+    <div class="sign"><img src="assets/pars-logo-reverse.svg" alt="مدیریت پروژه پارس"><span>شرکت مدیریت پروژه پارس</span></div>
   </div>
 
   <!-- fold-in flap, outer face: who has worked with Pars -->
   <div class="p flap">
-    <div class="q"><span class="av"><i data-i="human"></i></span>چه سازمان‌هایی با پارس کار کرده‌اند؟</div>
-    <div class="ans"><span class="av"><i data-i="ai"></i></span>دستیار هوشمند پارس<span class="rule"></span><span class="n">۰۲</span></div>
+    <div class="kicker"><span class="n">۰۲</span><span>مشتریان ما</span><span class="rule"></span></div>
     <h2 class="h">از ستاد بانک‌ها<br>تا <span class="g">شبکه‌ی برق کشور.</span></h2>
-    <p class="b">در سامانه‌های EPM، آموزش و مشاوره کنار این سازمان‌ها بوده‌ایم:</p>
+    <p class="b">در آموزش، مشاوره و سامانه‌های EPM کنار این سازمان‌ها بوده‌ایم:</p>
     <div class="logos">
       <figure><div class="t"><img src="assets/mellat.svg" alt=""></div><figcaption>بانک ملت</figcaption></figure>
       <figure><div class="t"><img src="assets/tejarat.svg" alt=""></div><figcaption>بانک تجارت</figcaption></figure>
@@ -260,25 +225,23 @@ svg.i { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width:
       <figure><div class="t"><img src="assets/igmc.webp" alt=""></div><figcaption>مدیریت شبکه برق ایران</figcaption></figure>
       <figure><div class="t"><img src="assets/rajaee.webp" alt=""></div><figcaption>قرارگاه خاتم‌الانبیاء<br>گروه شهید رجایی</figcaption></figure>
     </div>
-    <div class="more"><b class="g">۵۰+</b><span>سازمان دیگر در آموزش، مشاوره و نرم‌افزار</span></div>
+    <div class="more"><b class="g">۵۰+</b><span>سازمان دیگر، جز نام‌های بالا</span></div>
     <div class="chips">
       <div class="label">حوزه‌های کاری</div>
       <span>بانک و بیمه</span><span>نیرو و آب</span><span>نفت، گاز و پتروشیمی</span><span>خودروسازی</span><span>دارو</span><span>عمران</span>
     </div>
-    <div class="trust"><i data-i="shield"></i><p>نام مشتریان را می‌گوییم؛ <b>جزئیات قراردادها و پروژه‌ها محرمانه می‌ماند.</b></p></div>
   </div>
 </section>
 
 <!-- ═════════════ INSIDE ═════════════ -->
 <section class="sheet" id="inside">
-  <svg class="art" id="art-in" viewBox="0 0 303 216" xmlns="http://www.w3.org/2000/svg"></svg>
+  <svg class="art" id="art-in" viewBox="0 0 306 219" xmlns="http://www.w3.org/2000/svg"></svg>
 
   <!-- cover-inner (right): who we are -->
   <div class="p cin">
-    <div class="q"><span class="av"><i data-i="human"></i></span>پارس چه شرکتی است؟</div>
-    <div class="ans"><span class="av"><i data-i="ai"></i></span>دستیار هوشمند پارس<span class="rule"></span><span class="n">۰۱</span></div>
+    <div class="kicker"><span class="n">۰۱</span><span>درباره‌ی پارس</span><span class="rule"></span></div>
     <h2 class="h">بیش از پانزده سال کنار <span class="g">پروژه‌های بزرگ.</span></h2>
-    <p class="b">از ۱۳۸۹ کنار بانک‌ها و سازمان‌های بزرگ هستیم؛ سامانه‌های مدیریت پروژه و سبد پروژه‌شان را طراحی می‌کنیم، می‌سازیم و تیم‌هایشان را آموزش می‌دهیم. حالا هوش مصنوعی در هسته‌ی کار ماست: <strong>ایجنت‌هایی که کارهای تکراری دفتر پروژه را تا ۹۰٪ خودکار می‌کنند</strong> و ریسک را پیش از وقوع نشان&nbsp;می‌دهند.</p>
+    <p class="b">از ۱۳۸۹ کنار بانک‌ها و سازمان‌های بزرگ هستیم؛ سامانه‌های <bdi>EPM</bdi> و <bdi>EPPM</bdi> آن‌ها را طراحی می‌کنیم، می‌سازیم و تیم‌هایشان را آموزش می‌دهیم. حالا هوش مصنوعی در هسته‌ی کار ماست: <strong>ایجنت‌هایی که کارهای تکراری دفتر پروژه را خودکار می‌کنند</strong> و ریسک را پیش از وقوع نشان&nbsp;می‌دهند.</p>
     <div class="stats">
       <div><b class="g">۱۵+</b><span>سال تجربه</span></div>
       <div><b class="g">۲۰</b><span>بانک و سازمان با سامانه‌های پارس</span></div>
@@ -288,10 +251,10 @@ svg.i { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width:
     <div class="journey">
       <div class="label">مسیر ما</div>
       <ol>
-        <li><b>آموزش و مشاوره‌ی مدیریت پروژه</b><em>۱۳۸۹</em></li>
+        <li><b>آموزش و مشاوره‌ی مدیریت پروژه</b>&#x200C;<em>۱۳۸۹</em></li>
         <li><b>تیم‌های تحلیل و تولید نرم‌افزار</b></li>
         <li><b>نرم‌افزارهای تصمیم‌ساز برای مدیران</b></li>
-        <li><b>ایجنت‌های هوش مصنوعی</b><em>امروز</em></li>
+        <li><b>ایجنت‌های هوش مصنوعی</b>&#x200C;<em>امروز</em></li>
       </ol>
     </div>
     <blockquote class="quote">
@@ -302,8 +265,7 @@ svg.i { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width:
 
   <!-- middle: AI agents -->
   <div class="p middle">
-    <div class="q"><span class="av"><i data-i="human"></i></span>ایجنت‌های پارس دقیقاً چه کار می‌کنند؟</div>
-    <div class="ans"><span class="av"><i data-i="ai"></i></span>دستیار هوشمند پارس<span class="rule"></span><span class="n">۰۳</span></div>
+    <div class="kicker"><span class="n">۰۳</span><span>ایجنت‌های هوش مصنوعی</span><span class="rule"></span></div>
     <h2 class="h">ایجنت‌هایی که <span class="g">کار می‌کنند</span>،<br>نه فقط حرف می‌زنند.</h2>
     <p class="b">نامه‌ها، گزارش‌ها و داده‌های پروژه را می‌خوانند و می‌فهمند، تأخیر و ریسک را پیش‌بینی می‌کنند و خودشان اقدام می‌کنند. <strong>تیم شما فقط تأیید می‌کند.</strong></p>
     <div class="flow" id="flow">
@@ -316,10 +278,10 @@ svg.i { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width:
       <div class="core" id="core">
         <div class="ct"><b><i data-i="ai"></i>ایجنت‌های پارس</b><span><i data-i="human"></i>انسان در حلقه</span></div>
         <ol class="stages">
-          <li><b>می‌خوانند</b></li><li class="chev"><i data-i="arrow"></i></li>
-          <li><b>می‌فهمند</b></li><li class="chev"><i data-i="arrow"></i></li>
-          <li><b>پیش‌بینی<br>می‌کنند</b></li><li class="chev"><i data-i="arrow"></i></li>
-          <li><b>اقدام<br>می‌کنند</b></li>
+          <li><b>خواندن</b></li><li class="chev"><i data-i="arrow"></i></li>
+          <li><b>فهمیدن</b></li><li class="chev"><i data-i="arrow"></i></li>
+          <li><b>پیش‌بینی</b></li><li class="chev"><i data-i="arrow"></i></li>
+          <li><b>اقدام</b></li>
         </ol>
       </div>
       <div class="row out">
@@ -330,25 +292,24 @@ svg.i { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width:
       </div>
     </div>
     <div class="split">
-      <div class="bar"><div class="a">تا ۹۰٪ خودکار</div><div class="m"><i data-i="human"></i></div></div>
-      <div class="cap"><span><b>تا ۹۰٪</b> کارهای تکراری با ایجنت‌ها</span><span><b>&#x61C;۱۰٪</b> با تأیید انسان</span></div>
+      <div class="bar"><div class="a">خودکار با ایجنت‌ها</div><div class="m"><i data-i="human"></i></div></div>
+      <div class="cap"><span><b>تا ۹۰٪</b> کارهای تکراری با ایجنت‌ها</span><span>بقیه با تأیید انسان</span></div>
       <p class="b2">در بانک، خطای کوچک هم کوچک نمی‌ماند؛ برای همین تصمیم‌های حساس با تأیید انسان نهایی می‌شوند و هدف ما خطای صفر است.</p>
     </div>
-    <div class="caps"><div class="label">قابلیت‌ها</div><span><bdi>RAG</bdi> فارسی</span><span>تحلیل پیش‌بین</span><span>جستجوی معنایی</span><span>الگویابی</span><span>اجرای خودکار</span></div>
+    <div class="caps"><div class="label">قابلیت‌ها</div><span><bdi>RAG</bdi> فارسی</span><span>تحلیل پیش‌بین</span><span>جستجوی هوشمند</span><span>الگویابی</span><span>اجرای خودکار</span></div>
   </div>
 
   <!-- fold-in (left): what we build + the path -->
   <div class="p foldin">
-    <div class="q"><span class="av"><i data-i="human"></i></span>چه می‌سازید و همکاری با شما چطور پیش می‌رود؟</div>
-    <div class="ans"><span class="av"><i data-i="ai"></i></span>دستیار هوشمند پارس<span class="rule"></span><span class="n">۰۴</span></div>
+    <div class="kicker"><span class="n">۰۴</span><span>خدمات ما</span><span class="rule"></span></div>
     <h2 class="h">سامانه‌ی جامع مدیریت،<br><span class="g">از پروژه تا تصمیم.</span></h2>
     <ul class="svc">
       <li><span class="ic"><i data-i="epm"></i></span><div><b>سامانه‌های EPM و EPPM</b><span>طراحی، استقرار و پشتیبانی روی <bdi>Project Server</bdi>، <bdi>Primavera P6</bdi> و <bdi>Jira</bdi>.</span></div></li>
-      <li><span class="ic"><i data-i="migration"></i></span><div><b>نوسازی و مهاجرت EPM</b><span>ارزیابی سامانه‌ی فعلی، انتقال امن با حفظ همه‌ی داده‌های تاریخی و افزودن هوش مصنوعی.</span></div></li>
-      <li class="ai"><span class="ic"><i data-i="agents"></i></span><div><b>ایجنت‌ها و دستیارهای هوشمند</b><span><bdi>RAG</bdi> فارسی روی اسناد سازمان، تحلیل پیش‌بین و جستجوی معنایی.</span></div></li>
-      <li><span class="ic"><i data-i="custom"></i></span><div><b>سامانه‌های مدیریتی سازمانی</b><span>پروژه و وظایف، درخواست‌ها و قراردادها، ارزیابی عملکرد و مستندات.</span></div></li>
+      <li><span class="ic"><i data-i="migration"></i></span><div><b>نوسازی و مهاجرت EPM</b><span>ارزیابی سامانه‌ی فعلی، انتقال امن با حفظ همه‌ی داده‌های تاریخی و&nbsp;افزودن&nbsp;هوش مصنوعی.</span></div></li>
+      <li class="ai"><span class="ic"><i data-i="agents"></i></span><div><b>ایجنت‌ها و دستیارهای هوشمند</b><span><bdi>RAG</bdi> فارسی روی اسناد سازمان، تحلیل پیش‌بین و جستجوی هوشمند.</span></div></li>
+      <li><span class="ic"><i data-i="custom"></i></span><div><b>سامانه‌های مدیریتی سازمانی</b><span>پروژه‌ها و وظایف، درخواست‌ها و قراردادها، ارزیابی عملکرد و مستندات.</span></div></li>
       <li><span class="ic"><i data-i="pattern"></i></span><div><b>مهندسی و تحلیل داده</b><span>داده‌های بزرگ، <bdi>BI</bdi> و داشبوردهای مدیریتی برای تصمیم‌گیری.</span></div></li>
-      <li><span class="ic"><i data-i="training"></i></span><div><b>آموزش و مشاوره</b><span>دوره‌های <bdi>PMBOK</bdi>، <bdi>PMP</bdi>، <bdi>PSM</bdi> و <bdi>Primavera P6</bdi>؛ طراحی نظام برنامه‌ریزی و کنترل پروژه.</span></div></li>
+      <li><span class="ic"><i data-i="training"></i></span><div><b>آموزش و مشاوره</b><span>دوره‌های <bdi>PMBOK</bdi>، <bdi>PMP</bdi>، <bdi>PSM</bdi> و <bdi>Primavera P6</bdi>؛ طراحی&nbsp;نظام&nbsp;برنامه‌ریزی و کنترل پروژه.</span></div></li>
     </ul>
     <div class="path">
       <div class="label">مسیر همکاری</div>
@@ -384,9 +345,6 @@ const ICONS = {
   scan: "M4 8V5a1 1 0 011-1h3M16 4h3a1 1 0 011 1v3M20 16v3a1 1 0 01-1 1h-3M8 20H5a1 1 0 01-1-1v-3M7 12h10",
   human: "M12 11a4 4 0 100-8 4 4 0 000 8zM4 21a8 8 0 0116 0",
   article: "M6 3h9l4 4v14H6zM15 3v4h4M9 11h7M9 14h7M9 17h4",
-  play: "M8 5v14l11-7z",
-  shield: "M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z M9 12l2 2 4-4",
-  ticket: "M4 7a2 2 0 012-2h12a2 2 0 012 2v2a2 2 0 000 6v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2a2 2 0 000-6zM14 5v14",
 };
 document.querySelectorAll("i[data-i]").forEach((n) => {
   const s = `<svg class="i" viewBox="0 0 24 24"><path d="${ICONS[n.dataset.i]}"/></svg>`;
@@ -398,7 +356,7 @@ document.querySelectorAll("i[data-i]").forEach((n) => {
 if (new URLSearchParams(location.search).has("marks")) {
   document.documentElement.classList.add("marks");
   const st = document.createElement("style");
-  st.textContent = "@page{size:12.72in 9.3in;margin:0} html{background:#fff} .slug{position:relative;width:12.72in;height:9.3in;background:#fff;break-after:page;overflow:hidden} .slug:last-child{break-after:auto} .slug .sheet{position:absolute;left:10mm;top:10mm;box-shadow:none} .slug svg.mk{position:absolute;left:0;top:0;width:323mm;height:236mm} @media screen{.slug{box-shadow:0 4mm 12mm rgba(0,0,0,.4)}}";
+  st.textContent = "@page{size:12.72in 9.5in;margin:0} html{background:#fff} .slug{position:relative;width:12.72in;height:9.5in;background:#fff;break-after:page;overflow:hidden} .slug:last-child{break-after:auto} .slug .sheet{position:absolute;left:10mm;top:10mm;width:303mm;height:216mm;box-shadow:none} .slug svg.mk{position:absolute;left:0;top:0;width:323mm;height:236mm} @media screen{.slug{box-shadow:0 4mm 12mm rgba(0,0,0,.4)}}";
   document.head.appendChild(st);
   const folds = { outside: [100, 200], inside: [97, 197] };
   const names = { outside: "OUTSIDE - PAGE 1/2 - L-R: COVER 100 | BACK 100 | FOLD-IN FLAP 97", inside: "INSIDE - PAGE 2/2 - L-R: FOLD-IN 97 | MIDDLE 100 | COVER-INNER 100" };
@@ -419,7 +377,7 @@ if (new URLSearchParams(location.search).has("marks")) {
       <path d="${d}" stroke="${k}" stroke-width="${w}" fill="none"/>
       <path d="${f}" stroke="${k}" stroke-width="${w}" stroke-dasharray="1 .8" fill="none"/>
       ${folds[sh.id].map((fx) => `<text x="${T + fx + 1}" y="5" font-size="1.8" ${font}>FOLD ${fx}</text>`).join("")}
-      <text x="20" y="234.6" font-size="1.9" ${font}>PARS PROJECT MANAGEMENT · EXHIBITION BROCHURE · ROLL FOLD (RTL) · TRIM 297 × 210 MM · BLEED 3 MM · ${names[sh.id]}</text>
+      <text x="20" y="234.6" font-size="1.9" ${font}>PARS PROJECT MANAGEMENT · EXHIBITION BROCHURE · ROLL FOLD (RTL) · TRIM 297 × 210 MM · BLEED 3 MM · ${names[sh.id]} · BACK-UP: TURN ON SHORT EDGE · ${new Date().toISOString().slice(0, 10)}</text>
     </svg>`);
   });
 }
