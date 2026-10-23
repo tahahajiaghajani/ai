@@ -1,6 +1,6 @@
 import { webManifest } from "@/lib/seo";
 
-/** The web app manifest of /en/manifest.webmanifest (English); siteMetadata() links it from every page of that language. */
+/** Serves /en/manifest.webmanifest (English); siteMetadata("en") links it from every English page. */
 export const dynamic = "force-static";
 
 export function GET() {

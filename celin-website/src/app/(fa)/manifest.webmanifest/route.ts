@@ -1,6 +1,6 @@
 import { webManifest } from "@/lib/seo";
 
-/** The web app manifest of /manifest.webmanifest (Persian, the site root); siteMetadata() links it from every page of that language. */
+/** Serves /manifest.webmanifest (Persian, the site root); siteMetadata("fa") links it from every Persian page. */
 export const dynamic = "force-static";
 
 export function GET() {
