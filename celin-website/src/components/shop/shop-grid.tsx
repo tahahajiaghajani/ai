@@ -215,6 +215,24 @@ export function ShopGrid({ lang, products, collections, editorial }: { lang: Lan
   const [draft, setDraft] = useState<ShopFilters>(f);
   const [limit, setLimit] = useState(PAGE);
   const bar = useStickUnderHeader();
+  // the sheet's choice is applied once the overlay has closed: closing steps back over the history entry
+  // the overlay pushed, which would otherwise undo a URL change made just before it
+  const pending = useRef<ShopFilters | null>(null);
+  useEffect(() => {
+    if (open || !pending.current) return;
+    const next = pending.current;
+    pending.current = null;
+    let done = false;
+    const go = () => {
+      if (done) return;
+      done = true;
+      window.removeEventListener("popstate", go);
+      clearTimeout(timer);
+      push(next);
+    };
+    window.addEventListener("popstate", go);
+    const timer = setTimeout(go, 400);
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const list = useMemo(() => applyFilters(products, f, book?.prices), [products, f.metal.join(), f.stone.join(), f.collection.join(), f.sort, book]); // eslint-disable-line react-hooks/exhaustive-deps
   const draftCount = useMemo(() => applyFilters(products, draft).length, [products, draft]);
@@ -386,7 +404,7 @@ export function ShopGrid({ lang, products, collections, editorial }: { lang: Lan
             <button
               type="button"
               onClick={() => {
-                push(draft);
+                pending.current = draft;
                 setOpen(false);
               }}
               className="btn btn-ink flex-1"

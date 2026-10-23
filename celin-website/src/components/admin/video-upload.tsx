@@ -117,7 +117,7 @@ export function SlotVideoField({ video, poster, ratio, onChange, onBusy }: { vid
     <div className="space-y-3 border-t border-line pt-5" data-video-field>
       <div>
         <div className="text-sm font-medium">ویدئو (اختیاری)</div>
-        <p className="mt-0.5 text-xs leading-5 text-muted">MP4 با کدک H.264 یا WebM، بی‌صدا و حلقه‌ای، تا ۲۵ مگابایت. تصویر همین بخش پوستر ویدئو است و هر جا ویدئو پخش نشود (کاهش حرکت، صرفه‌جویی داده) به‌جای آن نمایش داده می‌شود.</p>
+        <p className="mt-0.5 text-xs leading-5 text-muted">ویدئوی MP4 با کدک H.264 یا WebM، بی‌صدا و حلقه‌ای، تا ۲۵ مگابایت. تصویر همین بخش پوستر ویدئو است و هر جا ویدئو پخش نشود (کاهش حرکت، صرفه‌جویی داده) به‌جای آن نمایش داده می‌شود.</p>
       </div>
       <input
         ref={input}
