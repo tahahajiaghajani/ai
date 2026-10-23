@@ -11,7 +11,6 @@ import { jsonLd } from "@/lib/seo";
 import { commonCopy } from "@/content/copy/common";
 import { productCopy } from "@/content/copy/product";
 import { story } from "@/content/copy/story";
-import { ArchLines } from "@/components/fx/arch-lines";
 import { SectionHead } from "@/components/home/sections";
 import { ProductClient } from "@/components/product/product-client";
 import { ProBar } from "@/components/pro/pro-bar";
@@ -151,7 +150,6 @@ export async function ProductPage({ lang, slug }: { lang: Lang; slug: string }) 
         <section className="relative isolate overflow-clip bg-porcelain py-20 sm:py-28">
           <span aria-hidden className="absolute inset-0 -z-10 bg-[radial-gradient(55%_60%_at_88%_20%,var(--color-blush),transparent_70%),radial-gradient(50%_55%_at_5%_100%,var(--color-champagne-2),transparent_70%)]" />
           <span aria-hidden className="hairline absolute inset-x-0 top-0" />
-          <ArchLines count={4} className="pointer-events-none absolute inset-x-0 -bottom-10 mx-auto h-[70%] w-[min(1100px,140vw)] opacity-50" />
           <div className="container-lux relative">
             <SectionHead
               eyebrow={col && sameCollection ? tr.collection(t(col, "name", lang)) : c.nav.jewellery}
