@@ -26,7 +26,7 @@ export const craftCopy = {
     plating: { eyebrow: "آبکاری", rhodium: "رودیوم", gold: "طلا", rhodiumTone: "نقره‌ای", goldTone: "طلایی" },
     next: {
       eyebrow: "ادامه‌ی مسیر",
-      title: story.fa.shine,
+      title: "زیبایی، در جزئیات",
       care: { title: "نگهداری و ضمانت", text: "راهنمای نگهداری از آبکاری و نگین‌ها" },
       collections: { title: "مجموعه‌ها", text: "رواقِ مجموعه‌های سلین" },
     },
@@ -51,7 +51,7 @@ export const craftCopy = {
     plating: { eyebrow: "Plating", rhodium: "Rhodium", gold: "Gold", rhodiumTone: "Silver tone", goldTone: "Gold tone" },
     next: {
       eyebrow: "Continue",
-      title: story.en.shine,
+      title: "Beauty, in the details",
       care: { title: "Care & warranty", text: "Caring for the plating and the stones" },
       collections: { title: "Collections", text: "The arcade of CELIN collections" },
     },

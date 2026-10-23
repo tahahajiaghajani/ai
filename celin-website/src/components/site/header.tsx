@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { commonCopy } from "@/content/copy/common";
 import type { Lang } from "@/lib/format";
 import { href, otherLangPath } from "@/lib/i18n";
@@ -97,6 +97,18 @@ function LangLink({ lang }: { lang: Lang }) {
 
 type Panel = "jewellery" | "collections" | null;
 
+/** A small eyebrow with the copper diamond (menus). */
+function MenuLabel({ children }: { children: string }) {
+  return (
+    <p className="label mb-4 flex items-center gap-2.5 text-gold-text!">
+      <svg viewBox="0 0 10 10" className="size-1.5 text-gold" aria-hidden>
+        <path d="M5 0 10 5 5 10 0 5Z" fill="currentColor" />
+      </svg>
+      {children}
+    </p>
+  );
+}
+
 export function Header({ lang, menu }: { lang: Lang; menu: MenuData }) {
   const c = commonCopy(lang);
   const path = usePathname();
@@ -105,6 +117,7 @@ export function Header({ lang, menu }: { lang: Lang; menu: MenuData }) {
   const [overDark, setOverDark] = useState(false);
   const [panel, setPanel] = useState<Panel>(null);
   const [drawer, setDrawer] = useState(false);
+  const [peek, setPeek] = useState<string | null>(null);
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const headerRef = useRef<HTMLElement>(null);
   const progress = useRef<HTMLSpanElement>(null);
@@ -148,6 +161,9 @@ export function Header({ lang, menu }: { lang: Lang; menu: MenuData }) {
     setDrawer(false);
   }, [path]);
   useEffect(() => {
+    if (!panel) setPeek(null);
+  }, [panel]);
+  useEffect(() => {
     if (!panel) return;
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && setPanel(null);
     const onDown = (e: PointerEvent) => !headerRef.current?.contains(e.target as Node) && setPanel(null);
@@ -164,6 +180,7 @@ export function Header({ lang, menu }: { lang: Lang; menu: MenuData }) {
     hoverTimer.current = setTimeout(() => setPanel(p), p ? 120 : 200);
   };
   const light = overDark && !panel;
+  const peekCat = panel === "jewellery" && peek ? menu.categories.find((k) => k.slug === peek && k.media) ?? null : null;
   const active = (to: string) => path === href(lang, to) || path.startsWith(`${href(lang, to)}/`);
 
   const navBtn = (p: Exclude<Panel, null>, label: string, to: string) => (
@@ -238,35 +255,43 @@ export function Header({ lang, menu }: { lang: Lang; menu: MenuData }) {
             id={`menu-${panel}`}
             onPointerEnter={(e) => e.pointerType === "mouse" && hover(panel)}
             onPointerLeave={(e) => e.pointerType === "mouse" && hover(null)}
-            className="absolute inset-x-0 top-full hidden animate-[rise_.35s_var(--ease-lux)_both] border-b border-line bg-ground lg:block"
+            className="absolute inset-x-0 top-full hidden animate-[rise_.35s_var(--ease-lux)_both] overflow-hidden border-b border-gold/20 bg-mesh-porcelain text-ink shadow-[0_40px_60px_-44px_rgb(26_19_16/0.4)] lg:block"
           >
-            <div className="container-lux grid grid-cols-[1fr_1fr_1fr_auto] gap-12 py-10">
+            <div className="container-lux grid grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)_minmax(0,1fr)_auto] items-start gap-12 py-11 xl:gap-16">
               {panel === "jewellery" ? (
                 <>
                   <div>
-                    <p className="label mb-5">{c.nav.jewellery}</p>
-                    <ul className="space-y-3">
+                    <MenuLabel>{c.nav.jewellery}</MenuLabel>
+                    <ul className="space-y-1.5">
                       {menu.categories.map((k) => (
                         <li key={k.slug}>
-                          <Link href={href(lang, `/shop/${k.slug}`)} className="display text-xl text-ink-2 transition-colors hover:text-ink">
-                            {k.name}
+                          <Link
+                            href={href(lang, `/shop/${k.slug}`)}
+                            onPointerEnter={() => setPeek(k.slug)}
+                            onFocus={() => setPeek(k.slug)}
+                            className="group/item flex items-center gap-3 py-1 text-ink-2 transition-colors duration-300 hover:text-gold-deep focus-visible:text-gold-deep"
+                          >
+                            <svg viewBox="0 0 10 10" className={`size-1.5 shrink-0 text-gold transition-opacity duration-300 ${peek === k.slug ? "opacity-100" : "opacity-0"}`} aria-hidden>
+                              <path d="M5 0 10 5 5 10 0 5Z" fill="currentColor" />
+                            </svg>
+                            <span className="display text-2xl leading-[1.5]! font-semibold">{k.name}</span>
                           </Link>
                         </li>
                       ))}
-                      <li className="pt-2">
-                        <Link href={href(lang, "/shop")} className="text-sm text-gold-text underline-offset-8 hover:underline">
+                      <li className="ps-[1.125rem] pt-3">
+                        <Link href={href(lang, "/shop")} onPointerEnter={() => setPeek(null)} className="font-ui text-sm text-gold-text underline-offset-8 hover:underline">
                           {c.nav.all}
                         </Link>
                       </li>
                     </ul>
                   </div>
                   <div>
-                    <p className="label mb-5">{c.nav.byTone}</p>
-                    <ul className="space-y-3 text-sm">
+                    <MenuLabel>{c.nav.byTone}</MenuLabel>
+                    <ul className="space-y-3.5 font-ui text-sm">
                       {TONES.map((t) => (
                         <li key={t}>
-                          <Link href={`${href(lang, "/shop")}?metal=${t}`} className="flex items-center gap-3 text-ink-2 hover:text-ink">
-                            <span className={`size-3.5 rounded-full ${t === "gold" ? "bg-swatch-gold" : t === "silver" ? "bg-swatch-silver" : "bg-swatch-rose"}`} aria-hidden />
+                          <Link href={`${href(lang, "/shop")}?metal=${t}`} className="flex items-center gap-3 text-ink-2 transition-colors hover:text-ink">
+                            <span className={`size-3.5 rounded-full ring-1 ring-ink/10 ${t === "gold" ? "bg-swatch-gold" : t === "silver" ? "bg-swatch-silver" : "bg-swatch-rose"}`} aria-hidden />
                             {c.tones[t]}
                           </Link>
                         </li>
@@ -274,11 +299,11 @@ export function Header({ lang, menu }: { lang: Lang; menu: MenuData }) {
                     </ul>
                   </div>
                   <div>
-                    <p className="label mb-5">{c.nav.collections}</p>
-                    <ul className="space-y-3 text-sm">
+                    <MenuLabel>{c.nav.collections}</MenuLabel>
+                    <ul className="space-y-2.5">
                       {menu.collections.slice(0, 6).map((k) => (
                         <li key={k.slug}>
-                          <Link href={href(lang, `/collections/${k.slug}`)} className="text-ink-2 hover:text-ink">
+                          <Link href={href(lang, `/collections/${k.slug}`)} className="text-base text-ink-2 transition-colors hover:text-gold-deep">
                             {k.name}
                           </Link>
                         </li>
@@ -287,23 +312,38 @@ export function Header({ lang, menu }: { lang: Lang; menu: MenuData }) {
                   </div>
                 </>
               ) : (
-                <div className="col-span-3 grid grid-cols-3 gap-x-12 gap-y-6">
+                <div className="col-span-3 grid grid-cols-3 gap-x-12 gap-y-7">
                   {menu.collections.map((k) => (
-                    <Link key={k.slug} href={href(lang, `/collections/${k.slug}`)} className="group block border-t border-line pt-4">
-                      <span className="display block text-2xl text-ink-2 transition-colors group-hover:text-ink">{k.name}</span>
-                      <span className="mt-1 block text-sm text-muted">{k.tagline}</span>
+                    <Link key={k.slug} href={href(lang, `/collections/${k.slug}`)} className="group block border-t border-gold/20 pt-4">
+                      <span className="display block text-2xl leading-[1.5]! font-semibold text-ink-2 transition-colors duration-300 group-hover:text-gold-deep">{k.name}</span>
+                      <span className="mt-1 block text-sm leading-7 text-muted">{k.tagline}</span>
                     </Link>
                   ))}
-                  <Link href={href(lang, "/collections")} className="self-end text-sm text-gold-text underline-offset-8 hover:underline">
+                  <Link href={href(lang, "/collections")} className="self-end font-ui text-sm text-gold-text underline-offset-8 hover:underline">
                     {c.nav.allCollections}
                   </Link>
                 </div>
               )}
-              {menu.promo && (
-                <Link href={href(lang, menu.promo.href)} className="group block w-52">
-                  <Picture media={menu.promo.media} lang={lang} ratio="3/4" sizes="208px" imgClassName="transition-transform duration-700 ease-[var(--ease-lux)] group-hover:scale-[1.03]" />
-                  <span className="mt-3 block text-sm text-ink">{menu.promo.title}</span>
-                  <span className="mt-0.5 block text-xs text-muted">{menu.promo.cta}</span>
+              {/* the arch window: the promo, or the category under the pointer */}
+              {(menu.promo || peekCat) && (
+                <Link href={peekCat ? href(lang, `/shop/${peekCat.slug}`) : href(lang, menu.promo!.href)} className="group block w-52 xl:w-56" tabIndex={-1}>
+                  <span className="relative block aspect-[3/4] [--ring-gap:8px]">
+                    <span className="arch-ring" style={{ "--ring": "rgb(156 94 52 / 0.5)" } as CSSProperties} aria-hidden />
+                    <svg viewBox="0 0 10 10" className="absolute left-1/2 top-[-8px] z-[2] size-2 -translate-x-1/2 -translate-y-1/2 text-gold-bright" aria-hidden>
+                      <path d="M5 0 10 5 5 10 0 5Z" fill="currentColor" />
+                    </svg>
+                    <span className="fx-sheen arch absolute inset-0 overflow-hidden bg-tile">
+                      {menu.promo && (
+                        <Picture media={menu.promo.media} lang={lang} sizes="224px" alt="" className={`absolute inset-0 transition-opacity duration-700 ${peekCat ? "opacity-0" : "opacity-100"}`} imgClassName="transition-transform duration-[1.2s] ease-[var(--ease-out-expo)] group-hover:scale-[1.04]" />
+                      )}
+                      {panel === "jewellery" &&
+                        menu.categories.map((k) =>
+                          k.media ? <Picture key={k.slug} media={k.media} lang={lang} sizes="224px" alt="" className={`absolute inset-0 transition-opacity duration-700 ${peekCat?.slug === k.slug ? "opacity-100" : "opacity-0"}`} /> : null,
+                        )}
+                    </span>
+                  </span>
+                  <span className="display mt-4 block text-center text-lg font-semibold text-ink">{peekCat ? peekCat.name : menu.promo?.title}</span>
+                  <span className="mt-0.5 block text-center font-ui text-xs text-muted">{peekCat ? c.nav.discover : menu.promo?.cta}</span>
                 </Link>
               )}
             </div>
@@ -313,48 +353,61 @@ export function Header({ lang, menu }: { lang: Lang; menu: MenuData }) {
 
       {/* phone menu */}
       <Overlay open={drawer} onClose={() => setDrawer(false)} label={c.nav.menu} variant="start" closeLabel={c.nav.close}>
-        <div className="flex min-h-full flex-col px-6 pt-4 pb-8">
-          <p className="label mt-2 mb-3">{c.nav.jewellery}</p>
-          <ul className="divide-y divide-line border-y border-line">
-            {menu.categories.map((k) => (
-              <li key={k.slug}>
-                <Link href={href(lang, `/shop/${k.slug}`)} className="flex h-14 items-center justify-between display text-xl">
-                  {k.name}
-                  <Icon name="chevron" className="size-4 text-faint rtl:-scale-x-100" />
-                </Link>
-              </li>
-            ))}
-            <li>
-              <Link href={href(lang, "/shop")} className="flex h-14 items-center justify-between text-sm text-gold-text">
-                {c.nav.all}
-                <Icon name="chevron" className="size-4 rtl:-scale-x-100" />
-              </Link>
-            </li>
-          </ul>
-          <p className="label mt-8 mb-3">{c.nav.collections}</p>
-          <div className="flex flex-wrap gap-2">
-            {menu.collections.map((k) => (
-              <Link key={k.slug} href={href(lang, `/collections/${k.slug}`)} className="border border-line px-3.5 py-2 text-sm text-ink-2">
-                {k.name}
-              </Link>
-            ))}
+        <div className="flex min-h-full flex-col bg-mesh-porcelain pt-6 pb-8">
+          <div className="px-6">
+            <MenuLabel>{c.nav.jewellery}</MenuLabel>
           </div>
-          <ul className="mt-8 space-y-1 text-sm">
-            {[
-              ["/craft", c.nav.craft],
-              ["/maison", c.nav.maison],
-              ["/care", c.nav.care],
-              ["/contact", c.nav.contact],
-            ].map(([to, label]) => (
-              <li key={to}>
-                <Link href={href(lang, to)} className="flex h-11 items-center text-ink-2">
-                  {label}
+          {/* the categories as a small arcade */}
+          <ul className="relative flex gap-3.5 overflow-x-auto px-6 pt-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {menu.categories.map((k) => (
+              <li key={k.slug} className="shrink-0">
+                <Link href={href(lang, `/shop/${k.slug}`)} className="flex w-[5.25rem] flex-col items-center text-center">
+                  <span className="arch block w-full overflow-hidden bg-tile">
+                    <Picture media={k.media} lang={lang} ratio="3/4" sizes="84px" alt="" />
+                  </span>
+                  <span className="mt-1 block h-px w-[calc(100%+0.875rem)] bg-[image:var(--metal-copper)] opacity-40" aria-hidden />
+                  <span className="display mt-2 text-base leading-[1.5]! font-bold text-ink">{k.name}</span>
                 </Link>
               </li>
             ))}
           </ul>
-          <div className="mt-auto space-y-3 pt-8">
-            <button type="button" onClick={() => { setDrawer(false); openProSheet("code"); }} className="flex h-12 w-full items-center justify-center gap-2 border border-ink text-sm">
+          <div className="px-6">
+            <Link href={href(lang, "/shop")} className="mt-3 flex h-12 items-center justify-between border-b border-gold/20 font-ui text-sm text-gold-text">
+              {c.nav.all}
+              <Icon name="chevron" className="size-4 rtl:-scale-x-100" />
+            </Link>
+
+            <div className="mt-8">
+              <MenuLabel>{c.nav.collections}</MenuLabel>
+            </div>
+            <ul className="grid grid-cols-2 gap-x-4">
+              {menu.collections.map((k) => (
+                <li key={k.slug}>
+                  <Link href={href(lang, `/collections/${k.slug}`)} className="display flex h-11 items-center text-lg font-semibold text-ink-2">
+                    {k.name}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+
+            <ul className="mt-6 divide-y divide-line border-y border-line">
+              {[
+                ["/craft", c.nav.craft],
+                ["/maison", c.nav.maison],
+                ["/care", c.nav.care],
+                ["/contact", c.nav.contact],
+              ].map(([to, label]) => (
+                <li key={to}>
+                  <Link href={href(lang, to)} className="flex h-12 items-center justify-between text-base text-ink-2">
+                    {label}
+                    <Icon name="chevron" className="size-4 text-faint rtl:-scale-x-100" />
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div className="mt-auto space-y-4 px-6 pt-9">
+            <button type="button" onClick={() => { setDrawer(false); openProSheet("code"); }} className="btn btn-metal w-full">
               <span className="font-label text-xs tracking-[0.16em] ltr">PRO</span>
               <span>{c.proSheet.title}</span>
             </button>
