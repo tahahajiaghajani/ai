@@ -1,0 +1,17 @@
+{
+  "name": "pars-brochure",
+  "private": true,
+  "type": "module",
+  "description": "Exhibition tri-fold brochure for Pars Project Management: HTML/CSS + generated SVG, printed to PDF with Chromium",
+  "scripts": {
+    "build": "node build.mjs",
+    "render": "node render.mjs",
+    "brochure": "node build.mjs && node render.mjs"
+  },
+  "devDependencies": {
+    "jsqr": "1.4.0",
+    "playwright-core": "1.56.1",
+    "pngjs": "7.0.0",
+    "qrcode": "1.5.4"
+  }
+}

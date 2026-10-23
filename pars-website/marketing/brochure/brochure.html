@@ -1,0 +1,439 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>بروشور نمایشگاهی — مدیریت پروژه پارس</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Sora:wght@300;400;600&display=block" rel="stylesheet">
+<style>
+/* Roll fold (tri-fold), A4 landscape 297 × 210 mm trim, 3 mm bleed on every side → 303 × 216 mm pages.
+   Persian opens to the right, so on the outside the cover is the LEFT panel and the narrow fold-in flap the RIGHT one.
+   outside (L→R): cover 100 | back 100 | flap 97      inside (L→R): fold-in 97 | middle 100 | cover-inner 100 */
+@page { size: 303mm 216mm; margin: 0; }
+:root {
+  --ink: #07061a; --ink2: #0c0b22; --ink3: #13122f; --ink4: #1b1a3f;
+  --fg: #efedf9; --muted: #c3bfdc; --faint: #8f8cb2; --line: rgba(196, 190, 255, .16); --line2: rgba(196, 190, 255, .28);
+  --iris: #8f86ff; --violet: #a9a2ff; --lilac: #b8b1ff; --orchid: #c2479f; --magenta: #df1173; --pink: #ff4fa3; --hot: #ff2b8f;
+  --mist: #f6f4fb; --midnight: #1a183a; --plum: #7b235a;
+  --grad: linear-gradient(100deg, #b8b1ff, #e06bc0 48%, #ff4fa3);
+  --edge: linear-gradient(120deg, #8f86ff, #c2479f 55%, #ff2b8f);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { background: #23223a; }
+body { font-family: "IBM Plex Sans Arabic", sans-serif; color: var(--fg); font-weight: 400; -webkit-print-color-adjust: exact; print-color-adjust: exact; text-rendering: geometricPrecision; }
+@media screen { body { padding: 10mm; display: grid; gap: 10mm; justify-content: center; } .sheet { box-shadow: 0 6mm 20mm rgba(0, 0, 0, .45); } }
+.sheet { position: relative; width: 303mm; height: 216mm; overflow: hidden; background: var(--ink); break-after: page; }
+.sheet:last-of-type { break-after: auto; }
+.art { position: absolute; inset: 0; width: 303mm; height: 216mm; }
+.p { position: absolute; top: 3mm; height: 210mm; display: flex; flex-direction: column; }
+.ltr { direction: ltr; unicode-bidi: isolate; }
+.latin { font-family: "Sora", sans-serif; }
+svg.i { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
+/* panel positions (sheet coordinates, trim starts at 3 mm) */
+#outside .cover { left: 3mm; width: 100mm; padding: 12mm 8mm 10mm 9mm; }
+#outside .back { left: 103mm; width: 100mm; padding: 12mm 9mm 10mm 9mm; }
+#outside .flap { left: 203mm; width: 97mm; padding: 12mm 9mm 10mm 8mm; }
+#inside .foldin { left: 3mm; width: 97mm; padding: 12mm 8mm 10mm 9mm; }
+#inside .middle { left: 100mm; width: 100mm; padding: 12mm 9mm 10mm 9mm; }
+#inside .cin { left: 200mm; width: 100mm; padding: 12mm 9mm 10mm 8mm; }
+
+/* shared pieces */
+.kicker { display: flex; align-items: center; gap: 1.6mm; font-family: "IBM Plex Mono", monospace; font-size: 5.6pt; font-weight: 500; letter-spacing: .16em; color: var(--violet); direction: ltr; justify-content: flex-end; }
+.kicker .n { color: var(--pink); }
+.kicker .rule { flex: 1; height: .2mm; background: linear-gradient(90deg, rgba(169, 162, 255, 0), rgba(169, 162, 255, .45)); }
+.q { display: flex; align-items: center; gap: 2mm; width: max-content; max-width: 100%; margin-inline-start: auto; padding: 1.5mm 2.2mm 1.5mm 3.4mm; border-radius: 4mm 4mm 4mm 1.2mm;
+  background: rgba(27, 26, 63, .92); border: .2mm solid var(--line2); font-size: 7.6pt; font-weight: 500; color: var(--fg); line-height: 1.5; }
+.q .av { width: 4.4mm; height: 4.4mm; border-radius: 50%; background: var(--edge); display: grid; place-items: center; color: #fff; font-size: 2.8mm; flex: none; }
+.q .av svg.i { stroke-width: 2; }
+.h { font-size: 15.5pt; font-weight: 600; line-height: 1.55; color: var(--fg); }
+.h .g, .g { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.b { font-size: 8.2pt; line-height: 1.9; color: var(--muted); text-align: justify; text-align-last: right; }
+.b strong { color: var(--fg); font-weight: 500; }
+.tiny { font-size: 6.2pt; line-height: 1.7; color: var(--faint); }
+
+/* ── outside · cover ───────────────────────────── */
+.cover .top { display: flex; justify-content: space-between; align-items: flex-start; }
+.cover .logo { width: 31mm; }
+.cover .meta { font-family: "IBM Plex Mono", monospace; font-size: 5.4pt; letter-spacing: .18em; line-height: 2; color: var(--faint); direction: ltr; text-align: left; margin-top: 1mm; }
+.cover .meta b { color: var(--violet); font-weight: 500; }
+.cover .hero { margin-top: auto; }
+.cover h1 { font-size: 25pt; font-weight: 600; line-height: 1.5; letter-spacing: 0; }
+.cover .sub { margin-top: 3mm; font-size: 8.4pt; line-height: 1.8; color: var(--muted); font-weight: 300; }
+.prompt { margin-top: 7mm; display: flex; align-items: center; gap: 2.4mm; height: 12.5mm; padding: 0 3.2mm 0 1.6mm; border-radius: 6.25mm;
+  background: linear-gradient(rgba(19, 18, 47, .94), rgba(19, 18, 47, .94)) padding-box, var(--edge) border-box; border: .3mm solid transparent; }
+.prompt .spark { color: var(--violet); font-size: 4.4mm; }
+.prompt .ph { flex: 1; font-size: 9pt; color: var(--muted); font-weight: 400; display: flex; align-items: center; }
+.cur { display: inline-block; width: .55mm; height: 4.2mm; margin-inline-start: .8mm; border-radius: .3mm; background: linear-gradient(#a9a2ff, #ff2b8f); }
+.send { width: 9.2mm; height: 9.2mm; border-radius: 50%; background: var(--edge); display: grid; place-items: center; color: #fff; font-size: 4.2mm; flex: none; }
+.send svg.i { transform: scaleX(-1); stroke-width: 2; }
+.cover .foot { margin-top: 7mm; display: flex; justify-content: space-between; align-items: center; font-family: "IBM Plex Mono", monospace; font-size: 5.2pt; letter-spacing: .18em; color: var(--faint); direction: ltr; }
+.cover .foot i { font-style: normal; color: var(--violet); }
+.cover .foot .live { display: inline-block; width: 1.3mm; height: 1.3mm; border-radius: 50%; background: #3ddc97; margin-right: 1.4mm; vertical-align: .05mm; box-shadow: 0 0 0 .6mm rgba(61, 220, 151, .2); }
+
+/* ── outside · back (the end: QR) ─────────────── */
+.back .h { margin-top: 5mm; font-size: 17pt; }
+.back .b { margin-top: 2mm; }
+.qrwrap { margin: 7mm auto 0; width: 44mm; position: relative; }
+.tile { width: 44mm; height: 44mm; border-radius: 5mm; background: var(--mist); position: relative; }
+.tile svg { width: 100%; height: 100%; display: block; }
+.scan { margin-top: 4.2mm; text-align: center; }
+.scan .l1 { font-size: 7.6pt; color: var(--muted); display: flex; align-items: center; justify-content: center; gap: 1.4mm; }
+.scan .l1 svg.i { color: var(--pink); font-size: 3.6mm; }
+.scan .url { margin-top: 1mm; font-family: "Sora", sans-serif; font-size: 13pt; font-weight: 600; letter-spacing: .01em; direction: ltr; color: var(--fg); }
+.scan .url b { color: var(--pink); font-weight: 600; }
+.onsite { margin-top: 4.4mm; display: grid; grid-template-columns: auto auto; justify-content: center; gap: 1.4mm; }
+.onsite span { justify-content: center; }
+.onsite span { font-size: 6.2pt; padding: .8mm 2.2mm; border-radius: 3mm; border: .2mm solid var(--line2); color: var(--muted); background: rgba(19, 18, 47, .75); display: inline-flex; align-items: center; gap: 1mm; }
+.onsite span svg.i { color: var(--violet); font-size: 2.8mm; }
+.asks { margin-top: 7mm; display: grid; gap: 1.6mm; justify-items: start; }
+.asks .label { justify-self: stretch; margin-bottom: .6mm; }
+.asks span { font-size: 6.9pt; line-height: 1.5; padding: 1.1mm 2.6mm; border-radius: 3mm 3mm 3mm .8mm; background: rgba(27, 26, 63, .92); border: .2mm solid var(--line2); color: var(--fg); }
+.asks span:nth-child(odd) { justify-self: end; border-radius: 3mm 3mm .8mm 3mm; }
+.contact { margin-top: auto; list-style: none; display: grid; gap: 2mm; padding-top: 4.4mm; border-top: .2mm solid var(--line); }
+.contact li { display: flex; align-items: flex-start; gap: 2.2mm; font-size: 7.4pt; line-height: 1.7; color: var(--muted); }
+.contact li svg.i { color: var(--violet); font-size: 3.6mm; margin-top: .5mm; }
+.contact .sep { color: var(--faint); margin: 0 1mm; }
+.back .sign { margin-top: 5mm; display: flex; align-items: center; justify-content: space-between; }
+.back .sign img { height: 3.1mm; }
+.back .sign span { font-size: 6.4pt; color: var(--faint); }
+
+/* ── outside · flap (trusted by) ──────────────── */
+.flap .h, .middle .h, .cin .h, .foldin .h { margin-top: 3.4mm; }
+.logos { margin-top: 6mm; display: grid; grid-template-columns: repeat(3, 1fr); gap: 2.6mm 2.4mm; }
+.logos figure { display: flex; flex-direction: column; align-items: center; gap: 1.4mm; }
+.logos .t { width: 100%; height: 18.5mm; border-radius: 2.6mm; background: var(--mist); display: grid; place-items: center; }
+.logos img { max-height: 12mm; max-width: 72%; object-fit: contain; }
+.logos figcaption { font-size: 5.6pt; line-height: 1.45; color: var(--muted); text-align: center; }
+.more { margin-top: 5.5mm; padding-top: 4.5mm; border-top: .2mm solid var(--line); display: flex; align-items: center; gap: 2.4mm; font-size: 7.6pt; color: var(--fg); }
+.more b { font-size: 14pt; font-weight: 600; line-height: 1; }
+.chips { margin-top: 6mm; display: flex; flex-wrap: wrap; gap: 1.6mm; }
+.chips span { font-size: 6.5pt; padding: .9mm 2.4mm; border-radius: 3mm; border: .2mm solid var(--line2); color: var(--muted); background: rgba(19, 18, 47, .7); }
+.trust { margin-top: auto; display: flex; gap: 2.4mm; align-items: flex-start; padding: 3mm 3.2mm; border-radius: 3mm; background: rgba(143, 134, 255, .08); border: .2mm solid rgba(169, 162, 255, .24); }
+.trust svg.i { font-size: 4.4mm; color: var(--violet); margin-top: .4mm; }
+.trust p { font-size: 7pt; line-height: 1.75; color: var(--muted); }
+.trust b { color: var(--fg); font-weight: 500; }
+.label { font-size: 6.4pt; color: var(--faint); margin-bottom: 2.2mm; display: flex; align-items: center; gap: 1.6mm; }
+.label::after { content: ""; flex: 1; height: .2mm; background: var(--line); }
+
+/* ── inside · cover-inner (who we are) ────────── */
+.stats { margin-top: 5mm; display: grid; grid-template-columns: 1fr 1fr; border-top: .2mm solid var(--line); }
+.stats div { padding: 3.6mm 0 3.4mm; border-bottom: .2mm solid var(--line); }
+.stats div:nth-child(odd) { padding-inline-end: 3mm; border-inline-end: .2mm solid var(--line); }
+.stats div:nth-child(even) { padding-inline-start: 4mm; }
+.stats b { display: block; font-size: 23pt; font-weight: 600; line-height: 1.15; }
+.stats span { display: block; margin-top: 1.4mm; font-size: 6.9pt; line-height: 1.65; color: var(--muted); }
+.journey { margin-top: 6mm; }
+.journey ol { list-style: none; position: relative; display: grid; gap: 2.6mm; padding-inline-start: 6mm; }
+.journey ol::before { content: ""; position: absolute; inset-inline-start: 1.6mm; top: 1.4mm; bottom: 1.4mm; width: .3mm; background: linear-gradient(#8f86ff, #ff2b8f); border-radius: .2mm; }
+.journey li { position: relative; font-size: 7.3pt; line-height: 1.55; color: var(--muted); }
+.journey li::before { content: ""; position: absolute; inset-inline-start: -5.6mm; top: 1.1mm; width: 2.4mm; height: 2.4mm; border-radius: 50%; background: var(--ink); border: .3mm solid var(--iris); }
+.journey li:last-child::before { background: var(--hot); border-color: #ffb3d6; box-shadow: 0 0 0 .9mm rgba(255, 43, 143, .22); }
+.journey li b { color: var(--fg); font-weight: 500; }
+.journey li em { font-style: normal; font-size: 6.2pt; color: var(--faint); margin-inline-start: 1.6mm; }
+.journey li:last-child em { color: var(--pink); }
+.quote { margin-top: auto; position: relative; padding-inline-start: 4.4mm; }
+.quote::before { content: ""; position: absolute; inset-inline-start: 0; top: .8mm; bottom: .8mm; width: .5mm; border-radius: .3mm; background: linear-gradient(#a9a2ff, #ff2b8f); }
+.quote p { font-size: 10pt; font-weight: 500; line-height: 1.75; color: var(--fg); }
+.quote cite { display: block; margin-top: 1.6mm; font-style: normal; font-size: 6.6pt; color: var(--faint); }
+
+/* ── inside · middle (AI agents) ──────────────── */
+.flow { margin-top: 6mm; position: relative; }
+.row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2mm; position: relative; z-index: 1; }
+.node { border-radius: 2.4mm; padding: 2.2mm 1.4mm 2mm; text-align: center; font-size: 6.3pt; line-height: 1.5; color: var(--fg); background: rgba(19, 18, 47, .96); border: .2mm solid var(--line2); }
+.node svg.i { display: block; margin: 0 auto 1.2mm; font-size: 3.8mm; color: var(--violet); }
+.row.out .node svg.i { color: var(--pink); }
+.core { position: relative; z-index: 1; margin: 12mm 0; border-radius: 4mm; padding: 3mm 3mm 3.2mm;
+  background: linear-gradient(rgba(16, 15, 42, .97), rgba(16, 15, 42, .97)) padding-box, var(--edge) border-box; border: .35mm solid transparent; }
+.core .ct { display: flex; align-items: center; justify-content: space-between; }
+.core .ct b { font-size: 9pt; font-weight: 600; display: flex; align-items: center; gap: 1.6mm; }
+.core .ct b svg.i { color: var(--pink); font-size: 4mm; }
+.core .ct span { font-family: "IBM Plex Mono", monospace; font-size: 5.2pt; letter-spacing: .14em; color: var(--faint); direction: ltr; }
+.stages { margin-top: 2.6mm; display: grid; grid-template-columns: 1fr auto 1fr auto 1fr auto 1fr; align-items: center; gap: 1mm; list-style: none; }
+.stages li { text-align: center; }
+.stages li b { display: block; font-size: 7pt; font-weight: 500; line-height: 1.4; }
+.stages li span { display: block; margin-top: .6mm; font-family: "IBM Plex Mono", monospace; font-size: 4.6pt; letter-spacing: .12em; color: var(--violet); direction: ltr; }
+.stages .chev { color: var(--faint); font-size: 2.6mm; }
+.stages .chev svg.i { transform: scaleX(-1); }
+.split { margin-top: 7mm; }
+.bar { display: flex; height: 6.4mm; border-radius: 3.2mm; overflow: hidden; border: .2mm solid var(--line2); }
+.bar .a { flex: 9; background: var(--edge); display: flex; align-items: center; padding-inline-start: 2.6mm; font-size: 7pt; font-weight: 600; color: #fff; }
+.bar .m { flex: 1.2; display: grid; place-items: center; color: var(--lilac); font-size: 3.4mm; background: rgba(27, 26, 63, .9); }
+.split .cap { margin-top: 2.2mm; display: flex; justify-content: space-between; font-size: 6.3pt; color: var(--muted); }
+.split .cap b { color: var(--fg); font-weight: 500; }
+.middle .b2 { margin-top: 3mm; font-size: 7.2pt; line-height: 1.8; color: var(--muted); text-align: justify; text-align-last: right; }
+.caps { margin-top: auto; display: flex; flex-wrap: wrap; gap: 1.3mm; justify-content: space-between; }
+.caps span { font-size: 6.1pt; padding: .9mm 1.9mm; border-radius: 3mm; background: rgba(143, 134, 255, .12); border: .2mm solid rgba(169, 162, 255, .3); color: var(--lilac); }
+
+/* ── inside · fold-in (what we build + path) ─── */
+.svc { margin-top: 6mm; list-style: none; display: grid; gap: 4.6mm; }
+.svc li { display: grid; grid-template-columns: 7.4mm 1fr; gap: 2.6mm; align-items: start; }
+.svc .ic { width: 7.4mm; height: 7.4mm; border-radius: 2.2mm; display: grid; place-items: center; font-size: 3.9mm; color: var(--violet);
+  background: rgba(143, 134, 255, .1); border: .2mm solid rgba(169, 162, 255, .28); }
+.svc li.ai .ic { color: var(--pink); background: rgba(255, 43, 143, .1); border-color: rgba(255, 79, 163, .35); }
+.svc b { display: block; font-size: 8.1pt; font-weight: 600; line-height: 1.45; }
+.svc span { display: block; margin-top: .4mm; font-size: 6.7pt; line-height: 1.65; color: var(--muted); }
+.stack { margin-top: auto; }
+.stack div { display: flex; flex-wrap: wrap; gap: 1.3mm; direction: ltr; justify-content: flex-end; }
+.stack div span { font-family: "IBM Plex Mono", monospace; font-size: 5.3pt; letter-spacing: .08em; padding: .9mm 1.8mm; border-radius: 1.2mm; border: .2mm solid var(--line2); color: var(--lilac); background: rgba(19, 18, 47, .8); }
+.path { margin-top: 8mm; }
+.steps { position: relative; display: grid; grid-template-columns: repeat(5, 1fr); list-style: none; }
+.steps li { text-align: center; position: relative; z-index: 1; }
+.steps .dot { width: 6.6mm; height: 6.6mm; margin: 0 auto; border-radius: 50%; display: grid; place-items: center; font-size: 7.4pt; font-weight: 600;
+  background: linear-gradient(var(--ink2), var(--ink2)) padding-box, var(--edge) border-box; border: .3mm solid transparent; }
+.steps b { display: block; margin-top: 1.6mm; font-size: 6.1pt; font-weight: 500; line-height: 1.45; }
+.steps em { font-style: normal; display: block; margin-top: .4mm; font-family: "IBM Plex Mono", monospace; font-size: 4.3pt; letter-spacing: .1em; color: var(--faint); direction: ltr; }
+
+/* screen-only fold guides (?guides) */
+.note { position: absolute; z-index: 2; display: flex; flex-direction: column; gap: .5mm; white-space: nowrap; }
+.note b { font-size: 6.6pt; font-weight: 500; color: var(--fg); line-height: 1.3; }
+.note span { font-family: "IBM Plex Mono", monospace; font-size: 4.6pt; letter-spacing: .14em; color: var(--faint); direction: ltr; }
+.note.v span { color: var(--violet); } .note.m span { color: var(--pink); }
+.guides { display: none; }
+html.show-guides .guides { display: block; position: absolute; inset: 0; pointer-events: none; z-index: 9; }
+.guides i { position: absolute; top: 0; bottom: 0; border-left: .25mm dashed rgba(255, 255, 255, .55); }
+.guides .trim { position: absolute; inset: 3mm; outline: .25mm solid rgba(0, 255, 200, .6); }
+</style>
+</head>
+<body>
+
+<!-- ═════════════ OUTSIDE ═════════════ -->
+<section class="sheet" id="outside">
+  <svg class="art" id="art-out" viewBox="0 0 303 216" xmlns="http://www.w3.org/2000/svg"></svg>
+
+  <!-- cover -->
+  <div class="p cover">
+    <div class="top">
+      <img class="logo" src="assets/pars-logo-reverse.svg" alt="مدیریت پروژه پارس">
+      <div class="meta"><b>AGENTIC PMO</b><br>EPM · AI AGENTS · RAG<br>EST. 2010 — TEHRAN</div>
+    </div>
+    <div class="hero">
+      <h1>جایی که مدیریت<br>و <span class="g">هوش</span> به هم می‌رسند.</h1>
+      <p class="sub">سامانه‌های مدیریت پروژه‌ی سازمانی، حالا با ایجنت‌های هوش مصنوعی.</p>
+      <div class="prompt">
+        <i data-i="ai" class="spark"></i>
+        <div class="ph">از پارس بپرسید…<span class="cur"></span></div>
+        <div class="send"><i data-i="arrow"></i></div>
+      </div>
+    </div>
+    <div class="foot"><span>PARSPMI.IR</span><i><b class="live"></b>ONLINE</i></div>
+  </div>
+
+  <!-- back: the end of the conversation, the QR -->
+  <div class="p back">
+    <div class="kicker"><span class="rule"></span><span><span class="n">05</span> — YOUR TURN</span></div>
+    <h2 class="h">نوبت سؤال <span class="g">شماست.</span></h2>
+    <p class="b">اسکن کنید و از دستیار هوشمند پارس بپرسید؛ پاسخ را فقط از دانش ما می‌آورد. دموها را ببینید یا درخواست جلسه ثبت کنید.</p>
+    <div class="qrwrap">
+      <div class="tile" id="qr">{{QR}}</div>
+    </div>
+    <div class="scan">
+      <div class="l1"><i data-i="eye"></i>اسکن کنید، بپرسید، ببینید</div>
+      <div class="url">parspmi<b>.ir</b></div>
+    </div>
+    <div class="onsite"><span><i data-i="ai"></i>دستیار هوشمند</span><span><i data-i="play"></i>دموی محصولات</span><span><i data-i="ticket"></i>پشتیبانی و تیکت</span><span><i data-i="article"></i>سوابق و وبلاگ</span></div>
+    <div class="asks">
+      <div class="label">مثلاً بپرسید</div>
+      <span>EPM برای بانک چه مزیتی دارد؟</span>
+      <span>سامانه‌ی EPM ما قدیمی شده؛ مسیر نوسازی چیست؟</span>
+      <span>دوره‌های آموزشی مدیریت پروژه دارید؟</span>
+    </div>
+    <ul class="contact">
+      <li><i data-i="phone"></i><span><span class="ltr">۰۲۱-۸۸۷۳۱۶۰۱</span><span class="sep">·</span><span class="ltr">۰۲۱-۸۲۸۰۳۵۶۵</span></span></li>
+      <li><i data-i="mail"></i><span class="ltr">info@parspmi.ir</span></li>
+      <li><i data-i="pin"></i><span>تهران، خیابان سهروردی شمالی، خیابان خرمشهر (آپادانا)، پلاک ۱۱۸، واحد ۱۳</span></li>
+    </ul>
+    <div class="sign"><span>جایی که مدیریت و هوش به هم می‌رسند.</span><img src="assets/pars-wordmark-reverse.svg" alt="PARS PROJECT"></div>
+  </div>
+
+  <!-- fold-in flap, outer face: trusted by -->
+  <div class="p flap">
+    <div class="q"><span class="av"><i data-i="human"></i></span>چه سازمان‌هایی با پارس کار کرده‌اند؟</div>
+    <div class="kicker" style="margin-top:5mm"><span class="rule"></span><span><span class="n">02</span> — TRUSTED BY</span></div>
+    <h2 class="h">در بانک، خطای کوچک<br>هم <span class="g">کوچک نمی‌ماند.</span></h2>
+    <p class="b" style="margin-top:2mm">برای همین معیار ما خطای صفر است. از سامانه‌های EPM تا آموزش و مشاوره، کنار این سازمان‌ها بوده‌ایم:</p>
+    <div class="logos">
+      <figure><div class="t"><img src="assets/mellat.svg" alt=""></div><figcaption>بانک ملت</figcaption></figure>
+      <figure><div class="t"><img src="assets/tejarat.svg" alt=""></div><figcaption>بانک تجارت</figcaption></figure>
+      <figure><div class="t"><img src="assets/melli.svg" alt=""></div><figcaption>بانک ملی ایران</figcaption></figure>
+      <figure><div class="t"><img src="assets/refah.svg" alt=""></div><figcaption>بانک رفاه کارگران</figcaption></figure>
+      <figure><div class="t"><img src="assets/sepah.svg" alt=""></div><figcaption>بانک سپه</figcaption></figure>
+      <figure><div class="t"><img src="assets/postbank.svg" alt=""></div><figcaption>پست بانک ایران</figcaption></figure>
+      <figure><div class="t"><img src="assets/ayandeh.svg" alt=""></div><figcaption>بانک آینده</figcaption></figure>
+      <figure><div class="t"><img src="assets/igmc.webp" alt=""></div><figcaption>مدیریت شبکه برق ایران</figcaption></figure>
+      <figure><div class="t"><img src="assets/rajaee.webp" alt=""></div><figcaption>قرارگاه خاتم‌الانبیاء<br>گروه شهید رجائی</figcaption></figure>
+    </div>
+    <div class="more"><b class="g">۵۰+</b><span>سازمان دیگر در آموزش، مشاوره و نرم‌افزار</span></div>
+    <div class="chips">
+      <div class="label" style="flex-basis:100%;margin:0">حوزه‌های کاری</div>
+      <span>بانک و بیمه</span><span>نیرو و آب</span><span>نفت، گاز و پتروشیمی</span><span>خودروسازی</span><span>دارو</span><span>عمران</span>
+    </div>
+    <div class="trust"><i data-i="shield"></i><p>نام مشتریان را می‌گوییم؛ <b>جزئیات قراردادها و پروژه‌ها محرمانه می‌ماند.</b></p></div>
+  </div>
+
+  <div class="guides"><div class="trim"></div><i style="left:103mm"></i><i style="left:203mm"></i></div>
+</section>
+
+<!-- ═════════════ INSIDE ═════════════ -->
+<section class="sheet" id="inside">
+  <svg class="art" id="art-in" viewBox="0 0 303 216" xmlns="http://www.w3.org/2000/svg"></svg>
+
+  <!-- cover-inner (right): who we are -->
+  <div class="p cin">
+    <div class="q"><span class="av"><i data-i="human"></i></span>پارس کیست؟</div>
+    <div class="kicker" style="margin-top:5mm"><span class="rule"></span><span><span class="n">01</span> — WHO WE ARE</span></div>
+    <h2 class="h">پانزده سال کنار <span class="g">پروژه‌های بزرگ.</span></h2>
+    <p class="b" style="margin-top:2mm">از ۱۳۸۹ سامانه‌های مدیریت پروژه و سبد پروژه‌ی بانک‌ها و سازمان‌های بزرگ را طراحی می‌کنیم، می‌سازیم و آموزش می‌دهیم. حالا هوش مصنوعی در هسته‌ی کار ماست: <strong>ایجنت‌هایی که کارهای تکراری دفتر پروژه را تا ۹۰٪ خودکار می‌کنند</strong> و ریسک‌ها را پیش از وقوع نشان می‌دهند.</p>
+    <div class="stats">
+      <div><b class="g">۱۵+</b><span>سال تجربه، از ۱۳۸۹</span></div>
+      <div><b class="g">۲۰</b><span>بانک و سازمان با سامانه‌های پارس</span></div>
+      <div><b class="g">۶۰+</b><span>سازمان در آموزش، مشاوره و نرم‌افزار</span></div>
+      <div><b class="g">۹۰٪</b><span>اتوماسیون کارهای تکراری با ایجنت‌ها</span></div>
+    </div>
+    <div class="journey">
+      <div class="label">مسیر ما</div>
+      <ol>
+        <li><b>آموزش و مشاوره‌ی مدیریت پروژه</b><em>۱۳۸۹</em></li>
+        <li><b>تیم‌های تحلیل و تولید نرم‌افزار</b></li>
+        <li><b>نرم‌افزارهای تصمیم‌ساز برای مدیران</b></li>
+        <li><b>ایجنت‌های هوش مصنوعی</b><em>امروز</em></li>
+      </ol>
+    </div>
+    <blockquote class="quote">
+      <p>فناوری کار را پیش می‌برد؛ <span class="g">حرف آخر را انسان می‌زند.</span></p>
+      <cite>امیر محمودی، مدیرعامل</cite>
+    </blockquote>
+  </div>
+
+  <!-- middle: AI agents -->
+  <div class="p middle">
+    <div class="q"><span class="av"><i data-i="human"></i></span>ایجنت‌های پارس دقیقاً چه می‌کنند؟</div>
+    <div class="kicker" style="margin-top:5mm"><span class="rule"></span><span><span class="n">03</span> — AI AGENTS</span></div>
+    <h2 class="h">ایجنت‌هایی که <span class="g">کار می‌کنند</span>،<br>نه فقط گفتگو.</h2>
+    <p class="b" style="margin-top:2mm">نامه‌ها، گزارش‌ها و داده‌های پروژه را می‌خوانند، می‌فهمند، پیش‌بینی می‌کنند و اقدام می‌کنند. <strong>تیم شما فقط تأیید می‌کند.</strong></p>
+    <div class="flow" id="flow">
+      <div class="row in">
+        <div class="node"><i data-i="article"></i>نامه‌ها و<br>مستندات</div>
+        <div class="node"><i data-i="data"></i>داده‌های<br>پروژه</div>
+        <div class="node"><i data-i="epm"></i>گزارش‌ها و<br>صورتجلسه‌ها</div>
+        <div class="node"><i data-i="mail"></i>ایمیل‌ها و<br>درخواست‌ها</div>
+      </div>
+      <div class="core" id="core">
+        <div class="ct"><b><i data-i="ai"></i>ایجنت‌های پارس</b><span>PARS AGENTS</span></div>
+        <ol class="stages">
+          <li><b>می‌خوانند</b><span>READ</span></li><li class="chev"><i data-i="arrow"></i></li>
+          <li><b>می‌فهمند</b><span>UNDERSTAND</span></li><li class="chev"><i data-i="arrow"></i></li>
+          <li><b>پیش‌بینی<br>می‌کنند</b><span>PREDICT</span></li><li class="chev"><i data-i="arrow"></i></li>
+          <li><b>اقدام<br>می‌کنند</b><span>ACT</span></li>
+        </ol>
+      </div>
+      <div class="row out">
+        <div class="node"><i data-i="epm"></i>گزارش مدیریتی<br>خودکار</div>
+        <div class="node"><i data-i="predict"></i>هشدار ریسک<br>و تأخیر</div>
+        <div class="node"><i data-i="clock"></i>به‌روزرسانی<br>زمان‌بندی</div>
+        <div class="node"><i data-i="rag"></i>پاسخ<br>مستند</div>
+      </div>
+    </div>
+    <div class="split">
+      <div class="bar"><div class="a">۹۰٪ خودکار</div><div class="m"><i data-i="human"></i></div></div>
+      <div class="cap"><span><b>تا ۹۰٪</b> کارهای تکراری، با ایجنت‌ها</span><span><b>۱۰٪</b> با تأیید انسان</span></div>
+      <p class="b2">هوش مصنوعی در تراز بانک: هر اقدام ایجنت قابل ردیابی است و تصمیم‌های حساس با تأیید انسان نهایی می‌شوند.</p>
+    </div>
+    <div class="caps"><div class="label" style="flex-basis:100%;margin:0 0 .6mm">قابلیت‌ها</div><span>RAG فارسی</span><span>تحلیل پیش‌بین</span><span>جستجوی معنایی</span><span>الگویابی</span><span>اجرای خودکار</span></div>
+  </div>
+
+  <!-- fold-in (left): what we build + path -->
+  <div class="p foldin">
+    <div class="q"><span class="av"><i data-i="human"></i></span>چه می‌سازید و همکاری چطور پیش می‌رود؟</div>
+    <div class="kicker" style="margin-top:5mm"><span class="rule"></span><span><span class="n">04</span> — WHAT WE BUILD</span></div>
+    <h2 class="h">سامانه‌ی جامع مدیریت،<br><span class="g">از پروژه تا تصمیم.</span></h2>
+    <ul class="svc">
+      <li><span class="ic"><i data-i="epm"></i></span><div><b>سامانه‌های EPM / EPPM</b><span>طراحی، استقرار و پشتیبانی روی Project Server، Primavera P6 و Jira.</span></div></li>
+      <li><span class="ic"><i data-i="migration"></i></span><div><b>نوسازی و مهاجرت EPM</b><span>انتقال امن با حفظ همه‌ی داده‌های تاریخی، و افزودن هوش مصنوعی.</span></div></li>
+      <li class="ai"><span class="ic"><i data-i="agents"></i></span><div><b>ایجنت‌ها و دستیارهای هوشمند</b><span>RAG فارسی روی اسناد سازمان، تحلیل پیش‌بین و جستجوی معنایی.</span></div></li>
+      <li><span class="ic"><i data-i="custom"></i></span><div><b>سامانه‌های مدیریتی سازمانی</b><span>پروژه و وظایف، درخواست‌ها و قراردادها، ارزیابی عملکرد و مستندات.</span></div></li>
+      <li><span class="ic"><i data-i="pattern"></i></span><div><b>مهندسی و تحلیل داده</b><span>داده‌های بزرگ، BI و داشبوردهای مدیریتی برای تصمیم‌گیری.</span></div></li>
+      <li><span class="ic"><i data-i="training"></i></span><div><b>آموزش و مشاوره</b><span>PMBOK، PMP، PSM و Primavera P6؛ و طراحی نظام کنترل پروژه.</span></div></li>
+    </ul>
+    <div class="stack">
+      <div class="label">بستر فنی</div>
+      <div><span>PROJECT SERVER</span><span>PRIMAVERA P6</span><span>JIRA</span><span>.NET</span><span>BI</span></div>
+    </div>
+    <div class="path">
+      <div class="label">مسیر همکاری</div>
+      <ol class="steps" id="steps">
+        <li><span class="dot">۱</span><b>کشف و<br>ارزیابی</b><em>DISCOVER</em></li>
+        <li><span class="dot">۲</span><b>طراحی<br>راهکار</b><em>DESIGN</em></li>
+        <li><span class="dot">۳</span><b>ساخت و<br>استقرار</b><em>BUILD</em></li>
+        <li><span class="dot">۴</span><b>اتوماسیون<br>هوشمند</b><em>AUTOMATE</em></li>
+        <li><span class="dot">۵</span><b>آموزش و<br>تکامل</b><em>EVOLVE</em></li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="guides"><div class="trim"></div><i style="left:100mm"></i><i style="left:200mm"></i></div>
+</section>
+
+<script>
+/* ── icons (the site's own line set) ── */
+const ICONS = {
+  epm: "M4 5h16M4 5v14h16M7 9h6M9 13h7M8 17h4",
+  migration: "M4 8h11l-3-3M20 16H9l3 3M15 8c3 0 5 2 5 4M9 16c-3 0-5-2-5-4",
+  ai: "M12 3l1.9 4.6 4.6 1.9-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9zM19 15l.8 1.9 1.9.8-1.9.8-.8 1.9-.8-1.9-1.9-.8 1.9-.8z",
+  custom: "M8 7l-5 5 5 5M16 7l5 5-5 5M13.5 4l-3 16",
+  data: "M4 6c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3zM4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6",
+  training: "M2 9l10-5 10 5-10 5zM6 11v5c0 1.5 2.7 3 6 3s6-1.5 6-3v-5M22 9v6",
+  agents: "M9 3h6M12 3v3M6 6h12a2 2 0 012 2v8a2 2 0 01-2 2H6a2 2 0 01-2-2V8a2 2 0 012-2zM9 11v1M15 11v1M9 15h6",
+  rag: "M4 4h9a3 3 0 013 3v13H7a3 3 0 01-3-3zM16 20a3 3 0 003-3V7M8 8h5M8 11h5M17.5 14.5L21 18",
+  predict: "M3 17l5-5 4 3 7-8M15 7h4v4",
+  pattern: "M6 6a2 2 0 100-4 2 2 0 000 4zM18 8a2 2 0 100-4 2 2 0 000 4zM12 14a2 2 0 100-4 2 2 0 000 4zM6 22a2 2 0 100-4 2 2 0 000 4zM18 20a2 2 0 100-4 2 2 0 000 4zM7.5 5l3.2 5.4M16.5 7l-3 4M10.6 13.4L7 18.5M13.5 13.2l3.2 3.6",
+  phone: "M5 4h4l2 5-2.5 1.5a11 11 0 005 5L15 13l5 2v4a2 2 0 01-2 2A16 16 0 013 6a2 2 0 012-2",
+  mail: "M4 6h16v12H4zM4 7l8 6 8-6",
+  pin: "M12 21s-7-6.2-7-11a7 7 0 1114 0c0 4.8-7 11-7 11zM12 12.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z",
+  clock: "M12 21a9 9 0 100-18 9 9 0 000 18zM12 7v5l3 2",
+  arrow: "M5 12h14M13 6l6 6-6 6",
+  eye: "M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12zM12 15a3 3 0 100-6 3 3 0 000 6z",
+  human: "M12 11a4 4 0 100-8 4 4 0 000 8zM4 21a8 8 0 0116 0",
+  article: "M6 3h9l4 4v14H6zM15 3v4h4M9 11h7M9 14h7M9 17h4",
+  play: "M8 5v14l11-7z",
+  shield: "M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z M9 12l2 2 4-4",
+  ticket: "M4 7a2 2 0 012-2h12a2 2 0 012 2v2a2 2 0 000 6v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2a2 2 0 000-6zM14 5v14",
+};
+document.querySelectorAll("i[data-i]").forEach((n) => {
+  const s = `<svg class="i" viewBox="0 0 24 24"><path d="${ICONS[n.dataset.i]}"/></svg>`;
+  n.outerHTML = n.className ? `<span class="${n.className}">${s}</span>` : s;
+});
+</script>
+<script>
+/* ?marks → printer's proof: each 303×216 sheet on a 323×236 page with crop marks, fold marks and a slug line. */
+if (new URLSearchParams(location.search).has("marks")) {
+  document.documentElement.classList.add("marks");
+  const st = document.createElement("style");
+  st.textContent = "@page{size:323mm 236mm;margin:0} .slug{position:relative;width:323mm;height:236mm;background:#fff;break-after:page} .slug:last-child{break-after:auto} .slug .sheet{position:absolute;left:10mm;top:10mm;box-shadow:none} .slug svg.mk{position:absolute;inset:0;width:323mm;height:236mm} @media screen{.slug{box-shadow:0 4mm 12mm rgba(0,0,0,.4)}}";
+  document.head.appendChild(st);
+  const folds = { outside: [100, 200], inside: [97, 197] };
+  const names = { outside: "OUTSIDE — page 1/2 — L→R: cover 100 | back 100 | fold-in flap 97", inside: "INSIDE — page 2/2 — L→R: fold-in 97 | middle 100 | cover-inner 100" };
+  document.querySelectorAll(".sheet").forEach((sh) => {
+    const slug = document.createElement("div");
+    slug.className = "slug";
+    sh.replaceWith(slug);
+    slug.appendChild(sh);
+    const T = 13, R = 310, B = 223, k = "#000", w = 0.1;
+    let d = "";
+    for (const [x, sx] of [[T, -1], [R, 1]]) for (const [y, sy] of [[T, -1], [B, 1]]) {
+      d += `M${x + sx * 4} ${y}h${sx * 5}M${x} ${y + sy * 4}v${sy * 5}`;
+    }
+    let f = "";
+    for (const fx of folds[sh.id]) f += `M${T + fx} 1.5V8.5M${T + fx} 227.5V231.5`;
+    slug.insertAdjacentHTML("beforeend", `<svg class="mk" viewBox="0 0 323 236" xmlns="http://www.w3.org/2000/svg" direction="ltr" style="direction:ltr">
+      <path d="${d}" stroke="${k}" stroke-width="${w}" fill="none"/>
+      <path d="${f}" stroke="${k}" stroke-width="${w}" stroke-dasharray="1 .8" fill="none"/>
+      ${folds[sh.id].map((fx) => `<text x="${T + fx + 1}" y="5" font-size="1.8" font-family="IBM Plex Mono" fill="#000">FOLD ${fx}</text>`).join("")}
+      <text x="20" y="234.6" font-size="1.9" font-family="IBM Plex Mono" fill="#000">PARS PROJECT MANAGEMENT · EXHIBITION BROCHURE · ROLL FOLD (RTL) · TRIM 297×210 MM · BLEED 3 MM · ${names[sh.id]}</text>
+    </svg>`);
+  });
+}
+</script>
+<script src="art.js"></script>
+</body>
+</html>
