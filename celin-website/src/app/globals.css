@@ -551,24 +551,35 @@ html[lang="fa"] {
 }
 
 /* ------------------------------------------------------- overlays */
-dialog::backdrop {
-  transition: opacity 0.45s var(--ease-lux);
+/* <Overlay>: the dialog is a transparent full-screen layer; its frame (the dimmed ground) tints in and its panel
+   slides in. Nothing in an overlay animates opacity — WebKit (iPhone Safari) can leave the content of a newly shown
+   dialog at an animation's first frame, which showed only the dimmed ground — and there is no fill-mode, so a panel
+   whose animation stalls is simply shown in place. */
+.celin-overlay::backdrop {
+  background: transparent;
 }
-dialog[open].celin-sheet {
-  animation: sheet-in 0.45s var(--ease-lux) both;
+.celin-overlay-frame {
+  animation: overlay-in 0.45s var(--ease-lux);
 }
-dialog[open].celin-side-start {
-  animation: side-in-start 0.45s var(--ease-lux) both;
+.celin-sheet {
+  animation: sheet-in 0.45s var(--ease-lux);
 }
-dialog[open].celin-side-end {
-  animation: side-in-end 0.45s var(--ease-lux) both;
+.celin-side-start {
+  animation: side-in-start 0.45s var(--ease-lux);
 }
-dialog[open].celin-top {
-  animation: top-in 0.4s var(--ease-lux) both;
+.celin-side-end {
+  animation: side-in-end 0.45s var(--ease-lux);
+}
+.celin-top {
+  animation: top-in 0.4s var(--ease-lux);
+}
+@keyframes overlay-in {
+  from {
+    background-color: transparent;
+  }
 }
 @keyframes sheet-in {
   from {
-    opacity: 0;
     transform: translateY(24px);
   }
 }
@@ -592,7 +603,6 @@ html[dir="rtl"] {
 }
 @keyframes top-in {
   from {
-    opacity: 0;
     transform: translateY(-16px);
   }
 }

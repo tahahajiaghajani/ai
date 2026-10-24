@@ -7,6 +7,7 @@ import { formatDate, type Lang } from "@/lib/format";
 import { href } from "@/lib/i18n";
 import { Overlay, OverlayLink } from "@/components/ui/overlay";
 import { ArchLines } from "@/components/fx/arch-lines";
+import { finePointer } from "@/components/fx/motion";
 import { Grain } from "@/components/fx/grain";
 import { CodeInput, type CodeState } from "@/components/pro/code-input";
 import { ProHallmark } from "@/components/pro/seal";
@@ -29,7 +30,8 @@ export function ProSheet({ lang }: { lang: Lang }) {
   const [announce, setAnnounce] = useState("");
   const [codeState, setCodeState] = useState<CodeState>("idle");
   const [unlocked, setUnlocked] = useState(false);
-  // the code field takes the focus when the sheet opens or its tab is clicked, not while arrowing over the tabs
+  // the code field takes the focus when the sheet opens or its tab is clicked, not while arrowing over the tabs — and
+  // only with a mouse: on a phone the keyboard would jump up over the sheet before it is even seen
   const [via, setVia] = useState<"open" | "pointer" | "keyboard">("open");
   const base = useId();
   const openRef = useRef(false);
@@ -146,7 +148,7 @@ export function ProSheet({ lang }: { lang: Lang }) {
                     <CodeInput
                       lang={lang}
                       next={here}
-                      autoFocus={via !== "keyboard"}
+                      autoFocus={via !== "keyboard" && finePointer()}
                       tone="night"
                       hideLabel
                       onState={setCodeState}
