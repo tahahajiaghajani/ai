@@ -1,16 +1,16 @@
 /** Shop listing copy (fa / en, same shape). Materials as the brand states them (story.ts). */
 export const shopCopy = {
   fa: {
-    eyebrow: "جواهرات سلین",
-    intro: "نگین‌های درخشان کیوبیک زیرکونیا، مخراج‌کاری دقیق و آبکاری رودیوم و طلا.",
-    categories: "دسته‌های جواهرات",
+    eyebrow: "زیورآلات سلین",
+    intro: "نگین‌های درخشان با تراش اتمی، مخراج‌کاری دقیق و آبکاری رودیوم و طلا.",
+    categories: "دسته‌های زیورآلات",
     all: "همه",
     pieces: (n: string) => `${n} اثر`,
     editorial: "از مجموعه‌ها",
   },
   en: {
     eyebrow: "CELIN jewelry",
-    intro: "Brilliant cubic zirconia, precise setting, rhodium and gold plating.",
+    intro: "Brilliant atomic-cut stones, precise setting, rhodium and gold plating.",
     categories: "Jewelry categories",
     all: "All",
     pieces: (n: string) => (n === "1" ? "1 piece" : `${n} pieces`),

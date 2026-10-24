@@ -12,7 +12,7 @@ export const story = {
       {
         key: "craft",
         title: "با الهام از طلا و جواهر",
-        text: "در سلین، هر قطعه با الهام از ساختار و ظرافت طلا و جواهر طراحی و ساخته می‌شود؛ با بهره‌گیری از نگین‌های درخشان کیوبیک زیرکونیا، مخراج‌کاری دقیق و آبکاری‌های باکیفیت رودیوم و طلا. توجه به جزئیات، از انتخاب نگین تا ظرافت نشاندن هر سنگ، بخشی جدایی‌ناپذیر از هویت ماست.",
+        text: "در سلین، هر قطعه با الهام از ساختار و ظرافت طلا و جواهر طراحی و ساخته می‌شود؛ با بهره‌گیری از نگین‌های درخشان با تراش اتمی، مخراج‌کاری دقیق و آبکاری‌های باکیفیت رودیوم و طلا. توجه به جزئیات، از انتخاب نگین تا ظرافت نشاندن هر سنگ، بخشی جدایی‌ناپذیر از هویت ماست.",
       },
       {
         key: "design",
@@ -51,13 +51,13 @@ export const story = {
     chapters: [
       {
         key: "craft",
-        title: "Inspired by fine jewelry",
-        text: "At CELIN, every piece is designed and made after the structure and finesse of gold and fine jewelry — with brilliant cubic zirconia stones, precise setting and quality rhodium and gold plating. Attention to detail, from choosing a stone to the finesse of setting it, is an inseparable part of who we are.",
+        title: "In the spirit of gold and jewels",
+        text: "At CELIN, every piece is designed and made in the spirit of gold and jewels, with their structure and finesse — brilliant atomic-cut stones, precise setting and quality rhodium and gold plating. Attention to detail, from choosing a stone to the finesse of setting it, is an inseparable part of who we are.",
       },
       {
         key: "design",
         title: "Distinctive designs",
-        text: "We have always sought to offer a distinctive collection — choosing the latest and most captivating designs of the world and creating exclusive models with international designers: pieces that are not just an accessory, but a reflection of taste, personality and a style of one's own.",
+        text: "We have always sought to offer a distinctive collection: the latest and most captivating designs from around the world, and exclusive pieces created with international designers — creations that are not just an accessory, but a reflection of taste, personality and a style of one's own.",
       },
       {
         key: "trust",
@@ -67,7 +67,7 @@ export const story = {
       {
         key: "today",
         title: "Beyond the usual definition",
-        text: "Today, backed by years of specialised fine-jewelry-style making, attention to detail and a commitment to quality, CELIN follows a path beyond the usual definition of costume jewelry — a path where striking design, lasting brilliance and quality of make find their meaning together.",
+        text: "Today, backed by years of specialized jewelry-style making, attention to detail and a commitment to quality, CELIN follows a path beyond the usual definition of costume jewelry — a path where striking design, lasting brilliance and quality of make find their meaning together.",
       },
     ],
     forWhom: "CELIN — for those who see beauty in the details and feel the difference in quality.",

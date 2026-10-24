@@ -3,7 +3,7 @@ import { CollectionPage } from "@/components/pages/collection-page";
 import { getCatalog } from "@/lib/catalog";
 import { t } from "@/lib/i18n";
 import { mediaUrl } from "@/lib/media";
-import { pageMetadata } from "@/lib/seo";
+import { collectionDescription, pageMetadata } from "@/lib/seo";
 
 export const revalidate = 600;
 
@@ -15,11 +15,10 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   const { slug } = await params;
   const col = (await getCatalog()).collections.find((c) => c.slug === slug && c.visible !== false);
   if (!col) return {};
-  const tagline = t(col, "tagline", "fa");
   return pageMetadata("fa", {
     path: `/collections/${col.slug}`,
     title: `مجموعه‌ی ${t(col, "name", "fa")}`,
-    description: [tagline, t(col, "story", "fa")].filter(Boolean).join(" — ").slice(0, 200),
+    description: collectionDescription(col, "fa"),
     image: col.media ? mediaUrl(col.media, 1280) : undefined,
   });
 }

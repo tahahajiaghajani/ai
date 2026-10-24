@@ -17,10 +17,17 @@ export const STONE_LABEL: Record<Exclude<Stone, "">, string> = {
   mixed: "چندرنگ",
 };
 
-export const BADGE_LABEL: Record<Exclude<Badge, "">, string> = { new: "تازه", bestseller: "پرفروش", limited: "محدود" };
+export const BADGE_LABEL: Record<Exclude<Badge, "">, string> = { new: "تازه", bestseller: "محبوب", limited: "تعداد محدود" };
 
-/** Stock at or below this reads «رو به اتمام» in the list. */
-export const LOW_STOCK = 2;
+/**
+ * Stock level of a product in the admin list: "out" when nothing is left (every option empty), "low" when the
+ * product — or any of its options — has `low` or fewer left (Settings → سفارش → «آستانه‌ی رو به اتمام», the
+ * line members see too; the dashboard counts published products the same way), otherwise null.
+ */
+export function stockLevel(p: { stock: number; min_stock: number }, low: number): "out" | "low" | null {
+  if (p.stock <= 0) return "out";
+  return p.min_stock <= low ? "low" : null;
+}
 
 /** Same rule as the server (admin-catalog.ts): lower-case Latin words joined by dashes. */
 export function slugify(input: string): string {

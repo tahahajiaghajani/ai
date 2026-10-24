@@ -30,7 +30,7 @@ export const careCopy = {
       whatsapp: "گفتگو در واتس‌اپ",
       call: "تماس تلفنی",
     },
-    more: { craft: "هنر ساخت", shop: "همه‌ی جواهرات" },
+    more: { craft: "هنر ساخت", shop: "همه‌ی زیورآلات" },
   },
   en: {
     meta: {

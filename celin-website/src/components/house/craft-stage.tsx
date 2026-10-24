@@ -72,10 +72,10 @@ export function CraftStage({ lang, steps, label }: { lang: Lang; steps: CraftSte
               ))}
             </div>
             <span aria-hidden className="absolute inset-x-[-16%] -bottom-px block h-px bg-[image:var(--metal-copper)] opacity-50" />
-            {/* the step marks */}
-            <ol aria-hidden className="absolute top-1/2 -translate-y-1/2 space-y-4 ltr:-left-16 rtl:-right-16">
+            {/* the step marks: on the inner side of the arch, in the gap towards the steps (never against the window edge) */}
+            <ol aria-hidden className="absolute top-1/2 -translate-y-1/2 space-y-4 ltr:-right-16 rtl:-left-16">
               {steps.map((_, i) => (
-                <li key={i} className={`font-label text-xs tabular-nums transition-colors duration-500 ${i === active ? "text-gold-text" : "text-faint"}`}>
+                <li key={i} className={`font-label text-sm tabular-nums transition-colors duration-500 ${i === active ? "text-gold-text" : "text-faint"}`}>
                   <span className="flex items-center gap-2">
                     <span className={`block h-px transition-all duration-500 ${i === active ? "w-6 bg-gold" : "w-3 bg-line-strong"}`} />
                     {ordinal(i + 1, lang)}
@@ -95,17 +95,18 @@ export function CraftStage({ lang, steps, label }: { lang: Lang; steps: CraftSte
               <ArchLines count={3} className="pointer-events-none absolute inset-x-[-18%] bottom-0 top-[-9%] h-[109%] w-[136%]" />
               <Arch media={s.media} mobile={s.mobile} lang={lang} sizes="74vw" ring="copper" keystone={i === 0} unveil parallax={5} sparkle={8} />
             </div>
-            <div className={`transition-opacity duration-700 ${i === active ? "lg:opacity-100" : "lg:opacity-45"}`}>
-              <span aria-hidden className="display block text-[clamp(5rem,12vw,8.5rem)] leading-[1.1]! font-bold text-metal">
+            {/* the steps away from the middle dim only when the observer can move the light (never without JS) */}
+            <div className={`transition-opacity duration-700 ${i === active ? "lg:opacity-100" : "lg:[html.js_&]:opacity-45"}`}>
+              <span aria-hidden className="numeral block text-metal">
                 {ordinal(i + 1, lang)}
               </span>
-              <p className="label mt-1 text-gold-text!">{`${label} ${num(i + 1, lang)}`}</p>
-              <SplitWords as="h3" text={s.title} className="display mt-4 text-[2.125rem] leading-[1.4]! font-bold text-ink sm:text-5xl" />
-              <p className="mt-6 max-w-xl text-lg leading-10 text-ink-2" data-reveal>
+              <p className="label mt-2 text-gold-text!">{`${label} ${num(i + 1, lang)}`}</p>
+              <SplitWords as="h3" text={s.title} className="title-section mt-3 text-ink" />
+              <p className="lede mt-4 max-w-xl text-ink-2" data-reveal>
                 {s.body}
               </p>
               {s.tags.length > 0 && (
-                <ul className="mt-7 flex flex-wrap items-center gap-x-4 gap-y-2" data-reveal style={{ "--d": 1 } as CSSProperties}>
+                <ul className="mt-6 flex flex-wrap items-center gap-x-4 gap-y-2" data-reveal style={{ "--d": 1 } as CSSProperties}>
                   {s.tags.map((t, k) => (
                     <li key={t} className="flex items-center gap-4 text-sm text-gold-text">
                       {k > 0 && diamond("size-1.5 text-gold/70")}

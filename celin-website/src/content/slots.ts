@@ -38,7 +38,7 @@ export interface SlotDef {
 
 const cta = (fa: string, en: string, href: string): SlotText[] => [
   { key: "cta", label: "متن دکمه", fa, en },
-  { key: "href", label: "پیوند دکمه (مثلاً /collections/nour)", fa: href, en: href },
+  { key: "href", label: "پیوند دکمه (مثلاً /collections/yas)", fa: href, en: href },
 ];
 
 export const SLOTS: SlotDef[] = [
@@ -81,10 +81,10 @@ export const SLOTS: SlotDef[] = [
   {
     key: "home.statement",
     page: "صفحه‌ی اصلی",
-    section: "جمله‌ی بزرگ با دو تصویر کوچک",
+    section: "جمله‌ی بزرگ با دو تصویر طاقی",
     ratio: "3:4",
-    hint: "عکس روی دست؛ در قاب طاقیِ کوچک میان کلمات نمایش داده می‌شود",
-    image: "ring-paraiba-wrap-hand",
+    hint: "عکس روی مدل، عمودی؛ در طاق بلند کنار جمله، درست زیر بخش اول صفحه نمایش داده می‌شود",
+    image: "set-bow-sapphire",
     texts: [
       { key: "line1", label: "سطر اول", fa: "برای کسانی که زیبایی را", en: "For those who see beauty" },
       { key: "line2", label: "سطر دوم (رنگ مسی)", fa: "در جزئیات می‌بینند", en: "in the details" },
@@ -94,16 +94,16 @@ export const SLOTS: SlotDef[] = [
   {
     key: "home.statement.b",
     page: "صفحه‌ی اصلی",
-    section: "جمله‌ی بزرگ — تصویر کوچک دوم",
+    section: "جمله‌ی بزرگ — تصویر دوم (طاق کوچک‌تر)",
     ratio: "3:4",
-    hint: "عکس جزئیات روی مدل",
+    hint: "عکس جزئیات (یک قطعه از نزدیک)؛ در طاق کوچک‌ترِ قاب‌دار، روی گوشه‌ی طاق بلند",
     image: "earrings-bow-pearl",
     texts: [],
   },
   {
     key: "home.interlude",
     page: "صفحه‌ی اصلی",
-    section: "بخش تیره — هنر تراش اتمی",
+    section: "بخش تیره — تراش اتمی",
     ratio: "3:4",
     mobileRatio: "4:5",
     video: true,
@@ -112,7 +112,7 @@ export const SLOTS: SlotDef[] = [
     texts: [
       { key: "eyebrow", label: "برچسب", fa: "تراش اتمی", en: "Atomic cut" },
       { key: "title", label: "عنوان", fa: "نور، با تراشی دقیق", en: "Light, precisely cut" },
-      { key: "body", label: "متن کوتاه", multiline: true, fa: "در سلین، هر قطعه با الهام از ساختار و ظرافت طلا و جواهر طراحی و ساخته می‌شود؛ با نگین‌های درخشان کیوبیک زیرکونیا، مخراج‌کاری دقیق و آبکاری‌های باکیفیت رودیوم و طلا.", en: "At CELIN, every piece is designed and made after the structure and finesse of fine jewelry — with brilliant cubic zirconia, precise stone setting and quality rhodium and gold plating." },
+      { key: "body", label: "متن کوتاه", multiline: true, fa: "در سلین، هر قطعه با الهام از ساختار و ظرافت طلا و جواهر طراحی و ساخته می‌شود؛ با نگین‌های درخشان، مخراج‌کاری دقیق و آبکاری‌های باکیفیت رودیوم و طلا.", en: "At CELIN, every piece is designed and made in the spirit of gold and jewels, with their structure and finesse: brilliant stones, precise stone setting and quality rhodium and gold plating." },
       ...cta("هنر ساخت", "The craft", "/craft"),
     ],
   },
@@ -125,7 +125,7 @@ export const SLOTS: SlotDef[] = [
     image: "necklace-gold-square",
     texts: [
       { key: "title", label: "عنوان", fa: "طراحی اختصاصی", en: "Exclusive design" },
-      { key: "body", label: "متن کوتاه", multiline: true, fa: "به‌روزترین طرح‌های روز دنیا و مدل‌های اختصاصی، با همراهی دیزاینرهای بین‌المللی و با الهام از ساختار طلا و جواهر.", en: "The latest designs of the world and exclusive models, created with international designers after the structure of fine jewelry." },
+      { key: "body", label: "متن کوتاه", multiline: true, fa: "به‌روزترین طرح‌های روز دنیا و مدل‌های اختصاصی، با همراهی دیزاینرهای بین‌المللی.", en: "The latest designs from around the world, and exclusive pieces created with international designers." },
     ],
   },
   {
@@ -136,8 +136,8 @@ export const SLOTS: SlotDef[] = [
     hint: "عکس استودیویی نگین",
     image: "ring-paraiba-cushion",
     texts: [
-      { key: "title", label: "عنوان", fa: "نگین کیوبیک زیرکونیا", en: "Cubic zirconia" },
-      { key: "body", label: "متن کوتاه", multiline: true, fa: "نگین‌های درخشان کیوبیک زیرکونیا با تراش اتمی؛ وجه‌هایی متقارن که نور را مثل جواهر برمی‌گردانند.", en: "Brilliant cubic zirconia with an atomic cut: symmetrical facets that return light like a fine jewel." },
+      { key: "title", label: "عنوان", fa: "نگین‌های درخشان", en: "Brilliant stones" },
+      { key: "body", label: "متن کوتاه", multiline: true, fa: "نگین‌های درخشان با تراش اتمی؛ وجه‌هایی متقارن که نور را مثل جواهر برمی‌گردانند.", en: "Brilliant stones with an atomic cut: symmetrical facets that return light like a fine jewel." },
     ],
   },
   {
@@ -169,7 +169,7 @@ export const SLOTS: SlotDef[] = [
     page: "صفحه‌ی اصلی",
     section: "۲۰ سال درخشش",
     ratio: "3:4",
-    hint: "عکس روی مدل؛ درون عدد «۲۰» هم دیده می‌شود",
+    hint: "عدد «۲۰» طلایی و بی‌عکس است؛ این عکس فعلاً در صفحه دیده نمی‌شود",
     image: "set-bow-sapphire",
     texts: [
       { key: "eyebrow", label: "برچسب", fa: "۱۳۸۵ — ۱۴۰۵", en: "2006 — 2026" },
@@ -179,7 +179,7 @@ export const SLOTS: SlotDef[] = [
       { key: "body", label: "متن", multiline: true, fa: "امروز، در بیستمین سال تولد سلین، با افتخار فصلی تازه از مسیر خود را در کنار شما آغاز می‌کنیم؛ افتتاح وب‌سایت رسمی سلین، برای تجربه‌ای متفاوت از خریدی آسان، امن و لذت‌بخش.", en: "Today, in CELIN's twentieth year, we proudly begin a new chapter with you: the opening of CELIN's official website, for an easy, safe and delightful way to shop." },
       { key: "body2", label: "متن دوم", multiline: true, fa: "این آغاز تازه، هدیه‌ای است به همراهی و اعتماد شما؛ همراهانی که در تمام این سال‌ها، بخشی جدایی‌ناپذیر از داستان درخشش سلین بوده‌اید.", en: "This new beginning is a gift to your companionship and trust — you who have been an inseparable part of CELIN's story of brilliance all these years." },
       { key: "closing", label: "جمله‌ی پایانی", multiline: true, fa: "۲۰ سال همراهی، هزاران جلوه از زیبایی و شروعی تازه برای درخششی بی‌پایان.", en: "Twenty years together, thousands of moments of beauty, and a new beginning for endless brilliance." },
-      ...cta("داستان سلین", "The CELIN story", "/maison"),
+      ...cta("داستان سلین", "Our story", "/maison"),
     ],
   },
   {
@@ -191,10 +191,10 @@ export const SLOTS: SlotDef[] = [
     hint: "عکس روی دست با پس‌زمینه‌ی روشن",
     image: "ring-paraiba-wrap",
     texts: [
-      { key: "eyebrow", label: "برچسب", fa: "داستان سلین", en: "The CELIN story" },
+      { key: "eyebrow", label: "برچسب", fa: "درباره‌ی سلین", en: "About CELIN" },
       { key: "title", label: "عنوان", fa: "زیبایی، ظرافت و کیفیت، در کنار یکدیگر", en: "Beauty, finesse and quality, together" },
       { key: "body", label: "متن کوتاه", multiline: true, fa: "سلین در سال ۱۳۸۵ متولد شد؛ با نگاهی متفاوت به دنیای زیورآلات و رؤیای خلق آثاری که زیبایی، ظرافت و کیفیت را در کنار یکدیگر معنا کنند.", en: "CELIN was born in 2006, with a different eye on the world of jewelry and a dream of creating pieces in which beauty, finesse and quality find their meaning together." },
-      ...cta("داستان ما", "Our story", "/maison"),
+      ...cta("داستان سلین", "Our story", "/maison"),
     ],
   },
   {
@@ -215,7 +215,7 @@ export const SLOTS: SlotDef[] = [
   {
     key: "menu.promo",
     page: "منو و فهرست محصولات",
-    section: "تصویر منوی جواهرات",
+    section: "تصویر منوی زیورآلات",
     ratio: "3:4",
     hint: "عکس روی مدل",
     image: "bangles-ruby",
@@ -241,7 +241,7 @@ export const SLOTS: SlotDef[] = [
   // ------------------------------------------------------------ house pages
   {
     key: "maison.hero",
-    page: "گالری اعتماد (درباره‌ی ما)",
+    page: "داستان سلین (درباره‌ی ما)",
     section: "تصویر سرآغاز",
     ratio: "3:4",
     mobileRatio: "4:5",
@@ -250,13 +250,13 @@ export const SLOTS: SlotDef[] = [
     image: "set-tennis-lace",
     texts: [
       { key: "eyebrow", label: "برچسب کوچک بالای عنوان", fa: "گالری اعتماد · از ۱۳۸۵", en: "Etemad Gallery · since 2006" },
-      { key: "title", label: "عنوان", fa: "فراتر از یک زیور", en: "More than an ornament" },
+      { key: "title", label: "عنوان", fa: "داستان سلین", en: "Our story" },
       { key: "subtitle", label: "یک جمله", multiline: true, fa: "امضایی از ظرافت، کیفیت و اصالت", en: "A signature of finesse, quality and authenticity" },
     ],
   },
   {
     key: "maison.chapter.1",
-    page: "گالری اعتماد (درباره‌ی ما)",
+    page: "داستان سلین (درباره‌ی ما)",
     section: "فصل ۱ — با الهام از طلا و جواهر",
     ratio: "3:4",
     hint: "عکس روی مدل از قطعه‌ای با ساختار جواهری",
@@ -265,7 +265,7 @@ export const SLOTS: SlotDef[] = [
   },
   {
     key: "maison.chapter.2",
-    page: "گالری اعتماد (درباره‌ی ما)",
+    page: "داستان سلین (درباره‌ی ما)",
     section: "فصل ۲ — طرح‌هایی متمایز",
     ratio: "3:4",
     hint: "عکس روی مدل از یک طرح شاخص",
@@ -274,7 +274,7 @@ export const SLOTS: SlotDef[] = [
   },
   {
     key: "maison.chapter.3",
-    page: "گالری اعتماد (درباره‌ی ما)",
+    page: "داستان سلین (درباره‌ی ما)",
     section: "فصل ۳ — اعتماد، مسیر ما را ساخت",
     ratio: "3:4",
     hint: "عکس گرم روی دست",
@@ -283,7 +283,7 @@ export const SLOTS: SlotDef[] = [
   },
   {
     key: "maison.chapter.4",
-    page: "گالری اعتماد (درباره‌ی ما)",
+    page: "داستان سلین (درباره‌ی ما)",
     section: "فصل ۴ — فراتر از تعریف متداول",
     ratio: "3:4",
     hint: "عکس استودیویی یک نگین درخشان",
@@ -292,7 +292,7 @@ export const SLOTS: SlotDef[] = [
   },
   {
     key: "maison.story",
-    page: "گالری اعتماد (درباره‌ی ما)",
+    page: "داستان سلین (درباره‌ی ما)",
     section: "تصویر کنار جمله‌ی «سلین؛ برای کسانی که…»",
     ratio: "3:4",
     hint: "عکس جزئیات روی دست",
@@ -301,7 +301,7 @@ export const SLOTS: SlotDef[] = [
   },
   {
     key: "craft.hero",
-    page: "هنر تراش",
+    page: "هنر ساخت",
     section: "تصویر سرآغاز",
     ratio: "3:4",
     mobileRatio: "4:5",
@@ -311,12 +311,12 @@ export const SLOTS: SlotDef[] = [
     texts: [
       { key: "eyebrow", label: "برچسب کوچک بالای عنوان", fa: "هنر ساخت", en: "The craft" },
       { key: "title", label: "عنوان", fa: "از طرح تا درخشش", en: "From design to brilliance" },
-      { key: "subtitle", label: "یک جمله", multiline: true, fa: "در سلین، هر قطعه با الهام از ساختار و ظرافت طلا و جواهر طراحی و ساخته می‌شود.", en: "At CELIN, every piece is designed and made after the structure and finesse of gold and fine jewelry." },
+      { key: "subtitle", label: "یک جمله", multiline: true, fa: "طراحی چشم‌نواز، درخشش ماندگار و کیفیت ساخت، در کنار هم.", en: "Striking design, lasting brilliance and quality of make, together." },
     ],
   },
   {
     key: "craft.plating",
-    page: "هنر تراش",
+    page: "هنر ساخت",
     section: "تصویر آبکاری (رودیوم و طلا)",
     ratio: "3:4",
     hint: "عکسی که دو رنگ طلایی و نقره‌ای را کنار هم نشان دهد",

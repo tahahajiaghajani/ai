@@ -9,10 +9,14 @@ describe("return path after signing in", () => {
     expect(safeNextPath("/en/account/orders/CL-123456", "en")).toBe("/en/account/orders/CL-123456");
   });
   it("falls back to the account for anything else", () => {
-    for (const bad of ["", "https://evil.example", "//evil.example", "/\\evil", "/admin/users", "/account/login", "/account/login?next=/x", undefined, 42]) {
+    for (const bad of ["", "https://evil.example", "//evil.example", "/\\evil", "/admin/login", "/admin/login?next=/admin", "/account/login", "/account/login?next=/x", undefined, 42]) {
       expect(safeNextPath(bad, "fa")).toBe("/account");
     }
     expect(safeNextPath("/en/account/login", "en")).toBe("/en/account");
+  });
+  it("keeps a panel path (only admin accounts are sent there after signing in)", () => {
+    expect(safeNextPath("/admin", "fa")).toBe("/admin");
+    expect(safeNextPath("/admin/orders/CL-123456", "en")).toBe("/admin/orders/CL-123456");
   });
 });
 

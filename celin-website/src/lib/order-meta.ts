@@ -16,6 +16,19 @@ export const STATUS_LABEL: Record<OrderStatus, { fa: string; en: string }> = {
 /** Orders still on their way (shown first in the account). */
 export const isOpen = (s: OrderStatus) => s !== "shipped" && s !== "cancelled";
 
+/**
+ * Whether an order may move from `from` to `to` (celin_set_order_status enforces the same): a cancelled order
+ * stays cancelled; a shipped order can only be cancelled — and its pieces then stay out of stock.
+ */
+export function canMove(from: OrderStatus, to: OrderStatus): boolean {
+  if (from === "cancelled") return false;
+  if (from === "shipped") return to === "cancelled" || to === "shipped";
+  return true;
+}
+
+/** Cancelling from this status puts the pieces back in stock. */
+export const restocksOnCancel = (from: OrderStatus) => from === "pending" || from === "packing" || from === "ready";
+
 export function isOrderStatus(v: unknown): v is OrderStatus {
   return typeof v === "string" && (ORDER_STATUSES as string[]).includes(v);
 }

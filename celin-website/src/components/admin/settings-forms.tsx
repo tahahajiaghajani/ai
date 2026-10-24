@@ -149,19 +149,19 @@ export function ContactForm({ initial }: { initial: ContactSettings }) {
         <Field label="ایمیل">
           <Input value={f.email} onChange={input("email")} type="email" dir="ltr" className="text-start" />
         </Field>
-        <Field label="لینک نقشه" hint="لینک Google Maps یا نشان (با https).">
+        <Field label="لینک نقشه" hint="لینک Google Maps یا نشان، با https://">
           <Input value={f.mapUrl} onChange={input("mapUrl")} dir="ltr" className="text-start" placeholder="https://…" />
         </Field>
         <Field label="نشانی (فارسی)">
           <Textarea rows={2} value={f.address_fa} onChange={input("address_fa")} />
         </Field>
-        <Field label="Address (English)">
+        <Field label="نشانی (انگلیسی)">
           <Textarea rows={2} value={f.address_en} onChange={input("address_en")} dir="ltr" className="text-start" />
         </Field>
         <Field label="ساعت کاری (فارسی)">
           <Input value={f.hours_fa} onChange={input("hours_fa")} />
         </Field>
-        <Field label="Hours (English)">
+        <Field label="ساعت کاری (انگلیسی)">
           <Input value={f.hours_en} onChange={input("hours_en")} dir="ltr" className="text-start" />
         </Field>
       </div>
@@ -190,7 +190,7 @@ export function AnnouncementForm({ initial }: { initial: AnnouncementSettings })
         <Field label="متن (فارسی)">
           <Input value={f.text_fa} onChange={input("text_fa")} maxLength={200} placeholder="مثلاً: مجموعه‌ی تازه‌ی پاییز رسید" />
         </Field>
-        <Field label="Text (English)">
+        <Field label="متن (انگلیسی)">
           <Input value={f.text_en} onChange={input("text_en")} maxLength={200} dir="ltr" className="text-start" />
         </Field>
       </div>
@@ -221,7 +221,7 @@ export function ShopForm({ initial }: { initial: ShopSettings }) {
         <Field label="حداقل مبلغ سفارش" hint="خالی یا صفر یعنی بدون حداقل.">
           <MoneyInput value={f.minOrder || null} onChange={(v) => set("minOrder")(v ?? 0)} placeholder="بدون حداقل" />
         </Field>
-        <Field label="نمایش موجودی به اعضای Pro">
+        <Field label="نمایش موجودی به اعضای Pro" hint={f.stockDisplay === "level" ? "عدد دقیق فقط زیر آستانه‌ی «رو به اتمام» دیده می‌شود." : undefined}>
           <Select value={f.stockDisplay} onChange={(e) => set("stockDisplay")(e.target.value === "level" ? "level" : "exact")}>
             <option value="exact">عدد دقیق (مثلاً ۴ عدد)</option>
             <option value="level">سطح (موجود / رو به اتمام / ناموجود)</option>
@@ -235,7 +235,7 @@ export function ShopForm({ initial }: { initial: ShopSettings }) {
         <Field label="توضیح بالای دکمه‌ی سفارش (فارسی)">
           <Textarea rows={3} value={f.orderNote_fa} onChange={input("orderNote_fa")} maxLength={600} />
         </Field>
-        <Field label="Order note (English)">
+        <Field label="توضیح بالای دکمه‌ی سفارش (انگلیسی)">
           <Textarea rows={3} value={f.orderNote_en} onChange={input("orderNote_en")} maxLength={600} dir="ltr" className="text-start" />
         </Field>
       </div>
@@ -259,7 +259,7 @@ export function ProForm({ initial }: { initial: ProSettings }) {
         </>
       }
     >
-      <Toggle checked={f.codeInInbox} onChange={set("codeInInbox")} label="نمایش کد در پیام‌های حساب عضو" hint="خاموش باشد، کد فقط با پیامک، ایمیل یا دکمه‌های اشتراک‌گذاری به عضو می‌رسد." />
+      <Toggle checked={f.codeInInbox} onChange={set("codeInInbox")} label="نمایش کد در پیام‌های حساب عضو" hint="خاموش باشد، کد فقط با پیامک، ایمیل یا دکمه‌های اشتراک‌گذاری به عضو می‌رسد و در پیام‌های قبلی هم نمایش داده نمی‌شود." />
       <div>
         <div className="mb-2 text-xs font-medium text-ink-2">اعتبار پیش‌فرض کد تازه</div>
         <DaysPicker value={f.defaultDays} onChange={set("defaultDays")} defaultDays={initial.defaultDays} />
@@ -546,7 +546,7 @@ export function SeoForm({ initial }: { initial: SeoSettings }) {
       <Field label="توضیح سایت در گوگل (فارسی)" hint={`${new Intl.NumberFormat("fa-IR").format(f.description_fa.length)} از ۳۰۰ نویسه؛ خالی بماند، متن پیش‌فرض استفاده می‌شود.`}>
         <Textarea rows={3} value={f.description_fa} onChange={input("description_fa")} maxLength={300} />
       </Field>
-      <Field label="Site description (English)" hint={<span className="ltr">{f.description_en.length} / 300</span>}>
+      <Field label="توضیح سایت در گوگل (انگلیسی)" hint={`${new Intl.NumberFormat("fa-IR").format(f.description_en.length)} از ۳۰۰ نویسه`}>
         <Textarea rows={3} value={f.description_en} onChange={input("description_en")} maxLength={300} dir="ltr" className="text-start" />
       </Field>
     </Section>

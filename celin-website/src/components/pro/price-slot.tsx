@@ -51,9 +51,11 @@ export function PriceSlot({
   const box = size === "pdp" ? "min-h-8 text-lg" : "min-h-5 text-sm";
   // loading: before hydration, or while a Pro member's prices are on their way
   if (hint === null || (book === undefined && hint)) {
+    // without the app (no JS, or the boot failsafe) nothing ever loads: the locked words instead of an endless bar
     return (
-      <div className={`${box} ${className}`} aria-hidden>
-        <span className={`inline-block h-[0.9em] w-3/5 max-w-40 translate-y-[0.2em] bg-bone`} />
+      <div className={`${box} ${className}`}>
+        <span aria-hidden className="inline-block h-[0.9em] w-3/5 max-w-40 translate-y-[0.2em] bg-bone [html:not(.js)_&]:hidden" />
+        <span className="text-muted [html.js_&]:hidden">{c.price.locked}</span>
       </div>
     );
   }

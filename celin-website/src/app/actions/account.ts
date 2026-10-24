@@ -1,7 +1,7 @@
 "use server";
 
 import { after } from "next/server";
-import { endSession } from "@/lib/admin-auth";
+import { canActivateAdmin, endSession } from "@/lib/admin-auth";
 import {
   EMAIL_RE,
   PASSWORD_MAX,
@@ -12,24 +12,33 @@ import {
   currentUser,
   endUserSession,
   hashPassword,
+  isAdminRow,
+  isKnownDevice,
+  markKnownDevice,
+  sessionState,
   setProHint,
   startUserSession,
   type Account,
 } from "@/lib/auth";
 import { hashIp, sha256 } from "@/lib/crypto";
-import { db, isMissingTable } from "@/lib/db";
+import { db, isMissingColumn, isMissingTable, missingDbVars } from "@/lib/db";
 import { normalizePhone } from "@/lib/format";
 import { href } from "@/lib/i18n";
 import { markAllRead } from "@/lib/messages";
 import { notifyTeam } from "@/lib/notify";
-import { codeState, findCode, normalizeCode, proStatus, REQUESTS, touchCode } from "@/lib/pro";
-import { allow } from "@/lib/rate-limit";
+import { CodeRevokedError, codeState, findCode, normalizeCode, proStatus, REQUESTS, touchCode } from "@/lib/pro";
+import { allow, limited } from "@/lib/rate-limit";
 import { clientIp } from "@/lib/request";
 import { getSettings } from "@/lib/settings";
 import { langOf, text, type Lang, type Result } from "@/lib/action";
 
 const MSG = {
   db: { fa: "حساب کاربری موقتاً در دسترس نیست؛ کمی بعد دوباره امتحان کنید.", en: "Accounts are temporarily unavailable — please try again later." },
+  // accounts are not set up on this deployment yet (no database): calm words for visitors, details in the server log
+  soonSignUp: { fa: "ثبت‌نام به‌زودی فعال می‌شود.", en: "Accounts open soon." },
+  soon: { fa: "ورود به حساب به‌زودی فعال می‌شود.", en: "Accounts open soon." },
+  usePassword: { fa: "این حساب با رمز عبور وارد می‌شود؛ با شماره‌ی موبایل و رمز عبور وارد شوید.", en: "This account signs in with its password — please sign in with your number and password." },
+  adminPassword: { fa: "رمز حساب مدیر را باید از پنل مدیریت (کاربران) تعیین کرد.", en: "The password of an admin account is set in the admin panel (Users)." },
   rate: { fa: "تلاش‌های زیادی انجام شد؛ چند دقیقه‌ی دیگر دوباره امتحان کنید.", en: "Too many attempts — please try again in a few minutes." },
   name: { fa: "نام و نام خانوادگی را بنویسید.", en: "Please enter your full name." },
   phone: { fa: "شماره‌ی موبایل معتبر نیست (مثلاً ۰۹۱۲۳۴۵۶۷۸۹).", en: "Please enter a valid Iranian mobile number (e.g. 09123456789)." },
@@ -37,8 +46,11 @@ const MSG = {
   password: { fa: "رمز عبور باید دست‌کم ۸ نویسه باشد.", en: "The password must be at least 8 characters." },
   exists: { fa: "با این شماره قبلاً حساب ساخته شده است؛ وارد شوید.", en: "An account with this number already exists — please sign in." },
   emailTaken: { fa: "این ایمیل برای حساب دیگری ثبت شده است.", en: "This e-mail is already used by another account." },
-  wrong: { fa: "شماره (یا ایمیل) یا رمز عبور درست نیست.", en: "The number (or e-mail) or password is not correct." },
-  noPassword: { fa: "برای این حساب رمزی تعیین نشده است؛ با کد Pro وارد شوید یا با فروشگاه تماس بگیرید.", en: "This account has no password yet — sign in with your Pro code or contact the store." },
+  // the same answer for an unknown number, a wrong password and an account without a password (no hint that it exists)
+  wrong: {
+    fa: "شماره (یا ایمیل) یا رمز عبور درست نیست. اگر حساب شما را فروشگاه ساخته و رمزی ندارید، با کد Pro وارد شوید.",
+    en: "The number (or e-mail) or password is not correct. If the store created your account and you have no password, sign in with your Pro code.",
+  },
   disabled: { fa: "این حساب غیرفعال شده است؛ با فروشگاه تماس بگیرید.", en: "This account has been disabled — please contact the store." },
   signedOut: { fa: "نشست شما پایان یافته است؛ دوباره وارد شوید.", en: "Your session has ended — please sign in again." },
   saved: { fa: "ذخیره شد.", en: "Saved." },
@@ -62,6 +74,27 @@ function safeNext(v: unknown, lang: Lang): string {
   return /^\/(?![/\\])[^\s]*$/.test(s) && !s.startsWith("/admin") ? s : href(lang, "/account");
 }
 
+/**
+ * After a password sign-in, for someone who came from the panel: an admin goes back there; an account that
+ * may still be made admin goes to /admin/login, which asks once for the admin password; anyone else goes to
+ * their account.
+ */
+function nextAfterSignIn(v: unknown, lang: Lang, a: Pick<Account, "role" | "phone">): string {
+  const s = typeof v === "string" ? v : "";
+  if (/^\/admin(?:[/?#]|$)/.test(s) && /^\/(?![/\\])[^\s]*$/.test(s)) {
+    if (isAdminRow(a)) return /^\/admin\/login/.test(s) ? "/admin" : s;
+    if (canActivateAdmin(a)) return "/admin/login";
+  }
+  return safeNext(v, lang);
+}
+
+/** Accounts need the database: visitors get a calm answer, the server log names what is missing. */
+function accountsOff(where: string, missing: string[] = missingDbVars()): void {
+  console.error(
+    `[account] ${where}: accounts are not available — ${missing.length ? `set ${missing.join(" and ")} (Vercel → Settings → Environment Variables) and redeploy` : "run the SQL files in supabase/migrations (Admin → Connections)"}`,
+  );
+}
+
 const goodPassword = (p: string) => p.length >= PASSWORD_MIN && p.length <= PASSWORD_MAX;
 
 async function ipKey(): Promise<string> {
@@ -80,18 +113,29 @@ export async function signUp(input: Record<string, unknown>): Promise<Result<{ n
   if (email && !EMAIL_RE.test(email)) return { ok: false, error: MSG.email[lang], field: "email" };
   if (!goodPassword(password)) return { ok: false, error: MSG.password[lang], field: "password" };
   const c = db();
-  if (!c) return { ok: false, error: MSG.db[lang] };
+  if (!c) {
+    accountsOff("sign-up");
+    return { ok: false, error: MSG.soonSignUp[lang] };
+  }
   if (!(await allow(`signup:${await ipKey()}`, 3600, 6))) return { ok: false, error: MSG.rate[lang] };
 
+  // a new account is never an admin (not even with a number from ADMIN_PHONES): see activateAdmin
+  const role = "user" as const;
   const row = { phone, email, name, password_hash: await hashPassword(password), business: text(input.business, 120), city: text(input.city, 80), last_sign_in_at: new Date().toISOString() };
   const { data, error } = await c.from(USERS).insert(row).select("id").single();
   if (error || !data) {
     if (error?.code === "23505") return /email/i.test(error.message) ? { ok: false, error: MSG.emailTaken[lang], field: "email" } : { ok: false, error: MSG.exists[lang], field: "phone" };
-    console.error("[account] sign-up", error?.message, isMissingTable(error) ? "(run the migration)" : "");
+    if (isMissingTable(error)) {
+      accountsOff("sign-up", []);
+      return { ok: false, error: MSG.soonSignUp[lang] };
+    }
+    console.error("[account] sign-up", error?.message);
     return { ok: false, error: MSG.db[lang] };
   }
-  await startUserSession({ id: (data as { id: string }).id, session_version: 0, role: "user" }, false);
-  return { ok: true, next: safeNext(input.next, lang) };
+  const id = (data as { id: string }).id;
+  await startUserSession({ id, session_version: 0, role, phone }, false);
+  await markKnownDevice(id, row.password_hash);
+  return { ok: true, next: nextAfterSignIn(input.next, lang, { role, phone }) };
 }
 
 export async function signIn(input: Record<string, unknown>): Promise<Result<{ next: string; pro: boolean }>> {
@@ -102,30 +146,42 @@ export async function signIn(input: Record<string, unknown>): Promise<Result<{ n
   const email = phone ? "" : login.toLowerCase();
   if ((!phone && !EMAIL_RE.test(email)) || !password || password.length > PASSWORD_MAX) return { ok: false, error: MSG.wrong[lang] };
   const c = db();
-  if (!c) return { ok: false, error: MSG.db[lang] };
-  // per IP, per IP and account (a stranger cannot lock someone out from another network) and a looser per-account ceiling
+  if (!c) {
+    accountsOff("sign-in");
+    return { ok: false, error: MSG.soon[lang] };
+  }
+  // per IP, and per IP and account
   const ip = await ipKey();
   const who = sha256(phone || email).slice(0, 24);
-  if (!(await allow(`signin:${ip}`, 600, 12)) || !(await allow(`signin:${ip}:${who}`, 900, 6)) || !(await allow(`signin-acct:${who}`, 3600, 40))) {
-    return { ok: false, error: MSG.rate[lang] };
-  }
+  if (!(await allow(`signin:${ip}`, 600, 12)) || !(await allow(`signin:${ip}:${who}`, 900, 6))) return { ok: false, error: MSG.rate[lang] };
   const q = c.from(USERS).select(`${PROFILE_COLUMNS}, password_hash`);
   const { data, error } = await (phone ? q.eq("phone", phone) : q.eq("email", email)).limit(1).maybeSingle();
   if (error) {
+    if (isMissingTable(error)) {
+      accountsOff("sign-in", []);
+      return { ok: false, error: MSG.soon[lang] };
+    }
     console.error("[account] sign-in", error.message);
     return { ok: false, error: MSG.db[lang] };
   }
   const user = data as (Account & { password_hash: string | null }) | null;
-  if (user && !user.password_hash) {
-    await checkPassword(password, null); // same timing as a wrong password
-    return { ok: false, error: MSG.noPassword[lang] };
+  // a looser per-account ceiling counts failures only; a browser that signed in here before with the current
+  // password has a ceiling of its own (higher, not none), so strangers cannot lock its owner out
+  const failKey = `signin-fail:${who}`;
+  const knownKey = user && (await isKnownDevice(user.id, user.password_hash)) ? `signin-fail-dev:${who}` : "";
+  if (knownKey ? await limited(knownKey, 3600, 100) : await limited(failKey, 3600, 40)) return { ok: false, error: MSG.rate[lang] };
+  // an account without a password gets the same answer (and timing) as a wrong password
+  if (!(await checkPassword(password, user?.password_hash)) || !user) {
+    await allow(failKey, 3600, 40);
+    if (knownKey) await allow(knownKey, 3600, 100);
+    return { ok: false, error: MSG.wrong[lang] };
   }
-  if (!(await checkPassword(password, user?.password_hash)) || !user) return { ok: false, error: MSG.wrong[lang] };
   if (user.disabled) return { ok: false, error: MSG.disabled[lang] };
   await c.from(USERS).update({ last_sign_in_at: new Date().toISOString() }).eq("id", user.id);
   const pro = (await proStatus(user.id)).active;
   await startUserSession(user, pro);
-  return { ok: true, next: safeNext(input.next, lang), pro };
+  await markKnownDevice(user.id, user.password_hash);
+  return { ok: true, next: nextAfterSignIn(input.next, lang, user), pro };
 }
 
 /**
@@ -136,7 +192,10 @@ export async function enterCode(input: Record<string, unknown>): Promise<Result<
   const lang = langOf(input.lang);
   const norm = normalizeCode(text(input.code, 40));
   const c = db();
-  if (!c) return { ok: false, error: MSG.db[lang] };
+  if (!c) {
+    accountsOff("pro code");
+    return { ok: false, error: MSG.soon[lang] };
+  }
   const ip = await ipKey();
   if (!(await allow(`code:${ip}`, 900, 10)) || !(await allow("code:global", 60, 120))) return { ok: false, error: MSG.rate[lang] };
   if (!norm) return { ok: false, error: MSG.codeBad[lang], field: "code" };
@@ -156,20 +215,31 @@ export async function enterCode(input: Record<string, unknown>): Promise<Result<
   if (me && me.id !== row.user_id) return { ok: false, error: MSG.codeOther[lang], field: "code" };
   let user: Account | null = me;
   if (!user) {
-    const { data, error } = await c.from(USERS).select(PROFILE_COLUMNS).eq("id", row.user_id).maybeSingle();
+    const { data, error } = await c.from(USERS).select(`${PROFILE_COLUMNS}, password_hash`).eq("id", row.user_id).maybeSingle();
     if (error) return { ok: false, error: MSG.db[lang] };
-    user = data as Account | null;
-    if (!user) return { ok: false, error: MSG.codeBad[lang], field: "code" };
+    const found = data as (Account & { password_hash: string | null }) | null;
+    if (!found) return { ok: false, error: MSG.codeBad[lang], field: "code" };
+    // never an admin account: the panel is opened with the password only (a code travels by SMS, WhatsApp…)
+    if (isAdminRow(found)) return { ok: false, error: MSG.usePassword[lang], field: "code" };
+    const { password_hash: _, ...rest } = found;
+    user = rest;
   }
   if (user.disabled) return { ok: false, error: MSG.disabled[lang] };
   try {
     await touchCode(row);
   } catch (e) {
+    // revoked or replaced a moment ago: refused, so no session outlives the revocation
+    if (e instanceof CodeRevokedError) return { ok: false, error: MSG.codeRevoked[lang], field: "code" };
     console.error("[account] code touch", e);
     return { ok: false, error: MSG.failed[lang] };
   }
-  if (!me) await c.from(USERS).update({ last_sign_in_at: new Date().toISOString() }).eq("id", user.id);
-  await startUserSession(user, true);
+  if (me) {
+    // already signed in: the session stays as it is, only the price layer is told
+    await setProHint(true);
+  } else {
+    await c.from(USERS).update({ last_sign_in_at: new Date().toISOString() }).eq("id", user.id);
+    await startUserSession(user, true, "code");
+  }
   return { ok: true, message: MSG.proOn[lang], next: safeNext(input.next, lang), signedIn: !me };
 }
 
@@ -192,6 +262,8 @@ export async function updateProfile(input: Record<string, unknown>): Promise<Res
   const email = text(input.email, 160).toLowerCase();
   if (name.length < 2) return { ok: false, error: MSG.name[lang], field: "name" };
   if (email && !EMAIL_RE.test(email)) return { ok: false, error: MSG.email[lang], field: "email" };
+  // «this e-mail is used by another account» must not become a free lookup
+  if (!(await allow(`profile:${me.id}`, 3600, 30))) return { ok: false, error: MSG.rate[lang] };
   const { error } = await db()!
     .from(USERS)
     .update({
@@ -212,30 +284,44 @@ export async function updateProfile(input: Record<string, unknown>): Promise<Res
   return { ok: true, message: MSG.saved[lang] };
 }
 
-/** Sets a new password. Accounts without one (created by the admin) set it without the current password. */
+/**
+ * Sets a new password. Accounts without one (created by the admin, signed in with their Pro code) set it
+ * without the current password; such a password stays tied to the code: when the admin revokes or replaces
+ * the code, it is removed again (members.ts), so a leaked code cannot be turned into a lasting password.
+ */
 export async function changePassword(input: Record<string, unknown>): Promise<Result> {
   const lang = langOf(input.lang);
-  const me = await signedIn(lang);
-  if ("ok" in me) return me;
+  const s = await sessionState();
+  if (s.state !== "ok") return { ok: false, error: MSG.signedOut[lang] };
+  const me = s.user;
   const current = typeof input.current === "string" ? input.current : "";
   const next = typeof input.password === "string" ? input.password : "";
   if (!goodPassword(next)) return { ok: false, error: MSG.password[lang], field: "password" };
   if (!(await allow(`password:${me.id}`, 900, 6))) return { ok: false, error: MSG.rate[lang] };
   const c = db()!;
-  const { data } = await c.from(USERS).select("password_hash").eq("id", me.id).maybeSingle();
-  const stored = (data as { password_hash: string | null } | null)?.password_hash ?? null;
+  let row = await c.from(USERS).select("password_hash, password_from_code").eq("id", me.id).maybeSingle();
+  if (isMissingColumn(row.error)) row = await c.from(USERS).select("password_hash").eq("id", me.id).maybeSingle();
+  if (row.error) {
+    console.error("[account] read password", row.error.message);
+    return { ok: false, error: MSG.failed[lang] };
+  }
+  const data = row.data as { password_hash: string | null; password_from_code?: boolean } | null;
+  const stored = data?.password_hash ?? null;
   if (stored && !(await checkPassword(current, stored))) return { ok: false, error: MSG.currentWrong[lang], field: "current" };
+  if (!stored && isAdminRow(me)) return { ok: false, error: MSG.adminPassword[lang] };
   const ver = me.session_version + 1;
-  const { error } = await c
-    .from(USERS)
-    .update({ password_hash: await hashPassword(next), session_version: ver, updated_at: new Date().toISOString() })
-    .eq("id", me.id)
-    .eq("session_version", me.session_version);
+  const fields = { password_hash: await hashPassword(next), session_version: ver, updated_at: new Date().toISOString() };
+  const fromCode = !stored || data?.password_from_code === true;
+  const write = (f: Record<string, unknown>) => c.from(USERS).update(f).eq("id", me.id).eq("session_version", me.session_version);
+  let { error } = await write({ ...fields, password_from_code: fromCode });
+  if (isMissingColumn(error)) ({ error } = await write(fields)); // before the hardening migration
   if (error) {
     console.error("[account] set password", error.message);
     return { ok: false, error: MSG.failed[lang] };
   }
-  await startUserSession({ ...me, session_version: ver }, (await proStatus(me.id)).active);
+  await startUserSession({ ...me, session_version: ver }, (await proStatus(me.id)).active, stored || s.via === "pw" ? "pw" : "code");
+  // the old password's known-device cookie no longer counts; this browser, which just proved the account, does
+  if (stored || s.via === "pw") await markKnownDevice(me.id, fields.password_hash);
   return { ok: true, message: MSG.passwordChanged[lang] };
 }
 

@@ -76,34 +76,53 @@ export async function checkPassword(password: string, stored: string | null | un
 
 // ------------------------------------------------------------------ sessions
 
-const payload = (id: string, exp: number, ver: number) => `session:${id}:${exp}:${ver}`;
+/**
+ * How a session was opened: "pw" = phone/e-mail + password (or sign-up), "code" = the Pro code on its own,
+ * "legacy" = a cookie from before this was recorded. Only "pw" sessions may open the admin panel, so a
+ * leaked Pro code (sent by SMS, WhatsApp…) never unlocks it.
+ */
+export type SessionVia = "pw" | "code" | "legacy";
+
+const payload = (id: string, exp: number, ver: number, via?: SessionVia) => (via ? `session:${id}:${exp}:${ver}:${via}` : `session:${id}:${exp}:${ver}`);
 
 /** Cookie value for a session; exported for tests. */
-export function sessionValue(id: string, ver: number, now = Date.now()): string {
+export function sessionValue(id: string, ver: number, now = Date.now(), via: "pw" | "code" = "pw"): string {
   const exp = now + DAYS * 86400_000;
-  return `${id}.${exp}.${ver}.${sign(payload(id, exp, ver))}`;
+  return `${id}.${exp}.${ver}.${via}.${sign(payload(id, exp, ver, via))}`;
 }
 
-/** Verified { id, ver } from a cookie value, or null (bad signature, expired, malformed). */
-export function readSession(raw: string | undefined, now = Date.now()): { id: string; ver: number } | null {
+/** Verified { id, ver, via } from a cookie value, or null (bad signature, expired, malformed). */
+export function readSession(raw: string | undefined, now = Date.now()): { id: string; ver: number; via: SessionVia } | null {
   if (!raw || !hasSecret()) return null;
   const parts = raw.split(".");
-  if (parts.length !== 4) return null;
-  const [id, expS, verS, sig] = parts;
+  if (parts.length !== 4 && parts.length !== 5) return null;
+  const [id, expS, verS] = parts;
+  const via: SessionVia = parts.length === 5 ? (parts[3] as SessionVia) : "legacy";
+  const sig = parts[parts.length - 1];
   const exp = Number(expS);
   const ver = Number(verS);
   if (!/^[0-9a-f-]{36}$/i.test(id) || !Number.isFinite(exp) || exp < now || !Number.isInteger(ver)) return null;
-  return safeEqual(sig, sign(payload(id, exp, ver))) ? { id, ver } : null;
+  if (parts.length === 5 && via !== "pw" && via !== "code") return null;
+  const expected = sign(payload(id, exp, ver, via === "legacy" ? undefined : via));
+  return safeEqual(sig, expected) ? { id, ver, via } : null;
+}
+
+/**
+ * An admin account: role admin. A phone number alone never makes one — an account becomes admin through an
+ * explicit proof of ADMIN_PASSWORD on /admin/login (actions/admin.ts activateAdmin) or Users → «مدیر کردن».
+ */
+export function isAdminRow(a: { role?: string | null }): boolean {
+  return a.role === "admin";
 }
 
 const secure = () => process.env.NODE_ENV === "production";
 const hintOpts = () => ({ httpOnly: false, secure: secure(), sameSite: "lax" as const, path: "/", maxAge: DAYS * 86400 });
 
-export async function startUserSession(a: Pick<Account, "id" | "session_version" | "role">, pro?: boolean): Promise<void> {
+export async function startUserSession(a: Pick<Account, "id" | "session_version" | "role"> & { phone?: string }, pro?: boolean, via: "pw" | "code" = "pw"): Promise<void> {
   const jar = await cookies();
-  jar.set(COOKIE, sessionValue(a.id, a.session_version), { httpOnly: true, secure: secure(), sameSite: "lax", path: "/", maxAge: DAYS * 86400 });
+  jar.set(COOKIE, sessionValue(a.id, a.session_version, Date.now(), via), { httpOnly: true, secure: secure(), sameSite: "lax", path: "/", maxAge: DAYS * 86400 });
   jar.set(USER_HINT, "1", hintOpts());
-  if (a.role === "admin") jar.set(ADMIN_HINT, "1", hintOpts());
+  if (via === "pw" && isAdminRow(a)) jar.set(ADMIN_HINT, "1", hintOpts());
   else jar.delete(ADMIN_HINT);
   if (pro !== undefined) await setProHint(pro);
 }
@@ -113,6 +132,24 @@ export async function setProHint(pro: boolean): Promise<void> {
   const jar = await cookies();
   if (pro) jar.set(PRO_HINT, "1", hintOpts());
   else jar.delete(PRO_HINT);
+}
+
+// A browser that has signed in to an account before carries this (signed, per account and per password): when
+// strangers have used up the account's failed-sign-in allowance, its owner can still sign in from a known
+// browser (with a ceiling of its own). It is bound to the password hash, so it ends with the password — a
+// change, an admin reset or a code-made password removed with its code (members.ts endCodeAccess).
+const DEVICE = "celin_device";
+
+const deviceValue = (id: string, passwordHash: string | null | undefined) => sign(`device:${id}:${passwordHash ?? ""}`);
+
+export async function markKnownDevice(id: string, passwordHash: string | null | undefined): Promise<void> {
+  if (!passwordHash) return;
+  (await cookies()).set(DEVICE, deviceValue(id, passwordHash), { httpOnly: true, secure: secure(), sameSite: "lax", path: "/", maxAge: 365 * 86400 });
+}
+
+export async function isKnownDevice(id: string, passwordHash: string | null | undefined): Promise<boolean> {
+  const v = (await cookies()).get(DEVICE)?.value;
+  return Boolean(v && passwordHash && hasSecret() && safeEqual(v, deviceValue(id, passwordHash)));
 }
 
 export async function endUserSession(): Promise<void> {
@@ -146,13 +183,13 @@ export async function getProfile(id: string): Promise<Account | null> {
  * The session of this request: "none" (no valid cookie), "revoked" (account gone, disabled or signed out
  * elsewhere), "error" (could not check right now) or the signed-in account.
  */
-export const sessionState = cache(async (): Promise<{ state: "none" | "revoked" | "error" } | { state: "ok"; user: Account }> => {
+export const sessionState = cache(async (): Promise<{ state: "none" | "revoked" | "error" } | { state: "ok"; user: Account; via: SessionVia }> => {
   const s = readSession((await cookies()).get(COOKIE)?.value);
   if (!s) return { state: "none" };
   try {
     const p = await loadAccount(s.id);
     if (!p || p.disabled || p.session_version !== s.ver) return { state: "revoked" };
-    return { state: "ok", user: p };
+    return { state: "ok", user: p, via: s.via };
   } catch (e) {
     console.error("[auth]", e);
     return { state: "error" };
@@ -165,8 +202,10 @@ export async function currentUser(): Promise<Account | null> {
   return s.state === "ok" ? s.user : null;
 }
 
+/** The signed-in account may use the admin panel: an admin account, signed in with its password. */
 export async function isAdminAccount(): Promise<boolean> {
-  return (await currentUser())?.role === "admin";
+  const s = await sessionState();
+  return s.state === "ok" && s.via === "pw" && isAdminRow(s.user);
 }
 
 export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;

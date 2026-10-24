@@ -13,7 +13,6 @@ import { productCopy } from "@/content/copy/product";
 import { story } from "@/content/copy/story";
 import { SectionHead } from "@/components/home/sections";
 import { ProductClient } from "@/components/product/product-client";
-import { ProBar } from "@/components/pro/pro-bar";
 import { ProductCard } from "@/components/shop/product-card";
 import { Breadcrumbs } from "@/components/shop/breadcrumbs";
 
@@ -27,7 +26,7 @@ function Accordion({ title, children, open }: { title: string; children: ReactNo
   return (
     <details className="group border-b border-gold/20" open={open}>
       <summary className="flex min-h-15 cursor-pointer list-none items-center justify-between gap-4 py-3 text-ink transition-colors hover:text-gold-deep [&::-webkit-details-marker]:hidden">
-        <span className="display text-lg font-semibold">{title}</span>
+        <span className="title-card">{title}</span>
         <span className="relative size-3 shrink-0 text-gold" aria-hidden>
           <span className="absolute inset-x-0 top-1/2 h-px bg-current" />
           <span className="absolute inset-y-0 start-1/2 w-px bg-current transition-transform duration-300 group-open:scale-y-0" />
@@ -154,9 +153,8 @@ export async function ProductPage({ lang, slug }: { lang: Lang; slug: string }) 
             <SectionHead
               eyebrow={col && sameCollection ? tr.collection(t(col, "name", lang)) : c.nav.jewellery}
               title={sameCollection ? tr.related : tr.more}
-              link={col ? { href: href(lang, `/collections/${col.slug}`), label: tr.viewAll } : { href: href(lang, "/shop"), label: c.nav.all }}
+              link={col && sameCollection ? { href: href(lang, `/collections/${col.slug}`), label: tr.viewAll } : { href: href(lang, "/shop"), label: c.nav.all }}
             />
-            <ProBar lang={lang} className="mt-10" />
             <ul className="mt-10 grid grid-cols-2 gap-x-3 gap-y-12 sm:gap-x-6 lg:grid-cols-4 lg:gap-x-8">
               {same.map((p, i) => (
                 <li key={p.id} className={i % 2 === 1 ? "lg:translate-y-14" : ""} data-reveal style={{ "--d": i } as CSSProperties}>

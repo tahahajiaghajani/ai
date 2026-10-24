@@ -32,8 +32,9 @@ export function SplitWords({
   return (
     <Tag id={id} className={`fx-words ${className}`} data-fx={immediate ? "now" : ""} style={{ ...style, "--delay": immediate ? `calc(var(--intro-delay, 0s) + ${delay}ms)` : `${delay}ms` } as CSSProperties}>
       {lines.map((line, li) => {
+        // breaking spaces only: a no-break space (U+00A0) keeps a group such as «۲۰ سال» inside one rising word
         const words = line
-          .split(/\s+/)
+          .split(/[^\S\u00a0]+/)
           .filter(Boolean)
           .map((w, wi, arr) => (
             <span key={wi}>

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from "react";
+import { useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from "react";
 import { Icon, type IconName } from "@/components/ui/icons";
 import { toast } from "@/components/admin/toast";
 
@@ -217,11 +217,13 @@ export function DbMissing() {
 /** A tab strip of links (state lives in the URL). */
 export function Tabs({ items, active }: { items: { href: string; label: string; count?: number; key: string }[]; active: string }) {
   return (
-    <nav className="mb-6 flex gap-1 overflow-x-auto border-b border-line">
+    // wraps on phones (every filter stays in sight), one scrolling row from sm up
+    <nav className="mb-6 flex flex-wrap gap-x-1 border-b border-line sm:flex-nowrap sm:overflow-x-auto">
       {items.map((t) => (
         <Link
           key={t.key}
           href={t.href}
+          aria-current={t.key === active ? "page" : undefined}
           className={`-mb-px flex shrink-0 items-center gap-2 border-b px-3.5 py-2.5 text-sm transition-colors ${t.key === active ? "border-ink font-medium text-ink" : "border-transparent text-muted hover:text-ink"}`}
         >
           {t.label}
@@ -235,6 +237,7 @@ export function Tabs({ items, active }: { items: { href: string; label: string; 
 /** Modal / side sheet on the native <dialog> (focus trap, Esc to close). */
 export function Dialog({ open, onClose, title, children, wide, side }: { open: boolean; onClose: () => void; title: string; children: ReactNode; wide?: boolean; side?: boolean }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
   useEffect(() => {
     const d = ref.current;
     if (!d) return;
@@ -244,15 +247,18 @@ export function Dialog({ open, onClose, title, children, wide, side }: { open: b
   return (
     <dialog
       ref={ref}
+      aria-labelledby={titleId}
       onClose={onClose}
       onClick={(e) => e.target === ref.current && onClose()}
       className={`m-0 max-h-[100dvh] max-w-none bg-transparent p-0 backdrop:bg-ink/40 backdrop:backdrop-blur-[2px] ${side ? "ms-auto h-[100dvh] w-full sm:w-[560px]" : `mx-auto mt-[8vh] w-[calc(100%-2rem)] ${wide ? "sm:w-[760px]" : "sm:w-[520px]"}`}`}
     >
       {open && (
         <div className={`flex flex-col border border-line bg-ground ${side ? "h-full" : "max-h-[84dvh]"}`}>
-          <header className="flex items-center justify-between gap-3 border-b border-line bg-white px-5 py-4">
-            <h2 className="text-base font-medium">{title}</h2>
-            <button type="button" onClick={onClose} className="grid size-8 place-items-center text-muted hover:text-ink" aria-label="بستن">
+          <header className="flex items-center justify-between gap-3 border-b border-line bg-white py-2 ps-5 pe-3">
+            <h2 id={titleId} className="text-base font-medium">
+              {title}
+            </h2>
+            <button type="button" onClick={onClose} className="grid size-11 shrink-0 place-items-center text-muted hover:text-ink" aria-label="بستن">
               <Icon name="close" className="size-5" />
             </button>
           </header>

@@ -1,8 +1,9 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, type FormEvent } from "react";
+import { useActionState, useState, type FormEvent } from "react";
 import { changePassword, signOut, updateProfile } from "@/app/actions/account";
+import { changePasswordForm, updateProfileForm } from "@/app/actions/account-forms";
 import { accountCopy } from "@/content/copy/account";
 import { commonCopy } from "@/content/copy/common";
 import { formatPhone, latinDigits, num, type Lang } from "@/lib/format";
@@ -37,11 +38,16 @@ function DetailsForm({ lang, initial }: { lang: Lang; initial: Profile }) {
   const c = accountCopy(lang);
   const f = c.fields;
   const router = useRouter();
+  // without JS (or before hydration) the form posts to updateProfileForm; its answer comes back here as state
+  const [state, formAction] = useActionState(updateProfileForm, null);
   // stored digits are Latin; Persian pages show Persian digits (normalised again on save)
-  const [v, setV] = useState({ ...initial, postal_code: num(initial.postal_code, lang) });
+  const [v, setV] = useState(() => {
+    const p = { ...initial, ...(state?.values ?? {}) };
+    return { ...p, postal_code: num(p.postal_code, lang) };
+  });
   const [pending, setPending] = useState(false);
-  const [note, setNote] = useState<Note>(null);
-  const [errors, setErrors] = useState<Partial<Record<keyof Profile, string>>>({});
+  const [note, setNote] = useState<Note>(state?.ok ? { tone: "ok", text: state.values?.message || c.profile.saved } : state && !state.field ? { tone: "error", text: state.error } : null);
+  const [errors, setErrors] = useState<Partial<Record<keyof Profile, string>>>(state?.field ? { [state.field]: state.error } : {});
   const set = (k: keyof Profile) => (e: { target: { value: string } }) => {
     setV((s) => ({ ...s, [k]: e.target.value }));
     setNote(null);
@@ -78,7 +84,8 @@ function DetailsForm({ lang, initial }: { lang: Lang; initial: Profile }) {
   }
 
   return (
-    <form onSubmit={submit} noValidate aria-labelledby="profile-details">
+    <form action={formAction} onSubmit={submit} noValidate aria-labelledby="profile-details">
+      <input type="hidden" name="lang" value={lang} />
       <SectionTitle id="profile-details">{c.profile.details}</SectionTitle>
       <div className="grid gap-6 sm:grid-cols-2">
         <TextField id="profile-name" label={f.name} value={v.name} onChange={set("name")} autoComplete="name" maxLength={80} required error={errors.name} />
@@ -92,10 +99,11 @@ function DetailsForm({ lang, initial }: { lang: Lang; initial: Profile }) {
         <TextField id="profile-postal_code" label={f.postal} optional={f.optional} value={v.postal_code} onChange={set("postal_code")} inputMode="numeric" dir="ltr" autoComplete="postal-code" maxLength={14} help={f.postalHelp} error={errors.postal_code} />
         <TextArea id="profile-address" label={f.address} value={v.address} onChange={set("address")} autoComplete="street-address" maxLength={400} rows={2} help={f.addressHelp} wrapClassName="sm:col-span-2" />
       </div>
-      <div aria-live="polite" className="mt-6 empty:mt-0">
+      {/* a success is read politely; an error note is an alert of its own */}
+      <div aria-live={note?.tone === "error" ? undefined : "polite"} className="mt-6 empty:mt-0">
         {note && <FormNote tone={note.tone}>{note.text}</FormNote>}
       </div>
-      <button type="submit" disabled={pending} className={`${btn.primary} mt-6 w-full sm:w-auto sm:min-w-44`}>
+      <button type="submit" aria-disabled={pending || undefined} className={`${btn.primary} mt-6 w-full sm:w-auto sm:min-w-44`}>
         {pending ? "…" : c.profile.save}
       </button>
     </form>
@@ -105,16 +113,23 @@ function DetailsForm({ lang, initial }: { lang: Lang; initial: Profile }) {
 function PasswordForm({ lang, hasPassword, username }: { lang: Lang; hasPassword: boolean; username: string }) {
   const c = accountCopy(lang);
   const router = useRouter();
+  // without JS (or before hydration) the form posts to changePasswordForm: never a GET with the passwords
+  const [state, formAction] = useActionState(changePasswordForm, null);
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [show, setShow] = useState(false);
   const [pending, setPending] = useState(false);
-  const [note, setNote] = useState<Note>(null);
-  const [errors, setErrors] = useState<{ current?: string; password?: string }>({});
+  const [note, setNote] = useState<Note>(state?.ok ? { tone: "ok", text: state.values?.message || c.profile.saved } : state && !(state.field === "current" || state.field === "password") ? { tone: "error", text: state.error } : null);
+  const [errors, setErrors] = useState<{ current?: string; password?: string }>(state?.field === "current" || state?.field === "password" ? { [state.field]: state.error } : {});
+  const incomplete = next.length < 8 || (hasPassword && !current);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
     if (pending) return;
+    if (incomplete) {
+      document.getElementById(hasPassword && !current ? "pw-current" : "pw-password")?.focus();
+      return;
+    }
     setPending(true);
     setNote(null);
     setErrors({});
@@ -142,7 +157,8 @@ function PasswordForm({ lang, hasPassword, username }: { lang: Lang; hasPassword
   );
 
   return (
-    <form onSubmit={submit} noValidate aria-labelledby="profile-password" className="border-t border-line pt-10">
+    <form action={formAction} onSubmit={submit} noValidate aria-labelledby="profile-password" className="border-t border-line pt-10">
+      <input type="hidden" name="lang" value={lang} />
       <SectionTitle id="profile-password">{hasPassword ? c.profile.passwordChange : c.profile.passwordSet}</SectionTitle>
       {!hasPassword && <p className="-mt-1 mb-6 max-w-xl text-sm leading-7 text-muted">{c.profile.passwordSetLead}</p>}
       {/* lets password managers pair the new password with the account */}
@@ -178,10 +194,11 @@ function PasswordForm({ lang, hasPassword, username }: { lang: Lang; hasPassword
           end={hasPassword ? undefined : eye}
         />
       </div>
-      <div aria-live="polite" className="mt-6 empty:mt-0">
+      <div aria-live={note?.tone === "error" ? undefined : "polite"} className="mt-6 empty:mt-0">
         {note && <FormNote tone={note.tone}>{note.text}</FormNote>}
       </div>
-      <button type="submit" disabled={pending || next.length < 8 || (hasPassword && !current)} className={`${btn.outline} mt-6 w-full sm:w-auto sm:min-w-44`}>
+      {/* aria-disabled (not disabled): it can be focused, and a submit without JS still reaches the server */}
+      <button type="submit" aria-disabled={pending || incomplete || undefined} className={`${btn.outline} mt-6 w-full sm:w-auto sm:min-w-44`}>
         {pending ? "…" : c.profile.passwordSave}
       </button>
     </form>

@@ -9,6 +9,7 @@ import { Arch } from "@/components/fx/arch";
 import { ArchLines } from "@/components/fx/arch-lines";
 import { Grain } from "@/components/fx/grain";
 import { Magnetic } from "@/components/fx/magnetic";
+import { Melt } from "@/components/fx/melt";
 import { SplitWords } from "@/components/fx/split-words";
 import { Icon } from "@/components/ui/icons";
 import { Eyebrow, ordinal } from "@/components/house/bits";
@@ -45,22 +46,27 @@ export async function MaisonPage({ lang }: { lang: Lang }) {
       />
 
       {/* the year of birth */}
-      <section id="story" className="relative isolate scroll-mt-[var(--header-h)] overflow-clip bg-mesh-porcelain py-28 sm:py-44">
-        <span aria-hidden className="fx-drift pointer-events-none absolute inset-x-0 top-1/2 -translate-y-1/2 text-center [--drift:50px]">
-          <span className="display inline-block text-[clamp(8rem,24vw,21rem)] leading-none! font-bold text-metal opacity-[0.12]">{num(c.prologue.year, lang)}</span>
-        </span>
-        <div className="container-lux relative mx-auto max-w-5xl text-center">
+      <section id="story" className="relative isolate scroll-mt-[var(--header-h)] overflow-clip bg-mesh-porcelain py-24 sm:py-36">
+        <Melt at="top" />
+        <ArchLines count={4} className="pointer-events-none absolute inset-x-0 -bottom-8 mx-auto h-[112%] w-[min(900px,150vw)] opacity-50" />
+        <div className="container-lux relative mx-auto max-w-3xl text-center">
           <Eyebrow center>{c.prologue.eyebrow}</Eyebrow>
-          <SplitWords as="p" text={st.born} className="display mt-7 text-[clamp(1.55rem,3.3vw,2.85rem)] leading-[1.75]! font-semibold text-ink" />
+          <p className="numeral mt-5 text-metal" data-reveal>
+            {num(c.prologue.year, lang)}
+          </p>
+          <span aria-hidden className="hairline mx-auto mt-6 block w-16" />
+          <SplitWords as="p" text={st.born} className="title-quote mt-7 text-ink" />
         </div>
       </section>
 
       {/* four chapters on one copper thread */}
-      <section className="relative isolate overflow-clip py-20 sm:py-28" style={{ background: "radial-gradient(60% 40% at 100% 10%, rgb(230 208 171 / 0.45), transparent 70%), radial-gradient(55% 35% at 0% 60%, rgb(239 220 205 / 0.6), transparent 70%), radial-gradient(50% 30% at 100% 95%, rgb(200 136 90 / 0.14), transparent 70%), var(--color-bone)" }}>
+      <section className="relative isolate overflow-clip pt-20 pb-[calc(var(--melt-h)+2rem)] sm:pt-28 sm:pb-[calc(var(--melt-h)+3rem)]" style={{ background: "radial-gradient(60% 40% at 100% 10%, rgb(230 208 171 / 0.45), transparent 70%), radial-gradient(55% 35% at 0% 60%, rgb(239 220 205 / 0.6), transparent 70%), radial-gradient(50% 30% at 100% 95%, rgb(200 136 90 / 0.14), transparent 70%), var(--color-bone)" }}>
+        {/* the bone gives way to the cocoa night below */}
+        <Melt at="bottom" />
         <div className="container-lux relative">
           <div className="text-center">
             <Eyebrow center>{c.chapters.eyebrow}</Eyebrow>
-            <SplitWords text={c.chapters.title} className="display mt-3 text-[2.125rem] leading-[1.4]! font-bold text-ink sm:text-5xl" />
+            <SplitWords text={c.chapters.title} className="title-section mt-3 text-ink" />
           </div>
           <div className="relative mt-14 sm:mt-20">
             <ScrollLine className="start-[7px] lg:start-1/2" />
@@ -74,22 +80,18 @@ export async function MaisonPage({ lang }: { lang: Lang }) {
                     <span className="size-[15px] rotate-45 border border-gold/60 bg-bone" />
                     <span className="absolute size-[5px] rotate-45 bg-gold" />
                   </span>
-                  <div className={`relative mx-auto w-[min(72vw,380px)] lg:col-span-4 lg:w-full ${even ? "lg:col-start-2" : "lg:order-2 lg:col-start-8"}`} data-cursor="view">
-                    {/* a large numeral behind the arch, drifting slower than the page */}
-                    <span aria-hidden className={`fx-drift display pointer-events-none absolute -bottom-[0.12em] text-[clamp(7rem,15vw,14rem)] leading-none! font-bold text-metal opacity-25 select-none [--drift:36px] ${even ? "start-[-22%]" : "end-[-22%]"}`}>
-                      {ordinal(i + 1, lang)}
-                    </span>
+                  <div className={`relative mx-auto w-[min(68vw,340px)] lg:col-span-4 lg:w-full lg:max-w-[360px] ${even ? "lg:col-start-2" : "lg:order-2 lg:col-start-8"}`} data-cursor="view">
                     <ArchLines count={3} className="pointer-events-none absolute inset-x-[-18%] bottom-0 top-[-9%] h-[109%] w-[136%] opacity-80" />
                     <Arch media={slot.media} mobile={slot.mobile} lang={lang} sizes="(min-width: 1024px) 28vw, 72vw" ring="copper" keystone={i === 0} unveil parallax={6} sparkle={8} />
                   </div>
                   <div className={`relative lg:col-span-4 ${even ? "lg:col-start-8" : "lg:order-1 lg:col-start-2"}`}>
                     <p className="flex items-center gap-4">
-                      <span className="display text-4xl leading-none! font-bold text-metal">{ordinal(i + 1, lang)}</span>
+                      <span className="numeral text-metal">{ordinal(i + 1, lang)}</span>
                       <span aria-hidden className="hairline w-12" />
                       <span className="label text-gold-text!">{c.chapter(num(i + 1, lang))}</span>
                     </p>
-                    <SplitWords as="h2" text={ch.title} className="display mt-5 text-[2rem] leading-[1.4]! font-bold text-ink sm:text-5xl lg:text-[2.75rem]" />
-                    <p className="mt-6 max-w-xl text-lg leading-10 text-ink-2" data-reveal style={{ "--d": 1 } as CSSProperties}>
+                    <SplitWords as="h2" text={ch.title} className="title-section mt-4 text-ink" />
+                    <p className="lede mt-4 max-w-xl text-ink-2" data-reveal style={{ "--d": 1 } as CSSProperties}>
                       {ch.text}
                     </p>
                   </div>
@@ -101,7 +103,9 @@ export async function MaisonPage({ lang }: { lang: Lang }) {
       </section>
 
       {/* «سلین؛ برای کسانی که…» */}
-      <section data-tone="light" className="relative isolate overflow-clip bg-mesh-cocoa py-24 text-on-night sm:py-32">
+      <section data-tone="light" className="relative isolate overflow-clip bg-night-2 py-24 text-on-night sm:py-32">
+        {/* plain night-2 at both edges: the bone above melts into it, and it turns into the paraiba night below */}
+        <span aria-hidden className="absolute inset-0 -z-10 bg-mesh-cocoa [mask-image:linear-gradient(to_bottom,transparent,black_10rem,black_calc(100%-10rem),transparent)]" />
         <Grain />
         <div className="container-lux relative grid items-center gap-14 lg:grid-cols-12 lg:gap-10">
           <div className="relative mx-auto w-[min(62vw,320px)] lg:col-span-4 lg:w-full lg:max-w-[360px]" data-cursor="view">
@@ -109,7 +113,7 @@ export async function MaisonPage({ lang }: { lang: Lang }) {
             <Arch media={s("maison.story").media} mobile={s("maison.story").mobile} lang={lang} sizes="(min-width: 1024px) 25vw, 62vw" ring="champagne" keystone unveil parallax={7} sparkle={10} />
           </div>
           <div className="text-center lg:col-span-7 lg:col-start-6 lg:text-start">
-            <SplitWords text={st.forWhom} className="display text-[clamp(2rem,4.6vw,4.1rem)] leading-[1.55]! font-bold" wordClassName="text-metal-light" />
+            <SplitWords text={st.forWhom} className="title-page max-w-2xl lg:max-w-none" wordClassName="text-metal-light" />
           </div>
         </div>
       </section>
@@ -120,7 +124,9 @@ export async function MaisonPage({ lang }: { lang: Lang }) {
       />
 
       {/* the letter of the twentieth year, in an arch */}
-      <section className="relative isolate overflow-clip bg-mesh-bone py-20 sm:py-32">
+      <section className="relative isolate overflow-clip bg-mesh-bone pt-[calc(var(--melt-h)+2rem)] pb-20 sm:pt-[calc(var(--melt-h)+3rem)] sm:pb-32">
+        {/* the paraiba night of the timeline melts into the bone */}
+        <Melt at="top" tone="teal" />
         <div className="container-lux">
           <article className="frame-metal arch relative mx-auto max-w-3xl bg-porcelain/80 px-6 pt-24 pb-14 shadow-[0_50px_90px_-60px_rgb(26_19_16/0.5)] [--frame:var(--metal-copper)] sm:px-14 sm:pt-32 sm:pb-20">
             <span aria-hidden className="arch absolute inset-0 bg-[radial-gradient(70%_45%_at_50%_0%,rgb(230_208_171/0.45),transparent_75%)]" />
@@ -129,18 +135,18 @@ export async function MaisonPage({ lang }: { lang: Lang }) {
             </svg>
             <div className="relative">
               <Eyebrow center>{c.letter.eyebrow}</Eyebrow>
-              <SplitWords text={st.anniversary.title} className="display mx-auto mt-5 max-w-xl text-center text-[1.9rem] leading-[1.5]! font-bold text-ink sm:text-[2.6rem]" />
-              <div className="mt-10 space-y-6 text-lg leading-10 text-ink-2">
+              <SplitWords text={st.anniversary.title} className="title-section mx-auto mt-5 max-w-xl text-center text-ink" />
+              <div className="lede mt-9 space-y-5 text-ink-2">
                 {st.anniversary.paragraphs.map((p, i) => (
                   <p key={i} data-reveal style={{ "--d": i } as CSSProperties}>
                     {p}
                   </p>
                 ))}
               </div>
-              <p className="mt-8 border-s-2 border-gold/60 ps-5 text-xl leading-10 font-semibold text-ink" data-reveal>
+              <p className="lede mt-8 border-s border-gold/60 ps-5 font-bold text-ink" data-reveal>
                 {st.anniversary.welcome}
               </p>
-              <p className="display mt-12 py-2 text-center text-4xl leading-[1.7]! font-bold text-metal metal-live sm:text-5xl" aria-label={c.letter.signatureLabel} data-reveal>
+              <p className="title-page mt-11 py-1 text-center text-metal metal-live" aria-label={c.letter.signatureLabel} data-reveal>
                 <span aria-hidden>{c.letter.signature}</span>
               </p>
             </div>
@@ -149,13 +155,11 @@ export async function MaisonPage({ lang }: { lang: Lang }) {
       </section>
 
       {/* the closing line */}
-      <section className="relative isolate overflow-clip bg-mesh-porcelain py-28 text-center sm:py-40">
+      <section className="relative isolate overflow-clip bg-mesh-porcelain py-24 text-center sm:py-32">
         <ArchLines count={5} className="pointer-events-none absolute inset-x-0 -bottom-6 mx-auto h-[118%] w-[min(1100px,150vw)] opacity-70" />
         <div className="container-lux relative">
-          <SplitWords text={st.shine} className="display mx-auto max-w-5xl text-[clamp(2.75rem,7.4vw,6.75rem)] leading-[1.35]! font-bold" wordClassName="text-metal metal-live" />
-          <p className="mx-auto mt-6 max-w-xl text-lg leading-9 text-muted" data-reveal>
-            {st.motto}
-          </p>
+          {/* one line only: the footer right below carries «با سلین همچون جواهر بدرخشید» */}
+          <SplitWords text={st.motto} className="title-page mx-auto max-w-3xl" wordClassName="text-metal metal-live" />
           <div className="mt-11 flex flex-wrap items-center justify-center gap-4" data-reveal style={{ "--d": 2 } as CSSProperties}>
             <Magnetic>
               <Link href={href(lang, "/collections")} className="btn btn-metal h-13 px-8">

@@ -41,7 +41,9 @@ export interface UploadInput {
 export async function storeUpload(input: UploadInput): Promise<Media> {
   await assertAdmin();
   const c = requireDb();
-  if (!input.files.length || input.files.length > UPLOAD_WIDTHS.length) throw new UserError("فایل تصویر دریافت نشد.");
+  // the standard widths below the picture's own width, plus that width (an older open admin tab may still
+  // send one width above 2048)
+  if (!input.files.length || input.files.length > UPLOAD_WIDTHS.length + 1) throw new UserError("فایل تصویر دریافت نشد.");
   const kinds = new Set<string>();
   for (const f of input.files) {
     if (!UPLOAD_WIDTHS.includes(f.width) && f.width !== input.width) throw new UserError("اندازه‌ی تصویر معتبر نیست.");
@@ -122,7 +124,23 @@ export async function updateMedia(id: string, patch: { alt_fa?: unknown; alt_en?
   revalidatePath("/", "layout");
 }
 
-/** Where a picture is used (products, variants, categories, collections, slots). */
+/**
+ * How many order lines show this picture: an order keeps a copy of the picture row (celin_order_items.image),
+ * pointing at the same stored files.
+ */
+export async function mediaInOrders(id: string): Promise<number> {
+  await assertAdmin();
+  const c = requireDb();
+  const { data, error } = await c.from("celin_media").select("path").eq("id", id).maybeSingle();
+  if (error) throw new Error(error.message);
+  const path = (data as { path: string } | null)?.path;
+  if (!path) return 0;
+  const { count, error: oe } = await c.from("celin_order_items").select("id", { count: "exact", head: true }).eq("image->>path", path);
+  if (oe) throw new Error(oe.message);
+  return count ?? 0;
+}
+
+/** Where a picture is used (products, variants, categories, collections, slots); orders separately (mediaInOrders). */
 export async function mediaUsage(id: string): Promise<string[]> {
   await assertAdmin();
   const c = requireDb();
@@ -150,17 +168,23 @@ export async function mediaUsage(id: string): Promise<string[]> {
   ];
 }
 
-/** Deletes a picture that nothing uses any more (its stored files too; starter pictures stay on disk). */
-export async function deleteMedia(id: string): Promise<void> {
+/**
+ * Removes a picture that the catalogue and the site no longer use from the library. Its stored files go too —
+ * unless an order still shows it (orders keep their pictures for good), and starter pictures stay on disk.
+ * Returns whether the files were kept for orders.
+ */
+export async function deleteMedia(id: string): Promise<{ keptForOrders: number }> {
   await assertAdmin();
   const c = requireDb();
   const used = await mediaUsage(id);
   if (used.length) throw new UserError(`این تصویر هنوز استفاده می‌شود: ${used.slice(0, 4).join("، ")}`);
   const { data, error } = await c.from("celin_media").select("path, ext, widths").eq("id", id).maybeSingle();
   if (error) throw new Error(error.message);
-  if (!data) return;
+  if (!data) return { keptForOrders: 0 };
   const r = data as { path: string; ext: string; widths: number[] };
-  if (!r.path.startsWith("/")) await c.storage.from(env.bucket).remove(r.widths.map((w) => `${r.path}/${w}.${r.ext}`));
+  const orders = await mediaInOrders(id);
+  if (!r.path.startsWith("/") && !orders) await c.storage.from(env.bucket).remove(r.widths.map((w) => `${r.path}/${w}.${r.ext}`));
   const { error: de } = await c.from("celin_media").delete().eq("id", id);
   if (de) throw new Error(de.message);
+  return { keptForOrders: orders };
 }

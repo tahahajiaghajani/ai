@@ -20,3 +20,17 @@ export async function allow(key: string, windowSeconds: number, max: number): Pr
   cur.count++;
   return cur.count <= max;
 }
+
+/** Whether `key` has already reached `max` hits in its current window — without counting this call. */
+export async function limited(key: string, windowSeconds: number, max: number): Promise<boolean> {
+  const c = db();
+  if (c) {
+    const { data, error } = await c.from("celin_rate_limits").select("window_start, count").eq("key", key).maybeSingle();
+    if (!error) {
+      const r = data as { window_start: string; count: number } | null;
+      return Boolean(r && Date.parse(r.window_start) > Date.now() - windowSeconds * 1000 && r.count >= max);
+    }
+  }
+  const cur = memory.get(key);
+  return Boolean(cur && Date.now() - cur.start <= windowSeconds * 1000 && cur.count >= max);
+}

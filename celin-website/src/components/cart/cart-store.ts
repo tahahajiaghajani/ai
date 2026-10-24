@@ -51,7 +51,24 @@ function write(next: CartLine[]) {
 
 const same = (a: CartLine, productId: string, variantId: string | null) => a.productId === productId && a.variantId === variantId;
 
+const OWNER = "celin-cart-owner";
+
 export const cart = {
+  /**
+   * Ties the basket to the signed-in account (an opaque key from /api/me): another account signing in on
+   * this browser starts with an empty basket instead of the previous member's selection.
+   */
+  bindOwner(key: string) {
+    ensure();
+    try {
+      const prev = localStorage.getItem(OWNER);
+      if (prev === key) return;
+      localStorage.setItem(OWNER, key);
+      if (prev && lines.length) write([]);
+    } catch {
+      // storage blocked: nothing is kept between page views anyway
+    }
+  },
   add(productId: string, variantId: string | null, qty = 1) {
     ensure();
     const cur = lines.find((l) => same(l, productId, variantId));

@@ -1,0 +1,713 @@
+/* ======================================================================== */
+/*  The Pro layer: seal, hallmark, jewel-box frame, arch doorway, the        */
+/*  12-digit code field and the membership steps (src/components/pro/*,      */
+/*  src/components/ui/{lux-frame,arch-door}.tsx). Components layer, so       */
+/*  utilities on the same element win. Motion stops with reduced motion      */
+/*  (the global rules in globals.css).                                       */
+/* ======================================================================== */
+@layer components {
+  /* ------------------------------------------------------------ seal */
+  .pro-seal {
+    --w: 1.875rem;
+    --h: 2.375rem;
+    --fs: 0.5rem;
+    --rim: 1.5px;
+    position: relative;
+    display: inline-grid;
+    place-items: end center;
+    flex-shrink: 0;
+    width: var(--w);
+    height: var(--h);
+    padding-bottom: calc(var(--h) * 0.2);
+    border: var(--rim) solid transparent;
+    border-bottom-width: 0;
+    border-radius: 100vmax 100vmax 0 0;
+    background:
+      radial-gradient(130% 85% at 50% 14%, #3b2a22 0%, #1d1512 58%, #120d0b 100%) padding-box,
+      linear-gradient(160deg, #f6e2c3 0%, #c3905e 34%, #f1d7b1 56%, #9c5e34 82%, #d9b48a 100%) border-box;
+    box-shadow: 0 8px 16px -10px rgb(110 63 31 / 0.9);
+    line-height: 1;
+  }
+  /* the inner hairline arch */
+  .pro-seal::before {
+    content: "";
+    position: absolute;
+    inset: 2px 2px 0;
+    border: 1px solid rgb(228 196 156 / 0.3);
+    border-bottom: 0;
+    border-radius: inherit;
+  }
+  /* the keystone */
+  .pro-seal::after {
+    content: "";
+    position: absolute;
+    top: calc(var(--h) * 0.13);
+    left: 50%;
+    width: calc(var(--w) * 0.12);
+    aspect-ratio: 1;
+    translate: -50% 0;
+    rotate: 45deg;
+    background: var(--color-gold-glow);
+  }
+  .pro-seal-word {
+    padding-inline-start: 0.2em;
+    font-family: var(--font-latin-ui), sans-serif;
+    font-size: var(--fs);
+    font-weight: 600;
+    letter-spacing: 0.2em;
+    background-image: var(--metal-champagne);
+    background-size: 200% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+  }
+  .pro-seal[data-size="md"] {
+    --w: 2.75rem;
+    --h: 3.5rem;
+    --fs: 0.6875rem;
+    --rim: 2px;
+  }
+  .pro-seal[data-size="lg"] {
+    --w: 4rem;
+    --h: 5.125rem;
+    --fs: 0.875rem;
+    --rim: 2.5px;
+    box-shadow: 0 16px 30px -16px rgb(110 63 31 / 0.9);
+  }
+  .pro-seal[data-size="lg"]::before {
+    inset: 4px 4px 0;
+  }
+
+  /* -------------------------------------------------------- hallmark */
+  .pro-hallmark {
+    display: block;
+    overflow: visible;
+  }
+  .pro-hallmark .hm-m0 {
+    stop-color: #a77c52;
+  }
+  .pro-hallmark .hm-m1 {
+    stop-color: #dcb88c;
+  }
+  .pro-hallmark .hm-m2 {
+    stop-color: #fff0da;
+  }
+  .pro-hallmark .hm-m3 {
+    stop-color: #e4c49c;
+  }
+  .pro-hallmark .hm-m4 {
+    stop-color: #b08257;
+  }
+  .pro-hallmark .hm-m5 {
+    stop-color: #ecd0a8;
+  }
+  .pro-hallmark[data-tone="light"] .hm-m0 {
+    stop-color: #6e3f1f;
+  }
+  .pro-hallmark[data-tone="light"] .hm-m1 {
+    stop-color: #9c5e34;
+  }
+  .pro-hallmark[data-tone="light"] .hm-m2 {
+    stop-color: #c98d5c;
+  }
+  .pro-hallmark[data-tone="light"] .hm-m3 {
+    stop-color: #a8693c;
+  }
+  .pro-hallmark[data-tone="light"] .hm-m4 {
+    stop-color: #8a5230;
+  }
+  .pro-hallmark[data-tone="light"] .hm-m5 {
+    stop-color: #b4733f;
+  }
+  .pro-hallmark .hm-d0 {
+    stop-color: #3b2a22;
+  }
+  .pro-hallmark .hm-d1 {
+    stop-color: #1d1512;
+  }
+  .pro-hallmark .hm-d2 {
+    stop-color: #0d0907;
+  }
+  .pro-hallmark-glint {
+    fill: #fff6e8;
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: hm-glint 5.5s var(--ease-silk) infinite;
+  }
+  .pro-hallmark[data-tone="light"] .pro-hallmark-glint {
+    fill: var(--color-gold-bright);
+  }
+  .pro-hallmark-rim {
+    transform-box: view-box;
+    transform-origin: 80px 80px;
+    transition: transform 2.4s var(--ease-out-expo);
+  }
+  @keyframes hm-glint {
+    0%,
+    62%,
+    100% {
+      opacity: 0;
+      transform: scale(0.3) rotate(0deg);
+    }
+    74% {
+      opacity: 1;
+      transform: scale(1.15) rotate(45deg);
+    }
+    86% {
+      opacity: 0;
+      transform: scale(0.4) rotate(90deg);
+    }
+  }
+  /* the code was accepted: the rim turns, the seal glows */
+  [data-pro-state="ok"] .pro-hallmark-rim {
+    transform: rotate(120deg);
+  }
+  [data-pro-state="ok"] .pro-hallmark {
+    animation: hm-unlock 1.6s var(--ease-out-expo) both;
+  }
+  @keyframes hm-unlock {
+    0% {
+      filter: drop-shadow(0 0 0 rgb(241 207 166 / 0));
+    }
+    35% {
+      filter: drop-shadow(0 0 26px rgb(241 207 166 / 0.75));
+    }
+    100% {
+      filter: drop-shadow(0 0 14px rgb(241 207 166 / 0.35));
+    }
+  }
+  [data-pro-state="error"] .pro-hallmark {
+    animation: code-shake 0.5s var(--ease-lux);
+  }
+
+  /* -------------------------------------------- the jewel-box frame */
+  .lux-frame {
+    --lf-outer: var(--metal-copper);
+    --lf-inner: rgb(156 94 52 / 0.26);
+    --lf-orn: var(--color-gold);
+    --lf-gap: 6px;
+    position: relative;
+    isolation: isolate;
+  }
+  .lux-frame[data-frame="dark"] {
+    --lf-outer: var(--metal-champagne);
+    --lf-inner: rgb(228 196 156 / 0.2);
+    --lf-orn: var(--color-gold-on-dark);
+  }
+  /* the outer metal rule */
+  .lux-frame::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    padding: 1px;
+    background: var(--lf-outer);
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+  /* the inner hairline */
+  .lux-frame::after {
+    content: "";
+    position: absolute;
+    inset: var(--lf-gap);
+    z-index: 1;
+    border: 1px solid var(--lf-inner);
+    pointer-events: none;
+  }
+  /* a rhombus on each inner corner */
+  .lux-frame-orn {
+    position: absolute;
+    inset: calc(var(--lf-gap) - 3px);
+    z-index: 1;
+    pointer-events: none;
+    background: var(--lf-orn);
+    --rh: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M5 0 10 5 5 10 0 5Z'/%3E%3C/svg%3E");
+    -webkit-mask:
+      var(--rh) 0 0 / 7px 7px no-repeat,
+      var(--rh) 100% 0 / 7px 7px no-repeat,
+      var(--rh) 0 100% / 7px 7px no-repeat,
+      var(--rh) 100% 100% / 7px 7px no-repeat;
+    mask:
+      var(--rh) 0 0 / 7px 7px no-repeat,
+      var(--rh) 100% 0 / 7px 7px no-repeat,
+      var(--rh) 0 100% / 7px 7px no-repeat,
+      var(--rh) 100% 100% / 7px 7px no-repeat;
+  }
+  .lux-frame-key {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    z-index: 2;
+    width: 9px;
+    height: 9px;
+    translate: -50% -50%;
+    rotate: 45deg;
+    background: var(--lf-outer);
+    box-shadow: 0 0 0 3px var(--lf-key-ground, transparent);
+    pointer-events: none;
+  }
+
+  /* --------------------------------------------- the arch doorway */
+  .arch-door {
+    --door-ring: rgb(156 94 52 / 0.5);
+    --door-inner: rgb(156 94 52 / 0.24);
+    --door-gap: 11px;
+    position: relative;
+    isolation: isolate;
+    border-radius: 100vmax 100vmax 0 0;
+    background: linear-gradient(180deg, rgb(253 250 245 / 0.94), rgb(250 246 239 / 0.9));
+    -webkit-backdrop-filter: blur(14px);
+    backdrop-filter: blur(14px);
+    box-shadow: 0 30px 60px -48px rgb(26 19 16 / 0.32);
+    color: var(--color-ink);
+    transition: color 0.6s var(--ease-lux);
+  }
+  /* the hairline ring a little outside the crown */
+  .arch-door::before {
+    content: "";
+    position: absolute;
+    inset: calc(var(--door-gap) * -1) calc(var(--door-gap) * -1) 0;
+    border: 1px solid var(--door-ring);
+    border-bottom: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    transition: border-color 0.6s var(--ease-lux);
+  }
+  /* the second hairline inside */
+  .arch-door::after {
+    content: "";
+    position: absolute;
+    inset: 8px 8px 0;
+    z-index: 1;
+    border: 1px solid var(--door-inner);
+    border-bottom: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    transition: border-color 0.6s var(--ease-lux);
+  }
+  .arch-door-night {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    border-radius: inherit;
+    background:
+      radial-gradient(70% 45% at 50% 0%, rgb(233 185 138 / 0.2), transparent 70%),
+      radial-gradient(70% 50% at 100% 100%, rgb(109 26 38 / 0.3), transparent 70%),
+      radial-gradient(70% 50% at 0% 80%, rgb(15 86 82 / 0.32), transparent 70%),
+      var(--color-night-2);
+    opacity: 0;
+    transition: opacity 0.7s var(--ease-lux);
+    pointer-events: none;
+  }
+  .arch-door-night > .grain {
+    opacity: 0.18;
+  }
+  .arch-door-key {
+    position: absolute;
+    top: calc(var(--door-gap) * -1);
+    left: 50%;
+    z-index: 2;
+    width: 9px;
+    height: 9px;
+    translate: -50% -50%;
+    rotate: 45deg;
+    background: var(--color-gold-bright);
+    pointer-events: none;
+    transition: background-color 0.6s var(--ease-lux);
+  }
+  /* the sill: one hairline under the door, wider than it */
+  .arch-door-sill {
+    position: absolute;
+    inset-inline: calc(var(--door-gap) * -1.3);
+    bottom: 0;
+    height: 1px;
+    background: var(--metal-copper);
+    opacity: 0.7;
+    pointer-events: none;
+  }
+  @media (min-width: 640px) {
+    .arch-door-sill {
+      inset-inline: calc(var(--door-gap) * -2.4);
+    }
+  }
+  .arch-door-body {
+    position: relative;
+    z-index: 2;
+  }
+  .arch-door-crown {
+    display: grid;
+    place-items: center;
+  }
+  .arch-door[data-door="night"] {
+    --door-ring: rgb(228 196 156 / 0.5);
+    --door-inner: rgb(228 196 156 / 0.2);
+    color: var(--color-on-night);
+  }
+  .arch-door[data-door="night"] .arch-door-night {
+    opacity: 1;
+  }
+  .arch-door[data-door="night"] .arch-door-key {
+    background: var(--color-gold-glow);
+  }
+  .arch-door[data-door="night"] .arch-door-sill {
+    background: var(--metal-champagne);
+  }
+
+  /* ------------------------------------------------- the code field */
+  .code-form {
+    --cell-ground: rgb(255 255 255 / 0.9);
+    --cell-line: rgb(140 129 120 / 0.75);
+    --cell-line-soft: rgb(26 19 16 / 0.1);
+    --cell-ink: var(--color-ink);
+    --cell-caret: var(--color-gold);
+    --cell-focus: var(--color-gold);
+    --cell-glow: rgb(156 94 52 / 0.14);
+    --cell-empty: rgb(26 19 16 / 0.18);
+    display: grid;
+    gap: 0.75rem;
+  }
+  .code-form[data-tone="night"] {
+    --cell-ground: rgb(255 248 238 / 0.05);
+    --cell-line: rgb(228 196 156 / 0.38);
+    --cell-line-soft: rgb(228 196 156 / 0.12);
+    --cell-ink: var(--color-on-night);
+    --cell-caret: var(--color-gold-glow);
+    --cell-focus: var(--color-gold-on-dark);
+    --cell-glow: rgb(228 196 156 / 0.09);
+    --cell-empty: rgb(245 236 223 / 0.22);
+  }
+  .code-label {
+    font-family: var(--font-ui);
+    font-size: var(--text-sm);
+    color: var(--color-ink-2);
+  }
+  .code-form[data-tone="night"] .code-label {
+    color: var(--color-on-night-muted);
+  }
+  .code-clear {
+    min-height: 2.25rem;
+    font-family: var(--font-ui);
+    font-size: var(--text-xs);
+    color: var(--color-muted);
+    text-decoration: underline;
+    text-decoration-color: color-mix(in srgb, currentColor 35%, transparent);
+    text-underline-offset: 0.45em;
+    cursor: pointer;
+  }
+  .code-clear:hover {
+    color: var(--color-ink);
+  }
+  .code-form[data-tone="night"] .code-clear {
+    color: var(--color-on-night-muted);
+  }
+  .code-form[data-tone="night"] .code-clear:hover {
+    color: var(--color-on-night);
+  }
+  .code-field {
+    position: relative;
+  }
+  /* the real input lies over the cells, invisible; it takes the taps, the keyboard and the paste */
+  .code-input {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    width: 100%;
+    height: 100%;
+    padding: 0;
+    border: 0;
+    outline: none;
+    background: transparent;
+    color: transparent;
+    caret-color: transparent;
+    font-size: 16px;
+    letter-spacing: 0;
+    -webkit-text-fill-color: transparent;
+    cursor: text;
+  }
+  .code-input::selection {
+    background: transparent;
+  }
+  .code-input:read-only {
+    cursor: default;
+  }
+  .code-cells {
+    display: flex;
+    align-items: center;
+    gap: clamp(0.3rem, 1.6vw, 0.6rem);
+  }
+  .code-group {
+    position: relative;
+    display: flex;
+    flex: 1 1 0;
+    min-width: 0;
+    background: var(--cell-ground);
+    box-shadow: inset 0 0 0 1px var(--cell-line);
+    transition:
+      box-shadow 0.4s var(--ease-lux),
+      background-color 0.4s var(--ease-lux);
+  }
+  /* between the groups: a short upright hairline (a rhombus here would read as the Persian zero «۰») */
+  .code-sep {
+    flex-shrink: 0;
+    width: 1px;
+    height: 14px;
+    background: var(--cell-line);
+    opacity: 0.9;
+  }
+  .code-cell {
+    position: relative;
+    display: grid;
+    flex: 1 1 0;
+    place-items: center;
+    min-width: 0;
+    height: 3.5rem;
+    font-family: var(--font-ui);
+    font-size: 1.375rem;
+    font-weight: 500;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    color: var(--cell-ink);
+    transition:
+      color 0.4s var(--ease-lux),
+      background-color 0.5s var(--ease-lux);
+  }
+  .code-cell + .code-cell {
+    box-shadow: inset 1px 0 0 var(--cell-line-soft);
+  }
+  /* an empty cell: a short hairline on the baseline, waiting (never a rhombus or a dot: both read as «۰») */
+  .code-cell:not([data-filled])::before {
+    content: "";
+    width: 0.55em;
+    height: 1px;
+    translate: 0 0.55em;
+    background: var(--cell-empty);
+  }
+  .code-cell[data-filled] {
+    animation: code-in 0.35s var(--ease-out-expo);
+  }
+  @keyframes code-in {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+  }
+  /* the next cell: a soft glow and a blinking caret */
+  .code-cell[data-active] {
+    background: var(--cell-glow);
+  }
+  .code-cell[data-active]::before {
+    width: 1.5px;
+    height: 1.5rem;
+    translate: none;
+    background: var(--cell-caret);
+    animation: code-caret 1.1s steps(1) infinite;
+  }
+  .code-cell[data-active]::after {
+    content: "";
+    position: absolute;
+    inset-inline: 22%;
+    bottom: 5px;
+    height: 1px;
+    background: var(--cell-caret);
+  }
+  @keyframes code-caret {
+    50% {
+      opacity: 0;
+    }
+  }
+  .code-field[data-focused] .code-group {
+    box-shadow:
+      inset 0 0 0 1px var(--cell-focus),
+      0 0 0 2px var(--cell-glow);
+  }
+  /* error: the cells turn danger and shake */
+  .code-form[data-state="error"] .code-group {
+    box-shadow: inset 0 0 0 1px var(--color-danger);
+  }
+  .code-form[data-tone="night"][data-state="error"] .code-group {
+    box-shadow: inset 0 0 0 1px rgb(236 150 140 / 0.85);
+  }
+  .code-shake {
+    animation: code-shake 0.5s var(--ease-lux);
+  }
+  @keyframes code-shake {
+    15% {
+      transform: translateX(-7px);
+    }
+    35% {
+      transform: translateX(6px);
+    }
+    55% {
+      transform: translateX(-4px);
+    }
+    75% {
+      transform: translateX(2px);
+    }
+  }
+  /* checking: a light runs along the cells */
+  .code-form[data-state="pending"] .code-cell {
+    animation: code-wait 1.2s var(--ease-silk) infinite;
+    animation-delay: calc(var(--i) * 60ms);
+  }
+  @keyframes code-wait {
+    50% {
+      color: var(--cell-caret);
+    }
+  }
+  /* accepted: each cell fills with champagne light, one after the other, and the group glows */
+  .code-form[data-state="ok"] .code-group {
+    box-shadow:
+      inset 0 0 0 1px var(--color-gold-bright),
+      0 0 24px -4px rgb(233 185 138 / 0.65);
+  }
+  .code-form[data-state="ok"] .code-cell {
+    color: var(--color-ink);
+    animation: code-unlock 0.7s var(--ease-out-expo) both;
+    animation-delay: calc(var(--i) * 45ms);
+  }
+  @keyframes code-unlock {
+    from {
+      background-color: transparent;
+      color: var(--cell-ink);
+    }
+    to {
+      background-color: var(--color-champagne);
+      color: var(--color-ink);
+    }
+  }
+  .code-help {
+    font-family: var(--font-ui);
+    font-size: var(--text-xs);
+    line-height: 1.8;
+    color: var(--color-muted);
+  }
+  .code-form[data-tone="night"] .code-help {
+    color: var(--color-on-night-muted);
+  }
+  .code-note:empty {
+    display: none;
+  }
+  .code-error,
+  .code-ok {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    font-family: var(--font-ui);
+    font-size: var(--text-sm);
+    line-height: 1.8;
+  }
+  .code-error > svg,
+  .code-ok > svg {
+    margin-top: 0.3em;
+  }
+  .code-error {
+    color: var(--color-danger);
+  }
+  .code-ok {
+    color: var(--color-gold-text);
+  }
+  .code-form[data-tone="night"] .code-error {
+    color: rgb(240 172 162);
+  }
+  .code-form[data-tone="night"] .code-ok {
+    color: var(--color-gold-glow);
+  }
+  .code-form[data-state="ok"] .btn:disabled {
+    opacity: 1;
+    filter: none;
+  }
+
+  /* the unlock moment (a code was accepted outside the sheet) */
+  .pro-unlocked > * {
+    animation:
+      pro-unlocked-in 0.7s var(--ease-out-expo) both,
+      pro-unlocked-out 0.6s var(--ease-lux) 3s both;
+  }
+  @keyframes pro-unlocked-in {
+    from {
+      opacity: 0;
+      transform: translateY(14px) scale(0.98);
+    }
+  }
+  @keyframes pro-unlocked-out {
+    to {
+      opacity: 0;
+      transform: translateY(-6px);
+    }
+  }
+
+  /* ---------------------------------------------- membership steps */
+  .pro-steps {
+    --st-line: rgb(156 94 52 / 0.3);
+    --st-done: var(--color-gold);
+    --st-now: var(--color-gold);
+    --st-next: rgb(26 19 16 / 0.22);
+    --st-text: var(--color-muted);
+    --st-text-now: var(--color-ink);
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    font-family: var(--font-ui);
+    font-size: var(--text-xs);
+    line-height: 1.6;
+    text-align: center;
+  }
+  .pro-steps[data-tone="night"] {
+    --st-line: rgb(228 196 156 / 0.26);
+    --st-done: var(--color-gold-on-dark);
+    --st-now: var(--color-gold-glow);
+    --st-next: rgb(245 236 223 / 0.25);
+    --st-text: var(--color-on-night-muted);
+    --st-text-now: var(--color-on-night);
+  }
+  .pro-steps > li {
+    position: relative;
+    display: grid;
+    justify-items: center;
+    gap: 0.6rem;
+    padding-inline: 0.25rem;
+    color: var(--st-text);
+  }
+  /* the hairline to the next step */
+  .pro-steps > li:not(:last-child)::after {
+    content: "";
+    position: absolute;
+    top: 6px;
+    inset-inline-start: calc(50% + 12px);
+    width: calc(100% - 24px);
+    height: 1px;
+    background: var(--st-line);
+  }
+  .pro-steps > li[data-at="done"]:not(:last-child)::after {
+    background: var(--st-done);
+    opacity: 0.7;
+  }
+  .pro-step-mark {
+    width: 9px;
+    height: 9px;
+    margin-top: 2px;
+    rotate: 45deg;
+    border: 1px solid var(--st-next);
+  }
+  .pro-steps > li[data-at="done"] .pro-step-mark {
+    border-color: var(--st-done);
+    background: var(--st-done);
+  }
+  .pro-steps > li[data-at="now"] .pro-step-mark {
+    border-color: var(--st-now);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--st-now) 22%, transparent);
+    animation: step-now 2.6s var(--ease-silk) infinite;
+  }
+  .pro-steps > li[data-at="now"] {
+    color: var(--st-text-now);
+  }
+  @keyframes step-now {
+    50% {
+      box-shadow: 0 0 0 6px color-mix(in srgb, var(--st-now) 6%, transparent);
+    }
+  }
+}
