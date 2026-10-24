@@ -129,7 +129,7 @@ export function CodeInput({
       className="code-form"
     >
       {/* as tall as the clear button, so the cells stay put when it appears (a hidden label lends its row to the space above) */}
-      <div className={`flex min-h-9 items-center justify-between gap-4 ${hideLabel ? "-mt-5" : ""}`}>
+      <div className={`flex min-h-9 items-center justify-between gap-4 ${hideLabel ? "-mt-4" : ""}`}>
         <label htmlFor={id} className={hideLabel ? "sr-only" : "code-label"}>
           {c.codeLabel}
         </label>
