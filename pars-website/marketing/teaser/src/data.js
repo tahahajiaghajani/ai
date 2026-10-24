@@ -160,7 +160,7 @@ const DATA = {
           // the indicators page opens, and the AI layer ends, on the whole page left of the menu, header included
           { screen: S("assess-1", 1920, 911), start: { x: 1.5, y: 0, w: 81, h: 94.8 }, startOpt: { fill: 1, zmax: 1.3 }, aiCam: { x: 1.5, y: 0, w: 81, h: 94.8 }, aiCamOpt: { fill: 1, zmax: 1.3 }, aiSpots: [{ x: 30, y: 40.5 }, { x: 15, y: 60 }, { x: 45, y: 80 }], callouts: [
             { x: 23, y: 44, w: 7.5, h: 31, label: "رنگ‌بندی درصد تحقق", text: "شاخص‌های عقب‌مانده، با رنگ قرمز و زرد، پیش از جلسه دیده می‌شوند.", zmax: 1.65, hug: 1 },
-            { x: 59.64, y: 34, w: 21.61, h: 41, label: "ساختار سلسله‌مراتبی", text: "هر شاخص زیر معاونت و اداره‌ی کل مسئول؛ پاسخ‌گویی روشن است.", zmax: 1.4, hug: 30 },
+            { x: 59.64, y: 34, w: 21.61, h: 41, label: "ساختار سلسله‌مراتبی", text: "هر شاخص زیر معاونت و اداره‌ی کل مسئول؛ پاسخ‌گویی روشن است.", zmax: 1.4, hug: 30 },
           ] },
         ] },
       ],
@@ -178,7 +178,7 @@ const DATA = {
       shots: [
         { type: "demo", ai: 1, pages: [
           { screen: S("delays-0", 1920, 911, { bg: "#f1f5f9" }), start: { x: 0, y: 0, w: 100, h: 100 }, startOpt: { fill: 1, zmax: 1, zmin: 0.9, ay: 1 }, rest: { x: 0, y: 0, w: 100, h: 100 }, restOpt: { fill: 1, zmax: 1, zmin: 0.9, ay: 1 }, next: false, callouts: [
-            { x: 1.3, y: 16.68, w: 97.4, h: 11.64, fitWidth: 1, fill: 0.98, label: "پنج شاخص کلیدی تأخیر", text: "تعداد، موارد بحرانی، مجموع روزها، عامل اصلی و نوع شایع تأخیر؛ در یک ردیف.", },
+            { x: 1.3, y: 16.68, w: 97.4, h: 11.64, fill: 0.95, zmin: 0.9, label: "پنج شاخص کلیدی تأخیر", text: "تعداد، موارد بحرانی، مجموع روزها، عامل اصلی و نوع شایع تأخیر؛ در یک ردیف.", },
             { x: 28.49, y: 57.52, w: 9.43, h: 5.38, label: "نقطه‌ی داغ تأخیر", text: "ماتریس عامل و نوع تأخیر می‌گوید اصلاح را از کجا شروع کنید.", camRegion: { x: 26, y: 39, w: 52, h: 61 }, camOpt: { fill: 1, zmax: 2 } },
           ] },
           // short dashboards show whole, on their own margin colour (no cropped cards at the sides)
