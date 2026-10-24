@@ -619,7 +619,8 @@ function sceneOverview({ kicker, title, lead, items }) {
     return c;
   });
   const tl = gsap.timeline();
-  tl.add(fadeIn(k, 0.7), 0.1).add(rise(tw, { stagger: 0.07 }), 0.25).add(rise(lw, { stagger: 0.03, dur: 0.7 }), 0.7);
+  // the heading waits for the outgoing chapter to clear (chapters overlap by up to half a second)
+  tl.add(fadeIn(k, 0.7), 0.5).add(rise(tw, { stagger: 0.07 }), 0.65).add(rise(lw, { stagger: 0.03, dur: 0.7 }), 1.05);
   cards.forEach((c, i) => {
     const row = Math.floor(i / 5), col = 4 - (i % 5);
     tl.fromTo(c, { opacity: 0, rotationX: -50, y: 60, z: -200 }, { opacity: 1, rotationX: 0, y: 0, z: 0, duration: 1, ease: "pars" }, 1.1 + row * 0.25 + col * 0.09);

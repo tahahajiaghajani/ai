@@ -229,6 +229,9 @@ const Background = (() => {
     x.putImageData(id, 0, 0);
     return c;
   })();
+  const ribbonLayer = document.createElement("canvas");
+  ribbonLayer.width = W;
+  ribbonLayer.height = H;
   function render(t) {
     const ctx = cv().getContext("2d");
     ctx.globalCompositeOperation = "source-over";
@@ -242,6 +245,11 @@ const Background = (() => {
     ctx.globalCompositeOperation = "lighter";
     const a = BG.ribbons;
     if (a > 0.002) {
+      // the ribbons are drawn on their own layer, so their moving inner ends can be faded out with a soft mask
+      const rx = ribbonLayer.getContext("2d");
+      rx.globalCompositeOperation = "source-over";
+      rx.clearRect(0, 0, W, H);
+      rx.globalCompositeOperation = "lighter";
       const c = BG.converge;
       // stream 1 (violet, experience) and stream 2 (magenta, intelligence)
       const yb = BG.flowY * H, amp = 60 * BG.flowAmp;
@@ -255,13 +263,30 @@ const Background = (() => {
       const wFree1 = [60, 140, 90, 120, 40], wFree2 = [40, 120, 90, 140, 60], wConv = [150, 140, 110, 50, 1];
       // the inner end is only solid once the streams actually meet; half-way it fades out instead of stopping mid-screen
       const endA = smooth(clamp((c - 0.55) / 0.45, 0, 1)).toFixed(3);
-      Ribbon.draw(ctx, { pts: mix(free1, conv1), width: wFree1.map((v, i) => lerp(v, wConv[i], c)), turns: 1.4, phase: t * 0.35, n: 30, alpha: 0.42 * a, colors: ["rgba(143,134,255,0.0)", "#8f86ff", "#b8b1ff", `rgba(224,107,192,${endA})`], lw: 1.35 });
-      Ribbon.draw(ctx, { pts: mix(free2, conv2), width: wFree2.map((v, i) => lerp(v, wConv[i], c)), turns: 1.7, phase: 2 - t * 0.31, n: 30, alpha: 0.4 * a, colors: ["rgba(255,43,143,0.0)", "#df1173", "#ff4fa3", `rgba(255,156,204,${endA})`], lw: 1.35 });
+      Ribbon.draw(rx, { pts: mix(free1, conv1), width: wFree1.map((v, i) => lerp(v, wConv[i], c)), turns: 1.4, phase: t * 0.35, n: 30, alpha: 0.42 * a, colors: ["rgba(143,134,255,0.0)", "#8f86ff", "#b8b1ff", `rgba(224,107,192,${endA})`], lw: 1.35 });
+      Ribbon.draw(rx, { pts: mix(free2, conv2), width: wFree2.map((v, i) => lerp(v, wConv[i], c)), turns: 1.7, phase: 2 - t * 0.31, n: 30, alpha: 0.4 * a, colors: ["rgba(255,43,143,0.0)", "#df1173", "#ff4fa3", `rgba(255,156,204,${endA})`], lw: 1.35 });
       if (c > 0.01) {
         // the joined stream leaves the meeting point
         const out = [P, [P[0] - 120, P[1] + 60], [P[0] - 420, P[1] + 220], [-200, P[1] + 330]];
-        Ribbon.draw(ctx, { pts: out, width: [1, 60, 130, 180], turns: 0.9, phase: t * 0.4, n: 34, alpha: 0.45 * a * smooth(clamp((c - 0.6) / 0.4, 0, 1)), colors: ["#ffffff", "#ff4fa3", "#c2479f", "rgba(143,134,255,0.2)"], lw: 1.3 });
+        Ribbon.draw(rx, { pts: out, width: [1, 60, 130, 180], turns: 0.9, phase: t * 0.4, n: 34, alpha: 0.45 * a * smooth(clamp((c - 0.85) / 0.15, 0, 1)), colors: ["#ffffff", "#ff4fa3", "#c2479f", "rgba(143,134,255,0.2)"], lw: 1.3 });
       }
+      // while the streams travel, their inner ends dissolve instead of ending square: each end is masked until it nears the
+      // meeting point, where the pinched tips vanish into the light until the two have met (the logo appears there)
+      const on = smooth(clamp(c / 0.15, 0, 1));
+      const masks = [mix(free1, conv1)[4], mix(free2, conv2)[4]].map((E) => [E, 320, on * smooth(clamp(Math.hypot(E[0] - P[0], E[1] - P[1]) / 220, 0, 1))]);
+      masks.push([P, 190, smooth(clamp((c - 0.6) / 0.2, 0, 1)) * (1 - smooth(clamp((c - 0.9) / 0.1, 0, 1)))]);
+      rx.globalCompositeOperation = "destination-out";
+      for (const [E, r, k] of masks) {
+        if (k <= 0.002) continue;
+        const gr = rx.createRadialGradient(E[0], E[1], 0, E[0], E[1], r);
+        gr.addColorStop(0, `rgba(0,0,0,${k})`);
+        gr.addColorStop(0.4, `rgba(0,0,0,${k})`);
+        gr.addColorStop(1, "rgba(0,0,0,0)");
+        rx.fillStyle = gr;
+        rx.fillRect(E[0] - r, E[1] - r, 2 * r, 2 * r);
+      }
+      ctx.globalCompositeOperation = "lighter";
+      ctx.drawImage(ribbonLayer, 0, 0);
     }
     if (BG.particles > 0.01) {
       for (const p of parts) {
