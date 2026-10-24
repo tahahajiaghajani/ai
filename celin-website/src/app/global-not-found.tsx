@@ -1,7 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import Link from "next/link";
 import { Document } from "@/components/site/document";
-import { FONT_VARS } from "@/lib/fonts";
+import { FONT_VARS_LAZY } from "@/fonts/lazy";
 import { siteViewport } from "@/lib/seo";
 import { errorCopy } from "@/content/copy/errors";
 import { NightDoor } from "@/components/house/night-door";
@@ -21,7 +21,7 @@ export default function GlobalNotFound() {
   const fa = errorCopy.fa.notFound;
   const en = errorCopy.en.notFound;
   return (
-    <Document lang="fa" fonts={FONT_VARS}>
+    <Document lang="fa" fonts={FONT_VARS_LAZY}>
       <main>
         <NightDoor
           lang="fa"

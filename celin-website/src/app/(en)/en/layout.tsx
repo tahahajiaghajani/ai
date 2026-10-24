@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Document } from "@/components/site/document";
-import { FONT_VARS_EN } from "@/fonts/en";
+import { FONT_VARS_LAZY } from "@/fonts/lazy";
 import { siteMetadata, siteViewport } from "@/lib/seo";
 import { getSettings } from "@/lib/settings";
 import "../../globals.css";
@@ -13,7 +13,7 @@ export const viewport: Viewport = siteViewport;
 
 export default function EnRoot({ children }: { children: React.ReactNode }) {
   return (
-    <Document lang="en" fonts={FONT_VARS_EN}>
+    <Document lang="en" fonts={FONT_VARS_LAZY}>
       {children}
     </Document>
   );

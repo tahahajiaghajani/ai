@@ -23,6 +23,9 @@ export function Cursor({ label }: { label: string }) {
     if (!r || !d || !finePointer() || reduced) return;
     r.hidden = false;
     d.hidden = false;
+    // nothing shows until the pointer has moved (otherwise the ring would sit in the corner of the window)
+    r.dataset.mode = "hidden";
+    d.dataset.mode = "hidden";
     document.documentElement.classList.add("fx-has-cursor");
     const pos = { x: -100, y: -100, rx: -100, ry: -100 };
     let raf = 0;
@@ -72,9 +75,9 @@ export function Cursor({ label }: { label: string }) {
     };
   }, [label, reduced]);
 
-  // a new page: back to the plain glint
+  // a new page: back to the plain glint (unless the pointer is away)
   useEffect(() => {
-    if (ring.current) ring.current.dataset.mode = "";
+    if (ring.current && ring.current.dataset.mode !== "hidden") ring.current.dataset.mode = "";
   }, [path]);
 
   return (

@@ -12,8 +12,9 @@ import { LATIN_VARS } from "@/fonts/latin";
  * - Vazirmatn (variable) — only the admin panel and dense numeric tables (tabular figures).
  * - Bodoni Moda (optical sizes) — Latin display, a Didone like the CELIN wordmark.
  * - Jost — Latin labels, UI and English running text, close to the logo's tracked "Handmade Jewelry" line.
- * The Latin faces and Vazirmatn live in src/fonts/latin.ts and the English pages' Nazli in src/fonts/en.ts: next/font
- * preloads every face defined in a module a layout imports, so the English layout must not import this module.
+ * The Latin faces and Vazirmatn live in src/fonts/latin.ts; the English pages and the global 404 / error pages use the
+ * non-preloaded Nazli of src/fonts/lazy.ts: next/font preloads every face defined in a module that a root layout or a
+ * global page imports, so only the Persian root layout imports this module.
  * No metric-adjusted fallbacks: a local-Arial fallback has Arabic glyphs and would catch Persian letters and digits
  * before the Persian face does (the Persian system fallbacks sit at the end of the stacks in globals.css).
  */
@@ -33,5 +34,5 @@ export const nazli = localFont({
   ],
 });
 
-/** Persian pages (and the global 404 / error pages): Nazli preloaded. English pages use FONT_VARS_EN (src/fonts/en.ts). */
+/** Persian pages: Nazli preloaded (the (fa) root layout only; see src/fonts/lazy.ts). */
 export const FONT_VARS = `${nazli.variable} ${LATIN_VARS}`;

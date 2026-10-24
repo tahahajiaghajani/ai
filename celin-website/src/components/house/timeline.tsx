@@ -67,7 +67,7 @@ export function Timeline({ lang, d }: { lang: Lang; d: TimelineData }) {
   const year = "numeral inline-block whitespace-nowrap text-metal-light";
   return (
     <section ref={root} data-tone="light" className="fx-pin relative isolate bg-night-teal text-on-night" style={{ "--pin": "120vh" } as CSSProperties}>
-      <div className="fx-pin-stage relative isolate overflow-clip">
+      <div className="fx-pin-stage isolate overflow-clip">
         <Aura palette="paraiba" light={0.75} />
         <Grain />
         {/* the cocoa night above turns into the teal; the foot is plain teal night for the melt into the bone below */}

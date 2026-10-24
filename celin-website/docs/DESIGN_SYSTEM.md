@@ -16,7 +16,7 @@
 | States | `text-success/warning/danger` + `bg-*-soft` |
 | Texture | `<Grain/>` (film grain over a band), `glass` / `glass-dark` (floating bars), `frame-metal` (1px gradient border), `hairline` / `hairline-light` |
 
-Alternate light and dark bands down a page (e.g. espresso hero → bone → cocoa → porcelain → paraiba → …); let neighbouring bands melt into each other instead of meeting at a hard edge. Melts (utilities in `globals.css`, raw stops live there): `bg-dawn` (a band whose top row is plain night and whose light rises from below as one wide arch through cocoa, mocha, sand and bone — the home statement under the hero), `bg-dusk` (porcelain → night-2 over a short strip; `rotate-180` for night-2 → light), `bg-tide` (night-teal → porcelain). Give the dark side of a seam a plain edge (fade the Aura / mesh to the base colour there) so the two rows match exactly. Never a moving ribbon (marquee) between bands.
+Alternate light and dark bands down a page (e.g. espresso hero → bone → cocoa → porcelain → paraiba → …); let neighbouring bands melt into each other instead of meeting at a hard edge. Melts (utilities in `globals.css`, raw stops live there): `bg-dawn` (a band whose top row is plain night and whose light rises from below as one wide arch through cocoa, mocha, sand and bone — the home statement under the hero), `bg-dusk` (porcelain → night-2 over a short strip; `[--dusk-dir:0deg]` for night-2 → light — never `rotate-180`, a transformed strip leaves a hairline seam), `bg-tide` (night-teal → porcelain; `[--tide-dir:0deg]` upside down). Every light/dark join on every page uses them, through `<Melt at="top|bottom" tone="night|teal" />` (`src/components/fx/melt.tsx`, height `--melt-h`) inside the light band (`relative isolate`; keep its content clear of the strip), or `on="dark"` when a dark band closes a page and must end on the ground of the services strip. Give the dark side of a seam a plain edge so the two rows match exactly: `<NightFoot>` / `<NightHead>` fade the Aura to plain night-2 (or night-teal), a mesh is masked to the band's base colour at its edges. Never a moving ribbon (marquee) between bands.
 
 ## Type
 
@@ -67,14 +67,15 @@ Rules: Persian digits on fa pages (`num`, `formatPrice`, `formatDate`); Latin sn
 | `.fx-parallax`, `.fx-drift`, `.fx-arrive` | CSS scroll-driven (compositor only): a picture drifting inside its frame / a layer drifting slower (`--drift` > 0) or faster (`--drift` < 0) than the page / a block rising softly out of the band above as it arrives. No JS; off with reduced motion; static where unsupported |
 | `Sparkles` | glints detected on the bright facets of the parent's `<img>` (any uploaded photo) |
 | `Aura palette="espresso|paraiba|cocoa|porcelain"` | WebGL silk light behind a band (CSS mesh fallback) |
-| `Reel` | pinned horizontal row on desktop (reading direction), swipe row on touch |
+| `Reel` | horizontal row that stays in view on desktop while vertical scrolling moves it (reading direction), swipe row on touch; keyboard focus scrolls to the focused card |
+| `.fx-pin` / `.fx-pin-stage` | scenes that stay in view (Reel, the arch window, the timeline): CSS `sticky` over `--pin`, ScrollTrigger only scrubs — never GSAP `pin` (layout shift, a jump at the pin) |
 | `Magnetic` | main CTA leans to the pointer |
 | `Cursor` | copper glint; `data-cursor="view"` (+ `data-cursor-label`) opens a disc over pictures; `data-tone="light"` on dark bands |
 | `Intro` | first home visit of a session: monogram + curtain (pure CSS) |
 | `.fx-sheen` | light sweep across a picture on hover |
 | `.fx-aperture` + `--open` | arch window that opens (GSAP scrubs `--open` 0→1) |
 
-Rules: LCP picture eager (`priority`), no motion that blocks reading, ≤ 3 WebGL canvases per page, every effect must leave the content readable without JS.
+Rules: LCP picture eager (`priority`), no motion that blocks reading, ≤ 3 WebGL canvases per page, every effect must leave the content readable without JS. The motion preference is live: JS effects read `useMotionReduced()` (`fx/motion.ts`) and stop / restart when the footer toggle or the OS setting changes. Above-the-fold hero copy uses `fx-in` (CSS from the first paint), never `data-reveal`; the boot script takes `js` off again if the app has not marked `fx-ready` within 3 s, so a failed script never leaves a page blank.
 
 ## Layout and components
 

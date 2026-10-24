@@ -118,11 +118,16 @@
   --animate-fade-in: fade-in 0.6s var(--ease-lux) both;
 }
 
-/* Persian pages: Nazli leads every stack (Latin letters and digits still fall through to Jost / Bodoni Moda) */
+/*
+ * Persian pages: Nazli leads every stack (Latin letters and digits still fall through to Jost / Bodoni Moda), the
+ * labels too: their spaces and separators come from Nazli, whose «·» is a short bar — Jost's round middle dot beside
+ * Persian words reads as the zero «۰».
+ */
 html[lang="fa"] {
   --font-sans: var(--font-fa), var(--font-latin-ui), var(--font-fa-system), ui-sans-serif, system-ui, sans-serif;
   --font-ui: var(--font-fa), var(--font-latin-ui), var(--font-fa-system), ui-sans-serif, system-ui, sans-serif;
   --font-display: var(--font-fa), var(--font-latin-display), var(--font-fa-system), ui-serif, Georgia, serif;
+  --font-label: var(--font-fa), var(--font-latin-ui), var(--font-fa-system), ui-sans-serif, system-ui, sans-serif;
 }
 
 :root {
@@ -674,6 +679,10 @@ html[data-motion="reduced"].js [data-reveal]:not([data-in]) {
  * while scrolling (no layout shift, no jump when the pin starts). The media query matches the scenes' own
  * gsap.matchMedia() query; without JS, with the failsafe or with reduced motion the bands are simply static.
  */
+/* (the stage's position lives here, not in a utility on the element: a `relative` utility would beat `sticky`) */
+.fx-pin-stage {
+  position: relative;
+}
 @media (min-width: 1024px) and (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
   html.js:not([data-motion="reduced"]) .fx-pin::after {
     content: "";

@@ -1,7 +1,7 @@
 "use client";
 
 import { errorCopy } from "@/content/copy/errors";
-import { FONT_VARS } from "@/lib/fonts";
+import { FONT_VARS_LAZY } from "@/fonts/lazy";
 import "./globals.css";
 
 /**
@@ -12,7 +12,7 @@ export default function GlobalError({ error, retry }: { error: Error & { digest?
   const fa = errorCopy.fa.error;
   const en = errorCopy.en.error;
   return (
-    <html lang="fa" dir="rtl" className={FONT_VARS}>
+    <html lang="fa" dir="rtl" className={FONT_VARS_LAZY}>
       <body className="font-sans antialiased">
         <title>{`${fa.title} — سلین`}</title>
         <main className="relative isolate flex min-h-[100svh] items-center overflow-clip bg-mesh-espresso text-on-night">

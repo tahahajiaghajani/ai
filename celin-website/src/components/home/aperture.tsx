@@ -60,7 +60,7 @@ export function Aperture({ lang, d }: { lang: Lang; d: ApertureData }) {
 
   return (
     <section ref={root} data-tone="light" className="fx-pin relative isolate bg-night-teal text-on-night" style={{ "--pin": "110vh" } as CSSProperties}>
-      <div className="fx-pin-stage relative isolate overflow-clip">
+      <div className="fx-pin-stage isolate overflow-clip">
         <Aura palette="paraiba" light={0.8} />
         <Grain />
         {/* the night-2 foot of the band above melts into the teal; the light settles into plain teal night at the foot */}

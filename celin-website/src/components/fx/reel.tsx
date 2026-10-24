@@ -85,7 +85,7 @@ export function Reel({ children, header, className = "", trackClassName = "" }: 
 
   return (
     <div ref={root} className="fx-pin group/reel relative">
-      <div className={`fx-pin-stage relative overflow-x-clip ${className}`}>
+      <div className={`fx-pin-stage overflow-x-clip ${className}`}>
         {header}
         <div
           ref={track}
