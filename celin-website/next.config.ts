@@ -36,6 +36,8 @@ const nextConfig: NextConfig = {
       { source: "/media/seed/:path*", headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }] },
       // app icons and the share picture keep their names when redrawn: a day in the browser, then revalidated
       { source: "/:file(favicon.ico|icon-192.png|icon-512.png|icon-maskable-512.png|apple-touch-icon.png|og.png)", headers: [{ key: "Cache-Control", value: "public, max-age=86400, stale-while-revalidate=604800" }] },
+      // the logo files (preloaded on every page) keep their names: a day in the browser, then revalidated
+      { source: "/brand/:path*", headers: [{ key: "Cache-Control", value: "public, max-age=86400, stale-while-revalidate=604800" }] },
       // admin and account pages are never indexed or cached by shared caches
       { source: "/admin/:path*", headers: [{ key: "X-Robots-Tag", value: "noindex, nofollow" }, { key: "Cache-Control", value: "private, no-store" }] },
       { source: "/account/:path*", headers: [{ key: "X-Robots-Tag", value: "noindex, nofollow" }] },

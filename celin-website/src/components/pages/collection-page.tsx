@@ -117,9 +117,10 @@ export async function CollectionPage({ lang, slug }: { lang: Lang; slug: string 
               ))}
             </div>
           ) : (
-            <ul className="mt-8 grid grid-cols-2 gap-px border-y border-line bg-line lg:grid-cols-3 xl:grid-cols-4">
+            /* hairlines drawn by the cells themselves: a short last row leaves no grey block behind */
+            <ul className="mt-8 grid grid-cols-2 border-t border-line lg:grid-cols-3 xl:grid-cols-4">
               {products.map((p) => (
-                <li key={p.id}>
+                <li key={p.id} className="border-b border-e border-line max-lg:even:border-e-0 lg:max-xl:[&:nth-child(3n)]:border-e-0 xl:[&:nth-child(4n)]:border-e-0">
                   <ProductCard product={p} lang={lang} collectionName={name} />
                 </li>
               ))}
