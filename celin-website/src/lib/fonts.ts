@@ -31,9 +31,33 @@ export const nazli = localFont({
   ],
 });
 
+/**
+ * The same Nazli for the English pages, not preloaded: there it only sets the odd Persian word (the language
+ * switch, a Persian name), so the browser fetches a weight only when a Persian glyph is actually on the page
+ * instead of downloading both before the hero. (next/font needs each instance as its own top-level call.)
+ */
+export const nazliLazy = localFont({
+  src: [
+    { path: "../fonts/nazli.woff2", weight: "400", style: "normal" },
+    { path: "../fonts/nazlib.woff2", weight: "700", style: "normal" },
+  ],
+  variable: "--font-fa",
+  display: "swap",
+  preload: false,
+  adjustFontFallback: false,
+  declarations: [
+    {
+      prop: "unicode-range",
+      value: "U+0020-002F, U+003A-0040, U+005B-0060, U+007B-007E, U+00A0, U+00AB, U+00B7, U+00BB, U+00D7, U+0600-06FF, U+200C-2010, U+2022, U+2026, U+FB50-FDFF, U+FE70-FEFF",
+    },
+  ],
+});
+
 export const vazirmatn = Vazirmatn({ subsets: ["arabic"], variable: "--font-fa-ui", display: "swap", adjustFontFallback: false, preload: false });
 
 export const bodoni = Bodoni_Moda({ subsets: ["latin"], axes: ["opsz"], variable: "--font-latin-display", display: "swap", adjustFontFallback: false });
 export const jost = Jost({ subsets: ["latin"], variable: "--font-latin-ui", display: "swap", adjustFontFallback: false });
 
 export const FONT_VARS = `${nazli.variable} ${vazirmatn.variable} ${bodoni.variable} ${jost.variable}`;
+/** English pages: Nazli is not preloaded there (see nazliLazy). */
+export const FONT_VARS_EN = `${nazliLazy.variable} ${vazirmatn.variable} ${bodoni.variable} ${jost.variable}`;
