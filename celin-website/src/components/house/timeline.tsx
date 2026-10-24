@@ -63,7 +63,7 @@ export function Timeline({ lang, d }: { lang: Lang; d: TimelineData }) {
     [lang],
   );
 
-  const year = "display inline-block whitespace-nowrap font-bold text-metal-light leading-none! text-[clamp(2.4rem,9vw,3.5rem)] lg:text-8xl";
+  const year = "numeral inline-block whitespace-nowrap text-metal-light";
   return (
     <section ref={root} data-tone="light" className="relative isolate overflow-clip bg-night-teal text-on-night">
       <Aura palette="paraiba" light={0.75} />
@@ -72,16 +72,16 @@ export function Timeline({ lang, d }: { lang: Lang; d: TimelineData }) {
         <Eyebrow tone="light" center>
           {d.eyebrow}
         </Eyebrow>
-        <div className="relative mt-10 w-full max-w-5xl">
+        <div className="relative mt-24 w-full max-w-5xl">
           <p className="relative mx-auto w-fit">
             <span className="sr-only">{`${num(d.count, lang)} ${d.years}`}</span>
-            <span data-tl="lines" aria-hidden className="pointer-events-none absolute inset-x-[-70%] bottom-[-6%] top-[-22%] origin-bottom">
+            <span data-tl="lines" aria-hidden className="pointer-events-none absolute inset-x-[-150%] bottom-[-8%] top-[-75%] origin-bottom">
               <ArchLines count={6} tone="champagne" className="size-full" />
             </span>
-            <span ref={count} aria-hidden className="display relative block text-[clamp(7rem,30vw,15rem)] leading-[1.05]! font-bold text-metal-light metal-live">
+            <span ref={count} aria-hidden className="title-mark relative block text-metal-light metal-live">
               {num(d.count, lang)}
             </span>
-            <span aria-hidden className="display relative mt-2 block text-2xl font-semibold text-on-night sm:text-3xl">
+            <span aria-hidden className="title-card relative mt-1 block text-on-night">
               {d.years}
             </span>
           </p>
@@ -89,9 +89,9 @@ export function Timeline({ lang, d }: { lang: Lang; d: TimelineData }) {
           <div data-tl="row" className="relative mt-14 grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-4 sm:gap-8 lg:mt-20" style={{ "--p": 1 } as CSSProperties}>
             <div className="text-center">
               <span className={year}>{num(d.from, lang)}</span>
-              <span className="mx-auto mt-3 block max-w-[min(30vw,13rem)] text-sm leading-6 text-on-night-muted sm:text-base">{d.fromLabel}</span>
+              <span className="mx-auto mt-3 block max-w-[min(30vw,13rem)] text-sm leading-7 text-on-night-muted">{d.fromLabel}</span>
             </div>
-            <div className="relative mt-[clamp(1.2rem,4.5vw,1.75rem)] h-px lg:mt-12">
+            <div className="numeral relative mt-[0.55em] h-px">
               <span aria-hidden className="absolute inset-0 bg-on-night/15" />
               <span aria-hidden className="absolute inset-0 bg-[image:var(--metal-champagne)] ltr:origin-left rtl:origin-right" style={{ scale: "var(--p) 1" }} />
               <svg aria-hidden viewBox="0 0 10 10" className="absolute top-1/2 size-3 -translate-y-1/2 text-gold-glow ltr:-translate-x-1/2 rtl:translate-x-1/2" style={{ insetInlineStart: "calc(var(--p) * 100%)" }}>
@@ -100,10 +100,10 @@ export function Timeline({ lang, d }: { lang: Lang; d: TimelineData }) {
             </div>
             <div data-tl="to" className="text-center">
               <span className={year}>{num(d.to, lang)}</span>
-              <span className="mx-auto mt-3 block max-w-[min(30vw,13rem)] text-sm leading-6 text-on-night-muted sm:text-base">{d.toLabel}</span>
+              <span className="mx-auto mt-3 block max-w-[min(30vw,13rem)] text-sm leading-7 text-on-night-muted">{d.toLabel}</span>
             </div>
           </div>
-          <p data-tl="closing" className="mx-auto mt-14 max-w-2xl text-lg leading-9 text-on-night-muted sm:text-xl sm:leading-10">
+          <p data-tl="closing" className="lede mx-auto mt-12 max-w-xl text-on-night-muted">
             {d.closing}
           </p>
         </div>

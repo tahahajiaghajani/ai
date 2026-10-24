@@ -29,6 +29,7 @@ const MSG = {
   min: { fa: "حداقل مبلغ سفارش", en: "The minimum order is" },
   rate: { fa: "سفارش‌های زیادی در زمان کوتاه ثبت شد؛ کمی بعد دوباره امتحان کنید.", en: "Too many orders in a short time — please try again shortly." },
   failed: { fa: "ثبت سفارش انجام نشد؛ دوباره امتحان کنید.", en: "The order could not be placed — please try again." },
+  priceChanged: { fa: "قیمت یکی از اقلام همین حالا تغییر کرد؛ سبد به‌روز شد، مبلغ تازه را بررسی و دوباره تأیید کنید.", en: "A price has just changed — the basket has been updated; please check the new total and confirm again." },
   placed: { fa: "سفارش شما ثبت شد.", en: "Your order has been placed." },
   cancelled: { fa: "سفارش لغو شد.", en: "The order has been cancelled." },
   cantCancel: { fa: "این سفارش دیگر قابل لغو نیست؛ با فروشگاه تماس بگیرید.", en: "This order can no longer be cancelled — please contact the store." },
@@ -59,13 +60,19 @@ export async function placeOrder(input: Record<string, unknown>): Promise<Result
   if (!(await allow(`order:${me.id}`, 3600, 15))) return { ok: false, error: MSG.rate[lang] };
 
   const s = await getSettings();
-  if (s.shop.minOrder > 0) {
+  // the total the basket showed: an order is never placed at other prices than the member saw
+  const seen = typeof input.seen === "number" && Number.isFinite(input.seen) ? Math.round(input.seen) : null;
+  if (s.shop.minOrder > 0 || seen !== null) {
     const prices = await proPrices();
+    // the same sum as the basket shows (lines that are gone or have no price count 0)
     const subtotal = lines.reduce((sum, l) => {
       const p = prices[l.productId];
-      const unit = l.variantId ? p?.variants[l.variantId]?.price ?? p?.price : p?.price;
+      const v = l.variantId ? p?.variants[l.variantId] : undefined;
+      if (!p || (l.variantId && !v)) return sum;
+      const unit = v ? v.price ?? p.price : p.price;
       return sum + (unit ?? 0) * l.qty;
     }, 0);
+    if (seen !== null && seen !== subtotal) return { ok: false, error: MSG.priceChanged[lang], reason: "price_changed" };
     if (subtotal < s.shop.minOrder) return { ok: false, error: `${MSG.min[lang]} ${formatPrice(s.shop.minOrder, lang)}${lang === "fa" ? " است." : "."}` };
   }
 

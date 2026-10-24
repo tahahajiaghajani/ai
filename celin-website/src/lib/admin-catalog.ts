@@ -23,6 +23,8 @@ export interface AdminVariant {
   sku: string;
   price: number | null;
   stock: number;
+  /** the stock the editor showed when it opened (see applyStock) */
+  stock_loaded?: number | null;
   image_id: string | null;
   sort: number;
 }
@@ -94,6 +96,7 @@ const SLUG_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
 /** Called after every catalogue change: public pages and caches pick it up at once. */
 export async function catalogChanged(): Promise<void> {
+  await assertAdmin();
   const s = await getSettingsFresh();
   if (!s.catalog.initialized) await saveSettings("catalog", { initialized: true });
   revalidateTag("catalog", { expire: 0 });
@@ -115,6 +118,35 @@ function count(v: unknown): number {
   const n = Math.floor(Number(v));
   if (!Number.isFinite(n) || n < 0 || n > 1_000_000) throw new UserError("موجودی باید عددی صفر یا بیشتر باشد.");
   return n;
+}
+
+/** The stock the editor showed (null when the caller did not send it). */
+function loadedCount(v: unknown): number | null {
+  if (v === null || v === undefined || v === "") return null;
+  const n = Math.floor(Number(v));
+  return Number.isFinite(n) && n >= 0 && n <= 1_000_000 ? n : null;
+}
+
+/**
+ * Stock is saved as the admin's change to what the editor showed, never as a stale overwrite: orders lower
+ * the stock while the editor is open. Unchanged → the stored stock is left alone; changed → stored + (wanted
+ * − loaded), never below 0 — a compare-and-set, retried if an order lands in between.
+ */
+async function applyStock(table: "celin_products" | "celin_variants", id: string, loaded: number, wanted: number): Promise<void> {
+  if (wanted === loaded) return;
+  const c = requireDb();
+  let current = loaded;
+  for (let i = 0; i < 6; i++) {
+    const next = Math.max(0, current + (wanted - loaded));
+    const { data, error } = await c.from(table).update({ stock: next }).eq("id", id).eq("stock", current).select("id");
+    if (error) throw dbError(error);
+    if ((data ?? []).length) return;
+    const { data: row, error: re } = await c.from(table).select("stock").eq("id", id).maybeSingle();
+    if (re) throw new Error(re.message);
+    if (!row) return; // deleted meanwhile
+    current = (row as { stock: number }).stock;
+  }
+  throw new UserError("موجودی همین حالا در حال تغییر است؛ چند لحظه بعد دوباره ذخیره کنید.");
 }
 
 export function slugify(input: string): string {
@@ -206,6 +238,7 @@ export function parseProduct(input: Record<string, unknown>) {
       sku: text(o.sku, 60),
       price: money(o.price),
       stock: count(o.stock ?? 0),
+      stock_loaded: loadedCount(o.stock_loaded),
       image_id: uuidOrNull(o.image_id),
       sort: i,
     };
@@ -234,6 +267,7 @@ export function parseProduct(input: Record<string, unknown>) {
       sort: Math.max(-100000, Math.min(100000, Math.round(Number(input.sort) || 0))),
     },
     variants,
+    stockLoaded: loadedCount(input.stock_loaded),
   };
 }
 
@@ -241,12 +275,17 @@ export function parseProduct(input: Record<string, unknown>) {
 export async function saveProduct(id: string | null, input: Record<string, unknown>): Promise<string> {
   await assertAdmin();
   const c = requireDb();
-  const { row, variants } = parseProduct(input);
+  const { row, variants, stockLoaded } = parseProduct(input);
   let productId = id && UUID.test(id) ? id : null;
   const now = new Date().toISOString();
   if (productId) {
-    const { error } = await c.from("celin_products").update({ ...row, updated_at: now }).eq("id", productId);
+    const { stock, ...rest } = row;
+    const { error } = await c
+      .from("celin_products")
+      .update({ ...rest, ...(stockLoaded === null ? { stock } : {}), updated_at: now })
+      .eq("id", productId);
     if (error) throw dbError(error);
+    if (stockLoaded !== null) await applyStock("celin_products", productId, stockLoaded, stock);
   } else {
     const { data, error } = await c.from("celin_products").insert(row).select("id").single();
     if (error) throw dbError(error);
@@ -263,10 +302,17 @@ export async function saveProduct(id: string | null, input: Record<string, unkno
     if (error) throw new Error(error.message);
   }
   for (const v of variants) {
-    const fields = { name_fa: v.name_fa, name_en: v.name_en, swatch: v.swatch, sku: v.sku, price: v.price, stock: v.stock, image_id: v.image_id, sort: v.sort, updated_at: now };
+    const fields = { name_fa: v.name_fa, name_en: v.name_en, swatch: v.swatch, sku: v.sku, price: v.price, image_id: v.image_id, sort: v.sort, updated_at: now };
+    const stored = v.id ? ((existing ?? []) as { id: string }[]).some((e) => e.id === v.id) : false;
+    if (v.id && stored && v.stock_loaded != null) {
+      const { error } = await c.from("celin_variants").update(fields).eq("id", v.id).eq("product_id", productId);
+      if (error) throw new Error(error.message);
+      await applyStock("celin_variants", v.id, v.stock_loaded, v.stock);
+      continue;
+    }
     const { error } = v.id
-      ? await c.from("celin_variants").update(fields).eq("id", v.id).eq("product_id", productId)
-      : await c.from("celin_variants").insert({ ...fields, product_id: productId });
+      ? await c.from("celin_variants").update({ ...fields, stock: v.stock }).eq("id", v.id).eq("product_id", productId)
+      : await c.from("celin_variants").insert({ ...fields, stock: v.stock, product_id: productId });
     if (error) throw new Error(error.message);
   }
   await catalogChanged();
@@ -274,16 +320,20 @@ export async function saveProduct(id: string | null, input: Record<string, unkno
 }
 
 /** Only stock and price, for quick edits in the list. */
-export async function quickUpdate(id: string, patch: { price?: unknown; stock?: unknown; status?: unknown }): Promise<void> {
+export async function quickUpdate(id: string, patch: { price?: unknown; stock?: unknown; stock_loaded?: unknown; status?: unknown }): Promise<void> {
   await assertAdmin();
   const c = requireDb();
   const fields: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  const loaded = loadedCount(patch.stock_loaded);
   if ("price" in patch) fields.price = money(patch.price);
-  if ("stock" in patch) fields.stock = count(patch.stock);
-  if ("status" in patch && ["draft", "published", "archived"].includes(String(patch.status))) fields.status = patch.status;
+  if ("stock" in patch && loaded === null) fields.stock = count(patch.stock);
+  const status = "status" in patch && ["draft", "published", "archived"].includes(String(patch.status));
+  if (status) fields.status = patch.status;
   const { error } = await c.from("celin_products").update(fields).eq("id", id);
   if (error) throw dbError(error);
-  await catalogChanged();
+  if ("stock" in patch && loaded !== null) await applyStock("celin_products", id, loaded, count(patch.stock));
+  // public pages carry no price or stock: only a status change needs them rebuilt
+  if (status) await catalogChanged();
 }
 
 export async function deleteProduct(id: string): Promise<void> {
@@ -295,6 +345,7 @@ export async function deleteProduct(id: string): Promise<void> {
 }
 
 export async function duplicateProduct(id: string): Promise<string> {
+  await assertAdmin();
   const got = await getAdminProduct(id);
   if (!got) throw new UserError("محصول پیدا نشد.");
   const p = got.product;

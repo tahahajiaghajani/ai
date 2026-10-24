@@ -1,20 +1,37 @@
-import { Bodoni_Moda, Jost, Noto_Naskh_Arabic, Vazirmatn } from "next/font/google";
+import { Bodoni_Moda, Jost, Vazirmatn } from "next/font/google";
+import localFont from "next/font/local";
 
 /**
- * Self-hosted by next/font (no request to Google from the visitor's browser — important in Iran):
- * - Noto Naskh Arabic (variable 400–700) — the Persian voice of the brand: a classical Naskh close to the
- *   «گالری اعتماد» line of the logo. Headings at 600–700, running text at 500.
- * - Vazirmatn (variable) — small Persian UI only: buttons, labels, forms, tables, prices (tabular figures).
+ * Self-hosted by next/font (no request to Google or anyone else from the visitor's browser — important in Iran):
+ * - Nazli 400 / 700 (Sharif FarsiWeb, GPL-2+; src/fonts/README.md) — the Persian voice of the whole public site:
+ *   the free twin of Nazanin, the face of the «گالری اعتماد» line of the logo. Headings 700, running text 400.
+ *   Our web cut is scaled ×1.12 in the em and has tight, centred vertical metrics; it holds no Latin letters or
+ *   digits, so Latin text falls through to Jost / Bodoni Moda. `unicode-range` = the subset's own coverage.
+ * - Vazirmatn (variable) — only the admin panel and dense numeric tables (tabular figures).
  * - Bodoni Moda (optical sizes) — Latin display, a Didone like the CELIN wordmark.
  * - Jost — Latin labels, UI and English running text, close to the logo's tracked "Handmade Jewelry" line.
- * The Latin faces get no metric-adjusted fallback: a local-Arial fallback has Arabic glyphs and would catch
- * Persian letters and digits before the Persian faces do.
+ * No metric-adjusted fallbacks: a local-Arial fallback has Arabic glyphs and would catch Persian letters and digits
+ * before the Persian face does (the Persian system fallbacks sit at the end of the stacks in globals.css).
  */
-export const naskh = Noto_Naskh_Arabic({ subsets: ["arabic"], variable: "--font-fa-naskh", display: "swap", adjustFontFallback: false, fallback: ["Vazirmatn", "Tahoma", "serif"] });
+export const nazli = localFont({
+  src: [
+    { path: "../fonts/nazli.woff2", weight: "400", style: "normal" },
+    { path: "../fonts/nazlib.woff2", weight: "700", style: "normal" },
+  ],
+  variable: "--font-fa",
+  display: "swap",
+  adjustFontFallback: false,
+  declarations: [
+    {
+      prop: "unicode-range",
+      value: "U+0020-002F, U+003A-0040, U+005B-0060, U+007B-007E, U+00A0, U+00AB, U+00B7, U+00BB, U+00D7, U+0600-06FF, U+200C-2010, U+2022, U+2026, U+FB50-FDFF, U+FE70-FEFF",
+    },
+  ],
+});
 
-export const vazirmatn = Vazirmatn({ subsets: ["arabic"], variable: "--font-fa-ui", display: "swap", adjustFontFallback: false, fallback: ["Tahoma", "system-ui", "sans-serif"] });
+export const vazirmatn = Vazirmatn({ subsets: ["arabic"], variable: "--font-fa-ui", display: "swap", adjustFontFallback: false, preload: false });
 
 export const bodoni = Bodoni_Moda({ subsets: ["latin"], axes: ["opsz"], variable: "--font-latin-display", display: "swap", adjustFontFallback: false });
 export const jost = Jost({ subsets: ["latin"], variable: "--font-latin-ui", display: "swap", adjustFontFallback: false });
 
-export const FONT_VARS = `${naskh.variable} ${vazirmatn.variable} ${bodoni.variable} ${jost.variable}`;
+export const FONT_VARS = `${nazli.variable} ${vazirmatn.variable} ${bodoni.variable} ${jost.variable}`;

@@ -43,7 +43,7 @@ export default function GlobalNotFound() {
             {fa.shop}
           </Link>
           <div lang="en" dir="ltr" className="mt-10 basis-full border-t border-night-line pt-8">
-            <p className="display text-3xl text-on-night">{en.title}</p>
+            <p className="title-section text-on-night">{en.title}</p>
             <p className="mx-auto mt-3 max-w-md text-base leading-7 text-on-night-muted">{en.body}</p>
             <p className="mt-5 flex items-center justify-center gap-6 text-sm">
               <Link href="/en" className="border-b border-on-night/40 pb-1 text-on-night transition-colors hover:border-gold-on-dark">

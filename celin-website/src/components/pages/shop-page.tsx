@@ -80,7 +80,7 @@ export async function ShopPage({ lang, category }: { lang: Lang; category?: stri
           {diamond("size-1.5 text-gold-glow")}
           {s.editorial}
         </p>
-        <p className="display mt-4 text-[1.75rem] leading-[1.4]! font-bold text-metal-light sm:text-5xl">{slotText(ed, "title", lang)}</p>
+        <p className="title-section mt-3 text-metal-light">{slotText(ed, "title", lang)}</p>
         <span className="mt-6 inline-flex items-center gap-2 text-sm sm:mt-8">
           <span className="border-b border-on-night/40 pb-1 transition-colors group-hover:border-gold-on-dark">{slotText(ed, "cta", lang)}</span>
           <Icon name="arrow" className="size-4 transition-transform duration-500 group-hover:translate-x-1 rtl:-scale-x-100 rtl:group-hover:-translate-x-1" />
@@ -102,9 +102,9 @@ export async function ShopPage({ lang, category }: { lang: Lang; category?: stri
                 {diamond("size-1.5 text-gold-glow")}
                 {s.eyebrow}
               </p>
-              <SplitWords as="h1" text={title} immediate delay={100} className="display mt-3 text-[clamp(2.6rem,10vw,3.5rem)] leading-[1.3]! font-bold sm:text-6xl lg:text-7xl" wordClassName="text-metal-light metal-live" />
+              <SplitWords as="h1" text={title} immediate delay={100} className="title-page mt-3" wordClassName="text-metal-light metal-live" />
             </div>
-            <p className="max-w-md text-base leading-8 text-on-night-muted sm:text-lg sm:leading-9 lg:col-span-5 lg:col-start-8 lg:justify-self-end" data-reveal style={{ "--d": 3 } as CSSProperties}>
+            <p className="lede max-w-md text-on-night-muted lg:col-span-5 lg:col-start-8 lg:justify-self-end" data-reveal style={{ "--d": 3 } as CSSProperties}>
               {intro}
             </p>
           </div>

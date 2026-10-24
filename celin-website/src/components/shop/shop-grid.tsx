@@ -175,7 +175,7 @@ function cardsOf({ lang, list, colName, editorial, withEditorial }: { lang: Lang
 
 /** The count at the start of the bar, in Naskh. */
 function Count({ lang, n }: { lang: Lang; n: number }) {
-  return <span className="display text-lg font-semibold whitespace-nowrap text-ink tabular-nums">{T[lang].count(num(n, lang))}</span>;
+  return <span className="title-card whitespace-nowrap text-ink tabular-nums">{T[lang].count(num(n, lang))}</span>;
 }
 
 /** Static first paint (before the URL filters are read): the same bar and grid, unfiltered. */
@@ -323,7 +323,7 @@ export function ShopGrid({ lang, products, collections, editorial }: { lang: Lan
       {list.length === 0 ? (
         <div className="container-lux py-24 text-center sm:py-32">
           {diamond("mx-auto size-2.5 text-gold")}
-          <p className="display mt-5 text-2xl font-semibold text-ink sm:text-3xl">{tr.none}</p>
+          <p className="title-section mt-5 text-ink">{tr.none}</p>
           <button type="button" onClick={() => push(EMPTY)} className="btn btn-line mt-8 text-ink">
             {tr.reset}
           </button>

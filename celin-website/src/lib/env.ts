@@ -18,8 +18,17 @@ export const env = {
   get bucket() {
     return process.env.SUPABASE_BUCKET || "celin-media";
   },
+  /** optional break-glass login for /admin (the usual way in is an admin account, see ADMIN_PHONES) */
   get adminPassword() {
     return process.env.ADMIN_PASSWORD || "";
+  },
+  /** mobile numbers (comma / space separated) whose accounts are admins: promoted on sign-up and sign-in */
+  get adminPhones() {
+    return process.env.ADMIN_PHONES || "";
+  },
+  /** self-hosted only: the header a trusted proxy puts the visitor's IP in (e.g. ar-real-ip behind ArvanCloud) */
+  get trustedIpHeader() {
+    return (process.env.TRUSTED_IP_HEADER || "").trim().toLowerCase();
   },
   /** signs sessions, hashes Pro codes and encrypts stored secrets; falls back to the service-role key */
   get appSecret() {

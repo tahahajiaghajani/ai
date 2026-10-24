@@ -13,6 +13,20 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   await requireAdminPage();
   const c = await adminCounts();
   const badges = { "/admin/orders": c.orders.pending ?? 0, "/admin/pro": c.requests_pending };
+  const footer = (
+    <>
+      <a href="/" target="_blank" className="flex items-center gap-3 px-3 py-2.5 text-sm text-ink-2 hover:text-ink">
+        <Icon name="external" className="size-[18px] text-muted" />
+        مشاهده‌ی سایت
+      </a>
+      <form action={logout}>
+        <button className="flex w-full items-center gap-3 px-3 py-2.5 text-sm text-ink-2 hover:text-ink">
+          <Icon name="logout" className="size-[18px] text-muted" />
+          خروج
+        </button>
+      </form>
+    </>
+  );
   return (
     <div className="min-h-[100dvh] bg-ground lg:grid lg:grid-cols-[248px_1fr]">
       <aside className="sticky top-0 z-30 border-b border-line bg-bone lg:h-[100dvh] lg:border-b-0 lg:border-e">
@@ -25,19 +39,8 @@ export default async function AdminLayout({ children }: { children: React.ReactN
               <span className="block font-label text-[10px] tracking-[0.2em] text-muted ltr">CELIN ADMIN</span>
             </span>
           </Link>
-          <AdminNav badges={badges} />
-          <div className="mt-auto hidden space-y-0.5 pt-6 lg:block">
-            <a href="/" target="_blank" className="flex items-center gap-3 px-3 py-2.5 text-sm text-ink-2 hover:text-ink">
-              <Icon name="external" className="size-[18px] text-muted" />
-              مشاهده‌ی سایت
-            </a>
-            <form action={logout}>
-              <button className="flex w-full items-center gap-3 px-3 py-2.5 text-sm text-ink-2 hover:text-ink">
-                <Icon name="logout" className="size-[18px] text-muted" />
-                خروج از پنل
-              </button>
-            </form>
-          </div>
+          <AdminNav badges={badges} footer={footer} />
+          <div className="mt-auto hidden space-y-0.5 pt-6 lg:block">{footer}</div>
         </div>
       </aside>
       <main className="min-w-0 px-4 py-7 sm:px-8 lg:px-10 lg:py-9">

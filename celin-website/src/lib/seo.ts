@@ -4,8 +4,8 @@ import { env } from "@/lib/env";
 import { href, type Lang } from "@/lib/i18n";
 
 export const SITE = {
-  fa: { name: "سلین", title: "سلین CELIN — فراتر از یک زیور", description: "سلین؛ فراتر از یک زیور، امضایی از ظرافت، کیفیت و اصالت. زیورآلات سبک جواهری با نگین‌های کیوبیک زیرکونیا، مخراج‌کاری دقیق و آبکاری رودیوم و طلا، از سال ۱۳۸۵." },
-  en: { name: "CELIN", title: "CELIN — More than an ornament", description: "CELIN: more than an ornament — a signature of finesse, quality and authenticity. Fine-jewelry-style pieces with cubic zirconia stones, precise setting and rhodium and gold plating, since 2006." },
+  fa: { name: "سلین", title: "سلین CELIN — فراتر از یک زیور", description: "سلین؛ فراتر از یک زیور، امضایی از ظرافت، کیفیت و اصالت. زیورآلات سبک جواهری با نگین‌های درخشان، مخراج‌کاری دقیق و آبکاری رودیوم و طلا، از سال ۱۳۸۵." },
+  en: { name: "CELIN", title: "CELIN — More than an ornament", description: "CELIN: more than an ornament — a signature of finesse, quality and authenticity. Fine-jewelry-style pieces with brilliant stones, precise setting and rhodium and gold plating, since 2006." },
 } as const;
 
 export const siteViewport: Viewport = {
@@ -17,15 +17,17 @@ export const siteViewport: Viewport = {
   interactiveWidget: "resizes-content",
 };
 
-export function siteMetadata(lang: Lang): Metadata {
+/** Site-wide metadata; `description` is the admin's «توضیح سایت در گوگل» (Settings → SEO) when it is filled. */
+export function siteMetadata(lang: Lang, description?: string): Metadata {
   const s = SITE[lang];
+  const desc = description?.trim() || s.description;
   return {
     metadataBase: new URL(env.siteUrl),
     title: { default: s.title, template: `%s | ${s.name}` },
-    description: s.description,
+    description: desc,
     applicationName: s.name,
-    openGraph: { type: "website", locale: lang === "fa" ? "fa_IR" : "en_US", siteName: s.name, title: s.title, description: s.description, images: [{ url: "/og.png", width: 1200, height: 630, alt: s.name }] },
-    twitter: { card: "summary_large_image", title: s.title, description: s.description, images: ["/og.png"] },
+    openGraph: { type: "website", locale: lang === "fa" ? "fa_IR" : "en_US", siteName: s.name, title: s.title, description: desc, images: [{ url: "/og.png", width: 1200, height: 630, alt: s.name }] },
+    twitter: { card: "summary_large_image", title: s.title, description: desc, images: ["/og.png"] },
     manifest: href(lang, "/manifest.webmanifest"),
     // static files in /public, made from the official mark (public/brand/celin-mark-reverse.svg) on the espresso ground
     icons: {

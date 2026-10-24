@@ -27,7 +27,7 @@ function Accordion({ title, children, open }: { title: string; children: ReactNo
   return (
     <details className="group border-b border-gold/20" open={open}>
       <summary className="flex min-h-15 cursor-pointer list-none items-center justify-between gap-4 py-3 text-ink transition-colors hover:text-gold-deep [&::-webkit-details-marker]:hidden">
-        <span className="display text-lg font-semibold">{title}</span>
+        <span className="title-card">{title}</span>
         <span className="relative size-3 shrink-0 text-gold" aria-hidden>
           <span className="absolute inset-x-0 top-1/2 h-px bg-current" />
           <span className="absolute inset-y-0 start-1/2 w-px bg-current transition-transform duration-300 group-open:scale-y-0" />

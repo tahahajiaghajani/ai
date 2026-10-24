@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
-import { PRO_HINT, USER_HINT, sessionState, setProHint } from "@/lib/auth";
+import { PRO_HINT, USER_HINT, isAdminRow, sessionState, setProHint } from "@/lib/auth";
+import { sign } from "@/lib/crypto";
 import { unreadCount } from "@/lib/messages";
 import { latestRequest, proStatus } from "@/lib/pro";
 
@@ -19,6 +20,8 @@ export async function GET() {
     return Response.json({ user: null }, { headers });
   }
   const me = s.user;
+  // an admin account (role, or ADMIN_PHONES) sees the «پنل مدیریت» link; the panel itself asks for a password session
+  const admin = isAdminRow(me);
   const [pro, unread, request] = await Promise.all([proStatus(me.id), unreadCount(me.id), latestRequest(me.id)]);
   if (pro.active !== (jar.get(PRO_HINT)?.value === "1")) await setProHint(pro.active);
   return Response.json(
@@ -27,13 +30,15 @@ export async function GET() {
         name: me.name,
         phone: me.phone,
         email: me.email,
-        role: me.role,
+        role: admin ? "admin" : "user",
         business: me.business,
         city: me.city,
         address: me.address,
         postal_code: me.postal_code,
-        pro: { active: pro.active, issued: pro.issued, expiresAt: pro.expiresAt, request: request?.status ?? "none", reply: request?.status === "rejected" ? request.reply : "" },
+        pro: { active: pro.active, issued: pro.issued, expiresAt: pro.expiresAt, ended: pro.ended, request: request?.status ?? "none", reply: request?.status === "rejected" ? request.reply : "" },
         unread,
+        // opaque and stable per account: the basket in the browser is bound to it (never the id itself)
+        key: sign(`cart-owner:${me.id}`).slice(0, 22),
       },
     },
     { headers },

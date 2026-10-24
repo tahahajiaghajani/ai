@@ -366,7 +366,7 @@ export function ProductClient({
             {tr.collection(collectionName)}
           </Link>
         )}
-        <SplitWords as="h1" text={name} immediate className="display mt-3 text-[2.25rem] leading-[1.35]! font-bold text-ink sm:text-5xl" />
+        <SplitWords as="h1" text={name} immediate className="title-page mt-3 text-ink" />
         {subtitle && <p className="mt-3 text-base leading-8 text-muted">{subtitle}</p>}
         <p className="mt-2 font-ui text-xs text-faint">
           {tr.ref} <span className="font-label tracking-wide text-muted ltr">{variant?.sku || product.sku}</span>

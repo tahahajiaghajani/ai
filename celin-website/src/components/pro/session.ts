@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useSyncExternalStore } from "react";
 import type { ProPrices } from "@/lib/catalog-types";
+import type { ProEnded } from "@/lib/pro-copy";
+import { cart } from "@/components/cart/cart-store";
 
 /**
  * The visitor's account and (for Pro members) prices, loaded once per page view from /api/me and
@@ -18,8 +20,10 @@ export interface Me {
   city: string;
   address: string;
   postal_code: string;
-  pro: { active: boolean; issued: boolean; expiresAt: string | null; request: "none" | "pending" | "approved" | "rejected"; reply: string };
+  pro: { active: boolean; issued: boolean; expiresAt: string | null; ended?: ProEnded; request: "none" | "pending" | "approved" | "rejected"; reply: string };
   unread: number;
+  /** opaque per-account key: the basket in this browser belongs to one account */
+  key?: string;
 }
 
 export interface PriceBook {
@@ -68,6 +72,7 @@ function load(force = false): Promise<void> {
     } catch {
       me = null;
     }
+    if (me?.key) cart.bindOwner(me.key);
     let book = await pricesP;
     if (me?.pro.active && !book) book = await loadPrices();
     emit({ me, book: me?.pro.active ? book : null });

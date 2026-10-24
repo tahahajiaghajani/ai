@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Icon, type IconName } from "@/components/ui/icons";
 
 export const ADMIN_NAV: { href: string; label: string; icon: IconName; group: string }[] = [
@@ -17,7 +17,8 @@ export const ADMIN_NAV: { href: string; label: string; icon: IconName; group: st
   { href: "/admin/connections", label: "اتصالات", icon: "link", group: "سامانه" },
 ];
 
-export function AdminNav({ badges }: { badges: Record<string, number> }) {
+/** `footer` (view site, sign out) is shown at the end of the phone menu; the desktop sidebar has its own. */
+export function AdminNav({ badges, footer }: { badges: Record<string, number>; footer?: ReactNode }) {
   const path = usePathname();
   const [open, setOpen] = useState(false);
   useEffect(() => setOpen(false), [path]);
@@ -50,6 +51,7 @@ export function AdminNav({ badges }: { badges: Record<string, number> }) {
       </button>
       <nav className={`${open ? "block" : "hidden"} absolute inset-x-0 top-full z-40 max-h-[calc(100dvh-64px)] overflow-y-auto border-b border-line bg-bone px-3 pb-5 shadow-lg lg:static lg:block lg:max-h-none lg:overflow-visible lg:border-0 lg:bg-transparent lg:p-0 lg:shadow-none`}>
         {links}
+        {footer && <div className="mt-5 border-t border-line pt-3 lg:hidden">{footer}</div>}
       </nav>
     </>
   );

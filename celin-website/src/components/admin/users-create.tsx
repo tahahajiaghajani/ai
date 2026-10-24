@@ -34,7 +34,7 @@ export function CreateMemberButton({ defaultDays }: { defaultDays: number }) {
               onOk: (r) => {
                 setOpen(false);
                 setF(EMPTY);
-                if (r.code) show({ code: r.code, name: f.name, phone: normalizePhone(f.phone), note: r.note, href: `/admin/users/${r.id}`, fresh: true });
+                if (r.code) show({ code: r.code, name: f.name, phone: normalizePhone(f.phone), note: r.note, warn: r.warn, href: `/admin/users/${r.id}`, fresh: true });
                 else router.push(`/admin/users/${r.id}`);
               },
             });

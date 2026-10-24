@@ -81,10 +81,10 @@ export const SLOTS: SlotDef[] = [
   {
     key: "home.statement",
     page: "صفحه‌ی اصلی",
-    section: "جمله‌ی بزرگ با دو تصویر کوچک",
+    section: "جمله‌ی بزرگ با دو تصویر طاقی",
     ratio: "3:4",
-    hint: "عکس روی دست؛ در قاب طاقیِ کوچک میان کلمات نمایش داده می‌شود",
-    image: "ring-paraiba-wrap-hand",
+    hint: "عکس روی مدل، عمودی؛ در طاق بلند کنار جمله، درست زیر بخش اول صفحه نمایش داده می‌شود",
+    image: "set-bow-sapphire",
     texts: [
       { key: "line1", label: "سطر اول", fa: "برای کسانی که زیبایی را", en: "For those who see beauty" },
       { key: "line2", label: "سطر دوم (رنگ مسی)", fa: "در جزئیات می‌بینند", en: "in the details" },
@@ -94,9 +94,9 @@ export const SLOTS: SlotDef[] = [
   {
     key: "home.statement.b",
     page: "صفحه‌ی اصلی",
-    section: "جمله‌ی بزرگ — تصویر کوچک دوم",
+    section: "جمله‌ی بزرگ — تصویر دوم (طاق کوچک‌تر)",
     ratio: "3:4",
-    hint: "عکس جزئیات روی مدل",
+    hint: "عکس جزئیات (یک قطعه از نزدیک)؛ در طاق کوچک‌ترِ قاب‌دار، روی گوشه‌ی طاق بلند",
     image: "earrings-bow-pearl",
     texts: [],
   },
@@ -112,7 +112,7 @@ export const SLOTS: SlotDef[] = [
     texts: [
       { key: "eyebrow", label: "برچسب", fa: "تراش اتمی", en: "Atomic cut" },
       { key: "title", label: "عنوان", fa: "نور، با تراشی دقیق", en: "Light, precisely cut" },
-      { key: "body", label: "متن کوتاه", multiline: true, fa: "در سلین، هر قطعه با الهام از ساختار و ظرافت طلا و جواهر طراحی و ساخته می‌شود؛ با نگین‌های درخشان کیوبیک زیرکونیا، مخراج‌کاری دقیق و آبکاری‌های باکیفیت رودیوم و طلا.", en: "At CELIN, every piece is designed and made after the structure and finesse of fine jewelry — with brilliant cubic zirconia, precise stone setting and quality rhodium and gold plating." },
+      { key: "body", label: "متن کوتاه", multiline: true, fa: "در سلین، هر قطعه با الهام از ساختار و ظرافت طلا و جواهر طراحی و ساخته می‌شود؛ با نگین‌های درخشان، مخراج‌کاری دقیق و آبکاری‌های باکیفیت رودیوم و طلا.", en: "At CELIN, every piece is designed and made after the structure and finesse of fine jewelry — with brilliant stones, precise stone setting and quality rhodium and gold plating." },
       ...cta("هنر ساخت", "The craft", "/craft"),
     ],
   },
@@ -136,8 +136,8 @@ export const SLOTS: SlotDef[] = [
     hint: "عکس استودیویی نگین",
     image: "ring-paraiba-cushion",
     texts: [
-      { key: "title", label: "عنوان", fa: "نگین کیوبیک زیرکونیا", en: "Cubic zirconia" },
-      { key: "body", label: "متن کوتاه", multiline: true, fa: "نگین‌های درخشان کیوبیک زیرکونیا با تراش اتمی؛ وجه‌هایی متقارن که نور را مثل جواهر برمی‌گردانند.", en: "Brilliant cubic zirconia with an atomic cut: symmetrical facets that return light like a fine jewel." },
+      { key: "title", label: "عنوان", fa: "نگین‌های درخشان", en: "Brilliant stones" },
+      { key: "body", label: "متن کوتاه", multiline: true, fa: "نگین‌های درخشان با تراش اتمی؛ وجه‌هایی متقارن که نور را مثل جواهر برمی‌گردانند.", en: "Brilliant stones with an atomic cut: symmetrical facets that return light like a fine jewel." },
     ],
   },
   {
@@ -169,7 +169,7 @@ export const SLOTS: SlotDef[] = [
     page: "صفحه‌ی اصلی",
     section: "۲۰ سال درخشش",
     ratio: "3:4",
-    hint: "عکس روی مدل؛ درون عدد «۲۰» هم دیده می‌شود",
+    hint: "عدد «۲۰» طلایی و بی‌عکس است؛ این عکس فعلاً در صفحه دیده نمی‌شود",
     image: "set-bow-sapphire",
     texts: [
       { key: "eyebrow", label: "برچسب", fa: "۱۳۸۵ — ۱۴۰۵", en: "2006 — 2026" },

@@ -68,36 +68,48 @@ export interface ProStatus {
   issued: boolean;
   expiresAt: string | null;
   since: string | null;
+  /** no active or waiting code: how and when the latest one ended (null for someone who never had one) */
+  ended: { reason: "expired" | "revoked"; at: string } | null;
 }
 
-export const NO_PRO: ProStatus = { active: false, issued: false, expiresAt: null, since: null };
+export const NO_PRO: ProStatus = { active: false, issued: false, expiresAt: null, since: null, ended: null };
 
 /** Pro state of an account; a database problem reads as "not Pro" (logged). */
 export async function proStatus(userId: string): Promise<ProStatus> {
   const c = db();
   if (!c) return NO_PRO;
-  const { data, error } = await c.from(CODES).select(CODE_COLUMNS).eq("user_id", userId).is("revoked_at", null).order("created_at", { ascending: false }).limit(5);
+  const { data, error } = await c.from(CODES).select(CODE_COLUMNS).eq("user_id", userId).order("created_at", { ascending: false }).limit(5);
   if (error) {
     if (!isMissingTable(error)) console.error("[pro] status", error.message);
     return NO_PRO;
   }
   const rows = (data ?? []) as CodeRow[];
   const active = rows.find((r) => codeState(r) === "active");
-  if (active) return { active: true, issued: false, expiresAt: active.expires_at, since: active.redeemed_at };
-  return { ...NO_PRO, issued: rows.some((r) => codeState(r) === "issued") };
+  if (active) return { active: true, issued: false, expiresAt: active.expires_at, since: active.redeemed_at, ended: null };
+  if (rows.some((r) => codeState(r) === "issued")) return { ...NO_PRO, issued: true };
+  const last = rows[0];
+  // a code that was never entered and then replaced or revoked is not a membership that ended
+  if (!last || !last.redeemed_at) return NO_PRO;
+  const state = codeState(last);
+  return state === "revoked" || state === "expired" ? { ...NO_PRO, ended: { reason: state, at: (state === "revoked" ? last.revoked_at : last.expires_at) ?? last.created_at } } : NO_PRO;
 }
 
 /**
  * Issues a new code for an account: earlier codes that are still open are revoked, so one account has one
  * code at a time. Returns the plain code (shown to the admin once, and sent to the member).
  */
-export async function issueCode(userId: string, opts: { days?: number | null; requestId?: string | null; activate?: boolean } = {}): Promise<{ code: string; id: string; expiresAt: string | null }> {
+export async function issueCode(
+  userId: string,
+  opts: { days?: number | null; requestId?: string | null; activate?: boolean } = {},
+): Promise<{ code: string; id: string; expiresAt: string | null; replacedLive: boolean }> {
   const c = db();
   if (!c) throw new Error("db_missing");
   const now = new Date();
   const expiresAt = opts.days && opts.days > 0 ? new Date(now.getTime() + opts.days * 86400_000).toISOString() : null;
-  const { error: revokeError } = await c.from(CODES).update({ revoked_at: now.toISOString() }).eq("user_id", userId).is("revoked_at", null);
+  // replacing a code that was entered and still works ends what may have been opened with it (members.ts)
+  const { data: open, error: revokeError } = await c.from(CODES).update({ revoked_at: now.toISOString() }).eq("user_id", userId).is("revoked_at", null).select("expires_at, redeemed_at");
   if (revokeError) throw new Error(revokeError.message);
+  const replacedLive = ((open ?? []) as Pick<CodeRow, "expires_at" | "redeemed_at">[]).some((r) => codeState({ ...r, revoked_at: null }, now.getTime()) === "active");
   for (let attempt = 0; attempt < 3; attempt++) {
     const code = generateCode();
     const norm = normalizeCode(code);
@@ -111,7 +123,7 @@ export async function issueCode(userId: string, opts: { days?: number | null; re
       redeemed_at: opts.activate ? now.toISOString() : null,
     };
     const { data, error } = await c.from(CODES).insert(row).select("id").single();
-    if (!error && data) return { code, id: (data as { id: string }).id, expiresAt };
+    if (!error && data) return { code, id: (data as { id: string }).id, expiresAt, replacedLive };
     if (error?.code !== "23505") throw new Error(error?.message ?? "insert failed");
   }
   throw new Error("could not create a unique code");

@@ -4,14 +4,13 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { after } from "next/server";
 import { checkPassword, endSession, startSession } from "@/lib/admin-auth";
-import { USERS, currentUser, startUserSession } from "@/lib/auth";
+import { endUserSession } from "@/lib/auth";
 import { cleanKey, guard } from "@/lib/admin-action";
 import { encrypt, hashIp } from "@/lib/crypto";
-import { requireDb, UserError } from "@/lib/db";
+import { UserError } from "@/lib/db";
 import { sendEmail, mailHtml } from "@/lib/email";
 import { latinDigits, normalizePhone } from "@/lib/format";
 import { notifyTeam } from "@/lib/notify";
-import { proStatus } from "@/lib/pro";
 import { allow } from "@/lib/rate-limit";
 import { clientIp } from "@/lib/request";
 import { getSettingsFresh, saveSettings } from "@/lib/settings";
@@ -24,25 +23,25 @@ import { text, type Result } from "@/lib/action";
 
 // ---------------------------------------------------------------- session
 
+/**
+ * The optional ADMIN_PASSWORD login (break-glass). It opens the panel in this browser only and never changes
+ * an account: accounts become admins through ADMIN_PHONES or Users → «مدیر کردن».
+ */
 export async function login(_prev: { error: string } | null, form: FormData): Promise<{ error: string } | null> {
   const ip = hashIp(await clientIp());
-  if (!(await allow(`admin-login:${ip}`, 900, 8))) return { error: "تلاش‌های زیادی انجام شد؛ ۱۵ دقیقه‌ی دیگر امتحان کنید." };
+  if (!(await allow(`admin-login:${ip}`, 900, 8)) || !(await allow("admin-login:global", 900, 40))) return { error: "تلاش‌های زیادی انجام شد؛ ۱۵ دقیقه‌ی دیگر امتحان کنید." };
   if (!checkPassword(String(form.get("password") ?? ""))) {
     await new Promise((r) => setTimeout(r, 600));
     return { error: "رمز عبور درست نیست." };
   }
   await startSession();
-  // the password also promotes the account signed in in this browser, so from now on it is recognised as admin
-  const me = await currentUser();
-  if (me && me.role !== "admin") {
-    const { error } = await requireDb().from(USERS).update({ role: "admin", updated_at: new Date().toISOString() }).eq("id", me.id);
-    if (!error) await startUserSession({ ...me, role: "admin" }, (await proStatus(me.id)).active);
-  }
   redirect("/admin");
 }
 
+/** «خروج»: ends the panel and the account session of this browser (an admin by account would otherwise stay in). */
 export async function logout(): Promise<void> {
   await endSession();
+  await endUserSession();
   redirect("/admin/login");
 }
 

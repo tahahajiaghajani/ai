@@ -56,7 +56,6 @@ export async function CollectionPage({ lang, slug }: { lang: Lang; slug: string 
       <HouseHero
         lang={lang}
         palette={paletteOf(products)}
-        size="xl"
         sparkle={14}
         crumbs={[{ label: nav.home, path: "/" }, { label: nav.collections, path: "/collections" }, { label: name }]}
         d={{ eyebrow: c.collection, title: name, subtitle: tagline, media: col.media }}
@@ -89,7 +88,7 @@ export async function CollectionPage({ lang, slug }: { lang: Lang; slug: string 
             )}
             <div className={worn ? "lg:col-span-6 lg:col-start-7" : "mx-auto max-w-4xl text-center lg:col-span-12"}>
               <Eyebrow center={!worn}>{c.story}</Eyebrow>
-              <SplitWords as="p" text={storyText} className="display mt-6 text-[clamp(1.45rem,2.6vw,2.3rem)] leading-[1.8]! font-semibold text-ink" />
+              <SplitWords as="p" text={storyText} className="title-quote mt-6 text-ink" />
             </div>
           </div>
         </section>
@@ -100,7 +99,7 @@ export async function CollectionPage({ lang, slug }: { lang: Lang; slug: string 
           <SectionHead eyebrow={c.piecesEyebrow} title={c.piecesTitle(name)} link={{ href: href(lang, "/shop"), label: nav.all }} />
           <ProBar lang={lang} className="mt-10" />
           {products.length === 0 ? (
-            <p className="py-20 text-center text-lg text-muted">{c.empty}</p>
+            <p className="lede py-20 text-center text-muted">{c.empty}</p>
           ) : arches ? (
             <div className={`mt-10 lg:pb-16 ${products.length < 3 ? "flex flex-wrap justify-center gap-x-3 gap-y-12 sm:gap-x-8" : `grid grid-cols-2 gap-x-3 gap-y-12 sm:gap-x-6 lg:gap-x-8 ${products.length >= 4 ? "lg:grid-cols-4" : "lg:grid-cols-3"}`}`}>
               {products.map((p, i) => (

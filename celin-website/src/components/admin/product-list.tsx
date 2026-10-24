@@ -249,7 +249,8 @@ function StockCell({ p }: { p: AdminProductListItem }) {
   const [edit, setEdit] = useState(false);
   const [v, setV] = useState(p.stock);
   const { pending, run } = useAction();
-  const save = () => run(() => adminQuickUpdate({ id: p.id, stock: v }), { onOk: () => setEdit(false) });
+  // stock_loaded: the shown number, so an order placed meanwhile is not undone (saved as a change)
+  const save = () => run(() => adminQuickUpdate({ id: p.id, stock: v, stock_loaded: p.stock }), { onOk: () => setEdit(false) });
   if (edit)
     return (
       <QuickEditor onSave={save} onCancel={() => setEdit(false)} pending={pending}>

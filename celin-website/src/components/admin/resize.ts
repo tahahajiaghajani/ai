@@ -10,6 +10,7 @@ import { UPLOAD_WIDTHS, type Media } from "@/lib/media";
 
 const QUALITY = 0.86;
 const MAX_SIDE = 2730; // a 3:4 portrait keeps 2048px of width
+const MAX_WIDTH = UPLOAD_WIDTHS[UPLOAD_WIDTHS.length - 1]; // pages never ask for more; landscape photos stop here
 
 function canvasOf(w: number, h: number): HTMLCanvasElement {
   const c = document.createElement("canvas");
@@ -50,7 +51,7 @@ export async function prepareImage(file: File): Promise<{ form: FormData; width:
   } catch {
     throw new Error("این تصویر در مرورگر باز نشد؛ آن را با فرمت JPG یا PNG ذخیره کنید و دوباره امتحان کنید.");
   }
-  const scale = Math.min(1, MAX_SIDE / Math.max(bitmap.width, bitmap.height));
+  const scale = Math.min(1, MAX_SIDE / Math.max(bitmap.width, bitmap.height), MAX_WIDTH / bitmap.width);
   const width = Math.round(bitmap.width * scale);
   const height = Math.round(bitmap.height * scale);
   const base = draw(bitmap, width, height);

@@ -1,8 +1,10 @@
 import "server-only";
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
-import { adminConfigured, assertAdmin } from "@/lib/admin-auth";
-import { db, isMissingTable } from "@/lib/db";
+import { adminSetup, assertAdmin } from "@/lib/admin-auth";
+import { adminPhones } from "@/lib/admin-phones";
+import { USERS } from "@/lib/auth";
+import { db, isMissingTable, missingDbVars } from "@/lib/db";
 import { emailConfig } from "@/lib/email";
 import { env } from "@/lib/env";
 import { decrypt } from "@/lib/crypto";
@@ -106,14 +108,21 @@ export async function healthReport(): Promise<{ items: HealthItem[]; missingTabl
   const missing: string[] = [];
   const ref = /https:\/\/([a-z0-9]+)\.supabase\.co/.exec(env.supabaseUrl)?.[1] ?? "";
   if (!c) {
-    items.push({ key: "db", title: "پایگاه داده (Supabase)", state: "error", detail: "SUPABASE_URL و SUPABASE_SERVICE_ROLE_KEY در Vercel تنظیم نشده‌اند." });
+    const vars = missingDbVars();
+    items.push({
+      key: "db",
+      title: "پایگاه داده (Supabase)",
+      state: "error",
+      detail: `${vars.join(" و ")} در Vercel تنظیم نشده است؛ تا آن زمان ثبت‌نام، ورود اعضا، اشتراک Pro و سفارش خاموش است (بازدیدکننده پیام «به‌زودی فعال می‌شود» می‌بیند). مقدارها را از Supabase ← Project Settings ← API Keys بردارید، در Vercel ← Settings ← Environment Variables بگذارید و دوباره Deploy کنید.`,
+    });
   } else {
     const results = await Promise.all(TABLES.map(async (t) => ({ t, r: await c.from(t).select("*", { count: "exact", head: true }) })));
     for (const { t, r } of results) if (r.error && isMissingTable(r.error)) missing.push(t);
     const broken = results.find(({ r }) => r.error && !isMissingTable(r.error));
-    const { error: fnError } = await c.rpc("celin_admin_counts");
+    const [{ error: fnError }, { error: versionError }] = await Promise.all([c.rpc("celin_admin_counts"), c.rpc("celin_schema_version")]);
     if (broken) items.push({ key: "db", title: "پایگاه داده (Supabase)", state: "error", detail: `خطا در خواندن: ${broken.r.error!.message}` });
-    else if (missing.length || fnError) items.push({ key: "db", title: "پایگاه داده (Supabase)", state: "error", detail: missing.length ? `${missing.length} جدول ساخته نشده است؛ SQL را در Supabase اجرا کنید.` : "تابع‌های پایگاه داده ساخته نشده‌اند؛ SQL را دوباره اجرا کنید." });
+    else if (missing.length || fnError) items.push({ key: "db", title: "پایگاه داده (Supabase)", state: "error", detail: missing.length ? `${missing.length} جدول ساخته نشده است؛ SQL را در Supabase اجرا کنید.` : "تابع‌های پایگاه داده ساخته نشده‌اند؛ SQL را دوباره اجرا کنید." })
+    else if (versionError) items.push({ key: "db", title: "پایگاه داده (Supabase)", state: "error", detail: "فایل تازه‌ی SQL (20261024090000_celin_hardening.sql: قواعد وضعیت سفارش و امنیت کدهای Pro) اجرا نشده است؛ SQL زیر را در Supabase اجرا کنید." });
     else items.push({ key: "db", title: "پایگاه داده (Supabase)", state: "ok", detail: "همه‌ی جدول‌ها و تابع‌ها آماده‌اند." });
 
     const { data: buckets, error: be } = await c.storage.listBuckets();
@@ -129,11 +138,17 @@ export async function healthReport(): Promise<{ items: HealthItem[]; missingTabl
     );
   }
 
-  items.push(
-    adminConfigured()
-      ? { key: "admin", title: "ورود مدیر", state: process.env.APP_SECRET ? "ok" : "warn", detail: process.env.APP_SECRET ? "ADMIN_PASSWORD و APP_SECRET تنظیم شده‌اند." : "APP_SECRET جداگانه تنظیم نشده (از کلید Supabase استفاده می‌شود)؛ بهتر است یک رشته‌ی تصادفی ۳۲ نویسه‌ای بگذارید." }
-      : { key: "admin", title: "ورود مدیر", state: "error", detail: "ADMIN_PASSWORD تنظیم نشده است." },
-  );
+  const setup = adminSetup();
+  const admins = c ? await c.from(USERS).select("name, phone, role").or(`role.eq.admin${adminPhones().length ? `,phone.in.(${adminPhones().join(",")})` : ""}`).limit(20) : null;
+  const adminList = ((admins?.data ?? []) as { name: string; phone: string }[]).map((a) => `${a.name || "—"} (${a.phone})`).join("، ");
+  const phonesNote = setup.phones ? `ADMIN_PHONES: ${adminPhones().join("، ")}` : "ADMIN_PHONES تنظیم نشده است (شماره‌ی موبایل خودتان را بگذارید تا حسابتان با ثبت‌نام یا ورود مدیر شود)";
+  const secretNote = process.env.APP_SECRET ? "" : " APP_SECRET جداگانه تنظیم نشده (از کلید Supabase استفاده می‌شود)؛ بهتر است یک رشته‌ی تصادفی ۳۲ نویسه‌ای بگذارید.";
+  items.push({
+    key: "admin",
+    title: "ورود مدیر",
+    state: !setup.phones && !adminList ? "error" : process.env.APP_SECRET && setup.phones ? "ok" : "warn",
+    detail: `${phonesNote}.${adminList ? ` حساب‌های مدیر: ${adminList}.` : ""}${setup.password ? " ADMIN_PASSWORD (ورود اضطراری) تنظیم شده است." : ""}${secretNote}`,
+  });
 
   const s = c ? await getSettingsFresh().catch(() => null) : null;
   if (s) {

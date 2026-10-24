@@ -2,12 +2,15 @@ import "server-only";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { env } from "@/lib/env";
+import { adminPhones } from "@/lib/admin-phones";
 import { ADMIN_HINT as HINT, isAdminAccount } from "@/lib/auth";
 import { hasSecret, safeEqual, sha256, sign } from "@/lib/crypto";
+import { db, missingDbVars } from "@/lib/db";
 
 /**
- * Two ways in: an account whose role is "admin" (celin_users), or the ADMIN_PASSWORD session below,
- * which is the break-glass login and the way to promote the first account (see actions/admin.ts login).
+ * Two ways in: an admin account (role "admin" in celin_users, or its phone listed in ADMIN_PHONES) signed in
+ * with its password through the normal site sign-in — or /admin/login —, or the optional ADMIN_PASSWORD
+ * session below (break-glass; it never changes any account).
  */
 const COOKIE = "celin_admin";
 const DAYS = 7;
@@ -19,6 +22,24 @@ function fingerprint(): string {
 
 export function adminConfigured(): boolean {
   return Boolean(env.adminPassword && hasSecret());
+}
+
+export interface AdminSetup {
+  /** admin accounts can sign in (Supabase configured) */
+  accounts: boolean;
+  /** the ADMIN_PASSWORD form is available */
+  password: boolean;
+  /** valid numbers in ADMIN_PHONES */
+  phones: number;
+  /** variables still missing for the usual way in (an admin account) */
+  missing: string[];
+}
+
+/** What the owner has configured for the admin panel (for /admin/login and Admin → Connections). */
+export function adminSetup(): AdminSetup {
+  const phones = adminPhones().length;
+  const missing = [...missingDbVars(), ...(phones ? [] : ["ADMIN_PHONES"])];
+  return { accounts: Boolean(db()) && hasSecret(), password: adminConfigured(), phones, missing };
 }
 
 export function checkPassword(input: string): boolean {

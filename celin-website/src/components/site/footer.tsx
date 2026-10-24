@@ -84,7 +84,7 @@ export function Footer({ lang, contact }: { lang: Lang; contact: ContactSettings
               {c.brand.since}
               {diamond("size-1.5 text-gold-glow")}
             </p>
-            <SplitWords as="p" text={c.brand.line} className="display mt-4 text-[2.35rem] leading-[1.35]! font-bold sm:text-6xl lg:text-7xl" wordClassName="text-metal-light metal-live" />
+            <SplitWords as="p" text={c.brand.line} className="title-mark mt-4" wordClassName="text-metal-light metal-live" />
             <p className="mx-auto mt-6 max-w-xl text-base leading-8 text-on-night-muted sm:text-lg sm:leading-9" data-reveal>
               {c.brand.about}
             </p>

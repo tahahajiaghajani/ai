@@ -7,7 +7,7 @@ import { Button, Card, Dialog, Field, Input, MoneyInput, Select, Textarea } from
 import { useAction } from "@/components/admin/toast";
 import { Icon } from "@/components/ui/icons";
 import { formatPrice } from "@/lib/format";
-import { ORDER_STATUSES, STATUS_LABEL, type OrderStatus } from "@/lib/order-meta";
+import { canMove, ORDER_STATUSES, restocksOnCancel, STATUS_LABEL, type OrderStatus } from "@/lib/order-meta";
 
 const NEXT: Partial<Record<OrderStatus, OrderStatus>> = { pending: "packing", packing: "ready", ready: "shipped" };
 
@@ -69,9 +69,11 @@ export function OrderStatusActions({ code, status, carrier, tracking }: { code: 
             انتقال به مرحله‌ی بعد: {STATUS_LABEL[next].fa}
           </Button>
         )}
-        <Button variant="secondary" icon="edit" onClick={() => setTarget(status)} className="flex-1 sm:flex-none">
-          تغییر وضعیت
-        </Button>
+        {status !== "shipped" && (
+          <Button variant="secondary" icon="edit" onClick={() => setTarget(status)} className="flex-1 sm:flex-none">
+            تغییر وضعیت
+          </Button>
+        )}
         <Button variant="danger" icon="close" onClick={() => setTarget("cancelled")} className="flex-1 sm:flex-none">
           لغو سفارش
         </Button>
@@ -93,7 +95,7 @@ function StatusDialog({ code, current, initial, carrier, tracking, onClose }: { 
     <Dialog open onClose={onClose} title={cancel && initial === "cancelled" ? "لغو سفارش" : status === "shipped" && initial === "shipped" ? "ثبت ارسال" : "تغییر وضعیت سفارش"}>
       <div className="space-y-5">
         <div role="radiogroup" aria-label="وضعیت" className="grid gap-1.5">
-          {ORDER_STATUSES.map((s) => (
+          {ORDER_STATUSES.filter((s) => s === current || canMove(current, s)).map((s) => (
             <button
               key={s}
               type="button"
@@ -124,7 +126,9 @@ function StatusDialog({ code, current, initial, carrier, tracking, onClose }: { 
         {cancel && status !== current && (
           <p className="flex items-start gap-2 border border-danger/30 bg-danger-soft px-3 py-2.5 text-xs leading-6 text-danger">
             <Icon name="warning" className="mt-0.5 size-4 shrink-0" />
-            با لغو سفارش، موجودی کالاهای آن به انبار برمی‌گردد و سفارش لغوشده دیگر قابل تغییر نیست.
+            {restocksOnCancel(current)
+              ? "با لغو سفارش، موجودی کالاهای آن به انبار برمی‌گردد و سفارش لغوشده دیگر قابل تغییر نیست."
+              : "این سفارش ارسال شده است: با لغو آن موجودی برنمی‌گردد (اگر کالا به فروشگاه برگشته، موجودی را در صفحه‌ی محصول اصلاح کنید). سفارش لغوشده دیگر قابل تغییر نیست."}
           </p>
         )}
 
@@ -155,6 +159,7 @@ export function OrderEditCard({
   carrier,
   tracking,
   adminNote,
+  cancelled = false,
 }: {
   code: string;
   subtotal: number;
@@ -163,6 +168,8 @@ export function OrderEditCard({
   carrier: string;
   tracking: string;
   adminNote: string;
+  /** a cancelled order keeps its amounts (the note can still change) */
+  cancelled?: boolean;
 }) {
   const { pending, run } = useAction();
   const [fee, setFee] = useState<number | null>(shippingFee || null);
@@ -183,10 +190,10 @@ export function OrderEditCard({
       >
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="هزینه‌ی ارسال">
-            <MoneyInput value={fee} onChange={setFee} placeholder="۰" />
+            <MoneyInput value={fee} onChange={setFee} placeholder="۰" disabled={cancelled} />
           </Field>
           <Field label="تخفیف">
-            <MoneyInput value={off} onChange={setOff} placeholder="۰" />
+            <MoneyInput value={off} onChange={setOff} placeholder="۰" disabled={cancelled} />
           </Field>
           <CarrierField value={car} onChange={setCar} />
           <Field label="کد رهگیری">

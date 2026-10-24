@@ -1,11 +1,12 @@
 import "server-only";
 import { assertAdmin } from "@/lib/admin-auth";
+import { isAdminPhone } from "@/lib/admin-phones";
 import { EMAIL_RE, hashPassword, PASSWORD_MAX, PASSWORD_MIN, PROFILE_COLUMNS, USERS, type Account } from "@/lib/auth";
-import { allRows, db, isMissingTable, requireDb, UserError } from "@/lib/db";
+import { allRows, db, isMissingColumn, isMissingTable, requireDb, UserError } from "@/lib/db";
 import { mailHtml, sendEmail } from "@/lib/email";
 import { env } from "@/lib/env";
 import { formatDate, normalizePhone } from "@/lib/format";
-import { postMessage } from "@/lib/messages";
+import { CODE_MARK, postMessage } from "@/lib/messages";
 import { CODE_COLUMNS, CODES, codeState, issueCode, REQUESTS, revealCode, type CodeRow, type CodeState } from "@/lib/pro";
 import { getSettings } from "@/lib/settings";
 import { sendSms } from "@/lib/sms";
@@ -76,6 +77,8 @@ export async function listMembers(): Promise<MemberRow[] | null> {
     const k = codeOf.get(u.id);
     return {
       ...u,
+      // the owner's number (ADMIN_PHONES) is an admin even before its next sign-in promotes it
+      role: isAdminPhone(u.phone) ? "admin" : u.role,
       has_password: Boolean(password_hash),
       pro: k ? { state: codeState(k), expires_at: k.expires_at, code_id: k.id, hint: k.hint } : { state: "none", expires_at: null, code_id: null, hint: "" },
       orders: stats.get(u.id)?.n ?? 0,
@@ -85,8 +88,22 @@ export async function listMembers(): Promise<MemberRow[] | null> {
   });
 }
 
-/** Sends a freshly issued code to the member: inbox (with the code if the setting allows), SMS, e-mail. */
-export async function deliverCode(user: Pick<Account, "id" | "name" | "phone" | "email">, code: string, expiresAt: string | null): Promise<{ sms: boolean; email: boolean }> {
+/** How a new code reached the member (for the admin's note). */
+export interface Delivered {
+  /** the code is readable in the member's inbox on the site */
+  inbox: boolean;
+  sms: boolean;
+  /** why the SMS was not sent ("" when it was, or SMS is off) */
+  smsError: string;
+  email: boolean;
+}
+
+/**
+ * Sends a freshly issued code to the member: inbox (the code is shown there if the setting allows — stored
+ * only as a placeholder, see messages.ts), SMS, e-mail. Module-private: callers check the admin session.
+ */
+async function deliverCode(user: Pick<Account, "id" | "name" | "phone" | "email">, code: string, expiresAt: string | null, reason: "request" | "admin"): Promise<Delivered> {
+  await assertAdmin();
   const s = await getSettings();
   const until = expiresAt ? formatDate(expiresAt, "fa") : "";
   const untilEn = expiresAt ? formatDate(expiresAt, "en") : "";
@@ -98,27 +115,51 @@ export async function deliverCode(user: Pick<Account, "id" | "name" | "phone" | 
     title_fa: "کد اشتراک Pro شما صادر شد",
     title_en: "Your Pro code has been issued",
     body_fa: s.pro.codeInInbox
-      ? `کد اختصاصی شما: ${faCode}\nاین کد را در بخش «اشتراک Pro» یا هنگام ورود وارد کنید تا قیمت‌ها و موجودی محصولات نمایش داده شود و بتوانید سفارش ثبت کنید.${until ? `\nاعتبار تا ${until}` : ""}`
+      ? `کد اختصاصی شما: ${CODE_MARK}\nاین کد را در بخش «اشتراک Pro» یا هنگام ورود وارد کنید تا قیمت‌ها و موجودی محصولات نمایش داده شود و بتوانید سفارش ثبت کنید.${until ? `\nاعتبار تا ${until}` : ""}`
       : "کد اختصاصی شما از طریق پیامک یا تماس فروشگاه برایتان ارسال می‌شود. پس از دریافت، آن را در بخش «اشتراک Pro» وارد کنید.",
     body_en: s.pro.codeInInbox
-      ? `Your personal code: ${code}\nEnter it under “Pro membership” or when signing in to see prices and stock and to place orders.${untilEn ? `\nValid until ${untilEn}` : ""}`
+      ? `Your personal code: ${CODE_MARK}\nEnter it under “Pro membership” or when signing in to see prices and stock and to place orders.${untilEn ? `\nValid until ${untilEn}` : ""}`
       : "Your personal code will reach you by text message or a call from the store. Enter it under “Pro membership” once you have it.",
     link: "/account/pro",
   });
   let sms = false;
+  let smsError = "";
   if (s.sms.onCode && s.sms.provider !== "none") {
-    sms = (await sendSms(user.phone, { kind: "code", code, text: `سلین | کد اشتراک Pro شما: ${faCode}\nورود: ${site}/pro` }, s.sms)).ok;
+    const r = await sendSms(user.phone, { kind: "code", code, text: `سلین | کد اشتراک Pro شما: ${faCode}\nورود: ${site}/pro` }, s.sms);
+    sms = r.ok;
+    smsError = r.ok ? "" : String((r as { error?: string }).error ?? "failed");
   }
   let email = false;
   if (user.email) {
+    const lead = reason === "request" ? "درخواست اشتراک Pro شما تأیید شد." : "اشتراک Pro سلین برای شما فعال شد.";
     const html = mailHtml(
       "fa",
-      [`${user.name ? `${user.name} عزیز، ` : ""}درخواست اشتراک Pro شما تأیید شد.`, `کد اختصاصی شما: ${faCode}`, "این کد را در سایت، بخش «اشتراک Pro» یا هنگام ورود وارد کنید تا قیمت‌ها و موجودی را ببینید و سفارش ثبت کنید."],
+      [`${user.name ? `${user.name} عزیز، ` : ""}${lead}`, `کد اختصاصی شما: ${faCode}`, "این کد را در سایت، بخش «اشتراک Pro» یا هنگام ورود وارد کنید تا قیمت‌ها و موجودی را ببینید و سفارش ثبت کنید."],
       { href: `${env.siteUrl}/pro`, label: "ورود کد در سایت" },
     );
     email = (await sendEmail(user.email, "کد اشتراک Pro سلین", html)).ok;
   }
-  return { sms, email };
+  return { inbox: s.pro.codeInInbox, sms, smsError, email };
+}
+
+/**
+ * What was opened with a code ends with it: every session of the account (session_version) and a password
+ * the member set from a code session (password_from_code). Called when a used code is revoked or replaced.
+ */
+async function endCodeAccess(userId: string): Promise<{ passwordCleared: boolean }> {
+  const c = requireDb();
+  let row = await c.from(USERS).select("session_version, password_from_code").eq("id", userId).maybeSingle();
+  if (isMissingColumn(row.error)) row = await c.from(USERS).select("session_version").eq("id", userId).maybeSingle();
+  if (row.error) throw new Error(row.error.message);
+  const u = row.data as { session_version: number; password_from_code?: boolean } | null;
+  if (!u) return { passwordCleared: false };
+  const clear = u.password_from_code === true;
+  const { error } = await c
+    .from(USERS)
+    .update({ session_version: u.session_version + 1, updated_at: new Date().toISOString(), ...(clear ? { password_hash: null, password_from_code: false } : {}) })
+    .eq("id", userId);
+  if (error) throw new Error(error.message);
+  return { passwordCleared: clear };
 }
 
 export interface CreateMemberInput {
@@ -135,7 +176,7 @@ export interface CreateMemberInput {
 }
 
 /** Admin creates an account by hand (optionally with a password) and, if asked, issues its Pro code. */
-export async function createMember(input: CreateMemberInput): Promise<{ id: string; code: string | null; delivered: { sms: boolean; email: boolean } | null }> {
+export async function createMember(input: CreateMemberInput): Promise<{ id: string; code: string | null; delivered: Delivered | null }> {
   await assertAdmin();
   const c = requireDb();
   const name = text(input.name, 80);
@@ -166,7 +207,7 @@ export async function createMember(input: CreateMemberInput): Promise<{ id: stri
   if (input.issue === true || input.issue === "on" || input.issue === "true") {
     const days = Math.max(0, Math.round(Number(input.days ?? (await getSettings()).pro.defaultDays) || 0));
     const issued = await issueCode(id, { days });
-    const delivered = await deliverCode({ id, name, phone, email }, issued.code, issued.expiresAt);
+    const delivered = await deliverCode({ id, name, phone, email }, issued.code, issued.expiresAt, "admin");
     return { id, code: issued.code, delivered };
   }
   return { id, code: null, delivered: null };
@@ -208,13 +249,20 @@ async function bumpSession(id: string, extra: Record<string, unknown>): Promise<
     .from(USERS)
     .update({ ...extra, session_version: (data as { session_version: number }).session_version + 1, updated_at: new Date().toISOString() })
     .eq("id", id);
-  if (ue) throw new Error(ue.message);
+  if (ue) throw Object.assign(new Error(ue.message), { code: ue.code });
 }
 
 export async function setMemberPassword(id: string, password: string): Promise<void> {
   await assertAdmin();
   if (password.length < PASSWORD_MIN || password.length > PASSWORD_MAX) throw new UserError("رمز عبور باید دست‌کم ۸ نویسه باشد.");
-  await bumpSession(id, { password_hash: await hashPassword(password) });
+  const password_hash = await hashPassword(password);
+  // a password the admin sets is the account's own, not tied to a Pro code
+  try {
+    await bumpSession(id, { password_hash, password_from_code: false });
+  } catch (e) {
+    if (!isMissingColumn(e as { code?: string })) throw e;
+    await bumpSession(id, { password_hash });
+  }
 }
 
 export async function setMemberDisabled(id: string, disabled: boolean): Promise<void> {
@@ -224,6 +272,10 @@ export async function setMemberDisabled(id: string, disabled: boolean): Promise<
 
 export async function setMemberRole(id: string, role: "user" | "admin"): Promise<void> {
   await assertAdmin();
+  if (role === "user") {
+    const { data } = await requireDb().from(USERS).select("phone").eq("id", id).maybeSingle();
+    if (data && isAdminPhone((data as { phone: string }).phone)) throw new UserError("این شماره در ADMIN_PHONES (Vercel) آمده و همیشه مدیر است؛ برای برداشتن دسترسی، اول آن را از ADMIN_PHONES حذف و دوباره Deploy کنید.");
+  }
   await bumpSession(id, { role });
 }
 
@@ -254,31 +306,52 @@ export async function listRequests(): Promise<RequestRow[] | null> {
   return rows.map((r) => ({ ...r, user: users.get(r.user_id) ?? null }));
 }
 
-export async function approveRequest(requestId: string, daysInput?: unknown): Promise<{ code: string; delivered: { sms: boolean; email: boolean }; user: Pick<Account, "name" | "phone"> }> {
+const DECIDED = "این درخواست قبلاً بررسی شده است؛ صفحه را دوباره باز کنید.";
+
+export async function approveRequest(requestId: string, daysInput?: unknown): Promise<{ code: string; delivered: Delivered; user: Pick<Account, "name" | "phone"> }> {
   await assertAdmin();
   const c = requireDb();
-  const { data, error } = await c.from(REQUESTS).select("id, user_id, status").eq("id", requestId).maybeSingle();
+  // claim the request first (one approval only, even from two tabs or two admins)
+  const { data, error } = await c.from(REQUESTS).update({ status: "approved", decided_at: new Date().toISOString(), reply: "" }).eq("id", requestId).eq("status", "pending").select("id, user_id").maybeSingle();
   if (error) throw new Error(error.message);
-  const req = data as { id: string; user_id: string; status: string } | null;
-  if (!req) throw new UserError("درخواست پیدا نشد.");
+  const req = data as { id: string; user_id: string } | null;
+  if (!req) {
+    const { data: exists } = await c.from(REQUESTS).select("id").eq("id", requestId).maybeSingle();
+    throw new UserError(exists ? DECIDED : "درخواست پیدا نشد.");
+  }
   const { data: u, error: ue } = await c.from(USERS).select("id, name, phone, email, disabled").eq("id", req.user_id).maybeSingle();
   if (ue) throw new Error(ue.message);
   const user = u as (Pick<Account, "id" | "name" | "phone" | "email"> & { disabled: boolean }) | null;
   if (!user) throw new UserError("حساب این درخواست دیگر وجود ندارد.");
   const days = Math.max(0, Math.round(Number(daysInput ?? (await getSettings()).pro.defaultDays) || 0));
-  const issued = await issueCode(user.id, { days, requestId: req.id });
-  const { error: se } = await c.from(REQUESTS).update({ status: "approved", decided_at: new Date().toISOString(), reply: "" }).eq("id", req.id);
-  if (se) throw new Error(se.message);
-  const delivered = await deliverCode(user, issued.code, issued.expiresAt);
+  let issued;
+  try {
+    issued = await issueCode(user.id, { days, requestId: req.id });
+  } catch (e) {
+    // give the request back, so it can be approved again
+    await c.from(REQUESTS).update({ status: "pending", decided_at: null }).eq("id", req.id);
+    throw e;
+  }
+  if (issued.replacedLive) await endCodeAccess(user.id);
+  const delivered = await deliverCode(user, issued.code, issued.expiresAt, "request");
   return { code: issued.code, delivered, user: { name: user.name, phone: user.phone } };
 }
 
 export async function rejectRequest(requestId: string, reply: string): Promise<void> {
   await assertAdmin();
   const c = requireDb();
-  const { data, error } = await c.from(REQUESTS).update({ status: "rejected", reply: reply.trim().slice(0, 800), decided_at: new Date().toISOString() }).eq("id", requestId).select("user_id").maybeSingle();
+  const { data, error } = await c
+    .from(REQUESTS)
+    .update({ status: "rejected", reply: reply.trim().slice(0, 800), decided_at: new Date().toISOString() })
+    .eq("id", requestId)
+    .eq("status", "pending")
+    .select("user_id")
+    .maybeSingle();
   if (error) throw new Error(error.message);
-  if (!data) throw new UserError("درخواست پیدا نشد.");
+  if (!data) {
+    const { data: exists } = await c.from(REQUESTS).select("id").eq("id", requestId).maybeSingle();
+    throw new UserError(exists ? DECIDED : "درخواست پیدا نشد.");
+  }
   await postMessage((data as { user_id: string }).user_id, {
     kind: "pro",
     title_fa: "درباره‌ی درخواست اشتراک Pro",
@@ -290,7 +363,7 @@ export async function rejectRequest(requestId: string, reply: string): Promise<v
 }
 
 /** Issues (or re-issues) a code for an account directly, without a request. */
-export async function issueForMember(userId: string, daysInput?: unknown): Promise<{ code: string; delivered: { sms: boolean; email: boolean } }> {
+export async function issueForMember(userId: string, daysInput?: unknown): Promise<{ code: string; delivered: Delivered; ended: boolean }> {
   await assertAdmin();
   const c = requireDb();
   const { data, error } = await c.from(USERS).select("id, name, phone, email").eq("id", userId).maybeSingle();
@@ -299,10 +372,12 @@ export async function issueForMember(userId: string, daysInput?: unknown): Promi
   if (!user) throw new UserError("حساب پیدا نشد.");
   const days = Math.max(0, Math.round(Number(daysInput ?? (await getSettings()).pro.defaultDays) || 0));
   const issued = await issueCode(user.id, { days });
+  // the replaced code was in use: whoever used it is signed out (a leaked code is the usual reason to replace one)
+  if (issued.replacedLive) await endCodeAccess(user.id);
   // an open request of this member is answered by this code
   await c.from(REQUESTS).update({ status: "approved", decided_at: new Date().toISOString() }).eq("user_id", user.id).eq("status", "pending");
-  const delivered = await deliverCode(user, issued.code, issued.expiresAt);
-  return { code: issued.code, delivered };
+  const delivered = await deliverCode(user, issued.code, issued.expiresAt, "admin");
+  return { code: issued.code, delivered, ended: issued.replacedLive };
 }
 
 export async function listCodes(): Promise<CodeListRow[] | null> {
@@ -334,10 +409,30 @@ export async function revealMemberCode(codeId: string): Promise<string> {
   return code;
 }
 
-export async function revokeMemberCode(codeId: string): Promise<void> {
+/**
+ * Revokes a code. If it was in use, every session of the account ends and a password set from a code
+ * session is removed (whoever had the code loses the account too); the member gets an inbox note.
+ */
+export async function revokeMemberCode(codeId: string): Promise<{ ended: boolean; passwordCleared: boolean }> {
   await assertAdmin();
-  const { error } = await requireDb().from(CODES).update({ revoked_at: new Date().toISOString() }).eq("id", codeId).is("revoked_at", null);
+  const c = requireDb();
+  const { data, error } = await c.from(CODES).update({ revoked_at: new Date().toISOString() }).eq("id", codeId).is("revoked_at", null).select("user_id, redeemed_at, expires_at").maybeSingle();
   if (error) throw new Error(error.message);
+  const row = data as { user_id: string; redeemed_at: string | null; expires_at: string | null } | null;
+  if (!row) return { ended: false, passwordCleared: false };
+  const used = Boolean(row.redeemed_at);
+  const { passwordCleared } = used ? await endCodeAccess(row.user_id) : { passwordCleared: false };
+  if (used && codeState({ ...row, revoked_at: null }) === "active") {
+    await postMessage(row.user_id, {
+      kind: "pro",
+      title_fa: "اشتراک Pro شما پایان یافت",
+      title_en: "Your Pro membership has ended",
+      body_fa: "کد اشتراک Pro شما از سوی فروشگاه باطل شد و قیمت‌ها و موجودی دیگر نمایش داده نمی‌شود. برای تمدید یا کد تازه، از بخش «اشتراک Pro» درخواست دهید یا با فروشگاه تماس بگیرید.",
+      body_en: "Your Pro code was revoked by the store, so prices and stock are no longer shown. To renew, send a request under “Pro membership” or contact the store.",
+      link: "/account/pro",
+    });
+  }
+  return { ended: used, passwordCleared };
 }
 
 /** Sets a new expiry: `days` from today (0 = never expires). */

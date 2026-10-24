@@ -29,9 +29,10 @@ export async function adminSaveProduct(input: Record<string, unknown>): Promise<
 
 export async function adminQuickUpdate(input: Record<string, unknown>): Promise<Result> {
   return guard(async () => {
-    const patch: { price?: unknown; stock?: unknown; status?: unknown } = {};
+    const patch: { price?: unknown; stock?: unknown; stock_loaded?: unknown; status?: unknown } = {};
     if ("price" in input) patch.price = input.price;
     if ("stock" in input) patch.stock = input.stock;
+    if ("stock_loaded" in input) patch.stock_loaded = input.stock_loaded;
     if ("status" in input) patch.status = input.status;
     await quickUpdate(text(input.id, 40), patch);
     refresh();

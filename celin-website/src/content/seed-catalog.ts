@@ -157,7 +157,7 @@ const GT: Spec = { label_fa: "پوشش", label_en: "Finish", value_fa: "طلای
 const RS: Spec = { label_fa: "پوشش", label_en: "Finish", value_fa: "رزگلد (آبکاری رزگلد)", value_en: "Rose-gold-tone" };
 const TT: Spec = { label_fa: "پوشش", label_en: "Finish", value_fa: "طلایی یا نقره‌ای (رودیوم)", value_en: "Gold-tone or silver-tone (rhodium plated)" };
 const stones = (fa: string, en: string): Spec => ({ label_fa: "نگین", label_en: "Stones", value_fa: fa, value_en: en });
-const WHITE = stones("زیرکونیای مکعبی سفید با تراش اتمی", "White cubic zirconia, atomic cut");
+const WHITE = stones("سفید با تراش اتمی", "White, atomic cut");
 // the brand's own wording (story.ts): precise setting — no "by hand" claims
 const HAND: Spec = { label_fa: "نشاندن نگین", label_en: "Setting", value_fa: "مخراج‌کاری دقیق", value_en: "Precise stone setting" };
 const includes = (fa: string, en: string): Spec => ({ label_fa: "شامل", label_en: "Includes", value_fa: fa, value_en: en });
@@ -240,7 +240,7 @@ export const SEED_PRODUCTS: SeedProduct[] = [
     collection: "yas",
     metal: "silver",
     stone: "white",
-    specs: [RH, stones("زیرکونیای مکعبی سفید، تراش باگت و گرد", "White cubic zirconia, baguette and round cut"), includes("گردنبند، دستبند و یک جفت گوشواره", "Necklace, bracelet and a pair of earrings")],
+    specs: [RH, stones("سفید، تراش باگت و گرد", "White, baguette and round cut"), includes("گردنبند، دستبند و یک جفت گوشواره", "Necklace, bracelet and a pair of earrings")],
     images: ["set-baguette-drops"],
     price: 8_900_000,
     stock: 2,
@@ -283,7 +283,7 @@ export const SEED_PRODUCTS: SeedProduct[] = [
     collection: "firouzeh",
     metal: "silver",
     stone: "blue",
-    specs: [RH, stones("زیرکونیای مکعبی آبی فیروزه‌ای و سفید، تراش کوشن، گرد و مارکیز", "Firouzeh-blue and white cubic zirconia; cushion, round and marquise cut"), HAND],
+    specs: [RH, stones("آبی فیروزه‌ای و سفید، تراش کوشن، گرد و مارکیز", "Firouzeh-blue and white; cushion, round and marquise cut"), HAND],
     images: ["ring-paraiba-cushion"],
     price: 3_850_000,
     stock: 6,
@@ -304,7 +304,7 @@ export const SEED_PRODUCTS: SeedProduct[] = [
     collection: "firouzeh",
     metal: "silver",
     stone: "blue",
-    specs: [RH, stones("زیرکونیای مکعبی آبی فیروزه‌ای و سفید، تراش بیضی و مارکیز", "Firouzeh-blue and white cubic zirconia; oval and marquise cut"), HAND],
+    specs: [RH, stones("آبی فیروزه‌ای و سفید، تراش بیضی و مارکیز", "Firouzeh-blue and white; oval and marquise cut"), HAND],
     images: ["ring-paraiba-oval", "ring-paraiba-oval-side"],
     price: 4_200_000,
     stock: 4,
@@ -325,7 +325,7 @@ export const SEED_PRODUCTS: SeedProduct[] = [
     collection: "firouzeh",
     metal: "silver",
     stone: "blue",
-    specs: [RH, stones("زیرکونیای مکعبی آبی فیروزه‌ای و سفید، تراش اشکی و گرد", "Firouzeh-blue and white cubic zirconia; pear and round cut"), HAND],
+    specs: [RH, stones("آبی فیروزه‌ای و سفید، تراش اشکی و گرد", "Firouzeh-blue and white; pear and round cut"), HAND],
     images: ["ring-paraiba-wrap", "ring-paraiba-wrap-hand"],
     price: 3_400_000,
     stock: 8,
@@ -368,7 +368,7 @@ export const SEED_PRODUCTS: SeedProduct[] = [
     collection: "golbarg",
     metal: "rose",
     stone: "green",
-    specs: [RS, stones("زیرکونیای مکعبی سبز جنگلی و سفید، تراش مارکیز و گرد", "Forest-green and white cubic zirconia; marquise and round cut"), HAND],
+    specs: [RS, stones("سبز جنگلی و سفید، تراش مارکیز و گرد", "Forest-green and white; marquise and round cut"), HAND],
     images: ["ring-emerald-fan"],
     price: 3_600_000,
     stock: 5,
@@ -456,7 +456,7 @@ export const SEED_PRODUCTS: SeedProduct[] = [
     collection: "del",
     metal: "two-tone",
     stone: "white",
-    specs: [TT, stones("زیرکونیای مکعبی سفید، تراش قلب و گرد", "White cubic zirconia; heart and round cut"), HAND],
+    specs: [TT, stones("سفید، تراش قلب و گرد", "White; heart and round cut"), HAND],
     images: ["rings-heart-leaf"],
     price: 2_900_000,
     stock: 0,
@@ -481,7 +481,7 @@ export const SEED_PRODUCTS: SeedProduct[] = [
     collection: "negar",
     metal: "two-tone",
     stone: "mixed",
-    specs: [TT, stones("زیرکونیای مکعبی رنگی و سفید، تراش مارکیز و گرد", "Coloured and white cubic zirconia; marquise and round cut"), HAND],
+    specs: [TT, stones("رنگی و سفید، تراش مارکیز و گرد", "Coloured and white; marquise and round cut"), HAND],
     images: ["bangles-emerald", "bangles-sapphire", "bangles-ruby"],
     price: 3_300_000,
     stock: 0,
@@ -510,7 +510,7 @@ export const SEED_PRODUCTS: SeedProduct[] = [
     collection: "gereh",
     metal: "silver",
     stone: "pearl",
-    specs: [RH, stones("زیرکونیای مکعبی سفید با تراش گرد و آویز مرواریدی", "White round-cut cubic zirconia and a pearl-look drop"), HAND],
+    specs: [RH, stones("سفید با تراش گرد و آویز مرواریدی", "White, round cut, with a pearl-look drop"), HAND],
     images: ["earrings-bow-pearl"],
     price: 3_950_000,
     stock: 6,
@@ -531,7 +531,7 @@ export const SEED_PRODUCTS: SeedProduct[] = [
     collection: "gereh",
     metal: "silver",
     stone: "navy",
-    specs: [RH, stones("زیرکونیای مکعبی رنگی و سفید، تراش اشکی، امرالد و گرد", "Coloured and white cubic zirconia; pear, emerald and round cut"), includes("یک جفت گوشواره و یک انگشتر", "A pair of earrings and a ring")],
+    specs: [RH, stones("رنگی و سفید، تراش اشکی، امرالد و گرد", "Coloured and white; pear, emerald and round cut"), includes("یک جفت گوشواره و یک انگشتر", "A pair of earrings and a ring")],
     images: ["set-bow-sapphire", "set-bow-ruby"],
     price: 6_900_000,
     stock: 0,

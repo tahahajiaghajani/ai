@@ -44,7 +44,7 @@ export async function NotFoundPage({ lang }: { lang: Lang }) {
                     <div className="relative px-1.5 pt-1.5 sm:px-2.5 sm:pt-2.5">
                       <Arch media={k.media} lang={lang} sizes="(min-width: 640px) 26vw, 30vw" ring="copper" unveil sparkle={6} frameClassName="fx-sheen" className="[--ring-gap:6px] sm:[--ring-gap:10px]" />
                     </div>
-                    <span className="display mt-4 block text-lg font-bold text-ink transition-colors group-hover:text-gold-text sm:text-3xl">{t(k, "name", lang)}</span>
+                    <span className="title-card mt-4 block text-ink transition-colors group-hover:text-gold-text">{t(k, "name", lang)}</span>
                   </Link>
                 </li>
               ))}

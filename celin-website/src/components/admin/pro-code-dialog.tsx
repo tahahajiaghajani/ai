@@ -18,6 +18,8 @@ export interface ShownCode {
   phone?: string;
   /** how it was delivered (SMS, e-mail, inbox) */
   note?: string;
+  /** the note is a warning (e.g. nothing carried the code to the member) */
+  warn?: boolean;
   /** link to the member's page */
   href?: string;
   /** a freshly issued code (vs. a stored one shown again) */
@@ -84,8 +86,8 @@ export function CodeDialog({ value, siteUrl, onClose }: { value: ShownCode | nul
             </Button>
           </div>
           {v.note && (
-            <p className="flex items-start gap-2 text-xs leading-6 text-ink-2">
-              <Icon name="check" className="mt-1 size-3.5 shrink-0 text-success" />
+            <p className={`flex items-start gap-2 text-xs leading-6 ${v.warn ? "text-warning" : "text-ink-2"}`}>
+              <Icon name={v.warn ? "warning" : "check"} className={`mt-1 size-3.5 shrink-0 ${v.warn ? "text-warning" : "text-success"}`} />
               {v.note}
             </p>
           )}

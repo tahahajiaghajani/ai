@@ -100,6 +100,7 @@ export default async function OrderPage({ params }: { params: Promise<{ code: st
                 carrier={o.carrier}
                 tracking={o.tracking_code}
                 adminNote={o.admin_note ?? ""}
+                cancelled={o.status === "cancelled"}
               />
             </div>
           </div>

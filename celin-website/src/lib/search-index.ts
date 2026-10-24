@@ -5,7 +5,7 @@ import type { SearchItem } from "@/lib/search";
 
 const PAGES: SearchItem[] = [
   { kind: "page", slug: "care", path: "/care", name_fa: "نگهداری و ضمانت", name_en: "Care & warranty", sub_fa: "مراقبت از آبکاری، ضمانت رنگ", sub_en: "Caring for the plating, colour warranty", terms: "ضمانت گارانتی نگهداری تمیز کردن آب عطر care warranty clean guarantee" },
-  { kind: "page", slug: "craft", path: "/craft", name_fa: "هنر تراش اتمی", name_en: "The atomic cut", sub_fa: "نگین‌ها و آبکاری رودیوم", sub_en: "Stones and rhodium plating", terms: "تراش اتمی رودیوم رادیوم آبکاری نگین زیرکونیا cut rhodium plating zirconia stone" },
+  { kind: "page", slug: "craft", path: "/craft", name_fa: "هنر تراش اتمی", name_en: "The atomic cut", sub_fa: "نگین‌ها و آبکاری رودیوم", sub_en: "Stones and rhodium plating", terms: "تراش اتمی رودیوم رادیوم آبکاری نگین cut rhodium plating stone" },
   { kind: "page", slug: "pro", path: "/pro", name_fa: "اشتراک Pro", name_en: "Pro membership", sub_fa: "قیمت، موجودی و سفارش برای همکاران", sub_en: "Prices, stock and ordering for partners", terms: "پرو pro همکار عمده قیمت موجودی سفارش wholesale price stock order" },
   { kind: "page", slug: "contact", path: "/contact", name_fa: "تماس با ما", name_en: "Contact", sub_fa: "تلفن، واتس‌اپ، نشانی", sub_en: "Phone, WhatsApp, address", terms: "تماس تلفن واتساپ آدرس ارسال پست contact phone whatsapp address shipping delivery" },
   { kind: "page", slug: "maison", path: "/maison", name_fa: "گالری اعتماد", name_en: "Etemad Gallery", sub_fa: "داستان سلین", sub_en: "The story of CELIN", terms: "درباره داستان about story" },

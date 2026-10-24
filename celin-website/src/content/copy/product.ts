@@ -23,7 +23,7 @@ export const productCopy = {
     details: "جزئیات و مشخصات",
     making: "هنر ساخت سلین",
     makingLink: "هنر تراش",
-    materials: ["نگین کیوبیک زیرکونیا", "مخراج‌کاری دقیق", "آبکاری رودیوم و طلا"],
+    materials: ["نگین با تراش اتمی", "مخراج‌کاری دقیق", "آبکاری رودیوم و طلا"],
     care: "نگهداری",
     delivery: "بسته‌بندی و ارسال",
     careText: [
@@ -70,7 +70,7 @@ export const productCopy = {
     details: "Details",
     making: "How CELIN is made",
     makingLink: "The cut",
-    materials: ["Cubic zirconia", "Precise setting", "Rhodium & gold plating"],
+    materials: ["Atomic-cut stones", "Precise setting", "Rhodium & gold plating"],
     care: "Care",
     delivery: "Packaging & delivery",
     careText: [

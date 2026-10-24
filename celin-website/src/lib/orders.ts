@@ -10,7 +10,10 @@ const ITEM_COLUMNS = "id, order_id, product_id, variant_id, name_fa, name_en, va
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** Cleans what the browser sent: valid ids, whole quantities 1–99, duplicate lines merged. */
+/**
+ * Cleans what the browser sent: valid ids, whole quantities 1–99, duplicate lines merged, and sorted by
+ * product and option — celin_place_order locks rows in line order, so two orders never wait on each other.
+ */
 export function cleanLines(input: unknown): CartLine[] {
   if (!Array.isArray(input)) return [];
   const merged = new Map<string, CartLine>();
@@ -25,7 +28,8 @@ export function cleanLines(input: unknown): CartLine[] {
     const prev = merged.get(key);
     merged.set(key, { productId, variantId, qty: Math.min(MAX_QTY, (prev?.qty ?? 0) + qty) });
   }
-  return [...merged.values()].slice(0, MAX_LINES);
+  const key = (l: CartLine) => `${l.productId.toLowerCase()}:${(l.variantId ?? "").toLowerCase()}`;
+  return [...merged.values()].slice(0, MAX_LINES).sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0));
 }
 
 export type PlaceError =
@@ -47,7 +51,10 @@ export async function placeOrder(userId: string, lines: CartLine[], customer: Cu
   if (!c) return { ok: false, error: { reason: "unavailable" } };
   if (!lines.length) return { ok: false, error: { reason: "empty" } };
   const items = lines.map((l) => ({ product_id: l.productId, variant_id: l.variantId ?? "", qty: l.qty }));
-  const { data, error } = await c.rpc("celin_place_order", { p_user: userId, p_items: items, p_customer: customer, p_note: note });
+  const call = () => c.rpc("celin_place_order", { p_user: userId, p_items: items, p_customer: customer, p_note: note });
+  let { data, error } = await call();
+  // a deadlock (40P01) rolls the whole order back: one more try is safe
+  if (error && (error.code === "40P01" || /deadlock detected/i.test(error.message))) ({ data, error } = await call());
   if (error) {
     if (isMissingTable(error) || error.code === "PGRST202") return { ok: false, error: { reason: "unavailable" } };
     const parsed = parsePlaceError(error.message);
@@ -160,12 +167,25 @@ export async function getOrder(code: string, userId?: string): Promise<OrderDeta
   return detail;
 }
 
-export async function setOrderStatus(orderId: string, status: OrderStatus, note: string, actor: "admin" | "customer", onlyFrom?: OrderStatus): Promise<{ ok: true } | { ok: false; reason: "cancelled" | "changed" | "missing" | "failed" }> {
+/**
+ * Moves an order through celin_set_order_status. `changed` is false when the order already had that status
+ * (e.g. the member cancelled at the same moment) — then nobody should be told about a change.
+ * Rules (database): a cancelled order stays cancelled; a shipped order can only be cancelled, and then its
+ * pieces do not go back to stock (they have left the shop).
+ */
+export async function setOrderStatus(
+  orderId: string,
+  status: OrderStatus,
+  note: string,
+  actor: "admin" | "customer",
+  onlyFrom?: OrderStatus,
+): Promise<{ ok: true; changed: boolean } | { ok: false; reason: "cancelled" | "changed" | "missing" | "transition" | "failed" }> {
   const c = db();
   if (!c) return { ok: false, reason: "failed" };
-  const { error } = await c.rpc("celin_set_order_status", { p_order: orderId, p_status: status, p_note: note, p_actor: actor, p_only_from: onlyFrom ?? null });
-  if (!error) return { ok: true };
+  const { data, error } = await c.rpc("celin_set_order_status", { p_order: orderId, p_status: status, p_note: note, p_actor: actor, p_only_from: onlyFrom ?? null });
+  if (!error) return { ok: true, changed: data !== "unchanged" };
   if (/order_cancelled/.test(error.message)) return { ok: false, reason: "cancelled" };
+  if (/bad_transition/.test(error.message)) return { ok: false, reason: "transition" };
   if (/status_changed/.test(error.message)) return { ok: false, reason: "changed" };
   if (/order_not_found/.test(error.message)) return { ok: false, reason: "missing" };
   console.error("[orders] status", error.message);

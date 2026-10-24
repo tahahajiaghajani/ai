@@ -78,7 +78,7 @@ export function CategoryArchesView({ lang, items, current, label, allLabel, tota
                     <span aria-hidden className={`absolute inset-0 bg-gradient-to-t from-night/55 via-night/10 to-transparent transition-opacity duration-700 ${on ? "opacity-40" : "opacity-100 group-hover:opacity-30"}`} />
                   </span>
                 </span>
-                <span className={`display mt-3.5 text-lg leading-[1.5]! font-bold transition-colors duration-500 sm:mt-4 sm:text-xl ${on ? "text-gold-glow" : "text-on-night group-hover:text-gold-glow"}`}>{k.name}</span>
+                <span className={`title-card mt-3.5 transition-colors duration-500 sm:mt-4 ${on ? "text-gold-glow" : "text-on-night group-hover:text-gold-glow"}`}>{k.name}</span>
                 <span className="font-ui text-[11px] leading-5 text-on-night-muted">{k.count}</span>
               </Link>
             </li>

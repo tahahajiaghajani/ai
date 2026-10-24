@@ -41,7 +41,9 @@ export interface UploadInput {
 export async function storeUpload(input: UploadInput): Promise<Media> {
   await assertAdmin();
   const c = requireDb();
-  if (!input.files.length || input.files.length > UPLOAD_WIDTHS.length) throw new UserError("فایل تصویر دریافت نشد.");
+  // the standard widths below the picture's own width, plus that width (an older open admin tab may still
+  // send one width above 2048)
+  if (!input.files.length || input.files.length > UPLOAD_WIDTHS.length + 1) throw new UserError("فایل تصویر دریافت نشد.");
   const kinds = new Set<string>();
   for (const f of input.files) {
     if (!UPLOAD_WIDTHS.includes(f.width) && f.width !== input.width) throw new UserError("اندازه‌ی تصویر معتبر نیست.");

@@ -45,7 +45,7 @@ export function NightDoor({
       <Grain />
       <div className="container-lux relative flex flex-col items-center py-16 text-center">
         {top}
-        <div className="relative grid aspect-[4/3] w-[min(88vw,560px)] place-items-end justify-center">
+        <div className="relative grid aspect-[4/3] w-[min(84vw,460px)] place-items-end justify-center">
           <ArchLines count={6} tone="champagne" immediate delay={80} className="pointer-events-none absolute inset-0 size-full" />
           <span aria-hidden className="absolute inset-x-[-8%] bottom-0 block h-px bg-[image:var(--metal-champagne)] opacity-60" />
           <div className="relative pb-[9%]">
@@ -53,7 +53,7 @@ export function NightDoor({
               <RhombusDigits
                 text={code}
                 lang={lang}
-                className="display text-[clamp(5rem,20vw,8rem)] leading-[1.1] font-bold text-metal-light metal-live"
+                className="title-mark text-metal-light metal-live"
                 zeroClassName="drop-shadow-[0_0_18px_rgb(233_185_138/0.35)]"
               />
             ) : (
@@ -74,8 +74,8 @@ export function NightDoor({
         <Eyebrow tone="light" center className="mt-10" style={{ animation: "fade-in 0.9s var(--ease-lux) 0.5s both" } as CSSProperties}>
           {eyebrow}
         </Eyebrow>
-        <SplitWords as="h1" text={title} immediate delay={350} className="display mt-4 text-[clamp(2.2rem,8vw,3rem)] leading-[1.35]! font-bold sm:text-6xl" wordClassName="text-metal-light" />
-        <p className="mx-auto mt-5 max-w-lg text-lg leading-9 text-on-night-muted" style={{ animation: "fade-in 0.9s var(--ease-lux) 0.8s both" }}>
+        <SplitWords as="h1" text={title} immediate delay={350} className="title-page mt-4" wordClassName="text-metal-light" />
+        <p className="lede mx-auto mt-4 max-w-lg text-on-night-muted" style={{ animation: "fade-in 0.9s var(--ease-lux) 0.8s both" }}>
           {body}
         </p>
         {children && (

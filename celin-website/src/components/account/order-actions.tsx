@@ -95,7 +95,7 @@ export function OrderActions({ lang, code, cancellable, lines }: { lang: Lang; c
       {note && <p className="mt-3 text-sm text-muted">{note}</p>}
       <Overlay open={open} onClose={() => setOpen(false)} label={c.cancelTitle} closeLabel={commonCopy(lang).nav.close}>
         <div className="space-y-5 px-5 pt-6 pb-8 sm:px-8">
-          <p className="display text-2xl">{c.cancelTitle}</p>
+          <p className="title-card">{c.cancelTitle}</p>
           <p className="text-sm leading-7 text-ink-2">{c.cancelText}</p>
           <TextArea id="cancel-reason" label={c.cancelReason} optional={accountCopy(lang).fields.optional} value={reason} onChange={(e) => setReason(e.target.value)} maxLength={300} rows={3} />
           <div aria-live="polite">{error && <FormNote tone="error">{error}</FormNote>}</div>

@@ -2,7 +2,7 @@
 export const shopCopy = {
   fa: {
     eyebrow: "جواهرات سلین",
-    intro: "نگین‌های درخشان کیوبیک زیرکونیا، مخراج‌کاری دقیق و آبکاری رودیوم و طلا.",
+    intro: "نگین‌های درخشان با تراش اتمی، مخراج‌کاری دقیق و آبکاری رودیوم و طلا.",
     categories: "دسته‌های جواهرات",
     all: "همه",
     pieces: (n: string) => `${n} اثر`,
@@ -10,7 +10,7 @@ export const shopCopy = {
   },
   en: {
     eyebrow: "CELIN jewelry",
-    intro: "Brilliant cubic zirconia, precise setting, rhodium and gold plating.",
+    intro: "Brilliant atomic-cut stones, precise setting, rhodium and gold plating.",
     categories: "Jewelry categories",
     all: "All",
     pieces: (n: string) => (n === "1" ? "1 piece" : `${n} pieces`),

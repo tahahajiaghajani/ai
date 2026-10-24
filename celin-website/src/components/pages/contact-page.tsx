@@ -93,7 +93,7 @@ export async function ContactPage({ lang }: { lang: Lang }) {
                       <span className="min-w-0 flex-1">
                         <span className="label block text-muted!">{r.label}</span>
                         <span className="mt-1 block">
-                          <span className={`inline-block max-w-full truncate align-top text-xl text-ink sm:text-2xl ${r.latin ? "ltr font-ui tabular-nums" : "display"}`}>{r.value}</span>
+                          <span className={`inline-block max-w-full truncate align-top text-ink ${r.latin ? "ltr font-ui text-lg tabular-nums sm:text-xl" : "title-card"}`}>{r.value}</span>
                         </span>
                       </span>
                       <span className="hidden items-center gap-2 text-sm text-ink-2 sm:inline-flex">
@@ -121,7 +121,7 @@ export async function ContactPage({ lang }: { lang: Lang }) {
                     <div>
                       <Icon name="clock" className="mx-auto size-6 text-gold-text" />
                       <p className="label mt-4 text-gold-text!">{c.hours}</p>
-                      <p className="display mt-3 text-2xl leading-[1.6]! font-semibold text-ink">{ch.hours}</p>
+                      <p className="title-card mt-3 text-ink">{ch.hours}</p>
                     </div>
                   )}
                   {ch.hours && ch.address && <span aria-hidden className="mx-auto block h-px w-12 bg-gold/40" />}
@@ -129,7 +129,7 @@ export async function ContactPage({ lang }: { lang: Lang }) {
                     <div>
                       <Icon name="map" className="mx-auto size-6 text-gold-text" />
                       <p className="label mt-4 text-gold-text!">{c.address}</p>
-                      <p className="mt-3 text-lg leading-9 text-ink">{ch.address}</p>
+                      <p className="lede mt-3 text-ink">{ch.address}</p>
                       {ch.map && (
                         <a href={ch.map} target="_blank" rel="noreferrer" className="mt-4 inline-flex items-center gap-2 text-sm text-gold-text underline-offset-8 hover:underline">
                           {c.map}
@@ -154,7 +154,7 @@ export async function ContactPage({ lang }: { lang: Lang }) {
               <li key={it.path} className="bg-bone" data-reveal style={{ "--d": i } as CSSProperties}>
                 <Link href={href(lang, it.path)} className="group flex h-full flex-col gap-3 px-1 py-8 transition-colors duration-500 hover:bg-porcelain sm:px-8">
                   {diamond("size-2 text-gold")}
-                  <span className="display mt-2 text-2xl font-bold text-ink sm:text-3xl">{it.title}</span>
+                  <span className="title-card mt-2 text-ink">{it.title}</span>
                   <span className="text-sm leading-7 text-muted">{it.text}</span>
                   <Icon name="arrow" className="mt-2 size-4 text-ink transition-transform duration-500 group-hover:translate-x-1 rtl:-scale-x-100 rtl:group-hover:-translate-x-1" />
                 </Link>

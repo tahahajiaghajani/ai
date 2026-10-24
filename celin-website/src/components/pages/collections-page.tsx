@@ -39,7 +39,7 @@ export async function CollectionsPage({ lang }: { lang: Lang }) {
               <Eyebrow tone="light" center>
                 {c.index.eyebrow}
               </Eyebrow>
-              <SplitWords as="h1" text={c.index.title} immediate delay={150} className="display mt-5 text-[clamp(2.6rem,10vw,3.6rem)] leading-[1.3]! font-bold sm:text-7xl lg:text-[clamp(4.5rem,7vw,7rem)]" wordClassName="text-metal-light metal-live" />
+              <SplitWords as="h1" text={c.index.title} immediate delay={150} className="title-page mt-5" wordClassName="text-metal-light metal-live" />
               <p className="label mt-5 text-on-night-muted!" data-reveal style={{ "--d": 4 } as CSSProperties}>
                 {c.index.count(num(collections.length, lang))}
               </p>
@@ -65,7 +65,7 @@ export async function CollectionsPage({ lang }: { lang: Lang }) {
                       </Arch>
                     </div>
                     <span aria-hidden className="mx-auto block h-px w-[112%] -translate-x-[5.4%] bg-[image:var(--metal-champagne)] opacity-50 rtl:translate-x-[5.4%]" />
-                    <h2 className="display mt-6 text-[1.65rem] leading-[1.35] font-bold text-on-night transition-colors duration-500 group-hover:text-gold-glow sm:text-4xl">{t(k, "name", lang)}</h2>
+                    <h2 className="title-section mt-6 text-on-night transition-colors duration-500 group-hover:text-gold-glow">{t(k, "name", lang)}</h2>
                     <p className="mx-auto mt-2 max-w-[17rem] text-sm leading-7 text-on-night-muted">{t(k, "tagline", lang)}</p>
                     {list.length > 0 && <p className="label mt-3 text-gold-on-dark!">{c.pieces(num(list.length, lang))}</p>}
                   </Link>
@@ -79,7 +79,7 @@ export async function CollectionsPage({ lang }: { lang: Lang }) {
       <section className="relative isolate overflow-clip bg-mesh-porcelain py-24 text-center sm:py-32">
         <ArchLines count={4} className="pointer-events-none absolute inset-x-0 -bottom-6 mx-auto h-[120%] w-[min(900px,140vw)] opacity-60" />
         <div className="container-lux relative">
-          <SplitWords text={c.closing.title} className="display mx-auto max-w-3xl text-[2.25rem] leading-[1.4]! font-bold text-ink sm:text-6xl" />
+          <SplitWords text={c.closing.title} className="title-page mx-auto max-w-2xl text-ink" />
           <div className="mt-10 flex flex-wrap items-center justify-center gap-4" data-reveal>
             <Magnetic>
               <Link href={href(lang, "/shop")} className="btn btn-metal h-13 px-8">

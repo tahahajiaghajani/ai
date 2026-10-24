@@ -12,7 +12,7 @@ export const story = {
       {
         key: "craft",
         title: "با الهام از طلا و جواهر",
-        text: "در سلین، هر قطعه با الهام از ساختار و ظرافت طلا و جواهر طراحی و ساخته می‌شود؛ با بهره‌گیری از نگین‌های درخشان کیوبیک زیرکونیا، مخراج‌کاری دقیق و آبکاری‌های باکیفیت رودیوم و طلا. توجه به جزئیات، از انتخاب نگین تا ظرافت نشاندن هر سنگ، بخشی جدایی‌ناپذیر از هویت ماست.",
+        text: "در سلین، هر قطعه با الهام از ساختار و ظرافت طلا و جواهر طراحی و ساخته می‌شود؛ با بهره‌گیری از نگین‌های درخشان با تراش اتمی، مخراج‌کاری دقیق و آبکاری‌های باکیفیت رودیوم و طلا. توجه به جزئیات، از انتخاب نگین تا ظرافت نشاندن هر سنگ، بخشی جدایی‌ناپذیر از هویت ماست.",
       },
       {
         key: "design",
@@ -52,7 +52,7 @@ export const story = {
       {
         key: "craft",
         title: "Inspired by fine jewelry",
-        text: "At CELIN, every piece is designed and made after the structure and finesse of gold and fine jewelry — with brilliant cubic zirconia stones, precise setting and quality rhodium and gold plating. Attention to detail, from choosing a stone to the finesse of setting it, is an inseparable part of who we are.",
+        text: "At CELIN, every piece is designed and made after the structure and finesse of gold and fine jewelry — with brilliant atomic-cut stones, precise setting and quality rhodium and gold plating. Attention to detail, from choosing a stone to the finesse of setting it, is an inseparable part of who we are.",
       },
       {
         key: "design",

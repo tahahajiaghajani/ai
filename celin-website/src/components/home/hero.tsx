@@ -86,6 +86,8 @@ export function HomeHero({ lang, d }: { lang: Lang; d: HeroData }) {
     <section ref={root} data-header="dark" data-tone="light" className="relative isolate -mt-[var(--header-h)] min-h-[calc(100svh-var(--announce-h,0px))] overflow-clip bg-night text-on-night">
       <Aura palette="espresso" />
       <Grain />
+      {/* the silk light settles into plain night at the bottom edge, where the dawn of the next band begins */}
+      <span aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-[24vh] bg-gradient-to-b from-transparent to-night" />
       <div ref={depth} className="container-lux relative grid min-h-[calc(100svh-var(--announce-h,0px))] grid-rows-[auto_1fr] gap-y-6 pt-[calc(var(--header-h)+2rem)] pb-10 lg:grid-cols-12 lg:grid-rows-1 lg:items-center lg:gap-x-8 lg:pb-0">
         {/* the arcade */}
         <div className="relative order-1 mx-auto w-full max-w-[560px] lg:order-2 lg:col-span-7 lg:max-w-none lg:self-end lg:pb-[6.5vh]">

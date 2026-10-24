@@ -15,6 +15,7 @@ export function Overlay({
   label,
   children,
   variant = "sheet",
+  tone = "light",
   closeLabel = "بستن",
   className = "",
 }: {
@@ -23,10 +24,13 @@ export function Overlay({
   label: string;
   children: ReactNode;
   variant?: "sheet" | "start" | "end" | "top";
+  /** night = an espresso panel with champagne lines (the Pro sheet) */
+  tone?: "light" | "night";
   closeLabel?: string;
   className?: string;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const night = tone === "night";
   const pushed = useRef(false);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
@@ -83,13 +87,14 @@ export function Overlay({
         onClose();
       }}
       onClick={(e) => e.target === ref.current && onClose()}
-      className={`overflow-hidden bg-ground p-0 text-ink backdrop:bg-ink/35 ${pos} ${className}`}
+      data-tone={night ? "light" : undefined}
+      className={`overflow-hidden p-0 ${night ? "bg-night-2 text-on-night backdrop:bg-night/60 backdrop:backdrop-blur-[3px]" : "bg-ground text-ink backdrop:bg-ink/35"} ${pos} ${className}`}
     >
       {open && (
         <div className="flex h-full max-h-[inherit] flex-col">
-          <div className="flex items-center justify-between gap-4 border-b border-line px-5 py-3.5 sm:px-6">
-            <span className="text-sm text-ink-2">{label}</span>
-            <button type="button" onClick={onClose} className="-me-2 grid size-11 place-items-center text-ink-2 hover:text-ink" aria-label={closeLabel}>
+          <div className={`flex items-center justify-between gap-4 border-b px-5 py-3.5 sm:px-6 ${night ? "border-night-line" : "border-line"}`}>
+            <span className={`text-sm ${night ? "text-on-night-muted" : "text-ink-2"}`}>{label}</span>
+            <button type="button" onClick={onClose} className={`-me-2 grid size-11 place-items-center ${night ? "text-on-night-muted hover:text-on-night" : "text-ink-2 hover:text-ink"}`} aria-label={closeLabel}>
               <Icon name="close" className="size-5" />
             </button>
           </div>

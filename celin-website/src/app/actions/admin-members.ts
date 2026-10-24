@@ -15,25 +15,30 @@ import {
   setMemberPassword,
   setMemberRole,
   updateMember,
+  type Delivered,
 } from "@/lib/members";
 import { text, type Result } from "@/lib/action";
 
 /** Admin: accounts, Pro requests and codes. Every action runs through guard() (session check first). */
 
-type Delivered = { sms: boolean; email: boolean };
-
 function refresh() {
   revalidatePath("/admin", "layout");
 }
 
-const deliveredNote = (d: Delivered | null) =>
-  d ? [d.sms ? "پیامک ارسال شد" : "", d.email ? "ایمیل ارسال شد" : ""].filter(Boolean).join(" · ") || "کد در پیام‌های حساب کاربر قرار گرفت" : "";
+/** What actually carried the code to the member; `warn` when nothing did (the admin sends it with the buttons). */
+function deliveredNote(d: Delivered | null): { note: string; warn: boolean } {
+  if (!d) return { note: "", warn: false };
+  const ways = [d.inbox ? "در پیام‌های حساب عضو قرار گرفت" : "", d.sms ? "پیامک شد" : "", d.email ? "ایمیل شد" : ""].filter(Boolean);
+  const smsFailed = d.smsError && d.smsError !== "not configured" ? ` (پیامک فرستاده نشد: ${d.smsError})` : "";
+  if (!ways.length) return { note: `کد برای عضو فرستاده نشد${smsFailed}؛ با دکمه‌های زیر برایش بفرستید.`, warn: true };
+  return { note: `کد ${ways.join("، ")}.${smsFailed}`, warn: Boolean(smsFailed) };
+}
 
-export async function adminCreateMember(input: Record<string, unknown>): Promise<Result<{ id: string; code: string | null; note: string }>> {
+export async function adminCreateMember(input: Record<string, unknown>): Promise<Result<{ id: string; code: string | null; note: string; warn: boolean }>> {
   return guard(async () => {
     const r = await createMember({ ...input, name: input.name, phone: input.phone });
     refresh();
-    return { ok: true, message: r.code ? "حساب ساخته شد و کد Pro صادر شد." : "حساب ساخته شد.", id: r.id, code: r.code, note: deliveredNote(r.delivered) };
+    return { ok: true, message: r.code ? "حساب ساخته شد و کد Pro صادر شد." : "حساب ساخته شد.", id: r.id, code: r.code, ...deliveredNote(r.delivered) };
   });
 }
 
@@ -90,11 +95,11 @@ export async function adminDeleteMemberFromPage(input: Record<string, unknown>):
   });
 }
 
-export async function adminApproveRequest(input: Record<string, unknown>): Promise<Result<{ code: string; note: string; name: string; phone: string }>> {
+export async function adminApproveRequest(input: Record<string, unknown>): Promise<Result<{ code: string; note: string; warn: boolean; name: string; phone: string }>> {
   return guard(async () => {
     const r = await approveRequest(text(input.id, 40), input.days);
     refresh();
-    return { ok: true, message: "درخواست تأیید و کد صادر شد.", code: r.code, note: deliveredNote(r.delivered), name: r.user.name, phone: r.user.phone };
+    return { ok: true, message: "درخواست تأیید و کد صادر شد.", code: r.code, ...deliveredNote(r.delivered), name: r.user.name, phone: r.user.phone };
   });
 }
 
@@ -106,11 +111,13 @@ export async function adminRejectRequest(input: Record<string, unknown>): Promis
   });
 }
 
-export async function adminIssueCode(input: Record<string, unknown>): Promise<Result<{ code: string; note: string }>> {
+export async function adminIssueCode(input: Record<string, unknown>): Promise<Result<{ code: string; note: string; warn: boolean }>> {
   return guard(async () => {
     const r = await issueForMember(text(input.userId, 40), input.days);
     refresh();
-    return { ok: true, message: "کد تازه صادر شد (کدهای قبلی این حساب باطل شدند).", code: r.code, note: deliveredNote(r.delivered) };
+    const d = deliveredNote(r.delivered);
+    const ended = r.ended ? " کد قبلی باطل شد و عضو از همه‌ی دستگاه‌ها خارج شد." : "";
+    return { ok: true, message: "کد تازه صادر شد (کدهای قبلی این حساب باطل شدند).", code: r.code, note: `${d.note}${ended}`, warn: d.warn };
   });
 }
 
@@ -120,9 +127,10 @@ export async function adminRevealCode(input: Record<string, unknown>): Promise<R
 
 export async function adminRevokeCode(input: Record<string, unknown>): Promise<Result> {
   return guard(async () => {
-    await revokeMemberCode(text(input.id, 40));
+    const r = await revokeMemberCode(text(input.id, 40));
     refresh();
-    return { ok: true, message: "کد باطل شد؛ قیمت‌ها برای این حساب دیگر نمایش داده نمی‌شود." };
+    const extra = r.ended ? ` عضو از همه‌ی دستگاه‌ها خارج شد${r.passwordCleared ? " و رمزی که با این کد ساخته بود پاک شد" : ""}.` : "";
+    return { ok: true, message: `کد باطل شد؛ قیمت‌ها برای این حساب دیگر نمایش داده نمی‌شود.${extra}` };
   });
 }
 

@@ -4,7 +4,7 @@ import { hasPassword } from "@/lib/auth";
 import { getCatalog } from "@/lib/catalog";
 import { formatDate, type Lang } from "@/lib/format";
 import { href, t } from "@/lib/i18n";
-import { lightProduct, requireMember } from "@/lib/member";
+import { lightProduct, requireMember, storeContact } from "@/lib/member";
 import { listMessages } from "@/lib/messages";
 import { latestRequest, proStatus } from "@/lib/pro";
 import { MarkMessagesRead } from "@/components/account/mark-read";
@@ -14,11 +14,14 @@ import { ProfileForms } from "@/components/account/profile-forms";
 import { AccountHeader, Empty, btn } from "@/components/account/ui";
 import { WishlistGrid } from "@/components/account/wishlist-view";
 
-/** /account/pro: the membership state, the code field and the membership details. */
+/**
+ * /account/pro: the membership state (the member's card, the steps of a request, or the code ceremony), and
+ * «کد دارید؟» beside the request when no code has been issued yet.
+ */
 export async function AccountProPage({ lang }: { lang: Lang }) {
   const me = await requireMember(lang, "/account/pro");
   const c = accountCopy(lang);
-  const [pro, request] = await Promise.all([proStatus(me.id), latestRequest(me.id)]);
+  const [pro, request, contact] = await Promise.all([proStatus(me.id), latestRequest(me.id), storeContact()]);
   const snapshot: MembershipSnapshot = {
     active: pro.active,
     issued: pro.issued,
@@ -28,18 +31,19 @@ export async function AccountProPage({ lang }: { lang: Lang }) {
     reply: request?.status === "rejected" ? request.reply : "",
     requestedAt: request?.created_at ?? null,
   };
+  const withCode = !pro.active && !pro.issued;
   return (
     <>
       <AccountHeader lang={lang} title={c.nav.pro} />
-      <div className="max-w-3xl space-y-12">
-        <Membership lang={lang} variant="account" initial={snapshot} />
-        {!pro.active && !pro.issued && <ProCodeEntry lang={lang} />}
-        <p className="text-sm text-muted">
-          <Link href={href(lang, "/pro")} className={btn.text}>
-            {c.proPage.benefitsTitle}
-          </Link>
-        </p>
+      <div className={withCode ? "grid items-start gap-14 xl:grid-cols-[minmax(0,1fr)_25rem] xl:gap-12" : "max-w-3xl"}>
+        <Membership lang={lang} variant="account" initial={snapshot} contact={contact} />
+        {withCode && <ProCodeEntry lang={lang} contact={contact} />}
       </div>
+      <p className="mt-12">
+        <Link href={href(lang, "/pro")} className={btn.text}>
+          {c.proPage.benefitsTitle}
+        </Link>
+      </p>
     </>
   );
 }

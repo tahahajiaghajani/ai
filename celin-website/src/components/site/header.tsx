@@ -55,6 +55,37 @@ function AccountLink({ lang, compact }: { lang: Lang; compact?: boolean }) {
   );
 }
 
+const ADMIN_LABEL = { fa: "پنل مدیریت", en: "Admin panel" } as const;
+
+/**
+ * «پنل مدیریت» for an admin: the signed-in account is an admin (role, or the owner's number in ADMIN_PHONES),
+ * or this browser holds the admin password session (readable hint cookie; the panel checks for real).
+ */
+function AdminLink({ lang, row }: { lang: Lang; row?: boolean }) {
+  const me = useMe();
+  const [hint, setHint] = useState(false);
+  useEffect(() => setHint(document.cookie.split("; ").includes("celin_admin_ui=1")), [me]);
+  if (me === undefined || !(me?.role === "admin" || hint)) return null;
+  const label = ADMIN_LABEL[lang];
+  if (row) {
+    return (
+      <a href="/admin" className="flex h-12 items-center justify-between border-y border-line text-base text-ink-2">
+        <span className="flex items-center gap-3">
+          <Icon name="dashboard" className="size-5 text-gold-text" />
+          {label}
+        </span>
+        <Icon name="chevron" className="size-4 text-faint rtl:-scale-x-100" />
+      </a>
+    );
+  }
+  return (
+    <a href="/admin" className="grid h-11 min-w-11 place-items-center px-1 text-sm opacity-80 transition-opacity hover:opacity-100 lg:flex lg:items-center lg:gap-2 lg:px-2" aria-label={label} title={label}>
+      <Icon name="dashboard" className="size-[20px] lg:size-4" />
+      <span className="hidden whitespace-nowrap lg:inline">{label}</span>
+    </a>
+  );
+}
+
 /** «Pro» opens the Pro sheet; for members it is a quiet gold chip. */
 function ProButton({ lang }: { lang: Lang }) {
   const me = useMe();
@@ -240,6 +271,7 @@ export function Header({ lang, menu }: { lang: Lang; menu: MenuData }) {
               <LangLink lang={lang} />
             </span>
             <ProButton lang={lang} />
+            <AdminLink lang={lang} />
             <AccountLink lang={lang} compact />
             <CartLink lang={lang} />
           </div>
@@ -407,6 +439,7 @@ export function Header({ lang, menu }: { lang: Lang; menu: MenuData }) {
             </ul>
           </div>
           <div className="mt-auto space-y-4 px-6 pt-9">
+            <AdminLink lang={lang} row />
             <button type="button" onClick={() => { setDrawer(false); openProSheet("code"); }} className="btn btn-metal w-full">
               <span className="font-label text-xs tracking-[0.16em] ltr">PRO</span>
               <span>{c.proSheet.title}</span>

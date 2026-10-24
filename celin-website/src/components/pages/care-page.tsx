@@ -45,19 +45,19 @@ export async function CarePage({ lang }: { lang: Lang }) {
           <ol className="-mx-[var(--gutter)] mt-14 flex snap-x snap-mandatory gap-4 overflow-x-auto px-[var(--gutter)] pt-3 pb-4 [scrollbar-width:none] sm:grid sm:grid-cols-2 sm:gap-6 sm:overflow-visible lg:grid-cols-4 [&::-webkit-scrollbar]:hidden">
             {c.rules.items.map((r, i) => (
               <li key={i} className="w-[72vw] max-w-[300px] shrink-0 snap-center sm:w-auto sm:max-w-none" data-reveal style={{ "--d": i } as CSSProperties}>
-                <div className="frame-metal arch relative flex h-full min-h-[21rem] flex-col items-center bg-porcelain px-6 pt-16 pb-10 text-center [--frame:var(--metal-copper)] sm:min-h-[23rem]">
+                <div className="frame-metal arch relative flex h-full min-h-[19rem] flex-col items-center bg-porcelain px-6 pt-14 pb-10 text-center [--frame:var(--metal-copper)] sm:min-h-[21rem]">
                   <span aria-hidden className="arch absolute inset-0 bg-[radial-gradient(80%_50%_at_50%_0%,rgb(230_208_171/0.5),transparent_75%)]" />
                   <svg aria-hidden viewBox="0 0 10 10" className="absolute left-1/2 top-0 size-2.5 -translate-x-1/2 -translate-y-1/2 text-gold-bright">
                     <path d="M5 0 10 5 5 10 0 5Z" fill="currentColor" />
                   </svg>
-                  <span className="display relative text-6xl leading-[1.2]! font-bold text-metal">{ordinal(i + 1, lang)}</span>
-                  <span aria-hidden className="relative mt-5 block h-px w-10 bg-gold/50" />
-                  <p className="relative mt-6 text-base leading-8 text-ink-2 sm:text-lg sm:leading-9">{r}</p>
+                  <span className="numeral relative text-metal">{ordinal(i + 1, lang)}</span>
+                  <span aria-hidden className="relative mt-4 block h-px w-10 bg-gold/50" />
+                  <p className="lede relative mt-5 text-ink-2">{r}</p>
                 </div>
               </li>
             ))}
           </ol>
-          <p className="mx-auto mt-12 flex max-w-2xl items-start justify-center gap-3 text-center text-base leading-8 text-muted sm:text-lg sm:leading-9" data-reveal>
+          <p className="lede mx-auto mt-12 flex max-w-2xl items-start justify-center gap-3 text-center text-muted" data-reveal>
             {diamond("mt-3 size-1.5 shrink-0 text-gold")}
             <span>{c.rules.note}</span>
           </p>
@@ -81,7 +81,7 @@ export async function CarePage({ lang }: { lang: Lang }) {
               {c.delivery.steps.map((d, i) => (
                 <li key={i} className="relative" data-reveal style={{ "--d": i } as CSSProperties}>
                   <span className="arch-full absolute -start-12 top-0 grid size-9 place-items-center border border-gold-on-dark/40 bg-night font-label text-xs text-gold-on-dark tabular-nums">{ordinal(i + 1, lang)}</span>
-                  <p className="text-lg leading-9 text-on-night">{d}</p>
+                  <p className="lede text-on-night">{d}</p>
                 </li>
               ))}
             </ol>
@@ -99,14 +99,14 @@ export async function CarePage({ lang }: { lang: Lang }) {
                 {diamond("size-1.5 text-gold")}
                 {c.warranty.eyebrow}
               </p>
-              <SplitWords text={c.warranty.title} className="display mt-4 text-[2rem] leading-[1.4]! font-bold text-ink sm:text-5xl" />
-              <p className="mx-auto mt-6 max-w-2xl text-lg leading-10 text-ink-2" data-reveal>
+              <SplitWords text={c.warranty.title} className="title-section mt-4 text-ink" />
+              <p className="lede mx-auto mt-5 max-w-2xl text-ink-2" data-reveal>
                 {c.warranty.body}
               </p>
               {c.warranty.points.length > 0 && (
                 <ul className="mx-auto mt-8 max-w-xl space-y-3 text-start">
                   {c.warranty.points.map((p) => (
-                    <li key={p} className="flex items-start gap-3 text-base leading-8 text-ink-2">
+                    <li key={p} className="lede flex items-start gap-3 text-ink-2">
                       {diamond("mt-3 size-1.5 shrink-0 text-gold")}
                       {p}
                     </li>

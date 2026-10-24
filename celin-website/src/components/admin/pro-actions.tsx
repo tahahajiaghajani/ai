@@ -47,13 +47,13 @@ export function ApproveRequestButton({
             silent: true,
             onOk: (r) => {
               setOpen(false);
-              show({ code: r.code, name: r.name || name, phone: r.phone || phone, note: r.note, href: `/admin/users/${userId}`, fresh: true });
+              show({ code: r.code, name: r.name || name, phone: r.phone || phone, note: r.note, warn: r.warn, href: `/admin/users/${userId}`, fresh: true });
             },
           })
         }
       >
         <p className="text-sm leading-7 text-ink-2">
-          برای <span className="font-medium">{name || "این عضو"}</span> یک کد اختصاصی صادر می‌شود و در پیام‌های حسابش قرار می‌گیرد (و اگر پیامک یا ایمیل تنظیم شده باشد، فرستاده می‌شود).
+          برای <span className="font-medium">{name || "این عضو"}</span> یک کد اختصاصی صادر می‌شود. پس از صدور می‌بینید کد از چه راهی به عضو رسید و می‌توانید آن را با واتس‌اپ، پیامک یا تلگرام هم بفرستید.
         </p>
       </DaysDialog>
     </>
@@ -131,7 +131,7 @@ export function IssueCodeButton({
             silent: true,
             onOk: (r) => {
               setOpen(false);
-              show({ code: r.code, name, phone, note: r.note, href: `/admin/users/${userId}`, fresh: true });
+              show({ code: r.code, name, phone, note: r.note, warn: r.warn, href: `/admin/users/${userId}`, fresh: true });
             },
           })
         }

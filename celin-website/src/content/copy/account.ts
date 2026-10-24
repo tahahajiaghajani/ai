@@ -71,6 +71,7 @@ const fa = {
     strength: { empty: "دست‌کم ۸ نویسه", short: (n: string) => `${n} نویسه‌ی دیگر`, ok: "مناسب", strong: "قوی" },
     terms: "با ساخت حساب، اطلاعات شما فقط برای پیگیری سفارش و اشتراک نزد سلین می‌ماند.",
     pending: "…",
+    or: "یا",
   },
   contact: {
     call: "تماس",
@@ -342,6 +343,7 @@ const en: AccountCopy = {
     strength: { empty: "At least 8 characters", short: (n: string) => `${n} more characters`, ok: "Good", strong: "Strong" },
     terms: "Your details stay with CELIN and are used only for your orders and membership.",
     pending: "…",
+    or: "or",
   },
   contact: {
     call: "Call",

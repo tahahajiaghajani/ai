@@ -11,12 +11,14 @@ const STATE: Record<Health, string> = { ok: "آماده", warn: "توجه", erro
 const VARS: { names: string[]; need: "required" | "recommended" | "optional"; what: string }[] = [
   { names: ["SUPABASE_URL"], need: "required", what: "نشانی پروژه‌ی Supabase (Project URL)." },
   { names: ["SUPABASE_SERVICE_ROLE_KEY"], need: "required", what: "کلید service_role؛ فقط روی سرور خوانده می‌شود." },
-  { names: ["ADMIN_PASSWORD"], need: "required", what: "رمز ورود به همین پنل." },
+  { names: ["ADMIN_PHONES"], need: "required", what: "شماره‌ی موبایل شما (و مدیران دیگر، جدا با ویرگول)؛ حسابی که با این شماره ثبت‌نام یا وارد شود مدیر است." },
   { names: ["APP_SECRET"], need: "recommended", what: "رشته‌ی تصادفی ۳۲ نویسه‌ای برای امضای نشست‌ها و رمزگذاری کدها و کلیدها." },
+  { names: ["ADMIN_PASSWORD"], need: "optional", what: "ورود اضطراری به پنل با یک رمز (بدون حساب)." },
   { names: ["NEXT_PUBLIC_SITE_URL"], need: "recommended", what: "نشانی اصلی سایت (برای لینک‌ها، پیامک و ایمیل)." },
   { names: ["APP_SECRET_PREVIOUS"], need: "optional", what: "فقط هنگام عوض کردن APP_SECRET: مقدار قبلی تا کدهای قدیمی خوانده شوند." },
   { names: ["RESEND_API_KEY", "MAIL_FROM"], need: "optional", what: "ایمیل از طریق Resend (یا در «تنظیمات ← ایمیل»)." },
   { names: ["CRON_SECRET"], need: "optional", what: "از فراخوانی بیرونی ‎/api/keepalive جلوگیری می‌کند." },
+  { names: ["TRUSTED_IP_HEADER"], need: "optional", what: "فقط روی سرور خودتان (نه Vercel): سرآیندی که پراکسی IP بازدیدکننده را در آن می‌گذارد، مثلاً ar-real-ip برای ابرآروان." },
 ];
 
 const NEED = { required: "لازم", recommended: "پیشنهادی", optional: "اختیاری" } as const;

@@ -214,7 +214,13 @@ export function ProductEditor({
 
   const onSave = () => {
     if (!validate()) return;
-    const body = payload(f, product?.id);
+    // with the stock this editor showed: the server saves a stock edit as a change, so orders placed while
+    // the editor was open are not undone (the editor reopens from the stored product after a save)
+    const shown = new Map((product?.variants ?? []).map((v) => [v.id, v.stock]));
+    const plain = payload(f, product?.id);
+    const body = product
+      ? { ...plain, stock_loaded: product.stock, variants: plain.variants.map((v) => (v.id && shown.has(v.id) ? { ...v, stock_loaded: shown.get(v.id) } : v)) }
+      : plain;
     save.run(() => adminSaveProduct(body), {
       onOk: (r) => {
         setBaseline(JSON.stringify(payload(f)));

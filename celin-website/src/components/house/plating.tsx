@@ -45,7 +45,7 @@ export function Plating({ lang, d }: { lang: Lang; d: PlatingData }) {
     [lang],
   );
 
-  const word = "display block text-[clamp(3.6rem,13vw,5rem)] leading-[1.3]! font-bold bg-[length:220%_100%] bg-clip-text text-transparent metal-live lg:text-[clamp(5rem,9.5vw,9.5rem)]";
+  const word = "title-mark block bg-[length:220%_100%] bg-clip-text text-transparent metal-live";
   return (
     <section ref={root} data-tone="light" className="relative isolate overflow-clip bg-night py-24 text-on-night sm:py-28 lg:py-32">
       <Aura palette="espresso" light={0.85} />
@@ -60,7 +60,7 @@ export function Plating({ lang, d }: { lang: Lang; d: PlatingData }) {
             <span className={word} style={{ backgroundImage: "var(--metal-silver)" }}>
               {d.rhodium}
             </span>
-            <span className="mt-1 block text-sm text-on-night-muted sm:text-base">{d.rhodiumTone}</span>
+            <span className="mt-1 block text-sm text-on-night-muted">{d.rhodiumTone}</span>
           </p>
           <div className="relative col-span-2 row-start-2 mx-auto w-[min(70vw,360px)] lg:col-span-1 lg:col-start-2 lg:row-start-1 lg:w-[clamp(280px,26vw,400px)]" data-cursor="view">
             <div data-pl="lines" className="pointer-events-none absolute inset-x-[-30%] bottom-0 top-[-14%]">
@@ -73,10 +73,10 @@ export function Plating({ lang, d }: { lang: Lang; d: PlatingData }) {
             <span className={word} style={{ backgroundImage: "var(--metal-champagne)" }}>
               {d.gold}
             </span>
-            <span className="mt-1 block text-sm text-on-night-muted sm:text-base">{d.goldTone}</span>
+            <span className="mt-1 block text-sm text-on-night-muted">{d.goldTone}</span>
           </p>
         </div>
-        <p className="mx-auto mt-12 max-w-xl text-lg leading-9 text-on-night-muted sm:text-xl sm:leading-10" data-reveal style={{ "--d": 1 } as CSSProperties}>
+        <p className="lede mx-auto mt-12 max-w-xl text-on-night-muted" data-reveal style={{ "--d": 1 } as CSSProperties}>
           {d.body}
         </p>
       </div>

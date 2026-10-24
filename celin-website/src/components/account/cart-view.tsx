@@ -14,6 +14,9 @@ import { Icon } from "@/components/ui/icons";
 import { Picture } from "@/components/ui/picture";
 import { cart, useCart } from "@/components/cart/cart-store";
 import { openProSheet } from "@/components/pro/events";
+import { ProSeal } from "@/components/pro/seal";
+import { ProSteps } from "@/components/pro/steps";
+import { LuxFrame } from "@/components/ui/lux-frame";
 import { stockBand } from "@/components/pro/price-slot";
 import { sessionChanged, useHydrated, useMe, usePriceBook, type PriceBook } from "@/components/pro/session";
 import { Swatch } from "@/components/shop/swatch";
@@ -194,6 +197,7 @@ export function CartView({
         customer: { name: form.name, phone: form.phone, business: form.business, city: form.city, address: form.address, postal_code: latinDigits(form.postal_code).replace(/[\s-]/g, "") },
         note: form.note,
         saveAddress: save,
+        seen: subtotal,
         lang,
       });
       if (r.ok) {
@@ -215,7 +219,7 @@ export function CartView({
             for (const l of lines) if (l.productId === r.itemId || l.variantId === r.itemId) cart.remove(l.productId, l.variantId);
           } else setBadItem(r.itemId);
         }
-        if (reason === "out_of_stock") void sessionChanged();
+        if (reason === "out_of_stock" || reason === "price_changed") void sessionChanged();
       }
     } catch {
       setError(commonCopy(lang).errors.network);
@@ -420,18 +424,22 @@ function Line({ r, lang, book, flagged }: { r: LineView; lang: Lang; book: Price
 function NotPro({ lang }: { lang: Lang }) {
   const c = accountCopy(lang).cart;
   return (
-    <div className="max-w-2xl border border-line bg-bone px-5 py-8 sm:px-8">
-      <p className="display text-2xl">{c.notProTitle}</p>
-      <p className="mt-3 text-sm leading-7 text-ink-2">{c.notProText}</p>
-      <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-        <Link href={`${href(lang, "/pro")}#request`} className={btn.primary}>
+    <LuxFrame className="max-w-2xl bg-porcelain/85 px-6 py-8 sm:px-10 sm:py-10">
+      <div className="flex items-center gap-4">
+        <ProSeal size="md" />
+        <p className="title-section">{c.notProTitle}</p>
+      </div>
+      <p className="mt-4 max-w-lg font-ui text-sm leading-7 text-ink-2">{c.notProText}</p>
+      <ProSteps lang={lang} current={0} className="mt-7 max-w-md" />
+      <div className="mt-8 flex flex-col gap-x-6 gap-y-3 sm:flex-row sm:items-center">
+        <Link href={`${href(lang, "/pro")}#request`} className={`${btn.metal} btn-lg`}>
           {c.notProCta}
         </Link>
-        <button type="button" onClick={() => openProSheet("code")} className={btn.outline}>
+        <button type="button" onClick={() => openProSheet("code")} className={`${btn.text} max-sm:mx-auto`}>
           {c.haveCode}
         </button>
       </div>
-    </div>
+    </LuxFrame>
   );
 }
 

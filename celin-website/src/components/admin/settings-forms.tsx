@@ -221,7 +221,7 @@ export function ShopForm({ initial }: { initial: ShopSettings }) {
         <Field label="حداقل مبلغ سفارش" hint="خالی یا صفر یعنی بدون حداقل.">
           <MoneyInput value={f.minOrder || null} onChange={(v) => set("minOrder")(v ?? 0)} placeholder="بدون حداقل" />
         </Field>
-        <Field label="نمایش موجودی به اعضای Pro">
+        <Field label="نمایش موجودی به اعضای Pro" hint={f.stockDisplay === "level" ? "عدد دقیق فقط زیر آستانه‌ی «رو به اتمام» دیده می‌شود." : undefined}>
           <Select value={f.stockDisplay} onChange={(e) => set("stockDisplay")(e.target.value === "level" ? "level" : "exact")}>
             <option value="exact">عدد دقیق (مثلاً ۴ عدد)</option>
             <option value="level">سطح (موجود / رو به اتمام / ناموجود)</option>

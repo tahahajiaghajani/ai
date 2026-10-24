@@ -1,4 +1,8 @@
 @import "tailwindcss";
+/* the button system (.btn, .btn-ink, .btn-metal, .btn-line, .btn-line-light, .btn-link) */
+@import "./buttons.css";
+/* the Pro layer (seal, hallmark, jewel-box frame, arch doorway, the 12-digit code field, steps) */
+@import "./pro.css";
 
 /* ------------------------------------------------------------------------ */
 /*  CELIN brand tokens (docs/DESIGN_SYSTEM.md, docs/BRAND_BOOK_FA.md)        */
@@ -73,15 +77,19 @@
   --color-swatch-black: #2b2b2b;
 
   /*
-   * type — the Latin faces carry Latin glyphs everywhere, the Persian faces everything else:
-   * sans = running text (Jost / Noto Naskh 500), ui = controls and small UI (Jost / Vazirmatn),
-   * display = headings (Bodoni Moda / Noto Naskh 600–700).
+   * type — Persian is Nazli everywhere on the public site (the free twin of Nazanin, the face of «گالری اعتماد»
+   * in the logo; src/lib/fonts.ts): display = headings (Bodoni Moda / Nazli 700), sans = running text
+   * (Jost / Nazli 400), ui = controls and small UI (Jost / Nazli), label = eyebrows (Jost / Nazli).
+   * Nazli has no Latin letters or digits, so Latin falls through to the Latin faces. On Persian pages the Persian
+   * face leads (html[lang="fa"] below): its space, punctuation and « » set the rhythm and its metrics the line box.
+   * dense = the admin panel and dense numeric tables (Jost / Vazirmatn, tabular figures).
    */
-  --font-sans: var(--font-latin-ui), var(--font-fa-naskh), ui-sans-serif, system-ui, sans-serif;
-  --font-ui: var(--font-latin-ui), var(--font-fa-ui), ui-sans-serif, system-ui, sans-serif;
-  --font-display: var(--font-latin-display), var(--font-fa-naskh), ui-serif, Georgia, serif;
-  --font-naskh: var(--font-fa-naskh), ui-serif, serif;
-  --font-label: var(--font-latin-ui), var(--font-fa-ui), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-latin-ui), var(--font-fa), var(--font-fa-system), ui-sans-serif, system-ui, sans-serif;
+  --font-ui: var(--font-latin-ui), var(--font-fa), var(--font-fa-system), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-latin-display), var(--font-fa), var(--font-fa-system), ui-serif, Georgia, serif;
+  --font-persian: var(--font-fa), var(--font-fa-system), ui-serif, serif;
+  --font-label: var(--font-latin-ui), var(--font-fa), var(--font-fa-system), ui-sans-serif, system-ui, sans-serif;
+  --font-dense: var(--font-latin-ui), var(--font-fa-ui), Tahoma, ui-sans-serif, system-ui, sans-serif;
   --font-didone: var(--font-latin-display), ui-serif, Georgia, serif;
 
   --text-2xs: 0.6875rem;
@@ -110,8 +118,17 @@
   --animate-fade-in: fade-in 0.6s var(--ease-lux) both;
 }
 
+/* Persian pages: Nazli leads every stack (Latin letters and digits still fall through to Jost / Bodoni Moda) */
+html[lang="fa"] {
+  --font-sans: var(--font-fa), var(--font-latin-ui), var(--font-fa-system), ui-sans-serif, system-ui, sans-serif;
+  --font-ui: var(--font-fa), var(--font-latin-ui), var(--font-fa-system), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-fa), var(--font-latin-display), var(--font-fa-system), ui-serif, Georgia, serif;
+}
+
 :root {
   color-scheme: light;
+  /* Persian system faces while Nazli loads (or if it cannot): Nazanin itself where installed, then Naskh faces */
+  --font-fa-system: "B Nazanin", Nazanin, "Times New Roman", "Noto Naskh Arabic", "Geeza Pro";
   --header-h: 64px;
   --utility-h: 32px;
   --gutter: 1rem;
@@ -121,6 +138,12 @@
   --metal-champagne: linear-gradient(100deg, #a77c52 0%, #dcb88c 22%, #fff0da 40%, #e4c49c 54%, #b08257 74%, #ecd0a8 100%);
   --metal-rose: linear-gradient(100deg, #9b6150 0%, #d6a48e 30%, #f8dccd 46%, #c98f78 66%, #a46b58 100%);
   --metal-silver: linear-gradient(100deg, #7f858b 0%, #c7ccd1 28%, #f6f7f8 44%, #b5bbc1 64%, #8a9096 100%);
+  /* the polished copper of the rhombus zero (۲۰ on the home page): the SVG stops and the CSS gradient share it */
+  --rhombus-1: #6e3f1f;
+  --rhombus-2: #d9a273;
+  --rhombus-3: #f6d9b4;
+  --rhombus-4: #8a5230;
+  --metal-rhombus: linear-gradient(135deg, var(--rhombus-1) 0%, var(--rhombus-2) 45%, var(--rhombus-3) 60%, var(--rhombus-4) 100%);
   /* a filled copper surface (buttons, seals) — ink text on it is ≥ 5:1 */
   --metal-fill: linear-gradient(115deg, #a96a3c 0%, #d29a69 28%, #f1cfa6 46%, #cf9463 62%, #a4653a 100%);
 
@@ -181,22 +204,23 @@
     overflow-x: clip;
     font-size: var(--text-md);
     line-height: 1.95;
-    font-weight: 500;
+    font-weight: 400;
   }
 
   html[lang="en"] body {
     line-height: 1.7;
-    font-weight: 400;
   }
 
-  /* controls and dense UI read best in Vazirmatn; running text and headings stay Naskh */
+  /* controls take the UI stack (Nazli on Persian pages); dense numeric tables keep Vazirmatn's tabular figures */
   button,
   input,
   select,
   textarea,
-  table,
   label {
     font-family: var(--font-ui);
+  }
+  table {
+    font-family: var(--font-dense);
   }
 
   h1,
@@ -257,10 +281,10 @@
   }
 }
 
-/* display headings: Naskh 600 in Persian (close to «گالری اعتماد» of the logo), Bodoni in Latin */
+/* display headings: Nazli Bold in Persian (the face of «گالری اعتماد» in the logo), Bodoni Moda in Latin */
 @utility display {
   font-family: var(--font-display);
-  font-weight: 600;
+  font-weight: 700;
   line-height: 1.45;
   &:where(:lang(en)) {
     font-weight: 400;
@@ -269,13 +293,23 @@
   }
 }
 
-/* the quiet scale of every page except the home page (the home page keeps its large display sizes):
-   page title · section title · card title · lede. Use these instead of ad-hoc text-5xl/6xl on inner pages. */
+/*
+ * The quiet scale of every page except the home page (the home page keeps its large display sizes). Use these
+ * instead of ad-hoc text-4xl…8xl / clamp() sizes on inner pages; they carry family, weight, size and leading:
+ *   title-page    page hero titles (Nazli 700 · 30 → 42px)
+ *   title-section section titles (Nazli 700 · 22 → 30px)
+ *   title-card    card / tile / list titles (Nazli 700 · 18 → 21px)
+ *   title-quote   an editorial sentence set large and light (Nazli 400 · 21 → 28px)
+ *   lede          the paragraph under a title (17px Persian, 16 → 17px Latin)
+ *   numeral       ordinals and years beside text (۰۱, ۱۳۸۵; Nazli 700 · 34 → 50px)
+ *   title-mark    one word or number as the mark of a band (۲۰, ۴۰۴, «رودیوم»; Nazli 700 · 46 → 72px)
+ * Nazli's letters span about 1em, so Persian lines never touch at these leadings.
+ */
 @utility title-page {
   font-family: var(--font-display);
   font-weight: 700;
-  font-size: clamp(1.75rem, 1.15rem + 1.9vw, 2.75rem);
-  line-height: 1.5;
+  font-size: clamp(1.85rem, 1.4rem + 1.5vw, 2.6rem);
+  line-height: 1.45;
   &:where(:lang(en)) {
     font-weight: 400;
     line-height: 1.12;
@@ -285,8 +319,8 @@
 @utility title-section {
   font-family: var(--font-display);
   font-weight: 700;
-  font-size: clamp(1.35rem, 1.05rem + 0.95vw, 1.9rem);
-  line-height: 1.6;
+  font-size: clamp(1.4rem, 1.15rem + 0.75vw, 1.85rem);
+  line-height: 1.55;
   &:where(:lang(en)) {
     font-weight: 400;
     line-height: 1.18;
@@ -296,18 +330,50 @@
 @utility title-card {
   font-family: var(--font-display);
   font-weight: 700;
-  font-size: clamp(1.08rem, 1rem + 0.3vw, 1.25rem);
-  line-height: 1.7;
+  font-size: clamp(1.125rem, 1.05rem + 0.25vw, 1.3rem);
+  line-height: 1.6;
   &:where(:lang(en)) {
     font-weight: 400;
     line-height: 1.3;
   }
 }
-@utility lede {
-  font-size: clamp(1rem, 0.96rem + 0.18vw, 1.0625rem);
-  line-height: 2;
+@utility title-quote {
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: clamp(1.3rem, 1.1rem + 0.7vw, 1.75rem);
+  line-height: 1.9;
   &:where(:lang(en)) {
+    line-height: 1.4;
+    letter-spacing: -0.01em;
+  }
+}
+@utility lede {
+  font-size: 1.0625rem;
+  line-height: 2.05;
+  &:where(:lang(en)) {
+    font-size: clamp(1rem, 0.96rem + 0.18vw, 1.0625rem);
     line-height: 1.75;
+  }
+}
+@utility numeral {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(2.125rem, 1.75rem + 1.2vw, 3.125rem);
+  line-height: 1.15;
+  &:where(:lang(en)) {
+    font-weight: 400;
+    line-height: 1;
+  }
+}
+@utility title-mark {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(2.875rem, 2.1rem + 2.6vw, 4.5rem);
+  line-height: 1.25;
+  &:where(:lang(en)) {
+    font-weight: 400;
+    line-height: 1.05;
+    letter-spacing: -0.02em;
   }
 }
 
@@ -353,6 +419,36 @@
 }
 @utility bg-mesh-cocoa {
   background: var(--mesh-cocoa);
+}
+/*
+ * dawn: the hero's night melting into porcelain (home: hero → statement, instead of a hard edge or a ribbon).
+ * The light rises from below as one wide arch (an ellipse anchored at the bottom) through cocoa, mocha, sand and
+ * bone, so the turn is higher in the middle than at the sides; the top row is plain night, like the hero's foot.
+ * dusk is the way back down: porcelain into the cocoa night of the band below (whose top row is plain night-2).
+ */
+@utility bg-dawn {
+  background:
+    radial-gradient(60% 16% at 46% 36%, rgb(240 214 178 / 0.32), transparent 70%),
+    radial-gradient(
+      160% 100% at 50% 100%,
+      var(--color-porcelain) 0%,
+      var(--color-ground) 50%,
+      var(--color-bone) 59%,
+      #dfcbb2 66%,
+      #b8987c 72.5%,
+      #7d5d49 78.5%,
+      var(--color-cocoa) 84%,
+      var(--color-night-2) 90%,
+      var(--color-night) 96%
+    ),
+    var(--color-night);
+}
+/* tide: the paraiba night giving way to porcelain (home: the arch window → the signature pieces) */
+@utility bg-tide {
+  background: linear-gradient(180deg, var(--color-night-teal) 0%, #0d3432 14%, #2f524d 30%, #7c8f86 48%, #c5c6b6 66%, #ece6d9 84%, rgb(250 246 239 / 0) 100%);
+}
+@utility bg-dusk {
+  background: linear-gradient(180deg, rgb(253 250 245 / 0) 0%, var(--color-bone) 20%, #dfcbb2 36%, #b8987c 52%, #7d5d49 66%, var(--color-cocoa) 80%, var(--color-night-2) 100%);
 }
 @utility bg-metal {
   background-image: var(--metal-fill);
@@ -411,64 +507,6 @@
   background: rgb(18 13 11 / 0.55);
   -webkit-backdrop-filter: blur(18px) saturate(1.3);
   backdrop-filter: blur(18px) saturate(1.3);
-}
-
-/* buttons (see docs/DESIGN_SYSTEM.md): the copper one is the main action on any ground */
-@utility btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.6rem;
-  min-height: 3rem;
-  padding-inline: 1.75rem;
-  font-family: var(--font-ui);
-  font-size: var(--text-sm);
-  font-weight: 500;
-  line-height: 1.2;
-  position: relative;
-  isolation: isolate;
-  overflow: hidden;
-  transition:
-    color 0.4s var(--ease-lux),
-    background-color 0.4s var(--ease-lux),
-    border-color 0.4s var(--ease-lux),
-    background-position 0.9s var(--ease-silk);
-  &:disabled {
-    opacity: 0.5;
-    pointer-events: none;
-  }
-}
-@utility btn-metal {
-  background-image: var(--metal-fill);
-  background-size: 220% 100%;
-  background-position: 0% 50%;
-  color: var(--color-ink);
-  &:hover {
-    background-position: 100% 50%;
-  }
-}
-@utility btn-ink {
-  background-color: var(--color-ink);
-  color: var(--color-bone);
-  &:hover {
-    background-color: var(--color-cocoa);
-  }
-}
-@utility btn-line {
-  border: 1px solid currentColor;
-  &:hover {
-    background-color: var(--color-ink);
-    border-color: var(--color-ink);
-    color: var(--color-bone);
-  }
-}
-@utility btn-line-light {
-  border: 1px solid rgb(245 236 223 / 0.45);
-  color: var(--color-on-night);
-  &:hover {
-    background-color: rgb(245 236 223 / 0.1);
-    border-color: var(--color-gold-on-dark);
-  }
 }
 
 @utility container-lux {
@@ -630,7 +668,7 @@ html.lenis body {
 /* split headings: words rise from a soft mask (never letters — Persian letters join) */
 .fx-words .w {
   display: inline-block;
-  /* room for Naskh ascenders/descenders and dots, so the mask never cuts them */
+  /* room for ascenders, descenders, dots and harakat, so the mask never cuts them */
   padding-block: 0.18em;
   margin-block: -0.18em;
   overflow: clip;
@@ -732,38 +770,6 @@ html.js .fx-unveil[data-fx="now"] .fx-frame img {
 .fx-sheen:hover::after,
 .group:hover .fx-sheen::after {
   transform: translateX(60%);
-}
-
-/* marquee ribbon */
-.fx-marquee {
-  display: flex;
-  overflow: clip;
-  user-select: none;
-  mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
-}
-.fx-marquee-track {
-  display: flex;
-  flex-shrink: 0;
-  min-width: 100%;
-  align-items: center;
-  justify-content: space-around;
-  animation: marquee var(--marquee-s, 38s) linear infinite;
-}
-html[dir="rtl"] .fx-marquee-track {
-  animation-name: marquee-rtl;
-}
-.fx-marquee:hover .fx-marquee-track {
-  animation-play-state: paused;
-}
-@keyframes marquee {
-  to {
-    transform: translateX(-100%);
-  }
-}
-@keyframes marquee-rtl {
-  to {
-    transform: translateX(100%);
-  }
 }
 
 /* custom cursor (fine pointers only; native cursor kept over fields) */
@@ -969,7 +975,6 @@ html[dir="rtl"] .fx-progress {
   .fx-cursor-dot {
     display: none;
   }
-  .fx-marquee-track,
   .fx-aura-css,
   .metal-live {
     animation: none;
@@ -1061,18 +1066,24 @@ html.js .fx-draw[data-fx="now"] path {
       animation-timeline: view();
       animation-range: cover 0% cover 100%;
     }
-    /* a photograph drifting inside large letters (background-clip: text) */
-    html:not([data-motion="reduced"]) .fx-pan {
-      animation: fx-pan linear both;
-      animation-timeline: view();
-      animation-range: cover 0% cover 100%;
-    }
     /* a band that drifts slower than the page (decor, big words) */
     html:not([data-motion="reduced"]) .fx-drift {
       animation: fx-drift linear both;
       animation-timeline: view();
       animation-range: cover 0% cover 100%;
     }
+    /* a block that rises softly out of the band above as it arrives (no JS; visible where unsupported) */
+    html:not([data-motion="reduced"]) .fx-arrive {
+      animation: fx-arrive linear both;
+      animation-timeline: view();
+      animation-range: entry 0% entry 90%;
+    }
+  }
+}
+@keyframes fx-arrive {
+  from {
+    opacity: 0.4;
+    translate: 0 88px;
   }
 }
 @keyframes fx-parallax {
@@ -1081,14 +1092,6 @@ html.js .fx-draw[data-fx="now"] path {
   }
   to {
     translate: 0 calc(var(--px, 7) * 1%);
-  }
-}
-@keyframes fx-pan {
-  from {
-    background-position: 50% 15%;
-  }
-  to {
-    background-position: 50% 85%;
   }
 }
 @keyframes fx-drift {
