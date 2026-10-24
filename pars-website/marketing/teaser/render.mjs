@@ -71,8 +71,11 @@ if (args.video) {
     if (a >= b) return;
     const ctx = w === 0 ? probe : await openPage(browser);
     const file = path.join(dir, `c${String(w).padStart(2, "0")}.mp4`);
+    // Chromium's JPEGs are full-range BT.601; convert to tagged BT.709 so TVs that ignore the tags still show the brand colours
     const ff = spawn("ffmpeg", ["-y", "-loglevel", "error", "-f", "image2pipe", "-framerate", String(fps), "-i", "-",
-      "-c:v", "libx264", "-preset", "medium", "-crf", "15", "-pix_fmt", "yuv420p", "-profile:v", "high", "-level", "4.2",
+      "-vf", "scale=in_color_matrix=bt601:in_range=full:out_color_matrix=bt709:out_range=tv:flags=accurate_rnd+full_chroma_int,format=yuv420p",
+      "-c:v", "libx264", "-preset", "medium", "-crf", "15", "-profile:v", "high", "-level", "4.2",
+      "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv",
       "-x264-params", "keyint=" + fps * 2, "-r", String(fps), file], { stdio: ["pipe", "inherit", "inherit"] });
     for (let i = a; i < b; i++) {
       const buf = await frame(ctx, from + i / fps, "jpeg");
