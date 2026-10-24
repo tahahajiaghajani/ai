@@ -490,9 +490,9 @@
   .code-cell[data-filled] {
     animation: code-in 0.35s var(--ease-out-expo);
   }
+  /* (no opacity: in a dialog WebKit can leave an element at its first keyframe — see the overlays in globals.css) */
   @keyframes code-in {
     from {
-      opacity: 0;
       transform: translateY(6px);
     }
   }

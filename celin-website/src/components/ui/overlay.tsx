@@ -49,9 +49,13 @@ export function OverlayLink({ onClick, ...props }: ComponentProps<typeof Link>) 
 }
 
 /**
- * Site overlays on the native <dialog> (focus trap, Esc, ::backdrop): a centred modal that becomes a
- * bottom sheet on phones, side panels from the inline start/end, and a top panel (search). The browser
- * Back button closes an open overlay (a history entry is pushed on open; closing steps back over it).
+ * Site overlays on the native <dialog> (focus trap, Esc): a centred modal that becomes a bottom sheet on phones,
+ * side panels from the inline start/end, and a top panel (search). The browser Back button closes an open overlay
+ * (a history entry is pushed on open; closing steps back over it).
+ *
+ * The dialog itself is only a transparent full-screen layer (pinned by its four insets, no ::backdrop styling):
+ * the dimmed ground and the panel are ordinary elements inside it with sizes of their own. A dialog sized by its
+ * content, painted over a styled ::backdrop, showed only the dimmed ground on iPhone Safari.
  *
  * Links inside must leave through `OverlayLink` / `useOverlayNav()`: stepping back after a link was followed
  * would undo the navigation, so a link replaces the overlay's entry with its target instead.
@@ -174,11 +178,18 @@ export function Overlay({
     };
   }, [router]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const pos = {
-    sheet: `mt-auto mb-0 w-full max-w-none sm:my-auto sm:mx-auto max-h-[88dvh] sm:max-h-[86dvh] celin-sheet ${wide ? "sm:w-[min(520px,calc(100%-2rem))] md:w-[min(840px,calc(100%-3rem))]" : "sm:w-[min(520px,calc(100%-2rem))]"}`,
-    start: "ms-0 me-auto my-0 h-[100dvh] max-h-none w-[min(420px,92vw)] celin-side-start",
-    end: "ms-auto me-0 my-0 h-[100dvh] max-h-none w-[min(480px,100vw)] celin-side-end",
-    top: "mt-0 mb-auto w-full max-w-none max-h-[90dvh] celin-top",
+  // the layer that places the panel, and the panel itself
+  const frame = {
+    sheet: "items-end justify-center sm:items-center sm:p-4",
+    start: "justify-start",
+    end: "justify-end",
+    top: "items-start",
+  }[variant];
+  const panel = {
+    sheet: `w-full max-h-[88dvh] pb-[env(safe-area-inset-bottom)] sm:max-h-[86dvh] sm:pb-0 celin-sheet ${wide ? "sm:w-[min(520px,100%)] md:w-[min(840px,100%)]" : "sm:w-[min(520px,100%)]"}`,
+    start: "h-full w-[min(420px,92vw)] pb-[env(safe-area-inset-bottom)] celin-side-start",
+    end: "h-full w-[min(480px,100vw)] pb-[env(safe-area-inset-bottom)] celin-side-end",
+    top: "w-full max-h-[90dvh] pt-[env(safe-area-inset-top)] celin-top",
   }[variant];
 
   return (
@@ -190,20 +201,25 @@ export function Overlay({
         e.preventDefault();
         onClose();
       }}
-      onClick={(e) => e.target === ref.current && onClose()}
       data-tone={night ? "light" : undefined}
-      className={`overflow-hidden p-0 ${night ? "bg-night-2 text-on-night backdrop:bg-night/60 backdrop:backdrop-blur-[3px]" : "bg-ground text-ink backdrop:bg-ink/35"} ${pos} ${className}`}
+      className="celin-overlay fixed inset-0 m-0 h-auto max-h-none w-auto max-w-none overflow-hidden bg-transparent p-0"
     >
       {open && (
         <NavContext.Provider value={nav}>
-          <div className="flex h-full max-h-[inherit] flex-col">
-            <div className={`flex items-center justify-between gap-4 border-b px-5 py-3.5 sm:px-6 ${night ? "border-night-line" : "border-line"}`}>
-              <span className={`text-sm ${night ? "text-on-night-muted" : "text-ink-2"}`}>{label}</span>
-              <button type="button" onClick={onClose} className={`-me-2 grid size-11 place-items-center ${night ? "text-on-night-muted hover:text-on-night" : "text-ink-2 hover:text-ink"}`} aria-label={closeLabel}>
-                <Icon name="close" className="size-5" />
-              </button>
+          {/* the dimmed ground: a click on it (outside the panel) closes */}
+          <div
+            className={`celin-overlay-frame flex size-full ${frame} ${night ? "bg-night/60 backdrop-blur-[3px]" : "bg-ink/35"}`}
+            onClick={(e) => e.target === e.currentTarget && onClose()}
+          >
+            <div className={`relative flex flex-col overflow-hidden ${night ? "bg-night-2 text-on-night" : "bg-ground text-ink"} ${panel} ${className}`}>
+              <div className={`flex shrink-0 items-center justify-between gap-4 border-b px-5 py-3.5 sm:px-6 ${night ? "border-night-line" : "border-line"}`}>
+                <span className={`text-sm ${night ? "text-on-night-muted" : "text-ink-2"}`}>{label}</span>
+                <button type="button" onClick={onClose} className={`-me-2 grid size-11 place-items-center ${night ? "text-on-night-muted hover:text-on-night" : "text-ink-2 hover:text-ink"}`} aria-label={closeLabel}>
+                  <Icon name="close" className="size-5" />
+                </button>
+              </div>
+              <div className="min-h-0 flex-auto overflow-y-auto overscroll-contain">{children}</div>
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">{children}</div>
           </div>
         </NavContext.Provider>
       )}
