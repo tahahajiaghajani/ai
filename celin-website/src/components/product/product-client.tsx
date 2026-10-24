@@ -16,7 +16,7 @@ import { SplitWords } from "@/components/fx/split-words";
 import { Sparkles } from "@/components/fx/sparkles";
 import { PriceSlot } from "@/components/pro/price-slot";
 import { CodeInput } from "@/components/pro/code-input";
-import { openProSheet } from "@/components/pro/events";
+import { ProCodeLink } from "@/components/pro/pro-code-link";
 import { ProSeal } from "@/components/pro/pro-bar";
 import { useMe, usePriceBook } from "@/components/pro/session";
 import { cart, useCart } from "@/components/cart/cart-store";
@@ -85,19 +85,18 @@ function Gallery({ lang, product, images, index, setIndex }: { lang: Lang; produ
 
       {/* thumbnails: a row below on phones, a column beside the window on desktop */}
       {images.length > 1 && (
-        <div className="order-2 flex justify-center gap-2.5 overflow-x-auto px-[var(--gutter)] pt-1.5 pb-7 [scrollbar-width:none] lg:order-none lg:w-16 lg:shrink-0 lg:flex-col lg:overflow-visible lg:px-0 lg:py-0" role="tablist" aria-label={`${name} — ${tr.gallery}`}>
+        <div className="order-2 flex justify-center gap-2.5 overflow-x-auto px-[var(--gutter)] pt-1.5 pb-7 [scrollbar-width:none] lg:order-none lg:w-16 lg:shrink-0 lg:flex-col lg:overflow-visible lg:px-0 lg:py-0" role="group" aria-label={`${name} — ${tr.gallery}`}>
           {images.map((m, i) => (
             <button
               key={m.src}
               type="button"
-              role="tab"
-              aria-selected={i === index}
+              aria-pressed={i === index}
               aria-label={tr.image(num(i + 1, lang), num(images.length, lang))}
               onClick={() => setIndex(i)}
               className={`relative w-12 shrink-0 transition-opacity duration-500 [--ring-gap:3px] lg:w-full ${i === index ? "opacity-100" : "opacity-55 hover:opacity-90"}`}
             >
               <span className={`arch-ring transition-opacity duration-500 ${i === index ? "opacity-100" : "opacity-0"}`} aria-hidden />
-              <span className="arch relative block overflow-hidden">
+              <span className="arch arch-clip relative block overflow-hidden">
                 <Picture media={m} lang={lang} ratio="3/4" sizes="64px" alt="" />
               </span>
             </button>
@@ -139,7 +138,7 @@ function Gallery({ lang, product, images, index, setIndex }: { lang: Lang; produ
                 data-cursor="view"
                 data-cursor-label={tr.zoom}
               >
-                <span className="arch relative block overflow-hidden bg-tile">
+                <span className="arch arch-clip relative block overflow-hidden bg-tile">
                   {i === 0 ? (
                     <ViewTransition name={`product-${product.id}`} share="morph" default="none">
                       <Picture media={m} lang={lang} ratio="4/5" sizes="(min-width: 1024px) 40vw, 76vw" priority alt={name} className="arch" />
@@ -182,7 +181,7 @@ function Gallery({ lang, product, images, index, setIndex }: { lang: Lang; produ
               {images.map((m, i) => (
                 <button key={m.src} type="button" onClick={() => { setIndex(i); setZoom(false); }} className={`relative w-11 transition-opacity ${i === index ? "opacity-100" : "opacity-55 hover:opacity-90"}`} aria-label={tr.image(num(i + 1, lang), num(images.length, lang))}>
                   <span className={`arch-ring ${i === index ? "opacity-100" : "opacity-0"}`} aria-hidden />
-                  <span className="arch relative block overflow-hidden">
+                  <span className="arch arch-clip relative block overflow-hidden">
                     <Picture media={m} lang={lang} ratio="3/4" sizes="48px" alt="" />
                   </span>
                 </button>
@@ -238,7 +237,8 @@ function Actions({ lang, product, variantId, needsVariant, onAdded }: { lang: La
     if (stock <= 0) return <p className="text-sm leading-7 text-ink-2">{tr.outOfStock}</p>;
     return (
       <div className="space-y-3">
-        <div className="flex gap-3">
+        {/* the button drops under the stepper when its label would not fit beside it */}
+        <div className="flex flex-wrap gap-3">
           <Stepper value={Math.min(qty, Math.max(1, room))} max={Math.max(1, room)} onChange={setQty} lang={lang} />
           <button
             type="button"
@@ -248,7 +248,7 @@ function Actions({ lang, product, variantId, needsVariant, onAdded }: { lang: La
               setAdded(true);
               onAdded();
             }}
-            className="btn btn-metal min-h-12 flex-1 px-6"
+            className="btn btn-metal min-h-12 flex-[1_0_auto] whitespace-nowrap px-6"
           >
             <Icon name="bag" className="size-4" />
             {tr.add}
@@ -285,18 +285,18 @@ function Actions({ lang, product, variantId, needsVariant, onAdded }: { lang: La
         <Link href={`${href(lang, "/pro")}#request`} className="btn btn-metal min-h-12 flex-[1_0_auto] whitespace-nowrap">
           {tr.request}
         </Link>
-        <button type="button" onClick={() => openProSheet("code")} className="font-ui text-sm text-gold-text underline-offset-8 hover:underline">
+        <ProCodeLink lang={lang} className="font-ui text-sm text-gold-text underline-offset-8 hover:underline">
           {tr.haveCode}
-        </button>
+        </ProCodeLink>
       </div>
     );
   }
   return (
     <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
-      <button type="button" onClick={() => openProSheet("code")} className="btn btn-metal min-h-12 flex-[1_0_auto] whitespace-nowrap">
+      <ProCodeLink lang={lang} className="btn btn-metal min-h-12 flex-[1_0_auto] whitespace-nowrap">
         <Icon name="unlock" className="size-4" />
         {tr.unlock}
-      </button>
+      </ProCodeLink>
       <Link href={href(lang, "/pro")} className="font-ui text-sm text-gold-text underline-offset-8 hover:underline">
         {tr.request}
       </Link>

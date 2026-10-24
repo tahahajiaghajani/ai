@@ -269,6 +269,106 @@ describe("the inbox shows only the code a message was written for", async () => 
   });
 });
 
+describe("the inbox draws «اعتبار تا …» from the code row when it is read", async () => {
+  const { listMessages, codeMark, untilLine } = await import("@/lib/messages");
+  const { issueForMember, extendMemberCode, revokeMemberCode } = await import("@/lib/members");
+  const { formatDate } = await import("@/lib/format");
+  const DAY = 86400_000;
+
+  /** A message as deliverCode stored it before the date became a placeholder (the date frozen as text). */
+  function stored(userId: string, codeId: string, frozen = "2027-10-24T16:49:29.277Z") {
+    fake.table("celin_messages").push({
+      id: crypto.randomUUID(),
+      user_id: userId,
+      kind: "pro",
+      title_fa: "",
+      title_en: "",
+      body_fa: `کد اختصاصی شما: ${codeMark(codeId)}\nاین کد را وارد کنید.\nاعتبار تا ${formatDate(frozen, "fa")}`,
+      body_en: `Your personal code: ${codeMark(codeId)}\nEnter it.\nValid until ${formatDate(frozen, "en")}`,
+      link: "",
+      read_at: null,
+      created_at: new Date().toISOString(),
+    });
+  }
+
+  it("rewrites the date a stored message froze, and drops it once the code no longer works", async () => {
+    await asAdmin();
+    const m = user({ phone: "09121110130" });
+    const expires = new Date(Date.now() + 30 * DAY).toISOString();
+    const { code, row } = await issue(m.id, { expires_at: expires, redeemed_at: new Date().toISOString() });
+    stored(m.id, row.id);
+    let [msg] = await listMessages(m.id);
+    expect(msg.body_fa).toBe(`کد اختصاصی شما: \u200e${code}\nاین کد را وارد کنید.\nاعتبار تا ${formatDate(expires, "fa")}`);
+    expect(msg.body_en).toBe(`Your personal code: ${code}\nEnter it.\nValid until ${formatDate(expires, "en")}`);
+    await revokeMemberCode(row.id);
+    msg = (await listMessages(m.id)).find((x) => x.body_en.startsWith("Your personal code"))!;
+    expect(msg.body_fa).toBe("کد اختصاصی شما: (این کد دیگر فعال نیست)\nاین کد را وارد کنید.");
+    expect(msg.body_en).toBe("Your personal code: (no longer active)\nEnter it.");
+  });
+
+  it("an old message of a replaced code promises nothing, the new one shows its own expiry", async () => {
+    await asAdmin();
+    const m = user({ phone: "09121110131" });
+    const t0 = Date.now() - 60_000;
+    const old = await issue(m.id, { created_at: new Date(t0).toISOString(), expires_at: new Date(t0 + 365 * DAY).toISOString() });
+    stored(m.id, old.row.id);
+    const r = await issueForMember(m.id, 30);
+    const now = fake.table("celin_pro_codes").find((x) => x.user_id === m.id && !x.revoked_at) as { id: string; expires_at: string };
+    const [latest, earlier] = await listMessages(m.id);
+    expect(latest.body_en).toContain(`Your personal code: ${r.code}\n`);
+    expect(latest.body_en.endsWith(`\nValid until ${formatDate(now.expires_at, "en")}`)).toBe(true);
+    expect(latest.body_fa.endsWith(`\nاعتبار تا ${formatDate(now.expires_at, "fa")}`)).toBe(true);
+    expect(earlier.body_fa).not.toMatch(/اعتبار تا/);
+    expect(earlier.body_en).not.toMatch(/Valid until/);
+  });
+
+  it("stores a placeholder, never the date, so a new expiry (or none) shows on the next read", async () => {
+    await asAdmin();
+    const m = user({ phone: "09121110132" });
+    await issueForMember(m.id, 0);
+    const row = fake.table("celin_pro_codes").find((x) => x.user_id === m.id) as { id: string; expires_at: string | null };
+    const saved = fake.table("celin_messages").find((x) => x.user_id === m.id) as { body_fa: string; body_en: string };
+    expect(saved.body_fa).toContain(`{{pro-until:${row.id}}}`);
+    expect(saved.body_en).toContain(`{{pro-until:${row.id}}}`);
+    let [msg] = await listMessages(m.id);
+    expect(msg.body_fa).not.toMatch(/اعتبار تا|\{\{/);
+    expect(msg.body_en).not.toMatch(/Valid until|\{\{/);
+    await extendMemberCode(row.id, 10);
+    [msg] = await listMessages(m.id);
+    expect(msg.body_fa.endsWith(`.\nاعتبار تا ${formatDate(row.expires_at!, "fa")}`)).toBe(true);
+    expect(msg.body_en.endsWith(`.\nValid until ${formatDate(row.expires_at!, "en")}`)).toBe(true);
+    await extendMemberCode(row.id, 0);
+    [msg] = await listMessages(m.id);
+    expect(msg.body_en).not.toMatch(/Valid until/);
+  });
+
+  it("keeps the line current while codes are not shown in messages", async () => {
+    await asAdmin();
+    const m = user({ phone: "09121110133" });
+    const expires = new Date(Date.now() + 5 * DAY).toISOString();
+    const { code, row } = await issue(m.id, { expires_at: expires });
+    stored(m.id, row.id);
+    fake.table("celin_settings").push({ key: "pro", value: { codeInInbox: false } });
+    const [msg] = await listMessages(m.id);
+    expect(msg.body_en).not.toContain(code);
+    expect(msg.body_en).toMatch(/not shown/);
+    expect(msg.body_en.endsWith(`\nValid until ${formatDate(expires, "en")}`)).toBe(true);
+  });
+
+  it("untilLine: only a working code of this member with an expiry has a line", () => {
+    const at = Date.parse("2026-10-24T12:00:00Z");
+    const base = { user_id: "u1", expires_at: "2026-11-23T12:00:00Z", redeemed_at: null, revoked_at: null };
+    expect(untilLine(base, "u1", "en", at)).toBe(`\nValid until ${formatDate(base.expires_at, "en")}`);
+    expect(untilLine(base, "u1", "fa", at)).toBe(`\nاعتبار تا ${formatDate(base.expires_at, "fa")}`);
+    expect(untilLine({ ...base, redeemed_at: "2026-10-01T00:00:00Z" }, "u1", "en", at)).toMatch(/^\nValid until /);
+    expect(untilLine(base, "u2", "en", at)).toBe("");
+    expect(untilLine({ ...base, revoked_at: "2026-10-20T00:00:00Z" }, "u1", "en", at)).toBe("");
+    expect(untilLine({ ...base, expires_at: "2026-10-01T00:00:00Z" }, "u1", "en", at)).toBe("");
+    expect(untilLine({ ...base, expires_at: null }, "u1", "en", at)).toBe("");
+    expect(untilLine(null, "u1", "en", at)).toBe("");
+  });
+});
+
 describe("the visitor's IP behind a proxy or CDN", async () => {
   const { clientIp, ipSetup } = await import("@/lib/request");
 
@@ -414,6 +514,18 @@ describe("/api/me and the «پنل مدیریت» hint", async () => {
     expect(await r.json()).toMatchObject({ user: { role: "admin" }, admin: true });
     expect(jar.get("celin_admin_ui")?.value).toBe("1");
   });
+
+  it("answers a browser that holds only the ADMIN_PASSWORD session, and drops its hint once that session ends", async () => {
+    process.env.ADMIN_PASSWORD = "the-admin-pass-1";
+    const { startSession } = await import("@/lib/admin-auth");
+    await startSession(); // break-glass: celin_admin + celin_admin_ui, no account and no celin_ui
+    expect(jar.get("celin_ui")).toBeUndefined();
+    expect(await (await GET()).json()).toEqual({ user: null, admin: true });
+    expect(jar.get("celin_admin_ui")?.value).toBe("1");
+    process.env.ADMIN_PASSWORD = "the-admin-pass-2"; // rotated: every such session ends
+    expect(await (await GET()).json()).toEqual({ user: null, admin: false });
+    expect(jar.get("celin_admin_ui")).toBeUndefined();
+  });
 });
 
 describe("settings links are refused, not dropped", async () => {
@@ -509,5 +621,17 @@ describe("Admin → Connections knows which SQL files have run", async () => {
     // before the hardening file: it is asked for too
     delete fake.rpcs.celin_schema_version;
     expect((await pendingMigrations()).map((p) => p.file)).toEqual(["20261024090000_celin_hardening.sql"]);
+  });
+
+  it("names each pending file isolated left-to-right, so the RTL line cannot reorder its date digits", async () => {
+    const { healthReport } = await import("@/lib/admin-data");
+    await asAdmin();
+    fake.rpcs.celin_admin_counts = () => ({ data: {}, error: null });
+    fake.rpcs.celin_schema_version = () => ({ data: 20261024, error: null });
+    Object.assign(fake.storage, { listBuckets: async () => ({ data: [], error: null }) });
+    const { items, pending } = await healthReport();
+    expect(pending.length).toBeGreaterThan(0);
+    const detail = items.find((i) => i.key === "db")!.detail;
+    for (const p of pending) expect(detail).toContain(`\u2066${p.file}\u2069 (${p.why})`);
   });
 });

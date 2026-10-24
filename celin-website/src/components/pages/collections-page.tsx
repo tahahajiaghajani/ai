@@ -8,7 +8,6 @@ import { ArchLines } from "@/components/fx/arch-lines";
 import { Aura } from "@/components/fx/aura";
 import { Grain } from "@/components/fx/grain";
 import { Magnetic } from "@/components/fx/magnetic";
-import { Melt } from "@/components/fx/melt";
 import { SplitWords } from "@/components/fx/split-words";
 import { Icon } from "@/components/ui/icons";
 import { Picture } from "@/components/ui/picture";
@@ -28,8 +27,7 @@ export async function CollectionsPage({ lang }: { lang: Lang }) {
   return (
     <main>
       <section data-header="dark" data-tone="light" className="under-header relative isolate overflow-clip bg-night-2 text-on-night">
-        {/* the cocoa lights fade out before the foot, which stays plain night-2 for the melt into the closing band */}
-        <span aria-hidden className="absolute inset-0 -z-10 bg-mesh-cocoa [mask-image:linear-gradient(to_bottom,black,black_calc(100%-16rem),transparent)]" />
+        <span aria-hidden className="absolute inset-0 -z-10 bg-mesh-cocoa" />
         <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[115svh]">
           <Aura palette="cocoa" light={0.9} />
           <span className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-b from-transparent to-night-2" />
@@ -80,7 +78,6 @@ export async function CollectionsPage({ lang }: { lang: Lang }) {
       </section>
 
       <section className="relative isolate overflow-clip bg-mesh-porcelain py-24 text-center sm:py-32">
-        <Melt at="top" />
         <ArchLines count={4} className="pointer-events-none absolute inset-x-0 -bottom-6 mx-auto h-[120%] w-[min(900px,140vw)] opacity-60" />
         <div className="container-lux relative">
           <SplitWords text={c.closing.title} className="title-page mx-auto max-w-2xl text-ink" />

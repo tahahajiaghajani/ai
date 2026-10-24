@@ -11,9 +11,8 @@ import { Arch } from "@/components/fx/arch";
 import { Aura } from "@/components/fx/aura";
 import { Grain } from "@/components/fx/grain";
 import { Magnetic } from "@/components/fx/magnetic";
-import { Melt, NightHead } from "@/components/fx/melt";
 import { SplitWords } from "@/components/fx/split-words";
-import { openProSheet } from "@/components/pro/events";
+import { ProCodeLink } from "@/components/pro/pro-code-link";
 import { ProHallmark } from "@/components/pro/seal";
 import { useMe } from "@/components/pro/session";
 
@@ -39,12 +38,9 @@ export function ProInvite({ lang, d }: { lang: Lang; d: ProInviteData }) {
   const active = Boolean(me?.pro.active);
   const c = commonCopy(lang);
   return (
-    <section data-tone="light" className="relative isolate overflow-clip bg-night-2 pt-20 pb-[calc(var(--melt-h)+3rem)] text-on-night sm:pt-28 sm:pb-[calc(var(--melt-h)+4rem)]">
+    <section data-tone="light" className="relative isolate overflow-clip bg-night-2 py-20 text-on-night sm:py-28">
       <Aura palette="cocoa" light={0.9} />
       <Grain />
-      {/* plain night-2 at the head, where the porcelain above melted into it; the foot melts into the ground of the strip below */}
-      <NightHead />
-      <Melt at="bottom" on="dark" />
       <div className="container-lux relative">
         <LuxFrame tone="dark" keystone className="bg-night/30 px-5 pt-14 pb-12 backdrop-blur-[2px] sm:px-10 sm:py-14 lg:px-16 lg:py-20">
           <span aria-hidden className="absolute inset-0 -z-10 bg-[radial-gradient(45%_70%_at_85%_40%,rgb(233_185_138/0.16),transparent_70%),radial-gradient(50%_60%_at_0%_100%,rgb(15_86_82/0.22),transparent_70%)] rtl:bg-[radial-gradient(45%_70%_at_15%_40%,rgb(233_185_138/0.16),transparent_70%),radial-gradient(50%_60%_at_100%_100%,rgb(15_86_82/0.22),transparent_70%)]" />
@@ -71,7 +67,9 @@ export function ProInvite({ lang, d }: { lang: Lang; d: ProInviteData }) {
                   <li key={p} className="flex items-center gap-4 border-night-line py-4 text-start not-last:border-b sm:flex-col sm:gap-3 sm:px-4 sm:py-6 sm:text-center sm:not-last:border-e sm:not-last:border-b-0">
                     <span aria-hidden className="relative grid h-11 w-9 shrink-0 place-items-center">
                       <span className="arch absolute inset-0 border border-b-0 border-gold-on-dark/45" />
-                      <span className="mt-2 font-didone text-sm text-gold-on-dark tabular-nums">{num(i + 1, lang)}</span>
+                      {/* Bodoni's figures in English; Persian digits in Nazli (font-display leads with it on Persian pages —
+                          a Latin stack would hand them to its local Times New Roman fallback first) */}
+                      <span className={`mt-2 ${lang === "en" ? "font-didone" : "font-display"} text-sm text-gold-on-dark tabular-nums`}>{num(i + 1, lang)}</span>
                     </span>
                     <span className="font-ui text-sm leading-7 text-on-night">{p}</span>
                   </li>
@@ -97,9 +95,9 @@ export function ProInvite({ lang, d }: { lang: Lang; d: ProInviteData }) {
                         {d.cta}
                       </Link>
                     </Magnetic>
-                    <button type="button" onClick={() => openProSheet("code")} className="btn btn-line-light btn-lg">
+                    <ProCodeLink lang={lang} className="btn btn-line-light btn-lg">
                       {d.code}
-                    </button>
+                    </ProCodeLink>
                   </>
                 )}
               </div>

@@ -6,7 +6,6 @@ import { href, type Lang } from "@/lib/i18n";
 import { contactCopy } from "@/content/copy/contact";
 import { ArchLines } from "@/components/fx/arch-lines";
 import { Magnetic } from "@/components/fx/magnetic";
-import { Melt } from "@/components/fx/melt";
 import { Icon, type IconName } from "@/components/ui/icons";
 import { SectionHead } from "@/components/home/sections";
 import { diamond } from "@/components/house/bits";
@@ -75,9 +74,7 @@ export async function ContactPage({ lang }: { lang: Lang }) {
         actions={ch.wa || ch.tel ? quick : undefined}
       />
 
-      <section className="relative isolate overflow-clip bg-mesh-porcelain pt-[max(5rem,calc(var(--melt-h)*0.85))] pb-20 sm:py-28">
-        {/* the hero's night melts into the porcelain */}
-        <Melt at="top" />
+      <section className="relative isolate overflow-clip bg-mesh-porcelain pt-20 pb-20 sm:py-28">
         <div className="container-lux grid gap-14 lg:grid-cols-12 lg:gap-10">
           {rows.length > 0 && (
             <div className="lg:col-span-7">

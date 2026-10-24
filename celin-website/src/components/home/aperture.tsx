@@ -13,7 +13,7 @@ import { gsap } from "@/components/fx/gsap";
 import { Sparkles } from "@/components/fx/sparkles";
 import { SlotVideo } from "@/components/fx/slot-video";
 import { SplitWords } from "@/components/fx/split-words";
-import { useGsap } from "@/components/fx/use-gsap";
+import { sceneMode, useGsap } from "@/components/fx/use-gsap";
 import { Picture } from "@/components/ui/picture";
 
 export interface ApertureData {
@@ -53,8 +53,13 @@ export function Aperture({ lang, d }: { lang: Lang; d: ApertureData }) {
           .fromTo("[data-ap='lines']", { scale: 0.7, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.9 }, 0.05)
           .fromTo("[data-ap='copy'] > *", { y: 40, opacity: 0 }, { y: 0, opacity: 1, duration: 0.35, stagger: 0.08 }, pin ? 0.55 : 0.5);
       };
-      mm.add("(min-width: 1024px) and (hover: hover) and (pointer: fine)", () => build(true));
-      mm.add("not all and (min-width: 1024px) and (hover: hover) and (pointer: fine)", () => build(false));
+      // pinned where the stage sticks, played as it passes elsewhere; left as it is when already seen still
+      const play = () => {
+        const mode = sceneMode(root.current);
+        return mode === "still" ? undefined : build(mode === "pin");
+      };
+      mm.add("(min-width: 1024px) and (hover: hover) and (pointer: fine)", play);
+      mm.add("not all and (min-width: 1024px) and (hover: hover) and (pointer: fine)", play);
       return () => mm.revert();
     },
     root,
@@ -66,15 +71,12 @@ export function Aperture({ lang, d }: { lang: Lang; d: ApertureData }) {
       <div className="fx-pin-stage isolate overflow-clip">
         <Aura palette="paraiba" light={0.8} />
         <Grain />
-        {/* the night-2 foot of the band above melts into the teal; the light settles into plain teal night at the foot */}
-        <span aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-night-2 to-transparent" />
-        <span aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-32 bg-gradient-to-b from-transparent to-night-teal" />
         <div className="container-lux relative grid min-h-[100svh] items-center gap-12 py-20 lg:grid-cols-12 lg:gap-8 lg:py-0">
           <div className="relative mx-auto w-[min(78vw,440px)] lg:order-2 lg:col-span-6 lg:w-[min(36vw,520px)]" data-cursor="view">
             <div data-ap="lines" className="absolute inset-x-[-38%] bottom-0 top-[-16%] origin-bottom">
               <ArchLines count={6} tone="champagne" className="size-full" />
             </div>
-            <div data-ap="frame" className="arch relative aspect-[3/4] origin-bottom overflow-hidden">
+            <div data-ap="frame" className="arch arch-clip relative aspect-[3/4] origin-bottom overflow-hidden">
               <div data-ap="img" className="absolute inset-0">
                 <Picture media={d.media} mobile={d.mobile} lang={lang} sizes="(min-width: 1024px) 36vw, 78vw" className="absolute inset-0" />
                 <Sparkles count={16} intensity={1.15} />

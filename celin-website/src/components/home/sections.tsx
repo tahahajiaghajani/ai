@@ -7,7 +7,6 @@ import type { Media } from "@/lib/media";
 import { Arch } from "@/components/fx/arch";
 import { ArchLines } from "@/components/fx/arch-lines";
 import { Grain } from "@/components/fx/grain";
-import { Melt } from "@/components/fx/melt";
 import { Reel } from "@/components/fx/reel";
 import { SplitWords } from "@/components/fx/split-words";
 import { Icon } from "@/components/ui/icons";
@@ -80,7 +79,8 @@ export function Statement({ lang, lines, a, b, copy }: { lang: Lang; lines: [str
             <div className="arch bg-porcelain p-[5px] shadow-[0_44px_80px_-36px_rgb(26_19_16/0.55)] sm:p-2">
               <Arch media={b} lang={lang} alt="" sizes="(min-width: 1024px) 15vw, 46vw" ratio="3/4" sparkle={6} />
             </div>
-            <span aria-hidden className="mt-3 block text-center font-label text-[10px] tracking-[0.32em] text-gold-text ltr">N° 02</span>
+            {/* large screens only, like N° 01: on phones the drift carries it onto the tall picture */}
+            <span aria-hidden className="mt-3 hidden text-center font-label text-[10px] tracking-[0.32em] text-gold-text ltr sm:block">N° 02</span>
           </div>
           <span aria-hidden className="absolute start-[2%] bottom-[-7%] hidden font-label text-[10px] tracking-[0.32em] text-gold-text sm:block">
             <span className="ltr">N° 01</span>
@@ -106,22 +106,16 @@ export function Statement({ lang, lines, a, b, copy }: { lang: Lang; lines: [str
           </div>
         </div>
       </div>
-      {/* the light gives way to the cocoa of the collections below */}
-      <span aria-hidden className="bg-dusk pointer-events-none absolute inset-x-0 bottom-0 -z-10 h-[clamp(8rem,20vh,12rem)]" />
     </section>
   );
 }
 
 // ------------------------------------------------------------------ the arcade of collections
 
-/** `last`: the band closes the page, so its foot melts into the light ground of the services strip below. */
-export function Arcade({ lang, collections, copy, display = false, last = false }: { lang: Lang; collections: Collection[]; copy: { eyebrow: string; title: string; all: string; discover: string }; display?: boolean; last?: boolean }) {
+export function Arcade({ lang, collections, copy, display = false }: { lang: Lang; collections: Collection[]; copy: { eyebrow: string; title: string; all: string; discover: string }; display?: boolean }) {
   return (
-    <section data-tone="light" className={`relative isolate bg-night-2 text-on-night ${last ? "pb-[var(--melt-h)]" : ""}`}>
-      {/* plain night-2 at both edges, so the bands above and below melt into it; the lights fade in between */}
-      <span aria-hidden className="absolute inset-0 -z-10 bg-mesh-cocoa [mask-image:linear-gradient(to_bottom,transparent,black_14rem,black_calc(100%-12rem),transparent)]" />
+    <section data-tone="light" className="relative isolate bg-mesh-cocoa text-on-night">
       <Grain />
-      {last && <Melt at="bottom" on="dark" />}
       <Reel
         className="py-20 sm:py-28 lg:flex lg:min-h-[100svh] lg:flex-col lg:justify-center lg:py-16"
         header={
@@ -159,8 +153,7 @@ export function Arcade({ lang, collections, copy, display = false, last = false 
 
 export function Featured({ lang, products, collectionNames, copy }: { lang: Lang; products: Product[]; collectionNames: Record<string, string>; copy: { eyebrow: string; title: string; all: string } }) {
   return (
-    <section className="relative isolate bg-mesh-porcelain pt-36 pb-20 sm:pt-44 sm:pb-28">
-      <span aria-hidden className="bg-tide pointer-events-none absolute inset-x-0 top-0 -z-10 h-[clamp(7rem,18vh,11rem)]" />
+    <section className="relative isolate bg-mesh-porcelain py-20 sm:py-28">
       <div className="container-lux">
         <SectionHead eyebrow={copy.eyebrow} title={copy.title} display link={{ href: href(lang, "/shop"), label: copy.all }} />
         <ProBar lang={lang} className="mt-10" />
@@ -202,7 +195,7 @@ export function Craft({ lang, steps, copy }: { lang: Lang; steps: CraftStep[]; c
             <li key={i} className="sticky" style={{ top: `calc(var(--header-h) + 1.5rem + ${i * 1.75}rem)` }}>
               <article className="relative grid grid-cols-[minmax(0,5fr)_minmax(0,7fr)] items-center gap-5 overflow-hidden border border-gold/20 bg-porcelain p-4 shadow-[0_30px_60px_-40px_rgb(26_19_16/0.45)] sm:gap-10 sm:p-8">
                 <span aria-hidden className="absolute inset-0 bg-[radial-gradient(60%_80%_at_100%_0%,rgb(230_208_171/0.35),transparent_70%)]" />
-                <Arch media={s.media} lang={lang} sizes="(min-width: 1024px) 24vw, 38vw" ring="copper" parallax={5} className="relative [--ring-gap:7px]" />
+                <Arch media={s.media} lang={lang} sizes="(min-width: 1024px) 24vw, 38vw" ring="copper" className="relative [--ring-gap:7px]" />
                 <div className="relative">
                   <span className="display block text-5xl font-bold text-metal sm:text-7xl">{num(String(i + 1).padStart(2, "0"), lang)}</span>
                   <h3 className="display mt-2 text-2xl font-bold text-ink sm:mt-4 sm:text-4xl">{s.title}</h3>
@@ -221,9 +214,7 @@ export function Craft({ lang, steps, copy }: { lang: Lang; steps: CraftStep[]; c
 
 export function House({ lang, d }: { lang: Lang; d: { eyebrow: string; title: string; body: string; cta: string; href: string; media: Media; mobile: Media | null; signature: string; signatureLabel: string } }) {
   return (
-    <section className="relative isolate overflow-clip pt-20 pb-[calc(var(--melt-h)+4rem)] sm:pt-32 sm:pb-[calc(var(--melt-h)+5rem)]" style={{ background: "radial-gradient(60% 70% at 85% 30%, rgb(239 220 205 / 0.9), transparent 70%), radial-gradient(50% 60% at 0% 100%, rgb(230 208 171 / 0.5), transparent 70%), var(--color-porcelain)" }}>
-      {/* the porcelain gives way to the cocoa night of the Pro invitation below */}
-      <Melt at="bottom" />
+    <section className="relative isolate overflow-clip py-20 sm:py-32" style={{ background: "radial-gradient(60% 70% at 85% 30%, rgb(239 220 205 / 0.9), transparent 70%), radial-gradient(50% 60% at 0% 100%, rgb(230 208 171 / 0.5), transparent 70%), var(--color-porcelain)" }}>
       <div className="container-lux grid items-center gap-14 lg:grid-cols-12 lg:gap-10">
         <div className="relative mx-auto w-[min(80vw,460px)] lg:order-2 lg:col-span-5 lg:col-start-8 lg:w-full" data-cursor="view">
           <ArchLines count={3} className="pointer-events-none absolute inset-x-[-22%] bottom-0 top-[-10%] h-[110%] w-[144%]" />
@@ -275,10 +266,7 @@ export function Anniversary({ lang, d }: { lang: Lang; d: AnniversaryData }) {
   // Persian zeros become the copper rhombus; the other digits are glyphs in the same metal
   const parts = lang === "fa" ? digits.split(/(۰)/).filter(Boolean) : [digits];
   return (
-    <section className="relative isolate overflow-clip py-28 sm:py-40" style={{ background: "radial-gradient(55% 60% at 15% 40%, rgb(230 208 171 / 0.75), transparent 70%), radial-gradient(45% 55% at 95% 90%, rgb(60 202 190 / 0.08), transparent 70%), var(--mesh-bone)" }}>
-      {/* the cocoa night above melts into the bone, and the bone into the night of the paraiba band below */}
-      <span aria-hidden className="bg-dusk pointer-events-none absolute inset-x-0 top-0 -z-10 h-[clamp(6rem,14vh,9rem)] [--dusk-dir:0deg]" />
-      <span aria-hidden className="bg-dusk pointer-events-none absolute inset-x-0 bottom-0 -z-10 h-[clamp(6rem,14vh,9rem)]" />
+    <section className="relative isolate overflow-clip py-20 sm:py-32" style={{ background: "radial-gradient(55% 60% at 15% 40%, rgb(230 208 171 / 0.75), transparent 70%), radial-gradient(45% 55% at 95% 90%, rgb(60 202 190 / 0.08), transparent 70%), var(--mesh-bone)" }}>
       <div className="container-lux grid items-center gap-12 lg:grid-cols-12 lg:gap-10">
         <div className="relative flex justify-center lg:col-span-6" aria-label={`${digits} ${lang === "fa" ? "سال" : "years"}`} role="img">
           <ArchLines count={4} className="pointer-events-none absolute inset-x-[-10%] bottom-[-6%] top-[-8%] h-[114%] w-[120%]" />

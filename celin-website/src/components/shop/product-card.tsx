@@ -46,7 +46,7 @@ export function ProductCard({
       <Link href={href(lang, `/product/${p.slug}`)} className="block outline-offset-[-2px]" data-cursor="view">
         <div className={`relative ${arch ? "p-2" : ""}`}>
           {arch && <span aria-hidden className="arch-ring opacity-0 transition-opacity duration-700 [--ring-gap:0px] group-hover:opacity-100" />}
-          <div className={`fx-sheen relative overflow-hidden bg-tile ${arch ? "arch" : ""}`}>
+          <div className={`fx-sheen relative overflow-hidden bg-tile ${arch ? "arch arch-clip" : ""}`}>
             <ViewTransition name={`product-${p.id}`} share="morph" default="none">
               <Picture media={cover} lang={lang} ratio={ratio} sizes={sizes} priority={priority} alt={name} className={arch ? "arch" : ""} imgClassName="transition-transform duration-[1.2s] ease-[var(--ease-out-expo)] group-hover:scale-[1.04]" />
             </ViewTransition>

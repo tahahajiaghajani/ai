@@ -7,7 +7,6 @@ import type { Media } from "@/lib/media";
 import { craftCopy } from "@/content/copy/craft";
 import { Arch } from "@/components/fx/arch";
 import { ArchLines } from "@/components/fx/arch-lines";
-import { Melt } from "@/components/fx/melt";
 import { SplitWords } from "@/components/fx/split-words";
 import { Icon } from "@/components/ui/icons";
 import { SectionHead } from "@/components/home/sections";
@@ -20,7 +19,7 @@ import { slotReader } from "@/components/house/slot-reader";
 /**
  * /craft — «هنر ساخت»: design → the stones → precise setting → rhodium & gold plating. The steps are the
  * home page's craft slots (texts and pictures), the long text is the brand's craft chapter; nothing else is
- * claimed. Paraiba hero, a lede, the four-step stage melting into the night of «رودیوم · طلا», and two ways on.
+ * claimed. Paraiba hero, a lede, the four-step stage, the night of «رودیوم · طلا», and two ways on.
  */
 export async function CraftPage({ lang }: { lang: Lang }) {
   const [slots, catalog] = await Promise.all([getSlots(), getCatalog()]);
@@ -55,8 +54,6 @@ export async function CraftPage({ lang }: { lang: Lang }) {
 
       {/* the brand's craft chapter */}
       <section className="relative isolate overflow-clip bg-mesh-porcelain py-24 sm:py-32">
-        {/* the paraiba night of the hero melts into the porcelain */}
-        <Melt at="top" tone="teal" />
         <ArchLines count={4} className="pointer-events-none absolute inset-x-0 -bottom-8 mx-auto h-[115%] w-[min(900px,150vw)] opacity-50" />
         <div className="container-lux relative mx-auto max-w-3xl text-center">
           <Eyebrow center>{c.lede.eyebrow}</Eyebrow>
@@ -66,9 +63,8 @@ export async function CraftPage({ lang }: { lang: Lang }) {
       </section>
 
       {/* four steps */}
-      <section className="relative isolate overflow-x-clip bg-mesh-bone pt-20 pb-[calc(var(--melt-h)+2rem)] sm:pt-28 lg:pb-[var(--melt-h)]">
+      <section className="relative isolate overflow-x-clip bg-mesh-bone pt-20 pb-20 sm:pt-28 sm:pb-28">
         {/* the bone gives way to the night of «رودیوم · طلا» */}
-        <Melt at="bottom" />
         <div className="container-lux">
           <SectionHead eyebrow={c.steps.eyebrow} title={c.steps.title} align="center" />
           <div className="mt-10 lg:mt-6">
@@ -94,7 +90,6 @@ export async function CraftPage({ lang }: { lang: Lang }) {
 
       {/* two ways on */}
       <section className="relative isolate overflow-clip bg-mesh-porcelain py-24 sm:py-32">
-        <Melt at="top" />
         <div className="container-lux">
           <div className="text-center">
             <Eyebrow center>{c.next.eyebrow}</Eyebrow>

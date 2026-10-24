@@ -5,8 +5,8 @@ import { EMAIL_RE, hashPassword, PASSWORD_MAX, PASSWORD_MIN, PROFILE_COLUMNS, US
 import { allRows, db, isMissingColumn, isMissingTable, requireDb, UserError } from "@/lib/db";
 import { mailHtml, sendEmail } from "@/lib/email";
 import { env } from "@/lib/env";
-import { formatDate, normalizePhone } from "@/lib/format";
-import { codeMark, postMessage } from "@/lib/messages";
+import { normalizePhone } from "@/lib/format";
+import { codeMark, postMessage, untilMark } from "@/lib/messages";
 import { CODE_COLUMNS, CODES, codeState, issueCode, REQUESTS, revealCode, wasUsed, type CodeRow, type CodeState } from "@/lib/pro";
 import { notifyTeam } from "@/lib/notify";
 import { getSettings, getSettingsFresh } from "@/lib/settings";
@@ -113,11 +113,11 @@ export interface Delivered {
  */
 async function deliverCode(user: Pick<Account, "id" | "name" | "phone" | "email">, issued: { code: string; id: string; expiresAt: string | null }, reason: "request" | "admin"): Promise<Delivered> {
   await assertAdmin();
-  const { code, expiresAt } = issued;
+  const { code } = issued;
   const mark = codeMark(issued.id);
+  // «اعتبار تا …» is drawn from the code row when the message is read (renewals, revokes and new expiries change it)
+  const until = untilMark(issued.id);
   const s = await getSettings();
-  const until = expiresAt ? formatDate(expiresAt, "fa") : "";
-  const untilEn = expiresAt ? formatDate(expiresAt, "en") : "";
   const site = env.siteUrl.replace(/^https?:\/\//, "");
   // inside Persian text the digit groups of "1234 5678 9012" would be laid out right-to-left; a leading LRM keeps their order
   const faCode = `\u200e${code}`;
@@ -126,10 +126,10 @@ async function deliverCode(user: Pick<Account, "id" | "name" | "phone" | "email"
     title_fa: "کد اشتراک Pro شما صادر شد",
     title_en: "Your Pro code has been issued",
     body_fa: s.pro.codeInInbox
-      ? `کد اختصاصی شما: ${mark}\nاین کد را در بخش «اشتراک Pro» یا هنگام ورود وارد کنید تا قیمت‌ها و موجودی محصولات نمایش داده شود و بتوانید سفارش ثبت کنید.${until ? `\nاعتبار تا ${until}` : ""}`
+      ? `کد اختصاصی شما: ${mark}\nاین کد را در بخش «اشتراک Pro» یا هنگام ورود وارد کنید تا قیمت‌ها و موجودی محصولات نمایش داده شود و بتوانید سفارش ثبت کنید.${until}`
       : "کد اختصاصی شما از طریق پیامک یا تماس فروشگاه برایتان ارسال می‌شود. پس از دریافت، آن را در بخش «اشتراک Pro» وارد کنید.",
     body_en: s.pro.codeInInbox
-      ? `Your personal code: ${mark}\nEnter it under “Pro membership” or when signing in to see prices and stock and to place orders.${untilEn ? `\nValid until ${untilEn}` : ""}`
+      ? `Your personal code: ${mark}\nEnter it under “Pro membership” or when signing in to see prices and stock and to place orders.${until}`
       : "Your personal code will reach you by text message or a call from the store. Enter it under “Pro membership” once you have it.",
     link: "/account/pro",
   });

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { guard } from "@/lib/admin-action";
-import { deleteProduct, deleteTaxon, duplicateProduct, importStarter, quickUpdate, reorderTaxa, saveProduct, saveTaxon, seedMediaId, type TaxonKind } from "@/lib/admin-catalog";
+import { deleteProduct, deleteTaxon, duplicateProduct, importStarter, quickUpdate, reorderTaxa, saveProduct, saveTaxon, seedMediaId, starterPending, type TaxonKind } from "@/lib/admin-catalog";
 import { deleteMedia, listLibrary, mediaInOrders, mediaUsage, updateMedia } from "@/lib/admin-media";
 import { loadMedia } from "@/lib/catalog";
 import { UserError } from "@/lib/db";
@@ -85,6 +85,16 @@ export async function adminImportStarter(): Promise<Result<{ products: number }>
     const r = await importStarter();
     refresh();
     return { ok: true, message: r.products + r.categories + r.collections ? `${num(r.products, "fa")} محصول، ${num(r.categories, "fa")} دسته و ${num(r.collections, "fa")} مجموعه‌ی نمونه وارد شد.` : "همه‌ی نمونه‌ها از قبل وارد شده بودند.", products: r.products };
+  });
+}
+
+/** The panel's first visit: the starter catalogue the site shows is copied in, once (see starterPending()). */
+export async function adminSyncStarter(): Promise<Result<{ products: number }>> {
+  return guard(async () => {
+    if (!(await starterPending())) return { ok: true, message: "", products: 0 };
+    const r = await importStarter();
+    refresh();
+    return { ok: true, message: `محصولات، دسته‌ها و مجموعه‌های سایت به پنل آمدند و از این‌جا قابل ویرایش‌اند (${num(r.products, "fa")} محصول، ${num(r.categories, "fa")} دسته، ${num(r.collections, "fa")} مجموعه).`, products: r.products };
   });
 }
 

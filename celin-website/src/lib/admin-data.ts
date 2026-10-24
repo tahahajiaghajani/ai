@@ -213,7 +213,9 @@ export async function healthReport(): Promise<{ items: HealthItem[]; missingTabl
         key: "db",
         title: "پایگاه داده (Supabase)",
         state: "error",
-        detail: `SQL تازه را اجرا کنید: ${pending.map((p) => `${p.file} (${p.why})`).join("، ")}.`,
+        // each file name isolated left-to-right (LRI…PDI): in this RTL line its leading date digits would
+        // otherwise be reordered behind the Latin tail («celin_admin_fixes.sql_20261024120000»)
+        detail: `SQL تازه را اجرا کنید: ${pending.map((p) => `\u2066${p.file}\u2069 (${p.why})`).join("، ")}.`,
       });
     else items.push({ key: "db", title: "پایگاه داده (Supabase)", state: "ok", detail: "همه‌ی جدول‌ها، تابع‌ها و فایل‌های SQL اجرا شده‌اند." });
 

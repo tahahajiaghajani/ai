@@ -27,7 +27,7 @@ export async function SiteChrome({ lang, children }: { lang: Lang; children: Rea
   return (
     <>
       {/* the first Tab stop of every page */}
-      <a href="#main" className="sr-only z-[60] bg-ink px-4 py-2 text-bone focus:not-sr-only focus:fixed focus:top-2 focus:start-2">
+      <a href="#main" className="sr-only z-[60] bg-ink text-bone focus:not-sr-only focus:fixed focus:top-2 focus:start-2 focus:px-4 focus:py-2">
         {common[lang].skip}
       </a>
       <Announcement lang={lang} a={settings.announcement} />
