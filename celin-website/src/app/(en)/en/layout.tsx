@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Document } from "@/components/site/document";
-import { FONT_VARS_EN } from "@/lib/fonts";
+import { FONT_VARS_EN } from "@/fonts/en";
 import { siteMetadata, siteViewport } from "@/lib/seo";
 import { getSettings } from "@/lib/settings";
 import "../../globals.css";
