@@ -74,7 +74,7 @@ export function ProInvite({ lang, d }: { lang: Lang; d: ProInviteData }) {
                 ))}
               </ul>
 
-              <div className="mt-10 flex flex-col items-center gap-x-4 gap-y-3 sm:flex-row sm:justify-center lg:justify-start">
+              <div className="mx-auto mt-10 flex max-w-xs flex-col items-stretch gap-x-4 gap-y-3 sm:max-w-none sm:flex-row sm:items-center sm:justify-center lg:mx-0 lg:justify-start">
                 {active ? (
                   <>
                     <Link href={href(lang, "/shop")} className="btn btn-metal btn-lg">
@@ -88,8 +88,8 @@ export function ProInvite({ lang, d }: { lang: Lang; d: ProInviteData }) {
                   </>
                 ) : (
                   <>
-                    <Magnetic>
-                      <Link href={href(lang, d.href)} className="btn btn-metal btn-lg">
+                    <Magnetic className="w-full sm:w-auto">
+                      <Link href={href(lang, d.href)} className="btn btn-metal btn-lg w-full sm:w-auto">
                         {d.cta}
                       </Link>
                     </Magnetic>

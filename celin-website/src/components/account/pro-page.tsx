@@ -53,13 +53,13 @@ export async function ProPage({ lang }: { lang: Lang }) {
             <p className="fx-in lede mx-auto mt-5 max-w-md text-on-night-muted lg:mx-0" style={{ "--in": 3 } as CSSProperties}>
               {slotText(hero, "subtitle", lang)}
             </p>
-            <div className="fx-in mt-9 flex flex-col items-center gap-3 sm:flex-row sm:justify-center lg:justify-start" style={{ "--in": 4 } as CSSProperties}>
-              <Magnetic>
-                <a href="#request" className="btn btn-metal btn-lg">
+            <div className="fx-in mx-auto mt-9 flex w-full max-w-xs flex-col gap-3 sm:w-auto sm:max-w-none sm:flex-row sm:justify-center lg:mx-0 lg:justify-start" style={{ "--in": 4 } as CSSProperties}>
+              <Magnetic className="w-full sm:w-auto">
+                <a href="#request" className="btn btn-metal btn-lg w-full sm:w-auto">
                   {c.requestCta}
                 </a>
               </Magnetic>
-              <HaveCodeButton label={c.haveCode} className="btn btn-line-light btn-lg" />
+              <HaveCodeButton label={c.haveCode} className="btn btn-line-light btn-lg w-full sm:w-auto" />
             </div>
           </div>
           {hero && (

@@ -13,6 +13,11 @@ const h = vi.hoisted(() => ({ db: null as unknown, jar: null as unknown, headers
 vi.mock("next/headers", () => ({ cookies: async () => h.jar, headers: async () => new Headers(h.headers) }));
 vi.mock("next/cache", () => ({ unstable_cache: <T>(fn: T) => fn, revalidatePath: () => undefined, revalidateTag: () => undefined }));
 vi.mock("next/server", () => ({ after: (fn: () => unknown) => void fn() }));
+vi.mock("next/navigation", () => ({
+  redirect: (url: string) => {
+    throw Object.assign(new Error("NEXT_REDIRECT"), { url });
+  },
+}));
 vi.mock("@/lib/db", async (importOriginal) => {
   const real = await importOriginal<typeof import("@/lib/db")>();
   return {
@@ -76,6 +81,7 @@ beforeEach(() => {
   h.jar = jar;
   h.headers = { "x-forwarded-for": "198.51.100.7" };
   delete process.env.ADMIN_PHONES;
+  delete process.env.ADMIN_PASSWORD;
   delete process.env.VERCEL;
   delete process.env.TRUSTED_IP_HEADER;
 });
@@ -97,11 +103,10 @@ async function issue(userId: string, redeemed: boolean) {
 describe("the Pro code as a sign-in", async () => {
   const { enterCode } = await import("@/app/actions/account");
 
-  it("never signs into an admin account (role admin, or listed in ADMIN_PHONES)", async () => {
-    process.env.ADMIN_PHONES = "09121110001";
-    const byRole = user({ phone: "09121110000", role: "admin", password_hash: "scrypt$x" });
-    const byPhone = user({ phone: "09121110001" });
-    for (const u of [byRole, byPhone]) {
+  it("never signs into an admin account", async () => {
+    const admin = user({ phone: "09121110000", role: "admin", password_hash: "scrypt$x" });
+    const codeOnlyAdmin = user({ phone: "09121110001", role: "admin" });
+    for (const u of [admin, codeOnlyAdmin]) {
       const { code } = await issue(u.id, true);
       const r = await enterCode({ code, lang: "fa" });
       expect(r.ok).toBe(false);
@@ -123,15 +128,15 @@ describe("the Pro code as a sign-in", async () => {
 describe("admin access", async () => {
   const { isAdmin } = await import("@/lib/admin-auth");
 
-  it("needs an admin account signed in with its password", async () => {
+  it("needs an admin account signed in with its password; a listed phone alone gets nothing", async () => {
     process.env.ADMIN_PHONES = "0912 111 0010";
-    const owner = user({ phone: "09121110010" }); // listed, not promoted yet
-    const member = user({ phone: "09121110011" });
+    const owner = user({ phone: "09121110012", role: "admin" });
+    const listed = user({ phone: "09121110010" }); // in ADMIN_PHONES, never activated
     await signInAs(owner, "pw");
     expect(await isAdmin()).toBe(true);
     await signInAs(owner, "code");
     expect(await isAdmin()).toBe(false);
-    await signInAs(member, "pw");
+    await signInAs(listed, "pw");
     expect(await isAdmin()).toBe(false);
   });
 });
@@ -140,26 +145,33 @@ describe("sign-in and sign-up", async () => {
   const { signIn, signUp } = await import("@/app/actions/account");
   const { hashPassword } = await import("@/lib/auth");
 
-  it("promotes the ADMIN_PHONES account and sends it back to the panel", async () => {
-    process.env.ADMIN_PHONES = "09121110020";
-    const owner = user({ phone: "09121110020", password_hash: await hashPassword("owner-pass-1") });
-    const r = await signIn({ login: "+98 912 111 0020", password: "owner-pass-1", next: "/admin", lang: "fa" });
-    expect(r).toMatchObject({ ok: true, next: "/admin" });
-    expect(owner.role).toBe("admin");
+  it("sends an admin back to the panel", async () => {
+    user({ phone: "09121110020", role: "admin", password_hash: await hashPassword("owner-pass-1") });
+    const r = await signIn({ login: "+98 912 111 0020", password: "owner-pass-1", next: "/admin/orders", lang: "fa" });
+    expect(r).toMatchObject({ ok: true, next: "/admin/orders" });
     expect(jar.get("celin_admin_ui")?.value).toBe("1");
   });
 
-  it("sends a member who asked for /admin to the account instead", async () => {
-    user({ phone: "09121110021", password_hash: await hashPassword("member-pass-1") });
-    const r = await signIn({ login: "09121110021", password: "member-pass-1", next: "/admin", lang: "fa" });
+  it("never promotes a listed number on sign-in or sign-up", async () => {
+    process.env.ADMIN_PHONES = "09121110021, 09121110022";
+    const listed = user({ phone: "09121110021", password_hash: await hashPassword("member-pass-1") });
+    const r = await signIn({ login: "09121110021", password: "member-pass-1", lang: "fa" });
     expect(r).toMatchObject({ ok: true, next: "/account" });
+    expect(listed.role).toBe("user");
+    const up = await signUp({ name: "Someone", phone: "۰۹۱۲۱۱۱۰۰۲۲", password: "owner-pass-2", lang: "fa" });
+    expect(up).toMatchObject({ ok: true, next: "/account" });
+    expect(fake.table("celin_users").find((u) => u.phone === "09121110022")?.role ?? "user").toBe("user");
+    expect(jar.get("celin_admin_ui")).toBeUndefined();
   });
 
-  it("makes a sign-up with the owner's number an admin", async () => {
-    process.env.ADMIN_PHONES = "09121110022";
-    const r = await signUp({ name: "Owner", phone: "۰۹۱۲۱۱۱۰۰۲۲", password: "owner-pass-2", next: "/admin", lang: "fa" });
-    expect(r).toMatchObject({ ok: true, next: "/admin" });
-    expect(fake.table("celin_users").find((u) => u.phone === "09121110022")?.role).toBe("admin");
+  it("sends someone who came from the panel to its sign-in only if the account may be made admin", async () => {
+    user({ phone: "09121110027", password_hash: await hashPassword("member-pass-1") });
+    // no ADMIN_PASSWORD: nobody can be made admin
+    expect(await signIn({ login: "09121110027", password: "member-pass-1", next: "/admin", lang: "fa" })).toMatchObject({ ok: true, next: "/account" });
+    process.env.ADMIN_PASSWORD = "the-admin-pass-1";
+    expect(await signIn({ login: "09121110027", password: "member-pass-1", next: "/admin", lang: "fa" })).toMatchObject({ ok: true, next: "/admin/login" });
+    process.env.ADMIN_PHONES = "09121110099"; // an allow-list without this number
+    expect(await signIn({ login: "09121110027", password: "member-pass-1", next: "/admin", lang: "fa" })).toMatchObject({ ok: true, next: "/account" });
   });
 
   it("answers calmly when accounts are not set up (no database)", async () => {
@@ -202,6 +214,67 @@ describe("sign-in and sign-up", async () => {
     jar.set("celin_device", device);
     expect((await signIn({ login: m.phone, password: "right-pass-1", lang: "fa" })).ok).toBe(true);
   }, 60_000); // 43 scrypt checks
+});
+
+describe("making an account admin with ADMIN_PASSWORD", async () => {
+  const { activateAdmin } = await import("@/app/actions/admin");
+  const { isAdmin } = await import("@/lib/admin-auth");
+  const { readSession } = await import("@/lib/auth");
+  const form = (password: string) => {
+    const f = new FormData();
+    f.set("password", password);
+    return f;
+  };
+  const activate = async (password: string) => {
+    try {
+      return await activateAdmin(null, form(password));
+    } catch (e) {
+      return { redirect: (e as { url?: string }).url };
+    }
+  };
+
+  it("promotes only on the right password, ends the other sessions and opens the panel here", async () => {
+    process.env.ADMIN_PASSWORD = "the-admin-pass-1";
+    const owner = user({ phone: "09121110060", session_version: 4 });
+    await signInAs(owner, "pw");
+    const other = jar.get("celin_session")!.value; // the same account on another device
+    expect(await activate("wrong")).toEqual({ error: "رمز مدیریت درست نیست." });
+    expect(owner.role).toBe("user");
+    expect(await activate("the-admin-pass-1")).toEqual({ redirect: "/admin" });
+    expect(owner.role).toBe("admin");
+    expect(owner.session_version).toBe(5);
+    expect(readSession(jar.get("celin_session")!.value)).toMatchObject({ id: owner.id, ver: 5, via: "pw" });
+    expect(await isAdmin()).toBe(true);
+    jar.set("celin_session", other);
+    expect(await isAdmin()).toBe(false); // the older session has ended
+  });
+
+  it("does nothing without ADMIN_PASSWORD, for a code session, or for a number outside ADMIN_PHONES", async () => {
+    const a = user({ phone: "09121110061" });
+    await signInAs(a, "pw");
+    expect(await activate("")).toMatchObject({ error: expect.any(String) }); // ADMIN_PASSWORD not set
+    process.env.ADMIN_PASSWORD = "the-admin-pass-1";
+    await signInAs(a, "code");
+    expect(await activate("the-admin-pass-1")).toMatchObject({ error: expect.any(String) });
+    process.env.ADMIN_PHONES = "09121110062";
+    await signInAs(a, "pw");
+    expect(await activate("the-admin-pass-1")).toMatchObject({ error: expect.any(String) });
+    expect(a.role).toBe("user");
+    // the allow-list is honoured: a listed number can be made admin (with the password)
+    const listed = user({ phone: "09121110062" });
+    await signInAs(listed, "pw");
+    expect(await activate("the-admin-pass-1")).toEqual({ redirect: "/admin" });
+    expect(listed.role).toBe("admin");
+  });
+
+  it("is rate-limited: after the allowance even the right password is refused", async () => {
+    process.env.ADMIN_PASSWORD = "the-admin-pass-1";
+    const a = user({ phone: "09121110063" });
+    await signInAs(a, "pw");
+    for (let i = 0; i < 8; i++) expect(await activate("guess-" + i)).toEqual({ error: "رمز مدیریت درست نیست." });
+    expect(await activate("the-admin-pass-1")).toEqual({ error: "تلاش‌های زیادی انجام شد؛ ۱۵ دقیقه‌ی دیگر امتحان کنید." });
+    expect(a.role).toBe("user");
+  }, 30_000);
 });
 
 describe("a password set from a code session", async () => {

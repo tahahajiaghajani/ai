@@ -18,11 +18,11 @@ export const env = {
   get bucket() {
     return process.env.SUPABASE_BUCKET || "celin-media";
   },
-  /** optional break-glass login for /admin (the usual way in is an admin account, see ADMIN_PHONES) */
+  /** the admin password: proven once on /admin/login to make an account admin; also a break-glass login */
   get adminPassword() {
     return process.env.ADMIN_PASSWORD || "";
   },
-  /** mobile numbers (comma / space separated) whose accounts are admins: promoted on sign-up and sign-in */
+  /** optional allow-list (comma / space separated mobiles): only these accounts may be made admin with ADMIN_PASSWORD */
   get adminPhones() {
     return process.env.ADMIN_PHONES || "";
   },

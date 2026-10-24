@@ -40,13 +40,20 @@ function Panel({ title, seal = true, children, compact = false }: { title?: Reac
   return (
     <LuxFrame className={`bg-porcelain/85 ${compact ? "px-5 py-6 sm:px-7 sm:py-7" : "px-6 py-8 sm:px-10 sm:py-10"}`}>
       <span aria-hidden className="absolute inset-0 -z-10 bg-[radial-gradient(70%_90%_at_100%_0%,var(--color-gold-mist),transparent_70%)] rtl:bg-[radial-gradient(70%_90%_at_0%_0%,var(--color-gold-mist),transparent_70%)]" />
-      {(title || seal) && (
-        <div className="flex items-center gap-4">
-          {seal && <ProSeal size={compact ? "sm" : "md"} />}
-          {title && <p className={compact ? "title-card" : "title-section"}>{title}</p>}
+      {title ? (
+        <>
+          <div className="flex items-center gap-4">
+            {seal && <ProSeal size={compact ? "sm" : "md"} />}
+            <p className={compact ? "title-card" : "title-section"}>{title}</p>
+          </div>
+          <div className="mt-4">{children}</div>
+        </>
+      ) : (
+        <div className="flex items-start gap-4 sm:gap-5">
+          {seal && <ProSeal size={compact ? "sm" : "md"} className="mt-1" />}
+          <div className="min-w-0 flex-1">{children}</div>
         </div>
       )}
-      <div className={title || seal ? "mt-4" : ""}>{children}</div>
     </LuxFrame>
   );
 }

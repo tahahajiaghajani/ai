@@ -1,6 +1,5 @@
 import "server-only";
 import { assertAdmin } from "@/lib/admin-auth";
-import { isAdminPhone } from "@/lib/admin-phones";
 import { EMAIL_RE, hashPassword, PASSWORD_MAX, PASSWORD_MIN, PROFILE_COLUMNS, USERS, type Account } from "@/lib/auth";
 import { allRows, db, isMissingColumn, isMissingTable, requireDb, UserError } from "@/lib/db";
 import { mailHtml, sendEmail } from "@/lib/email";
@@ -77,8 +76,6 @@ export async function listMembers(): Promise<MemberRow[] | null> {
     const k = codeOf.get(u.id);
     return {
       ...u,
-      // the owner's number (ADMIN_PHONES) is an admin even before its next sign-in promotes it
-      role: isAdminPhone(u.phone) ? "admin" : u.role,
       has_password: Boolean(password_hash),
       pro: k ? { state: codeState(k), expires_at: k.expires_at, code_id: k.id, hint: k.hint } : { state: "none", expires_at: null, code_id: null, hint: "" },
       orders: stats.get(u.id)?.n ?? 0,
@@ -272,10 +269,6 @@ export async function setMemberDisabled(id: string, disabled: boolean): Promise<
 
 export async function setMemberRole(id: string, role: "user" | "admin"): Promise<void> {
   await assertAdmin();
-  if (role === "user") {
-    const { data } = await requireDb().from(USERS).select("phone").eq("id", id).maybeSingle();
-    if (data && isAdminPhone((data as { phone: string }).phone)) throw new UserError("این شماره در ADMIN_PHONES (Vercel) آمده و همیشه مدیر است؛ برای برداشتن دسترسی، اول آن را از ADMIN_PHONES حذف و دوباره Deploy کنید.");
-  }
   await bumpSession(id, { role });
 }
 

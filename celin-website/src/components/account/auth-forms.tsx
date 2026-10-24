@@ -125,7 +125,7 @@ export function AuthForms({ lang, tab: initial, next, contact }: { lang: Lang; t
             <div className="space-y-8">
               <CodeInput lang={lang} next={next} autoFocus tone="night" hideLabel onState={setCodeState} onDone={(r) => router.replace(r.next)} />
               <ProSteps lang={lang} current={codeState === "ok" ? 4 : 3} tone="night" />
-              <div className="space-y-1 border-t border-night-line pt-6 text-center font-ui text-sm text-on-night-muted">
+              <div className="flex flex-col items-center gap-1 border-t border-night-line pt-6 text-center font-ui text-sm text-on-night-muted">
                 <p>{commonCopy(lang).proSheet.noCode}</p>
                 {hasContact ? (
                   <StoreContact contact={contact} lang={lang} tone="night" className="justify-center" />

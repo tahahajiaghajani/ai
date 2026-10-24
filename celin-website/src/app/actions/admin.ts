@@ -3,14 +3,15 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { after } from "next/server";
-import { checkPassword, endSession, startSession } from "@/lib/admin-auth";
-import { endUserSession } from "@/lib/auth";
+import { canActivateAdmin, checkPassword, endSession, startSession } from "@/lib/admin-auth";
+import { USERS, endUserSession, sessionState, startUserSession } from "@/lib/auth";
 import { cleanKey, guard } from "@/lib/admin-action";
 import { encrypt, hashIp } from "@/lib/crypto";
-import { UserError } from "@/lib/db";
+import { db, UserError } from "@/lib/db";
 import { sendEmail, mailHtml } from "@/lib/email";
 import { latinDigits, normalizePhone } from "@/lib/format";
 import { notifyTeam } from "@/lib/notify";
+import { proStatus } from "@/lib/pro";
 import { allow } from "@/lib/rate-limit";
 import { clientIp } from "@/lib/request";
 import { getSettingsFresh, saveSettings } from "@/lib/settings";
@@ -35,6 +36,45 @@ export async function login(_prev: { error: string } | null, form: FormData): Pr
     return { error: "رمز عبور درست نیست." };
   }
   await startSession();
+  redirect("/admin");
+}
+
+/**
+ * «فعال کردن پنل روی این حساب»: the account signed in here (with its password) proves ADMIN_PASSWORD once and
+ * becomes an admin for good; from then on a normal sign-in opens the panel. Only when ADMIN_PASSWORD is set,
+ * and — when the ADMIN_PHONES allow-list is set — only for a listed number. Rate-limited like the password
+ * login, logged, the team is told (if notifications are on), and every other session of the account ends.
+ */
+export async function activateAdmin(_prev: { error: string } | null, form: FormData): Promise<{ error: string } | null> {
+  const s = await sessionState();
+  if (s.state !== "ok") return { error: "نشست شما پایان یافته است؛ دوباره وارد شوید." };
+  const me = s.user;
+  if (s.via !== "pw") return { error: "اول با شماره‌ی موبایل و رمز عبور همین حساب وارد شوید." };
+  if (!canActivateAdmin(me)) return { error: "پنل مدیریت روی این حساب فعال نمی‌شود." };
+  const ip = hashIp(await clientIp());
+  if (!(await allow(`admin-login:${ip}`, 900, 8)) || !(await allow(`admin-activate:${me.id}`, 3600, 8)) || !(await allow("admin-login:global", 900, 40))) {
+    return { error: "تلاش‌های زیادی انجام شد؛ ۱۵ دقیقه‌ی دیگر امتحان کنید." };
+  }
+  if (!checkPassword(String(form.get("password") ?? ""))) {
+    await new Promise((r) => setTimeout(r, 600));
+    console.warn(`[admin] wrong admin password for account ${me.id}`);
+    return { error: "رمز مدیریت درست نیست." };
+  }
+  const c = db();
+  if (!c) return { error: "پایگاه داده تنظیم نشده است." };
+  const ver = me.session_version + 1;
+  // compare-and-set on the session version: every other session of this account ends
+  const { data, error } = await c.from(USERS).update({ role: "admin", session_version: ver, updated_at: new Date().toISOString() }).eq("id", me.id).eq("session_version", me.session_version).select("id");
+  if (error || !data?.length) {
+    if (error) console.error("[admin] activate", error.message);
+    return { error: "فعال‌سازی انجام نشد؛ دوباره امتحان کنید." };
+  }
+  console.info(`[admin] account ${me.id} (${me.phone}) is now an admin (proved ADMIN_PASSWORD)`);
+  await startUserSession({ ...me, role: "admin", session_version: ver }, (await proStatus(me.id)).active);
+  after(async () => {
+    const s2 = await getSettingsFresh().catch(() => null);
+    if (s2) await notifyTeam(`پنل مدیریت سلین روی یک حساب فعال شد\n${me.name} — ${me.phone}`, s2.notify);
+  });
   redirect("/admin");
 }
 

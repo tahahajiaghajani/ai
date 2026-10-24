@@ -6,8 +6,9 @@ import { signIn } from "@/app/actions/account";
 import { Button, Field, Input } from "@/components/admin/ui";
 
 /**
- * /admin/login: the site's own sign-in (mobile + password, same action and limits as /account/login) for
- * admin accounts. An admin goes on to the panel; any other account sees «no admin access» (page refresh).
+ * /admin/login: the site's own sign-in (mobile + password, same action and limits as /account/login). An
+ * admin goes on to the panel; an account that may be made admin is asked for the admin password; any other
+ * account sees «no admin access» (page refresh).
  */
 export function AccountSignIn({ phone = "" }: { phone?: string }) {
   const router = useRouter();
@@ -28,8 +29,9 @@ export function AccountSignIn({ phone = "" }: { phone?: string }) {
         setPending(false);
         return;
       }
+      // an admin goes to the panel; an account that may be made admin comes back here for the admin password
       if (r.next.startsWith("/admin")) {
-        window.location.assign("/admin");
+        window.location.assign(r.next);
         return;
       }
       router.refresh();

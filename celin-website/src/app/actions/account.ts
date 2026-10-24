@@ -1,8 +1,7 @@
 "use server";
 
 import { after } from "next/server";
-import { endSession } from "@/lib/admin-auth";
-import { isAdminPhone } from "@/lib/admin-phones";
+import { canActivateAdmin, endSession } from "@/lib/admin-auth";
 import {
   EMAIL_RE,
   PASSWORD_MAX,
@@ -75,10 +74,17 @@ function safeNext(v: unknown, lang: Lang): string {
   return /^\/(?![/\\])[^\s]*$/.test(s) && !s.startsWith("/admin") ? s : href(lang, "/account");
 }
 
-/** After a password sign-in: an admin who came from the panel goes back there. */
-function nextAfterSignIn(v: unknown, lang: Lang, admin: boolean): string {
+/**
+ * After a password sign-in, for someone who came from the panel: an admin goes back there; an account that
+ * may still be made admin goes to /admin/login, which asks once for the admin password; anyone else goes to
+ * their account.
+ */
+function nextAfterSignIn(v: unknown, lang: Lang, a: Pick<Account, "role" | "phone">): string {
   const s = typeof v === "string" ? v : "";
-  if (admin && /^\/admin(?:[/?#]|$)/.test(s) && !/^\/admin\/login/.test(s) && /^\/(?![/\\])[^\s]*$/.test(s)) return s;
+  if (/^\/admin(?:[/?#]|$)/.test(s) && /^\/(?![/\\])[^\s]*$/.test(s)) {
+    if (isAdminRow(a)) return /^\/admin\/login/.test(s) ? "/admin" : s;
+    if (canActivateAdmin(a)) return "/admin/login";
+  }
   return safeNext(v, lang);
 }
 
@@ -113,9 +119,9 @@ export async function signUp(input: Record<string, unknown>): Promise<Result<{ n
   }
   if (!(await allow(`signup:${await ipKey()}`, 3600, 6))) return { ok: false, error: MSG.rate[lang] };
 
-  // the owner's number (ADMIN_PHONES) becomes an admin account right away
-  const role = isAdminPhone(phone) ? "admin" : "user";
-  const row = { phone, email, name, role, password_hash: await hashPassword(password), business: text(input.business, 120), city: text(input.city, 80), last_sign_in_at: new Date().toISOString() };
+  // a new account is never an admin (not even with a number from ADMIN_PHONES): see activateAdmin
+  const role = "user" as const;
+  const row = { phone, email, name, password_hash: await hashPassword(password), business: text(input.business, 120), city: text(input.city, 80), last_sign_in_at: new Date().toISOString() };
   const { data, error } = await c.from(USERS).insert(row).select("id").single();
   if (error || !data) {
     if (error?.code === "23505") return /email/i.test(error.message) ? { ok: false, error: MSG.emailTaken[lang], field: "email" } : { ok: false, error: MSG.exists[lang], field: "phone" };
@@ -129,7 +135,7 @@ export async function signUp(input: Record<string, unknown>): Promise<Result<{ n
   const id = (data as { id: string }).id;
   await startUserSession({ id, session_version: 0, role, phone }, false);
   await markKnownDevice(id);
-  return { ok: true, next: nextAfterSignIn(input.next, lang, role === "admin") };
+  return { ok: true, next: nextAfterSignIn(input.next, lang, { role, phone }) };
 }
 
 export async function signIn(input: Record<string, unknown>): Promise<Result<{ next: string; pro: boolean }>> {
@@ -168,14 +174,11 @@ export async function signIn(input: Record<string, unknown>): Promise<Result<{ n
     return { ok: false, error: MSG.wrong[lang] };
   }
   if (user.disabled) return { ok: false, error: MSG.disabled[lang] };
-  // the owner's number (ADMIN_PHONES) is promoted on every sign-in
-  const promote = isAdminPhone(user.phone) && user.role !== "admin";
-  const { error: ue } = await c.from(USERS).update({ last_sign_in_at: new Date().toISOString(), ...(promote ? { role: "admin" } : {}) }).eq("id", user.id);
-  if (promote && !ue) user.role = "admin";
+  await c.from(USERS).update({ last_sign_in_at: new Date().toISOString() }).eq("id", user.id);
   const pro = (await proStatus(user.id)).active;
   await startUserSession(user, pro);
   await markKnownDevice(user.id);
-  return { ok: true, next: nextAfterSignIn(input.next, lang, isAdminRow(user)), pro };
+  return { ok: true, next: nextAfterSignIn(input.next, lang, user), pro };
 }
 
 /**

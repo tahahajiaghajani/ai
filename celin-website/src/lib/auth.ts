@@ -2,7 +2,6 @@ import "server-only";
 import { cache } from "react";
 import { randomBytes, scrypt as scryptCb, timingSafeEqual, type ScryptOptions } from "node:crypto";
 import { cookies } from "next/headers";
-import { isAdminPhone } from "@/lib/admin-phones";
 import { hasSecret, safeEqual, sign } from "@/lib/crypto";
 import { db } from "@/lib/db";
 
@@ -108,9 +107,12 @@ export function readSession(raw: string | undefined, now = Date.now()): { id: st
   return safeEqual(sig, expected) ? { id, ver, via } : null;
 }
 
-/** An admin account: role admin, or its phone is listed in ADMIN_PHONES (even before it was promoted). */
-export function isAdminRow(a: { role?: string | null; phone?: string | null }): boolean {
-  return a.role === "admin" || isAdminPhone(a.phone);
+/**
+ * An admin account: role admin. A phone number alone never makes one — an account becomes admin through an
+ * explicit proof of ADMIN_PASSWORD on /admin/login (actions/admin.ts activateAdmin) or Users → «مدیر کردن».
+ */
+export function isAdminRow(a: { role?: string | null }): boolean {
+  return a.role === "admin";
 }
 
 const secure = () => process.env.NODE_ENV === "production";

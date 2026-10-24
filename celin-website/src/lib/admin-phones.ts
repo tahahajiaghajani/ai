@@ -3,10 +3,10 @@ import { env } from "@/lib/env";
 import { latinDigits, normalizePhone } from "@/lib/format";
 
 /**
- * ADMIN_PHONES: the owner's mobile number(s). An account whose phone is listed is an admin — it is promoted
- * (role admin) on sign-up and on every sign-in, and counts as admin before that too. Numbers may be written
- * with Persian digits, +98 / 0098, spaces or dashes inside, and separated by commas («،» too), semicolons,
- * line breaks or spaces.
+ * ADMIN_PHONES (optional): an allow-list of mobile numbers. A phone number alone never grants anything; when
+ * the list is set, only accounts with these numbers may be made admin with ADMIN_PASSWORD on /admin/login.
+ * Numbers may be written with Persian digits, +98 / 0098, spaces or dashes inside, and separated by commas
+ * («،» too), semicolons, line breaks or spaces.
  */
 export function parseAdminPhones(raw: string): string[] {
   const out = new Set<string>();

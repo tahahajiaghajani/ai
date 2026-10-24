@@ -2,15 +2,16 @@ import "server-only";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { env } from "@/lib/env";
-import { adminPhones } from "@/lib/admin-phones";
+import { adminPhones, isAdminPhone } from "@/lib/admin-phones";
 import { ADMIN_HINT as HINT, isAdminAccount } from "@/lib/auth";
 import { hasSecret, safeEqual, sha256, sign } from "@/lib/crypto";
 import { db, missingDbVars } from "@/lib/db";
 
 /**
- * Two ways in: an admin account (role "admin" in celin_users, or its phone listed in ADMIN_PHONES) signed in
- * with its password through the normal site sign-in — or /admin/login —, or the optional ADMIN_PASSWORD
- * session below (break-glass; it never changes any account).
+ * Two ways in: an admin account (role "admin" in celin_users) signed in with its password through the normal
+ * site sign-in or /admin/login, or the optional ADMIN_PASSWORD session below (break-glass; it never changes
+ * any account). An account becomes admin only by an explicit proof of ADMIN_PASSWORD (activateAdmin in
+ * actions/admin.ts) or by another admin (Users → «مدیر کردن») — never by its phone number alone.
  */
 const COOKIE = "celin_admin";
 const DAYS = 7;
@@ -25,21 +26,30 @@ export function adminConfigured(): boolean {
 }
 
 export interface AdminSetup {
-  /** admin accounts can sign in (Supabase configured) */
+  /** accounts can sign in (Supabase configured) */
   accounts: boolean;
-  /** the ADMIN_PASSWORD form is available */
+  /** ADMIN_PASSWORD is set: accounts can be made admin with it, and the break-glass login works */
   password: boolean;
-  /** valid numbers in ADMIN_PHONES */
+  /** valid numbers in the optional ADMIN_PHONES allow-list (0 = any account may be made admin) */
   phones: number;
-  /** variables still missing for the usual way in (an admin account) */
+  /** variables still missing for the first activation (an account made admin with ADMIN_PASSWORD) */
   missing: string[];
 }
 
 /** What the owner has configured for the admin panel (for /admin/login and Admin → Connections). */
 export function adminSetup(): AdminSetup {
-  const phones = adminPhones().length;
-  const missing = [...missingDbVars(), ...(phones ? [] : ["ADMIN_PHONES"])];
-  return { accounts: Boolean(db()) && hasSecret(), password: adminConfigured(), phones, missing };
+  const password = adminConfigured();
+  const missing = [...missingDbVars(), ...(env.adminPassword ? [] : ["ADMIN_PASSWORD"])];
+  return { accounts: Boolean(db()) && hasSecret(), password, phones: adminPhones().length, missing };
+}
+
+/**
+ * Whether this (non-admin) account may be made admin by proving ADMIN_PASSWORD: the password is set, and the
+ * account's phone is in ADMIN_PHONES when that allow-list is set.
+ */
+export function canActivateAdmin(a: { role?: string | null; phone?: string | null }): boolean {
+  if (a.role === "admin" || !adminConfigured()) return false;
+  return adminPhones().length === 0 || isAdminPhone(a.phone);
 }
 
 export function checkPassword(input: string): boolean {

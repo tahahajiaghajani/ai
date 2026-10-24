@@ -139,15 +139,18 @@ export async function healthReport(): Promise<{ items: HealthItem[]; missingTabl
   }
 
   const setup = adminSetup();
-  const admins = c ? await c.from(USERS).select("name, phone, role").or(`role.eq.admin${adminPhones().length ? `,phone.in.(${adminPhones().join(",")})` : ""}`).limit(20) : null;
+  const admins = c ? await c.from(USERS).select("name, phone").eq("role", "admin").limit(20) : null;
   const adminList = ((admins?.data ?? []) as { name: string; phone: string }[]).map((a) => `${a.name || "—"} (${a.phone})`).join("، ");
-  const phonesNote = setup.phones ? `ADMIN_PHONES: ${adminPhones().join("، ")}` : "ADMIN_PHONES تنظیم نشده است (شماره‌ی موبایل خودتان را بگذارید تا حسابتان با ثبت‌نام یا ورود مدیر شود)";
+  const passwordNote = setup.password
+    ? "ADMIN_PASSWORD تنظیم شده است (فعال کردن پنل روی یک حساب، و ورود اضطراری)."
+    : "ADMIN_PASSWORD تنظیم نشده است: هیچ حسابی را نمی‌توان با رمز مدیریت مدیر کرد.";
+  const phonesNote = setup.phones ? ` فقط این شماره‌ها می‌توانند مدیر شوند (ADMIN_PHONES): ${adminPhones().join("، ")}.` : "";
   const secretNote = process.env.APP_SECRET ? "" : " APP_SECRET جداگانه تنظیم نشده (از کلید Supabase استفاده می‌شود)؛ بهتر است یک رشته‌ی تصادفی ۳۲ نویسه‌ای بگذارید.";
   items.push({
     key: "admin",
     title: "ورود مدیر",
-    state: !setup.phones && !adminList ? "error" : process.env.APP_SECRET && setup.phones ? "ok" : "warn",
-    detail: `${phonesNote}.${adminList ? ` حساب‌های مدیر: ${adminList}.` : ""}${setup.password ? " ADMIN_PASSWORD (ورود اضطراری) تنظیم شده است." : ""}${secretNote}`,
+    state: !setup.password && !adminList ? "error" : process.env.APP_SECRET && setup.password ? "ok" : "warn",
+    detail: `${adminList ? `حساب‌های مدیر: ${adminList}. ` : ""}${passwordNote}${phonesNote}${secretNote}`,
   });
 
   const s = c ? await getSettingsFresh().catch(() => null) : null;

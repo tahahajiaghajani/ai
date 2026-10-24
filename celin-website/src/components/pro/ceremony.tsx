@@ -57,7 +57,7 @@ export function ProCodeCeremony({
           <CodeInput lang={lang} next={next} tone="night" hideLabel onState={setState} onDone={onDone} />
         </div>
         <ProSteps lang={lang} current={state === "ok" ? 4 : 3} tone="night" className="mt-9" />
-        <div className="mt-7 space-y-1 border-t border-night-line pt-6 text-center font-ui text-sm text-on-night-muted">
+        <div className="mt-7 flex flex-col items-center gap-1 border-t border-night-line pt-6 text-center font-ui text-sm text-on-night-muted">
           <p>{c.proSheet.noCode}</p>
           {contact && links && (links.tel || links.wa) ? (
             <StoreContact contact={contact} lang={lang} tone="night" className="justify-center" />
