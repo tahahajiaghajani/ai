@@ -100,8 +100,9 @@ export const DEFAULT_SETTINGS: Settings = {
     email: "",
     address_fa: "",
     address_en: "",
-    hours_fa: "شنبه تا پنجشنبه، ۱۰ تا ۲۰",
-    hours_en: "Saturday to Thursday, 10:00–20:00",
+    // the owner sets the hours (Settings → Contact); nothing is shown until then
+    hours_fa: "",
+    hours_en: "",
     mapUrl: "",
   },
   announcement: { enabled: true, text_fa: "سلین، ۲۰ سال درخشش — به دنیای آنلاین سلین خوش آمدید", text_en: "CELIN, twenty years of brilliance — welcome to CELIN online", link: "/maison" },

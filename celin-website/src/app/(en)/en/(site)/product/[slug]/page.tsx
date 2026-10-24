@@ -3,7 +3,7 @@ import { ProductPage } from "@/components/pages/product-page";
 import { getCatalog } from "@/lib/catalog";
 import { t } from "@/lib/i18n";
 import { mediaUrl } from "@/lib/media";
-import { pageMetadata } from "@/lib/seo";
+import { pageMetadata, productDescription } from "@/lib/seo";
 
 export const revalidate = 600;
 
@@ -13,10 +13,12 @@ export async function generateStaticParams() {
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const { slug } = await params;
-  const p = (await getCatalog()).products.find((x) => x.slug === slug);
+  const cat = await getCatalog();
+  const p = cat.products.find((x) => x.slug === slug);
   if (!p) return {};
   const cover = p.images[0];
-  return pageMetadata("en", { path: `/product/${p.slug}`, title: t(p, "name", "en"), description: t(p, "subtitle", "en") || t(p, "description", "en").slice(0, 160), image: cover ? mediaUrl(cover, 1280) : undefined });
+  const description = productDescription(p, "en", { category: cat.categories.find((k) => k.slug === p.category), collection: cat.collections.find((k) => k.slug === p.collection) });
+  return pageMetadata("en", { path: `/product/${p.slug}`, title: t(p, "name", "en"), description, image: cover ? mediaUrl(cover, 1280) : undefined });
 }
 
 export default async function Page({ params }: { params: Promise<{ slug: string }> }) {

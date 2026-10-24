@@ -282,7 +282,7 @@ export function ShopGrid({ lang, products, collections, editorial }: { lang: Lan
                     <button key={o.v} type="button" aria-pressed={on} onClick={() => push({ ...f, metal: on ? f.metal.filter((x) => x !== o.v) : [...f.metal, o.v] })} className={pill(on)}>
                       <span className={toneDot(o.v)} aria-hidden />
                       {o.label}
-                      <span className={`tabular-nums ${on ? "text-bone/70" : "text-faint"}`}>{num(o.n, lang)}</span>
+                      <span className={`tabular-nums ${on ? "text-bone/70" : "text-muted"}`}>{num(o.n, lang)}</span>
                     </button>
                   );
                 })}
@@ -381,7 +381,7 @@ export function ShopGrid({ lang, products, collections, editorial }: { lang: Lan
                         <button key={o.v} type="button" aria-pressed={on} onClick={() => toggle(key, o.v)} className={pill(on, true)}>
                           {key === "metal" && <span className={toneDot(o.v)} aria-hidden />}
                           {o.label}
-                          <span className={`text-xs tabular-nums ${on ? "text-bone/70" : "text-faint"}`}>{num(o.n, lang)}</span>
+                          <span className={`text-xs tabular-nums ${on ? "text-bone/70" : "text-muted"}`}>{num(o.n, lang)}</span>
                         </button>
                       );
                     })}

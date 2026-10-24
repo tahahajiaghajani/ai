@@ -70,9 +70,10 @@ export async function adminSetDisabled(input: Record<string, unknown>): Promise<
 export async function adminSetRole(input: Record<string, unknown>): Promise<Result> {
   return guard(async () => {
     const role = input.role === "admin" ? "admin" : "user";
-    await setMemberRole(text(input.id, 40), role);
+    const r = await setMemberRole(text(input.id, 40), role);
     refresh();
-    return { ok: true, message: role === "admin" ? "این حساب اکنون مدیر است." : "دسترسی مدیر برداشته شد." };
+    if (!r.changed) return { ok: true, message: role === "admin" ? "این حساب از قبل مدیر است." : "این حساب مدیر نیست." };
+    return { ok: true, message: role === "admin" ? "این حساب اکنون مدیر است؛ از این پس با شماره و رمز خودش وارد پنل می‌شود." : "دسترسی مدیر برداشته شد و حساب از همه‌ی دستگاه‌ها خارج شد." };
   });
 }
 
@@ -116,7 +117,7 @@ export async function adminIssueCode(input: Record<string, unknown>): Promise<Re
     const r = await issueForMember(text(input.userId, 40), input.days);
     refresh();
     const d = deliveredNote(r.delivered);
-    const ended = r.ended ? " کد قبلی باطل شد و عضو از همه‌ی دستگاه‌ها خارج شد." : "";
+    const ended = r.ended ? ` کد قبلی (که استفاده شده بود) باطل شد و عضو از همه‌ی دستگاه‌ها خارج شد${r.passwordCleared ? "؛ رمزی هم که با آن کد ساخته شده بود پاک شد" : ""}.` : "";
     return { ok: true, message: "کد تازه صادر شد (کدهای قبلی این حساب باطل شدند).", code: r.code, note: `${d.note}${ended}`, warn: d.warn };
   });
 }

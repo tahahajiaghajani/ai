@@ -34,7 +34,7 @@ export const craftCopy = {
   en: {
     meta: {
       title: "The craft",
-      description: "At CELIN, every piece is designed and made after the structure and finesse of fine jewelry — with brilliant stones, precise stone setting and quality rhodium and gold plating.",
+      description: "At CELIN, every piece is designed and made in the spirit of gold and jewels, with their structure and finesse: brilliant stones, precise stone setting and quality rhodium and gold plating.",
     },
     lede: { eyebrow: story.en.chapters[0].title, text: story.en.chapters[0].text },
     steps: {
@@ -42,7 +42,7 @@ export const craftCopy = {
       title: "How a piece is made",
       step: "Step",
       tags: [
-        ["The latest designs of the world", "International designers"],
+        ["The latest designs from around the world", "International designers"],
         ["Brilliant stones", "Atomic cut"],
         ["Choosing each stone", "Setting each stone"],
         ["Rhodium", "Gold"],
@@ -53,7 +53,7 @@ export const craftCopy = {
       eyebrow: "Continue",
       title: "Beauty, in the details",
       care: { title: "Care & warranty", text: "Caring for the plating and the stones" },
-      collections: { title: "Collections", text: "Each with its own name, colour and story" },
+      collections: { title: "Collections", text: "Each with its own name, color and story" },
     },
   },
 };

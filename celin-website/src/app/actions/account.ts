@@ -26,7 +26,7 @@ import { normalizePhone } from "@/lib/format";
 import { href } from "@/lib/i18n";
 import { markAllRead } from "@/lib/messages";
 import { notifyTeam } from "@/lib/notify";
-import { codeState, findCode, normalizeCode, proStatus, REQUESTS, touchCode } from "@/lib/pro";
+import { CodeRevokedError, codeState, findCode, normalizeCode, proStatus, REQUESTS, touchCode } from "@/lib/pro";
 import { allow, limited } from "@/lib/rate-limit";
 import { clientIp } from "@/lib/request";
 import { getSettings } from "@/lib/settings";
@@ -134,7 +134,7 @@ export async function signUp(input: Record<string, unknown>): Promise<Result<{ n
   }
   const id = (data as { id: string }).id;
   await startUserSession({ id, session_version: 0, role, phone }, false);
-  await markKnownDevice(id);
+  await markKnownDevice(id, row.password_hash);
   return { ok: true, next: nextAfterSignIn(input.next, lang, { role, phone }) };
 }
 
@@ -165,19 +165,22 @@ export async function signIn(input: Record<string, unknown>): Promise<Result<{ n
     return { ok: false, error: MSG.db[lang] };
   }
   const user = data as (Account & { password_hash: string | null }) | null;
-  // a looser per-account ceiling counts failures only, and never shuts out a browser that signed in here before
+  // a looser per-account ceiling counts failures only; a browser that signed in here before with the current
+  // password has a ceiling of its own (higher, not none), so strangers cannot lock its owner out
   const failKey = `signin-fail:${who}`;
-  if ((await limited(failKey, 3600, 40)) && !(user && (await isKnownDevice(user.id)))) return { ok: false, error: MSG.rate[lang] };
+  const knownKey = user && (await isKnownDevice(user.id, user.password_hash)) ? `signin-fail-dev:${who}` : "";
+  if (knownKey ? await limited(knownKey, 3600, 100) : await limited(failKey, 3600, 40)) return { ok: false, error: MSG.rate[lang] };
   // an account without a password gets the same answer (and timing) as a wrong password
   if (!(await checkPassword(password, user?.password_hash)) || !user) {
     await allow(failKey, 3600, 40);
+    if (knownKey) await allow(knownKey, 3600, 100);
     return { ok: false, error: MSG.wrong[lang] };
   }
   if (user.disabled) return { ok: false, error: MSG.disabled[lang] };
   await c.from(USERS).update({ last_sign_in_at: new Date().toISOString() }).eq("id", user.id);
   const pro = (await proStatus(user.id)).active;
   await startUserSession(user, pro);
-  await markKnownDevice(user.id);
+  await markKnownDevice(user.id, user.password_hash);
   return { ok: true, next: nextAfterSignIn(input.next, lang, user), pro };
 }
 
@@ -225,6 +228,8 @@ export async function enterCode(input: Record<string, unknown>): Promise<Result<
   try {
     await touchCode(row);
   } catch (e) {
+    // revoked or replaced a moment ago: refused, so no session outlives the revocation
+    if (e instanceof CodeRevokedError) return { ok: false, error: MSG.codeRevoked[lang], field: "code" };
     console.error("[account] code touch", e);
     return { ok: false, error: MSG.failed[lang] };
   }
@@ -315,6 +320,8 @@ export async function changePassword(input: Record<string, unknown>): Promise<Re
     return { ok: false, error: MSG.failed[lang] };
   }
   await startUserSession({ ...me, session_version: ver }, (await proStatus(me.id)).active, stored || s.via === "pw" ? "pw" : "code");
+  // the old password's known-device cookie no longer counts; this browser, which just proved the account, does
+  if (stored || s.via === "pw") await markKnownDevice(me.id, fields.password_hash);
   return { ok: true, message: MSG.passwordChanged[lang] };
 }
 

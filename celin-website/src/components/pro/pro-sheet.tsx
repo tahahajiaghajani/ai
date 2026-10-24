@@ -1,12 +1,11 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useId, useRef, useState, type CSSProperties } from "react";
 import { commonCopy } from "@/content/copy/common";
 import { formatDate, type Lang } from "@/lib/format";
 import { href } from "@/lib/i18n";
-import { Overlay } from "@/components/ui/overlay";
+import { Overlay, OverlayLink } from "@/components/ui/overlay";
 import { ArchLines } from "@/components/fx/arch-lines";
 import { Grain } from "@/components/fx/grain";
 import { CodeInput, type CodeState } from "@/components/pro/code-input";
@@ -30,6 +29,9 @@ export function ProSheet({ lang }: { lang: Lang }) {
   const [announce, setAnnounce] = useState("");
   const [codeState, setCodeState] = useState<CodeState>("idle");
   const [unlocked, setUnlocked] = useState(false);
+  // the code field takes the focus when the sheet opens or its tab is clicked, not while arrowing over the tabs
+  const [via, setVia] = useState<"open" | "pointer" | "keyboard">("open");
+  const base = useId();
   const openRef = useRef(false);
   openRef.current = open;
 
@@ -52,6 +54,7 @@ export function ProSheet({ lang }: { lang: Lang }) {
   useEffect(() => {
     const on = (e: Event) => {
       setTab((e as CustomEvent<{ tab: "code" | "request" }>).detail?.tab ?? "code");
+      setVia("open");
       setCodeState("idle");
       setOpen(true);
     };
@@ -106,10 +109,26 @@ export function ProSheet({ lang }: { lang: Lang }) {
                   {tabs.map((t) => (
                     <button
                       key={t}
+                      id={`${base}-tab-${t}`}
                       role="tab"
                       type="button"
                       aria-selected={tab === t}
-                      onClick={() => setTab(t)}
+                      aria-controls={`${base}-panel`}
+                      tabIndex={tab === t ? 0 : -1}
+                      onClick={() => {
+                        setVia("pointer");
+                        setTab(t);
+                      }}
+                      onKeyDown={(e) => {
+                        const dir = document.documentElement.dir === "rtl" ? -1 : 1;
+                        const step = e.key === "ArrowRight" ? dir : e.key === "ArrowLeft" ? -dir : e.key === "Home" || e.key === "End" ? 1 : 0;
+                        if (!step) return;
+                        e.preventDefault();
+                        const next = e.key === "Home" ? tabs[0] : e.key === "End" ? tabs[tabs.length - 1] : tabs[(tabs.indexOf(tab) + step + tabs.length) % tabs.length];
+                        setVia("keyboard");
+                        setTab(next);
+                        document.getElementById(`${base}-tab-${next}`)?.focus();
+                      }}
                       className={`h-12 transition-colors duration-300 ${tab === t ? "text-on-night" : "text-on-night-muted hover:text-on-night"}`}
                     >
                       {t === "code" ? s.tabCode : s.tabRequest}
@@ -121,12 +140,12 @@ export function ProSheet({ lang }: { lang: Lang }) {
                   </span>
                 </div>
 
-                <div className="pt-6">
+                <div id={`${base}-panel`} role="tabpanel" aria-labelledby={`${base}-tab-${tab}`} className="pt-6">
                   {tab === "code" ? (
                     <CodeInput
                       lang={lang}
                       next={here}
-                      autoFocus
+                      autoFocus={via !== "keyboard"}
                       tone="night"
                       hideLabel
                       onState={setCodeState}
@@ -140,26 +159,22 @@ export function ProSheet({ lang }: { lang: Lang }) {
                     <div className="space-y-6">
                       <ProSteps lang={lang} current={1} tone="night" />
                       <p className="font-ui text-sm leading-7 text-on-night-muted">{s.pendingNote}</p>
-                      <Link href={href(lang, "/account/pro")} onClick={() => setOpen(false)} className="btn-link btn-link-light">
+                      <OverlayLink href={href(lang, "/account/pro")} className="btn-link btn-link-light">
                         {c.proBar.statusCta}
-                      </Link>
+                      </OverlayLink>
                     </div>
                   ) : (
                     <div className="space-y-6">
                       <ProSteps lang={lang} current={0} tone="night" />
                       <p className="font-ui text-sm leading-7 text-on-night-muted">{me ? c.proBar.signedIn : s.requestIntro}</p>
                       {me ? (
-                        <Link href={`${href(lang, "/pro")}#request`} onClick={() => setOpen(false)} className="btn btn-metal btn-lg w-full">
+                        <OverlayLink href={`${href(lang, "/pro")}#request`} className="btn btn-metal btn-lg w-full">
                           {s.requestGo}
-                        </Link>
+                        </OverlayLink>
                       ) : (
-                        <Link
-                          href={`${href(lang, "/account/login")}?tab=signup&next=${encodeURIComponent(`${href(lang, "/pro")}#request`)}`}
-                          onClick={() => setOpen(false)}
-                          className="btn btn-metal btn-lg w-full"
-                        >
+                        <OverlayLink href={`${href(lang, "/account/login")}?tab=signup&next=${encodeURIComponent(`${href(lang, "/pro")}#request`)}`} className="btn btn-metal btn-lg w-full">
                           {s.requestCta}
-                        </Link>
+                        </OverlayLink>
                       )}
                     </div>
                   )}

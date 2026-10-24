@@ -104,9 +104,17 @@ export function MediaLibrary({ items }: { items: Media[] }) {
 
 function Usage({ id }: { id: string }) {
   const [usage, setUsage] = useState<string[] | null>(null);
+  const [orders, setOrders] = useState(0);
   const { run } = useAction();
   useEffect(() => {
-    run(() => adminMediaUsage({ id }), { silent: true, onOk: (r) => setUsage(r.usage), onError: () => setUsage([]) });
+    run(() => adminMediaUsage({ id }), {
+      silent: true,
+      onOk: (r) => {
+        setUsage(r.usage);
+        setOrders(r.orders);
+      },
+      onError: () => setUsage([]),
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
   return (
@@ -117,7 +125,7 @@ function Usage({ id }: { id: string }) {
           <Spinner className="size-3.5" /> در حال بررسی…
         </div>
       ) : usage.length === 0 ? (
-        <p className="text-xs text-muted">جایی استفاده نشده است.</p>
+        <p className="text-xs text-muted">{orders ? "در محصولات و صفحه‌های سایت استفاده نشده است." : "جایی استفاده نشده است."}</p>
       ) : (
         <ul className="flex flex-wrap gap-1.5">
           {usage.map((u) => (
@@ -126,6 +134,11 @@ function Usage({ id }: { id: string }) {
             </li>
           ))}
         </ul>
+      )}
+      {usage !== null && orders > 0 && (
+        <p className="mt-1.5 text-xs leading-6 text-muted">
+          در {num(orders, "fa")} ردیف سفارش دیده می‌شود؛ با حذف از کتابخانه، فایل آن برای سفارش‌ها نگه داشته می‌شود.
+        </p>
       )}
     </div>
   );

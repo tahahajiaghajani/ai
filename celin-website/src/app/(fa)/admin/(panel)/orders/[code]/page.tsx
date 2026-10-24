@@ -24,6 +24,20 @@ function lastEvent(events: OrderEvent[], status: string): OrderEvent | undefined
   return undefined;
 }
 
+/**
+ * What happened to the stock when this order was cancelled (celin_set_order_status): the pieces go back only
+ * when it was cancelled before shipping, and a line whose option or product was deleted since has nowhere to go.
+ */
+function restockNote(o: OrderDetail): string {
+  const i = o.events.map((e) => e.status).lastIndexOf("cancelled");
+  const before = i > 0 ? o.events[i - 1].status : lastEvent(o.events, "shipped") ? "shipped" : "pending";
+  if (before === "shipped") return "این سفارش پس از ارسال لغو شد؛ موجودی به انبار برنگشت (اگر کالا به فروشگاه برگشته، موجودی را در صفحه‌ی محصول اصلاح کنید).";
+  const lost = o.items.filter((it) => !it.variant_id && (!it.product_id || it.variant_fa));
+  if (lost.length === o.items.length) return "کالاها یا گزینه‌های این سفارش از فهرست محصولات حذف شده‌اند؛ موجودی آن‌ها به انبار برنگشت.";
+  if (lost.length) return `موجودی کالاهای این سفارش به انبار برگشت، جز ${num(lost.length, "fa")} ردیف که کالا یا گزینه‌ی آن حذف شده است.`;
+  return "موجودی کالاهای این سفارش به انبار برگشت.";
+}
+
 export default async function OrderPage({ params }: { params: Promise<{ code: string }> }) {
   await requireAdminPage();
   const { code: raw } = await params;
@@ -78,7 +92,7 @@ export default async function OrderPage({ params }: { params: Promise<{ code: st
                 {cancelEvent ? ` (${ACTOR_LABEL[cancelEvent.actor] ?? "سیستم"})` : ""}
               </div>
               {o.cancel_reason && <div>دلیل: {o.cancel_reason}</div>}
-              <div className="text-xs">موجودی کالاهای این سفارش به انبار برگشت.</div>
+              <div className="text-xs">{restockNote(o)}</div>
             </div>
           )}
           <OrderStatusActions code={o.code} status={o.status} carrier={o.carrier} tracking={o.tracking_code} />
@@ -259,6 +273,7 @@ function Items({ order: o }: { order: OrderDetail }) {
 /** Print-only pro-forma invoice (window.print()). */
 function Invoice({ order: o, phone, address }: { order: OrderDetail; phone: string; address: string }) {
   const c = o.customer;
+  const cancelled = o.status === "cancelled";
   return (
     <div className="hidden text-ink print:block">
       <header className="flex items-start justify-between border-b border-ink pb-4">
@@ -278,6 +293,7 @@ function Invoice({ order: o, phone, address }: { order: OrderDetail; phone: stri
         </div>
         <div className="text-end">
           <div className="text-lg font-medium">پیش‌فاکتور</div>
+          {cancelled && <div className="mt-1 inline-block border-2 border-danger px-2 py-0.5 text-sm font-medium text-danger">لغو شده — فاقد اعتبار</div>}
           <div className="text-sm">
             <span className="ltr font-mono">{o.code}</span>
           </div>
@@ -337,7 +353,8 @@ function Invoice({ order: o, phone, address }: { order: OrderDetail; phone: stri
         </tbody>
       </table>
 
-      <div className="mt-4 ms-auto w-72">
+      {/* same face as the table above (tables use the dense numeric font) */}
+      <div className="mt-4 ms-auto w-72 font-dense">
         <Totals order={o} />
       </div>
 
@@ -347,7 +364,9 @@ function Invoice({ order: o, phone, address }: { order: OrderDetail; phone: stri
           {o.note}
         </p>
       )}
-      <p className="mt-10 border-t border-line pt-3 text-center text-[11px] text-muted">این پیش‌فاکتور پس از تأیید موجودی توسط فروشگاه معتبر است.</p>
+      <p className="mt-10 border-t border-line pt-3 text-center text-[11px] text-muted">
+        {cancelled ? "این سفارش لغو شده است و این پیش‌فاکتور اعتبار ندارد." : "این پیش‌فاکتور پس از تأیید موجودی توسط فروشگاه معتبر است."}
+      </p>
     </div>
   );
 }

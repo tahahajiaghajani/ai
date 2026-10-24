@@ -9,7 +9,7 @@ export const maisonCopy = {
     meta: { title: "داستان سلین", description: story.fa.born },
     prologue: { eyebrow: "آغاز", year: 1385 },
     chapter: (n: string) => `فصل ${n}`,
-    chapters: { eyebrow: "داستان سلین", title: "چهار فصل از یک مسیر" },
+    chapters: { eyebrow: "فصل‌ها", title: "چهار فصل از یک مسیر" },
     timeline: {
       eyebrow: "۲۰ سال درخشش",
       from: 1385,
@@ -24,10 +24,10 @@ export const maisonCopy = {
     scroll: "ادامه",
   },
   en: {
-    meta: { title: "The CELIN story", description: story.en.born },
+    meta: { title: "Our story", description: story.en.born },
     prologue: { eyebrow: "The beginning", year: 2006 },
     chapter: (n: string) => `Chapter ${n}`,
-    chapters: { eyebrow: "The CELIN story", title: "Four chapters of one path" },
+    chapters: { eyebrow: "Chapters", title: "Four chapters of one path" },
     timeline: {
       eyebrow: "Twenty years of brilliance",
       from: 2006,

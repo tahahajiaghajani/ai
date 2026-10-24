@@ -106,11 +106,14 @@ export function SelectField({ id, label, optional, help, error, wrapClassName, c
   );
 }
 
-/** A form-level note: error (danger) or success (gold), announced politely. */
-export function FormNote({ tone, children }: { tone: "error" | "ok" | "info"; children: ReactNode }) {
+/**
+ * A form-level note: error (danger) or success (gold). An error is an alert (announced as it appears, even
+ * where its container was hidden while empty); put a success in a polite live region that is always there.
+ */
+export function FormNote({ tone, id, children }: { tone: "error" | "ok" | "info"; id?: string; children: ReactNode }) {
   const cls = tone === "error" ? "border-danger bg-danger-soft/80 text-danger" : tone === "ok" ? "border-gold bg-gold-mist text-gold-text" : "border-line-strong bg-bone/80 text-ink-2";
   return (
-    <p className={`flex items-start gap-3 border-s-2 px-4 py-3 font-ui text-sm leading-7 ${cls}`}>
+    <p id={id} role={tone === "error" ? "alert" : undefined} className={`flex items-start gap-3 border-s-2 px-4 py-3 font-ui text-sm leading-7 ${cls}`}>
       <Icon name={tone === "error" ? "warning" : tone === "ok" ? "check" : "info"} className="mt-1.5 size-4 shrink-0" />
       <span className="min-w-0">{children}</span>
     </p>

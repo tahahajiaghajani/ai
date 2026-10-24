@@ -8,6 +8,7 @@ import { ArchLines } from "@/components/fx/arch-lines";
 import { Aura } from "@/components/fx/aura";
 import { Grain } from "@/components/fx/grain";
 import { Magnetic } from "@/components/fx/magnetic";
+import { Melt } from "@/components/fx/melt";
 import { SplitWords } from "@/components/fx/split-words";
 import { Icon } from "@/components/ui/icons";
 import { Picture } from "@/components/ui/picture";
@@ -26,7 +27,9 @@ export async function CollectionsPage({ lang }: { lang: Lang }) {
 
   return (
     <main>
-      <section data-header="dark" data-tone="light" className="relative isolate -mt-[var(--header-h)] overflow-clip bg-mesh-cocoa text-on-night">
+      <section data-header="dark" data-tone="light" className="under-header relative isolate overflow-clip bg-night-2 text-on-night">
+        {/* the cocoa lights fade out before the foot, which stays plain night-2 for the melt into the closing band */}
+        <span aria-hidden className="absolute inset-0 -z-10 bg-mesh-cocoa [mask-image:linear-gradient(to_bottom,black,black_calc(100%-16rem),transparent)]" />
         <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[115svh]">
           <Aura palette="cocoa" light={0.9} />
           <span className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-b from-transparent to-night-2" />
@@ -40,7 +43,7 @@ export async function CollectionsPage({ lang }: { lang: Lang }) {
                 {c.index.eyebrow}
               </Eyebrow>
               <SplitWords as="h1" text={c.index.title} immediate delay={150} className="title-page mt-5" wordClassName="text-metal-light metal-live" />
-              <p className="label mt-5 text-on-night-muted!" data-reveal style={{ "--d": 4 } as CSSProperties}>
+              <p className="fx-in label mt-5 text-on-night-muted!" style={{ "--in": 3 } as CSSProperties}>
                 {c.index.count(num(collections.length, lang))}
               </p>
             </div>
@@ -61,7 +64,7 @@ export async function CollectionsPage({ lang }: { lang: Lang }) {
                           </div>
                         )}
                         <span aria-hidden className="pointer-events-none absolute inset-0 bg-gradient-to-t from-night/65 via-transparent to-transparent opacity-80 transition-opacity duration-700 group-hover:opacity-40" />
-                        <span aria-hidden className="absolute bottom-4 left-1/2 -translate-x-1/2 font-label text-[11px] tracking-[0.3em] text-on-night/85 ltr">{String(i + 1).padStart(2, "0")}</span>
+                        <span aria-hidden className={`absolute bottom-4 left-1/2 -translate-x-1/2 text-on-night/85 ${lang === "en" ? "font-label text-[11px] tracking-[0.3em] ltr" : "text-sm"}`}>{num(String(i + 1).padStart(2, "0"), lang)}</span>
                       </Arch>
                     </div>
                     <span aria-hidden className="mx-auto block h-px w-[112%] -translate-x-[5.4%] bg-[image:var(--metal-champagne)] opacity-50 rtl:translate-x-[5.4%]" />
@@ -77,6 +80,7 @@ export async function CollectionsPage({ lang }: { lang: Lang }) {
       </section>
 
       <section className="relative isolate overflow-clip bg-mesh-porcelain py-24 text-center sm:py-32">
+        <Melt at="top" />
         <ArchLines count={4} className="pointer-events-none absolute inset-x-0 -bottom-6 mx-auto h-[120%] w-[min(900px,140vw)] opacity-60" />
         <div className="container-lux relative">
           <SplitWords text={c.closing.title} className="title-page mx-auto max-w-2xl text-ink" />

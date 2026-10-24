@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { logout } from "@/app/actions/admin";
 import { adminSetup, canActivateAdmin, isAdmin } from "@/lib/admin-auth";
-import { isAdminRow, sessionState } from "@/lib/auth";
+import { hasPassword, isAdminRow, sessionState } from "@/lib/auth";
 import { formatPhone } from "@/lib/format";
 import { AccountSignIn } from "@/components/admin/account-sign-in";
 import { ActivateForm } from "@/components/admin/activate-form";
@@ -45,13 +45,36 @@ export default async function AdminLogin() {
   );
 
   let body: React.ReactNode = null;
-  if (me && (isAdminRow(me) || (canActivateAdmin(me) && !viaPassword))) {
-    // an admin (or an account to be made admin) signed in another way: the password first
+  if (me && isAdminRow(me)) {
+    // an admin account signed in another way (an old session): its password first
     body = (
       <>
         <p className="mt-4 text-sm leading-7 text-ink-2">برای باز شدن پنل، با رمز عبور همین حساب وارد شوید.</p>
         <AccountSignIn phone={me.phone} />
+        <div className="mt-3">
+          <SignOut />
+        </div>
       </>
+    );
+  } else if (me && canActivateAdmin(me) && !viaPassword) {
+    // an account that may be made admin, signed in with its Pro code: the activation needs a password session
+    body = (await hasPassword(me.id)) ? (
+      <>
+        <p className="mt-4 text-sm leading-7 text-ink-2">برای فعال کردن پنل روی این حساب، اول با شماره و رمز عبور همین حساب وارد شوید.</p>
+        <AccountSignIn phone={me.phone} />
+        <div className="mt-3">
+          <SignOut />
+        </div>
+      </>
+    ) : (
+      <div className="mt-6 space-y-4">
+        <p className="border border-danger/30 bg-danger-soft px-3 py-2.5 text-sm leading-7 text-danger">این حساب دسترسی مدیریت ندارد.</p>
+        {who}
+        <p className="text-start text-xs leading-6 text-muted">
+          اگر مدیر سایت هستید: این حساب با کد Pro وارد شده و رمز عبور ندارد. اول در «حساب من ← مشخصات و نشانی» برایش رمز بگذارید، سپس با شماره و رمز وارد شوید و به همین صفحه برگردید.
+        </p>
+        <SignOut />
+      </div>
     );
   } else if (me && canActivateAdmin(me)) {
     body = (
@@ -94,7 +117,7 @@ export default async function AdminLogin() {
           (body ? (
             <details className="mt-6 border-t border-line pt-4 text-start">
               <summary className="cursor-pointer text-xs text-muted">ورود فقط با رمز مدیریت (بدون حساب)</summary>
-              <LoginForm />
+              <LoginForm focus={false} />
             </details>
           ) : (
             <LoginForm />
@@ -103,7 +126,8 @@ export default async function AdminLogin() {
         {(none || (setup.accounts && !setup.password && !me)) && setup.missing.length > 0 && (
           <div className="mt-5 text-start text-sm leading-7 text-ink-2">
             <p>
-              {none ? "پنل مدیریت هنوز فعال نیست." : "حسابی که از قبل مدیر است وارد می‌شود؛ برای فعال کردن پنل روی حساب خودتان:"} این متغیرها را در <span className="ltr">Vercel → Settings → Environment Variables</span> بگذارید و دوباره Deploy کنید:
+              {none ? "پنل مدیریت هنوز فعال نیست. " : "اگر حسابتان از قبل مدیر است، بالا وارد شوید. برای مدیر کردن حساب خودتان، "}
+              {setup.missing.length > 1 ? "این متغیرها" : "این متغیر"} را در <span className="ltr">Vercel → Settings → Environment Variables</span> بگذارید و دوباره Deploy کنید:
             </p>
             <ul className="mt-3 space-y-2">
               {setup.missing.map((name) => (

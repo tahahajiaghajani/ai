@@ -451,11 +451,11 @@
       box-shadow 0.4s var(--ease-lux),
       background-color 0.4s var(--ease-lux);
   }
+  /* between the groups: a short upright hairline (a rhombus here would read as the Persian zero «۰») */
   .code-sep {
     flex-shrink: 0;
-    width: 5px;
-    height: 5px;
-    rotate: 45deg;
+    width: 1px;
+    height: 14px;
     background: var(--cell-line);
     opacity: 0.9;
   }
@@ -479,12 +479,12 @@
   .code-cell + .code-cell {
     box-shadow: inset 1px 0 0 var(--cell-line-soft);
   }
-  /* an empty cell: a tiny rhombus waiting */
+  /* an empty cell: a short hairline on the baseline, waiting (never a rhombus or a dot: both read as «۰») */
   .code-cell:not([data-filled])::before {
     content: "";
-    width: 4px;
-    height: 4px;
-    rotate: 45deg;
+    width: 0.55em;
+    height: 1px;
+    translate: 0 0.55em;
     background: var(--cell-empty);
   }
   .code-cell[data-filled] {
@@ -503,7 +503,7 @@
   .code-cell[data-active]::before {
     width: 1.5px;
     height: 1.5rem;
-    rotate: 0deg;
+    translate: none;
     background: var(--cell-caret);
     animation: code-caret 1.1s steps(1) infinite;
   }

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { requireAdminPage } from "@/lib/admin-auth";
 import { adminCounts, adminOrders, healthReport, type HealthItem } from "@/lib/admin-data";
+import { lowStockCount } from "@/lib/admin-catalog";
 import { listRequests } from "@/lib/members";
 import { getSettings } from "@/lib/settings";
 import { db } from "@/lib/db";
@@ -65,6 +66,8 @@ export default async function AdminHome() {
     healthReport(),
     getSettings(),
   ]);
+  // the same rule and threshold as the product list's «رو به اتمام» filter (the link below opens it)
+  const low = ready ? await lowStockCount(settings.shop.lowStock) : 0;
   const c = settings.contact;
   const steps = setupSteps(health.items, !c.phone && !c.whatsapp && !c.address_fa);
   const pending = (requests ?? []).filter((r) => r.status === "pending").sort((a, b) => a.created_at.localeCompare(b.created_at));
@@ -117,7 +120,13 @@ export default async function AdminHome() {
             />
             <Stat label="درخواست‌های Pro" value={num(counts.requests_pending, "fa")} hint="در انتظار بررسی" tone={counts.requests_pending ? "gold" : "neutral"} href="/admin/pro" />
             <Stat label="اعضای فعال Pro" value={num(counts.pro_active, "fa")} hint={`از ${num(counts.users, "fa")} حساب`} href="/admin/users?f=pro" />
-            <Stat label="محصولات رو به اتمام" value={num(counts.low_stock, "fa")} hint="موجودی ۲ یا کمتر" tone={counts.low_stock ? "danger" : "neutral"} href="/admin/products" />
+            <Stat
+              label="محصولات رو به اتمام"
+              value={num(low, "fa")}
+              hint={`موجودی ${num(settings.shop.lowStock, "fa")} یا کمتر`}
+              tone={low ? "danger" : "neutral"}
+              href="/admin/products?stock=low&status=published"
+            />
           </div>
 
           <div className="space-y-6">

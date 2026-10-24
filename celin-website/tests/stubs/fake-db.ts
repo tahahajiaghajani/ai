@@ -12,6 +12,16 @@ export class FakeDb {
   columns: Record<string, string[]> = {};
   rpcs: Record<string, (args: Record<string, unknown>) => { data: unknown; error: { message: string; code?: string } | null }> = {};
   calls: { table: string; op: string; values?: Row }[] = [];
+  /** objects removed from storage (bucket/path) */
+  removed: string[] = [];
+  storage = {
+    from: (bucket: string) => ({
+      remove: async (paths: string[]) => {
+        this.removed.push(...paths.map((p) => `${bucket}/${p}`));
+        return { data: [], error: null };
+      },
+    }),
+  };
 
   table(name: string): Row[] {
     return (this.tables[name] ??= []);
@@ -28,7 +38,7 @@ export class FakeDb {
 }
 
 class Query implements PromiseLike<{ data: unknown; error: { message: string; code?: string } | null; count?: number }> {
-  private op: "select" | "insert" | "update" | "delete" = "select";
+  private op: "select" | "insert" | "update" | "delete" | "upsert" = "select";
   private values: Row | Row[] | null = null;
   private filters: Filter[] = [];
   private cols = "*";
@@ -36,20 +46,34 @@ class Query implements PromiseLike<{ data: unknown; error: { message: string; co
   private one: "single" | "maybe" | null = null;
   private limitN: number | null = null;
   private orderBy: { col: string; asc: boolean } | null = null;
+  private counting = false;
+  private head = false;
 
   constructor(
     private db: FakeDb,
     private name: string,
   ) {}
 
-  select(cols = "*") {
+  select(cols = "*", opts: { count?: string; head?: boolean } = {}) {
     if (this.op === "select") this.cols = cols;
     else this.returning = true;
+    this.counting = Boolean(opts.count);
+    this.head = Boolean(opts.head);
     return this;
   }
   insert(v: Row | Row[]) {
     this.op = "insert";
     this.values = v;
+    return this;
+  }
+  /** upsert on the first column of the row's natural key ("key" when present, otherwise "id") */
+  upsert(v: Row) {
+    this.op = "upsert";
+    this.values = v;
+    return this;
+  }
+  contains(col: string, vs: unknown[]) {
+    this.filters.push((r) => Array.isArray(r[col]) && vs.every((x) => (r[col] as unknown[]).includes(x)));
     return this;
   }
   update(v: Row) {
@@ -62,7 +86,15 @@ class Query implements PromiseLike<{ data: unknown; error: { message: string; co
     return this;
   }
   eq(col: string, v: unknown) {
-    this.filters.push((r) => r[col] === v);
+    this.filters.push((r) => value(r, col) === v);
+    return this;
+  }
+  neq(col: string, v: unknown) {
+    this.filters.push((r) => value(r, col) !== v);
+    return this;
+  }
+  lte(col: string, v: number) {
+    this.filters.push((r) => Number(value(r, col)) <= v);
     return this;
   }
   is(col: string, v: unknown) {
@@ -116,7 +148,7 @@ class Query implements PromiseLike<{ data: unknown; error: { message: string; co
     return Object.keys(v).find((k) => !known.includes(k)) ?? null;
   }
 
-  private run(): { data: unknown; error: { message: string; code?: string } | null } {
+  private run(): { data: unknown; error: { message: string; code?: string } | null; count?: number } {
     const t = this.db.table(this.name);
     const match = (r: Row) => this.filters.every((f) => f(r));
     let rows: Row[];
@@ -129,6 +161,13 @@ class Query implements PromiseLike<{ data: unknown; error: { message: string; co
       rows = list.map((v) => ({ id: crypto.randomUUID(), ...v }));
       t.push(...rows);
       this.db.calls.push({ table: this.name, op: "insert" });
+    } else if (this.op === "upsert") {
+      const v = this.values as Row;
+      const k = "key" in v ? "key" : "id";
+      const cur = t.find((r) => r[k] === v[k]);
+      if (cur) Object.assign(cur, v);
+      else t.push({ ...v });
+      rows = [cur ?? v];
     } else if (this.op === "update") {
       const bad = this.unknownColumn(this.values as Row);
       if (bad) return { data: null, error: { message: `Could not find the '${bad}' column`, code: "PGRST204" } };
@@ -150,6 +189,7 @@ class Query implements PromiseLike<{ data: unknown; error: { message: string; co
       rows = [...rows].sort((a, b) => (String(a[col]) < String(b[col]) ? -1 : String(a[col]) > String(b[col]) ? 1 : 0) * (asc ? 1 : -1));
     }
     if (this.limitN !== null) rows = rows.slice(0, this.limitN);
+    if (this.counting) return { data: this.head ? null : rows.map((r) => this.pick(r)), error: null, count: rows.length };
     const out = this.op === "select" || this.returning ? rows.map((r) => this.pick(r)) : null;
     if (this.one) {
       if (!out || out.length === 0) return this.one === "single" ? { data: null, error: { message: "no rows", code: "PGRST116" } } : { data: null, error: null };
@@ -158,9 +198,18 @@ class Query implements PromiseLike<{ data: unknown; error: { message: string; co
     return { data: out, error: null };
   }
 
-  then<A, B>(ok?: ((v: { data: unknown; error: { message: string; code?: string } | null }) => A | PromiseLike<A>) | null, fail?: ((e: unknown) => B | PromiseLike<B>) | null) {
+  then<A, B>(ok?: ((v: { data: unknown; error: { message: string; code?: string } | null; count?: number }) => A | PromiseLike<A>) | null, fail?: ((e: unknown) => B | PromiseLike<B>) | null) {
     return Promise.resolve(this.run()).then(ok, fail);
   }
+}
+
+/** A column, or a JSON field written as PostgREST does ("image->>path"). */
+function value(r: Row, col: string): unknown {
+  const m = /^(\w+)->>(\w+)$/.exec(col);
+  if (!m) return r[col];
+  const obj = r[m[1]] as Record<string, unknown> | null | undefined;
+  const v = obj?.[m[2]];
+  return v === undefined || v === null ? null : String(v);
 }
 
 /** A cookie jar for next/headers' cookies(). */

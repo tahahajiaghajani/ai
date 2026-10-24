@@ -304,10 +304,9 @@ function RequestForm({ lang, defaults, onSent }: { lang: Lang; defaults: { busin
           </SelectField>
           <TextArea id="pro-note" label={m.note} optional={c.fields.optional} value={f.note} onChange={set("note")} maxLength={1000} placeholder={m.notePlaceholder} wrapClassName="sm:col-span-2" />
         </div>
-        <div aria-live="polite" className="mt-6 empty:mt-0">
-          {error && <FormNote tone="error">{error}</FormNote>}
-        </div>
-        <button type="submit" disabled={pending} aria-busy={pending || undefined} className={`${btn.metal} btn-lg mt-7 w-full sm:w-auto sm:min-w-64`}>
+        <div className="mt-6 empty:mt-0">{error && <FormNote tone="error">{error}</FormNote>}</div>
+        {/* aria-disabled (not disabled) while sending: the focus stays on the button */}
+        <button type="submit" aria-disabled={pending || undefined} aria-busy={pending || undefined} className={`${btn.metal} btn-lg mt-7 w-full sm:w-auto sm:min-w-64`}>
           <BusyLabel busy={pending}>{m.submit}</BusyLabel>
         </button>
       </form>

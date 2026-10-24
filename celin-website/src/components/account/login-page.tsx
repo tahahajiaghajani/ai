@@ -35,7 +35,7 @@ export async function LoginPage({ lang, searchParams }: { lang: Lang; searchPara
             <div className="relative mx-auto w-[min(100%,440px)]" data-cursor="view">
               <Arch media={side.media} lang={lang} sizes="(min-width: 1440px) 440px, 36vw" ring="copper" keystone unveil sparkle={10} parallax={5} />
             </div>
-            <p className="title-section mt-9 text-center text-metal metal-live">{common[lang].brand.line}</p>
+            <p className="title-section mt-9 text-center text-metal metal-live">{common[lang].brand.house}</p>
           </div>
         )}
       </div>

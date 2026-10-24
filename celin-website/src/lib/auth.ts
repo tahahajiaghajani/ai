@@ -134,17 +134,22 @@ export async function setProHint(pro: boolean): Promise<void> {
   else jar.delete(PRO_HINT);
 }
 
-// A browser that has signed in to an account before carries this (signed, per account): when strangers
-// have used up the account's failed-sign-in allowance, its owner can still sign in from a known browser.
+// A browser that has signed in to an account before carries this (signed, per account and per password): when
+// strangers have used up the account's failed-sign-in allowance, its owner can still sign in from a known
+// browser (with a ceiling of its own). It is bound to the password hash, so it ends with the password — a
+// change, an admin reset or a code-made password removed with its code (members.ts endCodeAccess).
 const DEVICE = "celin_device";
 
-export async function markKnownDevice(id: string): Promise<void> {
-  (await cookies()).set(DEVICE, sign(`device:${id}`), { httpOnly: true, secure: secure(), sameSite: "lax", path: "/", maxAge: 365 * 86400 });
+const deviceValue = (id: string, passwordHash: string | null | undefined) => sign(`device:${id}:${passwordHash ?? ""}`);
+
+export async function markKnownDevice(id: string, passwordHash: string | null | undefined): Promise<void> {
+  if (!passwordHash) return;
+  (await cookies()).set(DEVICE, deviceValue(id, passwordHash), { httpOnly: true, secure: secure(), sameSite: "lax", path: "/", maxAge: 365 * 86400 });
 }
 
-export async function isKnownDevice(id: string): Promise<boolean> {
+export async function isKnownDevice(id: string, passwordHash: string | null | undefined): Promise<boolean> {
   const v = (await cookies()).get(DEVICE)?.value;
-  return Boolean(v && hasSecret() && safeEqual(v, sign(`device:${id}`)));
+  return Boolean(v && passwordHash && hasSecret() && safeEqual(v, deviceValue(id, passwordHash)));
 }
 
 export async function endUserSession(): Promise<void> {

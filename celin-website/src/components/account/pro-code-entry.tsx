@@ -13,7 +13,7 @@ export function ProCodeEntry({ lang, contact }: { lang: Lang; contact?: StoreCon
   const router = useRouter();
   return (
     <section aria-label={c.haveCode} className="pt-4">
-      <ProCodeCeremony lang={lang} title={c.haveCode} lead={commonCopy(lang).proSheet.lead} contact={contact} onDone={() => router.refresh()} className="mx-auto w-full max-w-[27rem]" />
+      <ProCodeCeremony lang={lang} title={c.haveCode} lead={commonCopy(lang).proSheet.lead} contact={contact} steps={false} onDone={() => router.refresh()} className="mx-auto w-full max-w-[27rem]" />
     </section>
   );
 }

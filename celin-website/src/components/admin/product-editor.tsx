@@ -523,16 +523,16 @@ function SpecsCard({ specs, setSpecs }: { specs: SpecRow[]; setSpecs: (fn: (xs: 
               </div>
               <div className="grid gap-3 p-3 sm:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
                 <Field label="عنوان (فارسی)">
-                  <Input value={s.label_fa} onChange={(e) => patch(s.k, { label_fa: e.target.value })} maxLength={60} placeholder="مثلاً آبکاری" {...(s.label_fa ? {} : { "data-first": "" })} />
+                  <Input value={s.label_fa} onChange={(e) => patch(s.k, { label_fa: e.target.value })} maxLength={60} placeholder="مثلاً پوشش" {...(s.label_fa ? {} : { "data-first": "" })} />
                 </Field>
                 <Field label="مقدار (فارسی)">
-                  <Input value={s.value_fa} onChange={(e) => patch(s.k, { value_fa: e.target.value })} maxLength={300} placeholder="مثلاً رادیوم طلایی" {...(s.label_fa ? { "data-first": "" } : {})} />
+                  <Input value={s.value_fa} onChange={(e) => patch(s.k, { value_fa: e.target.value })} maxLength={300} placeholder="مثلاً نقره‌ای (آبکاری رودیوم)" {...(s.label_fa ? { "data-first": "" } : {})} />
                 </Field>
                 <Field label="عنوان (انگلیسی)">
-                  <Input value={s.label_en} onChange={(e) => patch(s.k, { label_en: e.target.value })} maxLength={60} dir="ltr" placeholder="Plating" />
+                  <Input value={s.label_en} onChange={(e) => patch(s.k, { label_en: e.target.value })} maxLength={60} dir="ltr" placeholder="Finish" />
                 </Field>
                 <Field label="مقدار (انگلیسی)">
-                  <Input value={s.value_en} onChange={(e) => patch(s.k, { value_en: e.target.value })} maxLength={300} dir="ltr" placeholder="Gold-tone rhodium" />
+                  <Input value={s.value_en} onChange={(e) => patch(s.k, { value_en: e.target.value })} maxLength={300} dir="ltr" placeholder="Silver-tone, rhodium plated" />
                 </Field>
               </div>
             </li>

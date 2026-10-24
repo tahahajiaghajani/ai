@@ -12,6 +12,7 @@ import type { AuraPalette } from "@/components/fx/aura";
 import { Arch } from "@/components/fx/arch";
 import { ArchLines } from "@/components/fx/arch-lines";
 import { Magnetic } from "@/components/fx/magnetic";
+import { Melt, seamTone } from "@/components/fx/melt";
 import { SplitWords } from "@/components/fx/split-words";
 import { ProBar } from "@/components/pro/pro-bar";
 import { ProductCard } from "@/components/shop/product-card";
@@ -50,12 +51,15 @@ export async function CollectionPage({ lang, slug }: { lang: Lang; slug: string 
   const worn = pictures.find((m) => m.src !== col.media?.src) ?? null;
   const arches = products.length <= 8;
   const url = `${env.siteUrl}${href(lang, `/collections/${col.slug}`)}`;
+  const palette = paletteOf(products);
+  const seam = seamTone(palette);
+  const darkBelow = others.length > 0;
 
   return (
     <main>
       <HouseHero
         lang={lang}
-        palette={paletteOf(products)}
+        palette={palette}
         sparkle={14}
         crumbs={[{ label: nav.home, path: "/" }, { label: nav.collections, path: "/collections" }, { label: name }]}
         d={{ eyebrow: c.collection, title: name, subtitle: tagline, media: col.media }}
@@ -78,7 +82,8 @@ export async function CollectionPage({ lang, slug }: { lang: Lang; slug: string 
       />
 
       {storyText && (
-        <section className="relative isolate overflow-clip bg-mesh-porcelain py-20 sm:py-32">
+        <section className="relative isolate overflow-clip bg-mesh-porcelain pt-[max(5rem,var(--melt-h))] pb-20 sm:py-32">
+          <Melt at="top" tone={seam} />
           <div className="container-lux grid items-center gap-14 lg:grid-cols-12 lg:gap-10">
             {worn && (
               <div className="relative mx-auto w-[min(64vw,320px)] lg:col-span-4 lg:col-start-2 lg:w-full lg:max-w-[360px]" data-cursor="view">
@@ -94,7 +99,10 @@ export async function CollectionPage({ lang, slug }: { lang: Lang; slug: string 
         </section>
       )}
 
-      <section id="pieces" className="relative isolate scroll-mt-[var(--header-h)] bg-mesh-bone py-20 sm:py-28">
+      <section id="pieces" className={`relative isolate scroll-mt-[var(--header-h)] bg-mesh-bone ${storyText ? "pt-20 sm:pt-28" : "pt-[max(5rem,var(--melt-h))] sm:pt-32"} ${darkBelow ? "pb-[calc(var(--melt-h)+3rem)]" : "pb-20 sm:pb-28"}`}>
+        {/* without a story the hero's night melts straight into the pieces; the arcade of the other collections below opens on night-2 */}
+        {!storyText && <Melt at="top" tone={seam} />}
+        {darkBelow && <Melt at="bottom" />}
         <div className="container-lux">
           <SectionHead eyebrow={c.piecesEyebrow} title={c.piecesTitle(name)} link={{ href: href(lang, "/shop"), label: nav.all }} />
           <ProBar lang={lang} className="mt-10" />
@@ -120,7 +128,7 @@ export async function CollectionPage({ lang, slug }: { lang: Lang; slug: string 
         </div>
       </section>
 
-      {others.length > 0 && <Arcade lang={lang} collections={others} copy={c.others} />}
+      {darkBelow && <Arcade lang={lang} collections={others} copy={c.others} last />}
 
       <script
         type="application/ld+json"

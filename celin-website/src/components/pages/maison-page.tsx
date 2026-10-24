@@ -9,6 +9,7 @@ import { Arch } from "@/components/fx/arch";
 import { ArchLines } from "@/components/fx/arch-lines";
 import { Grain } from "@/components/fx/grain";
 import { Magnetic } from "@/components/fx/magnetic";
+import { Melt } from "@/components/fx/melt";
 import { SplitWords } from "@/components/fx/split-words";
 import { Icon } from "@/components/ui/icons";
 import { Eyebrow, ordinal } from "@/components/house/bits";
@@ -46,6 +47,7 @@ export async function MaisonPage({ lang }: { lang: Lang }) {
 
       {/* the year of birth */}
       <section id="story" className="relative isolate scroll-mt-[var(--header-h)] overflow-clip bg-mesh-porcelain py-24 sm:py-36">
+        <Melt at="top" />
         <ArchLines count={4} className="pointer-events-none absolute inset-x-0 -bottom-8 mx-auto h-[112%] w-[min(900px,150vw)] opacity-50" />
         <div className="container-lux relative mx-auto max-w-3xl text-center">
           <Eyebrow center>{c.prologue.eyebrow}</Eyebrow>
@@ -58,7 +60,9 @@ export async function MaisonPage({ lang }: { lang: Lang }) {
       </section>
 
       {/* four chapters on one copper thread */}
-      <section className="relative isolate overflow-clip py-20 sm:py-28" style={{ background: "radial-gradient(60% 40% at 100% 10%, rgb(230 208 171 / 0.45), transparent 70%), radial-gradient(55% 35% at 0% 60%, rgb(239 220 205 / 0.6), transparent 70%), radial-gradient(50% 30% at 100% 95%, rgb(200 136 90 / 0.14), transparent 70%), var(--color-bone)" }}>
+      <section className="relative isolate overflow-clip pt-20 pb-[calc(var(--melt-h)+2rem)] sm:pt-28 sm:pb-[calc(var(--melt-h)+3rem)]" style={{ background: "radial-gradient(60% 40% at 100% 10%, rgb(230 208 171 / 0.45), transparent 70%), radial-gradient(55% 35% at 0% 60%, rgb(239 220 205 / 0.6), transparent 70%), radial-gradient(50% 30% at 100% 95%, rgb(200 136 90 / 0.14), transparent 70%), var(--color-bone)" }}>
+        {/* the bone gives way to the cocoa night below */}
+        <Melt at="bottom" />
         <div className="container-lux relative">
           <div className="text-center">
             <Eyebrow center>{c.chapters.eyebrow}</Eyebrow>
@@ -99,7 +103,9 @@ export async function MaisonPage({ lang }: { lang: Lang }) {
       </section>
 
       {/* «سلین؛ برای کسانی که…» */}
-      <section data-tone="light" className="relative isolate overflow-clip bg-mesh-cocoa py-24 text-on-night sm:py-32">
+      <section data-tone="light" className="relative isolate overflow-clip bg-night-2 py-24 text-on-night sm:py-32">
+        {/* plain night-2 at both edges: the bone above melts into it, and it turns into the paraiba night below */}
+        <span aria-hidden className="absolute inset-0 -z-10 bg-mesh-cocoa [mask-image:linear-gradient(to_bottom,transparent,black_10rem,black_calc(100%-10rem),transparent)]" />
         <Grain />
         <div className="container-lux relative grid items-center gap-14 lg:grid-cols-12 lg:gap-10">
           <div className="relative mx-auto w-[min(62vw,320px)] lg:col-span-4 lg:w-full lg:max-w-[360px]" data-cursor="view">
@@ -118,7 +124,9 @@ export async function MaisonPage({ lang }: { lang: Lang }) {
       />
 
       {/* the letter of the twentieth year, in an arch */}
-      <section className="relative isolate overflow-clip bg-mesh-bone py-20 sm:py-32">
+      <section className="relative isolate overflow-clip bg-mesh-bone pt-[calc(var(--melt-h)+2rem)] pb-20 sm:pt-[calc(var(--melt-h)+3rem)] sm:pb-32">
+        {/* the paraiba night of the timeline melts into the bone */}
+        <Melt at="top" tone="teal" />
         <div className="container-lux">
           <article className="frame-metal arch relative mx-auto max-w-3xl bg-porcelain/80 px-6 pt-24 pb-14 shadow-[0_50px_90px_-60px_rgb(26_19_16/0.5)] [--frame:var(--metal-copper)] sm:px-14 sm:pt-32 sm:pb-20">
             <span aria-hidden className="arch absolute inset-0 bg-[radial-gradient(70%_45%_at_50%_0%,rgb(230_208_171/0.45),transparent_75%)]" />
@@ -150,10 +158,8 @@ export async function MaisonPage({ lang }: { lang: Lang }) {
       <section className="relative isolate overflow-clip bg-mesh-porcelain py-24 text-center sm:py-32">
         <ArchLines count={5} className="pointer-events-none absolute inset-x-0 -bottom-6 mx-auto h-[118%] w-[min(1100px,150vw)] opacity-70" />
         <div className="container-lux relative">
-          <SplitWords text={st.shine} className="title-page mx-auto max-w-3xl" wordClassName="text-metal metal-live" />
-          <p className="lede mx-auto mt-5 max-w-xl text-muted" data-reveal>
-            {st.motto}
-          </p>
+          {/* one line only: the footer right below carries «با سلین همچون جواهر بدرخشید» */}
+          <SplitWords text={st.motto} className="title-page mx-auto max-w-3xl" wordClassName="text-metal metal-live" />
           <div className="mt-11 flex flex-wrap items-center justify-center gap-4" data-reveal style={{ "--d": 2 } as CSSProperties}>
             <Magnetic>
               <Link href={href(lang, "/collections")} className="btn btn-metal h-13 px-8">

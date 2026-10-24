@@ -7,6 +7,7 @@ import type { Media } from "@/lib/media";
 import { Arch } from "@/components/fx/arch";
 import { ArchLines } from "@/components/fx/arch-lines";
 import { Grain } from "@/components/fx/grain";
+import { Melt } from "@/components/fx/melt";
 import { Reel } from "@/components/fx/reel";
 import { SplitWords } from "@/components/fx/split-words";
 import { Icon } from "@/components/ui/icons";
@@ -113,12 +114,14 @@ export function Statement({ lang, lines, a, b, copy }: { lang: Lang; lines: [str
 
 // ------------------------------------------------------------------ the arcade of collections
 
-export function Arcade({ lang, collections, copy, display = false }: { lang: Lang; collections: Collection[]; copy: { eyebrow: string; title: string; all: string; discover: string }; display?: boolean }) {
+/** `last`: the band closes the page, so its foot melts into the light ground of the services strip below. */
+export function Arcade({ lang, collections, copy, display = false, last = false }: { lang: Lang; collections: Collection[]; copy: { eyebrow: string; title: string; all: string; discover: string }; display?: boolean; last?: boolean }) {
   return (
-    <section data-tone="light" className="relative isolate bg-night-2 text-on-night">
+    <section data-tone="light" className={`relative isolate bg-night-2 text-on-night ${last ? "pb-[var(--melt-h)]" : ""}`}>
       {/* plain night-2 at both edges, so the bands above and below melt into it; the lights fade in between */}
       <span aria-hidden className="absolute inset-0 -z-10 bg-mesh-cocoa [mask-image:linear-gradient(to_bottom,transparent,black_14rem,black_calc(100%-12rem),transparent)]" />
       <Grain />
+      {last && <Melt at="bottom" on="dark" />}
       <Reel
         className="py-20 sm:py-28 lg:flex lg:min-h-[100svh] lg:flex-col lg:justify-center lg:py-16"
         header={
@@ -139,7 +142,7 @@ export function Arcade({ lang, collections, copy, display = false }: { lang: Lan
             <div className="relative px-3 pt-3">
               <Arch media={c.media} lang={lang} sizes="(min-width: 1024px) 23vw, (min-width: 640px) 42vw, 68vw" ring="champagne" sparkle={8} frameClassName="fx-sheen" className="[--ring-gap:10px]" />
               <span className="pointer-events-none absolute inset-x-3 bottom-0 top-3 rounded-t-full bg-gradient-to-t from-night/70 via-transparent to-transparent opacity-80 transition-opacity duration-700 group-hover:opacity-40" aria-hidden />
-              <span className="absolute bottom-5 left-1/2 -translate-x-1/2 font-label text-xs tracking-[0.3em] text-on-night/80 ltr">{String(i + 1).padStart(2, "0")}</span>
+              <span className={`absolute bottom-5 left-1/2 -translate-x-1/2 text-on-night/80 ${lang === "en" ? "font-label text-xs tracking-[0.3em] ltr" : "text-sm"}`}>{num(String(i + 1).padStart(2, "0"), lang)}</span>
             </div>
             <div className="mt-6 text-center">
               <h3 className={`${display ? "display text-3xl" : "title-section"} text-on-night transition-colors duration-500 group-hover:text-gold-glow`}>{t(c, "name", lang)}</h3>
@@ -218,7 +221,9 @@ export function Craft({ lang, steps, copy }: { lang: Lang; steps: CraftStep[]; c
 
 export function House({ lang, d }: { lang: Lang; d: { eyebrow: string; title: string; body: string; cta: string; href: string; media: Media; mobile: Media | null; signature: string; signatureLabel: string } }) {
   return (
-    <section className="relative isolate overflow-clip py-20 sm:py-32" style={{ background: "radial-gradient(60% 70% at 85% 30%, rgb(239 220 205 / 0.9), transparent 70%), radial-gradient(50% 60% at 0% 100%, rgb(230 208 171 / 0.5), transparent 70%), var(--color-porcelain)" }}>
+    <section className="relative isolate overflow-clip pt-20 pb-[calc(var(--melt-h)+4rem)] sm:pt-32 sm:pb-[calc(var(--melt-h)+5rem)]" style={{ background: "radial-gradient(60% 70% at 85% 30%, rgb(239 220 205 / 0.9), transparent 70%), radial-gradient(50% 60% at 0% 100%, rgb(230 208 171 / 0.5), transparent 70%), var(--color-porcelain)" }}>
+      {/* the porcelain gives way to the cocoa night of the Pro invitation below */}
+      <Melt at="bottom" />
       <div className="container-lux grid items-center gap-14 lg:grid-cols-12 lg:gap-10">
         <div className="relative mx-auto w-[min(80vw,460px)] lg:order-2 lg:col-span-5 lg:col-start-8 lg:w-full" data-cursor="view">
           <ArchLines count={3} className="pointer-events-none absolute inset-x-[-22%] bottom-0 top-[-10%] h-[110%] w-[144%]" />
@@ -272,7 +277,7 @@ export function Anniversary({ lang, d }: { lang: Lang; d: AnniversaryData }) {
   return (
     <section className="relative isolate overflow-clip py-28 sm:py-40" style={{ background: "radial-gradient(55% 60% at 15% 40%, rgb(230 208 171 / 0.75), transparent 70%), radial-gradient(45% 55% at 95% 90%, rgb(60 202 190 / 0.08), transparent 70%), var(--mesh-bone)" }}>
       {/* the cocoa night above melts into the bone, and the bone into the night of the paraiba band below */}
-      <span aria-hidden className="bg-dusk pointer-events-none absolute inset-x-0 top-0 -z-10 h-[clamp(6rem,14vh,9rem)] rotate-180" />
+      <span aria-hidden className="bg-dusk pointer-events-none absolute inset-x-0 top-0 -z-10 h-[clamp(6rem,14vh,9rem)] [--dusk-dir:0deg]" />
       <span aria-hidden className="bg-dusk pointer-events-none absolute inset-x-0 bottom-0 -z-10 h-[clamp(6rem,14vh,9rem)]" />
       <div className="container-lux grid items-center gap-12 lg:grid-cols-12 lg:gap-10">
         <div className="relative flex justify-center lg:col-span-6" aria-label={`${digits} ${lang === "fa" ? "سال" : "years"}`} role="img">
@@ -304,7 +309,8 @@ export function Anniversary({ lang, d }: { lang: Lang; d: AnniversaryData }) {
             {diamond("size-1.5 text-gold")}
             <span className="ltr">{d.eyebrow}</span>
           </p>
-          <SplitWords text={d.title} className="display mt-4 text-[2.5rem] leading-[1.35]! font-bold text-ink sm:text-6xl" />
+          {/* a number never parts from its noun at a line break («۲۰ سال») */}
+          <SplitWords text={d.title.replace(/([0-9۰-۹]+) /g, "$1\u00a0")} className="display mt-4 text-[2.5rem] leading-[1.35]! font-bold text-ink sm:text-6xl" />
           <p className="display mt-3 text-2xl font-semibold text-metal sm:text-3xl" data-reveal>
             {d.subtitle}
           </p>

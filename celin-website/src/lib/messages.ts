@@ -1,15 +1,20 @@
 import "server-only";
 import { db, isMissingTable } from "@/lib/db";
 import { CODE_COLUMNS, CODES, codeState, revealCode, type CodeRow } from "@/lib/pro";
+import { getSettings } from "@/lib/settings";
 
 /** The member's inbox on the site («پیام‌ها»): Pro decisions, codes, order updates. */
 
 /**
- * Stands for the member's Pro code in a stored message. The code itself is never written into the inbox
- * (it also signs in): it is filled in when the member reads the message — their current code while it
- * works, «no longer active» once it was revoked, replaced or has expired.
+ * Stands for one Pro code in a stored message: `{{pro-code:<id of that code>}}`. The code itself is never
+ * written into the inbox (it also signs in): it is filled in when the member reads the message — only that
+ * very code, only while it works (entered or waiting to be entered), and only while «نمایش کد در پیام‌های
+ * حساب عضو» is on. A newer code never appears in an older message.
  */
+export const codeMark = (codeId: string) => `{{pro-code:${codeId}}}`;
+/** The placeholder of messages written before codes were named (see codeForLegacyMark). */
 export const CODE_MARK = "{{pro-code}}";
+const MARK_RE = /\{\{pro-code(?::([0-9a-f-]{36}))?\}\}/gi;
 
 export interface Message {
   id: string;
@@ -44,20 +49,50 @@ export async function listMessages(userId: string, limit = 100): Promise<Message
     return [];
   }
   const rows = (data ?? []) as Message[];
-  if (!rows.some((m) => m.body_fa.includes(CODE_MARK) || m.body_en.includes(CODE_MARK))) return rows;
-  const code = await currentCode(userId);
-  const fill = (body: string, lang: "fa" | "en") =>
-    body.split(CODE_MARK).join(code ? (lang === "fa" ? `\u200e${code}` : code) : lang === "fa" ? "(این کد دیگر فعال نیست)" : "(no longer active)");
-  return rows.map((m) => ({ ...m, body_fa: fill(m.body_fa, "fa"), body_en: fill(m.body_en, "en") }));
+  if (!rows.some((m) => hasMark(m.body_fa) || hasMark(m.body_en))) return rows;
+  const fill = await codeFiller(userId);
+  return rows.map((m) => ({ ...m, body_fa: fill(m.body_fa, "fa", m.created_at), body_en: fill(m.body_en, "en", m.created_at) }));
 }
 
-/** The member's working code (entered or waiting to be entered), decrypted; "" when there is none. */
-async function currentCode(userId: string): Promise<string> {
-  const { data, error } = await db()!.from(CODES).select(CODE_COLUMNS).eq("user_id", userId).is("revoked_at", null).order("created_at", { ascending: false }).limit(1).maybeSingle();
-  const row = data as CodeRow | null;
-  if (error || !row) return "";
-  const state = codeState(row);
-  return state === "active" || state === "issued" ? revealCode(row) : "";
+const hasMark = (body: string) => body.includes("{{pro-code");
+
+const NOT_ACTIVE = { fa: "(این کد دیگر فعال نیست)", en: "(no longer active)" };
+const NOT_SHOWN = { fa: "(کد در پیام‌ها نمایش داده نمی‌شود؛ از پیامک یا تماس فروشگاه به شما می‌رسد)", en: "(not shown in messages — it reaches you by text message or a call from the store)" };
+
+/**
+ * A placeholder written before codes were named ({{pro-code}}): the code issued for that message — the newest one
+ * created at most a second after it (the code is stored a moment before its message) — never simply the newest.
+ */
+export function codeForLegacyMark<T extends Pick<CodeRow, "created_at">>(codes: T[], messageAt: string): T | null {
+  const limit = Date.parse(messageAt) + 1000;
+  let best: T | null = null;
+  for (const c of codes) {
+    const at = Date.parse(c.created_at);
+    if (at <= limit && (!best || at > Date.parse(best.created_at))) best = c;
+  }
+  return best;
+}
+
+/** Replaces the code placeholders of one member's messages (see codeMark). */
+async function codeFiller(userId: string): Promise<(body: string, lang: "fa" | "en", messageAt: string) => string> {
+  const show = (await getSettings()).pro.codeInInbox;
+  let codes: CodeRow[] = [];
+  if (show) {
+    const { data, error } = await db()!.from(CODES).select(CODE_COLUMNS).eq("user_id", userId).order("created_at", { ascending: false }).limit(200);
+    if (error) console.error("[messages] codes", error.message);
+    codes = (data ?? []) as CodeRow[];
+  }
+  const byId = new Map(codes.map((c) => [c.id.toLowerCase(), c]));
+  return (body, lang, messageAt) =>
+    body.replace(MARK_RE, (_, id: string | undefined) => {
+      if (!show) return NOT_SHOWN[lang];
+      const row = id ? byId.get(id.toLowerCase()) : codeForLegacyMark(codes, messageAt);
+      const state = row ? codeState(row) : null;
+      const code = row && row.user_id === userId && (state === "active" || state === "issued") ? revealCode(row) : "";
+      if (!code) return NOT_ACTIVE[lang];
+      // inside Persian text the digit groups would be laid out right-to-left; a leading LRM keeps their order
+      return lang === "fa" ? `\u200e${code}` : code;
+    });
 }
 
 export async function unreadCount(userId: string): Promise<number> {

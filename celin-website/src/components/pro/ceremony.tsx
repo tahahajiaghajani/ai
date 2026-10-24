@@ -14,7 +14,8 @@ import { StoreContact, contactLinks, type StoreContactInfo } from "@/components/
 /**
  * Entering the Pro code as a small ceremony: the night doorway with the PRO hallmark in its crown, the
  * 12 digits in three groups of four, the four steps (the last one lit), and who to call when no code came.
- * The hallmark turns and glows when the code is accepted.
+ * The hallmark turns and glows when the code is accepted. `steps={false}` where no code has been issued yet
+ * (the doorway beside a request form): there the steps would claim the request and the approval are done.
  */
 export function ProCodeCeremony({
   lang,
@@ -25,6 +26,7 @@ export function ProCodeCeremony({
   contact,
   headingLevel = 2,
   footer,
+  steps = true,
   className = "",
 }: {
   lang: Lang;
@@ -35,6 +37,8 @@ export function ProCodeCeremony({
   contact?: StoreContactInfo;
   headingLevel?: 1 | 2;
   footer?: ReactNode;
+  /** show the four membership steps (only once a code has been issued) */
+  steps?: boolean;
   className?: string;
 }) {
   const c = commonCopy(lang);
@@ -56,7 +60,7 @@ export function ProCodeCeremony({
         <div className="mt-8">
           <CodeInput lang={lang} next={next} tone="night" hideLabel onState={setState} onDone={onDone} />
         </div>
-        <ProSteps lang={lang} current={state === "ok" ? 4 : 3} tone="night" className="mt-9" />
+        {steps && <ProSteps lang={lang} current={state === "ok" ? 4 : 3} tone="night" className="mt-9" />}
         <div className="mt-7 flex flex-col items-center gap-1 border-t border-night-line pt-6 text-center font-ui text-sm text-on-night-muted">
           <p>{c.proSheet.noCode}</p>
           {contact && links && (links.tel || links.wa) ? (

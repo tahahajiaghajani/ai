@@ -282,7 +282,8 @@ export function CartView({
 
       <section className="space-y-5 border-t border-line pt-8">
         {orderNote && <p className="border-s border-gold/60 ps-4 text-sm leading-7 text-ink-2">{orderNote}</p>}
-        <div aria-live="polite" className="space-y-3">
+        {/* the notes are alerts of their own */}
+        <div className="space-y-3 empty:hidden">
           {error && <FormNote tone="error">{error}</FormNote>}
           {!error && rows.some((r) => r.problem) && <FormNote tone="error">{c.blocked}</FormNote>}
         </div>
@@ -292,7 +293,7 @@ export function CartView({
             <StoreContact contact={contact} lang={lang} className="mt-2" />
           </div>
         ) : (
-          <button type="submit" disabled={pending || blocked} className={`${btn.primary} w-full sm:w-auto sm:min-w-80`}>
+          <button type="submit" aria-disabled={pending || blocked || undefined} className={`${btn.primary} w-full sm:w-auto sm:min-w-80`}>
             {pending ? c.submitting : c.submit}
           </button>
         )}

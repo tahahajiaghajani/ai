@@ -194,6 +194,7 @@ describe("sign-in and sign-up", async () => {
   });
 
   it("strangers' failures cannot lock the owner out of a browser that signed in before", async () => {
+    process.env.TRUSTED_IP_HEADER = "x-forwarded-for"; // a proxy in front writes the visitor's address
     const m = user({ phone: "09121110026", password_hash: await hashPassword("right-pass-1") });
     // a known browser: signed in once
     expect((await signIn({ login: m.phone, password: "right-pass-1", lang: "fa" })).ok).toBe(true);
@@ -351,7 +352,8 @@ describe("revoking or replacing a used code", async () => {
     expect(m.password_hash).toBeNull();
     // the inbox keeps a placeholder, never the code itself
     const msg = fake.table("celin_messages").find((x) => x.user_id === m.id && String(x.title_fa).includes("صادر"));
-    expect(String(msg?.body_fa)).toContain("{{pro-code}}");
+    const issued = fake.table("celin_pro_codes").find((x) => x.user_id === m.id && !x.revoked_at);
+    expect(String(msg?.body_fa)).toContain(`{{pro-code:${issued?.id}}}`);
     expect(String(msg?.body_fa)).not.toContain(r.code);
     expect(r.delivered).toMatchObject({ inbox: true, sms: false, email: false });
   });
@@ -440,11 +442,17 @@ describe("the visitor's IP for rate limits", async () => {
   const { clientIp } = await import("@/lib/request");
 
   it("trusts only headers a proxy wrote", async () => {
-    h.headers = { "x-forwarded-for": "6.6.6.6, 203.0.113.9", "x-vercel-forwarded-for": "198.51.100.1", "ar-real-ip": "192.0.2.5" };
-    expect(await clientIp()).toBe("203.0.113.9"); // self-hosted: the entry the closest proxy appended
+    h.headers = { "x-forwarded-for": "6.6.6.6, 203.0.113.9", "x-vercel-forwarded-for": "198.51.100.1", "ar-real-ip": "192.0.2.5", "x-real-ip": "192.0.2.6" };
+    const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    // self-hosted without TRUSTED_IP_HEADER: X-Forwarded-For may be the visitor's own invention — one shared bucket
+    expect(await clientIp()).toBe("0.0.0.0");
+    process.env.TRUSTED_IP_HEADER = "x-forwarded-for"; // a proxy that appends: the right-most entry is its own
+    expect(await clientIp()).toBe("203.0.113.9");
+    process.env.TRUSTED_IP_HEADER = "X-Real-IP";
+    expect(await clientIp()).toBe("192.0.2.6");
+    delete process.env.TRUSTED_IP_HEADER;
     process.env.VERCEL = "1";
     expect(await clientIp()).toBe("198.51.100.1");
-    process.env.TRUSTED_IP_HEADER = "AR-Real-IP";
-    expect(await clientIp()).toBe("192.0.2.5");
+    err.mockRestore();
   });
 });

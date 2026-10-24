@@ -1,9 +1,9 @@
 /** Shop listing copy (fa / en, same shape). Materials as the brand states them (story.ts). */
 export const shopCopy = {
   fa: {
-    eyebrow: "جواهرات سلین",
+    eyebrow: "زیورآلات سلین",
     intro: "نگین‌های درخشان با تراش اتمی، مخراج‌کاری دقیق و آبکاری رودیوم و طلا.",
-    categories: "دسته‌های جواهرات",
+    categories: "دسته‌های زیورآلات",
     all: "همه",
     pieces: (n: string) => `${n} اثر`,
     editorial: "از مجموعه‌ها",

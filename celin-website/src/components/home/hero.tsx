@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, type CSSProperties } from "react";
+import { useRef, type CSSProperties } from "react";
 import type { Lang } from "@/lib/format";
 import { href } from "@/lib/i18n";
 import { mediaUrl, type Media } from "@/lib/media";
@@ -13,10 +13,11 @@ import { Grain } from "@/components/fx/grain";
 import { Magnetic } from "@/components/fx/magnetic";
 import { SplitWords } from "@/components/fx/split-words";
 import { SlotVideo } from "@/components/fx/slot-video";
-import { finePointer, motionReduced } from "@/components/fx/motion";
 import { gsap } from "@/components/fx/gsap";
 import { useGsap } from "@/components/fx/use-gsap";
+import { usePointerDepth } from "@/components/fx/use-pointer-depth";
 import { Icon } from "@/components/ui/icons";
+import { latinMarks } from "@/content/copy/common";
 
 export interface HeroData {
   eyebrow: string;
@@ -39,34 +40,8 @@ export function HomeHero({ lang, d }: { lang: Lang; d: HeroData }) {
   const root = useRef<HTMLElement>(null);
   const depth = useRef<HTMLDivElement>(null);
 
-  // pointer depth: each layer leans by its data-depth
-  useEffect(() => {
-    const el = depth.current;
-    if (!el || !finePointer() || motionReduced()) return;
-    const layers = [...el.querySelectorAll<HTMLElement>("[data-depth]")];
-    let raf = 0;
-    const target = { x: 0, y: 0 };
-    const cur = { x: 0, y: 0 };
-    const loop = () => {
-      cur.x += (target.x - cur.x) * 0.06;
-      cur.y += (target.y - cur.y) * 0.06;
-      for (const l of layers) {
-        const k = Number(l.dataset.depth);
-        l.style.translate = `${(cur.x * k).toFixed(2)}px ${(cur.y * k).toFixed(2)}px`;
-      }
-      raf = Math.abs(target.x - cur.x) + Math.abs(target.y - cur.y) > 0.01 ? requestAnimationFrame(loop) : 0;
-    };
-    const move = (e: PointerEvent) => {
-      target.x = (e.clientX / window.innerWidth - 0.5) * 2;
-      target.y = (e.clientY / window.innerHeight - 0.5) * 2;
-      if (!raf) raf = requestAnimationFrame(loop);
-    };
-    window.addEventListener("pointermove", move, { passive: true });
-    return () => {
-      window.removeEventListener("pointermove", move);
-      cancelAnimationFrame(raf);
-    };
-  }, []);
+  // pointer depth: each layer leans by its data-depth (live with the motion preference)
+  usePointerDepth(depth);
 
   // scroll: the arcade parts — sides drift out, the centre rises slower, the words lift away
   useGsap(
@@ -83,7 +58,7 @@ export function HomeHero({ lang, d }: { lang: Lang; d: HeroData }) {
   );
 
   return (
-    <section ref={root} data-header="dark" data-tone="light" className="relative isolate -mt-[var(--header-h)] min-h-[calc(100svh-var(--announce-h,0px))] overflow-clip bg-night text-on-night">
+    <section ref={root} data-header="dark" data-tone="light" className="under-header relative isolate min-h-[calc(100svh-var(--announce-h,0px))] overflow-clip bg-night text-on-night">
       <Aura palette="espresso" />
       <Grain />
       {/* the silk light settles into plain night at the bottom edge, where the dawn of the next band begins */}
@@ -147,9 +122,9 @@ export function HomeHero({ lang, d }: { lang: Lang; d: HeroData }) {
       </div>
       {/* scroll cue + signature */}
       <div className="pointer-events-none absolute inset-x-0 bottom-5 hidden items-end justify-between px-[var(--gutter)] text-on-night-muted lg:flex">
-        <span className="font-label text-[10px] tracking-[0.32em] ltr">HANDMADE JEWELRY</span>
+        <span className="font-label text-[10px] tracking-[0.32em] ltr">{latinMarks.since}</span>
         <span className="fx-scroll-cue text-gold-on-dark" aria-hidden />
-        <span className="font-label text-[10px] tracking-[0.32em] ltr">ETEMAD GALLERY</span>
+        <span className="font-label text-[10px] tracking-[0.32em] ltr">{latinMarks.house}</span>
       </div>
     </section>
   );

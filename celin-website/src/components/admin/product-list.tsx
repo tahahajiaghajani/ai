@@ -10,7 +10,7 @@ import { formatPrice, num } from "@/lib/format";
 import { Badge, Button, ConfirmButton, Empty, Input, LinkButton, MoneyInput, Select, Spinner } from "@/components/admin/ui";
 import { useAction } from "@/components/admin/toast";
 import { CountInput } from "@/components/admin/count-input";
-import { LOW_STOCK, STATUS_LABEL, STATUS_TONE } from "@/components/admin/catalog-labels";
+import { STATUS_LABEL, STATUS_TONE, stockLevel } from "@/components/admin/catalog-labels";
 import { Icon, type IconName } from "@/components/ui/icons";
 import { Picture } from "@/components/ui/picture";
 
@@ -23,15 +23,22 @@ export function ProductList({
   collections,
   initialized,
   starter,
+  lowStock,
+  initial = {},
 }: {
   items: AdminProductListItem[];
   categories: Taxa;
   collections: Taxa;
   initialized: boolean;
   starter: { products: number; categories: number; collections: number };
+  /** «آستانه‌ی رو به اتمام» from the settings */
+  lowStock: number;
+  /** filters from the address (e.g. the dashboard's «محصولات رو به اتمام» → ?stock=low&status=published) */
+  initial?: { status?: "" | ProductStatus; stock?: "" | "low" | "out" };
 }) {
   const [q, setQ] = useState("");
-  const [status, setStatus] = useState<"" | ProductStatus>("");
+  const [status, setStatus] = useState<"" | ProductStatus>(initial.status ?? "");
+  const [stock, setStock] = useState<"" | "low" | "out">(initial.stock ?? "");
   const [cat, setCat] = useState("");
   const [col, setCol] = useState("");
   const catName = useMemo(() => new Map(categories.map((c) => [c.id, c.name_fa])), [categories]);
@@ -41,14 +48,16 @@ export function ProductList({
     const s = q.trim().toLowerCase();
     return items.filter((p) => {
       if (status && p.status !== status) return false;
+      if (stock === "out" && stockLevel(p, lowStock) !== "out") return false;
+      if (stock === "low" && !stockLevel(p, lowStock)) return false;
       if (cat && (cat === "none" ? p.category_id : p.category_id !== cat)) return false;
       if (col && (col === "none" ? p.collection_id : p.collection_id !== col)) return false;
       if (s && !`${p.name_fa} ${p.name_en} ${p.sku} ${p.slug}`.toLowerCase().includes(s)) return false;
       return true;
     });
-  }, [items, q, status, cat, col]);
-  const filtered = Boolean(q || status || cat || col);
-  const clear = () => (setQ(""), setStatus(""), setCat(""), setCol(""));
+  }, [items, q, status, stock, cat, col, lowStock]);
+  const filtered = Boolean(q || status || stock || cat || col);
+  const clear = () => (setQ(""), setStatus(""), setStock(""), setCat(""), setCol(""));
 
   return (
     <div className="space-y-5">
@@ -62,12 +71,12 @@ export function ProductList({
         ) : null
       ) : (
         <>
-          <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_repeat(3,minmax(0,170px))]">
+          <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_repeat(4,minmax(0,150px))]">
             <div className="relative">
               <Icon name="search" className="pointer-events-none absolute inset-y-0 start-3 my-auto size-4 text-faint" />
               <Input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="جستجوی نام، کد یا نشانی" className="ps-9" aria-label="جستجو" />
             </div>
-            <div className="grid grid-cols-3 gap-2 sm:contents">
+            <div className="grid grid-cols-2 gap-2 sm:contents">
               <Select value={status} onChange={(e) => setStatus(e.target.value as "" | ProductStatus)} aria-label="وضعیت">
                 <option value="">وضعیت</option>
                 {(Object.keys(STATUS_LABEL) as ProductStatus[]).map((s) => (
@@ -75,6 +84,11 @@ export function ProductList({
                     {STATUS_LABEL[s]}
                   </option>
                 ))}
+              </Select>
+              <Select value={stock} onChange={(e) => setStock(e.target.value as "" | "low" | "out")} aria-label="موجودی">
+                <option value="">موجودی</option>
+                <option value="low">رو به اتمام ({num(lowStock, "fa")} یا کمتر)</option>
+                <option value="out">ناموجود</option>
               </Select>
               <Select value={cat} onChange={(e) => setCat(e.target.value)} aria-label="دسته">
                 <option value="">دسته</option>
@@ -121,7 +135,7 @@ export function ProductList({
               </div>
               <ul className="divide-y divide-line">
                 {shown.map((p) => (
-                  <ProductRow key={p.id} p={p} taxa={[p.category_id ? catName.get(p.category_id) : "", p.collection_id ? colName.get(p.collection_id) : ""]} />
+                  <ProductRow key={p.id} p={p} lowStock={lowStock} taxa={[p.category_id ? catName.get(p.category_id) : "", p.collection_id ? colName.get(p.collection_id) : ""]} />
                 ))}
               </ul>
             </div>
@@ -155,7 +169,7 @@ function StarterBanner({ starter }: { starter: { products: number; categories: n
   );
 }
 
-function ProductRow({ p, taxa }: { p: AdminProductListItem; taxa: (string | undefined)[] }) {
+function ProductRow({ p, taxa, lowStock }: { p: AdminProductListItem; taxa: (string | undefined)[]; lowStock: number }) {
   const router = useRouter();
   const pub = useAction();
   const dup = useAction();
@@ -191,7 +205,7 @@ function ProductRow({ p, taxa }: { p: AdminProductListItem; taxa: (string | unde
           <Badge tone={STATUS_TONE[p.status]}>{STATUS_LABEL[p.status]}</Badge>
         </div>
         <PriceCell p={p} />
-        <StockCell p={p} />
+        <StockCell p={p} lowStock={lowStock} />
       </div>
       <div className="col-span-2 flex flex-wrap items-center gap-1 border-t border-line pt-2 xl:col-span-1 xl:justify-end xl:border-0 xl:pt-0">
         <IconLink href={`/admin/products/${p.id}`} icon="edit" label="ویرایش" className="xl:hidden" text />
@@ -245,7 +259,7 @@ function PriceCell({ p }: { p: AdminProductListItem }) {
   );
 }
 
-function StockCell({ p }: { p: AdminProductListItem }) {
+function StockCell({ p, lowStock }: { p: AdminProductListItem; lowStock: number }) {
   const [edit, setEdit] = useState(false);
   const [v, setV] = useState(p.stock);
   const { pending, run } = useAction();
@@ -257,7 +271,13 @@ function StockCell({ p }: { p: AdminProductListItem }) {
         <CountInput value={v} onChange={(n) => setV(Math.max(0, n))} autoFocus aria-label="موجودی" />
       </QuickEditor>
     );
-  const level = p.stock === 0 ? <Badge tone="danger">ناموجود</Badge> : p.stock <= LOW_STOCK ? <Badge tone="warning">رو به اتمام</Badge> : null;
+  const lv = stockLevel(p, lowStock);
+  const level =
+    lv === "out" ? (
+      <Badge tone="danger">ناموجود</Badge>
+    ) : lv === "low" ? (
+      <Badge tone="warning">{p.variants > 0 && p.min_stock < p.stock ? (p.min_stock === 0 ? "گزینه‌ای ناموجود" : "گزینه‌ای رو به اتمام") : "رو به اتمام"}</Badge>
+    ) : null;
   const label = <span className="whitespace-nowrap">{num(p.stock, "fa")} عدد</span>;
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-sm">

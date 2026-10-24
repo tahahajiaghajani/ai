@@ -102,7 +102,7 @@
   /* disabled */
   /* (a button that has done its work — data-done — keeps its look while it stays disabled) */
   .btn:disabled:not([data-done]),
-  .btn[aria-disabled="true"] {
+  .btn[aria-disabled="true"]:not([aria-busy="true"]) {
     cursor: not-allowed;
     opacity: 0.42;
     filter: saturate(0.6);

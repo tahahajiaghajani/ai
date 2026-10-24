@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { guard } from "@/lib/admin-action";
 import { deleteProduct, deleteTaxon, duplicateProduct, importStarter, quickUpdate, reorderTaxa, saveProduct, saveTaxon, seedMediaId, type TaxonKind } from "@/lib/admin-catalog";
-import { deleteMedia, listLibrary, mediaUsage, updateMedia } from "@/lib/admin-media";
+import { deleteMedia, listLibrary, mediaInOrders, mediaUsage, updateMedia } from "@/lib/admin-media";
 import { loadMedia } from "@/lib/catalog";
 import { UserError } from "@/lib/db";
 import type { Media } from "@/lib/media";
@@ -97,9 +97,9 @@ export async function adminUpdateMedia(input: Record<string, unknown>): Promise<
 
 export async function adminDeleteMedia(input: Record<string, unknown>): Promise<Result> {
   return guard(async () => {
-    await deleteMedia(text(input.id, 40));
+    const r = await deleteMedia(text(input.id, 40));
     refresh();
-    return { ok: true, message: "تصویر حذف شد." };
+    return { ok: true, message: r.keptForOrders ? "تصویر از کتابخانه برداشته شد؛ فایل آن برای سفارش‌های ثبت‌شده نگه داشته شد." : "تصویر حذف شد." };
   });
 }
 
@@ -109,8 +109,12 @@ export async function adminListMedia(): Promise<Result<{ items: Media[] }>> {
 }
 
 /** Where one picture is used (products, options, categories, collections, site pictures). */
-export async function adminMediaUsage(input: Record<string, unknown>): Promise<Result<{ usage: string[] }>> {
-  return guard(async () => ({ ok: true, usage: await mediaUsage(text(input.id, 40)) }));
+export async function adminMediaUsage(input: Record<string, unknown>): Promise<Result<{ usage: string[]; orders: number }>> {
+  return guard(async () => {
+    const id = text(input.id, 40);
+    const [usage, orders] = await Promise.all([mediaUsage(id), mediaInOrders(id)]);
+    return { ok: true, usage, orders };
+  });
 }
 
 /**

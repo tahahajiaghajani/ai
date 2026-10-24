@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
-import { PRO_HINT, USER_HINT, isAdminRow, sessionState, setProHint } from "@/lib/auth";
+import { isAdmin } from "@/lib/admin-auth";
+import { ADMIN_HINT, PRO_HINT, USER_HINT, isAdminRow, sessionState, setProHint } from "@/lib/auth";
 import { sign } from "@/lib/crypto";
 import { unreadCount } from "@/lib/messages";
 import { latestRequest, proStatus } from "@/lib/pro";
@@ -13,14 +14,18 @@ export async function GET() {
   // could not check right now: keep the hints so the next page asks again
   if (s.state === "error") return Response.json({ user: null }, { status: 503, headers });
   const jar = await cookies();
+  // the «پنل مدیریت» link follows what the panel itself would allow right now (an admin account signed in with
+  // its password, or the ADMIN_PASSWORD session): a demoted, disabled or signed-out admin loses the hint
+  const panel = await isAdmin();
+  if (!panel && jar.get(ADMIN_HINT)) jar.delete(ADMIN_HINT);
   if (s.state !== "ok") {
     // signed out or revoked: stop asking
     jar.delete(USER_HINT);
     jar.delete(PRO_HINT);
-    return Response.json({ user: null }, { headers });
+    return Response.json({ user: null, admin: panel }, { headers });
   }
   const me = s.user;
-  // an admin account (role, or ADMIN_PHONES) sees the «پنل مدیریت» link; the panel itself asks for a password session
+  // an admin account sees the «پنل مدیریت» link (role admin, never a phone number alone)
   const admin = isAdminRow(me);
   const [pro, unread, request] = await Promise.all([proStatus(me.id), unreadCount(me.id), latestRequest(me.id)]);
   if (pro.active !== (jar.get(PRO_HINT)?.value === "1")) await setProHint(pro.active);
@@ -40,6 +45,7 @@ export async function GET() {
         // opaque and stable per account: the basket in the browser is bound to it (never the id itself)
         key: sign(`cart-owner:${me.id}`).slice(0, 22),
       },
+      admin: panel,
     },
     { headers },
   );

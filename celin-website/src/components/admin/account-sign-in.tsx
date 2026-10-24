@@ -1,57 +1,50 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useState, type FormEvent } from "react";
-import { signIn } from "@/app/actions/account";
+import { useActionState } from "react";
+import { adminSignIn } from "@/app/actions/admin";
 import { Button, Field, Input } from "@/components/admin/ui";
 
 /**
- * /admin/login: the site's own sign-in (mobile + password, same action and limits as /account/login). An
- * admin goes on to the panel; an account that may be made admin is asked for the admin password; any other
- * account sees «no admin access» (page refresh).
+ * /admin/login: the site's own sign-in (mobile + password, same action and limits as /account/login). The form's
+ * action is a Server Action, so React renders it as method="POST" (enctype multipart) with the action id: it
+ * also works before the page's script has loaded and the password never ends up in the address bar. An admin
+ * goes on to the panel; an account that may be made admin is asked for the admin password; any other account
+ * sees «no admin access».
  */
 export function AccountSignIn({ phone = "" }: { phone?: string }) {
-  const router = useRouter();
-  const [login, setLogin] = useState(phone);
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
-  const [pending, setPending] = useState(false);
-
-  async function submit(e: FormEvent) {
-    e.preventDefault();
-    if (pending) return;
-    setPending(true);
-    setError("");
-    try {
-      const r = await signIn({ login, password, lang: "fa", next: "/admin" });
-      if (!r.ok) {
-        setError(r.error);
-        setPending(false);
-        return;
-      }
-      // an admin goes to the panel; an account that may be made admin comes back here for the admin password
-      if (r.next.startsWith("/admin")) {
-        window.location.assign(r.next);
-        return;
-      }
-      router.refresh();
-    } catch {
-      setError("ارتباط با سرور برقرار نشد؛ دوباره امتحان کنید.");
-    }
-    setPending(false);
-  }
-
+  const [state, action, pending] = useActionState(adminSignIn, null);
   return (
-    <form onSubmit={submit} className="mt-8 space-y-4 text-start">
+    <form action={action} className="mt-8 space-y-4 text-start">
       <Field label="شماره‌ی موبایل (یا ایمیل)">
-        <Input name="username" value={login} onChange={(e) => setLogin(e.target.value)} autoComplete="username" inputMode="tel" dir="ltr" className="text-start" required autoFocus={!phone} />
+        <Input
+          name="username"
+          defaultValue={state?.login ?? phone}
+          autoComplete="username"
+          inputMode="tel"
+          dir="ltr"
+          className="text-start"
+          required
+          autoFocus={!phone}
+          aria-invalid={Boolean(state?.error)}
+          aria-describedby={state?.error ? "admin-signin-error" : undefined}
+        />
       </Field>
       <Field label="رمز عبور">
-        <Input name="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" dir="ltr" className="text-start" required autoFocus={Boolean(phone)} />
+        <Input
+          name="password"
+          type="password"
+          autoComplete="current-password"
+          dir="ltr"
+          className="text-start"
+          required
+          autoFocus={Boolean(phone)}
+          aria-invalid={Boolean(state?.error)}
+          aria-describedby={state?.error ? "admin-signin-error" : undefined}
+        />
       </Field>
-      {error && (
-        <p className="text-sm leading-6 text-danger" role="alert">
-          {error}
+      {state?.error && (
+        <p id="admin-signin-error" className="text-sm leading-6 text-danger" role="alert">
+          {state.error}
         </p>
       )}
       <Button type="submit" className="w-full" size="lg" pending={pending}>

@@ -11,6 +11,7 @@ import { Arch } from "@/components/fx/arch";
 import { Aura } from "@/components/fx/aura";
 import { Grain } from "@/components/fx/grain";
 import { Magnetic } from "@/components/fx/magnetic";
+import { Melt, NightHead } from "@/components/fx/melt";
 import { SplitWords } from "@/components/fx/split-words";
 import { openProSheet } from "@/components/pro/events";
 import { ProHallmark } from "@/components/pro/seal";
@@ -38,9 +39,12 @@ export function ProInvite({ lang, d }: { lang: Lang; d: ProInviteData }) {
   const active = Boolean(me?.pro.active);
   const c = commonCopy(lang);
   return (
-    <section data-tone="light" className="relative isolate overflow-clip bg-night-2 py-20 text-on-night sm:py-28">
+    <section data-tone="light" className="relative isolate overflow-clip bg-night-2 pt-20 pb-[calc(var(--melt-h)+3rem)] text-on-night sm:pt-28 sm:pb-[calc(var(--melt-h)+4rem)]">
       <Aura palette="cocoa" light={0.9} />
       <Grain />
+      {/* plain night-2 at the head, where the porcelain above melted into it; the foot melts into the ground of the strip below */}
+      <NightHead />
+      <Melt at="bottom" on="dark" />
       <div className="container-lux relative">
         <LuxFrame tone="dark" keystone className="bg-night/30 px-5 pt-14 pb-12 backdrop-blur-[2px] sm:px-10 sm:py-14 lg:px-16 lg:py-20">
           <span aria-hidden className="absolute inset-0 -z-10 bg-[radial-gradient(45%_70%_at_85%_40%,rgb(233_185_138/0.16),transparent_70%),radial-gradient(50%_60%_at_0%_100%,rgb(15_86_82/0.22),transparent_70%)] rtl:bg-[radial-gradient(45%_70%_at_15%_40%,rgb(233_185_138/0.16),transparent_70%),radial-gradient(50%_60%_at_100%_100%,rgb(15_86_82/0.22),transparent_70%)]" />

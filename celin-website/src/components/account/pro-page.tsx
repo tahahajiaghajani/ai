@@ -10,6 +10,7 @@ import { ArchLines } from "@/components/fx/arch-lines";
 import { Aura } from "@/components/fx/aura";
 import { Grain } from "@/components/fx/grain";
 import { Magnetic } from "@/components/fx/magnetic";
+import { Melt, NightFoot } from "@/components/fx/melt";
 import { SplitWords } from "@/components/fx/split-words";
 import { ProHallmark } from "@/components/pro/seal";
 import { Membership } from "@/components/account/membership";
@@ -40,16 +41,17 @@ export async function ProPage({ lang }: { lang: Lang }) {
   const faq = [...c.faq, { q: c.minQ, a: settings.shop.minOrder > 0 ? c.minYes : c.minNo }];
   return (
     <main>
-      <section data-header="dark" data-tone="light" className="relative isolate -mt-[var(--header-h)] overflow-clip bg-night text-on-night">
+      <section data-header="dark" data-tone="light" className="under-header relative isolate overflow-clip bg-night text-on-night">
         <Aura palette="cocoa" />
         <Grain />
+        <NightFoot />
         <div className="container-lux relative grid items-center gap-14 pt-[calc(var(--header-h)+3rem)] pb-20 lg:min-h-[calc(92svh-var(--announce-h,0px))] lg:grid-cols-12 lg:gap-10 lg:pb-16">
           <div className="text-center lg:col-span-6 lg:text-start xl:col-span-5 xl:col-start-2">
             <p className="fx-in flex items-center justify-center gap-3 font-label text-xs tracking-[0.36em] text-gold-on-dark lg:justify-start" style={{ "--in": 0 } as CSSProperties}>
               <span aria-hidden className="h-px w-8 bg-[image:var(--metal-champagne)]" />
               <span className="ltr">CELIN PRO</span>
             </p>
-            <SplitWords as="h1" text={slotText(hero, "title", lang)} immediate delay={150} className="title-page mt-5 lg:text-[clamp(2.5rem,1.6rem+1.6vw,3.25rem)]!" wordClassName="text-metal-light metal-live" />
+            <SplitWords as="h1" text={slotText(hero, "title", lang)} immediate delay={150} className="title-page mt-5" wordClassName="text-metal-light metal-live" />
             <p className="fx-in lede mx-auto mt-5 max-w-md text-on-night-muted lg:mx-0" style={{ "--in": 3 } as CSSProperties}>
               {slotText(hero, "subtitle", lang)}
             </p>
@@ -77,7 +79,8 @@ export async function ProPage({ lang }: { lang: Lang }) {
       </section>
 
       <section aria-labelledby="pro-benefits" className="relative isolate bg-mesh-porcelain">
-        <div className="container-lux py-20 lg:py-28">
+        <Melt at="top" />
+        <div className="container-lux pt-[max(5rem,calc(var(--melt-h)*0.85))] pb-20 lg:py-28">
           <Head id="pro-benefits" eyebrow={c.eyebrow} title={c.benefitsTitle} />
           <ul className="mt-12 grid gap-6 sm:grid-cols-3">
             {c.benefits.map((b, i) => (
@@ -96,10 +99,10 @@ export async function ProPage({ lang }: { lang: Lang }) {
       </section>
 
       <section aria-labelledby="pro-steps" className="relative isolate overflow-clip bg-mesh-bone">
-        <ArchLines count={4} className="pointer-events-none absolute inset-x-0 -bottom-10 mx-auto h-[120%] w-[min(1100px,140vw)] opacity-50" />
+        <ArchLines count={4} className="pointer-events-none absolute inset-x-0 -bottom-10 mx-auto h-[120%] w-[min(1100px,140vw)] opacity-50 [mask-image:linear-gradient(to_bottom,black_32%,transparent_50%)]" />
         <div className="container-lux relative py-20 lg:py-28">
           <Head id="pro-steps" eyebrow="PRO" title={c.stepsTitle} center />
-          <ol className="mx-auto mt-14 grid max-w-5xl gap-12 sm:grid-cols-3 sm:gap-8">
+          <ol className="mx-auto mt-14 grid max-w-5xl gap-12 sm:grid-cols-2 sm:gap-8 lg:grid-cols-4">
             {c.steps.map((st, i) => (
               <li key={st.title} className="text-center" data-reveal style={{ "--d": i } as CSSProperties}>
                 <span className="relative mx-auto grid h-28 w-22 place-items-center" aria-hidden>

@@ -87,7 +87,7 @@ export const SEED_COLLECTIONS: SeedCollection[] = [
     tagline_fa: "آبیِ فیروزه‌ای، در قابی از نور",
     tagline_en: "Firouzeh blue, framed in light",
     story_fa: "رنگی که ایرانی‌ها قرن‌ها با آن آسمان و کاشی را نوشته‌اند. نگین‌های آبی فیروزه‌ای در هاله‌ای از نگین‌های سفید و گلبرگ‌های مارکیز؛ روشن در نور روز، عمیق در شب.",
-    story_en: "The colour Persians have used for centuries to write the sky and the tile. Firouzeh-blue centre stones in halos of white and marquise petals — bright by day, deep at night.",
+    story_en: "The color Persians have used for centuries to write the sky and the tile. Firouzeh-blue center stones in halos of white and marquise petals — bright by day, deep at night.",
     image: "ring-paraiba-cushion",
   },
   {
@@ -134,10 +134,10 @@ export const SEED_COLLECTIONS: SeedCollection[] = [
     slug: "negar",
     name_fa: "نگار",
     name_en: "Negar",
-    tagline_fa: "نقشی که دست می‌کشد",
-    tagline_en: "Patterns drawn by hand",
+    tagline_fa: "نقش، در خط‌های ظریف",
+    tagline_en: "Patterns in fine engraved lines",
     story_fa: "نگار یعنی نقش و هم‌چنین محبوب. سطح‌های حکاکی‌شده‌ی خطی با یک نگین مارکیز رنگی، در دو رنگ طلایی و نقره‌ای؛ کنار هم بهتر دیده می‌شوند.",
-    story_en: "Negar means both an engraved image and the beloved. Finely lined, engraved surfaces with a single coloured marquise, in gold and silver tones — better worn together.",
+    story_en: "Negar means both an engraved image and the beloved. Finely lined, engraved surfaces with a single colored marquise, in gold and silver tones — better worn together.",
     image: "bangles-sapphire",
   },
   {
@@ -147,18 +147,18 @@ export const SEED_COLLECTIONS: SeedCollection[] = [
     tagline_fa: "گرهی از نور که می‌ماند",
     tagline_en: "A knot of light that stays",
     story_fa: "گره هم پاپیون است و هم نقش‌های هندسی گره‌چینی در هنر ایرانی. پاپیون‌های نگین‌کاری‌شده با آویزهای رنگی و مرواریدی؛ برای پیوندهایی که می‌مانند.",
-    story_en: "Gereh is both a bow and the interlaced geometry of Persian art. Pavé bows with coloured and pearl-look drops — for the bonds that last.",
+    story_en: "Gereh is both a bow and the interlaced geometry of Persian art. Pavé bows with colored and pearl-look drops — for the bonds that last.",
     image: "set-bow-ruby",
   },
 ];
 
 const RH: Spec = { label_fa: "پوشش", label_en: "Finish", value_fa: "نقره‌ای (آبکاری رودیوم)", value_en: "Silver-tone, rhodium plated" };
-const GT: Spec = { label_fa: "پوشش", label_en: "Finish", value_fa: "طلایی (آبکاری طلایی‌رنگ)", value_en: "Gold-tone" };
+const GT: Spec = { label_fa: "پوشش", label_en: "Finish", value_fa: "طلایی (آبکاری طلا)", value_en: "Gold-tone" };
 const RS: Spec = { label_fa: "پوشش", label_en: "Finish", value_fa: "رزگلد (آبکاری رزگلد)", value_en: "Rose-gold-tone" };
 const TT: Spec = { label_fa: "پوشش", label_en: "Finish", value_fa: "طلایی یا نقره‌ای (رودیوم)", value_en: "Gold-tone or silver-tone (rhodium plated)" };
 const stones = (fa: string, en: string): Spec => ({ label_fa: "نگین", label_en: "Stones", value_fa: fa, value_en: en });
 const WHITE = stones("سفید با تراش اتمی", "White, atomic cut");
-// the brand's own wording (story.ts): precise setting — no "by hand" claims
+// the brand's own wording (story.ts): «مخراج‌کاری دقیق»; how the stones are set is not claimed beyond it
 const HAND: Spec = { label_fa: "نشاندن نگین", label_en: "Setting", value_fa: "مخراج‌کاری دقیق", value_en: "Precise stone setting" };
 const includes = (fa: string, en: string): Spec => ({ label_fa: "شامل", label_en: "Includes", value_fa: fa, value_en: en });
 
@@ -278,7 +278,7 @@ export const SEED_PRODUCTS: SeedProduct[] = [
     subtitle_fa: "تراش کوشن · آبی فیروزه‌ای · نقره‌ای (رودیوم)",
     subtitle_en: "Cushion cut, Firouzeh blue, Rhodium plated",
     description_fa: "نگین کوشن آبی فیروزه‌ای در هاله‌ای از نگین‌های سفید. روی شانه‌های انگشتر، برگ‌های مارکیز نور را از هر سو به نگین می‌رسانند.",
-    description_en: "A Firouzeh-blue cushion stone in a halo of white. Marquise leaves along the shoulders bring light to the centre from every side.",
+    description_en: "A Firouzeh-blue cushion stone in a halo of white. Marquise leaves along the shoulders bring light to the center from every side.",
     category: "rings",
     collection: "firouzeh",
     metal: "silver",
@@ -384,7 +384,7 @@ export const SEED_PRODUCTS: SeedProduct[] = [
     subtitle_fa: "تراش گرد · سفید · طلایی",
     subtitle_en: "Round cut, White, Gold-tone",
     description_fa: "آویزی مربع با قابی حکاکی‌شده و مرکزی نگین‌کاری‌شده، بر زنجیری ظریف. نشانی آرام برای هر روز.",
-    description_en: "A square pendant with an engraved frame and a pavé centre on a fine chain. A quiet signature for every day.",
+    description_en: "A square pendant with an engraved frame and a pavé center on a fine chain. A quiet signature for every day.",
     category: "necklaces",
     collection: "kashi",
     metal: "gold",
@@ -451,7 +451,7 @@ export const SEED_PRODUCTS: SeedProduct[] = [
     subtitle_fa: "تراش قلب · سفید · طلایی یا نقره‌ای",
     subtitle_en: "Heart cut, White, Gold-tone or silver-tone",
     description_fa: "سه برگ شیاردار که در مرکز به هم می‌رسند و هر کدام نگینی قلبی را در بر دارند.",
-    description_en: "Three ribbed leaves meeting at the centre, each holding a heart-cut stone.",
+    description_en: "Three ribbed leaves meeting at the center, each holding a heart-cut stone.",
     category: "rings",
     collection: "del",
     metal: "two-tone",
@@ -476,12 +476,12 @@ export const SEED_PRODUCTS: SeedProduct[] = [
     subtitle_fa: "تراش مارکیز · سرمه‌ای، سبز جنگلی یا قرمز اناری · طلایی یا نقره‌ای",
     subtitle_en: "Marquise cut, Night blue, Forest green or Pomegranate red, Gold-tone or silver-tone",
     description_fa: "النگویی با سطح حکاکی‌شده‌ی خطی و نگین‌های مارکیز رنگی. طلایی و نقره‌ای را کنار هم ببندید؛ همان‌طور که ما دوست داریم.",
-    description_en: "A bangle with a finely lined, engraved surface and coloured marquise stones. Wear the gold-tone and the silver-tone together, as we like to.",
+    description_en: "A bangle with a finely lined, engraved surface and colored marquise stones. Wear the gold-tone and the silver-tone together, as we like to.",
     category: "bracelets",
     collection: "negar",
     metal: "two-tone",
     stone: "mixed",
-    specs: [TT, stones("رنگی و سفید، تراش مارکیز و گرد", "Coloured and white; marquise and round cut"), HAND],
+    specs: [TT, stones("رنگی و سفید، تراش مارکیز و گرد", "Colored and white; marquise and round cut"), HAND],
     images: ["bangles-emerald", "bangles-sapphire", "bangles-ruby"],
     price: 3_300_000,
     stock: 0,
@@ -500,7 +500,7 @@ export const SEED_PRODUCTS: SeedProduct[] = [
   {
     slug: "gereh-pearl-earrings",
     sku: "CL-GER-ER-001-RH",
-    name_fa: "گره · گوشواره مرواریدی",
+    name_fa: "گره · گوشواره‌ی مرواریدی",
     name_en: "Gereh pearl-drop earrings",
     subtitle_fa: "تراش گرد · سفید و مرواریدی · نقره‌ای (رودیوم)",
     subtitle_en: "Round cut, White and pearl-look, Rhodium plated",
@@ -523,15 +523,15 @@ export const SEED_PRODUCTS: SeedProduct[] = [
     sku: "CL-GER-SET-002-RH",
     name_fa: "گره · ست گوشواره و انگشتر",
     name_en: "Gereh bow set",
-    subtitle_fa: "تراش اشکی و امرالد · سرمه‌ای یا قرمز اناری · نقره‌ای (رودیوم)",
+    subtitle_fa: "تراش اشکی و مستطیلی · سرمه‌ای یا قرمز اناری · نقره‌ای (رودیوم)",
     subtitle_en: "Pear and emerald cut, Night blue or Pomegranate red, Rhodium plated",
     description_fa: "گوشواره‌های پاپیونی با آویز رنگی و انگشتر مربع هم‌خانواده؛ در دو رنگ سرمه‌ای و قرمز اناری.",
-    description_en: "Bow earrings with a coloured drop and a matching square ring, in night blue or pomegranate red.",
+    description_en: "Bow earrings with a colored drop and a matching square ring, in night blue or pomegranate red.",
     category: "sets",
     collection: "gereh",
     metal: "silver",
     stone: "navy",
-    specs: [RH, stones("رنگی و سفید، تراش اشکی، امرالد و گرد", "Coloured and white; pear, emerald and round cut"), includes("یک جفت گوشواره و یک انگشتر", "A pair of earrings and a ring")],
+    specs: [RH, stones("رنگی و سفید، تراش اشکی، مستطیلی و گرد", "Colored and white; pear, emerald and round cut"), includes("یک جفت گوشواره و یک انگشتر", "A pair of earrings and a ring")],
     images: ["set-bow-sapphire", "set-bow-ruby"],
     price: 6_900_000,
     stock: 0,

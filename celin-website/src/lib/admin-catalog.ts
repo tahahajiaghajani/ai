@@ -67,7 +67,10 @@ export interface AdminProductListItem {
   category_id: string | null;
   collection_id: string | null;
   price: number | null;
+  /** total stock (all options together) */
   stock: number;
+  /** the smallest option stock (the product's own stock when it has no options): what «رو به اتمام» looks at */
+  min_stock: number;
   variants: number;
   cover: Media | null;
   sort: number;
@@ -174,19 +177,42 @@ export async function listAdminProducts(): Promise<AdminProductListItem[] | null
   }
   const rows = (data ?? []) as (Omit<AdminProductListItem, "cover" | "variants"> & { images: string[] })[];
   const ids = rows.map((r) => r.id);
-  const variants = new Map<string, { n: number; stock: number }>();
+  const variants = new Map<string, { n: number; stock: number; min: number }>();
   for (let i = 0; i < ids.length; i += 150) {
     const { data: vs } = await c.from("celin_variants").select("product_id, stock").in("product_id", ids.slice(i, i + 150));
     for (const v of (vs ?? []) as { product_id: string; stock: number }[]) {
-      const cur = variants.get(v.product_id) ?? { n: 0, stock: 0 };
-      variants.set(v.product_id, { n: cur.n + 1, stock: cur.stock + v.stock });
+      const cur = variants.get(v.product_id) ?? { n: 0, stock: 0, min: Infinity };
+      variants.set(v.product_id, { n: cur.n + 1, stock: cur.stock + v.stock, min: Math.min(cur.min, v.stock) });
     }
   }
   const media = await loadMedia(rows.map((r) => r.images?.[0] ?? ""));
   return rows.map(({ images, ...r }) => {
     const v = variants.get(r.id);
-    return { ...r, price: r.price === null ? null : Number(r.price), stock: v ? v.stock : r.stock, variants: v?.n ?? 0, cover: images?.[0] ? media.get(images[0]) ?? null : null };
+    return { ...r, price: r.price === null ? null : Number(r.price), stock: v ? v.stock : r.stock, min_stock: v ? v.min : r.stock, variants: v?.n ?? 0, cover: images?.[0] ? media.get(images[0]) ?? null : null };
   });
+}
+
+/**
+ * Published products with a piece running low: the product's own stock — or, with options, any option's — at or
+ * below `threshold` (Settings → سفارش → «آستانه‌ی رو به اتمام», the same line members see). Same rule as the
+ * «رو به اتمام» filter of the product list, so the dashboard number can be traced there.
+ */
+export async function lowStockCount(threshold: number): Promise<number> {
+  await assertAdmin();
+  const c = db();
+  if (!c) return 0;
+  const { data, error } = await c.from("celin_products").select("id, stock").eq("status", "published").limit(5000);
+  if (error) {
+    if (!isMissingTable(error)) console.error("[admin] low stock", error.message);
+    return 0;
+  }
+  const rows = (data ?? []) as { id: string; stock: number }[];
+  const min = new Map<string, number>();
+  for (let i = 0; i < rows.length; i += 150) {
+    const { data: vs } = await c.from("celin_variants").select("product_id, stock").in("product_id", rows.slice(i, i + 150).map((r) => r.id));
+    for (const v of (vs ?? []) as { product_id: string; stock: number }[]) min.set(v.product_id, Math.min(min.get(v.product_id) ?? Infinity, v.stock));
+  }
+  return rows.filter((r) => (min.get(r.id) ?? r.stock) <= threshold).length;
 }
 
 export async function getAdminProduct(id: string): Promise<{ product: AdminProduct; media: Record<string, Media> } | null> {

@@ -7,6 +7,7 @@ import { Arch } from "@/components/fx/arch";
 import { ArchLines } from "@/components/fx/arch-lines";
 import { Aura } from "@/components/fx/aura";
 import { Grain } from "@/components/fx/grain";
+import { NightFoot, NightHead } from "@/components/fx/melt";
 import { gsap } from "@/components/fx/gsap";
 import { useGsap } from "@/components/fx/use-gsap";
 import { Eyebrow } from "@/components/house/bits";
@@ -50,6 +51,9 @@ export function Plating({ lang, d }: { lang: Lang; d: PlatingData }) {
     <section ref={root} data-tone="light" className="relative isolate overflow-clip bg-night py-24 text-on-night sm:py-28 lg:py-32">
       <Aura palette="espresso" light={0.85} />
       <Grain />
+      {/* plain night-2 at both edges, where the light bands above and below melt into it */}
+      <NightHead />
+      <NightFoot />
       <div className="container-lux relative text-center">
         <Eyebrow tone="light" center>
           {d.eyebrow}

@@ -131,6 +131,8 @@ html[lang="fa"] {
   --font-fa-system: "B Nazanin", Nazanin, "Times New Roman", "Noto Naskh Arabic", "Geeza Pro";
   --header-h: 64px;
   --utility-h: 32px;
+  /* the height of a melt between a light band and a dark one (<Melt/>, bg-dusk / bg-tide strips) */
+  --melt-h: clamp(6rem, 14vh, 9rem);
   --gutter: 1rem;
 
   /* living metals — copper for light grounds (large text, marks, lines), champagne for dark grounds */
@@ -240,8 +242,12 @@ html[lang="fa"] {
   }
 
   :focus-visible {
-    outline: 1.5px solid var(--color-gold);
+    outline: 2px solid var(--color-gold);
     outline-offset: 3px;
+  }
+  /* champagne on dark grounds (the header over a dark hero, the footer, the night sheets): ≥ 3:1 there too */
+  [data-tone="light"] :focus-visible {
+    outline-color: var(--color-gold-on-dark);
   }
 
   input,
@@ -377,7 +383,8 @@ html[lang="fa"] {
   }
 }
 
-/* living metal text — large text only (≥ 24px); the sheen moves when .metal-live is added */
+/* living metal text — large text only (≥ 24px); the sheen moves when .metal-live is added (only while on screen:
+   RevealObserver sets data-live; without JS it simply runs) */
 @utility text-metal {
   background-image: var(--metal-copper);
   background-size: 220% 100%;
@@ -398,6 +405,9 @@ html[lang="fa"] {
 }
 @utility metal-live {
   animation: metal-sheen 9s var(--ease-silk) infinite alternate;
+  :where(html.fx-ready) &:not([data-live]) {
+    animation-play-state: paused;
+  }
 }
 @keyframes metal-sheen {
   to {
@@ -443,12 +453,15 @@ html[lang="fa"] {
     ),
     var(--color-night);
 }
-/* tide: the paraiba night giving way to porcelain (home: the arch window → the signature pieces) */
+/* tide: the paraiba night giving way to porcelain (home: the arch window → the signature pieces; <Melt tone="teal"/>).
+   --tide-dir: 0deg turns it upside down (no rotate(): a transformed strip leaves a hairline seam at fractional offsets) */
 @utility bg-tide {
-  background: linear-gradient(180deg, var(--color-night-teal) 0%, #0d3432 14%, #2f524d 30%, #7c8f86 48%, #c5c6b6 66%, #ece6d9 84%, rgb(250 246 239 / 0) 100%);
+  background: linear-gradient(var(--tide-dir, 180deg), var(--color-night-teal) 0%, #0d3432 14%, #2f524d 30%, #7c8f86 48%, #c5c6b6 66%, #ece6d9 84%, rgb(250 246 239 / 0) 100%);
 }
+/* the two ends are variables (<Melt on="dark"/> makes the light end opaque ground and the dark end transparent);
+   --dusk-dir: 0deg turns it upside down (night-2 → light) */
 @utility bg-dusk {
-  background: linear-gradient(180deg, rgb(253 250 245 / 0) 0%, var(--color-bone) 20%, #dfcbb2 36%, #b8987c 52%, #7d5d49 66%, var(--color-cocoa) 80%, var(--color-night-2) 100%);
+  background: linear-gradient(var(--dusk-dir, 180deg), var(--dusk-light, rgb(253 250 245 / 0)) 0%, var(--color-bone) 20%, #dfcbb2 36%, #b8987c 52%, #7d5d49 66%, var(--color-cocoa) 80%, var(--dusk-dark, var(--color-night-2)) 100%);
 }
 @utility bg-metal {
   background-image: var(--metal-fill);
@@ -507,6 +520,11 @@ html[lang="fa"] {
   background: rgb(18 13 11 / 0.55);
   -webkit-backdrop-filter: blur(18px) saturate(1.3);
   backdrop-filter: blur(18px) saturate(1.3);
+}
+
+/* a band that opens under the transparent header: the sticky header box is --header-h plus its 1px rule */
+@utility under-header {
+  margin-top: calc(-1px - var(--header-h));
 }
 
 @utility container-lux {
@@ -648,6 +666,25 @@ html[data-motion="reduced"].js [data-reveal]:not([data-in]) {
 /*  Immersive layer (src/components/fx/*). Everything here degrades:  */
 /*  no JS → content visible and still; reduced motion → no movement.  */
 /* ================================================================== */
+
+/*
+ * Pinned scenes (Reel, the arch window, the timeline): on large screens with a mouse, with motion allowed, the band
+ * (.fx-pin) is taller than its stage by --pin and the stage (.fx-pin-stage) sticks to the top while that distance is
+ * scrolled; ScrollTrigger only scrubs the animation over it. CSS sticky, not JS pinning: nothing in the layout moves
+ * while scrolling (no layout shift, no jump when the pin starts). The media query matches the scenes' own
+ * gsap.matchMedia() query; without JS, with the failsafe or with reduced motion the bands are simply static.
+ */
+@media (min-width: 1024px) and (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+  html.js:not([data-motion="reduced"]) .fx-pin::after {
+    content: "";
+    display: block;
+    height: var(--pin, 0px);
+  }
+  html.js:not([data-motion="reduced"]) .fx-pin > .fx-pin-stage {
+    position: sticky;
+    top: 0;
+  }
+}
 
 /* Lenis smooth scroll (enabled by <SmoothScroll/> on fine pointers) */
 html.lenis,
@@ -1030,31 +1067,54 @@ html:not(.intro-seen) {
 .fx-aperture {
   clip-path: inset(calc((1 - var(--open, 1)) * 18%) calc((1 - var(--open, 1)) * 30%) 0 calc((1 - var(--open, 1)) * 30%) round 100vmax 100vmax 0 0);
 }
-/* stroke drawing for SVG arch lines (pathLength="1"; per-line delay in --pd) */
+/*
+ * stroke drawing for SVG arch lines (pathLength="1", non-scaling stroke; per-line delay in --pd). With a non-scaling
+ * stroke the browser measures the dash in screen pixels, so one "1" dash covers only 1/scale of an arch drawn larger
+ * than its viewBox: RevealObserver sets --fx-s (screen px per viewBox unit) so the dash always spans the whole arch,
+ * and every finished line drops the dash pattern altogether (stroke-dasharray: none), so it ends complete at any scale.
+ */
 html.js .fx-draw path,
 html.js .fx-draw line {
-  stroke-dasharray: 1;
+  stroke-dasharray: var(--fx-s, 1);
   stroke-dashoffset: 0;
-  transition: stroke-dashoffset 2.2s var(--ease-out-expo);
-  transition-delay: var(--pd, 0ms);
 }
 html.js .fx-draw:not([data-in]):not([data-fx="now"]) path,
 html.js .fx-draw:not([data-in]):not([data-fx="now"]) line {
-  stroke-dashoffset: 1;
+  stroke-dashoffset: var(--fx-s, 1);
+}
+html.js .fx-draw[data-in]:not([data-fx="now"]) path,
+html.js .fx-draw[data-in]:not([data-fx="now"]) line {
+  animation: fx-draw 2.2s var(--ease-out-expo) var(--pd, 0ms) both;
 }
 html.js .fx-draw[data-fx="now"] path {
   animation: fx-draw 2.4s var(--ease-out-expo) var(--pd, 0ms) both;
 }
+/* the dash pattern is discrete: it switches to none at 99.5%, when the line is already whole */
 @keyframes fx-draw {
   from {
-    stroke-dashoffset: 1;
+    stroke-dasharray: var(--fx-s, 1);
+    stroke-dashoffset: var(--fx-s, 1);
+  }
+  99% {
+    stroke-dasharray: var(--fx-s, 1);
+    stroke-dashoffset: 0;
+  }
+  to {
+    stroke-dasharray: none;
+    stroke-dashoffset: 0;
   }
 }
 @media (prefers-reduced-motion: reduce) {
   html.js .fx-draw path,
   html.js .fx-draw line {
+    stroke-dasharray: none !important;
     stroke-dashoffset: 0 !important;
   }
+}
+html[data-motion="reduced"].js .fx-draw path,
+html[data-motion="reduced"].js .fx-draw line {
+  stroke-dasharray: none !important;
+  stroke-dashoffset: 0 !important;
 }
 
 /* pictures drift inside their frame as the page scrolls (scroll-driven, compositor only) */

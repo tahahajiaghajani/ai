@@ -7,6 +7,7 @@ import { careCopy } from "@/content/copy/care";
 import { Arch } from "@/components/fx/arch";
 import { ArchLines } from "@/components/fx/arch-lines";
 import { Grain } from "@/components/fx/grain";
+import { Melt } from "@/components/fx/melt";
 import { SplitWords } from "@/components/fx/split-words";
 import { Icon } from "@/components/ui/icons";
 import { SectionHead } from "@/components/home/sections";
@@ -39,7 +40,10 @@ export async function CarePage({ lang }: { lang: Lang }) {
       />
 
       {/* the habits, as an arcade */}
-      <section className="relative isolate overflow-clip bg-mesh-porcelain py-20 sm:py-28">
+      <section className="relative isolate overflow-clip bg-mesh-porcelain pt-[max(5rem,calc(var(--melt-h)*0.85))] pb-[calc(var(--melt-h)+2rem)] sm:pt-28 sm:pb-[calc(var(--melt-h)+3rem)]">
+        {/* the cocoa night of the hero melts into the porcelain, and the porcelain into the espresso band below */}
+        <Melt at="top" />
+        <Melt at="bottom" />
         <div className="container-lux">
           <SectionHead eyebrow={c.rules.eyebrow} title={c.rules.title} align="center" />
           <ol className="-mx-[var(--gutter)] mt-14 flex snap-x snap-mandatory gap-4 overflow-x-auto px-[var(--gutter)] pt-3 pb-4 [scrollbar-width:none] sm:grid sm:grid-cols-2 sm:gap-6 sm:overflow-visible lg:grid-cols-4 [&::-webkit-scrollbar]:hidden">
@@ -65,7 +69,9 @@ export async function CarePage({ lang }: { lang: Lang }) {
       </section>
 
       {/* packaging & delivery */}
-      <section data-tone="light" className="relative isolate overflow-clip bg-mesh-espresso py-20 text-on-night sm:py-28">
+      <section data-tone="light" className="relative isolate overflow-clip bg-night-2 py-20 text-on-night sm:py-28">
+        {/* plain night-2 at both edges, where the light bands above and below melt into it */}
+        <span aria-hidden className="absolute inset-0 -z-10 bg-mesh-espresso [mask-image:linear-gradient(to_bottom,transparent,black_9rem,black_calc(100%-9rem),transparent)]" />
         <Grain />
         <div className="container-lux relative grid items-center gap-14 lg:grid-cols-12 lg:gap-10">
           <div className="relative mx-auto w-[min(66vw,340px)] lg:col-span-4 lg:col-start-2 lg:w-full lg:max-w-[380px]" data-cursor="view">
@@ -90,7 +96,8 @@ export async function CarePage({ lang }: { lang: Lang }) {
       </section>
 
       {/* warranty — owner-editable placeholder (src/content/copy/care.ts) */}
-      <section id="warranty" className="relative isolate scroll-mt-[var(--header-h)] overflow-clip bg-mesh-bone py-20 sm:py-28">
+      <section id="warranty" className="relative isolate scroll-mt-[var(--header-h)] overflow-clip bg-mesh-bone pt-[max(5rem,calc(var(--melt-h)*0.85))] pb-20 sm:pt-28 sm:pb-28">
+        <Melt at="top" />
         <div className="container-lux">
           <div className="frame-metal relative mx-auto max-w-4xl overflow-hidden bg-porcelain/80 px-6 py-12 text-center [--frame:var(--metal-copper)] sm:px-14 sm:py-16">
             <ArchLines count={3} className="pointer-events-none absolute inset-x-0 -bottom-4 mx-auto h-[120%] w-[min(560px,120%)] opacity-50" />

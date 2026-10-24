@@ -20,7 +20,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         مشاهده‌ی سایت
       </a>
       <form action={logout}>
-        <button className="flex w-full items-center gap-3 px-3 py-2.5 text-sm text-ink-2 hover:text-ink">
+        <button className="flex w-full items-center gap-3 px-3 py-2.5 text-sm text-ink-2 hover:text-ink" title="خروج از پنل و حساب، در همه‌ی دستگاه‌ها">
           <Icon name="logout" className="size-[18px] text-muted" />
           خروج
         </button>

@@ -106,10 +106,11 @@ export async function issueCode(
   if (!c) throw new Error("db_missing");
   const now = new Date();
   const expiresAt = opts.days && opts.days > 0 ? new Date(now.getTime() + opts.days * 86400_000).toISOString() : null;
-  // replacing a code that was entered and still works ends what may have been opened with it (members.ts)
-  const { data: open, error: revokeError } = await c.from(CODES).update({ revoked_at: now.toISOString() }).eq("user_id", userId).is("revoked_at", null).select("expires_at, redeemed_at");
+  // replacing a code that was ever entered — still working or expired since (a renewal) — ends what may have
+  // been opened with it: sessions and a password set from a code session (members.ts endCodeAccess)
+  const { data: open, error: revokeError } = await c.from(CODES).update({ revoked_at: now.toISOString() }).eq("user_id", userId).is("revoked_at", null).select("redeemed_at, last_used_at");
   if (revokeError) throw new Error(revokeError.message);
-  const replacedLive = ((open ?? []) as Pick<CodeRow, "expires_at" | "redeemed_at">[]).some((r) => codeState({ ...r, revoked_at: null }, now.getTime()) === "active");
+  const replacedLive = wasUsed((open ?? []) as Pick<CodeRow, "redeemed_at" | "last_used_at">[]);
   for (let attempt = 0; attempt < 3; attempt++) {
     const code = generateCode();
     const norm = normalizeCode(code);
@@ -139,14 +140,33 @@ export async function findCode(input: string): Promise<CodeRow | null> {
   return (data as CodeRow | null) ?? null;
 }
 
-/** Marks a code as entered (first time) and used now. */
+/** Whether any of these codes was ever entered (so a session or a code-made password may hang on it). */
+export function wasUsed(rows: Pick<CodeRow, "redeemed_at" | "last_used_at">[]): boolean {
+  return rows.some((r) => Boolean(r.redeemed_at || r.last_used_at));
+}
+
+/** Thrown by touchCode when the code was revoked (or replaced) between the lookup and its use. */
+export class CodeRevokedError extends Error {
+  constructor() {
+    super("code_revoked");
+    this.name = "CodeRevokedError";
+  }
+}
+
+/**
+ * Marks a code as entered (first time) and used now — only while it is not revoked: a code revoked at the same
+ * moment is refused (CodeRevokedError) instead of opening a session that would outlive the revocation.
+ */
 export async function touchCode(row: CodeRow): Promise<void> {
   const now = new Date().toISOString();
-  const { error } = await db()!
+  const { data, error } = await db()!
     .from(CODES)
     .update({ redeemed_at: row.redeemed_at ?? now, last_used_at: now })
-    .eq("id", row.id);
+    .eq("id", row.id)
+    .is("revoked_at", null)
+    .select("id");
   if (error) throw new Error(error.message);
+  if (!(data as unknown[] | null)?.length) throw new CodeRevokedError();
 }
 
 export function revealCode(row: Pick<CodeRow, "code_enc">): string {

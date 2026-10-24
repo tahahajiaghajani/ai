@@ -10,10 +10,20 @@ export function ActivateForm() {
   return (
     <form action={action} className="mt-6 space-y-4 text-start">
       <Field label="رمز مدیریت">
-        <Input name="password" type="password" autoComplete="off" dir="ltr" className="text-start" required autoFocus />
+        <Input
+          name="password"
+          type="password"
+          autoComplete="off"
+          dir="ltr"
+          className="text-start"
+          required
+          autoFocus
+          aria-invalid={Boolean(state?.error)}
+          aria-describedby={state?.error ? "admin-activate-error" : undefined}
+        />
       </Field>
       {state?.error && (
-        <p className="text-sm leading-6 text-danger" role="alert">
+        <p id="admin-activate-error" className="text-sm leading-6 text-danger" role="alert">
           {state.error}
         </p>
       )}
