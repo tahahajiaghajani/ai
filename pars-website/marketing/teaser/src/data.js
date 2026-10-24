@@ -17,19 +17,19 @@ const DATA = {
         ] },
         { type: "demo", pages: [
           { screen: S("project-0", 1900, 3208), next: { x: 93.2, y: 9.1 }, callouts: [
-            { x: 3.37, y: 7.73, w: 77.58, h: 4.3, label: "سبد پروژه‌ها، یک‌جا", text: "تعداد پروژه‌ها، اقدام‌ها و کارهای در جریان، بی‌درنگ پیش چشم مدیر." },
-            { x: 29.58, y: 12.87, w: 25.11, h: 13.47, label: "بار کاری هر واحد", text: "ببینید کدام واحد بیشترین پروژه را دارد و منابع را متوازن کنید." },
+            { x: 3.37, y: 7.73, w: 77.58, h: 4.3, label: "سبد پروژه‌ها، یک‌جا", text: "تعداد پروژه‌ها، اقدام‌ها و کارهای در جریان، بی‌درنگ پیش چشم مدیر." },
+            { x: 29.58, y: 12.87, w: 25.11, h: 13.47, label: "بار کاری هر واحد", text: "ببینید کدام واحد بیشترین پروژه را دارد و منابع را متوازن کنید.", side: "left", camRegion: { x: 28.2, y: 11.45, w: 54.2, h: 17.8 }, camOpt: { fill: 1, zmax: 1.9 } },
             { x: 9.58, y: 29.21, w: 24.32, h: 23.47, label: "برنامه در برابر واقعیت", text: "پیشرفت برنامه‌ای و واقعی هر پروژه، کنار درصد عملکرد و نشانگر افت.", zmax: 1.3, pan: 1.8 },
           ] },
-          // the charter: the camera settles on its ten tabs, then the infographic lists them legibly
-          { screen: S("project-5", 1900, 1939), rest: { x: 12.53, y: 10.5, w: 68.53, h: 7 }, restOpt: { zmax: 1.7, fill: 0.9 } },
+          // the charter: the camera settles on its ten tabs (the whole form, below the app header and left of the menu), then the infographic lists them legibly
+          { screen: S("project-5", 1900, 1939), rest: { x: 1.6, y: 6, w: 82.5, h: 44.6 }, restOpt: { zmax: 1.7, fill: 1 } },
         ] },
         { type: "sections", kicker: "پرونده‌ی پروژه", title: "ده زبانه، یک پرونده‌ی کامل",
           items: ["منشور پروژه", "برنامه‌ی زمان‌بندی", "تیم پروژه", "ریسک‌ها", "ذی‌نفعان", "وضعیت پروژه", "دلایل تأخیر", "اسناد پروژه", "اقدام‌های مرتبط", "اسپرینت"] },
         { type: "demo", tilt: 10, pages: [
           { screen: S("project-1", 1900, 6820), callouts: [
-            { x: 3.47, y: 4.69, w: 77.37, h: 3.99, label: "گزارش آخرین وضعیت", text: "گزارش پیشرفت تیم، پیش از ثبت نهایی، به تأیید مدیر می‌رسد." },
-            { x: 6.32, y: 6.42, w: 9.79, h: 2.05, label: "تأیید یا رد با یک کلیک", text: "هر مورد همان‌جا تأیید یا رد می‌شود و سابقه‌اش می‌ماند.", zmax: 1.7 },
+            { x: 3.47, y: 4.69, w: 77.37, h: 3.99, label: "گزارش آخرین وضعیت", text: "گزارش پیشرفت تیم، پیش از ثبت نهایی، به تأیید مدیر می‌رسد." },
+            { x: 6.32, y: 6.42, w: 9.79, h: 2.05, label: "تأیید یا رد با یک کلیک", text: "هر مورد همان‌جا تأیید یا رد می‌شود و سابقه‌اش می‌ماند.", zmax: 1.7, dy: 36 },
           ] },
         ] },
       ],
@@ -60,8 +60,8 @@ const DATA = {
             { label: "یادگیری و رشد", value: 70.9, dec: 1, suf: "٪", warn: 1 },
           ] },
         { type: "demo", ai: 1, pages: [
-          { screen: S("bsc-4", 1900, 3215), aiSpots: [{ x: 30, y: 28.9 }, { x: 70, y: 35.1 }, { x: 52, y: 15.5 }], callouts: [
-            { x: 52.1, y: 27.4, w: 37.5, h: 2.9, label: "صحه‌گذاری هر عدد", text: "عدد قبلی و پیشنهادی کنار هم، با فاصله‌اش تا هدف.", zmax: 1.9 },
+          { screen: S("bsc-4", 1900, 3215), aiSpots: [{ x: 20, y: 29 }, { x: 50, y: 35 }, { x: 59, y: 17.5 }], callouts: [
+            { x: 52.1, y: 27.4, w: 37.5, h: 2.9, label: "صحه‌گذاری هر عدد", text: "عدد مصوب قبلی و عدد پیشنهادی، کنار هم و با میزان تغییر.", zmax: 1.9 },
             { x: 11.3, y: 34.55, w: 18.5, h: 1.2, label: "تأیید با مسئولیت انسانی", text: "هیچ عددی بدون تأیید مسئول وارد کارت امتیازی نمی‌شود.", zmax: 2 },
           ] },
         ] },
@@ -83,7 +83,7 @@ const DATA = {
           { screen: S("okr-0", 1920, 911), start: { x: 1.98, y: 6.15, w: 79.17, h: 93.85 }, startOpt: { fill: 1, zmax: 1.3 }, rest: { x: 1.98, y: 6.15, w: 79.17, h: 93.85 }, restOpt: { fill: 1, zmax: 1.3 },
             aiCam: { x: 1.98, y: 6.15, w: 79.17, h: 93.85 }, aiCamOpt: { fill: 1, zmax: 1.3 }, aiSpots: [{ x: 41.5, y: 45 }, { x: 25, y: 80 }, { x: 62, y: 80 }], callouts: [
             { x: 13.44, y: 66.96, w: 56.25, h: 27.88, label: "پیشرفت فصل‌به‌فصل", text: "سهم هر فصل را مقایسه کنید و فصل عقب‌مانده را پیدا کنید." },
-            { x: 83.6, y: 12, w: 15.8, h: 80, label: "از تعریف هدف تا تأیید", text: "اهداف سازمان و واحدها، وظایف و تأییدها؛ همه از یک منو.", camRegion: { x: 20, y: 6.15, w: 80, h: 93.85 }, camOpt: { fill: 1, zmax: 1.3 } },
+            { x: 84.5, y: 14, w: 14, h: 69, label: "از تعریف هدف تا تأیید", text: "اهداف سازمان و واحدها، وظایف و تأییدها؛ همه از یک منو.", camRegion: { x: 25, y: 10, w: 75, h: 88 }, camOpt: { fill: 1, zmax: 1.3 } },
           ] },
         ] },
       ],
@@ -130,7 +130,7 @@ const DATA = {
         { type: "steps", kicker: "امکان‌سنجی بر پایه‌ی استاندارد UNIDO", title: "یازده گام، از فرض تا تصمیم",
           items: ["فرضیات کلی و تقویم", "سرمایه‌گذاری ثابت", "سرمایه در گردش", "تولید و فروش", "هزینه‌های بهره‌برداری", "تأمین مالی و وام‌ها", "صورت‌های مالی", "شاخص‌های اقتصادی", "نقطه‌ی سربه‌سر", "تحلیل حساسیت", "گزارش جامع"] },
         { type: "demo", ai: 1, tilt: 10, pages: [
-          { screen: S("fs-1", 1913, 1379), next: { x: 50, y: 7.5 }, callouts: [
+          { screen: S("fs-1", 1913, 1379), next: false, callouts: [
             { x: 15.68, y: 44.96, w: 14.9, h: 39.74, label: "عمر مفید و ارزش اسقاط", text: "استهلاک هر دارایی، به روش خط مستقیم، خودکار محاسبه می‌شود.", zmax: 1.4, pan: 1.6 },
           ] },
           { screen: S("fs-2", 1913, 2030, { patches: [{ x: 262, y: 477, w: 243, h: 22, html: '<div style="font:400 15px/22px Plex, sans-serif;color:#374151;direction:rtl;text-align:right;background:#f8fafc;height:100%;padding-inline-start:2px">شرکت نمونه</div>' }] }), aiCam: { x: 12.75, y: 21.48, w: 74.8, h: 39.66 }, aiSpots: [{ x: 50, y: 36 }, { x: 30, y: 48 }, { x: 70, y: 55 }], callouts: [
@@ -153,13 +153,14 @@ const DATA = {
       ],
       shots: [
         { type: "demo", ai: 1, pages: [
-          // framed without the dashboard's empty «مقایسه عملکرد» card (its chart never rendered in the capture)
-          { screen: S("assess-0", 1920, 911), start: { x: 33, y: 2, w: 67, h: 74 }, startOpt: { fill: 1, zmax: 1.6 }, rest: { x: 33, y: 2, w: 67, h: 74 }, restOpt: { fill: 1, zmax: 1.6 }, next: { x: 91.7, y: 32.7 }, callouts: [
-            { x: 34.38, y: 32.6, w: 30.73, h: 35.35, label: "امتیاز کل سازمان", text: "امتیاز کل، کنار امتیاز معاونت‌ها و ادارات کل.", big: { value: 83.9, dec: 1 }, zmax: 1.5 },
+          // framed below the app header and without the dashboard's empty «مقایسه عملکرد» card (its chart never rendered in the capture)
+          { screen: S("assess-0", 1920, 911), start: { x: 34.5, y: 10, w: 65.5, h: 76.7 }, startOpt: { fill: 1, zmax: 1.6 }, rest: { x: 34.5, y: 10, w: 65.5, h: 76.7 }, restOpt: { fill: 1, zmax: 1.6 }, next: { x: 91.7, y: 32.7 }, callouts: [
+            { x: 34.6, y: 32.6, w: 30.4, h: 35.35, label: "امتیاز کل سازمان", text: "امتیاز کل، کنار امتیاز معاونت‌ها و ادارات کل.", big: { value: 83.9, dec: 1 }, camRegion: { x: 33.4, y: 23.5, w: 48, h: 56.3 }, camOpt: { fill: 1, zmax: 2.1 } },
           ] },
-          { screen: S("assess-1", 1920, 911), aiSpots: [{ x: 26.4, y: 45 }, { x: 15, y: 60 }, { x: 45, y: 80 }], callouts: [
-            { x: 22.5, y: 33, w: 8, h: 24, zmax: 2.2, label: "رنگ‌بندی درصد تحقق", text: "شاخص‌های عقب‌مانده، با رنگ قرمز و زرد، پیش از جلسه دیده می‌شوند.", zmax: 1.4 },
-            { x: 59.64, y: 33.48, w: 21.61, h: 66.52, label: "ساختار سلسله‌مراتبی", text: "هر شاخص زیر معاونت و اداره‌ی کل مسئول؛ پاسخ‌گویی روشن است.", zmax: 1.4 },
+          // the AI view: the whole page left of the menu, header included
+          { screen: S("assess-1", 1920, 911), aiCam: { x: 1.5, y: 0, w: 81, h: 94.8 }, aiCamOpt: { fill: 1, zmax: 1.3 }, aiSpots: [{ x: 30, y: 40.5 }, { x: 15, y: 60 }, { x: 45, y: 80 }], callouts: [
+            { x: 23, y: 44, w: 7.5, h: 31, label: "رنگ‌بندی درصد تحقق", text: "شاخص‌های عقب‌مانده، با رنگ قرمز و زرد، پیش از جلسه دیده می‌شوند.", zmax: 1.65, hug: 1 },
+            { x: 59.64, y: 33.48, w: 21.61, h: 41.5, label: "ساختار سلسله‌مراتبی", text: "هر شاخص زیر معاونت و اداره‌ی کل مسئول؛ پاسخ‌گویی روشن است.", zmax: 1.4, hug: 30 },
           ] },
         ] },
       ],
@@ -176,13 +177,16 @@ const DATA = {
       ],
       shots: [
         { type: "demo", ai: 1, pages: [
-          { screen: S("delays-0", 1920, 911), next: false, callouts: [
+          { screen: S("delays-0", 1920, 911, { bg: "#f1f5f9" }), start: { x: 0, y: 0, w: 100, h: 100 }, startOpt: { fill: 1, zmax: 1, zmin: 0.9, ay: 1 }, rest: { x: 0, y: 0, w: 100, h: 100 }, restOpt: { fill: 1, zmax: 1, zmin: 0.9, ay: 1 }, next: false, callouts: [
             { x: 1.3, y: 16.68, w: 97.4, h: 11.64, fitWidth: 1, fill: 0.98, label: "پنج شاخص کلیدی تأخیر", text: "تعداد، موارد بحرانی، مجموع روزها، عامل اصلی و نوع شایع تأخیر؛ در یک ردیف.", },
-            { x: 28.49, y: 57.52, w: 9.43, h: 5.38, label: "نقطه‌ی داغ تأخیر", text: "ماتریس عامل و نوع تأخیر می‌گوید اصلاح را از کجا شروع کنید.", zmax: 1.8, fill: 0.5 },
+            { x: 28.49, y: 57.52, w: 9.43, h: 5.38, label: "نقطه‌ی داغ تأخیر", text: "ماتریس عامل و نوع تأخیر می‌گوید اصلاح را از کجا شروع کنید.", camRegion: { x: 26, y: 39, w: 52, h: 61 }, camOpt: { fill: 1, zmax: 2 } },
           ] },
-          { screen: S("dashboard-sample-0", 1900, 980, { url: "dashboard-sample.parspmi.ir" }), aiSpots: [{ x: 67, y: 28 }, { x: 40, y: 70 }, { x: 88, y: 25 }], callouts: [
-            { x: 51.05, y: 12.24, w: 32.26, h: 32.65, label: "وضعیت پروژه‌ها", text: "چند پروژه خاتمه یافته، طبق برنامه پیش می‌رود یا تأخیر دارد.", zmax: 1.5 },
-            { x: 1.05, y: 46.94, w: 98.89, h: 51.02, fitWidth: 1, fill: 0.98, label: "وضعیت به تفکیک معاونت", text: "معاونت‌ها را مقایسه کنید و واحدهای دارای تأخیر را زودتر بیابید.", zmax: 1.1 },
+          // short dashboards show whole, on their own margin colour (no cropped cards at the sides)
+          { screen: S("dashboard-sample-0", 1900, 980, { url: "dashboard-sample.parspmi.ir", bg: "#f8fafc" }), start: { x: 0, y: 0, w: 100, h: 100 }, startOpt: { fill: 1, zmax: 1, zmin: 0.9 },
+            aiCam: { x: 0, y: 0, w: 100, h: 100 }, aiCamOpt: { fill: 0.97, zmax: 1, zmin: 0.9 }, aiSpots: [{ x: 74, y: 5 }, { x: 25, y: 72 }, { x: 45.5, y: 30 }], callouts: [
+            { x: 51.05, y: 12.24, w: 32.26, h: 32.65, label: "وضعیت پروژه‌ها", text: "چند پروژه خاتمه یافته، طبق برنامه پیش می‌رود یا تأخیر دارد.", zmax: 1.5, hug: 1 },
+            // the whole section, slightly smaller than the window so the highlight closes on all four sides
+            { x: 1.05, y: 46.94, w: 98.89, h: 51.02, fill: 0.95, zmin: 0.9, label: "وضعیت به تفکیک معاونت", text: "معاونت‌ها را مقایسه کنید و واحدهای دارای تأخیر را زودتر بیابید.", zmax: 1.1 },
           ] },
         ] },
       ],

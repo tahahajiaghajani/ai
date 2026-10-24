@@ -147,8 +147,8 @@ function titleCard(n, tl, p, idx) {
   tl.add(rise(nmw, { stagger: 0.07 }), 0.55);
   tl.fromTo(line, { scaleX: 0 }, { scaleX: 1, duration: 1, ease: "pars" }, 0.9);
   tl.add(rise(hkw, { stagger: 0.045, dur: 0.8 }), 1.05);
-  tl.to(tc, { opacity: 0, scale: 0.94, filter: "blur(10px)", duration: 0.7, ease: "power2.in" }, 3.5);
-  return 3.75;
+  tl.to(tc, { opacity: 0, scale: 0.94, filter: "blur(10px)", duration: 0.55, ease: "power2.in" }, 3.45);
+  return 3.95; // the demo window starts once the title has gone (no text over text)
 }
 
 /** a demo walkthrough: one browser window, page after page, with callouts; the cursor navigates between pages */
@@ -185,7 +185,9 @@ function shotDemo(n, tl, p, s, t0) {
       const co = b.callout(page, c, { n: coN, label: c.label, text: c.text, side, cardY: c.cardY ?? 150, big: c.big });
       glide(side === "left" ? X_RIGHT : X_LEFT, t);
       // camRegion: frame something else than the highlight (e.g. keep a clipped page title out of view)
-      const target = c.camRegion ? page.frame(c.camRegion, c.camOpt ?? {}) : page.frame(c, { zmax: c.zmax ?? 1.45, fill: c.fill ?? 0.7, zmin: c.zmin, dx: c.dx, dy: c.dy, fitWidth: c.fitWidth });
+      let target = c.camRegion ? page.frame(c.camRegion, c.camOpt ?? {}) : page.frame(c, { zmax: c.zmax ?? 1.45, fill: c.fill ?? 0.7, zmin: c.zmin, dx: c.dx, dy: c.dy, fitWidth: c.fitWidth });
+      // hug: the highlight sits just inside the window edge on its card's side, so the leader line crosses no text
+      if (c.hug) target = page.hug(target, c, side, c.hug > 1 ? c.hug : undefined); // hug: 1, or the margin in px
       // pan: a longer, scroll-like camera move down a tall page before the card shows
       const md = c.pan ?? 1.25;
       tl.add(camTo(page, target, md, c.pan ? "sine.inOut" : "parsInOut"), t);
@@ -219,8 +221,8 @@ function navigate(tl, b, from, to, at, t, glide, rest) {
     // another app of the same family: the address changes, no click
     tl.fromTo(b.load, { width: 0, opacity: 1 }, { width: BW - 20, duration: 0.55, ease: "power2.inOut" }, t + 0.2);
     tl.to(b.load, { opacity: 0, duration: 0.25 }, t + 0.75);
-    tl.to(from.vp, { opacity: 0, y: -24, duration: 0.45, ease: "power2.in" }, t + 0.4);
-    tl.fromTo(to.vp, { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.6, ease: "pars" }, t + 0.7);
+    tl.fromTo(to.vp, { opacity: 0 }, { opacity: 1, duration: 0.55, ease: "power1.inOut" }, t + 0.45);
+    tl.set(from.vp, { opacity: 0 }, t + 1.0);
     return t + 1.2;
   }
   tl.add(camTo(from, rest ?? from.top(), 0.9), t);
@@ -231,8 +233,9 @@ function navigate(tl, b, from, to, at, t, glide, rest) {
   tl.fromTo(b.cur, { ripple: 0 }, { ripple: 1, duration: 0.6, ease: "power2.out" }, t + 1.02);
   tl.fromTo(b.load, { width: 0, opacity: 1 }, { width: BW - 20, duration: 0.55, ease: "power2.inOut" }, t + 1.08);
   tl.to(b.load, { opacity: 0, duration: 0.25 }, t + 1.63);
-  tl.to(from.vp, { opacity: 0, y: -24, duration: 0.45, ease: "power2.in" }, t + 1.3);
-  tl.fromTo(to.vp, { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.6, ease: "pars" }, t + 1.6);
+  // the new page fades in over the old one, which stays solid underneath (no see-through, nothing outside the frame)
+  tl.fromTo(to.vp, { opacity: 0 }, { opacity: 1, duration: 0.55, ease: "power1.inOut" }, t + 1.35);
+  tl.set(from.vp, { opacity: 0 }, t + 1.9);
   tl.to(b.cur, { o: 0, duration: 0.3 }, t + 1.5);
   return t + 2.05;
 }
@@ -502,8 +505,9 @@ function sceneCopilot(c) {
   c.steps.forEach((s, i) => {
     const pg = pages[i];
     if (i > 0) {
-      tl.to(pages[i - 1].vp, { opacity: 0, y: -50, duration: 0.45, ease: "power2.in" }, t);
-      tl.fromTo(pg.vp, { opacity: 0, y: 60 }, { opacity: 1, y: 0, duration: 0.7, ease: "pars" }, t + 0.3);
+      // the next state of the chat fades in over the last one (same header, so only the conversation changes)
+      tl.fromTo(pg.vp, { opacity: 0 }, { opacity: 1, duration: 0.6, ease: "power1.inOut" }, t + 0.1);
+      tl.set(pages[i - 1].vp, { opacity: 0 }, t + 0.7);
     }
     const box = h("div", "", cap);
     place(box, { position: "absolute", left: "0", right: "0", top: "0" });
@@ -550,7 +554,7 @@ function sceneCopilot(c) {
 }
 
 /* ── outro: the call to action, the QR, the logo; ends on the intro's first frame (ink, nothing else) ── */
-function sceneOutro({ qr, url }) {
+function sceneOutro({ qr, url, start = 0, bar = 2 }) {
   const n = sceneBox();
   const title = place(h("div", "abs h2", n), { right: "160px", top: "300px", width: "980px", fontSize: "76px" });
   const tw = words(title, 'دموی زنده را<br>همین‌جا از ما <span class="g">بخواهید</span>.');
@@ -577,6 +581,9 @@ function sceneOutro({ qr, url }) {
   tl.to(BG, { ribbons: 0, particles: 0, converge: 0, duration: 1.6, ease: "power2.inOut" }, 8.2);
   tl.to(BG.glowA, { a: 0, duration: 1.6 }, 8.2).to(BG.glowB, { a: 0, duration: 1.6 }, 8.2).to(BG.glowC, { a: 0, duration: 1.6 }, 8.2);
   tl.to({}, { duration: 0.6 }, 9.8);
+  // the QR holds a little longer so the loop ends on a bar line of the music, already in ink
+  const end = start + tl.duration();
+  tl.shiftChildren(Math.ceil(end / bar - 1e-6) * bar - end, false, 8.2);
   return wrap(n, tl, 0.2);
 }
 
@@ -607,7 +614,8 @@ function sceneOverview({ kicker, title, lead, items }) {
     tl.fromTo(c, { opacity: 0, rotationX: -50, y: 60, z: -200 }, { opacity: 1, rotationX: 0, y: 0, z: 0, duration: 1, ease: "pars" }, 1.1 + row * 0.25 + col * 0.09);
   });
   // a light passes over the grid
-  const sweep = place(h("div", "abs", n), { left: "0", top: "330px", width: "380px", height: "640px", background: "linear-gradient(90deg, rgba(255,255,255,0), rgba(255,255,255,.10), rgba(255,255,255,0))", transform: "skewX(-18deg)", mixBlendMode: "screen", opacity: 0 });
+  const sweep = place(h("div", "abs", n), { left: "0", top: "330px", width: "380px", height: "640px", background: "linear-gradient(90deg, rgba(255,255,255,0), rgba(255,255,255,.10), rgba(255,255,255,0))", transform: "skewX(-18deg)", mixBlendMode: "screen", opacity: 0,
+    maskImage: "linear-gradient(transparent, #000 18%, #000 82%, transparent)", WebkitMaskImage: "linear-gradient(transparent, #000 18%, #000 82%, transparent)" });
   tl.fromTo(sweep, { x: 1900, opacity: 1 }, { x: -500, duration: 1.8, ease: "power2.inOut" }, 3.4);
   tl.to({}, { duration: 3.2 }, 3.4);
   tl.to(cards, { opacity: 0, y: -30, duration: 0.5, ease: "power2.in", stagger: 0.015 }, 7.6);

@@ -1,6 +1,6 @@
 # Exhibition teaser — motion graphics
 
-A Persian (RTL) teaser of about six minutes that loops on the TV behind the Pars Project Management booth: the company in numbers, the thirteen systems, a walkthrough of each product demo, the working AI copilot, the AI agents, Pars's capabilities, its clients and a QR code to the site. 1920 × 1080, 60 fps, H.264 with an original soundtrack. Nothing here is part of the website build; this folder has its own `package.json`.
+A Persian (RTL) teaser of about six minutes that loops on the TV behind the Pars Project Management booth: the company in numbers, the thirteen systems, a walkthrough of each product demo, the working AI copilot, the AI agents, Pars's capabilities, its clients and a QR code to the site. 1920 × 1080, 60 fps, H.264 (BT.709) with an original soundtrack. Nothing here is part of the website build; this folder has its own `package.json`.
 
 ## How it is made
 

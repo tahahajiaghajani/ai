@@ -39,26 +39,43 @@ function words(n, text) {
     o.appendChild(i);
     n.appendChild(o);
   };
+  // spaces break; a no-break space (U+00A0) glues a term. A short function word or a number never ends a line (it is
+  // carried to the next word, even into an inline element); «را» and a verb in «می‌…» never start one (they join the word before).
+  let carry = "";
   for (const node of [...src.childNodes]) {
     if (node.nodeType === 3) {
-      // spaces break; a no-break space (U+00A0) glues a term; a short function word never ends a line
-      const parts = node.textContent.split(/[ \t\n]+/);
-      if (/^[ \t\n]/.test(node.textContent) && n.childNodes.length) n.appendChild(document.createTextNode(" "));
-      let carry = "";
-      parts.forEach((p, i) => {
-        if (!p) return;
-        if (STICKY.has(p) && i < parts.length - 1 && parts.slice(i + 1).some(Boolean)) { carry += p + "\u00a0"; return; }
+      const raw = node.textContent;
+      const toks = [];
+      for (const p of raw.split(/[ \t\n]+/)) {
+        if (!p) continue;
+        if (toks.length && JOIN_PREV.test(p)) toks[toks.length - 1] += "\u00a0" + p;
+        else toks.push(p);
+      }
+      if (/^[ \t\n]/.test(raw) && n.childNodes.length && !carry) n.appendChild(document.createTextNode(" "));
+      toks.forEach((p, i) => {
+        if (STICKY.has(p) || NUMBER.test(p)) { carry += p + "\u00a0"; return; }
         word(carry + p);
         carry = "";
-        if (i < parts.length - 1) n.appendChild(document.createTextNode(" "));
+        if (i < toks.length - 1 || /[ \t\n]$/.test(raw)) n.appendChild(document.createTextNode(" "));
       });
+    } else if (node.nodeName === "BR") {
       if (carry) word(carry.trimEnd());
-    } else if (node.nodeName === "BR") n.appendChild(document.createElement("br"));
-    else word(node);
+      carry = "";
+      n.appendChild(document.createElement("br"));
+    } else if (carry) {
+      const g = document.createElement("w-g");
+      g.append(carry, node);
+      carry = "";
+      word(g);
+    } else word(node);
   }
+  if (carry) word(carry.trimEnd());
   return [...n.querySelectorAll("w-i")];
 }
-const STICKY = new Set(["و", "در", "به", "از", "با", "تا", "بر", "برای", "روی", "کنار", "هر", "یک", "این", "آن"]);
+const STICKY = new Set(["و", "یا", "در", "به", "از", "با", "تا", "بر", "برای", "روی", "کنار", "هر", "یک", "این", "آن", "طبق", "بدون", "بین", "میان",
+  "دو", "سه", "چهار", "پنج", "شش", "هفت", "هشت", "ده", "یازده", "دوازده", "سیزده", "پانزده", "بیست", "شصت", "نود", "صد"]);
+const NUMBER = /^[0-9۰-۹][0-9۰-۹٫٬.,/]*$/;
+const JOIN_PREV = /^(را|ن?می\u200c\S+)$/;
 /** word-by-word rise, in reading order */
 function rise(targets, opt = {}) {
   return gsap.fromTo(targets, { yPercent: 115, opacity: 0, filter: "blur(10px)" },
@@ -305,6 +322,7 @@ class Page {
       this.img = h("img", "", this.layer);
       this.img.src = screen.src;
     }
+    if (screen.bg) this.vp.style.background = screen.bg; // the page's own margin colour (see frame)
     this.img.style.width = screen.w + "px";
     this.img.style.height = screen.h + "px";
     // patches: small overlays in image px that repair a rendering glitch of the demo (e.g. raw markdown asterisks)
@@ -322,14 +340,25 @@ class Page {
   frame(r, opt = {}) {
     const sw = this.screen.w, sh = this.screen.h;
     const rw = (r.w / 100) * sw, rh = (r.h / 100) * sh;
-    const zlo = opt.fitWidth ? 1 : Math.max(opt.zmin ?? 1, this.zmin); // fitWidth: a region wider than the zoomed view may zoom out to the full width
+    // fitWidth: a region wider than the zoomed view may zoom out to the full width; a page with its margin colour (screen.bg)
+    // may zoom out further (zmin < 1) and shows that colour around the image
+    const zlo = this.screen.bg && opt.zmin != null ? opt.zmin : opt.fitWidth ? 1 : Math.max(opt.zmin ?? 1, this.zmin);
     const z = clamp(Math.min((this.vw * (opt.fill ?? 0.78)) / (rw * this.fit), (this.vh * (opt.fill ?? 0.78)) / (rh * this.fit)), zlo, Math.max(zlo, opt.zmax ?? 1.45));
     const sc = this.fit * z;
     const halfW = this.vw / 2 / sc, halfH = this.vh / 2 / sc;
     let cx = ((r.x + r.w / 2) / 100) * sw + (opt.dx ?? 0) / sc, cy = ((r.y + r.h / 2) / 100) * sh + (opt.dy ?? 0) / sc;
-    cx = clamp(cx, halfW, Math.max(halfW, sw - halfW));
-    cy = clamp(cy, halfH, Math.max(halfH, sh - halfH));
+    // an image smaller than the view sits centred (ay: 0 = top, 1 = bottom), otherwise the view stays inside the image
+    cx = 2 * halfW >= sw ? sw / 2 : clamp(cx, halfW, sw - halfW);
+    cy = 2 * halfH >= sh ? halfH + (opt.ay ?? 0.5) * (sh - 2 * halfH) : clamp(cy, halfH, sh - halfH);
     return { cx, cy, z };
+  }
+  /** move a camera target sideways so region r sits m px inside the window edge on its card's side: the leader line leaves the window at once */
+  hug(target, r, side, m = 44) {
+    const sc = this.fit * target.z, sw = this.screen.w, halfW = this.vw / 2 / sc;
+    const x0 = (r.x / 100) * sw, x1 = ((r.x + r.w) / 100) * sw;
+    if ((x1 - x0) * sc > this.vw - 2 * m || 2 * halfW >= sw) return target;
+    const cx = side === "left" ? x0 + (this.vw / 2 - m) / sc : x1 - (this.vw / 2 - m) / sc;
+    return { ...target, cx: clamp(cx, halfW, sw - halfW) };
   }
   top() {
     return { cx: this.screen.w / 2, cy: this.vh / 2 / (this.fit * this.zmin), z: this.zmin };
@@ -380,9 +409,9 @@ class Browser {
   apply() {
     let paths = "";
     if (this.urlEl) {
-      // the address bar shows the page that is most visible
+      // the address bar shows the topmost page that is at least half visible (a new page fades in over the old one)
       let best = this.pages[0];
-      for (const p of this.pages) if (+p.vp.style.opacity > +best.vp.style.opacity) best = p;
+      for (const p of this.pages) if (+p.vp.style.opacity >= 0.5) best = p;
       if (best && this.urlEl.textContent !== best.url) this.urlEl.textContent = best.url;
     }
     for (const p of this.pages) {
@@ -398,7 +427,10 @@ class Browser {
           const cb = c.cardBox;
           const cx = c.side === "left" ? cb.x + cb.w : cb.x, cy = cb.y + 46;
           const ex = lerp(hx, cx, k), ey = lerp(hy, cy, k);
-          paths += `<path d="M${hx} ${hy}C${lerp(hx, cx, 0.5)} ${hy} ${lerp(hx, cx, 0.5)} ${cy} ${ex} ${ey}" stroke="url(#lg)" stroke-width="3" fill="none" stroke-dasharray="${k * 2000} 2000"/>` +
+          const d = `M${hx} ${hy}C${lerp(hx, cx, 0.5)} ${hy} ${lerp(hx, cx, 0.5)} ${cy} ${ex} ${ey}`;
+          // a dark halo under the line: it reads as an overlay, never as a strike through the page's text
+          paths += `<path d="${d}" stroke="rgba(7,6,26,.6)" stroke-width="9" stroke-linecap="round" fill="none" stroke-dasharray="${k * 2000} 2000"/>` +
+            `<path d="${d}" stroke="url(#lg)" stroke-width="3" fill="none" stroke-dasharray="${k * 2000} 2000"/>` +
             `<circle cx="${hx}" cy="${hy}" r="${7 * Math.min(1, k * 3)}" fill="#ff4fa3"/>`;
         }
       }
@@ -509,6 +541,8 @@ function renderChapters(t) {
 /* ── frame renderer ─────────────────────────────────────────── */
 let MASTER = null;
 function renderFrame(t) {
+  // a seek to the time the timeline already holds renders nothing: a fresh page at 0 would show the default state
+  if (MASTER.totalTime() === t) MASTER.totalTime(t + 0.5, false);
   MASTER.totalTime(t, false);
   for (const b of Browsers) if (b.root.closest(".layer").style.visibility !== "hidden") b.apply();
   Background.render(t);

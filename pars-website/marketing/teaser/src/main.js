@@ -38,7 +38,7 @@
     logos: [{ file: "mellat.svg", name: "بانک ملت" }, { file: "tejarat.svg", name: "بانک تجارت" }, { file: "melli.svg", name: "بانک ملی ایران" }, { file: "refah.svg", name: "بانک رفاه کارگران" }, { file: "sepah.svg", name: "بانک سپه" }, { file: "postbank.svg", name: "پست بانک ایران" }, { file: "ayandeh.svg", name: "بانک آینده" }, { file: "igmc.webp", name: "مدیریت شبکه برق ایران" }, { file: "rajaee.webp", name: "قرارگاه خاتم‌الانبیاء<br>گروه تخصصی شهید رجائی" }],
     more: '<span class="g">۵۰+</span> سازمان دیگر در آموزش، مشاوره و نرم‌افزار' }), "مشتریان پارس", { kind: "clients" });
   // the printed address and the QR come from one source (TEASER_URL in build.mjs)
-  add(sceneOutro({ qr: window.QR_SVG || "", url: (window.QR_URL || "https://" + DATA.url).replace(/^https?:\/\//, "") }), "", { hidden: true, kind: "outro" });
+  add(sceneOutro({ qr: window.QR_SVG || "", url: (window.QR_URL || "https://" + DATA.url).replace(/^https?:\/\//, ""), start: t, bar: BAR }), "", { hidden: true, kind: "outro" });
 
   // a light sweeps across at every chapter change (the music has a whoosh there)
   const sw = document.getElementById("sweep");
@@ -49,7 +49,8 @@
   });
   gsap.set(sw, { opacity: 0 });
   // the loop is a whole number of bars, so the music comes round on the downbeat it started from
-  chapters[chapters.length - 1].end = Math.ceil(t / BAR) * BAR;
+  const last = chapters[chapters.length - 1];
+  last.end = Math.ceil(Math.max(t, last.sceneEnd) / BAR - 1e-6) * BAR;
   Chapters.list = chapters;
   MASTER = tl;
   const duration = chapters[chapters.length - 1].end;

@@ -96,9 +96,10 @@ if (args.video) {
   const audio = args.audio === true || args.audio === "true" ? path.join(OUT, "music.wav") : args.audio;
   const final = path.join(OUT, args.out ?? "pars-teaser.mp4");
   if (audio && fs.existsSync(audio)) {
-    // --gain (dB) brings the mix to about -15 LUFS for a TV at a booth
+    // --gain (dB) brings the mix to about -15 LUFS for a TV at a booth; 6 ms fades keep a player that restarts the loop from clicking
+    const len = to - from;
     execFileSync("ffmpeg", ["-y", "-loglevel", "error", "-i", silent, "-ss", String(from), "-i", audio, "-map", "0:v", "-map", "1:a", "-c:v", "copy",
-      "-af", `volume=${+(args.gain ?? 2)}dB`, "-c:a", "aac", "-b:a", "320k", "-ar", "48000", "-shortest", "-movflags", "+faststart", final]);
+      "-af", `volume=${+(args.gain ?? 2)}dB,afade=t=in:d=0.006,afade=t=out:st=${(len - 0.006).toFixed(3)}:d=0.006`, "-c:a", "aac", "-b:a", "320k", "-ar", "48000", "-shortest", "-movflags", "+faststart", final]);
   } else {
     execFileSync("ffmpeg", ["-y", "-loglevel", "error", "-i", silent, "-c", "copy", "-movflags", "+faststart", final]);
   }
