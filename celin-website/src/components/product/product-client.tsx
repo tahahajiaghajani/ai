@@ -21,6 +21,7 @@ import { ProSeal } from "@/components/pro/pro-bar";
 import { useMe, usePriceBook } from "@/components/pro/session";
 import { cart, useCart } from "@/components/cart/cart-store";
 import { Swatch } from "@/components/shop/swatch";
+import { pieceName } from "@/components/shop/piece-name";
 import { WishButton } from "@/components/shop/wish-button";
 
 const same = (a: Media, b: Media) => a.src === b.src;
@@ -366,7 +367,7 @@ export function ProductClient({
             {tr.collection(collectionName)}
           </Link>
         )}
-        <SplitWords as="h1" text={name} immediate className="title-page mt-3 text-ink" />
+        <SplitWords as="h1" text={collectionName && product.collection ? pieceName(name, collectionName) : name} immediate className="title-page mt-3 text-ink" />
         {subtitle && <p className="mt-3 text-base leading-8 text-muted">{subtitle}</p>}
         <p className="mt-2 font-ui text-xs text-muted">
           {tr.ref} <span className="font-label tracking-wide text-muted ltr">{variant?.sku || product.sku}</span>

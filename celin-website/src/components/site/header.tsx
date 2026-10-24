@@ -121,7 +121,7 @@ function ProButton({ lang }: { lang: Lang }) {
   const cls = "hidden h-11 items-center px-2 font-label text-xs tracking-[0.14em] opacity-80 transition-opacity hover:opacity-100 sm:inline-flex ltr";
   if (!hydrated) {
     return (
-      <a href={`${href(lang, "/account/login")}?tab=code`} className={cls} aria-label={c.proSheet.title}>
+      <a href={href(lang, "/pro")} className={cls} aria-label={c.proSheet.title}>
         PRO
       </a>
     );
