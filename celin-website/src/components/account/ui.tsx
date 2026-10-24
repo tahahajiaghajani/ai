@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
 import { accountCopy } from "@/content/copy/account";
+import { commonCopy } from "@/content/copy/common";
 import { num, type Lang } from "@/lib/format";
 import { href } from "@/lib/i18n";
 import { ORDER_STEPS, STATUS_LABEL, type OrderStatus } from "@/lib/order-meta";
@@ -152,6 +153,37 @@ export function AccountHeader({
         {children}
       </div>
     </header>
+  );
+}
+
+/**
+ * loading.tsx of the member pages: the page's frame at once (its back link, title and a few rows) while the server
+ * checks the session and reads the page, so a tap answers right away and the new page opens at its top.
+ */
+export function AccountLoading({ lang }: { lang: Lang }) {
+  return (
+    <div aria-busy className="animate-pulse">
+      <p className="sr-only" role="status">
+        {commonCopy(lang).actions.loading}
+      </p>
+      <div aria-hidden className="mb-8 sm:mb-10">
+        <span className="mb-4 flex h-11 items-center lg:hidden">
+          <span className="block h-3 w-20 bg-bone" />
+        </span>
+        <span className="block h-8 w-44 bg-bone sm:h-9" />
+      </div>
+      <div aria-hidden className="border-t border-line">
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="flex gap-4 border-b border-line py-5">
+            <span className="aspect-[4/5] w-18 bg-bone sm:w-24" />
+            <span className="flex-1 space-y-3 pt-1">
+              <span className="block h-3 w-1/2 bg-bone" />
+              <span className="block h-3 w-1/3 bg-bone" />
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 

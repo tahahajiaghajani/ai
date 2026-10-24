@@ -54,9 +54,30 @@ export function SmoothScroll() {
     };
   }, [reduced]);
 
-  // a new page: in the same commit as Next's scroll to its top, before any refresh — the old page's position is not
-  // put back (forgetScroll); then measure again once it has painted
+  // back/forward: the browser puts the old position back itself
+  const traversedAt = useRef(-Infinity);
+  const shown = useRef(path);
+  useEffect(() => {
+    const onPop = () => (traversedAt.current = performance.now());
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
+  // a new page opens at its top, in the same commit, before it paints. Next leaves the scroll where it is when
+  // the new page's first box is already on screen, so after a long page a short one (an empty basket, a loading
+  // frame) was clamped to its foot and stayed there. A glide still running from a wheel turned while the page
+  // loaded is stopped (it would carry on over the new page), and ScrollTrigger does not put the old position back
+  // (forgetScroll); then everything measures again once the page has painted.
   useLayoutEffect(() => {
+    if (shown.current !== path) {
+      shown.current = path;
+      const l = lenis.current;
+      if (l && !l.isStopped) {
+        l.stop();
+        l.start();
+      }
+      if (!location.hash && performance.now() - traversedAt.current > 1500) window.scrollTo({ top: 0, behavior: "instant" });
+    }
     forgetScroll();
   }, [path]);
   useEffect(() => {
