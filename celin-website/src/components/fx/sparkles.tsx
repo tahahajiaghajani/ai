@@ -184,12 +184,12 @@ export function Sparkles({ count = 14, intensity = 1, className = "" }: { count?
       raf = requestAnimationFrame(frame);
     };
 
-    // only when the box really changed size (the ResizeObserver also reports the first size)
+    // only when the box really changed size (the ResizeObserver also reports the first size); the layout size, not
+    // the on-screen one, so a box that is being scaled by a scroll effect keeps its canvas
     const size = () => {
-      const r = host.getBoundingClientRect();
-      if (r.width === w && r.height === h) return;
-      w = r.width;
-      h = r.height;
+      if (host.clientWidth === w && host.clientHeight === h) return;
+      w = host.clientWidth;
+      h = host.clientHeight;
       canvas.width = Math.round(w * dpr);
       canvas.height = Math.round(h * dpr);
       layout();
@@ -221,8 +221,8 @@ export function Sparkles({ count = 14, intensity = 1, className = "" }: { count?
 
     const move = (e: PointerEvent) => {
       const r = host.getBoundingClientRect();
-      pointer.x = e.clientX - r.left;
-      pointer.y = e.clientY - r.top;
+      pointer.x = r.width ? ((e.clientX - r.left) * w) / r.width : 0;
+      pointer.y = r.height ? ((e.clientY - r.top) * h) / r.height : 0;
       pointer.on = true;
     };
     const leave = () => (pointer.on = false);

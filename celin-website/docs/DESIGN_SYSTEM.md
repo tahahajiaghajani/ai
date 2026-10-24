@@ -73,7 +73,7 @@ Rules: Persian digits on fa pages (`num`, `formatPrice`, `formatDate`); Latin sn
 | `Cursor` | copper glint; `data-cursor="view"` (+ `data-cursor-label`) opens a disc over pictures; `data-tone="light"` on dark bands |
 | `Intro` | first home visit of a session: monogram + curtain (pure CSS) |
 | `.fx-sheen` | light sweep across a picture on hover |
-| `.fx-aperture` + `--open` | arch window that opens (GSAP scrubs `--open` 0→1) |
+| `Aperture` (home) | arch window that grows from the sill while its picture settles — transforms only, the arch's clip never changes (a clip-path rewritten every frame let the picture flash outside the arch on phones) |
 
 Rules: LCP picture eager (`priority`), no motion that blocks reading, ≤ 3 WebGL canvases per page, every effect must leave the content readable without JS. The motion preference is live: JS effects read `useMotionReduced()` (`fx/motion.ts`) and stop / restart when the footer toggle or the OS setting changes. Above-the-fold hero copy uses `fx-in` (CSS from the first paint), never `data-reveal`; the boot script takes `js` off again if the app has not marked `fx-ready` within 3 s, so a failed script never leaves a page blank.
 

@@ -1072,10 +1072,6 @@ html:not(.intro-seen) {
   border-bottom: 0;
   pointer-events: none;
 }
-/* the arch window opens on scroll: --open goes 0 → 1 (set by <ArchAperture/>) */
-.fx-aperture {
-  clip-path: inset(calc((1 - var(--open, 1)) * 18%) calc((1 - var(--open, 1)) * 30%) 0 calc((1 - var(--open, 1)) * 30%) round 100vmax 100vmax 0 0);
-}
 /*
  * stroke drawing for SVG arch lines (pathLength="1", non-scaling stroke; per-line delay in --pd). With a non-scaling
  * stroke the browser measures the dash in screen pixels, so one "1" dash covers only 1/scale of an arch drawn larger
