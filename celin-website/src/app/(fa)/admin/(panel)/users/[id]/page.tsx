@@ -128,7 +128,7 @@ export default async function UserPage({ params }: { params: Promise<{ id: strin
           </div>
 
           <div className="order-5 lg:order-none">
-            <SecurityCard id={m.id} hasPassword={m.has_password} disabled={m.disabled} admin={m.role === "admin"} />
+            <SecurityCard id={m.id} hasPassword={m.has_password} disabled={m.disabled} admin={m.role === "admin"} promoteBlock={m.promote_block} name={m.name} phone={formatPhone(m.phone, "fa")} />
           </div>
           <div className="order-6 lg:order-none">
             <DangerCard id={m.id} orders={m.orders} />

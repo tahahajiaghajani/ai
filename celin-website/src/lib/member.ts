@@ -8,11 +8,15 @@ import { getSettings } from "@/lib/settings";
 
 /** Helpers of the member pages (sign-in and the account area). */
 
-/** Same-site path to return to after signing in (never the sign-in page itself or the admin). */
+/**
+ * Same-site path to return to after signing in (never a sign-in page itself). An /admin path is kept: the
+ * sign-in action sends only admin accounts there (others go to their account), and the panel checks anyway.
+ */
 export function safeNextPath(v: unknown, lang: Lang): string {
   const s = typeof v === "string" ? v : "";
   const login = href(lang, "/account/login");
-  if (!/^\/(?![/\\])[^\s]*$/.test(s) || s.startsWith("/admin") || s === login || s.startsWith(`${login}?`) || s.startsWith(`${login}#`)) return href(lang, "/account");
+  const isLogin = (p: string) => s === p || s.startsWith(`${p}?`) || s.startsWith(`${p}#`) || s.startsWith(`${p}/`);
+  if (!/^\/(?![/\\])[^\s]*$/.test(s) || isLogin(login) || isLogin("/admin/login")) return href(lang, "/account");
   return s;
 }
 

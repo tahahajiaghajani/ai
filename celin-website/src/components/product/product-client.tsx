@@ -21,6 +21,7 @@ import { ProSeal } from "@/components/pro/pro-bar";
 import { useMe, usePriceBook } from "@/components/pro/session";
 import { cart, useCart } from "@/components/cart/cart-store";
 import { Swatch } from "@/components/shop/swatch";
+import { pieceName } from "@/components/shop/piece-name";
 import { WishButton } from "@/components/shop/wish-button";
 
 const same = (a: Media, b: Media) => a.src === b.src;
@@ -198,13 +199,13 @@ function Stepper({ value, max, onChange, lang }: { value: number; max: number; o
   const tr = productCopy[lang];
   return (
     <div className="flex h-12 items-center border border-control bg-white" role="group" aria-label={tr.qty}>
-      <button type="button" onClick={() => onChange(Math.max(1, value - 1))} disabled={value <= 1} className="grid h-full w-11 place-items-center text-ink-2 transition-colors hover:text-gold disabled:opacity-30" aria-label="−">
+      <button type="button" onClick={() => onChange(Math.max(1, value - 1))} disabled={value <= 1} className="grid h-full w-11 place-items-center text-ink-2 transition-colors hover:text-gold disabled:opacity-30" aria-label={tr.qtyLess}>
         <Icon name="minus" className="size-4" />
       </button>
       <span className="w-9 text-center font-ui text-sm tabular-nums" aria-live="polite">
         {num(value, lang)}
       </span>
-      <button type="button" onClick={() => onChange(Math.min(max, value + 1))} disabled={value >= max} className="grid h-full w-11 place-items-center text-ink-2 transition-colors hover:text-gold disabled:opacity-30" aria-label="+">
+      <button type="button" onClick={() => onChange(Math.min(max, value + 1))} disabled={value >= max} className="grid h-full w-11 place-items-center text-ink-2 transition-colors hover:text-gold disabled:opacity-30" aria-label={tr.qtyMore}>
         <Icon name="plus" className="size-4" />
       </button>
     </div>
@@ -281,7 +282,7 @@ function Actions({ lang, product, variantId, needsVariant, onAdded }: { lang: La
   if (me) {
     return (
       <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
-        <Link href={`${href(lang, "/pro")}#request`} className="btn btn-metal min-h-12 flex-1">
+        <Link href={`${href(lang, "/pro")}#request`} className="btn btn-metal min-h-12 flex-[1_0_auto] whitespace-nowrap">
           {tr.request}
         </Link>
         <button type="button" onClick={() => openProSheet("code")} className="font-ui text-sm text-gold-text underline-offset-8 hover:underline">
@@ -292,7 +293,7 @@ function Actions({ lang, product, variantId, needsVariant, onAdded }: { lang: La
   }
   return (
     <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
-      <button type="button" onClick={() => openProSheet("code")} className="btn btn-metal min-h-12 flex-1">
+      <button type="button" onClick={() => openProSheet("code")} className="btn btn-metal min-h-12 flex-[1_0_auto] whitespace-nowrap">
         <Icon name="unlock" className="size-4" />
         {tr.unlock}
       </button>
@@ -366,9 +367,9 @@ export function ProductClient({
             {tr.collection(collectionName)}
           </Link>
         )}
-        <SplitWords as="h1" text={name} immediate className="display mt-3 text-[2.25rem] leading-[1.35]! font-bold text-ink sm:text-5xl" />
+        <SplitWords as="h1" text={collectionName && product.collection ? pieceName(name, collectionName) : name} immediate className="title-page mt-3 text-ink" />
         {subtitle && <p className="mt-3 text-base leading-8 text-muted">{subtitle}</p>}
-        <p className="mt-2 font-ui text-xs text-faint">
+        <p className="mt-2 font-ui text-xs text-muted">
           {tr.ref} <span className="font-label tracking-wide text-muted ltr">{variant?.sku || product.sku}</span>
         </p>
 

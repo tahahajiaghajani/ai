@@ -95,15 +95,15 @@ export function OrderActions({ lang, code, cancellable, lines }: { lang: Lang; c
       {note && <p className="mt-3 text-sm text-muted">{note}</p>}
       <Overlay open={open} onClose={() => setOpen(false)} label={c.cancelTitle} closeLabel={commonCopy(lang).nav.close}>
         <div className="space-y-5 px-5 pt-6 pb-8 sm:px-8">
-          <p className="display text-2xl">{c.cancelTitle}</p>
+          <p className="title-card">{c.cancelTitle}</p>
           <p className="text-sm leading-7 text-ink-2">{c.cancelText}</p>
           <TextArea id="cancel-reason" label={c.cancelReason} optional={accountCopy(lang).fields.optional} value={reason} onChange={(e) => setReason(e.target.value)} maxLength={300} rows={3} />
-          <div aria-live="polite">{error && <FormNote tone="error">{error}</FormNote>}</div>
+          {error && <FormNote tone="error">{error}</FormNote>}
           <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
             <button type="button" onClick={() => setOpen(false)} className={btn.outline}>
               {c.keep}
             </button>
-            <button type="button" onClick={cancel} disabled={pending} className="inline-flex h-12 items-center justify-center bg-danger px-7 text-sm text-bone transition-opacity hover:opacity-90 disabled:opacity-50">
+            <button type="button" onClick={cancel} aria-disabled={pending || undefined} aria-busy={pending || undefined} className="inline-flex h-12 items-center justify-center bg-danger px-7 text-sm text-bone transition-opacity hover:opacity-90 aria-disabled:opacity-50">
               {pending ? "…" : c.cancelConfirm}
             </button>
           </div>

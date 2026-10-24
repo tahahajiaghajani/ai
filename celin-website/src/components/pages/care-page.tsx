@@ -7,6 +7,7 @@ import { careCopy } from "@/content/copy/care";
 import { Arch } from "@/components/fx/arch";
 import { ArchLines } from "@/components/fx/arch-lines";
 import { Grain } from "@/components/fx/grain";
+import { Melt } from "@/components/fx/melt";
 import { SplitWords } from "@/components/fx/split-words";
 import { Icon } from "@/components/ui/icons";
 import { SectionHead } from "@/components/home/sections";
@@ -39,25 +40,28 @@ export async function CarePage({ lang }: { lang: Lang }) {
       />
 
       {/* the habits, as an arcade */}
-      <section className="relative isolate overflow-clip bg-mesh-porcelain py-20 sm:py-28">
+      <section className="relative isolate overflow-clip bg-mesh-porcelain pt-[max(5rem,calc(var(--melt-h)*0.85))] pb-[calc(var(--melt-h)+2rem)] sm:pt-28 sm:pb-[calc(var(--melt-h)+3rem)]">
+        {/* the cocoa night of the hero melts into the porcelain, and the porcelain into the espresso band below */}
+        <Melt at="top" />
+        <Melt at="bottom" />
         <div className="container-lux">
           <SectionHead eyebrow={c.rules.eyebrow} title={c.rules.title} align="center" />
           <ol className="-mx-[var(--gutter)] mt-14 flex snap-x snap-mandatory gap-4 overflow-x-auto px-[var(--gutter)] pt-3 pb-4 [scrollbar-width:none] sm:grid sm:grid-cols-2 sm:gap-6 sm:overflow-visible lg:grid-cols-4 [&::-webkit-scrollbar]:hidden">
             {c.rules.items.map((r, i) => (
               <li key={i} className="w-[72vw] max-w-[300px] shrink-0 snap-center sm:w-auto sm:max-w-none" data-reveal style={{ "--d": i } as CSSProperties}>
-                <div className="frame-metal arch relative flex h-full min-h-[21rem] flex-col items-center bg-porcelain px-6 pt-16 pb-10 text-center [--frame:var(--metal-copper)] sm:min-h-[23rem]">
+                <div className="frame-metal arch relative flex h-full min-h-[19rem] flex-col items-center bg-porcelain px-6 pt-14 pb-10 text-center [--frame:var(--metal-copper)] sm:min-h-[21rem]">
                   <span aria-hidden className="arch absolute inset-0 bg-[radial-gradient(80%_50%_at_50%_0%,rgb(230_208_171/0.5),transparent_75%)]" />
                   <svg aria-hidden viewBox="0 0 10 10" className="absolute left-1/2 top-0 size-2.5 -translate-x-1/2 -translate-y-1/2 text-gold-bright">
                     <path d="M5 0 10 5 5 10 0 5Z" fill="currentColor" />
                   </svg>
-                  <span className="display relative text-6xl leading-[1.2]! font-bold text-metal">{ordinal(i + 1, lang)}</span>
-                  <span aria-hidden className="relative mt-5 block h-px w-10 bg-gold/50" />
-                  <p className="relative mt-6 text-base leading-8 text-ink-2 sm:text-lg sm:leading-9">{r}</p>
+                  <span className="numeral relative text-metal">{ordinal(i + 1, lang)}</span>
+                  <span aria-hidden className="relative mt-4 block h-px w-10 bg-gold/50" />
+                  <p className="lede relative mt-5 text-ink-2">{r}</p>
                 </div>
               </li>
             ))}
           </ol>
-          <p className="mx-auto mt-12 flex max-w-2xl items-start justify-center gap-3 text-center text-base leading-8 text-muted sm:text-lg sm:leading-9" data-reveal>
+          <p className="lede mx-auto mt-12 flex max-w-2xl items-start justify-center gap-3 text-center text-muted" data-reveal>
             {diamond("mt-3 size-1.5 shrink-0 text-gold")}
             <span>{c.rules.note}</span>
           </p>
@@ -65,7 +69,9 @@ export async function CarePage({ lang }: { lang: Lang }) {
       </section>
 
       {/* packaging & delivery */}
-      <section data-tone="light" className="relative isolate overflow-clip bg-mesh-espresso py-20 text-on-night sm:py-28">
+      <section data-tone="light" className="relative isolate overflow-clip bg-night-2 py-20 text-on-night sm:py-28">
+        {/* plain night-2 at both edges, where the light bands above and below melt into it */}
+        <span aria-hidden className="absolute inset-0 -z-10 bg-mesh-espresso [mask-image:linear-gradient(to_bottom,transparent,black_9rem,black_calc(100%-9rem),transparent)]" />
         <Grain />
         <div className="container-lux relative grid items-center gap-14 lg:grid-cols-12 lg:gap-10">
           <div className="relative mx-auto w-[min(66vw,340px)] lg:col-span-4 lg:col-start-2 lg:w-full lg:max-w-[380px]" data-cursor="view">
@@ -81,7 +87,7 @@ export async function CarePage({ lang }: { lang: Lang }) {
               {c.delivery.steps.map((d, i) => (
                 <li key={i} className="relative" data-reveal style={{ "--d": i } as CSSProperties}>
                   <span className="arch-full absolute -start-12 top-0 grid size-9 place-items-center border border-gold-on-dark/40 bg-night font-label text-xs text-gold-on-dark tabular-nums">{ordinal(i + 1, lang)}</span>
-                  <p className="text-lg leading-9 text-on-night">{d}</p>
+                  <p className="lede text-on-night">{d}</p>
                 </li>
               ))}
             </ol>
@@ -90,7 +96,8 @@ export async function CarePage({ lang }: { lang: Lang }) {
       </section>
 
       {/* warranty — owner-editable placeholder (src/content/copy/care.ts) */}
-      <section id="warranty" className="relative isolate scroll-mt-[var(--header-h)] overflow-clip bg-mesh-bone py-20 sm:py-28">
+      <section id="warranty" className="relative isolate scroll-mt-[var(--header-h)] overflow-clip bg-mesh-bone pt-[max(5rem,calc(var(--melt-h)*0.85))] pb-20 sm:pt-28 sm:pb-28">
+        <Melt at="top" />
         <div className="container-lux">
           <div className="frame-metal relative mx-auto max-w-4xl overflow-hidden bg-porcelain/80 px-6 py-12 text-center [--frame:var(--metal-copper)] sm:px-14 sm:py-16">
             <ArchLines count={3} className="pointer-events-none absolute inset-x-0 -bottom-4 mx-auto h-[120%] w-[min(560px,120%)] opacity-50" />
@@ -99,14 +106,14 @@ export async function CarePage({ lang }: { lang: Lang }) {
                 {diamond("size-1.5 text-gold")}
                 {c.warranty.eyebrow}
               </p>
-              <SplitWords text={c.warranty.title} className="display mt-4 text-[2rem] leading-[1.4]! font-bold text-ink sm:text-5xl" />
-              <p className="mx-auto mt-6 max-w-2xl text-lg leading-10 text-ink-2" data-reveal>
+              <SplitWords text={c.warranty.title} className="title-section mt-4 text-ink" />
+              <p className="lede mx-auto mt-5 max-w-2xl text-ink-2" data-reveal>
                 {c.warranty.body}
               </p>
               {c.warranty.points.length > 0 && (
                 <ul className="mx-auto mt-8 max-w-xl space-y-3 text-start">
                   {c.warranty.points.map((p) => (
-                    <li key={p} className="flex items-start gap-3 text-base leading-8 text-ink-2">
+                    <li key={p} className="lede flex items-start gap-3 text-ink-2">
                       {diamond("mt-3 size-1.5 shrink-0 text-gold")}
                       {p}
                     </li>

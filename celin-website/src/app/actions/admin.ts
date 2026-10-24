@@ -3,16 +3,17 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { after } from "next/server";
-import { checkPassword, endSession, startSession } from "@/lib/admin-auth";
-import { USERS, currentUser, startUserSession } from "@/lib/auth";
+import { signIn } from "@/app/actions/account";
+import { canActivateAdmin, checkPassword, endSession, isAdminDevice, markAdminDevice, startSession } from "@/lib/admin-auth";
+import { USERS, endUserSession, isAdminRow, sessionState, startUserSession } from "@/lib/auth";
 import { cleanKey, guard } from "@/lib/admin-action";
 import { encrypt, hashIp } from "@/lib/crypto";
-import { requireDb, UserError } from "@/lib/db";
+import { db, isMissingColumn, UserError } from "@/lib/db";
 import { sendEmail, mailHtml } from "@/lib/email";
 import { latinDigits, normalizePhone } from "@/lib/format";
 import { notifyTeam } from "@/lib/notify";
 import { proStatus } from "@/lib/pro";
-import { allow } from "@/lib/rate-limit";
+import { allow, limited } from "@/lib/rate-limit";
 import { clientIp } from "@/lib/request";
 import { getSettingsFresh, saveSettings } from "@/lib/settings";
 import { DEFAULT_SETTINGS, type NotifyChannel, type SmsProvider } from "@/lib/settings-types";
@@ -24,25 +25,111 @@ import { text, type Result } from "@/lib/action";
 
 // ---------------------------------------------------------------- session
 
+const RATE = "تلاش‌های زیادی انجام شد؛ ۱۵ دقیقه‌ی دیگر امتحان کنید.";
+const RATE_ACCOUNT = "تلاش‌های زیادی برای این حساب انجام شد؛ یک ساعت دیگر امتحان کنید.";
+// shared by both ADMIN_PASSWORD forms: a ceiling on wrong guesses from all addresses together (failures only,
+// so the owner's right password never uses it up; a browser that proved the password before passes it)
+const GLOBAL = { key: "admin-login:global", window: 900, max: 40 } as const;
+
+async function globalCeiling(): Promise<boolean> {
+  return !(await isAdminDevice()) && (await limited(GLOBAL.key, GLOBAL.window, GLOBAL.max));
+}
+
+async function wrongAdminPassword(): Promise<void> {
+  await allow(GLOBAL.key, GLOBAL.window, GLOBAL.max);
+  await new Promise((r) => setTimeout(r, 600));
+}
+
+/**
+ * The optional ADMIN_PASSWORD login (break-glass). It opens the panel in this browser only and never changes
+ * an account by itself: accounts become admins by proving ADMIN_PASSWORD on their own account (activateAdmin)
+ * or through Users → «مدیر کردن» — in both cases only for a number in ADMIN_PHONES when that list is set.
+ */
 export async function login(_prev: { error: string } | null, form: FormData): Promise<{ error: string } | null> {
   const ip = hashIp(await clientIp());
-  if (!(await allow(`admin-login:${ip}`, 900, 8))) return { error: "تلاش‌های زیادی انجام شد؛ ۱۵ دقیقه‌ی دیگر امتحان کنید." };
+  if (!(await allow(`admin-login:${ip}`, 900, 8)) || (await globalCeiling())) return { error: RATE };
   if (!checkPassword(String(form.get("password") ?? ""))) {
-    await new Promise((r) => setTimeout(r, 600));
-    return { error: "رمز عبور درست نیست." };
+    await wrongAdminPassword();
+    return { error: "رمز مدیریت درست نیست." };
   }
   await startSession();
-  // the password also promotes the account signed in in this browser, so from now on it is recognised as admin
-  const me = await currentUser();
-  if (me && me.role !== "admin") {
-    const { error } = await requireDb().from(USERS).update({ role: "admin", updated_at: new Date().toISOString() }).eq("id", me.id);
-    if (!error) await startUserSession({ ...me, role: "admin" }, (await proStatus(me.id)).active);
-  }
+  await markAdminDevice();
+  console.info("[admin] break-glass session opened with ADMIN_PASSWORD");
   redirect("/admin");
 }
 
+/**
+ * /admin/login, the account form: the site's own sign-in (same action, limits and messages as /account/login)
+ * as a real POST form, so it works before the page's script has loaded and the password never lands in the
+ * address bar. An admin goes on to the panel; an account that may be made admin comes back here for the admin
+ * password; any other account sees «no admin access».
+ */
+export async function adminSignIn(_prev: { error: string; login: string } | null, form: FormData): Promise<{ error: string; login: string } | null> {
+  const login = String(form.get("username") ?? "").slice(0, 160);
+  const r = await signIn({ login, password: String(form.get("password") ?? ""), lang: "fa", next: "/admin" });
+  if (!r.ok) return { error: r.error, login };
+  redirect(r.next.startsWith("/admin") ? r.next : "/admin/login");
+}
+
+/**
+ * «فعال کردن پنل روی این حساب»: the account signed in here (with its password) proves ADMIN_PASSWORD once and
+ * becomes an admin for good; from then on a normal sign-in opens the panel. Only when ADMIN_PASSWORD is set,
+ * and — when the ADMIN_PHONES allow-list is set — only for a listed number. Rate-limited like the password
+ * login, logged, the team is told (if notifications are on), and every other session of the account ends.
+ */
+export async function activateAdmin(_prev: { error: string } | null, form: FormData): Promise<{ error: string } | null> {
+  const s = await sessionState();
+  if (s.state !== "ok") return { error: "نشست شما پایان یافته است؛ دوباره وارد شوید." };
+  const me = s.user;
+  if (s.via !== "pw") return { error: "اول با شماره‌ی موبایل و رمز عبور همین حساب وارد شوید." };
+  if (!canActivateAdmin(me)) return { error: "پنل مدیریت روی این حساب فعال نمی‌شود." };
+  const ip = hashIp(await clientIp());
+  const accountKey = `admin-activate:${me.id}`;
+  if (!(await allow(`admin-login:${ip}`, 900, 8)) || (await globalCeiling())) return { error: RATE };
+  // per account: wrong guesses only, for an hour (the message says so)
+  if (await limited(accountKey, 3600, 8)) return { error: RATE_ACCOUNT };
+  if (!checkPassword(String(form.get("password") ?? ""))) {
+    await allow(accountKey, 3600, 8);
+    await wrongAdminPassword();
+    console.warn(`[admin] wrong admin password for account ${me.id}`);
+    return { error: "رمز مدیریت درست نیست." };
+  }
+  const c = db();
+  if (!c) return { error: "پایگاه داده تنظیم نشده است." };
+  const ver = me.session_version + 1;
+  // compare-and-set on the session version: every other session of this account ends. The password is the
+  // admin's own from now on (a later revoked Pro code must not remove it and lock the admin out).
+  const write = (extra: Record<string, unknown>) =>
+    c.from(USERS).update({ role: "admin", session_version: ver, updated_at: new Date().toISOString(), ...extra }).eq("id", me.id).eq("session_version", me.session_version).select("id");
+  let { data, error } = await write({ password_from_code: false });
+  if (isMissingColumn(error)) ({ data, error } = await write({})); // before the hardening migration
+  if (error || !data?.length) {
+    if (error) console.error("[admin] activate", error.message);
+    return { error: "فعال‌سازی انجام نشد؛ دوباره امتحان کنید." };
+  }
+  console.info(`[admin] account ${me.id} (${me.phone}) is now an admin (proved ADMIN_PASSWORD)`);
+  await startUserSession({ ...me, role: "admin", session_version: ver }, (await proStatus(me.id)).active);
+  await markAdminDevice();
+  after(async () => {
+    const s2 = await getSettingsFresh().catch(() => null);
+    if (s2) await notifyTeam(`پنل مدیریت سلین روی یک حساب فعال شد\n${me.name} — ${me.phone}`, s2.notify);
+  });
+  redirect("/admin");
+}
+
+/**
+ * «خروج»: ends the panel and the account session of this browser. An admin account is signed out on every
+ * device (its session version moves on), so a copied session cookie stops opening the panel too.
+ */
 export async function logout(): Promise<void> {
+  const s = await sessionState();
+  const c = db();
+  if (s.state === "ok" && isAdminRow(s.user) && c) {
+    const { error } = await c.from(USERS).update({ session_version: s.user.session_version + 1, updated_at: new Date().toISOString() }).eq("id", s.user.id).eq("session_version", s.user.session_version);
+    if (error) console.error("[admin] logout", error.message);
+  }
   await endSession();
+  await endUserSession();
   redirect("/admin/login");
 }
 
@@ -51,6 +138,16 @@ function refresh() {
 }
 
 const bool = (v: unknown) => v === true || v === "on" || v === "true";
+
+/** An https:// link, or "" for an empty field; anything else is refused with a message instead of being dropped. */
+function httpsLink(v: unknown, max: number, label: string): string {
+  const s = text(v, max);
+  if (!s) return "";
+  if (/^https:\/\/[^\s/]+/i.test(s)) return s;
+  // a pasted address without the scheme (maps.app.goo.gl/…, neshan.org/…): https is assumed
+  if (/^[a-z0-9-]+(\.[a-z0-9-]+)+(\/\S*)?$/i.test(s)) return `https://${s}`;
+  throw new UserError(`${label} باید با https:// شروع شود.`);
+}
 const int = (v: unknown, min: number, max: number, fallback: number) => {
   const n = Math.round(Number(latinDigits(String(v ?? "")).replace(/[,٬\s]/g, "")));
   return Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : fallback;
@@ -71,7 +168,7 @@ export async function saveContact(input: Record<string, unknown>): Promise<Resul
       address_en: text(input.address_en, 400),
       hours_fa: text(input.hours_fa, 200),
       hours_en: text(input.hours_en, 200),
-      mapUrl: /^https:\/\//.test(text(input.mapUrl, 500)) ? text(input.mapUrl, 500) : "",
+      mapUrl: httpsLink(input.mapUrl, 500, "لینک نقشه"),
     });
     refresh();
     return { ok: true, message: "اطلاعات تماس ذخیره شد." };
@@ -81,7 +178,9 @@ export async function saveContact(input: Record<string, unknown>): Promise<Resul
 export async function saveAnnouncement(input: Record<string, unknown>): Promise<Result> {
   return guard(async () => {
     const link = text(input.link, 300);
-    await saveSettings("announcement", { enabled: bool(input.enabled), text_fa: text(input.text_fa, 200), text_en: text(input.text_en, 200), link: link.startsWith("/") || link.startsWith("https://") ? link : "" });
+    if (link && !link.startsWith("/") && !/^https:\/\//i.test(link)) throw new UserError("لینک نوار اطلاعیه باید با / (صفحه‌ای از همین سایت) یا https:// شروع شود.");
+    if (/^\/[/\\]/.test(link)) throw new UserError("لینک نوار اطلاعیه باید با یک / یا https:// شروع شود.");
+    await saveSettings("announcement", { enabled: bool(input.enabled), text_fa: text(input.text_fa, 200), text_en: text(input.text_en, 200), link });
     refresh();
     return { ok: true, message: "نوار اطلاعیه ذخیره شد." };
   });

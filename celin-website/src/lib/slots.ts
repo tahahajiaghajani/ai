@@ -87,7 +87,8 @@ async function loadSlots(): Promise<SlotMap> {
   return base;
 }
 
-const cachedSlots = unstable_cache(loadSlots, ["celin-slots-v3"], { tags: ["slots"], revalidate: 900 });
+// admin changes invalidate the tag at once; the timer is only a safety net for edits made in SQL
+const cachedSlots = unstable_cache(loadSlots, ["celin-slots-v6"], { tags: ["slots"], revalidate: 3600 });
 
 /** All design pictures with their texts; a failed read falls back to the built-in defaults (never cached). */
 export async function getSlots(): Promise<SlotMap> {

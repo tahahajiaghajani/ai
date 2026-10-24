@@ -2,6 +2,21 @@ import { currentUser, setProHint } from "@/lib/auth";
 import { proPrices } from "@/lib/catalog";
 import { proStatus } from "@/lib/pro";
 import { getSettings } from "@/lib/settings";
+import { MAX_QTY } from "@/lib/order-meta";
+import type { ProPrices } from "@/lib/catalog-types";
+
+/**
+ * «نمایش موجودی: سطح»: members see in stock / running low (with the few pieces left) / out of stock, never
+ * the exact count of a well-stocked piece — above the low-stock line the number is replaced by «plenty»
+ * (enough for any basket; the order itself still checks the real stock).
+ */
+function levelled(prices: ProPrices, low: number): ProPrices {
+  const plenty = Math.max(MAX_QTY, low + 1);
+  const cap = (n: number) => (n > low ? plenty : n);
+  return Object.fromEntries(
+    Object.entries(prices).map(([id, p]) => [id, { ...p, stock: cap(p.stock), variants: Object.fromEntries(Object.entries(p.variants).map(([vid, v]) => [vid, { ...v, stock: cap(v.stock) }])) }]),
+  );
+}
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +35,8 @@ export async function GET() {
   }
   try {
     const [prices, s] = await Promise.all([proPrices(), getSettings()]);
-    return Response.json({ prices, stockDisplay: s.shop.stockDisplay, lowStock: s.shop.lowStock, minOrder: s.shop.minOrder }, { headers });
+    const shown = s.shop.stockDisplay === "level" ? levelled(prices, s.shop.lowStock) : prices;
+    return Response.json({ prices: shown, stockDisplay: s.shop.stockDisplay, lowStock: s.shop.lowStock, minOrder: s.shop.minOrder }, { headers });
   } catch (e) {
     console.error("[pro prices]", e);
     return Response.json({ error: "failed" }, { status: 503, headers });

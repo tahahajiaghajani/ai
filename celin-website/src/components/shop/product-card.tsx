@@ -8,6 +8,7 @@ import { Picture } from "@/components/ui/picture";
 import { PriceSlot } from "@/components/pro/price-slot";
 import { Swatch } from "@/components/shop/swatch";
 import { WishButton } from "@/components/shop/wish-button";
+import { pieceName } from "@/components/shop/piece-name";
 
 /**
  * The product card: a tonal 4:5 tile (the on-model picture fades in on hover, desktop only), the collection
@@ -63,7 +64,7 @@ export function ProductCard({
       <WishButton slug={p.slug} lang={lang} className={arch ? "absolute top-[18%] end-0" : "absolute top-1 end-1"} />
       <Link href={href(lang, `/product/${p.slug}`)} className={`flex flex-1 flex-col pt-4 pb-5 ${arch ? "items-center px-1 text-center" : "px-3 sm:px-4"}`}>
         {collectionName && <span className="label text-gold-text!">{collectionName}</span>}
-        <h3 className="mt-1 text-base leading-7 font-semibold text-ink">{name}</h3>
+        <h3 className="mt-1 text-base leading-7 font-semibold text-ink">{pieceName(name, collectionName)}</h3>
         <PriceSlot productId={p.id} lang={lang} className="mt-1" />
         {swatches.length > 1 && (
           <span className="mt-2 flex items-center gap-1.5 text-xs text-muted">

@@ -82,13 +82,25 @@ function SignOutButton({ lang, className, children }: { lang: Lang; className: s
   );
 }
 
+/** «پنل مدیریت» for an admin account (the panel itself asks for a password sign-in when needed). */
+function AdminNavLink({ lang, className, iconClass }: { lang: Lang; className: string; iconClass: string }) {
+  const me = useMe();
+  if (me?.role !== "admin") return null;
+  return (
+    <a href="/admin" className={className}>
+      <Icon name="settings" className={`${iconClass} shrink-0 text-gold-text`} />
+      {lang === "fa" ? "پنل مدیریت" : "Admin panel"}
+    </a>
+  );
+}
+
 /** Desktop sidebar: the member, a Pro chip when active, the sections with counts, «خروج». */
 export function AccountSidebar({ lang, initial }: { lang: Lang; initial: NavInitial }) {
   const c = accountCopy(lang).nav;
   const { name, pro, counts, isActive } = useNav(lang, initial);
   return (
     <div>
-      <p className="display text-2xl leading-snug break-words">{name}</p>
+      <p className="title-card break-words">{name}</p>
       {pro && <ProChip lang={lang} className="mt-3" />}
       <nav aria-label={c.label} className="mt-8 border-t border-line">
         <ul>
@@ -110,6 +122,7 @@ export function AccountSidebar({ lang, initial }: { lang: Lang; initial: NavInit
             );
           })}
         </ul>
+        <AdminNavLink lang={lang} className="flex h-12 items-center gap-3 border-b border-line ps-4 text-sm text-ink-2 hover:text-ink" iconClass="size-[18px]" />
         <SignOutButton lang={lang} className="flex h-12 w-full items-center gap-3 ps-4 text-sm text-muted hover:text-ink">
           <Icon name="logout" className="size-[18px] shrink-0 rtl:-scale-x-100" />
           {c.signOut}
@@ -139,6 +152,9 @@ export function AccountMenuList({ lang, initial }: { lang: Lang; initial: NavIni
             </li>
           );
         })}
+        <li className="empty:hidden">
+          <AdminNavLink lang={lang} className="flex h-14 items-center gap-3.5 text-md text-ink" iconClass="size-5" />
+        </li>
         <li>
           <SignOutButton lang={lang} className="flex h-14 w-full items-center gap-3.5 text-md text-muted">
             <Icon name="logout" className="size-5 shrink-0 rtl:-scale-x-100" />

@@ -1,16 +1,18 @@
 "use client";
 
 import { useEffect, type RefObject } from "react";
-import { finePointer, motionReduced } from "@/components/fx/motion";
+import { finePointer, useMotionReduced } from "@/components/fx/motion";
 
 /**
  * Pointer depth for a hero: every `[data-depth]` element inside `root` leans towards the pointer by its
- * data-depth (px at the screen edge; negative leans away). Mouse/trackpad only; nothing with reduced motion.
+ * data-depth (px at the screen edge; negative leans away). Mouse/trackpad only; nothing with reduced motion
+ * (live: turning motion off puts the layers back at once).
  */
 export function usePointerDepth(root: RefObject<HTMLElement | null>) {
+  const reduced = useMotionReduced();
   useEffect(() => {
     const el = root.current;
-    if (!el || !finePointer() || motionReduced()) return;
+    if (!el || !finePointer() || reduced) return;
     const layers = [...el.querySelectorAll<HTMLElement>("[data-depth]")];
     if (!layers.length) return;
     let raf = 0;
@@ -34,6 +36,7 @@ export function usePointerDepth(root: RefObject<HTMLElement | null>) {
     return () => {
       window.removeEventListener("pointermove", move);
       cancelAnimationFrame(raf);
+      for (const l of layers) l.style.translate = "";
     };
-  }, [root]);
+  }, [root, reduced]);
 }

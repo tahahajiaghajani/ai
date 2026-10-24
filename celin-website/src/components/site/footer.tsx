@@ -6,6 +6,7 @@ import { href } from "@/lib/i18n";
 import type { ContactSettings } from "@/lib/settings-types";
 import { ArchLines } from "@/components/fx/arch-lines";
 import { Grain } from "@/components/fx/grain";
+import { Melt, NightHead } from "@/components/fx/melt";
 import { SplitWords } from "@/components/fx/split-words";
 import { Icon } from "@/components/ui/icons";
 import { MotionToggle } from "@/components/site/motion-toggle";
@@ -17,12 +18,16 @@ const diamond = (className: string) => (
   </svg>
 );
 
-/** The house's three promises before the night band: each under a small copper arch with its numeral. */
+/**
+ * The house's three promises before the night band: each under a small copper arch with its numeral. It opens on
+ * the plain ground (the bone fades in, so the last band of any page runs into it) and melts into the footer's night.
+ */
 export function ServicesStrip({ lang }: { lang: Lang }) {
   const c = commonCopy(lang);
   return (
-    <section className="relative isolate overflow-clip bg-mesh-bone">
-      <span aria-hidden className="hairline absolute inset-x-0 top-0" />
+    <section className="relative isolate overflow-clip pb-[calc(var(--melt-h)*0.85)]">
+      <span aria-hidden className="absolute inset-0 -z-10 bg-mesh-bone [mask-image:linear-gradient(to_bottom,transparent,black_5rem)]" />
+      <Melt at="bottom" />
       <ul className="container-lux grid gap-10 py-14 sm:grid-cols-3 sm:gap-0 sm:py-16">
         {c.services.map((s, i) => (
           <li key={s.title} className="flex items-start gap-5 sm:border-s sm:border-gold/20 sm:px-8 sm:first:border-s-0 sm:first:ps-0 lg:px-12" data-reveal style={{ "--d": i } as CSSProperties}>
@@ -63,12 +68,14 @@ export function Footer({ lang, contact }: { lang: Lang; contact: ContactSettings
   );
   const hours = lang === "fa" ? contact.hours_fa : contact.hours_en || contact.hours_fa;
   return (
-    <footer data-tone="light" className="relative isolate overflow-clip bg-night text-on-night">
+    <footer id="site-footer" data-tone="light" className="relative isolate overflow-clip bg-night text-on-night">
       <span aria-hidden className="absolute inset-0 -z-10 bg-mesh-espresso" />
       <span aria-hidden className="pointer-events-none absolute inset-0 -z-10 overflow-hidden opacity-60">
         <span className="fx-aura-css" />
       </span>
       <Grain />
+      {/* plain night-2 at the head, where the strip above melted into it */}
+      <NightHead />
 
       <div className="container-lux relative pt-20 sm:pt-28">
         {/* the brand under its arcade */}
@@ -84,10 +91,7 @@ export function Footer({ lang, contact }: { lang: Lang; contact: ContactSettings
               {c.brand.since}
               {diamond("size-1.5 text-gold-glow")}
             </p>
-            <SplitWords as="p" text={c.brand.line} className="display mt-4 text-[2.35rem] leading-[1.35]! font-bold sm:text-6xl lg:text-7xl" wordClassName="text-metal-light metal-live" />
-            <p className="mx-auto mt-6 max-w-xl text-base leading-8 text-on-night-muted sm:text-lg sm:leading-9" data-reveal>
-              {c.brand.about}
-            </p>
+            <SplitWords as="p" text={c.brand.line} className="title-mark mt-4" wordClassName="text-metal-light metal-live" />
           </div>
         </div>
         <span aria-hidden className="hairline-light block" />
@@ -168,7 +172,6 @@ export function Footer({ lang, contact }: { lang: Lang; contact: ContactSettings
           </span>
           <span className="flex flex-wrap items-center gap-x-6 gap-y-2">
             <MotionToggle labels={{ reduce: c.footer.reduceMotion, restore: c.footer.restoreMotion }} />
-            <span className="font-label text-[10px] tracking-[0.32em] text-on-night-muted/70 ltr">{c.footer.handmade.toUpperCase()}</span>
           </span>
         </div>
       </div>

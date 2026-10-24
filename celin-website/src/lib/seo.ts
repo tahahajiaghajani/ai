@@ -1,11 +1,13 @@
 import "server-only";
 import type { Metadata, MetadataRoute, Viewport } from "next";
 import { env } from "@/lib/env";
-import { href, type Lang } from "@/lib/i18n";
+import { href, t, type Lang } from "@/lib/i18n";
+import type { Category, Collection, Product } from "@/lib/catalog-types";
+import { story } from "@/content/copy/story";
 
 export const SITE = {
-  fa: { name: "سلین", title: "سلین CELIN — فراتر از یک زیور", description: "سلین؛ فراتر از یک زیور، امضایی از ظرافت، کیفیت و اصالت. زیورآلات سبک جواهری با نگین‌های کیوبیک زیرکونیا، مخراج‌کاری دقیق و آبکاری رودیوم و طلا، از سال ۱۳۸۵." },
-  en: { name: "CELIN", title: "CELIN — More than an ornament", description: "CELIN: more than an ornament — a signature of finesse, quality and authenticity. Fine-jewelry-style pieces with cubic zirconia stones, precise setting and rhodium and gold plating, since 2006." },
+  fa: { name: "سلین", title: "سلین CELIN — فراتر از یک زیور", description: "سلین؛ فراتر از یک زیور، امضایی از ظرافت، کیفیت و اصالت. زیورآلات سبک جواهری با نگین‌های درخشان، مخراج‌کاری دقیق و آبکاری رودیوم و طلا، از سال ۱۳۸۵." },
+  en: { name: "CELIN", title: "CELIN — More than an ornament", description: "CELIN: more than an ornament — a signature of finesse, quality and authenticity. Fine-jewelry-style pieces with brilliant stones, precise setting and rhodium and gold plating, since 2006." },
 } as const;
 
 export const siteViewport: Viewport = {
@@ -17,15 +19,17 @@ export const siteViewport: Viewport = {
   interactiveWidget: "resizes-content",
 };
 
-export function siteMetadata(lang: Lang): Metadata {
+/** Site-wide metadata; `description` is the admin's «توضیح سایت در گوگل» (Settings → SEO) when it is filled. */
+export function siteMetadata(lang: Lang, description?: string): Metadata {
   const s = SITE[lang];
+  const desc = description?.trim() || s.description;
   return {
     metadataBase: new URL(env.siteUrl),
     title: { default: s.title, template: `%s | ${s.name}` },
-    description: s.description,
+    description: desc,
     applicationName: s.name,
-    openGraph: { type: "website", locale: lang === "fa" ? "fa_IR" : "en_US", siteName: s.name, title: s.title, description: s.description, images: [{ url: "/og.png", width: 1200, height: 630, alt: s.name }] },
-    twitter: { card: "summary_large_image", title: s.title, description: s.description, images: ["/og.png"] },
+    openGraph: { type: "website", locale: lang === "fa" ? "fa_IR" : "en_US", siteName: s.name, title: s.title, description: desc, images: [{ url: "/og.png", width: 1200, height: 630, alt: s.name }] },
+    twitter: { card: "summary_large_image", title: s.title, description: desc, images: ["/og.png"] },
     manifest: href(lang, "/manifest.webmanifest"),
     // static files in /public, made from the official mark (public/brand/celin-mark-reverse.svg) on the espresso ground
     icons: {
@@ -56,6 +60,70 @@ export function pageMetadata(lang: Lang, o: { path: string; title: string; descr
     twitter: { card: "summary_large_image", title: o.title, description: o.description, images: [o.image ?? "/og.png"] },
     ...(o.noindex ? { robots: { index: false, follow: false } } : {}),
   };
+}
+
+/** Shortens text for a meta description at a word boundary (never mid-word), ending with «…». */
+export function clip(text: string, max = 160): string {
+  const s = text.replace(/\s+/g, " ").trim();
+  if (s.length <= max) return s;
+  const cut = s.lastIndexOf(" ", max - 1);
+  return `${s.slice(0, cut > max * 0.6 ? cut : max - 1).replace(/[\s،,;؛:—–-]+$/, "")}…`;
+}
+
+const sentences = (s: string) =>
+  s
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(/(?<=[.!?؟])\s+/)
+    .filter(Boolean);
+
+/** Persian indefinite: «انگشتر» → «انگشتری», «گوشواره» → «گوشواره‌ای», «النگو» → «النگویی». */
+const faIndefinite = (w: string) => (/[هی]$/.test(w) ? `${w}‌ای` : /[اوآ]$/.test(w) ? `${w}یی` : `${w}ی`);
+
+/**
+ * A product's meta description: real sentences, unique per product, about 120–160 characters and never a
+ * price — the name with its category and collection, the cut / color / finish line, then the product's own
+ * description while whole sentences fit, and the brand's motto (or its first half) when there is room.
+ */
+export function productDescription(
+  p: Pick<Product, "name_fa" | "name_en" | "subtitle_fa" | "subtitle_en" | "description_fa" | "description_en">,
+  lang: Lang,
+  ctx: { category?: Pick<Category, "name_fa" | "name_en"> | null; collection?: Pick<Collection, "name_fa" | "name_en"> | null } = {},
+  max = 160,
+): string {
+  const name = t(p, "name", lang);
+  const cat = ctx.category ? t(ctx.category, "name", lang) : "";
+  const col = ctx.collection ? t(ctx.collection, "name", lang) : "";
+  const parts = t(p, "subtitle", lang)
+    .split(/\s*[·،,]\s*/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+  let lead: string;
+  if (lang === "fa") {
+    const what = cat ? faIndefinite(cat) : "اثری";
+    const from = col ? `از مجموعه‌ی ${col} سلین` : "از سلین";
+    lead = `${name}، ${what} ${from}${parts.length ? `؛ ${parts.join("، ")}` : ""}.`;
+  } else {
+    const material = parts.map((x, i) => (i === 0 ? x : x.replace(/\b(?!Firouzeh\b)[A-Z][a-z]+/g, (w) => w.toLowerCase())));
+    const from = col ? `from the ${col} collection` : "";
+    const what = cat ? `one of CELIN's ${cat.toLowerCase()}${from ? ` ${from}` : ""}` : `a CELIN piece${from ? ` ${from}` : ""}`;
+    lead = `${name}, ${what}${material.length ? `. ${material.join(", ")}` : ""}.`;
+  }
+  let out = lead;
+  for (const s of sentences(t(p, "description", lang))) {
+    if (`${out} ${s}`.length > max) break;
+    out = `${out} ${s}`;
+  }
+  // the brand's own line: the whole motto when it fits, else its first half
+  const brand = [`${story[lang].motto}.`, lang === "fa" ? `سلین؛ ${story.fa.mottoShort}.` : `CELIN — ${story.en.mottoShort.toLowerCase()}.`].find((b) => `${out} ${b}`.length <= max);
+  if (brand) out = `${out} ${brand}`;
+  return clip(out, max);
+}
+
+/** A collection's meta description: tagline and story, cut at a word boundary. */
+export function collectionDescription(c: Pick<Collection, "tagline_fa" | "tagline_en" | "story_fa" | "story_en">, lang: Lang, max = 160): string {
+  const tagline = t(c, "tagline", lang);
+  return clip([tagline, t(c, "story", lang)].filter(Boolean).join(" — "), max);
 }
 
 export function webManifest(lang: Lang): MetadataRoute.Manifest {

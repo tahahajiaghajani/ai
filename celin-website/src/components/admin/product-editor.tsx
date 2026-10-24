@@ -214,7 +214,13 @@ export function ProductEditor({
 
   const onSave = () => {
     if (!validate()) return;
-    const body = payload(f, product?.id);
+    // with the stock this editor showed: the server saves a stock edit as a change, so orders placed while
+    // the editor was open are not undone (the editor reopens from the stored product after a save)
+    const shown = new Map((product?.variants ?? []).map((v) => [v.id, v.stock]));
+    const plain = payload(f, product?.id);
+    const body = product
+      ? { ...plain, stock_loaded: product.stock, variants: plain.variants.map((v) => (v.id && shown.has(v.id) ? { ...v, stock_loaded: shown.get(v.id) } : v)) }
+      : plain;
     save.run(() => adminSaveProduct(body), {
       onOk: (r) => {
         setBaseline(JSON.stringify(payload(f)));
@@ -517,16 +523,16 @@ function SpecsCard({ specs, setSpecs }: { specs: SpecRow[]; setSpecs: (fn: (xs: 
               </div>
               <div className="grid gap-3 p-3 sm:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
                 <Field label="عنوان (فارسی)">
-                  <Input value={s.label_fa} onChange={(e) => patch(s.k, { label_fa: e.target.value })} maxLength={60} placeholder="مثلاً آبکاری" {...(s.label_fa ? {} : { "data-first": "" })} />
+                  <Input value={s.label_fa} onChange={(e) => patch(s.k, { label_fa: e.target.value })} maxLength={60} placeholder="مثلاً پوشش" {...(s.label_fa ? {} : { "data-first": "" })} />
                 </Field>
                 <Field label="مقدار (فارسی)">
-                  <Input value={s.value_fa} onChange={(e) => patch(s.k, { value_fa: e.target.value })} maxLength={300} placeholder="مثلاً رادیوم طلایی" {...(s.label_fa ? { "data-first": "" } : {})} />
+                  <Input value={s.value_fa} onChange={(e) => patch(s.k, { value_fa: e.target.value })} maxLength={300} placeholder="مثلاً نقره‌ای (آبکاری رودیوم)" {...(s.label_fa ? { "data-first": "" } : {})} />
                 </Field>
                 <Field label="عنوان (انگلیسی)">
-                  <Input value={s.label_en} onChange={(e) => patch(s.k, { label_en: e.target.value })} maxLength={60} dir="ltr" placeholder="Plating" />
+                  <Input value={s.label_en} onChange={(e) => patch(s.k, { label_en: e.target.value })} maxLength={60} dir="ltr" placeholder="Finish" />
                 </Field>
                 <Field label="مقدار (انگلیسی)">
-                  <Input value={s.value_en} onChange={(e) => patch(s.k, { value_en: e.target.value })} maxLength={300} dir="ltr" placeholder="Gold-tone rhodium" />
+                  <Input value={s.value_en} onChange={(e) => patch(s.k, { value_en: e.target.value })} maxLength={300} dir="ltr" placeholder="Silver-tone, rhodium plated" />
                 </Field>
               </div>
             </li>

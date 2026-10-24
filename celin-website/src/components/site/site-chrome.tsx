@@ -9,6 +9,7 @@ import { Footer, ServicesStrip } from "@/components/site/footer";
 import { Header, type MenuData } from "@/components/site/header";
 import { RevealObserver } from "@/components/site/reveal";
 import { SearchOverlay } from "@/components/site/search-overlay";
+import { searchSuggestions } from "@/components/site/search-suggestions";
 import { ProSheet } from "@/components/pro/pro-sheet";
 import { SmoothScroll } from "@/components/fx/smooth-scroll";
 import { Cursor } from "@/components/fx/cursor";
@@ -22,14 +23,13 @@ export async function SiteChrome({ lang, children }: { lang: Lang; children: Rea
     collections: catalog.collections.map((c) => ({ slug: c.slug, name: t(c, "name", lang), tagline: t(c, "tagline", lang) })),
     promo: promo ? { media: promo.media, title: slotText(promo, "title", lang), cta: slotText(promo, "cta", lang), href: slotText(promo, "href", lang) || "/shop" } : null,
   };
-  const c = common[lang];
-  const suggestions = [
-    ...catalog.categories.slice(0, 5).map((k) => ({ label: t(k, "name", lang), path: `/shop/${k.slug}` })),
-    ...catalog.collections.slice(0, 3).map((k) => ({ label: `${lang === "fa" ? "مجموعه‌ی " : ""}${t(k, "name", lang)}`, path: `/collections/${k.slug}` })),
-    { label: c.nav.care, path: "/care" },
-  ];
+  const suggestions = searchSuggestions(catalog, lang);
   return (
     <>
+      {/* the first Tab stop of every page */}
+      <a href="#main" className="sr-only z-[60] bg-ink px-4 py-2 text-bone focus:not-sr-only focus:fixed focus:top-2 focus:start-2">
+        {common[lang].skip}
+      </a>
       <Announcement lang={lang} a={settings.announcement} />
       <Header lang={lang} menu={menu} />
       <div id="main" tabIndex={-1} className="outline-none">

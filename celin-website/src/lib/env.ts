@@ -18,8 +18,21 @@ export const env = {
   get bucket() {
     return process.env.SUPABASE_BUCKET || "celin-media";
   },
+  /** the admin password: proven once on /admin/login to make an account admin; also a break-glass login */
   get adminPassword() {
     return process.env.ADMIN_PASSWORD || "";
+  },
+  /** optional allow-list (comma / space separated mobiles): only these accounts may be made admin with ADMIN_PASSWORD */
+  get adminPhones() {
+    return process.env.ADMIN_PHONES || "";
+  },
+  /** behind a proxy or CDN: the header it puts the visitor's IP in (e.g. x-real-ip from nginx, ar-real-ip behind ArvanCloud) */
+  get trustedIpHeader() {
+    return (process.env.TRUSTED_IP_HEADER || "").trim().toLowerCase();
+  },
+  /** the value the proxy / CDN sends in the x-celin-proxy header; TRUSTED_IP_HEADER then counts only with it (required on Vercel) */
+  get trustedProxySecret() {
+    return (process.env.TRUSTED_PROXY_SECRET || "").trim();
   },
   /** signs sessions, hashes Pro codes and encrypts stored secrets; falls back to the service-role key */
   get appSecret() {

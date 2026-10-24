@@ -6,6 +6,7 @@ import { href, type Lang } from "@/lib/i18n";
 import { contactCopy } from "@/content/copy/contact";
 import { ArchLines } from "@/components/fx/arch-lines";
 import { Magnetic } from "@/components/fx/magnetic";
+import { Melt } from "@/components/fx/melt";
 import { Icon, type IconName } from "@/components/ui/icons";
 import { SectionHead } from "@/components/home/sections";
 import { diamond } from "@/components/house/bits";
@@ -74,7 +75,9 @@ export async function ContactPage({ lang }: { lang: Lang }) {
         actions={ch.wa || ch.tel ? quick : undefined}
       />
 
-      <section className="relative isolate overflow-clip bg-mesh-porcelain py-20 sm:py-28">
+      <section className="relative isolate overflow-clip bg-mesh-porcelain pt-[max(5rem,calc(var(--melt-h)*0.85))] pb-20 sm:py-28">
+        {/* the hero's night melts into the porcelain */}
+        <Melt at="top" />
         <div className="container-lux grid gap-14 lg:grid-cols-12 lg:gap-10">
           {rows.length > 0 && (
             <div className="lg:col-span-7">
@@ -93,7 +96,7 @@ export async function ContactPage({ lang }: { lang: Lang }) {
                       <span className="min-w-0 flex-1">
                         <span className="label block text-muted!">{r.label}</span>
                         <span className="mt-1 block">
-                          <span className={`inline-block max-w-full truncate align-top text-xl text-ink sm:text-2xl ${r.latin ? "ltr font-ui tabular-nums" : "display"}`}>{r.value}</span>
+                          <span className={`inline-block max-w-full truncate align-top text-ink ${r.latin ? "ltr font-ui text-lg tabular-nums sm:text-xl" : "title-card"}`}>{r.value}</span>
                         </span>
                       </span>
                       <span className="hidden items-center gap-2 text-sm text-ink-2 sm:inline-flex">
@@ -112,7 +115,7 @@ export async function ContactPage({ lang }: { lang: Lang }) {
             <aside className={rows.length > 0 ? "lg:col-span-4 lg:col-start-9" : "mx-auto w-full max-w-md lg:col-span-6 lg:col-start-4"}>
               <div className="frame-metal arch relative overflow-hidden bg-porcelain px-7 pt-24 pb-12 text-center [--frame:var(--metal-copper)] sm:px-10">
                 <span aria-hidden className="arch absolute inset-0 bg-[radial-gradient(80%_50%_at_50%_0%,rgb(230_208_171/0.55),transparent_75%)]" />
-                <ArchLines count={3} className="pointer-events-none absolute inset-x-0 bottom-0 mx-auto h-full w-[86%] opacity-50" />
+                <ArchLines count={3} className="pointer-events-none absolute inset-x-0 bottom-0 mx-auto h-full w-[86%] opacity-50 [mask-image:linear-gradient(to_bottom,black_22%,transparent_38%)]" />
                 <svg aria-hidden viewBox="0 0 10 10" className="absolute left-1/2 top-0 size-2.5 -translate-x-1/2 -translate-y-1/2 text-gold-bright">
                   <path d="M5 0 10 5 5 10 0 5Z" fill="currentColor" />
                 </svg>
@@ -121,7 +124,7 @@ export async function ContactPage({ lang }: { lang: Lang }) {
                     <div>
                       <Icon name="clock" className="mx-auto size-6 text-gold-text" />
                       <p className="label mt-4 text-gold-text!">{c.hours}</p>
-                      <p className="display mt-3 text-2xl leading-[1.6]! font-semibold text-ink">{ch.hours}</p>
+                      <p className="title-card mt-3 text-ink">{ch.hours}</p>
                     </div>
                   )}
                   {ch.hours && ch.address && <span aria-hidden className="mx-auto block h-px w-12 bg-gold/40" />}
@@ -129,7 +132,7 @@ export async function ContactPage({ lang }: { lang: Lang }) {
                     <div>
                       <Icon name="map" className="mx-auto size-6 text-gold-text" />
                       <p className="label mt-4 text-gold-text!">{c.address}</p>
-                      <p className="mt-3 text-lg leading-9 text-ink">{ch.address}</p>
+                      <p className="lede mt-3 text-ink">{ch.address}</p>
                       {ch.map && (
                         <a href={ch.map} target="_blank" rel="noreferrer" className="mt-4 inline-flex items-center gap-2 text-sm text-gold-text underline-offset-8 hover:underline">
                           {c.map}
@@ -151,10 +154,11 @@ export async function ContactPage({ lang }: { lang: Lang }) {
           <SectionHead eyebrow={c.help.eyebrow} title={c.help.title} />
           <ul className="mt-12 grid gap-px border-y border-line bg-line sm:grid-cols-3">
             {c.help.items.map((it, i) => (
-              <li key={it.path} className="bg-bone" data-reveal style={{ "--d": i } as CSSProperties}>
-                <Link href={href(lang, it.path)} className="group flex h-full flex-col gap-3 px-1 py-8 transition-colors duration-500 hover:bg-porcelain sm:px-8">
+              <li key={it.path} className="bg-bone">
+                {/* the cell's ground stays opaque (the list's rules are its gaps); only the content reveals */}
+                <Link href={href(lang, it.path)} className="group flex h-full flex-col gap-3 px-1 py-8 transition-colors duration-500 hover:bg-porcelain sm:px-8" data-reveal style={{ "--d": i } as CSSProperties}>
                   {diamond("size-2 text-gold")}
-                  <span className="display mt-2 text-2xl font-bold text-ink sm:text-3xl">{it.title}</span>
+                  <span className="title-card mt-2 text-ink">{it.title}</span>
                   <span className="text-sm leading-7 text-muted">{it.text}</span>
                   <Icon name="arrow" className="mt-2 size-4 text-ink transition-transform duration-500 group-hover:translate-x-1 rtl:-scale-x-100 rtl:group-hover:-translate-x-1" />
                 </Link>

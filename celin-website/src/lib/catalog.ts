@@ -2,7 +2,7 @@ import "server-only";
 import { unstable_cache } from "next/cache";
 import { db, isMissingTable } from "@/lib/db";
 import { env } from "@/lib/env";
-import { getSettings } from "@/lib/settings";
+import { getSettings, getSettingsFresh } from "@/lib/settings";
 import { MEDIA_COLUMNS, rowToMedia, type Media, type MediaRow } from "@/lib/media";
 import type { Catalog, Category, Collection, Product, ProPrices, Spec, Variant } from "@/lib/catalog-types";
 import { SEED_CATEGORIES, SEED_COLLECTIONS, SEED_PRODUCTS } from "@/content/seed-catalog";
@@ -248,22 +248,35 @@ export async function catalogInDb(): Promise<boolean> {
   return Boolean(db()) && (await getSettings()).catalog.initialized;
 }
 
+/**
+ * The same question, strictly: a failed settings read throws instead of reading as "not initialized" (the
+ * cached getSettings falls back to the defaults), so a database hiccup never turns into the starter catalogue.
+ */
+async function catalogInDbStrict(): Promise<boolean> {
+  return Boolean(db()) && (await getSettingsFresh()).catalog.initialized;
+}
+
 async function loadCatalog(): Promise<Catalog> {
-  if (!(await catalogInDb())) return seedCatalog();
+  if (!(await catalogInDbStrict())) return seedCatalog();
   return (await dbCatalog()) ?? seedCatalog();
 }
 
-const cachedCatalog = unstable_cache(loadCatalog, ["celin-catalog-v1"], { tags: ["catalog"], revalidate: 600 });
+// every admin change invalidates the tag at once; the timer is only a safety net for edits made in SQL
+const cachedCatalog = unstable_cache(loadCatalog, ["celin-catalog-v1"], { tags: ["catalog"], revalidate: 3600 });
 
 /**
  * The public catalogue (published items only, no prices). Cached; every admin change invalidates the
- * "catalog" tag. A failed read is never cached: it falls back to the starter catalogue for this request.
+ * "catalog" tag. A failed read is never cached and is not hidden either: with a database configured the
+ * error goes up, so a page being regenerated keeps its last good version (ISR) instead of baking in the
+ * starter catalogue (unknown products would turn into 404s). Only without a database the starter catalogue
+ * is the catalogue.
  */
 export async function getCatalog(): Promise<Catalog> {
   try {
     return await cachedCatalog();
   } catch (e) {
     console.error("[catalog]", e);
+    if (db()) throw e;
     return seedCatalog();
   }
 }
@@ -289,7 +302,7 @@ export function related(catalog: Catalog, p: Product, n = 4): Product[] {
  * stock changes with every order.
  */
 export async function proPrices(): Promise<ProPrices> {
-  if (!(await catalogInDb())) return seedPrices();
+  if (!(await catalogInDbStrict())) return seedPrices();
   const c = db()!;
   const { data, error } = await c.from("celin_products").select("id, price, stock").eq("status", "published").limit(2000);
   if (error) {

@@ -1,14 +1,15 @@
 "use client";
 
 import { useEffect, useRef, type ReactNode } from "react";
-import { finePointer, motionReduced } from "@/components/fx/motion";
+import { finePointer, useMotionReduced } from "@/components/fx/motion";
 
-/** Leans its child towards the pointer when it comes near (main calls to action; mouse only). */
+/** Leans its child towards the pointer when it comes near (main calls to action; mouse only; still with reduced motion). */
 export function Magnetic({ children, strength = 0.28, className = "" }: { children: ReactNode; strength?: number; className?: string }) {
   const ref = useRef<HTMLSpanElement>(null);
+  const reduced = useMotionReduced();
   useEffect(() => {
     const el = ref.current;
-    if (!el || !finePointer() || motionReduced()) return;
+    if (!el || !finePointer() || reduced) return;
     const move = (e: PointerEvent) => {
       const r = el.getBoundingClientRect();
       const x = e.clientX - (r.left + r.width / 2);
@@ -21,8 +22,9 @@ export function Magnetic({ children, strength = 0.28, className = "" }: { childr
     return () => {
       el.removeEventListener("pointermove", move);
       el.removeEventListener("pointerleave", leave);
+      leave();
     };
-  }, [strength]);
+  }, [strength, reduced]);
   return (
     <span ref={ref} className={`inline-flex transition-transform duration-500 ease-[var(--ease-out-expo)] ${className}`}>
       {children}

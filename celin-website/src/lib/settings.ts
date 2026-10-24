@@ -31,11 +31,13 @@ async function loadSettings(): Promise<Settings> {
   return s;
 }
 
-const cachedSettings = unstable_cache(loadSettings, ["celin-settings-v1"], { tags: ["settings"], revalidate: 300 });
+// saving in the admin panel invalidates the tag at once; the timer is only a safety net for edits made in
+// SQL (the shortest timer of a page's caches sets how often the static pages are rebuilt)
+const cachedSettings = unstable_cache(loadSettings, ["celin-settings-v1"], { tags: ["settings"], revalidate: 3600 });
 
 /**
- * Cached for 5 minutes; saving in the admin panel invalidates it immediately. A failed read is never
- * cached: a stale entry keeps being served, and with no entry this call alone falls back to the defaults.
+ * Cached; saving in the admin panel invalidates it immediately. A failed read is never cached: a stale
+ * entry keeps being served, and with no entry this call alone falls back to the defaults.
  */
 export async function getSettings(): Promise<Settings> {
   try {

@@ -2,25 +2,30 @@
 
 import { usePathname } from "next/navigation";
 import { useEffect, useRef } from "react";
-import { finePointer, motionReduced } from "@/components/fx/motion";
+import { finePointer, useMotionReduced } from "@/components/fx/motion";
 
 /**
  * A copper glint that trails the pointer; over pictures marked data-cursor="view" it opens into a disc with
  * a word («مشاهده»), over links and buttons into a soft ring. The system cursor stays (it is hidden only
- * over data-cursor="view" areas). Fine pointers only; nothing with reduced motion.
+ * over data-cursor="view" areas). Fine pointers only; nothing with reduced motion (live: the footer toggle
+ * and the OS setting take it away and bring it back at once).
  */
 export function Cursor({ label }: { label: string }) {
   const ring = useRef<HTMLDivElement>(null);
   const dot = useRef<HTMLDivElement>(null);
   const text = useRef<HTMLSpanElement>(null);
   const path = usePathname();
+  const reduced = useMotionReduced();
 
   useEffect(() => {
     const r = ring.current;
     const d = dot.current;
-    if (!r || !d || !finePointer() || motionReduced()) return;
+    if (!r || !d || !finePointer() || reduced) return;
     r.hidden = false;
     d.hidden = false;
+    // nothing shows until the pointer has moved (otherwise the ring would sit in the corner of the window)
+    r.dataset.mode = "hidden";
+    d.dataset.mode = "hidden";
     document.documentElement.classList.add("fx-has-cursor");
     const pos = { x: -100, y: -100, rx: -100, ry: -100 };
     let raf = 0;
@@ -62,15 +67,17 @@ export function Cursor({ label }: { label: string }) {
     document.documentElement.addEventListener("pointerleave", leave);
     return () => {
       document.documentElement.classList.remove("fx-has-cursor");
+      r.hidden = true;
+      d.hidden = true;
       cancelAnimationFrame(raf);
       window.removeEventListener("pointermove", move);
       document.documentElement.removeEventListener("pointerleave", leave);
     };
-  }, [label]);
+  }, [label, reduced]);
 
-  // a new page: back to the plain glint
+  // a new page: back to the plain glint (unless the pointer is away)
   useEffect(() => {
-    if (ring.current) ring.current.dataset.mode = "";
+    if (ring.current && ring.current.dataset.mode !== "hidden") ring.current.dataset.mode = "";
   }, [path]);
 
   return (

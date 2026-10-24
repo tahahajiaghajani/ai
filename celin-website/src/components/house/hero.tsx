@@ -8,12 +8,14 @@ import { Arch } from "@/components/fx/arch";
 import { ArchLines } from "@/components/fx/arch-lines";
 import { Aura, type AuraPalette } from "@/components/fx/aura";
 import { Grain } from "@/components/fx/grain";
+import { NightFoot, seamTone } from "@/components/fx/melt";
 import { SlotVideo } from "@/components/fx/slot-video";
 import { SplitWords } from "@/components/fx/split-words";
 import { gsap } from "@/components/fx/gsap";
 import { useGsap } from "@/components/fx/use-gsap";
 import { usePointerDepth } from "@/components/fx/use-pointer-depth";
 import { Eyebrow, NightCrumbs } from "@/components/house/bits";
+import { latinMarks } from "@/content/copy/common";
 
 export interface HouseHeroData {
   eyebrow: string;
@@ -36,12 +38,11 @@ export function HouseHero({
   light = 1,
   flip = false,
   ratio = "3/4",
-  size = "lg",
   sparkle = 12,
   crumbs,
   actions,
   children,
-  latin = ["HANDMADE JEWELRY", "ETEMAD GALLERY"],
+  latin = [latinMarks.brand, latinMarks.house],
 }: {
   lang: Lang;
   d: HouseHeroData;
@@ -49,8 +50,6 @@ export function HouseHero({
   light?: number;
   flip?: boolean;
   ratio?: string;
-  /** "xl" for a one-word title (a collection name) */
-  size?: "lg" | "xl";
   sparkle?: number;
   crumbs?: { label: string; path?: string }[];
   actions?: ReactNode;
@@ -72,31 +71,29 @@ export function HouseHero({
     [lang],
   );
 
-  const titleSize =
-    size === "xl"
-      ? "text-[clamp(3.4rem,15vw,5rem)] leading-[1.25]! sm:text-7xl lg:text-[clamp(5.5rem,9.5vw,10rem)]"
-      : "text-[clamp(2.4rem,9vw,3.4rem)] leading-[1.32]! sm:text-6xl lg:text-[clamp(3.4rem,5vw,5.4rem)]";
-
   return (
-    <section ref={root} data-header="dark" data-tone="light" className="relative isolate -mt-[var(--header-h)] overflow-clip bg-night text-on-night lg:min-h-[100svh]">
+    <section ref={root} data-header="dark" data-tone="light" className="under-header relative isolate overflow-clip bg-night text-on-night lg:min-h-[100svh]">
       <Aura palette={palette} light={light} />
       <Grain />
+      {/* the light settles into plain night at the foot, where the next band's melt begins (<Melt at="top" tone={seamTone(palette)}/>) */}
+      <NightFoot tone={seamTone(palette)} />
       <div ref={depth} className="container-lux relative grid gap-y-12 pt-[calc(var(--header-h)+2.5rem)] pb-16 lg:min-h-[100svh] lg:grid-cols-12 lg:items-center lg:gap-x-8 lg:pt-[var(--header-h)] lg:pb-0">
         {/* the words */}
         <div data-hh="copy" className={`relative lg:col-span-6 ${flip ? "lg:order-2 lg:col-start-7" : "lg:col-start-1"}`}>
           {crumbs && <NightCrumbs lang={lang} items={crumbs} className="mb-8" />}
-          <Eyebrow tone="light" reveal style={{ "--d": 1 } as CSSProperties}>
+          {/* above the fold: the copy enters from the first paint (fx-in, pure CSS), never waiting for the app */}
+          <Eyebrow tone="light" className="fx-in" style={{ "--in": 0 } as CSSProperties}>
             {d.eyebrow}
           </Eyebrow>
-          <SplitWords as="h1" text={d.title} immediate delay={200} className={`display mt-5 font-bold ${titleSize}`} wordClassName="text-metal-light metal-live" />
+          <SplitWords as="h1" text={d.title} immediate delay={200} className="title-page mt-5 max-w-xl" wordClassName="text-metal-light metal-live" />
           {d.subtitle && (
-            <p className="mt-6 max-w-lg text-lg leading-9 text-on-night-muted lg:mt-8 lg:text-xl lg:leading-10" data-reveal style={{ "--d": 6 } as CSSProperties}>
+            <p className="fx-in lede mt-5 max-w-md text-on-night-muted lg:mt-6" style={{ "--in": 4 } as CSSProperties}>
               {d.subtitle}
             </p>
           )}
           {children}
           {actions && (
-            <div className="mt-9 flex flex-wrap items-center gap-x-6 gap-y-4 lg:mt-11" data-reveal style={{ "--d": 8 } as CSSProperties}>
+            <div className="fx-in mt-9 flex flex-wrap items-center gap-x-6 gap-y-4 lg:mt-11" style={{ "--in": 5 } as CSSProperties}>
               {actions}
             </div>
           )}

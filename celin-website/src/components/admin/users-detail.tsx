@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { adminDeleteMemberFromPage, adminSetDisabled, adminSetPassword, adminSetRole, adminUpdateMember } from "@/app/actions/admin-members";
-import { Button, Card, ConfirmButton, Field, Input, Textarea } from "@/components/admin/ui";
+import { Button, Card, ConfirmButton, Dialog, Field, Input, Textarea } from "@/components/admin/ui";
 import { useAction } from "@/components/admin/toast";
 import { Icon } from "@/components/ui/icons";
 
@@ -68,12 +68,27 @@ export function ProfileForm({ id, initial }: { id: string; initial: ProfileValue
   );
 }
 
-export function SecurityCard({ id, hasPassword, disabled, admin }: { id: string; hasPassword: boolean; disabled: boolean; admin: boolean }) {
+export function SecurityCard({
+  id,
+  hasPassword,
+  disabled,
+  admin,
+  promoteBlock,
+  name,
+  phone,
+}: {
+  id: string;
+  hasPassword: boolean;
+  disabled: boolean;
+  admin: boolean;
+  promoteBlock: string;
+  name: string;
+  phone: string;
+}) {
   const [password, setPassword] = useState("");
   const [show, setShow] = useState(false);
   const pass = useAction();
   const state = useAction();
-  const role = useAction();
   return (
     <Card title="امنیت و دسترسی">
       <div className="space-y-6">
@@ -122,31 +137,69 @@ export function SecurityCard({ id, hasPassword, disabled, admin }: { id: string;
           )}
         </div>
 
-        <div className="border-t border-line pt-5">
-          <div className="mb-1 text-sm font-medium">{admin ? "این حساب مدیر است" : "دسترسی مدیر"}</div>
-          <p className="mb-3 flex items-start gap-1.5 text-xs leading-6 text-warning">
-            <Icon name="warning" className="mt-1 size-3.5 shrink-0" />
-            مدیر به همه‌ی بخش‌های پنل دسترسی کامل دارد: سفارش‌ها، کاربران، کدها و تنظیمات.
-          </p>
-          {admin ? (
-            <ConfirmButton size="md" icon="close" pending={role.pending} confirmLabel="برداشته شود؟ دوباره بزنید" onConfirm={() => role.run(() => adminSetRole({ id, role: "user" }))}>
-              برداشتن دسترسی مدیر
-            </ConfirmButton>
-          ) : (
-            <ConfirmButton
-              size="md"
-              variant="secondary"
-              icon="settings"
-              pending={role.pending}
-              confirmLabel="مدیر شود؟ دوباره بزنید"
-              onConfirm={() => role.run(() => adminSetRole({ id, role: "admin" }))}
-            >
-              مدیر کردن این حساب
-            </ConfirmButton>
-          )}
-        </div>
+        <RoleSection id={id} admin={admin} block={promoteBlock} name={name} phone={phone} />
       </div>
     </Card>
+  );
+}
+
+/**
+ * «مدیر کردن» / «برداشتن دسترسی مدیر», each behind a dialog that says what follows. Promotion follows the same
+ * rules as the activation on /admin/login (members.ts setMemberRole): when it is not possible, the reason is
+ * shown instead of the button.
+ */
+function RoleSection({ id, admin, block, name, phone }: { id: string; admin: boolean; block: string; name: string; phone: string }) {
+  const role = useAction();
+  const [open, setOpen] = useState(false);
+  const who = (
+    <>
+      {name || "این حساب"} (<span className="ltr">{phone}</span>)
+    </>
+  );
+  const run = (next: "admin" | "user") => role.run(() => adminSetRole({ id, role: next }), { onOk: () => setOpen(false) });
+  return (
+    <div className="border-t border-line pt-5">
+      <div className="mb-1 text-sm font-medium">{admin ? "این حساب مدیر است" : "دسترسی مدیر"}</div>
+      <p className="mb-3 flex items-start gap-1.5 text-xs leading-6 text-warning">
+        <Icon name="warning" className="mt-1 size-3.5 shrink-0" />
+        مدیر به همه‌ی بخش‌های پنل دسترسی کامل دارد: سفارش‌ها، کاربران، کدها و تنظیمات.
+      </p>
+      {admin ? (
+        <Button variant="danger" icon="close" onClick={() => setOpen(true)}>
+          برداشتن دسترسی مدیر
+        </Button>
+      ) : block ? (
+        <p className="border border-line bg-bone px-3 py-2.5 text-xs leading-6 text-ink-2">{block}</p>
+      ) : (
+        <Button variant="secondary" icon="settings" onClick={() => setOpen(true)}>
+          مدیر کردن این حساب
+        </Button>
+      )}
+      <Dialog open={open} onClose={() => setOpen(false)} title={admin ? "برداشتن دسترسی مدیر" : "مدیر کردن این حساب"}>
+        <div className="space-y-4 text-sm leading-7 text-ink-2">
+          {admin ? (
+            <p>{who} دیگر به پنل دسترسی ندارد و از همه‌ی دستگاه‌ها خارج می‌شود.</p>
+          ) : (
+            <>
+              <p>{who} به همه‌ی بخش‌های پنل دسترسی کامل پیدا می‌کند.</p>
+              <ul className="list-inside list-disc space-y-1 text-xs leading-6 text-muted">
+                <li>از این پس فقط با شماره و رمز خودش وارد پنل می‌شود؛ حساب مدیر با کد Pro وارد نمی‌شود.</li>
+                <li>همه‌ی نشست‌های باز این حساب بسته می‌شود.</li>
+                <li>این کار با نام شما ثبت می‌شود و اگر «اعلان به مدیر» تنظیم باشد، خبرش فرستاده می‌شود.</li>
+              </ul>
+            </>
+          )}
+          <div className="flex flex-wrap justify-end gap-2 border-t border-line pt-4">
+            <Button variant="ghost" onClick={() => setOpen(false)}>
+              انصراف
+            </Button>
+            <Button variant={admin ? "danger" : "primary"} pending={role.pending} onClick={() => run(admin ? "user" : "admin")}>
+              {admin ? "برداشتن دسترسی" : "بله، مدیر شود"}
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+    </div>
   );
 }
 

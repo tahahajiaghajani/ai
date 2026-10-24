@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, type CSSProperties } from "react";
-import { finePointer, motionReduced } from "@/components/fx/motion";
+import { finePointer, useMotionReduced } from "@/components/fx/motion";
 
 /** [base, a, b, light] as 0–1 RGB — the brand's grounds, mixed as moving silk light. */
 const PALETTES = {
@@ -67,114 +67,139 @@ gl_FragColor=vec4(col,1.);
 /**
  * A living light behind a band: slow silk folds of the brand colours (WebGL, half resolution, ~30fps,
  * paused off-screen) that lean towards the pointer. Falls back to the CSS mesh ground; one still frame
- * with reduced motion.
+ * with reduced motion (live: the footer toggle and the OS setting apply at once). The GL context is created
+ * only when the band comes within a screen of the viewport, and released when the band leaves the page.
  */
 export function Aura({ palette = "espresso", className = "", light = 1 }: { palette?: AuraPalette; className?: string; light?: number }) {
   const ref = useRef<HTMLCanvasElement>(null);
+  const reduced = useMotionReduced();
 
   useEffect(() => {
     const canvas = ref.current;
     if (!canvas) return;
-    const gl = canvas.getContext("webgl", { antialias: false, alpha: false, powerPreference: "low-power", preserveDrawingBuffer: false });
-    if (!gl) return;
-    const compile = (type: number, src: string) => {
-      const s = gl.createShader(type)!;
-      gl.shaderSource(s, src);
-      gl.compileShader(s);
-      return gl.getShaderParameter(s, gl.COMPILE_STATUS) ? s : null;
-    };
-    const vs = compile(gl.VERTEX_SHADER, VERT);
-    const fs = compile(gl.FRAGMENT_SHADER, FRAG);
-    if (!vs || !fs) return;
-    const prog = gl.createProgram()!;
-    gl.attachShader(prog, vs);
-    gl.attachShader(prog, fs);
-    gl.linkProgram(prog);
-    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return;
-    gl.useProgram(prog);
-    const buf = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
-    const loc = gl.getAttribLocation(prog, "p");
-    gl.enableVertexAttribArray(loc);
-    gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-    const u = (n: string) => gl.getUniformLocation(prog, n);
-    const [base, a, b, c] = PALETTES[palette];
-    gl.uniform3fv(u("u_base"), base);
-    gl.uniform3fv(u("u_a"), a);
-    gl.uniform3fv(u("u_b"), b);
-    gl.uniform3fv(u("u_c"), c);
-    gl.uniform1f(u("u_light"), light);
-    const uRes = u("u_res");
-    const uTime = u("u_time");
-    const uMouse = u("u_mouse");
-
-    const mouse = { x: 0.62, y: 0.6, tx: 0.62, ty: 0.6 };
-    const scale = 0.5;
-    const resize = () => {
-      const r = canvas.getBoundingClientRect();
-      canvas.width = Math.max(1, Math.round(r.width * scale));
-      canvas.height = Math.max(1, Math.round(r.height * scale));
-      gl.viewport(0, 0, canvas.width, canvas.height);
-      gl.uniform2f(uRes, canvas.width, canvas.height);
-    };
-    resize();
-    canvas.dataset.ready = "";
-
-    const still = motionReduced();
-    let raf = 0;
-    let last = 0;
-    let visible = true;
-    const t0 = performance.now() - 40000 * Math.random();
-    const draw = (now: number) => {
-      raf = 0;
-      if (!visible) return;
-      if (now - last >= 33) {
-        last = now;
-        mouse.x += (mouse.tx - mouse.x) * 0.04;
-        mouse.y += (mouse.ty - mouse.y) * 0.04;
-        gl.uniform1f(uTime, (now - t0) / 1000);
-        gl.uniform2f(uMouse, mouse.x, mouse.y);
-        gl.drawArrays(gl.TRIANGLES, 0, 3);
-      }
-      if (!still) raf = requestAnimationFrame(draw);
-    };
-    const kick = () => {
-      if (!raf) raf = requestAnimationFrame(draw);
-    };
-    const io = new IntersectionObserver(([e]) => {
-      visible = e.isIntersecting && document.visibilityState === "visible";
-      kick();
-    });
-    io.observe(canvas);
-    const ro = new ResizeObserver(() => {
-      resize();
-      kick();
-    });
-    ro.observe(canvas);
-    const onMove = (e: PointerEvent) => {
-      const r = canvas.getBoundingClientRect();
-      mouse.tx = (e.clientX - r.left) / r.width;
-      mouse.ty = 1 - (e.clientY - r.top) / r.height;
-    };
-    if (!still && finePointer()) window.addEventListener("pointermove", onMove, { passive: true });
-    kick();
+    let stop: (() => void) | undefined;
+    const near = new IntersectionObserver(
+      ([e]) => {
+        if (!e.isIntersecting || stop) return;
+        near.disconnect();
+        stop = run(canvas, palette, light, reduced);
+      },
+      { rootMargin: "100% 0px" },
+    );
+    near.observe(canvas);
     return () => {
-      cancelAnimationFrame(raf);
-      io.disconnect();
-      ro.disconnect();
-      window.removeEventListener("pointermove", onMove);
-      // free the GPU objects but keep the context: the same canvas may mount again (Strict Mode, Fast Refresh)
-      gl.deleteBuffer(buf);
-      gl.deleteProgram(prog);
-      gl.deleteShader(vs);
-      gl.deleteShader(fs);
+      near.disconnect();
+      stop?.();
     };
-  }, [palette, light]);
+  }, [palette, light, reduced]);
 
   return (
     <div aria-hidden className={`pointer-events-none absolute inset-0 overflow-hidden ${className}`} style={CSS_FALLBACK[palette]}>
       <canvas ref={ref} className="absolute inset-0 size-full opacity-0 transition-opacity duration-1000 data-ready:opacity-100" />
     </div>
   );
+}
+
+/** Draws the silk light on `canvas` until the returned cleanup runs. */
+function run(canvas: HTMLCanvasElement, palette: AuraPalette, light: number, still: boolean): (() => void) | undefined {
+  const gl = canvas.getContext("webgl", { antialias: false, alpha: false, powerPreference: "low-power", preserveDrawingBuffer: false });
+  if (!gl) return;
+  const compile = (type: number, src: string) => {
+    const s = gl.createShader(type)!;
+    gl.shaderSource(s, src);
+    gl.compileShader(s);
+    return gl.getShaderParameter(s, gl.COMPILE_STATUS) ? s : null;
+  };
+  const vs = compile(gl.VERTEX_SHADER, VERT);
+  const fs = compile(gl.FRAGMENT_SHADER, FRAG);
+  if (!vs || !fs) return;
+  const prog = gl.createProgram()!;
+  gl.attachShader(prog, vs);
+  gl.attachShader(prog, fs);
+  gl.linkProgram(prog);
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return;
+  gl.useProgram(prog);
+  const buf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+  const loc = gl.getAttribLocation(prog, "p");
+  gl.enableVertexAttribArray(loc);
+  gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+  const u = (n: string) => gl.getUniformLocation(prog, n);
+  const [base, a, b, c] = PALETTES[palette];
+  gl.uniform3fv(u("u_base"), base);
+  gl.uniform3fv(u("u_a"), a);
+  gl.uniform3fv(u("u_b"), b);
+  gl.uniform3fv(u("u_c"), c);
+  gl.uniform1f(u("u_light"), light);
+  const uRes = u("u_res");
+  const uTime = u("u_time");
+  const uMouse = u("u_mouse");
+
+  const mouse = { x: 0.62, y: 0.6, tx: 0.62, ty: 0.6 };
+  const scale = 0.5;
+  const resize = () => {
+    const r = canvas.getBoundingClientRect();
+    canvas.width = Math.max(1, Math.round(r.width * scale));
+    canvas.height = Math.max(1, Math.round(r.height * scale));
+    gl.viewport(0, 0, canvas.width, canvas.height);
+    gl.uniform2f(uRes, canvas.width, canvas.height);
+  };
+  resize();
+  canvas.dataset.ready = "";
+
+  let raf = 0;
+  let last = 0;
+  let visible = true;
+  const t0 = performance.now() - 40000 * Math.random();
+  const draw = (now: number) => {
+    raf = 0;
+    if (!visible) return;
+    if (now - last >= 33) {
+      last = now;
+      mouse.x += (mouse.tx - mouse.x) * 0.04;
+      mouse.y += (mouse.ty - mouse.y) * 0.04;
+      gl.uniform1f(uTime, (now - t0) / 1000);
+      gl.uniform2f(uMouse, mouse.x, mouse.y);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+    }
+    if (!still) raf = requestAnimationFrame(draw);
+  };
+  const kick = () => {
+    if (!raf) raf = requestAnimationFrame(draw);
+  };
+  const io = new IntersectionObserver(([e]) => {
+    visible = e.isIntersecting && document.visibilityState === "visible";
+    kick();
+  });
+  io.observe(canvas);
+  const ro = new ResizeObserver(() => {
+    resize();
+    kick();
+  });
+  ro.observe(canvas);
+  const onMove = (e: PointerEvent) => {
+    const r = canvas.getBoundingClientRect();
+    mouse.tx = (e.clientX - r.left) / r.width;
+    mouse.ty = 1 - (e.clientY - r.top) / r.height;
+  };
+  if (!still && finePointer()) window.addEventListener("pointermove", onMove, { passive: true });
+  kick();
+  return () => {
+    cancelAnimationFrame(raf);
+    io.disconnect();
+    ro.disconnect();
+    window.removeEventListener("pointermove", onMove);
+    // free the GPU objects; the context itself is kept while the canvas stays (the effect runs again on the same
+    // canvas: Strict Mode, Fast Refresh, the motion toggle) and released once the canvas has left the page, so
+    // client navigation never piles up contexts until the browser evicts them
+    gl.deleteBuffer(buf);
+    gl.deleteProgram(prog);
+    gl.deleteShader(vs);
+    gl.deleteShader(fs);
+    const lose = gl.getExtension("WEBGL_lose_context");
+    setTimeout(() => {
+      if (!canvas.isConnected) lose?.loseContext();
+    }, 0);
+  };
 }

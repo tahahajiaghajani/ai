@@ -8,7 +8,7 @@ import { Intro } from "@/components/fx/intro";
 import { HomeHero } from "@/components/home/hero";
 import { Aperture } from "@/components/home/aperture";
 import { ProInvite } from "@/components/home/pro-invite";
-import { Anniversary, Arcade, Craft, Featured, House, Ribbon, Statement } from "@/components/home/sections";
+import { Anniversary, Arcade, Craft, Featured, House, Statement } from "@/components/home/sections";
 
 /** The home page: one showcase, from the arcade hero to the Pro invitation (static; prices never here). */
 export async function HomePage({ lang }: { lang: Lang }) {
@@ -38,9 +38,8 @@ export async function HomePage({ lang }: { lang: Lang }) {
           c: s("home.hero.c").media,
         }}
       />
-      <Ribbon items={c.ribbon} />
-      <Statement lang={lang} lines={[txt("home.statement", "line1"), txt("home.statement", "line2"), txt("home.statement", "line3")]} a={s("home.statement").media} b={s("home.statement.b").media} />
-      {collections.length > 0 && <Arcade lang={lang} collections={collections} copy={c.arcade} />}
+      <Statement lang={lang} lines={[txt("home.statement", "line1"), txt("home.statement", "line2"), txt("home.statement", "line3")]} a={s("home.statement").media} b={s("home.statement.b").media} copy={c.statement} />
+      {collections.length > 0 && <Arcade lang={lang} collections={collections} copy={c.arcade} display />}
       <Anniversary
         lang={lang}
         d={{
@@ -53,7 +52,6 @@ export async function HomePage({ lang }: { lang: Lang }) {
           closing: txt("home.anniversary", "closing"),
           cta: txt("home.anniversary", "cta"),
           href: txt("home.anniversary", "href") || "/maison",
-          media: s("home.anniversary").media,
         }}
       />
       <Aperture

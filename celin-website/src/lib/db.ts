@@ -13,6 +13,11 @@ export function db(): SupabaseClient | null {
   return client;
 }
 
+/** The Supabase variables that are not set (empty when the database is configured). */
+export function missingDbVars(): string[] {
+  return [...(env.supabaseUrl ? [] : ["SUPABASE_URL"]), ...(env.supabaseKey ? [] : ["SUPABASE_SERVICE_ROLE_KEY"])];
+}
+
 export class UserError extends Error {}
 
 export function requireDb(): SupabaseClient {
@@ -24,6 +29,11 @@ export function requireDb(): SupabaseClient {
 /** PostgREST "table not found" (PGRST205, or 42P01 on older versions): the migration has not run yet. */
 export function isMissingTable(error: { code?: string } | null | undefined): boolean {
   return error?.code === "PGRST205" || error?.code === "42P01";
+}
+
+/** A column this code expects is not there yet (a newer migration has not run): 42703 on reads, PGRST204 on writes. */
+export function isMissingColumn(error: { code?: string } | null | undefined): boolean {
+  return error?.code === "42703" || error?.code === "PGRST204";
 }
 
 const PAGE = 1000; // Supabase returns at most this many rows per request

@@ -45,9 +45,10 @@ export function WishlistGrid({ lang, products, collections }: { lang: Lang; prod
   }
   return (
     <>
-      <ul className="grid grid-cols-2 gap-px border-y border-line bg-line xl:grid-cols-3">
+      {/* hairlines drawn by the cells themselves: a short last row leaves no grey block behind */}
+      <ul className="grid grid-cols-2 border-t border-line xl:grid-cols-3">
         {items.map((p) => (
-          <li key={p.id}>
+          <li key={p.id} className="border-b border-e border-line max-xl:even:border-e-0 xl:[&:nth-child(3n)]:border-e-0">
             <ProductCard product={p} lang={lang} collectionName={p.collection ? collections[p.collection] : undefined} sizes="(min-width: 1280px) 25vw, (min-width: 1024px) 33vw, 50vw" />
           </li>
         ))}

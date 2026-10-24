@@ -29,7 +29,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ path: string[] 
   } catch {
     return new Response("unavailable", { status: 502, headers: { "cache-control": "no-store" } });
   }
-  if (!res.ok || !res.body) return new Response("not found", { status: 404, headers: { "cache-control": "public, max-age=60" } });
+  if (!res.ok || !res.body) return upstreamFailure(res);
   return new Response(res.body, {
     headers: {
       "content-type": TYPES[m[1] as keyof typeof TYPES],
@@ -38,6 +38,16 @@ export async function GET(req: Request, ctx: { params: Promise<{ path: string[] 
       "x-content-type-options": "nosniff",
     },
   });
+}
+
+/**
+ * The store did not deliver the file: a real "not there" (400/404) may be cached for a minute; an outage
+ * (5xx, 429, anything else) must not be remembered as a missing picture by browsers or the CDN.
+ */
+async function upstreamFailure(res: Response): Promise<Response> {
+  await res.body?.cancel().catch(() => undefined);
+  if (res.ok || res.status === 400 || res.status === 404) return new Response("not found", { status: 404, headers: { "cache-control": "public, max-age=60" } });
+  return new Response("unavailable", { status: 503, headers: { "cache-control": "no-store", "retry-after": "30" } });
 }
 
 /**
@@ -76,10 +86,7 @@ async function streamVideo(req: Request, p: string, ext: VideoExt): Promise<Resp
     await res.body?.cancel().catch(() => undefined);
     return unsatisfiable(parseContentRange(res.headers.get("content-range"))?.size ?? null);
   }
-  if (!res.body || (res.status !== 200 && res.status !== 206)) {
-    await res.body?.cancel().catch(() => undefined);
-    return new Response("not found", { status: 404, headers: { "cache-control": "public, max-age=60" } });
-  }
+  if (!res.body || (res.status !== 200 && res.status !== 206)) return upstreamFailure(res);
 
   if (res.status === 206) {
     const cr = parseContentRange(res.headers.get("content-range"));

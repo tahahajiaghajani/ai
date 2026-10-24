@@ -1,7 +1,7 @@
 "use client";
 
 import { errorCopy } from "@/content/copy/errors";
-import { FONT_VARS } from "@/lib/fonts";
+import { FONT_VARS_LAZY } from "@/fonts/lazy";
 import "./globals.css";
 
 /**
@@ -12,7 +12,7 @@ export default function GlobalError({ error, retry }: { error: Error & { digest?
   const fa = errorCopy.fa.error;
   const en = errorCopy.en.error;
   return (
-    <html lang="fa" dir="rtl" className={FONT_VARS}>
+    <html lang="fa" dir="rtl" className={FONT_VARS_LAZY}>
       <body className="font-sans antialiased">
         <title>{`${fa.title} — سلین`}</title>
         <main className="relative isolate flex min-h-[100svh] items-center overflow-clip bg-mesh-espresso text-on-night">
@@ -23,7 +23,7 @@ export default function GlobalError({ error, retry }: { error: Error & { digest?
             <svg aria-hidden viewBox="0 0 10 14" className="mx-auto mt-12 h-16 w-auto text-gold-bright">
               <path d="M5 0 10 7 5 14 0 7Z" fill="currentColor" />
             </svg>
-            <h1 className="display mt-8 text-4xl leading-[1.4] font-bold text-metal-light sm:text-6xl">{fa.title}</h1>
+            <h1 className="title-page mt-8 text-metal-light">{fa.title}</h1>
             <p className="mx-auto mt-5 max-w-lg text-lg leading-9 text-on-night-muted">{fa.body}</p>
             <div className="mt-9 flex flex-wrap items-center justify-center gap-4">
               <button type="button" onClick={() => retry()} className="btn btn-metal h-13 px-8">
@@ -34,7 +34,7 @@ export default function GlobalError({ error, retry }: { error: Error & { digest?
               </a>
             </div>
             <div lang="en" dir="ltr" className="mx-auto mt-12 max-w-lg border-t border-night-line pt-8">
-              <p className="display text-3xl">{en.title}</p>
+              <p className="title-section">{en.title}</p>
               <p className="mt-3 text-base leading-7 text-on-night-muted">{en.body}</p>
               <p className="mt-5 flex items-center justify-center gap-6 text-sm">
                 <button type="button" onClick={() => retry()} className="border-b border-on-night/40 pb-1 hover:border-gold-on-dark">

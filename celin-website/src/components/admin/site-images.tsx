@@ -318,7 +318,7 @@ function SlotForm({
               <fieldset key={t.key} className="space-y-2">
                 <legend className="mb-1.5 text-xs font-medium text-ink-2">{t.label}</legend>
                 {link ? (
-                  <Input value={v.fa} dir="ltr" maxLength={600} placeholder="/collections/nour" onChange={(e) => patch({ texts: { ...draft.texts, [t.key]: { fa: e.target.value, en: e.target.value } } })} aria-label={t.label} />
+                  <Input value={v.fa} dir="ltr" maxLength={600} placeholder="/collections/yas" onChange={(e) => patch({ texts: { ...draft.texts, [t.key]: { fa: e.target.value, en: e.target.value } } })} aria-label={t.label} />
                 ) : t.multiline ? (
                   <div className="grid gap-2 sm:grid-cols-2">
                     <Textarea value={v.fa} maxLength={600} rows={3} placeholder="فارسی" aria-label={`${t.label} (فارسی)`} onChange={(e) => put("fa", e.target.value)} />

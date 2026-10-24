@@ -1,15 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import type { Lang } from "@/lib/format";
+import type { CSSProperties } from "react";
+import { commonCopy } from "@/content/copy/common";
+import { formatDate, num, type Lang } from "@/lib/format";
 import { href } from "@/lib/i18n";
 import type { Media } from "@/lib/media";
+import { LuxFrame } from "@/components/ui/lux-frame";
 import { Arch } from "@/components/fx/arch";
 import { Aura } from "@/components/fx/aura";
 import { Grain } from "@/components/fx/grain";
 import { Magnetic } from "@/components/fx/magnetic";
+import { Melt, NightHead } from "@/components/fx/melt";
 import { SplitWords } from "@/components/fx/split-words";
 import { openProSheet } from "@/components/pro/events";
+import { ProHallmark } from "@/components/pro/seal";
 import { useMe } from "@/components/pro/session";
 
 export interface ProInviteData {
@@ -24,55 +29,83 @@ export interface ProInviteData {
   media: Media;
 }
 
-/** The invitation to Pro on living cocoa light: an arch picture, three promises, two ways in. */
+/**
+ * The invitation to Pro on living cocoa light: a jewel-box frame of champagne rules with its keystone, the
+ * arch picture with the PRO hallmark stamped on it, three promises in a ledger of small arches, two ways in.
+ * A member sees that prices are shown to them instead.
+ */
 export function ProInvite({ lang, d }: { lang: Lang; d: ProInviteData }) {
   const me = useMe();
   const active = Boolean(me?.pro.active);
+  const c = commonCopy(lang);
   return (
-    <section data-tone="light" className="relative isolate overflow-clip bg-night-2 py-20 text-on-night sm:py-28">
+    <section data-tone="light" className="relative isolate overflow-clip bg-night-2 pt-20 pb-[calc(var(--melt-h)+3rem)] text-on-night sm:pt-28 sm:pb-[calc(var(--melt-h)+4rem)]">
       <Aura palette="cocoa" light={0.9} />
       <Grain />
+      {/* plain night-2 at the head, where the porcelain above melted into it; the foot melts into the ground of the strip below */}
+      <NightHead />
+      <Melt at="bottom" on="dark" />
       <div className="container-lux relative">
-        <div className="frame-metal relative grid items-center gap-10 overflow-hidden px-5 py-10 sm:px-10 sm:py-14 lg:grid-cols-12 lg:gap-12 lg:px-16 lg:py-16">
-          <span aria-hidden className="absolute inset-0 bg-[radial-gradient(55%_70%_at_0%_0%,rgb(233_185_138/0.14),transparent_70%)]" />
-          <div className="relative mx-auto w-[min(62vw,300px)] lg:order-2 lg:col-span-4 lg:col-start-9 lg:w-full">
-            <Arch media={d.media} lang={lang} sizes="(min-width: 1024px) 26vw, 62vw" ring="champagne" keystone unveil sparkle={10} />
-          </div>
-          <div className="relative text-center lg:col-span-7 lg:text-start">
-            <p className="font-label text-xs tracking-[0.36em] text-gold-on-dark ltr">PRO</p>
-            <p className="label mt-3 text-on-night-muted!">{d.eyebrow}</p>
-            <SplitWords text={d.title} className="display mt-4 text-4xl leading-[1.4]! font-bold sm:text-5xl" wordClassName="text-metal-light" />
-            <p className="mx-auto mt-6 max-w-xl text-lg leading-9 text-on-night-muted lg:mx-0">{d.body}</p>
-            <ul className="mx-auto mt-8 grid max-w-xl gap-3 text-start sm:grid-cols-3 lg:mx-0">
-              {d.perks.map((p) => (
-                <li key={p} className="flex items-start gap-2.5 border-t border-night-line pt-3 text-sm leading-7 text-on-night">
-                  <svg viewBox="0 0 10 10" className="mt-2.5 size-1.5 shrink-0 text-gold-glow" aria-hidden>
-                    <path d="M5 0 10 5 5 10 0 5Z" fill="currentColor" />
-                  </svg>
-                  {p}
-                </li>
-              ))}
-            </ul>
-            <div className="mt-10 flex flex-wrap items-center justify-center gap-4 lg:justify-start">
-              {active ? (
-                <Link href={href(lang, "/shop")} className="btn btn-metal h-13 px-8">
-                  {d.member}
-                </Link>
-              ) : (
-                <>
-                  <Magnetic>
-                    <Link href={href(lang, d.href)} className="btn btn-metal h-13 px-8">
-                      {d.cta}
+        <LuxFrame tone="dark" keystone className="bg-night/30 px-5 pt-14 pb-12 backdrop-blur-[2px] sm:px-10 sm:py-14 lg:px-16 lg:py-20">
+          <span aria-hidden className="absolute inset-0 -z-10 bg-[radial-gradient(45%_70%_at_85%_40%,rgb(233_185_138/0.16),transparent_70%),radial-gradient(50%_60%_at_0%_100%,rgb(15_86_82/0.22),transparent_70%)] rtl:bg-[radial-gradient(45%_70%_at_15%_40%,rgb(233_185_138/0.16),transparent_70%),radial-gradient(50%_60%_at_100%_100%,rgb(15_86_82/0.22),transparent_70%)]" />
+          <div className="relative grid items-center gap-14 lg:grid-cols-12 lg:gap-12">
+            <div className="relative mx-auto w-[min(62vw,300px)] lg:order-2 lg:col-span-4 lg:col-start-9 lg:w-full lg:max-w-[340px]">
+              <Arch media={d.media} lang={lang} sizes="(min-width: 1024px) 26vw, 62vw" ring="champagne" keystone unveil sparkle={10} />
+              <span aria-hidden className="absolute inset-x-[-14%] -bottom-px block h-px bg-[image:var(--metal-champagne)] opacity-60" />
+              <span className="absolute -bottom-9 -start-7 block drop-shadow-[0_18px_30px_rgb(0_0_0/0.5)] sm:-start-10" data-reveal style={{ "--d": 2 } as CSSProperties}>
+                <ProHallmark className="size-24 sm:size-28" />
+              </span>
+            </div>
+
+            <div className="relative text-center lg:col-span-7 lg:text-start">
+              <p className="flex items-center justify-center gap-3 font-label text-xs tracking-[0.36em] text-gold-on-dark lg:justify-start">
+                <span aria-hidden className="h-px w-8 bg-[image:var(--metal-champagne)]" />
+                <span className="ltr">CELIN PRO</span>
+              </p>
+              <p className="label mt-4 text-on-night-muted!">{d.eyebrow}</p>
+              <SplitWords text={d.title} className="display mt-3 text-4xl leading-[1.4]! font-bold sm:text-5xl" wordClassName="text-metal-light" />
+              <p className="mx-auto mt-6 max-w-xl text-lg leading-9 text-on-night-muted lg:mx-0">{d.body}</p>
+
+              <ul className="mx-auto mt-10 grid max-w-xl border-y border-night-line sm:grid-cols-3 lg:mx-0">
+                {d.perks.map((p, i) => (
+                  <li key={p} className="flex items-center gap-4 border-night-line py-4 text-start not-last:border-b sm:flex-col sm:gap-3 sm:px-4 sm:py-6 sm:text-center sm:not-last:border-e sm:not-last:border-b-0">
+                    <span aria-hidden className="relative grid h-11 w-9 shrink-0 place-items-center">
+                      <span className="arch absolute inset-0 border border-b-0 border-gold-on-dark/45" />
+                      <span className="mt-2 font-didone text-sm text-gold-on-dark tabular-nums">{num(i + 1, lang)}</span>
+                    </span>
+                    <span className="font-ui text-sm leading-7 text-on-night">{p}</span>
+                  </li>
+                ))}
+              </ul>
+
+              <div className="mx-auto mt-10 flex max-w-xs flex-col items-stretch gap-x-4 gap-y-3 sm:max-w-none sm:flex-row sm:items-center sm:justify-center lg:mx-0 lg:justify-start">
+                {active ? (
+                  <>
+                    <Link href={href(lang, "/shop")} className="btn btn-metal btn-lg">
+                      {d.member}
                     </Link>
-                  </Magnetic>
-                  <button type="button" onClick={() => openProSheet("code")} className="btn btn-line-light h-13">
-                    {d.code}
-                  </button>
-                </>
-              )}
+                    <p className="flex items-center gap-2.5 font-ui text-sm text-on-night-muted">
+                      <span aria-hidden className="size-1.5 rotate-45 bg-gold-glow" />
+                      {c.proBar.activeText}
+                      {me?.pro.expiresAt && <span className="text-xs">· {c.proSheet.until(formatDate(me.pro.expiresAt, lang))}</span>}
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <Magnetic className="w-full sm:w-auto">
+                      <Link href={href(lang, d.href)} className="btn btn-metal btn-lg w-full sm:w-auto">
+                        {d.cta}
+                      </Link>
+                    </Magnetic>
+                    <button type="button" onClick={() => openProSheet("code")} className="btn btn-line-light btn-lg">
+                      {d.code}
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
           </div>
-        </div>
+        </LuxFrame>
       </div>
     </section>
   );

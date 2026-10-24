@@ -11,12 +11,15 @@ const STATE: Record<Health, string> = { ok: "آماده", warn: "توجه", erro
 const VARS: { names: string[]; need: "required" | "recommended" | "optional"; what: string }[] = [
   { names: ["SUPABASE_URL"], need: "required", what: "نشانی پروژه‌ی Supabase (Project URL)." },
   { names: ["SUPABASE_SERVICE_ROLE_KEY"], need: "required", what: "کلید service_role؛ فقط روی سرور خوانده می‌شود." },
-  { names: ["ADMIN_PASSWORD"], need: "required", what: "رمز ورود به همین پنل." },
+  { names: ["ADMIN_PASSWORD"], need: "required", what: "رمز مدیریت: یک بار در ‎/admin/login روی حساب شما وارد می‌شود تا حساب مدیر شود؛ ورود اضطراری بدون حساب هم هست." },
   { names: ["APP_SECRET"], need: "recommended", what: "رشته‌ی تصادفی ۳۲ نویسه‌ای برای امضای نشست‌ها و رمزگذاری کدها و کلیدها." },
+  { names: ["ADMIN_PHONES"], need: "optional", what: "فهرست مجاز: اگر باشد، فقط حساب‌هایی با این شماره‌ها مدیر می‌شوند، با رمز مدیریت یا با «مدیر کردن» در کاربران (جدا با ویرگول)." },
   { names: ["NEXT_PUBLIC_SITE_URL"], need: "recommended", what: "نشانی اصلی سایت (برای لینک‌ها، پیامک و ایمیل)." },
   { names: ["APP_SECRET_PREVIOUS"], need: "optional", what: "فقط هنگام عوض کردن APP_SECRET: مقدار قبلی تا کدهای قدیمی خوانده شوند." },
   { names: ["RESEND_API_KEY", "MAIL_FROM"], need: "optional", what: "ایمیل از طریق Resend (یا در «تنظیمات ← ایمیل»)." },
   { names: ["CRON_SECRET"], need: "optional", what: "از فراخوانی بیرونی ‎/api/keepalive جلوگیری می‌کند." },
+  { names: ["TRUSTED_IP_HEADER"], need: "optional", what: "پشت پراکسی یا CDN (سرور خودتان، یا ابرآروان جلوی Vercel): سرآیندی که IP بازدیدکننده را در آن می‌گذارد، مثلاً x-real-ip یا ar-real-ip. روی سرور خودتان لازم است." },
+  { names: ["TRUSTED_PROXY_SECRET"], need: "optional", what: "رشته‌ی تصادفی که پراکسی/CDN در سرآیند x-celin-proxy می‌فرستد؛ TRUSTED_IP_HEADER فقط همراه آن پذیرفته می‌شود (روی Vercel لازم است)." },
 ];
 
 const NEED = { required: "لازم", recommended: "پیشنهادی", optional: "اختیاری" } as const;
@@ -28,10 +31,10 @@ function isSet(name: string): boolean {
 
 export default async function ConnectionsPage() {
   await requireAdminPage();
-  const { items, missingTables, supabaseProject } = await healthReport();
-  const dbItem = items.find((i) => i.key === "db");
-  const needSql = missingTables.length > 0 || (dbItem?.state === "error" && !dbItem.detail.includes("SUPABASE_URL"));
-  const files = needSql ? migrationFiles() : [];
+  const { items, missingTables, pending, supabaseProject } = await healthReport();
+  const needSql = pending.length > 0;
+  // exactly the files the database still needs (each is idempotent: running one again does no harm)
+  const files = needSql ? migrationFiles().filter((f) => pending.some((p) => p.file === f.name)) : [];
   const sql = files.map((f) => `-- ${f.name}\n${f.sql.trim()}\n`).join("\n");
   const editor = supabaseProject ? `https://supabase.com/dashboard/project/${supabaseProject}/sql/new` : "https://supabase.com/dashboard";
   const problems = items.filter((i) => i.state === "error").length;
@@ -59,7 +62,7 @@ export default async function ConnectionsPage() {
         </Card>
 
         {needSql && (
-          <Card title="ساخت جدول‌های پایگاه داده" sub={missingTables.length ? `${num(missingTables.length, "fa")} جدول ساخته نشده است.` : undefined}>
+          <Card title={missingTables.length ? "ساخت جدول‌های پایگاه داده" : "SQL تازه را اجرا کنید"} sub={missingTables.length ? `${num(missingTables.length, "fa")} جدول ساخته نشده است.` : `${num(files.length, "fa")} فایل هنوز اجرا نشده است.`}>
             <ol className="mb-4 list-inside list-[persian] space-y-1 text-sm leading-7 text-ink-2">
               <li>دکمه‌ی «کپی SQL» را بزنید.</li>
               <li>SQL Editor پروژه را باز کنید، متن را بچسبانید و Run را بزنید.</li>
