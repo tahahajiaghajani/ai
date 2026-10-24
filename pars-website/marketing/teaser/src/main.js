@@ -1,6 +1,6 @@
-/* assemble the master timeline; chapters are quantized to whole bars of the music (120 BPM → 2 s) */
+/* assemble the master timeline; chapters start on the music's half-bars (120 BPM → a bar is 2 s) */
 (function build() {
-  const BAR = 2;
+  const BAR = 2, GRID = BAR / 2; // chapters start on a half-bar (two beats), so no change has more than a second of empty background
   const tl = gsap.timeline({ paused: true });
   const chapters = [];
   const cues = [];
@@ -11,8 +11,8 @@
     for (const c of scene.cues ?? []) cues.push({ t: +(start + c.t).toFixed(3), kind: c.kind });
     // the next chapter starts on the bar line nearest to this one's fade-out (scenes crossfade by up to a second)
     const end = start + scene.duration();
-    t = Math.ceil((end - 0.45) / BAR) * BAR; // only the outgoing scene's last fade may overlap the next chapter
-    chapters.push({ name, start, end: t, hidden: !!opt.hidden, kind: opt.kind ?? "product" });
+    t = Math.ceil((end - 0.45) / GRID) * GRID; // only the outgoing scene's last fade may overlap the next chapter
+    chapters.push({ name, start, end: t, sceneEnd: +end.toFixed(2), hidden: !!opt.hidden, kind: opt.kind ?? "product" });
   };
   add(sceneIntro(), "", { hidden: true, kind: "intro" });
   add(sceneStats([{ value: 15, suf: "+", label: "سال تجربه،<br>از ۱۳۸۹" }, { value: 20, label: "بانک و سازمان<br>کاربر سامانه‌های پارس" }, { value: 60, suf: "+", label: "سازمان در آموزش،<br>مشاوره و نرم‌افزار" }, { pre: "تا", value: 90, suf: "٪", label: "خودکارسازی کارهای تکراری،<br>با تأیید انسانی" }], { kicker: "مدیریت پروژه پارس", title: "بیش از پانزده سال کنار پروژه‌های بزرگ" }), "پارس در یک نگاه", { kind: "stats" });
@@ -38,7 +38,7 @@
     logos: [{ file: "mellat.svg", name: "بانک ملت" }, { file: "tejarat.svg", name: "بانک تجارت" }, { file: "melli.svg", name: "بانک ملی ایران" }, { file: "refah.svg", name: "بانک رفاه کارگران" }, { file: "sepah.svg", name: "بانک سپه" }, { file: "postbank.svg", name: "پست بانک ایران" }, { file: "ayandeh.svg", name: "بانک آینده" }, { file: "igmc.webp", name: "مدیریت شبکه برق ایران" }, { file: "rajaee.webp", name: "قرارگاه خاتم‌الانبیاء<br>گروه تخصصی شهید رجائی" }],
     more: '<span class="g">۵۰+</span> سازمان دیگر در آموزش، مشاوره و نرم‌افزار' }), "مشتریان پارس", { kind: "clients" });
   // the printed address and the QR come from one source (TEASER_URL in build.mjs)
-  add(sceneOutro({ qr: window.QR_SVG || "", url: (window.QR_URL || "https://" + DATA.url).replace(/^https?:\/\//, "") }), "", { hidden: true, kind: "outro" });
+  add(sceneOutro({ qr: window.QR_SVG || "", url: (window.QR_URL || "https://" + DATA.url).replace(/^https?:\/\//, ""), start: t, bar: BAR }), "", { hidden: true, kind: "outro" });
 
   // a light sweeps across at every chapter change (the music has a whoosh there)
   const sw = document.getElementById("sweep");
@@ -48,6 +48,9 @@
     cues.push({ t: c.start, kind: "chapter" });
   });
   gsap.set(sw, { opacity: 0 });
+  // the loop is a whole number of bars, so the music comes round on the downbeat it started from
+  const last = chapters[chapters.length - 1];
+  last.end = Math.ceil(Math.max(t, last.sceneEnd) / BAR - 1e-6) * BAR;
   Chapters.list = chapters;
   MASTER = tl;
   const duration = chapters[chapters.length - 1].end;

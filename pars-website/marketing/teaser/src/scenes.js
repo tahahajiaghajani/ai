@@ -38,11 +38,11 @@ function sceneIntro() {
   tl.fromTo(mark, { opacity: 0, scale: 0.6, filter: "blur(20px)" }, { opacity: 1, scale: 1, filter: "blur(0px)", duration: 1.4, ease: "pars" }, 3.6);
   tl.fromTo(word, { opacity: 0, y: 30, filter: "blur(10px)" }, { opacity: 1, y: 0, filter: "blur(0px)", duration: 1.1, ease: "pars" }, 4.3);
   tl.add(rise(tw, { stagger: 0.09, dur: 1 }), 5.1);
-  tl.to([mark, word], { opacity: 0, scale: 0.92, filter: "blur(8px)", duration: 0.8, ease: "power2.in" }, 9.1);
-  tl.add(sink(tw), 9.1);
+  tl.to([mark, word], { opacity: 0, scale: 0.92, filter: "blur(8px)", duration: 0.8, ease: "power2.in" }, 10.2);
+  tl.add(sink(tw), 10.2);
   // the streams part again and settle behind the chapters at a calmer level, below any text
-  tl.to(BG, { converge: 0, ribbons: 0.5, duration: 2, ease: "parsInOut" }, 9.3);
-  tl.to(BG.glowC, { a: 0, duration: 1.4 }, 9.3);
+  tl.to(BG, { converge: 0, ribbons: 0.4, duration: 1.6, ease: "parsInOut" }, 10.4);
+  tl.to(BG.glowC, { a: 0, duration: 1.4 }, 10.4);
   return wrap(n, tl, 0.4);
 }
 
@@ -95,6 +95,8 @@ function sceneStats(items, { kicker, title }) {
   });
   tl.to({}, { duration: 3.2 });
   tl.to([head, row], { opacity: 0, y: -30, duration: 0.6, ease: "power2.in" });
+  // the ribbons step back behind the numbers (placed last: appended tweens above follow the timeline's end)
+  tl.to(BG, { ribbons: 0.22, duration: 1.2, ease: "power1.inOut" }, 0).to(BG, { ribbons: 0.4, duration: 1, ease: "power1.inOut" }, tl.duration() - 1);
   return wrap(n, tl, 0.3);
 }
 
@@ -145,8 +147,8 @@ function titleCard(n, tl, p, idx) {
   tl.add(rise(nmw, { stagger: 0.07 }), 0.55);
   tl.fromTo(line, { scaleX: 0 }, { scaleX: 1, duration: 1, ease: "pars" }, 0.9);
   tl.add(rise(hkw, { stagger: 0.045, dur: 0.8 }), 1.05);
-  tl.to(tc, { opacity: 0, scale: 0.94, filter: "blur(10px)", duration: 0.7, ease: "power2.in" }, 3.5);
-  return 3.75;
+  tl.to(tc, { opacity: 0, scale: 0.94, filter: "blur(10px)", duration: 0.55, ease: "power2.in" }, 3.45);
+  return 3.95; // the demo window starts once the title has gone (no text over text)
 }
 
 /** a demo walkthrough: one browser window, page after page, with callouts; the cursor navigates between pages */
@@ -177,11 +179,15 @@ function shotDemo(n, tl, p, s, t0) {
       t += (pg.scroll.dur ?? 3.5) + 0.15;
     }
     (pg.callouts ?? []).forEach((c, ci) => {
-      const side = c.side ?? (coN % 2 ? "right" : "left");
+      const mid = c.x + c.w / 2;
+      const side = c.side ?? (mid < 40 ? "left" : mid > 60 ? "right" : coN % 2 ? "right" : "left");
       coN++;
       const co = b.callout(page, c, { n: coN, label: c.label, text: c.text, side, cardY: c.cardY ?? 150, big: c.big });
       glide(side === "left" ? X_RIGHT : X_LEFT, t);
-      const target = page.frame(c, { zmax: c.zmax ?? 1.45, fill: c.fill ?? 0.7, zmin: c.zmin, dx: c.dx, dy: c.dy });
+      // camRegion: frame something else than the highlight (e.g. keep a clipped page title out of view)
+      let target = c.camRegion ? page.frame(c.camRegion, c.camOpt ?? {}) : page.frame(c, { zmax: c.zmax ?? 1.45, fill: c.fill ?? 0.7, zmin: c.zmin, dx: c.dx, dy: c.dy, fitWidth: c.fitWidth });
+      // hug: the highlight sits just inside the window edge on its card's side, so the leader line crosses no text
+      if (c.hug) target = page.hug(target, c, side, c.hug > 1 ? c.hug : undefined); // hug: 1, or the margin in px
       // pan: a longer, scroll-like camera move down a tall page before the card shows
       const md = c.pan ?? 1.25;
       tl.add(camTo(page, target, md, c.pan ? "sine.inOut" : "parsInOut"), t);
@@ -189,7 +195,7 @@ function shotDemo(n, tl, p, s, t0) {
       tl.add(ct, t + md - 0.4);
       hit(tl, t + md - 0.4, c.big ? "sparkle" : "tick");
       // a slow push while the card is up keeps the frame alive
-      tl.to(page.cam, { z: target.z * 1.035, duration: ct.duration() - 0.6, ease: "sine.inOut" }, t + md);
+      tl.to(page.cam, { z: target.z * (c.push ?? 1.035), duration: ct.duration() - 0.6, ease: "sine.inOut" }, t + md);
       t += md - 0.4 + ct.duration() - 0.25;
     });
     if (!s.ai || i < s.pages.length - 1) {
@@ -207,6 +213,15 @@ function shotDemo(n, tl, p, s, t0) {
   return t + 0.85; // the next shot starts once the window has nearly gone
 }
 
+/** a page change: the new page is painted over the old one, from the top (a browser) or from the bottom (a new chat message);
+ *  every pixel is either the old page or the new one, so there is no see-through and no double image */
+function reveal(tl, to, from, at, dir = "down", dur = 0.6) {
+  const hidden = dir === "down" ? "inset(0% 0% 100% 0%)" : "inset(100% 0% 0% 0%)";
+  tl.set(to.vp, { opacity: 1 }, at);
+  tl.fromTo(to.vp, { clipPath: hidden }, { clipPath: "inset(0% 0% 0% 0%)", duration: dur, ease: "power2.inOut", immediateRender: false }, at);
+  tl.set(from.vp, { opacity: 0 }, at + dur);
+}
+
 /** cursor glides to a menu item, clicks; a load bar runs; the next page slides in */
 function navigate(tl, b, from, to, at, t, glide, rest) {
   glide(X_MID, t, 1.0);
@@ -215,8 +230,7 @@ function navigate(tl, b, from, to, at, t, glide, rest) {
     // another app of the same family: the address changes, no click
     tl.fromTo(b.load, { width: 0, opacity: 1 }, { width: BW - 20, duration: 0.55, ease: "power2.inOut" }, t + 0.2);
     tl.to(b.load, { opacity: 0, duration: 0.25 }, t + 0.75);
-    tl.to(from.vp, { opacity: 0, y: -24, duration: 0.45, ease: "power2.in" }, t + 0.4);
-    tl.fromTo(to.vp, { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.6, ease: "pars" }, t + 0.7);
+    reveal(tl, to, from, t + 0.45);
     return t + 1.2;
   }
   tl.add(camTo(from, rest ?? from.top(), 0.9), t);
@@ -227,8 +241,7 @@ function navigate(tl, b, from, to, at, t, glide, rest) {
   tl.fromTo(b.cur, { ripple: 0 }, { ripple: 1, duration: 0.6, ease: "power2.out" }, t + 1.02);
   tl.fromTo(b.load, { width: 0, opacity: 1 }, { width: BW - 20, duration: 0.55, ease: "power2.inOut" }, t + 1.08);
   tl.to(b.load, { opacity: 0, duration: 0.25 }, t + 1.63);
-  tl.to(from.vp, { opacity: 0, y: -24, duration: 0.45, ease: "power2.in" }, t + 1.3);
-  tl.fromTo(to.vp, { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.6, ease: "pars" }, t + 1.6);
+  reveal(tl, to, from, t + 1.35);
   tl.to(b.cur, { o: 0, duration: 0.3 }, t + 1.5);
   return t + 2.05;
 }
@@ -265,7 +278,7 @@ function aiLayer(n, tl, b, page, p, t, glide, pg) {
     tl.fromTo(r.li, { opacity: 0, x: -30 }, { opacity: 1, x: 0, duration: 0.7, ease: "pars" }, t + 1.5 + i * 0.4);
     tl.add(rise(r.w, { stagger: 0.03, dur: 0.6 }), t + 1.55 + i * 0.4);
   });
-  const end = t + 7.8;
+  const end = t + (p.aiHold ?? 9);
   tl.to(panel, { opacity: 0, x: -40, duration: 0.6, ease: "power2.in" }, end - 0.7);
   tl.to([tint, ...spots], { opacity: 0, duration: 0.6 }, end - 0.7);
   return end;
@@ -299,8 +312,9 @@ function shotWall(n, tl, p, s, t0) {
   });
   if (cw.length) tl.fromTo(cap, { opacity: 0, scale: 0.9 }, { opacity: 1, scale: 1, duration: 0.7, ease: "pars" }, t0 + 1.5).add(rise(cw, { stagger: 0.07 }), t0 + 1.6);
   const end = t0 + 5.6;
-  tl.to(cards.map((c) => c.d), { opacity: 0, z: "+=700", duration: 0.7, ease: "power2.in", stagger: 0.05 }, end - 0.8);
-  if (cw.length) tl.to(cap, { opacity: 0, scale: 0.95, duration: 0.5, ease: "power2.in" }, end - 0.8);
+  // the wall has gone before the demo window comes in
+  tl.to(cards.map((c) => c.d), { opacity: 0, z: "+=420", duration: 0.55, ease: "power2.in", stagger: 0.04 }, end - 1.05);
+  if (cw.length) tl.to(cap, { opacity: 0, scale: 0.95, duration: 0.45, ease: "power2.in" }, end - 1.05);
   return end - 0.1;
 }
 
@@ -429,6 +443,7 @@ const INFO = {
       return { d, ln };
     });
     svg.insertAdjacentHTML("afterbegin", `<defs><linearGradient id="og"><stop offset="0" stop-color="#8f86ff"/><stop offset="1" stop-color="#ff4fa3"/></linearGradient></defs>`);
+    tl.to(BG, { ribbons: 0.22, duration: 1, ease: "power1.inOut" }, t0).to(BG, { ribbons: 0.4, duration: 1, ease: "power1.inOut" }, t0 + 5.4);
     tl.add(fadeIn(k, 0.6), t0 + 0.1).add(rise(tw, { stagger: 0.07 }), t0 + 0.25).add(rise(lw, { stagger: 0.035, dur: 0.7 }), t0 + 0.8);
     hit(tl, t0 + 0.3, "sparkle");
     tl.fromTo(me, { opacity: 0, scale: 0.5 }, { opacity: 1, scale: 1, duration: 1, ease: "back.out(1.6)" }, t0 + 0.3);
@@ -450,13 +465,14 @@ function sceneCopilot(c) {
   const n = sceneBox();
   const tl = gsap.timeline();
   tl.to(BG.glowA, { x: 0.25, y: 0.5, a: 0.3, duration: 2.4, ease: "parsInOut" }, 0).to(BG.glowB, { x: 0.75, y: 0.35, a: 0.24, duration: 2.4, ease: "parsInOut" }, 0);
+  tl.to(BG, { ribbons: 0.25, duration: 1.5, ease: "power1.inOut" }, 0);
 
   // A · the claim
   const A = h("div", "layer", n);
   const head = place(h("div", "abs", A), { left: "160px", right: "160px", top: "330px", textAlign: "center" });
   const k = h("div", "kicker", head);
   place(k, { justifyContent: "center" });
-  k.innerHTML = `<span class="rule"></span><span style="color:#ff4fa3;display:inline-grid">${icon("ai")}</span><span>${c.kicker}</span><span class="rule" style="transform:scaleX(-1)"></span>`;
+  k.innerHTML = `<span class="rule"></span><span style="color:#b8b1ff;display:inline-grid">${icon("ai")}</span><span>${c.kicker}</span><span class="rule" style="transform:scaleX(-1)"></span>`;
   k.querySelector("svg").style.cssText = "width:30px;height:30px";
   const tt = place(h("div", "h1", head), { marginTop: "24px", fontSize: "88px" });
   const tw = words(tt, c.title);
@@ -465,16 +481,23 @@ function sceneCopilot(c) {
   tl.add(sink(tw, { stagger: 0.02 }), 3.7).to(k, { opacity: 0, duration: 0.4 }, 3.7);
   let t = 4.3;
 
-  // B · the PM dashboard; the cursor opens the assistant
+  // B · the PM dashboard; the cursor clicks the assistant's chip
   const b = new Browser(n, { x: X_MID, y: BY, w: BW, h: BH }, c.url);
-  const p0 = b.page(c.before), p1 = b.page(c.steps[0].screen);
+  const p0 = b.page(c.before);
   gsap.set(b.root, { opacity: 0 });
   tl.fromTo(b.root, { opacity: 0, y: 120, scale: 0.9 }, { opacity: 1, y: 0, scale: 1, duration: 1.2, ease: "pars" }, t);
   tl.set(p0.vp, { opacity: 1 }, t);
-  t = navigate(tl, b, p0, p1, c.chip, t + 1.0, () => {});
+  t += 1.0;
+  tl.set(b.cur, { page: 0 }, t);
+  tl.fromTo(b.cur, { x: c.chip.x + 14, y: c.chip.y - 22, o: 0 }, { x: c.chip.x, y: c.chip.y, o: 1, duration: 0.9, ease: "parsInOut" }, t + 0.1);
+  hit(tl, t + 1.0, "click");
+  tl.to(b.cur, { press: 1, duration: 0.1, ease: "power2.in" }, t + 1.0).to(b.cur, { press: 0, duration: 0.18, ease: "power2.out" }, t + 1.1);
+  tl.fromTo(b.cur, { ripple: 0 }, { ripple: 1, duration: 0.6, ease: "power2.out" }, t + 1.02);
+  tl.to(b.cur, { o: 0, duration: 0.3 }, t + 1.35);
+  t += 1.25;
 
   // C · the panel lifts out into its own device frame
-  const D = { x: 150, y: 92, w: 560, h: 896 };
+  const D = { x: 150, y: 118, w: 550, h: 880 };
   const dev = new Browser(n, D, c.url, { chrome: false });
   const pages = c.steps.map((s) => {
     const pg = dev.page(s.screen);
@@ -483,11 +506,11 @@ function sceneCopilot(c) {
   });
   gsap.set(dev.root, { opacity: 0, transformOrigin: "0 0" });
   tl.set(pages[0].vp, { opacity: 1 }, t);
-  const v = p1.toVP(c.panel), sc0 = v.w / D.w; // where the panel sits inside the browser (camera at the top)
+  const v = p0.toVP(c.chip), sc0 = 0.06; // the chip on the dashboard (camera at the top of the page)
   hit(tl, t + 0.1, "whoosh");
-  // the device appears exactly over the panel (solid at once), then travels; the browser falls away behind it
+  // the device opens out of the chip, then settles in its place; the browser falls away behind it
   tl.fromTo(dev.root, { x: X_MID + 10 + v.x - D.x, y: BY + 46 + v.y - D.y, scale: sc0 }, { x: 0, y: 0, scale: 1, duration: 1.4, ease: "parsInOut" }, t + 0.1);
-  tl.fromTo(dev.root, { opacity: 0 }, { opacity: 1, duration: 0.15, ease: "none" }, t + 0.1);
+  tl.fromTo(dev.root, { opacity: 0 }, { opacity: 1, duration: 0.3, ease: "power1.out" }, t + 0.1);
   tl.to(b.root, { opacity: 0, x: 360, scale: 0.86, filter: "blur(6px)", duration: 1.1, ease: "power2.inOut" }, t + 0.35);
   t += 1.6;
 
@@ -495,14 +518,12 @@ function sceneCopilot(c) {
   const cap = place(h("div", "abs", n), { left: "800px", right: "150px", top: "300px" });
   c.steps.forEach((s, i) => {
     const pg = pages[i];
-    if (i > 0) {
-      tl.to(pages[i - 1].vp, { opacity: 0, y: -50, duration: 0.45, ease: "power2.in" }, t);
-      tl.fromTo(pg.vp, { opacity: 0, y: 60 }, { opacity: 1, y: 0, duration: 0.7, ease: "pars" }, t + 0.3);
-    }
+    // the next state of the chat rises from the bottom like a new message (same header, so only the conversation changes)
+    if (i > 0) reveal(tl, pg, pages[i - 1], t + 0.1, "up", 0.65);
     const box = h("div", "", cap);
     place(box, { position: "absolute", left: "0", right: "0", top: "0" });
     const num = place(h("div", "kicker", box), {});
-    num.innerHTML = `<span class="n">${fa(String(i + 1).padStart(2, "0"))}</span><span class="rule" style="transform:scaleX(-1)"></span>`;
+    num.innerHTML = `<span>گام ${fa(i + 1)} از ${fa(c.steps.length)}</span><span class="rule" style="transform:scaleX(-1)"></span>`;
     const st = place(h("div", "h2", box), { marginTop: "16px", fontSize: "62px" });
     const sw = words(st, s.title);
     const ln = place(h("div", "lead", box), { marginTop: "18px", fontSize: "34px" });
@@ -538,12 +559,13 @@ function sceneCopilot(c) {
   tl.to(BG.glowC, { x: 0.5, y: 0.5, r: 0.5, a: 0.2, duration: 1.4 }, t + 0.4).to(BG.glowC, { a: 0, duration: 1 }, t + 4.6);
   tl.add(sink(ew, { stagger: 0.02 }), t + 4.8);
   t += 5.5;
+  tl.to(BG, { ribbons: 0.4, duration: 1, ease: "power1.inOut" }, t - 1);
   tl.to({}, { duration: 0.1 }, t);
   return wrap(n, tl, 0.3);
 }
 
 /* ── outro: the call to action, the QR, the logo; ends on the intro's first frame (ink, nothing else) ── */
-function sceneOutro({ qr, url }) {
+function sceneOutro({ qr, url, start = 0, bar = 2 }) {
   const n = sceneBox();
   const title = place(h("div", "abs h2", n), { right: "160px", top: "300px", width: "980px", fontSize: "76px" });
   const tw = words(title, 'دموی زنده را<br>همین‌جا از ما <span class="g">بخواهید</span>.');
@@ -558,7 +580,7 @@ function sceneOutro({ qr, url }) {
   const logo = place(h("img", "abs", n), { right: "160px", top: "700px", width: "190px" });
   logo.src = "assets/brand/pars-logo-reverse.svg";
   const tl = gsap.timeline();
-  tl.to(BG, { ribbons: 0.42, duration: 2, ease: "parsInOut" }, 0);
+  tl.to(BG, { ribbons: 0.25, duration: 2, ease: "parsInOut" }, 0);
   tl.add(rise(tw, { stagger: 0.08 }), 0.3);
   tl.add(rise(lw, { stagger: 0.04, dur: 0.8 }), 1.1);
   tl.fromTo(tile, { opacity: 0, scale: 0.8, rotationY: -25, transformPerspective: 1600 }, { opacity: 1, scale: 1, rotationY: 0, duration: 1.3, ease: "pars" }, 0.6);
@@ -570,6 +592,9 @@ function sceneOutro({ qr, url }) {
   tl.to(BG, { ribbons: 0, particles: 0, converge: 0, duration: 1.6, ease: "power2.inOut" }, 8.2);
   tl.to(BG.glowA, { a: 0, duration: 1.6 }, 8.2).to(BG.glowB, { a: 0, duration: 1.6 }, 8.2).to(BG.glowC, { a: 0, duration: 1.6 }, 8.2);
   tl.to({}, { duration: 0.6 }, 9.8);
+  // the QR holds a little longer so the loop ends on a bar line of the music, already in ink
+  const end = start + tl.duration();
+  tl.shiftChildren(Math.ceil(end / bar - 1e-6) * bar - end, false, 8.2);
   return wrap(n, tl, 0.2);
 }
 
@@ -594,13 +619,15 @@ function sceneOverview({ kicker, title, lead, items }) {
     return c;
   });
   const tl = gsap.timeline();
-  tl.add(fadeIn(k, 0.7), 0.1).add(rise(tw, { stagger: 0.07 }), 0.25).add(rise(lw, { stagger: 0.03, dur: 0.7 }), 0.7);
+  // the heading waits for the outgoing chapter to clear (chapters overlap by up to half a second)
+  tl.add(fadeIn(k, 0.7), 0.5).add(rise(tw, { stagger: 0.07 }), 0.65).add(rise(lw, { stagger: 0.03, dur: 0.7 }), 1.05);
   cards.forEach((c, i) => {
     const row = Math.floor(i / 5), col = 4 - (i % 5);
     tl.fromTo(c, { opacity: 0, rotationX: -50, y: 60, z: -200 }, { opacity: 1, rotationX: 0, y: 0, z: 0, duration: 1, ease: "pars" }, 1.1 + row * 0.25 + col * 0.09);
   });
   // a light passes over the grid
-  const sweep = place(h("div", "abs", n), { left: "0", top: "330px", width: "380px", height: "640px", background: "linear-gradient(90deg, rgba(255,255,255,0), rgba(255,255,255,.10), rgba(255,255,255,0))", transform: "skewX(-18deg)", mixBlendMode: "screen", opacity: 0 });
+  const sweep = place(h("div", "abs", n), { left: "0", top: "330px", width: "380px", height: "640px", background: "linear-gradient(90deg, rgba(255,255,255,0), rgba(255,255,255,.10), rgba(255,255,255,0))", transform: "skewX(-18deg)", mixBlendMode: "screen", opacity: 0,
+    maskImage: "linear-gradient(transparent, #000 18%, #000 82%, transparent)", WebkitMaskImage: "linear-gradient(transparent, #000 18%, #000 82%, transparent)" });
   tl.fromTo(sweep, { x: 1900, opacity: 1 }, { x: -500, duration: 1.8, ease: "power2.inOut" }, 3.4);
   tl.to({}, { duration: 3.2 }, 3.4);
   tl.to(cards, { opacity: 0, y: -30, duration: 0.5, ease: "power2.in", stagger: 0.015 }, 7.6);
@@ -708,12 +735,13 @@ function sceneCapabilities({ kicker, title, items }) {
     return d;
   });
   const tl = gsap.timeline();
+  tl.to(BG, { ribbons: 0.22, duration: 1, ease: "power1.inOut" }, 0).to(BG, { ribbons: 0.4, duration: 1, ease: "power1.inOut" }, 8.4);
   tl.add(fadeIn(k, 0.7), 0.2).add(rise(tw, { stagger: 0.07 }), 0.35);
   tl.fromTo(mark, { opacity: 0, scale: 0.5, rotation: -20 }, { opacity: 1, scale: 1, rotation: 0, duration: 1.2, ease: "pars" }, 0.4);
   tl.fromTo(ring, { opacity: 0, scale: 0.6, rotation: -60 }, { opacity: 1, scale: 1, rotation: 0, duration: 1.6, ease: "pars" }, 0.5);
-  tl.to(ring, { rotation: 30, duration: 7, ease: "none" }, 2);
+  tl.to(ring, { rotation: 30, duration: 8, ease: "none" }, 2);
   nodes.forEach((d, i) => tl.fromTo(d, { opacity: 0, scale: 0.6, x: (cx - parseFloat(d.style.left) - 170) * 0.6, y: (cy - parseFloat(d.style.top) - 52) * 0.6 }, { opacity: 1, scale: 1, x: 0, y: 0, duration: 1, ease: "pars" }, 1.1 + i * 0.22));
-  tl.to([head, mark, ring, ...nodes], { opacity: 0, duration: 0.6, ease: "power2.in" }, 7.8);
+  tl.to([head, mark, ring, ...nodes], { opacity: 0, duration: 0.6, ease: "power2.in" }, 8.8);
   return wrap(n, tl, 0.3);
 }
 

@@ -1,6 +1,6 @@
 # Exhibition teaser — motion graphics
 
-A Persian (RTL) teaser of about six minutes that loops on the TV behind the Pars Project Management booth: the company in numbers, the thirteen systems, a walkthrough of each product demo, the working AI copilot, the AI agents, Pars's capabilities, its clients and a QR code to the site. 1920 × 1080, 60 fps, H.264 with an original soundtrack. Nothing here is part of the website build; this folder has its own `package.json`.
+A Persian (RTL) teaser of about six minutes that loops on the TV behind the Pars Project Management booth: the company in numbers, the thirteen systems, a walkthrough of each product demo, the working AI copilot, the AI agents, Pars's capabilities, its clients and a QR code to the site. 1920 × 1080, 60 fps, H.264 (BT.709) with an original soundtrack. Nothing here is part of the website build; this folder has its own `package.json`.
 
 ## How it is made
 
@@ -42,5 +42,7 @@ The demo screenshots are not in the repository (they are the demo archives share
 - `src/engine.js` — the background (glows, silk ribbons, particles, grain), the browser window with pages, camera, callouts and cursor, word-by-word Persian type motion, the chapter bar.
 - `src/teaser.html` — the stage and its CSS.
 - `music/compose.py` — the soundtrack: D minor, pads, pluck arpeggio, bass, drums, a bell hook, risers, impacts and UI sounds placed from the cue sheet; sidechain, reverb, limiter; the tail folds into the start so the loop is seamless.
+
+`out/` is a local build folder: `out/screens/` holds the original screenshots (the blur and retyped lines are applied at render time), so share the rendered mp4, never the `out/` folder.
 
 Rules the video keeps: Persian moves by word, never by letter; only the approved facts appear; demo screenshots show sample data, and personal details in them (an e-mail address, a sample company name, a third-party model name) are blurred in place by `Page` in `engine.js`; one rendering glitch of the demo (raw markdown asterisks in a copilot reply) is covered by a retyped line; AI panels describe what the production version delivers, and only the copilot chapter shows AI working today.

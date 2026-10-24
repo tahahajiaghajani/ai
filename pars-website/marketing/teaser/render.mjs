@@ -42,9 +42,10 @@ const probe = await openPage(browser);
 const duration = await probe.page.evaluate(() => window.TEASER.duration);
 console.log(`duration ${duration.toFixed(2)} s`);
 // the cue sheet for the music: chapter starts and kinds, in seconds
-const sheet = await probe.page.evaluate(() => ({ duration: window.TEASER.duration, sections: window.TEASER.chapters.map((c) => ({ start: c.start, end: c.end, kind: c.kind, name: c.name })), hits: window.TEASER.cues.sort((a, b) => a.t - b.t) }));
+const sheet = await probe.page.evaluate(() => ({ duration: window.TEASER.duration, sections: window.TEASER.chapters.map((c) => ({ start: c.start, end: c.end, sceneEnd: c.sceneEnd, kind: c.kind, name: c.name })), hits: window.TEASER.cues.sort((a, b) => a.t - b.t) }));
 fs.writeFileSync(path.join(OUT, "cues.json"), JSON.stringify(sheet, null, 1));
-if (args.chapters) for (const c of sheet.sections) console.log(c.start.toFixed(1).padStart(6), c.end.toFixed(1).padStart(6), c.kind.padEnd(12), c.name);
+// the gap is the background-only time before the next chapter (negative: crossfade overlap)
+if (args.chapters) for (const c of sheet.sections) console.log(c.start.toFixed(1).padStart(6), c.end.toFixed(1).padStart(6), ("gap " + (c.end - c.sceneEnd).toFixed(2)).padEnd(10), c.kind.padEnd(12), c.name);
 
 if (args.stills) {
   fs.mkdirSync(path.join(OUT, "stills"), { recursive: true });
@@ -70,8 +71,11 @@ if (args.video) {
     if (a >= b) return;
     const ctx = w === 0 ? probe : await openPage(browser);
     const file = path.join(dir, `c${String(w).padStart(2, "0")}.mp4`);
+    // Chromium's JPEGs are full-range BT.601; convert to tagged BT.709 so TVs that ignore the tags still show the brand colours
     const ff = spawn("ffmpeg", ["-y", "-loglevel", "error", "-f", "image2pipe", "-framerate", String(fps), "-i", "-",
-      "-c:v", "libx264", "-preset", "medium", "-crf", "15", "-pix_fmt", "yuv420p", "-profile:v", "high", "-level", "4.2",
+      "-vf", "scale=in_color_matrix=bt601:in_range=full:out_color_matrix=bt709:out_range=tv:flags=accurate_rnd+full_chroma_int,format=yuv420p",
+      "-c:v", "libx264", "-preset", "medium", "-crf", "15", "-profile:v", "high", "-level", "4.2",
+      "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv",
       "-x264-params", "keyint=" + fps * 2, "-r", String(fps), file], { stdio: ["pipe", "inherit", "inherit"] });
     for (let i = a; i < b; i++) {
       const buf = await frame(ctx, from + i / fps, "jpeg");
@@ -92,9 +96,10 @@ if (args.video) {
   const audio = args.audio === true || args.audio === "true" ? path.join(OUT, "music.wav") : args.audio;
   const final = path.join(OUT, args.out ?? "pars-teaser.mp4");
   if (audio && fs.existsSync(audio)) {
-    // --gain (dB) brings the mix to about -15 LUFS for a TV at a booth
+    // --gain (dB) brings the mix to about -15 LUFS for a TV at a booth; 6 ms fades keep a player that restarts the loop from clicking
+    const len = to - from;
     execFileSync("ffmpeg", ["-y", "-loglevel", "error", "-i", silent, "-ss", String(from), "-i", audio, "-map", "0:v", "-map", "1:a", "-c:v", "copy",
-      "-af", `volume=${+(args.gain ?? 2)}dB`, "-c:a", "aac", "-b:a", "320k", "-ar", "48000", "-shortest", "-movflags", "+faststart", final]);
+      "-af", `volume=${+(args.gain ?? 2)}dB,afade=t=in:d=0.006,afade=t=out:st=${(len - 0.006).toFixed(3)}:d=0.006`, "-c:a", "aac", "-b:a", "320k", "-ar", "48000", "-shortest", "-movflags", "+faststart", final]);
   } else {
     execFileSync("ffmpeg", ["-y", "-loglevel", "error", "-i", silent, "-c", "copy", "-movflags", "+faststart", final]);
   }

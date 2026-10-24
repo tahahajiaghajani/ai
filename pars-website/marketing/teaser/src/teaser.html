@@ -71,7 +71,7 @@ w-i { display: inline-block; will-change: transform; }
 .browser .vp .imgl { position: absolute; left: 0; top: 0; transform-origin: 0 0; will-change: transform; }
 .browser .vp img, .browser .vp canvas { position: absolute; left: 0; top: 0; }
 .browser .patch { position: absolute; overflow: hidden; }
-.browser.device { border-radius: 28px; background: #0f0e28; box-shadow: 0 60px 140px rgba(0, 0, 0, .6), 0 0 0 2px rgba(196, 190, 255, .3), 0 0 120px rgba(143, 134, 255, .25); }
+.browser.device { overflow: hidden; border-radius: 28px; background: #0f0e28; box-shadow: 0 60px 140px rgba(0, 0, 0, .6), 0 0 0 2px rgba(196, 190, 255, .3), 0 0 120px rgba(143, 134, 255, .25); }
 .ai-spot { position: absolute; display: grid; place-items: center; overflow: visible; }
 .ai-spot svg { flex: none; width: 54px; height: 54px; margin: -17px; color: #fff; fill: rgba(143, 134, 255, .95); stroke: #fff; stroke-width: 1.2; filter: drop-shadow(0 0 14px rgba(143, 134, 255, .95)); }
 .browser .load { position: absolute; left: 10px; top: 44px; height: 3px; width: 0; border-radius: 2px; background: var(--edge); box-shadow: 0 0 12px rgba(255, 79, 163, .8); z-index: 3; }
@@ -90,7 +90,7 @@ w-i { display: inline-block; will-change: transform; }
 .card .num { font-size: 20px; font-weight: 600; color: var(--pink); margin-bottom: 8px; display: flex; align-items: center; gap: 10px; }
 .card .num::after { content: ""; flex: 1; height: 2px; background: linear-gradient(90deg, rgba(169,162,255,0), rgba(169,162,255,.5)); }
 .card b { display: block; font-size: 32px; font-weight: 600; line-height: 1.45; }
-.card p { margin-top: 8px; font-size: 25px; line-height: 1.7; color: var(--muted); text-wrap: pretty; }
+.card p { margin-top: 8px; font-size: 25px; line-height: 1.7; color: var(--muted); text-wrap: balance; }
 .card.big .big-v { font-size: 118px; font-weight: 600; line-height: 1.1; margin: 2px 0 6px; direction: rtl; }
 .card.big b { font-size: 30px; }
 /* an explicit box: an SVG without width/height is a 300×150 replaced element, pinned right in this RTL page */
@@ -98,7 +98,7 @@ svg.lead-line { position: absolute; left: 0; top: 0; width: 100%; height: 100%; 
 
 /* AI panel */
 .ai-panel { position: absolute; width: 520px; padding: 32px 34px; border-radius: 26px; direction: rtl;
-  background: linear-gradient(rgba(12, 11, 34, .92), rgba(12, 11, 34, .92)) padding-box, var(--edge) border-box; border: 2px solid transparent; box-shadow: 0 40px 100px rgba(0, 0, 0, .55), 0 0 80px rgba(223, 17, 115, .25); }
+  background: linear-gradient(rgba(12, 11, 34, .92), rgba(12, 11, 34, .92)) padding-box, var(--edge) border-box; border: 2px solid transparent; box-shadow: 0 40px 100px rgba(0, 0, 0, .55), 0 0 80px rgba(143, 134, 255, .28); }
 .ai-panel .tag { display: inline-flex; align-items: center; gap: 10px; font-size: 22px; font-weight: 600; color: #fff; padding: 8px 18px; border-radius: 999px; background: var(--edge); white-space: nowrap; }
 .ai-panel .tag svg { width: 24px; height: 24px; }
 .ai-panel h3 { margin-top: 18px; font-size: 36px; font-weight: 600; line-height: 1.45; text-wrap: balance; }

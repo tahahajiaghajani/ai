@@ -39,19 +39,45 @@ function words(n, text) {
     o.appendChild(i);
     n.appendChild(o);
   };
+  // spaces break; a no-break space (U+00A0) glues a term. A short function word or a number never ends a line (it is
+  // carried to the next word, even into an inline element), nor does a word in ezafe («پایه‌ی») or the «پیش» of «پیش از»;
+  // «را» and a verb in «می‌…» never start one (they join the word before).
+  let carry = "";
   for (const node of [...src.childNodes]) {
     if (node.nodeType === 3) {
-      const parts = node.textContent.split(/(\s+)/);
-      for (const p of parts) {
+      const raw = node.textContent;
+      const toks = [];
+      for (const p of raw.split(/[ \t\n]+/)) {
         if (!p) continue;
-        if (/^\s+$/.test(p)) n.appendChild(document.createTextNode(" "));
-        else word(p);
+        if (toks.length && JOIN_PREV.test(p)) toks[toks.length - 1] += "\u00a0" + p;
+        else toks.push(p);
       }
-    } else if (node.nodeName === "BR") n.appendChild(document.createElement("br"));
-    else word(node);
+      if (/^[ \t\n]/.test(raw) && n.childNodes.length && !carry) n.appendChild(document.createTextNode(" "));
+      toks.forEach((p, i) => {
+        if (STICKY.has(p) || NUMBER.test(p) || EZAFE.test(p) || ((p === "پیش" || p === "پس") && toks[i + 1] === "از")) { carry += p + "\u00a0"; return; }
+        word(carry + p);
+        carry = "";
+        if (i < toks.length - 1 || /[ \t\n]$/.test(raw)) n.appendChild(document.createTextNode(" "));
+      });
+    } else if (node.nodeName === "BR") {
+      if (carry) word(carry.trimEnd());
+      carry = "";
+      n.appendChild(document.createElement("br"));
+    } else if (carry) {
+      const g = document.createElement("w-g");
+      g.append(carry, node);
+      carry = "";
+      word(g);
+    } else word(node);
   }
+  if (carry) word(carry.trimEnd());
   return [...n.querySelectorAll("w-i")];
 }
+const STICKY = new Set(["و", "یا", "در", "به", "از", "با", "تا", "بر", "برای", "روی", "کنار", "هر", "یک", "این", "آن", "طبق", "بدون", "بین", "میان",
+  "دو", "سه", "چهار", "پنج", "شش", "هفت", "هشت", "ده", "یازده", "دوازده", "سیزده", "پانزده", "بیست", "شصت", "نود", "صد"]);
+const NUMBER = /^[0-9۰-۹][0-9۰-۹٫٬.,/]*$/;
+const JOIN_PREV = /^(را|ن?می\u200c\S+)$/;
+const EZAFE = /\u200cی$/; // «نتیجه‌ی»، «پایه‌ی»: the ezafe binds the word to the next one
 /** word-by-word rise, in reading order */
 function rise(targets, opt = {}) {
   return gsap.fromTo(targets, { yPercent: 115, opacity: 0, filter: "blur(10px)" },
@@ -203,6 +229,9 @@ const Background = (() => {
     x.putImageData(id, 0, 0);
     return c;
   })();
+  const ribbonLayer = document.createElement("canvas");
+  ribbonLayer.width = W;
+  ribbonLayer.height = H;
   function render(t) {
     const ctx = cv().getContext("2d");
     ctx.globalCompositeOperation = "source-over";
@@ -216,6 +245,11 @@ const Background = (() => {
     ctx.globalCompositeOperation = "lighter";
     const a = BG.ribbons;
     if (a > 0.002) {
+      // the ribbons are drawn on their own layer, so their moving inner ends can be faded out with a soft mask
+      const rx = ribbonLayer.getContext("2d");
+      rx.globalCompositeOperation = "source-over";
+      rx.clearRect(0, 0, W, H);
+      rx.globalCompositeOperation = "lighter";
       const c = BG.converge;
       // stream 1 (violet, experience) and stream 2 (magenta, intelligence)
       const yb = BG.flowY * H, amp = 60 * BG.flowAmp;
@@ -229,13 +263,30 @@ const Background = (() => {
       const wFree1 = [60, 140, 90, 120, 40], wFree2 = [40, 120, 90, 140, 60], wConv = [150, 140, 110, 50, 1];
       // the inner end is only solid once the streams actually meet; half-way it fades out instead of stopping mid-screen
       const endA = smooth(clamp((c - 0.55) / 0.45, 0, 1)).toFixed(3);
-      Ribbon.draw(ctx, { pts: mix(free1, conv1), width: wFree1.map((v, i) => lerp(v, wConv[i], c)), turns: 1.4, phase: t * 0.35, n: 30, alpha: 0.42 * a, colors: ["rgba(143,134,255,0.0)", "#8f86ff", "#b8b1ff", `rgba(224,107,192,${endA})`], lw: 1.35 });
-      Ribbon.draw(ctx, { pts: mix(free2, conv2), width: wFree2.map((v, i) => lerp(v, wConv[i], c)), turns: 1.7, phase: 2 - t * 0.31, n: 30, alpha: 0.4 * a, colors: ["rgba(255,43,143,0.0)", "#df1173", "#ff4fa3", `rgba(255,156,204,${endA})`], lw: 1.35 });
+      Ribbon.draw(rx, { pts: mix(free1, conv1), width: wFree1.map((v, i) => lerp(v, wConv[i], c)), turns: 1.4, phase: t * 0.35, n: 30, alpha: 0.42 * a, colors: ["rgba(143,134,255,0.0)", "#8f86ff", "#b8b1ff", `rgba(224,107,192,${endA})`], lw: 1.35 });
+      Ribbon.draw(rx, { pts: mix(free2, conv2), width: wFree2.map((v, i) => lerp(v, wConv[i], c)), turns: 1.7, phase: 2 - t * 0.31, n: 30, alpha: 0.4 * a, colors: ["rgba(255,43,143,0.0)", "#df1173", "#ff4fa3", `rgba(255,156,204,${endA})`], lw: 1.35 });
       if (c > 0.01) {
         // the joined stream leaves the meeting point
         const out = [P, [P[0] - 120, P[1] + 60], [P[0] - 420, P[1] + 220], [-200, P[1] + 330]];
-        Ribbon.draw(ctx, { pts: out, width: [1, 60, 130, 180], turns: 0.9, phase: t * 0.4, n: 34, alpha: 0.45 * a * smooth(clamp((c - 0.6) / 0.4, 0, 1)), colors: ["#ffffff", "#ff4fa3", "#c2479f", "rgba(143,134,255,0.2)"], lw: 1.3 });
+        Ribbon.draw(rx, { pts: out, width: [1, 60, 130, 180], turns: 0.9, phase: t * 0.4, n: 34, alpha: 0.45 * a * smooth(clamp((c - 0.85) / 0.15, 0, 1)), colors: ["#ffffff", "#ff4fa3", "#c2479f", "rgba(143,134,255,0.2)"], lw: 1.3 });
       }
+      // while the streams travel, their inner ends dissolve instead of ending square: each end is masked until it nears the
+      // meeting point, where the pinched tips vanish into the light until the two have met (the logo appears there)
+      const on = smooth(clamp(c / 0.15, 0, 1));
+      const masks = [mix(free1, conv1)[4], mix(free2, conv2)[4]].map((E) => [E, 320, on * smooth(clamp(Math.hypot(E[0] - P[0], E[1] - P[1]) / 220, 0, 1))]);
+      masks.push([P, 190, smooth(clamp((c - 0.6) / 0.2, 0, 1)) * (1 - smooth(clamp((c - 0.9) / 0.1, 0, 1)))]);
+      rx.globalCompositeOperation = "destination-out";
+      for (const [E, r, k] of masks) {
+        if (k <= 0.002) continue;
+        const gr = rx.createRadialGradient(E[0], E[1], 0, E[0], E[1], r);
+        gr.addColorStop(0, `rgba(0,0,0,${k})`);
+        gr.addColorStop(0.4, `rgba(0,0,0,${k})`);
+        gr.addColorStop(1, "rgba(0,0,0,0)");
+        rx.fillStyle = gr;
+        rx.fillRect(E[0] - r, E[1] - r, 2 * r, 2 * r);
+      }
+      ctx.globalCompositeOperation = "lighter";
+      ctx.drawImage(ribbonLayer, 0, 0);
     }
     if (BG.particles > 0.01) {
       for (const p of parts) {
@@ -298,6 +349,7 @@ class Page {
       this.img = h("img", "", this.layer);
       this.img.src = screen.src;
     }
+    if (screen.bg) this.vp.style.background = screen.bg; // the page's own margin colour (see frame)
     this.img.style.width = screen.w + "px";
     this.img.style.height = screen.h + "px";
     // patches: small overlays in image px that repair a rendering glitch of the demo (e.g. raw markdown asterisks)
@@ -315,14 +367,25 @@ class Page {
   frame(r, opt = {}) {
     const sw = this.screen.w, sh = this.screen.h;
     const rw = (r.w / 100) * sw, rh = (r.h / 100) * sh;
-    const zlo = Math.max(opt.zmin ?? 1, this.zmin);
+    // fitWidth: a region wider than the zoomed view may zoom out to the full width; a page with its margin colour (screen.bg)
+    // may zoom out further (zmin < 1) and shows that colour around the image
+    const zlo = this.screen.bg && opt.zmin != null ? opt.zmin : opt.fitWidth ? 1 : Math.max(opt.zmin ?? 1, this.zmin);
     const z = clamp(Math.min((this.vw * (opt.fill ?? 0.78)) / (rw * this.fit), (this.vh * (opt.fill ?? 0.78)) / (rh * this.fit)), zlo, Math.max(zlo, opt.zmax ?? 1.45));
     const sc = this.fit * z;
     const halfW = this.vw / 2 / sc, halfH = this.vh / 2 / sc;
     let cx = ((r.x + r.w / 2) / 100) * sw + (opt.dx ?? 0) / sc, cy = ((r.y + r.h / 2) / 100) * sh + (opt.dy ?? 0) / sc;
-    cx = clamp(cx, halfW, Math.max(halfW, sw - halfW));
-    cy = clamp(cy, halfH, Math.max(halfH, sh - halfH));
+    // an image smaller than the view sits centred (ay: 0 = top, 1 = bottom), otherwise the view stays inside the image
+    cx = 2 * halfW >= sw ? sw / 2 : clamp(cx, halfW, sw - halfW);
+    cy = 2 * halfH >= sh ? halfH + (opt.ay ?? 0.5) * (sh - 2 * halfH) : clamp(cy, halfH, sh - halfH);
     return { cx, cy, z };
+  }
+  /** move a camera target sideways so region r sits m px inside the window edge on its card's side: the leader line leaves the window at once */
+  hug(target, r, side, m = 44) {
+    const sc = this.fit * target.z, sw = this.screen.w, halfW = this.vw / 2 / sc;
+    const x0 = (r.x / 100) * sw, x1 = ((r.x + r.w) / 100) * sw;
+    if ((x1 - x0) * sc > this.vw - 2 * m || 2 * halfW >= sw) return target;
+    const cx = side === "left" ? x0 + (this.vw / 2 - m) / sc : x1 - (this.vw / 2 - m) / sc;
+    return { ...target, cx: clamp(cx, halfW, sw - halfW) };
   }
   top() {
     return { cx: this.screen.w / 2, cy: this.vh / 2 / (this.fit * this.zmin), z: this.zmin };
@@ -373,9 +436,9 @@ class Browser {
   apply() {
     let paths = "";
     if (this.urlEl) {
-      // the address bar shows the page that is most visible
+      // the address bar shows the topmost page that is at least half visible (a new page fades in over the old one)
       let best = this.pages[0];
-      for (const p of this.pages) if (+p.vp.style.opacity > +best.vp.style.opacity) best = p;
+      for (const p of this.pages) if (+p.vp.style.opacity >= 0.5) best = p;
       if (best && this.urlEl.textContent !== best.url) this.urlEl.textContent = best.url;
     }
     for (const p of this.pages) {
@@ -390,8 +453,20 @@ class Browser {
           const hx = this.ins.l + clamp(c.side === "left" ? v.x - pad : v.x + v.w + pad, 0, p.vw), hy = this.ins.t + clamp(v.y + v.h / 2, 30, p.vh - 30);
           const cb = c.cardBox;
           const cx = c.side === "left" ? cb.x + cb.w : cb.x, cy = cb.y + 46;
-          const ex = lerp(hx, cx, k), ey = lerp(hy, cy, k);
-          paths += `<path d="M${hx} ${hy}C${lerp(hx, cx, 0.5)} ${hy} ${lerp(hx, cx, 0.5)} ${cy} ${ex} ${ey}" stroke="url(#lg)" stroke-width="3" fill="none" stroke-dasharray="${k * 2000} 2000"/>` +
+          // the whole curve is laid out once and drawn along its length (moving its end point would fold it into a loop)
+          const mx = lerp(hx, cx, 0.5), d = `M${hx} ${hy}C${mx} ${hy} ${mx} ${cy} ${cx} ${cy}`;
+          let len = 0;
+          for (let i = 1, px = hx, py = hy; i <= 24; i++) {
+            const u = i / 24, v = 1 - u;
+            const x = v * v * v * hx + 3 * v * v * u * mx + 3 * v * u * u * mx + u * u * u * cx, y = v * v * v * hy + 3 * v * v * u * hy + 3 * v * u * u * cy + u * u * u * cy;
+            len += Math.hypot(x - px, y - py);
+            px = x;
+            py = y;
+          }
+          const dash = `stroke-dasharray="${(k * len).toFixed(1)} ${(len + 20).toFixed(1)}"`;
+          // a dark halo under the line: it reads as an overlay, never as a strike through the page's text
+          paths += `<path d="${d}" stroke="rgba(7,6,26,.6)" stroke-width="9" stroke-linecap="round" fill="none" ${dash}/>` +
+            `<path d="${d}" stroke="url(#lg)" stroke-width="3" fill="none" ${dash}/>` +
             `<circle cx="${hx}" cy="${hy}" r="${7 * Math.min(1, k * 3)}" fill="#ff4fa3"/>`;
         }
       }
@@ -502,6 +577,8 @@ function renderChapters(t) {
 /* ── frame renderer ─────────────────────────────────────────── */
 let MASTER = null;
 function renderFrame(t) {
+  // a seek to the time the timeline already holds renders nothing: a fresh page at 0 would show the default state
+  if (MASTER.totalTime() === t) MASTER.totalTime(t + 0.5, false);
   MASTER.totalTime(t, false);
   for (const b of Browsers) if (b.root.closest(".layer").style.visibility !== "hidden") b.apply();
   Background.render(t);
