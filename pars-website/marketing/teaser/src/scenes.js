@@ -195,7 +195,7 @@ function shotDemo(n, tl, p, s, t0) {
       tl.add(ct, t + md - 0.4);
       hit(tl, t + md - 0.4, c.big ? "sparkle" : "tick");
       // a slow push while the card is up keeps the frame alive
-      tl.to(page.cam, { z: target.z * 1.035, duration: ct.duration() - 0.6, ease: "sine.inOut" }, t + md);
+      tl.to(page.cam, { z: target.z * (c.push ?? 1.035), duration: ct.duration() - 0.6, ease: "sine.inOut" }, t + md);
       t += md - 0.4 + ct.duration() - 0.25;
     });
     if (!s.ai || i < s.pages.length - 1) {
@@ -213,6 +213,15 @@ function shotDemo(n, tl, p, s, t0) {
   return t + 0.85; // the next shot starts once the window has nearly gone
 }
 
+/** a page change: the new page is painted over the old one, from the top (a browser) or from the bottom (a new chat message);
+ *  every pixel is either the old page or the new one, so there is no see-through and no double image */
+function reveal(tl, to, from, at, dir = "down", dur = 0.6) {
+  const hidden = dir === "down" ? "inset(0% 0% 100% 0%)" : "inset(100% 0% 0% 0%)";
+  tl.set(to.vp, { opacity: 1 }, at);
+  tl.fromTo(to.vp, { clipPath: hidden }, { clipPath: "inset(0% 0% 0% 0%)", duration: dur, ease: "power2.inOut", immediateRender: false }, at);
+  tl.set(from.vp, { opacity: 0 }, at + dur);
+}
+
 /** cursor glides to a menu item, clicks; a load bar runs; the next page slides in */
 function navigate(tl, b, from, to, at, t, glide, rest) {
   glide(X_MID, t, 1.0);
@@ -221,8 +230,7 @@ function navigate(tl, b, from, to, at, t, glide, rest) {
     // another app of the same family: the address changes, no click
     tl.fromTo(b.load, { width: 0, opacity: 1 }, { width: BW - 20, duration: 0.55, ease: "power2.inOut" }, t + 0.2);
     tl.to(b.load, { opacity: 0, duration: 0.25 }, t + 0.75);
-    tl.fromTo(to.vp, { opacity: 0 }, { opacity: 1, duration: 0.55, ease: "power1.inOut" }, t + 0.45);
-    tl.set(from.vp, { opacity: 0 }, t + 1.0);
+    reveal(tl, to, from, t + 0.45);
     return t + 1.2;
   }
   tl.add(camTo(from, rest ?? from.top(), 0.9), t);
@@ -233,9 +241,7 @@ function navigate(tl, b, from, to, at, t, glide, rest) {
   tl.fromTo(b.cur, { ripple: 0 }, { ripple: 1, duration: 0.6, ease: "power2.out" }, t + 1.02);
   tl.fromTo(b.load, { width: 0, opacity: 1 }, { width: BW - 20, duration: 0.55, ease: "power2.inOut" }, t + 1.08);
   tl.to(b.load, { opacity: 0, duration: 0.25 }, t + 1.63);
-  // the new page fades in over the old one, which stays solid underneath (no see-through, nothing outside the frame)
-  tl.fromTo(to.vp, { opacity: 0 }, { opacity: 1, duration: 0.55, ease: "power1.inOut" }, t + 1.35);
-  tl.set(from.vp, { opacity: 0 }, t + 1.9);
+  reveal(tl, to, from, t + 1.35);
   tl.to(b.cur, { o: 0, duration: 0.3 }, t + 1.5);
   return t + 2.05;
 }
@@ -306,8 +312,9 @@ function shotWall(n, tl, p, s, t0) {
   });
   if (cw.length) tl.fromTo(cap, { opacity: 0, scale: 0.9 }, { opacity: 1, scale: 1, duration: 0.7, ease: "pars" }, t0 + 1.5).add(rise(cw, { stagger: 0.07 }), t0 + 1.6);
   const end = t0 + 5.6;
-  tl.to(cards.map((c) => c.d), { opacity: 0, z: "+=700", duration: 0.7, ease: "power2.in", stagger: 0.05 }, end - 0.8);
-  if (cw.length) tl.to(cap, { opacity: 0, scale: 0.95, duration: 0.5, ease: "power2.in" }, end - 0.8);
+  // the wall has gone before the demo window comes in
+  tl.to(cards.map((c) => c.d), { opacity: 0, z: "+=420", duration: 0.55, ease: "power2.in", stagger: 0.04 }, end - 1.05);
+  if (cw.length) tl.to(cap, { opacity: 0, scale: 0.95, duration: 0.45, ease: "power2.in" }, end - 1.05);
   return end - 0.1;
 }
 
@@ -474,13 +481,20 @@ function sceneCopilot(c) {
   tl.add(sink(tw, { stagger: 0.02 }), 3.7).to(k, { opacity: 0, duration: 0.4 }, 3.7);
   let t = 4.3;
 
-  // B · the PM dashboard; the cursor opens the assistant
+  // B · the PM dashboard; the cursor clicks the assistant's chip
   const b = new Browser(n, { x: X_MID, y: BY, w: BW, h: BH }, c.url);
-  const p0 = b.page(c.before), p1 = b.page(c.steps[0].screen);
+  const p0 = b.page(c.before);
   gsap.set(b.root, { opacity: 0 });
   tl.fromTo(b.root, { opacity: 0, y: 120, scale: 0.9 }, { opacity: 1, y: 0, scale: 1, duration: 1.2, ease: "pars" }, t);
   tl.set(p0.vp, { opacity: 1 }, t);
-  t = navigate(tl, b, p0, p1, c.chip, t + 1.0, () => {});
+  t += 1.0;
+  tl.set(b.cur, { page: 0 }, t);
+  tl.fromTo(b.cur, { x: c.chip.x + 14, y: c.chip.y - 22, o: 0 }, { x: c.chip.x, y: c.chip.y, o: 1, duration: 0.9, ease: "parsInOut" }, t + 0.1);
+  hit(tl, t + 1.0, "click");
+  tl.to(b.cur, { press: 1, duration: 0.1, ease: "power2.in" }, t + 1.0).to(b.cur, { press: 0, duration: 0.18, ease: "power2.out" }, t + 1.1);
+  tl.fromTo(b.cur, { ripple: 0 }, { ripple: 1, duration: 0.6, ease: "power2.out" }, t + 1.02);
+  tl.to(b.cur, { o: 0, duration: 0.3 }, t + 1.35);
+  t += 1.25;
 
   // C · the panel lifts out into its own device frame
   const D = { x: 150, y: 118, w: 550, h: 880 };
@@ -492,11 +506,11 @@ function sceneCopilot(c) {
   });
   gsap.set(dev.root, { opacity: 0, transformOrigin: "0 0" });
   tl.set(pages[0].vp, { opacity: 1 }, t);
-  const v = p1.toVP(c.panel), sc0 = v.w / D.w; // where the panel sits inside the browser (camera at the top)
+  const v = p0.toVP(c.chip), sc0 = 0.06; // the chip on the dashboard (camera at the top of the page)
   hit(tl, t + 0.1, "whoosh");
-  // the device appears exactly over the panel (solid at once), then travels; the browser falls away behind it
+  // the device opens out of the chip, then settles in its place; the browser falls away behind it
   tl.fromTo(dev.root, { x: X_MID + 10 + v.x - D.x, y: BY + 46 + v.y - D.y, scale: sc0 }, { x: 0, y: 0, scale: 1, duration: 1.4, ease: "parsInOut" }, t + 0.1);
-  tl.fromTo(dev.root, { opacity: 0 }, { opacity: 1, duration: 0.15, ease: "none" }, t + 0.1);
+  tl.fromTo(dev.root, { opacity: 0 }, { opacity: 1, duration: 0.3, ease: "power1.out" }, t + 0.1);
   tl.to(b.root, { opacity: 0, x: 360, scale: 0.86, filter: "blur(6px)", duration: 1.1, ease: "power2.inOut" }, t + 0.35);
   t += 1.6;
 
@@ -504,11 +518,8 @@ function sceneCopilot(c) {
   const cap = place(h("div", "abs", n), { left: "800px", right: "150px", top: "300px" });
   c.steps.forEach((s, i) => {
     const pg = pages[i];
-    if (i > 0) {
-      // the next state of the chat fades in over the last one (same header, so only the conversation changes)
-      tl.fromTo(pg.vp, { opacity: 0 }, { opacity: 1, duration: 0.6, ease: "power1.inOut" }, t + 0.1);
-      tl.set(pages[i - 1].vp, { opacity: 0 }, t + 0.7);
-    }
+    // the next state of the chat rises from the bottom like a new message (same header, so only the conversation changes)
+    if (i > 0) reveal(tl, pg, pages[i - 1], t + 0.1, "up", 0.65);
     const box = h("div", "", cap);
     place(box, { position: "absolute", left: "0", right: "0", top: "0" });
     const num = place(h("div", "kicker", box), {});

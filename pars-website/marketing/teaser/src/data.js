@@ -18,7 +18,7 @@ const DATA = {
         { type: "demo", pages: [
           { screen: S("project-0", 1900, 3208), next: { x: 93.2, y: 9.1 }, callouts: [
             { x: 3.37, y: 7.73, w: 77.58, h: 4.3, label: "سبد پروژه‌ها، یک‌جا", text: "تعداد پروژه‌ها، اقدام‌ها و کارهای در جریان، بی‌درنگ پیش چشم مدیر." },
-            { x: 29.58, y: 12.87, w: 25.11, h: 13.47, label: "بار کاری هر واحد", text: "ببینید کدام واحد بیشترین پروژه را دارد و منابع را متوازن کنید.", side: "left", camRegion: { x: 28.2, y: 11.45, w: 54.2, h: 17.8 }, camOpt: { fill: 1, zmax: 1.9 } },
+            { x: 29.58, y: 12.87, w: 25.11, h: 13.47, label: "بار کاری هر واحد", text: "ببینید کدام واحد بیشترین پروژه را دارد و منابع را متوازن کنید.", side: "left", camRegion: { x: 28.2, y: 11.45, w: 54.2, h: 17.8 }, camOpt: { fill: 1, zmax: 1.9 }, push: 1 },
             { x: 9.58, y: 29.21, w: 24.32, h: 23.47, label: "برنامه در برابر واقعیت", text: "پیشرفت برنامه‌ای و واقعی هر پروژه، کنار درصد عملکرد و نشانگر افت.", zmax: 1.3, pan: 1.8 },
           ] },
           // the charter: the camera settles on its ten tabs (the whole form, below the app header and left of the menu), then the infographic lists them legibly
@@ -47,7 +47,7 @@ const DATA = {
       shots: [
         { type: "demo", tilt: 10, pages: [
           { screen: S("bsc-0", 1900, 3539), callouts: [
-            { x: 11.63, y: 6.87, w: 77.79, h: 21.53, label: "نقشه‌ی استراتژی", text: "اهداف هر منظر، با درصد تحقق و رنگ وضعیت، کنار هم.", zmax: 1.2, fill: 0.9 },
+            { x: 11.63, y: 6.87, w: 77.79, h: 21.53, label: "نقشه‌ی استراتژی", text: "اهداف هر منظر، با درصد تحقق و رنگ وضعیت، کنار هم.", zmax: 1.2, fill: 0.9 },
             { x: 28.95, y: 62.16, w: 37.37, h: 13.28, label: "روابط علت و معلولی", text: "ببینید یادگیری و رشد چگونه به فرایندها، مشتری و نتیجه‌ی مالی می‌رسد.", pan: 2.8 },
           ] },
         ] },
@@ -81,9 +81,9 @@ const DATA = {
         { type: "demo", ai: 1, pages: [
           // framed so the page title (which the screenshot clips at the top) never shows
           { screen: S("okr-0", 1920, 911), start: { x: 1.98, y: 6.15, w: 79.17, h: 93.85 }, startOpt: { fill: 1, zmax: 1.3 }, rest: { x: 1.98, y: 6.15, w: 79.17, h: 93.85 }, restOpt: { fill: 1, zmax: 1.3 },
-            aiCam: { x: 1.98, y: 6.15, w: 79.17, h: 93.85 }, aiCamOpt: { fill: 1, zmax: 1.3 }, aiSpots: [{ x: 41.5, y: 45 }, { x: 25, y: 80 }, { x: 62, y: 80 }], callouts: [
+            aiCam: { x: 1.98, y: 6.15, w: 79.17, h: 93.85 }, aiCamOpt: { fill: 1, zmax: 1.3 }, aiSpots: [{ x: 62, y: 42 }, { x: 76, y: 80 }, { x: 10, y: 45 }], callouts: [
             { x: 13.44, y: 66.96, w: 56.25, h: 27.88, label: "پیشرفت فصل‌به‌فصل", text: "سهم هر فصل را مقایسه کنید و فصل عقب‌مانده را پیدا کنید." },
-            { x: 84.5, y: 14, w: 14, h: 69, label: "از تعریف هدف تا تأیید", text: "اهداف سازمان و واحدها، وظایف و تأییدها؛ همه از یک منو.", camRegion: { x: 25, y: 10, w: 75, h: 88 }, camOpt: { fill: 1, zmax: 1.3 } },
+            { x: 84.5, y: 14, w: 14, h: 69, label: "از تعریف هدف تا تأیید", text: "اهداف سازمان و واحدها، وظایف و تأییدها؛ همه از یک منو.", camRegion: { x: 25, y: 10, w: 75, h: 88 }, camOpt: { fill: 1, zmax: 1.3 }, push: 1 },
           ] },
         ] },
       ],
@@ -110,7 +110,7 @@ const DATA = {
             { x: 50.86, y: 30.03, w: 39.15, h: 49.97, label: "رادار شایستگی", text: "شش شایستگی و چهار دیدگاه، روی یک نمودار.", zmax: 1.3 },
             { x: 10.35, y: 32.71, w: 39.15, h: 9.74, label: "شکاف دیدگاه‌ها", text: "فاصله‌ی خودارزیابی با نگاه دیگران؛ نقطه‌ی شروع گفت‌وگوی توسعه.", zmax: 1.5 },
           ] },
-          { screen: S("360-3", 1913, 1539), aiSpots: [{ x: 50, y: 70 }, { x: 30, y: 45 }, { x: 70, y: 25 }], callouts: [
+          { screen: S("360-3", 1913, 1539), aiSpots: [{ x: 35, y: 11 }, { x: 62, y: 29 }, { x: 22, y: 29 }], callouts: [
             { x: 12.6, y: 66.3, w: 19.8, h: 6.5, label: "فاصله‌ی امتیاز دو نفر", text: "امتیاز دو نفر در هر شایستگی، دقیق و کنار هم.", big: { value: 0.85, dec: 2, pre: "+" }, zmax: 2 },
           ] },
         ] },
@@ -131,9 +131,9 @@ const DATA = {
           items: ["فرضیات کلی و تقویم", "سرمایه‌گذاری ثابت", "سرمایه در گردش", "تولید و فروش", "هزینه‌های بهره‌برداری", "تأمین مالی و وام‌ها", "صورت‌های مالی", "شاخص‌های اقتصادی", "نقطه‌ی سربه‌سر", "تحلیل حساسیت", "گزارش جامع"] },
         { type: "demo", ai: 1, tilt: 10, pages: [
           { screen: S("fs-1", 1913, 1379), next: false, callouts: [
-            { x: 15.68, y: 44.96, w: 14.9, h: 39.74, label: "عمر مفید و ارزش اسقاط", text: "استهلاک هر دارایی، به روش خط مستقیم، خودکار محاسبه می‌شود.", zmax: 1.4, pan: 1.6 },
+            { x: 15.68, y: 44.96, w: 14.9, h: 39.74, label: "عمر مفید و ارزش اسقاط", text: "استهلاک هر دارایی، به روش خط مستقیم، خودکار محاسبه می‌شود.", zmax: 1.4, pan: 1.6 },
           ] },
-          { screen: S("fs-2", 1913, 2030, { patches: [{ x: 262, y: 477, w: 243, h: 22, html: '<div style="font:400 15px/22px Plex, sans-serif;color:#374151;direction:rtl;text-align:right;background:#f8fafc;height:100%;padding-inline-start:2px">شرکت نمونه</div>' }] }), aiCam: { x: 12.75, y: 21.48, w: 74.8, h: 39.66 }, aiSpots: [{ x: 50, y: 36 }, { x: 30, y: 48 }, { x: 70, y: 55 }], callouts: [
+          { screen: S("fs-2", 1913, 2030, { patches: [{ x: 262, y: 477, w: 243, h: 22, html: '<div style="font:400 15px/22px Plex, sans-serif;color:#374151;direction:rtl;text-align:right;background:#f8fafc;height:100%;padding-inline-start:2px">شرکت نمونه</div>' }] }), aiCam: { x: 12.75, y: 21.48, w: 74.8, h: 39.66 }, aiSpots: [{ x: 42, y: 26 }, { x: 22, y: 34 }, { x: 30, y: 41.5 }], callouts: [
             { x: 10.45, y: 14.48, w: 79.46, h: 4.38, label: "گزارش رسمی، آماده‌ی چاپ", text: "برای بانک، صندوق توسعه‌ی ملی و هیئت‌مدیره؛ چاپ یا PDF." },
             { x: 13.07, y: 32.51, w: 74.23, h: 6.75, label: "حکم روشن، با دلیل عددی", text: "پیش از تعهد سرمایه، نه بعد از آن.", pan: 1.6 },
             { x: 12.96, y: 40.99, w: 74.65, h: 18.42, label: "شاخص‌های کلیدی اقتصادی", text: "NPV، IRR، دوره‌ی بازگشت و نقطه‌ی سربه‌سر، در برابر معیار پذیرش.", zmax: 1.2 },
@@ -154,13 +154,13 @@ const DATA = {
       shots: [
         { type: "demo", ai: 1, pages: [
           // framed below the app header and without the dashboard's empty «مقایسه عملکرد» card (its chart never rendered in the capture)
-          { screen: S("assess-0", 1920, 911), start: { x: 34.5, y: 10, w: 65.5, h: 76.7 }, startOpt: { fill: 1, zmax: 1.6 }, rest: { x: 34.5, y: 10, w: 65.5, h: 76.7 }, restOpt: { fill: 1, zmax: 1.6 }, next: { x: 91.7, y: 32.7 }, callouts: [
-            { x: 34.6, y: 32.6, w: 30.4, h: 35.35, label: "امتیاز کل سازمان", text: "امتیاز کل، کنار امتیاز معاونت‌ها و ادارات کل.", big: { value: 83.9, dec: 1 }, camRegion: { x: 33.4, y: 23.5, w: 48, h: 56.3 }, camOpt: { fill: 1, zmax: 2.1 } },
+          { screen: S("assess-0", 1920, 911), start: { x: 33.3, y: 11.2, w: 66.7, h: 78 }, startOpt: { fill: 1, zmax: 1.6 }, rest: { x: 33.3, y: 11.2, w: 66.7, h: 78 }, restOpt: { fill: 1, zmax: 1.6 }, next: { x: 91.7, y: 32.7 }, callouts: [
+            { x: 34.6, y: 32.6, w: 30.4, h: 35.35, label: "امتیاز کل سازمان", text: "امتیاز کل، کنار امتیاز معاونت‌ها و ادارات کل.", big: { value: 83.9, dec: 1 }, camRegion: { x: 33.4, y: 23.5, w: 48, h: 56.3 }, camOpt: { fill: 1, zmax: 2.1 }, push: 1 },
           ] },
-          // the AI view: the whole page left of the menu, header included
-          { screen: S("assess-1", 1920, 911), aiCam: { x: 1.5, y: 0, w: 81, h: 94.8 }, aiCamOpt: { fill: 1, zmax: 1.3 }, aiSpots: [{ x: 30, y: 40.5 }, { x: 15, y: 60 }, { x: 45, y: 80 }], callouts: [
+          // the indicators page opens, and the AI layer ends, on the whole page left of the menu, header included
+          { screen: S("assess-1", 1920, 911), start: { x: 1.5, y: 0, w: 81, h: 94.8 }, startOpt: { fill: 1, zmax: 1.3 }, aiCam: { x: 1.5, y: 0, w: 81, h: 94.8 }, aiCamOpt: { fill: 1, zmax: 1.3 }, aiSpots: [{ x: 30, y: 40.5 }, { x: 15, y: 60 }, { x: 45, y: 80 }], callouts: [
             { x: 23, y: 44, w: 7.5, h: 31, label: "رنگ‌بندی درصد تحقق", text: "شاخص‌های عقب‌مانده، با رنگ قرمز و زرد، پیش از جلسه دیده می‌شوند.", zmax: 1.65, hug: 1 },
-            { x: 59.64, y: 33.48, w: 21.61, h: 41.5, label: "ساختار سلسله‌مراتبی", text: "هر شاخص زیر معاونت و اداره‌ی کل مسئول؛ پاسخ‌گویی روشن است.", zmax: 1.4, hug: 30 },
+            { x: 59.64, y: 34, w: 21.61, h: 41, label: "ساختار سلسله‌مراتبی", text: "هر شاخص زیر معاونت و اداره‌ی کل مسئول؛ پاسخ‌گویی روشن است.", zmax: 1.4, hug: 30 },
           ] },
         ] },
       ],

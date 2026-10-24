@@ -40,7 +40,8 @@ function words(n, text) {
     n.appendChild(o);
   };
   // spaces break; a no-break space (U+00A0) glues a term. A short function word or a number never ends a line (it is
-  // carried to the next word, even into an inline element); «را» and a verb in «می‌…» never start one (they join the word before).
+  // carried to the next word, even into an inline element), nor does a word in ezafe («پایه‌ی») or the «پیش» of «پیش از»;
+  // «را» and a verb in «می‌…» never start one (they join the word before).
   let carry = "";
   for (const node of [...src.childNodes]) {
     if (node.nodeType === 3) {
@@ -53,7 +54,7 @@ function words(n, text) {
       }
       if (/^[ \t\n]/.test(raw) && n.childNodes.length && !carry) n.appendChild(document.createTextNode(" "));
       toks.forEach((p, i) => {
-        if (STICKY.has(p) || NUMBER.test(p)) { carry += p + "\u00a0"; return; }
+        if (STICKY.has(p) || NUMBER.test(p) || EZAFE.test(p) || ((p === "پیش" || p === "پس") && toks[i + 1] === "از")) { carry += p + "\u00a0"; return; }
         word(carry + p);
         carry = "";
         if (i < toks.length - 1 || /[ \t\n]$/.test(raw)) n.appendChild(document.createTextNode(" "));
@@ -76,6 +77,7 @@ const STICKY = new Set(["و", "یا", "در", "به", "از", "با", "تا", "�
   "دو", "سه", "چهار", "پنج", "شش", "هفت", "هشت", "ده", "یازده", "دوازده", "سیزده", "پانزده", "بیست", "شصت", "نود", "صد"]);
 const NUMBER = /^[0-9۰-۹][0-9۰-۹٫٬.,/]*$/;
 const JOIN_PREV = /^(را|ن?می\u200c\S+)$/;
+const EZAFE = /\u200cی$/; // «نتیجه‌ی»، «پایه‌ی»: the ezafe binds the word to the next one
 /** word-by-word rise, in reading order */
 function rise(targets, opt = {}) {
   return gsap.fromTo(targets, { yPercent: 115, opacity: 0, filter: "blur(10px)" },
@@ -426,11 +428,20 @@ class Browser {
           const hx = this.ins.l + clamp(c.side === "left" ? v.x - pad : v.x + v.w + pad, 0, p.vw), hy = this.ins.t + clamp(v.y + v.h / 2, 30, p.vh - 30);
           const cb = c.cardBox;
           const cx = c.side === "left" ? cb.x + cb.w : cb.x, cy = cb.y + 46;
-          const ex = lerp(hx, cx, k), ey = lerp(hy, cy, k);
-          const d = `M${hx} ${hy}C${lerp(hx, cx, 0.5)} ${hy} ${lerp(hx, cx, 0.5)} ${cy} ${ex} ${ey}`;
+          // the whole curve is laid out once and drawn along its length (moving its end point would fold it into a loop)
+          const mx = lerp(hx, cx, 0.5), d = `M${hx} ${hy}C${mx} ${hy} ${mx} ${cy} ${cx} ${cy}`;
+          let len = 0;
+          for (let i = 1, px = hx, py = hy; i <= 24; i++) {
+            const u = i / 24, v = 1 - u;
+            const x = v * v * v * hx + 3 * v * v * u * mx + 3 * v * u * u * mx + u * u * u * cx, y = v * v * v * hy + 3 * v * v * u * hy + 3 * v * u * u * cy + u * u * u * cy;
+            len += Math.hypot(x - px, y - py);
+            px = x;
+            py = y;
+          }
+          const dash = `stroke-dasharray="${(k * len).toFixed(1)} ${(len + 20).toFixed(1)}"`;
           // a dark halo under the line: it reads as an overlay, never as a strike through the page's text
-          paths += `<path d="${d}" stroke="rgba(7,6,26,.6)" stroke-width="9" stroke-linecap="round" fill="none" stroke-dasharray="${k * 2000} 2000"/>` +
-            `<path d="${d}" stroke="url(#lg)" stroke-width="3" fill="none" stroke-dasharray="${k * 2000} 2000"/>` +
+          paths += `<path d="${d}" stroke="rgba(7,6,26,.6)" stroke-width="9" stroke-linecap="round" fill="none" ${dash}/>` +
+            `<path d="${d}" stroke="url(#lg)" stroke-width="3" fill="none" ${dash}/>` +
             `<circle cx="${hx}" cy="${hy}" r="${7 * Math.min(1, k * 3)}" fill="#ff4fa3"/>`;
         }
       }
