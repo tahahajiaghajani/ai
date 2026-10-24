@@ -63,7 +63,7 @@ for name, weight in (("nazli", 400), ("nazlib", 700)):
     sub.subset(f)
 
     # 3b. the middle dot becomes a short bar (length, thickness, centre height in font units)
-    length, thick, mid, side = (380, 100, 540, 110) if weight == 400 else (400, 132, 540, 110)
+    length, thick, mid, side = (470, 80, 545, 120) if weight == 400 else (490, 112, 540, 120)
     gname = f.getBestCmap()[0xB7]
     pen = TTGlyphPen(None)
     x0, x1, y0, y1 = side, side + length, mid - thick // 2, mid + thick - thick // 2
