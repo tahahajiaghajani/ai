@@ -7,7 +7,7 @@ import { Aura } from "@/components/fx/aura";
 import { Grain } from "@/components/fx/grain";
 import { NightFoot, NightHead } from "@/components/fx/melt";
 import { gsap } from "@/components/fx/gsap";
-import { useGsap } from "@/components/fx/use-gsap";
+import { sceneMode, useGsap } from "@/components/fx/use-gsap";
 import { Eyebrow } from "@/components/house/bits";
 
 export interface TimelineData {
@@ -56,8 +56,13 @@ export function Timeline({ lang, d }: { lang: Lang; d: TimelineData }) {
           paint();
         };
       };
-      mm.add("(min-width: 1024px) and (hover: hover) and (pointer: fine)", () => build(true));
-      mm.add("not all and (min-width: 1024px) and (hover: hover) and (pointer: fine)", () => build(false));
+      // pinned where the stage sticks, played as it passes elsewhere; left as it is when already seen still
+      const play = () => {
+        const mode = sceneMode(root.current);
+        return mode === "still" ? undefined : build(mode === "pin");
+      };
+      mm.add("(min-width: 1024px) and (hover: hover) and (pointer: fine)", play);
+      mm.add("not all and (min-width: 1024px) and (hover: hover) and (pointer: fine)", play);
       return () => mm.revert();
     },
     root,

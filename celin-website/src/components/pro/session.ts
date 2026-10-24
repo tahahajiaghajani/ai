@@ -8,7 +8,8 @@ import { cart } from "@/components/cart/cart-store";
 /**
  * The visitor's account and (for Pro members) prices, loaded once per page view from /api/me and
  * /api/pro/prices. Visitors cost nothing: both are asked only when the readable hint cookies say someone is
- * signed in here (celin_ui) / has Pro (celin_pro_ui). Public pages stay static and identical for everyone.
+ * signed in here (celin_ui, or the admin hint celin_admin_ui) / has Pro (celin_pro_ui). Public pages stay
+ * static and identical for everyone.
  */
 
 export interface Me {
@@ -33,9 +34,10 @@ export interface PriceBook {
   minOrder: number;
 }
 
-type State = { me: Me | null | undefined; book: PriceBook | null | undefined };
+/** `admin`: the admin panel would open for this browser right now (/api/me asks the server, never the hint cookie). */
+type State = { me: Me | null | undefined; book: PriceBook | null | undefined; admin: boolean | undefined };
 
-let state: State = { me: undefined, book: undefined };
+let state: State = { me: undefined, book: undefined, admin: undefined };
 const listeners = new Set<() => void>();
 let loading: Promise<void> | null = null;
 
@@ -59,23 +61,31 @@ async function loadPrices(): Promise<PriceBook | null> {
 function load(force = false): Promise<void> {
   if (loading && !force) return loading;
   loading = (async () => {
-    if (!hasCookie("celin_ui")) {
-      emit({ me: null, book: null });
+    const user = hasCookie("celin_ui");
+    // the admin hint alone (an ADMIN_PASSWORD session) also asks: /api/me says whether the panel still opens and
+    // removes a stale hint (password rotated, session ended), so the «پنل مدیریت» link never outlives it
+    if (!user && !hasCookie("celin_admin_ui")) {
+      emit({ me: null, book: null, admin: false });
       return;
     }
     // prices load in parallel with the account when the Pro hint is there (no extra round trip)
-    const pricesP = hasCookie("celin_pro_ui") ? loadPrices() : Promise.resolve(null);
+    const pricesP = user && hasCookie("celin_pro_ui") ? loadPrices() : Promise.resolve(null);
     let me: Me | null = null;
+    let admin = false;
     try {
       const r = await fetch("/api/me", { cache: "no-store", credentials: "same-origin" });
-      me = r.ok ? (((await r.json()) as { user: Me | null }).user ?? null) : null;
+      if (r.ok) {
+        const j = (await r.json()) as { user: Me | null; admin?: boolean };
+        me = j.user ?? null;
+        admin = j.admin === true;
+      }
     } catch {
       me = null;
     }
     if (me?.key) cart.bindOwner(me.key);
     let book = await pricesP;
     if (me?.pro.active && !book) book = await loadPrices();
-    emit({ me, book: me?.pro.active ? book : null });
+    emit({ me, book: me?.pro.active ? book : null, admin });
   })();
   return loading;
 }
@@ -83,7 +93,7 @@ function load(force = false): Promise<void> {
 /** Call after signing in/out, entering a code or ordering: every hook on the page loads again. */
 export function sessionChanged(): Promise<void> {
   loading = null;
-  emit({ me: undefined, book: undefined });
+  emit({ me: undefined, book: undefined, admin: undefined });
   return load(true);
 }
 
@@ -92,7 +102,7 @@ function subscribe(cb: () => void) {
   return () => listeners.delete(cb);
 }
 
-const SERVER: State = { me: undefined, book: undefined };
+const SERVER: State = { me: undefined, book: undefined, admin: undefined };
 
 function useSession(): State {
   const s = useSyncExternalStore(subscribe, () => state, () => SERVER);
@@ -105,6 +115,11 @@ function useSession(): State {
 /** The signed-in account; `undefined` while it is being checked, `null` for visitors. */
 export function useMe(): Me | null | undefined {
   return useSession().me;
+}
+
+/** Whether the admin panel opens for this browser (as /api/me checked it); `undefined` while checking. */
+export function useAdmin(): boolean | undefined {
+  return useSession().admin;
 }
 
 /** Prices for Pro members; `undefined` while loading, `null` when this visitor has no Pro. */

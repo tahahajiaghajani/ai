@@ -80,7 +80,8 @@ export function Statement({ lang, lines, a, b, copy }: { lang: Lang; lines: [str
             <div className="arch bg-porcelain p-[5px] shadow-[0_44px_80px_-36px_rgb(26_19_16/0.55)] sm:p-2">
               <Arch media={b} lang={lang} alt="" sizes="(min-width: 1024px) 15vw, 46vw" ratio="3/4" sparkle={6} />
             </div>
-            <span aria-hidden className="mt-3 block text-center font-label text-[10px] tracking-[0.32em] text-gold-text ltr">N° 02</span>
+            {/* large screens only, like N° 01: on phones the drift carries it onto the tall picture */}
+            <span aria-hidden className="mt-3 hidden text-center font-label text-[10px] tracking-[0.32em] text-gold-text ltr sm:block">N° 02</span>
           </div>
           <span aria-hidden className="absolute start-[2%] bottom-[-7%] hidden font-label text-[10px] tracking-[0.32em] text-gold-text sm:block">
             <span className="ltr">N° 01</span>

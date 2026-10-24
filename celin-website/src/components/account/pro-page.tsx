@@ -10,7 +10,7 @@ import { ArchLines } from "@/components/fx/arch-lines";
 import { Aura } from "@/components/fx/aura";
 import { Grain } from "@/components/fx/grain";
 import { Magnetic } from "@/components/fx/magnetic";
-import { Melt, NightFoot } from "@/components/fx/melt";
+import { Melt, NightFoot, Settle } from "@/components/fx/melt";
 import { SplitWords } from "@/components/fx/split-words";
 import { ProHallmark } from "@/components/pro/seal";
 import { Membership } from "@/components/account/membership";
@@ -78,8 +78,10 @@ export async function ProPage({ lang }: { lang: Lang }) {
         </div>
       </section>
 
+      {/* the light bands settle into the plain ground where they meet (<Settle/>); the FAQ sits on a copper sill */}
       <section aria-labelledby="pro-benefits" className="relative isolate bg-mesh-porcelain">
         <Melt at="top" />
+        <Settle at="bottom" />
         <div className="container-lux pt-[max(5rem,calc(var(--melt-h)*0.85))] pb-20 lg:py-28">
           <Head id="pro-benefits" eyebrow={c.eyebrow} title={c.benefitsTitle} />
           <ul className="mt-12 grid gap-6 sm:grid-cols-3">
@@ -99,7 +101,10 @@ export async function ProPage({ lang }: { lang: Lang }) {
       </section>
 
       <section aria-labelledby="pro-steps" className="relative isolate overflow-clip bg-mesh-bone">
-        <ArchLines count={4} className="pointer-events-none absolute inset-x-0 -bottom-10 mx-auto h-[120%] w-[min(1100px,140vw)] opacity-50 [mask-image:linear-gradient(to_bottom,black_32%,transparent_50%)]" />
+        <Settle at="top" />
+        <Settle at="bottom" />
+        {/* the arcade rises out of the seam above (the band's top sits at 1/6 of the svg less 2.5rem) instead of being cut by it */}
+        <ArchLines count={4} className="pointer-events-none absolute inset-x-0 -bottom-10 mx-auto h-[120%] w-[min(1100px,140vw)] opacity-50 [mask-image:linear-gradient(to_bottom,transparent_calc(100%/6_-_2.5rem),black_calc(100%/6_+_5rem),black_32%,transparent_50%)]" />
         <div className="container-lux relative py-20 lg:py-28">
           <Head id="pro-steps" eyebrow="PRO" title={c.stepsTitle} center />
           <ol className="mx-auto mt-14 grid max-w-5xl gap-12 sm:grid-cols-2 sm:gap-8 lg:grid-cols-4">
@@ -121,6 +126,8 @@ export async function ProPage({ lang }: { lang: Lang }) {
       </section>
 
       <section id="request" aria-labelledby="pro-request" className="relative isolate scroll-mt-24 bg-mesh-porcelain">
+        <Settle at="top" />
+        <Settle at="bottom" />
         <div className="container-lux grid gap-10 py-20 lg:grid-cols-12 lg:gap-16 lg:py-28">
           <div className="lg:col-span-4">
             <Head id="pro-request" eyebrow={c.eyebrow} title={c.requestTitle} />

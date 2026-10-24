@@ -119,7 +119,8 @@ export function CodeInput({
   return (
     <form
       noValidate
-      data-tone={tone}
+      // only the night tone is marked: a data-tone="light" ancestor means a dark band (champagne focus rings)
+      data-tone={tone === "night" ? "night" : undefined}
       data-state={state}
       onSubmit={(e) => {
         e.preventDefault();
@@ -127,7 +128,8 @@ export function CodeInput({
       }}
       className="code-form"
     >
-      <div className="flex items-baseline justify-between gap-4">
+      {/* as tall as the clear button, so the cells stay put when it appears (a hidden label lends its row to the space above) */}
+      <div className={`flex min-h-9 items-center justify-between gap-4 ${hideLabel ? "-mt-5" : ""}`}>
         <label htmlFor={id} className={hideLabel ? "sr-only" : "code-label"}>
           {c.codeLabel}
         </label>

@@ -71,7 +71,9 @@ export function ProInvite({ lang, d }: { lang: Lang; d: ProInviteData }) {
                   <li key={p} className="flex items-center gap-4 border-night-line py-4 text-start not-last:border-b sm:flex-col sm:gap-3 sm:px-4 sm:py-6 sm:text-center sm:not-last:border-e sm:not-last:border-b-0">
                     <span aria-hidden className="relative grid h-11 w-9 shrink-0 place-items-center">
                       <span className="arch absolute inset-0 border border-b-0 border-gold-on-dark/45" />
-                      <span className="mt-2 font-didone text-sm text-gold-on-dark tabular-nums">{num(i + 1, lang)}</span>
+                      {/* Bodoni's figures in English; Persian digits in Nazli (font-display leads with it on Persian pages —
+                          a Latin stack would hand them to its local Times New Roman fallback first) */}
+                      <span className={`mt-2 ${lang === "en" ? "font-didone" : "font-display"} text-sm text-gold-on-dark tabular-nums`}>{num(i + 1, lang)}</span>
                     </span>
                     <span className="font-ui text-sm leading-7 text-on-night">{p}</span>
                   </li>

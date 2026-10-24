@@ -63,7 +63,8 @@ export function SearchPageView({ lang, suggestions, categories }: Props) {
       }}
       onSubmit={(v) => {
         write(v);
-        input.current?.blur();
+        // close the phone keyboard so the results show; a desktop keeps the field to refine the query
+        if (window.matchMedia("(pointer: coarse)").matches) input.current?.blur();
       }}
     />
   );

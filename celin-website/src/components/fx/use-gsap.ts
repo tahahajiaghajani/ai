@@ -28,3 +28,15 @@ export function useGsap(setup: (ctx: gsap.Context) => void | (() => void), scope
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [...deps, reduced]);
 }
+
+/**
+ * How the scene of a pinned band (.fx-pin) plays: "pin" — its stage sticks (large screens with a mouse, «js» and
+ * motion; globals.css) and the scene scrubs over the pin; "pass" — it plays as the band passes, like on a touch
+ * screen (also a band the boot failsafe left static); "still" — the app arrived after the failsafe and the visitor
+ * has already seen the band as it is (data-static="seen", boot-script.tsx), so it stays that way.
+ */
+export function sceneMode(band: HTMLElement | null): "pin" | "pass" | "still" {
+  if (!band || band.dataset.static === "seen") return "still";
+  const stage = band.querySelector(":scope > .fx-pin-stage");
+  return stage && getComputedStyle(stage).position === "sticky" ? "pin" : "pass";
+}

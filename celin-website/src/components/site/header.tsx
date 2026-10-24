@@ -11,7 +11,7 @@ import { Icon } from "@/components/ui/icons";
 import { Picture } from "@/components/ui/picture";
 import { Overlay, OverlayLink, useOverlayNav } from "@/components/ui/overlay";
 import { openProSheet, openSearch } from "@/components/pro/events";
-import { useMe } from "@/components/pro/session";
+import { useAdmin, useMe } from "@/components/pro/session";
 import { useCartCount } from "@/components/cart/cart-store";
 import { num } from "@/lib/format";
 
@@ -76,16 +76,14 @@ function AccountLink({ lang, compact }: { lang: Lang; compact?: boolean }) {
 const ADMIN_LABEL = { fa: "پنل مدیریت", en: "Admin panel" } as const;
 
 /**
- * «پنل مدیریت» for an admin: the signed-in account has role admin (a phone number alone never makes one), or
- * this browser holds the admin password session (readable hint cookie, which /api/me removes once the panel
- * would no longer open; the panel checks for real).
+ * «پنل مدیریت» only when /api/me says the panel opens for this browser right now (an admin account signed in
+ * with its password, or the ADMIN_PASSWORD session) — never from the readable hint cookie, which only decides
+ * whether to ask; the panel itself checks for real.
  */
 function AdminLink({ lang, row }: { lang: Lang; row?: boolean }) {
-  const me = useMe();
+  const admin = useAdmin();
   const nav = useOverlayNav();
-  const [hint, setHint] = useState(false);
-  useEffect(() => setHint(document.cookie.split("; ").includes("celin_admin_ui=1")), [me]);
-  if (me === undefined || !(me?.role === "admin" || hint)) return null;
+  if (admin !== true) return null;
   const label = ADMIN_LABEL[lang];
   if (row) {
     return (

@@ -13,7 +13,7 @@ import { gsap } from "@/components/fx/gsap";
 import { Sparkles } from "@/components/fx/sparkles";
 import { SlotVideo } from "@/components/fx/slot-video";
 import { SplitWords } from "@/components/fx/split-words";
-import { useGsap } from "@/components/fx/use-gsap";
+import { sceneMode, useGsap } from "@/components/fx/use-gsap";
 import { Picture } from "@/components/ui/picture";
 
 export interface ApertureData {
@@ -53,8 +53,13 @@ export function Aperture({ lang, d }: { lang: Lang; d: ApertureData }) {
           .fromTo("[data-ap='lines']", { scale: 0.7, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.9 }, 0.05)
           .fromTo("[data-ap='copy'] > *", { y: 40, opacity: 0 }, { y: 0, opacity: 1, duration: 0.35, stagger: 0.08 }, pin ? 0.55 : 0.5);
       };
-      mm.add("(min-width: 1024px) and (hover: hover) and (pointer: fine)", () => build(true));
-      mm.add("not all and (min-width: 1024px) and (hover: hover) and (pointer: fine)", () => build(false));
+      // pinned where the stage sticks, played as it passes elsewhere; left as it is when already seen still
+      const play = () => {
+        const mode = sceneMode(root.current);
+        return mode === "still" ? undefined : build(mode === "pin");
+      };
+      mm.add("(min-width: 1024px) and (hover: hover) and (pointer: fine)", play);
+      mm.add("not all and (min-width: 1024px) and (hover: hover) and (pointer: fine)", play);
       return () => mm.revert();
     },
     root,

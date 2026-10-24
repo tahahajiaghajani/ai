@@ -80,9 +80,11 @@ export function Plating({ lang, d }: { lang: Lang; d: PlatingData }) {
             <span className="mt-1 block text-sm text-on-night-muted">{d.goldTone}</span>
           </p>
         </div>
-        <p className="lede mx-auto mt-12 max-w-xl text-on-night-muted" data-reveal style={{ "--d": 1 } as CSSProperties}>
-          {d.body}
-        </p>
+        {d.body && (
+          <p className="lede mx-auto mt-12 max-w-xl text-on-night-muted" data-reveal style={{ "--d": 1 } as CSSProperties}>
+            {d.body}
+          </p>
+        )}
       </div>
     </section>
   );

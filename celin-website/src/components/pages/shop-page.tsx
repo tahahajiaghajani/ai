@@ -126,8 +126,6 @@ export async function ShopPage({ lang, category }: { lang: Lang; category?: stri
         <div className="container-lux pt-[calc(var(--melt-h)*0.72)] pb-6">
           <ProBar lang={lang} />
         </div>
-        {/* the outline between the page title and the product names (h3): «۱۷ اثر» */}
-        <h2 className="sr-only">{s.pieces(num(products.length, lang))}</h2>
         <Suspense fallback={<ShopGridFallback lang={lang} products={products} collections={collections} editorial={editorial} />}>
           <ShopGrid lang={lang} products={products} collections={collections} editorial={editorial} />
         </Suspense>

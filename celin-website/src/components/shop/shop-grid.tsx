@@ -173,9 +173,10 @@ function cardsOf({ lang, list, colName, editorial, withEditorial }: { lang: Lang
   return cards;
 }
 
-/** The count at the start of the bar, in Naskh. */
+/** The count at the start of the bar — the heading between the page title and the product names (h3), so it always
+ *  states the list as filtered («۵ اثر»). */
 function Count({ lang, n }: { lang: Lang; n: number }) {
-  return <span className="title-card whitespace-nowrap text-ink tabular-nums">{T[lang].count(num(n, lang))}</span>;
+  return <h2 className="title-card whitespace-nowrap text-ink tabular-nums">{T[lang].count(num(n, lang))}</h2>;
 }
 
 /** Static first paint (before the URL filters are read): the same bar and grid, unfiltered. */

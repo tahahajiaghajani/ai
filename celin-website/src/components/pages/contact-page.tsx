@@ -6,7 +6,7 @@ import { href, type Lang } from "@/lib/i18n";
 import { contactCopy } from "@/content/copy/contact";
 import { ArchLines } from "@/components/fx/arch-lines";
 import { Magnetic } from "@/components/fx/magnetic";
-import { Melt } from "@/components/fx/melt";
+import { Melt, Settle } from "@/components/fx/melt";
 import { Icon, type IconName } from "@/components/ui/icons";
 import { SectionHead } from "@/components/home/sections";
 import { diamond } from "@/components/house/bits";
@@ -76,8 +76,9 @@ export async function ContactPage({ lang }: { lang: Lang }) {
       />
 
       <section className="relative isolate overflow-clip bg-mesh-porcelain pt-[max(5rem,calc(var(--melt-h)*0.85))] pb-20 sm:py-28">
-        {/* the hero's night melts into the porcelain */}
+        {/* the hero's night melts into the porcelain; the porcelain settles into the plain ground above the bone band */}
         <Melt at="top" />
+        <Settle at="bottom" />
         <div className="container-lux grid gap-14 lg:grid-cols-12 lg:gap-10">
           {rows.length > 0 && (
             <div className="lg:col-span-7">
@@ -150,6 +151,7 @@ export async function ContactPage({ lang }: { lang: Lang }) {
 
       {/* where people usually go next */}
       <section className="relative isolate bg-mesh-bone py-20 sm:py-24">
+        <Settle at="top" />
         <div className="container-lux">
           <SectionHead eyebrow={c.help.eyebrow} title={c.help.title} />
           <ul className="mt-12 grid gap-px border-y border-line bg-line sm:grid-cols-3">

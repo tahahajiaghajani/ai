@@ -323,7 +323,8 @@ export const SLOTS: SlotDef[] = [
     image: "bangles-emerald",
     texts: [
       { key: "title", label: "عنوان", fa: "آبکاری رودیوم و طلا", en: "Rhodium & gold plating" },
-      { key: "body", label: "متن کوتاه", multiline: true, fa: "آبکاری‌های باکیفیت رودیوم و طلا، برای درخششی ماندگار در رنگ‌های نقره‌ای و طلایی.", en: "Quality rhodium and gold plating, for a lasting shine in silver and gold tones." },
+      // empty by default: step 4 right above already says it (home.craft.4); the band shows only the two tones
+      { key: "body", label: "متن کوتاه (اختیاری)", multiline: true, fa: "", en: "" },
     ],
   },
   {

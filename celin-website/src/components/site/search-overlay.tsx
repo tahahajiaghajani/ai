@@ -162,7 +162,7 @@ export function SearchPanel({
                     <span className="display block truncate text-lg leading-[1.6]! font-semibold text-ink transition-colors group-hover:text-gold-deep">{name(it)}</span>
                     <span className="block truncate text-xs leading-6 text-muted">{sub(it)}</span>
                   </span>
-                  {it.sku ? <span className="hidden font-label text-xs text-faint sm:block ltr">{it.sku}</span> : s.kinds[it.kind] && <span className="label text-gold-text!">{s.kinds[it.kind]}</span>}
+                  {it.sku ? <span className="hidden font-label text-xs text-muted sm:block ltr">{it.sku}</span> : s.kinds[it.kind] && <span className="label text-gold-text!">{s.kinds[it.kind]}</span>}
                 </OverlayLink>
               </li>
             ))}

@@ -85,13 +85,12 @@ function Gallery({ lang, product, images, index, setIndex }: { lang: Lang; produ
 
       {/* thumbnails: a row below on phones, a column beside the window on desktop */}
       {images.length > 1 && (
-        <div className="order-2 flex justify-center gap-2.5 overflow-x-auto px-[var(--gutter)] pt-1.5 pb-7 [scrollbar-width:none] lg:order-none lg:w-16 lg:shrink-0 lg:flex-col lg:overflow-visible lg:px-0 lg:py-0" role="tablist" aria-label={`${name} — ${tr.gallery}`}>
+        <div className="order-2 flex justify-center gap-2.5 overflow-x-auto px-[var(--gutter)] pt-1.5 pb-7 [scrollbar-width:none] lg:order-none lg:w-16 lg:shrink-0 lg:flex-col lg:overflow-visible lg:px-0 lg:py-0" role="group" aria-label={`${name} — ${tr.gallery}`}>
           {images.map((m, i) => (
             <button
               key={m.src}
               type="button"
-              role="tab"
-              aria-selected={i === index}
+              aria-pressed={i === index}
               aria-label={tr.image(num(i + 1, lang), num(images.length, lang))}
               onClick={() => setIndex(i)}
               className={`relative w-12 shrink-0 transition-opacity duration-500 [--ring-gap:3px] lg:w-full ${i === index ? "opacity-100" : "opacity-55 hover:opacity-90"}`}
@@ -238,7 +237,8 @@ function Actions({ lang, product, variantId, needsVariant, onAdded }: { lang: La
     if (stock <= 0) return <p className="text-sm leading-7 text-ink-2">{tr.outOfStock}</p>;
     return (
       <div className="space-y-3">
-        <div className="flex gap-3">
+        {/* the button drops under the stepper when its label would not fit beside it */}
+        <div className="flex flex-wrap gap-3">
           <Stepper value={Math.min(qty, Math.max(1, room))} max={Math.max(1, room)} onChange={setQty} lang={lang} />
           <button
             type="button"
@@ -248,7 +248,7 @@ function Actions({ lang, product, variantId, needsVariant, onAdded }: { lang: La
               setAdded(true);
               onAdded();
             }}
-            className="btn btn-metal min-h-12 flex-1 px-6"
+            className="btn btn-metal min-h-12 flex-[1_0_auto] whitespace-nowrap px-6"
           >
             <Icon name="bag" className="size-4" />
             {tr.add}

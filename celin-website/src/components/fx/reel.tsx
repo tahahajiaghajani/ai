@@ -2,9 +2,27 @@
 
 import { useEffect, useRef, type ReactNode } from "react";
 import { gsap, ScrollTrigger } from "@/components/fx/gsap";
-import { useGsap } from "@/components/fx/use-gsap";
+import { sceneMode, useGsap } from "@/components/fx/use-gsap";
 
 const PINNED = "(min-width: 1024px) and (hover: hover) and (pointer: fine)";
+
+/**
+ * How far the pinned row moves: from the first card at the row's opening gutter to the last card at the same gutter
+ * at the other end. Measured on the cards, not with scrollWidth, which leaves out the closing padding of a row that
+ * is not a scroll container (overflow-visible while pinned); the row's shift moves every rect alike. `row` and `last`
+ * are the row's and its last card's rects, `pad` the row's inline-end padding, `width` its clientWidth.
+ */
+export function reelOverflow(row: { left: number; right: number }, last: { left: number; right: number }, pad: number, width: number, rtl: boolean): number {
+  const length = (rtl ? row.right - last.left : last.right - row.left) + pad;
+  return Math.max(0, length - width);
+}
+
+function overflowOf(el: HTMLElement): number {
+  const last = el.lastElementChild;
+  if (!last) return 0;
+  const cs = getComputedStyle(el);
+  return reelOverflow(el.getBoundingClientRect(), last.getBoundingClientRect(), parseFloat(cs.paddingInlineEnd) || 0, el.clientWidth, cs.direction === "rtl");
+}
 
 /**
  * A row that, on large screens with a mouse, stays in view while vertical scrolling moves it sideways (in the
@@ -25,9 +43,11 @@ export function Reel({ children, header, className = "", trackClassName = "" }: 
       mm.add(PINNED, () => {
         const host = root.current!;
         const el = track.current!;
+        // a band left static by the boot failsafe (no sticky stage) stays a plain swipeable row
+        if (sceneMode(host) !== "pin") return;
         const rtl = getComputedStyle(el).direction === "rtl";
         host.dataset.pinned = "";
-        const dist = () => Math.max(0, el.scrollWidth - el.clientWidth);
+        const dist = () => overflowOf(el);
         // the sticky distance is the row's overflow (measured before every refresh)
         const setPin = () => host.style.setProperty("--pin", `${dist()}px`);
         setPin();
@@ -68,7 +88,7 @@ export function Reel({ children, header, className = "", trackClassName = "" }: 
       if (!st || host.dataset.pinned === undefined) return;
       const card = [...el.children].find((c) => c.contains(e.target as Node)) as HTMLElement | undefined;
       if (!card) return;
-      const dist = Math.max(1, el.scrollWidth - el.clientWidth);
+      const dist = Math.max(1, overflowOf(el));
       const rtl = getComputedStyle(el).direction === "rtl";
       // the card's distance from the row's reading-direction start (the row's shift moves both rects alike)
       const r = el.getBoundingClientRect();

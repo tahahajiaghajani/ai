@@ -100,7 +100,8 @@ export function productDescription(
     .filter(Boolean);
   let lead: string;
   if (lang === "fa") {
-    const what = cat ? faIndefinite(cat) : "اثری";
+    // a compound category («دستبند و النگو») takes no indefinite ی: «دستبند و النگویی» would read "bracelet and a bangle"
+    const what = cat && !cat.includes(" و ") ? faIndefinite(cat) : "اثری";
     const from = col ? `از مجموعه‌ی ${col} سلین` : "از سلین";
     lead = `${name}، ${what} ${from}${parts.length ? `؛ ${parts.join("، ")}` : ""}.`;
   } else {
@@ -120,10 +121,21 @@ export function productDescription(
   return clip(out, max);
 }
 
-/** A collection's meta description: tagline and story, cut at a word boundary. */
+/**
+ * A collection's meta description: the tagline, then the story's whole sentences while they fit — never cut
+ * mid-phrase (a clipped «… in gold…» reads as a material claim). Cut at a word boundary only when not even the
+ * first sentence fits.
+ */
 export function collectionDescription(c: Pick<Collection, "tagline_fa" | "tagline_en" | "story_fa" | "story_en">, lang: Lang, max = 160): string {
-  const tagline = t(c, "tagline", lang);
-  return clip([tagline, t(c, "story", lang)].filter(Boolean).join(" — "), max);
+  const tagline = t(c, "tagline", lang).replace(/\s+/g, " ").trim();
+  const text = t(c, "story", lang);
+  let out = "";
+  for (const s of sentences(text)) {
+    const next = out ? `${out} ${s}` : tagline ? `${tagline} — ${s}` : s;
+    if (next.length > max) break;
+    out = next;
+  }
+  return out || clip([tagline, text].filter(Boolean).join(" — "), max);
 }
 
 export function webManifest(lang: Lang): MetadataRoute.Manifest {

@@ -20,13 +20,14 @@ const diamond = (className: string) => (
 
 /**
  * The house's three promises before the night band: each under a small copper arch with its numeral. It opens on
- * the plain ground (the bone fades in, so the last band of any page runs into it) and melts into the footer's night.
+ * the plain colour the page's last band ends on — the ground, or bone after a bone or night band (.services-strip,
+ * the page-ending rule in globals.css) — its bone lights fade in, and it melts into the footer's night.
  */
 export function ServicesStrip({ lang }: { lang: Lang }) {
   const c = commonCopy(lang);
   return (
-    <section className="relative isolate overflow-clip pb-[calc(var(--melt-h)*0.85)]">
-      <span aria-hidden className="absolute inset-0 -z-10 bg-mesh-bone [mask-image:linear-gradient(to_bottom,transparent,black_5rem)]" />
+    <section className="services-strip relative isolate overflow-clip pb-[calc(var(--melt-h)*0.85)]">
+      <span aria-hidden className="absolute inset-0 -z-10 bg-mesh-bone [mask-image:linear-gradient(to_bottom,transparent,black_var(--strip-fade,5rem))]" />
       <Melt at="bottom" />
       <ul className="container-lux grid gap-10 py-14 sm:grid-cols-3 sm:gap-0 sm:py-16">
         {c.services.map((s, i) => (
@@ -67,6 +68,8 @@ export function Footer({ lang, contact }: { lang: Lang; contact: ContactSettings
     </p>
   );
   const hours = lang === "fa" ? contact.hours_fa : contact.hours_en || contact.hours_fa;
+  // the «get in touch» column only when the owner has filled something in (a fresh install has none of these)
+  const links = Boolean(phone || wa || contact.instagram || contact.telegram);
   return (
     <footer id="site-footer" data-tone="light" className="relative isolate overflow-clip bg-night text-on-night">
       <span aria-hidden className="absolute inset-0 -z-10 bg-mesh-espresso" />
@@ -118,50 +121,54 @@ export function Footer({ lang, contact }: { lang: Lang; contact: ContactSettings
             {head(c.footer.pro)}
             <FooterProLinks lang={lang} className={link} />
           </nav>
-          <div>
-            {head(c.footer.follow)}
-            <ul className="space-y-3 text-[0.9375rem]">
-              {phone && (
-                <li>
-                  <a className={`${link} inline-flex items-center gap-2.5`} href={`tel:${phone.replace(/[^\d+]/g, "")}`}>
-                    <Icon name="phone" className="size-4 text-gold-on-dark" />
-                    <span className="ltr font-ui">{/^09\d{9}$/.test(phone) ? formatPhone(phone, lang) : num(phone, lang)}</span>
-                  </a>
-                </li>
+          {(links || hours) && (
+            <div>
+              {head(c.footer.follow)}
+              {links && (
+                <ul className="space-y-3 text-[0.9375rem]">
+                  {phone && (
+                    <li>
+                      <a className={`${link} inline-flex items-center gap-2.5`} href={`tel:${phone.replace(/[^\d+]/g, "")}`}>
+                        <Icon name="phone" className="size-4 text-gold-on-dark" />
+                        <span className="ltr font-ui">{/^09\d{9}$/.test(phone) ? formatPhone(phone, lang) : num(phone, lang)}</span>
+                      </a>
+                    </li>
+                  )}
+                  {wa && (
+                    <li>
+                      <a className={`${link} inline-flex items-center gap-2.5`} href={wa} target="_blank" rel="noreferrer">
+                        <Icon name="whatsapp" className="size-4 text-gold-on-dark" />
+                        <span className="ltr font-ui">WhatsApp</span>
+                      </a>
+                    </li>
+                  )}
+                  {contact.instagram && (
+                    <li>
+                      <a className={`${link} inline-flex items-center gap-2.5`} href={`https://instagram.com/${contact.instagram}`} target="_blank" rel="noreferrer">
+                        <Icon name="instagram" className="size-4 text-gold-on-dark" />
+                        <span className="ltr font-ui">@{contact.instagram}</span>
+                      </a>
+                    </li>
+                  )}
+                  {contact.telegram && (
+                    <li>
+                      <a className={`${link} inline-flex items-center gap-2.5`} href={`https://t.me/${contact.telegram}`} target="_blank" rel="noreferrer">
+                        <Icon name="telegram" className="size-4 text-gold-on-dark" />
+                        <span className="ltr font-ui">@{contact.telegram}</span>
+                      </a>
+                    </li>
+                  )}
+                </ul>
               )}
-              {wa && (
-                <li>
-                  <a className={`${link} inline-flex items-center gap-2.5`} href={wa} target="_blank" rel="noreferrer">
-                    <Icon name="whatsapp" className="size-4 text-gold-on-dark" />
-                    <span className="ltr font-ui">WhatsApp</span>
-                  </a>
-                </li>
+              {hours && (
+                <p className={`${links ? "mt-6 " : ""}font-ui text-xs leading-6 text-on-night-muted`}>
+                  <span className="text-gold-on-dark">{c.footer.hours}</span>
+                  <br />
+                  {hours}
+                </p>
               )}
-              {contact.instagram && (
-                <li>
-                  <a className={`${link} inline-flex items-center gap-2.5`} href={`https://instagram.com/${contact.instagram}`} target="_blank" rel="noreferrer">
-                    <Icon name="instagram" className="size-4 text-gold-on-dark" />
-                    <span className="ltr font-ui">@{contact.instagram}</span>
-                  </a>
-                </li>
-              )}
-              {contact.telegram && (
-                <li>
-                  <a className={`${link} inline-flex items-center gap-2.5`} href={`https://t.me/${contact.telegram}`} target="_blank" rel="noreferrer">
-                    <Icon name="telegram" className="size-4 text-gold-on-dark" />
-                    <span className="ltr font-ui">@{contact.telegram}</span>
-                  </a>
-                </li>
-              )}
-            </ul>
-            {hours && (
-              <p className="mt-6 font-ui text-xs leading-6 text-on-night-muted">
-                <span className="text-gold-on-dark">{c.footer.hours}</span>
-                <br />
-                {hours}
-              </p>
-            )}
-          </div>
+            </div>
+          )}
         </div>
       </div>
 

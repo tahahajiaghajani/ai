@@ -86,6 +86,13 @@ export function AuthForms({ lang, tab: initial, next, contact }: { lang: Lang; t
     }
   }
 
+  // an in-form link unmounts with its form: the focus moves to the tab it opened instead of falling to <body>
+  // (the code field takes it by itself)
+  function switchTo(t: AuthTab) {
+    setTab(t);
+    document.getElementById(`${base}-tab-${t}`)?.focus();
+  }
+
   const done = async (to: string) => {
     await sessionChanged();
     router.replace(to);
@@ -148,8 +155,8 @@ export function AuthForms({ lang, tab: initial, next, contact }: { lang: Lang; t
         </div>
 
         <div id={`${base}-panel`} role="tabpanel" aria-labelledby={`${base}-tab-${tab}`} className="pt-8">
-          {tab === "signin" && <SignInForm lang={lang} next={next} onDone={done} onCode={() => setTab("code")} onSignup={() => setTab("signup")} contact={contact} />}
-          {tab === "signup" && <SignUpForm lang={lang} next={next} onDone={done} onSignin={() => setTab("signin")} />}
+          {tab === "signin" && <SignInForm lang={lang} next={next} onDone={done} onCode={() => setTab("code")} onSignup={() => switchTo("signup")} contact={contact} />}
+          {tab === "signup" && <SignUpForm lang={lang} next={next} onDone={done} onSignin={() => switchTo("signin")} />}
           {tab === "code" && (
             <div className="space-y-8">
               <CodeInput lang={lang} next={next} autoFocus={via !== "keyboard"} tone="night" hideLabel onState={setCodeState} onDone={(r) => router.replace(r.next)} />
@@ -163,7 +170,7 @@ export function AuthForms({ lang, tab: initial, next, contact }: { lang: Lang; t
                     {commonCopy(lang).proSheet.contact}
                   </Link>
                 )}
-                <TabLink lang={lang} tab="signin" next={next} onSwitch={() => setTab("signin")} className="btn-link btn-link-light mt-2">
+                <TabLink lang={lang} tab="signin" next={next} onSwitch={() => switchTo("signin")} className="btn-link btn-link-light mt-2">
                   {c.auth.toSignin}
                 </TabLink>
               </div>
