@@ -64,6 +64,7 @@ export function Overlay({
   variant = "sheet",
   tone = "light",
   closeLabel = "بستن",
+  wide = false,
   className = "",
 }: {
   open: boolean;
@@ -74,6 +75,8 @@ export function Overlay({
   /** night = an espresso panel with champagne lines (the Pro sheet) */
   tone?: "light" | "night";
   closeLabel?: string;
+  /** a wider centred sheet from md up (two columns fit without scrolling on a laptop) */
+  wide?: boolean;
   className?: string;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -172,7 +175,7 @@ export function Overlay({
   }, [router]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const pos = {
-    sheet: "mt-auto mb-0 w-full max-w-none sm:my-auto sm:w-[min(520px,calc(100%-2rem))] sm:mx-auto max-h-[88dvh] sm:max-h-[86dvh] celin-sheet",
+    sheet: `mt-auto mb-0 w-full max-w-none sm:my-auto sm:mx-auto max-h-[88dvh] sm:max-h-[86dvh] celin-sheet ${wide ? "sm:w-[min(520px,calc(100%-2rem))] md:w-[min(840px,calc(100%-3rem))]" : "sm:w-[min(520px,calc(100%-2rem))]"}`,
     start: "ms-0 me-auto my-0 h-[100dvh] max-h-none w-[min(420px,92vw)] celin-side-start",
     end: "ms-auto me-0 my-0 h-[100dvh] max-h-none w-[min(480px,100vw)] celin-side-end",
     top: "mt-0 mb-auto w-full max-w-none max-h-[90dvh] celin-top",

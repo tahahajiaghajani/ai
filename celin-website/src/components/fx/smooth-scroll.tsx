@@ -2,8 +2,8 @@
 
 import Lenis from "lenis";
 import { usePathname } from "next/navigation";
-import { useEffect, useRef } from "react";
-import { gsap, pauseScrollTrigger, ScrollTrigger, scrollTriggerOn } from "@/components/fx/gsap";
+import { useEffect, useLayoutEffect, useRef } from "react";
+import { forgetScroll, gsap, pauseScrollTrigger, ScrollTrigger, scrollTriggerOn } from "@/components/fx/gsap";
 import { finePointer, OVERLAY_EVENT, useMotionReduced } from "@/components/fx/motion";
 
 /**
@@ -54,7 +54,11 @@ export function SmoothScroll() {
     };
   }, [reduced]);
 
-  // a new page: measure again once it has painted
+  // a new page: in the same commit as Next's scroll to its top, before any refresh — the old page's position is not
+  // put back (forgetScroll); then measure again once it has painted
+  useLayoutEffect(() => {
+    forgetScroll();
+  }, [path]);
   useEffect(() => {
     lenis.current?.resize();
     const id = requestAnimationFrame(() => scrollTriggerOn() && ScrollTrigger.refresh());

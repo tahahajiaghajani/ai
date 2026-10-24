@@ -175,8 +175,8 @@ function DrawerProButton({ lang }: { lang: Lang }) {
       }}
       className="btn btn-metal w-full"
     >
-      <span className="font-label text-xs tracking-[0.16em] ltr">PRO</span>
-      <span>{c.proSheet.title}</span>
+      <Icon name="unlock" className="size-4" />
+      {c.footer.enterCode}
     </button>
   );
 }

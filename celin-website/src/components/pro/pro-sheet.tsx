@@ -83,13 +83,14 @@ export function ProSheet({ lang }: { lang: Lang }) {
           </div>
         </div>
       )}
-      <Overlay open={open} onClose={() => setOpen(false)} label={s.title} closeLabel={c.nav.close} tone="night">
-        <div data-pro-state={codeState} className="relative isolate min-h-full">
+      <Overlay open={open} onClose={() => setOpen(false)} label={s.title} closeLabel={c.nav.close} tone="night" wide>
+        {/* stacked on phones; from md up two columns — the hallmark beside the form — so a laptop never scrolls it */}
+        <div data-pro-state={codeState} className="relative isolate min-h-full md:grid md:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] md:items-center">
           <span aria-hidden className="absolute inset-0 -z-10 bg-mesh-cocoa" />
           <Grain />
 
-          <div className="relative px-5 pt-8 pb-6 text-center sm:px-9 sm:pt-10">
-            <div aria-hidden className="pointer-events-none absolute inset-x-0 top-2 h-56">
+          <div className="relative px-5 pt-8 pb-6 text-center sm:px-9 sm:pt-10 md:flex md:h-full md:flex-col md:items-center md:justify-center md:border-e md:border-night-line md:px-8 md:py-10">
+            <div aria-hidden className="pointer-events-none absolute inset-x-0 top-2 h-56 md:inset-y-6 md:h-auto">
               <ArchLines count={4} tone="champagne" immediate className="size-full opacity-45" />
             </div>
             <ProHallmark className="relative mx-auto size-24 sm:size-28" />
@@ -97,7 +98,7 @@ export function ProSheet({ lang }: { lang: Lang }) {
             <p className="relative mx-auto mt-1 max-w-sm font-ui text-sm leading-7 text-on-night-muted">{s.intro}</p>
           </div>
 
-          <div className="relative px-5 pb-9 sm:px-9">
+          <div className="relative px-5 pb-9 sm:px-9 md:py-9">
             {active ? (
               <div className="frame-metal relative bg-white/5 px-5 py-4 text-center font-ui text-sm leading-7 text-on-night">
                 {s.activeNote}
