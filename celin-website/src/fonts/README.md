@@ -37,7 +37,12 @@ The version string (name ID 5) of each file carries the note «CELIN web cut 202
    1.5em-tall line box that sat the text low): one shared set for both weights — `hhea` = `OS/2` typo = win =
    ascent **1740** / descent **920**, line gap 0, `USE_TYPO_METRICS` on (OS/2 version 4). The box is centred on the
    letters, so buttons and lines centre Persian text exactly; diacritic-free lines do not touch at line-height ≥ 1.2.
-4. Saved as WOFF2.
+4. **The middle dot U+00B7 redrawn as a short bar** (the `periodcentered` glyph only; every other glyph is
+   unchanged): Nazli draws «·» as a small rhombus at mid-height — the shape of the Persian zero «۰» — so a separator
+   such as «یاس · گردنبند» read as «یاس ۰ گردنبند». The new glyph has the construction of Nazli's own hyphen, a
+   little thinner and centred on the height of the zero: 470 × 80 units (400) and 490 × 112 (700), side bearings 120.
+5. Saved as WOFF2.
 
-To rebuild: take the two TTFs from the Debian package and repeat steps 1–4 (scale 1.12, the code points above,
-metrics 1740/920).
+To rebuild: take the two TTFs from the Debian package and run `build_fonts.py` (next to this file) with the fontTools
+package: `python -I build_fonts.py <dir with nazli.ttf and nazlib.ttf> <out dir>` — it repeats steps 1–5 (scale 1.12,
+the code points above, metrics 1740/920, the middle-dot bar).

@@ -6,7 +6,9 @@ import localFont from "next/font/local";
  * - Nazli 400 / 700 (Sharif FarsiWeb, GPL-2+; src/fonts/README.md) — the Persian voice of the whole public site:
  *   the free twin of Nazanin, the face of the «گالری اعتماد» line of the logo. Headings 700, running text 400.
  *   Our web cut is scaled ×1.12 in the em and has tight, centred vertical metrics; it holds no Latin letters or
- *   digits, so Latin text falls through to Jost / Bodoni Moda. `unicode-range` = the subset's own coverage.
+ *   digits, so Latin text falls through to Jost / Bodoni Moda. `unicode-range` = the subset's own coverage. Its
+ *   middle dot «·» is redrawn as a short bar (the original is the shape of the Persian zero «۰»; src/fonts/README.md),
+ *   so separators in names and eyebrows never read as a zero.
  * - Vazirmatn (variable) — only the admin panel and dense numeric tables (tabular figures).
  * - Bodoni Moda (optical sizes) — Latin display, a Didone like the CELIN wordmark.
  * - Jost — Latin labels, UI and English running text, close to the logo's tracked "Handmade Jewelry" line.
