@@ -13,7 +13,7 @@ import { MAX_QTY, type CartLine } from "@/lib/order-meta";
 import { Icon } from "@/components/ui/icons";
 import { Picture } from "@/components/ui/picture";
 import { cart, useCart } from "@/components/cart/cart-store";
-import { openProSheet } from "@/components/pro/events";
+import { ProCodeLink } from "@/components/pro/pro-code-link";
 import { ProSeal } from "@/components/pro/seal";
 import { ProSteps } from "@/components/pro/steps";
 import { LuxFrame } from "@/components/ui/lux-frame";
@@ -436,9 +436,9 @@ function NotPro({ lang }: { lang: Lang }) {
         <Link href={`${href(lang, "/pro")}#request`} className={`${btn.metal} btn-lg`}>
           {c.notProCta}
         </Link>
-        <button type="button" onClick={() => openProSheet("code")} className={`${btn.text} max-sm:mx-auto`}>
+        <ProCodeLink lang={lang} className={`${btn.text} max-sm:mx-auto`}>
           {c.haveCode}
-        </button>
+        </ProCodeLink>
       </div>
     </LuxFrame>
   );

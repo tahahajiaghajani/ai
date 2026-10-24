@@ -3,9 +3,10 @@ import type { Badge, Metal, Spec, Stone } from "@/lib/catalog-types";
 import { SEED_MEDIA, type SeedKey } from "@/content/seed-media";
 
 /**
- * The starter catalogue, built from the brand's own photos. The site shows it until the catalogue lives in
- * the database (Admin → Products → «ورود محصولات نمونه», or the first product saved there); after that the
- * admin edits or deletes these items like any other. Prices and stock are samples for the demo.
+ * The starter catalogue, built from the brand's own photos. The site shows it until the catalogue lives in the
+ * database (copied in on the admin panel's first visit — <StarterSync/> — or by Admin → Products → «ورود محصولات
+ * نمونه», or the first product saved there); after that the admin edits or deletes these items like any other.
+ * Prices and stock are samples for the demo.
  */
 
 export interface SeedCategory {

@@ -71,15 +71,12 @@ export function Aperture({ lang, d }: { lang: Lang; d: ApertureData }) {
       <div className="fx-pin-stage isolate overflow-clip">
         <Aura palette="paraiba" light={0.8} />
         <Grain />
-        {/* the night-2 foot of the band above melts into the teal; the light settles into plain teal night at the foot */}
-        <span aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-night-2 to-transparent" />
-        <span aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-32 bg-gradient-to-b from-transparent to-night-teal" />
         <div className="container-lux relative grid min-h-[100svh] items-center gap-12 py-20 lg:grid-cols-12 lg:gap-8 lg:py-0">
           <div className="relative mx-auto w-[min(78vw,440px)] lg:order-2 lg:col-span-6 lg:w-[min(36vw,520px)]" data-cursor="view">
             <div data-ap="lines" className="absolute inset-x-[-38%] bottom-0 top-[-16%] origin-bottom">
               <ArchLines count={6} tone="champagne" className="size-full" />
             </div>
-            <div data-ap="frame" className="arch relative aspect-[3/4] origin-bottom overflow-hidden">
+            <div data-ap="frame" className="arch arch-clip relative aspect-[3/4] origin-bottom overflow-hidden">
               <div data-ap="img" className="absolute inset-0">
                 <Picture media={d.media} mobile={d.mobile} lang={lang} sizes="(min-width: 1024px) 36vw, 78vw" className="absolute inset-0" />
                 <Sparkles count={16} intensity={1.15} />

@@ -2,7 +2,6 @@ import type { CSSProperties, ReactNode } from "react";
 import type { Lang } from "@/lib/format";
 import { ArchLines } from "@/components/fx/arch-lines";
 import { Grain } from "@/components/fx/grain";
-import { Melt } from "@/components/fx/melt";
 import { SplitWords } from "@/components/fx/split-words";
 import { Eyebrow, RhombusDigits } from "@/components/house/bits";
 
@@ -40,12 +39,10 @@ export function NightDoor({
     <section
       data-header={under ? "dark" : undefined}
       data-tone="light"
-      className={`relative isolate flex min-h-[100svh] items-center overflow-clip bg-mesh-espresso text-on-night ${under ? "under-header pt-[var(--header-h)] pb-[calc(var(--melt-h)*0.6)]" : ""}`}
+      className={`relative isolate flex min-h-[100svh] items-center overflow-clip bg-mesh-espresso text-on-night ${under ? "under-header pt-[var(--header-h)]" : ""}`}
     >
       {background}
       <Grain />
-      {/* on a site page the doorway's night melts into the ground of the services strip below */}
-      {under && <Melt at="bottom" on="dark" />}
       <div className="container-lux relative flex flex-col items-center py-16 text-center">
         {top}
         <div className="relative grid aspect-[4/3] w-[min(84vw,460px)] place-items-end justify-center">

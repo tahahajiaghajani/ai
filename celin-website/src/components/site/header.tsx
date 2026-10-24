@@ -360,7 +360,7 @@ export function Header({ lang, menu }: { lang: Lang; menu: MenuData }) {
               <svg viewBox="0 0 10 10" className="absolute left-1/2 top-[-8px] z-[2] size-2 -translate-x-1/2 -translate-y-1/2 text-gold-bright" aria-hidden>
                 <path d="M5 0 10 5 5 10 0 5Z" fill="currentColor" />
               </svg>
-              <span className="fx-sheen arch absolute inset-0 overflow-hidden bg-tile">
+              <span className="fx-sheen arch arch-clip absolute inset-0 overflow-hidden bg-tile">
                 {menu.promo && (
                   <Picture media={menu.promo.media} lang={lang} sizes="224px" alt="" className={`absolute inset-0 transition-opacity duration-700 ${peekCat ? "opacity-0" : "opacity-100"}`} imgClassName="transition-transform duration-[1.2s] ease-[var(--ease-out-expo)] group-hover:scale-[1.04]" />
                 )}
@@ -440,6 +440,9 @@ export function Header({ lang, menu }: { lang: Lang; menu: MenuData }) {
               </a>
             )}
             <nav className="hidden items-center gap-7 lg:flex" aria-label={c.nav.jewellery}>
+              <Link href={href(lang, "/")} aria-current={path === href(lang, "/") ? "page" : undefined} className={`text-[15px] font-semibold transition-opacity ${path === href(lang, "/") ? "opacity-100" : "opacity-75 hover:opacity-100"}`}>
+                {c.nav.home}
+              </Link>
               {navBtn("jewellery", c.nav.jewellery, "/shop")}
               {navBtn("collections", c.nav.collections, "/collections")}
               <Link href={href(lang, "/craft")} className={`text-[15px] font-semibold transition-opacity ${active("/craft") ? "opacity-100" : "opacity-75 hover:opacity-100"}`}>
@@ -489,7 +492,7 @@ export function Header({ lang, menu }: { lang: Lang; menu: MenuData }) {
             {menu.categories.map((k) => (
               <li key={k.slug} className="shrink-0">
                 <OverlayLink href={href(lang, `/shop/${k.slug}`)} className="flex w-[5.25rem] flex-col items-center text-center">
-                  <span className="arch block w-full overflow-hidden bg-tile">
+                  <span className="arch arch-clip block w-full overflow-hidden bg-tile">
                     <Picture media={k.media} lang={lang} ratio="3/4" sizes="84px" alt="" />
                   </span>
                   <span className="mt-1 block h-px w-[calc(100%+0.875rem)] bg-[image:var(--metal-copper)] opacity-40" aria-hidden />
@@ -519,6 +522,7 @@ export function Header({ lang, menu }: { lang: Lang; menu: MenuData }) {
 
             <ul className="mt-6 divide-y divide-line border-y border-line">
               {[
+                ["/", c.nav.home],
                 ["/craft", c.nav.craft],
                 ["/maison", c.nav.maison],
                 ["/care", c.nav.care],

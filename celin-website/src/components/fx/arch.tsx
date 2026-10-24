@@ -63,7 +63,7 @@ export function Arch({
           <path d="M5 0 10 5 5 10 0 5Z" fill="currentColor" />
         </svg>
       )}
-      <div className={`fx-frame arch absolute inset-0 overflow-hidden ${frameClassName}`}>
+      <div className={`fx-frame arch arch-clip absolute inset-0 overflow-hidden ${frameClassName}`}>
         <div className={`absolute inset-0 ${parallax ? "fx-parallax" : ""}`} style={parallax ? ({ "--px": parallax } as CSSProperties) : undefined}>
           <Picture media={media} mobile={mobile} lang={lang} alt={alt} sizes={sizes} priority={priority} className="absolute inset-0" />
           {sparkle && <Sparkles count={typeof sparkle === "number" ? sparkle : 12} />}

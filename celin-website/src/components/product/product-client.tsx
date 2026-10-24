@@ -16,7 +16,7 @@ import { SplitWords } from "@/components/fx/split-words";
 import { Sparkles } from "@/components/fx/sparkles";
 import { PriceSlot } from "@/components/pro/price-slot";
 import { CodeInput } from "@/components/pro/code-input";
-import { openProSheet } from "@/components/pro/events";
+import { ProCodeLink } from "@/components/pro/pro-code-link";
 import { ProSeal } from "@/components/pro/pro-bar";
 import { useMe, usePriceBook } from "@/components/pro/session";
 import { cart, useCart } from "@/components/cart/cart-store";
@@ -96,7 +96,7 @@ function Gallery({ lang, product, images, index, setIndex }: { lang: Lang; produ
               className={`relative w-12 shrink-0 transition-opacity duration-500 [--ring-gap:3px] lg:w-full ${i === index ? "opacity-100" : "opacity-55 hover:opacity-90"}`}
             >
               <span className={`arch-ring transition-opacity duration-500 ${i === index ? "opacity-100" : "opacity-0"}`} aria-hidden />
-              <span className="arch relative block overflow-hidden">
+              <span className="arch arch-clip relative block overflow-hidden">
                 <Picture media={m} lang={lang} ratio="3/4" sizes="64px" alt="" />
               </span>
             </button>
@@ -138,7 +138,7 @@ function Gallery({ lang, product, images, index, setIndex }: { lang: Lang; produ
                 data-cursor="view"
                 data-cursor-label={tr.zoom}
               >
-                <span className="arch relative block overflow-hidden bg-tile">
+                <span className="arch arch-clip relative block overflow-hidden bg-tile">
                   {i === 0 ? (
                     <ViewTransition name={`product-${product.id}`} share="morph" default="none">
                       <Picture media={m} lang={lang} ratio="4/5" sizes="(min-width: 1024px) 40vw, 76vw" priority alt={name} className="arch" />
@@ -181,7 +181,7 @@ function Gallery({ lang, product, images, index, setIndex }: { lang: Lang; produ
               {images.map((m, i) => (
                 <button key={m.src} type="button" onClick={() => { setIndex(i); setZoom(false); }} className={`relative w-11 transition-opacity ${i === index ? "opacity-100" : "opacity-55 hover:opacity-90"}`} aria-label={tr.image(num(i + 1, lang), num(images.length, lang))}>
                   <span className={`arch-ring ${i === index ? "opacity-100" : "opacity-0"}`} aria-hidden />
-                  <span className="arch relative block overflow-hidden">
+                  <span className="arch arch-clip relative block overflow-hidden">
                     <Picture media={m} lang={lang} ratio="3/4" sizes="48px" alt="" />
                   </span>
                 </button>
@@ -285,18 +285,18 @@ function Actions({ lang, product, variantId, needsVariant, onAdded }: { lang: La
         <Link href={`${href(lang, "/pro")}#request`} className="btn btn-metal min-h-12 flex-[1_0_auto] whitespace-nowrap">
           {tr.request}
         </Link>
-        <button type="button" onClick={() => openProSheet("code")} className="font-ui text-sm text-gold-text underline-offset-8 hover:underline">
+        <ProCodeLink lang={lang} className="font-ui text-sm text-gold-text underline-offset-8 hover:underline">
           {tr.haveCode}
-        </button>
+        </ProCodeLink>
       </div>
     );
   }
   return (
     <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
-      <button type="button" onClick={() => openProSheet("code")} className="btn btn-metal min-h-12 flex-[1_0_auto] whitespace-nowrap">
+      <ProCodeLink lang={lang} className="btn btn-metal min-h-12 flex-[1_0_auto] whitespace-nowrap">
         <Icon name="unlock" className="size-4" />
         {tr.unlock}
-      </button>
+      </ProCodeLink>
       <Link href={href(lang, "/pro")} className="font-ui text-sm text-gold-text underline-offset-8 hover:underline">
         {tr.request}
       </Link>

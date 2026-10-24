@@ -58,7 +58,7 @@ export function CategoryArchesView({ lang, items, current, label, allLabel, tota
                       <path d="M5 0 10 5 5 10 0 5Z" fill="currentColor" />
                     </svg>
                   )}
-                  <span className="fx-sheen arch absolute inset-0 overflow-hidden bg-night-3">
+                  <span className="fx-sheen arch arch-clip absolute inset-0 overflow-hidden bg-night-3">
                     {k.media ? (
                       <Picture
                         media={k.media}

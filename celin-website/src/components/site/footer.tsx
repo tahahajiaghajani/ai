@@ -6,7 +6,6 @@ import { href } from "@/lib/i18n";
 import type { ContactSettings } from "@/lib/settings-types";
 import { ArchLines } from "@/components/fx/arch-lines";
 import { Grain } from "@/components/fx/grain";
-import { Melt, NightHead } from "@/components/fx/melt";
 import { SplitWords } from "@/components/fx/split-words";
 import { Icon } from "@/components/ui/icons";
 import { MotionToggle } from "@/components/site/motion-toggle";
@@ -18,17 +17,12 @@ const diamond = (className: string) => (
   </svg>
 );
 
-/**
- * The house's three promises before the night band: each under a small copper arch with its numeral. It opens on
- * the plain colour the page's last band ends on — the ground, or bone after a bone or night band (.services-strip,
- * the page-ending rule in globals.css) — its bone lights fade in, and it melts into the footer's night.
- */
+/** The house's three promises before the night band: each under a small copper arch with its numeral. */
 export function ServicesStrip({ lang }: { lang: Lang }) {
   const c = commonCopy(lang);
   return (
-    <section className="services-strip relative isolate overflow-clip pb-[calc(var(--melt-h)*0.85)]">
-      <span aria-hidden className="absolute inset-0 -z-10 bg-mesh-bone [mask-image:linear-gradient(to_bottom,transparent,black_var(--strip-fade,5rem))]" />
-      <Melt at="bottom" />
+    <section className="relative isolate overflow-clip bg-mesh-bone">
+      <span aria-hidden className="hairline absolute inset-x-0 top-0" />
       <ul className="container-lux grid gap-10 py-14 sm:grid-cols-3 sm:gap-0 sm:py-16">
         {c.services.map((s, i) => (
           <li key={s.title} className="flex items-start gap-5 sm:border-s sm:border-gold/20 sm:px-8 sm:first:border-s-0 sm:first:ps-0 lg:px-12" data-reveal style={{ "--d": i } as CSSProperties}>
@@ -77,8 +71,6 @@ export function Footer({ lang, contact }: { lang: Lang; contact: ContactSettings
         <span className="fx-aura-css" />
       </span>
       <Grain />
-      {/* plain night-2 at the head, where the strip above melted into it */}
-      <NightHead />
 
       <div className="container-lux relative pt-20 sm:pt-28">
         {/* the brand under its arcade */}

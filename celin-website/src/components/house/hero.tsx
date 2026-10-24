@@ -8,7 +8,6 @@ import { Arch } from "@/components/fx/arch";
 import { ArchLines } from "@/components/fx/arch-lines";
 import { Aura, type AuraPalette } from "@/components/fx/aura";
 import { Grain } from "@/components/fx/grain";
-import { NightFoot, seamTone } from "@/components/fx/melt";
 import { SlotVideo } from "@/components/fx/slot-video";
 import { SplitWords } from "@/components/fx/split-words";
 import { gsap } from "@/components/fx/gsap";
@@ -75,8 +74,6 @@ export function HouseHero({
     <section ref={root} data-header="dark" data-tone="light" className="under-header relative isolate overflow-clip bg-night text-on-night lg:min-h-[100svh]">
       <Aura palette={palette} light={light} />
       <Grain />
-      {/* the light settles into plain night at the foot, where the next band's melt begins (<Melt at="top" tone={seamTone(palette)}/>) */}
-      <NightFoot tone={seamTone(palette)} />
       <div ref={depth} className="container-lux relative grid gap-y-12 pt-[calc(var(--header-h)+2.5rem)] pb-16 lg:min-h-[100svh] lg:grid-cols-12 lg:items-center lg:gap-x-8 lg:pt-[var(--header-h)] lg:pb-0">
         {/* the words */}
         <div data-hh="copy" className={`relative lg:col-span-6 ${flip ? "lg:order-2 lg:col-start-7" : "lg:col-start-1"}`}>

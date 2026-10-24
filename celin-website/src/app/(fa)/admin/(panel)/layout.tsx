@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { requireAdminPage } from "@/lib/admin-auth";
 import { adminCounts } from "@/lib/admin-data";
+import { starterPending } from "@/lib/admin-catalog";
 import { logout } from "@/app/actions/admin";
 import { AdminNav } from "@/components/admin/nav";
 import { Toaster } from "@/components/admin/toast";
+import { StarterSync } from "@/components/admin/starter-sync";
 import { Icon } from "@/components/ui/icons";
 
 export const dynamic = "force-dynamic";
@@ -11,7 +13,7 @@ export const dynamic = "force-dynamic";
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   // every page checks again: an RSC request can render a page without re-running this layout
   await requireAdminPage();
-  const c = await adminCounts();
+  const [c, starter] = await Promise.all([adminCounts(), starterPending()]);
   const badges = { "/admin/orders": c.orders.pending ?? 0, "/admin/pro": c.requests_pending };
   const footer = (
     <>
@@ -44,7 +46,10 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         </div>
       </aside>
       <main className="min-w-0 px-4 py-7 sm:px-8 lg:px-10 lg:py-9">
-        <div className="mx-auto max-w-6xl">{children}</div>
+        <div className="mx-auto max-w-6xl">
+          {starter && <StarterSync />}
+          {children}
+        </div>
       </main>
       <Toaster />
     </div>

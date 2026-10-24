@@ -136,8 +136,6 @@ html[lang="fa"] {
   --font-fa-system: "B Nazanin", Nazanin, "Times New Roman", "Noto Naskh Arabic", "Geeza Pro";
   --header-h: 64px;
   --utility-h: 32px;
-  /* the height of a melt between a light band and a dark one (<Melt/>, bg-dusk / bg-tide strips) */
-  --melt-h: clamp(6rem, 14vh, 9rem);
   --gutter: 1rem;
 
   /* living metals — copper for light grounds (large text, marks, lines), champagne for dark grounds */
@@ -439,7 +437,7 @@ html[lang="fa"] {
  * dawn: the hero's night melting into porcelain (home: hero → statement, instead of a hard edge or a ribbon).
  * The light rises from below as one wide arch (an ellipse anchored at the bottom) through cocoa, mocha, sand and
  * bone, so the turn is higher in the middle than at the sides; the top row is plain night, like the hero's foot.
- * dusk is the way back down: porcelain into the cocoa night of the band below (whose top row is plain night-2).
+ * It is the site's only melt: every other band meets the next on a clean straight edge (the owner's choice).
  */
 @utility bg-dawn {
   background:
@@ -457,69 +455,6 @@ html[lang="fa"] {
       var(--color-night) 96%
     ),
     var(--color-night);
-}
-/* tide: the paraiba night giving way to porcelain (home: the arch window → the signature pieces; <Melt tone="teal"/>).
-   --tide-dir: 0deg turns it upside down (no rotate(): a transformed strip leaves a hairline seam at fractional offsets) */
-@utility bg-tide {
-  background: linear-gradient(var(--tide-dir, 180deg), var(--color-night-teal) 0%, #0d3432 14%, #2f524d 30%, #7c8f86 48%, #c5c6b6 66%, #ece6d9 84%, rgb(250 246 239 / 0) 100%);
-}
-/* the two ends are variables (<Melt on="dark"/> makes the light end opaque ground — or bone at a page's end, below —
-   and the dark end transparent); --dusk-dir: 0deg turns it upside down (night-2 → light) */
-@utility bg-dusk {
-  background: linear-gradient(var(--dusk-dir, 180deg), var(--dusk-light, rgb(253 250 245 / 0)) 0%, var(--color-bone) 20%, #dfcbb2 36%, #b8987c 52%, #7d5d49 66%, var(--color-cocoa) 80%, var(--dusk-dark, var(--color-night-2)) 100%);
-}
-/*
- * Page endings — one rule for every page (docs/DESIGN_SYSTEM.md): the page's last band ends on a plain ground and
- * the services strip opens on that same colour before its own bone lights fade in, so no page ends on an edge or on
- * a lighter seam. The last band is the page's <main> when it carries the mesh itself, else main's last section or
- * div. Its mesh lights settle into its plain ground over its foot (--melt-h, under the content) and its arch hairlines
- * fade out above it; a night band there melts into bone (<Melt on="dark"/>). After porcelain the strip opens on the
- * ground and its bone fades in over 5rem; after bone or night it opens on bone and only its lights fade in, over its
- * whole height (its white light at full strength under the seam would be a brighter stripe) — the ground between two
- * bones, or between night and bone, would read as a bright seam too. Browsers without :has() keep the ground.
- */
-@layer components {
-  [data-melt="dark"] {
-    --dusk-light: var(--color-ground);
-  }
-  :is(#main > main:is(.bg-mesh-porcelain, .bg-mesh-bone), #main > main:not(.bg-mesh-porcelain, .bg-mesh-bone) > :nth-last-child(1 of section, div)):is(.bg-mesh-porcelain, .bg-mesh-bone)::after {
-    content: "";
-    position: absolute;
-    inset-inline: 0;
-    bottom: 0;
-    z-index: -1;
-    height: var(--melt-h);
-    pointer-events: none;
-    background: linear-gradient(to bottom, transparent, var(--color-ground));
-  }
-  :is(#main > main:is(.bg-mesh-porcelain, .bg-mesh-bone), #main > main:not(.bg-mesh-porcelain, .bg-mesh-bone) > :nth-last-child(1 of section, div)).bg-mesh-bone::after {
-    background: linear-gradient(to bottom, transparent, var(--color-bone));
-  }
-  :is(#main > main:is(.bg-mesh-porcelain, .bg-mesh-bone), #main > main:not(.bg-mesh-porcelain, .bg-mesh-bone) > :nth-last-child(1 of section, div)) > .fx-draw {
-    mask-image: linear-gradient(to bottom, black calc(100% - 12rem), transparent calc(100% - 6rem));
-  }
-  #main > main > :nth-last-child(1 of section, div) > [data-melt="dark"] {
-    --dusk-light: var(--color-bone);
-  }
-  /* a light band right below a night band's melt (the 404's suggestions) opens on the plain ground the melt ends
-     on, its own lights fading in, so no lighter stripe and no edge sit between them */
-  :is(section, div):has(> [data-melt="dark"]) + :is(.bg-mesh-porcelain, .bg-mesh-bone)::before {
-    content: "";
-    position: absolute;
-    inset-inline: 0;
-    top: 0;
-    z-index: -1;
-    height: var(--melt-h);
-    pointer-events: none;
-    background: linear-gradient(to top, transparent, var(--color-ground));
-  }
-  .services-strip {
-    background-color: var(--color-ground);
-  }
-  #main:has(> main.bg-mesh-bone, > main:not(.bg-mesh-porcelain, .bg-mesh-bone) > :nth-last-child(1 of section, div):is(.bg-mesh-bone, .bg-bone), > main > :nth-last-child(1 of section, div) > [data-melt="dark"]) + .services-strip {
-    --strip-fade: 100%;
-    background-color: var(--color-bone);
-  }
 }
 @utility bg-metal {
   background-image: var(--metal-fill);
@@ -1116,6 +1051,16 @@ html:not(.intro-seen) {
 }
 @utility arch-full {
   border-radius: 100vmax;
+}
+/*
+ * A rounded frame whose picture moves (a transition, the unveil, the parallax, a hover zoom): Safari draws a picture
+ * animated on its own layer outside a rounded overflow clip — as a rectangle out of the arch — unless the frame paints
+ * through a mask of its own. This mask covers the whole frame, so it changes nothing else.
+ */
+@utility arch-clip {
+  isolation: isolate;
+  -webkit-mask-image: -webkit-radial-gradient(white, black);
+  mask-image: radial-gradient(white, black);
 }
 /* a copper (or champagne) hairline arch drawn around a framed box, a little outside it */
 @utility arch-ring {

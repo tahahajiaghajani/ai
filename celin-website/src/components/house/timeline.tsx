@@ -5,7 +5,6 @@ import { num, type Lang } from "@/lib/format";
 import { ArchLines } from "@/components/fx/arch-lines";
 import { Aura } from "@/components/fx/aura";
 import { Grain } from "@/components/fx/grain";
-import { NightFoot, NightHead } from "@/components/fx/melt";
 import { gsap } from "@/components/fx/gsap";
 import { sceneMode, useGsap } from "@/components/fx/use-gsap";
 import { Eyebrow } from "@/components/house/bits";
@@ -75,9 +74,6 @@ export function Timeline({ lang, d }: { lang: Lang; d: TimelineData }) {
       <div className="fx-pin-stage isolate overflow-clip">
         <Aura palette="paraiba" light={0.75} />
         <Grain />
-        {/* the cocoa night above turns into the teal; the foot is plain teal night for the melt into the bone below */}
-        <NightHead />
-        <NightFoot tone="teal" />
         <div className="container-lux relative flex min-h-[100svh] flex-col items-center justify-center py-24 text-center">
           <Eyebrow tone="light" center>
             {d.eyebrow}

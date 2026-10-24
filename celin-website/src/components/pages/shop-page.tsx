@@ -10,7 +10,6 @@ import { shopCopy } from "@/content/copy/shop";
 import { Arch } from "@/components/fx/arch";
 import { Aura } from "@/components/fx/aura";
 import { Grain } from "@/components/fx/grain";
-import { Melt, NightFoot } from "@/components/fx/melt";
 import { SplitWords } from "@/components/fx/split-words";
 import { Icon } from "@/components/ui/icons";
 import { ProBar } from "@/components/pro/pro-bar";
@@ -95,7 +94,6 @@ export async function ShopPage({ lang, category }: { lang: Lang; category?: stri
       <section data-header="dark" data-tone="light" className="under-header relative isolate overflow-clip bg-night text-on-night">
         <Aura palette="espresso" light={0.85} />
         <Grain />
-        <NightFoot />
         <div className="container-lux relative pt-[calc(var(--header-h)+1.75rem)] pb-10 sm:pt-[calc(var(--header-h)+2.5rem)] sm:pb-14">
           <Breadcrumbs lang={lang} tone="light" items={[{ label: c.nav.home, path: "/" }, ...(cat ? [{ label: c.nav.jewellery, path: "/shop" }, { label: title }] : [{ label: c.nav.jewellery }])]} />
           <div className="mt-7 grid gap-x-10 gap-y-4 sm:mt-10 lg:grid-cols-12 lg:items-end">
@@ -121,9 +119,7 @@ export async function ShopPage({ lang, category }: { lang: Lang; category?: stri
       </section>
 
       <div className="relative isolate bg-mesh-porcelain pb-20 sm:pb-28">
-        {/* the hero's night melts into the porcelain of the grid */}
-        <Melt at="top" />
-        <div className="container-lux pt-[calc(var(--melt-h)*0.72)] pb-6">
+        <div className="container-lux pt-8 pb-6 sm:pt-10">
           <ProBar lang={lang} />
         </div>
         <Suspense fallback={<ShopGridFallback lang={lang} products={products} collections={collections} editorial={editorial} />}>

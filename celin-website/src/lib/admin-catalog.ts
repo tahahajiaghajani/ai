@@ -513,6 +513,21 @@ export async function seedMediaId(key: SeedKey): Promise<string> {
 }
 
 /**
+ * The site still shows the built-in starter catalogue and the database has none of its own yet (no product,
+ * category or collection, and the catalogue never changed): the panel copies the starter catalogue in on its first
+ * visit (<StarterSync/>), so what the site shows is what the panel manages.
+ */
+export async function starterPending(): Promise<boolean> {
+  await assertAdmin();
+  const c = db();
+  if (!c) return false;
+  if ((await getSettingsFresh()).catalog.initialized) return false;
+  const counts = await Promise.all(["celin_products", "celin_categories", "celin_collections"].map((t) => c.from(t).select("id", { count: "exact", head: true })));
+  if (counts.some((r) => r.error)) return false;
+  return counts.every((r) => (r.count ?? 0) === 0);
+}
+
+/**
  * Copies the starter catalogue into the database (categories, collections, products with variants and
  * pictures). Items whose slug already exists are left alone, so running it twice adds nothing.
  */

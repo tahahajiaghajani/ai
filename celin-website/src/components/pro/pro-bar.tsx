@@ -6,7 +6,7 @@ import { commonCopy } from "@/content/copy/common";
 import { formatDate, type Lang } from "@/lib/format";
 import { href } from "@/lib/i18n";
 import { LuxFrame } from "@/components/ui/lux-frame";
-import { openProSheet } from "@/components/pro/events";
+import { ProCodeLink } from "@/components/pro/pro-code-link";
 import { ProSeal } from "@/components/pro/seal";
 import { useMe } from "@/components/pro/session";
 import { ProSteps } from "@/components/pro/steps";
@@ -84,9 +84,9 @@ export function ProBar({ lang, className = "" }: { lang: Lang; className?: strin
           <div className="flex flex-wrap items-center gap-x-6 gap-y-1 border-t border-gold/20 pt-4 lg:border-0 lg:pt-0">
             {state === "guest" && (
               <>
-                <button type="button" onClick={() => openProSheet("code")} className="btn btn-metal flex-1 sm:flex-none">
+                <ProCodeLink lang={lang} className="btn btn-metal flex-1 sm:flex-none">
                   {b.guestCta}
-                </button>
+                </ProCodeLink>
                 <Link href={href(lang, "/pro")} className="btn-link max-sm:mx-auto">
                   {b.requestCta}
                 </Link>
@@ -97,15 +97,15 @@ export function ProBar({ lang, className = "" }: { lang: Lang; className?: strin
                 <Link href={`${href(lang, "/pro")}#request`} className="btn btn-metal flex-1 sm:flex-none">
                   {b.signedInCta}
                 </Link>
-                <button type="button" onClick={() => openProSheet("code")} className="btn-link max-sm:mx-auto">
+                <ProCodeLink lang={lang} className="btn-link max-sm:mx-auto">
                   {b.codeCta}
-                </button>
+                </ProCodeLink>
               </>
             )}
             {state === "issued" && (
-              <button type="button" onClick={() => openProSheet("code")} className="btn btn-metal flex-1 sm:flex-none">
+              <ProCodeLink lang={lang} className="btn btn-metal flex-1 sm:flex-none">
                 {b.issuedCta}
-              </button>
+              </ProCodeLink>
             )}
           </div>
         )}

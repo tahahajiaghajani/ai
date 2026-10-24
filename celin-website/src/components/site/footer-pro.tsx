@@ -4,7 +4,7 @@ import Link from "next/link";
 import { commonCopy } from "@/content/copy/common";
 import type { Lang } from "@/lib/format";
 import { href } from "@/lib/i18n";
-import { openProSheet } from "@/components/pro/events";
+import { ProCodeLink } from "@/components/pro/pro-code-link";
 import { ProSeal } from "@/components/pro/seal";
 
 /** The footer's Pro column: the seal with the members' line, then the ways in (request, code, orders). */
@@ -23,9 +23,9 @@ export function FooterProLinks({ lang, className }: { lang: Lang; className: str
           </Link>
         </li>
         <li>
-          <button type="button" className={`font-sans text-start ${className}`} onClick={() => openProSheet("code")}>
+          <ProCodeLink lang={lang} className={`font-sans text-start ${className}`}>
             {c.footer.enterCode}
-          </button>
+          </ProCodeLink>
         </li>
         <li>
           <Link className={className} href={href(lang, "/account/orders")}>

@@ -14,7 +14,7 @@ import { LuxFrame } from "@/components/ui/lux-frame";
 import { Grain } from "@/components/fx/grain";
 import { ProCodeCeremony } from "@/components/pro/ceremony";
 import { CodeInput } from "@/components/pro/code-input";
-import { openProSheet } from "@/components/pro/events";
+import { ProCodeLink } from "@/components/pro/pro-code-link";
 import { ProHallmark, ProSeal } from "@/components/pro/seal";
 import { sessionChanged, useMe } from "@/components/pro/session";
 import { ProSteps } from "@/components/pro/steps";
@@ -119,9 +119,9 @@ export function Membership({ lang, variant, initial, contact }: { lang: Lang; va
           <Link href={`${href(lang, "/account/login")}?tab=signup&next=${encodeURIComponent(proHref)}`} className={`${btn.metal} btn-lg`}>
             {c.guestCta}
           </Link>
-          <button type="button" onClick={() => openProSheet("code")} className={`${btn.text} max-sm:mx-auto`}>
+          <ProCodeLink lang={lang} className={`${btn.text} max-sm:mx-auto`}>
             {c.haveCode}
-          </button>
+          </ProCodeLink>
         </div>
       </Panel>
     );

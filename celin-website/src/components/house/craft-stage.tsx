@@ -52,7 +52,7 @@ export function CraftStage({ lang, steps, label }: { lang: Lang; steps: CraftSte
             <svg aria-hidden viewBox="0 0 10 10" className="absolute left-1/2 top-[-12px] z-[3] size-2.5 -translate-x-1/2 -translate-y-1/2 text-gold-bright">
               <path d="M5 0 10 5 5 10 0 5Z" fill="currentColor" />
             </svg>
-            <div className="arch absolute inset-0 overflow-hidden bg-tile">
+            <div className="arch arch-clip absolute inset-0 overflow-hidden bg-tile">
               {steps.map((s, i) => (
                 <div
                   key={i}
@@ -93,7 +93,7 @@ export function CraftStage({ lang, steps, label }: { lang: Lang; steps: CraftSte
           <li key={i} data-step={i} className="flex flex-col justify-center py-10 sm:py-14 lg:min-h-[86svh] lg:py-16">
             <div className="relative mx-auto mb-10 w-[min(74vw,380px)] lg:hidden">
               <ArchLines count={3} className="pointer-events-none absolute inset-x-[-18%] bottom-0 top-[-9%] h-[109%] w-[136%]" />
-              <Arch media={s.media} mobile={s.mobile} lang={lang} sizes="74vw" ring="copper" keystone={i === 0} unveil parallax={5} sparkle={8} />
+              <Arch media={s.media} mobile={s.mobile} lang={lang} sizes="74vw" ring="copper" keystone={i === 0} unveil sparkle={8} />
             </div>
             {/* the steps away from the middle dim only when the observer can move the light (never without JS) */}
             <div className={`transition-opacity duration-700 ${i === active ? "lg:opacity-100" : "lg:[html.js_&]:opacity-45"}`}>

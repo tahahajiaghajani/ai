@@ -31,7 +31,7 @@ export const searchHref = (lang: Lang, q: string) => `${href(lang, "/search")}${
 /** A small picture in the brand's arch (search results and the empty-field arcade). */
 function ArchThumb({ it, className }: { it: SearchItem; className: string }) {
   return (
-    <span className={`arch relative block shrink-0 overflow-hidden bg-tile ${className}`}>
+    <span className={`arch arch-clip relative block shrink-0 overflow-hidden bg-tile ${className}`}>
       {it.media && (
         // eslint-disable-next-line @next/next/no-img-element
         <img
