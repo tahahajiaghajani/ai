@@ -28,4 +28,16 @@ export function pauseScrollTrigger() {
 
 export const scrollTriggerOn = () => state === "on";
 
+/**
+ * A new page: Next has just scrolled it to the top (or to its #hash). ScrollTrigger caches the scroll position until
+ * a "scroll" event arrives, and with exactly one event since its last read its refresh still takes the cached value:
+ * it would record the old page's position and put it back — a link followed from low on a page opened the next page
+ * at the same depth (often its foot). Forget the old positions and hand it the real one.
+ */
+export function forgetScroll() {
+  if (state === "off") return;
+  ScrollTrigger.clearScrollMemory();
+  ScrollTrigger.getScrollFunc(window)(window.scrollY);
+}
+
 export { gsap, ScrollTrigger };
