@@ -2,20 +2,23 @@ import "server-only";
 import { unstable_cache } from "next/cache";
 import { env } from "@/lib/env";
 import { getFile, ghConfigured, GhError, putFile } from "@/lib/github";
-import { DEFAULT_SETTINGS, parseSettings, type Settings } from "@/lib/settings-types";
+import { CLOSED_SETTINGS, DEFAULT_SETTINGS, parseSettings, type Settings } from "@/lib/settings-types";
 
 export const SETTINGS_FILE = "settings.json";
 
-/** Reads settings.json straight from the repository. Throws when GitHub is not configured or not reachable. */
+/**
+ * Reads settings.json straight from the repository (no file yet = the defaults). Throws when GitHub is not
+ * configured or not reachable, and when the file is not valid JSON (e.g. after a manual edit), so the panel says so.
+ */
 export async function loadSettings(): Promise<{ settings: Settings; sha: string | null }> {
   if (!ghConfigured()) throw new GhError("not configured", 0);
   const f = await getFile(SETTINGS_FILE);
   if (!f) return { settings: DEFAULT_SETTINGS, sha: null };
-  let raw: unknown = null;
+  let raw: unknown;
   try {
     raw = JSON.parse(f.text);
   } catch {
-    raw = null;
+    throw new GhError(`${SETTINGS_FILE} is not valid JSON; fix or delete it on GitHub`, 422);
   }
   return { settings: parseSettings(raw), sha: f.sha };
 }
@@ -24,14 +27,20 @@ export async function loadSettings(): Promise<{ settings: Settings; sha: string 
 // failures throw, and unstable_cache never stores a thrown result
 const cached = unstable_cache(async (_repo: string) => (await loadSettings()).settings, ["portfolio-settings-v1"], { tags: ["settings"], revalidate: 300 });
 
-/** The panel's settings (cached up to five minutes, refreshed at once after a save); defaults when unreadable. */
+let lastGood: Settings | null = null;
+
+/**
+ * The panel's settings (cached up to five minutes, refreshed at once after a save). When they cannot be read, the
+ * last ones this instance read are used, else everything that sends visitor text elsewhere stays off.
+ */
 export async function getSettings(): Promise<Settings> {
   if (!ghConfigured()) return DEFAULT_SETTINGS;
   try {
-    return await cached(env.githubRepo);
+    lastGood = await cached(env.githubRepo);
+    return lastGood;
   } catch (e) {
     console.error("[settings] unreadable", e instanceof Error ? e.message : e);
-    return DEFAULT_SETTINGS;
+    return lastGood ?? CLOSED_SETTINGS;
   }
 }
 

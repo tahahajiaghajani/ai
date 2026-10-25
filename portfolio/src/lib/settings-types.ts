@@ -1,6 +1,7 @@
 /** What the panel saves in settings.json of the data repository (client-safe types and parsing). */
 
 export type NotifyChannel = "telegram" | "bale" | "none";
+export type BotChannel = Exclude<NotifyChannel, "none">;
 
 export interface Settings {
   ai: {
@@ -16,6 +17,8 @@ export interface Settings {
     channel: NotifyChannel;
     tokenEnc: string;
     tokenHint: string;
+    /** the service the saved token belongs to: it is never sent to the other one */
+    tokenChannel: BotChannel | "";
     chatId: string;
   };
   updatedAt: string;
@@ -23,8 +26,18 @@ export interface Settings {
 
 export const DEFAULT_SETTINGS: Settings = {
   ai: { enabled: true, keyEnc: "", keyHint: "", models: [] },
-  notify: { channel: "telegram", tokenEnc: "", tokenHint: "", chatId: "" },
+  notify: { channel: "telegram", tokenEnc: "", tokenHint: "", tokenChannel: "", chatId: "" },
   updatedAt: "",
+};
+
+/**
+ * When settings.json cannot be read: the assistant and notifications stay off rather than falling back to keys in
+ * Vercel that the owner may have switched off in the panel.
+ */
+export const CLOSED_SETTINGS: Settings = {
+  ...DEFAULT_SETTINGS,
+  ai: { ...DEFAULT_SETTINGS.ai, enabled: false },
+  notify: { ...DEFAULT_SETTINGS.notify, channel: "none" },
 };
 
 const str = (v: unknown, max = 2000) => (typeof v === "string" ? v.slice(0, max) : "");
@@ -42,7 +55,14 @@ export function parseSettings(raw: unknown): Settings {
       keyHint: str(ai.keyHint, 20),
       models: Array.isArray(ai.models) ? ai.models.filter((m): m is string => typeof m === "string" && /^[\w.:-]{2,80}$/.test(m)).slice(0, 8) : [],
     },
-    notify: { channel, tokenEnc: str(n.tokenEnc), tokenHint: str(n.tokenHint, 20), chatId: str(n.chatId, 40) },
+    notify: {
+      channel,
+      tokenEnc: str(n.tokenEnc),
+      tokenHint: str(n.tokenHint, 20),
+      // files written before tokenChannel existed: the token belonged to the channel it was saved with
+      tokenChannel: n.tokenChannel === "telegram" || n.tokenChannel === "bale" ? n.tokenChannel : n.tokenEnc && channel !== "none" ? channel : "",
+      chatId: str(n.chatId, 40),
+    },
     updatedAt: str((raw as { updatedAt?: unknown } | null)?.updatedAt, 40),
   };
 }

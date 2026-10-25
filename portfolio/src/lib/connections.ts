@@ -6,7 +6,7 @@ import { env } from "@/lib/env";
 import { getFile, gh, ghConfigured } from "@/lib/github";
 import { GEMINI_CHAIN } from "@/lib/ai/runtime";
 import { probeGeminiKey } from "@/lib/ai/gemini";
-import { probeBot, type Bot } from "@/lib/notify";
+import { probeBot, resolveBot } from "@/lib/notify";
 import { AI_ERROR, AI_TRANSIENT, botErrorFa, parseTokenExpiry } from "@/lib/status-text";
 import { KNOWLEDGE_FILE } from "@/lib/knowledge-file";
 import { loadSettings } from "@/lib/settings";
@@ -28,6 +28,8 @@ export interface ConnectionReport {
     private: boolean | null;
     issues: boolean | null;
     settingsFile: boolean | null;
+    /** settings.json exists but could not be read or parsed */
+    settingsError: string;
     knowledgeFile: boolean | null;
     labels: boolean | null;
     /** when the fine-grained token stops working (GitHub sends it with every response) */
@@ -54,6 +56,7 @@ export interface ConnectionReport {
     source: "panel" | "env" | "none";
     tokenHint: string;
     tokenUnreadable: boolean;
+    tokenOtherChannel: boolean;
     chatId: string;
     /** live check: the bot's username, and whether the chat id was found (null = could not tell) */
     live: { ok: boolean; username: string; chatOk: boolean | null; error: string } | null;
@@ -97,6 +100,7 @@ export async function connectionReport(): Promise<ConnectionReport> {
     private: null,
     issues: null,
     settingsFile: null,
+    settingsError: "",
     knowledgeFile: null,
     labels: null,
     tokenExpires: null,
@@ -119,7 +123,10 @@ export async function connectionReport(): Promise<ConnectionReport> {
       g.issues = r.data.has_issues;
       g.url = r.data.html_url;
       const [s, k, l] = await Promise.all([
-        loadSettings().catch(() => null),
+        loadSettings().catch((e: unknown) => {
+          g.settingsError = e instanceof Error ? e.message.slice(0, 200) : "unreadable";
+          return null;
+        }),
         getFile(KNOWLEDGE_FILE).then((f) => Boolean(f)).catch(() => null),
         gh("GET", `/labels/${REQUEST_LABEL}`).then((x) => (x.ok ? true : x.status === 404 ? false : null)),
       ]);
@@ -129,7 +136,7 @@ export async function connectionReport(): Promise<ConnectionReport> {
       g.labels = l;
     }
     const expiresSoon = g.tokenExpires !== null && Date.parse(g.tokenExpires) - Date.now() < 14 * DAY;
-    g.status = !g.reachable || g.private === false || g.issues === false ? "error" : !g.settingsFile || !g.knowledgeFile || !g.labels || expiresSoon ? "warn" : "ok";
+    g.status = !g.reachable || g.private === false || g.issues === false || g.settingsError ? "error" : !g.settingsFile || !g.knowledgeFile || !g.labels || expiresSoon ? "warn" : "ok";
   }
 
   const secret = env.appSecret;
@@ -146,10 +153,7 @@ export async function connectionReport(): Promise<ConnectionReport> {
   const keyUnreadable = Boolean(settings.ai.keyEnc) && !panelKey;
   const keySource = panelKey ? "panel" : env.geminiKey ? "env" : "none";
   const n = settings.notify;
-  const panelToken = decrypt(n.tokenEnc);
-  const notifySource = n.channel === "none" ? "none" : panelToken && n.chatId ? "panel" : env.telegramToken && env.telegramChatId ? "env" : "none";
-  const bot: Bot | null =
-    notifySource === "panel" ? { channel: n.channel as Bot["channel"], token: panelToken, chatId: n.chatId } : notifySource === "env" ? { channel: env.telegramChannel, token: env.telegramToken, chatId: env.telegramChatId } : null;
+  const { bot, source: notifySource, tokenUnreadable, tokenOtherChannel } = resolveBot(n);
   // live checks run side by side and spend no quota: listing one model, and the bot's getMe/getChat
   const [aiKind, botLive] = await Promise.all([
     settings.ai.enabled && keySource !== "none" ? probeGeminiKey(panelKey || env.geminiKey) : Promise.resolve(undefined),
@@ -179,12 +183,13 @@ export async function connectionReport(): Promise<ConnectionReport> {
   const notify: ConnectionReport["notify"] = {
     channel: n.channel,
     source: notifySource,
-    tokenHint: panelToken ? n.tokenHint : "",
-    tokenUnreadable: Boolean(n.tokenEnc) && !panelToken,
+    tokenHint: notifySource === "panel" ? n.tokenHint : "",
+    tokenUnreadable,
+    tokenOtherChannel,
     chatId: n.chatId,
     live: botLive ? { ...botLive, error: botLive.error ? botErrorFa(botLive.error) : "" } : null,
     // nothing set up yet is "optional", not a problem; a bot that is set up but fails is
-    status: notifySource === "none" ? (n.tokenEnc && !panelToken ? "warn" : "off") : !botLive?.ok ? (botLive?.error === "network" ? "warn" : "error") : botLive.chatOk === false ? "error" : "ok",
+    status: notifySource === "none" ? (tokenUnreadable || tokenOtherChannel ? "warn" : "off") : !botLive?.ok ? (botLive?.error === "network" ? "warn" : "error") : botLive.chatOk === false ? "error" : "ok",
   };
 
   const configured = env.siteUrl;
@@ -226,7 +231,7 @@ export function publicSettings(s: Settings) {
   return {
     updatedAt: s.updatedAt,
     ai: { enabled: s.ai.enabled, hasKey: Boolean(s.ai.keyEnc), keyHint: s.ai.keyHint, models: s.ai.models },
-    notify: { channel: s.notify.channel, hasToken: Boolean(s.notify.tokenEnc), tokenHint: s.notify.tokenHint, chatId: s.notify.chatId },
+    notify: { channel: s.notify.channel, hasToken: Boolean(s.notify.tokenEnc), tokenHint: s.notify.tokenHint, tokenChannel: s.notify.tokenChannel, chatId: s.notify.chatId },
   };
 }
 export type PublicSettings = ReturnType<typeof publicSettings>;

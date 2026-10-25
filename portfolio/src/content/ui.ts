@@ -62,7 +62,10 @@ const UI = {
     busy: { fa: "دستیار الان سرش شلوغ است؛ چند لحظه بعد دوباره بپرسید.", en: "The assistant is busy right now — please try again in a moment." },
     rate: { fa: "تعداد پرسش‌ها زیاد شد؛ کمی بعد دوباره امتحان کنید.", en: "Too many questions for now — please try again a little later." },
     error: { fa: "ارتباط برقرار نشد. دوباره امتحان کنید.", en: "Couldn't connect. Please try again." },
-    disclaimer: { fa: "پاسخ‌ها با هوش مصنوعی ساخته می‌شوند و ممکن است خطا داشته باشند.", en: "Answers are AI-generated and may contain mistakes." },
+    disclaimer: {
+      fa: "پیام‌ها برای پاسخ به Google Gemini فرستاده می‌شوند؛ اطلاعات محرمانه ننویسید. پاسخ‌ها ممکن است خطا داشته باشند.",
+      en: "Messages are sent to Google Gemini to answer them — please don't share confidential information. Answers may contain mistakes.",
+    },
     actionTicket: { fa: "ثبت درخواست همکاری", en: "Send a request" },
     actionContact: { fa: "راه‌های تماس", en: "Contact details" },
     actionWork: { fa: "دیدن کارها", en: "See the work" },
@@ -123,6 +126,7 @@ const UI = {
     reply: { fa: "افزودن پیام", en: "Add a message" },
     replySend: { fa: "ارسال پیام", en: "Send message" },
     denied: { fa: "این پیوند معتبر نیست.", en: "This link isn't valid." },
+    unavailable: { fa: "الان به صندوق درخواست‌ها دسترسی نیست؛ چند دقیقه بعد دوباره همین پیوند را باز کنید.", en: "The request desk can't be reached right now — please open this link again in a few minutes." },
   },
   footer: {
     rights: { fa: "طراحی و هدایت: طاها آقاجانی · ساخته‌شده با Claude Code", en: "Designed & directed by Taha Aghajani · built with Claude Code" },

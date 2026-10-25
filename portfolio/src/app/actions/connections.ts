@@ -17,7 +17,11 @@ import { SITE_LABELS } from "@/lib/request-issue";
 
 export type Result<T = undefined> = { ok: true; data?: T; message?: string } | { ok: false; error: string };
 
+/** A save the panel refuses with a reason (nothing is written). */
+class Refused extends Error {}
+
 function failure(e: unknown): { ok: false; error: string } {
+  if (e instanceof Refused) return { ok: false, error: e.message };
   if (e instanceof GhError) {
     if (e.rateLimited) return { ok: false, error: "به سقف درخواست‌های GitHub رسیده‌ایم؛ چند دقیقه بعد دوباره امتحان کنید." };
     if (/public/.test(e.message)) return { ok: false, error: "مخزن داده عمومی است؛ تا وقتی خصوصی نشود چیزی در آن نوشته نمی‌شود." };
@@ -139,15 +143,25 @@ export async function saveNotify(input: { channel: NotifyChannel; token?: string
     const chatId = input.chatId.trim();
     if (chatId && !/^-?\d{3,20}$|^@[A-Za-z0-9_]{4,}$/.test(chatId)) return { ok: false, error: "شناسه‌ی گفتگو باید عدد باشد (مثلاً 123456789) یا @نام‌کانال." };
     const channel = input.channel === "bale" || input.channel === "none" ? input.channel : "telegram";
-    await saveSettings((s) => ({
-      ...s,
-      notify: {
-        channel,
-        tokenEnc: input.clearToken ? "" : token ? encrypt(token) : s.notify.tokenEnc,
-        tokenHint: input.clearToken ? "" : token ? hint(token) : s.notify.tokenHint,
-        chatId,
-      },
-    }));
+    if (token && channel === "none") return { ok: false, error: "برای ذخیره‌ی توکن، کانال تلگرام یا بله را انتخاب کنید." };
+    // a token is only ever sent to the service it was made for, so switching service needs that service's token
+    await saveSettings((s) => {
+      const keep = !input.clearToken && !token;
+      if (keep && s.notify.tokenEnc && channel !== "none" && s.notify.tokenChannel && s.notify.tokenChannel !== channel) {
+        const name = (c: string) => (c === "bale" ? "بله" : "تلگرام");
+        throw new Refused(`توکن ذخیره‌شده مال ربات ${name(s.notify.tokenChannel)} است؛ برای ${name(channel)} توکن ربات ${name(channel)} را هم وارد کنید.`);
+      }
+      return {
+        ...s,
+        notify: {
+          channel,
+          tokenEnc: input.clearToken ? "" : token ? encrypt(token) : s.notify.tokenEnc,
+          tokenHint: input.clearToken ? "" : token ? hint(token) : s.notify.tokenHint,
+          tokenChannel: input.clearToken ? "" : token && channel !== "none" ? channel : s.notify.tokenChannel,
+          chatId,
+        },
+      };
+    });
     updateTag("settings");
     return { ok: true, message: "ذخیره شد." };
   } catch (e) {

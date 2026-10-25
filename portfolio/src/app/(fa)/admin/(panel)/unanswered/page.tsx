@@ -18,7 +18,18 @@ export default async function Unanswered() {
       <h1 className="mb-3 text-3xl font-bold">پرسش‌های بی‌پاسخ</h1>
       <p className="mb-8 max-w-[70ch] text-sm leading-relaxed text-muted">
         فقط پرسش‌هایی نگه داشته می‌شوند که دستیار پاسخشان را نداشت؛ پاسخ درست را در «دانش دستیار» اضافه کنید.
-        {data.url ? <> همه در <a href={data.url} target="_blank" rel="noreferrer" className="link-draw">یک issue در GitHub ↗</a>.</> : null}
+        {data.url ? (
+          <>
+            {" "}
+            تازه‌ترین ۱۰۰ مورد اینجاست؛ همه در <a href={data.url} target="_blank" rel="noreferrer" className="link-draw">issue فعلی در GitHub ↗</a>
+            {data.previousUrl ? (
+              <>
+                {" "}و <a href={data.previousUrl} target="_blank" rel="noreferrer" className="link-draw">issue قبلی ↗</a>
+              </>
+            ) : null}
+            .
+          </>
+        ) : null}
       </p>
       <div className="grid gap-4">
         {data.items.map((r, i) => (

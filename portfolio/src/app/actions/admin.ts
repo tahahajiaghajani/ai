@@ -10,6 +10,7 @@ import { getFile, GhError, putFile } from "@/lib/github";
 import { KNOWLEDGE_FILE, parseKnowledgeFile, serializeKnowledgeFile, type Fact } from "@/lib/knowledge-file";
 import { addMessage, getRequest, setStatus, triageRequest } from "@/lib/requests";
 import { isStatus } from "@/lib/request-meta";
+import { ui } from "@/content/ui";
 
 const text = (f: FormData, k: string, max: number) => {
   const v = f.get(k);
@@ -29,25 +30,41 @@ export async function logout(): Promise<void> {
   redirect("/admin/login");
 }
 
-export type ReplyState = { ok: boolean; error?: string; at?: number } | null;
+export type ReplyState = { ok: boolean; error?: string; warning?: string; at?: number } | null;
 
-/** The owner's answer; errors come back to the form so the typed reply is never lost. */
+const why = (e: unknown) => (e instanceof Error ? e.message.slice(0, 160) : "خطای GitHub");
+
+/**
+ * The owner's answer; errors come back to the form so the typed reply is never lost. Once the comment exists the
+ * reply counts as sent: a status that could not be saved afterwards is a warning, never "send it again".
+ */
 export async function ownerReply(_prev: ReplyState, form: FormData): Promise<ReplyState> {
   await requireAdmin();
   const n = number(form);
   const body = text(form, "body", 6000);
   if (body.length < 2) return { ok: false, error: "متن پاسخ خالی است." };
+  let sent;
   try {
     const r = await getRequest(n);
     if (!r) return { ok: false, error: "درخواست پیدا نشد." };
-    await addMessage(r, "owner", body);
-    const status = text(form, "status", 20);
-    if (isStatus(status) && status !== "answered") await setStatus(r.number, status);
+    sent = await addMessage(r, "owner", body);
   } catch (e) {
-    return { ok: false, error: `ارسال نشد (${e instanceof Error ? e.message.slice(0, 160) : "خطای GitHub"}); متن پاسخ سر جایش است، دوباره بفرستید.` };
+    // a timeout can still have created the comment, so the page is refreshed either way and shows what GitHub has
+    revalidatePath(`/admin/requests/${n}`);
+    return { ok: false, error: `ارسال نشد (${why(e)}). متن پاسخ سر جایش است؛ اگر در فهرست پیام‌ها نیامده، دوباره بفرستید.` };
+  }
+  let warning = sent.updated ? undefined : "پاسخ فرستاده شد، ولی وضعیت درخواست به‌روز نشد؛ وضعیت را از دکمه‌های بالا عوض کنید.";
+  const status = text(form, "status", 20);
+  if (isStatus(status) && status !== "answered") {
+    try {
+      await setStatus(n, status);
+    } catch (e) {
+      warning = `پاسخ فرستاده شد، ولی وضعیت «${ui.track.status[status].fa}» ذخیره نشد (${why(e)})؛ از دکمه‌های بالا دوباره امتحان کنید.`;
+    }
   }
   revalidatePath(`/admin/requests/${n}`);
-  return { ok: true, at: Date.now() };
+  revalidatePath("/admin");
+  return { ok: true, warning, at: Date.now() };
 }
 
 export async function changeStatus(form: FormData): Promise<void> {

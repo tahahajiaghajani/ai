@@ -2,7 +2,7 @@ import { headers } from "next/headers";
 import type { Lang } from "@/lib/i18n";
 import { formatDate, href, num } from "@/lib/i18n";
 import { ui } from "@/content/ui";
-import { getRequestByKey, listMessages, visitorTriage } from "@/lib/requests";
+import { trackRequest, visitorTriage } from "@/lib/requests";
 import { normalizeCode, STATUSES, type RequestStatus } from "@/lib/request-meta";
 import { ghConfigured } from "@/lib/github";
 import { clientIp, hashIp, hasSecret } from "@/lib/crypto";
@@ -21,12 +21,17 @@ export async function Tracking({ lang, code, k }: { lang: Lang; code: string; k?
     </section>
   );
   if (!ghConfigured() || !hasSecret()) return shell(<p className="mt-8 text-lg text-fg-2">{ui.request.offline[lang]}</p>);
-  // every view reads GitHub, so views are limited per visitor
+  // views are limited per visitor; repeated views of one request are served from a short cache
   if (!(await allow(`track:${hashIp(clientIp(await headers()))}`, 600, 40))) return shell(<p className="mt-8 text-lg text-fg-2">{ui.request.rate[lang]}</p>);
-  const r = await getRequestByKey(c, k).catch(() => null);
-  if (!r) return shell(<p className="mt-8 text-lg text-fg-2">{ui.track.denied[lang]}</p>);
-  // private notes written on GitHub never reach the visitor
-  const msgs = (await listMessages(r.number).catch(() => [])).filter((m) => m.author !== "note");
+  let t: Awaited<ReturnType<typeof trackRequest>>;
+  try {
+    t = await trackRequest(c, k);
+  } catch {
+    return shell(<p className="mt-8 text-lg text-fg-2">{ui.track.unavailable[lang]}</p>);
+  }
+  if (!t) return shell(<p className="mt-8 text-lg text-fg-2">{ui.track.denied[lang]}</p>);
+  // private notes written on GitHub are never part of it
+  const { request: r, messages: msgs } = t;
   const triage = visitorTriage(r);
   // steps fill up to the current status, but a closed request only shows what really happened on the way
   const step = STATUSES.indexOf(r.status);

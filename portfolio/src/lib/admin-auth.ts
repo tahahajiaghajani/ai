@@ -2,10 +2,14 @@ import "server-only";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { env } from "@/lib/env";
+import { createHash } from "node:crypto";
 import { hasSecret, safeEqual, sign } from "@/lib/crypto";
 
 const COOKIE = "ta_admin";
 const TTL = 60 * 60 * 24 * 7; // a week
+
+/** The password is part of what is signed, so changing ADMIN_PASSWORD (and redeploying) signs every session out. */
+const payload = (exp: string) => `admin:${exp}:${createHash("sha256").update(env.adminPassword).digest("hex").slice(0, 16)}`;
 
 export function adminConfigured(): boolean {
   return Boolean(env.adminPassword) && hasSecret();
@@ -17,7 +21,7 @@ export async function isAdmin(): Promise<boolean> {
   if (!v) return false;
   const [exp, sig] = v.split(".");
   if (!exp || !sig || Number(exp) < Date.now() / 1000) return false;
-  return safeEqual(sig, sign(`admin:${exp}`));
+  return safeEqual(sig, sign(payload(exp)));
 }
 
 export async function requireAdmin(): Promise<void> {
@@ -32,7 +36,7 @@ export async function assertAdmin(): Promise<void> {
 export async function startSession(password: string): Promise<boolean> {
   if (!adminConfigured() || !safeEqual(password, env.adminPassword)) return false;
   const exp = String(Math.floor(Date.now() / 1000) + TTL);
-  (await cookies()).set(COOKIE, `${exp}.${sign(`admin:${exp}`)}`, { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/admin", maxAge: TTL });
+  (await cookies()).set(COOKIE, `${exp}.${sign(payload(exp))}`, { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/admin", maxAge: TTL });
   return true;
 }
 

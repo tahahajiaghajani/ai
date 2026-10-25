@@ -2,24 +2,39 @@ import "server-only";
 import { env } from "@/lib/env";
 import { decrypt } from "@/lib/crypto";
 import { getSettings } from "@/lib/settings";
-import type { NotifyChannel } from "@/lib/settings-types";
+import type { BotChannel, Settings } from "@/lib/settings-types";
 
 export interface Bot {
-  channel: Exclude<NotifyChannel, "none">;
+  channel: BotChannel;
   token: string;
   chatId: string;
 }
 
 const API: Record<Bot["channel"], string> = { telegram: "https://api.telegram.org", bale: "https://tapi.bale.ai" };
 
-/** The bot that receives new requests: the one saved in the panel, else TELEGRAM_* from Vercel; null when off or unset. */
-export async function getBot(): Promise<Bot | null> {
-  const n = (await getSettings()).notify;
-  if (n.channel === "none") return null;
+export interface ResolvedBot {
+  bot: Bot | null;
+  source: "panel" | "env" | "none";
+  /** a token is saved but cannot be decrypted (APP_SECRET changed) */
+  tokenUnreadable: boolean;
+  /** the saved token belongs to the other service, so it is not used (a token never goes to the wrong Bot API) */
+  tokenOtherChannel: boolean;
+}
+
+/** The bot the settings point to: the one saved in the panel, else TELEGRAM_* from Vercel; none when off or unset. */
+export function resolveBot(n: Settings["notify"]): ResolvedBot {
   const token = decrypt(n.tokenEnc);
-  if (token && n.chatId) return { channel: n.channel, token, chatId: n.chatId };
-  if (env.telegramToken && env.telegramChatId) return { channel: env.telegramChannel, token: env.telegramToken, chatId: env.telegramChatId };
-  return null;
+  const tokenUnreadable = Boolean(n.tokenEnc) && !token;
+  const tokenOtherChannel = Boolean(token) && n.channel !== "none" && n.tokenChannel !== n.channel;
+  const none = { bot: null, source: "none" as const, tokenUnreadable, tokenOtherChannel };
+  if (n.channel === "none") return none;
+  if (token && !tokenOtherChannel && n.chatId) return { ...none, bot: { channel: n.channel, token, chatId: n.chatId }, source: "panel" };
+  if (env.telegramToken && env.telegramChatId) return { ...none, bot: { channel: env.telegramChannel, token: env.telegramToken, chatId: env.telegramChatId }, source: "env" };
+  return none;
+}
+
+export async function getBot(): Promise<Bot | null> {
+  return resolveBot((await getSettings()).notify).bot;
 }
 
 /**

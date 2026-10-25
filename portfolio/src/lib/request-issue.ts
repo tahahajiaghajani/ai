@@ -74,7 +74,8 @@ const STATUS_FA: Record<RequestStatus, string> = { new: "تازه", reviewing: "
  */
 export function cell(s: string): string {
   return (s || "—")
-    .replace(/\s*\n\s*/g, " ")
+    // every kind of line break (\n, a lone \r, U+2028…) would start a new table row
+    .replace(/\s+/g, " ")
     .slice(0, 300)
     .replace(/[\\`*_{}[\]()#+\-.!|~@:]/g, "\\$&")
     .replace(/&/g, "&amp;")
@@ -192,9 +193,16 @@ export function messageComment(author: "visitor" | "owner", text: string): strin
   return `<!-- ${MSG}:${author}:${b64(text)} -->\n${head}\n\n${fenced(text)}`;
 }
 
-export function parseComment(c: { id: number; body: string | null; created_at: string }): Message {
+/** Accounts with write access to the repository; only their comments can carry a site message. */
+const TRUSTED = new Set(["OWNER", "MEMBER", "COLLABORATOR"]);
+
+/**
+ * A comment as a message. The site writes with the owner's token, so a marker from anyone else (a public repository
+ * lets any GitHub user comment) is never shown as Taha's reply or the visitor's message: it stays a private note.
+ */
+export function parseComment(c: { id: number; body: string | null; created_at: string; author_association?: string }): Message {
   const m = /^<!-- portfolio-msg:(visitor|owner):([A-Za-z0-9_-]*) -->/.exec(c.body ?? "");
-  if (m) {
+  if (m && TRUSTED.has(c.author_association ?? "")) {
     try {
       return { id: c.id, author: m[1] as "visitor" | "owner", body: unb64(m[2]), created_at: c.created_at };
     } catch {

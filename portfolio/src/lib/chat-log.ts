@@ -1,7 +1,7 @@
 import "server-only";
 import { env } from "@/lib/env";
 import { allow } from "@/lib/rate-limit";
-import { addComment, createIssue, getIssue, listIssues, listRecentComments, updateIssue } from "@/lib/github";
+import { addComment, createIssue, listIssues, listRecentComments, updateIssue } from "@/lib/github";
 import { parseUnanswered, unansweredComment, UNANSWERED_LABEL, type Unanswered } from "@/lib/unanswered";
 
 /**
@@ -54,11 +54,16 @@ export async function logUnanswered(q: Omit<Unanswered, "at">): Promise<void> {
   }
 }
 
-/** The newest 100, newest first. */
-export async function listUnanswered(): Promise<{ items: Unanswered[]; url: string | null }> {
-  const [open] = await listIssues({ labels: UNANSWERED_LABEL, state: "open", perPage: 1 });
-  const n = open?.number ?? (await getIssue(cached?.number ?? 0))?.number ?? null;
-  if (!n) return { items: [], url: null };
-  const comments = await listRecentComments(n, 100);
-  return { items: comments.map((c) => parseUnanswered(c.body)).filter((x): x is Unanswered => x !== null).reverse(), url: `https://github.com/${env.githubRepo}/issues/${n}` };
+/**
+ * The newest 100, newest first. Right after a rotation the open issue holds only a few, so the rest come from the
+ * issue before it (closed, but its questions may still be unhandled).
+ */
+export async function listUnanswered(): Promise<{ items: Unanswered[]; url: string | null; previousUrl: string | null }> {
+  const [current, previous] = await listIssues({ labels: UNANSWERED_LABEL, state: "all", perPage: 2 });
+  if (!current) return { items: [], url: null, previousUrl: null };
+  const read = async (n: number, max: number) => (await listRecentComments(n, max)).map((c) => parseUnanswered(c.body)).filter((x): x is Unanswered => x !== null);
+  const now = await read(current.number, 100);
+  const before = previous && now.length < 100 ? await read(previous.number, 100 - now.length) : [];
+  const link = (n: number) => `https://github.com/${env.githubRepo}/issues/${n}`;
+  return { items: [...before, ...now].reverse(), url: link(current.number), previousUrl: previous ? link(previous.number) : null };
 }

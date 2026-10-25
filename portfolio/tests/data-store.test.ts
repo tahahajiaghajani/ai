@@ -4,7 +4,7 @@ import { cell, issueBody, issueTitle, keyNumber, messageComment, parseComment, p
 import { botErrorFa, parseTokenExpiry } from "@/lib/status-text";
 import { parseKnowledgeFile, serializeKnowledgeFile } from "@/lib/knowledge-file";
 import { parseUnanswered, unansweredComment } from "@/lib/unanswered";
-import { DEFAULT_SETTINGS, parseModels, parseSettings } from "@/lib/settings-types";
+import { CLOSED_SETTINGS, DEFAULT_SETTINGS, parseModels, parseSettings } from "@/lib/settings-types";
 
 const base: RequestData = {
   code: "TA-7K3QX9",
@@ -56,13 +56,18 @@ describe("requests as issues", () => {
 describe("messages as comments", () => {
   it("carry author and exact text", () => {
     const text = "سلام\n```\nکد\n```";
-    const m = parseComment({ id: 1, body: messageComment("visitor", text), created_at: "x" });
+    const m = parseComment({ id: 1, body: messageComment("visitor", text), created_at: "x", author_association: "OWNER" });
     expect(m).toEqual({ id: 1, author: "visitor", body: text, created_at: "x" });
-    expect(parseComment({ id: 2, body: messageComment("owner", "پاسخ"), created_at: "y" }).author).toBe("owner");
+    expect(parseComment({ id: 2, body: messageComment("owner", "پاسخ"), created_at: "y", author_association: "MEMBER" }).author).toBe("owner");
   });
   it("treat anything written on GitHub as a private note", () => {
-    expect(parseComment({ id: 3, body: "یادداشت خودم", created_at: "z" }).author).toBe("note");
-    expect(parseComment({ id: 4, body: "<!-- portfolio-msg:owner:@@@ -->", created_at: "z" }).author).toBe("note");
+    expect(parseComment({ id: 3, body: "یادداشت خودم", created_at: "z", author_association: "OWNER" }).author).toBe("note");
+    expect(parseComment({ id: 4, body: "<!-- portfolio-msg:owner:@@@ -->", created_at: "z", author_association: "OWNER" }).author).toBe("note");
+  });
+  it("never take a stranger's marker as Taha's reply", () => {
+    for (const author_association of ["NONE", "CONTRIBUTOR", "FIRST_TIME_CONTRIBUTOR", undefined]) {
+      expect(parseComment({ id: 5, body: messageComment("owner", "واریز کنید"), created_at: "z", author_association }).author).toBe("note");
+    }
   });
 });
 
@@ -109,6 +114,16 @@ describe("settings.json", () => {
     expect(s.ai.models).toEqual(["gemini-ok"]);
     expect(s.notify.channel).toBe("telegram");
   });
+  it("remember which service a bot token belongs to", () => {
+    expect(parseSettings({ notify: { channel: "bale", tokenEnc: "v1.x", tokenChannel: "telegram" } }).notify.tokenChannel).toBe("telegram");
+    // files from before the field existed: the token belonged to the channel it was saved with
+    expect(parseSettings({ notify: { channel: "bale", tokenEnc: "v1.x" } }).notify.tokenChannel).toBe("bale");
+    expect(parseSettings({ notify: { channel: "none", tokenEnc: "v1.x" } }).notify.tokenChannel).toBe("");
+  });
+  it("fail closed when the file cannot be read", () => {
+    expect(CLOSED_SETTINGS.ai.enabled).toBe(false);
+    expect(CLOSED_SETTINGS.notify.channel).toBe("none");
+  });
   it("reads model lists typed in the panel", () => {
     expect(parseModels("a-1, b-2،c-3  a-1")).toEqual(["a-1", "b-2", "c-3"]);
   });
@@ -123,6 +138,9 @@ describe("GitHub summary cells", () => {
     expect(c).toContain("\\@someone");
     expect(c).toContain("\\|");
     expect(c).not.toContain("\n");
+  });
+  it("cannot be split into extra rows by any line break", () => {
+    for (const br of ["\r", "\r\n", "\u2028", "\u2029", "\v", "\f"]) expect(cell(`Ali${br}| fake | row |`)).not.toMatch(/[\r\n\u2028\u2029\v\f]/);
   });
 });
 

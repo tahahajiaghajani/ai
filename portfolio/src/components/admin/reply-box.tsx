@@ -1,20 +1,37 @@
 "use client";
 
-import { useActionState, useEffect, useRef } from "react";
+import { useRef, useState, useTransition } from "react";
 import { ownerReply, type ReplyState } from "@/app/actions/admin";
 import { ui } from "@/content/ui";
 
 const STATUS = (["answered", "scheduled", "closed"] as const).map((value) => ({ value, label: ui.track.status[value].fa }));
 
-/** The owner's reply: a failed send keeps the text and says why; a sent one clears the box. */
+/**
+ * The owner's reply: a failed send keeps the text and the chosen status and says why; a sent one clears the box.
+ * Submitted by hand (not `<form action>`), because React resets a form's fields after every form action.
+ */
 export function ReplyBox({ n, draft }: { n: number; draft: string }) {
-  const [state, action, pending] = useActionState<ReplyState, FormData>(ownerReply, null);
+  const [state, setState] = useState<ReplyState>(null);
+  const [pending, start] = useTransition();
   const box = useRef<HTMLTextAreaElement>(null);
-  useEffect(() => {
-    if (state?.ok && box.current) box.current.value = "";
-  }, [state]);
   return (
-    <form action={action} className="mt-8 grid gap-3">
+    <form
+      className="mt-8 grid gap-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        const fd = new FormData(e.currentTarget);
+        start(async () => {
+          let r: ReplyState;
+          try {
+            r = await ownerReply(null, fd);
+          } catch {
+            r = { ok: false, error: "ارسال نشد (ارتباط با سرور)؛ متن پاسخ سر جایش است." };
+          }
+          if (r?.ok && box.current) box.current.value = "";
+          setState(r);
+        });
+      }}
+    >
       <input type="hidden" name="n" value={n} />
       <label className="grid gap-2">
         <span className="text-sm text-muted">پاسخ (در صفحه‌ی پیگیری بازدیدکننده نمایش داده می‌شود)</span>
@@ -35,6 +52,10 @@ export function ReplyBox({ n, draft }: { n: number; draft: string }) {
       {state && !state.ok ? (
         <p role="alert" className="rounded-[6px] border border-fg px-3 py-2 text-sm font-semibold">
           ✕ {state.error}
+        </p>
+      ) : state?.warning ? (
+        <p role="status" className="rounded-[6px] border border-line px-3 py-2 text-sm">
+          ! {state.warning}
         </p>
       ) : null}
     </form>

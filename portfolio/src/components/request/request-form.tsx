@@ -195,8 +195,10 @@ export function RequestForm({ lang }: { lang: Lang }) {
           </span>
           {pending ? <span aria-hidden className="absolute inset-y-0 start-0 w-1/3 animate-[shimmer_1.4s_linear_infinite] bg-gradient-to-r from-transparent via-white/40 to-transparent" /> : null}
         </button>
-        <p className="max-w-[38ch] text-[0.75rem] leading-relaxed text-faint">
-          {fa ? "با ارسال، متن درخواست برای دسته‌بندی به هوش مصنوعی (Gemini) داده می‌شود و فقط طاها آن را می‌بیند." : "On sending, your text is given to an AI model (Gemini) for triage; only Taha sees the request."}
+        <p className="max-w-[46ch] text-[0.75rem] leading-relaxed text-faint">
+          {fa
+            ? "درخواست در مخزن خصوصی طاها نگه داشته می‌شود. متن آن (بدون نام شما) برای دسته‌بندی به Google Gemini فرستاده می‌شود و خبرش همراه راه تماس شما با ربات پیام‌رسان به طاها می‌رسد؛ اطلاعات محرمانه ننویسید."
+            : "Your request is kept in Taha's private repository. Its text (without your name) goes to Google Gemini for triage, and a messenger bot sends Taha a notice with your contact details — please don't include anything confidential."}
         </p>
       </div>
     </form>

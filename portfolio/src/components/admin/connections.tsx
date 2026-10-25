@@ -9,7 +9,7 @@ import type { NotifyChannel } from "@/lib/settings-types";
 const STATUS: Record<Status, { label: string; mark: string; className: string }> = {
   ok: { label: "آماده", mark: "●", className: "border-fg text-fg" },
   warn: { label: "نیاز به توجه", mark: "◐", className: "border-fg-2 text-fg-2" },
-  error: { label: "وصل نیست", mark: "✕", className: "border-fg bg-fg text-bg" },
+  error: { label: "مشکل دارد", mark: "✕", className: "border-fg bg-fg text-bg" },
   off: { label: "خاموش / اختیاری", mark: "○", className: "border-line text-faint" },
 };
 
@@ -158,9 +158,14 @@ function GitHubCard({ r, onDone }: { r: ConnectionReport; onDone: () => void }) 
         </Row>
         {g.tokenSet && g.repoValid ? <Row ok={g.reachable}>{g.reachable ? "اتصال برقرار است." : g.error || "اتصال برقرار نشد."}</Row> : null}
         {g.private !== null ? (
-          <Row ok={g.private}>{g.private ? "مخزن خصوصی است." : "مخزن عمومی است! اطلاعات تماس بازدیدکننده‌ها نباید عمومی شود؛ در GitHub → Settings → Danger Zone آن را Private کنید. تا آن موقع درخواستی ذخیره نمی‌شود."}</Row>
+          <Row ok={g.private}>{g.private ? "مخزن خصوصی است." : "مخزن عمومی است! همه‌ی درخواست‌های ذخیره‌شده و اطلاعات تماس بازدیدکننده‌ها الان برای همه دیده می‌شود. فوراً در GitHub → Settings → Danger Zone آن را Private کنید. سایت حداکثر یک دقیقه پس از عمومی شدن، دیگر درخواستی در آن نمی‌نویسد و صفحه‌های پیگیری را نشان نمی‌دهد."}</Row>
         ) : null}
         {g.issues !== null ? <Row ok={g.issues}>{g.issues ? "Issues فعال است." : "Issues در این مخزن خاموش است؛ در Settings → Features روشنش کنید."}</Row> : null}
+        {g.settingsError ? (
+          <Row ok={false}>
+            <Code>settings.json</Code> خوانده نشد ({g.settingsError})؛ تا درست نشود دستیار و اعلان خاموش می‌مانند. فایل را در GitHub درست کنید، یا پاکش کنید و «آماده‌سازی مخزن» را بزنید.
+          </Row>
+        ) : null}
         {g.reachable ? (
           <Row ok={Boolean(g.settingsFile && g.knowledgeFile && g.labels)}>
             {g.settingsFile && g.knowledgeFile && g.labels ? (
@@ -225,12 +230,12 @@ function SecurityCard({ r }: { r: ConnectionReport }) {
         </Row>
         {s.previous ? (
           <Row ok>
-            <Code>APP_SECRET_PREVIOUS</Code> برای خواندن کلیدهای رمزشده با کلید قبلی تنظیم است.
+            <Code>APP_SECRET_PREVIOUS</Code> تنظیم است: کلیدهای ذخیره‌شده و پیوندهای پیگیری ساخته‌شده با مقدار قبلی هم کار می‌کنند.
           </Row>
         ) : null}
       </ul>
       <p className="text-xs leading-6 text-faint">
-        با عوض کردن <Code>APP_SECRET</Code>، پیوندهای پیگیری قبلی از کار می‌افتند و کلیدهای ذخیره‌شده فقط با <Code>APP_SECRET_PREVIOUS</Code> خوانده می‌شوند.
+        اگر <Code>APP_SECRET</Code> را عوض کنید، مقدار قبلی را در <Code>APP_SECRET_PREVIOUS</Code> بگذارید تا کلیدهای ذخیره‌شده و پیوندهای پیگیری قبلی کار کنند. برای بیرون کردن همه‌ی نشست‌های پنل، <Code>ADMIN_PASSWORD</Code> را عوض کنید.
       </p>
       {s.status !== "ok" ? <VercelHint /> : null}
     </Card>
@@ -360,6 +365,7 @@ function NotifyCard({ r, settings, loaded, onSaved }: { r: ConnectionReport; set
                 : `ربات ${name} هنوز تنظیم نشده (اختیاری، ولی تنها راه باخبر شدن فوری از درخواست‌هاست).`}
         </Row>
         {n.tokenUnreadable ? <Row ok={false}>توکن ذخیره‌شده خوانده نمی‌شود (APP_SECRET عوض شده)؛ دوباره وارد کنید.</Row> : null}
+        {n.tokenOtherChannel ? <Row ok={false}>توکن ذخیره‌شده مال سرویس دیگری است و به {name} فرستاده نمی‌شود؛ توکن ربات {name} را وارد کنید.</Row> : null}
         {n.live ? (
           n.live.ok ? (
             <Row ok={n.live.chatOk !== false}>
@@ -384,7 +390,16 @@ function NotifyCard({ r, settings, loaded, onSaved }: { r: ConnectionReport; set
           <input value={chatId} onChange={(e) => setChatId(e.target.value)} dir="ltr" placeholder="123456789" className={input} />
         </Field>
       </div>
-      <Field label="توکن ربات" hint={settings.notify.hasToken ? "خالی بگذارید تا همان توکن ذخیره‌شده بماند" : "از @BotFather در تلگرام، یا @botfather در بله (ساخت بازوی جدید)"}>
+      <Field
+        label="توکن ربات"
+        hint={
+          settings.notify.hasToken && (channel === "none" || settings.notify.tokenChannel === channel)
+            ? "خالی بگذارید تا همان توکن ذخیره‌شده بماند"
+            : channel === "bale"
+              ? "از @botfather در بله (ساخت بازوی جدید)"
+              : "از @BotFather در تلگرام"
+        }
+      >
         <input type="password" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} dir="ltr" placeholder="123456789:AA…" className={input} />
       </Field>
       <div className="flex flex-wrap gap-2">

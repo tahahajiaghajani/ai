@@ -70,12 +70,12 @@ export async function gh<T = unknown>(method: string, path: string, body?: unkno
 let privateSince = 0;
 
 /**
- * The repository holds visitors' names and contact details, so nothing is ever written to it while it is public.
- * Only a "private" answer is remembered (ten minutes per instance), so making the repository private takes effect at
- * once. Throws when the repository is public or unreachable.
+ * The repository holds visitors' names and contact details, so the site stops writing to it (and stops showing
+ * tracking pages) once it is public. Only a "private" answer is remembered, for one minute per instance: a repository
+ * made public is noticed within a minute, one made private again at once. Throws when public or unreachable.
  */
 export async function assertPrivateRepo(): Promise<void> {
-  if (Date.now() - privateSince < 10 * 60_000) return;
+  if (Date.now() - privateSince < 60_000) return;
   const r = await gh<{ private: boolean }>("GET", "");
   if (!r.ok || !r.data) throw new GhError(r.message, r.status, isRateLimit(r));
   if (r.data.private !== true) throw new GhError("the data repository is public; make it private", 403);
@@ -132,6 +132,8 @@ export interface GhComment {
   body: string;
   created_at: string;
   html_url: string;
+  /** the writer's relation to the repository: OWNER, MEMBER, COLLABORATOR, … NONE */
+  author_association: string;
 }
 
 export function createIssue(input: { title: string; body: string; labels?: string[] }): Promise<GhIssue> {
@@ -173,7 +175,7 @@ export async function listComments(n: number): Promise<GhComment[]> {
 export async function listRecentComments(n: number, max = 100): Promise<GhComment[]> {
   const issue = await getIssue(n);
   if (!issue) return [];
-  const last = Math.max(1, Math.ceil(issue.comments / 100));
+  const last = Math.max(1, Math.ceil((issue.comments || 0) / 100));
   const pages = [last - 1, last].filter((p) => p >= 1 && (last - p) * 100 < max + 100);
   const out: GhComment[] = [];
   for (const page of pages) out.push(...(await must<GhComment[]>("GET", `/issues/${n}/comments?per_page=100&page=${page}`)));

@@ -29,6 +29,14 @@ export function hasSecret(): boolean {
   return env.appSecret.length >= MIN_SECRET;
 }
 
+/** For messages to the owner: a secret that is set but too short is refused like a missing one. */
+export function secretState(): "ok" | "missing" | "short" {
+  return hasSecret() ? "ok" : env.appSecret ? "short" : "missing";
+}
+
+/** The current secret, then APP_SECRET_PREVIOUS, for reading what was made before a rotation. */
+const secrets = () => [...new Set([env.appSecret, env.appSecretPrevious].filter((s) => s.length >= MIN_SECRET))];
+
 /** AES-256-GCM → "v1.iv.tag.ciphertext" (base64url parts), for keys saved in the panel. */
 export function encrypt(plain: string): string {
   const iv = randomBytes(12);
@@ -42,7 +50,7 @@ export function decrypt(box: string | null | undefined): string {
   if (!box) return "";
   const [v, iv, tag, ct] = box.split(".");
   if (v !== "v1" || !iv || !tag || !ct) return "";
-  for (const secret of [...new Set([env.appSecret, env.appSecretPrevious].filter((s) => s.length >= MIN_SECRET))]) {
+  for (const secret of secrets()) {
     try {
       const d = createDecipheriv("aes-256-gcm", derive("enc", secret), Buffer.from(iv, "base64url"));
       d.setAuthTag(Buffer.from(tag, "base64url"));
@@ -61,6 +69,12 @@ export function hint(secret: string): string {
 
 export function sign(payload: string): string {
   return createHmac("sha256", key("sig")).update(payload).digest("base64url");
+}
+
+/** Signers for checking a signature: the current secret, then APP_SECRET_PREVIOUS (links made before a rotation). */
+export function verifiers(): ((payload: string) => string)[] {
+  if (!hasSecret()) return [];
+  return secrets().map((secret) => (payload: string) => createHmac("sha256", derive("sig", secret)).update(payload).digest("base64url"));
 }
 
 /** Constant-time comparison of any two strings. */
