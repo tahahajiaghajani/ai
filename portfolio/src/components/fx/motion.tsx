@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import Lenis from "lenis";
 import { gsap } from "gsap";
@@ -112,8 +112,18 @@ function hashTarget(): HTMLElement | null {
 /** Puts the page at the `#section` its address names (just below the fixed header), else at the top. */
 function land(lenis: Lenis) {
   const target = hashTarget();
-  lenis.resize(); // the new page's height, and the scroll position the browser or Next.js has just set
-  lenis.scrollTo(target ?? 0, { immediate: true, offset: target ? ANCHOR_OFFSET : 0 });
+  // a glide still running from the last page (a click right after a wheel turn or a menu jump) would carry on to its
+  // old target on the next frame, which on a shorter page is the very bottom: stopping and starting Lenis drops it
+  if (!lenis.isStopped) {
+    lenis.stop();
+    lenis.start();
+  }
+  // a native jump, not lenis.scrollTo({ immediate }): that one makes Lenis ignore the next scroll event, which on Back
+  // and Forward is the browser restoring the visitor's place, and the next wheel turn would glide from the top. It also
+  // moves the page while an open overlay holds Lenis
+  const y = target ? Math.max(0, target.getBoundingClientRect().top + window.scrollY + ANCHOR_OFFSET) : 0;
+  window.scrollTo({ top: y, behavior: "instant" });
+  lenis.resize(); // the new page's height, and the position just set
 }
 
 export function MotionProvider({ children }: { children: React.ReactNode }) {
@@ -142,15 +152,19 @@ export function MotionProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  // a client-side navigation starts the new page at the top, or at the #section its address names; the first page
+  // keeps the place the browser gave it (its jump to a #section, or the position it restored). A layout effect, so it
+  // runs before the new page is painted: no frame shows it where the last page was scrolled
+  useLayoutEffect(() => {
+    const navigated = lastPath.current !== null && lastPath.current !== pathname;
+    lastPath.current = pathname;
+    if (navigated && lenisRef.current) land(lenisRef.current);
+  }, [pathname]);
+
   // every page (and every client-side navigation) gets its own scroll motion
   useEffect(() => {
     const root = rootRef.current;
     if (!root) return;
-    // a client-side navigation starts the new page at the top, or at the #section its address names; the first page
-    // keeps the place the browser gave it (its jump to a #section, or the position it restored)
-    const navigated = lastPath.current !== null && lastPath.current !== pathname;
-    lastPath.current = pathname;
-    if (navigated && lenisRef.current) land(lenisRef.current);
     let unbind = () => {};
     // after fonts settle, so split lines match the final layout
     const go = () => {

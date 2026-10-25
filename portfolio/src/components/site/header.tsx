@@ -128,7 +128,8 @@ export function Header({ lang }: { lang: Lang }) {
     <>
       <header ref={bar} className="fixed inset-x-0 top-0 z-50 text-white mix-blend-difference">
         <div className="mx-auto flex h-20 max-w-[1800px] items-center justify-between gap-6 px-5 md:px-10">
-          <Link href={home} className="group flex items-center gap-3" aria-label={PROFILE.name[lang]}>
+          {/* on the home page a plain Link would do nothing (or let a running glide carry the page back down) */}
+          <Link href={home} onClick={go("")} className="group flex items-center gap-3" aria-label={PROFILE.name[lang]}>
             <Mark className="size-8" />
             <span className="hidden flex-col leading-none sm:flex">
               <span className={lang === "fa" ? "text-[0.95rem] font-semibold" : "latin text-[0.78rem] font-semibold uppercase tracking-[0.24em]"}>{PROFILE.name[lang]}</span>
