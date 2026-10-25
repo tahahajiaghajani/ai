@@ -10,6 +10,7 @@ import { Mark } from "@/components/brand/logo";
 import { CrossIcon } from "@/components/brand/icons";
 import { Prose } from "@/components/work/prose";
 import { useChat, type Msg } from "@/components/chat/chat-context";
+import { useLenis } from "@/components/fx/motion";
 
 /** Opens the request form (on the home page) with the visitor's last question as a starting point. */
 export function requestFromChat(lang: "fa" | "en", seed: string) {
@@ -27,6 +28,7 @@ export function requestFromChat(lang: "fa" | "en", seed: string) {
 
 function Actions({ actions, lastQuestion }: { actions: ChatAction[]; lastQuestion: string }) {
   const { lang, works, setOpen } = useChat();
+  const lenis = useLenis();
   const [showContact, setShowContact] = useState(false);
   if (!actions.length) return null;
   const c = PROFILE.contact;
@@ -37,8 +39,19 @@ function Actions({ actions, lastQuestion }: { actions: ChatAction[]; lastQuestio
           if (a.kind === "work") {
             const w = works.find((x) => x.slug === a.slug);
             if (!w) return null;
+            const to = href(lang, `/work/${a.slug}`);
+            const visit = (e: React.MouseEvent) => {
+              setOpen(false);
+              // already reading that project: a link to the current address does nothing, so go to its top instead
+              if (location.pathname !== to) return;
+              e.preventDefault();
+              if (lenis) {
+                lenis.start(); // the open chat stopped it, and a stopped Lenis ignores scrollTo
+                lenis.scrollTo(0, { duration: 1.6 });
+              } else window.scrollTo({ top: 0, behavior: "smooth" });
+            };
             return (
-              <Link key={i} href={href(lang, `/work/${a.slug}`)} onClick={() => setOpen(false)} className="group flex items-center gap-2 rounded-full border border-line-strong px-3 py-1.5 text-[0.78rem] hover:bg-fg hover:text-bg">
+              <Link key={i} href={to} onClick={visit} className="group flex items-center gap-2 rounded-full border border-line-strong px-3 py-1.5 text-[0.78rem] hover:bg-fg hover:text-bg">
                 <span className="font-mono text-[0.6rem] uppercase tracking-[0.14em] opacity-60">{ui.work.view[lang]}</span>
                 {w.title}
               </Link>
