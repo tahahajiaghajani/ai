@@ -1,0 +1,106 @@
+"use server";
+
+import { after } from "next/server";
+import { headers } from "next/headers";
+import { clientIp, hashIp } from "@/lib/crypto";
+import { db } from "@/lib/db";
+import { allow, allowAi } from "@/lib/rate-limit";
+import { addMessage, canAccess, createRequest, getRequest, noticeNewRequest, noticeVisitorMessage, triageRequest, visitorTriage } from "@/lib/requests";
+import { isKind, normalizeCode, type VisitorTriage } from "@/lib/request-meta";
+
+export type SubmitResult =
+  | { ok: true; code: string; key: string; triage: VisitorTriage | null }
+  | { ok: false; error: "invalid" | "contact" | "rate" | "offline" | "failed"; field?: string };
+
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
+function field(f: FormData, k: string, max: number): string {
+  const v = f.get(k);
+  return typeof v === "string" ? v.trim().slice(0, max) : "";
+}
+
+/** A new collaboration / demo request: saved, triaged by AI (bounded wait), the owner notified in the background. */
+export async function submitRequest(form: FormData): Promise<SubmitResult> {
+  // honeypot: real people never fill this field
+  if (field(form, "website", 200)) return { ok: false, error: "invalid" };
+  const lang = field(form, "lang", 4) === "en" ? "en" : "fa";
+  const name = field(form, "name", 120);
+  const email = field(form, "email", 160);
+  const phone = field(form, "phone", 60);
+  const subject = field(form, "subject", 200);
+  const body = field(form, "body", 6000);
+  const kindRaw = field(form, "kind", 30);
+  if (name.length < 2) return { ok: false, error: "invalid", field: "name" };
+  if (body.length < 10) return { ok: false, error: "invalid", field: "body" };
+  if (email && !EMAIL.test(email)) return { ok: false, error: "invalid", field: "email" };
+  if (!email && phone.replace(/\D/g, "").length < 6 && !/^@?[a-z0-9_]{4,}$/i.test(phone)) return { ok: false, error: "contact" };
+  if (!db()) return { ok: false, error: "offline" };
+
+  const h = await headers();
+  const visitor = hashIp(clientIp(h));
+  const [okHour, okDay] = await Promise.all([allow(`req:1h:${visitor}`, 3600, 4), allow(`req:day:${visitor}`, 86400, 10)]);
+  if (!okHour || !okDay) return { ok: false, error: "rate" };
+
+  const telegram = /^@[a-z0-9_]{4,}$/i.test(phone) ? phone : "";
+  let created: { id: string; code: string; key: string };
+  try {
+    created = await createRequest({
+      name,
+      email,
+      phone: telegram ? "" : phone,
+      telegram,
+      organization: field(form, "organization", 160),
+      kind: isKind(kindRaw) ? kindRaw : "project",
+      budget: field(form, "budget", 80),
+      timeline: field(form, "timeline", 80),
+      subject: subject || body.slice(0, 80),
+      body,
+      lang,
+      source: field(form, "source", 40) || "site",
+      visitor,
+    });
+  } catch (e) {
+    console.error("[request] create failed", e);
+    return { ok: false, error: "failed" };
+  }
+
+  // the visitor waits a little for the AI's reading; if it is slow, triage still finishes in the background
+  let triage: VisitorTriage | null = null;
+  if (await allowAi()) {
+    const quick = await Promise.race([triageRequest(created.id), new Promise<null>((r) => setTimeout(() => r(null), 22_000))]).catch(() => null);
+    if (quick) {
+      const row = await getRequest(created.code);
+      triage = row ? visitorTriage(row) : null;
+    }
+  }
+  after(async () => {
+    if (!triage) {
+      const row = await getRequest(created.code);
+      if (row && !row.ai_triage) await triageRequest(created.id).catch(() => null);
+    }
+    await noticeNewRequest(created.code);
+  });
+  return { ok: true, code: created.code, key: created.key, triage };
+}
+
+export type ReplyResult = { ok: true } | { ok: false; error: "invalid" | "denied" | "closed" | "rate" | "failed" };
+
+/** A follow-up message from the visitor on their tracking page. */
+export async function replyToRequest(form: FormData): Promise<ReplyResult> {
+  const code = normalizeCode(field(form, "code", 20));
+  const key = field(form, "k", 80);
+  const body = field(form, "body", 4000);
+  if (body.length < 2) return { ok: false, error: "invalid" };
+  const r = await getRequest(code);
+  if (!r || !canAccess(r, key)) return { ok: false, error: "denied" };
+  if (r.status === "closed") return { ok: false, error: "closed" };
+  const h = await headers();
+  if (!(await allow(`req:msg:${hashIp(clientIp(h))}`, 3600, 15))) return { ok: false, error: "rate" };
+  try {
+    await addMessage(r, "visitor", body);
+  } catch {
+    return { ok: false, error: "failed" };
+  }
+  after(() => noticeVisitorMessage(r, body));
+  return { ok: true };
+}
