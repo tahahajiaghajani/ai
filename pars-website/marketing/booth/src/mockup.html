@@ -93,8 +93,8 @@ function counter(x, z) {
   plane(x, 91, z + 39, 76, 2, { bg: "var(--edge)" });
   plane(x + 38, 91, z, 78, 2, { ry: 90, bg: "var(--edge)" });
 }
-counter(-80, 175);
-counter(80, 175);
+counter(-72, 175);
+counter(72, 175);
 
 document.getElementById("label").textContent = `PARS PROJECT · BOOTH · ${STYLE.toUpperCase()} · ${MODE.toUpperCase()}`;
 Promise.all([...new Set([...document.querySelectorAll(".p")].map((n) => n.style.backgroundImage).filter(Boolean))].map((u) => new Promise((r, j) => {

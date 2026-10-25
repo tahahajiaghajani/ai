@@ -36,10 +36,12 @@
   --accent: #df1173; --ai: #5b52d6; --icon: #7b235a; --num: #1a183a; --dot: #ffffff; --logo-line: rgba(26, 24, 58, .14);
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
-html, body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+/* the page itself is left-to-right so the board sits at the page origin (render.mjs crops from there); the board is RTL.
+   The page is painted with the field colour, so no sub-millimetre placement slack can ever print white. */
+html, body { -webkit-print-color-adjust: exact; print-color-adjust: exact; direction: ltr; background: var(--bg); }
 body { font-family: "Plex Arabic", sans-serif; color: var(--fg); font-weight: 400; text-rendering: geometricPrecision; }
 @media screen { html { background: #2a2940; } }
-#board { position: relative; overflow: hidden; background: var(--bg); }
+#board { position: absolute; left: 0; top: 0; overflow: hidden; background: var(--bg); direction: rtl; }
 #art { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
 .b { position: absolute; }
 .ltr { direction: ltr; unicode-bidi: isolate; }

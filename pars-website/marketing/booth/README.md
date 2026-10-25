@@ -25,7 +25,7 @@ The pop-up and counter files have no extra bleed, because their sizes are the fr
 The logo's two silk streams, violet for organisational experience and magenta for intelligence, meet at one glowing point. This is the slogan drawn.
 
 - **Pop-up:** on the minimal pop-up the streams meet beside the slogan. On the detailed one they come round the left return, meet just inside the face and run between the headline row and the numbers. A broad silk fills the lower part, which the counters may hide.
-- **Roll-ups:** roll-up 1 stands on the right of the booth and roll-up 2 on the left, and their art enters from the outer edge. On the minimal pair, roll-up 1's streams meet, while roll-up 2's rise side by side past the five steps of the collaboration path. The detailed pair has a silk band down the outer edge.
+- **Roll-ups:** roll-up 1 stands on the right of the booth and roll-up 2 on the left, and their art enters from the outer edge. On the minimal pair, roll-up 1's streams meet, while roll-up 2's two streams rise side by side with five glowing nodes. The detailed pair has a silk band down the outer edge.
 - **Counters:** the streams wrap around both sides and meet under the front. Copy and facts match the website (`src/content/fa.ts`), the brand book and the brochure.
 
 ## Build
@@ -50,7 +50,21 @@ A render without `--jpg` deletes the JPEG of every file it renders, so `out/jpg`
 - `jpg/`: full-size RGB JPEGs, with `--jpg`.
 - `mockup/`: a 3/4 view of the whole booth for each style and mode.
 
-The render fails if an asset fails to load, a gradient word wraps, a block overflows or leaves the area where it can be seen, or a QR stops decoding to the site address. A print file gets its final name only after these checks pass. The visible areas are: on the pop-up above y = 140 (the top of the counters), on a roll-up the safe area above the foot, and on the counter clear of the folds.
+The render fails if:
+
+- an asset fails to load, or a gradient word wraps;
+- a block overflows or leaves the safe area;
+- a client logo, number, QR or agent step sits on a pop-up seam or a counter fold;
+- an edge of the print differs from the art beside it (a blank sliver);
+- a QR stops decoding to the site address.
+
+The safe areas are `window.SAFE` in `items.js`, and the proof draws the same areas in green:
+
+- pop-up: the face from x 43 to 318 and y 10 to 140, the top of the counters;
+- roll-up: x 10 to 85 and y 10 to 190, above the foot;
+- counter: x 3 to 211 and y 4 to 82.
+
+A print file gets its final name only after every check passes. The previous outputs of the file are removed first, so a failed render never leaves an old file under the new name.
 
 Print instructions for the print shop are in Persian in [`PRINT_FA.md`](PRINT_FA.md). The files are RGB, and the RIP converts them with the profile of the actual media.
 

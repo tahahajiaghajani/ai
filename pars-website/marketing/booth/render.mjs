@@ -20,7 +20,7 @@ const PT = 72 / 2.54; // points per cm
 const ITEMS = { popup: [361, 230, 0], rollup1: [95, 210, 5], rollup2: [95, 210, 5], counter: [214, 90, 0], swatch: [60, 45, 0] }; // w, h, bleed (cm)
 const args = process.argv.slice(2);
 const only = args.filter((a) => !a.startsWith("--")), JPG = args.includes("--jpg");
-for (const a of args) if (!(a in ITEMS) && a !== "--jpg") throw new Error(`unknown argument ${a} (items: ${Object.keys(ITEMS).join(", ")}; flag: --jpg)`);
+for (const a of args) if (!Object.hasOwn(ITEMS, a) && a !== "--jpg") throw new Error(`unknown argument ${a} (items: ${Object.keys(ITEMS).join(", ")}; flag: --jpg)`);
 const SITE = fs.readFileSync(path.join(OUT, "qr.js"), "utf8").match(/SITE_URL = "([^"]+)"/)[1]; // what the QR must read
 const browser = await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {});
 for (const d of ["print", "proof", "preview", ...(JPG ? ["jpg"] : [])]) fs.mkdirSync(path.join(OUT, d), { recursive: true });
@@ -76,52 +76,64 @@ for (const [item, dims] of Object.entries(ITEMS)) {
   for (const style of item === "swatch" ? [""] : ["minimal", "detailed"]) for (const mode of ["dark", "light"]) {
     const name = [item, style, mode].filter(Boolean).join("-");
     const q = `?item=${item}&style=${style || "minimal"}&mode=${mode}`;
-    const page = await open(q);
-    // nothing may overflow its block, and no block may leave the area where it can be seen: on the pop-up everything sits
-    // above the counters (y ≤ 140), on a roll-up inside the safe area and above the stand foot, on the counter nothing
-    // crosses a fold (x = 72, 142)
-    const blocks = await page.evaluate(() => {
-      const CM = 96 / 2.54, s = document.getElementById("board").getBoundingClientRect();
-      return [...document.querySelectorAll(".b")].map((n) => {
-        const r = n.getBoundingClientRect();
-        return { what: n.className + ": " + n.textContent.trim().slice(0, 40), overflow: n.scrollWidth > n.clientWidth + 2 || (n.scrollHeight > n.clientHeight + 2 && !!n.style.height),
-          x0: (r.left - s.left) / CM, x1: (r.right - s.left) / CM, y0: (r.top - s.top) / CM, y1: (r.bottom - s.top) / CM };
-      });
-    });
-    const outside = {
-      popup: (b) => b.y1 > 140.05,
-      rollup1: (b) => b.x0 < 9.95 || b.x1 > 85.05 || b.y0 < 9 || b.y1 > 190.05,
-      counter: (b) => [72, 142].some((x) => b.x0 < x && b.x1 > x) || b.y1 > 86,
-    };
-    outside.rollup2 = outside.rollup1;
-    const bad = blocks.filter((b) => b.overflow || outside[item]?.(b)).map((b) => `${b.what} [${b.x0.toFixed(1)}–${b.x1.toFixed(1)} × ${b.y0.toFixed(1)}–${b.y1.toFixed(1)} cm]`);
-    if (bad.length) throw new Error(name + " has blocks outside their area: " + bad.join(" | "));
-    // the print file is written under a temporary name and gets its real name only after every check has passed
-    const raw = path.join(OUT, "chromium.pdf");
+    const raw = path.join(OUT, "chromium.pdf"), check = path.join(OUT, "check");
     const print = path.join(OUT, "print", `pars-${name}-${dims[0]}x${dims[1]}cm.pdf`), draft = print + ".part";
-    const preview = path.join(OUT, "preview", name), jpg = path.join(OUT, "jpg", path.basename(print, ".pdf"));
-    for (const f of [print, preview + ".png", jpg + ".jpg"]) fs.rmSync(f, { force: true });
-    await page.pdf({ path: raw, preferCSSPageSize: true, printBackground: true });
-    await finish(raw, draft, dims);
-    await page.close();
-    // the QR must decode from the print at a phone-like resolution, to the site
-    if (style !== "minimal") {
-      const scale = Math.max(30, Math.round(2400 / Math.max(dims[0], dims[1]) * 2.54));
-      execFileSync("pdftoppm", ["-png", "-r", String(scale), "-singlefile", draft, path.join(OUT, "qrcheck")]);
-      const png = PNG.sync.read(fs.readFileSync(path.join(OUT, "qrcheck.png")));
-      const code = jsQR(new Uint8ClampedArray(png.data), png.width, png.height);
-      fs.rmSync(path.join(OUT, "qrcheck.png"));
-      if (code?.data !== SITE) { fs.rmSync(draft); throw new Error(`${name}: the QR ${code ? "reads " + code.data : "does not decode"}`); }
+    const preview = path.join(OUT, "preview", name), jpg = path.join(OUT, "jpg", path.basename(print, ".pdf")), proofPdf = path.join(OUT, "proof", name + ".pdf");
+    // this file's previous outputs go first, so a failed check never leaves an older file under the final name
+    for (const f of [print, preview + ".png", jpg + ".jpg", proofPdf]) fs.rmSync(f, { force: true });
+    try {
+      const page = await open(q);
+      // nothing may overflow its block or leave the safe area (window.SAFE, items.js; the proof draws the same area), and on
+      // the pop-up and the counter no logo, number, QR or agent step may sit on a seam or fold. The returns' marks are art.
+      const { blocks, keyed, safe } = await page.evaluate(() => {
+        const CM = 96 / 2.54, s = document.getElementById("board").getBoundingClientRect();
+        const box = (n) => { const r = n.getBoundingClientRect(); return { x0: (r.left - s.left) / CM, x1: (r.right - s.left) / CM, y0: (r.top - s.top) / CM, y1: (r.bottom - s.top) / CM }; };
+        const what = (n) => n.className + ": " + n.textContent.trim().slice(0, 40);
+        return {
+          blocks: [...document.querySelectorAll(".b:not(.mark)")].map((n) => ({ what: what(n), overflow: n.scrollWidth > n.clientWidth + 2 || (n.scrollHeight > n.clientHeight + 2 && !!n.style.height), ...box(n) })),
+          keyed: [...document.querySelectorAll(".logos figure, .stat .num, .qr, .flow .st")].map((n) => ({ what: what(n), ...box(n) })),
+          safe: window.SAFE[new URLSearchParams(location.search).get("item")] ?? null,
+        };
+      });
+      const e = 0.05, fmt = (b) => `${b.what} [${b.x0.toFixed(1)}–${b.x1.toFixed(1)} × ${b.y0.toFixed(1)}–${b.y1.toFixed(1)} cm]`;
+      const bad = [
+        ...blocks.filter((b) => b.overflow).map((b) => "overflows: " + fmt(b)),
+        ...(safe ? blocks.filter((b) => b.x0 < safe.x[0] - e || b.x1 > safe.x[1] + e || b.y0 < safe.y[0] - e || b.y1 > safe.y[1] + e).map((b) => "outside the safe area: " + fmt(b)) : []),
+        ...(safe ? keyed.filter((b) => safe.seams.some((x) => b.x0 < x && b.x1 > x)).map((b) => "on a seam: " + fmt(b)) : []),
+      ];
+      if (bad.length) throw new Error(`${name}: ${bad.join(" | ")}`);
+      // the print file is written under a temporary name and gets its real name only after every check has passed
+      await page.pdf({ path: raw, preferCSSPageSize: true, printBackground: true });
+      await finish(raw, draft, dims);
+      await page.close();
+      // the edges of the print: no blank sliver along any side (the art must reach the cut on every edge)
+      execFileSync("pdftoppm", ["-png", "-r", "40", "-singlefile", draft, check]);
+      const ep = PNG.sync.read(fs.readFileSync(check + ".png"));
+      const px = (x, y) => { const i = (y * ep.width + x) * 4; return ep.data[i] + ep.data[i + 1] + ep.data[i + 2]; };
+      const col = (x) => { let t = 0; for (let y = 0; y < ep.height; y++) t += px(x, y); return t / ep.height / 3; };
+      const row = (y) => { let t = 0; for (let x = 0; x < ep.width; x++) t += px(x, y); return t / ep.width / 3; };
+      const W1 = ep.width - 1, H1 = ep.height - 1;
+      for (const [edge, next, side] of [[col(0), col(2), "left"], [col(W1), col(W1 - 2), "right"], [row(0), row(2), "top"], [row(H1), row(H1 - 2), "bottom"]])
+        if (Math.abs(edge - next) > 18) throw new Error(`${name}: the ${side} edge differs from the art next to it (${edge.toFixed(0)} vs ${next.toFixed(0)}): a blank sliver?`);
+      // the QR must decode from the print at a phone-like resolution, to the site
+      if (style !== "minimal") {
+        const scale = Math.max(30, Math.round(2400 / Math.max(dims[0], dims[1]) * 2.54));
+        execFileSync("pdftoppm", ["-png", "-r", String(scale), "-singlefile", draft, check]);
+        const png = PNG.sync.read(fs.readFileSync(check + ".png"));
+        const code = jsQR(new Uint8ClampedArray(png.data), png.width, png.height);
+        if (code?.data !== SITE) throw new Error(`${name}: the QR ${code ? "reads " + code.data : "does not decode"}`);
+      }
+      fs.renameSync(draft, print);
+      const proof = await open(q + "&guides");
+      await proof.pdf({ path: raw, preferCSSPageSize: true, printBackground: true });
+      await finish(raw, proofPdf, dims);
+      await proof.close();
+    } finally {
+      for (const f of [raw, draft, check + ".png"]) fs.rmSync(f, { force: true });
     }
-    fs.renameSync(draft, print);
-    const proof = await open(q + "&guides");
-    await proof.pdf({ path: raw, preferCSSPageSize: true, printBackground: true });
-    await finish(raw, path.join(OUT, "proof", name + ".pdf"), dims);
-    await proof.close();
-    fs.rmSync(raw);
     // preview from the print PDF itself, about 2400 px on the long side
     execFileSync("pdftoppm", ["-png", "-scale-to", "2400", "-singlefile", print, preview]);
-    // without --jpg the stale JPEG of this file was removed above, so out/jpg never holds an older design or address
+    // without --jpg this file's JPEG was removed above, so out/jpg never holds an older design or address
     if (JPG) execFileSync("pdftoppm", ["-jpeg", "-jpegopt", "quality=92", "-r", String(item === "popup" ? 100 : 150), "-singlefile", print, jpg]);
     console.log("✓", name);
   }

@@ -218,7 +218,7 @@ const drawArt = () => {
       });
       node(P[0], P[1], 0.45, 5.5);
     } else if (STYLE === "minimal") {
-      // roll-up 2: the two streams rise side by side from the outer edge, past the five steps of the collaboration path
+      // roll-up 2: the two streams rise side by side from the outer edge, with five glowing nodes
       glow(mx(40), 172, 50, 34, PAL.glowM, DARK ? 0.36 : 0.45);
       const gV = linear(mx(0), 0, mx(W), 0, [[0, PAL.v[0]], [0.6, PAL.v[1]], [1, PAL.v[2]]]);
       const gM = linear(mx(0), 0, mx(W), 0, [[0, PAL.m[0]], [0.5, PAL.m[1]], [1, PAL.m[2]]]);
@@ -264,11 +264,12 @@ const drawArt = () => {
   }
 
   if (ITEM === "swatch") {
-    // the finest and the widest thread on the boards, at the boards' opacity
-    [0.07, 0.09, 0.14, 0.2].forEach((sw, i) => {
+    // the finest to the widest thread on the boards, each with the opacity of the board thread it stands for
+    // (0.7 mm: roll-up 2 path; 0.9 mm: minimal roll-ups; 1.4 mm: lower pop-up silk; 2 mm: minimal pop-up)
+    [[0.07, 0.85, 0.3], [0.09, 0.66, 0.55], [0.14, 0.5, 0.55], [0.2, 0.66, 0.55]].forEach(([sw, op, edgeBoost], i) => {
       const b = bx(document.querySelectorAll(".ribslot")[i]);
       const g = linear(b.x0, 0, b.x1, 0, [[0, PAL.v[1]], [0.5, PAL.j[1]], [1, PAL.m[1]]]);
-      ribbon({ pts: [[b.x0, b.y0 + 1.6], [b.cx, b.y0 + 1.2], [b.x1, b.y0 + 1.8]], width: [2.4, 3, 2.4], turns: 1.4, n: 14, sw, op: 0.5, stroke: g });
+      ribbon({ pts: [[b.x0, b.y0 + 1.6], [b.cx, b.y0 + 1.2], [b.x1, b.y0 + 1.8]], width: [2.4, 3, 2.4], turns: 1.4, n: 14, sw, op, edgeBoost, stroke: g });
     });
     // the dot grid of the detailed boards
     const t = bx(document.querySelector(".tintslot"));
@@ -294,17 +295,20 @@ const drawArt = () => {
     if (ITEM === "popup") {
       line(35, 0, 35, H, C1, "2 1"); line(326, 0, 326, H, C1, "2 1");
       [107.75, 180.5, 253.25].forEach((x) => line(x, 0, x, H, C2, "0.6 1.2"));
-      rect(43, 10, 275, 130, "#3ddc97", "1 1");
+      const S = SAFE.popup;
+      rect(S.x[0], S.y[0], S.x[1] - S.x[0], S.y[1] - S.y[0], "#3ddc97", "1 1");
       line(35, 140, 326, 140, C3, "2 1");
       label(36.5, 6, "RETURN 35 | FACE 291 × 230 | RETURN 35 — PANEL SEAMS (4 × 72.75) DOTTED — SAFE AREA GREEN", C1, s);
       label(36.5, 145, "RED: TOP OF THE COUNTERS (90 CM) — EVERYTHING THAT MATTERS STAYS ABOVE IT", C3, s);
     } else if (ITEM === "counter") {
       line(72, 0, 72, H, C1, "2 1"); line(142, 0, 142, H, C1, "2 1");
-      rect(3, 4, 208, 78, "#3ddc97", "1 1");
+      const S = SAFE.counter;
+      rect(S.x[0], S.y[0], S.x[1] - S.x[0], S.y[1] - S.y[0], "#3ddc97", "1 1");
       label(3, 2.8, "SIDE 72 | FRONT 70 | SIDE 72 — 214 × 90 — SAFE AREA GREEN", C1, s);
     } else if (ITEM !== "swatch") {
       rect(5, 5, 85, 200, C1, "2 1");
-      rect(10, 10, 75, 180, "#3ddc97", "1 1");
+      const S = SAFE[ITEM];
+      rect(S.x[0], S.y[0], S.x[1] - S.x[0], S.y[1] - S.y[0], "#3ddc97", "1 1");
       line(5, 192, 90, 192, C3, "2 1");
       label(5.5, 3.6, "TRIM 85 × 200 · BLEED 5 · SAFE AREA GREEN", C1, s);
       label(5.5, 196, "BELOW RED: INSIDE THE STAND FOOT", C3, s);

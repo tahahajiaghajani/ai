@@ -7,6 +7,15 @@ const DARK = MODE === "dark";
 
 // popup: 35 return | 291 face | 35 return · roll-ups: 85 × 200 trim + 5 cm bleed · counter: 72 side | 70 front | 72 side
 const SIZES = { popup: { w: 361, h: 230 }, rollup1: { w: 95, h: 210 }, rollup2: { w: 95, h: 210 }, counter: { w: 214, h: 90 }, swatch: { w: 60, h: 45 } };
+// where content may sit (cm): the proof draws these as the green safe area and render.mjs fails on any block outside them.
+// Pop-up: the face above the counters (y ≤ 140), with seams that logos, numbers, the QR and the agent steps keep off.
+// Roll-up: inside the trim, above the stand foot. Counter: clear of the folds. The returns' marks are decoration.
+window.SAFE = {
+  popup: { x: [43, 318], y: [10, 140], seams: [107.75, 180.5, 253.25] },
+  rollup1: { x: [10, 85], y: [10, 190], seams: [] },
+  rollup2: { x: [10, 85], y: [10, 190], seams: [] },
+  counter: { x: [3, 211], y: [4, 82], seams: [72, 142] },
+};
 const SIZE = SIZES[ITEM];
 const HOST = new URL(window.SITE_URL).host;
 
@@ -115,7 +124,7 @@ function popup() {
   if (STYLE === "minimal") {
     for (const x of [7.5, 333.5]) mark(x, 20, 20);
     logo(258, 12, 52);
-    name(248, 57.5, 72, 4.4);
+    name(258, 57.5, 52, 4.4);
     B(90, 71, 220, 0, lines(COPY.slogan2), "hl slogan", "font-size:15cm;line-height:1.42;text-align:right");
     B(90, 116.5, 220, 0, "سامانه‌های مدیریت پروژه، حالا با ایجنت‌های هوش مصنوعی.", "muted sub", "font-size:5cm;text-align:right;line-height:1.5");
     url(90, 127.5, 220, 5);
@@ -125,22 +134,22 @@ function popup() {
   // and everything that matters sits above y = 140, the top of the counters
   const panel = (FACE[1] - FACE[0]) / 4, mid = (p) => FACE[0] + (p + 0.5) * panel;
   for (const x of [8.5, 334.5]) mark(x, 16, 18);
-  logo(mid(3) - 17, 9, 34);
-  name(mid(3) - 30, 39.5, 60, 3.3);
+  logo(mid(3) - 17, 10.5, 34);
+  name(mid(3) - 25, 41, 50, 3.3);
   B(118, 20.5, 128, 0, COPY.sloganLine, "hl slogan", "font-size:6cm;text-align:right;white-space:nowrap");
   // P1: the QR, what it opens and the address
-  qr(mid(0) - 14, 9, 28);
-  B(mid(0) - 30, 39, 60, 0, "سوابق و دموها را ببینید", "muted", "font-size:2.8cm;font-weight:500;line-height:1.4;text-align:center");
-  url(mid(0) - 30, 44.6, 60, 2.8, "center");
+  qr(mid(0) - 14, 10.5, 28);
+  B(mid(0) - 27, 40.5, 54, 0, "سوابق و دموها را ببینید", "muted", "font-size:2.8cm;font-weight:500;line-height:1.4;text-align:center");
+  url(mid(0) - 27, 46.1, 54, 2.8, "center");
   // P3–P4: headline and a line of proof
   B(184, 53, 134, 0, lines(["مدیریت پروژه‌ی سازمانی،", 'حالا با <span class="g">ایجنت‌های هوش مصنوعی</span>.']), "hl head fit", "font-size:8cm;line-height:1.42;text-align:right");
   B(184, 77.5, 134, 0, "از ۱۳۸۹ سامانه‌های مدیریت پروژه‌ی بانک‌ها و سازمان‌های بزرگ را می‌سازیم؛ حالا ایجنت‌ها کارهای تکراری دفتر پروژه را خودکار می‌کنند.", "muted", "font-size:3.4cm;line-height:1.65;text-align:justify;text-align-last:right");
   // P1–P2: what an agent does, four steps joined by a thread (art.js); the seam falls between the second and third step
-  kicker(42, 53, 130, "", "ایجنت‌های پارس چه می‌کنند", 3.2);
+  kicker(43, 54, 129, "", "ایجنت‌های پارس چه می‌کنند", 3.2);
   B(46, 60, 120, 0, STEPS.map(([i, t]) => `<div class="st" style="width:15cm"><span class="dot" style="width:15cm;height:15cm;font-size:7cm;border-width:.22cm">${ico(i)}</span><b style="font-size:3.6cm;margin-top:1.1cm">${t}</b></div>`).join(""), "flow", "");
-  B(mid(0) - 33, 84.5, 66, 0, `${ico("human")}<span>انسان در حلقه: تصمیم‌های حساس با تأیید شما</span>`, "", "font-size:2.9cm;display:flex;align-items:center;gap:.4em;justify-content:center;color:var(--muted);font-weight:500;white-space:nowrap");
+  B(43, 84.5, 62, 0, `${ico("human")}<span>انسان در حلقه: تصمیم‌های حساس با تأیید شما</span>`, "", "font-size:2.9cm;display:flex;align-items:center;gap:.4em;justify-content:center;color:var(--muted);font-weight:500;white-space:nowrap");
   // one statistic per panel
-  [3, 2, 1, 0].forEach((p, i) => stat(mid(p) - 30, 97, 60, STATS[i], 10.5, "center", 2.8));
+  [3, 2, 1, 0].forEach((p, i) => stat(mid(p) - 28, 97, 56, STATS[i], 10.5, "center", 2.8));
   // clients: 2 + 3 + 3 + 2 tiles, each group centred in its panel
   kicker(184, 121.5, 134, "", "در کنار این سازمان‌ها بوده‌ایم", 3);
   const cell = (inner, caption) => `<figure style="width:19cm"><div class="t" style="width:19cm;height:8.5cm;border-radius:1.4cm;padding:1.3cm 1.8cm">${inner}</div><figcaption style="font-size:1.9cm;margin-top:.5cm;white-space:nowrap">${caption}</figcaption></figure>`;
@@ -166,9 +175,9 @@ function rollup(k) {
     return;
   }
   const X = k === 1 ? 10 : 12, W = 73, C = X + W / 2;
-  logo(C - 12, 9.5, 24);
-  name(X, 30.5, W, 2.6);
-  kicker(X, 38.5, W, k === 1 ? "۰۱" : "۰۲", k === 1 ? "خدمات پارس · سامانه‌ها و هوش مصنوعی" : "خدمات پارس · آموزش، مشاوره و استقرار", 2.4);
+  logo(C - 12, 10, 24);
+  name(X, 31, W, 2.6);
+  kicker(X, 39, W, k === 1 ? "۰۱" : "۰۲", k === 1 ? "خدمات پارس · سامانه‌ها و هوش مصنوعی" : "خدمات پارس · آموزش، مشاوره و استقرار", 2.4);
   const demo = (y) => {
     rule(X, y, W);
     qr(X, y + 3, 17);
@@ -204,7 +213,7 @@ function counter() {
   logo(93, 5, 28);
   name(74, 29.5, 66, 2.8);
   B(74, 37.5, 66, 0, lines(COPY.slogan2), "hl slogan", "font-size:4cm;line-height:1.45;text-align:center");
-  B(74, 52.5, 66, 0, "سامانه‌های مدیریت پروژه،<br>حالا با ایجنت‌های هوش مصنوعی", "muted", "font-size:2.6cm;line-height:1.55;text-align:center");
+  B(74, 52.5, 66, 0, "سامانه‌های مدیریت پروژه،<br>حالا با ایجنت‌های هوش مصنوعی.", "muted", "font-size:2.6cm;line-height:1.55;text-align:center");
   url(74, 64, 66, 2.6, "center");
   // left side: what we do
   kicker(6, 7.5, 60, "", "خدمات پارس", 2.4);
