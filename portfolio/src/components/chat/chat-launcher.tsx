@@ -56,7 +56,7 @@ export function ChatLauncher({ lang }: { lang: Lang }) {
         onClick={() => setOpen(true)}
         aria-haspopup="dialog"
         aria-expanded={open}
-        className={`fixed bottom-5 end-5 z-40 flex items-center gap-3 rounded-full border border-line-strong bg-glass py-2 pe-5 ps-2 text-fg shadow-[0_20px_60px_-20px_rgb(0_0_0/0.6)] backdrop-blur-xl transition-transform hover:scale-[1.03] md:bottom-8 md:end-8 ${open ? "pointer-events-none opacity-0" : ""}`}
+        className={`fixed bottom-5 end-5 z-40 flex items-center gap-3 rounded-full border border-line-strong bg-bg/95 py-2 pe-5 ps-2 text-fg shadow-[0_20px_60px_-20px_rgb(0_0_0/0.6)] transition-transform md:bg-glass md:backdrop-blur-xl hover:scale-[1.03] md:bottom-8 md:end-8 ${open ? "pointer-events-none opacity-0" : ""}`}
       >
         <span className="relative grid size-9 place-items-center rounded-full bg-fg text-bg">
           <span className="font-mono text-[0.62rem] font-bold">AI</span>

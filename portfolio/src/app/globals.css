@@ -254,6 +254,14 @@ svg {
   opacity: 0.11;
   filter: invert(1);
 }
+/* touch screens: a still grain the size of the screen (a moving layer twice its size, over every frame, costs phones
+   their frame rate) */
+@media (hover: none), (pointer: coarse) {
+  .grain::after {
+    inset: 0;
+    animation: none;
+  }
+}
 @keyframes grain {
   0% { transform: translate(0, 0); }
   20% { transform: translate(-3%, 2%); }
