@@ -36,7 +36,7 @@ export default async function Unanswered() {
           <article key={i} className="rounded-[8px] border border-line p-5">
             <p className="mb-2 text-xs text-muted">{r.at ? formatDate(r.at, "fa") : ""} · {r.lang} · <span dir="ltr">{r.model}</span></p>
             <p className="font-semibold" dir="auto">{r.question}</p>
-            <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-fg-2" dir="auto">{r.answer}</p>
+            <p className="mt-2 whitespace-pre-wrap text-start text-sm leading-relaxed text-fg-2" dir="auto">{r.answer}</p>
           </article>
         ))}
         {data.items.length === 0 ? <p className="text-muted">هنوز پرسش بی‌پاسخی ثبت نشده.</p> : null}

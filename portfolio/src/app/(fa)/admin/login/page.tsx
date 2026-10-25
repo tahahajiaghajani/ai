@@ -19,7 +19,7 @@ export default function Login() {
       <div className="w-full max-w-sm">
         <p className="eyebrow eyebrow-fa mb-4">صندوق درخواست‌ها</p>
         <h1 className="mb-8 text-3xl font-bold">ورود</h1>
-        {adminConfigured() ? <LoginForm /> : <p className="leading-relaxed text-fg-2">{setupNote()}</p>}
+        {adminConfigured() ? <LoginForm /> : <p className="text-start leading-relaxed text-fg-2">{setupNote()}</p>}
       </div>
     </main>
   );

@@ -176,20 +176,25 @@ body {
 }
 
 /*
- * Running text is justified: paragraphs, descriptions, quotes and the lists inside articles and chat answers (a
- * single line, and the last line of a paragraph, keep their natural start). Spaces are stretched, never letters, so
- * Persian stays joined. Titles and display lines are left as they are (justifying a few big words opens wide gaps),
- * and a parent that centres or ends its text keeps doing so; a `text-*` utility on the element itself always wins.
+ * Running text is justified: paragraphs, quotes, captions and the lists inside articles (a single line, and the last
+ * line of a paragraph, keep their natural start). Spaces are stretched, never letters, so Persian stays joined.
+ * Left as they are: titles and display lines (balanced or giant text: a few big words would be pushed apart), values
+ * in label cells (dd), and anything under a parent that sets its own alignment: centred, end-aligned, or `text-start`
+ * where justifying would open wide gaps (narrow columns, chat, text visitors write, which often holds long links).
+ * A `text-*` utility on the element itself always wins. English article text is hyphenated so its lines stay even.
  */
 @layer base {
-  :where(p, dd, blockquote, figcaption, .prose-mono li, .text-justify) {
+  :where(p, blockquote, figcaption, .prose-mono li, .text-justify) {
     text-align: justify;
     text-justify: inter-word;
+  }
+  :where(.text-balance, .text-giant) {
+    text-align: start;
   }
   :where(.text-center, .text-end, .text-start) :where(p, dd, blockquote, figcaption, li) {
     text-align: inherit;
   }
-  :where(html[lang="en"]) :where(p, dd, blockquote, .prose-mono li) {
+  :where(html[lang="en"]) :where(.prose-mono) :where(p, li) {
     hyphens: auto;
   }
 }

@@ -163,7 +163,7 @@ export function ChatPanel({ className = "", onClose, tall = false }: { className
         </div>
       </div>
 
-      <div ref={list} className={`flex-1 space-y-5 overflow-y-auto overscroll-contain px-4 py-5 ${tall ? "min-h-[320px]" : ""}`} data-lenis-prevent aria-live="polite">
+      <div ref={list} className={`flex-1 space-y-5 overflow-y-auto overscroll-contain px-4 py-5 text-start ${tall ? "min-h-[320px]" : ""}`} data-lenis-prevent aria-live="polite">
         {messages.length === 0 ? (
           <div className="flex h-full flex-col justify-end gap-4">
             <p className="max-w-[40ch] text-[0.95rem] leading-relaxed text-fg-2">

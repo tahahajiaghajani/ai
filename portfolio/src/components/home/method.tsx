@@ -91,7 +91,7 @@ export function Method({ lang }: { lang: Lang }) {
                   <h3 className={`mt-6 text-[clamp(1.6rem,2.4vw,2.4rem)] leading-tight transition-opacity duration-500 lg:opacity-[var(--o)] ${fa ? "font-bold" : "font-semibold tracking-[-0.03em]"}`} style={{ ["--o" as string]: reached ? 1 : 0.35 }}>
                     {m.title[lang]}
                   </h3>
-                  <p className="mt-3 max-w-[34ch] leading-relaxed text-fg-2 transition-opacity duration-500 lg:opacity-[var(--o)]" style={{ ["--o" as string]: reached ? 1 : 0.35 }}>
+                  <p className="mt-3 max-w-[34ch] text-start leading-relaxed text-fg-2 transition-opacity duration-500 lg:opacity-[var(--o)]" style={{ ["--o" as string]: reached ? 1 : 0.35 }}>
                     {m.body[lang]}
                   </p>
                 </li>

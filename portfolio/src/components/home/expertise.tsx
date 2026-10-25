@@ -56,7 +56,7 @@ export function Expertise({ lang }: { lang: Lang }) {
                 <div className="grid transition-[grid-template-rows] duration-700 ease-[var(--ease-out-expo)]" style={{ gridTemplateRows: open ? "1fr" : "0fr" }}>
                   <div className="overflow-hidden">
                     <div className="flex flex-col gap-6 pb-9 ps-15 md:flex-row md:items-end md:justify-between">
-                      <p className="max-w-[56ch] text-[1.05rem] leading-relaxed text-fg-2">{x.body[lang]}</p>
+                      <p className="max-w-[56ch] text-start text-[1.05rem] leading-relaxed text-fg-2 md:text-justify">{x.body[lang]}</p>
                       <ul className="flex flex-wrap gap-2 md:max-w-[40%] md:justify-end" dir="ltr">
                         {x.tags.map((t) => (
                           <li key={t} className="rounded-full border border-line px-3 py-1 font-mono text-[0.65rem] uppercase tracking-[0.12em] text-muted">{t}</li>
