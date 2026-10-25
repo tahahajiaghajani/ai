@@ -100,7 +100,7 @@ export function CaseStudy({ p, lang }: { p: Project; lang: Lang }) {
 
       {p.interactive === "audit-centre" ? (
         <section className="mx-auto max-w-[1800px] px-5 pt-24 md:px-10 md:pt-32">
-          <Label>{fa ? "ایده‌ی مرکز حسابرسی" : "The audit-centre idea"}</Label>
+          <Label>{fa ? "مرکز حسابرسی، گام به گام" : "The audit centre, step by step"}</Label>
           <AuditCentre lang={lang} />
         </section>
       ) : null}
