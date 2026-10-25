@@ -1,5 +1,6 @@
 // Builds out/: copies the brand and client assets from ../../public, the static font files from @fontsource and the page
-// sources from src/, and draws the QR code (vector, error correction Q, 4-module quiet zone, solid dark modules on white).
+// sources from src/, and draws the QR code (vector, error correction Q, 4-module quiet zone, dark modules on white, plum
+// finder centres).
 // The printed address and the QR come from the same URL, so the two never disagree.
 // Usage: node build.mjs [url]   (or BOOTH_URL=…)
 import QRCode from "qrcode";

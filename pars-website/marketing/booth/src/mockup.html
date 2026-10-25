@@ -67,14 +67,16 @@ plane(0, 115, 0, 291, 230, { strip: [POP, 361, 230, 35] });
 plane(-145.5, 115, -17.5, 35, 230, { ry: -90, strip: [POP, 361, 230, 0], cls: "side" });
 plane(145.5, 115, -17.5, 35, 230, { ry: 90, strip: [POP, 361, 230, 326], cls: "side" });
 
-// roll-ups: the 85 × 200 trim (5 cm bleed off each edge), the foot hides the lowest 10 cm
+// roll-ups: the 85 × 200 trim (5 cm bleed off each edge) standing in its cassette, which hides the lowest part.
+// No plane may cut through the banner (Chromium drops part of a plane that another one crosses), so the banner ends
+// just above the floor and the cassette lies entirely in front of it.
 function rollup(item, x, z) {
   const img = tex(item);
   floorSpot(x, z, 120, 50);
-  plane(x, 97, z, 85, 200, { strip: [img, 95, 210, 5, 5] });
-  plane(x, 197.6, z + 0.6, 86, 1.6, { bg: "var(--metal)" });            // top rail
-  plane(x, 5, z + 5, 92, 10, { bg: "var(--metal)" });                    // the cassette, front
-  plane(x, 10, z, 92, 10, { rx: 90, bg: "var(--cap)" });                 // and its top
+  plane(x, 100.5, z, 85, 200, { strip: [img, 95, 210, 5, 5] });
+  plane(x, 201.1, z + 0.6, 86, 1.6, { bg: "var(--metal)" });            // top rail
+  plane(x, 5, z + 10, 92, 10, { bg: "var(--metal)" });                   // the cassette, front
+  plane(x, 10, z + 5.5, 92, 9, { rx: 90, bg: "var(--cap)" });            // and its top
   for (const dx of [-38, 38]) plane(x + dx, 1.5, z + 14, 3, 3, { bg: "var(--metal)" }); // feet
 }
 rollup("rollup2", -238, 70);
@@ -91,8 +93,8 @@ function counter(x, z) {
   plane(x, 91, z + 39, 76, 2, { bg: "var(--edge)" });
   plane(x + 38, 91, z, 78, 2, { ry: 90, bg: "var(--edge)" });
 }
-counter(-104, 175);
-counter(104, 175);
+counter(-80, 175);
+counter(80, 175);
 
 document.getElementById("label").textContent = `PARS PROJECT · BOOTH · ${STYLE.toUpperCase()} · ${MODE.toUpperCase()}`;
 Promise.all([...new Set([...document.querySelectorAll(".p")].map((n) => n.style.backgroundImage).filter(Boolean))].map((u) => new Promise((r, j) => {

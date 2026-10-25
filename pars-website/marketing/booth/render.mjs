@@ -20,6 +20,7 @@ const PT = 72 / 2.54; // points per cm
 const ITEMS = { popup: [361, 230, 0], rollup1: [95, 210, 5], rollup2: [95, 210, 5], counter: [214, 90, 0], swatch: [60, 45, 0] }; // w, h, bleed (cm)
 const args = process.argv.slice(2);
 const only = args.filter((a) => !a.startsWith("--")), JPG = args.includes("--jpg");
+for (const a of args) if (!(a in ITEMS) && a !== "--jpg") throw new Error(`unknown argument ${a} (items: ${Object.keys(ITEMS).join(", ")}; flag: --jpg)`);
 const SITE = fs.readFileSync(path.join(OUT, "qr.js"), "utf8").match(/SITE_URL = "([^"]+)"/)[1]; // what the QR must read
 const browser = await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {});
 for (const d of ["print", "proof", "preview", ...(JPG ? ["jpg"] : [])]) fs.mkdirSync(path.join(OUT, d), { recursive: true });
@@ -76,34 +77,52 @@ for (const [item, dims] of Object.entries(ITEMS)) {
     const name = [item, style, mode].filter(Boolean).join("-");
     const q = `?item=${item}&style=${style || "minimal"}&mode=${mode}`;
     const page = await open(q);
-    // nothing may overflow its block or the safe area of the board
-    const bad = await page.evaluate(() => [...document.querySelectorAll(".b")].filter((n) => n.scrollWidth > n.clientWidth + 2 || n.scrollHeight > n.clientHeight + 2 && n.style.height).map((n) => n.className + ": " + n.textContent.trim().slice(0, 40)));
-    if (bad.length) throw new Error(name + " overflows: " + bad.join(" | "));
+    // nothing may overflow its block, and no block may leave the area where it can be seen: on the pop-up everything sits
+    // above the counters (y ≤ 140), on a roll-up inside the safe area and above the stand foot, on the counter nothing
+    // crosses a fold (x = 72, 142)
+    const blocks = await page.evaluate(() => {
+      const CM = 96 / 2.54, s = document.getElementById("board").getBoundingClientRect();
+      return [...document.querySelectorAll(".b")].map((n) => {
+        const r = n.getBoundingClientRect();
+        return { what: n.className + ": " + n.textContent.trim().slice(0, 40), overflow: n.scrollWidth > n.clientWidth + 2 || (n.scrollHeight > n.clientHeight + 2 && !!n.style.height),
+          x0: (r.left - s.left) / CM, x1: (r.right - s.left) / CM, y0: (r.top - s.top) / CM, y1: (r.bottom - s.top) / CM };
+      });
+    });
+    const outside = {
+      popup: (b) => b.y1 > 140.05,
+      rollup1: (b) => b.x0 < 9.95 || b.x1 > 85.05 || b.y0 < 9 || b.y1 > 190.05,
+      counter: (b) => [72, 142].some((x) => b.x0 < x && b.x1 > x) || b.y1 > 86,
+    };
+    outside.rollup2 = outside.rollup1;
+    const bad = blocks.filter((b) => b.overflow || outside[item]?.(b)).map((b) => `${b.what} [${b.x0.toFixed(1)}–${b.x1.toFixed(1)} × ${b.y0.toFixed(1)}–${b.y1.toFixed(1)} cm]`);
+    if (bad.length) throw new Error(name + " has blocks outside their area: " + bad.join(" | "));
+    // the print file is written under a temporary name and gets its real name only after every check has passed
     const raw = path.join(OUT, "chromium.pdf");
-    const print = path.join(OUT, "print", `pars-${name}-${dims[0]}x${dims[1]}cm.pdf`);
+    const print = path.join(OUT, "print", `pars-${name}-${dims[0]}x${dims[1]}cm.pdf`), draft = print + ".part";
+    const preview = path.join(OUT, "preview", name), jpg = path.join(OUT, "jpg", path.basename(print, ".pdf"));
+    for (const f of [print, preview + ".png", jpg + ".jpg"]) fs.rmSync(f, { force: true });
     await page.pdf({ path: raw, preferCSSPageSize: true, printBackground: true });
-    await finish(raw, print, dims);
+    await finish(raw, draft, dims);
     await page.close();
+    // the QR must decode from the print at a phone-like resolution, to the site
+    if (style !== "minimal") {
+      const scale = Math.max(30, Math.round(2400 / Math.max(dims[0], dims[1]) * 2.54));
+      execFileSync("pdftoppm", ["-png", "-r", String(scale), "-singlefile", draft, path.join(OUT, "qrcheck")]);
+      const png = PNG.sync.read(fs.readFileSync(path.join(OUT, "qrcheck.png")));
+      const code = jsQR(new Uint8ClampedArray(png.data), png.width, png.height);
+      fs.rmSync(path.join(OUT, "qrcheck.png"));
+      if (code?.data !== SITE) { fs.rmSync(draft); throw new Error(`${name}: the QR ${code ? "reads " + code.data : "does not decode"}`); }
+    }
+    fs.renameSync(draft, print);
     const proof = await open(q + "&guides");
     await proof.pdf({ path: raw, preferCSSPageSize: true, printBackground: true });
     await finish(raw, path.join(OUT, "proof", name + ".pdf"), dims);
     await proof.close();
     fs.rmSync(raw);
-    // preview from the print PDF itself
-    const scale = Math.round(2400 / Math.max(dims[0], dims[1]) * 2.54); // dpi for a 2400 px long side
-    execFileSync("pdftoppm", ["-png", "-r", String(scale), "-singlefile", print, path.join(OUT, "preview", name)]);
-    // the QR must decode from the print at a phone-like resolution, to the site
-    if (style !== "minimal") {
-      execFileSync("pdftoppm", ["-png", "-r", String(Math.max(scale, 30)), "-singlefile", print, path.join(OUT, "qrcheck")]);
-      const png = PNG.sync.read(fs.readFileSync(path.join(OUT, "qrcheck.png")));
-      const code = jsQR(new Uint8ClampedArray(png.data), png.width, png.height);
-      fs.rmSync(path.join(OUT, "qrcheck.png"));
-      if (code?.data !== SITE) throw new Error(`${name}: the QR ${code ? "reads " + code.data : "does not decode"}`);
-    }
-    if (JPG) {
-      const dpi = item === "popup" ? 100 : 150;
-      execFileSync("pdftoppm", ["-jpeg", "-jpegopt", "quality=92", "-r", String(dpi), "-singlefile", print, path.join(OUT, "jpg", path.basename(print, ".pdf"))]);
-    }
+    // preview from the print PDF itself, about 2400 px on the long side
+    execFileSync("pdftoppm", ["-png", "-scale-to", "2400", "-singlefile", print, preview]);
+    // without --jpg the stale JPEG of this file was removed above, so out/jpg never holds an older design or address
+    if (JPG) execFileSync("pdftoppm", ["-jpeg", "-jpegopt", "quality=92", "-r", String(item === "popup" ? 100 : 150), "-singlefile", print, jpg]);
     console.log("✓", name);
   }
 }

@@ -6,7 +6,7 @@
   "scripts": {
     "build": "node build.mjs",
     "render": "node render.mjs",
-    "booth": "node build.mjs && node render.mjs && node mockup.mjs",
+    "booth": "node build.mjs && node render.mjs --jpg && node mockup.mjs",
     "mockup": "node mockup.mjs"
   },
   "devDependencies": {

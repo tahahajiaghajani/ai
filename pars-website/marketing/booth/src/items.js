@@ -5,20 +5,16 @@ const ITEM = Q.get("item") ?? "popup", STYLE = Q.get("style") ?? "minimal", MODE
 document.documentElement.dataset.mode = MODE;
 const DARK = MODE === "dark";
 
-const SIZES = {
-  popup: { w: 361, h: 230, label: "POP-UP 291 × 230 FACE + 35 CM RETURNS = 361 × 230" },
-  rollup1: { w: 95, h: 210, label: "ROLL-UP 1 · 85 × 200 TRIM + 5 CM BLEED = 95 × 210" },
-  rollup2: { w: 95, h: 210, label: "ROLL-UP 2 · 85 × 200 TRIM + 5 CM BLEED = 95 × 210" },
-  counter: { w: 214, h: 90, label: "COUNTER 214 × 90 · SIDE 72 | FRONT 70 | SIDE 72" },
-  swatch: { w: 60, h: 45, label: "TEST STRIP 60 × 45" },
-};
+// popup: 35 return | 291 face | 35 return · roll-ups: 85 × 200 trim + 5 cm bleed · counter: 72 side | 70 front | 72 side
+const SIZES = { popup: { w: 361, h: 230 }, rollup1: { w: 95, h: 210 }, rollup2: { w: 95, h: 210 }, counter: { w: 214, h: 90 }, swatch: { w: 60, h: 45 } };
 const SIZE = SIZES[ITEM];
 const HOST = new URL(window.SITE_URL).host;
 
 const COPY = {
   slogan2: ['جایی که مدیریت و <span class="g">هوش</span>', "به هم می‌رسند."],
-  slogan3: ["جایی که مدیریت", 'و <span class="g">هوش</span> به هم', "می‌رسند."],
+  slogan3: ["جایی که", 'مدیریت و <span class="g">هوش</span>', "به هم می‌رسند."],
   sloganLine: 'جایی که مدیریت و <span class="g">هوش</span> به هم می‌رسند.',
+  name: "مدیریت پروژه پارس",
   phones: ["۰۲۱-۸۸۷۳۱۶۰۱", "۰۲۱-۸۲۸۰۳۵۶۵"],
   mail: "info@parspmi.ir",
 };
@@ -40,20 +36,21 @@ const STATS = [
 ];
 const CLIENTS = [
   ["mellat.svg", "بانک ملت"], ["tejarat.svg", "بانک تجارت"], ["melli.svg", "بانک ملی ایران"], ["refah.svg", "بانک رفاه کارگران"], ["sepah.svg", "بانک سپه"],
-  ["postbank.svg", "پست بانک ایران"], ["ayandeh.svg", "بانک آینده"], ["igmc.webp", "مدیریت شبکه برق ایران"], ["rajaee.webp", "قرارگاه خاتم‌الانبیاء<br>گروه شهید رجایی"],
+  ["postbank.svg", "پست بانک ایران"], ["ayandeh.svg", "بانک آینده"], ["igmc.webp", "مدیریت شبکه برق ایران"], ["rajaee.webp", "قرارگاه خاتم‌الانبیاء"],
 ];
 const STEPS = [["read", "خواندن"], ["understand", "فهمیدن"], ["predict", "پیش‌بینی"], ["act", "اقدام"]];
 const PATH = ["کشف و<br>ارزیابی", "طراحی<br>راهکار", "ساخت و<br>استقرار", "اتوماسیون<br>هوشمند", "آموزش و<br>تکامل"];
 
 const LOGO = DARK ? "assets/pars-logo-reverse.svg" : "assets/pars-logo.svg";
 const MARK = DARK ? "assets/pars-mark-reverse.svg" : "assets/pars-mark.svg";
-const LOGO_AR = 854 / 1008, MARK_AR = 700 / 662;
 
 const board = document.getElementById("board");
 board.style.width = SIZE.w + "cm";
 board.style.height = SIZE.h + "cm";
 const page = document.createElement("style");
-page.textContent = `@page { size: ${SIZE.w}cm ${SIZE.h}cm; margin: 0; } html, body { width: ${SIZE.w}cm; height: ${SIZE.h}cm; overflow: hidden; }`;
+// Chromium rounds the page size down to 0.01 in, which would leave the last fraction of a millimetre blank: the page gets
+// 1 mm more than the board and render.mjs crops it back to the exact size from the top-left corner
+page.textContent = `@page { size: ${SIZE.w + 0.1}cm ${SIZE.h + 0.1}cm; margin: 0; } html, body { width: ${SIZE.w + 0.1}cm; height: ${SIZE.h + 0.1}cm; overflow: hidden; }`;
 document.head.appendChild(page);
 
 /** a block at (x, y) cm, width w cm (height optional); css: extra inline style */
@@ -104,81 +101,108 @@ function stat(x, y, w, st, s, align = "center", ls = s * 0.25) {
 }
 /** a hairline that fades out at both ends */
 const rule = (x, y, w) => B(x, y, w, 0.1, "", "hair");
+/** the company's Persian name, set under the logo */
+const name = (x, y, w, s) => B(x, y, w, 0, COPY.name, "hl name", `font-size:${s}cm;line-height:1.3;text-align:center`);
+/** service names with their icons, no detail: the minimal roll-ups */
+function svcList(x, y, w, keys, s) {
+  const rows = keys.map((k) => `<div class="li${SVC[k].ai ? " ai" : ""}" style="gap:${s * 0.55}cm;padding:${s * 0.42}cm 0">${ico(SVC[k].icon)}<span>${SVC[k].t}</span></div>`);
+  return B(x, y, w, 0, rows.join(""), "svclist", `font-size:${s}cm`);
+}
 
 /* ═══════════════════ POP-UP · 361 × 230 (35 | 291 | 35) ═══════════════════ */
 const FACE = [35, 326];
 function popup() {
   if (STYLE === "minimal") {
     for (const x of [7.5, 333.5]) mark(x, 20, 20);
-    logo(258, 16, 52);
-    B(90, 72, 220, 0, lines(COPY.slogan2), "hl slogan", "font-size:15.5cm;line-height:1.42;text-align:right");
-    B(90, 121, 220, 0, "سامانه‌های مدیریت پروژه، حالا با ایجنت‌های هوش مصنوعی.", "muted sub", "font-size:5cm;text-align:right;line-height:1.5");
-    url(90, 133, 220, 5);
+    logo(258, 12, 52);
+    name(248, 57.5, 72, 4.4);
+    B(90, 71, 220, 0, lines(COPY.slogan2), "hl slogan", "font-size:15cm;line-height:1.42;text-align:right");
+    B(90, 116.5, 220, 0, "سامانه‌های مدیریت پروژه، حالا با ایجنت‌های هوش مصنوعی.", "muted sub", "font-size:5cm;text-align:right;line-height:1.5");
+    url(90, 127.5, 220, 5);
     return;
   }
-  for (const x of [8.5, 334.5]) mark(x, 18, 18);
-  logo(270, 14, 40);
-  B(118, 25.5, 142, 0, COPY.sloganLine, "hl slogan", "font-size:6.4cm;text-align:right;white-space:nowrap");
-  // QR in the left panel, with its caption
-  qr(48, 15, 33);
-  B(40, 50, 49, 0, `<div style="font-size:3.1cm;font-weight:500;color:var(--muted);line-height:1.5">سوابق و دموها را ببینید</div>`, "", "text-align:center");
-  // headline and a line of proof
-  B(178, 62, 132, 0, lines(["مدیریت پروژه‌ی سازمانی،", 'حالا با <span class="g">ایجنت‌های هوش مصنوعی</span>.']), "hl head fit", "font-size:8.6cm;line-height:1.45;text-align:right");
-  B(178, 90, 132, 0, "از ۱۳۸۹ سامانه‌های مدیریت پروژه‌ی بانک‌ها و سازمان‌های بزرگ را می‌سازیم؛ حالا ایجنت‌ها کارهای تکراری دفتر پروژه را خودکار می‌کنند.", "muted", "font-size:3.7cm;line-height:1.7;text-align:justify;text-align-last:right");
-  // what an agent does: four steps, joined by a thread (art.js)
-  kicker(46, 64, 120, "", "ایجنت‌های پارس چه می‌کنند", 3.4);
-  B(46, 72, 120, 0, STEPS.map(([i, t]) => `<div class="st"><span class="dot" style="width:17cm;height:17cm;font-size:8cm;border-width:.25cm">${ico(i)}</span><b style="font-size:4cm;margin-top:1.4cm">${t}</b></div>`).join(""), "flow", "");
-  B(46, 104, 120, 0, `${ico("human")}<span>انسان در حلقه: تصمیم‌های حساس با تأیید شما</span>`, "", "font-size:3.4cm;display:flex;align-items:center;gap:.45em;justify-content:center;color:var(--muted);font-weight:500");
-  // one statistic per panel; the rules between them sit on the panel seams
-  const panel = (FACE[1] - FACE[0]) / 4;
-  [3, 2, 1, 0].forEach((p, i) => stat(FACE[0] + p * panel + 6, 121, panel - 12, STATS[i], 14));
-  // clients
-  kicker(178, 161, 132, "", "در کنار این سازمان‌ها بوده‌ایم", 3.4);
-  const tiles = CLIENTS.map(([f, n]) => `<figure style="width:24cm"><div class="t" style="width:22cm;height:14cm;border-radius:2cm;padding:2cm"><img src="assets/${f}" alt=""></div><figcaption style="font-size:2.5cm;margin-top:1cm">${n}</figcaption></figure>`);
-  tiles.push(`<figure style="width:24cm"><div class="t more" style="width:22cm;height:14cm;border-radius:2cm;display:grid;place-items:center;background:var(--tile);border:.2cm solid var(--tile-line)"><div class="num" style="font-size:7.2cm;font-weight:600;line-height:1"><span class="g">۵۰+</span></div></div><figcaption style="font-size:2.5cm;margin-top:1cm">سازمان دیگر</figcaption></figure>`);
-  B(46, 169, 264, 0, tiles.join(""), "logos", "");
+  // four face panels of 72.75 cm (P1 at the left … P4 at the right); logos and small text stay off the seams,
+  // and everything that matters sits above y = 140, the top of the counters
+  const panel = (FACE[1] - FACE[0]) / 4, mid = (p) => FACE[0] + (p + 0.5) * panel;
+  for (const x of [8.5, 334.5]) mark(x, 16, 18);
+  logo(mid(3) - 17, 9, 34);
+  name(mid(3) - 30, 39.5, 60, 3.3);
+  B(118, 20.5, 128, 0, COPY.sloganLine, "hl slogan", "font-size:6cm;text-align:right;white-space:nowrap");
+  // P1: the QR, what it opens and the address
+  qr(mid(0) - 14, 9, 28);
+  B(mid(0) - 30, 39, 60, 0, "سوابق و دموها را ببینید", "muted", "font-size:2.8cm;font-weight:500;line-height:1.4;text-align:center");
+  url(mid(0) - 30, 44.6, 60, 2.8, "center");
+  // P3–P4: headline and a line of proof
+  B(184, 53, 134, 0, lines(["مدیریت پروژه‌ی سازمانی،", 'حالا با <span class="g">ایجنت‌های هوش مصنوعی</span>.']), "hl head fit", "font-size:8cm;line-height:1.42;text-align:right");
+  B(184, 77.5, 134, 0, "از ۱۳۸۹ سامانه‌های مدیریت پروژه‌ی بانک‌ها و سازمان‌های بزرگ را می‌سازیم؛ حالا ایجنت‌ها کارهای تکراری دفتر پروژه را خودکار می‌کنند.", "muted", "font-size:3.4cm;line-height:1.65;text-align:justify;text-align-last:right");
+  // P1–P2: what an agent does, four steps joined by a thread (art.js); the seam falls between the second and third step
+  kicker(42, 53, 130, "", "ایجنت‌های پارس چه می‌کنند", 3.2);
+  B(46, 60, 120, 0, STEPS.map(([i, t]) => `<div class="st" style="width:15cm"><span class="dot" style="width:15cm;height:15cm;font-size:7cm;border-width:.22cm">${ico(i)}</span><b style="font-size:3.6cm;margin-top:1.1cm">${t}</b></div>`).join(""), "flow", "");
+  B(mid(0) - 33, 84.5, 66, 0, `${ico("human")}<span>انسان در حلقه: تصمیم‌های حساس با تأیید شما</span>`, "", "font-size:2.9cm;display:flex;align-items:center;gap:.4em;justify-content:center;color:var(--muted);font-weight:500;white-space:nowrap");
+  // one statistic per panel
+  [3, 2, 1, 0].forEach((p, i) => stat(mid(p) - 30, 97, 60, STATS[i], 10.5, "center", 2.8));
+  // clients: 2 + 3 + 3 + 2 tiles, each group centred in its panel
+  kicker(184, 121.5, 134, "", "در کنار این سازمان‌ها بوده‌ایم", 3);
+  const cell = (inner, caption) => `<figure style="width:19cm"><div class="t" style="width:19cm;height:8.5cm;border-radius:1.4cm;padding:1.3cm 1.8cm">${inner}</div><figcaption style="font-size:1.9cm;margin-top:.5cm;white-space:nowrap">${caption}</figcaption></figure>`;
+  const cells = CLIENTS.map(([f, n]) => cell(`<img src="assets/${f}" alt="">`, n));
+  cells.push(`<figure style="width:19cm"><div class="t more" style="width:19cm;height:8.5cm;border-radius:1.4cm;display:grid;place-items:center;background:var(--tile);border:.2cm solid var(--tile-line)"><div class="num" style="font-size:5.4cm;font-weight:600;line-height:1"><span class="g">۵۰+</span></div></div><figcaption style="font-size:1.9cm;margin-top:.5cm;white-space:nowrap">سازمان دیگر</figcaption></figure>`);
+  [[3, 0, 2], [2, 2, 5], [1, 5, 8], [0, 8, 10]].forEach(([p, a, b]) => {
+    const n = b - a, w = n * 19 + (n - 1) * 2.5;
+    B(mid(p) - w / 2, 126.5, w, 0, cells.slice(a, b).join(""), "logos", "gap:2.5cm;justify-content:flex-start");
+  });
 }
 
 /* ═══════════════════ ROLL-UPS · 95 × 210 (85 × 200 trim, 5 cm bleed) ═══════════════════ */
 function rollup(k) {
+  // roll-up 1 stands at the right of the booth and roll-up 2 at the left; on the detailed pair a silk band runs down the
+  // outer edge (art.js), so the content keeps 2 cm more from that edge
   if (STYLE === "minimal") {
-    logo(27.5, 17, 40);
-    B(10, 112, 75, 0, lines(COPY.slogan3), "hl slogan", "font-size:8.6cm;line-height:1.36;text-align:center");
-    B(10, 157, 75, 0, k === 1 ? "سامانه‌های مدیریت پروژه،<br>با ایجنت‌های هوش مصنوعی" : "آموزش، مشاوره و سامانه‌های<br>مدیریت پروژه، از ۱۳۸۹", "muted sub", "font-size:3.5cm;line-height:1.6;text-align:center");
-    url(10, 177, 75, 3.1, "center");
+    logo(30.5, 12, 34);
+    name(10, 42.5, 75, 3.3);
+    B(10, 56, 75, 0, lines(COPY.slogan3), "hl slogan", "font-size:8cm;line-height:1.36;text-align:center");
+    B(10, 98.5, 75, 0, `<span class="rule r"></span><span>${k === 1 ? "سامانه‌ها و هوش مصنوعی" : "آموزش، مشاوره و استقرار"}</span><span class="rule"></span>`, "kicker", "font-size:2.4cm");
+    svcList(10, 105, 75, k === 1 ? ["epm", "agents", "custom", "data"] : ["academy", "consult", "migration"], 3);
+    url(10, k === 1 ? 145 : 136, 75, 3, "center");
     return;
   }
-  logo(31, 12, 33);
-  kicker(10, 45.5, 75, k === 1 ? "۰۱" : "۰۲", k === 1 ? "خدمات پارس · سامانه‌ها و هوش مصنوعی" : "خدمات پارس · آموزش، مشاوره و استقرار", 2.5);
+  const X = k === 1 ? 10 : 12, W = 73, C = X + W / 2;
+  logo(C - 12, 9.5, 24);
+  name(X, 30.5, W, 2.6);
+  kicker(X, 38.5, W, k === 1 ? "۰۱" : "۰۲", k === 1 ? "خدمات پارس · سامانه‌ها و هوش مصنوعی" : "خدمات پارس · آموزش، مشاوره و استقرار", 2.4);
+  const demo = (y) => {
+    rule(X, y, W);
+    qr(X, y + 3, 17);
+    contact(X + 20, y + 3.4, W - 20, 2.4, { title: "دموی زنده را از ما بخواهید", align: "flex-start" });
+  };
   if (k === 1) {
-    B(10, 51, 75, 0, lines(["سامانه‌های مدیریت پروژه،", 'حالا با <span class="g">ایجنت‌های هوش مصنوعی</span>.']), "hl head fit", "font-size:4.9cm;line-height:1.45;text-align:right");
-    services(10, 70, 75, ["agents", "epm", "custom", "data"], 3.2, 2.2);
-    B(10, 143, 75, 0, `<div class="aibar"><div class="cap" style="font-size:3.1cm;font-weight:600;line-height:1.5">تا ۹۰٪ کارهای تکراری، خودکار با ایجنت‌ها</div>
-      <div class="bar" style="display:flex;gap:.6cm;margin-top:1.3cm;height:2.8cm"><span class="seg ai" style="flex:9;border-radius:1.4cm"></span><span class="seg hu" style="flex:1.6;border-radius:1.4cm"></span></div>
+    B(X, 44, W, 0, lines(["سامانه‌های مدیریت پروژه،", 'حالا با <span class="g">ایجنت‌های هوش مصنوعی</span>.']), "hl head fit", "font-size:4.9cm;line-height:1.45;text-align:right");
+    services(X, 62, W, ["agents", "epm", "custom", "data"], 3.15, 2);
+    demo(129.5);
+    B(X, 159, W, 0, `<div class="aibar"><div class="cap" style="font-size:3.1cm;font-weight:600;line-height:1.5">تا ۹۰٪ کارهای تکراری، خودکار با ایجنت‌ها</div>
+      <div class="bar" style="display:flex;gap:.6cm;margin-top:1.3cm;height:2.8cm"><span class="seg ai" style="flex:9;border-radius:1.4cm"></span><span class="seg hu" style="flex:1;border-radius:1.4cm"></span></div>
       <div style="display:flex;justify-content:space-between;font-size:2.3cm;color:var(--muted);margin-top:.8cm"><span>ایجنت‌های پارس</span><span>تأیید انسانی</span></div></div>`, "", "");
   } else {
-    B(10, 51, 75, 0, lines(["از آموزش تا استقرار،", '<span class="g">کنار تیم شما</span>.']), "hl head fit", "font-size:5.6cm;line-height:1.45;text-align:right");
-    services(10, 70, 75, ["academy", "consult", "migration"], 3.05, 1.6);
-    kicker(10, 122, 75, "", "مسیر همکاری", 2.5);
-    B(10, 128, 75, 0, PATH.map((t, i) => `<div class="st"><span class="dot" style="width:7.4cm;height:7.4cm;font-size:3.2cm;border-width:.16cm;font-weight:600">${["۱", "۲", "۳", "۴", "۵"][i]}</span><b style="font-size:2.25cm;margin-top:.9cm;line-height:1.4;font-weight:500">${t}</b></div>`).join(""), "flow path", "");
-    [0, 2].forEach((si, i) => stat(i ? 10 : 49, 149, 36, STATS[si], 7.8, "center", 2.2));
+    B(X, 44, W, 0, lines(["از آموزش تا استقرار،", '<span class="g">کنار تیم شما</span>.']), "hl head fit", "font-size:5.6cm;line-height:1.45;text-align:right");
+    services(X, 64, W, ["academy", "consult", "migration"], 3, 1.5);
+    demo(115.5);
+    kicker(X, 141, W, "", "مسیر همکاری", 2.4);
+    B(X, 146.5, W, 0, PATH.map((t, i) => `<div class="st"><span class="dot" style="width:7cm;height:7cm;font-size:3cm;border-width:.16cm;font-weight:600">${["۱", "۲", "۳", "۴", "۵"][i]}</span><b style="font-size:2.2cm;margin-top:.8cm;line-height:1.4;font-weight:500">${t}</b></div>`).join(""), "flow path", "");
+    [0, 2].forEach((si, i) => stat(i ? X : X + W / 2, 167, W / 2, STATS[si], 7, "center", 2.1));
   }
-  rule(10, 168, 75);
-  qr(10, 172.5, 18);
-  contact(31, 172.5, 54, 2.45, { title: "دموی زنده را از ما بخواهید", align: "flex-start" });
 }
 
 /* ═══════════════════ COUNTER · 214 × 90 (72 | 70 | 72) ═══════════════════ */
-const PANELS = [0, 72, 142, 214];
 function counter() {
   if (STYLE === "minimal") {
-    logo(89, 9, 36);
-    B(74, 45, 66, 0, lines(COPY.slogan2), "hl slogan", "font-size:5cm;line-height:1.45;text-align:center");
+    logo(89, 6.5, 36);
+    name(74, 38, 66, 3.1);
+    B(74, 46, 66, 0, lines(COPY.slogan2), "hl slogan", "font-size:5cm;line-height:1.45;text-align:center");
     url(74, 63.5, 66, 2.7, "center");
     for (const x of [26, 168]) mark(x, 24, 20);
     return;
   }
-  logo(91, 7, 32);
+  logo(93, 5, 28);
+  name(74, 29.5, 66, 2.8);
   B(74, 37.5, 66, 0, lines(COPY.slogan2), "hl slogan", "font-size:4cm;line-height:1.45;text-align:center");
   B(74, 52.5, 66, 0, "سامانه‌های مدیریت پروژه،<br>حالا با ایجنت‌های هوش مصنوعی", "muted", "font-size:2.6cm;line-height:1.55;text-align:center");
   url(74, 64, 66, 2.6, "center");
@@ -188,7 +212,7 @@ function counter() {
   // right side: the live demo
   B(148, 7.5, 60, 0, "دموی زنده را<br>همین‌جا از ما بخواهید.", "hl", "font-size:3.9cm;line-height:1.45;text-align:right");
   qr(148, 25, 29);
-  B(148, 56.5, 29, 0, "دموها، سوابق و<br>دستیار هوشمند پارس", "muted", "font-size:1.9cm;line-height:1.5;text-align:center;font-weight:500");
+  B(148, 56.5, 29, 0, "دموها، سوابق<br>و دستیار هوشمند پارس", "muted", "font-size:1.9cm;line-height:1.5;text-align:center;font-weight:500");
   contact(180.5, 27, 28, 2.2, { mail: true, align: "flex-start" });
 }
 
@@ -207,12 +231,17 @@ function swatch() {
   B(2, 24.6, 13, 0, "این QR از همه‌ی QRهای غرفه کوچک‌تر است؛<br>اگر از یک متری اسکن شد،<br>بقیه هم اسکن می‌شوند.", "muted", "font-size:.55cm;line-height:1.5;text-align:center");
   const cells = CHIPS.map(([c, n]) => `<figure style="width:5.8cm;display:flex;flex-direction:column;align-items:center"><span style="display:block;width:5.8cm;height:5.8cm;border-radius:.5cm;background:${c};border:.05cm solid var(--card-line)"></span><figcaption style="font-size:.6cm;margin-top:.35cm;color:var(--muted);text-align:center;line-height:1.35">${n}<br><span class="latin ltr" style="font-size:.55cm">${c.toUpperCase()}</span></figcaption></figure>`);
   B(17.7, 12.5, 39.3, 0, cells.join(""), "", "display:grid;grid-template-columns:repeat(6, 5.8cm);column-gap:.9cm;row-gap:.7cm");
-  B(17.7, 34.2, 39.3, 1.4, "", "", `border-radius:.7cm;background:linear-gradient(270deg, ${DARK ? "#b8b1ff, #e06bc0, #ff4fa3" : "#5b52d6, #a1308a, #df1173"})`);
-  B(17.7, 36.4, 39.3, 1.4, "", "aibar", "border-radius:.7cm;display:flex"
-  ).innerHTML = `<span class="seg ai" style="flex:1;border-radius:.7cm"></span>`;
+  // the two gradients, labelled
+  B(17.7, 34.2, 30, 1.4, "", "", `border-radius:.7cm;background:linear-gradient(270deg, ${DARK ? "#b8b1ff, #e06bc0, #ff4fa3" : "#5b52d6, #a1308a, #df1173"})`);
+  B(17.7, 36.4, 30, 1.4, "", "aibar", "border-radius:.7cm;display:flex").innerHTML = `<span class="seg ai" style="flex:1;border-radius:.7cm"></span>`;
+  B(48.5, 34.2, 8.5, 0, "واژه‌های رنگی<br><br>نوار ۹۰٪ ایجنت‌ها", "muted", "font-size:.55cm;line-height:2.03;text-align:right");
   B(3, 31.5, 13.5, 0, `<div style="font-size:1.7cm;font-weight:500;line-height:1.5">خدمات پارس</div><div style="font-size:.9cm;line-height:1.6">۱٫۷ و ۰٫۹ سانتی‌متر</div>`, "", "text-align:right");
-  // four ribbon samples (art.js) at the stroke widths the boards use, labelled
-  ["۰٫۸", "۰٫۹", "۱٫۶", "۲"].forEach((t, i) => B(17.7 + i * 10.1, 39.4, 9.2, 4.6, `<span class="muted" style="font-size:.55cm;position:absolute;bottom:0;left:0;right:0;text-align:center">خط ${t} میلی‌متر</span>`, "ribslot"));
+  // the faintest tints of the boards: the dot grid (art.js) and a card with its border
+  B(3, 37, 6.2, 4.6, "", "tintslot");
+  B(10.3, 37, 6.2, 4.6, "", "", "border-radius:.5cm;background:var(--card);border:.05cm solid var(--card-line)");
+  [[3, "نقطه‌های زمینه"], [10.3, "کارت و قاب"]].forEach(([x, t]) => B(x, 42.1, 6.2, 0, t, "muted", "font-size:.5cm;text-align:center"));
+  // four ribbon samples (art.js) from the finest to the widest thread on the boards, at the boards' opacity
+  ["۰٫۷", "۰٫۹", "۱٫۴", "۲"].forEach((t, i) => B(17.7 + i * 10.1, 39.4, 9.2, 4.6, `<span class="muted" style="font-size:.55cm;position:absolute;bottom:0;left:0;right:0;text-align:center">خط ${t} میلی‌متر</span>`, "ribslot"));
 }
 
 ({ popup, rollup1: () => rollup(1), rollup2: () => rollup(2), counter, swatch })[ITEM]();

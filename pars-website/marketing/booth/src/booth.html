@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <title>غرفه‌ی نمایشگاه — مدیریت پروژه پارس</title>
 <style>
-/* One artboard at its real printed size, in centimetres. booth.js sets the board and the page size from ?item=…&style=…&mode=…
+/* One artboard at its real printed size, in centimetres. items.js sets the board and the page size from ?item=…&style=…&mode=…
    items: popup (361 × 230: 35 return | 291 face | 35 return), rollup1 and rollup2 (95 × 210: 85 × 200 trim + 5 cm bleed),
    counter (214 × 90: 72 side | 70 front | 72 side). style: minimal | detailed. mode: light | dark. ?guides draws the
    returns, panel seams, trim and safe areas for the proof. */
@@ -54,6 +54,15 @@ svg.i { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width:
 .kicker { display: flex; align-items: center; gap: .32em; font-weight: 500; color: var(--ai); white-space: nowrap; }
 .kicker .n { font-weight: 600; color: var(--accent); }
 .kicker .rule { flex: 1; height: .06em; background: linear-gradient(90deg, transparent, var(--line)); }
+.kicker .rule.r { background: linear-gradient(270deg, transparent, var(--line)); }
+
+/* service names only (minimal roll-ups): centred rows divided by fading hairlines */
+.svclist { display: flex; flex-direction: column; }
+.svclist .li { display: flex; align-items: center; justify-content: center; font-weight: 600; color: var(--fg); line-height: 1.4;
+  background: linear-gradient(90deg, transparent, var(--line), transparent) top / 100% .05cm no-repeat; }
+.svclist .li:first-child { background: none; }
+.svclist .li svg { color: var(--icon); font-size: 1.15em; }
+.svclist .li.ai svg { color: var(--ai); }
 
 /* service rows: icon tile, title, one line of detail */
 .svc { display: flex; flex-direction: column; }
