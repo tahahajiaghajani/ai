@@ -8,8 +8,8 @@ export const JOURNEY: Role[] = [
     title: { fa: "مدیر پروژه و سرپرست تیم هوش مصنوعی", en: "Project Manager & Head of AI" },
     period: { fa: "اکنون", en: "Now" },
     body: {
-      fa: "سرپرستی تیم هوش مصنوعی شرکت مدیریت پروژه پارس؛ مدیریت سامانه‌های مدیریت پروژه‌ی بانک تجارت و مشاوره‌ی هوش مصنوعی به این بانک؛ ایجنت‌ها و دستیار هوشمند سامانه‌های پارس، و بازطراحی برند و وب‌سایت شرکت.",
-      en: "Leading the AI team at Pars Project Management; managing Bank Tejarat's project-management systems and advising the bank on AI; building the agents and AI copilot of Pars's systems, and the company's new brand and website.",
+      fa: "سرپرستی تیم هوش مصنوعی شرکت مدیریت پروژه پارس؛ مدیریت سامانه‌های مدیریت پروژه‌ی بانک تجارت و مشاوره‌ی هوش مصنوعی به این بانک، از جمله طراحی و هدایت سامانه‌ی جدید EPM بانک؛ ایجنت‌ها و دستیار هوشمند سامانه‌های پارس، و بازطراحی برند و وب‌سایت شرکت.",
+      en: "Leading the AI team at Pars Project Management; managing Bank Tejarat's project-management systems and advising the bank on AI, including designing and leading the bank's new EPM system; building the agents and AI copilot of Pars's systems, and the company's new brand and website.",
     },
   },
   {

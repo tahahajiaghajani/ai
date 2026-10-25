@@ -4,7 +4,7 @@ export const tejarat: Project = {
   slug: "tejarat-epm",
   tier: "flagship",
   featured: true,
-  title: { fa: "سامانه‌ی مدیریت پروژه‌ی بانک تجارت", en: "Bank Tejarat Project Management Systems" },
+  title: { fa: "هشدار، داشبورد و سرعت در EPM بانک تجارت", en: "Bank Tejarat EPM: alerts, dashboards & speed" },
   kicker: { fa: "سیستم‌های سازمانی · بانکداری", en: "Enterprise systems · Banking" },
   oneLiner: {
     fa: "هشدارهای پیامکی که با گزارش‌های رسمی یکی شدند، داشبوردی که مدیریت‌ها را درست می‌بیند و پروفایل پروژه‌ای که چند برابر سریع‌تر باز می‌شود؛ روی EPM بانک، با صفر خطای اجرایی.",

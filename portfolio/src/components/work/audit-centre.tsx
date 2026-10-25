@@ -6,8 +6,9 @@ import { num } from "@/lib/i18n";
 
 /**
  * The audit-centre idea, as a toy organisation: open an audit file on any level. In a project-only system
- * (the old PWA) a file above project level needs a placeholder project for that level and every level up to
- * it; in Renew the file attaches to the level itself and inherits everything beneath it.
+ * (the old PWA) a file above project level needs a placeholder project for that level and for every level
+ * between it and the projects; in the new system the file is built on the level itself and covers what lies
+ * beneath it.
  */
 
 type Node = { id: string; level: 0 | 1 | 2 | 3; parent: string | null; x: number };
@@ -42,10 +43,6 @@ const NODES: Node[] = (() => {
 const byId = new Map(NODES.map((n) => [n.id, n]));
 const children = (id: string) => NODES.filter((n) => n.parent === id);
 const descendants = (id: string): Node[] => children(id).flatMap((c) => [c, ...descendants(c.id)]);
-const ancestors = (id: string): Node[] => {
-  const n = byId.get(id);
-  return n?.parent ? [byId.get(n.parent)!, ...ancestors(n.parent)] : [];
-};
 
 const W = 1000;
 const H = 400;
@@ -53,14 +50,15 @@ const Y = [50, 150, 250, 350];
 
 export function AuditCentre({ lang }: { lang: Lang }) {
   const fa = lang === "fa";
-  const [mode, setMode] = useState<"pwa" | "renew">("renew");
+  const [mode, setMode] = useState<"pwa" | "new">("new");
   const [open, setOpen] = useState<string>("d1");
 
   const target = byId.get(open)!;
   const scope = useMemo(() => new Set([open, ...descendants(open).map((n) => n.id)]), [open]);
-  const projectsInScope = descendants(open).filter((n) => n.level === 3).length + (target.level === 3 ? 1 : 0);
-  // a project-only system: the file is itself a project, and rolling it up needs one per level above projects
-  const placeholders = mode === "pwa" && target.level < 3 ? [target, ...ancestors(open)].filter((n) => n.level < 3) : [];
+  const covered = mode === "new" ? descendants(open).filter((n) => n.level === 3).length + (target.level === 3 ? 1 : 0) : 0;
+  // a project-only system: the file is itself a project, and every level between it and the projects needs one too
+  const placeholders = mode === "pwa" && target.level < 3 ? [target, ...descendants(open).filter((n) => n.level < 3)] : [];
+  const lit = (id: string) => (mode === "new" ? scope.has(id) : id === open);
 
   const label = (n: Node) => {
     const i = n.level === 0 ? 0 : NODES.filter((m) => m.level === n.level).findIndex((m) => m.id === n.id) + 1;
@@ -72,9 +70,9 @@ export function AuditCentre({ lang }: { lang: Lang }) {
       <div className="flex flex-wrap items-center justify-between gap-3 bg-bg-2 px-4 py-3 md:px-6">
         <p className="text-[0.8rem] text-muted">{fa ? "روی هر سطح بزنید تا پرونده‌ی حسابرسی آن باز شود" : "Tap any level to open its audit file"}</p>
         <div className="flex overflow-hidden rounded-full border border-line text-[0.72rem]" role="group" aria-label={fa ? "سامانه" : "System"}>
-          {(["pwa", "renew"] as const).map((m) => (
+          {(["pwa", "new"] as const).map((m) => (
             <button key={m} type="button" aria-pressed={mode === m} onClick={() => setMode(m)} className={`px-3.5 py-1.5 transition-colors ${mode === m ? "bg-fg text-bg" : "text-muted hover:text-fg"}`}>
-              {m === "pwa" ? (fa ? "PWA قدیمی" : "Old PWA") : "Renew"}
+              {m === "pwa" ? (fa ? "PWA قدیمی" : "Old PWA") : fa ? "سامانه‌ی جدید" : "New system"}
             </button>
           ))}
         </div>
@@ -95,20 +93,19 @@ export function AuditCentre({ lang }: { lang: Lang }) {
             {/* tree edges */}
             {NODES.filter((n) => n.parent).map((n) => {
               const p = byId.get(n.parent!)!;
-              const on = scope.has(n.id) && scope.has(p.id);
+              const on = mode === "new" && scope.has(n.id) && scope.has(p.id);
               return <line key={`e-${n.id}`} x1={p.x * W} y1={Y[p.level] + 16} x2={n.x * W} y2={Y[n.level] - 16} stroke="currentColor" strokeOpacity={on ? 0.75 : 0.18} strokeWidth={on ? 1.5 : 1} className="transition-all duration-500" />;
             })}
             {/* placeholder projects the old system needs, drawn beside each level */}
-            {placeholders.map((n, i) => (
-              <g key={`ph-${n.id}`} transform={`translate(${n.x * W + 70} ${Y[n.level] - 14})`} className="transition-opacity duration-500">
-                <rect width={92} height={28} rx={4} fill="none" stroke="currentColor" strokeDasharray="4 4" />
-                <text x={46} y={18} textAnchor="middle" className="fill-current font-mono text-[10px]">placeholder {i + 1}</text>
-                <line x1={-22} x2={0} y1={14} y2={14} stroke="currentColor" strokeDasharray="2 3" opacity={0.6} />
+            {placeholders.map((n) => (
+              <g key={`ph-${n.id}`} transform={`translate(${n.x * W + 24} ${Y[n.level] - 30})`}>
+                <rect width={34} height={20} rx={3} fill="var(--bg)" stroke="currentColor" strokeDasharray="3 3" />
+                <text x={17} y={14} textAnchor="middle" className="fill-current font-mono text-[10px]">+P</text>
               </g>
             ))}
             {/* nodes */}
             {NODES.map((n) => {
-              const inScope = scope.has(n.id);
+              const inScope = lit(n.id);
               const isOpen = n.id === open;
               const r = n.level === 3 ? 11 : 16;
               return (
@@ -141,22 +138,22 @@ export function AuditCentre({ lang }: { lang: Lang }) {
               <dd className="latin mt-2 text-4xl font-semibold tracking-[-0.04em]">{num(lang, placeholders.length)}</dd>
             </div>
             <div className="bg-bg p-4">
-              <dt className="text-[0.75rem] text-muted">{fa ? "پروژه‌های زیر پرونده" : "Projects under the file"}</dt>
-              <dd className="latin mt-2 text-4xl font-semibold tracking-[-0.04em]">{num(lang, projectsInScope)}</dd>
+              <dt className="text-[0.75rem] text-muted">{fa ? "پروژه‌هایی که خودکار پوشش می‌دهد" : "Projects it covers by itself"}</dt>
+              <dd className="latin mt-2 text-4xl font-semibold tracking-[-0.04em]">{num(lang, covered)}</dd>
             </div>
           </dl>
           <pre className="code overflow-hidden rounded-[4px] border border-line bg-bg p-4 text-[0.72rem] leading-[1.75]" dir="ltr" aria-live="polite">
             <span className="t-p">{"{"}</span>
             {"\n  "}<span className="t-s">&quot;file&quot;</span>: <span className="t-s">&quot;audit&quot;</span>,
             {"\n  "}<span className="t-s">&quot;attached_to&quot;</span>: <span className="t-k">{mode === "pwa" && target.level < 3 ? "\"placeholder project\"" : `"${LEVELS[target.level].en.toLowerCase()}"`}</span>,
-            {"\n  "}<span className="t-s">&quot;inherits&quot;</span>: <span className="t-n">{mode === "renew" ? descendants(open).length : 0}</span><span className="t-c">{mode === "renew" ? " // levels and projects beneath" : " // copied by hand"}</span>,
+            {"\n  "}<span className="t-s">&quot;covers&quot;</span>: <span className="t-n">{mode === "new" ? descendants(open).length : 0}</span><span className="t-c">{mode === "new" ? " // levels and projects beneath it" : " // gathered by hand"}</span>,
             {"\n  "}<span className="t-s">&quot;extra_projects&quot;</span>: <span className="t-n">{placeholders.length}</span>
             {"\n"}<span className="t-p">{"}"}</span>
           </pre>
           <p className="text-[0.8rem] leading-relaxed text-muted">
             {fa
-              ? "در سامانه‌ای که همه‌چیز در آن پروژه است، پرونده‌ای بالاتر از پروژه یعنی ثبت یک پروژه‌ی ساختگی برای همان سطح و هر سطح بالاتر. در Renew پرونده به خود سطح سازمانی وصل می‌شود و هرچه زیر آن است را به ارث می‌برد. سازمان و عددها نمادین‌اند."
-              : "In a system where everything is a project, a file above project level means registering a placeholder project for that level and every level above it. In Renew the file attaches to the organisational level itself and inherits everything beneath it. The organisation and numbers are illustrative."}
+              ? "در سامانه‌ای که همه‌چیز در آن پروژه است، پرونده‌ای بالاتر از پروژه یعنی ثبت پروژه‌ی ساختگی (+P) برای همان سطح و هر سطح میان آن و پروژه‌ها، و جمع کردن دستی بقیه. در سامانه‌ی جدید پرونده روی خود سطح سازمانی ساخته می‌شود و آنچه زیر آن است را دربر می‌گیرد. این یک نمایش نمادین از ایده است؛ سازمان و عددها واقعی نیستند."
+              : "In a system where everything is a project, a file above project level means registering a placeholder project (+P) for that level and every level between it and the projects, and gathering the rest by hand. In the new system the file is built on the organisational level itself and covers what lies beneath it. This is an illustration of the idea; the organisation and numbers are not real."}
           </p>
         </div>
       </div>
