@@ -10,6 +10,7 @@ import { Diagram } from "@/components/work/diagram";
 import { CodeBlock } from "@/components/work/code-block";
 import { HoleInspector } from "@/components/work/hole-inspector";
 import { DagPlayer } from "@/components/work/dag-player";
+import { AuditCentre } from "@/components/work/audit-centre";
 import { Prose } from "@/components/work/prose";
 
 const SPAN: Record<Span, string> = {
@@ -94,6 +95,13 @@ export function CaseStudy({ p, lang }: { p: Project; lang: Lang }) {
         <section className="mx-auto max-w-[1800px] px-5 pt-24 md:px-10 md:pt-32">
           <Label>{fa ? "بازپخش داده‌ی واقعی" : "Replay the real data"}</Label>
           <HoleInspector lang={lang} />
+        </section>
+      ) : null}
+
+      {p.interactive === "audit-centre" ? (
+        <section className="mx-auto max-w-[1800px] px-5 pt-24 md:px-10 md:pt-32">
+          <Label>{fa ? "ایده‌ی مرکز حسابرسی" : "The audit-centre idea"}</Label>
+          <AuditCentre lang={lang} />
         </section>
       ) : null}
 

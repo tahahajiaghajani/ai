@@ -78,7 +78,7 @@ export interface Project {
   /** shown under the facts when details are withheld (client confidentiality) */
   note?: L;
   /** a bespoke interactive piece shown after the architecture */
-  interactive?: "hole-inspector" | "dag-player";
+  interactive?: "hole-inspector" | "dag-player" | "audit-centre";
   /** featured projects lead the home rail; the rest sit in the index */
   featured?: boolean;
   /** "lab" = research and plans, kept apart from shipped work */
