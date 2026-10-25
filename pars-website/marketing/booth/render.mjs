@@ -134,7 +134,11 @@ for (const [item, dims] of Object.entries(ITEMS)) {
     // preview from the print PDF itself, about 2400 px on the long side
     execFileSync("pdftoppm", ["-png", "-scale-to", "2400", "-singlefile", print, preview]);
     // without --jpg this file's JPEG was removed above, so out/jpg never holds an older design or address
-    if (JPG) execFileSync("pdftoppm", ["-jpeg", "-jpegopt", "quality=92", "-r", String(item === "popup" ? 100 : 150), "-singlefile", print, jpg]);
+    // whole pixels only: a partial last pixel would blend the edge with what lies beyond the page
+    if (JPG) {
+      const dpi = item === "popup" ? 100 : 150, px = (cm) => String(Math.floor((cm / 2.54) * dpi));
+      execFileSync("pdftoppm", ["-jpeg", "-jpegopt", "quality=92", "-r", String(dpi), "-x", "0", "-y", "0", "-W", px(dims[0]), "-H", px(dims[1]), "-singlefile", print, jpg]);
+    }
     console.log("✓", name);
   }
 }

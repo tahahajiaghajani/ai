@@ -54,8 +54,11 @@ const LOGO = DARK ? "assets/pars-logo-reverse.svg" : "assets/pars-logo.svg";
 const MARK = DARK ? "assets/pars-mark-reverse.svg" : "assets/pars-mark.svg";
 
 const board = document.getElementById("board");
-board.style.width = SIZE.w + "cm";
-board.style.height = SIZE.h + "cm";
+// the board runs 1 mm past the right and bottom edge of the file: Chromium snaps the board's clip to whole CSS px, so
+// without the overscan the last fraction of a millimetre before the cut would show the page colour instead of the art
+const OVER = 0.1;
+board.style.width = SIZE.w + OVER + "cm";
+board.style.height = SIZE.h + OVER + "cm";
 const page = document.createElement("style");
 // Chromium rounds the page size down to 0.01 in, which would leave the last fraction of a millimetre blank: the page gets
 // 1 mm more than the board and render.mjs crops it back to the exact size from the top-left corner
@@ -184,14 +187,14 @@ function rollup(k) {
     contact(X + 20, y + 3.4, W - 20, 2.4, { title: "دموی زنده را از ما بخواهید", align: "flex-start" });
   };
   if (k === 1) {
-    B(X, 44, W, 0, lines(["سامانه‌های مدیریت پروژه،", 'حالا با <span class="g">ایجنت‌های هوش مصنوعی</span>.']), "hl head fit", "font-size:4.9cm;line-height:1.45;text-align:right");
+    B(X, 44, W - 1, 0, lines(["سامانه‌های مدیریت پروژه،", 'حالا با <span class="g">ایجنت‌های هوش مصنوعی</span>.']), "hl head fit", "font-size:4.9cm;line-height:1.45;text-align:right");
     services(X, 62, W, ["agents", "epm", "custom", "data"], 3.15, 2);
     demo(129.5);
     B(X, 159, W, 0, `<div class="aibar"><div class="cap" style="font-size:3.1cm;font-weight:600;line-height:1.5">تا ۹۰٪ کارهای تکراری، خودکار با ایجنت‌ها</div>
       <div class="bar" style="display:flex;gap:.6cm;margin-top:1.3cm;height:2.8cm"><span class="seg ai" style="flex:9;border-radius:1.4cm"></span><span class="seg hu" style="flex:1;border-radius:1.4cm"></span></div>
       <div style="display:flex;justify-content:space-between;font-size:2.3cm;color:var(--muted);margin-top:.8cm"><span>ایجنت‌های پارس</span><span>تأیید انسانی</span></div></div>`, "", "");
   } else {
-    B(X, 44, W, 0, lines(["از آموزش تا استقرار،", '<span class="g">کنار تیم شما</span>.']), "hl head fit", "font-size:5.6cm;line-height:1.45;text-align:right");
+    B(X, 44, W - 1, 0, lines(["از آموزش تا استقرار،", '<span class="g">کنار تیم شما</span>.']), "hl head fit", "font-size:5.6cm;line-height:1.45;text-align:right");
     services(X, 64, W, ["academy", "consult", "migration"], 3, 1.5);
     demo(115.5);
     kicker(X, 141, W, "", "مسیر همکاری", 2.4);
@@ -250,7 +253,7 @@ function swatch() {
   B(10.3, 37, 6.2, 4.6, "", "", "border-radius:.5cm;background:var(--card);border:.05cm solid var(--card-line)");
   [[3, "نقطه‌های زمینه"], [10.3, "کارت و قاب"]].forEach(([x, t]) => B(x, 42.1, 6.2, 0, t, "muted", "font-size:.5cm;text-align:center"));
   // four ribbon samples (art.js) from the finest to the widest thread on the boards, at the boards' opacity
-  ["۰٫۷", "۰٫۹", "۱٫۴", "۲"].forEach((t, i) => B(17.7 + i * 10.1, 39.4, 9.2, 4.6, `<span class="muted" style="font-size:.55cm;position:absolute;bottom:0;left:0;right:0;text-align:center">خط ${t} میلی‌متر</span>`, "ribslot"));
+  ["۰٫۷ تا ۰٫۹", "۰٫۹ تا ۱٫۲", "۱٫۴ تا ۱٫۸", "۲ تا ۲٫۶"].forEach((t, i) => B(17.7 + i * 10.1, 39.4, 9.2, 4.6, `<span class="muted" style="font-size:.55cm;position:absolute;bottom:0;left:0;right:0;text-align:center">خط ${t} میلی‌متر</span>`, "ribslot"));
 }
 
 ({ popup, rollup1: () => rollup(1), rollup2: () => rollup(2), counter, swatch })[ITEM]();
