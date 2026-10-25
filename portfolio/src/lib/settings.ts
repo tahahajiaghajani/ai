@@ -27,20 +27,18 @@ export async function loadSettings(): Promise<{ settings: Settings; sha: string 
 // failures throw, and unstable_cache never stores a thrown result
 const cached = unstable_cache(async (_repo: string) => (await loadSettings()).settings, ["portfolio-settings-v1"], { tags: ["settings"], revalidate: 300 });
 
-let lastGood: Settings | null = null;
-
 /**
- * The panel's settings (cached up to five minutes, refreshed at once after a save). When they cannot be read, the
- * last ones this instance read are used, else everything that sends visitor text elsewhere stays off.
+ * The panel's settings (cached up to five minutes, refreshed at once after a save). A cached copy keeps being used
+ * while GitHub is unreachable; with none (a fresh start, or right after a save) everything that sends visitor text
+ * elsewhere stays off until the file can be read, so a just-saved "off" is never undone by an older copy.
  */
 export async function getSettings(): Promise<Settings> {
   if (!ghConfigured()) return DEFAULT_SETTINGS;
   try {
-    lastGood = await cached(env.githubRepo);
-    return lastGood;
+    return await cached(env.githubRepo);
   } catch (e) {
     console.error("[settings] unreadable", e instanceof Error ? e.message : e);
-    return lastGood ?? CLOSED_SETTINGS;
+    return CLOSED_SETTINGS;
   }
 }
 

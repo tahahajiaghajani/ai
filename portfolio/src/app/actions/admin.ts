@@ -43,21 +43,30 @@ export async function ownerReply(_prev: ReplyState, form: FormData): Promise<Rep
   const n = number(form);
   const body = text(form, "body", 6000);
   if (body.length < 2) return { ok: false, error: "متن پاسخ خالی است." };
+  // a failure leaves the page as it is (a refresh while GitHub is down would replace the form with an error page)
+  let r;
+  try {
+    r = await getRequest(n);
+  } catch (e) {
+    return { ok: false, error: `ارسال نشد (${why(e)})؛ متن پاسخ سر جایش است، کمی بعد دوباره بفرستید.` };
+  }
+  if (!r) return { ok: false, error: "درخواست پیدا نشد." };
   let sent;
   try {
-    const r = await getRequest(n);
-    if (!r) return { ok: false, error: "درخواست پیدا نشد." };
     sent = await addMessage(r, "owner", body);
   } catch (e) {
-    // a timeout can still have created the comment, so the page is refreshed either way and shows what GitHub has
+    // a timeout or dropped connection may still have created the comment: only then is the page refreshed to show it
+    const unsure = e instanceof GhError && e.status === 0;
+    if (!unsure) return { ok: false, error: `ارسال نشد (${why(e)})؛ متن پاسخ سر جایش است، دوباره بفرستید.` };
     revalidatePath(`/admin/requests/${n}`);
-    return { ok: false, error: `ارسال نشد (${why(e)}). متن پاسخ سر جایش است؛ اگر در فهرست پیام‌ها نیامده، دوباره بفرستید.` };
+    return { ok: false, error: `معلوم نیست ارسال شد (${why(e)}). متن پاسخ سر جایش است؛ اگر در فهرست پیام‌ها نیامده، دوباره بفرستید.` };
   }
   let warning = sent.updated ? undefined : "پاسخ فرستاده شد، ولی وضعیت درخواست به‌روز نشد؛ وضعیت را از دکمه‌های بالا عوض کنید.";
   const status = text(form, "status", 20);
   if (isStatus(status) && status !== "answered") {
     try {
       await setStatus(n, status);
+      warning = undefined;
     } catch (e) {
       warning = `پاسخ فرستاده شد، ولی وضعیت «${ui.track.status[status].fa}» ذخیره نشد (${why(e)})؛ از دکمه‌های بالا دوباره امتحان کنید.`;
     }

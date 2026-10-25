@@ -4,7 +4,7 @@ import { revalidateTag, unstable_cache } from "next/cache";
 import { env } from "@/lib/env";
 import { safeEqual, sign, verifiers } from "@/lib/crypto";
 import { allow } from "@/lib/rate-limit";
-import { addComment, assertPrivateRepo, createIssue, getIssue, listComments, listIssues, updateIssue, type GhIssue } from "@/lib/github";
+import { addComment, assertPrivateRepo, createIssue, getIssue, listComments, listIssues, PublicRepoError, updateIssue, type GhIssue } from "@/lib/github";
 import { getRuntime, complete, parseJsonObject } from "@/lib/ai/runtime";
 import { getKnowledge } from "@/lib/knowledge";
 import { selectKnowledge, entryText } from "@/lib/retrieval";
@@ -106,25 +106,37 @@ function changed(n: number): void {
 }
 
 /**
- * What the tracking page shows: the request and its messages, private notes left out. Cached for 30 seconds per
- * request and dropped on every change from the site, so reloading a link costs GitHub nothing; misses are capped
- * per instance, and nothing is shown while the repository is public.
+ * What the tracking page shows: the request and its newest messages, private notes left out. Cached per request for
+ * five minutes and dropped on every change made from the site, so reloading a link costs GitHub nothing; misses are
+ * capped per instance well under the token's hourly quota. Privacy is checked outside the cache, so a stale copy is
+ * never shown once the repository is public (an unreachable GitHub still lets cached pages show).
  */
 export async function trackRequest(code: string, key: string | null | undefined): Promise<{ request: RequestRow; messages: Message[] } | null> {
   const n = keyFor(code, key);
   if (n === null) return null;
+  try {
+    await assertPrivateRepo();
+  } catch (e) {
+    if (e instanceof PublicRepoError) throw e;
+  }
   const read = unstable_cache(
     async (repo: string, number: number) => {
-      if (!(await allow("track:github", 3600, 1500))) throw new Error("busy");
-      await assertPrivateRepo();
+      if (!(await allow("track:github", 3600, 300))) throw new Error("busy");
       const request = await getRequest(number);
-      return request ? { request, messages: (await listMessages(number)).filter((m) => m.author !== "note") } : null;
+      // not cached: a request GitHub does not return (yet) is looked up again on the next view
+      if (!request) throw new Error("gone");
+      return { request, messages: (await listMessages(number)).filter((m) => m.author !== "note").slice(-60) };
     },
-    ["portfolio-track-v1"],
-    { tags: [tag(n)], revalidate: 30 },
+    ["portfolio-track-v2"],
+    { tags: [tag(n)], revalidate: 300 },
   );
-  const t = await read(env.githubRepo, n);
-  return t && t.request.code === code ? t : null;
+  try {
+    const t = await read(env.githubRepo, n);
+    return t.request.code === code ? t : null;
+  } catch (e) {
+    if (e instanceof Error && e.message === "gone") return null;
+    throw e;
+  }
 }
 
 /** Newest first (up to 200). */
@@ -154,24 +166,29 @@ export async function listMessages(number: number): Promise<Message[]> {
   return (await listComments(number)).map(parseComment);
 }
 
+/** Moves the status along after a message: Taha's reply answers it, a visitor's follow-up puts it back in review. */
+export async function markMessage(number: number, author: "visitor" | "owner", at: string): Promise<void> {
+  await updateRequest(number, (d) =>
+    author === "owner"
+      ? { ...d, status: d.status === "closed" ? "closed" : "answered", last_owner_at: at }
+      : { ...d, status: d.status === "new" ? "new" : "reviewing", last_visitor_at: at },
+  );
+}
+
 /**
  * Posts a message, then moves the status along. Once the comment exists the message is sent: a failed status update
  * afterwards is reported as `updated: false` instead of an error, so nobody is told to send it again.
  */
-export async function addMessage(r: RequestRow, author: "visitor" | "owner", body: string): Promise<{ updated: boolean }> {
+export async function addMessage(r: RequestRow, author: "visitor" | "owner", body: string): Promise<{ updated: boolean; at: string }> {
   await addComment(r.number, messageComment(author, body.slice(0, 6000)));
   changed(r.number);
-  const now = new Date().toISOString();
+  const at = new Date().toISOString();
   try {
-    await updateRequest(r.number, (d) =>
-      author === "owner"
-        ? { ...d, status: d.status === "closed" ? "closed" : "answered", last_owner_at: now }
-        : { ...d, status: d.status === "new" ? "new" : "reviewing", last_visitor_at: now },
-    );
-    return { updated: true };
+    await markMessage(r.number, author, at);
+    return { updated: true, at };
   } catch (e) {
     console.error("[requests] message sent, status not updated", e instanceof Error ? e.message : e);
-    return { updated: false };
+    return { updated: false, at };
   }
 }
 
@@ -247,6 +264,7 @@ export async function noticeNewRequest(number: number): Promise<void> {
   );
 }
 
-export async function noticeVisitorMessage(r: RequestRow, body: string): Promise<void> {
-  await notifyOwner(`💬 پیام تازه در ${r.code}\n${r.subject}\n\n${body.slice(0, 600)}\n\n${env.siteUrl}/admin/requests/${r.number}`);
+export async function noticeVisitorMessage(r: RequestRow, body: string, statusSaved = true): Promise<void> {
+  const note = statusSaved ? "" : "\n⚠️ وضعیت درخواست به‌روز نشد؛ در پنل ببینید.";
+  await notifyOwner(`💬 پیام تازه در ${r.code}\n${r.subject}\n\n${body.slice(0, 600)}${note}\n\n${env.siteUrl}/admin/requests/${r.number}`);
 }

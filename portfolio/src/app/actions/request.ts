@@ -5,7 +5,7 @@ import { headers } from "next/headers";
 import { clientIp, hashIp, hasSecret } from "@/lib/crypto";
 import { ghConfigured } from "@/lib/github";
 import { allow, allowAi } from "@/lib/rate-limit";
-import { addMessage, createRequest, getRequest, getRequestByKey, noticeNewRequest, noticeVisitorMessage, triageRequest, visitorTriage } from "@/lib/requests";
+import { addMessage, createRequest, getRequest, getRequestByKey, markMessage, noticeNewRequest, noticeVisitorMessage, triageRequest, visitorTriage } from "@/lib/requests";
 import { isKind, normalizeCode, type VisitorTriage } from "@/lib/request-meta";
 
 export type SubmitResult =
@@ -100,15 +100,22 @@ export async function replyToRequest(form: FormData): Promise<ReplyResult> {
   const body = field(form, "body", 4000);
   if (body.length < 2) return { ok: false, error: "invalid" };
   const h = await headers();
-  if (!(await allow(`req:msg:${hashIp(clientIp(h))}`, 3600, 15))) return { ok: false, error: "rate" };
+  // per visitor, and a ceiling for the whole instance well under GitHub's limits on creating content
+  if (!(await allow(`req:msg:${hashIp(clientIp(h))}`, 3600, 15)) || !(await allow("req:msg:all", 3600, 60))) return { ok: false, error: "rate" };
   const r = await getRequestByKey(code, key).catch(() => null);
   if (!r) return { ok: false, error: "denied" };
   if (r.status === "closed") return { ok: false, error: "closed" };
+  let sent;
   try {
-    await addMessage(r, "visitor", body);
+    sent = await addMessage(r, "visitor", body);
   } catch {
     return { ok: false, error: "failed" };
   }
-  after(() => noticeVisitorMessage(r, body));
+  after(async () => {
+    // the message is posted; a status that could not be saved is tried once more, and Taha is told if it still fails
+    let saved = sent.updated;
+    if (!saved) saved = await markMessage(r.number, "visitor", sent.at).then(() => true, () => false);
+    await noticeVisitorMessage(r, body, saved);
+  });
   return { ok: true };
 }

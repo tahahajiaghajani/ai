@@ -163,7 +163,7 @@ function GitHubCard({ r, onDone }: { r: ConnectionReport; onDone: () => void }) 
         {g.issues !== null ? <Row ok={g.issues}>{g.issues ? "Issues فعال است." : "Issues در این مخزن خاموش است؛ در Settings → Features روشنش کنید."}</Row> : null}
         {g.settingsError ? (
           <Row ok={false}>
-            <Code>settings.json</Code> خوانده نشد ({g.settingsError})؛ تا درست نشود دستیار و اعلان خاموش می‌مانند. فایل را در GitHub درست کنید، یا پاکش کنید و «آماده‌سازی مخزن» را بزنید.
+            <Code>settings.json</Code> خوانده نشد ({g.settingsError}). تا درست شود، سایت با آخرین تنظیماتی که خوانده کار می‌کند (و اگر تازه بالا آمده، دستیار و اعلان خاموش می‌مانند)؛ وضعیت کارت‌های هوش مصنوعی و اعلان هم قابل اعتماد نیست. فایل را در GitHub درست کنید. پاک کردنش همه‌چیز را به پیش‌فرض برمی‌گرداند (دستیار روشن، و کلید و ربات Vercel اگر باشند) و کلید و توکن ذخیره‌شده را هم پاک می‌کند.
           </Row>
         ) : null}
         {g.reachable ? (
@@ -231,6 +231,11 @@ function SecurityCard({ r }: { r: ConnectionReport }) {
         {s.previous ? (
           <Row ok>
             <Code>APP_SECRET_PREVIOUS</Code> تنظیم است: کلیدهای ذخیره‌شده و پیوندهای پیگیری ساخته‌شده با مقدار قبلی هم کار می‌کنند.
+          </Row>
+        ) : null}
+        {s.reencrypt ? (
+          <Row ok={false}>
+            کلید هوش مصنوعی یا توکن ربات هنوز با مقدار قبلی رمز شده؛ در هر دو کارت یک بار «ذخیره» بزنید (کادرها خالی بمانند) تا با <Code>APP_SECRET</Code> تازه رمز شوند. بعد از آن می‌توانید <Code>APP_SECRET_PREVIOUS</Code> را پاک کنید.
           </Row>
         ) : null}
       </ul>

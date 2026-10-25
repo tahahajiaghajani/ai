@@ -2,7 +2,7 @@
 
 import { updateTag } from "next/cache";
 import { assertAdmin } from "@/lib/admin-auth";
-import { decrypt, encrypt, hasSecret, hint } from "@/lib/crypto";
+import { decrypt, encrypt, hasSecret, hint, reencrypt } from "@/lib/crypto";
 import { env } from "@/lib/env";
 import { ensureLabels, getFile, ghConfigured, GhError, putFile } from "@/lib/github";
 import { complete, runtimeFor } from "@/lib/ai/runtime";
@@ -85,7 +85,8 @@ export async function saveAi(input: { enabled: boolean; apiKey?: string; clearKe
       ...s,
       ai: {
         enabled: input.enabled,
-        keyEnc: input.clearKey ? "" : key ? encrypt(key) : s.ai.keyEnc,
+        // a plain save also re-encrypts the stored key with the current APP_SECRET (after a rotation)
+        keyEnc: input.clearKey ? "" : key ? encrypt(key) : s.ai.keyEnc && (reencrypt(s.ai.keyEnc) || s.ai.keyEnc),
         keyHint: input.clearKey ? "" : key ? hint(key) : s.ai.keyHint,
         models: parseModels(input.models),
       },
@@ -155,7 +156,7 @@ export async function saveNotify(input: { channel: NotifyChannel; token?: string
         ...s,
         notify: {
           channel,
-          tokenEnc: input.clearToken ? "" : token ? encrypt(token) : s.notify.tokenEnc,
+          tokenEnc: input.clearToken ? "" : token ? encrypt(token) : s.notify.tokenEnc && (reencrypt(s.notify.tokenEnc) || s.notify.tokenEnc),
           tokenHint: input.clearToken ? "" : token ? hint(token) : s.notify.tokenHint,
           tokenChannel: input.clearToken ? "" : token && channel !== "none" ? channel : s.notify.tokenChannel,
           chatId,

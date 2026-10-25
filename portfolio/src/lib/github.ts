@@ -67,6 +67,13 @@ export async function gh<T = unknown>(method: string, path: string, body?: unkno
   }
 }
 
+/** The data repository is public: nothing is written to it and no tracking page is shown. */
+export class PublicRepoError extends GhError {
+  constructor() {
+    super("the data repository is public; make it private", 403);
+  }
+}
+
 let privateSince = 0;
 
 /**
@@ -78,7 +85,7 @@ export async function assertPrivateRepo(): Promise<void> {
   if (Date.now() - privateSince < 60_000) return;
   const r = await gh<{ private: boolean }>("GET", "");
   if (!r.ok || !r.data) throw new GhError(r.message, r.status, isRateLimit(r));
-  if (r.data.private !== true) throw new GhError("the data repository is public; make it private", 403);
+  if (r.data.private !== true) throw new PublicRepoError();
   privateSince = Date.now();
 }
 

@@ -62,6 +62,27 @@ export function decrypt(box: string | null | undefined): string {
   return "";
 }
 
+/** Re-encrypts a saved value with the current secret (after a rotation); "" when it cannot be read at all. */
+export function reencrypt(box: string): string {
+  const plain = decrypt(box);
+  return plain ? encrypt(plain) : "";
+}
+
+/** A saved value that only APP_SECRET_PREVIOUS can still open (it is re-encrypted by the next save in the panel). */
+export function needsReencrypt(box: string | null | undefined): boolean {
+  if (!box || !hasSecret()) return false;
+  const [v, iv, tag, ct] = box.split(".");
+  if (v !== "v1" || !iv || !tag || !ct) return false;
+  try {
+    const d = createDecipheriv("aes-256-gcm", derive("enc", env.appSecret), Buffer.from(iv, "base64url"));
+    d.setAuthTag(Buffer.from(tag, "base64url"));
+    Buffer.concat([d.update(Buffer.from(ct, "base64url")), d.final()]);
+    return false;
+  } catch {
+    return Boolean(decrypt(box));
+  }
+}
+
 /** The last four characters, for showing which key is saved without showing the key. */
 export function hint(secret: string): string {
   return secret.length > 8 ? `…${secret.slice(-4)}` : "…";

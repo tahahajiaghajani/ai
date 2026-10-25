@@ -1,7 +1,7 @@
 import "server-only";
 import { headers } from "next/headers";
 import { assertAdmin } from "@/lib/admin-auth";
-import { decrypt, MIN_SECRET } from "@/lib/crypto";
+import { decrypt, MIN_SECRET, needsReencrypt } from "@/lib/crypto";
 import { env } from "@/lib/env";
 import { getFile, gh, ghConfigured } from "@/lib/github";
 import { GEMINI_CHAIN } from "@/lib/ai/runtime";
@@ -38,7 +38,14 @@ export interface ConnectionReport {
     tokenExpiresRaw: string;
     rateRemaining: number | null;
   };
-  security: { status: Status; adminPassword: boolean; appSecret: "ok" | "short" | "missing"; previous: boolean };
+  security: {
+    status: Status;
+    adminPassword: boolean;
+    appSecret: "ok" | "short" | "missing";
+    previous: boolean;
+    /** a saved key or token still opens only with APP_SECRET_PREVIOUS */
+    reencrypt: boolean;
+  };
   ai: {
     status: Status;
     enabled: boolean;
@@ -144,10 +151,11 @@ export async function connectionReport(): Promise<ConnectionReport> {
     adminPassword: Boolean(env.adminPassword),
     appSecret: !secret ? "missing" : secret.length < MIN_SECRET ? "short" : "ok",
     previous: Boolean(env.appSecretPrevious),
+    reencrypt: needsReencrypt(settings.ai.keyEnc) || needsReencrypt(settings.notify.tokenEnc),
     status: "ok",
   };
   // a short secret is refused (the panel and tracking links stay off), so it is an error, not a warning
-  security.status = !security.adminPassword || security.appSecret !== "ok" ? "error" : "ok";
+  security.status = !security.adminPassword || security.appSecret !== "ok" ? "error" : security.reencrypt ? "warn" : "ok";
 
   const panelKey = decrypt(settings.ai.keyEnc);
   const keyUnreadable = Boolean(settings.ai.keyEnc) && !panelKey;
@@ -191,6 +199,12 @@ export async function connectionReport(): Promise<ConnectionReport> {
     // nothing set up yet is "optional", not a problem; a bot that is set up but fails is
     status: notifySource === "none" ? (tokenUnreadable || tokenOtherChannel ? "warn" : "off") : !botLive?.ok ? (botLive?.error === "network" ? "warn" : "error") : botLive.chatOk === false ? "error" : "ok",
   };
+
+  // with settings.json unreadable these cards show the defaults, not what the site is using: never call them ready
+  if (g.settingsError) {
+    if (ai.status !== "error") ai.status = "warn";
+    if (notify.status !== "error") notify.status = "warn";
+  }
 
   const configured = env.siteUrl;
   const current = await currentOrigin();
