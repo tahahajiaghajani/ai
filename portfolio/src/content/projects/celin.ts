@@ -1,0 +1,97 @@
+import type { Project } from "@/content/types";
+
+export const celin: Project = {
+  slug: "celin",
+  tier: "work",
+  featured: true,
+  title: { fa: "سلین: وب‌سایت فاخر با قیمت خصوصی", en: "CELIN: a luxury site with private pricing" },
+  kicker: { fa: "طراحی تجربه، موشن و فول‌استک · پروژه‌ی مشتری", en: "Experience design, motion & full-stack · Client project" },
+  oneLiner: {
+    fa: "وب‌سایت دوزبانه‌ی رسمی برند بیست‌ساله‌ی زیورآلات سلین: در نما نور ابریشمی WebGL، درخششی که روی روشن‌ترین وجه‌های هر عکس می‌نشیند و صحنه‌های طاق‌دار؛ در پشت صحنه قیمت خصوصی برای همکاران، سفارش اتمی در Postgres و پنل مدیریت کامل فارسی.",
+    en: "The official bilingual site of CELIN, a twenty-year-old jewelry-style accessories brand: WebGL silk light, sparkles that land on each photo's brightest facets and arched scenes in front; private partner pricing, atomic ordering in Postgres and a full Persian admin behind.",
+  },
+  year: "2026",
+  period: { fa: "آبان ۱۴۰۵", en: "October 2026" },
+  role: {
+    fa: "رهبر پروژه و کارگردان خلاق: دامنه و قواعد کسب‌وکار، جهت طراحی، آزمون روی دستگاه‌ها و زیرساخت؛ پیاده‌سازی با Claude Code",
+    en: "Project lead & creative director: scope and business rules, design direction, device testing and infrastructure; implemented with Claude Code",
+  },
+  context: { fa: "سلین · گالری اعتماد، از ۱۳۸۵", en: "CELIN · Etemad Gallery, since 2006" },
+  status: { fa: "مستقر روی Vercel؛ ۱۲۴ آزمون سبز و build بدون متغیر محیطی", en: "Deployed on Vercel; 124 passing tests and a build with no env vars" },
+  disciplines: ["design", "motion", "fullstack", "data"],
+  stack: ["Next.js 16", "React 19", "TypeScript", "Tailwind v4", "GSAP · ScrollTrigger", "Lenis", "WebGL · GLSL", "Canvas 2D", "Supabase Postgres · Storage", "PL/pgSQL", "Node crypto", "SMS.ir", "Telegram · Bale", "fontTools"],
+  cover: { kind: "image", src: "/media/work/celin/home-hero-fa.webp", w: 1440, h: 900, tone: "mono", alt: { fa: "صفحه‌ی اول سلین با سه طاق و عنوان مسی", en: "The CELIN home page with three arches and a copper title" } },
+  challenge: {
+    fa: "برندی بیست‌ساله وب‌سایت رسمی می‌خواست؛ با حس یک خانه‌ی جواهرسازی فاخر، نه یک بدلیجات‌فروشی، و بی‌آنکه ادعای جواهر واقعی کند. اما تجارتش بر فرهنگ «قیمت همکار» می‌چرخد: مغازه‌ها، استایلیست‌ها و فروشندگان آنلاین از برند می‌خرند. پس صفحه‌های عمومی باید همه‌چیز را نشان دهند جز قیمت و موجودی، و همکاران تأییدشده قیمت، موجودی و سفارش داشته باشند.\n\nپرداخت آنلاین در کار نیست؛ فروشگاه هر سفارش را تأیید و تا ارسال پیش می‌برد. مالک غیرفنی باید عکس‌ها، متن‌ها، محصولات و کدهای همکاری را خودش عوض کند؛ و سایت باید در شرایط ایران کار کند: بدون درخواست به سرویس‌های خارجی و با پیامک‌رسانی که از سرور خارجی پاسخ بدهد.",
+    en: "A twenty-year-old brand needed its official site — one that feels like a luxury jewelry house, not a bazaar trinket shop, without claiming to be fine jewelry. But its trade runs on Iran's «partner price» culture: shops, stylists and online resellers buy from the brand. So public pages had to show everything except price and stock, while approved partners get prices, stock and ordering.\n\nThere is no online payment; the store confirms each order and moves it to shipping by hand. A non-technical owner had to change pictures, copy, products and partner codes alone — and the site had to work under Iranian conditions: no third-party requests, and an SMS gateway that answers foreign servers.",
+  },
+  approach: {
+    fa: "یک **سایت ایستا-محور** در دو زبان با یک کتاب برند ۱٬۰۸۹ خطی و یک سیستم طراحی: زمینه‌های مِش لایه‌لایه، متن «فلز زنده»ی مسی، طاق گرد به‌عنوان قاب امضا، نور ابریشمی WebGL، درخشش‌هایی که از تحلیل روشنایی خود عکس جا می‌گیرند و صحنه‌های پین‌شده؛ همه بی JavaScript خوانا و با احترام به کاهش حرکت.\n\n**عضویت Pro** کدهای ۱۲ رقمی صادر می‌کند که قیمت، موجودی و سفارش را باز می‌کنند؛ اما قیمت هرگز در HTML، RSC، JSON-LD یا متادیتا نیست و فقط از API‌ای می‌آید که نشست را در هر فراخوان بررسی می‌کند. **سفارش** با تابع‌های Postgres ثبت می‌شود که ردیف‌ها را به ترتیب ثابت قفل می‌کنند و موجودی را اتمی کم می‌کنند.\n\nیک **پنل مدیریت فارسی** کامل همه را در دست مالک می‌گذارد: سفارش‌ها، کدها، اعضا، محصولات، ۲۸ جای تصویر طراحی با نقطه‌ی کانونی (برخی با عکس جداگانه‌ی موبایل یا ویدئوی حلقه)، تنظیمات و صفحه‌ی سلامت اتصال‌ها که SQL اجرانشده را پیدا می‌کند.",
+    en: "A **static-first site** in two languages, built on a 1,089-line brand book and a design system: layered mesh grounds, copper «living metal» type, the round arch as the signature frame, WebGL silk light, sparkles placed by analysing the photo's own brightness, and pinned scenes — all readable without JavaScript and respectful of reduced motion.\n\n**Pro membership** issues 12-digit codes that unlock prices, stock and ordering — yet prices never appear in HTML, RSC, JSON-LD or metadata, only through an API that checks the session on every call. **Orders** go through Postgres functions that lock rows in a fixed order and decrement stock atomically.\n\nA full **Persian admin** puts it all in the owner's hands: orders, codes, members, products, 28 design-image slots with focal points (some with a separate phone picture or a looping video), settings, and a connections health page that finds SQL not yet run.",
+  },
+  features: {
+    fa: [
+      "صحنه‌ی اول با سه طاق، ذوب «سپیده‌دم»، ریل پین‌شده‌ی هشت مجموعه، عدد ۲۰ مسی و پنجره‌ی طاقی «دیافراگم»",
+      "درخشش‌هایی که با آشکارسازی قله‌ی روشنایی در مرورگر فقط روی وجه‌های واقعاً روشن عکس می‌نشینند",
+      "جستجوی آگاه از فارسی: ي و ك، نیم‌فاصله، اعراب و ارقام فارسی و عربی یکسان می‌شوند",
+      "ورودی کد ۱۲ رقمی با پرشدن خودکار از پیامک، چسباندن کل پیامک و نرمال‌سازی ارقام",
+      "سفارش بدون پرداخت آنلاین: کسر اتمی موجودی، تلاش دوباره در بن‌بست، رد سفارش اگر قیمت عوض شده باشد",
+      "پنل مدیریت فارسی با پیش‌فاکتور چاپی، مدیریت کدها و اعضا و صفحه‌ی سلامت اتصال‌ها",
+      "خط لوله‌ی تصویر در مرورگر: جهت دوربین، عرض‌های پاسخ‌گو تا ۲۰۴۸، WebP با جایگزین JPEG و placeholder محو",
+      "برش وب اختصاصی از فونت نازلی با fontTools، هم‌خانواده‌ی فونت لوگوی گالری اعتماد",
+    ],
+    en: [
+      "A first scene of three arches, a «dawn» melt, a pinned reel of eight collections, a copper «20» and an arched «aperture» window",
+      "Sparkles that land only on a photo's truly bright facets, by luminance peak detection in the browser",
+      "Persian-aware search: ي/ك, ZWNJ, diacritics and Persian/Arabic digits are folded",
+      "A 12-digit code input with SMS autofill, whole-message paste and digit normalisation",
+      "Ordering without online payment: atomic stock decrement, deadlock retry, refusal when a price changed",
+      "A Persian admin with printable pro-forma invoices, code and member management, and a connections health page",
+      "An in-browser image pipeline: camera orientation, responsive widths up to 2048 px, WebP with JPEG fallback, blur placeholders",
+      "A custom web cut of the Nazli typeface made with fontTools, the free twin of the face in Etemad Gallery's logo",
+    ],
+  },
+  outcomes: [
+    { value: { fa: "۰", en: "0" }, label: { fa: "قیمت در HTML، RSC، JSON-LD یا متادیتا؛ فقط از API با نشست", en: "prices in HTML, RSC, JSON-LD or metadata — only via a session-checked API" } },
+    { value: { fa: "۲۸", en: "28" }, label: { fa: "جای تصویر طراحی که مالک غیرفنی خودش عوض می‌کند", en: "design-image slots a non-technical owner changes alone" } },
+    { value: { fa: "۵۶", en: "56" }, label: { fa: "مسیر صفحه: ۲۱ در هر زبان و ۱۴ در پنل مدیریت فارسی", en: "page routes: 21 per language and 14 in the Persian admin" } },
+    { value: { fa: "۱۲۴", en: "124" }, label: { fa: "آزمون خودکار؛ CI با typecheck، آزمون و build", en: "automated tests; CI runs typecheck, tests and build" } },
+  ],
+  gallery: [
+    { kind: "video", src: "/media/work/celin/home-fa.mp4", poster: "/media/work/celin/home-fa-poster.webp", w: 1280, h: 800, alt: { fa: "پیمایش صفحه‌ی اول سلین", en: "Scrolling the CELIN home page" }, caption: { fa: "صفحه‌ی اول · پیمایش", en: "Home · scroll-through" } },
+    { kind: "image", src: "/media/work/celin/home-collections-arcade-fa.webp", w: 1440, h: 900, frame: "browser", tone: "color", alt: { fa: "ریل طاقی مجموعه‌ها", en: "The arcade reel of collections" }, caption: { fa: "ریل پین‌شده‌ی مجموعه‌ها", en: "The pinned collections reel" } },
+    { kind: "image", src: "/media/work/celin/home-aperture-paraiba-fa.webp", w: 1440, h: 900, tone: "color", span: 6, alt: { fa: "پنجره‌ی طاقی روی نور WebGL", en: "The arched window over WebGL light" }, caption: { fa: "دیافراگم · نور WebGL", en: "Aperture · WebGL light" } },
+    { kind: "image", src: "/media/work/celin/craft-hero-fa.webp", w: 1440, h: 900, tone: "color", span: 6, alt: { fa: "صفحه‌ی ساخت", en: "The craft page" }, caption: { fa: "ساخت", en: "The craft" } },
+    { kind: "image", src: "/media/work/celin/product-page-fa.webp", w: 1440, h: 900, frame: "browser", tone: "color", alt: { fa: "صفحه‌ی محصول با جای قیمت قفل‌شده", en: "A product page with the locked price slot" }, caption: { fa: "صفحه‌ی محصول · «قیمت ویژه‌ی اعضای Pro»", en: "Product page · «price for Pro members»" } },
+    { kind: "image", src: "/media/work/celin/mobile-home-fa.webp", w: 780, h: 1688, frame: "phone", tone: "color", alt: { fa: "سلین روی موبایل", en: "CELIN on a phone" }, caption: { fa: "موبایل · صفحه‌ی اول", en: "Phone · home" } },
+    { kind: "image", src: "/media/work/celin/mobile-product-fa.webp", w: 780, h: 1688, frame: "phone", tone: "color", alt: { fa: "صفحه‌ی محصول روی موبایل", en: "A product page on a phone" }, caption: { fa: "موبایل · محصول", en: "Phone · product" } },
+    { kind: "image", src: "/media/work/celin/pro-membership-fa.webp", w: 1440, h: 900, tone: "color", span: 4, alt: { fa: "صفحه‌ی عضویت Pro با مهر", en: "The Pro membership page with its seal" }, caption: { fa: "عضویت Pro", en: "Pro membership" } },
+    { kind: "image", src: "/media/work/celin/home-hero-en.webp", w: 1440, h: 900, tone: "color", span: 6, alt: { fa: "صفحه‌ی اول انگلیسی", en: "The English home page" }, caption: { fa: "انگلیسی · More than an ornament", en: "English · More than an ornament" } },
+    { kind: "image", src: "/media/work/celin/404-night-door-fa.webp", w: 1440, h: 900, tone: "color", span: 6, alt: { fa: "صفحه‌ی «در شب»", en: "The «Night Door» page" }, caption: { fa: "۴۰۴ · در شب", en: "404 · the Night Door" } },
+  ],
+  code: [
+    {
+      title: { fa: "درخشش‌ها روی وجه‌های واقعاً روشن عکس می‌نشینند: آشکارسازی قله‌ی روشنایی در مرورگر", en: "Sparkles land on a photo's real bright facets: luminance peak detection in the browser" },
+      lang: "ts",
+      file: "src/components/fx/sparkles.tsx",
+      code: "const lum = new Float32Array(sw * sh);\nfor (let i = 0; i < sw * sh; i++) lum[i] = 0.2126 * data[i * 4] + 0.7152 * data[i * 4 + 1] + 0.0722 * data[i * 4 + 2];\n// brightness minus the local mean (5×5): peaks, not plain bright areas\nconst r = 2;\nconst peaks: { i: number; s: number }[] = [];\nfor (let y = r; y < sh - r; y++) {\n  for (let x = r; x < sw - r; x++) {\n    const i = y * sw + x;\n    const L = lum[i];\n    if (L < 170) continue;\n    let sum = 0;\n    let max = 0;\n    for (let dy = -r; dy <= r; dy++)\n      for (let dx = -r; dx <= r; dx++) {\n        const v = lum[i + dy * sw + dx];\n        sum += v;\n        if (v > max && (dx || dy)) max = v;\n      }\n    if (L < max) continue;\n    const s = L - sum / ((2 * r + 1) * (2 * r + 1));\n    if (s > 18) peaks.push({ i, s: s + (L - 170) * 0.15 });\n  }\n}\npeaks.sort((a, b) => b.s - a.s);\nconst minD = sw * 0.07;\nconst chosen: { x: number; y: number; s: number }[] = [];\nfor (const p of peaks) {\n  const x = p.i % sw;\n  const y = Math.floor(p.i / sw);\n  if (chosen.every((c) => (c.x - x) ** 2 + (c.y - y) ** 2 > minD * minD)) chosen.push({ x, y, s: p.s });\n  if (chosen.length >= count) break;\n}",
+    },
+    {
+      title: { fa: "قیمت خصوصی: قیمت هرگز در صفحه نیست و فقط از API‌ای می‌آید که نشست را در هر فراخوان بررسی می‌کند", en: "Private pricing: prices never ship in a page, only through an API that checks the session on every call" },
+      lang: "ts",
+      file: "src/app/api/pro/prices/route.ts",
+      code: "/**\n * Prices and stock for Pro members only. Public pages never contain them: the price layer asks here after\n * the readable hint says this browser has Pro, and the session is checked again on every call.\n */\nexport async function GET() {\n  const headers = { \"cache-control\": \"private, no-store\" };\n  const me = await currentUser();\n  if (!me) return Response.json({ error: \"signed_out\" }, { status: 401, headers });\n  const pro = await proStatus(me.id);\n  if (!pro.active) {\n    await setProHint(false);\n    return Response.json({ error: \"not_pro\" }, { status: 403, headers });\n  }\n  try {\n    const [prices, s] = await Promise.all([proPrices(), getSettings()]);\n    const shown = s.shop.stockDisplay === \"level\" ? levelled(prices, s.shop.lowStock) : prices;\n    return Response.json({ prices: shown, stockDisplay: s.shop.stockDisplay, lowStock: s.shop.lowStock, minOrder: s.shop.minOrder }, { headers });\n  } catch (e) {\n    console.error(\"[pro prices]\", e);\n    return Response.json({ error: \"failed\" }, { status: 503, headers });\n  }\n}",
+    },
+    {
+      title: { fa: "سفارش اتمی در Postgres: قفل ردیف‌ها به ترتیب ثابت، بررسی گونه و قیمت و کسر موجودی", en: "Atomic ordering in Postgres: row locks in a fixed order, variant and price checks, stock decrement" },
+      lang: "sql",
+      file: "supabase/migrations/\u2026_celin_init.sql",
+      code: "select * into v_prod from celin_products\nwhere id = nullif(v_item ->> 'product_id', '')::uuid and status = 'published'\nfor update;\nif not found then\n  raise exception 'product_unavailable:%', v_item ->> 'product_id';\nend if;\n-- …\nif coalesce(v_item ->> 'variant_id', '') <> '' then\n  select * into v_var from celin_variants\n  where id = (v_item ->> 'variant_id')::uuid and product_id = v_prod.id\n  for update;\n  if not found then\n    raise exception 'variant_unavailable:%', v_item ->> 'variant_id';\n  end if;\n  v_price := coalesce(v_var.price, v_prod.price);\n  if v_price is null then\n    raise exception 'no_price:%', v_prod.id;\n  end if;\n  if v_var.stock < v_qty then\n    raise exception 'out_of_stock:%', v_var.id;\n  end if;\n  update celin_variants set stock = stock - v_qty, updated_at = now() where id = v_var.id;",
+    },
+  ],
+  orgs: ["celin"],
+  note: {
+    fa: "لوگو، عکس‌های محصول و مدل و متن داستان برند متعلق به سلین است؛ طراحی سایت، سیستم طراحی، افکت‌ها و سامانه زیر هدایت طاها با Claude Code ساخته شد.",
+    en: "The logo, product and model photographs and the brand story belong to CELIN; the site design, design system, effects and platform were built under Taha's direction with Claude Code.",
+  },
+};

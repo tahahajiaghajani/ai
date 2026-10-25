@@ -1,0 +1,36 @@
+# Portfolio — typecheck, tests and build (without environment variables) for changes in portfolio/
+name: "Portfolio · CI"
+
+on:
+  pull_request:
+    paths:
+      - "portfolio/**"
+      - ".github/workflows/portfolio.yml"
+  push:
+    branches: [main]
+    paths:
+      - "portfolio/**"
+
+concurrency:
+  group: portfolio-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: portfolio
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: portfolio/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build

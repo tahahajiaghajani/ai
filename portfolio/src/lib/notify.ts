@@ -1,0 +1,88 @@
+import "server-only";
+import { env } from "@/lib/env";
+import { decrypt } from "@/lib/crypto";
+import { getSettings } from "@/lib/settings";
+import type { BotChannel, Settings } from "@/lib/settings-types";
+
+export interface Bot {
+  channel: BotChannel;
+  token: string;
+  chatId: string;
+}
+
+const API: Record<Bot["channel"], string> = { telegram: "https://api.telegram.org", bale: "https://tapi.bale.ai" };
+
+export interface ResolvedBot {
+  bot: Bot | null;
+  source: "panel" | "env" | "none";
+  /** a token is saved but cannot be decrypted (APP_SECRET changed) */
+  tokenUnreadable: boolean;
+  /** the saved token belongs to the other service, so it is not used (a token never goes to the wrong Bot API) */
+  tokenOtherChannel: boolean;
+}
+
+/** The bot the settings point to: the one saved in the panel, else TELEGRAM_* from Vercel; none when off or unset. */
+export function resolveBot(n: Settings["notify"]): ResolvedBot {
+  const token = decrypt(n.tokenEnc);
+  const tokenUnreadable = Boolean(n.tokenEnc) && !token;
+  const tokenOtherChannel = Boolean(token) && n.channel !== "none" && n.tokenChannel !== n.channel;
+  const none = { bot: null, source: "none" as const, tokenUnreadable, tokenOtherChannel };
+  if (n.channel === "none") return none;
+  if (token && !tokenOtherChannel && n.chatId) return { ...none, bot: { channel: n.channel, token, chatId: n.chatId }, source: "panel" };
+  if (env.telegramToken && env.telegramChatId) return { ...none, bot: { channel: env.telegramChannel, token: env.telegramToken, chatId: env.telegramChatId }, source: "env" };
+  return none;
+}
+
+export async function getBot(): Promise<Bot | null> {
+  return resolveBot((await getSettings()).notify).bot;
+}
+
+/**
+ * Sends a message to Taha's Telegram (or Bale, same Bot API) chat. The Bot API answers a wrong token or chat id
+ * with an HTTP error and `{ ok: false, description }`, so both are checked. Never throws.
+ */
+export async function sendBot(bot: Bot, text: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await fetch(`${API[bot.channel]}/bot${bot.token}/sendMessage`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ chat_id: bot.chatId, text: text.slice(0, 3900), disable_web_page_preview: true }),
+      signal: AbortSignal.timeout(8000),
+    });
+    const j = (await res.json().catch(() => null)) as { ok?: boolean; description?: string } | null;
+    if (!res.ok || j?.ok === false) {
+      const error = (j?.description || `HTTP ${res.status}`).replaceAll(bot.token, "…").slice(0, 200);
+      console.error("[notify] rejected", error);
+      return { ok: false, error };
+    }
+    return { ok: true };
+  } catch (e) {
+    console.error("[notify] failed", String(e).replaceAll(bot.token, "…"));
+    return { ok: false, error: "network" };
+  }
+}
+
+/** Checks the bot (getMe) and, when possible, the chat id (getChat) without sending anything. */
+export async function probeBot(bot: Bot): Promise<{ ok: boolean; username: string; chatOk: boolean | null; error: string }> {
+  const call = async (method: string, params: Record<string, string> = {}) => {
+    try {
+      const res = await fetch(`${API[bot.channel]}/bot${bot.token}/${method}?${new URLSearchParams(params)}`, { cache: "no-store", signal: AbortSignal.timeout(6000) });
+      const j = (await res.json().catch(() => null)) as { ok?: boolean; description?: string; result?: { username?: string } } | null;
+      return { ok: res.ok && j?.ok !== false, description: (j?.description || `HTTP ${res.status}`).replaceAll(bot.token, "…"), result: j?.result };
+    } catch {
+      return { ok: false, description: "network", result: undefined };
+    }
+  };
+  const me = await call("getMe");
+  if (!me.ok) return { ok: false, username: "", chatOk: null, error: me.description };
+  const chat = await call("getChat", { chat_id: bot.chatId });
+  // only a clear "chat not found" counts against the chat id; a service without getChat says nothing either way
+  const chatOk = chat.ok ? true : /chat not found/i.test(chat.description) ? false : null;
+  return { ok: true, username: me.result?.username ?? "", chatOk, error: chatOk === false ? chat.description : "" };
+}
+
+export async function notifyOwner(text: string): Promise<{ ok: boolean; error?: string }> {
+  const bot = await getBot();
+  if (!bot) return { ok: false, error: "not configured" };
+  return sendBot(bot, text);
+}
