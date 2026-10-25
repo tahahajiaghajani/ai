@@ -26,8 +26,8 @@ export const tejaratNewEpm: Project = {
     en: "The bank's previous platform was Project Web App on Project Server — a tool whose whole world is the «project». Anything that wasn't a project had to become one: internal-audit cases with finding, recommendation, corrective-action and risk-type fields, board resolutions, directives and letters were all registered as projects. Levels above the project — programme, office, directorate, deputy — existed only as flags, project types or a free-text path, and one requirement was sometimes registered once per office.\n\nEveryone felt the result: reports didn't understand anything above the office, work at higher levels needed placeholder projects, and audit worked inside a shape that wasn't made for it. And all of it had to be solved on the bank's isolated network — no internet, no CDN, and no data leaving the bank.",
   },
   approach: {
-    fa: "به‌جای جایگزین کردن پلتفرمی که داده‌ی سال‌ها پروژه‌ی بانک را نگه می‌دارد، سامانه‌ی جدید **روی همان پایه** ساخته شد. SQL Server و Project Server سر جایشان ماندند و **SharePoint پل** شد: نماهای گزارش‌گیری Project Server به نماهای SQL سفارشی می‌رسند و این نماها به شکل لیست‌های خارجی وارد SharePoint می‌شوند. داده‌هایی که کاربران ثبت می‌کنند در لیست‌های بومی می‌مانند، و صفحه‌های سفارشی همه را با REST می‌خوانند. محاسباتی مثل تاریخ پیش‌بینی پایان هم مستقیم از سرویس گزارش‌گیری Project Server می‌آید.\n\nصفحه‌ها خودبسنده‌اند: React از کتابخانه‌ی دارایی‌های خود سایت بارگذاری می‌شود، بدون مرحله‌ی build و بدون هیچ درخواستی به بیرون از بانک. یک شیء پیکربندی، نام همه‌ی لیست‌ها و فیلدها را نگه می‌دارد تا مدیر سامانه بدون دست زدن به کد بتواند منبع‌ها را عوض کند. گزارش قدیمی هم تا پایان مهاجرت با یک دکمه در دسترس می‌ماند.\n\nو برای ادارات غیرپروژه‌ای، به‌ویژه حسابرسی، ایده‌ی **مرکز حسابرسی**: پرونده روی خود سطح سازمانی بالاتر از پروژه ساخته می‌شود، نه روی یک پروژه‌ی ساختگی برای هر سطح.",
-    en: "Rather than replace the platform that holds years of the bank's project data, the new system is built **on the same foundation**. SQL Server and Project Server stay where they are, and **SharePoint becomes the bridge**: Project Server's reporting views feed custom SQL views, which enter SharePoint as external lists. Records users enter live in native lists, and the custom pages read everything over REST. Computed values such as the forecast finish come straight from Project Server's reporting service.\n\nThe pages are self-contained: React loads from the site's own asset library, with no build step and no request outside the bank. One configuration object holds every list and field name, so an administrator can re-point sources without touching code. The old report stays one click away until the migration is done.\n\nAnd for the non-project departments, internal audit above all, the **audit centre** idea: a file is built on the organisational level above the project itself, not on a placeholder project for each level.",
+    fa: "به‌جای جایگزین کردن پلتفرمی که داده‌ی سال‌ها پروژه‌ی بانک را نگه می‌دارد، سامانه‌ی جدید **روی همان پایه** ساخته شد. SQL Server و Project Server سر جایشان ماندند و **SharePoint پل** شد: نماهای گزارش‌گیری Project Server به نماهای SQL سفارشی می‌رسند و این نماها به شکل لیست‌های خارجی وارد SharePoint می‌شوند. داده‌هایی که کاربران ثبت می‌کنند در لیست‌های بومی می‌مانند، و صفحه‌های سفارشی همه را با REST می‌خوانند.\n\nصفحه‌ها خودبسنده‌اند و هیچ درخواستی به بیرون از بانک نمی‌فرستند؛ بدون CDN و بدون وابستگی به اینترنت. داده همان داده‌ی Project Server است، پس سامانه‌ی جدید کنار PWA قدیمی و روی همان اطلاعات رشد می‌کند.\n\nو برای ادارات غیرپروژه‌ای، به‌ویژه حسابرسی، ایده‌ی **مرکز حسابرسی**: پرونده روی خود سطح سازمانی بالاتر از پروژه ساخته می‌شود، نه روی یک پروژه‌ی ساختگی برای هر سطح.",
+    en: "Rather than replace the platform that holds years of the bank's project data, the new system is built **on the same foundation**. SQL Server and Project Server stay where they are, and **SharePoint becomes the bridge**: Project Server's reporting views feed custom SQL views, which enter SharePoint as external lists. Records users enter live in native lists, and the custom pages read everything over REST.\n\nThe pages are self-contained and send no request outside the bank — no CDN, no internet dependency. The data is Project Server's own, so the new system grows beside the old PWA on the same information.\n\nAnd for the non-project departments, internal audit above all, the **audit centre** idea: a file is built on the organisational level above the project itself, not on a placeholder project for each level.",
   },
   architecture: {
     cols: 4,
@@ -53,35 +53,27 @@ export const tejaratNewEpm: Project = {
   features: {
     fa: [
       "وب‌اپ سفارشی روی سرورهای خود بانک؛ بدون اینترنت، بدون CDN و بدون هیچ درخواستی به بیرون",
-      "SharePoint به‌عنوان تنها پل: نماهای Project Server به شکل لیست خارجی، داده‌ی کاربران در لیست‌های بومی",
+      "SharePoint به‌عنوان تنها پل: نماهای Project Server از راه SQL به لیست‌ها می‌رسند و داده‌ی کاربران در لیست‌های بومی می‌ماند",
       "مرکز حسابرسی: پرونده روی سطح‌های بالاتر از پروژه، بی‌نیاز از پروژه‌ی ساختگی برای هر سطح",
-      "جامع برای ادارات غیرپروژه‌ای، از جمله حسابرسی داخلی که در سامانه‌ی قبلی ناچار پروژه ثبت می‌شد",
-      "پروفایل پروژه‌ی جدید به‌جای گزارش SSRS: پیشرفت برنامه‌ای و واقعی، WBS، زیرپروژه‌ها، اسناد، علت تأخیر، تیم و کانبان",
-      "پروژه‌ی آبشاری، چابک و طرح در یک مدل؛ هر طرح زیرپروژه‌هایش را با پیشرفت و تحقق نشان می‌دهد",
-      "هشدارهای حاکمیتی روی خود پروژه: مصوبات کمیته، پیگیری مکاتبات و هشدار تأخیر و بازبرنامه‌ریزی",
-      "تاریخ پیش‌بینی پایان، محاسبه‌شده از داده‌ی گزارش‌گیری Project Server با همان فرمول گزارش قدیمی",
+      "جامع برای ادارات غیرپروژه‌ای: حسابرسی داخلی، پیشنهادهای هیئت‌مدیره و ابلاغیه‌ها که در سامانه‌ی قبلی ناچار پروژه ثبت می‌شدند",
     ],
     en: [
       "A custom web app on the bank's own servers: no internet, no CDN, no request leaving the bank",
-      "SharePoint as the single bridge: Project Server views as external lists, user records in native lists",
+      "SharePoint as the single bridge: Project Server's views reach lists through SQL, and user records live in native lists",
       "The audit centre: files on levels above the project, with no placeholder project for each level",
-      "Complete for non-project departments, internal audit included, which the old system forced into projects",
-      "A new project profile in place of an SSRS report: planned vs actual progress, WBS, sub-projects, documents, delay reasons, team and Kanban",
-      "Waterfall, agile and programme work in one model; each programme shows its sub-projects with progress and realisation",
-      "Governance warnings on the project itself: committee resolutions, correspondence follow-ups, delay and re-plan warnings",
-      "A forecast finish date computed from Project Server's reporting data, with the legacy report's own formula",
+      "Complete for non-project departments — internal audit, board proposals and directives, which the old system forced into projects",
     ],
   },
   outcomes: [
     { value: { fa: "۹۰٪", en: "90%" }, label: { fa: "ساخته شده، و همین حالا در استفاده‌ی روزانه", en: "built — and already in daily use" } },
     { value: { fa: "۰", en: "0" }, label: { fa: "پروژه‌ی ساختگی برای پرونده‌ای بالاتر از سطح پروژه", en: "placeholder projects for a file above project level" } },
-    { value: { fa: "۳", en: "3" }, label: { fa: "نوع کار در یک پروفایل: آبشاری، چابک و طرح", en: "kinds of work in one profile: waterfall, agile and programme" } },
+    { value: { fa: "۱", en: "1" }, label: { fa: "پل برای همه‌چیز: SharePoint میان صفحه‌ها و Project Server و SQL Server", en: "bridge for everything: SharePoint between the pages and Project Server and SQL Server" } },
     { value: { fa: "۰", en: "0" }, label: { fa: "وابستگی به اینترنت؛ همه‌چیز روی سرورهای بانک", en: "internet dependencies — everything on the bank's servers" } },
   ],
   gallery: [],
   orgs: ["tejarat", "pars"],
   note: {
-    fa: "این سامانه را شرکت مدیریت پروژه پارس برای بانک تجارت می‌سازد. نام‌ها، نشانی‌ها، داده‌ها و تصاویر سامانه‌ی بانک محرمانه است؛ نمودار و بخش تعاملی مرکز حسابرسی، ایده را با یک سازمان نمادین نشان می‌دهند.",
-    en: "Pars Project Management builds this system for Bank Tejarat. The bank's names, addresses, data and screens are confidential; the diagram and the audit-centre piece show the idea with an illustrative organisation.",
+    fa: "این سامانه را شرکت مدیریت پروژه پارس برای بانک تجارت می‌سازد. نام‌ها، نشانی‌ها، داده‌ها و تصاویر سامانه‌ی بانک محرمانه است؛ نمودار و بخش تعاملی مرکز حسابرسی، ایده را با یک سازمان نمادین نشان می‌دهند. کار روی هشدارها، داشبورد و سرعت صفحه‌های EPM بانک در پرونده‌ی بعدی آمده است.",
+    en: "Pars Project Management builds this system for Bank Tejarat. The bank's names, addresses, data and screens are confidential; the diagram and the audit-centre piece show the idea with an illustrative organisation. Work on the bank's EPM alerts, dashboards and page speed is in the next case study.",
   },
 };
