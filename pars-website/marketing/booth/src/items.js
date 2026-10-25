@@ -54,8 +54,11 @@ const LOGO = DARK ? "assets/pars-logo-reverse.svg" : "assets/pars-logo.svg";
 const MARK = DARK ? "assets/pars-mark-reverse.svg" : "assets/pars-mark.svg";
 
 const board = document.getElementById("board");
-board.style.width = SIZE.w + "cm";
-board.style.height = SIZE.h + "cm";
+// the board runs 1 mm past the right and bottom edge of the file: Chromium snaps the board's clip to whole CSS px, so
+// without the overscan the last fraction of a millimetre before the cut would show the page colour instead of the art
+const OVER = 0.1;
+board.style.width = SIZE.w + OVER + "cm";
+board.style.height = SIZE.h + OVER + "cm";
 const page = document.createElement("style");
 // Chromium rounds the page size down to 0.01 in, which would leave the last fraction of a millimetre blank: the page gets
 // 1 mm more than the board and render.mjs crops it back to the exact size from the top-left corner

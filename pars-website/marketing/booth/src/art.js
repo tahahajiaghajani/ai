@@ -7,7 +7,7 @@ const drawArt = () => {
   const f = (n) => +n.toFixed(2);
   const W = SIZE.w, H = SIZE.h;
   const svg = document.getElementById("art");
-  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.setAttribute("viewBox", `0 0 ${W + OVER} ${H + OVER}`); // 1 unit = 1 cm over the whole board, overscan included
   svg.setAttribute("preserveAspectRatio", "none");
 
   const PAL = DARK
@@ -85,7 +85,7 @@ const drawArt = () => {
   /* ── background: a navy (or mist) field, soft glows, a quiet dot grid on the detailed boards ── */
   // diagonal light, except on the counter: its two folded sides must print in the same tone
   const bgDir = ITEM === "counter" ? [0, 0, 0, H] : [W, 0, 0, H];
-  el(svg, "rect", { x: 0, y: 0, width: W, height: H, fill: linear(...bgDir, [[0, PAL.base[0]], [0.5, PAL.base[1]], [1, PAL.base[2]]]) });
+  el(svg, "rect", { x: 0, y: 0, width: W + OVER, height: H + OVER, fill: linear(...bgDir, [[0, PAL.base[0]], [0.5, PAL.base[1]], [1, PAL.base[2]]]) });
   const glow = (cx, cy, rx, ry, color, a) => el(svg, "ellipse", { cx: f(cx), cy: f(cy), rx: f(rx), ry: f(ry), fill: radial([[0, color, a], [0.55, color, a * 0.32], [1, color, 0]]) });
   if (STYLE === "detailed") {
     const step = ITEM === "popup" ? 6 : 3.2, r = ITEM === "popup" ? 0.32 : 0.17;
@@ -285,7 +285,7 @@ const drawArt = () => {
   if (Q.has("guides")) {
     const gs = document.createElementNS(NS, "svg");
     gs.id = "guides";
-    gs.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    gs.setAttribute("viewBox", `0 0 ${W + OVER} ${H + OVER}`);
     gs.setAttribute("preserveAspectRatio", "none");
     board.appendChild(gs);
     const line = (x1, y1, x2, y2, c, dash = "") => el(gs, "line", { x1, y1, x2, y2, stroke: c, "stroke-width": ITEM === "popup" ? 0.35 : 0.2, "stroke-dasharray": dash });
