@@ -39,7 +39,7 @@ export default async function RequestDetail({ params }: PageProps<"/admin/reques
           {msgs.map((m) => (
             <article key={m.id} className={`rounded-[8px] border p-5 ${m.author === "owner" ? "border-fg" : m.author === "note" ? "border-dashed border-line" : "border-line"}`}>
               <p className="mb-2 text-xs text-muted">{m.author === "owner" ? "طاها" : m.author === "visitor" ? r.name : "یادداشت خصوصی در GitHub (بازدیدکننده نمی‌بیند)"} · {formatDate(m.created_at, "fa")}</p>
-              <p className="whitespace-pre-wrap leading-relaxed">{m.body}</p>
+              <p className="whitespace-pre-wrap text-start leading-relaxed">{m.body}</p>
             </article>
           ))}
         </div>

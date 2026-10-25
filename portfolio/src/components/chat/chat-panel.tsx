@@ -7,6 +7,7 @@ import { parseMarkers, type ChatAction } from "@/lib/markers";
 import { ui } from "@/content/ui";
 import { PROFILE } from "@/content/profile";
 import { Mark } from "@/components/brand/logo";
+import { CrossIcon } from "@/components/brand/icons";
 import { Prose } from "@/components/work/prose";
 import { useChat, type Msg } from "@/components/chat/chat-context";
 
@@ -156,16 +157,13 @@ export function ChatPanel({ className = "", onClose, tall = false }: { className
           ) : null}
           {onClose ? (
             <button type="button" onClick={onClose} aria-label={ui.nav.close[lang]} className="grid size-9 place-items-center rounded-full border border-line hover:border-fg">
-              <span aria-hidden className="relative block size-3.5">
-                <span className="absolute top-1/2 h-px w-full rotate-45 bg-current" />
-                <span className="absolute top-1/2 h-px w-full -rotate-45 bg-current" />
-              </span>
+              <CrossIcon className="size-3.5" strokeWidth={1.4} />
             </button>
           ) : null}
         </div>
       </div>
 
-      <div ref={list} className={`flex-1 space-y-5 overflow-y-auto overscroll-contain px-4 py-5 ${tall ? "min-h-[320px]" : ""}`} data-lenis-prevent aria-live="polite">
+      <div ref={list} className={`flex-1 space-y-5 overflow-y-auto overscroll-contain px-4 py-5 text-start ${tall ? "min-h-[320px]" : ""}`} data-lenis-prevent aria-live="polite">
         {messages.length === 0 ? (
           <div className="flex h-full flex-col justify-end gap-4">
             <p className="max-w-[40ch] text-[0.95rem] leading-relaxed text-fg-2">

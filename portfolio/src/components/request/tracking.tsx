@@ -62,7 +62,7 @@ export async function Tracking({ lang, code, k }: { lang: Lang; code: string; k?
             <span>{ui.track.you[lang]} · {r.name}</span>
             <time dateTime={r.created_at}>{formatDate(r.created_at, lang)}</time>
           </header>
-          <p className="whitespace-pre-wrap leading-relaxed text-fg-2">{r.body}</p>
+          <p className="whitespace-pre-wrap text-start leading-relaxed text-fg-2">{r.body}</p>
         </article>
         {msgs.map((m) => (
           <article key={m.id} className={`rounded-[8px] border p-6 ${m.author === "owner" ? "border-fg bg-fg text-bg" : "border-line"}`}>

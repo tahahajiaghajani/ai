@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef } from "react";
+import { useLayoutEffect, useRef } from "react";
 import { gsap } from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import type { Lang } from "@/lib/i18n";
@@ -25,7 +25,9 @@ export function WorkRail({ lang, items, intro }: { lang: Lang; items: RailItem[]
   const bar = useRef<HTMLDivElement>(null);
   const fa = lang === "fa";
 
-  useEffect(() => {
+  // a layout effect, not useEffect: the pin wraps the section in GSAP's spacer, and its cleanup must put the section
+  // back before React removes it on navigation (passive cleanups run after the removal, which then throws)
+  useLayoutEffect(() => {
     const el = section.current;
     const tr = track.current;
     if (!el || !tr) return;

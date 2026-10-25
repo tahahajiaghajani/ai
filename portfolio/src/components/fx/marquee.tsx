@@ -25,13 +25,24 @@ export function Marquee({ items, className = "", speed = 60, reverse = false }: 
     let x = 0;
     let dir = reverse ? 1 : -1;
     let boost = 0;
+    // moves only while on screen: an off-screen band would still cost a style change every frame
+    let onScreen = false;
+    // the newest entry counts: several can arrive at once when the band leaves and comes back quickly
+    const io = new IntersectionObserver((entries) => {
+      onScreen = entries[entries.length - 1].isIntersecting;
+    });
+    io.observe(el);
     const tick = (_t: number, dt: number) => {
+      if (!onScreen) return;
       x += ((dir * speed * (1 + boost)) / 1000) * dt;
       if (half > 0) {
         x %= half; // keeps x in (-half, 0], also when the copy has just shrunk
         if (x > 0) x -= half;
       }
-      el.style.transform = `translate3d(${x}px,0,0)`;
+      // whole device pixels on dense (phone) screens, where a fractional offset makes the text shimmer; on 1x screens
+      // rounding would turn the steady 1 px a frame into stills and 2 px jumps
+      const dpr = window.devicePixelRatio || 1;
+      el.style.transform = `translate3d(${dpr >= 2 ? Math.round(x * dpr) / dpr : x}px,0,0)`;
       boost *= 0.92;
     };
     gsap.ticker.add(tick);
@@ -48,6 +59,7 @@ export function Marquee({ items, className = "", speed = 60, reverse = false }: 
     return () => {
       gsap.ticker.remove(tick);
       ro.disconnect();
+      io.disconnect();
       st.kill();
     };
   }, [speed, reverse]);

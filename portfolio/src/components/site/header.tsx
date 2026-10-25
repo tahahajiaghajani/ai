@@ -9,10 +9,13 @@ import { href, num } from "@/lib/i18n";
 import { ui } from "@/content/ui";
 import { PROFILE } from "@/content/profile";
 import { Mark } from "@/components/brand/logo";
+import { CrossIcon } from "@/components/brand/icons";
 import { useLenis } from "@/components/fx/motion";
 import { ThemeToggle } from "@/components/site/theme-toggle";
 
+// "home" has no section: it goes to the top of the home page
 const LINKS = [
+  { key: "home", hash: "" },
   { key: "work", hash: "#work" },
   { key: "expertise", hash: "#expertise" },
   { key: "journey", hash: "#journey" },
@@ -110,15 +113,15 @@ export function Header({ lang }: { lang: Lang }) {
 
   const go = (hash: string) => (e: React.MouseEvent) => {
     setOpen(false);
-    if (!onHome) return; // a normal navigation to the home page section
+    if (!onHome) return; // a normal navigation to the home page (or its section)
     e.preventDefault();
-    const target = document.querySelector(hash);
-    if (!target) return;
+    const target = hash ? document.querySelector<HTMLElement>(hash) : null;
+    if (hash && !target) return;
     if (lenis) {
       lenis.start(); // the open menu stopped it, and a stopped Lenis ignores scrollTo
-      lenis.scrollTo(target as HTMLElement, { offset: -40, duration: 1.6 });
-    }
-    else target.scrollIntoView({ behavior: "smooth" });
+      lenis.scrollTo(target ?? 0, { offset: target ? -40 : 0, duration: 1.6 });
+    } else if (target) target.scrollIntoView({ behavior: "smooth" });
+    else window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   return (
@@ -129,13 +132,13 @@ export function Header({ lang }: { lang: Lang }) {
             <Mark className="size-8" />
             <span className="hidden flex-col leading-none sm:flex">
               <span className={lang === "fa" ? "text-[0.95rem] font-semibold" : "latin text-[0.78rem] font-semibold uppercase tracking-[0.24em]"}>{PROFILE.name[lang]}</span>
-              <span className="mt-1 font-mono text-[0.6rem] uppercase tracking-[0.2em] opacity-60">AI · Systems · Design</span>
+              <span className="mt-1 whitespace-nowrap font-mono text-[0.6rem] uppercase tracking-[0.2em] opacity-60 lg:max-xl:hidden">AI · Systems · Design</span>
             </span>
           </Link>
 
-          <nav aria-label={lang === "fa" ? "بخش‌ها" : "Sections"} className="hidden items-center gap-8 lg:flex">
+          <nav aria-label={lang === "fa" ? "بخش‌ها" : "Sections"} className="hidden items-center gap-5 lg:flex xl:gap-8">
             {LINKS.map((l, i) => (
-              <a key={l.key} href={`${home}${l.hash}`} onClick={go(l.hash)} className="group flex items-baseline gap-1.5 text-[0.82rem]">
+              <a key={l.key} href={`${home}${l.hash}`} onClick={go(l.hash)} className="group flex items-baseline gap-1.5 whitespace-nowrap text-[0.82rem]">
                 <span className="font-mono text-[0.6rem] opacity-50">{num(lang, `0${i + 1}`)}</span>
                 <span className="link-draw pb-0.5">{ui.nav[l.key][lang]}</span>
               </a>
@@ -147,7 +150,7 @@ export function Header({ lang }: { lang: Lang }) {
               {ui.nav.langShort[lang]}
             </a>
             <ThemeToggle label={ui.nav.theme[lang]} />
-            <a href={`${home}#contact`} onClick={go("#contact")} className="hidden h-10 items-center rounded-full bg-white px-5 text-[0.8rem] font-semibold text-black transition-transform hover:scale-[1.04] md:flex">
+            <a href={`${home}#contact`} onClick={go("#contact")} className="hidden h-10 items-center whitespace-nowrap rounded-full bg-white px-5 text-[0.8rem] font-semibold text-black transition-transform hover:scale-[1.04] md:flex">
               {ui.nav.start[lang]}
             </a>
             <button ref={menuBtn} type="button" onClick={() => setOpen(true)} className="grid size-10 place-items-center rounded-full border border-white/30 lg:hidden" aria-label={ui.nav.menu[lang]} aria-expanded={open} aria-controls="site-menu">
@@ -167,22 +170,19 @@ export function Header({ lang }: { lang: Lang }) {
         aria-modal="true"
         aria-label={ui.nav.menu[lang]}
         hidden={!open}
-        className="fixed inset-0 z-[80] flex flex-col bg-fg text-bg"
+        className="fixed inset-0 z-[80] flex flex-col overflow-y-auto bg-fg text-bg"
         data-lenis-prevent
       >
         <div className="flex h-20 items-center justify-between px-5">
           <Mark className="size-8" />
           <button ref={closeBtn} type="button" onClick={() => setOpen(false)} className="grid size-10 place-items-center rounded-full border border-current/30" aria-label={ui.nav.close[lang]}>
-            <span aria-hidden className="relative block size-4">
-              <span className="absolute top-1/2 h-px w-full rotate-45 bg-current" />
-              <span className="absolute top-1/2 h-px w-full -rotate-45 bg-current" />
-            </span>
+            <CrossIcon className="size-4" strokeWidth={1.3} />
           </button>
         </div>
         <nav className="flex flex-1 flex-col justify-center gap-2 px-6">
           {LINKS.map((l, i) => (
             <div key={l.key} className="overflow-hidden">
-              <a data-menu-item href={`${home}${l.hash}`} onClick={go(l.hash)} className="flex items-baseline gap-4 py-1 text-[clamp(2.6rem,11vw,4.5rem)] font-semibold leading-[1.05] tracking-tight">
+              <a data-menu-item href={`${home}${l.hash}`} onClick={go(l.hash)} className="flex items-baseline gap-4 py-1 text-[clamp(2rem,min(11vw,9svh),4.5rem)] font-semibold leading-[1.05] tracking-tight">
                 <span className="font-mono text-sm opacity-50">{num(lang, `0${i + 1}`)}</span>
                 {ui.nav[l.key][lang]}
               </a>

@@ -119,7 +119,7 @@ export function CaseStudy({ p, lang }: { p: Project; lang: Lang }) {
           {p.features[lang].map((f, i) => (
             <li key={i} data-fade className="flex gap-5 bg-bg p-6 md:p-8">
               <span className="font-mono text-xs text-faint">{num(lang, String(i + 1).padStart(2, "0"))}</span>
-              <span className="leading-relaxed text-fg-2">{f}</span>
+              <span className="min-w-0 flex-1 text-justify leading-relaxed text-fg-2">{f}</span>
             </li>
           ))}
         </ol>

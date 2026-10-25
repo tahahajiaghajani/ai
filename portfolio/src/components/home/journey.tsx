@@ -28,7 +28,7 @@ export function Journey({ lang }: { lang: Lang }) {
                 <h3 className={`text-[clamp(1.4rem,2.6vw,2.4rem)] leading-tight ${fa ? "font-bold" : "font-semibold tracking-[-0.03em]"}`}>{r.title[lang]}</h3>
                 <p className="mt-2 text-muted">{org ? org.name[lang] : r.org === "msc" ? (fa ? "مهندسی صنایع" : "Industrial engineering") : fa ? "مستقل" : "Independent"}</p>
               </div>
-              <p className="col-span-12 leading-relaxed text-fg-2 md:col-span-3">{r.body[lang]}</p>
+              <p className="col-span-12 text-start leading-relaxed text-fg-2 md:col-span-3">{r.body[lang]}</p>
               <div className="col-span-12 hidden items-start justify-end md:col-span-1 md:flex">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 {org?.logo ? <img src={org.logo} alt="" className="org-logo h-10 w-auto max-w-full object-contain opacity-40 group-hover:opacity-100" /> : null}

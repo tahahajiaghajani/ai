@@ -5,13 +5,34 @@ import { useState, useTransition, type ReactNode } from "react";
 import { saveAi, saveNotify, setupRepo, testAi, testNotify, type AiTest, type Result } from "@/app/actions/connections";
 import type { ConnectionReport, PublicSettings, Status } from "@/lib/connections";
 import type { NotifyChannel } from "@/lib/settings-types";
+import { CheckIcon, CrossIcon, DashIcon } from "@/components/brand/icons";
 
-const STATUS: Record<Status, { label: string; mark: string; className: string }> = {
-  ok: { label: "آماده", mark: "●", className: "border-fg text-fg" },
-  warn: { label: "نیاز به توجه", mark: "◐", className: "border-fg-2 text-fg-2" },
-  error: { label: "مشکل دارد", mark: "✕", className: "border-fg bg-fg text-bg" },
-  off: { label: "خاموش / اختیاری", mark: "○", className: "border-line text-faint" },
+/** Status marks drawn as SVG on one centre, so they line up with the label (font glyphs sit off-centre). */
+const dot = (fill: "full" | "half" | "none") => (
+  <svg viewBox="0 0 16 16" className="size-2.5" aria-hidden>
+    <circle cx="8" cy="8" r="6" fill={fill === "full" ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.6" />
+    {fill === "half" ? <path d="M8 2a6 6 0 0 1 0 12z" fill="currentColor" /> : null}
+  </svg>
+);
+
+const STATUS: Record<Status, { label: string; mark: ReactNode; className: string }> = {
+  ok: { label: "آماده", mark: dot("full"), className: "border-fg text-fg" },
+  warn: { label: "نیاز به توجه", mark: dot("half"), className: "border-fg-2 text-fg-2" },
+  error: { label: "مشکل دارد", mark: <CrossIcon className="size-2.5" strokeWidth={2} />, className: "border-fg bg-fg text-bg" },
+  off: { label: "خاموش / اختیاری", mark: dot("none"), className: "border-line text-faint" },
 };
+
+/** A message line with its mark in front, the mark centred on the first line of text. */
+function Note({ ok, role, className = "", children }: { ok: boolean; role?: "status" | "alert"; className?: string; children: ReactNode }) {
+  return (
+    <p role={role} className={`flex items-start gap-2 rounded-[6px] border px-3 py-2 text-sm ${className}`}>
+      <span aria-hidden className="grid h-[1.5em] shrink-0 place-items-center">
+        {ok ? <CheckIcon className="size-3" /> : <CrossIcon className="size-3" />}
+      </span>
+      <span>{children}</span>
+    </p>
+  );
+}
 
 const fa = (n: number) => new Intl.NumberFormat("fa-IR").format(n);
 const when = (iso: string) => new Intl.DateTimeFormat("fa-IR-u-ca-persian", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Tehran" }).format(new Date(iso));
@@ -27,7 +48,7 @@ function Card({ title, status, children }: { title: string; status: Status; chil
       <header className="flex items-center gap-3">
         <h2 className="flex-1 font-bold">{title}</h2>
         <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-0.5 text-xs ${s.className}`}>
-          <span aria-hidden>{s.mark}</span>
+          <span aria-hidden className="grid place-items-center">{s.mark}</span>
           {s.label}
         </span>
       </header>
@@ -39,8 +60,8 @@ function Card({ title, status, children }: { title: string; status: Status; chil
 function Row({ ok, children }: { ok: boolean | null; children: ReactNode }) {
   return (
     <li className="flex items-start gap-2.5">
-      <span aria-hidden className={`mt-1.5 grid size-4 shrink-0 place-items-center rounded-full border text-[9px] ${ok === null ? "border-line text-faint" : ok ? "border-fg bg-fg text-bg" : "border-fg text-fg"}`}>
-        {ok === null ? "–" : ok ? "✓" : "✕"}
+      <span aria-hidden className={`mt-1.5 grid size-4 shrink-0 place-items-center rounded-full border ${ok === null ? "border-line text-faint" : ok ? "border-fg bg-fg text-bg" : "border-fg text-fg"}`}>
+        {ok === null ? <DashIcon className="size-2.5" strokeWidth={2} /> : ok ? <CheckIcon className="size-2.5" strokeWidth={2.2} /> : <CrossIcon className="size-2.5" strokeWidth={2.2} />}
       </span>
       <span className="sr-only">{ok === null ? "اطلاع" : ok ? "درست" : "مشکل"}: </span>
       <span>{children}</span>
@@ -83,10 +104,9 @@ function useRun() {
     });
   };
   const message = note ? (
-    <p role="status" className={`rounded-[6px] border px-3 py-2 text-sm ${note.ok ? "border-line" : "border-fg font-semibold text-fg"}`}>
-      {note.ok ? "✓ " : "✕ "}
+    <Note ok={note.ok} role="status" className={note.ok ? "border-line" : "border-fg font-semibold text-fg"}>
       {note.text}
-    </p>
+    </Note>
   ) : null;
   return { pending, run, message };
 }
@@ -248,7 +268,11 @@ function SecurityCard({ r }: { r: ConnectionReport }) {
 }
 
 function NotLoaded() {
-  return <p className="rounded-[6px] border border-fg px-3 py-2 text-sm font-semibold">✕ تنظیمات فعلی از GitHub خوانده نشد؛ تا وصل نشود ذخیره خاموش است تا چیزی پاک نشود.</p>;
+  return (
+    <Note ok={false} className="border-fg font-semibold">
+      تنظیمات فعلی از GitHub خوانده نشد؛ تا وصل نشود ذخیره خاموش است تا چیزی پاک نشود.
+    </Note>
+  );
 }
 
 function AiCard({ r, settings, loaded, onSaved }: { r: ConnectionReport; settings: PublicSettings; loaded: boolean; onSaved: () => void }) {
@@ -337,9 +361,9 @@ function AiCard({ r, settings, loaded, onSaved }: { r: ConnectionReport; setting
         ) : null}
       </div>
       {test ? (
-        <p role="status" className="rounded-[6px] border border-fg px-3 py-2 text-sm">
-          ✓ پاسخ گرفت از <Code>{test.model}</Code> در {fa(test.ms)} میلی‌ثانیه ({testSource[test.source]}).
-        </p>
+        <Note ok role="status" className="border-fg">
+          پاسخ گرفت از <Code>{test.model}</Code> در {fa(test.ms)} میلی‌ثانیه ({testSource[test.source]}).
+        </Note>
       ) : null}
       {message}
     </Card>

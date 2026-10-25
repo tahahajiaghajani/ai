@@ -175,6 +175,30 @@ body {
     color 0.6s var(--ease-lux);
 }
 
+/*
+ * Running text is justified: paragraphs, quotes, captions and the lists inside articles (a single line, and the last
+ * line of a paragraph, keep their natural start). Spaces are stretched, never letters, so Persian stays joined.
+ * Left as they are: titles and display lines (balanced or giant text: a few big words would be pushed apart), values
+ * in label cells (dd), and anything under a parent that sets its own alignment: centred, end-aligned, or `text-start`
+ * where justifying would open wide gaps (narrow columns, chat, text visitors write, which often holds long links).
+ * A `text-*` utility on the element itself always wins. English article text is hyphenated so its lines stay even.
+ */
+@layer base {
+  :where(p, blockquote, figcaption, .prose-mono li, .text-justify) {
+    text-align: justify;
+    text-justify: inter-word;
+  }
+  :where(.text-balance, .text-giant) {
+    text-align: start;
+  }
+  :where(.text-center, .text-end, .text-start) :where(p, dd, blockquote, figcaption, li) {
+    text-align: inherit;
+  }
+  :where(html[lang="en"]) :where(.prose-mono) :where(p, li) {
+    hyphens: auto;
+  }
+}
+
 /* Persian pages: the Persian face leads (its metrics set the line box), Latin falls through */
 html[lang="fa"] body {
   font-family: var(--font-fa), var(--font-latin), ui-sans-serif, system-ui, sans-serif;
@@ -234,6 +258,14 @@ svg {
 [data-theme="light"] .grain::after {
   opacity: 0.11;
   filter: invert(1);
+}
+/* touch screens: a still grain the size of the screen (a moving layer twice its size, over every frame, costs phones
+   their frame rate) */
+@media (hover: none), (pointer: coarse) {
+  .grain::after {
+    inset: 0;
+    animation: none;
+  }
 }
 @keyframes grain {
   0% { transform: translate(0, 0); }

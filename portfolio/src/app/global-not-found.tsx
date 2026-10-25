@@ -11,7 +11,7 @@ export default function GlobalNotFound() {
         <main className="grid min-h-[100dvh] place-items-center px-6 text-center">
           <div>
             <p className="latin text-[clamp(6rem,24vw,16rem)] font-semibold leading-none tracking-[-0.06em]">404</p>
-            <h1 className="mt-4 text-2xl font-bold">این صفحه پیدا نشد</h1>
+            <h1 className="mt-4 text-center text-2xl font-bold">این صفحه پیدا نشد</h1>
             <p className="latin mt-2 text-muted" lang="en" dir="ltr">This page could not be found.</p>
             <div className="mt-10 flex justify-center gap-3">
               <a href="/" className="rounded-full bg-fg px-6 py-3 font-semibold text-bg">بازگشت به خانه</a>
