@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>غرفه‌ی نمایشگاه — مدیریت پروژه پارس</title>
+<style>
+/* One artboard at its real printed size, in centimetres. items.js sets the board and the page size from ?item=…&style=…&mode=…
+   items: popup (361 × 230: 35 return | 291 face | 35 return), rollup1 and rollup2 (95 × 210: 85 × 200 trim + 5 cm bleed),
+   counter (214 × 90: 72 side | 70 front | 72 side). style: minimal | detailed. mode: light | dark. ?guides draws the
+   returns, panel seams, trim and safe areas for the proof. */
+
+/* static font files (build.mjs copies them from @fontsource): no web-font service at print time, no Type 3 fonts in the PDF */
+@font-face { font-family: "Plex Arabic"; font-weight: 300; src: url(assets/fonts/ibm-plex-sans-arabic-arabic-300-normal.woff2) format("woff2"); unicode-range: U+0600-06FF, U+0750-077F, U+200C-200E, U+2010-2011, U+FB50-FDFF, U+FE70-FEFC; }
+@font-face { font-family: "Plex Arabic"; font-weight: 400; src: url(assets/fonts/ibm-plex-sans-arabic-arabic-400-normal.woff2) format("woff2"); unicode-range: U+0600-06FF, U+0750-077F, U+200C-200E, U+2010-2011, U+FB50-FDFF, U+FE70-FEFC; }
+@font-face { font-family: "Plex Arabic"; font-weight: 500; src: url(assets/fonts/ibm-plex-sans-arabic-arabic-500-normal.woff2) format("woff2"); unicode-range: U+0600-06FF, U+0750-077F, U+200C-200E, U+2010-2011, U+FB50-FDFF, U+FE70-FEFC; }
+@font-face { font-family: "Plex Arabic"; font-weight: 600; src: url(assets/fonts/ibm-plex-sans-arabic-arabic-600-normal.woff2) format("woff2"); unicode-range: U+0600-06FF, U+0750-077F, U+200C-200E, U+2010-2011, U+FB50-FDFF, U+FE70-FEFC; }
+@font-face { font-family: "Plex Arabic"; font-weight: 700; src: url(assets/fonts/ibm-plex-sans-arabic-arabic-700-normal.woff2) format("woff2"); unicode-range: U+0600-06FF, U+0750-077F, U+200C-200E, U+2010-2011, U+FB50-FDFF, U+FE70-FEFC; }
+@font-face { font-family: "Plex Arabic"; font-weight: 300; src: url(assets/fonts/ibm-plex-sans-arabic-latin-300-normal.woff2) format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02C6, U+02DA, U+02DC, U+2000-206F, U+20AC, U+2122, U+2212; }
+@font-face { font-family: "Plex Arabic"; font-weight: 400; src: url(assets/fonts/ibm-plex-sans-arabic-latin-400-normal.woff2) format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02C6, U+02DA, U+02DC, U+2000-206F, U+20AC, U+2122, U+2212; }
+@font-face { font-family: "Plex Arabic"; font-weight: 500; src: url(assets/fonts/ibm-plex-sans-arabic-latin-500-normal.woff2) format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02C6, U+02DA, U+02DC, U+2000-206F, U+20AC, U+2122, U+2212; }
+@font-face { font-family: "Plex Arabic"; font-weight: 600; src: url(assets/fonts/ibm-plex-sans-arabic-latin-600-normal.woff2) format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02C6, U+02DA, U+02DC, U+2000-206F, U+20AC, U+2122, U+2212; }
+@font-face { font-family: "Plex Arabic"; font-weight: 700; src: url(assets/fonts/ibm-plex-sans-arabic-latin-700-normal.woff2) format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02C6, U+02DA, U+02DC, U+2000-206F, U+20AC, U+2122, U+2212; }
+@font-face { font-family: "Sora"; font-weight: 400; src: url(assets/fonts/sora-latin-400-normal.woff2) format("woff2"); }
+@font-face { font-family: "Sora"; font-weight: 600; src: url(assets/fonts/sora-latin-600-normal.woff2) format("woff2"); }
+@font-face { font-family: "Sora"; font-weight: 700; src: url(assets/fonts/sora-latin-700-normal.woff2) format("woff2"); }
+
+/* dark: a deep navy field (never black); light: mist. Text and rules strong enough to survive CMYK. */
+:root[data-mode="dark"] {
+  --bg: #141547; --fg: #ffffff; --muted: #d6d3ef; --faint: #aeaad3; --line: rgba(196, 190, 255, .42);
+  --card: rgba(255, 255, 255, .055); --card-line: rgba(196, 190, 255, .34); --tile: rgba(143, 134, 255, .16); --tile-line: rgba(184, 177, 255, .55);
+  --accent: #ff4fa3; --ai: #b8b1ff; --icon: #d9d5ff; --num: #ffffff; --dot: #20215d; --logo-line: transparent;
+}
+:root[data-mode="light"] {
+  --bg: #f7f5fc; --fg: #1a183a; --muted: #46436a; --faint: #6f6c93; --line: rgba(26, 24, 58, .2);
+  --card: rgba(255, 255, 255, .82); --card-line: rgba(26, 24, 58, .13); --tile: rgba(123, 35, 90, .07); --tile-line: rgba(123, 35, 90, .3);
+  --accent: #df1173; --ai: #5b52d6; --icon: #7b235a; --num: #1a183a; --dot: #ffffff; --logo-line: rgba(26, 24, 58, .14);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+/* the page itself is left-to-right so the board sits at the page origin (render.mjs crops from there); the board is RTL.
+   The page is painted with the field colour, so no sub-millimetre placement slack can ever print white. */
+html, body { -webkit-print-color-adjust: exact; print-color-adjust: exact; direction: ltr; background: var(--bg); }
+body { font-family: "Plex Arabic", sans-serif; color: var(--fg); font-weight: 400; text-rendering: geometricPrecision; }
+@media screen { html { background: #2a2940; } }
+#board { position: absolute; left: 0; top: 0; overflow: hidden; background: var(--bg); direction: rtl; }
+#art { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
+.b { position: absolute; }
+.ltr { direction: ltr; unicode-bidi: isolate; }
+bdi { white-space: nowrap; }
+.latin { font-family: "Sora", sans-serif; }
+svg.i { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.g { color: var(--accent); } /* replaced by gradient SVG text in art.js */
+.hl { font-weight: 600; line-height: 1.5; color: var(--fg); }
+.muted { color: var(--muted); }
+
+/* a kicker: label and a rule */
+.kicker { display: flex; align-items: center; gap: .32em; font-weight: 500; color: var(--ai); white-space: nowrap; }
+.kicker .n { font-weight: 600; color: var(--accent); }
+.kicker .rule { flex: 1; height: .06em; background: linear-gradient(90deg, transparent, var(--line)); }
+.kicker .rule.r { background: linear-gradient(270deg, transparent, var(--line)); }
+
+/* service names only (minimal roll-ups): centred rows divided by fading hairlines */
+.svclist { display: flex; flex-direction: column; }
+.svclist .li { display: flex; align-items: center; justify-content: center; font-weight: 600; color: var(--fg); line-height: 1.4;
+  background: linear-gradient(90deg, transparent, var(--line), transparent) top / 100% .05cm no-repeat; }
+.svclist .li:first-child { background: none; }
+.svclist .li svg { color: var(--icon); font-size: 1.15em; }
+.svclist .li.ai svg { color: var(--ai); }
+
+/* service rows: icon tile, title, one line of detail */
+.svc { display: flex; flex-direction: column; }
+.svc .row { display: flex; align-items: center; background: var(--card); border: .05em solid var(--card-line); }
+.svc .ic { display: grid; place-items: center; flex: none; background: var(--tile); border: .05em solid var(--tile-line); color: var(--icon); }
+.svc .row.ai .ic { color: var(--ai); }
+.svc .t { font-weight: 600; line-height: 1.45; color: var(--fg); }
+.svc .d { color: var(--muted); line-height: 1.6; text-wrap: balance; }
+.svc .ai-tag { font-weight: 600; color: var(--ai); }
+
+/* statistic: a number and its label */
+.stat .num { font-weight: 600; line-height: 1.15; white-space: nowrap; }
+.stat .lab { color: var(--muted); line-height: 1.5; }
+
+/* logo tiles */
+.logos { display: flex; justify-content: space-between; align-items: flex-start; }
+.logos figure { display: flex; flex-direction: column; align-items: center; text-align: center; }
+.logos .t { background: #fff; display: block; flex: none; border: .15cm solid var(--logo-line); }
+.logos .t img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.logos figcaption { color: var(--muted); line-height: 1.35; font-weight: 500; }
+
+/* QR */
+.qr { background: #fff; border: .1cm solid var(--logo-line); }
+.qr svg { width: 100%; height: 100%; display: block; }
+.contact { display: flex; flex-direction: column; color: var(--muted); }
+.contact .url { color: var(--fg); font-weight: 600; }
+.contact .li { display: flex; align-items: center; gap: .45em; }
+.contact .li svg { color: var(--accent); }
+
+/* the four steps of an agent */
+.flow { display: flex; justify-content: space-between; }
+.flow .st { display: flex; flex-direction: column; align-items: center; text-align: center; }
+.flow .dot { display: grid; place-items: center; border-radius: 50%; background: var(--dot); border: .06em solid var(--tile-line); color: var(--ai); }
+.flow .st:last-child .dot { color: var(--accent); }
+.flow b { font-weight: 600; color: var(--fg); }
+
+/* the 90 % bar: agents and the human approval */
+.aibar .seg.ai { background: linear-gradient(270deg, #8f86ff, #c2479f 60%, #ff2b8f); }
+.aibar .seg.hu { background: var(--card); border: .12cm solid var(--accent); }
+.flow.path .st { width: 14cm; }
+.flow.path .dot { color: var(--fg); }
+
+.hair { background: linear-gradient(90deg, transparent, var(--line) 25%, var(--line) 75%, transparent); }
+
+/* guides for the proof (?guides) */
+#guides { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; }
+</style>
+</head>
+<body>
+<div id="board"><svg id="art" xmlns="http://www.w3.org/2000/svg"></svg></div>
+<script src="qr.js"></script>
+<script src="icons.js"></script>
+<script src="items.js"></script>
+<script src="art.js"></script>
+</body>
+</html>
