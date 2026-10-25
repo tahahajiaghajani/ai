@@ -54,7 +54,7 @@ export const FACTS: { id: string; title: string; tags: string[]; body: string; p
     tags: ["assistant", "chatbot", "دستیار", "website", "سایت", "how built", "چطور ساخته"],
     body: [
       "This assistant runs on Google Gemini (free AI Studio tier) with a fallback chain of models. Its knowledge is generated from the website's own content (profile, case studies, journey) and retrieved with BM25 over Persian-normalised text, then grounded in a strict system prompt.",
-      "The website was designed and directed by Taha and built with Claude Code (AI-native engineering): Next.js on Vercel, Supabase for requests and logs, GSAP + Lenis motion, a WebGL portrait shader, and an AI-triaged request desk with tracking codes and Telegram notifications.",
+      "The website was designed and directed by Taha and built with Claude Code (AI-native engineering): Next.js on Vercel with no database — requests, settings and extra knowledge live in a private GitHub repository — GSAP + Lenis motion, a WebGL portrait shader, and an AI-triaged request desk with tracking codes and Telegram notifications.",
     ].join("\n"),
   },
 ];

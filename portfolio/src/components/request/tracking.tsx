@@ -1,9 +1,9 @@
 import type { Lang } from "@/lib/i18n";
 import { formatDate, href, num } from "@/lib/i18n";
 import { ui } from "@/content/ui";
-import { canAccess, getRequest, listMessages, visitorTriage } from "@/lib/requests";
+import { getRequestByKey, listMessages, visitorTriage } from "@/lib/requests";
 import { normalizeCode, STATUSES, type RequestStatus } from "@/lib/request-meta";
-import { db } from "@/lib/db";
+import { ghConfigured } from "@/lib/github";
 import { Prose } from "@/components/work/prose";
 import { ReplyForm } from "@/components/request/reply-form";
 
@@ -17,10 +17,11 @@ export async function Tracking({ lang, code, k }: { lang: Lang; code: string; k?
       {children}
     </section>
   );
-  if (!db()) return shell(<p className="mt-8 text-lg text-fg-2">{ui.request.offline[lang]}</p>);
-  const r = await getRequest(c);
-  if (!r || !canAccess(r, k)) return shell(<p className="mt-8 text-lg text-fg-2">{ui.track.denied[lang]}</p>);
-  const msgs = await listMessages(r.id);
+  if (!ghConfigured()) return shell(<p className="mt-8 text-lg text-fg-2">{ui.request.offline[lang]}</p>);
+  const r = await getRequestByKey(c, k).catch(() => null);
+  if (!r) return shell(<p className="mt-8 text-lg text-fg-2">{ui.track.denied[lang]}</p>);
+  // private notes written on GitHub never reach the visitor
+  const msgs = (await listMessages(r.number).catch(() => [])).filter((m) => m.author !== "note");
   const triage = visitorTriage(r);
   // steps fill up to the current status, but a closed request only shows what really happened on the way
   const step = STATUSES.indexOf(r.status);
@@ -56,7 +57,7 @@ export async function Tracking({ lang, code, k }: { lang: Lang; code: string; k?
         {msgs.map((m) => (
           <article key={m.id} className={`rounded-[8px] border p-6 ${m.author === "owner" ? "border-fg bg-fg text-bg" : "border-line"}`}>
             <header className="mb-3 flex justify-between text-[0.75rem] opacity-70">
-              <span>{m.author === "owner" ? ui.track.taha[lang] : m.author === "visitor" ? ui.track.you[lang] : ui.track.system[lang]}</span>
+              <span>{m.author === "owner" ? ui.track.taha[lang] : ui.track.you[lang]}</span>
               <time dateTime={m.created_at}>{formatDate(m.created_at, lang)}</time>
             </header>
             <div className={m.author === "owner" ? "[&_*]:!text-bg" : ""}>

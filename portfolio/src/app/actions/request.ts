@@ -3,9 +3,9 @@
 import { after } from "next/server";
 import { headers } from "next/headers";
 import { clientIp, hashIp } from "@/lib/crypto";
-import { db } from "@/lib/db";
+import { ghConfigured } from "@/lib/github";
 import { allow, allowAi } from "@/lib/rate-limit";
-import { addMessage, canAccess, createRequest, getRequest, noticeNewRequest, noticeVisitorMessage, triageRequest, visitorTriage } from "@/lib/requests";
+import { addMessage, createRequest, getRequest, getRequestByKey, noticeNewRequest, noticeVisitorMessage, triageRequest, visitorTriage } from "@/lib/requests";
 import { isKind, normalizeCode, type VisitorTriage } from "@/lib/request-meta";
 
 export type SubmitResult =
@@ -34,7 +34,7 @@ export async function submitRequest(form: FormData): Promise<SubmitResult> {
   if (body.length < 10) return { ok: false, error: "invalid", field: "body" };
   if (email && !EMAIL.test(email)) return { ok: false, error: "invalid", field: "email" };
   if (!email && phone.replace(/\D/g, "").length < 6 && !/^@?[a-z0-9_]{4,}$/i.test(phone)) return { ok: false, error: "contact" };
-  if (!db()) return { ok: false, error: "offline" };
+  if (!ghConfigured()) return { ok: false, error: "offline" };
 
   const h = await headers();
   const visitor = hashIp(clientIp(h));
@@ -42,7 +42,7 @@ export async function submitRequest(form: FormData): Promise<SubmitResult> {
   if (!okHour || !okDay) return { ok: false, error: "rate" };
 
   const telegram = /^@[a-z0-9_]{4,}$/i.test(phone) ? phone : "";
-  let created: { id: string; code: string; key: string };
+  let created: { number: number; code: string; key: string };
   try {
     created = await createRequest({
       name,
@@ -65,12 +65,12 @@ export async function submitRequest(form: FormData): Promise<SubmitResult> {
   }
 
   // the visitor waits a little for the AI's reading; if it is slow, the same call finishes in the background
-  const job = (await allowAi()) ? triageRequest(created.id).catch(() => null) : null;
+  const job = (await allowAi()) ? triageRequest(created.number).catch(() => null) : null;
   let triage: VisitorTriage | null = null;
   if (job) {
     const quick = await Promise.race([job, new Promise<null>((r) => setTimeout(() => r(null), 22_000))]);
     if (quick) {
-      const row = await getRequest(created.code);
+      const row = await getRequest(created.number).catch(() => null);
       triage = row ? visitorTriage(row) : null;
     }
   }
@@ -79,11 +79,11 @@ export async function submitRequest(form: FormData): Promise<SubmitResult> {
       // never a second call while the first is still running; one retry if it failed, within the daily AI budget
       const done = await job;
       if (!done && (await allowAi())) {
-        const row = await getRequest(created.code);
-        if (row && !row.ai_triage) await triageRequest(created.id).catch(() => null);
+        const row = await getRequest(created.number).catch(() => null);
+        if (row && !row.ai_triage) await triageRequest(created.number).catch(() => null);
       }
     }
-    await noticeNewRequest(created.code);
+    await noticeNewRequest(created.number).catch((e) => console.error("[request] notice failed", e));
   });
   return { ok: true, code: created.code, key: created.key, triage };
 }
@@ -96,8 +96,8 @@ export async function replyToRequest(form: FormData): Promise<ReplyResult> {
   const key = field(form, "k", 80);
   const body = field(form, "body", 4000);
   if (body.length < 2) return { ok: false, error: "invalid" };
-  const r = await getRequest(code);
-  if (!r || !canAccess(r, key)) return { ok: false, error: "denied" };
+  const r = await getRequestByKey(code, key).catch(() => null);
+  if (!r) return { ok: false, error: "denied" };
   if (r.status === "closed") return { ok: false, error: "closed" };
   const h = await headers();
   if (!(await allow(`req:msg:${hashIp(clientIp(h))}`, 3600, 15))) return { ok: false, error: "rate" };

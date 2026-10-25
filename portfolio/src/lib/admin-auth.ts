@@ -24,6 +24,11 @@ export async function requireAdmin(): Promise<void> {
   if (!(await isAdmin())) redirect("/admin/login");
 }
 
+/** For actions that return a result to the panel: refuses instead of redirecting. */
+export async function assertAdmin(): Promise<void> {
+  if (!(await isAdmin())) throw new Error("unauthorized");
+}
+
 export async function startSession(password: string): Promise<boolean> {
   if (!adminConfigured() || !safeEqual(password, env.adminPassword)) return false;
   const exp = String(Math.floor(Date.now() / 1000) + TTL);

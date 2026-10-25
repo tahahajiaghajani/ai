@@ -2,18 +2,20 @@
 
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { revalidatePath, revalidateTag } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
 import { clientIp, hashIp } from "@/lib/crypto";
 import { allow } from "@/lib/rate-limit";
-import { db } from "@/lib/db";
 import { endSession, requireAdmin, startSession } from "@/lib/admin-auth";
+import { getFile, GhError, putFile } from "@/lib/github";
+import { KNOWLEDGE_FILE, parseKnowledgeFile, serializeKnowledgeFile, type Fact } from "@/lib/knowledge-file";
 import { addMessage, getRequest, setStatus, triageRequest } from "@/lib/requests";
-import { isStatus, normalizeCode } from "@/lib/request-meta";
+import { isStatus } from "@/lib/request-meta";
 
 const text = (f: FormData, k: string, max: number) => {
   const v = f.get(k);
   return typeof v === "string" ? v.trim().slice(0, max) : "";
 };
+const number = (f: FormData) => Number(text(f, "n", 12)) || 0;
 
 export async function login(_prev: { error?: string } | undefined, form: FormData): Promise<{ error?: string }> {
   const h = await headers();
@@ -29,53 +31,64 @@ export async function logout(): Promise<void> {
 
 export async function ownerReply(form: FormData): Promise<void> {
   await requireAdmin();
-  const code = normalizeCode(text(form, "code", 20));
+  const n = number(form);
   const body = text(form, "body", 6000);
-  const r = await getRequest(code);
+  const r = await getRequest(n);
   if (!r || body.length < 2) return;
   await addMessage(r, "owner", body);
   const status = text(form, "status", 20);
-  if (isStatus(status) && status !== "answered") await setStatus(r.id, status);
-  revalidatePath(`/admin/requests/${code}`);
+  if (isStatus(status) && status !== "answered") await setStatus(r.number, status);
+  revalidatePath(`/admin/requests/${n}`);
 }
 
 export async function changeStatus(form: FormData): Promise<void> {
   await requireAdmin();
-  const code = normalizeCode(text(form, "code", 20));
+  const n = number(form);
   const status = text(form, "status", 20);
-  const r = await getRequest(code);
+  const r = await getRequest(n);
   if (!r || !isStatus(status)) return;
-  await setStatus(r.id, status);
-  revalidatePath(`/admin/requests/${code}`);
+  await setStatus(r.number, status);
+  revalidatePath(`/admin/requests/${n}`);
   revalidatePath("/admin");
 }
 
 export async function retriage(form: FormData): Promise<void> {
   await requireAdmin();
-  const r = await getRequest(normalizeCode(text(form, "code", 20)));
+  const r = await getRequest(number(form));
   if (!r) return;
-  await triageRequest(r.id, { signal: AbortSignal.timeout(50_000) });
-  revalidatePath(`/admin/requests/${r.code}`);
+  await triageRequest(r.number, { signal: AbortSignal.timeout(50_000) });
+  revalidatePath(`/admin/requests/${r.number}`);
+}
+
+/** Read-modify-write of knowledge.md; one retry when the file changed in between (e.g. edited on GitHub). */
+async function changeKnowledge(change: (facts: Fact[]) => Fact[], message: string): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    const f = await getFile(KNOWLEDGE_FILE);
+    try {
+      await putFile(KNOWLEDGE_FILE, serializeKnowledgeFile(change(f ? parseKnowledgeFile(f.text) : [])), message, f?.sha);
+      break;
+    } catch (e) {
+      if (attempt === 0 && e instanceof GhError && (e.status === 409 || e.status === 422)) continue;
+      throw e;
+    }
+  }
+  updateTag("knowledge");
+  revalidatePath("/admin/knowledge");
 }
 
 export async function addFact(form: FormData): Promise<void> {
   await requireAdmin();
-  const c = db();
   const title = text(form, "title", 200);
   const body = text(form, "body", 6000);
-  if (!c || !title || !body) return;
+  if (!title || !body) return;
   const tags = text(form, "tags", 300).split(/[,،]/).map((t) => t.trim()).filter(Boolean).slice(0, 12);
-  await c.from("portfolio_knowledge").insert({ title, body, tags });
-  revalidateTag("knowledge", "max");
-  revalidatePath("/admin/knowledge");
+  await changeKnowledge((facts) => [...facts, { title, body, tags }], `Panel: add knowledge «${title.slice(0, 60)}»`);
 }
 
 export async function deleteFact(form: FormData): Promise<void> {
   await requireAdmin();
-  const c = db();
-  const id = text(form, "id", 60);
-  if (!c || !id) return;
-  await c.from("portfolio_knowledge").delete().eq("id", id);
-  revalidateTag("knowledge", "max");
-  revalidatePath("/admin/knowledge");
+  const index = Number(text(form, "index", 6));
+  const title = text(form, "title", 200);
+  // the title must still match, so a file edited on GitHub in the meantime never loses the wrong fact
+  await changeKnowledge((facts) => facts.filter((f, i) => !(i === index && f.title === title)), `Panel: remove knowledge «${title.slice(0, 60)}»`);
 }

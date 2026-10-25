@@ -1,6 +1,8 @@
 import "server-only";
 import { unstable_cache } from "next/cache";
-import { db } from "@/lib/db";
+import { env } from "@/lib/env";
+import { getFile, ghConfigured, GhError } from "@/lib/github";
+import { KNOWLEDGE_FILE, parseKnowledgeFile } from "@/lib/knowledge-file";
 import type { KnowledgeEntry } from "@/lib/retrieval";
 import { PROFILE, EXPERTISE, METHOD } from "@/content/profile";
 import { PROJECTS } from "@/content/projects";
@@ -12,8 +14,8 @@ const strip = (s: string) => s.replace(/\*\*/g, "").replace(/`/g, "");
 
 /**
  * The assistant's knowledge is the site itself: profile, expertise, every case study, the journey and a set of
- * extra facts — so what the chat says never drifts from what the pages say. Owner-added facts from the database
- * are appended (Supabase table portfolio_knowledge, optional).
+ * extra facts — so what the chat says never drifts from what the pages say. Owner-added facts from knowledge.md in
+ * the private data repository are appended (optional).
  */
 export function siteKnowledge(): KnowledgeEntry[] {
   const out: KnowledgeEntry[] = [];
@@ -96,30 +98,23 @@ export function siteKnowledge(): KnowledgeEntry[] {
   return out;
 }
 
-interface Row {
-  id: string;
-  title: string;
-  body: string;
-  tags: string[] | null;
-  enabled: boolean;
+async function loadExtra(_repo: string): Promise<KnowledgeEntry[]> {
+  if (!ghConfigured()) throw new GhError("not configured", 0);
+  const f = await getFile(KNOWLEDGE_FILE);
+  return (f ? parseKnowledgeFile(f.text) : []).map((x, i) => ({ id: `extra-${i}`, title: x.title, body: x.body, tags: x.tags, pinned: false, enabled: true, sort: 1000 + i }));
 }
 
-async function loadExtra(): Promise<KnowledgeEntry[]> {
-  const c = db();
-  if (!c) return [];
-  const { data, error } = await c.from("portfolio_knowledge").select("id,title,body,tags,enabled").eq("enabled", true).order("created_at");
-  if (error) throw new Error(error.message);
-  return ((data ?? []) as Row[]).map((r, i) => ({ id: r.id, title: r.title, body: r.body, tags: r.tags ?? [], pinned: false, enabled: true, sort: 1000 + i }));
-}
-
-const cachedExtra = unstable_cache(loadExtra, ["portfolio-knowledge-v1"], { tags: ["knowledge"], revalidate: 300 });
+// failures throw and are never cached; a save in the panel refreshes the tag at once
+const cachedExtra = unstable_cache(loadExtra, ["portfolio-knowledge-v2"], { tags: ["knowledge"], revalidate: 300 });
 
 export async function getKnowledge(): Promise<KnowledgeEntry[]> {
   let extra: KnowledgeEntry[] = [];
-  try {
-    extra = await cachedExtra();
-  } catch (e) {
-    console.error("[knowledge] extra facts unavailable", e);
+  if (ghConfigured()) {
+    try {
+      extra = await cachedExtra(env.githubRepo);
+    } catch (e) {
+      console.error("[knowledge] extra facts unavailable", e instanceof Error ? e.message : e);
+    }
   }
   return [...siteKnowledge(), ...extra];
 }

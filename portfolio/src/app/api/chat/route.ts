@@ -7,14 +7,13 @@ import { chatSystemPrompt } from "@/lib/assistant";
 import { getRuntime, openStream, TRANSIENT } from "@/lib/ai/runtime";
 import { ProviderError, type ChatMessage } from "@/lib/ai/gemini";
 import { parseMarkers } from "@/lib/markers";
-import { logChat } from "@/lib/chat-log";
+import { logUnanswered } from "@/lib/chat-log";
 
 export const maxDuration = 60;
 /** the provider call ends well before maxDuration, so the cut-off text and the after() log still go out */
 const DEADLINE_MS = 45_000;
 /** the history sent to the model, in characters; older turns beyond it are dropped */
 const HISTORY_CHARS = 12_000;
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const OFFLINE = {
   fa: "دستیار هوشمند الان در دسترس نیست. می‌توانید درخواستتان را ثبت کنید تا طاها خودش پاسخ دهد، یا مستقیم پیام بدهید.\n[[action:ticket]] [[action:contact]]",
@@ -32,7 +31,7 @@ function offline(lang: "fa" | "en") {
 
 export async function POST(req: Request) {
   const deadline = AbortSignal.any([req.signal, AbortSignal.timeout(DEADLINE_MS)]);
-  let body: { messages?: ChatMessage[]; lang?: string; sessionId?: string; logId?: string };
+  let body: { messages?: ChatMessage[]; lang?: string };
   try {
     body = await req.json();
   } catch {
@@ -53,7 +52,7 @@ export async function POST(req: Request) {
   const [okShort, okDay] = await Promise.all([allow(`chat:10m:${visitor}`, 600, 20), allow(`chat:day:${visitor}`, 86400, 80)]);
   if (!okShort || !okDay) return json(429, "rate");
 
-  const rt = getRuntime();
+  const rt = await getRuntime();
   if (!rt) return offline(lang);
   if (!(await allowAi())) return json(503, "busy");
 
@@ -98,12 +97,11 @@ export async function POST(req: Request) {
     },
   });
 
-  const logId = typeof body.logId === "string" && UUID.test(body.logId) ? body.logId : crypto.randomUUID();
-  const sessionId = typeof body.sessionId === "string" ? body.sessionId.slice(0, 64) : "";
+  // only questions the assistant could not answer are kept, so Taha can add the missing knowledge
   after(async () => {
     await done;
     const parsed = parseMarkers(answer);
-    await logChat({ id: logId, session_id: sessionId, lang, question: last.content, answer: parsed.text, unknown: parsed.unknown, model: opened.model, visitor }).catch(() => {});
+    if (parsed.unknown) await logUnanswered({ question: last.content, answer: parsed.text, lang, model: opened.model }).catch(() => {});
   });
 
   return new Response(stream, {

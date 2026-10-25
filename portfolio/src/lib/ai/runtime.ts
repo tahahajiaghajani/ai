@@ -1,6 +1,8 @@
 import "server-only";
 import { createHash } from "node:crypto";
 import { env } from "@/lib/env";
+import { decrypt } from "@/lib/crypto";
+import { getSettings } from "@/lib/settings";
 import { EmptyResponseError, ProviderError, streamGemini, type ChatMessage, type ProviderErrorKind } from "@/lib/ai/gemini";
 
 /**
@@ -16,11 +18,21 @@ export interface AiRuntime {
   maxTokens: number;
 }
 
-/** The model connection, or null when no Gemini key is configured. */
-export function getRuntime(): AiRuntime | null {
-  const apiKey = env.geminiKey;
+/** A runtime for a given key: the preferred models first, then the free chain. */
+export function runtimeFor(apiKey: string, preferred: string[] = []): AiRuntime {
+  return { apiKey, models: [...new Set([...preferred, ...GEMINI_CHAIN])], temperature: 0.4, maxTokens: 900 };
+}
+
+/**
+ * The model connection, or null when the assistant is switched off in the panel or no key is set. The key saved in
+ * the panel (Connections) wins over GEMINI_API_KEY in Vercel; so does its model list over GEMINI_MODELS.
+ */
+export async function getRuntime(): Promise<AiRuntime | null> {
+  const s = await getSettings();
+  if (!s.ai.enabled) return null;
+  const apiKey = decrypt(s.ai.keyEnc) || env.geminiKey;
   if (!apiKey) return null;
-  return { apiKey, models: [...new Set([...env.geminiModels, ...GEMINI_CHAIN])], temperature: 0.4, maxTokens: 900 };
+  return runtimeFor(apiKey, s.ai.models.length ? s.ai.models : env.geminiModels);
 }
 
 /** Models that just failed for a reason that lasts (daily quota, unknown model), per key, for this instance. */

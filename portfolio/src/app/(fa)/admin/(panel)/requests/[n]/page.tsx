@@ -1,35 +1,39 @@
 import { notFound } from "next/navigation";
 import { formatDate } from "@/lib/i18n";
 import { ui } from "@/content/ui";
-import { env } from "@/lib/env";
 import { requireAdmin } from "@/lib/admin-auth";
 import { getRequest, listMessages } from "@/lib/requests";
-import { normalizeCode, PRIORITY_LABEL, STATUSES, isPriority } from "@/lib/request-meta";
+import { getRuntime } from "@/lib/ai/runtime";
+import { PRIORITY_LABEL, STATUSES, isPriority } from "@/lib/request-meta";
 import { changeStatus, ownerReply, retriage } from "@/app/actions/admin";
 
-export default async function RequestDetail({ params }: PageProps<"/admin/requests/[code]">) {
+export default async function RequestDetail({ params }: PageProps<"/admin/requests/[n]">) {
   await requireAdmin(); // the layout check alone does not stop this page from rendering
-  const r = await getRequest(normalizeCode((await params).code));
+  const n = Number((await params).n);
+  const r = Number.isInteger(n) && n > 0 ? await getRequest(n) : null;
   if (!r) notFound();
-  const msgs = await listMessages(r.id);
+  const [msgs, rt] = await Promise.all([listMessages(r.number), getRuntime()]);
   const t = r.ai_triage;
   return (
     <div className="grid gap-10 lg:grid-cols-[1fr_360px]">
       <div>
-        <p className="font-mono text-sm text-muted" dir="ltr">{r.code}</p>
+        <p className="flex flex-wrap items-center gap-3 text-sm text-muted">
+          <span className="font-mono" dir="ltr">{r.code}</span>
+          <a href={r.url} target="_blank" rel="noreferrer" className="link-draw">در GitHub ↗</a>
+        </p>
         <h1 className="mt-2 text-3xl font-bold">{r.subject}</h1>
         <p className="mt-3 text-sm text-muted">{formatDate(r.created_at, "fa")} · {r.lang === "en" ? "انگلیسی" : "فارسی"} · {r.source}</p>
         <article className="mt-8 whitespace-pre-wrap rounded-[8px] border border-line p-6 leading-relaxed">{r.body}</article>
         <div className="mt-6 grid gap-4">
           {msgs.map((m) => (
-            <article key={m.id} className={`rounded-[8px] border p-5 ${m.author === "owner" ? "border-fg" : "border-line"}`}>
-              <p className="mb-2 text-xs text-muted">{m.author === "owner" ? "طاها" : m.author === "visitor" ? r.name : "سامانه"} · {formatDate(m.created_at, "fa")}</p>
+            <article key={m.id} className={`rounded-[8px] border p-5 ${m.author === "owner" ? "border-fg" : m.author === "note" ? "border-dashed border-line" : "border-line"}`}>
+              <p className="mb-2 text-xs text-muted">{m.author === "owner" ? "طاها" : m.author === "visitor" ? r.name : "یادداشت خصوصی در GitHub (بازدیدکننده نمی‌بیند)"} · {formatDate(m.created_at, "fa")}</p>
               <p className="whitespace-pre-wrap leading-relaxed">{m.body}</p>
             </article>
           ))}
         </div>
         <form action={ownerReply} className="mt-8 grid gap-3">
-          <input type="hidden" name="code" value={r.code} />
+          <input type="hidden" name="n" value={r.number} />
           <label className="grid gap-2">
             <span className="text-sm text-muted">پاسخ (در صفحه‌ی پیگیری بازدیدکننده نمایش داده می‌شود)</span>
             <textarea name="body" rows={8} defaultValue={r.ai_reply ?? ""} className="rounded-[8px] border border-line-strong bg-transparent p-4 leading-relaxed outline-none focus:border-fg" />
@@ -65,17 +69,17 @@ export default async function RequestDetail({ params }: PageProps<"/admin/reques
               <p className="text-xs text-faint" dir="ltr">{t.model}</p>
             </div>
           ) : (
-            <p className="text-muted">{env.geminiKey ? "هنوز تحلیل نشده." : "GEMINI_API_KEY تنظیم نشده است."}</p>
+            <p className="text-muted">{rt ? "هنوز تحلیل نشده." : "کلید هوش مصنوعی تنظیم نشده یا دستیار خاموش است (اتصالات)."}</p>
           )}
           <form action={retriage} className="mt-4">
-            <input type="hidden" name="code" value={r.code} />
+            <input type="hidden" name="n" value={r.number} />
             <button className="rounded-full border border-line px-4 py-1.5 text-xs hover:border-fg">تحلیل دوباره</button>
           </form>
         </section>
         <section className="rounded-[8px] border border-line p-5 text-sm">
           <h2 className="mb-3 font-bold">وضعیت</h2>
           <form action={changeStatus} className="flex flex-wrap gap-2">
-            <input type="hidden" name="code" value={r.code} />
+            <input type="hidden" name="n" value={r.number} />
             {STATUSES.map((s) => (
               <button key={s} name="status" value={s} className={`rounded-full border px-3 py-1 text-xs ${r.status === s ? "border-fg bg-fg text-bg" : "border-line"}`}>{ui.track.status[s].fa}</button>
             ))}

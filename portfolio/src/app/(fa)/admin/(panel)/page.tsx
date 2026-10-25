@@ -1,22 +1,24 @@
 import Link from "next/link";
-import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/admin-auth";
+import { ghConfigured } from "@/lib/github";
 import { formatDate } from "@/lib/i18n";
 import { ui } from "@/content/ui";
 import { PRIORITY_LABEL, isPriority, isStatus } from "@/lib/request-meta";
-import type { RequestRow } from "@/lib/requests";
+import { listRequests, type RequestRow } from "@/lib/requests";
+import { NotConnected } from "@/components/admin/not-connected";
 
 export default async function Requests({ searchParams }: PageProps<"/admin">) {
   await requireAdmin(); // the layout check alone does not stop this page from rendering
   const { status } = await searchParams;
-  const c = db();
-  if (!c) return <p className="text-fg-2">پایگاه داده تنظیم نشده است (SUPABASE_URL و SUPABASE_SERVICE_ROLE_KEY).</p>;
-  let q = c.from("portfolio_tickets").select("*").order("created_at", { ascending: false }).limit(200);
-  if (typeof status === "string" && isStatus(status)) q = q.eq("status", status);
-  const { data, error } = await q;
-  if (error) return <p className="text-fg-2">خواندن درخواست‌ها ممکن نشد: {error.message}. آیا migration اجرا شده است؟</p>;
-  const rows = (data ?? []) as RequestRow[];
-  const open = rows.filter((r) => r.status === "new" || r.status === "reviewing").length;
+  if (!ghConfigured()) return <NotConnected />;
+  let all: RequestRow[];
+  try {
+    all = await listRequests();
+  } catch (e) {
+    return <NotConnected error={e instanceof Error ? e.message : String(e)} />;
+  }
+  const rows = typeof status === "string" && isStatus(status) ? all.filter((r) => r.status === status) : all;
+  const open = all.filter((r) => r.status === "new" || r.status === "reviewing").length;
   return (
     <>
       <div className="mb-10 flex flex-wrap items-end justify-between gap-6">
@@ -28,7 +30,7 @@ export default async function Requests({ searchParams }: PageProps<"/admin">) {
           ))}
         </div>
       </div>
-      <p className="mb-6 text-sm text-muted">{open} درخواست باز</p>
+      <p className="mb-6 text-sm text-muted">{open} درخواست باز · هر درخواست یک issue در مخزن داده است.</p>
       <div className="overflow-x-auto rounded-[8px] border border-line">
         <table className="w-full min-w-[760px] text-sm">
           <thead className="bg-bg-2 text-muted">
@@ -43,8 +45,8 @@ export default async function Requests({ searchParams }: PageProps<"/admin">) {
           </thead>
           <tbody>
             {rows.map((r) => (
-              <tr key={r.id} className="border-t border-line hover:bg-fg/[0.03]">
-                <td className="p-3 font-mono" dir="ltr"><Link href={`/admin/requests/${r.code}`} className="link-draw">{r.code}</Link></td>
+              <tr key={r.number} className="border-t border-line hover:bg-fg/[0.03]">
+                <td className="p-3 font-mono" dir="ltr"><Link href={`/admin/requests/${r.number}`} className="link-draw">{r.code}</Link></td>
                 <td className="max-w-[320px] truncate p-3">{r.subject}</td>
                 <td className="p-3">{r.name}{r.organization ? <span className="text-muted"> · {r.organization}</span> : null}</td>
                 <td className="p-3">{ui.request.kinds[r.kind]?.fa ?? r.kind} · {isPriority(r.priority) ? PRIORITY_LABEL[r.priority].fa : r.priority}</td>

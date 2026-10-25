@@ -8,34 +8,48 @@ export const env = {
     const vercel = process.env.VERCEL_PROJECT_PRODUCTION_URL;
     return vercel ? `https://${vercel}` : "http://localhost:3000";
   },
-  get supabaseUrl() {
-    return process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+  /** fine-grained token for the private data repository (requests, settings, extra knowledge) */
+  get githubToken() {
+    return (process.env.GITHUB_TOKEN || "").trim();
   },
-  get supabaseKey() {
-    return process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+  /** the private data repository as owner/name (a full github.com URL is accepted too) */
+  get githubRepo() {
+    return (process.env.GITHUB_REPO || "")
+      .trim()
+      .replace(/^https?:\/\/github\.com\//i, "")
+      .replace(/\.git$/i, "")
+      .replace(/\/+$/, "");
+  },
+  /** the GitHub API (GitHub Enterprise Server, or a local mock in tests); default https://api.github.com */
+  get githubApi() {
+    return (process.env.GITHUB_API_URL || "https://api.github.com").replace(/\/+$/, "");
   },
   /** the hidden inbox at /admin */
   get adminPassword() {
     return process.env.ADMIN_PASSWORD || "";
   },
-  /** signs the admin session and ticket links; falls back to the service-role key */
+  /** encrypts the keys saved in the panel and signs the admin session and tracking links */
   get appSecret() {
-    return process.env.APP_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+    return process.env.APP_SECRET || "";
   },
-  /** Google AI Studio key (free tier) for the assistant and ticket triage */
+  /** the secret before a rotation, so keys saved with it can still be read */
+  get appSecretPrevious() {
+    return process.env.APP_SECRET_PREVIOUS || "";
+  },
+  /** Google AI Studio key; a key saved in the panel (Connections) takes precedence */
   get geminiKey() {
     return process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "";
   },
-  /** optional: models tried before the built-in free chain, comma separated */
+  /** optional: models tried before the built-in free chain, comma separated (the panel's list takes precedence) */
   get geminiModels(): string[] {
     return (process.env.GEMINI_MODELS || "").split(",").map((m) => m.trim()).filter(Boolean);
   },
-  /** AI calls per day shared by every visitor (chat + triage); default 1000 */
+  /** AI calls per day for each server instance (chat + triage); default 1000 */
   get aiDailyLimit(): number {
     const n = Math.round(Number(process.env.AI_DAILY_LIMIT));
     return Number.isFinite(n) && n >= 1 ? n : 1000;
   },
-  /** optional Telegram (or Bale) bot that receives every new request */
+  /** optional Telegram (or Bale) bot; a bot saved in the panel takes precedence */
   get telegramToken() {
     return process.env.TELEGRAM_BOT_TOKEN || "";
   },
@@ -43,11 +57,7 @@ export const env = {
     return process.env.TELEGRAM_CHAT_ID || "";
   },
   /** "bale" sends through Bale's Bot API (same protocol) instead of Telegram */
-  get telegramApi() {
-    return process.env.TELEGRAM_API === "bale" ? "https://tapi.bale.ai" : "https://api.telegram.org";
-  },
-  /** optional: protects the daily keep-alive cron (Vercel sends it as a Bearer token) */
-  get cronSecret() {
-    return process.env.CRON_SECRET || "";
+  get telegramChannel(): "telegram" | "bale" {
+    return process.env.TELEGRAM_API === "bale" ? "bale" : "telegram";
   },
 };

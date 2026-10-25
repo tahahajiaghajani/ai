@@ -44,18 +44,13 @@ export function ChatProvider({ lang, works, children }: { lang: Lang; works: { s
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
   const abort = useRef<AbortController | null>(null);
-  const session = useRef("");
   const loaded = useRef(false);
 
   useEffect(() => {
     try {
       const saved = sessionStorage.getItem(key);
       if (saved) setMessages(JSON.parse(saved));
-      session.current = sessionStorage.getItem("chat:session") || uid();
-      sessionStorage.setItem("chat:session", session.current);
-    } catch {
-      session.current = uid();
-    }
+    } catch {}
     loaded.current = true;
   }, [key]);
 
@@ -83,7 +78,7 @@ export function ChatProvider({ lang, works, children }: { lang: Lang; works: { s
         const res = await fetch("/api/chat", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ messages: history, lang, sessionId: session.current, logId: reply.id }),
+          body: JSON.stringify({ messages: history, lang }),
           signal: ctrl.signal,
         });
         if (!res.ok || !res.body) {

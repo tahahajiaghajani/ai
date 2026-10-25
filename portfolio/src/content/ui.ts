@@ -104,7 +104,7 @@ const UI = {
     keep: { fa: "این پیوند را نگه دارید؛ پاسخ من همان‌جا نمایش داده می‌شود.", en: "Keep this link — my reply will appear there." },
     aiRead: { fa: "برداشت هوش مصنوعی از درخواست شما", en: "How the AI read your request" },
     failed: { fa: "ثبت درخواست ممکن نشد. لطفاً از ایمیل یا تلگرام استفاده کنید.", en: "The request couldn't be saved. Please use email or Telegram instead." },
-    offline: { fa: "سامانه‌ی درخواست هنوز به پایگاه داده وصل نشده؛ لطفاً مستقیم پیام بدهید.", en: "The request desk isn't connected yet — please message me directly." },
+    offline: { fa: "سامانه‌ی درخواست هنوز راه‌اندازی نشده؛ لطفاً مستقیم پیام بدهید.", en: "The request desk isn't set up yet — please message me directly." },
     rate: { fa: "درخواست‌های زیادی ثبت شد؛ کمی بعد دوباره امتحان کنید.", en: "Too many requests — please try again later." },
     or: { fa: "یا مستقیم", en: "or directly" },
   },
@@ -126,7 +126,7 @@ const UI = {
   },
   footer: {
     rights: { fa: "طراحی و هدایت: طاها آقاجانی · ساخته‌شده با Claude Code", en: "Designed & directed by Taha Aghajani · built with Claude Code" },
-    built: { fa: "در حال اجرا روی Next.js، Supabase و Gemini", en: "Running on Next.js, Supabase and Gemini" },
+    built: { fa: "در حال اجرا روی Next.js، Vercel، GitHub و Gemini", en: "Running on Next.js, Vercel, GitHub and Gemini" },
     top: { fa: "بازگشت به بالا", en: "Back to top" },
     say: { fa: "سلام کنید", en: "Say hello" },
   },

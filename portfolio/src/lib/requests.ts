@@ -1,63 +1,30 @@
 import "server-only";
 import { randomBytes } from "node:crypto";
-import { db } from "@/lib/db";
 import { env } from "@/lib/env";
-import { randomToken, safeEqual, sha256 } from "@/lib/crypto";
+import { safeEqual, sign } from "@/lib/crypto";
+import { addComment, assertPrivateRepo, createIssue, getIssue, listComments, listIssues, updateIssue, type GhIssue } from "@/lib/github";
 import { getRuntime, complete, parseJsonObject } from "@/lib/ai/runtime";
 import { getKnowledge } from "@/lib/knowledge";
 import { selectKnowledge, entryText } from "@/lib/retrieval";
 import { notifyOwner } from "@/lib/notify";
-import { isKind, isPriority, requestCode, type RequestKind, type RequestPriority, type RequestStatus, type VisitorTriage } from "@/lib/request-meta";
+import { isKind, isPriority, requestCode, type RequestKind, type RequestStatus, type VisitorTriage } from "@/lib/request-meta";
+import {
+  issueBody,
+  issueTitle,
+  keyNumber,
+  messageComment,
+  parseComment,
+  parseIssueBody,
+  REQUEST_LABEL,
+  requestLabels,
+  trackingKey,
+  type Message,
+  type RequestData,
+  type RequestRow,
+  type Triage,
+} from "@/lib/request-issue";
 
-export interface RequestRow {
-  id: string;
-  code: string;
-  access_hash: string;
-  name: string;
-  email: string;
-  phone: string;
-  telegram: string;
-  organization: string;
-  kind: RequestKind;
-  budget: string;
-  timeline: string;
-  subject: string;
-  body: string;
-  lang: "fa" | "en";
-  status: RequestStatus;
-  priority: RequestPriority;
-  ai_summary: string | null;
-  ai_reply: string | null;
-  ai_triage: Triage | null;
-  source: string;
-  visitor: string;
-  last_visitor_at: string;
-  last_owner_at: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface MessageRow {
-  id: string;
-  ticket_id: string;
-  author: "visitor" | "owner" | "system";
-  body: string;
-  created_at: string;
-}
-
-/** What the model returns for a new request. */
-export interface Triage {
-  kind?: string;
-  priority?: string;
-  summary_visitor?: string;
-  summary_owner?: string;
-  questions?: string[];
-  tags?: string[];
-  fit?: string;
-  reply_draft?: string;
-  model?: string;
-  at?: string;
-}
+export type { Message, RequestRow, Triage };
 
 export interface NewRequest {
   name: string;
@@ -75,62 +42,90 @@ export interface NewRequest {
   visitor: string;
 }
 
-export async function createRequest(input: NewRequest): Promise<{ id: string; code: string; key: string }> {
-  const c = db();
-  if (!c) throw new Error("no_db");
-  const key = randomToken(18);
-  for (let attempt = 0; attempt < 5; attempt++) {
-    const code = requestCode((n) => randomBytes(n));
-    const { data, error } = await c
-      .from("portfolio_tickets")
-      .insert({ ...input, code, access_hash: sha256(key), status: "new", priority: "normal" })
-      .select("id")
-      .single();
-    if (!error && data) return { id: data.id as string, code, key };
-    if (error && !/duplicate|unique/i.test(error.message)) throw new Error(error.message);
-  }
-  throw new Error("could not allocate a request code");
+const labelNames = (i: GhIssue) => i.labels.map((l) => (typeof l === "string" ? l : l.name));
+
+function toRow(i: GhIssue): RequestRow | null {
+  const d = parseIssueBody(i.body);
+  return d ? { ...d, number: i.number, url: i.html_url } : null;
 }
 
-export async function getRequest(code: string): Promise<RequestRow | null> {
-  const c = db();
-  if (!c) return null;
-  const { data } = await c.from("portfolio_tickets").select("*").eq("code", code).maybeSingle();
-  return (data as RequestRow) ?? null;
+/** Saves a new request as an issue in the data repository; the key is the private half of the tracking link. */
+export async function createRequest(input: NewRequest): Promise<{ number: number; code: string; key: string }> {
+  const now = new Date().toISOString();
+  const d: RequestData = {
+    ...input,
+    code: requestCode((n) => randomBytes(n)),
+    status: "new",
+    priority: "normal",
+    ai_triage: null,
+    ai_summary: null,
+    ai_reply: null,
+    created_at: now,
+    updated_at: now,
+    last_owner_at: null,
+    last_visitor_at: now,
+  };
+  await assertPrivateRepo();
+  const issue = await createIssue({ title: issueTitle(d), body: issueBody(d), labels: requestLabels(d) });
+  return { number: issue.number, code: d.code, key: trackingKey(issue.number, d.code, sign) };
 }
 
-export function canAccess(r: RequestRow, key: string | null | undefined): boolean {
-  return Boolean(key) && safeEqual(sha256(key!), r.access_hash);
+export async function getRequest(number: number): Promise<RequestRow | null> {
+  const i = await getIssue(number);
+  return i ? toRow(i) : null;
 }
 
-export async function listMessages(id: string): Promise<MessageRow[]> {
-  const c = db();
-  if (!c) return [];
-  const { data } = await c.from("portfolio_ticket_messages").select("*").eq("ticket_id", id).order("created_at");
-  return (data as MessageRow[]) ?? [];
+/** The request a tracking link opens, or null when the key is missing, malformed or does not match. */
+export async function getRequestByKey(code: string, key: string | null | undefined): Promise<RequestRow | null> {
+  const n = keyNumber(key);
+  if (n === null) return null;
+  const r = await getRequest(n);
+  if (!r || r.code !== code) return null;
+  return safeEqual(trackingKey(r.number, r.code, sign), key!) ? r : null;
+}
+
+/** Newest first (up to 200). */
+export async function listRequests(): Promise<RequestRow[]> {
+  const first = await listIssues({ labels: REQUEST_LABEL, state: "all", perPage: 100, page: 1 });
+  const all = first.length === 100 ? [...first, ...(await listIssues({ labels: REQUEST_LABEL, state: "all", perPage: 100, page: 2 }))] : first;
+  return all.map(toRow).filter((r): r is RequestRow => r !== null);
+}
+
+/** Read-modify-write of the request's data block, labels and open/closed state. */
+async function updateRequest(number: number, change: (d: RequestData) => RequestData): Promise<RequestRow> {
+  const i = await getIssue(number);
+  const cur = i ? parseIssueBody(i.body) : null;
+  if (!i || !cur) throw new Error("request not found");
+  const next = { ...change(cur), updated_at: new Date().toISOString() };
+  const saved = await updateIssue(number, {
+    body: issueBody(next),
+    labels: requestLabels(next, labelNames(i)),
+    state: next.status === "closed" ? "closed" : "open",
+  });
+  return { ...next, number, url: saved.html_url };
+}
+
+export async function listMessages(number: number): Promise<Message[]> {
+  return (await listComments(number)).map(parseComment);
 }
 
 export async function addMessage(r: RequestRow, author: "visitor" | "owner", body: string): Promise<void> {
-  const c = db();
-  if (!c) throw new Error("no_db");
+  await assertPrivateRepo();
+  await addComment(r.number, messageComment(author, body.slice(0, 6000)));
   const now = new Date().toISOString();
-  const { error } = await c.from("portfolio_ticket_messages").insert({ ticket_id: r.id, author, body: body.slice(0, 6000) });
-  if (error) throw new Error(error.message);
-  const patch =
+  await updateRequest(r.number, (d) =>
     author === "owner"
-      ? { status: r.status === "closed" ? "closed" : "answered", last_owner_at: now, updated_at: now }
-      : { status: r.status === "new" ? "new" : "reviewing", last_visitor_at: now, updated_at: now };
-  await c.from("portfolio_tickets").update(patch).eq("id", r.id);
+      ? { ...d, status: d.status === "closed" ? "closed" : "answered", last_owner_at: now }
+      : { ...d, status: d.status === "new" ? "new" : "reviewing", last_visitor_at: now },
+  );
 }
 
-export async function setStatus(id: string, status: RequestStatus): Promise<void> {
-  const c = db();
-  if (!c) throw new Error("no_db");
-  await c.from("portfolio_tickets").update({ status, updated_at: new Date().toISOString() }).eq("id", id);
+export async function setStatus(number: number, status: RequestStatus): Promise<void> {
+  await updateRequest(number, (d) => ({ ...d, status }));
 }
 
 /** Visitor-safe reading of a stored triage. */
-export function visitorTriage(r: RequestRow): VisitorTriage | null {
+export function visitorTriage(r: RequestData): VisitorTriage | null {
   const t = r.ai_triage;
   if (!t?.summary_visitor) return null;
   return {
@@ -145,12 +140,10 @@ export function visitorTriage(r: RequestRow): VisitorTriage | null {
  * AI triage of a new request: type, priority, a restatement for the visitor, a Persian brief for Taha, clarifying
  * questions and a draft reply. Grounded in the site's knowledge so the draft never promises what Taha doesn't do.
  */
-export async function triageRequest(id: string, opts: { signal?: AbortSignal } = {}): Promise<Triage | null> {
-  const rt = getRuntime();
-  const c = db();
-  if (!rt || !c) return null;
-  const { data } = await c.from("portfolio_tickets").select("*").eq("id", id).single();
-  const r = data as RequestRow | null;
+export async function triageRequest(number: number, opts: { signal?: AbortSignal } = {}): Promise<Triage | null> {
+  const rt = await getRuntime();
+  if (!rt) return null;
+  const r = await getRequest(number);
   if (!r) return null;
   const knowledge = selectKnowledge(await getKnowledge(), `${r.subject}\n${r.body}`, 14_000).map(entryText).join("\n\n");
   const visitorLang = r.lang === "en" ? "English" : "fluent Persian (with Persian digits and correct half-spaces)";
@@ -166,7 +159,7 @@ ${knowledge}
   const user = `Name: ${r.name}${r.organization ? ` (${r.organization})` : ""}\nSelected type: ${r.kind}\nBudget: ${r.budget || "-"}\nTimeline: ${r.timeline || "-"}\nSubject: ${r.subject}\n\n${r.body}`;
   try {
     const { text, model } = await complete({ ...rt, temperature: 0.2 }, system, [{ role: "user", content: user }], { json: true, maxTokens: 1100, signal: opts.signal ?? AbortSignal.timeout(40_000) });
-    const j = parseJsonObject<Triage>(text);
+    const j = parseJsonObject<Triage & { reply_draft?: unknown }>(text);
     if (!j) return null;
     const triage: Triage = {
       kind: isKind(j.kind) ? j.kind : r.kind,
@@ -180,27 +173,24 @@ ${knowledge}
       at: new Date().toISOString(),
     };
     const reply = typeof j.reply_draft === "string" ? j.reply_draft.slice(0, 3000) : null;
-    await c
-      .from("portfolio_tickets")
-      .update({ ai_triage: triage, ai_summary: triage.summary_owner ?? null, ai_reply: reply, priority: triage.priority, updated_at: new Date().toISOString() })
-      .eq("id", r.id);
+    await updateRequest(number, (d) => ({ ...d, ai_triage: triage, ai_summary: triage.summary_owner ?? null, ai_reply: reply, priority: isPriority(triage.priority) ? triage.priority : d.priority }));
     return triage;
   } catch (e) {
-    console.error("[triage] failed", e);
+    console.error("[triage] failed", e instanceof Error ? e.message : e);
     return null;
   }
 }
 
-export async function noticeNewRequest(code: string): Promise<void> {
-  const r = await getRequest(code);
+export async function noticeNewRequest(number: number): Promise<void> {
+  const r = await getRequest(number);
   if (!r) return;
   const contact = [r.email, r.phone, r.telegram].filter(Boolean).join(" · ");
   const t = r.ai_triage;
   await notifyOwner(
-    `🟢 درخواست تازه ${r.code}\n${r.subject}\n\n👤 ${r.name}${r.organization ? ` — ${r.organization}` : ""}\n☎️ ${contact}\n📂 ${r.kind} · اولویت ${r.priority}${t?.fit ? ` · تناسب ${t.fit}` : ""}${r.ai_summary ? `\n🤖 ${r.ai_summary}` : ""}\n\n${env.siteUrl}/admin/requests/${r.code}`,
+    `🟢 درخواست تازه ${r.code}\n${r.subject}\n\n👤 ${r.name}${r.organization ? ` — ${r.organization}` : ""}\n☎️ ${contact}\n📂 ${r.kind} · اولویت ${r.priority}${t?.fit ? ` · تناسب ${t.fit}` : ""}${r.ai_summary ? `\n🤖 ${r.ai_summary}` : ""}\n\n${env.siteUrl}/admin/requests/${r.number}`,
   );
 }
 
 export async function noticeVisitorMessage(r: RequestRow, body: string): Promise<void> {
-  await notifyOwner(`💬 پیام تازه در ${r.code}\n${r.subject}\n\n${body.slice(0, 600)}\n\n${env.siteUrl}/admin/requests/${r.code}`);
+  await notifyOwner(`💬 پیام تازه در ${r.code}\n${r.subject}\n\n${body.slice(0, 600)}\n\n${env.siteUrl}/admin/requests/${r.number}`);
 }
