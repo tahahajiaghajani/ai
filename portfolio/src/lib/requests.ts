@@ -2,7 +2,7 @@ import "server-only";
 import { randomBytes } from "node:crypto";
 import { env } from "@/lib/env";
 import { safeEqual, sign } from "@/lib/crypto";
-import { addComment, assertPrivateRepo, createIssue, getIssue, listComments, listIssues, updateIssue, type GhIssue } from "@/lib/github";
+import { addComment, createIssue, getIssue, listComments, listIssues, updateIssue, type GhIssue } from "@/lib/github";
 import { getRuntime, complete, parseJsonObject } from "@/lib/ai/runtime";
 import { getKnowledge } from "@/lib/knowledge";
 import { selectKnowledge, entryText } from "@/lib/retrieval";
@@ -65,7 +65,6 @@ export async function createRequest(input: NewRequest): Promise<{ number: number
     last_owner_at: null,
     last_visitor_at: now,
   };
-  await assertPrivateRepo();
   const issue = await createIssue({ title: issueTitle(d), body: issueBody(d), labels: requestLabels(d) });
   return { number: issue.number, code: d.code, key: trackingKey(issue.number, d.code, sign) };
 }
@@ -75,13 +74,15 @@ export async function getRequest(number: number): Promise<RequestRow | null> {
   return i ? toRow(i) : null;
 }
 
-/** The request a tracking link opens, or null when the key is missing, malformed or does not match. */
+/**
+ * The request a tracking link opens, or null when the key is missing, malformed or does not match. The signature is
+ * checked before GitHub is asked anything, so forged links cost nothing from the token's hourly quota.
+ */
 export async function getRequestByKey(code: string, key: string | null | undefined): Promise<RequestRow | null> {
   const n = keyNumber(key);
-  if (n === null) return null;
+  if (n === null || !safeEqual(trackingKey(n, code, sign), key!)) return null;
   const r = await getRequest(n);
-  if (!r || r.code !== code) return null;
-  return safeEqual(trackingKey(r.number, r.code, sign), key!) ? r : null;
+  return r && r.code === code ? r : null;
 }
 
 /** Newest first (up to 200). */
@@ -100,7 +101,8 @@ async function updateRequest(number: number, change: (d: RequestData) => Request
   const saved = await updateIssue(number, {
     body: issueBody(next),
     labels: requestLabels(next, labelNames(i)),
-    state: next.status === "closed" ? "closed" : "open",
+    // the issue is opened or closed only when the status itself changes, so closing it on GitHub is not undone later
+    ...(next.status !== cur.status ? { state: next.status === "closed" ? ("closed" as const) : ("open" as const) } : {}),
   });
   return { ...next, number, url: saved.html_url };
 }
@@ -110,7 +112,6 @@ export async function listMessages(number: number): Promise<Message[]> {
 }
 
 export async function addMessage(r: RequestRow, author: "visitor" | "owner", body: string): Promise<void> {
-  await assertPrivateRepo();
   await addComment(r.number, messageComment(author, body.slice(0, 6000)));
   const now = new Date().toISOString();
   await updateRequest(r.number, (d) =>

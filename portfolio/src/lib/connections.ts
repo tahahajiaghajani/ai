@@ -1,10 +1,13 @@
 import "server-only";
 import { headers } from "next/headers";
 import { assertAdmin } from "@/lib/admin-auth";
-import { decrypt } from "@/lib/crypto";
+import { decrypt, MIN_SECRET } from "@/lib/crypto";
 import { env } from "@/lib/env";
 import { getFile, gh, ghConfigured } from "@/lib/github";
 import { GEMINI_CHAIN } from "@/lib/ai/runtime";
+import { probeGeminiKey } from "@/lib/ai/gemini";
+import { probeBot, type Bot } from "@/lib/notify";
+import { AI_ERROR, AI_TRANSIENT, botErrorFa, parseTokenExpiry } from "@/lib/status-text";
 import { KNOWLEDGE_FILE } from "@/lib/knowledge-file";
 import { loadSettings } from "@/lib/settings";
 import { DEFAULT_SETTINGS, type NotifyChannel, type Settings } from "@/lib/settings-types";
@@ -29,12 +32,33 @@ export interface ConnectionReport {
     labels: boolean | null;
     /** when the fine-grained token stops working (GitHub sends it with every response) */
     tokenExpires: string | null;
+    /** the header as GitHub sent it, when it could not be read */
+    tokenExpiresRaw: string;
     rateRemaining: number | null;
   };
   security: { status: Status; adminPassword: boolean; appSecret: "ok" | "short" | "missing"; previous: boolean };
-  ai: { status: Status; enabled: boolean; keySource: "panel" | "env" | "none"; keyHint: string; keyUnreadable: boolean; models: string[]; modelsSource: "panel" | "env" | "default" };
-  notify: { status: Status; channel: NotifyChannel; source: "panel" | "env" | "none"; tokenHint: string; tokenUnreadable: boolean; chatId: string };
-  site: { status: Status; configured: string; current: string; explicit: boolean };
+  ai: {
+    status: Status;
+    enabled: boolean;
+    keySource: "panel" | "env" | "none";
+    keyHint: string;
+    keyUnreadable: boolean;
+    models: string[];
+    modelsSource: "panel" | "env" | "default";
+    /** a live check of the key (no generation quota): null = not checked, "" = works, else the problem in Persian */
+    live: string | null;
+  };
+  notify: {
+    status: Status;
+    channel: NotifyChannel;
+    source: "panel" | "env" | "none";
+    tokenHint: string;
+    tokenUnreadable: boolean;
+    chatId: string;
+    /** live check: the bot's username, and whether the chat id was found (null = could not tell) */
+    live: { ok: boolean; username: string; chatOk: boolean | null; error: string } | null;
+  };
+  site: { status: Status; configured: string; current: string; explicit: boolean; vercelUrl: boolean };
   vercel: { status: Status; onVercel: boolean; environment: string; region: string; commit: string; branch: string; url: string };
 }
 
@@ -76,15 +100,17 @@ export async function connectionReport(): Promise<ConnectionReport> {
     knowledgeFile: null,
     labels: null,
     tokenExpires: null,
+    tokenExpiresRaw: "",
     rateRemaining: null,
   };
   let settings: Settings = DEFAULT_SETTINGS;
   if (ghConfigured()) {
     const r = await gh<{ private: boolean; has_issues: boolean; html_url: string }>("GET", "");
     g.reachable = r.ok;
-    // e.g. "2026-11-25 10:00:00 UTC"
-    const exp = Date.parse((r.headers?.get("github-authentication-token-expiration") ?? "").replace(" UTC", "Z").replace(" ", "T"));
-    g.tokenExpires = Number.isFinite(exp) ? new Date(exp).toISOString() : null;
+    const expHeader = r.headers?.get("github-authentication-token-expiration") ?? "";
+    const exp = parseTokenExpiry(expHeader);
+    g.tokenExpires = exp === null ? null : new Date(exp).toISOString();
+    g.tokenExpiresRaw = exp === null ? expHeader.slice(0, 60) : "";
     const left = Number(r.headers?.get("x-ratelimit-remaining"));
     g.rateRemaining = Number.isFinite(left) && r.headers?.has("x-ratelimit-remaining") ? left : null;
     if (!r.ok || !r.data) g.error = githubError(r.status, r.message);
@@ -109,15 +135,27 @@ export async function connectionReport(): Promise<ConnectionReport> {
   const secret = env.appSecret;
   const security: ConnectionReport["security"] = {
     adminPassword: Boolean(env.adminPassword),
-    appSecret: !secret ? "missing" : secret.length < 32 ? "short" : "ok",
+    appSecret: !secret ? "missing" : secret.length < MIN_SECRET ? "short" : "ok",
     previous: Boolean(env.appSecretPrevious),
     status: "ok",
   };
-  security.status = !security.adminPassword || security.appSecret === "missing" ? "error" : security.appSecret === "short" ? "warn" : "ok";
+  // a short secret is refused (the panel and tracking links stay off), so it is an error, not a warning
+  security.status = !security.adminPassword || security.appSecret !== "ok" ? "error" : "ok";
 
   const panelKey = decrypt(settings.ai.keyEnc);
   const keyUnreadable = Boolean(settings.ai.keyEnc) && !panelKey;
   const keySource = panelKey ? "panel" : env.geminiKey ? "env" : "none";
+  const n = settings.notify;
+  const panelToken = decrypt(n.tokenEnc);
+  const notifySource = n.channel === "none" ? "none" : panelToken && n.chatId ? "panel" : env.telegramToken && env.telegramChatId ? "env" : "none";
+  const bot: Bot | null =
+    notifySource === "panel" ? { channel: n.channel as Bot["channel"], token: panelToken, chatId: n.chatId } : notifySource === "env" ? { channel: env.telegramChannel, token: env.telegramToken, chatId: env.telegramChatId } : null;
+  // live checks run side by side and spend no quota: listing one model, and the bot's getMe/getChat
+  const [aiKind, botLive] = await Promise.all([
+    settings.ai.enabled && keySource !== "none" ? probeGeminiKey(panelKey || env.geminiKey) : Promise.resolve(undefined),
+    bot ? probeBot(bot) : Promise.resolve(null),
+  ]);
+  const aiLive = aiKind === undefined ? null : aiKind === null ? "" : AI_ERROR[aiKind];
   const modelsSource = settings.ai.models.length ? "panel" : env.geminiModels.length ? "env" : "default";
   const ai: ConnectionReport["ai"] = {
     enabled: settings.ai.enabled,
@@ -126,19 +164,27 @@ export async function connectionReport(): Promise<ConnectionReport> {
     keyUnreadable,
     models: [...new Set([...(modelsSource === "panel" ? settings.ai.models : modelsSource === "env" ? env.geminiModels : []), ...GEMINI_CHAIN])],
     modelsSource,
-    status: !settings.ai.enabled ? "off" : keySource === "none" ? "error" : keyUnreadable ? "warn" : "ok",
+    live: aiLive,
+    status: !settings.ai.enabled
+      ? "off"
+      : keySource === "none"
+        ? "error"
+        : aiKind && !AI_TRANSIENT.includes(aiKind)
+          ? "error"
+          : keyUnreadable || aiKind
+            ? "warn"
+            : "ok",
   };
 
-  const n = settings.notify;
-  const panelToken = decrypt(n.tokenEnc);
-  const notifySource = n.channel === "none" ? "none" : panelToken && n.chatId ? "panel" : env.telegramToken && env.telegramChatId ? "env" : "none";
   const notify: ConnectionReport["notify"] = {
     channel: n.channel,
     source: notifySource,
     tokenHint: panelToken ? n.tokenHint : "",
     tokenUnreadable: Boolean(n.tokenEnc) && !panelToken,
     chatId: n.chatId,
-    status: n.channel === "none" ? "off" : notifySource === "none" ? "warn" : "ok",
+    live: botLive ? { ...botLive, error: botLive.error ? botErrorFa(botLive.error) : "" } : null,
+    // nothing set up yet is "optional", not a problem; a bot that is set up but fails is
+    status: notifySource === "none" ? (n.tokenEnc && !panelToken ? "warn" : "off") : !botLive?.ok ? (botLive?.error === "network" ? "warn" : "error") : botLive.chatOk === false ? "error" : "ok",
   };
 
   const configured = env.siteUrl;
@@ -152,6 +198,8 @@ export async function connectionReport(): Promise<ConnectionReport> {
   }
 
   const onVercel = process.env.VERCEL === "1";
+  // without NEXT_PUBLIC_SITE_URL the site uses Vercel's production address (the shortest custom domain, if any)
+  const vercelUrl = !explicit && onVercel && Boolean(process.env.VERCEL_PROJECT_PRODUCTION_URL);
   const vercel: ConnectionReport["vercel"] = {
     onVercel,
     environment: process.env.VERCEL_ENV ?? "",
@@ -168,7 +216,7 @@ export async function connectionReport(): Promise<ConnectionReport> {
     security,
     ai,
     notify,
-    site: { status: !explicit || !sameHost ? "warn" : "ok", configured, current, explicit },
+    site: { status: (explicit || vercelUrl) && sameHost ? "ok" : "warn", configured, current, explicit, vercelUrl },
     vercel,
   };
 }
@@ -176,6 +224,7 @@ export async function connectionReport(): Promise<ConnectionReport> {
 /** The settings the forms start from, with every secret removed. */
 export function publicSettings(s: Settings) {
   return {
+    updatedAt: s.updatedAt,
     ai: { enabled: s.ai.enabled, hasKey: Boolean(s.ai.keyEnc), keyHint: s.ai.keyHint, models: s.ai.models },
     notify: { channel: s.notify.channel, hasToken: Boolean(s.notify.tokenEnc), tokenHint: s.notify.tokenHint, chatId: s.notify.chatId },
   };

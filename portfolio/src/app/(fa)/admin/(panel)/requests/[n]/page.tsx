@@ -5,14 +5,25 @@ import { requireAdmin } from "@/lib/admin-auth";
 import { getRequest, listMessages } from "@/lib/requests";
 import { getRuntime } from "@/lib/ai/runtime";
 import { PRIORITY_LABEL, STATUSES, isPriority } from "@/lib/request-meta";
-import { changeStatus, ownerReply, retriage } from "@/app/actions/admin";
+import { changeStatus, retriage } from "@/app/actions/admin";
+import { ReplyBox } from "@/components/admin/reply-box";
+import { NotConnected } from "@/components/admin/not-connected";
+import type { Message, RequestRow } from "@/lib/requests";
 
 export default async function RequestDetail({ params }: PageProps<"/admin/requests/[n]">) {
   await requireAdmin(); // the layout check alone does not stop this page from rendering
   const n = Number((await params).n);
-  const r = Number.isInteger(n) && n > 0 ? await getRequest(n) : null;
+  if (!Number.isInteger(n) || n < 1) notFound();
+  let r: RequestRow | null;
+  let msgs: Message[];
+  try {
+    r = await getRequest(n);
+    msgs = r ? await listMessages(r.number) : [];
+  } catch (e) {
+    return <NotConnected error={e instanceof Error ? e.message : String(e)} />;
+  }
   if (!r) notFound();
-  const [msgs, rt] = await Promise.all([listMessages(r.number), getRuntime()]);
+  const rt = await getRuntime();
   const t = r.ai_triage;
   return (
     <div className="grid gap-10 lg:grid-cols-[1fr_360px]">
@@ -32,21 +43,7 @@ export default async function RequestDetail({ params }: PageProps<"/admin/reques
             </article>
           ))}
         </div>
-        <form action={ownerReply} className="mt-8 grid gap-3">
-          <input type="hidden" name="n" value={r.number} />
-          <label className="grid gap-2">
-            <span className="text-sm text-muted">پاسخ (در صفحه‌ی پیگیری بازدیدکننده نمایش داده می‌شود)</span>
-            <textarea name="body" rows={8} defaultValue={r.ai_reply ?? ""} className="rounded-[8px] border border-line-strong bg-transparent p-4 leading-relaxed outline-none focus:border-fg" />
-          </label>
-          <div className="flex flex-wrap items-center gap-3">
-            <select name="status" defaultValue="answered" className="rounded-full border border-line bg-bg px-4 py-2 text-sm">
-              <option value="answered">{ui.track.status.answered.fa}</option>
-              <option value="scheduled">{ui.track.status.scheduled.fa}</option>
-              <option value="closed">{ui.track.status.closed.fa}</option>
-            </select>
-            <button className="rounded-full bg-fg px-6 py-2.5 text-sm font-semibold text-bg">ارسال پاسخ</button>
-          </div>
-        </form>
+        <ReplyBox n={r.number} draft={r.ai_reply ?? ""} />
       </div>
       <aside className="grid content-start gap-6">
         <section className="rounded-[8px] border border-line p-5 text-sm">
@@ -71,10 +68,12 @@ export default async function RequestDetail({ params }: PageProps<"/admin/reques
           ) : (
             <p className="text-muted">{rt ? "هنوز تحلیل نشده." : "کلید هوش مصنوعی تنظیم نشده یا دستیار خاموش است (اتصالات)."}</p>
           )}
-          <form action={retriage} className="mt-4">
-            <input type="hidden" name="n" value={r.number} />
-            <button className="rounded-full border border-line px-4 py-1.5 text-xs hover:border-fg">تحلیل دوباره</button>
-          </form>
+          {rt ? (
+            <form action={retriage} className="mt-4">
+              <input type="hidden" name="n" value={r.number} />
+              <button className="rounded-full border border-line px-4 py-1.5 text-xs hover:border-fg">تحلیل دوباره</button>
+            </form>
+          ) : null}
         </section>
         <section className="rounded-[8px] border border-line p-5 text-sm">
           <h2 className="mb-3 font-bold">وضعیت</h2>

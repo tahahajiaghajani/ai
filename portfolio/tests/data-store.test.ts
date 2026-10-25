@@ -1,6 +1,7 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { issueBody, issueTitle, keyNumber, messageComment, parseComment, parseIssueBody, requestLabels, trackingKey, type RequestData } from "@/lib/request-issue";
+import { cell, issueBody, issueTitle, keyNumber, messageComment, parseComment, parseIssueBody, requestLabels, trackingKey, type RequestData } from "@/lib/request-issue";
+import { botErrorFa, parseTokenExpiry } from "@/lib/status-text";
 import { parseKnowledgeFile, serializeKnowledgeFile } from "@/lib/knowledge-file";
 import { parseUnanswered, unansweredComment } from "@/lib/unanswered";
 import { DEFAULT_SETTINGS, parseModels, parseSettings } from "@/lib/settings-types";
@@ -110,5 +111,32 @@ describe("settings.json", () => {
   });
   it("reads model lists typed in the panel", () => {
     expect(parseModels("a-1, b-2،c-3  a-1")).toEqual(["a-1", "b-2", "c-3"]);
+  });
+});
+
+describe("GitHub summary cells", () => {
+  it("show visitor text literally: no links, images, mentions or HTML", () => {
+    const c = cell("![x](https://a.b/p.gif) [link](https://phish) @someone </td><tr> | a\nb");
+    expect(c).not.toMatch(/(^|[^\\])!\[/);
+    expect(c).not.toMatch(/(^|[^\\])\[link\]/);
+    expect(c).not.toContain("<");
+    expect(c).toContain("\\@someone");
+    expect(c).toContain("\\|");
+    expect(c).not.toContain("\n");
+  });
+});
+
+describe("panel status texts", () => {
+  it("read both token-expiry header forms", () => {
+    expect(parseTokenExpiry("2026-11-25 10:00:00 UTC")).toBe(Date.parse("2026-11-25T10:00:00Z"));
+    expect(parseTokenExpiry("2026-11-25 13:30:00 +0330")).toBe(Date.parse("2026-11-25T10:00:00Z"));
+    expect(parseTokenExpiry("2026-11-25 02:00:00 -0800")).toBe(Date.parse("2026-11-25T10:00:00Z"));
+    expect(parseTokenExpiry("soon")).toBeNull();
+    expect(parseTokenExpiry(null)).toBeNull();
+  });
+  it("explain common bot errors in Persian", () => {
+    expect(botErrorFa("Bad Request: chat not found")).toContain("شناسه‌ی گفتگو");
+    expect(botErrorFa("Unauthorized")).toContain("توکن");
+    expect(botErrorFa("something else")).toBe("something else");
   });
 });

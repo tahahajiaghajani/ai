@@ -1,20 +1,32 @@
 import "server-only";
-import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { env } from "@/lib/env";
 
+/** Shorter secrets are refused: tracking links are signed with APP_SECRET, so every visitor holds a sample of it. */
+export const MIN_SECRET = 32;
+
+const derived = new Map<string, Buffer>();
+
+/** A slow key derivation (scrypt), memoised per secret and purpose, so guessing the secret offline costs real work. */
 function derive(purpose: string, secret: string): Buffer {
-  return createHash("sha256").update(`taha:${purpose}:${secret}`).digest();
+  const id = `${purpose}\0${secret}`;
+  let k = derived.get(id);
+  if (!k) {
+    k = scryptSync(secret, `taha-portfolio:${purpose}`, 32, { N: 1 << 14, r: 8, p: 1 });
+    if (derived.size > 8) derived.clear();
+    derived.set(id, k);
+  }
+  return k;
 }
 
 /** Encryption and signing always use the current secret. */
 function key(purpose: string): Buffer {
-  const secret = env.appSecret;
-  if (!secret) throw new Error("APP_SECRET is not set");
-  return derive(purpose, secret);
+  if (!hasSecret()) throw new Error(`APP_SECRET is not set or shorter than ${MIN_SECRET} characters`);
+  return derive(purpose, env.appSecret);
 }
 
 export function hasSecret(): boolean {
-  return Boolean(env.appSecret);
+  return env.appSecret.length >= MIN_SECRET;
 }
 
 /** AES-256-GCM → "v1.iv.tag.ciphertext" (base64url parts), for keys saved in the panel. */
@@ -30,7 +42,7 @@ export function decrypt(box: string | null | undefined): string {
   if (!box) return "";
   const [v, iv, tag, ct] = box.split(".");
   if (v !== "v1" || !iv || !tag || !ct) return "";
-  for (const secret of [...new Set([env.appSecret, env.appSecretPrevious].filter(Boolean))]) {
+  for (const secret of [...new Set([env.appSecret, env.appSecretPrevious].filter((s) => s.length >= MIN_SECRET))]) {
     try {
       const d = createDecipheriv("aes-256-gcm", derive("enc", secret), Buffer.from(iv, "base64url"));
       d.setAuthTag(Buffer.from(tag, "base64url"));

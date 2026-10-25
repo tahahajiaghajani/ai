@@ -172,3 +172,21 @@ export async function* streamGemini(r: StreamRequest): AsyncGenerator<string> {
   }
   if (!yielded) throw new EmptyResponseError(finish);
 }
+
+/**
+ * Checks a key without spending generation quota: lists one model. Returns null when the key works, else the kind of
+ * failure (a rejected key, an unsupported server region, a network problem…).
+ */
+export async function probeGeminiKey(apiKey: string, timeoutMs = 6000): Promise<ProviderErrorKind | null> {
+  try {
+    const res = await fetch("https://generativelanguage.googleapis.com/v1beta/models?pageSize=1", {
+      headers: { "x-goog-api-key": apiKey },
+      cache: "no-store",
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (res.ok) return null;
+    return classify(res.status, await res.text().catch(() => ""));
+  } catch (e) {
+    return e instanceof Error && e.name === "TimeoutError" ? "timeout" : "network";
+  }
+}

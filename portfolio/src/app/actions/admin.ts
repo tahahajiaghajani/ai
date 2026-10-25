@@ -29,16 +29,25 @@ export async function logout(): Promise<void> {
   redirect("/admin/login");
 }
 
-export async function ownerReply(form: FormData): Promise<void> {
+export type ReplyState = { ok: boolean; error?: string; at?: number } | null;
+
+/** The owner's answer; errors come back to the form so the typed reply is never lost. */
+export async function ownerReply(_prev: ReplyState, form: FormData): Promise<ReplyState> {
   await requireAdmin();
   const n = number(form);
   const body = text(form, "body", 6000);
-  const r = await getRequest(n);
-  if (!r || body.length < 2) return;
-  await addMessage(r, "owner", body);
-  const status = text(form, "status", 20);
-  if (isStatus(status) && status !== "answered") await setStatus(r.number, status);
+  if (body.length < 2) return { ok: false, error: "متن پاسخ خالی است." };
+  try {
+    const r = await getRequest(n);
+    if (!r) return { ok: false, error: "درخواست پیدا نشد." };
+    await addMessage(r, "owner", body);
+    const status = text(form, "status", 20);
+    if (isStatus(status) && status !== "answered") await setStatus(r.number, status);
+  } catch (e) {
+    return { ok: false, error: `ارسال نشد (${e instanceof Error ? e.message.slice(0, 160) : "خطای GitHub"}); متن پاسخ سر جایش است، دوباره بفرستید.` };
+  }
   revalidatePath(`/admin/requests/${n}`);
+  return { ok: true, at: Date.now() };
 }
 
 export async function changeStatus(form: FormData): Promise<void> {
@@ -83,6 +92,13 @@ export async function addFact(form: FormData): Promise<void> {
   if (!title || !body) return;
   const tags = text(form, "tags", 300).split(/[,،]/).map((t) => t.trim()).filter(Boolean).slice(0, 12);
   await changeKnowledge((facts) => [...facts, { title, body, tags }], `Panel: add knowledge «${title.slice(0, 60)}»`);
+}
+
+/** Picks up edits made to knowledge.md on GitHub at once instead of after the cache expires. */
+export async function refreshKnowledge(): Promise<void> {
+  await requireAdmin();
+  updateTag("knowledge");
+  revalidatePath("/admin/knowledge");
 }
 
 export async function deleteFact(form: FormData): Promise<void> {

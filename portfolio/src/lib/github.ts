@@ -11,10 +11,15 @@ export class GhError extends Error {
   constructor(
     message: string,
     public status: number,
+    /** GitHub's primary or secondary rate limit, not a permission problem */
+    public rateLimited = false,
   ) {
     super(message);
   }
 }
+
+const isRateLimit = (r: GhResponse<unknown>) =>
+  r.status === 429 || (r.status === 403 && (r.headers?.get("x-ratelimit-remaining") === "0" || r.headers?.has("retry-after") || /rate limit/i.test(r.message)));
 
 export interface GhResponse<T> {
   ok: boolean;
@@ -62,24 +67,26 @@ export async function gh<T = unknown>(method: string, path: string, body?: unkno
   }
 }
 
-let privacy: { at: number; isPrivate: boolean } | null = null;
+let privateSince = 0;
 
 /**
- * Requests and questions carry visitors' names and contact details, so they are only ever written to a private
- * repository. Checked at most every ten minutes per instance; throws when the repository is public or unreachable.
+ * The repository holds visitors' names and contact details, so nothing is ever written to it while it is public.
+ * Only a "private" answer is remembered (ten minutes per instance), so making the repository private takes effect at
+ * once. Throws when the repository is public or unreachable.
  */
 export async function assertPrivateRepo(): Promise<void> {
-  if (!privacy || Date.now() - privacy.at > 10 * 60_000) {
-    const r = await gh<{ private: boolean }>("GET", "");
-    if (!r.ok || !r.data) throw new GhError(r.message, r.status);
-    privacy = { at: Date.now(), isPrivate: r.data.private === true };
-  }
-  if (!privacy.isPrivate) throw new GhError("the data repository is public; make it private", 403);
+  if (Date.now() - privateSince < 10 * 60_000) return;
+  const r = await gh<{ private: boolean }>("GET", "");
+  if (!r.ok || !r.data) throw new GhError(r.message, r.status, isRateLimit(r));
+  if (r.data.private !== true) throw new GhError("the data repository is public; make it private", 403);
+  privateSince = Date.now();
 }
 
+/** A call that must succeed; every write first checks that the repository is private. */
 async function must<T>(method: string, path: string, body?: unknown): Promise<T> {
+  if (method !== "GET") await assertPrivateRepo();
   const r = await gh<T>(method, path, body);
-  if (!r.ok || r.data === null) throw new GhError(r.message || "github error", r.status);
+  if (!r.ok || r.data === null) throw new GhError(r.message || "github error", r.status, isRateLimit(r));
   return r.data;
 }
 
@@ -90,7 +97,7 @@ const encodePath = (p: string) => p.split("/").map(encodeURIComponent).join("/")
 export async function getFile(path: string): Promise<{ text: string; sha: string } | null> {
   const r = await gh<{ content?: string; encoding?: string; sha: string; type?: string }>("GET", `/contents/${encodePath(path)}`);
   if (r.status === 404) return null;
-  if (!r.ok || !r.data) throw new GhError(r.message, r.status);
+  if (!r.ok || !r.data) throw new GhError(r.message, r.status, isRateLimit(r));
   if (r.data.type && r.data.type !== "file") throw new GhError(`${path} is not a file`, 400);
   return { text: Buffer.from(r.data.content ?? "", "base64").toString("utf8"), sha: r.data.sha };
 }
@@ -109,6 +116,7 @@ export async function putFile(path: string, text: string, message: string, sha?:
 
 export interface GhIssue {
   number: number;
+  comments: number;
   title: string;
   body: string | null;
   state: "open" | "closed";
@@ -134,7 +142,7 @@ export async function getIssue(n: number): Promise<GhIssue | null> {
   if (!Number.isInteger(n) || n < 1) return null;
   const r = await gh<GhIssue>("GET", `/issues/${n}`);
   if (r.status === 404 || r.status === 410) return null;
-  if (!r.ok || !r.data) throw new GhError(r.message, r.status);
+  if (!r.ok || !r.data) throw new GhError(r.message, r.status, isRateLimit(r));
   return r.data.pull_request ? null : r.data;
 }
 
@@ -161,14 +169,26 @@ export async function listComments(n: number): Promise<GhComment[]> {
   return out;
 }
 
+/** The newest comments (up to `max`), oldest first: comments can only be listed in ascending order, so read the last pages. */
+export async function listRecentComments(n: number, max = 100): Promise<GhComment[]> {
+  const issue = await getIssue(n);
+  if (!issue) return [];
+  const last = Math.max(1, Math.ceil(issue.comments / 100));
+  const pages = [last - 1, last].filter((p) => p >= 1 && (last - p) * 100 < max + 100);
+  const out: GhComment[] = [];
+  for (const page of pages) out.push(...(await must<GhComment[]>("GET", `/issues/${n}/comments?per_page=100&page=${page}`)));
+  return out.slice(-max);
+}
+
 export function addComment(n: number, body: string): Promise<GhComment> {
   return must<GhComment>("POST", `/issues/${n}/comments`, { body });
 }
 
 /** Creates the labels the site uses (an existing label answers 422 and is left as it is). */
 export async function ensureLabels(labels: { name: string; color: string; description?: string }[]): Promise<void> {
+  await assertPrivateRepo();
   for (const l of labels) {
     const r = await gh("POST", "/labels", l);
-    if (!r.ok && r.status !== 422) throw new GhError(r.message, r.status);
+    if (!r.ok && r.status !== 422) throw new GhError(r.message, r.status, isRateLimit(r));
   }
 }

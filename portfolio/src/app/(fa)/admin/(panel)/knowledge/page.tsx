@@ -2,7 +2,7 @@ import { requireAdmin } from "@/lib/admin-auth";
 import { env } from "@/lib/env";
 import { getFile, ghConfigured } from "@/lib/github";
 import { KNOWLEDGE_FILE, parseKnowledgeFile, type Fact } from "@/lib/knowledge-file";
-import { addFact, deleteFact } from "@/app/actions/admin";
+import { addFact, deleteFact, refreshKnowledge } from "@/app/actions/admin";
 import { NotConnected } from "@/components/admin/not-connected";
 
 export default async function Knowledge() {
@@ -21,8 +21,11 @@ export default async function Knowledge() {
       <h1 className="mb-3 text-3xl font-bold">دانش دستیار</h1>
       <p className="mb-8 max-w-[70ch] text-sm leading-relaxed text-muted">
         محتوای همین سایت (پروفایل، پروژه‌ها، سوابق) همیشه بخشی از دانش دستیار است. نکته‌های بیشتر اینجا یا مستقیم در فایل{" "}
-        <a href={edit} target="_blank" rel="noreferrer" className="link-draw" dir="ltr">{KNOWLEDGE_FILE}</a> مخزن داده اضافه می‌شوند و حداکثر تا ۵ دقیقه بعد در پاسخ‌ها اثر می‌کنند.
+        <a href={edit} target="_blank" rel="noreferrer" className="link-draw" dir="ltr">{KNOWLEDGE_FILE}</a> مخزن داده اضافه می‌شوند. افزودن و حذف از همین صفحه فوری اثر می‌کند؛ پس از ویرایش مستقیم در GitHub، «تازه‌سازی» را بزنید.
       </p>
+      <form action={refreshKnowledge} className="mb-8">
+        <button className="rounded-full border border-line px-4 py-1.5 text-xs hover:border-fg">تازه‌سازی از GitHub</button>
+      </form>
       <form action={addFact} className="mb-12 grid gap-3 rounded-[8px] border border-line p-5">
         <input name="title" required placeholder="عنوان" className="rounded-[6px] border border-line-strong bg-transparent px-4 py-2.5 outline-none focus:border-fg" />
         <textarea name="body" required rows={5} placeholder="متن (فارسی یا انگلیسی)" className="rounded-[6px] border border-line-strong bg-transparent px-4 py-2.5 leading-relaxed outline-none focus:border-fg" />

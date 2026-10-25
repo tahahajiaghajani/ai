@@ -6,7 +6,9 @@ import { decrypt, encrypt, hasSecret, hint } from "@/lib/crypto";
 import { env } from "@/lib/env";
 import { ensureLabels, getFile, ghConfigured, GhError, putFile } from "@/lib/github";
 import { complete, runtimeFor } from "@/lib/ai/runtime";
-import { ProviderError, type ProviderErrorKind } from "@/lib/ai/gemini";
+import { ProviderError } from "@/lib/ai/gemini";
+import { AI_ERROR, botErrorFa } from "@/lib/status-text";
+import { unansweredIssue } from "@/lib/chat-log";
 import { getBot, sendBot } from "@/lib/notify";
 import { loadSettings, saveSettings, SETTINGS_FILE } from "@/lib/settings";
 import { DEFAULT_SETTINGS, parseModels, type NotifyChannel } from "@/lib/settings-types";
@@ -17,6 +19,8 @@ export type Result<T = undefined> = { ok: true; data?: T; message?: string } | {
 
 function failure(e: unknown): { ok: false; error: string } {
   if (e instanceof GhError) {
+    if (e.rateLimited) return { ok: false, error: "به سقف درخواست‌های GitHub رسیده‌ایم؛ چند دقیقه بعد دوباره امتحان کنید." };
+    if (/public/.test(e.message)) return { ok: false, error: "مخزن داده عمومی است؛ تا وقتی خصوصی نشود چیزی در آن نوشته نمی‌شود." };
     if (e.status === 403 || e.status === 404) return { ok: false, error: `GitHub نوشتن را نپذیرفت (${e.status}). توکن باید روی همین مخزن دسترسی Contents و Issues را با Read and write داشته باشد.` };
     if (e.status === 401) return { ok: false, error: "توکن GitHub نامعتبر یا منقضی است." };
     return { ok: false, error: `GitHub: ${e.message}` };
@@ -28,7 +32,7 @@ function failure(e: unknown): { ok: false; error: string } {
 
 function ready(): string | null {
   if (!ghConfigured()) return "اول GITHUB_TOKEN و GITHUB_REPO را در Vercel تنظیم و Redeploy کنید.";
-  if (!hasSecret()) return "اول APP_SECRET را در Vercel تنظیم و Redeploy کنید (کلیدها با آن رمز می‌شوند).";
+  if (!hasSecret()) return "اول APP_SECRET (دست‌کم ۳۲ نویسه) را در Vercel تنظیم و Redeploy کنید؛ کلیدها با آن رمز می‌شوند.";
   return null;
 }
 
@@ -56,6 +60,8 @@ export async function setupRepo(): Promise<Result<{ created: string[] }>> {
       );
       created.push("README.md");
     }
+    // the issue that collects unanswered questions, so it exists before the first one
+    await unansweredIssue(true);
     updateTag("settings");
     updateTag("knowledge");
     return { ok: true, data: { created }, message: created.length ? `ساخته شد: ${created.join("، ")} و برچسب‌ها` : "همه‌چیز از قبل آماده بود؛ برچسب‌ها بررسی شدند." };
@@ -70,7 +76,7 @@ export async function saveAi(input: { enabled: boolean; apiKey?: string; clearKe
     const blocked = ready();
     if (blocked) return { ok: false, error: blocked };
     const key = (input.apiKey ?? "").trim();
-    if (key && !/^[\w.-]{20,200}$/.test(key)) return { ok: false, error: "کلید API شکل درستی ندارد (کلیدهای Google AI Studio معمولاً با AIza شروع می‌شوند)." };
+    if (key && !/^[\w.-]{20,200}$/.test(key)) return { ok: false, error: "کلید API شکل درستی ندارد؛ آن را کامل و بدون فاصله از Google AI Studio کپی کنید." };
     await saveSettings((s) => ({
       ...s,
       ai: {
@@ -87,19 +93,6 @@ export async function saveAi(input: { enabled: boolean; apiKey?: string; clearKe
   }
 }
 
-const AI_ERROR: Record<ProviderErrorKind, string> = {
-  auth: "کلید پذیرفته نشد: نامعتبر است، غیرفعال شده یا Google آن را لو رفته شناخته است. در Google AI Studio کلید تازه بسازید.",
-  region: "Google درخواست را از منطقه‌ی این سرور نپذیرفت. در Vercel → Settings → Functions، منطقه را روی یک منطقه‌ی آمریکا یا اروپا بگذارید.",
-  quota: "سهمیه‌ی روزانه‌ی رایگان این مدل‌ها تمام شده؛ فردا دوباره امتحان کنید یا مدل دیگری اضافه کنید.",
-  rate: "تعداد درخواست در دقیقه زیاد بود؛ چند ثانیه بعد دوباره امتحان کنید.",
-  overloaded: "مدل الان شلوغ است؛ کمی بعد دوباره امتحان کنید.",
-  timeout: "مدل در زمان مقرر پاسخ نداد.",
-  network: "اتصال به Google برقرار نشد.",
-  model: "هیچ‌کدام از مدل‌ها در دسترس این کلید نیست؛ نام مدل‌ها را بررسی کنید.",
-  invalid: "درخواست آزمایشی نامعتبر شمرده شد.",
-  blocked: "پاسخ به‌دلیل سیاست‌های ایمنی متوقف شد.",
-  other: "خطای ناشناخته از سرویس هوش مصنوعی.",
-};
 
 export interface AiTest {
   model: string;
@@ -168,7 +161,7 @@ export async function testNotify(): Promise<Result> {
     const bot = await getBot();
     if (!bot) return { ok: false, error: "رباتی تنظیم نشده یا اعلان خاموش است." };
     const r = await sendBot(bot, `✅ پیام آزمایشی از پنل سایت پورتفولیو\n${env.siteUrl}`);
-    return r.ok ? { ok: true, message: "پیام آزمایشی فرستاده شد." } : { ok: false, error: `ارسال نشد: ${r.error}` };
+    return r.ok ? { ok: true, message: "پیام آزمایشی فرستاده شد." } : { ok: false, error: `ارسال نشد: ${botErrorFa(r.error ?? "")} (${r.error})` };
   } catch (e) {
     return failure(e);
   }

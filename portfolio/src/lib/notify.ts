@@ -47,6 +47,25 @@ export async function sendBot(bot: Bot, text: string): Promise<{ ok: boolean; er
   }
 }
 
+/** Checks the bot (getMe) and, when possible, the chat id (getChat) without sending anything. */
+export async function probeBot(bot: Bot): Promise<{ ok: boolean; username: string; chatOk: boolean | null; error: string }> {
+  const call = async (method: string, params: Record<string, string> = {}) => {
+    try {
+      const res = await fetch(`${API[bot.channel]}/bot${bot.token}/${method}?${new URLSearchParams(params)}`, { cache: "no-store", signal: AbortSignal.timeout(6000) });
+      const j = (await res.json().catch(() => null)) as { ok?: boolean; description?: string; result?: { username?: string } } | null;
+      return { ok: res.ok && j?.ok !== false, description: (j?.description || `HTTP ${res.status}`).replaceAll(bot.token, "…"), result: j?.result };
+    } catch {
+      return { ok: false, description: "network", result: undefined };
+    }
+  };
+  const me = await call("getMe");
+  if (!me.ok) return { ok: false, username: "", chatOk: null, error: me.description };
+  const chat = await call("getChat", { chat_id: bot.chatId });
+  // only a clear "chat not found" counts against the chat id; a service without getChat says nothing either way
+  const chatOk = chat.ok ? true : /chat not found/i.test(chat.description) ? false : null;
+  return { ok: true, username: me.result?.username ?? "", chatOk, error: chatOk === false ? chat.description : "" };
+}
+
 export async function notifyOwner(text: string): Promise<{ ok: boolean; error?: string }> {
   const bot = await getBot();
   if (!bot) return { ok: false, error: "not configured" };

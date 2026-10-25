@@ -2,7 +2,7 @@
 
 import { after } from "next/server";
 import { headers } from "next/headers";
-import { clientIp, hashIp } from "@/lib/crypto";
+import { clientIp, hashIp, hasSecret } from "@/lib/crypto";
 import { ghConfigured } from "@/lib/github";
 import { allow, allowAi } from "@/lib/rate-limit";
 import { addMessage, createRequest, getRequest, getRequestByKey, noticeNewRequest, noticeVisitorMessage, triageRequest, visitorTriage } from "@/lib/requests";
@@ -34,12 +34,15 @@ export async function submitRequest(form: FormData): Promise<SubmitResult> {
   if (body.length < 10) return { ok: false, error: "invalid", field: "body" };
   if (email && !EMAIL.test(email)) return { ok: false, error: "invalid", field: "email" };
   if (!email && phone.replace(/\D/g, "").length < 6 && !/^@?[a-z0-9_]{4,}$/i.test(phone)) return { ok: false, error: "contact" };
-  if (!ghConfigured()) return { ok: false, error: "offline" };
+  // the tracking link is signed with APP_SECRET: without it a saved request could never be followed up
+  if (!ghConfigured() || !hasSecret()) return { ok: false, error: "offline" };
 
   const h = await headers();
   const visitor = hashIp(clientIp(h));
   const [okHour, okDay] = await Promise.all([allow(`req:1h:${visitor}`, 3600, 4), allow(`req:day:${visitor}`, 86400, 10)]);
   if (!okHour || !okDay) return { ok: false, error: "rate" };
+  // and a ceiling for the whole instance, well under GitHub's limits on creating content
+  if (!(await allow("req:all:1h", 3600, 60))) return { ok: false, error: "rate" };
 
   const telegram = /^@[a-z0-9_]{4,}$/i.test(phone) ? phone : "";
   let created: { number: number; code: string; key: string };
@@ -96,11 +99,11 @@ export async function replyToRequest(form: FormData): Promise<ReplyResult> {
   const key = field(form, "k", 80);
   const body = field(form, "body", 4000);
   if (body.length < 2) return { ok: false, error: "invalid" };
+  const h = await headers();
+  if (!(await allow(`req:msg:${hashIp(clientIp(h))}`, 3600, 15))) return { ok: false, error: "rate" };
   const r = await getRequestByKey(code, key).catch(() => null);
   if (!r) return { ok: false, error: "denied" };
   if (r.status === "closed") return { ok: false, error: "closed" };
-  const h = await headers();
-  if (!(await allow(`req:msg:${hashIp(clientIp(h))}`, 3600, 15))) return { ok: false, error: "rate" };
   try {
     await addMessage(r, "visitor", body);
   } catch {

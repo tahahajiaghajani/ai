@@ -68,7 +68,19 @@ const unb64 = (s: string) => Buffer.from(s, "base64url").toString("utf8");
 const KIND_FA: Record<RequestKind, string> = { project: "پروژه", consulting: "مشاوره", demo: "دمو", collaboration: "همکاری", design: "طراحی", other: "دیگر" };
 const STATUS_FA: Record<RequestStatus, string> = { new: "تازه", reviewing: "در حال بررسی", answered: "پاسخ داده شد", scheduled: "جلسه هماهنگ شد", closed: "بسته" };
 
-const cell = (s: string) => (s || "—").replace(/\|/g, "\\|").replace(/\s*\n\s*/g, " ").slice(0, 300);
+/**
+ * A table cell that GitHub shows as plain text: Markdown punctuation is backslash-escaped (no links, images, mentions
+ * or autolinks from visitor text) and HTML is turned into entities (no injected rows or tags).
+ */
+export function cell(s: string): string {
+  return (s || "—")
+    .replace(/\s*\n\s*/g, " ")
+    .slice(0, 300)
+    .replace(/[\\`*_{}[\]()#+\-.!|~@:]/g, "\\$&")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
 
 /** A code fence longer than any run of backticks in the text, so the visitor's text can never close it. */
 function fenced(text: string): string {
@@ -106,7 +118,7 @@ export function issueBody(d: RequestData): string {
     "",
     "#### متن درخواست",
     fenced(d.body),
-    ...(t?.summary_owner ? ["", "#### تحلیل هوش مصنوعی", cell(t.summary_owner), ...(t.tags?.length ? ["", t.tags.map((x) => `\`${x.replace(/`/g, "")}\``).join(" ")] : [])] : []),
+    ...(t?.summary_owner ? ["", "#### تحلیل هوش مصنوعی", cell(t.summary_owner), ...(t.tags?.length ? ["", t.tags.map((x) => cell(x)).join(" · ")] : [])] : []),
     "",
     `<!-- ${MARK} ${b64(JSON.stringify(d))} -->`,
   ].join("\n");

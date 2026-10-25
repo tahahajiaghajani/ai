@@ -94,7 +94,7 @@ function useRun() {
 function VercelHint() {
   return (
     <p className="text-xs leading-6 text-faint">
-      متغیرها را در Vercel → پروژه‌ی پورتفولیو → Settings → Environment Variables اضافه کنید و یک بار Redeploy کنید.{" "}
+      متغیرها را در پروژه‌ی پورتفولیو در Vercel، بخش <span dir="ltr">Settings → Environment Variables</span> اضافه کنید و یک بار Redeploy کنید.{" "}
       <a href="https://vercel.com/dashboard" target="_blank" rel="noreferrer" className="link-draw text-fg-2">
         باز کردن Vercel
       </a>
@@ -102,12 +102,14 @@ function VercelHint() {
   );
 }
 
-export function ConnectionsBoard({ report, settings }: { report: ConnectionReport; settings: PublicSettings }) {
+export function ConnectionsBoard({ report, settings, loaded }: { report: ConnectionReport; settings: PublicSettings; loaded: boolean }) {
   const router = useRouter();
   const [refreshing, startRefresh] = useTransition();
   const r = report;
   const all: Status[] = [r.github.status, r.security.status, r.ai.status, r.notify.status, r.site.status, r.vercel.status];
   const ready = all.filter((s) => s === "ok").length;
+  const optional = all.filter((s) => s === "off").length;
+  const problems = all.length - ready - optional;
   const recheck = () => startRefresh(() => router.refresh());
 
   return (
@@ -115,7 +117,10 @@ export function ConnectionsBoard({ report, settings }: { report: ConnectionRepor
       <div className="flex flex-wrap items-center gap-4 rounded-[8px] border border-line p-5">
         <div className="flex-1">
           <p className="text-lg font-bold">
-            {fa(ready)} از {fa(all.length)} مورد آماده است
+            {problems ? `${fa(problems)} مورد نیاز به رسیدگی دارد` : "همه‌چیز آماده است"}
+          </p>
+          <p className="text-sm text-fg-2">
+            {fa(ready)} آماده{optional ? ` · ${fa(optional)} خاموش یا اختیاری` : ""}
           </p>
           <p className="text-xs text-faint">آخرین بررسی: {when(r.checkedAt)}</p>
         </div>
@@ -126,8 +131,9 @@ export function ConnectionsBoard({ report, settings }: { report: ConnectionRepor
       <div className="grid gap-6 xl:grid-cols-2">
         <GitHubCard r={r} onDone={recheck} />
         <SecurityCard r={r} />
-        <AiCard r={r} settings={settings} onSaved={recheck} />
-        <NotifyCard r={r} settings={settings} onSaved={recheck} />
+        {/* each form starts again from what is stored when its own section changes, never when the other one is saved */}
+        <AiCard key={JSON.stringify(settings.ai)} r={r} settings={settings} loaded={loaded} onSaved={recheck} />
+        <NotifyCard key={JSON.stringify(settings.notify)} r={r} settings={settings} loaded={loaded} onSaved={recheck} />
         <SiteCard r={r} />
         <VercelCard r={r} />
       </div>
@@ -169,6 +175,11 @@ function GitHubCard({ r, onDone }: { r: ConnectionReport; onDone: () => void }) 
         {g.tokenExpires ? (
           <Row ok={Date.parse(g.tokenExpires) - Date.parse(r.checkedAt) > 14 * 86400_000}>انقضای توکن: {when(g.tokenExpires)} — پیش از آن توکن تازه بسازید و در Vercel عوض کنید.</Row>
         ) : null}
+        {g.tokenExpiresRaw ? (
+          <Row ok={false}>
+            انقضای توکن خوانده نشد (<span dir="ltr">{g.tokenExpiresRaw}</span>)؛ تاریخ انقضا را در تنظیمات توکن در GitHub ببینید.
+          </Row>
+        ) : null}
         {g.rateRemaining !== null ? <Row ok={null}>سهمیه‌ی باقی‌مانده‌ی GitHub در این ساعت: {fa(g.rateRemaining)} درخواست</Row> : null}
       </ul>
       {!g.tokenSet || !g.repoValid ? <VercelHint /> : null}
@@ -204,7 +215,7 @@ function SecurityCard({ r }: { r: ConnectionReport }) {
             </>
           ) : s.appSecret === "short" ? (
             <>
-              <Code>APP_SECRET</Code> کوتاه است؛ دست‌کم ۳۲ نویسه‌ی تصادفی بگذارید.
+              <Code>APP_SECRET</Code> کوتاه است؛ تا دست‌کم ۳۲ نویسه‌ی تصادفی نشود، پنل، پیوندهای پیگیری و رمز کردن کلیدها کار نمی‌کنند.
             </>
           ) : (
             <>
@@ -226,7 +237,11 @@ function SecurityCard({ r }: { r: ConnectionReport }) {
   );
 }
 
-function AiCard({ r, settings, onSaved }: { r: ConnectionReport; settings: PublicSettings; onSaved: () => void }) {
+function NotLoaded() {
+  return <p className="rounded-[6px] border border-fg px-3 py-2 text-sm font-semibold">✕ تنظیمات فعلی از GitHub خوانده نشد؛ تا وصل نشود ذخیره خاموش است تا چیزی پاک نشود.</p>;
+}
+
+function AiCard({ r, settings, loaded, onSaved }: { r: ConnectionReport; settings: PublicSettings; loaded: boolean; onSaved: () => void }) {
   const a = r.ai;
   const { pending, run, message } = useRun();
   const [enabled, setEnabled] = useState(settings.ai.enabled);
@@ -249,12 +264,14 @@ function AiCard({ r, settings, onSaved }: { r: ConnectionReport; settings: Publi
         <Row ok={a.enabled}>{a.enabled ? "دستیار سایت و تحلیل درخواست‌ها روشن است." : "دستیار خاموش است؛ گفتگو پیام «در دسترس نیست» می‌دهد."}</Row>
         <Row ok={a.keySource !== "none"}>{source}</Row>
         {a.keyUnreadable ? <Row ok={false}>کلید ذخیره‌شده خوانده نمی‌شود (APP_SECRET عوض شده)؛ کلید را دوباره وارد و ذخیره کنید.</Row> : null}
+        {a.live !== null ? <Row ok={a.live === ""}>{a.live === "" ? "کلید همین الان با Google بررسی شد و کار می‌کند." : a.live}</Row> : null}
         <Row ok={null}>
           مدل‌ها به ترتیب: <span dir="ltr" className="font-mono text-[12px]">{a.models.join(" → ")}</span>
         </Row>
       </ul>
-      <Field label="کلید API" hint={settings.ai.hasKey ? "خالی بگذارید تا همان کلید ذخیره‌شده بماند" : "از aistudio.google.com/apikey؛ معمولاً با AIza شروع می‌شود"}>
-        <input type="password" autoComplete="off" value={key} onChange={(e) => setKey(e.target.value)} dir="ltr" placeholder="AIza…" className={input} />
+      {!loaded ? <NotLoaded /> : null}
+      <Field label="کلید API" hint={settings.ai.hasKey ? "خالی بگذارید تا همان کلید ذخیره‌شده بماند" : "از aistudio.google.com/apikey؛ کلیدهای تازه با AQ. و کلیدهای قدیمی‌تر با AIza شروع می‌شوند"}>
+        <input type="password" autoComplete="off" value={key} onChange={(e) => setKey(e.target.value)} dir="ltr" placeholder="AQ.…" className={input} />
       </Field>
       <Field label="مدل‌های ترجیحی (اختیاری)" hint="با ویرگول؛ پیش از زنجیره‌ی رایگان پیش‌فرض امتحان می‌شوند">
         <input value={models} onChange={(e) => setModels(e.target.value)} dir="ltr" placeholder="gemini-3.5-flash-lite" className={input} />
@@ -285,7 +302,7 @@ function AiCard({ r, settings, onSaved }: { r: ConnectionReport; settings: Publi
         <button
           type="button"
           className={button}
-          disabled={pending}
+          disabled={pending || !loaded}
           onClick={() =>
             run(
               () => saveAi({ enabled, apiKey: key || undefined, models }),
@@ -302,7 +319,7 @@ function AiCard({ r, settings, onSaved }: { r: ConnectionReport; settings: Publi
           <button
             type="button"
             className={soft}
-            disabled={pending}
+            disabled={pending || !loaded}
             onClick={() => window.confirm("کلید از این صفحه حذف شود؟ (اگر GEMINI_API_KEY در Vercel باشد، همان به کار می‌رود)") && run(() => saveAi({ enabled, clearKey: true, models }), () => onSaved())}
           >
             حذف کلید
@@ -319,7 +336,7 @@ function AiCard({ r, settings, onSaved }: { r: ConnectionReport; settings: Publi
   );
 }
 
-function NotifyCard({ r, settings, onSaved }: { r: ConnectionReport; settings: PublicSettings; onSaved: () => void }) {
+function NotifyCard({ r, settings, loaded, onSaved }: { r: ConnectionReport; settings: PublicSettings; loaded: boolean; onSaved: () => void }) {
   const n = r.notify;
   const { pending, run, message } = useRun();
   const [channel, setChannel] = useState<NotifyChannel>(settings.notify.channel);
@@ -331,7 +348,7 @@ function NotifyCard({ r, settings, onSaved }: { r: ConnectionReport; settings: P
       <ul className="space-y-2">
         <Row ok={n.channel === "none" ? null : n.source !== "none"}>
           {n.channel === "none"
-            ? "اعلان خاموش است؛ درخواست‌ها در پنل و اعلان‌های خود GitHub دیده می‌شوند."
+            ? "اعلان خاموش است؛ درخواست‌ها فقط در پنل دیده می‌شوند (GitHub برای Issueهایی که سایت با توکن خودتان می‌سازد اعلانی نمی‌فرستد)."
             : n.source === "panel"
               ? (
                   <>
@@ -340,10 +357,21 @@ function NotifyCard({ r, settings, onSaved }: { r: ConnectionReport; settings: P
                 )
               : n.source === "env"
                 ? "ربات TELEGRAM_BOT_TOKEN و TELEGRAM_CHAT_ID در Vercel"
-                : `${name} انتخاب شده ولی توکن ربات یا شناسه‌ی گفتگو کامل نیست.`}
+                : `ربات ${name} هنوز تنظیم نشده (اختیاری، ولی تنها راه باخبر شدن فوری از درخواست‌هاست).`}
         </Row>
         {n.tokenUnreadable ? <Row ok={false}>توکن ذخیره‌شده خوانده نمی‌شود (APP_SECRET عوض شده)؛ دوباره وارد کنید.</Row> : null}
+        {n.live ? (
+          n.live.ok ? (
+            <Row ok={n.live.chatOk !== false}>
+              ربات وصل است{n.live.username ? <> (<span dir="ltr">@{n.live.username}</span>)</> : null}
+              {n.live.chatOk === true ? " و شناسه‌ی گفتگو پیدا شد." : n.live.chatOk === false ? ` ولی ${n.live.error}` : "."}
+            </Row>
+          ) : (
+            <Row ok={false}>{n.live.error}</Row>
+          )
+        ) : null}
       </ul>
+      {!loaded ? <NotLoaded /> : null}
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label="کانال">
           <select value={channel} onChange={(e) => setChannel(e.target.value as NotifyChannel)} className={`${input} bg-bg`}>
@@ -356,14 +384,14 @@ function NotifyCard({ r, settings, onSaved }: { r: ConnectionReport; settings: P
           <input value={chatId} onChange={(e) => setChatId(e.target.value)} dir="ltr" placeholder="123456789" className={input} />
         </Field>
       </div>
-      <Field label="توکن ربات" hint={settings.notify.hasToken ? "خالی بگذارید تا همان توکن ذخیره‌شده بماند" : "از BotFather (تلگرام) یا «بازو»ی بله"}>
+      <Field label="توکن ربات" hint={settings.notify.hasToken ? "خالی بگذارید تا همان توکن ذخیره‌شده بماند" : "از @BotFather در تلگرام، یا @botfather در بله (ساخت بازوی جدید)"}>
         <input type="password" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} dir="ltr" placeholder="123456789:AA…" className={input} />
       </Field>
       <div className="flex flex-wrap gap-2">
         <button
           type="button"
           className={button}
-          disabled={pending}
+          disabled={pending || !loaded}
           onClick={() =>
             run(
               () => saveNotify({ channel, token: token || undefined, chatId }),
@@ -392,14 +420,15 @@ function SiteCard({ r }: { r: ConnectionReport }) {
   return (
     <Card title="نشانی سایت" status={s.status}>
       <ul className="space-y-2">
-        <Row ok={s.explicit}>
+        <Row ok={s.explicit || s.vercelUrl}>
           {s.explicit ? (
             <>
               <Code>NEXT_PUBLIC_SITE_URL</Code>: <span dir="ltr">{s.configured}</span>
             </>
           ) : (
             <>
-              <Code>NEXT_PUBLIC_SITE_URL</Code> تنظیم نشده؛ فعلاً <span dir="ltr">{s.configured}</span> در پیوندها، نقشه‌ی سایت و اعلان‌ها به کار می‌رود. پس از وصل کردن دامنه آن را تنظیم و Redeploy کنید.
+              <Code>NEXT_PUBLIC_SITE_URL</Code> تنظیم نشده؛ <span dir="ltr">{s.configured}</span> در پیوندها، نقشه‌ی سایت و اعلان‌ها به کار می‌رود
+              {s.vercelUrl ? " (نشانی Production خود Vercel، که دامنه‌ی وصل‌شده را هم خودکار می‌گیرد)." : ". روی Vercel منتشر کنید یا این متغیر را بگذارید."}
             </>
           )}
         </Row>
