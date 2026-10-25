@@ -12,18 +12,20 @@ export type IndexItem = Pick<Project, "slug" | "title" | "kicker" | "year" | "co
 
 /**
  * Every case study as one ruled list. On a fine pointer the hovered row's cover floats beside the cursor
- * (eased with quickTo); touch screens and reduced motion get the plain list.
+ * (eased with quickTo); touch screens and reduced motion get the plain list (no cover at all).
  */
 export function WorkIndex({ lang, items }: { lang: Lang; items: IndexItem[] }) {
   const fa = lang === "fa";
   const list = useRef<HTMLDivElement>(null);
   const float = useRef<HTMLDivElement>(null);
   const [active, setActive] = useState<number | null>(null);
+  // set by the effect where the cover can follow the pointer; elsewhere it would sit stuck at the list's corner
+  const [canFloat, setCanFloat] = useState(false);
   // covers mount on first hover only, so the list costs nothing until it is explored
   const [seen, setSeen] = useState<Set<number>>(() => new Set());
   const enter = (i: number) => {
     setActive(i);
-    setSeen((s) => (s.has(i) ? s : new Set(s).add(i)));
+    if (canFloat) setSeen((s) => (s.has(i) ? s : new Set(s).add(i)));
   };
 
   useEffect(() => {
@@ -31,6 +33,7 @@ export function WorkIndex({ lang, items }: { lang: Lang; items: IndexItem[] }) {
     const f = float.current;
     if (!el || !f) return;
     if (!window.matchMedia("(pointer: fine) and (prefers-reduced-motion: no-preference)").matches) return;
+    setCanFloat(true);
     const x = gsap.quickTo(f, "x", { duration: 0.55, ease: "power3.out" });
     const y = gsap.quickTo(f, "y", { duration: 0.55, ease: "power3.out" });
     const move = (e: PointerEvent) => {
@@ -68,7 +71,7 @@ export function WorkIndex({ lang, items }: { lang: Lang; items: IndexItem[] }) {
           ))}
         </ol>
         <div ref={float} className="pointer-events-none absolute left-0 top-0 z-10 hidden md:block" aria-hidden>
-          <div className={`-translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-[6px] border border-line bg-bg-2 shadow-2xl transition-[opacity,scale] duration-500 ease-[var(--ease-out-expo)] ${active === null ? "scale-75 opacity-0" : "scale-100 opacity-100"}`}>
+          <div className={`-translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-[6px] border border-line bg-bg-2 shadow-2xl transition-[opacity,scale] duration-500 ease-[var(--ease-out-expo)] ${canFloat && active !== null ? "scale-100 opacity-100" : "scale-75 opacity-0"}`}>
             <div className="relative aspect-[16/10] w-[300px]">
               {items.map((p, i) => (
                 seen.has(i) ? (

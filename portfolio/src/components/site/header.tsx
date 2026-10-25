@@ -32,30 +32,41 @@ export function Header({ lang }: { lang: Lang }) {
   const lenis = useLenis();
   const bar = useRef<HTMLElement>(null);
   const panel = useRef<HTMLDivElement>(null);
+  const menuBtn = useRef<HTMLButtonElement>(null);
+  const closeBtn = useRef<HTMLButtonElement>(null);
+  const wasOpen = useRef(false);
   const [open, setOpen] = useState(false);
+  // usePathname has no query string: keep it (e.g. the ?k= key of a tracking page) when switching language
+  const [search, setSearch] = useState("");
   const home = href(lang, "/");
   const onHome = pathname === home;
 
-  // hide on the way down, show on the way up
+  // hide on the way down, show on the way up; a fixed bar cannot be scrolled to, so keyboard focus inside it keeps it in view
   useEffect(() => {
     const el = bar.current;
     if (!el) return;
     let last = window.scrollY;
     let hidden = false;
+    const set = (hide: boolean) => {
+      if (hide === hidden) return;
+      hidden = hide;
+      gsap.to(el, { yPercent: hide ? -110 : 0, duration: 0.6, ease: "expo.out" });
+    };
     const onScroll = () => {
       const y = window.scrollY;
-      const down = y > last && y > 160;
-      if (down !== hidden) {
-        hidden = down;
-        gsap.to(el, { yPercent: down ? -110 : 0, duration: 0.6, ease: "expo.out" });
-      }
+      set(y > last && y > 160 && !el.querySelector(":focus-visible"));
       last = y;
     };
+    const onFocus = () => set(false);
     window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
+    el.addEventListener("focusin", onFocus);
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      el.removeEventListener("focusin", onFocus);
+    };
   }, []);
 
-  // the full-screen menu: lock the page and stagger the big links in
+  // the full-screen menu: lock the page, stagger the big links in, and hold keyboard focus inside it while open
   useEffect(() => {
     const p = panel.current;
     if (!p) return;
@@ -64,16 +75,38 @@ export function Header({ lang }: { lang: Lang }) {
       document.documentElement.style.overflow = "hidden";
       gsap.fromTo(p, { clipPath: "inset(0 0 100% 0)" }, { clipPath: "inset(0 0 0% 0)", duration: 0.9, ease: "expo.inOut" });
       gsap.fromTo(p.querySelectorAll("[data-menu-item]"), { yPercent: 120 }, { yPercent: 0, duration: 1, ease: "expo.out", stagger: 0.06, delay: 0.35 });
+      closeBtn.current?.focus();
     } else {
       lenis?.start();
       document.documentElement.style.overflow = "";
+      // closing hides whatever had focus: hand it back to the menu button, unless it already went elsewhere
+      const a = document.activeElement;
+      if (wasOpen.current && (!a || a === document.body || p.contains(a))) menuBtn.current?.focus();
     }
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    wasOpen.current = open;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+      if (!open || e.key !== "Tab") return;
+      const items = p.querySelectorAll<HTMLElement>("a[href], button");
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (!p.contains(document.activeElement)) {
+        e.preventDefault();
+        first.focus();
+      } else if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open, lenis]);
 
   useEffect(() => setOpen(false), [pathname]);
+  useEffect(() => setSearch(window.location.search), [pathname]);
 
   const go = (hash: string) => (e: React.MouseEvent) => {
     setOpen(false);
@@ -81,7 +114,10 @@ export function Header({ lang }: { lang: Lang }) {
     e.preventDefault();
     const target = document.querySelector(hash);
     if (!target) return;
-    if (lenis) lenis.scrollTo(target as HTMLElement, { offset: -40, duration: 1.6 });
+    if (lenis) {
+      lenis.start(); // the open menu stopped it, and a stopped Lenis ignores scrollTo
+      lenis.scrollTo(target as HTMLElement, { offset: -40, duration: 1.6 });
+    }
     else target.scrollIntoView({ behavior: "smooth" });
   };
 
@@ -107,14 +143,14 @@ export function Header({ lang }: { lang: Lang }) {
           </nav>
 
           <div className="flex items-center gap-2 sm:gap-3">
-            <a href={otherLangPath(pathname, lang)} hrefLang={lang === "fa" ? "en" : "fa"} lang={lang === "fa" ? "en" : "fa"} className="grid h-10 min-w-10 place-items-center rounded-full border border-white/30 px-3 text-[0.78rem] font-medium transition-colors hover:bg-white hover:text-black" aria-label={ui.nav.lang[lang]}>
+            <a href={otherLangPath(pathname, lang) + search} hrefLang={lang === "fa" ? "en" : "fa"} lang={lang === "fa" ? "en" : "fa"} className="grid h-10 min-w-10 place-items-center rounded-full border border-white/30 px-3 text-[0.78rem] font-medium transition-colors hover:bg-white hover:text-black" aria-label={ui.nav.lang[lang]}>
               {ui.nav.langShort[lang]}
             </a>
             <ThemeToggle label={ui.nav.theme[lang]} />
             <a href={`${home}#contact`} onClick={go("#contact")} className="hidden h-10 items-center rounded-full bg-white px-5 text-[0.8rem] font-semibold text-black transition-transform hover:scale-[1.04] md:flex">
               {ui.nav.start[lang]}
             </a>
-            <button type="button" onClick={() => setOpen(true)} className="grid size-10 place-items-center rounded-full border border-white/30 lg:hidden" aria-label={ui.nav.menu[lang]} aria-expanded={open} aria-controls="site-menu">
+            <button ref={menuBtn} type="button" onClick={() => setOpen(true)} className="grid size-10 place-items-center rounded-full border border-white/30 lg:hidden" aria-label={ui.nav.menu[lang]} aria-expanded={open} aria-controls="site-menu">
               <span aria-hidden className="flex w-4 flex-col gap-[5px]">
                 <span className="h-px w-full bg-current" />
                 <span className="h-px w-2/3 bg-current" />
@@ -136,7 +172,7 @@ export function Header({ lang }: { lang: Lang }) {
       >
         <div className="flex h-20 items-center justify-between px-5">
           <Mark className="size-8" />
-          <button type="button" onClick={() => setOpen(false)} className="grid size-10 place-items-center rounded-full border border-current/30" aria-label={ui.nav.close[lang]}>
+          <button ref={closeBtn} type="button" onClick={() => setOpen(false)} className="grid size-10 place-items-center rounded-full border border-current/30" aria-label={ui.nav.close[lang]}>
             <span aria-hidden className="relative block size-4">
               <span className="absolute top-1/2 h-px w-full rotate-45 bg-current" />
               <span className="absolute top-1/2 h-px w-full -rotate-45 bg-current" />

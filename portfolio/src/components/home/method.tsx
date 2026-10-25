@@ -12,11 +12,12 @@ gsap.registerPlugin(ScrollTrigger);
 
 /**
  * Five moves of forward-deployed work. On wide screens the section pins and the scroll walks the five steps:
- * a rule draws across, each step's number fills as it is reached. Phones get a plain vertical list.
+ * a rule draws across, each step's number fills as it is reached. Phones, reduced motion and no JS get a plain list
+ * with every step reached (the walk starts from step one only while the pin runs).
  */
 export function Method({ lang }: { lang: Lang }) {
   const root = useRef<HTMLElement>(null);
-  const [step, setStep] = useState(0);
+  const [step, setStep] = useState(METHOD.length - 1);
   const fa = lang === "fa";
 
   useEffect(() => {
@@ -24,6 +25,8 @@ export function Method({ lang }: { lang: Lang }) {
     if (!el) return;
     const mm = gsap.matchMedia();
     mm.add("(min-width: 1024px) and (prefers-reduced-motion: no-preference)", () => {
+      setStep(0);
+      el.style.setProperty("--p", "0");
       const st = ScrollTrigger.create({
         trigger: el,
         start: "top top",
@@ -35,13 +38,17 @@ export function Method({ lang }: { lang: Lang }) {
           el.style.setProperty("--p", String(self.progress));
         },
       });
-      return () => st.kill();
+      return () => {
+        st.kill();
+        setStep(METHOD.length - 1);
+        el.style.setProperty("--p", "1");
+      };
     });
     return () => mm.revert();
   }, []);
 
   return (
-    <section ref={root} id="method" className="tone-invert relative overflow-hidden lg:h-[100svh]" style={{ ["--p" as string]: 0 }}>
+    <section ref={root} id="method" className="tone-invert relative overflow-hidden lg:h-[100svh]" style={{ ["--p" as string]: 1 }}>
       <div className="mx-auto flex h-full max-w-[1800px] flex-col justify-between gap-16 px-5 py-24 md:px-10 lg:py-16">
         <div className="grid grid-cols-12 gap-x-4">
           <p className="col-span-12 mb-6 flex items-center gap-3 font-mono text-[0.65rem] uppercase tracking-[0.22em] text-muted md:col-span-3">

@@ -262,6 +262,10 @@ svg {
   padding-block: 0.06em;
   margin-block: -0.06em;
 }
+/* SplitText's line masks (data-split, Persian included): a little room past the line box so descenders and dots are not shaved */
+.split-line-mask {
+  overflow-clip-margin: 0.1em;
+}
 
 /* eyebrow labels: mono, tracked, tiny */
 .eyebrow {

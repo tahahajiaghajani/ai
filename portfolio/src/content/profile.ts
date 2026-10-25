@@ -111,7 +111,7 @@ export const METHOD: { title: L; body: L }[] = [
   },
   {
     title: { fa: "ساخت", en: "Build" },
-    body: { fa: "خودم پیاده‌سازی می‌کنم: بک‌اند، ایجنت‌ها، پایپ‌لاین داده و رابط کاربری، با تست و بازبینی سخت‌گیرانه.", en: "I implement it myself — backend, agents, data pipelines and interface — with tests and adversarial review." },
+    body: { fa: "با مهندسی هوش‌مصنوعی‌محور می‌سازم: مشخصات را می‌نویسم و ساخت را با Claude Code هدایت می‌کنم؛ بک‌اند، ایجنت‌ها، پایپ‌لاین داده و رابط کاربری، با تست و بازبینی سخت‌گیرانه.", en: "I build with AI-native engineering: I write the specification and direct the build with Claude Code — backend, agents, data pipelines and interface — with tests and adversarial review." },
   },
   {
     title: { fa: "استقرار", en: "Deploy" },

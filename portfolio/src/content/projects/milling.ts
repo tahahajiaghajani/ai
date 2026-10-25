@@ -9,7 +9,7 @@ export const milling: Project = {
     fa: "لرزه‌نگارِ متصل به دستگاه فرز، ورکفلویی با مدل‌های سری زمانی را تغذیه می‌کند که ناهنجاری‌ها را می‌یابد و با ترکیب فرمول‌های عمر ابزار و پارامترهای ماشین‌کاری، عمر تیغه را زنده تخمین می‌زند.",
     en: "A vibration sensor on a milling machine feeds a workflow of time-series models that flags anomalies and, combining tool-life formulas with machining parameters, estimates the cutter's remaining life live.",
   },
-  year: "2026",
+  year: "", // no sourced date yet
   period: { fa: "همکاری دانشگاهی", en: "University collaboration" },
   role: { fa: "طراحی مشترک سیستم و ورکفلو", en: "Co-designer of the system and workflow" },
   context: { fa: "با دانشجویان دانشگاه صنعتی شریف", en: "With students of Sharif University of Technology" },

@@ -15,7 +15,11 @@ declare global {
 /** Tells the page the intro has finished (the hero starts its own entrance on this). */
 function finish() {
   window.__introDone = true;
-  document.documentElement.classList.remove("js-loading");
+  // remembered only now, once the curtain lifts (or is skipped): an intro cut short still plays on the next page
+  try {
+    sessionStorage.setItem("intro", "1");
+  } catch {}
+  document.documentElement.classList.remove("js-loading", "intro");
   window.dispatchEvent(new Event("intro:done"));
 }
 
@@ -39,14 +43,11 @@ export function Preloader({ lang }: { lang: Lang }) {
   const [gone, setGone] = useState(false);
 
   useEffect(() => {
-    let seen = false;
-    try {
-      seen = sessionStorage.getItem("intro") === "1";
-      sessionStorage.setItem("intro", "1");
-    } catch {}
-    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const el = root.current;
-    if (seen || reduce || !el) {
+    // the boot script decides before the first paint (first page of the visit, motion allowed) and shows the curtain
+    // from then on with `intro`; it drops the flag after 4 s, so a page that took longer to start skips the intro
+    // rather than covering itself again
+    if (!el || !document.documentElement.classList.contains("intro")) {
       setGone(true);
       finish();
       return;
@@ -70,11 +71,12 @@ export function Preloader({ lang }: { lang: Lang }) {
         },
       })
       .to(el.querySelectorAll("[data-pre-line]"), { scaleX: 1, duration: 2.1, ease: "power2.inOut" }, 0)
-      .from(el.querySelectorAll("[data-pre-word]"), { yPercent: 110, duration: 1.2, ease: "expo.out", stagger: 0.08 }, 0.5)
+      .fromTo(el.querySelectorAll("[data-pre-word]"), { y: 0, yPercent: 110 }, { yPercent: 0, duration: 1.2, ease: "expo.out", stagger: 0.08 }, 0.5)
       .to(el.querySelectorAll("[data-pre-fade]"), { autoAlpha: 0, duration: 0.4 }, 2.25)
       .to(el, { clipPath: "inset(0 0 100% 0)", duration: 1.1, ease: "expo.inOut", onStart: finish }, 2.35);
     return () => {
-      tl.kill();
+      // revert, not kill: Strict Mode runs this effect twice in development, and the second run must start clean
+      tl.revert();
     };
   }, [lang]);
 
@@ -83,7 +85,7 @@ export function Preloader({ lang }: { lang: Lang }) {
     <div
       ref={root}
       aria-hidden
-      className="invisible fixed inset-0 z-[100] flex flex-col justify-between bg-[#050505] p-5 text-[#f3f3ef] md:p-10"
+      className="invisible in-[.intro]:visible fixed inset-0 z-[100] flex flex-col justify-between bg-[#050505] p-5 text-[#f3f3ef] md:p-10"
       style={{ clipPath: "inset(0 0 0% 0)" }}
     >
       <div data-pre-fade className="flex justify-between font-mono text-[0.65rem] uppercase tracking-[0.25em] text-white/50">
@@ -93,7 +95,7 @@ export function Preloader({ lang }: { lang: Lang }) {
       <div className="flex flex-col items-center gap-8">
         <MarkDraw className="size-28 md:size-36" duration={2} />
         <div data-pre-fade className="overflow-hidden">
-          <p data-pre-word className="latin text-sm uppercase tracking-[0.5em] text-white/80">
+          <p data-pre-word className="latin translate-y-[110%] text-sm uppercase tracking-[0.5em] text-white/80">
             Taha Aghajani
           </p>
         </div>

@@ -205,7 +205,7 @@ export function CaseStudy({ p, lang }: { p: Project; lang: Lang }) {
           </div>
           <div className="relative aspect-[4/3] overflow-hidden rounded-[6px] border border-line md:col-span-4">
             <div className="absolute inset-0 transition-transform duration-1000 ease-[var(--ease-out-expo)] group-hover:scale-105">
-              <Media m={next.cover} lang={lang} fill sizes="33vw" />
+              <Media m={next.cover} lang={lang} fill sizes="(min-width: 768px) 33vw, 100vw" />
             </div>
           </div>
         </div>

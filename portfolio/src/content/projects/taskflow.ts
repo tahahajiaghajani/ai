@@ -79,7 +79,7 @@ export const taskflow: Project = {
   },
   outcomes: [
     { value: { fa: "۹ روز", en: "9 days" }, label: { fa: "از ابزار شخصی تا محصول چندکاربره، در ۹ PR", en: "from personal tool to multi-tenant product, in 9 PRs" } },
-    { value: { fa: "۶۴ → ۱", en: "64 → 1" }, label: { fa: "فایل پیش‌کار، پس از بازطراحی همان‌روزه", en: "pre-work files, after a same-day redesign" } },
+    { value: { fa: "۶۴ → ۱", en: "64 → 1" }, label: { fa: "فایل پیش‌کار ← یک دستور کار، پس از بازطراحی همان‌روزه", en: "pre-work files → one work order, after a same-day redesign" } },
     { value: { fa: "۶ + ۳", en: "6 + 3" }, label: { fa: "ارائه‌دهنده‌ی هوش مصنوعی روی ۳ پروتکل", en: "AI providers over 3 wire protocols" } },
     { value: { fa: "۲۲K", en: "22K" }, label: { fa: "خط TypeScript با ۷۳ تست و CI بدون متغیر محیطی", en: "lines of TypeScript, 73 tests, CI with no env vars" } },
   ],

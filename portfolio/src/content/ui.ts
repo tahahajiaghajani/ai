@@ -125,8 +125,8 @@ const UI = {
     denied: { fa: "این پیوند معتبر نیست.", en: "This link isn't valid." },
   },
   footer: {
-    rights: { fa: "طراحی و مهندسی: طاها آقاجانی", en: "Designed & engineered by Taha Aghajani" },
-    built: { fa: "ساخته‌شده با Next.js، Supabase و Gemini", en: "Built with Next.js, Supabase and Gemini" },
+    rights: { fa: "طراحی و هدایت: طاها آقاجانی · ساخته‌شده با Claude Code", en: "Designed & directed by Taha Aghajani · built with Claude Code" },
+    built: { fa: "در حال اجرا روی Next.js، Supabase و Gemini", en: "Running on Next.js, Supabase and Gemini" },
     top: { fa: "بازگشت به بالا", en: "Back to top" },
     say: { fa: "سلام کنید", en: "Say hello" },
   },

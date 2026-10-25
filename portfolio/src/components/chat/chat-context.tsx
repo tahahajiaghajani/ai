@@ -45,6 +45,7 @@ export function ChatProvider({ lang, works, children }: { lang: Lang; works: { s
   const [open, setOpen] = useState(false);
   const abort = useRef<AbortController | null>(null);
   const session = useRef("");
+  const loaded = useRef(false);
 
   useEffect(() => {
     try {
@@ -55,9 +56,12 @@ export function ChatProvider({ lang, works, children }: { lang: Lang; works: { s
     } catch {
       session.current = uid();
     }
+    loaded.current = true;
   }, [key]);
 
   useEffect(() => {
+    // nothing to save until the saved history is back, or the first save would overwrite it with []
+    if (!loaded.current) return;
     try {
       sessionStorage.setItem(key, JSON.stringify(messages.slice(-30)));
     } catch {}

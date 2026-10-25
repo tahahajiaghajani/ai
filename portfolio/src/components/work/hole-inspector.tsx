@@ -14,7 +14,8 @@ const STAGES = [
   { fa: "گزارش JSON", en: "JSON report" },
 ];
 
-// the three holes the analyzer flagged on the known_bad test sample (read from the workflow screenshots)
+// the three holes the analyzer flagged on the known_bad test sample (read from the workflow screenshots); that run's
+// variances were not recorded, so known_bad shows only the flags and every variance stays the known_good run's
 const BAD = new Set(["B3", "D5", "E2"]);
 
 /**
@@ -69,6 +70,9 @@ export function HoleInspector({ lang }: { lang: Lang }) {
 
   const failed = bad ? holes.filter((h) => BAD.has(h.id)) : [];
   const active = hover ? holes.find((h) => h.id === hover) : null;
+  // hover with a mouse, tap on touch, Tab with a keyboard; blur clears only the hole that set it
+  const pick = (id: string) => () => setHover(id);
+  const drop = (id: string) => () => setHover((v) => (v === id ? null : v));
 
   return (
     <div ref={root} className="grid gap-px overflow-hidden rounded-[6px] border border-line bg-line lg:grid-cols-[1.1fr_1fr]">
@@ -93,13 +97,25 @@ export function HoleInspector({ lang }: { lang: Lang }) {
             <button type="button" onClick={() => setBad(true)} className={`px-3 py-1.5 ${bad ? "bg-fg text-bg" : "text-muted"}`} aria-pressed={bad}>known_bad</button>
           </div>
         </div>
-        <svg viewBox="0 0 500 600" className="mx-auto h-auto w-full max-w-[460px] text-fg" role="img" aria-label={fa ? "نقشه‌ی ۳۶ سوراخ خنک‌کاری" : "Map of the 36 cooling holes"} direction="ltr">
+        <svg viewBox="0 0 500 600" className="mx-auto h-auto w-full max-w-[460px] text-fg" role="group" aria-label={fa ? "نقشه‌ی ۳۶ سوراخ خنک‌کاری" : "Map of the 36 cooling holes"} direction="ltr">
           <rect x={30} y={20} width={440} height={560} rx={14} fill="none" stroke="currentColor" strokeOpacity={0.18} />
           {holes.map((h) => {
             const p = P(h.c);
             const isBad = bad && BAD.has(h.id);
             return (
-              <g key={h.id} onPointerEnter={() => setHover(h.id)} onPointerLeave={() => setHover(null)} className="cursor-crosshair">
+              <g
+                key={h.id}
+                tabIndex={0}
+                role="button"
+                aria-label={`${fa ? "سوراخ" : "Hole"} ${h.id}`}
+                aria-pressed={hover === h.id}
+                onPointerEnter={(e) => e.pointerType === "mouse" && setHover(h.id)}
+                onPointerLeave={(e) => e.pointerType === "mouse" && drop(h.id)()}
+                onClick={pick(h.id)}
+                onFocus={pick(h.id)}
+                onBlur={drop(h.id)}
+                className="cursor-crosshair"
+              >
                 <circle cx={p.x} cy={p.y} r={16} fill="currentColor" opacity={stage >= 1 ? (isBad && stage >= 3 ? 0.08 : 0.88) : 0.12} className="transition-opacity duration-700" style={{ transitionDelay: `${(h.c[0] + h.c[1]) % 9 * 40}ms` }} />
                 <circle cx={p.x} cy={p.y} r={22} fill="none" stroke="currentColor" strokeWidth={1.4} opacity={stage >= 0 ? 1 : 0} strokeDasharray={stage >= 0 ? "0" : "4 4"} className="transition-opacity duration-500" style={{ transitionDelay: `${(h.c[0] * 3 + h.c[1]) % 13 * 30}ms` }} />
                 {stage >= 0 && stage < 1 ? (
@@ -115,7 +131,7 @@ export function HoleInspector({ lang }: { lang: Lang }) {
                     <text x={p.x} y={p.y - 36} textAnchor="middle" className="fill-[var(--bg)] font-mono text-[8.5px] font-semibold">FAILED</text>
                   </>
                 ) : null}
-                {stage >= 2 && !isBad ? (
+                {stage >= 2 && !bad ? (
                   <text x={p.x} y={p.y + 36} textAnchor="middle" className="fill-current font-mono text-[8px]" opacity={0.55}>{Math.round(h.v)}</text>
                 ) : null}
                 {hover === h.id ? <rect x={p.x - 27} y={p.y - 27} width={54} height={54} fill="none" stroke="currentColor" strokeWidth={1} /> : null}
@@ -143,7 +159,7 @@ export function HoleInspector({ lang }: { lang: Lang }) {
                   width={7}
                   height={stage >= 2 ? hgt : 0}
                   fill="currentColor"
-                  opacity={hover === h.id ? 1 : bad && BAD.has(h.id) ? 0.2 : 0.7}
+                  opacity={hover === h.id ? 1 : 0.7}
                   className="transition-all duration-700"
                   style={{ transitionDelay: `${i * 18}ms` }}
                 />
@@ -151,6 +167,7 @@ export function HoleInspector({ lang }: { lang: Lang }) {
             })}
           </svg>
           <p className="mt-2 flex justify-between font-mono text-[0.62rem] text-faint" dir="ltr">
+            <span>known_good</span>
             <span>μ = {mean.toFixed(1)}</span>
             <span>σ = 15.8</span>
             <span>n = 36</span>
@@ -160,22 +177,33 @@ export function HoleInspector({ lang }: { lang: Lang }) {
           <span className="t-p">{"{"}</span>
           {"\n  "}<span className="t-s">&quot;total_holes&quot;</span><span className="t-p">: </span><span className="t-n">36</span>,
           {"\n  "}<span className="t-s">&quot;failed_holes&quot;</span><span className="t-p">: </span><span className="t-n">{stage >= 3 ? failed.length : "…"}</span>,
-          {"\n  "}<span className="t-s">&quot;clog_percentage&quot;</span><span className="t-p">: </span><span className="t-n">{stage >= 3 ? ((failed.length / 36) * 100).toFixed(1) : "…"}</span>,
+          {bad ? null : (
+            <>
+              {"\n  "}<span className="t-s">&quot;clog_percentage&quot;</span><span className="t-p">: </span><span className="t-n">{stage >= 3 ? ((failed.length / 36) * 100).toFixed(1) : "…"}</span>,
+            </>
+          )}
           {"\n  "}<span className="t-s">&quot;holes&quot;</span><span className="t-p">: [</span>
-          {(active ? [active] : holes.slice(0, 2)).map((h) => (
-            <span key={h.id}>
-              {"\n    { "}<span className="t-s">&quot;id&quot;</span>: <span className="t-s">&quot;{h.id}&quot;</span>, <span className="t-s">&quot;variance&quot;</span>: <span className="t-n">{stage >= 2 ? h.v : "…"}</span>,
-              {"\n      "}<span className="t-s">&quot;status&quot;</span>: <span className="t-k">{stage >= 3 ? (bad && BAD.has(h.id) ? "\"FAILED\"" : "\"PASSED\"") : "…"}</span>, <span className="t-s">&quot;center&quot;</span>: [<span className="t-n">{h.c[0]}</span>, <span className="t-n">{h.c[1]}</span>] {"}"}
-            </span>
-          ))}
-          {"\n    "}<span className="t-c">{"// …"}</span>
+          {(active ? [active] : bad && stage >= 3 ? failed : holes.slice(0, 2)).map((h) =>
+            bad ? (
+              // known_bad: only the id and the verdict are on record, not the healthy run's variance or centre
+              <span key={h.id}>
+                {"\n    { "}<span className="t-s">&quot;id&quot;</span>: <span className="t-s">&quot;{h.id}&quot;</span>, <span className="t-s">&quot;status&quot;</span>: <span className="t-k">{stage >= 3 ? (BAD.has(h.id) ? "\"FAILED\"" : "\"PASSED\"") : "…"}</span> {"}"}
+              </span>
+            ) : (
+              <span key={h.id}>
+                {"\n    { "}<span className="t-s">&quot;id&quot;</span>: <span className="t-s">&quot;{h.id}&quot;</span>, <span className="t-s">&quot;variance&quot;</span>: <span className="t-n">{stage >= 2 ? h.v : "…"}</span>,
+                {"\n      "}<span className="t-s">&quot;status&quot;</span>: <span className="t-k">{stage >= 3 ? "\"PASSED\"" : "…"}</span>, <span className="t-s">&quot;center&quot;</span>: [<span className="t-n">{h.c[0]}</span>, <span className="t-n">{h.c[1]}</span>] {"}"}
+              </span>
+            ),
+          )}
+          {"\n    "}<span className="t-c">{bad ? "// flags from the test-sample screenshots" : "// …"}</span>
           {"\n  "}<span className="t-p">]</span>
           {"\n"}<span className="t-p">{"}"}</span>
         </pre>
         <p className="text-[0.8rem] leading-relaxed text-muted">
           {fa
-            ? "داده‌ی واقعی اجرای پایان‌نامه روی ویدئوی نمونه‌ی سالم (۳۶ از ۳۶ سوراخ تشخیص داده شد). حالت known_bad نمونه‌ی آزمونی است که در آن سه سوراخ علامت خوردند. روی هر سوراخ بروید تا رکوردش را ببینید."
-            : "Real data from the thesis run on the healthy sample video (36 of 36 holes found). known_bad is the test sample on which three holes were flagged. Hover a hole to read its record."}
+            ? "داده‌ی واقعی اجرای پایان‌نامه روی ویدئوی نمونه‌ی سالم (۳۶ از ۳۶ سوراخ تشخیص داده شد). حالت known_bad سه سوراخی را علامت می‌زند که روی نمونه‌ی آزمون رد شدند؛ واریانس‌های آن اجرا ثبت نشده است. روی هر سوراخ بروید یا آن را بزنید تا رکوردش را ببینید."
+            : "Real data from the thesis run on the healthy sample video (36 of 36 holes found). known_bad marks the three holes flagged on the test sample; that run's variances were not recorded. Hover or tap a hole to read its record."}
         </p>
       </div>
     </div>

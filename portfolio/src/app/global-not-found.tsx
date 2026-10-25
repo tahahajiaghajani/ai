@@ -1,12 +1,12 @@
 import type { Metadata } from "next";
-import { interFa, vazirFa } from "@/lib/fonts";
+import { inter, vazir } from "@/lib/fonts";
 import "./globals.css";
 
 export const metadata: Metadata = { title: "404 · Taha Aghajani", robots: { index: false } };
 
 export default function GlobalNotFound() {
   return (
-    <html lang="fa" dir="rtl" className={`${vazirFa.variable} ${interFa.variable}`}>
+    <html lang="fa" dir="rtl" className={`${vazir.variable} ${inter.variable}`}>
       <body className="grain">
         <main className="grid min-h-[100dvh] place-items-center px-6 text-center">
           <div>

@@ -16,7 +16,8 @@ export type RailItem = Pick<Project, "slug" | "title" | "kicker" | "oneLiner" | 
 
 /**
  * Selected work. Wide screens: the section pins and the scroll drives the cards sideways (toward the reading
- * direction), with a progress rule. Phones and reduced motion: a plain vertical list.
+ * direction), with a progress rule. Phones, reduced motion and no JS: a plain vertical list (the row classes carry
+ * the same conditions as the pin: `motion-safe:lg:in-[.js]:`).
  */
 export function WorkRail({ lang, items, intro }: { lang: Lang; items: RailItem[]; intro: React.ReactNode }) {
   const section = useRef<HTMLElement>(null);
@@ -46,10 +47,12 @@ export function WorkRail({ lang, items, intro }: { lang: Lang; items: RailItem[]
           },
         },
       });
-      // each card's picture drifts inside its frame while the track moves
+      // each card's picture drifts inside its frame while the track moves, from the card's entry to its exit
+      // (the track moves the other way in rtl, so entry and exit use the opposite edges)
       const pics = gsap.utils.toArray<HTMLElement>("[data-rail-pic]", tr);
+      const [from, to] = fa ? ["right left", "left right"] : ["left right", "right left"];
       pics.forEach((p) =>
-        gsap.fromTo(p, { xPercent: fa ? -6 : 6 }, { xPercent: fa ? 6 : -6, ease: "none", scrollTrigger: { trigger: p, containerAnimation: tween, start: "left right", end: "right left", scrub: true } }),
+        gsap.fromTo(p, { xPercent: fa ? -6 : 6 }, { xPercent: fa ? 6 : -6, ease: "none", scrollTrigger: { trigger: p, containerAnimation: tween, start: from, end: to, scrub: true } }),
       );
       return () => tween.scrollTrigger?.kill();
     });
@@ -57,9 +60,9 @@ export function WorkRail({ lang, items, intro }: { lang: Lang; items: RailItem[]
   }, [fa]);
 
   return (
-    <section ref={section} id="work" className="relative overflow-hidden lg:flex lg:h-[100svh] lg:flex-col lg:justify-center">
+    <section ref={section} id="work" className="relative overflow-hidden lg:flex lg:flex-col lg:justify-center motion-safe:lg:in-[.js]:h-[100svh]">
       <div className="mx-auto w-full max-w-[1800px] px-5 pt-24 md:px-10 lg:pt-24">{intro}</div>
-      <div ref={track} className="mt-12 flex flex-col gap-16 px-5 pb-24 md:px-10 lg:mt-10 lg:w-max lg:flex-row lg:gap-8 lg:pb-0">
+      <div ref={track} className="mt-12 flex flex-col gap-16 px-5 pb-24 md:px-10 lg:mt-10 motion-safe:lg:in-[.js]:w-max motion-safe:lg:in-[.js]:flex-row motion-safe:lg:in-[.js]:gap-8 motion-safe:lg:in-[.js]:pb-0">
         {items.map((p, i) => (
           <Link
             key={p.slug}
@@ -73,7 +76,7 @@ export function WorkRail({ lang, items, intro }: { lang: Lang; items: RailItem[]
               </div>
               <div aria-hidden className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent opacity-80" />
               <span className="absolute start-5 top-5 rounded-full border border-white/30 bg-black/40 px-3 py-1 font-mono text-[0.62rem] uppercase tracking-[0.2em] text-white backdrop-blur-md">
-                {num(lang, String(i + 1).padStart(2, "0"))} — {num(lang, p.year)}
+                {num(lang, String(i + 1).padStart(2, "0"))}{p.year ? ` — ${num(lang, p.year)}` : ""}
               </span>
             </div>
             <div className="mt-6 grid gap-3 lg:grid-cols-[1fr_auto] lg:items-end">
@@ -88,9 +91,9 @@ export function WorkRail({ lang, items, intro }: { lang: Lang; items: RailItem[]
             </div>
           </Link>
         ))}
-        <div className="hidden w-[20vw] shrink-0 lg:block" aria-hidden />
+        <div className="hidden w-[20vw] shrink-0 motion-safe:lg:in-[.js]:block" aria-hidden />
       </div>
-      <div className="mx-auto mt-10 hidden w-full max-w-[1800px] px-10 pb-10 lg:block">
+      <div className="mx-auto mt-10 hidden w-full max-w-[1800px] px-10 pb-10 motion-safe:lg:in-[.js]:block">
         <div className="h-px bg-line">
           <div ref={bar} className="h-px origin-[left] scale-x-0 bg-fg rtl:origin-[right]" />
         </div>

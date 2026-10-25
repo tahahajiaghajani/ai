@@ -16,14 +16,21 @@ export function Marquee({ items, className = "", speed = 60, reverse = false }: 
     const el = track.current;
     if (!el) return;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    const half = el.scrollWidth / 2;
+    // one copy's width, measured again whenever the band's size changes (resize, rotation, a late font swap)
+    let half = el.scrollWidth / 2;
+    const ro = new ResizeObserver(() => {
+      half = el.scrollWidth / 2;
+    });
+    ro.observe(el);
     let x = 0;
     let dir = reverse ? 1 : -1;
     let boost = 0;
     const tick = (_t: number, dt: number) => {
       x += ((dir * speed * (1 + boost)) / 1000) * dt;
-      if (x <= -half) x += half;
-      if (x > 0) x -= half;
+      if (half > 0) {
+        x %= half; // keeps x in (-half, 0], also when the copy has just shrunk
+        if (x > 0) x -= half;
+      }
       el.style.transform = `translate3d(${x}px,0,0)`;
       boost *= 0.92;
     };
@@ -40,6 +47,7 @@ export function Marquee({ items, className = "", speed = 60, reverse = false }: 
     });
     return () => {
       gsap.ticker.remove(tick);
+      ro.disconnect();
       st.kill();
     };
   }, [speed, reverse]);

@@ -54,7 +54,7 @@ export const celin: Project = {
   outcomes: [
     { value: { fa: "۰", en: "0" }, label: { fa: "قیمت در HTML، RSC، JSON-LD یا متادیتا؛ فقط از API با نشست", en: "prices in HTML, RSC, JSON-LD or metadata — only via a session-checked API" } },
     { value: { fa: "۲۸", en: "28" }, label: { fa: "جای تصویر طراحی که مالک غیرفنی خودش عوض می‌کند", en: "design-image slots a non-technical owner changes alone" } },
-    { value: { fa: "۵۶", en: "56" }, label: { fa: "مسیر صفحه در دو زبان، به‌همراه پنل مدیریت فارسی", en: "page routes in two languages, plus a Persian admin" } },
+    { value: { fa: "۵۶", en: "56" }, label: { fa: "مسیر صفحه: ۲۱ در هر زبان و ۱۴ در پنل مدیریت فارسی", en: "page routes: 21 per language and 14 in the Persian admin" } },
     { value: { fa: "۱۲۴", en: "124" }, label: { fa: "آزمون خودکار؛ CI با typecheck، آزمون و build", en: "automated tests; CI runs typecheck, tests and build" } },
   ],
   gallery: [

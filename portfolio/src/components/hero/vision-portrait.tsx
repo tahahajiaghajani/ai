@@ -180,6 +180,8 @@ export function VisionPortrait({ src, alt, detections, className = "" }: { src: 
       ready = true;
       setGl(true);
       resize();
+      // the first frames ran before the photo arrived and stopped; start drawing now (frame() still stops off-screen)
+      kick();
     };
 
     const resize = () => {

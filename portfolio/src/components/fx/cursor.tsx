@@ -5,7 +5,8 @@ import { gsap } from "gsap";
 
 /**
  * A difference-blended cursor: a dot that follows exactly and a ring that trails. Over links the ring grows; over
- * `data-cursor="label"` elements it becomes a disc carrying `data-cursor-label`. Fine pointers only.
+ * `data-cursor="label"` elements it becomes a disc carrying `data-cursor-label`. Fine pointers only. It sits above the
+ * menu, the chat dialog and the skip link (the system cursor is hidden under them too), below the intro.
  */
 export function Cursor() {
   const dot = useRef<HTMLDivElement>(null);
@@ -79,7 +80,7 @@ export function Cursor() {
   }, []);
 
   return (
-    <div aria-hidden className="pointer-events-none fixed inset-0 z-[70] hidden mix-blend-difference [@media(hover:hover)_and_(pointer:fine)]:block">
+    <div aria-hidden className="pointer-events-none fixed inset-0 z-[95] hidden mix-blend-difference [@media(hover:hover)_and_(pointer:fine)]:block">
       <div ref={ring} className="fixed start-0 top-0 grid size-[34px] place-items-center rounded-full border border-white text-black" style={{ left: 0, right: "auto" }}>
         <span className="font-mono text-[10px] uppercase tracking-[0.18em]">{label}</span>
       </div>
