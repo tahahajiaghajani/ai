@@ -2,7 +2,7 @@ import type { Lang } from "@/lib/i18n";
 import { formatDate, href, num } from "@/lib/i18n";
 import { ui } from "@/content/ui";
 import { canAccess, getRequest, listMessages, visitorTriage } from "@/lib/requests";
-import { normalizeCode, STATUSES } from "@/lib/request-meta";
+import { normalizeCode, STATUSES, type RequestStatus } from "@/lib/request-meta";
 import { db } from "@/lib/db";
 import { Prose } from "@/components/work/prose";
 import { ReplyForm } from "@/components/request/reply-form";
@@ -22,7 +22,10 @@ export async function Tracking({ lang, code, k }: { lang: Lang; code: string; k?
   if (!r || !canAccess(r, k)) return shell(<p className="mt-8 text-lg text-fg-2">{ui.track.denied[lang]}</p>);
   const msgs = await listMessages(r.id);
   const triage = visitorTriage(r);
-  const step = STATUSES.indexOf(r.status === "scheduled" ? "scheduled" : r.status);
+  // steps fill up to the current status, but a closed request only shows what really happened on the way
+  const step = STATUSES.indexOf(r.status);
+  const done = (s: RequestStatus, i: number) =>
+    s === "scheduled" ? r.status === "scheduled" : s === "answered" && r.status === "closed" ? Boolean(r.last_owner_at) : i <= step;
 
   return shell(
     <>
@@ -30,7 +33,7 @@ export async function Tracking({ lang, code, k }: { lang: Lang; code: string; k?
       <p className="mt-4 text-lg text-fg-2">{r.subject}</p>
       <ol className="mt-12 grid grid-cols-5 gap-px border border-line bg-line text-center text-[0.72rem]">
         {STATUSES.map((s, i) => (
-          <li key={s} className={`px-2 py-4 ${i <= step ? "bg-fg text-bg" : "bg-bg text-muted"}`}>
+          <li key={s} className={`px-2 py-4 ${done(s, i) ? "bg-fg text-bg" : "bg-bg text-muted"}`}>
             <span className="block font-mono text-[0.6rem] opacity-60">{num(lang, `0${i + 1}`)}</span>
             {ui.track.status[s][lang]}
           </li>

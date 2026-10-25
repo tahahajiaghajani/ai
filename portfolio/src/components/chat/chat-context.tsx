@@ -101,6 +101,8 @@ export function ChatProvider({ lang, works, children }: { lang: Lang; works: { s
         write(acc || ui.chat.error[lang], offline || !acc);
       } catch (e) {
         if ((e as Error)?.name !== "AbortError") write(ui.chat.error[lang], true);
+        // stopped before the first word: drop the empty reply instead of leaving it "thinking"
+        else setMessages((m) => m.filter((x) => x.id !== reply.id || x.content));
       } finally {
         setBusy(false);
         abort.current = null;

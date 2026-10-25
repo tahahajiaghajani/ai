@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { href } from "@/lib/i18n";
 import { parseMarkers, type ChatAction } from "@/lib/markers";
 import { ui } from "@/content/ui";
@@ -78,6 +78,8 @@ function Bubble({ m, lastQuestion, streaming }: { m: Msg; lastQuestion: string; 
     );
   }
   const parsed = parseMarkers(m.content);
+  // a reply stopped before its first word (or saved while waiting) has nothing to show
+  if (!parsed.text && !parsed.actions.length && !streaming) return null;
   return (
     <div className="flex gap-3">
       <span aria-hidden className="mt-1 grid size-7 shrink-0 place-items-center rounded-full border border-line-strong">
@@ -88,9 +90,9 @@ function Bubble({ m, lastQuestion, streaming }: { m: Msg; lastQuestion: string; 
           <div className="text-[0.92rem]">
             <Prose text={parsed.text} />
           </div>
-        ) : (
+        ) : streaming ? (
           <Thinking label={ui.chat.thinking[lang]} />
-        )}
+        ) : null}
         {!streaming ? <Actions actions={parsed.actions} lastQuestion={lastQuestion} /> : null}
       </div>
     </div>
@@ -116,6 +118,8 @@ export function ChatPanel({ className = "", onClose, tall = false }: { className
   const [text, setText] = useState("");
   const list = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
+  // the home page renders two panels (inline and in the launcher), so each needs its own id
+  const inputId = useId();
   const fa = lang === "fa";
 
   useEffect(() => {
@@ -182,9 +186,9 @@ export function ChatPanel({ className = "", onClose, tall = false }: { className
 
       <form onSubmit={submit} className="border-t border-line p-3">
         <div className="flex items-end gap-2 rounded-[8px] border border-line bg-bg-2 p-2 focus-within:border-fg">
-          <label className="sr-only" htmlFor="chat-input">{ui.chat.placeholder[lang]}</label>
+          <label className="sr-only" htmlFor={inputId}>{ui.chat.placeholder[lang]}</label>
           <textarea
-            id="chat-input"
+            id={inputId}
             ref={input}
             value={text}
             onChange={(e) => setText(e.target.value)}

@@ -1,7 +1,9 @@
 import { db } from "@/lib/db";
+import { requireAdmin } from "@/lib/admin-auth";
 import { formatDate } from "@/lib/i18n";
 
 export default async function Chats() {
+  await requireAdmin(); // the layout check alone does not stop this page from rendering
   const c = db();
   if (!c) return <p className="text-fg-2">پایگاه داده تنظیم نشده است.</p>;
   const { data } = await c.from("portfolio_chat_logs").select("*").order("created_at", { ascending: false }).limit(150);

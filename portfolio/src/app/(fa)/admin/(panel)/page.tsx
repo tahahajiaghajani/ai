@@ -1,11 +1,13 @@
 import Link from "next/link";
 import { db } from "@/lib/db";
+import { requireAdmin } from "@/lib/admin-auth";
 import { formatDate } from "@/lib/i18n";
 import { ui } from "@/content/ui";
 import { PRIORITY_LABEL, isPriority, isStatus } from "@/lib/request-meta";
 import type { RequestRow } from "@/lib/requests";
 
 export default async function Requests({ searchParams }: PageProps<"/admin">) {
+  await requireAdmin(); // the layout check alone does not stop this page from rendering
   const { status } = await searchParams;
   const c = db();
   if (!c) return <p className="text-fg-2">پایگاه داده تنظیم نشده است (SUPABASE_URL و SUPABASE_SERVICE_ROLE_KEY).</p>;

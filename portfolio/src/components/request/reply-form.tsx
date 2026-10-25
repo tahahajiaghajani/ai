@@ -18,13 +18,18 @@ export function ReplyForm({ lang, code, k }: { lang: Lang; code: string; k: stri
         e.preventDefault();
         const form = e.currentTarget;
         const fd = new FormData(form);
+        const failed = fa ? "ارسال نشد؛ دوباره امتحان کنید." : "Not sent — please try again.";
         start(async () => {
-          const r = await replyToRequest(fd);
-          if (r.ok) {
-            form.reset();
-            setError("");
-            router.refresh();
-          } else setError(r.error === "rate" ? ui.request.rate[lang] : r.error === "denied" ? ui.track.denied[lang] : fa ? "ارسال نشد؛ دوباره امتحان کنید." : "Not sent — please try again.");
+          try {
+            const r = await replyToRequest(fd);
+            if (r.ok) {
+              form.reset();
+              setError("");
+              router.refresh();
+            } else setError(r.error === "rate" ? ui.request.rate[lang] : r.error === "denied" ? ui.track.denied[lang] : failed);
+          } catch {
+            setError(failed);
+          }
         });
       }}
     >

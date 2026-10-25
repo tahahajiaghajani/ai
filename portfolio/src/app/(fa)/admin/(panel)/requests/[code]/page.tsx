@@ -2,11 +2,13 @@ import { notFound } from "next/navigation";
 import { formatDate } from "@/lib/i18n";
 import { ui } from "@/content/ui";
 import { env } from "@/lib/env";
+import { requireAdmin } from "@/lib/admin-auth";
 import { getRequest, listMessages } from "@/lib/requests";
 import { normalizeCode, PRIORITY_LABEL, STATUSES, isPriority } from "@/lib/request-meta";
 import { changeStatus, ownerReply, retriage } from "@/app/actions/admin";
 
 export default async function RequestDetail({ params }: PageProps<"/admin/requests/[code]">) {
+  await requireAdmin(); // the layout check alone does not stop this page from rendering
   const r = await getRequest(normalizeCode((await params).code));
   if (!r) notFound();
   const msgs = await listMessages(r.id);

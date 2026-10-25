@@ -107,11 +107,15 @@ export function RequestForm({ lang }: { lang: Lang }) {
         ? ui.request.rate[lang]
         : error.error === "offline"
           ? ui.request.offline[lang]
-          : error.error === "invalid"
+          : error.error === "invalid" && error.field === "email"
             ? fa
-              ? "لطفاً نام و شرح نیاز را کامل کنید."
-              : "Please add your name and describe what you need."
-            : ui.request.failed[lang]
+              ? "نشانی ایمیل را بررسی کنید."
+              : "Please check your email address."
+            : error.error === "invalid"
+              ? fa
+                ? "لطفاً نام و شرح نیاز را کامل کنید."
+                : "Please add your name and describe what you need."
+              : ui.request.failed[lang]
     : "";
 
   return (

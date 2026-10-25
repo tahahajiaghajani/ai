@@ -64,19 +64,24 @@ export async function submitRequest(form: FormData): Promise<SubmitResult> {
     return { ok: false, error: "failed" };
   }
 
-  // the visitor waits a little for the AI's reading; if it is slow, triage still finishes in the background
+  // the visitor waits a little for the AI's reading; if it is slow, the same call finishes in the background
+  const job = (await allowAi()) ? triageRequest(created.id).catch(() => null) : null;
   let triage: VisitorTriage | null = null;
-  if (await allowAi()) {
-    const quick = await Promise.race([triageRequest(created.id), new Promise<null>((r) => setTimeout(() => r(null), 22_000))]).catch(() => null);
+  if (job) {
+    const quick = await Promise.race([job, new Promise<null>((r) => setTimeout(() => r(null), 22_000))]);
     if (quick) {
       const row = await getRequest(created.code);
       triage = row ? visitorTriage(row) : null;
     }
   }
   after(async () => {
-    if (!triage) {
-      const row = await getRequest(created.code);
-      if (row && !row.ai_triage) await triageRequest(created.id).catch(() => null);
+    if (!triage && job) {
+      // never a second call while the first is still running; one retry if it failed, within the daily AI budget
+      const done = await job;
+      if (!done && (await allowAi())) {
+        const row = await getRequest(created.code);
+        if (row && !row.ai_triage) await triageRequest(created.id).catch(() => null);
+      }
     }
     await noticeNewRequest(created.code);
   });
