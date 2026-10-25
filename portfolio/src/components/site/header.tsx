@@ -170,7 +170,7 @@ export function Header({ lang }: { lang: Lang }) {
         aria-modal="true"
         aria-label={ui.nav.menu[lang]}
         hidden={!open}
-        className="fixed inset-0 z-[80] flex flex-col bg-fg text-bg"
+        className="fixed inset-0 z-[80] flex flex-col overflow-y-auto bg-fg text-bg"
         data-lenis-prevent
       >
         <div className="flex h-20 items-center justify-between px-5">
@@ -182,7 +182,7 @@ export function Header({ lang }: { lang: Lang }) {
         <nav className="flex flex-1 flex-col justify-center gap-2 px-6">
           {LINKS.map((l, i) => (
             <div key={l.key} className="overflow-hidden">
-              <a data-menu-item href={`${home}${l.hash}`} onClick={go(l.hash)} className="flex items-baseline gap-4 py-1 text-[clamp(2.6rem,11vw,4.5rem)] font-semibold leading-[1.05] tracking-tight">
+              <a data-menu-item href={`${home}${l.hash}`} onClick={go(l.hash)} className="flex items-baseline gap-4 py-1 text-[clamp(2rem,min(11vw,9svh),4.5rem)] font-semibold leading-[1.05] tracking-tight">
                 <span className="font-mono text-sm opacity-50">{num(lang, `0${i + 1}`)}</span>
                 {ui.nav[l.key][lang]}
               </a>

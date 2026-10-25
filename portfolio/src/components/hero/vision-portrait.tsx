@@ -170,9 +170,12 @@ export function VisionPortrait({ src, alt, detections, className = "" }: { src: 
     let imgW = 1, imgH = 1;
     let ready = false;
     let visible = true;
-    let raf = 0;
+    let dirty = false;
     let disposed = false;
-    let checked = false;
+    let wasLost = false;
+    // the frame is checked for a broken (white) picture: on its first frame, once revealed, and after each return
+    let checkSoon = true;
+    let checkedRevealed = false;
     const start = performance.now();
 
     const tex = ctx.createTexture();
@@ -180,8 +183,9 @@ export function VisionPortrait({ src, alt, detections, className = "" }: { src: 
     img.decoding = "async";
     img.src = src;
     img.onload = async () => {
-      // decoded before the upload, so the texture never receives a half-decoded picture
-      await img.decode().catch(() => {});
+      // decoded before the upload, so the texture never receives a half-decoded picture (a decode that never settles
+      // gets a second and a half)
+      await Promise.race([img.decode().catch(() => {}), new Promise((r) => setTimeout(r, 1500))]);
       if (disposed || ctx.isContextLost()) return;
       imgW = img.naturalWidth;
       imgH = img.naturalHeight;
@@ -195,8 +199,6 @@ export function VisionPortrait({ src, alt, detections, className = "" }: { src: 
       ready = true;
       setGl(true);
       resize();
-      // the first frames ran before the photo arrived and stopped; start drawing now (frame() still stops off-screen)
-      kick();
     };
 
     const resize = () => {
@@ -215,22 +217,36 @@ export function VisionPortrait({ src, alt, detections, className = "" }: { src: 
       ctx.uniform2f(u.res, cv.width, cv.height);
       ctx.uniform2f(u.texel, 1 / imgW, 1 / imgH);
       ctx.uniform1f(u.dpr, dpr);
-      // resizing clears the canvas: draw again
-      kick();
+      // resizing clears the canvas: draw again at once, so no empty frame shows
+      draw(true);
     };
 
-    // the canvas could not show the photo (all white: a broken texture or a mobile GPU's lost buffer): show the <img>
+    // the canvas could not show the photo (all white: a broken texture or a mobile GPU's lost buffer): hide it, show
+    // the <img>, stop everything and give the GPU memory back
     const giveUp = (why: string) => {
       console.warn("[portrait] showing the plain photo:", why);
       disposed = true;
-      cancelAnimationFrame(raf);
-      raf = 0;
+      dirty = false;
       setGl(false);
+      tweens.forEach((t) => t.kill());
+      st.kill();
+      ctx.getExtension("WEBGL_lose_context")?.loseContext();
     };
 
-    const frame = (now: number) => {
-      raf = 0;
-      if (!ready || !visible || disposed || ctx.isContextLost()) return;
+    // points inside the vignette's bright centre and away from the face: a correct frame is dark at all of them
+    const isWhite = () => {
+      const px = new Uint8Array(4);
+      let bright = 0;
+      for (const [fx, fy] of [[0.35, 0.35], [0.5, 0.45], [0.65, 0.35], [0.3, 0.55], [0.7, 0.55]]) {
+        ctx.readPixels(Math.floor(cv.width * fx), Math.floor(cv.height * fy), 1, 1, ctx.RGBA, ctx.UNSIGNED_BYTE, px);
+        if (px[0] > 200) bright++;
+      }
+      return bright >= 4;
+    };
+
+    const draw = (force = false) => {
+      dirty = false;
+      if (!ready || disposed || ctx.isContextLost() || (!visible && !force)) return;
       state.hover += (state.hoverTarget - state.hover) * 0.12;
       state.mx += (state.tx - state.mx) * 0.16;
       state.my += (state.ty - state.my) * 0.16;
@@ -239,40 +255,48 @@ export function VisionPortrait({ src, alt, detections, className = "" }: { src: 
       ctx.uniform1f(u.reveal, state.reveal);
       ctx.uniform1f(u.scroll, state.scroll);
       ctx.uniform1f(u.scan, state.scan);
-      ctx.uniform1f(u.time, (now - start) / 1000);
+      ctx.uniform1f(u.time, (performance.now() - start) / 1000);
       ctx.drawArrays(ctx.TRIANGLE_STRIP, 0, 4);
-      // once the photo has resolved, make sure the canvas really shows it (the photo is dark; a white frame is broken)
-      if (!checked && state.reveal >= 1 && state.scan < 0 && state.hover < 0.01) {
-        checked = true;
-        const px = new Uint8Array(4);
-        let bright = 0;
-        for (const [fx, fy] of [[0.2, 0.2], [0.5, 0.5], [0.8, 0.3], [0.3, 0.8], [0.7, 0.75]]) {
-          ctx.readPixels(Math.floor(cv.width * fx), Math.floor(cv.height * fy), 1, 1, ctx.RGBA, ctx.UNSIGNED_BYTE, px);
-          if (px[0] > 235) bright++;
-        }
-        if (bright === 5) return giveUp("the canvas is white");
+      // with neither the lens nor the band on, every correct frame is dark where isWhite() looks
+      if (checkSoon && state.hover < 0.01 && (state.scan < 0 || state.scan > 1)) {
+        checkSoon = false;
+        if (isWhite()) return giveUp("the canvas is white");
       }
-      // keep drawing only while the lens is on or settling; tweens and the scroll ask for frames themselves
+      if (!checkedRevealed && state.reveal >= 1) {
+        checkedRevealed = true;
+        checkSoon = true;
+      }
+      // the lens keeps drawing while it is on or settling; everything else asks for a frame when it changes
       const settling = Math.abs(state.hoverTarget - state.hover) > 0.002 || Math.abs(state.tx - state.mx) + Math.abs(state.ty - state.my) > 0.001;
-      if (state.hover > 0.002 || settling) raf = requestAnimationFrame(frame);
+      if (state.hover > 0.002 || settling) dirty = true;
     };
     const kick = () => {
-      if (!raf && !disposed) raf = requestAnimationFrame(frame);
+      if (!disposed) dirty = true;
     };
+    // at most one draw per display frame, after GSAP has updated its tweens in the same tick (a requestAnimationFrame
+    // asked for from a tween's update would only run on the next frame, halving the frame rate)
+    const tick = () => {
+      if (dirty) draw();
+    };
+    gsap.ticker.add(tick);
 
     // phones drop a WebGL context under memory pressure or in the background: show the photo, rebuild when it returns
     const lost = (e: Event) => {
       e.preventDefault();
-      cancelAnimationFrame(raf);
-      raf = 0;
+      wasLost = true;
       ready = false;
+      dirty = false;
       setGl(false);
     };
     const restored = () => setEpoch((n) => n + 1);
     cv.addEventListener("webglcontextlost", lost);
     cv.addEventListener("webglcontextrestored", restored);
     // a page brought back from the background may have had its canvas cleared without any event
-    const back = () => document.visibilityState === "visible" && kick();
+    const back = () => {
+      if (document.visibilityState !== "visible") return;
+      checkSoon = true;
+      kick();
+    };
     document.addEventListener("visibilitychange", back);
     window.addEventListener("pageshow", back);
 
@@ -295,8 +319,9 @@ export function VisionPortrait({ src, alt, detections, className = "" }: { src: 
     el.addEventListener("pointerup", up);
     el.addEventListener("pointercancel", leave);
 
-    const io = new IntersectionObserver(([entry]) => {
-      visible = entry.isIntersecting;
+    // the newest entry counts: several can arrive at once when the frame leaves and comes back quickly
+    const io = new IntersectionObserver((entries) => {
+      visible = entries[entries.length - 1].isIntersecting;
       if (visible) kick();
     });
     io.observe(el);
@@ -326,16 +351,15 @@ export function VisionPortrait({ src, alt, detections, className = "" }: { src: 
       },
     });
 
-    kick();
     return () => {
       disposed = true;
       img.onload = null;
+      gsap.ticker.remove(tick);
       stopIntro();
       tweens.forEach((t) => t.kill());
       st.kill();
       io.disconnect();
       ro.disconnect();
-      cancelAnimationFrame(raf);
       el.removeEventListener("pointermove", move);
       el.removeEventListener("pointerdown", move);
       el.removeEventListener("pointerleave", leave);
@@ -345,10 +369,13 @@ export function VisionPortrait({ src, alt, detections, className = "" }: { src: 
       cv.removeEventListener("webglcontextrestored", restored);
       document.removeEventListener("visibilitychange", back);
       window.removeEventListener("pageshow", back);
-      // the context stays with the canvas: losing it here would leave a dead context for the next mount (Strict Mode)
-      ctx.deleteTexture(tex);
-      ctx.deleteBuffer(buf);
-      ctx.deleteProgram(prog);
+      // the context stays with the canvas: losing it here would leave a dead context for the next mount (Strict Mode);
+      // objects made before a loss no longer belong to the (restored) context, so they are left alone
+      if (!wasLost && !ctx.isContextLost()) {
+        ctx.deleteTexture(tex);
+        ctx.deleteBuffer(buf);
+        ctx.deleteProgram(prog);
+      }
     };
   }, [src, epoch]);
 
@@ -356,7 +383,8 @@ export function VisionPortrait({ src, alt, detections, className = "" }: { src: 
     <div ref={wrap} className={`relative aspect-[4/5] touch-pan-y overflow-hidden bg-[#050505] ${className}`} data-cursor-label="AI">
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={src} alt={alt} className={`absolute inset-0 size-full object-cover grayscale transition-opacity duration-700 ${gl ? "opacity-0" : "opacity-100"}`} fetchPriority="high" />
-      <canvas ref={canvas} className="absolute inset-0 size-full" aria-hidden />
+      {/* hidden whenever the photo shows instead: a canvas that gave up may still hold its last (white) frame */}
+      <canvas ref={canvas} className={`absolute inset-0 size-full ${gl ? "" : "invisible"}`} aria-hidden />
       <Detections items={detections} />
       <div aria-hidden className="pointer-events-none absolute inset-0 border border-white/10" />
     </div>
