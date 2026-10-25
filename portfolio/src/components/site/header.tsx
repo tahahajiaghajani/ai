@@ -9,6 +9,7 @@ import { href, num } from "@/lib/i18n";
 import { ui } from "@/content/ui";
 import { PROFILE } from "@/content/profile";
 import { Mark } from "@/components/brand/logo";
+import { CrossIcon } from "@/components/brand/icons";
 import { useLenis } from "@/components/fx/motion";
 import { ThemeToggle } from "@/components/site/theme-toggle";
 
@@ -173,10 +174,7 @@ export function Header({ lang }: { lang: Lang }) {
         <div className="flex h-20 items-center justify-between px-5">
           <Mark className="size-8" />
           <button ref={closeBtn} type="button" onClick={() => setOpen(false)} className="grid size-10 place-items-center rounded-full border border-current/30" aria-label={ui.nav.close[lang]}>
-            <span aria-hidden className="relative block size-4">
-              <span className="absolute top-1/2 h-px w-full rotate-45 bg-current" />
-              <span className="absolute top-1/2 h-px w-full -rotate-45 bg-current" />
-            </span>
+            <CrossIcon className="size-4" strokeWidth={1.3} />
           </button>
         </div>
         <nav className="flex flex-1 flex-col justify-center gap-2 px-6">

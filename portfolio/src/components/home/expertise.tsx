@@ -7,6 +7,7 @@ import { EXPERTISE } from "@/content/profile";
 import { ui } from "@/content/ui";
 import { SectionHead } from "@/components/home/section-head";
 import { Glyph } from "@/components/home/glyphs";
+import { PlusIcon } from "@/components/brand/icons";
 
 /** Disciplines as a list that opens on hover or tap; a live diagram of the open one stays pinned beside it. */
 export function Expertise({ lang }: { lang: Lang }) {
@@ -48,7 +49,9 @@ export function Expertise({ lang }: { lang: Lang }) {
                 <button type="button" onClick={() => setActive(i)} aria-expanded={open} className="flex w-full items-baseline gap-5 py-7 text-start md:py-9">
                   <span className="w-10 shrink-0 font-mono text-xs text-faint">{num(lang, `0${i + 1}`)}</span>
                   <span className={`flex-1 text-[clamp(1.5rem,3.2vw,3rem)] leading-[1.15] transition-colors duration-500 ${open ? "text-fg" : "text-muted"} ${fa ? "font-semibold" : "font-medium tracking-[-0.03em]"}`}>{x.title[lang]}</span>
-                  <span aria-hidden className={`grid size-9 shrink-0 place-items-center rounded-full border transition-all duration-500 ${open ? "rotate-45 border-fg bg-fg text-bg" : "border-line-strong"}`}>+</span>
+                  <span aria-hidden className={`grid size-9 shrink-0 place-items-center rounded-full border transition-all duration-500 ${open ? "rotate-45 border-fg bg-fg text-bg" : "border-line-strong"}`}>
+                    <PlusIcon className="size-3.5" strokeWidth={1.4} />
+                  </span>
                 </button>
                 <div className="grid transition-[grid-template-rows] duration-700 ease-[var(--ease-out-expo)]" style={{ gridTemplateRows: open ? "1fr" : "0fr" }}>
                   <div className="overflow-hidden">

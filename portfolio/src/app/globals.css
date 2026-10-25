@@ -175,6 +175,25 @@ body {
     color 0.6s var(--ease-lux);
 }
 
+/*
+ * Running text is justified: paragraphs, descriptions, quotes and the lists inside articles and chat answers (a
+ * single line, and the last line of a paragraph, keep their natural start). Spaces are stretched, never letters, so
+ * Persian stays joined. Titles and display lines are left as they are (justifying a few big words opens wide gaps),
+ * and a parent that centres or ends its text keeps doing so; a `text-*` utility on the element itself always wins.
+ */
+@layer base {
+  :where(p, dd, blockquote, figcaption, .prose-mono li, .text-justify) {
+    text-align: justify;
+    text-justify: inter-word;
+  }
+  :where(.text-center, .text-end, .text-start) :where(p, dd, blockquote, figcaption, li) {
+    text-align: inherit;
+  }
+  :where(html[lang="en"]) :where(p, dd, blockquote, .prose-mono li) {
+    hyphens: auto;
+  }
+}
+
 /* Persian pages: the Persian face leads (its metrics set the line box), Latin falls through */
 html[lang="fa"] body {
   font-family: var(--font-fa), var(--font-latin), ui-sans-serif, system-ui, sans-serif;

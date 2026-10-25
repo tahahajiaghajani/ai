@@ -94,9 +94,10 @@ export function Toolbox({ lang }: { lang: Lang }) {
               <span className="font-mono text-[0.65rem] text-faint">{num(lang, `0${gi + 1}`)}</span>
               {g.title[lang]}
             </p>
-            <ul className="grid grid-cols-3 gap-px bg-line sm:grid-cols-4" dir="ltr">
+            {/* lines drawn by the cells themselves, so the empty end of a short last row stays the page colour */}
+            <ul className="grid grid-cols-3 border-s border-t border-line sm:grid-cols-4" dir="ltr">
               {g.tools.map((t) => (
-                <li key={t.name} data-fade className="group flex aspect-square flex-col items-center justify-center gap-3 bg-bg p-3 text-center transition-colors duration-500 hover:bg-fg hover:text-bg">
+                <li key={t.name} data-fade className="group flex aspect-square flex-col items-center justify-center gap-3 border-e border-b border-line bg-bg p-3 text-center transition-colors duration-500 hover:bg-fg hover:text-bg">
                   {t.path ? (
                     <svg viewBox="0 0 24 24" className="size-7 transition-transform duration-500 group-hover:scale-110" aria-hidden>
                       <path d={t.path} fill="currentColor" />

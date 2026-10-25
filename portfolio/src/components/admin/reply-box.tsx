@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { ownerReply, type ReplyState } from "@/app/actions/admin";
 import { ui } from "@/content/ui";
+import { CrossIcon } from "@/components/brand/icons";
 
 const STATUS = (["answered", "scheduled", "closed"] as const).map((value) => ({ value, label: ui.track.status[value].fa }));
 
@@ -77,8 +78,11 @@ export function ReplyBox({ n, draft }: { n: number; draft: string }) {
         </button>
       </div>
       {state && !state.ok ? (
-        <p role="alert" className="rounded-[6px] border border-fg px-3 py-2 text-sm font-semibold">
-          ✕ {state.error}
+        <p role="alert" className="flex items-start gap-2 rounded-[6px] border border-fg px-3 py-2 text-sm font-semibold">
+          <span aria-hidden className="grid h-[1.5em] shrink-0 place-items-center">
+            <CrossIcon className="size-3" />
+          </span>
+          <span>{state.error}</span>
         </p>
       ) : state?.warning ? (
         <p role="status" className="rounded-[6px] border border-line px-3 py-2 text-sm">

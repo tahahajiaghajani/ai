@@ -34,7 +34,7 @@ export default async function RequestDetail({ params }: PageProps<"/admin/reques
         </p>
         <h1 className="mt-2 text-3xl font-bold">{r.subject}</h1>
         <p className="mt-3 text-sm text-muted">{formatDate(r.created_at, "fa")} · {r.lang === "en" ? "انگلیسی" : "فارسی"} · {r.source}</p>
-        <article className="mt-8 whitespace-pre-wrap rounded-[8px] border border-line p-6 leading-relaxed">{r.body}</article>
+        <article className="mt-8 whitespace-pre-wrap rounded-[8px] border border-line p-6 text-justify leading-relaxed">{r.body}</article>
         <div className="mt-6 grid gap-4">
           {msgs.map((m) => (
             <article key={m.id} className={`rounded-[8px] border p-5 ${m.author === "owner" ? "border-fg" : m.author === "note" ? "border-dashed border-line" : "border-line"}`}>

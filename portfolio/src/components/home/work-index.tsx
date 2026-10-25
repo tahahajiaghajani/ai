@@ -62,7 +62,6 @@ export function WorkIndex({ lang, items }: { lang: Lang; items: IndexItem[] }) {
                 <span className="col-span-2 font-mono text-xs text-faint md:col-span-1">{num(lang, String(i + 1).padStart(2, "0"))}</span>
                 <span className={`col-span-10 text-[clamp(1.35rem,2.6vw,2.4rem)] leading-tight transition-transform duration-700 ease-[var(--ease-out-expo)] md:col-span-6 ${fa ? "font-bold group-hover:-translate-x-3" : "font-semibold tracking-[-0.03em] group-hover:translate-x-3"}`}>
                   {p.title[lang]}
-                  {p.tier === "lab" ? <span className="ms-3 rounded-full border border-line px-2 py-0.5 align-middle font-mono text-[0.6rem] font-normal uppercase tracking-[0.16em] text-muted">{fa ? "آزمایشگاه" : "Lab"}</span> : null}
                 </span>
                 <span className="col-span-10 col-start-3 mt-2 text-sm text-muted md:col-span-4 md:col-start-auto md:mt-0">{p.kicker[lang]}</span>
                 <span className="hidden text-end font-mono text-xs text-faint md:col-span-1 md:block">{num(lang, p.year)}</span>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { gsap } from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import type { Lang } from "@/lib/i18n";
@@ -20,7 +20,9 @@ export function Method({ lang }: { lang: Lang }) {
   const [step, setStep] = useState(METHOD.length - 1);
   const fa = lang === "fa";
 
-  useEffect(() => {
+  // a layout effect, not useEffect: the pin wraps the section in GSAP's spacer, and its cleanup must put the section
+  // back before React removes it on navigation (passive cleanups run after the removal, which then throws)
+  useLayoutEffect(() => {
     const el = root.current;
     if (!el) return;
     const mm = gsap.matchMedia();

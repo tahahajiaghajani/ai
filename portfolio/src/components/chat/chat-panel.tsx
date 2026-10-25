@@ -7,6 +7,7 @@ import { parseMarkers, type ChatAction } from "@/lib/markers";
 import { ui } from "@/content/ui";
 import { PROFILE } from "@/content/profile";
 import { Mark } from "@/components/brand/logo";
+import { CrossIcon } from "@/components/brand/icons";
 import { Prose } from "@/components/work/prose";
 import { useChat, type Msg } from "@/components/chat/chat-context";
 
@@ -156,10 +157,7 @@ export function ChatPanel({ className = "", onClose, tall = false }: { className
           ) : null}
           {onClose ? (
             <button type="button" onClick={onClose} aria-label={ui.nav.close[lang]} className="grid size-9 place-items-center rounded-full border border-line hover:border-fg">
-              <span aria-hidden className="relative block size-3.5">
-                <span className="absolute top-1/2 h-px w-full rotate-45 bg-current" />
-                <span className="absolute top-1/2 h-px w-full -rotate-45 bg-current" />
-              </span>
+              <CrossIcon className="size-3.5" strokeWidth={1.4} />
             </button>
           ) : null}
         </div>
