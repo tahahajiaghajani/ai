@@ -62,12 +62,13 @@ const floorSpot = (x, z, w, d) => plane(x, 0.2, z, w, d, { rx: 90, cls: "shadow"
 plane(0, 260, -260, 2200, 520, { bg: "var(--wall)" });
 plane(0, 0, 110, 2200, 740, { rx: 90, bg: "var(--floor)" }); // kept clear of the camera plane: Chromium clips planes that cross it
 
-// pop-up: face 221 × 230 at z = 0, its 35 cm at each end wrap back round the frame
+// pop-up: face 221 × 230 at z = 0, its 35 cm at each end wrap back round the frame. Like the roll-up banners it ends
+// just above the floor: Chromium drops the part of a plane that the floor or a shadow plane cuts through
 const POP = tex("popup");
 floorSpot(0, 26, 260, 40); // in front of the face: a shadow plane that cuts through a panel makes Chromium drop part of it
-plane(0, 115, 0, 221, 230, { strip: [POP, 291, 230, 35] });
-plane(-110.5, 115, -17.5, 35, 230, { ry: -90, strip: [POP, 291, 230, 0], cls: "side" });
-plane(110.5, 115, -17.5, 35, 230, { ry: 90, strip: [POP, 291, 230, 256], cls: "side" });
+plane(0, 115.5, 0, 221, 230, { strip: [POP, 291, 230, 35] });
+plane(-110.5, 115.5, -17.5, 35, 230, { ry: -90, strip: [POP, 291, 230, 0], cls: "side" });
+plane(110.5, 115.5, -17.5, 35, 230, { ry: 90, strip: [POP, 291, 230, 256], cls: "side" });
 
 // roll-ups: the 85 × 200 trim (5 cm bleed off each edge) standing in its cassette, which hides the lowest part.
 // No plane may cut through the banner (Chromium drops part of a plane that another one crosses), so the banner ends

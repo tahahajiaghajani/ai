@@ -65,6 +65,10 @@ const drawArt = () => {
     const rects = [...g.getClientRects()];
     if (rects.some((r) => Math.abs(r.top - rects[0].top) > 1)) throw new Error("gradient text wraps onto two lines: " + g.textContent);
     const cs = getComputedStyle(g);
+    // the SVG is laid over the word's inline-block box, so the baseline is measured in that box: an inline box starts at
+    // the font's content area, which with a tight line-height lies above the inline-block's top
+    g.style.position = "relative";
+    g.style.display = "inline-block";
     const mark = document.createElement("span");
     mark.style.cssText = "display:inline-block;width:0;height:0;vertical-align:baseline";
     g.prepend(mark);
@@ -74,8 +78,6 @@ const drawArt = () => {
     const text = g.textContent;
     const id = "tg" + gid++;
     const w = r.width, h = r.height;
-    g.style.position = "relative";
-    g.style.display = "inline-block";
     g.innerHTML = `<span style="visibility:hidden">${g.innerHTML}</span>` +
       `<svg xmlns="${NS}" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="position:absolute;left:0;top:0;overflow:visible">` +
       `<defs><linearGradient id="${id}" x1="0" y1="0" x2="1" y2="0.2"><stop offset="0" stop-color="${PAL.text[0]}"/><stop offset=".5" stop-color="${PAL.text[1]}"/><stop offset="1" stop-color="${PAL.text[2]}"/></linearGradient></defs>` +
@@ -244,8 +246,8 @@ const drawArt = () => {
 
   if (ITEM === "swatch") {
     // the finest to the widest thread on the boards, each with the opacity of the board thread it stands for
-    // (0.7 mm: roll-up 2 path; 0.9 mm: minimal roll-ups; 1.4 mm: lower pop-up silk; 2 mm: minimal pop-up)
-    [[0.07, 0.85, 0.3], [0.09, 0.66, 0.55], [0.14, 0.5, 0.55], [0.2, 0.66, 0.55]].forEach(([sw, op, edgeBoost], i) => {
+    // (0.7 mm: roll-up 2 path; 0.9 mm: minimal roll-ups; 1 mm: minimal counter; 2 mm: pop-up)
+    [[0.07, 0.85, 0.3], [0.09, 0.66, 0.55], [0.1, 0.62, 0.55], [0.2, 0.66, 0.55]].forEach(([sw, op, edgeBoost], i) => {
       const b = bx(document.querySelectorAll(".ribslot")[i]);
       const g = linear(b.x0, 0, b.x1, 0, [[0, PAL.v[1]], [0.5, PAL.j[1]], [1, PAL.m[1]]]);
       ribbon({ pts: [[b.x0, b.y0 + 1.6], [b.cx, b.y0 + 1.2], [b.x1, b.y0 + 1.8]], width: [2.4, 3, 2.4], turns: 1.4, n: 14, sw, op, edgeBoost, stroke: g });

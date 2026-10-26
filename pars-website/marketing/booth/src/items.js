@@ -25,7 +25,6 @@ const HOST = new URL(window.SITE_URL).host;
 const COPY = {
   slogan2: ['جایی که مدیریت و <span class="g">هوش</span>', "به هم می‌رسند."],
   slogan3: ["جایی که", 'مدیریت و <span class="g">هوش</span>', "به هم می‌رسند."],
-  sloganLine: 'جایی که مدیریت و <span class="g">هوش</span> به هم می‌رسند.',
   name: "مدیریت پروژه پارس",
   phones: ["۸۸۷۳۱۶۰۱", "۸۲۸۰۳۵۶۵"],
   mail: "info@parspmi.ir",
@@ -42,9 +41,7 @@ const SVC = {
 };
 const STATS = [
   { n: "۱۵+", l: "سال تجربه،<br>از ۱۳۸۹" },
-  { n: "۲۰", l: "بانک و سازمان<br>با سامانه‌های پارس" },
   { n: "۶۰+", l: "سازمان در آموزش،<br>مشاوره و نرم‌افزار" },
-  { n: "تا ۹۰٪", l: "خودکارسازی کارهای تکراری،<br>با تأیید انسانی" },
 ];
 const PATH = ["کشف و<br>ارزیابی", "طراحی<br>راهکار", "ساخت و<br>استقرار", "اتوماسیون<br>هوشمند", "آموزش و<br>تکامل"];
 
@@ -169,7 +166,7 @@ function rollup(k) {
     demo(115.5);
     kicker(X, 141, W, "", "مسیر همکاری", 2.4);
     B(X, 146.5, W, 0, PATH.map((t, i) => `<div class="st"><span class="dot" style="width:7cm;height:7cm;font-size:3cm;border-width:.16cm;font-weight:600">${["۱", "۲", "۳", "۴", "۵"][i]}</span><b style="font-size:2.2cm;margin-top:.8cm;line-height:1.4;font-weight:500">${t}</b></div>`).join(""), "flow path", "");
-    [0, 2].forEach((si, i) => stat(i ? X : X + W / 2, 167, W / 2, STATS[si], 7, "center", 2.1));
+    STATS.forEach((st, i) => stat(i ? X : X + W / 2, 167, W / 2, st, 7, "center", 2.1));
   }
 }
 
@@ -221,7 +218,7 @@ function swatch() {
   B(10.3, 37, 6.2, 4.6, "", "", "border-radius:.5cm;background:var(--card);border:.05cm solid var(--card-line)");
   [[3, "نقطه‌های زمینه"], [10.3, "کارت و قاب"]].forEach(([x, t]) => B(x, 42.1, 6.2, 0, t, "muted", "font-size:.5cm;text-align:center"));
   // four ribbon samples (art.js) from the finest to the widest thread on the boards, at the boards' opacity
-  ["۰٫۷ تا ۰٫۹", "۰٫۹ تا ۱٫۲", "۱٫۴ تا ۱٫۸", "۲ تا ۲٫۶"].forEach((t, i) => B(17.7 + i * 10.1, 39.4, 9.2, 4.6, `<span class="muted" style="font-size:.55cm;position:absolute;bottom:0;left:0;right:0;text-align:center">خط ${t} میلی‌متر</span>`, "ribslot"));
+  ["۰٫۷ تا ۰٫۹", "۰٫۹ تا ۱٫۲", "۱ تا ۱٫۳", "۲ تا ۲٫۶"].forEach((t, i) => B(17.7 + i * 10.1, 39.4, 9.2, 4.6, `<span class="muted" style="font-size:.55cm;position:absolute;bottom:0;left:0;right:0;text-align:center">خط ${t} میلی‌متر</span>`, "ribslot"));
 }
 
 ({ popup, rollup1: () => rollup(1), rollup2: () => rollup(2), counter, swatch })[ITEM]();
