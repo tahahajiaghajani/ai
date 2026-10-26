@@ -3,7 +3,8 @@
 const S = (name, w, h, extra = {}) => ({ src: `screens/${name}.png`, w, h, ...extra });
 
 const DATA = {
-  url: "parspmi.vercel.app",
+  // how to reach Pars, as on the booth; the site's address comes from build.mjs (TEASER_URL)
+  contact: { mail: "info@parspmi.ir", phones: ["۸۸۷۳۱۶۰۱", "۸۲۸۰۳۵۶۵"] },
   products: [
     {
       key: "pm", acronym: "PM", name: "سامانه‌ی مدیریت پروژه", hook: "از منشور پروژه تا تأیید نهایی، یک‌جا.", url: "project.parspmi.ir",

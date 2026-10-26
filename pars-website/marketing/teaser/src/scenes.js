@@ -16,8 +16,10 @@ function wrap(n, tl, out = 0.6) {
   return w;
 }
 
-/* ── 1 · intro: two streams meet, the logo, the tagline ──────── */
-function sceneIntro() {
+/* ── 1 · intro: two streams meet, the logo, the tagline (short: the same, faster, for an app teaser) ── */
+function sceneIntro({ short = false } = {}) {
+  const T = short ? { conv: 0.2, convD: 2, flash: 2.1, glow: 2.6, rib: 1.9, logo: 2.2, word: 2.8, tag: 3.4, out: 7, part: 7.2 }
+    : { conv: 0.6, convD: 3, flash: 3.5, glow: 4, rib: 3.3, logo: 3.6, word: 4.3, tag: 5.1, out: 10.2, part: 10.4 };
   const n = sceneBox();
   const mark = place(h("img", "abs", n), { left: "810px", top: "300px", width: "300px" });
   mark.src = "assets/brand/pars-mark-reverse.svg";
@@ -31,18 +33,18 @@ function sceneIntro() {
   tl.set(BG.glowA, { a: 0.0 }, 0).set(BG.glowB, { a: 0.0 }, 0).set(BG.glowC, { a: 0, r: 0.3, x: 0.5, y: 0.42 }, 0).set(BG.P, { x: 0.5, y: 0.42 }, 0);
   tl.to(BG, { ribbons: 1, particles: 0.8, duration: 1.6, ease: "power1.inOut" }, 0);
   tl.to(BG.glowA, { a: 0.35, duration: 2.4 }, 0).to(BG.glowB, { a: 0.3, duration: 2.4 }, 0.3);
-  tl.to(BG, { converge: 1, duration: 3, ease: "parsInOut" }, 0.6);
-  tl.to(BG.glowC, { a: 0.4, r: 0.45, duration: 0.5, ease: "power2.out" }, 3.5).to(BG.glowC, { a: 0.1, r: 0.35, duration: 2.2, ease: "power2.inOut" }, 4);
-  tl.to(BG, { ribbons: 0.42, duration: 1.4, ease: "power2.inOut" }, 3.3);
-  hit(tl, 3.6, "logo");
-  tl.fromTo(mark, { opacity: 0, scale: 0.6, filter: "blur(20px)" }, { opacity: 1, scale: 1, filter: "blur(0px)", duration: 1.4, ease: "pars" }, 3.6);
-  tl.fromTo(word, { opacity: 0, y: 30, filter: "blur(10px)" }, { opacity: 1, y: 0, filter: "blur(0px)", duration: 1.1, ease: "pars" }, 4.3);
-  tl.add(rise(tw, { stagger: 0.09, dur: 1 }), 5.1);
-  tl.to([mark, word], { opacity: 0, scale: 0.92, filter: "blur(8px)", duration: 0.8, ease: "power2.in" }, 10.2);
-  tl.add(sink(tw), 10.2);
+  tl.to(BG, { converge: 1, duration: T.convD, ease: "parsInOut" }, T.conv);
+  tl.to(BG.glowC, { a: 0.4, r: 0.45, duration: 0.5, ease: "power2.out" }, T.flash).to(BG.glowC, { a: 0.1, r: 0.35, duration: 2.2, ease: "power2.inOut" }, T.glow);
+  tl.to(BG, { ribbons: 0.42, duration: 1.4, ease: "power2.inOut" }, T.rib);
+  hit(tl, T.logo, "logo");
+  tl.fromTo(mark, { opacity: 0, scale: 0.6, filter: "blur(20px)" }, { opacity: 1, scale: 1, filter: "blur(0px)", duration: 1.4, ease: "pars" }, T.logo);
+  tl.fromTo(word, { opacity: 0, y: 30, filter: "blur(10px)" }, { opacity: 1, y: 0, filter: "blur(0px)", duration: 1.1, ease: "pars" }, T.word);
+  tl.add(rise(tw, { stagger: 0.09, dur: 1 }), T.tag);
+  tl.to([mark, word], { opacity: 0, scale: 0.92, filter: "blur(8px)", duration: 0.8, ease: "power2.in" }, T.out);
+  tl.add(sink(tw), T.out);
   // the streams part again and settle behind the chapters at a calmer level, below any text
-  tl.to(BG, { converge: 0, ribbons: 0.4, duration: 1.6, ease: "parsInOut" }, 10.4);
-  tl.to(BG.glowC, { a: 0, duration: 1.4 }, 10.4);
+  tl.to(BG, { converge: 0, ribbons: 0.4, duration: 1.6, ease: "parsInOut" }, T.part);
+  tl.to(BG.glowC, { a: 0, duration: 1.4 }, T.part);
   return wrap(n, tl, 0.4);
 }
 
@@ -564,35 +566,38 @@ function sceneCopilot(c) {
   return wrap(n, tl, 0.3);
 }
 
-/* ── outro: the call to action, the QR, the logo; ends on the intro's first frame (ink, nothing else) ── */
-function sceneOutro({ qr, url, start = 0, bar = 2 }) {
+/* ── outro: the call to action, how to reach Pars, the logo; ends on the intro's first frame (ink, nothing else) ── */
+function sceneOutro({ title, lead, contact, site, start = 0, bar = 2 }) {
   const n = sceneBox();
-  const title = place(h("div", "abs h2", n), { right: "160px", top: "300px", width: "980px", fontSize: "76px" });
-  const tw = words(title, 'دموی زنده را<br>همین‌جا از ما <span class="g">بخواهید</span>.');
-  const lead = place(h("div", "abs lead", n), { right: "160px", top: "560px", width: "900px" });
-  const lw = words(lead, "سامانه‌های جامع مدیریتی، حالا با ایجنت‌های هوش مصنوعی.");
-  const tile = place(h("div", "abs", n), { left: "220px", top: "250px", width: "400px", height: "400px", borderRadius: "28px", background: "#fff", padding: "0", boxShadow: "0 0 0 2px rgba(196,190,255,.3), 0 40px 120px rgba(0,0,0,.5), 0 0 120px rgba(143,134,255,.35)" });
-  tile.innerHTML = qr;
-  const scanLine = place(h("div", "abs", n), { left: "180px", width: "480px", top: "676px", textAlign: "center", fontSize: "28px", fontWeight: 500, color: "#c3bfdc" });
-  const sw = words(scanLine, "برای دیدن سامانه‌ها اسکن کنید");
-  const u = place(h("div", "abs latin", n), { left: "180px", width: "480px", top: "728px", textAlign: "center", fontSize: "34px", fontWeight: 600 });
-  u.innerHTML = url;
+  const tt = place(h("div", "abs h2", n), { right: "160px", top: "300px", width: "940px", fontSize: "76px" });
+  const tw = words(tt, title);
+  const ld = place(h("div", "abs lead", n), { right: "160px", top: "560px", width: "900px" });
+  const lw = words(ld, lead);
+  // the site, the e-mail and the phones: the same details as the booth
+  const card = place(h("div", "abs glass", n), { left: "170px", top: "300px", width: "600px", padding: "44px 46px", display: "grid", gap: "34px", boxShadow: "0 40px 120px rgba(0,0,0,.5), 0 0 120px rgba(143,134,255,.25)" });
+  const row = (ic, html, latin) => {
+    const r = h("div", "", card, `<span style="flex:none;width:68px;height:68px;border-radius:18px;display:grid;place-items:center;background:rgba(143,134,255,.16);border:1.5px solid rgba(169,162,255,.55);color:#ff4fa3">${icon(ic)}</span><span class="${latin ? "latin" : ""}" style="font-size:${latin ? 36 : 40}px;font-weight:600;white-space:nowrap">${html}</span>`);
+    place(r, { display: "flex", alignItems: "center", gap: "24px" });
+    r.querySelector("svg").style.cssText = "width:34px;height:34px";
+    return r;
+  };
+  const rows = [row("globe", site, 1), row("mail", contact.mail, 1), row("phone", `${contact.phones[0]} <span style="color:#c3bfdc;font-weight:500">و</span> ${contact.phones[1]}`)];
   const logo = place(h("img", "abs", n), { right: "160px", top: "700px", width: "190px" });
   logo.src = "assets/brand/pars-logo-reverse.svg";
   const tl = gsap.timeline();
   tl.to(BG, { ribbons: 0.25, duration: 2, ease: "parsInOut" }, 0);
   tl.add(rise(tw, { stagger: 0.08 }), 0.3);
   tl.add(rise(lw, { stagger: 0.04, dur: 0.8 }), 1.1);
-  tl.fromTo(tile, { opacity: 0, scale: 0.8, rotationY: -25, transformPerspective: 1600 }, { opacity: 1, scale: 1, rotationY: 0, duration: 1.3, ease: "pars" }, 0.6);
-  tl.add(rise(sw, { stagger: 0.05, dur: 0.7 }), 1.2);
-  tl.add(fadeIn(u, 0.8, { from: { y: 20 }, to: { y: 0 } }), 1.4);
+  tl.fromTo(card, { opacity: 0, scale: 0.9, rotationY: -20, transformPerspective: 1600 }, { opacity: 1, scale: 1, rotationY: 0, duration: 1.2, ease: "pars" }, 0.6);
+  rows.forEach((r, i) => tl.fromTo(r, { opacity: 0, x: -30 }, { opacity: 1, x: 0, duration: 0.7, ease: "pars" }, 1 + i * 0.22));
+  hit(tl, 1, "sparkle");
   tl.add(fadeIn(logo, 0.9, { from: { y: 20 }, to: { y: 0 } }), 1.6);
   // everything is gone before the last frame, which then matches the intro's first one
-  tl.to([title, lead, tile, scanLine, u, logo], { opacity: 0, duration: 1.2, ease: "power2.inOut" }, 8.2);
+  tl.to([tt, ld, card, logo], { opacity: 0, duration: 1.2, ease: "power2.inOut" }, 8.2);
   tl.to(BG, { ribbons: 0, particles: 0, converge: 0, duration: 1.6, ease: "power2.inOut" }, 8.2);
   tl.to(BG.glowA, { a: 0, duration: 1.6 }, 8.2).to(BG.glowB, { a: 0, duration: 1.6 }, 8.2).to(BG.glowC, { a: 0, duration: 1.6 }, 8.2);
   tl.to({}, { duration: 0.6 }, 9.8);
-  // the QR holds a little longer so the loop ends on a bar line of the music, already in ink
+  // the details hold a little longer so the loop ends on a bar line of the music, already in ink
   const end = start + tl.duration();
   tl.shiftChildren(Math.ceil(end / bar - 1e-6) * bar - end, false, 8.2);
   return wrap(n, tl, 0.2);

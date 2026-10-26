@@ -2,6 +2,8 @@
 //   node render.mjs --stills 1.5,12,40          PNG stills to out/stills/
 //   node render.mjs --video [--fps 60] [--from 0 --to 30] [--workers 3] [--audio out/music.wav] [--gain 2]
 //   node render.mjs --chapters                 chapter list; every run also writes out/cues.json for the music
+//   --app tm|pmbok|pm|bsc|fs|okr               the short teaser of one product: out/cues-<app>.json, out/music-<app>.wav
+//                                              (--audio true), out/pars-teaser-<app>.mp4, out/stills-<app>/
 // Every frame is a pure function of time, so workers render separate ranges in parallel and the chunks are joined.
 import { chromium } from "playwright-core";
 import { spawn, execFileSync } from "node:child_process";
@@ -14,13 +16,15 @@ const OUT = path.join(HERE, "out");
 const args = Object.fromEntries(process.argv.slice(2).reduce((acc, a, i, all) => (a.startsWith("--") ? [...acc, [a.slice(2), all[i + 1] && !all[i + 1].startsWith("--") ? all[i + 1] : true]] : acc), []));
 const CHROME = process.env.CHROME_PATH;
 const fps = +(args.fps ?? 60);
+const APP = typeof args.app === "string" ? args.app : null;
+const tag = APP ? "-" + APP : ""; // every output of a short teaser carries its app, so several can render side by side
 
 async function openPage(browser) {
   const page = await browser.newPage({ viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 1 });
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
   page.on("requestfailed", (r) => errors.push("failed: " + r.url()));
-  await page.goto("file://" + path.join(OUT, "teaser.html"), { waitUntil: "load" });
+  await page.goto("file://" + path.join(OUT, "teaser.html") + (APP ? `?app=${APP}` : ""), { waitUntil: "load" });
   await page.evaluate(async () => {
     await document.fonts.ready;
     await Promise.all([...document.images].map((i) => (i.complete ? i.decode().catch(() => {}) : new Promise((r) => (i.onload = i.onerror = r)))));
@@ -43,17 +47,18 @@ const duration = await probe.page.evaluate(() => window.TEASER.duration);
 console.log(`duration ${duration.toFixed(2)} s`);
 // the cue sheet for the music: chapter starts and kinds, in seconds
 const sheet = await probe.page.evaluate(() => ({ duration: window.TEASER.duration, sections: window.TEASER.chapters.map((c) => ({ start: c.start, end: c.end, sceneEnd: c.sceneEnd, kind: c.kind, name: c.name })), hits: window.TEASER.cues.sort((a, b) => a.t - b.t) }));
-fs.writeFileSync(path.join(OUT, "cues.json"), JSON.stringify(sheet, null, 1));
+fs.writeFileSync(path.join(OUT, `cues${tag}.json`), JSON.stringify(sheet, null, 1));
 // the gap is the background-only time before the next chapter (negative: crossfade overlap)
 if (args.chapters) for (const c of sheet.sections) console.log(c.start.toFixed(1).padStart(6), c.end.toFixed(1).padStart(6), ("gap " + (c.end - c.sceneEnd).toFixed(2)).padEnd(10), c.kind.padEnd(12), c.name);
 
 if (args.stills) {
-  fs.mkdirSync(path.join(OUT, "stills"), { recursive: true });
+  const dir = path.join(OUT, `stills${tag}`);
+  fs.mkdirSync(dir, { recursive: true });
   for (const s of String(args.stills).split(",")) {
     const t = +s;
-    fs.writeFileSync(path.join(OUT, "stills", `t${t.toFixed(2).padStart(7, "0")}.png`), await frame(probe, t));
+    fs.writeFileSync(path.join(dir, `t${t.toFixed(2).padStart(7, "0")}.png`), await frame(probe, t));
   }
-  console.log("stills →", path.join(OUT, "stills"));
+  console.log("stills →", dir);
 }
 
 if (args.video) {
@@ -61,7 +66,7 @@ if (args.video) {
   const total = Math.round((to - from) * fps);
   const workers = +(args.workers ?? 3);
   const per = Math.ceil(total / workers);
-  const dir = path.join(OUT, "chunks");
+  const dir = path.join(OUT, `chunks${tag}`);
   fs.rmSync(dir, { recursive: true, force: true });
   fs.mkdirSync(dir, { recursive: true });
   const t0 = Date.now();
@@ -91,10 +96,10 @@ if (args.video) {
   }));
   const list = fs.readdirSync(dir).filter((f) => f.endsWith(".mp4")).sort().map((f) => `file '${path.join(dir, f)}'`).join("\n");
   fs.writeFileSync(path.join(dir, "list.txt"), list);
-  const silent = path.join(OUT, "teaser-video.mp4");
+  const silent = path.join(OUT, `teaser-video${tag}.mp4`);
   execFileSync("ffmpeg", ["-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", path.join(dir, "list.txt"), "-c", "copy", silent]);
-  const audio = args.audio === true || args.audio === "true" ? path.join(OUT, "music.wav") : args.audio;
-  const final = path.join(OUT, args.out ?? "pars-teaser.mp4");
+  const audio = args.audio === true || args.audio === "true" ? path.join(OUT, `music${tag}.wav`) : args.audio;
+  const final = path.join(OUT, args.out ?? `pars-teaser${tag}.mp4`);
   if (audio && fs.existsSync(audio)) {
     // --gain (dB) brings the mix to about -15 LUFS for a TV at a booth; 6 ms fades keep a player that restarts the loop from clicking
     const len = to - from;
