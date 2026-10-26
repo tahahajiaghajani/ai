@@ -16,7 +16,7 @@
     chapters.push({ name, start, end: t, sceneEnd: +end.toFixed(2), hidden: !!opt.hidden, kind: opt.kind ?? "product" });
   };
   const P = Object.fromEntries(DATA.products.map((p, i) => [p.key, [p, i + 1]]));
-  const short = { tm: "مدیریت وظایف", pmbok: "آموزش PMBOK 8", pm: "مدیریت پروژه", bsc: "کارت امتیازی متوازن", okr: "اهداف و نتایج کلیدی", 360: "ارزیابی ۳۶۰ درجه", fs: "امکان‌سنجی پروژه‌ها", assess: "ارزیابی عملکرد سازمانی", dash: "داشبوردهای مدیریتی" };
+  const short = { tm: "مدیریت وظایف", pmbok: "آموزش PMBOK\u00a08", pm: "مدیریت پروژه", bsc: "کارت امتیازی متوازن", okr: "اهداف و نتایج کلیدی", 360: "ارزیابی ۳۶۰ درجه", fs: "امکان‌سنجی پروژه‌ها", assess: "ارزیابی عملکرد سازمانی", dash: "داشبوردهای مدیریتی" };
   const product = (key, kind) => add(sceneProduct(...P[key]), short[key], { kind });
   const copilot = () => add(sceneCopilot(DATA.copilot), "دستیار هوشمند پروژه", { kind: "ai" });
   // the short teasers and their chapters: the PM teaser also shows the working AI copilot, and the performance one
