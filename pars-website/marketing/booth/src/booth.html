@@ -5,8 +5,8 @@
 <title>غرفه‌ی نمایشگاه — مدیریت پروژه پارس</title>
 <style>
 /* One artboard at its real printed size, in centimetres. items.js sets the board and the page size from ?item=…&style=…&mode=…
-   items: popup (361 × 230: 35 return | 291 face | 35 return), rollup1 and rollup2 (95 × 210: 85 × 200 trim + 5 cm bleed),
-   counter (214 × 90: 72 side | 70 front | 72 side). style: minimal | detailed. mode: light | dark. ?guides draws the
+   items: popup (291 × 230: 35 | 221 face | 35), rollup1 and rollup2 (95 × 210: 85 × 200 trim + 5 cm bleed),
+   counter (214 × 90: 72 side | 70 front | 72 side). style: minimal | detailed (the pop-up is minimal only). mode: light | dark. ?guides draws the
    returns, panel seams, trim and safe areas for the proof. */
 
 /* static font files (build.mjs copies them from @fontsource): no web-font service at print time, no Type 3 fonts in the PDF */
@@ -28,12 +28,12 @@
 :root[data-mode="dark"] {
   --bg: #141547; --fg: #ffffff; --muted: #d6d3ef; --faint: #aeaad3; --line: rgba(196, 190, 255, .42);
   --card: rgba(255, 255, 255, .055); --card-line: rgba(196, 190, 255, .34); --tile: rgba(143, 134, 255, .16); --tile-line: rgba(184, 177, 255, .55);
-  --accent: #ff4fa3; --ai: #b8b1ff; --icon: #d9d5ff; --num: #ffffff; --dot: #20215d; --logo-line: transparent;
+  --accent: #ff4fa3; --ai: #b8b1ff; --icon: #d9d5ff; --num: #ffffff; --dot: #20215d;
 }
 :root[data-mode="light"] {
   --bg: #f7f5fc; --fg: #1a183a; --muted: #46436a; --faint: #6f6c93; --line: rgba(26, 24, 58, .2);
   --card: rgba(255, 255, 255, .82); --card-line: rgba(26, 24, 58, .13); --tile: rgba(123, 35, 90, .07); --tile-line: rgba(123, 35, 90, .3);
-  --accent: #df1173; --ai: #5b52d6; --icon: #7b235a; --num: #1a183a; --dot: #ffffff; --logo-line: rgba(26, 24, 58, .14);
+  --accent: #df1173; --ai: #5b52d6; --icon: #7b235a; --num: #1a183a; --dot: #ffffff;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 /* the page itself is left-to-right so the board sits at the page origin (render.mjs crops from there); the board is RTL.
@@ -78,13 +78,6 @@ svg.i { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width:
 /* statistic: a number and its label */
 .stat .num { font-weight: 600; line-height: 1.15; white-space: nowrap; }
 .stat .lab { color: var(--muted); line-height: 1.5; }
-
-/* logo tiles */
-.logos { display: flex; justify-content: space-between; align-items: flex-start; }
-.logos figure { display: flex; flex-direction: column; align-items: center; text-align: center; }
-.logos .t { background: #fff; display: block; flex: none; border: .15cm solid var(--logo-line); }
-.logos .t img { display: block; width: 100%; height: 100%; object-fit: contain; }
-.logos figcaption { color: var(--muted); line-height: 1.35; font-weight: 500; }
 
 /* how to reach Pars: the site, the e-mail and the phones, each with its icon */
 .reach .ln { display: flex; align-items: center; column-gap: 1.3em; line-height: 1.5; white-space: nowrap; }

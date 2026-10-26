@@ -1,4 +1,4 @@
-// Builds out/: copies the brand and client assets from ../../public, the static font files from @fontsource and the page
+// Builds out/: copies the brand assets from ../../public, the static font files from @fontsource and the page
 // sources from src/, and writes out/site.js with the site address the boards print.
 // Usage: node build.mjs [url]   (or BOOTH_URL=…)
 import fs from "node:fs";
@@ -13,8 +13,7 @@ const URL_ = process.argv[2] ?? process.env.BOOTH_URL ?? "https://parspmi.ir";
 // the page and its assets are rebuilt; rendered files (print/, proof/, preview/) stay until render.mjs replaces them
 fs.rmSync(path.join(OUT, "assets"), { recursive: true, force: true });
 fs.mkdirSync(path.join(OUT, "assets/fonts"), { recursive: true });
-const assets = [...fs.readdirSync(path.join(PUBLIC, "brand")).map((f) => "brand/" + f), ...fs.readdirSync(path.join(PUBLIC, "clients")).map((f) => "clients/" + f)];
-for (const a of assets) fs.copyFileSync(path.join(PUBLIC, a), path.join(OUT, "assets", path.basename(a)));
+for (const f of fs.readdirSync(path.join(PUBLIC, "brand"))) fs.copyFileSync(path.join(PUBLIC, "brand", f), path.join(OUT, "assets", f));
 const fonts = [
   ...[300, 400, 500, 600, 700].flatMap((w) => ["arabic", "latin"].map((s) => `ibm-plex-sans-arabic/files/ibm-plex-sans-arabic-${s}-${w}-normal.woff2`)),
   ...[400, 600, 700].map((w) => `sora/files/sora-latin-${w}-normal.woff2`),

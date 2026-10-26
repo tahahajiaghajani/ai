@@ -7,7 +7,7 @@
 /* A 3/4 view of the whole booth, built in CSS 3D at real sizes (1 cm = K px) from the rendered previews:
    the pop-up with its two returns, roll-up 2 on the left and roll-up 1 on the right (their streams flow in from the
    outer edges), and the two identical counters in front. ?style=minimal|detailed|final&mode=dark|light — final is the
-   chosen set: the minimal pop-up and counters with the detailed roll-ups */
+   chosen set: the minimal pop-up and counters with the detailed roll-ups. The pop-up has one design, the minimal one. */
 @font-face { font-family: "Sora"; font-weight: 600; src: url(assets/fonts/sora-latin-600-normal.woff2) format("woff2"); }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { width: 2400px; height: 1500px; overflow: hidden; }
@@ -35,7 +35,7 @@ const K = 3.2; // px per cm
 const world = document.getElementById("world");
 world.style.transform = "rotateX(-8deg) rotateY(-17deg) translateZ(-330px)";
 const PICK = { popup: "minimal", rollup1: "detailed", rollup2: "detailed", counter: "minimal" };
-const tex = (item) => `url(preview/${item}-${STYLE === "final" ? PICK[item] : STYLE}-${MODE}.png)`;
+const tex = (item) => `url(preview/${item}-${STYLE === "final" || item === "popup" ? PICK[item] : STYLE}-${MODE}.png)`; // one pop-up design
 
 /** a plane w × h cm centred at (x, y above the floor, z towards the viewer), turned by ry degrees about the vertical
     (90: faces +x, its left edge in front). bg: a texture strip [file width, offset into the file] or a CSS background. */
@@ -62,12 +62,12 @@ const floorSpot = (x, z, w, d) => plane(x, 0.2, z, w, d, { rx: 90, cls: "shadow"
 plane(0, 260, -260, 2200, 520, { bg: "var(--wall)" });
 plane(0, 0, 110, 2200, 740, { rx: 90, bg: "var(--floor)" }); // kept clear of the camera plane: Chromium clips planes that cross it
 
-// pop-up: face 291 × 230 at z = 0, returns wrap back 35 cm at each end
+// pop-up: face 221 × 230 at z = 0, its 35 cm at each end wrap back round the frame
 const POP = tex("popup");
-floorSpot(0, 26, 330, 40); // in front of the face: a shadow plane that cuts through a panel makes Chromium drop part of it
-plane(0, 115, 0, 291, 230, { strip: [POP, 361, 230, 35] });
-plane(-145.5, 115, -17.5, 35, 230, { ry: -90, strip: [POP, 361, 230, 0], cls: "side" });
-plane(145.5, 115, -17.5, 35, 230, { ry: 90, strip: [POP, 361, 230, 326], cls: "side" });
+floorSpot(0, 26, 260, 40); // in front of the face: a shadow plane that cuts through a panel makes Chromium drop part of it
+plane(0, 115, 0, 221, 230, { strip: [POP, 291, 230, 35] });
+plane(-110.5, 115, -17.5, 35, 230, { ry: -90, strip: [POP, 291, 230, 0], cls: "side" });
+plane(110.5, 115, -17.5, 35, 230, { ry: 90, strip: [POP, 291, 230, 256], cls: "side" });
 
 // roll-ups: the 85 × 200 trim (5 cm bleed off each edge) standing in its cassette, which hides the lowest part.
 // No plane may cut through the banner (Chromium drops part of a plane that another one crosses), so the banner ends
@@ -81,8 +81,8 @@ function rollup(item, x, z) {
   plane(x, 10, z + 5.5, 92, 9, { rx: 90, bg: "var(--cap)" });            // and its top
   for (const dx of [-38, 38]) plane(x + dx, 1.5, z + 14, 3, 3, { bg: "var(--metal)" }); // feet
 }
-rollup("rollup2", -238, 70);
-rollup("rollup1", 238, 70);
+rollup("rollup2", -180, 70);
+rollup("rollup1", 180, 70);
 
 // counters: front 70 wide, sides 72 deep, 90 high, a white top
 function counter(x, z) {

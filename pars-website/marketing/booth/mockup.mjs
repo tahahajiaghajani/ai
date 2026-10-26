@@ -1,5 +1,6 @@
 // Booth mockups from the rendered previews (run render.mjs first):
-//   out/mockup/booth-<style>-<mode>.jpg   a 3/4 view of the pop-up, both roll-ups and both counters at real proportions
+//   out/mockup/booth-<style>-<mode>.jpg   a 3/4 view of the pop-up (minimal, its one design), both roll-ups and both counters
+//                                         at real proportions
 //   out/mockup/booth-final-dark.jpg       the chosen set: the minimal pop-up and counters with the detailed roll-ups
 // A mockup whose previews have not been rendered (e.g. after render.mjs --final) is skipped.
 import { chromium } from "playwright-core";
@@ -14,7 +15,7 @@ const browser = await chromium.launch(process.env.CHROME_PATH ? { executablePath
 const NEEDS = { final: ["popup-minimal", "rollup1-detailed", "rollup2-detailed", "counter-minimal"] };
 const combos = [["final", "dark"], ...["minimal", "detailed"].flatMap((s) => ["dark", "light"].map((m) => [s, m]))];
 for (const [style, mode] of combos) {
-  const needs = (NEEDS[style] ?? ["popup", "rollup1", "rollup2", "counter"].map((i) => `${i}-${style}`)).map((n) => path.join(OUT, "preview", `${n}-${mode}.png`));
+  const needs = (NEEDS[style] ?? ["popup-minimal", ...["rollup1", "rollup2", "counter"].map((i) => `${i}-${style}`)]).map((n) => path.join(OUT, "preview", `${n}-${mode}.png`));
   if (!needs.every((f) => fs.existsSync(f))) { console.log("· skipped mockup", style, mode, "(previews not rendered)"); continue; }
   const page = await browser.newPage({ viewport: { width: 2400, height: 1500 } });
   await page.goto(`file://${path.join(OUT, "mockup.html")}?style=${style}&mode=${mode}`);
