@@ -65,6 +65,10 @@ const drawArt = () => {
     const rects = [...g.getClientRects()];
     if (rects.some((r) => Math.abs(r.top - rects[0].top) > 1)) throw new Error("gradient text wraps onto two lines: " + g.textContent);
     const cs = getComputedStyle(g);
+    // the SVG is laid over the word's inline-block box, so the baseline is measured in that box: an inline box starts at
+    // the font's content area, which with a tight line-height lies above the inline-block's top
+    g.style.position = "relative";
+    g.style.display = "inline-block";
     const mark = document.createElement("span");
     mark.style.cssText = "display:inline-block;width:0;height:0;vertical-align:baseline";
     g.prepend(mark);
@@ -74,8 +78,6 @@ const drawArt = () => {
     const text = g.textContent;
     const id = "tg" + gid++;
     const w = r.width, h = r.height;
-    g.style.position = "relative";
-    g.style.display = "inline-block";
     g.innerHTML = `<span style="visibility:hidden">${g.innerHTML}</span>` +
       `<svg xmlns="${NS}" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="position:absolute;left:0;top:0;overflow:visible">` +
       `<defs><linearGradient id="${id}" x1="0" y1="0" x2="1" y2="0.2"><stop offset="0" stop-color="${PAL.text[0]}"/><stop offset=".5" stop-color="${PAL.text[1]}"/><stop offset="1" stop-color="${PAL.text[2]}"/></linearGradient></defs>` +
@@ -88,7 +90,7 @@ const drawArt = () => {
   el(svg, "rect", { x: 0, y: 0, width: W + OVER, height: H + OVER, fill: linear(...bgDir, [[0, PAL.base[0]], [0.5, PAL.base[1]], [1, PAL.base[2]]]) });
   const glow = (cx, cy, rx, ry, color, a) => el(svg, "ellipse", { cx: f(cx), cy: f(cy), rx: f(rx), ry: f(ry), fill: radial([[0, color, a], [0.55, color, a * 0.32], [1, color, 0]]) });
   if (STYLE === "detailed") {
-    const step = ITEM === "popup" ? 6 : 3.2, r = ITEM === "popup" ? 0.32 : 0.17;
+    const step = 3.2, r = 0.17;
     // real circles in one path: a PDF tiling pattern is rasterised coarsely by some RIPs and viewers
     let d = "";
     for (let y = step / 2; y < H; y += step) for (let x = step / 2; x < W; x += step) d += `M${f(x - r)} ${f(y)}a${r} ${r} 0 1 0 ${2 * r} 0a${r} ${r} 0 1 0 ${-2 * r} 0`;
@@ -165,41 +167,19 @@ const drawArt = () => {
 
   /* ═══ per item ═══ */
   if (ITEM === "popup") {
-    glow(300, 18, 150, 110, PAL.glowV, DARK ? 0.32 : 0.55);
-    glow(30, 220, 170, 90, PAL.glowP, DARK ? 0.4 : 0.5);
-    if (STYLE === "minimal") {
-      const P = [86, 96];
-      glow(P[0], P[1], 120, 95, PAL.glowM, DARK ? 0.38 : 0.45);
-      // violet falls from the top of the face, clear of the mark on the return; magenta rises from the floor; the joined
-      // stream dives under the contact row before it sweeps to the right
-      converge({
-        P, sw: 0.2, op: 0.66, parts: 44, pr: 0.45,
-        v: { pts: [[46, -6], [52, 22], [62, 50], [74, 76]], width: [30, 34, 26, 12, 0.5], turns: 1.25, phase0: 0.4 },
-        m: { pts: [[-6, 204], [26, 194], [54, 160], [72, 122]], width: [30, 36, 26, 12, 0.5], turns: 1.5, phase0: 2.1 },
-        j: { pts: [[100, 126], [126, 160], [178, 182], [240, 193], [298, 195], [367, 188]], width: [0.5, 10, 20, 28, 32, 32, 30], turns: 1.1, phase0: 1.2 },
-      });
-      node(P[0], P[1], 0.9, 11);
-    } else {
-      // a thread through the four steps of an agent (read → … → act, right to left)
-      const dots = [...document.querySelectorAll(".flow .dot")].map(bx);
-      const gT = linear(dots[0].cx, 0, dots[3].cx, 0, [[0, PAL.v[1]], [0.5, PAL.j[1]], [1, PAL.m[1]]]);
-      ribbon({ pts: [[dots[0].x1 + 8, dots[0].cy], ...dots.map((d) => [d.cx, d.cy]), [dots[3].x0 - 8, dots[3].cy]], width: [0.4, 3.4, 4.2, 4.2, 4.2, 3.4, 0.4], turns: 3, n: 11, sw: 0.16, op: 0.85, edgeBoost: 0.3, stroke: gT });
-      // the streams come round the left return, meet just inside the face and run between the hero row and the statistics
-      const P = [40, 92.5];
-      glow(P[0], P[1], 70, 50, PAL.glowM, DARK ? 0.3 : 0.4);
-      converge({
-        P, sw: 0.16, op: 0.6, parts: 30, pr: 0.32, n: 24,
-        v: { pts: [[-6, 38], [10, 58], [24, 78]], width: [22, 22, 12, 0.4], turns: 1.1, phase0: 0.6 },
-        m: { pts: [[-6, 152], [12, 128], [26, 107]], width: [22, 22, 12, 0.4], turns: 1.3, phase0: 2.2 },
-        j: { pts: [[70, 93], [140, 92], [210, 93.5], [290, 92], [330, 93], [367, 88]], width: [0.4, 4.2, 4.6, 4.6, 4.6, 5.5, 14], turns: 4, phase0: 1.2 },
-      });
-      node(P[0], P[1], 0.7, 8);
-      // below 140 the counters may stand: a broad, calm silk carries the art there, and a quiet stream runs along the floor
-      const gL = linear(0, 0, W, 0, [[0, PAL.v[1]], [0.5, PAL.j[1]], [1, PAL.m[1]]]);
-      ribbon({ pts: [[-6, 204], [70, 180], [160, 190], [250, 168], [367, 178]], width: [16, 26, 22, 28, 20], turns: 1.3, phase0: 0.8, n: 30, sw: 0.14, op: 0.5, stroke: gL, fill: gL, fillOp: 0.05 });
-      const gB = linear(0, 0, W, 0, [[0, PAL.v[1], 0.9], [0.5, PAL.j[1], 0.8], [1, PAL.m[1], 0.9]]);
-      ribbon({ pts: [[-6, 222], [90, 216], [180, 224], [270, 216], [367, 222]], width: [10, 12, 10, 12, 10], turns: 2, n: 22, sw: 0.14, op: 0.42, stroke: gB });
-    }
+    glow(W - 56, 18, 120, 100, PAL.glowV, DARK ? 0.32 : 0.55);
+    glow(30, 220, 150, 90, PAL.glowP, DARK ? 0.4 : 0.5);
+    const P = [74, 100];
+    glow(P[0], P[1], 100, 85, PAL.glowM, DARK ? 0.38 : 0.45);
+    // violet falls from the top of the face, clear of the mark on the return; magenta rises from the floor round the
+    // phones; the joined stream runs down between the phones and the e-mail, then sweeps to the right under the counters
+    converge({
+      P, sw: 0.2, op: 0.66, parts: 40, pr: 0.45,
+      v: { pts: [[42, -6], [48, 22], [56, 50], [64, 78]], width: [30, 34, 26, 12, 0.5], turns: 1.25, phase0: 0.4 },
+      m: { pts: [[-6, 196], [8, 168], [24, 140], [46, 116]], width: [30, 34, 24, 12, 0.5], turns: 1.5, phase0: 2.1 },
+      j: { pts: [[92, 113], [106, 130], [120, 152], [150, 174], [200, 188], [250, 194], [297, 190]], width: [0.5, 5, 8, 14, 22, 28, 30, 28], turns: 1.1, phase0: 1.2 },
+    });
+    node(P[0], P[1], 0.9, 11);
   }
 
   if (ITEM === "rollup1" || ITEM === "rollup2") {
@@ -266,8 +246,8 @@ const drawArt = () => {
 
   if (ITEM === "swatch") {
     // the finest to the widest thread on the boards, each with the opacity of the board thread it stands for
-    // (0.7 mm: roll-up 2 path; 0.9 mm: minimal roll-ups; 1.4 mm: lower pop-up silk; 2 mm: minimal pop-up)
-    [[0.07, 0.85, 0.3], [0.09, 0.66, 0.55], [0.14, 0.5, 0.55], [0.2, 0.66, 0.55]].forEach(([sw, op, edgeBoost], i) => {
+    // (0.7 mm: roll-up 2 path; 0.9 mm: minimal roll-ups; 1 mm: minimal counter; 2 mm: pop-up)
+    [[0.07, 0.85, 0.3], [0.09, 0.66, 0.55], [0.1, 0.62, 0.55], [0.2, 0.66, 0.55]].forEach(([sw, op, edgeBoost], i) => {
       const b = bx(document.querySelectorAll(".ribslot")[i]);
       const g = linear(b.x0, 0, b.x1, 0, [[0, PAL.v[1]], [0.5, PAL.j[1]], [1, PAL.m[1]]]);
       ribbon({ pts: [[b.x0, b.y0 + 1.6], [b.cx, b.y0 + 1.2], [b.x1, b.y0 + 1.8]], width: [2.4, 3, 2.4], turns: 1.4, n: 14, sw, op, edgeBoost, stroke: g });
@@ -294,12 +274,12 @@ const drawArt = () => {
     const label = (x, y, t, c, s) => { const n = el(gs, "text", { x, y, fill: c, "font-size": s, "font-family": "Sora", direction: "ltr" }); n.textContent = t; };
     const C1 = "#00b7ff", C2 = "#ff9f1a", C3 = "#ff3b6b", s = ITEM === "popup" ? 2.6 : 1.4;
     if (ITEM === "popup") {
-      line(35, 0, 35, H, C1, "2 1"); line(326, 0, 326, H, C1, "2 1");
-      [107.75, 180.5, 253.25].forEach((x) => line(x, 0, x, H, C2, "0.6 1.2"));
+      line(35, 0, 35, H, C1, "2 1"); line(W - 35, 0, W - 35, H, C1, "2 1");
       const S = SAFE.popup;
+      S.seams.forEach((x) => line(x, 0, x, H, C2, "0.6 1.2"));
       rect(S.x[0], S.y[0], S.x[1] - S.x[0], S.y[1] - S.y[0], "#3ddc97", "1 1");
-      line(35, 140, 326, 140, C3, "2 1");
-      label(36.5, 6, "RETURN 35 | FACE 291 × 230 | RETURN 35 — PANEL SEAMS (4 × 72.75) DOTTED — SAFE AREA GREEN", C1, s);
+      line(35, 140, W - 35, 140, C3, "2 1");
+      label(36.5, 6, "35 | FACE 221 × 230 | 35 — PANEL SEAMS (3 × 73.67) DOTTED — SAFE AREA GREEN", C1, s);
       label(36.5, 145, "RED: TOP OF THE COUNTERS (90 CM) — EVERYTHING THAT MATTERS STAYS ABOVE IT", C3, s);
     } else if (ITEM === "counter") {
       line(72, 0, 72, H, C1, "2 1"); line(142, 0, 142, H, C1, "2 1");

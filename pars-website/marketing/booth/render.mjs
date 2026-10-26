@@ -1,11 +1,11 @@
-// Renders every booth item, style and mode with Chromium:
+// Renders every booth item, style and mode with Chromium (the pop-up has one design, the minimal one):
 //   out/print/pars-<item>-<style>-<mode>-<w>x<h>cm.pdf   the print file at its exact size, fonts embedded, TrimBox/BleedBox set
 //   out/proof/<item>-<style>-<mode>.pdf                   the same with guides: returns, panel seams, trim and safe areas
 //   out/preview/<item>-<style>-<mode>.png                 a preview (2400 px on the long side), rasterized from the print PDF
 //   out/jpg/pars-<item>-<style>-<mode>-<w>x<h>cm.jpg      with --jpg: a full-size RGB JPEG for shops that print from images
 //                                                         (pop-up 100 dpi, the rest 150 dpi)
-// and fails if an asset fails to load, a gradient word wraps, a block overflows or leaves its safe area, a logo, number,
-// contact item or agent step sits on a seam or fold, or an edge of the print is not art.
+// and fails if an asset fails to load, a gradient word wraps, a block overflows or leaves its safe area, a number, contact
+// item, step or hairline sits on a seam or fold, or an edge of the print is not art.
 // Usage: node render.mjs [item…] [--jpg] [--final]      Chromium: CHROME_PATH=… or Playwright's installed browser.
 //   --final renders only the chosen set: dark, the minimal pop-up and counter, the detailed roll-ups (and the test strip).
 import { chromium } from "playwright-core";
@@ -18,7 +18,7 @@ import { fileURLToPath } from "node:url";
 
 const OUT = path.join(path.dirname(fileURLToPath(import.meta.url)), "out");
 const PT = 72 / 2.54; // points per cm
-const ITEMS = { popup: [361, 230, 0], rollup1: [95, 210, 5], rollup2: [95, 210, 5], counter: [214, 90, 0], swatch: [60, 45, 0] }; // w, h, bleed (cm)
+const ITEMS = { popup: [291, 230, 0], rollup1: [95, 210, 5], rollup2: [95, 210, 5], counter: [214, 90, 0], swatch: [60, 45, 0] }; // w, h, bleed (cm)
 const args = process.argv.slice(2);
 const only = args.filter((a) => !a.startsWith("--")), JPG = args.includes("--jpg"), FINAL = args.includes("--final");
 for (const a of args) if (!Object.hasOwn(ITEMS, a) && a !== "--jpg" && a !== "--final") throw new Error(`unknown argument ${a} (items: ${Object.keys(ITEMS).join(", ")}; flags: --jpg, --final)`);
@@ -74,8 +74,8 @@ async function finish(src, out, [w, h, bleed]) {
 
 for (const [item, dims] of Object.entries(ITEMS)) {
   if (only.length && !only.includes(item)) continue;
-  // the test strip has one style
-  const styles = FINAL ? CHOSEN[item] : item === "swatch" ? [""] : ["minimal", "detailed"];
+  // the pop-up has one design (the minimal one) and the test strip one style
+  const styles = FINAL ? CHOSEN[item] : item === "swatch" ? [""] : item === "popup" ? ["minimal"] : ["minimal", "detailed"];
   for (const style of styles) for (const mode of FINAL ? ["dark"] : ["dark", "light"]) {
     const name = [item, style, mode].filter(Boolean).join("-");
     const q = `?item=${item}&style=${style || "minimal"}&mode=${mode}`;
@@ -87,14 +87,14 @@ for (const [item, dims] of Object.entries(ITEMS)) {
     try {
       const page = await open(q);
       // nothing may overflow its block or leave the safe area (window.SAFE, items.js; the proof draws the same area), and on
-      // the pop-up and the counter no logo, number, contact item or agent step may sit on a seam or fold. The returns' marks are art.
+      // the pop-up and the counter no number, contact item, step or hairline may sit on a seam or fold. The returns' marks are art.
       const { blocks, keyed, safe } = await page.evaluate(() => {
         const CM = 96 / 2.54, s = document.getElementById("board").getBoundingClientRect();
         const box = (n) => { const r = n.getBoundingClientRect(); return { x0: (r.left - s.left) / CM, x1: (r.right - s.left) / CM, y0: (r.top - s.top) / CM, y1: (r.bottom - s.top) / CM }; };
         const what = (n) => n.className + ": " + n.textContent.trim().slice(0, 40);
         return {
           blocks: [...document.querySelectorAll(".b:not(.mark)")].map((n) => ({ what: what(n), overflow: n.scrollWidth > n.clientWidth + 2 || (n.scrollHeight > n.clientHeight + 2 && !!n.style.height), ...box(n) })),
-          keyed: [...document.querySelectorAll(".logos figure, .stat .num, .reach .it, .flow .st, .hair")].map((n) => ({ what: what(n), ...box(n) })),
+          keyed: [...document.querySelectorAll(".stat .num, .reach .it, .flow .st, .hair")].map((n) => ({ what: what(n), ...box(n) })),
           safe: window.SAFE[new URLSearchParams(location.search).get("item")] ?? null,
         };
       });
