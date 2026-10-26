@@ -134,9 +134,12 @@ function popup() {
     name(258, 57.5, 52, 4.4);
     B(90, 71, 220, 0, lines(COPY.slogan2), "hl slogan", "font-size:15cm;line-height:1.42;text-align:right");
     B(90, 116.5, 220, 0, "سامانه‌های مدیریت پروژه، حالا با ایجنت‌های هوش مصنوعی.", "muted sub", "font-size:5cm;text-align:right;line-height:1.5");
-    // the site, the e-mail and the phones, each centred in its own panel (P4, P3, P2) so that no seam crosses them
-    rule(mid(1) - 28, 127, mid(3) - mid(1) + 56);
-    REACH.forEach((r, i) => B(mid(3 - i) - 28, 129, 56, 0, `<div class="ln" style="justify-content:center">${reachItem(r)}</div>`, "reach", "font-size:4.2cm"));
+    // the site, the e-mail and the phones, each centred under its own hairline in its own panel (P4, P3, P2), so that
+    // no seam crosses them: a straight line across a seam would show any offset between the panels
+    REACH.forEach((r, i) => {
+      rule(mid(3 - i) - 26, 127, 52);
+      B(mid(3 - i) - 28, 129, 56, 0, `<div class="ln" style="justify-content:center">${reachItem(r)}</div>`, "reach", "font-size:4.2cm");
+    });
     return;
   }
   // logos and small text stay off the seams, and everything that matters sits above y = 140, the top of the counters

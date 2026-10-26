@@ -94,7 +94,7 @@ for (const [item, dims] of Object.entries(ITEMS)) {
         const what = (n) => n.className + ": " + n.textContent.trim().slice(0, 40);
         return {
           blocks: [...document.querySelectorAll(".b:not(.mark)")].map((n) => ({ what: what(n), overflow: n.scrollWidth > n.clientWidth + 2 || (n.scrollHeight > n.clientHeight + 2 && !!n.style.height), ...box(n) })),
-          keyed: [...document.querySelectorAll(".logos figure, .stat .num, .reach .it, .flow .st")].map((n) => ({ what: what(n), ...box(n) })),
+          keyed: [...document.querySelectorAll(".logos figure, .stat .num, .reach .it, .flow .st, .hair")].map((n) => ({ what: what(n), ...box(n) })),
           safe: window.SAFE[new URLSearchParams(location.search).get("item")] ?? null,
         };
       });

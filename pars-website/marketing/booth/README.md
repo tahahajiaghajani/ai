@@ -57,7 +57,7 @@ The render fails if:
 
 - an asset fails to load, or a gradient word wraps;
 - a block overflows or leaves the safe area;
-- a client logo, number, contact item or agent step sits on a pop-up seam or a counter fold;
+- a client logo, number, contact item, agent step or hairline sits on a pop-up seam or a counter fold;
 - an edge of the print differs from the art beside it (a blank sliver).
 
 The safe areas are `window.SAFE` in `items.js`, and the proof draws the same areas in green:
@@ -82,7 +82,7 @@ Print instructions for the print shop are in Persian in [`PRINT_FA.md`](PRINT_FA
 
 Rules the layout keeps:
 
-- Pop-up content stays in the upper 140 cm, because counters may hide the lower part. Client logos, numbers, contact items and the agent steps keep off the panel seams; only headlines, the slogan and its line, one paragraph, hairlines and the art cross them.
+- Pop-up content stays in the upper 140 cm, because counters may hide the lower part. Client logos, numbers, contact items, the agent steps and hairlines keep off the panel seams; only headlines, the slogan and its line, one paragraph and the art cross them.
 - Nothing sits on a counter fold, and nothing sits in the lowest 13 cm of a roll-up, which the foot hides.
 - No booth text is set below 1.7 cm. The smallest is the counter's service details, which are read from close by. The test strip's labels are smaller, because they are read up close.
 - Threads are 0.7–2.6 mm wide. The test strip prints the finest and the widest at the boards' opacity.
