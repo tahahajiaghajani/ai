@@ -18,6 +18,8 @@ for (const w of [300, 400, 500, 600, 700]) {
   for (const s of ["arabic", "latin"]) cp(path.join(HERE, `node_modules/@fontsource/ibm-plex-sans-arabic/files/ibm-plex-sans-arabic-${s}-${w}-normal.woff2`), path.join(OUT, `assets/fonts/ibm-plex-sans-arabic-${s}-${w}-normal.woff2`));
 }
 for (const w of [300, 400, 600, 700]) cp(path.join(HERE, `node_modules/@fontsource/sora/files/sora-latin-${w}-normal.woff2`), path.join(OUT, `assets/fonts/sora-latin-${w}-normal.woff2`));
+// Vazirmatn: the face of the TM and PMBOK 8 apps, for lines retyped over their screenshots
+for (const w of [400, 500, 600, 700]) for (const s of ["arabic", "latin"]) cp(path.join(HERE, `node_modules/@fontsource/vazirmatn/files/vazirmatn-${s}-${w}-normal.woff2`), path.join(OUT, `assets/fonts/vazirmatn-${s}-${w}-normal.woff2`));
 for (const f of ["gsap.min.js", "CustomEase.min.js"]) cp(path.join(HERE, "node_modules/gsap/dist", f), path.join(OUT, "assets/gsap", f));
 for (const f of fs.readdirSync(path.join(PUBLIC, "brand"))) cp(path.join(PUBLIC, "brand", f), path.join(OUT, "assets/brand", f));
 for (const f of fs.readdirSync(path.join(PUBLIC, "clients"))) cp(path.join(PUBLIC, "clients", f), path.join(OUT, "assets/clients", f));

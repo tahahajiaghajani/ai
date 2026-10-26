@@ -7,6 +7,92 @@ const DATA = {
   contact: { mail: "info@parspmi.ir", phones: ["۸۸۷۳۱۶۰۱", "۸۲۸۰۳۵۶۵"] },
   products: [
     {
+      key: "tm", acronym: "TM", name: "سامانه‌ی مدیریت وظایف", hook: "هر کار، با مسئول، موعد و پیگیری روشن.", url: "task.parspmi.ir",
+      glow: [0.8, 0.25, 0.2, 0.75],
+      aiTitle: "هوش مصنوعی در هسته‌ی مدیریت وظایف",
+      ai: [
+        { icon: "predict", title: "پیش‌بینی تأخیر کارها", line: "هشدار، پیش از گذشتن موعد" },
+        { icon: "target", title: "پیشنهاد مسئول و موعد", line: "بر پایه‌ی بار کاری؛ تأیید با مدیر" },
+        { icon: "data", title: "از صورت‌جلسه تا وظیفه", line: "پیش‌نویس کارها، تأیید با شما" },
+        { icon: "report", title: "گزارش هفتگی خودکار", line: "انجام‌شده‌ها و معوقه‌های هر تیم" },
+      ],
+      shots: [
+        // the app's own AI assistant works today (text and voice); sample names, a third-party model's name and one
+        // rendering glitch («***۳**») are retyped in the app's face (Vazirmatn)
+        { type: "demo", ai: 1, pages: [
+          // the summary that greets the user at login, framed on its card
+          { screen: S("tm-9", 1920, 868), start: { x: 27.97, y: 6.11, w: 43.75, h: 87.9 }, startOpt: { fill: 1, zmax: 1.4 }, rest: { x: 27.97, y: 6.11, w: 43.75, h: 87.9 }, restOpt: { fill: 1, zmax: 1.4 }, next: { x: 36.7, y: 88.2 }, callouts: [
+            { x: 29.58, y: 27.88, w: 40.52, h: 16.36, label: "خلاصه‌ی وضعیت در ورود", text: "کل فعالیت‌ها، معوقه‌ها، خاتمه‌یافته‌ها و پروژه‌ها؛ در اولین نگاه.", zmax: 1.6 },
+          ] },
+          // the kanban as an Eisenhower matrix (the page ends in empty background below 78 %)
+          { screen: S("tm-0", 1913, 1586), start: { x: 0, y: 0, w: 100, h: 78 }, startOpt: { fill: 1, zmax: 1.2 }, rest: { x: 0, y: 0, w: 100, h: 78 }, restOpt: { fill: 1, zmax: 1.2 }, next: { x: 94.6, y: 26 }, callouts: [
+            { x: 2.4, y: 16.52, w: 81.44, h: 59.33, label: "ماتریس اهمیت و فوریت", text: "هر کار بر پایه‌ی اهمیت و فوریت، در خانه‌ی خودش قرار می‌گیرد.", zmax: 1.15, fill: 0.95 },
+            { x: 43.6, y: 22.7, w: 19.6, h: 16.83, label: "اقدام فوری", text: "کارهای مهم و فوری، با تعداد و سهم از کل کارهای جاری.", big: { value: 46, suf: "٪" }, zmax: 1.8 },
+          ] },
+          { screen: S("tm-4", 1913, 1310, { patches: [{ x: 1226, y: 553, w: 230, h: 32, html: '<div style="font:700 16px/32px Vazir, sans-serif;color:#f1f5f9;direction:rtl;text-align:right;background:#0f172b;height:100%;padding-inline-start:11px;padding-top:0px;white-space:nowrap">تغییر زمان‌بندی پروژه‌ی ۸</div>' }, { x: 1134, y: 624, w: 318, h: 30, html: '<div style="font:700 16px/30px Vazir, sans-serif;color:#f1f5f9;direction:rtl;text-align:right;background:#0f172b;height:100%;padding-inline-start:7px;padding-top:0px;white-space:nowrap">تغییر زمان‌بندی پروژه‌ی ۵</div>' }, { x: 1238, y: 836, w: 240, h: 30, html: '<div style="font:700 16px/30px Vazir, sans-serif;color:#f1f5f9;direction:rtl;text-align:right;background:#0f172b;height:100%;padding-inline-start:6px;padding-top:0px;white-space:nowrap">جلسه‌ی هماهنگی با کارفرما</div>' }, { x: 994, y: 907, w: 484, h: 31, html: '<div style="font:700 16px/31px Vazir, sans-serif;color:#f1f5f9;direction:rtl;text-align:right;background:#0f172b;height:100%;padding-inline-start:6px;padding-top:0px;white-space:nowrap">هماهنگی جلسه‌ی هفته‌ی آینده با دفتر مدیرعامل</div>' }] }), start: { x: 0, y: 0, w: 100, h: 80 }, startOpt: { fill: 1, zmax: 1.2 }, rest: { x: 0, y: 0, w: 100, h: 80 }, restOpt: { fill: 1, zmax: 1.2 }, next: { x: 94.6, y: 22.7 }, callouts: [
+            { x: 22.79, y: 26.11, w: 11.81, h: 34.43, label: "کارهای از موعد گذشته", text: "همه‌ی کارهای معوقه یک‌جا، با روزهای تأخیر و درجه‌ی اهمیت هر کار.", zmax: 1.6 },
+          ] },
+          { screen: S("tm-1", 1913, 1338, { patches: [{ x: 198, y: 333, w: 256, h: 49, html: '<div style="font:700 15px/22px Vazir, sans-serif;color:#f1f5f9;direction:rtl;text-align:right;background:#141e31;height:100%;padding-inline-start:6px;padding-top:2px;white-space:nowrap">هماهنگی جلسه‌ی هفته‌ی آینده<br>با دفتر مدیرعامل</div>' }, { x: 322, y: 422, w: 132, h: 29, html: '<div style="font:700 15px/29px Vazir, sans-serif;color:#f1f5f9;direction:rtl;text-align:right;background:#141e31;height:100%;padding-inline-start:6px;padding-top:0px;white-space:nowrap">جلسه‌ی هفتگی تیم</div>' }] }), start: { x: 0, y: 0, w: 100, h: 85 }, startOpt: { fill: 1, zmax: 1.2 }, rest: { x: 0, y: 0, w: 100, h: 85 }, restOpt: { fill: 1, zmax: 1.2 }, next: { x: 2.6, y: 60.2 }, callouts: [
+            { x: 61.53, y: 30.94, w: 7.16, h: 7.62, label: "بار کاری هر روز", text: "شمار کارهای هر روز، روی تقویم شمسی؛ امروز سه فعالیت.", camRegion: { x: 29.53, y: 9.42, w: 55.93, h: 64.28 }, camOpt: { fill: 1, zmax: 1.6 } },
+          ] },
+          // the assistant (framed on its card: the screenshot is shorter than the window): ready commands and voice; «کارهای امروز من» runs with one click
+          { screen: S("tm-8", 1920, 868, { patches: [{ x: 960, y: 62, w: 93, h: 30, html: '<div style="background:linear-gradient(90deg, #1d1a4c, #1d1a4b, #1d1a4a, #1c1a49, #1c1a48, #1b1a47, #1a1a45);height:100%"></div>' }, { x: 850, y: 91, w: 500, h: 24, html: '<div style="font:400 14px/24px Vazir, sans-serif;color:#cad5e2;direction:rtl;text-align:right;background:linear-gradient(90deg, #1a1945, #1d1a4b, #1c1a48, #191942, #16193c, #141836, #111831);height:100%;padding-inline-start:4px;padding-top:0px;white-space:nowrap">ثبت صوتی درخواست‌ها، تعریف فعالیت، گزارش‌گیری و مدیریت هوشمند</div>' }, { x: 1068, y: 434, w: 70, h: 28, html: '<div style="font:500 15px/28px Vazir, sans-serif;color:#f1f5f9;direction:rtl;text-align:right;background:#1d293d;height:100%;padding-inline-start:2px;padding-top:0px;white-space:nowrap">گزارش</div>' }] }), start: { x: 24.5, y: 4, w: 51, h: 92 }, startOpt: { fill: 1, zmax: 1.4 }, rest: { x: 24.5, y: 4, w: 51, h: 92 }, restOpt: { fill: 1, zmax: 1.4 }, next: { x: 30.5, y: 57.6 }, callouts: [
+            { x: 24.95, y: 15.44, w: 20.78, h: 68.32, label: "دستور آماده یا فرمان صوتی", text: "گزارش، ثبت فعالیت یا تغییر وضعیت؛ با یک کلیک یا با صدای خودتان.", zmax: 1.5 },
+          ] },
+          { screen: S("tm-11", 1920, 868, { patches: [{ x: 960, y: 62, w: 93, h: 30, html: '<div style="background:linear-gradient(90deg, #1d1a4c, #1d1a4b, #1d1a4a, #1c1a49, #1c1a48, #1b1a47, #1a1a45);height:100%"></div>' }, { x: 850, y: 91, w: 500, h: 24, html: '<div style="font:400 14px/24px Vazir, sans-serif;color:#cad5e2;direction:rtl;text-align:right;background:linear-gradient(90deg, #1a1945, #1d1a4b, #1c1a48, #191942, #16193c, #141836, #111831);height:100%;padding-inline-start:4px;padding-top:0px;white-space:nowrap">ثبت صوتی درخواست‌ها، تعریف فعالیت، گزارش‌گیری و مدیریت هوشمند</div>' }, { x: 1201, y: 416, w: 127, h: 23, html: '<div style="font:700 14px/23px Vazir, sans-serif;color:#f1f5f9;direction:rtl;text-align:right;background:#0f172b;height:100%;padding-inline-start:4px;padding-top:0px;white-space:nowrap">جلسه‌ی هفتگی تیم</div>' }, { x: 1064, y: 441, w: 75, h: 20, html: '<div style="font:400 12px/20px Vazir, sans-serif;color:#90a1b9;direction:rtl;text-align:right;background:#0f172b;height:100%;padding-inline-start:3px;padding-top:0px;white-space:nowrap">کارشناس پروژه</div>' }, { x: 914, y: 495, w: 414, h: 24, html: '<div style="font:700 14px/24px Vazir, sans-serif;color:#f1f5f9;direction:rtl;text-align:right;background:#0f172b;height:100%;padding-inline-start:4px;padding-top:0px;white-space:nowrap">هماهنگی جلسه‌ی هفته‌ی آینده با دفتر مدیرعامل</div>' }, { x: 1060, y: 520, w: 75, h: 20, html: '<div style="font:400 12px/20px Vazir, sans-serif;color:#90a1b9;direction:rtl;text-align:right;background:#0f172b;height:100%;padding-inline-start:3px;padding-top:0px;white-space:nowrap">کارشناس پروژه</div>' }, { x: 1041, y: 599, w: 96, h: 20, html: '<div style="font:400 12px/20px Vazir, sans-serif;color:#90a1b9;direction:rtl;text-align:right;background:#0f172b;height:100%;padding-inline-start:5px;padding-top:0px;white-space:nowrap">کارشناس پروژه</div>' }, { x: 918, y: 349, w: 394, h: 30, html: '<div style="font:700 16px/30px Vazir, sans-serif;color:#f1f5f9;direction:rtl;text-align:right;background:#1d293d;height:100%;padding-inline-start:3px;padding-top:0px;white-space:nowrap">تعداد ۳ فعالیت منطبق با درخواست شما یافت شد:</div>' }] }), start: { x: 24.5, y: 4, w: 51, h: 92 }, startOpt: { fill: 1, zmax: 1.4 }, aiCam: { x: 24.5, y: 4, w: 51, h: 92 }, aiCamOpt: { fill: 1, zmax: 1.6 }, aiSpots: [{ x: 56, y: 52 }, { x: 64, y: 64 }, { x: 48, y: 74 }], callouts: [
+            { x: 43.7, y: 38.02, w: 27.03, h: 37.56, label: "پاسخ از داده‌های سامانه", text: "کارهای امروز، با موعد، مسئول و درجه‌ی اهمیت؛ همان لحظه.", zmax: 1.7 },
+          ] },
+        ] },
+      ],
+    },
+    {
+      key: "pmbok", acronym: "PMBOK8", name: "اپ آموزش PMBOK\u00a08", hook: "ویرایش هشتم استاندارد، گام‌به‌گام تا گواهینامه.", url: "pmbok8.parspmi.ir",
+      glow: [0.2, 0.75, 0.85, 0.25],
+      aiTitle: "هوش مصنوعی در هسته‌ی آموزش PMBOK",
+      ai: [
+        { icon: "target", title: "مسیر یادگیری تطبیقی", line: "تمرین بعدی، بر پایه‌ی نقاط ضعف" },
+        { icon: "predict", title: "پیش‌بینی آمادگی آزمون", line: "احتمال قبولی، پیش از آزمون نهایی" },
+        { icon: "training", title: "پرسش‌سازی از متن استاندارد", line: "بازبینی و تأیید با مدرس" },
+        { icon: "report", title: "گزارش آموزشی تیم", line: "کدام دامنه آموزش بیشتر می‌خواهد؟" },
+      ],
+      shots: [
+        // the learning path, from the main menu to a principle and its quiz; the signed-in user's name in the header is retyped as «کاربر نمونه» on every screen.
+        // These pages are shorter than the window at full width, so each is framed to fill it.
+        { type: "demo", tilt: 10, pages: [
+          { screen: S("pmbok-0", 1900, 963, { patches: [{ x: 902, y: 90, w: 115, h: 34, html: '<div style="font:600 15px/34px Vazir, sans-serif;color:#d9e4eb;direction:rtl;text-align:center;background:#00487a;height:100%;padding-top:-1px;white-space:nowrap">کاربر نمونه</div>' }] }), start: { x: 4, y: 0, w: 92, h: 100 }, startOpt: { fill: 1, zmax: 1.2 }, rest: { x: 4, y: 0, w: 92, h: 100 }, restOpt: { fill: 1, zmax: 1.2 }, next: { x: 63.8, y: 41.5 }, callouts: [
+            { x: 44.37, y: 30.11, w: 39.05, h: 18.59, label: "پیشرفت هر فراگیر", text: "بخش‌های کامل‌شده با تیک سبز؛ از کلمات کلیدی و اصول تا دامنه‌ها.", zmax: 1.5 },
+          ] },
+          // the principles page has a light strip down its left edge: framed right of it
+          { screen: S("pmbok-6", 1920, 869, { patches: [{ x: 1048, y: 90, w: 115, h: 34, html: '<div style="font:600 15px/34px Vazir, sans-serif;color:#d9e4eb;direction:rtl;text-align:center;background:#00487a;height:100%;padding-top:-1px;white-space:nowrap">کاربر نمونه</div>' }] }), start: { x: 16.5, y: 0, w: 81.5, h: 100 }, startOpt: { fill: 1, zmax: 1.3 }, rest: { x: 16.5, y: 0, w: 81.5, h: 100 }, restOpt: { fill: 1, zmax: 1.3 }, next: { x: 70.8, y: 48.1 }, callouts: [
+            { x: 25.05, y: 36.25, w: 65.1, h: 43.27, label: "شش اصل استاندارد", text: "از دیدگاه کل‌نگر و تمرکز بر ارزش تا فرهنگ توانمند؛ با بازی فلش کارت.", zmax: 1.3 },
+          ] },
+          { screen: S("pmbok-7", 1900, 1235, { patches: [{ x: 902, y: 90, w: 115, h: 34, html: '<div style="font:600 15px/34px Vazir, sans-serif;color:#d9e4eb;direction:rtl;text-align:center;background:#00487a;height:100%;padding-top:-1px;white-space:nowrap">کاربر نمونه</div>' }] }), rest: { x: 5, y: 20, w: 90, h: 72 }, restOpt: { fill: 1, zmax: 1.2 }, next: { x: 54.7, y: 84.2 }, callouts: [
+            { x: 13.05, y: 25.51, w: 75, h: 47.21, label: "هر اصل، در پنج بخش", text: "خلاصه، تأثیر بر پروژه، اصل در عمل و دامنه‌های مرتبط؛ با فیلم و آزمون پایان فصل.", zmax: 1.2 },
+          ] },
+          // the quiz review: the first two questions only (the score bar above them and the unanswered ones below stay out)
+          { screen: S("pmbok-5", 1900, 10084, { patches: [{ x: 902, y: 90, w: 115, h: 34, html: '<div style="font:600 15px/34px Vazir, sans-serif;color:#d9e4eb;direction:rtl;text-align:center;background:#00487a;height:100%;padding-top:-1px;white-space:nowrap">کاربر نمونه</div>' }] }), start: { x: 10, y: 3.85, w: 80, h: 11.4 }, startOpt: { fill: 1, zmax: 1.3 }, rest: { x: 10, y: 3.85, w: 80, h: 11.4 }, restOpt: { fill: 1, zmax: 1.3 }, callouts: [
+            { x: 11.05, y: 9.69, w: 78.95, h: 5.55, label: "بازخورد هر پرسش", text: "پاسخ نادرست، پاسخ درست و توضیح آن، کنار هم.", zmax: 1.3 },
+          ] },
+        ] },
+        // the app's own AI assistant works today: suggested questions, a diagram on request, the analysis of the report card
+        { type: "demo", ai: 1, pages: [
+          { screen: S("pmbok-1", 1920, 868, { patches: [{ x: 892, y: 90, w: 115, h: 34, html: '<div style="font:600 15px/34px Vazir, sans-serif;color:#d9e4eb;direction:rtl;text-align:center;background:#00487a;height:100%;padding-top:-1px;white-space:nowrap">کاربر نمونه</div>' }] }), start: { x: 0, y: 0, w: 81.4, h: 100 }, startOpt: { fill: 1, zmax: 1.3 }, rest: { x: 0, y: 0, w: 81.4, h: 100 }, restOpt: { fill: 1, zmax: 1.3 }, next: { x: 20.3, y: 76.3 }, callouts: [
+            { x: 1.51, y: 45.62, w: 37.55, h: 40.09, label: "پرسش‌های آماده", text: "از خلاصه‌ی اصول تا پرسش چالشی ریسک؛ نوشتاری یا صوتی.", zmax: 1.5 },
+          ] },
+          { screen: S("pmbok-3", 1900, 963, { patches: [{ x: 902, y: 90, w: 115, h: 34, html: '<div style="font:600 15px/34px Vazir, sans-serif;color:#d9e4eb;direction:rtl;text-align:center;background:#00487a;height:100%;padding-top:-1px;white-space:nowrap">کاربر نمونه</div>' }] }), start: { x: 0, y: 0, w: 91.3, h: 100 }, startOpt: { fill: 1, zmax: 1.2 }, rest: { x: 0, y: 0, w: 91.3, h: 100 }, restOpt: { fill: 1, zmax: 1.2 }, next: { x: 63.9, y: 62.3 }, callouts: [
+            { x: 7.79, y: 9.14, w: 25.37, h: 68.95, label: "دیاگرام با یک درخواست", text: "دستیار، جریان گروه‌های فرآیندی را به‌صورت نمودار رسم می‌کند.", zmax: 1.4 },
+          ] },
+          // the report card below its overall score ring, down to the heading of the AI analysis
+          { screen: S("pmbok-8", 1900, 4140, { patches: [{ x: 902, y: 90, w: 115, h: 34, html: '<div style="font:600 15px/34px Vazir, sans-serif;color:#d9e4eb;direction:rtl;text-align:center;background:#00487a;height:100%;padding-top:-1px;white-space:nowrap">کاربر نمونه</div>' }] }), start: { x: 10, y: 14.5, w: 80, h: 23.5 }, startOpt: { fill: 1, zmax: 1.2 }, aiCam: { x: 10, y: 14.5, w: 80, h: 23.5 }, aiCamOpt: { fill: 1, zmax: 1.2 },
+            aiSpots: [{ x: 30, y: 22 }, { x: 70, y: 25 }, { x: 74, y: 35.6 }], callouts: [
+            { x: 13.05, y: 14.98, w: 36.47, h: 17.29, label: "هفت دامنه‌ی عملکردی", text: "امتیاز هر دامنه و هر آزمون، با رنگ سبز، زرد و قرمز.", camRegion: { x: 11, y: 14.2, w: 40.5, h: 19 }, camOpt: { fill: 1, zmax: 1.4 } },
+            // framed above the analysis text itself (it quotes the sample user's scores)
+            { x: 59.74, y: 33.94, w: 28.68, h: 3.31, label: "تحلیل هوش مصنوعی کارنامه", text: "نقاط قوت و ضعف، با راهکار سفارشی مطالعه.", camRegion: { x: 10, y: 22, w: 80, h: 15.5 }, camOpt: { fill: 1, zmax: 1.6 } },
+          ] },
+        ] },
+      ],
+    },
+    {
       key: "pm", acronym: "PM", name: "سامانه‌ی مدیریت پروژه", hook: "از منشور پروژه تا تأیید نهایی، یک‌جا.", url: "project.parspmi.ir",
       glow: [0.15, 0.3, 0.85, 0.8],
       shots: [
