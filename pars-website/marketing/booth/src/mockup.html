@@ -81,8 +81,8 @@ function rollup(item, x, z) {
   plane(x, 10, z + 5.5, 92, 9, { rx: 90, bg: "var(--cap)" });            // and its top
   for (const dx of [-38, 38]) plane(x + dx, 1.5, z + 14, 3, 3, { bg: "var(--metal)" }); // feet
 }
-rollup("rollup2", -180, 70);
-rollup("rollup1", 180, 70);
+rollup("rollup2", -218, 70);
+rollup("rollup1", 218, 70);
 
 // counters: front 70 wide, sides 72 deep, 90 high, a white top
 function counter(x, z) {
@@ -95,8 +95,8 @@ function counter(x, z) {
   plane(x, 91, z + 39, 76, 2, { bg: "var(--edge)" });
   plane(x + 38, 91, z, 78, 2, { ry: 90, bg: "var(--edge)" });
 }
-counter(-72, 175);
-counter(72, 175);
+counter(-56, 175);
+counter(56, 175);
 
 document.getElementById("label").textContent = `PARS PROJECT · BOOTH · ${STYLE === "final" ? "FINAL SET" : STYLE.toUpperCase()} · ${MODE.toUpperCase()}`;
 Promise.all([...new Set([...document.querySelectorAll(".p")].map((n) => n.style.backgroundImage).filter(Boolean))].map((u) => new Promise((r, j) => {
