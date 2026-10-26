@@ -570,7 +570,7 @@ function renderChapters(t) {
   };
   document.getElementById("bug").style.opacity = 0.92 * near(["intro", "agents", "capabilities", "outro"]);
   const url = document.getElementById("url");
-  if (!url.innerHTML) url.innerHTML = `${icon("globe")}<span>${(window.QR_URL || "").replace(/^https?:\/\//, "")}</span>`;
+  if (!url.innerHTML) url.innerHTML = `${icon("globe")}<span>${new URL(window.SITE_URL).host}</span>`;
   url.style.opacity = 0.9 * near(["intro", "outro"]);
 }
 
