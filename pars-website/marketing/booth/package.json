@@ -7,15 +7,14 @@
     "build": "node build.mjs",
     "render": "node render.mjs",
     "booth": "node build.mjs && node render.mjs --jpg && node mockup.mjs",
-    "mockup": "node mockup.mjs"
+    "mockup": "node mockup.mjs",
+    "final": "node build.mjs && node render.mjs --final --jpg && node mockup.mjs"
   },
   "devDependencies": {
     "@fontsource/ibm-plex-sans-arabic": "^5.2.8",
     "@fontsource/sora": "^5.2.8",
-    "jsqr": "1.4.0",
     "pdf-lib": "^1.17.1",
     "playwright-core": "1.56.1",
-    "pngjs": "7.0.0",
-    "qrcode": "1.5.4"
+    "pngjs": "7.0.0"
   }
 }

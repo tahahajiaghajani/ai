@@ -6,7 +6,8 @@
 <style>
 /* A 3/4 view of the whole booth, built in CSS 3D at real sizes (1 cm = K px) from the rendered previews:
    the pop-up with its two returns, roll-up 2 on the left and roll-up 1 on the right (their streams flow in from the
-   outer edges), and the two identical counters in front. ?style=minimal|detailed&mode=dark|light */
+   outer edges), and the two identical counters in front. ?style=minimal|detailed|final&mode=dark|light — final is the
+   chosen set: the minimal pop-up and counters with the detailed roll-ups */
 @font-face { font-family: "Sora"; font-weight: 600; src: url(assets/fonts/sora-latin-600-normal.woff2) format("woff2"); }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { width: 2400px; height: 1500px; overflow: hidden; }
@@ -33,7 +34,8 @@ document.documentElement.dataset.mode = MODE;
 const K = 3.2; // px per cm
 const world = document.getElementById("world");
 world.style.transform = "rotateX(-8deg) rotateY(-17deg) translateZ(-330px)";
-const tex = (item) => `url(preview/${item}-${STYLE}-${MODE}.png)`;
+const PICK = { popup: "minimal", rollup1: "detailed", rollup2: "detailed", counter: "minimal" };
+const tex = (item) => `url(preview/${item}-${STYLE === "final" ? PICK[item] : STYLE}-${MODE}.png)`;
 
 /** a plane w × h cm centred at (x, y above the floor, z towards the viewer), turned by ry degrees about the vertical
     (90: faces +x, its left edge in front). bg: a texture strip [file width, offset into the file] or a CSS background. */
@@ -96,7 +98,7 @@ function counter(x, z) {
 counter(-72, 175);
 counter(72, 175);
 
-document.getElementById("label").textContent = `PARS PROJECT · BOOTH · ${STYLE.toUpperCase()} · ${MODE.toUpperCase()}`;
+document.getElementById("label").textContent = `PARS PROJECT · BOOTH · ${STYLE === "final" ? "FINAL SET" : STYLE.toUpperCase()} · ${MODE.toUpperCase()}`;
 Promise.all([...new Set([...document.querySelectorAll(".p")].map((n) => n.style.backgroundImage).filter(Boolean))].map((u) => new Promise((r, j) => {
   const i = new Image();
   i.onload = r;

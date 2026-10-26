@@ -168,14 +168,15 @@ const drawArt = () => {
     glow(300, 18, 150, 110, PAL.glowV, DARK ? 0.32 : 0.55);
     glow(30, 220, 170, 90, PAL.glowP, DARK ? 0.4 : 0.5);
     if (STYLE === "minimal") {
-      const P = [96, 100];
+      const P = [86, 96];
       glow(P[0], P[1], 120, 95, PAL.glowM, DARK ? 0.38 : 0.45);
-      // violet falls from the top of the face, clear of the mark on the return; magenta rises from the floor
+      // violet falls from the top of the face, clear of the mark on the return; magenta rises from the floor; the joined
+      // stream dives under the contact row before it sweeps to the right
       converge({
         P, sw: 0.2, op: 0.66, parts: 44, pr: 0.45,
-        v: { pts: [[46, -6], [52, 22], [62, 50], [78, 78]], width: [30, 34, 26, 12, 0.5], turns: 1.25, phase0: 0.4 },
-        m: { pts: [[-6, 204], [26, 194], [54, 160], [78, 122]], width: [30, 36, 26, 12, 0.5], turns: 1.5, phase0: 2.1 },
-        j: { pts: [[116, 116], [158, 156], [222, 184], [296, 194], [367, 188]], width: [0.5, 12, 24, 32, 32, 30], turns: 1.1, phase0: 1.2 },
+        v: { pts: [[46, -6], [52, 22], [62, 50], [74, 76]], width: [30, 34, 26, 12, 0.5], turns: 1.25, phase0: 0.4 },
+        m: { pts: [[-6, 204], [26, 194], [54, 160], [72, 122]], width: [30, 36, 26, 12, 0.5], turns: 1.5, phase0: 2.1 },
+        j: { pts: [[100, 126], [126, 160], [178, 182], [240, 193], [298, 195], [367, 188]], width: [0.5, 10, 20, 28, 32, 32, 30], turns: 1.1, phase0: 1.2 },
       });
       node(P[0], P[1], 0.9, 11);
     } else {
