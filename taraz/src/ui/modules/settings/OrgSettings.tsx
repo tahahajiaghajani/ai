@@ -53,7 +53,7 @@ export default function OrgSettings() {
                 <Form
                   layout="vertical"
                   disabled={!editable}
-                  initialValues={{ ...s, gold: s.gold ?? {}, fx: s.fx ?? {} }}
+                  initialValues={{ ...s, gold: s.gold ?? {}, fx: s.fx ?? {}, moadian: s.moadian ?? {} }}
                   onFinish={(v) => save.mutate({ settings: { ...v, gold: { ...(s.gold ?? {}), ...(v.gold ?? {}) }, fx: { ...(s.fx ?? {}), ...(v.fx ?? {}) } } })}
                 >
                   <div className="grid gap-x-4 md:grid-cols-3">
@@ -61,6 +61,13 @@ export default function OrgSettings() {
                     <Form.Item name="timezone" label="منطقه‌ی زمانی"><Select options={[{ value: "Asia/Tehran", label: "تهران" }, { value: "Asia/Kabul", label: "کابل" }, { value: "Asia/Dubai", label: "دبی" }, { value: "Europe/Istanbul", label: "استانبول" }]} /></Form.Item>
                     <Form.Item name="costing" label="روش بهای تمام‌شده‌ی کالا"><Select options={[{ value: "average", label: "میانگین موزون متحرک" }]} /></Form.Item>
                     <Form.Item name="allow_negative_stock" label="فروش بیش از موجودی مجاز باشد" valuePropName="checked"><Switch /></Form.Item>
+                  </div>
+                  <div className="mb-3 mt-2 border-b border-line pb-1 text-xs font-bold text-muted">سامانه‌ی مؤدیان (صورتحساب الکترونیکی)</div>
+                  <div className="grid gap-x-4 md:grid-cols-3">
+                    <Form.Item name={["moadian", "memory_id"]} label="شناسه‌ی یکتای حافظه‌ی مالیاتی" extra="شش نویسه؛ از کارپوشه‌ی سامانه‌ی مؤدیان" rules={[{ pattern: /^[A-Za-z0-9]{6}$/, message: "شناسه‌ی حافظه شش نویسه‌ی لاتین یا رقم است" }]}>
+                      <Input dir="ltr" maxLength={6} />
+                    </Form.Item>
+                    <Form.Item name={["moadian", "branch_code"]} label="کد شعبه (اختیاری)"><Input dir="ltr" maxLength={10} /></Form.Item>
                   </div>
                   <div className="mb-3 mt-2 border-b border-line pb-1 text-xs font-bold text-muted">طلا و جواهر</div>
                   <div className="grid gap-x-4 md:grid-cols-4">
