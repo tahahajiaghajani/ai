@@ -4,8 +4,9 @@ import type { Ctx } from "../../context";
 import type { Queryable, Tx } from "../../db";
 import { likeContains } from "../../db";
 import { ident, insertRow, nextCode, updateRow } from "../../db/sql";
-import { ENTITIES, fieldsFor, type EntityDef, type FieldDef } from "@shared/entities";
-import { bad, conflict, forbidden, notFound } from "../../http/errors";
+import { ENTITIES, fieldsFor, importFields, type EntityDef, type FieldDef } from "@shared/entities";
+import { AppError, bad, conflict, dbErrorMessage, forbidden, notFound } from "../../http/errors";
+import { parseJalaliInput } from "@shared/jalali";
 import { D, isNumeric, normalizeDigits } from "@shared/money";
 import { checkFormat, normalizeIban, normalizeMobile } from "@shared/validate";
 import { uuidv7, isUuid } from "@shared/id";
@@ -265,8 +266,12 @@ export async function options(ctx: Ctx, key: string, q: string, filters: Record<
     where.push(`${ident(f.name)}::text = $${params.length}`);
   }
   const sub = d.sub ? `, ${ident(d.sub)} as sub` : "";
+  // pickers are used everywhere (an invoice needs a customer); full rows only for members who
+  // may view this area, others get just what a picker shows
+  const full = ctx.can(d.area, "view");
+  const extra = full ? ", *" : d.fields.some((f) => f.name === "code") ? ", code" : "";
   return ctx.db.query(
-    `select id, ${ident(d.display)} as label${sub}, * from ${ident(d.table)} where ${where.join(" and ")} order by ${orderClause(d)} limit 40`,
+    `select id, ${ident(d.display)} as label${sub}${extra} from ${ident(d.table)} where ${where.join(" and ")} order by ${orderClause(d)} limit 40`,
     params,
   );
 }
@@ -275,37 +280,244 @@ export async function create(ctx: Ctx, key: string, data: Record<string, unknown
   const d = def(key);
   ctx.need(d.area, "edit");
   if (d.modules && !d.modules.some((m) => ctx.hasModule(m))) throw forbidden("این ماژول برای کسب‌وکار شما فعال نیست");
+  return ctx.write((tx) => createIn(tx, ctx, key, data));
+}
+
+/** Insert inside an open write transaction (permission already checked). */
+async function createIn(tx: Tx, ctx: Ctx, key: string, data: Record<string, unknown>) {
+  const d = def(key);
   const fields = fieldsFor(d, ctx.org.modules);
-  return ctx.write(async (tx) => {
-    const row = pickValues(d, fields, data, true);
-    if (d.code && !row[d.code.field]) row[d.code.field] = await nextCode(tx, d.table, ctx.org.id, d.code.start, d.code.field);
-    await before[key]?.(tx, ctx, row, null);
-    row.id = isUuid(data.id) ? data.id : uuidv7();
-    row.org_id = ctx.org.id;
-    row.origin = ctx.cfg.origin;
-    const saved = await insertRow<Record<string, unknown>>(tx, d.table, row);
-    await after[key]?.(tx, ctx, saved, null);
-    await audit(tx, ctx, "create", key, String(saved.id), String(saved[d.display] ?? ""));
-    return saved;
-  });
+  const row = pickValues(d, fields, data, true);
+  if (d.code && !row[d.code.field]) row[d.code.field] = await nextCode(tx, d.table, ctx.org.id, d.code.start, d.code.field);
+  await before[key]?.(tx, ctx, row, null);
+  row.id = isUuid(data.id) ? data.id : uuidv7();
+  row.org_id = ctx.org.id;
+  row.origin = ctx.cfg.origin;
+  const saved = await insertRow<Record<string, unknown>>(tx, d.table, row);
+  await after[key]?.(tx, ctx, saved, null);
+  await audit(tx, ctx, "create", key, String(saved.id), String(saved[d.display] ?? ""));
+  return saved;
 }
 
 export async function update(ctx: Ctx, key: string, id: string, data: Record<string, unknown>) {
   const d = def(key);
   ctx.need(d.area, "edit");
+  return ctx.write((tx) => updateIn(tx, ctx, key, id, data));
+}
+
+async function updateIn(tx: Tx, ctx: Ctx, key: string, id: string, data: Record<string, unknown>) {
+  const d = def(key);
   const fields = fieldsFor(d, ctx.org.modules).filter((f) => f.name in data);
-  return ctx.write(async (tx) => {
-    const prev = await tx.one<Record<string, unknown>>(`select * from ${ident(d.table)} where id = $1 and org_id = $2 and deleted_at is null`, [id, ctx.org.id]);
-    if (!prev) throw notFound(`${d.title} پیدا نشد`);
-    const patch = pickValues(d, fields, data, false);
-    if (d.code && patch[d.code.field] === null) delete patch[d.code.field];
-    await before[key]?.(tx, ctx, patch, prev);
-    patch.origin = ctx.cfg.origin;
-    const saved = await updateRow<Record<string, unknown>>(tx, d.table, { id, org_id: ctx.org.id }, patch);
-    await after[key]?.(tx, ctx, saved!, prev);
-    await audit(tx, ctx, "update", key, id, String(saved?.[d.display] ?? ""));
-    return saved;
-  });
+  const prev = await tx.one<Record<string, unknown>>(`select * from ${ident(d.table)} where id = $1 and org_id = $2 and deleted_at is null`, [id, ctx.org.id]);
+  if (!prev) throw notFound(`${d.title} پیدا نشد`);
+  const patch = pickValues(d, fields, data, false);
+  if (d.code && patch[d.code.field] === null) delete patch[d.code.field];
+  await before[key]?.(tx, ctx, patch, prev);
+  patch.origin = ctx.cfg.origin;
+  const saved = await updateRow<Record<string, unknown>>(tx, d.table, { id, org_id: ctx.org.id }, patch);
+  await after[key]?.(tx, ctx, saved!, prev);
+  await audit(tx, ctx, "update", key, id, String(saved?.[d.display] ?? ""));
+  return saved;
+}
+
+// ---------- import from a spreadsheet ----------
+
+/** Lower-case, Persian letters and digits, single spaces — for matching labels typed in Excel. */
+export function normText(s: unknown): string {
+  return normalizeDigits(String(s ?? ""))
+    .replace(/[يى]/g, "ی")
+    .replace(/ك/g, "ک")
+    .replace(/[\u200c\u200f\u200e\u00a0]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+const YES = new Set(["1", "true", "yes", "y", "بله", "بلی", "آری", "اری", "دارد", "فعال", "هست", "✓", "✔", "x", "*"]);
+
+/** Spreadsheet date cell → ISO: Jalali 1403/05/12, Gregorian 2024-08-02, or an Excel serial day. */
+export function importDate(v: unknown): string | null {
+  if (typeof v === "number" || /^\d{5}(\.\d+)?$/.test(String(v).trim())) {
+    const n = Math.floor(Number(v));
+    if (n > 20000 && n < 80000) return new Date(Date.UTC(1899, 11, 30) + n * 86400000).toISOString().slice(0, 10);
+  }
+  const s = normalizeDigits(String(v)).trim().replace(/\s.*$/, "");
+  const g = /^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/.exec(s);
+  if (g && Number(g[1]) >= 1700) {
+    const iso = `${g[1]}-${g[2].padStart(2, "0")}-${g[3].padStart(2, "0")}`;
+    return Number.isNaN(Date.parse(iso)) ? null : iso;
+  }
+  return parseJalaliInput(s);
+}
+
+/** Entities a missing reference may be created for on the fly (only a name is needed). */
+const AUTO_CREATE = new Set(["unit", "item_category", "party_group", "gold_category"]);
+
+interface RefCache {
+  map: Map<string, string | null>;
+  createdInRow: string[];
+}
+
+async function resolveRef(tx: Tx, ctx: Ctx, f: FieldDef, value: unknown, cache: RefCache): Promise<string> {
+  const raw = String(value).trim();
+  if (isUuid(raw)) return raw;
+  const key = `${f.ref}|${normText(raw)}`;
+  if (cache.map.has(key)) {
+    const id = cache.map.get(key);
+    if (id) return id;
+    throw bad(`«${f.label}»: «${raw}» پیدا نشد`);
+  }
+  let id: string | null = null;
+  const text = normalizeDigits(raw).replace(/[يى]/g, "ی").replace(/ك/g, "ک").trim();
+  if (f.ref === "account") {
+    const r = await tx.one<{ id: string }>(
+      `select id from tz_accounts where org_id = $1 and deleted_at is null and (code = $2 or lower(name) = lower($2)) order by is_postable desc limit 1`,
+      [ctx.org.id, text],
+    );
+    id = r?.id ?? null;
+  } else {
+    const rd = ENTITIES[f.ref!];
+    if (!rd) throw bad(`«${f.label}» قابل ورود از فایل نیست`);
+    const hasCode = rd.fields.some((x) => x.name === "code");
+    const r = await tx.one<{ id: string }>(
+      `select id from ${ident(rd.table)} where org_id = $1 and deleted_at is null and (lower(${ident(rd.display)}) = lower($2)${hasCode ? " or code = $2" : ""}) limit 1`,
+      [ctx.org.id, text],
+    );
+    id = r?.id ?? null;
+    if (!id && AUTO_CREATE.has(rd.key) && ctx.can(rd.area, "edit") && (!rd.modules || rd.modules.some((m) => ctx.hasModule(m)))) {
+      const saved = await createIn(tx, ctx, rd.key, { [rd.display]: text });
+      id = String(saved.id);
+      cache.createdInRow.push(key);
+    }
+  }
+  cache.map.set(key, id);
+  if (!id) throw bad(`«${f.label}»: «${raw}» پیدا نشد`);
+  return id;
+}
+
+function matchOption(f: FieldDef, v: unknown): string {
+  const n = normText(v);
+  const o = (f.options ?? []).find((x) => normText(x.value) === n || normText(x.label) === n);
+  if (!o) throw bad(`«${f.label}»: «${String(v)}» معتبر نیست؛ یکی از ${(f.options ?? []).map((x) => `«${x.label}»`).join("، ")}`);
+  return o.value;
+}
+
+/** One spreadsheet row (field name → cell) → values `pickValues` accepts. Empty cells are skipped. */
+async function importValues(tx: Tx, ctx: Ctx, fields: FieldDef[], raw: Record<string, unknown>, cache: RefCache) {
+  const out: Record<string, unknown> = {};
+  for (const f of fields) {
+    const v = raw[f.name];
+    if (v === undefined || v === null || (typeof v === "string" && v.trim() === "")) continue;
+    switch (f.type) {
+      case "money":
+      case "decimal":
+      case "int":
+      case "pct":
+      case "weight": {
+        const s = normalizeDigits(String(v)).replace(/[,،٬\s]/g, "").replace(/٫/g, ".").replace(/[٪%]$/, "");
+        out[f.name] = s;
+        break;
+      }
+      case "bool":
+        out[f.name] = v === true || YES.has(normText(v));
+        break;
+      case "date": {
+        const iso = importDate(v);
+        if (!iso) throw bad(`«${f.label}»: تاریخ «${String(v)}» معتبر نیست`);
+        out[f.name] = iso;
+        break;
+      }
+      case "select":
+        out[f.name] = f.options?.length ? matchOption(f, v) : String(v).trim();
+        break;
+      case "multiselect":
+        out[f.name] = String(v)
+          .split(/[,،;|\n]/)
+          .map((x) => x.trim())
+          .filter(Boolean)
+          .map((x) => (f.options?.length ? matchOption(f, x) : x));
+        break;
+      case "ref":
+        out[f.name] = await resolveRef(tx, ctx, f, v, cache);
+        break;
+      default: {
+        let s = typeof v === "number" ? String(v) : String(v).trim();
+        // Excel drops leading zeros of numeric-looking cells
+        if (f.format === "nationalId" && /^\d{8,9}$/.test(normalizeDigits(s))) s = normalizeDigits(s).padStart(10, "0");
+        if (f.format === "mobile" && /^9\d{9}$/.test(normalizeDigits(s))) s = `0${normalizeDigits(s)}`;
+        out[f.name] = s;
+      }
+    }
+  }
+  return out;
+}
+
+export interface ImportResult {
+  row: number;
+  ok: boolean;
+  action?: "create" | "update";
+  id?: string;
+  label?: string;
+  error?: string;
+}
+
+const DRY_RUN = Symbol("dry-run");
+
+/**
+ * Create (or, with `updateExisting`, update by code) many rows at once. Every row runs in its own
+ * savepoint so one bad row does not stop the rest; `dryRun` validates everything and rolls back.
+ */
+export async function importRows(ctx: Ctx, key: string, rows: Record<string, unknown>[], opts: { updateExisting?: boolean; dryRun?: boolean; offset?: number } = {}) {
+  const d = def(key);
+  ctx.need(d.area, "edit");
+  if (d.modules && !d.modules.some((m) => ctx.hasModule(m))) throw forbidden("این ماژول برای کسب‌وکار شما فعال نیست");
+  const fields = importFields(d, ctx.org.modules);
+  const results: ImportResult[] = [];
+  const cache: RefCache = { map: new Map(), createdInRow: [] };
+  const codeField = d.code?.field ?? (d.fields.some((f) => f.name === "code") ? "code" : null);
+  const offset = opts.offset ?? 0;
+  const run = async (tx: Tx) => {
+    const seen = new Set<string>();
+    for (let i = 0; i < rows.length; i++) {
+      const raw = rows[i] ?? {};
+      if (!Object.values(raw).some((v) => v !== null && v !== undefined && String(v).trim() !== "")) continue;
+      cache.createdInRow = [];
+      await tx.query("savepoint tz_import_row");
+      try {
+        const data = await importValues(tx, ctx, fields, raw, cache);
+        let existing: { id: string } | null = null;
+        if (codeField && data[codeField]) {
+          const codeValue = normalizeDigits(String(data[codeField]));
+          data[codeField] = codeValue;
+          if (seen.has(codeValue)) throw bad(`کد «${codeValue}» در همین فایل تکراری است`);
+          seen.add(codeValue);
+          existing = await tx.one<{ id: string }>(`select id from ${ident(d.table)} where org_id = $1 and ${ident(codeField)} = $2 and deleted_at is null`, [ctx.org.id, codeValue]);
+          if (existing && !opts.updateExisting) throw conflict(`کد «${codeValue}» از قبل وجود دارد`);
+        }
+        const saved = existing ? await updateIn(tx, ctx, key, existing.id, data) : await createIn(tx, ctx, key, data);
+        await tx.query("release savepoint tz_import_row");
+        results.push({ row: offset + i, ok: true, action: existing ? "update" : "create", id: String(saved?.id), label: String(saved?.[d.display] ?? "") });
+      } catch (e) {
+        await tx.query("rollback to savepoint tz_import_row");
+        for (const k of cache.createdInRow) cache.map.delete(k);
+        const err = e instanceof AppError ? e : dbErrorMessage(e);
+        results.push({ row: offset + i, ok: false, error: err?.message ?? String((e as Error)?.message ?? e) });
+      }
+    }
+    if (opts.dryRun) throw DRY_RUN;
+  };
+  try {
+    await ctx.write(run);
+  } catch (e) {
+    if (e !== DRY_RUN) throw e;
+  }
+  return {
+    results,
+    created: results.filter((r) => r.ok && r.action === "create").length,
+    updated: results.filter((r) => r.ok && r.action === "update").length,
+    failed: results.filter((r) => !r.ok).length,
+    dry_run: !!opts.dryRun,
+  };
 }
 
 /** Where a master row is referenced; used to refuse deleting rows in use. */

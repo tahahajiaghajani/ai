@@ -56,6 +56,20 @@ dataRoutes.get("/:entity/options", async (c) => {
   return c.json({ options: await crud.options(ctx, entity, q.q ?? "", filters, ids) });
 });
 
+/** Bulk import from a spreadsheet: { rows: [{field: cell}], update_existing, dry_run } */
+dataRoutes.post("/:entity/import", async (c) => {
+  const input = await body(
+    c,
+    z.object({
+      rows: z.array(z.record(z.string(), z.unknown())).max(1000, "در هر بار حداکثر ۱۰۰۰ ردیف"),
+      update_existing: z.boolean().optional(),
+      dry_run: z.boolean().optional(),
+      offset: z.number().int().min(0).optional(),
+    }),
+  );
+  return c.json(await crud.importRows(c.get("ctx"), c.req.param("entity"), input.rows, { updateExisting: input.update_existing, dryRun: input.dry_run, offset: input.offset }));
+});
+
 dataRoutes.get("/:entity/:id", async (c) => c.json({ row: await crud.get(c.get("ctx"), c.req.param("entity"), c.req.param("id")) }));
 
 dataRoutes.post("/:entity", async (c) => {

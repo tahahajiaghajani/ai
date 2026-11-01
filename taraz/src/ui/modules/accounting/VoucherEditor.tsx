@@ -36,10 +36,10 @@ interface Line {
 const blank = (): Line => ({ key: uuidv7(), account_id: null, detail_id: null, description: "", debit: null, credit: null, currency_id: null, fx_debit: null, fx_credit: null, fx_rate: null, w_debit: null, w_credit: null });
 
 const SOURCE_LABEL: Record<string, string> = {
-  invoice: "فاکتور", treasury_doc: "سند خزانه", cheque: "عملیات چک", stock_doc: "سند انبار", gold_doc: "سند طلا", fx_deal: "معامله‌ی ارز", remittance: "حواله", closing: "بستن حساب‌ها", opening: "افتتاحیه",
+  invoice: "فاکتور", treasury_doc: "سند خزانه", cheque_op: "عملیات چک", stock_doc: "سند انبار", gold_doc: "سند طلا", fx_deal: "معامله‌ی ارز", remittance: "حواله", closing: "بستن حساب‌ها", opening: "افتتاحیه",
 };
 const SOURCE_PATH: Record<string, string> = {
-  invoice: "sales/invoices", treasury_doc: "treasury/docs", stock_doc: "inventory/docs", gold_doc: "gold/docs", fx_deal: "fx/deals", remittance: "fx/remittances",
+  invoice: "sales/invoices", treasury_doc: "treasury/docs", cheque_op: "treasury/cheque-ops", stock_doc: "inventory/docs", gold_doc: "gold/docs", fx_deal: "fx/deals", remittance: "fx/remittances",
 };
 
 export default function VoucherEditor() {
@@ -52,6 +52,7 @@ export default function VoucherEditor() {
   const [date, setDate] = useState<string | null>(todayISO());
   const [description, setDescription] = useState("");
   const [refNo, setRefNo] = useState("");
+  const [kind, setKind] = useState<"normal" | "opening">("normal");
   const [lines, setLines] = useState<Line[]>([blank(), blank()]);
   const [showFx, setShowFx] = useState(false);
   const [showW, setShowW] = useState(false);
@@ -67,6 +68,7 @@ export default function VoucherEditor() {
     setDate(v.date);
     setDescription(v.description ?? "");
     setRefNo(v.ref_no ?? "");
+    setKind(v.kind === "opening" ? "opening" : "normal");
     const ls: Line[] = v.lines.map((l: any) => ({
       key: l.id,
       account_id: l.account_id,
@@ -127,6 +129,7 @@ export default function VoucherEditor() {
     date,
     description: description || null,
     ref_no: refNo || null,
+    kind,
     status,
     lines: lines
       .filter((l) => l.account_id)
@@ -252,10 +255,20 @@ export default function VoucherEditor() {
           <div className="text-lg font-bold">{org.name}</div>
           <div className="text-base">سند حسابداری شماره‌ی {faDigits(v?.no ?? "")} — تاریخ {formatJalali(date)}</div>
         </div>
-        <div className="no-print mb-4 grid gap-3 md:grid-cols-[160px_1fr_160px_auto]">
+        <div className="no-print mb-4 grid gap-3 md:grid-cols-[160px_140px_1fr_160px_auto]">
           <div>
             <div className="mb-1 text-xs text-muted">تاریخ سند</div>
             <DateInput value={date} onChange={setDate} disabled={readonly} />
+          </div>
+          <div>
+            <div className="mb-1 text-xs text-muted">نوع سند</div>
+            <Select
+              className="w-full"
+              value={kind}
+              disabled={readonly || (!!v && v.kind !== "normal" && v.kind !== "opening")}
+              onChange={setKind}
+              options={[{ value: "normal", label: "عادی" }, { value: "opening", label: "افتتاحیه" }]}
+            />
           </div>
           <div>
             <div className="mb-1 text-xs text-muted">شرح سند</div>

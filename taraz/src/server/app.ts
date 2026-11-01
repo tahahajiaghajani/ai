@@ -48,7 +48,7 @@ export function createApp(cfg: ServerConfig) {
       first_run: (users?.n ?? 0) === 0,
       schema: status ? { pending: status.pending, current: status.current, latest: status.latest } : null,
       signed_in: !!user,
-      desktop: cfg.mode === "desktop" ? await cfg.desktop?.info().catch(() => null) : null,
+      desktop: cfg.mode === "desktop" && (user || (users?.n ?? 0) === 0) ? await cfg.desktop?.info().catch(() => null) : null,
     });
   });
 

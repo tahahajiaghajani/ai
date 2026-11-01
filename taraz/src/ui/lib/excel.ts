@@ -1,5 +1,6 @@
 // Export any table to an Excel file (right-to-left sheet, numbers as numbers).
 import writeXlsxFile from "write-excel-file/browser";
+import type { SheetData } from "write-excel-file/browser";
 
 export interface XlsColumn<T> {
   title: string;
@@ -8,8 +9,8 @@ export interface XlsColumn<T> {
   width?: number;
 }
 
-export async function exportExcel<T>(fileName: string, columns: XlsColumn<T>[], rows: T[], sheet = "گزارش") {
-  const header = columns.map((c) => ({ value: c.title, fontWeight: "bold" as const, backgroundColor: "#E6F4F7" }));
+export function sheetData<T>(columns: XlsColumn<T>[], rows: T[]): SheetData {
+  const header = columns.map((c) => ({ value: c.title, type: String, fontWeight: "bold" as const, backgroundColor: "#E6F4F7" }));
   const data = rows.map((r) =>
     columns.map((c) => {
       const v = c.value(r);
@@ -20,10 +21,15 @@ export async function exportExcel<T>(fileName: string, columns: XlsColumn<T>[], 
       return { type: String, value: v === null || v === undefined ? "" : String(v) };
     }),
   );
-  await writeXlsxFile([header, ...data] as never, {
-    fileName: fileName.endsWith(".xlsx") ? fileName : `${fileName}.xlsx`,
-    sheet,
+  return [header, ...data] as SheetData;
+}
+
+export async function exportExcel<T>(fileName: string, columns: XlsColumn<T>[], rows: T[], sheet = "گزارش") {
+  const name = (fileName.endsWith(".xlsx") ? fileName : `${fileName}.xlsx`).replace(/[\\/:*?"<>|]/g, "-");
+  await writeXlsxFile(sheetData(columns, rows), {
+    sheet: sheet.replace(/[\\/:*?[\]]/g, "-").slice(0, 31),
     rightToLeft: true,
+    stickyRowsCount: 1,
     columns: columns.map((c) => ({ width: c.width ?? 18 })),
-  } as never);
+  }).toFile(name);
 }

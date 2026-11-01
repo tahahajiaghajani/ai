@@ -13,6 +13,9 @@ export default defineConfig({
   publicDir: r("./src/ui/static"),
   base: "/",
   plugins: [react(), tailwindcss()],
+  // Tailwind runs as a Vite plugin; an inline (empty) PostCSS config stops Vite from picking up
+  // the repository root's postcss.config.mjs, which belongs to another app
+  css: { postcss: { plugins: [] } },
   resolve: {
     alias: { "@shared": r("./src/shared"), "@ui": r("./src/ui") },
   },

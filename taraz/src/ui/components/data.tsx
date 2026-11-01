@@ -14,6 +14,7 @@ import { exportExcel } from "../lib/excel";
 import { Money, JDate, Weight, Amount, StatusTag, EmptyState } from "./display";
 import { NumberInput, MoneyInput, PctInput, WeightInput, DateInput, RefSelect, AccountSelect } from "./inputs";
 import { PageHeader } from "./layout";
+import { ImportDrawer } from "./import";
 
 // ---------------------------------------------------------------- server table
 
@@ -32,10 +33,12 @@ export interface ServerTableProps<T> {
   summary?: (rows: readonly T[]) => ReactNode;
   scrollX?: number | string;
   select?: (data: any) => { rows: T[]; total: number };
+  /** extra buttons beside reload/export */
+  tools?: ReactNode;
 }
 
 export function ServerTable<T extends { id?: string }>({
-  path, params, columns, rowKey = "id", onRowClick, pageSize = 50, toolbar, exportName, exportColumns, queryKey, rowClassName, summary, scrollX, select,
+  path, params, columns, rowKey = "id", onRowClick, pageSize = 50, toolbar, exportName, exportColumns, queryKey, rowClassName, summary, scrollX, select, tools,
 }: ServerTableProps<T>) {
   const { api } = useOrg();
   const [page, setPage] = useState(1);
@@ -54,6 +57,7 @@ export function ServerTable<T extends { id?: string }>({
         <div className="no-print mb-3 flex flex-wrap items-center gap-2">
           {toolbar}
           <div className="ms-auto flex gap-1">
+            {tools}
             <Tooltip title="بازخوانی">
               <Button icon={<ReloadOutlined />} onClick={() => q.refetch()} loading={q.isFetching} />
             </Tooltip>
@@ -63,8 +67,14 @@ export function ServerTable<T extends { id?: string }>({
                   icon={<FileExcelOutlined />}
                   onClick={async () => {
                     try {
-                      const all = await api.get(path, { ...params, page: 1, size: 500, sort: sort.field, dir: sort.dir });
-                      const rows = select ? select(all).rows : (all.rows as T[]);
+                      // every page (500 rows each), not only the visible one
+                      const rows: T[] = [];
+                      for (let p = 1; p <= 100; p++) {
+                        const all = await api.get(path, { ...params, page: p, size: 500, sort: sort.field, dir: sort.dir });
+                        const got = select ? select(all) : { rows: (all.rows ?? []) as T[], total: Number(all.total ?? 0) };
+                        rows.push(...got.rows);
+                        if (!got.rows.length || rows.length >= got.total || got.rows.length < 500) break;
+                      }
                       await exportExcel(exportName, exportColumns, rows);
                     } catch (e) {
                       n.error(e);
@@ -334,6 +344,7 @@ export interface EntityPageProps {
 
 export function EntityPage({ entity, title, extraColumns = [], rowActions, headerActions, defaultFilters, onOpen, drawerWidth = 720, hideNew }: EntityPageProps) {
   const def = ENTITIES[entity];
+  const [importing, setImporting] = useState(false);
   const { org, can, api } = useOrg();
   const [q, setQ] = useState("");
   const [filters, setFilters] = useState<Record<string, string>>(defaultFilters ?? {});
@@ -415,6 +426,13 @@ export function EntityPage({ entity, title, extraColumns = [], rowActions, heade
           columns={columns}
           onRowClick={(r) => (onOpen ? onOpen(r) : canEdit ? setEditing(r) : undefined)}
           rowClassName={(r: any) => (r.is_active === false ? "row-muted" : "")}
+          tools={
+            canEdit && !hideNew ? (
+              <Tooltip title="ورود از اکسل">
+                <Button icon={<UploadOutlined />} onClick={() => setImporting(true)} aria-label="ورود از اکسل" />
+              </Tooltip>
+            ) : null
+          }
           exportName={def.plural}
           exportColumns={fields.filter((f) => f.list).map((f) => ({ title: f.label, value: (r: any) => (Array.isArray(r[f.name]) ? r[f.name].join("، ") : r[f.name]), type: ["money", "decimal", "int", "weight", "pct"].includes(f.type) ? "number" : "text" }))}
           toolbar={
@@ -445,6 +463,7 @@ export function EntityPage({ entity, title, extraColumns = [], rowActions, heade
       >
         {editing !== undefined ? <EntityForm def={def} initial={editing} onSaved={() => setEditing(undefined)} onCancel={() => setEditing(undefined)} /> : null}
       </Drawer>
+      {importing ? <ImportDrawer def={def} open={importing} onClose={() => setImporting(false)} /> : null}
     </div>
   );
 }

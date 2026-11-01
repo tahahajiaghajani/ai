@@ -379,3 +379,8 @@ export function entity(key: string): EntityDef | undefined {
 export function fieldsFor(def: EntityDef, modules: ModuleKey[]): FieldDef[] {
   return def.fields.filter((f) => !f.modules || f.modules.some((m) => modules.includes(m)));
 }
+
+/** Fields a spreadsheet import can fill (images and raw JSON are left to the form). */
+export function importFields(def: EntityDef, modules: ModuleKey[]): FieldDef[] {
+  return fieldsFor(def, modules).filter((f) => !f.readonly && !f.hidden && f.type !== "image" && f.type !== "json");
+}

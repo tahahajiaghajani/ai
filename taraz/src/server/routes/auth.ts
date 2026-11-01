@@ -59,6 +59,7 @@ authRoutes.post("/login", async (c) => {
   }
   if (!user || !ok) throw unauthorized("ایمیل یا رمز عبور درست نیست");
   if (user.disabled) throw forbidden("حساب شما غیرفعال شده است؛ با مدیر تماس بگیرید");
+  if (cfg.platformAdmins.includes(input.email)) await cfg.db.query(`update tz_users set is_platform_admin = true where id = $1 and not is_platform_admin`, [user.id]);
   const kind = input.device ? "device" : "web";
   const { token, session } = await issueSession(cfg.db, user.id, kind, { deviceName: input.device?.name, ip: clientIp(c), userAgent: c.req.header("user-agent") });
   if (kind === "web") setSessionCookie(c, token);
