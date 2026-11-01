@@ -12,8 +12,13 @@ import { makeCtx, lockOrg, type MemberRow, type OrgRow, type Ctx } from "../cont
 import { AGGREGATES, BY_ENTITY, type WireAggregate } from "../sync/registry";
 import { readAggregates, writeAggregate } from "../sync/apply";
 import { ident } from "../db/sql";
+import { pgArray } from "../db";
+import { afterStockChange } from "../modules/goods/stock";
 import { SYNC_PROTOCOL } from "@shared/constants";
 import { uuidv7 } from "@shared/id";
+
+/** documents whose stock moves carry moving-average costs */
+const COSTED = new Set(["invoice", "stock_doc"]);
 
 export const syncRoutes = router();
 syncRoutes.use("*", requireUser);
@@ -96,6 +101,13 @@ syncRoutes.post("/push", async (c) => {
   const list = [...input.aggregates].sort((a, b) => (BY_ENTITY.get(a.entity)?.order ?? 99) - (BY_ENTITY.get(b.entity)?.order ?? 99));
   await ctx.write(async (tx) => {
     await tx.query("set local taraz.applying = 'on'");
+    // stock moves of costed documents before and after they are replaced (see recompute below)
+    const touches: { item_id: string; date: string }[] = [];
+    const movesOf = (id: string) =>
+      tx.query<{ item_id: string; date: string }>(
+        `select item_id, min(date) as date from tz_stock_moves where org_id = $1 and source_id = $2 group by item_id`,
+        [ctx.org.id, id],
+      );
     for (const agg of list as WireAggregate[]) {
       const def = BY_ENTITY.get(agg.entity);
       if (!def) {
@@ -128,11 +140,31 @@ syncRoutes.post("/push", async (c) => {
         continue;
       }
       try {
+        const costed = COSTED.has(def.entity);
+        if (costed) touches.push(...(await movesOf(agg.id)));
         const r = await writeAggregate(tx, def, { ...agg, row: { ...agg.row, origin: input.device_id } }, ctx.org.id, "incoming-yields");
+        if (costed) touches.push(...(await movesOf(agg.id)));
         const now = await tx.one<{ rev: number }>(`select rev from ${ident(def.table)} where id = $1`, [agg.id]);
         results.push({ entity: agg.entity, id: agg.id, status: "ok", rev: now?.rev, renumbered: r.renumbered });
       } catch (e) {
         results.push({ entity: agg.entity, id: agg.id, status: "error", message: String((e as Error).message ?? e).slice(0, 300) });
+      }
+    }
+    // A document made offline (often back-dated) changes the moving-average cost of later sales
+    // here; recompute them like a local edit would. The new costs get revisions and flow back to
+    // every device. A failure must not block the upload: costs can be recomputed later.
+    if (touches.length) {
+      await tx.query("set local taraz.applying = 'off'");
+      await tx.query("savepoint tz_recost");
+      try {
+        const goods = await tx.query<{ id: string }>(`select id from tz_items where org_id = $1 and kind = 'goods' and id = any($2::uuid[])`, [ctx.org.id, pgArray([...new Set(touches.map((t) => t.item_id))])]);
+        const keep = new Set(goods.map((g) => g.id));
+        const mine = touches.filter((t) => keep.has(t.item_id));
+        if (mine.length) await afterStockChange(tx, ctx, mine, undefined, { checkNegative: false });
+        await tx.query("release savepoint tz_recost");
+      } catch (e) {
+        await tx.query("rollback to savepoint tz_recost");
+        ctx.cfg.log.warn("cost recompute after push failed", String((e as Error).message ?? e));
       }
     }
   });

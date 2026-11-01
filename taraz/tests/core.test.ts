@@ -33,6 +33,10 @@ describe("core: auth, organisation, vouchers, reports", () => {
     const list = await c.get(`/o/${org}/data/party?q=رضایی`);
     expect(list.total).toBe(1);
     await c.post(`/o/${org}/data/party`, { name: "بد", national_id: "1234567890" }, 400);
+    // each kind of detail account keeps to its own code band (the cash box already holds 20001)
+    const d = await db.one<{ code: string }>(`select code from tz_details where id = $1`, [p.row.detail_id]);
+    expect(Number(d!.code)).toBeGreaterThanOrEqual(10001);
+    expect(Number(d!.code)).toBeLessThan(20000);
   });
 
   it("posts a balanced voucher and rejects an unbalanced one", async () => {

@@ -87,7 +87,17 @@ orgRoutes.patch("/", async (c) => {
   const { settings, modules, ...profile } = input;
   const result = await ctx.write(async (tx) => {
     const patch: Record<string, unknown> = { ...profile, origin: ctx.cfg.origin };
-    if (settings) patch.settings = { ...(ctx.org.settings ?? {}), ...settings };
+    if (settings) {
+      // one level deep: a form that saves part of settings.fx / settings.gold keeps the rest
+      const prev = (ctx.org.settings ?? {}) as Record<string, unknown>;
+      const merged: Record<string, unknown> = { ...prev };
+      for (const [k, v] of Object.entries(settings as Record<string, unknown>)) {
+        const old = prev[k];
+        const plain = (x: unknown) => !!x && typeof x === "object" && !Array.isArray(x);
+        merged[k] = plain(v) && plain(old) ? { ...(old as object), ...(v as object) } : v;
+      }
+      patch.settings = merged;
+    }
     if (modules) {
       ctx.need("settings", "full");
       patch.modules = modules;

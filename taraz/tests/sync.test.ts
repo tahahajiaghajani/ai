@@ -127,4 +127,26 @@ describe("desktop ↔ cloud synchronisation", () => {
     const status = await desk.get("/local/sync");
     expect(status.pending).toBe(0);
   });
+
+  it("a back-dated purchase made offline re-costs a later sale on the web, and the new cost comes back", async () => {
+    const item = (await cloud.post(`/o/${orgId}/data/item`, { name: "کالای هم‌گام", kind: "goods", vat_pct: "0" })).row;
+    const supplier = (await cloud.post(`/o/${orgId}/data/party`, { name: "تأمین‌کننده‌ی هم‌گام", roles: ["supplier"] })).row;
+    const customer = (await cloud.post(`/o/${orgId}/data/party`, { name: "خریدار هم‌گام", roles: ["customer"] })).row;
+    const doc = (kind: string, date: string, party: string, qty: string, price: string) =>
+      ({ kind, date, party_id: party, lines: [{ item_id: item.id, qty, unit_price: price, vat_pct: "0" }] });
+    await cloud.post(`/o/${orgId}/goods/invoices`, doc("purchase", "2026-05-10", supplier.id, "10", "100"));
+    const sale = (await cloud.post(`/o/${orgId}/goods/invoices`, doc("sale", "2026-05-20", customer.id, "5", "300"))).invoice;
+    const cogs = async () => (await cloudDb.one<{ v: string }>(`select (-sum(value))::text as v from tz_stock_moves where source_id = $1`, [sale.id]))!.v;
+    expect(Number(await cogs())).toBe(500);
+    await desk.post("/local/sync");
+    // made on the Windows app while offline, dated before the web purchase
+    await desk.post(`/o/${orgId}/goods/invoices`, doc("purchase", "2026-05-01", supplier.id, "10", "200"));
+    await desk.post("/local/sync");
+    // average cost at the sale: (2000 + 1000) / 20 = 150 → 5 × 150
+    expect(Number(await cogs())).toBe(750);
+    await desk.post("/local/sync");
+    const tbCloud = await cloud.get(`/o/${orgId}/accounting/reports/trial-balance?level=3`);
+    const tbDesk = await desk.get(`/o/${orgId}/accounting/reports/trial-balance?level=3`);
+    expect(tbDesk.rows).toEqual(tbCloud.rows);
+  });
 });

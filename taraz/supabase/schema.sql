@@ -1217,20 +1217,54 @@ insert into tz_migrations (id) values ('0008_treasury') on conflict (id) do noth
 -- ---------------------------------------------------------------------------
 -- 0009_goods — کالا، انبار و فاکتور
 -- ---------------------------------------------------------------------------
-select 1;
+alter table tz_stock_docs add column if not exists account_id uuid;
+alter table tz_stock_docs add column if not exists detail_id uuid;
+alter table tz_stock_docs add column if not exists extra jsonb not null default '{}'::jsonb;
+
+create index if not exists tz_stock_moves_cost_idx on tz_stock_moves (org_id, item_id, date, seq, created_at);
+create index if not exists tz_stock_moves_line_idx on tz_stock_moves (source_line_id);
+create index if not exists tz_stock_moves_wh_idx on tz_stock_moves (org_id, warehouse_id, item_id);
+create index if not exists tz_invoices_ref_idx on tz_invoices (org_id, ref_invoice_id) where ref_invoice_id is not null;
+create index if not exists tz_stock_lines_item_idx on tz_stock_lines (org_id, item_id);
+create index if not exists tz_price_list_items_item_idx on tz_price_list_items (org_id, item_id);
 
 insert into tz_migrations (id) values ('0009_goods') on conflict (id) do nothing;
 
 -- ---------------------------------------------------------------------------
 -- 0010_gold — طلا و جواهر (تکمیلی)
 -- ---------------------------------------------------------------------------
-select 1;
+alter table tz_gold_lines add column if not exists cost numeric;
+alter table tz_gold_lines add column if not exists tag_no text;
+alter table tz_gold_lines add column if not exists extra jsonb not null default '{}'::jsonb;
+
+create index if not exists tz_gold_lines_item_idx on tz_gold_lines (org_id, gold_item_id);
+create index if not exists tz_gold_docs_kind_idx on tz_gold_docs (org_id, kind, date);
+create index if not exists tz_gold_items_in_doc_idx on tz_gold_items (org_id, in_doc_id);
+create index if not exists tz_gold_items_out_doc_idx on tz_gold_items (org_id, out_doc_id);
+create index if not exists tz_gold_items_category_idx on tz_gold_items (org_id, category_id, status);
 
 insert into tz_migrations (id) values ('0010_gold') on conflict (id) do nothing;
 
 -- ---------------------------------------------------------------------------
 -- 0011_fx — صرافی و رمزارز (تکمیلی)
 -- ---------------------------------------------------------------------------
-select 1;
+alter table tz_fx_deals add column if not exists fee_base numeric;
+alter table tz_fx_deals add column if not exists network_fee numeric not null default 0;
+alter table tz_fx_deals add column if not exists avg_cost numeric;
+alter table tz_fx_deals add column if not exists market_rate numeric;
+alter table tz_fx_deals add column if not exists cancelled_at timestamptz;
+alter table tz_fx_deals add column if not exists cancel_reason text;
+create index if not exists tz_fx_deals_status_idx on tz_fx_deals (org_id, status, date);
+
+alter table tz_remittances add column if not exists fee_base numeric;
+alter table tz_remittances add column if not exists paid_date date;
+alter table tz_remittances add column if not exists paid_voucher_id uuid;
+create index if not exists tz_remittances_tracking_idx on tz_remittances (org_id, tracking_code);
+create index if not exists tz_remittances_corr_idx on tz_remittances (org_id, correspondent_id, status);
+
+create index if not exists tz_fx_rates_latest_idx on tz_fx_rates (org_id, currency_id, at desc)
+  where deleted_at is null and quote_currency_id is null;
+create index if not exists tz_voucher_lines_currency_idx on tz_voucher_lines (org_id, currency_id)
+  where currency_id is not null;
 
 insert into tz_migrations (id) values ('0011_fx') on conflict (id) do nothing;

@@ -54,7 +54,7 @@ export default function OrgSettings() {
                   layout="vertical"
                   disabled={!editable}
                   initialValues={{ ...s, gold: s.gold ?? {}, fx: s.fx ?? {} }}
-                  onFinish={(v) => save.mutate({ settings: v })}
+                  onFinish={(v) => save.mutate({ settings: { ...v, gold: { ...(s.gold ?? {}), ...(v.gold ?? {}) }, fx: { ...(s.fx ?? {}), ...(v.fx ?? {}) } } })}
                 >
                   <div className="grid gap-x-4 md:grid-cols-3">
                     <Form.Item name="vat_pct" label="نرخ پیش‌فرض مالیات بر ارزش افزوده" extra="۱۴۰۵: ۱۰٪"><PctInput /></Form.Item>

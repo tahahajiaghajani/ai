@@ -15,14 +15,27 @@ const RANGES: Record<DetailKind, number> = {
   other: 90001,
 };
 
+/**
+ * Next free code of a kind. Each kind has its own band (persons 10001–19999, cash boxes
+ * 20001–29999, …) and, once that is full, a large overflow band (persons 1000100–1999999,
+ * cash boxes 2000100–2999999, …) so kinds never take each other's codes.
+ */
 export async function nextDetailCode(q: Queryable, orgId: string, kind: DetailKind): Promise<string> {
   const start = RANGES[kind] ?? 90001;
-  const r = await q.one<{ n: string | null }>(
-    `select max(code::bigint) as n from tz_details
-     where org_id = $1 and deleted_at is null and code ~ '^[0-9]{1,15}$' and code::bigint >= $2 and code::bigint < $3`,
-    [orgId, start, start + 9999999],
-  );
-  return String(r?.n ? Number(r.n) + 1 : start);
+  const bands: [number, number][] = [
+    [start, start + 9999],
+    [start * 100, start * 100 + 999_900],
+  ];
+  for (const [lo, hi] of bands) {
+    const r = await q.one<{ n: string | null }>(
+      `select max(code::bigint) as n from tz_details
+       where org_id = $1 and deleted_at is null and code ~ '^[0-9]{1,15}$' and code::bigint >= $2 and code::bigint < $3`,
+      [orgId, lo, hi],
+    );
+    const next = r?.n ? Number(r.n) + 1 : lo;
+    if (next < hi) return String(next);
+  }
+  throw new Error("کدهای حساب تفصیلی این نوع تمام شده است");
 }
 
 /** Create or update the detail account owned by `refId`; returns its id. */

@@ -36,10 +36,10 @@ interface Line {
 const blank = (): Line => ({ key: uuidv7(), account_id: null, detail_id: null, description: "", debit: null, credit: null, currency_id: null, fx_debit: null, fx_credit: null, fx_rate: null, w_debit: null, w_credit: null });
 
 const SOURCE_LABEL: Record<string, string> = {
-  invoice: "فاکتور", treasury_doc: "سند خزانه", cheque_op: "عملیات چک", stock_doc: "سند انبار", gold_doc: "سند طلا", fx_deal: "معامله‌ی ارز", remittance: "حواله", closing: "بستن حساب‌ها", opening: "افتتاحیه",
+  invoice: "فاکتور", treasury_doc: "سند خزانه", cheque_op: "عملیات چک", stock_doc: "سند انبار", gold_doc: "سند طلا", fx_deal: "معامله‌ی ارز", remittance: "حواله", fx_revaluation: "تسعیر ارز", closing: "بستن حساب‌ها", opening: "افتتاحیه",
 };
 const SOURCE_PATH: Record<string, string> = {
-  invoice: "sales/invoices", treasury_doc: "treasury/docs", cheque_op: "treasury/cheque-ops", stock_doc: "inventory/docs", gold_doc: "gold/docs", fx_deal: "fx/deals", remittance: "fx/remittances",
+  invoice: "sales/invoices", treasury_doc: "treasury/docs", cheque_op: "treasury/cheque-ops", stock_doc: "inventory/docs", gold_doc: "gold/docs", fx_deal: "fx/deals", remittance: "fx/remittances", fx_revaluation: "fx/revaluation",
 };
 
 export default function VoucherEditor() {
