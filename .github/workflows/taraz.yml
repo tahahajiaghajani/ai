@@ -1,0 +1,104 @@
+# «تراز» — typecheck, tests and web build; then the Windows installer built and smoke-tested on a
+# real Windows machine, uploaded as an artifact and published on the Releases page.
+name: "Taraz · CI and Windows installer"
+
+on:
+  pull_request:
+    paths:
+      - "taraz/**"
+      - ".github/workflows/taraz.yml"
+  push:
+    branches: [main, "claude/**"]
+    paths:
+      - "taraz/**"
+      - ".github/workflows/taraz.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: taraz-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: taraz
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: taraz/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run check:schema
+      - run: npm run build
+
+  windows:
+    needs: check
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: taraz
+        shell: bash
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            taraz/package-lock.json
+            taraz/desktop/package-lock.json
+      - run: npm ci
+      - run: npm ci
+        working-directory: taraz/desktop
+      - name: Prepare the app (UI, local server, Electron main)
+        run: node scripts/build-desktop.mjs
+      - name: Build the installer
+        working-directory: taraz/desktop
+        run: npx electron-builder --win nsis --x64 --publish never
+      - name: Smoke test — silent install, start, health check, uninstall
+        shell: pwsh
+        working-directory: taraz/desktop
+        run: |
+          $setup = Get-ChildItem release/Taraz-Setup-*.exe | Select-Object -First 1
+          Write-Host "installer: $($setup.Name) $([math]::Round($setup.Length/1MB,1)) MB"
+          Start-Process -FilePath $setup.FullName -ArgumentList '/S' -Wait
+          $app = Join-Path $env:LOCALAPPDATA 'Programs\Taraz\Taraz.exe'
+          if (!(Test-Path $app)) { throw "Taraz.exe was not installed" }
+          $env:TARAZ_SMOKE = '1'
+          $env:TARAZ_SMOKE_OUT = Join-Path $env:RUNNER_TEMP 'smoke.json'
+          $env:TARAZ_DATA_DIR = Join-Path $env:RUNNER_TEMP 'taraz-data'
+          $p = Start-Process -FilePath $app -ArgumentList '--smoke-test' -PassThru -Wait
+          Get-Content $env:TARAZ_SMOKE_OUT
+          Get-Content (Join-Path $env:TARAZ_DATA_DIR 'logs\app.log') -ErrorAction SilentlyContinue | Select-Object -Last 30
+          if ($p.ExitCode -ne 0) { throw "smoke test failed with exit code $($p.ExitCode)" }
+          $uninst = Join-Path $env:LOCALAPPDATA 'Programs\Taraz\Uninstall Taraz.exe'
+          if (Test-Path $uninst) { Start-Process -FilePath $uninst -ArgumentList '/S' -Wait }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: taraz-windows-installer
+          path: taraz/desktop/release/Taraz-Setup-*.exe
+          if-no-files-found: error
+          retention-days: 30
+      - name: Publish on the Releases page
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=$(node -p "require('./desktop/package.json').version")
+          if [ "${GITHUB_REF_NAME}" = "main" ]; then TAG="taraz-v${VERSION}"; TITLE="تراز ${VERSION} — نسخه‌ی ویندوز"; PRE=""; else TAG="taraz-preview"; TITLE="تراز ${VERSION} — پیش‌نمایش (${GITHUB_REF_NAME})"; PRE="--prerelease"; fi
+          gh release delete "$TAG" --cleanup-tag -y 2>/dev/null || true
+          gh release create "$TAG" desktop/release/Taraz-Setup-*.exe --target "$GITHUB_SHA" --title "$TITLE" $PRE \
+            --notes "فایل نصب ویندوز «تراز». فایل Taraz-Setup را دانلود کنید (می‌توانید روی فلش هم کپی کنید) و اجرا کنید؛ همه‌چیز خودکار نصب می‌شود. راهنما: taraz/docs/DESKTOP_FA.md"

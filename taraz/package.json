@@ -9,11 +9,11 @@
     "build": "npm run build:ui && next build",
     "build:ui": "vite build",
     "build:local": "node scripts/build-local.mjs",
-    "start:local": "node dist/local/server.mjs",
+    "start:local": "tsx scripts/serve-local.mts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
-    "schema": "tsx scripts/gen-schema.ts",
-    "check:schema": "tsx scripts/gen-schema.ts --check"
+    "schema": "tsx scripts/gen-schema.mts",
+    "check:schema": "tsx scripts/gen-schema.mts --check"
   },
   "engines": {
     "node": ">=22.12"
