@@ -129,16 +129,16 @@ export function VisionPortrait({ src, alt, detections, className = "" }: { src: 
   const wrap = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const [gl, setGl] = useState(false);
-  // bumped when the browser gives a lost WebGL context back, to set everything up again
+  // bumped when the browser gives a lost WebGL context back, or once to rebuild a broken picture: everything is set up
+  // again, the photo uploaded afresh
   const [epoch, setEpoch] = useState(0);
+  const rebuilt = useRef(false);
 
   useEffect(() => {
     const el = wrap.current;
     const cv = canvas.current;
     if (!el || !cv) return;
-    // opaque: every pixel is drawn at full alpha anyway. A transparent canvas with premultipliedAlpha false goes through
-    // WebKit's own compositing path for unpremultiplied canvases, the likely cause of a washed-out, half-inverted
-    // portrait (mixed with the photo under it) on iPhones after a scroll down and back
+    // opaque: every pixel is drawn at full alpha, and an opaque canvas is the cheapest layer to composite
     const ctx = cv.getContext("webgl", { alpha: false, antialias: false, powerPreference: "high-performance" });
     if (!ctx || ctx.isContextLost()) return;
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -176,8 +176,10 @@ export function VisionPortrait({ src, alt, detections, className = "" }: { src: 
     let dirty = false;
     let disposed = false;
     let wasLost = false;
-    // the frame is checked for a broken (white) picture: on its first frame, once revealed, and after each return
+    // the picture is checked on its first frame, once revealed and after each return: for a white frame at once, for a
+    // washed-out one once the portrait is back at rest at the top
     let checkSoon = true;
+    let checkAtRest = true;
     let checkedRevealed = false;
     const start = performance.now();
 
@@ -192,9 +194,19 @@ export function VisionPortrait({ src, alt, detections, className = "" }: { src: 
       if (disposed || ctx.isContextLost()) return;
       imgW = img.naturalWidth;
       imgH = img.naturalHeight;
+      // through a 2D canvas, which hands WebGL plain RGBA pixels as the page shows them. On an iPhone the portrait once
+      // came back washed out after a scroll away: this shader drawing from a far too bright copy of the photo, a
+      // one-channel (grey) progressive JPEG that had been uploaded straight from the decoder
+      const flat = document.createElement("canvas");
+      flat.width = imgW;
+      flat.height = imgH;
+      const c2d = flat.getContext("2d");
+      c2d?.drawImage(img, 0, 0);
       ctx.bindTexture(ctx.TEXTURE_2D, tex);
       ctx.pixelStorei(ctx.UNPACK_FLIP_Y_WEBGL, true);
-      ctx.texImage2D(ctx.TEXTURE_2D, 0, ctx.RGBA, ctx.RGBA, ctx.UNSIGNED_BYTE, img);
+      ctx.texImage2D(ctx.TEXTURE_2D, 0, ctx.RGBA, ctx.RGBA, ctx.UNSIGNED_BYTE, c2d ? flat : img);
+      // the copy is no longer needed: give its memory back
+      flat.width = flat.height = 0;
       ctx.texParameteri(ctx.TEXTURE_2D, ctx.TEXTURE_MIN_FILTER, ctx.LINEAR);
       ctx.texParameteri(ctx.TEXTURE_2D, ctx.TEXTURE_MAG_FILTER, ctx.LINEAR);
       ctx.texParameteri(ctx.TEXTURE_2D, ctx.TEXTURE_WRAP_S, ctx.CLAMP_TO_EDGE);
@@ -224,8 +236,8 @@ export function VisionPortrait({ src, alt, detections, className = "" }: { src: 
       draw(true);
     };
 
-    // the canvas could not show the photo (all white: a broken texture or a mobile GPU's lost buffer): hide it, show
-    // the <img>, stop everything and give the GPU memory back
+    // the canvas could not show the photo (white or washed out: a broken texture or a mobile GPU's lost buffer): hide it,
+    // show the <img>, stop everything and give the GPU memory back
     const giveUp = (why: string) => {
       console.warn("[portrait] showing the plain photo:", why);
       disposed = true;
@@ -236,15 +248,20 @@ export function VisionPortrait({ src, alt, detections, className = "" }: { src: 
       ctx.getExtension("WEBGL_lose_context")?.loseContext();
     };
 
-    // points inside the vignette's bright centre and away from the face: a correct frame is dark at all of them
-    const isWhite = () => {
+    // points inside the vignette's bright centre where the photo is dark (suit and background, away from the face). At
+    // rest a correct frame reads at most about 64 at each; in the scroll dissolve, halftone dots can light up to two of
+    // them. Broken: four near white anywhere, or, at rest, three above 120 (the washed-out picture an iPhone once
+    // showed: this shader drawing from a far too bright texture)
+    const isBroken = (atRest: boolean) => {
       const px = new Uint8Array(4);
-      let bright = 0;
+      let white = 0;
+      let light = 0;
       for (const [fx, fy] of [[0.35, 0.35], [0.5, 0.45], [0.65, 0.35], [0.3, 0.55], [0.7, 0.55]]) {
         ctx.readPixels(Math.floor(cv.width * fx), Math.floor(cv.height * fy), 1, 1, ctx.RGBA, ctx.UNSIGNED_BYTE, px);
-        if (px[0] > 200) bright++;
+        if (px[0] > 200) white++;
+        if (px[0] > 120) light++;
       }
-      return bright >= 4;
+      return white >= 4 || (atRest && light >= 3);
     };
 
     const draw = (force = false) => {
@@ -260,14 +277,23 @@ export function VisionPortrait({ src, alt, detections, className = "" }: { src: 
       ctx.uniform1f(u.scan, state.scan);
       ctx.uniform1f(u.time, (performance.now() - start) / 1000);
       ctx.drawArrays(ctx.TRIANGLE_STRIP, 0, 4);
-      // with neither the lens nor the band on, every correct frame is dark where isWhite() looks (the scroll dissolve too)
-      if (checkSoon && state.hover < 0.01 && (state.scan < 0 || state.scan > 1)) {
+      // only with neither the lens nor the band on. A broken picture is rebuilt once, with the photo uploaded afresh,
+      // before the plain photo takes over
+      const atRest = state.scroll < 0.05;
+      if ((checkSoon || (checkAtRest && atRest)) && state.hover < 0.01 && (state.scan < 0 || state.scan > 1)) {
         checkSoon = false;
-        if (isWhite()) return giveUp("the canvas is white");
+        if (atRest) checkAtRest = false;
+        if (isBroken(atRest)) {
+          if (rebuilt.current) return giveUp("the picture is white or washed out");
+          rebuilt.current = true;
+          console.warn("[portrait] rebuilding: the picture is white or washed out");
+          disposed = true;
+          return setEpoch((n) => n + 1);
+        }
       }
       if (!checkedRevealed && state.reveal >= 1) {
         checkedRevealed = true;
-        checkSoon = true;
+        checkSoon = checkAtRest = true;
       }
       // the lens keeps drawing while it is on or settling; everything else asks for a frame when it changes
       const settling = Math.abs(state.hoverTarget - state.hover) > 0.002 || Math.abs(state.tx - state.mx) + Math.abs(state.ty - state.my) > 0.001;
@@ -297,7 +323,7 @@ export function VisionPortrait({ src, alt, detections, className = "" }: { src: 
     // a page brought back from the background may have had its canvas cleared without any event
     const back = () => {
       if (document.visibilityState !== "visible") return;
-      checkSoon = true;
+      checkSoon = checkAtRest = true;
       kick();
     };
     document.addEventListener("visibilitychange", back);
@@ -328,7 +354,7 @@ export function VisionPortrait({ src, alt, detections, className = "" }: { src: 
       visible = entries[entries.length - 1].isIntersecting;
       if (!visible) return;
       // back from a scroll away: check the picture again
-      if (!was) checkSoon = true;
+      if (!was) checkSoon = checkAtRest = true;
       kick();
     });
     io.observe(el);
