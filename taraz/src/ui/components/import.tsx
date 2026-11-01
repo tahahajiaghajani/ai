@@ -177,12 +177,25 @@ export function ImportDrawer({ def, open, onClose }: { def: EntityDef; open: boo
               </Checkbox>
             ) : null}
             <div className="ms-auto flex gap-2">
-              <Button icon={<CheckCircleOutlined />} onClick={() => run(true)} disabled={busy || !mapped || missing.length > 0}>
+              <Button icon={<CheckCircleOutlined />} onClick={() => run(true)} disabled={busy || !mapped || missing.length > 0 || (!!summary && !summary.dry)}>
                 بررسی بدون ثبت
               </Button>
-              <Button type="primary" icon={<FileExcelOutlined />} onClick={() => run(false)} loading={busy} disabled={!mapped || missing.length > 0}>
-                ورود {faDigits(file.rows.length)} ردیف
-              </Button>
+              {summary && !summary.dry && summary.created + summary.updated > 0 ? (
+                // imported: a second click would create the rows again
+                <Button
+                  type="primary"
+                  onClick={() => {
+                    reset();
+                    onClose();
+                  }}
+                >
+                  بستن
+                </Button>
+              ) : (
+                <Button type="primary" icon={<FileExcelOutlined />} onClick={() => run(false)} loading={busy} disabled={!mapped || missing.length > 0}>
+                  ورود {faDigits(file.rows.length)} ردیف
+                </Button>
+              )}
             </div>
           </div>
         ) : null

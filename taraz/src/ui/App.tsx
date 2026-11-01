@@ -13,6 +13,7 @@ const Recover = lazy(() => import("./pages/auth/Recover"));
 const Setup = lazy(() => import("./pages/auth/Setup"));
 const Orgs = lazy(() => import("./pages/orgs/Orgs"));
 const OrgWizard = lazy(() => import("./pages/orgs/OrgWizard"));
+const Admin = lazy(() => import("./pages/admin/Admin"));
 
 export function Loading({ full }: { full?: boolean }) {
   return (
@@ -85,6 +86,7 @@ export function App() {
         <Route path="/" element={<RequireAuth><Home /></RequireAuth>} />
         <Route path="/orgs" element={<RequireAuth><Orgs /></RequireAuth>} />
         <Route path="/orgs/new" element={<RequireAuth><OrgWizard /></RequireAuth>} />
+        <Route path="/admin" element={<RequireAuth><Admin /></RequireAuth>} />
         <Route path="/:org/*" element={<RequireAuth><OrgArea /></RequireAuth>} />
       </Routes>
     </Suspense>

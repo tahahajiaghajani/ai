@@ -1,5 +1,5 @@
 import { Button, Tag } from "antd";
-import { PlusOutlined, RightOutlined, LogoutOutlined } from "@ant-design/icons";
+import { PlusOutlined, RightOutlined, LogoutOutlined, ControlOutlined } from "@ant-design/icons";
 import { Link, useNavigate } from "react-router";
 import { useSession } from "../../lib/session";
 import { Logo } from "../../components/layout";
@@ -13,9 +13,16 @@ export default function Orgs() {
     <div className="mx-auto max-w-3xl p-6 md:p-10">
       <div className="mb-8 flex items-center justify-between">
         <Logo />
-        <Button type="text" icon={<LogoutOutlined />} onClick={logout}>
-          خروج
-        </Button>
+        <div className="flex gap-1">
+          {me?.user.is_platform_admin ? (
+            <Button type="text" icon={<ControlOutlined />} onClick={() => nav("/admin")}>
+              مدیریت سامانه
+            </Button>
+          ) : null}
+          <Button type="text" icon={<LogoutOutlined />} onClick={logout}>
+            خروج
+          </Button>
+        </div>
       </div>
       <div className="mb-4 flex items-center justify-between">
         <h1 className="m-0 text-xl font-bold">کسب‌وکارهای شما</h1>

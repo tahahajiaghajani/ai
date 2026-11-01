@@ -1,5 +1,6 @@
 // The HTTP API — the same Hono app runs on Vercel (cloud) and inside the Windows app (desktop).
 import { Hono } from "hono";
+import { z } from "zod";
 import type { Env } from "./http/hono";
 import { errorResponse, loadOrg, optionalUser, requireUser, sameOrigin } from "./http/hono";
 import type { ServerConfig } from "./context";
@@ -11,8 +12,12 @@ import { moduleRoutes } from "./routes/modules";
 import { syncRoutes } from "./routes/sync";
 import { hookRoutes, publicApiRoutes, integrationRoutes } from "./routes/integrations";
 import { localRoutes } from "./routes/local";
+import { adminRoutes } from "./routes/admin";
 import { migrationStatus } from "./db/migrate";
 import { APP_NAME, APP_VERSION, SYNC_PROTOCOL } from "@shared/constants";
+
+// validation messages that a schema does not word itself come out in Persian
+z.config(z.locales.fa());
 
 export function createApp(cfg: ServerConfig) {
   const app = new Hono<Env>().basePath("/api");
@@ -62,6 +67,7 @@ export function createApp(cfg: ServerConfig) {
 
   app.route("/auth", authRoutes);
   app.route("/orgs", orgsRoutes);
+  app.route("/admin", adminRoutes);
 
   const org = new Hono<Env>();
   org.use("*", requireUser, loadOrg);
