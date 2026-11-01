@@ -3,12 +3,12 @@
 // in and goes out of the bank in the coming days.
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Button, Segmented, Space, Table, Tag } from "antd";
+import { Alert, Button, Segmented, Space, Table, Tag } from "antd";
 import { PrinterOutlined } from "@ant-design/icons";
 import { useOrg } from "../../lib/org";
 import { DateInput } from "../../components/inputs";
 import { JDate, Money, StatusTag } from "../../components/display";
-import { faDigits } from "@shared/format";
+import { faDigits, formatNumber } from "@shared/format";
 import { formatJalali } from "@shared/jalali";
 import { D } from "@shared/money";
 import { chequeStatusMap } from "./labels";
@@ -81,6 +81,14 @@ export function ChequesDue({ onOpen }: { onOpen: (id: string) => void }) {
           </div>
         ))}
       </div>
+      {d?.truncated ? (
+        <Alert
+          className="!mb-3"
+          type="warning"
+          showIcon
+          title={`فقط ${formatNumber(rows.length)} چک نخست در جزئیات روزها آمده است؛ جمع‌ها همه‌ی چک‌ها را در بر دارد. برای دیدن بقیه، بازه‌ی سررسید را کوتاه‌تر کنید.`}
+        />
+      ) : null}
       <Table
         className="tz-table"
         size="small"

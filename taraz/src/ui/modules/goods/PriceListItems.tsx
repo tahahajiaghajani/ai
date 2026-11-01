@@ -35,6 +35,7 @@ export default function PriceListItems() {
   const [rows, setRows] = useState<Row[]>([]);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [adding, setAdding] = useState(false);
   const [search, setSearch] = useState("");
   const [pct, setPct] = useState<string | null>(null);
   const [step, setStep] = useState<string | null>("1000");
@@ -58,17 +59,23 @@ export default function PriceListItems() {
     setDirty(true);
   };
   const addAll = async () => {
+    if (adding) return;
+    setAdding(true);
     try {
-      const r = await api.get("/data/item", { size: 500, "f.is_active": "true" });
+      // every active good and service in one call (sales permission, no page limit)
+      const r = await api.get<{ rows: any[] }>(`/goods/price-lists/${id}/all-items`);
       const have = new Set(rows.map((x) => x.item_id));
-      const extra: Row[] = (r.rows as any[])
-        .filter((it) => it.kind !== "coin" && !have.has(it.id))
-        .map((it) => ({ key: uuidv7(), item_id: it.id, code: it.code, name: it.name, unit_name: null, sale_price: it.sale_price, price: it.sale_price, min_qty: null }));
+      const extra: Row[] = r.rows
+        .filter((it) => !have.has(it.item_id))
+        .map((it) => ({ key: uuidv7(), item_id: it.item_id, code: it.code, name: it.name, unit_name: it.unit_name, sale_price: it.sale_price, price: it.sale_price, min_qty: null }));
+      if (!extra.length) return n.info("همه‌ی کالاها در فهرست هستند");
       setRows((rs) => [...rs, ...extra]);
       setDirty(true);
       n.ok(`${faDigits(extra.length)} کالا اضافه شد`);
     } catch (e) {
       n.error(e);
+    } finally {
+      setAdding(false);
     }
   };
   const applyPct = () => {
@@ -136,7 +143,7 @@ export default function PriceListItems() {
           {editable ? (
             <>
               <div className="w-80"><ItemSelect value={null} ctx={{}} onChange={add} placeholder="افزودن کالا یا خدمت…" /></div>
-              <Button icon={<PlusOutlined />} onClick={addAll}>افزودن همه‌ی کالاها</Button>
+              <Button icon={<PlusOutlined />} loading={adding} onClick={addAll}>افزودن همه‌ی کالاها</Button>
               <Popover
                 trigger="click"
                 content={

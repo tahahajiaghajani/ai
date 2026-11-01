@@ -444,3 +444,83 @@ describe("goods: sync of documents changed by the costing run (desktop)", () => 
     expect(D(cogs!.v).toString()).toBe("650");
   });
 });
+
+describe("goods: the API is refused when the goods module is off", () => {
+  it("refuses goods invoices, stock documents and reports, while coins (gold) and treasury keep working", async () => {
+    const { app, db } = await makeServer();
+    const c = new Client(app);
+    const org = await signupWithOrg(c, ["gold"], "gold");
+    const o = (p: string) => `/o/${org}/goods${p}`;
+    const wh = (await db.one<{ id: string }>(`select id from tz_warehouses where org_id = $1`, [org]))!.id;
+    const unit = (await db.one<{ id: string }>(`select id from tz_units where org_id = $1 and name = 'عدد'`, [org]))!.id;
+    const item = (await c.post(`/o/${org}/data/item`, { name: "کالای بی‌ماژول", kind: "goods", unit_id: unit, vat_pct: "0" })).row.id;
+    const customer = (await c.post(`/o/${org}/data/party`, { name: "مشتری طلافروشی", roles: ["customer"] })).row;
+    const supplier = (await c.post(`/o/${org}/data/party`, { name: "بنکدار سکه", roles: ["wholesaler", "supplier"] })).row;
+    const lines = [{ item_id: item, qty: "1", unit_price: "100" }];
+
+    const e = await c.post(o("/invoices"), { kind: "sale", status: "draft", date: "2026-05-01", party_id: customer.id, lines }, 403);
+    expect(e.error.message).toContain("کالا");
+    await c.post(o("/invoices"), { kind: "purchase", date: "2026-05-01", party_id: supplier.id, lines }, 403);
+    await c.post(o("/stock-docs"), { kind: "receipt", date: "2026-05-01", warehouse_id: wh, lines: [{ item_id: item, qty: "1", unit_cost: "100" }] }, 403);
+    await c.post(o("/costing/recompute"), {}, 403);
+    for (const p of ["/invoices", "/stock-docs", "/summary", "/items/lookup?q=x", "/reports/stock", "/reports/sales"]) await c.get(o(p), 403);
+    const made = await db.one<{ n: number }>(
+      `select (select count(*) from tz_invoices where org_id = $1)::int + (select count(*) from tz_stock_docs where org_id = $1)::int as n`,
+      [org],
+    );
+    expect(made!.n).toBe(0);
+
+    // coins are items too, but the gold module buys and sells them with its own documents
+    const coin = (await c.get(`/o/${org}/data/item?f.kind=coin&size=50`)).rows[0];
+    await c.post(`/o/${org}/gold/docs`, { kind: "purchase", date: "2026-05-02", party_id: supplier.id, lines: [{ kind: "coin", item_id: coin.id, qty: "2", gram_price: "1000000" }] });
+    const sold = (await c.post(`/o/${org}/gold/docs`, { kind: "sale", date: "2026-05-03", party_id: customer.id, lines: [{ kind: "coin", item_id: coin.id, qty: "1", gram_price: "1200000" }] })).doc;
+    expect(sold.status).toBe("posted");
+    // treasury looks open invoices up through its own endpoint
+    expect((await c.get(`/o/${org}/treasury/invoices?party_id=${customer.id}&kind=receipt`)).rows).toEqual([]);
+  });
+});
+
+describe("goods: «add all items» of a price list", () => {
+  it("returns every active good and service, not a first page, to members who may edit sales prices", async () => {
+    const { app, db } = await makeServer();
+    const c = new Client(app);
+    const org = await signupWithOrg(c, ["goods", "gold"], "mixed"); // gold seeds coins, which never go on a price list
+    const unit = (await db.one<{ id: string }>(`select id from tz_units where org_id = $1 and name = 'عدد'`, [org]))!.id;
+    // 620 items: every 100th a service, every 7th without a sale price, #3 inactive, #5 deleted
+    await db.query(
+      `insert into tz_items (org_id, code, name, kind, unit_id, sale_price, is_active, origin)
+       select $1, (20000 + g)::text, 'کالای انبوه ' || g, case when g % 100 = 0 then 'service' else 'goods' end, $2,
+              case when g % 7 = 0 then null else g * 1000 end, g <> 3, 'cloud'
+       from generate_series(1, 620) g`,
+      [org, unit],
+    );
+    await db.query(`update tz_items set deleted_at = now() where org_id = $1 and code = '20005'`, [org]);
+    const list = (await c.post(`/o/${org}/data/price_list`, { name: "همکاران" })).row;
+    const path = `/o/${org}/goods/price-lists/${list.id}/all-items`;
+
+    const all = (await c.get(path)).rows as any[];
+    expect(all).toHaveLength(618);
+    expect(all[0]).toMatchObject({ code: "20001", name: "کالای انبوه 1", kind: "goods", sale_price: "1000", unit_name: "عدد" });
+    expect(all.find((r) => r.code === "20100").kind).toBe("service");
+    expect(all.find((r) => r.code === "20007").sale_price).toBeNull();
+    expect(all.some((r) => r.code === "20003" || r.code === "20005" || r.kind === "coin")).toBe(false);
+
+    // a cashier edits sales prices but cannot see the inventory section
+    await c.post(`/o/${org}/members`, { email: "cashier@example.com", full_name: "صندوقدار آزمایشی", role: "cashier", password: "s3cret-pass-3" });
+    const k = new Client(app);
+    await k.post("/auth/login", { email: "cashier@example.com", password: "s3cret-pass-3" });
+    const got = (await k.get(path)).rows as any[];
+    expect(got).toHaveLength(618);
+    const saved = await k.put(`/o/${org}/goods/price-lists/${list.id}/items`, { items: got.map((r) => ({ item_id: r.item_id, price: r.sale_price ?? "500" })) });
+    expect(saved.count).toBe(618);
+    expect((await k.get(`/o/${org}/goods/price-lists/${list.id}/items`)).rows).toHaveLength(618);
+
+    // a storekeeper only views sales; an unknown list is not found
+    await c.post(`/o/${org}/members`, { email: "keeper@example.com", full_name: "انباردار آزمایشی", role: "warehouse", password: "s3cret-pass-4" });
+    const w = new Client(app);
+    await w.post("/auth/login", { email: "keeper@example.com", password: "s3cret-pass-4" });
+    await w.get(path, 403);
+    await c.get(`/o/${org}/goods/price-lists/01a19897-0000-7000-8000-000000000000/all-items`, 404);
+    await c.get(`/o/${org}/goods/price-lists/not-a-list/all-items`, 404);
+  });
+});

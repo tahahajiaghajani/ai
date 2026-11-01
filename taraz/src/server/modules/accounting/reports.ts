@@ -14,6 +14,18 @@ function statusCond(includeDrafts?: boolean) {
   return includeDrafts ? "v.status <> 'void'" : "v.status in ('posted','final')";
 }
 
+/**
+ * SQL test (on voucher `v`) for what a report starting at `from` shows as brought forward rather
+ * than as turnover: everything dated before `from`, and opening vouchers (سند افتتاحیه). In a report
+ * of one fiscal year every opening voucher of the year (up to `to`) is brought forward, though dated
+ * on its first day. Across years (no fiscal year) an opening voucher counts as coming first on its
+ * day — brought forward when the report starts on or after its date, and a movement otherwise,
+ * because the previous year's closing voucher that it mirrors is a movement of that range too.
+ */
+function broughtForward(from: string, to: string, oneYear: boolean) {
+  return `(v.date < ${from} or (v.kind = 'opening' and v.date <= ${to}${oneYear ? "" : ` and v.date <= ${from}`}))`;
+}
+
 interface AccountNode {
   id: string;
   parent_id: string | null;
@@ -46,7 +58,7 @@ interface Sums {
   w_cr: string;
 }
 
-/** Sums per account: opening (before `from`, same fiscal year) and the period. */
+/** Sums per account: opening (brought forward to `from`, see broughtForward) and the period. */
 async function sumsByAccount(q: Queryable, orgId: string, r: ReportRange, extra = "", extraParams: unknown[] = []) {
   const params: unknown[] = [orgId, r.from ?? "0001-01-01", r.to ?? "9999-12-31"];
   let fy = "";
@@ -55,15 +67,16 @@ async function sumsByAccount(q: Queryable, orgId: string, r: ReportRange, extra 
     fy = `and v.fiscal_year_id = $${params.length}`;
   }
   params.push(...extraParams);
+  const op = broughtForward("$2", "$3", !!r.fiscalYearId);
   return q.query<Sums & { account_id: string }>(
     `select l.account_id,
-            coalesce(sum(case when v.date < $2 then l.debit end), 0) as op_dr,
-            coalesce(sum(case when v.date < $2 then l.credit end), 0) as op_cr,
-            coalesce(sum(case when v.date >= $2 then l.debit end), 0) as dr,
-            coalesce(sum(case when v.date >= $2 then l.credit end), 0) as cr,
-            coalesce(sum(case when v.date < $2 then l.w_debit - l.w_credit end), 0) as w_op,
-            coalesce(sum(case when v.date >= $2 then l.w_debit end), 0) as w_dr,
-            coalesce(sum(case when v.date >= $2 then l.w_credit end), 0) as w_cr
+            coalesce(sum(case when ${op} then l.debit end), 0) as op_dr,
+            coalesce(sum(case when ${op} then l.credit end), 0) as op_cr,
+            coalesce(sum(case when ${op} then null else l.debit end), 0) as dr,
+            coalesce(sum(case when ${op} then null else l.credit end), 0) as cr,
+            coalesce(sum(case when ${op} then l.w_debit - l.w_credit end), 0) as w_op,
+            coalesce(sum(case when ${op} then null else l.w_debit end), 0) as w_dr,
+            coalesce(sum(case when ${op} then null else l.w_credit end), 0) as w_cr
      from tz_voucher_lines l join tz_vouchers v on v.id = l.voucher_id
      where l.org_id = $1 and v.deleted_at is null and ${statusCond(r.includeDrafts)} and v.date <= $3 ${fy} ${extra}
      group by l.account_id`,
@@ -155,7 +168,13 @@ export interface LedgerParams extends ReportRange {
   currencyId?: string | null;
 }
 
-/** Ledger (دفتر حساب) of an account subtree and/or a detail account with running balances. */
+/** Lines a ledger lists at most; its opening, totals and closing balance always cover the whole range. */
+export const LEDGER_ROW_LIMIT = 20000;
+
+/**
+ * Ledger (دفتر حساب) of an account subtree and/or a detail account with running balances.
+ * `truncated` tells that the range has more lines than the first LEDGER_ROW_LIMIT listed in `rows`.
+ */
 export async function ledger(q: Queryable, orgId: string, p: LedgerParams) {
   const params: unknown[] = [orgId];
   const cond: string[] = ["l.org_id = $1", "v.deleted_at is null", statusCond(p.includeDrafts)];
@@ -182,45 +201,98 @@ export async function ledger(q: Queryable, orgId: string, p: LedgerParams) {
   const fromIdx = params.length;
   params.push(to);
   const toIdx = params.length;
-  const opening = await q.one<{ dr: string; cr: string; fx: string; w: string }>(
-    `select coalesce(sum(l.debit),0) as dr, coalesce(sum(l.credit),0) as cr, coalesce(sum(l.fx_debit - l.fx_credit),0) as fx, coalesce(sum(l.w_debit - l.w_credit),0) as w
-     from tz_voucher_lines l join tz_vouchers v on v.id = l.voucher_id
-     where ${cond.join(" and ")} and v.date < $${fromIdx}`,
-    params.slice(0, toIdx - 1),
-  );
-  const rows = await q.query(
+  // brought forward to `from` (see broughtForward), and the range's lines (movements): `rows` lists
+  // them up to the limit, the totals sum them all in SQL — both from this one condition, so the
+  // totals always match what the rows would add up to
+  const fwd = broughtForward(`$${fromIdx}`, `$${toIdx}`, !!p.fiscalYearId);
+  const moves = `${cond.join(" and ")} and v.date <= $${toIdx} and not ${fwd}`;
+  // sums per currency: foreign amounts of different currencies never add up
+  const sums = (where: string) =>
+    q.query<{ currency_id: string | null; currency_code: string | null; dr: string; cr: string; fx_dr: string; fx_cr: string; w: string }>(
+      `select l.currency_id, c.code as currency_code, coalesce(sum(l.debit),0) as dr, coalesce(sum(l.credit),0) as cr,
+              coalesce(sum(l.fx_debit),0) as fx_dr, coalesce(sum(l.fx_credit),0) as fx_cr, coalesce(sum(l.w_debit - l.w_credit),0) as w
+       from tz_voucher_lines l join tz_vouchers v on v.id = l.voucher_id left join tz_currencies c on c.id = l.currency_id
+       where ${where}
+       group by l.currency_id, c.code`,
+      params,
+    );
+  const opening = await sums(`${cond.join(" and ")} and ${fwd}`);
+  const period = await sums(moves);
+  const fetched = await q.query(
     `select v.id as voucher_id, v.no, v.date, v.kind, v.source_type, v.source_id, coalesce(l.description, v.description) as description,
             l.debit, l.credit, l.fx_debit, l.fx_credit, l.fx_rate, l.w_debit, l.w_credit, l.line_no,
-            a.code as account_code, a.name as account_name, d.code as detail_code, d.name as detail_name, c.code as currency_code
+            a.code as account_code, a.name as account_name, d.code as detail_code, d.name as detail_name, l.currency_id, c.code as currency_code
      from tz_voucher_lines l
      join tz_vouchers v on v.id = l.voucher_id
      join tz_accounts a on a.id = l.account_id
      left join tz_details d on d.id = l.detail_id
      left join tz_currencies c on c.id = l.currency_id
-     where ${cond.join(" and ")} and v.date >= $${fromIdx} and v.date <= $${toIdx}
+     where ${moves}
      order by v.date, v.no, l.line_no
-     limit 20000`,
+     limit ${LEDGER_ROW_LIMIT + 1}`,
     params,
   );
-  let bal = D(opening?.dr ?? 0).minus(D(opening?.cr ?? 0));
-  let fx = D(opening?.fx ?? 0);
-  let w = D(opening?.w ?? 0);
-  let tdr = D(0);
-  let tcr = D(0);
+  const truncated = fetched.length > LEDGER_ROW_LIMIT;
+  const rows = truncated ? fetched.slice(0, LEDGER_ROW_LIMIT) : fetched;
+  // base-currency amounts and gold weights add up over every line
+  const sum = (xs: typeof opening, k: "dr" | "cr" | "w") => xs.reduce((a, x) => a.plus(D(x[k])), D(0));
+  const op = sum(opening, "dr").minus(sum(opening, "cr"));
+  const opW = sum(opening, "w");
+  const tdr = sum(period, "dr");
+  const tcr = sum(period, "cr");
+  // foreign amounts: opening, period and closing of each currency on its own
+  type Dec = ReturnType<typeof D>;
+  const byCur = new Map<string, { currency_id: string; currency_code: string | null; opening: Dec; debit: Dec; credit: Dec }>();
+  const entry = (currency_id: string, currency_code: string | null) => {
+    let e = byCur.get(currency_id);
+    if (!e) byCur.set(currency_id, (e = { currency_id, currency_code, opening: D(0), debit: D(0), credit: D(0) }));
+    return e;
+  };
+  for (const x of opening) {
+    if (!x.currency_id) continue;
+    const e = entry(x.currency_id, x.currency_code);
+    e.opening = e.opening.plus(D(x.fx_dr)).minus(D(x.fx_cr));
+  }
+  for (const x of period) {
+    if (!x.currency_id) continue;
+    const e = entry(x.currency_id, x.currency_code);
+    e.debit = e.debit.plus(D(x.fx_dr));
+    e.credit = e.credit.plus(D(x.fx_cr));
+  }
+  const fx_balances = [...byCur.values()]
+    .filter((f) => !(f.opening.isZero() && f.debit.isZero() && f.credit.isZero()))
+    .sort((a, b) => (a.currency_code ?? "").localeCompare(b.currency_code ?? ""))
+    .map((f) => ({ currency_id: f.currency_id, currency_code: f.currency_code, opening: f.opening.toString(), debit: f.debit.toString(), credit: f.credit.toString(), balance: f.opening.plus(f.debit).minus(f.credit).toString() }));
+  // one foreign figure only while the ledger holds a single currency; null when it holds several
+  const single = fx_balances.length > 1 ? null : (fx_balances[0] ?? { opening: "0", balance: "0" });
+  let bal = op;
+  let w = opW;
+  const fxRun = new Map(fx_balances.map((f) => [f.currency_id, D(f.opening)]));
   const out = rows.map((r) => {
     bal = bal.plus(D(r.debit)).minus(D(r.credit));
-    fx = fx.plus(D(r.fx_debit)).minus(D(r.fx_credit));
     w = w.plus(D(r.w_debit)).minus(D(r.w_credit));
-    tdr = tdr.plus(D(r.debit));
-    tcr = tcr.plus(D(r.credit));
-    return { ...r, balance: bal.toString(), fx_balance: fx.toString(), w_balance: w.toString() };
+    // a line's running foreign balance is in the line's own currency
+    let fx: Dec | null = null;
+    if (r.currency_id) {
+      fx = (fxRun.get(r.currency_id) ?? D(0)).plus(D(r.fx_debit)).minus(D(r.fx_credit));
+      fxRun.set(r.currency_id, fx);
+    }
+    return { ...r, balance: bal.toString(), fx_balance: fx ? fx.toString() : null, w_balance: w.toString() };
   });
   return {
-    opening: D(opening?.dr ?? 0).minus(D(opening?.cr ?? 0)).toString(),
-    opening_fx: opening?.fx ?? "0",
-    opening_w: opening?.w ?? "0",
+    opening: op.toString(),
+    opening_fx: single ? single.opening : null,
+    opening_w: opW.toString(),
+    fx_balances,
     rows: out,
-    totals: { debit: tdr.toString(), credit: tcr.toString(), balance: bal.toString(), fx_balance: fx.toString(), w_balance: w.toString() },
+    truncated,
+    totals: {
+      debit: tdr.toString(),
+      credit: tcr.toString(),
+      balance: op.plus(tdr).minus(tcr).toString(),
+      fx_balance: single ? single.balance : null,
+      w_balance: opW.plus(sum(period, "w")).toString(),
+    },
   };
 }
 

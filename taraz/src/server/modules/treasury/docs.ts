@@ -256,7 +256,8 @@ export async function saveDoc(tx: Tx, ctx: Ctx, input: DocInput, id?: string): P
   for (const c of removed) {
     if (chequeMoved(c)) throw conflict(`${chequeLabel(c)} «${chequeStatusTitle(c.direction, c.status)}» است و نمی‌توان آن را از سند حذف کرد`);
   }
-  await checkDuplicates(tx, org.id, specs);
+  // a cheque this save drops may be typed again on a new line (same Sayad number or leaf)
+  await checkDuplicates(tx, org.id, specs, removed.filter((c) => !chequeMoved(c)).map((c) => c.id));
 
   // ----- allocations to invoices
   const allocs = await resolveAllocs(tx, org.id, { kind, party, total, docId, dp, allocs: input.allocs ?? [] });
@@ -526,11 +527,13 @@ async function resolveLine(tx: Tx, ctx: Ctx, L: Lookups, rc: ResolveCtx): Promis
           bankAccountId = c.bank_account_id ?? l.bank_account_id ?? null;
           if (!bankAccountId) throw bad(`${w}دسته‌چک یا حساب بانکی چک را انتخاب کنید`);
         }
+        // an issued cheque is drawn on our own account: its bank, branch, account number and owner are
+        // that account's, never the client's (an edited line may still hold the previous book's)
         const bank = await L.bank(bankAccountId, w);
-        bankName = bankName ?? bank.bank_name ?? bank.name;
-        branchName = branchName ?? bank.branch_name;
-        accountNo = accountNo ?? digits(bank.account_no);
-        owner = owner ?? bank.owner_name ?? ctx.org.name;
+        bankName = clean(bank.bank_name) ?? bank.name;
+        branchName = clean(bank.branch_name);
+        accountNo = digits(bank.account_no);
+        owner = clean(bank.owner_name) ?? ctx.org.name;
       }
       const spec: ChequeSpec = {
         id: existing?.id ?? uuidv7(),
@@ -568,9 +571,13 @@ function checkSerialRange(book: { title: string; serial_from: string | null; ser
   if (n < BigInt(f) || n > BigInt(t)) throw bad(`${w}سریال ${fa(serial)} در محدوده‌ی دسته‌چک «${book.title}» (${fa(f)} تا ${fa(t)}) نیست`);
 }
 
-/** Sayad numbers are unique per direction; issued serials are unique per cheque book / bank account. */
-async function checkDuplicates(tx: Tx, orgId: string, specs: ChequeSpec[]) {
-  const own = `{${specs.map((s) => s.id).join(",")}}`;
+/**
+ * Sayad numbers are unique per direction; issued serials are unique per cheque book / bank account.
+ * The document's own cheques do not count: those it keeps and the untouched ones it is dropping
+ * (`dropping`, soft-deleted later in the same save).
+ */
+async function checkDuplicates(tx: Tx, orgId: string, specs: ChequeSpec[], dropping: string[] = []) {
+  const own = `{${[...specs.map((s) => s.id), ...dropping].join(",")}}`;
   const seen = new Set<string>();
   for (const s of specs) {
     if (s.sayad_no) {

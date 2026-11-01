@@ -12,7 +12,7 @@ import { RefSelect } from "../../components/inputs";
 import { Balance, JDate, Money } from "../../components/display";
 import { exportExcel } from "../../lib/excel";
 import { ReportFilters, useRange } from "../reports/Filters";
-import { faDigits } from "@shared/format";
+import { faDigits, formatNumber } from "@shared/format";
 import { formatJalali } from "@shared/jalali";
 import { D } from "@shared/money";
 import { KIND_TITLE, type DocKind } from "./labels";
@@ -150,6 +150,14 @@ export default function Book() {
                   </Tag>
                 ) : null}
               </div>
+            ) : null}
+            {d?.truncated ? (
+              <Alert
+                className="!mb-2"
+                type="warning"
+                showIcon
+                title={`فقط ${formatNumber(d.rows.length)} ردیف نخست آمده است؛ جمع دوره و مانده‌ی پایان آن کامل است. برای دیدن بقیه، بازه‌ی تاریخ را کوتاه‌تر کنید.`}
+              />
             ) : null}
             <Table
               className="tz-table"

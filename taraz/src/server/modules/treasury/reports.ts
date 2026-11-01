@@ -30,7 +30,9 @@ export async function cashBankBook(q: Queryable, ctx: Ctx, p: { kind: "cash" | "
       );
   if (!row) throw notFound(p.kind === "cash" ? "صندوق پیدا نشد" : "حساب بانکی پیدا نشد");
   const accountId = await keyId(q, orgId, p.kind);
-  const empty = { opening: "0", opening_fx: "0", opening_w: "0", rows: [] as Record<string, any>[], totals: { debit: "0", credit: "0", balance: "0" } };
+  // opening, totals and closing come from the ledger's SQL sums; its rows stop at its row limit
+  // (`truncated`), which the screen tells the user
+  const empty = { opening: "0", opening_fx: "0", opening_w: "0", rows: [] as Record<string, any>[], truncated: false, totals: { debit: "0", credit: "0", balance: "0" } };
   const led = accountId && row.detail_id
     ? await ledger(q, orgId, { accountId, detailId: row.detail_id, from: p.from ?? null, to: p.to ?? null, includeDrafts: p.drafts })
     : empty;
@@ -76,9 +78,9 @@ export async function cashBankBook(q: Queryable, ctx: Ctx, p: { kind: "cash" | "
       [orgId, row.id],
     );
     inCollection = { count: r?.n ?? 0, sum: r?.sum ?? "0" };
-    return { kind: p.kind, account: row, opening: led.opening, rows: out, totals: led.totals, in_collection: inCollection, issued_open: { count: issued?.n ?? 0, sum: issued?.sum ?? "0" } };
+    return { kind: p.kind, account: row, opening: led.opening, rows: out, truncated: led.truncated, totals: led.totals, in_collection: inCollection, issued_open: { count: issued?.n ?? 0, sum: issued?.sum ?? "0" } };
   }
-  return { kind: p.kind, account: row, opening: led.opening, rows: out, totals: led.totals };
+  return { kind: p.kind, account: row, opening: led.opening, rows: out, truncated: led.truncated, totals: led.totals };
 }
 
 // ---------------------------------------------------------------- balances of boxes and banks
@@ -140,7 +142,10 @@ interface Agg {
   sum: string;
 }
 const zero = (): Agg => ({ count: 0, sum: "0" });
-const plus = (a: Agg, amount: string): Agg => ({ count: a.count + 1, sum: D(a.sum).plus(D(amount)).toString() });
+const plus = (a: Agg, count: number, sum: string): Agg => ({ count: a.count + count, sum: D(a.sum).plus(D(sum)).toString() });
+
+/** Cheques the due report lists at most; its buckets and dates always count every cheque. */
+const DUE_ROW_LIMIT = 5000;
 
 export async function chequesDue(q: Queryable, ctx: Ctx, p: { direction?: string | null; from?: string | null; to?: string | null }) {
   const today = orgToday(ctx);
@@ -158,15 +163,24 @@ export async function chequesDue(q: Queryable, ctx: Ctx, p: { direction?: string
     params.push(p.to);
     cond.push(`c.due_date <= $${params.length}`);
   }
-  const rows = await q.query<Record<string, any>>(
+  const where = cond.join(" and ");
+  // count and sum per due date in SQL: the listed rows stop at DUE_ROW_LIMIT
+  const sums = await q.query<{ due_date: string; direction: string; n: number; sum: string }>(
+    `select c.due_date, c.direction, count(*)::int as n, coalesce(sum(c.amount), 0) as sum
+     from tz_cheques c where ${where} group by c.due_date, c.direction order by c.due_date`,
+    params,
+  );
+  const fetched = await q.query<Record<string, any>>(
     `select c.id, c.direction, c.status, c.amount, c.due_date, c.serial_no, c.sayad_no, c.bank_name, c.party_id,
             p.name as party_name, ba.name as bank_account_name
      from tz_cheques c left join tz_parties p on p.id = c.party_id left join tz_bank_accounts ba on ba.id = c.bank_account_id
-     where ${cond.join(" and ")}
+     where ${where}
      order by c.due_date, c.amount desc
-     limit 5000`,
+     limit ${DUE_ROW_LIMIT + 1}`,
     params,
   );
+  const truncated = fetched.length > DUE_ROW_LIMIT;
+  const rows = truncated ? fetched.slice(0, DUE_ROW_LIMIT) : fetched;
   const week = addDays(today, 7);
   const month = addDays(today, 30);
   const buckets = [
@@ -177,19 +191,19 @@ export async function chequesDue(q: Queryable, ctx: Ctx, p: { direction?: string
   ].map((b) => {
     let received = zero();
     let issued = zero();
-    for (const r of rows) {
-      if (!b.test(r.due_date)) continue;
-      if (r.direction === "received") received = plus(received, r.amount);
-      else issued = plus(issued, r.amount);
+    for (const s of sums) {
+      if (!b.test(s.due_date)) continue;
+      if (s.direction === "received") received = plus(received, s.n, s.sum);
+      else issued = plus(issued, s.n, s.sum);
     }
     return { key: b.key, label: b.label, received, issued, net: D(received.sum).minus(D(issued.sum)).toString() };
   });
   const byDate = new Map<string, { due_date: string; received: Agg; issued: Agg }>();
-  for (const r of rows) {
-    const e = byDate.get(r.due_date) ?? { due_date: r.due_date, received: zero(), issued: zero() };
-    if (r.direction === "received") e.received = plus(e.received, r.amount);
-    else e.issued = plus(e.issued, r.amount);
-    byDate.set(r.due_date, e);
+  for (const s of sums) {
+    const e = byDate.get(s.due_date) ?? { due_date: s.due_date, received: zero(), issued: zero() };
+    if (s.direction === "received") e.received = plus(e.received, s.n, s.sum);
+    else e.issued = plus(e.issued, s.n, s.sum);
+    byDate.set(s.due_date, e);
   }
   let running = D(0);
   const by_date = [...byDate.values()].map((e) => {
@@ -197,7 +211,7 @@ export async function chequesDue(q: Queryable, ctx: Ctx, p: { direction?: string
     running = running.plus(net);
     return { ...e, net: net.toString(), cumulative: running.toString() };
   });
-  return { today, buckets, by_date, rows: rows.map((r) => ({ ...r, overdue: r.due_date < today })) };
+  return { today, buckets, by_date, rows: rows.map((r) => ({ ...r, overdue: r.due_date < today })), truncated };
 }
 
 // ---------------------------------------------------------------- party balance

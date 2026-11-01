@@ -166,6 +166,10 @@ export function isEmptyLine(l: Line): boolean {
 
 export function linePayload(l: Line) {
   const text = (s: string) => s.trim() || null;
+  // a received cheque carries the drawer's bank details as typed; an issued one is drawn on our own
+  // account and the server takes them from its cheque book / bank account (what the line still
+  // holds may be the previous book's)
+  const drawer = (s: string) => (l.direction === "in" ? text(s) : null);
   return {
     id: l.id,
     direction: l.direction,
@@ -185,10 +189,10 @@ export function linePayload(l: Line) {
         ? {
             serial_no: text(l.cheque.serial_no),
             sayad_no: text(l.cheque.sayad_no),
-            bank_name: text(l.cheque.bank_name),
-            branch_name: text(l.cheque.branch_name),
-            account_no: text(l.cheque.account_no),
-            account_owner: text(l.cheque.account_owner),
+            bank_name: drawer(l.cheque.bank_name),
+            branch_name: drawer(l.cheque.branch_name),
+            account_no: drawer(l.cheque.account_no),
+            account_owner: drawer(l.cheque.account_owner),
             due_date: l.cheque.due_date,
             cheque_book_id: l.direction === "out" ? l.cheque.cheque_book_id : null,
             bank_account_id: l.direction === "out" && !l.cheque.cheque_book_id ? l.cheque.bank_account_id : null,

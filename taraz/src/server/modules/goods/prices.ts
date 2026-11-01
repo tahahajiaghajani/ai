@@ -146,6 +146,27 @@ export async function getPriceListItems(ctx: Ctx, listId: string) {
   return { price_list: list, rows };
 }
 
+/**
+ * Every active good and service with its sale price, for «افزودن همه‌ی کالاها» of the editor
+ * (which adds the ones it does not list yet, then saves with replacePriceListItems). Checked
+ * against sales like the rest of the editor: members who set prices need not see the inventory.
+ */
+export async function priceListAllItems(ctx: Ctx, listId: string) {
+  ctx.need("sales", "edit");
+  const list = isUuid(listId)
+    ? await ctx.db.one(`select id from tz_price_lists where id = $1 and org_id = $2 and deleted_at is null`, [listId, ctx.org.id])
+    : null;
+  if (!list) throw notFound("فهرست قیمت پیدا نشد");
+  const rows = await ctx.db.query(
+    `select i.id as item_id, i.code, i.name, i.kind, i.sale_price, u.name as unit_name
+     from tz_items i left join tz_units u on u.id = i.unit_id
+     where i.org_id = $1 and i.deleted_at is null and i.is_active and i.kind in ('goods', 'service')
+     order by length(i.code), i.code`,
+    [ctx.org.id],
+  );
+  return { rows };
+}
+
 export async function replacePriceListItems(ctx: Ctx, listId: string, items: { item_id: string; price: string | number; min_qty?: string | number | null }[]) {
   ctx.need("sales", "edit");
   return ctx.write(async (tx: Tx) => {

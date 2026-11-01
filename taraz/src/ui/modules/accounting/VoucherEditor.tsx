@@ -1,7 +1,7 @@
 // Voucher (سند حسابداری) editor: a keyboard-first grid. Enter moves on, the last cell adds a
 // row, «=» in an amount fills the balancing figure, F2 saves, Alt+N adds a row.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams, Link } from "react-router";
+import { useNavigate, useParams, useLocation, Link } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, Input, Select, Tag, Tooltip, Alert, Dropdown, Spin } from "antd";
 import { PlusOutlined, DeleteOutlined, SaveOutlined, PrinterOutlined, CheckCircleOutlined, CopyOutlined, MoreOutlined, ScissorOutlined, SwapOutlined } from "@ant-design/icons";
@@ -35,6 +35,15 @@ interface Line {
 
 const blank = (): Line => ({ key: uuidv7(), account_id: null, detail_id: null, description: "", debit: null, credit: null, currency_id: null, fx_debit: null, fx_credit: null, fx_rate: null, w_debit: null, w_credit: null });
 
+/** What «کپی به سند جدید» hands to the new-voucher form (as navigation state). */
+interface Copy {
+  date: string | null;
+  description: string;
+  refNo: string;
+  kind: "normal" | "opening";
+  lines: Line[];
+}
+
 const SOURCE_LABEL: Record<string, string> = {
   invoice: "فاکتور", treasury_doc: "سند خزانه", cheque_op: "عملیات چک", stock_doc: "سند انبار", gold_doc: "سند طلا", fx_deal: "معامله‌ی ارز", remittance: "حواله", fx_revaluation: "تسعیر ارز", closing: "بستن حساب‌ها", opening: "افتتاحیه",
 };
@@ -49,13 +58,15 @@ export default function VoucherEditor() {
   const nav = useNavigate();
   const qc = useQueryClient();
   const n = useNotify();
-  const [date, setDate] = useState<string | null>(todayISO());
-  const [description, setDescription] = useState("");
-  const [refNo, setRefNo] = useState("");
-  const [kind, setKind] = useState<"normal" | "opening">("normal");
-  const [lines, setLines] = useState<Line[]>([blank(), blank()]);
-  const [showFx, setShowFx] = useState(false);
-  const [showW, setShowW] = useState(false);
+  const loc = useLocation();
+  const copy = isNew ? ((loc.state as { copy?: Copy } | null)?.copy ?? null) : null;
+  const [date, setDate] = useState<string | null>(copy ? copy.date : todayISO());
+  const [description, setDescription] = useState(copy?.description ?? "");
+  const [refNo, setRefNo] = useState(copy?.refNo ?? "");
+  const [kind, setKind] = useState<"normal" | "opening">(copy?.kind ?? "normal");
+  const [lines, setLines] = useState<Line[]>(() => (copy ? [...copy.lines.map((l) => ({ ...l, key: uuidv7() })), blank()] : [blank(), blank()]));
+  const [showFx, setShowFx] = useState(() => !!copy?.lines.some((l) => l.currency_id));
+  const [showW, setShowW] = useState(() => !!copy?.lines.some((l) => l.w_debit || l.w_credit));
   const [saving, setSaving] = useState(false);
   const gridRef = useRef<HTMLDivElement>(null);
 
@@ -223,7 +234,7 @@ export default function VoucherEditor() {
                   menu={{
                     items: [
                       ...(v?.status === "posted" && v?.kind !== "auto" && can("accounting", "full") ? [{ key: "final", icon: <CheckCircleOutlined />, label: "قطعی کردن سند", onClick: () => setStatus("final") }] : []),
-                      { key: "copy", icon: <CopyOutlined />, label: "کپی به سند جدید", onClick: () => { nav(`/${orgId}/accounting/vouchers/new`); setTimeout(() => { setLines(lines.map((l) => ({ ...l, key: uuidv7() }))); }, 50); } },
+                      { key: "copy", icon: <CopyOutlined />, label: "کپی به سند جدید", onClick: () => nav(`/${orgId}/accounting/vouchers/new`, { state: { copy: { date, description, refNo, kind, lines: lines.filter((l) => l.account_id) } satisfies Copy } }) },
                       ...(!readonly && can("accounting", "full") ? [{ key: "del", icon: <DeleteOutlined />, danger: true, label: "حذف سند", onClick: remove }] : []),
                     ],
                   }}

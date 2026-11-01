@@ -3,6 +3,7 @@
 // look-ups for the editors, inventory and commerce reports and the dashboard summary.
 import { z } from "zod";
 import { router, body } from "../http/hono";
+import { forbidden } from "../http/errors";
 import { isUuid } from "@shared/id";
 import type { Area, Level } from "@shared/permissions";
 import { todayISO } from "@shared/jalali";
@@ -13,12 +14,19 @@ import {
 import {
   countSheet, createStockDoc, deleteStockDoc, getStockDoc, listStockDocs, setStockDocStatus, stockDocSchema, updateStockDoc,
 } from "../modules/goods/stockdocs";
-import { getPriceListItems, itemLookup, lookupPrices, partyInfo, replacePriceListItems } from "../modules/goods/prices";
+import { getPriceListItems, itemLookup, lookupPrices, partyInfo, priceListAllItems, replacePriceListItems } from "../modules/goods/prices";
 import { analysis, goodsSummary, kardex, stockReport } from "../modules/goods/reports";
 import { moadianInvoice } from "../modules/goods/moadian";
 import { recomputeAll } from "../modules/goods/stock";
 
 export const goodsRoutes = router();
+
+// Nothing outside this module calls /goods: coins are sold through /gold, treasury finds open
+// invoices with /treasury/invoices, online orders go through the integrations routes.
+goodsRoutes.use("*", async (c, next) => {
+  if (!c.get("ctx").hasModule("goods")) throw forbidden("ماژول کالا و بازرگانی برای این کسب‌وکار فعال نیست");
+  await next();
+});
 
 const LOOKUP_AREAS: [Area, Level][] = [["sales", "view"], ["purchases", "view"], ["inventory", "view"]];
 
@@ -85,6 +93,9 @@ goodsRoutes.get("/prices", async (c) => {
 // ---------------------------------------------------------------- price lists
 
 goodsRoutes.get("/price-lists/:id/items", async (c) => c.json(await getPriceListItems(c.get("ctx"), c.req.param("id"))));
+
+/** Every active good and service, for «افزودن همه‌ی کالاها» (sales edit, no inventory permission needed). */
+goodsRoutes.get("/price-lists/:id/all-items", async (c) => c.json(await priceListAllItems(c.get("ctx"), c.req.param("id"))));
 
 goodsRoutes.put("/price-lists/:id/items", async (c) => {
   const input = await body(c, z.object({

@@ -67,7 +67,11 @@ export default function Ledger() {
             {q.data ? (
               <div className="mb-2 flex flex-wrap gap-2 text-xs">
                 <Tag variant="filled">مانده‌ی ابتدای دوره: <Balance v={q.data.opening} /></Tag>
-                {!D(q.data.opening_fx).isZero() ? <Tag variant="filled">ارزی: <Amount v={q.data.opening_fx} /></Tag> : null}
+                {(q.data.fx_balances ?? [])
+                  .filter((f: any) => !D(f.opening).isZero())
+                  .map((f: any) => (
+                    <Tag key={f.currency_id} variant="filled">ارزی: <Amount v={f.opening} suffix={f.currency_code} /></Tag>
+                  ))}
                 {!D(q.data.opening_w).isZero() ? <Tag variant="filled">وزن: <Weight v={q.data.opening_w} /></Tag> : null}
               </div>
             ) : null}

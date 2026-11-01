@@ -4,6 +4,7 @@ import type { Db } from "@server/db";
 import { addDays, todayISO } from "@shared/jalali";
 import { D } from "@shared/money";
 import { uuidv7 } from "@shared/id";
+import { lineFromDoc, linePayload } from "@ui/modules/treasury/editor";
 
 interface VLine {
   account_id: string;
@@ -483,5 +484,196 @@ describe("treasury: receipts, payments, transfers, cheques and reports", () => {
     expect(docs.rows.map((x: any) => x.id)).toEqual([receipt1.id]);
     const tb = await c.get(o("/accounting/reports/trial-balance?level=1"));
     expect(tb.totals.debit).toBe(tb.totals.credit);
+  });
+});
+
+describe("treasury: editing cheques of a document, reports past their row limits", () => {
+  let c: Client;
+  let db: Db;
+  let org: string;
+  const o = (p: string) => `/o/${org}${p}`;
+  let customer: { id: string; detail_id: string };
+  let supplier: { id: string; detail_id: string };
+  let mellat: { id: string; detail_id: string };
+  let saderat: { id: string; detail_id: string };
+  let bookM: { id: string };
+  let bookS: { id: string };
+  const chequesOf = async (docId: string) => (await c.get(o(`/treasury/docs/${docId}`))).doc.lines.filter((l: any) => l.cheque).map((l: any) => l.cheque);
+
+  beforeAll(async () => {
+    const s = await makeServer();
+    db = s.db;
+    c = new Client(s.app);
+    org = await signupWithOrg(c);
+    customer = (await c.post(o("/data/party"), { name: "علی رضایی", roles: ["customer"] })).row;
+    supplier = (await c.post(o("/data/party"), { name: "شرکت پخش البرز", roles: ["supplier"] })).row;
+    mellat = (await c.post(o("/data/bank_account"), { name: "ملت جاری", bank_name: "ملت", branch_name: "مرکزی", account_no: "1111111", owner_name: "شرکت آزمایشی" })).row;
+    saderat = (await c.post(o("/data/bank_account"), { name: "صادرات جاری", bank_name: "صادرات", account_no: "2222222" })).row;
+    bookM = (await c.post(o("/data/cheque_book"), { bank_account_id: mellat.id, title: "دسته‌چک ملت", serial_from: "300001", serial_to: "300025" })).row;
+    bookS = (await c.post(o("/data/cheque_book"), { bank_account_id: saderat.id, title: "دسته‌چک صادرات", serial_from: "400001", serial_to: "400025" })).row;
+  });
+
+  it("takes an issued cheque's bank, branch, account number and owner from its cheque book's account", async () => {
+    const p = await c.post(o("/treasury/docs"), {
+      kind: "payment", date: "2026-05-01", party_id: supplier.id,
+      lines: [{ method: "cheque", amount: "5000000", cheque: { cheque_book_id: bookM.id, serial_no: "300001", due_date: "2026-07-01" } }],
+    });
+    const [before] = await chequesOf(p.doc.id);
+    expect(before).toMatchObject({ bank_account_id: mellat.id, bank_name: "ملت", branch_name: "مرکزی", account_no: "1111111", account_owner: "شرکت آزمایشی" });
+
+    // the editor loads the cheque with Mellat's details, then the other bank's cheque book is picked
+    const doc = (await c.get(o(`/treasury/docs/${p.doc.id}`))).doc;
+    const line = lineFromDoc(doc.lines[0]);
+    line.cheque = { ...line.cheque, cheque_book_id: bookS.id, bank_account_id: saderat.id, serial_no: "400001" };
+    const payload = linePayload(line);
+    expect(payload.cheque).toMatchObject({ bank_name: null, branch_name: null, account_no: null, account_owner: null });
+    await c.put(o(`/treasury/docs/${p.doc.id}`), { kind: "payment", date: "2026-05-01", party_id: supplier.id, lines: [payload] });
+    const [after] = await chequesOf(p.doc.id);
+    expect(after.id).toBe(before.id);
+    const fromSaderat = { cheque_book_id: bookS.id, bank_account_id: saderat.id, bank_name: "صادرات", branch_name: null, account_no: "2222222", account_owner: "فروشگاه آزمایشی" };
+    expect(after).toMatchObject(fromSaderat);
+
+    // whatever a client sends, the details of an issued cheque are those of the account it is drawn on
+    const stale = { ...payload, cheque: { ...payload.cheque, bank_name: "ملت", branch_name: "مرکزی", account_no: "1111111", account_owner: "شرکت آزمایشی" } };
+    await c.put(o(`/treasury/docs/${p.doc.id}`), { kind: "payment", date: "2026-05-01", party_id: supplier.id, lines: [stale] });
+    expect((await chequesOf(p.doc.id))[0]).toMatchObject(fromSaderat);
+    const fresh = await c.post(o("/treasury/docs"), {
+      kind: "payment", date: "2026-05-01", party_id: supplier.id,
+      lines: [{ method: "cheque", amount: "1000000", cheque: { cheque_book_id: bookS.id, serial_no: "400002", due_date: "2026-07-01", bank_name: "ملت", account_no: "1111111" } }],
+    });
+    expect((await chequesOf(fresh.doc.id))[0]).toMatchObject({ ...fromSaderat, serial_no: "400002" });
+  });
+
+  it("lets one edit drop a cheque and enter it again with the same Sayad number or serial", async () => {
+    // received: the cheque's line is deleted and typed again (a new line, without the cheque's id)
+    const sayad = "1111222233334444";
+    const r = await c.post(o("/treasury/docs"), {
+      kind: "receipt", date: "2026-05-02", party_id: customer.id,
+      lines: [{ method: "cheque", amount: "3000000", cheque: { serial_no: "550001", sayad_no: sayad, bank_name: "ملی", due_date: "2026-08-01" } }],
+    });
+    const [oldIn] = await chequesOf(r.doc.id);
+    await c.put(o(`/treasury/docs/${r.doc.id}`), {
+      kind: "receipt", date: "2026-05-02", party_id: customer.id,
+      lines: [{ method: "cheque", amount: "3500000", cheque: { serial_no: "550001", sayad_no: sayad, bank_name: "ملی", due_date: "2026-08-05" } }],
+    });
+    const [newIn] = await chequesOf(r.doc.id);
+    expect(newIn.id).not.toBe(oldIn.id);
+    expect(newIn).toMatchObject({ sayad_no: sayad, amount: "3500000", due_date: "2026-08-05", status: "in_hand" });
+    await c.get(o(`/treasury/cheques/${oldIn.id}`), 404);
+    expect((await c.get(o(`/treasury/cheques?q=${sayad}`))).total).toBe(1);
+    // another document still cannot register it
+    const dupIn = await c.post(o("/treasury/docs"), {
+      kind: "receipt", date: "2026-05-03", party_id: customer.id,
+      lines: [{ method: "cheque", amount: "1000", cheque: { sayad_no: sayad, due_date: "2026-08-01" } }],
+    }, 409);
+    expect(dupIn.error.message).toContain("صیادی");
+
+    // issued: the same leaf of the same cheque book is entered again on a new line
+    const p = await c.post(o("/treasury/docs"), {
+      kind: "payment", date: "2026-05-02", party_id: supplier.id,
+      lines: [{ method: "cheque", amount: "2000000", cheque: { cheque_book_id: bookM.id, serial_no: "300010", due_date: "2026-08-01" } }],
+    });
+    const [oldOut] = await chequesOf(p.doc.id);
+    await c.put(o(`/treasury/docs/${p.doc.id}`), {
+      kind: "payment", date: "2026-05-02", party_id: supplier.id,
+      lines: [{ method: "cheque", amount: "2500000", cheque: { cheque_book_id: bookM.id, serial_no: "300010", due_date: "2026-08-10" } }],
+    });
+    const [newOut] = await chequesOf(p.doc.id);
+    expect(newOut.id).not.toBe(oldOut.id);
+    expect(newOut).toMatchObject({ serial_no: "300010", cheque_book_id: bookM.id, amount: "2500000", status: "issued" });
+    await c.get(o(`/treasury/cheques/${oldOut.id}`), 404);
+    const dupOut = await c.post(o("/treasury/docs"), {
+      kind: "payment", date: "2026-05-03", party_id: supplier.id,
+      lines: [{ method: "cheque", amount: "1000", cheque: { cheque_book_id: bookM.id, serial_no: "300010", due_date: "2026-08-01" } }],
+    }, 409);
+    expect(dupOut.error.message).toContain("سریال");
+
+    // a cheque that has had an operation is still neither dropped nor entered a second time
+    const m = await c.post(o("/treasury/docs"), {
+      kind: "receipt", date: "2026-05-04", party_id: customer.id,
+      lines: [{ method: "cheque", amount: "1000000", cheque: { serial_no: "660001", sayad_no: "5555666677778888", due_date: "2026-09-01" } }],
+    });
+    const [moved] = await chequesOf(m.doc.id);
+    await c.post(o(`/treasury/cheques/${moved.id}/action`), { action: "deposit", date: "2026-09-02", bank_account_id: mellat.id });
+    const refused = await c.put(o(`/treasury/docs/${m.doc.id}`), {
+      kind: "receipt", date: "2026-05-04", party_id: customer.id,
+      lines: [{ method: "cheque", amount: "1000000", cheque: { serial_no: "660001", sayad_no: "5555666677778888", due_date: "2026-09-01" } }],
+    }, 409);
+    expect(refused.error.message).toContain("در جریان وصول");
+    expect((await chequesOf(m.doc.id))[0].id).toBe(moved.id);
+  });
+
+  it("totals the cash book over the whole period when its rows stop at the row limit", async () => {
+    const box = (await c.post(o("/data/cash_box"), { name: "صندوق شعبه" })).row as { id: string; detail_id: string };
+    const cash = await accountId(db, org, "cash");
+    const counter = await accountId(db, org, "opening_balance");
+    const fy = (await db.one<{ id: string }>(`select id from tz_fiscal_years where org_id = $1`, [org]))!;
+    /** a posted voucher with `count` equal lines on the box and one counter line */
+    const bulk = async (no: number, date: string, count: number, debit: string, credit: string) => {
+      const id = uuidv7();
+      const total = D(debit).plus(D(credit)).times(count).toString();
+      await db.query(
+        `insert into tz_vouchers (id, org_id, fiscal_year_id, no, date, status, description, total_debit, total_credit)
+         values ($1, $2, $3, $4, $5, 'posted', 'سند انبوه آزمایشی', $6, $6)`,
+        [id, org, fy.id, no, date, total],
+      );
+      await db.query(
+        `insert into tz_voucher_lines (voucher_id, org_id, line_no, account_id, detail_id, debit, credit)
+         select $1::uuid, $2::uuid, g, $3::uuid, $4::uuid, $5::numeric, $6::numeric from generate_series(1, $7::int) g
+         union all
+         select $1::uuid, $2::uuid, $7::int + 1, $8::uuid, null, $6::numeric * $7::int, $5::numeric * $7::int`,
+        [id, org, cash, box.detail_id, debit, credit, count, counter],
+      );
+    };
+    await bulk(900001, "2026-04-15", 1, "50000000", "0"); // before the period: the opening balance
+    await bulk(900002, "2026-06-01", 20000, "1000", "0"); // as many lines as the book lists
+    await bulk(900003, "2026-06-02", 1, "0", "7000000"); // one more, past the limit
+
+    const book = await c.get(o(`/treasury/book?cash_box_id=${box.id}&from=2026-05-01&to=2026-12-31`));
+    expect(book.opening).toBe("50000000");
+    expect(book.totals).toMatchObject({ debit: "20000000", credit: "7000000", balance: "63000000" });
+    expect(book.truncated).toBe(true);
+    expect(book.rows).toHaveLength(20000);
+    expect(book.rows[book.rows.length - 1].balance).toBe("70000000");
+    // the accounting ledger of the same account and detail agrees
+    const led = await c.get(o(`/accounting/reports/ledger?account_id=${cash}&detail_id=${box.detail_id}&from=2026-05-01&to=2026-12-31`));
+    expect(led.totals).toMatchObject({ debit: "20000000", credit: "7000000", balance: "63000000" });
+    expect(led.truncated).toBe(true);
+    // a range within the limit is complete
+    const tail = await c.get(o(`/treasury/book?cash_box_id=${box.id}&from=2026-06-02`));
+    expect(tail.opening).toBe("70000000");
+    expect(tail.totals).toMatchObject({ debit: "0", credit: "7000000", balance: "63000000" });
+    expect(tail.truncated).toBe(false);
+    expect(tail.rows).toHaveLength(1);
+  });
+
+  it("sums the cheques due over every open cheque when the list stops at the row limit", async () => {
+    const today = todayISO();
+    const d40 = addDays(today, 40);
+    const d50 = addDays(today, 50);
+    const many = (direction: string, status: string, party: string, prefix: string, count: number, amount: string, due: string) =>
+      db.query(
+        `insert into tz_cheques (org_id, direction, serial_no, party_id, amount, issue_date, due_date, status)
+         select $1::uuid, $2::text, $3::text || g::text, $4::uuid, $5::numeric, $6::date, $7::date, $8::text from generate_series(1, $9::int) g`,
+        [org, direction, prefix, party, amount, today, due, status, count],
+      );
+    await many("received", "in_hand", customer.id, "R", 5000, "1000", d40); // as many as the report lists
+    await many("received", "in_hand", customer.id, "S", 3, "2000", d50);
+    await many("issued", "issued", supplier.id, "I", 2, "1500", d50);
+
+    const due = await c.get(o(`/treasury/reports/cheques-due?from=${d40}&to=${d50}`));
+    const later = due.buckets.find((b: any) => b.key === "later");
+    expect(later.received).toEqual({ count: 5003, sum: "5006000" });
+    expect(later.issued).toEqual({ count: 2, sum: "3000" });
+    expect(later.net).toBe("5003000");
+    expect(due.by_date).toEqual([
+      { due_date: d40, received: { count: 5000, sum: "5000000" }, issued: { count: 0, sum: "0" }, net: "5000000", cumulative: "5000000" },
+      { due_date: d50, received: { count: 3, sum: "6000" }, issued: { count: 2, sum: "3000" }, net: "3000", cumulative: "5003000" },
+    ]);
+    expect(due.truncated).toBe(true);
+    expect(due.rows).toHaveLength(5000);
+    const issued = await c.get(o(`/treasury/reports/cheques-due?direction=issued&from=${d40}&to=${d50}`));
+    expect(issued.truncated).toBe(false);
+    expect(issued.rows.map((x: any) => x.serial_no).sort()).toEqual(["I1", "I2"]);
   });
 });

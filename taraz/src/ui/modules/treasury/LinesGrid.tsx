@@ -23,6 +23,9 @@ interface Props {
   hasParty: boolean;
 }
 
+/** An issued cheque's bank details follow its book / bank account (the server fills them in on save). */
+const NO_BANK: Partial<ChequeFields> = { bank_name: "", branch_name: "", account_no: "", account_owner: "" };
+
 /** Fields of a line in keyboard order (data-f keys). */
 function fieldOrder(l: Line, needParty: boolean): string[] {
   switch (l.method) {
@@ -67,8 +70,8 @@ export function LinesGrid({ kind, lines, setLines, readonly, hasParty }: Props) 
   };
 
   const pickBook = async (i: number, id: string | null, o?: { bank_account_id?: string; label?: string }) => {
-    setCheque(i, { cheque_book_id: id, bank_account_id: o?.bank_account_id ?? null });
-    set(i, { names: { ...lines[i].names, book: o?.label } });
+    setCheque(i, { cheque_book_id: id, bank_account_id: o?.bank_account_id ?? null, ...NO_BANK });
+    set(i, { names: { ...lines[i].names, book: o?.label, bank: undefined } });
     remember("cheque_book", id);
     if (id && !lines[i].cheque.serial_no) {
       try {
@@ -340,7 +343,7 @@ export function LinesGrid({ kind, lines, setLines, readonly, hasParty }: Props) 
                               disabled={lock || !!cq.cheque_book_id}
                               placeholder="بدون دسته‌چک: حساب بانکی"
                               onChange={(id, o) => {
-                                setCheque(i, { bank_account_id: id });
+                                setCheque(i, { bank_account_id: id, ...NO_BANK });
                                 set(i, { names: { ...l.names, bank: o?.label } });
                               }}
                             />

@@ -35,9 +35,13 @@ export default function SalesReports() {
   const [to, setTo] = useState<string | null>(fy?.end_date ?? presetRange("year").to);
   const [partyId, setPartyId] = useState<string | null>(null);
   const t = TABS.find((x) => x.key === tab)!;
+  // the party filter is hidden on the by-customer / by-supplier tabs (they list every party) and
+  // is then not sent either
+  const partyShown = t.group !== "party";
+  const party = partyShown ? partyId : null;
   const r = useQuery({
-    queryKey: ["goods-analysis", t.side, t.group, from, to, partyId],
-    queryFn: () => api.get(`/goods/reports/${t.side}`, { group: t.group, from, to, party_id: partyId }),
+    queryKey: ["goods-analysis", t.side, t.group, from, to, party],
+    queryFn: () => api.get(`/goods/reports/${t.side}`, { group: t.group, from, to, party_id: party }),
   });
   const rows = (r.data?.rows ?? []) as any[];
   const totals = r.data?.totals;
@@ -96,7 +100,7 @@ export default function SalesReports() {
         />
         <DateInput value={from} onChange={setFrom} allowClear placeholder="از تاریخ" className="!w-36" />
         <DateInput value={to} onChange={setTo} allowClear placeholder="تا تاریخ" className="!w-36" />
-        {t.group !== "party" ? <PartySelect value={partyId} onChange={setPartyId} allowClear placeholder={sales ? "همه‌ی مشتریان" : "همه‌ی تأمین‌کنندگان"} className="!w-56" /> : null}
+        {partyShown ? <PartySelect value={partyId} onChange={setPartyId} allowClear placeholder={sales ? "همه‌ی مشتریان" : "همه‌ی تأمین‌کنندگان"} className="!w-56" /> : null}
       </div>
       {totals ? (
         <div className="no-print mb-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

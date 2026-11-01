@@ -1,4 +1,4 @@
-import { Suspense, lazy, type ReactNode } from "react";
+import { Fragment, Suspense, lazy, type ReactNode } from "react";
 import { Routes, Route, Navigate, useParams, useLocation } from "react-router";
 import { Spin, Result, Button } from "antd";
 import { useSession } from "./lib/session";
@@ -46,6 +46,17 @@ function Home() {
   return <Navigate to={me.orgs.length ? "/orgs" : "/orgs/new"} replace />;
 }
 
+/**
+ * A page of the signed-in app, mounted afresh for every path. Routes such as
+ * accounting/vouchers/:id and accounting/vouchers/new render the same component at the same
+ * place, so React would otherwise keep the open document's state (voucher #12's lines in the
+ * «سند جدید» form). Only the path counts: a page changing its own query string keeps its state.
+ */
+function Page({ children }: { children: ReactNode }) {
+  const { pathname } = useLocation();
+  return <Fragment key={pathname}>{children}</Fragment>;
+}
+
 function OrgArea() {
   const { org } = useParams();
   const q = useOrgQuery(org ?? "");
@@ -65,7 +76,7 @@ function OrgArea() {
         <Suspense fallback={<Loading />}>
           <Routes>
             {ROUTES.map((r) => (
-              <Route key={r.path} path={r.path} element={r.element} />
+              <Route key={r.path} path={r.path} element={<Page>{r.element}</Page>} />
             ))}
             <Route path="*" element={<Result status="404" title="این صفحه پیدا نشد" extra={<Button href={`/${org}`}>بازگشت به پیشخوان</Button>} />} />
           </Routes>
