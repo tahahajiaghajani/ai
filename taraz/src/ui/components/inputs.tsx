@@ -63,14 +63,24 @@ export function NumberInput({ value, onChange, decimals = 0, allowNegative, word
   const toRaw = (v: string | number | null | undefined) => (v === null || v === undefined || v === "" ? "" : D(v).toDecimalPlaces(Math.max(decimals, 0)).toFixed());
   const [raw, setRaw] = useState(toRaw(value));
   const focused = useRef(false);
+  // last value we sent out or accepted from outside
+  const known = useRef<string>(toRaw(value));
   useEffect(() => {
-    if (!focused.current) setRaw(toRaw(value));
+    const incoming = toRaw(value);
+    // follow outside changes (e.g. «=» fills the balancing amount) even while focused,
+    // but don't fight the user's own typing (trailing dot, leading minus…)
+    if (!focused.current || incoming !== toRaw(known.current)) {
+      setRaw(incoming);
+      known.current = incoming;
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value, decimals]);
 
   const emit = (r: string) => {
     setRaw(r);
-    onChange?.(r === "" || r === "-" ? null : r);
+    const out = r === "" || r === "-" ? null : r;
+    known.current = out ?? "";
+    onChange?.(out);
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
