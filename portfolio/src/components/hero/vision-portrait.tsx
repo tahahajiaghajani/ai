@@ -260,9 +260,8 @@ export function VisionPortrait({ src, alt, detections, className = "" }: { src: 
       ctx.uniform1f(u.scan, state.scan);
       ctx.uniform1f(u.time, (performance.now() - start) / 1000);
       ctx.drawArrays(ctx.TRIANGLE_STRIP, 0, 4);
-      // with neither the lens nor the band on, and the portrait back at the top, every correct frame is dark where
-      // isWhite() looks
-      if (checkSoon && state.hover < 0.01 && (state.scan < 0 || state.scan > 1) && state.scroll < 0.02) {
+      // with neither the lens nor the band on, every correct frame is dark where isWhite() looks (the scroll dissolve too)
+      if (checkSoon && state.hover < 0.01 && (state.scan < 0 || state.scan > 1)) {
         checkSoon = false;
         if (isWhite()) return giveUp("the canvas is white");
       }
@@ -328,7 +327,7 @@ export function VisionPortrait({ src, alt, detections, className = "" }: { src: 
       const was = visible;
       visible = entries[entries.length - 1].isIntersecting;
       if (!visible) return;
-      // back from a scroll away: check the picture again once it settles
+      // back from a scroll away: check the picture again
       if (!was) checkSoon = true;
       kick();
     });
@@ -388,11 +387,12 @@ export function VisionPortrait({ src, alt, detections, className = "" }: { src: 
   }, [src, epoch]);
 
   return (
-    // the frame carries the description: the <img> is hidden from assistive technology too while the canvas shows
+    // the frame carries the description, announced once whichever of the photo and the canvas shows (the <img> keeps
+    // its alt for crawlers)
     <div ref={wrap} role="img" aria-label={alt} className={`relative aspect-[4/5] touch-pan-y overflow-hidden bg-[#050505] ${className}`} data-cursor-label="AI">
       {/* hidden, not only transparent, while the canvas shows (once its fade ends): nothing lies under the live canvas */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={src} alt={alt} className={`absolute inset-0 size-full object-cover grayscale transition-[opacity,visibility] duration-700 ${gl ? "invisible opacity-0" : "opacity-100"}`} fetchPriority="high" />
+      <img src={src} alt={alt} aria-hidden className={`absolute inset-0 size-full object-cover grayscale transition-[opacity,visibility] duration-700 ${gl ? "invisible opacity-0" : "opacity-100"}`} fetchPriority="high" />
       {/* hidden whenever the photo shows instead: a canvas that gave up may still hold its last (white) frame */}
       <canvas ref={canvas} className={`absolute inset-0 size-full ${gl ? "" : "invisible"}`} aria-hidden />
       <Detections items={detections} />
