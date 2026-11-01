@@ -129,8 +129,7 @@ const UI = {
     unavailable: { fa: "الان به صندوق درخواست‌ها دسترسی نیست؛ چند دقیقه بعد دوباره همین پیوند را باز کنید.", en: "The request desk can't be reached right now — please open this link again in a few minutes." },
   },
   footer: {
-    rights: { fa: "طراحی و هدایت: طاها آقاجانی · ساخته‌شده با Claude Code", en: "Designed & directed by Taha Aghajani · built with Claude Code" },
-    built: { fa: "در حال اجرا روی Next.js، Vercel، GitHub و Gemini", en: "Running on Next.js, Vercel, GitHub and Gemini" },
+    rights: { fa: "طراحی و هدایت: طاها آقاجانی", en: "Designed & directed by Taha Aghajani" },
     top: { fa: "بازگشت به بالا", en: "Back to top" },
     say: { fa: "سلام کنید", en: "Say hello" },
   },

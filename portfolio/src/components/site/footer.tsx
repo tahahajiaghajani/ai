@@ -57,7 +57,6 @@ export function Footer({ lang }: { lang: Lang }) {
           <span>© {lang === "fa" ? "۱۴۰۵" : "2026"} · {ui.footer.rights[lang]}</span>
         </div>
         <LocalClock lang={lang} />
-        <span className="hidden md:inline">{ui.footer.built[lang]}</span>
         <BackToTop label={ui.footer.top[lang]} />
       </div>
     </footer>
