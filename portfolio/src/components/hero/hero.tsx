@@ -42,7 +42,8 @@ export function Hero({ lang, copy }: { lang: Lang; copy: HeroCopy }) {
       if (reduce) return;
       ctx.add(() => {
         const tl = gsap.timeline({ defaults: { ease: "expo.out" } });
-        tl.to("[data-hero-frame]", { clipPath: "inset(0% 0 0 0)", duration: 1.6, ease: "expo.inOut" }, 0)
+        // the clip goes once the frame is open, so the WebGL canvas is not composited through a mask from then on
+        tl.to("[data-hero-frame]", { clipPath: "inset(0% 0 0 0)", duration: 1.6, ease: "expo.inOut", clearProps: "clipPath" }, 0)
           .to("[data-hero-line]", { yPercent: 0, duration: 1.5, stagger: 0.12 }, 0.25)
           .to("[data-hero-fade]", { opacity: 1, y: 0, duration: 1.2, stagger: 0.08 }, 0.8);
         // the name drifts apart as the hero scrolls away
