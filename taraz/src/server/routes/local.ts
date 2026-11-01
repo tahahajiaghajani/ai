@@ -6,7 +6,20 @@ import { forbidden } from "../http/errors";
 import type { C } from "../http/hono";
 
 export const localRoutes = router();
-localRoutes.use("*", requireUser);
+
+/** Before anyone has an account (first start) the setup screens may link to the cloud. */
+async function bootstrap(c: C): Promise<boolean> {
+  const n = await c.get("cfg").db.one<{ n: number }>(`select count(*)::int as n from tz_users`);
+  return (n?.n ?? 0) === 0;
+}
+
+localRoutes.use("*", async (c, next) => {
+  if (await bootstrap(c)) {
+    c.set("bootstrap" as never, true as never);
+    return next();
+  }
+  return requireUser(c, next);
+});
 
 function bridge(c: C) {
   const b = c.get("cfg").desktop;
@@ -15,6 +28,7 @@ function bridge(c: C) {
 }
 
 async function isAdmin(c: C) {
+  if (c.get("bootstrap" as never)) return true;
   const u = c.get("user");
   if (u.is_platform_admin) return true;
   const r = await c.get("cfg").db.one(`select 1 from tz_org_members where user_id = $1 and role in ('owner','admin') and is_active and deleted_at is null limit 1`, [u.id]);

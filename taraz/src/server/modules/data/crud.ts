@@ -256,6 +256,11 @@ export async function options(ctx: Ctx, key: string, q: string, filters: Record<
     }
     const f = d.fields.find((x) => x.name === name);
     if (!f) continue;
+    if (value.includes(",")) {
+      params.push(`{${value.split(",").map((v) => `"${v.replace(/"/g, "")}"`).join(",")}}`);
+      where.push(`${ident(f.name)}::text = any($${params.length}::text[])`);
+      continue;
+    }
     params.push(value);
     where.push(`${ident(f.name)}::text = $${params.length}`);
   }

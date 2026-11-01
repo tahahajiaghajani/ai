@@ -1,0 +1,77 @@
+// HTTP client for the API (same origin on web and desktop). Errors carry the server's Persian
+// message so screens can show it as is.
+
+export class ApiError extends Error {
+  constructor(
+    public status: number,
+    public code: string,
+    message: string,
+    public details?: unknown,
+  ) {
+    super(message);
+  }
+}
+
+type Query = Record<string, string | number | boolean | null | undefined>;
+
+export function qs(params?: Query): string {
+  if (!params) return "";
+  const s = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== null && v !== "") s.set(k, String(v));
+  const out = s.toString();
+  return out ? `?${out}` : "";
+}
+
+async function request<T>(method: string, path: string, body?: unknown, query?: Query): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(`/api${path}${qs(query)}`, {
+      method,
+      credentials: "same-origin",
+      headers: body !== undefined ? { "content-type": "application/json" } : undefined,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+  } catch {
+    throw new ApiError(0, "network", "ارتباط با سرور برقرار نشد؛ اتصال را بررسی کنید");
+  }
+  const text = await res.text();
+  let data: any = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = null;
+  }
+  if (!res.ok) {
+    const e = data?.error;
+    if (res.status === 401 && path !== "/auth/login" && path !== "/auth/me") window.dispatchEvent(new CustomEvent("taraz:unauthorized"));
+    throw new ApiError(res.status, e?.code ?? "error", e?.message ?? `خطای ${res.status}`, e?.details);
+  }
+  return data as T;
+}
+
+export const api = {
+  get: <T = any>(path: string, query?: Query) => request<T>("GET", path, undefined, query),
+  post: <T = any>(path: string, body: unknown = {}) => request<T>("POST", path, body),
+  put: <T = any>(path: string, body: unknown = {}) => request<T>("PUT", path, body),
+  patch: <T = any>(path: string, body: unknown = {}) => request<T>("PATCH", path, body),
+  del: <T = any>(path: string) => request<T>("DELETE", path),
+};
+
+/** Organisation-scoped client: `orgApi(id).get("/data/party")` → /api/o/:id/data/party */
+export function orgApi(orgId: string) {
+  const p = (path: string) => `/o/${orgId}${path}`;
+  return {
+    get: <T = any>(path: string, query?: Query) => api.get<T>(p(path), query),
+    post: <T = any>(path: string, body: unknown = {}) => api.post<T>(p(path), body),
+    put: <T = any>(path: string, body: unknown = {}) => api.put<T>(p(path), body),
+    patch: <T = any>(path: string, body: unknown = {}) => api.patch<T>(p(path), body),
+    del: <T = any>(path: string) => api.del<T>(p(path)),
+  };
+}
+export type OrgApi = ReturnType<typeof orgApi>;
+
+export function errorText(e: unknown): string {
+  if (e instanceof ApiError) return e.message;
+  if (e instanceof Error) return e.message;
+  return "خطای ناشناخته";
+}

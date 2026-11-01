@@ -7,6 +7,10 @@ import inventoryCommerce from "./0004_inventory_commerce";
 import gold from "./0005_gold";
 import fx from "./0006_fx";
 import integrationsSync from "./0007_integrations_sync";
+import treasury from "./0008_treasury";
+import goods from "./0009_goods";
+import gold2 from "./0010_gold";
+import fx2 from "./0011_fx";
 
 export interface Migration {
   id: string;
@@ -22,6 +26,10 @@ export const MIGRATIONS: Migration[] = [
   { id: "0005_gold", title: "طلا و جواهر", sql: gold },
   { id: "0006_fx", title: "صرافی و ارز دیجیتال", sql: fx },
   { id: "0007_integrations_sync", title: "اتصال‌ها، تریگرهای همگام‌سازی و امنیت", sql: integrationsSync },
+  { id: "0008_treasury", title: "خزانه‌داری و چک", sql: treasury },
+  { id: "0009_goods", title: "کالا، انبار و فاکتور", sql: goods },
+  { id: "0010_gold", title: "طلا و جواهر (تکمیلی)", sql: gold2 },
+  { id: "0011_fx", title: "صرافی و رمزارز (تکمیلی)", sql: fx2 },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].id;
