@@ -249,8 +249,8 @@ export function VisionPortrait({ src, alt, detections, className = "" }: { src: 
     };
 
     // points inside the vignette's bright centre where the photo is dark (suit and background, away from the face). At
-    // rest a correct frame reads at most about 64 at each; in the scroll dissolve, halftone dots can light up to two of
-    // them. Broken: four near white anywhere, or, at rest, three above 120 (the washed-out picture an iPhone once
+    // rest and revealed a correct frame reads at most about 64 at each; in the scroll dissolve or the reveal, halftone
+    // dots can light some of them. Broken: four near white anywhere, or, at rest, three above 120 (the washed-out picture an iPhone once
     // showed: this shader drawing from a far too bright texture)
     const isBroken = (atRest: boolean) => {
       const px = new Uint8Array(4);
@@ -277,9 +277,9 @@ export function VisionPortrait({ src, alt, detections, className = "" }: { src: 
       ctx.uniform1f(u.scan, state.scan);
       ctx.uniform1f(u.time, (performance.now() - start) / 1000);
       ctx.drawArrays(ctx.TRIANGLE_STRIP, 0, 4);
-      // only with neither the lens nor the band on. A broken picture is rebuilt once, with the photo uploaded afresh,
-      // before the plain photo takes over
-      const atRest = state.scroll < 0.05;
+      // only with neither the lens nor the band on, and "at rest" only once revealed (mid-reveal, halftone dots can light
+      // the points). A broken picture is rebuilt once, with the photo uploaded afresh, before the plain photo takes over
+      const atRest = state.scroll < 0.05 && state.reveal >= 1;
       if ((checkSoon || (checkAtRest && atRest)) && state.hover < 0.01 && (state.scan < 0 || state.scan > 1)) {
         checkSoon = false;
         if (atRest) checkAtRest = false;
@@ -288,6 +288,9 @@ export function VisionPortrait({ src, alt, detections, className = "" }: { src: 
           rebuilt.current = true;
           console.warn("[portrait] rebuilding: the picture is white or washed out");
           disposed = true;
+          // the photo shows while the portrait is set up again (its upload brings the canvas back): a rebuild that
+          // fails half-way, say a context lost during it, cannot leave a dead canvas on screen
+          setGl(false);
           return setEpoch((n) => n + 1);
         }
       }
@@ -317,7 +320,11 @@ export function VisionPortrait({ src, alt, detections, className = "" }: { src: 
       dirty = false;
       setGl(false);
     };
-    const restored = () => setEpoch((n) => n + 1);
+    const restored = () => {
+      // a context the browser gives back is a fresh start, with its own one rebuild
+      rebuilt.current = false;
+      setEpoch((n) => n + 1);
+    };
     cv.addEventListener("webglcontextlost", lost);
     cv.addEventListener("webglcontextrestored", restored);
     // a page brought back from the background may have had its canvas cleared without any event
