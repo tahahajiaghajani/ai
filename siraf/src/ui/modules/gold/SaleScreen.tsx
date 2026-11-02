@@ -1,5 +1,6 @@
-// Counter sale (فروش طلا — صندوق): a POS-like screen. Scan a tag (or pick a piece), add weighed
-// gold and coins, take the customer's used gold in trade, split the payment between cash,
+// Counter sale (فروش طلا — صندوق): a POS-like screen. Scan a tag or a bar (bar number, serial or
+// QR), add weighed gold and coins (board coins at the board's price, Parsian coins by weight with
+// wage and VAT), take the customer's used gold, coins and bars in trade, split the payment between cash,
 // card and bank (the rest on the customer's account), save with F2 (or Ctrl ↵) and print an A5
 // invoice or an 80 mm receipt (F9). Prices are computed live with the same module the server posts
 // with. Layout (components.md §4.7): the items at the start; at the end the sale sheet — customer,
@@ -11,11 +12,11 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Alert, Button, Dropdown, Input, Select, Tooltip, type InputRef } from "antd";
 import {
   Banknote, Coins, CreditCard, Ellipsis, Equal, FileText, Landmark, Lock, Pencil, Plus, Printer, ScanBarcode, Ban,
-  CircleCheck, TrendingUp, X, LoaderCircle, ReceiptText,
+  CircleCheck, TrendingUp, X, LoaderCircle, ReceiptText, Boxes, IdCard,
 } from "lucide-react";
 import { useOrg } from "../../lib/org";
 import { useHotkey, useNotify } from "../../lib/hooks";
-import { errorText } from "../../lib/api";
+import { ApiError, errorText } from "../../lib/api";
 import { PageHeader } from "../../components/layout";
 import { DateInput, MoneyInput, NumberInput, PartySelect, PctInput, RefSelect, WeightInput } from "../../components/inputs";
 import { Chip, Loader, Money, Weight } from "../../components/display";
@@ -24,13 +25,15 @@ import { D, type Num } from "@shared/money";
 import { faDigits, formatNumber } from "@shared/format";
 import { formatJalaliDateTime } from "@shared/jalali";
 import { gram18FromMazaneh, mazanehFromGram18 } from "@shared/gold";
+import { isLegalNationalId, isNationalId } from "@shared/validate";
+import { SEAL_TITLES, variantChips } from "@shared/gold-catalogue";
 import { amountToWords } from "@shared/words";
 import { todayISO } from "@shared/jalali";
 import { uuidv7 } from "@shared/id";
 import { jTime } from "../../lib/fa";
 import {
-  docTotals, envOf, priceLine, settleSplit, StatusOf, useCoins, useGoldSettings, useLatestRate, wageTypeOptions, formOptions,
-  type LineIn, type PricedLine,
+  catalogueLineIn, docTotals, envOf, priceLine, settleSplit, StatusOf, useCatalogue, useCoins, useGoldSettings, useLatestRate, wageTypeOptions, formOptions, gw,
+  type CatalogueRow, type LineIn, type PricedLine,
 } from "./shared";
 import { GoldStrip, KaratAvatar, KaratSeg } from "./kit";
 import { useSheetFit } from "../goods/components";
@@ -38,7 +41,7 @@ import { PrintArea, printSheet, type PrintFormat } from "./Invoice";
 
 interface SLine {
   key: string;
-  kind: "piece" | "bulk" | "coin" | "old";
+  kind: "piece" | "bulk" | "coin" | "old" | "bar";
   direction: "out" | "in";
   gold_item_id?: string | null;
   tag_no?: string | null;
@@ -58,6 +61,15 @@ interface SLine {
   stone?: string | null;
   discount?: string | null;
   deduction_pct?: string | null;
+  /** bars: the bar of the register (out) or the bar handed in (in) */
+  gold_bar_id?: string | null;
+  bar_no?: string | null;
+  serial_no?: string | null;
+  brand?: string | null;
+  seal_status?: string | null;
+  unit_price?: string | null;
+  /** buy side: reason of a deduction for the condition */
+  description?: string | null;
 }
 
 interface Pay {
@@ -81,6 +93,8 @@ function SaleForm({ id }: { id: string | null }) {
   const settings = useGoldSettings();
   const latest = useLatestRate();
   const coins = useCoins();
+  const catalogue = useCatalogue();
+  const prods = useMemo(() => new Map((catalogue.data?.rows ?? []).map((p) => [p.id, p])), [catalogue.data]);
   const scanRef = useRef<InputRef>(null);
   const sheetRef = useSheetFit<HTMLElement>();
 
@@ -146,36 +160,81 @@ function SaleForm({ id }: { id: string | null }) {
         key: l.id, kind: l.kind, direction: l.direction, gold_item_id: l.gold_item_id, tag_no: l.tag_no, item_id: l.item_id, title: l.title,
         category_name: l.category_name, ownership: l.ownership, form: l.form, qty: l.qty, fineness: l.fineness, weight: l.weight, stone_weight: l.stone_weight,
         gram_price: l.kind === "coin" || (l.gram_price && l.gram_price !== d.gram18) ? l.gram_price : null, wage_type: l.wage_type, wage_value: l.wage_value,
-        profit_pct: l.profit_pct, stone: D(l.stone ?? 0).isZero() ? null : l.stone, discount: D(l.discount).isZero() || l.kind === "old" ? null : l.discount, deduction_pct: l.deduction_pct,
+        profit_pct: l.profit_pct, stone: D(l.stone ?? 0).isZero() ? null : l.stone, discount: D(l.discount).isZero() || l.kind === "old" || (l.kind === "bar" && l.direction === "in") ? null : l.discount, deduction_pct: l.deduction_pct,
+        gold_bar_id: l.gold_bar_id, bar_no: l.bar_no ?? l.tag_no, serial_no: l.serial_no ?? l.extra?.bar?.serial_no ?? null, brand: l.brand ?? l.extra?.bar?.brand ?? null,
+        seal_status: l.seal_status ?? l.extra?.bar?.seal_status ?? null, unit_price: l.extra?.unit_price ?? null, description: l.description,
       })),
     );
     setLocked(d.status !== "draft");
   }, [existing.data]);
 
-  const env = useMemo(() => envOf(settings.data, org.money_decimals, gram18 ?? 0, mazaneh), [settings.data, org.money_decimals, gram18, mazaneh]);
-  const lineIn = (l: SLine): LineIn => ({
-    kind: l.kind, direction: l.direction, form: l.form, qty: l.qty, fineness: l.fineness, weight: l.weight,
-    gram_price: l.kind === "old" ? l.gram_price ?? buyPrice : l.gram_price, wage_type: l.wage_type, wage_value: l.wage_value,
-    profit_pct: l.profit_pct, stone: l.stone, discount: l.discount, deduction_pct: l.deduction_pct,
-  });
-  const priced = useMemo(() => lines.map((l) => ({ l, p: priceLine("sale", lineIn(l), env) })), [lines, env, buyPrice]); // eslint-disable-line react-hooks/exhaustive-deps
+  const env = useMemo(() => envOf(settings.data, org.money_decimals, gram18 ?? 0, mazaneh, date), [settings.data, org.money_decimals, gram18, mazaneh, date]);
+  const rate = latest.data?.rate ?? null;
+  const lineIn = (l: SLine): LineIn =>
+    l.kind === "coin" || l.kind === "bar"
+      ? catalogueLineIn("sale", l, prods.get(l.item_id ?? ""), rate, settings.data, gram18, buyPrice)
+      : {
+          kind: l.kind, direction: l.direction, form: l.form, qty: l.qty, fineness: l.fineness, weight: l.weight,
+          gram_price: l.kind === "old" ? l.gram_price ?? buyPrice : l.gram_price, wage_type: l.wage_type, wage_value: l.wage_value,
+          profit_pct: l.profit_pct, stone: l.stone, discount: l.discount, deduction_pct: l.deduction_pct,
+        };
+  const priced = useMemo(() => lines.map((l) => ({ l, p: priceLine("sale", lineIn(l), env) })), [lines, env, buyPrice, prods, rate, settings.data]); // eslint-disable-line react-hooks/exhaustive-deps
   const totals = useMemo(() => docTotals("sale", priced.map(({ l, p }) => ({ ...p, kind: l.kind, direction: l.direction }))), [priced]);
   const split = settleSplit(totals.net, { cash: { amount: cash.amount }, pos: { amount: pos.amount }, bank: { amount: bank.amount } });
   const remaining = D(split.remaining);
   const outLines = priced.filter(({ l }) => l.direction === "out");
   const oldLines = priced.filter(({ l }) => l.kind === "old");
+  const coinIns = priced.filter(({ l }) => l.kind === "coin" && l.direction === "in");
+  const barIns = priced.filter(({ l }) => l.kind === "bar" && l.direction === "in");
+  const tradeIns = oldLines.length + coinIns.length + barIns.length;
+  // identification (KYC) for coins, bars and آب‌شده: a valid national id of the customer
+  const kyc = settings.data?.kyc;
+  const needsId =
+    !!kyc?.enabled &&
+    lines.some((l) => l.kind === "coin" || l.kind === "bar" || (l.kind === "bulk" && (l.form ?? "bullion") === "bullion")) &&
+    (!kyc.threshold || D(totals.total).abs().gte(D(kyc.threshold)) || D(totals.old_value).gte(D(kyc.threshold)));
+  const idOk = !!partyId || isNationalId(buyer.national_id ?? "") || isLegalNationalId(buyer.national_id ?? "");
   const readOnly = locked || !can("gold", "edit");
 
   const set = (key: string, patch: Partial<SLine>) => setLines((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
   const remove = (key: string) => setLines((ls) => ls.filter((l) => l.key !== key));
   const focusScan = () => setTimeout(() => scanRef.current?.focus(), 30);
 
+  /** A scanned bar (our bar number, the maker's serial or its QR) joins the sale. */
+  const addBar = async (t: string) => {
+    const r = await api.get(`/gold/bars/lookup/${encodeURIComponent(t)}`);
+    if (!r.available) {
+      n.warn(`شمش ${faDigits(r.bar.bar_no)} «${r.status_title}» است`);
+      return;
+    }
+    if (lines.some((l) => l.gold_bar_id === r.bar.id)) {
+      n.warn("این شمش قبلاً در فاکتور هست");
+      return;
+    }
+    const b = r.bar;
+    setLines((ls) => [
+      ...ls,
+      {
+        key: uuidv7(), kind: "bar", direction: "out", gold_bar_id: b.id, item_id: b.item_id, bar_no: b.bar_no, title: b.model_name ?? "شمش", weight: b.weight, fineness: b.fineness,
+        serial_no: b.serial_no, brand: b.brand, seal_status: b.seal_status, ownership: b.ownership,
+      },
+    ]);
+    setTag("");
+  };
+
   const addTag = async (raw: string) => {
     const t = raw.trim();
     if (!t || readOnly) return;
     setScanning(true);
     try {
-      const r = await api.get(`/gold/items/by-tag/${encodeURIComponent(t)}`, { gram18 });
+      let r: any;
+      try {
+        r = await api.get(`/gold/items/by-tag/${encodeURIComponent(t)}`, { gram18 });
+      } catch (e) {
+        // not a tag: a bar number, serial or QR
+        if (e instanceof ApiError && e.status === 404) return await addBar(t);
+        throw e;
+      }
       if (!r.available) {
         n.warn(`اتیکت ${faDigits(r.item.tag_no)} «${r.status_title}» است`);
         return;
@@ -205,7 +264,15 @@ function SaleForm({ id }: { id: string | null }) {
   const addBulk = () => setLines((ls) => [...ls, { key: uuidv7(), kind: "bulk", direction: "out", form: "bullion", fineness: "750", weight: null, wage_type: "fixed", wage_value: "0" }]);
   const addCoin = () => {
     const c = coins.data?.find((x) => D(x.qty).gt(0)) ?? coins.data?.[0];
-    setLines((ls) => [...ls, { key: uuidv7(), kind: "coin", direction: "out", item_id: c?.id ?? null, title: c?.name ?? null, qty: "1", gram_price: c?.price ?? null, fineness: c?.fineness ?? "900" }]);
+    setLines((ls) => [...ls, { key: uuidv7(), kind: "coin", direction: "out", item_id: c?.id ?? null, title: c?.name ?? null, qty: "1", fineness: c?.fineness ?? "900" }]);
+  };
+  const addCoinIn = () => {
+    const c = coins.data?.find((x) => x.rate_key === "emami") ?? coins.data?.[0];
+    setLines((ls) => [...ls, { key: uuidv7(), kind: "coin", direction: "in", item_id: c?.id ?? null, title: c?.name ?? null, qty: "1", fineness: c?.fineness ?? "900" }]);
+  };
+  const addBarIn = () => {
+    const m = (catalogue.data?.rows ?? []).find((x) => x.kind === "bar" && x.rate_key === "bar_other") ?? (catalogue.data?.rows ?? []).find((x) => x.kind === "bar");
+    setLines((ls) => [...ls, { key: uuidv7(), kind: "bar", direction: "in", item_id: m?.id ?? null, weight: null, fineness: m?.fineness ?? "995", seal_status: "sealed" }]);
   };
   const addOld = () => setLines((ls) => [...ls, { key: uuidv7(), kind: "old", direction: "in", fineness: "750", weight: null, deduction_pct: settings.data?.old_deduction_pct ?? null }]);
 
@@ -234,9 +301,20 @@ function SaleForm({ id }: { id: string | null }) {
     },
     lines: lines.map((l) => {
       const p = lineIn(l);
+      if (l.kind === "coin") {
+        return { kind: "coin", direction: l.direction, item_id: l.item_id ?? null, qty: l.qty, gram_price: p.gram_price ?? null, wage_type: l.wage_type ?? null, wage_value: l.wage_value ?? null, profit_pct: l.profit_pct ?? null, discount: l.discount ?? null, description: l.description || null };
+      }
+      if (l.kind === "bar") {
+        return l.direction === "out"
+          ? { kind: "bar", direction: "out", gold_bar_id: l.gold_bar_id, unit_price: l.unit_price ?? null, wage_type: l.wage_type ?? null, wage_value: l.wage_value ?? null, profit_pct: l.profit_pct ?? null, discount: l.discount ?? null }
+          : {
+              kind: "bar", direction: "in", item_id: l.item_id ?? null, gold_bar_id: l.gold_bar_id ?? null, weight: l.weight, fineness: l.fineness, unit_price: l.unit_price ?? null,
+              discount: l.discount ?? null, description: l.description || null, bar: { serial_no: l.serial_no || null, brand: l.brand || null, seal_status: l.seal_status ?? "sealed" },
+            };
+      }
       return {
         kind: l.kind, direction: l.direction, gold_item_id: l.gold_item_id ?? null, item_id: l.item_id ?? null, title: l.kind === "piece" ? null : l.title ?? null,
-        form: l.kind === "bulk" ? l.form : null, qty: l.kind === "coin" ? l.qty : null, fineness: l.kind === "piece" ? null : l.fineness, weight: l.kind === "piece" || l.kind === "coin" ? null : l.weight,
+        form: l.kind === "bulk" ? l.form : null, qty: null, fineness: l.kind === "piece" ? null : l.fineness, weight: l.kind === "piece" ? null : l.weight,
         gram_price: p.gram_price ?? null, wage_type: l.wage_type ?? null, wage_value: l.wage_value ?? null, profit_pct: l.profit_pct ?? null, stone: l.stone ?? null,
         discount: l.discount ?? null, deduction_pct: l.kind === "old" ? l.deduction_pct ?? null : null,
       };
@@ -248,6 +326,7 @@ function SaleForm({ id }: { id: string | null }) {
     if (!outLines.length) return n.warn("هیچ جنسی در فاکتور نیست؛ اتیکت را اسکن کنید");
     if (!date) return n.warn("تاریخ را وارد کنید");
     if (!gram18 && outLines.some(({ l }) => l.kind !== "coin")) return n.warn("قیمت گرم ۱۸ عیار را وارد کنید");
+    if (status === "posted" && needsId && !idOk) return n.warn("برای سکه، شمش و آب‌شده کد ملی معتبر خریدار لازم است");
     if (status === "posted" && !remaining.isZero() && !partyId) return n.warn("برای فروش نسیه، مشتری را انتخاب کنید یا مبلغ را کامل دریافت کنید");
     setSaving(true);
     try {
@@ -256,6 +335,7 @@ function SaleForm({ id }: { id: string | null }) {
       qc.invalidateQueries({ queryKey: ["table"] });
       qc.invalidateQueries({ queryKey: ["gold-summary"] });
       qc.invalidateQueries({ queryKey: ["gold-coins"] });
+      qc.invalidateQueries({ queryKey: ["gold-catalogue"] });
       qc.setQueryData(["gold-doc", r.doc.id], r.doc);
       setSaved(r.doc);
       setLocked(r.doc.status !== "draft");
@@ -387,7 +467,7 @@ function SaleForm({ id }: { id: string | null }) {
                   dir="ltr"
                   prefix={<Ic icon={ScanBarcode} />}
                   suffix={scanning ? <Ic icon={LoaderCircle} className="sf-spin" /> : <bdi dir="ltr" className="sf-scan-k sf-latin">F4</bdi>}
-                  placeholder="اسکن یا شماره‌ی اتیکت، Enter"
+                  placeholder="اسکن اتیکت یا شمش، Enter"
                   value={tag}
                   onChange={(e) => setTag(e.target.value)}
                   onPressEnter={() => addTag(tag)}
@@ -407,29 +487,34 @@ function SaleForm({ id }: { id: string | null }) {
             {outLines.length ? (
               <div className="sf-glines sf-stagger mt-2">
                 {outLines.map(({ l, p }) => (
-                  <SaleLine key={l.key} l={l} p={p} breakdown={outLines.length > 1} readOnly={readOnly} coins={coins.data ?? []} defaultProfit={env.profitPct} onChange={(patch) => set(l.key, patch)} onRemove={() => remove(l.key)} />
+                  <SaleLine key={l.key} l={l} p={p} breakdown={outLines.length > 1} readOnly={readOnly} coins={coins.data ?? []} prod={prods.get(l.item_id ?? "")} defaultProfit={env.profitPct} onChange={(patch) => set(l.key, patch)} onRemove={() => remove(l.key)} />
                 ))}
               </div>
             ) : (
               <div className="sf-gline-empty">
                 <span className="tile" aria-hidden><Ic icon={ScanBarcode} size={28} /></span>
-                <span>اتیکت جنس را اسکن کنید تا به فاکتور اضافه شود.</span>
+                <span>اتیکت جنس یا شمش را اسکن کنید تا به فاکتور اضافه شود.</span>
                 {!readOnly ? <span className="k">برای طلای وزنی یا سکه از دکمه‌های بالای فهرست استفاده کنید.</span> : null}
               </div>
             )}
           </section>
 
           {/* ---------------------------------------------------------------- trade-in */}
-          <section className="sf-doc-card" aria-label="طلای مستعمل مشتری">
+          <section className="sf-doc-card" aria-label="دریافتی از مشتری">
             <div className="sf-doc-h">
-              <h2>طلای مستعمل مشتری</h2>
-              <span className="sf-doc-hm">{oldLines.length ? <>تعویض، <Weight v={totals.weight_in} /> معادل ۷۵۰</> : "تعویض"}</span>
+              <h2>دریافتی از مشتری</h2>
+              <span className="sf-doc-hm">{tradeIns ? <>تعویض، <Money v={totals.old_value} /></> : "تعویض"}</span>
               {!readOnly ? (
                 <div className="sf-doc-hx">
                   <Button size="small" type="text" icon={<Ic icon={Plus} />} onClick={addOld}>طلای مستعمل</Button>
+                  <Button size="small" type="text" icon={<Ic icon={Coins} />} onClick={addCoinIn}>سکه</Button>
+                  <Button size="small" type="text" icon={<Ic icon={Boxes} />} onClick={addBarIn}>شمش</Button>
                 </div>
               ) : null}
             </div>
+            {coinIns.length || barIns.length ? (
+              <TradeIns coins={coinIns} bars={barIns} readOnly={readOnly} catalogue={catalogue.data?.rows ?? []} onChange={set} onRemove={remove} />
+            ) : null}
             {oldLines.length ? (
               <div className="sf-grid-wrap">
                 <table className="sf-grid min-w-[660px]">
@@ -468,7 +553,7 @@ function SaleForm({ id }: { id: string | null }) {
                 </table>
               </div>
             ) : (
-              <div className="px-5 py-4 text-[13px] text-ink-3">مشتری طلای کهنه برای تعویض ندارد.</div>
+              !coinIns.length && !barIns.length ? <div className="px-5 py-4 text-[13px] text-ink-3">مشتری طلا، سکه یا شمشی برای تعویض ندارد.</div> : null
             )}
           </section>
         </div>
@@ -486,6 +571,9 @@ function SaleForm({ id }: { id: string | null }) {
                 <Input disabled={readOnly} placeholder="موبایل" dir="ltr" inputMode="tel" className="sf-numin" value={buyer.mobile ?? ""} onChange={(e) => setBuyer({ ...buyer, mobile: e.target.value })} aria-label="موبایل" />
                 <Input disabled={readOnly} placeholder="کد ملی" dir="ltr" inputMode="numeric" className="sf-numin" value={buyer.national_id ?? ""} onChange={(e) => setBuyer({ ...buyer, national_id: e.target.value })} aria-label="کد ملی" />
                 <DateInput value={date} disabled={readOnly} onChange={setDate} />
+                {needsId && !idOk && !readOnly ? (
+                  <div className="sf-field-err col-span-2 flex items-center gap-1.5"><Ic icon={IdCard} size={14} />برای سکه، شمش و آب‌شده کد ملی معتبر خریدار لازم است.</div>
+                ) : null}
               </div>
             ) : (
               <div className="sf-field">
@@ -540,10 +628,11 @@ function SaleForm({ id }: { id: string | null }) {
               <SumRow k="مالیات" why={`${faDigits(String(env.taxPct))}٪ اجرت و سود`} v={totals.tax} />
               {!D(totals.stone).isZero() ? <SumRow k="سنگ و جواهر" v={totals.stone} /> : null}
               {!D(totals.coins).isZero() ? <SumRow k="سکه" v={totals.coins} /> : null}
+              {!D(totals.bars).isZero() ? <SumRow k="شمش" why={`${faDigits(outLines.filter(({ l }) => l.kind === "bar").length)} شمش`} v={totals.bars} /> : null}
               <SumRow k="مبلغ فاکتور" v={totals.total} total={D(totals.old_value).isZero()} />
               {!D(totals.old_value).isZero() ? (
                 <>
-                  <SumRow k="طلای مستعمل" why={<>{formatNumber(totals.weight_in, { dp: 3, minDp: 3 })} گرم ۷۵۰</>} v={D(totals.old_value).neg().toString()} />
+                  <SumRow k={coinIns.length || barIns.length ? "دریافتی از مشتری" : "طلای مستعمل"} why={!D(totals.weight_in).isZero() ? <>{formatNumber(totals.weight_in, { dp: 3, minDp: 3 })} گرم ۷۵۰</> : null} v={D(totals.old_value).neg().toString()} />
                   <SumRow k={payOut ? "قابل پرداخت به مشتری" : "قابل دریافت"} v={net.abs().toString()} total />
                 </>
               ) : null}
@@ -651,18 +740,87 @@ function PayRow({ icon, label, entity, pay, setPay, readOnly, onRest }: { icon: 
   );
 }
 
-function SaleLine({ l, p, breakdown, readOnly, coins, defaultProfit, onChange, onRemove }: {
+/** Coins and bars the customer hands in: board coins at the board's buy price, bars at the day rate less the fee. */
+function TradeIns({ coins, bars, readOnly, catalogue, onChange, onRemove }: {
+  coins: { l: SLine; p: PricedLine }[];
+  bars: { l: SLine; p: PricedLine }[];
+  readOnly: boolean;
+  catalogue: CatalogueRow[];
+  onChange: (key: string, patch: Partial<SLine>) => void;
+  onRemove: (key: string) => void;
+}) {
+  const coinOptions = catalogue.filter((c) => c.kind === "coin" && (c.is_active || coins.some(({ l }) => l.item_id === c.id))).map((c) => ({ value: c.id, label: c.name }));
+  const models = catalogue.filter((c) => c.kind === "bar").map((c) => ({ value: c.id, label: c.name }));
+  const x = (key: string) => (!readOnly ? <td><span className="sf-row-x"><Button type="text" size="small" icon={<Ic icon={X} />} onClick={() => onRemove(key)} aria-label="حذف ردیف" /></span></td> : null);
+  const reason = (l: SLine, p: PricedLine) =>
+    D(l.discount ?? 0).gt(0) ? (
+      <Input size="small" variant="borderless" status={l.description?.trim() ? undefined : "error"} disabled={readOnly} placeholder="دلیل کسر (الزامی)" value={l.description ?? ""} onChange={(e) => onChange(l.key, { description: e.target.value })} />
+    ) : !D(p.discount).isZero() ? <span className="sf-gsub !px-0">کسر <Money v={p.discount} /></span> : null;
+  return (
+    <div className="sf-grid-wrap">
+      <table className="sf-grid min-w-[700px]">
+        <thead>
+          <tr>
+            <th>سکه / شمش</th>
+            <th className="w-[150px]">تعداد / وزن و عیار</th>
+            <th className="w-[136px]">قیمت خرید</th>
+            <th className="w-[120px]">کسر بابت وضعیت</th>
+            <th className="w-[136px]">ارزش</th>
+            {!readOnly ? <th className="w-9" aria-label="حذف" /> : null}
+          </tr>
+        </thead>
+        <tbody>
+          {coins.map(({ l, p }) => (
+            <tr key={l.key}>
+              <td><Select variant="borderless" className="w-full" disabled={readOnly} value={l.item_id ?? undefined} options={coinOptions} onChange={(v) => onChange(l.key, { item_id: v, gram_price: null })} aria-label="نوع سکه" /></td>
+              <td><NumberInput variant="borderless" disabled={readOnly} value={l.qty} suffix={<span>عدد</span>} onChange={(v) => onChange(l.key, { qty: v })} /></td>
+              <td><MoneyInput variant="borderless" disabled={readOnly} value={l.gram_price} placeholder={p.gram_price ? formatNumber(p.gram_price) : "قیمت"} onChange={(v) => onChange(l.key, { gram_price: v })} /></td>
+              <td><MoneyInput variant="borderless" disabled={readOnly} value={l.discount} placeholder="—" onChange={(v) => onChange(l.key, { discount: v })} /></td>
+              <td className="sf-gn"><Money v={p.total} />{reason(l, p)}</td>
+              {x(l.key)}
+            </tr>
+          ))}
+          {bars.map(({ l, p }) => (
+            <tr key={l.key}>
+              <td>
+                <Select variant="borderless" className="w-full" disabled={readOnly} value={l.item_id ?? undefined} options={models} onChange={(v) => onChange(l.key, { item_id: v })} aria-label="مدل شمش" />
+                <div className="flex gap-1 px-2 pb-1">
+                  <Input size="small" disabled={readOnly} placeholder="برند" value={l.brand ?? ""} onChange={(e) => onChange(l.key, { brand: e.target.value })} />
+                  <Input size="small" dir="ltr" disabled={readOnly} placeholder="سریال" value={l.serial_no ?? ""} onChange={(e) => onChange(l.key, { serial_no: e.target.value })} />
+                  <Select size="small" className="!w-28 shrink-0" disabled={readOnly} value={l.seal_status ?? "sealed"} options={Object.entries(SEAL_TITLES).map(([value, label]) => ({ value, label }))} onChange={(v) => onChange(l.key, { seal_status: v })} aria-label="پلمپ" />
+                </div>
+              </td>
+              <td>
+                <WeightInput variant="borderless" disabled={readOnly} value={l.weight} onChange={(v) => onChange(l.key, { weight: v })} />
+                <NumberInput variant="borderless" decimals={1} disabled={readOnly} value={l.fineness} onChange={(v) => onChange(l.key, { fineness: v })} aria-label="عیار" />
+              </td>
+              <td><MoneyInput variant="borderless" disabled={readOnly} value={l.unit_price} placeholder="به نرخ روز" onChange={(v) => onChange(l.key, { unit_price: v })} /></td>
+              <td><MoneyInput variant="borderless" disabled={readOnly} value={l.discount} placeholder="—" onChange={(v) => onChange(l.key, { discount: v })} /></td>
+              <td className="sf-gn"><Money v={p.total} />{!D(p.discount).isZero() && !D(l.discount ?? 0).gt(0) ? <span className="sf-gsub !px-0">کارمزد <Money v={p.discount} /></span> : reason(l, p)}</td>
+              {x(l.key)}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function SaleLine({ l, p, breakdown, readOnly, coins, prod, defaultProfit, onChange, onRemove }: {
   l: SLine;
   p: PricedLine;
   breakdown?: boolean;
   readOnly: boolean;
   coins: { id: string; name: string; price: string | null; fineness: string | null; qty: string }[];
+  prod?: CatalogueRow;
   defaultProfit: unknown;
   onChange: (patch: Partial<SLine>) => void;
   onRemove: () => void;
 }) {
   const piece = l.kind === "piece";
   const coin = l.kind === "coin";
+  const bar = l.kind === "bar";
+  const byWeight = coin && prod?.gold_meta.pricing_mode === "weight";
   const wage = (
     <div className="sf-field is-wide">
       <div className="sf-field-l">اجرت ساخت</div>
@@ -686,10 +844,21 @@ function SaleLine({ l, p, breakdown, readOnly, coins, defaultProfit, onChange, o
               options={coins.map((c) => ({ value: c.id, label: `${c.name} (${faDigits(D(c.qty).toString())} عدد)`, disabled: !D(c.qty).gt(0) && c.id !== l.item_id }))}
               onChange={(v) => {
                 const c = coins.find((x) => x.id === v);
-                onChange({ item_id: v, title: c?.name ?? null, gram_price: c?.price ?? l.gram_price, fineness: c?.fineness ?? "900" });
+                onChange({ item_id: v, title: c?.name ?? null, gram_price: null, wage_type: null, wage_value: null, profit_pct: null, fineness: c?.fineness ?? "900" });
               }}
               aria-label="نوع سکه"
             />
+          ) : bar ? (
+            <>
+              <b>{l.title ?? "شمش"}</b>
+              <span>
+                <span>شمش <span className="sf-docno">{faDigits(l.bar_no ?? "")}</span></span>
+                {l.serial_no ? <><span className="sf-sep" aria-hidden /><bdi dir="ltr">{l.serial_no}</bdi></> : null}
+                {l.brand ? <><span className="sf-sep" aria-hidden /><span>{l.brand}</span></> : null}
+                {l.seal_status && l.seal_status !== "sealed" ? <><span className="sf-sep" aria-hidden /><Chip tone="neutral">{SEAL_TITLES[l.seal_status as keyof typeof SEAL_TITLES]}</Chip></> : null}
+                {l.ownership === "consignment" ? <><span className="sf-sep" aria-hidden /><Chip tone="neutral">امانی</Chip></> : null}
+              </span>
+            </>
           ) : piece ? (
             <>
               <b>{l.title}</b>
@@ -723,10 +892,44 @@ function SaleLine({ l, p, breakdown, readOnly, coins, defaultProfit, onChange, o
             <div className="sf-field">
               <div className="sf-field-l">تعداد</div>
               <NumberInput disabled={readOnly} value={l.qty} suffix={<span>عدد</span>} onChange={(v) => onChange({ qty: v })} />
+              {prod ? <div className="sf-field-h">{gw(D(prod.gold_weight ?? 0).times(D(l.qty || 0)).toString())} گرم · {faDigits(D(prod.fineness ?? 900).toString())}</div> : null}
+            </div>
+            {byWeight ? (
+              <>
+                {wage}
+                <div className="sf-field">
+                  <div className="sf-field-l">سود فروشنده</div>
+                  <PctInput disabled={readOnly} value={l.profit_pct} placeholder={faDigits(prod?.gold_meta.profit_pct ?? "0")} onChange={(v) => onChange({ profit_pct: v })} />
+                </div>
+              </>
+            ) : (
+              <div className="sf-field is-wide">
+                <div className="sf-field-l">قیمت هر سکه</div>
+                <MoneyInput disabled={readOnly} value={l.gram_price} placeholder={p.gram_price ? formatNumber(p.gram_price) : "قیمت هر سکه"} onChange={(v) => onChange({ gram_price: v })} />
+                {prod && variantChips(prod.gold_meta).length ? <div className="sf-field-h">{variantChips(prod.gold_meta).join(" · ")}</div> : null}
+              </div>
+            )}
+            <div className="sf-field">
+              <div className="sf-field-l">تخفیف</div>
+              <MoneyInput disabled={readOnly} value={l.discount} placeholder="—" onChange={(v) => onChange({ discount: v })} />
+            </div>
+          </>
+        ) : bar ? (
+          <>
+            <div className="sf-field">
+              <div className="sf-field-l">وزن</div>
+              <div className="sf-gline-ro"><Weight v={l.weight ?? 0} unit={false} /><span className="sf-unit">گرم</span></div>
+            </div>
+            <div className="sf-field">
+              <div className="sf-field-l">عیار</div>
+              <div className="sf-gline-ro"><span>{faDigits(D(l.fineness ?? 0).toString())}</span><span className="sf-unit">در هزار</span></div>
             </div>
             <div className="sf-field is-wide">
-              <div className="sf-field-l">قیمت هر سکه</div>
-              <MoneyInput disabled={readOnly} value={l.gram_price} placeholder="قیمت هر سکه" onChange={(v) => onChange({ gram_price: v })} />
+              <div className="sf-field-l">حق ضرب / کارمزد</div>
+              <div className="flex gap-1.5">
+                <Select className="!w-[92px] shrink-0" disabled={readOnly} value={l.wage_type ?? undefined} placeholder="پیش‌فرض" options={wageTypeOptions} onChange={(v) => onChange({ wage_type: v })} aria-label="نوع حق ضرب" />
+                <NumberInput decimals={3} disabled={readOnly} value={l.wage_value} placeholder={D(p.wage).isZero() ? "—" : formatNumber(p.wage)} onChange={(v) => onChange({ wage_value: v })} />
+              </div>
             </div>
             <div className="sf-field">
               <div className="sf-field-l">تخفیف</div>
@@ -777,7 +980,17 @@ function SaleLine({ l, p, breakdown, readOnly, coins, defaultProfit, onChange, o
         )}
       </div>
 
-      {!coin && breakdown ? (
+      {(byWeight || bar) && !D(p.total).isZero() ? (
+        <div className="sf-gline-why">
+          <span>ارزش طلا <span className="n"><Money v={p.gold_value} zero="—" /></span></span>
+          <span className="sf-sep" aria-hidden />
+          <span>{bar ? "حق ضرب" : "اجرت"} <span className="n"><Money v={p.wage} zero="—" /></span></span>
+          {!D(p.profit).isZero() ? <><span className="sf-sep" aria-hidden /><span>سود <span className="n"><Money v={p.profit} /></span></span></> : null}
+          <span className="sf-sep" aria-hidden />
+          <span>مالیات <span className="n"><Money v={p.tax} zero="—" /></span></span>
+        </div>
+      ) : null}
+      {!coin && !bar && breakdown ? (
         <div className="sf-gline-why">
           <span>ارزش طلا <span className="n"><Money v={p.gold_value} zero="—" /></span></span>
           <span className="sf-sep" aria-hidden />

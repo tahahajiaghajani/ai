@@ -1,9 +1,19 @@
-// /api/admin — the platform owner's view (PLATFORM_ADMIN_EMAILS): users, businesses and database size.
+// /api/admin — «مدیریت سامانه», only for platform admins (PLATFORM_ADMIN_EMAILS or the first account):
+// overview, businesses (platform metadata, status, notes, AI switch, support sessions), accounts,
+// security events, the admin audit log and system health. /admin/ai (stream B) is the AI policy.
+// Nothing here returns a business's documents: those need a support session.
 import { z } from "zod";
 import type { MiddlewareHandler } from "hono";
 import { router, body, requireUser, type Env } from "../http/hono";
-import { bad, forbidden } from "../http/errors";
-import { likeContains } from "../db";
+import { forbidden, notFound } from "../http/errors";
+import { aiAdminRoutes } from "./ai-admin";
+import { adminAudit, listOrgs, listUsers, orgDetail, overview, userDetail } from "../modules/platform/console";
+import { systemHealth } from "../modules/platform/health";
+import { listSecurityEvents, requestMeta } from "../modules/platform/security";
+import { ORG_STATUSES, updateOrgAdmin } from "../modules/platform/org-admin";
+import { endSupport, listSupportSessions, startSupport, SUPPORT_MAX_HOURS } from "../modules/platform/support";
+import { setPlatformAdmin, setUserDisabled, signOutEverywhere, temporaryPassword } from "../modules/platform/users";
+import type { OrgStatus } from "../context";
 
 const requireAdmin: MiddlewareHandler<Env> = async (c, next) => {
   if (!c.get("user")?.is_platform_admin) throw forbidden("این بخش فقط برای مدیر سامانه است");
@@ -12,60 +22,161 @@ const requireAdmin: MiddlewareHandler<Env> = async (c, next) => {
 
 export const adminRoutes = router();
 adminRoutes.use("*", requireUser, requireAdmin);
+adminRoutes.route("/ai", aiAdminRoutes);
 
+const isId = (s: string) => /^[0-9a-f-]{36}$/i.test(s);
+const qs = (v: string | undefined) => (v ?? "").trim() || null;
+const isoBefore = (v: string | undefined) => (v && !Number.isNaN(Date.parse(v)) ? v : null);
+
+// ---------------------------------------------------------------- overview and health
+
+adminRoutes.get("/overview", async (c) => c.json(await overview(c.get("cfg"))));
+adminRoutes.get("/health", async (c) => c.json(await systemHealth(c.get("cfg"))));
+
+/** Kept for older clients: the overview's main figures in the earlier shape. */
 adminRoutes.get("/stats", async (c) => {
-  const db = c.get("cfg").db;
-  const s = await db.one<Record<string, number>>(
-    `select (select count(*)::int from tz_users) as users,
-            (select count(*)::int from tz_users where disabled) as disabled_users,
-            (select count(*)::int from tz_orgs where deleted_at is null) as orgs,
-            (select count(*)::int from tz_sessions where revoked_at is null and expires_at > now() and last_seen_at > now() - interval '7 days') as active_sessions,
-            (select count(*)::int from tz_devices) as devices,
-            (select count(*)::int from tz_vouchers where deleted_at is null) as vouchers,
-            pg_database_size(current_database())::bigint as db_bytes`,
-  );
-  return c.json({ stats: s });
+  const o = await overview(c.get("cfg"));
+  return c.json({
+    stats: {
+      users: o.kpis.users.total,
+      disabled_users: o.kpis.users.disabled,
+      orgs: o.kpis.orgs.total,
+      active_sessions: o.kpis.users.active_7d,
+      devices: o.kpis.devices.total,
+      db_bytes: o.kpis.db.bytes,
+    },
+  });
 });
 
-adminRoutes.get("/users", async (c) => {
-  const q = (c.req.query("q") ?? "").trim();
-  const params: unknown[] = [];
-  let where = "";
-  if (q) {
-    params.push(likeContains(q));
-    where = `where u.email ilike $1 or u.full_name ilike $1 or u.mobile ilike $1`;
-  }
-  const rows = await c.get("cfg").db.query(
-    `select u.id, u.email, u.full_name, u.mobile, u.is_platform_admin, u.disabled, u.created_at,
-            (select max(s.last_seen_at) from tz_sessions s where s.user_id = u.id) as last_seen_at,
-            (select count(*)::int from tz_org_members m where m.user_id = u.id and m.deleted_at is null and m.is_active) as orgs
-     from tz_users u ${where} order by u.created_at desc limit 300`,
-    params,
+// ---------------------------------------------------------------- businesses
+
+adminRoutes.get("/orgs", async (c) => {
+  const status = c.req.query("status");
+  const orgs = await listOrgs(c.get("cfg").db, {
+    q: qs(c.req.query("q")),
+    status: ORG_STATUSES.includes(status as OrgStatus) ? (status as OrgStatus) : null,
+    module: qs(c.req.query("module")),
+    inactive: c.req.query("inactive") === "1" || c.req.query("inactive") === "true",
+    support: c.req.query("support") === "1" || c.req.query("support") === "true",
+  });
+  return c.json({ orgs });
+});
+
+adminRoutes.get("/orgs/:id", async (c) => {
+  const id = c.req.param("id");
+  if (!isId(id)) throw notFound("کسب‌وکار پیدا نشد");
+  const detail = await orgDetail(c.get("cfg"), id, c.get("user").id);
+  if (!detail) throw notFound("کسب‌وکار پیدا نشد");
+  return c.json(detail);
+});
+
+adminRoutes.patch("/orgs/:id", async (c) => {
+  const id = c.req.param("id");
+  if (!isId(id)) throw notFound("کسب‌وکار پیدا نشد");
+  const input = await body(
+    c,
+    z.object({
+      status: z.enum(["active", "read_only", "suspended"]).optional(),
+      status_reason: z.string().trim().max(300).nullish(),
+      notes: z.string().max(4000).nullish(),
+      ai_disabled: z.boolean().optional(),
+    }),
   );
-  return c.json({ users: rows });
+  const admin = await updateOrgAdmin(c.get("cfg"), c.get("user"), id, input, requestMeta(c));
+  return c.json({ admin });
+});
+
+adminRoutes.get("/orgs/:id/support", async (c) => {
+  const id = c.req.param("id");
+  if (!isId(id)) throw notFound("کسب‌وکار پیدا نشد");
+  return c.json({ sessions: await listSupportSessions(c.get("cfg").db, { org_id: id, limit: 100 }) });
+});
+
+adminRoutes.post("/orgs/:id/support", async (c) => {
+  const id = c.req.param("id");
+  if (!isId(id)) throw notFound("کسب‌وکار پیدا نشد");
+  const input = await body(
+    c,
+    z.object({
+      level: z.enum(["view", "edit"]),
+      reason: z.string().max(500),
+      hours: z.number().int().min(1).max(SUPPORT_MAX_HOURS).optional(),
+    }),
+  );
+  const session = await startSupport(c.get("cfg"), c.get("user"), id, input, requestMeta(c));
+  return c.json({ session });
+});
+
+adminRoutes.get("/support", async (c) =>
+  c.json({ sessions: await listSupportSessions(c.get("cfg").db, { active: c.req.query("active") === "1", limit: 200 }) }),
+);
+
+adminRoutes.post("/support/:id/end", async (c) => {
+  const id = c.req.param("id");
+  if (!isId(id)) throw notFound("جلسهٔ پشتیبانی پیدا نشد");
+  return c.json({ session: await endSupport(c.get("cfg"), c.get("user"), id, {}, requestMeta(c)) });
+});
+
+// ---------------------------------------------------------------- accounts
+
+adminRoutes.get("/users", async (c) => {
+  const f = c.req.query("filter");
+  const users = await listUsers(c.get("cfg"), {
+    q: qs(c.req.query("q")),
+    filter: f === "admins" || f === "disabled" || f === "never" || f === "inactive" ? f : null,
+  });
+  return c.json({ users });
+});
+
+adminRoutes.get("/users/:id", async (c) => {
+  const id = c.req.param("id");
+  if (!isId(id)) throw notFound("کاربر پیدا نشد");
+  const detail = await userDetail(c.get("cfg"), id);
+  if (!detail) throw notFound("کاربر پیدا نشد");
+  return c.json(detail);
 });
 
 adminRoutes.patch("/users/:id", async (c) => {
-  const db = c.get("cfg").db;
-  const id = c.req.param("id");
-  const input = await body(c, z.object({ disabled: z.boolean() }));
-  if (id === c.get("user").id) throw bad("حساب خودتان را نمی‌توانید غیرفعال کنید");
-  await db.tx(async (tx) => {
-    // tz_user_touch gives the row a new revision so linked Windows apps receive the change
-    await tx.query(`update tz_users set disabled = $2 where id = $1`, [id, input.disabled]);
-    if (input.disabled) await tx.query(`update tz_sessions set revoked_at = now() where user_id = $1 and revoked_at is null`, [id]);
-  });
-  return c.json({ ok: true });
+  const input = await body(c, z.object({ disabled: z.boolean(), reason: z.string().trim().max(300).nullish() }));
+  return c.json(await setUserDisabled(c.get("cfg"), c.get("user"), c.req.param("id"), input.disabled, input.reason || null, requestMeta(c)));
 });
 
-adminRoutes.get("/orgs", async (c) => {
-  const rows = await c.get("cfg").db.query(
-    `select o.id, o.name, o.business_kind, o.modules, o.created_at,
-            (select count(*)::int from tz_org_members m where m.org_id = o.id and m.deleted_at is null and m.is_active) as members,
-            (select count(*)::int from tz_vouchers v where v.org_id = o.id and v.deleted_at is null) as vouchers,
-            (select count(*)::int from tz_invoices i where i.org_id = o.id and i.deleted_at is null) as invoices,
-            (select max(v.updated_at) from tz_vouchers v where v.org_id = o.id) as last_activity
-     from tz_orgs o where o.deleted_at is null order by o.created_at desc limit 500`,
-  );
-  return c.json({ orgs: rows });
+adminRoutes.post("/users/:id/sign-out", async (c) => c.json(await signOutEverywhere(c.get("cfg"), c.get("user"), c.req.param("id"), requestMeta(c))));
+
+adminRoutes.post("/users/:id/password", async (c) => {
+  const input = await body(c, z.object({ reason: z.string().max(300) }));
+  return c.json(await temporaryPassword(c.get("cfg"), c.get("user"), c.req.param("id"), input.reason, requestMeta(c)));
+});
+
+adminRoutes.post("/users/:id/platform-admin", async (c) => {
+  const input = await body(c, z.object({ granted: z.boolean() }));
+  return c.json(await setPlatformAdmin(c.get("cfg"), c.get("user"), c.req.param("id"), input.granted, requestMeta(c)));
+});
+
+// ---------------------------------------------------------------- logs
+
+adminRoutes.get("/security-events", async (c) => {
+  const ok = c.req.query("ok");
+  const events = await listSecurityEvents(c.get("cfg").db, {
+    kind: qs(c.req.query("kind")),
+    ok: ok === "true" ? true : ok === "false" ? false : null,
+    q: qs(c.req.query("q")),
+    user_id: isId(c.req.query("user") ?? "") ? c.req.query("user") : null,
+    org_id: isId(c.req.query("org") ?? "") ? c.req.query("org") : null,
+    before: isoBefore(c.req.query("before")),
+    limit: 100,
+  });
+  return c.json({ events });
+});
+
+adminRoutes.get("/audit", async (c) => {
+  const actor = c.req.query("actor");
+  const rows = await adminAudit(c.get("cfg").db, {
+    actor: actor === "platform" || actor === "support" ? actor : null,
+    q: qs(c.req.query("q")),
+    org_id: isId(c.req.query("org") ?? "") ? c.req.query("org") : null,
+    before: isoBefore(c.req.query("before")),
+    limit: 100,
+  });
+  return c.json({ rows });
 });

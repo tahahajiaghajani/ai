@@ -10,6 +10,7 @@ import { Amt, Card, Period, PrintFoot, ScalePicker, ScaleProvider, unitCaption, 
 import { D } from "@shared/money";
 import { faDigits } from "@shared/format";
 import { pct } from "../../lib/fa";
+import { AiExplainButton } from "../../ai/explain/AiExplainButton";
 
 export function StatementBlock({ title, rows, total, totalLabel, soft }: { title: string; rows: any[]; total?: string; totalLabel?: string; soft?: boolean }) {
   const { orgId } = useOrg();
@@ -49,7 +50,7 @@ export default function IncomeStatement() {
   const margin = D(d?.total_income ?? 0).isZero() ? null : net.div(D(d.total_income));
   return (
     <div>
-      <PageHeader title="صورت سود و زیان" />
+      <PageHeader title="صورت سود و زیان" actions={<AiExplainButton report="income_statement" params={{ from: range.from, to: range.to, fiscal_year_id: fy?.id, drafts: range.drafts ? 1 : 0 }} title="صورت سود و زیان" />} />
       <ReportFilters range={range} setRange={setRange} />
       <ScaleProvider scale={scale}>
         <Card

@@ -150,7 +150,7 @@ export function App() {
         <Route path="/" element={<RequireAuth><Home /></RequireAuth>} />
         <Route path="/orgs" element={<RequireAuth><Orgs /></RequireAuth>} />
         <Route path="/orgs/new" element={<RequireAuth><OrgWizard /></RequireAuth>} />
-        <Route path="/admin" element={<RequireAuth><Admin /></RequireAuth>} />
+        <Route path="/admin/*" element={<RequireAuth><Admin /></RequireAuth>} />
         <Route path="/:org/*" element={<RequireAuth><OrgArea /></RequireAuth>} />
       </Routes>
     </Suspense>

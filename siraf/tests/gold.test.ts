@@ -104,6 +104,8 @@ describe("gold documents: posting, pieces, weights and reports", () => {
     c = new Client(s.app);
     org = await signupWithOrg(c);
     base = `/o/${org}`;
+    // these scenarios sell to walk-in customers; identification (KYC) is tested in gold-bullion.test.ts
+    await c.put(`${base}/gold/settings`, { kyc: { enabled: false } });
     for (const k of [
       "cash", "bank", "ar", "ap", "vat_out", "vat_in", "gold_inventory", "gold_old", "gold_bullion", "gold_parties", "gold_at_workshop", "gold_sales",
       "gold_wage_income", "gold_profit_income", "gold_cogs", "gold_loss", "gold_gain", "coin_inventory", "coin_sales", "coin_cogs",
@@ -703,6 +705,8 @@ describe("gold: regressions", () => {
     c = new Client(s.app);
     org = await signupWithOrg(c);
     base = `/o/${org}`;
+    // these scenarios sell to walk-in customers; identification (KYC) is tested in gold-bullion.test.ts
+    await c.put(`${base}/gold/settings`, { kyc: { enabled: false } });
     ids.box = (await c.get(`${base}/data/cash_box`)).rows[0].id;
     ids.wholesaler = (await c.post(`${base}/data/party`, { name: "بنکدار", roles: ["wholesaler"] })).row.id;
     ids.customer = (await c.post(`${base}/data/party`, { name: "مشتری", roles: ["customer"] })).row.id;

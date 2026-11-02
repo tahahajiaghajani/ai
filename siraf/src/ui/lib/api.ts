@@ -49,12 +49,48 @@ async function request<T>(method: string, path: string, body?: unknown, query?: 
   return data as T;
 }
 
+/**
+ * POST whose answer is a stream (server-sent events): resolves with the open Response as soon as the headers
+ * arrive, so the caller reads the body as it comes. A refused request fails like the JSON calls (ApiError with
+ * the server's Persian message, 401 → `taraz:unauthorized`); an abort through `signal` rejects with its AbortError.
+ */
+async function openStream(path: string, body: unknown, signal?: AbortSignal): Promise<Response> {
+  let res: Response;
+  try {
+    res = await fetch(`/api${path}`, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "content-type": "application/json", accept: "text/event-stream" },
+      body: JSON.stringify(body ?? {}),
+      signal,
+    });
+  } catch (e) {
+    if (signal?.aborted) throw e;
+    throw new ApiError(0, "network", "ارتباط با سرور برقرار نشد؛ اتصال را بررسی کنید");
+  }
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    let data: any = null;
+    try {
+      data = text ? JSON.parse(text) : null;
+    } catch {
+      data = null;
+    }
+    const e = data?.error;
+    if (res.status === 401) window.dispatchEvent(new CustomEvent("taraz:unauthorized"));
+    throw new ApiError(res.status, e?.code ?? "error", e?.message ?? `خطای ${res.status}`, e?.details);
+  }
+  if (!res.body) throw new ApiError(0, "network", "پاسخ سرور خوانده نشد؛ دوباره تلاش کنید");
+  return res;
+}
+
 export const api = {
   get: <T = any>(path: string, query?: Query) => request<T>("GET", path, undefined, query),
   post: <T = any>(path: string, body: unknown = {}) => request<T>("POST", path, body),
   put: <T = any>(path: string, body: unknown = {}) => request<T>("PUT", path, body),
   patch: <T = any>(path: string, body: unknown = {}) => request<T>("PATCH", path, body),
   del: <T = any>(path: string) => request<T>("DELETE", path),
+  stream: (path: string, body: unknown = {}, signal?: AbortSignal) => openStream(path, body, signal),
 };
 
 /** Organisation-scoped client: `orgApi(id).get("/data/party")` → /api/o/:id/data/party */
@@ -66,6 +102,7 @@ export function orgApi(orgId: string) {
     put: <T = any>(path: string, body: unknown = {}) => api.put<T>(p(path), body),
     patch: <T = any>(path: string, body: unknown = {}) => api.patch<T>(p(path), body),
     del: <T = any>(path: string) => api.del<T>(p(path)),
+    stream: (path: string, body: unknown = {}, signal?: AbortSignal) => api.stream(p(path), body, signal),
   };
 }
 export type OrgApi = ReturnType<typeof orgApi>;

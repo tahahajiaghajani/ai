@@ -15,6 +15,8 @@ import { uuidv7 } from "@shared/id";
 import { accountByKey, cr, dr, postAuto, removeAuto, signed, type VoucherLineInput } from "../accounting/vouchers";
 import { KINDS, bulkAccountKey, roundTo, type DocKind, type Direction, type LineKind } from "./pricing";
 import { assertCoinStock, coinStock, defaultWarehouse, nextTagNo, tagTaken, ITEM_STATUS_TITLES, type GoldItemRow } from "./items";
+import { barBySerial, barNoTaken, barStatusTitle, nextBarNo, normalizeBrand, type BarRow } from "./bars";
+import { pureWeight } from "@shared/gold";
 import { goldSettings, moneyStep } from "./settings";
 import { latestRate } from "./rates";
 
@@ -67,6 +69,7 @@ export interface DocRow {
   settle: Settle;
   buyer: Record<string, unknown>;
   moadian: Record<string, unknown>;
+  extra?: Record<string, unknown>;
   description: string | null;
   voucher_id: string | null;
   created_by: string | null;
@@ -82,6 +85,7 @@ export interface LineRow {
   kind: LineKind;
   direction: Direction;
   gold_item_id: string | null;
+  gold_bar_id?: string | null;
   item_id: string | null;
   category_id: string | null;
   title: string | null;
@@ -116,7 +120,7 @@ export function settleDue(kind: DocKind, mode: string | undefined, lines: Pick<L
     lines.filter(f).reduce((a, l) => a.plus(D(pick(l))), D(0));
   switch (kind) {
     case "sale":
-      return sum((l) => l.direction === "out", (l) => l.total).minus(sum((l) => l.kind === "old", (l) => l.total));
+      return sum((l) => l.direction === "out", (l) => l.total).minus(sum((l) => l.direction === "in", (l) => l.total));
     case "purchase": {
       const total = sum(() => true, (l) => l.total);
       return mode === "weight" ? total.minus(sum((l) => l.kind !== "coin", (l) => l.gold_value)) : total;
@@ -152,6 +156,7 @@ class Posting {
   private step: string;
   private avgCache = new Map<string, Decimal | null>();
   private outItems = new Map<string, GoldItemRow>();
+  private outBars = new Map<string, BarRow>();
   private partyRow: PartyInfo | null | undefined;
   private fallbackG18: Decimal | null | undefined;
 
@@ -334,6 +339,145 @@ class Posting {
     }
   }
 
+  // ------------------------------------------------------------ bars
+
+  /** Bars that leave the shop: checked and marked sold / returned / melted. */
+  private async consumeBars() {
+    const outs = this.lines.filter((l) => l.kind === "bar" && l.direction === "out");
+    if (!outs.length) return;
+    const ids = outs.map((l) => l.gold_bar_id).filter(Boolean) as string[];
+    const rows = await this.tx.query<BarRow>(`select * from tz_gold_bars where org_id = $1 and id = any($2::uuid[]) and deleted_at is null`, [this.orgId, `{${ids.join(",")}}`]);
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    const kind = this.doc.kind;
+    const next = kind === "sale" || kind === "bullion_sale" ? "sold" : kind === "consign_return" ? "returned" : "melted";
+    for (const l of outs) {
+      const b = l.gold_bar_id ? byId.get(l.gold_bar_id) : undefined;
+      if (!b) throw bad(`ردیف ${faDigits(l.line_no)}: شمش «${l.tag_no ?? ""}» پیدا نشد`);
+      const okStatus = b.status === "in_stock" || (kind === "sale" && b.status === "reserved");
+      if (!okStatus) throw conflict(`شمش ${faDigits(b.bar_no)} «${barStatusTitle(b.status)}» است و در این سند قابل استفاده نیست`);
+      if (kind === "consign_return") {
+        if (b.ownership !== "consignment") throw bad(`شمش ${faDigits(b.bar_no)} امانی نیست`);
+        if (b.party_id && b.party_id !== this.doc.party_id) throw bad(`شمش ${faDigits(b.bar_no)} امانیِ همکار دیگری است`);
+      } else if (b.ownership === "customer" || (b.ownership === "consignment" && kind !== "sale")) {
+        throw bad(`شمش ${faDigits(b.bar_no)} متعلق به ما نیست و در «${KINDS[kind].title}» به کار نمی‌رود`);
+      }
+      this.outBars.set(b.id, b);
+      await this.tx.query(`update tz_gold_bars set status = $3, out_doc_id = $4, origin = $5 where id = $1 and org_id = $2`, [b.id, this.orgId, next, this.doc.id, this.ctx.cfg.origin]);
+    }
+  }
+
+  /** Cost of a bar leaving the shop: its own cost, else the average of the bars account. */
+  private async barCost(l: LineRow): Promise<string> {
+    const b = this.outBars.get(l.gold_bar_id!)!;
+    return b.cost !== null && b.cost !== undefined && D(b.cost).gt(0) ? this.m(b.cost) : this.costOf("gold_bars", l.weight750);
+  }
+
+  /** Bars leaving the bars account at their cost; `debitKey` takes the cost (cost of sales). */
+  private async barsOut(lines: LineRow[], debitKey: "bar_cogs" | null) {
+    let total = D(0);
+    for (const l of lines) {
+      l.cost = await this.barCost(l);
+      total = total.plus(D(l.cost));
+      await this.push("gold_bars", "cr", l.cost, {
+        w_credit: l.weight750, fineness: l.fineness, raw_weight: l.weight,
+        description: `شمش ${faDigits(l.tag_no ?? "")} — ${formatWeight(l.weight)} گرم عیار ${faDigits(D(l.fineness ?? 995).toString())} — ${this.label}`,
+      });
+    }
+    if (debitKey && lines.length) await this.push(debitKey, "dr", total, { description: `بهای تمام‌شده‌ی شمش — ${this.label}` });
+    return total;
+  }
+
+  /** Bars coming in at a cost (purchase, buy-back, trade-in, melt, opening). */
+  private async barsIn(lines: LineRow[], cost: (l: LineRow) => string, what: string) {
+    for (const l of lines) {
+      l.cost = cost(l);
+      await this.push("gold_bars", "dr", l.cost, {
+        w_debit: l.weight750, fineness: l.fineness, raw_weight: l.weight, description: `${what} شمش ${formatWeight(l.weight)} گرم عیار ${faDigits(D(l.fineness ?? 995).toString())} — ${this.label}`,
+      });
+    }
+  }
+
+  /**
+   * Bars that come in get a row in the register (or, bought back, their old row again — found
+   * by the line or by brand + serial; its previous state is kept on the line for undo).
+   */
+  private async createBars() {
+    const ins = this.lines.filter((l) => l.kind === "bar" && l.direction === "in");
+    if (!ins.length) return;
+    const kind = this.doc.kind;
+    const party = kind === "opening" || kind === "melt" ? null : await this.party(kind === "purchase" || kind === "consign_in");
+    const wh = await defaultWarehouse(this.tx, this.orgId);
+    const docExtra = (this.doc.extra ?? {}) as Record<string, string>;
+    const source = kind === "purchase" ? (docExtra.source === "ice" ? "ice" : docExtra.source === "public" ? "buyback" : "purchase") : kind === "consign_in" ? "consignment" : kind === "melt" ? "melt" : kind === "opening" ? "opening" : "buyback";
+    for (const l of ins) {
+      const x = ((l.extra ?? {}) as Record<string, unknown>);
+      const a = ((x.bar ?? {}) as Record<string, string | undefined>);
+      const fields = {
+        item_id: l.item_id, brand: a.brand ? normalizeBrand(a.brand) : null, serial_no: a.serial_no ?? null, qr: a.qr ?? null,
+        nominal_weight: a.nominal_weight ?? null, weight: D(l.weight).toString(), fineness: D(l.fineness ?? 995).toString(),
+        fine_weight: pureWeight(l.weight, l.fineness ?? 995), weight750: D(l.weight750).toString(),
+        certificate_no: a.certificate_no ?? null, certificate_issuer: a.certificate_issuer ?? null, assay_lab: a.assay_lab ?? null, assay_no: a.assay_no ?? l.assay_no ?? null,
+        assay_date: a.assay_date ?? null, seal_status: a.seal_status ?? "sealed", source, source_ref: kind === "purchase" ? docExtra.auction_ref ?? null : null,
+        ownership: kind === "consign_in" ? "consignment" : "own", party_id: party?.id ?? null, status: "in_stock", warehouse_id: wh,
+        cost: kind === "consign_in" ? null : l.cost, in_doc_id: this.doc.id, out_doc_id: null, notes: l.description, origin: this.ctx.cfg.origin,
+      };
+      let existing: BarRow | null = l.gold_bar_id ? await this.tx.one<BarRow>(`select * from tz_gold_bars where id = $1 and org_id = $2 and deleted_at is null`, [l.gold_bar_id, this.orgId]) : null;
+      if (!existing && a.serial_no) existing = await barBySerial(this.tx, this.orgId, a.brand, a.serial_no);
+      if (existing && existing.in_doc_id !== this.doc.id) {
+        if (existing.status === "in_stock" || existing.status === "reserved") {
+          throw conflict(`ردیف ${faDigits(l.line_no)}: شمش با سریال «${a.serial_no ?? existing.serial_no ?? ""}» هم‌اکنون در موجودی است (شماره‌ی ${faDigits(existing.bar_no)})`);
+        }
+        // a bar we sold (or melted records of) comes back: its row is reused, the old state kept for undo
+        x.prev_bar = { status: existing.status, in_doc_id: existing.in_doc_id, out_doc_id: existing.out_doc_id, cost: existing.cost, source: existing.source, ownership: existing.ownership, party_id: existing.party_id, seal_status: existing.seal_status, weight: existing.weight, fineness: existing.fineness, fine_weight: existing.fine_weight, weight750: existing.weight750 };
+        await updateRow(this.tx, "tz_gold_bars", { id: existing.id, org_id: this.orgId }, { ...fields, brand: fields.brand ?? existing.brand, serial_no: fields.serial_no ?? existing.serial_no, item_id: fields.item_id ?? existing.item_id });
+        l.gold_bar_id = existing.id;
+        l.tag_no = existing.bar_no;
+        l.extra = x;
+        continue;
+      }
+      if (existing && existing.in_doc_id === this.doc.id) {
+        // re-posting: the bar keeps its number unless someone took it meanwhile
+        let no = a.bar_no && a.bar_no !== existing.bar_no ? a.bar_no : existing.bar_no;
+        if (await barNoTaken(this.tx, this.orgId, no, existing.id)) {
+          if (a.bar_no && a.bar_no !== existing.bar_no) throw conflict(`شماره‌ی شمش «${faDigits(no)}» قبلاً ثبت شده است`);
+          no = String(await nextBarNo(this.tx, this.orgId));
+        }
+        await updateRow(this.tx, "tz_gold_bars", { id: existing.id, org_id: this.orgId }, { ...fields, bar_no: no, deleted_at: null });
+        l.tag_no = no;
+        continue;
+      }
+      let no = a.bar_no;
+      if (no) {
+        if (await barNoTaken(this.tx, this.orgId, no)) throw conflict(`ردیف ${faDigits(l.line_no)}: شماره‌ی شمش «${faDigits(no)}» قبلاً ثبت شده است`);
+      } else no = String(await nextBarNo(this.tx, this.orgId));
+      const id = uuidv7();
+      await insertRow(this.tx, "tz_gold_bars", { id, org_id: this.orgId, bar_no: no, ...fields }, "id");
+      l.gold_bar_id = id;
+      l.tag_no = no;
+    }
+  }
+
+  /** Selling a consigned bar: the memo comes off and its owner is owed (by weight or in rial). */
+  private async consignedBarSale(l: LineRow, b: BarRow) {
+    const r = await this.tx.one<{ mode: string | null; party_id: string | null }>(
+      `select d.settle->>'mode' as mode, d.party_id from tz_gold_lines gl join tz_gold_docs d on d.id = gl.doc_id
+       where gl.org_id = $1 and gl.gold_bar_id = $2 and d.kind = 'consign_in' and d.status = 'posted' and d.deleted_at is null
+       order by d.date desc, d.created_at desc limit 1`,
+      [this.orgId, b.id],
+    );
+    const supplier = r?.party_id ?? b.party_id;
+    if (!supplier) throw bad(`امانت‌گذارِ شمش ${faDigits(b.bar_no)} مشخص نیست`);
+    const sup = await this.partyById(supplier);
+    const gold = D(l.gold_value);
+    l.cost = this.m(gold);
+    const tag = `شمش ${faDigits(b.bar_no)}`;
+    await this.push("gold_consign_contra", "dr", 0, { w_debit: l.weight750, detail_id: sup.detail_id, description: `فروش امانی ${tag} — ${this.label}` });
+    await this.push("gold_consign_memo", "cr", 0, { w_credit: l.weight750, detail_id: sup.detail_id, description: `فروش امانی ${tag} — ${this.label}` });
+    await this.push("bar_cogs", "dr", l.cost, { description: `بهای امانی ${tag} — ${sup.name}` });
+    if (r?.mode === "rial") await this.push("ap", "cr", l.cost, { detail_id: sup.detail_id, description: `بهای امانی ${tag}` });
+    else await this.push("gold_parties", "cr", gold, { w_credit: l.weight750, detail_id: sup.detail_id, fineness: l.fineness, raw_weight: l.weight, description: `بدهی وزنی بابت امانی ${tag}` });
+  }
+
   // ------------------------------------------------------------ coins
 
   /** Average cost of sold coins (with a stock check) and the coin stock moves of the document. */
@@ -389,15 +533,16 @@ class Posting {
     );
   }
 
-  private async coinLines(revenue: boolean) {
+  /** Coins out (cost of sales, or `null`: cost carried on, e.g. melted) and coins in, with their count. */
+  private async coinLines(outDebit: "coin_cogs" | null) {
     const coins = this.lines.filter((l) => l.kind === "coin");
     if (!coins.length) return;
-    if (this.doc.kind === "sale") {
-      if (revenue) await this.push("coin_sales", "cr", coins.reduce((a, l) => a.plus(D(l.total)), D(0)));
-      await this.push("coin_cogs", "dr", coins.reduce((a, l) => a.plus(D(l.cost ?? 0)), D(0)), { description: `بهای تمام‌شده‌ی سکه — ${this.label}` });
-      for (const l of coins) await this.push("coin_inventory", "cr", l.cost ?? 0, { qty: l.qty, item_id: l.item_id, description: `${l.title ?? "سکه"} × ${faDigits(D(l.qty).toString())}` });
-    } else {
-      for (const l of coins) await this.push("coin_inventory", "dr", l.cost ?? l.total, { qty: l.qty, item_id: l.item_id, description: `${l.title ?? "سکه"} × ${faDigits(D(l.qty).toString())}` });
+    const outs = coins.filter((l) => l.direction === "out");
+    if (outs.length && outDebit) await this.push(outDebit, "dr", outs.reduce((a, l) => a.plus(D(l.cost ?? 0)), D(0)), { description: `بهای تمام‌شده‌ی سکه — ${this.label}` });
+    for (const l of coins) {
+      const e = { qty: l.qty, item_id: l.item_id, description: `${l.title ?? "سکه"} × ${faDigits(D(l.qty).toString())}${l.direction === "in" && this.doc.kind === "sale" ? " — دریافتی از مشتری" : ""}` };
+      if (l.direction === "out") await this.push("coin_inventory", "cr", l.cost ?? 0, e);
+      else await this.push("coin_inventory", "dr", l.cost ?? l.total, e);
     }
   }
 
@@ -446,23 +591,34 @@ class Posting {
 
   private async sale() {
     const gold = this.lines.filter((l) => l.direction === "out" && (l.kind === "piece" || l.kind === "bulk"));
+    const coinsOut = this.lines.filter((l) => l.direction === "out" && l.kind === "coin");
+    const barsOut = this.lines.filter((l) => l.direction === "out" && l.kind === "bar");
     const sum = (pick: (l: LineRow) => Num, ls = gold) => ls.reduce((a, l) => a.plus(D(pick(l))), D(0));
-    // revenue: a discount comes off the seller's profit first, then off the wage
-    const profit = sum((l) => l.profit);
-    const wage = sum((l) => l.wage);
-    const discount = sum((l) => l.discount);
+    // revenue: a discount comes off the seller's profit first, then off the wage (coins priced
+    // by weight likewise; a board coin's discount comes off its price)
+    const weighted = [...gold, ...coinsOut.filter((l) => !D(l.wage).isZero() || !D(l.profit).isZero())];
+    const profit = sum((l) => l.profit, weighted);
+    const wage = sum((l) => l.wage, weighted);
+    const discount = sum((l) => l.discount, weighted);
     const offProfit = Decimal_min(discount, profit);
     const offWage = discount.minus(offProfit);
     await this.push("gold_sales", "cr", sum((l) => l.gold_value));
     await this.push("gold_wage_income", "signed", wage.minus(offWage).neg());
     await this.push("gold_profit_income", "signed", profit.minus(offProfit).neg());
-    await this.push("vat_out", "cr", sum((l) => l.tax));
+    await this.push("vat_out", "cr", sum((l) => l.tax, [...gold, ...coinsOut, ...barsOut]));
     await this.push("stone_sales", "cr", sum((l) => l.stone));
-    // used gold the customer trades in
+    const coinRevenue = coinsOut.reduce((a, l) => {
+      const w = !D(l.wage).isZero() || !D(l.profit).isZero();
+      return a.plus(w ? D(l.gold_value) : D(l.total).minus(D(l.tax)));
+    }, D(0));
+    if (coinsOut.length) await this.push("coin_sales", "cr", coinRevenue, { description: `فروش سکه — ${this.label}` });
+    if (barsOut.length) await this.push("bar_sales", "cr", sum((l) => D(l.total).minus(D(l.tax)), barsOut), { description: `فروش شمش — ${this.label}` });
+    // what the customer trades in: used gold, coins and bars
     for (const l of this.lines.filter((x) => x.kind === "old")) {
       l.cost = this.m(l.total);
       await this.push("gold_old", "dr", l.total, { w_debit: l.weight750, fineness: l.fineness, raw_weight: l.weight, description: `طلای مستعمل دریافتی — ${this.label}` });
     }
+    await this.barsIn(this.lines.filter((x) => x.kind === "bar" && x.direction === "in"), (l) => this.m(l.total), "دریافت");
     await this.settlement(settleDue("sale", undefined, this.lines), "receive", "ar");
 
     // cost of what was sold
@@ -485,7 +641,14 @@ class Posting {
       await this.push("gold_inventory", "cr", ownCost, { w_credit: ownW, raw_weight: ownRaw, description: `خروج مصنوعات — ${this.label}` });
     }
     await this.bulkOut(gold.filter((x) => x.kind === "bulk"), "gold_cogs");
-    await this.coinLines(true);
+    await this.coinLines("coin_cogs");
+    const ownBars: LineRow[] = [];
+    for (const l of barsOut) {
+      const b = this.outBars.get(l.gold_bar_id!)!;
+      if (b.ownership === "consignment") await this.consignedBarSale(l, b);
+      else ownBars.push(l);
+    }
+    await this.barsOut(ownBars, "bar_cogs");
   }
 
   /** Supplier terms of a consigned piece (from the consignment document that brought it in). */
@@ -558,18 +721,22 @@ class Posting {
       }
     }
     if (!pieceW.isZero()) await this.push("gold_inventory", "dr", pieceCost, { w_debit: pieceW, raw_weight: pieceRaw, description: `ورود مصنوعات — ${this.label}` });
-    await this.coinLines(false);
+    const bars = this.lines.filter((l) => l.kind === "bar");
+    await this.barsIn(bars, (l) => this.m(D(l.gold_value).plus(D(l.wage))), "خرید");
+    await this.coinLines(null);
     await this.push("vat_in", "dr", this.lines.reduce((a, l) => a.plus(D(l.tax)), D(0)));
     if (mode === "weight") {
-      const goldValue = gold.reduce((a, l) => a.plus(D(l.gold_value)), D(0));
-      const w = gold.reduce((a, l) => a.plus(D(l.weight750)), D(0));
+      const goldValue = [...gold, ...bars].reduce((a, l) => a.plus(D(l.gold_value)), D(0));
+      const w = [...gold, ...bars].reduce((a, l) => a.plus(D(l.weight750)), D(0));
       await this.push("gold_parties", "cr", goldValue, { w_credit: w, detail_id: party.detail_id, description: `بدهی وزنی (طلا به طلا) — ${this.label}` });
     }
     await this.settlement(settleDue("purchase", mode, this.lines), "pay", "ap");
   }
 
   private async buyback() {
-    for (const l of this.lines) {
+    await this.coinLines(null);
+    await this.barsIn(this.lines.filter((l) => l.kind === "bar"), (l) => this.m(l.total), "خرید از مشتری");
+    for (const l of this.lines.filter((x) => x.kind === "old")) {
       l.cost = this.m(l.total);
       await this.push("gold_old", "dr", l.total, { w_debit: l.weight750, fineness: l.fineness, raw_weight: l.weight, description: `${l.title || "طلای مستعمل"} — کسر ${faDigits(D(l.deduction_pct ?? 0).toString())}٪ — ${this.label}` });
     }
@@ -592,7 +759,8 @@ class Posting {
 
   private async workshopOut() {
     const party = (await this.party(true))!;
-    await this.bulkOut(this.lines, null);
+    await this.bulkOut(this.lines.filter((l) => l.kind === "bulk"), null);
+    await this.barsOut(this.lines.filter((l) => l.kind === "bar"), null);
     const cost = this.lines.reduce((a, l) => a.plus(D(l.cost ?? 0)), D(0));
     const w = this.lines.reduce((a, l) => a.plus(D(l.weight750)), D(0));
     await this.push("gold_at_workshop", "dr", cost, { w_debit: w, detail_id: party.detail_id, description: `ارسال طلا به ${party.name} — ${this.label}` });
@@ -644,6 +812,8 @@ class Posting {
     const outputs = this.lines.filter((l) => l.direction === "in");
     if (!inputs.length || !outputs.length) throw bad("ذوب باید هم طلای ورودی (مستعمل یا جنس) و هم آبشده‌ی حاصل را داشته باشد");
     await this.bulkOut(inputs.filter((l) => l.kind === "bulk"), null);
+    await this.barsOut(inputs.filter((l) => l.kind === "bar"), null);
+    await this.coinLines(null);
     let pieceCost = D(0);
     let pieceW = D(0);
     for (const l of inputs.filter((x) => x.kind === "piece")) {
@@ -662,6 +832,10 @@ class Posting {
     for (const l of outputs) {
       l.cost = this.m(D(l.weight750).times(avgIn));
       Rout = Rout.plus(D(l.cost));
+      if (l.kind === "bar") {
+        await this.barsIn([l], () => l.cost!, "ری‌گیری");
+        continue;
+      }
       await this.push(bulkAccountKey(l.form ?? "bullion"), "dr", l.cost, {
         w_debit: l.weight750, fineness: l.fineness, raw_weight: l.weight,
         description: `آبشده ${formatWeight(l.weight)} گرم عیار ${faDigits(D(l.fineness ?? 750).toString())}${l.assay_no ? ` — انگ ${l.assay_no}` : ""}`,
@@ -677,8 +851,12 @@ class Posting {
   private async bullionSale() {
     const mode = this.doc.settle?.mode === "weight" ? "weight" : "rial";
     const value = this.lines.reduce((a, l) => a.plus(D(l.total)), D(0));
-    await this.push("gold_sales", "cr", value, { description: `فروش آبشده — ${this.label}` });
-    await this.bulkOut(this.lines, "gold_cogs");
+    const bulk = this.lines.filter((l) => l.kind === "bulk");
+    const bars = this.lines.filter((l) => l.kind === "bar");
+    if (bulk.length) await this.push("gold_sales", "cr", bulk.reduce((a, l) => a.plus(D(l.total)), D(0)), { description: `فروش آب‌شده — ${this.label}` });
+    if (bars.length) await this.push("bar_sales", "cr", bars.reduce((a, l) => a.plus(D(l.total)), D(0)), { description: `فروش شمش — ${this.label}` });
+    await this.bulkOut(bulk, "gold_cogs");
+    await this.barsOut(bars, "bar_cogs");
     if (mode === "weight") {
       const party = (await this.party(true))!;
       const w = this.lines.reduce((a, l) => a.plus(D(l.weight750)), D(0));
@@ -693,6 +871,7 @@ class Posting {
       if (l.kind !== "coin") l.cost = this.m(l.total);
       total = total.plus(D(l.total));
     }
+    await this.barsIn(this.lines.filter((l) => l.kind === "bar"), (l) => this.m(l.total), "موجودی اول دوره —");
     if (pieces.length) {
       await this.push("gold_inventory", "dr", pieces.reduce((a, l) => a.plus(D(l.cost ?? 0)), D(0)), {
         w_debit: pieces.reduce((a, l) => a.plus(D(l.weight750)), D(0)), description: `مصنوعات اول دوره — ${this.label}`,
@@ -701,7 +880,7 @@ class Posting {
     for (const l of this.lines.filter((x) => x.kind === "bulk")) {
       await this.push(bulkAccountKey(l.form), "dr", l.cost ?? 0, { w_debit: l.weight750, fineness: l.fineness, raw_weight: l.weight, description: `${l.title || "طلای وزنی"} اول دوره` });
     }
-    await this.coinLines(false);
+    await this.coinLines(null);
     await this.push("opening_balance", "cr", total, { description: this.label });
   }
 
@@ -709,6 +888,7 @@ class Posting {
 
   async run(): Promise<string | null> {
     await this.consumePieces();
+    await this.consumeBars();
     await this.coinCosts();
     switch (this.doc.kind) {
       case "sale":
@@ -743,6 +923,7 @@ class Posting {
         break;
     }
     await this.createPieces();
+    await this.createBars();
     await this.writeCoinMoves();
     // a back-dated document must not leave a later coin sale without stock
     await assertCoinStock(this.tx, this.orgId, this.lines.filter((l) => l.kind === "coin" && l.direction === "out").map((l) => l.item_id!), this.doc.date);
@@ -762,7 +943,9 @@ class Posting {
       { userId: this.ctx.user.id, origin: this.ctx.cfg.origin },
     );
     for (const l of this.lines) {
-      await this.tx.query(`update tz_gold_lines set cost = $2, gold_item_id = $3, tag_no = $4 where id = $1`, [l.id, l.cost, l.gold_item_id, l.tag_no]);
+      await this.tx.query(`update tz_gold_lines set cost = $2, gold_item_id = $3, tag_no = $4, gold_bar_id = $5, extra = $6::jsonb where id = $1`, [
+        l.id, l.cost, l.gold_item_id, l.tag_no, l.gold_bar_id ?? null, JSON.stringify(l.extra ?? {}),
+      ]);
     }
     return voucherId;
   }
@@ -802,6 +985,7 @@ export async function unapplyDoc(tx: Tx, ctx: Ctx, doc: DocRow, opts: { keepVouc
     `update tz_gold_items set status = 'in_stock', out_doc_id = null, origin = $3 where org_id = $1 and out_doc_id = $2 and deleted_at is null`,
     [orgId, doc.id, ctx.cfg.origin],
   );
+  await unapplyBars(tx, ctx, doc);
   const moves = await tx.query<{ item_id: string; date: string }>(
     `select item_id, min(date) as date from tz_stock_moves where org_id = $1 and source_id = $2 group by item_id`,
     [orgId, doc.id],
@@ -812,6 +996,36 @@ export async function unapplyDoc(tx: Tx, ctx: Ctx, doc: DocRow, opts: { keepVouc
   if (!opts.keepVoucher) for (const m of moves) await assertCoinStock(tx, orgId, [m.item_id], String(m.date).slice(0, 10));
   if (!opts.keepVoucher) await removeAuto(tx, orgId, "gold_doc", doc.id);
   return { coinItems };
+}
+
+/** Bars a document brought in are removed (or, bought back, restored); bars it took out return. */
+async function unapplyBars(tx: Tx, ctx: Ctx, doc: DocRow) {
+  const orgId = ctx.org.id;
+  const lines = await tx.query<{ gold_bar_id: string; direction: string; extra: Record<string, unknown> }>(
+    `select gold_bar_id, direction, extra from tz_gold_lines where doc_id = $1 and kind = 'bar' and gold_bar_id is not null`,
+    [doc.id],
+  );
+  for (const l of lines) {
+    const b = await tx.one<BarRow>(`select * from tz_gold_bars where id = $1 and org_id = $2`, [l.gold_bar_id, orgId]);
+    if (!b) continue;
+    if (l.direction === "out") {
+      if (b.out_doc_id !== doc.id) {
+        if (b.deleted_at) continue;
+        const used = b.in_doc_id ? await tx.one<{ kind: DocKind; no: number }>(`select kind, no from tz_gold_docs where id = $1`, [b.in_doc_id]) : null;
+        throw conflict(`شمش ${faDigits(b.bar_no)} پس از این سند دوباره وارد شده است${used ? ` (${KINDS[used.kind]?.title ?? ""} ش ${faDigits(used.no)})` : ""}؛ ابتدا آن سند را باطل کنید`);
+      }
+      await tx.query(`update tz_gold_bars set status = 'in_stock', out_doc_id = null, origin = $3 where id = $1 and org_id = $2`, [b.id, orgId, ctx.cfg.origin]);
+      continue;
+    }
+    if (b.in_doc_id !== doc.id || b.deleted_at) continue;
+    if (b.status !== "in_stock" || (b.out_doc_id && b.out_doc_id !== doc.id)) {
+      const used = b.out_doc_id ? await tx.one<{ kind: DocKind; no: number }>(`select kind, no from tz_gold_docs where id = $1`, [b.out_doc_id]) : null;
+      throw conflict(`شمش ${faDigits(b.bar_no)} «${barStatusTitle(b.status)}» است${used ? ` (${KINDS[used.kind]?.title ?? ""} ش ${faDigits(used.no)})` : ""}؛ ابتدا آن سند را باطل کنید`);
+    }
+    const prev = (l.extra?.prev_bar ?? null) as Record<string, unknown> | null;
+    if (prev) await updateRow(tx, "tz_gold_bars", { id: b.id, org_id: orgId }, { ...prev, origin: ctx.cfg.origin });
+    else await tx.query(`update tz_gold_bars set deleted_at = now(), origin = $3 where id = $1 and org_id = $2`, [b.id, orgId, ctx.cfg.origin]);
+  }
 }
 
 export { type Num };

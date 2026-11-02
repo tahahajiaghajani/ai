@@ -1,0 +1,353 @@
+// Access levels and «مدیریت سامانه»: no silent platform-admin bypass, support sessions (view / edit,
+// expiry, ending early, audit), business status (read-only, suspended), account actions with their
+// guards, security events, the console's read models and the role matrix of the three main roles.
+import { describe, it, expect, beforeAll } from "vitest";
+import type { Db } from "@server/db";
+import { makeServer, Client, signupWithOrg } from "./helpers";
+import { MIGRATIONS } from "@server/db/migrations";
+
+const party = (name: string) => ({ kind: "person", name, roles: ["customer"] });
+
+describe("support mode and platform administration", () => {
+  let db: Db;
+  let admin: Client; // owner@example.com — the first account, platform admin
+  let owner: Client; // owner of «زرگری بازار», not a platform admin
+  let accountant: Client;
+  let viewer: Client;
+  let org: string; // «زرگری بازار»: the admin is not a member
+  let adminId: string;
+
+  beforeAll(async () => {
+    const s = await makeServer();
+    db = s.db;
+    // a network address of its own, so that sign-ups here do not count against other tests
+    const app = { fetch: (r: Request) => (r.headers.set("x-forwarded-for", "10.71.0.1"), s.app.fetch(r)) };
+    admin = new Client(app);
+    await signupWithOrg(admin);
+    adminId = (await admin.get("/auth/me")).user.id;
+    owner = new Client(app);
+    await owner.post("/auth/signup", { email: "zargar@example.com", password: "zargar-pass-1", full_name: "مالک زرگری" });
+    org = (await owner.post<{ id: string }>("/orgs", { name: "زرگری بازار", business_kind: "gold", modules: ["gold"], base_currency: "IRR", fiscal_year: 1405 })).id;
+    await owner.post(`/o/${org}/members`, { email: "hesab@example.com", full_name: "حسابدار زرگری", role: "accountant", password: "hesab-pass-1" });
+    await owner.post(`/o/${org}/members`, { email: "nazer@example.com", full_name: "ناظر زرگری", role: "viewer", password: "nazer-pass-1" });
+    accountant = new Client(app);
+    await accountant.post("/auth/login", { email: "hesab@example.com", password: "hesab-pass-1" });
+    viewer = new Client(app);
+    await viewer.post("/auth/login", { email: "nazer@example.com", password: "nazer-pass-1" });
+    await owner.post(`/o/${org}/data/party`, party("مشتری نخست"));
+  });
+
+  describe("without a support session", () => {
+    it("keeps the platform admin out of a business he is not a member of", async () => {
+      await admin.get(`/o/${org}`, 403);
+      await admin.get(`/o/${org}/data/party`, 403);
+      await admin.post(`/o/${org}/data/party`, party("نفوذی"), 403);
+      const me = await admin.get("/auth/me");
+      expect(me.orgs.map((o: { id: string }) => o.id)).not.toContain(org);
+      const { orgs } = await admin.get("/orgs");
+      expect(orgs.map((o: { id: string }) => o.id)).not.toContain(org);
+    });
+
+    it("shows platform metadata only in the console", async () => {
+      const d = await admin.get(`/admin/orgs/${org}`);
+      expect(d.org.name).toBe("زرگری بازار");
+      expect(d.is_member).toBe(false);
+      expect(d.members.map((m: { email: string }) => m.email).sort()).toEqual(["hesab@example.com", "nazer@example.com", "zargar@example.com"]);
+      expect(d.sizes.items.find((i: { entity: string }) => i.entity === "party")?.rows).toBeGreaterThanOrEqual(1);
+      // counts and sizes, never the records themselves
+      expect(JSON.stringify(d)).not.toContain("مشتری نخست");
+      const { orgs } = await admin.get("/admin/orgs?q=zargar");
+      expect(orgs).toHaveLength(1);
+      expect(orgs[0]).toMatchObject({ id: org, status: "active", members: 3, support_active: false });
+    });
+  });
+
+  describe("support sessions", () => {
+    it("needs a reason, a level and at most four hours, and only for outsiders", async () => {
+      await admin.post(`/admin/orgs/${org}/support`, { level: "view", reason: "  " }, 400);
+      await admin.post(`/admin/orgs/${org}/support`, { level: "view", reason: "بررسی ماندهٔ صندوق", hours: 5 }, 400);
+      await admin.post(`/admin/orgs/${org}/support`, { level: "all", reason: "بررسی ماندهٔ صندوق" }, 400);
+      await owner.post(`/admin/orgs/${org}/support`, { level: "view", reason: "بررسی ماندهٔ صندوق" }, 403);
+      const own = (await admin.get("/auth/me")).orgs[0].id;
+      await admin.post(`/admin/orgs/${own}/support`, { level: "view", reason: "بررسی ماندهٔ صندوق" }, 400);
+    });
+
+    it("«فقط مشاهده» sees everything and changes nothing", async () => {
+      const { session } = await admin.post(`/admin/orgs/${org}/support`, { level: "view", reason: "درخواست مالک: بررسی گزارش", hours: 1 });
+      expect(session).toMatchObject({ level: "view", state: "active" });
+      const info = await admin.get(`/o/${org}`);
+      expect(info.support).toMatchObject({ active: true, level: "view" });
+      expect(info.member.permissions).toMatchObject({ gold: "view", accounting: "view", users: "view", ai: "none" });
+      const { rows } = await admin.get(`/o/${org}/data/party`);
+      expect(rows.map((r: { name: string }) => r.name)).toContain("مشتری نخست");
+      await admin.post(`/o/${org}/data/party`, party("نفوذی"), 403);
+      await admin.patch(`/o/${org}`, { name: "تغییر" }, 403);
+      // the business is listed for him with the session
+      const me = await admin.get("/auth/me");
+      expect(me.orgs.find((o: { id: string }) => o.id === org)?.support).toMatchObject({ level: "view" });
+      await admin.post(`/admin/support/${session.id}/end`);
+      await admin.get(`/o/${org}`, 403);
+    });
+
+    it("«مشاهده و اصلاح» changes data, never members, and every change is audited as support", async () => {
+      const { session } = await admin.post(`/admin/orgs/${org}/support`, { level: "edit", reason: "اصلاح طرف حساب به درخواست مالک", hours: 2 });
+      const created = await admin.post(`/o/${org}/data/party`, party("مشتری پشتیبانی"));
+      expect(created).toBeTruthy();
+      await admin.post(`/o/${org}/members`, { email: "x@example.com", full_name: "کاربر تازه", role: "owner" }, 403);
+      await admin.get(`/o/${org}/members`);
+      const tagged = await db.query<{ action: string; actor_kind: string; support_session_id: string }>(
+        `select action, actor_kind, support_session_id from tz_audit where org_id = $1 and support_session_id = $2 order by at`,
+        [org, session.id],
+      );
+      expect(tagged.length).toBeGreaterThanOrEqual(2); // the start and the new party
+      expect(tagged.every((r) => r.actor_kind === "support")).toBe(true);
+      expect(tagged[0].action).toBe("support_start");
+      // the business sees the session and its changes
+      const { rows } = await owner.get(`/o/${org}/audit`);
+      expect(rows.some((r: { actor_kind: string; action: string }) => r.actor_kind === "support" && r.action !== "support_start")).toBe(true);
+      const list = await owner.get(`/o/${org}/support-sessions`);
+      expect(list.can_end).toBe(true);
+      expect(list.sessions[0]).toMatchObject({ id: session.id, state: "active", level: "edit", admin_email: "owner@example.com" });
+      // the accountant sees the sessions but cannot end them; the owner can
+      expect((await accountant.get(`/o/${org}/support-sessions`)).can_end).toBe(false);
+      await accountant.post(`/o/${org}/support-sessions/${session.id}/end`, {}, 403);
+      const ended = await owner.post(`/o/${org}/support-sessions/${session.id}/end`);
+      expect(ended.session).toMatchObject({ state: "ended", ended_by_name: "مالک زرگری" });
+      await admin.post(`/o/${org}/data/party`, party("پس از پایان"), 403);
+    });
+
+    it("ends by itself when the time is up", async () => {
+      const { session } = await admin.post(`/admin/orgs/${org}/support`, { level: "edit", reason: "آزمون پایان خودکار", hours: 1 });
+      await admin.get(`/o/${org}`);
+      await db.query(`update tz_support_sessions set expires_at = now() - interval '1 second' where id = $1`, [session.id]);
+      await admin.get(`/o/${org}`, 403);
+      const { sessions } = await admin.get(`/admin/orgs/${org}/support`);
+      expect(sessions.find((s: { id: string }) => s.id === session.id)?.state).toBe("expired");
+    });
+
+    it("records support sessions as security events", async () => {
+      const { events } = await admin.get(`/admin/security-events?org=${org}`);
+      const kinds = events.map((e: { kind: string }) => e.kind);
+      expect(kinds).toContain("support_start");
+      expect(kinds).toContain("support_end");
+      const { rows } = await admin.get("/admin/audit?actor=support");
+      expect(rows.some((r: { action: string }) => r.action === "support_start")).toBe(true);
+    });
+
+    it("lets a platform admin who is a member work through his membership only", async () => {
+      await owner.post(`/o/${org}/members`, { email: "owner@example.com", full_name: "مالک آزمایشی", role: "viewer" });
+      const info = await admin.get(`/o/${org}`);
+      expect(info.support).toBeNull();
+      expect(info.member.role).toBe("viewer");
+      await admin.post(`/o/${org}/data/party`, party("از راه عضویت"), 403);
+      await admin.post(`/admin/orgs/${org}/support`, { level: "edit", reason: "تلاش برای دور زدن نقش" }, 400);
+      const { members } = await owner.get(`/o/${org}/members`);
+      const me = members.find((m: { email: string }) => m.email === "owner@example.com");
+      await owner.patch(`/o/${org}/members/${me.id}`, { is_active: false });
+      await admin.get(`/o/${org}`, 403);
+    });
+  });
+
+  describe("business status", () => {
+    it("read-only refuses every change and says why", async () => {
+      await admin.patch(`/admin/orgs/${org}`, { status: "read_only" }, 400);
+      await admin.patch(`/admin/orgs/${org}`, { status: "read_only", status_reason: "بدهی اشتراک" });
+      const info = await owner.get(`/o/${org}`);
+      expect(info.status).toEqual({ status: "read_only", reason: "بدهی اشتراک" });
+      await owner.get(`/o/${org}/data/party`);
+      await expect(owner.post(`/o/${org}/data/party`, party("در حالت فقط‌خواندنی"))).rejects.toThrow(/423.*فقط‌خواندنی.*بدهی اشتراک/);
+      await expect(owner.patch(`/o/${org}`, { name: "نام تازه" })).rejects.toThrow(/423/);
+    });
+
+    it("suspended closes the business to its members", async () => {
+      await admin.patch(`/admin/orgs/${org}`, { status: "suspended", status_reason: "درخواست قضایی" });
+      await expect(owner.get(`/o/${org}`)).rejects.toThrow(/423.*معلق/);
+      await admin.patch(`/admin/orgs/${org}`, { status: "active" });
+      expect((await owner.get(`/o/${org}`)).status.status).toBe("active");
+      await owner.post(`/o/${org}/data/party`, party("پس از فعال شدن"));
+      const { rows } = await owner.get(`/o/${org}/audit`);
+      expect(rows.filter((r: { action: string; actor_kind: string }) => r.action === "org_status" && r.actor_kind === "platform").length).toBe(3);
+    });
+
+    it("keeps internal notes out of the business's audit log and switches AI off", async () => {
+      const r = await admin.patch(`/admin/orgs/${org}`, { notes: "مشتری ویژه؛ پیگیری تمدید", ai_disabled: true });
+      expect(r.admin).toMatchObject({ notes: "مشتری ویژه؛ پیگیری تمدید", ai_disabled: true, status: "active" });
+      const { rows } = await owner.get(`/o/${org}/audit`);
+      expect(JSON.stringify(rows)).not.toContain("پیگیری تمدید");
+      expect(rows.some((r: { action: string }) => r.action === "org_ai")).toBe(true);
+      const { orgs } = await admin.get("/admin/orgs?q=zargar");
+      expect(orgs[0].ai_disabled).toBe(true);
+      await admin.patch(`/admin/orgs/${org}`, { ai_disabled: false });
+    });
+  });
+
+  describe("accounts", () => {
+    it("grants and revokes platform admin with guards", async () => {
+      const { users } = await admin.get("/admin/users?q=hesab");
+      const id = users[0].id;
+      await admin.post(`/admin/users/${adminId}/platform-admin`, { granted: false }, 400);
+      await admin.post(`/admin/users/${id}/platform-admin`, { granted: true });
+      expect((await accountant.get("/auth/me")).user.is_platform_admin).toBe(true);
+      // the new admin cannot take the role from himself either
+      await accountant.post(`/admin/users/${id}/platform-admin`, { granted: false }, 400);
+      await admin.post(`/admin/users/${id}/platform-admin`, { granted: false });
+      await accountant.get("/admin/overview", 403);
+      const { events } = await admin.get(`/admin/security-events?kind=platform_admin&user=${id}`);
+      expect(events.map((e: { data: { granted: boolean } }) => e.data.granted)).toEqual([false, true]);
+      const { rows } = await admin.get("/admin/audit?actor=platform");
+      expect(rows.some((r: { action: string; target_user_id: string }) => r.action === "admin_grant" && r.target_user_id === id)).toBe(true);
+    });
+
+    it("never revokes an address listed in PLATFORM_ADMIN_EMAILS", async () => {
+      const s = await makeServer({ config: { platformAdmins: ["boss@example.com"] } });
+      const app = { fetch: (r: Request) => (r.headers.set("x-forwarded-for", "10.71.0.2"), s.app.fetch(r)) };
+      const boss = new Client(app);
+      await boss.post("/auth/signup", { email: "boss@example.com", password: "boss-pass-1", full_name: "مالک سامانه" });
+      const deputy = new Client(app);
+      await deputy.post("/auth/signup", { email: "deputy@example.com", password: "deputy-pass-1", full_name: "معاون" });
+      const { users } = await boss.get("/admin/users?q=deputy");
+      await boss.post(`/admin/users/${users[0].id}/platform-admin`, { granted: true });
+      const bossId = (await boss.get("/auth/me")).user.id;
+      await expect(deputy.post(`/admin/users/${bossId}/platform-admin`, { granted: false })).rejects.toThrow(/400.*PLATFORM_ADMIN_EMAILS/);
+    });
+
+    it("sets a temporary password with a reason and signs out everywhere", async () => {
+      const { users } = await admin.get("/admin/users?q=nazer");
+      const id = users[0].id;
+      await admin.post(`/admin/users/${id}/password`, { reason: "" }, 400);
+      await admin.post(`/admin/users/${adminId}/password`, { reason: "رمز خودم را فراموش کردم" }, 400);
+      const { temp_password } = await admin.post(`/admin/users/${id}/password`, { reason: "درخواست تلفنی پس از احراز هویت" });
+      await viewer.get("/auth/me", 401);
+      await viewer.post("/auth/login", { email: "nazer@example.com", password: temp_password });
+      const r = await admin.post(`/admin/users/${id}/sign-out`);
+      expect(r.sessions).toBe(1);
+      await viewer.get("/auth/me", 401);
+      await viewer.post("/auth/login", { email: "nazer@example.com", password: temp_password });
+      const d = await admin.get(`/admin/users/${id}`);
+      expect(d.memberships[0]).toMatchObject({ org_id: org, role: "viewer" });
+      expect(d.events.map((e: { kind: string }) => e.kind)).toEqual(expect.arrayContaining(["password_reset", "sessions_revoked", "sign_in"]));
+      expect(d.events.find((e: { kind: string }) => e.kind === "password_reset").data).toMatchObject({ scope: "platform", reason: "درخواست تلفنی پس از احراز هویت" });
+    });
+
+    it("records sign-ins, failed ones, password changes and role changes", async () => {
+      await owner.post("/auth/login", { email: "zargar@example.com", password: "wrong-pass-1" }, 401);
+      await owner.post("/auth/login", { email: "nobody@example.com", password: "wrong-pass-1" }, 401);
+      await owner.post("/auth/login", { email: "zargar@example.com", password: "zargar-pass-1" });
+      await owner.post("/auth/password", { current: "zargar-pass-1", next: "zargar-pass-2" });
+      const { members } = await owner.get(`/o/${org}/members`);
+      const acc = members.find((m: { email: string }) => m.email === "hesab@example.com");
+      await owner.patch(`/o/${org}/members/${acc.id}`, { overrides: { ai: "view" } });
+      await owner.patch(`/o/${org}/members/${acc.id}`, { overrides: {} });
+      const { events } = await admin.get("/admin/security-events?q=zargar");
+      const failed = events.filter((e: { kind: string; ok: boolean }) => e.kind === "sign_in" && !e.ok);
+      expect(failed[0].data.reason).toBe("wrong_password");
+      expect(events.some((e: { kind: string; ok: boolean }) => e.kind === "sign_in" && e.ok)).toBe(true);
+      expect(events.some((e: { kind: string }) => e.kind === "password_change")).toBe(true);
+      const unknown = (await admin.get("/admin/security-events?q=nobody")).events;
+      expect(unknown[0]).toMatchObject({ kind: "sign_in", ok: false, user_id: null });
+      expect(unknown[0].data.reason).toBe("unknown_account");
+      const changed = (await admin.get(`/admin/security-events?kind=member_changed&org=${org}`)).events;
+      expect(changed[1].data.changes.overrides).toEqual([{}, { ai: "view" }]);
+      // never a password in a log line
+      const all = await db.query(`select data::text as t from tz_security_events`);
+      expect(all.some((r) => /zargar-pass|wrong-pass/.test(String(r.t)))).toBe(false);
+      await admin.get("/admin/users/not-an-id", 404);
+    });
+  });
+
+  describe("console", () => {
+    it("serves the overview and the system health", async () => {
+      const o = await admin.get("/admin/overview");
+      expect(o.kpis.orgs.total).toBe(2);
+      expect(o.kpis.users.total).toBe(4);
+      expect(o.kpis.users.admins).toBe(1);
+      expect(o.kpis.db.bytes).toBeGreaterThan(0);
+      expect(o.kpis.db.limit).toBe(500 * 1024 * 1024);
+      expect(o.kpis.security.failed_sign_ins_24h).toBeGreaterThanOrEqual(2);
+      expect(o.recent_orgs[0].name).toBe("زرگری بازار");
+      const h = await admin.get("/admin/health");
+      expect(h.db.reachable).toBe(true);
+      expect(h.migrations).toMatchObject({ applied: MIGRATIONS.length, expected: MIGRATIONS.length, missing: [] });
+      expect(h.checks.find((c: { key: string }) => c.key === "migrations").tone).toBe("ok");
+      expect(h.checks.find((c: { key: string }) => c.key === "admins").tone).toBe("warning");
+      expect(["env", "derived"]).toContain(h.secret);
+      await owner.get("/admin/health", 403);
+      await owner.get("/admin/overview", 403);
+    });
+
+    it("filters businesses and accounts", async () => {
+      expect((await admin.get("/admin/orgs?module=fx")).orgs.map((o: { name: string }) => o.name)).toEqual(["فروشگاه آزمایشی"]);
+      expect((await admin.get("/admin/orgs?status=suspended")).orgs).toHaveLength(0);
+      expect((await admin.get("/admin/users?filter=admins")).users.map((u: { email: string }) => u.email)).toEqual(["owner@example.com"]);
+    });
+  });
+});
+
+describe("role matrix", () => {
+  let owner: Client;
+  let accountant: Client;
+  let viewer: Client;
+  let db: Db;
+  let org: string;
+
+  beforeAll(async () => {
+    const s = await makeServer();
+    db = s.db;
+    const app = { fetch: (r: Request) => (r.headers.set("x-forwarded-for", "10.71.0.3"), s.app.fetch(r)) };
+    owner = new Client(app);
+    org = await signupWithOrg(owner);
+    await owner.post(`/o/${org}/members`, { email: "acc@example.com", full_name: "حسابدار", role: "accountant", password: "acc-pass-1" });
+    await owner.post(`/o/${org}/members`, { email: "view@example.com", full_name: "ناظر", role: "viewer", password: "view-pass-1" });
+    accountant = new Client(app);
+    await accountant.post("/auth/login", { email: "acc@example.com", password: "acc-pass-1" });
+    viewer = new Client(app);
+    await viewer.post("/auth/login", { email: "view@example.com", password: "view-pass-1" });
+  });
+
+  it("gives the accountant full operations, gold deletes and settings edits, but not members", async () => {
+    const info = await accountant.get(`/o/${org}`);
+    expect(info.member.permissions).toMatchObject({ accounting: "full", gold: "full", fx: "full", settings: "edit", users: "view", ai: "full" });
+    await accountant.post(`/o/${org}/data/party`, party("مشتری حسابدار"));
+    const cat = await db.one<{ id: string }>(`select id from tz_gold_categories where org_id = $1 limit 1`, [org]);
+    await accountant.del(`/o/${org}/data/gold_category/${cat!.id}`);
+    await accountant.patch(`/o/${org}`, { phone: "02100000000" });
+    await accountant.get(`/o/${org}/members`);
+    await accountant.post(`/o/${org}/members`, { email: "new@example.com", full_name: "تازه", role: "viewer" }, 403);
+    // the business's modules are the owner's call (settings full)
+    await accountant.patch(`/o/${org}`, { modules: ["goods"] }, 403);
+  });
+
+  it("lets the viewer see and ask, never write", async () => {
+    const info = await viewer.get(`/o/${org}`);
+    expect(info.member.permissions).toMatchObject({ accounting: "view", gold: "view", reports: "view", settings: "view", users: "none", integrations: "none", ai: "view" });
+    await viewer.get(`/o/${org}/data/party`);
+    await viewer.post(`/o/${org}/data/party`, party("نوشتن ناظر"), 403);
+    const p = await db.one<{ id: string }>(`select id from tz_parties where org_id = $1 limit 1`, [org]);
+    await viewer.patch(`/o/${org}/data/party/${p!.id}`, { name: "تغییر ناظر" }, 403);
+    await viewer.del(`/o/${org}/data/party/${p!.id}`, 403);
+    await viewer.patch(`/o/${org}`, { phone: "02100000001" }, 403);
+    await viewer.get(`/o/${org}/members`, 403);
+  });
+
+  it("adds the standard coins and bars when gold is switched on later", async () => {
+    const { id } = await owner.post<{ id: string }>("/orgs", { name: "فروشگاه دوم", business_kind: "trading", modules: ["goods"], base_currency: "IRR", fiscal_year: 1405 });
+    const count = async () => (await db.one<{ n: number }>(`select count(*)::int as n from tz_items where org_id = $1 and kind in ('coin', 'bar') and deleted_at is null`, [id]))!.n;
+    expect(await count()).toBe(0);
+    await owner.patch(`/o/${id}`, { modules: ["goods", "gold"] });
+    expect(await count()).toBeGreaterThan(0);
+  });
+
+  it("keeps the last owner and lets only owners change owners", async () => {
+    const { members } = await owner.get(`/o/${org}/members`);
+    const me = members.find((m: { email: string }) => m.email === "owner@example.com");
+    await owner.patch(`/o/${org}/members/${me.id}`, { role: "accountant" }, 400);
+    await owner.patch(`/o/${org}/members/${me.id}`, { overrides: { magic: "full" } }, 400);
+    const acc = members.find((m: { email: string }) => m.email === "acc@example.com");
+    await owner.patch(`/o/${org}/members/${acc.id}`, { role: "admin" });
+    const manager = accountant; // now «مدیر»
+    await manager.patch(`/o/${org}/members/${me.id}`, { role: "viewer" }, 403);
+    await manager.post(`/o/${org}/members`, { email: "own2@example.com", full_name: "مالک دوم", role: "owner" }, 403);
+    const { roles } = await owner.get(`/o/${org}/members`);
+    expect(roles.filter((r: { kind: string }) => r.kind === "core").map((r: { key: string }) => r.key)).toEqual(["owner", "accountant", "viewer"]);
+  });
+});

@@ -17,6 +17,7 @@ import { formatJalali } from "@shared/jalali";
 import { D } from "@shared/money";
 import { ItemSelect, Qty, type ItemOpt } from "./components";
 import { SOURCE_PATH } from "./labels";
+import { AiExplainButton } from "../../ai/explain/AiExplainButton";
 
 export default function Kardex() {
   const { api, orgId, org, fy } = useOrg();
@@ -62,6 +63,7 @@ export default function Kardex() {
         title="کاردکس کالا"
         actions={
           <>
+            <AiExplainButton report="kardex" params={{ item_id: itemId, warehouse_id: warehouseId, from, to }} title={shownItem ? `کاردکس ${shownItem.name}` : "کاردکس کالا"} disabled={!itemId} compact />
             <Button icon={<Ic icon={FileSpreadsheet} />} onClick={exportRows} disabled={!rows.length}>اکسل</Button>
             <Button icon={<Ic icon={Printer} />} onClick={() => window.print()}>چاپ</Button>
           </>

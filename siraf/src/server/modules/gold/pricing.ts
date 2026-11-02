@@ -4,12 +4,14 @@
 // counter screen, so a preview always equals what gets posted.
 import { D, type Num } from "@shared/money";
 import {
-  gram18FromMazaneh, gramPriceAt, mazanehFromGram18, priceBullion, priceJewelry, priceOldGold, weight750, STANDARD_FINENESS, type WageType,
+  buybackBar, gram18FromMazaneh, gramPriceAt, mazanehFromGram18, priceBar, priceBullion, priceCoin, priceJewelry, priceOldGold, weight750, STANDARD_FINENESS,
+  type BarBasis, type BarPremiumType, type CoinPricingMode, type VatMode, type WageType,
 } from "@shared/gold";
+import { legacyCoinKey } from "@shared/gold-catalogue";
 
 export const DOC_KINDS = ["sale", "purchase", "buyback", "consign_in", "consign_return", "workshop_out", "workshop_in", "melt", "bullion_sale", "opening"] as const;
 export type DocKind = (typeof DOC_KINDS)[number];
-export type LineKind = "piece" | "bulk" | "old" | "coin";
+export type LineKind = "piece" | "bulk" | "old" | "coin" | "bar";
 export type Direction = "out" | "in";
 export type BulkForm = "bullion" | "old" | "scrap";
 export type SettleMode = "rial" | "weight";
@@ -31,20 +33,20 @@ export interface KindRule {
 }
 
 export const KINDS: Record<DocKind, KindRule> = {
-  sale: { title: "فروش طلا", lines: { out: ["piece", "bulk", "coin"], in: ["old"] }, party: "optional", partyLabel: "مشتری", partyRole: "customer", price: "gram18", cash: "receive" },
-  purchase: { title: "خرید از همکار / بنکدار", lines: { out: [], in: ["piece", "bulk", "coin"] }, party: "required", partyLabel: "همکار / بنکدار", price: "gram18", cash: "pay", modes: true },
-  buyback: { title: "خرید طلای مستعمل", lines: { out: [], in: ["old"] }, party: "optional", partyLabel: "فروشنده‌ی طلا (مشتری)", partyRole: "customer", price: "gram18", cash: "pay" },
-  consign_in: { title: "ورود امانی", lines: { out: [], in: ["piece"] }, party: "required", partyLabel: "امانت‌گذار (همکار)", price: "optional", cash: "none", modes: true },
-  consign_return: { title: "برگشت امانی", lines: { out: ["piece"], in: [] }, party: "required", partyLabel: "امانت‌گذار (همکار)", price: "none", cash: "none" },
-  workshop_out: { title: "ارسال طلا به کارگاه", lines: { out: ["bulk"], in: [] }, party: "required", partyLabel: "کارگاه / سازنده", partyRole: "workshop", price: "none", cash: "none" },
+  sale: { title: "فروش طلا", lines: { out: ["piece", "bulk", "coin", "bar"], in: ["old", "coin", "bar"] }, party: "optional", partyLabel: "مشتری", partyRole: "customer", price: "gram18", cash: "receive" },
+  purchase: { title: "خرید از همکار / بنکدار", lines: { out: [], in: ["piece", "bulk", "coin", "bar"] }, party: "required", partyLabel: "همکار / بنکدار", price: "gram18", cash: "pay", modes: true },
+  buyback: { title: "خرید از مشتری", lines: { out: [], in: ["old", "coin", "bar"] }, party: "optional", partyLabel: "فروشنده (مشتری)", partyRole: "customer", price: "gram18", cash: "pay" },
+  consign_in: { title: "ورود امانی", lines: { out: [], in: ["piece", "bar"] }, party: "required", partyLabel: "امانت‌گذار (همکار)", price: "optional", cash: "none", modes: true },
+  consign_return: { title: "برگشت امانی", lines: { out: ["piece", "bar"], in: [] }, party: "required", partyLabel: "امانت‌گذار (همکار)", price: "none", cash: "none" },
+  workshop_out: { title: "ارسال طلا به کارگاه", lines: { out: ["bulk", "bar"], in: [] }, party: "required", partyLabel: "کارگاه / سازنده", partyRole: "workshop", price: "none", cash: "none" },
   workshop_in: { title: "دریافت مصنوعات از کارگاه", lines: { out: [], in: ["piece", "bulk"] }, party: "required", partyLabel: "کارگاه / سازنده", partyRole: "workshop", price: "optional", cash: "pay" },
-  melt: { title: "ذوب و ری‌گیری", lines: { out: ["bulk", "piece"], in: ["bulk"] }, party: "optional", partyLabel: "ذوب‌کار / آزمایشگاه", price: "none", cash: "none" },
-  bullion_sale: { title: "فروش آبشده", lines: { out: ["bulk"], in: [] }, party: "optional", partyLabel: "خریدار (همکار / بنکدار)", partyRole: "wholesaler", price: "mazaneh", cash: "receive", modes: true },
-  opening: { title: "موجودی اول دوره", lines: { out: [], in: ["piece", "bulk", "coin"] }, party: "none", partyLabel: "", price: "optional", cash: "none" },
+  melt: { title: "ذوب و ری‌گیری", lines: { out: ["bulk", "piece", "coin", "bar"], in: ["bulk", "bar"] }, party: "optional", partyLabel: "ذوب‌کار / آزمایشگاه", price: "none", cash: "none" },
+  bullion_sale: { title: "فروش آب‌شده و شمش", lines: { out: ["bulk", "bar"], in: [] }, party: "optional", partyLabel: "خریدار (همکار / بنکدار)", partyRole: "wholesaler", price: "mazaneh", cash: "receive", modes: true },
+  opening: { title: "موجودی اول دوره", lines: { out: [], in: ["piece", "bulk", "coin", "bar"] }, party: "none", partyLabel: "", price: "optional", cash: "none" },
 };
 
-export const LINE_KIND_TITLES: Record<LineKind, string> = { piece: "جنس (اتیکت)", bulk: "طلای وزنی", old: "طلای مستعمل", coin: "سکه" };
-export const FORM_TITLES: Record<BulkForm, string> = { bullion: "آبشده / شمش", old: "مستعمل", scrap: "شکسته / قراضه" };
+export const LINE_KIND_TITLES: Record<LineKind, string> = { piece: "جنس (اتیکت)", bulk: "طلای وزنی", old: "طلای مستعمل", coin: "سکه", bar: "شمش" };
+export const FORM_TITLES: Record<BulkForm, string> = { bullion: "آب‌شده", old: "مستعمل", scrap: "شکسته / قراضه" };
 export const WAGE_TYPE_TITLES: Record<WageType, string> = { percent: "درصد", per_gram: "هر گرم", fixed: "ثابت" };
 
 /** Inventory account (system key) of weighed gold by its form. */
@@ -82,6 +84,20 @@ export interface LineIn {
   deduction_pct?: Num;
   /** opening stock: cost of the line */
   cost?: Num;
+  /** coins: board (unit price in gram_price), weight (gram18 in gram_price) or manual */
+  pricing_mode?: CoinPricingMode | string | null;
+  vat_mode?: VatMode | string | null;
+  /** coins, margin VAT: cost of one coin */
+  unit_cost?: Num;
+  /** bars: a fixed price of the bar (board / manual) instead of metal + premium */
+  unit_price?: Num;
+  /** bars: metal on the actual fineness or full 24k for 999.9 bars */
+  basis?: BarBasis | string | null;
+  /** bars bought back: seal intact, fee percent, assay fee and the fineness an opened bar is bought at */
+  sealed?: boolean | null;
+  fee_pct?: Num;
+  assay_fee?: Num;
+  opened_fineness?: Num;
 }
 
 export interface PricedLine {
@@ -118,7 +134,15 @@ export interface PriceEnv {
 }
 
 export function defaultFineness(kind: LineKind): string {
-  return kind === "coin" ? "900" : String(STANDARD_FINENESS);
+  return kind === "coin" ? "900" : kind === "bar" ? "995" : String(STANDARD_FINENESS);
+}
+
+/** The side of a coin or bar line: what we sell goes out, what we buy comes in. */
+export const lineSide = (direction: Direction): "sell" | "buy" => (direction === "out" ? "sell" : "buy");
+
+/** The bar premium type a line's wage type stands for. */
+export function wageToPremiumType(t: string | null | undefined): BarPremiumType {
+  return t === "fixed" ? "per_bar" : t === "per_gram" ? "per_gram" : "pct";
 }
 
 function wageAmount(type: string | null | undefined, value: Num, weight: Num, gold: Num, step: Num): string {
@@ -158,19 +182,62 @@ export function priceLine(docKind: DocKind, line: LineIn, env: PriceEnv): Priced
 
   if (line.kind === "coin") {
     const qty = D(line.qty ?? 0);
-    const unit = D(line.gram_price ?? 0);
-    const value = roundTo(qty.times(unit), step);
-    if (docKind === "sale") {
-      const disc = D(roundTo(D(line.discount ?? 0), step));
-      const discount = disc.gt(D(value)) ? D(value) : disc;
-      return { ...base, gram_price: unit.toString(), gold_value: value, discount: discount.toString(), total: D(value).minus(discount).toString() };
-    }
+    const priced = docKind === "sale" || docKind === "buyback" || docKind === "purchase" || docKind === "opening";
     if (docKind === "opening" && has(line.cost)) {
       const cost = roundTo(D(line.cost), step);
-      return { ...base, gram_price: qty.isZero() ? unit.toString() : D(cost).div(qty).toDecimalPlaces(2).toString(), gold_value: cost, total: cost };
+      return { ...base, gram_price: qty.isZero() ? null : D(cost).div(qty).toDecimalPlaces(2).toString(), gold_value: cost, total: cost };
     }
-    if (docKind === "purchase" || docKind === "opening") return { ...base, gram_price: unit.toString(), gold_value: value, total: value };
-    return base;
+    if (!priced || (docKind === "sale" && line.direction === "in" && !has(line.gram_price))) return { ...base, qty: qty.toString() };
+    const p = priceCoin({
+      side: lineSide(line.direction), mode: (line.pricing_mode ?? "board") as CoinPricingMode, qty, unitPrice: line.gram_price ?? 0, gram18: line.gram_price ?? 0,
+      coinWeight: qty.isZero() ? 0 : w.div(qty), fineness: fin, wageType: line.wage_type, wageValue: line.wage_value ?? 0, profitPct: line.profit_pct ?? 0,
+      vatMode: (line.vat_mode ?? "exempt") as VatMode, taxPct: env.taxPct, unitCost: line.unit_cost ?? 0, discount: line.discount ?? 0, roundStep: step,
+    });
+    return {
+      ...base, qty: qty.toString(), gram_price: has(line.gram_price) ? D(line.gram_price).toString() : null, gold_value: p.gold_value, wage: p.wage,
+      profit_pct: line.direction === "out" && line.pricing_mode === "weight" ? D(line.profit_pct ?? 0).toString() : null, profit: p.profit, tax: p.tax,
+      discount: p.discount, total: p.total,
+    };
+  }
+
+  if (line.kind === "bar") {
+    const unit = has(line.unit_price) && D(line.unit_price).gt(0) ? D(line.unit_price).toString() : null;
+    if (docKind === "sale" && line.direction === "out") {
+      const p = priceBar({
+        weight: w, fineness: fin, gram18: g18, basis: (line.basis ?? "actual") as BarBasis, premiumType: wageToPremiumType(line.wage_type), premiumValue: line.wage_value ?? 0,
+        profitPct: line.profit_pct ?? 0, vatMode: (line.vat_mode ?? "exempt") as VatMode, taxPct: env.taxPct, discount: line.discount ?? 0, unitPrice: unit, roundStep: step,
+      });
+      return {
+        ...base, gram_price: g18.toString(), gold_value: p.metal, wage: p.premium, profit_pct: has(line.profit_pct) ? D(line.profit_pct).toString() : null,
+        profit: p.profit, tax: p.tax, discount: p.discount, total: p.total,
+      };
+    }
+    if ((docKind === "sale" || docKind === "buyback") && line.direction === "in") {
+      const sealed = line.sealed !== false;
+      const b = buybackBar({
+        weight: w, fineness: fin, gram18: g18, sealed, feeSealedPct: line.fee_pct ?? 0, feeOpenedPct: line.fee_pct ?? 0, assayFee: line.assay_fee ?? 0,
+        openedFineness: line.opened_fineness, deduction: line.discount ?? 0, unitPrice: unit, roundStep: step,
+      });
+      return {
+        ...base, gram_price: g18.toString(), gold_value: b.metal, discount: D(b.fee).plus(b.assay_fee).plus(b.deduction).toString(),
+        deduction_pct: D(line.fee_pct ?? 0).toString(), total: b.total,
+      };
+    }
+    if (docKind === "purchase" || docKind === "opening") {
+      if (docKind === "opening" && has(line.cost)) return { ...base, gram_price: null, gold_value: roundTo(D(line.cost), step), total: roundTo(D(line.cost), step) };
+      const p = priceBar({
+        weight: w, fineness: fin, gram18: g18, basis: (line.basis ?? "actual") as BarBasis, premiumType: wageToPremiumType(line.wage_type), premiumValue: line.wage_value ?? 0,
+        unitPrice: unit, roundStep: step,
+      });
+      const tax = docKind === "purchase" ? roundTo(D(p.premium).times(D(env.purchaseTaxPct ?? 0)).div(100), step) : "0";
+      return { ...base, gram_price: g18.toString(), gold_value: p.metal, wage: p.premium, tax, total: D(p.metal).plus(p.premium).plus(tax).toString() };
+    }
+    if (docKind === "bullion_sale") {
+      const mz = has(env.mazaneh) && !D(env.mazaneh).isZero() ? D(env.mazaneh) : D(mazanehFromGram18(g18));
+      const value = priceBullion(w, fin, mz, step);
+      return { ...base, gram_price: gram18FromMazaneh(mz), gold_value: value, total: value };
+    }
+    return base; // weight only (melt, workshop, consignment): costs come from the bar
   }
 
   if (line.kind === "old") {
@@ -237,16 +304,24 @@ export interface DocTotals {
   tax: string;
   stone: string;
   discount: string;
+  /** sale: what the customer handed in (used gold, coins, bars); buy-back: what we bought */
   old_value: string;
   coins: string;
+  bars: string;
   /** sale: invoice amount; other kinds: value of the document */
   total: string;
-  /** what is settled in rial: sale → total − used gold traded in */
+  /** what is settled in rial: sale → total − what was traded in */
   net: string;
+  /** ledger weights (750-equivalent grams): jewellery, weighed gold and bars (coins are counted) */
   weight_out: string;
   weight_in: string;
   pieces: number;
   coin_qty: string;
+  /** coins handed in by the customer (sale) */
+  coin_qty_in: string;
+  /** gold content of the coins of the document (750-equivalent grams) */
+  coin_weight750: string;
+  bar_count: number;
 }
 
 export type TotalsLine = Pick<PricedLine, "qty" | "weight750" | "gold_value" | "wage" | "profit" | "tax" | "stone" | "discount" | "total"> & {
@@ -254,40 +329,48 @@ export type TotalsLine = Pick<PricedLine, "qty" | "weight750" | "gold_value" | "
   direction: Direction;
 };
 
-/** Totals of priced lines. Weights are 750-equivalent grams (coins excluded). */
+/** Totals of priced lines. Weights are 750-equivalent grams (coins apart, in coin_weight750). */
 export function docTotals(docKind: DocKind, lines: TotalsLine[]): DocTotals {
-  let gold = D(0), wage = D(0), profit = D(0), tax = D(0), stone = D(0), discount = D(0), old = D(0), coins = D(0), total = D(0);
-  let wOut = D(0), wIn = D(0), coinQty = D(0);
+  let gold = D(0), wage = D(0), profit = D(0), tax = D(0), stone = D(0), discount = D(0), old = D(0), coins = D(0), bars = D(0), total = D(0);
+  let wOut = D(0), wIn = D(0), coinQty = D(0), coinIn = D(0), coinW = D(0);
   let pieces = 0;
+  let barCount = 0;
   for (const l of lines) {
-    if (l.kind === "old") {
+    if (l.kind === "coin") coinW = coinW.plus(D(l.weight750));
+    const handedIn = l.kind === "old" || (docKind === "sale" && l.direction === "in") || docKind === "buyback";
+    if (handedIn) {
       old = old.plus(D(l.total));
-      wIn = wIn.plus(D(l.weight750));
+      if (l.kind === "coin") coinIn = coinIn.plus(D(l.qty));
+      else wIn = wIn.plus(D(l.weight750));
+      if (l.kind === "bar") barCount += 1;
       continue;
     }
+    wage = wage.plus(D(l.wage));
+    profit = profit.plus(D(l.profit));
+    tax = tax.plus(D(l.tax));
+    discount = discount.plus(D(l.discount));
     if (l.kind === "coin") {
       coins = coins.plus(D(l.total));
       coinQty = coinQty.plus(D(l.qty));
-      discount = discount.plus(D(l.discount));
     } else {
-      gold = gold.plus(D(l.gold_value));
-      wage = wage.plus(D(l.wage));
-      profit = profit.plus(D(l.profit));
-      tax = tax.plus(D(l.tax));
+      if (l.kind === "bar") {
+        bars = bars.plus(D(l.total));
+        barCount += 1;
+      } else gold = gold.plus(D(l.gold_value));
       stone = stone.plus(D(l.stone));
-      discount = discount.plus(D(l.discount));
       if (l.direction === "out") wOut = wOut.plus(D(l.weight750));
       else wIn = wIn.plus(D(l.weight750));
       if (l.kind === "piece") pieces += 1;
     }
-    if (docKind !== "sale" || l.direction === "out") total = total.plus(D(l.total));
+    total = total.plus(D(l.total));
   }
   if (docKind === "buyback") total = old;
   const net = docKind === "sale" ? total.minus(old) : total;
   return {
     gold_value: gold.toString(), wage: wage.toString(), profit: profit.toString(), tax: tax.toString(), stone: stone.toString(),
-    discount: discount.toString(), old_value: old.toString(), coins: coins.toString(), total: total.toString(), net: net.toString(),
+    discount: discount.toString(), old_value: old.toString(), coins: coins.toString(), bars: bars.toString(), total: total.toString(), net: net.toString(),
     weight_out: wOut.toDecimalPlaces(3).toString(), weight_in: wIn.toDecimalPlaces(3).toString(), pieces, coin_qty: coinQty.toString(),
+    coin_qty_in: coinIn.toString(), coin_weight750: coinW.toDecimalPlaces(3).toString(), bar_count: barCount,
   };
 }
 
@@ -338,20 +421,10 @@ export function pieceDefaults(item: PieceSource, cat?: CategorySource | null) {
   };
 }
 
-/** Coin price key of a coin item in the rate board's `coins` (emami, bahar, nim, rob, gerami). */
-export function coinKey(item: { name?: string | null; code?: string | null; sku?: string | null }): string | null {
-  const sku = (item.sku ?? "").trim().toLowerCase();
-  if (["emami", "bahar", "nim", "rob", "gerami"].includes(sku)) return sku;
-  const n = item.name ?? "";
-  if (n.includes("امامی")) return "emami";
-  if (n.includes("بهار")) return "bahar";
-  if (n.includes("نیم")) return "nim";
-  if (n.includes("ربع")) return "rob";
-  if (n.includes("گرمی")) return "gerami";
-  return null;
+/** Board key of a coin item: its own (tz_items.rate_key), else the one its SKU or name implies. */
+export function coinKey(item: { rate_key?: string | null; name?: string | null; sku?: string | null }): string | null {
+  return item.rate_key || legacyCoinKey(item);
 }
-
-export const COIN_TITLES: Record<string, string> = { emami: "امامی", bahar: "بهار آزادی", nim: "نیم سکه", rob: "ربع سکه", gerami: "گرمی" };
 
 /** Fills the missing one of gram18 / mazaneh. */
 export function bothPrices(gram18: Num, mazaneh: Num): { gram18: string | null; mazaneh: string | null } {

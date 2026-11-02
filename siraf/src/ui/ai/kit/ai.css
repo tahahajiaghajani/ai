@@ -1,0 +1,113 @@
+/* Siraf · the AI pieces shared by many screens: the AI-filled field mark and the review bar, the narrative (safe
+   Markdown), the sparkle badge, source lines, severity marks, the confidence chip and quiet error rows.
+   Tokens only (siraf/tokens.css), logical properties only, transform/opacity motion only, no `dark:` variants.
+   Prefix `ai-` (src/ui/ai/{settings,insights,explain,capture,forecast,kit} only). */
+@layer components {
+  /* ---------------------------------------------------------------- AI-filled field (confidence ring + reason) */
+  .ai-mark { position: relative; min-inline-size: 0; border-radius: var(--sf-radius-md); }
+  .ai-mark[data-level] { outline-offset: 2px; transition: outline-color var(--sf-dur-base) var(--sf-ease-out-quad); }
+  .ai-mark[data-level="high"] { outline: 1px dashed var(--sf-line-3); }
+  .ai-mark[data-level="mid"] { outline: 1.5px solid var(--sf-warning-fill); }
+  .ai-mark[data-level="low"] { outline: 1.5px solid var(--sf-danger); }
+  .ai-mark-b {
+    position: absolute; z-index: 2; inset-block-start: -9px; inset-inline-end: -8px;
+    display: grid; place-items: center; inline-size: 18px; block-size: 18px; border-radius: 50%;
+    background: var(--sf-raised); box-shadow: 0 0 0 1px var(--sf-line-2), var(--sf-shadow-e1); color: var(--sf-text-3); cursor: help;
+  }
+  .ai-mark[data-level="mid"] .ai-mark-b { color: var(--sf-warning); box-shadow: 0 0 0 1px var(--sf-warning-border); }
+  .ai-mark[data-level="low"] .ai-mark-b { color: var(--sf-danger); box-shadow: 0 0 0 1px var(--sf-danger-border); }
+  .ai-tip { display: flex; flex-direction: column; gap: 2px; font-size: 12px; line-height: 18px; }
+  .ai-tip b { font-weight: 600; }
+
+  /* rows of a grid filled from an image: the same marks as a bar on the row's start (right) edge */
+  tr.ai-row-mark > td:first-child { box-shadow: inset -2px 0 0 var(--ai-row, var(--sf-line-3)), inset 0 -1px 0 var(--sf-line); }
+  tr.ai-row-mark[data-level="mid"] { --ai-row: var(--sf-warning-fill); }
+  tr.ai-row-mark[data-level="low"] { --ai-row: var(--sf-danger); }
+
+  /* ---------------------------------------------------------------- review bar («بازبینی …») */
+  .ai-review {
+    display: flex; flex-direction: column; gap: 10px; padding: 12px 16px; border-radius: var(--sf-radius-lg);
+    background: var(--sf-surface); box-shadow: inset 0 0 0 1px var(--sf-line-2);
+  }
+  .ai-review-h { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; font-size: 13px; line-height: 20px; color: var(--sf-text-2); }
+  .ai-review-h > b { font-weight: 600; color: var(--sf-text); }
+  .ai-review-h > .ai-spark { color: var(--sf-text-3); }
+  .ai-review-x { margin-inline-start: auto; display: flex; align-items: center; gap: 4px; }
+  .ai-review-l { display: grid; grid-template-columns: minmax(96px, auto) minmax(0, 1fr) auto; gap: 6px 14px; margin: 0; padding: 0; list-style: none; font-size: 13px; line-height: 20px; }
+  .ai-review-l > li { display: contents; }
+  .ai-review-l .k { color: var(--sf-text-3); white-space: nowrap; }
+  .ai-review-l .v { min-inline-size: 0; color: var(--sf-text); overflow-wrap: anywhere; }
+  .ai-review-l .n { grid-column: 2 / -1; margin-block-start: -4px; font-size: 12px; line-height: 18px; color: var(--sf-text-3); }
+  .ai-review-w { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; }
+  .ai-review-w > li { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; line-height: 20px; color: var(--sf-text-2); }
+  .ai-review-w > li > .sf-nuqta { flex: none; margin-block-start: 7px; color: var(--sf-warning-fill); }
+  @media (max-width: 639px) { .ai-review-l { grid-template-columns: minmax(0, 1fr) auto; } .ai-review-l .k { grid-column: 1 / -1; } .ai-review-l .n { grid-column: 1 / -1; } }
+
+  /* the confidence chip («۹۲٪») beside a value */
+  .ai-conf { display: inline-flex; align-items: center; gap: 5px; block-size: 20px; padding-inline: 6px 8px; border-radius: var(--sf-radius-pill); font-size: 12px; line-height: 18px; font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; background: var(--sf-neutral-tint); color: var(--sf-text-2); }
+  .ai-conf > i { inline-size: 6px; block-size: 6px; border-radius: 50%; background: var(--sf-text-3); }
+  .ai-conf[data-level="high"] > i { background: var(--sf-in); }
+  .ai-conf[data-level="mid"] { background: var(--sf-warning-tint); color: var(--sf-warning); }
+  .ai-conf[data-level="mid"] > i { background: var(--sf-warning-fill); }
+  .ai-conf[data-level="low"] { background: var(--sf-danger-tint); color: var(--sf-danger); }
+  .ai-conf[data-level="low"] > i { background: var(--sf-danger); }
+
+  /* ---------------------------------------------------------------- the AI sparkle and the source line */
+  .ai-spark { flex: none; color: var(--sf-text-3); }
+  .ai-src { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; line-height: 18px; color: var(--sf-text-3); white-space: nowrap; }
+  .ai-src .sf-latin { font-size: 12px; }
+  .ai-model { font-family: var(--sf-font-latin); font-feature-settings: normal; font-size: 12px; direction: ltr; unicode-bidi: isolate; color: var(--sf-text-3); }
+
+  /* ---------------------------------------------------------------- narrative: safe Markdown, Persian typography */
+  .ai-md { font-size: 14px; line-height: 26px; color: var(--sf-text); overflow-wrap: anywhere; text-wrap: pretty; }
+  .ai-md > :first-child { margin-block-start: 0; }
+  .ai-md > :last-child { margin-block-end: 0; }
+  .ai-md p { margin: 0 0 10px; }
+  .ai-md h1, .ai-md h2, .ai-md h3, .ai-md h4 { margin: 18px 0 8px; font-size: 14px; line-height: 22px; font-weight: 600; color: var(--sf-text); }
+  .ai-md ul, .ai-md ol { margin: 0 0 10px; padding-inline-start: 20px; }
+  .ai-md ul { list-style: disc; }
+  .ai-md ol { list-style: decimal; }
+  .ai-md li { margin-block: 2px; }
+  .ai-md li::marker { color: var(--sf-text-3); }
+  .ai-md strong { font-weight: 600; }
+  .ai-md code { padding: 1px 5px; border-radius: var(--sf-radius-xs); background: var(--sf-sunken); font-family: var(--sf-font-mono); font-size: 12px; direction: ltr; unicode-bidi: isolate; }
+  .ai-md blockquote { margin: 0 0 10px; padding-inline-start: 12px; box-shadow: inset -2px 0 0 var(--sf-line-3); color: var(--sf-text-2); }
+  .ai-md hr { border: 0; block-size: 1px; background: var(--sf-line); margin-block: 14px; }
+  .ai-md a { color: var(--sf-text); font-weight: 500; text-decoration-line: underline; text-decoration-thickness: 1px; text-decoration-color: rgb(var(--sf-ink-rgb) / .28); text-underline-offset: 4px; }
+  .ai-md table { inline-size: 100%; margin: 0 0 12px; border-collapse: collapse; font-size: 13px; line-height: 20px; }
+  .ai-md th { padding: 6px 8px; text-align: start; font-size: 12px; font-weight: 400; color: var(--sf-text-3); box-shadow: inset 0 -1px 0 var(--sf-line-2); white-space: nowrap; }
+  .ai-md td { padding: 6px 8px; box-shadow: inset 0 -1px 0 var(--sf-line); font-variant-numeric: tabular-nums; }
+  .ai-md-wrap { overflow-x: auto; }
+
+  /* ---------------------------------------------------------------- severity mark of an insight */
+  .ai-sev { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; line-height: 18px; font-weight: 500; color: var(--sf-text-3); white-space: nowrap; }
+  .ai-sev > .sf-nuqta { inline-size: 6px; block-size: 6px; color: var(--sf-text-3); }
+  .ai-sev[data-sev="critical"] { color: var(--sf-danger); }
+  .ai-sev[data-sev="critical"] > .sf-nuqta { color: var(--sf-danger); }
+  .ai-sev[data-sev="warning"] { color: var(--sf-warning); }
+  .ai-sev[data-sev="warning"] > .sf-nuqta { color: var(--sf-warning-fill); }
+
+  /* ---------------------------------------------------------------- an error row with its remedy */
+  .ai-err { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border-radius: var(--sf-radius-md); background: var(--sf-surface); box-shadow: inset 0 0 0 1px var(--sf-danger-border); font-size: 13px; line-height: 20px; color: var(--sf-text-2); }
+  .ai-err > svg { flex: none; margin-block-start: 2px; color: var(--sf-danger); }
+  .ai-err b { display: block; font-weight: 600; color: var(--sf-danger); }
+  .ai-err .ai-raw { margin-block-start: 4px; }
+  .ai-raw { display: block; font-family: var(--sf-font-mono); font-size: 12px; line-height: 18px; color: var(--sf-text-3); direction: ltr; unicode-bidi: isolate; text-align: left; overflow-wrap: anywhere; white-space: pre-wrap; max-block-size: 72px; overflow: auto; }
+
+  /* a sheet's lead block on `well` (sunken reads as a hole inside raised layers) */
+  .ai-well { padding: 12px 14px; border-radius: var(--sf-radius-md); background: var(--sf-well); }
+
+  /* ---------------------------------------------------------------- a side sheet's footer and a quiet skeleton line */
+  .ai-sheet-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .ai-sheet-foot > .sf-end { margin-inline-start: auto; display: flex; gap: 8px; }
+  .ai-sk { display: block; block-size: 10px; border-radius: var(--sf-radius-xs); background: var(--sf-sunken); }
+
+  /* a header button of an AI action (explain, capture): icon only under 640 px when compact */
+  @media (max-width: 639px) { .ai-xb.is-compact { padding-inline: 8px; } .ai-xb.is-compact .ai-xb-t { display: none; } }
+  /* the capture button at the end of a form row (a cheque's details) */
+  .ai-subx { align-self: flex-end; margin-inline-start: auto; }
+  /* a chart's tooltip card */
+  .ai-tip-card { min-inline-size: 150px; padding: 8px 10px; border-radius: var(--sf-radius-md); background: var(--sf-raised); box-shadow: var(--sf-shadow-e3); font-size: 12px; line-height: 18px; color: var(--sf-text-3); }
+  .ai-tip-card > div:first-child { margin-block-end: 4px; color: var(--sf-text-2); font-weight: 500; }
+  .ai-tip-card b { font-size: 14px; line-height: 20px; font-weight: 600; color: var(--sf-text); font-variant-numeric: tabular-nums; }
+}

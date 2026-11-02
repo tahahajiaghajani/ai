@@ -2,7 +2,7 @@
 // POS, card, cheque, other account) decides which fields it shows; a cheque line opens a second
 // row with the cheque's details (Sayad number, bank, due date …). Enter moves to the next field
 // and from the last one to a new line.
-import { Fragment, useRef } from "react";
+import { Fragment, useRef, useState } from "react";
 import { AutoComplete, Button, Input, Select, Tooltip } from "antd";
 import { Lock, Plus, Trash2 } from "lucide-react";
 import { useOrg } from "../../lib/org";
@@ -14,6 +14,13 @@ import { D, normalizeDigits } from "@shared/money";
 import { toLatinDigits } from "../../lib/fa";
 import { BANKS, KIND_METHODS, METHOD_LABEL, chequeStatusMap, isSayad, type DocKind, type Method } from "./labels";
 import { blankLine, lineTotals, remember, withMethod, type ChequeFields, type Line } from "./editor";
+import type { AiCaptureResult } from "@shared/ai/types";
+import { AiCaptureButton } from "../../ai/capture/AiCaptureButton";
+import { captureDay, markOf, val } from "../../ai/capture/apply";
+import { AiMark, type AiMarkValue } from "../../ai/kit/AiMark";
+import { amountOf } from "../../ai/kit/model";
+
+type ChequeMarkKey = "amount" | "due" | "sayad" | "bank" | "branch" | "acct" | "owner" | "ref";
 
 interface Props {
   kind: DocKind;
@@ -49,6 +56,42 @@ export function LinesGrid({ kind, lines, setLines, readonly, hasParty }: Props) 
   const needParty = !hasParty;
   const methods = KIND_METHODS[kind];
 
+  // values of a received cheque read from its photo, marked per line until edited
+  const [marks, setMarks] = useState<Record<string, Partial<Record<ChequeMarkKey, AiMarkValue>>>>({});
+  const mark = (l: Line, k: ChequeMarkKey) => marks[l.key]?.[k] ?? null;
+  const unmark = (l: Line, k: ChequeMarkKey) =>
+    marks[l.key]?.[k] &&
+    setMarks((m) => {
+      const next = { ...(m[l.key] ?? {}) };
+      delete next[k];
+      return { ...m, [l.key]: next };
+    });
+  const readCheque = (i: number, r: AiCaptureResult) => {
+    const f = r.fields;
+    const l = lines[i];
+    const digits = (v: string | null) => (v ? toLatinDigits(v).replace(/\D/g, "") : null);
+    const got: Partial<Record<ChequeMarkKey, AiMarkValue>> = {};
+    const patch: Partial<ChequeFields> = {};
+    const take = (k: ChequeMarkKey, field: string, apply: (v: string) => void) => {
+      const v = val(f, field);
+      const m = markOf(f, field);
+      if (v && m) {
+        apply(v);
+        got[k] = { ...m, note: [m.note, ...(k === "amount" ? r.warnings : [])].filter(Boolean).join(" ") || null };
+      }
+    };
+    take("due", "due_date", (v) => (patch.due_date = captureDay(v) ?? l.cheque.due_date));
+    take("sayad", "sayad_id", (v) => (patch.sayad_no = digits(v) ?? ""));
+    take("bank", "bank_name", (v) => (patch.bank_name = v));
+    take("branch", "branch_name", (v) => (patch.branch_name = v));
+    take("acct", "account_no", (v) => (patch.account_no = digits(v) ?? ""));
+    take("owner", "account_owner", (v) => (patch.account_owner = v));
+    take("ref", "serial_no", (v) => (patch.serial_no = digits(v) ?? ""));
+    let amount: string | null = null;
+    take("amount", "amount", (v) => (amount = amountOf(v)));
+    setLines((ls) => ls.map((x, j) => (j === i ? { ...x, ...(amount ? { amount } : {}), cheque: { ...x.cheque, ...patch } } : x)));
+    setMarks((m) => ({ ...m, [l.key]: got }));
+  };
   const set = (i: number, patch: Partial<Line>) => setLines((ls) => ls.map((l, j) => (j === i ? { ...l, ...patch } : l)));
   const setCheque = (i: number, patch: Partial<ChequeFields>) => setLines((ls) => ls.map((l, j) => (j === i ? { ...l, cheque: { ...l.cheque, ...patch } } : l)));
   const addLine = () => setLines((ls) => [...ls, blankLine(kind, ls[ls.length - 1]?.method === "cheque" ? "cheque" : ls[ls.length - 1]?.method ?? "cash")]);
@@ -215,17 +258,19 @@ export function LinesGrid({ kind, lines, setLines, readonly, hasParty }: Props) 
                         onPressEnter={() => next(i, "ref")}
                       />
                     ) : l.method === "cheque" ? (
-                      <Input
-                        variant="borderless"
-                        dir="ltr"
-                        className="sf-num"
-                        style={{ textAlign: "right" }}
-                        value={faDigits(cq.serial_no)}
-                        disabled={readonly}
-                        placeholder="سریال چک"
-                        onChange={(e) => setCheque(i, { serial_no: normalizeDigits(e.target.value).replace(/[^\d/-]/g, "") })}
-                        onPressEnter={() => next(i, "ref")}
-                      />
+                      <AiMark mark={mark(l, "ref")}>
+                        <Input
+                          variant="borderless"
+                          dir="ltr"
+                          className="sf-num"
+                          style={{ textAlign: "right" }}
+                          value={faDigits(cq.serial_no)}
+                          disabled={readonly}
+                          placeholder="سریال چک"
+                          onChange={(e) => (setCheque(i, { serial_no: normalizeDigits(e.target.value).replace(/[^\d/-]/g, "") }), unmark(l, "ref"))}
+                          onPressEnter={() => next(i, "ref")}
+                        />
+                      </AiMark>
                     ) : l.method === "other" ? (
                       <DetailSelect
                         className="w-full"
@@ -245,7 +290,9 @@ export function LinesGrid({ kind, lines, setLines, readonly, hasParty }: Props) 
                     )}
                   </td>
                   <td data-f={`${i}:amount`} className="bk-money">
-                    <MoneyInput variant="borderless" value={l.amount} disabled={lock} placeholder="—" onChange={(v) => set(i, { amount: v })} onPressEnter={() => next(i, "amount")} />
+                    <AiMark mark={mark(l, "amount")}>
+                      <MoneyInput variant="borderless" value={l.amount} disabled={lock} placeholder="—" onChange={(v) => (set(i, { amount: v }), unmark(l, "amount"))} onPressEnter={() => next(i, "amount")} />
+                    </AiMark>
                   </td>
                   <td data-f={`${i}:fee`}>
                     {bankish ? (
@@ -289,58 +336,75 @@ export function LinesGrid({ kind, lines, setLines, readonly, hasParty }: Props) 
                           </div>
                         ) : null}
                         <SubField label="سررسید" w="w-36" f={`${i}:due`}>
-                          <DateInput
-                            value={cq.due_date}
-                            disabled={readonly}
-                            onChange={(v) => setCheque(i, { due_date: v })}
-                            onPressEnter={() => next(i, "due")}
-                          />
+                          <AiMark mark={mark(l, "due")}>
+                            <DateInput
+                              value={cq.due_date}
+                              disabled={readonly}
+                              onChange={(v) => (setCheque(i, { due_date: v }), unmark(l, "due"))}
+                              onPressEnter={() => next(i, "due")}
+                            />
+                          </AiMark>
                         </SubField>
                         <SubField label="شناسهٔ صیادی (۱۶ رقم)" w="w-52" f={`${i}:sayad`}>
-                          <Input
-                            dir="ltr"
-                            className="sf-code"
-                            style={{ textAlign: "right" }}
-                            maxLength={16}
-                            value={cq.sayad_no ?? ""}
-                            disabled={readonly}
-                            status={cq.sayad_no && !isSayad(cq.sayad_no) ? "warning" : undefined}
-                            onChange={(e) => setCheque(i, { sayad_no: normalizeDigits(e.target.value).replace(/\D/g, "") })}
-                            onPressEnter={() => next(i, "sayad")}
-                          />
+                          <AiMark mark={mark(l, "sayad")}>
+                            <Input
+                              dir="ltr"
+                              className="sf-code"
+                              style={{ textAlign: "right" }}
+                              maxLength={16}
+                              value={cq.sayad_no ?? ""}
+                              disabled={readonly}
+                              status={cq.sayad_no && !isSayad(cq.sayad_no) ? "warning" : undefined}
+                              onChange={(e) => (setCheque(i, { sayad_no: normalizeDigits(e.target.value).replace(/\D/g, "") }), unmark(l, "sayad"))}
+                              onPressEnter={() => next(i, "sayad")}
+                            />
+                          </AiMark>
                         </SubField>
                         {l.direction === "in" ? (
                           <>
                             <SubField label="بانک" w="w-36" f={`${i}:bank`}>
-                              <AutoComplete
-                                className="w-full"
-                                value={cq.bank_name}
-                                disabled={readonly}
-                                options={BANKS}
-                                showSearch={{ filterOption: (input, option) => String(option?.value ?? "").includes(input) }}
-                                onChange={(v) => setCheque(i, { bank_name: v })}
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter") next(i, "bank");
-                                }}
-                              />
+                              <AiMark mark={mark(l, "bank")}>
+                                <AutoComplete
+                                  className="w-full"
+                                  value={cq.bank_name}
+                                  disabled={readonly}
+                                  options={BANKS}
+                                  showSearch={{ filterOption: (input, option) => String(option?.value ?? "").includes(input) }}
+                                  onChange={(v) => (setCheque(i, { bank_name: v }), unmark(l, "bank"))}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") next(i, "bank");
+                                  }}
+                                />
+                              </AiMark>
                             </SubField>
                             <SubField label="شعبه" w="w-32" f={`${i}:branch`}>
-                              <Input value={cq.branch_name} disabled={readonly} onChange={(e) => setCheque(i, { branch_name: e.target.value })} onPressEnter={() => next(i, "branch")} />
+                              <AiMark mark={mark(l, "branch")}>
+                                <Input value={cq.branch_name} disabled={readonly} onChange={(e) => (setCheque(i, { branch_name: e.target.value }), unmark(l, "branch"))} onPressEnter={() => next(i, "branch")} />
+                              </AiMark>
                             </SubField>
                             <SubField label="شمارهٔ حساب" w="w-36" f={`${i}:acct`}>
-                              <Input
-                                dir="ltr"
-                                className="sf-num"
-                                style={{ textAlign: "right" }}
-                                value={faDigits(cq.account_no)}
-                                disabled={readonly}
-                                onChange={(e) => setCheque(i, { account_no: normalizeDigits(e.target.value) })}
-                                onPressEnter={() => next(i, "acct")}
-                              />
+                              <AiMark mark={mark(l, "acct")}>
+                                <Input
+                                  dir="ltr"
+                                  className="sf-num"
+                                  style={{ textAlign: "right" }}
+                                  value={faDigits(cq.account_no)}
+                                  disabled={readonly}
+                                  onChange={(e) => (setCheque(i, { account_no: normalizeDigits(e.target.value) }), unmark(l, "acct"))}
+                                  onPressEnter={() => next(i, "acct")}
+                                />
+                              </AiMark>
                             </SubField>
                             <SubField label="صاحب حساب (صادرکننده)" w="w-44" f={`${i}:owner`}>
-                              <Input value={cq.account_owner} disabled={readonly} onChange={(e) => setCheque(i, { account_owner: e.target.value })} onPressEnter={() => next(i, "owner")} />
+                              <AiMark mark={mark(l, "owner")}>
+                                <Input value={cq.account_owner} disabled={readonly} onChange={(e) => (setCheque(i, { account_owner: e.target.value }), unmark(l, "owner"))} onPressEnter={() => next(i, "owner")} />
+                              </AiMark>
                             </SubField>
+                            {!lock ? (
+                              <div className="ai-subx">
+                                <AiCaptureButton kind="cheque" size="small" label="خواندن از عکس چک" onResult={(r) => readCheque(i, r)} />
+                              </div>
+                            ) : null}
                           </>
                         ) : (
                           <SubField label={cq.cheque_book_id ? "حساب بانکی (از دسته‌چک)" : "حساب بانکی"} w="w-52" f={`${i}:chqbank`}>

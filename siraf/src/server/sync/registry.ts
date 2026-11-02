@@ -43,6 +43,7 @@ export const AGGREGATES: AggregateDef[] = [
   { entity: "wallet", table: "tz_wallets", area: "fx", order: 13 },
   { entity: "gold_category", table: "tz_gold_categories", area: "gold", order: 13 },
   { entity: "gold_item", table: "tz_gold_items", area: "gold", order: 14, code: { column: "tag_no", start: 100001 } },
+  { entity: "gold_bar", table: "tz_gold_bars", area: "gold", order: 14, code: { column: "bar_no", start: 900001 } },
   { entity: "gold_rate", table: "tz_gold_rates", area: "gold", order: 15 },
   { entity: "fx_rate", table: "tz_fx_rates", area: "fx", order: 15 },
   { entity: "cheque", table: "tz_cheques", area: "treasury", order: 20 },

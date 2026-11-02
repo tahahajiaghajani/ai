@@ -12,6 +12,7 @@ import { Amt, Card, ICON, ICON14, Period, PrintFoot, ScalePicker, ScaleProvider,
 import { faDigits, formatNumber } from "@shared/format";
 import { D } from "@shared/money";
 import { exportExcel } from "../../lib/excel";
+import { AiExplainButton } from "../../ai/explain/AiExplainButton";
 
 const TOP = 56;
 
@@ -77,7 +78,7 @@ export default function TrialBalance() {
 
   return (
     <div>
-      <PageHeader title="تراز آزمایشی" />
+      <PageHeader title="تراز آزمایشی" actions={<AiExplainButton report="trial_balance" params={{ from: range.from, to: range.to, level, fiscal_year_id: fy?.id, drafts: range.drafts ? 1 : 0 }} title="تراز آزمایشی" />} />
       <ReportFilters
         range={range}
         setRange={setRange}

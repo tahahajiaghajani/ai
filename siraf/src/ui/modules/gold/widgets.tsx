@@ -1,5 +1,6 @@
 // Dashboard widget of the gold module: the 18-karat gram price with its change and a 30-rate sparkline, the weights
-// in stock (showcase, used and melted gold, 3 decimals in ink) and today's and this month's sales. On the dashboard
+// in stock (showcase, آب‌شده and used gold, bars in fine grams; 3 decimals in ink), coins (count and value at the
+// day's price) and today's and this month's sales. On the dashboard
 // gold is shown in plain ink: the gold material stays inside «طلا» (components.md §0.4).
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router";
@@ -43,10 +44,10 @@ function GoldCard() {
     .filter((x) => num(x.gram18) > 0)
     .map((x) => num(x.gram18))
     .reverse();
-  const sc = useScale(d ? [d.sales_today?.total, d.sales_month?.total] : [], 5);
+  const sc = useScale(d ? [d.sales_today?.total, d.sales_month?.total, d.coins?.value] : [], 5);
   const at = r?.at ? new Date(r.at) : null;
   const sameDay = at ? jDate(at) === jDate(new Date()) : false;
-  const nothing = d && !r && !num(d.stock?.pieces) && !num(d.sales_month?.count);
+  const nothing = d && !r && !num(d.stock?.pieces) && !num(d.sales_month?.count) && !num(d.coins?.count) && !num(d.bars?.count);
 
   return (
     <Card
@@ -133,17 +134,31 @@ function GoldCard() {
               </span>
             </div>
             <div className="db-w">
-              <span className="db-w-l">طلای مستعمل</span>
+              <span className="db-w-l">آب‌شده و مستعمل</span>
               <span className="db-w-v">
-                <Weight g={d.ledger?.gold_old?.w} />
+                <Weight g={num(d.ledger?.gold_bullion?.w) + num(d.ledger?.gold_old?.w)} />
               </span>
+              <span className="db-w-f">آب‌شده {grams(num(d.ledger?.gold_bullion?.w))}</span>
             </div>
-            <div className="db-w">
-              <span className="db-w-l">طلای آبشده</span>
+            <div className="db-w" role="button" tabIndex={0} onClick={go("gold/bars")} onKeyDown={(e) => e.key === "Enter" && go("gold/bars")()}>
+              <span className="db-w-l">شمش (خالص)</span>
               <span className="db-w-v">
-                <Weight g={d.ledger?.gold_bullion?.w} />
+                <Weight g={d.bars?.fine} />
               </span>
+              <span className="db-w-f"><Count n={num(d.bars?.count)} /> شمش</span>
             </div>
+          </div>
+
+          <div className="db-divider" />
+
+          <div className="db-strip is-2">
+            <Stat label="سکه‌ها" onClick={go("gold/coins")} foot={(d.coins?.top ?? []).slice(0, 2).map((c: { id: string; name: string; qty: string }) => `${c.name.replace(/\s*\(.*?\)\s*/g, " ").trim()} ${fa(num(c.qty))}`).join("، ") || undefined}>
+              <span className="db-fig-n"><Count n={num(d.coins?.count)} /></span>
+              <span className="db-unit">عدد</span>
+            </Stat>
+            <Stat label="ارزش سکه‌ها به نرخ روز" onClick={go("gold/coins")}>
+              <Amt v={d.coins?.value} s={sc} />
+            </Stat>
           </div>
 
           <div className="db-divider" />

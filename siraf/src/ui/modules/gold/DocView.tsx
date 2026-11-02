@@ -17,7 +17,7 @@ import { gw, KIND_PATH, KINDS, StatusOf, ITEM_STATUS, formTitle, wageText, type 
 import { PrintArea, printSheet, type PrintFormat } from "./Invoice";
 import { KaratText } from "./kit";
 
-const LINE_LABEL: Record<string, string> = { piece: "جنس", bulk: "وزنی", old: "مستعمل", coin: "سکه" };
+const LINE_LABEL: Record<string, string> = { piece: "جنس", bulk: "وزنی", old: "مستعمل", coin: "سکه", bar: "شمش" };
 
 export default function DocView() {
   const { id } = useParams();
@@ -119,7 +119,10 @@ export default function DocView() {
                   <div className="m">
                     {[
                       `${LINE_LABEL[l.kind]}${l.kind === "bulk" ? `، ${formTitle(l.form)}` : ""}${kind === "melt" ? (l.direction === "out" ? " (ورودی)" : " (حاصل)") : ""}`,
-                      l.tag_no ? <span key="tag">اتیکت <span className="sf-docno">{faDigits(l.tag_no)}</span></span> : null,
+                      l.tag_no ? <span key="tag">{l.kind === "bar" ? "شمش" : "اتیکت"} <span className="sf-docno">{faDigits(l.tag_no)}</span></span> : null,
+                      l.kind === "bar" && (l.serial_no || l.extra?.bar?.serial_no) ? <bdi key="sn" dir="ltr">{l.serial_no || l.extra?.bar?.serial_no}</bdi> : null,
+                      l.kind === "bar" ? l.brand || l.extra?.bar?.brand || null : null,
+                      l.direction === "in" && (l.kind === "coin" || l.kind === "bar") && l.description && !D(l.discount ?? 0).isZero() ? `کسر: ${l.description}` : null,
                       l.category_name,
                       l.assay_no ? `انگ ${l.assay_no}` : null,
                       l.item_status && l.kind === "piece" ? ITEM_STATUS[l.item_status]?.[0] ?? l.item_status : null,

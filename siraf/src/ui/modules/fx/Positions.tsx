@@ -14,6 +14,7 @@ import { D } from "@shared/money";
 import { faDigits, formatCompact } from "@shared/format";
 import { formatJalali, presetRange, todayISO } from "@shared/jalali";
 import { CurrencyAvatar, CurrencyName, FxAmount, KIND_FA, rateLabel } from "./shared";
+import { AiExplainButton } from "../../ai/explain/AiExplainButton";
 
 const LEG_FA: Record<string, string> = { fx_cash: "صندوق", fx_bank: "بانک", crypto_wallets: "کیف‌پول" };
 
@@ -31,7 +32,12 @@ export default function Positions() {
     <div>
       <PageHeader
         title="موقعیت ارزی و سود"
-        actions={<Button icon={<Ic icon={Printer} />} onClick={() => window.print()}>چاپ</Button>}
+        actions={
+          <>
+            <AiExplainButton report="fx_positions" params={{ date, from, to }} title="موقعیت ارزی و سود" compact />
+            <Button icon={<Ic icon={Printer} />} onClick={() => window.print()}>چاپ</Button>
+          </>
+        }
       />
       <div className="sf-filters no-print">
         <span className="text-[13px] text-ink-3">موجودی تا</span>

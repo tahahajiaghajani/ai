@@ -36,6 +36,8 @@ async function build(): Promise<FetchApp> {
     mode: "cloud",
     db,
     secret,
+    // keys of AI connections are refused while the secret is only derived from the database URL
+    secretSource: process.env.APP_SECRET ? "env" : "derived",
     allowSignup: process.env.ALLOW_SIGNUP !== "false",
     platformAdmins: (process.env.PLATFORM_ADMIN_EMAILS ?? "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean),
     origin: "cloud",

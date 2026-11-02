@@ -1,5 +1,5 @@
 import { lazy } from "react";
-import { Building2, UserCog, Plug, Monitor, ScrollText, CircleUser, CircleHelp } from "lucide-react";
+import { Building2, UserCog, Plug, Monitor, ScrollText, CircleUser, CircleHelp, Sparkles } from "lucide-react";
 import type { NavGroup, AppRoute } from "../registry";
 
 const OrgSettings = lazy(() => import("./OrgSettings"));
@@ -9,6 +9,7 @@ const Desktop = lazy(() => import("./Desktop"));
 const Audit = lazy(() => import("./Audit"));
 const Integrations = lazy(() => import("./Integrations"));
 const Help = lazy(() => import("./Help"));
+const AiSettings = lazy(() => import("../../ai/settings/AiSettings"));
 
 export const settingsNav: Omit<NavGroup, "icon" | "space"> = {
   key: "settings",
@@ -16,6 +17,7 @@ export const settingsNav: Omit<NavGroup, "icon" | "space"> = {
   items: [
     { key: "org-settings", label: "کسب‌وکار", path: "settings/org", area: "settings", icon: Building2, keywords: "اطلاعات و تنظیمات کسب‌وکار مالیات ارزش افزوده لوگو ماژول" },
     { key: "members", label: "کاربران و دسترسی‌ها", path: "settings/users", area: "users", icon: UserCog },
+    { key: "ai", label: "هوش مصنوعی", path: "settings/ai", area: "ai", level: "full", icon: Sparkles, keywords: "دستیار کلید API مدل Claude Gemini OpenAI هوش مصنوعی مصرف بودجه" },
     { key: "integrations", label: "اتصال‌ها و API", path: "settings/integrations", area: "integrations", icon: Plug, keywords: "اتصال به فروشگاه اینترنتی ووکامرس شاپیفای وبهوک سایت" },
     { key: "desktop", label: "نسخهٔ ویندوز", path: "settings/desktop", desktopOnly: true, icon: Monitor, keywords: "پشتیبان شبکه همگام‌سازی بکاپ LAN ابری" },
     { key: "audit", label: "گزارش رویدادها", path: "settings/audit", area: "settings", icon: ScrollText },
@@ -31,5 +33,6 @@ export const settingsRoutes: AppRoute[] = [
   { path: "settings/desktop", element: <Desktop /> },
   { path: "settings/audit", element: <Audit /> },
   { path: "settings/integrations", element: <Integrations /> },
+  { path: "settings/ai", element: <AiSettings /> },
   { path: "help", element: <Help /> },
 ];

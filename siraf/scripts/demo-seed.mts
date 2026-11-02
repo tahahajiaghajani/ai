@@ -6,6 +6,8 @@
 // «بازرگانی نیک‌آوران» with all modules unless --org is given, then adds parties, treasury, goods,
 // invoices, cheques, vouchers, gold and exchange data spread over the last three months. A second
 // run against the same organisation does nothing (unless --force). Uses only fetch.
+// With SIRAF_AI_FAKE=1 (the server must run with it too) the business also gets the test-only «پاسخ‌گوی آزمایشی»
+// AI connection, so the assistant answers in screenshots without a real provider (also on a second run).
 
 interface Opts {
   base: string;
@@ -274,6 +276,7 @@ export async function seed(o: Opts): Promise<SeedResult> {
   const existing = await api.get(O(`/data/party?q=${encodeURIComponent(PARTIES[0].name)}`));
   if (existing.total > 0 && !o.force) {
     log("organisation already holds demo data — nothing to do (use --force to add again)");
+    if (process.env.SIRAF_AI_FAKE === "1") await seedFakeAi(api, O, log);
     const result: SeedResult = { org_id: org, email: o.email, password: o.password, skipped: true, seconds: (Date.now() - t0) / 1000, requests: api.requests, ids: { org }, counts };
     await writeIds(o.idsOut, result);
     return result;
@@ -886,10 +889,36 @@ export async function seed(o: Opts): Promise<SeedResult> {
     bump("remittances", 2);
   }
 
+  if (process.env.SIRAF_AI_FAKE === "1" && (await seedFakeAi(api, O, log))) bump("ai_connections");
+
   const result: SeedResult = { org_id: org, email: o.email, password: o.password, skipped: false, seconds: (Date.now() - t0) / 1000, requests: api.requests, ids, counts };
   await writeIds(o.idsOut, result);
   log(`done in ${result.seconds.toFixed(1)}s with ${api.requests} requests`, JSON.stringify(counts));
   return result;
+}
+
+/**
+ * The test-only AI connection (preset «fake»; offered only by a server started with SIRAF_AI_FAKE=1), routed to every
+ * AI job and switched on. Idempotent; returns whether a connection was added. A server without the AI layer is skipped.
+ */
+async function seedFakeAi(api: Api, O: (p: string) => string, log: (...a: unknown[]) => void): Promise<boolean> {
+  try {
+    const { connections } = await api.get<{ connections: { id: string; preset: string }[] }>(O("/ai/connections"));
+    let conn = connections.find((c) => c.preset === "fake");
+    const added = !conn;
+    if (!conn) conn = (await api.post<{ connection: { id: string; preset: string } }>(O("/ai/connections"), { preset: "fake", label: "پاسخ‌گوی آزمایشی", enabled: true })).connection;
+    const chain = (model: string) => [{ connection_id: conn!.id, model }];
+    await api.put(O("/ai/settings"), {
+      enabled: true,
+      routing: { assistant: chain("fake-smart"), analysis: chain("fake-smart"), fast: chain("fake-fast"), vision: chain("fake-vision") },
+      features: { assistant: true, proposals: true, insights: true, explain: true, capture: true, forecast: true },
+    });
+    log(added ? "added the test AI connection (SIRAF_AI_FAKE=1)" : "test AI connection already there");
+    return added;
+  } catch (e) {
+    log("could not add the test AI connection:", e instanceof Error ? e.message.split("\n")[0] : e);
+    return false;
+  }
 }
 
 async function writeIds(path: string | null, r: SeedResult) {

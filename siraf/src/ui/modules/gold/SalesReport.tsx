@@ -8,6 +8,7 @@ import { FileSpreadsheet, Printer, ReceiptText, ShoppingBag, TrendingUp, Weight 
 import { Ic } from "../../components/shell/icons";
 import { useOrg } from "../../lib/org";
 import { PageHeader } from "../../components/layout";
+import { AiExplainButton } from "../../ai/explain/AiExplainButton";
 import { DateInput } from "../../components/inputs";
 import { Money, StatCard, JDate } from "../../components/display";
 import { exportExcel } from "../../lib/excel";
@@ -16,7 +17,7 @@ import { faDigits } from "@shared/format";
 import { gw } from "./shared";
 import { formatJalali, presetRange, todayISO } from "@shared/jalali";
 
-type Group = "day" | "month" | "doc" | "category" | "party";
+type Group = "day" | "month" | "doc" | "category" | "party" | "product";
 
 export default function SalesReport() {
   const { api, orgId, org, fy } = useOrg();
@@ -52,7 +53,7 @@ export default function SalesReport() {
     }
     return undefined;
   };
-  const keyTitle: Record<Group, string> = { day: "تاریخ", month: "ماه", doc: "فاکتور", category: "دسته", party: "مشتری" };
+  const keyTitle: Record<Group, string> = { day: "تاریخ", month: "ماه", doc: "فاکتور", category: "دسته", party: "مشتری", product: "نوع کالا" };
   const label = (r: any) => {
     if (group === "day") return <JDate v={r.date} />;
     if (group === "doc") return <span><b className="sf-num">{faDigits(r.no)}</b>، <JDate v={r.date} />، {r.label ?? "گذری"}</span>;
@@ -71,6 +72,7 @@ export default function SalesReport() {
       { title: "مالیات", key: "tax", type: "m" },
       { title: "سنگ", key: "stone", type: "m" },
       { title: "سکه", key: "coins", type: "m" },
+      { title: "شمش", key: "bars", type: "m" },
       { title: "جمع فروش", key: "total", type: "m" },
       { title: "طلای کهنه (۷۵۰)", key: "old_weight750", type: "w" },
       { title: "ارزش طلای کهنه", key: "old_value", type: "m" },
@@ -97,8 +99,9 @@ export default function SalesReport() {
     { title: "مالیات", key: "tax", type: "m" },
     { title: "سنگ", key: "stone", type: "m" },
     { title: "سکه", key: "coins", type: "m" },
+    { title: "شمش", key: "bars", type: "m" },
     { title: "جمع فروش", key: "total", type: "m" },
-    { title: "طلای کهنه", key: "old_value", type: "m", sub: { key: "old_weight750", type: "w", post: "گرم ۷۵۰" } },
+    { title: "دریافتی (تعویض)", key: "old_value", type: "m", sub: { key: "old_weight750", type: "w", post: "گرم ۷۵۰" } },
     { title: "سود ناخالص", key: "margin", type: "m", sub: { key: "cost", type: "m", pre: "بها" } },
   ];
   const any = (k: string) => !D(t?.[k] ?? 0).isZero() || (d?.rows ?? []).some((r: any) => !D(r[k] ?? 0).isZero());
@@ -119,6 +122,7 @@ export default function SalesReport() {
         title="گزارش فروش طلا"
         actions={
           <>
+            <AiExplainButton report="gold_sales" params={{ from, to, group: group === "product" ? undefined : group }} title="گزارش فروش طلا" compact />
             <Button icon={<Ic icon={FileSpreadsheet} />} disabled={!d} onClick={toExcel}>اکسل</Button>
             <Button icon={<Ic icon={Printer} />} onClick={() => window.print()}>چاپ</Button>
           </>
@@ -132,7 +136,7 @@ export default function SalesReport() {
         <Segmented size="small" value={presetOf() ?? ""} onChange={(v) => preset(v as "month")} options={[{ value: "today", label: "امروز" }, { value: "month", label: "این ماه" }, { value: "lastMonth", label: "ماه قبل" }, { value: "year", label: "سال مالی" }]} />
         <DateInput value={from} onChange={setFrom} placeholder="از تاریخ" className="!w-36" />
         <DateInput value={to} onChange={setTo} placeholder="تا تاریخ" className="!w-36" />
-        <Segmented size="small" value={group} onChange={(v) => setGroup(v as Group)} options={[{ value: "day", label: "روزانه" }, { value: "month", label: "ماهانه" }, { value: "doc", label: "فاکتور" }, { value: "category", label: "دسته" }, { value: "party", label: "مشتری" }]} />
+        <Segmented size="small" value={group} onChange={(v) => setGroup(v as Group)} options={[{ value: "day", label: "روزانه" }, { value: "month", label: "ماهانه" }, { value: "doc", label: "فاکتور" }, { value: "category", label: "دسته" }, { value: "product", label: "نوع کالا" }, { value: "party", label: "مشتری" }]} />
         <label className="flex items-center gap-2 text-[13px] text-ink-2"><Switch size="small" checked={bullion} onChange={setBullion} /> با فروش آبشده</label>
       </div>
       <div className="mb-4 grid sm:grid-cols-2 xl:grid-cols-4">

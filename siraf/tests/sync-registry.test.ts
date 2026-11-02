@@ -14,6 +14,24 @@ const LOCAL_ONLY: Record<string, string> = {
   tz_integrations: "online shops post their orders to the web version",
   tz_integration_events: "raw webhook deliveries (web version)",
   tz_org_sync: "per-organisation revision counter",
+  // AI: each runtime (web, Windows) keeps its own connections — keys are encrypted with that
+  // runtime's secret — and its own usage, conversations, proposals and derived insights
+  tz_ai_connections: "AI provider connections with this runtime's encrypted key",
+  tz_ai_settings: "AI settings of this runtime (refers to its connections)",
+  tz_ai_holds: "rate-limit / quota holds per connection and model",
+  tz_ai_usage: "usage ledger of this runtime",
+  tz_ai_threads: "assistant conversations (private to their author)",
+  tz_ai_messages: "assistant messages",
+  tz_ai_tool_calls: "audit of the assistant's tool calls",
+  tz_ai_actions: "proposals waiting for a person's confirmation",
+  tz_ai_data_refs: "tables and charts referenced from answers",
+  tz_ai_insights: "derived insights (recomputed on each runtime)",
+  tz_ai_plans: "saved AI plans",
+  tz_ai_captures: "documents read by AI before they become drafts",
+  // platform administration (web version)
+  tz_support_sessions: "super-admin support sessions (web version)",
+  tz_security_events: "sign-in and security events",
+  tz_org_admin: "platform status and limits of a business (web version)",
 };
 
 describe("sync registry covers every business table", () => {

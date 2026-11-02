@@ -6,11 +6,14 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { Dropdown, Tooltip, type MenuProps } from "antd";
 import { useQueryClient } from "@tanstack/react-query";
-import { PanelRight, Menu, Search, ChevronLeft, ChevronDown, Calendar, Sun, Moon, SunMoon, Check, KeyRound, LogOut, Building2, CircleHelp, ShieldCheck } from "lucide-react";
+import { PanelRight, Menu, Search, ChevronLeft, ChevronDown, Calendar, Sun, Moon, SunMoon, Check, KeyRound, LogOut, Building2, CircleHelp, ShieldCheck, Sparkles } from "lucide-react";
+import { APP_NAME } from "@shared/constants";
 import { useOrg } from "../../lib/org";
 import { useSession } from "../../lib/session";
 import { useTheme, type ThemePref } from "../../lib/theme";
-import { Ic } from "./icons";
+import { toggleAssistant, useAssistantOpen } from "../../ai/assistant/bus";
+import { switchedOff, useAiStatus, useCanAsk } from "../../ai/assistant/useAi";
+import { Ic, Keys } from "./icons";
 
 export interface Crumb {
   label: string;
@@ -211,6 +214,35 @@ function Account() {
   );
 }
 
+// ---------------------------------------------------------------- assistant
+/** «دستیار» (Ctrl J): opens «دستیار سیراف»; on phones the sparkle alone. Hidden for people who cannot ask. */
+function AssistantButton({ compact }: { compact: boolean }) {
+  const canAsk = useCanAsk();
+  const status = useAiStatus();
+  const open = useAssistantOpen();
+  if (!canAsk || switchedOff(status.data)) return null;
+  const tip = (
+    <span className="sh-ai-tip">
+      {open ? "بستن دستیار" : `دستیار ${APP_NAME}`}
+      <Keys keys={["Ctrl", "J"]} className="sh-keys-tip" />
+    </span>
+  );
+  return (
+    <Tooltip title={tip} mouseEnterDelay={0.4}>
+      {compact ? (
+        <button type="button" className="sh-icon-btn sh-ai-ic" aria-label={`دستیار ${APP_NAME}`} aria-pressed={open} aria-keyshortcuts="Control+J" onClick={toggleAssistant}>
+          <Ic icon={Sparkles} />
+        </button>
+      ) : (
+        <button type="button" className="sh-ai" aria-pressed={open} aria-keyshortcuts="Control+J" onClick={toggleAssistant}>
+          <Ic icon={Sparkles} />
+          <span>دستیار</span>
+        </button>
+      )}
+    </Tooltip>
+  );
+}
+
 // ---------------------------------------------------------------- bar
 export function Topbar({ crumbs, pathKey, onToggle, toggleLabel, onSearch, drawer }: { crumbs: Crumb[]; pathKey: string; onToggle: () => void; toggleLabel: string; onSearch?: () => void; drawer?: boolean }) {
   return (
@@ -222,6 +254,7 @@ export function Topbar({ crumbs, pathKey, onToggle, toggleLabel, onSearch, drawe
       </Tooltip>
       <Crumbs crumbs={crumbs} pathKey={pathKey} />
       <div className="sh-tb-end">
+        <AssistantButton compact={!!onSearch} />
         {onSearch ? (
           <button type="button" className="sh-icon-btn" aria-label="جست‌وجو یا فرمان" onClick={onSearch}>
             <Ic icon={Search} />

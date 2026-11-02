@@ -138,7 +138,7 @@ export async function saveStockDocTx(tx: Tx, ctx: Ctx, input: StockDocInput, id:
     const row = `ردیف ${faDigits(i + 1)}`;
     const it = items.get(l.item_id);
     if (!it) throw bad(`${row}: کالا پیدا نشد`);
-    if (it.kind !== "goods") throw bad(`${row}: «${it.name}» کالای انبارداری نیست${it.kind === "coin" ? " (سکه در بخش طلا ثبت می‌شود)" : " (خدمت موجودی ندارد)"}`);
+    if (it.kind !== "goods") throw bad(`${row}: «${it.name}» کالای انبارداری نیست${it.kind === "coin" ? " (سکه در بخش طلا ثبت می‌شود)" : it.kind === "bar" ? " (شمش در بخش طلا ثبت می‌شود)" : " (خدمت موجودی ندارد)"}`);
     const lineId = l.id && oldLineIds.has(l.id) && !usedIds.has(l.id) ? l.id : uuidv7();
     usedIds.add(lineId);
     const base = {

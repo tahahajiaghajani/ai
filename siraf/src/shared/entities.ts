@@ -226,7 +226,7 @@ export const ENTITIES: Record<string, EntityDef> = {
     fields: [
       code(10001),
       { name: "kind", label: "نوع", type: "select", required: true, default: "goods", span: 6, list: true, filter: true, options: [
-        { value: "goods", label: "کالا" }, { value: "service", label: "خدمت" }, { value: "coin", label: "سکه" },
+        { value: "goods", label: "کالا" }, { value: "service", label: "خدمت" }, { value: "coin", label: "سکه" }, { value: "bar", label: "مدل شمش" },
       ] },
       { name: "name", label: "نام", type: "text", required: true, list: true, search: true, span: 12 },
       { name: "category_id", label: "گروه", type: "ref", ref: "item_category", span: 6, list: true, filter: true },

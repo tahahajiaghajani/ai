@@ -3,12 +3,16 @@ import { z } from "zod";
 import { router, body } from "../http/hono";
 import { bad, forbidden } from "../http/errors";
 import { D, isNumeric } from "@shared/money";
-import { priceBullion, priceJewelry, priceOldGold, weightForBudget, type WageType } from "@shared/gold";
-import { goldSettings, moneyStep, saveGoldSettings, RATE_FIELDS } from "../modules/gold/settings";
-import { addRate, deleteRate, fetchLive, latestWithChange, listRates } from "../modules/gold/rates";
+import { priceBullion, priceJewelry, priceOldGold, quoteBullion, quoteParsian, weightForBudget, type WageType } from "@shared/gold";
+import { productQuote } from "@shared/gold-quote";
+import { goldSettings, moneyStep, quoteEnv, saveGoldSettings } from "../modules/gold/settings";
+import { addRate, deleteRate, fetchLive, latestRate, latestWithChange, listRates } from "../modules/gold/rates";
 import { bulkCreateItems, itemByTag, listCoins, listItems, setReserved } from "../modules/gold/items";
 import { cancelDoc, createDoc, deleteDoc, docSchema, listDocs, postDoc, prepare, readDoc, updateDoc } from "../modules/gold/docs";
-import { consignmentReport, partyBalances, salesReport, stockReport, summary } from "../modules/gold/reports";
+import { coinReport, consignmentReport, partyBalances, salesReport, stockReport, summary } from "../modules/gold/reports";
+import { catalogueAction, coinKardex, deleteProduct, productSchema, products, saveProduct, seedCatalogueAction } from "../modules/gold/catalogue";
+import { barEditSchema, barLookup, listBars, readBar, setBarReserved, updateBar } from "../modules/gold/bars";
+import { coinBubbles, goldPosition } from "../modules/gold/position";
 import { KINDS } from "../modules/gold/pricing";
 
 export const goldRoutes = router();
@@ -41,9 +45,19 @@ goldRoutes.put("/settings", async (c) => {
         .object({
           url: z.string().max(500).nullish(),
           unit: z.enum(["rial", "toman"]).nullish(),
-          paths: z.record(z.enum(RATE_FIELDS), z.string().max(200).nullish()).nullish(),
+          paths: z.record(z.string().max(45), z.string().max(200).nullish()).nullish(),
         })
         .nullish(),
+      kyc: z.object({ enabled: z.boolean().nullish(), threshold: num }).nullish(),
+      bars: z
+        .object({
+          basis: z.enum(["actual", "nominal"]).nullish(), fee_sealed_pct: num, fee_opened_pct: num, assay_fee: num, opened_fineness: num,
+          premium_bands: z.array(z.object({ max: num, pct: z.union([z.string().max(20), z.number()]) })).max(10).nullish(),
+        })
+        .nullish(),
+      vat_history: z.array(z.object({ from: z.string().max(10), pct: z.union([z.string().max(10), z.number()]) })).max(20).nullish(),
+      stale_minutes: num,
+      deviation_pct: num,
     }),
   );
   const str = (v: unknown) => (v === undefined ? undefined : v === null ? null : String(v));
@@ -51,6 +65,16 @@ goldRoutes.put("/settings", async (c) => {
     saveGoldSettings(tx, ctx, {
       profit_pct: str(input.profit_pct), tax_pct: str(input.tax_pct), round_step: str(input.round_step), old_deduction_pct: str(input.old_deduction_pct),
       purchase_tax_pct: str(input.purchase_tax_pct), usd: str(input.usd), provider: input.provider, price_source: input.price_source as never,
+      stale_minutes: str(input.stale_minutes), deviation_pct: str(input.deviation_pct),
+      kyc: input.kyc === undefined ? undefined : input.kyc ? { enabled: input.kyc.enabled ?? true, threshold: str(input.kyc.threshold) } : null,
+      bars: input.bars === undefined ? undefined : input.bars
+        ? {
+            basis: input.bars.basis ?? null, fee_sealed_pct: str(input.bars.fee_sealed_pct), fee_opened_pct: str(input.bars.fee_opened_pct),
+            assay_fee: str(input.bars.assay_fee), opened_fineness: str(input.bars.opened_fineness),
+            premium_bands: input.bars.premium_bands?.map((b) => ({ max: str(b.max), pct: String(b.pct) })) ?? null,
+          }
+        : null,
+      vat_history: input.vat_history === undefined ? undefined : (input.vat_history ?? []).map((v) => ({ from: v.from, pct: String(v.pct) })),
     }),
   );
   return c.json({ settings });
@@ -74,7 +98,8 @@ goldRoutes.post("/rates", async (c) => {
     c,
     z.object({
       at: z.string().max(40).nullish(), mazaneh: num, gram18: num, gram24: num, ounce_usd: num, usd: num, buy_gram18: num,
-      coins: z.record(z.string().max(20), num).nullish(), note: z.string().max(300).nullish(),
+      coins: z.record(z.string().max(40), num).nullish(), coins_buy: z.record(z.string().max(40), num).nullish(), note: z.string().max(300).nullish(),
+      confirm: z.boolean().nullish(),
     }),
   );
   return c.json({ rate: await addRate(c.get("ctx"), input) });
@@ -119,6 +144,30 @@ goldRoutes.post("/calc", async (c) => {
           }),
         },
       });
+    case "parsian":
+      return c.json({
+        result: quoteParsian({
+          sut: n(raw.sut), qty: n(raw.qty, "1"), gram18: n(raw.gram18), wageType: (["percent", "per_gram", "fixed"].includes(raw.wage_type) ? raw.wage_type : "percent") as WageType,
+          wageValue: n(raw.wage_value), profitPct: n(raw.profit_pct), taxPct: n(raw.tax_pct, s.tax_pct), vatMode: raw.vat_mode === "exempt" ? "exempt" : "wage_profit", roundStep: step,
+        }),
+      });
+    case "bullion_quote":
+      return c.json({
+        result: quoteBullion({ weight: n(raw.weight), fineness: n(raw.fineness, "750"), mazaneh: isNumeric(raw.mazaneh) ? n(raw.mazaneh) : undefined, buyGram18: isNumeric(raw.buy_gram18) ? n(raw.buy_gram18) : undefined, deductionPct: n(raw.deduction_pct), roundStep: step }),
+      });
+    case "product": {
+      // today's quote of a catalogue coin or bar model (sell or buy) with the breakdown and bubble
+      if (typeof raw.item_id !== "string" || !/^[0-9a-f-]{36}$/i.test(raw.item_id)) throw bad("سکه یا شمش را انتخاب کنید");
+      const prod = (await products(ctx.db, ctx.org.id, ["coin", "bar"], [raw.item_id]))[0];
+      if (!prod) throw bad("سکه یا شمش پیدا نشد");
+      const rate = await latestRate(ctx.db, ctx.org.id);
+      const q = productQuote(prod, rate, quoteEnv(ctx.org), {
+        side: raw.side === "buy" ? "buy" : "sell", qty: n(raw.qty, "1"), weight: isNumeric(raw.weight) ? n(raw.weight) : undefined,
+        fineness: isNumeric(raw.fineness) ? n(raw.fineness) : undefined, seal_status: typeof raw.seal_status === "string" ? raw.seal_status : null,
+      });
+      if (!q) throw bad(`برای «${prod.name}» قیمتی در تابلو نیست`);
+      return c.json({ result: q });
+    }
     case "doc": {
       const parsed = docSchema.safeParse(raw.doc);
       if (!parsed.success) throw bad(parsed.error.issues[0]?.message ?? "اطلاعات سند معتبر نیست");
@@ -126,7 +175,7 @@ goldRoutes.post("/calc", async (c) => {
       return c.json({ result: { header: p.header, lines: p.lines, totals: p.totals } });
     }
     default:
-      throw bad("نوع محاسبه معتبر نیست (jewelry, old, bullion, budget, doc)");
+      throw bad("نوع محاسبه معتبر نیست (jewelry, old, bullion, budget, parsian, bullion_quote, product, doc)");
   }
 });
 
@@ -161,6 +210,30 @@ goldRoutes.get("/coins", async (c) => {
   ctx.need("gold", "view");
   return c.json({ coins: await listCoins(ctx.db, ctx.org.id, c.req.query("to") || null) });
 });
+goldRoutes.get("/coins/:id/kardex", async (c) => c.json(await coinKardex(c.get("ctx"), c.req.param("id"), { from: c.req.query("from") || null, to: c.req.query("to") || null })));
+
+// ---------------------------------------------------------------- catalogue (coins and bar models)
+
+goldRoutes.get("/catalogue", async (c) => {
+  const q = c.req.query();
+  return c.json(await catalogueAction(c.get("ctx"), { kind: q.kind || null, to: q.to || null, active: q.active || null }));
+});
+goldRoutes.post("/catalogue/seed", async (c) => c.json(await seedCatalogueAction(c.get("ctx"))));
+goldRoutes.post("/catalogue", async (c) => c.json({ product: await saveProduct(c.get("ctx"), null, await body(c, productSchema)) }));
+goldRoutes.put("/catalogue/:id", async (c) => c.json({ product: await saveProduct(c.get("ctx"), c.req.param("id"), await body(c, productSchema)) }));
+goldRoutes.delete("/catalogue/:id", async (c) => c.json(await deleteProduct(c.get("ctx"), c.req.param("id"))));
+
+// ---------------------------------------------------------------- bars
+
+goldRoutes.get("/bars", async (c) => {
+  const q = c.req.query();
+  return c.json(await listBars(c.get("ctx"), { ...q, ...page(q) }));
+});
+goldRoutes.get("/bars/lookup/:code", async (c) => c.json(await barLookup(c.get("ctx"), decodeURIComponent(c.req.param("code")))));
+goldRoutes.get("/bars/:id", async (c) => c.json(await readBar(c.get("ctx"), c.req.param("id"))));
+goldRoutes.patch("/bars/:id", async (c) => c.json({ bar: await updateBar(c.get("ctx"), c.req.param("id"), await body(c, barEditSchema)) }));
+goldRoutes.post("/bars/:id/reserve", async (c) => c.json({ bar: await setBarReserved(c.get("ctx"), c.req.param("id"), true) }));
+goldRoutes.post("/bars/:id/release", async (c) => c.json({ bar: await setBarReserved(c.get("ctx"), c.req.param("id"), false) }));
 
 // ---------------------------------------------------------------- documents
 
@@ -190,4 +263,11 @@ goldRoutes.get("/reports/sales", async (c) => {
   return c.json(await salesReport(c.get("ctx"), { from: q.from || null, to: q.to || null, group: q.group || null, kinds: q.kinds || null }));
 });
 goldRoutes.get("/reports/consignment", async (c) => c.json(await consignmentReport(c.get("ctx"))));
+goldRoutes.get("/reports/coins", async (c) => c.json(await coinReport(c.get("ctx"), { to: c.req.query("to") || null })));
+goldRoutes.get("/reports/bars", async (c) => {
+  const q = c.req.query();
+  return c.json(await listBars(c.get("ctx"), { ...q, ...page(q), ownership: q.ownership || "own", status: q.to ? undefined : "in_stock,reserved" }));
+});
+goldRoutes.get("/reports/position", async (c) => c.json(await goldPosition(c.get("ctx"), c.req.query("to") || null)));
+goldRoutes.get("/reports/bubbles", async (c) => c.json(await coinBubbles(c.get("ctx"), Number(c.req.query("days") || 30))));
 goldRoutes.get("/summary", async (c) => c.json(await summary(c.get("ctx"))));

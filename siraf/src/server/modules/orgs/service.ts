@@ -6,6 +6,7 @@ import { lockOrg, type OrgSettings } from "../../context";
 import { uuidv7 } from "@shared/id";
 import { coaFor, levelOfCode, parentCode } from "../accounting/coa";
 import { ensureDetail } from "../accounting/details";
+import { seedGoldCatalogue } from "../gold/catalogue";
 import { BASE_CURRENCIES, DEFAULT_VAT_PCT, DEFAULT_GOLD_PROFIT_PCT, DEFAULT_TIMEZONE, type BusinessKind, type ModuleKey } from "@shared/constants";
 import { currentJalaliYear, jalaliYearRange, todayISO } from "@shared/jalali";
 import { toFa } from "@shared/jalali";
@@ -192,6 +193,8 @@ export async function seedOrg(
         id: uuidv7(), org_id: orgId, code: `C${i + 1}`, name, kind: "coin", unit_id: unitIds["عدد"], gold_weight: weight, fineness, vat_pct: 0, origin,
       })),
     );
+    // the full coin and bar catalogue (links the five coins above to their price keys)
+    await seedGoldCatalogue(tx, orgId, origin);
   }
 }
 

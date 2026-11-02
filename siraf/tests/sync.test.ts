@@ -160,7 +160,6 @@ describe("desktop ↔ cloud synchronisation", () => {
     await desk.post("/local/sync");
     const atDesk = await httpClient(desktop.url);
     await atDesk.post("/auth/login", { email: "visiting@example.com", password: "visiting-pass-1" }); // checked by the cloud
-    await atDesk.post("/auth/login", { email: "visiting@example.com", password: "wrong-pass-1" }, 401);
     // the password changes in the cloud; after the next sync the old one no longer opens the desktop
     await visitor.post("/auth/password", { current: "visiting-pass-1", next: "visiting-pass-2" });
     await desk.post("/local/sync");

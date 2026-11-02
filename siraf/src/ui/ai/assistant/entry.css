@@ -1,0 +1,61 @@
+/* Siraf · the assistant's always-loaded rules: the Topbar button and the room the docked panel takes from the page.
+   The panel's own styles load with it (assistant.css). Tokens only; logical properties. */
+@layer components {
+  /* the docked panel sits on the canvas at the end edge (left in RTL); the frame gives it its width plus the 8 px gap.
+     The page reflows at once (no animated width: only transform and opacity move); the panel slides in over it. */
+  :root[data-ai-dock="dock"] .sh-app {
+    padding-inline-end: calc(var(--ai-dock-w, 420px) + var(--sf-panel-inset));
+  }
+  /* toasts (bottom-left) step beside the open panel instead of covering its composer */
+  :root[data-ai-dock] .ant-notification-bottomLeft {
+    left: calc(var(--ai-dock-w, 420px) + 2 * var(--sf-panel-inset) + 16px);
+  }
+
+  /* «دستیار» in the top bar: the fiscal-year pill's shape, the sparkle in Dusk (the AI signifier, one per region) */
+  .sh-ai {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    block-size: 30px;
+    padding-inline: 9px 11px;
+    margin-inline-end: 6px;
+    border: 0;
+    border-radius: var(--sf-radius-md);
+    background: transparent;
+    box-shadow: inset 0 0 0 1px var(--sf-line-2);
+    font-family: inherit;
+    font-size: 13px;
+    line-height: 20px;
+    font-weight: 500;
+    color: var(--sf-text-2);
+    white-space: nowrap;
+    cursor: pointer;
+    transition:
+      background-color var(--sf-dur-base) var(--sf-ease-out-quad),
+      color var(--sf-dur-base) var(--sf-ease-out-quad),
+      transform var(--sf-dur-fast) var(--sf-ease-out);
+  }
+  .sh-ai > svg,
+  .sh-icon-btn.sh-ai-ic > svg {
+    flex: none;
+    color: var(--sf-accent-text);
+  }
+  .sh-ai:hover {
+    background: var(--sf-hover);
+    color: var(--sf-text);
+    transition-duration: 0ms, 0ms, var(--sf-dur-fast);
+  }
+  .sh-ai:active {
+    transform: scale(var(--sf-press-scale));
+  }
+  .sh-ai[aria-pressed="true"] {
+    background: var(--sf-selected);
+    color: var(--sf-text);
+    box-shadow: inset 0 0 0 1px var(--sf-line-3);
+  }
+  .sh-ai-tip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+}

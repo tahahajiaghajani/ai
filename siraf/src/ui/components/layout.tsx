@@ -4,7 +4,7 @@
 import { Children, isValidElement, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Drawer, Badge } from "antd";
 import { useLocation, useNavigate } from "react-router";
-import { ArrowRight, Moon, Sun, PanelRight, Pin, House, Info } from "lucide-react";
+import { ArrowRight, Moon, Sun, PanelRight, Pin, House, Info, Sparkles, SquarePen } from "lucide-react";
 import { APP_NAME } from "@shared/constants";
 import { useOrg } from "../lib/org";
 import { useTheme } from "../lib/theme";
@@ -13,6 +13,9 @@ import { Sidebar, SIDEBAR_W, SIDEBAR_MIN, SIDEBAR_MAX } from "./shell/Sidebar";
 import { Topbar, type Crumb } from "./shell/Topbar";
 import { CommandPalette as Palette, type PaletteCommand } from "./shell/CommandPalette";
 import { ShellCtx, usePageTitle, type ShellApi } from "./shell/context";
+import { SupportBanner } from "./shell/SupportBanner";
+import { AssistantHost } from "../ai/assistant/AssistantHost";
+import { openAssistant } from "../ai/assistant/bus";
 import { Ic } from "./shell/icons";
 import { inSidebar, matchItem, pushRecent, routeSpace, spaceOf, useRelPath, useShellItems, useSpaceMemory, useSpaces, useStored } from "./shell/model";
 import type { SpaceKey } from "../modules/registry";
@@ -97,7 +100,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const onLeaveSettings = () => go(memory.pages[fallback] ?? "");
 
   const openPalette = useCallback(() => setPalette(true), []);
-  const shell = useMemo<ShellApi>(() => ({ setTitle, openPalette }), [openPalette]);
+  const shell = useMemo<ShellApi>(() => ({ setTitle, openPalette, openAssistant }), [openPalette]);
 
   // Ctrl K (any keyboard layout: the K key types «ن» on the Persian layout) toggles the palette
   useEffect(() => {
@@ -159,6 +162,11 @@ export function AppShell({ children }: { children: ReactNode }) {
       { key: "home", label: "رفتن به پیشخوان", icon: House, keywords: "داشبورد خانه", path: "", run: () => go("") },
       { key: "about", label: `دربارهٔ ${APP_NAME}`, icon: Info, keywords: "نسخه درباره سیراف اعتبار", path: "help#about", run: () => go("help#about") },
     ];
+    if (can("ai", "view"))
+      list.push(
+        { key: "assistant", label: `دستیار ${APP_NAME}`, icon: Sparkles, keywords: "هوش مصنوعی دستیار پرسش چت گفتگو ai", meta: "Ctrl J", run: () => openAssistant() },
+        { key: "assistant-new", label: "گفت‌وگوی تازه با دستیار", icon: SquarePen, keywords: "هوش مصنوعی دستیار پرسش چت گفتگو جدید", run: () => openAssistant({ fresh: true }) },
+      );
     if (!narrow) list.push({ key: "sidebar", label: pref.collapsed ? "باز کردن نوار کناری" : "جمع کردن نوار کناری", icon: PanelRight, keywords: "منو سایدبار", run: () => setPref((p) => ({ ...p, collapsed: !p.collapsed })) });
     if (active && !detail)
       list.push(
@@ -167,7 +175,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           : { key: "pin", label: `نشان کردن «${active.label}»`, icon: Pin, keywords: "نشان سنجاق نشان‌شده", run: () => setPins((p) => (p.includes(active.key) ? p : [...p, active.key].slice(-5))) },
       );
     return list;
-  }, [dark, toggle, go, narrow, pref.collapsed, setPref, active, detail, pins, setPins]);
+  }, [dark, toggle, go, narrow, pref.collapsed, setPref, active, detail, pins, setPins, can]);
 
   const sidebar = (inDrawer: boolean) => (
     <Sidebar
@@ -199,6 +207,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       >
         {mobile ? null : sidebar(false)}
         <div className="sh-main">
+          <SupportBanner />
           <div className="sh-top-wrap no-print">
             <Topbar crumbs={crumbs} pathKey={loc.pathname} onToggle={toggleSidebar} toggleLabel={toggleLabel} onSearch={mobile ? openPalette : undefined} drawer={narrow} />
           </div>
@@ -227,6 +236,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         ) : null}
       </div>
       <Palette open={palette} onClose={() => setPalette(false)} commands={commands} />
+      <AssistantHost />
     </ShellCtx.Provider>
   );
 }

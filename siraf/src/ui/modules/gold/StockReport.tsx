@@ -9,6 +9,7 @@ import { Coins, FileSpreadsheet, Gem, Printer, Tag, Weight } from "lucide-react"
 import { Ic } from "../../components/shell/icons";
 import { useOrg } from "../../lib/org";
 import { PageHeader, Section } from "../../components/layout";
+import { AiExplainButton } from "../../ai/explain/AiExplainButton";
 import { DateInput } from "../../components/inputs";
 import { Money, Balance, StatCard, JDate } from "../../components/display";
 import { exportExcel } from "../../lib/excel";
@@ -18,7 +19,7 @@ import { formatJalali } from "@shared/jalali";
 import { G, gw, WBalance } from "./shared";
 
 const BULK_TITLE: Record<string, string> = {
-  gold_inventory: "موجودی مصنوعات (دفتر)", gold_old: "طلای مستعمل و شکسته", gold_bullion: "آبشده و شمش", gold_at_workshop: "طلای ما نزد کارگاه‌ها",
+  gold_inventory: "موجودی مصنوعات (دفتر)", gold_old: "طلای مستعمل و شکسته", gold_bullion: "آب‌شده", gold_bars: "شمش‌ها", gold_at_workshop: "طلای ما نزد کارگاه‌ها",
 };
 
 export default function StockReport() {
@@ -40,6 +41,7 @@ export default function StockReport() {
         actions={
           <>
             <DateInput value={to} onChange={setTo} placeholder="تا امروز" allowClear className="!w-36" />
+            <AiExplainButton report={tab === "parties" ? "gold_parties" : "gold_stock"} params={{ to }} title={tab === "parties" ? "حساب وزنی اشخاص" : "گزارش موجودی و وزنی"} compact />
             <Button icon={<Ic icon={Printer} />} onClick={() => window.print()}>چاپ</Button>
           </>
         }
@@ -128,7 +130,7 @@ export default function StockReport() {
             },
             {
               key: "bulk",
-              label: "طلای وزنی و سکه",
+              label: "طلای وزنی، شمش و سکه",
               children: (
                 <div className="grid gap-3 lg:grid-cols-2">
                   <Section title="حساب‌های وزنی طلا (از دفتر)" bodyClass="p-0">
@@ -158,7 +160,7 @@ export default function StockReport() {
                       className=""
                       size="small"
                       rowKey="id"
-                      dataSource={d?.coins ?? []}
+                      dataSource={(d?.coins ?? []).filter((c: any) => !D(c.qty).isZero() || c.is_active)}
                       pagination={false}
                       columns={[
                         { key: "n", dataIndex: "name", title: "سکه" },

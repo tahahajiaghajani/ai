@@ -83,6 +83,8 @@ export async function accountByKey(q: Queryable, orgId: string, key: string): Pr
 }
 
 export const KEY_TITLES: Record<string, string> = {
+  gold_bars: "موجودی شمش طلا", bar_sales: "فروش شمش", bar_cogs: "بهای تمام‌شده شمش فروش‌رفته",
+  coin_inventory: "موجودی سکه", coin_sales: "فروش سکه", coin_cogs: "بهای تمام‌شده سکهٔ فروش‌رفته",
   cash: "صندوق", bank: "بانک‌ها", ar: "حساب‌های دریافتنی", ap: "حساب‌های پرداختنی", sales: "فروش کالا",
   service_income: "درآمد خدمات", sales_returns: "برگشت از فروش", sales_discounts: "تخفیفات فروش", cogs: "بهای تمام‌شده کالای فروش‌رفته",
   inventory: "موجودی کالا", vat_out: "مالیات بر ارزش افزوده فروش", vat_in: "مالیات بر ارزش افزوده خرید",

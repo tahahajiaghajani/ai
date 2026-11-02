@@ -7,6 +7,8 @@ import { insertMany, updateRow } from "../../db/sql";
 import { bad, conflict, notFound } from "../../http/errors";
 import { D, isNumeric, normalizeDigits, type Num } from "@shared/money";
 import { weight750 } from "@shared/gold";
+import { coinMeta, type GoldMeta } from "@shared/gold-catalogue";
+import { boardUnit } from "@shared/gold-quote";
 import { uuidv7, isUuid } from "@shared/id";
 import { faDigits } from "@shared/format";
 import { formatJalali } from "@shared/jalali";
@@ -325,36 +327,43 @@ export interface CoinRow {
   gold_weight: string | null;
   fineness: string | null;
   sku: string | null;
+  rate_key: string | null;
+  gold_meta: GoldMeta;
+  is_active: boolean;
   purchase_price: string | null;
   qty: string;
   value: string;
   avg_cost: string | null;
   key: string | null;
+  /** today's board sell and buy price of one coin (board coins) */
   price: string | null;
+  buy_price: string | null;
 }
 
-/** Coin items with stock on hand, average cost and today's price from the rate board. */
+/** Coin items with stock on hand, average cost and today's board prices. */
 export async function listCoins(q: Queryable, orgId: string, asOf?: string | null): Promise<CoinRow[]> {
-  const rows = await q.query<Omit<CoinRow, "key" | "price" | "avg_cost">>(
-    `select i.id, i.code, i.name, i.gold_weight, i.fineness, i.sku, i.purchase_price,
+  const rows = await q.query<Omit<CoinRow, "key" | "price" | "buy_price" | "avg_cost">>(
+    `select i.id, i.code, i.name, i.gold_weight, i.fineness, i.sku, i.rate_key, i.gold_meta, i.is_active, i.purchase_price,
             coalesce(sum(m.qty), 0) as qty, coalesce(sum(m.value), 0) as value
      from tz_items i
      left join tz_stock_moves m on m.item_id = i.id and m.org_id = i.org_id ${asOf ? "and m.date <= $2" : ""}
      where i.org_id = $1 and i.kind = 'coin' and i.deleted_at is null
-     group by i.id order by i.code`,
+     group by i.id order by length(i.code), i.code`,
     asOf ? [orgId, asOf] : [orgId],
   );
   const rate = await latestRate(q, orgId);
   return rows.map((r) => {
     const key = coinKey(r);
     const qty = D(r.qty);
+    const p = { ...r, kind: "coin", rate_key: key, gold_meta: coinMeta("coin", r.gold_meta) };
     return {
-      ...r,
+      ...p,
       qty: qty.toString(),
       value: D(r.value).toString(),
       avg_cost: qty.gt(0) ? D(r.value).div(qty).toDecimalPlaces(0).toString() : null,
       key,
-      price: key && rate?.coins?.[key] ? String(rate.coins[key]) : null,
+      price: boardUnit(p, rate, "sell"),
+      buy_price: boardUnit(p, rate, "buy"),
     };
   });
 }

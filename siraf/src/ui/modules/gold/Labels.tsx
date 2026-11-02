@@ -1,7 +1,9 @@
-// Tag labels (اتیکت) with a CODE128 barcode of the tag number, weight, fineness and wage — for
-// a label printer (one label per page) or an A4 sheet of labels.
+// Labels with a CODE128 barcode — tags (اتیکت: tag number, weight, fineness, wage), bars (bar
+// number, weight, fineness, brand and serial, with a QR code of the serial) and coins (code,
+// name, gold content) — for a label printer (one label per page) or an A4 sheet of labels.
 import { useEffect, useRef, useState } from "react";
 import JsBarcode from "jsbarcode";
+import QRCode from "qrcode";
 import { Button, Drawer, Segmented, Select, Switch } from "antd";
 import { Printer } from "lucide-react";
 import { Ic } from "../../components/shell/icons";
@@ -22,6 +24,28 @@ export interface LabelItem {
   wage_type?: string | null;
   wage_value?: string | null;
   stone_desc?: string | null;
+  /** bars and coins print their own layout */
+  kind?: "tag" | "bar" | "coin";
+  brand?: string | null;
+  serial_no?: string | null;
+}
+
+/** A label of a bar of the register. */
+export const barLabel = (b: { id: string; bar_no: string; weight: string; fineness: string; brand?: string | null; serial_no?: string | null; model_name?: string | null }): LabelItem => ({
+  id: b.id, kind: "bar", tag_no: b.bar_no, title: b.model_name ?? "شمش", fineness: b.fineness, gross_weight: b.weight, net_weight: b.weight, brand: b.brand, serial_no: b.serial_no,
+});
+
+/** A label of a coin of the catalogue (its barcode, else its code). */
+export const coinLabel = (c: { id: string; code: string; barcode?: string | null; name: string; gold_weight: string | null; fineness: string | null }): LabelItem => ({
+  id: c.id, kind: "coin", tag_no: c.barcode || c.code, title: c.name, fineness: c.fineness ?? "900", gross_weight: c.gold_weight ?? "0", net_weight: c.gold_weight ?? "0",
+});
+
+function Qr({ value, size }: { value: string; size: string }) {
+  const [src, setSrc] = useState<string | null>(null);
+  useEffect(() => {
+    QRCode.toDataURL(value, { margin: 0, width: 96 }).then(setSrc).catch(() => setSrc(null));
+  }, [value]);
+  return src ? <img src={src} alt="" style={{ width: size, height: size }} /> : null;
 }
 
 const SIZES: Record<string, { w: number; h: number; label: string }> = {
@@ -54,6 +78,30 @@ interface LabelOptions {
 function Label({ it, o, orgName, last }: { it: LabelItem; o: LabelOptions; orgName: string; last?: boolean }) {
   const s = SIZES[o.size] ?? SIZES["50x25"];
   const small = s.h <= 20;
+  const box = { width: `${s.w}mm`, height: `${s.h}mm`, padding: "1mm", boxSizing: "border-box" as const, fontSize: small ? "6.5pt" : "7.5pt", lineHeight: 1.15, pageBreakAfter: o.mode === "roll" && !last ? ("always" as const) : undefined, breakInside: "avoid" as const };
+  if (it.kind === "bar" || it.kind === "coin") {
+    const qr = it.kind === "bar" && !small ? `${it.brand ?? ""}|${it.serial_no ?? ""}|${it.tag_no}` : null;
+    return (
+      <div className="gold-label flex items-center gap-[1mm] overflow-hidden bg-white text-black" style={box}>
+        {qr ? <Qr value={qr} size={`${s.h - 3}mm`} /> : null}
+        <div className="flex min-w-0 flex-1 flex-col items-center justify-center">
+          {o.showOrg && !small ? <div className="w-full truncate text-center font-semibold">{orgName}</div> : null}
+          <Barcode value={it.tag_no} height={small ? 14 : 16} width={s.w >= 60 ? 1.2 : 1} />
+          <div className="sf-num font-semibold" style={{ fontSize: small ? "7pt" : "8pt" }}>{faDigits(it.tag_no)}</div>
+          <div className="flex w-full justify-between gap-1">
+            <span className="truncate">{it.kind === "bar" ? "شمش" : it.title}</span>
+            <span><b className="sf-num">{gw(it.gross_weight)}</b> · <span className="sf-num">{faDigits(D(it.fineness).toString())}</span></span>
+          </div>
+          {!small && it.kind === "bar" ? (
+            <div className="flex w-full justify-between gap-1">
+              <span className="truncate">{it.brand ?? ""}</span>
+              {it.serial_no ? <span className="ltr truncate" dir="ltr">{it.serial_no}</span> : null}
+            </div>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
   return (
     <div
       className="gold-label flex flex-col items-center justify-center overflow-hidden bg-white text-black"
@@ -116,7 +164,7 @@ export function PrintLabelsModal({ open, onClose, items }: { open: boolean; onCl
         open={open}
         onClose={onClose}
         size={480}
-        title={`چاپ ${faDigits(items.length)} اتیکت`}
+        title={`چاپ ${faDigits(items.length)} برچسب`}
         footer={
           <Button type="primary" block icon={<Ic icon={Printer} />} disabled={!items.length} onClick={() => printWithPage(o.mode === "roll" ? `${s.w}mm ${s.h}mm` : "A4 portrait", o.mode === "roll" ? "0" : "8mm")}>
             چاپ

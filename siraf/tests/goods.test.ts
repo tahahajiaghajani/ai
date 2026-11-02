@@ -454,7 +454,7 @@ describe("goods: the API is refused when the goods module is off", () => {
     const wh = (await db.one<{ id: string }>(`select id from tz_warehouses where org_id = $1`, [org]))!.id;
     const unit = (await db.one<{ id: string }>(`select id from tz_units where org_id = $1 and name = 'عدد'`, [org]))!.id;
     const item = (await c.post(`/o/${org}/data/item`, { name: "کالای بی‌ماژول", kind: "goods", unit_id: unit, vat_pct: "0" })).row.id;
-    const customer = (await c.post(`/o/${org}/data/party`, { name: "مشتری طلافروشی", roles: ["customer"] })).row;
+    const customer = (await c.post(`/o/${org}/data/party`, { name: "مشتری طلافروشی", roles: ["customer"], national_id: "0048123455" })).row;
     const supplier = (await c.post(`/o/${org}/data/party`, { name: "بنکدار سکه", roles: ["wholesaler", "supplier"] })).row;
     const lines = [{ item_id: item, qty: "1", unit_price: "100" }];
 

@@ -33,6 +33,22 @@ export interface OrgInfo {
   fiscal_years: FiscalYear[];
   base_currency: { id: string; code: string; name: string; symbol: string; decimals: number } | null;
   counts: { members: number };
+  /** the platform admin working here in «حالت پشتیبانی» (null for members) */
+  support?: OrgSupport | null;
+  /** the business's platform status: read_only refuses changes, suspended closes it to members */
+  status?: { status: OrgStatus; reason: string | null };
+}
+
+export type OrgStatus = "active" | "read_only" | "suspended";
+
+export interface OrgSupport {
+  active: true;
+  id: string;
+  level: "view" | "edit";
+  level_title: string;
+  reason: string;
+  started_at: string;
+  expires_at: string;
 }
 
 interface OrgValue {
@@ -46,6 +62,10 @@ interface OrgValue {
   setFy: (id: string) => void;
   money: (v: Num, opts?: { parens?: boolean; zero?: string }) => string;
   unit: string;
+  /** the active support session of the platform admin, when he works here in support mode */
+  support: OrgSupport | null;
+  /** false while the platform admin has made the business read-only (members still see everything) */
+  writable: boolean;
 }
 
 const Ctx = createContext<OrgValue | null>(null);
@@ -63,13 +83,16 @@ export function OrgProvider({ orgId, info, children }: { orgId: string; info: Or
       return null;
     }
   });
+  const visiting = !!info.support;
   useEffect(() => {
+    // a business opened in support mode is not «the last business» the admin returns to
+    if (visiting) return;
     try {
       localStorage.setItem("taraz.lastOrg", orgId);
     } catch {
       /* ignore */
     }
-  }, [orgId]);
+  }, [orgId, visiting]);
 
   const value = useMemo<OrgValue>(() => {
     const today = todayISO(info.org.settings?.timezone || "Asia/Tehran");
@@ -96,6 +119,8 @@ export function OrgProvider({ orgId, info, children }: { orgId: string; info: Or
       },
       money: (v, opts) => formatMoney(v, dp, opts),
       unit,
+      support: info.support ?? null,
+      writable: (info.status?.status ?? "active") === "active",
     };
   }, [orgId, info, fyId, key]);
 

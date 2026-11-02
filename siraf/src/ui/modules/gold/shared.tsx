@@ -14,7 +14,11 @@ import { formatJalaliDateTime } from "@shared/jalali";
 import { StatusTag, Weight } from "../../components/display";
 import { Ic } from "../../components/shell/icons";
 import { pct as faPct } from "../../lib/fa";
-import { KINDS, COIN_TITLES, FORM_TITLES, WAGE_TYPE_TITLES, type DocKind, type PriceEnv } from "../../../server/modules/gold/pricing";
+import { KINDS, FORM_TITLES, WAGE_TYPE_TITLES, type DocKind, type PriceEnv } from "../../../server/modules/gold/pricing";
+import { vatPctAt, type PremiumBand, type VatPeriod } from "@shared/gold";
+import { STANDARD_CATALOGUE, type GoldMeta, type ProductKind } from "@shared/gold-catalogue";
+import { DEFAULT_BAR_DEFAULTS, barLineDefaults, coinLineDefaults, premiumToWage, type BarDefaults, type QuoteEnv } from "@shared/gold-quote";
+import type { LineIn } from "../../../server/modules/gold/pricing";
 
 export * from "../../../server/modules/gold/pricing";
 
@@ -68,7 +72,9 @@ export const wageText = (type: string | null | undefined, value: Num) => {
 export const formTitle = (f: string | null | undefined) => (f ? FORM_TITLES[f as keyof typeof FORM_TITLES] ?? f : "—");
 export const wageTypeOptions = Object.entries(WAGE_TYPE_TITLES).map(([value, label]) => ({ value, label }));
 export const formOptions = Object.entries(FORM_TITLES).map(([value, label]) => ({ value, label }));
-export const coinTitle = (k: string) => COIN_TITLES[k] ?? k;
+const CATALOGUE_NAMES = new Map(STANDARD_CATALOGUE.map((e) => [e.key, e.name]));
+/** Name of a board key (the catalogue's name when the business has none of its own). */
+export const coinTitle = (k: string, names?: Map<string, string>) => names?.get(k) ?? CATALOGUE_NAMES.get(k) ?? k;
 
 /** Grams with three decimals (سوت) at full size and in ink (a milligram is money); zero is «—». */
 export function G({ v, zero = "—", unit }: { v: Num; zero?: string; unit?: boolean }) {
@@ -99,6 +105,11 @@ export interface GoldSettings {
   provider: "auto" | "tgju" | "goldapi" | "custom";
   usd: string | null;
   price_source: { url: string; unit?: "rial" | "toman"; paths: Record<string, string> } | null;
+  kyc?: { enabled: boolean; threshold: string | null };
+  bars?: BarDefaults & { premium_bands: PremiumBand[] };
+  vat_history?: VatPeriod[];
+  stale_minutes?: number;
+  deviation_pct?: string;
 }
 
 export interface Rate {
@@ -111,6 +122,9 @@ export interface Rate {
   usd: string | null;
   buy_gram18: string | null;
   coins: Record<string, string>;
+  coins_buy?: Record<string, string>;
+  bubbles?: Record<string, { domestic: string | null; world: string | null; domestic_amount: string | null; world_amount: string | null }>;
+  meta?: { retail?: Record<string, string>; provider_bubble?: Record<string, string>; stale?: string[]; carried?: string[]; deviations?: string[] };
   source: string;
   note?: string | null;
 }
@@ -140,7 +154,79 @@ export interface Coin {
   avg_cost: string | null;
   key: string | null;
   price: string | null;
+  buy_price?: string | null;
+  rate_key?: string | null;
+  gold_meta?: GoldMeta;
+  is_active?: boolean;
 }
+
+/** A coin or bar model of the catalogue with stock, gold content, today's prices and bubble. */
+export interface CatalogueRow {
+  id: string;
+  code: string;
+  name: string;
+  kind: ProductKind;
+  rate_key: string | null;
+  gold_weight: string | null;
+  fineness: string | null;
+  barcode: string | null;
+  is_active: boolean;
+  gold_meta: GoldMeta;
+  qty: string;
+  value: string;
+  avg_cost: string | null;
+  weight: string;
+  pure: string;
+  weight750: string;
+  sell: string | null;
+  buy: string | null;
+  sell_value: string | null;
+  buy_value: string | null;
+  bubble: { domestic: string | null; world: string | null; domestic_amount: string | null; world_amount: string | null } | null;
+}
+
+export function useCatalogue(kind?: ProductKind) {
+  const { api, orgId } = useOrg();
+  return useQuery({
+    queryKey: ["gold-catalogue", orgId, kind ?? "all"],
+    queryFn: () => api.get<{ rows: CatalogueRow[]; rate: { at: string; gram18: string | null; source: string; meta?: Rate["meta"] } | null }>(`/gold/catalogue${kind ? `?kind=${kind}` : ""}`),
+    staleTime: 30_000,
+  });
+}
+
+/** A bar of the register. */
+export interface Bar {
+  id: string;
+  bar_no: string;
+  item_id: string | null;
+  model_name?: string | null;
+  brand: string | null;
+  serial_no: string | null;
+  qr: string | null;
+  nominal_weight: string | null;
+  weight: string;
+  fineness: string;
+  fine_weight: string;
+  weight750: string;
+  certificate_no: string | null;
+  certificate_issuer: string | null;
+  assay_lab: string | null;
+  assay_no: string | null;
+  assay_date: string | null;
+  seal_status: string;
+  source: string;
+  source_ref: string | null;
+  ownership: string;
+  party_id: string | null;
+  party_name?: string | null;
+  status: string;
+  cost: string | null;
+  in_doc_id: string | null;
+  out_doc_id: string | null;
+  notes: string | null;
+}
+
+export const BAR_STATUS: Record<string, [string, string]> = { ...ITEM_STATUS, sold: ["فروخته‌شده", "default"] };
 
 export function useCoins() {
   const { api, orgId } = useOrg();
@@ -153,15 +239,76 @@ export function stepOf(s: GoldSettings | undefined, moneyDecimals: number): stri
   return moneyDecimals > 0 ? D(1).div(D(10).pow(moneyDecimals)).toString() : "1";
 }
 
-export function envOf(s: GoldSettings | undefined, moneyDecimals: number, gram18: Num, mazaneh?: Num): PriceEnv {
+/** VAT percent of a date, as the server prices it (9% before 1405, the business's dated rates). */
+export function taxOn(s: GoldSettings | undefined, date?: string | null): string {
+  const pct = s?.tax_pct ?? "10";
+  return date ? vatPctAt(date, pct, s?.vat_history) : pct;
+}
+
+export function quoteEnvOf(s: GoldSettings | undefined, moneyDecimals: number, date?: string | null): QuoteEnv {
+  return { taxPct: taxOn(s, date), roundStep: stepOf(s, moneyDecimals), bars: s?.bars ?? DEFAULT_BAR_DEFAULTS };
+}
+
+export function envOf(s: GoldSettings | undefined, moneyDecimals: number, gram18: Num, mazaneh?: Num, date?: string | null): PriceEnv {
   return {
     gram18: gram18 || 0,
     mazaneh: mazaneh || null,
     profitPct: s?.profit_pct ?? "7",
-    taxPct: s?.tax_pct ?? "10",
+    taxPct: taxOn(s, date),
     purchaseTaxPct: s?.purchase_tax_pct ?? "0",
     deductionPct: s?.old_deduction_pct ?? "0",
     roundStep: stepOf(s, moneyDecimals),
+  };
+}
+
+/** The fields of a coin or bar row of a document screen that pricing needs. */
+export interface CatalogueLineSrc {
+  kind: string;
+  direction: "out" | "in";
+  qty?: string | null;
+  weight?: string | null;
+  fineness?: string | null;
+  gram_price?: string | null;
+  unit_price?: string | null;
+  wage_type?: string | null;
+  wage_value?: string | null;
+  profit_pct?: string | null;
+  discount?: string | null;
+  cost?: string | null;
+  seal_status?: string | null;
+}
+
+/**
+ * The line a coin or bar row is priced with — the defaults of its product resolved from the board
+ * exactly as the server resolves them (docs.ts prepare, src/shared/gold-quote.ts), so the screen
+ * shows what posts. `buyGram18` is the buy price of an 18k gram of the screen (coins bought by weight).
+ */
+export function catalogueLineIn(
+  docKind: DocKind, l: CatalogueLineSrc, prod: CatalogueRow | undefined, rate: Rate | null | undefined, s: GoldSettings | undefined, gram18: string | null, buyGram18?: string | null,
+): LineIn {
+  const side = l.direction === "out" ? "sell" : "buy";
+  const priced = docKind === "sale" || docKind === "buyback" || docKind === "purchase" || (docKind === "opening" && !l.cost);
+  if (l.kind === "coin") {
+    const d = prod ? coinLineDefaults(prod, priced ? rate : null, side, { wholesale: docKind === "purchase" }) : null;
+    const weight = prod ? D(l.qty || 0).times(D(prod.gold_weight ?? 0)).toString() : "0";
+    const weighted = d?.pricing_mode === "weight";
+    const price = l.gram_price || (priced ? (weighted ? (side === "sell" ? gram18 : buyGram18 || d?.gram_price || gram18) : d?.gram_price) : null) || null;
+    return {
+      kind: "coin", direction: l.direction, qty: l.qty, fineness: prod?.fineness ?? "900", weight, gram_price: price, pricing_mode: d?.pricing_mode ?? "board", vat_mode: d?.vat_mode ?? "exempt",
+      wage_type: weighted ? l.wage_type ?? d!.wage_type : null, wage_value: weighted ? l.wage_value ?? d!.wage_value : null,
+      profit_pct: weighted && side === "sell" ? l.profit_pct ?? d!.profit_pct : null, discount: l.discount, cost: l.cost,
+    };
+  }
+  const d = barLineDefaults(prod, { weight: l.weight ?? prod?.gold_weight ?? 0, seal_status: l.seal_status }, rate, s?.bars ?? DEFAULT_BAR_DEFAULTS, side);
+  const sellSide = docKind === "sale" && side === "sell";
+  const buyIn = (docKind === "sale" || docKind === "buyback") && side === "buy";
+  return {
+    kind: "bar", direction: l.direction, weight: l.weight, fineness: l.fineness, gram_price: l.gram_price,
+    unit_price: l.unit_price || (sellSide || buyIn ? d.unit_price : null), basis: d.basis,
+    wage_type: sellSide ? l.wage_type ?? premiumToWage(d.premium_type) : docKind === "purchase" || docKind === "opening" ? l.wage_type ?? "percent" : null,
+    wage_value: sellSide ? l.wage_value ?? d.premium_value : docKind === "purchase" || docKind === "opening" ? l.wage_value ?? "0" : null,
+    profit_pct: sellSide ? l.profit_pct : null, vat_mode: d.vat_mode, discount: l.discount, cost: l.cost, sealed: (l.seal_status ?? "sealed") === "sealed",
+    fee_pct: buyIn ? d.fee_pct : null, assay_fee: buyIn ? d.assay_fee : null, opened_fineness: d.opened_fineness,
   };
 }
 

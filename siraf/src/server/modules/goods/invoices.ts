@@ -248,6 +248,7 @@ export async function saveInvoiceTx(
     const it = items.get(l.item_id);
     if (!it) throw bad(`${row}: کالا یا خدمت پیدا نشد`);
     if (it.kind === "coin") throw bad(`${row}: «${it.name}» سکه است؛ خرید و فروش سکه از بخش طلا و جواهر انجام می‌شود`);
+    if (it.kind === "bar") throw bad(`${row}: «${it.name}» مدل شمش است؛ خرید و فروش شمش از بخش طلا و جواهر انجام می‌شود`);
     const refLine = refByItem.get(it.id);
     if (ref && !refLine) throw bad(`${row}: «${it.name}» در فاکتور اصلی نیست`);
     const u = unitFactor(it, l.unit_id);

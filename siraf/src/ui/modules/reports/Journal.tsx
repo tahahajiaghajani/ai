@@ -12,6 +12,7 @@ import { D } from "@shared/money";
 import { faDigits } from "@shared/format";
 import { formatJalali } from "@shared/jalali";
 import { exportExcel } from "../../lib/excel";
+import { AiExplainButton } from "../../ai/explain/AiExplainButton";
 
 export default function Journal() {
   const { api, fy, unit, orgId } = useOrg();
@@ -29,7 +30,7 @@ export default function Journal() {
 
   return (
     <div>
-      <PageHeader title="دفتر روزنامه" />
+      <PageHeader title="دفتر روزنامه" actions={<AiExplainButton report="journal" params={{ from: range.from, to: range.to, fiscal_year_id: fy?.id, drafts: range.drafts ? 1 : 0 }} title="دفتر روزنامه" />} />
       <ReportFilters
         range={range}
         setRange={setRange}

@@ -15,6 +15,7 @@ import { D } from "@shared/money";
 import { faDigits } from "@shared/format";
 import { addDays, formatJalali, todayISO } from "@shared/jalali";
 import { CurrencyChip, CurrencyName, FxAmount, KIND_FA } from "./shared";
+import { AiExplainButton } from "../../ai/explain/AiExplainButton";
 
 export default function CashReport() {
   const { api, org, orgId, unit } = useOrg();
@@ -35,7 +36,15 @@ export default function CashReport() {
 
   return (
     <div>
-      <PageHeader title="گزارش صندوق روزانه" actions={<Button icon={<Ic icon={Printer} />} onClick={() => window.print()}>چاپ</Button>} />
+      <PageHeader
+        title="گزارش صندوق روزانه"
+        actions={
+          <>
+            <AiExplainButton report="fx_cash" params={{ date, cash_box_id: box }} title="گزارش صندوق روزانه" compact />
+            <Button icon={<Ic icon={Printer} />} onClick={() => window.print()}>چاپ</Button>
+          </>
+        }
+      />
       <div className="sf-filters no-print">
         <Button icon={<Ic icon={ChevronRight} />} onClick={() => setDate(addDays(date, -1))} aria-label="روز قبل" />
         <DateInput value={date} onChange={(v) => v && setDate(v)} className="!w-36" />

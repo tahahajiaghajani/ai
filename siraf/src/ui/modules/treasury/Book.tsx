@@ -17,6 +17,7 @@ import { faDigits, formatNumber } from "@shared/format";
 import { formatJalali } from "@shared/jalali";
 import { D } from "@shared/money";
 import { KIND_TITLE, type DocKind } from "./labels";
+import { AiExplainButton } from "../../ai/explain/AiExplainButton";
 
 type Kind = "cash" | "bank";
 
@@ -75,7 +76,7 @@ export default function Book() {
 
   return (
     <div>
-      <PageHeader title="دفتر صندوق و بانک" />
+      <PageHeader title="دفتر صندوق و بانک" actions={<AiExplainButton report="cash_book" params={{ [kind === "cash" ? "cash_box_id" : "bank_account_id"]: id, from: range.from, to: range.to, drafts: range.drafts ? 1 : 0 }} title={kind === "cash" ? "دفتر صندوق" : "دفتر بانک"} disabled={!id} />} />
       <div className="no-print mb-4 grid sm:grid-cols-2 xl:grid-cols-3">
         <StatCard
           title="جمع صندوق‌ها"

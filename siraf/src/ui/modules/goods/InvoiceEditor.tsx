@@ -23,6 +23,12 @@ import { calcInvoice } from "../../../server/modules/goods/calc";
 import { INVOICE_KINDS, INVOICE_META, RETURN_KIND, SETTLEMENT, kindFromPath, type InvoiceKind } from "./labels";
 import { InvoiceStatus, ItemSelect, KindTag, inUnit, type ItemOpt } from "./components";
 import { InvoicePrint, type PrintData } from "./InvoicePrint";
+import type { AiCaptureResult } from "@shared/ai/types";
+import { AiCaptureButton } from "../../ai/capture/AiCaptureButton";
+import { captureDay, lineNumbers, markOf, matchItem, matchParty, val } from "../../ai/capture/apply";
+import { AiMark, AiReviewBar, useAiMarks, type AiMarkValue, type ReviewEntry } from "../../ai/kit/AiMark";
+import { amountOf, confidenceLevel, lineConfidence } from "../../ai/kit/model";
+import { toLatinDigits } from "../../lib/fa";
 
 interface Line {
   key: string;
@@ -117,6 +123,9 @@ function InvoiceEditor({ id }: { id: string | null }) {
   const [buyerOpen, setBuyerOpen] = useState(false);
   const [buyerDraft, setBuyerDraft] = useState<Record<string, string>>({});
   const [scan, setScan] = useState("");
+  // values read from an image («خواندن از تصویر»): marks on the header fields and rows until reviewed
+  const aiMarks = useAiMarks<"date" | "party" | "ref_no">();
+  const [capture, setCapture] = useState<{ entries: ReviewEntry[]; warnings: string[]; rows: Record<string, AiMarkValue>; total: string | null } | null>(null);
   const gridRef = useRef<HTMLDivElement>(null);
   const scanRef = useRef<InputRef>(null);
 
@@ -267,8 +276,64 @@ function InvoiceEditor({ id }: { id: string | null }) {
   };
   const pickItem = (i: number, it: ItemOpt | null) => {
     if (!it) return set(i, { item: null });
-    setLines((ls) => ensureTail(ls.map((l, j) => (j === i ? { ...lineFromItem(it, meta.sale), key: l.key, id: l.id, qty: l.qty ?? "1", description: l.description } : l))));
+    // a row read from an image keeps the price on the invoice instead of the item's list price
+    setLines((ls) => ensureTail(ls.map((l, j) => (j === i ? { ...lineFromItem(it, meta.sale), ...(!l.item && capture?.rows[l.key] && l.unit_price ? { unit_price: l.unit_price } : {}), key: l.key, id: l.id, qty: l.qty ?? "1", description: l.description } : l))));
     focusCell(i, 1);
+  };
+  const applyCapture = async (r: AiCaptureResult) => {
+    const f = r.fields;
+    const marks: Partial<Record<"date" | "party" | "ref_no", AiMarkValue>> = {};
+    const entries: ReviewEntry[] = [];
+    const warnings = [...r.warnings];
+    const note = (key: string, label: string, value: string, mark: AiMarkValue | null) => mark && entries.push({ key, label, value, mark });
+    const day = captureDay(val(f, "date"));
+    if (day) {
+      setDate(day);
+      marks.date = markOf(f, "date")!;
+      note("date", "تاریخ", val(f, "date")!, marks.date);
+    }
+    const no = val(f, "invoice_no");
+    if (no) {
+      setRefNo(toLatinDigits(no));
+      marks.ref_no = markOf(f, "invoice_no")!;
+      note("ref_no", "شماره‌ی فاکتور فروشنده", no, marks.ref_no);
+    }
+    const party = await matchParty(api, f, { id: ["seller_national_id"], code: ["seller_economic_code"] });
+    const seller = val(f, "seller_name");
+    if (party) {
+      setPartyId(party.id);
+      setBuyer(null);
+      marks.party = markOf(f, "seller_national_id") ?? markOf(f, "seller_economic_code") ?? markOf(f, "seller_name")!;
+      note("party", meta.party, party.label || seller || "", marks.party);
+    } else if (seller) {
+      setBuyer({ name: seller, national_id: toLatinDigits(val(f, "seller_national_id") ?? ""), economic_code: toLatinDigits(val(f, "seller_economic_code") ?? "") });
+      warnings.push(`فروشنده («${seller}») در اشخاص با کد ملی یا کد اقتصادی پیدا نشد؛ ${meta.party} را انتخاب کنید یا او را تعریف کنید.`);
+    }
+    const rows: Record<string, AiMarkValue> = {};
+    const read = await Promise.all((r.lines ?? []).map(async (l) => ({ l, it: await matchItem<ItemOpt>(api, l, lookupCtx) })));
+    const made: Line[] = read.map(({ l, it }) => {
+      const nums = lineNumbers(l);
+      const base: Line = it ? lineFromItem(it, meta.sale) : blank();
+      const line: Line = {
+        ...base,
+        qty: nums.qty ?? base.qty ?? "1",
+        unit_price: nums.price ?? base.unit_price,
+        ...(nums.discount ? { disc_mode: "amount" as const, discount: nums.discount, discount_pct: null } : {}),
+        description: it ? "" : (l.description?.value ?? "").trim(),
+      };
+      rows[line.key] = { confidence: lineConfidence(l), source: "capture" };
+      return line;
+    });
+    if (made.length) {
+      setLines((ls) => ensureTail([...ls.filter((x) => x.item), ...made]));
+      const unmatched = read.filter((x) => !x.it).length;
+      if (unmatched) {
+        setShowDesc(true);
+        warnings.push(`${faDigits(unmatched)} ردیف با کالاهای تعریف‌شده جور نشد؛ شرح آن ردیف‌ها آمده است، کالا را انتخاب کنید.`);
+      }
+    }
+    aiMarks.set(marks);
+    setCapture({ entries, warnings, rows, total: amountOf(val(f, "total")) });
   };
   const changeUnit = (i: number, unitId: string) => {
     const l = lines[i];
@@ -498,6 +563,7 @@ function InvoiceEditor({ id }: { id: string | null }) {
                 <Button icon={<Ic icon={Ellipsis} />} aria-label="بیشتر" />
               </Dropdown>
             ) : null}
+            {!readonly && !meta.sale && !isReturn ? <AiCaptureButton kind="purchase_invoice" onResult={applyCapture} compact /> : null}
             <Tooltip title="چاپ فاکتور">
               <Button icon={<Ic icon={Printer} />} onClick={() => window.print()} aria-label="چاپ" />
             </Tooltip>
@@ -528,6 +594,17 @@ function InvoiceEditor({ id }: { id: string | null }) {
         </div>
       ) : null}
 
+      {capture ? (
+        <AiReviewBar
+          entries={capture.entries}
+          warnings={[...capture.warnings, ...(capture.total && itemLines.length && !D(capture.total).eq(D(calc.total)) ? [`مبلغ کل خوانده‌شده (${formatNumber(capture.total, { dp })}) با جمع ردیف‌ها (${formatNumber(calc.total, { dp })}) برابر نیست.`] : [])]}
+          onDone={() => {
+            aiMarks.clearAll();
+            setCapture(null);
+          }}
+        />
+      ) : null}
+
       {/* header */}
       <section className="sf-doc-card no-print" aria-label="مشخصات سند">
         <div className="sf-doc-pad sf-fields">
@@ -544,7 +621,9 @@ function InvoiceEditor({ id }: { id: string | null }) {
           )}
           <div className="sf-field">
             <div className="sf-field-l">تاریخ</div>
-            <DateInput value={date} onChange={setDate} disabled={readonly} />
+            <AiMark mark={aiMarks.get("date")}>
+              <DateInput value={date} onChange={(v) => (setDate(v), aiMarks.clear("date"))} disabled={readonly} />
+            </AiMark>
           </div>
           <div className="sf-field span-2">
             <div className="sf-field-l">
@@ -556,7 +635,7 @@ function InvoiceEditor({ id }: { id: string | null }) {
                 </span>
               ) : null}
             </div>
-            <div className="flex gap-1.5">
+            <AiMark mark={aiMarks.get("party")} className="flex gap-1.5">
               <PartySelect
                 className="min-w-0 flex-1"
                 value={partyId}
@@ -566,6 +645,7 @@ function InvoiceEditor({ id }: { id: string | null }) {
                 onChange={(pid) => {
                   setPartyId(pid);
                   setBuyer(null);
+                  aiMarks.clear("party");
                 }}
               />
               <Tooltip title={meta.sale ? "مشخصات خریدار (برای صورتحساب رسمی)" : "مشخصات فروشنده"}>
@@ -579,7 +659,7 @@ function InvoiceEditor({ id }: { id: string | null }) {
                   }}
                 />
               </Tooltip>
-            </div>
+            </AiMark>
             {party?.party?.is_blacklisted ? <div className="sf-field-err"><Ic icon={CircleAlert} size={14} />این شخص در فهرست سیاه است.</div> : null}
             {overCredit ? <div className="sf-field-warn"><Ic icon={TriangleAlert} size={14} />با این فاکتور از سقف اعتبار شخص بیشتر می‌شود.</div> : null}
           </div>
@@ -599,7 +679,9 @@ function InvoiceEditor({ id }: { id: string | null }) {
           ) : null}
           <div className="sf-field">
             <div className="sf-field-l">{meta.sale ? "شماره‌ی عطف" : "شماره‌ی فاکتور فروشنده"}</div>
-            <Input value={refNo} onChange={(e) => setRefNo(e.target.value)} disabled={readonly} dir="ltr" className="sf-numin" />
+            <AiMark mark={aiMarks.get("ref_no")}>
+              <Input value={refNo} onChange={(e) => (setRefNo(e.target.value), aiMarks.clear("ref_no"))} disabled={readonly} dir="ltr" className="sf-numin" />
+            </AiMark>
           </div>
           <div className="sf-field">
             <div className="sf-field-l">نحوه‌ی تسویه</div>
@@ -670,7 +752,7 @@ function InvoiceEditor({ id }: { id: string | null }) {
                 const short = !!l.item && l.item.kind === "goods" && (kind === "sale" || kind === "purchase_return") && stock !== undefined && stock !== null && !l.item.allow_negative
                   && D(l.qty).times(D(factorOf(l))).gt(D(stock)) && !inv;
                 return (
-                  <tr key={l.key}>
+                  <tr key={l.key} className={capture?.rows[l.key] ? "ai-row-mark" : undefined} data-level={capture?.rows[l.key] ? confidenceLevel(capture.rows[l.key].confidence) : undefined}>
                     <td className="sf-gi">{faDigits(i + 1)}</td>
                     <td data-cell={`${i}-0`}>
                       <ItemSelect variant="borderless" className="w-full" value={l.item?.id} item={l.item} ctx={lookupCtx} disabled={readonly || (isReturn && !!refInvoiceId && !!l.item)} onChange={(it) => pickItem(i, it)} />

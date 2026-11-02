@@ -116,8 +116,9 @@ function Row({ k, v, strong, sub }: { k: ReactNode; v: ReactNode; strong?: boole
 export function SaleInvoice({ doc }: { doc: any }) {
   const { unit } = useOrg();
   const out = (doc.lines ?? []).filter((l: any) => l.direction === "out");
-  const old = (doc.lines ?? []).filter((l: any) => l.kind === "old");
+  const old = (doc.lines ?? []).filter((l: any) => l.direction === "in");
   const coins = out.filter((l: any) => l.kind === "coin").reduce((a: any, l: any) => a.plus(D(l.total)), D(0));
+  const bars = out.filter((l: any) => l.kind === "bar").reduce((a: any, l: any) => a.plus(D(l.total)), D(0));
   const net = D(doc.total).minus(D(doc.old_value));
   const paid = payments(doc);
   const remaining = D(doc.settle?.remaining ?? 0);
@@ -148,7 +149,8 @@ export function SaleInvoice({ doc }: { doc: any }) {
               <td className="c">{faDigits(i + 1)}</td>
               <td className="desc">
                 {l.kind === "coin" ? `${l.title ?? l.coin_name ?? "سکه"} × ${faDigits(D(l.qty).toString())}` : l.title}
-                {l.tag_no ? <span className="sub">اتیکت {faDigits(l.tag_no)}{l.kind === "piece" && l.wage_type ? `، اجرت ${wageText(l.wage_type, l.wage_value)}${l.profit_pct ? `، سود ${faDigits(D(l.profit_pct).toString())}٪` : ""}` : ""}</span> : null}
+                {l.kind === "bar" ? <span className="sub">شمش {faDigits(l.tag_no ?? "")}{l.serial_no ? <>، سریال <bdi dir="ltr">{l.serial_no}</bdi></> : null}{l.brand ? `، ${l.brand}` : ""}{l.certificate_no ? `، گواهی ${l.certificate_no}` : ""}</span>
+                  : l.tag_no ? <span className="sub">اتیکت {faDigits(l.tag_no)}{l.kind === "piece" && l.wage_type ? `، اجرت ${wageText(l.wage_type, l.wage_value)}${l.profit_pct ? `، سود ${faDigits(D(l.profit_pct).toString())}٪` : ""}` : ""}</span> : null}
               </td>
               <td className="c">{fin(l.fineness)}</td>
               <td className="n"><W v={l.weight} /></td>
@@ -181,10 +183,10 @@ export function SaleInvoice({ doc }: { doc: any }) {
         <div className="sf-pr-box">
           {old.length ? (
             <>
-              <div className="t">طلای مستعمل دریافتی از خریدار</div>
+              <div className="t">دریافتی از خریدار</div>
               <div className="sf-pr-sums">
                 {old.map((l: any, i: number) => (
-                  <Row key={i} k={<>{l.title ?? "طلای مستعمل"}، {formatNumber(l.weight, { dp: 3, minDp: 3 })} گرم عیار {fin(l.fineness)}{!D(l.discount).isZero() ? `، کسر ${faDigits(D(l.deduction_pct ?? 0).toString())}٪` : ""}</>} v={<M v={l.total} />} />
+                  <Row key={i} k={tradeInText(l, fin)} v={<M v={l.total} />} />
                 ))}
               </div>
             </>
@@ -204,10 +206,11 @@ export function SaleInvoice({ doc }: { doc: any }) {
           <Row k="مالیات بر ارزش افزوده (اجرت و سود)" v={<M v={doc.tax} />} />
           {!D(doc.stone).isZero() ? <Row k="سنگ و جواهر" v={<M v={doc.stone} />} /> : null}
           {!coins.isZero() ? <Row k="سکه" v={<M v={coins.toString()} />} /> : null}
+          {!bars.isZero() ? <Row k="شمش" v={<M v={bars.toString()} />} /> : null}
           <Row k="جمع کل فاکتور" v={<M v={doc.total} />} strong />
           {!D(doc.old_value).isZero() ? (
             <>
-              <Row k="کسر: طلای مستعمل" v={<M v={doc.old_value} neg />} />
+              <Row k={doc.lines.some((l: any) => l.direction === "in" && l.kind !== "old") ? "کسر: دریافتی از خریدار" : "کسر: طلای مستعمل"} v={<M v={doc.old_value} neg />} />
               <Row k={net.isNeg() ? "قابل پرداخت به خریدار" : "مبلغ قابل پرداخت"} v={<M v={net.abs().toString()} />} strong />
             </>
           ) : null}
@@ -231,7 +234,7 @@ export function SaleInvoice({ doc }: { doc: any }) {
 export function SaleReceipt({ doc }: { doc: any }) {
   const { org, unit } = useOrg();
   const out = (doc.lines ?? []).filter((l: any) => l.direction === "out");
-  const old = (doc.lines ?? []).filter((l: any) => l.kind === "old");
+  const old = (doc.lines ?? []).filter((l: any) => l.direction === "in");
   const net = D(doc.total).minus(D(doc.old_value));
   const name = doc.party?.name ?? doc.buyer?.name ?? "مشتری گذری";
   const R = ({ k, v, total }: { k: ReactNode; v: ReactNode; total?: boolean }) => (
@@ -273,7 +276,7 @@ export function SaleReceipt({ doc }: { doc: any }) {
       <R k="مالیات (اجرت و سود)" v={<M v={doc.tax} />} />
       <R k="جمع فاکتور" v={<M v={doc.total} />} total />
       {old.map((l: any, i: number) => (
-        <R key={i} k={<>طلای کهنه {formatNumber(l.weight, { dp: 3, minDp: 3 })} گرم، عیار {fin(l.fineness)}</>} v={<M v={l.total} neg />} />
+        <R key={i} k={tradeInText(l, fin)} v={<M v={l.total} neg />} />
       ))}
       {old.length ? <R k={net.isNeg() ? "پرداختی به خریدار" : "قابل پرداخت"} v={<M v={net.abs().toString()} />} total /> : null}
       {payments(doc).map(([k, v]) => <R key={k} k={k} v={<M v={v} />} />)}
@@ -330,7 +333,7 @@ export function DocSheet({ doc }: { doc: any }) {
                 ) : null}
               </td>
               <td>
-                {l.kind === "piece" ? "جنس" : l.kind === "coin" ? "سکه" : l.kind === "old" ? "مستعمل" : formTitle(l.form)}
+                {l.kind === "piece" ? "جنس" : l.kind === "coin" ? "سکه" : l.kind === "bar" ? "شمش" : l.kind === "old" ? "مستعمل" : formTitle(l.form)}
                 {kind === "melt" ? (l.direction === "out" ? " (ورودی)" : " (حاصل)") : ""}
               </td>
               <td className="c">{fin(l.fineness)}</td>
@@ -401,4 +404,11 @@ export function printSheet(format: PrintFormat) {
       printWithPage(`80mm ${Math.ceil((px * 25.4) / 96) + 6}mm`, "2mm 4mm");
     } else printWithPage("A5 portrait", "7mm");
   }, 80);
+}
+
+/** One item the buyer handed in: used gold by weight, a coin by count, a bar by serial and weight. */
+function tradeInText(l: any, fin: (f: any) => string) {
+  if (l.kind === "coin") return <>{l.title ?? l.coin_name ?? "سکه"} × {faDigits(D(l.qty).toString())}{!D(l.discount).isZero() ? `، کسر ${l.description ?? ""}` : ""}</>;
+  if (l.kind === "bar") return <>شمش {formatNumber(l.weight, { dp: 3, minDp: 3 })} گرم عیار {fin(l.fineness)}{l.serial_no ? <>، سریال <bdi dir="ltr">{l.serial_no}</bdi></> : null}</>;
+  return <>{l.title ?? "طلای مستعمل"}، {formatNumber(l.weight, { dp: 3, minDp: 3 })} گرم عیار {fin(l.fineness)}{!D(l.discount).isZero() ? `، کسر ${faDigits(D(l.deduction_pct ?? 0).toString())}٪` : ""}</>;
 }

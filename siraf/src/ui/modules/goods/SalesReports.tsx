@@ -17,6 +17,7 @@ import { D } from "@shared/money";
 import { faDigits, formatCompact, formatNumber } from "@shared/format";
 import { formatJalali, presetRange, todayISO } from "@shared/jalali";
 import { LatinRuns, Qty } from "./components";
+import { AiExplainButton } from "../../ai/explain/AiExplainButton";
 
 type Tab = "item" | "party" | "category" | "month" | "p-item" | "p-party";
 
@@ -82,6 +83,7 @@ export default function SalesReports() {
         title="گزارش فروش و سود"
         actions={
           <>
+            <AiExplainButton report={sales ? "goods_sales" : "goods_purchases"} params={{ group: t.group, from, to, party_id: party }} title={`${sales ? "گزارش فروش" : "گزارش خرید"}، ${t.label}`} compact />
             <Button icon={<Ic icon={FileSpreadsheet} />} onClick={exportRows} disabled={!rows.length}>اکسل</Button>
             <Button icon={<Ic icon={Printer} />} onClick={() => window.print()}>چاپ</Button>
           </>

@@ -12,6 +12,10 @@ import goods from "./0009_goods";
 import gold2 from "./0010_gold";
 import fx2 from "./0011_fx";
 import sync from "./0012_sync";
+import goldBullion from "./0013_gold_bullion";
+import ai from "./0014_ai";
+import platform from "./0015_platform";
+import aiFeatures from "./0016_ai_features";
 
 export interface Migration {
   id: string;
@@ -32,6 +36,10 @@ export const MIGRATIONS: Migration[] = [
   { id: "0010_gold", title: "طلا و جواهر (تکمیلی)", sql: gold2 },
   { id: "0011_fx", title: "صرافی و رمزارز (تکمیلی)", sql: fx2 },
   { id: "0012_sync", title: "همگام‌سازی: ترتیب نسخه‌ی کاربران و نمایه‌ها", sql: sync },
+  { id: "0013_gold_bullion", title: "طلا: سکه‌ها و شمش‌ها", sql: goldBullion },
+  { id: "0014_ai", title: "هوش مصنوعی: اتصال‌ها، مصرف، گفتگوها و پیشنهادها", sql: ai },
+  { id: "0015_platform", title: "مدیریت سامانه: حالت پشتیبانی و رویدادهای امنیتی", sql: platform },
+  { id: "0016_ai_features", title: "هوش مصنوعی: بینش‌ها، برنامه‌ها و خواندن اسناد", sql: aiFeatures },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].id;

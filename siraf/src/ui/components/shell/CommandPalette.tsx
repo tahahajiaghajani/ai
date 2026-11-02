@@ -5,13 +5,17 @@ import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type R
 import { createPortal } from "react-dom";
 import { useLocation, useNavigate } from "react-router";
 import { useQuery } from "@tanstack/react-query";
-import { Search, CornerDownLeft, History, User, FileText, Receipt, ArrowDownToLine, ArrowUpFromLine, ArrowLeftRight, type LucideIcon } from "lucide-react";
+import { Search, CornerDownLeft, History, User, FileText, Receipt, ArrowDownToLine, ArrowUpFromLine, ArrowLeftRight, Sparkles, type LucideIcon } from "lucide-react";
 import { useOrg } from "../../lib/org";
 import { useDebounced } from "../../lib/hooks";
 import { normalizeFa, toLatinDigits, docNo, jDate } from "../../lib/fa";
 import { ChequeIcon, Ic, Keys } from "./icons";
 import { readJSON, recentKey, spaceOf, useRelPath, useShellItems, type Recent } from "./model";
 import { INVOICE_KINDS, INVOICE_META, type InvoiceKind } from "../../modules/goods/labels";
+import { openAssistant } from "../../ai/assistant/bus";
+import { pageContext } from "../../ai/assistant/context";
+import { looksLikeQuestion, suggestionsFor } from "../../ai/assistant/prompts";
+import { switchedOff, useAiStatus, useCanAsk } from "../../ai/assistant/useAi";
 
 export interface PaletteCommand {
   key: string;
@@ -118,6 +122,8 @@ export function CommandPalette({ open, onClose, commands = [] }: { open: boolean
 }
 
 const DOCS = "اسناد و فاکتورها";
+const ASK = "از دستیار بپرسید";
+
 const GROUP_ORDER = ["اخیر", "کارها", "صفحه‌ها", "اشخاص", DOCS];
 
 const TREASURY_KIND: Record<string, { label: string; icon: LucideIcon }> = {
@@ -140,7 +146,12 @@ function Palette({ onClose, commands }: { onClose: () => void; commands: Palette
   const items = useShellItems();
   const { orgId, api, can, has } = useOrg();
   const nav = useNavigate();
-  const here = useRelPath() + useLocation().search;
+  const rel = useRelPath();
+  const { search } = useLocation();
+  const here = rel + search;
+  const aiStatus = useAiStatus();
+  const askable = useCanAsk() && !switchedOff(aiStatus.data);
+  const canDraft = aiStatus.data?.can_propose ?? can("ai", "edit");
   const [q, setQ] = useState("");
   const [idx, setIdx] = useState(0);
   const input = useRef<HTMLInputElement>(null);
@@ -218,6 +229,18 @@ function Palette({ onClose, commands }: { onClose: () => void; commands: Palette
         const it = r.key ? items.find((i) => i.key === r.key) : null;
         out.push({ id: `r-${r.path}`, group: "اخیر", icon: it?.icon ?? History, label: r.label, meta: it && !it.common ? spaceOf(it.space).title : undefined, run: () => go(r.path) });
       }
+      // questions for the assistant about this page, right after the recent pages
+      if (askable) {
+        const record = pageContext(rel, search, null).record?.type ?? null;
+        for (const sg of suggestionsFor(rel, { has, canDraft, recordType: record }, 3))
+          out.push({
+            id: `s-${sg.key}`,
+            group: ASK,
+            icon: Sparkles,
+            label: sg.fill ? `${sg.text}…` : sg.text,
+            run: () => (onClose(), openAssistant({ prompt: sg.text, send: !sg.fill })),
+          });
+      }
       for (const i of items.filter((x) => x.action && x.path !== here)) out.push(pageRow(i, "کارها"));
       for (const c of commands.filter((x) => x.path === undefined || x.path !== here)) out.push({ id: `c-${c.key}`, group: "کارها", icon: c.icon, label: c.label, meta: c.meta, run: () => (onClose(), c.run()) });
       return out;
@@ -265,9 +288,15 @@ function Palette({ onClose, commands }: { onClose: () => void; commands: Palette
       });
     }
     out.sort((a, b) => GROUP_ORDER.indexOf(a.group) - GROUP_ORDER.indexOf(b.group));
+    // «بپرس از دستیار»: first for a question (or when nothing else matched), otherwise after the matches
+    if (askable && s.length >= 2) {
+      const ask: Row = { id: "ask", group: ASK, icon: Sparkles, label: `بپرس از دستیار: «${s}»`, run: () => (onClose(), openAssistant({ prompt: s, send: true })) };
+      if (looksLikeQuestion(s) || !out.length) out.unshift(ask);
+      else out.splice(Math.min(out.length, 39), 0, ask);
+    }
     return out.slice(0, 40);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q, digits, items, commands, parties.data, vouchers.data, invoices.data, tdocs.data, cheques.data, orgId, here]);
+  }, [q, digits, items, commands, parties.data, vouchers.data, invoices.data, tdocs.data, cheques.data, orgId, here, askable, canDraft]);
 
   useEffect(() => setIdx(0), [q]);
   const sel = Math.min(idx, Math.max(0, rows.length - 1));

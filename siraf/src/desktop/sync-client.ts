@@ -99,17 +99,18 @@ export class SyncClient {
   /** Check a password against the cloud (sign-in on a linked desktop) and pull the user row. */
   /**
    * Check a password against the cloud (sign-in on this computer with an account whose password
-   * is not stored here). "wrong" when the cloud answered no, "unreachable" when it could not be
+   * is not stored here). "wrong" when the cloud answered no, "limited" when it refused for too many
+   * attempts, "unreachable" when it could not be
    * asked. The check's own cloud session is closed right away.
    */
-  async verifyCloudPassword(email: string, password: string): Promise<{ status: "ok"; user_id: string } | { status: "wrong" | "unreachable" }> {
+  async verifyCloudPassword(email: string, password: string): Promise<{ status: "ok"; user_id: string } | { status: "wrong" | "unreachable" | "limited" }> {
     if (!this.state.linked) return { status: "unreachable" };
     let r: { token?: string; user_id?: string };
     try {
       r = await this.api("/auth/login", { token: null, body: { email, password, device: { name: `بررسی ورود — ${hostname()}`, platform: "windows" } }, timeout: 15000 });
     } catch (e) {
       const status = (e as { status?: number }).status;
-      return { status: status && status >= 400 && status < 500 ? "wrong" : "unreachable" };
+      return { status: status === 429 ? "limited" : status && status >= 400 && status < 500 ? "wrong" : "unreachable" };
     }
     if (r.token) await this.api("/auth/logout", { method: "POST", token: r.token, timeout: 15000 }).catch(() => undefined);
     if (!r.user_id) return { status: "wrong" };

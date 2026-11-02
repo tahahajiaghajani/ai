@@ -1,5 +1,5 @@
 import { lazy } from "react";
-import { Activity, ShoppingBag, Handshake, Recycle, PackageOpen, Flame, Files, Tag, FolderTree, Weight, ChartColumn } from "lucide-react";
+import { Activity, ShoppingBag, Handshake, Recycle, PackageOpen, Flame, Files, Tag, FolderTree, Weight, ChartColumn, Coins as CoinsIcon, Boxes, Scale } from "lucide-react";
 import type { NavGroup, AppRoute } from "../registry";
 import { EntityPage } from "../../components/data";
 import { KIND_PATH, type DocKind } from "./shared";
@@ -14,6 +14,9 @@ const Consignment = lazy(() => import("./Consignment"));
 const Workshop = lazy(() => import("./Workshop"));
 const StockReport = lazy(() => import("./StockReport"));
 const SalesReport = lazy(() => import("./SalesReport"));
+const Coins = lazy(() => import("./Coins"));
+const Bars = lazy(() => import("./Bars"));
+const Position = lazy(() => import("./Position"));
 
 export const goldNav: Omit<NavGroup, "icon" | "space"> = {
   key: "gold",
@@ -23,13 +26,16 @@ export const goldNav: Omit<NavGroup, "icon" | "space"> = {
     { key: "gold-rates", label: "تابلوی قیمت", path: "gold/rates", area: "gold", icon: Activity, keywords: "مظنه گرم ۱۸ سکه قیمت روز" },
     { key: "gold-sale", label: "فروش (صندوق)", path: "gold/sale", area: "gold", level: "edit", icon: ShoppingBag, action: true, workspace: true, keywords: "فاکتور فروش طلا اتیکت" },
     { key: "gold-purchase", label: "خرید از همکار", path: "gold/purchase", area: "gold", level: "edit", icon: Handshake, keywords: "بنکدار طلا به طلا" },
-    { key: "gold-buyback", label: "خرید طلای مستعمل", path: "gold/buyback", area: "gold", level: "edit", icon: Recycle, keywords: "کهنه شکسته" },
+    { key: "gold-buyback", label: "خرید از مشتری", path: "gold/buyback", area: "gold", level: "edit", icon: Recycle, keywords: "طلای مستعمل کهنه شکسته خرید سکه خرید شمش" },
     { key: "gold-docs", label: "اسناد طلا", path: "gold/docs", area: "gold", icon: Files },
     { key: "gold-items", label: "اجناس (اتیکت‌ها)", path: "gold/items", area: "gold", icon: Tag, keywords: "چاپ اتیکت بارکد" },
+    { key: "gold-coins", label: "سکه‌ها", path: "gold/coins", area: "gold", icon: CoinsIcon, keywords: "سکه امامی بهار آزادی نیم ربع گرمی پارسیان حباب کاردکس" },
+    { key: "gold-bars", label: "شمش‌ها", path: "gold/bars", area: "gold", icon: Boxes, keywords: "شمش سریال گواهی ری‌گیری پلمپ" },
     { key: "gold-consignment", label: "امانی", path: "gold/consignment", area: "gold", icon: PackageOpen },
     { key: "gold-workshop", label: "کارگاه و ذوب", path: "gold/workshop", area: "gold", icon: Flame, keywords: "آبشده ری‌گیری انگ ذوب" },
     { key: "gold-stock", label: "موجودی و حساب وزنی", path: "gold/reports/stock", area: "gold", icon: Weight, section: "گزارش‌ها", keywords: "گزارش موجودی و وزنی تراز وزنی" },
     { key: "gold-sales", label: "گزارش فروش طلا", path: "gold/reports/sales", area: "gold", icon: ChartColumn, section: "گزارش‌ها" },
+    { key: "gold-position", label: "موقعیت طلا", path: "gold/reports/position", area: "gold", icon: Scale, section: "گزارش‌ها", keywords: "طلای خالص معادل ۷۵۰ سکه شمش آب‌شده حساب وزنی حباب" },
     { key: "gold-categories", label: "دسته‌های طلا", path: "gold/categories", area: "gold", icon: FolderTree, section: "تعریف‌ها" },
   ],
 };
@@ -55,4 +61,7 @@ export const goldRoutes: AppRoute[] = [
   { path: "gold/workshop", element: <Workshop /> },
   { path: "gold/reports/stock", element: <StockReport /> },
   { path: "gold/reports/sales", element: <SalesReport /> },
+  { path: "gold/reports/position", element: <Position /> },
+  { path: "gold/coins", element: <Coins /> },
+  { path: "gold/bars", element: <Bars /> },
 ];

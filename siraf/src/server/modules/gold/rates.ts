@@ -7,11 +7,13 @@
 import type { Ctx } from "../../context";
 import type { Queryable } from "../../db";
 import { insertRow } from "../../db/sql";
-import { bad, notFound } from "../../http/errors";
+import { AppError, bad, notFound } from "../../http/errors";
 import { D, isNumeric, normalizeDigits, type Num } from "@shared/money";
-import { gram18FromOunce, mazanehFromGram18, gram18FromMazaneh, TROY_OUNCE_GRAMS } from "@shared/gold";
+import { coinBubble, gram18FromOunce, mazanehFromGram18, gram18FromMazaneh, TROY_OUNCE_GRAMS } from "@shared/gold";
+import { RATE_KEY_RE, TGJU_BUBBLE, TGJU_RETAIL, TGJU_SELL, parsianSut } from "@shared/gold-catalogue";
+import { faDigits } from "@shared/format";
 import { uuidv7 } from "@shared/id";
-import { goldSettings, type CustomSource, type LiveProvider, type RateField } from "./settings";
+import { goldSettings, type CustomSource, type LiveProvider } from "./settings";
 
 export interface RateRow {
   id: string;
@@ -22,13 +24,38 @@ export interface RateRow {
   ounce_usd: string | null;
   usd: string | null;
   buy_gram18: string | null;
+  /** sell prices per board key */
   coins: Record<string, string>;
+  /** buy prices per board key */
+  coins_buy: Record<string, string>;
+  /** bubble of every board coin at the time of the rate, percent on both bases */
+  bubbles: Record<string, RateBubble>;
+  meta: RateMeta;
   source: string;
   note: string | null;
 }
 
-const COLS = "id, at, mazaneh, gram18, gram24, ounce_usd, usd, buy_gram18, coins, source, note";
-export const COIN_KEYS = ["emami", "bahar", "nim", "rob", "gerami"] as const;
+export interface RateBubble {
+  domestic: string | null;
+  world: string | null;
+  domestic_amount: string | null;
+  world_amount: string | null;
+}
+
+export interface RateMeta {
+  /** retail (تک‌فروشی) sell prices of the source */
+  retail?: Record<string, string>;
+  /** the source's own bubble figures (percent) */
+  provider_bubble?: Record<string, string>;
+  /** keys whose price at the source was older than the staleness limit */
+  stale?: string[];
+  /** keys the source did not deliver, carried over from the previous rate */
+  carried?: string[];
+  /** fields further than the deviation limit from the previous rate (confirmed by the user) */
+  deviations?: string[];
+}
+
+const COLS = "id, at, mazaneh, gram18, gram24, ounce_usd, usd, buy_gram18, coins, coins_buy, bubbles, meta, source, note";
 
 export async function latestRate(q: Queryable, orgId: string, before?: string | null): Promise<RateRow | null> {
   return q.one<RateRow>(
@@ -83,8 +110,12 @@ export interface RateInput {
   usd?: Num;
   buy_gram18?: Num;
   coins?: Record<string, Num> | null;
+  coins_buy?: Record<string, Num> | null;
+  meta?: RateMeta | null;
   note?: string | null;
   source?: string;
+  /** a manual price far from the previous one is saved only when confirmed */
+  confirm?: boolean | null;
 }
 
 const pos = (v: Num) => (v !== null && v !== undefined && v !== "" && isNumeric(v) && D(v).gt(0) ? D(v) : null);
@@ -97,11 +128,16 @@ export function normalizeRate(input: RateInput, moneyDp = 0) {
   if (!gram18) gram18 = D(gram18FromMazaneh(mazaneh!));
   if (!mazaneh) mazaneh = D(mazanehFromGram18(gram18));
   const gram24 = pos(input.gram24) ?? gram18.times(1000).div(750).toDecimalPlaces(moneyDp);
-  const coins: Record<string, string> = {};
-  for (const [k, v] of Object.entries(input.coins ?? {})) {
-    const d = pos(v);
-    if (d && /^[a-z_]{2,20}$/.test(k)) coins[k] = d.toDecimalPlaces(moneyDp).toString();
-  }
+  const prices = (src: Record<string, Num> | null | undefined) => {
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(src ?? {})) {
+      const d = pos(v);
+      if (d && RATE_KEY_RE.test(k)) out[k] = d.toDecimalPlaces(moneyDp).toString();
+    }
+    return out;
+  };
+  const coins = prices(input.coins);
+  const coins_buy = prices(input.coins_buy);
   return {
     mazaneh: mazaneh.toDecimalPlaces(moneyDp).toString(),
     gram18: gram18.toDecimalPlaces(moneyDp).toString(),
@@ -110,16 +146,70 @@ export function normalizeRate(input: RateInput, moneyDp = 0) {
     usd: pos(input.usd)?.toString() ?? null,
     buy_gram18: pos(input.buy_gram18)?.toDecimalPlaces(moneyDp).toString() ?? null,
     coins,
+    coins_buy,
   };
+}
+
+type NormalRate = ReturnType<typeof normalizeRate>;
+
+/** Board coins of the catalogue (key, gold content) for bubbles. */
+export async function boardCoins(q: Queryable, orgId: string) {
+  return q.query<{ rate_key: string; name: string; gold_weight: string | null; fineness: string | null; kind: string }>(
+    `select rate_key, name, gold_weight, fineness, kind from tz_items
+     where org_id = $1 and kind in ('coin', 'bar') and rate_key is not null and deleted_at is null`,
+    [orgId],
+  );
+}
+
+/** Bubble of every coin with a price on the board, on both bases (percent and amount). */
+export function bubblesOf(r: Pick<NormalRate, "gram18" | "ounce_usd" | "usd" | "coins">, coins: { rate_key: string; gold_weight: string | null; fineness: string | null; kind: string }[]) {
+  const out: Record<string, RateBubble> = {};
+  for (const c of coins) {
+    const price = r.coins[c.rate_key];
+    if (c.kind !== "coin" || !price || !pos(c.gold_weight)) continue;
+    const b = coinBubble({ weight: c.gold_weight!, fineness: c.fineness ?? 900 }, price, { gram18: r.gram18, ounce_usd: r.ounce_usd, usd: r.usd });
+    out[c.rate_key] = { domestic: b.domestic?.pct ?? null, world: b.world?.pct ?? null, domestic_amount: b.domestic?.amount ?? null, world_amount: b.world?.amount ?? null };
+  }
+  return out;
+}
+
+/** Fields of a new rate further than `pct` percent from the previous rate. */
+export function deviations(r: Pick<NormalRate, "gram18" | "coins" | "coins_buy">, prev: RateRow | null, pct: Num): string[] {
+  if (!prev) return [];
+  const limit = D(pct || 0);
+  if (limit.lte(0)) return [];
+  const far = (a: Num, b: Num) => !!pos(a) && !!pos(b) && D(a).minus(D(b)).abs().div(D(b)).times(100).gt(limit);
+  const out: string[] = [];
+  if (far(r.gram18, prev.gram18)) out.push("gram18");
+  for (const [k, v] of Object.entries(r.coins)) if (far(v, prev.coins?.[k])) out.push(k);
+  for (const [k, v] of Object.entries(r.coins_buy)) if (far(v, prev.coins_buy?.[k])) out.push(`buy:${k}`);
+  return out;
 }
 
 export async function addRate(ctx: Ctx, input: RateInput): Promise<RateRow> {
   ctx.need("gold", "edit");
   const r = normalizeRate(input, ctx.org.money_decimals);
   const at = input.at && !Number.isNaN(new Date(input.at).getTime()) ? new Date(input.at).toISOString() : new Date().toISOString();
+  const source = input.source ?? "manual";
+  const [prev, coins] = await Promise.all([latestRate(ctx.db, ctx.org.id), boardCoins(ctx.db, ctx.org.id)]);
+  const meta: RateMeta = { ...(input.meta ?? {}) };
+  if (source === "manual") {
+    const far = deviations(r, prev, goldSettings(ctx.org).deviation_pct);
+    if (far.length && !input.confirm) {
+      const names = new Map(coins.map((c) => [c.rate_key, c.name]));
+      const label = (k: string) => (k === "gram18" ? "گرم ۱۸ عیار" : k.startsWith("buy:") ? `خرید ${names.get(k.slice(4)) ?? k.slice(4)}` : names.get(k) ?? k);
+      throw new AppError(
+        409,
+        "rate_deviation",
+        `قیمت ${far.map(label).join("، ")} بیش از ${faDigits(goldSettings(ctx.org).deviation_pct)}٪ با قیمت قبلی فرق دارد؛ اگر درست است ثبت را تأیید کنید`,
+        { fields: far },
+      );
+    }
+    if (far.length) meta.deviations = far;
+  }
   return ctx.write((tx) =>
     insertRow<RateRow>(tx, "tz_gold_rates", {
-      id: uuidv7(), org_id: ctx.org.id, at, ...r, source: input.source ?? "manual", note: input.note?.trim() || null, origin: ctx.cfg.origin,
+      id: uuidv7(), org_id: ctx.org.id, at, ...r, bubbles: bubblesOf(r, coins), meta, source, note: input.note?.trim() || null, origin: ctx.cfg.origin,
     }, COLS),
   );
 }
@@ -262,6 +352,15 @@ export interface LiveResult {
   warnings: string[];
 }
 
+/** Time of a tgju row («ts»: Tehran local time) — null when the row has none. */
+function tgjuTime(v: unknown): number | null {
+  if (!v || typeof v !== "object") return null;
+  const ts = (v as Record<string, unknown>).ts;
+  if (typeof ts !== "string" || !/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(ts)) return null;
+  const t = Date.parse(`${ts.replace(" ", "T").slice(0, 19)}+03:30`);
+  return Number.isNaN(t) ? null : t;
+}
+
 async function fromTgju(ctx: Ctx): Promise<LiveResult> {
   const data = (await getJson(ctx, "https://call1.tgju.org/ajax.json")) as Record<string, unknown>;
   const cur = (data && typeof data === "object" && data.current && typeof data.current === "object" ? data.current : data) as Record<string, unknown>;
@@ -270,13 +369,49 @@ async function fromTgju(ctx: Ctx): Promise<LiveResult> {
   const mazaneh = get("mesghal");
   if (!gram18 && !mazaneh) throw new SourceError("قیمت گرم ۱۸ در پاسخ نبود");
   const ons = priceOf(cur?.ons);
+  // every catalogue key the feed carries: the standard rows, Parsian rows and each coin's own tgju key
+  const catalogue = await ctx.db.query<{ rate_key: string; tgju: string | null; sut: number | null }>(
+    `select rate_key, gold_meta->>'tgju' as tgju, (gold_meta->>'sut')::int as sut from tz_items
+     where org_id = $1 and kind = 'coin' and rate_key is not null and deleted_at is null`,
+    [ctx.org.id],
+  );
+  const map: Record<string, string> = { ...TGJU_SELL };
+  for (const c of catalogue) if (c.tgju) map[c.tgju] = c.rate_key;
+  const bySut = new Map(catalogue.filter((c) => c.sut).map((c) => [c.sut!, c.rate_key]));
+  for (const k of Object.keys(cur ?? {})) {
+    const sut = parsianSut(k);
+    if (sut && bySut.has(sut) && !map[k]) map[k] = bySut.get(sut)!;
+  }
+  const staleMs = goldSettings(ctx.org).stale_minutes * 60_000;
+  const now = Date.now();
+  const coins: Record<string, string> = {};
+  const stale: string[] = [];
+  for (const [src, key] of Object.entries(map)) {
+    const v = get(src);
+    if (!v) continue;
+    coins[key] = v.toString();
+    const t = tgjuTime(cur?.[src]);
+    if (t !== null && now - t > staleMs) stale.push(key);
+  }
+  const retail: Record<string, string> = {};
+  for (const [src, key] of Object.entries(TGJU_RETAIL)) {
+    const v = get(src);
+    if (v) retail[key] = v.toString();
+  }
+  const provider_bubble: Record<string, string> = {};
+  for (const [src, key] of Object.entries(TGJU_BUBBLE)) {
+    const v = priceOf(cur?.[src]);
+    if (v) provider_bubble[key] = v.toString();
+  }
+  const t18 = tgjuTime(cur?.geram18);
+  if (t18 !== null && now - t18 > staleMs) stale.push("gram18");
   return {
     source: "tgju",
-    warnings: [],
+    warnings: stale.length ? [`قیمت ${faDigits(stale.length)} مورد در منبع قدیمی است`] : [],
     input: {
       gram18: gram18?.toString(), mazaneh: mazaneh?.toString(), gram24: get("geram24")?.toString(),
-      ounce_usd: ons?.toString(), usd: get("price_dollar_rl")?.toString(),
-      coins: { emami: get("sekee")?.toString(), bahar: get("sekeb")?.toString(), nim: get("nim")?.toString(), rob: get("rob")?.toString(), gerami: get("gerami")?.toString() },
+      ounce_usd: ons?.toString(), usd: get("price_dollar_rl")?.toString(), coins,
+      meta: { retail, provider_bubble, stale },
     },
   };
 }
@@ -318,8 +453,8 @@ async function fromCustom(ctx: Ctx, src: CustomSource): Promise<LiveResult> {
   const url = checkUrl(src.url, ctx.cfg.mode === "desktop");
   const data = await getJson(ctx, url.toString());
   const unit = src.unit ?? "rial";
-  const get = (f: RateField) => (src.paths[f] ? priceOf(pickPath(data, src.paths[f]!)) : null);
-  const money = (f: RateField) => toBase(ctx, get(f), unit);
+  const get = (f: string) => (src.paths[f] ? priceOf(pickPath(data, src.paths[f]!)) : null);
+  const money = (f: string) => toBase(ctx, get(f), unit);
   const gram18 = money("gram18");
   const mazaneh = money("mazaneh");
   if (!gram18 && !mazaneh) throw new SourceError("در مسیرهای تعیین‌شده قیمتی پیدا نشد");
@@ -329,10 +464,13 @@ async function fromCustom(ctx: Ctx, src: CustomSource): Promise<LiveResult> {
     input: {
       gram18: gram18?.toString(), mazaneh: mazaneh?.toString(), gram24: money("gram24")?.toString(), buy_gram18: money("buy_gram18")?.toString(),
       ounce_usd: get("ounce_usd")?.toString(), usd: money("usd")?.toString(),
-      coins: { emami: money("emami")?.toString(), bahar: money("bahar")?.toString(), nim: money("nim")?.toString(), rob: money("rob")?.toString(), gerami: money("gerami")?.toString() },
+      coins: Object.fromEntries(Object.keys(src.paths).filter((k) => RATE_KEY_RE.test(k) && !isMarketField(k)).map((k) => [k, money(k)?.toString()])),
+      coins_buy: Object.fromEntries(Object.keys(src.paths).filter((k) => k.startsWith("buy:")).map((k) => [k.slice(4), money(k)?.toString()])),
     },
   };
 }
+
+const isMarketField = (k: string) => ["gram18", "mazaneh", "gram24", "ounce_usd", "usd", "buy_gram18"].includes(k);
 
 const PROVIDER_TITLE: Record<string, string> = { tgju: "tgju.org", goldapi: "انس جهانی (gold-api.com)", custom: "منبع دلخواه" };
 
@@ -364,15 +502,26 @@ export async function fetchLive(ctx: Ctx, opts: { provider?: LiveProvider; usd?:
         "اگر خارج از ایران هستید سایت‌های ایرانی ممکن است در دسترس نباشند (و برعکس)؛ منبع دیگری را امتحان کنید یا قیمت را دستی وارد کنید.",
     );
   }
-  // the world-ounce provider has no coin prices: keep the last known ones
+  // keys the source did not deliver (the world-ounce provider has no coins) keep their last price, marked as carried
   const prev = await latestRate(ctx.db, ctx.org.id);
   const coins = Object.fromEntries(Object.entries(result.input.coins ?? {}).filter(([, v]) => pos(v)));
-  if (!Object.keys(coins).length && prev && Object.keys(prev.coins ?? {}).length) {
-    result.input.coins = prev.coins;
-    result.warnings.push("قیمت سکه‌ها از آخرین نرخ ثبت‌شده برداشته شد");
+  const carried = Object.keys(prev?.coins ?? {}).filter((k) => !(k in coins));
+  if (prev && carried.length) {
+    result.input.coins = { ...Object.fromEntries(carried.map((k) => [k, prev.coins[k]])), ...coins };
+    if (!Object.keys(coins).length) result.warnings.push("قیمت سکه‌ها از آخرین نرخ ثبت‌شده برداشته شد");
   }
+  const buy = Object.fromEntries(Object.entries(result.input.coins_buy ?? {}).filter(([, v]) => pos(v)));
+  const buyCarried = Object.keys(prev?.coins_buy ?? {}).filter((k) => !(k in buy));
+  if (prev && buyCarried.length) result.input.coins_buy = { ...Object.fromEntries(buyCarried.map((k) => [k, prev.coins_buy[k]])), ...buy };
+  const meta: RateMeta = { ...(result.input.meta ?? {}) };
+  if (prev && carried.length) meta.carried = carried;
+  meta.stale = [...new Set([...(meta.stale ?? []), ...carried])];
+  result.input.meta = meta;
   const normalized = normalizeRate(result.input, ctx.org.money_decimals);
-  if (opts.save === false) return { rate: { ...normalized, source: result.source, at: new Date().toISOString() }, saved: false, warnings: result.warnings, errors };
+  if (opts.save === false) {
+    const bubbles = bubblesOf(normalized, await boardCoins(ctx.db, ctx.org.id));
+    return { rate: { ...normalized, bubbles, meta, source: result.source, at: new Date().toISOString() }, saved: false, warnings: result.warnings, errors };
+  }
   const rate = await addRate(ctx, { ...result.input, source: result.source, note: errors.length ? `پس از خطای ${errors.length} منبع دیگر` : null });
   return { rate, saved: true, warnings: result.warnings, errors };
 }

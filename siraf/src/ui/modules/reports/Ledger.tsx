@@ -15,6 +15,7 @@ import { D } from "@shared/money";
 import { exportExcel } from "../../lib/excel";
 import { formatJalali } from "@shared/jalali";
 import { faDigits } from "@shared/format";
+import { AiExplainButton } from "../../ai/explain/AiExplainButton";
 
 const side = (v: string | number | null | undefined) => {
   const d = D(v ?? 0);
@@ -52,7 +53,7 @@ export default function Ledger() {
 
   return (
     <div>
-      <PageHeader title="دفتر حساب" />
+      <PageHeader title="دفتر حساب" actions={<AiExplainButton report="ledger" params={{ account_id: accountId, detail_id: detailId, currency_id: currencyId, from: range.from, to: range.to, fiscal_year_id: fy?.id, drafts: range.drafts ? 1 : 0 }} title={title ? `دفتر حساب ${title}` : "دفتر حساب"} disabled={!accountId && !detailId} />} />
       <div className="bk-filters no-print">
         <AccountSelect
           value={accountId}

@@ -10,6 +10,7 @@ import { StatementBlock } from "./IncomeStatement";
 import { D } from "@shared/money";
 import { formatNumber } from "@shared/format";
 import { formatJalali } from "@shared/jalali";
+import { AiExplainButton } from "../../ai/explain/AiExplainButton";
 
 export default function BalanceSheet() {
   const { api, fy, unit } = useOrg();
@@ -21,7 +22,7 @@ export default function BalanceSheet() {
   const gap = d ? D(d.total_assets).minus(right) : D(0);
   return (
     <div>
-      <PageHeader title="ترازنامه" />
+      <PageHeader title="ترازنامه" actions={<AiExplainButton report="balance_sheet" params={{ to: range.to, fiscal_year_id: fy?.id, drafts: range.drafts ? 1 : 0 }} title="ترازنامه" />} />
       <ReportFilters range={range} setRange={setRange} noFrom />
       <ScaleProvider scale={scale}>
         <Card

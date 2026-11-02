@@ -14,6 +14,7 @@ import { readAggregates, writeAggregate } from "../sync/apply";
 import { ident } from "../db/sql";
 import { pgArray } from "../db";
 import { afterStockChange } from "../modules/goods/stock";
+import { orgStatus, statusError } from "../modules/platform/org-admin";
 import { SYNC_PROTOCOL } from "@shared/constants";
 import { uuidv7 } from "@shared/id";
 
@@ -36,7 +37,9 @@ async function orgCtx(c: C, orgId: string): Promise<Ctx> {
     [orgId, user.id],
   );
   if (!member || !member.is_active) throw forbidden("شما عضو این کسب‌وکار نیستید");
-  return makeCtx(cfg, user, org, member);
+  const status = await orgStatus(cfg.db, orgId);
+  if (status.status === "suspended") throw statusError(status);
+  return makeCtx(cfg, user, org, member, { status });
 }
 
 syncRoutes.get("/status", async (c) => {
@@ -140,7 +143,7 @@ syncRoutes.post("/push", async (c) => {
         results.push({ entity: agg.entity, id: agg.id, status: "error", message: "شناسه متعلق به سازمان دیگری است" });
         continue;
       }
-      if (def.entity === "member" && ctx.member.role !== "owner" && !ctx.user.is_platform_admin) {
+      if (def.entity === "member" && ctx.member.role !== "owner") {
         // as in the members API: only an owner gives or changes the owner role
         const was = existing ? await tx.one<{ role: string }>(`select role from tz_org_members where id = $1`, [agg.id]) : null;
         if (agg.row.role === "owner" || was?.role === "owner") {
@@ -208,10 +211,11 @@ syncRoutes.get("/pull", async (c) => {
   // The members' accounts come along so that they can sign in on the desktop. A password hash
   // only goes where the caller could set that password anyway — the rule of «reset password» on
   // the members page: their own account; for a member who manages users, the accounts that work
-  // for this business alone (an owner's only to an owner); everything for a platform admin.
+  // for this business alone (an owner's only to an owner) — platform admins included, who act
+  // through their membership like everyone else.
   // Anyone else signs in on that desktop through the cloud (`password_withheld`), and contact
   // details of other members need the right to see users.
-  const share = [ctx.org.id, ctx.user.id, ctx.can("users", "view"), !!ctx.user.is_platform_admin, ctx.can("users", "full"), ctx.member.role === "owner"];
+  const share = [ctx.org.id, ctx.user.id, ctx.can("users", "view"), false, ctx.can("users", "full"), ctx.member.role === "owner"];
   const userCols = `u.id, u.email, u.full_name, case when u.id = $2 or $3::boolean then u.mobile end as mobile,
     case when s.ok then u.password_hash end as password_hash, not s.ok as password_withheld,
     u.disabled, u.prefs, u.rev, u.created_at, u.updated_at`;

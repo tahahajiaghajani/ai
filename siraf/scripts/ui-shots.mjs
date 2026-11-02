@@ -13,6 +13,21 @@
 // (e.g. `parties/{party_customer}`, see seed.json in the output). Default: every route of
 // src/ui/modules/*/index.tsx without parameters, the editors of seeded documents, /login, /orgs, /admin.
 //
+// Assistant states: a path ending in `@ai=<state>` opens «دستیار سیراف» on that page before the screenshot:
+//   chat   — a stored conversation with tool steps, a chart, a table, sources and a draft waiting for confirmation
+//            (the AI endpoints are answered by the fixture below, so the shot does not depend on a model);
+//            «chat-top» is the same conversation scrolled to its start (the chart)
+//   empty  — a new conversation with the page's suggested questions
+//   setup  — AI not configured yet (the owner's «راه‌اندازی» state)
+//   palette — Ctrl K with a question typed: the «بپرس از دستیار» row (palette-empty: the suggested questions)
+//   live   — with SIRAF_AI_FAKE=1: the real engine with its fake model (demo-seed adds the fake connection);
+//            the question is typed into the composer and the shot waits for the answer
+//   live-tools — the same with a question whose fake-model directives run analyze_metric (chart), run_report (table)
+//            and propose_invoice (a draft card) on the seeded books; «live-tools-top» shows its start
+//   capture — on a form with «خواندن از تصویر»: a PDF whose bytes carry a [json:…] reply is read by the fake vision
+//            model and the result is shown; «capture-use» applies it to the form (SIRAF_AI_FAKE=1)
+//   plan   — on reports/forecast?tab=plan: writes a plan and shows it
+//
 // Internal: `tsx scripts/ui-shots.mjs --serve-internal <dataDir> <port> <staticDir>` runs the server.
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, createWriteStream } from "node:fs";
@@ -57,7 +72,8 @@ const CONCURRENCY = Math.max(1, Number(opt("concurrency", "3")));
 const FULL_PAGE = flag("full-page");
 const NO_BUILD = flag("no-build");
 const STATIC = opt("static") ? resolve(opt("static")) : null;
-const MOBILE_DEFAULT = ["", "sales/invoices", "sales/invoices/new", "parties", "treasury/receipts", "gold/sale", "fx/rates", "fx/deals/new", "reports/trial-balance", "/login"];
+const MOBILE_DEFAULT = ["", "sales/invoices", "sales/invoices/new", "parties", "treasury/receipts", "gold/sale", "fx/rates", "fx/deals/new", "reports/trial-balance", "/login", "reports/income-statement@ai=chat", "@ai=empty"];
+const AI_FAKE = process.env.SIRAF_AI_FAKE === "1";
 const MOBILE = flag("no-mobile") ? [] : list(opt("mobile")) ?? MOBILE_DEFAULT;
 const OWNER = { email: "demo@example.com", password: "Demo-pass-1405", full_name: "سارا محمدی" };
 const ORG = { name: "بازرگانی نیک‌آوران", business_kind: "mixed", modules: ["goods", "gold", "fx"], base_currency: "IRR", city: "تهران" };
@@ -110,10 +126,170 @@ function defaultPaths() {
     "accounting/vouchers/{voucher}", "treasury/docs/{receipt}", "treasury/docs/{payment}", "fx/deals/{fx_deal}", "fx/deals/{fx_deal_exchange}",
     "fx/remittances/{remittance}", "fx/remittances/{remittance_in}", "gold/docs/{gold_sale}", "gold/sale/{gold_sale}", "gold/docs/{gold_purchase}",
   ];
-  return [...[...paths].sort((a, b) => a.localeCompare(b)), ...detail, "/login", "/orgs", "/admin"];
+  const assistant = ["reports/income-statement@ai=chat", "reports/income-statement@ai=chat-top", "@ai=empty", "sales/invoices@ai=palette", "gold/rates@ai=palette-empty", "sales/invoices@ai=setup", ...(AI_FAKE ? ["@ai=live", "@ai=live-tools", "@ai=live-tools-top", "purchases/invoices/new@ai=capture", "purchases/invoices/new@ai=capture-use", "reports/forecast?tab=plan@ai=plan"] : [])];
+  return [...[...paths].sort((a, b) => a.localeCompare(b)), ...detail, ...assistant, "/login", "/orgs", "/admin"];
 }
 
-const slug = (p) => (p === "" ? "dashboard" : p.replace(/^\//, "").replace(/[{}]/g, "").replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, "id").replace(/[?&=]/g, "-").replace(/\//g, "__")) || "root";
+// ---------------------------------------------------------------- assistant fixture (screenshots only)
+const AI_NOW = () => new Date().toISOString();
+const INVOICE_ID = "3f8a2c10-5b7e-4d21-9c4a-1e2f3a4b5c6d";
+function aiStatus(configured) {
+  return {
+    enabled: true, configured, ok: configured, kind: configured ? null : "not_configured", message_fa: null, remedy_fa: null,
+    can_use: true, can_propose: true, can_manage: true,
+    features: { assistant: true, proposals: true, insights: true, explain: true, capture: true, forecast: true },
+    budget: { state: "ok", month_usd: "3.42", month_cap_usd: "50", today_usd: "0.18", today_cap_usd: null, alert_pct: 80 },
+    model: configured ? "claude-sonnet-4-6" : null, connection: configured ? "Anthropic" : null, route: configured ? "direct" : null,
+    mode: "desktop", app_secret_missing: false,
+  };
+}
+const AI_THREADS = () => {
+  const ago = (h) => new Date(Date.now() - h * 3600e3).toISOString();
+  return [
+    { id: "demo", title: "مقایسهٔ فروش و پیش‌فاکتور آریا", updated_at: ago(0.2), pinned: false },
+    { id: "t2", title: "چک‌های سررسید این هفته", updated_at: ago(3), pinned: true },
+    { id: "t3", title: "حباب سکهٔ امامی", updated_at: ago(26), pinned: false },
+    { id: "t4", title: "جریان نقدی ۱۳ هفته", updated_at: ago(80), pinned: false },
+  ];
+};
+function aiMessages() {
+  const at = (m) => new Date(Date.now() - m * 60e3).toISOString();
+  return [
+    { id: "m1", role: "user", text: "فروش شش ماه اخیر را با سود ناخالص مقایسه کن و پرفروش‌ترین کالاها را بگو", created_at: at(14) },
+    {
+      id: "m2", role: "assistant", created_at: at(13), model: "claude-sonnet-4-6", rating: 1,
+      tools: [
+        { call_id: "c1", tool: "analyze_metric", title_fa: "تحلیل فروش و سود ماه به ماه", ok: true, summary_fa: "۶ ماه، ۲ سری" },
+        { call_id: "c2", tool: "run_report", title_fa: "گزارش فروش کالا", ok: true, summary_fa: "۸ کالا" },
+      ],
+      text: "فروش **آبان** تا امروز **۱۸۶٫۴ میلیون ریال** است؛ نسبت به مهر **۱۲٪ بیشتر**، و سود ناخالص با رشد کمتری (۷٪) بالا رفته است.\n\n- حاشیهٔ سود ناخالص از **۲۴٫۱٪** به **۲۲٫۸٪** رسیده؛ تخفیف‌های فاکتورهای عمده اثر داشته است.\n- سه کالای اول **۵۸٪** فروش ماه را ساخته‌اند.\n- بزرگ‌ترین فاکتور ماه [فاکتور فروش ۱۰۲۴](siraf:invoice/" + INVOICE_ID + ") به مبلغ ۴۲ میلیون ریال بوده است.",
+      refs: [
+        { type: "report", id: "sales", label: "گزارش فروش", path: "sales/reports" },
+        { type: "invoice", id: INVOICE_ID, label: "فاکتور فروش ۱۰۲۴", path: `sales/invoices/${INVOICE_ID}` },
+        { type: "report", id: "income_statement", label: "سود و زیان", path: "reports/income-statement" },
+      ],
+      charts: [{ data_ref: "d-sales", spec: { kind: "bar", title: "فروش و سود ناخالص شش ماه اخیر", x: "month", series: [{ field: "sales", label: "فروش" }, { field: "profit", label: "سود ناخالص" }], unit: "میلیون ریال" } }],
+      tables: [{ data_ref: "d-items", title: "پرفروش‌ترین کالاهای آبان", columns: [{ key: "item", title: "کالا" }, { key: "qty", title: "تعداد", numeric: true }, { key: "amount", title: "مبلغ (ریال)", numeric: true }], total_rows: 8 }],
+    },
+    { id: "m3", role: "user", text: "برای شرکت آریا تجارت ۲۰ عدد روغن موتور پیش‌نویس فاکتور فروش آماده کن", created_at: at(6) },
+    {
+      id: "m4", role: "assistant", created_at: at(5), model: "claude-sonnet-4-6", rating: null,
+      tools: [
+        { call_id: "c3", tool: "find_party", title_fa: "جست‌وجوی شخص", ok: true, summary_fa: "شرکت آریا تجارت" },
+        { call_id: "c4", tool: "propose_sales_invoice", title_fa: "آماده کردن پیش‌نویس فاکتور فروش", ok: true },
+      ],
+      text: "پیش‌نویس آماده است. قیمت از فهرست قیمت عمده و مالیات بر ارزش افزوده ۱۰٪ حساب شده است؛ پیش از ثبت، ردیف‌ها را بررسی کنید.",
+      refs: [{ type: "party", id: "8c1d2e3f-4a5b-4c6d-8e7f-9a0b1c2d3e4f", label: "شرکت آریا تجارت", path: "parties/8c1d2e3f-4a5b-4c6d-8e7f-9a0b1c2d3e4f" }],
+      proposals: [{
+        id: "p1", kind: "sales_invoice", title_fa: "پیش‌نویس فاکتور فروش", summary_fa: "برای شرکت آریا تجارت، یک ردیف",
+        preview: [{ label: "خریدار", value: "شرکت آریا تجارت" }, { label: "تاریخ", value: "۱۱ آبان ۱۴۰۵" }, { label: "جمع با مالیات", value: "۵۳٬۴۶۰٬۰۰۰ ریال" }, { label: "مالیات بر ارزش افزوده", value: "۴٬۸۶۰٬۰۰۰ ریال" }],
+        line_headers: ["کالا", "تعداد", "فی", "مبلغ"],
+        lines: [{ cells: ["روغن موتور ۴ لیتری", "۲۰", "۲٬۴۳۰٬۰۰۰", "۴۸٬۶۰۰٬۰۰۰"] }],
+        warnings: ["موجودی این کالا پس از این فاکتور به ۱۲ عدد می‌رسد که کمتر از نقطهٔ سفارش است."],
+        status: "proposed", edit_path: "sales/invoices/new", result: null, error: null, expires_at: new Date(Date.now() + 2 * 3600e3).toISOString(),
+      }],
+    },
+  ];
+}
+const AI_DATA = {
+  "d-sales": { id: "d-sales", meta: { title: "فروش و سود ناخالص" }, total_rows: 6, truncated: false, rows: [
+    { month: "خرداد", sales: "142.5", profit: "35.1" }, { month: "تیر", sales: "151.2", profit: "36.8" }, { month: "مرداد", sales: "138.9", profit: "33.0" },
+    { month: "شهریور", sales: "160.4", profit: "39.2" }, { month: "مهر", sales: "166.3", profit: "40.1" }, { month: "آبان", sales: "186.4", profit: "42.5" },
+  ] },
+  "d-items": { id: "d-items", meta: { title: "پرفروش‌ترین کالاها" }, total_rows: 8, truncated: false, rows: [
+    { item: "روغن موتور ۴ لیتری", qty: "64", amount: "155520000" }, { item: "فیلتر روغن", qty: "112", amount: "50400000" }, { item: "لنت ترمز جلو", qty: "38", amount: "47880000" },
+    { item: "باتری ۶۰ آمپر", qty: "9", amount: "41400000" }, { item: "شمع موتور", qty: "140", amount: "25200000" }, { item: "تسمه تایم", qty: "12", amount: "19800000" },
+  ] },
+};
+
+/** Answers the assistant's endpoints from the fixture (states chat, empty, setup). */
+async function mockAi(page, state) {
+  const json = (route, body) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
+  await page.route(/\/api\/o\/[^/]+\/ai\/(status|threads(?:\/[^/?]+(?:\/messages)?)?|data\/[^/?]+|actions\/[^/]+\/(?:confirm|reject)|messages\/[^/]+\/rating)(?:\?.*)?$/, (route) => {
+    const u = new URL(route.request().url());
+    const p = u.pathname.replace(/^\/api\/o\/[^/]+\/ai/, "");
+    if (p === "/status") return json(route, aiStatus(state !== "setup"));
+    if (p === "/threads") return json(route, { threads: state === "chat" ? AI_THREADS() : [] });
+    if (/^\/threads\/[^/]+\/messages$/.test(p)) return json(route, { messages: aiMessages(), running: false });
+    if (p.startsWith("/data/")) return json(route, AI_DATA[decodeURIComponent(p.slice(6))] ?? { id: "x", rows: [], meta: {}, total_rows: 0, truncated: false });
+    return json(route, { ok: true });
+  });
+}
+
+const LIVE_STATES = ["live", "live-tools", "live-tools-top", "capture", "capture-use", "plan"];
+const AI_STATES = ["chat", "chat-top", "empty", "setup", "palette", "palette-empty", ...LIVE_STATES];
+
+/** The fake model's directives for «live-tools» (names from scripts/demo-seed.mts). */
+const LIVE_TOOLS_PROMPT = [
+  "فروش ماه‌های امسال، تراز آزمایشی و یک پیش‌نویس فاکتور برای علی رضایی",
+  '[tool:analyze_metric {"metric":"sales_amount","period":{"preset":"this_year"},"group_by":"month"}]',
+  '[tool:run_report {"report":"trial_balance","params":{"level":1}}]',
+  '[tool:propose_invoice {"kind":"sale","party":"علی رضایی","lines":[{"item":"گوشی شیائومی Redmi Note 13","qty":2},{"item":"گوشی سامسونگ Galaxy A55 ۲۵۶ گیگ","qty":1}]}]',
+].join(" ");
+
+/** A «scanned» purchase invoice for «capture»: a PDF whose bytes carry the fake vision model's [json:…] reply. */
+function capturePdf() {
+  const f = (value, confidence) => ({ value, confidence });
+  const reply = {
+    fields: {
+      seller_name: f("شرکت پخش البرز", 0.96), seller_economic_code: f("۴۱۱۴۵۶۷۸۹۱۲۳", 0.71), invoice_no: f("۴۵۸۲", 0.93), date: f("۱۴۰۵/۰۸/۰۹", 0.9),
+      subtotal: f("۵۲۴٬۰۰۰٬۰۰۰", 0.88), discount: f(null, 0), tax: f("۵۲٬۴۰۰٬۰۰۰", 0.82), total: f("۵۷۶٬۴۰۰٬۰۰۰", 0.95), currency_unit: f("ریال", 0.9),
+    },
+    lines: [
+      { description: f("گوشی شیائومی Redmi Note 13", 0.92), qty: f("۲", 0.97), unit: f("دستگاه", 0.8), unit_price: f("۱۲۸٬۰۰۰٬۰۰۰", 0.9), total: f("۲۵۶٬۰۰۰٬۰۰۰", 0.9) },
+      { description: f("گوشی سامسونگ Galaxy A55 ۲۵۶ گیگ", 0.66), qty: f("۱", 0.95), unit: f("دستگاه", 0.8), unit_price: f("۲۶۸٬۰۰۰٬۰۰۰", 0.58), total: f("۲۶۸٬۰۰۰٬۰۰۰", 0.86) },
+    ],
+  };
+  return Buffer.from(`%PDF-1.4\n%fake scan for screenshots\n[json:${JSON.stringify(reply)}]\n%%EOF\n`, "utf8");
+}
+
+/** Opens the assistant in the job's state and waits until it has settled. */
+async function openAi(page, state) {
+  if (state === "plan") {
+    await page.getByRole("button", { name: /نوشتن برنامه/ }).click({ timeout: 15000 });
+    await page.locator(".ai-plan-md").waitFor({ timeout: 60000 });
+    await page.waitForTimeout(400);
+    return;
+  }
+  if (state.startsWith("capture")) {
+    await page.locator("button.ai-xb").first().click({ timeout: 15000 });
+    await page.locator(".ai-cap-m input[type=file]").first().setInputFiles({ name: "فاکتور-البرز.pdf", mimeType: "application/pdf", buffer: capturePdf() });
+    await page.locator(".ai-cap-m .ant-modal-footer button.ant-btn-primary, .ai-cap-m .ai-sheet-foot button.ant-btn-primary").last().click({ timeout: 10000 });
+    await page.locator(".ai-res").waitFor({ timeout: 30000 });
+    if (state === "capture-use") {
+      await page.locator(".ai-cap-m .ai-sheet-foot button.ant-btn-primary").last().click();
+      await page.locator(".ai-cap-m").waitFor({ state: "hidden", timeout: 10000 }).catch(() => {});
+      await page.waitForTimeout(1500);
+    } else await page.waitForTimeout(500);
+    return;
+  }
+  if (state.startsWith("palette")) {
+    await page.keyboard.press("Control+KeyK");
+    await page.locator(".sh-pal input").waitFor({ timeout: 10000 });
+    if (state === "palette") await page.keyboard.type("فروش این ماه چقدر بود؟");
+    await page.waitForTimeout(600);
+    return;
+  }
+  const chat = state.startsWith("chat");
+  await page.evaluate((c) => window.dispatchEvent(new CustomEvent("siraf:assistant", { detail: c ? { threadId: "demo" } : { fresh: true } })), chat);
+  await page.locator('.sa-panel[data-open="true"]').waitFor({ timeout: 15000 });
+  if (state.startsWith("live")) {
+    const box = page.locator(".sa-comp-in");
+    await box.fill(state === "live" ? "خلاصهٔ امروز کسب‌وکار را با عددها بگو" : LIVE_TOOLS_PROMPT);
+    await box.press("Enter");
+    await page.locator(".sa-msg-a").last().waitFor({ timeout: 15000 });
+    await page.waitForFunction(() => !document.querySelector(".sa-msg-a.is-live"), null, { timeout: 60000 });
+  }
+  await page.waitForFunction(() => !document.querySelector(".sa-panel .sf-skel"), null, { timeout: 15000 }).catch(() => {});
+  if (chat || state === "live-tools" || state === "live-tools-top") await page.locator(".sa-card").first().waitFor({ timeout: 10000 }).catch(() => {});
+  await page.waitForTimeout(900); // the panel's slide and the charts' first draw
+  if (state === "chat-top" || state === "live-tools-top") {
+    await page.evaluate(() => document.querySelector(".sa-body")?.scrollTo({ top: 0 }));
+    await page.waitForTimeout(200);
+  }
+}
+
+const slug = (p) => (p === "" ? "dashboard" : p.replace(/@ai=/, "__ai-").replace(/^__/, "dashboard__").replace(/^\//, "").replace(/[{}]/g, "").replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, "id").replace(/[?&=]/g, "-").replace(/\//g, "__")) || "root";
 
 // ---------------------------------------------------------------- main
 let server = null;
@@ -205,7 +381,10 @@ async function main() {
       return seed.ids[k] ?? k;
     });
     if (missing) return { skip: `no seeded id «${missing}»` };
-    return { href: filled.startsWith("/") ? filled : `/${orgId}${filled ? `/${filled}` : ""}`, auth: !/^\/(login|setup|recover|signup)\b/.test(filled) };
+    const [page, ai = null] = filled.split("@ai=");
+    if (ai && !AI_STATES.includes(ai)) return { skip: `unknown assistant state «${ai}»` };
+    if (LIVE_STATES.includes(ai) && !AI_FAKE) return { skip: `@ai=${ai} needs SIRAF_AI_FAKE=1` };
+    return { href: page.startsWith("/") ? page : `/${orgId}${page ? `/${page}` : ""}`, auth: !/^\/(login|setup|recover|signup)\b/.test(page), ai };
   };
 
   const require = createRequire(join(ROOT, "package.json"));
@@ -305,18 +484,21 @@ async function main() {
       entry.failed_requests.push({ method: r.method(), url: r.url().startsWith(url) ? r.url().slice(url.length) : r.url(), status: 0, message: err });
     });
     try {
+      if (job.ai && !LIVE_STATES.includes(job.ai)) await mockAi(page, job.ai.startsWith("chat") ? "chat" : job.ai);
       await page.goto(`${url}${job.href}`, { waitUntil: "load", timeout: 30000 });
       // settled = no API request in flight, no spinner/skeleton and no boot screen for 500 ms
       const deadline = Date.now() + 20000;
       let quietSince = 0;
       while (Date.now() < deadline) {
-        const busy = pending > 0 || (await page.locator(".boot, .ant-spin-spinning, .ant-skeleton-active").count().catch(() => 0)) > 0;
+        // skeletons of the kit (sf-skel, db-sk, aria-busy) count as loading too, so lazy pages are shot with their data
+        const busy = pending > 0 || (await page.locator('.boot, .ant-spin-spinning, .ant-skeleton-active, .sf-skel, .db-sk, main [aria-busy="true"]').count().catch(() => 0)) > 0;
         if (busy) quietSince = 0;
         else if (!quietSince) quietSince = Date.now();
         else if (Date.now() - quietSince > 500) break;
         await page.waitForTimeout(100);
       }
       if (Date.now() >= deadline) entry.flags.push("not_settled_in_20s");
+      if (job.ai) await openAi(page, job.ai);
       await page.evaluate(() => document.fonts?.ready).catch(() => {});
       await page.waitForTimeout(250);
       const state = await page.evaluate(() => ({

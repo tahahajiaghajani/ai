@@ -1,22 +1,26 @@
-// Price board (تابلوی قیمت): today's prices in big cards, live prices from the internet, manual
-// entry (mazaneh ↔ gram18 linked), a counter calculator and the price history.
+// Price board (تابلوی قیمت): today's prices in big cards, buy and sell prices of every coin and
+// bar model of the catalogue with the bubble and stale flags, live prices from the internet,
+// manual entry (mazaneh ↔ gram18 linked, a confirmation for prices far from the last ones), a
+// counter calculator (jewellery, used gold, آب‌شده, coins and bars) and the price history.
 import { useMemo, useState, type ReactNode } from "react";
-import { Button, Drawer, Form, Input, Select, Segmented, Tooltip, Popconfirm, Alert } from "antd";
-import { CloudDownload, Coins, Plus, Settings, Trash2, Calculator as CalcIcon } from "lucide-react";
+import { Button, Drawer, Form, Input, Modal, Select, Segmented, Switch, Table, Tooltip, Popconfirm, Alert } from "antd";
+import { CloudDownload, Coins, Plus, Settings, Trash2, Calculator as CalcIcon, Clock } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useOrg } from "../../lib/org";
 import { useAction, useNotify } from "../../lib/hooks";
 import { PageHeader, Section } from "../../components/layout";
 import { ServerTable } from "../../components/data";
 import { NumberInput, MoneyInput, PctInput, WeightInput } from "../../components/inputs";
-import { JDateTime, Money } from "../../components/display";
+import { Chip, JDateTime, Money } from "../../components/display";
 import { Ic } from "../../components/shell/icons";
 import { D } from "@shared/money";
 import { formatNumber, faDigits } from "@shared/format";
 import { gram18FromMazaneh, mazanehFromGram18, priceJewelry, priceOldGold, priceBullion, weightForBudget, type WageType } from "@shared/gold";
-import { RateChange, RateStamp, SplitButton, stepOf, useGoldSettings, useLatestRate, wageTypeOptions, coinTitle, type Rate, type GoldSettings } from "./shared";
-
-const COIN_KEYS = ["emami", "bahar", "nim", "rob", "gerami"] as const;
+import { variantChips } from "@shared/gold-catalogue";
+import { productQuote } from "@shared/gold-quote";
+import { RateChange, RateStamp, SplitButton, stepOf, quoteEnvOf, useCatalogue, useGoldSettings, useLatestRate, wageTypeOptions, coinTitle, type Rate, type GoldSettings, type CatalogueRow } from "./shared";
+import { BubbleCell } from "./Coins";
+import { ApiError } from "../../lib/api";
 const SOURCES: Record<string, string> = { manual: "دستی", tgju: "tgju", goldapi: "انس جهانی", custom: "منبع دلخواه" };
 
 /** One tile of the board: label, the figure (proportional, 500) with its unit, and one quiet fact at the foot. */
@@ -60,6 +64,13 @@ export default function RateBoard() {
   const del = useAction((id: string) => api.del(`/gold/rates/${id}`), { success: "حذف شد", onSuccess: invalidate });
   const canEdit = can("gold", "edit");
   const canSetup = can("gold", "full") || can("settings", "edit");
+  const catalogue = useCatalogue();
+  const products = catalogue.data?.rows ?? [];
+  const boardCoins = products.filter((p) => p.kind === "coin" && p.is_active && p.gold_meta.pricing_mode === "board" && p.rate_key);
+  // with a catalogue the coins have their own table (buy, sell, bubble); the strip keeps the world prices
+  const stripCoins = products.length ? [] : boardCoins.slice(0, 5);
+  const names = new Map(products.filter((p) => p.rate_key).map((p) => [p.rate_key!, p.name]));
+  const historyKeys = boardCoins.map((p) => p.rate_key!);
 
   return (
     <div>
@@ -101,12 +112,12 @@ export default function RateBoard() {
         <Tile label="خرید طلای مستعمل (گرم ۱۸)" value={r?.buy_gram18} foot={r?.buy_gram18 && r?.gram18 ? <span>اختلاف با فروش <span className="sf-num">{formatNumber(D(r.gram18).minus(D(r.buy_gram18)))}</span></span> : null} />
       </div>
       <div className="sf-gcoins mb-4" role="group" aria-label="سکه و ارز">
-        {COIN_KEYS.map((k) => (
-          <div key={k}>
+        {stripCoins.map((c) => (
+          <div key={c.id}>
             <Ic icon={Coins} size={16} className="shrink-0 text-ink-3" />
             <div className="t">
-              <span className="l">سکه‌ی {coinTitle(k)}</span>
-              <span className="v">{r?.coins?.[k] ? formatNumber(r.coins[k]) : <span className="sf-zero">—</span>}</span>
+              <span className="l">{c.name.replace(/\s*\(.*?\)\s*/g, " ").trim()}</span>
+              <span className="v">{r?.coins?.[c.rate_key!] ? formatNumber(r.coins[c.rate_key!]) : <span className="sf-zero">—</span>}</span>
             </div>
           </div>
         ))}
@@ -124,6 +135,8 @@ export default function RateBoard() {
         </div>
       </div>
 
+      <CoinBoard rate={r} products={products} settings={settings.data} />
+
       <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
         <Section title="تاریخچه‌ی قیمت‌ها" extra={<span className="text-[12px] text-ink-3">مبالغ به {unit}</span>} bodyClass="">
           <ServerTable<Rate>
@@ -137,7 +150,10 @@ export default function RateBoard() {
               { title: "گرم ۲۴", value: (x) => x.gram24, type: "number" },
               { title: "انس", value: (x) => x.ounce_usd, type: "number" },
               { title: "دلار", value: (x) => x.usd, type: "number" },
-              ...COIN_KEYS.map((k) => ({ title: `سکه ${coinTitle(k)}`, value: (x: Rate) => x.coins?.[k] ?? null, type: "number" as const })),
+              ...historyKeys.flatMap((k) => [
+                { title: coinTitle(k, names), value: (x: Rate) => x.coins?.[k] ?? null, type: "number" as const },
+                { title: `خرید ${coinTitle(k, names)}`, value: (x: Rate) => x.coins_buy?.[k] ?? null, type: "number" as const },
+              ]),
               { title: "منبع", value: (x) => SOURCES[x.source] ?? x.source },
             ]}
             columns={[
@@ -145,6 +161,7 @@ export default function RateBoard() {
               { key: "gram18", dataIndex: "gram18", title: "گرم ۱۸", className: "sf-num", width: 128, render: (v) => <Money v={v} zero="—" /> },
               { key: "mazaneh", dataIndex: "mazaneh", title: "مظنه", className: "sf-num", width: 140, render: (v) => <Money v={v} zero="—" /> },
               { key: "emami", title: "سکه‌ی امامی", className: "sf-num", width: 140, render: (_, x) => <Money v={x.coins?.emami ?? 0} zero="—" /> },
+              { key: "bubble", title: "حباب امامی", className: "sf-num", width: 96, render: (_, x) => (x.bubbles?.emami?.domestic ? <span className="sf-num">{formatNumber(x.bubbles.emami.domestic, { dp: 2 })}٪</span> : <span className="sf-zero">—</span>) },
               { key: "ounce", dataIndex: "ounce_usd", title: "انس (دلار)", className: "sf-num", width: 88, render: (v) => (v ? <bdi dir="ltr" className="sf-latin">{formatNumber(v, { dp: 2, minDp: 2, fa: false })}</bdi> : <span className="sf-zero">—</span>) },
               { key: "src", dataIndex: "source", title: "منبع", render: (v) => <span className="text-ink-3">{SOURCES[v] ?? v}</span> },
               ...(can("gold", "full")
@@ -161,28 +178,106 @@ export default function RateBoard() {
             ]}
           />
         </Section>
-        <Calculator gram18={r?.gram18 ?? null} mazaneh={r?.mazaneh ?? null} settings={settings.data} unit={unit} moneyDecimals={org.money_decimals} />
+        <Calculator rate={r ?? null} products={products} gram18={r?.gram18 ?? null} mazaneh={r?.mazaneh ?? null} settings={settings.data} unit={unit} moneyDecimals={org.money_decimals} />
       </div>
 
-      <RateEntry open={entry} onClose={() => setEntry(false)} last={r} onSaved={invalidate} />
+      <RateEntry open={entry} onClose={() => setEntry(false)} last={r} onSaved={invalidate} coins={boardCoins} />
       {settings.data ? <PriceSettings open={setup} onClose={() => setSetup(false)} settings={settings.data} /> : null}
     </div>
   );
 }
 
-/** Manual rate: typing the mazaneh fills the 18k gram and the other way round. */
-function RateEntry({ open, onClose, last, onSaved }: { open: boolean; onClose: () => void; last: Rate | null | undefined; onSaved: () => void }) {
-  const { api } = useOrg();
-  const [v, setV] = useState<Record<string, string | null>>({});
-  const set = (k: string, x: string | null) => setV((o) => ({ ...o, [k]: x }));
-  const save = useAction(
-    () =>
-      api.post("/gold/rates", {
-        gram18: v.gram18, mazaneh: v.mazaneh, gram24: v.gram24, buy_gram18: v.buy_gram18, ounce_usd: v.ounce_usd, usd: v.usd, note: v.note,
-        coins: Object.fromEntries(COIN_KEYS.map((k) => [k, v[k] ?? null])),
-      }),
-    { success: "قیمت روز ثبت شد", onSuccess: () => { onSaved(); onClose(); } },
+/**
+ * Today's buy and sell price of every active coin and bar model: board coins from the board (with
+ * the bubble and a stale or carried-over flag), coins priced by weight and bars from the gram price.
+ */
+function CoinBoard({ rate, products, settings }: { rate: Rate | null | undefined; products: CatalogueRow[]; settings?: GoldSettings }) {
+  const { org } = useOrg();
+  const [kind, setKind] = useState<"coin" | "bar">("coin");
+  const env = quoteEnvOf(settings, org.money_decimals);
+  const stale = new Set(rate?.meta?.stale ?? []);
+  const rows = products
+    .filter((p) => p.kind === kind && p.is_active)
+    .map((p) => ({
+      ...p,
+      sellQ: productQuote(p, rate, env, { side: "sell" }),
+      buyQ: productQuote(p, rate, env, { side: "buy" }),
+    }));
+  if (!products.length) return null;
+  return (
+    <Section
+      className="mb-4"
+      title="سکه‌ها و شمش‌ها"
+      extra={<Segmented size="small" value={kind} onChange={(v) => setKind(v as typeof kind)} options={[{ value: "coin", label: "سکه" }, { value: "bar", label: "شمش" }]} />}
+      bodyClass=""
+    >
+      <Table
+        size="small"
+        rowKey="id"
+        dataSource={rows}
+        pagination={false}
+        scroll={{ x: "max-content" }}
+        columns={[
+          {
+            key: "n", title: kind === "coin" ? "سکه" : "مدل", render: (_, p) => (
+              <span className="inline-flex flex-wrap items-center gap-1.5">
+                {p.name}
+                {variantChips(p.gold_meta).filter((c) => !p.name.includes(c)).map((c) => <Chip key={c} dot={false}>{c}</Chip>)}
+                {p.rate_key && stale.has(p.rate_key) ? <Tooltip title={rate?.meta?.carried?.includes(p.rate_key) ? "از قیمت قبلی برداشته شد" : "قیمت منبع قدیمی است"}><span className="text-warning"><Ic icon={Clock} size={14} /></span></Tooltip> : null}
+              </span>
+            ),
+          },
+          { key: "m", title: "قیمت‌گذاری", render: (_, p) => <span className="text-[13px] text-ink-3">{p.sellQ?.mode === "board" ? "تابلو" : p.sellQ ? "وزنی" : "—"}</span> },
+          { key: "b", title: "خرید", className: "sf-num", render: (_, p) => <Money v={p.buyQ?.unit ?? 0} zero="—" /> },
+          { key: "s", title: "فروش", className: "sf-num", render: (_, p) => <Money v={p.sellQ?.unit ?? 0} zero="—" /> },
+          ...(kind === "coin"
+            ? [
+                { key: "r", title: "تک‌فروشی", className: "sf-num", render: (_: unknown, p: CatalogueRow) => <Money v={(p.rate_key && rate?.meta?.retail?.[p.rate_key]) || 0} zero="—" /> },
+                { key: "bu", title: "حباب", className: "sf-num", render: (_: unknown, p: CatalogueRow) => <BubbleCell b={p.rate_key && rate?.bubbles?.[p.rate_key] ? rate.bubbles[p.rate_key] : p.bubble} /> },
+              ]
+            : []),
+        ]}
+      />
+    </Section>
   );
+}
+
+/** Manual rate: typing the mazaneh fills the 18k gram and the other way round. */
+function RateEntry({ open, onClose, last, onSaved, coins }: { open: boolean; onClose: () => void; last: Rate | null | undefined; onSaved: () => void; coins: CatalogueRow[] }) {
+  const { api } = useOrg();
+  const n = useNotify();
+  const [v, setV] = useState<Record<string, string | null>>({});
+  const [busy, setBusy] = useState(false);
+  const set = (k: string, x: string | null) => setV((o) => ({ ...o, [k]: x }));
+  const keys = coins.map((c) => c.rate_key!);
+  const post = (confirm: boolean) =>
+    api.post("/gold/rates", {
+      gram18: v.gram18, mazaneh: v.mazaneh, gram24: v.gram24, buy_gram18: v.buy_gram18, ounce_usd: v.ounce_usd, usd: v.usd, note: v.note, confirm,
+      coins: Object.fromEntries(keys.map((k) => [k, v[k] ?? null])),
+      coins_buy: Object.fromEntries(keys.map((k) => [k, v[`buy:${k}`] ?? null])),
+    });
+  const done = () => {
+    n.ok("قیمت روز ثبت شد");
+    onSaved();
+    onClose();
+  };
+  // a price far from the last one is saved only after the user confirms it
+  const save = {
+    isPending: busy,
+    mutate: async () => {
+      setBusy(true);
+      try {
+        await post(false);
+        done();
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 409) {
+          Modal.confirm({ title: "تأیید قیمت", content: e.message, okText: "ثبت قیمت", cancelText: "بازبینی", onOk: async () => { try { await post(true); done(); } catch (x) { n.error(x); } } });
+        } else n.error(e);
+      } finally {
+        setBusy(false);
+      }
+    },
+  };
   return (
     <Drawer
       open={open}
@@ -191,9 +286,14 @@ function RateEntry({ open, onClose, last, onSaved }: { open: boolean; onClose: (
       title="ثبت قیمت روز"
       destroyOnHidden
       afterOpenChange={(o) => {
-        if (o) setV({ gram18: last?.gram18 ?? null, mazaneh: last?.mazaneh ?? null, buy_gram18: last?.buy_gram18 ?? null, usd: last?.usd ?? null, ounce_usd: last?.ounce_usd ?? null, ...Object.fromEntries(COIN_KEYS.map((k) => [k, last?.coins?.[k] ?? null])) });
+        if (o) {
+          setV({
+            gram18: last?.gram18 ?? null, mazaneh: last?.mazaneh ?? null, buy_gram18: last?.buy_gram18 ?? null, usd: last?.usd ?? null, ounce_usd: last?.ounce_usd ?? null,
+            ...Object.fromEntries(keys.map((k) => [k, last?.coins?.[k] ?? null])), ...Object.fromEntries(keys.map((k) => [`buy:${k}`, last?.coins_buy?.[k] ?? null])),
+          });
+        }
       }}
-      footer={<Button type="primary" block loading={save.isPending} onClick={() => save.mutate(undefined)}>ثبت قیمت</Button>}
+      footer={<Button type="primary" block loading={save.isPending} onClick={() => save.mutate()}>ثبت قیمت</Button>}
     >
       <div className="grid gap-3">
         <div>
@@ -222,15 +322,19 @@ function RateEntry({ open, onClose, last, onSaved }: { open: boolean; onClose: (
             <MoneyInput value={v.usd} onChange={(x) => set("usd", x)} />
           </div>
         </div>
-        <div className="border-t border-line pt-2 text-xs font-semibold text-ink-3">سکه‌ها</div>
-        <div className="grid grid-cols-2 gap-3">
-          {COIN_KEYS.map((k) => (
-            <div key={k}>
-              <div className="sf-field-l mb-1.5">سکه {coinTitle(k)}</div>
-              <MoneyInput value={v[k]} onChange={(x) => set(k, x)} />
-            </div>
-          ))}
+        <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-x-3 gap-y-1 border-t border-line pt-2 text-xs font-semibold text-ink-3">
+          <span>فروش</span>
+          <span>خرید</span>
         </div>
+        {coins.map((c) => (
+          <div key={c.id}>
+            <div className="sf-field-l mb-1.5">{c.name}</div>
+            <div className="grid grid-cols-2 gap-3">
+              <MoneyInput value={v[c.rate_key!]} onChange={(x) => set(c.rate_key!, x)} aria-label={`فروش ${c.name}`} />
+              <MoneyInput value={v[`buy:${c.rate_key}`]} onChange={(x) => set(`buy:${c.rate_key}`, x)} aria-label={`خرید ${c.name}`} />
+            </div>
+          </div>
+        ))}
         <Input placeholder="یادداشت (اختیاری)" value={v.note ?? ""} onChange={(e) => set("note", e.target.value)} />
       </div>
     </Drawer>
@@ -238,8 +342,8 @@ function RateEntry({ open, onClose, last, onSaved }: { open: boolean; onClose: (
 }
 
 /** Counter calculator: piece price, used gold, bullion by mazaneh, weight for a budget. */
-function Calculator({ gram18, mazaneh, settings, unit, moneyDecimals }: { gram18: string | null; mazaneh: string | null; settings?: GoldSettings; unit: string; moneyDecimals: number }) {
-  const [mode, setMode] = useState<"piece" | "old" | "bullion" | "budget">("piece");
+function Calculator({ rate, products, gram18, mazaneh, settings, unit, moneyDecimals }: { rate: Rate | null; products: CatalogueRow[]; gram18: string | null; mazaneh: string | null; settings?: GoldSettings; unit: string; moneyDecimals: number }) {
+  const [mode, setMode] = useState<"piece" | "old" | "bullion" | "budget" | "product">("piece");
   const [f, setF] = useState<Record<string, string | null>>({ fineness: "750", wage_type: "percent", wage_value: "18" });
   const set = (k: string, x: string | null) => setF((o) => ({ ...o, [k]: x }));
   const g18 = f.gram18 ?? gram18 ?? "0";
@@ -251,11 +355,19 @@ function Calculator({ gram18, mazaneh, settings, unit, moneyDecimals }: { gram18
       if (mode === "piece") return priceJewelry({ weight: f.weight ?? 0, fineness: f.fineness ?? 750, gram18: g18, wageType: (f.wage_type ?? "percent") as WageType, wageValue: f.wage_value ?? 0, profitPct: profit, taxPct: tax, discount: f.discount ?? 0, stonePrice: f.stone ?? 0, roundStep: step });
       if (mode === "old") return priceOldGold({ weight: f.weight ?? 0, fineness: f.fineness ?? 750, gram18: f.gram18 ?? gram18 ?? 0, deductionPct: f.deduction ?? settings?.old_deduction_pct ?? 0, roundStep: step });
       if (mode === "bullion") return { total: priceBullion(f.weight ?? 0, f.fineness ?? 750, f.mazaneh ?? mazaneh ?? 0, step) };
+      if (mode === "product") {
+        const p = products.find((x) => x.id === f.product);
+        if (!p) return null;
+        return productQuote(p, rate ? { ...rate, gram18: g18 } : { gram18: g18 }, quoteEnvOf(settings, moneyDecimals), {
+          side: f.side === "buy" ? "buy" : "sell", qty: f.qty ?? 1, weight: p.kind === "bar" ? f.weight ?? p.gold_weight : undefined, fineness: p.kind === "bar" ? f.fineness ?? p.fineness : undefined, seal_status: f.seal ?? "sealed",
+        });
+      }
       return { weight: weightForBudget(f.budget ?? 0, { fineness: f.fineness ?? 750, gram18: g18, wageType: (f.wage_type ?? "percent") as WageType, wageValue: f.wage_value ?? 0, profitPct: profit, taxPct: tax }) };
     } catch {
       return null;
     }
-  }, [mode, f, g18, profit, tax, step, gram18, mazaneh, settings]);
+  }, [mode, f, g18, profit, tax, step, gram18, mazaneh, settings, products, rate, moneyDecimals]);
+  const product = products.find((x) => x.id === f.product);
   const R = ({ k, v, strong, w }: { k: ReactNode; v?: string; strong?: boolean; w?: boolean }) => (
     <div className={`r ${strong ? "is-total" : ""}`}>
       <span>{k}</span>
@@ -266,8 +378,23 @@ function Calculator({ gram18, mazaneh, settings, unit, moneyDecimals }: { gram18
   const L = ({ children }: { children: ReactNode }) => <div className="sf-field-l">{children}</div>;
   return (
     <Section title={<span className="inline-flex items-center gap-2"><Ic icon={CalcIcon} className="text-ink-3" />ماشین‌حساب طلا</span>} className="sf-gcalc">
-      <Segmented block value={mode} onChange={(v) => setMode(v as typeof mode)} options={[{ value: "piece", label: "جنس" }, { value: "old", label: "مستعمل" }, { value: "bullion", label: "آبشده" }, { value: "budget", label: "با مبلغ" }]} />
-      <div className="mt-4 grid grid-cols-2 gap-3">
+      <Select className="w-full" value={mode} onChange={(v) => setMode(v)} aria-label="نوع محاسبه" options={[{ value: "piece", label: "قیمت جنس (اجرت و سود)" }, { value: "product", label: "سکه و شمش" }, { value: "old", label: "خرید طلای مستعمل" }, { value: "bullion", label: "آب‌شده با مظنه" }, { value: "budget", label: "با این مبلغ چند گرم؟" }]} />
+      {mode === "product" ? (
+        <div className="mt-4 grid grid-cols-2 gap-3">
+          <div className="sf-field col-span-2"><L>سکه یا شمش</L><Select showSearch optionFilterProp="label" className="w-full" value={f.product ?? undefined} onChange={(x) => setF((o) => ({ ...o, product: x, weight: null, fineness: null }))} options={products.filter((p) => p.is_active).map((p) => ({ value: p.id, label: p.name }))} /></div>
+          <div className="sf-field"><L>معامله</L><Segmented block value={f.side ?? "sell"} onChange={(x) => set("side", String(x))} options={[{ value: "sell", label: "فروش" }, { value: "buy", label: "خرید" }]} /></div>
+          {product?.kind === "bar" ? (
+            <>
+              <div className="sf-field"><L>وزن</L><WeightInput value={f.weight ?? product.gold_weight} onChange={(x) => set("weight", x)} /></div>
+              <div className="sf-field"><L>عیار</L><NumberInput decimals={1} value={f.fineness ?? product.fineness} onChange={(x) => set("fineness", x)} /></div>
+              {f.side === "buy" ? <div className="sf-field"><L>پلمپ</L><Segmented block value={f.seal ?? "sealed"} onChange={(x) => set("seal", String(x))} options={[{ value: "sealed", label: "سالم" }, { value: "opened", label: "باز" }]} /></div> : null}
+            </>
+          ) : (
+            <div className="sf-field"><L>تعداد</L><NumberInput value={f.qty ?? "1"} onChange={(x) => set("qty", x)} /></div>
+          )}
+        </div>
+      ) : null}
+      <div className={`mt-4 grid grid-cols-2 gap-3 ${mode === "product" ? "hidden" : ""}`}>
         {mode === "budget" ? (
           <div className="sf-field col-span-2"><L>مبلغ</L><MoneyInput value={f.budget} onChange={(x) => set("budget", x)} words={unit} /></div>
         ) : (
@@ -307,7 +434,15 @@ function Calculator({ gram18, mazaneh, settings, unit, moneyDecimals }: { gram18
             <R k="قابل پرداخت" v={res.total} strong />
           </>
         ) : null}
-        {mode === "bullion" && res ? <R k="ارزش آبشده" v={res.total} strong /> : null}
+        {mode === "bullion" && res ? <R k="ارزش آب‌شده" v={res.total} strong /> : null}
+        {mode === "product" && result && "breakdown" in (result as object) ? (
+          <>
+            {(result as { breakdown: { key: string; label: string; amount: string }[] }).breakdown.map((b) => <R key={b.key} k={b.label} v={D(b.amount).abs().toString()} />)}
+            <R k="طلای خالص" v={(result as { pure: string }).pure} w />
+            {(result as { bubble?: { domestic?: { pct: string } | null } | null }).bubble?.domestic ? <R k={<>حباب <span className="why">{formatNumber((result as any).bubble.domestic.pct, { dp: 2 })}٪</span></>} v={(result as any).bubble.domestic.amount} /> : null}
+            <R k={f.side === "buy" ? "قابل پرداخت" : "قیمت نهایی"} v={(result as { total: string }).total} strong />
+          </>
+        ) : null}
         {mode === "budget" && res ? <R k="وزن قابل خرید" v={res.weight} w strong /> : null}
       </div>
     </Section>
@@ -327,14 +462,19 @@ function PriceSettings({ open, onClose, settings }: { open: boolean; onClose: ()
       onClose();
     },
   });
-  const PATHS: [string, string][] = [["gram18", "گرم ۱۸"], ["mazaneh", "مظنه"], ["gram24", "گرم ۲۴"], ["buy_gram18", "خرید مستعمل"], ["ounce_usd", "انس (دلار)"], ["usd", "دلار"], ["emami", "سکه امامی"], ["bahar", "سکه بهار"], ["nim", "نیم سکه"], ["rob", "ربع سکه"], ["gerami", "سکه گرمی"]];
+  const catalogue = useCatalogue("coin");
+  const board = (catalogue.data?.rows ?? []).filter((p) => p.is_active && p.rate_key && p.gold_meta.pricing_mode === "board");
+  const PATHS: [string, string][] = [
+    ["gram18", "گرم ۱۸"], ["mazaneh", "مظنه"], ["gram24", "گرم ۲۴"], ["buy_gram18", "خرید مستعمل"], ["ounce_usd", "انس (دلار)"], ["usd", "دلار"],
+    ...board.flatMap((p): [string, string][] => [[p.rate_key!, p.name], [`buy:${p.rate_key}`, `خرید ${p.name}`]]),
+  ];
   return (
     <Drawer open={open} onClose={onClose} size={560} title="تنظیمات قیمت و محاسبه‌ی طلا" destroyOnHidden footer={<Button type="primary" block loading={save.isPending} onClick={() => form.submit()}>ذخیره</Button>}>
       <Form
         form={form}
         layout="vertical"
         initialValues={{ ...settings, price_source: settings.price_source ?? { url: "", unit: "rial", paths: {} } }}
-        onFinish={(v) => save.mutate({ ...v, price_source: v.price_source?.url ? v.price_source : null })}
+        onFinish={(v) => save.mutate({ ...v, bars: { ...settings.bars, ...v.bars }, price_source: v.price_source?.url ? v.price_source : null })}
       >
         <div className="mb-2 text-xs font-semibold text-ink-3">محاسبه‌ی قیمت</div>
         <div className="grid grid-cols-2 gap-x-3">
@@ -343,6 +483,21 @@ function PriceSettings({ open, onClose, settings }: { open: boolean; onClose: ()
           <Form.Item name="round_step" label="گرد کردن مبالغ به"><NumberInput /></Form.Item>
           <Form.Item name="old_deduction_pct" label="کسر پیش‌فرض طلای مستعمل"><PctInput /></Form.Item>
           <Form.Item name="purchase_tax_pct" label="مالیات خرید بر اجرت همکار" extra="معمولاً صفر"><PctInput /></Form.Item>
+          <Form.Item name="deviation_pct" label="هشدار اختلاف قیمت دستی" extra="درصد اختلاف با قیمت قبلی"><PctInput /></Form.Item>
+          <Form.Item name="stale_minutes" label="قدیمی بودن قیمت منبع (دقیقه)"><NumberInput /></Form.Item>
+        </div>
+        <div className="mb-2 mt-2 border-t border-line pt-3 text-xs font-semibold text-ink-3">شناسایی مشتری</div>
+        <div className="grid grid-cols-2 gap-x-3">
+          <Form.Item name={["kyc", "enabled"]} label="کد ملی برای سکه، شمش و آب‌شده" valuePropName="checked"><Switch /></Form.Item>
+          <Form.Item name={["kyc", "threshold"]} label="از مبلغ" extra="خالی: همه‌ی معاملات"><MoneyInput /></Form.Item>
+        </div>
+        <div className="mb-2 mt-2 border-t border-line pt-3 text-xs font-semibold text-ink-3">شمش</div>
+        <div className="grid grid-cols-2 gap-x-3">
+          <Form.Item name={["bars", "basis"]} label="عیار محاسبه"><Select options={[{ value: "actual", label: "عیار واقعی" }, { value: "nominal", label: "۲۴ عیار کامل برای ۹۹۹٫۹" }]} /></Form.Item>
+          <Form.Item name={["bars", "opened_fineness"]} label="عیار خرید شمش باز"><NumberInput decimals={1} /></Form.Item>
+          <Form.Item name={["bars", "fee_sealed_pct"]} label="کارمزد خرید شمش پلمپ"><PctInput /></Form.Item>
+          <Form.Item name={["bars", "fee_opened_pct"]} label="کارمزد خرید شمش باز"><PctInput /></Form.Item>
+          <Form.Item name={["bars", "assay_fee"]} label="هزینه‌ی ری‌گیری شمش باز"><MoneyInput /></Form.Item>
         </div>
         <div className="mb-2 mt-2 border-t border-line pt-3 text-xs font-semibold text-ink-3">قیمت زنده</div>
         <Form.Item name="provider" label="منبع پیش‌فرض">

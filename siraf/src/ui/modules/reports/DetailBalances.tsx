@@ -16,6 +16,7 @@ import { D } from "@shared/money";
 import { matchesFa } from "../../lib/fa";
 import { DETAIL_KINDS } from "../accounting/labels";
 import { exportExcel } from "../../lib/excel";
+import { AiExplainButton } from "../../ai/explain/AiExplainButton";
 
 export default function DetailBalances() {
   const { api, fy, orgId, unit, org } = useOrg();
@@ -53,7 +54,7 @@ export default function DetailBalances() {
 
   return (
     <div>
-      <PageHeader title="ماندهٔ اشخاص و تفصیلی‌ها" />
+      <PageHeader title="ماندهٔ اشخاص و تفصیلی‌ها" actions={<AiExplainButton report="detail_balances" params={{ to: range.to, kind, account_id: accountId, fiscal_year_id: fy?.id, drafts: range.drafts ? 1 : 0 }} title="ماندهٔ اشخاص و تفصیلی‌ها" />} />
       <ReportFilters
         range={range}
         setRange={setRange}

@@ -10,16 +10,20 @@ import { insertMany, insertRow, nextNo, updateRow } from "../../db/sql";
 import { bad, conflict, notFound } from "../../http/errors";
 import { D, isNumeric, normalizeDigits, type Num } from "@shared/money";
 import { uuidv7, isUuid } from "@shared/id";
-import { faDigits } from "@shared/format";
+import { faDigits, formatMoney } from "@shared/format";
+import { isLegalNationalId, isNationalId } from "@shared/validate";
+import { barLineDefaults, coinLineDefaults, premiumToWage } from "@shared/gold-quote";
 import { fiscalYearFor } from "../accounting/fiscal";
 import { audit } from "../data/crud";
 import {
-  KINDS, DOC_KINDS, LINE_KIND_TITLES, bothPrices, coinKey, defaultFineness, docTotals, pieceDefaults, priceLine,
+  KINDS, DOC_KINDS, LINE_KIND_TITLES, bothPrices, docTotals, lineSide, pieceDefaults, priceLine,
   type DocKind, type Direction, type LineIn, type LineKind, type DocTotals,
 } from "./pricing";
-import { priceEnv } from "./settings";
+import { goldSettings, priceEnv } from "./settings";
+import { products, type ProductRow } from "./catalogue";
+import { normalizeBarNo, normalizeBrand, normalizeSerial, type BarRow } from "./bars";
 import { latestRate, type RateRow } from "./rates";
-import { assertCoinStock, normalizeTag, type CategoryRow, type GoldItemRow } from "./items";
+import { assertCoinStock, coinStock, normalizeTag, type CategoryRow, type GoldItemRow } from "./items";
 import { applyDoc, settleDue, unapplyDoc, type DocRow, type LineRow, type Settle, type SettleMoney } from "./posting";
 
 // ---------------------------------------------------------------- input
@@ -27,10 +31,33 @@ import { applyDoc, settleDue, unapplyDoc, type DocRow, type LineRow, type Settle
 const num = z.union([z.string().max(40), z.number()]).nullish();
 const uuid = z.string().uuid().nullish();
 
+const barSchema = z
+  .object({
+    bar_no: z.string().max(40).nullish(),
+    serial_no: z.string().max(80).nullish(),
+    brand: z.string().max(80).nullish(),
+    qr: z.string().max(500).nullish(),
+    nominal_weight: num,
+    certificate_no: z.string().max(80).nullish(),
+    certificate_issuer: z.string().max(120).nullish(),
+    assay_lab: z.string().max(120).nullish(),
+    assay_no: z.string().max(60).nullish(),
+    assay_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullish(),
+    seal_status: z.enum(["sealed", "opened", "damaged", "no_card"]).nullish(),
+  })
+  .nullish();
+
 export const lineSchema = z.object({
-  kind: z.enum(["piece", "bulk", "old", "coin"]),
+  kind: z.enum(["piece", "bulk", "old", "coin", "bar"]),
   direction: z.enum(["out", "in"]).nullish(),
   gold_item_id: uuid,
+  gold_bar_id: uuid,
+  bar: barSchema,
+  /** bars: a fixed price of the bar instead of metal + premium */
+  unit_price: num,
+  /** bars bought back: fee percent and assay fee instead of the defaults */
+  fee_pct: num,
+  assay_fee: num,
   item_id: uuid,
   category_id: uuid,
   title: z.string().max(200).nullish(),
@@ -73,6 +100,13 @@ export const docSchema = z.object({
   mazaneh: num,
   status: z.enum(["draft", "posted"]).optional(),
   description: z.string().max(1000).nullish(),
+  /** purchase source (wholesaler, ICE auction, the public) and its reference */
+  extra: z
+    .object({
+      source: z.enum(["wholesaler", "ice", "public"]).nullish(),
+      auction_ref: z.string().max(80).nullish(),
+    })
+    .nullish(),
   buyer: z
     .object({
       name: z.string().max(160).nullish(),
@@ -146,6 +180,7 @@ export interface Prepared {
     settle: Settle;
     buyer: Record<string, string>;
     description: string | null;
+    extra: Record<string, string>;
   };
   lines: LineDraft[];
   totals: DocTotals;
@@ -181,15 +216,15 @@ export async function prepare(q: Queryable, ctx: Ctx, input: DocInput, docId: st
   const cats = new Map(
     (await q.query<CategoryRow>(`select id, name, default_fineness, wage_type, wage_value, profit_pct from tz_gold_categories where org_id = $1 and deleted_at is null`, [orgId])).map((c) => [c.id, c]),
   );
-  const coinIds = raw.filter((l) => l.kind === "coin" && l.item_id).map((l) => l.item_id!);
-  const coins = new Map(
-    coinIds.length
-      ? (await q.query<{ id: string; name: string; code: string; sku: string | null; gold_weight: string | null; fineness: string | null; kind: string }>(
-          `select id, name, code, sku, gold_weight, fineness, kind from tz_items where org_id = $1 and id = any($2::uuid[]) and deleted_at is null`,
-          [orgId, `{${coinIds.join(",")}}`],
-        )).map((r) => [r.id, r])
+  const barIds = raw.filter((l) => l.kind === "bar" && l.gold_bar_id).map((l) => l.gold_bar_id!);
+  const bars = new Map(
+    barIds.length
+      ? (await q.query<BarRow>(`select * from tz_gold_bars where org_id = $1 and id = any($2::uuid[]) and deleted_at is null`, [orgId, `{${barIds.join(",")}}`])).map((r) => [r.id, r])
       : [],
   );
+  const productIds = [...new Set([...raw.filter((l) => (l.kind === "coin" || l.kind === "bar") && l.item_id).map((l) => l.item_id!), ...[...bars.values()].map((b) => b.item_id).filter((x): x is string => !!x)])];
+  const prods = new Map<string, ProductRow>(productIds.length ? (await products(q, orgId, ["coin", "bar"], productIds)).map((r) => [r.id, r]) : []);
+  const gs = goldSettings(ctx.org);
 
   // market price: the document's, else the latest rate when a line needs it
   let { gram18, mazaneh } = bothPrices(input.gram18, input.mazaneh);
@@ -197,15 +232,16 @@ export async function prepare(q: Queryable, ctx: Ctx, input: DocInput, docId: st
   const getRate = async () => (rate === undefined ? (rate = await latestRate(q, orgId)) : rate);
   const needsG18 = raw.some((l) => {
     if (has(l.gram_price) && D(l.gram_price).gt(0) && l.kind !== "coin") return false;
+    if (l.kind === "coin") return (kind === "sale" || kind === "buyback" || kind === "purchase") && prods.get(l.item_id ?? "")?.gold_meta.pricing_mode === "weight";
+    if (l.kind === "bar" && kind === "bullion_sale") return !mazaneh;
+    if (l.kind === "bar") return (kind === "sale" || kind === "buyback" || kind === "purchase" || (kind === "opening" && !has(l.cost))) && !(has(l.unit_price) && D(l.unit_price).gt(0));
     switch (kind) {
       case "sale":
-        return l.kind !== "coin";
       case "purchase":
-        return l.kind !== "coin";
       case "buyback":
         return true;
       case "opening":
-        return l.kind !== "coin" && !has(l.cost);
+        return !has(l.cost);
       case "workshop_in":
         return l.kind === "piece" && (l.wage_type ?? "percent") === "percent" && D(l.wage_value ?? 0).gt(0);
       case "bullion_sale":
@@ -219,7 +255,12 @@ export async function prepare(q: Queryable, ctx: Ctx, input: DocInput, docId: st
     if (r?.gram18) ({ gram18, mazaneh } = bothPrices(r.gram18, r.mazaneh));
     if (!gram18) throw bad(kind === "bullion_sale" ? "مظنه را وارد کنید" : "قیمت گرم ۱۸ عیار را وارد کنید");
   }
-  const env = priceEnv(ctx.org, { gram18: gram18 ?? 0, mazaneh });
+  const env = priceEnv(ctx.org, { gram18: gram18 ?? 0, mazaneh }, { date: input.date });
+  const seenBars = new Set<string>();
+  const seenSerials = new Set<string>();
+  const reason = (l: LineInput, n: number) => {
+    if (!l.description?.trim()) throw bad(`ردیف ${faDigits(n)}: دلیل کسر بابت وضعیت را در شرح ردیف بنویسید`);
+  };
 
   const lines: LineDraft[] = [];
   const seenItems = new Set<string>();
@@ -231,7 +272,7 @@ export async function prepare(q: Queryable, ctx: Ctx, input: DocInput, docId: st
       throw bad(`ردیف ${faDigits(n)}: «${LINE_KIND_TITLES[l.kind]}» ${direction === "out" ? "خروجی" : "ورودی"} در «${rule.title}» مجاز نیست`);
     }
     const draft: LineDraft = {
-      line_no: n, kind: l.kind, direction, gold_item_id: null, item_id: null, category_id: null, title: l.title?.trim() || null, form: null,
+      line_no: n, kind: l.kind, direction, gold_item_id: null, gold_bar_id: null, item_id: null, category_id: null, title: l.title?.trim() || null, form: null,
       qty: "1", fineness: null, weight: "0", weight750: "0", stone_weight: null, gram_price: null, gold_value: "0", wage_type: null, wage_value: null,
       wage: "0", profit_pct: null, profit: "0", tax: "0", stone: "0", deduction_pct: null, discount: "0", total: "0", assay_no: l.assay_no?.trim() || null,
       description: l.description?.trim() || null, cost: null, tag_no: null, extra: {},
@@ -305,23 +346,102 @@ export async function prepare(q: Queryable, ctx: Ctx, input: DocInput, docId: st
       if (D(fineness).isZero()) throw bad(`ردیف ${faDigits(n)}: عیار را وارد کنید`);
       Object.assign(draft, { form: "old", title: draft.title ?? "طلای مستعمل" });
       pin = { kind: "old", direction: "in", weight, fineness, gram_price: gramPrice, deduction_pct: decimal(l.deduction_pct, "درصد کسر", n, { max: 100 }) };
-    } else {
+    } else if (l.kind === "coin") {
       if (!l.item_id) throw bad(`ردیف ${faDigits(n)}: نوع سکه را انتخاب کنید`);
-      const c = coins.get(l.item_id);
+      const c = prods.get(l.item_id);
       if (!c || c.kind !== "coin") throw bad(`ردیف ${faDigits(n)}: سکه پیدا نشد`);
       const qty = decimal(l.qty, "تعداد", n, { positive: true })!;
       if (!D(qty).isInteger()) throw bad(`ردیف ${faDigits(n)}: تعداد سکه باید عدد صحیح باشد`);
-      let unit = gramPrice;
-      if (!unit && !(kind === "opening" && has(l.cost))) {
-        const key = coinKey(c);
-        const r = await getRate();
-        unit = key && r?.coins?.[key] ? String(r.coins[key]) : null;
-        if (!unit && (kind === "sale" || kind === "purchase" || kind === "opening")) throw bad(`ردیف ${faDigits(n)}: قیمت «${c.name}» را وارد کنید`);
+      const side = lineSide(direction);
+      const priced = kind === "sale" || kind === "buyback" || kind === "purchase" || (kind === "opening" && !has(l.cost));
+      const d = coinLineDefaults(c, priced ? await getRate() : null, side, { wholesale: kind === "purchase" });
+      // weight-priced coins follow the document's gram price (the buy price of the board when we buy)
+      let price = gramPrice;
+      if (!price && priced) {
+        if (d.pricing_mode === "weight") price = side === "sell" ? gram18 : d.gram_price ?? gram18;
+        else price = d.gram_price;
       }
-      Object.assign(draft, { item_id: c.id, title: draft.title ?? c.name });
+      if (!price && priced) throw bad(`ردیف ${faDigits(n)}: قیمت ${side === "buy" ? "خرید " : ""}«${c.name}» را وارد کنید`);
+      const discount = decimal(l.discount, side === "buy" ? "کسر بابت وضعیت" : "تخفیف", n);
+      if (side === "buy" && discount && D(discount).gt(0)) reason(l, n);
+      let unitCost: string | null = null;
+      if (d.vat_mode === "margin" && side === "sell" && kind === "sale") {
+        const st = docId ? await coinStock(q as Tx, orgId, c.id, input.date, docId) : await coinStock(q as Tx, orgId, c.id, input.date, "00000000-0000-0000-0000-000000000000");
+        unitCost = st.avg ? st.avg.toDecimalPlaces(0).toString() : "0";
+      }
+      const wageType = d.pricing_mode === "weight" ? l.wage_type ?? d.wage_type : null;
+      const wageValue = d.pricing_mode === "weight" ? decimal(l.wage_value, "اجرت", n) ?? d.wage_value : null;
+      Object.assign(draft, {
+        item_id: c.id, title: draft.title ?? c.name, wage_type: wageType, wage_value: wageValue,
+        extra: { pricing_mode: d.pricing_mode, vat_mode: d.vat_mode, ...(unitCost ? { unit_cost: unitCost } : {}) },
+      });
       pin = {
-        kind: "coin", direction, qty, fineness: c.fineness ?? defaultFineness("coin"), weight: D(qty).times(D(c.gold_weight ?? 0)).toString(),
-        gram_price: unit, discount: decimal(l.discount, "تخفیف", n), cost: decimal(l.cost, "بهای تمام‌شده", n),
+        kind: "coin", direction, qty, fineness: c.fineness ?? "900", weight: D(qty).times(D(c.gold_weight ?? 0)).toString(), gram_price: price,
+        pricing_mode: d.pricing_mode, vat_mode: d.vat_mode, wage_type: wageType, wage_value: wageValue,
+        profit_pct: d.pricing_mode === "weight" && side === "sell" ? decimal(l.profit_pct, "سود", n, { max: 100 }) ?? d.profit_pct : null,
+        unit_cost: unitCost, discount, cost: decimal(l.cost, "بهای تمام‌شده", n),
+      };
+    } else {
+      // bars: out lines are bars of the register; in lines describe the bar that comes in
+      const x = l.bar ?? {};
+      let bar: BarRow | null = null;
+      if (l.gold_bar_id) {
+        bar = bars.get(l.gold_bar_id) ?? null;
+        if (!bar) throw bad(`ردیف ${faDigits(n)}: شمش پیدا نشد`);
+        if (seenBars.has(bar.id)) throw bad(`شمش ${faDigits(bar.bar_no)} دو بار در سند آمده است`);
+        seenBars.add(bar.id);
+      } else if (direction === "out") throw bad(`ردیف ${faDigits(n)}: شمش را اسکن یا انتخاب کنید`);
+      const model = prods.get(l.item_id ?? bar?.item_id ?? "") ?? null;
+      if (l.item_id && (!model || model.kind !== "bar")) throw bad(`ردیف ${faDigits(n)}: مدل شمش پیدا نشد`);
+      const side = lineSide(direction);
+      const weight = direction === "out" ? D(bar!.weight).toString() : decimal(l.weight, "وزن شمش", n, { positive: true }) ?? (bar ? D(bar.weight).toString() : null);
+      if (!weight) throw bad(`ردیف ${faDigits(n)}: وزن شمش را وارد کنید`);
+      const fineness = direction === "out" ? D(bar!.fineness).toString() : decimal(l.fineness, "عیار", n, { max: 1000 }) ?? (bar ? D(bar.fineness).toString() : model?.fineness ? D(model.fineness).toString() : "995");
+      if (D(fineness).isZero()) throw bad(`ردیف ${faDigits(n)}: عیار را وارد کنید`);
+      const seal = x.seal_status ?? bar?.seal_status ?? "sealed";
+      const serial = (x.serial_no ?? bar?.serial_no ?? "").trim();
+      const brand = normalizeBrand(x.brand ?? bar?.brand ?? model?.gold_meta.brand ?? "");
+      if (direction === "in" && serial) {
+        const k = `${brand}|${normalizeSerial(serial)}`;
+        if (seenSerials.has(k)) throw bad(`سریال «${serial}» دو بار در سند آمده است`);
+        seenSerials.add(k);
+      }
+      const d = barLineDefaults(model, { weight, seal_status: seal }, side === "buy" || kind === "sale" || kind === "purchase" ? await getRate() : null, gs.bars, side);
+      const unit = decimal(l.unit_price, "قیمت شمش", n) ?? (kind === "sale" || ((kind === "buyback") && side === "buy") ? d.unit_price : null);
+      const discount = decimal(l.discount, side === "buy" ? "کسر بابت وضعیت" : "تخفیف", n);
+      if (side === "buy" && discount && D(discount).gt(0)) reason(l, n);
+      const sellSide = kind === "sale" && direction === "out";
+      const wageType = sellSide ? l.wage_type ?? premiumToWage(d.premium_type) : kind === "purchase" || kind === "opening" ? l.wage_type ?? "percent" : null;
+      const wageValue = sellSide ? decimal(l.wage_value, "حق ضرب", n) ?? d.premium_value : kind === "purchase" || kind === "opening" ? decimal(l.wage_value, "حق ضرب", n) ?? "0" : null;
+      const attrs: Record<string, string> = {};
+      if (direction === "in") {
+        const barNo = x.bar_no ? normalizeBarNo(x.bar_no) : "";
+        if (barNo) attrs.bar_no = barNo;
+        if (serial) attrs.serial_no = serial;
+        if (brand) attrs.brand = brand;
+        for (const k of ["qr", "certificate_no", "certificate_issuer", "assay_lab", "assay_no", "assay_date"] as const) {
+          const v = x[k] ?? (bar ? (bar[k] as string | null) : null);
+          if (v && String(v).trim()) attrs[k] = String(v).trim();
+        }
+        const nominal = decimal(x.nominal_weight, "وزن اسمی", n) ?? (bar?.nominal_weight ? D(bar.nominal_weight).toString() : model?.gold_weight ? D(model.gold_weight).toString() : null);
+        if (nominal) attrs.nominal_weight = nominal;
+        attrs.seal_status = seal;
+      }
+      const sealed = seal === "sealed";
+      const feePct = side === "buy" ? decimal(l.fee_pct, "کارمزد خرید", n, { max: 100 }) ?? d.fee_pct : null;
+      const assayFee = side === "buy" ? decimal(l.assay_fee, "هزینه‌ی ری‌گیری", n) ?? d.assay_fee : null;
+      Object.assign(draft, {
+        gold_bar_id: bar?.id ?? null, item_id: model?.id ?? null, tag_no: bar?.bar_no ?? attrs.bar_no ?? null,
+        title: draft.title ?? model?.name ?? "شمش", wage_type: wageType, wage_value: wageValue,
+        extra: {
+          ...(direction === "in" ? { bar: attrs } : {}), ...(unit ? { unit_price: unit } : {}), basis: d.basis, vat_mode: d.vat_mode,
+          ...(feePct !== null ? { fee_pct: feePct, assay_fee: assayFee, sealed: sealed ? "1" : "0" } : {}),
+        },
+      });
+      pin = {
+        kind: "bar", direction, weight, fineness, gram_price: gramPrice, unit_price: unit, basis: d.basis, wage_type: wageType, wage_value: wageValue,
+        profit_pct: sellSide ? decimal(l.profit_pct, "سود", n, { max: 100 }) : null, vat_mode: d.vat_mode, discount, cost: decimal(l.cost, "بهای تمام‌شده", n),
+        sealed, fee_pct: feePct, assay_fee: assayFee, opened_fineness: d.opened_fineness,
       };
     }
 
@@ -337,7 +457,7 @@ export async function prepare(q: Queryable, ctx: Ctx, input: DocInput, docId: st
     lines.push(draft);
   }
   if (kind === "melt" && (!lines.some((l) => l.direction === "out") || !lines.some((l) => l.direction === "in"))) {
-    throw bad("ذوب باید هم طلای ورودی (مستعمل یا جنس) و هم آبشده‌ی حاصل را داشته باشد");
+    throw bad("ذوب باید هم طلای ورودی (مستعمل، جنس، سکه یا شمش) و هم آب‌شده‌ی حاصل را داشته باشد");
   }
 
   const totals = docTotals(kind, lines);
@@ -349,11 +469,39 @@ export async function prepare(q: Queryable, ctx: Ctx, input: DocInput, docId: st
       kind, fiscal_year_id: fy.id, date: input.date, party_id: party?.id ?? null, gram18, mazaneh,
       gold_value: totals.gold_value, wage: totals.wage, profit: totals.profit, tax: totals.tax, stone: totals.stone, discount: totals.discount,
       old_value: totals.old_value, total: totals.total, weight_out: totals.weight_out, weight_in: totals.weight_in,
-      settle, buyer, description: input.description?.trim() || null,
+      settle, buyer, description: input.description?.trim() || null, extra: docExtra(kind, input.extra),
     },
     lines,
     totals,
   };
+}
+
+function docExtra(kind: DocKind, raw: DocInput["extra"]): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (kind === "purchase" && raw?.source) out.source = raw.source;
+  if (kind === "purchase" && raw?.auction_ref?.trim()) out.auction_ref = normalizeDigits(raw.auction_ref.trim());
+  return out;
+}
+
+/**
+ * Identification (KYC): selling or buying coins, bars or آب‌شده needs a party with a valid national
+ * id (or the walk-in buyer's) when the setting is on and the document reaches the threshold.
+ */
+export async function assertKyc(q: Queryable, ctx: Ctx, doc: { kind: DocKind; party_id: string | null; total: Num; old_value: Num; buyer?: Record<string, unknown> | null }, lines: { kind: string; form: string | null }[]) {
+  const k = goldSettings(ctx.org).kyc;
+  if (!k.enabled || !["sale", "buyback", "bullion_sale"].includes(doc.kind)) return;
+  if (!lines.some((l) => l.kind === "coin" || l.kind === "bar" || (l.kind === "bulk" && l.form === "bullion"))) return;
+  const amount = D(doc.total ?? 0).abs().gt(D(doc.old_value ?? 0).abs()) ? D(doc.total ?? 0).abs() : D(doc.old_value ?? 0).abs();
+  if (k.threshold && amount.lt(D(k.threshold))) return;
+  const valid = (v: unknown) => typeof v === "string" && (isNationalId(v) || isLegalNationalId(v));
+  if (valid(doc.buyer?.national_id)) return;
+  if (doc.party_id) {
+    const p = await q.one<{ national_id: string | null }>(`select national_id from tz_parties where id = $1 and org_id = $2`, [doc.party_id, ctx.org.id]);
+    if (valid(p?.national_id)) return;
+  }
+  const who = doc.kind === "buyback" ? "فروشنده" : "خریدار";
+  const above = k.threshold ? ` از ${formatMoney(k.threshold, ctx.org.money_decimals)} به بالا` : "";
+  throw bad(`برای ${doc.kind === "buyback" ? "خرید" : "فروش"} سکه، شمش یا آب‌شده${above} شناسایی ${who} لازم است؛ ${who} با کد ملی معتبر را انتخاب کنید یا کد ملی را در مشخصات ${who} وارد کنید`);
 }
 
 function normalizeSettle(kind: DocKind, raw: DocInput["settle"], lines: LineDraft[], hasParty: boolean, dp: number, preview = false): Settle {
@@ -420,6 +568,7 @@ export async function createDoc(ctx: Ctx, input: DocInput) {
     const id = uuidv7();
     const no = await nextNo(tx, "tz_gold_docs", ctx.org.id, p.header.fiscal_year_id, input.kind);
     const status = input.status ?? "posted";
+    if (status === "posted") await assertKyc(tx, ctx, p.header, p.lines);
     await insertRow(tx, "tz_gold_docs", { id, org_id: ctx.org.id, no, status, ...p.header, created_by: ctx.user.id, origin: ctx.cfg.origin }, "id");
     const lines = await writeLines(tx, ctx, id, p.lines);
     if (status === "posted") {
@@ -443,6 +592,7 @@ export async function updateDoc(ctx: Ctx, id: string, input: DocInput) {
     // undo the old posting first so its pieces are free again (its voucher is replaced in place)
     const undone = prev.status === "posted" ? await unapplyDoc(tx, ctx, prev, { keepVoucher: status === "posted" }) : null;
     const p = await prepare(tx, ctx, input, id);
+    if (status === "posted") await assertKyc(tx, ctx, p.header, p.lines);
     const no = prev.fiscal_year_id === p.header.fiscal_year_id ? prev.no : await nextNo(tx, "tz_gold_docs", ctx.org.id, p.header.fiscal_year_id, input.kind);
     await tx.query(`delete from tz_gold_lines where doc_id = $1`, [id]);
     const lines = await writeLines(tx, ctx, id, p.lines);
@@ -463,10 +613,12 @@ export async function postDoc(ctx: Ctx, id: string) {
   return ctx.write(async (tx) => {
     const doc = await loadDocRow(tx, ctx.org.id, id);
     if (doc.status === "posted") throw conflict("این سند قبلاً ثبت شده است");
+    const lines = await loadLines(tx, id);
+    await assertKyc(tx, ctx, doc, lines);
     const fy = await fiscalYearFor(tx, ctx.org.id, doc.date);
     const no = fy.id === doc.fiscal_year_id ? doc.no : await nextNo(tx, "tz_gold_docs", ctx.org.id, fy.id, doc.kind);
     await updateRow(tx, "tz_gold_docs", { id, org_id: ctx.org.id }, { fiscal_year_id: fy.id, no, status: "posted", origin: ctx.cfg.origin });
-    const voucherId = await applyDoc(tx, ctx, await loadDocRow(tx, ctx.org.id, id), await loadLines(tx, id));
+    const voucherId = await applyDoc(tx, ctx, await loadDocRow(tx, ctx.org.id, id), lines);
     await updateRow(tx, "tz_gold_docs", { id, org_id: ctx.org.id }, { voucher_id: voucherId, origin: ctx.cfg.origin });
     await audit(tx, ctx, "post", "gold_doc", id, summary(doc.kind, no));
     return readDoc(tx, ctx.org.id, id);
@@ -511,10 +663,12 @@ export async function readDoc(q: Queryable, orgId: string, id: string) {
       ? q.one(`select id, code, name, mobile, phone, national_id, economic_code, postal_code, address, city, detail_id from tz_parties where id = $1`, [doc.party_id])
       : Promise.resolve(null),
     q.query(
-      `select l.*, c.name as category_name, i.status as item_status, i.ownership, i.supplier_id, ci.name as coin_name, ci.code as coin_code
+      `select l.*, c.name as category_name, coalesce(i.status, b.status) as item_status, coalesce(i.ownership, b.ownership) as ownership, i.supplier_id,
+              ci.name as coin_name, ci.code as coin_code, ci.rate_key, b.bar_no, b.serial_no, b.brand, b.seal_status, b.certificate_no, b.fine_weight
        from tz_gold_lines l
        left join tz_gold_categories c on c.id = l.category_id
        left join tz_gold_items i on i.id = l.gold_item_id
+       left join tz_gold_bars b on b.id = l.gold_bar_id
        left join tz_items ci on ci.id = l.item_id
        where l.doc_id = $1 order by l.line_no`,
       [id],
@@ -570,7 +724,11 @@ export async function listDocs(ctx: Ctx, p: DocListParams) {
     } else {
       params.push(likeContains(s));
       const n = params.length;
-      cond.push(`(pa.name ilike $${n} or coalesce(d.description, '') ilike $${n} or coalesce(d.buyer->>'name', '') ilike $${n})`);
+      cond.push(
+        `(pa.name ilike $${n} or coalesce(d.description, '') ilike $${n} or coalesce(d.buyer->>'name', '') ilike $${n}
+          or exists (select 1 from tz_gold_lines gl left join tz_gold_bars gb on gb.id = gl.gold_bar_id
+                     where gl.doc_id = d.id and (gb.serial_no ilike $${n} or gl.extra->'bar'->>'serial_no' ilike $${n})))`,
+      );
     }
   }
   const where = cond.join(" and ");

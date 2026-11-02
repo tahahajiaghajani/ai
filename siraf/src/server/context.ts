@@ -1,9 +1,11 @@
 // Server configuration and the per-request context handed to services.
 import type { Db, Tx } from "./db";
 import type { Area, Level, Role } from "@shared/permissions";
-import { can as canDo } from "@shared/permissions";
+import { can as canDo, AREAS, LEVEL_ORDER } from "@shared/permissions";
 import type { ModuleKey } from "@shared/constants";
 import { forbidden } from "./http/errors";
+import { assertWritable } from "./modules/platform/org-admin";
+import { recordSupportWrite } from "./modules/platform/support";
 
 export type Mode = "cloud" | "desktop";
 
@@ -37,7 +39,7 @@ export interface DesktopBridge {
    * is the cloud account's id (the local account must be that one); `unreachable` when the cloud
    * could not be asked.
    */
-  cloudLogin?(email: string, password: string): Promise<{ ok: boolean; user_id?: string; unreachable?: boolean }>;
+  cloudLogin?(email: string, password: string): Promise<{ ok: boolean; user_id?: string; unreachable?: boolean; limited?: boolean }>;
   notifyLocalWrite(): void;
 }
 
@@ -46,6 +48,12 @@ export interface ServerConfig {
   db: Db;
   /** signs sessions and encrypts stored secrets */
   secret: string;
+  /**
+   * Where `secret` came from: APP_SECRET ("env"), derived from the database URL ("derived": stored
+   * keys become unreadable when that URL changes) or the Windows installation's own ("installation").
+   * Shown on «سلامت سامانه»; when unset it is inferred from the mode and process.env.APP_SECRET.
+   */
+  secretSource?: "env" | "derived" | "installation";
   allowSignup: boolean;
   /** platform administrators (the app owner) by email */
   platformAdmins: string[];
@@ -120,16 +128,52 @@ export interface MemberRow {
   is_active: boolean;
 }
 
+/** «حالت پشتیبانی»: the platform admin's time-limited access to a business he is not a member of. */
+export type SupportLevel = "view" | "edit";
+export interface SupportSession {
+  id: string;
+  level: SupportLevel;
+  reason: string;
+  started_at: string;
+  expires_at: string;
+}
+
+/** Platform status of a business (tz_org_admin): read_only refuses writes, suspended closes it to its members. */
+export type OrgStatus = "active" | "read_only" | "suspended";
+export interface OrgPlatformStatus {
+  status: OrgStatus;
+  reason: string | null;
+}
+
+export interface WriteOptions {
+  /**
+   * Bookkeeping that is not business data (conversation history, caches, usage counters): allowed
+   * while the business is read-only and inside a view-only support session, and not listed as a
+   * support change in the audit log.
+   */
+  internal?: boolean;
+}
+
 export interface Ctx {
   cfg: ServerConfig;
   db: Db;
   user: AuthUser;
   org: OrgRow;
   member: MemberRow;
+  /** who acts: a member ("user") or the platform admin in a support session ("support") */
+  actor?: "user" | "support";
+  /** the active support session when `actor` is "support" */
+  support?: SupportSession | null;
+  /** the business's platform status (loaded for /o/:org requests) */
+  status?: OrgPlatformStatus | null;
   can(area: Area, level: Level): boolean;
   need(area: Area, level: Level): void;
-  /** run `fn` in a write transaction holding the organisation's write lock */
-  write<T>(fn: (tx: Tx) => Promise<T>): Promise<T>;
+  /**
+   * Run `fn` in a write transaction holding the organisation's write lock. Refused while the
+   * business is read-only or suspended (unless `internal`); inside a support session every change
+   * is tagged and listed in the business's audit log.
+   */
+  write<T>(fn: (tx: Tx) => Promise<T>, opts?: WriteOptions): Promise<T>;
   hasModule(m: ModuleKey): boolean;
 }
 
@@ -142,21 +186,79 @@ export async function lockOrg(tx: Tx, orgId: string): Promise<void> {
   );
 }
 
-export function makeCtx(cfg: ServerConfig, user: AuthUser, org: OrgRow, member: MemberRow): Ctx {
+export const NOT_MEMBER_MESSAGE = "شما عضو این کسب‌وکار نیستید؛ برای کار در آن، از «مدیریت سامانه» حالت پشتیبانی را آغاز کنید";
+export const SUPPORT_VIEW_ONLY_MESSAGE = "حالت پشتیبانی شما فقط برای مشاهده است؛ برای اصلاح، حالت پشتیبانی «مشاهده و اصلاح» را آغاز کنید";
+
+/**
+ * The level a support session grants in an area. «مشاهده» sees every area (the assistant stays off:
+ * it would spend the business's AI budget); «مشاهده و اصلاح» works like the business's manager,
+ * except that members are never changed — owner-only actions check the member's role, which a
+ * support session never has.
+ */
+export function supportLevel(level: SupportLevel, area: Area): Level {
+  if (area === "users") return "view";
+  if (level === "view") return area === "ai" ? "none" : "view";
+  return "full";
+}
+
+export function supportPermissions(level: SupportLevel): Record<Area, Level> {
+  const out = {} as Record<Area, Level>;
+  for (const a of Object.keys(AREAS) as Area[]) out[a] = supportLevel(level, a);
+  return out;
+}
+
+/** A placeholder membership (no id): a platform admin who is not a member of the business. */
+export const isOutsider = (member: MemberRow) => !member.id;
+
+export interface CtxOptions {
+  support?: SupportSession | null;
+  status?: OrgPlatformStatus | null;
+  /** the request being served: describes a support session's changes in the audit log */
+  request?: { method: string; path: string } | null;
+}
+
+export function makeCtx(cfg: ServerConfig, user: AuthUser, org: OrgRow, member: MemberRow, opts: CtxOptions = {}): Ctx {
+  // A member acts through the membership, platform admins included. A platform admin who is not a
+  // member gets in only through an active support session, and then only at its level; without one
+  // nothing is allowed (there is no silent superuser).
+  const outsider = isOutsider(member);
+  const support = outsider ? (opts.support ?? null) : null;
+  const rank = (l: Level) => LEVEL_ORDER.indexOf(l);
   const ctx: Ctx = {
     cfg,
     db: cfg.db,
     user,
     org,
     member,
-    can: (area, level) => user.is_platform_admin || canDo(member.role, area, level, member.overrides),
-    need: (area, level) => {
-      if (!ctx.can(area, level)) throw forbidden();
+    actor: support ? "support" : "user",
+    support,
+    status: opts.status ?? null,
+    can: (area, level) => {
+      if (outsider) return !!support && rank(supportLevel(support.level, area)) >= rank(level);
+      return canDo(member.role, area, level, member.overrides);
     },
-    write: async (fn) => {
+    need: (area, level) => {
+      if (ctx.can(area, level)) return;
+      if (outsider && !support) throw forbidden(NOT_MEMBER_MESSAGE);
+      throw forbidden();
+    },
+    write: async (fn, wopts) => {
+      if (outsider && !support) throw forbidden(NOT_MEMBER_MESSAGE);
+      if (support?.level === "view" && !wopts?.internal) throw forbidden(SUPPORT_VIEW_ONLY_MESSAGE);
       const result = await cfg.db.tx(async (tx) => {
         await lockOrg(tx, org.id);
-        return fn(tx);
+        if (!wopts?.internal) await assertWritable(tx, org.id);
+        if (support) {
+          const live = await tx.one(
+            `select set_config('taraz.actor_kind', 'support', true), set_config('taraz.support_session', id::text, true)
+             from tz_support_sessions where id = $1 and ended_at is null and expires_at > now()`,
+            [support.id],
+          );
+          if (!live) throw forbidden("حالت پشتیبانی شما پایان یافته است");
+        }
+        const out = await fn(tx);
+        if (support && !wopts?.internal) await recordSupportWrite(tx, cfg, org.id, user.id, support.id, opts.request ?? null);
+        return out;
       });
       cfg.desktop?.notifyLocalWrite();
       return result;

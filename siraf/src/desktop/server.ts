@@ -10,6 +10,7 @@ import type { AddressInfo } from "node:net";
 import { createPgliteDb } from "@server/db/pglite";
 import { migrate } from "@server/db/migrate";
 import { createApp } from "@server/app";
+import { registerCloudLink } from "@server/modules/ai/relay";
 import { consoleLogger, type Logger } from "@server/context";
 import { loadConfig, saveConfig, type LocalConfig } from "./config";
 import { createBridge } from "./bridge";
@@ -110,6 +111,8 @@ export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
     }
     return next();
   });
+  // AI model calls of a linked installation may go through the web version's connections
+  registerCloudLink(db, () => config.cloud);
   app.route("/", api);
   app.use("/*", serveStatic({ root: staticDir }));
   app.get("*", (c) => {

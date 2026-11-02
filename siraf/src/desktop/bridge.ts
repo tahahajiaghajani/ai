@@ -109,7 +109,7 @@ export function createBridge(o: { dataDir: string; db: Db & { pg?: PGlite }; con
     },
     async cloudLogin(email: string, password: string) {
       const r = await sync.verifyCloudPassword(email, password);
-      if (r.status !== "ok") return { ok: false, unreachable: r.status === "unreachable" };
+      if (r.status !== "ok") return { ok: false, unreachable: r.status === "unreachable", limited: r.status === "limited" };
       // remember the password of this cloud account here, so that the next sign-in works offline
       // (the next change of the account in the cloud replaces or drops it again)
       await o.db.query(`update tz_users set password_hash = $2 where id = $1 and lower(email) = lower($3)`, [r.user_id, await hashPassword(password), email]);

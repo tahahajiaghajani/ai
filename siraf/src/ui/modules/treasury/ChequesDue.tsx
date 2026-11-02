@@ -14,6 +14,7 @@ import { formatJalali } from "@shared/jalali";
 import { D } from "@shared/money";
 import { chequeStatusMap } from "./labels";
 import { Amt, Card, ICON, Note, PrintFoot, PrintHead, Who, docNo } from "../reports/kit";
+import { AiExplainButton } from "../../ai/explain/AiExplainButton";
 
 interface Agg {
   count: number;
@@ -58,6 +59,7 @@ export function ChequesDue({ onOpen }: { onOpen: (id: string) => void }) {
           <DateInput value={to} onChange={setTo} placeholder="سررسید تا" allowClear />
         </span>
         <div className="bk-end">
+          <AiExplainButton report="cheques_due" params={{ direction, from, to }} title="سررسید چک‌ها" compact />
           <Tooltip title="چاپ">
             <Button type="text" icon={<Printer {...ICON} />} onClick={() => window.print()} aria-label="چاپ" />
           </Tooltip>

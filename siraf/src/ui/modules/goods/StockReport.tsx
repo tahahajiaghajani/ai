@@ -15,6 +15,7 @@ import { DateInput, RefSelect } from "../../components/inputs";
 import { faDigits, formatNumber } from "@shared/format";
 import { formatJalali } from "@shared/jalali";
 import { LatinRuns, Qty } from "./components";
+import { AiExplainButton } from "../../ai/explain/AiExplainButton";
 
 export default function StockReport() {
   const { api, orgId, org, can } = useOrg();
@@ -69,6 +70,7 @@ export default function StockReport() {
                 <Button icon={<Ic icon={recompute.isPending ? LoaderCircle : Ellipsis} className={recompute.isPending ? "sf-spin" : undefined} />} aria-label="بیشتر" />
               </Dropdown>
             ) : null}
+            <AiExplainButton report="stock" params={{ warehouse_id: warehouseId, category_id: categoryId, date, by, low: low ? 1 : 0 }} title="موجودی کالا" compact />
             <Button icon={<Ic icon={FileSpreadsheet} />} onClick={exportRows} disabled={!rows.length}>اکسل</Button>
             <Button icon={<Ic icon={Printer} />} onClick={() => window.print()}>چاپ</Button>
           </>

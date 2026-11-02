@@ -5,6 +5,7 @@ import { treasuryRoutes } from "./treasury";
 import { goodsRoutes } from "./goods";
 import { goldRoutes } from "./gold";
 import { fxRoutes } from "./fx";
+import { aiRoutes } from "./ai";
 
 export const moduleRoutes = router();
 
@@ -18,3 +19,4 @@ moduleRoutes.route("/treasury", treasuryRoutes);
 moduleRoutes.route("/goods", goodsRoutes);
 moduleRoutes.route("/gold", goldRoutes);
 moduleRoutes.route("/fx", fxRoutes);
+moduleRoutes.route("/ai", aiRoutes);

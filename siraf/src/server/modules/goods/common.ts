@@ -100,7 +100,7 @@ export interface ItemRow {
   id: string;
   code: string;
   name: string;
-  kind: "goods" | "service" | "coin";
+  kind: "goods" | "service" | "coin" | "bar";
   category_id: string | null;
   unit_id: string | null;
   unit2_id: string | null;
