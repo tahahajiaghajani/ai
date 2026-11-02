@@ -12,6 +12,17 @@ import { bad } from "../../http/errors";
 
 export const JOBS: AiJob[] = AI_JOBS.map((j) => j.key);
 
+/** Features whose own switch must be on for a generate() call with that ledger label. */
+export const FEATURE_SWITCH: Record<string, keyof AiSettings["features"]> = {
+  explain: "explain",
+  capture: "capture",
+  plan: "forecast",
+  forecast: "forecast",
+  brief: "insights",
+  digest: "insights",
+  insights: "insights",
+};
+
 export function defaultSettings(): AiSettings {
   return {
     enabled: true,

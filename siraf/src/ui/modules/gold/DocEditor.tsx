@@ -121,6 +121,9 @@ const SECTIONS: Record<Exclude<DocKind, "sale">, SectionDef[]> = {
   ],
 };
 
+/** Gold bought from a customer: used gold, or آب‌شده (needs the seller's identification). */
+const oldFormOptions = [{ value: "old", label: "طلای مستعمل" }, { value: "bullion", label: "آب‌شده" }];
+
 const WAGE_LABEL: Partial<Record<DocKind, string>> = { purchase: "اجرت خرید", consign_in: "اجرت همکار", workshop_in: "اجرت سازنده" };
 
 function defaultForm(kind: DocKind, direction: Direction) {
@@ -145,7 +148,7 @@ function DocEditor({ kind, id }: { kind: Exclude<DocKind, "sale">; id: string | 
   const coins = useCoins();
   const catalogue = useCatalogue();
   const prods = useMemo(() => new Map((catalogue.data?.rows ?? []).map((p) => [p.id, p])), [catalogue.data]);
-  const [source, setSource] = useState<"wholesaler" | "ice">("wholesaler");
+  const [source, setSource] = useState<"wholesaler" | "ice" | "public">("wholesaler");
   const [auctionRef, setAuctionRef] = useState("");
   const existing = useQuery({ queryKey: ["gold-doc", id], queryFn: () => api.get(`/gold/docs/${id}`).then((r) => r.doc), enabled: !!id });
   const boxes = useQuery({ queryKey: ["options", "cash_box", "", {}], queryFn: () => api.get("/data/cash_box/options").then((r) => r.options as any[]), staleTime: 60_000 });
@@ -196,7 +199,7 @@ function DocEditor({ kind, id }: { kind: Exclude<DocKind, "sale">; id: string | 
     setBank({ id: s.bank?.bank_account_id ?? null, amount: s.bank?.amount ?? null, ref_no: s.bank?.ref_no ?? "" });
     setConsumption(s.close_workshop ? "close" : s.consumed_weight750 ? "manual" : "returned");
     setConsumed(s.consumed_weight750 ?? null);
-    setSource(d.extra?.source === "ice" ? "ice" : "wholesaler");
+    setSource(d.extra?.source === "ice" || d.extra?.source === "public" ? d.extra.source : "wholesaler");
     setAuctionRef(d.extra?.auction_ref ?? "");
     setLines(
       d.lines.map((l: any): ELine => ({
@@ -341,18 +344,20 @@ function DocEditor({ kind, id }: { kind: Exclude<DocKind, "sale">; id: string | 
         };
       }
       if (l.kind === "bar") {
+        // the prices shown (a buy-back at the board's buy price; the board may change before posting)
+        const p = toIn(l);
         return l.direction === "out"
           ? { kind: "bar", direction: "out", gold_bar_id: l.gold_bar_id }
           : {
-              kind: "bar", direction: "in", item_id: l.item_id ?? null, gold_bar_id: l.gold_bar_id ?? null, weight: l.weight, fineness: l.fineness, gram_price: l.gram_price ?? null,
-              unit_price: l.unit_price ?? null, wage_type: l.wage_type ?? null, wage_value: l.wage_value ?? null, discount: l.discount ?? null, description: l.description || null,
+              kind: "bar", direction: "in", item_id: l.item_id ?? null, gold_bar_id: l.gold_bar_id ?? null, weight: l.weight, fineness: l.fineness, gram_price: p.gram_price ?? null,
+              unit_price: p.unit_price ?? null, wage_type: l.wage_type ?? null, wage_value: l.wage_value ?? null, discount: l.discount ?? null, description: l.description || null,
               cost: kind === "opening" ? l.cost ?? null : null, assay_no: l.assay_no || null,
               bar: { bar_no: l.bar_no || null, serial_no: l.serial_no || null, brand: l.brand || null, seal_status: l.seal_status ?? "sealed", certificate_no: l.certificate_no || null },
             };
       }
       return {
       kind: l.kind, direction: l.direction, gold_item_id: l.gold_item_id ?? null, item_id: l.item_id ?? null, category_id: l.category_id ?? null,
-      title: l.title || null, tag_no: l.kind === "piece" && l.direction === "in" ? l.tag_no || null : null, form: l.kind === "bulk" ? l.form : null,
+      title: l.title || null, tag_no: l.kind === "piece" && l.direction === "in" ? l.tag_no || null : null, form: l.kind === "bulk" || l.kind === "old" ? l.form ?? null : null,
       qty: null, fineness: l.kind === "piece" && l.direction === "out" ? null : l.fineness, weight: l.kind === "piece" && l.direction === "out" ? null : l.weight,
       stone_weight: l.stone_weight ?? null, gram_price: l.gram_price ?? null, wage_type: l.wage_type ?? null, wage_value: l.wage_value ?? null, stone: l.stone ?? null,
       deduction_pct: l.deduction_pct ?? null, cost: kind === "opening" ? l.cost ?? null : null, assay_no: l.assay_no || null,
@@ -632,7 +637,7 @@ function LinesSection({ kind, sec, rows, readOnly, onAdd, onScan, onChange, onRe
           {sec.kind === "bar" || (sec.kind === "coin" && sec.direction === "in" && kind === "buyback") ? (
             <CatalogueRows kind={kind} sec={sec} rows={rows} readOnly={readOnly} catalogue={catalogue} onChange={onChange} onRemove={onRemove} />
           ) : (
-          <table className="sf-grid" style={{ minWidth: sec.kind === "piece" && sec.direction === "in" ? (kind === "purchase" || kind === "workshop_in" ? 1150 : 980) : sec.kind === "old" ? 900 : 720 }}>
+          <table className="sf-grid" style={{ minWidth: sec.kind === "piece" && sec.direction === "in" ? (kind === "purchase" || kind === "workshop_in" ? 1150 : 980) : sec.kind === "old" ? 1020 : 720 }}>
             <thead>
               <tr>
                 {sec.kind === "piece" && sec.direction === "in" ? (
@@ -654,7 +659,7 @@ function LinesSection({ kind, sec, rows, readOnly, onAdd, onScan, onChange, onRe
                     {money && kind !== "workshop_in" ? h("جمع") : null}
                   </>
                 ) : sec.kind === "old" ? (
-                  <>{h("شرح")}{h("وزن (گرم)")}{h("عیار")}{h("کسر ٪")}{h("قیمت گرم ۱۸")}{h("معادل ۷۵۰")}{h("ارزش")}{h("کسر")}{h("قابل پرداخت")}</>
+                  <>{h("نوع")}{h("شرح")}{h("وزن (گرم)")}{h("عیار")}{h("کسر ٪")}{h("قیمت گرم ۱۸")}{h("معادل ۷۵۰")}{h("ارزش")}{h("کسر")}{h("قابل پرداخت")}</>
                 ) : (
                   <>{h("سکه")}{h("تعداد")}{kind === "opening" ? h("بهای کل") : h("قیمت هر سکه")}{h("جمع")}</>
                 )}
@@ -715,7 +720,8 @@ function LinesSection({ kind, sec, rows, readOnly, onAdd, onScan, onChange, onRe
                       </>
                     ) : sec.kind === "old" ? (
                       <>
-                        <td className="min-w-[110px]"><Input variant="borderless" value={l.title ?? ""} disabled={readOnly} onChange={(e) => c({ title: e.target.value })} placeholder="طلای مستعمل" /></td>
+                        <td className="w-[120px]"><Select variant="borderless" className="w-full" value={l.form === "bullion" ? "bullion" : "old"} disabled={readOnly} options={oldFormOptions} onChange={(v) => c({ form: v })} /></td>
+                        <td className="min-w-[110px]"><Input variant="borderless" value={l.title ?? ""} disabled={readOnly} onChange={(e) => c({ title: e.target.value })} placeholder={l.form === "bullion" ? "آب‌شده" : "طلای مستعمل"} /></td>
                         <td className="w-[110px]"><WeightInput variant="borderless" value={l.weight} disabled={readOnly} onChange={(v) => c({ weight: v })} /></td>
                         <td className="w-[86px]"><NumberInput variant="borderless" decimals={1} value={l.fineness} disabled={readOnly} onChange={(v) => c({ fineness: v })} /></td>
                         <td className="w-[86px]"><PctInput variant="borderless" value={l.deduction_pct} disabled={readOnly} onChange={(v) => c({ deduction_pct: v })} /></td>

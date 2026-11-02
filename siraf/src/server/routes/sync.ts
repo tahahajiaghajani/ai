@@ -15,8 +15,26 @@ import { ident } from "../db/sql";
 import { pgArray } from "../db";
 import { afterStockChange } from "../modules/goods/stock";
 import { orgStatus, statusError } from "../modules/platform/org-admin";
+import { CREATED_HERE_SQL, memberChangeProblem, OWNER_ONLY_MESSAGE, sameGrant, type MemberGrant } from "../modules/platform/members";
+import { requestMeta, securityEvent, type SecurityEventInput } from "../modules/platform/security";
+import type { Area, Level, Role } from "@shared/permissions";
 import { SYNC_PROTOCOL } from "@shared/constants";
 import { uuidv7 } from "@shared/id";
+
+type StoredMember = MemberGrant & { is_active: boolean; deleted_at: string | null };
+
+/** jsonb from a pushed row: an object (or its JSON text); anything else is no overrides */
+function jsonObject(v: unknown): Partial<Record<Area, Level>> {
+  let o = v;
+  if (typeof o === "string") {
+    try {
+      o = JSON.parse(o);
+    } catch {
+      return {};
+    }
+  }
+  return o && typeof o === "object" && !Array.isArray(o) ? (o as Partial<Record<Area, Level>>) : {};
+}
 
 /** documents whose stock moves carry moving-average costs */
 const COSTED = new Set(["invoice", "stock_doc"]);
@@ -107,6 +125,16 @@ syncRoutes.post("/push", async (c) => {
   const ctx = await orgCtx(c, input.org_id);
   const results: { entity: string; id: string; status: "ok" | "conflict" | "error" | "skipped"; rev?: number; message?: string; renumbered?: unknown; aggregate?: WireAggregate }[] = [];
   const list = [...input.aggregates].sort((a, b) => (BY_ENTITY.get(a.entity)?.order ?? 99) - (BY_ENTITY.get(b.entity)?.order ?? 99));
+  // privilege changes made on a Windows app are security events, as on the members page
+  const memberEvents: { kind: string; user_id: string; data: Record<string, unknown> }[] = [];
+  const memberEvent = (was: StoredMember | null, next: MemberGrant & { live: boolean }) => {
+    const changes: Record<string, unknown> = {};
+    if (!was || was.deleted_at) return { kind: "member_added", user_id: next.user_id, data: { role: next.role, via: "sync" } };
+    if (was.role !== next.role) changes.role = [was.role, next.role];
+    if (!sameGrant({ ...was, role: next.role }, next)) changes.overrides = [was.overrides ?? {}, next.overrides ?? {}];
+    if (was.is_active !== next.live) changes.is_active = [was.is_active, next.live];
+    return { kind: "member_changed", user_id: next.user_id, data: { changes, via: "sync" } };
+  };
   await ctx.write(async (tx) => {
     await tx.query("set local taraz.applying = 'on'");
     // stock moves of costed documents before and after they are replaced (see recompute below)
@@ -143,13 +171,40 @@ syncRoutes.post("/push", async (c) => {
         results.push({ entity: agg.entity, id: agg.id, status: "error", message: "شناسه متعلق به سازمان دیگری است" });
         continue;
       }
-      if (def.entity === "member" && ctx.member.role !== "owner") {
-        // as in the members API: only an owner gives or changes the owner role
-        const was = existing ? await tx.one<{ role: string }>(`select role from tz_org_members where id = $1`, [agg.id]) : null;
-        if (agg.row.role === "owner" || was?.role === "owner") {
-          results.push({ entity: agg.entity, id: agg.id, status: "error", message: "فقط مالک می‌تواند نقش مالک را تغییر دهد" });
+      let memberChange: { was: StoredMember | null; next: MemberGrant & { live: boolean } } | null = null;
+      if (def.entity === "member") {
+        // the members page's rules (routes/org.ts): owners only by owners, nobody changes themselves
+        // or grants above their own access, and the business keeps an active owner
+        const was = existing
+          ? await tx.one<StoredMember>(`select user_id, role, overrides, is_active, deleted_at from tz_org_members where id = $1`, [agg.id])
+          : null;
+        const next = {
+          user_id: String(agg.row.user_id ?? ""),
+          role: String(agg.row.role ?? "viewer") as Role,
+          overrides: jsonObject(agg.row.overrides),
+          live: agg.row.is_active !== false && agg.row.deleted_at == null,
+        };
+        const wasLive = !!was && was.is_active && !was.deleted_at;
+        const before = was && !was.deleted_at ? { user_id: was.user_id, role: was.role, overrides: was.overrides } : null;
+        const unchanged = !!was && wasLive === next.live && sameGrant(was, next) && was.user_id === next.user_id;
+        const refusal = unchanged
+          ? (was!.role === "owner" && ctx.member.role !== "owner" ? OWNER_ONLY_MESSAGE : null)
+          : memberChangeProblem(ctx, before, next.live ? next : null);
+        if (refusal) {
+          results.push({ entity: agg.entity, id: agg.id, status: "error", message: refusal });
           continue;
         }
+        if (wasLive && was!.role === "owner" && (!next.live || next.role !== "owner")) {
+          const others = await tx.one<{ n: number }>(
+            `select count(*)::int as n from tz_org_members where org_id = $1 and id <> $2 and role = 'owner' and is_active and deleted_at is null`,
+            [ctx.org.id, agg.id],
+          );
+          if (!others?.n) {
+            results.push({ entity: agg.entity, id: agg.id, status: "error", message: "کسب‌وکار باید دست‌کم یک مالک فعال داشته باشد" });
+            continue;
+          }
+        }
+        if (!unchanged) memberChange = { was, next };
       }
       if (existing && existing.rev > agg.base_rev && new Date(existing.updated_at).getTime() > new Date(String(agg.row.updated_at ?? 0)).getTime()) {
         // the cloud copy wins; hand it back, since the desktop may already have pulled past it
@@ -164,6 +219,7 @@ syncRoutes.post("/push", async (c) => {
         if (costed) touches.push(...(await movesOf(agg.id)));
         const now = await tx.one<{ rev: number }>(`select rev from ${ident(def.table)} where id = $1`, [agg.id]);
         results.push({ entity: agg.entity, id: agg.id, status: "ok", rev: now?.rev, renumbered: r.renumbered });
+        if (memberChange) memberEvents.push(memberEvent(memberChange.was, memberChange.next));
       } catch (e) {
         results.push({ entity: agg.entity, id: agg.id, status: "error", message: String((e as Error).message ?? e).slice(0, 300) });
       }
@@ -186,6 +242,11 @@ syncRoutes.post("/push", async (c) => {
       }
     }
   });
+  for (const e of memberEvents) {
+    const email = (await ctx.db.one<{ email: string }>(`select email from tz_users where id = $1`, [e.user_id]))?.email ?? null;
+    const event: SecurityEventInput = { kind: e.kind, user_id: e.user_id, email, org_id: ctx.org.id, ...requestMeta(c), data: { ...e.data, by: ctx.user.id, by_name: ctx.user.full_name } };
+    await securityEvent(ctx.db, event);
+  }
   await ctx.db.query(`update tz_devices set last_push_at = now() where id = $1 and org_id = $2 and user_id = $3`, [input.device_id, ctx.org.id, ctx.user.id]);
   const head = await ctx.db.one<{ rev: number }>(`select rev from tz_org_sync where org_id = $1`, [ctx.org.id]);
   return c.json({ results, head: head?.rev ?? 0 });
@@ -210,9 +271,8 @@ syncRoutes.get("/pull", async (c) => {
   }
   // The members' accounts come along so that they can sign in on the desktop. A password hash
   // only goes where the caller could set that password anyway — the rule of «reset password» on
-  // the members page: their own account; for a member who manages users, the accounts that work
-  // for this business alone (an owner's only to an owner) — platform admins included, who act
-  // through their membership like everyone else.
+  // the members page: their own account; for a member who manages users, the accounts this
+  // business made that work for it alone (an owner's only to an owner; never a platform admin's).
   // Anyone else signs in on that desktop through the cloud (`password_withheld`), and contact
   // details of other members need the right to see users.
   const share = [ctx.org.id, ctx.user.id, ctx.can("users", "view"), false, ctx.can("users", "full"), ctx.member.role === "owner"];
@@ -220,6 +280,7 @@ syncRoutes.get("/pull", async (c) => {
     case when s.ok then u.password_hash end as password_hash, not s.ok as password_withheld,
     u.disabled, u.prefs, u.rev, u.created_at, u.updated_at`;
   const shareJoin = `cross join lateral (select (u.id = $2 or $4::boolean or ($5::boolean and not u.is_platform_admin
+      and ${CREATED_HERE_SQL("$1", "u.id")}
       and not exists (select 1 from tz_org_members o where o.user_id = u.id and o.org_id <> $1 and o.deleted_at is null)
       and ($6::boolean or not exists (select 1 from tz_org_members m where m.user_id = u.id and m.org_id = $1 and m.role = 'owner' and m.deleted_at is null)))) as ok) s`;
   const users = await ctx.db.query<{ id: string; rev: number }>(

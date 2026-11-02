@@ -1,13 +1,17 @@
 // AI engine: key envelopes, the four provider adapters against stubbed HTTP (streamed text, tool
 // calls with replay, usage, error classes), the routing chain with fallbacks and holds, budgets and
 // the data policy. No real provider is ever called: every request goes through cfg.fetch.
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createPgliteDb } from "@server/db/pglite";
 import { migrate } from "@server/db/migrate";
 import { createApp } from "@server/app";
 import { makeCtx, type AuthUser, type MemberRow, type OrgRow, type ServerConfig } from "@server/context";
 import { cleanKey, decryptKey, encryptKey, keyFingerprint, keyHint, keyReadable, scrubSecrets } from "@server/modules/ai/crypto";
-import { anthropicAdapter } from "@server/modules/ai/adapters/anthropic";
+import { anthropicAdapter, anthropicSchema } from "@server/modules/ai/adapters/anthropic";
+import { runTurn } from "@server/modules/ai/chain";
+import { jsonSchemaOf } from "@server/modules/ai/schema";
+import { readSchemaFor } from "@server/modules/ai/features/capture";
+import { z as zod } from "zod";
 import { openaiChatAdapter } from "@server/modules/ai/adapters/openai-chat";
 import { openaiResponsesAdapter } from "@server/modules/ai/adapters/openai-responses";
 import { geminiAdapter } from "@server/modules/ai/adapters/gemini";
@@ -18,6 +22,16 @@ import { estimateCostUsd } from "@shared/ai/prices";
 import { generate, aiStatus, AiUnavailableError } from "@server/modules/ai/engine";
 import { maskText, redactValue } from "@server/modules/ai/redact";
 import { Client, quietLog } from "./helpers";
+import { aiNet } from "@server/modules/ai/net";
+
+// provider hosts of the stubbed web-version calls resolve to a public address without the network
+const realLookup = aiNet.lookup;
+beforeAll(() => {
+  aiNet.lookup = async () => ["104.18.6.192"];
+});
+afterAll(() => {
+  aiNet.lookup = realLookup;
+});
 
 // ---------------------------------------------------------------- helpers
 
@@ -101,7 +115,10 @@ describe("AI keys: AES-256-GCM v2 envelopes", () => {
     expect(() => decryptKey("secret-a", b, "sk-ant-abcdef123456")).toThrow();
     expect(() => decryptKey("secret-a", b, "v1.aaa.bbb.ccc")).toThrow();
     expect(keyReadable("secret-a", b, enc)).toBe(true);
-    expect(keyReadable("secret-a", b, enc.replace(/.$/, (c) => (c === "A" ? "B" : "A")))).toBe(false);
+    // a damaged ciphertext (the last base64url character of the tag only carries padding bits, so change the first one)
+    const parts = enc.split(".");
+    parts[3] = (parts[3][0] === "A" ? "B" : "A") + parts[3].slice(1);
+    expect(keyReadable("secret-a", b, parts.join("."))).toBe(false);
   });
 
   it("cleans pasted keys, masks hints, fingerprints and scrubs keys from texts", () => {
@@ -229,6 +246,19 @@ describe("Gemini adapter", () => {
     expect(contents[2].parts[0]).toEqual({ functionResponse: { name: "get_total", response: { result: '{"total":"1200"}' } } });
   });
 
+  it("never moves a thought signature onto text it was not issued with", async () => {
+    const { f } = stubFetch(() =>
+      sse([
+        { candidates: [{ content: { role: "model", parts: [{ text: "جمع " }] } }] },
+        { candidates: [{ content: { role: "model", parts: [{ text: "۱۲۰۰", thoughtSignature: "SIG-T" }] } }] },
+        { candidates: [{ content: { role: "model", parts: [{ text: " ریال" }] }, finishReason: "STOP" }] },
+      ]),
+    );
+    const r = await geminiAdapter(conn("google"), env(f)).turn({ model: "gemini-3.8-flash", system: "S", messages: [user("x")], maxTokens: 100 });
+    expect(r.text).toBe("جمع ۱۲۰۰ ریال");
+    expect(r.native).toEqual([{ text: "جمع " }, { text: "۱۲۰۰", thoughtSignature: "SIG-T" }, { text: " ریال" }]);
+  });
+
   it("classifies «User location is not supported» as a region error", async () => {
     const { f } = stubFetch(() => json(400, { error: { code: 400, message: "User location is not supported for the API use.", status: "FAILED_PRECONDITION" } }));
     const err = await geminiAdapter(conn("google"), env(f)).turn({ model: "gemini-3.8-flash", system: "S", messages: [user("x")], maxTokens: 10 }).catch((e) => e);
@@ -310,6 +340,66 @@ describe("Anthropic adapter (official SDK)", () => {
     expect(calls).toHaveLength(1); // the chain decides about retries, not the SDK
   });
 
+  it("sends closed schemas without unsupported constraints to strict tools and structured outputs", () => {
+    const schema = jsonSchemaOf(zod.object({ name: zod.string().min(1).max(40), n: zod.number().int().min(0).default(3), tags: zod.array(zod.string()).max(5).nullish(), map: zod.record(zod.string(), zod.number()), v: zod.union([zod.string(), zod.number()]).nullish() }));
+    const out = anthropicSchema(schema) as any;
+    const walk = (n: any): void => {
+      if (!n || typeof n !== "object") return;
+      for (const k of ["minLength", "maxLength", "minimum", "maximum", "maxItems", "default", "propertyNames"]) expect(n[k]).toBeUndefined();
+      if (n.type === "object") expect(n.additionalProperties).toBe(false);
+      for (const v of Object.values(n)) walk(v);
+    };
+    walk(out);
+    expect(out.properties.name.description).toContain("minLength: 1");
+    expect(out.required).toEqual(["name", "map"]);
+    // an open map cannot be expressed: closed (the capture reads therefore name their fields)
+    expect(out.properties.map).toEqual({ type: "object", properties: {}, additionalProperties: false });
+    // every document kind's reading schema names its fields
+    const cheque = anthropicSchema(jsonSchemaOf(readSchemaFor("cheque"))) as any;
+    walk(cheque);
+    expect(Object.keys(cheque.properties.fields.properties)).toContain("amount_words");
+    expect(JSON.stringify(cheque)).not.toContain('"type":["');
+  });
+
+  it("puts the normalised schema in output_config.format and the tools", async () => {
+    const { f, calls } = stubFetch(() => sse(msg2));
+    const a = anthropicAdapter(conn("anthropic", { id: "conn-schema" }), env(f));
+    const output = { name: "result", schema: jsonSchemaOf(zod.object({ total: zod.string().max(30) })) };
+    const tool = { ...TOOL, schema: jsonSchemaOf(zod.object({ month: zod.string().min(1), limit: zod.number().int().max(50).default(10) })) };
+    await a.turn({ model: "claude-opus-5-5", system: "S", messages: [user("x")], tools: [tool], output, effort: "low", maxTokens: 100 });
+    const b = calls[0].body;
+    expect(b.output_config.format).toEqual({ type: "json_schema", schema: { type: "object", properties: { total: { type: "string", description: "{maxLength: 30}" } }, required: ["total"], additionalProperties: false } });
+    expect(b.tools[0].input_schema.additionalProperties).toBe(false);
+    expect(b.tools[0].input_schema.properties.limit).toEqual({ type: "integer", description: "{maximum: 50}" });
+    expect(b.tools[0].strict).toBe(true);
+  });
+
+  it("retries once with drop_block when an edited history no longer matches a thinking block, and remembers it", async () => {
+    const bound = json(400, { type: "error", error: { type: "invalid_request_error", message: 'messages.1.content.0: Invalid `signature` in `thinking` block. The block is bound to a different conversation. Remove the block, or set `thinking.block_binding.prefix_mismatch_behavior` to "drop_block". This setting requires the beta header thinking-binding-controls-2026-08-01.' } });
+    const { f, calls } = stubFetch(() => (calls.length === 1 ? bound : sse(msg2)));
+    const c = conn("anthropic", { id: "conn-binding" });
+    const r = await anthropicAdapter(c, env(f)).turn({ model: "claude-opus-5-5", system: "S", messages: [user("x")], maxTokens: 100 });
+    expect(r.text).toBe("جمع ۱۲۰۰");
+    expect(calls).toHaveLength(2);
+    expect(calls[0].body.thinking.block_binding).toBeUndefined();
+    expect(calls[1].body.thinking).toEqual({ type: "adaptive", display: "summarized", block_binding: { prefix_mismatch_behavior: "drop_block" } });
+    expect(calls[1].headers["anthropic-beta"]).toContain("thinking-binding-controls-2026-08-01");
+    // the fallback beta stays on (the 400 named a beta, but not the fallback's)
+    expect(calls[1].headers["anthropic-beta"]).toContain("server-side-fallback-2026-07-01");
+    // the next request of this connection does not pay for the same 400 again
+    await anthropicAdapter(c, env(f)).turn({ model: "claude-opus-5-5", system: "S", messages: [user("y")], maxTokens: 100 });
+    expect(calls).toHaveLength(3);
+    expect(calls[2].body.thinking.block_binding).toEqual({ prefix_mismatch_behavior: "drop_block" });
+  });
+
+  it("reads «credit balance is too low» (a 400) as a quota error", async () => {
+    const { f, calls } = stubFetch(() => json(400, { type: "error", error: { type: "invalid_request_error", message: "Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits." } }));
+    const err = await anthropicAdapter(conn("anthropic", { id: "conn-credit" }), env(f)).turn({ model: "claude-opus-5-5", system: "S", messages: [user("x")], maxTokens: 100 }).catch((e) => e);
+    expect(err).toBeInstanceOf(ProviderError);
+    expect(err.kind).toBe("quota");
+    expect(calls).toHaveLength(1);
+  });
+
   it("returns a refusal without running tools", async () => {
     const refusal = [
       msg2[0],
@@ -334,6 +424,8 @@ describe("error classification", () => {
     expect(classifyStatus(529, "Overloaded")).toBe("overloaded");
     expect(classifyStatus(400, "API key not valid. Please pass a valid API key.")).toBe("auth");
     expect(classifyStatus(400, "max_tokens: too large")).toBe("invalid");
+    expect(classifyStatus(400, "400: Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.", "invalid_request_error")).toBe("quota");
+    expect(classifyStatus(400, "messages.1: invalid schema for tool")).toBe("invalid");
   });
 
   it("parses SSE across chunk borders, comments and multi-line data", async () => {
@@ -410,6 +502,32 @@ describe("routing chain, holds and budgets", () => {
     expect(row?.status).toBe("error");
     expect(row?.last_error.kind).toBe("auth");
     expect(JSON.stringify(row)).not.toContain("sk-deepseek-0000000001");
+  });
+
+  it("keeps attachments when retrying an invalid request, and reports the model it asked for", async () => {
+    let n = 0;
+    const s = await engineServer(() => (++n === 1 ? json(400, { error: { message: "reasoning_effort is not supported with this model" } }) : sse([{ model: "openai/gpt-6-luna-2026-10-01", choices: [{ delta: { content: "خواندم" }, finish_reason: "stop" }] }, "[DONE]"])));
+    await s.c.post(`/o/${s.orgId}/ai/connections`, { preset: "openrouter", key: "sk-or-v1-000000000002", models: { vision: ["openai/gpt-6-luna"] } });
+    const img = Buffer.from("not really a png").toString("base64");
+    const r = await runTurn(await s.ctx(), {
+      job: "vision", feature: "capture",
+      request: { system: "S", messages: [{ role: "user", parts: [{ type: "file", name: "a.png", mime: "image/png", data: img }, { type: "text", text: "بخوان" }] }], effort: "low", maxTokens: 100 },
+    });
+    expect(r.result.text).toBe("خواندم");
+    expect(s.calls).toHaveLength(2);
+    // the second try drops the effort, never the file
+    expect(JSON.stringify(s.calls[1].body)).toContain(img);
+    expect(JSON.stringify(s.calls[1].body)).not.toContain("omitted");
+    expect(r.requested_model).toBe("openai/gpt-6-luna");
+  });
+
+  it("moves on instead of retrying an invalid request that has nothing to drop", async () => {
+    const s = await engineServer((url) => (url.includes("deepseek") ? json(400, { error: { message: "image input is not supported" } }) : ok("دوم")));
+    await s.c.post(`/o/${s.orgId}/ai/connections`, { preset: "deepseek", key: "sk-deepseek-0000000001", models: { fast: ["deepseek-chat"] } });
+    await s.c.post(`/o/${s.orgId}/ai/connections`, { preset: "openrouter", key: "sk-or-v1-000000000002", models: { fast: ["openai/gpt-6-luna"] } });
+    const r = await runTurn(await s.ctx(), { job: "fast", feature: "digest", request: { system: "S", messages: [user("x")], effort: null, maxTokens: 100 } });
+    expect(r.result.text).toBe("دوم");
+    expect(s.calls.filter((c) => c.url.includes("deepseek"))).toHaveLength(1);
   });
 
   it("stops at the monthly budget and reports it", async () => {

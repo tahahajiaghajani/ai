@@ -483,6 +483,8 @@ export interface BarPriceInput {
   discount?: Num;
   /** a fixed price for the bar (board or manual) instead of metal + premium */
   unitPrice?: Num;
+  /** margin VAT: the bar's own cost */
+  unitCost?: Num;
   roundStep?: Num;
 }
 
@@ -514,7 +516,11 @@ export function priceBar(input: BarPriceInput): BarPrice {
   if (has(input.unitPrice) && D(input.unitPrice!).gt(0)) {
     const value = D(r(input.unitPrice!));
     const disc = min(D(r(input.discount ?? 0)), value);
-    const tax = D(r(input.vatMode === "full" ? value.minus(disc).times(D(input.taxPct ?? 0)).div(100) : 0));
+    // VAT by the mode on the fixed price: the part above the metal value stands for the premium
+    const metalPart = g24.gt(0) ? min(value, D(r(w.times(D(barPricingFineness(input.fineness, input.basis))).div(1000).times(g24)))) : value;
+    const tax = D(r(taxOf(input.vatMode ?? "exempt", input.taxPct ?? 0, {
+      wage: value.minus(metalPart), profit: D(0), discount: disc, value: metalPart, margin: value.minus(disc).minus(D(input.unitCost || 0)),
+    })));
     return { gram24: g24.toString(), fine, weight750: w750, metal: value.toString(), premium: "0", profit: "0", discount: disc.toString(), tax: tax.toString(), total: value.minus(disc).plus(tax).toString() };
   }
   const metal = D(r(w.times(D(barPricingFineness(input.fineness, input.basis))).div(1000).times(g24)));
@@ -522,7 +528,8 @@ export function priceBar(input: BarPriceInput): BarPrice {
   const premium = D(r(input.premiumType === "per_gram" ? w.times(pv) : input.premiumType === "per_bar" ? pv : metal.times(pv).div(100)));
   const profit = D(r(metal.plus(premium).times(D(input.profitPct ?? 0)).div(100)));
   const disc = min(D(r(input.discount ?? 0)), premium.plus(profit));
-  const tax = D(r(taxOf(input.vatMode ?? "exempt", input.taxPct ?? 0, { wage: premium, profit, discount: disc, value: metal, margin: D(0) })));
+  const margin = metal.plus(premium).plus(profit).minus(disc).minus(D(input.unitCost || 0));
+  const tax = D(r(taxOf(input.vatMode ?? "exempt", input.taxPct ?? 0, { wage: premium, profit, discount: disc, value: metal, margin })));
   const total = metal.plus(premium).plus(profit).minus(disc).plus(tax);
   return { gram24: g24.toString(), fine, weight750: w750, metal: metal.toString(), premium: premium.toString(), profit: profit.toString(), discount: disc.toString(), tax: tax.toString(), total: total.toString() };
 }
@@ -542,7 +549,7 @@ export interface BarBuybackInput {
   openedFineness?: Num;
   /** deduction for damage, with a reason on the document */
   deduction?: Num;
-  /** a fixed buy price for the bar (board) instead of the metal formula */
+  /** a fixed buy price for the bar (the board's buy price): it is net — no fee and no fineness cap */
   unitPrice?: Num;
   roundStep?: Num;
 }
@@ -558,17 +565,20 @@ export interface BarBuyback {
 
 /**
  * Buying a bar back: metal at the day rate − a fee (smaller for a sealed bar); an opened bar is
- * priced at no more than 995 and the assay fee comes off. The premium paid when it was bought is
- * not recovered.
+ * priced at no more than 995 and the assay fee comes off. A fixed buy price (the board's) is net:
+ * only the assay fee of an opened bar and a deduction come off it. The premium paid when it was
+ * bought is not recovered.
  */
 export function buybackBar(input: BarBuybackInput): BarBuyback {
   const step = input.roundStep ?? 0;
   const r = (x: Num) => roundTo(x, step);
   const opened = !input.sealed;
-  const fin = opened && has(input.openedFineness) ? min(D(input.fineness || 0), D(input.openedFineness!)) : D(input.fineness || 0);
+  const fixed = has(input.unitPrice) && D(input.unitPrice!).gt(0);
+  const fin = !fixed && opened && has(input.openedFineness) ? min(D(input.fineness || 0), D(input.openedFineness!)) : D(input.fineness || 0);
   const g24 = D(gram24FromGram18(input.gram18 || 0));
-  const metal = D(r(has(input.unitPrice) && D(input.unitPrice!).gt(0) ? D(input.unitPrice!) : D(input.weight || 0).times(fin).div(1000).times(g24)));
-  const fee = D(r(metal.times(D((opened ? input.feeOpenedPct : input.feeSealedPct) ?? 0)).div(100)));
+  const metal = D(r(fixed ? D(input.unitPrice!) : D(input.weight || 0).times(fin).div(1000).times(g24)));
+  // a fixed buy price already is what we pay for the bar: the fee is not taken a second time
+  const fee = fixed ? D(0) : D(r(metal.times(D((opened ? input.feeOpenedPct : input.feeSealedPct) ?? 0)).div(100)));
   const assay = D(r(opened ? input.assayFee ?? 0 : 0));
   const ded = D(r(input.deduction ?? 0));
   let total = metal.minus(fee).minus(assay).minus(ded);

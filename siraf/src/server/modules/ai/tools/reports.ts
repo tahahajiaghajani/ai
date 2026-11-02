@@ -16,7 +16,7 @@ import { goldPosition } from "../../gold/position";
 import { cashReport, correspondentBalances, dealsReport, positions } from "../../fx/reports";
 import { listRemittances } from "../../fx/remittances";
 import { defineTool, type ToolRuntime } from "./registry";
-import { jd, moneyInfo, period, periodInput, reportRef, resolveAccount, resolveItem, resolveMoneyBox, resolveParty, type MoneyInfo } from "./common";
+import { jd, moneyInfo, partyName, period, periodInput, reportRef, resolveAccount, resolveItem, resolveMoneyBox, resolveParty, type MoneyInfo } from "./common";
 import { parseDateInput, type ResolvedPeriod } from "../analytics/period";
 import { AI_REPORT_KEYS } from "@shared/ai/api";
 
@@ -303,6 +303,10 @@ export async function runReport(ctx: Ctx, key: ReportKey, input: { period?: z.in
     to = per.to;
   }
   const out = await def.run(ctx, { period: per, to, params, rt });
+  // "aggregates": rows grouped by party carry the party's name as their label (key/code stay)
+  if (rt.dataPolicy === "aggregates" && params.group === "party" && def.main && Array.isArray(out[def.main])) {
+    out[def.main] = (out[def.main] as Record<string, unknown>[]).map((r) => ({ ...r, label: partyName(null, (r.code as string | null) ?? null, rt), name: undefined, party_name: undefined }));
+  }
   return { def, out, period: per, to };
 }
 

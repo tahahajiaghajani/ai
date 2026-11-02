@@ -90,3 +90,8 @@ export function permissionMap(role: Role, overrides?: Partial<Record<Area, Level
   for (const a of Object.keys(AREAS) as Area[]) out[a] = levelOf(role, a, overrides);
   return out;
 }
+
+/** The areas in which `a` gives more than `b` (e.g. a grant above the granter's own access). */
+export function areasAbove(a: Record<Area, Level>, b: Record<Area, Level>): Area[] {
+  return (Object.keys(AREAS) as Area[]).filter((k) => LEVEL_ORDER.indexOf(a[k] ?? "none") > LEVEL_ORDER.indexOf(b[k] ?? "none"));
+}

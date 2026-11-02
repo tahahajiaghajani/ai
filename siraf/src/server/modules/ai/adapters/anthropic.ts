@@ -20,6 +20,100 @@ import { ProviderError, type Adapter, type AdapterEnv, type NeutralMessage, type
 import { classifyStatus, isAbort, retryAfterMs } from "./http";
 
 const FALLBACK_BETA = "server-side-fallback-2026-07-01";
+/** Preserved thinking: what to do with a replayed thinking block whose conversation changed. */
+const BINDING_BETA = "thinking-binding-controls-2026-08-01";
+/** The 400 of an enforced account whose replayed history no longer matches a thinking block. */
+const BINDING_RE = /bound to a different conversation|prefix_mismatch_behavior/i;
+
+/**
+ * What a connection turned out not to accept (or to need), kept for the process so that every
+ * later request does not pay for the same failed call again: a gateway without the fallback beta
+ * or strict tools, or an account that needs `drop_block` for threads whose earlier turns changed
+ * (business notes or the tool set edited since).
+ */
+const QUIRKS = new Map<string, { noBetas?: boolean; noStrict?: boolean; dropBlock?: boolean }>();
+function quirks(id: string) {
+  let q = QUIRKS.get(id);
+  if (!q) QUIRKS.set(id, (q = {}));
+  return q;
+}
+
+const SUPPORTED_FORMATS = new Set(["date-time", "time", "date", "duration", "email", "hostname", "uri", "ipv4", "ipv6", "uuid"]);
+
+/**
+ * The JSON-schema subset Claude accepts for strict tools and structured outputs: every object
+ * closed (`additionalProperties: false`), no numeric/length/size constraints, no defaults or
+ * open maps. Like the SDK's own transform, a dropped constraint is kept as a hint in the
+ * description; zod validates the answer against the full schema afterwards.
+ */
+export function anthropicSchema(schema: unknown): Record<string, unknown> {
+  const walk = (node: unknown): Record<string, unknown> => {
+    if (!node || typeof node !== "object" || Array.isArray(node)) return {};
+    const src = { ...(node as Record<string, unknown>) };
+    const out: Record<string, unknown> = {};
+    const take = (k: string) => {
+      const v = src[k];
+      delete src[k];
+      return v;
+    };
+    const ref = take("$ref");
+    if (typeof ref === "string") return { $ref: ref };
+    const defs = take("$defs");
+    if (defs && typeof defs === "object") out.$defs = Object.fromEntries(Object.entries(defs as Record<string, unknown>).map(([k, v]) => [k, walk(v)]));
+    for (const k of ["anyOf", "oneOf"]) {
+      const v = take(k);
+      if (Array.isArray(v)) out.anyOf = v.map(walk);
+    }
+    const allOf = take("allOf");
+    if (Array.isArray(allOf)) out.allOf = allOf.map(walk);
+    const type = take("type");
+    if (type !== undefined) out.type = type;
+    for (const k of ["description", "title", "enum", "const"]) {
+      const v = take(k);
+      if (v !== undefined) out[k] = v;
+    }
+    const types = Array.isArray(type) ? type : [type];
+    if (types.includes("object") || src.properties) {
+      const props = (take("properties") ?? {}) as Record<string, unknown>;
+      out.properties = Object.fromEntries(Object.entries(props).map(([k, v]) => [k, walk(v)]));
+      const req = take("required");
+      if (Array.isArray(req) && req.length) out.required = req.filter((k) => typeof k === "string" && k in props);
+      take("additionalProperties");
+      take("propertyNames");
+      take("patternProperties");
+      out.additionalProperties = false;
+    }
+    if (types.includes("array") || src.items) {
+      const items = take("items");
+      if (items && typeof items === "object" && !Array.isArray(items)) out.items = walk(items);
+      const min = take("minItems");
+      if (min === 0 || min === 1) out.minItems = min;
+      else if (min !== undefined) src.minItems = min;
+    }
+    if (types.includes("string")) {
+      const f = take("format");
+      if (typeof f === "string" && SUPPORTED_FORMATS.has(f)) out.format = f;
+      else if (f !== undefined) src.format = f;
+    }
+    // defaults and examples are not constraints, and zod's safe-integer bounds say nothing: dropped without a hint
+    for (const k of ["default", "examples", "$schema", "$id", "prefixItems"]) delete src[k];
+    for (const k of ["minimum", "maximum"]) if (typeof src[k] === "number" && Math.abs(src[k] as number) >= Number.MAX_SAFE_INTEGER) delete src[k];
+    // a union of primitive types as anyOf (the form every grammar compiler takes)
+    if (Array.isArray(out.type) && !out.anyOf && out.type.every((t) => ["string", "number", "integer", "boolean", "null"].includes(String(t)))) {
+      out.anyOf = (out.type as string[]).map((t) => ({ type: t }));
+      delete out.type;
+    }
+    const left = Object.entries(src).filter(([, v]) => v !== undefined);
+    if (left.length) {
+      const hint = `{${left.map(([k, v]) => `${k}: ${JSON.stringify(v)}`).join(", ")}}`;
+      out.description = out.description ? `${String(out.description)}\n\n${hint}` : hint;
+    }
+    return out;
+  };
+  const root = walk(schema);
+  if (root.type !== "object") return { type: "object", properties: {}, additionalProperties: false };
+  return root;
+}
 
 /** The Claude API itself (server-side fallbacks and betas are only sent there). */
 export function isOfficialAnthropic(baseUrl: string): boolean {
@@ -104,9 +198,8 @@ export function anthropicAdapter(conn: ResolvedConnection, env: AdapterEnv): Ada
     // gateways and proxies often read X-Api-Key instead of the Bearer header
     ...(official || !key ? {} : { defaultHeaders: { "x-api-key": key } }),
   });
-  // a gateway that rejects the fallback beta or strict tools gets them no more (per adapter)
-  let useBetas = official;
-  let useStrict = true;
+  // a gateway that rejects the fallback beta or strict tools gets them no more (per connection)
+  const q = quirks(conn.id);
 
   async function once(req: TurnRequest, hooks: Parameters<Adapter["turn"]>[1], state: { emitted: boolean; text: string }): Promise<TurnResult> {
     const system: BetaTextBlockParam[] = [{ type: "text", text: req.system, cache_control: { type: "ephemeral" } }];
@@ -115,12 +208,13 @@ export function anthropicAdapter(conn: ResolvedConnection, env: AdapterEnv): Ada
       ? req.tools.map((t) => ({
           name: t.name,
           description: t.description,
-          input_schema: t.schema as BetaTool["input_schema"],
-          ...(useStrict ? { strict: true, eager_input_streaming: true } : {}),
+          ...(q.noStrict
+            ? { input_schema: t.schema as BetaTool["input_schema"] }
+            : { input_schema: anthropicSchema(t.schema) as BetaTool["input_schema"], strict: true, eager_input_streaming: true }),
         }))
       : undefined;
     const adaptive = anthropicAdaptive(req.model);
-    const betas = useBetas && fallbackModel(req.model) ? [FALLBACK_BETA] : undefined;
+    const betas = [...(official && !q.noBetas && fallbackModel(req.model) ? [FALLBACK_BETA] : []), ...(adaptive && q.dropBlock ? [BINDING_BETA] : [])];
     const params: Anthropic.Beta.Messages.MessageCreateParamsStreaming = {
       model: req.model,
       max_tokens: req.maxTokens,
@@ -129,16 +223,17 @@ export function anthropicAdapter(conn: ResolvedConnection, env: AdapterEnv): Ada
       cache_control: { type: "ephemeral" },
       stream: true,
       ...(tools ? { tools } : {}),
-      ...(adaptive ? { thinking: { type: "adaptive", display: "summarized" } } : {}),
+      ...(adaptive ? { thinking: { type: "adaptive", display: "summarized", ...(q.dropBlock ? { block_binding: { prefix_mismatch_behavior: "drop_block" as const } } : {}) } } : {}),
       ...((req.effort && anthropicEffortSupported(req.model)) || req.output
         ? {
             output_config: {
               ...(req.effort && anthropicEffortSupported(req.model) ? { effort: req.effort } : {}),
-              ...(req.output ? { format: { type: "json_schema", schema: req.output.schema } } : {}),
+              ...(req.output ? { format: { type: "json_schema", schema: anthropicSchema(req.output.schema) } } : {}),
             },
           }
         : {}),
-      ...(betas ? { betas, fallbacks: "default" } : {}),
+      ...(betas.length ? { betas } : {}),
+      ...(betas.includes(FALLBACK_BETA) ? { fallbacks: "default" as const } : {}),
     };
     const stream = client.beta.messages.stream(params, { signal: req.signal });
     stream.on("text", (d) => {
@@ -194,13 +289,19 @@ export function anthropicAdapter(conn: ResolvedConnection, env: AdapterEnv): Ada
           const status = isApi ? (err as InstanceType<typeof Anthropic.APIError>).status : null;
           const msg = String((err as Error)?.message ?? "");
           if (attempt < 2 && !state.emitted && status === 400) {
-            // gateways that do not know the fallback beta, strict tools or eager streaming
-            if (useBetas && /beta|fallback/i.test(msg)) {
-              useBetas = false;
+            // preserved thinking: an earlier turn of this thread changed (business notes or the
+            // tool set edited since); its reasoning is dropped instead of failing the thread
+            if (!q.dropBlock && anthropicAdaptive(req.model) && BINDING_RE.test(msg)) {
+              q.dropBlock = true;
               continue;
             }
-            if (useStrict && /strict|eager_input_streaming|schema/i.test(msg)) {
-              useStrict = false;
+            // gateways that do not know the fallback beta, strict tools or eager streaming
+            if (official && !q.noBetas && fallbackModel(req.model) && /beta|fallback/i.test(msg) && !BINDING_RE.test(msg)) {
+              q.noBetas = true;
+              continue;
+            }
+            if (!q.noStrict && req.tools?.length && /strict|eager_input_streaming|schema/i.test(msg)) {
+              q.noStrict = true;
               continue;
             }
           }

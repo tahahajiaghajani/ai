@@ -197,15 +197,3 @@ export async function seedOrg(
     await seedGoldCatalogue(tx, orgId, origin);
   }
 }
-
-export async function listMyOrgs(db: Db, userId: string, platformAdmin: boolean) {
-  return db.query(
-    `select o.id, o.name, o.business_kind, o.modules, o.base_currency, o.money_decimals, o.logo,
-            m.role, m.is_active
-     from tz_orgs o
-     ${platformAdmin ? "left" : ""} join tz_org_members m on m.org_id = o.id and m.user_id = $1 and m.deleted_at is null
-     where o.deleted_at is null ${platformAdmin ? "" : "and m.is_active"}
-     order by o.created_at`,
-    [userId],
-  );
-}

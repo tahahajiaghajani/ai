@@ -15,6 +15,7 @@ import { D } from "@shared/money";
 import { todayISO } from "@shared/jalali";
 import { likeContains } from "../db";
 import { normalizeDigits } from "@shared/money";
+import { orgStatus, statusError } from "../modules/platform/org-admin";
 
 /** Act on behalf of the organisation's owner (webhooks and API keys have no signed-in user). */
 async function ownerCtx(cfg: ServerConfig, orgId: string): Promise<Ctx> {
@@ -26,7 +27,10 @@ async function ownerCtx(cfg: ServerConfig, orgId: string): Promise<Ctx> {
   );
   if (!member) throw forbidden("مالک کسب‌وکار پیدا نشد");
   const user = await cfg.db.one<AuthUser>(`select id, email, full_name, mobile, is_platform_admin, disabled, prefs from tz_users where id = $1`, [member.user_id]);
-  return makeCtx(cfg, user!, org, member);
+  // a suspended business is closed to keys and shops as to its members (read-only refuses writes in ctx.write)
+  const status = await orgStatus(cfg.db, orgId);
+  if (status.status === "suspended") throw statusError(status);
+  return makeCtx(cfg, user!, org, member, { status });
 }
 
 /** Turn an online order into a sales invoice (draft or posted, per integration settings). */

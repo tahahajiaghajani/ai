@@ -6,6 +6,7 @@ import type { Logger } from "@server/context";
 import { AGGREGATES, BY_ENTITY, type WireAggregate } from "@server/sync/registry";
 import { readAggregates, writeAggregate } from "@server/sync/apply";
 import { ident } from "@server/db/sql";
+import { SCHEMA_VERSION } from "@server/db/migrations";
 import { SYNC_PROTOCOL, APP_VERSION, APP_NAME } from "@shared/constants";
 import type { LocalConfig } from "./config";
 import { hostname } from "node:os";
@@ -173,6 +174,23 @@ export class SyncClient {
     await this.o.db.query(`insert into tz_kv (key, value, updated_at) values ($1, $2::jsonb, now()) on conflict (key) do update set value = excluded.value, updated_at = now()`, [key, JSON.stringify(value)]);
   }
 
+  /**
+   * Once after an update that changed the database: an earlier version dropped the columns and
+   * the kinds of data it did not know when it pulled (and the cloud may have refused what it
+   * pushed), so everything is read again from the start (rows waiting for upload are skipped,
+   * the rest is the cloud's copy anyway) and uploads that failed are tried again.
+   */
+  private async afterUpgrade() {
+    if ((await this.kvGet<string | null>("sync.schema", null)) === SCHEMA_VERSION) return;
+    await this.o.db.tx(async (tx) => {
+      const kv = `insert into tz_kv (key, value, updated_at) values ($1, $2::jsonb, now()) on conflict (key) do update set value = excluded.value, updated_at = now()`;
+      await tx.query(kv, ["sync.cursor", "0"]);
+      await tx.query(kv, ["sync.user_cursor", "0"]);
+      await tx.query(`update tz_outbox set attempts = 0, last_error = null where attempts > 0`);
+      await tx.query(kv, ["sync.schema", JSON.stringify(SCHEMA_VERSION)]);
+    });
+  }
+
   async refreshPending() {
     const org = this.o.config.cloud.org_id;
     if (!org) {
@@ -243,6 +261,7 @@ export class SyncClient {
 
   async pullAll(): Promise<number> {
     let count = 0;
+    await this.afterUpgrade();
     if (!(await this.kvGet<boolean>("sync.users_v2", false))) {
       // once after the update: read the members' accounts again, so that password hashes an
       // earlier version received for accounts this device may not hold are dropped
@@ -310,10 +329,21 @@ export class SyncClient {
     this.busy = (async () => {
       this.state.running = true;
       try {
-        await this.push();
+        await this.afterUpgrade();
+        // a push the cloud refuses (a business made read-only by the platform admin, an older
+        // server) must not stop this computer from receiving the cloud's changes
+        let refused: string | null = null;
+        try {
+          await this.push();
+        } catch (e) {
+          const status = (e as { status?: number }).status;
+          if (!status || status < 400 || status >= 500 || status === 401) throw e;
+          refused = String((e as Error).message ?? e);
+          this.o.log.warn("sync push refused", refused);
+        }
         await this.pullAll();
         this.state.online = true;
-        this.state.last_error = null;
+        this.state.last_error = refused;
         this.state.last_sync_at = new Date().toISOString();
       } catch (e) {
         const msg = String((e as Error).message ?? e);

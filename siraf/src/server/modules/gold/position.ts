@@ -5,9 +5,9 @@ import type { Ctx } from "../../context";
 import { D } from "@shared/money";
 import { STANDARD_FINENESS } from "@shared/gold";
 import { todayISO } from "@shared/jalali";
-import { productBubble, productQuote, sideGram18 } from "@shared/gold-quote";
+import { productBubble, productQuote, sideGram18, type Product } from "@shared/gold-quote";
 import { ledgerByKey } from "./reports";
-import { catalogue } from "./catalogue";
+import { barInStockAt, catalogue } from "./catalogue";
 import { latestRate } from "./rates";
 import { quoteEnv } from "./settings";
 
@@ -70,12 +70,18 @@ export async function goldPosition(ctx: Ctx, asOf?: string | null): Promise<Gold
   const bars = cat.rows.filter((r) => r.kind === "bar");
   const barW = D(ledger.gold_bars.w);
   const barPure = bars.reduce((a, r) => a.plus(D(r.pure)), D(0));
-  // bars at their buy-back price: each model's stock priced as one lot at its fineness
+  // bars at their buy-back price, one by one (a board price is the price of one bar; weight,
+  // fineness and seal are each bar's own)
+  const models = new Map(bars.map((r) => [r.id, r]));
+  const register = await ctx.db.query<{ item_id: string | null; weight: string; fineness: string; seal_status: string | null }>(
+    `select b.item_id, b.weight, b.fineness, b.seal_status from tz_gold_bars b
+     where b.org_id = $1 and b.deleted_at is null and b.ownership = 'own' and ${barInStockAt(to)}`,
+    [ctx.org.id, to],
+  );
   let barValue: ReturnType<typeof D> | null = null;
-  for (const r of bars) {
-    if (D(r.weight).isZero()) continue;
-    const fin = D(r.pure).div(D(r.weight)).times(1000);
-    const q = productQuote(r, rate, env, { side: "buy", weight: r.weight, fineness: fin.toString() });
+  for (const b of register) {
+    const model: Product = (b.item_id ? models.get(b.item_id) : undefined) ?? { kind: "bar", gold_meta: {} };
+    const q = productQuote(model, rate, env, { side: "buy", weight: b.weight, fineness: D(b.fineness).toString(), seal_status: b.seal_status });
     if (q) barValue = (barValue ?? D(0)).plus(D(q.total));
   }
   const parties = D(ledger.gold_parties.w);

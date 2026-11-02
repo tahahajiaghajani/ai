@@ -13,7 +13,8 @@ import { AiUnavailableError } from "@server/modules/ai/errors";
 import { generate } from "@server/modules/ai/engine";
 import { computeInsights, insightId, listInsights, setInsightStatus } from "@server/modules/ai/features/insights";
 import { extractNumbers, numbersIn, unknownNumbers } from "@server/modules/ai/features/narrative";
-import { captureDocument, validateCapture, wordsToNumber } from "@server/modules/ai/features/capture";
+import { captureDocument, readSchemaFor, validateCapture, wordsToNumber } from "@server/modules/ai/features/capture";
+import { jsonSchemaOf } from "@server/modules/ai/schema";
 import * as acc from "@server/modules/accounting/reports";
 
 vi.mock("@server/modules/ai/engine", async (importOriginal) => {
@@ -250,6 +251,26 @@ describe("capture", () => {
     expect(wordsToNumber("فقط دو میلیارد و پانصد میلیون تومان")).toBe("2500000000");
     for (const n of ["7", "1001", "215000", "47350000", "1200345678"]) expect(wordsToNumber(numberToWords(n))).toBe(n);
     expect(wordsToNumber("سلام دنیا")).toBeNull();
+    // ZWNJ forms and «unit صد»: «یک‌صد میلیون» is 100,000,000, never 101,000,000
+    expect(wordsToNumber("یک‌صد میلیون ریال")).toBe("100000000");
+    expect(wordsToNumber("یک صد میلیون ریال")).toBe("100000000");
+    expect(wordsToNumber("سه صد و پنجاه هزار")).toBe("350000");
+    expect(wordsToNumber("سی‌صد هزار")).toBe("300000");
+    expect(wordsToNumber("دویست‌وپنجاه هزار تومان")).toBe("250000");
+    expect(wordsToNumber("صد و ده")).toBe("110");
+  });
+
+  it("asks the model for named fields: closed objects, no open maps", () => {
+    for (const kind of ["purchase_invoice", "id_card", "cheque", "receipt"] as const) {
+      const js = jsonSchemaOf(readSchemaFor(kind)) as any;
+      expect(js.properties.fields.properties).toBeTruthy();
+      expect(JSON.stringify(js)).not.toContain("propertyNames");
+      // what the model returns still parses (missing fields left out)
+      const parsed = readSchemaFor(kind).parse({ fields: {}, ...(kind === "purchase_invoice" ? { lines: [{ qty: { value: "1", confidence: 1 } }] } : {}) });
+      expect(parsed.fields).toEqual({});
+    }
+    const cheque = validateCapture("cheque", read({ amount: "100000000", amount_words: "یک‌صد میلیون ریال" }), TODAY);
+    expect(cheque.warnings).toEqual([]);
   });
 
   it("validates national ids, dates, line totals and cheque amounts", () => {

@@ -11,9 +11,9 @@ import { AiUnavailableError } from "./errors";
 import { assertUsable, chainFor, loadEnv, runTurn, unavailable, type AiEnv } from "./chain";
 import { appSecretMissing } from "./connections";
 import { cloudLink } from "./relay";
-import { redactPrompt } from "./redact";
+import { redactDataBlocks, redactPrompt } from "./redact";
 import { dropNulls, jsonSchemaOf } from "./schema";
-import { disabledByPlatform } from "./settings";
+import { disabledByPlatform, FEATURE_SWITCH } from "./settings";
 import { budgetState } from "./usage";
 import { parseJsonLoose } from "./adapters/http";
 import type { Part } from "./types";
@@ -50,16 +50,6 @@ export interface GenerateResult<T = unknown> {
   usage: { input: number; output: number; cache_read: number; cache_write: number; cost_usd: string | null };
 }
 
-/** Features whose own switch must be on for a generate() call with that ledger label. */
-const FEATURE_SWITCH: Record<string, keyof AiSettings["features"]> = {
-  explain: "explain",
-  capture: "capture",
-  plan: "forecast",
-  forecast: "forecast",
-  brief: "insights",
-  digest: "insights",
-  insights: "insights",
-};
 
 /** Single answer through the job's routing chain (fallbacks, budgets, usage ledger, data policy). */
 export async function generate<S extends z.ZodTypeAny | undefined = undefined>(
@@ -73,7 +63,8 @@ export async function generate<S extends z.ZodTypeAny | undefined = undefined>(
   if (opts.attachments?.length && !env.settings.features.capture) throw unavailable(ctx, "disabled");
   const parts: Part[] = [
     ...(opts.attachments ?? []).map((a) => ({ type: "file" as const, name: a.name, mime: a.mime, data: a.data })),
-    { type: "text", text: redactPrompt(opts.prompt, env.settings.data_policy) },
+    // data blocks are redacted as structured data (names hidden under "aggregates"), the rest as typed text
+    { type: "text", text: redactPrompt(redactDataBlocks(opts.prompt, env.settings.data_policy), env.settings.data_policy) },
   ];
   const output = opts.schema ? { name: "result", schema: jsonSchemaOf(opts.schema) } : null;
   const run = async (extra?: string) =>

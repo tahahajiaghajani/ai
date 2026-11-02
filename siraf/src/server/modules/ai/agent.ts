@@ -33,6 +33,8 @@ export const AGENT_LIMITS = {
   maxSteps: 12,
   /** web version: stop starting new turns after this and ask the client to continue */
   budgetMs: 240_000,
+  /** web version: a step still running this long after the request began is cut off (the function limit is 300 s) */
+  hardMs: 285_000,
   /** characters of one tool result sent to the model */
   toolChars: 24_000,
   maxTokens: 32_000,
@@ -114,7 +116,7 @@ export async function startChat(ctx: Ctx, req: AiChatRequest, emit: Emit, client
   try {
     if (!req.thread_id) void purgeOld(ctx, env.settings.retention_days);
     const prior = await history(ctx, thread.id);
-    const block = await contextBlock(ctx, req.context ?? thread.context);
+    const block = await contextBlock(ctx, req.context ?? thread.context, env.settings.data_policy);
     // files without a question: the model is asked what they are and what can be done with them
     const question = text || "(The person sent the attached file(s) without a question: say briefly what they contain and what you can do with them in Siraf.)";
     const modelText = `${block}\n\n${redactPrompt(question, env.settings.data_policy)}`;
@@ -135,6 +137,7 @@ export async function continueChat(ctx: Ctx, threadId: string, emit: Emit, clien
   const thread = await ownThread(ctx, threadId);
   const env = await loadEnv(ctx);
   await assertUsable(ctx, env);
+  if (!env.settings.features.assistant) throw unavailable(ctx, "disabled");
   const runId = uuidv7();
   if (!(await acquireRun(ctx, thread.id, runId, AGENT_LIMITS.leaseMs))) throw conflict("پاسخ قبلی این گفتگو هنوز در حال آماده شدن است");
   try {
@@ -196,6 +199,9 @@ async function runAnswer(s: RunState): Promise<void> {
     for (let step = s.stepsBefore; ; step++) {
       if (signal.aborted || (step > s.stepsBefore && (await stopRequested(ctx, thread.id, s.runId)))) {
         local.abort();
+        // the answer ends here: without a final row the stored tool step would read as "pending"
+        stepUsage = null;
+        await finish("stopped", "", emptyUi());
         emitUsage();
         emit({ type: "done", message_id: s.answerId, stop: "stopped" });
         return;
@@ -208,6 +214,9 @@ async function runAnswer(s: RunState): Promise<void> {
       if (step > s.stepsBefore) await renewRun(ctx, thread.id, s.runId, AGENT_LIMITS.leaseMs);
       let streamed = "";
       stepUsage = null;
+      // web version: the step (model turn and its tools) must end before the function is killed
+      const deadline = ctx.cfg.mode === "cloud" ? AbortSignal.timeout(Math.max(1_000, AGENT_LIMITS.hardMs - (Date.now() - s.started))) : null;
+      const stepSignal = deadline ? AbortSignal.any([signal, deadline]) : signal;
       let result;
       try {
         result = await runTurn(ctx, {
@@ -232,7 +241,7 @@ async function runAnswer(s: RunState): Promise<void> {
             tools: specs.length ? specs : undefined,
             effort: env.settings.effort.assistant,
             maxTokens: AGENT_LIMITS.maxTokens,
-            signal,
+            signal: stepSignal,
           },
         });
       } catch (e) {
@@ -250,8 +259,25 @@ async function runAnswer(s: RunState): Promise<void> {
       usage = addUsage(usage, r.usage);
       cost = D(cost).plus(result.cost_usd || "0").toFixed();
       priced = priced && result.priced;
-      const native = r.native && result.protocol ? { protocol: result.protocol, model: result.model, connection_id: result.connection_id ?? "", content: r.native } : null;
+      // replayed only to the model id it was asked of (the provider reports dated snapshots)
+      const native = r.native && result.protocol ? { protocol: result.protocol, model: result.requested_model || result.model, connection_id: result.connection_id ?? "", content: r.native } : null;
 
+      if (r.stop === "aborted" && !signal.aborted && deadline?.aborted) {
+        // cut off by the request's time limit, not by the person
+        const text = r.text || streamed;
+        if (!text && step > s.stepsBefore) {
+          // nothing of this step reached anyone: the stored tool step is continued by the next request
+          emitUsage();
+          emit({ type: "continue", thread_id: thread.id });
+          return;
+        }
+        const message_fa = aiErrorText("timeout").message;
+        await finish("error", text, { ...emptyUi(), error: { kind: "timeout", message_fa } }, {}, result.model, result.connection_id);
+        emitUsage();
+        emit({ type: "error", kind: "timeout", message_fa });
+        emit({ type: "done", message_id: s.answerId, stop: "error" });
+        return;
+      }
       if (r.stop === "aborted") {
         await finish("stopped", r.text || streamed, emptyUi(), {}, result.model, result.connection_id);
         emitUsage();
@@ -283,7 +309,7 @@ async function runAnswer(s: RunState): Promise<void> {
       // ---- tool round
       const id = stepId();
       const ui = emptyUi();
-      const results = await runTools(s, id, r.toolCalls, byName, ui, signal);
+      const results = await runTools(s, id, r.toolCalls, byName, ui, stepSignal);
       const note = step + 2 >= AGENT_LIMITS.maxSteps ? "Step limit reached: answer now with what the tool results above show; do not call more tools." : undefined;
       await insertStep(ctx, {
         id, threadId: thread.id, replyTo: s.replyTo, text: r.text,

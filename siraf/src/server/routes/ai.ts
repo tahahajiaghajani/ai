@@ -25,7 +25,7 @@ import { abortLocal, continueChat, startChat, type Emit } from "../modules/ai/ag
 import { deleteThread, getData, listThreads, messageViews, ownThread, patchThread, rateMessage, requestStop, threadDetail } from "../modules/ai/threads";
 import { confirmAction, listActions, rejectAction } from "../modules/ai/actions";
 import { budgetState, orgTimeZone, usageReport } from "../modules/ai/usage";
-import { cloudLink, relayRequestSchema, relayToRun } from "../modules/ai/relay";
+import { assertRelayAllowed, cloudLink, relayRequestSchema, relayToRun } from "../modules/ai/relay";
 import { fakeEnabled } from "../modules/ai/adapters/fake";
 import { pgArray } from "../db";
 import { toolsFor } from "../modules/ai/tools";
@@ -209,6 +209,7 @@ aiRoutes.post("/threads/:id/continue", async (c) => {
 
 aiRoutes.post("/threads/:id/stop", async (c) => {
   const ctx = c.get("ctx");
+  ctx.need("ai", "view");
   const id = c.req.param("id");
   const flagged = await requestStop(ctx, id);
   const here = abortLocal(id);
@@ -222,33 +223,46 @@ aiRoutes.get("/threads", async (c) => {
   return c.json({ threads: await listThreads(ctx, { q: q.q, archived: q.archived === "1" || q.archived === "true", limit: q.limit }) });
 });
 
-aiRoutes.get("/threads/:id", async (c) => c.json({ thread: threadDetail(await ownThread(c.get("ctx"), c.req.param("id"))) }));
+aiRoutes.get("/threads/:id", async (c) => {
+  const ctx = c.get("ctx");
+  ctx.need("ai", "view");
+  return c.json({ thread: threadDetail(await ownThread(ctx, c.req.param("id"))) });
+});
 
 aiRoutes.patch("/threads/:id", async (c) => {
   const ctx = c.get("ctx");
+  ctx.need("ai", "view");
   const patch = await body(c, z.object({ title: z.string().max(200).optional(), pinned: z.boolean().optional(), archived: z.boolean().optional() }));
   return c.json({ thread: await patchThread(ctx, c.req.param("id"), patch) });
 });
 
 aiRoutes.delete("/threads/:id", async (c) => {
-  await deleteThread(c.get("ctx"), c.req.param("id"));
+  const ctx = c.get("ctx");
+  ctx.need("ai", "view");
+  await deleteThread(ctx, c.req.param("id"));
   return c.json({ ok: true });
 });
 
 aiRoutes.get("/threads/:id/messages", async (c) => {
   const ctx = c.get("ctx");
+  ctx.need("ai", "view");
   const thread = await ownThread(ctx, c.req.param("id"));
   const detail = threadDetail(thread);
   return c.json({ messages: await messageViews(ctx, thread), running: detail.running });
 });
 
 aiRoutes.post("/messages/:id/rating", async (c) => {
+  c.get("ctx").need("ai", "view");
   const { rating } = await body(c, z.object({ rating: z.union([z.literal(1), z.literal(-1), z.null()]) }));
   await rateMessage(c.get("ctx"), c.req.param("id"), rating);
   return c.json({ ok: true });
 });
 
-aiRoutes.get("/data/:ref", async (c) => c.json(await getData(c.get("ctx"), c.req.param("ref"))));
+aiRoutes.get("/data/:ref", async (c) => {
+  const ctx = c.get("ctx");
+  ctx.need("ai", "view");
+  return c.json(await getData(ctx, c.req.param("ref")));
+});
 
 // ---------------------------------------------------------------- proposals
 
@@ -266,9 +280,14 @@ aiRoutes.get("/actions", async (c) => {
   return c.json({ actions: await listActions(ctx, { status: q.status, mine: q.mine === "1" || q.mine === "true", limit: q.limit }) });
 });
 
-aiRoutes.post("/actions/:id/confirm", async (c) => c.json({ proposal: await confirmAction(c.get("ctx"), c.req.param("id")) }));
+aiRoutes.post("/actions/:id/confirm", async (c) => {
+  const ctx = c.get("ctx");
+  ctx.need("ai", "view");
+  return c.json({ proposal: await confirmAction(ctx, c.req.param("id")) });
+});
 
 aiRoutes.post("/actions/:id/reject", async (c) => {
+  c.get("ctx").need("ai", "view");
   const { reason } = await body(c, z.object({ reason: z.string().max(300).optional() }));
   return c.json({ proposal: await rejectAction(c.get("ctx"), c.req.param("id"), reason) });
 });
@@ -338,12 +357,15 @@ aiRoutes.post("/relay", async (c) => {
   if (c.get("session")?.kind !== "device") throw forbidden("فقط نسخهٔ ویندوز متصل به این کسب‌وکار می‌تواند از این مسیر استفاده کند");
   ctx.need("ai", "view");
   const req = await body(c, relayRequestSchema);
+  // the business's switches (assistant, each feature, document reading) bind the Windows app too
+  const env = await loadEnv(ctx);
+  assertRelayAllowed(ctx, env.settings, req);
   return sse<AiRelayEvent>(
     c,
     async (emit, signal) => {
       const run = relayToRun(req, signal);
       // tools never run here: the request carries their descriptions only, the Windows app runs them
-      const result = await runTurn(ctx, { ...run, hooks: { onText: (d) => emit({ type: "text", delta: d }), onThinking: (d) => emit({ type: "thinking", delta: d }) } });
+      const result = await runTurn(ctx, { ...run, env, hooks: { onText: (d) => emit({ type: "text", delta: d }), onThinking: (d) => emit({ type: "thinking", delta: d }) } });
       emit({ type: "result", result });
     },
     (e) => [{ type: "error", ...errorEvent(c, e), retry_after_ms: null }],

@@ -17,8 +17,10 @@ export const APP_LINES = [
 export const APP_DESCRIPTION = "حسابداری و مدیریت کسب‌وکار — کالا، طلا، صرافی";
 /** Bumped with every release; the desktop app compares it with the cloud to offer updates. */
 export const APP_VERSION = "1.0.0";
-/** Sync protocol version — the server refuses clients with another major. */
-export const SYNC_PROTOCOL = 1;
+/** Sync protocol version — the server refuses pushes from clients with another one. Bump it whenever a
+ *  synced table gains a column or a new synced kind appears (2: coins and bars, migration 0013), so a
+ *  Windows app that does not know them cannot overwrite them. */
+export const SYNC_PROTOCOL = 2;
 
 export type ModuleKey = "goods" | "gold" | "fx";
 

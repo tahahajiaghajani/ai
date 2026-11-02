@@ -9,11 +9,14 @@ import { ALL_TOOLS } from "@server/modules/ai/tools";
 import { defineTool, type AiToolDef } from "@server/modules/ai/tools/registry";
 import { EXECUTORS } from "@server/modules/ai/tools/proposals";
 import { AGENT_LIMITS } from "@server/modules/ai/agent";
+import { history } from "@server/modules/ai/threads";
+import { makeCtx, type AuthUser, type MemberRow, type OrgRow, type ServerConfig } from "@server/context";
+import { quietLog } from "./helpers";
 import { registerCloudLink } from "@server/modules/ai/relay";
 import { uuidv7 } from "@shared/id";
 import type { AiStreamEvent } from "@shared/ai/types";
 
-const before = { fake: process.env.SIRAF_AI_FAKE, budget: AGENT_LIMITS.budgetMs };
+const before = { fake: process.env.SIRAF_AI_FAKE, budget: AGENT_LIMITS.budgetMs, hard: AGENT_LIMITS.hardMs };
 
 const echo = defineTool({
   name: "test_echo",
@@ -76,6 +79,7 @@ afterAll(() => {
   if (before.fake === undefined) delete process.env.SIRAF_AI_FAKE;
   else process.env.SIRAF_AI_FAKE = before.fake;
   AGENT_LIMITS.budgetMs = before.budget;
+  AGENT_LIMITS.hardMs = before.hard;
   for (const t of [echo, propose]) ALL_TOOLS.splice(ALL_TOOLS.indexOf(t as unknown as AiToolDef), 1);
   delete EXECUTORS.test_doc;
 });
@@ -121,9 +125,10 @@ async function member(owner: Client, app: App, orgId: string, email: string, rol
   return c;
 }
 
-async function setup() {
+async function setup(ip?: string) {
   const { app, db } = await makeServer({ config: { secretSource: "env" } });
-  const owner = new Client(app);
+  // a sign-up from another address (sign-ups are limited per address and hour)
+  const owner = new Client(ip ? { fetch: (r: Request) => (r.headers.set("x-forwarded-for", ip), app.fetch(r)) } : app);
   const orgId = await signupWithOrg(owner, ["goods"]);
   const { connection } = await owner.post(`/o/${orgId}/ai/connections`, { preset: "fake" });
   return { app, db, owner, orgId, connection };
@@ -256,6 +261,102 @@ describe("assistant chat over SSE (fake model)", () => {
     await owner.del(`/o/${orgId}/ai/threads/${threadId}`);
     expect((await owner.get(`/o/${orgId}/ai/threads`)).threads).toEqual([]);
   });
+});
+
+describe("answers cut short, switched off or replayed", () => {
+  let S: Awaited<ReturnType<typeof setup>>;
+  beforeAll(async () => {
+    S = await setup("10.62.0.1");
+  });
+
+  it("ends an answer stopped during a tool round as stopped, not as pending", async () => {
+    const { app, owner, orgId } = S;
+    const wait = defineTool({
+      name: "test_wait", title_fa: "ابزار کند", description: "Waits (test only).", input: z.object({}), kind: "read", area: "reports", level: "view",
+      async run() {
+        await new Promise((r) => setTimeout(r, 150));
+        return { data: { ok: true }, summary_fa: "تمام شد" };
+      },
+    });
+    ALL_TOOLS.push(wait as unknown as AiToolDef);
+    try {
+      let threadId = "";
+      const { events } = await stream(app, owner, `/o/${orgId}/ai/chat`, { text: "[tool:test_wait {}]" }, (e) => {
+        if (e.type === "meta") threadId = e.thread_id;
+        if (e.type === "tool_start") void owner.post(`/o/${orgId}/ai/threads/${threadId}/stop`);
+      });
+      expect(events[events.length - 1]).toMatchObject({ type: "done", stop: "stopped" });
+      const view = (await owner.get(`/o/${orgId}/ai/threads/${threadId}/messages`)).messages;
+      expect(view[1]).toMatchObject({ status: "stopped", tools: [{ tool: "test_wait", ok: true }] });
+      expect(view[1].can_continue).toBeFalsy();
+      // and there is nothing to continue
+      const again = await stream(app, owner, `/o/${orgId}/ai/threads/${threadId}/continue`, {});
+      expect(again.events).toEqual([{ type: "done", message_id: "", stop: "end" }]);
+    } finally {
+      ALL_TOOLS.splice(ALL_TOOLS.indexOf(wait as unknown as AiToolDef), 1);
+    }
+  });
+
+  it("cuts a step off before the web function's limit and stores what was said", async () => {
+    const { app, owner, orgId } = S;
+    AGENT_LIMITS.hardMs = 150;
+    try {
+      const { events } = await stream(app, owner, `/o/${orgId}/ai/chat`, { text: `[slow] ${"پاسخی که دیر تمام می‌شود. ".repeat(20)}` });
+      expect(events.find((e) => e.type === "error")).toMatchObject({ kind: "timeout" });
+      expect(events[events.length - 1]).toMatchObject({ type: "done", stop: "error" });
+      const threadId = (events[0] as { thread_id: string }).thread_id;
+      const view = (await owner.get(`/o/${orgId}/ai/threads/${threadId}/messages`)).messages;
+      expect(view[1]).toMatchObject({ status: "error", error: { kind: "timeout" } });
+      expect(view[1].text.length).toBeGreaterThan(0);
+      // the lease is free: the next question runs at once
+      AGENT_LIMITS.hardMs = before.hard;
+      const next = await stream(app, owner, `/o/${orgId}/ai/chat`, { thread_id: threadId, text: "سلام" });
+      expect(next.events[next.events.length - 1]).toMatchObject({ type: "done", stop: "end" });
+    } finally {
+      AGENT_LIMITS.hardMs = before.hard;
+    }
+  });
+
+  it("replays the answer to a question with files without its native content, every time the same way", async () => {
+    const { app, db, owner, orgId } = S;
+    const file = { name: "رسید.png", mime: "image/png", data: Buffer.from("png bytes").toString("base64") };
+    const r = await stream(app, owner, `/o/${orgId}/ai/chat`, { text: "این چیست؟", attachments: [file] });
+    const threadId = (r.events[0] as { thread_id: string }).thread_id;
+    const plain = await stream(app, owner, `/o/${orgId}/ai/chat`, { thread_id: threadId, text: "ممنون" });
+    expect(plain.events[plain.events.length - 1]).toMatchObject({ type: "done", stop: "end" });
+    // both answers carry native content (thinking blocks, signatures) as the provider returned it
+    expect((await db.query(`select 1 from tz_ai_messages where thread_id = $1 and role = 'assistant' and native is not null`, [threadId])).length).toBe(2);
+    const u = (await db.one<AuthUser>(`select id, email, full_name, mobile, is_platform_admin, disabled, prefs from tz_users limit 1`))!;
+    const org = (await db.one<OrgRow>(`select * from tz_orgs where id = $1`, [orgId]))!;
+    const m = (await db.one<MemberRow>(`select id, org_id, user_id, role, overrides, is_active from tz_org_members where org_id = $1`, [orgId]))!;
+    const ctx = makeCtx({ mode: "cloud", db, secret: "s", allowSignup: true, platformAdmins: [], origin: "cloud", log: quietLog, fetch: globalThis.fetch.bind(globalThis) } as ServerConfig, u, org, m);
+    const h = await history(ctx, threadId);
+    expect(h.messages.map((x) => x.role)).toEqual(["user", "assistant", "user", "assistant"]);
+    // the file itself is not kept: its question is replayed with a placeholder, so the answer the
+    // model gave while seeing the file is replayed as plain text (no thinking bound to the file)
+    expect(JSON.stringify(h.messages[0].parts)).toContain("[attachment: رسید.png");
+    expect(h.messages[1].native).toBeNull();
+    expect(h.messages[1].parts[0]).toMatchObject({ type: "text" });
+    // later answers keep their native content
+    expect(h.messages[3].native).not.toBeNull();
+  });
+
+  it("refuses to continue an answer once the assistant is switched off", async () => {
+    const { app, owner, orgId } = S;
+    AGENT_LIMITS.budgetMs = 0;
+    try {
+      const first = await stream(app, owner, `/o/${orgId}/ai/chat`, { text: '[loop:2 test_echo {"n":3}]' });
+      expect(first.events[first.events.length - 1].type).toBe("continue");
+      const threadId = (first.events[0] as { thread_id: string }).thread_id;
+      await owner.put(`/o/${orgId}/ai/settings`, { features: { assistant: false } });
+      const r = await stream(app, owner, `/o/${orgId}/ai/threads/${threadId}/continue`, {});
+      expect(r.events).toEqual([{ type: "error", kind: "disabled", message_fa: expect.any(String) }, { type: "done", message_id: "", stop: "error" }]);
+      expect((await owner.get(`/o/${orgId}/ai/threads/${threadId}/messages`)).messages[1].tools).toHaveLength(1);
+    } finally {
+      AGENT_LIMITS.budgetMs = before.budget;
+    }
+  });
+
 });
 
 describe("permissions and proposals", () => {
@@ -410,5 +511,21 @@ describe("Windows app → web version relay", () => {
     // the tool ran on the Windows app's database, never on the web version
     expect(await desk.db.one(`select 1 as x from tz_ai_tool_calls`)).not.toBeNull();
     expect(await cloud.db.one(`select 1 as x from tz_ai_tool_calls`)).toBeNull();
+
+    // the web version's switches bind relayed turns too
+    const relay = (b: unknown) => cloud.app.fetch(new Request(`http://local.test/api/o/${cloud.orgId}/ai/relay`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${login.token}` }, body: JSON.stringify(b) }));
+    const asAssistant = { ...relayBody, job: "assistant", feature: "assistant" };
+    const withFile = { ...relayBody, job: "vision", feature: "capture", request: { ...relayBody.request, messages: [{ role: "user", parts: [{ type: "file", mime: "application/pdf", data: "JVBERi0=" }, { type: "text", text: "بخوان" }] }] } };
+    expect((await relay({ ...relayBody, feature: "anything-else" })).status).toBe(400);
+    await cloud.owner.put(`/o/${cloud.orgId}/ai/settings`, { features: { assistant: false, capture: false } });
+    const off = await relay(asAssistant);
+    expect(off.status).toBe(403);
+    expect(((await off.json()) as { error: { code: string } }).error.code).toBe("ai_disabled");
+    expect((await relay(withFile)).status).toBe(403);
+    // a feature whose own switch is on still works
+    expect(parseSse(await (await relay(relayBody)).text()).pop()).toMatchObject({ type: "result" });
+    // and the Windows app shows the switch as an error, not an answer
+    const { events: offEv } = await stream(desk.app, owner, `/o/${deskOrg}/ai/chat`, { text: "سلام" });
+    expect(offEv.find((e) => e.type === "error")).toMatchObject({ kind: "disabled" });
   });
 });

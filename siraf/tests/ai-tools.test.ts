@@ -9,7 +9,8 @@ import { D } from "@shared/money";
 import { ALL_TOOLS, toolsFor } from "@server/modules/ai/tools/index";
 import { EXECUTORS, executeProposal } from "@server/modules/ai/tools/proposals";
 import type { AiToolDef, ToolRuntime, ToolResult } from "@server/modules/ai/tools/registry";
-import { comparePeriod, parseDateInput, presetPeriod, resolvePeriod } from "@server/modules/ai/analytics/period";
+import { comparePeriod, parseDateInput, presetPeriod, previousMonthToDate, resolvePeriod } from "@server/modules/ai/analytics/period";
+import { contextBlock } from "@server/modules/ai/prompts";
 import { evaluate } from "@server/modules/ai/analytics/calc";
 import * as acc from "@server/modules/accounting/reports";
 import { analysis } from "@server/modules/goods/reports";
@@ -161,6 +162,58 @@ describe("ai tools", () => {
     expect(monthly.data.rows.map((r: any) => r.label)).toEqual(["مهر ۱۴۰۵", "آبان ۱۴۰۵", "آذر ۱۴۰۵"]);
     expect(monthly.chart?.kind).toBe("line");
     expect(monthly.data.comparison.period.label_fa).toBe("تابستان ۱۴۰۵");
+  });
+
+  it("compares month to date with the first days of the previous month", () => {
+    // 1405/08/21: 1–21 Aban against 1–21 Mehr (not 10–30 Mehr)
+    const cur = presetPeriod("month_to_date", "2026-11-12");
+    expect(cur.days).toBe(21);
+    const prev = previousMonthToDate(cur);
+    expect([prev.from, prev.to]).toEqual(["2026-09-23", "2026-10-13"]);
+    expect(prev.days).toBe(21);
+    // the 31st of a 31-day month against a 30-day month: cut at that month's end
+    const long = presetPeriod("month_to_date", "2026-08-22"); // 1405/05/31
+    const p2 = previousMonthToDate(long);
+    expect(p2.to).toBe("2026-07-22"); // 1405/04/31
+    const esf = previousMonthToDate(presetPeriod("month_to_date", "2027-04-20")); // 1406/01/31 against Esfand 1405
+    expect(esf.from).toBe("2027-02-20");
+    expect(esf.to).toBe("2027-03-20");
+  });
+
+  it("analyze_metric keeps totals and the comparison ahead of a long time series, bounded, and hides names under aggregates", async () => {
+    const ctx = await ctxAs("owner");
+    const daily = await run("analyze_metric", { metric: "sales_amount", period: { preset: "last_365_days" }, group_by: "day", compare_to: "previous_period" }, ctx);
+    const keys = Object.keys(daily.data);
+    expect(keys.indexOf("comparison")).toBeLessThan(keys.indexOf("rows"));
+    expect(keys.indexOf("total")).toBeLessThan(keys.indexOf("rows"));
+    expect(keys[keys.length - 1]).toBe("rows");
+    expect(daily.data.rows_total).toBe(365);
+    expect(daily.data.rows).toHaveLength(60);
+    expect(daily.data.rows_omitted).toMatch(/305/);
+    expect(daily.data.rows.at(-1).key).toBe(TODAY);
+    expect(JSON.stringify(daily.data).length).toBeLessThan(24_000);
+    const byParty = await run("analyze_metric", { metric: "sales_amount", period: { preset: "this_year" }, group_by: "party" }, ctx, runtime("aggregates"));
+    expect(byParty.data.rows.length).toBeGreaterThan(0);
+    expect(byParty.data.rows[0].label).toBe("شخص 1");
+    expect(byParty.data.rows[0].key).toBeUndefined();
+    const named = await run("analyze_metric", { metric: "sales_amount", period: { preset: "this_year" }, group_by: "party" }, ctx, runtime("masked"));
+    expect(named.data.rows[0].label).not.toMatch(/^شخص \d/);
+  });
+
+  it("tells the model the unit the tools format money in", async () => {
+    const ctx = await ctxAs("owner");
+    const block = await contextBlock(ctx, null);
+    const unit = JSON.parse(block.replace(/<\/?context>/g, "")).money_unit_shown_to_people;
+    expect(unit).toMatch(ctx.org.base_currency === "IRT" ? /toman/ : ctx.org.base_currency === "IRR" ? /rial/ : new RegExp(ctx.org.base_currency));
+    const toman = await ctxAs("owner");
+    toman.org = { ...toman.org, base_currency: "IRT" };
+    const base = (await db.one<{ code: string; symbol: string | null }>(`select code, symbol from tz_currencies where org_id = $1 and is_base`, [org]))!;
+    await db.query(`update tz_currencies set code = 'IRT', symbol = null where org_id = $1 and is_base`, [org]);
+    try {
+      expect(JSON.parse((await contextBlock(toman, null)).replace(/<\/?context>/g, "")).money_unit_shown_to_people).toMatch(/toman/);
+    } finally {
+      await db.query(`update tz_currencies set code = $2, symbol = $3 where org_id = $1 and is_base`, [org, base.code, base.symbol]);
+    }
   });
 
   it("balances and reports equal the accounting services", async () => {

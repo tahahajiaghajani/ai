@@ -79,6 +79,17 @@ describe("forecast math", () => {
     expect(f.points[0].p90 - f.points[0].p10).toBeGreaterThan(10);
   });
 
+  it("reports the coverage of the band it shows, after widening", () => {
+    for (const seed of [1, 2, 3, 5, 8]) {
+      const r = rng(seed);
+      // mostly quiet with large jumps: the model's own band is far too narrow and gets widened
+      const y = Array.from({ length: 40 }, (_, i) => 100 + (r() < 0.3 ? (r() - 0.5) * 200 : (r() - 0.5) * 4) + i);
+      const f = forecastSeries(y, 3);
+      expect(f.ok).toBe(true);
+      expect(f.backtest!.coverage80!).toBeGreaterThanOrEqual(0.8);
+    }
+  });
+
   it("refuses when the data is thin", () => {
     expect(forecastSeries([5, 6, 7], 3).refused_reason_fa).toMatch(/دادهٔ کافی نیست/);
     expect(forecastSeries(Array(12).fill(0), 3).ok).toBe(false);
@@ -122,6 +133,7 @@ describe("13-week cash flow and forecasts on seeded books", () => {
   let c: Client;
   let org: string;
   let ctx: Ctx;
+  let cust = "";
 
   beforeAll(async () => {
     const s = await makeServer();
@@ -131,16 +143,19 @@ describe("13-week cash flow and forecasts on seeded books", () => {
     const o = (p: string) => `/o/${org}${p}`;
     const unit = (await db.one<{ id: string }>(`select id from tz_units where org_id = $1 and name = 'عدد'`, [org]))!.id;
     const item = (await c.post(o("/data/item"), { name: "کالای آزمایشی", kind: "goods", unit_id: unit, vat_pct: "0" })).row.id;
-    const cust = (await c.post(o("/data/party"), { name: "مشتری", roles: ["customer"] })).row.id;
+    cust = (await c.post(o("/data/party"), { name: "مشتری", roles: ["customer"] })).row.id;
     const supp = (await c.post(o("/data/party"), { name: "تأمین‌کننده", roles: ["supplier"] })).row.id;
+    // money and cheques come from and go to other parties than the open invoices' (those are tested below)
+    const cust2 = (await c.post(o("/data/party"), { name: "مشتری دوم", roles: ["customer"] })).row.id;
+    const supp2 = (await c.post(o("/data/party"), { name: "تأمین‌کنندهٔ دوم", roles: ["supplier"] })).row.id;
     const box = (await db.one<{ id: string }>(`select id from tz_cash_boxes where org_id = $1 limit 1`, [org]))!.id;
     const bank = (await c.post(o("/data/bank_account"), { name: "ملت", bank_name: "ملت" })).row.id;
     const book = (await c.post(o("/data/cheque_book"), { bank_account_id: bank, title: "دسته‌چک", serial_from: "100001", serial_to: "100050", sheets: 50 })).row.id;
     // cash 10,000,000 on hand
-    await c.post(o("/treasury/docs"), { kind: "receipt", date: "2026-10-01", party_id: cust, lines: [{ method: "cash", cash_box_id: box, amount: "10000000" }] });
+    await c.post(o("/treasury/docs"), { kind: "receipt", date: "2026-10-01", party_id: cust2, lines: [{ method: "cash", cash_box_id: box, amount: "10000000" }] });
     // a received cheque due in week 2 (2026-11-07 … 11-13) and an issued one due in week 3
-    await c.post(o("/treasury/docs"), { kind: "receipt", date: "2026-10-02", party_id: cust, lines: [{ method: "cheque", amount: "4000000", cheque: { serial_no: "11", due_date: "2026-11-09" } }] });
-    await c.post(o("/treasury/docs"), { kind: "payment", date: "2026-10-03", party_id: supp, lines: [{ method: "cheque", amount: "25000000", cheque: { cheque_book_id: book, serial_no: "100001", due_date: "2026-11-16" } }] });
+    await c.post(o("/treasury/docs"), { kind: "receipt", date: "2026-10-02", party_id: cust2, lines: [{ method: "cheque", amount: "4000000", cheque: { serial_no: "11", due_date: "2026-11-09" } }] });
+    await c.post(o("/treasury/docs"), { kind: "payment", date: "2026-10-03", party_id: supp2, lines: [{ method: "cheque", amount: "25000000", cheque: { cheque_book_id: book, serial_no: "100001", due_date: "2026-11-16" } }] });
     // an open sales invoice due in week 5 (2026-11-28 … 12-04)
     await c.post(o("/goods/invoices"), { kind: "purchase", date: "2026-09-01", party_id: supp, settlement: "credit", lines: [{ item_id: item, qty: "10", unit_price: "100000", vat_pct: "0" }] });
     await c.post(o("/goods/invoices"), { kind: "sale", date: "2026-10-30", due_date: "2026-11-30", party_id: cust, lines: [{ item_id: item, qty: "2", unit_price: "1500000", vat_pct: "0" }] });
@@ -176,6 +191,17 @@ describe("13-week cash flow and forecasts on seeded books", () => {
     expect(d.shortfall_weeks[0]).toBe(d.weeks[2].label);
     expect(f.series.forecast).toHaveLength(13);
     expect(f.series.history).toHaveLength(13);
+  });
+
+  it("does not count an open invoice again when an unallocated cheque already settled it", async () => {
+    // the customer pays 1,000,000 of the 3,000,000 invoice with a cheque on a receipt that is not allocated to it
+    await c.post(`/o/${org}/treasury/docs`, { kind: "receipt", date: "2026-11-01", party_id: cust, lines: [{ method: "cheque", amount: "1000000", cheque: { serial_no: "12", due_date: "2026-12-10" } }] });
+    const f = await cashflow13(ctx, TODAY, await moneyInfo(ctx));
+    const weeks = (f.details as { weeks: CashWeek[] }).weeks;
+    const inflow = weeks.reduce((a, w) => a.plus(D(w.cheques_in)).plus(D(w.invoices_in)), D(0));
+    // 4,000,000 (the other customer's cheque) + 1,000,000 cheque + 2,000,000 still owed: never 1,000,000 twice
+    expect(inflow.toFixed()).toBe("7000000");
+    expect(weeks[4].invoices_in).toBe("2000000");
   });
 
   it("refuses a sales forecast with too little history and checks permissions", async () => {

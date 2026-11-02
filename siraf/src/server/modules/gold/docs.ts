@@ -219,7 +219,13 @@ export async function prepare(q: Queryable, ctx: Ctx, input: DocInput, docId: st
   const barIds = raw.filter((l) => l.kind === "bar" && l.gold_bar_id).map((l) => l.gold_bar_id!);
   const bars = new Map(
     barIds.length
-      ? (await q.query<BarRow>(`select * from tz_gold_bars where org_id = $1 and id = any($2::uuid[]) and deleted_at is null`, [orgId, `{${barIds.join(",")}}`])).map((r) => [r.id, r])
+      ? (
+          await q.query<BarRow>(
+            // bars this document brought in earlier count too (an edited purchase keeps its bars; they were removed by the undo)
+            `select * from tz_gold_bars where org_id = $1 and id = any($2::uuid[]) and (deleted_at is null or ($3::uuid is not null and in_doc_id = $3::uuid))`,
+            [orgId, `{${barIds.join(",")}}`, docId],
+          )
+        ).map((r) => [r.id, r])
       : [],
   );
   const productIds = [...new Set([...raw.filter((l) => (l.kind === "coin" || l.kind === "bar") && l.item_id).map((l) => l.item_id!), ...[...bars.values()].map((b) => b.item_id).filter((x): x is string => !!x)])];
@@ -344,7 +350,9 @@ export async function prepare(q: Queryable, ctx: Ctx, input: DocInput, docId: st
       const weight = decimal(l.weight, "وزن", n, { positive: true })!;
       const fineness = decimal(l.fineness, "عیار", n, { max: 1000 }) ?? "750";
       if (D(fineness).isZero()) throw bad(`ردیف ${faDigits(n)}: عیار را وارد کنید`);
-      Object.assign(draft, { form: "old", title: draft.title ?? "طلای مستعمل" });
+      // آب‌شده bought from a customer is marked so (identification, and it goes to the آب‌شده account)
+      const form = l.form === "bullion" ? "bullion" : "old";
+      Object.assign(draft, { form, title: draft.title ?? (form === "bullion" ? "آب‌شده" : "طلای مستعمل") });
       pin = { kind: "old", direction: "in", weight, fineness, gram_price: gramPrice, deduction_pct: decimal(l.deduction_pct, "درصد کسر", n, { max: 100 }) };
     } else if (l.kind === "coin") {
       if (!l.item_id) throw bad(`ردیف ${faDigits(n)}: نوع سکه را انتخاب کنید`);
@@ -387,7 +395,7 @@ export async function prepare(q: Queryable, ctx: Ctx, input: DocInput, docId: st
       let bar: BarRow | null = null;
       if (l.gold_bar_id) {
         bar = bars.get(l.gold_bar_id) ?? null;
-        if (!bar) throw bad(`ردیف ${faDigits(n)}: شمش پیدا نشد`);
+        if (!bar || (bar.deleted_at && direction === "out")) throw bad(`ردیف ${faDigits(n)}: شمش پیدا نشد`);
         if (seenBars.has(bar.id)) throw bad(`شمش ${faDigits(bar.bar_no)} دو بار در سند آمده است`);
         seenBars.add(bar.id);
       } else if (direction === "out") throw bad(`ردیف ${faDigits(n)}: شمش را اسکن یا انتخاب کنید`);
@@ -428,19 +436,25 @@ export async function prepare(q: Queryable, ctx: Ctx, input: DocInput, docId: st
         attrs.seal_status = seal;
       }
       const sealed = seal === "sealed";
-      const feePct = side === "buy" ? decimal(l.fee_pct, "کارمزد خرید", n, { max: 100 }) ?? d.fee_pct : null;
+      // a board buy price is net: no fee on top of it
+      const feePct = side === "buy" ? (unit && (kind === "sale" || kind === "buyback") ? "0" : decimal(l.fee_pct, "کارمزد خرید", n, { max: 100 }) ?? d.fee_pct) : null;
       const assayFee = side === "buy" ? decimal(l.assay_fee, "هزینه‌ی ری‌گیری", n) ?? d.assay_fee : null;
+      // bought from a customer (buy-back, trade-in): the board's buy price of an 18k gram, as for coins
+      const buyIn = (kind === "sale" || kind === "buyback") && side === "buy";
+      const barGram = gramPrice ?? (buyIn && !unit ? d.gram_price : null);
+      // margin VAT: on the price over the bar's own cost
+      const unitCost = sellSide && d.vat_mode === "margin" ? (bar?.cost && D(bar.cost).gt(0) ? D(bar.cost).toString() : "0") : null;
       Object.assign(draft, {
         gold_bar_id: bar?.id ?? null, item_id: model?.id ?? null, tag_no: bar?.bar_no ?? attrs.bar_no ?? null,
         title: draft.title ?? model?.name ?? "شمش", wage_type: wageType, wage_value: wageValue,
         extra: {
-          ...(direction === "in" ? { bar: attrs } : {}), ...(unit ? { unit_price: unit } : {}), basis: d.basis, vat_mode: d.vat_mode,
+          ...(direction === "in" ? { bar: attrs } : {}), ...(unit ? { unit_price: unit } : {}), ...(unitCost ? { unit_cost: unitCost } : {}), basis: d.basis, vat_mode: d.vat_mode,
           ...(feePct !== null ? { fee_pct: feePct, assay_fee: assayFee, sealed: sealed ? "1" : "0" } : {}),
         },
       });
       pin = {
-        kind: "bar", direction, weight, fineness, gram_price: gramPrice, unit_price: unit, basis: d.basis, wage_type: wageType, wage_value: wageValue,
-        profit_pct: sellSide ? decimal(l.profit_pct, "سود", n, { max: 100 }) : null, vat_mode: d.vat_mode, discount, cost: decimal(l.cost, "بهای تمام‌شده", n),
+        kind: "bar", direction, weight, fineness, gram_price: barGram, unit_price: unit, basis: d.basis, wage_type: wageType, wage_value: wageValue,
+        profit_pct: sellSide ? decimal(l.profit_pct, "سود", n, { max: 100 }) : null, vat_mode: d.vat_mode, unit_cost: unitCost, discount, cost: decimal(l.cost, "بهای تمام‌شده", n),
         sealed, fee_pct: feePct, assay_fee: assayFee, opened_fineness: d.opened_fineness,
       };
     }
@@ -487,10 +501,15 @@ function docExtra(kind: DocKind, raw: DocInput["extra"]): Record<string, string>
  * Identification (KYC): selling or buying coins, bars or آب‌شده needs a party with a valid national
  * id (or the walk-in buyer's) when the setting is on and the document reaches the threshold.
  */
-export async function assertKyc(q: Queryable, ctx: Ctx, doc: { kind: DocKind; party_id: string | null; total: Num; old_value: Num; buyer?: Record<string, unknown> | null }, lines: { kind: string; form: string | null }[]) {
+export async function assertKyc(
+  q: Queryable, ctx: Ctx, doc: { kind: DocKind; party_id: string | null; total: Num; old_value: Num; buyer?: Record<string, unknown> | null; extra?: Record<string, unknown> | null },
+  lines: { kind: string; form: string | null }[],
+) {
   const k = goldSettings(ctx.org).kyc;
-  if (!k.enabled || !["sale", "buyback", "bullion_sale"].includes(doc.kind)) return;
-  if (!lines.some((l) => l.kind === "coin" || l.kind === "bar" || (l.kind === "bulk" && l.form === "bullion"))) return;
+  // buying from the public is a buy-back, also when recorded as a purchase with the source «public»
+  const fromPublic = doc.kind === "purchase" && doc.extra?.source === "public";
+  if (!k.enabled || !(["sale", "buyback", "bullion_sale"].includes(doc.kind) || fromPublic)) return;
+  if (!lines.some((l) => l.kind === "coin" || l.kind === "bar" || ((l.kind === "bulk" || l.kind === "old") && l.form === "bullion"))) return;
   const amount = D(doc.total ?? 0).abs().gt(D(doc.old_value ?? 0).abs()) ? D(doc.total ?? 0).abs() : D(doc.old_value ?? 0).abs();
   if (k.threshold && amount.lt(D(k.threshold))) return;
   const valid = (v: unknown) => typeof v === "string" && (isNationalId(v) || isLegalNationalId(v));
@@ -499,9 +518,10 @@ export async function assertKyc(q: Queryable, ctx: Ctx, doc: { kind: DocKind; pa
     const p = await q.one<{ national_id: string | null }>(`select national_id from tz_parties where id = $1 and org_id = $2`, [doc.party_id, ctx.org.id]);
     if (valid(p?.national_id)) return;
   }
-  const who = doc.kind === "buyback" ? "فروشنده" : "خریدار";
+  const buying = doc.kind === "buyback" || fromPublic;
+  const who = buying ? "فروشنده" : "خریدار";
   const above = k.threshold ? ` از ${formatMoney(k.threshold, ctx.org.money_decimals)} به بالا` : "";
-  throw bad(`برای ${doc.kind === "buyback" ? "خرید" : "فروش"} سکه، شمش یا آب‌شده${above} شناسایی ${who} لازم است؛ ${who} با کد ملی معتبر را انتخاب کنید یا کد ملی را در مشخصات ${who} وارد کنید`);
+  throw bad(`برای ${buying ? "خرید" : "فروش"} سکه، شمش یا آب‌شده${above} شناسایی ${who} لازم است؛ ${who} با کد ملی معتبر را انتخاب کنید یا کد ملی را در مشخصات ${who} وارد کنید`);
 }
 
 function normalizeSettle(kind: DocKind, raw: DocInput["settle"], lines: LineDraft[], hasParty: boolean, dp: number, preview = false): Settle {

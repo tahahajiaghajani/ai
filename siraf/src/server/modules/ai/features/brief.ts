@@ -10,12 +10,14 @@ import { formatNumber } from "@shared/format";
 import { addDays, formatJalali } from "@shared/jalali";
 import { formatJalaliDateTime } from "@shared/jalali";
 import { latestRate } from "../../gold/rates";
-import { comparePeriod, presetPeriod } from "../analytics/period";
+import { presetPeriod, previousMonthToDate } from "../analytics/period";
 import { metricAllowed, metricDef, runMetric } from "../analytics/metrics";
 import { cashAndBank, chequesCalendar, receivables } from "./ops";
 import { listInsights } from "./insights";
 import { SYSTEM_RULES, dataBlock, narrate } from "./narrative";
 import { businessToday, changePct, fmtMoney, moneyInfo } from "../tools/common";
+import { loadSettings } from "../settings";
+import { hideNames } from "../redact";
 
 export type BriefView = AiBriefView;
 
@@ -27,8 +29,7 @@ async function facts(ctx: Ctx, today: string): Promise<BriefView["facts"]> {
     const day = await runMetric(ctx, sales, presetPeriod("today", today), "none");
     const mtd = presetPeriod("month_to_date", today);
     const cur = await runMetric(ctx, sales, mtd, "none");
-    const prevP = comparePeriod(mtd, "previous_period");
-    const prev = await runMetric(ctx, sales, { ...prevP, to: addDays(prevP.from, mtd.days - 1) }, "none");
+    const prev = await runMetric(ctx, sales, previousMonthToDate(mtd), "none");
     const pct = changePct(cur.total, prev.total);
     out.push({ key: "sales_today", label: "فروش امروز", value: fmtMoney(day.total, m), hint: `${day.documents ?? 0} سند`, tone: D(day.total).gt(0) ? "in" : null, path: ctx.hasModule("goods") ? "sales/invoices" : null });
     out.push({ key: "sales_mtd", label: "فروش این ماه تا امروز", value: fmtMoney(cur.total, m), hint: pct === null ? null : `${D(pct).gt(0) ? "+" : ""}${formatNumber(pct, { dp: 1 })}٪ نسبت به همین مدت ماه قبل`, tone: pct !== null && D(pct).lt(-20) ? "warning" : null, path: ctx.hasModule("goods") ? "sales/reports" : null });
@@ -80,7 +81,11 @@ export async function dailyBrief(ctx: Ctx, opts: { refresh?: boolean; signal?: A
   const f = await facts(ctx, today);
   const ins = (await listInsights(ctx)).insights.filter((i) => i.status !== "dismissed").slice(0, 5);
   const date = formatJalali(today, { style: "full" });
-  const data = { date, facts: f.map(({ label, value, hint }) => ({ label, value, hint })), insights: ins.map((i) => ({ title: i.title_fa, body: i.body_fa, severity: i.severity })) };
+  // "aggregates": the insights' texts name parties; the labels of their party references are hidden
+  const policy = (await loadSettings(ctx.db, ctx.org.id)).data_policy;
+  const names = policy === "aggregates" ? ins.flatMap((i) => i.refs.filter((r) => r.type === "party").map((r) => r.label)) : [];
+  const hide = (t: string) => (names.length ? hideNames(t, names) : t);
+  const data = { date, facts: f.map(({ label, value, hint }) => ({ label, value, hint })), insights: ins.map((i) => ({ title: hide(i.title_fa), body: hide(i.body_fa), severity: i.severity })) };
   const n = await narrate(
     ctx,
     {

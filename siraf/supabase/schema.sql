@@ -1322,7 +1322,9 @@ insert into tz_migrations (id) values ('0012_sync') on conflict (id) do nothing;
 -- ---------------------------------------------------------------------------
 alter table tz_items add column if not exists rate_key text;
 alter table tz_items add column if not exists gold_meta jsonb not null default '{}'::jsonb;
-create index if not exists tz_items_rate_key_idx on tz_items (org_id, rate_key) where rate_key is not null and deleted_at is null;
+-- one live product per board key (a clash arriving through sync moves the other holder's key aside)
+drop index if exists tz_items_rate_key_idx;
+create unique index if not exists tz_items_rate_key_uk on tz_items (org_id, rate_key) where rate_key is not null and deleted_at is null;
 
 alter table tz_gold_rates add column if not exists coins_buy jsonb not null default '{}'::jsonb;
 alter table tz_gold_rates add column if not exists bubbles jsonb not null default '{}'::jsonb;
@@ -1406,6 +1408,7 @@ declare
   v_code text;
   v_i int;
 begin
+  perform set_config('taraz.applying', 'on', true);
   for o in select id from tz_orgs where deleted_at is null and modules ? 'gold' loop
     for r in select * from (values
       ('gold_bars', '1515', 'موجودی شمش طلا', 'asset', 'debit', 'required', 'gold_bullion'),
@@ -1429,6 +1432,7 @@ begin
       on conflict (id) do nothing;
     end loop;
   end loop;
+  perform set_config('taraz.applying', 'off', true);
 end
 $do$;
 
@@ -1495,6 +1499,7 @@ declare
   v_code text;
   v_n int;
 begin
+  perform set_config('taraz.applying', 'on', true);
   for o in select id from tz_orgs where deleted_at is null and modules ? 'gold' loop
     v_unit := (select id from tz_units where org_id = o.id and name = 'عدد' and deleted_at is null order by created_at limit 1);
     for it in
@@ -1544,6 +1549,7 @@ begin
               (e.v->>'active')::boolean, v_key, e.v->'meta');
     end loop;
   end loop;
+  perform set_config('taraz.applying', 'off', true);
 end
 $do$;
 
@@ -1908,3 +1914,14 @@ end
 $do$;
 
 insert into tz_migrations (id) values ('0016_ai_features') on conflict (id) do nothing;
+
+-- ---------------------------------------------------------------------------
+-- 0017_rate_key_unique — طلا: یک کالا برای هر کلید تابلو
+-- ---------------------------------------------------------------------------
+update tz_items i set rate_key = null
+ where i.rate_key is not null and i.deleted_at is null
+   and exists (select 1 from tz_items j where j.org_id = i.org_id and j.rate_key = i.rate_key and j.deleted_at is null and j.id < i.id);
+drop index if exists tz_items_rate_key_idx;
+create unique index if not exists tz_items_rate_key_uk on tz_items (org_id, rate_key) where rate_key is not null and deleted_at is null;
+
+insert into tz_migrations (id) values ('0017_rate_key_unique') on conflict (id) do nothing;

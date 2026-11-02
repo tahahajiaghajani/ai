@@ -68,6 +68,8 @@ interface SLine {
   brand?: string | null;
   seal_status?: string | null;
   unit_price?: string | null;
+  /** margin VAT: the cost of the bar sold */
+  unit_cost?: string | null;
   /** buy side: reason of a deduction for the condition */
   description?: string | null;
 }
@@ -162,7 +164,7 @@ function SaleForm({ id }: { id: string | null }) {
         gram_price: l.kind === "coin" || (l.gram_price && l.gram_price !== d.gram18) ? l.gram_price : null, wage_type: l.wage_type, wage_value: l.wage_value,
         profit_pct: l.profit_pct, stone: D(l.stone ?? 0).isZero() ? null : l.stone, discount: D(l.discount).isZero() || l.kind === "old" || (l.kind === "bar" && l.direction === "in") ? null : l.discount, deduction_pct: l.deduction_pct,
         gold_bar_id: l.gold_bar_id, bar_no: l.bar_no ?? l.tag_no, serial_no: l.serial_no ?? l.extra?.bar?.serial_no ?? null, brand: l.brand ?? l.extra?.bar?.brand ?? null,
-        seal_status: l.seal_status ?? l.extra?.bar?.seal_status ?? null, unit_price: l.extra?.unit_price ?? null, description: l.description,
+        seal_status: l.seal_status ?? l.extra?.bar?.seal_status ?? null, unit_price: l.extra?.unit_price ?? null, unit_cost: l.extra?.unit_cost ?? null, description: l.description,
       })),
     );
     setLocked(d.status !== "draft");
@@ -216,7 +218,7 @@ function SaleForm({ id }: { id: string | null }) {
       ...ls,
       {
         key: uuidv7(), kind: "bar", direction: "out", gold_bar_id: b.id, item_id: b.item_id, bar_no: b.bar_no, title: b.model_name ?? "شمش", weight: b.weight, fineness: b.fineness,
-        serial_no: b.serial_no, brand: b.brand, seal_status: b.seal_status, ownership: b.ownership,
+        serial_no: b.serial_no, brand: b.brand, seal_status: b.seal_status, ownership: b.ownership, unit_cost: b.cost ?? null,
       },
     ]);
     setTag("");
@@ -306,9 +308,11 @@ function SaleForm({ id }: { id: string | null }) {
       }
       if (l.kind === "bar") {
         return l.direction === "out"
-          ? { kind: "bar", direction: "out", gold_bar_id: l.gold_bar_id, unit_price: l.unit_price ?? null, wage_type: l.wage_type ?? null, wage_value: l.wage_value ?? null, profit_pct: l.profit_pct ?? null, discount: l.discount ?? null }
+          // the prices the customer was shown (the board may change before posting)
+          ? { kind: "bar", direction: "out", gold_bar_id: l.gold_bar_id, unit_price: p.unit_price ?? null, wage_type: l.wage_type ?? null, wage_value: l.wage_value ?? null, profit_pct: l.profit_pct ?? null, discount: l.discount ?? null }
           : {
-              kind: "bar", direction: "in", item_id: l.item_id ?? null, gold_bar_id: l.gold_bar_id ?? null, weight: l.weight, fineness: l.fineness, unit_price: l.unit_price ?? null,
+              kind: "bar", direction: "in", item_id: l.item_id ?? null, gold_bar_id: l.gold_bar_id ?? null, weight: l.weight, fineness: l.fineness, unit_price: p.unit_price ?? null,
+              gram_price: p.gram_price ?? null,
               discount: l.discount ?? null, description: l.description || null, bar: { serial_no: l.serial_no || null, brand: l.brand || null, seal_status: l.seal_status ?? "sealed" },
             };
       }

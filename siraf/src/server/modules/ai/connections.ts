@@ -17,7 +17,11 @@ import { createAdapter } from "./adapters";
 import { fakeEnabled } from "./adapters/fake";
 import { ProviderError, type AdapterEnv, type ResolvedConnection } from "./types";
 import { recordUsage } from "./usage";
-import { loadPolicy } from "./settings";
+import { disabledByPlatform, loadPolicy } from "./settings";
+import { AiUnavailableError } from "./errors";
+import { guardedFetch } from "./net";
+import { orgAiDisabled } from "../platform/org-admin";
+import { securityEvent } from "../platform/security";
 
 export interface ConnRow {
   id: string;
@@ -51,8 +55,24 @@ export function appSecretMissing(cfg: ServerConfig): boolean {
 export const APP_SECRET_MESSAGE =
   "در نسخهٔ وب تا وقتی متغیر APP_SECRET در Vercel تنظیم نشده، کلیدها ذخیره نمی‌شوند: کلید رمزگذاری‌شده با جابه‌جایی پایگاه داده از دست می‌رود. APP_SECRET را بگذارید و برنامه را دوباره مستقر کنید.";
 
+/** Provider calls on the web version go through the SSRF guard (public addresses only, no redirects). */
 export function adapterEnv(cfg: ServerConfig): AdapterEnv {
-  return { fetch: cfg.fetch, mode: cfg.mode, publicUrl: cfg.publicUrl };
+  return { fetch: cfg.mode === "cloud" ? guardedFetch(cfg.fetch) : cfg.fetch, mode: cfg.mode, publicUrl: cfg.publicUrl };
+}
+
+/** Where a connection's key is sent: the preset and its effective base URL. */
+function destination(presetId: string, baseUrl: string | null | undefined): string {
+  const preset = presetById(presetId);
+  return `${presetId} ${String(baseUrl ?? preset?.base_url ?? "").trim().replace(/\/+$/, "")}`;
+}
+
+/** The platform switched AI off for this business: no provider call at all, tests included. */
+async function assertNotDisabled(ctx: Ctx): Promise<void> {
+  const [policy, offByAdmin] = await Promise.all([loadPolicy(ctx.cfg), ctx.cfg.mode === "cloud" ? orgAiDisabled(ctx.db, ctx.org.id).catch(() => false) : false]);
+  if (offByAdmin || disabledByPlatform(policy, ctx.org.id)) {
+    const t = aiErrorText("disabled", { canManage: true, desktop: ctx.cfg.mode === "desktop", byPlatform: true });
+    throw new AiUnavailableError("disabled", `${t.message} ${t.remedy}`);
+  }
 }
 
 const modelList = z.array(z.string().trim().regex(MODEL_ID_RE, "شناسهٔ مدل معتبر نیست")).max(8);
@@ -188,6 +208,17 @@ function sealKey(ctx: Ctx, connectionId: string, raw: string): { enc: string; hi
   return { enc: encryptKey(ctx.cfg.secret, { orgId: ctx.org.id, connectionId }, key), hint: keyHint(key), fp: keyFingerprint(ctx.cfg.secret, key) };
 }
 
+/** «رویدادهای امنیتی» of the platform: a key added, replaced or removed (never the key, only its hint). */
+async function keyEvent(ctx: Ctx, conn: { id: string; label: string; preset: string }, action: "added" | "replaced" | "removed", hint: string | null, reason?: string) {
+  await securityEvent(ctx.db, {
+    kind: "ai_key",
+    user_id: ctx.user.id,
+    email: ctx.user.email,
+    org_id: ctx.org.id,
+    data: { connection_id: conn.id, label: conn.label, preset: conn.preset, action, key_hint: hint, ...(reason ? { reason } : {}), ...(ctx.actor === "support" ? { support: true } : {}) },
+  });
+}
+
 async function duplicateWarning(q: Queryable, orgId: string, id: string, fp: string | null): Promise<string | null> {
   if (!fp) return null;
   const dup = await q.one<{ label: string }>(`select label from tz_ai_connections where org_id = $1 and key_fp = $2 and id <> $3 and deleted_at is null`, [orgId, fp, id]);
@@ -218,6 +249,7 @@ export async function createConnection(ctx: Ctx, input: AiConnectionInput): Prom
     );
     await audit(tx, ctx, "ai_connection_create", "ai_connection", id, `اتصال هوش مصنوعی «${label}» ساخته شد`, { preset: preset.id, key: sealed ? sealed.hint : null });
   });
+  if (sealed) await keyEvent(ctx, { id, label, preset: preset.id }, "added", sealed.hint);
   return { connection: await publicConnection(ctx, id), warning: await duplicateWarning(ctx.db, ctx.org.id, id, sealed?.fp ?? null) };
 }
 
@@ -227,25 +259,32 @@ export async function updateConnection(ctx: Ctx, id: string, patch: Partial<AiCo
   const preset = patch.preset && patch.preset !== row.preset ? await usablePreset(ctx, patch.preset) : (presetById(row.preset) ?? (await usablePreset(ctx, row.preset)));
   const protocol = patch.protocol && (preset.protocols ?? [preset.protocol]).includes(patch.protocol) ? patch.protocol : patch.preset ? preset.protocol : row.protocol;
   const baseUrl = patch.base_url !== undefined || patch.preset ? checkBaseUrl(ctx.cfg, preset, patch.base_url ?? preset.base_url) : row.base_url;
-  // write-only key: blank keeps the stored one
+  // write-only key: blank keeps the stored one — but only while it goes to the same place: a new
+  // service or base URL needs the key typed again, so a stored key is never sent to another host
   const raw = cleanKey(patch.key);
   const sealed = raw ? sealKey(ctx, id, raw) : null;
+  const moved = destination(preset.id, baseUrl) !== destination(row.preset, row.base_url);
+  const dropKey = moved && !sealed && !!row.secret_enc;
+  if (dropKey && preset.key_required) throw bad("سرویس یا نشانی اتصال عوض شده است؛ کلید API را دوباره وارد کنید");
   const cur = modelsOf(row);
   const models = { smart: patch.models?.smart ?? cur.smart, fast: patch.models?.fast ?? cur.fast, vision: patch.models?.vision ?? cur.vision };
   const label = patch.label?.trim() || row.label;
   await ctx.write(async (tx) => {
     await tx.query(
       `update tz_ai_connections set label = $3, preset = $4, protocol = $5, base_url = $6, models = $7::jsonb, enabled = $8, priority = $9,
-         secret_enc = coalesce($10, secret_enc), key_hint = coalesce($11, key_hint), key_fp = coalesce($12, key_fp),
+         secret_enc = case when $15 then null else coalesce($10, secret_enc) end, key_hint = case when $15 then null else coalesce($11, key_hint) end,
+         key_fp = case when $15 then null else coalesce($12, key_fp) end,
          status = case when $10::text is not null or $13 then 'unchecked' else status end,
          last_error = case when $10::text is not null or $13 then null else last_error end,
          updated_by = $14, updated_at = now()
        where org_id = $1 and id = $2`,
-      [ctx.org.id, id, label, preset.id, protocol, baseUrl, JSON.stringify(models), patch.enabled ?? row.enabled, patch.priority ?? row.priority, sealed?.enc ?? null, sealed?.hint ?? null, sealed?.fp ?? null, baseUrl !== row.base_url || protocol !== row.protocol, ctx.user.id],
+      [ctx.org.id, id, label, preset.id, protocol, baseUrl, JSON.stringify(models), patch.enabled ?? row.enabled, patch.priority ?? row.priority, sealed?.enc ?? null, sealed?.hint ?? null, sealed?.fp ?? null, baseUrl !== row.base_url || protocol !== row.protocol || moved, ctx.user.id, dropKey],
     );
     if (sealed) await tx.query(`delete from tz_ai_holds where connection_id = $1`, [id]);
     await audit(tx, ctx, sealed ? "ai_connection_key" : "ai_connection_update", "ai_connection", id, sealed ? `کلید اتصال «${label}» عوض شد` : `اتصال هوش مصنوعی «${label}» ویرایش شد`, sealed ? { key: sealed.hint } : undefined);
   });
+  if (sealed) await keyEvent(ctx, { id, label, preset: preset.id }, row.secret_enc ? "replaced" : "added", sealed.hint);
+  else if (dropKey) await keyEvent(ctx, { id, label, preset: preset.id }, "removed", row.key_hint, "destination_changed");
   return { connection: await publicConnection(ctx, id), warning: await duplicateWarning(ctx.db, ctx.org.id, id, sealed?.fp ?? null) };
 }
 
@@ -263,6 +302,7 @@ export async function deleteConnection(ctx: Ctx, id: string): Promise<void> {
     await tx.query(`delete from tz_ai_holds where connection_id = $1`, [id]);
     await audit(tx, ctx, "ai_connection_delete", "ai_connection", id, `اتصال هوش مصنوعی «${row.label}» حذف شد`);
   });
+  if (row.secret_enc) await keyEvent(ctx, row, "removed", row.key_hint);
 }
 
 /** A connection ready for a call. Throws ProviderError("auth") when the key is missing or unreadable. */
@@ -346,6 +386,7 @@ export async function testResolved(ctx: Ctx, conn: ResolvedConnection, models: s
 
 export async function testConnection(ctx: Ctx, id: string, models?: string[]): Promise<AiTestReport> {
   ctx.need("ai", "full");
+  await assertNotDisabled(ctx);
   const row = await connectionRow(ctx.db, ctx.org.id, id);
   let conn: ResolvedConnection;
   try {
@@ -358,15 +399,22 @@ export async function testConnection(ctx: Ctx, id: string, models?: string[]): P
   return testResolved(ctx, conn, models?.length ? models : [...m.smart.slice(0, 1), ...m.fast.slice(0, 1), ...m.vision.slice(0, 1)], id);
 }
 
-/** Test values typed in the form before saving (a blank key uses the saved connection's key). */
+/**
+ * Test values typed in the form before saving. A blank key uses the saved connection's key only
+ * when the service and base URL are the saved ones: the stored key never goes to another host.
+ */
 export async function testUnsaved(ctx: Ctx, input: AiConnectionInput & { connection_id?: string | null }): Promise<AiTestReport> {
   ctx.need("ai", "full");
+  await assertNotDisabled(ctx);
   const preset = await usablePreset(ctx, input.preset);
   const protocol = input.protocol && (preset.protocols ?? [preset.protocol]).includes(input.protocol) ? input.protocol : preset.protocol;
   const baseUrl = checkBaseUrl(ctx.cfg, preset, input.base_url ?? preset.base_url) ?? preset.base_url ?? "";
   let key = cleanKey(input.key) || null;
   if (!key && input.connection_id) {
     const row = await connectionRow(ctx.db, ctx.org.id, input.connection_id);
+    if (row.secret_enc && (destination(preset.id, baseUrl) !== destination(row.preset, row.base_url))) {
+      throw bad("سرویس یا نشانی با اتصال ذخیره‌شده فرق دارد؛ برای آزمایش، کلید API را دوباره وارد کنید");
+    }
     if (row.secret_enc) {
       try {
         key = decryptKey(ctx.cfg.secret, binding(row), row.secret_enc);
@@ -383,6 +431,7 @@ export async function testUnsaved(ctx: Ctx, input: AiConnectionInput & { connect
 
 export async function refreshModels(ctx: Ctx, id: string): Promise<{ models: string[]; connection: AiConnectionPublic }> {
   ctx.need("ai", "full");
+  await assertNotDisabled(ctx);
   const row = await connectionRow(ctx.db, ctx.org.id, id);
   const conn = resolveConnection(ctx.cfg, row);
   let models: string[];

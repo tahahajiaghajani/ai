@@ -17,6 +17,8 @@ import { generate, type GenerateOptions, type GenerateResult } from "../engine";
 import { asHttpError } from "../errors";
 import { parseDateInput } from "../analytics/period";
 import { businessToday } from "../tools/common";
+import { loadSettings } from "../settings";
+import { purgeCaptures } from "../threads";
 
 export const CAPTURE_KINDS = ["purchase_invoice", "id_card", "cheque", "receipt"] as const;
 export type CaptureKind = (typeof CAPTURE_KINDS)[number];
@@ -62,6 +64,19 @@ const readSchema = z.object({
 });
 type Read = z.infer<typeof readSchema>;
 
+const fieldsOf = (keys: readonly string[]) => z.object(Object.fromEntries(keys.map((k) => [k, fieldSchema.nullish()])) as Record<string, z.ZodTypeAny>);
+
+/**
+ * What the model is asked for: the kind's fields as named properties. Strict tool and structured-
+ * output modes (Claude, OpenAI) only take closed objects, never an open map of field names.
+ */
+export function readSchemaFor(kind: CaptureKind) {
+  return z.object({
+    fields: fieldsOf(Object.keys(FIELDS[kind])),
+    lines: kind === "purchase_invoice" ? z.array(fieldsOf(LINE_FIELDS)).max(200).nullish() : z.null().optional(),
+  });
+}
+
 // ---------------------------------------------------------------- words → number
 
 const UNITS: Record<string, number> = {
@@ -73,17 +88,36 @@ const SCALE: Record<string, string> = { هزار: "1e3", میلیون: "1e6", م
 
 /** «یک میلیون و دویست هزار ریال» → 1200000 (null when it is not a number in words). */
 export function wordsToNumber(text: string): string | null {
-  const s = text.replace(/[‌]/g, " ").replace(/ریال|تومان|تمام|فقط|مبلغ|به حروف|:|\(|\)|\//g, " ").replace(/\s+/g, " ").trim();
+  // a ZWNJ joins one word («یک‌صد», «سی‌صد») or separates two («دویست‌وپنجاه»): joined when the
+  // joined form is a known word, split otherwise
+  const joined = text.replace(/[^\s]+/g, (w) => {
+    if (!w.includes("\u200c")) return w;
+    const j = w.replace(/\u200c/g, "");
+    return j in UNITS || j in SCALE ? j : w.replace(/\u200c/g, " ");
+  });
+  const s = joined.replace(/ریال|تومان|تمام|فقط|مبلغ|به حروف|:|\(|\)|\//g, " ").replace(/\s+/g, " ").trim();
   if (!s) return null;
-  const tokens = s.split(" ").filter((t) => t && t !== "و");
+  // «وپنجاه» (a joined «و»): the «و» is split off when the rest is a number word
+  const tokens = s
+    .split(" ")
+    .map((t) => (t.length > 1 && t.startsWith("و") && !(t in UNITS) && (t.slice(1) in UNITS || t.slice(1) in SCALE) ? t.slice(1) : t))
+    .filter((t) => t && t !== "و");
   let total = D(0);
   let group = 0;
   let any = false;
+  let prevUnit: number | null = null;
   for (const t of tokens) {
-    if (t in UNITS) {
+    if (t === "صد" && prevUnit !== null && prevUnit >= 1 && prevUnit <= 9) {
+      // «یک صد», «سه صد»: the unit counts hundreds
+      group += prevUnit * 99;
+      prevUnit = null;
+      any = true;
+    } else if (t in UNITS) {
       group += UNITS[t];
+      prevUnit = UNITS[t];
       any = true;
     } else if (t in SCALE) {
+      prevUnit = null;
       total = total.plus(D(group || 1).times(D(SCALE[t])));
       group = 0;
       any = true;
@@ -244,7 +278,15 @@ async function matchParty(ctx: Ctx, fields: AiCaptureResult["fields"], keys: { n
 
 // ---------------------------------------------------------------- the feature
 
-type Reader = (ctx: Ctx, opts: GenerateOptions<typeof readSchema>) => Promise<GenerateResult<Read>>;
+/** Fields the model left out (null/undefined) are dropped: validateCapture fills them as unread. */
+function dropUnset(o: unknown): unknown {
+  if (!o || typeof o !== "object") return o;
+  const r = o as { fields?: Record<string, unknown>; lines?: unknown };
+  const clean = (x: unknown) => (x && typeof x === "object" ? Object.fromEntries(Object.entries(x as Record<string, unknown>).filter(([, v]) => v !== null && v !== undefined)) : {});
+  return { fields: clean(r.fields), lines: Array.isArray(r.lines) ? r.lines.map(clean) : null };
+}
+
+type Reader = (ctx: Ctx, opts: GenerateOptions<z.ZodTypeAny>) => Promise<GenerateResult<Read>>;
 
 function systemFor(kind: CaptureKind): string {
   const f = Object.entries(FIELDS[kind]).map(([k, d]) => `- ${k}: ${d}`).join("\n");
@@ -266,6 +308,8 @@ export async function captureDocument(ctx: Ctx, input: z.infer<typeof captureInp
   const bytes = Buffer.from(data, "base64");
   if (!bytes.length || bytes.length > MAX_BYTES) throw bad("حجم فایل باید کمتر از ۸ مگابایت باشد");
   const sha = createHash("sha256").update(bytes).digest("hex");
+  // personal data of earlier reads is kept only for the business's retention (at most 30 days)
+  await purgeCaptures(ctx, (await loadSettings(ctx.db, ctx.org.id)).retention_days);
   const prior = await ctx.db.one<{ id: string; result: AiCaptureResult; model: string | null }>(
     `select id, result, model from tz_ai_captures where org_id = $1 and user_id = $2 and kind = $3 and sha256 = $4 and created_at > now() - interval '30 days' order by created_at desc limit 1`,
     [ctx.org.id, ctx.user.id, input.kind, sha],
@@ -276,13 +320,13 @@ export async function captureDocument(ctx: Ctx, input: z.infer<typeof captureInp
   try {
     r = await read(ctx, {
       job: "vision", feature: "capture", system: systemFor(input.kind), prompt: `Document kind: ${input.kind}. Read it.`,
-      attachments: [{ name: input.name ?? `document.${input.mime.split("/")[1]}`, mime: input.mime, data }], schema: readSchema, signal: deps.signal, maxTokens: 6000,
+      attachments: [{ name: input.name ?? `document.${input.mime.split("/")[1]}`, mime: input.mime, data }], schema: readSchemaFor(input.kind), signal: deps.signal, maxTokens: 6000,
     });
   } catch (e) {
     throw asHttpError(e);
   }
   if (!r.object) throw bad("سند خوانده نشد؛ تصویر روشن‌تری بفرستید");
-  const v = validateCapture(input.kind, readSchema.parse(r.object), businessToday(ctx));
+  const v = validateCapture(input.kind, readSchema.parse(dropUnset(r.object)), businessToday(ctx));
   if (input.kind === "purchase_invoice") await matchParty(ctx, v.fields, { nid: "seller_national_id", eco: "seller_economic_code" });
   if (input.kind === "id_card") await matchParty(ctx, v.fields, { nid: "national_id" });
   if (input.kind === "cheque") await matchParty(ctx, v.fields, { nid: "issuer_national_id" });

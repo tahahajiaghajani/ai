@@ -12,7 +12,7 @@ import { faDigits } from "@shared/format";
 import { ICON14, ICON } from "../reports/kit";
 
 export default function FiscalYears() {
-  const { info, api, orgId, can, fy } = useOrg();
+  const { info, api, orgId, can, fy, support } = useOrg();
   const qc = useQueryClient();
   const n = useNotify();
   const refresh = () => qc.invalidateQueries({ queryKey: ["org", orgId] });
@@ -27,6 +27,8 @@ export default function FiscalYears() {
   const years = info.fiscal_years;
   const latest = years[0];
   const full = can("accounting", "full");
+  // reopening deletes the closing and opening vouchers: the owner or a manager only, never support
+  const canReopen = full && !support && (info.member.role === "owner" || info.member.role === "admin");
   return (
     <div>
       <PageHeader
@@ -81,7 +83,7 @@ export default function FiscalYears() {
                       >
                         بستن سال و صدور افتتاحیه
                       </Button>
-                    ) : (
+                    ) : canReopen ? (
                       <Button
                         size="small"
                         icon={<LockOpen {...ICON14} />}
@@ -92,7 +94,7 @@ export default function FiscalYears() {
                       >
                         باز کردن دوباره
                       </Button>
-                    )}
+                    ) : null}
                   </span>
                 ) : null,
             },

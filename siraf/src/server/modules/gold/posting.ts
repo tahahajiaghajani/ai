@@ -421,7 +421,13 @@ class Posting {
         ownership: kind === "consign_in" ? "consignment" : "own", party_id: party?.id ?? null, status: "in_stock", warehouse_id: wh,
         cost: kind === "consign_in" ? null : l.cost, in_doc_id: this.doc.id, out_doc_id: null, notes: l.description, origin: this.ctx.cfg.origin,
       };
-      let existing: BarRow | null = l.gold_bar_id ? await this.tx.one<BarRow>(`select * from tz_gold_bars where id = $1 and org_id = $2 and deleted_at is null`, [l.gold_bar_id, this.orgId]) : null;
+      // by the line: also the row this document created and its undo removed (re-posting or an edit keeps the bar and its number)
+      let existing: BarRow | null = l.gold_bar_id ? await this.tx.one<BarRow>(`select * from tz_gold_bars where id = $1 and org_id = $2`, [l.gold_bar_id, this.orgId]) : null;
+      if (existing?.deleted_at) {
+        if (existing.in_doc_id !== this.doc.id) existing = null;
+        // meanwhile a live bar with this serial was registered: that one decides, as for a new bar
+        else if (a.serial_no) existing = (await barBySerial(this.tx, this.orgId, a.brand, a.serial_no)) ?? existing;
+      }
       if (!existing && a.serial_no) existing = await barBySerial(this.tx, this.orgId, a.brand, a.serial_no);
       if (existing && existing.in_doc_id !== this.doc.id) {
         if (existing.status === "in_stock" || existing.status === "reserved") {
@@ -616,7 +622,7 @@ class Posting {
     // what the customer trades in: used gold, coins and bars
     for (const l of this.lines.filter((x) => x.kind === "old")) {
       l.cost = this.m(l.total);
-      await this.push("gold_old", "dr", l.total, { w_debit: l.weight750, fineness: l.fineness, raw_weight: l.weight, description: `طلای مستعمل دریافتی — ${this.label}` });
+      await this.push(bulkAccountKey(l.form), "dr", l.total, { w_debit: l.weight750, fineness: l.fineness, raw_weight: l.weight, description: `${l.form === "bullion" ? "آب‌شده" : "طلای مستعمل"} دریافتی — ${this.label}` });
     }
     await this.barsIn(this.lines.filter((x) => x.kind === "bar" && x.direction === "in"), (l) => this.m(l.total), "دریافت");
     await this.settlement(settleDue("sale", undefined, this.lines), "receive", "ar");
@@ -738,7 +744,7 @@ class Posting {
     await this.barsIn(this.lines.filter((l) => l.kind === "bar"), (l) => this.m(l.total), "خرید از مشتری");
     for (const l of this.lines.filter((x) => x.kind === "old")) {
       l.cost = this.m(l.total);
-      await this.push("gold_old", "dr", l.total, { w_debit: l.weight750, fineness: l.fineness, raw_weight: l.weight, description: `${l.title || "طلای مستعمل"} — کسر ${faDigits(D(l.deduction_pct ?? 0).toString())}٪ — ${this.label}` });
+      await this.push(bulkAccountKey(l.form), "dr", l.total, { w_debit: l.weight750, fineness: l.fineness, raw_weight: l.weight, description: `${l.title || "طلای مستعمل"} — کسر ${faDigits(D(l.deduction_pct ?? 0).toString())}٪ — ${this.label}` });
     }
     await this.settlement(settleDue("buyback", undefined, this.lines), "pay", "ar");
   }

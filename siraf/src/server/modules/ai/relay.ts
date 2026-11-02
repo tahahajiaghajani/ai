@@ -5,10 +5,12 @@
 // back; tools always run on the Windows app against its own database.
 import { z } from "zod";
 import type { Ctx, ServerConfig } from "../../context";
-import type { AiErrorKind } from "@shared/ai/types";
+import type { AiErrorKind, AiSettings } from "@shared/ai/types";
 import type { AiRelayEvent } from "@shared/ai/api";
 import { aiErrorText } from "@shared/ai/errors";
+import { bad } from "../../http/errors";
 import { AiUnavailableError } from "./errors";
+import { FEATURE_SWITCH } from "./settings";
 import { readSse } from "./adapters/http";
 import type { ChainResult, RunOptions } from "./chain";
 import { recordUsage } from "./usage";
@@ -121,11 +123,30 @@ function aborted(): ChainResult {
   };
 }
 
+/** Ledger labels a Windows app may relay: the assistant and the features of engine.ts (with their switches). */
+const RELAY_FEATURES = new Set(["assistant", ...Object.keys(FEATURE_SWITCH)]);
+/** Output tokens of one relayed turn (the assistant's own per-turn limit). */
+export const RELAY_MAX_TOKENS = 32_000;
+
+/**
+ * Web side: the business's switches apply to relayed turns as to its own — the assistant switch
+ * for the assistant, each feature's switch, and «document reading» for any file. Throws.
+ */
+export function assertRelayAllowed(ctx: Ctx, settings: AiSettings, body: RelayRequest): void {
+  const off = () => new AiUnavailableError("disabled", aiErrorText("disabled", { canManage: ctx.can("ai", "full") }).message);
+  if (!RELAY_FEATURES.has(body.feature)) throw bad("این درخواست هوش مصنوعی شناخته نیست");
+  if ((body.feature === "assistant" || body.job === "assistant") && !settings.features.assistant) throw off();
+  const sw = FEATURE_SWITCH[body.feature];
+  if (sw && !settings.features[sw]) throw off();
+  if (body.request.messages.some((m) => m.parts.some((p) => p.type === "file")) && !settings.features.capture) throw off();
+}
+
 /** Web side: the request as a TurnRequest without a model (the web version's chain picks it). */
 export function relayToRun(body: RelayRequest, signal: AbortSignal): RunOptions {
+  const request = body.request as Omit<TurnRequest, "model" | "signal">;
   return {
     job: body.job,
     feature: body.feature,
-    request: { ...(body.request as Omit<TurnRequest, "model" | "signal">), signal },
+    request: { ...request, maxTokens: Math.min(request.maxTokens, RELAY_MAX_TOKENS), signal },
   };
 }

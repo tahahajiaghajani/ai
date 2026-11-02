@@ -87,7 +87,7 @@ export interface LineIn {
   /** coins: board (unit price in gram_price), weight (gram18 in gram_price) or manual */
   pricing_mode?: CoinPricingMode | string | null;
   vat_mode?: VatMode | string | null;
-  /** coins, margin VAT: cost of one coin */
+  /** margin VAT: cost of one coin / of the bar */
   unit_cost?: Num;
   /** bars: a fixed price of the bar (board / manual) instead of metal + premium */
   unit_price?: Num;
@@ -205,7 +205,8 @@ export function priceLine(docKind: DocKind, line: LineIn, env: PriceEnv): Priced
     if (docKind === "sale" && line.direction === "out") {
       const p = priceBar({
         weight: w, fineness: fin, gram18: g18, basis: (line.basis ?? "actual") as BarBasis, premiumType: wageToPremiumType(line.wage_type), premiumValue: line.wage_value ?? 0,
-        profitPct: line.profit_pct ?? 0, vatMode: (line.vat_mode ?? "exempt") as VatMode, taxPct: env.taxPct, discount: line.discount ?? 0, unitPrice: unit, roundStep: step,
+        profitPct: line.profit_pct ?? 0, vatMode: (line.vat_mode ?? "exempt") as VatMode, taxPct: env.taxPct, discount: line.discount ?? 0, unitPrice: unit,
+        unitCost: line.unit_cost ?? 0, roundStep: step,
       });
       return {
         ...base, gram_price: g18.toString(), gold_value: p.metal, wage: p.premium, profit_pct: has(line.profit_pct) ? D(line.profit_pct).toString() : null,
@@ -220,7 +221,7 @@ export function priceLine(docKind: DocKind, line: LineIn, env: PriceEnv): Priced
       });
       return {
         ...base, gram_price: g18.toString(), gold_value: b.metal, discount: D(b.fee).plus(b.assay_fee).plus(b.deduction).toString(),
-        deduction_pct: D(line.fee_pct ?? 0).toString(), total: b.total,
+        deduction_pct: unit ? "0" : D(line.fee_pct ?? 0).toString(), total: b.total,
       };
     }
     if (docKind === "purchase" || docKind === "opening") {

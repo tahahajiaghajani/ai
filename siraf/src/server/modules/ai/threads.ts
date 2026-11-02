@@ -138,12 +138,20 @@ export async function deleteThread(ctx: Ctx, id: string): Promise<void> {
 }
 
 /** Conversations older than the retention period are removed (with their messages and data). */
+/** Read documents (ID cards, cheques: national ids, birth dates, IBANs) live no longer than the retention, and never over 30 days (their cache window). */
+const CAPTURE_PURGE_SQL = `delete from tz_ai_captures where org_id = $1 and created_at < now() - (least(greatest($2::int, 1), 30) * interval '1 day')`;
+
+export async function purgeCaptures(ctx: Ctx, days: number): Promise<void> {
+  await ctx.write((tx) => tx.query(CAPTURE_PURGE_SQL, [ctx.org.id, days]), { internal: true }).catch(() => undefined);
+}
+
 export async function purgeOld(ctx: Ctx, days: number): Promise<void> {
   await ctx
     .write(
       async (tx) => {
         await tx.query(`delete from tz_ai_threads where org_id = $1 and pinned = false and updated_at < now() - ($2::int * interval '1 day') and (run_until is null or run_until < now())`, [ctx.org.id, days]);
         await tx.query(`delete from tz_ai_data_refs where org_id = $1 and expires_at < now()`, [ctx.org.id]);
+        await tx.query(CAPTURE_PURGE_SQL, [ctx.org.id, days]);
       },
       { internal: true },
     )
@@ -273,10 +281,14 @@ export async function history(ctx: Ctx, threadId: string): Promise<HistoryState>
   const firstStep = new Map<string, string>();
   const stepCount = new Map<string, number>();
   let last: MessageRow | null = null;
+  // questions whose files went to the model but are replayed as placeholders (the bytes are not kept)
+  const filesGone = new Set<string>();
   for (const row of rows) {
     last = row;
     if (row.role === "user") {
       const parts = ((row.native as { parts?: Part[] } | null)?.parts ?? [{ type: "text", text: row.text }]) as Part[];
+      const meta = (row.parts ?? {}) as { attachments?: unknown[] };
+      if (meta.attachments?.length && !parts.some((p) => p.type === "file")) filesGone.add(row.id);
       pushMessage(out, { role: "user", parts });
       continue;
     }
@@ -291,8 +303,12 @@ export async function history(ctx: Ctx, threadId: string): Promise<HistoryState>
     if (row.text) parts.push({ type: "text", text: row.text });
     for (const c of calls) parts.push({ type: "tool_call", id: c.id, name: c.name, input: c.input });
     if (!parts.length) continue;
-    // native content only when it matches exactly what is replayed (all calls answered)
-    const native = calls.length === sp.calls.length ? ((row.native as NativeContent | null) ?? null) : null;
+    // native content only when it matches exactly what is replayed (all calls answered), and never
+    // for an answer to a question whose files are replayed as placeholders: its reasoning (Claude's
+    // thinking signatures) is bound to the conversation with the files, so replaying it after the
+    // edit would be refused; the answer is replayed as plain text and tool calls, the same way in
+    // every later request (append-only from then on)
+    const native = calls.length === sp.calls.length && !(row.reply_to && filesGone.has(row.reply_to)) ? ((row.native as NativeContent | null) ?? null) : null;
     out.push({ role: "assistant", parts, native });
     if (sp.results.length) {
       const rp: Part[] = sp.results.map((r) => ({ type: "tool_result", id: r.id, name: r.name, content: r.content, ...(r.is_error ? { is_error: true } : {}) }));

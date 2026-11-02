@@ -21,6 +21,8 @@ export interface Product {
   gold_weight?: Num;
   fineness?: Num;
   gold_meta?: GoldMeta | null;
+  /** average cost of one coin / bar of the model in stock (margin VAT of a quote) */
+  avg_cost?: Num;
 }
 
 /** What the board knows: the gram prices and the sell / buy prices per key. */
@@ -148,8 +150,9 @@ export function barLineDefaults(
   const prem = barPremium(m, weight, d);
   const sealed = isSealed(bar?.seal_status);
   return {
-    unit_price: model ? boardUnit(model, rate, side) : null,
-    gram_price: sideGram18(rate, "sell"),
+    // the board's price of one bar is for a sealed bar: an opened one is bought by its metal
+    unit_price: model && (side === "sell" || sealed) ? boardUnit(model, rate, side) : null,
+    gram_price: sideGram18(rate, side),
     basis: d.basis,
     premium_type: prem.type,
     premium_value: prem.value,
@@ -180,7 +183,7 @@ export function productQuote(
   p: Product,
   rate: BoardRate | null | undefined,
   env: QuoteEnv,
-  opts: { side: "sell" | "buy"; qty?: Num; weight?: Num; fineness?: Num; seal_status?: string | null; wholesale?: boolean },
+  opts: { side: "sell" | "buy"; qty?: Num; weight?: Num; fineness?: Num; seal_status?: string | null; wholesale?: boolean; unitCost?: Num },
 ): ProductQuote | null {
   const intrinsic: IntrinsicRate = { gram18: rate?.gram18, ounce_usd: rate?.ounce_usd, usd: rate?.usd };
   if (p.kind === "bar") {
@@ -197,7 +200,7 @@ export function productQuote(
           })
         : quoteBar({
             weight: w, fineness: fin, gram18: b.gram_price ?? 0, basis: b.basis, premiumType: b.premium_type, premiumValue: b.premium_value,
-            vatMode: b.vat_mode, taxPct: env.taxPct, unitPrice: b.unit_price, roundStep: env.roundStep,
+            vatMode: b.vat_mode, taxPct: env.taxPct, unitPrice: b.unit_price, unitCost: opts.unitCost ?? p.avg_cost ?? 0, roundStep: env.roundStep,
           });
     return { ...q, unit: q.total, mode: b.unit_price ? "board" : "weight" };
   }
@@ -207,6 +210,8 @@ export function productQuote(
   const q = quoteCoin({
     side: opts.side, mode: d.pricing_mode, qty, unitPrice: d.gram_price, gram18: d.gram_price, coinWeight: p.gold_weight ?? 0, fineness: p.fineness ?? 900,
     wageType: d.wage_type, wageValue: d.wage_value ?? 0, profitPct: d.profit_pct ?? 0, vatMode: d.vat_mode, taxPct: env.taxPct, roundStep: env.roundStep, rate: intrinsic,
+    // margin VAT is on the price over the cost (the average cost of the stock)
+    unitCost: opts.unitCost ?? p.avg_cost ?? 0,
   });
   const unit = D(qty || 0).isZero() ? null : D(q.total).div(D(qty)).toDecimalPlaces(0).toString();
   return { ...q, unit, mode: d.pricing_mode };

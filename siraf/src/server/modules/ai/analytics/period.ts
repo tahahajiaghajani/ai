@@ -215,6 +215,18 @@ export function comparePeriod(p: ResolvedPeriod, mode: CompareMode): ResolvedPer
   return make(addDays(p.from, -p.days), addDays(p.from, -1), null);
 }
 
+/**
+ * «The same days of last month» for a month-to-date period: the first N days of the previous
+ * Jalali month (N = the days so far this month), cut at that month's end.
+ */
+export function previousMonthToDate(p: ResolvedPeriod): ResolvedPeriod {
+  const a = toJalali(p.from);
+  const m = monthShift(a.jy, a.jm, -1);
+  const r = jalaliMonthRange(m.jy, m.jm);
+  const end = addDays(r.start, p.days - 1);
+  return make(r.start, end < r.end ? end : r.end, null);
+}
+
 // ---------------------------------------------------------------- time buckets
 
 export type TimeGrain = "day" | "week" | "month";

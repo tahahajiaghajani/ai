@@ -11,6 +11,7 @@ import { bad } from "../../../http/errors";
 import { compact, runReport, reportParams, REPORT_KEYS, type ReportKey, type ReportParams } from "../tools/reports";
 import { periodInput, moneyInfo, businessToday, jd, type MoneyInfo, type PeriodArg } from "../tools/common";
 import { SYSTEM_RULES, dataBlock, narrate } from "./narrative";
+import { loadSettings } from "../settings";
 
 export const explainInput = z.object({
   report: z.string().max(60),
@@ -141,7 +142,7 @@ const explainSchema = z.object({
 export async function explainReport(ctx: Ctx, input: z.infer<typeof explainInput>, opts: { signal?: AbortSignal } = {}): Promise<ExplainView> {
   const today = businessToday(ctx);
   const m = await moneyInfo(ctx);
-  const rt = { today, dataPolicy: "masked" as const, putData: async () => "" };
+  const rt = { today, dataPolicy: (await loadSettings(ctx.db, ctx.org.id)).data_policy, putData: async () => "" };
   const req = pageParams(input.report, input.params, input.period ?? null);
   const { def, out, period, to } = await runReport(ctx, req.key, { period: req.period, params: req.params }, rt);
   const periodFa = period ? period.label_fa : `تا ${jd(to)}`;

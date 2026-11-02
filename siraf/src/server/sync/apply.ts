@@ -44,13 +44,18 @@ export async function readAggregates(q: Queryable, def: AggregateDef, ids: strin
   });
 }
 
+/**
+ * Only the columns the payload carries are written: a row from a runtime on an older schema
+ * (without a column added since) takes the column's default on insert and keeps the stored
+ * value on update, instead of NULL (which a NOT NULL column refuses).
+ */
 async function upsertRoot(q: Queryable, table: string, row: Record<string, unknown>) {
-  const cols = await tableColumns(q, table);
+  const cols = (await tableColumns(q, table)).filter((c) => c === "id" || Object.prototype.hasOwnProperty.call(row, c));
   const set = cols.filter((c) => c !== "id").map((c) => `${ident(c)} = excluded.${ident(c)}`).join(", ");
   const list = cols.map(ident).join(", ");
   await q.query(
     `insert into ${ident(table)} (${list}) select ${list} from jsonb_populate_record(null::${ident(table)}, $1::jsonb)
-     on conflict (id) do update set ${set}`,
+     on conflict (id) do ${set ? `update set ${set}` : "nothing"}`,
     [JSON.stringify(row)],
   );
 }
@@ -58,14 +63,17 @@ async function upsertRoot(q: Queryable, table: string, row: Record<string, unkno
 async function replaceChildren(q: Queryable, table: string, fk: string, parentId: string, rows: Record<string, unknown>[], orgId: string) {
   await q.query(`delete from ${ident(table)} where ${ident(fk)} = $1`, [parentId]);
   if (!rows.length) return;
-  const cols = await tableColumns(q, table);
-  const list = cols.map(ident).join(", ");
-  const fixed = rows.map((r) => ({ ...r, ...(cols.includes("org_id") ? { org_id: orgId } : {}), [fk]: parentId }));
+  const all = await tableColumns(q, table);
+  const fixed = rows.map((r) => ({ ...r, ...(all.includes("org_id") ? { org_id: orgId } : {}), [fk]: parentId }));
   // chunks keep single statements small
   for (let i = 0; i < fixed.length; i += 500) {
+    const chunk = fixed.slice(i, i + 500);
+    // columns missing from every row of the payload (older schema) take their defaults
+    const cols = all.filter((c) => chunk.some((r) => Object.prototype.hasOwnProperty.call(r, c)));
+    const list = cols.map(ident).join(", ");
     await q.query(
       `insert into ${ident(table)} (${list}) select ${list} from jsonb_populate_recordset(null::${ident(table)}, $1::jsonb)`,
-      [JSON.stringify(fixed.slice(i, i + 500))],
+      [JSON.stringify(chunk)],
     );
   }
 }
@@ -116,6 +124,9 @@ export async function writeAggregate(
         await upsertRoot(q, def.table, row);
         for (const ch of def.children ?? []) await replaceChildren(q, ch.table, ch.fk, agg.id, agg.children?.[ch.table] ?? [], orgId);
       });
+      // bar lines carry the bar's number (tag_no): keep them in step with the register
+      if (def.entity === "gold_bar") await retagBarLines(q, orgId, agg.id, false);
+      else if (def.entity === "gold_doc") await alignDocBarLines(q, agg.id);
       return result;
     } catch (e) {
       if (!isUnique(e) || attempt === 3) throw e;
@@ -138,10 +149,16 @@ export async function writeAggregate(
         await q.query(`delete from tz_outbox where entity = 'member' and id not in (select id from tz_org_members)`);
         continue;
       }
+      if (def.table === "tz_items" && constraint.includes("rate_key")) {
+        // a board key belongs to one product: the row being written takes it (the latest write
+        // on either side), the other holder loses it and travels to the other side with that
+        await moveLocalAside(q, def, orgId, row, "rate_key", side === "local-yields");
+        continue;
+      }
       if (def.code && (constraint.includes("code") || constraint.includes("tag"))) {
         const column = def.code.column;
         if (side === "incoming-yields") {
-          const to = await nextCode(q, def.table, orgId, def.code.start || 1, column);
+          const to = await nextFreeCode(q, def, orgId);
           result.renumbered = { column, from: row[column], to };
           row[column] = to;
         } else {
@@ -155,7 +172,60 @@ export async function writeAggregate(
   return result;
 }
 
-async function moveLocalAside(q: Queryable, def: AggregateDef, orgId: string, incoming: Record<string, unknown>, column: string) {
+/** Next free code; a bar number is never reused, so soft-deleted bars count (as in nextBarNo). */
+async function nextFreeCode(q: Queryable, def: AggregateDef, orgId: string): Promise<string> {
+  const column = def.code!.column;
+  const start = def.code!.start || 1;
+  if (def.entity !== "gold_bar") return nextCode(q, def.table, orgId, start, column);
+  const r = await q.one<{ n: string | null }>(
+    `select max(${ident(column)}::numeric) as n from ${ident(def.table)} where org_id = $1 and ${ident(column)} ~ '^[0-9]{1,15}$'`,
+    [orgId],
+  );
+  return String(Math.max(r?.n ? Number(r.n) + 1 : start, start));
+}
+
+/**
+ * Document lines of a bar carry its number (tag_no, and extra.bar.bar_no on the line that
+ * brought it in): after the bar was renumbered they follow, and their documents get a new
+ * revision (cloud) or are queued for upload (`queue`, desktop) so the other side sees it too.
+ */
+async function retagBarLines(q: Queryable, orgId: string, barId: string, queue: boolean) {
+  const docs = await q.query<{ doc_id: string }>(
+    `update tz_gold_lines l set tag_no = b.bar_no,
+       extra = case when l.extra->'bar' ? 'bar_no' then jsonb_set(l.extra, '{bar,bar_no}', to_jsonb(b.bar_no)) else l.extra end
+     from tz_gold_bars b
+     where b.id = $2 and l.org_id = $1 and l.gold_bar_id = b.id
+       and (l.tag_no is distinct from b.bar_no or (l.extra->'bar' ? 'bar_no' and l.extra->'bar'->>'bar_no' is distinct from b.bar_no))
+     returning l.doc_id`,
+    [orgId, barId],
+  );
+  const ids = [...new Set(docs.map((d) => d.doc_id))];
+  if (!ids.length) return;
+  const arr = `{${ids.join(",")}}`;
+  // an update of the root assigns a new revision on the cloud (taraz.applying keeps updated_at)
+  await q.query(`update tz_gold_docs set rev = rev where id = any($1::uuid[])`, [arr]);
+  if (queue) {
+    await q.query(
+      `insert into tz_outbox (entity, id, changed_at) select 'gold_doc', id, now() from tz_gold_docs where id = any($1::uuid[])
+       on conflict (entity, id) do update set changed_at = now()`,
+      [arr],
+    );
+  }
+}
+
+/** The bar lines of a written document take the current numbers of their bars. */
+async function alignDocBarLines(q: Queryable, docId: string) {
+  await q.query(
+    `update tz_gold_lines l set tag_no = b.bar_no,
+       extra = case when l.extra->'bar' ? 'bar_no' then jsonb_set(l.extra, '{bar,bar_no}', to_jsonb(b.bar_no)) else l.extra end
+     from tz_gold_bars b
+     where l.doc_id = $1 and l.gold_bar_id = b.id and b.org_id = l.org_id
+       and (l.tag_no is distinct from b.bar_no or (l.extra->'bar' ? 'bar_no' and l.extra->'bar'->>'bar_no' is distinct from b.bar_no))`,
+    [docId],
+  );
+}
+
+async function moveLocalAside(q: Queryable, def: AggregateDef, orgId: string, incoming: Record<string, unknown>, column: string, queue = true) {
   const params: unknown[] = [orgId, incoming.id, incoming[column]];
   let cond = `org_id = $1 and id <> $2 and ${ident(column)} = $3 and deleted_at is null`;
   if (column === "no") {
@@ -170,10 +240,14 @@ async function moveLocalAside(q: Queryable, def: AggregateDef, orgId: string, in
   if (!clash) return;
   let to: unknown;
   if (column === "no") to = await nextNo(q, def.table, orgId, String(incoming.fiscal_year_id), def.numbered?.byKind ? String(incoming.kind) : undefined);
-  else to = await nextCode(q, def.table, orgId, def.code?.start || 1, column);
+  else if (column === "rate_key") to = null;
+  else to = await nextFreeCode(q, def, orgId);
   await q.query(`update ${ident(def.table)} set ${ident(column)} = $2 where id = $1`, [clash.id, to]);
-  await q.query(
-    `insert into tz_outbox (entity, id, changed_at) values ($1, $2, now()) on conflict (entity, id) do update set changed_at = now()`,
-    [def.entity, clash.id],
-  );
+  if (queue) {
+    await q.query(
+      `insert into tz_outbox (entity, id, changed_at) values ($1, $2, now()) on conflict (entity, id) do update set changed_at = now()`,
+      [def.entity, clash.id],
+    );
+  }
+  if (def.entity === "gold_bar") await retagBarLines(q, orgId, clash.id, queue);
 }

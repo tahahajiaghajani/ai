@@ -29,6 +29,8 @@ export interface ProductRow {
   sku: string | null;
   is_active: boolean;
   gold_meta: GoldMeta;
+  /** coins: average cost of one coin in stock now (margin VAT of quotes) */
+  avg_cost?: string | null;
 }
 
 const COLS = "id, code, name, kind, rate_key, gold_weight, fineness, barcode, sku, is_active, gold_meta";
@@ -42,10 +44,15 @@ export async function products(q: Queryable, orgId: string, kinds: ProductKind[]
     extra = "and id = any($3::uuid[])";
   }
   const rows = await q.query<ProductRow>(
-    `select ${COLS} from tz_items where org_id = $1 and kind = any($2::text[]) and deleted_at is null ${extra} order by kind desc, length(code), code`,
+    `select ${COLS},
+            case when kind = 'coin' then (select case when sum(m.qty) > 0 then round(sum(m.value) / sum(m.qty)) end from tz_stock_moves m
+                                          where m.org_id = tz_items.org_id and m.item_id = tz_items.id) end as avg_cost
+     from tz_items where org_id = $1 and kind = any($2::text[]) and deleted_at is null ${extra} order by kind desc, length(code), code`,
     params,
   );
-  return rows.map((r) => ({ ...r, rate_key: r.rate_key ?? (r.kind === "coin" ? legacyCoinKey(r) : null), gold_meta: coinMeta(r.kind, r.gold_meta) }));
+  return rows.map((r) => ({
+    ...r, rate_key: r.rate_key ?? (r.kind === "coin" ? legacyCoinKey(r) : null), gold_meta: coinMeta(r.kind, r.gold_meta), avg_cost: r.avg_cost === null || r.avg_cost === undefined ? null : D(r.avg_cost).toString(),
+  }));
 }
 
 // ---------------------------------------------------------------- seeding
@@ -172,23 +179,26 @@ export async function catalogue(q: Queryable, ctx: Ctx, opts: { kind?: ProductKi
       const prod: Product = p;
       if (p.kind === "bar") {
         const s = bars.get(p.id);
-        const sell = productQuote(prod, rate, env, { side: "sell" });
-        const buy = productQuote(prod, rate, env, { side: "buy" });
         const n = D(s?.n ?? 0);
+        const avg = n.gt(0) ? D(s!.cost).div(n).toDecimalPlaces(0).toString() : null;
+        const sell = productQuote(prod, rate, env, { side: "sell", unitCost: avg ?? 0 });
+        const buy = productQuote(prod, rate, env, { side: "buy" });
         return {
-          ...p, qty: n.toString(), value: D(s?.cost ?? 0).toString(), avg_cost: n.gt(0) ? D(s!.cost).div(n).toDecimalPlaces(0).toString() : null,
+          ...p, qty: n.toString(), value: D(s?.cost ?? 0).toString(), avg_cost: avg,
           weight: D(s?.weight ?? 0).toString(), pure: D(s?.pure ?? 0).toString(), weight750: D(s?.w750 ?? 0).toString(),
           sell: sell?.unit ?? null, buy: buy?.unit ?? null, sell_value: null, buy_value: null, bubble: null,
         };
       }
       const s = stock.get(p.id);
       const qty = D(s?.qty ?? 0);
+      const avg = qty.gt(0) ? D(s!.value).div(qty).toDecimalPlaces(0).toString() : null;
       const content = coinContent(p.gold_weight ?? 0, p.fineness ?? 900, qty);
-      const sell = productQuote(prod, rate, env, { side: "sell" });
+      // margin VAT of the sell price: over the average cost of the stock
+      const sell = productQuote(prod, rate, env, { side: "sell", unitCost: avg ?? 0 });
       const buy = productQuote(prod, rate, env, { side: "buy" });
       const b = productBubble(prod, rate);
       return {
-        ...p, qty: qty.toString(), value: D(s?.value ?? 0).toString(), avg_cost: qty.gt(0) ? D(s!.value).div(qty).toDecimalPlaces(0).toString() : null,
+        ...p, qty: qty.toString(), value: D(s?.value ?? 0).toString(), avg_cost: avg,
         weight: content.weight, pure: content.pure, weight750: content.weight750, sell: sell?.unit ?? null, buy: buy?.unit ?? null,
         sell_value: sell?.unit ? qty.times(D(sell.unit)).toString() : null, buy_value: buy?.unit ? qty.times(D(buy.unit)).toString() : null,
         bubble: b ? { domestic: b.domestic?.pct ?? null, world: b.world?.pct ?? null, domestic_amount: b.domestic?.amount ?? null, world_amount: b.world?.amount ?? null } : null,

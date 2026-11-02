@@ -14,13 +14,20 @@ const email = z.string().trim().toLowerCase().refine(isEmail, "ایمیل معت
 
 export const authRoutes = router();
 
+const hasActiveAdmin = async (db: import("../db").Db) =>
+  !!(await db.one(`select 1 from tz_users where is_platform_admin and not disabled limit 1`));
+
 authRoutes.post("/signup", async (c) => {
   const cfg = c.get("cfg");
   limitByIp(c, "signup", 10, 3600000);
   const input = await body(c, z.object({ email, password: z.string(), full_name: z.string().trim().min(2, "نام را کامل وارد کنید").max(120), mobile: z.string().trim().max(20).optional() }));
   const count = await cfg.db.one<{ n: number }>(`select count(*)::int as n from tz_users`);
   const first = (count?.n ?? 0) === 0;
-  if (!first && !cfg.allowSignup && !cfg.platformAdmins.includes(input.email)) throw forbidden(cfg.mode === "desktop" ? "کاربر جدید را مدیر از «تنظیمات ← کاربران» اضافه می‌کند" : "ثبت‌نام در این سامانه بسته است");
+  // An address in PLATFORM_ADMIN_EMAILS is no proof of owning it (nothing is e-mailed): it opens a
+  // closed sign-up and becomes administrator only while the platform has no active administrator
+  // (the owner's first account). Later addresses are granted from «مدیریت سامانه».
+  const bootstrap = cfg.platformAdmins.includes(input.email) && !(await hasActiveAdmin(cfg.db));
+  if (!first && !cfg.allowSignup && !bootstrap) throw forbidden(cfg.mode === "desktop" ? "کاربر جدید را مدیر از «تنظیمات ← کاربران» اضافه می‌کند" : "ثبت‌نام در این سامانه بسته است");
   const problem = passwordProblem(input.password);
   if (problem) throw bad(problem);
   const exists = await cfg.db.one(`select 1 from tz_users where lower(email) = $1`, [input.email]);
@@ -28,7 +35,7 @@ authRoutes.post("/signup", async (c) => {
   const recovery = readableCode(4, 4);
   // the first account administers the platform only while no owner email is configured;
   // otherwise whoever reached a fresh deployment first would see every business
-  const isAdmin = cfg.platformAdmins.includes(input.email) || (first && !cfg.platformAdmins.length);
+  const isAdmin = bootstrap || (first && !cfg.platformAdmins.length);
   const user = await cfg.db.one<{ id: string }>(
     `insert into tz_users (id, email, full_name, mobile, password_hash, recovery_hash, is_platform_admin)
      values ($1, $2, $3, $4, $5, $6, $7) returning id`,
@@ -86,7 +93,13 @@ authRoutes.post("/login", async (c) => {
     throw forbidden("حساب شما غیرفعال شده است؛ با مدیر تماس بگیرید");
   }
   if (cfg.platformAdmins.includes(input.email)) {
-    const promoted = await cfg.db.one(`update tz_users set is_platform_admin = true where id = $1 and not is_platform_admin returning id`, [user.id]);
+    // only while the platform has no active administrator (see sign-up): otherwise whoever made an
+    // account with a listed address first — by sign-up or as a business's new member — would get it
+    const promoted = await cfg.db.one(
+      `update tz_users set is_platform_admin = true where id = $1 and not is_platform_admin
+         and not exists (select 1 from tz_users a where a.is_platform_admin and not a.disabled) returning id`,
+      [user.id],
+    );
     if (promoted) await securityEvent(cfg.db, { kind: "platform_admin", user_id: user.id, email: input.email, ...requestMeta(c), data: { granted: true, by: "env" } });
   }
   const kind = input.device ? "device" : "web";

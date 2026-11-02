@@ -3,10 +3,12 @@
 // today, fiscal year, the page the person is on) goes into the user turn, and the business's own
 // notes follow the rules as data.
 import type { Ctx } from "../../context";
-import type { AiPageContext } from "@shared/ai/types";
+import type { AiDataPolicy, AiPageContext } from "@shared/ai/types";
 import { APP_NAME_EN } from "@shared/constants";
 import { formatJalali, todayISO } from "@shared/jalali";
 import { orgTimeZone } from "./usage";
+import { redactPage } from "./redact";
+import { moneyInfo } from "./tools/common";
 
 export const ASSISTANT_SYSTEM = `You are the assistant inside ${APP_NAME_EN} («سیراف»), a Persian accounting and business app for Iranian shops, gold and jewellery businesses and currency exchanges. You help the signed-in member of one business understand and run it: analysis, reports, forecasts, planning and preparing drafts.
 
@@ -37,8 +39,9 @@ export function businessNotes(instructions: string): string | undefined {
 
 const MODULE_FA: Record<string, string> = { goods: "کالا و بازرگانی", gold: "طلا و جواهر", fx: "صرافی و رمزارز" };
 
-/** Context placed at the start of the person's message: changes daily, so it stays out of the cached prefix. */
-export async function contextBlock(ctx: Ctx, page: AiPageContext | null | undefined): Promise<string> {
+/** Context placed at the start of the person's message (changes daily, so it stays out of the cached prefix); the page (titles, record labels, report params) follows the data policy. */
+export async function contextBlock(ctx: Ctx, rawPage: AiPageContext | null | undefined, policy: AiDataPolicy = "masked"): Promise<string> {
+  const page = rawPage ? redactPage(rawPage, policy) : rawPage;
   const today = todayISO(orgTimeZone(ctx));
   const fy = await ctx.db
     .one<{ title: string; start_date: string; end_date: string; status: string }>(
@@ -46,7 +49,9 @@ export async function contextBlock(ctx: Ctx, page: AiPageContext | null | undefi
       [ctx.org.id, today],
     )
     .catch(() => null);
-  const unit = ctx.org.settings?.money_unit === "toman" ? "toman" : "rial";
+  // the unit every tool formats amounts in (tools/common moneyInfo): the base currency's
+  const m = await moneyInfo(ctx);
+  const unit = m.code === "IRT" ? "toman (تومان)" : m.code === "IRR" ? "rial (ریال)" : `${m.code} (${m.unit})`;
   const ctxJson: Record<string, unknown> = {
     business: ctx.org.name,
     modules: (ctx.org.modules ?? []).map((m) => MODULE_FA[m] ?? m),
@@ -54,7 +59,7 @@ export async function contextBlock(ctx: Ctx, page: AiPageContext | null | undefi
     money_unit_shown_to_people: unit,
     today: { jalali: formatJalali(today, { style: "long" }), gregorian: today },
     fiscal_year: fy ? { title: fy.title, from: formatJalali(fy.start_date), to: formatJalali(fy.end_date), status: fy.status } : null,
-    member: { name: ctx.user.full_name, role: ctx.member.role },
+    member: policy === "aggregates" ? { role: ctx.member.role } : { name: ctx.user.full_name, role: ctx.member.role },
   };
   if (page && (page.path || page.title || page.record || page.report)) {
     ctxJson.current_page = {

@@ -48,7 +48,8 @@ export function redactValue(value: unknown, policy: AiDataPolicy): unknown {
     if (Array.isArray(v)) return v.map((x) => walk(x, key, parentIsParty));
     if (typeof v === "object") {
       const o = v as Record<string, unknown>;
-      const isParty = PARTY_TYPES.has(String(o.type ?? o.kind ?? "")) || /party|customer|supplier/i.test(key);
+      // a party row: typed as one, under a party-like key, or carrying a party's id/code (sales by party, statements)
+      const isParty = PARTY_TYPES.has(String(o.type ?? o.kind ?? "")) || /party|customer|supplier/i.test(key) || "party_id" in o || "party_code" in o;
       const out: Record<string, unknown> = {};
       for (const [k, x] of Object.entries(o)) out[k] = walk(x, k, isParty);
       return out;
@@ -61,4 +62,41 @@ export function redactValue(value: unknown, policy: AiDataPolicy): unknown {
 /** Apply the data policy to a text the user typed (names stay: the person wrote them). */
 export function redactPrompt(text: string, policy: AiDataPolicy): string {
   return policy === "full" ? text : maskText(text);
+}
+
+/**
+ * Apply the data policy inside the `<data name="…">` blocks of a feature prompt (narrative.ts
+ * dataBlock): each block is JSON on one line, so it is parsed and redacted like tool output
+ * (names hidden under "aggregates"); the rest of the prompt is left to redactPrompt.
+ */
+const DATA_BLOCK_RE = /<data name="([^"\n]*)">\n([^\n]*)\n<\/data>/g;
+export function redactDataBlocks(text: string, policy: AiDataPolicy): string {
+  if (policy === "full") return text;
+  return String(text ?? "").replace(DATA_BLOCK_RE, (whole, name: string, json: string) => {
+    try {
+      return `<data name="${name}">\n${JSON.stringify(redactValue(JSON.parse(json), policy))}\n</data>`;
+    } catch {
+      return `<data name="${name}">\n${maskText(json)}\n</data>`;
+    }
+  });
+}
+
+/** "aggregates": known names (e.g. the labels of party references) replaced inside a free text. */
+export function hideNames(text: string, names: (string | null | undefined)[]): string {
+  let out = String(text ?? "");
+  for (const n of [...new Set(names.map((x) => String(x ?? "").trim()).filter((x) => x.length >= 2))].sort((a, b) => b.length - a.length)) out = out.split(n).join("[نام پنهان]");
+  return out;
+}
+
+/** The page the person is on, as sent to the model: identifiers masked; under "aggregates" no record label or page title of a record. */
+export function redactPage<T extends { title?: string; record?: { type: string; id: string; label?: string } | null; report?: { key: string; params?: Record<string, unknown> } | null }>(
+  page: T,
+  policy: AiDataPolicy,
+): T {
+  if (policy === "full") return page;
+  const out = { ...page };
+  if (out.record) out.record = { ...out.record, label: policy === "aggregates" ? undefined : out.record.label ? maskText(out.record.label) : undefined };
+  if (out.title) out.title = policy === "aggregates" && page.record ? undefined : maskText(out.title);
+  if (out.report) out.report = { ...out.report, params: (redactValue(out.report.params ?? {}, policy) as Record<string, unknown>) };
+  return out;
 }

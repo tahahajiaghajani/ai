@@ -59,7 +59,7 @@ export function SupportDialog({ org, open, onClose }: { org: { id: string; name:
         <Form.Item noStyle shouldUpdate={(a, b) => a.level !== b.level}>
           {({ getFieldValue }) =>
             getFieldValue("level") === "edit" ? (
-              <p className="-mt-3 mb-4 text-[13px] leading-5 text-ink-3">در «مشاهده و اصلاح» همهٔ بخش‌ها جز کاربران و کارهای ویژهٔ مالک در دسترس است.</p>
+              <p className="-mt-3 mb-4 text-[13px] leading-5 text-ink-3">در «مشاهده و اصلاح» همهٔ بخش‌ها در دسترس است جز کاربران، کلیدهای API و اتصال‌ها، کلیدهای هوش مصنوعی و کارهای ویژهٔ مالک.</p>
             ) : null
           }
         </Form.Item>

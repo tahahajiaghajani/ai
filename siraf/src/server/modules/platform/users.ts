@@ -1,8 +1,10 @@
 // Account actions of «مدیریت سامانه»: disable/enable, sign out everywhere, a temporary password with
 // a reason, and granting or revoking the platform admin role. Each one is written to the platform
 // audit log (actor_kind 'platform') and as a security event. Guards: never on yourself, never the
-// last active platform admin, and never an address listed in PLATFORM_ADMIN_EMAILS (it would be
-// granted again at the next sign-in).
+// last active platform admin, never against an address listed in PLATFORM_ADMIN_EMAILS (the
+// platform's owner: an admin he granted cannot lock him out or take his role), and never a
+// temporary password for a platform admin (it would let one admin sign in as another; their
+// password is changed by themselves or with their recovery code).
 import type { AuthUser, ServerConfig } from "../../context";
 import { bad, notFound } from "../../http/errors";
 import { hashPassword, readableCode } from "../../auth/password";
@@ -26,6 +28,9 @@ async function target(cfg: ServerConfig, id: string): Promise<Target> {
   return u;
 }
 
+const envAdmin = (cfg: ServerConfig, u: Target) => cfg.platformAdmins.includes(u.email.toLowerCase());
+const ENV_ADMIN_MESSAGE = "این ایمیل در PLATFORM_ADMIN_EMAILS است (مالک سامانه)؛ نخست آن را از تنظیمات سرور بردارید";
+
 const activeAdmins = async (cfg: ServerConfig) =>
   (await cfg.db.one<{ n: number }>(`select count(*)::int as n from tz_users where is_platform_admin and not disabled`))?.n ?? 0;
 
@@ -34,6 +39,7 @@ export async function setUserDisabled(cfg: ServerConfig, admin: AuthUser, id: st
   const u = await target(cfg, id);
   if (u.id === admin.id) throw bad("حساب خودتان را نمی‌توانید غیرفعال کنید");
   if (u.disabled === disabled) return { ok: true };
+  if (disabled && envAdmin(cfg, u)) throw bad(ENV_ADMIN_MESSAGE);
   if (disabled && u.is_platform_admin && (await activeAdmins(cfg)) <= 1) throw bad("سامانه باید دست‌کم یک مدیر فعال داشته باشد");
   await cfg.db.tx(async (tx) => {
     // tz_user_touch gives the row a new revision so linked Windows apps receive the change
@@ -67,6 +73,7 @@ export async function signOutEverywhere(cfg: ServerConfig, admin: AuthUser, id: 
 export async function temporaryPassword(cfg: ServerConfig, admin: AuthUser, id: string, reason: string, meta: Meta = {}) {
   const u = await target(cfg, id);
   if (u.id === admin.id) throw bad("رمز خودتان را از «حساب من» عوض کنید");
+  if (u.is_platform_admin || envAdmin(cfg, u)) throw bad("رمز مدیر سامانه را فقط خودش از «حساب من» یا با کد بازیابی عوض می‌کند");
   const why = reason.trim();
   if (why.length < 5) throw bad("دلیل را بنویسید (دست‌کم ۵ نویسه)");
   const pw = readableCode(3, 4);
@@ -87,8 +94,7 @@ export async function setPlatformAdmin(cfg: ServerConfig, admin: AuthUser, id: s
   if (u.is_platform_admin === granted) return { ok: true };
   if (granted && u.disabled) throw bad("نخست حساب را فعال کنید");
   if (!granted) {
-    if (cfg.platformAdmins.includes(u.email.toLowerCase()))
-      throw bad("این ایمیل در PLATFORM_ADMIN_EMAILS است و با ورود بعدی دوباره مدیر می‌شود؛ نخست آن را از تنظیمات سرور بردارید");
+    if (envAdmin(cfg, u)) throw bad(ENV_ADMIN_MESSAGE);
     if (!u.disabled && (await activeAdmins(cfg)) <= 1) throw bad("سامانه باید دست‌کم یک مدیر فعال داشته باشد");
   }
   await cfg.db.tx(async (tx) => {

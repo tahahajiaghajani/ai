@@ -12,10 +12,16 @@
 //   business and the key (tz_seed_uuid), so the web and a Windows app that both run this
 //   migration create the same rows instead of duplicates. The catalogue below is a frozen
 //   snapshot (version 1405/08); later versions are added by the app (src/shared/gold-catalogue.ts).
+//   The data blocks run with taraz.applying on: rows keep their updated_at (a migration's touch
+//   must not win last-writer-wins against a real edit), the cloud still gives them revisions
+//   (linked Windows apps pull them) and a Windows app does not queue them for upload (its cloud
+//   runs the same migration; a business kept only on the desktop uploads everything on linking).
 export default /* sql */ `
 alter table tz_items add column if not exists rate_key text;
 alter table tz_items add column if not exists gold_meta jsonb not null default '{}'::jsonb;
-create index if not exists tz_items_rate_key_idx on tz_items (org_id, rate_key) where rate_key is not null and deleted_at is null;
+-- one live product per board key (a clash arriving through sync moves the other holder's key aside)
+drop index if exists tz_items_rate_key_idx;
+create unique index if not exists tz_items_rate_key_uk on tz_items (org_id, rate_key) where rate_key is not null and deleted_at is null;
 
 alter table tz_gold_rates add column if not exists coins_buy jsonb not null default '{}'::jsonb;
 alter table tz_gold_rates add column if not exists bubbles jsonb not null default '{}'::jsonb;
@@ -99,6 +105,7 @@ declare
   v_code text;
   v_i int;
 begin
+  perform set_config('taraz.applying', 'on', true);
   for o in select id from tz_orgs where deleted_at is null and modules ? 'gold' loop
     for r in select * from (values
       ('gold_bars', '1515', 'موجودی شمش طلا', 'asset', 'debit', 'required', 'gold_bullion'),
@@ -122,6 +129,7 @@ begin
       on conflict (id) do nothing;
     end loop;
   end loop;
+  perform set_config('taraz.applying', 'off', true);
 end
 $do$;
 
@@ -188,6 +196,7 @@ declare
   v_code text;
   v_n int;
 begin
+  perform set_config('taraz.applying', 'on', true);
   for o in select id from tz_orgs where deleted_at is null and modules ? 'gold' loop
     v_unit := (select id from tz_units where org_id = o.id and name = 'عدد' and deleted_at is null order by created_at limit 1);
     for it in
@@ -237,6 +246,7 @@ begin
               (e.v->>'active')::boolean, v_key, e.v->'meta');
     end loop;
   end loop;
+  perform set_config('taraz.applying', 'off', true);
 end
 $do$;
 `;

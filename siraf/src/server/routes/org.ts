@@ -14,6 +14,7 @@ import { supportPermissions } from "../context";
 import { orgAccess } from "../modules/platform/access";
 import { accessibleOrgs, endSupport, listSupportSessions, SUPPORT_LEVEL_TITLE } from "../modules/platform/support";
 import { requestMeta, securityEvent } from "../modules/platform/security";
+import { createdHere, memberChangeProblem } from "../modules/platform/members";
 import { hashPassword, passwordProblem, readableCode } from "../auth/password";
 import { uuidv7 } from "@shared/id";
 import { insertMany, insertRow, updateRow } from "../db/sql";
@@ -203,11 +204,16 @@ orgRoutes.post("/members", async (c) => {
     password: z.string().optional(),
   }));
   if (input.role === "owner" && ctx.member.role !== "owner") throw forbidden("فقط مالک می‌تواند مالک دیگری اضافه کند");
+  const refusal = memberChangeProblem(ctx, null, { user_id: "", role: input.role, overrides: {} });
+  if (refusal) throw forbidden(refusal);
   let temp: string | null = null;
   const result = await ctx.write(async (tx) => {
     let user = await tx.one<{ id: string }>(`select id from tz_users where lower(email) = $1`, [input.email]);
     const created = !user;
     if (!user) {
+      // the platform's administrators (PLATFORM_ADMIN_EMAILS) make their own accounts: one made
+      // here with a password the business chose must never sign in as one
+      if (ctx.cfg.platformAdmins.includes(input.email)) throw bad("این نشانی برای مدیر سامانه کنار گذاشته شده است؛ حساب آن را خودش می‌سازد");
       const pw = input.password || (temp = readableCode(3, 4));
       const problem = passwordProblem(pw);
       if (problem) throw bad(problem);
@@ -216,11 +222,13 @@ orgRoutes.post("/members", async (c) => {
     const exists = await tx.one<{ id: string; deleted_at: string | null }>(`select id, deleted_at from tz_org_members where org_id = $1 and user_id = $2`, [ctx.org.id, user!.id]);
     if (exists && !exists.deleted_at) throw conflict("این کاربر قبلاً عضو است");
     if (exists) {
-      await tx.query(`update tz_org_members set deleted_at = null, is_active = true, role = $2, title = $3 where id = $1`, [exists.id, input.role, input.title ?? null]);
+      // a member who comes back starts from the role: per-area access of the old membership is dropped
+      await tx.query(`update tz_org_members set deleted_at = null, is_active = true, role = $2, title = $3, overrides = '{}'::jsonb where id = $1`, [exists.id, input.role, input.title ?? null]);
     } else {
       await insertRow(tx, "tz_org_members", { id: uuidv7(), org_id: ctx.org.id, user_id: user!.id, role: input.role, title: input.title ?? null, origin: ctx.cfg.origin }, "id");
     }
-    await audit(tx, ctx, "member_add", "member", user!.id, `${input.email} (${ROLES[input.role].title})`);
+    // new_account marks an account this business made (see createdHere: password resets)
+    await audit(tx, ctx, "member_add", "member", user!.id, `${input.email} (${ROLES[input.role].title})`, { new_account: created });
     return { user_id: user!.id, created };
   });
   await securityEvent(ctx.db, {
@@ -251,8 +259,14 @@ orgRoutes.patch("/members/:id", async (c) => {
     [c.req.param("id"), ctx.org.id],
   );
   if (!m) throw notFound("عضو پیدا نشد");
-  // owners are changed only by owners (a manager «مدیر» is the owner's deputy, not above them)
-  if ((m.role === "owner" || input.role === "owner") && ctx.member.role !== "owner") throw forbidden("فقط مالک می‌تواند نقش مالک را تغییر دهد");
+  // owners are changed only by owners (a manager «مدیر» is the owner's deputy, not above them);
+  // below the owner nobody changes themselves, a member with more access, or grants above their own
+  const refusal = memberChangeProblem(
+    ctx,
+    { user_id: m.user_id, role: m.role, overrides: m.overrides },
+    { user_id: m.user_id, role: input.role ?? m.role, overrides: input.overrides ?? m.overrides },
+  );
+  if (refusal) throw forbidden(refusal);
   if (m.user_id === ctx.user.id && input.is_active === false) throw bad("نمی‌توانید حساب خودتان را غیرفعال کنید");
   const losesOwner = m.role === "owner" && m.is_active && ((input.role && input.role !== "owner") || input.is_active === false);
   await ctx.write(async (tx) => {
@@ -283,15 +297,20 @@ orgRoutes.post("/members/:id/password", async (c) => {
   const ctx = c.get("ctx");
   ctx.need("users", "full");
   const input = await body(c, z.object({ password: z.string().optional() }));
-  const m = await ctx.db.one<{ user_id: string; role: Role; email: string }>(
-    `select m.user_id, m.role, u.email from tz_org_members m join tz_users u on u.id = m.user_id where m.id = $1 and m.org_id = $2 and m.deleted_at is null`,
+  const m = await ctx.db.one<{ user_id: string; role: Role; overrides: Partial<Record<Area, Level>> | null; email: string }>(
+    `select m.user_id, m.role, m.overrides, u.email from tz_org_members m join tz_users u on u.id = m.user_id where m.id = $1 and m.org_id = $2 and m.deleted_at is null`,
     [c.req.param("id"), ctx.org.id],
   );
   if (!m) throw notFound("عضو پیدا نشد");
   if (m.role === "owner" && ctx.member.role !== "owner") throw forbidden();
-  // the account is global: a business may only reset it when the person works for no other
-  // business (anyone can add an existing account to their own business by its email), and never a
-  // platform admin's (that one is reset from «مدیریت سامانه»)
+  const grant = { user_id: m.user_id, role: m.role, overrides: m.overrides };
+  const refusal = memberChangeProblem(ctx, grant, grant);
+  if (refusal) throw forbidden(refusal);
+  // the account is global: anyone can add an existing account to their own business by its e-mail.
+  // A business resets only an account it made itself, for someone who works for no other business,
+  // and never a platform admin's (that one is reset from «مدیریت سامانه»)
+  if (!(await createdHere(ctx.db, ctx.org.id, m.user_id)))
+    throw forbidden("این حساب را این کسب‌وکار نساخته است؛ رمز را صاحب حساب از «حساب من» یا با کد بازیابی عوض کند");
   const elsewhere = await ctx.db.one(
     `select 1 from tz_users u where u.id = $1 and (u.is_platform_admin or exists (
        select 1 from tz_org_members o where o.user_id = u.id and o.org_id <> $2 and o.deleted_at is null))`,
@@ -336,7 +355,13 @@ orgRoutes.post("/fiscal-years", async (c) => {
 });
 
 orgRoutes.post("/fiscal-years/:id/close", async (c) => c.json(await closeFiscalYear(c.get("ctx"), c.req.param("id"))));
-orgRoutes.post("/fiscal-years/:id/reopen", async (c) => c.json(await reopenFiscalYear(c.get("ctx"), c.req.param("id"))));
+// reopening a closed year deletes its closing and opening vouchers: owner-only (a manager «مدیر» is
+// the owner's deputy), never a support session or an accountant
+orgRoutes.post("/fiscal-years/:id/reopen", async (c) => {
+  const ctx = c.get("ctx");
+  if (ctx.support || (ctx.member.role !== "owner" && ctx.member.role !== "admin")) throw forbidden("باز کردن دوبارهٔ سال مالی بسته با مالک کسب‌وکار است");
+  return c.json(await reopenFiscalYear(ctx, c.req.param("id")));
+});
 
 // ----- audit log and support sessions -----
 // actor_kind: 'user' (a member), 'support' (the platform admin in a support session) or 'platform'

@@ -16,7 +16,7 @@ import { cloudLink, relayTurn } from "./relay";
 import { disabledByPlatform, loadPolicy, loadSettings } from "./settings";
 import { budgetState, recordUsage } from "./usage";
 import { orgAiDisabled } from "../platform/org-admin";
-import { ProviderError, type NeutralMessage, type TurnHooks, type TurnRequest, type TurnResult } from "./types";
+import { ProviderError, type TurnHooks, type TurnRequest, type TurnResult } from "./types";
 
 export interface ChainEntry {
   row: ConnRow;
@@ -30,7 +30,10 @@ export interface ChainResult {
   preset: string | null;
   /** wire protocol of the connection that answered (decides whether its native content can be replayed) */
   protocol: AiProtocol | null;
+  /** the model the provider reports (dated snapshot, served fallback): ledger and display */
   model: string;
+  /** the model id this connection was asked for: native content is replayed only to that id */
+  requested_model?: string;
   route: "direct" | "via_cloud";
   cost_usd: string;
   priced: boolean;
@@ -146,12 +149,14 @@ export async function assertUsable(ctx: Ctx, env: AiEnv): Promise<void> {
   if (budget.state === "stopped") throw unavailable(ctx, "budget");
 }
 
-function stripForRetry(req: Omit<TurnRequest, "model">): Omit<TurnRequest, "model"> {
-  const messages: NeutralMessage[] = req.messages.map((m) => ({
-    ...m,
-    parts: m.parts.map((p) => (p.type === "file" ? { type: "text" as const, text: `[attachment ${p.name ?? ""} (${p.mime}) omitted]` } : p)),
-  }));
-  return { ...req, effort: null, messages };
+/**
+ * The second try after a provider rejected a request as invalid: without the effort setting.
+ * Files stay: a reading of a document the model never saw (capture caches it for 30 days) or an
+ * answer about an attachment it did not get is worse than moving on to the next connection.
+ */
+function stripForRetry(req: Omit<TurnRequest, "model">): Omit<TurnRequest, "model"> | null {
+  if (!req.effort) return null;
+  return { ...req, effort: null };
 }
 
 /** One model turn through the job's chain with fallbacks. */
@@ -199,7 +204,7 @@ export async function runTurn(ctx: Ctx, opts: RunOptions): Promise<ChainResult> 
           provider_cost: result.providerCostUsd, local, ms: Date.now() - t0, ok: result.stop !== "refusal", error_kind: result.stop === "refusal" ? "refusal" : null, thread_id: opts.threadId,
         });
         if (entry.row.status !== "ok") void markConnection(ctx, conn.id, { ok: true });
-        const out: ChainResult = { result, connection_id: conn.id, connection_label: conn.label, preset: conn.preset.id, protocol: conn.protocol, model: result.model || entry.model, route: "direct", cost_usd: cost.cost_usd, priced: cost.priced };
+        const out: ChainResult = { result, connection_id: conn.id, connection_label: conn.label, preset: conn.preset.id, protocol: conn.protocol, model: result.model || entry.model, requested_model: entry.model, route: "direct", cost_usd: cost.cost_usd, priced: cost.priced };
         if (result.stop === "aborted" || emitted) return out;
         if (result.stop === "refusal") {
           lastKind = "refusal";
@@ -240,8 +245,11 @@ export async function runTurn(ctx: Ctx, opts: RunOptions): Promise<ChainResult> 
         }
         if (pe.kind === "invalid" && !retried) {
           retried = true;
-          req = stripForRetry(req);
-          continue;
+          const next = stripForRetry(req);
+          if (next) {
+            req = next;
+            continue;
+          }
         }
         if (pe.kind === "auth" || pe.kind === "region" || pe.kind === "model") await markConnection(ctx, conn.id, { ok: false, kind: pe.kind, detail: pe.message });
         break;

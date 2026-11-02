@@ -489,6 +489,9 @@ export function forecastSeries(y: number[], h: number, opts: { seasonPeriod?: nu
   const finite = best.run.ratios.filter((r) => Number.isFinite(r));
   const k = finite.length >= 6 ? quantile(finite, 0.8) : 1;
   const widen = Math.max(1, Number.isFinite(k) ? k : 1);
+  // the coverage reported is that of the band shown (widened), measured on the same backtest
+  const covered = best.run.ratios.filter((r) => r <= widen + 1e-12).length;
+  const coverage80 = best.run.ratios.length ? covered / best.run.ratios.length : best.run.coverage80;
   return {
     ok: true,
     refused_reason_fa: null,
@@ -496,7 +499,7 @@ export function forecastSeries(y: number[], h: number, opts: { seasonPeriod?: nu
     method_fa: METHOD_FA[best.key] ?? best.key,
     cls,
     points: bandsOf(model, h, widen, nonNegative),
-    backtest: { mae: best.run.mae, mase: best.run.mase, coverage80: best.run.coverage80, n: best.run.n },
+    backtest: { mae: best.run.mae, mase: best.run.mase, coverage80, n: best.run.n },
     mean: avg,
   };
 }
@@ -542,6 +545,29 @@ function horizonReturns(prices: number[], h: number): number[] {
   return out;
 }
 
+/** The band shown for closes `prices` (oldest first): EWMA σ (long-run σ after a >4σ jump), widened by historical quantiles once 250 returns exist. */
+function rateBand(prices: number[], horizons: number[]): { sigma: number; high: boolean; bands: { lo: number; hi: number }[] } {
+  const returns = logReturns(prices);
+  const last = prices[prices.length - 1] ?? 0;
+  let sigma = ewmaSigma(returns);
+  const lastMove = Math.abs(returns[returns.length - 1] ?? 0);
+  const high = sigma > 0 && lastMove > 4 * sigma;
+  if (high) sigma = Math.max(sigma, stdev(returns));
+  const historical = returns.length >= 250;
+  const bands = horizons.map((h) => {
+    const p = parametric(last, sigma, h);
+    let lo = p.lo;
+    let hi = p.hi;
+    if (historical) {
+      const hr = horizonReturns(prices, h);
+      lo = Math.min(lo, last * Math.exp(quantile(hr, 0.1)));
+      hi = Math.max(hi, last * Math.exp(quantile(hr, 0.9)));
+    }
+    return { lo, hi };
+  });
+  return { sigma, high, bands };
+}
+
 /**
  * Ranges of a price `horizons` days ahead from daily closes (oldest first). Needs 60 closes; with
  * 250 or more the historical quantiles join the parametric band and the wider side wins.
@@ -552,31 +578,20 @@ export function rateRanges(prices: number[], horizons: number[], opts: { minClos
   const returns = logReturns(prices);
   const refuse = (why: string): RateRangeOutcome => ({ ok: false, refused_reason_fa: why, last, sigma_daily: 0, high_uncertainty: false, method_fa: "—", points: [], backtest: null });
   if (prices.length < minCloses) return refuse(`برای بازهٔ احتمالی دست‌کم ${minCloses} نرخ روزانه لازم است و ${prices.length} روز ثبت شده است`);
-  let sigma = ewmaSigma(returns);
-  const longRun = stdev(returns);
-  const lastMove = Math.abs(returns[returns.length - 1] ?? 0);
-  const high = sigma > 0 && lastMove > 4 * sigma;
-  if (high) sigma = Math.max(sigma, longRun);
+  const now = rateBand(prices, horizons);
+  const sigma = now.sigma;
+  const high = now.high;
   const historical = returns.length >= 250;
-  const points = horizons.map((h) => {
-    const p = parametric(last, sigma, h);
-    let lo = p.lo;
-    let hi = p.hi;
-    if (historical) {
-      const hr = horizonReturns(prices, h);
-      lo = Math.min(lo, last * Math.exp(quantile(hr, 0.1)));
-      hi = Math.max(hi, last * Math.exp(quantile(hr, 0.9)));
-    }
-    return { h, p10: lo, p50: last, p90: hi };
-  });
-  // calibration: past 80% bands (EWMA σ known at each origin) against what happened
+  const points = horizons.map((h, i) => ({ h, p10: now.bands[i].lo, p50: last, p90: now.bands[i].hi }));
+  // calibration: the same band as shown (σ, jump rule and historical quantiles as known at each
+  // origin) against what happened
   const h0 = horizons[0] ?? 1;
   let hit = 0;
   let n = 0;
   for (let t = Math.max(minCloses - 1, prices.length - 1 - 60 - h0); t + h0 < prices.length; t++) {
-    const s = ewmaSigma(logReturns(prices.slice(0, t + 1)));
-    if (!(s > 0)) continue;
-    const b = parametric(prices[t], s, h0);
+    const past = rateBand(prices.slice(0, t + 1), [h0]);
+    if (!(past.sigma > 0)) continue;
+    const b = past.bands[0];
     const actual = prices[t + h0];
     n++;
     if (actual >= b.lo && actual <= b.hi) hit++;

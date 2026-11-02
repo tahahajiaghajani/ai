@@ -41,8 +41,22 @@ interface ActionRow {
 
 const COLS = `id, org_id, thread_id, message_id, user_id, kind, tool, area, level, payload, payload_hash, preview, status, confirmed_by, confirmed_at, result, error, expires_at, created_at`;
 
+/** JSON with object keys sorted at every level: the same text before and after a jsonb round trip (which reorders keys). */
+function canonicalJson(value: unknown): string {
+  const norm = (v: unknown): unknown => {
+    if (Array.isArray(v)) return v.map(norm);
+    if (v && typeof v === "object") {
+      const o = v as Record<string, unknown>;
+      return Object.fromEntries(Object.keys(o).sort().map((k) => [k, norm(o[k])]));
+    }
+    return v;
+  };
+  // the JSON round trip first drops undefined fields and turns dates into strings, as storing does
+  return JSON.stringify(norm(JSON.parse(JSON.stringify(value ?? null))));
+}
+
 export function hashPayload(payload: unknown): string {
-  return createHash("sha256").update(JSON.stringify(payload ?? null)).digest("hex");
+  return createHash("sha256").update(canonicalJson(payload)).digest("hex");
 }
 
 function effectiveStatus(r: ActionRow): AiProposalStatus {
@@ -72,7 +86,9 @@ export function toProposal(r: ActionRow): AiProposal {
 export async function storeProposal(ctx: Ctx, c: { threadId: string; messageId: string; callId: string; tool: string; proposal: AiProposalInput }): Promise<AiProposal> {
   const p = c.proposal;
   const id = uuidv7();
-  const key = createHash("sha256").update(`${ctx.org.id}:${c.threadId}:${c.callId}`).digest("hex");
+  // the step's message id is part of the key: providers that omit tool-call ids get made-up ones
+  // (call_0_…) that repeat in later turns of the same conversation
+  const key = createHash("sha256").update(`${ctx.org.id}:${c.threadId}:${c.messageId}:${c.callId}`).digest("hex");
   const preview = { title_fa: p.title_fa, summary_fa: p.summary_fa, preview: p.preview, lines: p.lines, line_headers: p.line_headers, warnings: p.warnings, edit_path: p.edit_path };
   const row = await ctx.write(
     async (tx) => {
@@ -121,6 +137,7 @@ const STATUS_FA: Record<AiProposalStatus, string> = {
 };
 
 export async function confirmAction(ctx: Ctx, id: string): Promise<AiProposal> {
+  ctx.need("ai", "view");
   let r = await actionRow(ctx, id);
   assertVisible(ctx, r);
   if (!canDecide(ctx, r)) throw forbidden("برای تأیید این پیشنهاد، دسترسی همان سند را لازم دارید");
@@ -171,6 +188,7 @@ export async function confirmAction(ctx: Ctx, id: string): Promise<AiProposal> {
 }
 
 export async function rejectAction(ctx: Ctx, id: string, reason?: string): Promise<AiProposal> {
+  ctx.need("ai", "view");
   const r = await actionRow(ctx, id);
   assertVisible(ctx, r);
   if (r.user_id !== ctx.user.id && !canDecide(ctx, r)) throw forbidden();

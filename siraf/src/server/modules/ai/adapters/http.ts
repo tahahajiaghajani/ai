@@ -114,6 +114,8 @@ export function retryAfterMs(headers: Headers | null | undefined, message = ""):
 const REGION_RE = /user location is not supported|unsupported_country|country,? region,? or territory|not available in your (country|region)|region (is )?not supported|your region|unsupported (region|location)|not supported in your (country|region|location)|from your location/i;
 const QUOTA_RE = /insufficient_quota|insufficient (credits?|balance|funds)|credit balance|no credits|out of credits|payment required|exceeded your current quota|billing|\blimit: 0\b|quota exceeded for .*per ?day|PerDay|daily limit|balance is (too )?low|اعتبار|موجودی/i;
 const MODEL_RE = /model[_ ]not[_ ]found|(model|deployment).{0,60}(not found|does not exist|not available|is not supported|unknown|no access|not have access|deprecated|retired)|unknown model|invalid model|no such model|does not have access to model|not a valid model/i;
+/** No credit left, as some providers say it in a 400 (narrow: a 400 is otherwise a bad request). */
+const CREDIT_400_RE = /credit balance (is )?too low|insufficient (credits?|balance)|purchase (more )?credits|plans? (&|and) billing/i;
 const AUTH_RE = /invalid[_ ]api[_ ]key|incorrect api key|api key not valid|invalid x-api-key|unauthori[sz]ed|authentication|permission[_ ]denied|invalid (token|credentials)|api key (is )?(missing|invalid|expired|revoked)|API_KEY_INVALID/i;
 
 /** Daily/no-credit quota vs a short per-minute limit (a 429 is a short limit unless it says otherwise). */
@@ -137,6 +139,8 @@ export function classifyStatus(status: number, message: string, code: string | n
   if (status === 408) return "timeout";
   if (status === 529 || status >= 500) return "overloaded";
   if (status === 400 || status === 413 || status === 422) {
+    // Claude API: «Your credit balance is too low to access the Anthropic API…» comes as a 400
+    if (CREDIT_400_RE.test(m)) return "quota";
     if (AUTH_RE.test(m)) return "auth";
     if (MODEL_RE.test(m)) return "model";
     if (/FAILED_PRECONDITION/.test(m) && /location|region|country/i.test(m)) return "region";

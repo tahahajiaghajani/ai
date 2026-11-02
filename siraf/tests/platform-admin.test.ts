@@ -5,6 +5,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import type { Db } from "@server/db";
 import { makeServer, Client, signupWithOrg } from "./helpers";
 import { MIGRATIONS } from "@server/db/migrations";
+import { SYNC_PROTOCOL } from "@shared/constants";
 
 const party = (name: string) => ({ kind: "person", name, roles: ["customer"] });
 
@@ -349,5 +350,192 @@ describe("role matrix", () => {
     await manager.post(`/o/${org}/members`, { email: "own2@example.com", full_name: "مالک دوم", role: "owner" }, 403);
     const { roles } = await owner.get(`/o/${org}/members`);
     expect(roles.filter((r: { kind: string }) => r.kind === "core").map((r: { key: string }) => r.key)).toEqual(["owner", "accountant", "viewer"]);
+  });
+});
+
+// Review round: support sessions leave nothing that outlives them, grants never exceed the
+// granter's own access, a business never resets an account it did not create, the env-listed
+// owner of the platform cannot be locked out or impersonated, and member changes pushed by a
+// Windows app follow the members page's rules.
+describe("access review fixes", () => {
+  let db: Db;
+  let app: { fetch: (r: Request) => Response | Promise<Response> };
+  let admin: Client; // first account: platform admin
+  let owner: Client;
+  let org: string;
+  const member = async (email: string) => {
+    const { members } = await owner.get(`/o/${org}/members`);
+    return members.find((m: { email: string }) => m.email === email);
+  };
+  const login = async (email: string, password: string) => {
+    const c = new Client(app);
+    await c.post("/auth/login", { email, password });
+    return c;
+  };
+
+  beforeAll(async () => {
+    const s = await makeServer();
+    db = s.db;
+    app = { fetch: (r: Request) => (r.headers.set("x-forwarded-for", "10.72.0.1"), s.app.fetch(r)) };
+    admin = new Client(app);
+    await signupWithOrg(admin);
+    owner = new Client(app);
+    await owner.post("/auth/signup", { email: "rev-owner@example.com", password: "rev-owner-pass-1", full_name: "مالک بازبینی" });
+    org = (await owner.post<{ id: string }>("/orgs", { name: "فروشگاه بازبینی", business_kind: "trading", modules: ["goods"], base_currency: "IRR", fiscal_year: 1405 })).id;
+    await owner.post(`/o/${org}/members`, { email: "rev-acc@example.com", full_name: "حسابدار بازبینی", role: "accountant", password: "rev-acc-pass-1" });
+  });
+
+  it("an edit support session cannot leave an API key, a webhook, an AI connection or reopen a fiscal year", async () => {
+    const { session } = await admin.post(`/admin/orgs/${org}/support`, { level: "edit", reason: "بررسی اتصال فروشگاه", hours: 1 });
+    const info = await admin.get(`/o/${org}`);
+    expect(info.member.permissions).toMatchObject({ integrations: "view", ai: "edit", accounting: "full", users: "view" });
+    await admin.get(`/o/${org}/integrations/api-keys`);
+    await admin.post(`/o/${org}/integrations/api-keys`, { name: "کلید پشتیبانی", scopes: ["read"] }, 403);
+    await admin.post(`/o/${org}/integrations`, { kind: "generic", name: "فروشگاه پشتیبانی", config: { post: false }, secret: "chosen-secret" }, 403);
+    await admin.post(`/o/${org}/integrations/events/00000000-0000-7000-8000-000000000000/retry`, {}, 403);
+    await admin.post(`/o/${org}/ai/connections`, { label: "درگاه من", preset: "openai", key: "sk-test" }, 403);
+    const fy = info.fiscal_years[0].id;
+    await expect(admin.post(`/o/${org}/fiscal-years/${fy}/reopen`)).rejects.toThrow(/403/);
+    await admin.post(`/admin/support/${session.id}/end`);
+    // reopening a closed year stays with the owner (and a manager): not the accountant
+    const acc = await login("rev-acc@example.com", "rev-acc-pass-1");
+    await acc.post(`/o/${org}/fiscal-years/${fy}/reopen`, {}, 403);
+    await owner.post(`/o/${org}/fiscal-years/${fy}/reopen`);
+  });
+
+  it("refuses the public API of a suspended business", async () => {
+    const { key } = await owner.post(`/o/${org}/integrations/api-keys`, { name: "اپ فروشگاه", scopes: ["read"] });
+    const api = new Client(app);
+    api.token = key;
+    await api.get("/v1/items");
+    await admin.patch(`/admin/orgs/${org}`, { status: "suspended", status_reason: "بررسی حقوقی" });
+    await expect(api.get("/v1/items")).rejects.toThrow(/423/);
+    await expect(api.get("/v1/parties?mobile=09120000000")).rejects.toThrow(/423/);
+    await admin.patch(`/admin/orgs/${org}`, { status: "active" });
+    await api.get("/v1/items");
+  });
+
+  it("never resets the password of an account the business did not create", async () => {
+    const victim = new Client(app);
+    await victim.post("/auth/signup", { email: "rev-victim@example.com", password: "victim-pass-1", full_name: "قربانی" });
+    await owner.post(`/o/${org}/members`, { email: "rev-victim@example.com", full_name: "قربانی", role: "viewer" });
+    const m = await member("rev-victim@example.com");
+    await owner.post(`/o/${org}/members/${m.id}/password`, { password: "taken-over-1" }, 403);
+    await new Client(app).post("/auth/login", { email: "rev-victim@example.com", password: "taken-over-1" }, 401);
+    await victim.get("/auth/me");
+    // nor does the owner's Windows app receive its password hash
+    const { users } = await owner.get(`/sync/pull?org_id=${org}&cursor=0&user_cursor=0`);
+    const v = users.find((u: { email: string }) => u.email === "rev-victim@example.com");
+    expect(v).toMatchObject({ password_hash: null, password_withheld: true });
+    // an account this business made is still reset here
+    const { temp_password } = await owner.post(`/o/${org}/members`, { email: "rev-made@example.com", full_name: "کارمند تازه", role: "viewer" });
+    expect(temp_password).toBeTruthy();
+    const made = await member("rev-made@example.com");
+    await owner.post(`/o/${org}/members/${made.id}/password`, { password: "fresh-pass-12" });
+    await login("rev-made@example.com", "fresh-pass-12");
+    expect(users.find((u: { email: string }) => u.email === "rev-acc@example.com").password_withheld).toBe(false);
+  });
+
+  it("never lets a member give more access than they have", async () => {
+    await owner.post(`/o/${org}/members`, { email: "rev-delegate@example.com", full_name: "نمایندهٔ کاربران", role: "viewer", password: "rev-delegate-1" });
+    await owner.post(`/o/${org}/members`, { email: "rev-peer@example.com", full_name: "ناظر دیگر", role: "viewer", password: "rev-peer-pass-1" });
+    const d = await member("rev-delegate@example.com");
+    await owner.patch(`/o/${org}/members/${d.id}`, { overrides: { users: "edit" } });
+    const delegate = await login("rev-delegate@example.com", "rev-delegate-1");
+    // not himself
+    await delegate.patch(`/o/${org}/members/${d.id}`, { role: "admin", overrides: {} }, 403);
+    await delegate.patch(`/o/${org}/members/${d.id}`, { overrides: { users: "full" } }, 403);
+    expect((await delegate.get(`/o/${org}`)).member.role).toBe("viewer");
+    // not above his own levels
+    const peer = await member("rev-peer@example.com");
+    await delegate.patch(`/o/${org}/members/${peer.id}`, { role: "admin" }, 403);
+    await delegate.patch(`/o/${org}/members/${peer.id}`, { overrides: { sales: "edit" } }, 403);
+    await delegate.patch(`/o/${org}/members/${peer.id}`, { overrides: { users: "edit" } });
+    await delegate.post(`/o/${org}/members`, { email: "rev-new-admin@example.com", full_name: "مدیر تازه", role: "admin", password: "chosen-pass-1" }, 403);
+    await delegate.post(`/o/${org}/members`, { email: "rev-new-acc@example.com", full_name: "حسابدار تازه", role: "accountant", password: "chosen-pass-1" }, 403);
+    await delegate.post(`/o/${org}/members`, { email: "rev-new-viewer@example.com", full_name: "ناظر تازه", role: "viewer", password: "chosen-pass-1" });
+    // nor touches a member who has more access than he does
+    const acc = await member("rev-acc@example.com");
+    await delegate.patch(`/o/${org}/members/${acc.id}`, { is_active: false }, 403);
+    // a removed member who comes back starts from the role, without old overrides
+    const p = await member("rev-peer@example.com");
+    await db.query(`update tz_org_members set deleted_at = now() where id = $1`, [p.id]);
+    await owner.post(`/o/${org}/members`, { email: "rev-peer@example.com", full_name: "ناظر دیگر", role: "viewer" });
+    expect((await member("rev-peer@example.com")).overrides).toEqual({});
+  });
+
+  it("applies the members page's rules to member changes pushed by a Windows app", async () => {
+    const push = (c: Client, row: Record<string, unknown>) =>
+      c.post(`/sync/push`, {
+        org_id: org, device_id: "00000000-0000-7000-8000-0000000000aa", protocol: SYNC_PROTOCOL,
+        aggregates: [{ entity: "member", id: String(row.id), base_rev: Number(row.rev), row: { ...row, updated_at: new Date().toISOString() }, children: {} }],
+      });
+    const rowOf = async (email: string) =>
+      (await db.one<Record<string, unknown>>(`select m.* from tz_org_members m join tz_users u on u.id = m.user_id where m.org_id = $1 and u.email = $2`, [org, email]))!;
+    const delegate = await login("rev-delegate@example.com", "rev-delegate-1");
+    const self = await push(delegate, { ...(await rowOf("rev-delegate@example.com")), role: "admin", overrides: {} });
+    expect(self.results[0]).toMatchObject({ status: "error" });
+    const up = await push(delegate, { ...(await rowOf("rev-new-viewer@example.com")), overrides: { accounting: "full" } });
+    expect(up.results[0]).toMatchObject({ status: "error" });
+    expect((await rowOf("rev-delegate@example.com")).role).toBe("viewer");
+    // the owner's Windows app cannot leave the business without an active owner
+    const mine = await rowOf("rev-owner@example.com");
+    const gone = await push(owner, { ...mine, is_active: false });
+    expect(gone.results[0]).toMatchObject({ status: "error" });
+    expect((await rowOf("rev-owner@example.com")).is_active).toBe(true);
+    // a role change made there is a security event
+    const ok = await push(owner, { ...(await rowOf("rev-new-viewer@example.com")), role: "sales" });
+    expect(ok.results[0]).toMatchObject({ status: "ok" });
+    const { events } = await admin.get(`/admin/security-events?kind=member_changed&org=${org}&q=rev-new-viewer`);
+    expect(events[0].data.changes.role).toEqual(["viewer", "sales"]);
+    expect(events[0].data.via).toBe("sync");
+  });
+});
+
+describe("the platform's owner (PLATFORM_ADMIN_EMAILS)", () => {
+  it("cannot be disabled or given a temporary password by another admin", async () => {
+    const s = await makeServer({ config: { platformAdmins: ["boss@example.com"] } });
+    const app = { fetch: (r: Request) => (r.headers.set("x-forwarded-for", "10.72.0.2"), s.app.fetch(r)) };
+    const boss = new Client(app);
+    await boss.post("/auth/signup", { email: "boss@example.com", password: "boss-pass-1", full_name: "مالک سامانه" });
+    const deputy = new Client(app);
+    await deputy.post("/auth/signup", { email: "deputy@example.com", password: "deputy-pass-1", full_name: "معاون" });
+    const third = new Client(app);
+    await third.post("/auth/signup", { email: "third@example.com", password: "third-pass-12", full_name: "سوم" });
+    const { users } = await boss.get("/admin/users");
+    const id = (e: string) => users.find((u: { email: string }) => u.email === e).id;
+    await boss.post(`/admin/users/${id("deputy@example.com")}/platform-admin`, { granted: true });
+    await boss.post(`/admin/users/${id("third@example.com")}/platform-admin`, { granted: true });
+    await deputy.patch(`/admin/users/${id("boss@example.com")}`, { disabled: true }, 400);
+    await deputy.post(`/admin/users/${id("boss@example.com")}/password`, { reason: "درخواست تلفنی مالک" }, 400);
+    // no admin sets another admin's password either (it would let him sign in as that admin)
+    await deputy.post(`/admin/users/${id("third@example.com")}/password`, { reason: "درخواست تلفنی همکار" }, 400);
+    await boss.get("/admin/overview");
+  });
+
+  it("is granted only while the platform has no administrator; later addresses are granted from the console", async () => {
+    const s = await makeServer({ config: { platformAdmins: ["boss@example.com", "second@example.com"], allowSignup: false } });
+    const app = { fetch: (r: Request) => (r.headers.set("x-forwarded-for", "10.72.0.3"), s.app.fetch(r)) };
+    const boss = new Client(app);
+    await boss.post("/auth/signup", { email: "boss@example.com", password: "boss-pass-1", full_name: "مالک سامانه" });
+    await boss.get("/admin/overview");
+    // sign-up is closed: the second address is no way in once an administrator exists
+    await new Client(app).post("/auth/signup", { email: "second@example.com", password: "claimed-pass-1", full_name: "مدعی" }, 403);
+    // nor can a business make an account with it and sign in as the platform's administrator
+    const org = (await boss.post<{ id: string }>("/orgs", { name: "کسب‌وکار مالک", business_kind: "trading", modules: ["goods"], base_currency: "IRR", fiscal_year: 1405 })).id;
+    await boss.post(`/o/${org}/members`, { email: "second@example.com", full_name: "مدعی", role: "viewer", password: "claimed-pass-1" }, 400);
+  });
+
+  it("does not make an address an administrator at sign-in once the platform has one", async () => {
+    const s = await makeServer({ config: { platformAdmins: ["boss@example.com", "second@example.com"] } });
+    const app = { fetch: (r: Request) => (r.headers.set("x-forwarded-for", "10.72.0.4"), s.app.fetch(r)) };
+    const boss = new Client(app);
+    await boss.post("/auth/signup", { email: "boss@example.com", password: "boss-pass-1", full_name: "مالک سامانه" });
+    const claimer = new Client(app);
+    await claimer.post("/auth/signup", { email: "second@example.com", password: "claimed-pass-1", full_name: "مدعی" });
+    expect((await claimer.get("/auth/me")).user.is_platform_admin).toBe(false);
+    await claimer.post("/auth/login", { email: "second@example.com", password: "claimed-pass-1" });
+    expect((await claimer.get("/auth/me")).user.is_platform_admin).toBe(false);
+    await claimer.get("/admin/overview", 403);
   });
 });

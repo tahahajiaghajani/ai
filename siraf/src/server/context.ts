@@ -192,12 +192,17 @@ export const SUPPORT_VIEW_ONLY_MESSAGE = "حالت پشتیبانی شما فق�
 /**
  * The level a support session grants in an area. «مشاهده» sees every area (the assistant stays off:
  * it would spend the business's AI budget); «مشاهده و اصلاح» works like the business's manager,
- * except that members are never changed — owner-only actions check the member's role, which a
- * support session never has.
+ * except for what would outlive the session: members are never changed, API keys and webhooks are
+ * only seen (a key or a webhook secret he chose would keep working after the session ends) and the
+ * assistant may draft but AI connections and keys stay with the members (a connection to his own
+ * gateway would receive the members' later prompts). Owner-only actions check the member's role,
+ * which a support session never has.
  */
 export function supportLevel(level: SupportLevel, area: Area): Level {
   if (area === "users") return "view";
   if (level === "view") return area === "ai" ? "none" : "view";
+  if (area === "integrations") return "view";
+  if (area === "ai") return "edit";
   return "full";
 }
 

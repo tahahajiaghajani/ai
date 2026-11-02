@@ -180,7 +180,7 @@ function UserSheet({ id, onClose }: { id: string; onClose: () => void }) {
               <Button
                 danger
                 icon={<UserX {...ICON14} />}
-                disabled={self}
+                disabled={self || u.env_admin}
                 onClick={async () => {
                   if (await n.confirm(`غیرفعال کردن ${u.full_name}؟`, "از همهٔ دستگاه‌ها خارج می‌شود و دیگر نمی‌تواند وارد شود.", true, "غیرفعال کن"))
                     await run(() => api.patch(`/admin/users/${id}`, { disabled: true }), "حساب غیرفعال شد.");
@@ -198,7 +198,8 @@ function UserSheet({ id, onClose }: { id: string; onClose: () => void }) {
             >
               خروج از همهٔ دستگاه‌ها
             </Button>
-            <Button icon={<KeyRound {...ICON14} />} disabled={self} onClick={() => setPw(true)}>
+            {/* an admin's password is changed by himself (or with his recovery code), never from here */}
+            <Button icon={<KeyRound {...ICON14} />} disabled={self || u.is_platform_admin || u.env_admin} onClick={() => setPw(true)}>
               رمز موقت
             </Button>
             {u.is_platform_admin ? (

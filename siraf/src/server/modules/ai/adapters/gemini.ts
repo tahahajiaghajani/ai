@@ -146,11 +146,11 @@ export function geminiAdapter(conn: ResolvedConnection, env: AdapterEnv): Adapte
                 text += p.text;
                 hooks?.onText?.(p.text);
               }
-              // merge streamed text pieces of the same kind; a signature closes a piece
+              // merge streamed text pieces of the same kind; a signed part stays as it came (its
+              // signature belongs to that part only, and a signature closes a piece)
               const last = parts[parts.length - 1];
-              if (last && typeof last.text === "string" && !!last.thought === !!p.thought && !last.thoughtSignature && !last.functionCall) {
+              if (last && typeof last.text === "string" && !!last.thought === !!p.thought && !last.thoughtSignature && !p.thoughtSignature && !last.functionCall) {
                 last.text = String(last.text) + p.text;
-                if (p.thoughtSignature) last.thoughtSignature = p.thoughtSignature;
                 continue;
               }
             }

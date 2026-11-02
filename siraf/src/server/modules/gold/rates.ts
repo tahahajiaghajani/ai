@@ -188,11 +188,23 @@ export function deviations(r: Pick<NormalRate, "gram18" | "coins" | "coins_buy">
 
 export async function addRate(ctx: Ctx, input: RateInput): Promise<RateRow> {
   ctx.need("gold", "edit");
-  const r = normalizeRate(input, ctx.org.money_decimals);
   const at = input.at && !Number.isNaN(new Date(input.at).getTime()) ? new Date(input.at).toISOString() : new Date().toISOString();
   const source = input.source ?? "manual";
   const [prev, coins] = await Promise.all([latestRate(ctx.db, ctx.org.id), boardCoins(ctx.db, ctx.org.id)]);
   const meta: RateMeta = { ...(input.meta ?? {}) };
+  // keys the entry does not mention (bar models, inactive coins, coins priced otherwise) keep their
+  // last price, marked as carried; a key sent empty is cleared on purpose
+  const carry = (given: Record<string, Num> | null | undefined, last: Record<string, string> | null | undefined) => {
+    const keys = Object.keys(last ?? {}).filter((k) => !given || !(k in given));
+    return { keys, merged: keys.length ? { ...Object.fromEntries(keys.map((k) => [k, last![k]])), ...(given ?? {}) } : given };
+  };
+  const sell = carry(input.coins, prev?.coins);
+  const buy = carry(input.coins_buy, prev?.coins_buy);
+  if (sell.keys.length) {
+    meta.carried = [...new Set([...(meta.carried ?? []), ...sell.keys])];
+    meta.stale = [...new Set([...(meta.stale ?? []), ...sell.keys])];
+  }
+  const r = normalizeRate({ ...input, coins: sell.merged, coins_buy: buy.merged }, ctx.org.money_decimals);
   if (source === "manual") {
     const far = deviations(r, prev, goldSettings(ctx.org).deviation_pct);
     if (far.length && !input.confirm) {

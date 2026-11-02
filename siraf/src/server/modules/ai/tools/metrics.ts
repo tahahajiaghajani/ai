@@ -30,6 +30,10 @@ async function resolveCategory(ctx: Ctx, q: string): Promise<string> {
   return rows[0].id;
 }
 
+/** Time buckets sent to the model: the first few and the most recent ones. */
+const TIME_ROWS_MAX = 60;
+const TIME_ROWS_HEAD = 12;
+
 const metricList = METRICS.map((m) => `${m.key} (${m.about})`).join(" ");
 
 export const analyzeMetric = defineTool({
@@ -88,7 +92,13 @@ export const analyzeMetric = defineTool({
       const prev = time ? prevByIndex[i]?.value : prevByKey.get(r.key);
       return { key: r.key, label: r.label, value: r.value, ...(cmp ? { previous: prev ?? "0", change_pct: changePct(r.value, prev ?? "0") } : {}) };
     });
-    const shown = time ? rows : rows.slice(0, input.limit);
+    // time buckets are bounded too (a year of days would not fit in a tool result): the first and
+    // the most recent buckets, the whole series stays in data_ref for the chart
+    const omitted = time && rows.length > TIME_ROWS_MAX ? rows.length - TIME_ROWS_MAX : 0;
+    const shown = time ? (omitted ? [...rows.slice(0, TIME_ROWS_HEAD), ...rows.slice(rows.length - (TIME_ROWS_MAX - TIME_ROWS_HEAD))] : rows) : rows.slice(0, input.limit);
+    // "aggregates": parties and members are not named to the model (ranked placeholders instead)
+    const anonymous = rt.dataPolicy === "aggregates" && (input.group_by === "party" || input.group_by === "user");
+    const modelRows = anonymous ? shown.map((r, i) => ({ ...r, key: undefined, label: `${input.group_by === "party" ? "شخص" : "کاربر"} ${i + 1}` })) : shown;
     let data_ref: string | undefined;
     let chart: AiChartSpec | undefined;
     if (input.group_by !== "none" && rows.length) {
@@ -102,6 +112,7 @@ export const analyzeMetric = defineTool({
       };
     }
     const others = !time && rows.length > shown.length ? rows.slice(shown.length).reduce((a, r) => a.plus(D(r.value)), D(0)).toString() : null;
+    // totals, the comparison and the notes come before the rows: a cut-off result keeps them
     return {
       data: {
         metric: def.key,
@@ -112,15 +123,16 @@ export const analyzeMetric = defineTool({
         group_by: input.group_by,
         total: res.total,
         documents: res.documents,
-        rows: shown,
-        rows_total: rows.length,
-        others_total: others,
         comparison: cmp && cmpPeriod
           ? { period: { from_fa: cmpPeriod.from_fa, to_fa: cmpPeriod.to_fa, label_fa: cmpPeriod.label_fa }, total: cmp.total, change: D(res.total).minus(D(cmp.total)).toString(), change_pct: changePct(res.total, cmp.total) }
           : null,
         sources: res.sources,
         notes: res.notes,
         data_ref: data_ref ?? null,
+        rows_total: rows.length,
+        others_total: others,
+        ...(omitted ? { rows_omitted: `${omitted} buckets between the first ${TIME_ROWS_HEAD} and the last ${TIME_ROWS_MAX - TIME_ROWS_HEAD} are left out here (all are in data_ref); use a coarser group_by for the whole series` } : {}),
+        rows: modelRows,
       },
       data_ref,
       chart,

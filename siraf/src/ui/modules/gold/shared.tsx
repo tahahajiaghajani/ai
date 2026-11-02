@@ -276,6 +276,8 @@ export interface CatalogueLineSrc {
   discount?: string | null;
   cost?: string | null;
   seal_status?: string | null;
+  /** margin VAT: the cost of the bar sold (its own cost) */
+  unit_cost?: string | null;
 }
 
 /**
@@ -293,22 +295,26 @@ export function catalogueLineIn(
     const weight = prod ? D(l.qty || 0).times(D(prod.gold_weight ?? 0)).toString() : "0";
     const weighted = d?.pricing_mode === "weight";
     const price = l.gram_price || (priced ? (weighted ? (side === "sell" ? gram18 : buyGram18 || d?.gram_price || gram18) : d?.gram_price) : null) || null;
+    // margin VAT on the price over the average cost of the stock (the server takes it at the document's date)
+    const unitCost = d?.vat_mode === "margin" && side === "sell" && docKind === "sale" ? l.unit_cost || prod?.avg_cost || "0" : null;
     return {
       kind: "coin", direction: l.direction, qty: l.qty, fineness: prod?.fineness ?? "900", weight, gram_price: price, pricing_mode: d?.pricing_mode ?? "board", vat_mode: d?.vat_mode ?? "exempt",
       wage_type: weighted ? l.wage_type ?? d!.wage_type : null, wage_value: weighted ? l.wage_value ?? d!.wage_value : null,
-      profit_pct: weighted && side === "sell" ? l.profit_pct ?? d!.profit_pct : null, discount: l.discount, cost: l.cost,
+      profit_pct: weighted && side === "sell" ? l.profit_pct ?? d!.profit_pct : null, unit_cost: unitCost, discount: l.discount, cost: l.cost,
     };
   }
   const d = barLineDefaults(prod, { weight: l.weight ?? prod?.gold_weight ?? 0, seal_status: l.seal_status }, rate, s?.bars ?? DEFAULT_BAR_DEFAULTS, side);
   const sellSide = docKind === "sale" && side === "sell";
   const buyIn = (docKind === "sale" || docKind === "buyback") && side === "buy";
+  const unit = l.unit_price || (sellSide || buyIn ? d.unit_price : null);
   return {
-    kind: "bar", direction: l.direction, weight: l.weight, fineness: l.fineness, gram_price: l.gram_price,
-    unit_price: l.unit_price || (sellSide || buyIn ? d.unit_price : null), basis: d.basis,
+    // bought from a customer: the buy price of an 18k gram (the screen's, else the board's)
+    kind: "bar", direction: l.direction, weight: l.weight, fineness: l.fineness, gram_price: l.gram_price || (buyIn && !unit ? buyGram18 || d.gram_price : null),
+    unit_price: unit, basis: d.basis, unit_cost: sellSide && d.vat_mode === "margin" ? l.unit_cost || "0" : null,
     wage_type: sellSide ? l.wage_type ?? premiumToWage(d.premium_type) : docKind === "purchase" || docKind === "opening" ? l.wage_type ?? "percent" : null,
     wage_value: sellSide ? l.wage_value ?? d.premium_value : docKind === "purchase" || docKind === "opening" ? l.wage_value ?? "0" : null,
     profit_pct: sellSide ? l.profit_pct : null, vat_mode: d.vat_mode, discount: l.discount, cost: l.cost, sealed: (l.seal_status ?? "sealed") === "sealed",
-    fee_pct: buyIn ? d.fee_pct : null, assay_fee: buyIn ? d.assay_fee : null, opened_fineness: d.opened_fineness,
+    fee_pct: buyIn ? (unit ? "0" : d.fee_pct) : null, assay_fee: buyIn ? d.assay_fee : null, opened_fineness: d.opened_fineness,
   };
 }
 
