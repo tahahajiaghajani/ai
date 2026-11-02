@@ -1,4 +1,4 @@
--- «تراز» migration 0009_goods — کالا، انبار و فاکتور
+-- «سیراف» migration 0009_goods — کالا، انبار و فاکتور
 create table if not exists tz_migrations (id text primary key, applied_at timestamptz not null default now());
 
 -- ---------------------------------------------------------------------------

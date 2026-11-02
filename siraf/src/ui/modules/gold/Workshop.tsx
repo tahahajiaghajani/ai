@@ -3,13 +3,14 @@
 import { useNavigate } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Button, Table } from "antd";
-import { SendOutlined, ImportOutlined, FireOutlined, DollarOutlined } from "@ant-design/icons";
+import { Banknote, FileInput, Flame, Recycle, Send } from "lucide-react";
+import { Ic } from "../../components/shell/icons";
 import { useOrg } from "../../lib/org";
 import { PageHeader, Section } from "../../components/layout";
 import { StatCard, Money, Balance, JDate } from "../../components/display";
 import { D } from "@shared/money";
-import { faDigits, formatWeight } from "@shared/format";
-import { WBalance } from "./shared";
+import { faDigits } from "@shared/format";
+import { gw, SplitButton, WBalance } from "./shared";
 import { DocsTable } from "./Docs";
 
 export default function Workshop() {
@@ -26,22 +27,30 @@ export default function Workshop() {
         actions={
           edit ? (
             <>
-              <Button icon={<DollarOutlined />} onClick={() => nav(`/${orgId}/gold/workshop/bullion-sale/new`)}>فروش آبشده</Button>
-              <Button icon={<FireOutlined />} onClick={() => nav(`/${orgId}/gold/workshop/melt/new`)}>ذوب و ری‌گیری</Button>
-              <Button icon={<ImportOutlined />} onClick={() => nav(`/${orgId}/gold/workshop/in/new`)}>دریافت از کارگاه</Button>
-              <Button type="primary" icon={<SendOutlined />} onClick={() => nav(`/${orgId}/gold/workshop/out/new`)}>ارسال به کارگاه</Button>
+              <Button icon={<Ic icon={FileInput} />} onClick={() => nav(`/${orgId}/gold/workshop/in/new`)}>دریافت از کارگاه</Button>
+              <SplitButton
+                type="primary"
+                icon={<Ic icon={Send} />}
+                onClick={() => nav(`/${orgId}/gold/workshop/out/new`)}
+                items={[
+                  { key: "melt", icon: <Ic icon={Flame} />, label: "ذوب و ری‌گیری", onClick: () => nav(`/${orgId}/gold/workshop/melt/new`) },
+                  { key: "bullion", icon: <Ic icon={Banknote} />, label: "فروش آبشده", onClick: () => nav(`/${orgId}/gold/workshop/bullion-sale/new`) },
+                ]}
+              >
+                ارسال به کارگاه
+              </SplitButton>
             </>
           ) : null
         }
       />
-      <div className="mb-3 grid gap-3 sm:grid-cols-3">
-        <StatCard title="طلای مستعمل و شکسته (۷۵۰)" value={<span className="num">{formatWeight(l?.gold_old?.w ?? 0)} گرم</span>} hint={<>بهای دفتری: <Money v={l?.gold_old?.rial ?? 0} /></>} tone="gold" icon={<FireOutlined />} />
-        <StatCard title="آبشده و شمش (۷۵۰)" value={<span className="num">{formatWeight(l?.gold_bullion?.w ?? 0)} گرم</span>} hint={<>بهای دفتری: <Money v={l?.gold_bullion?.rial ?? 0} /></>} tone="gold" icon={<DollarOutlined />} />
-        <StatCard title="طلای ما نزد کارگاه‌ها (۷۵۰)" value={<span className="num">{formatWeight(l?.gold_at_workshop?.w ?? 0)} گرم</span>} hint={<>بهای دفتری: <Money v={l?.gold_at_workshop?.rial ?? 0} /></>} icon={<SendOutlined />} />
+      <div className="mb-4 grid sm:grid-cols-3">
+        <StatCard title="طلای مستعمل و شکسته" icon={<Ic icon={Recycle} />} value={<>{gw(l?.gold_old?.w ?? 0)}<span className="sf-unit">گرم ۷۵۰</span></>} hint={<>بهای دفتری <Money v={l?.gold_old?.rial ?? 0} /></>} />
+        <StatCard title="آبشده و شمش" icon={<Ic icon={Flame} />} value={<>{gw(l?.gold_bullion?.w ?? 0)}<span className="sf-unit">گرم ۷۵۰</span></>} hint={<>بهای دفتری <Money v={l?.gold_bullion?.rial ?? 0} /></>} />
+        <StatCard title="طلای ما نزد کارگاه‌ها" icon={<Ic icon={Send} />} value={<>{gw(l?.gold_at_workshop?.w ?? 0)}<span className="sf-unit">گرم ۷۵۰</span></>} hint={<>بهای دفتری <Money v={l?.gold_at_workshop?.rial ?? 0} /></>} />
       </div>
-      <Section title="طلای نزد کارگاه‌ها و سازندگان" bodyClass="p-0" className="mb-3">
+      <Section title="طلای نزد کارگاه‌ها و سازندگان" bodyClass="p-0" className="mb-4">
         <Table
-          className="tz-table"
+          className=""
           size="small"
           rowKey="detail_id"
           loading={ws.isLoading}
@@ -50,24 +59,25 @@ export default function Workshop() {
           scroll={{ x: "max-content" }}
           locale={{ emptyText: "طلایی نزد کارگاه‌ها نیست" }}
           columns={[
-            { key: "n", title: "کارگاه", render: (_, r: any) => <span>{r.name} <span className="num text-xs text-muted">({faDigits(r.code)})</span></span> },
-            { key: "w", dataIndex: "workshop_w", title: "وزن ۷۵۰ نزد کارگاه", align: "left", render: (v) => <WBalance v={v} /> },
-            { key: "r", dataIndex: "workshop_rial", title: "بهای دفتری", align: "left", render: (v) => <Money v={v} /> },
-            { key: "ap", title: "حساب ریالی (اجرت)", align: "left", render: (_, r: any) => <Balance v={D(r.ar).plus(D(r.ap)).toString()} /> },
+            { key: "n", title: "کارگاه", render: (_, r: any) => <span><span className="sf-docno me-2 text-ink-3">{faDigits(r.code)}</span>{r.name}</span> },
+            { key: "w", dataIndex: "workshop_w", title: "وزن ۷۵۰ نزد کارگاه", className: "sf-num", render: (v) => <WBalance v={v} /> },
+            { key: "r", dataIndex: "workshop_rial", title: "بهای دفتری", className: "sf-num", render: (v) => <Money v={v} /> },
+            { key: "ap", title: "حساب ریالی (اجرت)", className: "sf-num", render: (_, r: any) => <Balance v={D(r.ar).plus(D(r.ap)).toString()} /> },
             { key: "d", dataIndex: "last_date", title: "آخرین گردش", render: (v) => <JDate v={v} /> },
             ...(edit
               ? [{
                   key: "a", render: (_: unknown, r: any) => (
-                    <Button size="small" onClick={() => nav(`/${orgId}/gold/workshop/in/new?party=${r.party_id}`)}>دریافت مصنوعات</Button>
+                    <span className="sf-row-act"><Button size="small" type="text" icon={<Ic icon={FileInput} />} onClick={() => nav(`/${orgId}/gold/workshop/in/new?party=${r.party_id}`)}>دریافت مصنوعات</Button></span>
                   ),
                 }]
               : []),
           ]}
         />
       </Section>
-      <Section title="اسناد کارگاه، ذوب و آبشده">
+      <section className="sf-card" aria-label="اسناد کارگاه، ذوب و آبشده">
+        <div className="sf-doc-h"><h2>اسناد کارگاه، ذوب و آبشده</h2></div>
         <DocsTable kinds="workshop_out,workshop_in,melt,bullion_sale" />
-      </Section>
+      </section>
     </div>
   );
 }

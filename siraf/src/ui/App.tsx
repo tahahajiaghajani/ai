@@ -1,6 +1,7 @@
 import { Fragment, Suspense, lazy, type ReactNode } from "react";
-import { Routes, Route, Navigate, useParams, useLocation } from "react-router";
+import { Routes, Route, Navigate, useParams, useLocation, useNavigate } from "react-router";
 import { Spin, Result, Button } from "antd";
+import { Compass } from "lucide-react";
 import { useSession } from "./lib/session";
 import { OrgProvider, useOrgQuery } from "./lib/org";
 import { AppShell } from "./components/layout";
@@ -54,7 +55,29 @@ function Home() {
  */
 function Page({ children }: { children: ReactNode }) {
   const { pathname } = useLocation();
-  return <Fragment key={pathname}>{children}</Fragment>;
+  // the page enters with the shared motion (opacity + an 8 px rise; opacity only under reduced motion)
+  return (
+    <Fragment key={pathname}>
+      <div className="sf-enter">{children}</div>
+    </Fragment>
+  );
+}
+
+/** A route of the organisation that does not exist: the empty state of components.md §7. */
+function NotFound({ org }: { org: string }) {
+  const nav = useNavigate();
+  return (
+    <div className="sh-empty sf-enter" role="status">
+      <span className="sh-empty-tile" aria-hidden>
+        <Compass size={28} strokeWidth={1.4} absoluteStrokeWidth />
+      </span>
+      <h1 className="sh-empty-t">این صفحه پیدا نشد</h1>
+      <p className="sh-empty-d">نشانی را بررسی کنید، یا از منو و جست‌وجو به صفحهٔ دیگری بروید.</p>
+      <Button type="primary" className="sh-empty-a" onClick={() => nav(`/${org}`)}>
+        بازگشت به پیشخوان
+      </Button>
+    </div>
+  );
 }
 
 function OrgArea() {
@@ -78,7 +101,7 @@ function OrgArea() {
             {ROUTES.map((r) => (
               <Route key={r.path} path={r.path} element={<Page>{r.element}</Page>} />
             ))}
-            <Route path="*" element={<Result status="404" title="این صفحه پیدا نشد" extra={<Button href={`/${org}`}>بازگشت به پیشخوان</Button>} />} />
+            <Route path="*" element={<NotFound org={org!} />} />
           </Routes>
         </Suspense>
       </AppShell>

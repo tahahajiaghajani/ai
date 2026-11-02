@@ -4,7 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Alert, Button, Switch, Table, Tooltip } from "antd";
-import { CalculatorOutlined, CheckOutlined, DeleteOutlined, ReloadOutlined } from "@ant-design/icons";
+import { Calculator, Calendar, Check, RefreshCw, Rows3, Trash2 } from "lucide-react";
+import { Ic } from "../../components/shell/icons";
 import { useOrg } from "../../lib/org";
 import { useAction, useDebounced, useNotify } from "../../lib/hooks";
 import { errorText } from "../../lib/api";
@@ -46,7 +47,7 @@ export default function Revaluation() {
           canPost ? (
             <Button
               type="primary"
-              icon={<CheckOutlined />}
+              icon={<Ic icon={Check} />}
               loading={post.isPending}
               disabled={!p || !!p.missing_rates?.length}
               onClick={async () => {
@@ -58,22 +59,22 @@ export default function Revaluation() {
           ) : null
         }
       />
-      <div className="mb-4 flex flex-wrap items-center gap-3">
-        <span className="text-xs text-muted">تاریخ تسعیر</span>
+      <div className="sf-filters">
+        <span className="text-[13px] text-ink-3">تاریخ تسعیر</span>
         <DateInput value={date} onChange={(v) => v && setDate(v)} className="!w-36" />
-        <label className="flex items-center gap-2 text-sm">
+        <label className="flex items-center gap-2 text-[13px] text-ink-2">
           <Switch size="small" checked={parties} onChange={setParties} /> حساب ارزی مشتریان و همکاران هم تسعیر شود
         </label>
-        <Button size="small" icon={<ReloadOutlined />} onClick={() => setRates({})}>نرخ‌های تابلو</Button>
+        <Button size="small" type="text" icon={<Ic icon={RefreshCw} />} onClick={() => setRates({})}>بازگشت به نرخ‌های تابلو</Button>
       </div>
       {pv.error ? <Alert className="!mb-4" type="error" showIcon title={errorText(pv.error)} /> : null}
-      {p?.missing_rates?.length ? <Alert className="!mb-4" type="warning" showIcon title={`نرخ این ارزها تا ${formatJalali(date)} در تابلو نیست؛ نرخ را در جدول زیر بنویسید: ${p.missing_rates.join("، ")}`} /> : null}
-      {p?.existing ? <Alert className="!mb-4" type="info" showIcon title={<>برای این تاریخ قبلاً سند تسعیر ش <Link to={`/${orgId}/accounting/vouchers/${p.existing.voucher_id}`}>{faDigits(p.existing.no)}</Link> ثبت شده است؛ ثبت دوباره جایگزینش می‌کند.</>} /> : null}
+      {p?.missing_rates?.length ? <div className="sf-inline mb-4" data-tone="warning"><i className="sf-nuqta" aria-hidden /><span><b>نرخ ندارد.</b> نرخ این ارزها تا <span className="sf-num">{formatJalali(date)}</span> در تابلو نیست؛ نرخ را در جدول بنویسید: {p.missing_rates.join("، ")}</span></div> : null}
+      {p?.existing ? <div className="sf-inline mb-4"><i className="sf-nuqta" aria-hidden /><span>برای این تاریخ قبلاً <Link className="sf-link" to={`/${orgId}/accounting/vouchers/${p.existing.voucher_id}`}>سند تسعیر {faDigits(p.existing.no)}</Link> ثبت شده است؛ ثبت دوباره جایگزینش می‌کند.</span></div> : null}
 
       <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
         <Section title="نرخ تسعیر" bodyClass="p-0">
           <Table
-            className="tz-table"
+            className=""
             size="small"
             rowKey="currency_id"
             loading={pv.isLoading}
@@ -92,14 +93,14 @@ export default function Revaluation() {
           />
         </Section>
         <div className="grid content-start gap-4">
-          <div className="grid gap-3 sm:grid-cols-3">
-            <StatCard title="اثر تسعیر" value={<Money v={p?.total ?? 0} colored />} icon={<CalculatorOutlined />} tone={D(p?.total ?? 0).lt(0) ? "bad" : "ok"} hint={D(p?.total ?? 0).gte(0) ? "سود تسعیر" : "زیان تسعیر"} />
-            <StatCard title="ردیف‌های تعدیل" value={faDigits(p?.rows?.length ?? 0)} tone="muted" />
-            <StatCard title="تاریخ" value={formatJalali(date)} tone="muted" />
+          <div className="grid sm:grid-cols-3">
+            <StatCard title="اثر تسعیر" value={<Money v={p?.total ?? 0} unit />} icon={<Ic icon={Calculator} />} hint={D(p?.total ?? 0).gte(0) ? "سود تسعیر" : "زیان تسعیر"} />
+            <StatCard title="ردیف‌های تعدیل" icon={<Ic icon={Rows3} />} value={faDigits(p?.rows?.length ?? 0)} />
+            <StatCard title="تاریخ تسعیر" icon={<Ic icon={Calendar} />} value={formatJalali(date)} />
           </div>
           <Section title="پیش‌نمایش تعدیل‌ها" bodyClass="p-0">
             <Table
-              className="tz-table"
+              className=""
               size="small"
               rowKey={(r: any) => `${r.account_id}-${r.detail_id}-${r.currency_id}`}
               loading={pv.isFetching}
@@ -108,19 +109,19 @@ export default function Revaluation() {
               scroll={{ x: "max-content" }}
               locale={{ emptyText: <EmptyState title="همه‌ی مانده‌ها با نرخ این تاریخ هم‌خوان‌اند" /> }}
               columns={[
-                { key: "a", title: "حساب", render: (_, r: any) => <div className="leading-4"><div className="text-xs">{r.account_name}</div><div className="text-[11px] text-muted">{r.detail_name ?? ""}</div></div> },
-                { key: "c", dataIndex: "code", title: "ارز", render: (v) => <span className="ltr text-xs font-bold">{v}</span> },
-                { key: "fx", title: "مانده‌ی ارزی", align: "left", render: (_, r: any) => <FxAmount v={r.fx} dp={r.decimals} /> },
-                { key: "book", title: "ارزش دفتری", align: "left", render: (_, r: any) => <Money v={r.book} /> },
-                { key: "rate", title: "نرخ", align: "left", render: (_, r: any) => <span className="num text-muted">{rateLabel(r.rate, baseDp)}</span> },
-                { key: "target", title: "ارزش با نرخ تسعیر", align: "left", render: (_, r: any) => <Money v={r.target} /> },
-                { key: "diff", title: "تعدیل", align: "left", render: (_, r: any) => <Money v={r.diff} colored /> },
+                { key: "a", title: "حساب", render: (_, r: any) => <div className="leading-5"><div className="text-[13px]">{r.account_name}</div>{r.detail_name ? <div className="text-[12px] text-ink-3">{r.detail_name}</div> : null}</div> },
+                { key: "c", dataIndex: "code", title: "ارز", render: (v) => <CurrencyChip c={{ code: v, kind: "fiat" }} /> },
+                { key: "fx", title: "مانده‌ی ارزی", className: "sf-num", render: (_, r: any) => <FxAmount v={r.fx} dp={r.decimals} /> },
+                { key: "book", title: "ارزش دفتری", className: "sf-num", render: (_, r: any) => <Money v={r.book} /> },
+                { key: "rate", title: "نرخ", className: "sf-num", render: (_, r: any) => <span className="sf-num text-ink-3">{rateLabel(r.rate, baseDp)}</span> },
+                { key: "target", title: "ارزش با نرخ تسعیر", className: "sf-num", render: (_, r: any) => <Money v={r.target} /> },
+                { key: "diff", title: "تعدیل", className: "sf-num", render: (_, r: any) => <Money v={r.diff} /> },
               ]}
             />
           </Section>
           <Section title="سندهای تسعیر قبلی" bodyClass="p-0">
             <Table
-              className="tz-table"
+              className=""
               size="small"
               rowKey="id"
               loading={list.isLoading}
@@ -129,15 +130,15 @@ export default function Revaluation() {
               locale={{ emptyText: <EmptyState title="هنوز تسعیری ثبت نشده است" /> }}
               columns={[
                 { key: "d", dataIndex: "date", title: "تاریخ", render: (v) => <JDate v={v} /> },
-                { key: "no", dataIndex: "no", title: "سند", render: (v, r: any) => <Link to={`/${orgId}/accounting/vouchers/${r.id}`} className="num">{faDigits(v)}</Link> },
-                { key: "r", dataIndex: "result", title: "اثر", align: "left", render: (v) => <Money v={v} colored /> },
+                { key: "no", dataIndex: "no", title: "سند", render: (v, r: any) => <Link to={`/${orgId}/accounting/vouchers/${r.id}`} className="sf-link sf-num">{faDigits(v)}</Link> },
+                { key: "r", dataIndex: "result", title: "اثر", className: "sf-num", render: (v) => <Money v={v} /> },
                 {
                   key: "x",
                   width: 40,
                   render: (_, r: any) =>
                     canPost ? (
                       <Tooltip title="حذف سند تسعیر">
-                        <Button size="small" type="text" danger icon={<DeleteOutlined />} onClick={async () => { if (await n.confirm("حذف سند تسعیر؟", undefined, true)) remove.mutate(r.id); }} />
+                        <span className="sf-row-act"><Button size="small" type="text" icon={<Ic icon={Trash2} />} aria-label="حذف سند تسعیر" onClick={async () => { if (await n.confirm("سند تسعیر حذف شود؟", undefined, true)) remove.mutate(r.id); }} /></span>
                       </Tooltip>
                     ) : null,
                 },
@@ -146,7 +147,7 @@ export default function Revaluation() {
           </Section>
         </div>
       </div>
-      <div className="mt-3 text-[11px] text-muted">
+      <div className="mt-4 max-w-[760px] text-[12px] leading-5 text-ink-3">
         تسعیر، ارزش ریالی مانده‌ی هر ارز در صندوق‌ها، بانک‌ها و کیف‌پول‌ها (و در صورت انتخاب، حساب اشخاص و همکاران) را با نرخ تاریخ تسعیر برابر می‌کند و اختلاف را به «سود (زیان) تسعیر ارز» می‌برد. پس از تسعیر، میانگین بهای ارز همان نرخ تسعیر است.
       </div>
     </div>

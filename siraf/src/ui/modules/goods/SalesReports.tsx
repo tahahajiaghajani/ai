@@ -2,7 +2,8 @@
 // item, customer, item group or month; purchases by item or supplier. Excel export, print.
 import { useState } from "react";
 import { Button, Segmented, Table, Tabs } from "antd";
-import { FileExcelOutlined, PrinterOutlined } from "@ant-design/icons";
+import { Boxes, FileSpreadsheet, Percent, Printer, ReceiptText, ShoppingBag, TrendingUp } from "lucide-react";
+import { Ic } from "../../components/shell/icons";
 import { useQuery } from "@tanstack/react-query";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Legend } from "recharts";
 import { useOrg } from "../../lib/org";
@@ -69,15 +70,14 @@ export default function SalesReports() {
     <div>
       <PageHeader
         title="گزارش فروش و سود"
-        subtitle="فروش خالص (پس از تخفیف‌ها و برگشتی‌ها، بدون مالیات)، بهای تمام‌شده و سود ناخالص"
         actions={
           <>
-            <Button icon={<FileExcelOutlined />} onClick={exportRows} disabled={!rows.length}>اکسل</Button>
-            <Button icon={<PrinterOutlined />} onClick={() => window.print()}>چاپ</Button>
+            <Button icon={<Ic icon={FileSpreadsheet} />} onClick={exportRows} disabled={!rows.length}>اکسل</Button>
+            <Button icon={<Ic icon={Printer} />} onClick={() => window.print()}>چاپ</Button>
           </>
         }
       />
-      <div className="no-print mb-3 flex flex-wrap items-center gap-2">
+      <div className="sf-filters no-print">
         <Segmented
           size="small"
           options={[
@@ -103,37 +103,42 @@ export default function SalesReports() {
         {partyShown ? <PartySelect value={partyId} onChange={setPartyId} allowClear placeholder={sales ? "همه‌ی مشتریان" : "همه‌ی تأمین‌کنندگان"} className="!w-56" /> : null}
       </div>
       {totals ? (
-        <div className="no-print mb-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <StatCard title={sales ? "فروش خالص" : "خرید خالص"} value={<Money v={totals.amount} />} />
-          {sales ? <StatCard title="بهای تمام‌شده" value={<Money v={totals.cost} />} tone="muted" /> : <StatCard title="مالیات خرید" value={<Money v={totals.tax} />} tone="muted" />}
-          {sales ? <StatCard title="سود ناخالص" value={<Money v={totals.profit} colored />} tone="ok" hint={totals.margin_pct ? `${formatNumber(totals.margin_pct, { dp: 1 })}٪ از فروش` : undefined} /> : null}
-          <StatCard title="تعداد فاکتور" value={faDigits(totals.invoices)} tone="gold" />
+        <div className="no-print mb-4 grid sm:grid-cols-2 lg:grid-cols-4">
+          <StatCard title={sales ? "فروش خالص" : "خرید خالص"} icon={<Ic icon={ShoppingBag} />} value={<Money v={totals.amount} unit />} />
+          {sales ? <StatCard title="بهای تمام‌شده" icon={<Ic icon={Boxes} />} value={<Money v={totals.cost} unit />} /> : <StatCard title="مالیات خرید" icon={<Ic icon={Percent} />} value={<Money v={totals.tax} unit />} />}
+          {sales ? <StatCard title="سود ناخالص" icon={<Ic icon={TrendingUp} />} value={<Money v={totals.profit} unit />} hint={totals.margin_pct ? `${formatNumber(totals.margin_pct, { dp: 1 })}٪ از فروش` : undefined} /> : null}
+          <StatCard title="تعداد فاکتور" icon={<Ic icon={ReceiptText} />} value={faDigits(totals.invoices)} />
         </div>
       ) : null}
-      <div className="tz-card print-sheet p-3 md:p-4">
+      <div className="sf-card print-sheet">
         <div className="mb-3 hidden text-center print:block">
-          <div className="text-lg font-bold">{org.name}</div>
+          <div className="text-lg font-semibold">{org.name}</div>
           <div className="text-base font-semibold">{t.label}</div>
           <div className="text-xs">{from ? `از ${formatJalali(from)}` : ""} {to ? `تا ${formatJalali(to)}` : ""}</div>
         </div>
-        <Tabs className="no-print" activeKey={tab} onChange={(k) => setTab(k as Tab)} items={TABS.map((x) => ({ key: x.key, label: x.label }))} />
+        <Tabs className="no-print px-5" activeKey={tab} onChange={(k) => setTab(k as Tab)} items={TABS.map((x) => ({ key: x.key, label: x.label }))} />
         {t.group === "month" && rows.length ? (
-          <div className="no-print mb-4 h-64">
+          <div className="no-print h-64 px-3 pb-2">
             <ResponsiveContainer>
               <BarChart data={rows.map((x) => ({ label: x.label, amount: Number(x.amount), profit: Number(x.profit ?? 0) }))} margin={{ left: 8, right: 8 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--tz-line)" vertical={false} />
-                <XAxis dataKey="label" tick={{ fontSize: 11, fill: "var(--tz-muted)" }} reversed />
-                <YAxis tickFormatter={(v) => formatCompact(v)} tick={{ fontSize: 10, fill: "var(--tz-muted)" }} orientation="right" width={80} />
-                <Tooltip formatter={(v) => formatCompact(Number(v))} contentStyle={{ fontFamily: "Vazirmatn", borderRadius: 8, direction: "rtl" }} />
-                <Legend formatter={(v) => (v === "amount" ? "فروش خالص" : "سود ناخالص")} />
-                <Bar dataKey="amount" fill="#0e7490" radius={[4, 4, 0, 0]} maxBarSize={28} />
-                <Bar dataKey="profit" fill="#b8862f" radius={[4, 4, 0, 0]} maxBarSize={28} />
+                <CartesianGrid stroke="var(--sf-chart-grid)" vertical={false} />
+                <XAxis dataKey="label" tick={{ fontSize: 12, fill: "var(--sf-text-3)" }} tickLine={false} axisLine={{ stroke: "var(--sf-chart-axis)" }} reversed />
+                <YAxis tickFormatter={(v) => formatCompact(v)} tick={{ fontSize: 12, fill: "var(--sf-text-3)" }} tickLine={false} axisLine={false} orientation="right" width={72} />
+                <Tooltip
+                  cursor={{ fill: "var(--sf-hover)" }}
+                  formatter={(v, k) => [formatCompact(Number(v)), k === "amount" ? "فروش خالص" : "سود ناخالص"]}
+                  contentStyle={{ background: "var(--sf-raised)", border: 0, borderRadius: 8, boxShadow: "var(--sf-shadow-e3)", direction: "rtl", fontSize: 13 }}
+                  labelStyle={{ color: "var(--sf-text-3)", fontSize: 12 }}
+                />
+                <Legend iconType="circle" iconSize={8} formatter={(v) => <span className="text-[12px] text-ink-2">{v === "amount" ? "فروش خالص" : "سود ناخالص"}</span>} />
+                <Bar dataKey="amount" fill="var(--sf-accent-line)" radius={[4, 4, 0, 0]} maxBarSize={24} animationDuration={500} />
+                <Bar dataKey="profit" fill="var(--sf-chart-6)" radius={[4, 4, 0, 0]} maxBarSize={24} animationDuration={500} />
               </BarChart>
             </ResponsiveContainer>
           </div>
         ) : null}
         <Table
-          className="tz-table"
+          className=""
           size="small"
           rowKey="key"
           loading={r.isLoading}
@@ -141,33 +146,33 @@ export default function SalesReports() {
           pagination={{ pageSize: 100, hideOnSinglePage: true, size: "small" }}
           scroll={{ x: "max-content" }}
           columns={[
-            { key: "label", dataIndex: "label", title: t.col, render: (v, x: any) => <span>{x.code ? <span className="num text-muted">{faDigits(x.code)} </span> : null}{v}</span> },
-            ...(t.group === "item" ? [{ key: "qty", dataIndex: "qty", title: "مقدار", align: "left" as const, render: (v: string) => <Qty v={v} /> }] : []),
-            { key: "amount", dataIndex: "amount", title: sales ? "فروش خالص" : "مبلغ خرید", align: "left" as const, sorter: (a: any, b: any) => D(a.amount).cmp(D(b.amount)), render: (v: string) => <Money v={v} /> },
+            { key: "label", dataIndex: "label", title: t.col, render: (v, x: any) => <span>{x.code ? <span className="sf-docno me-2 text-ink-3">{faDigits(x.code)}</span> : null}{v}</span> },
+            ...(t.group === "item" ? [{ key: "qty", dataIndex: "qty", title: "مقدار", className: "sf-num", render: (v: string) => <Qty v={v} /> }] : []),
+            { key: "amount", dataIndex: "amount", title: sales ? "فروش خالص" : "مبلغ خرید", className: "sf-num", sorter: (a: any, b: any) => D(a.amount).cmp(D(b.amount)), render: (v: string) => <Money v={v} /> },
             ...(sales
               ? [
-                  { key: "cost", dataIndex: "cost", title: "بهای تمام‌شده", align: "left" as const, render: (v: string) => <Money v={v} /> },
-                  { key: "profit", dataIndex: "profit", title: "سود ناخالص", align: "left" as const, sorter: (a: any, b: any) => D(a.profit).cmp(D(b.profit)), render: (v: string) => <Money v={v} colored /> },
-                  { key: "margin", dataIndex: "margin_pct", title: "درصد سود", align: "left" as const, render: (v: string | null) => (v === null ? "—" : <span className="num">{formatNumber(v, { dp: 1 })}٪</span>) },
+                  { key: "cost", dataIndex: "cost", title: "بهای تمام‌شده", className: "sf-num", render: (v: string) => <Money v={v} /> },
+                  { key: "profit", dataIndex: "profit", title: "سود ناخالص", className: "sf-num", sorter: (a: any, b: any) => D(a.profit).cmp(D(b.profit)), render: (v: string) => <Money v={v} /> },
+                  { key: "margin", dataIndex: "margin_pct", title: "درصد سود", className: "sf-num", render: (v: string | null) => (v === null ? "—" : <span className="sf-num">{formatNumber(v, { dp: 1 })}٪</span>) },
                 ]
-              : [{ key: "tax", dataIndex: "tax", title: "مالیات", align: "left" as const, render: (v: string) => <Money v={v} /> }]),
-            { key: "invoices", dataIndex: "invoices", title: "فاکتور", align: "left" as const, render: (v: number) => <span className="num">{faDigits(v)}</span> },
+              : [{ key: "tax", dataIndex: "tax", title: "مالیات", className: "sf-num", render: (v: string) => <Money v={v} /> }]),
+            { key: "invoices", dataIndex: "invoices", title: "فاکتور", className: "sf-num", render: (v: number) => <span className="sf-num">{faDigits(v)}</span> },
           ]}
           summary={() =>
             totals && rows.length ? (
               <Table.Summary.Row>
                 <Table.Summary.Cell index={0} colSpan={t.group === "item" ? 2 : 1}>جمع</Table.Summary.Cell>
-                <Table.Summary.Cell index={1} align="left"><Money v={totals.amount} /></Table.Summary.Cell>
+                <Table.Summary.Cell index={1} className="sf-num"><Money v={totals.amount} /></Table.Summary.Cell>
                 {sales ? (
                   <>
-                    <Table.Summary.Cell index={2} align="left"><Money v={totals.cost} /></Table.Summary.Cell>
-                    <Table.Summary.Cell index={3} align="left"><Money v={totals.profit} colored /></Table.Summary.Cell>
-                    <Table.Summary.Cell index={4} align="left">{totals.margin_pct ? <span className="num">{formatNumber(totals.margin_pct, { dp: 1 })}٪</span> : null}</Table.Summary.Cell>
+                    <Table.Summary.Cell index={2} className="sf-num"><Money v={totals.cost} /></Table.Summary.Cell>
+                    <Table.Summary.Cell index={3} className="sf-num"><Money v={totals.profit} /></Table.Summary.Cell>
+                    <Table.Summary.Cell index={4} className="sf-num">{totals.margin_pct ? <span className="sf-num">{formatNumber(totals.margin_pct, { dp: 1 })}٪</span> : null}</Table.Summary.Cell>
                   </>
                 ) : (
-                  <Table.Summary.Cell index={2} align="left"><Money v={totals.tax} /></Table.Summary.Cell>
+                  <Table.Summary.Cell index={2} className="sf-num"><Money v={totals.tax} /></Table.Summary.Cell>
                 )}
-                <Table.Summary.Cell index={5} align="left"><span className="num">{faDigits(totals.invoices)}</span></Table.Summary.Cell>
+                <Table.Summary.Cell index={5} className="sf-num"><span className="sf-num">{faDigits(totals.invoices)}</span></Table.Summary.Cell>
               </Table.Summary.Row>
             ) : null
           }

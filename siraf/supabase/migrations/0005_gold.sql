@@ -1,4 +1,4 @@
--- «تراز» migration 0005_gold — طلا و جواهر
+-- «سیراف» migration 0005_gold — طلا و جواهر
 create table if not exists tz_migrations (id text primary key, applied_at timestamptz not null default now());
 
 -- ---------------------------------------------------------------------------

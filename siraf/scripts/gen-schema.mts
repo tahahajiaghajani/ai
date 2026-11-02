@@ -13,7 +13,7 @@ const migDir = join(dir, "migrations");
 const check = process.argv.includes("--check");
 
 const header = `-- ============================================================================
--- «تراز» — پایگاه داده‌ی کامل برای Supabase (PostgreSQL 15+)
+-- «سیراف» — پایگاه داده‌ی کامل برای Supabase (PostgreSQL 15+)
 -- این فایل را یک بار در Supabase ← SQL Editor ← New query بچسبانید و Run بزنید.
 -- اجرای دوباره بی‌خطر است (همه‌ی دستورها idempotent هستند).
 -- برنامه هم هنگام اجرا migrationهای جاافتاده را خودکار اعمال می‌کند (AUTO_MIGRATE).
@@ -34,7 +34,7 @@ insert into tz_migrations (id) values ('${id}') on conflict (id) do nothing;
 const files = new Map<string, string>();
 files.set(join(dir, "schema.sql"), `${header}\ncreate table if not exists tz_migrations (id text primary key, applied_at timestamptz not null default now());\n\n${MIGRATIONS.map((m) => wrap(m.id, m.title, m.sql)).join("\n")}`);
 for (const m of MIGRATIONS) {
-  files.set(join(migDir, `${m.id}.sql`), `-- «تراز» migration ${m.id} — ${m.title}\ncreate table if not exists tz_migrations (id text primary key, applied_at timestamptz not null default now());\n\n${wrap(m.id, m.title, m.sql)}`);
+  files.set(join(migDir, `${m.id}.sql`), `-- «سیراف» migration ${m.id} — ${m.title}\ncreate table if not exists tz_migrations (id text primary key, applied_at timestamptz not null default now());\n\n${wrap(m.id, m.title, m.sql)}`);
 }
 
 let stale: string[] = [];

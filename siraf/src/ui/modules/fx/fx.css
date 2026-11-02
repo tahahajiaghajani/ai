@@ -1,0 +1,147 @@
+/* Siraf · the «صرافی» module: the sea material (currency chips and avatars), amounts with a Latin code, the live
+   market strip, the rate grid, the exchange counter, the remittance route and the customer board for a TV.
+   Sea appears only inside this module (components.md §0.4, §4.8). Tokens only, logical properties only. */
+@layer components {
+  /* ================================================================== currency chip and avatar */
+  .sf-cur {
+    display: inline-flex; align-items: center; justify-content: center; block-size: 22px; min-inline-size: 36px; padding-inline: 7px; flex: none;
+    border-radius: var(--sf-radius-pill); background: var(--sf-sea-tint); color: var(--sf-sea-text);
+    font-family: var(--sf-font-latin); font-feature-settings: normal; font-size: 11px; line-height: 1; font-weight: 600; letter-spacing: .02em;
+    direction: ltr; unicode-bidi: isolate; white-space: nowrap;
+  }
+  .sf-cur.is-lg { block-size: 26px; min-inline-size: 44px; padding-inline: 9px; font-size: 12.5px; }
+  .sf-cur-av {
+    display: inline-grid; place-items: center; inline-size: 28px; block-size: 28px; flex: none; border-radius: 50%;
+    background: var(--sf-sea-tint); color: var(--sf-sea-text); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--sf-sea-line) 60%, transparent);
+    font-family: var(--sf-font-latin); font-feature-settings: normal; font-size: 9.5px; font-weight: 600; letter-spacing: .01em; direction: ltr;
+  }
+  .sf-cur-av.is-sm { inline-size: 24px; block-size: 24px; font-size: 9px; }
+  .sf-cur-av.is-lg { inline-size: 36px; block-size: 36px; font-size: 11px; }
+  .sf-cur-name { display: flex; align-items: center; gap: 10px; min-inline-size: 0; }
+  .sf-cur-name > .t { display: flex; flex-direction: column; min-inline-size: 0; line-height: 18px; }
+  .sf-cur-name > .t > b { font-weight: 500; color: var(--sf-text); font-size: 13px; line-height: 20px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sf-cur-name > .t > span { font-size: 12px; color: var(--sf-text-3); white-space: nowrap; }
+
+  /* amounts with a Latin code: Geist with Latin digits («12,480.50 USDT») — the digit script follows the unit's */
+  .sf-fxa { display: inline-flex; align-items: baseline; gap: .35em; direction: ltr; unicode-bidi: isolate; white-space: nowrap;
+    font-family: var(--sf-font-latin); font-feature-settings: normal; font-variant-numeric: tabular-nums; font-size: .97em; }
+  .sf-fxa > .c { font-size: .78em; font-weight: 600; color: var(--sf-text-3); letter-spacing: .02em; }
+  .sf-fxa.is-in { color: var(--sf-in); }
+  .sf-fxa.is-strong { font-weight: 600; }
+
+  /* quick currency picks under a picker: quiet pills; the chosen one wears the sea material */
+  .sf-qcur { display: flex; flex-wrap: wrap; gap: 4px; margin-block-start: 8px; }
+  .sf-qcur > button {
+    block-size: 24px; min-inline-size: 40px; padding-inline: 8px; border: 0; border-radius: var(--sf-radius-pill); cursor: pointer;
+    background: transparent; color: var(--sf-text-3); box-shadow: inset 0 0 0 1px var(--sf-line-2);
+    font-family: var(--sf-font-latin); font-feature-settings: normal; font-size: 11px; font-weight: 600; letter-spacing: .02em;
+    transition: background-color var(--sf-dur-base) var(--sf-ease-out-quad), color var(--sf-dur-base) var(--sf-ease-out-quad);
+  }
+  @media (hover: hover) and (pointer: fine) { .sf-qcur > button:hover { background: var(--sf-hover); color: var(--sf-text); transition-duration: 0ms; } }
+  .sf-qcur > button[aria-pressed="true"] { background: var(--sf-sea-tint); color: var(--sf-sea-text); box-shadow: inset 0 0 0 1px var(--sf-sea-line); }
+  .sf-qcur > button:focus-visible { outline: 2px solid var(--sf-focus-color); outline-offset: 1px; }
+
+  /* ================================================================== live market strip */
+  .sf-fxlive { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 0; }
+  .sf-fxlive > div {
+    display: flex; flex-direction: column; gap: 6px; padding: 12px 14px 12px; min-inline-size: 0;
+    margin-inline-start: -1px; margin-block-start: -1px; border-inline-start: 1px solid var(--sf-line); border-block-start: 1px solid var(--sf-line);
+  }
+  .sf-fxlive .h { display: flex; align-items: center; gap: 8px; }
+  .sf-fxlive .h > .sf-delta { margin-inline-start: auto; }
+  .sf-fxlive .p { font-family: var(--sf-font-latin); font-feature-settings: normal; font-variant-numeric: tabular-nums; direction: ltr; text-align: end;
+    font-size: 17px; line-height: 24px; font-weight: 500; color: var(--sf-text); white-space: nowrap; align-self: flex-start; }
+  .sf-fxlive .s { font-size: 12px; line-height: 18px; color: var(--sf-text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* live rates: a changed cell flashes a 10 % in / danger tint that fades over --sf-dur-flash */
+  .sf-flash-up { animation: sf-flash-up var(--sf-dur-flash) var(--sf-ease-out) both; }
+  .sf-flash-down { animation: sf-flash-down var(--sf-dur-flash) var(--sf-ease-out) both; }
+  @keyframes sf-flash-up { from { background-color: color-mix(in srgb, var(--sf-in) 14%, transparent); } to { background-color: transparent; } }
+  @keyframes sf-flash-down { from { background-color: color-mix(in srgb, var(--sf-danger) 14%, transparent); } to { background-color: transparent; } }
+  @media (prefers-reduced-motion: reduce) { .sf-flash-up, .sf-flash-down { animation-duration: 150ms; } }
+
+  /* the rate grid: an edited (unsaved) row is the neutral selected fill with a warning nuqta beside its name */
+  .sf-grid tr.is-dirty { background: var(--sf-selected); }
+  .sf-grid tr.is-dirty > td:first-child { box-shadow: inset calc(-1 * var(--sf-selected-bar)) 0 0 var(--sf-accent-bar); }
+  .sf-dirty-dot { display: inline-block; inline-size: 6px; block-size: 6px; border-radius: 1px; transform: rotate(45deg); background: var(--sf-warning-fill); flex: none; }
+
+  /* ================================================================== exchange counter */
+  .sf-leg { display: flex; flex-direction: column; gap: 12px; padding: 16px; border-radius: var(--sf-radius-lg); background: var(--sf-well); min-inline-size: 0; }
+  .sf-leg-h { display: flex; align-items: center; gap: 8px; }
+  .sf-leg-h > b { font-size: 14px; line-height: 20px; font-weight: 600; color: var(--sf-text); }
+  .sf-leg-h > span { margin-inline-start: auto; font-size: 12px; line-height: 18px; color: var(--sf-text-3); }
+  .sf-leg-h > .sf-dot { color: var(--sf-text-3); }
+  .sf-leg[data-dir="in"] .sf-leg-h > .sf-dot { color: var(--sf-in); }
+  .sf-leg .ant-input-affix-wrapper-lg .ant-input, .sf-leg .sf-amount .ant-input { font-size: 20px; line-height: 28px; font-weight: 500; }
+  .sf-swap { display: grid; place-items: center; }
+  .sf-swap > button { inline-size: 36px; block-size: 36px; border-radius: 50%; }
+  .sf-rate-line { display: flex; align-items: center; gap: 8px; font-size: 12px; line-height: 18px; color: var(--sf-text-3); }
+
+  /* the deal summary: what the customer gives and gets, then the rate and the margin */
+  .sf-flow { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .sf-flow > .r { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: var(--sf-radius-lg); background: var(--sf-well); min-inline-size: 0; }
+  .sf-flow > .r > .t { display: flex; flex-direction: column; min-inline-size: 0; }
+  .sf-flow > .r > .t > small { font-size: 12px; line-height: 18px; color: var(--sf-text-3); }
+  .sf-flow > .r > .t > b { font-size: 18px; line-height: 26px; font-weight: 600; color: var(--sf-text); white-space: nowrap; }
+  .sf-flow > .arrow { display: grid; place-items: center; color: var(--sf-text-3); block-size: 12px; }
+
+  /* ================================================================== remittance route (§4.8) */
+  .sf-route { display: grid; grid-template-columns: auto minmax(40px, 1fr) auto; align-items: center; gap: 0; min-inline-size: 0; }
+  .sf-route > .end { display: flex; flex-direction: column; gap: 2px; min-inline-size: 0; }
+  .sf-route > .end:last-child { align-items: flex-end; text-align: end; }
+  .sf-route > .end > small { font-size: 12px; line-height: 18px; color: var(--sf-text-3); }
+  .sf-route > .end > b { font-size: 14px; line-height: 20px; font-weight: 600; color: var(--sf-text); }
+  .sf-route-line { position: relative; block-size: 12px; margin-inline: 12px; }
+  .sf-route-line > svg { position: absolute; inset: 0; inline-size: 100%; block-size: 100%; overflow: visible; }
+  .sf-route-line > svg.nqs { inset: 0 auto auto; inline-size: 12px; block-size: 12px; }
+  .sf-route-line .ln { stroke: var(--sf-sea-line); stroke-width: 1.5; fill: none; }
+  .sf-route-line .ln.is-drawn { stroke: var(--sf-sea); stroke-dasharray: 100; stroke-dashoffset: 100; animation: sf-route-draw 400ms var(--sf-ease-in-out) forwards; }
+  .sf-route-line .nq { fill: var(--sf-sea); }
+  .sf-route-line .nq.is-hollow { fill: var(--sf-surface); stroke: var(--sf-sea); stroke-width: 1.5; }
+  @keyframes sf-route-draw { to { stroke-dashoffset: 0; } }
+  @media (prefers-reduced-motion: reduce) { .sf-route-line .ln.is-drawn { animation: none; stroke-dashoffset: 0; } }
+  .sf-chip > .sf-nuqta.is-sea { color: var(--sf-sea); }
+
+  /* ================================================================== the customer board (TV) */
+  .sf-tv {
+    position: fixed; inset: 0; z-index: 1000; overflow: auto; isolation: isolate;
+    color: var(--sf-on-brand); background: var(--sf-grad-dusk);
+    padding: clamp(24px, 3.2vw, 56px) clamp(24px, 4vw, 72px);
+  }
+  .sf-tv::after { content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none; background-image: var(--sf-grain); background-size: var(--sf-grain-size); opacity: var(--sf-grain-opacity); mix-blend-mode: overlay; }
+  .sf-tv-h { display: flex; align-items: center; gap: 20px; padding-block-end: clamp(16px, 2vw, 28px); border-block-end: 1px solid rgb(255 255 255 / .14); }
+  .sf-tv-biz { display: flex; flex-direction: column; gap: 4px; min-inline-size: 0; }
+  .sf-tv-biz > b { font-family: var(--sf-font-display); font-variation-settings: "DSTY" 3; font-size: clamp(26px, 2.6vw, 44px); line-height: 1.25; font-weight: 700; color: var(--sf-on-brand); }
+  .sf-tv-biz > span { font-size: clamp(14px, 1.1vw, 19px); color: var(--sf-on-brand-2); }
+  .sf-tv-clock { margin-inline-start: auto; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+  .sf-tv-clock > b { font-size: clamp(30px, 3vw, 52px); line-height: 1.1; font-weight: 500; font-variant-numeric: tabular-nums; color: var(--sf-on-brand); }
+  .sf-tv-clock > span { font-size: clamp(13px, 1vw, 18px); color: var(--sf-on-brand-2); }
+  .sf-tv-x { color: var(--sf-on-brand-2) !important; }
+  .sf-tv-cols { display: grid; gap: clamp(24px, 3vw, 56px); grid-template-columns: repeat(auto-fit, minmax(min(100%, 520px), 1fr)); margin-block-start: clamp(16px, 2.2vw, 32px); }
+  .sf-tv-sec > h2 { display: flex; align-items: center; gap: 10px; margin: 0 0 8px; font-size: clamp(15px, 1.15vw, 20px); font-weight: 500; color: var(--sf-on-brand-2); }
+  .sf-tv-sec > h2 > i { display: inline-block; inline-size: 7px; block-size: 7px; border-radius: 1px; transform: rotate(45deg); background: currentColor; }
+  .sf-tv-t { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; column-gap: clamp(20px, 3vw, 56px); align-items: center; }
+  .sf-tv-t > .th { padding-block: 8px; font-size: clamp(13px, .95vw, 16px); color: var(--sf-on-brand-3); text-align: start; }
+  .sf-tv-t > .th.n { min-inline-size: 6ch; }
+  .sf-tv-t > .c { display: flex; align-items: center; gap: 14px; min-inline-size: 0; padding-block: clamp(10px, 1.1vw, 16px); border-block-start: 1px solid rgb(255 255 255 / .10); }
+  .sf-tv-t > .c > .code { display: inline-grid; place-items: center; min-inline-size: 3.6em; block-size: 1.8em; padding-inline: .5em; border-radius: var(--sf-radius-pill);
+    font-family: var(--sf-font-latin); font-feature-settings: normal; font-weight: 600; font-size: clamp(13px, 1.05vw, 18px); letter-spacing: .03em; direction: ltr;
+    background: rgb(255 255 255 / .10); color: var(--sf-on-brand); box-shadow: inset 0 0 0 1px rgb(255 255 255 / .14); }
+  .sf-tv-t > .c > .nm { font-size: clamp(18px, 1.6vw, 28px); font-weight: 500; color: var(--sf-on-brand); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sf-tv-sec { container-type: inline-size; min-inline-size: 0; }
+  .sf-tv-t > .v { padding-block: clamp(10px, 1.1vw, 16px); border-block-start: 1px solid rgb(255 255 255 / .10);
+    font-size: min(44px, max(18px, calc((100cqi - 240px) / (var(--len, 10) * 1.32 + 1)))); line-height: 1.2; font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--sf-on-brand); }
+  .sf-tv-t > .v.is-sell { color: var(--sf-on-brand); font-weight: 600; }
+  .sf-tv-t > .v.is-buy { color: var(--sf-on-brand-2); }
+  .sf-tv-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 32px; margin-block-start: clamp(20px, 2.4vw, 40px); padding-block-start: 16px; border-block-start: 1px solid rgb(255 255 255 / .14); }
+  .sf-tv-foot > span { display: inline-flex; align-items: center; gap: 10px; font-size: clamp(14px, 1.05vw, 18px); color: var(--sf-on-brand-2); }
+  .sf-tv-foot .px { font-family: var(--sf-font-latin); font-feature-settings: normal; direction: ltr; font-variant-numeric: tabular-nums; color: var(--sf-on-brand); font-weight: 500; }
+  .sf-tv-foot .code { font-family: var(--sf-font-latin); font-feature-settings: normal; font-weight: 600; letter-spacing: .03em; color: var(--sf-on-brand); }
+  .sf-tv-foot .up { color: color-mix(in srgb, var(--sf-in) 45%, white); }
+  .sf-tv-foot .down { color: color-mix(in srgb, var(--sf-danger) 45%, white); }
+  .sf-tv-brand { margin-inline-start: auto; display: inline-flex; align-items: center; gap: 8px; color: var(--sf-on-brand-3); font-size: 13px; }
+  .sf-tv .sf-flash-up { animation-name: sf-tv-flash-up; }
+  .sf-tv .sf-flash-down { animation-name: sf-tv-flash-down; }
+  @keyframes sf-tv-flash-up { from { background-color: color-mix(in srgb, var(--sf-in) 30%, transparent); } to { background-color: transparent; } }
+  @keyframes sf-tv-flash-down { from { background-color: color-mix(in srgb, var(--sf-danger) 30%, transparent); } to { background-color: transparent; } }
+}

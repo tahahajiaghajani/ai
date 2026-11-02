@@ -4,13 +4,14 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { Alert, Button, Input, Segmented, Spin } from "antd";
-import { SaveOutlined, ExportOutlined, ImportOutlined } from "@ant-design/icons";
+import { Alert, Button, Input, Segmented } from "antd";
+import { FileInput, FileOutput, Save } from "lucide-react";
+import { Ic } from "../../components/shell/icons";
 import { useOrg } from "../../lib/org";
 import { useHotkey, useNotify } from "../../lib/hooks";
 import { PageHeader, Section } from "../../components/layout";
 import { DateInput, NumberInput, PartySelect } from "../../components/inputs";
-import { Money } from "../../components/display";
+import { Loader, Money } from "../../components/display";
 import { D } from "@shared/money";
 import { faDigits } from "@shared/format";
 import { todayISO } from "@shared/jalali";
@@ -120,12 +121,12 @@ export function RemittanceForm({ initial, onSaved, compact }: RemittanceFormProp
   };
   useHotkey("f2", () => save(), [body, saving]);
 
-  if (board.isLoading) return <div className="grid h-40 place-content-center"><Spin /></div>;
+  if (board.isLoading) return <div className="grid h-40 place-content-center"><Loader /></div>;
   const person = (v: Person, set: (p: Person) => void, fields: [string, string, boolean?][]) => (
-    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
       {fields.map(([k, label, ltr]) => (
         <Field key={k} label={label}>
-          <Input dir={ltr ? "ltr" : undefined} className={ltr ? "num" : ""} value={v[k] ?? ""} onChange={(e) => set({ ...v, [k]: e.target.value })} />
+          <Input dir={ltr ? "ltr" : undefined} className={ltr ? (k === "account" || k === "passport_no" ? "sf-code" : "sf-numin") : ""} value={v[k] ?? ""} onChange={(e) => set({ ...v, [k]: e.target.value })} />
         </Field>
       ))}
     </div>
@@ -133,7 +134,7 @@ export function RemittanceForm({ initial, onSaved, compact }: RemittanceFormProp
 
   return (
     <div className="grid gap-4">
-      {locked ? <Alert type="info" showIcon title="حواله ارسال یا پرداخت شده است؛ فقط مشخصات افراد و توضیحات قابل تغییر است." /> : null}
+      {locked ? <div className="sf-inline"><i className="sf-nuqta" aria-hidden /><span>حواله ارسال یا پرداخت شده است؛ فقط مشخصات افراد و توضیحات قابل تغییر است.</span></div> : null}
       <Section
         title="حواله"
         extra={
@@ -141,7 +142,7 @@ export function RemittanceForm({ initial, onSaved, compact }: RemittanceFormProp
             <Segmented
               value={direction}
               onChange={(v) => { setDirection(v as "out" | "in"); setRateTouched(false); }}
-              options={[{ value: "out", label: <span><ExportOutlined /> صادره</span> }, { value: "in", label: <span><ImportOutlined /> وارده</span> }]}
+              options={[{ value: "out", label: "صادره" }, { value: "in", label: "وارده" }]}
             />
           ) : null
         }
@@ -151,20 +152,20 @@ export function RemittanceForm({ initial, onSaved, compact }: RemittanceFormProp
           <Field label={direction === "out" ? "همکار پرداخت‌کننده (مقصد)" : "همکار دستوردهنده"} className="md:col-span-2">
             <PartySelect role="correspondent" value={corr} onChange={(id) => setCorr(id)} disabled={locked} placeholder="همکار صرافی / کارگزار…" />
           </Field>
-          <Field label="کد رهگیری (خالی = خودکار)"><Input dir="ltr" className="num" value={tracking} onChange={(e) => setTracking(e.target.value)} /></Field>
+          <Field label="کد رهگیری"><Input dir="ltr" inputMode="numeric" className="sf-numin" placeholder="خودکار" value={tracking} onChange={(e) => setTracking(e.target.value)} /></Field>
           <Field label="ارز حواله">
             <CurrencyPick currencies={board.data?.currencies ?? []} value={currency} onChange={(c) => { setCurrency(c); setRateTouched(false); }} disabled={locked} className="w-full" />
           </Field>
           <Field label="مبلغ حواله">
-            <NumberInput value={amount} onChange={setAmount} decimals={X?.is_base ? baseDp : X?.decimals ?? 2} disabled={locked} suffix={<span className="ltr text-xs text-muted">{X?.code}</span>} words={X ? (X.is_base ? unit : X.name) : undefined} />
+            <NumberInput value={amount} onChange={setAmount} decimals={X?.is_base ? baseDp : X?.decimals ?? 2} disabled={locked} suffix={X ? <bdi dir="ltr" className="sf-latin text-[12px] font-semibold text-ink-3">{X.code}</bdi> : undefined} words={X ? (X.is_base ? unit : X.name) : undefined} />
           </Field>
           {!X?.is_base ? (
             <Field label={direction === "out" ? "نرخ (فروش)" : "نرخ (خرید)"}>
               <NumberInput value={rate} onChange={(v) => { setRateTouched(true); setRate(v); }} decimals={8} disabled={locked} />
-              {X?.rate ? <div className="mt-1 text-[11px] text-muted">تابلو: خرید {rateLabel(X.rate.buy ?? X.rate.mid, baseDp)} · فروش {rateLabel(X.rate.sell ?? X.rate.mid, baseDp)}</div> : null}
+              {X?.rate ? <div className="sf-field-h mt-1.5">تابلو، خرید <span className="sf-num">{rateLabel(X.rate.buy ?? X.rate.mid, baseDp)}</span>، فروش <span className="sf-num">{rateLabel(X.rate.sell ?? X.rate.mid, baseDp)}</span></div> : null}
             </Field>
           ) : null}
-          <Field label="معادل به ارز پایه"><div className="pt-1.5"><Money v={baseAmount.toFixed()} unit /></div></Field>
+          <Field label="معادل به ارز پایه"><div className="sf-gline-ro !bg-sunken flex h-8 items-center rounded-md px-2.5"><Money v={baseAmount.toFixed()} unit /></div></Field>
         </div>
       </Section>
 
@@ -203,7 +204,7 @@ export function RemittanceForm({ initial, onSaved, compact }: RemittanceFormProp
             <NumberInput value={fee} onChange={setFee} decimals={feeIn?.is_base ? baseDp : feeIn?.decimals ?? 2} disabled={locked} />
           </Field>
           {direction === "out" ? (
-            <Field label={`کارمزد همکار (${X?.code ?? ""}) — هزینه‌ی ما`}>
+            <Field label={`کارمزد همکار (${X?.code ?? ""})، هزینه‌ی ما`}>
               <NumberInput value={corrFee} onChange={setCorrFee} decimals={X?.decimals ?? 2} disabled={locked} />
             </Field>
           ) : <div />}
@@ -211,16 +212,16 @@ export function RemittanceForm({ initial, onSaved, compact }: RemittanceFormProp
             <Input.TextArea value={description} onChange={(e) => setDescription(e.target.value)} autoSize={{ minRows: 1, maxRows: 4 }} />
           </Field>
         </div>
-        <div className="mt-3 flex flex-wrap items-center gap-4 rounded-lg bg-surface-2 p-3">
+        <div className="mt-4 flex flex-wrap items-center gap-5 rounded-lg bg-well px-4 py-3.5">
           <div>
-            <div className="text-[11px] text-muted">{direction === "out" ? "مشتری می‌پردازد" : "به ذی‌نفع پرداخت می‌شود"}</div>
-            <div className="text-xl font-extrabold"><FxAmount v={payAmount.toFixed()} code={P?.is_base ? unit : P?.code} dp={payDp} /></div>
-            {payAmount.gt(0) ? <div className="text-[11px] text-muted">{numberToWords(payAmount.toFixed())} {P?.is_base ? unit : P?.name}</div> : null}
+            <div className="text-[12px] text-ink-3">{direction === "out" ? "مشتری می‌پردازد" : "به ذی‌نفع پرداخت می‌شود"}</div>
+            <div className="text-xl font-semibold"><FxAmount v={payAmount.toFixed()} code={P?.is_base ? unit : P?.code} dp={payDp} /></div>
+            {payAmount.gt(0) ? <div className="text-[12px] text-ink-3">{numberToWords(payAmount.toFixed())} {P?.is_base ? unit : P?.name}</div> : null}
           </div>
-          {feeD.gt(0) ? <div className="text-sm">درآمد کارمزد: <Money v={feeBase.toFixed()} unit /></div> : null}
+          {feeD.gt(0) ? <div className="text-[13px] text-ink-2">درآمد کارمزد <Money v={feeBase.toFixed()} unit /></div> : null}
           <div className="ms-auto">
-            <Button type="primary" size={compact ? "middle" : "large"} icon={<SaveOutlined />} loading={saving} onClick={save}>
-              {editing ? "ذخیره‌ی تغییرات" : "ثبت حواله"} <span className="tz-kbd ltr ms-1 !bg-transparent !text-white/80">F2</span>
+            <Button type="primary" size={compact ? "middle" : "large"} loading={saving} onClick={save}>
+              {editing ? "ذخیره‌ی تغییرات" : "ثبت حواله"}<span className="sf-kw" aria-hidden><bdi dir="ltr"><kbd>F2</kbd></bdi></span>
             </Button>
           </div>
         </div>
@@ -232,7 +233,7 @@ export function RemittanceForm({ initial, onSaved, compact }: RemittanceFormProp
 function Field({ label, children, className }: { label: ReactNode; children: ReactNode; className?: string }) {
   return (
     <label className={`block min-w-0 ${className ?? ""}`}>
-      <div className="mb-1 text-xs text-muted">{label}</div>
+      <div className="sf-field-l mb-1.5">{label}</div>
       {children}
     </label>
   );
@@ -243,7 +244,7 @@ export default function RemittanceNew() {
   const nav = useNavigate();
   return (
     <div>
-      <PageHeader back={`/${orgId}/fx/remittances`} title="حواله‌ی جدید" subtitle="صادره: مشتری اینجا می‌پردازد و همکار در مقصد پرداخت می‌کند · وارده: به دستور همکار اینجا پرداخت می‌کنیم · F2: ثبت" />
+      <PageHeader back={`/${orgId}/fx/remittances`} title="حواله‌ی جدید" />
       <RemittanceForm onSaved={(r) => nav(`/${orgId}/fx/remittances/${r.id}`)} />
     </div>
   );

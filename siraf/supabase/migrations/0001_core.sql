@@ -1,4 +1,4 @@
--- «تراز» migration 0001_core — هسته: کاربران، سازمان‌ها، همگام‌سازی
+-- «سیراف» migration 0001_core — هسته: کاربران، سازمان‌ها، همگام‌سازی
 create table if not exists tz_migrations (id text primary key, applied_at timestamptz not null default now());
 
 -- ---------------------------------------------------------------------------

@@ -5,23 +5,21 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Alert, Button, Input, Radio, Segmented, Select, Spin, Tag, type InputRef } from "antd";
-import { BarcodeOutlined, DeleteOutlined, PlusOutlined, SaveOutlined } from "@ant-design/icons";
+import { Alert, Button, Input, Radio, Segmented, Select, type InputRef } from "antd";
+import { Banknote, CreditCard, Landmark, Plus, ScanBarcode, X } from "lucide-react";
+import { Ic } from "../../components/shell/icons";
 import { useOrg } from "../../lib/org";
 import { useHotkey, useNotify } from "../../lib/hooks";
 import { errorText } from "../../lib/api";
 import { PageHeader } from "../../components/layout";
 import { DateInput, MoneyInput, NumberInput, PartySelect, PctInput, RefSelect, WeightInput } from "../../components/inputs";
-import { Money } from "../../components/display";
+import { Loader, Money } from "../../components/display";
 import { D } from "@shared/money";
-import { faDigits, formatWeight } from "@shared/format";
+import { faDigits } from "@shared/format";
 import { gram18FromMazaneh, mazanehFromGram18 } from "@shared/gold";
 import { todayISO } from "@shared/jalali";
 import { uuidv7 } from "@shared/id";
-import {
-  KINDS, docTotals, envOf, priceLine, settleSplit, StatusOf, useCoins, useGoldSettings, useLatestRate, wageTypeOptions, formOptions, WBalance,
-  type DocKind, type LineKind, type Direction, type LineIn, type PricedLine,
-} from "./shared";
+import { gw, KINDS, docTotals, envOf, priceLine, settleSplit, StatusOf, useCoins, useGoldSettings, useLatestRate, wageTypeOptions, formOptions, WBalance, type DocKind, type LineKind, type Direction, type LineIn, type PricedLine } from "./shared";
 
 interface ELine {
   key: string;
@@ -279,43 +277,42 @@ function DocEditor({ kind, id }: { kind: Exclude<DocKind, "sale">; id: string | 
   };
   useHotkey("f2", () => save("posted"), [lines, date, partyId, gram18, mazaneh, description, mode, cash, pos, bank, consumption, consumed, saving]);
 
-  if (id && existing.isLoading) return <div className="grid h-64 place-content-center"><Spin /></div>;
+  if (id && existing.isLoading) return <div className="grid h-64 place-content-center"><Loader /></div>;
   if (id && existing.error) return <Alert type="error" title={errorText(existing.error)} />;
   const d = existing.data;
 
   return (
-    <div>
+    <div className="sf-doc">
       <PageHeader
         back={`/${orgId}/gold/docs?kind=${kind}`}
-        title={d ? `${rule.title} شماره‌ی ${faDigits(d.no)}` : `${rule.title} — جدید`}
-        subtitle="F2: ثبت"
-        extra={d ? <StatusOf s={d.status} /> : null}
+        title={d ? `${rule.title} ${faDigits(d.no)}` : `${rule.title}، جدید`}
+        subtitle={d ? <span className="sf-doc-meta"><StatusOf s={d.status} /></span> : null}
         actions={
           !readOnly ? (
             <>
               {!d || d.status === "draft" ? <Button onClick={() => save("draft")} disabled={saving}>پیش‌نویس</Button> : null}
-              <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={() => save("posted")}>
-                ثبت <span className="tz-kbd ltr ms-1 !bg-transparent !text-white/80">F2</span>
+              <Button type="primary" loading={saving} onClick={() => save("posted")}>
+                ثبت<span className="sf-kw" aria-hidden><bdi dir="ltr"><kbd>F2</kbd></bdi></span>
               </Button>
             </>
           ) : null
         }
       />
-      {d?.status === "posted" ? <Alert className="!mb-3" type="info" showIcon title="این سند ثبت شده است؛ ذخیره‌ی تغییرات آن را دوباره ثبت می‌کند (اتیکت‌ها و شماره‌ی سند حسابداری حفظ می‌شوند)." /> : null}
-      {d?.status === "cancelled" ? <Alert className="!mb-3" type="error" showIcon title="این سند باطل شده است." /> : null}
+      {d?.status === "posted" ? <div className="sf-inline"><i className="sf-nuqta" aria-hidden /><span>این سند ثبت شده است؛ ذخیره‌ی تغییرات آن را دوباره ثبت می‌کند (اتیکت‌ها و شماره‌ی سند حسابداری حفظ می‌شوند).</span></div> : null}
+      {d?.status === "cancelled" ? <div className="sf-inline" data-tone="danger"><i className="sf-nuqta" aria-hidden /><span><b>باطل شده.</b> این سند اثری در موجودی و حساب‌ها ندارد.</span></div> : null}
 
-      <div className="tz-card mb-3 grid gap-3 p-3 md:grid-cols-[150px_1fr_170px_170px]">
+      <div className="sf-doc-card sf-doc-pad grid gap-4 md:grid-cols-[156px_minmax(0,1fr)_172px_172px]">
         <div>
-          <div className="mb-1 text-xs text-muted">تاریخ</div>
+          <div className="sf-field-l mb-1.5">تاریخ</div>
           <DateInput value={date} onChange={setDate} disabled={readOnly} />
         </div>
         {rule.party !== "none" ? (
           <div>
-            <div className="mb-1 flex items-center gap-2 text-xs text-muted">
+            <div className="sf-field-l mb-1.5">
               {rule.partyLabel}
-              {rule.party === "optional" ? <span>(اختیاری)</span> : null}
+              {rule.party === "optional" ? <span className="font-normal text-ink-3">(اختیاری)</span> : null}
               {pb ? (
-                <span className="ms-auto flex gap-2">
+                <span className="sf-field-x">
                   {!D(pb.gold_w).isZero() ? <span>حساب وزنی: <WBalance v={pb.gold_w} /></span> : null}
                   {!D(pb.workshop_w).isZero() ? <span>نزد کارگاه: <WBalance v={pb.workshop_w} /></span> : null}
                   {!D(pb.consign_w).isZero() ? <span>امانی: <WBalance v={pb.consign_w} /></span> : null}
@@ -330,11 +327,11 @@ function DocEditor({ kind, id }: { kind: Exclude<DocKind, "sale">; id: string | 
         {rule.price !== "none" ? (
           <>
             <div>
-              <div className="mb-1 text-xs text-muted">گرم ۱۸ عیار{rule.price === "optional" ? " (اختیاری)" : ""}</div>
+              <div className="sf-field-l mb-1.5">گرم ۱۸ عیار{rule.price === "optional" ? " (اختیاری)" : ""}</div>
               <MoneyInput value={gram18} disabled={readOnly} onChange={(v) => { setGram18(v); setMazaneh(v ? mazanehFromGram18(v) : null); }} />
             </div>
             <div>
-              <div className="mb-1 text-xs text-muted">مظنه</div>
+              <div className="sf-field-l mb-1.5">مظنه</div>
               <MoneyInput value={mazaneh} disabled={readOnly} onChange={(v) => { setMazaneh(v); setGram18(v ? gram18FromMazaneh(v) : null); }} />
             </div>
           </>
@@ -346,8 +343,8 @@ function DocEditor({ kind, id }: { kind: Exclude<DocKind, "sale">; id: string | 
         </div>
       </div>
 
-      <div className="grid gap-3 min-[106rem]:grid-cols-[1fr_340px]">
-        <div className="min-w-0">
+      <div className="grid items-start gap-4 min-[90rem]:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="sf-doc">
           {SECTIONS[kind].map((sec) => (
             <LinesSection
               key={`${sec.kind}-${sec.direction}`}
@@ -365,15 +362,16 @@ function DocEditor({ kind, id }: { kind: Exclude<DocKind, "sale">; id: string | 
           ))}
         </div>
 
-        <div className="grid content-start gap-3 lg:grid-cols-3 min-[106rem]:grid-cols-1">
-          <div className="tz-card p-3">
-            <div className="mb-2 text-sm font-bold">جمع سند</div>
+        <div className="grid content-start gap-4 lg:grid-cols-3 min-[90rem]:grid-cols-1">
+          <div className="sf-doc-card sf-doc-pad">
+            <div className="sf-sec-t mb-2">جمع سند</div>
+            <div className="sf-sums">
             {!D(totals.weight_out).isZero() ? <Sum k={kind === "melt" ? "وزن ۷۵۰ ورودی ذوب" : "وزن ۷۵۰ خروجی"} w={totals.weight_out} /> : null}
             {!D(totals.weight_in).isZero() ? <Sum k={kind === "melt" ? "وزن ۷۵۰ آبشده‌ی حاصل" : "وزن ۷۵۰ ورودی"} w={totals.weight_in} /> : null}
             {kind === "melt" && !D(totals.weight_out).isZero() && !D(totals.weight_in).isZero() ? (
               <Sum k={D(totals.weight_out).gte(D(totals.weight_in)) ? "افت ذوب" : "اضافه‌ی ری‌گیری"} w={D(totals.weight_out).minus(D(totals.weight_in)).abs().toString()} strong />
             ) : null}
-            {totals.pieces ? <div className="flex justify-between text-sm"><span className="text-muted">تعداد جنس</span><span className="num">{faDigits(totals.pieces)}</span></div> : null}
+            {totals.pieces ? <div className="r"><span>تعداد جنس</span><span className="n">{faDigits(totals.pieces)}</span></div> : null}
             {!D(totals.gold_value).isZero() ? <Sum k="ارزش طلا" m={totals.gold_value} /> : null}
             {!D(totals.wage).isZero() ? <Sum k={WAGE_LABEL[kind] ?? "اجرت"} m={totals.wage} /> : null}
             {!D(totals.stone).isZero() ? <Sum k="سنگ" m={totals.stone} /> : null}
@@ -381,14 +379,16 @@ function DocEditor({ kind, id }: { kind: Exclude<DocKind, "sale">; id: string | 
             {!D(totals.old_value).isZero() && kind === "buyback" ? <Sum k="کسر کهنگی" m={priced.reduce((a, { p }) => a.plus(D(p.discount)), D(0)).toString()} /> : null}
             {!D(totals.coins).isZero() ? <Sum k="سکه" m={totals.coins} /> : null}
             {!D(totals.total).isZero() ? <Sum k={kind === "workshop_in" ? "اجرت قابل پرداخت" : "جمع کل"} m={totals.total} strong /> : null}
-            {["workshop_out", "melt", "consign_return"].includes(kind) ? <div className="mt-2 text-[11px] text-muted">بهای ریالی از میانگین دفتری حساب‌ها هنگام ثبت محاسبه می‌شود.</div> : null}
+            {D(totals.weight_out).isZero() && D(totals.weight_in).isZero() && D(totals.total).isZero() ? <div className="r is-sub"><span>هنوز ردیفی نیست</span><span className="n">—</span></div> : null}
+            </div>
+            {["workshop_out", "melt", "consign_return"].includes(kind) ? <div className="sf-field-h mt-2">بهای ریالی از میانگین دفتری حساب‌ها هنگام ثبت محاسبه می‌شود.</div> : null}
           </div>
 
           {rule.modes ? (
-            <div className="tz-card p-3">
-              <div className="mb-2 text-sm font-bold">{kind === "consign_in" ? "تسویه با امانت‌گذار هنگام فروش" : "نوع تسویه"}</div>
+            <div className="sf-doc-card sf-doc-pad">
+              <div className="sf-sec-t mb-2">{kind === "consign_in" ? "تسویه با امانت‌گذار هنگام فروش" : "نوع تسویه"}</div>
               <Segmented block value={mode} disabled={readOnly} onChange={(v) => setMode(v as "rial" | "weight")} options={[{ value: "rial", label: "ریالی" }, { value: "weight", label: "وزنی (طلا به طلا)" }]} />
-              <div className="mt-2 text-[11px] text-muted">
+              <div className="sf-field-h mt-2">
                 {mode === "weight"
                   ? kind === "bullion_sale"
                     ? "وزن آبشده از بدهی وزنی ما به خریدار کم می‌شود."
@@ -403,29 +403,37 @@ function DocEditor({ kind, id }: { kind: Exclude<DocKind, "sale">; id: string | 
           ) : null}
 
           {kind === "workshop_in" ? (
-            <div className="tz-card p-3">
-              <div className="mb-2 text-sm font-bold">طلای مصرف‌شده از حساب کارگاه</div>
+            <div className="sf-doc-card sf-doc-pad">
+              <div className="sf-sec-t mb-2">طلای مصرف‌شده از حساب کارگاه</div>
               <Radio.Group value={consumption} disabled={readOnly} onChange={(e) => setConsumption(e.target.value)} className="!flex !flex-col gap-1">
                 <Radio value="returned">به اندازه‌ی وزن دریافتی (بدون افت)</Radio>
                 <Radio value="close">تسویه‌ی کامل مانده‌ی کارگاه (مابقی = افت)</Radio>
                 <Radio value="manual">وزن مصرفی اعلام‌شده:</Radio>
               </Radio.Group>
               {consumption === "manual" ? <WeightInput className="!mt-2" value={consumed} disabled={readOnly} onChange={setConsumed} placeholder="معادل ۷۵۰" /> : null}
-              {pb ? <div className="mt-2 text-xs text-muted">مانده‌ی نزد کارگاه: <WBalance v={pb.workshop_w} /></div> : null}
+              {pb ? <div className="sf-field-h mt-2">مانده‌ی نزد کارگاه <WBalance v={pb.workshop_w} /></div> : null}
             </div>
           ) : null}
 
           {rule.cash !== "none" && !(kind === "bullion_sale" && mode === "weight") ? (
-            <div className="tz-card p-3">
-              <div className="mb-2 text-sm font-bold">{rule.cash === "receive" ? "دریافت" : "پرداخت"}</div>
-              <Pay label="نقد" entity="cash_box" v={cash} set={setCash} readOnly={readOnly} />
-              {rule.cash === "receive" ? <Pay label="کارتخوان" entity="pos_terminal" v={pos} set={setPos} readOnly={readOnly} /> : null}
-              <Pay label="بانک" entity="bank_account" v={bank} set={setBank} readOnly={readOnly} />
-              <div className="mt-2 flex justify-between rounded-lg bg-surface-2 px-3 py-2 text-sm">
-                <span>{D(split.remaining).isNeg() ? "بیش از مبلغ قابل تسویه" : rule.cash === "receive" ? "مانده به حساب طرف (بدهکار)" : "مانده به حساب طرف (بستانکار)"}</span>
-                <b className={`num ${D(split.remaining).isNeg() ? "text-bad" : ""}`}><Money v={D(split.remaining).abs().toString()} /></b>
+            <div className="sf-doc-card sf-doc-pad">
+              <div className="sf-sec-t">
+                <span>{rule.cash === "receive" ? "دریافت" : "پرداخت"}</span>
+                <span className="sf-sec-x text-[12px] text-ink-3">قابل تسویه <Money v={due} /></span>
               </div>
-              <div className="mt-1 text-[11px] text-muted">قابل تسویه‌ی ریالی: <Money v={due} /></div>
+              <div className="sf-pay" style={{ ["--sum-col" as string]: "132px" }}>
+                <Pay icon={Banknote} label="نقد" entity="cash_box" v={cash} set={setCash} readOnly={readOnly} />
+                {rule.cash === "receive" ? <Pay icon={CreditCard} label="کارتخوان" entity="pos_terminal" v={pos} set={setPos} readOnly={readOnly} /> : null}
+                <Pay icon={Landmark} label="بانک" entity="bank_account" v={bank} set={setBank} readOnly={readOnly} />
+              </div>
+              {D(due).isZero() ? null : D(split.remaining).isZero() ? (
+                <div className="sf-settle" data-state="in" style={{ ["--sum-col" as string]: "132px" }}><span className="k">تسویه شد</span></div>
+              ) : (
+                <div className="sf-settle" data-state={D(split.remaining).isNeg() ? "over" : "due"} style={{ ["--sum-col" as string]: "132px" }}>
+                  <span className="k">{D(split.remaining).isNeg() ? "بیش از مبلغ قابل تسویه" : rule.cash === "receive" ? "مانده به حساب طرف (بدهکار)" : "مانده به حساب طرف (بستانکار)"}</span>
+                  <span className="n"><Money v={D(split.remaining).abs().toString()} /></span>
+                </div>
+              )}
             </div>
           ) : null}
         </div>
@@ -436,19 +444,22 @@ function DocEditor({ kind, id }: { kind: Exclude<DocKind, "sale">; id: string | 
 
 function Sum({ k, w, m, strong }: { k: string; w?: string; m?: string; strong?: boolean }) {
   return (
-    <div className={`flex justify-between py-0.5 ${strong ? "text-base font-extrabold" : "text-sm"}`}>
-      <span className={strong ? "" : "text-muted"}>{k}</span>
-      {w !== undefined ? <span className="num">{formatWeight(w)} <span className="text-[11px] text-muted">گرم</span></span> : <Money v={m ?? 0} />}
+    <div className={`r ${strong ? "is-total" : ""}`}>
+      <span>{k}</span>
+      <span className="n">{w !== undefined ? <>{gw(w)}<span className="sf-unit">{"\u00a0"}گرم</span></> : <Money v={m ?? 0} />}</span>
     </div>
   );
 }
 
-function Pay({ label, entity, v, set, readOnly }: { label: string; entity: string; v: { id: string | null; amount: string | null; ref_no?: string }; set: (x: any) => void; readOnly: boolean }) {
+function Pay({ icon, label, entity, v, set, readOnly }: { icon: typeof Banknote; label: string; entity: string; v: { id: string | null; amount: string | null; ref_no?: string }; set: (x: any) => void; readOnly: boolean }) {
   return (
-    <div className="mb-2 grid grid-cols-[56px_1fr_1fr] items-center gap-1.5">
-      <span className="text-xs text-muted">{label}</span>
-      <RefSelect entity={entity} size="small" showCode={false} value={v.id} disabled={readOnly} onChange={(id) => set({ ...v, id })} placeholder="انتخاب…" />
-      <MoneyInput size="small" value={v.amount} disabled={readOnly} onChange={(amount) => set({ ...v, amount })} placeholder="۰" />
+    <div className="r">
+      <span className="ic"><Ic icon={icon} /></span>
+      <span className="m">
+        <span className="k">{label}</span>
+        <RefSelect entity={entity} size="small" variant="borderless" className="acct" showCode={false} value={v.id} disabled={readOnly} onChange={(id) => set({ ...v, id })} placeholder="انتخاب…" />
+      </span>
+      <span className="n"><MoneyInput size="small" value={v.amount} disabled={readOnly} onChange={(amount) => set({ ...v, amount })} placeholder="—" /></span>
     </div>
   );
 }
@@ -472,18 +483,19 @@ function LinesSection({ kind, sec, rows, readOnly, onAdd, onScan, onChange, onRe
   const wageLabel = WAGE_LABEL[kind] ?? "اجرت";
   const h = (x: string) => <th>{x}</th>;
   return (
-    <div className="tz-card mb-3 p-3">
-      <div className="mb-2 flex flex-wrap items-center gap-2">
-        <div className="text-sm font-bold">{sec.title}</div>
-        <span className="num text-xs text-muted">{rows.length ? `${faDigits(rows.length)} ردیف، ${formatWeight(rows.reduce((a, { p }) => a.plus(D(p.weight750)), D(0)))} گرم ۷۵۰` : ""}</span>
+    <section className="sf-doc-card">
+      <div className="sf-doc-h flex-wrap">
+        <h2>{sec.title}</h2>
+        <span className="sf-doc-hm">{rows.length ? <><span className="sf-num">{faDigits(rows.length)}</span> ردیف<span className="sf-sep" aria-hidden /><span className="sf-num">{gw(rows.reduce((a, { p }) => a.plus(D(p.weight750)), D(0)))}</span> گرم ۷۵۰</> : null}</span>
+        <span className="sf-doc-hx">
         {!readOnly && scanned ? (
           <Input
             ref={ref}
             size="small"
             dir="ltr"
-            className="!ms-auto !w-60 num"
-            prefix={<BarcodeOutlined className="text-gold" />}
-            placeholder="اسکن اتیکت + Enter"
+            className="sf-scan-in !w-60"
+            prefix={<Ic icon={ScanBarcode} className="text-ink-3" />}
+            placeholder="اسکن اتیکت، Enter"
             value={tag}
             onChange={(e) => setTag(e.target.value)}
             onPressEnter={async () => {
@@ -495,11 +507,12 @@ function LinesSection({ kind, sec, rows, readOnly, onAdd, onScan, onChange, onRe
         {!readOnly && scanned && kind === "consign_return" && partyId ? (
           <RefSelect entity="gold_item" size="small" className="!w-56" filters={{ ownership: "consignment", status: "in_stock", supplier_id: partyId }} value={null} placeholder="انتخاب از امانی‌های همکار…" onChange={(_, o) => o?.sub && onScan(String(o.sub))} />
         ) : null}
-        {!readOnly && !scanned && sec.add ? <Button size="small" className="ms-auto" icon={<PlusOutlined />} onClick={onAdd}>{sec.add}</Button> : null}
+        {!readOnly && !scanned && sec.add ? <Button size="small" type="text" icon={<Ic icon={Plus} />} onClick={onAdd}>{sec.add}</Button> : null}
+        </span>
       </div>
       {rows.length ? (
-        <div className="overflow-x-auto">
-          <table className="tz-grid" style={{ minWidth: sec.kind === "piece" && sec.direction === "in" ? (kind === "purchase" || kind === "workshop_in" ? 1150 : 980) : sec.kind === "old" ? 900 : 720 }}>
+        <div className="sf-grid-wrap">
+          <table className="sf-grid" style={{ minWidth: sec.kind === "piece" && sec.direction === "in" ? (kind === "purchase" || kind === "workshop_in" ? 1150 : 980) : sec.kind === "old" ? 900 : 720 }}>
             <thead>
               <tr>
                 {sec.kind === "piece" && sec.direction === "in" ? (
@@ -538,7 +551,7 @@ function LinesSection({ kind, sec, rows, readOnly, onAdd, onScan, onChange, onRe
                         <td className="min-w-[110px]"><RefSelect entity="gold_category" variant="borderless" showCode={false} value={l.category_id ?? null} disabled={readOnly} onChange={(v) => c({ category_id: v })} placeholder="دسته" /></td>
                         <td className="min-w-[110px]"><Input variant="borderless" value={l.title ?? ""} disabled={readOnly} onChange={(e) => c({ title: e.target.value })} placeholder="شرح" /></td>
                         <td className="w-[80px]">
-                          {l.gold_item_id && l.tag_no ? <span className="num px-2">{faDigits(l.tag_no)}</span> : <Input variant="borderless" dir="ltr" className="num" value={l.tag_no ?? ""} disabled={readOnly} onChange={(e) => c({ tag_no: e.target.value })} placeholder="خودکار" />}
+                          {l.gold_item_id && l.tag_no ? <span className="sf-num px-2">{faDigits(l.tag_no)}</span> : <Input variant="borderless" dir="ltr" className="sf-num" value={l.tag_no ?? ""} disabled={readOnly} onChange={(e) => c({ tag_no: e.target.value })} placeholder="خودکار" />}
                         </td>
                         <td className="min-w-[64px]"><NumberInput variant="borderless" decimals={1} value={l.fineness} disabled={readOnly} onChange={(v) => c({ fineness: v })} /></td>
                         <td className="min-w-[100px]"><WeightInput variant="borderless" value={l.weight} disabled={readOnly} onChange={(v) => c({ weight: v })} /></td>
@@ -552,16 +565,16 @@ function LinesSection({ kind, sec, rows, readOnly, onAdd, onScan, onChange, onRe
                           </>
                         )}
                         <td className="min-w-[140px]"><WageCell type={l.sale_wage_type} value={l.sale_wage_value} readOnly={readOnly} placeholder="پیش‌فرض دسته" onChange={(t, v) => c({ sale_wage_type: t, sale_wage_value: v })} /></td>
-                        {kind === "purchase" ? <td><Money v={p.gold_value} /></td> : null}
-                        {money ? <td><b><Money v={p.total} /></b></td> : null}
+                        {kind === "purchase" ? <td className="sf-gn"><Money v={p.gold_value} /></td> : null}
+                        {money ? <td className="sf-gn font-medium"><Money v={p.total} /></td> : null}
                       </>
                     ) : sec.kind === "piece" ? (
                       <>
-                        <td className="num px-2">{faDigits(l.tag_no ?? "")}</td>
+                        <td className="sf-gn"><span className="sf-docno">{faDigits(l.tag_no ?? "")}</span></td>
                         <td className="px-2">{l.title}</td>
-                        <td className="num px-2">{faDigits(D(l.fineness ?? 750).toString())}</td>
-                        <td className="num px-2">{formatWeight(l.weight ?? 0)}</td>
-                        <td className="num px-2">{formatWeight(p.weight750)}</td>
+                        <td className="sf-num px-2">{faDigits(D(l.fineness ?? 750).toString())}</td>
+                        <td className="sf-num px-2">{gw(l.weight ?? 0)}</td>
+                        <td className="sf-num px-2">{gw(p.weight750)}</td>
                       </>
                     ) : sec.kind === "bulk" ? (
                       <>
@@ -569,7 +582,7 @@ function LinesSection({ kind, sec, rows, readOnly, onAdd, onScan, onChange, onRe
                         <td className="min-w-[120px]"><Input variant="borderless" value={l.title ?? ""} disabled={readOnly} onChange={(e) => c({ title: e.target.value })} placeholder="شرح" /></td>
                         <td className="w-[110px]"><WeightInput variant="borderless" value={l.weight} disabled={readOnly} onChange={(v) => c({ weight: v })} /></td>
                         <td className="w-[90px]"><NumberInput variant="borderless" decimals={1} value={l.fineness} disabled={readOnly} onChange={(v) => c({ fineness: v })} /></td>
-                        <td className="num w-[90px] px-2">{formatWeight(p.weight750)}</td>
+                        <td className="sf-num w-[90px] px-2">{gw(p.weight750)}</td>
                         {kind === "melt" || kind === "bullion_sale" || kind === "purchase" ? <td className="w-[120px]"><Input variant="borderless" dir="ltr" value={l.assay_no ?? ""} disabled={readOnly} onChange={(e) => c({ assay_no: e.target.value })} /></td> : null}
                         {kind === "purchase" ? (
                           <>
@@ -578,7 +591,7 @@ function LinesSection({ kind, sec, rows, readOnly, onAdd, onScan, onChange, onRe
                           </>
                         ) : null}
                         {kind === "opening" ? <td className="min-w-[130px]"><MoneyInput variant="borderless" value={l.cost} disabled={readOnly} onChange={(v) => c({ cost: v })} placeholder="خالی = به نرخ روز" /></td> : null}
-                        {money && kind !== "workshop_in" ? <td><b><Money v={p.total} /></b></td> : null}
+                        {money && kind !== "workshop_in" ? <td className="sf-gn font-medium"><Money v={p.total} /></td> : null}
                       </>
                     ) : sec.kind === "old" ? (
                       <>
@@ -587,10 +600,10 @@ function LinesSection({ kind, sec, rows, readOnly, onAdd, onScan, onChange, onRe
                         <td className="w-[86px]"><NumberInput variant="borderless" decimals={1} value={l.fineness} disabled={readOnly} onChange={(v) => c({ fineness: v })} /></td>
                         <td className="w-[86px]"><PctInput variant="borderless" value={l.deduction_pct} disabled={readOnly} onChange={(v) => c({ deduction_pct: v })} /></td>
                         <td className="w-[140px]"><MoneyInput variant="borderless" value={l.gram_price} disabled={readOnly} onChange={(v) => c({ gram_price: v })} placeholder="قیمت سند" /></td>
-                        <td className="num px-2">{formatWeight(p.weight750)}</td>
+                        <td className="sf-num px-2">{gw(p.weight750)}</td>
                         <td><Money v={p.gold_value} /></td>
                         <td><Money v={p.discount} zero="—" /></td>
-                        <td><b><Money v={p.total} /></b></td>
+                        <td className="sf-gn font-medium"><Money v={p.total} /></td>
                       </>
                     ) : (
                       <>
@@ -615,10 +628,10 @@ function LinesSection({ kind, sec, rows, readOnly, onAdd, onScan, onChange, onRe
                             <MoneyInput variant="borderless" value={l.gram_price} disabled={readOnly} onChange={(v) => c({ gram_price: v })} />
                           )}
                         </td>
-                        <td><b><Money v={p.total} /></b></td>
+                        <td className="sf-gn font-medium"><Money v={p.total} /></td>
                       </>
                     )}
-                    {!readOnly ? <td><Button type="text" size="small" danger icon={<DeleteOutlined />} tabIndex={-1} onClick={() => onRemove(l.key)} aria-label="حذف" /></td> : null}
+                    {!readOnly ? <td><span className="sf-row-x"><Button type="text" size="small" icon={<Ic icon={X} />} tabIndex={-1} onClick={() => onRemove(l.key)} aria-label="حذف ردیف" /></span></td> : null}
                   </tr>
                 );
               })}
@@ -626,13 +639,13 @@ function LinesSection({ kind, sec, rows, readOnly, onAdd, onScan, onChange, onRe
           </table>
         </div>
       ) : (
-        <div className="py-3 text-center text-xs text-muted">
-          {scanned ? "اتیکت جنس را اسکن کنید" : "ردیفی وارد نشده است"}
-          {sec.kind === "piece" && sec.direction === "out" && kind === "consign_return" && !partyId ? <Tag className="!ms-2">ابتدا امانت‌گذار را انتخاب کنید یا اسکن کنید</Tag> : null}
+        <div className="px-5 py-5 text-center text-[13px] text-ink-3">
+          {scanned ? "اتیکت جنس را اسکن کنید." : "ردیفی وارد نشده است."}
+          {sec.kind === "piece" && sec.direction === "out" && kind === "consign_return" && !partyId ? <span className="ms-2 text-ink-2">ابتدا امانت‌گذار را انتخاب کنید یا اسکن کنید.</span> : null}
         </div>
       )}
-      {kind === "bullion_sale" && rows.length ? <div className="mt-1 text-[11px] text-muted">قیمت با مظنه: وزن × عیار ÷ ۷۰۵ ÷ ۴٫۶۰۸۳ × مظنه</div> : null}
-    </div>
+      {kind === "bullion_sale" && rows.length ? <div className="sf-field-h px-5 pb-3 pt-2">قیمت با مظنه: وزن × عیار ÷ ۷۰۵ ÷ ۴٫۶۰۸۳ × مظنه</div> : null}
+    </section>
   );
 }
 
@@ -643,7 +656,7 @@ function WageCell({ type, value, readOnly, onChange, amount, placeholder }: { ty
         <Select size="small" variant="borderless" className="!w-[74px]" value={type ?? "percent"} disabled={readOnly} options={wageTypeOptions} onChange={(t) => onChange(t, value ?? null)} />
         <NumberInput size="small" variant="borderless" decimals={type === "percent" || !type ? 3 : 0} value={value} disabled={readOnly} placeholder={placeholder} onChange={(v) => onChange(type ?? "percent", v)} />
       </div>
-      {amount !== undefined && !D(amount).isZero() ? <div className="ps-2 text-[11px]"><Money v={amount} /></div> : null}
+      {amount !== undefined && !D(amount).isZero() ? <span className="sf-gsub"><Money v={amount} /></span> : null}
     </div>
   );
 }

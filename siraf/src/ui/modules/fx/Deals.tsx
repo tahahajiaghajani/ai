@@ -3,7 +3,8 @@ import { useState } from "react";
 import { useNavigate } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Button, Input, Segmented, Select, Space, Tag } from "antd";
-import { PlusOutlined, SearchOutlined } from "@ant-design/icons";
+import { ArrowLeftRight, Percent, Plus, Rows3, Search, TrendingUp } from "lucide-react";
+import { Ic } from "../../components/shell/icons";
 import { useOrg } from "../../lib/org";
 import { useDebounced } from "../../lib/hooks";
 import { PageHeader } from "../../components/layout";
@@ -12,7 +13,7 @@ import { DateInput, PartySelect } from "../../components/inputs";
 import { Money, JDate, StatusTag, StatCard } from "../../components/display";
 import { faDigits } from "@shared/format";
 import { presetRange } from "@shared/jalali";
-import { CurrencyPick, DEAL_STATUS, FxAmount, KIND_COLOR, KIND_FA, rateLabel, useBoard } from "./shared";
+import { CurrencyPick, DEAL_STATUS, FxAmount, KIND_FA, rateLabel, useBoard } from "./shared";
 
 export default function Deals() {
   const { orgId, api, can, org, unit } = useOrg();
@@ -37,15 +38,15 @@ export default function Deals() {
     <div>
       <PageHeader
         title="معاملات ارز"
-        actions={can("fx", "edit") ? <Button type="primary" icon={<PlusOutlined />} onClick={() => nav(`/${orgId}/fx/deals/new`)}>معامله‌ی جدید</Button> : null}
+        actions={can("fx", "edit") ? <Button type="primary" icon={<Ic icon={Plus} />} onClick={() => nav(`/${orgId}/fx/deals/new`)}>معامله‌ی جدید</Button> : null}
       />
-      <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard title="تعداد معاملات" value={faDigits(sums.data?.total ?? 0)} tone="muted" />
-        <StatCard title="حجم معاملات" value={<Money v={sums.data?.sums?.volume ?? 0} unit />} />
-        <StatCard title="سود معاملات" value={<Money v={sums.data?.sums?.profit ?? 0} colored />} tone="ok" />
-        <StatCard title="درآمد کارمزد" value={<Money v={sums.data?.sums?.fees ?? 0} />} tone="gold" />
+      <div className="mb-4 grid sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard title="تعداد معاملات" icon={<Ic icon={Rows3} />} value={faDigits(sums.data?.total ?? 0)} />
+        <StatCard title="حجم معاملات" icon={<Ic icon={ArrowLeftRight} />} value={<Money v={sums.data?.sums?.volume ?? 0} unit />} />
+        <StatCard title="سود معاملات" icon={<Ic icon={TrendingUp} />} value={<Money v={sums.data?.sums?.profit ?? 0} unit />} />
+        <StatCard title="درآمد کارمزد" icon={<Ic icon={Percent} />} value={<Money v={sums.data?.sums?.fees ?? 0} unit />} />
       </div>
-      <div className="tz-card p-3 md:p-4">
+      <div className="sf-card">
         <ServerTable
           path="/fx/deals"
           params={params}
@@ -76,19 +77,19 @@ export default function Deals() {
               <Select allowClear placeholder="وضعیت" className="!w-32" value={status} onChange={setStatus} options={Object.entries(DEAL_STATUS).map(([value, [label]]) => ({ value, label }))} />
               <CurrencyPick currencies={(board.data?.currencies ?? []).filter((c) => !c.is_base)} value={currency} onChange={setCurrency} allowClear className="!w-36" />
               <PartySelect value={party} onChange={(id) => setParty(id)} allowClear className="!w-44" />
-              <Input allowClear prefix={<SearchOutlined className="text-muted" />} placeholder="شماره، نام، TxID…" value={q} onChange={(e) => setQ(e.target.value)} className="!w-44" />
+              <Input allowClear prefix={<Ic icon={Search} className="text-ink-3" />} placeholder="شماره، نام، TxID…" value={q} onChange={(e) => setQ(e.target.value)} className="!w-44" />
             </Space>
           }
           columns={[
-            { key: "no", dataIndex: "no", title: "ش", width: 60, render: (v) => <b className="num">{faDigits(v)}</b> },
+            { key: "no", dataIndex: "no", title: "شماره", width: 72, render: (v) => <span className="sf-docno">{faDigits(v)}</span> },
             { key: "date", dataIndex: "date", title: "تاریخ", render: (v) => <JDate v={v} /> },
-            { key: "kind", dataIndex: "kind", title: "نوع", render: (v) => <Tag color={KIND_COLOR[v]} variant="filled" className="!m-0">{KIND_FA[v]}</Tag> },
-            { key: "customer", dataIndex: "customer_name", title: "مشتری", render: (v) => v ?? <span className="text-muted">گذری</span> },
-            { key: "in", title: "دریافت از مشتری", align: "left", render: (_, r: any) => <FxAmount v={r.in_amount} code={codeOf(r.in_code)} dp={dpOf(r.in_code, r.in_decimals)} /> },
-            { key: "out", title: "پرداخت به مشتری", align: "left", render: (_, r: any) => <FxAmount v={r.out_amount} code={codeOf(r.out_code)} dp={dpOf(r.out_code, r.out_decimals)} /> },
-            { key: "rate", dataIndex: "rate", title: "نرخ", align: "left", render: (v, r: any) => <span className="num text-muted">{r.kind === "exchange" ? rateLabel(v) : rateLabel(v, baseDp)}</span> },
-            { key: "profit", dataIndex: "profit", title: "سود", align: "left", render: (v, r: any) => (r.kind === "buy" ? <span className="text-muted">—</span> : <Money v={v ?? 0} colored />) },
-            { key: "fee", dataIndex: "fee_base", title: "کارمزد", align: "left", render: (v) => <Money v={v ?? 0} zero="—" /> },
+            { key: "kind", dataIndex: "kind", title: "نوع", render: (v) => <span className="text-ink-2">{KIND_FA[v]}</span> },
+            { key: "customer", dataIndex: "customer_name", title: "مشتری", render: (v) => v ?? <span className="text-ink-3">مشتری گذری</span> },
+            { key: "in", title: "دریافت از مشتری", className: "sf-num", render: (_, r: any) => <FxAmount v={r.in_amount} code={codeOf(r.in_code)} dp={dpOf(r.in_code, r.in_decimals)} /> },
+            { key: "out", title: "پرداخت به مشتری", className: "sf-num", render: (_, r: any) => <FxAmount v={r.out_amount} code={codeOf(r.out_code)} dp={dpOf(r.out_code, r.out_decimals)} /> },
+            { key: "rate", dataIndex: "rate", title: "نرخ", className: "sf-num", render: (v, r: any) => <span className="sf-num text-ink-3">{r.kind === "exchange" ? rateLabel(v) : rateLabel(v, baseDp)}</span> },
+            { key: "profit", dataIndex: "profit", title: "سود", className: "sf-num", render: (v, r: any) => (r.kind === "buy" ? <span className="sf-zero">—</span> : <Money v={v ?? 0} />) },
+            { key: "fee", dataIndex: "fee_base", title: "کارمزد", className: "sf-num", render: (v) => <Money v={v ?? 0} zero="—" /> },
             { key: "status", dataIndex: "status", title: "وضعیت", render: (v) => <StatusTag s={v} map={DEAL_STATUS} /> },
           ]}
         />

@@ -1,156 +1,272 @@
-// New business: kind → modules → identity, currency and fiscal year.
-import { useState } from "react";
-import { Button, Form, Input, Select, Steps, Checkbox, Alert } from "antd";
-import { ShopOutlined, GoldOutlined, DollarOutlined, ToolOutlined, CustomerServiceOutlined, AppstoreOutlined, CheckOutlined } from "@ant-design/icons";
-import { useNavigate } from "react-router";
+// New business: kind → modules → identity, currency and fiscal year → ready (components.md §11.2).
+import { useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { Button, Form, Input, Select } from "antd";
+import { Store, Gem, ArrowLeftRight, Factory, BriefcaseBusiness, LayoutGrid, Package, BookOpenText, ArrowRight, ArrowLeft } from "lucide-react";
+import { Link, useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { api, errorText } from "../../lib/api";
-import { Logo } from "../../components/layout";
+import { useSession } from "../../lib/session";
+import { toPersianDigits } from "../../lib/fa";
+import { SirafMark } from "../../components/brand";
 import { BUSINESS_KINDS, MODULES, BASE_CURRENCIES, type BusinessKind, type ModuleKey } from "@shared/constants";
 import { currentJalaliYear } from "@shared/jalali";
-import { faDigits } from "@shared/format";
+import { AuthLayout } from "../auth/AuthLayout";
+import { FormAlert, ICON, useBlurValidation, LTR } from "../kit";
 
-const ICONS: Record<BusinessKind, React.ReactNode> = {
-  trading: <ShopOutlined />,
-  gold: <GoldOutlined />,
-  exchange: <DollarOutlined />,
-  manufacturing: <ToolOutlined />,
-  services: <CustomerServiceOutlined />,
-  mixed: <AppstoreOutlined />,
+const KIND_ICON: Record<BusinessKind, ReactNode> = {
+  trading: <Store {...ICON} />,
+  gold: <Gem {...ICON} />,
+  exchange: <ArrowLeftRight {...ICON} />,
+  manufacturing: <Factory {...ICON} />,
+  services: <BriefcaseBusiness {...ICON} />,
+  mixed: <LayoutGrid {...ICON} />,
 };
-const DESC: Record<BusinessKind, string> = {
+const KIND_DESC: Record<BusinessKind, string> = {
   trading: "فروشگاه، پخش، بازرگانی و عمده‌فروشی",
   gold: "طلافروشی، جواهری، بنکداری و کارگاه",
   exchange: "صرافی ارز نقدی، حواله و ارز دیجیتال",
   manufacturing: "تولید و مونتاژ با انبار مواد و کالا",
-  services: "شرکت‌های خدماتی و مشاوره",
-  mixed: "همه‌ی ماژول‌ها با هم",
+  services: "شرکت‌های خدماتی، پیمانکاری و مشاوره",
+  mixed: "چند فعالیت با هم؛ همهٔ بخش‌ها روشن",
 };
+const MODULE_ICON: Record<ModuleKey, ReactNode> = {
+  goods: <Package {...ICON} />,
+  gold: <Gem {...ICON} />,
+  fx: <ArrowLeftRight {...ICON} />,
+};
+const CORE = ["حسابداری و اسناد", "اشخاص", "صندوق و بانک", "چک", "گزارش‌های مالی"];
+const STEPS = ["نوع فعالیت", "بخش‌ها", "مشخصات"];
+
+const moduleTitle = (k: ModuleKey) => MODULES.find((m) => m.key === k)?.title ?? k;
+const moduleList = (ms: ModuleKey[]) => (ms.length ? ms.map(moduleTitle).join("، ") : "حسابداری و خزانه، بی‌بخش افزوده");
+const fy = (y: number) => toPersianDigits(String(y));
+
+function KindCards({ value, onPick }: { value: BusinessKind; onPick: (k: BusinessKind, advance: boolean) => void }) {
+  const refs = useRef<(HTMLButtonElement | null)[]>([]);
+  const onKey = (e: KeyboardEvent, i: number) => {
+    const d = { ArrowLeft: 1, ArrowRight: -1, ArrowDown: 2, ArrowUp: -2 }[e.key];
+    if (d === undefined) return;
+    e.preventDefault();
+    const j = (i + d + BUSINESS_KINDS.length) % BUSINESS_KINDS.length;
+    onPick(BUSINESS_KINDS[j].key, false);
+    refs.current[j]?.focus();
+  };
+  return (
+    <div className="pg-choices" data-cols="2" role="radiogroup" aria-label="نوع فعالیت">
+      {BUSINESS_KINDS.map((b, i) => {
+        const on = value === b.key;
+        return (
+          <button
+            key={b.key}
+            ref={(el) => {
+              refs.current[i] = el;
+            }}
+            type="button"
+            role="radio"
+            aria-checked={on}
+            tabIndex={on ? 0 : -1}
+            className="pg-choice"
+            onClick={() => onPick(b.key, true)}
+            onKeyDown={(e) => onKey(e, i)}
+          >
+            <span className="pg-choice-ic">{KIND_ICON[b.key]}</span>
+            <span className="pg-choice-tx">
+              <span className="pg-choice-t">{b.title.replace(/\s*\(.*\)$/, "")}</span>
+              <span className="pg-choice-d">{KIND_DESC[b.key]}</span>
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 export default function OrgWizard() {
   const nav = useNavigate();
   const qc = useQueryClient();
+  const { me } = useSession();
+  const [form] = Form.useForm();
+  const onValuesChange = useBlurValidation(form);
   const [step, setStep] = useState(0);
   const [kind, setKind] = useState<BusinessKind>("trading");
   const [modules, setModules] = useState<ModuleKey[]>(["goods"]);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [created, setCreated] = useState<{ id: string; name: string; currency: string; year: number } | null>(null);
   const jy = currentJalaliYear();
-  return (
-    <div className="min-h-screen p-6 md:p-10">
-      <div className="mx-auto max-w-3xl">
-        <div className="mb-8">
-          <Logo />
+  const hasOrgs = !!me?.orgs.length;
+
+  const pick = (k: BusinessKind, advance: boolean) => {
+    setKind(k);
+    setModules(BUSINESS_KINDS.find((b) => b.key === k)?.modules ?? []);
+    if (advance) setStep(1);
+  };
+  const toggle = (k: ModuleKey) => setModules((ms) => (ms.includes(k) ? ms.filter((x) => x !== k) : MODULES.map((m) => m.key).filter((x) => x === k || ms.includes(x))));
+
+  const back =
+    hasOrgs && !created && step === 0 ? (
+      <Link to="/orgs" className="pg-back">
+        <ArrowRight {...ICON} aria-hidden />
+        کسب‌وکارها
+      </Link>
+    ) : null;
+
+  let title: ReactNode;
+  let subtitle: ReactNode;
+  let body: ReactNode;
+
+  if (created) {
+    title = `کسب‌وکار «${created.name}» آماده است.`;
+    subtitle = "کدینگ حساب‌ها، سال مالی، صندوق و انبار بر اساس انتخاب شما ساخته شد. همه‌چیز بعداً در «تنظیمات» تغییرپذیر است.";
+    const currency = BASE_CURRENCIES.find((c) => c.code === created.currency)?.title ?? created.currency;
+    body = (
+      <>
+        <div className="pg-core !items-center">
+          <SirafMark size={48} launch title="" className="me-1" />
+          <dl className="m-0 grid flex-1 grid-cols-[auto_minmax(0,1fr)] gap-x-6 gap-y-1 text-[13px] leading-5">
+            <dt className="text-ink-3">نوع فعالیت</dt>
+            <dd className="m-0 text-ink">{BUSINESS_KINDS.find((b) => b.key === kind)?.title.replace(/\s*\(.*\)$/, "")}</dd>
+            <dt className="text-ink-3">بخش‌ها</dt>
+            <dd className="m-0 text-ink">{moduleList(modules)}</dd>
+            <dt className="text-ink-3">پول و سال مالی</dt>
+            <dd className="m-0 text-ink">
+              {currency}، سال <span className="sf-num">{fy(created.year)}</span>
+            </dd>
+          </dl>
         </div>
-        <h1 className="m-0 text-2xl font-extrabold">کسب‌وکار تازه</h1>
-        <p className="mb-6 mt-2 text-sm text-muted">کدینگ حساب‌ها، سال مالی، صندوق و انبار بر اساس انتخاب شما آماده می‌شود. همه‌چیز بعداً قابل تغییر است.</p>
-        <Steps current={step} size="small" className="!mb-8" items={[{ title: "نوع فعالیت" }, { title: "ماژول‌ها" }, { title: "مشخصات" }]} />
-        {step === 0 ? (
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {BUSINESS_KINDS.map((b) => (
-              <button
-                key={b.key}
-                type="button"
-                onClick={() => {
-                  setKind(b.key);
-                  setModules(b.modules);
-                  setStep(1);
-                }}
-                className={`tz-card p-5 text-start transition hover:-translate-y-0.5 ${kind === b.key ? "!border-brand ring-2 ring-brand/20" : ""}`}
-              >
-                <div className="mb-3 grid h-11 w-11 place-content-center rounded-xl bg-brand-soft text-xl text-brand">{ICONS[b.key]}</div>
-                <div className="font-bold">{b.title}</div>
-                <div className="mt-1 text-xs text-muted">{DESC[b.key]}</div>
+        <div className="pg-actions !mt-6">
+          <Button type="primary" size="large" block autoFocus icon={<ArrowLeft {...ICON} />} iconPlacement="end" onClick={() => nav(`/${created.id}`, { replace: true })}>
+            رفتن به پیشخوان
+          </Button>
+        </div>
+      </>
+    );
+  } else if (step === 0) {
+    title = "کسب‌وکار تازه";
+    subtitle = "کار اصلی‌تان چیست؟ بخش‌ها و کدینگ حساب‌ها بر همین پایه آماده می‌شوند.";
+    body = <KindCards value={kind} onPick={pick} />;
+  } else if (step === 1) {
+    title = "بخش‌ها";
+    subtitle = "بخش‌هایی را که لازم دارید روشن کنید؛ بعداً هم از «تنظیمات» کم و زیاد می‌شوند.";
+    body = (
+      <>
+        <div className="pg-choices">
+          {MODULES.map((m) => {
+            const on = modules.includes(m.key);
+            return (
+              <button key={m.key} type="button" role="switch" aria-checked={on} className="pg-choice pg-module" onClick={() => toggle(m.key)}>
+                <span className="pg-choice-ic">{MODULE_ICON[m.key]}</span>
+                <span className="pg-choice-tx">
+                  <span className="pg-choice-t">{m.title}</span>
+                  <span className="pg-feats">
+                    {m.description.split(/،\s*/).map((f) => (
+                      <span key={f} className="pg-feat">
+                        {f}
+                      </span>
+                    ))}
+                  </span>
+                </span>
+                <span className="pg-switch" aria-hidden />
               </button>
-            ))}
+            );
+          })}
+          <div className="pg-core">
+            <span className="pg-choice-ic">
+              <BookOpenText {...ICON} />
+            </span>
+            <span className="pg-choice-tx">
+              <span className="pg-choice-t">همیشه روشن</span>
+              <span className="pg-feats">
+                {CORE.map((f) => (
+                  <span key={f} className="pg-feat">
+                    {f}
+                  </span>
+                ))}
+              </span>
+            </span>
           </div>
-        ) : null}
-        {step === 1 ? (
-          <div>
-            <div className="grid gap-3">
-              {MODULES.map((m) => {
-                const on = modules.includes(m.key);
-                return (
-                  <label key={m.key} className={`tz-card flex cursor-pointer items-center gap-4 p-4 ${on ? "!border-brand" : ""}`}>
-                    <Checkbox checked={on} onChange={(e) => setModules(e.target.checked ? [...modules, m.key] : modules.filter((x) => x !== m.key))} />
-                    <div>
-                      <div className="font-bold">{m.title}</div>
-                      <div className="text-xs text-muted">{m.description}</div>
-                    </div>
-                  </label>
-                );
-              })}
-              <div className="tz-soft flex items-center gap-3 p-4 text-sm">
-                <CheckOutlined className="text-ok" /> حسابداری، اشخاص، خزانه‌داری، چک و گزارش‌های مالی همیشه فعال‌اند.
-              </div>
-            </div>
-            <div className="mt-6 flex gap-2">
-              <Button type="primary" size="large" onClick={() => setStep(2)}>
-                ادامه
-              </Button>
-              <Button size="large" onClick={() => setStep(0)}>
-                قبلی
-              </Button>
-            </div>
-          </div>
-        ) : null}
-        {step === 2 ? (
-          <Form
-            layout="vertical"
-            requiredMark="optional"
-            initialValues={{ base_currency: "IRR", fiscal_year: jy }}
-            onFinish={async (v) => {
-              setBusy(true);
-              setErr(null);
-              try {
-                const r = await api.post<{ id: string }>("/orgs", { ...v, business_kind: kind, modules });
-                await qc.invalidateQueries({ queryKey: ["me"] });
-                nav(`/${r.id}`, { replace: true });
-              } catch (e) {
-                setErr(errorText(e));
-              } finally {
-                setBusy(false);
-              }
-            }}
-          >
-            {err ? <Alert type="error" showIcon className="!mb-4" title={err} /> : null}
-            <div className="tz-card grid gap-x-4 p-5 sm:grid-cols-2">
-              <Form.Item name="name" label="نام کسب‌وکار" rules={[{ required: true, message: "نام را وارد کنید" }]} className="sm:col-span-2">
-                <Input size="large" placeholder="مثلاً گالری طلای اعتماد" autoFocus />
-              </Form.Item>
-              <Form.Item name="legal_name" label="نام ثبتی (اختیاری)">
-                <Input />
-              </Form.Item>
-              <Form.Item name="economic_code" label="کد اقتصادی (اختیاری)">
-                <Input dir="ltr" />
-              </Form.Item>
-              <Form.Item name="base_currency" label="واحد پول پایه‌ی حساب‌ها" extra="مبالغ اسناد با این واحد ذخیره می‌شوند">
-                <Select options={BASE_CURRENCIES.map((c) => ({ value: c.code, label: `${c.title} (${c.code})` }))} />
-              </Form.Item>
-              <Form.Item name="fiscal_year" label="سال مالی">
-                <Select options={[jy - 1, jy, jy + 1].map((y) => ({ value: y, label: `سال ${faDigits(y)} (فروردین تا اسفند)` }))} />
-              </Form.Item>
-              <Form.Item name="phone" label="تلفن">
-                <Input dir="ltr" />
-              </Form.Item>
-              <Form.Item name="city" label="شهر">
-                <Input />
-              </Form.Item>
-              <Form.Item name="address" label="نشانی" className="sm:col-span-2">
-                <Input.TextArea autoSize={{ minRows: 2 }} />
-              </Form.Item>
-            </div>
-            <div className="mt-6 flex gap-2">
-              <Button type="primary" size="large" htmlType="submit" loading={busy}>
-                ساخت کسب‌وکار
-              </Button>
-              <Button size="large" onClick={() => setStep(1)}>
-                قبلی
-              </Button>
-            </div>
-          </Form>
-        ) : null}
-      </div>
-    </div>
+        </div>
+        <div className="pg-row-actions !mt-6">
+          <Button type="text" size="large" icon={<ArrowRight {...ICON} />} onClick={() => setStep(0)}>
+            قبلی
+          </Button>
+          <Button type="primary" size="large" className="pg-grow" onClick={() => setStep(2)}>
+            ادامه
+          </Button>
+        </div>
+      </>
+    );
+  } else {
+    title = "مشخصات کسب‌وکار";
+    subtitle = "نام، واحد پول و سال مالی کافی است؛ بقیه را هر وقت خواستید کامل کنید.";
+    body = (
+      <Form
+        form={form}
+        layout="vertical"
+        requiredMark="optional"
+        validateTrigger="onBlur"
+        className="pg-form"
+        initialValues={{ base_currency: "IRR", fiscal_year: jy }}
+        onValuesChange={(c) => {
+          if (err) setErr(null);
+          onValuesChange(c);
+        }}
+        onFinish={async (v) => {
+          setBusy(true);
+          setErr(null);
+          try {
+            const r = await api.post<{ id: string }>("/orgs", { ...v, business_kind: kind, modules });
+            await qc.invalidateQueries({ queryKey: ["me"] });
+            setCreated({ id: r.id, name: String(v.name).trim(), currency: v.base_currency, year: v.fiscal_year });
+          } catch (e) {
+            setErr(errorText(e));
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        {err ? <FormAlert>{err}</FormAlert> : null}
+        <div className="grid gap-x-3 sm:grid-cols-2">
+          <Form.Item name="name" label="نام کسب‌وکار" rules={[{ required: true, whitespace: true, message: "نام کسب‌وکار را وارد کنید." }]} className="sm:col-span-2">
+            <Input size="large" placeholder="مثلاً گالری طلای اعتماد" autoFocus />
+          </Form.Item>
+          <Form.Item name="base_currency" label="واحد پول حساب‌ها" rules={[{ required: true, message: "واحد پول را انتخاب کنید." }]} extra="مبلغ اسناد با این واحد نگه داشته می‌شود.">
+            <Select size="large" options={BASE_CURRENCIES.map((c) => ({ value: c.code, label: c.title }))} />
+          </Form.Item>
+          <Form.Item name="fiscal_year" label="سال مالی" rules={[{ required: true, message: "سال مالی را انتخاب کنید." }]} extra="از ۱ فروردین تا پایان اسفند">
+            <Select size="large" options={[jy - 1, jy, jy + 1].map((y) => ({ value: y, label: `سال ${fy(y)}` }))} />
+          </Form.Item>
+          <Form.Item name="legal_name" label="نام ثبتی">
+            <Input size="large" />
+          </Form.Item>
+          <Form.Item name="economic_code" label="کد اقتصادی">
+            <Input size="large" classNames={LTR} inputMode="numeric" />
+          </Form.Item>
+          <Form.Item name="phone" label="تلفن">
+            <Input size="large" classNames={LTR} inputMode="tel" />
+          </Form.Item>
+          <Form.Item name="city" label="شهر">
+            <Input size="large" />
+          </Form.Item>
+          <Form.Item name="address" label="نشانی" className="sm:col-span-2">
+            <Input.TextArea autoSize={{ minRows: 2, maxRows: 5 }} />
+          </Form.Item>
+        </div>
+        <div className="pg-row-actions">
+          <Button type="text" size="large" icon={<ArrowRight {...ICON} />} onClick={() => setStep(1)}>
+            قبلی
+          </Button>
+          <Button type="primary" size="large" htmlType="submit" className="pg-grow" loading={busy}>
+            {busy ? "در حال ساخت…" : "ساخت کسب‌وکار"}
+          </Button>
+        </div>
+      </Form>
+    );
+  }
+
+  return (
+    <AuthLayout wide title={title} subtitle={subtitle} back={back} steps={{ labels: STEPS, current: created ? STEPS.length : step }} swapKey={created ? "done" : step}>
+      {body}
+    </AuthLayout>
   );
 }

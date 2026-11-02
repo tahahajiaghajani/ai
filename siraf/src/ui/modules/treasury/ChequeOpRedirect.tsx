@@ -2,9 +2,12 @@
 import { useEffect } from "react";
 import { useNavigate, useParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
-import { Alert, Spin } from "antd";
+import { Button } from "antd";
+import { CircleAlert } from "lucide-react";
 import { useOrg } from "../../lib/org";
 import { errorText } from "../../lib/api";
+import { EmptyState, Loader } from "../../components/display";
+import { Card } from "../reports/kit";
 
 export default function ChequeOpRedirect() {
   const { opId } = useParams();
@@ -14,6 +17,15 @@ export default function ChequeOpRedirect() {
   useEffect(() => {
     if (q.data) nav(`/${orgId}/treasury/cheques${q.data.direction === "issued" ? "/issued" : ""}?open=${q.data.id}`, { replace: true });
   }, [q.data, nav, orgId]);
-  if (q.error) return <Alert type="error" showIcon title={errorText(q.error)} />;
-  return <div className="grid h-64 place-content-center"><Spin /></div>;
+  if (q.error)
+    return (
+      <Card>
+        <EmptyState icon={CircleAlert} title="بارگذاری انجام نشد" description={errorText(q.error)} action={<Button onClick={() => q.refetch()}>تلاش دوباره</Button>} />
+      </Card>
+    );
+  return (
+    <div className="grid h-64 place-content-center">
+      <Loader label="در حال باز کردن چک" />
+    </div>
+  );
 }

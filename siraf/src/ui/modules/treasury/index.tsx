@@ -1,6 +1,8 @@
 // Treasury (خزانه‌داری): receipts, payments, transfers, cheques, the cash & bank book and the
 // master data of cash boxes, bank accounts, POS terminals and cheque books.
 import { lazy } from "react";
+import { ArrowDownToLine, ArrowUpFromLine, ArrowLeftRight, Signature, Wallet, Vault, Landmark, CreditCard, BookCopy } from "lucide-react";
+import { ChequeIcon } from "../../components/shell/icons";
 import type { NavGroup, AppRoute } from "../registry";
 import { EntityPage } from "../../components/data";
 
@@ -10,20 +12,20 @@ const Cheques = lazy(() => import("./Cheques"));
 const Book = lazy(() => import("./Book"));
 const ChequeOpRedirect = lazy(() => import("./ChequeOpRedirect"));
 
-export const treasuryNav: Omit<NavGroup, "icon"> = {
+export const treasuryNav: Omit<NavGroup, "icon" | "space"> = {
   key: "treasury",
   label: "خزانه‌داری",
   items: [
-    { key: "receipts", label: "دریافت‌ها", path: "treasury/receipts", area: "treasury", keywords: "دریافت وجه رسید نقد کارتخوان واریز" },
-    { key: "payments", label: "پرداخت‌ها", path: "treasury/payments", area: "treasury", keywords: "پرداخت وجه حواله هزینه" },
-    { key: "transfers", label: "انتقال وجه", path: "treasury/transfers", area: "treasury", keywords: "انتقال بین بانک و صندوق برداشت واریز" },
-    { key: "cheques-received", label: "چک‌های دریافتی", path: "treasury/cheques", area: "treasury", keywords: "چک مشتری وصول واگذاری برگشتی خرج" },
-    { key: "cheques-issued", label: "چک‌های پرداختی", path: "treasury/cheques/issued", area: "treasury", keywords: "چک صادره پاس دسته چک" },
-    { key: "book", label: "دفتر صندوق و بانک", path: "treasury/book", area: "treasury", keywords: "موجودی صندوق موجودی بانک گردش" },
-    { key: "cash-boxes", label: "صندوق‌ها", path: "treasury/cash-boxes", area: "treasury" },
-    { key: "bank-accounts", label: "حساب‌های بانکی", path: "treasury/bank-accounts", area: "treasury" },
-    { key: "pos", label: "کارتخوان‌ها", path: "treasury/pos", area: "treasury" },
-    { key: "cheque-books", label: "دسته‌چک‌ها", path: "treasury/cheque-books", area: "treasury" },
+    { key: "receipts", label: "دریافت‌ها", path: "treasury/receipts", area: "treasury", icon: ArrowDownToLine, keywords: "دریافت وجه رسید نقد کارتخوان واریز" },
+    { key: "payments", label: "پرداخت‌ها", path: "treasury/payments", area: "treasury", icon: ArrowUpFromLine, keywords: "پرداخت وجه حواله هزینه" },
+    { key: "transfers", label: "انتقال وجه", path: "treasury/transfers", area: "treasury", icon: ArrowLeftRight, keywords: "انتقال بین بانک و صندوق برداشت واریز" },
+    { key: "cheques-received", label: "چک‌های دریافتی", path: "treasury/cheques", area: "treasury", icon: ChequeIcon, count: "overdue-cheques", keywords: "چک مشتری وصول واگذاری برگشتی خرج سررسید" },
+    { key: "cheques-issued", label: "چک‌های پرداختی", path: "treasury/cheques/issued", area: "treasury", icon: Signature, keywords: "چک صادره پاس دسته چک" },
+    { key: "book", label: "دفتر صندوق و بانک", path: "treasury/book", area: "treasury", icon: Wallet, keywords: "موجودی صندوق موجودی بانک گردش" },
+    { key: "cash-boxes", label: "صندوق‌ها", path: "treasury/cash-boxes", area: "treasury", icon: Vault, section: "تعریف‌ها" },
+    { key: "bank-accounts", label: "حساب‌های بانکی", path: "treasury/bank-accounts", area: "treasury", icon: Landmark, section: "تعریف‌ها" },
+    { key: "pos", label: "کارتخوان‌ها", path: "treasury/pos", area: "treasury", icon: CreditCard, section: "تعریف‌ها" },
+    { key: "cheque-books", label: "دسته‌چک‌ها", path: "treasury/cheque-books", area: "treasury", icon: BookCopy, section: "تعریف‌ها" },
   ],
 };
 

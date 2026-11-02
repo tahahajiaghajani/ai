@@ -1,7 +1,8 @@
 // Stock documents list (رسید، حواله، انتقال، تعدیل) — or only stock counts (انبارگردانی).
 import { useState } from "react";
 import { Button, Dropdown, Input, Select, Space } from "antd";
-import { DownOutlined, PlusOutlined, SearchOutlined } from "@ant-design/icons";
+import { ChevronDown, Plus, Search } from "lucide-react";
+import { Ic } from "../../components/shell/icons";
 import { useNavigate } from "react-router";
 import { useOrg } from "../../lib/org";
 import { useDebounced } from "../../lib/hooks";
@@ -34,29 +35,28 @@ export default function StockDocs({ countOnly }: { countOnly?: boolean }) {
     <div>
       <PageHeader
         title={title}
-        subtitle={countOnly ? STOCK_DOC_META.count.hint : "رسید، حواله، انتقال بین انبارها و تعدیل موجودی"}
         actions={
           can("inventory", "edit") ? (
             countOnly ? (
-              <Button type="primary" icon={<PlusOutlined />} onClick={() => nav(`/${orgId}/inventory/count/new`)}>انبارگردانی جدید</Button>
+              <Button type="primary" icon={<Ic icon={Plus} />} onClick={() => nav(`/${orgId}/inventory/count/new`)}>انبارگردانی جدید</Button>
             ) : (
               <Dropdown
                 trigger={["click"]}
                 menu={{
                   items: STOCK_DOC_KINDS.filter((k) => k !== "count").map((k) => ({
                     key: k,
-                    label: <div><div>{STOCK_DOC_META[k].title}</div><div className="text-[11px] text-muted">{STOCK_DOC_META[k].hint}</div></div>,
+                    label: <div><div>{STOCK_DOC_META[k].title}</div><div className="text-xs text-ink-3">{STOCK_DOC_META[k].hint}</div></div>,
                     onClick: () => nav(`/${orgId}/inventory/docs/new?kind=${k}`),
                   })),
                 }}
               >
-                <Button type="primary" icon={<PlusOutlined />}>سند جدید <DownOutlined /></Button>
+                <Button type="primary" icon={<Ic icon={Plus} />}>سند جدید <Ic icon={ChevronDown} /></Button>
               </Dropdown>
             )
           ) : null
         }
       />
-      <div className="tz-card p-3 md:p-4">
+      <div className="sf-card">
         <ServerTable
           path="/goods/stock-docs"
           params={{ kind: kinds, fiscal_year_id: fy?.id, q: dq, status, warehouse_id: warehouseId, from, to }}
@@ -74,7 +74,7 @@ export default function StockDocs({ countOnly }: { countOnly?: boolean }) {
           ]}
           toolbar={
             <Space wrap>
-              <Input allowClear prefix={<SearchOutlined className="text-muted" />} placeholder="شماره یا شرح" value={q} onChange={(e) => setQ(e.target.value)} className="!w-48" />
+              <Input allowClear prefix={<Ic icon={Search} className="text-ink-3" />} placeholder="شماره یا شرح" value={q} onChange={(e) => setQ(e.target.value)} className="!w-48" />
               {!countOnly ? (
                 <Select allowClear placeholder="نوع سند" value={kind} onChange={setKind} className="!w-40" options={STOCK_DOC_KINDS.filter((k) => k !== "count").map((k) => ({ value: k, label: STOCK_DOC_META[k].title }))} />
               ) : null}
@@ -85,7 +85,7 @@ export default function StockDocs({ countOnly }: { countOnly?: boolean }) {
             </Space>
           }
           columns={[
-            { key: "no", dataIndex: "no", title: "شماره", width: 80, sorter: true, render: (v) => <b className="num">{faDigits(v)}</b> },
+            { key: "no", dataIndex: "no", title: "شماره", width: 80, sorter: true, render: (v) => <span className="sf-docno">{faDigits(v)}</span> },
             { key: "date", dataIndex: "date", title: "تاریخ", width: 110, sorter: true, render: (v) => <JDate v={v} /> },
             ...(!countOnly ? [{ key: "kind", dataIndex: "kind", title: "نوع", width: 130, render: (v: string) => <KindTag kind={v} /> }] : []),
             {
@@ -94,13 +94,13 @@ export default function StockDocs({ countOnly }: { countOnly?: boolean }) {
               render: (_, r: any) => (
                 <span>
                   {r.warehouse_name}
-                  {r.kind === "transfer" ? <span className="text-muted"> ← {r.dest_warehouse_name}</span> : null}
+                  {r.kind === "transfer" ? <span className="text-ink-3"> ← {r.dest_warehouse_name}</span> : null}
                 </span>
               ),
             },
-            { key: "desc", title: "شرح", ellipsis: true, render: (_, r: any) => r.description ?? r.party_name ?? <span className="text-muted">—</span> },
-            { key: "lines", dataIndex: "line_count", title: "ردیف", width: 70, render: (v) => <span className="num">{faDigits(v)}</span> },
-            { key: "value", title: "ارزش", align: "left", width: 150, render: (_, r: any) => <Money v={docValue(r)} zero="—" /> },
+            { key: "desc", title: "شرح", ellipsis: true, render: (_, r: any) => r.description ?? r.party_name ?? <span className="sf-zero">—</span> },
+            { key: "lines", dataIndex: "line_count", title: "ردیف", width: 70, render: (v) => <span className="sf-num">{faDigits(v)}</span> },
+            { key: "value", title: "ارزش", className: "sf-num", width: 150, render: (_, r: any) => <Money v={docValue(r)} zero="—" /> },
             { key: "status", dataIndex: "status", title: "وضعیت", width: 100, render: (v) => <InvoiceStatus s={v} /> },
           ]}
         />

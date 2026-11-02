@@ -1,8 +1,9 @@
 // «ورود از اکسل» for any master-data entity: read an .xlsx/.csv file in the browser, map its
 // columns to fields, check everything on the server without saving, then import in batches.
-import { useMemo, useState } from "react";
-import { Alert, Button, Checkbox, Drawer, Progress, Select, Table, Tag, Upload } from "antd";
-import { CheckCircleOutlined, DownloadOutlined, FileExcelOutlined, InboxOutlined, ReloadOutlined } from "@ant-design/icons";
+import "./kit.css";
+import { useEffect, useMemo, useState } from "react";
+import { Alert, Button, Checkbox, Drawer, Progress, Select, Table, Upload } from "antd";
+import { Check, Download, FileSpreadsheet, FileUp, RotateCcw, ListChecks } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { importFields, type EntityDef, type FieldDef } from "@shared/entities";
 import { readSpreadsheet } from "@shared/sheet";
@@ -13,6 +14,24 @@ import { useNotify } from "../lib/hooks";
 import { exportExcel } from "../lib/excel";
 
 const BATCH = 200;
+const ICON = { size: 16, strokeWidth: 1.4, absoluteStrokeWidth: true } as const;
+const SHEET_W = 880;
+
+/** The three steps, the current one in ink (a quiet progress line, not a wizard). */
+function Steps({ step }: { step: 1 | 2 | 3 }) {
+  const items = ["انتخاب فایل", "جور کردن ستون‌ها", "بررسی و ورود"];
+  return (
+    <div className="sf-steps" aria-label={`مرحله‌ی ${faDigits(step)} از ۳`}>
+      {items.map((t, i) => (
+        <span key={t} className="contents">
+          {i ? <hr aria-hidden /> : null}
+          <b className={i + 1 <= step ? "is-on" : undefined}>{i + 1 < step ? <Check size={12} strokeWidth={2} absoluteStrokeWidth /> : faDigits(i + 1)}</b>
+          <span className={i + 1 === step ? "is-on" : undefined}>{t}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
 
 interface Result {
   row: number;
@@ -150,6 +169,20 @@ export function ImportDrawer({ def, open, onClose }: { def: EntityDef; open: boo
   const mapped = mapping.filter(Boolean).length;
   const busy = !!progress;
   const fieldOptions = fields.map((f) => ({ value: f.name, label: `${f.label}${f.required && f.default === undefined && f.type !== "code" ? " *" : ""}` }));
+  const imported = !!summary && !summary.dry && summary.created + summary.updated > 0;
+  const step: 1 | 2 | 3 = !file ? 1 : summary || progress ? 3 : 2;
+
+  // toasts move beside an open sheet (siraf-antd.css reads --sf-sheet-w)
+  useEffect(() => {
+    if (!open) return;
+    const root = document.documentElement;
+    const prev = root.style.getPropertyValue("--sf-sheet-w");
+    root.style.setProperty("--sf-sheet-w", `${SHEET_W}px`);
+    return () => {
+      if (prev) root.style.setProperty("--sf-sheet-w", prev);
+      else root.style.removeProperty("--sf-sheet-w");
+    };
+  }, [open]);
 
   return (
     <Drawer
@@ -160,27 +193,28 @@ export function ImportDrawer({ def, open, onClose }: { def: EntityDef; open: boo
           onClose();
         }
       }}
-      size={880}
+      size={SHEET_W}
+      placement="left"
       title={`ورود ${def.plural} از اکسل`}
       destroyOnHidden
       extra={
-        <Button type="link" icon={<DownloadOutlined />} onClick={template}>
+        <Button type="text" icon={<Download {...ICON} />} onClick={template}>
           فایل نمونه
         </Button>
       }
       footer={
         file ? (
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-3 py-1">
             {hasCode ? (
-              <Checkbox checked={updateExisting} onChange={(e) => setUpdateExisting(e.target.checked)} disabled={busy}>
+              <Checkbox checked={updateExisting} onChange={(e) => setUpdateExisting(e.target.checked)} disabled={busy || imported}>
                 اگر کد از قبل وجود داشت، به‌روزرسانی شود
               </Checkbox>
             ) : null}
             <div className="ms-auto flex gap-2">
-              <Button icon={<CheckCircleOutlined />} onClick={() => run(true)} disabled={busy || !mapped || missing.length > 0 || (!!summary && !summary.dry)}>
+              <Button icon={<ListChecks {...ICON} />} onClick={() => run(true)} disabled={busy || !mapped || missing.length > 0 || (!!summary && !summary.dry)}>
                 بررسی بدون ثبت
               </Button>
-              {summary && !summary.dry && summary.created + summary.updated > 0 ? (
+              {imported ? (
                 // imported: a second click would create the rows again
                 <Button
                   type="primary"
@@ -192,8 +226,8 @@ export function ImportDrawer({ def, open, onClose }: { def: EntityDef; open: boo
                   بستن
                 </Button>
               ) : (
-                <Button type="primary" icon={<FileExcelOutlined />} onClick={() => run(false)} loading={busy} disabled={!mapped || missing.length > 0}>
-                  ورود {faDigits(file.rows.length)} ردیف
+                <Button type="primary" icon={<FileUp {...ICON} />} onClick={() => run(false)} loading={busy} disabled={!mapped || missing.length > 0}>
+                  {busy ? "در حال ورود…" : `ورود ${faDigits(file.rows.length)} ردیف`}
                 </Button>
               )}
             </div>
@@ -201,99 +235,145 @@ export function ImportDrawer({ def, open, onClose }: { def: EntityDef; open: boo
         ) : null
       }
     >
-      {!file ? (
-        <Upload.Dragger accept=".xlsx,.csv,.txt" showUploadList={false} beforeUpload={load} multiple={false}>
-          <p className="ant-upload-drag-icon">
-            <InboxOutlined />
-          </p>
-          <p className="ant-upload-text">فایل اکسل (‎.xlsx‎) یا CSV را اینجا رها کنید یا کلیک کنید</p>
-          <p className="ant-upload-hint">ردیف اول عنوان ستون‌ها باشد؛ ستون‌ها را در مرحله‌ی بعد با فیلدها جور می‌کنید.</p>
-        </Upload.Dragger>
-      ) : (
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <FileExcelOutlined className="text-lg text-[var(--tz-success)]" />
-            <span className="font-semibold">{file.name}</span>
-            <Tag variant="filled">{file.sheet}</Tag>
-            <span className="text-muted text-sm">{faDigits(file.rows.length)} ردیف · {faDigits(mapped)} ستون جور شده</span>
-            <Button size="small" icon={<ReloadOutlined />} className="ms-auto" onClick={reset} disabled={busy}>
-              فایل دیگر
-            </Button>
-          </div>
+      <div className="flex flex-col gap-4">
+        <Steps step={step} />
+        {!file ? (
+          <>
+            <Upload.Dragger className="sf-drop" accept=".xlsx,.csv,.txt" showUploadList={false} beforeUpload={load} multiple={false}>
+              <div className="flex flex-col items-center gap-3">
+                <span className="sf-file-ic" aria-hidden>
+                  <FileSpreadsheet size={20} strokeWidth={1.4} absoluteStrokeWidth />
+                </span>
+                <div className="text-[14px] font-medium text-ink">فایل اکسل یا CSV را اینجا رها کنید یا برای انتخاب کلیک کنید</div>
+                <div className="sf-note max-w-sm">
+                  پسوند <bdi className="sf-latin">.xlsx</bdi> یا <bdi className="sf-latin">.csv</bdi>؛ ردیف اول عنوان ستون‌ها باشد. ستون‌ها را در مرحله‌ی بعد با فیلدها جور می‌کنید.
+                </div>
+              </div>
+            </Upload.Dragger>
+            <p className="sf-note">
+              ستون‌ها را نمی‌دانید؟ «فایل نمونه» را بگیرید؛ عنوان ستون‌هایش همان فیلدهای {def.plural} است.
+            </p>
+          </>
+        ) : (
+          <>
+            <div className="sf-file">
+              <span className="sf-file-ic" aria-hidden>
+                <FileSpreadsheet size={18} strokeWidth={1.4} absoluteStrokeWidth />
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="sf-file-name">{file.name}</div>
+                <div className="sf-file-meta">
+                  برگه‌ی «{file.sheet}»، {faDigits(file.rows.length)} ردیف، {faDigits(mapped)} از {faDigits(file.header.length)} ستون جور شده
+                </div>
+              </div>
+              <Button type="text" size="small" icon={<RotateCcw {...ICON} />} onClick={reset} disabled={busy}>
+                فایل دیگر
+              </Button>
+            </div>
 
-          {missing.length ? <Alert type="warning" showIcon title={`برای این فیلدهای الزامی ستونی انتخاب نشده: ${missing.map((f) => `«${f.label}»`).join("، ")}`} /> : null}
+            {missing.length ? (
+              <Alert
+                type="warning"
+                showIcon
+                title={
+                  <>
+                    <b>ستونی برای فیلدهای الزامی انتخاب نشده:</b> {missing.map((f) => `«${f.label}»`).join("، ")}
+                  </>
+                }
+              />
+            ) : null}
 
-          {progress ? <Progress percent={Math.round((progress.done / Math.max(progress.total, 1)) * 100)} format={() => `${faDigits(progress.done)} از ${faDigits(progress.total)}`} /> : null}
+            {progress ? (
+              <Progress
+                percent={Math.round((progress.done / Math.max(progress.total, 1)) * 100)}
+                format={() => <span className="sf-num text-[13px] text-ink-2">{faDigits(progress.done)} از {faDigits(progress.total)}</span>}
+              />
+            ) : null}
 
-          {summary ? (
-            <Alert
-              type={summary.failed ? "warning" : "success"}
-              showIcon
-              title={
-                summary.dry
-                  ? summary.failed
-                    ? `بررسی: ${faDigits(summary.created + summary.updated)} ردیف آماده، ${faDigits(summary.failed)} ردیف خطا دارد`
-                    : `بررسی: همه‌ی ${faDigits(summary.created + summary.updated)} ردیف درست است (${faDigits(summary.created)} جدید، ${faDigits(summary.updated)} به‌روزرسانی)`
-                  : `${faDigits(summary.created)} ردیف ساخته شد${summary.updated ? `، ${faDigits(summary.updated)} به‌روزرسانی شد` : ""}${summary.failed ? `، ${faDigits(summary.failed)} ردیف خطا داشت و وارد نشد` : ""}`
-              }
-              action={
-                summary.failed ? (
-                  <Button size="small" icon={<DownloadOutlined />} onClick={errorsFile}>
-                    فایل خطاها
-                  </Button>
-                ) : undefined
-              }
-            />
-          ) : null}
+            {summary ? (
+              <Alert
+                type={summary.failed ? "warning" : "success"}
+                showIcon
+                title={
+                  summary.dry
+                    ? summary.failed
+                      ? <><b>بررسی:</b> {faDigits(summary.created + summary.updated)} ردیف آماده است و {faDigits(summary.failed)} ردیف خطا دارد.</>
+                      : `بررسی: همه‌ی ${faDigits(summary.created + summary.updated)} ردیف درست است (${faDigits(summary.created)} جدید، ${faDigits(summary.updated)} به‌روزرسانی).`
+                    : `${faDigits(summary.created)} ردیف ساخته شد${summary.updated ? `، ${faDigits(summary.updated)} به‌روزرسانی شد` : ""}${summary.failed ? `، ${faDigits(summary.failed)} ردیف خطا داشت و وارد نشد` : ""}.`
+                }
+                action={
+                  summary.failed ? (
+                    <Button size="small" icon={<Download {...ICON} />} onClick={errorsFile}>
+                      فایل خطاها
+                    </Button>
+                  ) : undefined
+                }
+              />
+            ) : null}
 
-          {summary?.errors.length ? (
+            {summary?.errors.length ? (
+              <Table
+                size="small"
+                rowKey="row"
+                dataSource={summary.errors}
+                pagination={{ pageSize: 8, hideOnSinglePage: true, showSizeChanger: false, size: "small" }}
+                columns={[
+                  { key: "row", title: "ردیف فایل", width: 96, className: "sf-num", render: (_: unknown, r: Result) => faDigits(sheetRow(r.row)) },
+                  { key: "error", title: "خطا", dataIndex: "error", render: (v: string) => <span className="text-danger">{v}</span> },
+                ]}
+              />
+            ) : null}
+
             <Table
               size="small"
-              rowKey="row"
-              dataSource={summary.errors}
-              pagination={{ pageSize: 8, hideOnSinglePage: true, showSizeChanger: false }}
+              rowKey="i"
+              pagination={false}
+              scroll={{ y: 420 }}
+              dataSource={file.header.map((h, i) => ({ i, h, sample: file.rows.slice(0, 3).map((r) => r[i]).filter(Boolean).join("، ") }))}
               columns={[
-                { key: "row", title: "ردیف فایل", width: 90, render: (_: unknown, r: Result) => faDigits(sheetRow(r.row)) },
-                { key: "error", title: "خطا", dataIndex: "error", render: (v: string) => <span className="text-[var(--tz-danger)]">{v}</span> },
+                {
+                  key: "h",
+                  title: "ستون فایل",
+                  dataIndex: "h",
+                  width: 210,
+                  render: (v: string, r: { i: number }) => (
+                    <span className={`flex items-center gap-2 ${mapping[r.i] ? "font-medium text-ink" : "text-ink-3"}`}>
+                      <span className={`inline-grid w-4 place-items-center ${mapping[r.i] ? "text-in" : "text-transparent"}`} aria-hidden>
+                        <Check size={14} strokeWidth={1.6} absoluteStrokeWidth />
+                      </span>
+                      <span className="min-w-0 truncate">{v}</span>
+                    </span>
+                  ),
+                },
+                {
+                  key: "f",
+                  title: "فیلد در سیراف",
+                  width: 260,
+                  render: (_: unknown, r: { i: number }) => (
+                    <Select
+                      className="w-full"
+                      size="small"
+                      allowClear
+                      showSearch={{ optionFilterProp: "label" }}
+                      placeholder="وارد نشود"
+                      aria-label="فیلد"
+                      value={mapping[r.i] ?? undefined}
+                      options={fieldOptions.map((o) => ({ ...o, disabled: mapping.includes(o.value) && mapping[r.i] !== o.value }))}
+                      onChange={(v) => setMapping(mapping.map((m, j) => (j === r.i ? (v ?? null) : m)))}
+                      disabled={busy}
+                    />
+                  ),
+                },
+                { key: "s", title: "نمونه", dataIndex: "sample", ellipsis: true, render: (v: string) => <span className="text-ink-3">{v || "—"}</span> },
               ]}
             />
-          ) : null}
-
-          <Table
-            size="small"
-            rowKey="i"
-            pagination={false}
-            scroll={{ y: 420 }}
-            dataSource={file.header.map((h, i) => ({ i, h, sample: file.rows.slice(0, 3).map((r) => r[i]).filter(Boolean).join(" · ") }))}
-            columns={[
-              { key: "h", title: "ستون فایل", dataIndex: "h", width: 200, render: (v: string) => <span className="font-medium">{v}</span> },
-              {
-                key: "f",
-                title: "فیلد در سیراف",
-                width: 260,
-                render: (_: unknown, r: { i: number }) => (
-                  <Select
-                    className="w-full"
-                    size="small"
-                    allowClear
-                    showSearch={{ optionFilterProp: "label" }}
-                    placeholder="وارد نشود"
-                    value={mapping[r.i] ?? undefined}
-                    options={fieldOptions.map((o) => ({ ...o, disabled: mapping.includes(o.value) && mapping[r.i] !== o.value }))}
-                    onChange={(v) => setMapping(mapping.map((m, j) => (j === r.i ? (v ?? null) : m)))}
-                    disabled={busy}
-                  />
-                ),
-              },
-              { key: "s", title: "نمونه", dataIndex: "sample", ellipsis: true, render: (v: string) => <span className="text-muted">{v || "—"}</span> },
-            ]}
-          />
-          <p className="text-muted text-xs leading-6">
-            مبالغ با ارقام فارسی یا جداکننده، تاریخ شمسی (۱۴۰۳/۰۵/۱۲)، گزینه‌ها با همان عنوانی که در برنامه می‌بینید و
-            موارد مرتبط (گروه، واحد، حساب…) با نام یا کد پذیرفته می‌شوند. خانه‌های خالی نادیده گرفته می‌شوند.
-          </p>
-        </div>
-      )}
+            <p className="sf-note">
+              مبالغ با ارقام فارسی یا جداکننده، تاریخ شمسی (۱۴۰۳/۰۵/۱۲)، گزینه‌ها با همان عنوانی که در برنامه می‌بینید و موارد مرتبط (گروه، واحد، حساب…) با نام یا کد پذیرفته می‌شوند. خانه‌های خالی نادیده
+              گرفته می‌شوند.
+            </p>
+          </>
+        )}
+      </div>
     </Drawer>
   );
 }

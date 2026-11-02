@@ -1,49 +1,80 @@
-import { useState } from "react";
-import { Table, Alert, Tag } from "antd";
+// Ledger (دفتر حساب): the movements of an account at any level or of a subsidiary (تفصیلی), with the opening balance,
+// a running «مانده» with its «تشخیص» (بد / بس) and the period totals. Rows open their voucher.
+import { useMemo, useState } from "react";
+import { Table } from "antd";
+import { BookOpenText } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router";
 import { useOrg } from "../../lib/org";
 import { PageHeader } from "../../components/layout";
-import { Money, JDate, Balance, Amount, Weight } from "../../components/display";
+import { JDate, Amount, Weight, Balance, EmptyState } from "../../components/display";
 import { AccountSelect, DetailSelect, CurrencySelect } from "../../components/inputs";
 import { ReportFilters, ReportTitle, useRange } from "./Filters";
-import { faDigits } from "@shared/format";
+import { Acc, Amt, Card, DocNo, Period, PrintFoot, cx } from "./kit";
 import { D } from "@shared/money";
 import { exportExcel } from "../../lib/excel";
 import { formatJalali } from "@shared/jalali";
+import { faDigits } from "@shared/format";
+
+const side = (v: string | number | null | undefined) => {
+  const d = D(v ?? 0);
+  return d.isZero() ? "—" : d.gt(0) ? "بد" : "بس";
+};
 
 export default function Ledger() {
-  const { api, fy, orgId } = useOrg();
+  const { api, fy, orgId, unit } = useOrg();
   const nav = useNavigate();
   const [sp] = useSearchParams();
   const [range, setRange] = useRange();
-  const [accountId, setAccountId] = useState<string | null>(sp.get("account"));
-  const [detailId, setDetailId] = useState<string | null>(sp.get("detail"));
+  const [accountId, setAccountId] = useState<string | null>(sp.get("account") || null);
+  const [detailId, setDetailId] = useState<string | null>(sp.get("detail") || null);
   const [currencyId, setCurrencyId] = useState<string | null>(null);
+  const [title, setTitle] = useState<string | null>(null);
   const enabled = !!accountId || !!detailId;
   const q = useQuery({
     queryKey: ["ledger", accountId, detailId, currencyId, range, fy?.id],
     queryFn: () => api.get("/accounting/reports/ledger", { account_id: accountId, detail_id: detailId, currency_id: currencyId, from: range.from, to: range.to, fiscal_year_id: fy?.id, drafts: range.drafts ? 1 : 0 }),
     enabled,
   });
-  const rows = (q.data?.rows ?? []) as any[];
+  const d = q.data;
+  const rows = (d?.rows ?? []) as any[];
   const hasFx = rows.some((r) => !D(r.fx_debit).isZero() || !D(r.fx_credit).isZero());
   const hasW = rows.some((r) => !D(r.w_debit).isZero() || !D(r.w_credit).isZero());
+  const data = useMemo(() => (d ? [{ __open: true, key: "opening", balance: d.opening }, ...rows.map((r) => ({ ...r, key: `${r.voucher_id}-${r.line_no}` }))] : []), [d, rows]);
+  const name = title ?? rows[0]?.detail_name ?? rows[0]?.account_name ?? null;
+
   return (
     <div>
-      <PageHeader title="دفتر حساب" subtitle="گردش و مانده‌ی هر حساب کل، معین یا تفصیلی" />
-      <div className="tz-card print-sheet p-3 md:p-4">
-        <ReportTitle title="دفتر حساب" range={range} />
-        <div className="no-print mb-3 grid gap-2 md:grid-cols-3">
-          <AccountSelect value={accountId} onChange={setAccountId} allowClear placeholder="حساب (هر سطحی)" />
-          <DetailSelect value={detailId} onChange={setDetailId} allowClear placeholder="تفصیلی (شخص، بانک، صندوق…)" />
-          <CurrencySelect value={currencyId} onChange={setCurrencyId} allowClear placeholder="فقط یک ارز (اختیاری)" />
-        </div>
-        <ReportFilters range={range} setRange={setRange}>
-          {q.data ? (
-            <a
-              className="text-xs"
-              onClick={() =>
+      <PageHeader title="دفتر حساب" />
+      <div className="bk-filters no-print">
+        <AccountSelect
+          value={accountId}
+          onChange={(v, o) => {
+            setAccountId(v);
+            if (v) setTitle(o?.label ?? null);
+          }}
+          allowClear
+          placeholder="حساب (هر سطحی)"
+          className="!w-72"
+        />
+        <DetailSelect
+          value={detailId}
+          onChange={(v, o) => {
+            setDetailId(v);
+            if (v) setTitle(o?.label ?? null);
+          }}
+          allowClear
+          placeholder="تفصیلی: شخص، بانک، صندوق…"
+          className="!w-60"
+        />
+        <CurrencySelect value={currencyId} onChange={setCurrencyId} allowClear placeholder="ارز" className="!w-36" />
+      </div>
+      <ReportFilters
+        range={range}
+        setRange={setRange}
+        onExport={
+          d
+            ? () =>
                 exportExcel("دفتر حساب", [
                   { title: "تاریخ", value: (r: any) => formatJalali(r.date, { latin: true }) },
                   { title: "سند", value: (r: any) => r.no, type: "number" },
@@ -54,62 +85,135 @@ export default function Ledger() {
                   { title: "بستانکار", value: (r: any) => r.credit, type: "number" },
                   { title: "مانده", value: (r: any) => r.balance, type: "number" },
                 ], rows)
-              }
-            >
-              خروجی اکسل
-            </a>
-          ) : null}
-        </ReportFilters>
-        {!enabled ? (
-          <Alert type="info" showIcon title="حساب یا تفصیلی را انتخاب کنید" />
-        ) : (
-          <>
-            {q.data ? (
-              <div className="mb-2 flex flex-wrap gap-2 text-xs">
-                <Tag variant="filled">مانده‌ی ابتدای دوره: <Balance v={q.data.opening} /></Tag>
-                {(q.data.fx_balances ?? [])
-                  .filter((f: any) => !D(f.opening).isZero())
-                  .map((f: any) => (
-                    <Tag key={f.currency_id} variant="filled">ارزی: <Amount v={f.opening} suffix={f.currency_code} /></Tag>
-                  ))}
-                {!D(q.data.opening_w).isZero() ? <Tag variant="filled">وزن: <Weight v={q.data.opening_w} /></Tag> : null}
+            : undefined
+        }
+      />
+
+      {!enabled ? (
+        <Card>
+          <EmptyState icon={BookOpenText} title="حسابی انتخاب نشده" description="حساب یا تفصیلی را از پالایه‌های بالا انتخاب کنید تا گردش و ماندهٔ آن بیاید." />
+        </Card>
+      ) : (
+        <Card
+          title={name ?? "گردش حساب"}
+          meta={
+            <>
+              <Period from={range.from} to={range.to} />
+              <span className="bk-cap">مبالغ به {unit}</span>
+            </>
+          }
+          flush
+        >
+          <ReportTitle title={`دفتر حساب${name ? ` — ${name}` : ""}`} range={range} />
+          {d ? (
+            <div className="bk-strip">
+              <div>
+                <small>ماندهٔ ابتدای دوره</small>
+                <b><Balance v={d.opening} /></b>
               </div>
-            ) : null}
-            <Table
-              className="tz-table"
-              size="small"
-              rowKey={(r: any) => `${r.voucher_id}-${r.line_no}`}
-              loading={q.isLoading}
-              dataSource={rows}
-              pagination={{ pageSize: 200, hideOnSinglePage: true, size: "small" }}
-              scroll={{ x: "max-content" }}
-              onRow={(r: any) => ({ onClick: () => nav(`/${orgId}/accounting/vouchers/${r.voucher_id}`), style: { cursor: "pointer" } })}
-              columns={[
-                { key: "date", dataIndex: "date", title: "تاریخ", width: 100, render: (v) => <JDate v={v} /> },
-                { key: "no", dataIndex: "no", title: "سند", width: 70, render: (v) => <span className="num">{faDigits(v)}</span> },
-                { key: "acc", title: "حساب", render: (_, r: any) => <span><span className="num text-muted">{faDigits(r.account_code)}</span> {r.account_name}</span> },
-                { key: "det", dataIndex: "detail_name", title: "تفصیلی", render: (v) => v ?? <span className="text-muted">—</span> },
-                { key: "desc", dataIndex: "description", title: "شرح", ellipsis: true },
-                ...(hasFx ? [{ key: "fx", title: "ارزی", align: "left" as const, render: (_: unknown, r: any) => (D(r.fx_debit).isZero() && D(r.fx_credit).isZero() ? null : <Amount v={D(r.fx_debit).minus(D(r.fx_credit)).toString()} suffix={r.currency_code} />) }, { key: "rate", dataIndex: "fx_rate", title: "نرخ", align: "left" as const, render: (v: string) => (v ? <Amount v={v} /> : null) }] : []),
-                ...(hasW ? [{ key: "w", title: "وزن", align: "left" as const, render: (_: unknown, r: any) => (D(r.w_debit).isZero() && D(r.w_credit).isZero() ? null : <Weight v={D(r.w_debit).minus(D(r.w_credit)).toString()} />) }] : []),
-                { key: "dr", dataIndex: "debit", title: "بدهکار", align: "left", render: (v) => <Money v={v} zero="" /> },
-                { key: "cr", dataIndex: "credit", title: "بستانکار", align: "left", render: (v) => <Money v={v} zero="" /> },
-                { key: "bal", dataIndex: "balance", title: "مانده", align: "left", render: (v) => <Balance v={v} /> },
-              ]}
-              summary={() =>
-                q.data ? (
+              <div>
+                <small>گردش بدهکار</small>
+                <b><Amt v={d.totals.debit} /></b>
+              </div>
+              <div>
+                <small>گردش بستانکار</small>
+                <b><Amt v={d.totals.credit} /></b>
+              </div>
+              <div>
+                <small>ماندهٔ پایان دوره</small>
+                <b><Balance v={d.totals.balance} /></b>
+              </div>
+              {(d.fx_balances ?? [])
+                .filter((f: any) => !D(f.opening).isZero())
+                .map((f: any) => (
+                  <div key={f.currency_id}>
+                    <small>ماندهٔ ارزی ابتدای دوره</small>
+                    <b><Amount v={f.opening} suffix={f.currency_code} /></b>
+                  </div>
+                ))}
+              {!D(d.opening_w).isZero() ? (
+                <div>
+                  <small>ماندهٔ وزنی ابتدای دوره</small>
+                  <b><Weight v={d.opening_w} /></b>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+          <Table
+            className="bk-tbl"
+            size="small"
+            rowKey="key"
+            loading={q.isFetching && !d}
+            dataSource={data}
+            pagination={{ pageSize: 200, hideOnSinglePage: true, size: "small", showSizeChanger: false }}
+            scroll={{ x: 1040 }}
+            tableLayout="fixed"
+            sticky={{ offsetHeader: 56 }}
+            locale={{ emptyText: " " }}
+            rowClassName={(r: any) => cx(r.__open ? "bk-open" : "bk-click")}
+            onRow={(r: any) =>
+              r.__open
+                ? {}
+                : {
+                    onClick: () => nav(`/${orgId}/accounting/vouchers/${r.voucher_id}`),
+                    onKeyDown: (e) => {
+                      if (e.key === "Enter") nav(`/${orgId}/accounting/vouchers/${r.voucher_id}`);
+                    },
+                    tabIndex: 0,
+                  }
+            }
+            columns={[
+              { key: "date", dataIndex: "date", title: "تاریخ", width: 104, render: (v, r: any) => (r.__open ? null : <JDate v={v} />) },
+              { key: "no", dataIndex: "no", title: "سند", width: 64, render: (v, r: any) => (r.__open ? null : <DocNo n={v} />) },
+              {
+                key: "acc",
+                title: "حساب",
+                width: 220,
+                ellipsis: true,
+                render: (_, r: any) => (r.__open ? <span>ماندهٔ ابتدای دوره</span> : <Acc code={r.account_code} name={r.account_name} />),
+                onCell: (r: any) => (r.__open ? { colSpan: 3 } : {}),
+              },
+              { key: "det", dataIndex: "detail_name", title: "تفصیلی", width: 180, ellipsis: true, render: (v) => v ?? <span className="sf-zero">—</span>, onCell: (r: any) => (r.__open ? { colSpan: 0 } : {}) },
+              { key: "desc", dataIndex: "description", title: "شرح", ellipsis: true, render: (v) => <span className="bk-2">{v}</span>, onCell: (r: any) => (r.__open ? { colSpan: 0 } : {}) },
+              ...(hasFx
+                ? [
+                    {
+                      key: "fx",
+                      title: "ارزی",
+                      className: "sf-num",
+                      width: 136,
+                      render: (_: unknown, r: any) => (r.__open || (D(r.fx_debit).isZero() && D(r.fx_credit).isZero()) ? null : <Amount v={D(r.fx_debit).minus(D(r.fx_credit)).toString()} suffix={r.currency_code} />),
+                    },
+                    { key: "rate", dataIndex: "fx_rate", title: "نرخ", className: "sf-num", width: 112, render: (v: string, r: any) => (r.__open || !v ? null : <Amount v={v} />) },
+                  ]
+                : []),
+              ...(hasW
+                ? [{ key: "w", title: "وزن (گرم)", className: "sf-num", width: 128, render: (_: unknown, r: any) => (r.__open || (D(r.w_debit).isZero() && D(r.w_credit).isZero()) ? null : <Weight v={D(r.w_debit).minus(D(r.w_credit)).toString()} unit={false} />) }]
+                : []),
+              { key: "dr", dataIndex: "debit", title: "بدهکار", className: "sf-num", width: 144, render: (v, r: any) => (r.__open ? null : <Amt v={v} zero="" />) },
+              { key: "cr", dataIndex: "credit", title: "بستانکار", className: "sf-num", width: 144, render: (v, r: any) => (r.__open ? null : <Amt v={v} zero="" />) },
+              { key: "bal", dataIndex: "balance", title: "مانده", className: "sf-num", width: 152, render: (v) => <Amt v={D(v ?? 0).abs().toString()} /> },
+              { key: "side", dataIndex: "balance", title: "تشخیص", width: 80, render: (v) => <span className="bk-plain">{side(v)}</span> },
+            ]}
+            summary={() =>
+              d ? (
+                <Table.Summary fixed>
                   <Table.Summary.Row>
-                    <Table.Summary.Cell index={0} colSpan={5 + (hasFx ? 2 : 0) + (hasW ? 1 : 0)}>جمع دوره</Table.Summary.Cell>
-                    <Table.Summary.Cell index={1} align="left"><Money v={q.data.totals.debit} /></Table.Summary.Cell>
-                    <Table.Summary.Cell index={2} align="left"><Money v={q.data.totals.credit} /></Table.Summary.Cell>
-                    <Table.Summary.Cell index={3} align="left"><Balance v={q.data.totals.balance} /></Table.Summary.Cell>
+                    <Table.Summary.Cell index={0} colSpan={5 + (hasFx ? 2 : 0) + (hasW ? 1 : 0)} className="bk-sum-l">
+                      جمع دوره<small>{faDigits(rows.length)} ردیف</small>
+                    </Table.Summary.Cell>
+                    <Table.Summary.Cell index={1} className="sf-num"><Amt v={d.totals.debit} /></Table.Summary.Cell>
+                    <Table.Summary.Cell index={2} className="sf-num"><Amt v={d.totals.credit} /></Table.Summary.Cell>
+                    <Table.Summary.Cell index={3} className="sf-num"><Amt v={D(d.totals.balance).abs().toString()} /></Table.Summary.Cell>
+                    <Table.Summary.Cell index={4}><span className="bk-plain">{side(d.totals.balance)}</span></Table.Summary.Cell>
                   </Table.Summary.Row>
-                ) : null
-              }
-            />
-          </>
-        )}
-      </div>
+                </Table.Summary>
+              ) : null
+            }
+          />
+          <PrintFoot />
+        </Card>
+      )}
     </div>
   );
 }

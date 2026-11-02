@@ -1,6 +1,7 @@
-// Prepares desktop/app (what electron-builder packages): the built SPA, the bundled local
-// server (backend.cjs), the Electron main/preload, PGlite and a minimal package.json.
+// Prepares desktop/app (what electron-builder packages) for the Windows app of «سیراف»: the built SPA, the bundled
+// local server (backend.cjs), the Electron main/preload, the splash, the icons, PGlite and a minimal package.json.
 //   node scripts/build-desktop.mjs            → then: cd desktop && npx electron-builder --win
+// The splash (desktop/src/splash.html) loads Vazirmatn from renderer/fonts/siraf/, so the SPA build must carry the fonts.
 import { build } from "esbuild";
 import { execSync } from "node:child_process";
 import { cpSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from "node:fs";
@@ -60,7 +61,12 @@ cpSync(pgliteSrc, join(app, "node_modules/@electric-sql/pglite"), {
   dereference: true,
   filter: (src) => !src.endsWith(".map") && !src.endsWith(".d.ts") && !src.endsWith(".d.cts"),
 });
-cpSync(join(desktop, "build/icon.png"), join(app, "icon.png"));
+// window icon (.ico on Windows: its hand-pixelled small cuts), tray cuts (16 / 24 / 32 px) and the splash
+for (const f of ["icon.png", "icon.ico", "tray.png", "tray@1.5x.png", "tray@2x.png"]) {
+  if (existsSync(join(desktop, "build", f))) cpSync(join(desktop, "build", f), join(app, f));
+}
+cpSync(join(desktop, "src/splash.html"), join(app, "splash.html"));
+if (!existsSync(join(app, "renderer/fonts/siraf/Vazirmatn-Variable.woff2"))) throw new Error("renderer/fonts/siraf/Vazirmatn-Variable.woff2 missing: the splash needs it");
 
 writeFileSync(
   join(app, "package.json"),
@@ -79,5 +85,5 @@ writeFileSync(
     2,
   ),
 );
-if (!existsSync(join(desktop, "build/icon.ico"))) console.warn("! desktop/build/icon.ico missing — run: cd desktop && npm run icons");
+if (!existsSync(join(desktop, "build/icon.ico"))) console.warn("! desktop/build/icon.ico missing — run: cd desktop && npm run icons -- <brand/final>");
 console.log("✓ desktop/app ready");

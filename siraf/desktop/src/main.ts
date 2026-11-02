@@ -1,12 +1,17 @@
 // Electron main process of «سیراف» for Windows.
 // Starts the local server (embedded PostgreSQL + API + UI) in a utility process and shows it in
 // a window. In "client" mode it opens the server of another computer of the office network.
-import { app, BrowserWindow, utilityProcess, ipcMain, shell, dialog, Menu, Tray, nativeImage, type UtilityProcess } from "electron";
+import { app, BrowserWindow, utilityProcess, ipcMain, shell, dialog, Menu, Tray, nativeImage, nativeTheme, type UtilityProcess } from "electron";
 import { join } from "node:path";
 import http from "node:http";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync, statSync, renameSync } from "node:fs";
 
 const APP_TITLE = "سیراف";
+const APP_ID = "ir.siraf.app";
+/** The window canvas of each theme (`--sf-canvas` in src/ui/siraf/tokens.css), so the window never flashes white. */
+const CANVAS = { light: "#F7F4F0", dark: "#110F0E" } as const;
+type ThemePref = "system" | "light" | "dark";
+type ThemeMode = keyof typeof CANVAS;
 const isSmoke = process.argv.includes("--smoke-test") || process.env.TARAZ_SMOKE === "1";
 
 const dataDir = resolveDataDir();
@@ -53,6 +58,26 @@ function writeClientServer(url: string | null) {
   writeFileSync(join(dataDir, "config.json"), JSON.stringify(c, null, 2));
 }
 
+/** Window preferences of the main process (kept apart from config.json, which the local server owns). */
+const uiFile = join(dataDir, "window.json");
+function readUi(): { theme?: ThemePref } {
+  try {
+    return JSON.parse(readFileSync(uiFile, "utf8"));
+  } catch {
+    return {};
+  }
+}
+function themePref(): ThemePref {
+  const t = readUi().theme;
+  return t === "light" || t === "dark" ? t : "system";
+}
+function themeMode(pref: ThemePref = themePref()): ThemeMode {
+  return pref === "system" ? (nativeTheme.shouldUseDarkColors ? "dark" : "light") : pref;
+}
+
+/** Persian digits for the version line of the splash: 1.2.0 → ۱٫۲٫۰ */
+const faDigits = (s: string) => s.replace(/\d/g, (d) => "۰۱۲۳۴۵۶۷۸۹"[Number(d)]).replace(/\./g, "٫");
+
 let backend: UtilityProcess | null = null;
 let win: BrowserWindow | null = null;
 let splash: BrowserWindow | null = null;
@@ -60,7 +85,9 @@ let tray: Tray | null = null;
 let quitting = false;
 let serverUrl = "";
 
-const iconPath = join(__dirname, "icon.png");
+// Windows picks the hand-pixelled 16/24/32 px cuts from the .ico; the tray uses tray.png with its @1.5x/@2x cuts.
+const iconPath = process.platform === "win32" && existsSync(join(__dirname, "icon.ico")) ? join(__dirname, "icon.ico") : join(__dirname, "icon.png");
+const trayIconPath = join(__dirname, "tray.png");
 
 function startBackend(): Promise<{ url: string; host: string }> {
   return new Promise((resolve, reject) => {
@@ -76,7 +103,13 @@ function startBackend(): Promise<{ url: string; host: string }> {
       },
     });
     const timer = setTimeout(() => reject(new Error("سرور محلی در زمان مقرر آماده نشد")), 90_000);
-    backend.stdout?.on("data", (d) => log(`[server] ${String(d).trimEnd()}`));
+    backend.stdout?.on("data", (d) => {
+      const text = String(d);
+      log(`[server] ${text.trimEnd()}`);
+      // real progress: every database migration the server applies moves the splash on
+      const applied = text.match(/migration \S+ applied/g)?.length ?? 0;
+      if (applied) onMigrations(applied);
+    });
     backend.stderr?.on("data", (d) => log(`[server:err] ${String(d).trimEnd()}`));
     backend.on("message", (m: any) => {
       if (m?.type === "ready") {
@@ -110,16 +143,101 @@ function startBackend(): Promise<{ url: string; host: string }> {
   });
 }
 
+// ---------------------------------------------------------------- splash
+// desktop/src/splash.html (copied next to main.cjs): 520 × 320, frameless, rounded, the three-nuqta launch and a real
+// progress line driven by the stages below through its `siraf.*` API.
+const SPLASH_MIN_MS = 1100; // let the launch (≈ 1 s) finish even on a fast start
+let splashShownAt = 0;
+let splashLoaded: Promise<void> = Promise.resolve();
+
 function createSplash() {
-  splash = new BrowserWindow({ width: 420, height: 260, frame: false, resizable: false, show: false, center: true, backgroundColor: "#381634", icon: iconPath, skipTaskbar: false });
-  const html = `<!doctype html><html dir="rtl" lang="fa"><meta charset="utf-8"><style>
-    @font-face{font-family:V;src:url("file://${join(__dirname, "renderer", "fonts", "siraf", "Vazirmatn-Variable.woff2").replace(/\\/g, "/")}")}
-    body{margin:0;height:100vh;display:grid;place-content:center;gap:14px;text-align:center;background:radial-gradient(500px 300px at 20% 0%,#8f4a8355,transparent),linear-gradient(160deg,#50224B,#240D21);color:#fff;font-family:V,Tahoma,sans-serif}
-    .t{font-size:44px;font-weight:800}.s{font-size:13px;color:#a9b8c9}.b{width:180px;height:3px;background:#ffffff22;border-radius:3px;overflow:hidden;margin:auto}
-    .b i{display:block;height:100%;width:40%;background:linear-gradient(90deg,#E7BADF,#D9B36A);animation:m 1.1s ease-in-out infinite}@keyframes m{0%{transform:translateX(180%)}100%{transform:translateX(-260%)}}
-  </style><body><div class="t">سیراف</div><div class="s">در حال آماده‌سازی پایگاه داده…</div><div class="b"><i></i></div></body></html>`;
-  splash.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
-  splash.once("ready-to-show", () => splash?.show());
+  splash = new BrowserWindow({
+    width: 520,
+    height: 320,
+    frame: false,
+    transparent: true,
+    backgroundColor: "#00000000",
+    resizable: false,
+    maximizable: false,
+    minimizable: false,
+    fullscreenable: false,
+    show: false,
+    center: true,
+    title: APP_TITLE,
+    icon: iconPath,
+    webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, spellcheck: false },
+  });
+  splash.setMenu(null);
+  splashLoaded = new Promise((resolve) => {
+    splash!.webContents.once("did-finish-load", () => resolve());
+    splash!.webContents.once("did-fail-load", () => resolve());
+  });
+  splash.loadFile(join(__dirname, "splash.html"));
+  splash.once("ready-to-show", () => {
+    splashShownAt = Date.now();
+    splash?.show();
+  });
+  splash.on("closed", () => (splash = null));
+  void splashCall(`siraf.version(${JSON.stringify(`نسخهٔ ${faDigits(app.getVersion())}`)})`);
+}
+
+/** Runs `js` in the splash once it has loaded (ignored when the splash is gone). */
+async function splashCall(js: string) {
+  await splashLoaded;
+  if (!splash || splash.isDestroyed()) return;
+  try {
+    await splash.webContents.executeJavaScript(js, true);
+  } catch {
+    /* the splash is only decoration */
+  }
+}
+function splashStep(p: number, cap: number, status: string, tau?: number) {
+  void splashCall(`siraf.step(${p}, ${cap}, ${JSON.stringify(status)}${tau ? `, ${tau}` : ""})`);
+}
+
+/** Completes the progress line, then swaps the splash for the main window. */
+async function finishSplash(show: () => void) {
+  if (!splash || splash.isDestroyed()) return show();
+  const wait = Math.max(0, SPLASH_MIN_MS - (splashShownAt ? Date.now() - splashShownAt : 0));
+  if (wait) await new Promise((r) => setTimeout(r, wait));
+  await splashCall(`siraf.ready("آماده است")`);
+  await new Promise((r) => setTimeout(r, 650));
+  show();
+  splash?.destroy();
+  splash = null;
+}
+
+let migrationsSeen = 0;
+let firstRun = false;
+let serverReady = false;
+function onMigrations(n: number) {
+  migrationsSeen += n;
+  if (serverReady) return; // a late stdout chunk must not move the status line back
+  const p = Math.min(0.6, 0.08 + migrationsSeen * 0.04);
+  splashStep(p, Math.min(0.64, p + 0.06), firstRun ? "ساختن دفتر تازه…" : "به‌روزرسانی دفتر…", 1.5);
+}
+
+/** Resolves once the page has replaced the boot screen of index.html with the app and painted text (at most `max` ms). */
+async function appRendered(w: BrowserWindow, max = 6000) {
+  const until = Date.now() + max;
+  while (Date.now() < until && !w.isDestroyed()) {
+    try {
+      const done = await w.webContents.executeJavaScript(`(() => { const r = document.getElementById("root"); return !!r && !r.querySelector(":scope > .boot") && r.innerText.trim().length > 0 && document.fonts.status === "loaded"; })()`, true);
+      if (done) return;
+    } catch {
+      return;
+    }
+    await new Promise((r) => setTimeout(r, 80));
+  }
+}
+
+/** The first status line: what the local server is about to do with the database. */
+function bootStatus(): { text: string; tau: number } {
+  if (existsSync(join(dataDir, "restore.pending"))) return { text: "بازگردانی نسخهٔ پشتیبان…", tau: 6 };
+  firstRun = !existsSync(join(dataDir, "db"));
+  if (firstRun) return { text: "ساختن دفتر تازه…", tau: 6 };
+  if (process.argv.includes("--updated")) return { text: "به‌روزرسانی دفتر…", tau: 4 };
+  return { text: "باز کردن دفتر…", tau: 2.4 };
 }
 
 function createWindow(url: string) {
@@ -127,11 +245,11 @@ function createWindow(url: string) {
     width: 1366,
     height: 860,
     minWidth: 1024,
-    minHeight: 680,
+    minHeight: 640,
     show: false,
     title: APP_TITLE,
     icon: iconPath,
-    backgroundColor: "#f4f6f9",
+    backgroundColor: CANVAS[themeMode()],
     autoHideMenuBar: true,
     webPreferences: {
       preload: join(__dirname, "preload.cjs"),
@@ -142,11 +260,14 @@ function createWindow(url: string) {
     },
   });
   win.loadURL(url);
-  win.once("ready-to-show", () => {
-    splash?.destroy();
-    splash = null;
-    win?.maximize();
-    win?.show();
+  win.webContents.once("did-finish-load", () => splashStep(0.9, 0.97, "آماده‌سازی میز کار…", 1.2));
+  win.once("ready-to-show", async () => {
+    // while the splash is up, swap only when the app itself has painted (no second boot screen in between)
+    if (splash && win) await appRendered(win);
+    await finishSplash(() => {
+      win?.maximize();
+      win?.show();
+    });
   });
   // links to other sites open in the default browser
   win.webContents.setWindowOpenHandler(({ url: target }) => {
@@ -171,7 +292,8 @@ function createWindow(url: string) {
 }
 
 function createTray() {
-  const img = nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 });
+  // tray.png is the 16 px cut; Electron picks tray@1.5x.png / tray@2x.png on scaled displays
+  const img = existsSync(trayIconPath) ? nativeImage.createFromPath(trayIconPath) : nativeImage.createFromPath(join(__dirname, "icon.png")).resize({ width: 16, height: 16 });
   tray = new Tray(img);
   tray.setToolTip("سیراف — سرور شبکه فعال است");
   tray.setContextMenu(
@@ -219,6 +341,20 @@ function setupMenu() {
 }
 
 function registerIpc() {
+  // the page reports its theme (preference and the theme in effect): the title bar, the window canvas and the next start follow it
+  ipcMain.on("siraf:theme", (e, t: { pref?: string; mode?: string }) => {
+    const pref: ThemePref = t?.pref === "light" || t?.pref === "dark" ? t.pref : "system";
+    const mode: ThemeMode = t?.mode === "dark" ? "dark" : "light";
+    if (nativeTheme.themeSource !== pref) nativeTheme.themeSource = pref;
+    BrowserWindow.fromWebContents(e.sender)?.setBackgroundColor(CANVAS[mode]);
+    if (readUi().theme !== pref) {
+      try {
+        writeFileSync(uiFile, JSON.stringify({ ...readUi(), theme: pref }, null, 2));
+      } catch {
+        /* ignore */
+      }
+    }
+  });
   ipcMain.handle("taraz:print", async (e, opts: { silent?: boolean; printer?: string; landscape?: boolean; pageSize?: string } = {}) => {
     const wc = e.sender;
     return new Promise<void>((resolve, reject) =>
@@ -297,10 +433,11 @@ if (!app.requestSingleInstanceLock() && !isSmoke) {
       win.focus();
     }
   });
-  app.setAppUserModelId("ir.siraf.app");
+  app.setAppUserModelId(APP_ID);
   app.whenReady().then(async () => {
     log(`start ${app.getVersion()} data=${dataDir}`);
     if (isSmoke) return smokeTest();
+    nativeTheme.themeSource = themePref(); // dark title bars and menus when the app is dark
     registerIpc();
     setupMenu();
     const client = readConfig().client?.server_url as string | undefined;
@@ -325,9 +462,13 @@ if (!app.requestSingleInstanceLock() && !isSmoke) {
       return;
     }
     createSplash();
+    const boot = bootStatus();
+    splashStep(0.06, 0.62, boot.text, boot.tau);
     try {
       const { url } = await startBackend();
       serverUrl = url;
+      serverReady = true;
+      splashStep(0.7, 0.88, "آماده‌سازی میز کار…", 1.6);
       createWindow(url);
       if (readConfig().lan?.enabled) createTray();
     } catch (e) {

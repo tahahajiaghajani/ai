@@ -1,15 +1,15 @@
 // Settling a receipt/payment against the party's invoices (تخصیص به فاکتور). Invoices are only
 // read; the allocations are saved with the treasury document.
-import { Button, Table, Tag } from "antd";
-import { ThunderboltOutlined } from "@ant-design/icons";
+import { Button, Table } from "antd";
+import { Zap } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useOrg } from "../../lib/org";
-import { Section } from "../../components/layout";
-import { Money, JDate } from "../../components/display";
+import { Chip, JDate } from "../../components/display";
 import { MoneyInput } from "../../components/inputs";
 import { faDigits } from "@shared/format";
 import { D, type Num } from "@shared/money";
 import type { DocKind } from "./labels";
+import { Amt, Card, ICON14, docNo } from "../reports/kit";
 
 const INVOICE_KIND: Record<string, string> = { sale: "فروش", purchase: "خرید", sale_return: "برگشت از فروش", purchase_return: "برگشت از خرید" };
 
@@ -47,20 +47,21 @@ export function Allocations({ kind, partyId, docId, total, value, onChange, read
 
   if (!q.isLoading && !rows.length && !Object.keys(value).length) return null;
   return (
-    <Section
+    <Card
       className="mt-4"
       title="تسویه با فاکتورها"
-      extra={
+      meta={rows.length ? <span className="bk-cap">{faDigits(rows.length)} فاکتور باز</span> : null}
+      tools={
         !readonly && rows.length ? (
-          <Button size="small" icon={<ThunderboltOutlined />} onClick={auto}>
-            تخصیص خودکار (قدیمی‌ترها اول)
+          <Button size="small" icon={<Zap {...ICON14} />} onClick={auto}>
+            تخصیص خودکار، قدیمی‌ترها اول
           </Button>
         ) : null
       }
-      bodyClass="p-0"
+      flush
     >
       <Table
-        className="tz-table"
+        className="bk-tbl"
         size="small"
         rowKey="id"
         loading={q.isLoading}
@@ -68,16 +69,15 @@ export function Allocations({ kind, partyId, docId, total, value, onChange, read
         dataSource={rows}
         scroll={{ x: "max-content" }}
         columns={[
-          { key: "kind", dataIndex: "kind", title: "نوع", render: (v) => <Tag variant="filled" className="!m-0">{INVOICE_KIND[v] ?? v}</Tag> },
-          { key: "no", dataIndex: "no", title: "شماره", render: (v) => <b className="num">{faDigits(v)}</b> },
-          { key: "date", dataIndex: "date", title: "تاریخ", render: (v) => <JDate v={v} /> },
-          { key: "due", dataIndex: "due_date", title: "سررسید", render: (v) => <JDate v={v} /> },
-          { key: "total", dataIndex: "total", title: "مبلغ فاکتور", align: "left", render: (v) => <Money v={v} /> },
-          { key: "left", title: "قابل تخصیص", align: "left", render: (_, r: any) => <Money v={room(r).toString()} /> },
+          { key: "no", dataIndex: "no", title: "فاکتور", width: 120, render: (v, r: any) => <span className="bk-docno">{INVOICE_KIND[r.kind] ?? r.kind} {docNo(v)}</span> },
+          { key: "date", dataIndex: "date", title: "تاریخ", width: 112, render: (v) => <JDate v={v} /> },
+          { key: "due", dataIndex: "due_date", title: "سررسید", width: 112, render: (v) => <JDate v={v} /> },
+          { key: "total", dataIndex: "total", title: "مبلغ فاکتور", className: "sf-num", width: 152, render: (v) => <Amt v={v} /> },
+          { key: "left", title: "قابل تخصیص", className: "sf-num", width: 152, render: (_, r: any) => <Amt v={room(r).toString()} /> },
           {
             key: "amount",
             title: "تخصیص از این سند",
-            width: 180,
+            width: 184,
             render: (_, r: any) => (
               <MoneyInput
                 size="small"
@@ -85,19 +85,29 @@ export function Allocations({ kind, partyId, docId, total, value, onChange, read
                 disabled={readonly}
                 status={D(value[r.id]).gt(room(r)) ? "error" : undefined}
                 onChange={(v) => onChange({ ...value, [r.id]: v })}
-                placeholder="۰"
+                placeholder="—"
               />
             ),
           },
         ]}
       />
-      <div className="flex flex-wrap items-center gap-2 border-t border-line px-4 py-2 text-xs">
-        <span className="text-muted">جمع تخصیص:</span>
-        <Money v={allocated.toString()} />
-        <span className="text-muted">از</span>
-        <Money v={D(total).toString()} />
-        {over ? <Tag color="error" variant="filled">جمع تخصیص از مبلغ سند بیشتر است</Tag> : null}
+      <div className="bk-foot">
+        <div className="bk-foot-sm">
+          <small>جمع تخصیص</small>
+          <b><Amt v={allocated.toString()} zero="۰" /></b>
+        </div>
+        <div className="bk-foot-sm">
+          <small>مبلغ سند</small>
+          <b><Amt v={D(total).toString()} zero="۰" /></b>
+        </div>
+        {over ? (
+          <Chip tone="danger">جمع تخصیص از مبلغ سند بیشتر است</Chip>
+        ) : D(total).gt(allocated) && allocated.gt(0) ? (
+          <span className="bk-plain sf-num">
+            بی‌تخصیص <Amt v={D(total).minus(allocated).toString()} />
+          </span>
+        ) : null}
       </div>
-    </Section>
+    </Card>
   );
 }

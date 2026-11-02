@@ -5,17 +5,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Alert, Button, Dropdown, Input, Modal, Select, Spin, Tag, Tooltip, type InputRef } from "antd";
-import {
-  BarcodeOutlined, CopyOutlined, DeleteOutlined, DollarOutlined, ExportOutlined, FileTextOutlined, IdcardOutlined, MoreOutlined,
-  PlusOutlined, PrinterOutlined, RollbackOutlined, SaveOutlined, StopOutlined, SwapOutlined, UndoOutlined, WarningOutlined,
-} from "@ant-design/icons";
+import { Alert, Button, Dropdown, Input, Modal, Select, Tooltip, type InputRef } from "antd";
+import { ArrowLeftRight, Ban, CircleAlert, Copy, Ellipsis, FileOutput, FileText, IdCard, Plus, Printer, ScanBarcode, Tags, Text as TextIcon, Trash2, TriangleAlert, Undo2, X } from "lucide-react";
+import { Ic } from "../../components/shell/icons";
 import { useOrg } from "../../lib/org";
 import { useHotkey, useNotify } from "../../lib/hooks";
 import { errorText } from "../../lib/api";
 import { PageHeader } from "../../components/layout";
 import { DateInput, MoneyInput, NumberInput, PartySelect, PctInput, RefSelect } from "../../components/inputs";
-import { Balance, JDateTime, Money } from "../../components/display";
+import { Balance, JDateTime, Loader, Money } from "../../components/display";
 import { D } from "@shared/money";
 import { faDigits, formatNumber } from "@shared/format";
 import { todayISO } from "@shared/jalali";
@@ -404,7 +402,7 @@ function InvoiceEditor({ id }: { id: string | null }) {
     }
   };
 
-  if (sourceId && q.isLoading) return <div className="grid h-64 place-content-center"><Spin /></div>;
+  if (sourceId && q.isLoading) return <div className="grid h-64 place-content-center"><Loader /></div>;
   if (sourceId && q.error) return <Alert type="error" showIcon title={errorText(q.error)} />;
 
   // ----- derived view data
@@ -446,120 +444,125 @@ function InvoiceEditor({ id }: { id: string | null }) {
   const moreItems = inv
     ? [
         ...(RETURN_KIND[kind as InvoiceKind] && inv.status === "posted" && can(meta.area, "edit")
-          ? [{ key: "return", icon: <RollbackOutlined />, label: `ثبت ${INVOICE_META[RETURN_KIND[kind]!].title}`, onClick: () => nav(`/${orgId}/${INVOICE_META[RETURN_KIND[kind]!].path}/new?ref=${inv.id}`) }]
+          ? [{ key: "return", icon: <Ic icon={Undo2} />, label: `ثبت ${INVOICE_META[RETURN_KIND[kind]!].title}`, onClick: () => nav(`/${orgId}/${INVOICE_META[RETURN_KIND[kind]!].path}/new?ref=${inv.id}`) }]
           : []),
         ...(kind === "quote" && !inv.extra?.converted_to && inv.status !== "cancelled"
           ? [
-              { key: "to-sale", icon: <SwapOutlined />, label: "تبدیل به فاکتور فروش", onClick: () => action(() => api.post(`/goods/invoices/${inv.id}/convert`, { kind: "sale" }), "فاکتور فروش ساخته شد", (r) => nav(`/${orgId}/${INVOICE_META.sale.path}/${r.invoice.id}`)) },
-              { key: "to-order", icon: <SwapOutlined />, label: "تبدیل به سفارش فروش", onClick: () => action(() => api.post(`/goods/invoices/${inv.id}/convert`, { kind: "sale_order" }), "سفارش فروش ساخته شد", (r) => nav(`/${orgId}/${INVOICE_META.sale_order.path}/${r.invoice.id}`)) },
+              { key: "to-sale", icon: <Ic icon={ArrowLeftRight} />, label: "تبدیل به فاکتور فروش", onClick: () => action(() => api.post(`/goods/invoices/${inv.id}/convert`, { kind: "sale" }), "فاکتور فروش ساخته شد", (r) => nav(`/${orgId}/${INVOICE_META.sale.path}/${r.invoice.id}`)) },
+              { key: "to-order", icon: <Ic icon={ArrowLeftRight} />, label: "تبدیل به سفارش فروش", onClick: () => action(() => api.post(`/goods/invoices/${inv.id}/convert`, { kind: "sale_order" }), "سفارش فروش ساخته شد", (r) => nav(`/${orgId}/${INVOICE_META.sale_order.path}/${r.invoice.id}`)) },
             ]
           : []),
         ...((kind === "sale_order" || kind === "purchase_order") && !inv.extra?.converted_to && inv.status !== "cancelled"
-          ? [{ key: "to-invoice", icon: <SwapOutlined />, label: "تبدیل به فاکتور", onClick: () => action(() => api.post(`/goods/invoices/${inv.id}/convert`, {}), "فاکتور ساخته شد", (r) => nav(`/${orgId}/${INVOICE_META[r.invoice.kind as InvoiceKind].path}/${r.invoice.id}`)) }]
+          ? [{ key: "to-invoice", icon: <Ic icon={ArrowLeftRight} />, label: "تبدیل به فاکتور", onClick: () => action(() => api.post(`/goods/invoices/${inv.id}/convert`, {}), "فاکتور ساخته شد", (r) => nav(`/${orgId}/${INVOICE_META[r.invoice.kind as InvoiceKind].path}/${r.invoice.id}`)) }]
           : []),
-        { key: "copy", icon: <CopyOutlined />, label: "کپی به سند جدید", onClick: () => nav(`/${orgId}/${meta.path}/new?copy=${inv.id}`) },
-        ...(inv.voucher_id && can("accounting", "view") ? [{ key: "voucher", icon: <FileTextOutlined />, label: `سند حسابداری ${faDigits(inv.voucher_no ?? "")}`, onClick: () => nav(`/${orgId}/accounting/vouchers/${inv.voucher_id}`) }] : []),
-        ...((kind === "sale" || kind === "sale_return") && inv.status === "posted" ? [{ key: "moadian", icon: <ExportOutlined />, label: "خروجی سامانه‌ی مؤدیان (JSON)", onClick: downloadMoadian }] : []),
+        { key: "copy", icon: <Ic icon={Copy} />, label: "کپی به سند جدید", onClick: () => nav(`/${orgId}/${meta.path}/new?copy=${inv.id}`) },
+        ...(inv.voucher_id && can("accounting", "view") ? [{ key: "voucher", icon: <Ic icon={FileText} />, label: `سند حسابداری ${faDigits(inv.voucher_no ?? "")}`, onClick: () => nav(`/${orgId}/accounting/vouchers/${inv.voucher_id}`) }] : []),
+        ...((kind === "sale" || kind === "sale_return") && inv.status === "posted" ? [{ key: "moadian", icon: <Ic icon={FileOutput} />, label: "خروجی سامانه‌ی مؤدیان (JSON)", onClick: downloadMoadian }] : []),
         ...(inv.status === "posted" && can(meta.area, "edit")
-          ? [{ key: "unpost", icon: <UndoOutlined />, label: "برگشت به پیش‌نویس", onClick: async () => { if (await n.confirm("فاکتور به پیش‌نویس برگردد؟", "اثر آن روی انبار و سند حسابداری حذف می‌شود.")) action(() => api.post(`/goods/invoices/${inv.id}/unpost`), "به پیش‌نویس برگشت"); } }]
+          ? [{ key: "unpost", icon: <Ic icon={Undo2} />, label: "برگشت به پیش‌نویس", onClick: async () => { if (await n.confirm("فاکتور به پیش‌نویس برگردد؟", "اثر آن روی انبار و سند حسابداری حذف می‌شود.")) action(() => api.post(`/goods/invoices/${inv.id}/unpost`), "به پیش‌نویس برگشت"); } }]
           : []),
         ...(inv.status === "cancelled" && can(meta.area, "edit")
-          ? [{ key: "reopen", icon: <UndoOutlined />, label: "خارج کردن از ابطال", onClick: () => action(() => api.post(`/goods/invoices/${inv.id}/unpost`), "سند دوباره باز شد") }]
+          ? [{ key: "reopen", icon: <Ic icon={Undo2} />, label: "خارج کردن از ابطال", onClick: () => action(() => api.post(`/goods/invoices/${inv.id}/unpost`), "سند دوباره باز شد") }]
           : []),
         ...(inv.status !== "cancelled" && can(meta.area, "full")
-          ? [{ key: "cancel", icon: <StopOutlined />, danger: true, label: "ابطال", onClick: async () => { if (await n.confirm(`ابطال ${meta.title}؟`, "سند باقی می‌ماند ولی اثری در انبار و حساب‌ها ندارد.", true)) action(() => api.post(`/goods/invoices/${inv.id}/cancel`), "ابطال شد"); } }]
+          ? [{ key: "cancel", icon: <Ic icon={Ban} />, danger: true, label: "ابطال", onClick: async () => { if (await n.confirm(`ابطال ${meta.title}؟`, "سند باقی می‌ماند ولی اثری در انبار و حساب‌ها ندارد.", true)) action(() => api.post(`/goods/invoices/${inv.id}/cancel`), "ابطال شد"); } }]
           : []),
         ...(can(meta.area, "full")
-          ? [{ key: "del", icon: <DeleteOutlined />, danger: true, label: "حذف", onClick: async () => { if (await n.confirm(`حذف ${meta.title}؟`, undefined, true)) action(() => api.del(`/goods/invoices/${inv.id}`), "حذف شد", () => nav(`/${orgId}/${meta.path}`)); } }]
+          ? [{ key: "del", icon: <Ic icon={Trash2} />, danger: true, label: "حذف", onClick: async () => { if (await n.confirm(`حذف ${meta.title}؟`, undefined, true)) action(() => api.del(`/goods/invoices/${inv.id}`), "حذف شد", () => nav(`/${orgId}/${meta.path}`)); } }]
           : []),
       ]
     : [];
 
+  const isPosted = !!inv && inv.status === "posted";
+  const remaining = inv ? D(inv.remaining ?? 0) : D(0);
   return (
-    <div>
+    <div className="sf-doc">
       <PageHeader
         back={`/${orgId}/${meta.path}`}
-        title={inv ? `${meta.title} شماره‌ی ${faDigits(inv.no)}` : `${meta.title} جدید`}
-        subtitle={inv ? <>ثبت: <JDateTime v={inv.created_at} />{inv.created_by_name ? ` · ${inv.created_by_name}` : ""}</> : "F4: اسکن بارکد · Enter: خانه‌ی بعد · F2: ثبت · Alt+N: ردیف جدید"}
-        extra={inv ? <div className="flex flex-wrap gap-1"><InvoiceStatus s={inv.status} />{inv.extra?.converted_to ? <Tag variant="filled" color="purple">تبدیل‌شده</Tag> : null}</div> : null}
+        title={inv ? `${meta.title} ${faDigits(inv.no)}` : `${meta.title} جدید`}
+        subtitle={
+          inv ? (
+            <span className="sf-doc-meta">
+              <InvoiceStatus s={inv.status} />
+              {inv.extra?.converted_to ? <><span className="sf-sep" aria-hidden /><span>تبدیل‌شده</span></> : null}
+              <span className="sf-sep" aria-hidden />
+              <JDateTime v={inv.created_at} />
+              {inv.created_by_name ? <><span className="sf-sep" aria-hidden /><span>{inv.created_by_name}</span></> : null}
+            </span>
+          ) : null
+        }
         actions={
           <>
-            {settleable ? (
-              <Button icon={<DollarOutlined />} onClick={() => nav(`/${orgId}/treasury/docs/new?kind=${meta.settle}&party=${inv.party_id}&invoice=${inv.id}`)}>
-                {meta.settle === "receipt" ? "ثبت دریافت" : "ثبت پرداخت"}
-              </Button>
+            {moreItems.length ? (
+              <Dropdown trigger={["click"]} menu={{ items: moreItems }} placement="bottomLeft">
+                <Button icon={<Ic icon={Ellipsis} />} aria-label="بیشتر" />
+              </Dropdown>
             ) : null}
+            <Tooltip title="چاپ فاکتور">
+              <Button icon={<Ic icon={Printer} />} onClick={() => window.print()} aria-label="چاپ" />
+            </Tooltip>
             {!readonly ? (
               <>
-                <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={() => save(meta.postable ? "posted" : "draft")}>
-                  {meta.postable ? "ثبت فاکتور" : "ذخیره"} <span className="tz-kbd ltr ms-1 !bg-transparent !text-white/80">F2</span>
-                </Button>
                 {meta.postable ? <Button onClick={() => save("draft")} disabled={saving}>پیش‌نویس</Button> : null}
+                <Button type="primary" loading={saving} onClick={() => save(meta.postable ? "posted" : "draft")}>
+                  {meta.postable ? "ثبت فاکتور" : "ذخیره"}
+                  <span className="sf-kw" aria-hidden><bdi dir="ltr"><kbd>F2</kbd></bdi></span>
+                </Button>
               </>
-            ) : null}
-            <Button icon={<PrinterOutlined />} onClick={() => window.print()}>چاپ</Button>
-            {moreItems.length ? (
-              <Dropdown trigger={["click"]} menu={{ items: moreItems }}>
-                <Button icon={<MoreOutlined />} aria-label="بیشتر" />
-              </Dropdown>
             ) : null}
           </>
         }
       />
 
-      <div className="no-print">
-        {inv?.status === "cancelled" ? <Alert className="!mb-3" type="error" showIcon title="این سند ابطال شده و اثری در انبار و حساب‌ها ندارد." /> : null}
-        {inv?.converted_to ? (
-          <Alert className="!mb-3" type="info" showIcon title={<span>این سند به <Link to={`/${orgId}/${INVOICE_META[inv.converted_to.kind as InvoiceKind].path}/${inv.converted_to.id}`}>{INVOICE_META[inv.converted_to.kind as InvoiceKind].title} شماره‌ی {faDigits(inv.converted_to.no)}</Link> تبدیل شده است.</span>} />
-        ) : null}
-        {inv?.converted_from ? (
-          <Alert className="!mb-3" type="info" showIcon title={<span>ساخته‌شده از <Link to={`/${orgId}/${INVOICE_META[inv.converted_from.kind as InvoiceKind].path}/${inv.converted_from.id}`}>{INVOICE_META[inv.converted_from.kind as InvoiceKind].title} شماره‌ی {faDigits(inv.converted_from.no)}</Link></span>} />
-        ) : null}
-        {inv?.returns?.length ? (
-          <Alert
-            className="!mb-3"
-            type="warning"
-            showIcon
-            title={<span>برگشتی‌ها: {inv.returns.map((r: any, i: number) => <span key={r.id}>{i ? "، " : ""}<Link to={`/${orgId}/${INVOICE_META[r.kind as InvoiceKind].path}/${r.id}`}>شماره‌ی {faDigits(r.no)}</Link></span>)}</span>}
-          />
-        ) : null}
-      </div>
+      {inv?.status === "cancelled" ? <div className="sf-inline no-print" data-tone="danger"><i className="sf-nuqta" aria-hidden /><span><b>ابطال شده.</b> این سند اثری در انبار و حساب‌ها ندارد.</span></div> : null}
+      {inv?.converted_to ? (
+        <div className="sf-inline no-print"><i className="sf-nuqta" aria-hidden /><span>این سند به <Link className="sf-link" to={`/${orgId}/${INVOICE_META[inv.converted_to.kind as InvoiceKind].path}/${inv.converted_to.id}`}>{INVOICE_META[inv.converted_to.kind as InvoiceKind].title} {faDigits(inv.converted_to.no)}</Link> تبدیل شده است.</span></div>
+      ) : null}
+      {inv?.converted_from ? (
+        <div className="sf-inline no-print"><i className="sf-nuqta" aria-hidden /><span>ساخته‌شده از <Link className="sf-link" to={`/${orgId}/${INVOICE_META[inv.converted_from.kind as InvoiceKind].path}/${inv.converted_from.id}`}>{INVOICE_META[inv.converted_from.kind as InvoiceKind].title} {faDigits(inv.converted_from.no)}</Link></span></div>
+      ) : null}
+      {inv?.returns?.length ? (
+        <div className="sf-inline no-print" data-tone="warning">
+          <i className="sf-nuqta" aria-hidden />
+          <span><b>برگشتی دارد:</b> {inv.returns.map((r: any, i: number) => <span key={r.id}>{i ? "، " : ""}<Link className="sf-link" to={`/${orgId}/${INVOICE_META[r.kind as InvoiceKind].path}/${r.id}`}>{INVOICE_META[r.kind as InvoiceKind].title} {faDigits(r.no)}</Link></span>)}</span>
+        </div>
+      ) : null}
 
-      <div className="tz-card no-print p-4">
-        {/* header */}
-        <div className="mb-4 grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+      {/* header */}
+      <section className="sf-doc-card no-print" aria-label="مشخصات سند">
+        <div className="sf-doc-pad sf-fields">
           {isNew ? (
-            <div>
-              <div className="mb-1 text-xs text-muted">نوع سند</div>
+            <div className="sf-field">
+              <div className="sf-field-l">نوع سند</div>
               <Select className="w-full" value={kind} onChange={(k) => setKind(k)} options={allowedKinds.map((k) => ({ value: k, label: INVOICE_META[k].title }))} disabled={!!refParam} />
             </div>
           ) : (
-            <div>
-              <div className="mb-1 text-xs text-muted">نوع سند</div>
-              <div className="pt-1"><KindTag kind={kind} /></div>
+            <div className="sf-field">
+              <div className="sf-field-l">نوع سند</div>
+              <div className="sf-field-v"><KindTag kind={kind} /></div>
             </div>
           )}
-          <div>
-            <div className="mb-1 text-xs text-muted">تاریخ</div>
+          <div className="sf-field">
+            <div className="sf-field-l">تاریخ</div>
             <DateInput value={date} onChange={setDate} disabled={readonly} />
           </div>
-          <div className="xl:col-span-2">
-            <div className="mb-1 flex items-center justify-between text-xs text-muted">
-              <span>{meta.party}</span>
+          <div className="sf-field span-2">
+            <div className="sf-field-l">
+              {meta.party}
               {party ? (
-                <span className="flex items-center gap-2">
-                  <Tooltip title="مانده‌ی حساب این شخص در دفاتر">مانده: <Balance v={party.balance} /></Tooltip>
-                  {creditLimit ? <span>سقف: <Money v={creditLimit.toString()} /></span> : null}
+                <span className="sf-field-x">
+                  <Tooltip title="مانده‌ی حساب این شخص در دفاتر"><span>مانده <Balance v={party.balance} /></span></Tooltip>
+                  {creditLimit ? <><span className="sf-sep" aria-hidden /><span>سقف <Money v={creditLimit.toString()} /></span></> : null}
                 </span>
               ) : null}
             </div>
-            <div className="flex gap-1">
+            <div className="flex gap-1.5">
               <PartySelect
                 className="min-w-0 flex-1"
                 value={partyId}
                 allowClear
                 disabled={readonly || (isReturn && !!refInvoiceId)}
-                placeholder={meta.sale ? "خالی = مشتری نقدی (گذری)" : "انتخاب فروشنده…"}
+                placeholder={meta.sale ? "خالی، مشتری نقدی (گذری)" : "انتخاب فروشنده…"}
                 onChange={(pid) => {
                   setPartyId(pid);
                   setBuyer(null);
@@ -567,8 +570,9 @@ function InvoiceEditor({ id }: { id: string | null }) {
               />
               <Tooltip title={meta.sale ? "مشخصات خریدار (برای صورتحساب رسمی)" : "مشخصات فروشنده"}>
                 <Button
-                  icon={<IdcardOutlined />}
+                  icon={<Ic icon={IdCard} />}
                   disabled={readonly}
+                  aria-label="مشخصات روی فاکتور"
                   onClick={() => {
                     setBuyerDraft({ ...(effectiveBuyer ?? {}) } as Record<string, string>);
                     setBuyerOpen(true);
@@ -576,79 +580,87 @@ function InvoiceEditor({ id }: { id: string | null }) {
                 />
               </Tooltip>
             </div>
-            {party?.party?.is_blacklisted ? <div className="mt-1 text-xs text-bad"><WarningOutlined /> این شخص در فهرست سیاه است</div> : null}
-            {overCredit ? <div className="mt-1 text-xs text-warn"><WarningOutlined /> با این فاکتور از سقف اعتبار شخص بیشتر می‌شود</div> : null}
+            {party?.party?.is_blacklisted ? <div className="sf-field-err"><Ic icon={CircleAlert} size={14} />این شخص در فهرست سیاه است.</div> : null}
+            {overCredit ? <div className="sf-field-warn"><Ic icon={TriangleAlert} size={14} />با این فاکتور از سقف اعتبار شخص بیشتر می‌شود.</div> : null}
           </div>
-          <div>
-            <div className="mb-1 text-xs text-muted">انبار</div>
+          <div className="sf-field">
+            <div className="sf-field-l">انبار</div>
             <RefSelect entity="warehouse" value={warehouseId} onChange={setWarehouseId} disabled={readonly} showCode={false} />
           </div>
-          <div>
-            <div className="mb-1 text-xs text-muted">{kind === "quote" ? "اعتبار تا" : "سررسید"}</div>
+          <div className="sf-field">
+            <div className="sf-field-l">{kind === "quote" ? "اعتبار تا" : "سررسید"}</div>
             <DateInput value={dueDate} onChange={setDueDate} allowClear disabled={readonly} placeholder="—" />
           </div>
           {meta.sale ? (
-            <div>
-              <div className="mb-1 text-xs text-muted">فهرست قیمت</div>
+            <div className="sf-field">
+              <div className="sf-field-l">فهرست قیمت</div>
               <RefSelect entity="price_list" value={priceListId} onChange={setPriceListId} allowClear disabled={readonly} showCode={false} placeholder={party?.price_list_id ? "فهرست شخص" : "خودکار"} />
             </div>
           ) : null}
-          <div>
-            <div className="mb-1 text-xs text-muted">{meta.sale ? "شماره‌ی عطف" : "شماره‌ی فاکتور فروشنده"}</div>
-            <Input value={refNo} onChange={(e) => setRefNo(e.target.value)} disabled={readonly} dir="ltr" />
+          <div className="sf-field">
+            <div className="sf-field-l">{meta.sale ? "شماره‌ی عطف" : "شماره‌ی فاکتور فروشنده"}</div>
+            <Input value={refNo} onChange={(e) => setRefNo(e.target.value)} disabled={readonly} dir="ltr" className="sf-numin" />
           </div>
-          <div>
-            <div className="mb-1 text-xs text-muted">نحوه‌ی تسویه</div>
+          <div className="sf-field">
+            <div className="sf-field-l">نحوه‌ی تسویه</div>
             <Select className="w-full" allowClear value={settlement ?? undefined} onChange={(v) => setSettlement(v ?? null)} options={SETTLEMENT} disabled={readonly} placeholder="—" />
           </div>
           {isReturn ? (
-            <div className="xl:col-span-2">
-              <div className="mb-1 text-xs text-muted">فاکتور اصلی</div>
+            <div className="sf-field span-2">
+              <div className="sf-field-l">فاکتور اصلی</div>
               {refInvoiceId ? (
-                <Link to={`/${orgId}/${INVOICE_META[RETURN_KIND.sale === kind ? "sale" : "purchase"].path}/${refInvoiceId}`} className="inline-block pt-1">
-                  {inv?.ref_invoice ? `${INVOICE_META[inv.ref_invoice.kind as InvoiceKind].title} شماره‌ی ${faDigits(inv.ref_invoice.no)}` : refQ.data ? `شماره‌ی ${faDigits(refQ.data.invoice.no)}` : "مشاهده"}
-                </Link>
+                <div className="sf-field-v">
+                  <Link className="sf-link" to={`/${orgId}/${INVOICE_META[RETURN_KIND.sale === kind ? "sale" : "purchase"].path}/${refInvoiceId}`}>
+                    {inv?.ref_invoice ? `${INVOICE_META[inv.ref_invoice.kind as InvoiceKind].title} ${faDigits(inv.ref_invoice.no)}` : refQ.data ? `فاکتور ${faDigits(refQ.data.invoice.no)}` : "مشاهده"}
+                  </Link>
+                </div>
               ) : (
-                <div className="pt-1 text-xs text-muted">بدون فاکتور مرجع (برگشت را از صفحه‌ی فاکتور اصلی بزنید تا قیمت و بهای آن بیاید)</div>
+                <div className="sf-field-h">بدون فاکتور مرجع؛ برگشت را از صفحه‌ی فاکتور اصلی بزنید تا قیمت و بهای آن بیاید.</div>
               )}
             </div>
           ) : null}
         </div>
+      </section>
 
-        {/* scan + tools */}
-        {!readonly ? (
-          <div className="mb-2 flex flex-wrap items-center gap-2">
-            <Input
-              ref={scanRef}
-              className="!w-72"
-              prefix={<BarcodeOutlined className="text-muted" />}
-              placeholder="اسکن بارکد یا کد کالا و Enter (F4)"
-              value={scan}
-              onChange={(e) => setScan(e.target.value)}
-              onPressEnter={doScan}
-              autoFocus={isNew && meta.sale && !refParam}
-              dir="ltr"
-            />
-            <Button size="small" type={showDesc ? "primary" : "default"} ghost={showDesc} onClick={() => setShowDesc(!showDesc)}>شرح ردیف</Button>
-            {!isReturn ? <Button size="small" onClick={repriceAll}>{meta.sale ? "اعمال قیمت فهرست" : "اعمال قیمت خرید کالاها"}</Button> : null}
-          </div>
-        ) : null}
-
-        {/* grid */}
-        <div ref={gridRef} className="overflow-x-auto">
-          <table className="tz-grid min-w-[1000px]">
+      {/* lines */}
+      <section className="sf-doc-card no-print" aria-label="اقلام">
+        <div className="sf-doc-h flex-wrap">
+          <h2>اقلام</h2>
+          <span className="sf-doc-hm">مبالغ به {unit}</span>
+          {!readonly ? (
+            <div className="sf-doc-hx flex-wrap">
+              <Input
+                ref={scanRef}
+                className="sf-scan-in !w-72"
+                prefix={<Ic icon={ScanBarcode} className="text-ink-3" />}
+                suffix={<bdi dir="ltr" className="sf-scan-k sf-latin">F4</bdi>}
+                placeholder="اسکن بارکد یا کد کالا، Enter"
+                value={scan}
+                onChange={(e) => setScan(e.target.value)}
+                onPressEnter={doScan}
+                autoFocus={isNew && meta.sale && !refParam}
+                dir="ltr"
+                aria-label="اسکن بارکد"
+              />
+              <Button size="small" type="text" aria-pressed={showDesc} className={showDesc ? "!bg-sunken !text-ink" : ""} icon={<Ic icon={TextIcon} />} onClick={() => setShowDesc(!showDesc)}>شرح ردیف</Button>
+              {!isReturn ? <Button size="small" type="text" icon={<Ic icon={Tags} />} onClick={repriceAll}>{meta.sale ? "قیمت فهرست" : "قیمت خرید کالاها"}</Button> : null}
+            </div>
+          ) : null}
+        </div>
+        <div ref={gridRef} className="sf-grid-wrap">
+          <table className="sf-grid min-w-[1000px]">
             <thead>
               <tr>
-                <th className="w-10">ردیف</th>
+                <th className="w-12">ردیف</th>
                 <th className="min-w-[260px]">کالا / خدمت</th>
                 {showDesc ? <th className="min-w-[180px]">شرح</th> : null}
                 <th className="w-[120px]">مقدار</th>
                 <th className="w-[100px]">واحد</th>
-                <th className="w-[150px]">فی ({unit})</th>
+                <th className="w-[148px]">فی</th>
                 <th className="w-[140px]">تخفیف</th>
-                <th className="w-[90px]">مالیات ٪</th>
-                <th className="w-[150px]">مبلغ</th>
-                {!readonly ? <th className="w-10" /> : null}
+                <th className="w-[92px]">مالیات</th>
+                <th className="w-[148px]">مبلغ</th>
+                {!readonly ? <th className="w-10" aria-label="حذف" /> : null}
               </tr>
             </thead>
             <tbody>
@@ -659,9 +671,9 @@ function InvoiceEditor({ id }: { id: string | null }) {
                   && D(l.qty).times(D(factorOf(l))).gt(D(stock)) && !inv;
                 return (
                   <tr key={l.key}>
-                    <td className="num text-center text-xs text-muted">{faDigits(i + 1)}</td>
+                    <td className="sf-gi">{faDigits(i + 1)}</td>
                     <td data-cell={`${i}-0`}>
-                      <ItemSelect variant="borderless" value={l.item?.id} item={l.item} ctx={lookupCtx} disabled={readonly || (isReturn && !!refInvoiceId && !!l.item)} onChange={(it) => pickItem(i, it)} />
+                      <ItemSelect variant="borderless" className="w-full" value={l.item?.id} item={l.item} ctx={lookupCtx} disabled={readonly || (isReturn && !!refInvoiceId && !!l.item)} onChange={(it) => pickItem(i, it)} />
                     </td>
                     {showDesc ? (
                       <td>
@@ -669,11 +681,11 @@ function InvoiceEditor({ id }: { id: string | null }) {
                       </td>
                     ) : null}
                     <td data-cell={`${i}-1`}>
-                      <div className="flex items-center">
+                      <div className="flex items-center gap-1">
                         <NumberInput variant="borderless" decimals={decimalsOf(l)} value={l.qty} disabled={readonly || !l.item} onChange={(v) => set(i, { qty: v })} onPressEnter={() => onEnter(i, 1)} />
                         {short ? (
                           <Tooltip title={`موجودی: ${formatNumber(inUnit(stock!, factorOf(l)), { dp: 3 })} ${unitNameOf(l)}`}>
-                            <WarningOutlined className="text-warn" />
+                            <span className="inline-grid shrink-0 text-warning" aria-label="بیش از موجودی"><Ic icon={TriangleAlert} size={14} /></span>
                           </Tooltip>
                         ) : null}
                       </div>
@@ -692,11 +704,11 @@ function InvoiceEditor({ id }: { id: string | null }) {
                           ]}
                         />
                       ) : (
-                        <span className="px-2 text-xs text-muted">{unitNameOf(l)}</span>
+                        <span className="px-2 text-[13px] text-ink-3">{unitNameOf(l)}</span>
                       )}
                     </td>
                     <td data-cell={`${i}-2`}>
-                      <MoneyInput variant="borderless" value={l.unit_price} disabled={readonly || !l.item} onChange={(v) => set(i, { unit_price: v })} onPressEnter={() => onEnter(i, 2)} placeholder="۰" />
+                      <MoneyInput variant="borderless" value={l.unit_price} disabled={readonly || !l.item} onChange={(v) => set(i, { unit_price: v })} onPressEnter={() => onEnter(i, 2)} placeholder={l.item ? "۰" : ""} />
                     </td>
                     <td data-cell={`${i}-3`}>
                       <div className="flex items-center">
@@ -707,7 +719,7 @@ function InvoiceEditor({ id }: { id: string | null }) {
                         )}
                         {!readonly && l.item ? (
                           <Tooltip title={l.disc_mode === "pct" ? "تخفیف به مبلغ" : "تخفیف به درصد"}>
-                            <Button size="small" type="text" tabIndex={-1} icon={<SwapOutlined />} onClick={() => set(i, l.disc_mode === "pct" ? { disc_mode: "amount", discount: c?.line_discount && !D(c.line_discount).isZero() ? c.line_discount : null, discount_pct: null } : { disc_mode: "pct", discount: null, discount_pct: null })} />
+                            <Button size="small" type="text" tabIndex={-1} icon={<Ic icon={ArrowLeftRight} size={14} />} aria-label="تغییر نوع تخفیف" onClick={() => set(i, l.disc_mode === "pct" ? { disc_mode: "amount", discount: c?.line_discount && !D(c.line_discount).isZero() ? c.line_discount : null, discount_pct: null } : { disc_mode: "pct", discount: null, discount_pct: null })} />
                           </Tooltip>
                         ) : null}
                       </div>
@@ -715,11 +727,11 @@ function InvoiceEditor({ id }: { id: string | null }) {
                     <td data-cell={`${i}-4`}>
                       <PctInput variant="borderless" value={l.vat_pct} disabled={readonly || !l.item} onChange={(v) => set(i, { vat_pct: v })} onPressEnter={() => onEnter(i, 4)} />
                     </td>
-                    <td className="px-2 text-left">
+                    <td className="sf-gn">
                       {c ? (
                         <Tooltip
                           title={
-                            <div className="text-xs leading-5">
+                            <div className="text-[12px] leading-5">
                               <div>مبلغ کل: {formatNumber(c.gross, { dp })}</div>
                               {!D(c.line_discount).isZero() ? <div>تخفیف ردیف: {formatNumber(c.line_discount, { dp })}</div> : null}
                               {!D(c.header_discount).isZero() ? <div>سهم تخفیف فاکتور: {formatNumber(c.header_discount, { dp })}</div> : null}
@@ -732,8 +744,10 @@ function InvoiceEditor({ id }: { id: string | null }) {
                       ) : null}
                     </td>
                     {!readonly ? (
-                      <td className="text-center">
-                        <Button type="text" size="small" danger icon={<DeleteOutlined />} tabIndex={-1} onClick={() => setLines((ls) => (ls.length > 1 ? ls.filter((_, j) => j !== i) : [blank()]))} aria-label="حذف ردیف" />
+                      <td>
+                        <span className="sf-row-x">
+                          <Button type="text" size="small" icon={<Ic icon={X} />} tabIndex={-1} onClick={() => setLines((ls) => (ls.length > 1 ? ls.filter((_, j) => j !== i) : [blank()]))} aria-label="حذف ردیف" />
+                        </span>
                       </td>
                     ) : null}
                   </tr>
@@ -743,71 +757,93 @@ function InvoiceEditor({ id }: { id: string | null }) {
             <tfoot>
               <tr>
                 <td colSpan={showDesc ? 3 : 2}>
-                  {!readonly ? <Button size="small" icon={<PlusOutlined />} onClick={() => setLines((ls) => [...ls, blank()])}>ردیف</Button> : null}
-                  <span className="ms-3 text-xs font-normal text-muted">{faDigits(itemLines.length)} ردیف</span>
+                  <span className="inline-flex items-center gap-3">
+                    {!readonly ? <Button size="small" icon={<Ic icon={Plus} />} onClick={() => setLines((ls) => [...ls, blank()])}>ردیف<span className="sf-kw" aria-hidden><bdi dir="ltr"><kbd>Alt</kbd><kbd>N</kbd></bdi></span></Button> : null}
+                    <span className="sf-cnt"><span className="sf-num">{faDigits(itemLines.length)}</span> ردیف</span>
+                  </span>
                 </td>
                 <td colSpan={5} />
-                <td className="text-left"><Money v={D(calc.net).plus(D(calc.tax)).toString()} /></td>
+                <td className="sf-gn"><Money v={D(calc.net).plus(D(calc.tax)).toString()} /></td>
                 {!readonly ? <td /> : null}
               </tr>
             </tfoot>
           </table>
         </div>
+      </section>
 
-        {/* notes + totals */}
-        <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_380px]">
-          <div className="grid content-start gap-3">
-            <div>
-              <div className="mb-1 text-xs text-muted">توضیحات (روی فاکتور چاپ می‌شود)</div>
-              <Input.TextArea value={notes} onChange={(e) => setNotes(e.target.value)} autoSize={{ minRows: 2, maxRows: 5 }} disabled={readonly} />
+      {/* notes + totals */}
+      <div className="grid items-start gap-4 no-print lg:grid-cols-[minmax(0,1fr)_400px]">
+        <section className="sf-doc-card" aria-label="توضیحات">
+          <div className="sf-doc-pad grid gap-4">
+            <div className="sf-field">
+              <div className="sf-field-l">توضیحات<span className="sf-field-x">روی فاکتور چاپ می‌شود</span></div>
+              <Input.TextArea value={notes} onChange={(e) => setNotes(e.target.value)} autoSize={{ minRows: 3, maxRows: 6 }} disabled={readonly} />
             </div>
             {kind === "quote" || kind === "sale_order" || kind === "purchase_order" ? (
-              <div>
-                <div className="mb-1 text-xs text-muted">شرایط (پرداخت، تحویل، اعتبار)</div>
+              <div className="sf-field">
+                <div className="sf-field-l">شرایط (پرداخت، تحویل، اعتبار)</div>
                 <Input.TextArea value={terms} onChange={(e) => setTerms(e.target.value)} autoSize={{ minRows: 2, maxRows: 5 }} disabled={readonly} />
               </div>
             ) : null}
           </div>
-          <div className="tz-soft p-3 text-sm">
-            <Row label="جمع ردیف‌ها" v={calc.subtotal} />
-            {!D(calc.line_discount).isZero() ? <Row label="تخفیف ردیف‌ها" v={calc.line_discount} neg /> : null}
-            <div className="flex items-center justify-between gap-2 py-1">
-              <span className="flex items-center gap-1 text-muted">
-                تخفیف فاکتور
-                {!readonly ? (
-                  <Button size="small" type="link" className="!px-1" onClick={() => { setDiscMode(discMode === "amount" ? "pct" : "amount"); setDiscount(null); setDiscountPct(null); }}>
-                    {discMode === "amount" ? "(درصد)" : "(مبلغ)"}
-                  </Button>
-                ) : null}
-              </span>
-              <div className="w-40">
-                {discMode === "amount" ? <MoneyInput size="small" value={discount} onChange={setDiscount} disabled={readonly} placeholder="۰" /> : <PctInput size="small" value={discountPct} onChange={setDiscountPct} disabled={readonly} />}
+        </section>
+        <section className="sf-doc-card" aria-label="جمع فاکتور">
+          <div className="sf-doc-pad !py-4">
+            <div className="sf-sums is-flat">
+              <SRow label="جمع ردیف‌ها" v={calc.subtotal} />
+              {!D(calc.line_discount).isZero() ? <SRow label="تخفیف ردیف‌ها" v={D(calc.line_discount).neg().toString()} /> : null}
+              <div className="r is-field">
+                <span>
+                  تخفیف فاکتور
+                  {!readonly ? (
+                    <button type="button" className="sf-link !text-[12px]" onClick={() => { setDiscMode(discMode === "amount" ? "pct" : "amount"); setDiscount(null); setDiscountPct(null); }}>
+                      {discMode === "amount" ? "به درصد" : "به مبلغ"}
+                    </button>
+                  ) : null}
+                </span>
+                <span className="n">{discMode === "amount" ? <MoneyInput size="small" value={discount} onChange={setDiscount} disabled={readonly} placeholder="—" /> : <PctInput size="small" value={discountPct} onChange={setDiscountPct} disabled={readonly} />}</span>
               </div>
+              {discMode === "pct" && !D(calc.discount).isZero() ? <SRow label="مبلغ تخفیف فاکتور" v={D(calc.discount).neg().toString()} /> : null}
+              <SRow label="مالیات و عوارض ارزش افزوده" v={calc.tax} />
+              <div className="r is-field">
+                <span>اضافات<span className="why">حمل، بسته‌بندی</span></span>
+                <span className="n"><MoneyInput size="small" value={additions} onChange={setAdditions} disabled={readonly} placeholder="—" /></span>
+              </div>
+              <div className="r is-field">
+                <span>کسورات</span>
+                <span className="n"><MoneyInput size="small" value={deductions} onChange={setDeductions} disabled={readonly} placeholder="—" /></span>
+              </div>
+              <div className="r is-total">
+                <span>مبلغ نهایی</span>
+                <span className="n"><Money v={calc.total} /><span className="sf-unit">{"\u00a0"}{unit}</span></span>
+              </div>
+              {D(calc.total).gt(0) ? <div className="r is-words"><span>{amountToWords(calc.total, unit)}</span></div> : null}
             </div>
-            {discMode === "pct" && !D(calc.discount).isZero() ? <Row label="مبلغ تخفیف فاکتور" v={calc.discount} neg /> : null}
-            <Row label="مالیات و عوارض ارزش افزوده" v={calc.tax} />
-            <div className="flex items-center justify-between gap-2 py-1">
-              <span className="text-muted">اضافات (حمل، بسته‌بندی…)</span>
-              <div className="w-40"><MoneyInput size="small" value={additions} onChange={setAdditions} disabled={readonly} placeholder="۰" /></div>
-            </div>
-            <div className="flex items-center justify-between gap-2 py-1">
-              <span className="text-muted">کسورات</span>
-              <div className="w-40"><MoneyInput size="small" value={deductions} onChange={setDeductions} disabled={readonly} placeholder="۰" /></div>
-            </div>
-            <div className="mt-2 flex items-center justify-between border-t border-line pt-2 text-base font-extrabold">
-              <span>مبلغ نهایی</span>
-              <Money v={calc.total} unit />
-            </div>
-            <div className="mt-1 text-[11px] leading-5 text-muted">{D(calc.total).gt(0) ? amountToWords(calc.total, unit) : ""}</div>
-            {inv && meta.postable && inv.status === "posted" ? (
-              <div className="mt-2 border-t border-line pt-2">
-                <Row label={meta.settle === "receipt" ? "دریافت‌شده" : "پرداخت‌شده"} v={inv.allocated} />
-                <Row label="مانده" v={inv.remaining ?? "0"} strong />
-                {inv.gross_profit !== null && inv.gross_profit !== undefined && can("reports", "view") ? <Row label="سود ناخالص" v={inv.gross_profit} /> : null}
+            {isPosted && meta.postable ? (
+              <div className="mt-2">
+                <div className="sf-sums is-flat">
+                  <SRow label={meta.settle === "receipt" ? "دریافت‌شده" : "پرداخت‌شده"} v={inv.allocated} />
+                  {inv.gross_profit !== null && inv.gross_profit !== undefined && can("reports", "view") ? <SRow label="سود ناخالص" v={inv.gross_profit} sub /> : null}
+                </div>
+                {remaining.isZero() ? (
+                  <div className="sf-settle" data-state="in"><span className="k">تسویه شد</span></div>
+                ) : (
+                  <div className="sf-settle" data-state="due">
+                    <span className="k">
+                      مانده تا تسویه
+                      {settleable ? (
+                        <button type="button" className="sf-link !text-[12px] !font-normal" onClick={() => nav(`/${orgId}/treasury/docs/new?kind=${meta.settle}&party=${inv.party_id}&invoice=${inv.id}`)}>
+                          {meta.settle === "receipt" ? "ثبت دریافت" : "ثبت پرداخت"}
+                        </button>
+                      ) : null}
+                    </span>
+                    <span className="n"><Money v={remaining.toString()} /></span>
+                  </div>
+                )}
               </div>
             ) : null}
           </div>
-        </div>
+        </section>
       </div>
 
       <InvoicePrint data={printData} />
@@ -827,25 +863,22 @@ function InvoiceEditor({ id }: { id: string | null }) {
         <div className="grid gap-3 md:grid-cols-2">
           {BUYER_FIELDS.map(([k, label, ltr]) => (
             <div key={k} className={k === "address" ? "md:col-span-2" : ""}>
-              <div className="mb-1 text-xs text-muted">{label}</div>
+              <div className="sf-field-l mb-1.5">{label}</div>
               <Input value={buyerDraft[k] ?? ""} dir={ltr ? "ltr" : undefined} onChange={(e) => setBuyerDraft({ ...buyerDraft, [k]: e.target.value })} />
             </div>
           ))}
         </div>
-        <div className="mt-2 text-[11px] text-muted">این مشخصات فقط روی همین فاکتور ذخیره می‌شود؛ برای تغییر پرونده‌ی شخص از بخش اشخاص اقدام کنید.</div>
+        <div className="mt-3 text-[12px] text-ink-3">این مشخصات فقط روی همین فاکتور ذخیره می‌شود؛ برای تغییر پرونده‌ی شخص از بخش اشخاص اقدام کنید.</div>
       </Modal>
     </div>
   );
 }
 
-function Row({ label, v, neg, strong }: { label: string; v: string; neg?: boolean; strong?: boolean }) {
+function SRow({ label, v, sub }: { label: string; v: string; sub?: boolean }) {
   return (
-    <div className={`flex items-center justify-between py-1 ${strong ? "font-bold" : ""}`}>
-      <span className="text-muted">{label}</span>
-      <span className={neg ? "tz-neg" : ""}>
-        {neg ? "−" : ""}
-        <Money v={v} />
-      </span>
+    <div className={`r ${sub ? "is-sub" : ""}`}>
+      <span>{label}</span>
+      <span className="n"><Money v={v} zero="—" /></span>
     </div>
   );
 }

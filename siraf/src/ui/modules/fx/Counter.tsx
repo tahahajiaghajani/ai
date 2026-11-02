@@ -5,21 +5,22 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import { useQuery, useQueryClient, keepPreviousData } from "@tanstack/react-query";
-import { Alert, Button, Checkbox, Input, Segmented, Select, Spin, Table, Tag, Tooltip } from "antd";
-import { SwapOutlined, SaveOutlined, ReloadOutlined, UserOutlined, IdcardOutlined, RetweetOutlined, WarningOutlined } from "@ant-design/icons";
+import { Alert, Button, Checkbox, Input, Segmented, Select, Table, Tooltip } from "antd";
+import { ArrowDown, ArrowLeftRight, Lock, RefreshCw, Repeat } from "lucide-react";
+import { Ic } from "../../components/shell/icons";
 import { useOrg } from "../../lib/org";
 import { useDebounced, useHotkey, useLocalState, useNotify } from "../../lib/hooks";
 import { errorText } from "../../lib/api";
-import { PageHeader, Section } from "../../components/layout";
+import { PageHeader } from "../../components/layout";
 import { DateInput, NumberInput, PartySelect } from "../../components/inputs";
-import { Money } from "../../components/display";
+import { Chip, Loader, Money } from "../../components/display";
 import { D } from "@shared/money";
-import { faDigits } from "@shared/format";
+import { faDigits, formatNumber } from "@shared/format";
 import { todayISO } from "@shared/jalali";
 import { CHAINS } from "@shared/entities";
 import { isNationalId, isCryptoAddress, type ChainId } from "@shared/validate";
 import { numberToWords } from "@shared/words";
-import { CurrencyChip, CurrencyPick, FxAmount, KIND_COLOR, KIND_FA, LegPicker, QuickCurrencies, rateLabel, useBoard, useCurrencyMap, type BoardCurrency, type LegValue } from "./shared";
+import { CurrencyAvatar, CurrencyPick, FxAmount, KIND_FA, LegPicker, QuickCurrencies, rateLabel, useBoard, useCurrencyMap, type BoardCurrency, type LegValue } from "./shared";
 
 const QUICK = ["USD", "EUR", "AED", "GBP", "TRY", "USDT", "BTC"];
 type Side = "give" | "get";
@@ -256,204 +257,207 @@ export default function Counter() {
     }
   };
   useHotkey("f2", () => submit("posted"), [payload, amountsOk, saving, printAfter, mode, partyId]);
+  useHotkey("ctrl+enter", () => submit("posted"), [payload, amountsOk, saving, printAfter, mode, partyId]);
 
-  if (board.isLoading || (editing && existing.isLoading)) return <div className="grid h-64 place-content-center"><Spin /></div>;
+  if (board.isLoading || (editing && existing.isLoading)) return <div className="grid h-64 place-content-center"><Loader /></div>;
   if (editing && existing.error) return <Alert type="error" title={errorText(existing.error)} />;
   if (editing && existing.data?.status === "cancelled") return <Alert type="warning" showIcon title="این معامله باطل شده است؛ برای ویرایش ابتدا آن را دوباره ثبت کنید." />;
   if (!can("fx", "edit")) return <Alert type="warning" showIcon title="برای ثبت معامله دسترسی ویرایش صرافی لازم است." />;
 
   const rateShown = kind === "exchange" && invert && rate && D(rate).gt(0) ? D(1).div(D(rate)).toSignificantDigits(12).toFixed() : rate;
   const boardHint =
-    kind === "buy" && g?.rate ? <>تابلو: خرید <b className="num">{rateLabel(g.rate.buy ?? g.rate.mid, baseDp)}</b></>
-    : kind === "sell" && t?.rate ? <>تابلو: فروش <b className="num">{rateLabel(t.rate.sell ?? t.rate.mid, baseDp)}</b></>
+    kind === "buy" && g?.rate ? <>تابلو، خرید <b className="sf-num font-medium text-ink-2">{rateLabel(g.rate.buy ?? g.rate.mid, baseDp)}</b></>
+    : kind === "sell" && t?.rate ? <>تابلو، فروش <b className="sf-num font-medium text-ink-2">{rateLabel(t.rate.sell ?? t.rate.mid, baseDp)}</b></>
     : kind === "exchange" ? (
       <>
-        {g?.rate ? <span className="block">خرید <span className="ltr">{g.code}</span>: <b className="num">{rateLabel(g.rate.buy ?? g.rate.mid, baseDp)}</b></span> : null}
-        {t?.rate ? <span className="block">فروش <span className="ltr">{t.code}</span>: <b className="num">{rateLabel(t.rate.sell ?? t.rate.mid, baseDp)}</b></span> : null}
+        {g?.rate ? <span className="block">خرید <bdi dir="ltr" className="sf-latin">{g.code}</bdi> <b className="sf-num font-medium text-ink-2">{rateLabel(g.rate.buy ?? g.rate.mid, baseDp)}</b></span> : null}
+        {t?.rate ? <span className="block">فروش <bdi dir="ltr" className="sf-latin">{t.code}</bdi> <b className="sf-num font-medium text-ink-2">{rateLabel(t.rate.sell ?? t.rate.mid, baseDp)}</b></span> : null}
       </>
     )
-    : foreign ? <span className="text-warn">نرخ {foreign.code} در تابلو ثبت نشده</span> : null;
+    : foreign ? <span className="text-warning">نرخ {foreign.code} در تابلو ثبت نشده</span> : null;
   const walkinNidBad = !!walkin.national_id && (!walkin.nationality || /ایران/.test(walkin.nationality)) && !isNationalId(walkin.national_id);
   const addressBad = !!address.trim() && !!network && !isCryptoAddress(network as ChainId, address.trim());
 
   return (
-    <div>
+    <div className="sf-doc">
       <PageHeader
         back={`/${orgId}/fx/deals`}
-        title={editing ? `ویرایش معامله‌ی ش ${faDigits(existing.data?.no ?? "")}` : "معامله‌ی جدید"}
-        subtitle="مبلغ هر طرف را بنویسید؛ طرف دیگر با نرخ حساب می‌شود · F2: ثبت"
-        extra={kind ? <Tag color={KIND_COLOR[kind]} variant="filled" className="!text-sm">{KIND_FA[kind]}</Tag> : null}
-        actions={
-          <>
-            <Tooltip title="پاک کردن فرم"><Button icon={<ReloadOutlined />} onClick={reset} /></Tooltip>
-            <Button onClick={() => submit("draft")} disabled={saving}>پیش‌نویس</Button>
-            <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={() => submit("posted")}>
-              ثبت معامله <span className="tz-kbd ltr ms-1 !bg-transparent !text-white/80">F2</span>
-            </Button>
-          </>
-        }
+        title={editing ? `ویرایش معامله‌ی ${faDigits(existing.data?.no ?? "")}` : "معامله‌ی جدید"}
+        subtitle={<span className="sf-doc-meta">{kind ? <span className="text-ink-2">{KIND_FA[kind]}</span> : <span>دو ارز را انتخاب کنید</span>}</span>}
+        actions={<Tooltip title="پاک کردن فرم"><Button icon={<Ic icon={RefreshCw} />} onClick={reset} aria-label="پاک کردن فرم" /></Tooltip>}
       />
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <div className="grid min-w-0 content-start gap-4">
+      <div className="sf-dpage">
+        <div className="sf-doc">
           {/* customer */}
-          <Section
-            title="مشتری"
-            extra={
-              <Segmented
-                size="small"
-                value={mode}
-                onChange={(v) => setMode(v as "walkin" | "party")}
-                options={[{ value: "walkin", label: <span><IdcardOutlined /> مشتری گذری</span> }, { value: "party", label: <span><UserOutlined /> مشتری ثبت‌شده</span> }]}
-              />
-            }
-          >
-            <div className="grid gap-3 md:grid-cols-[160px_1fr]">
-              <div>
-                <div className="mb-1 text-xs text-muted">تاریخ</div>
-                <DateInput value={date} onChange={setDate} />
+          <section className="sf-doc-card" aria-label="مشتری">
+            <div className="sf-doc-h">
+              <h2>مشتری</h2>
+              <div className="sf-doc-hx">
+                <Segmented
+                  size="small"
+                  value={mode}
+                  onChange={(v) => setMode(v as "walkin" | "party")}
+                  options={[{ value: "walkin", label: "مشتری گذری" }, { value: "party", label: "مشتری ثبت‌شده" }]}
+                />
               </div>
+            </div>
+            <div className="sf-doc-pad grid gap-3 md:grid-cols-[156px_minmax(0,1fr)]">
+              <Field label="تاریخ">
+                <DateInput value={date} onChange={setDate} />
+              </Field>
               {mode === "party" ? (
-                <div>
-                  <div className="mb-1 text-xs text-muted">شخص</div>
+                <Field label="شخص">
                   <PartySelect value={partyId} onChange={(pid, o) => { setPartyId(pid); setPartyName(o?.label ?? null); }} allowClear />
                   {partyBal.data ? <PartyBadges data={partyBal.data} /> : null}
-                </div>
+                </Field>
               ) : (
-                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
-                  <Field label="نام و نام خانوادگی" required={p?.kyc_required} className="lg:col-span-2">
-                    <Input value={walkin.name ?? ""} onChange={(e) => setWalkin({ ...walkin, name: e.target.value })} placeholder="اختیاری برای مبالغ کم" />
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  <Field label="نام و نام خانوادگی" required={p?.kyc_required}>
+                    <Input value={walkin.name ?? ""} onChange={(e) => setWalkin({ ...walkin, name: e.target.value })} placeholder={p?.kyc_required ? "" : "برای مبالغ کم اختیاری"} />
                   </Field>
-                  <Field label="کد ملی" required={p?.kyc_required && !walkin.passport_no}>
-                    <Input dir="ltr" className="num" value={walkin.national_id ?? ""} status={walkinNidBad ? "error" : undefined} onChange={(e) => setWalkin({ ...walkin, national_id: e.target.value })} />
+                  <Field label="کد ملی" required={p?.kyc_required && !walkin.passport_no} error={walkinNidBad ? "کد ملی درست نیست." : null}>
+                    <Input dir="ltr" inputMode="numeric" className="sf-numin" value={walkin.national_id ?? ""} status={walkinNidBad ? "error" : undefined} onChange={(e) => setWalkin({ ...walkin, national_id: e.target.value })} />
                   </Field>
                   <Field label="موبایل">
-                    <Input dir="ltr" className="num" value={walkin.mobile ?? ""} onChange={(e) => setWalkin({ ...walkin, mobile: e.target.value })} />
+                    <Input dir="ltr" inputMode="tel" className="sf-numin" value={walkin.mobile ?? ""} onChange={(e) => setWalkin({ ...walkin, mobile: e.target.value })} />
                   </Field>
-                  <Field label="ملیت / گذرنامه">
-                    <div className="flex gap-1">
-                      <Input value={walkin.nationality ?? ""} onChange={(e) => setWalkin({ ...walkin, nationality: e.target.value })} className="!w-20" />
-                      <Input dir="ltr" value={walkin.passport_no ?? ""} placeholder="گذرنامه" onChange={(e) => setWalkin({ ...walkin, passport_no: e.target.value })} />
-                    </div>
+                  <Field label="ملیت">
+                    <Input value={walkin.nationality ?? ""} onChange={(e) => setWalkin({ ...walkin, nationality: e.target.value })} />
+                  </Field>
+                  <Field label="شماره‌ی گذرنامه">
+                    <Input dir="ltr" className="sf-code" value={walkin.passport_no ?? ""} onChange={(e) => setWalkin({ ...walkin, passport_no: e.target.value })} />
                   </Field>
                 </div>
               )}
             </div>
-          </Section>
+          </section>
 
           {/* the two sides */}
-          <div className="tz-card p-4">
-            <div className="grid items-stretch gap-3 lg:grid-cols-[minmax(0,1fr)_200px_minmax(0,1fr)]">
-              <SidePanel
-                title="مشتری می‌دهد"
-                hint="دریافت ما"
-                tone="in"
-                currencies={currencies}
-                currency={g}
-                onCurrency={(cid) => pickCurrency("give", cid)}
-                amount={giveAmt}
-                onAmount={(v) => { setEdited("give"); setGiveAmt(v); }}
-                leg={giveLeg}
-                onLeg={setGiveLeg}
-                partyName={mode === "party" ? partyName : null}
-                unit={unit}
-                dp={dpOf(g)}
-                computed={edited === "get"}
-              />
-              <div className="flex flex-col items-center justify-center gap-2 py-2">
-                <Tooltip title="جابه‌جایی دو طرف">
-                  <Button shape="circle" icon={<SwapOutlined />} onClick={swap} tabIndex={-1} />
-                </Tooltip>
-                <div className="w-full">
-                  <div className="mb-1 flex items-center justify-between text-xs text-muted">
-                    <span>{kind === "buy" ? "نرخ خرید" : kind === "sell" ? "نرخ فروش" : kind === "exchange" ? "نرخ تبدیل" : "نرخ"}</span>
-                    {kind === "exchange" && g && t ? (
-                      <Tooltip title="جهت نمایش نرخ">
-                        <button type="button" tabIndex={-1} className="ltr text-[11px] text-brand" onClick={() => setInvert(!invert)}>
-                          <RetweetOutlined /> 1 {invert ? t.code : g.code} = ? {invert ? g.code : t.code}
-                        </button>
-                      </Tooltip>
+          <section className="sf-doc-card" aria-label="معامله">
+            <div className="sf-doc-h">
+              <h2>معامله</h2>
+              <span className="sf-doc-hm">مبلغ هر طرف را بنویسید؛ طرف دیگر با نرخ حساب می‌شود.</span>
+            </div>
+            <div className="sf-doc-pad">
+              <div className="grid items-stretch gap-3 lg:grid-cols-[minmax(0,1fr)_188px_minmax(0,1fr)]">
+                <SidePanel
+                  title="مشتری می‌دهد"
+                  hint="دریافت ما"
+                  tone="in"
+                  currencies={currencies}
+                  currency={g}
+                  onCurrency={(cid) => pickCurrency("give", cid)}
+                  amount={giveAmt}
+                  onAmount={(v) => { setEdited("give"); setGiveAmt(v); }}
+                  leg={giveLeg}
+                  onLeg={setGiveLeg}
+                  partyName={mode === "party" ? partyName : null}
+                  unit={unit}
+                  dp={dpOf(g)}
+                  computed={edited === "get"}
+                />
+                <div className="flex flex-col items-stretch justify-center gap-3 py-2">
+                  <div className="sf-swap">
+                    <Tooltip title="جابه‌جایی دو طرف">
+                      <Button shape="circle" icon={<Ic icon={ArrowLeftRight} />} onClick={swap} tabIndex={-1} aria-label="جابه‌جایی دو طرف" />
+                    </Tooltip>
+                  </div>
+                  <div className="sf-field">
+                    <div className="sf-field-l">
+                      {kind === "buy" ? "نرخ خرید" : kind === "sell" ? "نرخ فروش" : kind === "exchange" ? "نرخ تبدیل" : "نرخ"}
+                      {kind === "exchange" && g && t ? (
+                        <span className="sf-field-x">
+                          <Tooltip title="جهت نمایش نرخ">
+                            <button type="button" tabIndex={-1} className="sf-link inline-flex items-center gap-1 !text-[12px]" onClick={() => setInvert(!invert)}>
+                              <Ic icon={Repeat} size={14} /><bdi dir="ltr" className="sf-latin">1 {invert ? t.code : g.code}</bdi>
+                            </button>
+                          </Tooltip>
+                        </span>
+                      ) : null}
+                    </div>
+                    <NumberInput
+                      size="large"
+                      decimals={kind === "exchange" ? 12 : 8}
+                      value={rateShown}
+                      disabled={!kind}
+                      status={kind && kind !== "exchange" && !D(rate).gt(0) ? "warning" : undefined}
+                      suffix={rateTouched ? undefined : kind ? <Tooltip title="نرخ تابلو"><Ic icon={Lock} size={14} /></Tooltip> : undefined}
+                      onChange={(v) => {
+                        setRateTouched(true);
+                        if (kind === "exchange" && invert && v && D(v).gt(0)) setRate(D(1).div(D(v)).toSignificantDigits(14).toFixed());
+                        else setRate(v);
+                      }}
+                    />
+                    <div className="sf-field-h text-center leading-5">{boardHint}</div>
+                    {rateTouched ? (
+                      <button type="button" tabIndex={-1} className="sf-link mx-auto !text-[12px]" onClick={() => setRateTouched(false)}>
+                        بازگشت به نرخ تابلو
+                      </button>
                     ) : null}
                   </div>
-                  <NumberInput
-                    size="large"
-                    decimals={kind === "exchange" ? 12 : 8}
-                    value={rateShown}
-                    disabled={!kind}
-                    status={kind && kind !== "exchange" && !D(rate).gt(0) ? "warning" : undefined}
-                    onChange={(v) => {
-                      setRateTouched(true);
-                      if (kind === "exchange" && invert && v && D(v).gt(0)) setRate(D(1).div(D(v)).toSignificantDigits(14).toFixed());
-                      else setRate(v);
-                    }}
-                  />
-                  <div className="mt-1 text-center text-[11px] leading-5 text-muted">{boardHint}</div>
-                  {rateTouched ? (
-                    <button type="button" tabIndex={-1} className="mx-auto block text-[11px] text-brand" onClick={() => setRateTouched(false)}>
-                      نرخ تابلو
-                    </button>
-                  ) : null}
                 </div>
+                <SidePanel
+                  title="مشتری می‌گیرد"
+                  hint="پرداخت ما"
+                  tone="out"
+                  currencies={currencies}
+                  currency={t}
+                  onCurrency={(cid) => pickCurrency("get", cid)}
+                  amount={getAmt}
+                  onAmount={(v) => { setEdited("get"); setGetAmt(v); }}
+                  leg={getLeg}
+                  onLeg={setGetLeg}
+                  partyName={mode === "party" ? partyName : null}
+                  unit={unit}
+                  dp={dpOf(t)}
+                  computed={edited === "give"}
+                />
               </div>
-              <SidePanel
-                title="مشتری می‌گیرد"
-                hint="پرداخت ما"
-                tone="out"
-                currencies={currencies}
-                currency={t}
-                onCurrency={(cid) => pickCurrency("get", cid)}
-                amount={getAmt}
-                onAmount={(v) => { setEdited("get"); setGetAmt(v); }}
-                leg={getLeg}
-                onLeg={setGetLeg}
-                partyName={mode === "party" ? partyName : null}
-                unit={unit}
-                dp={dpOf(t)}
-                computed={edited === "give"}
-              />
-            </div>
 
-            <div className="mt-4 grid gap-3 border-t border-line pt-4 md:grid-cols-3">
-              <Field label="کارمزد (از مشتری)">
-                <div className="flex gap-1">
-                  <NumberInput value={fee} onChange={setFee} decimals={feeC ? dpOf(curMap.get(feeC) ?? null) : baseDp} />
-                  <Select
-                    className="!w-28"
-                    value={feeC ?? "base"}
-                    onChange={(v) => setFeeC(v === "base" ? null : v)}
-                    popupMatchSelectWidth={false}
-                    options={[{ value: "base", label: unit }, ...[g, t].filter((c): c is BoardCurrency => !!c && !c.is_base).map((c) => ({ value: c.id, label: c.code }))]}
-                  />
-                </div>
-              </Field>
-              {getLeg.method === "wallet" ? (
-                <Field label={`کارمزد شبکه (${t?.code ?? ""}) — هزینه‌ی ما`}>
-                  <NumberInput value={networkFee} onChange={setNetworkFee} decimals={dpOf(t)} />
+              <div className="mt-5 grid gap-3 border-t border-line pt-4 md:grid-cols-3">
+                <Field label="کارمزد (از مشتری)">
+                  <div className="flex gap-1.5">
+                    <NumberInput value={fee} onChange={setFee} decimals={feeC ? dpOf(curMap.get(feeC) ?? null) : baseDp} placeholder="—" />
+                    <Select
+                      className="!w-28 shrink-0"
+                      value={feeC ?? "base"}
+                      onChange={(v) => setFeeC(v === "base" ? null : v)}
+                      popupMatchSelectWidth={false}
+                      options={[{ value: "base", label: unit }, ...[g, t].filter((c): c is BoardCurrency => !!c && !c.is_base).map((c) => ({ value: c.id, label: c.code }))]}
+                      aria-label="ارز کارمزد"
+                    />
+                  </div>
                 </Field>
+                {getLeg.method === "wallet" ? (
+                  <Field label={`کارمزد شبکه (${t?.code ?? ""})، هزینه‌ی ما`}>
+                    <NumberInput value={networkFee} onChange={setNetworkFee} decimals={dpOf(t)} placeholder="—" />
+                  </Field>
+                ) : null}
+                <Field label="توضیحات" className={getLeg.method === "wallet" ? "" : "md:col-span-2"}>
+                  <Input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="اختیاری" />
+                </Field>
+              </div>
+
+              {hasCrypto ? (
+                <div className="mt-4 grid gap-3 rounded-lg bg-well p-4 md:grid-cols-[180px_minmax(0,1fr)_minmax(0,1fr)]">
+                  <Field label="شبکه‌ی انتقال">
+                    <Select allowClear value={network ?? undefined} onChange={(v) => setNetwork(v ?? null)} options={CHAINS} placeholder="شبکه…" popupMatchSelectWidth={false} />
+                  </Field>
+                  <Field label={t?.kind === "crypto" ? "نشانی کیف‌پول مشتری (مقصد)" : "نشانی کیف‌پول مبدأ مشتری"} error={addressBad ? "این نشانی برای این شبکه درست نیست." : null}>
+                    <Input dir="ltr" className="sf-code" value={address} status={addressBad ? "error" : undefined} onChange={(e) => setAddress(e.target.value)} />
+                  </Field>
+                  <Field label="شناسه‌ی تراکنش (TxID)">
+                    <Input dir="ltr" className="sf-code" value={txHash} onChange={(e) => setTxHash(e.target.value)} />
+                  </Field>
+                </div>
               ) : null}
-              <Field label="توضیحات" className={getLeg.method === "wallet" ? "" : "md:col-span-2"}>
-                <Input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="اختیاری" />
-              </Field>
             </div>
-
-            {hasCrypto ? (
-              <div className="mt-3 grid gap-3 rounded-lg border border-dashed border-line p-3 md:grid-cols-[180px_1fr_1fr]">
-                <Field label="شبکه‌ی انتقال">
-                  <Select allowClear value={network ?? undefined} onChange={(v) => setNetwork(v ?? null)} options={CHAINS} placeholder="شبکه…" popupMatchSelectWidth={false} />
-                </Field>
-                <Field label={t?.kind === "crypto" ? "نشانی کیف‌پول مشتری (مقصد)" : "نشانی کیف‌پول مبدأ مشتری"}>
-                  <Input dir="ltr" className="font-mono text-xs" value={address} status={addressBad ? "error" : undefined} onChange={(e) => setAddress(e.target.value)} />
-                </Field>
-                <Field label="شناسه‌ی تراکنش (TxID)">
-                  <Input dir="ltr" className="font-mono text-xs" value={txHash} onChange={(e) => setTxHash(e.target.value)} />
-                </Field>
-              </div>
-            ) : null}
-          </div>
+          </section>
         </div>
 
-        {/* summary */}
-        <aside className="min-w-0">
-          <div className="tz-card sticky top-16 p-4">
+        {/* the deal sheet */}
+        <aside className="sf-dsheet" aria-label="خلاصه‌ی معامله">
+          <div className="sf-dsheet-b">
             <Summary
               kind={kind}
               g={g}
@@ -466,15 +470,21 @@ export default function Counter() {
               loading={preview.isFetching}
               error={debounced && preview.error ? errorText(preview.error) : null}
               feeCurrency={feeC ? curMap.get(feeC) ?? null : base}
-              fee={fee}
             />
-            <div className="mt-4 grid gap-2">
-              <Button type="primary" size="large" block icon={<SaveOutlined />} loading={saving} onClick={() => submit("posted")} disabled={!!p?.blocking?.length}>
-                ثبت معامله (F2)
+            <label className="mt-auto flex items-center gap-2 text-[13px] text-ink-2">
+              <Checkbox checked={printAfter} onChange={(e) => setPrintAfter(e.target.checked)} /> چاپ رسید پس از ثبت
+            </label>
+          </div>
+          <div className="sf-dsheet-f">
+            <div className="tot">
+              <small>ارزش معامله</small>
+              <b>{p ? <Money v={p.base_value} /> : <span className="sf-zero">—</span>}<span className="sf-unit">{"\u00a0"}{unit}</span></b>
+            </div>
+            <div className="act">
+              <Button onClick={() => submit("draft")} disabled={saving}>پیش‌نویس</Button>
+              <Button type="primary" loading={saving} onClick={() => submit("posted")} disabled={!!p?.blocking?.length}>
+                ثبت معامله<span className="sf-kw" aria-hidden><bdi dir="ltr"><kbd>F2</kbd></bdi></span>
               </Button>
-              <label className="flex items-center justify-center gap-2 text-xs text-muted">
-                <Checkbox checked={printAfter} onChange={(e) => setPrintAfter(e.target.checked)} /> چاپ رسید پس از ثبت
-              </label>
             </div>
           </div>
         </aside>
@@ -483,13 +493,15 @@ export default function Counter() {
   );
 }
 
-function Field({ label, children, required, className }: { label: ReactNode; children: ReactNode; required?: boolean; className?: string }) {
+function Field({ label, children, required, className, error }: { label: ReactNode; children: ReactNode; required?: boolean; className?: string; error?: string | null }) {
   return (
-    <label className={`block min-w-0 ${className ?? ""}`}>
-      <div className="mb-1 text-xs text-muted">
-        {label} {required ? <span className="text-bad">(الزامی)</span> : null}
-      </div>
+    <label className={`sf-field ${className ?? ""}`}>
+      <span className="sf-field-l">
+        {label}
+        {required ? <span className="sf-field-x text-warning">الزامی</span> : null}
+      </span>
       {children}
+      {error ? <span className="sf-field-err">{error}</span> : null}
     </label>
   );
 }
@@ -513,19 +525,22 @@ function SidePanel(props: {
   const { title, hint, tone, currencies, currency, onCurrency, amount, onAmount, leg, onLeg, partyName, unit, dp, computed } = props;
   const words = currency && amount && D(amount).gt(0) ? `${numberToWords(amount)} ${currency.is_base ? unit : currency.name}` : "";
   return (
-    <div className={`min-w-0 rounded-xl border p-3 ${tone === "in" ? "border-[color-mix(in_srgb,var(--tz-success)_35%,transparent)] bg-[color-mix(in_srgb,var(--tz-success)_5%,transparent)]" : "border-[color-mix(in_srgb,var(--tz-gold)_40%,transparent)] bg-[color-mix(in_srgb,var(--tz-gold)_6%,transparent)]"}`}>
-      <div className="mb-2 flex items-center justify-between">
-        <b className="text-sm">{title}</b>
-        <span className="text-[11px] text-muted">{hint}</span>
+    <div className="sf-leg" data-dir={tone}>
+      <div className="sf-leg-h">
+        <i className="sf-dot" aria-hidden />
+        <b>{title}</b>
+        <span>{hint}</span>
       </div>
-      <CurrencyPick currencies={currencies} value={currency?.id ?? null} onChange={onCurrency} className="w-full" size="large" />
-      <QuickCurrencies currencies={currencies} codes={[...QUICK, currencies.find((c) => c.is_base)?.code ?? ""]} value={currency?.id} onPick={(cid) => onCurrency(cid)} />
-      <div className="mt-3">
-        <NumberInput size="large" value={amount} onChange={onAmount} decimals={dp} placeholder={computed ? "خودکار" : "مبلغ"} suffix={<span className="ltr text-xs font-semibold text-muted">{currency?.code}</span>} className={computed ? "!bg-surface-2" : ""} />
-        <div className="mt-1 min-h-4 text-[11px] leading-4 text-muted">{words}</div>
+      <div>
+        <CurrencyPick currencies={currencies} value={currency?.id ?? null} onChange={onCurrency} className="w-full" size="large" />
+        <QuickCurrencies currencies={currencies} codes={[...QUICK, currencies.find((c) => c.is_base)?.code ?? ""]} value={currency?.id} onPick={(cid) => onCurrency(cid)} />
       </div>
-      <div className="mt-2">
-        <div className="mb-1 text-xs text-muted">{tone === "in" ? "دریافت در" : "پرداخت از"}</div>
+      <div className="sf-amount">
+        <NumberInput size="large" value={amount} onChange={onAmount} decimals={dp} placeholder={computed ? "خودکار" : "مبلغ"} suffix={currency ? <bdi dir="ltr" className="sf-latin text-[12px] font-semibold text-ink-3">{currency.code}</bdi> : undefined} />
+        <div className="sf-words min-h-[18px]">{words}</div>
+      </div>
+      <div className="sf-field">
+        <div className="sf-field-l">{tone === "in" ? "دریافت در" : "پرداخت از"}</div>
         <LegPicker currency={currency} value={leg} onChange={onLeg} partyName={partyName} />
       </div>
     </div>
@@ -536,17 +551,17 @@ function PartyBadges({ data }: { data: { party: any; balances: any[] } }) {
   const p = data.party;
   const bal = (data.balances ?? []).filter((b) => !D(b.currency_id ? b.fx : b.base).isZero());
   return (
-    <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
-      {p.is_blacklisted ? <Tag color="red" variant="filled"><WarningOutlined /> فهرست سیاه</Tag> : null}
-      <Tag variant="filled" color={p.kyc_status === "verified" ? "green" : p.national_id || p.passport_no ? "blue" : "orange"}>
-        {p.kyc_status === "verified" ? "احراز شده" : p.national_id || p.passport_no ? `مدرک: ${faDigits(p.national_id ?? p.passport_no)}` : "بدون مدرک هویتی"}
-      </Tag>
+    <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[13px] text-ink-3">
+      {p.is_blacklisted ? <Chip tone="danger">فهرست سیاه</Chip> : null}
+      {p.kyc_status === "verified" ? <span>احراز شده</span> : p.national_id || p.passport_no ? <span>مدرک <span className="sf-num">{faDigits(p.national_id ?? p.passport_no)}</span></span> : <Chip tone="warning">بدون مدرک هویتی</Chip>}
       {bal.map((b, i) => {
         const v = D(b.currency_id ? b.fx : b.base);
         return (
-          <Tag key={i} variant="filled" color={v.gt(0) ? "cyan" : "gold"} className="num">
-            {b.code ?? "ریالی"}: {faDigits(v.abs().toFixed())} {v.gt(0) ? "بد" : "بس"}
-          </Tag>
+          <span key={i} className="inline-flex items-center gap-1">
+            {b.code ? <bdi dir="ltr" className="sf-latin text-[12px]">{b.code}</bdi> : <span>ریالی</span>}
+            <span className="sf-num text-ink-2">{faDigits(v.abs().toFixed())}</span>
+            <span className="sf-bal-side">{v.gt(0) ? "بد" : "بس"}</span>
+          </span>
         );
       })}
     </div>
@@ -554,7 +569,7 @@ function PartyBadges({ data }: { data: { party: any; balances: any[] } }) {
 }
 
 function Summary({
-  kind, g, t, giveAmt, getAmt, unit, baseDp, preview, loading, error, feeCurrency, fee,
+  kind, g, t, giveAmt, getAmt, unit, baseDp, preview, loading, error, feeCurrency,
 }: {
   kind: string | null;
   g: BoardCurrency | null;
@@ -567,85 +582,80 @@ function Summary({
   loading: boolean;
   error: string | null;
   feeCurrency: BoardCurrency | null;
-  fee: string | null;
 }) {
   const [lines, setLines] = useState(false);
   const p = preview;
   const dp = (c: BoardCurrency | null) => (c ? (c.is_base ? baseDp : c.decimals) : 2);
   const giveTotal = p ? D(p.in_amount).plus(feeCurrency?.id === g?.id ? D(p.fee) : 0) : D(giveAmt);
   const sold = kind === "buy" ? g : t;
+  const amt = (c: BoardCurrency | null, v: string) => (c?.is_base ? <><Money v={v} /><span className="sf-unit">{"\u00a0"}{unit}</span></> : <FxAmount v={v} code={c?.code} dp={dp(c)} />);
   return (
-    <div>
-      <div className="mb-3 flex items-center justify-between">
-        <b>خلاصه‌ی معامله</b>
-        {loading ? <Spin size="small" /> : null}
+    <>
+      <div className="sf-sec-t">
+        <span>خلاصه‌ی معامله</span>
+        {loading ? <span className="sf-sec-x"><Loader /></span> : null}
       </div>
-      <div className="grid gap-2">
-        <div className="rounded-lg bg-[color-mix(in_srgb,var(--tz-success)_8%,transparent)] p-3">
-          <div className="text-[11px] text-muted">مشتری می‌پردازد</div>
-          <div className="mt-0.5 text-xl font-extrabold"><FxAmount v={giveTotal.toFixed()} code={g?.is_base ? unit : g?.code} dp={dp(g)} /></div>
-          {p && feeCurrency && !D(p.fee).isZero() && feeCurrency.id !== g?.id ? (
-            <div className="text-xs text-muted">+ کارمزد <FxAmount v={p.fee} code={feeCurrency.is_base ? unit : feeCurrency.code} dp={dp(feeCurrency)} /></div>
-          ) : null}
+      <div className="sf-flow">
+        <div className="r">
+          {g ? <CurrencyAvatar code={g.code} size="lg" /> : null}
+          <span className="t">
+            <small>مشتری می‌پردازد</small>
+            <b>{g ? amt(g, giveTotal.toFixed()) : <span className="sf-zero">—</span>}</b>
+            {p && feeCurrency && !D(p.fee).isZero() && feeCurrency.id !== g?.id ? <small>به‌اضافه‌ی کارمزد {amt(feeCurrency, p.fee)}</small> : null}
+          </span>
         </div>
-        <div className="rounded-lg bg-[color-mix(in_srgb,var(--tz-gold)_10%,transparent)] p-3">
-          <div className="text-[11px] text-muted">مشتری دریافت می‌کند</div>
-          <div className="mt-0.5 text-xl font-extrabold"><FxAmount v={p ? p.out_amount : getAmt ?? 0} code={t?.is_base ? unit : t?.code} dp={dp(t)} /></div>
+        <div className="arrow" aria-hidden><Ic icon={ArrowDown} size={14} /></div>
+        <div className="r">
+          {t ? <CurrencyAvatar code={t.code} size="lg" /> : null}
+          <span className="t">
+            <small>مشتری دریافت می‌کند</small>
+            <b>{t ? amt(t, p ? p.out_amount : getAmt ?? "0") : <span className="sf-zero">—</span>}</b>
+          </span>
         </div>
       </div>
-      {error ? <Alert className="!mt-3" type="error" showIcon title={error} /> : null}
+      {error ? <div className="sf-inline" data-tone="danger"><i className="sf-nuqta" aria-hidden /><span>{error}</span></div> : null}
       {p ? (
-        <div className="mt-3 grid gap-1.5 text-sm">
-          <Row label={kind === "exchange" ? "نرخ تبدیل" : "نرخ"} value={<span className="num">{kind === "exchange" && g && t ? <span className="ltr">1 {g.code} = {rateLabel(p.rate)} {t.code}</span> : rateLabel(p.rate, baseDp)}</span>} />
-          <Row label="ارزش معامله" value={<Money v={p.base_value} unit />} />
-          {kind !== "buy" ? <Row label={`میانگین بهای ${sold?.code ?? ""}`} value={p.avg_cost ? <span className="num">{rateLabel(p.avg_cost, baseDp)}</span> : "—"} /> : null}
-          {kind !== "buy" ? <Row label="بهای تمام‌شده" value={<Money v={p.cost_value} />} /> : null}
-          {kind !== "buy" ? <Row label="سود (زیان) معامله" value={<Money v={p.profit} colored />} strong /> : null}
-          {!D(p.fee_base).isZero() ? <Row label="درآمد کارمزد" value={<Money v={p.fee_base} />} /> : null}
-          {p.position && sold && !sold.is_base ? (
-            <Row
-              label={`موجودی فعلی ${sold.code}`}
-              value={<span className="text-xs"><FxAmount v={p.position.fx} dp={sold.decimals} /> {p.position.avg ? <span className="text-muted">میانگین {rateLabel(p.position.avg, baseDp)}</span> : null}</span>}
-            />
-          ) : null}
-          {p.kyc_required ? <div className="text-xs text-warn"><IdcardOutlined /> مبلغ بالای سقف احراز هویت است</div> : null}
-          {(p.blocking ?? []).map((w: string, i: number) => <Alert key={`b${i}`} type="error" showIcon title={w} className="!mt-1" />)}
-          {(p.warnings ?? []).map((w: string, i: number) => <Alert key={`w${i}`} type="warning" showIcon title={w} className="!mt-1" />)}
-          <button type="button" className="mt-1 text-start text-xs text-brand" onClick={() => setLines(!lines)}>
-            {lines ? "پنهان کردن سند" : `پیش‌نمایش سند (${faDigits(p.lines?.length ?? 0)} ردیف)`}
+        <>
+          <div className="sf-sums" role="group" aria-label="محاسبه‌ی معامله">
+            <div className="r">
+              <span>{kind === "exchange" ? "نرخ تبدیل" : "نرخ"}</span>
+              <span className="n">{kind === "exchange" && g && t ? <bdi dir="ltr" className="sf-latin">1 {g.code} = {formatNumber(D(p.rate).toSignificantDigits(8), { dp: 8, fa: false })} {t.code}</bdi> : rateLabel(p.rate, baseDp)}</span>
+            </div>
+            <div className="r"><span>ارزش معامله</span><span className="n"><Money v={p.base_value} /></span></div>
+            {kind !== "buy" ? <div className="r"><span>میانگین بهای <bdi dir="ltr" className="sf-latin">{sold?.code ?? ""}</bdi></span><span className="n">{p.avg_cost ? rateLabel(p.avg_cost, baseDp) : <span className="sf-zero">—</span>}</span></div> : null}
+            {kind !== "buy" ? <div className="r"><span>بهای تمام‌شده</span><span className="n"><Money v={p.cost_value} /></span></div> : null}
+            {!D(p.fee_base).isZero() ? <div className="r"><span>درآمد کارمزد</span><span className="n"><Money v={p.fee_base} /></span></div> : null}
+            {kind !== "buy" ? <div className="r is-total"><span>سود (زیان) معامله</span><span className="n"><Money v={p.profit} colored /></span></div> : null}
+            {p.position && sold && !sold.is_base ? (
+              <div className="r is-sub">
+                <span>موجودی فعلی <bdi dir="ltr" className="sf-latin">{sold.code}</bdi></span>
+                <span className="n"><FxAmount v={p.position.fx} dp={sold.decimals} /></span>
+              </div>
+            ) : null}
+          </div>
+          {p.kyc_required ? <div className="sf-inline" data-tone="warning"><i className="sf-nuqta" aria-hidden /><span><b>احراز هویت لازم است.</b> مبلغ از سقف معامله‌ی بدون مدرک بیشتر است.</span></div> : null}
+          {(p.blocking ?? []).map((w: string, i: number) => <div key={`b${i}`} className="sf-inline" data-tone="danger"><i className="sf-nuqta" aria-hidden /><span>{w}</span></div>)}
+          {(p.warnings ?? []).map((w: string, i: number) => <div key={`w${i}`} className="sf-inline" data-tone="warning"><i className="sf-nuqta" aria-hidden /><span>{w}</span></div>)}
+          <button type="button" className="sf-link self-start" onClick={() => setLines(!lines)}>
+            {lines ? "پنهان کردن پیش‌نمایش سند" : `پیش‌نمایش سند (${faDigits(p.lines?.length ?? 0)} ردیف)`}
           </button>
           {lines ? (
             <Table
-              className="tz-table"
               size="small"
               rowKey={(_, i) => String(i)}
               pagination={false}
               dataSource={p.lines ?? []}
               columns={[
-                { key: "a", title: "حساب", render: (_: unknown, l: any) => <div className="leading-4"><div className="text-xs">{l.account_name}</div>{l.detail_name ? <div className="text-[10px] text-muted">{l.detail_name}</div> : null}</div> },
-                { key: "d", title: "بد", align: "left", render: (_: unknown, l: any) => (D(l.debit).isZero() ? null : <Money v={l.debit} />) },
-                { key: "c", title: "بس", align: "left", render: (_: unknown, l: any) => (D(l.credit).isZero() ? null : <Money v={l.credit} />) },
+                { key: "a", title: "حساب", render: (_: unknown, l: any) => <div className="leading-5"><div className="text-[13px]">{l.account_name}</div>{l.detail_name ? <div className="text-[12px] text-ink-3">{l.detail_name}</div> : null}</div> },
+                { key: "d", title: "بدهکار", className: "sf-num", render: (_: unknown, l: any) => (D(l.debit).isZero() ? null : <Money v={l.debit} />) },
+                { key: "c", title: "بستانکار", className: "sf-num", render: (_: unknown, l: any) => (D(l.credit).isZero() ? null : <Money v={l.credit} />) },
               ]}
             />
           ) : null}
-        </div>
+        </>
       ) : !error ? (
-        <div className="mt-3 text-center text-xs text-muted">{kind ? "مبلغ و نرخ را وارد کنید تا سود و سند نمایش داده شود" : "دو ارز متفاوت انتخاب کنید"}</div>
+        <div className="py-2 text-center text-[13px] text-ink-3">{kind ? "مبلغ و نرخ را وارد کنید تا سود و سند نمایش داده شود." : "دو ارز متفاوت انتخاب کنید."}</div>
       ) : null}
-      {g && t ? (
-        <div className="mt-3 flex items-center justify-center gap-2 text-xs text-muted">
-          <CurrencyChip c={g} /> ← <CurrencyChip c={t} />
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function Row({ label, value, strong }: { label: ReactNode; value: ReactNode; strong?: boolean }) {
-  return (
-    <div className={`flex items-center justify-between gap-2 border-b border-dashed border-line pb-1.5 ${strong ? "font-bold" : ""}`}>
-      <span className="text-xs text-muted">{label}</span>
-      <span>{value}</span>
-    </div>
+    </>
   );
 }

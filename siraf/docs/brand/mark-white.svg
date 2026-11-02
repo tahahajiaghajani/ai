@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="سیراف">
+  <title>سیراف</title>
+  <!-- Siraf · mark A «اندازه», the measured alef.
+     One qalam held at 45° on an 8-unit lattice. The alef is one downstroke 8 wide whose ends follow the nib
+     (a parallelogram: inner edge y12–60, outer edge y4–52). The nuqtas are three presses of the same nib:
+     squares on their tips, diagonal 16 (= 2 × stroke), tangent. The column spans exactly the alef's inner
+     edge (3 × 16 = 48) and carries exactly its area (3 × 128 = 8 × 48 = 384). Clear space: 16 units. -->
+  <g fill="#FFFFFF">
+    <path id="alef" d="M40 12L48 4V52L40 60Z"/>
+    <path id="nuqta-1" d="M24 12L32 20L24 28L16 20Z"/>
+    <path id="nuqta-2" d="M24 28L32 36L24 44L16 36Z"/>
+    <path id="nuqta-3" d="M24 44L32 52L24 60L16 52Z"/>
+  </g>
+</svg>

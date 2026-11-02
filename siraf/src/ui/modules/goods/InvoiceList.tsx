@@ -1,8 +1,9 @@
 // List of one kind of commercial document (sales invoices, returns, quotes, orders, purchases)
 // with search, date range, status, party and "unsettled only" filters and Excel export.
 import { useState } from "react";
-import { Button, Input, Select, Space, Switch, Tag } from "antd";
-import { PlusOutlined, SearchOutlined } from "@ant-design/icons";
+import { Button, Input, Select, Space, Switch } from "antd";
+import { Plus, Search } from "lucide-react";
+import { Ic } from "../../components/shell/icons";
 import { useNavigate } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useOrg } from "../../lib/org";
@@ -38,10 +39,10 @@ export default function InvoiceList({ kind }: { kind: InvoiceKind }) {
     <div>
       <PageHeader
         title={meta.plural}
-        subtitle={sum.data ? <>{faDigits(sum.data.count)} سند · جمع <Money v={sum.data.total} /></> : fy?.title}
-        actions={can(meta.area, "edit") ? <Button type="primary" icon={<PlusOutlined />} onClick={() => nav(`/${orgId}/${meta.path}/new`)}>{meta.title} جدید</Button> : null}
+        subtitle={sum.data ? <span className="sf-doc-meta"><span><span className="sf-num">{faDigits(sum.data.count)}</span> سند</span><span className="sf-sep" aria-hidden /><span>جمع <Money v={sum.data.total} unit /></span></span> : fy?.title}
+        actions={can(meta.area, "edit") ? <Button type="primary" icon={<Ic icon={Plus} />} onClick={() => nav(`/${orgId}/${meta.path}/new`)}>{meta.title} جدید</Button> : null}
       />
-      <div className="tz-card p-3 md:p-4">
+      <div className="sf-card">
         <ServerTable
           path="/goods/invoices"
           params={params}
@@ -59,20 +60,20 @@ export default function InvoiceList({ kind }: { kind: InvoiceKind }) {
           ]}
           toolbar={
             <Space wrap>
-              <Input allowClear prefix={<SearchOutlined className="text-muted" />} placeholder="شماره، نام یا شماره‌ی عطف" value={q} onChange={(e) => setQ(e.target.value)} className="!w-56" />
+              <Input allowClear prefix={<Ic icon={Search} className="text-ink-3" />} placeholder="شماره، نام یا شماره‌ی عطف" value={q} onChange={(e) => setQ(e.target.value)} className="!w-56" />
               <DateInput value={from} onChange={setFrom} placeholder="از تاریخ" allowClear className="!w-36" />
               <DateInput value={to} onChange={setTo} placeholder="تا تاریخ" allowClear className="!w-36" />
               <PartySelect value={partyId} onChange={setPartyId} allowClear placeholder={meta.party} className="!w-52" />
               <Select allowClear placeholder="وضعیت" value={status} onChange={setStatus} className="!w-32" options={Object.entries(INVOICE_STATUS).filter(([k]) => meta.postable || k !== "posted").map(([k, [l]]) => ({ value: k, label: l }))} />
               {meta.postable ? (
-                <label className="flex items-center gap-1.5 text-xs text-muted">
+                <label className="flex items-center gap-2 text-[13px] text-ink-2">
                   <Switch size="small" checked={open} onChange={setOpen} /> فقط تسویه‌نشده
                 </label>
               ) : null}
             </Space>
           }
           columns={[
-            { key: "no", dataIndex: "no", title: "شماره", width: 80, sorter: true, render: (v) => <b className="num">{faDigits(v)}</b> },
+            { key: "no", dataIndex: "no", title: "شماره", width: 80, sorter: true, render: (v) => <span className="sf-docno">{faDigits(v)}</span> },
             { key: "date", dataIndex: "date", title: "تاریخ", width: 110, sorter: true, render: (v) => <JDate v={v} /> },
             {
               key: "party_name",
@@ -82,22 +83,22 @@ export default function InvoiceList({ kind }: { kind: InvoiceKind }) {
               render: (v, r: any) => (
                 <span>
                   {v}
-                  {r.buyer_name && r.buyer_name !== v ? <span className="text-xs text-muted"> ({r.buyer_name})</span> : null}
+                  {r.buyer_name && r.buyer_name !== v ? <span className="text-[12px] text-ink-3"> ({r.buyer_name})</span> : null}
                 </span>
               ),
             },
-            ...(kind === "purchase" || kind === "purchase_return" ? [{ key: "ref", dataIndex: "ref_no", title: "شماره‌ی فروشنده", render: (v: string) => (v ? <span className="num">{faDigits(v)}</span> : <span className="text-muted">—</span>) }] : []),
-            { key: "total", dataIndex: "total", title: "مبلغ", align: "left" as const, sorter: true, width: 150, render: (v) => <Money v={v} /> },
+            ...(kind === "purchase" || kind === "purchase_return" ? [{ key: "ref", dataIndex: "ref_no", title: "شماره‌ی فروشنده", render: (v: string) => (v ? <span className="sf-docno">{faDigits(v)}</span> : <span className="sf-zero">—</span>) }] : []),
+            { key: "total", dataIndex: "total", title: "مبلغ", className: "sf-num", sorter: true, width: 148, render: (v) => <Money v={v} /> },
             ...(meta.postable
               ? [
-                  { key: "allocated", dataIndex: "allocated", title: settleLabel, align: "left" as const, width: 140, render: (v: string) => <Money v={v} zero="—" /> },
+                  { key: "allocated", dataIndex: "allocated", title: settleLabel, className: "sf-num", width: 140, render: (v: string) => <Money v={v} zero="—" /> },
                   {
                     key: "remaining",
                     dataIndex: "remaining",
                     title: "مانده",
-                    align: "left" as const,
+                    className: "sf-num",
                     width: 140,
-                    render: (v: string | null) => (v === null ? <span className="text-muted">—</span> : D(v).gt(0) ? <Money v={v} className="font-semibold text-gold" /> : <Tag color="success" variant="filled" className="!m-0">تسویه</Tag>),
+                    render: (v: string | null) => (v === null || !D(v).gt(0) ? <span className="sf-zero">—</span> : <Money v={v} className="font-medium" />),
                   },
                 ]
               : []),
@@ -110,9 +111,9 @@ export default function InvoiceList({ kind }: { kind: InvoiceKind }) {
               title: "وضعیت",
               width: 140,
               render: (v, r: any) => (
-                <span className="flex flex-wrap gap-1">
+                <span className="flex flex-wrap items-center gap-2">
                   <InvoiceStatus s={v} />
-                  {r.extra?.converted_to ? <Tag variant="filled" color="purple" className="!m-0">تبدیل‌شده</Tag> : null}
+                  {r.extra?.converted_to ? <span className="sf-status">تبدیل‌شده</span> : null}
                 </span>
               ),
             },

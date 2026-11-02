@@ -1,4 +1,5 @@
 import { lazy } from "react";
+import { Building2, UserCog, Plug, Monitor, ScrollText, CircleUser, CircleHelp } from "lucide-react";
 import type { NavGroup, AppRoute } from "../registry";
 
 const OrgSettings = lazy(() => import("./OrgSettings"));
@@ -9,17 +10,17 @@ const Audit = lazy(() => import("./Audit"));
 const Integrations = lazy(() => import("./Integrations"));
 const Help = lazy(() => import("./Help"));
 
-export const settingsNav: Omit<NavGroup, "icon"> = {
+export const settingsNav: Omit<NavGroup, "icon" | "space"> = {
   key: "settings",
   label: "تنظیمات",
   items: [
-    { key: "org-settings", label: "اطلاعات و تنظیمات کسب‌وکار", path: "settings/org", area: "settings", keywords: "مالیات ارزش افزوده لوگو ماژول" },
-    { key: "members", label: "کاربران و دسترسی‌ها", path: "settings/users", area: "users" },
-    { key: "integrations", label: "اتصال به فروشگاه اینترنتی و API", path: "settings/integrations", area: "integrations", keywords: "ووکامرس شاپیفای وبهوک سایت" },
-    { key: "desktop", label: "نسخه‌ی ویندوز: پشتیبان، شبکه، همگام‌سازی", path: "settings/desktop", desktopOnly: true, keywords: "بکاپ LAN شبکه ابری" },
-    { key: "audit", label: "گزارش رویدادها", path: "settings/audit", area: "settings" },
-    { key: "account", label: "حساب کاربری من", path: "settings/account" },
-    { key: "help", label: "راهنما و میانبرها", path: "help", keywords: "کمک آموزش کلید میانبر" },
+    { key: "org-settings", label: "کسب‌وکار", path: "settings/org", area: "settings", icon: Building2, keywords: "اطلاعات و تنظیمات کسب‌وکار مالیات ارزش افزوده لوگو ماژول" },
+    { key: "members", label: "کاربران و دسترسی‌ها", path: "settings/users", area: "users", icon: UserCog },
+    { key: "integrations", label: "اتصال‌ها و API", path: "settings/integrations", area: "integrations", icon: Plug, keywords: "اتصال به فروشگاه اینترنتی ووکامرس شاپیفای وبهوک سایت" },
+    { key: "desktop", label: "نسخهٔ ویندوز", path: "settings/desktop", desktopOnly: true, icon: Monitor, keywords: "پشتیبان شبکه همگام‌سازی بکاپ LAN ابری" },
+    { key: "audit", label: "گزارش رویدادها", path: "settings/audit", area: "settings", icon: ScrollText },
+    { key: "account", label: "حساب کاربری من", path: "settings/account", icon: CircleUser, section: "شما", keywords: "رمز عبور" },
+    { key: "help", label: "راهنما و میانبرها", path: "help", icon: CircleHelp, section: "شما", keywords: "کمک آموزش کلید میانبر" },
   ],
 };
 

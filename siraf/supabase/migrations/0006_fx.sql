@@ -1,4 +1,4 @@
--- «تراز» migration 0006_fx — صرافی و ارز دیجیتال
+-- «سیراف» migration 0006_fx — صرافی و ارز دیجیتال
 create table if not exists tz_migrations (id text primary key, applied_at timestamptz not null default now());
 
 -- ---------------------------------------------------------------------------

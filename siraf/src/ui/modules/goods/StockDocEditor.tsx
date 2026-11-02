@@ -4,14 +4,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Alert, Button, Checkbox, Dropdown, Input, Select, Spin, Tooltip } from "antd";
-import { DeleteOutlined, FileTextOutlined, MoreOutlined, PlusOutlined, PrinterOutlined, ReloadOutlined, SaveOutlined, UndoOutlined } from "@ant-design/icons";
+import { Alert, Button, Checkbox, Dropdown, Input, Select, Tooltip } from "antd";
+import { Ellipsis, FileText, Plus, Printer, RefreshCw, Trash2, Undo2, X } from "lucide-react";
+import { Ic } from "../../components/shell/icons";
 import { useOrg } from "../../lib/org";
 import { useHotkey, useNotify } from "../../lib/hooks";
 import { errorText } from "../../lib/api";
 import { PageHeader } from "../../components/layout";
 import { AccountSelect, DateInput, DetailSelect, MoneyInput, NumberInput, PartySelect, RefSelect, type Opt } from "../../components/inputs";
-import { JDateTime, Money } from "../../components/display";
+import { Chip, JDateTime, Loader, Money } from "../../components/display";
 import { D } from "@shared/money";
 import { faDigits } from "@shared/format";
 import { formatJalali, todayISO } from "@shared/jalali";
@@ -245,7 +246,7 @@ function StockDocEditor({ id }: { id: string | null }) {
     }
   };
 
-  if (id && q.isLoading) return <div className="grid h-64 place-content-center"><Spin /></div>;
+  if (id && q.isLoading) return <div className="grid h-64 place-content-center"><Loader /></div>;
   if (id && q.error) return <Alert type="error" showIcon title={errorText(q.error)} />;
 
   const itemLines = lines.filter((l) => l.item);
@@ -264,79 +265,79 @@ function StockDocEditor({ id }: { id: string | null }) {
   };
 
   return (
-    <div>
+    <div className="sf-doc">
       <PageHeader
         back={`/${orgId}/${base}`}
-        title={doc ? `${meta.title} شماره‌ی ${faDigits(doc.no)}` : `${meta.title} جدید`}
-        subtitle={doc ? <>ثبت: <JDateTime v={doc.created_at} />{doc.created_by_name ? ` · ${doc.created_by_name}` : ""}</> : meta.hint}
-        extra={doc ? <InvoiceStatus s={doc.status} /> : null}
+        title={doc ? `${meta.title} ${faDigits(doc.no)}` : `${meta.title} جدید`}
+        subtitle={doc ? <span className="sf-doc-meta"><InvoiceStatus s={doc.status} /><span className="sf-sep" aria-hidden /><JDateTime v={doc.created_at} />{doc.created_by_name ? <><span className="sf-sep" aria-hidden /><span>{doc.created_by_name}</span></> : null}</span> : null}
         actions={
           <>
-            {!readonly ? (
-              <>
-                <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={() => save("posted")}>
-                  ثبت سند <span className="tz-kbd ltr ms-1 !bg-transparent !text-white/80">F2</span>
-                </Button>
-                <Button onClick={() => save("draft")} disabled={saving}>پیش‌نویس</Button>
-              </>
-            ) : null}
-            <Button icon={<PrinterOutlined />} onClick={() => window.print()}>چاپ</Button>
             {doc ? (
               <Dropdown
                 trigger={["click"]}
+                placement="bottomLeft"
                 menu={{
                   items: [
-                    ...(doc.voucher_id && can("accounting", "view") ? [{ key: "v", icon: <FileTextOutlined />, label: `سند حسابداری ${faDigits(doc.voucher_no ?? "")}`, onClick: () => nav(`/${orgId}/accounting/vouchers/${doc.voucher_id}`) }] : []),
-                    ...(posted && can("inventory", "edit") ? [{ key: "unpost", icon: <UndoOutlined />, label: "برگشت به پیش‌نویس", onClick: async () => { if (await n.confirm("سند به پیش‌نویس برگردد؟", "اثر آن روی موجودی و حساب‌ها حذف می‌شود.")) action(() => api.post(`/goods/stock-docs/${doc.id}/unpost`), "به پیش‌نویس برگشت"); } }] : []),
-                    ...(can("inventory", "full") ? [{ key: "del", icon: <DeleteOutlined />, danger: true, label: "حذف سند", onClick: async () => { if (await n.confirm(`حذف ${meta.title}؟`, undefined, true)) action(() => api.del(`/goods/stock-docs/${doc.id}`), "حذف شد", () => nav(`/${orgId}/${base}`)); } }] : []),
+                    ...(doc.voucher_id && can("accounting", "view") ? [{ key: "v", icon: <Ic icon={FileText} />, label: `سند حسابداری ${faDigits(doc.voucher_no ?? "")}`, onClick: () => nav(`/${orgId}/accounting/vouchers/${doc.voucher_id}`) }] : []),
+                    ...(posted && can("inventory", "edit") ? [{ key: "unpost", icon: <Ic icon={Undo2} />, label: "برگشت به پیش‌نویس", onClick: async () => { if (await n.confirm("سند به پیش‌نویس برگردد؟", "اثر آن روی موجودی و حساب‌ها حذف می‌شود.")) action(() => api.post(`/goods/stock-docs/${doc.id}/unpost`), "به پیش‌نویس برگشت"); } }] : []),
+                    ...(can("inventory", "full") ? [{ key: "del", icon: <Ic icon={Trash2} />, danger: true, label: "حذف سند", onClick: async () => { if (await n.confirm(`حذف ${meta.title}؟`, undefined, true)) action(() => api.del(`/goods/stock-docs/${doc.id}`), "حذف شد", () => nav(`/${orgId}/${base}`)); } }] : []),
                   ],
                 }}
               >
-                <Button icon={<MoreOutlined />} aria-label="بیشتر" />
+                <Button icon={<Ic icon={Ellipsis} />} aria-label="بیشتر" />
               </Dropdown>
+            ) : null}
+            <Tooltip title="چاپ"><Button icon={<Ic icon={Printer} />} onClick={() => window.print()} aria-label="چاپ" /></Tooltip>
+            {!readonly ? (
+              <>
+                <Button onClick={() => save("draft")} disabled={saving}>پیش‌نویس</Button>
+                <Button type="primary" loading={saving} onClick={() => save("posted")}>
+                  ثبت سند<span className="sf-kw" aria-hidden><bdi dir="ltr"><kbd>F2</kbd></bdi></span>
+                </Button>
+              </>
             ) : null}
           </>
         }
       />
 
-      <div className="tz-card print-sheet p-4">
+      <div className="sf-card print-sheet">
         <div className="mb-4 hidden text-center print:block">
-          <div className="text-lg font-bold">{org.name}</div>
+          <div className="text-lg font-semibold">{org.name}</div>
           <div className="text-base">{meta.title} شماره‌ی {faDigits(doc?.no ?? "")} — تاریخ {formatJalali(date)}</div>
           <div className="text-xs">انبار: {doc?.warehouse_name ?? ""}{kind === "transfer" ? ` ← ${doc?.dest_warehouse_name ?? ""}` : ""}</div>
         </div>
-        <div className="no-print mb-4 grid gap-3 md:grid-cols-2 xl:grid-cols-6">
-          <div>
-            <div className="mb-1 text-xs text-muted">نوع سند</div>
+        <div className="sf-doc-pad sf-fields no-print border-b border-line">
+          <div className="sf-field">
+            <div className="sf-field-l">نوع سند</div>
             {isNew && !pathKind ? (
               <Select className="w-full" value={kind} onChange={setKind} options={STOCK_DOC_KINDS.filter((k) => k !== "count").map((k) => ({ value: k, label: STOCK_DOC_META[k].title }))} />
             ) : (
-              <div className="pt-1"><KindTag kind={kind} /></div>
+              <div className="sf-field-v"><KindTag kind={kind} /></div>
             )}
           </div>
-          <div>
-            <div className="mb-1 text-xs text-muted">تاریخ</div>
+          <div className="sf-field">
+            <div className="sf-field-l">تاریخ</div>
             <DateInput value={date} onChange={setDate} disabled={readonly} />
           </div>
-          <div>
-            <div className="mb-1 text-xs text-muted">{kind === "transfer" ? "انبار مبدأ" : "انبار"}</div>
+          <div className="sf-field">
+            <div className="sf-field-l">{kind === "transfer" ? "انبار مبدأ" : "انبار"}</div>
             <RefSelect entity="warehouse" value={warehouseId} onChange={setWarehouseId} disabled={readonly} showCode={false} />
           </div>
           {kind === "transfer" ? (
-            <div>
-              <div className="mb-1 text-xs text-muted">انبار مقصد</div>
+            <div className="sf-field">
+              <div className="sf-field-l">انبار مقصد</div>
               <RefSelect entity="warehouse" value={destId} onChange={setDestId} disabled={readonly} showCode={false} />
             </div>
           ) : null}
           {kind === "receipt" || kind === "issue" ? (
-            <div>
-              <div className="mb-1 text-xs text-muted">{kind === "receipt" ? "تحویل‌دهنده (اختیاری)" : "تحویل‌گیرنده (اختیاری)"}</div>
+            <div className="sf-field">
+              <div className="sf-field-l">{kind === "receipt" ? "تحویل‌دهنده (اختیاری)" : "تحویل‌گیرنده (اختیاری)"}</div>
               <PartySelect value={partyId} onChange={setPartyId} allowClear disabled={readonly} />
             </div>
           ) : null}
           {kind === "receipt" || kind === "issue" || kind === "adjust" ? (
-            <div className={needsDetail ? "" : "xl:col-span-2"}>
-              <div className="mb-1 text-xs text-muted">حساب طرف سند</div>
+            <div className={`sf-field ${needsDetail ? "" : "span-2"}`}>
+              <div className="sf-field-l">حساب طرف سند</div>
               <AccountSelect
                 value={accountId}
                 allowClear
@@ -351,27 +352,27 @@ function StockDocEditor({ id }: { id: string | null }) {
             </div>
           ) : null}
           {needsDetail && kind !== "transfer" && kind !== "count" ? (
-            <div>
-              <div className="mb-1 text-xs text-muted">تفصیلی</div>
+            <div className="sf-field">
+              <div className="sf-field-l">تفصیلی</div>
               <DetailSelect value={detailId} onChange={setDetailId} kinds={accountInfo?.detail_kinds} allowClear disabled={readonly} />
             </div>
           ) : null}
-          <div className="md:col-span-2">
-            <div className="mb-1 text-xs text-muted">شرح</div>
+          <div className="sf-field span-2">
+            <div className="sf-field-l">شرح</div>
             <Input value={description} onChange={(e) => setDescription(e.target.value)} disabled={readonly} />
           </div>
         </div>
 
         {count && !readonly ? (
-          <div className="no-print mb-3 flex flex-wrap items-center gap-3">
-            <Button icon={<ReloadOutlined />} loading={loadingSheet} onClick={loadSheet}>بارگذاری کالاهای انبار</Button>
+          <div className="no-print flex flex-wrap items-center gap-3 border-b border-line px-5 py-3">
+            <Button icon={<Ic icon={RefreshCw} />} loading={loadingSheet} onClick={loadSheet}>بارگذاری کالاهای انبار</Button>
             <Checkbox checked={allItems} onChange={(e) => setAllItems(e.target.checked)}>همه‌ی کالاها (حتی بدون موجودی)</Checkbox>
-            <span className="text-xs text-muted">ردیف‌های بدون مقدار شمارش‌شده ثبت نمی‌شوند. اختلاف هنگام ثبت با موجودی همان لحظه محاسبه می‌شود.</span>
+            <span className="text-[12px] text-ink-3">ردیف‌های بدون مقدار شمارش‌شده ثبت نمی‌شوند؛ اختلاف هنگام ثبت با موجودی همان لحظه محاسبه می‌شود.</span>
           </div>
         ) : null}
 
-        <div ref={gridRef} className="overflow-x-auto">
-          <table className="tz-grid min-w-[860px]">
+        <div ref={gridRef} className="sf-grid-wrap">
+          <table className="sf-grid min-w-[860px]">
             <thead>
               <tr>
                 <th className="w-10">ردیف</th>
@@ -401,18 +402,18 @@ function StockDocEditor({ id }: { id: string | null }) {
                 const diff = l.counted_qty !== null && l.counted_qty !== "" ? D(l.counted_qty).minus(D(l.system_qty)) : null;
                 return (
                   <tr key={l.key}>
-                    <td className="num text-center text-xs text-muted">{faDigits(i + 1)}</td>
+                    <td className="sf-gi">{faDigits(i + 1)}</td>
                     <td data-cell={`${i}-0`}>
                       <ItemSelect variant="borderless" value={l.item?.id} item={l.item} ctx={lookupCtx} disabled={readonly} onChange={(it) => pick(i, it)} />
                     </td>
                     {count ? (
                       <>
-                        <td className="px-2"><Qty v={l.system_qty ?? 0} unit={l.item?.unit_name} /></td>
+                        <td className="sf-gn"><Qty v={l.system_qty ?? 0} unit={l.item?.unit_name} /></td>
                         <td data-cell={`${i}-1`}>
                           <NumberInput variant="borderless" decimals={l.item?.unit_decimals ?? 3} value={l.counted_qty} disabled={readonly || !l.item} onChange={(v) => set(i, { counted_qty: v })} onPressEnter={() => onEnter(i, 1)} />
                         </td>
-                        <td className="px-2">{diff ? (diff.isZero() ? <span className="text-xs text-muted">بدون اختلاف</span> : <span className={diff.gt(0) ? "text-ok" : "text-bad"}><Qty v={diff.toString()} /></span>) : null}</td>
-                        {posted ? <td className="px-2 text-left"><Money v={l.cost ?? 0} zero="—" /></td> : null}
+                        <td className="sf-gn">{diff ? (diff.isZero() ? <span className="text-[13px] text-ink-3">بدون اختلاف</span> : <Chip tone={diff.gt(0) ? "neutral" : "danger"} fig><Qty v={diff.toString()} /></Chip>) : null}</td>
+                        {posted ? <td className="sf-gn"><Money v={l.cost ?? 0} zero="—" /></td> : null}
                       </>
                     ) : (
                       <>
@@ -430,7 +431,7 @@ function StockDocEditor({ id }: { id: string | null }) {
                               options={[{ value: l.item.unit_id ?? "", label: l.item.unit_name ?? "اصلی" }, { value: l.item.unit2_id, label: l.item.unit2_name ?? "فرعی" }]}
                             />
                           ) : (
-                            <span className="px-2 text-xs text-muted">{unitName(l)}</span>
+                            <span className="px-2 text-[13px] text-ink-3">{unitName(l)}</span>
                           )}
                         </td>
                         {kind === "receipt" || kind === "adjust" ? (
@@ -440,16 +441,16 @@ function StockDocEditor({ id }: { id: string | null }) {
                             </Tooltip>
                           </td>
                         ) : null}
-                        {kind === "receipt" ? <td className="px-2 text-left">{l.item ? <Money v={D(l.qty).times(D(l.unit_cost)).toDecimalPlaces(org.money_decimals ?? 0).toString()} /> : null}</td> : null}
-                        {showCost ? <td className="px-2 text-left"><Money v={l.cost ?? 0} zero="—" /></td> : null}
+                        {kind === "receipt" ? <td className="sf-gn">{l.item ? <Money v={D(l.qty).times(D(l.unit_cost)).toDecimalPlaces(org.money_decimals ?? 0).toString()} /> : null}</td> : null}
+                        {showCost ? <td className="sf-gn"><Money v={l.cost ?? 0} zero="—" /></td> : null}
                       </>
                     )}
                     <td>
                       <Input variant="borderless" value={l.description} disabled={readonly || !l.item} onChange={(e) => set(i, { description: e.target.value })} />
                     </td>
                     {!readonly ? (
-                      <td className="no-print text-center">
-                        <Button type="text" size="small" danger icon={<DeleteOutlined />} tabIndex={-1} onClick={() => setLines((ls) => (ls.length > 1 ? ls.filter((_, j) => j !== i) : [blank()]))} aria-label="حذف ردیف" />
+                      <td className="no-print">
+                        <span className="sf-row-x"><Button type="text" size="small" icon={<Ic icon={X} />} tabIndex={-1} onClick={() => setLines((ls) => (ls.length > 1 ? ls.filter((_, j) => j !== i) : [blank()]))} aria-label="حذف ردیف" /></span>
                       </td>
                     ) : null}
                   </tr>
@@ -459,11 +460,13 @@ function StockDocEditor({ id }: { id: string | null }) {
             <tfoot>
               <tr>
                 <td colSpan={2}>
-                  {!readonly ? <Button size="small" icon={<PlusOutlined />} className="no-print" onClick={() => setLines((ls) => [...ls, blank()])}>ردیف</Button> : null}
-                  <span className="ms-3 text-xs font-normal text-muted">{faDigits(itemLines.length)} ردیف</span>
+                  <span className="inline-flex items-center gap-3">
+                    {!readonly ? <Button size="small" icon={<Ic icon={Plus} />} className="no-print" onClick={() => setLines((ls) => [...ls, blank()])}>ردیف</Button> : null}
+                    <span className="sf-cnt"><span className="sf-num">{faDigits(itemLines.length)}</span> ردیف</span>
+                  </span>
                 </td>
-                <td colSpan={middleCols} className="text-left">
-                  {kind === "receipt" ? <Money v={receiptTotal.toString()} /> : docValue && !docValue.isZero() ? <span>ارزش سند: <Money v={docValue.toString()} /></span> : null}
+                <td colSpan={middleCols}>
+                  {kind === "receipt" ? <Money v={receiptTotal.toString()} /> : docValue && !docValue.isZero() ? <span>ارزش سند <Money v={docValue.toString()} /></span> : null}
                 </td>
                 <td colSpan={!readonly ? 2 : 1} />
               </tr>

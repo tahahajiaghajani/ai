@@ -2,7 +2,8 @@
 import { useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { Button, Dropdown, Input, Select, Space } from "antd";
-import { PlusOutlined, SearchOutlined } from "@ant-design/icons";
+import { Plus, Search } from "lucide-react";
+import { Ic } from "../../components/shell/icons";
 import { useOrg } from "../../lib/org";
 import { useDebounced } from "../../lib/hooks";
 import { PageHeader } from "../../components/layout";
@@ -10,8 +11,8 @@ import { ServerTable } from "../../components/data";
 import { DateInput, PartySelect } from "../../components/inputs";
 import { JDate, Money } from "../../components/display";
 import { D } from "@shared/money";
-import { faDigits, formatWeight } from "@shared/format";
-import { DOC_KINDS, KINDS, KIND_PATH, KindTag, StatusOf, type DocKind } from "./shared";
+import { faDigits } from "@shared/format";
+import { gw, DOC_KINDS, KINDS, KIND_PATH, KindTag, StatusOf, type DocKind } from "./shared";
 
 export const KIND_GROUPS: { label: string; kinds: DocKind[] }[] = [
   { label: "فروش", kinds: ["sale", "bullion_sale"] },
@@ -38,7 +39,7 @@ export function NewDocButton({ kinds, label = "سند جدید", primary = true 
         })).filter((g) => g.children.length),
       }}
     >
-      <Button type={primary ? "primary" : "default"} icon={<PlusOutlined />}>{label}</Button>
+      <Button type={primary ? "primary" : "default"} icon={<Ic icon={Plus} />}>{label}</Button>
     </Dropdown>
   );
 }
@@ -79,7 +80,7 @@ export function DocsTable({ kinds, partyId, compact }: { kinds?: string; partyId
       toolbar={
         compact ? undefined : (
           <Space wrap>
-            <Input allowClear prefix={<SearchOutlined className="text-muted" />} placeholder="شماره، اتیکت یا نام…" className="!w-56" value={q} onChange={(e) => setQ(e.target.value)} />
+            <Input allowClear prefix={<Ic icon={Search} className="text-ink-3" />} placeholder="شماره، اتیکت یا نام…" className="!w-56" value={q} onChange={(e) => setQ(e.target.value)} />
             {kinds ? null : (
               <Select
                 allowClear
@@ -98,16 +99,16 @@ export function DocsTable({ kinds, partyId, compact }: { kinds?: string; partyId
         )
       }
       columns={[
-        { key: "no", dataIndex: "no", title: "شماره", render: (v) => <b className="num">{faDigits(v)}</b> },
+        { key: "no", dataIndex: "no", title: "شماره", render: (v) => <span className="sf-docno">{faDigits(v)}</span> },
         { key: "kind", dataIndex: "kind", title: "نوع", render: (v) => <KindTag kind={v} /> },
         { key: "date", dataIndex: "date", title: "تاریخ", render: (v) => <JDate v={v} /> },
-        { key: "party", title: "طرف حساب", render: (_, r) => r.party_name ?? r.buyer_name ?? <span className="text-muted">گذری</span> },
-        { key: "wo", dataIndex: "weight_out", title: "۷۵۰ خروجی", align: "left", render: (v) => (D(v).isZero() ? <span className="text-muted">—</span> : <span className="num">{formatWeight(v)}</span>) },
-        { key: "wi", dataIndex: "weight_in", title: "۷۵۰ ورودی", align: "left", render: (v) => (D(v).isZero() ? <span className="text-muted">—</span> : <span className="num">{formatWeight(v)}</span>) },
-        { key: "total", dataIndex: "total", title: "مبلغ", align: "left", render: (v) => <Money v={v} zero="—" /> },
-        { key: "rem", dataIndex: "remaining", title: "مانده", align: "left", render: (v) => <Money v={v ?? 0} zero="—" /> },
+        { key: "party", title: "طرف حساب", render: (_, r) => r.party_name ?? r.buyer_name ?? <span className="text-ink-3">مشتری گذری</span> },
+        { key: "wo", dataIndex: "weight_out", title: "خروجی ۷۵۰ (گرم)", className: "sf-num", width: 128, render: (v) => (D(v).isZero() ? <span className="sf-zero">—</span> : <span className="sf-num">{gw(v)}</span>) },
+        { key: "wi", dataIndex: "weight_in", title: "ورودی ۷۵۰ (گرم)", className: "sf-num", width: 128, render: (v) => (D(v).isZero() ? <span className="sf-zero">—</span> : <span className="sf-num">{gw(v)}</span>) },
+        { key: "total", dataIndex: "total", title: "مبلغ", className: "sf-num", width: 140, render: (v) => <Money v={v} zero="—" /> },
+        { key: "rem", dataIndex: "remaining", title: "مانده", className: "sf-num", width: 140, render: (v) => <Money v={v ?? 0} zero="—" /> },
         { key: "st", dataIndex: "status", title: "وضعیت", render: (v) => <StatusOf s={v} /> },
-        { key: "v", dataIndex: "voucher_no", title: "سند", render: (v) => (v ? <span className="num text-xs text-muted">{faDigits(v)}</span> : null) },
+        { key: "v", dataIndex: "voucher_no", title: "سند", render: (v) => (v ? <span className="sf-docno text-ink-3">{faDigits(v)}</span> : null) },
       ]}
     />
   );
@@ -117,7 +118,7 @@ export default function Docs() {
   return (
     <div>
       <PageHeader title="اسناد طلا" actions={<NewDocButton />} />
-      <div className="tz-card p-3 md:p-4">
+      <div className="sf-card">
         <DocsTable />
       </div>
     </div>

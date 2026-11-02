@@ -1,10 +1,13 @@
 // Shared pieces of the exchange screens: the rate board query, currency pickers and amount
 // display with each currency's own decimals, live market quotes, legs (cash box / bank /
 // wallet / customer account) and labels.
-import { useEffect, useMemo, type ReactNode } from "react";
+import "./fx.css";
+import "../goods/sheet.css";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
-import { Select, Segmented, Tag, Tooltip } from "antd";
-import { ArrowUpOutlined, ArrowDownOutlined } from "@ant-design/icons";
+import { Select, Segmented, Tooltip } from "antd";
+import { StatusTag } from "../../components/display";
+import { pct as faPct } from "../../lib/fa";
 import { useOrg } from "../../lib/org";
 import { RefSelect } from "../../components/inputs";
 import { formatNumber, faDigits } from "@shared/format";
@@ -90,42 +93,104 @@ export function rateLabel(v: Num, baseDp = 0): string {
   return formatNumber(d.toSignificantDigits(6), { dp: 12 });
 }
 
-export function FxAmount({ v, code, dp = 8, colored, className, strong }: { v: Num; code?: string | null; dp?: number; colored?: boolean; className?: string; strong?: boolean }) {
+/**
+ * An amount in a currency. With a Latin code it is written in Latin digits in Geist («12,480.50 USDT»): the digit
+ * script follows the unit's script (components.md §4.8). Without a code it is a Persian figure (a column whose header
+ * carries the unit). Negatives are an isolated true minus, never red; `colored` paints money in green.
+ */
+export function FxAmount({ v, code, dp = 8, colored, className, strong, zero }: { v: Num; code?: string | null; dp?: number; colored?: boolean; className?: string; strong?: boolean; zero?: string }) {
   const d = D(v);
-  const color = colored ? (d.isNeg() ? "tz-neg" : d.gt(0) ? "tz-pos" : "") : d.isNeg() ? "tz-neg" : "";
+  if (zero !== undefined && d.isZero()) return <span className={`sf-num sf-zero ${className ?? ""}`}>{zero}</span>;
+  const inT = colored && d.gt(0);
+  if (code && /^[A-Za-z0-9.]+$/.test(code)) {
+    const body = formatNumber(d.abs(), { dp, fa: false });
+    return (
+      <bdi dir="ltr" className={`sf-fxa ${inT ? "is-in" : ""} ${strong ? "is-strong" : ""} ${className ?? ""}`}>
+        <span>{d.isNeg() ? "\u2212" : ""}{body}</span>
+        <span className="c">{code}</span>
+      </bdi>
+    );
+  }
+  const body = formatNumber(d.abs(), { dp });
   return (
-    <span className={`num ${color} ${strong ? "font-bold" : ""} ${className ?? ""}`}>
-      {formatNumber(d, { dp })}
-      {code ? <span className="ltr ms-1 text-[11px] font-semibold text-muted">{code}</span> : null}
+    <span className={`sf-num ${inT ? "sf-in-t" : ""} ${strong ? "font-semibold" : ""} ${className ?? ""}`}>
+      {d.isNeg() ? <bdi dir="ltr">{"\u2212"}{body}</bdi> : body}
+      {code ? <span className="sf-unit">{"\u00a0"}{code}</span> : null}
     </span>
   );
 }
 
+/** A 10 px filled triangle (Vazirmatn lacks ▲ ▼). */
+function Tri({ up }: { up: boolean }) {
+  return (
+    <svg viewBox="0 0 10 10" aria-hidden>
+      <path d={up ? "M5 1.5 9 8H1z" : "M5 8.5 1 2h8z"} fill="currentColor" />
+    </svg>
+  );
+}
+
+/** 24 h change as a delta chip: up in `in`, down in `danger`, below 0.1 % neutral. */
 export function Change({ pct }: { pct: string | null | undefined }) {
-  if (pct === null || pct === undefined || pct === "") return <span className="text-xs text-muted">—</span>;
+  if (pct === null || pct === undefined || pct === "") return <span className="sf-zero text-[13px]">—</span>;
   const d = D(pct);
-  if (d.isZero()) return <span className="num text-xs text-muted">۰٪</span>;
+  const flat = d.abs().lt(0.1);
   return (
-    <span className={`num text-xs ${d.gt(0) ? "tz-pos" : "tz-neg"}`}>
-      {d.gt(0) ? <ArrowUpOutlined /> : <ArrowDownOutlined />} {formatNumber(d.abs(), { dp: 2 })}٪
+    <span className="sf-delta" data-dir={flat ? undefined : d.gt(0) ? "up" : "down"}>
+      {flat ? null : <Tri up={d.gt(0)} />}
+      {faPct(d.abs().div(100).toNumber(), 2)}
     </span>
   );
 }
 
+/** The currency chip: sea tint, the ISO code in Geist 600 (only inside «صرافی»). */
 export function CurrencyChip({ c, size = "sm" }: { c: Pick<BoardCurrency, "code" | "kind"> | null | undefined; size?: "sm" | "lg" }) {
   if (!c) return null;
-  const tone = c.kind === "crypto" ? "bg-[color-mix(in_srgb,#7c3aed_14%,transparent)] text-[#7c3aed]" : c.kind === "metal" ? "bg-gold-soft text-gold" : "bg-brand-soft text-brand";
-  return <span className={`ltr inline-flex items-center rounded-md font-bold ${tone} ${size === "lg" ? "px-2 py-0.5 text-sm" : "px-1.5 text-[11px]"}`}>{c.code}</span>;
+  return <span className={`sf-cur ${size === "lg" ? "is-lg" : ""}`}>{c.code}</span>;
 }
 
-export function SourceTag({ s, at }: { s?: string | null; at?: string | null }) {
-  if (!s) return <span className="text-muted">—</span>;
-  const tag = (
-    <Tag variant="filled" color={s === "manual" ? "default" : "blue"} className="!m-0">
-      {SOURCE_FA[s] ?? s}
-    </Tag>
+/** The round currency avatar (24 / 28 / 36). */
+export function CurrencyAvatar({ code, size }: { code: string; size?: "sm" | "lg" }) {
+  return <span className={`sf-cur-av ${size === "sm" ? "is-sm" : size === "lg" ? "is-lg" : ""}`} aria-hidden>{code.slice(0, 4)}</span>;
+}
+
+/** Avatar + the Persian name over its code. */
+export function CurrencyName({ c, sub }: { c: Pick<BoardCurrency, "code" | "name"> & { kind?: Kind }; sub?: ReactNode }) {
+  return (
+    <span className="sf-cur-name">
+      <CurrencyAvatar code={c.code} />
+      <span className="t">
+        <b>{c.name}</b>
+        <span>{sub ?? <bdi dir="ltr" className="sf-latin">{c.code}</bdi>}</span>
+      </span>
+    </span>
   );
-  return at ? <Tooltip title={formatJalaliDateTime(at)}>{tag}</Tooltip> : tag;
+}
+
+/** Where a rate came from: plain text-3 (a source is not a status). */
+export function SourceTag({ s, at }: { s?: string | null; at?: string | null }) {
+  if (!s) return <span className="sf-zero">—</span>;
+  const t = <span className="whitespace-nowrap text-[13px] text-ink-3">{SOURCE_FA[s] ?? s}</span>;
+  return at ? <Tooltip title={formatJalaliDateTime(at)}>{t}</Tooltip> : t;
+}
+
+/** A deal or remittance status: plain text for the normal state, a chip only for what needs attention. */
+export function FxStatus({ s, map }: { s: string; map: Record<string, [string, string]> }) {
+  return <StatusTag s={s} map={map} />;
+}
+
+/** The direction of the last change of a value: "up" / "down" for 1.2 s after it changes (the live-rate flash). */
+export function useFlash(value: string | null | undefined): string {
+  const prev = useRef(value);
+  const [cls, setCls] = useState("");
+  useEffect(() => {
+    const was = prev.current;
+    prev.current = value;
+    if (was === undefined || was === null || value === undefined || value === null || D(was).eq(D(value))) return;
+    setCls(D(value).gt(D(was)) ? "sf-flash-up" : "sf-flash-down");
+    const t = setTimeout(() => setCls(""), 1300);
+    return () => clearTimeout(t);
+  }, [value]);
+  return cls;
 }
 
 /** «۵ دقیقه پیش» */
@@ -224,8 +289,9 @@ export function CurrencyPick({
         value: c.id,
         label: (
           <span className="flex items-center gap-2">
-            <CurrencyChip c={c} />
+            <CurrencyAvatar code={c.code} size="sm" />
             <span>{c.name}</span>
+            <bdi dir="ltr" className="sf-latin text-[12px] text-ink-3">{c.code}</bdi>
           </span>
         ),
       }))}
@@ -237,15 +303,9 @@ export function CurrencyPick({
 export function QuickCurrencies({ currencies, codes, value, onPick, exclude }: { currencies: BoardCurrency[]; codes: string[]; value?: string | null; onPick: (id: string) => void; exclude?: string | null }) {
   const list = codes.map((code) => currencies.find((c) => c.code === code)).filter((c): c is BoardCurrency => !!c && c.id !== exclude);
   return (
-    <div className="mt-1.5 flex flex-wrap gap-1">
+    <div className="sf-qcur" role="group" aria-label="ارزهای پرکاربرد">
       {list.map((c) => (
-        <button
-          key={c.id}
-          type="button"
-          tabIndex={-1}
-          onClick={() => onPick(c.id)}
-          className={`ltr rounded-md border px-1.5 py-0.5 text-[11px] font-semibold transition ${c.id === value ? "border-brand bg-brand-soft text-brand" : "border-line text-muted hover:border-brand hover:text-brand"}`}
-        >
+        <button key={c.id} type="button" tabIndex={-1} aria-pressed={c.id === value} onClick={() => onPick(c.id)} title={c.name}>
           {c.code}
         </button>
       ))}
@@ -311,7 +371,7 @@ export function LegPicker({ currency, value, onChange, partyName, disabled, size
         ) : value.method === "wallet" ? (
           <RefSelect entity="wallet" size={size ?? "small"} value={value.ref_id} disabled={disabled} filters={{ currency_id: currency?.id }} onChange={(id, opt) => onChange({ ...value, ref_id: id, chain: opt?.chain ?? null })} placeholder="کیف‌پول…" showCode={false} />
         ) : (
-          <span className={`text-xs ${partyName ? "text-ink" : "text-bad"}`}>{partyName ? `حساب «${partyName}»` : "ابتدا مشتری را انتخاب کنید"}</span>
+          <span className={`text-[13px] ${partyName ? "text-ink" : "text-ink-3"}`}>{partyName ? `حساب «${partyName}»` : "ابتدا مشتری را انتخاب کنید"}</span>
         )}
       </div>
     </div>
@@ -321,15 +381,15 @@ export function LegPicker({ currency, value, onChange, partyName, disabled, size
 /** Small label/value grid used on detail pages and receipts. */
 export function Facts({ items, cols = 2 }: { items: [ReactNode, ReactNode][]; cols?: 1 | 2 | 3 }) {
   return (
-    <div className={`grid gap-x-6 gap-y-2 ${cols === 3 ? "sm:grid-cols-3" : cols === 2 ? "sm:grid-cols-2" : ""}`}>
+    <dl className={`m-0 grid gap-x-8 ${cols === 3 ? "sm:grid-cols-3" : cols === 2 ? "sm:grid-cols-2" : ""}`}>
       {items
         .filter(([, v]) => v !== null && v !== undefined && v !== "" && v !== false)
         .map(([k, v], i) => (
-          <div key={i} className="flex min-w-0 items-baseline justify-between gap-3 border-b border-dashed border-line pb-1.5 text-sm">
-            <span className="shrink-0 text-xs text-muted">{k}</span>
-            <span className="min-w-0 truncate text-end">{v}</span>
+          <div key={i} className="flex min-w-0 items-baseline gap-3 border-b border-line py-2 text-[13px] leading-5">
+            <dt className="shrink-0 text-ink-3">{k}</dt>
+            <dd className="m-0 ms-auto min-w-0 truncate text-ink">{v}</dd>
           </div>
         ))}
-    </div>
+    </dl>
   );
 }

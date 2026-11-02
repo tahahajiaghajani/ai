@@ -1,4 +1,4 @@
--- «تراز» migration 0003_parties_treasury — اشخاص و خزانه‌داری
+-- «سیراف» migration 0003_parties_treasury — اشخاص و خزانه‌داری
 create table if not exists tz_migrations (id text primary key, applied_at timestamptz not null default now());
 
 -- ---------------------------------------------------------------------------

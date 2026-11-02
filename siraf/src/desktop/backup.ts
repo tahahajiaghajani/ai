@@ -18,16 +18,20 @@ function stamp(d = new Date()) {
 export async function backupNow(pg: PGlite, dir: string, label = "auto"): Promise<{ file: string; size: number }> {
   const blob = await pg.dumpDataDir("gzip");
   const buf = Buffer.from(await blob.arrayBuffer());
-  const file = join(dir, `taraz-${label}-${stamp()}.tar.gz`);
+  const file = join(dir, `siraf-${label}-${stamp()}.tar.gz`);
   writeFileSync(`${file}.part`, buf);
   renameSync(`${file}.part`, file);
   return { file, size: buf.length };
 }
 
+/** Backups are named `siraf-<label>-<stamp>.tar.gz`; copies made under the old name «تراز» (`taraz-…`) stay listed. */
+const BACKUP_FILE = /^(siraf|taraz)-.*\.tar\.gz$/;
+const AUTO_FILE = /^(siraf|taraz)-auto-/;
+
 export function listBackups(dir: string) {
   if (!existsSync(dir)) return [];
   return readdirSync(dir)
-    .filter((f) => /^taraz-.*\.tar\.gz$/.test(f))
+    .filter((f) => BACKUP_FILE.test(f))
     .map((f) => {
       const st = statSync(join(dir, f));
       return { file: join(dir, f), name: f, size: st.size, at: st.mtime.toISOString() };
@@ -36,7 +40,7 @@ export function listBackups(dir: string) {
 }
 
 export function pruneBackups(dir: string, keep: number) {
-  const autos = listBackups(dir).filter((b) => b.name.startsWith("taraz-auto-"));
+  const autos = listBackups(dir).filter((b) => AUTO_FILE.test(b.name));
   for (const b of autos.slice(Math.max(1, keep))) {
     try {
       unlinkSync(b.file);

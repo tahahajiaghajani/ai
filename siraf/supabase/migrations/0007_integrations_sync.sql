@@ -1,4 +1,4 @@
--- «تراز» migration 0007_integrations_sync — اتصال‌ها، تریگرهای همگام‌سازی و امنیت
+-- «سیراف» migration 0007_integrations_sync — اتصال‌ها، تریگرهای همگام‌سازی و امنیت
 create table if not exists tz_migrations (id text primary key, applied_at timestamptz not null default now());
 
 -- ---------------------------------------------------------------------------

@@ -2,21 +2,23 @@
 // (typed by hand or «به‌روزرسانی از بازار»), rate history and a full-screen board for customers.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Drawer, Dropdown, Input, Modal, Segmented, Space, Switch, Table, Tooltip, Alert, Checkbox, Select, Spin } from "antd";
-import {
-  SyncOutlined, SaveOutlined, FullscreenOutlined, SettingOutlined, HistoryOutlined, SearchOutlined, DeleteOutlined,
-  ArrowUpOutlined, ArrowDownOutlined, PlusOutlined, CloseOutlined, ThunderboltOutlined, DownOutlined,
-} from "@ant-design/icons";
+import { Button, Drawer, Dropdown, Input, Modal, Segmented, Space, Switch, Table, Tooltip, Alert, Checkbox, Select } from "antd";
+import { ArrowDown, ArrowUp, ChevronDown, Coins, History, Maximize2, Plus, RefreshCw, Save, Search, Settings, Trash2, X } from "lucide-react";
+import { Ic } from "../../components/shell/icons";
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip as RTooltip, CartesianGrid, Legend } from "recharts";
 import { useOrg } from "../../lib/org";
 import { useAction, useHotkey, useNotify } from "../../lib/hooks";
 import { PageHeader, Section } from "../../components/layout";
 import { NumberInput, PctInput, MoneyInput } from "../../components/inputs";
-import { JDateTime, EmptyState } from "../../components/display";
+import { JDateTime, EmptyState, Loader } from "../../components/display";
+import { APP_NAME } from "@shared/constants";
+import { pct as faPct } from "../../lib/fa";
 import { D } from "@shared/money";
-import { faDigits, formatCompact } from "@shared/format";
+import { faDigits, formatCompact, formatNumber } from "@shared/format";
 import { formatJalali, formatJalaliDateTime, todayISO } from "@shared/jalali";
-import { ago, Change, CurrencyChip, CUR_KIND_FA, fnum, rateLabel, SOURCE_FA, SourceTag, useBoard, useLive, type BoardCurrency, type Kind } from "./shared";
+import { SirafMark } from "../../components/brand";
+import { jTime } from "../../lib/fa";
+import { ago, Change, CurrencyAvatar, CurrencyChip, CUR_KIND_FA, fnum, rateLabel, SOURCE_FA, SourceTag, useBoard, useFlash, useLive, type BoardCurrency, type Kind } from "./shared";
 
 const TICKER = ["BTC", "ETH", "USDT", "TRX", "SOL", "TON", "USD", "EUR"];
 
@@ -92,17 +94,24 @@ export default function RatesBoard() {
     <div>
       <PageHeader
         title="تابلوی نرخ ارز"
-        subtitle={board.data ? <>نرخ‌ها به {unit} · حاشیه‌ی پیش‌فرض {fnum(board.data.settings.margin_pct, 3)}٪ · منابع: {board.data.settings.providers.map((p) => SOURCE_FA[p] ?? p).join("، ")}</> : null}
+        subtitle={
+          board.data ? (
+            <span className="sf-doc-meta">
+              <span>نرخ‌ها به {unit}</span>
+              <span className="sf-sep" aria-hidden />
+              <span>حاشیه‌ی پیش‌فرض {fnum(board.data.settings.margin_pct, 3)}٪</span>
+            </span>
+          ) : null
+        }
         actions={
           <>
-            <Tooltip title="نمایش تمام‌صفحه برای مشتریان">
-              <Button icon={<FullscreenOutlined />} onClick={() => setDisplay(true)} />
+            <Tooltip title="تابلوی تمام‌صفحه برای مشتریان">
+              <Button icon={<Ic icon={Maximize2} />} onClick={() => setDisplay(true)} aria-label="تابلوی مشتری" />
             </Tooltip>
-            {can("fx", "full") ? <Tooltip title="تنظیمات نرخ و منابع قیمت"><Button icon={<SettingOutlined />} onClick={() => setSettingsOpen(true)} /></Tooltip> : null}
             {canEdit ? (
               <>
                 <Space.Compact>
-                  <Button icon={<SyncOutlined spin={refresh.isPending} />} disabled={refresh.isPending} onClick={() => refresh.mutate(undefined)}>
+                  <Button icon={<Ic icon={RefreshCw} className={refresh.isPending ? "sf-spin" : undefined} />} disabled={refresh.isPending} onClick={() => refresh.mutate(undefined)}>
                     به‌روزرسانی از بازار
                   </Button>
                   <Dropdown
@@ -111,16 +120,20 @@ export default function RatesBoard() {
                       items: [
                         { key: "crypto", label: "فقط رمزارزها و فلزها", onClick: () => refresh.mutate(["crypto", "metal"]) },
                         { key: "fiat", label: "فقط ارزها", onClick: () => refresh.mutate(["fiat"]) },
+                        ...(can("fx", "full") ? [{ type: "divider" as const }, { key: "settings", icon: <Ic icon={Settings} />, label: "تنظیمات نرخ و منابع قیمت", onClick: () => setSettingsOpen(true) }] : []),
                       ],
                     }}
                   >
-                    <Button icon={<DownOutlined />} disabled={refresh.isPending} aria-label="گزینه‌های به‌روزرسانی" />
+                    <Button icon={<Ic icon={ChevronDown} />} disabled={refresh.isPending} aria-label="گزینه‌های به‌روزرسانی" />
                   </Dropdown>
                 </Space.Compact>
-                <Button type="primary" icon={<SaveOutlined />} disabled={!changed.length} loading={save.isPending} onClick={() => save.mutate(undefined)}>
-                  ذخیره‌ی نرخ‌ها {changed.length ? `(${faDigits(changed.length)})` : ""} <span className="tz-kbd ltr ms-1 !bg-transparent !text-white/80">F2</span>
+                <Button type="primary" icon={<Ic icon={Save} />} disabled={!changed.length} loading={save.isPending} onClick={() => save.mutate(undefined)}>
+                  ذخیره‌ی نرخ‌ها{changed.length ? <span className="sf-num">&nbsp;({faDigits(changed.length)})</span> : null}
+                  <span className="sf-kw" aria-hidden><bdi dir="ltr"><kbd>F2</kbd></bdi></span>
                 </Button>
               </>
+            ) : can("fx", "full") ? (
+              <Button icon={<Ic icon={Settings} />} onClick={() => setSettingsOpen(true)}>تنظیمات نرخ</Button>
             ) : null}
           </>
         }
@@ -128,84 +141,112 @@ export default function RatesBoard() {
 
       <LiveStrip />
 
-      <Section
-        className="mt-4"
-        title="نرخ خرید و فروش"
-        extra={
-          <div className="flex flex-wrap items-center gap-2">
+      <section className="sf-doc-card mt-4" aria-label="نرخ خرید و فروش">
+        <div className="sf-doc-h flex-wrap">
+          <h2>نرخ خرید و فروش</h2>
+          <span className="sf-doc-hm">مبالغ به {unit}</span>
+          <div className="sf-doc-hx">
             <Segmented size="small" value={kind} onChange={(v) => setKind(v as "all" | Kind)} options={[{ value: "all", label: "همه" }, { value: "fiat", label: "ارز" }, { value: "crypto", label: "رمزارز" }, { value: "metal", label: "فلز" }]} />
-            <Input size="small" allowClear prefix={<SearchOutlined className="text-muted" />} placeholder="جستجو…" value={q} onChange={(e) => setQ(e.target.value)} className="!w-40" />
+            <Input size="small" allowClear prefix={<Ic icon={Search} className="text-ink-3" />} placeholder="جستجوی ارز" value={q} onChange={(e) => setQ(e.target.value)} className="!w-44" aria-label="جستجوی ارز" />
           </div>
-        }
-        bodyClass="p-0"
-      >
+        </div>
         {board.isLoading ? (
-          <div className="grid h-40 place-content-center"><Spin /></div>
+          <div className="grid h-40 place-content-center"><Loader /></div>
         ) : !rows.length ? (
-          <EmptyState title="ارزی برای نمایش نیست؛ از «ارزها و رمزارزها» ارز فعال کنید" />
+          <EmptyState icon={Coins} title="ارزی برای نمایش نیست" description="از «ارزها و رمزارزها» ارزی را فعال کنید." />
         ) : (
-          <div ref={gridRef} className="overflow-x-auto">
-            <table className="tz-grid min-w-[860px]">
+          <div ref={gridRef} className="sf-grid-wrap">
+            <table className="sf-grid min-w-[900px]">
               <thead>
                 <tr>
-                  <th className="min-w-[200px]">ارز</th>
-                  <th className="min-w-[170px]" style={{ textAlign: "left" }}>نرخ خرید ما</th>
-                  <th className="min-w-[170px]" style={{ textAlign: "left" }}>نرخ فروش ما</th>
-                  <th className="min-w-[130px]" style={{ textAlign: "left" }}>میانگین</th>
-                  <th style={{ textAlign: "left" }}>اختلاف</th>
-                  <th>تغییر</th>
-                  <th>منبع</th>
-                  <th>زمان</th>
-                  <th className="w-10" />
+                  <th className="min-w-[220px]">ارز</th>
+                  <th className="w-[164px]">نرخ خرید ما</th>
+                  <th className="w-[164px]">نرخ فروش ما</th>
+                  <th className="w-[140px]">میانگین</th>
+                  <th className="w-[84px]">اختلاف</th>
+                  <th className="w-[100px]">تغییر</th>
+                  <th className="w-[96px]">منبع</th>
+                  <th className="w-[110px]">زمان</th>
+                  <th className="w-10" aria-label="تاریخچه" />
                 </tr>
               </thead>
               <tbody>
-                {rows.map((c, i) => {
-                  const e = edits[c.id] ?? {};
-                  const buy = e.buy !== undefined ? e.buy : c.rate?.buy ?? null;
-                  const sell = e.sell !== undefined ? e.sell : c.rate?.sell ?? null;
-                  const mid = buy && sell ? D(buy).plus(D(sell)).div(2).toFixed() : c.rate?.mid ?? buy ?? sell;
-                  const spread = buy && sell && D(buy).gt(0) ? D(sell).minus(D(buy)).div(D(buy)).times(100) : null;
-                  const dirty = (e.buy !== undefined && !D(e.buy).eq(D(c.rate?.buy))) || (e.sell !== undefined && !D(e.sell).eq(D(c.rate?.sell)));
-                  const decimals = mid && D(mid).lt(100) ? 8 : dp;
-                  return (
-                    <tr key={c.id} className={dirty ? "bg-gold-soft" : ""}>
-                      <td>
-                        <div className="flex items-center gap-2 px-1">
-                          <CurrencyChip c={c} />
-                          <span className="font-semibold">{c.name}</span>
-                          <span className="text-[11px] text-muted">{CUR_KIND_FA[c.kind]}</span>
-                        </div>
-                      </td>
-                      <td data-cell={`${i}-0`}>
-                        <NumberInput variant="borderless" decimals={decimals} value={buy} disabled={!canEdit} onChange={(v) => setEdits({ ...edits, [c.id]: { ...e, buy: v } })} onPressEnter={() => focusCell(i, 1)} />
-                      </td>
-                      <td data-cell={`${i}-1`}>
-                        <NumberInput variant="borderless" decimals={decimals} value={sell} disabled={!canEdit} onChange={(v) => setEdits({ ...edits, [c.id]: { ...e, sell: v } })} onPressEnter={() => focusCell(i + 1, 0)} />
-                      </td>
-                      <td className="num px-2 text-muted" style={{ textAlign: "left" }}>{mid ? rateLabel(mid, dp) : "—"}</td>
-                      <td className="num px-2 text-xs text-muted" style={{ textAlign: "left" }}>{spread ? `${fnum(spread.toFixed(), 2)}٪` : "—"}</td>
-                      <td className="px-2"><Change pct={c.change_pct} /></td>
-                      <td className="px-2"><SourceTag s={c.rate?.source} /></td>
-                      <td className="px-2 text-xs text-muted">{c.rate ? <Tooltip title={formatJalaliDateTime(c.rate.at)}>{ago(c.rate.at)}</Tooltip> : "—"}</td>
-                      <td className="text-center">
-                        <Tooltip title="تاریخچه‌ی نرخ">
-                          <Button type="text" size="small" icon={<HistoryOutlined />} tabIndex={-1} onClick={() => setHistory(c)} />
-                        </Tooltip>
-                      </td>
-                    </tr>
-                  );
-                })}
+                {rows.map((c, i) => (
+                  <RateRow
+                    key={c.id}
+                    c={c}
+                    i={i}
+                    e={edits[c.id] ?? {}}
+                    dp={dp}
+                    canEdit={canEdit}
+                    onEdit={(patch) => setEdits({ ...edits, [c.id]: { ...(edits[c.id] ?? {}), ...patch } })}
+                    focusCell={focusCell}
+                    onHistory={() => setHistory(c)}
+                  />
+                ))}
               </tbody>
             </table>
           </div>
         )}
-      </Section>
+      </section>
 
       <HistoryDrawer currency={history} onClose={() => setHistory(null)} dp={dp} />
       {settingsOpen ? <SettingsModal onClose={() => setSettingsOpen(false)} onSaved={() => { qc.invalidateQueries({ queryKey: ["org", orgId] }); qc.invalidateQueries({ queryKey: ["fx-board"] }); }} /> : null}
       {display && board.data ? <DisplayBoard rows={(board.data.currencies ?? []).filter((c) => !c.is_base && c.is_active && c.rate)} onClose={() => setDisplay(false)} dp={dp} unit={unit} live={live.data?.quotes ?? []} /> : null}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------- one row of the grid
+
+function RateRow({ c, i, e, dp, canEdit, onEdit, focusCell, onHistory }: {
+  c: BoardCurrency;
+  i: number;
+  e: { buy?: string | null; sell?: string | null };
+  dp: number;
+  canEdit: boolean;
+  onEdit: (patch: { buy?: string | null; sell?: string | null }) => void;
+  focusCell: (row: number, col: number) => void;
+  onHistory: () => void;
+}) {
+  const buy = e.buy !== undefined ? e.buy : c.rate?.buy ?? null;
+  const sell = e.sell !== undefined ? e.sell : c.rate?.sell ?? null;
+  const mid = buy && sell ? D(buy).plus(D(sell)).div(2).toFixed() : c.rate?.mid ?? buy ?? sell;
+  const spread = buy && sell && D(buy).gt(0) ? D(sell).minus(D(buy)).div(D(buy)).times(100) : null;
+  const dirty = (e.buy !== undefined && !D(e.buy).eq(D(c.rate?.buy))) || (e.sell !== undefined && !D(e.sell).eq(D(c.rate?.sell)));
+  const decimals = mid && D(mid).lt(100) ? 8 : dp;
+  const flashBuy = useFlash(c.rate?.buy);
+  const flashSell = useFlash(c.rate?.sell);
+  return (
+    <tr className={dirty ? "is-dirty" : ""}>
+      <td>
+        <span className="sf-cur-name">
+          <CurrencyAvatar code={c.code} />
+          <span className="t">
+            <b>{c.name}</b>
+            <span className="inline-flex items-center gap-2"><bdi dir="ltr" className="sf-latin">{c.code}</bdi>{c.kind !== "fiat" ? <span>{CUR_KIND_FA[c.kind]}</span> : null}{dirty ? <span className="inline-flex items-center gap-1.5 text-ink-2"><i className="sf-dirty-dot" aria-hidden />ذخیره‌نشده</span> : null}</span>
+          </span>
+        </span>
+      </td>
+      <td data-cell={`${i}-0`} className={flashBuy}>
+        <NumberInput variant="borderless" decimals={decimals} value={buy} disabled={!canEdit} onChange={(v) => onEdit({ buy: v })} onPressEnter={() => focusCell(i, 1)} aria-label={`نرخ خرید ${c.name}`} />
+      </td>
+      <td data-cell={`${i}-1`} className={flashSell}>
+        <NumberInput variant="borderless" decimals={decimals} value={sell} disabled={!canEdit} onChange={(v) => onEdit({ sell: v })} onPressEnter={() => focusCell(i + 1, 0)} aria-label={`نرخ فروش ${c.name}`} />
+      </td>
+      <td className="sf-gn text-ink-2">{mid ? rateLabel(mid, dp) : <span className="sf-zero">—</span>}</td>
+      <td className="sf-gn text-ink-3">{spread ? `${fnum(spread.toFixed(), 2)}٪` : <span className="sf-zero">—</span>}</td>
+      <td className="sf-gn"><Change pct={c.change_pct} /></td>
+      <td className="sf-gn"><SourceTag s={c.rate?.source} /></td>
+      <td className="sf-gn text-[13px] text-ink-3">{c.rate ? <Tooltip title={formatJalaliDateTime(c.rate.at)}><span>{ago(c.rate.at)}</span></Tooltip> : <span className="sf-zero">—</span>}</td>
+      <td>
+        <span className="sf-row-x">
+          <Tooltip title="تاریخچه‌ی نرخ">
+            <Button type="text" size="small" icon={<Ic icon={History} />} tabIndex={-1} onClick={onHistory} aria-label={`تاریخچه‌ی نرخ ${c.name}`} />
+          </Tooltip>
+        </span>
+      </td>
+    </tr>
   );
 }
 
@@ -216,36 +257,44 @@ function LiveStrip() {
   const { unit } = useOrg();
   const d = live.data;
   return (
-    <Section
-      title={<span className="flex items-center gap-2"><ThunderboltOutlined className="text-gold" /> قیمت زنده‌ی بازار</span>}
-      extra={
-        <span className="flex items-center gap-2 text-[11px] text-muted">
-          {d?.usd_rate ? <>دلار مبنا: <b className="num text-ink">{rateLabel(d.usd_rate)}</b> {unit} ({SOURCE_FA[d.usd_source ?? ""] ?? d.usd_source})</> : <span className="text-warn">نرخ دلار مبنا ثبت نشده</span>}
-          {d ? <>· {ago(d.at)}</> : null}
-          <Button size="small" type="text" icon={<SyncOutlined spin={live.isFetching} />} onClick={() => live.refetch()} aria-label="بازخوانی" />
+    <section className="sf-doc-card" aria-label="قیمت زنده‌ی بازار">
+      <div className="sf-doc-h">
+        <h2>بازار جهانی</h2>
+        <span className="sf-doc-hm inline-flex items-center gap-2">
+          {d?.usd_rate ? <>دلار مبنا <b className="sf-num font-medium text-ink">{rateLabel(d.usd_rate)}</b> {unit}<span className="sf-sep" aria-hidden />{SOURCE_FA[d.usd_source ?? ""] ?? d.usd_source}</> : <span className="text-warning">نرخ دلار مبنا ثبت نشده</span>}
         </span>
-      }
-    >
+        <div className="sf-doc-hx text-[12px] text-ink-3">
+          {d ? <><i className="sf-nuqta" data-live="" aria-hidden /><span className="sf-num">{jTime(new Date(d.at))}</span></> : null}
+          <Tooltip title="بازخوانی">
+            <Button size="small" type="text" icon={<Ic icon={RefreshCw} className={live.isFetching ? "sf-spin" : undefined} />} onClick={() => live.refetch()} aria-label="بازخوانی قیمت‌ها" />
+          </Tooltip>
+        </div>
+      </div>
       {live.isLoading ? (
-        <div className="grid h-16 place-content-center"><Spin size="small" /></div>
+        <div className="grid h-20 place-content-center"><Loader /></div>
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-8">
-            {(d?.quotes ?? []).map((x) => (
-              <div key={x.code} className="tz-soft px-3 py-2">
-                <div className="flex items-center justify-between">
-                  <CurrencyChip c={{ code: x.code, kind: x.kind }} />
-                  <Change pct={x.change_24h} />
-                </div>
-                <div className="num mt-1 text-base font-bold ltr text-start">{x.price_usd ? `$${fnum(x.price_usd, D(x.price_usd).lt(10) ? 4 : 2)}` : "—"}</div>
-                <div className="num truncate text-[11px] text-muted">{x.price_base ? `${formatCompact(x.price_base)} ${unit}` : x.source ? SOURCE_FA[x.source] ?? x.source : "بی‌پاسخ"}</div>
-              </div>
-            ))}
+          <div className="sf-fxlive">
+            {(d?.quotes ?? []).map((x) => <LiveTile key={x.code} x={x} unit={unit} />)}
           </div>
-          {d?.errors?.length ? <div className="mt-2 text-[11px] text-muted">{d.errors.join(" · ")}</div> : null}
+          {d?.errors?.length ? <div className="border-t border-line px-5 py-2 text-[12px] text-ink-3">{d.errors.join("، ")}</div> : null}
         </>
       )}
-    </Section>
+    </section>
+  );
+}
+
+function LiveTile({ x, unit }: { x: { code: string; kind: Kind; price_usd: string | null; change_24h: string | null; price_base: string | null; source: string | null }; unit: string }) {
+  const flash = useFlash(x.price_usd);
+  return (
+    <div className={flash}>
+      <div className="h">
+        <CurrencyChip c={{ code: x.code, kind: x.kind }} />
+        <Change pct={x.change_24h} />
+      </div>
+      <bdi className="p" dir="ltr">{x.price_usd ? `$${formatNumber(x.price_usd, { dp: D(x.price_usd).lt(10) ? 4 : 2, minDp: 2, fa: false })}` : "—"}</bdi>
+      <div className="s">{x.price_base ? <>{formatCompact(x.price_base)} {unit}</> : x.source ? SOURCE_FA[x.source] ?? x.source : "بی‌پاسخ"}</div>
+    </div>
   );
 }
 
@@ -265,28 +314,33 @@ function HistoryDrawer({ currency, onClose, dp }: { currency: BoardCurrency | nu
     [q.data],
   );
   return (
-    <Drawer open={!!currency} onClose={onClose} size={720} destroyOnHidden title={currency ? <span className="flex items-center gap-2">تاریخچه‌ی نرخ <CurrencyChip c={currency} /> {currency.name}</span> : null}>
+    <Drawer open={!!currency} onClose={onClose} size={720} destroyOnHidden title={currency ? <span className="flex items-center gap-2">تاریخچه‌ی نرخ {currency.name} <CurrencyChip c={currency} /></span> : null}>
       {q.isLoading ? (
-        <div className="grid h-40 place-content-center"><Spin /></div>
+        <div className="grid h-40 place-content-center"><Loader /></div>
       ) : (
         <>
           {chart.length > 1 ? (
             <div className="mb-4 h-56">
               <ResponsiveContainer>
                 <LineChart data={chart} margin={{ left: 8, right: 8 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--tz-line)" vertical={false} />
-                  <XAxis dataKey="t" tick={{ fontSize: 10, fill: "var(--tz-muted)" }} reversed />
-                  <YAxis tickFormatter={(v) => formatCompact(v)} tick={{ fontSize: 10, fill: "var(--tz-muted)" }} orientation="right" width={70} domain={["auto", "auto"]} />
-                  <RTooltip formatter={(v) => rateLabel(String(v), dp)} contentStyle={{ fontFamily: "Vazirmatn", borderRadius: 8, direction: "rtl" }} />
-                  <Legend formatter={(v) => (v === "buy" ? "خرید" : v === "sell" ? "فروش" : "میانگین")} />
-                  <Line type="monotone" dataKey="buy" stroke="#0e7490" dot={false} strokeWidth={2} connectNulls />
-                  <Line type="monotone" dataKey="sell" stroke="#b8862f" dot={false} strokeWidth={2} connectNulls />
+                  <CartesianGrid stroke="var(--sf-chart-grid)" vertical={false} />
+                  <XAxis dataKey="t" tick={{ fontSize: 12, fill: "var(--sf-text-3)" }} tickLine={false} axisLine={{ stroke: "var(--sf-chart-axis)" }} reversed minTickGap={24} />
+                  <YAxis tickFormatter={(v) => formatCompact(v)} tick={{ fontSize: 12, fill: "var(--sf-text-3)" }} tickLine={false} axisLine={false} orientation="right" width={64} domain={["auto", "auto"]} />
+                  <RTooltip
+                    cursor={{ stroke: "var(--sf-chart-crosshair)", strokeWidth: 1 }}
+                    formatter={(v, k) => [rateLabel(String(v), dp), k === "buy" ? "خرید" : k === "sell" ? "فروش" : "میانگین"]}
+                    contentStyle={{ background: "var(--sf-raised)", border: 0, borderRadius: 8, boxShadow: "var(--sf-shadow-e3)", direction: "rtl", fontSize: 13 }}
+                    labelStyle={{ color: "var(--sf-text-3)", fontSize: 12 }}
+                  />
+                  <Legend iconType="plainline" formatter={(v) => <span className="text-[12px] text-ink-2">{v === "buy" ? "خرید" : v === "sell" ? "فروش" : "میانگین"}</span>} />
+                  <Line type="monotone" dataKey="sell" stroke="var(--sf-accent-line)" dot={false} strokeWidth={2} connectNulls animationDuration={500} />
+                  <Line type="monotone" dataKey="buy" stroke="var(--sf-chart-3)" dot={false} strokeWidth={2} connectNulls animationDuration={500} />
                 </LineChart>
               </ResponsiveContainer>
             </div>
           ) : null}
           <Table
-            className="tz-table"
+            className=""
             size="small"
             rowKey="id"
             dataSource={q.data?.rows ?? []}
@@ -294,16 +348,16 @@ function HistoryDrawer({ currency, onClose, dp }: { currency: BoardCurrency | nu
             locale={{ emptyText: <EmptyState title="برای این ارز نرخی ثبت نشده" /> }}
             columns={[
               { key: "at", dataIndex: "at", title: "زمان", render: (v) => <JDateTime v={v} /> },
-              { key: "buy", dataIndex: "buy", title: "خرید", align: "left", render: (v) => <span className="num">{v ? rateLabel(v, dp) : "—"}</span> },
-              { key: "sell", dataIndex: "sell", title: "فروش", align: "left", render: (v) => <span className="num">{v ? rateLabel(v, dp) : "—"}</span> },
-              { key: "mid", dataIndex: "mid", title: "میانگین", align: "left", render: (v) => <span className="num text-muted">{v ? rateLabel(v, dp) : "—"}</span> },
+              { key: "buy", dataIndex: "buy", title: "خرید", className: "sf-num", render: (v) => <span className="sf-num">{v ? rateLabel(v, dp) : "—"}</span> },
+              { key: "sell", dataIndex: "sell", title: "فروش", className: "sf-num", render: (v) => <span className="sf-num">{v ? rateLabel(v, dp) : "—"}</span> },
+              { key: "mid", dataIndex: "mid", title: "میانگین", className: "sf-num", render: (v) => <span className="sf-num text-ink-3">{v ? rateLabel(v, dp) : "—"}</span> },
               { key: "src", dataIndex: "source", title: "منبع", render: (v) => <SourceTag s={v} /> },
               ...(can("fx", "full")
                 ? [{
                     key: "del",
                     width: 40,
                     render: (_: unknown, r: { id: string }) => (
-                      <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={async () => { if (await n.confirm("حذف این نرخ؟", undefined, true)) del.mutate(r.id); }} aria-label="حذف" />
+                      <span className="sf-row-act"><Button type="text" size="small" icon={<Ic icon={Trash2} />} onClick={async () => { if (await n.confirm("این نرخ حذف شود؟", undefined, true)) del.mutate(r.id); }} aria-label="حذف" /></span>
                     ),
                   }]
                 : []),
@@ -349,20 +403,20 @@ function SettingsModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
   return (
     <Modal open onCancel={onClose} title="تنظیمات صرافی و منابع قیمت" width={760} okText="ذخیره" cancelText="انصراف" onOk={() => save.mutate(undefined)} confirmLoading={save.isPending} destroyOnHidden>
       {!v ? (
-        <div className="grid h-40 place-content-center"><Spin /></div>
+        <div className="grid h-40 place-content-center"><Loader /></div>
       ) : (
         <div className="grid gap-4">
           <div className="grid gap-3 sm:grid-cols-3">
             <label className="block">
-              <div className="mb-1 text-xs text-muted">حاشیه‌ی خرید/فروش روی نرخ بازار</div>
+              <div className="sf-field-l mb-1.5">حاشیه‌ی خرید/فروش روی نرخ بازار</div>
               <PctInput value={v.margin_pct} onChange={(x) => setV({ ...v, margin_pct: x ?? "0" })} />
             </label>
             <label className="block">
-              <div className="mb-1 text-xs text-muted">به‌روزرسانی قیمت زنده (ثانیه)</div>
+              <div className="sf-field-l mb-1.5">به‌روزرسانی قیمت زنده (ثانیه)</div>
               <NumberInput value={String(v.refresh_seconds ?? 60)} onChange={(x) => setV({ ...v, refresh_seconds: Number(x || 60) })} />
             </label>
             <label className="block">
-              <div className="mb-1 text-xs text-muted">سقف معامله بدون احراز هویت (خالی = همیشه آزاد)</div>
+              <div className="sf-field-l mb-1.5">سقف معامله بدون احراز هویت (خالی = همیشه آزاد)</div>
               <MoneyInput value={v.kyc_threshold} onChange={(x) => setV({ ...v, kyc_threshold: x })} />
             </label>
           </div>
@@ -371,19 +425,19 @@ function SettingsModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
             پرداخت ارز بیش از موجودی صندوق و کیف‌پول مجاز باشد
           </label>
           <div>
-            <div className="mb-2 text-xs font-bold text-muted">منابع قیمت (به ترتیب اولویت)</div>
+            <div className="mb-2 text-xs font-semibold text-ink-3">منابع قیمت (به ترتیب اولویت)</div>
             <div className="grid gap-1.5">
               {[...order.map((id) => providers.find((p) => p.id === id)).filter(Boolean), ...providers.filter((p) => !order.includes(p.id))].map((p) => {
                 const on = order.includes(p!.id);
                 return (
-                  <div key={p!.id} className="tz-soft flex items-center gap-2 px-3 py-1.5">
+                  <div key={p!.id} className="bg-sunken rounded-lg flex items-center gap-2 px-3 py-1.5">
                     <Checkbox checked={on} onChange={(e) => setV({ ...v, providers: e.target.checked ? [...order, p!.id] : order.filter((x) => x !== p!.id) })} />
                     <b className="w-28">{p!.title}</b>
-                    <span className="flex-1 text-xs text-muted">{p!.covers}</span>
+                    <span className="flex-1 text-xs text-ink-3">{p!.covers}</span>
                     {on ? (
                       <>
-                        <Button size="small" type="text" icon={<ArrowUpOutlined />} onClick={() => move(p!.id, -1)} aria-label="بالا" />
-                        <Button size="small" type="text" icon={<ArrowDownOutlined />} onClick={() => move(p!.id, 1)} aria-label="پایین" />
+                        <Button size="small" type="text" icon={<Ic icon={ArrowUp} />} onClick={() => move(p!.id, -1)} aria-label="بالا" />
+                        <Button size="small" type="text" icon={<Ic icon={ArrowDown} />} onClick={() => move(p!.id, 1)} aria-label="پایین" />
                       </>
                     ) : null}
                   </div>
@@ -392,27 +446,27 @@ function SettingsModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
             </div>
           </div>
           <div>
-            <div className="mb-2 flex items-center text-xs font-bold text-muted">
+            <div className="mb-2 flex items-center text-xs font-semibold text-ink-3">
               منابع سفارشی (هر API با پاسخ JSON؛ مثلاً tgju، BrsApi یا Navasan با کلید خودتان)
-              <Button size="small" type="link" icon={<PlusOutlined />} className="ms-auto" onClick={() => setV({ ...v, custom: [...custom, { code: "USD", url: "", path: "", unit: "base", factor: null }] })}>
+              <Button size="small" type="link" icon={<Ic icon={Plus} />} className="ms-auto" onClick={() => setV({ ...v, custom: [...custom, { code: "USD", url: "", path: "", unit: "base", factor: null }] })}>
                 منبع
               </Button>
             </div>
             {custom.length ? (
               <div className="grid gap-2">
                 {custom.map((c, i) => (
-                  <div key={i} className="tz-soft grid gap-2 p-2 sm:grid-cols-[80px_1fr_150px_110px_80px_32px]">
+                  <div key={i} className="bg-sunken rounded-lg grid gap-2 p-2 sm:grid-cols-[80px_1fr_150px_110px_80px_32px]">
                     <Input size="small" dir="ltr" value={c.code} placeholder="USD" onChange={(e) => setCustom(i, { code: e.target.value.toUpperCase() })} />
                     <Input size="small" dir="ltr" value={c.url} placeholder={c.url === "" && q.data?.can_edit === false ? "(محرمانه)" : "https://…"} onChange={(e) => setCustom(i, { url: e.target.value })} />
                     <Input size="small" dir="ltr" value={c.path} placeholder="data.price" onChange={(e) => setCustom(i, { path: e.target.value })} />
                     <Select size="small" value={c.unit} onChange={(u) => setCustom(i, { unit: u })} options={[{ value: "base", label: "به ارز پایه" }, { value: "usd", label: "به دلار" }]} />
                     <Input size="small" dir="ltr" value={c.factor ?? ""} placeholder="ضریب" onChange={(e) => setCustom(i, { factor: e.target.value || null })} />
-                    <Button size="small" type="text" danger icon={<CloseOutlined />} onClick={() => setV({ ...v, custom: custom.filter((_, k) => k !== i) })} aria-label="حذف" />
+                    <Button size="small" type="text" danger icon={<Ic icon={X} />} onClick={() => setV({ ...v, custom: custom.filter((_, k) => k !== i) })} aria-label="حذف" />
                   </div>
                 ))}
               </div>
             ) : (
-              <div className="text-xs text-muted">منبع سفارشی تعریف نشده است.</div>
+              <div className="text-xs text-ink-3">منبع سفارشی تعریف نشده است.</div>
             )}
             <Alert className="!mt-2" type="info" showIcon title="منبع سفارشی فقط وقتی استفاده می‌شود که «منبع سفارشی» در فهرست بالا فعال باشد. برای ریال به تومان ضریب ۰٫۱ بگذارید." />
           </div>
@@ -451,43 +505,62 @@ function DisplayBoard({ rows, onClose, dp, unit, live }: { rows: BoardCurrency[]
   const crypto = rows.filter((r) => r.kind === "crypto");
   const block = (title: string, list: BoardCurrency[]) =>
     list.length ? (
-      <div className="min-w-0 flex-1">
-        <div className="mb-3 text-lg font-bold text-[var(--tz-sidebar-text)]">{title}</div>
-        <div className="grid grid-cols-[1fr_auto_auto] gap-x-8 gap-y-1 text-white">
-          <div className="text-sm text-[var(--tz-sidebar-text)]">ارز</div>
-          <div className="text-sm text-[var(--tz-sidebar-text)]">خرید</div>
-          <div className="text-sm text-[var(--tz-sidebar-text)]">فروش</div>
-          {list.map((c) => (
-            <div key={c.id} className="contents">
-              <div className="flex items-center gap-3 border-t border-white/10 py-2 text-2xl"><b className="ltr text-[var(--tz-sidebar-active)]">{c.code}</b> <span className="text-xl">{c.name}</span></div>
-              <div className="num border-t border-white/10 py-2 text-2xl font-bold">{c.rate?.buy ? rateLabel(c.rate.buy, dp) : "—"}</div>
-              <div className="num border-t border-white/10 py-2 text-2xl font-bold text-[#e0b45e]">{c.rate?.sell ? rateLabel(c.rate.sell, dp) : "—"}</div>
-            </div>
-          ))}
+      <section className="sf-tv-sec" style={{ ["--len" as string]: Math.max(6, ...list.flatMap((c) => [c.rate?.buy, c.rate?.sell].map((v) => (v ? rateLabel(v, dp).length : 0)))) }}>
+        <h2><i aria-hidden />{title}</h2>
+        <div className="sf-tv-t" role="table" aria-label={title}>
+          <div className="th" role="columnheader">ارز</div>
+          <div className="th n" role="columnheader">خرید</div>
+          <div className="th n" role="columnheader">فروش</div>
+          {list.map((c) => <TvRow key={c.id} c={c} dp={dp} />)}
         </div>
-      </div>
+      </section>
     ) : null;
   return (
-    <div ref={ref} className="fixed inset-0 z-[1000] overflow-auto p-8" style={{ background: "linear-gradient(180deg, #0b1f33 0%, #102a43 100%)" }} dir="rtl">
-      <div className="mb-6 flex items-center gap-4 text-white">
-        <div className="text-3xl font-extrabold">{org.name}</div>
-        <div className="text-lg text-[var(--tz-sidebar-text)]">نرخ خرید و فروش ({unit})</div>
-        <div className="num ms-auto text-2xl">{formatJalali(todayISO(tz), { style: "long" })} · {faDigits(now.toLocaleTimeString("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit", hour12: false }))}</div>
-        <Button ghost icon={<CloseOutlined />} onClick={onClose} aria-label="بستن" />
-      </div>
-      <div className="flex flex-col gap-10 lg:flex-row">
+    <div ref={ref} className="sf-tv" dir="rtl">
+      <header className="sf-tv-h">
+        {org.logo ? <img src={org.logo} alt="" className="h-14 w-14 rounded-xl object-contain" /> : null}
+        <div className="sf-tv-biz">
+          <b>{org.name}</b>
+          <span>نرخ خرید و فروش، به {unit}</span>
+        </div>
+        <div className="sf-tv-clock">
+          <b>{jTime(now)}</b>
+          <span>{formatJalali(todayISO(tz), { style: "long" })}</span>
+        </div>
+        <Button type="text" className="sf-tv-x" icon={<Ic icon={X} />} onClick={onClose} aria-label="بستن تابلو" />
+      </header>
+      <div className="sf-tv-cols">
         {block("ارزها", fiat)}
         {block("رمزارزها", crypto)}
       </div>
-      {live.length ? (
-        <div className="mt-8 flex flex-wrap gap-6 border-t border-white/10 pt-4 text-white">
-          {live.filter((l) => l.price_usd).map((l) => (
-            <span key={l.code} className="num text-lg">
-              <b className="ltr">{l.code}</b> ${fnum(l.price_usd, D(l.price_usd).lt(10) ? 4 : 2)} <Change pct={l.change_24h} />
+      <footer className="sf-tv-foot">
+        {live.filter((l) => l.price_usd).map((l) => {
+          const ch = l.change_24h ? D(l.change_24h) : null;
+          return (
+            <span key={l.code}>
+              <bdi dir="ltr" className="code">{l.code}</bdi>
+              <bdi dir="ltr" className="px">${formatNumber(l.price_usd!, { dp: D(l.price_usd).lt(10) ? 4 : 2, minDp: 2, fa: false })}</bdi>
+              {ch && !ch.isZero() ? <span className={ch.gt(0) ? "up" : "down"}>{faPct(ch.abs().div(100).toNumber(), 2)}</span> : null}
             </span>
-          ))}
-        </div>
-      ) : null}
+          );
+        })}
+        <span className="sf-tv-brand"><SirafMark size={16} variant="white" />{APP_NAME}</span>
+      </footer>
     </div>
+  );
+}
+
+function TvRow({ c, dp }: { c: BoardCurrency; dp: number }) {
+  const fb = useFlash(c.rate?.buy);
+  const fs = useFlash(c.rate?.sell);
+  return (
+    <>
+      <div className="c" role="cell">
+        <bdi dir="ltr" className="code">{c.code}</bdi>
+        <span className="nm">{c.name}</span>
+      </div>
+      <div className={`v is-buy ${fb}`} role="cell">{c.rate?.buy ? rateLabel(c.rate.buy, dp) : "—"}</div>
+      <div className={`v is-sell ${fs}`} role="cell">{c.rate?.sell ? rateLabel(c.rate.sell, dp) : "—"}</div>
+    </>
   );
 }

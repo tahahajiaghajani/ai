@@ -1,4 +1,5 @@
 import { lazy } from "react";
+import { Scale, BookOpenText, Contact, NotebookText, TrendingUp, ChartPie } from "lucide-react";
 import type { NavGroup, AppRoute } from "../registry";
 
 const TrialBalance = lazy(() => import("./TrialBalance"));
@@ -8,16 +9,16 @@ const DetailBalances = lazy(() => import("./DetailBalances"));
 const IncomeStatement = lazy(() => import("./IncomeStatement"));
 const BalanceSheet = lazy(() => import("./BalanceSheet"));
 
-export const reportsNav: Omit<NavGroup, "icon"> = {
+export const reportsNav: Omit<NavGroup, "icon" | "space"> = {
   key: "reports",
   label: "گزارش‌ها",
   items: [
-    { key: "trial", label: "تراز آزمایشی", path: "reports/trial-balance", area: "reports" },
-    { key: "ledger", label: "دفتر حساب (کل/معین/تفصیلی)", path: "reports/ledger", area: "reports", keywords: "گردش حساب" },
-    { key: "detail-balances", label: "مانده‌ی اشخاص و تفصیلی‌ها", path: "reports/detail-balances", area: "reports", keywords: "بدهکاران بستانکاران" },
-    { key: "journal", label: "دفتر روزنامه", path: "reports/journal", area: "reports" },
-    { key: "income", label: "صورت سود و زیان", path: "reports/income-statement", area: "reports" },
-    { key: "balance", label: "ترازنامه", path: "reports/balance-sheet", area: "reports", keywords: "صورت وضعیت مالی" },
+    { key: "trial", label: "تراز آزمایشی", path: "reports/trial-balance", area: "reports", icon: Scale, section: "گزارش‌ها" },
+    { key: "ledger", label: "دفتر حساب", path: "reports/ledger", area: "reports", icon: BookOpenText, section: "گزارش‌ها", keywords: "دفتر کل معین تفصیلی گردش حساب" },
+    { key: "detail-balances", label: "ماندهٔ اشخاص", path: "reports/detail-balances", area: "reports", icon: Contact, section: "گزارش‌ها", keywords: "مانده‌ی اشخاص و تفصیلی‌ها بدهکاران بستانکاران" },
+    { key: "journal", label: "دفتر روزنامه", path: "reports/journal", area: "reports", icon: NotebookText, section: "گزارش‌ها" },
+    { key: "income", label: "سود و زیان", path: "reports/income-statement", area: "reports", icon: TrendingUp, section: "گزارش‌ها", keywords: "صورت سود و زیان" },
+    { key: "balance", label: "ترازنامه", path: "reports/balance-sheet", area: "reports", icon: ChartPie, section: "گزارش‌ها", keywords: "صورت وضعیت مالی" },
   ],
 };
 

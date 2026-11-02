@@ -1,4 +1,4 @@
--- «تراز» migration 0011_fx — صرافی و رمزارز (تکمیلی)
+-- «سیراف» migration 0011_fx — صرافی و رمزارز (تکمیلی)
 create table if not exists tz_migrations (id text primary key, applied_at timestamptz not null default now());
 
 -- ---------------------------------------------------------------------------

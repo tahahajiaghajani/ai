@@ -4,14 +4,16 @@ import { useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Button, Segmented, Switch, Table } from "antd";
-import { FileExcelOutlined, PrinterOutlined } from "@ant-design/icons";
+import { FileSpreadsheet, Printer, ReceiptText, ShoppingBag, TrendingUp, Weight } from "lucide-react";
+import { Ic } from "../../components/shell/icons";
 import { useOrg } from "../../lib/org";
 import { PageHeader } from "../../components/layout";
 import { DateInput } from "../../components/inputs";
 import { Money, StatCard, JDate } from "../../components/display";
 import { exportExcel } from "../../lib/excel";
 import { D } from "@shared/money";
-import { faDigits, formatWeight } from "@shared/format";
+import { faDigits } from "@shared/format";
+import { gw } from "./shared";
 import { formatJalali, presetRange, todayISO } from "@shared/jalali";
 
 type Group = "day" | "month" | "doc" | "category" | "party";
@@ -44,7 +46,7 @@ export default function SalesReport() {
   const keyTitle: Record<Group, string> = { day: "تاریخ", month: "ماه", doc: "فاکتور", category: "دسته", party: "مشتری" };
   const label = (r: any) => {
     if (group === "day") return <JDate v={r.date} />;
-    if (group === "doc") return <span><b className="num">{faDigits(r.no)}</b>، <JDate v={r.date} />، {r.label ?? "گذری"}</span>;
+    if (group === "doc") return <span><b className="sf-num">{faDigits(r.no)}</b>، <JDate v={r.date} />، {r.label ?? "گذری"}</span>;
     return r.label;
   };
   const cols = useMemo(
@@ -69,19 +71,19 @@ export default function SalesReport() {
     [],
   );
   const cell = (type: string, v: any) =>
-    type === "count" ? <span className="num">{faDigits(v ?? 0)}</span> : type === "w" ? (D(v).isZero() ? <span className="text-muted">—</span> : <span className="num">{formatWeight(v)}</span>) : <Money v={v ?? 0} zero="—" />;
+    type === "count" ? <span className="sf-num">{faDigits(v ?? 0)}</span> : type === "w" ? (D(v).isZero() ? <span className="sf-zero">—</span> : <span className="sf-num">{gw(v)}</span>) : <Money v={v ?? 0} zero="—" />;
   return (
     <div>
-      <PageHeader title="گزارش فروش طلا" subtitle={d ? `${formatJalali(d.from)} تا ${formatJalali(d.to)}` : null} actions={<Button icon={<PrinterOutlined />} onClick={() => window.print()}>چاپ</Button>} />
-      <div className="no-print mb-3 flex flex-wrap items-center gap-2">
+      <PageHeader title="گزارش فروش طلا" subtitle={d ? <span className="sf-doc-meta"><span className="sf-num">{formatJalali(d.from)}</span>&nbsp;تا&nbsp;<span className="sf-num">{formatJalali(d.to)}</span></span> : null} actions={<Button icon={<Ic icon={Printer} />} onClick={() => window.print()}>چاپ</Button>} />
+      <div className="sf-filters no-print">
         <Segmented size="small" onChange={(v) => preset(v as "month")} options={[{ value: "today", label: "امروز" }, { value: "month", label: "این ماه" }, { value: "lastMonth", label: "ماه قبل" }, { value: "year", label: "سال مالی" }]} />
         <DateInput value={from} onChange={setFrom} placeholder="از تاریخ" className="!w-36" />
         <DateInput value={to} onChange={setTo} placeholder="تا تاریخ" className="!w-36" />
-        <Segmented value={group} onChange={(v) => setGroup(v as Group)} options={[{ value: "day", label: "روزانه" }, { value: "month", label: "ماهانه" }, { value: "doc", label: "فاکتور" }, { value: "category", label: "دسته" }, { value: "party", label: "مشتری" }]} />
-        <label className="flex items-center gap-1.5 text-xs text-muted"><Switch size="small" checked={bullion} onChange={setBullion} /> با فروش آبشده</label>
+        <Segmented size="small" value={group} onChange={(v) => setGroup(v as Group)} options={[{ value: "day", label: "روزانه" }, { value: "month", label: "ماهانه" }, { value: "doc", label: "فاکتور" }, { value: "category", label: "دسته" }, { value: "party", label: "مشتری" }]} />
+        <label className="flex items-center gap-2 text-[13px] text-ink-2"><Switch size="small" checked={bullion} onChange={setBullion} /> با فروش آبشده</label>
         <Button
-          className="ms-auto"
-          icon={<FileExcelOutlined />}
+          className="!ms-auto"
+          icon={<Ic icon={FileSpreadsheet} />}
           disabled={!d}
           onClick={() =>
             exportExcel(`فروش طلا ${d.from} تا ${d.to}`, [
@@ -93,19 +95,19 @@ export default function SalesReport() {
           اکسل
         </Button>
       </div>
-      <div className="mb-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard title="فاکتورهای فروش" value={<span className="num">{faDigits(t?.docs ?? 0)} فاکتور، {faDigits(t?.pieces ?? 0)} جنس</span>} />
-        <StatCard title="وزن فروش‌رفته (۷۵۰)" value={<span className="num">{formatWeight(t?.weight750 ?? 0)} گرم</span>} tone="gold" hint={<>طلای کهنه‌ی دریافتی: <span className="num">{formatWeight(t?.old_weight750 ?? 0)}</span> گرم</>} />
-        <StatCard title="جمع فروش" value={<Money v={t?.total ?? 0} />} hint={<>اجرت <Money v={t?.wage ?? 0} />، سود <Money v={t?.profit ?? 0} /></>} tone="ok" />
-        <StatCard title="سود ناخالص (بدون مالیات)" value={<Money v={t?.margin ?? 0} colored />} hint={<>مالیات بر ارزش افزوده: <Money v={t?.tax ?? 0} /></>} />
+      <div className="mb-4 grid sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard title="فاکتورهای فروش" icon={<Ic icon={ReceiptText} />} value={faDigits(t?.docs ?? 0)} hint={<><span className="sf-num">{faDigits(t?.pieces ?? 0)}</span> جنس</>} />
+        <StatCard title="وزن فروش‌رفته" icon={<Ic icon={Weight} />} value={<>{gw(t?.weight750 ?? 0)}<span className="sf-unit">گرم ۷۵۰</span></>} hint={<>طلای کهنه‌ی دریافتی <span className="sf-num">{gw(t?.old_weight750 ?? 0)}</span> گرم</>} />
+        <StatCard title="جمع فروش" icon={<Ic icon={ShoppingBag} />} value={<Money v={t?.total ?? 0} unit />} hint={<>اجرت <Money v={t?.wage ?? 0} />، سود <Money v={t?.profit ?? 0} /></>} />
+        <StatCard title="سود ناخالص" icon={<Ic icon={TrendingUp} />} value={<Money v={t?.margin ?? 0} unit />} hint={<>بدون مالیات؛ مالیات <Money v={t?.tax ?? 0} /></>} />
       </div>
-      <div className="print-sheet tz-card p-3 md:p-4">
+      <div className="print-sheet sf-card">
         <div className="mb-3 hidden text-center print:block">
-          <div className="text-lg font-bold">{org.name}</div>
+          <div className="text-lg font-semibold">{org.name}</div>
           <div className="font-semibold">گزارش فروش طلا {d ? `از ${formatJalali(d.from)} تا ${formatJalali(d.to)}` : ""}</div>
         </div>
         <Table
-          className="tz-table"
+          className=""
           size="small"
           rowKey="key"
           loading={q.isLoading}
@@ -115,7 +117,7 @@ export default function SalesReport() {
           onRow={(r: any) => (group === "doc" ? { onClick: () => nav(`/${orgId}/gold/docs/${r.key}`), style: { cursor: "pointer" } } : {})}
           columns={[
             { key: "k", title: keyTitle[group], fixed: "right" as const, render: (_: unknown, r: any) => label(r) },
-            ...cols.map((c) => ({ key: c.key, dataIndex: c.key, title: c.title, align: "left" as const, render: (v: any) => cell(c.type, v) })),
+            ...cols.map((c) => ({ key: c.key, dataIndex: c.key, title: c.title, className: "sf-num", render: (v: any) => cell(c.type, v) })),
           ]}
           summary={() =>
             t ? (
@@ -123,7 +125,7 @@ export default function SalesReport() {
                 <Table.Summary.Row>
                   <Table.Summary.Cell index={0}>جمع</Table.Summary.Cell>
                   {cols.map((c, i) => (
-                    <Table.Summary.Cell key={c.key} index={i + 1} align="left">{cell(c.type, t[c.key])}</Table.Summary.Cell>
+                    <Table.Summary.Cell key={c.key} index={i + 1} className="sf-num">{cell(c.type, t[c.key])}</Table.Summary.Cell>
                   ))}
                 </Table.Summary.Row>
               </Table.Summary>

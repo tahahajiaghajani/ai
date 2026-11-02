@@ -1,34 +1,110 @@
 import type { ReactNode } from "react";
+import { Monitor, Globe } from "lucide-react";
 import { Logo } from "../../components/brand";
-import { APP_NAME, APP_TAGLINE_EN } from "@shared/constants";
+import { APP_TAGLINE_EN } from "@shared/constants";
 import { useSession } from "../../lib/session";
-import { faDigits } from "@shared/format";
+import { toPersianDigits } from "../../lib/fa";
+import { ICON, ThemeToggle } from "../kit";
 
 // the first two sentences of the Persian story (brief §2), for the brand panel
 const STORY =
   "هزار سال پیش، سیراف در کرانهٔ خلیج فارس بندرِ پررونقِ داد و ستد با چین و هند و آفریقا بود. سیرافِ امروز همان بندر است برای کسب‌وکار شما: کالا، طلا، نقد و چک، حواله و رمزارز به یک‌جا می‌رسند و در یک دفتر می‌نشینند.";
 
-// Login, sign-up and first-run layout (components.md §11.1): the form at the start, the Dusk brand panel at the end.
-export function AuthLayout({ title, subtitle, children }: { title: string; subtitle?: ReactNode; children: ReactNode }) {
+export interface AuthSteps {
+  labels: string[];
+  current: number;
+}
+
+/**
+ * Login, sign-up, recovery and first-run layout (components.md §11): the calm form side at the start and the Dusk
+ * brand panel at the end (a 200 px band above the form on phones). With `steps`, the panel shows the onboarding steps
+ * as the mark's nuqta column (§11.2). `swapKey` replays the column's entrance when the step changes.
+ */
+export function AuthLayout({
+  title,
+  subtitle,
+  children,
+  steps,
+  back,
+  wide,
+  swapKey,
+}: {
+  title: ReactNode;
+  subtitle?: ReactNode;
+  children: ReactNode;
+  steps?: AuthSteps;
+  back?: ReactNode;
+  wide?: boolean;
+  swapKey?: string | number;
+}) {
   const { meta } = useSession();
+  const desktop = meta?.mode === "desktop";
+  const version = meta?.version ? toPersianDigits(meta.version) : null;
   return (
-    <div className="grid min-h-screen bg-canvas lg:grid-cols-[minmax(0,1fr)_44%] xl:grid-cols-[minmax(0,1fr)_640px]">
-      <div className="flex items-center justify-center p-6 md:p-10">
-        <div className="w-full max-w-[400px]">
-          <div className="mb-8 lg:hidden">
-            <Logo size={24} />
-          </div>
-          <h1 className="sf-display m-0 text-[30px] font-bold leading-[42px]">{title}</h1>
-          {subtitle ? <p className="mb-7 mt-1.5 text-sm text-ink-2">{subtitle}</p> : <div className="mb-7" />}
-          {children}
-          <div className="mt-10 text-center text-xs text-ink-3">
-            {APP_NAME} · {meta?.mode === "desktop" ? "نسخه‌ی ویندوز" : "نسخه‌ی وب"} {faDigits(meta?.version ?? "")}
-          </div>
+    <div className="pg-auth">
+      <div className="pg-form-side">
+        <div className="pg-form-top">
+          {meta ? (
+            <span className="pg-mode">
+              {desktop ? <Monitor {...ICON} aria-hidden /> : <Globe {...ICON} aria-hidden />}
+              {desktop ? "نسخهٔ ویندوز" : "نسخهٔ وب"}
+            </span>
+          ) : (
+            <span />
+          )}
+          <ThemeToggle />
         </div>
+
+        <div className="pg-col pg-enter" data-wide={wide || undefined} key={swapKey}>
+          {back ? <div className="flex">{back}</div> : null}
+          {steps ? (
+            <div className="pg-steps-inline" aria-hidden>
+              <span className="pg-dots">
+                {steps.labels.map((l, i) => (
+                  <i key={l} data-on={i <= steps.current || undefined} />
+                ))}
+              </span>
+              <span>
+                {steps.current < steps.labels.length
+                  ? `گام ${toPersianDigits(String(steps.current + 1))} از ${toPersianDigits(String(steps.labels.length))}، ${steps.labels[steps.current]}`
+                  : "همهٔ گام‌ها انجام شد"}
+              </span>
+            </div>
+          ) : null}
+          <div>
+            <h1 className="pg-title">{title}</h1>
+            {subtitle ? <p className="pg-lead">{subtitle}</p> : null}
+          </div>
+          <div className="pg-body">{children}</div>
+        </div>
+
+        <footer className="pg-form-foot">
+          <span className="sf-nuqta" data-live="" aria-hidden />
+          <span>{desktop ? "داده‌ها روی همین رایانه نگه داشته می‌شوند" : "سامانه در دسترس است"}</span>
+          <span className="pg-foot-end">{version ? <span>نسخهٔ {version}</span> : null}</span>
+        </footer>
       </div>
-      <div className="sf-brand m-2 ms-0 hidden lg:block">
+
+      <aside className="sf-brand pg-brand pg-in" aria-label="سیراف">
         <div className="sf-brand-in">
-          <Logo size={36} tone="white" launch />
+          <div className="pg-brand-top">
+            <span className="pg-brand-logo">
+              <Logo size={36} tone="white" launch />
+            </span>
+            <span className="pg-band-toggle">
+              <ThemeToggle />
+            </span>
+          </div>
+          {steps ? (
+            <ol className="pg-steps" aria-label="گام‌ها">
+              {steps.labels.map((l, i) => (
+                <li key={l} className="pg-step" data-state={i < steps.current ? "done" : i === steps.current ? "current" : "next"} aria-current={i === steps.current ? "step" : undefined}>
+                  <i aria-hidden />
+                  {l}
+                </li>
+              ))}
+            </ol>
+          ) : null}
           <p className="sf-tagline">
             هر داد و ستد،
             <br />
@@ -36,7 +112,7 @@ export function AuthLayout({ title, subtitle, children }: { title: string; subti
           </p>
           <span className="sf-horizon" aria-hidden="true" />
           <p className="sf-en">{APP_TAGLINE_EN}</p>
-          <p className="sf-story">{STORY}</p>
+          {steps ? null : <p className="sf-story">{STORY}</p>}
           <div className="sf-bfoot">
             <span>حسابداری و مدیریت کسب‌وکار</span>
             <span className="sf-nuqta" />
@@ -45,7 +121,7 @@ export function AuthLayout({ title, subtitle, children }: { title: string; subti
             <span>با اینترنت و بی‌اینترنت</span>
           </div>
         </div>
-      </div>
+      </aside>
     </div>
   );
 }

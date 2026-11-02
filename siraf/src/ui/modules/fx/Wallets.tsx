@@ -2,16 +2,17 @@
 // transactions, refresh one or all, and the usual create/edit/delete of the wallet entity.
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Drawer, Dropdown, Table, Tag, Tooltip } from "antd";
-import { PlusOutlined, SyncOutlined, EditOutlined, DeleteOutlined, MoreOutlined, CopyOutlined, LinkOutlined, CheckCircleOutlined, WarningOutlined } from "@ant-design/icons";
+import { Button, Drawer, Dropdown, Table, Tooltip } from "antd";
+import { Copy, Ellipsis, Link, Pencil, Plus, RefreshCw, Trash2, TriangleAlert, WalletCards } from "lucide-react";
+import { Ic } from "../../components/shell/icons";
 import { useOrg } from "../../lib/org";
 import { useAction, useNotify } from "../../lib/hooks";
 import { PageHeader } from "../../components/layout";
 import { EntityForm } from "../../components/data";
-import { EmptyState, Money, StatCard } from "../../components/display";
+import { Chip, EmptyState, Money, StatCard } from "../../components/display";
 import { ENTITIES, CHAINS } from "@shared/entities";
 import { D } from "@shared/money";
-import { faDigits, maskMiddle } from "@shared/format";
+import { faDigits, formatNumber, maskMiddle } from "@shared/format";
 import { formatJalaliDateTime } from "@shared/jalali";
 import { ago, CurrencyChip, EXPLORER, FxAmount } from "./shared";
 
@@ -86,39 +87,48 @@ export default function Wallets() {
         title="کیف‌پول‌های رمزارز"
         actions={
           <>
-            <Button icon={<SyncOutlined spin={all.isPending} />} loading={all.isPending} onClick={() => all.mutate(undefined)} disabled={!rows.length}>
+            <Button icon={<Ic icon={RefreshCw} className={all.isPending ? "sf-spin" : undefined} />} loading={all.isPending} onClick={() => all.mutate(undefined)} disabled={!rows.length}>
               بررسی موجودی همه
             </Button>
-            {can("fx", "edit") ? <Button type="primary" icon={<PlusOutlined />} onClick={() => setEditing(null)}>کیف‌پول جدید</Button> : null}
+            {can("fx", "edit") ? <Button type="primary" icon={<Ic icon={Plus} />} onClick={() => setEditing(null)}>کیف‌پول جدید</Button> : null}
           </>
         }
       />
       {totals.length ? (
-        <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="mb-4 grid sm:grid-cols-2 xl:grid-cols-4">
           {totals.map((t) => {
             const diff = t.live.minus(t.book);
             return (
               <StatCard
                 key={t.code}
-                title={<span className="flex items-center gap-1.5"><CurrencyChip c={{ code: t.code, kind: "crypto" }} /> موجودی زنده / دفتری</span>}
-                value={<span><FxAmount v={t.live.toFixed()} dp={t.dp} /> <span className="text-xs text-muted">/ <FxAmount v={t.book.toFixed()} dp={t.dp} /></span></span>}
-                hint={diff.isZero() ? <>تطبیق دارد · ارزش دفتری <Money v={t.value.toFixed()} /></> : <span className="text-warn">اختلاف <FxAmount v={diff.toFixed()} dp={t.dp} />{t.unchecked ? ` · ${faDigits(t.unchecked)} بررسی‌نشده` : ""}</span>}
-                tone={diff.isZero() ? "ok" : "gold"}
+                icon={<span className="sf-cur-av is-sm">{t.code.slice(0, 4)}</span>}
+                title="موجودی زنده"
+                value={<FxAmount v={t.live.toFixed()} code={t.code} dp={t.dp} />}
+                hint={
+                  diff.isZero() ? (
+                    <span className="inline-flex flex-wrap items-center gap-1">دفتری <FxAmount v={t.book.toFixed()} dp={t.dp} /><span className="sf-sep" aria-hidden />تطبیق دارد</span>
+                  ) : (
+                    <span className="inline-flex flex-wrap items-center gap-2">
+                      <Chip tone="warning" fig>اختلاف <bdi dir="ltr">{formatNumber(diff, { dp: t.dp, fa: false })}</bdi></Chip>
+                      {t.unchecked ? <span><span className="sf-num">{faDigits(t.unchecked)}</span> بررسی‌نشده</span> : null}
+                    </span>
+                  )
+                }
               />
             );
           })}
         </div>
       ) : null}
-      <div className="tz-card p-3 md:p-4">
+      <div className="sf-card">
         <Table<WalletRow>
-          className="tz-table"
+          className=""
           size="small"
           rowKey="id"
           loading={q.isLoading}
           dataSource={rows}
           pagination={false}
           scroll={{ x: "max-content" }}
-          locale={{ emptyText: <EmptyState title="هنوز کیف‌پولی ثبت نشده است" action={can("fx", "edit") ? <Button type="primary" onClick={() => setEditing(null)}>ثبت کیف‌پول</Button> : null} /> }}
+          locale={{ emptyText: <EmptyState icon={WalletCards} title="هنوز کیف‌پولی ثبت نشده است" action={can("fx", "edit") ? <Button type="primary" onClick={() => setEditing(null)}>ثبت کیف‌پول</Button> : null} /> }}
           expandable={{
             expandedRowRender: (w) => <TxList w={w} txs={txs[w.id]} onLoad={() => refreshOne(w)} loading={busy === w.id} />,
             rowExpandable: (w) => ["BTC", "LTC", "TRON"].includes(w.chain),
@@ -129,65 +139,65 @@ export default function Wallets() {
               title: "کیف‌پول",
               render: (_, w) => (
                 <div className="leading-5">
-                  <b>{w.name}</b> <Tag variant="filled" className="!m-0 !text-[10px]">{KIND_FA[w.kind] ?? w.kind}</Tag>
-                  {w.owner_name ? <div className="text-[11px] text-muted">صاحب: {w.owner_name}</div> : null}
+                  <span className="font-medium">{w.name}</span> <span className="text-[12px] text-ink-3">{KIND_FA[w.kind] ?? w.kind}</span>
+                  {w.owner_name ? <div className="text-[12px] text-ink-3">صاحب: {w.owner_name}</div> : null}
                 </div>
               ),
             },
-            { key: "asset", title: "دارایی", render: (_, w) => <span className="flex items-center gap-1"><CurrencyChip c={{ code: w.currency_code, kind: "crypto" }} /> <span className="ltr text-[11px] text-muted">{CHAINS.find((c) => c.value === w.chain)?.label ?? w.chain}</span></span> },
+            { key: "asset", title: "دارایی", render: (_, w) => <span className="flex items-center gap-2"><CurrencyChip c={{ code: w.currency_code, kind: "crypto" }} /><bdi dir="ltr" className="sf-latin text-[12px] text-ink-3">{CHAINS.find((c) => c.value === w.chain)?.label ?? w.chain}</bdi></span> },
             {
               key: "address",
               title: "نشانی",
               render: (_, w) => (
                 <span className="flex items-center gap-1">
-                  <span className="ltr font-mono text-xs">{maskMiddle(w.address, 6)}</span>
-                  <Tooltip title="کپی نشانی"><Button size="small" type="text" icon={<CopyOutlined />} onClick={() => navigator.clipboard?.writeText(w.address).then(() => n.ok("نشانی کپی شد"))} /></Tooltip>
-                  {EXPLORER[w.chain] ? <Tooltip title="مشاهده در کاوشگر"><Button size="small" type="text" icon={<LinkOutlined />} href={`${EXPLORER[w.chain].address}${w.address}`} target="_blank" /></Tooltip> : null}
+                  <bdi dir="ltr" className="sf-mono">{maskMiddle(w.address, 6)}</bdi>
+                  <Tooltip title="رونوشت نشانی"><Button size="small" type="text" icon={<Ic icon={Copy} size={14} />} onClick={() => navigator.clipboard?.writeText(w.address).then(() => n.note("رونوشت شد."))} aria-label="رونوشت نشانی" /></Tooltip>
+                  {EXPLORER[w.chain] ? <Tooltip title="مشاهده در کاوشگر"><Button size="small" type="text" icon={<Ic icon={Link} size={14} />} aria-label="مشاهده در کاوشگر" href={`${EXPLORER[w.chain].address}${w.address}`} target="_blank" /></Tooltip> : null}
                 </span>
               ),
             },
             {
               key: "live",
               title: "موجودی زنده",
-              align: "left",
+              className: "sf-num",
               render: (_, w) =>
                 w.last_error ? (
                   <Tooltip title={`${w.last_error} — ${formatJalaliDateTime(w.last_checked_at)}`}>
-                    <span className="text-xs text-bad"><WarningOutlined /> {w.last_balance !== null ? <FxAmount v={w.last_balance} dp={w.currency_decimals} /> : "خطا"}</span>
+                    <span className="inline-flex items-center gap-1.5 text-[13px] text-danger"><Ic icon={TriangleAlert} size={14} />{w.last_balance !== null ? <FxAmount v={w.last_balance} code={w.currency_code} dp={w.currency_decimals} /> : "بی‌پاسخ"}</span>
                   </Tooltip>
                 ) : w.last_balance !== null ? (
                   <Tooltip title={formatJalaliDateTime(w.last_checked_at)}>
-                    <span><FxAmount v={w.last_balance} dp={w.currency_decimals} strong /> <span className="block text-[10px] text-muted">{ago(w.last_checked_at)}</span></span>
+                    <span className="leading-5"><FxAmount v={w.last_balance} code={w.currency_code} dp={w.currency_decimals} strong /><span className="flex items-center gap-1.5 text-[12px] text-ink-3"><i className="sf-dot !h-[5px] !w-[5px] text-in" aria-hidden />{ago(w.last_checked_at)}</span></span>
                   </Tooltip>
                 ) : (
-                  <span className="text-xs text-muted">بررسی نشده</span>
+                  <span className="text-[13px] text-ink-3">بررسی‌نشده</span>
                 ),
             },
-            { key: "book", title: "موجودی دفتری", align: "left", render: (_, w) => (w.kind === "customer" ? <span className="text-muted">—</span> : <span><FxAmount v={w.book_balance} dp={w.currency_decimals} /> <span className="block text-[10px] text-muted"><Money v={w.book_value} /></span></span>) },
+            { key: "book", title: "موجودی دفتری", className: "sf-num", render: (_, w) => (w.kind === "customer" ? <span className="sf-zero">—</span> : <span className="leading-5"><FxAmount v={w.book_balance} code={w.currency_code} dp={w.currency_decimals} /><span className="block text-[12px] text-ink-3"><Money v={w.book_value} unit /></span></span>) },
             {
               key: "diff",
               title: "اختلاف",
-              align: "left",
+              className: "sf-num",
               render: (_, w) =>
-                w.kind === "customer" || w.difference === null ? <span className="text-muted">—</span> : D(w.difference).isZero() ? <span className="text-xs text-ok"><CheckCircleOutlined /> تطبیق</span> : <FxAmount v={w.difference} dp={w.currency_decimals} colored />,
+                w.kind === "customer" || w.difference === null ? <span className="sf-zero">—</span> : D(w.difference).isZero() ? <span className="text-[13px] text-in">تطبیق</span> : <Chip tone="warning" fig><bdi dir="ltr">{formatNumber(D(w.difference), { dp: Number(w.currency_decimals ?? 8), fa: false, sign: true })}</bdi></Chip>,
             },
             {
               key: "act",
               width: 90,
               render: (_, w) => (
                 <span className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-                  <Tooltip title="بررسی موجودی"><Button size="small" type="text" icon={<SyncOutlined spin={busy === w.id} />} onClick={() => refreshOne(w)} /></Tooltip>
+                  <Tooltip title="بررسی موجودی"><Button size="small" type="text" icon={<Ic icon={RefreshCw} className={busy === w.id ? "sf-spin" : undefined} />} onClick={() => refreshOne(w)} /></Tooltip>
                   {can("fx", "edit") ? (
                     <Dropdown
                       trigger={["click"]}
                       menu={{
                         items: [
-                          { key: "edit", icon: <EditOutlined />, label: "ویرایش", onClick: () => setEditing(w) },
-                          ...(can("fx", "full") ? [{ key: "del", icon: <DeleteOutlined />, danger: true, label: "حذف", onClick: async () => { if (await n.confirm(`حذف «${w.name}»؟`, "اگر گردش حسابداری داشته باشد حذف نمی‌شود.", true)) del.mutate(w.id); } }] : []),
+                          { key: "edit", icon: <Ic icon={Pencil} />, label: "ویرایش", onClick: () => setEditing(w) },
+                          ...(can("fx", "full") ? [{ key: "del", icon: <Ic icon={Trash2} />, danger: true, label: "حذف", onClick: async () => { if (await n.confirm(`حذف «${w.name}»؟`, "اگر گردش حسابداری داشته باشد حذف نمی‌شود.", true)) del.mutate(w.id); } }] : []),
                         ],
                       }}
                     >
-                      <Button size="small" type="text" icon={<MoreOutlined />} aria-label="عملیات" />
+                      <Button size="small" type="text" icon={<Ic icon={Ellipsis} />} aria-label="عملیات" />
                     </Dropdown>
                   ) : null}
                 </span>
@@ -213,21 +223,21 @@ export default function Wallets() {
 function TxList({ w, txs, onLoad, loading }: { w: WalletRow; txs?: any[]; onLoad: () => void; loading: boolean }) {
   if (!txs) {
     return (
-      <div className="py-2 text-center">
-        <Button size="small" icon={<SyncOutlined spin={loading} />} onClick={onLoad}>نمایش آخرین تراکنش‌ها</Button>
+      <div className="py-3 text-center">
+        <Button size="small" icon={<Ic icon={RefreshCw} className={loading ? "sf-spin" : undefined} />} onClick={onLoad}>نمایش آخرین تراکنش‌ها</Button>
       </div>
     );
   }
-  if (!txs.length) return <div className="py-2 text-center text-xs text-muted">تراکنشی پیدا نشد</div>;
+  if (!txs.length) return <div className="py-3 text-center text-[13px] text-ink-3">تراکنشی پیدا نشد.</div>;
   return (
     <div className="grid gap-1 py-1">
       {txs.map((t) => (
-        <div key={t.hash} className="flex flex-wrap items-center gap-3 text-xs">
-          <span className={`w-28 ${D(t.amount).gt(0) ? "tz-pos" : "tz-neg"}`}><FxAmount v={t.amount} code={w.currency_code} dp={w.currency_decimals} /></span>
-          <span className="num text-muted">{t.time ? formatJalaliDateTime(t.time) : "در صف تأیید"}</span>
-          {!t.confirmed ? <Tag color="orange" variant="filled" className="!m-0">تأییدنشده</Tag> : null}
-          <a className="ltr font-mono" href={EXPLORER[w.chain] ? `${EXPLORER[w.chain].tx}${t.hash}` : undefined} target="_blank" rel="noreferrer">{maskMiddle(t.hash, 8)}</a>
-          {t.counterparty ? <span className="ltr font-mono text-muted">{maskMiddle(t.counterparty, 6)}</span> : null}
+        <div key={t.hash} className="flex flex-wrap items-center gap-4 text-[13px]">
+          <span className="w-36"><FxAmount v={t.amount} code={w.currency_code} dp={w.currency_decimals} colored /></span>
+          <span className="sf-num text-ink-3">{t.time ? formatJalaliDateTime(t.time) : "در صف تأیید"}</span>
+          {!t.confirmed ? <Chip tone="warning">تأییدنشده</Chip> : null}
+          <a className="sf-mono sf-link" href={EXPLORER[w.chain] ? `${EXPLORER[w.chain].tx}${t.hash}` : undefined} target="_blank" rel="noreferrer">{maskMiddle(t.hash, 8)}</a>
+          {t.counterparty ? <bdi dir="ltr" className="sf-mono text-ink-3">{maskMiddle(t.counterparty, 6)}</bdi> : null}
         </div>
       ))}
     </div>

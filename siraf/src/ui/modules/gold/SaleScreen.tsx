@@ -1,31 +1,38 @@
 // Counter sale (فروش طلا — صندوق): a POS-like screen. Scan a tag (or pick a piece), add weighed
 // gold and coins, take the customer's used gold in trade, split the payment between cash,
-// card and bank (the rest on the customer's account), save with F2 and print an A5 invoice
-// or an 80 mm receipt. Prices are computed live with the same module the server posts with.
-import { useEffect, useMemo, useRef, useState } from "react";
+// card and bank (the rest on the customer's account), save with F2 (or Ctrl ↵) and print an A5
+// invoice or an 80 mm receipt (F9). Prices are computed live with the same module the server posts
+// with. Layout (components.md §4.7): the items at the start; at the end the sale sheet — customer,
+// the rate locked at the first edit, the invoice maths in one figure column, the payment and the
+// settle row, and the footer with the total and the save action.
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useNavigate, useParams } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Alert, Button, Input, Select, Spin, Tag, Tooltip, type InputRef } from "antd";
+import { Alert, Button, Dropdown, Input, Select, Tooltip, type InputRef } from "antd";
 import {
-  BarcodeOutlined, DeleteOutlined, PlusOutlined, PrinterOutlined, SaveOutlined, ReloadOutlined, FileAddOutlined, EditOutlined,
-  CheckCircleOutlined, StopOutlined, UserOutlined,
-} from "@ant-design/icons";
+  Banknote, Coins, CreditCard, Ellipsis, Equal, FileText, Landmark, Lock, Pencil, Plus, Printer, ScanBarcode, Ban,
+  CircleCheck, TrendingUp, X, LoaderCircle, ReceiptText,
+} from "lucide-react";
 import { useOrg } from "../../lib/org";
 import { useHotkey, useNotify } from "../../lib/hooks";
 import { errorText } from "../../lib/api";
 import { PageHeader } from "../../components/layout";
 import { DateInput, MoneyInput, NumberInput, PartySelect, PctInput, RefSelect, WeightInput } from "../../components/inputs";
-import { Money } from "../../components/display";
-import { D } from "@shared/money";
-import { faDigits, formatNumber, formatWeight } from "@shared/format";
+import { Chip, Loader, Money, Weight } from "../../components/display";
+import { Ic } from "../../components/shell/icons";
+import { D, type Num } from "@shared/money";
+import { faDigits, formatNumber } from "@shared/format";
+import { formatJalaliDateTime } from "@shared/jalali";
 import { gram18FromMazaneh, mazanehFromGram18 } from "@shared/gold";
 import { amountToWords } from "@shared/words";
 import { todayISO } from "@shared/jalali";
 import { uuidv7 } from "@shared/id";
+import { jTime } from "../../lib/fa";
 import {
-  docTotals, envOf, priceLine, RateChange, RateStamp, settleSplit, StatusOf, useCoins, useGoldSettings, useLatestRate,
-  wageTypeOptions, formOptions, type LineIn, type PricedLine,
+  docTotals, envOf, priceLine, settleSplit, StatusOf, useCoins, useGoldSettings, useLatestRate, wageTypeOptions, formOptions,
+  type LineIn, type PricedLine,
 } from "./shared";
+import { GoldStrip, KaratAvatar, KaratSeg } from "./kit";
 import { PrintArea, printSheet, type PrintFormat } from "./Invoice";
 
 interface SLine {
@@ -96,6 +103,8 @@ function SaleForm({ id }: { id: string | null }) {
   const [locked, setLocked] = useState(!!id);
   const [saved, setSaved] = useState<any>(null);
   const [format, setFormat] = useState<PrintFormat>("a5");
+  // the rate freezes at the start of a sale; the time it was taken from the board is shown beside it (the lock)
+  const [rateAt, setRateAt] = useState<string | null>(null);
   const doc = saved ?? existing.data ?? null;
 
   // the rate board's price for a new sale
@@ -105,6 +114,7 @@ function SaleForm({ id }: { id: string | null }) {
     setGram18(r.gram18);
     setMazaneh(r.mazaneh);
     setBuyPrice(r.buy_gram18 ?? r.gram18);
+    setRateAt(r.at);
   }, [latest.data, id, gram18]);
   // default till and card reader
   useEffect(() => {
@@ -276,318 +286,370 @@ function SaleForm({ id }: { id: string | null }) {
   };
 
   useHotkey("f2", () => save("posted"), [lines, date, gram18, mazaneh, buyPrice, partyId, buyer, cash, pos, bank, description, saving, readOnly]);
+  useHotkey("ctrl+enter", () => save("posted"), [lines, date, gram18, mazaneh, buyPrice, partyId, buyer, cash, pos, bank, description, saving, readOnly]);
   useHotkey("f4", () => focusScan(), []);
   useHotkey("f9", () => print(format), [doc, format]);
 
-  if (id && existing.isLoading) return <div className="grid h-64 place-content-center"><Spin /></div>;
-  if (id && existing.error) return <Alert type="error" title={errorText(existing.error)} />;
+  const applyBoard = () => {
+    const r = latest.data?.rate;
+    if (!r) return n.warn("قیمتی در تابلو ثبت نشده است");
+    setGram18(r.gram18);
+    setMazaneh(r.mazaneh);
+    setBuyPrice(r.buy_gram18 ?? r.gram18);
+    setRateAt(r.at);
+  };
 
+  if (id && existing.isLoading) return <div className="grid h-64 place-content-center"><Loader /></div>;
+  if (id && existing.error) return <Alert type="error" showIcon title={errorText(existing.error)} />;
+
+  const dp = org.money_decimals ?? 0;
   const g18Missing = !gram18 && lines.some((l) => l.kind !== "coin");
+  const net = D(totals.net);
+  const payOut = net.isNeg();
+  const board = latest.data?.rate ?? null;
+  const marketMoved = !readOnly && !!board?.gram18 && !!gram18 && !D(board.gram18).eq(D(gram18));
+  const soldWeight = outLines.filter(({ l }) => l.kind !== "coin").reduce((a, { p }) => a.plus(D(p.weight)), D(0));
+  const canEdit = can("gold", "edit");
+  const more = doc
+    ? [
+        ...(locked && canEdit && doc.status === "posted" ? [{ key: "edit", icon: <Ic icon={Pencil} />, label: "ویرایش فاکتور", onClick: () => setLocked(false) }] : []),
+        ...(doc.status !== "posted" && canEdit ? [{ key: "post", icon: <Ic icon={CircleCheck} />, label: "ثبت قطعی", onClick: () => action("post") }] : []),
+        ...(doc.voucher ? [{ key: "voucher", icon: <Ic icon={FileText} />, label: `سند حسابداری ${faDigits(doc.voucher.no)}`, onClick: () => nav(`/${orgId}/accounting/vouchers/${doc.voucher.id}`) }] : []),
+        ...(doc.status === "posted" && canEdit ? [{ type: "divider" as const }, { key: "cancel", icon: <Ic icon={Ban} />, danger: true, label: "ابطال فاکتور", onClick: () => action("cancel") }] : []),
+      ]
+    : [];
+
   return (
-    <div>
+    <div className="sf-doc">
       <PageHeader
         back={`/${orgId}/gold/docs?kind=sale`}
-        title={doc ? `فاکتور فروش طلا شماره‌ی ${faDigits(doc.no)}` : "فروش طلا (صندوق)"}
-        subtitle={doc ? null : "F4: اسکن اتیکت، F2: ثبت فاکتور، F9: چاپ"}
-        extra={doc ? <StatusOf s={doc.status} /> : null}
+        title={doc ? `فروش طلا ${faDigits(doc.no)}` : "فروش طلا"}
+        subtitle={
+          doc ? (
+            <span className="sf-doc-meta">
+              <StatusOf s={doc.status} />
+              {doc.created_at ? <><span className="sf-sep" aria-hidden /><span className="sf-num">{formatJalaliDateTime(doc.created_at)}</span></> : null}
+              {doc.created_by_name ? <><span className="sf-sep" aria-hidden /><span>{doc.created_by_name}</span></> : null}
+            </span>
+          ) : (
+            <span className="sf-doc-meta">صندوق</span>
+          )
+        }
         actions={
-          <>
-            {doc ? (
-              <>
-                <Button icon={<PrinterOutlined />} onClick={() => print("a5")}>فاکتور A5</Button>
-                <Button icon={<PrinterOutlined />} onClick={() => print("receipt")}>رسید ۸۰ میلی‌متری</Button>
-                {locked && can("gold", "edit") && doc.status === "posted" ? <Button icon={<EditOutlined />} onClick={() => setLocked(false)}>ویرایش</Button> : null}
-                {doc.status === "posted" && can("gold", "edit") ? <Button danger icon={<StopOutlined />} onClick={() => action("cancel")}>ابطال</Button> : null}
-                {doc.status !== "posted" && can("gold", "edit") ? <Button icon={<CheckCircleOutlined />} onClick={() => action("post")}>ثبت قطعی</Button> : null}
-                <Button type="primary" icon={<FileAddOutlined />} onClick={() => nav(`/${orgId}/gold/sale/new`)}>فروش جدید</Button>
-              </>
-            ) : null}
-            {!readOnly ? (
-              <>
-                {!doc || doc.status === "draft" ? <Button onClick={() => save("draft")} disabled={saving}>پیش‌نویس</Button> : null}
-                <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={() => save("posted")}>
-                  ثبت فاکتور <span className="tz-kbd ltr ms-1 !bg-transparent !text-white/80">F2</span>
-                </Button>
-              </>
-            ) : null}
-          </>
+          doc ? (
+            <>
+              {more.length ? (
+                <Dropdown trigger={["click"]} menu={{ items: more }} placement="bottomLeft">
+                  <Button icon={<Ic icon={Ellipsis} />} aria-label="بیشتر" />
+                </Dropdown>
+              ) : null}
+              <Button icon={<Ic icon={Plus} />} onClick={() => nav(`/${orgId}/gold/sale/new`)}>فروش جدید</Button>
+            </>
+          ) : null
         }
       />
 
-      <div className="no-print">
-        {doc?.voucher ? (
-          <div className="mb-3 text-xs text-muted">
-            سند حسابداری شماره‌ی <a onClick={() => nav(`/${orgId}/accounting/vouchers/${doc.voucher.id}`)} className="num">{faDigits(doc.voucher.no)}</a>
-            {doc.created_by_name ? <>، ثبت‌کننده: {doc.created_by_name}</> : null}
-          </div>
-        ) : null}
-        {doc?.status === "cancelled" ? <Alert className="!mb-3" type="error" showIcon title="این فاکتور باطل شده است." /> : null}
-        {locked && doc?.status === "posted" ? <Alert className="!mb-3" type="success" showIcon title="فاکتور ثبت شده است؛ برای تغییر «ویرایش» را بزنید (سند حسابداری همان سند به‌روز می‌شود)." /> : null}
+      {doc?.status === "cancelled" ? (
+        <div className="sf-inline no-print" data-tone="danger"><i className="sf-nuqta" aria-hidden /><span><b>باطل شده.</b> اجناس به موجودی برگشته و سند حسابداری آن حذف شده است.</span></div>
+      ) : null}
 
-        {/* rate strip */}
-        <div className="mb-3 grid gap-3 rounded-xl border border-line bg-gold-soft p-3 md:grid-cols-[1.2fr_1fr_1fr_1.4fr]">
-          <div>
-            <div className="mb-1 flex items-center gap-2 text-xs text-muted">
-              هر گرم ۱۸ عیار (این فاکتور)
-              <RateChange change={latest.data?.change} pct={latest.data?.change_pct} />
-            </div>
-            <MoneyInput size="large" value={gram18} disabled={readOnly} status={g18Missing ? "error" : undefined} className="!text-xl !font-extrabold" onChange={(v) => { setGram18(v); setMazaneh(v ? mazanehFromGram18(v) : null); }} />
-          </div>
-          <div>
-            <div className="mb-1 text-xs text-muted">مظنه</div>
-            <MoneyInput size="large" value={mazaneh} disabled={readOnly} onChange={(v) => { setMazaneh(v); setGram18(v ? gram18FromMazaneh(v) : null); }} />
-          </div>
-          <div>
-            <div className="mb-1 text-xs text-muted">خرید طلای کهنه (گرم ۱۸)</div>
-            <MoneyInput size="large" value={buyPrice} disabled={readOnly} onChange={setBuyPrice} />
-          </div>
-          <div className="flex flex-col justify-between gap-1">
-            <div className="flex flex-wrap gap-1">
-              {(coins.data ?? []).filter((c) => c.price).map((c) => (
-                <Tag key={c.id} variant="filled" className="!m-0 num">{c.name.replace("سکه ", "")}: {formatNumber(c.price!)}</Tag>
-              ))}
-            </div>
-            <div className="flex items-center gap-2">
-              <RateStamp rate={latest.data?.rate} />
+      <div className="no-print">
+        <GoldStrip rate={board} change={latest.data?.change} changePct={latest.data?.change_pct} coins={coins.data ?? []} />
+      </div>
+
+      <div className="sf-dpage no-print">
+        {/* ---------------------------------------------------------------- items */}
+        <div className="sf-doc">
+          <section className="sf-doc-card" aria-label="اقلام فاکتور">
+            <div className="sf-doc-h">
+              <h2>اقلام</h2>
+              {outLines.length ? (
+                <span className="sf-doc-hm">
+                  <span className="sf-num">{faDigits(outLines.length)}</span> قلم
+                  {!soldWeight.isZero() ? <><span className="sf-sep" aria-hidden /><Weight v={soldWeight} /></> : null}
+                </span>
+              ) : null}
               {!readOnly ? (
-                <Tooltip title="قیمت آخرین تابلو">
-                  <Button
-                    size="small"
-                    type="text"
-                    icon={<ReloadOutlined />}
-                    onClick={() => {
-                      const r = latest.data?.rate;
-                      if (!r) return n.warn("قیمتی در تابلو ثبت نشده است");
-                      setGram18(r.gram18);
-                      setMazaneh(r.mazaneh);
-                      setBuyPrice(r.buy_gram18 ?? r.gram18);
-                    }}
-                  />
-                </Tooltip>
+                <div className="sf-doc-hx">
+                  <Button size="small" type="text" icon={<Ic icon={Plus} />} onClick={addBulk}>طلای وزنی</Button>
+                  <Button size="small" type="text" icon={<Ic icon={Coins} />} onClick={addCoin}>سکه</Button>
+                </div>
               ) : null}
             </div>
-          </div>
-        </div>
-
-        <div className="grid gap-3 min-[106rem]:grid-cols-[1fr_360px]">
-          <div className="min-w-0">
-            {/* scanner */}
             {!readOnly ? (
-              <div className="tz-card mb-3 flex flex-wrap items-center gap-2 p-3">
+              <div className="sf-scan px-5 pt-4">
                 <Input
                   ref={scanRef}
                   autoFocus
-                  size="large"
-                  className="!max-w-sm num"
+                  className="sf-scan-in"
                   dir="ltr"
-                  prefix={<BarcodeOutlined className="text-gold" />}
-                  suffix={scanning ? <Spin size="small" /> : null}
-                  placeholder="اسکن یا شماره‌ی اتیکت + Enter"
+                  prefix={<Ic icon={ScanBarcode} />}
+                  suffix={scanning ? <Ic icon={LoaderCircle} className="sf-spin" /> : <bdi dir="ltr" className="sf-scan-k sf-latin">F4</bdi>}
+                  placeholder="اسکن یا شماره‌ی اتیکت، Enter"
                   value={tag}
                   onChange={(e) => setTag(e.target.value)}
                   onPressEnter={() => addTag(tag)}
+                  aria-label="اسکن اتیکت"
                 />
                 <RefSelect
                   entity="gold_item"
                   filters={{ status: "in_stock" }}
                   value={null}
-                  placeholder="جستجوی جنس (نام یا اتیکت)…"
-                  className="!w-64"
-                  popupWidth={360}
+                  placeholder="جستجوی جنس با نام یا اتیکت…"
+                  className="min-w-0 flex-1"
+                  popupWidth={380}
                   onChange={(_, o) => o?.sub && addTag(String(o.sub))}
                 />
-                <div className="flex gap-1">
-                  <Button icon={<PlusOutlined />} onClick={addBulk}>طلای وزنی</Button>
-                  <Button icon={<PlusOutlined />} onClick={addCoin}>سکه</Button>
-                </div>
-                <div className="ms-auto text-end">
-                  <div className="text-[11px] text-muted">{D(totals.net).isNeg() ? "قابل پرداخت به مشتری" : "قابل دریافت"}</div>
-                  <div className="num text-xl font-extrabold text-gold">{formatNumber(D(totals.net).abs(), { dp: org.money_decimals })}</div>
-                </div>
               </div>
             ) : null}
-
-            {/* sold lines */}
-            <div className="tz-card mb-3 overflow-x-auto">
-              <table className="tz-grid min-w-[980px]">
-                <thead>
-                  <tr>
-                    <th className="w-8">#</th>
-                    <th className="min-w-[180px]">شرح</th>
-                    <th className="w-[74px]">عیار</th>
-                    <th className="w-[96px]">وزن (گرم)</th>
-                    <th className="min-w-[110px]">ارزش طلا</th>
-                    <th className="min-w-[170px]">اجرت</th>
-                    <th className="min-w-[120px]">سود</th>
-                    <th className="min-w-[110px]">تخفیف</th>
-                    <th className="min-w-[96px]">مالیات</th>
-                    <th className="min-w-[96px]">سنگ</th>
-                    <th className="min-w-[120px]">جمع</th>
-                    {!readOnly ? <th className="w-8" /> : null}
-                  </tr>
-                </thead>
-                <tbody>
-                  {outLines.map(({ l, p }, i) => (
-                    <SaleRow key={l.key} i={i} l={l} p={p} readOnly={readOnly} coins={coins.data ?? []} defaultProfit={env.profitPct} onChange={(patch) => set(l.key, patch)} onRemove={() => remove(l.key)} />
-                  ))}
-                  {!outLines.length ? (
-                    <tr>
-                      <td colSpan={12} className="py-10 text-center text-sm text-muted">
-                        <BarcodeOutlined className="me-1 text-gold" /> اتیکت جنس را اسکن کنید تا به فاکتور اضافه شود
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-                {outLines.length ? (
-                  <tfoot>
-                    <tr>
-                      <td colSpan={3}>جمع ({faDigits(outLines.length)} ردیف)</td>
-                      <td><span className="num">{formatWeight(outLines.filter(({ l }) => l.kind !== "coin").reduce((a, { p }) => a.plus(D(p.weight)), D(0)))}</span></td>
-                      <td><Money v={totals.gold_value} /></td>
-                      <td><Money v={totals.wage} /></td>
-                      <td><Money v={totals.profit} /></td>
-                      <td><Money v={totals.discount} zero="—" /></td>
-                      <td><Money v={totals.tax} /></td>
-                      <td><Money v={totals.stone} zero="—" /></td>
-                      <td><Money v={totals.total} /></td>
-                      {!readOnly ? <td /> : null}
-                    </tr>
-                  </tfoot>
-                ) : null}
-              </table>
-            </div>
-
-            {/* trade-in */}
-            <div className="tz-card p-3">
-              <div className="mb-2 flex items-center gap-2">
-                <div className="text-sm font-bold">طلای مستعمل مشتری (تعویض)</div>
-                <span className="text-xs text-muted">بخشی از پرداخت؛ به موجودی طلای مستعمل می‌رود</span>
-                {!readOnly ? <Button size="small" className="ms-auto" icon={<PlusOutlined />} onClick={addOld}>طلای مستعمل</Button> : null}
+            {outLines.length ? (
+              <div className="sf-glines sf-stagger mt-2">
+                {outLines.map(({ l, p }) => (
+                  <SaleLine key={l.key} l={l} p={p} readOnly={readOnly} coins={coins.data ?? []} defaultProfit={env.profitPct} onChange={(patch) => set(l.key, patch)} onRemove={() => remove(l.key)} />
+                ))}
               </div>
-              {oldLines.length ? (
-                <table className="tz-grid">
+            ) : (
+              <div className="sf-gline-empty">
+                <span className="tile" aria-hidden><Ic icon={ScanBarcode} size={28} /></span>
+                <span>اتیکت جنس را اسکن کنید تا به فاکتور اضافه شود.</span>
+                {!readOnly ? <span className="k">برای طلای وزنی یا سکه از دکمه‌های بالای فهرست استفاده کنید.</span> : null}
+              </div>
+            )}
+          </section>
+
+          {/* ---------------------------------------------------------------- trade-in */}
+          <section className="sf-doc-card" aria-label="طلای مستعمل مشتری">
+            <div className="sf-doc-h">
+              <h2>طلای مستعمل مشتری</h2>
+              <span className="sf-doc-hm">{oldLines.length ? <>تعویض، <Weight v={totals.weight_in} /> معادل ۷۵۰</> : "تعویض"}</span>
+              {!readOnly ? (
+                <div className="sf-doc-hx">
+                  <Button size="small" type="text" icon={<Ic icon={Plus} />} onClick={addOld}>طلای مستعمل</Button>
+                </div>
+              ) : null}
+            </div>
+            {oldLines.length ? (
+              <div className="sf-grid-wrap">
+                <table className="sf-grid min-w-[660px]">
                   <thead>
                     <tr>
                       <th>شرح</th>
-                      <th className="w-[110px]">وزن (گرم)</th>
-                      <th className="w-[90px]">عیار</th>
-                      <th className="w-[90px]">کسر ٪</th>
-                      <th className="w-[150px]">قیمت گرم ۱۸</th>
-                      <th className="w-[90px]">معادل ۷۵۰</th>
-                      <th className="w-[130px]">ارزش</th>
-                      {!readOnly ? <th className="w-8" /> : null}
+                      <th className="w-[116px]">وزن (گرم)</th>
+                      <th className="w-[84px]">عیار</th>
+                      <th className="w-[80px]">کسر ٪</th>
+                      <th className="w-[136px]">نرخ گرم ۱۸</th>
+                      <th className="w-[136px]">ارزش ({unit})</th>
+                      {!readOnly ? <th className="w-9" aria-label="حذف" /> : null}
                     </tr>
                   </thead>
                   <tbody>
                     {oldLines.map(({ l, p }) => (
                       <tr key={l.key}>
                         <td><Input variant="borderless" disabled={readOnly} value={l.title ?? ""} placeholder="طلای مستعمل" onChange={(e) => set(l.key, { title: e.target.value })} /></td>
-                        <td><WeightInput variant="borderless" disabled={readOnly} value={l.weight} onChange={(v) => set(l.key, { weight: v })} /></td>
+                        <td>
+                          <WeightInput variant="borderless" disabled={readOnly} value={l.weight} onChange={(v) => set(l.key, { weight: v })} />
+                          {!D(p.weight750).isZero() ? <span className="sf-gsub">معادل ۷۵۰: <Weight v={p.weight750} unit={false} /></span> : null}
+                        </td>
                         <td><NumberInput variant="borderless" decimals={1} disabled={readOnly} value={l.fineness} onChange={(v) => set(l.key, { fineness: v })} /></td>
                         <td><PctInput variant="borderless" disabled={readOnly} value={l.deduction_pct} onChange={(v) => set(l.key, { deduction_pct: v })} /></td>
                         <td><MoneyInput variant="borderless" disabled={readOnly} value={l.gram_price} placeholder={buyPrice ? formatNumber(buyPrice) : ""} onChange={(v) => set(l.key, { gram_price: v })} /></td>
-                        <td className="num text-center">{formatWeight(p.weight750)}</td>
-                        <td>
+                        <td className="sf-gn">
                           <Money v={p.total} />
-                          {!D(p.discount).isZero() ? <div className="text-[10px] text-muted">کسر: <Money v={p.discount} /></div> : null}
+                          {!D(p.discount).isZero() ? <span className="sf-gsub !px-0">کسر <Money v={p.discount} /></span> : null}
                         </td>
-                        {!readOnly ? <td><Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={() => remove(l.key)} aria-label="حذف" /></td> : null}
+                        {!readOnly ? (
+                          <td><span className="sf-row-x"><Button type="text" size="small" icon={<Ic icon={X} />} onClick={() => remove(l.key)} aria-label="حذف ردیف" /></span></td>
+                        ) : null}
                       </tr>
                     ))}
                   </tbody>
                 </table>
-              ) : (
-                <div className="py-2 text-xs text-muted">مشتری طلای کهنه برای تعویض ندارد.</div>
-              )}
-            </div>
-          </div>
-
-          {/* side: customer, totals, payment (under the lines on narrower screens) */}
-          <div className="grid content-start gap-3 lg:grid-cols-3 min-[106rem]:grid-cols-1">
-            <div className="tz-card p-3">
-              <div className="mb-2 flex items-center gap-2 text-sm font-bold"><UserOutlined /> مشتری</div>
-              <PartySelect role="customer" value={partyId} disabled={readOnly} allowClear placeholder="مشتری گذری (خالی) یا جستجوی مشتری…" onChange={(v) => setPartyId(v)} className="w-full" />
-              {!partyId ? (
-                <div className="mt-2 grid grid-cols-2 gap-2">
-                  <Input size="small" disabled={readOnly} placeholder="نام خریدار" value={buyer.name ?? ""} onChange={(e) => setBuyer({ ...buyer, name: e.target.value })} />
-                  <Input size="small" disabled={readOnly} placeholder="موبایل" dir="ltr" value={buyer.mobile ?? ""} onChange={(e) => setBuyer({ ...buyer, mobile: e.target.value })} />
-                  <Input size="small" disabled={readOnly} placeholder="کد ملی" dir="ltr" value={buyer.national_id ?? ""} onChange={(e) => setBuyer({ ...buyer, national_id: e.target.value })} />
-                  <DateInput size="small" value={date} disabled={readOnly} onChange={setDate} />
-                </div>
-              ) : (
-                <div className="mt-2"><DateInput size="small" value={date} disabled={readOnly} onChange={setDate} /></div>
-              )}
-            </div>
-
-            <div className="tz-card p-3">
-              <TotalRow k="ارزش طلا" v={totals.gold_value} />
-              <TotalRow k="اجرت ساخت" v={totals.wage} />
-              <TotalRow k="سود فروشنده" v={totals.profit} />
-              {!D(totals.discount).isZero() ? <TotalRow k="تخفیف" v={totals.discount} neg /> : null}
-              <TotalRow k={`مالیات (${faDigits(env.taxPct as string)}٪ اجرت و سود)`} v={totals.tax} />
-              {!D(totals.stone).isZero() ? <TotalRow k="سنگ و جواهر" v={totals.stone} /> : null}
-              {!D(totals.coins).isZero() ? <TotalRow k="سکه" v={totals.coins} /> : null}
-              <div className="my-2 border-t border-line" />
-              <TotalRow k="جمع فاکتور" v={totals.total} strong />
-              {!D(totals.old_value).isZero() ? <TotalRow k={`طلای مستعمل (${formatWeight(totals.weight_in)} گرم ۷۵۰)`} v={totals.old_value} neg /> : null}
-              <div className="mt-2 rounded-lg bg-gold-soft p-3 text-center">
-                <div className="text-xs text-muted">{D(totals.net).isNeg() ? "قابل پرداخت به مشتری" : "قابل دریافت از مشتری"}</div>
-                <div className="num text-2xl font-extrabold text-gold">{formatNumber(D(totals.net).abs(), { dp: org.money_decimals })}</div>
-                <div className="text-[11px] leading-4 text-muted">{D(totals.net).isZero() ? "" : amountToWords(D(totals.net).abs(), unit)}</div>
               </div>
-              <div className="mt-2 text-[11px] text-muted">
-                وزن فروش: <span className="num">{formatWeight(totals.weight_out)}</span> گرم ۷۵۰، {faDigits(totals.pieces)} جنس
-              </div>
-            </div>
-
-            <div className="tz-card p-3">
-              <div className="mb-2 text-sm font-bold">{D(totals.net).isNeg() ? "پرداخت به مشتری" : "دریافت"}</div>
-              <PayRow label="نقد" entity="cash_box" pay={cash} setPay={setCash} readOnly={readOnly} onRest={() => fillRest("cash")} />
-              {!D(totals.net).isNeg() ? <PayRow label="کارتخوان" entity="pos_terminal" pay={pos} setPay={setPos} readOnly={readOnly} onRest={() => fillRest("pos")} /> : null}
-              <PayRow label="واریز" entity="bank_account" pay={bank} setPay={setBank} readOnly={readOnly} onRest={() => fillRest("bank")} withRef />
-              <div className={`mt-2 flex items-center justify-between rounded-lg px-3 py-2 text-sm ${remaining.isNeg() ? "bg-[color-mix(in_srgb,var(--tz-danger)_12%,transparent)] text-bad" : remaining.isZero() ? "bg-[color-mix(in_srgb,var(--tz-success)_12%,transparent)] text-ok" : "bg-surface-2"}`}>
-                <span>{remaining.isNeg() ? "بیش از مبلغ فاکتور" : remaining.isZero() ? "تسویه کامل" : partyId ? "مانده به حساب مشتری (نسیه)" : "مانده — مشتری را انتخاب کنید"}</span>
-                <b className="num">{formatNumber(remaining.abs(), { dp: org.money_decimals })}</b>
-              </div>
-              <Input.TextArea className="!mt-2" autoSize={{ minRows: 1, maxRows: 3 }} disabled={readOnly} placeholder="توضیحات فاکتور" value={description} onChange={(e) => setDescription(e.target.value)} />
-            </div>
-          </div>
+            ) : (
+              <div className="px-5 py-4 text-[13px] text-ink-3">مشتری طلای کهنه برای تعویض ندارد.</div>
+            )}
+          </section>
         </div>
+
+        {/* ---------------------------------------------------------------- the sale sheet */}
+        <aside className="sf-dsheet" aria-label="فاکتور">
+          <div className="sf-dsheet-b">
+            <div className="sf-field">
+              <div className="sf-field-l">مشتری</div>
+              <PartySelect role="customer" value={partyId} disabled={readOnly} allowClear placeholder="مشتری گذری، یا جستجوی مشتری…" onChange={(v) => setPartyId(v)} className="w-full" />
+            </div>
+            {!partyId ? (
+              <div className="grid grid-cols-2 gap-3">
+                <Input disabled={readOnly} placeholder="نام خریدار" value={buyer.name ?? ""} onChange={(e) => setBuyer({ ...buyer, name: e.target.value })} aria-label="نام خریدار" />
+                <Input disabled={readOnly} placeholder="موبایل" dir="ltr" inputMode="tel" className="sf-numin" value={buyer.mobile ?? ""} onChange={(e) => setBuyer({ ...buyer, mobile: e.target.value })} aria-label="موبایل" />
+                <Input disabled={readOnly} placeholder="کد ملی" dir="ltr" inputMode="numeric" className="sf-numin" value={buyer.national_id ?? ""} onChange={(e) => setBuyer({ ...buyer, national_id: e.target.value })} aria-label="کد ملی" />
+                <DateInput value={date} disabled={readOnly} onChange={setDate} />
+              </div>
+            ) : (
+              <div className="sf-field">
+                <div className="sf-field-l">تاریخ</div>
+                <DateInput value={date} disabled={readOnly} onChange={setDate} />
+              </div>
+            )}
+
+            <div className="sf-field">
+              <div className="sf-field-l">نرخ هر گرم ۱۸ عیار</div>
+              <MoneyInput
+                value={gram18}
+                disabled={readOnly}
+                status={g18Missing ? "error" : undefined}
+                suffix={
+                  rateAt && !readOnly ? (
+                    <Tooltip title="نرخ این فاکتور در شروع فروش ثابت شد">
+                      <span className="sf-lock-sfx"><Ic icon={Lock} size={14} /><span>{jTime(new Date(rateAt))}</span></span>
+                    </Tooltip>
+                  ) : (
+                    <span>{unit}</span>
+                  )
+                }
+                onChange={(v) => { setGram18(v); setMazaneh(v ? mazanehFromGram18(v) : null); setRateAt(null); }}
+              />
+              {g18Missing ? <div className="sf-field-err">نرخ گرم ۱۸ عیار را وارد کنید.</div> : null}
+            </div>
+            {marketMoved ? (
+              <div className="sf-lock-note">
+                <Ic icon={TrendingUp} size={14} />
+                <span>نرخ بازار اکنون <span className="sf-num">{formatNumber(board!.gram18!)}</span> است.</span>
+                <button type="button" className="sf-link" onClick={applyBoard}>به‌روزرسانی نرخ</button>
+              </div>
+            ) : null}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="sf-field">
+                <div className="sf-field-l">مظنه</div>
+                <MoneyInput value={mazaneh} disabled={readOnly} onChange={(v) => { setMazaneh(v); setGram18(v ? gram18FromMazaneh(v) : null); setRateAt(null); }} />
+              </div>
+              <div className="sf-field">
+                <div className="sf-field-l">خرید مستعمل (گرم ۱۸)</div>
+                <MoneyInput value={buyPrice} disabled={readOnly} onChange={setBuyPrice} />
+              </div>
+            </div>
+
+            {/* the invoice maths: one start-aligned figure column, shared with the payments and the settle row */}
+            <div className="sf-sums" role="group" aria-label="محاسبه‌ی فاکتور">
+              <SumRow k="ارزش طلا" why={!D(totals.weight_out).isZero() && gram18 ? <>{formatNumber(totals.weight_out, { dp: 3, minDp: 3 })} × {formatNumber(gram18)}</> : null} v={totals.gold_value} />
+              <SumRow k="اجرت ساخت" v={totals.wage} />
+              <SumRow k="سود فروشنده" why="طلا و اجرت" v={totals.profit} />
+              {!D(totals.discount).isZero() ? <SumRow k="تخفیف" v={D(totals.discount).neg().toString()} /> : null}
+              <SumRow k="مالیات" why={`${faDigits(String(env.taxPct))}٪ اجرت و سود`} v={totals.tax} />
+              {!D(totals.stone).isZero() ? <SumRow k="سنگ و جواهر" v={totals.stone} /> : null}
+              {!D(totals.coins).isZero() ? <SumRow k="سکه" v={totals.coins} /> : null}
+              <SumRow k="مبلغ فاکتور" v={totals.total} total={D(totals.old_value).isZero()} />
+              {!D(totals.old_value).isZero() ? (
+                <>
+                  <SumRow k="طلای مستعمل" why={<>{formatNumber(totals.weight_in, { dp: 3, minDp: 3 })} گرم ۷۵۰</>} v={D(totals.old_value).neg().toString()} />
+                  <SumRow k={payOut ? "قابل پرداخت به مشتری" : "قابل دریافت"} v={net.abs().toString()} total />
+                </>
+              ) : null}
+              {!net.isZero() ? <div className="r is-words"><span>{amountToWords(net.abs(), unit)}</span></div> : null}
+            </div>
+
+            <div className="sf-field">
+              <div className="sf-sec-t"><span>{payOut ? "پرداخت به مشتری" : "دریافت"}</span></div>
+              <div className="sf-pay">
+                <PayRow icon={Banknote} label="نقد" entity="cash_box" pay={cash} setPay={setCash} readOnly={readOnly} onRest={() => fillRest("cash")} />
+                {!payOut ? <PayRow icon={CreditCard} label="کارتخوان" entity="pos_terminal" pay={pos} setPay={setPos} readOnly={readOnly} onRest={() => fillRest("pos")} /> : null}
+                <PayRow icon={Landmark} label="واریز" entity="bank_account" pay={bank} setPay={setBank} readOnly={readOnly} onRest={() => fillRest("bank")} />
+                {bank.amount ? (
+                  <div className="r is-ref">
+                    <span />
+                    <Input size="small" dir="ltr" className="sf-numin" disabled={readOnly} placeholder="شماره‌ی پیگیری واریز" value={bank.ref_no ?? ""} onChange={(e) => setBank({ ...bank, ref_no: e.target.value })} />
+                  </div>
+                ) : null}
+              </div>
+              {!net.isZero() ? (
+                remaining.isZero() ? (
+                  <div className="sf-settle" data-state="in"><span className="k">تسویه شد</span></div>
+                ) : remaining.isNeg() ? (
+                  <div className="sf-settle" data-state="over"><span className="k">بیش از مبلغ فاکتور</span><span className="n"><Money v={remaining.abs().toString()} /></span></div>
+                ) : (
+                  <div className="sf-settle" data-state="due">
+                    <span className="k">مانده تا تسویه<span className="h">{partyId ? "به حساب مشتری" : "مشتری را انتخاب کنید"}</span></span>
+                    <span className="n"><Money v={remaining.toString()} /></span>
+                  </div>
+                )
+              ) : null}
+            </div>
+
+            <Input.TextArea autoSize={{ minRows: 1, maxRows: 3 }} disabled={readOnly} placeholder="توضیحات فاکتور (اختیاری)" value={description} onChange={(e) => setDescription(e.target.value)} aria-label="توضیحات" />
+          </div>
+
+          <div className="sf-dsheet-f">
+            <div className="tot">
+              <small>{payOut ? "قابل پرداخت به مشتری" : D(totals.old_value).isZero() ? "مبلغ فاکتور" : "قابل دریافت"}</small>
+              <b>{formatNumber(net.abs(), { dp })}<span className="sf-unit">{"\u00a0"}{unit}</span></b>
+            </div>
+            <div className="act">
+              {!readOnly ? (
+                <>
+                  {!doc || doc.status === "draft" ? <Button onClick={() => save("draft")} disabled={saving}>پیش‌نویس</Button> : null}
+                  <Button type="primary" loading={saving} onClick={() => save("posted")}>
+                    ثبت فاکتور<Kbd k="F2" />
+                  </Button>
+                </>
+              ) : doc ? (
+                <>
+                  <Tooltip title="رسید ۸۰ میلی‌متری">
+                    <Button icon={<Ic icon={ReceiptText} />} onClick={() => print("receipt")} aria-label="چاپ رسید ۸۰ میلی‌متری" />
+                  </Tooltip>
+                  <Button type="primary" icon={<Ic icon={Printer} />} onClick={() => print("a5")}>
+                    چاپ فاکتور<Kbd k="F9" />
+                  </Button>
+                </>
+              ) : null}
+            </div>
+          </div>
+        </aside>
       </div>
       <PrintArea doc={doc} format={format} />
     </div>
   );
 }
 
-function TotalRow({ k, v, strong, neg }: { k: string; v: string; strong?: boolean; neg?: boolean }) {
+/** The shortcut inside a button: an LTR isolate in a 6 px RTL wrapper. */
+function Kbd({ k }: { k: string }) {
   return (
-    <div className={`flex items-center justify-between py-0.5 ${strong ? "text-base font-extrabold" : "text-sm"}`}>
-      <span className={strong ? "" : "text-muted"}>{k}</span>
-      <span className={neg ? "text-bad" : ""}>{neg ? "−" : ""}<Money v={v} /></span>
+    <span className="sf-kw" aria-hidden>
+      <bdi dir="ltr"><kbd>{k}</kbd></bdi>
+    </span>
+  );
+}
+
+function SumRow({ k, why, v, total }: { k: ReactNode; why?: ReactNode; v: Num; total?: boolean }) {
+  return (
+    <div className={`r ${total ? "is-total" : ""}`}>
+      <span>
+        {k}
+        {why ? <span className="why">{why}</span> : null}
+      </span>
+      <span className="n"><Money v={v} zero="—" /></span>
     </div>
   );
 }
 
-function PayRow({ label, entity, pay, setPay, readOnly, onRest, withRef }: { label: string; entity: string; pay: Pay; setPay: (m: Pay) => void; readOnly: boolean; onRest: () => void; withRef?: boolean }) {
+function PayRow({ icon, label, entity, pay, setPay, readOnly, onRest }: { icon: typeof Banknote; label: string; entity: string; pay: Pay; setPay: (m: Pay) => void; readOnly: boolean; onRest: () => void }) {
   return (
-    <div className="mb-2">
-      <div className="grid grid-cols-[64px_1fr_1fr_auto] items-center gap-1.5">
-        <span className="text-xs text-muted">{label}</span>
-        <RefSelect entity={entity} size="small" value={pay.id} disabled={readOnly} showCode={false} placeholder="انتخاب…" onChange={(v) => setPay({ ...pay, id: v })} />
-        <MoneyInput size="small" value={pay.amount} disabled={readOnly} placeholder="۰" onChange={(v) => setPay({ ...pay, amount: v })} />
+    <div className="r">
+      <span className="ic"><Ic icon={icon} /></span>
+      <span className="m">
+        <span className="k">{label}</span>
+        <RefSelect entity={entity} size="small" variant="borderless" className="acct" value={pay.id} disabled={readOnly} showCode={false} placeholder="انتخاب…" onChange={(v) => setPay({ ...pay, id: v })} />
+      </span>
+      <span className="n">
+        <MoneyInput size="small" value={pay.amount} disabled={readOnly} placeholder="—" onChange={(v) => setPay({ ...pay, amount: v })} />
         <Tooltip title="باقی‌مانده با این روش">
-          <Button size="small" disabled={readOnly} onClick={onRest}>همه</Button>
+          <Button size="small" type="text" disabled={readOnly} icon={<Ic icon={Equal} size={14} />} onClick={onRest} aria-label={`باقی‌مانده با ${label}`} />
         </Tooltip>
-      </div>
-      {withRef && pay.amount ? (
-        <Input size="small" className="!mt-1" dir="ltr" disabled={readOnly} placeholder="شماره‌ی پیگیری" value={pay.ref_no ?? ""} onChange={(e) => setPay({ ...pay, ref_no: e.target.value })} />
-      ) : null}
+      </span>
     </div>
   );
 }
 
-function SaleRow({ i, l, p, readOnly, coins, defaultProfit, onChange, onRemove }: {
-  i: number;
+function SaleLine({ l, p, readOnly, coins, defaultProfit, onChange, onRemove }: {
   l: SLine;
   p: PricedLine;
   readOnly: boolean;
@@ -598,89 +660,131 @@ function SaleRow({ i, l, p, readOnly, coins, defaultProfit, onChange, onRemove }
 }) {
   const piece = l.kind === "piece";
   const coin = l.kind === "coin";
+  const wage = (
+    <div className="sf-field is-wide">
+      <div className="sf-field-l">اجرت ساخت</div>
+      <div className="flex gap-1.5">
+        <Select className="!w-[92px] shrink-0" disabled={readOnly} value={l.wage_type ?? "percent"} options={wageTypeOptions} onChange={(v) => onChange({ wage_type: v })} aria-label="نوع اجرت" />
+        <NumberInput decimals={l.wage_type === "percent" || !l.wage_type ? 3 : 0} disabled={readOnly} value={l.wage_value} suffix={l.wage_type === "percent" || !l.wage_type ? <span>٪</span> : undefined} onChange={(v) => onChange({ wage_value: v })} />
+      </div>
+    </div>
+  );
   return (
-    <tr>
-      <td className="num text-center text-xs text-muted">{faDigits(i + 1)}</td>
-      <td>
-        {coin ? (
-          <Select
-            variant="borderless"
-            className="w-full"
-            disabled={readOnly}
-            value={l.item_id ?? undefined}
-            placeholder="نوع سکه"
-            options={coins.map((c) => ({ value: c.id, label: `${c.name} (${faDigits(D(c.qty).toString())} عدد)`, disabled: !D(c.qty).gt(0) && c.id !== l.item_id }))}
-            onChange={(v) => {
-              const c = coins.find((x) => x.id === v);
-              onChange({ item_id: v, title: c?.name ?? null, gram_price: c?.price ?? l.gram_price, fineness: c?.fineness ?? "900" });
-            }}
-          />
-        ) : piece ? (
-          <div className="px-1 leading-5">
-            <div className="font-semibold">{l.title}</div>
-            <div className="text-[11px] text-muted">
-              <span className="num">اتیکت {faDigits(l.tag_no ?? "")}</span>
-              {l.category_name ? <>، {l.category_name}</> : null}
-              {l.ownership === "consignment" ? <Tag color="purple" variant="filled" className="!ms-1 !me-0 !text-[10px]">امانی</Tag> : null}
+    <div className="sf-gline">
+      <div className="sf-gline-h">
+        <KaratAvatar kind={l.kind} fineness={p.fineness} />
+        <div className="sf-gline-t">
+          {coin ? (
+            <Select
+              className="max-w-[360px]"
+              disabled={readOnly}
+              value={l.item_id ?? undefined}
+              placeholder="نوع سکه"
+              options={coins.map((c) => ({ value: c.id, label: `${c.name} (${faDigits(D(c.qty).toString())} عدد)`, disabled: !D(c.qty).gt(0) && c.id !== l.item_id }))}
+              onChange={(v) => {
+                const c = coins.find((x) => x.id === v);
+                onChange({ item_id: v, title: c?.name ?? null, gram_price: c?.price ?? l.gram_price, fineness: c?.fineness ?? "900" });
+              }}
+              aria-label="نوع سکه"
+            />
+          ) : piece ? (
+            <>
+              <b>{l.title}</b>
+              <span>
+                <span>اتیکت <span className="sf-docno">{faDigits(l.tag_no ?? "")}</span></span>
+                {l.category_name ? <><span className="sf-sep" aria-hidden /><span>{l.category_name}</span></> : null}
+                {l.ownership === "consignment" ? <><span className="sf-sep" aria-hidden /><Chip tone="neutral">امانی</Chip></> : null}
+              </span>
+            </>
+          ) : (
+            <div className="flex gap-1.5">
+              <Select className="!w-32 shrink-0" disabled={readOnly} value={l.form ?? "bullion"} options={formOptions} onChange={(v) => onChange({ form: v })} aria-label="نوع طلا" />
+              <Input disabled={readOnly} value={l.title ?? ""} placeholder="شرح (اختیاری)" onChange={(e) => onChange({ title: e.target.value })} />
             </div>
-          </div>
-        ) : (
-          <div className="flex items-center gap-1">
-            <Select size="small" variant="borderless" className="!w-28" disabled={readOnly} value={l.form ?? "bullion"} options={formOptions} onChange={(v) => onChange({ form: v })} />
-            <Input size="small" variant="borderless" disabled={readOnly} value={l.title ?? ""} placeholder="شرح" onChange={(e) => onChange({ title: e.target.value })} />
-          </div>
-        )}
-      </td>
-      <td className="text-center">
-        {piece || coin ? <span className="num">{faDigits(D(p.fineness).toString())}</span> : <NumberInput variant="borderless" decimals={1} disabled={readOnly} value={l.fineness} onChange={(v) => onChange({ fineness: v })} />}
-      </td>
-      <td className="text-center">
-        {piece ? (
-          <div className="num leading-5">
-            {formatWeight(p.weight)}
-            {!D(l.stone_weight ?? 0).isZero() ? <div className="text-[10px] text-muted">سنگ {formatWeight(l.stone_weight)}</div> : null}
-          </div>
-        ) : coin ? (
-          <NumberInput variant="borderless" disabled={readOnly} value={l.qty} suffix={<span className="text-[10px] text-muted">عدد</span>} onChange={(v) => onChange({ qty: v })} />
-        ) : (
-          <WeightInput variant="borderless" disabled={readOnly} value={l.weight} onChange={(v) => onChange({ weight: v })} />
-        )}
-      </td>
-      <td>
+          )}
+        </div>
+        <div className="sf-gline-sum">
+          <small>جمع</small>
+          <b><Money v={p.total} zero="—" /></b>
+        </div>
+        {!readOnly ? (
+          <Tooltip title="حذف از فاکتور">
+            <Button className="sf-gline-x" type="text" size="small" icon={<Ic icon={X} />} tabIndex={-1} onClick={onRemove} aria-label="حذف قلم" />
+          </Tooltip>
+        ) : null}
+      </div>
+
+      <div className="sf-gline-f">
         {coin ? (
-          <MoneyInput variant="borderless" disabled={readOnly} value={l.gram_price} placeholder="قیمت هر سکه" onChange={(v) => onChange({ gram_price: v })} />
-        ) : (
-          <Money v={p.gold_value} />
-        )}
-      </td>
-      <td>
-        {coin ? (
-          <span className="text-muted">—</span>
-        ) : (
-          <div>
-            <div className="flex items-center gap-1">
-              <Select size="small" variant="borderless" className="!w-[76px]" disabled={readOnly} value={l.wage_type ?? "percent"} options={wageTypeOptions} onChange={(v) => onChange({ wage_type: v })} />
-              <NumberInput size="small" variant="borderless" decimals={l.wage_type === "percent" || !l.wage_type ? 3 : 0} disabled={readOnly} value={l.wage_value} onChange={(v) => onChange({ wage_value: v })} />
+          <>
+            <div className="sf-field">
+              <div className="sf-field-l">تعداد</div>
+              <NumberInput disabled={readOnly} value={l.qty} suffix={<span>عدد</span>} onChange={(v) => onChange({ qty: v })} />
             </div>
-            <div className="ps-2 text-[11px]"><Money v={p.wage} /></div>
-          </div>
-        )}
-      </td>
-      <td>
-        {coin ? (
-          <span className="text-muted">—</span>
+            <div className="sf-field is-wide">
+              <div className="sf-field-l">قیمت هر سکه</div>
+              <MoneyInput disabled={readOnly} value={l.gram_price} placeholder="قیمت هر سکه" onChange={(v) => onChange({ gram_price: v })} />
+            </div>
+            <div className="sf-field">
+              <div className="sf-field-l">تخفیف</div>
+              <MoneyInput disabled={readOnly} value={l.discount} placeholder="—" onChange={(v) => onChange({ discount: v })} />
+            </div>
+          </>
         ) : (
-          <div>
-            <PctInput size="small" variant="borderless" disabled={readOnly} value={l.profit_pct} placeholder={piece ? faDigits(String(defaultProfit ?? "")) : "۰"} onChange={(v) => onChange({ profit_pct: v })} />
-            <div className="ps-2 text-[11px]"><Money v={p.profit} /></div>
-          </div>
+          <>
+            <div className="sf-field">
+              <div className="sf-field-l">وزن</div>
+              {piece ? (
+                <div className="sf-gline-ro">
+                  <Weight v={p.weight} unit={false} />
+                  <span className="sf-unit">گرم</span>
+                </div>
+              ) : (
+                <WeightInput disabled={readOnly} value={l.weight} onChange={(v) => onChange({ weight: v })} />
+              )}
+              {piece && !D(l.stone_weight ?? 0).isZero() ? <div className="sf-field-h">سنگ <Weight v={l.stone_weight ?? 0} unit={false} /> گرم</div> : null}
+            </div>
+            <div className={`sf-field ${piece ? "" : "is-wide"}`}>
+              <div className="sf-field-l">عیار</div>
+              {piece ? (
+                <div className="sf-gline-ro"><span>{faDigits(D(p.fineness).toString())}</span><span className="sf-unit">در هزار</span></div>
+              ) : (
+                <div className="flex items-center gap-1.5">
+                  <KaratSeg value={l.fineness} disabled={readOnly} onChange={(v) => onChange({ fineness: v })} />
+                  <div className="w-[84px] shrink-0">
+                    <NumberInput decimals={1} disabled={readOnly} value={l.fineness} onChange={(v) => onChange({ fineness: v })} aria-label="عیار در هزار" />
+                  </div>
+                </div>
+              )}
+            </div>
+            {wage}
+            <div className="sf-field">
+              <div className="sf-field-l">سود فروشنده</div>
+              <PctInput disabled={readOnly} value={l.profit_pct} placeholder={piece ? faDigits(String(defaultProfit ?? "")) : "—"} onChange={(v) => onChange({ profit_pct: v })} />
+            </div>
+            <div className="sf-field">
+              <div className="sf-field-l">تخفیف</div>
+              <MoneyInput disabled={readOnly} value={l.discount} placeholder="—" onChange={(v) => onChange({ discount: v })} />
+            </div>
+            <div className="sf-field">
+              <div className="sf-field-l">سنگ و جواهر</div>
+              <MoneyInput disabled={readOnly} value={l.stone} placeholder="—" onChange={(v) => onChange({ stone: v })} />
+            </div>
+          </>
         )}
-      </td>
-      <td><MoneyInput size="small" variant="borderless" disabled={readOnly} value={l.discount} placeholder="۰" onChange={(v) => onChange({ discount: v })} /></td>
-      <td>{coin ? <span className="text-muted">—</span> : <Money v={p.tax} />}</td>
-      <td>{coin ? <span className="text-muted">—</span> : <MoneyInput size="small" variant="borderless" disabled={readOnly} value={l.stone} placeholder="۰" onChange={(v) => onChange({ stone: v })} />}</td>
-      <td><b><Money v={p.total} /></b></td>
-      {!readOnly ? <td><Button type="text" size="small" danger icon={<DeleteOutlined />} tabIndex={-1} onClick={onRemove} aria-label="حذف ردیف" /></td> : null}
-    </tr>
+      </div>
+
+      {!coin ? (
+        <div className="sf-gline-why">
+          <span>ارزش طلا <span className="n"><Money v={p.gold_value} zero="—" /></span></span>
+          <span className="sf-sep" aria-hidden />
+          <span>اجرت <span className="n"><Money v={p.wage} zero="—" /></span></span>
+          <span className="sf-sep" aria-hidden />
+          <span>سود <span className="n"><Money v={p.profit} zero="—" /></span></span>
+          <span className="sf-sep" aria-hidden />
+          <span>مالیات <span className="n"><Money v={p.tax} zero="—" /></span></span>
+        </div>
+      ) : null}
+    </div>
   );
 }

@@ -1,4 +1,4 @@
--- «تراز» migration 0002_accounting — حسابداری: سال مالی، کدینگ، اسناد
+-- «سیراف» migration 0002_accounting — حسابداری: سال مالی، کدینگ، اسناد
 create table if not exists tz_migrations (id text primary key, applied_at timestamptz not null default now());
 
 -- ---------------------------------------------------------------------------

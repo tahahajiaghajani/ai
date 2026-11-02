@@ -1,69 +1,104 @@
-import { Button, Table, Alert, Space } from "antd";
-import { LockOutlined, UnlockOutlined, PlusOutlined } from "@ant-design/icons";
+// Fiscal years (سال‌های مالی): close a year (closing voucher + opening voucher of the next year) or reopen it.
+import { Button, Table } from "antd";
+import { Lock, LockOpen, Plus, CalendarRange } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { Link } from "react-router";
 import { useOrg } from "../../lib/org";
 import { useAction, useNotify } from "../../lib/hooks";
 import { PageHeader } from "../../components/layout";
-import { JDate, StatusTag, Money } from "../../components/display";
+import { Chip, EmptyState, JDate, StatusTag } from "../../components/display";
 import { toJalali } from "@shared/jalali";
+import { faDigits } from "@shared/format";
+import { ICON14, ICON } from "../reports/kit";
 
 export default function FiscalYears() {
-  const { info, api, orgId, can } = useOrg();
+  const { info, api, orgId, can, fy } = useOrg();
   const qc = useQueryClient();
   const n = useNotify();
   const refresh = () => qc.invalidateQueries({ queryKey: ["org", orgId] });
-  const close = useAction((id: string) => api.post(`/fiscal-years/${id}/close`), { onSuccess: (r: any) => { n.ok("سال مالی بسته شد و سند افتتاحیه‌ی سال بعد صادر شد"); refresh(); void r; } });
-  const reopen = useAction((id: string) => api.post(`/fiscal-years/${id}/reopen`), { success: "سال مالی دوباره باز شد", onSuccess: refresh });
-  const add = useAction((jy: number) => api.post("/fiscal-years", { jalali_year: jy }), { success: "سال مالی ساخته شد", onSuccess: refresh });
+  const close = useAction((id: string) => api.post(`/fiscal-years/${id}/close`), {
+    onSuccess: () => {
+      n.ok("سال مالی بسته شد و سند افتتاحیهٔ سال بعد صادر شد.");
+      refresh();
+    },
+  });
+  const reopen = useAction((id: string) => api.post(`/fiscal-years/${id}/reopen`), { success: "سال مالی دوباره باز شد.", onSuccess: refresh });
+  const add = useAction((jy: number) => api.post("/fiscal-years", { jalali_year: jy }), { success: "سال مالی ساخته شد.", onSuccess: refresh });
   const years = info.fiscal_years;
   const latest = years[0];
+  const full = can("accounting", "full");
   return (
     <div>
       <PageHeader
         title="سال‌های مالی"
-        actions={can("accounting", "full") && latest ? <Button icon={<PlusOutlined />} onClick={() => add.mutate(toJalali(latest.end_date).jy + 1)}>سال بعد</Button> : null}
+        subtitle={<Link className="sf-link" to={`/${orgId}/help#fiscal`}>بستن سال چه می‌کند؟</Link>}
+        actions={
+          full && latest ? (
+            <Button icon={<Plus {...ICON} />} loading={add.isPending} onClick={() => add.mutate(toJalali(latest.end_date).jy + 1)}>
+              سال {faDigits(toJalali(latest.end_date).jy + 1)}
+            </Button>
+          ) : null
+        }
       />
-      <Alert
-        className="!mb-4"
-        type="info"
-        showIcon
-        title="بستن سال مالی"
-        description="با بستن سال، حساب‌های درآمد و هزینه به «خلاصه‌ی سود و زیان» بسته می‌شوند، سود یا زیان به «سود و زیان انباشته» می‌رود، سند اختتامیه صادر و همان مانده‌ها (همراه با مبالغ ارزی و وزن طلا) با سند افتتاحیه به سال بعد منتقل می‌شود. هر وقت لازم شد می‌توانید سال را دوباره باز کنید."
-      />
-      <div className="tz-card p-3">
+      <div className="bk-card">
         <Table
-          className="tz-table"
-          size="small"
+          className="bk-tbl"
+          size="middle"
           rowKey="id"
           pagination={false}
           dataSource={years}
+          locale={{ emptyText: <EmptyState icon={CalendarRange} title="سال مالی تعریف نشده" /> }}
           columns={[
-            { key: "title", dataIndex: "title", title: "عنوان", render: (v) => <b>{v}</b> },
-            { key: "start", dataIndex: "start_date", title: "از", render: (v) => <JDate v={v} /> },
-            { key: "end", dataIndex: "end_date", title: "تا", render: (v) => <JDate v={v} /> },
-            { key: "status", dataIndex: "status", title: "وضعیت", render: (v) => <StatusTag s={v} /> },
+            {
+              key: "title",
+              dataIndex: "title",
+              title: "سال مالی",
+              render: (v, r) => (
+                <span className="inline-flex items-center gap-2">
+                  <span className="font-medium">{v}</span>
+                  {fy?.id === r.id ? <Chip tone="accent" dot={false}>سال جاری</Chip> : null}
+                </span>
+              ),
+            },
+            { key: "start", dataIndex: "start_date", title: "از", width: 140, render: (v) => <JDate v={v} /> },
+            { key: "end", dataIndex: "end_date", title: "تا", width: 140, render: (v) => <JDate v={v} /> },
+            { key: "status", dataIndex: "status", title: "وضعیت", width: 140, render: (v) => (v === "closed" ? <Chip tone="neutral">بسته</Chip> : <StatusTag s={v} />) },
             {
               key: "a",
               title: "",
+              width: 240,
               render: (_, r) =>
-                can("accounting", "full") ? (
-                  <Space>
+                full ? (
+                  <span className="flex justify-end">
                     {r.status !== "closed" ? (
-                      <Button size="small" icon={<LockOutlined />} loading={close.isPending} onClick={async () => { if (await n.confirm(`بستن ${r.title}؟`, "اسناد پیش‌نویس باید پیش از بستن ثبت یا حذف شوند.")) close.mutate(r.id); }}>
+                      <Button
+                        size="small"
+                        icon={<Lock {...ICON14} />}
+                        loading={close.isPending && close.variables === r.id}
+                        onClick={async () => {
+                          if (await n.confirm(`بستن ${r.title}؟`, "درآمد و هزینه‌ها بسته و سند اختتامیه صادر می‌شود و مانده‌ها با سند افتتاحیه به سال بعد می‌روند. اسناد پیش‌نویس باید پیش از بستن ثبت یا حذف شوند.")) close.mutate(r.id);
+                        }}
+                      >
                         بستن سال و صدور افتتاحیه
                       </Button>
                     ) : (
-                      <Button size="small" icon={<UnlockOutlined />} loading={reopen.isPending} onClick={async () => { if (await n.confirm(`باز کردن دوباره‌ی ${r.title}؟`, "اسناد بستن و افتتاحیه حذف می‌شوند.")) reopen.mutate(r.id); }}>
+                      <Button
+                        size="small"
+                        icon={<LockOpen {...ICON14} />}
+                        loading={reopen.isPending && reopen.variables === r.id}
+                        onClick={async () => {
+                          if (await n.confirm(`باز کردن دوبارهٔ ${r.title}؟`, "اسناد اختتامیه و افتتاحیهٔ این سال حذف می‌شوند.")) reopen.mutate(r.id);
+                        }}
+                      >
                         باز کردن دوباره
                       </Button>
                     )}
-                  </Space>
+                  </span>
                 ) : null,
             },
           ]}
         />
       </div>
-      <span className="hidden"><Money v={0} /></span>
     </div>
   );
 }

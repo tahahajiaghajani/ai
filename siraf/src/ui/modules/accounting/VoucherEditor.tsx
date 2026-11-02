@@ -1,27 +1,32 @@
-// Voucher (سند حسابداری) editor: a keyboard-first grid. Enter moves on, the last cell adds a
-// row, «=» in an amount fills the balancing figure, F2 saves, Alt+N adds a row.
-import { useEffect, useMemo, useRef, useState } from "react";
+// Voucher (سند حسابداری) editor: a keyboard-first grid (components.md §4.10). Enter moves on and the last cell adds a
+// row; ↑/↓ stay in the column; «=» or Space in an empty amount fills the balancing figure; Ctrl+D copies the cell
+// above; Ctrl+Delete removes the line; F2 or Ctrl+Enter saves; Alt+N adds a row. When debit equals credit the totals
+// «settle» (نشستن): the difference chip shrinks into a nuqta that lands on the totals rule as it draws.
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useNavigate, useParams, useLocation, Link } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Input, Select, Tag, Tooltip, Alert, Dropdown, Spin } from "antd";
-import { PlusOutlined, DeleteOutlined, SaveOutlined, PrinterOutlined, CheckCircleOutlined, CopyOutlined, MoreOutlined, ScissorOutlined, SwapOutlined } from "@ant-design/icons";
+import { Button, Input, Select, Tooltip, Dropdown } from "antd";
+import { Plus, Trash2, Printer, CircleCheck, Copy, Ellipsis, Coins, Weight as WeightIcon, CircleAlert } from "lucide-react";
 import { useOrg } from "../../lib/org";
 import { useNotify, useHotkey } from "../../lib/hooks";
 import { errorText } from "../../lib/api";
 import { PageHeader } from "../../components/layout";
 import { AccountSelect, DetailSelect, DateInput, MoneyInput, NumberInput, WeightInput, CurrencySelect, type Opt } from "../../components/inputs";
-import { Money, StatusTag, JDateTime } from "../../components/display";
+import { Chip, EmptyState, JDateTime, Skeleton, StatusTag } from "../../components/display";
 import { D } from "@shared/money";
 import { faDigits, formatNumber } from "@shared/format";
-import { todayISO, formatJalali } from "@shared/jalali";
+import { todayISO } from "@shared/jalali";
 import { amountToWords } from "@shared/words";
 import { uuidv7 } from "@shared/id";
+import { Amt, BtnKeys, Card, Field, ICON, ICON14, Keys, Note, PrintFoot, PrintHead, docNo } from "../reports/kit";
 
 interface Line {
   key: string;
   account_id: string | null;
   account?: Opt | null;
   detail_id: string | null;
+  /** the subsidiary's name, for the printed voucher */
+  detail?: string | null;
   description: string;
   debit: string | null;
   credit: string | null;
@@ -45,11 +50,16 @@ interface Copy {
 }
 
 const SOURCE_LABEL: Record<string, string> = {
-  invoice: "فاکتور", treasury_doc: "سند خزانه", cheque_op: "عملیات چک", stock_doc: "سند انبار", gold_doc: "سند طلا", fx_deal: "معامله‌ی ارز", remittance: "حواله", fx_revaluation: "تسعیر ارز", closing: "بستن حساب‌ها", opening: "افتتاحیه",
+  invoice: "فاکتور", treasury_doc: "سند خزانه", cheque_op: "عملیات چک", stock_doc: "سند انبار", gold_doc: "سند طلا", fx_deal: "معاملهٔ ارز", remittance: "حواله", fx_revaluation: "تسعیر ارز", closing: "بستن حساب‌ها", opening: "افتتاحیه",
 };
 const SOURCE_PATH: Record<string, string> = {
   invoice: "sales/invoices", treasury_doc: "treasury/docs", cheque_op: "treasury/cheque-ops", stock_doc: "inventory/docs", gold_doc: "gold/docs", fx_deal: "fx/deals", remittance: "fx/remittances", fx_revaluation: "fx/revaluation",
 };
+const KIND_WORD: Record<string, string> = { auto: "خودکار", opening: "افتتاحیه", closing: "اختتامیه", temp_closing: "بستن موقت" };
+
+/** Grid columns that take keyboard focus, in order (data-cell="row-col"). */
+const COLS = 5;
+const FIELD_OF_COL = ["account", "detail", "description", "debit", "credit"] as const;
 
 export default function VoucherEditor() {
   const { id } = useParams();
@@ -85,6 +95,7 @@ export default function VoucherEditor() {
       account_id: l.account_id,
       account: { id: l.account_id, label: l.account_name, sub: l.account_code },
       detail_id: l.detail_id,
+      detail: l.detail_name ?? null,
       description: l.description ?? "",
       debit: D(l.debit).isZero() ? null : l.debit,
       credit: D(l.credit).isZero() ? null : l.credit,
@@ -112,14 +123,15 @@ export default function VoucherEditor() {
 
   const focusCell = (row: number, col: number) => {
     requestAnimationFrame(() => {
-      const el = gridRef.current?.querySelector<HTMLElement>(`[data-cell="${row}-${col}"] input, [data-cell="${row}-${col}"] .ant-select-selector`);
-      if (el) (el as HTMLElement).focus?.();
-      const input = gridRef.current?.querySelector<HTMLInputElement>(`[data-cell="${row}-${col}"] input`);
-      input?.focus();
-      input?.select?.();
+      const cell = gridRef.current?.querySelector<HTMLElement>(`[data-cell="${row}-${col}"]`);
+      if (!cell) return;
+      const input = cell.querySelector<HTMLInputElement>("input:not([disabled])");
+      if (input) {
+        input.focus();
+        input.select?.();
+      } else if (col < COLS - 1) focusCell(row, col + 1);
     });
   };
-  const COLS = 5;
   const onEnter = (row: number, col: number) => {
     if (col < COLS - 1) focusCell(row, col + 1);
     else {
@@ -134,6 +146,38 @@ export default function VoucherEditor() {
     const cr = others.reduce((a, l) => a.plus(D(l.credit)), D(0));
     const diff = side === "debit" ? cr.minus(dr) : dr.minus(cr);
     if (diff.gt(0)) set(i, side === "debit" ? { debit: diff.toString(), credit: null } : { credit: diff.toString(), debit: null });
+  };
+
+  const removeLine = (i: number) => setLines((ls) => (ls.length > 1 ? ls.filter((_, j) => j !== i) : [blank()]));
+
+  /** Grid keys on top of Enter: ↑/↓ in a column, Ctrl+D copies the cell above, Ctrl+Delete removes the line. */
+  const onGridKey = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (readonly) return;
+    const cell = (e.target as HTMLElement).closest<HTMLElement>("[data-cell]");
+    if (!cell) return;
+    const [row, col] = cell.dataset.cell!.split("-").map(Number);
+    const inSelect = !!(e.target as HTMLElement).closest(".ant-select");
+    if (e.ctrlKey && !e.altKey && e.code === "KeyD") {
+      e.preventDefault();
+      const above = lines[row - 1];
+      if (!above) return;
+      const f = FIELD_OF_COL[col];
+      if (f === "account") set(row, { account_id: above.account_id, account: above.account, detail_id: above.detail_id, detail: above.detail });
+      else if (f === "detail") set(row, { detail_id: above.detail_id, detail: above.detail });
+      else if (f === "description") set(row, { description: above.description });
+      else if (f === "debit") set(row, { debit: above.debit, credit: above.debit ? null : lines[row].credit });
+      else set(row, { credit: above.credit, debit: above.credit ? null : lines[row].debit });
+      if (f === "account" && row === lines.length - 1 && above.account_id) setLines((ls) => [...ls, blank()]);
+    } else if (e.ctrlKey && (e.key === "Delete" || e.code === "Delete")) {
+      e.preventDefault();
+      removeLine(row);
+      focusCell(Math.min(row, lines.length - 2), col);
+    } else if (!inSelect && !e.ctrlKey && !e.altKey && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+      const to = row + (e.key === "ArrowDown" ? 1 : -1);
+      if (to < 0 || to >= lines.length) return;
+      e.preventDefault();
+      focusCell(to, col);
+    }
   };
 
   const payload = (status: "draft" | "posted") => ({
@@ -165,7 +209,7 @@ export default function VoucherEditor() {
     setSaving(true);
     try {
       const r = isNew ? await api.post("/accounting/vouchers", payload(status)) : await api.put(`/accounting/vouchers/${id}`, payload(status));
-      n.ok(`سند شماره‌ی ${faDigits(r.voucher.no)} ${status === "draft" ? "به‌صورت پیش‌نویس " : ""}ذخیره شد`);
+      n.ok(`سند ${docNo(r.voucher.no)} ${status === "draft" ? "به‌صورت پیش‌نویس " : ""}ذخیره شد.`);
       qc.invalidateQueries({ queryKey: ["table"] });
       qc.invalidateQueries({ queryKey: ["voucher", r.voucher.id] });
       if (isNew) nav(`/${orgId}/accounting/vouchers/${r.voucher.id}`, { replace: true });
@@ -175,13 +219,16 @@ export default function VoucherEditor() {
       setSaving(false);
     }
   };
-  useHotkey("f2", () => save("posted"), [lines, date, description, refNo, saving]);
+  const saveRef = useRef(save);
+  saveRef.current = save;
+  useHotkey("f2", () => saveRef.current("posted"), []);
+  useHotkey("ctrl+enter", () => saveRef.current("posted"), []);
   useHotkey("alt+n", () => setLines((ls) => [...ls, blank()]), []);
 
   const setStatus = async (status: "final" | "posted" | "draft") => {
     try {
       await api.post(`/accounting/vouchers/${id}/status`, { status });
-      n.ok(status === "final" ? "سند قطعی شد" : "وضعیت تغییر کرد");
+      n.ok(status === "final" ? `سند ${docNo(v?.no)} قطعی شد.` : "وضعیت سند تغییر کرد.");
       q.refetch();
       qc.invalidateQueries({ queryKey: ["table"] });
     } catch (e) {
@@ -190,10 +237,10 @@ export default function VoucherEditor() {
   };
 
   const remove = async () => {
-    if (!(await n.confirm("حذف این سند؟", undefined, true))) return;
+    if (!(await n.confirm(`حذف سند ${docNo(v?.no)}؟`, `این سند و ${faDigits(lines.filter((l) => l.account_id).length)} ردیفش از دفتر کل برداشته می‌شود.`, true))) return;
     try {
       await api.del(`/accounting/vouchers/${id}`);
-      n.ok("سند حذف شد");
+      n.ok(`سند ${docNo(v?.no)} حذف شد.`);
       qc.invalidateQueries({ queryKey: ["table"] });
       nav(`/${orgId}/accounting/vouchers`);
     } catch (e) {
@@ -201,46 +248,85 @@ export default function VoucherEditor() {
     }
   };
 
-  if (!isNew && q.isLoading) return <div className="grid h-64 place-content-center"><Spin /></div>;
-  if (!isNew && q.error) return <Alert type="error" title={errorText(q.error)} />;
+  const back = `/${orgId}/accounting/vouchers`;
+  if (!isNew && q.isLoading)
+    return (
+      <div>
+        <PageHeader back={back} title="سند" />
+        <Card>
+          <Skeleton rows={8} />
+        </Card>
+      </div>
+    );
+  if (!isNew && (q.error || !v))
+    return (
+      <div>
+        <PageHeader back={back} title="سند" />
+        <Card>
+          <EmptyState icon={CircleAlert} title="بارگذاری انجام نشد" description={q.error ? errorText(q.error) : "سند پیدا نشد."} action={<Button onClick={() => q.refetch()}>تلاش دوباره</Button>} />
+        </Card>
+      </div>
+    );
 
-  const balanced = totals.diff.isZero() && totals.dr.gt(0);
+  const hasAmounts = totals.dr.gt(0) || totals.cr.gt(0);
+  const state = !hasAmounts ? "empty" : totals.diff.isZero() ? "settled" : "diff";
+  const filled = lines.filter((l) => l.account_id);
+  const extraCols = (showFx ? 3 : 0) + (showW ? 1 : 0);
+
   return (
     <div>
       <PageHeader
-        back={`/${orgId}/accounting/vouchers`}
-        title={isNew ? "سند حسابداری جدید" : `سند شماره‌ی ${faDigits(v?.no)}`}
-        subtitle={v ? <>ثبت: <JDateTime v={v.created_at} /></> : "Enter: خانه‌ی بعد · «=» در مبلغ: مبلغ تراز‌کننده · F2: ثبت"}
-        extra={v ? <div className="flex gap-1"><StatusTag s={v.status} />{v.kind === "auto" ? <Tag color="purple" variant="filled">خودکار</Tag> : null}{v.kind === "opening" ? <Tag color="blue" variant="filled">افتتاحیه</Tag> : null}</div> : null}
+        back={back}
+        title={isNew ? "سند حسابداری جدید" : `سند ${docNo(v?.no)}`}
+        subtitle={
+          v ? (
+            <span className="inline-flex flex-wrap items-center gap-x-2">
+              <StatusTag s={v.status} />
+              {KIND_WORD[v.kind] ? (
+                <>
+                  <span className="bk-sep" />
+                  <span>{KIND_WORD[v.kind]}</span>
+                </>
+              ) : null}
+              <span className="bk-sep" />
+              <span>
+                ثبت <JDateTime v={v.created_at} />
+                {v.created_by_name ? `، ${v.created_by_name}` : ""}
+              </span>
+            </span>
+          ) : null
+        }
         actions={
           <>
-            {!readonly ? (
-              <>
-                <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={() => save("posted")}>
-                  ثبت سند <span className="tz-kbd ltr ms-1 !bg-transparent !text-white/80">F2</span>
-                </Button>
-                <Button onClick={() => save("draft")} disabled={saving}>
-                  پیش‌نویس
-                </Button>
-              </>
-            ) : null}
             {!isNew ? (
               <>
-                <Button icon={<PrinterOutlined />} onClick={() => window.print()}>
-                  چاپ
-                </Button>
+                <Tooltip title="چاپ">
+                  <Button type="text" icon={<Printer {...ICON} />} onClick={() => window.print()} aria-label="چاپ" />
+                </Tooltip>
                 <Dropdown
                   trigger={["click"]}
+                  rootClassName="sf-glass"
                   menu={{
                     items: [
-                      ...(v?.status === "posted" && v?.kind !== "auto" && can("accounting", "full") ? [{ key: "final", icon: <CheckCircleOutlined />, label: "قطعی کردن سند", onClick: () => setStatus("final") }] : []),
-                      { key: "copy", icon: <CopyOutlined />, label: "کپی به سند جدید", onClick: () => nav(`/${orgId}/accounting/vouchers/new`, { state: { copy: { date, description, refNo, kind, lines: lines.filter((l) => l.account_id) } satisfies Copy } }) },
-                      ...(!readonly && can("accounting", "full") ? [{ key: "del", icon: <DeleteOutlined />, danger: true, label: "حذف سند", onClick: remove }] : []),
+                      ...(v?.status === "posted" && v?.kind !== "auto" && can("accounting", "full") ? [{ key: "final", icon: <CircleCheck {...ICON} />, label: "قطعی کردن سند", onClick: () => setStatus("final") }] : []),
+                      { key: "copy", icon: <Copy {...ICON} />, label: "کپی به سند جدید", onClick: () => nav(`/${orgId}/accounting/vouchers/new`, { state: { copy: { date, description, refNo, kind, lines: filled } satisfies Copy } }) },
+                      ...(!readonly && can("accounting", "full") ? [{ type: "divider" as const }, { key: "del", icon: <Trash2 {...ICON} />, danger: true, label: "حذف سند", onClick: remove }] : []),
                     ],
                   }}
                 >
-                  <Button icon={<MoreOutlined />} aria-label="بیشتر" />
+                  <Button type="text" icon={<Ellipsis {...ICON} />} aria-label="بیشتر" />
                 </Dropdown>
+              </>
+            ) : null}
+            {!readonly ? (
+              <>
+                <Button onClick={() => save("draft")} disabled={saving}>
+                  پیش‌نویس
+                </Button>
+                <Button type="primary" loading={saving} onClick={() => save("posted")}>
+                  {saving ? "در حال ثبت…" : "ثبت سند"}
+                  <BtnKeys k={["F2"]} />
+                </Button>
               </>
             ) : null}
           </>
@@ -248,74 +334,77 @@ export default function VoucherEditor() {
       />
 
       {v?.kind === "auto" && v.source_type ? (
-        <Alert
-          className="!mb-4"
-          type="info"
-          showIcon
-          title={
-            <span>
-              این سند خودکار از «{SOURCE_LABEL[v.source_type] ?? v.source_type}» ساخته شده و فقط از همان‌جا تغییر می‌کند.{" "}
-              {SOURCE_PATH[v.source_type] ? <Link to={`/${orgId}/${SOURCE_PATH[v.source_type]}/${v.source_id}`}>مشاهده‌ی سند مبدأ</Link> : null}
-            </span>
+        <Note
+          className="no-print mb-4"
+          action={
+            SOURCE_PATH[v.source_type] ? (
+              <Link className="sf-link" to={`/${orgId}/${SOURCE_PATH[v.source_type]}/${v.source_id}`}>
+                مشاهدهٔ سند مبدأ
+              </Link>
+            ) : null
           }
-        />
+        >
+          این سند خودکار از «{SOURCE_LABEL[v.source_type] ?? v.source_type}» ساخته شده و فقط از همان‌جا تغییر می‌کند.
+        </Note>
+      ) : v?.status === "final" ? (
+        <Note className="no-print mb-4">این سند قطعی شده و دیگر ویرایش نمی‌شود.</Note>
       ) : null}
 
-      <div className="print-sheet tz-card p-4">
-        <div className="mb-4 hidden text-center print:block">
-          <div className="text-lg font-bold">{org.name}</div>
-          <div className="text-base">سند حسابداری شماره‌ی {faDigits(v?.no ?? "")} — تاریخ {formatJalali(date)}</div>
-        </div>
-        <div className="no-print mb-4 grid gap-3 md:grid-cols-[160px_140px_1fr_160px_auto]">
-          <div>
-            <div className="mb-1 text-xs text-muted">تاریخ سند</div>
-            <DateInput value={date} onChange={setDate} disabled={readonly} />
-          </div>
-          <div>
-            <div className="mb-1 text-xs text-muted">نوع سند</div>
-            <Select
-              className="w-full"
-              value={kind}
-              disabled={readonly || (!!v && v.kind !== "normal" && v.kind !== "opening")}
-              onChange={setKind}
-              options={[{ value: "normal", label: "عادی" }, { value: "opening", label: "افتتاحیه" }]}
-            />
-          </div>
-          <div>
-            <div className="mb-1 text-xs text-muted">شرح سند</div>
-            <Input value={description} onChange={(e) => setDescription(e.target.value)} disabled={readonly} placeholder="شرح کلی سند (در ردیف‌هایی که شرح ندارند هم می‌آید)" />
-          </div>
-          <div>
-            <div className="mb-1 text-xs text-muted">شماره‌ی عطف</div>
-            <Input value={refNo} onChange={(e) => setRefNo(e.target.value)} disabled={readonly} dir="ltr" />
-          </div>
-          <div className="flex items-end gap-2">
-            <Tooltip title="ستون‌های ارزی (مبلغ ارز و نرخ)">
-              <Button type={showFx ? "primary" : "default"} ghost={showFx} onClick={() => setShowFx(!showFx)} icon={<SwapOutlined />}>
-                ارز
-              </Button>
-            </Tooltip>
-            <Tooltip title="ستون‌های وزن طلا (گرم ۷۵۰)">
-              <Button type={showW ? "primary" : "default"} ghost={showW} onClick={() => setShowW(!showW)} icon={<ScissorOutlined />}>
-                وزن
-              </Button>
-            </Tooltip>
-          </div>
+      <section className="bk-card no-print">
+        <div className="bk-fields bk-vh">
+            <Field label="تاریخ سند">
+              <DateInput value={date} onChange={setDate} disabled={readonly} />
+            </Field>
+            <Field label="نوع سند">
+              <Select
+                className="w-full"
+                value={kind}
+                disabled={readonly || (!!v && v.kind !== "normal" && v.kind !== "opening")}
+                onChange={setKind}
+                options={[{ value: "normal", label: "عادی" }, { value: "opening", label: "افتتاحیه" }]}
+              />
+            </Field>
+            <Field label="شرح سند">
+              <Input value={description} onChange={(e) => setDescription(e.target.value)} disabled={readonly} placeholder="شرح کلی؛ ردیف‌های بی‌شرح همین را می‌گیرند" />
+            </Field>
+            <Field label="شمارهٔ عطف" extra="اختیاری">
+              <Input value={refNo} onChange={(e) => setRefNo(e.target.value)} disabled={readonly} dir="ltr" className="sf-num" style={{ textAlign: "right" }} />
+            </Field>
+            <div className="flex items-center gap-1 pb-px">
+              <Tooltip title="ستون‌های ارزی: ارز، مبلغ ارزی و نرخ">
+                <button type="button" className="bk-tog" aria-pressed={showFx} onClick={() => setShowFx(!showFx)}>
+                  <Coins {...ICON} aria-hidden />
+                  ارز
+                </button>
+              </Tooltip>
+              <Tooltip title="ستون وزن طلا (گرم)">
+                <button type="button" className="bk-tog" aria-pressed={showW} onClick={() => setShowW(!showW)}>
+                  <WeightIcon {...ICON} aria-hidden />
+                  وزن
+                </button>
+              </Tooltip>
+            </div>
         </div>
 
-        <div ref={gridRef} className="overflow-x-auto">
-          <table className="tz-grid min-w-[900px]">
+        <div ref={gridRef} className="bk-gridwrap" onKeyDownCapture={onGridKey}>
+          <table className="bk-grid" style={{ minInlineSize: 900 + extraCols * 130 }} role="grid" aria-label="ردیف‌های سند">
             <thead>
               <tr>
-                <th className="w-10">ردیف</th>
-                <th className="min-w-[230px]">حساب معین</th>
-                <th className="min-w-[200px]">تفصیلی</th>
-                <th className="min-w-[200px]">شرح</th>
-                {showFx ? <><th className="min-w-[120px]">ارز</th><th className="min-w-[120px]">مبلغ ارزی بد/بس</th><th className="min-w-[100px]">نرخ</th></> : null}
-                {showW ? <th className="min-w-[110px]">وزن (گرم) بد/بس</th> : null}
-                <th className="min-w-[150px]">بدهکار</th>
-                <th className="min-w-[150px]">بستانکار</th>
-                {!readonly ? <th className="no-print w-10" /> : null}
+                <th className="bk-rn">ردیف</th>
+                <th style={{ minInlineSize: 240 }}>حساب معین</th>
+                <th style={{ minInlineSize: 200 }}>تفصیلی</th>
+                <th style={{ minInlineSize: 200 }}>شرح</th>
+                {showFx ? (
+                  <>
+                    <th style={{ minInlineSize: 112 }}>ارز</th>
+                    <th style={{ minInlineSize: 136 }}>مبلغ ارزی</th>
+                    <th style={{ minInlineSize: 112 }}>نرخ</th>
+                  </>
+                ) : null}
+                {showW ? <th style={{ minInlineSize: 128 }}>وزن (گرم)</th> : null}
+                <th className="bk-money">بدهکار</th>
+                <th className="bk-money">بستانکار</th>
+                {!readonly ? <th className="bk-del" aria-label="حذف" /> : null}
               </tr>
             </thead>
             <tbody>
@@ -324,34 +413,40 @@ export default function VoucherEditor() {
                 const needsDetail = acc?.detail_mode && acc.detail_mode !== "none";
                 return (
                   <tr key={l.key}>
-                    <td className="num text-center text-xs text-muted">{faDigits(i + 1)}</td>
+                    <td className="bk-rn">{faDigits(i + 1)}</td>
                     <td data-cell={`${i}-0`}>
                       <AccountSelect
+                        className="w-full"
                         variant="borderless"
                         value={l.account_id}
                         disabled={readonly}
-                        onChange={(id, o) => {
-                          set(i, { account_id: id, account: o ?? null, detail_id: o?.detail_mode === "none" ? null : l.detail_id, currency_id: o?.currency_id ?? l.currency_id });
+                        onChange={(aid, o) => {
+                          set(i, { account_id: aid, account: o ?? null, detail_id: o?.detail_mode === "none" ? null : l.detail_id, currency_id: o?.currency_id ?? l.currency_id });
                           if (o?.fx_mode && o.fx_mode !== "none") setShowFx(true);
                           if (o?.weight_mode && o.weight_mode !== "none") setShowW(true);
-                          if (id) ensureTail();
+                          if (aid) ensureTail();
                           focusCell(i, o?.detail_mode && o.detail_mode !== "none" ? 1 : 2);
                         }}
                       />
                     </td>
                     <td data-cell={`${i}-1`}>
-                      <DetailSelect
-                        variant="borderless"
-                        value={l.detail_id}
-                        kinds={acc?.detail_kinds}
-                        disabled={readonly || !needsDetail}
-                        status={acc?.detail_mode === "required" && !l.detail_id && l.account_id ? "warning" : undefined}
-                        placeholder={needsDetail ? (acc?.detail_mode === "required" ? "الزامی" : "اختیاری") : "—"}
-                        onChange={(id) => {
-                          set(i, { detail_id: id });
-                          focusCell(i, 2);
-                        }}
-                      />
+                      {needsDetail || l.detail_id ? (
+                        <DetailSelect
+                          className="w-full"
+                          variant="borderless"
+                          value={l.detail_id}
+                          kinds={acc?.detail_kinds}
+                          disabled={readonly || !needsDetail}
+                          status={acc?.detail_mode === "required" && !l.detail_id && l.account_id ? "warning" : undefined}
+                          placeholder={acc?.detail_mode === "required" ? "الزامی" : "اختیاری"}
+                          onChange={(did, o) => {
+                            set(i, { detail_id: did, detail: o?.label ?? null });
+                            focusCell(i, 2);
+                          }}
+                        />
+                      ) : (
+                        <span className="bk-muted">—</span>
+                      )}
                     </td>
                     <td data-cell={`${i}-2`}>
                       <Input variant="borderless" value={l.description} disabled={readonly} placeholder={description || "شرح ردیف"} onChange={(e) => set(i, { description: e.target.value })} onPressEnter={() => onEnter(i, 2)} />
@@ -359,7 +454,7 @@ export default function VoucherEditor() {
                     {showFx ? (
                       <>
                         <td>
-                          <CurrencySelect variant="borderless" value={l.currency_id} disabled={readonly} onChange={(cid) => set(i, { currency_id: cid })} allowClear />
+                          <CurrencySelect className="w-full" variant="borderless" value={l.currency_id} disabled={readonly} onChange={(cid) => set(i, { currency_id: cid })} allowClear placeholder="—" />
                         </td>
                         <td>
                           <NumberInput
@@ -368,7 +463,7 @@ export default function VoucherEditor() {
                             disabled={readonly || !l.currency_id}
                             value={l.fx_debit ?? (l.fx_credit ? `-${l.fx_credit}` : null)}
                             allowNegative
-                            placeholder="+ بد / − بس"
+                            placeholder="+ بد، − بس"
                             onChange={(x) => {
                               const d = D(x);
                               const patch: Partial<Line> = d.isNeg() ? { fx_credit: d.abs().toString(), fx_debit: null } : { fx_debit: x, fx_credit: null };
@@ -386,6 +481,7 @@ export default function VoucherEditor() {
                             decimals={6}
                             disabled={readonly || !l.currency_id}
                             value={l.fx_rate}
+                            placeholder="—"
                             onChange={(rate) => {
                               const fx = D(l.fx_debit ?? l.fx_credit);
                               const patch: Partial<Line> = { fx_rate: rate };
@@ -405,8 +501,9 @@ export default function VoucherEditor() {
                           variant="borderless"
                           allowNegative
                           disabled={readonly}
+                          suffix={null}
                           value={l.w_debit ?? (l.w_credit ? `-${l.w_credit}` : null)}
-                          placeholder="+ بد / − بس"
+                          placeholder="+ بد، − بس"
                           onChange={(x) => {
                             const d = D(x);
                             set(i, d.isNeg() ? { w_credit: d.abs().toString(), w_debit: null } : { w_debit: x, w_credit: null });
@@ -414,15 +511,17 @@ export default function VoucherEditor() {
                         />
                       </td>
                     ) : null}
-                    <td data-cell={`${i}-3`}>
+                    <td data-cell={`${i}-3`} className="bk-money">
                       <AmountCell value={l.debit} disabled={readonly} onChange={(x) => set(i, { debit: x, credit: x ? null : l.credit })} onEq={() => balanceLine(i, "debit")} onEnter={() => (l.debit ? onEnter(i, 4) : onEnter(i, 3))} />
                     </td>
-                    <td data-cell={`${i}-4`}>
+                    <td data-cell={`${i}-4`} className="bk-money">
                       <AmountCell value={l.credit} disabled={readonly} onChange={(x) => set(i, { credit: x, debit: x ? null : l.debit })} onEq={() => balanceLine(i, "credit")} onEnter={() => onEnter(i, 4)} />
                     </td>
                     {!readonly ? (
-                      <td className="no-print text-center">
-                        <Button type="text" size="small" danger icon={<DeleteOutlined />} tabIndex={-1} onClick={() => setLines((ls) => (ls.length > 1 ? ls.filter((_, j) => j !== i) : [blank()]))} aria-label="حذف ردیف" />
+                      <td className="bk-del">
+                        <Tooltip title={<>حذف ردیف <Keys k={["Ctrl", "Delete"]} /></>}>
+                          <Button type="text" size="small" icon={<Trash2 {...ICON14} />} tabIndex={-1} onClick={() => removeLine(i)} aria-label="حذف ردیف" />
+                        </Tooltip>
                       </td>
                     ) : null}
                   </tr>
@@ -430,43 +529,57 @@ export default function VoucherEditor() {
               })}
             </tbody>
             <tfoot>
-              <tr>
-                <td colSpan={4 + (showFx ? 3 : 0) + (showW ? 1 : 0)}>
-                  <div className="flex items-center gap-3">
-                    {!readonly ? (
-                      <Button size="small" icon={<PlusOutlined />} onClick={() => setLines((ls) => [...ls, blank()])} className="no-print">
-                        ردیف
-                      </Button>
-                    ) : null}
-                    <span className="text-xs font-normal text-muted">{totals.dr.gt(0) ? amountToWords(totals.dr, unit) : ""}</span>
+              <tr className="bk-vt" data-state={state}>
+                <td colSpan={4 + extraCols}>
+                  <span className="bk-vt-track" aria-hidden />
+                  <span className="bk-vt-rule" aria-hidden />
+                  <span className="bk-vt-nq" aria-hidden />
+                  <div className="bk-vt-lab">
+                    <b>جمع</b>
+                    <span className="bk-vt-chip" aria-hidden={state !== "diff"}>
+                      <Chip tone="warning" fig>
+                        اختلاف {formatNumber(totals.diff.abs(), { dp: org.money_decimals })}
+                      </Chip>
+                    </span>
+                    <span className="bk-vt-ok" aria-hidden={state !== "settled"}>
+                      سند تراز است
+                    </span>
+                    <span className="sf-sr" aria-live="polite">
+                      {state === "settled" ? "سند تراز است" : state === "diff" ? `اختلاف ${formatNumber(totals.diff.abs())}، ${totals.diff.gt(0) ? "بدهکار بیشتر" : "بستانکار بیشتر"}` : ""}
+                    </span>
                   </div>
                 </td>
-                <td>
-                  <Money v={totals.dr.toString()} />
+                <td className="bk-money">
+                  <span className="bk-vt-n"><Amt v={totals.dr.toString()} zero="—" /></span>
                 </td>
-                <td>
-                  <Money v={totals.cr.toString()} />
+                <td className="bk-money">
+                  <span className="bk-vt-n"><Amt v={totals.cr.toString()} zero="—" /></span>
                 </td>
-                {!readonly ? <td className="no-print" /> : null}
+                {!readonly ? <td /> : null}
               </tr>
             </tfoot>
           </table>
         </div>
-        <div className="no-print mt-3 flex items-center gap-2 text-sm">
-          {balanced ? (
-            <Tag color="success" variant="filled">سند تراز است</Tag>
-          ) : totals.dr.gt(0) || totals.cr.gt(0) ? (
-            <Tag color="error" variant="filled">
-              اختلاف: <span className="num">{formatNumber(totals.diff.abs(), { dp: org.money_decimals })}</span> {totals.diff.gt(0) ? "(بدهکار بیشتر)" : "(بستانکار بیشتر)"}
-            </Tag>
+        <div className="bk-grid-add">
+          {!readonly ? (
+            <Tooltip title={<Keys k={["Alt", "N"]} />}>
+              <Button size="small" type="text" icon={<Plus {...ICON14} />} onClick={() => setLines((ls) => [...ls, blank()])}>
+                ردیف
+              </Button>
+            </Tooltip>
+          ) : null}
+          <span className="bk-cap" style={{ whiteSpace: "normal" }}>{totals.dr.gt(0) ? amountToWords(totals.dr, unit) : null}</span>
+          {!readonly ? (
+            <span className="bk-keys" aria-hidden>
+              <span><Keys k={["Enter"]} /> خانهٔ بعد</span>
+              <span><Keys k={["="]} /> مبلغ تراز‌کننده</span>
+              <span><Keys k={["Ctrl", "D"]} /> مثل ردیف بالا</span>
+            </span>
           ) : null}
         </div>
-        <div className="mt-10 hidden grid-cols-3 text-center text-sm print:grid">
-          <div>تنظیم‌کننده</div>
-          <div>بررسی‌کننده</div>
-          <div>تأییدکننده</div>
-        </div>
-      </div>
+      </section>
+
+      <VoucherPrint no={v?.no ?? null} date={date} description={description} refNo={refNo} lines={filled} dr={totals.dr.toString()} cr={totals.cr.toString()} />
     </div>
   );
 }
@@ -475,13 +588,61 @@ function AmountCell({ value, onChange, onEq, onEnter, disabled }: { value: strin
   return (
     <div
       onKeyDownCapture={(e) => {
-        if (e.key === "=") {
+        if (e.key === "=" || (e.key === " " && !value)) {
           e.preventDefault();
           onEq();
         }
       }}
     >
-      <MoneyInput variant="borderless" value={value} onChange={onChange} disabled={disabled} onPressEnter={onEnter} placeholder="۰" />
+      <MoneyInput variant="borderless" value={value} onChange={onChange} disabled={disabled} onPressEnter={onEnter} placeholder="—" />
     </div>
   );
 }
+
+/** The printed voucher (components.md §12.3): the business and the document, the lines, totals, words, signatures. */
+function VoucherPrint({ no, date, description, refNo, lines, dr, cr }: { no: number | null; date: string | null; description: string; refNo: string; lines: Line[]; dr: string; cr: string }) {
+  const { unit } = useOrg();
+  return (
+    <div className="bk-po">
+      <PrintHead title="سند حسابداری" no={no} date={date} lines={refNo ? [`عطف ${faDigits(refNo)}`] : undefined} />
+      {description ? <div className="bk-pwords" style={{ marginBlock: "0 8px" }}>شرح: {description}</div> : null}
+      <table className="bk-ptbl">
+        <thead>
+          <tr>
+            <th style={{ width: 28 }}>#</th>
+            <th style={{ width: 70 }}>کد</th>
+            <th>حساب و تفصیلی</th>
+            <th>شرح</th>
+            <th style={{ width: 112 }}>بدهکار ({unit})</th>
+            <th style={{ width: 112 }}>بستانکار ({unit})</th>
+          </tr>
+        </thead>
+        <tbody>
+          {lines.map((l, i) => (
+            <tr key={l.key}>
+              <td className="n">{faDigits(i + 1)}</td>
+              <td className="n">{faDigits(l.account?.sub ?? "")}</td>
+              <td>
+                {l.account?.label}
+                {l.detail ? ` — ${l.detail}` : ""}
+              </td>
+              <td>{l.description || description}</td>
+              <td className="n">{D(l.debit).isZero() ? "" : formatNumber(l.debit ?? 0)}</td>
+              <td className="n">{D(l.credit).isZero() ? "" : formatNumber(l.credit ?? 0)}</td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr>
+            <td colSpan={4}>جمع</td>
+            <td className="n">{formatNumber(dr)}</td>
+            <td className="n">{formatNumber(cr)}</td>
+          </tr>
+        </tfoot>
+      </table>
+      {D(dr).gt(0) ? <div className="bk-pwords">به حروف: {amountToWords(dr, unit)}</div> : null}
+      <PrintFoot sign={["تنظیم‌کننده", "بررسی‌کننده", "تأییدکننده"]} />
+    </div>
+  );
+}
+

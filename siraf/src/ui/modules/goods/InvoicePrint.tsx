@@ -6,6 +6,9 @@ import { D, type Num } from "@shared/money";
 import { faDigits, formatNumber } from "@shared/format";
 import { formatJalali } from "@shared/jalali";
 import { amountToWords } from "@shared/words";
+import { APP_NAME } from "@shared/constants";
+import { SirafMark } from "../../components/brand";
+import { docNo } from "../../lib/fa";
 import { INVOICE_META, type InvoiceKind } from "./labels";
 
 export interface PrintLine {
@@ -36,15 +39,17 @@ export interface PrintData {
   terms?: string | null;
 }
 
+/** A party block: a 9 pt label over 10.5 pt values, the facts in two quiet columns. */
 function Box({ title, rows }: { title: string; rows: [string, string | null | undefined][] }) {
+  const [name, ...rest] = rows;
   return (
-    <div className="rounded border border-black/60">
-      <div className="border-b border-black/60 bg-black/5 px-2 py-1 text-center text-[11px] font-bold">{title}</div>
-      <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 px-2 py-1.5 text-[11px]">
-        {rows.map(([k, v]) => (
+    <div className="sf-pr-party">
+      <div className="l">{title}</div>
+      <div className="v">{name?.[1] || "—"}</div>
+      <div className="m grid grid-cols-2 gap-x-4">
+        {rest.filter(([, v]) => v).map(([k, v]) => (
           <div key={k} className={k === "نشانی" ? "col-span-2" : ""}>
-            <span className="text-black/60">{k}: </span>
-            <span className="num">{v ? faDigits(v) : "—"}</span>
+            {k} {faDigits(v ?? "")}
           </div>
         ))}
       </div>
@@ -88,99 +93,109 @@ export function InvoicePrint({ data }: { data: PrintData }) {
   if (!D(t.additions).isZero()) totalRows.push(["اضافات (حمل و …)", t.additions]);
   if (!D(t.deductions).isZero()) totalRows.push(["کسورات", t.deductions]);
   return (
-    <div className="print-sheet hidden text-black print:block" dir="rtl">
-      <style>{"@media print { @page { size: A4 portrait; margin: 10mm; } }"}</style>
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <div className="w-40 text-[11px] leading-5">
-          <div>شماره: <b className="num">{data.no ? faDigits(data.no) : "—"}</b></div>
-          <div>تاریخ: <b className="num">{formatJalali(data.date)}</b></div>
-          {data.dueDate ? <div>{data.kind === "quote" ? "اعتبار تا" : "سررسید"}: <span className="num">{formatJalali(data.dueDate)}</span></div> : null}
-          {data.refNo ? <div>شماره عطف: <span className="num">{faDigits(data.refNo)}</span></div> : null}
+    <div className="print-sheet sf-pr hidden print:block" dir="rtl">
+      <style>{"@media print { @page { size: A4 portrait; margin: 14mm 12mm 16mm; } }"}</style>
+      <header className="sf-pr-head">
+        <div className="sf-pr-brand">{showLogo ? <img src={org.logo!} alt="" /> : <SirafMark size={32} variant="mono" />}</div>
+        <div className="sf-pr-biz">
+          <b>{org.legal_name || org.name}</b>
+          {org.economic_code ? <span>کد اقتصادی {faDigits(org.economic_code)}</span> : null}
+          <span>{[[org.province, org.city, org.address].filter(Boolean).join("، "), org.phone ? `تلفن ${faDigits(org.phone)}` : null].filter(Boolean).join("، ")}</span>
         </div>
-        <div className="text-center">
-          <div className="text-base font-extrabold">{data.kind === "sale" ? "صورتحساب فروش کالا و خدمات" : meta.title}</div>
-          <div className="text-[12px]">{org.name}</div>
-          {data.draft ? <div className="text-[11px] font-bold">(پیش‌نویس)</div> : null}
+        <div className="sf-pr-doc">
+          <b className="t">{data.kind === "sale" ? "صورتحساب فروش کالا و خدمات" : meta.title}</b>
+          <div>شماره‌ی <b>{data.no ? docNo(Number(data.no)) : "—"}</b></div>
+          <div>تاریخ <b>{formatJalali(data.date)}</b></div>
+          {data.dueDate ? <div>{data.kind === "quote" ? "اعتبار تا" : "سررسید"} {formatJalali(data.dueDate)}</div> : null}
+          {data.refNo ? <div>شماره‌ی عطف {faDigits(data.refNo)}</div> : null}
+          {data.draft ? <span className="sf-pr-badge">پیش‌نویس</span> : null}
         </div>
-        <div className="flex w-40 justify-end">{showLogo ? <img src={org.logo!} alt="" className="max-h-16 max-w-36 object-contain" /> : null}</div>
+      </header>
+      <div className="sf-pr-parties">
+        <Box title="فروشنده" rows={seller} />
+        <Box title="خریدار" rows={buyer} />
       </div>
-      <div className="mb-2 grid gap-2">
-        <Box title="مشخصات فروشنده" rows={seller} />
-        <Box title="مشخصات خریدار" rows={buyer} />
-      </div>
-      <table className="w-full border-collapse text-[10px]">
+      <table>
         <colgroup>
-          <col style={{ width: "3.5%" }} />
-          <col style={{ width: "6.5%" }} />
-          <col style={{ width: "23%" }} />
-          <col style={{ width: "5%" }} />
+          <col style={{ width: "4%" }} />
+          <col style={{ width: "7%" }} />
+          <col style={{ width: "22%" }} />
+          <col style={{ width: "6%" }} />
           <col style={{ width: "5%" }} />
         </colgroup>
         <thead>
-          <tr className="bg-black/5">
-            {["ردیف", "کد", "شرح کالا یا خدمت", "مقدار", "واحد", `مبلغ واحد (${unit})`, "مبلغ کل", "تخفیف", "مبلغ پس از تخفیف", "مالیات و عوارض", "جمع کل"].map((h) => (
-              <th key={h} className="border border-black/60 px-0.5 py-1 font-bold leading-4">{h}</th>
-            ))}
+          <tr>
+            <th className="c">ردیف</th>
+            <th>کد</th>
+            <th>شرح کالا یا خدمت</th>
+            <th className="n">مقدار</th>
+            <th>واحد</th>
+            <th className="n">مبلغ واحد</th>
+            <th className="n">مبلغ کل</th>
+            <th className="n">تخفیف</th>
+            <th className="n">پس از تخفیف</th>
+            <th className="n">مالیات و عوارض</th>
+            <th className="n">جمع کل ({unit})</th>
           </tr>
         </thead>
         <tbody>
           {data.lines.map((l, i) => (
             <tr key={i}>
-              <td className="num border border-black/60 px-1 text-center">{faDigits(i + 1)}</td>
-              <td className="num border border-black/60 px-1 text-center">{faDigits(l.code)}</td>
-              <td className="border border-black/60 px-1">
+              <td className="c">{faDigits(i + 1)}</td>
+              <td>{faDigits(l.code)}</td>
+              <td>
                 {l.name}
-                {l.description ? <span className="text-black/70"> — {l.description}</span> : null}
+                {l.description ? <span className="sub">{l.description}</span> : null}
               </td>
-              <td className="num border border-black/60 px-1 text-center">{formatNumber(l.qty, { dp: 3 })}</td>
-              <td className="border border-black/60 px-1 text-center">{l.unit ?? ""}</td>
-              <td className="num border border-black/60 px-1 text-left">{m(l.unit_price)}</td>
-              <td className="num border border-black/60 px-1 text-left">{m(l.gross)}</td>
-              <td className="num border border-black/60 px-1 text-left">{D(l.discount).isZero() ? "" : m(l.discount)}</td>
-              <td className="num border border-black/60 px-1 text-left">{m(l.net)}</td>
-              <td className="num border border-black/60 px-1 text-left">{D(l.vat).isZero() ? "" : m(l.vat)}</td>
-              <td className="num border border-black/60 px-1 text-left font-bold">{m(l.total)}</td>
+              <td className="n">{formatNumber(l.qty, { dp: 3 })}</td>
+              <td>{l.unit ?? ""}</td>
+              <td className="n">{m(l.unit_price)}</td>
+              <td className="n">{m(l.gross)}</td>
+              <td className="n">{D(l.discount).isZero() ? "—" : m(l.discount)}</td>
+              <td className="n">{m(l.net)}</td>
+              <td className="n">{D(l.vat).isZero() ? "—" : m(l.vat)}</td>
+              <td className="n"><b>{m(l.total)}</b></td>
             </tr>
           ))}
         </tbody>
         <tfoot>
-          <tr className="bg-black/5 font-bold">
-            <td colSpan={6} className="border border-black/60 px-1 text-center">جمع</td>
-            <td className="num border border-black/60 px-1 text-left">{m(t.subtotal)}</td>
-            <td className="num border border-black/60 px-1 text-left">{m(t.discount)}</td>
-            <td className="num border border-black/60 px-1 text-left">{m(D(t.subtotal).minus(D(t.discount)))}</td>
-            <td className="num border border-black/60 px-1 text-left">{m(t.tax)}</td>
-            <td className="num border border-black/60 px-1 text-left">{m(D(t.subtotal).minus(D(t.discount)).plus(D(t.tax)))}</td>
+          <tr>
+            <td colSpan={6}>جمع</td>
+            <td className="n">{m(t.subtotal)}</td>
+            <td className="n">{m(t.discount)}</td>
+            <td className="n">{m(D(t.subtotal).minus(D(t.discount)))}</td>
+            <td className="n">{m(t.tax)}</td>
+            <td className="n">{m(D(t.subtotal).minus(D(t.discount)).plus(D(t.tax)))}</td>
           </tr>
         </tfoot>
       </table>
-      <div className="mt-2 grid grid-cols-[1fr_220px] gap-2 text-[11px]">
-        <div className="rounded border border-black/60 p-2 leading-5">
-          <div>
-            <span className="text-black/60">مبلغ قابل پرداخت به حروف: </span>
-            <b>{amountToWords(t.total, unit)}</b>
-          </div>
-          {data.notes ? <div className="mt-1"><span className="text-black/60">توضیحات: </span>{data.notes}</div> : null}
-          {data.terms ? <div className="mt-1"><span className="text-black/60">شرایط: </span>{data.terms}</div> : null}
+      <div className="sf-pr-foot">
+        <div className="sf-pr-box">
+          <div>مبلغ قابل پرداخت به حروف: <b>{amountToWords(t.total, unit)}</b></div>
+          {data.notes ? <div className="mt-1">توضیحات: {data.notes}</div> : null}
+          {data.terms ? <div className="mt-1">شرایط: {data.terms}</div> : null}
         </div>
-        <div className="rounded border border-black/60">
+        <div className="sf-pr-sums">
           {totalRows.map(([k, v]) => (
-            <div key={k} className="flex justify-between border-b border-black/30 px-2 py-0.5">
+            <div key={k} className="r">
               <span>{k}</span>
-              <span className="num">{m(v)}</span>
+              <span className="n">{m(v)}</span>
             </div>
           ))}
-          <div className="flex justify-between px-2 py-1 text-[12px] font-extrabold">
-            <span>مبلغ نهایی</span>
-            <span className="num">{m(t.total)} {unit}</span>
+          <div className="r is-total">
+            <span>مبلغ نهایی ({unit})</span>
+            <span className="n">{m(t.total)}</span>
           </div>
         </div>
       </div>
-      <div className="mt-8 grid grid-cols-2 text-center text-[11px]">
+      <div className="sf-pr-sign">
         <div>مهر و امضای فروشنده</div>
         <div>مهر و امضای خریدار</div>
       </div>
-      {footer ? <div className="mt-6 border-t border-black/30 pt-1 text-center text-[10px] text-black/70">{footer}</div> : null}
+      <div className="sf-pr-colophon">
+        <span>{footer}</span>
+        <span>{APP_NAME} <span className="latn">| siraf.app</span></span>
+      </div>
     </div>
   );
 }

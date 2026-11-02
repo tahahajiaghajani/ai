@@ -3,13 +3,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Alert, Button, Input, Popover, Spin, Table, Tag } from "antd";
-import { DeleteOutlined, PercentageOutlined, PlusOutlined, SaveOutlined, SearchOutlined } from "@ant-design/icons";
+import { Alert, Button, Input, Popover, Table } from "antd";
+import { Percent, Plus, Save, Search, X } from "lucide-react";
+import { Ic } from "../../components/shell/icons";
 import { useOrg } from "../../lib/org";
+import { signed } from "../../lib/fa";
 import { useHotkey, useNotify } from "../../lib/hooks";
 import { errorText } from "../../lib/api";
 import { PageHeader } from "../../components/layout";
-import { JDate, Money } from "../../components/display";
+import { JDate, Loader, Money } from "../../components/display";
 import { MoneyInput, NumberInput } from "../../components/inputs";
 import { D } from "@shared/money";
 import { faDigits } from "@shared/format";
@@ -116,63 +118,65 @@ export default function PriceListItems() {
     return s ? rows.filter((r) => r.name.includes(s) || r.code.includes(s)) : rows;
   }, [rows, search]);
 
-  if (q.isLoading) return <div className="grid h-64 place-content-center"><Spin /></div>;
+  if (q.isLoading) return <div className="grid h-64 place-content-center"><Loader /></div>;
   if (q.error) return <Alert type="error" showIcon title={errorText(q.error)} />;
   const list = q.data.price_list;
   return (
     <div>
       <PageHeader
         back={`/${orgId}/sales/price-lists`}
-        title={`فهرست قیمت: ${list.name}`}
+        title={list.name}
         subtitle={
-          <span>
-            {list.is_default ? <Tag color="cyan" variant="filled">پیش‌فرض</Tag> : null}
-            {list.valid_from || list.valid_to ? <span>اعتبار: <JDate v={list.valid_from} /> تا <JDate v={list.valid_to} /></span> : "بدون محدودیت زمانی"}
+          <span className="sf-doc-meta">
+            <span>فهرست قیمت</span>
+            {list.is_default ? <><span className="sf-sep" aria-hidden /><span className="text-ink-2">پیش‌فرض</span></> : null}
+            <span className="sf-sep" aria-hidden />
+            {list.valid_from || list.valid_to ? <span>اعتبار <JDate v={list.valid_from} /> تا <JDate v={list.valid_to} /></span> : <span>بدون محدودیت زمانی</span>}
           </span>
         }
         actions={
           editable ? (
-            <Button type="primary" icon={<SaveOutlined />} loading={saving} disabled={!dirty} onClick={save}>
-              ذخیره <span className="tz-kbd ltr ms-1 !bg-transparent !text-white/80">F2</span>
+            <Button type="primary" icon={<Ic icon={Save} />} loading={saving} disabled={!dirty} onClick={save}>
+              ذخیره<span className="sf-kw" aria-hidden><bdi dir="ltr"><kbd>F2</kbd></bdi></span>
             </Button>
           ) : null
         }
       />
-      <div className="tz-card p-3 md:p-4">
-        <div className="mb-3 flex flex-wrap items-center gap-2">
+      <div className="sf-card">
+        <div className="flex flex-wrap items-center gap-2 px-4 py-3.5">
           {editable ? (
             <>
               <div className="w-80"><ItemSelect value={null} ctx={{}} onChange={add} placeholder="افزودن کالا یا خدمت…" /></div>
-              <Button icon={<PlusOutlined />} loading={adding} onClick={addAll}>افزودن همه‌ی کالاها</Button>
+              <Button icon={<Ic icon={Plus} />} loading={adding} onClick={addAll}>افزودن همه‌ی کالاها</Button>
               <Popover
                 trigger="click"
                 content={
                   <div className="grid w-60 gap-2">
-                    <div className="text-xs text-muted">درصد تغییر (منفی = کاهش)</div>
+                    <div className="sf-field-l">درصد تغییر <span className="font-normal text-ink-3">(منفی = کاهش)</span></div>
                     <NumberInput value={pct} onChange={setPct} decimals={2} allowNegative suffix="٪" />
-                    <div className="text-xs text-muted">گرد کردن به</div>
+                    <div className="sf-field-l">گرد کردن به</div>
                     <MoneyInput value={step} onChange={setStep} />
                     <Button type="primary" onClick={applyPct} disabled={!pct}>اعمال روی همه</Button>
                   </div>
                 }
               >
-                <Button icon={<PercentageOutlined />}>تغییر درصدی</Button>
+                <Button icon={<Ic icon={Percent} />}>تغییر درصدی</Button>
               </Popover>
             </>
           ) : null}
-          <Input allowClear prefix={<SearchOutlined className="text-muted" />} placeholder="جستجو در فهرست" value={search} onChange={(e) => setSearch(e.target.value)} className="!w-56 ms-auto" />
+          <Input allowClear prefix={<Ic icon={Search} className="text-ink-3" />} placeholder="جستجو در فهرست" value={search} onChange={(e) => setSearch(e.target.value)} className="!ms-auto !w-56" />
         </div>
         <Table
-          className="tz-table"
+          className=""
           size="small"
           rowKey="key"
           dataSource={shown}
           pagination={{ pageSize: 100, hideOnSinglePage: true, size: "small", showTotal: (t) => `${faDigits(t)} قیمت` }}
           scroll={{ x: "max-content" }}
           columns={[
-            { key: "code", dataIndex: "code", title: "کد", width: 90, render: (v) => <span className="num">{faDigits(v)}</span> },
+            { key: "code", dataIndex: "code", title: "کد", width: 90, render: (v) => <span className="sf-docno">{faDigits(v)}</span> },
             { key: "name", dataIndex: "name", title: "کالا / خدمت" },
-            { key: "sale", dataIndex: "sale_price", title: "قیمت فروش کالا", align: "left", width: 150, render: (v) => (v ? <Money v={v} /> : <span className="text-muted">—</span>) },
+            { key: "sale", dataIndex: "sale_price", title: "قیمت فروش کالا", className: "sf-num", width: 150, render: (v) => (v ? <Money v={v} /> : <span className="sf-zero">—</span>) },
             { key: "price", title: "قیمت در این فهرست", width: 180, render: (_, r: Row) => <MoneyInput value={r.price} onChange={(v) => set(r.key, { price: v })} disabled={!editable} /> },
             { key: "min", title: "از مقدار (اختیاری)", width: 150, render: (_, r: Row) => <NumberInput decimals={3} value={r.min_qty} onChange={(v) => set(r.key, { min_qty: v })} disabled={!editable} placeholder="همه" /> },
             {
@@ -182,15 +186,15 @@ export default function PriceListItems() {
               render: (_, r: Row) => {
                 if (!r.price || !r.sale_price || D(r.sale_price).isZero()) return null;
                 const d = D(r.price).minus(D(r.sale_price)).div(D(r.sale_price)).times(100).toDecimalPlaces(1);
-                return d.isZero() ? null : <span className={`num text-xs ${d.lt(0) ? "text-ok" : "text-bad"}`}>{d.gt(0) ? "+" : ""}{faDigits(d.toString())}٪</span>;
+                return d.isZero() ? null : <bdi dir="ltr" className="sf-num text-[13px] text-ink-2">{signed(d.toNumber(), 1)}٪</bdi>;
               },
             },
             ...(editable
-              ? [{ key: "del", width: 50, render: (_: unknown, r: Row) => <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={() => { setRows((rs) => rs.filter((x) => x.key !== r.key)); setDirty(true); }} aria-label="حذف" /> }]
+              ? [{ key: "del", width: 50, render: (_: unknown, r: Row) => <span className="sf-row-act"><Button type="text" size="small" icon={<Ic icon={X} />} onClick={() => { setRows((rs) => rs.filter((x) => x.key !== r.key)); setDirty(true); }} aria-label="حذف از فهرست" /></span> }]
               : []),
           ]}
         />
-        <div className="mt-2 text-xs text-muted">
+        <div className="border-t border-line px-5 py-3 text-[12px] text-ink-3">
           قیمت فهرست برای مشتریانی که این فهرست را دارند (یا گروهشان) در فاکتور فروش و پیش‌فاکتور به‌طور خودکار می‌آید.
         </div>
       </div>

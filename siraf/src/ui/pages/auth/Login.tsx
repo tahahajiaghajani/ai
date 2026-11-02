@@ -1,25 +1,38 @@
-import { Form, Input, Button, Alert } from "antd";
-import { MailOutlined, LockOutlined } from "@ant-design/icons";
+import { Form, Input, Button } from "antd";
+import { Mail, Lock, Eye, EyeOff } from "lucide-react";
 import { Link, useNavigate, useSearchParams, Navigate } from "react-router";
 import { useState } from "react";
-import { api, errorText } from "../../lib/api";
+import { api, errorText, ApiError } from "../../lib/api";
 import { useSession } from "../../lib/session";
 import { AuthLayout } from "./AuthLayout";
+import { FormAlert, ICON, useBlurValidation, LTR } from "../kit";
+
+export const passwordIcon = (visible: boolean) => (visible ? <EyeOff {...ICON} aria-label="پنهان کردن رمز" /> : <Eye {...ICON} aria-label="نمایش رمز" />);
 
 export default function Login() {
   const { refresh, meta, me } = useSession();
   const nav = useNavigate();
   const [sp] = useSearchParams();
+  const [form] = Form.useForm();
+  const onValuesChange = useBlurValidation(form);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   if (meta?.first_run) return <Navigate to="/setup" replace />;
   if (me) return <Navigate to={sp.get("next") || "/"} replace />;
+  const canSignup = !!meta?.allow_signup && meta.mode === "cloud";
   return (
-    <AuthLayout title="ورود به سیراف" subtitle="با ایمیل و رمز عبور حساب خود وارد شوید.">
-      {err ? <Alert type="error" showIcon className="!mb-4" title={err} /> : null}
+    <AuthLayout title="ورود به سیراف" subtitle="با ایمیل و رمز عبورتان وارد شوید.">
+      {err ? <FormAlert>{err}</FormAlert> : null}
       <Form
+        form={form}
         layout="vertical"
         requiredMark={false}
+        validateTrigger="onBlur"
+        className="pg-form"
+        onValuesChange={(c) => {
+          if (err) setErr(null);
+          onValuesChange(c);
+        }}
         onFinish={async (v) => {
           setBusy(true);
           setErr(null);
@@ -28,26 +41,52 @@ export default function Login() {
             await refresh();
             nav(sp.get("next") || "/", { replace: true });
           } catch (e) {
-            setErr(errorText(e));
+            // wrong credentials, a disabled account or too many tries: under the password field, never naming which part was wrong
+            if (e instanceof ApiError && [400, 401, 403, 429].includes(e.status)) form.setFields([{ name: "password", errors: [errorText(e)] }]);
+            else setErr(errorText(e));
           } finally {
             setBusy(false);
           }
         }}
       >
-        <Form.Item name="email" label="ایمیل" rules={[{ required: true, message: "ایمیل را وارد کنید" }]}>
-          <Input size="large" dir="ltr" prefix={<MailOutlined className="text-muted" />} autoComplete="username" autoFocus />
+        <Form.Item
+          name="email"
+          label="ایمیل"
+          rules={[
+            { required: true, message: "ایمیل را وارد کنید." },
+            { type: "email", message: "این ایمیل درست نیست." },
+          ]}
+        >
+          <Input size="large" classNames={LTR} inputMode="email" prefix={<Mail {...ICON} aria-hidden />} autoComplete="username" autoFocus spellCheck={false} placeholder="name@example.com" />
         </Form.Item>
-        <Form.Item name="password" label="رمز عبور" rules={[{ required: true, message: "رمز عبور را وارد کنید" }]}>
-          <Input.Password size="large" dir="ltr" prefix={<LockOutlined className="text-muted" />} autoComplete="current-password" />
+        <Form.Item
+          name="password"
+          label={
+            <span className="pg-lbl">
+              <span>رمز عبور</span>
+              <Link to="/recover" className="sf-link">
+                فراموش کرده‌اید؟
+              </Link>
+            </span>
+          }
+          rules={[{ required: true, message: "رمز عبور را وارد کنید." }]}
+        >
+          <Input.Password size="large" classNames={LTR} prefix={<Lock {...ICON} aria-hidden />} autoComplete="current-password" iconRender={passwordIcon} />
         </Form.Item>
-        <Button type="primary" size="large" htmlType="submit" block loading={busy}>
-          ورود
-        </Button>
+        <div className="pg-actions">
+          <Button type="primary" size="large" htmlType="submit" block loading={busy}>
+            {busy ? "در حال ورود…" : "ورود"}
+          </Button>
+        </div>
       </Form>
-      <div className="mt-5 flex justify-between text-sm">
-        <Link to="/recover">رمز را فراموش کرده‌ام</Link>
-        {meta?.allow_signup && meta.mode === "cloud" ? <Link to="/signup">ساخت حساب تازه</Link> : null}
-      </div>
+      {canSignup ? (
+        <p className="pg-alt">
+          کسب‌وکار تازه دارید؟{" "}
+          <Link to="/signup" className="sf-link">
+            ساخت حساب
+          </Link>
+        </p>
+      ) : null}
     </AuthLayout>
   );
 }

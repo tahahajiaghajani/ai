@@ -1,26 +1,29 @@
-// Cheque register: received cheques (چک‌های دریافتی), issued cheques (چک‌های پرداختی) and the due
-// dates view. Status chips with totals filter the list; overdue cheques are highlighted; every row
-// offers the operations of its status; clicking a row opens the cheque's file.
+// Cheque register: received cheques (چک‌های دریافتی), issued cheques (چک‌های پرداختی) and the due dates view. The
+// status tiles (count and sum) filter the list; overdue cheques carry a danger chip on their due date; every row
+// offers the operations of its status; clicking a row opens the cheque's file in the side sheet.
 import { useEffect, useState } from "react";
 import { useNavigate, useParams, useSearchParams, Link } from "react-router";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { Button, Dropdown, Input, Segmented, Space, Switch, Table, Tooltip } from "antd";
+import { Button, Dropdown, Input, Table, Tabs, Tooltip } from "antd";
 import type { TablePaginationConfig } from "antd/es/table";
-import { FileExcelOutlined, HistoryOutlined, MoreOutlined, PlusOutlined, ReloadOutlined, SearchOutlined } from "@ant-design/icons";
+import { Download, Ellipsis, History, Plus, RotateCw, Search, TriangleAlert } from "lucide-react";
 import { useOrg } from "../../lib/org";
 import { useDebounced, useNotify } from "../../lib/hooks";
 import { exportExcel } from "../../lib/excel";
 import { PageHeader } from "../../components/layout";
 import { DateInput, PartySelect } from "../../components/inputs";
-import { EmptyState, JDate, Money, StatusTag } from "../../components/display";
+import { EmptyState, JDate, StatusTag } from "../../components/display";
+import { ChequeIcon } from "../../components/shell/icons";
 import { faDigits } from "@shared/format";
 import { formatJalali } from "@shared/jalali";
 import { ACTION_LABEL, KIND_TITLE, STATUSES, chequeStatusMap, type ChequeAction, type Direction, type DocKind } from "./labels";
 import { ChequeActionModal } from "./ChequeAction";
 import { ChequeDrawer, DueBadge } from "./ChequeDrawer";
 import { ChequesDue } from "./ChequesDue";
+import { Amt, ICON, ICON14, Who, cx, docNo } from "../reports/kit";
 
-const OVERDUE_CSS = `.tz-cheque-overdue td { background: color-mix(in srgb, var(--tz-danger) 7%, transparent) !important; }`;
+/** The tone of a status tile's nuqta: what needs attention is coloured, the rest is quiet. */
+const TILE_TONE: Record<string, string | undefined> = { bounced: "danger", deposited: "warning", cleared: "in" };
 
 export default function Cheques() {
   const { tab } = useParams();
@@ -38,40 +41,34 @@ export default function Cheques() {
   const title = view === "issued" ? "چک‌های پرداختی" : view === "due" ? "سررسید چک‌ها" : "چک‌های دریافتی";
   return (
     <div>
-      <style>{OVERDUE_CSS}</style>
       <PageHeader
         title={title}
-        extra={
-          <Segmented
-            value={view}
-            onChange={(v) => nav(v === "received" ? `/${orgId}/treasury/cheques` : `/${orgId}/treasury/cheques/${v}`)}
-            options={[
-              { value: "received", label: "دریافتی" },
-              { value: "issued", label: "پرداختی" },
-              { value: "due", label: "سررسیدها" },
-            ]}
-          />
-        }
         actions={
           can("treasury", "edit") && view !== "due" ? (
-            <Button
-              type="primary"
-              icon={<PlusOutlined />}
-              onClick={() => nav(`/${orgId}/treasury/docs/new?kind=${view === "issued" ? "payment" : "receipt"}`)}
-            >
-              {view === "issued" ? "صدور چک (پرداخت)" : "دریافت چک"}
+            <Button type="primary" icon={<Plus {...ICON} />} onClick={() => nav(`/${orgId}/treasury/docs/new?kind=${view === "issued" ? "payment" : "receipt"}`)}>
+              {view === "issued" ? "صدور چک" : "دریافت چک"}
             </Button>
           ) : null
         }
       />
-      {view === "due" ? <ChequesDue onOpen={open} /> : <ChequeList key={view} direction={view} onOpen={open} />}
+      <Tabs
+        className="no-print bk-tabs"
+        activeKey={view}
+        onChange={(v) => nav(v === "received" ? `/${orgId}/treasury/cheques` : `/${orgId}/treasury/cheques/${v}`)}
+        items={[
+          { key: "received", label: "دریافتی" },
+          { key: "issued", label: "پرداختی" },
+          { key: "due", label: "سررسیدها" },
+        ]}
+      />
+      {view === "due" ? <ChequesDue onOpen={open} /> : <ChequeList key={view} direction={view} onOpen={open} activeId={openId} />}
       <ChequeDrawer id={openId} onClose={() => open(null)} />
     </div>
   );
 }
 
-function ChequeList({ direction, onOpen }: { direction: Direction; onOpen: (id: string) => void }) {
-  const { api, orgId, can } = useOrg();
+function ChequeList({ direction, onOpen, activeId }: { direction: Direction; onOpen: (id: string) => void; activeId: string | null }) {
+  const { api, orgId, can, unit } = useOrg();
   const n = useNotify();
   const [q, setQ] = useState("");
   const [status, setStatus] = useState<string[]>([]);
@@ -83,6 +80,7 @@ function ChequeList({ direction, onOpen }: { direction: Direction; onOpen: (id: 
   const [size, setSize] = useState(50);
   const [sort, setSort] = useState<{ field?: string; dir?: "asc" | "desc" }>({});
   const [act, setAct] = useState<{ row: any; action: ChequeAction } | null>(null);
+  const [exporting, setExporting] = useState(false);
   const dq = useDebounced(q);
   const params = { direction, q: dq, status: status.join(","), from, to, party_id: partyId, overdue: overdue ? 1 : undefined };
   const query = useQuery({
@@ -95,12 +93,15 @@ function ChequeList({ direction, onOpen }: { direction: Direction; onOpen: (id: 
   const map = chequeStatusMap(direction);
   const byStatus = (s: string) => (data?.by_status ?? []).find((x: any) => x.status === s);
   const canEdit = can("treasury", "edit");
+  const all = (data?.by_status ?? []).reduce((a: { n: number; sum: number }, x: any) => ({ n: a.n + x.count, sum: a.sum + Number(x.sum) }), { n: 0, sum: 0 });
+  const filtered = !!(dq || from || to || partyId || overdue || status.length);
 
   const toggle = (s: string) => setStatus((cur) => (cur.includes(s) ? cur.filter((x) => x !== s) : [...cur, s]));
 
   const exportAll = async () => {
+    setExporting(true);
     try {
-      const all = await api.get("/treasury/cheques", { ...params, page: 1, size: 500, sort: sort.field, dir: sort.dir });
+      const rows = await api.get("/treasury/cheques", { ...params, page: 1, size: 500, sort: sort.field, dir: sort.dir });
       await exportExcel(direction === "received" ? "چک‌های دریافتی" : "چک‌های پرداختی", [
         { title: "سررسید", value: (r: any) => formatJalali(r.due_date, { latin: true }) },
         { title: "سریال", value: (r: any) => r.serial_no },
@@ -111,193 +112,203 @@ function ChequeList({ direction, onOpen }: { direction: Direction; onOpen: (id: 
         { title: "وضعیت", value: (r: any) => map[r.status]?.[0] ?? r.status },
         { title: "حساب بانکی", value: (r: any) => r.bank_account_name },
         { title: "سند", value: (r: any) => (r.doc_no ? `${KIND_TITLE[r.doc_kind as DocKind] ?? ""} ${r.doc_no}` : "") },
-      ], all.rows);
+      ], rows.rows);
     } catch (e) {
       n.error(e);
+    } finally {
+      setExporting(false);
     }
   };
 
   return (
-    <div className="tz-card p-3 md:p-4">
-      <div className="no-print mb-3 flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={() => setStatus([])}
-          className={`rounded-lg border px-3 py-1.5 text-start text-xs transition ${status.length ? "border-line" : "border-brand bg-brand-soft"}`}
-        >
-          <div className="text-muted">همه</div>
-          <div className="mt-0.5 font-bold">
-            {faDigits((data?.by_status ?? []).reduce((a: number, x: any) => a + x.count, 0))} چک
-          </div>
+    <>
+      <div className="bk-tiles no-print mb-4" role="group" aria-label="وضعیت چک‌ها">
+        <button type="button" className="bk-tile" aria-pressed={!status.length} onClick={() => setStatus([])}>
+          <small>همه</small>
+          <b>{faDigits(all.n)} چک</b>
+          <span><Amt v={all.sum} zero="—" /></span>
         </button>
         {STATUSES[direction].map((s) => {
           const t = byStatus(s);
-          const on = status.includes(s);
           return (
-            <button
-              key={s}
-              type="button"
-              onClick={() => toggle(s)}
-              className={`rounded-lg border px-3 py-1.5 text-start text-xs transition ${on ? "border-brand bg-brand-soft" : "border-line hover:bg-surface-2"} ${t ? "" : "opacity-60"}`}
-            >
-              <div className="text-muted">{map[s][0]}</div>
-              <div className="mt-0.5 flex items-baseline gap-1.5">
-                <b>{faDigits(t?.count ?? 0)}</b>
-                <span className="text-muted">·</span>
-                <Money v={t?.sum ?? 0} />
-              </div>
+            <button key={s} type="button" className={cx("bk-tile", !t?.count && "is-empty")} data-tone={TILE_TONE[s]} aria-pressed={status.includes(s)} onClick={() => toggle(s)}>
+              <small>
+                <i className="sf-nuqta" aria-hidden />
+                {map[s][0]}
+              </small>
+              <b>{faDigits(t?.count ?? 0)}</b>
+              <span><Amt v={t?.sum ?? 0} zero="—" /></span>
             </button>
           );
         })}
       </div>
-      <div className="no-print mb-3 flex flex-wrap items-center gap-2">
-        <Space wrap>
-          <Input
-            allowClear
-            prefix={<SearchOutlined className="text-muted" />}
-            placeholder="سریال، صیادی، بانک، صاحب حساب یا شخص"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            className="!w-64"
-          />
-          <PartySelect value={partyId} onChange={setPartyId} allowClear placeholder="شخص" className="!w-52" />
-          <DateInput value={from} onChange={setFrom} placeholder="سررسید از" allowClear className="!w-36" />
-          <DateInput value={to} onChange={setTo} placeholder="سررسید تا" allowClear className="!w-36" />
-          <label className="flex items-center gap-1.5 text-xs text-muted">
-            <Switch size="small" checked={overdue} onChange={setOverdue} /> فقط سررسیدگذشته‌ها
-          </label>
-        </Space>
-        <div className="ms-auto flex gap-1">
-          <Tooltip title="بازخوانی">
-            <Button icon={<ReloadOutlined />} onClick={() => query.refetch()} loading={query.isFetching} />
-          </Tooltip>
-          <Tooltip title="خروجی اکسل">
-            <Button icon={<FileExcelOutlined />} onClick={exportAll} />
-          </Tooltip>
-        </div>
-      </div>
-      <Table
-        className="tz-table"
-        size="small"
-        rowKey="id"
-        loading={query.isLoading}
-        dataSource={data?.rows ?? []}
-        scroll={{ x: "max-content" }}
-        locale={{ emptyText: <EmptyState title={direction === "received" ? "چک دریافتی‌ای با این شرایط نیست" : "چک پرداختی‌ای با این شرایط نیست"} /> }}
-        rowClassName={(r: any) => (r.overdue ? "tz-cheque-overdue" : "")}
-        onRow={(r: any) => ({ onClick: () => onOpen(r.id), style: { cursor: "pointer" } })}
-        onChange={(p: TablePaginationConfig, _f, s) => {
-          setPage(p.current ?? 1);
-          setSize(p.pageSize ?? 50);
-          const so = Array.isArray(s) ? s[0] : s;
-          setSort(so?.order ? { field: String(so.columnKey ?? so.field), dir: so.order === "descend" ? "desc" : "asc" } : {});
-        }}
-        pagination={{
-          current: page,
-          pageSize: size,
-          total: data?.total ?? 0,
-          showSizeChanger: true,
-          pageSizeOptions: [20, 50, 100, 200],
-          showTotal: (t) => `${faDigits(t)} چک`,
-          size: "small",
-          hideOnSinglePage: (data?.total ?? 0) <= 20,
-        }}
-        summary={() =>
-          data && data.total ? (
-            <Table.Summary.Row>
-              <Table.Summary.Cell index={0} colSpan={4}>جمع {faDigits(data.total)} چک</Table.Summary.Cell>
-              <Table.Summary.Cell index={1} align="left"><Money v={data.sum} /></Table.Summary.Cell>
-              <Table.Summary.Cell index={2} colSpan={4} />
-            </Table.Summary.Row>
-          ) : null
-        }
-        columns={[
-          {
-            key: "due_date",
-            dataIndex: "due_date",
-            title: "سررسید",
-            sorter: true,
-            width: 150,
-            render: (v, r: any) => (
-              <span className="flex items-center gap-1.5">
-                <span className={r.overdue ? "font-bold text-bad" : ""}><JDate v={v} /></span>
-                <DueBadge c={r} />
+
+      <section className="sf-card">
+        <div className="sf-st">
+          <div className="sf-st-bar no-print">
+            <div className="sf-st-filters">
+              <Input allowClear prefix={<Search {...ICON} className="bk-3" />} placeholder="سریال، صیادی، بانک، صاحب حساب یا شخص" value={q} onChange={(e) => setQ(e.target.value)} className="!w-72" />
+              <PartySelect value={partyId} onChange={setPartyId} allowClear placeholder="شخص" className="!w-52" />
+              <span className="bk-range">
+                <DateInput value={from} onChange={setFrom} placeholder="سررسید از" allowClear />
+                <span>تا</span>
+                <DateInput value={to} onChange={setTo} placeholder="سررسید تا" allowClear />
               </span>
-            ),
-          },
-          {
-            key: "serial_no",
-            dataIndex: "serial_no",
-            title: "سریال / صیادی",
-            sorter: true,
-            render: (_, r: any) => (
-              <div className="leading-5">
-                <div className="num ltr">{faDigits(r.serial_no ?? "—")}</div>
-                {r.sayad_no ? <div className="num ltr text-[11px] text-muted">{faDigits(r.sayad_no)}</div> : null}
-              </div>
-            ),
-          },
-          { key: "bank", title: "بانک", render: (_, r: any) => [r.bank_name, r.branch_name].filter(Boolean).join(" — ") || <span className="text-muted">—</span> },
-          {
-            key: "party_name",
-            dataIndex: "party_name",
-            title: direction === "received" ? "طرف حساب" : "در وجه",
-            sorter: true,
-            render: (v, r: any) => (
-              <span>
-                {v ?? "—"}
-                {r.holder_name ? <span className="text-xs text-muted"> ← {r.holder_name}</span> : null}
-              </span>
-            ),
-          },
-          { key: "amount", dataIndex: "amount", title: "مبلغ", align: "left", sorter: true, render: (v) => <Money v={v} /> },
-          { key: "status", dataIndex: "status", title: "وضعیت", sorter: true, render: (v) => <StatusTag s={v} map={map} /> },
-          {
-            key: "bank_account",
-            dataIndex: "bank_account_name",
-            title: direction === "received" ? "بانک وصول" : "حساب ما",
-            render: (v) => v ?? <span className="text-muted">—</span>,
-          },
-          {
-            key: "doc",
-            title: "ثبت در",
-            render: (_, r: any) =>
-              r.doc_no ? (
-                <Link to={`/${orgId}/treasury/docs/${r.source_id}`} onClick={(e) => e.stopPropagation()}>
-                  {KIND_TITLE[r.doc_kind as DocKind] ?? "سند"} {faDigits(r.doc_no)}
-                </Link>
+              <button type="button" className="bk-tog" aria-pressed={overdue} onClick={() => setOverdue(!overdue)}>
+                <TriangleAlert {...ICON} aria-hidden />
+                سررسیدگذشته
+              </button>
+            </div>
+            <div className="sf-st-tools">
+              <Tooltip title="بازخوانی">
+                <Button type="text" icon={<RotateCw {...ICON} className={query.isFetching && data ? "sf-spin" : undefined} />} onClick={() => query.refetch()} aria-label="بازخوانی" />
+              </Tooltip>
+              <Tooltip title="خروجی اکسل">
+                <Button type="text" icon={<Download {...ICON} />} loading={exporting} onClick={exportAll} aria-label="خروجی اکسل" />
+              </Tooltip>
+            </div>
+          </div>
+          <Table
+            className="bk-tbl"
+            size="small"
+            rowKey="id"
+            loading={query.isLoading}
+            dataSource={data?.rows ?? []}
+            scroll={{ x: 1040 }}
+            sticky={{ offsetHeader: 56 }}
+            locale={{
+              emptyText: query.isLoading ? (
+                " "
               ) : (
-                <span className="text-muted">—</span>
+                <EmptyState
+                  icon={ChequeIcon}
+                  title={filtered ? "چکی با این شرایط نیست" : direction === "received" ? "هنوز چکی دریافت نشده" : "هنوز چکی صادر نشده"}
+                  description={filtered ? "پالایه‌ها یا جستجو را تغییر دهید." : "چک‌ها با دریافت و پرداخت ثبت می‌شوند و با سررسیدشان اینجا می‌آیند."}
+                  action={filtered ? <Button onClick={() => { setQ(""); setFrom(null); setTo(null); setPartyId(null); setOverdue(false); setStatus([]); }}>پاک کردن پالایه‌ها</Button> : undefined}
+                />
               ),
-          },
-          {
-            key: "_actions",
-            width: 56,
-            fixed: "left" as const,
-            render: (_, r: any) => {
-              const items = [
-                ...(canEdit
-                  ? (r.actions as ChequeAction[]).map((a) => ({
-                      key: a,
-                      label: ACTION_LABEL[direction][a] ?? a,
-                      danger: a === "bounce" || a === "undo",
-                      onClick: () => setAct({ row: r, action: a }),
-                    }))
-                  : []),
-                { key: "history", icon: <HistoryOutlined />, label: "پرونده و گردش چک", onClick: () => onOpen(r.id) },
-              ];
-              return (
-                <span onClick={(e) => e.stopPropagation()}>
-                  <Dropdown trigger={["click"]} menu={{ items }}>
-                    <Button type="text" size="small" icon={<MoreOutlined />} aria-label="عملیات چک" />
-                  </Dropdown>
-                </span>
-              );
-            },
-          },
-        ]}
-      />
+            }}
+            rowClassName={(r: any) => cx("bk-click", r.id === activeId && "ant-table-row-selected")}
+            onRow={(r: any) => ({
+              onClick: () => onOpen(r.id),
+              onKeyDown: (e) => {
+                if (e.key === "Enter" && e.target === e.currentTarget) onOpen(r.id);
+              },
+              tabIndex: 0,
+            })}
+            onChange={(p: TablePaginationConfig, _f, s) => {
+              setPage(p.current ?? 1);
+              setSize(p.pageSize ?? 50);
+              const so = Array.isArray(s) ? s[0] : s;
+              setSort(so?.order ? { field: String(so.columnKey ?? so.field), dir: so.order === "descend" ? "desc" : "asc" } : {});
+            }}
+            pagination={{
+              current: page,
+              pageSize: size,
+              total: data?.total ?? 0,
+              showSizeChanger: true,
+              pageSizeOptions: [20, 50, 100, 200],
+              showTotal: (t) => `${faDigits(t)} چک`,
+              size: "small",
+              hideOnSinglePage: (data?.total ?? 0) <= 20,
+            }}
+            summary={() =>
+              data && data.total ? (
+                <Table.Summary fixed>
+                  <Table.Summary.Row>
+                    <Table.Summary.Cell index={0} colSpan={4} className="bk-sum-l">
+                      جمع<small>{faDigits(data.total)} چک</small>
+                    </Table.Summary.Cell>
+                    <Table.Summary.Cell index={1} className="sf-num"><Amt v={data.sum} /></Table.Summary.Cell>
+                    <Table.Summary.Cell index={2} colSpan={4} />
+                  </Table.Summary.Row>
+                </Table.Summary>
+              ) : null
+            }
+            columns={[
+              {
+                key: "due_date",
+                dataIndex: "due_date",
+                title: "سررسید",
+                sorter: true,
+                width: 204,
+                render: (v, r: any) => (
+                  <span className="inline-flex items-center gap-2">
+                    <JDate v={v} />
+                    <DueBadge c={r} />
+                  </span>
+                ),
+              },
+              {
+                key: "serial_no",
+                dataIndex: "serial_no",
+                title: "سریال",
+                sorter: true,
+                width: 96,
+                render: (v) => (v ? <span className="bk-docno">{docNo(v)}</span> : <span className="sf-zero">—</span>),
+              },
+              { key: "bank", title: "بانک", width: 150, ellipsis: true, render: (_, r: any) => <span className="bk-2">{[r.bank_name, r.branch_name].filter(Boolean).join("، ") || "—"}</span> },
+              {
+                key: "party_name",
+                dataIndex: "party_name",
+                title: direction === "received" ? "طرف حساب" : "در وجه",
+                sorter: true,
+                ellipsis: true,
+                render: (v, r: any) => <Who name={v} sub={r.holder_name ? `← ${r.holder_name}` : undefined} />,
+              },
+              {
+                key: "amount",
+                dataIndex: "amount",
+                title: `مبلغ (${unit})`,
+                className: "sf-num",
+                sorter: true,
+                width: 156,
+                render: (v, r: any) => <Amt v={v} className={r.status === "bounced" || r.status === "returned" || r.status === "cancelled" ? "sf-excluded" : undefined} />,
+              },
+              { key: "status", dataIndex: "status", title: "وضعیت", sorter: true, width: 128, render: (v) => <StatusTag s={v} map={map} /> },
+              {
+                key: "doc",
+                title: "ثبت در",
+                width: 112,
+                render: (_, r: any) =>
+                  r.doc_no ? (
+                    <Link className="bk-lnk" to={`/${orgId}/treasury/docs/${r.source_id}`} onClick={(e) => e.stopPropagation()}>
+                      {KIND_TITLE[r.doc_kind as DocKind] ?? "سند"} {docNo(r.doc_no)}
+                    </Link>
+                  ) : (
+                    <span className="sf-zero">—</span>
+                  ),
+              },
+              {
+                key: "_actions",
+                width: 48,
+                render: (_, r: any) => {
+                  const items = [
+                    ...(canEdit
+                      ? (r.actions as ChequeAction[]).map((a) => ({
+                          key: a,
+                          label: ACTION_LABEL[direction][a] ?? a,
+                          danger: a === "bounce" || a === "undo",
+                          onClick: () => setAct({ row: r, action: a }),
+                        }))
+                      : []),
+                    ...(canEdit && (r.actions as ChequeAction[]).length ? [{ type: "divider" as const }] : []),
+                    { key: "history", icon: <History {...ICON14} />, label: "پرونده و گردش چک", onClick: () => onOpen(r.id) },
+                  ];
+                  return (
+                    <span className="bk-ra" onClick={(e) => e.stopPropagation()}>
+                      <Dropdown trigger={["click"]} rootClassName="sf-glass" menu={{ items }}>
+                        <Button type="text" size="small" icon={<Ellipsis {...ICON14} />} aria-label="عملیات چک" />
+                      </Dropdown>
+                    </span>
+                  );
+                },
+              },
+            ]}
+          />
+        </div>
+      </section>
       {act ? <ChequeActionModal cheque={act.row} action={act.action} onClose={() => setAct(null)} /> : null}
-    </div>
+    </>
   );
 }

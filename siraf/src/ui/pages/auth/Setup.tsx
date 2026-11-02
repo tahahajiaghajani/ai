@@ -1,14 +1,16 @@
 // First start of the Windows app: start fresh on this computer, or connect to an existing
 // cloud account (and download its data), or use another computer of the office as server.
-import { useState } from "react";
-import { Button, Form, Input, Alert, Radio, Steps, Result } from "antd";
-import { DesktopOutlined, CloudDownloadOutlined, ClusterOutlined } from "@ant-design/icons";
+import { useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { Button, Form, Input, Result } from "antd";
+import { Monitor, CloudDownload, Network, ArrowRight, Link2, Mail, Lock, ChevronLeft, Loader2 } from "lucide-react";
 import { Navigate, useNavigate } from "react-router";
 import { api, errorText } from "../../lib/api";
 import { useSession } from "../../lib/session";
 import { AuthLayout } from "./AuthLayout";
 import { SignupForm } from "./Signup";
 import { RecoveryCode } from "./RecoveryCode";
+import { passwordIcon } from "./Login";
+import { FormAlert, ICON, initials, useBlurValidation, LTR } from "../kit";
 
 declare global {
   interface Window {
@@ -27,6 +29,68 @@ declare global {
 
 type Mode = "local" | "cloud" | "client";
 
+interface Option {
+  v: Mode;
+  icon: ReactNode;
+  t: string;
+  d: string;
+}
+
+/** A radio group of cards: arrow keys move the choice, Enter continues (components.md §5: ink, never Dusk). */
+function ChoiceCards({ options, value, onChange, onEnter }: { options: Option[]; value: Mode; onChange: (v: Mode) => void; onEnter: () => void }) {
+  const refs = useRef<(HTMLButtonElement | null)[]>([]);
+  const onKey = (e: KeyboardEvent, i: number) => {
+    const next = e.key === "ArrowDown" || e.key === "ArrowLeft" ? i + 1 : e.key === "ArrowUp" || e.key === "ArrowRight" ? i - 1 : null;
+    if (next !== null) {
+      e.preventDefault();
+      const j = (next + options.length) % options.length;
+      onChange(options[j].v);
+      refs.current[j]?.focus();
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      onEnter();
+    }
+  };
+  return (
+    <div className="pg-choices" role="radiogroup" aria-label="روش شروع">
+      {options.map((o, i) => {
+        const on = o.v === value;
+        return (
+          <button
+            key={o.v}
+            ref={(el) => {
+              refs.current[i] = el;
+            }}
+            type="button"
+            role="radio"
+            aria-checked={on}
+            tabIndex={on ? 0 : -1}
+            className="pg-choice"
+            onClick={() => onChange(o.v)}
+            onDoubleClick={onEnter}
+            onKeyDown={(e) => onKey(e, i)}
+          >
+            <span className="pg-choice-ic">{o.icon}</span>
+            <span className="pg-choice-tx">
+              <span className="pg-choice-t">{o.t}</span>
+              <span className="pg-choice-d">{o.d}</span>
+            </span>
+            <span className="pg-radio" aria-hidden />
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function BackButton({ onClick }: { onClick: () => void }) {
+  return (
+    <Button type="text" size="large" icon={<ArrowRight {...ICON} />} onClick={onClick}>
+      قبلی
+    </Button>
+  );
+}
+
 export default function Setup() {
   const { meta, refresh, me } = useSession();
   const nav = useNavigate();
@@ -34,64 +98,80 @@ export default function Setup() {
   const [step, setStep] = useState(0);
   const [code, setCode] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<string | boolean>(false);
   const [cloud, setCloud] = useState<{ url: string; email: string; password: string } | null>(null);
   const [orgs, setOrgs] = useState<{ id: string; name: string }[]>([]);
+  const [cloudForm] = Form.useForm();
+  const [clientForm] = Form.useForm();
+  const onCloudChange = useBlurValidation(cloudForm);
+  const onClientChange = useBlurValidation(clientForm);
   if (meta && !meta.first_run && !code) return <Navigate to={me ? "/" : "/login"} replace />;
   if (meta && meta.mode !== "desktop") return <Navigate to="/signup" replace />;
 
-  const choose = (
-    <div className="space-y-3">
-      <Radio.Group value={mode} onChange={(e) => setMode(e.target.value)} className="!flex !flex-col !gap-3">
-        {[
-          { v: "local", icon: <DesktopOutlined />, t: "شروع روی همین رایانه", d: "کسب‌وکار تازه می‌سازید؛ داده‌ها روی همین ویندوز ذخیره می‌شوند و بعداً هر وقت خواستید به نسخه‌ی وب وصلش می‌کنید." },
-          { v: "cloud", icon: <CloudDownloadOutlined />, t: "اتصال به حساب ابری (نسخه‌ی وب)", d: "اگر در نسخه‌ی وب حساب و کسب‌وکار دارید، اطلاعات دریافت می‌شود و از این به بعد دو طرف هم‌گام می‌مانند." },
-          ...(window.taraz?.setServer ? [{ v: "client", icon: <ClusterOutlined />, t: "اتصال به سرور شبکه‌ی فروشگاه", d: "سیراف روی رایانه‌ی دیگری از شبکه‌ی داخلی نصب و «حالت شبکه» آن روشن است؛ این رایانه فقط به آن وصل می‌شود." }] : []),
-        ].map((o) => (
-          <Radio key={o.v} value={o.v} className="tz-soft !m-0 !flex !items-start !p-3">
-            <div className="ms-1">
-              <div className="flex items-center gap-2 font-bold">
-                {o.icon} {o.t}
-              </div>
-              <div className="mt-1 text-xs leading-5 text-muted">{o.d}</div>
-            </div>
-          </Radio>
-        ))}
-      </Radio.Group>
-      <Button type="primary" size="large" block onClick={() => setStep(1)}>
-        ادامه
-      </Button>
-    </div>
+  const options: Option[] = [
+    { v: "local", icon: <Monitor {...ICON} />, t: "شروع روی همین رایانه", d: "کسب‌وکار تازه می‌سازید و داده‌ها روی همین ویندوز می‌مانند؛ هر وقت خواستید به نسخهٔ وب وصلش می‌کنید." },
+    { v: "cloud", icon: <CloudDownload {...ICON} />, t: "اتصال به حساب ابری", d: "در نسخهٔ وب حساب و کسب‌وکار دارید؟ داده‌ها دریافت می‌شوند و از این به بعد دو طرف هم‌گام می‌مانند." },
+    ...(window.taraz?.setServer
+      ? [{ v: "client" as const, icon: <Network {...ICON} />, t: "اتصال به سرور شبکهٔ فروشگاه", d: "سیراف روی رایانهٔ دیگری از شبکهٔ داخلی با «حالت شبکه» روشن است؛ این رایانه فقط به آن وصل می‌شود." }]
+      : []),
+  ];
+
+  const second = mode === "cloud" ? "حساب ابری" : mode === "client" ? "سرور شبکه" : "حساب مدیر";
+  const steps = { labels: ["روش شروع", second, "کسب‌وکار"], current: code ? 2 : step };
+  const back = () => {
+    setErr(null);
+    setStep(0);
+  };
+
+  let title: ReactNode = "خوش آمدید";
+  let subtitle: ReactNode = "سیراف روی این رایانه نصب شد. چطور شروع می‌کنید؟";
+  let body: ReactNode = (
+    <>
+      <ChoiceCards options={options} value={mode} onChange={setMode} onEnter={() => setStep(1)} />
+      <div className="pg-actions !mt-6">
+        <Button type="primary" size="large" block onClick={() => setStep(1)}>
+          ادامه
+        </Button>
+      </div>
+    </>
   );
 
-  let body = choose;
   if (step === 1 && mode === "local") {
-    body = code ? (
-      <RecoveryCode
-        code={code}
-        onDone={async () => {
-          await refresh();
-          nav("/orgs/new", { replace: true });
-        }}
-      />
-    ) : (
-      <>
-        <Alert type="info" showIcon className="!mb-4" title="ابتدا حساب مدیر این برنامه را بسازید" description="با همین ایمیل و رمز وارد برنامه می‌شوید. کاربران دیگر را بعداً از «تنظیمات ← کاربران» اضافه می‌کنید." />
-        <SignupForm onDone={setCode} submitText="ساخت حساب مدیر" />
-        <Button type="link" block className="!mt-2" onClick={() => setStep(0)}>
-          بازگشت
-        </Button>
-      </>
-    );
+    if (code) {
+      title = "حساب مدیر ساخته شد";
+      subtitle = "پیش از ساختن کسب‌وکار، کد بازیابی را جای امنی نگه دارید.";
+      body = (
+        <RecoveryCode
+          code={code}
+          onDone={async () => {
+            await refresh();
+            nav("/orgs/new", { replace: true });
+          }}
+        />
+      );
+    } else {
+      title = "حساب مدیر";
+      subtitle = "با همین ایمیل و رمز وارد برنامه می‌شوید. همکاران را بعداً از «تنظیمات ← کاربران» اضافه می‌کنید.";
+      body = <SignupForm onDone={setCode} submitText="ساخت حساب مدیر" busyText="در حال ساخت…" extraActions={<BackButton onClick={back} />} />;
+    }
   } else if (step === 1 && mode === "cloud") {
-    body = (
-      <>
-        {err ? <Alert type="error" showIcon className="!mb-4" title={err} /> : null}
-        {!orgs.length ? (
+    if (!orgs.length) {
+      title = "ورود به حساب ابری";
+      subtitle = "نشانی نسخهٔ وب و حسابی را که در آن دارید وارد کنید.";
+      body = (
+        <>
+          {err ? <FormAlert>{err}</FormAlert> : null}
           <Form
+            form={cloudForm}
             layout="vertical"
             requiredMark={false}
-            initialValues={{ url: "https://" }}
+            validateTrigger="onBlur"
+            className="pg-form"
+            initialValues={cloud ?? { url: "https://" }}
+            onValuesChange={(c) => {
+              if (err) setErr(null);
+              onCloudChange(c);
+            }}
             onFinish={async (v) => {
               setBusy(true);
               setErr(null);
@@ -107,33 +187,54 @@ export default function Setup() {
               }
             }}
           >
-            <Form.Item name="url" label="نشانی نسخه‌ی وب" rules={[{ required: true, type: "url", message: "نشانی کامل، مثلاً https://taraz.example.com" }]}>
-              <Input size="large" dir="ltr" />
+            <Form.Item
+              name="url"
+              label="نشانی نسخهٔ وب"
+              rules={[
+                { required: true, message: "نشانی نسخهٔ وب را وارد کنید." },
+                { type: "url", message: "نشانی کامل را وارد کنید، مثلاً https://siraf.example.com" },
+              ]}
+            >
+              <Input size="large" classNames={LTR} spellCheck={false} prefix={<Link2 {...ICON} aria-hidden />} autoFocus inputMode="url" />
             </Form.Item>
-            <Form.Item name="email" label="ایمیل حساب ابری" rules={[{ required: true, type: "email" }]}>
-              <Input size="large" dir="ltr" />
+            <Form.Item
+              name="email"
+              label="ایمیل حساب ابری"
+              rules={[
+                { required: true, message: "ایمیل را وارد کنید." },
+                { type: "email", message: "این ایمیل درست نیست." },
+              ]}
+            >
+              <Input size="large" classNames={LTR} spellCheck={false} prefix={<Mail {...ICON} aria-hidden />} inputMode="email" autoComplete="username" placeholder="name@example.com" />
             </Form.Item>
-            <Form.Item name="password" label="رمز عبور" rules={[{ required: true }]}>
-              <Input.Password size="large" dir="ltr" />
+            <Form.Item name="password" label="رمز عبور" rules={[{ required: true, message: "رمز عبور را وارد کنید." }]}>
+              <Input.Password size="large" classNames={LTR} prefix={<Lock {...ICON} aria-hidden />} autoComplete="current-password" iconRender={passwordIcon} />
             </Form.Item>
-            <Button type="primary" size="large" htmlType="submit" block loading={busy}>
-              ورود به حساب ابری
-            </Button>
-            <Button type="link" block className="!mt-2" onClick={() => setStep(0)}>
-              بازگشت
-            </Button>
+            <div className="pg-actions">
+              <Button type="primary" size="large" htmlType="submit" block loading={busy === true}>
+                {busy === true ? "در حال ورود…" : "ورود به حساب ابری"}
+              </Button>
+              <BackButton onClick={back} />
+            </div>
           </Form>
-        ) : (
-          <div className="space-y-3">
-            <div className="text-sm text-muted">کدام کسب‌وکار روی این رایانه دریافت شود؟</div>
+        </>
+      );
+    } else {
+      title = "کدام کسب‌وکار؟";
+      subtitle = "کسب‌وکاری را که می‌خواهید روی این رایانه دریافت شود انتخاب کنید.";
+      body = (
+        <>
+          {err ? <FormAlert>{err}</FormAlert> : null}
+          <div className="pg-choices">
             {orgs.map((o) => (
-              <Button
+              <button
                 key={o.id}
-                size="large"
-                block
-                loading={busy}
+                type="button"
+                className="pg-choice items-center"
+                disabled={!!busy}
+                aria-busy={busy === o.id}
                 onClick={async () => {
-                  setBusy(true);
+                  setBusy(o.id);
                   setErr(null);
                   try {
                     await api.post("/local/cloud/link", { ...cloud, org_id: o.id, direction: "download" });
@@ -147,39 +248,72 @@ export default function Setup() {
                   }
                 }}
               >
-                {o.name}
-              </Button>
+                <span className="pg-org-logo !h-9 !w-9 !text-base" aria-hidden>
+                  {initials(o.name).slice(0, 1)}
+                </span>
+                <span className="pg-choice-tx">
+                  <span className="pg-choice-t">{o.name}</span>
+                  {busy === o.id ? <span className="pg-choice-d">در حال دریافت داده‌ها…</span> : null}
+                </span>
+                {busy === o.id ? <Loader2 {...ICON} className="animate-spin text-ink-3" aria-hidden /> : <ChevronLeft {...ICON} className="text-ink-3" aria-hidden />}
+              </button>
             ))}
           </div>
-        )}
-      </>
-    );
+          <div className="pg-actions !mt-5">
+            <BackButton
+              onClick={() => {
+                setErr(null);
+                setOrgs([]);
+              }}
+            />
+          </div>
+        </>
+      );
+    }
   } else if (step === 1 && mode === "client") {
+    title = "اتصال به سرور شبکه";
+    subtitle = "نشانی سرور را در رایانهٔ سرور از «تنظیمات ← نسخهٔ ویندوز ← حالت شبکه» ببینید.";
     body = (
       <Form
+        form={clientForm}
         layout="vertical"
+        requiredMark={false}
+        validateTrigger="onBlur"
+        className="pg-form"
+        onValuesChange={onClientChange}
         onFinish={async (v) => {
-          await window.taraz?.setServer?.(String(v.url).replace(/\/+$/, ""));
+          setBusy(true);
+          try {
+            await window.taraz?.setServer?.(String(v.url).replace(/\/+$/, ""));
+          } finally {
+            setBusy(false);
+          }
         }}
         initialValues={{ url: "http://192.168.1.10:3939" }}
       >
-        <Alert type="info" showIcon className="!mb-4" title="نشانی را از رایانه‌ی سرور ببینید" description="در رایانه‌ی سرور: تنظیمات ← نسخه‌ی ویندوز ← حالت شبکه. نشانی‌ای مثل http://192.168.1.10:3939 نمایش داده می‌شود." />
-        <Form.Item name="url" label="نشانی سرور در شبکه" rules={[{ required: true }]}>
-          <Input size="large" dir="ltr" />
+        <Form.Item
+          name="url"
+          label="نشانی سرور در شبکه"
+          extra="مثلاً http://192.168.1.10:3939"
+          rules={[
+            { required: true, message: "نشانی سرور را وارد کنید." },
+            { pattern: /^https?:\/\/\S+$/i, message: "نشانی با http:// شروع می‌شود." },
+          ]}
+        >
+          <Input size="large" classNames={LTR} spellCheck={false} prefix={<Network {...ICON} aria-hidden />} autoFocus inputMode="url" />
         </Form.Item>
-        <Button type="primary" size="large" htmlType="submit" block>
-          اتصال
-        </Button>
-        <Button type="link" block className="!mt-2" onClick={() => setStep(0)}>
-          بازگشت
-        </Button>
+        <div className="pg-actions">
+          <Button type="primary" size="large" htmlType="submit" block loading={busy === true}>
+            {busy === true ? "در حال اتصال…" : "اتصال"}
+          </Button>
+          <BackButton onClick={back} />
+        </div>
       </Form>
     );
   }
 
   return (
-    <AuthLayout title="خوش آمدید" subtitle="سیراف روی این رایانه نصب شد. چطور شروع می‌کنید؟">
-      <Steps size="small" current={step} className="!mb-6" items={[{ title: "روش شروع" }, { title: mode === "cloud" ? "حساب ابری" : mode === "client" ? "سرور شبکه" : "حساب مدیر" }, { title: "کسب‌وکار" }]} />
+    <AuthLayout title={title} subtitle={subtitle} steps={steps} swapKey={`${step}-${step ? mode : ""}-${orgs.length ? "orgs" : ""}-${code ? "code" : ""}`}>
       {body}
     </AuthLayout>
   );

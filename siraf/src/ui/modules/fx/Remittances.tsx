@@ -3,16 +3,17 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { useQuery } from "@tanstack/react-query";
-import { Button, Input, Segmented, Select, Space, Table, Tabs, Tag, Tooltip } from "antd";
-import { PlusOutlined, SearchOutlined, ExportOutlined, ImportOutlined } from "@ant-design/icons";
+import { Button, Input, Segmented, Select, Space, Table, Tabs, Tooltip } from "antd";
+import { ArrowLeft, FileInput, FileOutput, Plus, Search, Send } from "lucide-react";
+import { Ic } from "../../components/shell/icons";
 import { useOrg } from "../../lib/org";
 import { useDebounced } from "../../lib/hooks";
 import { PageHeader } from "../../components/layout";
 import { ServerTable } from "../../components/data";
 import { DateInput, PartySelect } from "../../components/inputs";
-import { Money, JDate, StatusTag, EmptyState } from "../../components/display";
+import { Chip, Money, JDate, StatusTag, EmptyState } from "../../components/display";
 import { D } from "@shared/money";
-import { faDigits } from "@shared/format";
+import { faDigits, formatNumber } from "@shared/format";
 import { FxAmount, REM_STATUS } from "./shared";
 
 export default function Remittances() {
@@ -26,8 +27,8 @@ export default function Remittances() {
         actions={
           can("fx", "edit") ? (
             <>
-              <Button icon={<ImportOutlined />} onClick={() => nav(`/${orgId}/fx/remittances/new?direction=in`)}>حواله‌ی وارده</Button>
-              <Button type="primary" icon={<ExportOutlined />} onClick={() => nav(`/${orgId}/fx/remittances/new?direction=out`)}>حواله‌ی صادره</Button>
+              <Button icon={<Ic icon={FileInput} />} onClick={() => nav(`/${orgId}/fx/remittances/new?direction=in`)}>حواله‌ی وارده</Button>
+              <Button type="primary" icon={<Ic icon={FileOutput} />} onClick={() => nav(`/${orgId}/fx/remittances/new?direction=out`)}>حواله‌ی صادره</Button>
             </>
           ) : null
         }
@@ -56,7 +57,7 @@ function List() {
   const dq = useDebounced(q);
   const baseDp = org.money_decimals ?? 0;
   return (
-    <div className="tz-card p-3 md:p-4">
+    <div className="sf-card">
       <ServerTable
         path="/fx/remittances"
         queryKey={["table", "fx-remittances"]}
@@ -85,19 +86,19 @@ function List() {
             <PartySelect role="correspondent" value={corr} onChange={(id) => setCorr(id)} allowClear placeholder="همکار…" className="!w-48" />
             <DateInput value={from} onChange={setFrom} placeholder="از تاریخ" className="!w-36" allowClear />
             <DateInput value={to} onChange={setTo} placeholder="تا تاریخ" className="!w-36" allowClear />
-            <Input allowClear prefix={<SearchOutlined className="text-muted" />} placeholder="کد رهگیری، نام…" value={q} onChange={(e) => setQ(e.target.value)} className="!w-48" />
+            <Input allowClear prefix={<Ic icon={Search} className="text-ink-3" />} placeholder="کد رهگیری، نام…" value={q} onChange={(e) => setQ(e.target.value)} className="!w-48" />
           </Space>
         }
         columns={[
-          { key: "no", dataIndex: "no", title: "ش", width: 60, render: (v) => <b className="num">{faDigits(v)}</b> },
+          { key: "no", dataIndex: "no", title: "شماره", width: 72, render: (v) => <span className="sf-docno">{faDigits(v)}</span> },
           { key: "date", dataIndex: "date", title: "تاریخ", render: (v) => <JDate v={v} /> },
-          { key: "dir", dataIndex: "direction", title: "نوع", render: (v) => <Tag variant="filled" color={v === "out" ? "gold" : "cyan"} className="!m-0">{v === "out" ? "صادره" : "وارده"}</Tag> },
-          { key: "track", dataIndex: "tracking_code", title: "کد رهگیری", render: (v) => <span className="num ltr">{faDigits(v ?? "")}</span> },
-          { key: "who", title: "فرستنده ← ذی‌نفع", render: (_, r: any) => <span className="text-xs">{r.sender?.name ?? r.party_name ?? "—"} ← <b>{r.beneficiary?.name ?? "—"}</b></span> },
+          { key: "dir", dataIndex: "direction", title: "نوع", render: (v) => <span className="text-ink-2">{v === "out" ? "صادره" : "وارده"}</span> },
+          { key: "track", dataIndex: "tracking_code", title: "کد رهگیری", render: (v) => <bdi dir="ltr" className="sf-num text-ink-2">{faDigits(v ?? "")}</bdi> },
+          { key: "who", title: "فرستنده ← ذی‌نفع", render: (_, r: any) => <span className="inline-flex items-center gap-1.5"><span className="text-ink-2">{r.sender?.name ?? r.party_name ?? "—"}</span><Ic icon={ArrowLeft} size={14} className="text-ink-3" /><span>{r.beneficiary?.name ?? "—"}</span></span> },
           { key: "corr", dataIndex: "correspondent_name", title: "همکار" },
-          { key: "amount", title: "مبلغ", align: "left", render: (_, r: any) => <FxAmount v={r.amount} code={r.currency_code === org.base_currency ? unit : r.currency_code} dp={r.currency_code === org.base_currency ? baseDp : Number(r.currency_decimals ?? 2)} strong /> },
-          { key: "base", dataIndex: "base_amount", title: "معادل", align: "left", render: (v) => <Money v={v ?? 0} /> },
-          { key: "fee", dataIndex: "fee_base", title: "کارمزد", align: "left", render: (v) => <Money v={v ?? 0} zero="—" /> },
+          { key: "amount", title: "مبلغ", className: "sf-num", render: (_, r: any) => <FxAmount v={r.amount} code={r.currency_code === org.base_currency ? unit : r.currency_code} dp={r.currency_code === org.base_currency ? baseDp : Number(r.currency_decimals ?? 2)} strong /> },
+          { key: "base", dataIndex: "base_amount", title: "معادل", className: "sf-num", render: (v) => <Money v={v ?? 0} /> },
+          { key: "fee", dataIndex: "fee_base", title: "کارمزد", className: "sf-num", render: (v) => <Money v={v ?? 0} zero="—" /> },
           { key: "status", dataIndex: "status", title: "وضعیت", render: (v) => <StatusTag s={v} map={REM_STATUS} /> },
         ]}
       />
@@ -112,50 +113,52 @@ function Correspondents() {
   const q = useQuery({ queryKey: ["fx-correspondents", date], queryFn: () => api.get("/fx/reports/correspondents", { date }) });
   const rows = q.data?.rows ?? [];
   return (
-    <div className="tz-card p-3 md:p-4">
-      <div className="no-print mb-3 flex flex-wrap items-center gap-2">
+    <div className="sf-card">
+      <div className="no-print flex flex-wrap items-center gap-3 px-4 pb-3.5 pt-3.5">
         <DateInput value={date} onChange={setDate} placeholder="تا تاریخ (امروز)" className="!w-40" allowClear />
-        <span className="text-xs text-muted">مانده‌ی مثبت: همکار به ما بدهکار است · منفی: ما به همکار بدهکاریم · «در جریان»: حواله‌های صادره‌ای که هنوز پرداخت نشده‌اند</span>
+        <span className="text-[12px] text-ink-3">«طلب»: همکار به ما بدهکار است؛ «بدهی»: ما به همکار بدهکاریم؛ «در جریان»: حواله‌ی صادره‌ی پرداخت‌نشده.</span>
       </div>
       <Table
-        className="tz-table"
+        className=""
         size="small"
         rowKey="party_id"
         loading={q.isLoading}
         dataSource={rows}
         pagination={false}
-        locale={{ emptyText: <EmptyState title="همکاری ثبت نشده است؛ در پرونده‌ی شخص نقش «همکار صرافی / کارگزار» را بزنید" /> }}
+        locale={{ emptyText: <EmptyState icon={Send} title="همکاری ثبت نشده است" description="در پرونده‌ی شخص نقش «همکار صرافی / کارگزار» را بزنید." /> }}
         onRow={(r: any) => ({ onClick: () => nav(`/${orgId}/parties/${r.party_id}`), style: { cursor: "pointer" } })}
         columns={[
-          { key: "name", dataIndex: "name", title: "همکار", render: (v, r: any) => <div><b>{v}</b> <span className="num text-xs text-muted">{faDigits(r.code)}</span></div> },
+          { key: "name", dataIndex: "name", title: "همکار", render: (v, r: any) => <span><span className="sf-docno me-2 text-ink-3">{faDigits(r.code)}</span>{v}</span> },
           {
             key: "bal",
             title: "مانده به تفکیک ارز",
             render: (_, r: any) =>
               r.currencies.length ? (
-                <div className="flex flex-wrap gap-1.5">
+                <div className="flex flex-wrap gap-x-4 gap-y-1">
                   {r.currencies.map((c: any) => (
-                    <Tooltip key={c.currency_id} title={<span>معادل: {faDigits(D(c.balance_base).toFixed(0))}{!D(c.in_transit).isZero() ? ` · در جریان: ${faDigits(D(c.in_transit).toFixed())}` : ""}</span>}>
-                      <Tag variant="filled" color={D(c.balance).gt(0) ? "cyan" : D(c.balance).lt(0) ? "gold" : "default"} className="num !m-0">
-                        <span className="ltr">{c.code}</span> {faDigits(D(c.balance).abs().toFixed())} {D(c.balance).gt(0) ? "طلب" : D(c.balance).lt(0) ? "بدهی" : ""}
-                        {!D(c.in_transit).isZero() ? <span className="ms-1 text-[10px] opacity-75">(+{faDigits(D(c.in_transit).toFixed())} در جریان)</span> : null}
-                      </Tag>
+                    <Tooltip key={c.currency_id} title={<span>معادل {faDigits(D(c.balance_base).toFixed(0))}{!D(c.in_transit).isZero() ? `، در جریان ${faDigits(D(c.in_transit).toFixed())}` : ""}</span>}>
+                      <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                        <span className="sf-cur">{c.code}</span>
+                        <bdi dir="ltr" className="sf-fxa">{formatNumber(D(c.balance).abs(), { dp: 8, fa: false })}</bdi>
+                        <span className="text-[12px] text-ink-3">{D(c.balance).gt(0) ? "طلب" : D(c.balance).lt(0) ? "بدهی" : ""}</span>
+                        {!D(c.in_transit).isZero() ? <span className="text-[12px] text-ink-3">(در جریان <bdi dir="ltr" className="sf-fxa">{formatNumber(D(c.in_transit), { dp: 8, fa: false })}</bdi>)</span> : null}
+                      </span>
                     </Tooltip>
                   ))}
                 </div>
               ) : (
-                <span className="text-muted">تسویه</span>
+                <span className="text-ink-3">تسویه</span>
               ),
           },
           {
             key: "open",
             title: "حواله‌های باز",
             render: (_, r: any) => (
-              <span className="num text-xs">
-                {r.open.out_pending ? <Tag variant="filled" color="orange">{faDigits(r.open.out_pending)} در انتظار</Tag> : null}
-                {r.open.out_sent ? <Tag variant="filled" color="blue">{faDigits(r.open.out_sent)} ارسال‌شده</Tag> : null}
-                {r.open.in_pending ? <Tag variant="filled" color="cyan">{faDigits(r.open.in_pending)} وارده</Tag> : null}
-                {!r.open.out_pending && !r.open.out_sent && !r.open.in_pending ? <span className="text-muted">—</span> : null}
+              <span className="inline-flex flex-wrap gap-1.5">
+                {r.open.out_pending ? <Chip tone="warning" fig>{faDigits(r.open.out_pending)} در انتظار</Chip> : null}
+                {r.open.out_sent ? <span className="sf-chip sf-chip-fig" data-tone="neutral"><i className="sf-nuqta is-sea" aria-hidden /><span>{faDigits(r.open.out_sent)} در راه</span></span> : null}
+                {r.open.in_pending ? <Chip tone="neutral" fig>{faDigits(r.open.in_pending)} وارده</Chip> : null}
+                {!r.open.out_pending && !r.open.out_sent && !r.open.in_pending ? <span className="sf-zero">—</span> : null}
               </span>
             ),
           },
@@ -163,7 +166,7 @@ function Correspondents() {
             key: "go",
             width: 50,
             render: (_, r: any) => (
-              <Button size="small" type="text" icon={<PlusOutlined />} onClick={(e) => { e.stopPropagation(); nav(`/${orgId}/fx/remittances/new?direction=out&correspondent=${r.party_id}`); }} aria-label="حواله‌ی جدید" />
+              <span className="sf-row-act"><Tooltip title="حواله‌ی جدید"><Button size="small" type="text" icon={<Ic icon={Plus} />} onClick={(e) => { e.stopPropagation(); nav(`/${orgId}/fx/remittances/new?direction=out&correspondent=${r.party_id}`); }} aria-label="حواله‌ی جدید" /></Tooltip></span>
             ),
           },
         ]}

@@ -1,7 +1,7 @@
 // Transfer between cash boxes and bank accounts (انتقال وجه): a source, a destination, the amount
 // and an optional bank fee on either side. Shows the current balance of both sides.
 import { Input, Segmented } from "antd";
-import { ArrowLeftOutlined } from "@ant-design/icons";
+import { ArrowLeft, Landmark, Vault } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useOrg } from "../../lib/org";
 import { MoneyInput, RefSelect } from "../../components/inputs";
@@ -10,6 +10,7 @@ import { normalizeDigits } from "@shared/money";
 import { faDigits } from "@shared/format";
 import { amountToWords } from "@shared/words";
 import { remember, type Line } from "./editor";
+import { Field, ICON } from "../reports/kit";
 
 export function TransferForm({ lines, setLines, readonly }: { lines: Line[]; setLines: (fn: (ls: Line[]) => Line[]) => void; readonly: boolean }) {
   const { api, unit } = useOrg();
@@ -29,12 +30,12 @@ export function TransferForm({ lines, setLines, readonly }: { lines: Line[]; set
     const isBank = l.method !== "cash";
     const b = balanceOf(l);
     return (
-      <div className="tz-soft flex-1 p-3">
-        <div className="mb-2 flex items-center gap-2">
-          <span className="text-sm font-bold">{i === 0 ? "از (برداشت)" : "به (واریز)"}</span>
+      <div className="bk-xfer-side">
+        <h3>
+          {isBank ? <Landmark {...ICON} className="bk-3" aria-hidden /> : <Vault {...ICON} className="bk-3" aria-hidden />}
+          {i === 0 ? "از (برداشت)" : "به (واریز)"}
           <Segmented
             size="small"
-            className="ms-auto"
             disabled={readonly}
             value={isBank ? "bank" : "cash"}
             options={[
@@ -45,43 +46,42 @@ export function TransferForm({ lines, setLines, readonly }: { lines: Line[]; set
               set(i, v === "cash" ? { method: "cash", bank_account_id: null, fee: null, ref_no: "" } : { method: "bank", cash_box_id: null })
             }
           />
-        </div>
+        </h3>
+        <Field label={isBank ? "حساب بانکی" : "صندوق"} extra={b !== null ? <>موجودی <Balance v={b} /></> : null}>
+          {isBank ? (
+            <RefSelect
+              entity="bank_account"
+              className="w-full"
+              value={l.bank_account_id}
+              disabled={readonly}
+              placeholder="حساب بانکی"
+              onChange={(id, o) => {
+                set(i, { bank_account_id: id, names: { ...l.names, src: o?.label } });
+                remember("bank_account", id);
+              }}
+            />
+          ) : (
+            <RefSelect
+              entity="cash_box"
+              className="w-full"
+              value={l.cash_box_id}
+              disabled={readonly}
+              placeholder="صندوق"
+              onChange={(id, o) => {
+                set(i, { cash_box_id: id, names: { ...l.names, src: o?.label } });
+                remember("cash_box", id);
+              }}
+            />
+          )}
+        </Field>
         {isBank ? (
-          <RefSelect
-            entity="bank_account"
-            className="w-full"
-            value={l.bank_account_id}
-            disabled={readonly}
-            placeholder="حساب بانکی"
-            onChange={(id, o) => {
-              set(i, { bank_account_id: id, names: { ...l.names, src: o?.label } });
-              remember("bank_account", id);
-            }}
-          />
-        ) : (
-          <RefSelect
-            entity="cash_box"
-            className="w-full"
-            value={l.cash_box_id}
-            disabled={readonly}
-            placeholder="صندوق"
-            onChange={(id, o) => {
-              set(i, { cash_box_id: id, names: { ...l.names, src: o?.label } });
-              remember("cash_box", id);
-            }}
-          />
-        )}
-        <div className="mt-1 min-h-5 text-xs text-muted">{b !== null ? <>موجودی فعلی: <Balance v={b} /></> : null}</div>
-        {isBank ? (
-          <div className="mt-2 grid grid-cols-2 gap-2">
-            <div>
-              <div className="mb-0.5 text-[11px] text-muted">شماره پیگیری</div>
-              <Input dir="ltr" className="num" value={faDigits(l.ref_no)} disabled={readonly} onChange={(e) => set(i, { ref_no: normalizeDigits(e.target.value) })} />
-            </div>
-            <div>
-              <div className="mb-0.5 text-[11px] text-muted">کارمزد بانکی</div>
+          <div className="bk-grid2" style={{ rowGap: 12 }}>
+            <Field label="شمارهٔ پیگیری">
+              <Input dir="ltr" className="sf-num" style={{ textAlign: "right" }} value={faDigits(l.ref_no)} disabled={readonly} onChange={(e) => set(i, { ref_no: normalizeDigits(e.target.value) })} />
+            </Field>
+            <Field label="کارمزد بانکی" extra="اختیاری">
               <MoneyInput value={l.fee} disabled={readonly} placeholder="—" onChange={(v) => set(i, { fee: v })} />
-            </div>
+            </Field>
           </div>
         ) : null}
       </div>
@@ -90,21 +90,19 @@ export function TransferForm({ lines, setLines, readonly }: { lines: Line[]; set
 
   return (
     <div>
-      <div className="flex flex-col items-stretch gap-3 md:flex-row">
+      <div className="bk-xfer">
         {side(0)}
-        <ArrowLeftOutlined className="self-center text-xl text-muted max-md:rotate-[-90deg]" />
+        <div className="bk-xfer-arrow" aria-hidden>
+          <span>
+            <ArrowLeft {...ICON} />
+          </span>
+        </div>
         {side(1)}
       </div>
-      <div className="mt-4 max-w-md">
-        <div className="mb-1 text-xs text-muted">مبلغ انتقال</div>
-        <MoneyInput
-          size="large"
-          value={amount}
-          disabled={readonly}
-          showUnit
-          onChange={(v) => setLines((ls) => ls.map((l) => ({ ...l, amount: v })))}
-        />
-        <div className="mt-1 text-xs text-muted">{amount ? amountToWords(amount, unit) : ""}</div>
+      <div className="bk-amount">
+        <Field label="مبلغ انتقال" hint={amount ? amountToWords(amount, unit) : null}>
+          <MoneyInput size="large" value={amount} disabled={readonly} showUnit onChange={(v) => setLines((ls) => ls.map((l) => ({ ...l, amount: v })))} />
+        </Field>
       </div>
     </div>
   );

@@ -1,367 +1,274 @@
-// App frame: right-hand sidebar (RTL), header with business switcher, fiscal year, search,
-// sync status and user menu; page headers; the command palette (Ctrl+K).
-import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Layout, Menu, Dropdown, Button, Select, Tooltip, Modal, Input, Badge, Avatar, Grid, Drawer } from "antd";
-import {
-  MenuFoldOutlined, MenuUnfoldOutlined, SearchOutlined, MoonOutlined, SunOutlined, UserOutlined, LogoutOutlined,
-  SwapOutlined, CloudSyncOutlined, CloudOutlined, DesktopOutlined, KeyOutlined, WarningOutlined, ArrowRightOutlined,
-} from "@ant-design/icons";
-import { Link, useLocation, useNavigate } from "react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { NAV, type NavGroup, type NavItem } from "../modules/registry";
+// App frame (components.md §1): the canvas sidebar on the right (RTL) with the business and space switchers,
+// the glass top bar, the content panel and the command palette (Ctrl K); plus PageHeader and Section.
+// The parts live in ./shell/ (Sidebar, Topbar, CommandPalette, model, shell.css).
+import { Children, isValidElement, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Drawer, Badge } from "antd";
+import { useLocation, useNavigate } from "react-router";
+import { ArrowRight, Moon, Sun, PanelRight, Pin, House } from "lucide-react";
+import { APP_NAME } from "@shared/constants";
 import { useOrg } from "../lib/org";
-import { useSession } from "../lib/session";
-import { api } from "../lib/api";
-import { faDigits } from "@shared/format";
-import { formatJalaliDateTime } from "@shared/jalali";
 import { useTheme } from "../lib/theme";
 import { Logo as BrandLogo } from "./brand";
-
-const { Sider, Header, Content } = Layout;
+import { Sidebar, SIDEBAR_W, SIDEBAR_MIN, SIDEBAR_MAX } from "./shell/Sidebar";
+import { Topbar, type Crumb } from "./shell/Topbar";
+import { CommandPalette as Palette, type PaletteCommand } from "./shell/CommandPalette";
+import { ShellCtx, usePageTitle, type ShellApi } from "./shell/context";
+import { Ic } from "./shell/icons";
+import { matchItem, pushRecent, routeSpace, spaceOf, useRelPath, useShellItems, useSpaceMemory, useSpaces, useStored } from "./shell/model";
+import type { SpaceKey } from "../modules/registry";
+import "./shell/shell.css";
 
 export function Logo({ collapsed, light }: { collapsed?: boolean; light?: boolean }) {
   return <BrandLogo size={22} tone={light ? "white" : "ink"} compact={collapsed} />;
 }
 
-function useVisibleNav(): NavGroup[] {
-  const { can, has } = useOrg();
-  const { meta } = useSession();
-  return useMemo(
-    () =>
-      NAV.filter((g) => !g.module || has(g.module))
-        .map((g) => ({
-          ...g,
-          items: g.items.filter(
-            (i) =>
-              (!i.module || has(i.module)) &&
-              (!i.area || can(i.area, i.level ?? "view")) &&
-              (!i.desktopOnly || meta?.mode === "desktop") &&
-              (!i.cloudOnly || meta?.mode === "cloud"),
-          ),
-        }))
-        .filter((g) => g.items.length),
-    [can, has, meta?.mode],
-  );
-}
-
-function SideMenu({ onNavigate }: { onNavigate?: () => void }) {
-  const { orgId } = useOrg();
-  const loc = useLocation();
-  const groups = useVisibleNav();
-  const rel = loc.pathname.replace(`/${orgId}`, "").replace(/^\//, "");
-  const selected = useMemo(() => {
-    let best: { key: string; len: number } = { key: "dashboard", len: -1 };
-    for (const g of groups)
-      for (const i of g.items) {
-        if ((i.path === "" && rel === "") || (i.path && (rel === i.path || rel.startsWith(`${i.path}/`)))) {
-          if (i.path.length > best.len) best = { key: i.key, len: i.path.length };
-        }
-      }
-    return best.key;
-  }, [groups, rel]);
-  const openGroup = groups.find((g) => g.items.some((i) => i.key === selected))?.key;
-  const [open, setOpen] = useState<string[]>(openGroup ? [openGroup] : []);
-  useEffect(() => {
-    if (openGroup) setOpen((o) => (o.includes(openGroup) ? o : [...o, openGroup]));
-  }, [openGroup]);
-  return (
-    <Menu
-      mode="inline"
-      theme="dark"
-      selectedKeys={[selected]}
-      openKeys={open}
-      onOpenChange={(k) => setOpen(k as string[])}
-      style={{ background: "transparent", borderInlineEnd: 0 }}
-      items={groups.map((g) =>
-        g.items.length === 1 && g.key === "home"
-          ? { key: g.items[0].key, icon: g.icon, label: <Link to={`/${orgId}`} onClick={onNavigate}>{g.items[0].label}</Link> }
-          : {
-              key: g.key,
-              icon: g.icon,
-              label: g.label,
-              children: g.items.map((i) => ({ key: i.key, label: <Link to={`/${orgId}/${i.path}`} onClick={onNavigate}>{i.label}</Link> })),
-            },
-      )}
-    />
-  );
-}
-
-function SyncBadge() {
-  const { meta } = useSession();
-  const desktop = meta?.mode === "desktop";
-  const q = useQuery({
-    queryKey: ["local-sync"],
-    queryFn: () => api.get("/local/sync"),
-    enabled: desktop,
-    refetchInterval: 8000,
-  });
-  if (!desktop) {
-    return (
-      <Tooltip title="نسخه‌ی وب — داده‌ها مستقیم در فضای ابری ذخیره می‌شوند">
-        <span className="hidden items-center gap-1 rounded-full bg-brand-soft px-2.5 py-1 text-xs text-brand sm:flex">
-          <CloudOutlined /> ابری
-        </span>
-      </Tooltip>
-    );
-  }
-  const s = q.data as { linked: boolean; running: boolean; online: boolean | null; pending: number; last_sync_at: string | null; last_error: string | null } | undefined;
-  if (!s?.linked) {
-    return (
-      <Tooltip title="روی همین رایانه ذخیره می‌شود؛ برای هم‌گامی با نسخه‌ی وب از تنظیمات ← همگام‌سازی وصل شوید">
-        <span className="hidden items-center gap-1 rounded-full bg-surface-2 px-2.5 py-1 text-xs text-muted sm:flex">
-          <DesktopOutlined /> محلی
-        </span>
-      </Tooltip>
-    );
-  }
-  const tone = s.last_error ? "bg-[color-mix(in_srgb,var(--tz-warning)_15%,transparent)] text-warn" : "bg-brand-soft text-brand";
-  return (
-    <Tooltip
-      title={
-        <div className="text-xs">
-          {s.last_error ? <div>{s.last_error}</div> : <div>هم‌گام با نسخه‌ی وب</div>}
-          {s.last_sync_at ? <div>آخرین هم‌گامی: {formatJalaliDateTime(s.last_sync_at)}</div> : null}
-          {s.pending ? <div>{faDigits(s.pending)} تغییر در صف ارسال</div> : null}
-        </div>
-      }
-    >
-      <button
-        type="button"
-        onClick={() => api.post("/local/sync").then(() => q.refetch())}
-        className={`hidden items-center gap-1 rounded-full px-2.5 py-1 text-xs sm:flex ${tone}`}
-      >
-        {s.last_error ? <WarningOutlined /> : <CloudSyncOutlined spin={s.running} />}
-        {s.pending ? `${faDigits(s.pending)} در صف` : "هم‌گام"}
-      </button>
-    </Tooltip>
-  );
-}
-
+/** The command palette (kept as an export for screens that open it themselves). */
 export function CommandPalette({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const groups = useVisibleNav();
-  const { orgId } = useOrg();
-  const nav = useNavigate();
-  const [q, setQ] = useState("");
-  const [idx, setIdx] = useState(0);
-  const all = useMemo(() => groups.flatMap((g) => g.items.map((i) => ({ ...i, group: g.label }))), [groups]);
-  const list = useMemo(() => {
-    const s = q.trim();
-    if (!s) return all.slice(0, 40);
-    return all.filter((i) => `${i.label} ${i.group} ${i.keywords ?? ""}`.includes(s)).slice(0, 40);
-  }, [all, q]);
-  useEffect(() => setIdx(0), [q, open]);
-  const go = (i: NavItem) => {
-    nav(`/${orgId}/${i.path}`);
-    onClose();
-    setQ("");
-  };
-  return (
-    <Modal open={open} onCancel={onClose} footer={null} closable={false} width={560} styles={{ body: { padding: 0 } }} destroyOnHidden>
-      <div className="border-b border-line p-3">
-        <Input
-          autoFocus
-          size="large"
-          variant="borderless"
-          prefix={<SearchOutlined className="text-muted" />}
-          placeholder="جستجوی صفحه یا کار… (مثلاً «فاکتور فروش»، «تراز»)"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "ArrowDown") {
-              e.preventDefault();
-              setIdx((i) => Math.min(i + 1, list.length - 1));
-            } else if (e.key === "ArrowUp") {
-              e.preventDefault();
-              setIdx((i) => Math.max(i - 1, 0));
-            } else if (e.key === "Enter" && list[idx]) go(list[idx]);
-          }}
-        />
-      </div>
-      <div className="max-h-[420px] overflow-auto p-2">
-        {list.map((i, n) => (
-          <button
-            key={`${i.group}-${i.key}`}
-            type="button"
-            onMouseEnter={() => setIdx(n)}
-            onClick={() => go(i)}
-            className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-start text-sm ${n === idx ? "bg-brand-soft text-brand" : ""}`}
-          >
-            <span>{i.label}</span>
-            <span className="text-xs text-muted">{i.group}</span>
-          </button>
-        ))}
-        {!list.length ? <div className="p-6 text-center text-sm text-muted">چیزی پیدا نشد</div> : null}
-      </div>
-    </Modal>
-  );
+  return <Palette open={open} onClose={onClose} />;
+}
+
+function useViewportWidth() {
+  const [w, setW] = useState(() => (typeof window === "undefined" ? 1440 : window.innerWidth));
+  useEffect(() => {
+    const on = () => setW(window.innerWidth);
+    window.addEventListener("resize", on);
+    return () => window.removeEventListener("resize", on);
+  }, []);
+  return w;
+}
+
+interface SidebarPref {
+  w: number;
+  collapsed: boolean;
 }
 
 export function AppShell({ children }: { children: ReactNode }) {
-  const screens = Grid.useBreakpoint();
-  const mobile = !screens.lg;
-  const [collapsed, setCollapsed] = useState(() => {
-    try {
-      return localStorage.getItem("taraz.sider") === "1";
-    } catch {
-      return false;
-    }
-  });
+  const vw = useViewportWidth();
+  const mobile = vw < 768;
+  const narrow = vw < 1100;
+  const [pref, setPref] = useStored<SidebarPref>("siraf.sidebar", { w: SIDEBAR_W, collapsed: false });
+  const width = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, Number(pref.w) || SIDEBAR_W));
+  const rail = !mobile && (narrow || pref.collapsed);
   const [drawer, setDrawer] = useState(false);
   const [palette, setPalette] = useState(false);
-  const { org, info, fy, setFy } = useOrg();
-  const { me, logout, meta } = useSession();
+  const [title, setTitle] = useState<string | null>(null);
+
+  const { orgId, can } = useOrg();
   const { dark, toggle } = useTheme();
   const nav = useNavigate();
-  const qc = useQueryClient();
+  const loc = useLocation();
+  const rel = useRelPath();
 
+  const items = useShellItems();
+  const spaces = useSpaces(items);
+  const active = useMemo(() => matchItem(items, rel), [items, rel]);
+  const current = routeSpace(active, rel);
+  const memory = useSpaceMemory(orgId, current, rel, loc.search);
+  const fallback: SpaceKey = spaces.some((s) => s.key === memory.last) ? memory.last : (spaces[0]?.key ?? "accounting");
+  const space: SpaceKey = current ?? fallback;
+  const [pins, setPins] = useStored<string[]>(`siraf.pins.${orgId}`, []);
+
+  const go = useCallback((path: string) => nav(`/${orgId}${path ? `/${path.replace(/^\//, "")}` : ""}`), [nav, orgId]);
+  const firstOf = (s: SpaceKey) => items.find((i) => i.space === s && !i.common)?.path ?? "";
+  const onSpace = (s: SpaceKey) => {
+    memory.setLast(s);
+    // on a page of every space (پیشخوان، اشخاص) the switch only focuses the nav; elsewhere it opens the
+    // space's last page (or its first one), so the nav and the page always agree
+    if (s === current || current === null) return;
+    go(memory.pages[s] ?? firstOf(s));
+  };
+  const onSettings = () => {
+    if (current === "settings") return;
+    go(memory.pages.settings ?? (can("settings") ? "settings/org" : "settings/account"));
+  };
+  const onLeaveSettings = () => go(memory.pages[fallback] ?? "");
+
+  const openPalette = useCallback(() => setPalette(true), []);
+  const shell = useMemo<ShellApi>(() => ({ setTitle, openPalette }), [openPalette]);
+
+  // Ctrl K (any keyboard layout: the K key types «ن» on the Persian layout) toggles the palette
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && (e.key === "k" || e.key === "K" || e.key === "ك" || e.key === "ن")) {
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.code === "KeyK" || ["k", "K", "ن", "ك"].includes(e.key))) {
         e.preventDefault();
-        setPalette(true);
+        setPalette((p) => !p);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const sider = (
-    <div className="flex h-full flex-col">
-      <div className="flex h-16 shrink-0 items-center px-4">
-        <Logo collapsed={collapsed && !mobile} light />
-      </div>
-      <div className="min-h-0 flex-1 overflow-y-auto pb-6">
-        <SideMenu onNavigate={() => setDrawer(false)} />
-      </div>
-      {!collapsed || mobile ? (
-        <div className="shrink-0 border-t border-white/10 px-4 py-3 text-[11px] text-[var(--tz-sidebar-text)]">
-          {meta?.mode === "desktop" ? "نسخه‌ی ویندوز" : "نسخه‌ی وب"} · {faDigits(meta?.version ?? "")}
-        </div>
-      ) : null}
-    </div>
+  // close the drawer on navigation; leave it when the window grows
+  useEffect(() => setDrawer(false), [loc.pathname]);
+  useEffect(() => {
+    if (!narrow) setDrawer(false);
+  }, [narrow]);
+
+  // breadcrumb: the space; top-level pages reveal their item once the H1 scrolls away, detail pages show the path
+  const detail = !active || rel !== active.path;
+  const crumbs: Crumb[] = [];
+  const spaceLabel = spaceOf(space).label;
+  if (!detail && active) {
+    crumbs.push({ label: active.common ? spaceOf(fallback).label : spaceLabel });
+    crumbs.push({ label: active.label, current: true, reveal: true });
+  } else {
+    // a record of a page every space shares (a person's file) needs no space in front of it
+    if (!active?.common) crumbs.push({ label: spaceLabel });
+    if (active) crumbs.push({ label: active.label, to: `/${orgId}${active.path ? `/${active.path}` : ""}` });
+    if (title && title !== active?.label) crumbs.push({ label: title, current: true });
+  }
+
+  // the window title and the palette's recent pages
+  const pageLabel = detail ? (title ?? active?.label ?? null) : (active?.label ?? title);
+  useEffect(() => {
+    document.title = pageLabel ? `${pageLabel} — ${APP_NAME}` : APP_NAME;
+  }, [pageLabel]);
+  useEffect(() => {
+    if (!pageLabel) return;
+    const t = window.setTimeout(() => pushRecent(orgId, { path: rel + loc.search, label: pageLabel, key: detail ? undefined : active?.key }), 600);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orgId, rel, pageLabel]);
+
+  const toggleSidebar = () => {
+    if (narrow) setDrawer((d) => !d);
+    else setPref((p) => ({ ...p, collapsed: !p.collapsed }));
+  };
+  const toggleLabel = narrow ? "نمایش منو" : pref.collapsed ? "باز کردن نوار کناری" : "جمع کردن نوار کناری";
+
+  const commands = useMemo<PaletteCommand[]>(() => {
+    const list: PaletteCommand[] = [
+      { key: "theme", label: dark ? "پوستهٔ روشن" : "پوستهٔ تیره", icon: dark ? Sun : Moon, keywords: "تم حالت شب روز رنگ", run: toggle },
+      { key: "home", label: "رفتن به پیشخوان", icon: House, keywords: "داشبورد خانه", run: () => go("") },
+    ];
+    if (!narrow) list.push({ key: "sidebar", label: pref.collapsed ? "باز کردن نوار کناری" : "جمع کردن نوار کناری", icon: PanelRight, keywords: "منو سایدبار", run: () => setPref((p) => ({ ...p, collapsed: !p.collapsed })) });
+    if (active && !detail)
+      list.push(
+        pins.includes(active.key)
+          ? { key: "unpin", label: `برداشتن «${active.label}» از نشان‌شده‌ها`, icon: Pin, keywords: "نشان سنجاق", run: () => setPins((p) => p.filter((k) => k !== active.key)) }
+          : { key: "pin", label: `نشان کردن «${active.label}»`, icon: Pin, keywords: "نشان سنجاق نشان‌شده", run: () => setPins((p) => (p.includes(active.key) ? p : [...p, active.key].slice(-5))) },
+      );
+    return list;
+  }, [dark, toggle, go, narrow, pref.collapsed, setPref, active, detail, pins, setPins]);
+
+  const sidebar = (inDrawer: boolean) => (
+    <Sidebar
+      items={items}
+      spaces={spaces}
+      space={space}
+      active={active}
+      onSpace={onSpace}
+      onSettings={onSettings}
+      onLeaveSettings={onLeaveSettings}
+      onPalette={() => {
+        setDrawer(false);
+        setPalette(true);
+      }}
+      onNavigate={inDrawer ? () => setDrawer(false) : undefined}
+      rail={!inDrawer && rail}
+      width={inDrawer ? 280 : width}
+      onResize={inDrawer ? undefined : (w) => setPref((p) => ({ ...p, w }))}
+      pins={pins}
+      onPins={setPins}
+    />
   );
 
   return (
-    <Layout className="min-h-screen" hasSider>
-      {mobile ? (
-        <Drawer open={drawer} onClose={() => setDrawer(false)} placement="right" size={272} closable={false} styles={{ body: { padding: 0, background: "var(--tz-sidebar)" } }}>
-          {sider}
-        </Drawer>
-      ) : (
-        <Sider
-          width={256}
-          collapsedWidth={72}
-          collapsed={collapsed}
-          trigger={null}
-          className="no-print"
-          style={{ background: "linear-gradient(180deg, var(--tz-sidebar) 0%, var(--tz-sidebar-2) 100%)", position: "sticky", top: 0, height: "100vh", overflow: "hidden" }}
-        >
-          {sider}
-        </Sider>
-      )}
-      <Layout style={{ background: "var(--tz-bg)" }}>
-        <Header className="tz-header no-print sticky top-0 z-20 flex h-14 items-center gap-2 border-b border-line !bg-[color-mix(in_srgb,var(--tz-surface)_88%,transparent)] !px-3 backdrop-blur md:!px-5" style={{ lineHeight: "normal" }}>
-          <Button
-            type="text"
-            icon={mobile ? <MenuUnfoldOutlined /> : collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-            onClick={() => {
-              if (mobile) setDrawer(true);
-              else {
-                setCollapsed(!collapsed);
-                try {
-                  localStorage.setItem("taraz.sider", collapsed ? "0" : "1");
-                } catch {
-                  /* ignore */
-                }
-              }
-            }}
-            aria-label="منو"
-          />
-          <Dropdown
-            trigger={["click"]}
-            menu={{
-              items: [
-                ...(me?.orgs ?? []).map((o) => ({ key: o.id, label: o.name, onClick: () => nav(`/${o.id}`) })),
-                { type: "divider" as const },
-                { key: "new", label: "کسب‌وکار جدید / همه", icon: <SwapOutlined />, onClick: () => nav("/orgs") },
-              ],
+    <ShellCtx.Provider value={shell}>
+      <div
+        className={`sh-app ${mobile ? "is-mobile" : ""} ${rail ? "is-rail" : ""}`}
+        style={{ ["--sh-side-w" as string]: `${rail ? 60 : width}px` }}
+      >
+        {mobile ? null : sidebar(false)}
+        <div className="sh-main">
+          <div className="sh-top-wrap no-print">
+            <Topbar crumbs={crumbs} pathKey={loc.pathname} onToggle={toggleSidebar} toggleLabel={toggleLabel} onSearch={mobile ? openPalette : undefined} drawer={narrow} />
+          </div>
+          <main className="sh-panel ant-layout-content" id="main">
+            <div className="sh-page">{children}</div>
+          </main>
+        </div>
+        {narrow ? (
+          <Drawer
+            open={drawer}
+            onClose={() => setDrawer(false)}
+            placement="right"
+            size={280}
+            closable={false}
+            mask
+            rootClassName="sh-drawer no-print"
+            styles={{
+              wrapper: { margin: 0, borderRadius: 0, boxShadow: "var(--sf-shadow-e4)" },
+              section: { background: "var(--sf-canvas)" },
+              body: { padding: 0 },
+              mask: { background: "var(--sf-scrim)" },
             }}
           >
-            <button type="button" className="flex min-w-0 items-center gap-2 rounded-lg px-2 py-1 hover:bg-surface-2">
-              {org.logo ? <img src={org.logo} alt="" className="h-7 w-7 rounded-md object-cover" /> : <span className="grid h-7 w-7 place-content-center rounded-md bg-brand-soft text-sm font-bold text-brand">{org.name.slice(0, 1)}</span>}
-              <span className="max-w-[180px] truncate text-sm font-semibold">{org.name}</span>
-            </button>
-          </Dropdown>
-          {info.fiscal_years.length ? (
-            <Select
-              size="small"
-              value={fy?.id}
-              onChange={(id) => {
-                setFy(id);
-                qc.invalidateQueries();
-              }}
-              popupMatchSelectWidth={false}
-              className="hidden min-w-[130px] md:inline-flex"
-              options={info.fiscal_years.map((f) => ({ value: f.id, label: `${f.title}${f.status === "closed" ? " (بسته)" : ""}` }))}
-            />
-          ) : null}
-          <div className="flex-1" />
-          <button type="button" onClick={() => setPalette(true)} className="hidden h-8 w-56 items-center gap-2 rounded-lg border border-line bg-surface-2 px-2.5 text-xs text-muted md:flex">
-            <SearchOutlined /> جستجو در برنامه… <span className="ms-auto tz-kbd ltr">Ctrl K</span>
-          </button>
-          <Button className="md:!hidden" type="text" icon={<SearchOutlined />} onClick={() => setPalette(true)} aria-label="جستجو" />
-          <SyncBadge />
-          <Tooltip title={dark ? "حالت روشن" : "حالت تیره"}>
-            <Button type="text" icon={dark ? <SunOutlined /> : <MoonOutlined />} onClick={toggle} aria-label="تم" />
-          </Tooltip>
-          <Dropdown
-            trigger={["click"]}
-            menu={{
-              items: [
-                { key: "me", label: <div className="py-1"><div className="font-semibold">{me?.user.full_name}</div><div className="text-xs text-muted ltr">{me?.user.email}</div></div>, disabled: true },
-                { type: "divider" as const },
-                { key: "profile", icon: <KeyOutlined />, label: "حساب کاربری و رمز", onClick: () => nav(`/${org.id}/settings/account`) },
-                { key: "logout", icon: <LogoutOutlined />, label: "خروج", danger: true, onClick: () => logout() },
-              ],
-            }}
-          >
-            <Avatar size={32} className="cursor-pointer !bg-brand" icon={<UserOutlined />}>
-              {me?.user.full_name?.slice(0, 1)}
-            </Avatar>
-          </Dropdown>
-        </Header>
-        <Content className="p-3 md:p-5">{children}</Content>
-      </Layout>
-      <CommandPalette open={palette} onClose={() => setPalette(false)} />
-    </Layout>
+            {sidebar(true)}
+          </Drawer>
+        ) : null}
+      </div>
+      <Palette open={palette} onClose={() => setPalette(false)} commands={commands} />
+    </ShellCtx.Provider>
+  );
+}
+
+// ---------------------------------------------------------------- page header
+
+/** Plain text of a title (for the breadcrumb, the window title and recent pages). */
+function textOf(node: ReactNode): string {
+  if (node === null || node === undefined || typeof node === "boolean") return "";
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(textOf).join("");
+  if (isValidElement<{ children?: ReactNode }>(node)) return Children.toArray(node.props.children).map(textOf).join("");
+  return "";
+}
+
+/** Arad never sets figures: the digit runs of a string title are set in Vazirmatn. */
+function titleWithFigures(title: ReactNode): ReactNode {
+  if (typeof title !== "string" || !/[0-9۰-۹]/.test(title)) return title;
+  return title.split(/([0-9۰-۹][0-9۰-۹٫٬/.,-]*)/).map((part, i) =>
+    i % 2 ? (
+      <span key={i} className="sf-ph-num">
+        {part}
+      </span>
+    ) : (
+      part
+    ),
   );
 }
 
 export function PageHeader({ title, subtitle, actions, back, extra }: { title: ReactNode; subtitle?: ReactNode; actions?: ReactNode; back?: string | boolean; extra?: ReactNode }) {
   const nav = useNavigate();
+  const text = textOf(title).trim();
+  usePageTitle(text || null);
   return (
-    <div className="no-print mb-4 flex flex-wrap items-center gap-3">
-      {back ? <Button type="text" icon={<ArrowRightOutlined />} onClick={() => (typeof back === "string" ? nav(back) : nav(-1))} aria-label="بازگشت" /> : null}
-      <div className="min-w-0">
-        <h1 className="m-0 text-xl font-bold">{title}</h1>
-        {subtitle ? <div className="mt-0.5 text-xs text-muted">{subtitle}</div> : null}
+    <div className="sf-ph no-print">
+      {back ? (
+        <button type="button" className="sh-icon-btn" onClick={() => (typeof back === "string" ? nav(back) : nav(-1))} aria-label="بازگشت">
+          <Ic icon={ArrowRight} />
+        </button>
+      ) : null}
+      <div className="sf-ph-t">
+        <h1>{titleWithFigures(title)}</h1>
+        {subtitle ? <div className="sf-ph-meta">{subtitle}</div> : null}
       </div>
       {extra}
-      <div className="ms-auto flex flex-wrap items-center gap-2">{actions}</div>
+      {actions ? <div className="sf-ph-actions">{actions}</div> : null}
     </div>
   );
 }
 
 export function Section({ title, extra, children, className, bodyClass }: { title?: ReactNode; extra?: ReactNode; children: ReactNode; className?: string; bodyClass?: string }) {
   return (
-    <section className={`tz-card ${className ?? ""}`}>
+    <section className={`tz-card sf-section ${className ?? ""}`}>
       {title || extra ? (
-        <div className="flex items-center gap-2 border-b border-line px-4 py-3">
-          <h2 className="m-0 text-sm font-bold">{title}</h2>
-          <div className="ms-auto">{extra}</div>
+        <div className="sf-section-h">
+          {title ? <h2>{title}</h2> : null}
+          {extra ? <div className="sf-section-x">{extra}</div> : null}
         </div>
       ) : null}
-      <div className={bodyClass ?? "p-4"}>{children}</div>
+      <div className={bodyClass ?? "sf-section-b"}>{children}</div>
     </section>
   );
 }

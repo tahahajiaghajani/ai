@@ -1,4 +1,4 @@
--- «تراز» migration 0004_inventory_commerce — کالا، انبار، خرید و فروش
+-- «سیراف» migration 0004_inventory_commerce — کالا، انبار، خرید و فروش
 create table if not exists tz_migrations (id text primary key, applied_at timestamptz not null default now());
 
 -- ---------------------------------------------------------------------------

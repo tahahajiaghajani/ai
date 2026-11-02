@@ -1,4 +1,4 @@
--- «تراز» migration 0008_treasury — خزانه‌داری و چک
+-- «سیراف» migration 0008_treasury — خزانه‌داری و چک
 create table if not exists tz_migrations (id text primary key, applied_at timestamptz not null default now());
 
 -- ---------------------------------------------------------------------------

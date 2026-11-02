@@ -1,4 +1,5 @@
 import { lazy } from "react";
+import { Activity, ShoppingBag, Handshake, Recycle, PackageOpen, Flame, Files, Tag, FolderTree, Weight, ChartColumn } from "lucide-react";
 import type { NavGroup, AppRoute } from "../registry";
 import { EntityPage } from "../../components/data";
 import { KIND_PATH, type DocKind } from "./shared";
@@ -14,22 +15,22 @@ const Workshop = lazy(() => import("./Workshop"));
 const StockReport = lazy(() => import("./StockReport"));
 const SalesReport = lazy(() => import("./SalesReport"));
 
-export const goldNav: Omit<NavGroup, "icon"> = {
+export const goldNav: Omit<NavGroup, "icon" | "space"> = {
   key: "gold",
   label: "طلا و جواهر",
   module: "gold",
   items: [
-    { key: "gold-rates", label: "تابلوی قیمت", path: "gold/rates", area: "gold", keywords: "مظنه گرم ۱۸ سکه قیمت روز" },
-    { key: "gold-sale", label: "فروش (صندوق)", path: "gold/sale", area: "gold", level: "edit", keywords: "فاکتور فروش طلا اتیکت" },
-    { key: "gold-purchase", label: "خرید از همکار", path: "gold/purchase", area: "gold", level: "edit", keywords: "بنکدار طلا به طلا" },
-    { key: "gold-buyback", label: "خرید طلای مستعمل", path: "gold/buyback", area: "gold", level: "edit", keywords: "کهنه شکسته" },
-    { key: "gold-consignment", label: "امانی", path: "gold/consignment", area: "gold" },
-    { key: "gold-workshop", label: "کارگاه و ذوب", path: "gold/workshop", area: "gold", keywords: "آبشده ری‌گیری انگ ذوب" },
-    { key: "gold-docs", label: "اسناد طلا", path: "gold/docs", area: "gold" },
-    { key: "gold-items", label: "اجناس (اتیکت‌ها)", path: "gold/items", area: "gold", keywords: "چاپ اتیکت بارکد" },
-    { key: "gold-categories", label: "دسته‌های طلا", path: "gold/categories", area: "gold" },
-    { key: "gold-stock", label: "گزارش موجودی و وزنی", path: "gold/reports/stock", area: "gold", keywords: "حساب وزنی تراز وزنی" },
-    { key: "gold-sales", label: "گزارش فروش", path: "gold/reports/sales", area: "gold" },
+    { key: "gold-rates", label: "تابلوی قیمت", path: "gold/rates", area: "gold", icon: Activity, keywords: "مظنه گرم ۱۸ سکه قیمت روز" },
+    { key: "gold-sale", label: "فروش (صندوق)", path: "gold/sale", area: "gold", level: "edit", icon: ShoppingBag, action: true, keywords: "فاکتور فروش طلا اتیکت" },
+    { key: "gold-purchase", label: "خرید از همکار", path: "gold/purchase", area: "gold", level: "edit", icon: Handshake, keywords: "بنکدار طلا به طلا" },
+    { key: "gold-buyback", label: "خرید طلای مستعمل", path: "gold/buyback", area: "gold", level: "edit", icon: Recycle, keywords: "کهنه شکسته" },
+    { key: "gold-docs", label: "اسناد طلا", path: "gold/docs", area: "gold", icon: Files },
+    { key: "gold-items", label: "اجناس (اتیکت‌ها)", path: "gold/items", area: "gold", icon: Tag, keywords: "چاپ اتیکت بارکد" },
+    { key: "gold-consignment", label: "امانی", path: "gold/consignment", area: "gold", icon: PackageOpen },
+    { key: "gold-workshop", label: "کارگاه و ذوب", path: "gold/workshop", area: "gold", icon: Flame, keywords: "آبشده ری‌گیری انگ ذوب" },
+    { key: "gold-stock", label: "موجودی و حساب وزنی", path: "gold/reports/stock", area: "gold", icon: Weight, section: "گزارش‌ها", keywords: "گزارش موجودی و وزنی تراز وزنی" },
+    { key: "gold-sales", label: "گزارش فروش طلا", path: "gold/reports/sales", area: "gold", icon: ChartColumn, section: "گزارش‌ها" },
+    { key: "gold-categories", label: "دسته‌های طلا", path: "gold/categories", area: "gold", icon: FolderTree, section: "تعریف‌ها" },
   ],
 };
 

@@ -3,11 +3,12 @@
 import { useEffect, useRef, useState } from "react";
 import JsBarcode from "jsbarcode";
 import { Button, Modal, Segmented, Select, Switch } from "antd";
-import { PrinterOutlined } from "@ant-design/icons";
+import { Printer } from "lucide-react";
+import { Ic } from "../../components/shell/icons";
 import { useOrg } from "../../lib/org";
 import { D } from "@shared/money";
-import { faDigits, formatWeight } from "@shared/format";
-import { printWithPage, wageText } from "./shared";
+import { faDigits } from "@shared/format";
+import { gw, printWithPage, wageText } from "./shared";
 
 export interface LabelItem {
   id: string;
@@ -58,16 +59,16 @@ function Label({ it, o, orgName, last }: { it: LabelItem; o: LabelOptions; orgNa
       className="gold-label flex flex-col items-center justify-center overflow-hidden bg-white text-black"
       style={{ width: `${s.w}mm`, height: `${s.h}mm`, padding: "1mm", boxSizing: "border-box", fontSize: small ? "6.5pt" : "7.5pt", lineHeight: 1.15, pageBreakAfter: o.mode === "roll" && !last ? "always" : undefined, breakInside: "avoid" }}
     >
-      {o.showOrg && !small ? <div className="w-full truncate text-center font-bold">{orgName}</div> : null}
+      {o.showOrg && !small ? <div className="w-full truncate text-center font-semibold">{orgName}</div> : null}
       <Barcode value={it.tag_no} height={small ? 16 : 22} width={s.w >= 60 ? 1.3 : 1.05} />
-      <div className="ltr font-mono font-bold tracking-wider" style={{ fontSize: small ? "7pt" : "8pt" }}>{it.tag_no}</div>
+      <div className="sf-num font-semibold" style={{ fontSize: small ? "7pt" : "8pt" }}>{faDigits(it.tag_no)}</div>
       <div className="flex w-full justify-between gap-1">
-        <span>وزن <b className="num">{formatWeight(it.gross_weight)}</b></span>
-        <span>عیار <b className="num">{faDigits(D(it.fineness).toString())}</b></span>
+        <span>وزن <b className="sf-num">{gw(it.gross_weight)}</b></span>
+        <span>عیار <b className="sf-num">{faDigits(D(it.fineness).toString())}</b></span>
       </div>
       {!small ? (
         <div className="flex w-full justify-between gap-1">
-          {!D(it.stone_weight ?? 0).isZero() ? <span>خالص <span className="num">{formatWeight(it.net_weight)}</span></span> : <span className="truncate">{it.title || it.category_name || ""}</span>}
+          {!D(it.stone_weight ?? 0).isZero() ? <span>خالص <span className="sf-num">{gw(it.net_weight)}</span></span> : <span className="truncate">{it.title || it.category_name || ""}</span>}
           {o.showWage && !D(it.wage_value ?? 0).isZero() ? <span>اجرت {wageText(it.wage_type, it.wage_value)}</span> : null}
         </div>
       ) : null}
@@ -116,7 +117,7 @@ export function PrintLabelsModal({ open, onClose, items }: { open: boolean; onCl
         onCancel={onClose}
         title={`چاپ ${faDigits(items.length)} اتیکت`}
         footer={
-          <Button type="primary" icon={<PrinterOutlined />} disabled={!items.length} onClick={() => printWithPage(o.mode === "roll" ? `${s.w}mm ${s.h}mm` : "A4 portrait", o.mode === "roll" ? "0" : "8mm")}>
+          <Button type="primary" icon={<Ic icon={Printer} />} disabled={!items.length} onClick={() => printWithPage(o.mode === "roll" ? `${s.w}mm ${s.h}mm` : "A4 portrait", o.mode === "roll" ? "0" : "8mm")}>
             چاپ
           </Button>
         }
@@ -126,22 +127,22 @@ export function PrintLabelsModal({ open, onClose, items }: { open: boolean; onCl
         <div className="grid gap-3">
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <div className="mb-1 text-xs text-muted">اندازه‌ی اتیکت</div>
+              <div className="sf-field-l mb-1.5">اندازه‌ی اتیکت</div>
               <Select className="w-full" value={o.size} onChange={(size) => update({ size })} options={Object.entries(SIZES).map(([value, x]) => ({ value, label: x.label }))} />
             </div>
             <div>
-              <div className="mb-1 text-xs text-muted">چاپگر</div>
+              <div className="sf-field-l mb-1.5">چاپگر</div>
               <Segmented block value={o.mode} onChange={(mode) => update({ mode: mode as LabelOptions["mode"] })} options={[{ value: "roll", label: "اتیکت‌زن (رول)" }, { value: "a4", label: "برگه‌ی A4" }]} />
             </div>
           </div>
-          <div className="flex gap-4 text-sm">
+          <div className="flex gap-5 text-[13px] text-ink-2">
             <label className="flex items-center gap-2"><Switch size="small" checked={o.showOrg} onChange={(showOrg) => update({ showOrg })} /> نام فروشگاه</label>
             <label className="flex items-center gap-2"><Switch size="small" checked={o.showWage} onChange={(showWage) => update({ showWage })} /> اجرت</label>
           </div>
-          <div className="text-xs text-muted">پیش‌نمایش</div>
-          <div className="flex max-h-64 flex-wrap gap-2 overflow-auto rounded-lg bg-surface-2 p-3">
+          <div className="sf-field-l">پیش‌نمایش</div>
+          <div className="flex max-h-64 flex-wrap gap-3 overflow-auto rounded-lg bg-well p-4">
             {items.slice(0, 6).map((it) => (
-              <div key={it.id} className="border border-dashed border-line-strong">
+              <div key={it.id} className="rounded-sm shadow-e1">
                 <Label it={it} o={{ ...o, mode: "a4" }} orgName={org.name} />
               </div>
             ))}

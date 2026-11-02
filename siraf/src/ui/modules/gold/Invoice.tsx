@@ -5,62 +5,63 @@
 import type { ReactNode } from "react";
 import { useOrg } from "../../lib/org";
 import { D, type Num } from "@shared/money";
-import { faDigits, formatNumber, formatWeight } from "@shared/format";
+import { faDigits, formatNumber } from "@shared/format";
 import { formatJalali, formatJalaliDateTime } from "@shared/jalali";
 import { amountToWords, weightToWords } from "@shared/words";
+import { APP_NAME } from "@shared/constants";
+import { SirafMark } from "../../components/brand";
+import { docNo } from "../../lib/fa";
 import { KINDS, formTitle, printWithPage, wageText, type DocKind } from "./shared";
 
 export type PrintFormat = "a5" | "receipt";
 
-const cell = "border border-[#444] px-1 py-0.5 align-middle";
-const head = `${cell} bg-[#eee] font-bold text-center`;
-
-function M({ v, zero = "—" }: { v: Num; zero?: string }) {
+/** Money for print: tabular, start-aligned, accounting parentheses for negatives; zero is «—». */
+function M({ v, zero = "—", neg }: { v: Num; zero?: string; neg?: boolean }) {
   const { org } = useOrg();
   const d = D(v);
   if (d.isZero()) return <span>{zero}</span>;
-  return <span className="num">{formatNumber(d, { dp: org.money_decimals ?? 0 })}</span>;
+  const s = formatNumber(d.abs(), { dp: org.money_decimals ?? 0 });
+  return <span>{neg || d.isNeg() ? `(${s})` : s}</span>;
 }
 
+/** Gold weight for print: always three decimals. */
 function W({ v }: { v: Num }) {
-  return D(v).isZero() ? <span>—</span> : <span className="num">{formatWeight(v)}</span>;
+  return D(v).isZero() ? <span>—</span> : <span>{formatNumber(v, { dp: 3, minDp: 3 })}</span>;
 }
+
+const fin = (v: Num | null | undefined) => faDigits(D(v ?? 750).toString());
 
 function SellerBlock({ title, doc }: { title: string; doc: any }) {
   const { org } = useOrg();
+  const legal = [
+    org.economic_code ? `کد اقتصادی ${faDigits(org.economic_code)}` : null,
+    org.national_id ? `شناسه‌ی ملی ${faDigits(org.national_id)}` : null,
+    org.registration_no ? `شماره‌ی ثبت ${faDigits(org.registration_no)}` : null,
+  ].filter(Boolean).join("، ");
+  const addr = [[org.province, org.city, org.address].filter(Boolean).join("، "), org.postal_code ? `کد پستی ${faDigits(org.postal_code)}` : null, org.phone ? `تلفن ${faDigits(org.phone)}` : null]
+    .filter(Boolean)
+    .join("، ");
   return (
-    <header className="mb-2 flex items-start gap-3 border-b-2 border-black pb-2">
-      <div className="flex min-w-0 flex-1 items-start gap-2">
-        {org.logo ? <img src={org.logo} alt="" className="h-12 w-12 object-contain" /> : null}
-        <div className="min-w-0">
-          <div className="text-[14px] font-extrabold">{org.legal_name || org.name}</div>
-          <div className="text-[10px]">
-            {org.economic_code ? <>کد اقتصادی: <span className="num">{faDigits(org.economic_code)}</span>، </> : null}
-            {org.national_id ? <>شناسه ملی: <span className="num">{faDigits(org.national_id)}</span>، </> : null}
-            {org.registration_no ? <>شماره ثبت: <span className="num">{faDigits(org.registration_no)}</span></> : null}
-          </div>
-          <div className="text-[10px]">
-            {[org.province, org.city, org.address].filter(Boolean).join("، ")}
-            {org.postal_code ? <>، کد پستی: <span className="num">{faDigits(org.postal_code)}</span></> : null}
-            {org.phone ? <>، تلفن: <span className="num">{faDigits(org.phone)}</span></> : null}
-          </div>
-        </div>
+    <header className="sf-pr-head">
+      <div className="sf-pr-brand">{org.logo ? <img src={org.logo} alt="" /> : <SirafMark size={32} variant="mono" />}</div>
+      <div className="sf-pr-biz">
+        <b>{org.legal_name || org.name}</b>
+        {legal ? <span>{legal}</span> : null}
+        {addr ? <span>{addr}</span> : null}
       </div>
-      <div className="shrink-0 text-center">
-        <div className="text-[15px] font-extrabold">{title}</div>
-        {doc.status === "cancelled" ? <div className="mt-1 border border-black px-2 text-[11px] font-bold">باطل شده</div> : null}
-        {doc.status === "draft" ? <div className="mt-1 border border-black px-2 text-[11px] font-bold">پیش‌نویس</div> : null}
-      </div>
-      <div className="shrink-0 text-[11px] leading-5">
-        <div>شماره: <b className="num">{faDigits(doc.no)}</b></div>
-        <div>تاریخ: <b className="num">{formatJalali(doc.date)}</b></div>
-        {doc.created_at ? <div className="text-[10px]">ثبت: <span className="num">{formatJalaliDateTime(doc.created_at)}</span></div> : null}
+      <div className="sf-pr-doc">
+        <b className="t">{title}</b>
+        <div>شماره‌ی <b>{docNo(Number(doc.no))}</b></div>
+        <div>تاریخ <b>{formatJalali(doc.date)}</b></div>
+        {doc.status === "cancelled" ? <span className="sf-pr-badge">باطل شده</span> : null}
+        {doc.status === "draft" ? <span className="sf-pr-badge">پیش‌نویس</span> : null}
       </div>
     </header>
   );
 }
 
 function BuyerBlock({ doc, label = "خریدار" }: { doc: any; label?: string }) {
+  const { org } = useOrg();
   const p = doc.party ?? {};
   const b = doc.buyer ?? {};
   const name = p.name ?? b.name ?? "مشتری گذری";
@@ -69,12 +70,20 @@ function BuyerBlock({ doc, label = "خریدار" }: { doc: any; label?: string 
   const eco = p.economic_code ?? b.economic_code;
   const addr = p.address ?? b.address;
   const postal = p.postal_code ?? b.postal_code;
+  const meta = [nid ? `کد/شناسه‌ی ملی ${faDigits(nid)}` : null, eco ? `کد اقتصادی ${faDigits(eco)}` : null, mobile ? `تلفن ${faDigits(mobile)}` : null].filter(Boolean).join("، ");
   return (
-    <section className="mb-2 grid grid-cols-3 gap-x-3 rounded border border-[#444] px-2 py-1 text-[11px]">
-      <div className="col-span-1">{label}: <b>{name}</b>{p.code ? <span className="num"> ({faDigits(p.code)})</span> : null}</div>
-      <div>{nid ? <>کد/شناسه ملی: <span className="num">{faDigits(nid)}</span></> : null}{eco ? <>، کد اقتصادی: <span className="num">{faDigits(eco)}</span></> : null}</div>
-      <div>{mobile ? <>تلفن: <span className="num">{faDigits(mobile)}</span></> : null}</div>
-      {addr || postal ? <div className="col-span-3">نشانی: {addr ?? ""}{postal ? <>، کد پستی: <span className="num">{faDigits(postal)}</span></> : null}</div> : null}
+    <section className="sf-pr-parties">
+      <div className="sf-pr-party">
+        <div className="l">فروشنده</div>
+        <div className="v">{org.legal_name || org.name}</div>
+        <div className="m">{[org.city, org.phone ? `تلفن ${faDigits(org.phone)}` : null].filter(Boolean).join("، ")}</div>
+      </div>
+      <div className="sf-pr-party">
+        <div className="l">{label}</div>
+        <div className="v">{name}{p.code ? <span> ({faDigits(p.code)})</span> : null}</div>
+        {meta ? <div className="m">{meta}</div> : null}
+        {addr || postal ? <div className="m">{addr ?? ""}{postal ? `، کد پستی ${faDigits(postal)}` : ""}</div> : null}
+      </div>
     </section>
   );
 }
@@ -83,16 +92,25 @@ function RateLine({ doc }: { doc: any }) {
   const { unit } = useOrg();
   if (!doc.gram18 && !doc.mazaneh) return null;
   return (
-    <div className="mb-1 text-[11px]">
-      نرخ روز: هر گرم طلای ۱۸ عیار (۷۵۰) <b className="num">{formatNumber(doc.gram18 ?? 0)}</b> {unit}
-      {doc.mazaneh ? <>، مظنه (مثقال ۷۰۵) <span className="num">{formatNumber(doc.mazaneh)}</span> {unit}</> : null}
+    <div className="sf-pr-note">
+      نرخ روز: هر گرم طلای ۱۸ عیار (۷۵۰) <b>{formatNumber(doc.gram18 ?? 0)}</b> {unit}
+      {doc.mazaneh ? <>، مظنه (مثقال ۷۰۵) <b>{formatNumber(doc.mazaneh)}</b> {unit}</> : null}
+    </div>
+  );
+}
+
+function Colophon() {
+  return (
+    <div className="sf-pr-colophon">
+      <span>چاپ: {formatJalaliDateTime(new Date().toISOString())}</span>
+      <span>{APP_NAME} <span className="latn">| siraf.app</span></span>
     </div>
   );
 }
 
 function Signatures({ left = "امضای خریدار", right = "مهر و امضای فروشنده" }: { left?: string; right?: string }) {
   return (
-    <div className="mt-6 grid grid-cols-2 text-center text-[11px]">
+    <div className="sf-pr-sign">
       <div>{right}</div>
       <div>{left}</div>
     </div>
@@ -105,15 +123,16 @@ function payments(doc: any) {
   const rows: [string, string][] = [];
   if (s.cash && !D(s.cash.amount).isZero()) rows.push([`نقد${n.cash ? ` (${n.cash})` : ""}`, s.cash.amount]);
   if (s.pos && !D(s.pos.amount).isZero()) rows.push([`کارتخوان${n.pos ? ` (${n.pos})` : ""}`, s.pos.amount]);
-  if (s.bank && !D(s.bank.amount).isZero()) rows.push([`واریز بانکی${n.bank ? ` (${n.bank})` : ""}${s.bank.ref_no ? ` — پیگیری ${faDigits(s.bank.ref_no)}` : ""}`, s.bank.amount]);
+  if (s.bank && !D(s.bank.amount).isZero()) rows.push([`واریز بانکی${n.bank ? ` (${n.bank})` : ""}${s.bank.ref_no ? `، پیگیری ${faDigits(s.bank.ref_no)}` : ""}`, s.bank.amount]);
   return rows;
 }
 
-function Row({ k, v, strong }: { k: ReactNode; v: ReactNode; strong?: boolean }) {
+/** One row of the print totals: the label, then the figure in the shared start-aligned column. */
+function Row({ k, v, strong, sub }: { k: ReactNode; v: ReactNode; strong?: boolean; sub?: boolean }) {
   return (
-    <div className={`flex justify-between gap-2 ${strong ? "text-[12px] font-extrabold" : ""}`}>
+    <div className={`r ${strong ? "is-total" : ""} ${sub ? "is-sub" : ""}`}>
       <span>{k}</span>
-      <span>{v}</span>
+      <span className="n">{v}</span>
     </div>
   );
 }
@@ -128,153 +147,165 @@ export function SaleInvoice({ doc }: { doc: any }) {
   const paid = payments(doc);
   const remaining = D(doc.settle?.remaining ?? 0);
   return (
-    <div className="gold-print bg-white text-[11px] leading-5 text-black">
+    <div className="gold-print sf-pr">
       <SellerBlock title="فاکتور فروش طلا و جواهر" doc={doc} />
       <BuyerBlock doc={doc} />
       <RateLine doc={doc} />
-      <table className="w-full border-collapse text-[10.5px]">
+      <table>
         <thead>
           <tr>
-            <th className={head}>ردیف</th>
-            <th className={head}>شرح کالا</th>
-            <th className={head}>عیار</th>
-            <th className={head}>وزن (گرم)</th>
-            <th className={head}>ارزش طلا</th>
-            <th className={head}>اجرت ساخت</th>
-            <th className={head}>سود فروشنده</th>
-            <th className={head}>تخفیف</th>
-            <th className={head}>مالیات بر ارزش افزوده</th>
-            <th className={head}>ارزش سنگ</th>
-            <th className={head}>مبلغ کل</th>
+            <th className="c">ردیف</th>
+            <th>شرح کالا</th>
+            <th className="c">عیار</th>
+            <th className="n">وزن (گرم)</th>
+            <th className="n">ارزش طلا</th>
+            <th className="n">اجرت</th>
+            <th className="n">سود</th>
+            <th className="n">تخفیف</th>
+            <th className="n">مالیات</th>
+            <th className="n">سنگ</th>
+            <th className="n">مبلغ ({unit})</th>
           </tr>
         </thead>
         <tbody>
           {out.map((l: any, i: number) => (
             <tr key={l.id ?? i}>
-              <td className={`${cell} text-center num`}>{faDigits(i + 1)}</td>
-              <td className={cell}>
+              <td className="c">{faDigits(i + 1)}</td>
+              <td>
                 {l.kind === "coin" ? `${l.title ?? l.coin_name ?? "سکه"} × ${faDigits(D(l.qty).toString())}` : l.title}
-                {l.tag_no ? <span className="num text-[9.5px]"> — اتیکت {faDigits(l.tag_no)}</span> : null}
-                {l.kind === "piece" && l.wage_type ? <div className="text-[9px]">اجرت: {wageText(l.wage_type, l.wage_value)}{l.profit_pct ? `، سود ${faDigits(D(l.profit_pct).toString())}٪` : ""}</div> : null}
+                {l.tag_no ? <span className="sub">اتیکت {faDigits(l.tag_no)}{l.kind === "piece" && l.wage_type ? `، اجرت ${wageText(l.wage_type, l.wage_value)}${l.profit_pct ? `، سود ${faDigits(D(l.profit_pct).toString())}٪` : ""}` : ""}</span> : null}
               </td>
-              <td className={`${cell} text-center num`}>{faDigits(D(l.fineness ?? 750).toString())}</td>
-              <td className={`${cell} text-center`}><W v={l.weight} /></td>
-              <td className={`${cell} text-left`}><M v={l.gold_value} /></td>
-              <td className={`${cell} text-left`}><M v={l.wage} /></td>
-              <td className={`${cell} text-left`}><M v={l.profit} /></td>
-              <td className={`${cell} text-left`}><M v={l.discount} /></td>
-              <td className={`${cell} text-left`}><M v={l.tax} /></td>
-              <td className={`${cell} text-left`}><M v={l.stone} /></td>
-              <td className={`${cell} text-left font-bold`}><M v={l.total} /></td>
+              <td className="c">{fin(l.fineness)}</td>
+              <td className="n"><W v={l.weight} /></td>
+              <td className="n"><M v={l.gold_value} /></td>
+              <td className="n"><M v={l.wage} /></td>
+              <td className="n"><M v={l.profit} /></td>
+              <td className="n"><M v={l.discount} /></td>
+              <td className="n"><M v={l.tax} /></td>
+              <td className="n"><M v={l.stone} /></td>
+              <td className="n"><b><M v={l.total} /></b></td>
             </tr>
           ))}
-          <tr>
-            <td className={`${cell} font-bold`} colSpan={3}>جمع</td>
-            <td className={`${cell} text-center font-bold`}><W v={out.filter((l: any) => l.kind !== "coin").reduce((a: any, l: any) => a.plus(D(l.weight)), D(0)).toString()} /></td>
-            <td className={`${cell} text-left font-bold`}><M v={doc.gold_value} /></td>
-            <td className={`${cell} text-left font-bold`}><M v={doc.wage} /></td>
-            <td className={`${cell} text-left font-bold`}><M v={doc.profit} /></td>
-            <td className={`${cell} text-left font-bold`}><M v={doc.discount} /></td>
-            <td className={`${cell} text-left font-bold`}><M v={doc.tax} /></td>
-            <td className={`${cell} text-left font-bold`}><M v={doc.stone} /></td>
-            <td className={`${cell} text-left font-bold`}><M v={doc.total} /></td>
-          </tr>
         </tbody>
+        <tfoot>
+          <tr>
+            <td colSpan={3}>جمع</td>
+            <td className="n"><W v={out.filter((l: any) => l.kind !== "coin").reduce((a: any, l: any) => a.plus(D(l.weight)), D(0)).toString()} /></td>
+            <td className="n"><M v={doc.gold_value} /></td>
+            <td className="n"><M v={doc.wage} /></td>
+            <td className="n"><M v={doc.profit} /></td>
+            <td className="n"><M v={doc.discount} /></td>
+            <td className="n"><M v={doc.tax} /></td>
+            <td className="n"><M v={doc.stone} /></td>
+            <td className="n"><M v={doc.total} /></td>
+          </tr>
+        </tfoot>
       </table>
 
-      <div className="mt-2 grid grid-cols-2 gap-3">
-        <div className="rounded border border-[#444] p-2">
+      <div className="sf-pr-foot">
+        <div className="sf-pr-box">
           {old.length ? (
             <>
-              <div className="mb-1 font-bold">طلای مستعمل دریافتی از خریدار</div>
-              {old.map((l: any, i: number) => (
-                <Row key={i} k={<span>{l.title ?? "طلای مستعمل"}: <span className="num">{formatWeight(l.weight)}</span> گرم عیار <span className="num">{faDigits(D(l.fineness).toString())}</span>{!D(l.discount).isZero() ? <> (کسر <span className="num">{faDigits(D(l.deduction_pct ?? 0).toString())}٪</span>)</> : null}</span>} v={<M v={l.total} />} />
-              ))}
-              <div className="my-1 border-t border-[#999]" />
+              <div className="t">طلای مستعمل دریافتی از خریدار</div>
+              <div className="sf-pr-sums">
+                {old.map((l: any, i: number) => (
+                  <Row key={i} k={<>{l.title ?? "طلای مستعمل"}، {formatNumber(l.weight, { dp: 3, minDp: 3 })} گرم عیار {fin(l.fineness)}{!D(l.discount).isZero() ? `، کسر ${faDigits(D(l.deduction_pct ?? 0).toString())}٪` : ""}</>} v={<M v={l.total} />} />
+                ))}
+              </div>
             </>
           ) : null}
-          {paid.map(([k, v]) => <Row key={k} k={k} v={<M v={v} />} />)}
-          {!remaining.isZero() ? <Row k={net.isNeg() ? "مانده (بستانکار خریدار)" : "مانده (نسیه)"} v={<M v={remaining.toString()} />} strong /> : null}
-          {!paid.length && remaining.isZero() && !old.length ? <div className="text-[10px]">تسویه شده</div> : null}
+          <div className="t" style={old.length ? { marginBlockStart: "2mm" } : undefined}>دریافت</div>
+          <div className="sf-pr-sums">
+            {paid.map(([k, v]) => <Row key={k} k={k} v={<M v={v} />} />)}
+            {!remaining.isZero() ? <Row k={net.isNeg() ? "مانده (بستانکار خریدار)" : "مانده (نسیه)"} v={<M v={remaining.toString()} />} strong /> : null}
+            {!paid.length && remaining.isZero() ? <Row k="تسویه شده" v="" /> : null}
+          </div>
         </div>
-        <div className="rounded border border-[#444] p-2">
-          <Row k="جمع ارزش طلا" v={<M v={doc.gold_value} />} />
-          <Row k="جمع اجرت ساخت" v={<M v={doc.wage} />} />
-          <Row k="جمع سود فروشنده" v={<M v={doc.profit} />} />
-          {!D(doc.discount).isZero() ? <Row k="تخفیف" v={<>(<M v={doc.discount} />)</>} /> : null}
+        <div className="sf-pr-sums">
+          <Row k="ارزش طلا" v={<M v={doc.gold_value} />} />
+          <Row k="اجرت ساخت" v={<M v={doc.wage} />} />
+          <Row k="سود فروشنده" v={<M v={doc.profit} />} />
+          {!D(doc.discount).isZero() ? <Row k="تخفیف" v={<M v={doc.discount} neg />} /> : null}
           <Row k="مالیات بر ارزش افزوده (اجرت و سود)" v={<M v={doc.tax} />} />
-          {!D(doc.stone).isZero() ? <Row k="ارزش سنگ و جواهر" v={<M v={doc.stone} />} /> : null}
+          {!D(doc.stone).isZero() ? <Row k="سنگ و جواهر" v={<M v={doc.stone} />} /> : null}
           {!coins.isZero() ? <Row k="سکه" v={<M v={coins.toString()} />} /> : null}
           <Row k="جمع کل فاکتور" v={<M v={doc.total} />} strong />
-          {!D(doc.old_value).isZero() ? <Row k="کسر: طلای مستعمل" v={<>(<M v={doc.old_value} />)</>} /> : null}
-          <Row k={net.isNeg() ? "قابل پرداخت به خریدار" : "مبلغ قابل پرداخت"} v={<M v={net.abs().toString()} />} strong />
+          {!D(doc.old_value).isZero() ? (
+            <>
+              <Row k="کسر: طلای مستعمل" v={<M v={doc.old_value} neg />} />
+              <Row k={net.isNeg() ? "قابل پرداخت به خریدار" : "مبلغ قابل پرداخت"} v={<M v={net.abs().toString()} />} strong />
+            </>
+          ) : null}
         </div>
       </div>
-      <div className="mt-2 text-[11px]">
+      <div className="sf-pr-words">
         مبلغ کل فاکتور به حروف: <b>{amountToWords(doc.total, unit)}</b>
         {!D(doc.old_value).isZero() ? <>، قابل پرداخت: <b>{amountToWords(net.abs(), unit)}</b></> : null}
       </div>
-      <div className="mt-1 text-[9.5px]">
+      <div className="sf-pr-note">
         مالیات بر ارزش افزوده فقط بر اجرت ساخت و سود فروشنده محاسبه شده و اصل طلا از آن معاف است. وزن‌ها به گرم و عیارها در هزار است.
-        {doc.description ? <>، توضیحات: {doc.description}</> : null}
+        {doc.description ? <> توضیحات: {doc.description}</> : null}
       </div>
       <Signatures />
+      <Colophon />
     </div>
   );
 }
 
-/** 80 mm till receipt of a sale. */
+/** 80 mm till receipt of a sale: one column, 9 pt body, 11 pt total, the karat as text. */
 export function SaleReceipt({ doc }: { doc: any }) {
   const { org, unit } = useOrg();
   const out = (doc.lines ?? []).filter((l: any) => l.direction === "out");
   const old = (doc.lines ?? []).filter((l: any) => l.kind === "old");
   const net = D(doc.total).minus(D(doc.old_value));
   const name = doc.party?.name ?? doc.buyer?.name ?? "مشتری گذری";
+  const R = ({ k, v, total }: { k: ReactNode; v: ReactNode; total?: boolean }) => (
+    <div className={`sf-rc-row ${total ? "is-total" : ""}`}>
+      <span>{k}</span>
+      <span>{v}</span>
+    </div>
+  );
   return (
-    <div data-gold-receipt className="gold-print mx-auto w-[72mm] bg-white text-[10.5px] leading-[1.55] text-black">
-      <div className="text-center">
-        <div className="text-[13px] font-extrabold">{org.name}</div>
-        {org.phone ? <div className="num">{faDigits(org.phone)}</div> : null}
-        <div className="mt-1 font-bold">رسید فروش طلا</div>
-        <div className="num">ش {faDigits(doc.no)}، {formatJalali(doc.date)}، {formatJalaliDateTime(doc.created_at).split(" ")[1] ?? ""}</div>
+    <div data-gold-receipt className="gold-print sf-rc">
+      <div className="sf-rc-c">
+        <b className="biz">{org.name}</b>
+        {org.phone ? <div>{faDigits(org.phone)}</div> : null}
+        <b className="t">رسید فروش طلا</b>
+        <div>شماره‌ی {docNo(Number(doc.no))}، {formatJalali(doc.date)}، {formatJalaliDateTime(doc.created_at).split(" ")[1] ?? ""}</div>
         <div>خریدار: {name}</div>
-        {doc.gram18 ? <div>گرم ۱۸: <span className="num">{formatNumber(doc.gram18)}</span></div> : null}
+        {doc.gram18 ? <div>نرخ هر گرم ۱۸ عیار {formatNumber(doc.gram18)} {unit}</div> : null}
       </div>
-      <div className="my-1 border-t border-dashed border-black" />
+      <hr />
       {out.map((l: any, i: number) => (
-        <div key={l.id ?? i} className="mb-1">
-          <div className="font-bold">
+        <div key={l.id ?? i} className="sf-rc-item">
+          <b>
             {faDigits(i + 1)}. {l.kind === "coin" ? `${l.title ?? "سکه"} × ${faDigits(D(l.qty).toString())}` : l.title}
-            {l.tag_no ? <span className="num font-normal"> ({faDigits(l.tag_no)})</span> : null}
-          </div>
+          </b>
+          {l.tag_no ? <span> (اتیکت {faDigits(l.tag_no)})</span> : null}
           {l.kind !== "coin" ? (
-            <div className="num">وزن {formatWeight(l.weight)} گرم، عیار {faDigits(D(l.fineness ?? 750).toString())}</div>
-          ) : null}
-          {l.kind !== "coin" ? (
-            <div className="grid grid-cols-2 gap-x-2">
-              <span>طلا: <M v={l.gold_value} /></span>
-              <span>اجرت: <M v={l.wage} /></span>
-              <span>سود: <M v={l.profit} /></span>
-              <span>مالیات: <M v={l.tax} /></span>
-              {!D(l.discount).isZero() ? <span>تخفیف: <M v={l.discount} /></span> : null}
-              {!D(l.stone).isZero() ? <span>سنگ: <M v={l.stone} /></span> : null}
+            <div className="m">
+              وزن {formatNumber(l.weight, { dp: 3, minDp: 3 })} گرم، عیار {fin(l.fineness)}
+              <br />
+              طلا <M v={l.gold_value} />، اجرت <M v={l.wage} />، سود <M v={l.profit} />، مالیات <M v={l.tax} />
+              {!D(l.discount).isZero() ? <>، تخفیف <M v={l.discount} /></> : null}
+              {!D(l.stone).isZero() ? <>، سنگ <M v={l.stone} /></> : null}
             </div>
           ) : null}
-          <Row k="جمع ردیف" v={<M v={l.total} />} />
+          <R k="جمع ردیف" v={<M v={l.total} />} />
         </div>
       ))}
-      <div className="my-1 border-t border-dashed border-black" />
-      <Row k="جمع فاکتور" v={<M v={doc.total} />} strong />
-      <Row k="مالیات (اجرت و سود)" v={<M v={doc.tax} />} />
+      <hr />
+      <R k="مالیات (اجرت و سود)" v={<M v={doc.tax} />} />
+      <R k="جمع فاکتور" v={<M v={doc.total} />} total />
       {old.map((l: any, i: number) => (
-        <Row key={i} k={<span>طلای کهنه <span className="num">{formatWeight(l.weight)}</span>گ/<span className="num">{faDigits(D(l.fineness).toString())}</span></span>} v={<>(<M v={l.total} />)</>} />
+        <R key={i} k={<>طلای کهنه {formatNumber(l.weight, { dp: 3, minDp: 3 })} گرم، عیار {fin(l.fineness)}</>} v={<M v={l.total} neg />} />
       ))}
-      <Row k={net.isNeg() ? "پرداختی به خریدار" : "قابل پرداخت"} v={<M v={net.abs().toString()} />} strong />
-      {payments(doc).map(([k, v]) => <Row key={k} k={k} v={<M v={v} />} />)}
-      {!D(doc.settle?.remaining ?? 0).isZero() ? <Row k="مانده" v={<M v={doc.settle.remaining} />} strong /> : null}
-      <div className="mt-1 text-[9.5px]">{amountToWords(net.abs(), unit)}</div>
-      <div className="my-1 border-t border-dashed border-black" />
-      <div className="text-center text-[9.5px]">مالیات فقط بر اجرت و سود است، از خرید شما سپاسگزاریم</div>
+      {old.length ? <R k={net.isNeg() ? "پرداختی به خریدار" : "قابل پرداخت"} v={<M v={net.abs().toString()} />} total /> : null}
+      {payments(doc).map(([k, v]) => <R key={k} k={k} v={<M v={v} />} />)}
+      {!D(doc.settle?.remaining ?? 0).isZero() ? <R k="مانده" v={<M v={doc.settle.remaining} />} total /> : null}
+      <div className="sf-pr-note">{amountToWords(net.abs(), unit)}</div>
+      <hr />
+      <div className="sf-rc-thanks">مالیات فقط بر اجرت و سود است. از خرید شما سپاسگزاریم.</div>
     </div>
   );
 }
@@ -293,72 +324,79 @@ export function DocSheet({ doc }: { doc: any }) {
   const sumW = (f: (l: any) => boolean, k = "weight750") => lines.filter(f).reduce((a: any, l: any) => a.plus(D(l[k])), D(0)).toString();
   const paid = payments(doc);
   return (
-    <div className="gold-print bg-white text-[11px] leading-5 text-black">
+    <div className="gold-print sf-pr">
       <SellerBlock title={KINDS[kind]?.title ?? "سند طلا"} doc={doc} />
       {doc.party || doc.buyer?.name ? <BuyerBlock doc={doc} label={PARTY_LABEL[kind] ?? "طرف حساب"} /> : null}
       <RateLine doc={doc} />
-      <table className="w-full border-collapse text-[10.5px]">
+      <table>
         <thead>
           <tr>
-            <th className={head}>ردیف</th>
-            <th className={head}>شرح</th>
-            <th className={head}>نوع</th>
-            <th className={head}>عیار</th>
-            <th className={head}>وزن (گرم)</th>
-            <th className={head}>معادل ۷۵۰</th>
-            {money ? <th className={head}>ارزش طلا</th> : null}
-            {money ? <th className={head}>اجرت</th> : null}
-            {money ? <th className={head}>مبلغ</th> : <th className={head}>بها (دفتری)</th>}
+            <th className="c">ردیف</th>
+            <th>شرح</th>
+            <th>نوع</th>
+            <th className="c">عیار</th>
+            <th className="n">وزن (گرم)</th>
+            <th className="n">معادل ۷۵۰</th>
+            {money ? <th className="n">ارزش طلا</th> : null}
+            {money ? <th className="n">اجرت</th> : null}
+            {money ? <th className="n">مبلغ ({unit})</th> : <th className="n">بها (دفتری)</th>}
           </tr>
         </thead>
         <tbody>
           {lines.map((l: any, i: number) => (
             <tr key={l.id ?? i}>
-              <td className={`${cell} text-center num`}>{faDigits(i + 1)}</td>
-              <td className={cell}>
+              <td className="c">{faDigits(i + 1)}</td>
+              <td>
                 {l.kind === "coin" ? `${l.title ?? "سکه"} × ${faDigits(D(l.qty).toString())}` : l.title}
-                {l.tag_no ? <span className="num text-[9.5px]"> — اتیکت {faDigits(l.tag_no)}</span> : null}
-                {l.assay_no ? <span className="text-[9.5px]"> — انگ {l.assay_no}</span> : null}
-                {l.kind === "old" && l.deduction_pct ? <span className="text-[9.5px]"> — کسر {faDigits(D(l.deduction_pct).toString())}٪</span> : null}
+                {l.tag_no || l.assay_no || (l.kind === "old" && l.deduction_pct) ? (
+                  <span className="sub">
+                    {[l.tag_no ? `اتیکت ${faDigits(l.tag_no)}` : null, l.assay_no ? `انگ ${l.assay_no}` : null, l.kind === "old" && l.deduction_pct ? `کسر ${faDigits(D(l.deduction_pct).toString())}٪` : null].filter(Boolean).join("، ")}
+                  </span>
+                ) : null}
               </td>
-              <td className={`${cell} text-center`}>
+              <td>
                 {l.kind === "piece" ? "جنس" : l.kind === "coin" ? "سکه" : l.kind === "old" ? "مستعمل" : formTitle(l.form)}
                 {kind === "melt" ? (l.direction === "out" ? " (ورودی)" : " (حاصل)") : ""}
               </td>
-              <td className={`${cell} text-center num`}>{faDigits(D(l.fineness ?? 750).toString())}</td>
-              <td className={`${cell} text-center`}><W v={l.weight} /></td>
-              <td className={`${cell} text-center`}>{l.kind === "coin" ? "—" : <W v={l.weight750} />}</td>
-              {money ? <td className={`${cell} text-left`}><M v={l.gold_value} /></td> : null}
-              {money ? <td className={`${cell} text-left`}><M v={l.wage} /></td> : null}
-              {money ? <td className={`${cell} text-left font-bold`}><M v={l.total} /></td> : <td className={`${cell} text-left`}><M v={l.cost ?? 0} /></td>}
+              <td className="c">{fin(l.fineness)}</td>
+              <td className="n"><W v={l.weight} /></td>
+              <td className="n">{l.kind === "coin" ? "—" : <W v={l.weight750} />}</td>
+              {money ? <td className="n"><M v={l.gold_value} /></td> : null}
+              {money ? <td className="n"><M v={l.wage} /></td> : null}
+              {money ? <td className="n"><b><M v={l.total} /></b></td> : <td className="n"><M v={l.cost ?? 0} /></td>}
             </tr>
           ))}
         </tbody>
       </table>
-      <div className="mt-2 grid grid-cols-2 gap-3">
-        <div className="rounded border border-[#444] p-2">
-          {!D(doc.weight_out).isZero() ? <Row k={kind === "melt" ? "وزن ۷۵۰ ورودی ذوب" : "وزن ۷۵۰ خروجی"} v={<W v={doc.weight_out} />} /> : null}
-          {!D(doc.weight_in).isZero() ? <Row k={kind === "melt" ? "وزن ۷۵۰ آبشده‌ی حاصل" : "وزن ۷۵۰ ورودی"} v={<W v={doc.weight_in} />} /> : null}
-          {kind === "melt" ? <Row k="افت / اضافه" v={<W v={D(doc.weight_out).minus(D(doc.weight_in)).toString()} />} strong /> : null}
-          {kind === "consign_in" || kind === "consign_return" ? <Row k="تعداد اجناس" v={<span className="num">{faDigits(lines.length)}</span>} /> : null}
-          {kind === "workshop_in" && doc.settle?.consumed_weight750 ? <Row k="وزن مصرف‌شده از حساب کارگاه" v={<W v={doc.settle.consumed_weight750} />} /> : null}
-          <div className="mt-1 text-[10px]">به حروف: {weightToWords(sumW(() => true))} (معادل ۷۵۰)</div>
+      <div className="sf-pr-foot">
+        <div className="sf-pr-box">
+          <div className="sf-pr-sums">
+            {!D(doc.weight_out).isZero() ? <Row k={kind === "melt" ? "وزن ۷۵۰ ورودی ذوب" : "وزن ۷۵۰ خروجی"} v={<W v={doc.weight_out} />} /> : null}
+            {!D(doc.weight_in).isZero() ? <Row k={kind === "melt" ? "وزن ۷۵۰ آبشده‌ی حاصل" : "وزن ۷۵۰ ورودی"} v={<W v={doc.weight_in} />} /> : null}
+            {kind === "melt" ? <Row k="افت / اضافه" v={<W v={D(doc.weight_out).minus(D(doc.weight_in)).toString()} />} strong /> : null}
+            {kind === "consign_in" || kind === "consign_return" ? <Row k="تعداد اجناس" v={faDigits(lines.length)} /> : null}
+            {kind === "workshop_in" && doc.settle?.consumed_weight750 ? <Row k="وزن مصرف‌شده از حساب کارگاه" v={<W v={doc.settle.consumed_weight750} />} /> : null}
+          </div>
+          <div className="sf-pr-note">به حروف: {weightToWords(sumW(() => true))} (معادل ۷۵۰)</div>
         </div>
         {money ? (
-          <div className="rounded border border-[#444] p-2">
-            {!D(doc.gold_value).isZero() ? <Row k="ارزش طلا" v={<M v={doc.gold_value} />} /> : null}
-            {!D(doc.wage).isZero() ? <Row k="اجرت" v={<M v={doc.wage} />} /> : null}
-            {!D(doc.tax).isZero() ? <Row k="مالیات" v={<M v={doc.tax} />} /> : null}
-            <Row k="جمع کل" v={<M v={doc.total} />} strong />
-            {doc.settle?.mode === "weight" ? <Row k="تسویه" v="وزنی (طلا به طلا)" /> : null}
-            {paid.map(([k, v]) => <Row key={k} k={k} v={<M v={v} />} />)}
-            {!D(doc.settle?.remaining ?? 0).isZero() ? <Row k="مانده به حساب طرف" v={<M v={doc.settle.remaining} />} strong /> : null}
-            <div className="mt-1 text-[10px]">{amountToWords(doc.total, unit)}</div>
+          <div>
+            <div className="sf-pr-sums">
+              {!D(doc.gold_value).isZero() ? <Row k="ارزش طلا" v={<M v={doc.gold_value} />} /> : null}
+              {!D(doc.wage).isZero() ? <Row k="اجرت" v={<M v={doc.wage} />} /> : null}
+              {!D(doc.tax).isZero() ? <Row k="مالیات" v={<M v={doc.tax} />} /> : null}
+              <Row k="جمع کل" v={<M v={doc.total} />} strong />
+              {doc.settle?.mode === "weight" ? <Row k="تسویه" v="وزنی (طلا به طلا)" /> : null}
+              {paid.map(([k, v]) => <Row key={k} k={k} v={<M v={v} />} sub />)}
+              {!D(doc.settle?.remaining ?? 0).isZero() ? <Row k="مانده به حساب طرف" v={<M v={doc.settle.remaining} />} strong /> : null}
+            </div>
+            <div className="sf-pr-words">{amountToWords(doc.total, unit)}</div>
           </div>
         ) : null}
       </div>
-      {doc.description ? <div className="mt-2 text-[10.5px]">توضیحات: {doc.description}</div> : null}
+      {doc.description ? <div className="sf-pr-note">توضیحات: {doc.description}</div> : null}
       <Signatures left="تحویل‌گیرنده" right="تحویل‌دهنده" />
+      <Colophon />
     </div>
   );
 }

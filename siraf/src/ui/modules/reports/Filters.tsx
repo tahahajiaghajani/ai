@@ -1,9 +1,13 @@
+// The filters row of the reports (components.md §2): the period segmented control first (it drives every figure on
+// the page), the custom range, the report's own dimensions, then «با پیش‌نویس‌ها» and print/export at the end.
+// It sits above the card it scopes, never inside it.
 import { useState, type ReactNode } from "react";
-import { Segmented, Space, Switch, Button } from "antd";
-import { PrinterOutlined } from "@ant-design/icons";
+import { Button, Segmented, Tooltip } from "antd";
+import { Download, FilePen, Printer } from "lucide-react";
 import { DateInput } from "../../components/inputs";
 import { useOrg } from "../../lib/org";
-import { presetRange, todayISO } from "@shared/jalali";
+import { formatJalali, presetRange, todayISO } from "@shared/jalali";
+import { ICON, PrintHead } from "./kit";
 
 export interface Range {
   from: string | null;
@@ -17,52 +21,88 @@ export function useRange(initial: "year" | "month" = "year") {
   return useState<Range>({ from: base.from, to: base.to, drafts: false });
 }
 
-export function ReportFilters({ range, setRange, children, noFrom }: { range: Range; setRange: (r: Range) => void; children?: ReactNode; noFrom?: boolean }) {
+type Preset = "fy" | "quarter" | "month" | "lastMonth" | "today";
+const PRESETS: { value: Preset; label: string }[] = [
+  { value: "fy", label: "سال مالی" },
+  { value: "quarter", label: "فصل" },
+  { value: "month", label: "این ماه" },
+  { value: "lastMonth", label: "ماه قبل" },
+  { value: "today", label: "امروز" },
+];
+
+export function ReportFilters({
+  range,
+  setRange,
+  children,
+  noFrom,
+  onExport,
+  end,
+}: {
+  range: Range;
+  setRange: (r: Range) => void;
+  children?: ReactNode;
+  noFrom?: boolean;
+  /** Excel export of the report (an icon button at the end of the row) */
+  onExport?: () => void;
+  /** more controls at the end, before print */
+  end?: ReactNode;
+}) {
   const { fy } = useOrg();
-  const presets: { value: string; label: string }[] = [
-    { value: "fy", label: "سال مالی" },
-    { value: "quarter", label: "فصل" },
-    { value: "month", label: "این ماه" },
-    { value: "lastMonth", label: "ماه قبل" },
-    { value: "today", label: "امروز" },
-  ];
+  const today = todayISO();
+  const rangeOf = (p: Preset) => (p === "fy" ? (fy ? { from: fy.start_date, to: fy.end_date } : null) : presetRange(p, today));
+  const current = PRESETS.find((p) => {
+    const r = rangeOf(p.value);
+    return r && r.from === range.from && r.to === range.to;
+  })?.value;
   return (
-    <div className="no-print mb-3 flex flex-wrap items-center gap-2">
+    <div className="bk-filters no-print">
       {!noFrom ? (
         <Segmented
-          size="small"
-          options={presets}
+          value={current ?? "__custom"}
+          options={PRESETS}
           onChange={(v) => {
-            if (v === "fy" && fy) setRange({ ...range, from: fy.start_date, to: fy.end_date });
-            else {
-              const r = presetRange(v as "month", todayISO());
-              setRange({ ...range, from: r.from, to: r.to });
-            }
+            const r = rangeOf(v as Preset);
+            if (r) setRange({ ...range, from: r.from, to: r.to });
           }}
         />
       ) : null}
-      <Space>
-        {!noFrom ? <DateInput value={range.from} onChange={(from) => setRange({ ...range, from })} placeholder="از تاریخ" className="!w-36" allowClear /> : null}
-        <DateInput value={range.to} onChange={(to) => setRange({ ...range, to })} placeholder={noFrom ? "تا تاریخ" : "تا تاریخ"} className="!w-36" allowClear />
-      </Space>
-      <label className="flex items-center gap-1.5 text-xs text-muted">
-        <Switch size="small" checked={range.drafts} onChange={(drafts) => setRange({ ...range, drafts })} /> با پیش‌نویس‌ها
-      </label>
+      <span className="bk-range">
+        {!noFrom ? (
+          <>
+            <DateInput value={range.from} onChange={(from) => setRange({ ...range, from })} placeholder="از تاریخ" allowClear />
+            <span>تا</span>
+          </>
+        ) : (
+          <span>تا تاریخ</span>
+        )}
+        <DateInput value={range.to} onChange={(to) => setRange({ ...range, to })} placeholder="تا تاریخ" allowClear />
+      </span>
       {children}
-      <Button className="ms-auto" icon={<PrinterOutlined />} onClick={() => window.print()}>
-        چاپ
-      </Button>
+      <div className="bk-end">
+        <Tooltip title="اسناد پیش‌نویس هم در گزارش بیایند">
+          <button type="button" className="bk-tog" aria-pressed={range.drafts} onClick={() => setRange({ ...range, drafts: !range.drafts })}>
+            <FilePen {...ICON} aria-hidden />
+            با پیش‌نویس‌ها
+          </button>
+        </Tooltip>
+        {end}
+        {onExport ? (
+          <Tooltip title="خروجی اکسل">
+            <Button type="text" icon={<Download {...ICON} />} onClick={onExport} aria-label="خروجی اکسل" />
+          </Tooltip>
+        ) : null}
+        <Tooltip title="چاپ">
+          <Button type="text" icon={<Printer {...ICON} />} onClick={() => window.print()} aria-label="چاپ" />
+        </Tooltip>
+      </div>
     </div>
   );
 }
 
-export function ReportTitle({ title, range }: { title: string; range?: Range }) {
-  const { org } = useOrg();
-  return (
-    <div className="mb-3 hidden text-center print:block">
-      <div className="text-lg font-bold">{org.name}</div>
-      <div className="text-base font-semibold">{title}</div>
-      {range ? <div className="text-xs">{range.from ? `از ${range.from}` : ""} {range.to ? `تا ${range.to}` : ""}</div> : null}
-    </div>
-  );
+/** The printed title block of a report: the business, the report's name and its period. */
+export function ReportTitle({ title, range, noFrom }: { title: string; range?: Range; noFrom?: boolean }) {
+  const lines = range ? [noFrom || !range.from ? (range.to ? `تا ${fmt(range.to)}` : "") : `از ${fmt(range.from)}${range.to ? ` تا ${fmt(range.to)}` : ""}`].filter(Boolean) : [];
+  return <PrintHead title={title} lines={lines} />;
 }
+
+const fmt = (d: string | null) => (d ? formatJalali(d) : "");

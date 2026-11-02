@@ -3,17 +3,19 @@
 import { useState } from "react";
 import { useNavigate, useParams, Link } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Alert, Button, Dropdown, Spin, Table, Tag } from "antd";
-import { PrinterOutlined, EditOutlined, StopOutlined, CheckCircleOutlined, DeleteOutlined, MoreOutlined, FileTextOutlined } from "@ant-design/icons";
+import { Alert, Button, Dropdown, Table } from "antd";
+import { Ban, CircleCheck, Ellipsis, FileText, Pencil, Printer, ReceiptText, Trash2 } from "lucide-react";
+import { Ic } from "../../components/shell/icons";
 import { useOrg } from "../../lib/org";
 import { useNotify } from "../../lib/hooks";
 import { errorText } from "../../lib/api";
 import { PageHeader, Section } from "../../components/layout";
-import { JDate, JDateTime, Money } from "../../components/display";
+import { JDate, JDateTime, Loader, Money } from "../../components/display";
 import { D } from "@shared/money";
-import { faDigits, formatNumber, formatWeight } from "@shared/format";
-import { KIND_PATH, KINDS, StatusOf, ITEM_STATUS, formTitle, wageText, type DocKind } from "./shared";
+import { faDigits, formatNumber } from "@shared/format";
+import { gw, KIND_PATH, KINDS, StatusOf, ITEM_STATUS, formTitle, wageText, type DocKind } from "./shared";
 import { PrintArea, printSheet, type PrintFormat } from "./Invoice";
+import { KaratText } from "./kit";
 
 const LINE_LABEL: Record<string, string> = { piece: "جنس", bulk: "وزنی", old: "مستعمل", coin: "سکه" };
 
@@ -26,7 +28,7 @@ export default function DocView() {
   const [format, setFormat] = useState<PrintFormat>("a5");
   const q = useQuery({ queryKey: ["gold-doc", id], queryFn: () => api.get(`/gold/docs/${id}`).then((r) => r.doc) });
   const d = q.data;
-  if (q.isLoading) return <div className="grid h-64 place-content-center"><Spin /></div>;
+  if (q.isLoading) return <div className="grid h-64 place-content-center"><Loader /></div>;
   if (q.error || !d) return <Alert type="error" title={errorText(q.error)} />;
   const kind = d.kind as DocKind;
   const rule = KINDS[kind];
@@ -59,125 +61,118 @@ export default function DocView() {
   const names = d.settle_names ?? {};
 
   return (
-    <div>
+    <div className="sf-doc">
       <PageHeader
         back={`/${orgId}/gold/docs`}
-        title={`${rule.title} شماره‌ی ${faDigits(d.no)}`}
-        subtitle={<>تاریخ <JDate v={d.date} />، ثبت <JDateTime v={d.created_at} />{d.created_by_name ? `، ${d.created_by_name}` : ""}</>}
-        extra={<StatusOf s={d.status} />}
+        title={`${rule.title} ${faDigits(d.no)}`}
+        subtitle={<span className="sf-doc-meta"><StatusOf s={d.status} /><span className="sf-sep" aria-hidden /><JDate v={d.date} /><span className="sf-sep" aria-hidden /><JDateTime v={d.created_at} />{d.created_by_name ? <><span className="sf-sep" aria-hidden /><span>{d.created_by_name}</span></> : null}</span>}
         actions={
           <>
-            {kind === "sale" ? (
-              <>
-                <Button icon={<PrinterOutlined />} onClick={() => print("a5")}>فاکتور A5</Button>
-                <Button icon={<PrinterOutlined />} onClick={() => print("receipt")}>رسید ۸۰ میلی‌متری</Button>
-              </>
-            ) : (
-              <Button icon={<PrinterOutlined />} onClick={() => print("a5")}>چاپ</Button>
-            )}
-            {can("gold", "edit") && d.status !== "cancelled" ? <Button icon={<EditOutlined />} onClick={() => nav(`/${orgId}/${KIND_PATH[kind]}/${d.id}`)}>ویرایش</Button> : null}
-            {can("gold", "edit") && d.status !== "posted" ? <Button type="primary" icon={<CheckCircleOutlined />} onClick={() => run("post")}>ثبت</Button> : null}
             <Dropdown
               trigger={["click"]}
+              placement="bottomLeft"
               menu={{
                 items: [
-                  ...(d.voucher ? [{ key: "v", icon: <FileTextOutlined />, label: `سند حسابداری ${faDigits(d.voucher.no)}`, onClick: () => nav(`/${orgId}/accounting/vouchers/${d.voucher.id}`) }] : []),
-                  ...(can("gold", "edit") && d.status === "posted" ? [{ key: "c", icon: <StopOutlined />, danger: true, label: "ابطال سند", onClick: () => run("cancel") }] : []),
-                  ...(can("gold", "full") ? [{ key: "d", icon: <DeleteOutlined />, danger: true, label: "حذف سند", onClick: () => run("delete") }] : []),
+                  ...(can("gold", "edit") && d.status !== "cancelled" ? [{ key: "e", icon: <Ic icon={Pencil} />, label: "ویرایش سند", onClick: () => nav(`/${orgId}/${KIND_PATH[kind]}/${d.id}`) }] : []),
+                  ...(kind === "sale" ? [{ key: "r", icon: <Ic icon={ReceiptText} />, label: "رسید ۸۰ میلی‌متری", onClick: () => print("receipt") }] : []),
+                  ...(d.voucher ? [{ key: "v", icon: <Ic icon={FileText} />, label: `سند حسابداری ${faDigits(d.voucher.no)}`, onClick: () => nav(`/${orgId}/accounting/vouchers/${d.voucher.id}`) }] : []),
+                  ...(can("gold", "edit") && d.status === "posted" ? [{ key: "c", icon: <Ic icon={Ban} />, danger: true, label: "ابطال سند", onClick: () => run("cancel") }] : []),
+                  ...(can("gold", "full") ? [{ key: "d", icon: <Ic icon={Trash2} />, danger: true, label: "حذف سند", onClick: () => run("delete") }] : []),
                 ],
               }}
             >
-              <Button icon={<MoreOutlined />} aria-label="بیشتر" />
+              <Button icon={<Ic icon={Ellipsis} />} aria-label="بیشتر" />
             </Dropdown>
+            <Button type={can("gold", "edit") && d.status !== "posted" && d.status !== "cancelled" ? "default" : "primary"} icon={<Ic icon={Printer} />} onClick={() => print("a5")}>{kind === "sale" ? "چاپ فاکتور" : "چاپ"}</Button>
+            {can("gold", "edit") && d.status !== "posted" && d.status !== "cancelled" ? <Button type="primary" icon={<Ic icon={CircleCheck} />} onClick={() => run("post")}>ثبت قطعی</Button> : null}
           </>
         }
       />
       <div className="no-print">
-        {d.status === "cancelled" ? <Alert className="!mb-3" type="error" showIcon title="این سند باطل شده است و اثری در حساب‌ها و موجودی ندارد." /> : null}
-        <div className="mb-3 grid gap-3 md:grid-cols-4">
-          <Info k={rule.partyLabel || "طرف حساب"} v={d.party ? <Link to={`/${orgId}/parties/${d.party.id}`}>{d.party.name}</Link> : d.buyer?.name ?? "—"} />
-          <Info k="گرم ۱۸ / مظنه" v={d.gram18 ? <span className="num">{formatNumber(d.gram18)} / {formatNumber(d.mazaneh ?? 0)}</span> : "—"} />
-          <Info k="وزن ۷۵۰ خروجی / ورودی" v={<span className="num">{formatWeight(d.weight_out)} / {formatWeight(d.weight_in)}</span>} />
-          <Info k="سند حسابداری" v={d.voucher ? <Link to={`/${orgId}/accounting/vouchers/${d.voucher.id}`} className="num">{faDigits(d.voucher.no)}</Link> : "—"} />
+        {d.status === "cancelled" ? <div className="sf-inline mb-4" data-tone="danger"><i className="sf-nuqta" aria-hidden /><span><b>باطل شده.</b> این سند اثری در حساب‌ها و موجودی ندارد.</span></div> : null}
+        <div className="sf-doc-card sf-doc-pad mb-4">
+          <dl className="sf-kv m-0">
+            <div><dt>{rule.partyLabel || "طرف حساب"}</dt><dd>{d.party ? <Link className="sf-link" to={`/${orgId}/parties/${d.party.id}`}>{d.party.name}</Link> : d.buyer?.name ?? "—"}</dd></div>
+            <div><dt>گرم ۱۸ عیار</dt><dd className="sf-num">{d.gram18 ? formatNumber(d.gram18) : "—"}</dd></div>
+            <div><dt>مظنه</dt><dd className="sf-num">{d.mazaneh ? formatNumber(d.mazaneh) : "—"}</dd></div>
+            <div><dt>وزن ۷۵۰ خروجی</dt><dd className="sf-num">{gw(d.weight_out)}</dd></div>
+            <div><dt>وزن ۷۵۰ ورودی</dt><dd className="sf-num">{gw(d.weight_in)}</dd></div>
+            <div><dt>سند حسابداری</dt><dd>{d.voucher ? <Link to={`/${orgId}/accounting/vouchers/${d.voucher.id}`} className="sf-link sf-num">سند {faDigits(d.voucher.no)}</Link> : "—"}</dd></div>
+          </dl>
         </div>
         <Section title="ردیف‌ها" bodyClass="p-0">
           <Table
-            className="tz-table"
+            className=""
             size="small"
             rowKey="id"
             pagination={false}
             scroll={{ x: "max-content" }}
             dataSource={d.lines}
             columns={[
-              { key: "no", dataIndex: "line_no", title: "#", render: (v) => <span className="num">{faDigits(v)}</span> },
-              { key: "k", title: "نوع", render: (_, l: any) => <Tag variant="filled" className="!m-0">{LINE_LABEL[l.kind]}{l.kind === "bulk" ? `، ${formTitle(l.form)}` : ""}{kind === "melt" ? (l.direction === "out" ? " (ورودی)" : " (حاصل)") : ""}</Tag> },
+              { key: "no", dataIndex: "line_no", title: "#", render: (v) => <span className="sf-num">{faDigits(v)}</span> },
+              { key: "k", title: "نوع", render: (_, l: any) => <span className="text-ink-2">{LINE_LABEL[l.kind]}{l.kind === "bulk" ? `، ${formTitle(l.form)}` : ""}{kind === "melt" ? (l.direction === "out" ? " (ورودی)" : " (حاصل)") : ""}</span> },
               { key: "t", title: "شرح", render: (_, l: any) => (
                 <div>
                   <div>{l.kind === "coin" ? `${l.title ?? l.coin_name} × ${faDigits(D(l.qty).toString())}` : l.title}</div>
-                  <div className="text-[11px] text-muted">
-                    {l.tag_no ? <span className="num">اتیکت {faDigits(l.tag_no)}</span> : null}
+                  <div className="text-xs text-ink-3">
+                    {l.tag_no ? <span>اتیکت <span className="sf-docno">{faDigits(l.tag_no)}</span></span> : null}
                     {l.category_name ? `، ${l.category_name}` : ""}
                     {l.assay_no ? `، انگ ${l.assay_no}` : ""}
                     {l.item_status && l.kind === "piece" ? <>، {ITEM_STATUS[l.item_status]?.[0] ?? l.item_status}</> : null}
                   </div>
                 </div>
               ) },
-              { key: "f", dataIndex: "fineness", title: "عیار", render: (v) => <span className="num">{faDigits(D(v ?? 750).toString())}</span> },
-              { key: "w", dataIndex: "weight", title: "وزن", align: "left", render: (v, l: any) => (l.kind === "coin" ? "—" : <span className="num">{formatWeight(v)}</span>) },
-              { key: "w750", dataIndex: "weight750", title: "۷۵۰", align: "left", render: (v, l: any) => (l.kind === "coin" ? "—" : <span className="num">{formatWeight(v)}</span>) },
+              { key: "f", dataIndex: "fineness", title: "عیار", render: (v, l: any) => <KaratText fineness={v ?? 750} coin={l.kind === "coin"} /> },
+              { key: "w", dataIndex: "weight", title: "وزن", className: "sf-num", render: (v, l: any) => (l.kind === "coin" ? "—" : <span className="sf-num">{gw(v)}</span>) },
+              { key: "w750", dataIndex: "weight750", title: "۷۵۰", className: "sf-num", render: (v, l: any) => (l.kind === "coin" ? "—" : <span className="sf-num">{gw(v)}</span>) },
               ...(money
                 ? [
-                    { key: "gp", dataIndex: "gram_price", title: "قیمت", align: "left" as const, render: (v: string) => <Money v={v ?? 0} zero="—" /> },
-                    { key: "gv", dataIndex: "gold_value", title: "ارزش طلا", align: "left" as const, render: (v: string) => <Money v={v} zero="—" /> },
-                    { key: "wg", title: "اجرت", align: "left" as const, render: (_: unknown, l: any) => (D(l.wage).isZero() ? "—" : <div><Money v={l.wage} /><div className="text-[10px] text-muted">{wageText(l.wage_type, l.wage_value)}</div></div>) },
+                    { key: "gp", dataIndex: "gram_price", title: "قیمت", className: "sf-num", render: (v: string) => <Money v={v ?? 0} zero="—" /> },
+                    { key: "gv", dataIndex: "gold_value", title: "ارزش طلا", className: "sf-num", render: (v: string) => <Money v={v} zero="—" /> },
+                    { key: "wg", title: "اجرت", className: "sf-num", render: (_: unknown, l: any) => (D(l.wage).isZero() ? "—" : <div><Money v={l.wage} /><div className="text-xs text-ink-3">{wageText(l.wage_type, l.wage_value)}</div></div>) },
                     ...(kind === "sale" ? [
-                      { key: "pr", dataIndex: "profit", title: "سود", align: "left" as const, render: (v: string) => <Money v={v} zero="—" /> },
-                      { key: "ds", dataIndex: "discount", title: "تخفیف", align: "left" as const, render: (v: string) => <Money v={v} zero="—" /> },
-                      { key: "tx", dataIndex: "tax", title: "مالیات", align: "left" as const, render: (v: string) => <Money v={v} zero="—" /> },
+                      { key: "pr", dataIndex: "profit", title: "سود", className: "sf-num", render: (v: string) => <Money v={v} zero="—" /> },
+                      { key: "ds", dataIndex: "discount", title: "تخفیف", className: "sf-num", render: (v: string) => <Money v={v} zero="—" /> },
+                      { key: "tx", dataIndex: "tax", title: "مالیات", className: "sf-num", render: (v: string) => <Money v={v} zero="—" /> },
                     ] : []),
-                    ...(kind === "buyback" ? [{ key: "dd", title: "کسر", align: "left" as const, render: (_: unknown, l: any) => <Money v={l.discount} zero="—" /> }] : []),
-                    { key: "tt", dataIndex: "total", title: "جمع", align: "left" as const, render: (v: string) => <b><Money v={v} /></b> },
+                    ...(kind === "buyback" ? [{ key: "dd", title: "کسر", className: "sf-num", render: (_: unknown, l: any) => <Money v={l.discount} zero="—" /> }] : []),
+                    { key: "tt", dataIndex: "total", title: "جمع", className: "sf-num", render: (v: string) => <Money v={v} className="font-medium" /> },
                   ]
                 : []),
-              ...(d.status === "posted" ? [{ key: "cost", dataIndex: "cost", title: "بهای دفتری", align: "left" as const, render: (v: string | null) => <Money v={v ?? 0} zero="—" /> }] : []),
+              ...(d.status === "posted" ? [{ key: "cost", dataIndex: "cost", title: "بهای دفتری", className: "sf-num", render: (v: string | null) => <Money v={v ?? 0} zero="—" /> }] : []),
             ]}
           />
         </Section>
-        <div className="mt-3 grid gap-3 md:grid-cols-2">
+        <div className="mt-4 grid items-start gap-4 md:grid-cols-2">
           {money ? (
             <Section title="مبالغ">
+              <div className="sf-sums">
               {[
                 ["ارزش طلا", d.gold_value], ["اجرت", d.wage], ["سود", d.profit], ["تخفیف", d.discount], ["مالیات", d.tax], ["سنگ", d.stone],
                 ["طلای مستعمل", d.old_value], ["جمع سند", d.total],
                 ...(kind === "sale" && !D(d.old_value).isZero() ? [["خالص قابل دریافت", D(d.total).minus(D(d.old_value)).toString()]] : []),
               ].filter(([, v]) => !D(v).isZero()).map(([k, v]) => (
-                <div key={k} className="flex justify-between py-0.5 text-sm"><span className="text-muted">{k}</span><Money v={v} /></div>
+                <div key={k} className={`r ${k === "جمع سند" || k === "خالص قابل دریافت" ? "is-total" : ""}`}><span>{k}</span><span className="n"><Money v={k === "تخفیف" || k === "طلای مستعمل" ? D(v).neg().toString() : v} /></span></div>
               ))}
+              </div>
             </Section>
           ) : null}
           <Section title="تسویه">
-            {s.mode ? <div className="flex justify-between py-0.5 text-sm"><span className="text-muted">نوع</span><span>{s.mode === "weight" ? "وزنی (طلا به طلا)" : "ریالی"}</span></div> : null}
-            {s.cash ? <div className="flex justify-between py-0.5 text-sm"><span className="text-muted">نقد {names.cash ? `(${names.cash})` : ""}</span><Money v={s.cash.amount} /></div> : null}
-            {s.pos ? <div className="flex justify-between py-0.5 text-sm"><span className="text-muted">کارتخوان {names.pos ? `(${names.pos})` : ""}</span><Money v={s.pos.amount} /></div> : null}
-            {s.bank ? <div className="flex justify-between py-0.5 text-sm"><span className="text-muted">بانک {names.bank ? `(${names.bank})` : ""}</span><Money v={s.bank.amount} /></div> : null}
-            {s.remaining && !D(s.remaining).isZero() ? <div className="flex justify-between py-0.5 text-sm font-bold"><span>مانده به حساب طرف</span><Money v={s.remaining} /></div> : null}
-            {s.consumed_weight750 ? <div className="flex justify-between py-0.5 text-sm"><span className="text-muted">وزن مصرفی کارگاه</span><span className="num">{formatWeight(s.consumed_weight750)}</span></div> : null}
-            {s.close_workshop ? <div className="text-xs text-muted">مانده‌ی کارگاه تسویه شد (مابقی به افت)</div> : null}
-            {!s.mode && !s.cash && !s.pos && !s.bank && (!s.remaining || D(s.remaining).isZero()) ? <div className="text-sm text-muted">{money ? "بدون پرداخت" : "سند وزنی است"}</div> : null}
-            {d.description ? <div className="mt-2 text-sm">توضیحات: {d.description}</div> : null}
+            <div className="sf-sums is-flat">
+            {s.mode ? <div className="r"><span>نوع</span><span className="n">{s.mode === "weight" ? "وزنی (طلا به طلا)" : "ریالی"}</span></div> : null}
+            {s.cash ? <div className="r"><span>نقد{names.cash ? <span className="why">{names.cash}</span> : null}</span><span className="n"><Money v={s.cash.amount} /></span></div> : null}
+            {s.pos ? <div className="r"><span>کارتخوان{names.pos ? <span className="why">{names.pos}</span> : null}</span><span className="n"><Money v={s.pos.amount} /></span></div> : null}
+            {s.bank ? <div className="r"><span>بانک{names.bank ? <span className="why">{names.bank}</span> : null}</span><span className="n"><Money v={s.bank.amount} /></span></div> : null}
+            {s.remaining && !D(s.remaining).isZero() ? <div className="r is-total"><span>مانده به حساب طرف</span><span className="n"><Money v={s.remaining} /></span></div> : null}
+            {s.consumed_weight750 ? <div className="r"><span>وزن مصرفی کارگاه</span><span className="n">{gw(s.consumed_weight750)}<span className="sf-unit">{"\u00a0"}گرم</span></span></div> : null}
+            {s.close_workshop ? <div className="r is-sub"><span>مانده‌ی کارگاه تسویه شد (مابقی به افت)</span><span className="n" /></div> : null}
+            {!s.mode && !s.cash && !s.pos && !s.bank && (!s.remaining || D(s.remaining).isZero()) ? <div className="r is-sub"><span>{money ? "بدون پرداخت" : "سند وزنی است"}</span><span className="n" /></div> : null}
+            </div>
+            {d.description ? <div className="mt-3 text-[13px] text-ink-2">توضیحات: {d.description}</div> : null}
           </Section>
         </div>
       </div>
       <PrintArea doc={d} format={format} />
-    </div>
-  );
-}
-
-function Info({ k, v }: { k: string; v: React.ReactNode }) {
-  return (
-    <div className="tz-card px-3 py-2">
-      <div className="text-[11px] text-muted">{k}</div>
-      <div className="mt-0.5 text-sm font-semibold">{v}</div>
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import { lazy } from "react";
+import { Users, UsersRound } from "lucide-react";
 import { useNavigate } from "react-router";
 import type { NavGroup, AppRoute } from "../registry";
 import { EntityPage } from "../../components/data";
@@ -12,12 +13,12 @@ function PartiesPage() {
   return <EntityPage entity="party" onOpen={(r) => nav(`/${orgId}/parties/${r.id}`)} rowActions={(r) => [{ key: "open", label: "پرونده و صورتحساب", onClick: () => nav(`/${orgId}/parties/${r.id}`) }]} drawerWidth={820} />;
 }
 
-export const partiesNav: Omit<NavGroup, "icon"> = {
+export const partiesNav: Omit<NavGroup, "icon" | "space"> = {
   key: "parties",
   label: "اشخاص",
   items: [
-    { key: "parties", label: "اشخاص (مشتری، تأمین‌کننده…)", path: "parties", area: "parties", keywords: "مشتری طرف حساب" },
-    { key: "party-groups", label: "گروه‌های اشخاص", path: "parties/groups", area: "parties" },
+    { key: "parties", label: "اشخاص", path: "parties", area: "parties", icon: Users, common: true, keywords: "مشتری تأمین‌کننده طرف حساب" },
+    { key: "party-groups", label: "گروه‌های اشخاص", path: "parties/groups", area: "parties", icon: UsersRound, section: "تعریف‌ها" },
   ],
 };
 

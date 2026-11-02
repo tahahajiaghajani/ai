@@ -3,14 +3,14 @@
 // row with the cheque's details (Sayad number, bank, due date …). Enter moves to the next field
 // and from the last one to a new line.
 import { Fragment, useRef } from "react";
-import { AutoComplete, Button, Input, Select, Tag, Tooltip } from "antd";
-import { DeleteOutlined, LockOutlined, PlusOutlined } from "@ant-design/icons";
+import { AutoComplete, Button, Input, Select, Tooltip } from "antd";
+import { Lock, Plus, Trash2 } from "lucide-react";
 import { useOrg } from "../../lib/org";
 import { AccountSelect, DateInput, DetailSelect, MoneyInput, PartySelect, RefSelect } from "../../components/inputs";
-import { Money, StatusTag } from "../../components/display";
+import { StatusTag } from "../../components/display";
+import { Amt, Field, ICON14, Keys, cx } from "../reports/kit";
 import { faDigits } from "@shared/format";
 import { normalizeDigits } from "@shared/money";
-import { amountToWords } from "@shared/words";
 import { BANKS, KIND_METHODS, METHOD_LABEL, chequeStatusMap, isSayad, type DocKind, type Method } from "./labels";
 import { blankLine, lineTotals, remember, withMethod, type ChequeFields, type Line } from "./editor";
 
@@ -87,18 +87,19 @@ export function LinesGrid({ kind, lines, setLines, readonly, hasParty }: Props) 
   const totals = lineTotals(lines);
 
   return (
-    <div ref={grid} className="overflow-x-auto">
-      <table className="tz-grid min-w-[920px]">
+    <>
+    <div ref={grid} className="bk-gridwrap">
+      <table className="bk-grid" style={{ minInlineSize: 960 }} role="grid" aria-label="ردیف‌های سند">
         <thead>
           <tr>
-            <th className="w-10">ردیف</th>
-            <th className="min-w-[150px]">روش</th>
-            <th className="min-w-[220px]">صندوق / بانک / حساب</th>
-            <th className="min-w-[170px]">پیگیری / سریال / تفصیلی</th>
-            <th className="min-w-[160px]">مبلغ</th>
-            <th className="min-w-[120px]">کارمزد بانکی</th>
-            <th className="min-w-[180px]">شرح</th>
-            {!readonly ? <th className="no-print w-10" /> : null}
+            <th className="bk-rn">ردیف</th>
+            <th style={{ inlineSize: 168 }}>روش</th>
+            <th style={{ minInlineSize: 220 }}>صندوق، بانک یا حساب</th>
+            <th style={{ minInlineSize: 168 }}>پیگیری، سریال یا تفصیلی</th>
+            <th className="bk-money">مبلغ ({unit})</th>
+            <th style={{ inlineSize: 136 }}>کارمزد بانکی</th>
+            <th style={{ minInlineSize: 180 }}>شرح</th>
+            {!readonly ? <th className="bk-del" aria-label="حذف" /> : null}
           </tr>
         </thead>
         <tbody>
@@ -108,8 +109,8 @@ export function LinesGrid({ kind, lines, setLines, readonly, hasParty }: Props) 
             const cq = l.cheque;
             return (
               <Fragment key={l.key}>
-                <tr>
-                  <td className="num text-center text-xs text-muted">{faDigits(i + 1)}</td>
+                <tr className={cx(l.method === "cheque" && "bk-has-sub")}>
+                  <td className="bk-rn">{faDigits(i + 1)}</td>
                   <td data-f={`${i}:method`}>
                     <Select
                       variant="borderless"
@@ -195,7 +196,7 @@ export function LinesGrid({ kind, lines, setLines, readonly, hasParty }: Props) 
                         onChange={(id, o) => pickBook(i, id, o)}
                       />
                     ) : (
-                      <span className="px-2 text-xs text-muted">چک دریافتی — مشخصات در ردیف زیر</span>
+                      <span className="bk-muted">چک دریافتی؛ مشخصات زیر همین ردیف</span>
                     )}
                   </td>
                   <td data-f={`${i}:${l.method === "other" ? "detail" : "ref"}`}>
@@ -203,7 +204,8 @@ export function LinesGrid({ kind, lines, setLines, readonly, hasParty }: Props) 
                       <Input
                         variant="borderless"
                         dir="ltr"
-                        className="num"
+                        className="sf-num"
+                        style={{ textAlign: "right" }}
                         value={faDigits(l.ref_no)}
                         disabled={lock}
                         placeholder="شماره پیگیری"
@@ -214,7 +216,8 @@ export function LinesGrid({ kind, lines, setLines, readonly, hasParty }: Props) 
                       <Input
                         variant="borderless"
                         dir="ltr"
-                        className="num"
+                        className="sf-num"
+                        style={{ textAlign: "right" }}
                         value={faDigits(cq.serial_no)}
                         disabled={readonly}
                         placeholder="سریال چک"
@@ -236,34 +239,35 @@ export function LinesGrid({ kind, lines, setLines, readonly, hasParty }: Props) 
                         }}
                       />
                     ) : (
-                      <span className="px-2 text-muted">—</span>
+                      <span className="bk-muted">—</span>
                     )}
                   </td>
-                  <td data-f={`${i}:amount`}>
-                    <MoneyInput variant="borderless" value={l.amount} disabled={lock} placeholder="۰" onChange={(v) => set(i, { amount: v })} onPressEnter={() => next(i, "amount")} />
+                  <td data-f={`${i}:amount`} className="bk-money">
+                    <MoneyInput variant="borderless" value={l.amount} disabled={lock} placeholder="—" onChange={(v) => set(i, { amount: v })} onPressEnter={() => next(i, "amount")} />
                   </td>
                   <td data-f={`${i}:fee`}>
                     {bankish ? (
                       <MoneyInput variant="borderless" value={l.fee} disabled={lock} placeholder="—" onChange={(v) => set(i, { fee: v })} onPressEnter={() => next(i, "fee")} />
                     ) : (
-                      <span className="px-2 text-muted">—</span>
+                      <span className="bk-muted">—</span>
                     )}
                   </td>
                   <td data-f={`${i}:desc`}>
                     <Input variant="borderless" value={l.description} disabled={readonly} placeholder="شرح ردیف" onChange={(e) => set(i, { description: e.target.value })} onPressEnter={() => next(i, "desc")} />
                   </td>
                   {!readonly ? (
-                    <td className="no-print text-center">
+                    <td className="bk-del">
                       {l.locked ? (
-                        <Tooltip title="این چک عملیات خورده است؛ مبلغ و شخص آن قفل است و ردیف حذف نمی‌شود">
-                          <LockOutlined className="text-muted" />
+                        <Tooltip title="این چک عملیات خورده است؛ مبلغ و شخص آن قفل است و ردیف حذف نمی‌شود.">
+                          <span className="bk-3 inline-grid" style={{ opacity: 1 }}>
+                            <Lock {...ICON14} aria-label="قفل" />
+                          </span>
                         </Tooltip>
                       ) : (
                         <Button
                           type="text"
                           size="small"
-                          danger
-                          icon={<DeleteOutlined />}
+                          icon={<Trash2 {...ICON14} />}
                           tabIndex={-1}
                           aria-label="حذف ردیف"
                           onClick={() => setLines((ls) => (ls.length > 1 ? ls.filter((_, j) => j !== i) : [blankLine(kind, ls[0].method)]))}
@@ -273,27 +277,27 @@ export function LinesGrid({ kind, lines, setLines, readonly, hasParty }: Props) 
                   ) : null}
                 </tr>
                 {l.method === "cheque" ? (
-                  <tr className="bg-gold-soft/40">
+                  <tr className="bk-sub">
                     <td />
                     <td colSpan={readonly ? 6 : 7}>
-                      <div className="flex flex-wrap items-end gap-2 py-1">
+                      <div className="bk-sub-in">
                         {l.status ? (
-                          <div className="flex items-center gap-1 self-center">
-                            <StatusTag s={l.status} map={chequeStatusMap(l.direction === "in" ? "received" : "issued")} />
+                          <div className="bk-sub-st">
+                            وضعیت چک <StatusTag s={l.status} map={chequeStatusMap(l.direction === "in" ? "received" : "issued")} chip />
                           </div>
                         ) : null}
-                        <Field label="سررسید" w="w-36" f={`${i}:due`}>
+                        <SubField label="سررسید" w="w-36" f={`${i}:due`}>
                           <DateInput
                             value={cq.due_date}
                             disabled={readonly}
                             onChange={(v) => setCheque(i, { due_date: v })}
                             onPressEnter={() => next(i, "due")}
                           />
-                        </Field>
-                        <Field label="شناسه صیادی (۱۶ رقم)" w="w-48" f={`${i}:sayad`}>
+                        </SubField>
+                        <SubField label="شناسهٔ صیادی (۱۶ رقم)" w="w-52" f={`${i}:sayad`}>
                           <Input
                             dir="ltr"
-                            className="num"
+                            className="sf-code"
                             maxLength={16}
                             value={faDigits(cq.sayad_no)}
                             disabled={readonly}
@@ -301,10 +305,10 @@ export function LinesGrid({ kind, lines, setLines, readonly, hasParty }: Props) 
                             onChange={(e) => setCheque(i, { sayad_no: normalizeDigits(e.target.value).replace(/\D/g, "") })}
                             onPressEnter={() => next(i, "sayad")}
                           />
-                        </Field>
+                        </SubField>
                         {l.direction === "in" ? (
                           <>
-                            <Field label="بانک" w="w-36" f={`${i}:bank`}>
+                            <SubField label="بانک" w="w-36" f={`${i}:bank`}>
                               <AutoComplete
                                 className="w-full"
                                 value={cq.bank_name}
@@ -316,26 +320,27 @@ export function LinesGrid({ kind, lines, setLines, readonly, hasParty }: Props) 
                                   if (e.key === "Enter") next(i, "bank");
                                 }}
                               />
-                            </Field>
-                            <Field label="شعبه" w="w-32" f={`${i}:branch`}>
+                            </SubField>
+                            <SubField label="شعبه" w="w-32" f={`${i}:branch`}>
                               <Input value={cq.branch_name} disabled={readonly} onChange={(e) => setCheque(i, { branch_name: e.target.value })} onPressEnter={() => next(i, "branch")} />
-                            </Field>
-                            <Field label="شماره حساب" w="w-36" f={`${i}:acct`}>
+                            </SubField>
+                            <SubField label="شمارهٔ حساب" w="w-36" f={`${i}:acct`}>
                               <Input
                                 dir="ltr"
-                                className="num"
+                                className="sf-num"
+                                style={{ textAlign: "right" }}
                                 value={faDigits(cq.account_no)}
                                 disabled={readonly}
                                 onChange={(e) => setCheque(i, { account_no: normalizeDigits(e.target.value) })}
                                 onPressEnter={() => next(i, "acct")}
                               />
-                            </Field>
-                            <Field label="صاحب حساب (صادرکننده)" w="w-44" f={`${i}:owner`}>
+                            </SubField>
+                            <SubField label="صاحب حساب (صادرکننده)" w="w-44" f={`${i}:owner`}>
                               <Input value={cq.account_owner} disabled={readonly} onChange={(e) => setCheque(i, { account_owner: e.target.value })} onPressEnter={() => next(i, "owner")} />
-                            </Field>
+                            </SubField>
                           </>
                         ) : (
-                          <Field label={cq.cheque_book_id ? "حساب بانکی (از دسته‌چک)" : "حساب بانکی"} w="w-52" f={`${i}:chqbank`}>
+                          <SubField label={cq.cheque_book_id ? "حساب بانکی (از دسته‌چک)" : "حساب بانکی"} w="w-52" f={`${i}:chqbank`}>
                             <RefSelect
                               className="w-full"
                               entity="bank_account"
@@ -347,10 +352,10 @@ export function LinesGrid({ kind, lines, setLines, readonly, hasParty }: Props) 
                                 set(i, { names: { ...l.names, bank: o?.label } });
                               }}
                             />
-                          </Field>
+                          </SubField>
                         )}
                         {needParty ? (
-                          <Field label={l.direction === "in" ? "طرف حساب چک" : "در وجه"} w="w-56" f={`${i}:party`}>
+                          <SubField label={l.direction === "in" ? "طرف حساب چک" : "در وجه"} w="w-56" f={`${i}:party`}>
                             <PartySelect
                               className="w-full"
                               value={cq.party_id}
@@ -362,7 +367,7 @@ export function LinesGrid({ kind, lines, setLines, readonly, hasParty }: Props) 
                                 if (id) next(i, "party");
                               }}
                             />
-                          </Field>
+                          </SubField>
                         ) : null}
                       </div>
                     </td>
@@ -373,40 +378,47 @@ export function LinesGrid({ kind, lines, setLines, readonly, hasParty }: Props) 
           })}
         </tbody>
         <tfoot>
-          <tr>
+          <tr className="bk-vt" data-state={totals.amount.gt(0) ? "settled" : "empty"}>
             <td colSpan={4}>
-              <div className="flex items-center gap-3">
-                {!readonly ? (
-                  <Button size="small" icon={<PlusOutlined />} onClick={addLine} className="no-print">
-                    ردیف
-                  </Button>
-                ) : null}
-                <span className="text-xs font-normal text-muted">{totals.amount.gt(0) ? amountToWords(totals.amount, unit) : ""}</span>
+              <span className="bk-vt-track" aria-hidden />
+              <div className="bk-vt-lab">
+                <b>جمع</b>
+                <span className="bk-plain">{faDigits(lines.filter((l) => l.amount).length)} ردیف</span>
               </div>
             </td>
+            <td className="bk-money">
+              <span className="bk-vt-n"><Amt v={totals.amount.toString()} /></span>
+            </td>
             <td>
-              <Money v={totals.amount.toString()} />
+              <span className="bk-vt-n">{totals.fee.gt(0) ? <Amt v={totals.fee.toString()} /> : null}</span>
             </td>
-            <td>{totals.fee.gt(0) ? <Money v={totals.fee.toString()} /> : null}</td>
-            <td colSpan={readonly ? 1 : 2}>
-              {totals.fee.gt(0) ? (
-                <Tag variant="filled" className="!m-0 text-xs font-normal">
-                  {kind === "receipt" ? "خالص پس از کارمزد" : "جمع با کارمزد"}: <Money v={(kind === "receipt" ? totals.amount.minus(totals.fee) : totals.amount.plus(totals.fee)).toString()} />
-                </Tag>
-              ) : null}
-            </td>
+            <td colSpan={readonly ? 1 : 2} />
           </tr>
         </tfoot>
       </table>
     </div>
+    {!readonly ? (
+      <div className="bk-grid-add">
+        <Tooltip title={<Keys k={["Enter"]} />}>
+          <Button size="small" type="text" icon={<Plus {...ICON14} />} onClick={addLine}>
+            ردیف
+          </Button>
+        </Tooltip>
+        <span className="bk-keys" aria-hidden>
+          <span><Keys k={["Enter"]} /> خانهٔ بعد</span>
+          <span><Keys k={["+"]} /> سه صفر</span>
+          <span><Keys k={["Alt", "F2"]} /> ثبت و سند جدید</span>
+        </span>
+      </div>
+    ) : null}
+    </>
   );
 }
 
-function Field({ label, children, w, f }: { label: string; children: React.ReactNode; w: string; f: string }) {
+function SubField({ label, children, w, f }: { label: string; children: React.ReactNode; w: string; f: string }) {
   return (
     <div className={w} data-f={f}>
-      <div className="mb-0.5 text-[11px] text-muted">{label}</div>
-      {children}
+      <Field label={label}>{children}</Field>
     </div>
   );
 }

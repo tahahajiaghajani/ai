@@ -1,14 +1,15 @@
 // Shared pieces of the goods screens: the item picker (search by name, code or barcode with stock
 // and the price for the document's party), quantity display and small tags.
 import { useMemo, useState, type KeyboardEvent } from "react";
-import { Select, Spin, Tag } from "antd";
+import { Select } from "antd";
 import { useQuery } from "@tanstack/react-query";
+import "./sheet.css";
 import { useOrg } from "../../lib/org";
 import { useDebounced } from "../../lib/hooks";
 import { D, type Num } from "@shared/money";
 import { faDigits, formatNumber } from "@shared/format";
 import { INVOICE_META, INVOICE_STATUS, STOCK_DOC_META, type InvoiceKind, type StockDocKind } from "./labels";
-import { StatusTag } from "../../components/display";
+import { Loader, StatusTag } from "../../components/display";
 
 export interface ItemOpt {
   id: string;
@@ -47,25 +48,23 @@ export interface LookupContext {
   kinds?: string;
 }
 
+/** A quantity with up to 3 decimals; a negative is an isolated true minus (never red); the unit small and quiet. */
 export function Qty({ v, unit, className }: { v: Num; unit?: string | null; className?: string }) {
   const d = D(v);
+  const body = formatNumber(d.abs(), { dp: 3 });
   return (
-    <span className={`num ${d.isNeg() ? "tz-neg" : ""} ${className ?? ""}`}>
-      {formatNumber(d, { dp: 3 })}
-      {unit ? <span className="ms-1 text-[11px] text-muted">{unit}</span> : null}
+    <span className={`sf-num ${className ?? ""}`}>
+      {d.isNeg() ? <bdi dir="ltr">{"\u2212"}{body}</bdi> : body}
+      {unit ? <span className="sf-unit">{"\u00a0"}{unit}</span> : null}
     </span>
   );
 }
 
+/** The kind of a document: plain text (a category, not a status, so it wears no colour). */
 export function KindTag({ kind }: { kind: string }) {
   const m = INVOICE_META[kind as InvoiceKind];
   const s = STOCK_DOC_META[kind as StockDocKind];
-  const label = m?.title ?? s?.title ?? kind;
-  return (
-    <Tag variant="filled" color={m?.color ?? s?.color} className="!m-0">
-      {label}
-    </Tag>
-  );
+  return <span className="whitespace-nowrap text-ink-2">{m?.title ?? s?.title ?? kind}</span>;
 }
 
 export function InvoiceStatus({ s }: { s: string }) {
@@ -129,22 +128,22 @@ export function ItemSelect({
         if (!o) setSearch("");
       }}
       onKeyDown={onKeyDown}
-      notFoundContent={list.isFetching ? <Spin size="small" /> : "کالایی پیدا نشد"}
+      notFoundContent={list.isFetching ? <div className="grid place-items-center py-3"><Loader /></div> : <div className="py-2 text-center text-ink-3">کالایی پیدا نشد</div>}
       onChange={(id) => onChange(options.find((o) => o.id === id) ?? null)}
       options={options.map((o) => ({ value: o.id, label: `${faDigits(o.code)} — ${o.name}`, item: o }))}
       optionRender={(opt) => {
         const o = (opt.data as { item: ItemOpt }).item;
         const stock = o.wh_stock ?? o.stock;
         return (
-          <div className="flex items-center gap-2">
-            <span className="num w-14 shrink-0 text-xs text-muted">{faDigits(o.code)}</span>
-            <span className="min-w-0 flex-1 truncate">{o.name}</span>
+          <div className="sf-opt">
+            <span className="sf-opt-code">{faDigits(o.code)}</span>
+            <span className="sf-opt-main flex-1">{o.name}</span>
             {o.kind === "service" ? (
-              <Tag variant="filled" className="!m-0 !text-[10px]">خدمت</Tag>
+              <span className="text-[12px] text-ink-3">خدمت</span>
             ) : stock !== undefined && stock !== null ? (
-              <span className={`num text-[11px] ${D(stock).gt(0) ? "text-ok" : "text-bad"}`}>{formatNumber(stock, { dp: 3 })} {o.unit_name ?? ""}</span>
+              <span className={`sf-num text-[12px] ${D(stock).gt(0) ? "text-ink-3" : "text-danger"}`}>{formatNumber(stock, { dp: 3 })} {o.unit_name ?? ""}</span>
             ) : null}
-            {o.price ? <span className="num text-[11px] text-muted">{formatNumber(o.price)}</span> : null}
+            {o.price ? <span className="sf-num min-w-[84px] text-[12px] text-ink-2">{formatNumber(o.price)}</span> : null}
           </div>
         );
       }}

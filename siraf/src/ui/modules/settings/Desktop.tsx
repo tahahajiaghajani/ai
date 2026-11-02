@@ -1,15 +1,16 @@
 // Windows app settings: backups, LAN (office network) mode and the link with the web version.
 import { useState } from "react";
-import { Button, Table, Switch, Form, Input, Alert, Tag, Descriptions, Modal, Select, Space, Result } from "antd";
-import { CloudUploadOutlined, CloudDownloadOutlined, SyncOutlined, DatabaseOutlined, WifiOutlined, DisconnectOutlined, FolderOpenOutlined } from "@ant-design/icons";
+import { Button, Table, Switch, Form, Input, Modal, Select, Tooltip, message } from "antd";
+import { CloudUpload, CloudDownload, RefreshCw, Unlink, FolderOpen, DatabaseBackup, ArchiveRestore, Copy, QrCode, Monitor } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import QRCode from "qrcode";
 import { api } from "../../lib/api";
 import { useSession } from "../../lib/session";
 import { useOrg } from "../../lib/org";
 import { useAction, useNotify } from "../../lib/hooks";
-import { PageHeader, Section } from "../../components/layout";
-import { JDateTime } from "../../components/display";
+import { PageHeader } from "../../components/layout";
+import { EmptyState, JDateTime, Skeleton } from "../../components/display";
+import { Card, ICON, ICON14, Note } from "../reports/kit";
 import { faDigits } from "@shared/format";
 
 function size(n: number) {
@@ -32,101 +33,190 @@ export default function Desktop() {
   const [qr, setQr] = useState<string | null>(null);
   const [link, setLink] = useState(false);
 
-  if (meta?.mode !== "desktop") return <Result status="info" title="این بخش مخصوص نسخه‌ی ویندوز است" />;
+  if (meta?.mode !== "desktop")
+    return (
+      <div>
+        <PageHeader title="نسخهٔ ویندوز" />
+        <Card>
+          <EmptyState icon={Monitor} title="این بخش مخصوص نسخهٔ ویندوز است" description="پشتیبان‌گیری، حالت شبکه و هم‌گامی با نسخهٔ وب در برنامهٔ ویندوز تنظیم می‌شوند." />
+        </Card>
+      </div>
+    );
   const d = info.data;
   const lanUrl = d?.lan?.addresses?.[0] ? `http://${d.lan.addresses[0]}:${d.lan.port}` : null;
+  const linked = !!d?.cloud?.linked;
   return (
     <div>
-      <PageHeader title="نسخه‌ی ویندوز" subtitle={d ? <span className="ltr">{d.data_dir}</span> : null} />
-      <div className="grid gap-4 xl:grid-cols-2">
-        <Section
-          title={<span><CloudUploadOutlined /> همگام‌سازی با نسخه‌ی وب</span>}
-          extra={d?.cloud?.linked ? <Tag color="success" variant="filled">متصل</Tag> : <Tag variant="filled">متصل نیست</Tag>}
+      <PageHeader title="نسخهٔ ویندوز" subtitle={d ? <span>نسخهٔ <span className="sf-num">{faDigits(d.version)}</span>، {d.computer}</span> : null} />
+      <div className="grid items-start gap-4 xl:grid-cols-2">
+        <Card
+          title="هم‌گامی با نسخهٔ وب"
+          meta={
+            <span className="inline-flex items-center gap-2 bk-meta">
+              <i className="sf-nuqta" data-live={linked ? "" : undefined} style={linked ? undefined : { color: "var(--sf-text-3)" }} aria-hidden />
+              {linked ? "متصل" : "متصل نیست"}
+            </span>
+          }
         >
-          {d?.cloud?.linked ? (
+          {linked ? (
             <>
-              <Descriptions
-                size="small"
-                column={1}
-                items={[
-                  { key: "url", label: "نسخه‌ی وب", children: <span className="ltr">{d.cloud.url}</span> },
-                  { key: "email", label: "حساب", children: <span className="ltr">{d.cloud.email}</span> },
-                  { key: "last", label: "آخرین همگام‌سازی", children: <JDateTime v={d.sync.last_sync_at} /> },
-                  { key: "pending", label: "تغییرات در صف ارسال", children: faDigits(d.sync.pending) },
-                ]}
-              />
-              {d.sync.last_error ? <Alert className="!my-3" type="warning" showIcon title={d.sync.last_error} /> : null}
-              {d.sync.failed?.length ? <Alert className="!my-3" type="error" showIcon title={`${faDigits(d.sync.failed.length)} مورد ارسال نشد`} description={d.sync.failed.slice(0, 5).map((f: any) => f.error).join(" · ")} /> : null}
-              <Space className="mt-3">
-                <Button type="primary" icon={<SyncOutlined spin={syncNow.isPending} />} onClick={() => syncNow.mutate(undefined)}>همگام‌سازی الان</Button>
-                <Button danger icon={<DisconnectOutlined />} onClick={async () => { if (await n.confirm("قطع اتصال از نسخه‌ی وب؟", "داده‌های این رایانه باقی می‌مانند ولی دیگر با وب هم‌گام نمی‌شوند.")) unlink.mutate(undefined); }}>قطع اتصال</Button>
-              </Space>
+              <dl className="bk-dl">
+                <div className="is-wide">
+                  <dt>نسخهٔ وب</dt>
+                  <dd><bdi dir="ltr" className="sf-latin">{d.cloud.url}</bdi></dd>
+                </div>
+                <div>
+                  <dt>حساب</dt>
+                  <dd><bdi dir="ltr" className="sf-latin">{d.cloud.email}</bdi></dd>
+                </div>
+                <div>
+                  <dt>آخرین هم‌گامی</dt>
+                  <dd><JDateTime v={d.sync.last_sync_at} /></dd>
+                </div>
+                <div>
+                  <dt>تغییرات در صف ارسال</dt>
+                  <dd className="sf-num">{faDigits(d.sync.pending)}</dd>
+                </div>
+              </dl>
+              {d.sync.last_error ? <Note tone="warning" className="mt-4"><b>آخرین هم‌گامی کامل نشد.</b> {d.sync.last_error}</Note> : null}
+              {d.sync.failed?.length ? (
+                <Note tone="danger" className="mt-3">
+                  <b>{faDigits(d.sync.failed.length)} مورد ارسال نشد.</b> {d.sync.failed.slice(0, 5).map((f: any) => f.error).join("، ")}
+                </Note>
+              ) : null}
+              <div className="mt-5 flex flex-wrap gap-2">
+                <Button type="primary" icon={<RefreshCw {...ICON} className={syncNow.isPending ? "sf-spin" : undefined} />} onClick={() => syncNow.mutate(undefined)}>
+                  هم‌گامی الان
+                </Button>
+                <Button
+                  danger
+                  icon={<Unlink {...ICON} />}
+                  onClick={async () => {
+                    if (await n.confirm("قطع اتصال از نسخهٔ وب؟", "داده‌های این رایانه می‌مانند ولی دیگر با وب هم‌گام نمی‌شوند.", true)) unlink.mutate(undefined);
+                  }}
+                >
+                  قطع اتصال
+                </Button>
+              </div>
             </>
           ) : (
-            <>
-              <p className="mt-0 text-sm text-muted">با اتصال، هر تغییر روی این رایانه ظرف چند ثانیه به نسخه‌ی وب می‌رود و تغییرات وب هم به این‌جا می‌آید. بدون اینترنت هم کار می‌کنید؛ تغییرات در صف می‌مانند و با وصل شدن ارسال می‌شوند.</p>
-              <Button type="primary" icon={<CloudUploadOutlined />} onClick={() => setLink(true)}>اتصال به حساب ابری</Button>
-            </>
+            <EmptyState
+              compact
+              icon={CloudUpload}
+              title="به نسخهٔ وب وصل نیست"
+              description="با اتصال، هر تغییر این رایانه چند ثانیه بعد به وب می‌رسد و برعکس؛ بی‌اینترنت هم کار می‌کنید و تغییرات در صف می‌مانند."
+              action={<Button type="primary" icon={<CloudUpload {...ICON} />} onClick={() => setLink(true)}>اتصال به حساب ابری</Button>}
+            />
           )}
-        </Section>
+        </Card>
 
-        <Section title={<span><DatabaseOutlined /> پشتیبان‌گیری</span>} extra={<Button size="small" type="primary" loading={backupNow.isPending} onClick={() => backupNow.mutate(undefined)}>پشتیبان الان</Button>} bodyClass="p-0">
-          <div className="p-4 pb-2 text-sm text-muted">
-            پشتیبان خودکار هر {faDigits(settings.data?.backups?.every_hours ?? 6)} ساعت؛ {faDigits(settings.data?.backups?.keep ?? 30)} نسخه‌ی آخر نگه داشته می‌شود.{" "}
-            {d?.backups?.dir ? <a onClick={() => window.taraz?.openPath?.(d.backups.dir)}><FolderOpenOutlined /> باز کردن پوشه</a> : null}
-          </div>
+        <Card
+          title="پشتیبان‌گیری"
+          meta={<span className="bk-cap">خودکار هر {faDigits(settings.data?.backups?.every_hours ?? 6)} ساعت، {faDigits(settings.data?.backups?.keep ?? 30)} نسخهٔ آخر</span>}
+          tools={
+            <>
+              {d?.backups?.dir ? (
+                <Tooltip title="باز کردن پوشه">
+                  <Button type="text" icon={<FolderOpen {...ICON} />} onClick={() => window.taraz?.openPath?.(d.backups.dir)} aria-label="باز کردن پوشه" />
+                </Tooltip>
+              ) : null}
+              <Button size="small" icon={<DatabaseBackup {...ICON14} />} loading={backupNow.isPending} onClick={() => backupNow.mutate(undefined)}>
+                پشتیبان الان
+              </Button>
+            </>
+          }
+          flush
+        >
           <Table
-            className="tz-table"
+            className="bk-tbl"
             size="small"
             rowKey="file"
             dataSource={backups.data ?? []}
+            loading={backups.isLoading}
             pagination={{ pageSize: 8, hideOnSinglePage: true, size: "small" }}
+            locale={{ emptyText: <EmptyState compact icon={DatabaseBackup} title="هنوز پشتیبانی گرفته نشده" /> }}
             columns={[
-              { key: "at", dataIndex: "at", title: "زمان", render: (v) => <JDateTime v={v} /> },
-              { key: "size", dataIndex: "size", title: "حجم", render: (v) => size(v) },
-              { key: "name", dataIndex: "file", title: "فایل", ellipsis: true, render: (v) => <span className="ltr text-xs text-muted">{String(v).split(/[\\/]/).pop()}</span> },
-              { key: "a", render: (_, r: any) => <Button size="small" onClick={async () => { if (await n.confirm("بازگردانی این پشتیبان؟", "وضعیت فعلی هم پیش از بازگردانی پشتیبان گرفته می‌شود. برنامه دوباره اجرا می‌شود.", true)) restore.mutate(r.file); }}>بازگردانی</Button> },
+              { key: "at", dataIndex: "at", title: "زمان", width: 160, render: (v) => <JDateTime v={v} /> },
+              { key: "size", dataIndex: "size", title: "حجم", width: 112, render: (v) => <span className="bk-2 sf-num">{size(v)}</span> },
+              { key: "name", dataIndex: "file", title: "فایل", ellipsis: true, render: (v) => <bdi dir="ltr" className="sf-mono bk-3">{String(v).split(/[\\/]/).pop()}</bdi> },
+              {
+                key: "a",
+                width: 104,
+                render: (_, r: any) => (
+                  <span className="bk-ra">
+                    <Button
+                      size="small"
+                      type="text"
+                      icon={<ArchiveRestore {...ICON14} />}
+                      onClick={async () => {
+                        if (await n.confirm("بازگردانی این پشتیبان؟", "پیش از بازگردانی از وضعیت فعلی هم پشتیبان گرفته می‌شود و برنامه دوباره اجرا می‌شود.", true)) restore.mutate(r.file);
+                      }}
+                    >
+                      بازگردانی
+                    </Button>
+                  </span>
+                ),
+              },
             ]}
           />
-        </Section>
+        </Card>
 
-        <Section title={<span><WifiOutlined /> حالت شبکه (چند رایانه در فروشگاه)</span>}>
-          <p className="mt-0 text-sm text-muted">با روشن کردن حالت شبکه، رایانه‌ها و گوشی‌های دیگرِ همین شبکه می‌توانند با مرورگر یا برنامه‌ی سیراف به این رایانه وصل شوند و هم‌زمان کار کنند.</p>
+        <Card title="حالت شبکه" meta={<span className="bk-cap">چند رایانه در یک فروشگاه</span>}>
           {settings.data ? (
-            <Form layout="inline" initialValues={settings.data.lan} onFinish={(v) => saveSettings.mutate({ lan: v })}>
-              <Form.Item name="enabled" valuePropName="checked" label="فعال"><Switch /></Form.Item>
-              <Form.Item name="port" label="پورت"><Input dir="ltr" className="!w-24" /></Form.Item>
-              <Button htmlType="submit" type="primary">ذخیره</Button>
+            <Form layout="vertical" initialValues={settings.data.lan} onFinish={(v) => saveSettings.mutate({ lan: v })}>
+              <div className="flex flex-wrap items-end gap-3">
+                <Form.Item name="enabled" valuePropName="checked" label="فعال" className="!mb-0"><Switch /></Form.Item>
+                <Form.Item name="port" label="پورت" className="!mb-0"><Input dir="ltr" className="sf-num !w-28" /></Form.Item>
+                <Button htmlType="submit">ذخیره</Button>
+              </div>
+              <div className="bk-f-h mt-3">رایانه‌ها و گوشی‌های همین شبکه با مرورگر یا برنامهٔ سیراف به این رایانه وصل می‌شوند و هم‌زمان کار می‌کنند؛ تغییر پس از اجرای دوبارهٔ برنامه اعمال می‌شود.</div>
             </Form>
           ) : null}
           {d?.lan?.enabled && lanUrl ? (
-            <div className="mt-4 flex items-center gap-4">
+            <div className="mt-4 grid gap-2">
+              <div className="bk-f-l">نشانی برای دستگاه‌های دیگر</div>
+              {d.lan.addresses.map((a: string) => (
+                <div key={a} className="bk-copy">
+                  <code>http://{a}:{d.lan.port}</code>
+                  <Tooltip title="رونوشت">
+                    <Button type="text" size="small" icon={<Copy {...ICON14} />} aria-label="رونوشت" onClick={() => { void navigator.clipboard?.writeText(`http://${a}:${d.lan.port}`); message.success("رونوشت شد."); }} />
+                  </Tooltip>
+                </div>
+              ))}
               <div>
-                <div className="text-xs text-muted">نشانی برای دستگاه‌های دیگر:</div>
-                {d.lan.addresses.map((a: string) => <div key={a} className="ltr font-mono text-base font-bold">http://{a}:{d.lan.port}</div>)}
+                <Button icon={<QrCode {...ICON} />} onClick={async () => setQr(await QRCode.toDataURL(lanUrl, { margin: 1, width: 220 }))}>QR برای گوشی</Button>
               </div>
-              <Button onClick={async () => setQr(await QRCode.toDataURL(lanUrl, { margin: 1, width: 220 }))}>QR برای گوشی</Button>
             </div>
           ) : null}
-        </Section>
+        </Card>
 
-        <Section title="درباره‌ی این نصب">
+        <Card title="دربارهٔ این نصب">
           {d ? (
-            <Descriptions
-              size="small"
-              column={1}
-              items={[
-                { key: "v", label: "نسخه", children: faDigits(d.version) },
-                { key: "pc", label: "رایانه", children: <span className="ltr">{d.computer}</span> },
-                { key: "dir", label: "پوشه‌ی داده", children: <span className="ltr text-xs">{d.data_dir}</span> },
-                { key: "dev", label: "شناسه‌ی دستگاه", children: <span className="ltr text-xs">{d.device_id}</span> },
-              ]}
-            />
-          ) : null}
-        </Section>
+            <dl className="bk-dl">
+              <div>
+                <dt>نسخه</dt>
+                <dd className="sf-num">{faDigits(d.version)}</dd>
+              </div>
+              <div>
+                <dt>رایانه</dt>
+                <dd><bdi dir="ltr" className="sf-latin">{d.computer}</bdi></dd>
+              </div>
+              <div className="is-wide">
+                <dt>پوشهٔ داده</dt>
+                <dd><bdi dir="ltr" className="sf-mono">{d.data_dir}</bdi></dd>
+              </div>
+              <div className="is-wide">
+                <dt>شناسهٔ دستگاه</dt>
+                <dd><bdi dir="ltr" className="sf-mono bk-2">{d.device_id}</bdi></dd>
+              </div>
+            </dl>
+          ) : (
+            <Skeleton rows={4} />
+          )}
+        </Card>
       </div>
-      <Modal open={!!qr} onCancel={() => setQr(null)} footer={null} title="اتصال گوشی یا تبلت" width={300}>
-        {qr ? <img src={qr} alt="QR" className="mx-auto block" /> : null}
+      <Modal open={!!qr} onCancel={() => setQr(null)} footer={null} title="اتصال گوشی یا تبلت" width={320}>
+        {qr ? <img src={qr} alt="QR" className="mx-auto block rounded-md" /> : null}
       </Modal>
       <LinkModal open={link} onClose={() => setLink(false)} currentOrg={orgId} />
     </div>
@@ -141,10 +231,10 @@ function LinkModal({ open, onClose, currentOrg }: { open: boolean; onClose: () =
   const [direction, setDirection] = useState<"upload" | "download">("upload");
   const [target, setTarget] = useState<string | null>(null);
   return (
-    <Modal open={open} onCancel={onClose} title="اتصال به نسخه‌ی وب" footer={null} destroyOnHidden width={520}>
-      <Form form={form} layout="vertical" initialValues={{ url: "https://" }}>
-        <Form.Item name="url" label="نشانی نسخه‌ی وب" rules={[{ required: true, type: "url" }]}><Input dir="ltr" /></Form.Item>
-        <Form.Item name="email" label="ایمیل حساب ابری" rules={[{ required: true, type: "email" }]}><Input dir="ltr" /></Form.Item>
+    <Modal open={open} onCancel={onClose} title="اتصال به نسخهٔ وب" footer={null} destroyOnHidden width={520}>
+      <Form form={form} layout="vertical" requiredMark={false} initialValues={{ url: "https://" }}>
+        <Form.Item name="url" label="نشانی نسخهٔ وب" rules={[{ required: true, type: "url", message: "نشانی درست نیست." }]}><Input dir="ltr" className="sf-latin" /></Form.Item>
+        <Form.Item name="email" label="ایمیل حساب ابری" rules={[{ required: true, type: "email", message: "ایمیل درست نیست." }]}><Input dir="ltr" className="sf-latin" /></Form.Item>
         <Form.Item name="password" label="رمز عبور" rules={[{ required: true }]}><Input.Password dir="ltr" /></Form.Item>
         <Form.Item label="جهت">
           <Select
@@ -164,7 +254,7 @@ function LinkModal({ open, onClose, currentOrg }: { open: boolean; onClose: () =
         <Button
           type="primary"
           loading={busy}
-          icon={direction === "upload" ? <CloudUploadOutlined /> : <CloudDownloadOutlined />}
+          icon={direction === "upload" ? <CloudUpload {...ICON} /> : <CloudDownload {...ICON} />}
           onClick={async () => {
             const v = await form.validateFields();
             setBusy(true);
@@ -176,7 +266,7 @@ function LinkModal({ open, onClose, currentOrg }: { open: boolean; onClose: () =
                 return;
               }
               await api.post("/local/cloud/link", { ...v, direction, org_id: direction === "upload" ? currentOrg : target });
-              n.ok("اتصال برقرار شد و همگام‌سازی انجام شد");
+              n.ok("اتصال برقرار شد و هم‌گامی انجام شد.");
               onClose();
             } catch (e) {
               n.error(e);

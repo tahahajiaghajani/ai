@@ -1,5 +1,6 @@
-// The printed A5 slip of a receipt, payment or transfer (رسید دریافت/پرداخت وجه): only visible when
-// printing; the page size is set to A5 while the document screen is open.
+// The printed A5 slip of a receipt, payment or transfer (رسید دریافت/پرداخت وجه), components.md §12: the business
+// and the document at the top, the lines with 0.5 pt rules, the total in words, signatures and «سیراف» at the foot.
+// Only visible when printing; the page size is A5 while the document screen is open. Ink on white only.
 import { useOrg } from "../../lib/org";
 import { faDigits, formatMoney } from "@shared/format";
 import { formatJalali } from "@shared/jalali";
@@ -7,6 +8,7 @@ import { amountToWords } from "@shared/words";
 import { D } from "@shared/money";
 import { KIND_SLIP, METHOD_SHORT, type DocKind } from "./labels";
 import type { Line } from "./editor";
+import { PrintFoot, PrintHead } from "../reports/kit";
 
 interface Props {
   kind: DocKind;
@@ -17,8 +19,6 @@ interface Props {
   description: string;
   lines: Line[];
 }
-
-const cell = { border: "1px solid #888", padding: "3px 6px" } as const;
 
 export function PrintSlip({ kind, no, date, partyName, accountName, description, lines }: Props) {
   const { org, unit } = useOrg();
@@ -48,62 +48,53 @@ export function PrintSlip({ kind, no, date, partyName, accountName, description,
   };
 
   return (
-    <div className="print-sheet hidden text-[12px] leading-6 text-black print:block">
-      <style>{"@media print { @page { size: A5 portrait; margin: 8mm; } .ant-layout { background: #fff !important; } }"}</style>
-      <div className="flex items-start justify-between gap-3 pb-2" style={{ borderBottom: "2px solid #333" }}>
-        <div className="min-w-0">
-          <div className="text-[15px] font-bold">{org.name}</div>
-          {org.phone ? <div className="text-[11px]">تلفن: {faDigits(String(org.phone))}</div> : null}
-        </div>
-        <div className="text-center text-[16px] font-bold">{KIND_SLIP[kind]}</div>
-        <div className="text-left text-[11px]">
-          <div>شماره: {no ? faDigits(no) : "—"}</div>
-          <div>تاریخ: {formatJalali(date)}</div>
-        </div>
-      </div>
+    <div className="bk-po bk-slip">
+      <style>{"@media print { @page { size: A5 portrait; margin: 10mm; } }"}</style>
+      <PrintHead title={KIND_SLIP[kind]} no={no} date={date} />
       {kind !== "transfer" ? (
-        <div className="my-2">
-          {kind === "receipt" ? "دریافت از" : "پرداخت به"}: <b>{who}</b>
-          {partyName && accountName ? <span> — بابت {accountName}</span> : null}
+        <div className="bk-pparty">
+          <div>
+            <small>{kind === "receipt" ? "دریافت از" : "پرداخت به"}</small>
+            <b>{who || "—"}</b>
+          </div>
+          {partyName && accountName ? (
+            <div>
+              <small>بابت</small>
+              {accountName}
+            </div>
+          ) : null}
         </div>
-      ) : (
-        <div className="my-2" />
-      )}
-      <table className="w-full" style={{ borderCollapse: "collapse" }}>
+      ) : null}
+      <table className="bk-ptbl">
         <thead>
           <tr>
-            <th style={{ ...cell, width: 28 }}>#</th>
-            <th style={cell}>شرح</th>
-            <th style={{ ...cell, width: 120 }}>مبلغ ({unit})</th>
+            <th style={{ width: 22 }}>#</th>
+            <th>شرح</th>
+            <th style={{ width: 104 }}>مبلغ ({unit})</th>
           </tr>
         </thead>
         <tbody>
           {lines.map((l, i) => (
             <tr key={l.key}>
-              <td style={{ ...cell, textAlign: "center" }}>{faDigits(i + 1)}</td>
-              <td style={cell}>{detail(l)}</td>
-              <td style={{ ...cell, textAlign: "left" }}>{formatMoney(l.amount ?? 0, dp)}</td>
+              <td className="n">{faDigits(i + 1)}</td>
+              <td>{detail(l)}</td>
+              <td className="n">{formatMoney(l.amount ?? 0, dp)}</td>
             </tr>
           ))}
         </tbody>
         <tfoot>
           <tr>
-            <td style={cell} colSpan={2}>
-              <b>جمع</b>
-              {fees.gt(0) ? <span> (کارمزد بانکی: {formatMoney(fees, dp)})</span> : null}
+            <td colSpan={2}>
+              جمع
+              {fees.gt(0) ? <span style={{ fontWeight: 400 }}> (کارمزد بانکی {formatMoney(fees, dp)})</span> : null}
             </td>
-            <td style={{ ...cell, textAlign: "left" }}>
-              <b>{formatMoney(total, dp)}</b>
-            </td>
+            <td className="n">{formatMoney(total, dp)}</td>
           </tr>
         </tfoot>
       </table>
-      <div className="mt-2">مبلغ به حروف: {amountToWords(total, unit)}</div>
-      {description ? <div className="mt-1">توضیحات: {description}</div> : null}
-      <div className="mt-12 grid grid-cols-2 text-center">
-        <div>{kind === "payment" ? "امضای دریافت‌کننده" : "امضای پرداخت‌کننده"}</div>
-        <div>امضای صندوقدار</div>
-      </div>
+      <div className="bk-pwords">به حروف: {amountToWords(total, unit)}</div>
+      {description ? <div className="bk-pwords">توضیحات: {description}</div> : null}
+      <PrintFoot sign={[kind === "payment" ? "امضای دریافت‌کننده" : "امضای پرداخت‌کننده", "امضای صندوقدار"]} />
     </div>
   );
 }

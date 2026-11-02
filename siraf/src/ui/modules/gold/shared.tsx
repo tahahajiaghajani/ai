@@ -1,14 +1,19 @@
 // Shared pieces of the gold module UI: document kinds and their routes, data hooks (settings,
 // latest rate, coins), small tags and cells, the pricing environment and print helpers.
 // Pricing itself comes from the server's pure module so the screen shows exactly what posts.
+import "./gold.css";
+import "../goods/sheet.css";
 import { useEffect, type ReactNode } from "react";
-import { Button, Dropdown, Space, Tag, Tooltip, type MenuProps } from "antd";
-import { ArrowUpOutlined, ArrowDownOutlined, DownOutlined } from "@ant-design/icons";
+import { Button, Dropdown, Space, Tooltip, type MenuProps } from "antd";
+import { ChevronDown } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useOrg } from "../../lib/org";
 import { D, type Num } from "@shared/money";
 import { formatNumber, formatWeight, faDigits } from "@shared/format";
 import { formatJalaliDateTime } from "@shared/jalali";
+import { StatusTag, Weight } from "../../components/display";
+import { Ic } from "../../components/shell/icons";
+import { pct as faPct } from "../../lib/fa";
 import { KINDS, COIN_TITLES, FORM_TITLES, WAGE_TYPE_TITLES, type DocKind, type PriceEnv } from "../../../server/modules/gold/pricing";
 
 export * from "../../../server/modules/gold/pricing";
@@ -28,11 +33,6 @@ export const KIND_PATH: Record<DocKind, string> = {
   opening: "gold/docs/opening",
 };
 
-const KIND_COLOR: Record<DocKind, string> = {
-  sale: "gold", purchase: "cyan", buyback: "orange", consign_in: "purple", consign_return: "magenta", workshop_out: "geekblue",
-  workshop_in: "blue", melt: "volcano", bullion_sale: "lime", opening: "default",
-};
-
 export const DOC_STATUS: Record<string, [string, string]> = {
   draft: ["پیش‌نویس", "default"],
   posted: ["ثبت‌شده", "processing"],
@@ -48,21 +48,14 @@ export const ITEM_STATUS: Record<string, [string, string]> = {
   consigned_out: ["امانی نزد دیگران", "purple"],
 };
 
+/** The kind of a gold document: plain text (categories are not statuses and wear no colour). */
 export function KindTag({ kind }: { kind: DocKind }) {
-  return (
-    <Tag color={KIND_COLOR[kind] ?? "default"} variant="filled" className="!m-0">
-      {KINDS[kind]?.title ?? kind}
-    </Tag>
-  );
+  return <span className="whitespace-nowrap text-ink-2">{KINDS[kind]?.title ?? kind}</span>;
 }
 
+/** Status is the exception: «ثبت‌شده» is plain text-3, a draft a neutral chip, a cancelled document a danger chip. */
 export function StatusOf({ s, map = DOC_STATUS }: { s: string; map?: Record<string, [string, string]> }) {
-  const [label, color] = map[s] ?? [s, "default"];
-  return (
-    <Tag color={color} variant="filled" className="!m-0">
-      {label}
-    </Tag>
-  );
+  return <StatusTag s={s} map={map} />;
 }
 
 export const wageText = (type: string | null | undefined, value: Num) => {
@@ -77,26 +70,22 @@ export const wageTypeOptions = Object.entries(WAGE_TYPE_TITLES).map(([value, lab
 export const formOptions = Object.entries(FORM_TITLES).map(([value, label]) => ({ value, label }));
 export const coinTitle = (k: string) => COIN_TITLES[k] ?? k;
 
-/** Grams with up to three decimals (سوت), Persian digits. */
+/** Grams with three decimals (سوت) at full size and in ink (a milligram is money); zero is «—». */
 export function G({ v, zero = "—", unit }: { v: Num; zero?: string; unit?: boolean }) {
   const d = D(v);
-  if (d.isZero()) return <span className="num text-muted">{zero}</span>;
-  return (
-    <span className={`num ${d.isNeg() ? "tz-neg" : ""}`}>
-      {formatWeight(d)}
-      {unit ? <span className="ms-1 text-[11px] text-muted">گرم</span> : null}
-    </span>
-  );
+  if (d.isZero()) return <span className="sf-num sf-zero">{zero}</span>;
+  return <Weight v={d} unit={!!unit} />;
 }
 
-/** Signed weight balance with «بد / بس» (we are owed / we owe). */
+/** Weight balance: unsigned grams plus its «تشخیص» — «بد» (we are owed) or «بس» (we owe), never a colour. */
 export function WBalance({ v }: { v: Num }) {
   const d = D(v);
-  if (d.isZero()) return <span className="num text-muted">—</span>;
+  if (d.isZero()) return <span className="sf-num sf-zero">—</span>;
   return (
-    <span className="num">
+    <span className="sf-num">
       {formatWeight(d.abs())}
-      <span className={`ms-1 text-[11px] ${d.gt(0) ? "text-brand" : "text-gold"}`}>{d.gt(0) ? "بد" : "بس"}</span>
+      {"\u00a0"}
+      <span className="sf-bal-side">{d.gt(0) ? "بد" : "بس"}</span>
     </span>
   );
 }
@@ -176,26 +165,39 @@ export function envOf(s: GoldSettings | undefined, moneyDecimals: number, gram18
   };
 }
 
-/** Change of the 18k gram against the previous rate: ▲ green / ▼ red. */
-export function RateChange({ change, pct }: { change: string | null | undefined; pct: string | null | undefined }) {
-  if (!change || D(change).isZero()) return <span className="text-xs text-muted">بدون تغییر</span>;
-  const up = D(change).gt(0);
+/** A 10 px filled triangle (Vazirmatn and Arad lack ▲ ▼). */
+export function Tri({ up }: { up: boolean }) {
   return (
-    <span className={`num inline-flex items-center gap-1 text-xs ${up ? "text-ok" : "text-bad"}`}>
-      {up ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
-      {formatNumber(D(change).abs())}
-      {pct ? <span>({faDigits(D(pct).abs().toString())}٪)</span> : null}
+    <svg viewBox="0 0 10 10" aria-hidden>
+      <path d={up ? "M5 1.5 9 8H1z" : "M5 8.5 1 2h8z"} fill="currentColor" />
+    </svg>
+  );
+}
+
+/** Delta chip of the 18k gram against the previous rate: up in `in`, down in `danger`, below 0.1 % neutral. */
+export function RateChange({ change, pct, amount }: { change: string | null | undefined; pct: string | null | undefined; amount?: boolean }) {
+  if (!change || D(change).isZero()) return <span className="sf-delta">بدون تغییر</span>;
+  const up = D(change).gt(0);
+  const p = pct ? D(pct).abs() : null;
+  const flat = p !== null && p.lt(0.1);
+  return (
+    <span className="sf-delta" data-dir={flat ? undefined : up ? "up" : "down"} title={`${up ? "افزایش" : "کاهش"} ${formatNumber(D(change).abs())}`}>
+      {flat ? null : <Tri up={up} />}
+      {amount || p === null ? formatNumber(D(change).abs()) : faPct(p.div(100).toNumber(), 2)}
     </span>
   );
 }
 
+const SOURCE_FA: Record<string, string> = { manual: "دستی", tgju: "tgju", goldapi: "انس جهانی", custom: "منبع دلخواه" };
+
 export function RateStamp({ rate }: { rate: Rate | null | undefined }) {
-  if (!rate) return <span className="text-xs text-muted">قیمتی ثبت نشده است</span>;
-  const src: Record<string, string> = { manual: "دستی", tgju: "tgju", goldapi: "انس جهانی", custom: "منبع دلخواه" };
+  if (!rate) return <span>قیمتی ثبت نشده است</span>;
   return (
     <Tooltip title={rate.note ?? undefined}>
-      <span className="text-xs text-muted">
-        {formatJalaliDateTime(rate.at)}، {src[rate.source] ?? rate.source}
+      <span className="inline-flex items-center gap-2">
+        <span className="sf-num">{formatJalaliDateTime(rate.at)}</span>
+        <span className="sf-sep" aria-hidden />
+        <span>{SOURCE_FA[rate.source] ?? rate.source}</span>
       </span>
     </Tooltip>
   );
@@ -237,9 +239,9 @@ export function printWithPage(size: string, margin = "6mm") {
 /** Section title row used inside cards. */
 export function Caption({ children, extra }: { children: ReactNode; extra?: ReactNode }) {
   return (
-    <div className="mb-2 flex items-center gap-2">
-      <div className="text-xs font-bold text-muted">{children}</div>
-      <div className="ms-auto">{extra}</div>
+    <div className="sf-sec-t mb-2">
+      <span>{children}</span>
+      {extra ? <span className="sf-sec-x">{extra}</span> : null}
     </div>
   );
 }
@@ -254,6 +256,9 @@ export function useAutoFocus(ref: { current: { focus: () => void } | null }, dep
 }
 
 export const pct = (v: Num) => `${formatNumber(v, { dp: 3 })}٪`;
+
+/** A gold weight as text: always three decimals («۱۲٫۳۴۰»), Persian digits (a milligram is money). */
+export const gw = (v: Num) => formatNumber(v ?? 0, { dp: 3, minDp: 3 });
 
 /** A button with a menu of alternatives (Space.Compact + Dropdown, the v6 replacement of Dropdown.Button). */
 export function SplitButton({ children, onClick, loading, items, type, icon, disabled }: {
@@ -271,7 +276,7 @@ export function SplitButton({ children, onClick, loading, items, type, icon, dis
         {children}
       </Button>
       <Dropdown menu={{ items }} trigger={["click"]} disabled={disabled}>
-        <Button type={type} icon={<DownOutlined />} aria-label="گزینه‌های بیشتر" />
+        <Button type={type} icon={<Ic icon={ChevronDown} />} aria-label="گزینه‌های بیشتر" />
       </Dropdown>
     </Space.Compact>
   );
