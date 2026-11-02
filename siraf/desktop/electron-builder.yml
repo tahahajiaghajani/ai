@@ -1,7 +1,7 @@
-# Windows installer of «تراز» (NSIS, Persian, per-user by default, keeps data on uninstall)
-appId: ir.taraz.app
-productName: Taraz
-copyright: "© تراز"
+# Windows installer of «سیراف» (NSIS, Persian, per-user by default, keeps data on uninstall)
+appId: ir.siraf.app
+productName: Siraf
+copyright: "© سیراف"
 directories:
   app: app
   output: release
@@ -23,9 +23,9 @@ win:
     - target: nsis
       arch: [x64]
   icon: build/icon.ico
-  artifactName: "Taraz-Setup-${version}.exe"
-  executableName: Taraz
-  legalTrademarks: "تراز"
+  artifactName: "Siraf-Setup-${version}.exe"
+  executableName: Siraf
+  legalTrademarks: "سیراف"
   requestedExecutionLevel: asInvoker
 nsis:
   oneClick: false
@@ -45,8 +45,8 @@ nsis:
   unicode: true
   createDesktopShortcut: always
   createStartMenuShortcut: true
-  shortcutName: "تراز"
-  uninstallDisplayName: "تراز — حسابداری و مدیریت کسب‌وکار"
+  shortcutName: "سیراف"
+  uninstallDisplayName: "سیراف — حسابداری و مدیریت کسب‌وکار"
   menuCategory: false
   runAfterFinish: true
   deleteAppDataOnUninstall: false

@@ -1,4 +1,4 @@
-// Electron main process of «تراز» for Windows.
+// Electron main process of «سیراف» for Windows.
 // Starts the local server (embedded PostgreSQL + API + UI) in a utility process and shows it in
 // a window. In "client" mode it opens the server of another computer of the office network.
 import { app, BrowserWindow, utilityProcess, ipcMain, shell, dialog, Menu, Tray, nativeImage, type UtilityProcess } from "electron";
@@ -6,10 +6,27 @@ import { join } from "node:path";
 import http from "node:http";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync, statSync, renameSync } from "node:fs";
 
-const APP_TITLE = "تراز";
+const APP_TITLE = "سیراف";
 const isSmoke = process.argv.includes("--smoke-test") || process.env.TARAZ_SMOKE === "1";
 
-const dataDir = process.env.TARAZ_DATA_DIR || join(app.getPath("appData"), "Taraz", "data");
+const dataDir = resolveDataDir();
+
+/** %APPDATA%/Siraf/data; a preview installed under the old name «تراز» keeps its data (moved once). */
+function resolveDataDir(): string {
+  if (process.env.TARAZ_DATA_DIR) return process.env.TARAZ_DATA_DIR;
+  const appData = app.getPath("appData");
+  const next = join(appData, "Siraf", "data");
+  const old = join(appData, "Taraz", "data");
+  if (!existsSync(next) && existsSync(old)) {
+    try {
+      mkdirSync(join(appData, "Siraf"), { recursive: true });
+      renameSync(old, next);
+    } catch {
+      return old;
+    }
+  }
+  return next;
+}
 const logDir = join(dataDir, "logs");
 mkdirSync(logDir, { recursive: true });
 const logFile = join(logDir, "app.log");
@@ -49,7 +66,7 @@ function startBackend(): Promise<{ url: string; host: string }> {
   return new Promise((resolve, reject) => {
     const entry = join(__dirname, "backend.cjs");
     backend = utilityProcess.fork(entry, [], {
-      serviceName: "Taraz Server",
+      serviceName: "Siraf Server",
       stdio: "pipe",
       env: {
         ...process.env,
@@ -94,13 +111,13 @@ function startBackend(): Promise<{ url: string; host: string }> {
 }
 
 function createSplash() {
-  splash = new BrowserWindow({ width: 420, height: 260, frame: false, resizable: false, show: false, center: true, backgroundColor: "#0b1f33", icon: iconPath, skipTaskbar: false });
+  splash = new BrowserWindow({ width: 420, height: 260, frame: false, resizable: false, show: false, center: true, backgroundColor: "#381634", icon: iconPath, skipTaskbar: false });
   const html = `<!doctype html><html dir="rtl" lang="fa"><meta charset="utf-8"><style>
     @font-face{font-family:V;src:url("file://${join(__dirname, "renderer", "fonts", "vazirmatn-var.woff2").replace(/\\/g, "/")}")}
-    body{margin:0;height:100vh;display:grid;place-content:center;gap:14px;text-align:center;background:radial-gradient(500px 300px at 20% 0%,#13a3c455,transparent),linear-gradient(160deg,#0b1f33,#071321);color:#fff;font-family:V,Tahoma,sans-serif}
+    body{margin:0;height:100vh;display:grid;place-content:center;gap:14px;text-align:center;background:radial-gradient(500px 300px at 20% 0%,#8f4a8355,transparent),linear-gradient(160deg,#50224B,#240D21);color:#fff;font-family:V,Tahoma,sans-serif}
     .t{font-size:44px;font-weight:800}.s{font-size:13px;color:#a9b8c9}.b{width:180px;height:3px;background:#ffffff22;border-radius:3px;overflow:hidden;margin:auto}
-    .b i{display:block;height:100%;width:40%;background:linear-gradient(90deg,#13a3c4,#e9c46a);animation:m 1.1s ease-in-out infinite}@keyframes m{0%{transform:translateX(180%)}100%{transform:translateX(-260%)}}
-  </style><body><div class="t">تراز</div><div class="s">در حال آماده‌سازی پایگاه داده…</div><div class="b"><i></i></div></body></html>`;
+    .b i{display:block;height:100%;width:40%;background:linear-gradient(90deg,#E7BADF,#D9B36A);animation:m 1.1s ease-in-out infinite}@keyframes m{0%{transform:translateX(180%)}100%{transform:translateX(-260%)}}
+  </style><body><div class="t">سیراف</div><div class="s">در حال آماده‌سازی پایگاه داده…</div><div class="b"><i></i></div></body></html>`;
   splash.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
   splash.once("ready-to-show", () => splash?.show());
 }
@@ -156,10 +173,10 @@ function createWindow(url: string) {
 function createTray() {
   const img = nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 });
   tray = new Tray(img);
-  tray.setToolTip("تراز — سرور شبکه فعال است");
+  tray.setToolTip("سیراف — سرور شبکه فعال است");
   tray.setContextMenu(
     Menu.buildFromTemplate([
-      { label: "باز کردن تراز", click: () => (win ? win.show() : createWindow(serverUrl)) },
+      { label: "باز کردن سیراف", click: () => (win ? win.show() : createWindow(serverUrl)) },
       { type: "separator" },
       { label: "خروج کامل", click: () => quit() },
     ]),
@@ -212,7 +229,7 @@ function registerIpc() {
   });
   ipcMain.handle("taraz:printers", async (e) => (await e.sender.getPrintersAsync()).map((p) => ({ name: p.name, isDefault: (p as any).isDefault ?? false })));
   ipcMain.handle("taraz:save-pdf", async (e, name: string) => {
-    const r = await dialog.showSaveDialog({ defaultPath: `${name || "taraz"}.pdf`, filters: [{ name: "PDF", extensions: ["pdf"] }] });
+    const r = await dialog.showSaveDialog({ defaultPath: `${name || "siraf"}.pdf`, filters: [{ name: "PDF", extensions: ["pdf"] }] });
     if (r.canceled || !r.filePath) return null;
     const pdf = await e.sender.printToPDF({ printBackground: true, pageSize: "A4" });
     writeFileSync(r.filePath, pdf);
@@ -280,7 +297,7 @@ if (!app.requestSingleInstanceLock() && !isSmoke) {
       win.focus();
     }
   });
-  app.setAppUserModelId("ir.taraz.app");
+  app.setAppUserModelId("ir.siraf.app");
   app.whenReady().then(async () => {
     log(`start ${app.getVersion()} data=${dataDir}`);
     if (isSmoke) return smokeTest();

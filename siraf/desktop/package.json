@@ -1,9 +1,9 @@
 {
-  "name": "taraz-desktop",
+  "name": "siraf-desktop",
   "version": "1.0.0",
   "private": true,
-  "description": "تراز — نسخه‌ی ویندوز (Electron)",
-  "author": "Taraz",
+  "description": "سیراف — نسخه‌ی ویندوز (Electron)",
+  "author": "Siraf",
   "scripts": {
     "icons": "node scripts/make-icons.cjs",
     "dist": "electron-builder --win nsis --x64 --publish never",

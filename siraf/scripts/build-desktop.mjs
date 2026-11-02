@@ -66,11 +66,11 @@ writeFileSync(
   join(app, "package.json"),
   JSON.stringify(
     {
-      name: "taraz",
-      productName: "Taraz",
+      name: "siraf",
+      productName: "Siraf",
       version: desktopPkg.version ?? pkg.version,
-      description: "تراز — حسابداری و مدیریت کسب‌وکار",
-      author: "Taraz",
+      description: "سیراف — حسابداری و مدیریت کسب‌وکار",
+      author: "Siraf",
       license: "UNLICENSED",
       main: "main.cjs",
       dependencies: { "@electric-sql/pglite": pgliteVersion },
