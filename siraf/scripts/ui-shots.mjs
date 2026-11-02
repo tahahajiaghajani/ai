@@ -11,7 +11,7 @@
 // Paths are relative to the organisation (`sales/invoices`, `` for the dashboard) unless they
 // start with `/` (`/login`, `/orgs`, `/admin`). `{key}` is replaced by an id from the seed
 // (e.g. `parties/{party_customer}`, see seed.json in the output; `{org}` is the organisation's own id). Default: every route of
-// src/ui/modules/*/index.tsx without parameters, the editors of seeded documents, /login, /orgs, /admin.
+// src/ui/modules/*/index.tsx without parameters, the editors of seeded documents, /login, /orgs and the /admin console.
 //
 // Assistant states: a path ending in `@ai=<state>` opens «دستیار سیراف» on that page before the screenshot:
 //   chat   — a stored conversation with tool steps, a chart, a table, sources and a draft waiting for confirmation
@@ -127,7 +127,8 @@ function defaultPaths() {
     "fx/remittances/{remittance}", "fx/remittances/{remittance_in}", "gold/docs/{gold_sale}", "gold/sale/{gold_sale}", "gold/docs/{gold_purchase}",
   ];
   const assistant = ["reports/income-statement@ai=chat", "reports/income-statement@ai=chat-top", "@ai=empty", "sales/invoices@ai=palette", "gold/rates@ai=palette-empty", "sales/invoices@ai=setup", ...(AI_FAKE ? ["@ai=live", "@ai=live-tools", "@ai=live-tools-top", "purchases/invoices/new@ai=capture", "purchases/invoices/new@ai=capture-use", "reports/forecast?tab=plan@ai=plan"] : [])];
-  return [...[...paths].sort((a, b) => a.localeCompare(b)), ...detail, ...assistant, "/login", "/orgs", "/admin"];
+  const admin = ["/admin", "/admin/orgs", "/admin/orgs/{org}", "/admin/users", "/admin/ai", "/admin/security", "/admin/health"];
+  return [...[...paths].sort((a, b) => a.localeCompare(b)), ...detail, ...assistant, "/login", "/orgs", ...admin];
 }
 
 // ---------------------------------------------------------------- assistant fixture (screenshots only)

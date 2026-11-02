@@ -1,6 +1,6 @@
 # تحقیق: بهترین نرم‌افزارهای حسابداری کالا، طلا و صرافی — و آنچه «سیراف» از آن‌ها یاد گرفت
 
-این سند خلاصه‌ی تحقیقی است که پیش از ساخت «سیراف» (که آن زمان «تراز» نام داشت) انجام شد: نرم‌افزارهای مطرح جهانی و ایرانی در سه حوزه (کالا و بازرگانی، طلا و جواهر، صرافی نقدی و دیجیتال)، قواعد حرفه‌ای هر صنعت، و سرویس‌های زنده‌ای که اپ به آن‌ها وصل می‌شود. هر تصمیم طراحی «سیراف» به یکی از بندهای همین سند برمی‌گردد.
+این سند خلاصه‌ی تحقیقی است که پیش از ساخت «سیراف» (که آن زمان «تراز» نام داشت) انجام شد: نرم‌افزارهای مطرح جهانی و ایرانی در سه حوزه (کالا و بازرگانی، طلا و جواهر، صرافی نقدی و دیجیتال)، قواعد حرفه‌ای هر صنعت، و سرویس‌های زنده‌ای که اپ به آن‌ها وصل می‌شود. هر تصمیم طراحی «سیراف» به یکی از بندهای همین سند برمی‌گردد. بخش‌های ۶ تا ۸ تحقیق دور دوم است (سکه و شمش، هوش مصنوعی، سطح‌های دسترسی و پنل مدیریت).
 
 ---
 
@@ -96,6 +96,53 @@
 - **اتصال به ترازو و بارکدخوان** → ورودی بارکد/اسکنر به‌صورت صفحه‌کلید پشتیبانی می‌شود.
 - **اتصال به فروشگاه اینترنتی** → API کلیددار و Webhook (WooCommerce، Shopify و عمومی) که فاکتور فروش را خودکار ثبت می‌کند.
 
+## ۶. سکه و شمش (دور دوم، آبان ۱۴۰۵)
+
+### آنچه بررسی شد
+- بازار ایران: مشخصات رسمی سکه‌های بانک مرکزی، حراج سکه و شمش در مرکز مبادلهٔ ارز و طلا، سکه‌های پارسیان، شمش‌های ۹۹۵ و ۹۹۹٫۹، آب‌شده و ری‌گیری، مالیات و سامانهٔ مؤدیان، قواعد مبارزه با پول‌شویی، و نرم‌افزارهای اونس، زرگر، زرنگار، کیمیا، مارکیز، هلو و محک.
+- بازار جهانی: nFusion (قیمت‌گذاری)، JM Bullion، APMEX، BullionStar و Perth Mint (قفل قیمت و انبارداری)، استانداردهای LBMA (حساب تخصیص‌یافته و تخصیص‌نیافته، پایگاه اصالت شمش)، ERPهای طلای هند و خلیج فارس (حساب فلزی و تثبیت)، و قواعد گزارش‌دهی نقدی آمریکا، اروپا، امارات، سنگاپور، آلمان و هند.
+
+### یافته‌های اصلی
+- چهار منطق جدا: **سکهٔ بانکی** (۹۰۰ عیار، تعدادی، قیمت خرید و فروش هر سکه و حباب نسبت به طلای داخلش)، **سکهٔ پارسیان** (۷۵۰ عیار، وزنی مثل مصنوعات با اجرت و سود و مالیات)، **شمش** (سریال و گواهی، قیمت بر پایهٔ گرم ۲۴ × عیار + حق ضرب، بازخرید با نرخ روز منهای کارمزد که پلمپ بودن آن را تغییر می‌دهد) و **آب‌شده** (مظنه).
+- وزن رسمی: تمام سکه ۸٫۱۳۵۹۸ گرم، نیم ۴٫۰۶۷۹۹، ربع ۲٫۰۳۳۹۹۵، گرمی ۱٫۰۱ گرم، همه ۹۰۰ عیار. قیمت با طرح (امامی / قدیم)، دورهٔ ضرب (۸۶، زیر ۸۶، ۱۴۰۳، ۱۴۰۴) و بسته‌بندی فرق می‌کند. حباب آبان ۱۴۰۵ برای امامی حدود ۴ تا ۷ درصد و برای ربع و گرمی تا حدود ۲۰ درصد بود؛ پس حباب باید بر دو پایه حساب شود: طلای داخلی (گرم ۱۸) و برابری جهانی (انس × دلار).
+- مالیات: اصل طلا معاف است و اجرت، سود و حق‌العمل از ۱۴۰۵ ده درصد؛ شمش معاف؛ سکهٔ بانکی پس از نخستین فروش بانک معاف (پیش‌نویس مالیات بر سود فروشنده هنوز قطعی نیست). صورت‌حساب الکترونیک طلا با الگوی جداگانه است.
+- نرم‌افزارهای ایرانی انواع سکه و حساب سکه دارند، ولی **ثبت سریالی شمش، تحلیل حباب و شناسایی خودکار مشتری** کمیاب است؛ این‌ها نقطهٔ برتری سیراف شدند.
+- در دنیا هر سطر و هر کالا «محتوای فلز» دارد (وزن ناخالص، عیار، وزن خالص) و موجودی دو حالت دارد: کالای تعدادی با میانگین بها و واحد سریالی با بهای شناسایی ویژه. قواعد شناسایی مشتری همه یک شکل دارند (سقف، ارز، نوع پرداخت، بازهٔ جمع، اقدام)، پس باید قابل تنظیم باشند نه عدد ثابت.
+
+### آنچه در سیراف پیاده شد
+فهرست سکه‌ها به‌صورت داده با کلید تابلو، ثبت سریالی شمش با بهای ویژه، قیمت خرید و فروش و حباب برای هر کلید، پارسیان با اجرت و سود، بازخرید شمش با پلمپ و بی‌پلمپ، حساب‌های شمش، شناسایی مشتری قابل تنظیم، و گزارش «موقعیت طلا». قفل قیمت، تثبیت، حساب فلزی مشتری و الگوی طلای مؤدیان برای نسخهٔ بعد ماند.
+
+## ۷. هوش مصنوعی (دور دوم)
+
+### آنچه بررسی شد
+QuickBooks (Intuit Intelligence)، Xero (JAX)، Sage Copilot، Zoho Zia، Business Central Copilot، NetSuite، SAP Joule، Odoo ۱۹، Shopify Sidekick، Lightspeed، Digits، Pennylane، Ramp و ابزارهای برنامه‌ریزی مالی؛ در ایران «سپیدار ابری». همچنین مستندات رسمی Anthropic، OpenAI، Google Gemini، OpenRouter، DeepSeek، Qwen، Kimi، xAI، Mistral، NVIDIA، درگاه‌های داخلی (متیس و …) و مدل‌های محلی (Ollama، LM Studio، llama.cpp)، و راهنمای امنیتی OWASP برای برنامه‌های مدل زبانی.
+
+### یافته‌های اصلی
+- بازار به **یک دستیار جلوی ابزارهای تخصصی** رسیده است. نوشتن تقریباً همه‌جا «پیش‌نویس، سپس تأیید انسان» است. فقط کارهای محدود، مطمئن و برگشت‌پذیر خودکار انجام می‌شوند.
+- آنچه کاربران ارزش می‌دانند: پرسش به زبان ساده با نمودار، خواندن اسناد به پیش‌نویس، یادآوری وصول، علامت‌گذاری موارد غیرعادی و تکراری، خلاصهٔ روزانه و توضیح تغییر عددها. انتقادها: خطای عدد، نبود کلید خاموش کردن، گرانی و اعتبارسنجی فقط برای انگلیسی.
+- بهترین الگوی تجربهٔ کاربری Business Central است: هر فیلدی که هوش مصنوعی پر کرده با رنگ اطمینان و دلیل نشان داده می‌شود، و برای هر قابلیت کلید روشن و خاموش و سقف روزانه دارد.
+- در نرم‌افزارهای طلا و صرافی ایران هیچ قابلیت هوش مصنوعی پیدا نشد؛ زمین خالی است.
+- چهار پروتکل همهٔ سرویس‌ها را پوشش می‌دهد: Anthropic Messages، OpenAI Responses، Chat Completions سازگار و Gemini. پارامترهای نمونه‌برداری کنار گذاشته شده‌اند و «میزان تلاش» جایشان را گرفته؛ محتوای استدلال باید دست‌نخورده بازپخش شود و تاریخچه فقط افزوده شود.
+- Anthropic، OpenAI و Google ایران را جزو مناطق پشتیبانی‌شده نمی‌دانند؛ درگاه‌های داخلی از ایران در دسترس‌اند. پس هر اتصال مسیر خود را دارد (مستقیم، از راه نسخهٔ وب، یا روی رایانه) و آزمایش اتصال از هر دو نسخه لازم است.
+- امنیت: ابزارها با دسترسی خود کاربر اجرا شوند، مجوز بیرون از مدل بررسی شود، متن داده هرگز دستور حساب نشود و کارهای پرخطر تأیید انسان بخواهند. به‌جای نوشتن SQL به دست مدل، ابزارهای نوع‌دار (حدود ۲۰ ابزار) دقیق‌ترند.
+
+### آنچه در سیراف پیاده شد
+اتصال با کلید خود هر کسب‌وکار به همهٔ سرویس‌های بالا، زنجیرهٔ مدل‌ها و جایگزینی، بودجه و مصرف، سیاست داده، «دستیار سیراف» با ۲۲ ابزار و پیش‌نویس‌های تأییدشونده، خلاصهٔ روزانه و بینش‌ها، تحلیل گزارش، پیش‌بینی بازه‌ای با دقت سنجیده‌شده، و خواندن فاکتور، کارت ملی و چک از تصویر با رنگ اطمینان. پیامک یادآوری، تطبیق بانک و اتصال MCP برای نسخهٔ بعد ماند.
+
+## ۸. سطح‌های دسترسی و پنل مدیریت (دور دوم)
+
+### آنچه بررسی شد
+نقش‌های QuickBooks، Xero، Zoho Books، Odoo و Business Central؛ کنترل هوش مصنوعی در Xero و Business Central؛ مدیریت کلید در Odoo و Anthropic؛ دسترسی پشتیبانی در Microsoft Customer Lockbox، Shopify و WorkOS؛ کنسول مدیریت Microsoft 365 و GitLab؛ و پنل‌های مدیریت سایت‌ها و برنامه‌هایی که پیش‌تر ساخته شده‌اند (پارس، سلین، Task Flow).
+
+### یافته‌های اصلی
+- همهٔ محصولات یک دارندهٔ اصلی، مدیران، نقش عملیات کامل، نقش‌های محدود و نقش فقط‌خواندنی را از هم جدا می‌کنند. هوش مصنوعی هرگز بیش از دسترسی خود کاربر نمی‌بیند.
+- مدیریت کلید هوش مصنوعی به دست حسابدار درست است، به شرط این‌که دسترسی جداگانهٔ «هوش مصنوعی» داشته باشد، کلید فقط‌نوشتنی باشد و هر تغییرش ثبت شود.
+- مدیر کل سامانه باید به‌طور پیش‌فرض دفاتر کسب‌وکارها را نبیند. ورودش باید آشکار، دلیل‌دار، زمان‌دار و ثبت‌شده باشد (الگوی Customer Lockbox: حداکثر ۴ ساعت دسترسی، ثبت همهٔ کارها).
+- پنل‌های پیشین (پارس، سلین، Task Flow) الگوی صفحهٔ هوش مصنوعی را دادند: کلید روشن و خاموش، انتخاب سرویس با «دریافت کلید»، کلید رمزنگاری‌شده با چهار نویسهٔ آخر، مدل اصلی و جایگزین‌ها و «آزمایش اتصال».
+
+### آنچه در سیراف پیاده شد
+مدیر کل سامانه با کنسول `/admin` (پیشخوان، کسب‌وکارها، کاربران، هوش مصنوعی، رویدادهای امنیتی، سلامت سامانه) و «حالت پشتیبانی» دلیل‌دار و زمان‌دار به‌جای دسترسی پنهان؛ در هر کسب‌وکار مالک، حسابدار و ناظر و نقش‌های آماده با دسترسی بخش‌به‌بخش و بخش «هوش مصنوعی». تأیید مالک پیش از ورود پشتیبانی و ورود دومرحله‌ای مدیران پیشنهاد نسخهٔ بعد است.
+
 ## منابع
 - [mohaseban.org — مقایسه‌ی نرم‌افزارهای حسابداری طلافروشی](https://mohaseban.org/goldsmith-accounting-software/)
 - [hesabis.ir — ۱۳ نرم‌افزار حسابداری طلافروشی](https://hesabis.ir/best-gold-shop-software/)
@@ -118,3 +165,19 @@
 - [taadolnewspaper.ir — لایحه‌ی حذف چهار صفر](https://www.taadolnewspaper.ir/fa/news/149886/) · [tejaratnews.com — واحدهای زیر یک تومان](https://tejaratnews.com/)
 - [Supabase — Disabling prepared statements (transaction pooler)](https://supabase.com/docs/guides/troubleshooting/disabling-prepared-statements-qL8lEL)
 - [Vercel — Hono on Vercel](https://vercel.com/docs/frameworks/backend/hono) · [PGlite API](https://pglite.dev/docs/api)
+
+### منابع دور دوم (سکه و شمش، هوش مصنوعی، دسترسی‌ها)
+- [learning.emofid.com — خرید سکه و شمش از بورس کالا](https://learning.emofid.com/buy-coins-commodity-exchange/) · [شمش طلا در بورس](https://learning.emofid.com/buying-gold-bars-from-the-stock-market/)
+- [learning.charisma.ir — طلای آب‌شده](https://learning.charisma.ir/economy/%D8%B7%D9%84%D8%A7%DB%8C-%D8%A2%D8%A8-%D8%B4%D8%AF%D9%87-%DA%86%DB%8C%D8%B3%D8%AA/) · [goldika.ir — آزمایشگاه‌های ری‌گیری](https://goldika.ir/blog/all-reygiri-labs-in-iran/) · [talasea.ir — طلای آب‌شده](https://talasea.ir/mag/facts/what-is-molten-gold)
+- [gold-price.ir — گواهی شمش بورس](https://gold-price.ir/ime-gold-bar-certificate) · [kimiadevelop.com — موجودی آب‌شده](https://kimiadevelop.com/molten-gold-balance/)
+- [LBMA — Gold Bar Integrity](https://www.lbma.org.uk/good-delivery/lbma-gold-bar-integrity-initiative-security-feature) · [LBMA Prices](https://www.lbma.org.uk/lbma-prices-summary)
+- [nFusion — Product pricing catalog](https://nfusionsolutions.com/product-pricing-catalog/) · [JM Bullion — Pricing](https://www.jmbullion.com/about/pricing/) · [Market loss policy](https://help.jmbullion.com/article/498-market-loss-policy) · [Perth Mint — Depository](https://www.perthmint.com/depository/)
+- [FinCEN — Form 8300](https://www.fincen.gov/sites/default/files/shared/fin8300_cashover10k.pdf)
+- [Microsoft Learn — Business Central: Chat with Copilot](https://learn.microsoft.com/en-us/dynamics365/business-central/chat-with-copilot) · [Analysis assist](https://learn.microsoft.com/en-us/dynamics365/business-central/analysis-assist) · [Bank reconciliation with Copilot](https://learn.microsoft.com/en-us/dynamics365/business-central/bank-reconciliation-with-copilot)
+- [Xero — JAX](https://www.xero.com/au/jax/) · [User roles and permissions](https://central.xero.com/s/article/User-roles-and-permissions-in-Xero) · [Intuit Intelligence](https://investors.intuit.com/news-events/press-releases/detail/1326/intuit-intelligence-now-available-internationally-fueling-success-for-businesses-and-accountants-on-one-unified-platform)
+- [Odoo 19 — AI](https://www.odoo.com/documentation/19.0/applications/productivity/ai.html) · [AI agents](https://www.odoo.com/documentation/19.0/applications/productivity/ai/agents.html) · [Access rights](https://www.odoo.com/documentation/18.0/applications/general/users/access_rights.html) · [Shopify Sidekick](https://help.shopify.com/en/manual/shopify-admin/productivity-tools/sidekick)
+- [digiato.com — رونمایی سپیدار ابری](https://digiato.com/iran-technology-news/sepidar-cloud-unveiled-baham-1405)
+- [Claude — Models overview](https://platform.claude.com/docs/en/models/overview) · [Multilingual support](https://platform.claude.com/docs/en/build-with-claude/multilingual-support) · [OpenAI — Migrate to Responses](https://developers.openai.com/api/docs/guides/migrate-to-responses) · [Function calling](https://developers.openai.com/api/docs/guides/function-calling)
+- [Gemini — generateContent](https://ai.google.dev/api/generate-content) · [Available regions](https://ai.google.dev/gemini-api/docs/available-regions) · [OpenRouter — API](https://openrouter.ai/docs/api-reference/overview) · [Ollama — Anthropic compatibility](https://docs.ollama.com/api/anthropic-compatibility)
+- [OWASP — LLM Top 10](https://genai.owasp.org/llm-top-10/) · [Prompt injection](https://genai.owasp.org/llmrisk/llm01-prompt-injection/) · [Excessive agency](https://genai.owasp.org/llmrisk/llm062025-excessive-agency/)
+- [Microsoft — Customer Lockbox](https://learn.microsoft.com/en-us/purview/customer-lockbox-requests) · [WorkOS — Impersonation](https://workos.com/docs/user-management/impersonation) · [Model Context Protocol — Tools](https://modelcontextprotocol.io/specification/2025-11-25/server/tools)
