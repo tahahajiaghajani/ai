@@ -172,6 +172,10 @@ export function toAnthropicMessages(messages: NeutralMessage[], conn: ResolvedCo
 /** Map an SDK error to a ProviderError (most specific class first). */
 export function anthropicError(err: unknown, known: (string | null)[]): ProviderError {
   if (err instanceof ProviderError) return err;
+  // the SDK wraps any rejection of its fetch (the web version's SSRF guard among them) as
+  // "Connection error.": the guard's own error carries the reason
+  const cause = (err as { cause?: unknown } | null)?.cause;
+  if (err instanceof Anthropic.APIConnectionError && cause instanceof ProviderError) return cause;
   if (err instanceof Anthropic.APIConnectionTimeoutError) return new ProviderError("timeout", "پاسخی در زمان مقرر نرسید");
   if (err instanceof Anthropic.APIConnectionError) return new ProviderError("network", scrubSecrets(err.message, known).slice(0, 300));
   if (err instanceof Anthropic.APIError) {

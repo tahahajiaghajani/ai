@@ -171,6 +171,42 @@ syncRoutes.post("/push", async (c) => {
         results.push({ entity: agg.entity, id: agg.id, status: "error", message: "شناسه متعلق به سازمان دیگری است" });
         continue;
       }
+      if (existing && existing.rev > agg.base_rev && new Date(existing.updated_at).getTime() > new Date(String(agg.row.updated_at ?? 0)).getTime()) {
+        // the cloud copy wins; hand it back, since the desktop may already have pulled past it.
+        // Checked before the members' rules: an outdated row is not written, so it is not judged
+        // either (refusing it would leave the desktop with its outdated copy for good)
+        const [winner] = await readAggregates(tx, def, [agg.id]);
+        results.push({ entity: agg.entity, id: agg.id, status: "conflict", rev: existing.rev, aggregate: winner });
+        continue;
+      }
+      // fiscal years: the year-end rules of routes/org.ts hold for a Windows app too — closing needs
+      // accounting:full, reopening is the owner's (or a manager's), and the closing and opening
+      // vouchers of a closed year are never changed or removed (reopening the year removes them;
+      // its fiscal_year row comes first in the batch, see the order in the registry)
+      if (def.entity === "fiscal_year" && existing) {
+        const stored = await tx.one<{ status: string }>(`select status from tz_fiscal_years where id = $1`, [agg.id]);
+        const incoming = String(agg.row.status ?? stored?.status ?? "");
+        if (stored?.status === "closed" && incoming !== "closed" && ctx.member.role !== "owner" && ctx.member.role !== "admin") {
+          results.push({ entity: agg.entity, id: agg.id, status: "error", message: "باز کردن دوبارهٔ سال مالی بسته با مالک کسب‌وکار است" });
+          continue;
+        }
+        if (stored?.status !== "closed" && incoming === "closed" && !ctx.can("accounting", "full")) {
+          results.push({ entity: agg.entity, id: agg.id, status: "error", message: "بستن سال مالی به دسترسی کامل حسابداری نیاز دارد" });
+          continue;
+        }
+      }
+      if (def.entity === "voucher" && existing) {
+        const v = await tx.one<{ total_debit: string; total_credit: string; deleted_at: string | null }>(
+          `select v.total_debit, v.total_credit, v.deleted_at from tz_vouchers v join tz_fiscal_years f on f.id = v.source_id
+           where v.id = $1 and v.source_type in ('closing', 'opening') and f.status = 'closed'`,
+          [agg.id],
+        );
+        const same = (a: unknown, b: unknown) => a != null && b != null && String(a) !== "" && Number(a) === Number(b);
+        if (v && !v.deleted_at && (agg.row.deleted_at != null || !same(agg.row.total_debit, v.total_debit) || !same(agg.row.total_credit, v.total_credit))) {
+          results.push({ entity: agg.entity, id: agg.id, status: "error", message: "اسناد اختتامیه و افتتاحیهٔ سال مالی بسته تغییر نمی‌کنند؛ برای تغییر، سال را دوباره باز کنید" });
+          continue;
+        }
+      }
       let memberChange: { was: StoredMember | null; next: MemberGrant & { live: boolean } } | null = null;
       if (def.entity === "member") {
         // the members page's rules (routes/org.ts): owners only by owners, nobody changes themselves
@@ -184,6 +220,11 @@ syncRoutes.post("/push", async (c) => {
           overrides: jsonObject(agg.row.overrides),
           live: agg.row.is_active !== false && agg.row.deleted_at == null,
         };
+        // a membership stays with its account, also when a removed one comes back
+        if (was && next.user_id && was.user_id !== next.user_id) {
+          results.push({ entity: agg.entity, id: agg.id, status: "error", message: "عضویت به حساب دیگری منتقل نمی‌شود" });
+          continue;
+        }
         const wasLive = !!was && was.is_active && !was.deleted_at;
         const before = was && !was.deleted_at ? { user_id: was.user_id, role: was.role, overrides: was.overrides } : null;
         const unchanged = !!was && wasLive === next.live && sameGrant(was, next) && was.user_id === next.user_id;
@@ -205,12 +246,6 @@ syncRoutes.post("/push", async (c) => {
           }
         }
         if (!unchanged) memberChange = { was, next };
-      }
-      if (existing && existing.rev > agg.base_rev && new Date(existing.updated_at).getTime() > new Date(String(agg.row.updated_at ?? 0)).getTime()) {
-        // the cloud copy wins; hand it back, since the desktop may already have pulled past it
-        const [winner] = await readAggregates(tx, def, [agg.id]);
-        results.push({ entity: agg.entity, id: agg.id, status: "conflict", rev: existing.rev, aggregate: winner });
-        continue;
       }
       try {
         const costed = COSTED.has(def.entity);

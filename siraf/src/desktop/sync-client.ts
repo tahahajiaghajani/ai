@@ -115,7 +115,10 @@ export class SyncClient {
     }
     if (r.token) await this.api("/auth/logout", { method: "POST", token: r.token, timeout: 15000 }).catch(() => undefined);
     if (!r.user_id) return { status: "wrong" };
-    await this.pullAll().catch((e) => this.o.log.warn("pull after a cloud sign-in failed", String((e as Error).message ?? e)));
+    // the account's row is needed here; a sync under way pulls it too, so wait for it and then
+    // read only what is new (a full read after an update is left to the sync itself)
+    if (this.busy) await this.busy.catch(() => undefined);
+    await this.pullAll({ upgrade: false }).catch((e) => this.o.log.warn("pull after a cloud sign-in failed", String((e as Error).message ?? e)));
     return { status: "ok", user_id: r.user_id };
   }
 
@@ -175,19 +178,26 @@ export class SyncClient {
   }
 
   /**
-   * Once after an update that changed the database: an earlier version dropped the columns and
-   * the kinds of data it did not know when it pulled (and the cloud may have refused what it
-   * pushed), so everything is read again from the start (rows waiting for upload are skipped,
-   * the rest is the cloud's copy anyway) and uploads that failed are tried again.
+   * Once after an update. Uploads that failed are tried again after every update of the database
+   * (`sync.schema`): the new version may accept them. Everything is read again from the start only
+   * when the sync protocol changed (`sync.protocol`): an earlier version dropped the columns and
+   * the kinds of data it did not know when it pulled. Rows waiting for upload are skipped by the
+   * pull, the rest is the cloud's copy anyway. Builds that wrote `sync.schema` before
+   * `sync.protocol` existed already read everything under protocol 2.
    */
   private async afterUpgrade() {
-    if ((await this.kvGet<string | null>("sync.schema", null)) === SCHEMA_VERSION) return;
+    const schema = await this.kvGet<string | null>("sync.schema", null);
+    const protocol = (await this.kvGet<number | null>("sync.protocol", null)) ?? (schema ? 2 : null);
+    if (schema === SCHEMA_VERSION && protocol === SYNC_PROTOCOL) return;
     await this.o.db.tx(async (tx) => {
       const kv = `insert into tz_kv (key, value, updated_at) values ($1, $2::jsonb, now()) on conflict (key) do update set value = excluded.value, updated_at = now()`;
-      await tx.query(kv, ["sync.cursor", "0"]);
-      await tx.query(kv, ["sync.user_cursor", "0"]);
+      if (protocol !== SYNC_PROTOCOL) {
+        await tx.query(kv, ["sync.cursor", "0"]);
+        await tx.query(kv, ["sync.user_cursor", "0"]);
+      }
       await tx.query(`update tz_outbox set attempts = 0, last_error = null where attempts > 0`);
       await tx.query(kv, ["sync.schema", JSON.stringify(SCHEMA_VERSION)]);
+      await tx.query(kv, ["sync.protocol", JSON.stringify(SYNC_PROTOCOL)]);
     });
   }
 
@@ -259,9 +269,9 @@ export class SyncClient {
     return total;
   }
 
-  async pullAll(): Promise<number> {
+  async pullAll(opts: { upgrade?: boolean } = {}): Promise<number> {
     let count = 0;
-    await this.afterUpgrade();
+    if (opts.upgrade !== false) await this.afterUpgrade();
     if (!(await this.kvGet<boolean>("sync.users_v2", false))) {
       // once after the update: read the members' accounts again, so that password hashes an
       // earlier version received for accounts this device may not hold are dropped
@@ -340,6 +350,10 @@ export class SyncClient {
           if (!status || status < 400 || status >= 500 || status === 401) throw e;
           refused = String((e as Error).message ?? e);
           this.o.log.warn("sync push refused", refused);
+          if (status === 400 && (await this.serverProtocol()) < SYNC_PROTOCOL) {
+            // this app is newer than the web version: it is the web that needs the update
+            refused = `نسخه‌ی وب ${APP_NAME} هنوز به‌روز نشده است؛ تغییرهای این رایانه همین‌جا نگه داشته می‌شوند و پس از به‌روزرسانی وب فرستاده می‌شوند`;
+          }
         }
         await this.pullAll();
         this.state.online = true;
@@ -361,6 +375,16 @@ export class SyncClient {
     })();
     await this.busy;
     return this.state;
+  }
+
+  /** The cloud's sync protocol (Infinity when it cannot be read: nothing is assumed then). */
+  private async serverProtocol(): Promise<number> {
+    try {
+      const r = await this.api<{ protocol?: number }>(`/sync/status?org_id=${this.o.config.cloud.org_id}`, { timeout: 15000 });
+      return typeof r?.protocol === "number" ? r.protocol : Infinity;
+    } catch {
+      return Infinity;
+    }
   }
 
   start() {

@@ -13,7 +13,7 @@ import { D, isNumeric, normalizeDigits } from "@shared/money";
 import { isUuid } from "@shared/id";
 import { BAR_NO_START, BAR_STATUS_TITLES } from "@shared/gold-catalogue";
 import { barLineDefaults, type Product } from "@shared/gold-quote";
-import { priceLine } from "./pricing";
+import { barUnitCost, priceLine } from "./pricing";
 import { audit } from "../data/crud";
 import { latestRate } from "./rates";
 import { goldSettings, priceEnv } from "./settings";
@@ -159,9 +159,12 @@ async function withPrice(ctx: Ctx, bar: BarRow) {
   const line = {
     kind: "bar" as const, direction: "out" as const, weight: bar.weight, fineness: bar.fineness, gram_price: d.gram_price, unit_price: d.unit_price,
     basis: d.basis, wage_type: d.premium_type === "per_bar" ? "fixed" : d.premium_type === "per_gram" ? "per_gram" : "percent", wage_value: d.premium_value, vat_mode: d.vat_mode,
-    unit_cost: d.vat_mode === "margin" && bar.cost && D(bar.cost).gt(0) ? D(bar.cost).toString() : null,
+    unit_cost: null as string | null,
   };
-  const price = d.gram_price || d.unit_price ? priceLine("sale", line, priceEnv(ctx.org, { gram18: d.gram_price ?? 0 })) : null;
+  const env = priceEnv(ctx.org, { gram18: d.gram_price ?? 0 });
+  // margin VAT: over the bar's cost (a consigned bar: what its owner is owed), as the sale posts it
+  if (d.vat_mode === "margin") line.unit_cost = barUnitCost(bar, line, env);
+  const price = d.gram_price || d.unit_price ? priceLine("sale", line, env) : null;
   return { bar: { ...bar, model_name: model?.name ?? null }, model, available: bar.status === "in_stock" || bar.status === "reserved", status_title: barStatusTitle(bar.status), line, price };
 }
 

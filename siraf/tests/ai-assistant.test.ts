@@ -12,7 +12,7 @@ import { AGENT_LIMITS } from "@server/modules/ai/agent";
 import { history } from "@server/modules/ai/threads";
 import { makeCtx, type AuthUser, type MemberRow, type OrgRow, type ServerConfig } from "@server/context";
 import { quietLog } from "./helpers";
-import { registerCloudLink } from "@server/modules/ai/relay";
+import { redactRelay, registerCloudLink } from "@server/modules/ai/relay";
 import { uuidv7 } from "@shared/id";
 import type { AiStreamEvent } from "@shared/ai/types";
 
@@ -317,6 +317,31 @@ describe("answers cut short, switched off or replayed", () => {
     }
   });
 
+  it("bounds the tools by the step's deadline too, and continues in the next request", async () => {
+    const { app, owner, orgId } = S;
+    const slow = defineTool({
+      name: "test_stuck", title_fa: "ابزار گیرکرده", description: "Takes too long (test only).", input: z.object({}), kind: "read", area: "reports", level: "view",
+      async run() {
+        await new Promise((r) => setTimeout(r, 3_000));
+        return { data: { ok: true }, summary_fa: "تمام شد" };
+      },
+    });
+    ALL_TOOLS.push(slow as unknown as AiToolDef);
+    AGENT_LIMITS.hardMs = 400;
+    AGENT_LIMITS.budgetMs = 300;
+    try {
+      const t0 = Date.now();
+      const { events } = await stream(app, owner, `/o/${orgId}/ai/chat`, { text: "[tool:test_stuck {}]" });
+      expect(Date.now() - t0).toBeLessThan(2_500);
+      expect(events.find((e) => e.type === "tool_end")).toMatchObject({ ok: false, summary_fa: "زمان ابزار تمام شد" });
+      expect(events[events.length - 1]).toMatchObject({ type: "continue" });
+    } finally {
+      AGENT_LIMITS.hardMs = before.hard;
+      AGENT_LIMITS.budgetMs = before.budget;
+      ALL_TOOLS.splice(ALL_TOOLS.indexOf(slow as unknown as AiToolDef), 1);
+    }
+  });
+
   it("replays the answer to a question with files without its native content, every time the same way", async () => {
     const { app, db, owner, orgId } = S;
     const file = { name: "رسید.png", mime: "image/png", data: Buffer.from("png bytes").toString("base64") };
@@ -471,6 +496,42 @@ describe("connections, settings and the platform overview", () => {
   });
 });
 
+describe("relayed turns follow the web version's data policy", () => {
+  it("hides names and identifiers the Windows app sent under its own, laxer policy", () => {
+    const ctxBlock = `<context>\n${JSON.stringify({ business: "طلای نمونه", member: { name: "مریم احمدی", role: "owner" }, current_page: { path: "parties/1", title: "علی رضایی", record: { type: "party", id: "1", label: "علی رضایی" } } })}\n</context>`;
+    const body = {
+      job: "assistant" as const,
+      feature: "assistant",
+      request: {
+        system: "S",
+        maxTokens: 100,
+        messages: [
+          { role: "user" as const, parts: [{ type: "text" as const, text: `${ctxBlock}\nبدهی علی رضایی با موبایل 09121234567 چقدر است؟` }] },
+          { role: "assistant" as const, parts: [{ type: "tool_call" as const, id: "c1", name: "find_records", input: { query: "علی" } }], native: { protocol: "anthropic" as const, model: "m", connection_id: "x", content: [] } },
+          { role: "user" as const, parts: [{ type: "tool_result" as const, id: "c1", name: "find_records", content: JSON.stringify({ rows: [{ party_id: "p1", name: "علی رضایی", mobile: "09121234567", balance: "5000" }] }) }] },
+          { role: "user" as const, parts: [{ type: "text" as const, text: `<data name="plan_facts">\n${JSON.stringify({ collections: [{ party: "شرکت الف", overdue: "10" }] })}\n</data>\nWrite.` }] },
+        ],
+      },
+    };
+    const agg = redactRelay(body, "aggregates");
+    const sent = JSON.stringify(agg.request.messages);
+    expect(sent).not.toContain("مریم احمدی");
+    expect(sent).not.toContain("شرکت الف");
+    expect(sent).not.toContain("09121234567");
+    // the tool result: names hidden, numbers kept
+    expect(agg.request.messages[2].parts[0]).toMatchObject({ type: "tool_result" });
+    expect((agg.request.messages[2].parts[0] as { content: string }).content).not.toContain("علی رضایی");
+    expect((agg.request.messages[2].parts[0] as { content: string }).content).toContain("5000");
+    // the page title and record label of the context are gone; the person's own question keeps the name they typed
+    expect((agg.request.messages[0].parts[0] as { text: string }).text).toContain("بدهی علی رضایی");
+    expect(JSON.parse((agg.request.messages[0].parts[0] as { text: string }).text.split("\n")[1])).toMatchObject({ member: { role: "owner" }, current_page: { path: "parties/1", record: { id: "1" } } });
+    expect(JSON.stringify(JSON.parse((agg.request.messages[0].parts[0] as { text: string }).text.split("\n")[1]))).not.toContain("علی رضایی");
+    // "full" on the web version: sent as the Windows app wrote it
+    expect(redactRelay(body, "full")).toBe(body);
+    expect(JSON.stringify(redactRelay(body, "masked").request.messages)).not.toContain("09121234567");
+  });
+});
+
 describe("Windows app → web version relay", () => {
   it("serves model turns to a linked device only, while tools run on the Windows app", async () => {
     const cloud = await setup();
@@ -524,6 +585,16 @@ describe("Windows app → web version relay", () => {
     expect((await relay(withFile)).status).toBe(403);
     // a feature whose own switch is on still works
     expect(parseSse(await (await relay(relayBody)).text()).pop()).toMatchObject({ type: "result" });
+    // a relayed turn ends before the web function's limit: what was streamed, then a timeout (not a "stopped" result)
+    AGENT_LIMITS.hardMs = 150;
+    try {
+      const slowBody = { ...relayBody, request: { ...relayBody.request, messages: [{ role: "user", parts: [{ type: "text", text: `[slow] ${"پاسخی که دیر تمام می‌شود. ".repeat(20)}` }] }] } };
+      const cut = parseSse(await (await relay(slowBody)).text()) as unknown as { type: string; kind?: string }[];
+      expect(cut.some((e) => e.type === "text")).toBe(true);
+      expect(cut.pop()).toMatchObject({ type: "error", kind: "timeout" });
+    } finally {
+      AGENT_LIMITS.hardMs = before.hard;
+    }
     // and the Windows app shows the switch as an error, not an answer
     const { events: offEv } = await stream(desk.app, owner, `/o/${deskOrg}/ai/chat`, { text: "سلام" });
     expect(offEv.find((e) => e.type === "error")).toMatchObject({ kind: "disabled" });

@@ -14,6 +14,7 @@ import { contextBlock } from "@server/modules/ai/prompts";
 import { evaluate } from "@server/modules/ai/analytics/calc";
 import * as acc from "@server/modules/accounting/reports";
 import { analysis } from "@server/modules/goods/reports";
+import { reportForModel } from "@server/modules/ai/tools/reports";
 import { goldPosition } from "@server/modules/gold/position";
 
 const TODAY = "2026-11-02"; // 1405/08/11
@@ -198,6 +199,26 @@ describe("ai tools", () => {
     expect(byParty.data.rows[0].key).toBeUndefined();
     const named = await run("analyze_metric", { metric: "sales_amount", period: { preset: "this_year" }, group_by: "party" }, ctx, runtime("masked"));
     expect(named.data.rows[0].label).not.toMatch(/^شخص \d/);
+  });
+
+  it("run_report hides party names from the model under aggregates, never from the person's table", async () => {
+    const ctx = await ctxAs("owner");
+    const rt = runtime("aggregates");
+    const r = await run("run_report", { report: "sales_report", period: { preset: "this_year" }, params: { group: "party" } }, ctx, rt);
+    const modelRows = (Array.isArray(r.data.result.rows) ? r.data.result.rows : r.data.result.rows.rows) as Record<string, unknown>[];
+    expect(modelRows.length).toBeGreaterThan(0);
+    expect(JSON.stringify(r.data)).not.toContain("فروشگاه نیک");
+    expect(String(modelRows[0].label)).toMatch(/^شخص \S+/);
+    // the table shown in the chat keeps the real names
+    expect(rt.stored[0].map((x) => x.label)).toContain("فروشگاه نیک");
+    // the same report under "masked": names as before
+    const named = await run("run_report", { report: "sales_report", period: { preset: "this_year" }, params: { group: "party" } }, ctx, runtime("masked"));
+    expect(JSON.stringify(named.data)).toContain("فروشگاه نیک");
+    // rows without a code (gold_sales by party): ranked placeholders, the walk-in row stays as it is
+    const gold = { rows: [{ key: "p1", label: "علی" }, { key: "walkin", label: "مشتری گذری" }, { key: "p2", label: "رضا" }] };
+    const seen = reportForModel(gold, { main: "rows" }, { group: "party" }, rt);
+    expect(seen.rows.map((x: { label: string }) => x.label)).toEqual(["شخص 1", "مشتری گذری", "شخص 3"]);
+    expect(gold.rows[0].label).toBe("علی");
   });
 
   it("tells the model the unit the tools format money in", async () => {

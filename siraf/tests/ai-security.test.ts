@@ -21,6 +21,7 @@ import { makeCtx, type AuthUser, type Ctx, type MemberRow, type OrgRow, type Ser
 import { uuidv7 } from "@shared/id";
 import type { AiStreamEvent } from "@shared/ai/types";
 import { ProviderError } from "@server/modules/ai/types";
+import { runTurn } from "@server/modules/ai/chain";
 
 const before = { fake: process.env.SIRAF_AI_FAKE, lookup: aiNet.lookup };
 
@@ -198,9 +199,22 @@ describe("stored keys and connection tests", () => {
     // editing the address of a key-required service needs the key again
     await accountant.patch(`/o/${orgId}/ai/connections/${id}`, { base_url: "https://attacker.example/v1" }, 400);
     expect((await owner.get(`/o/${orgId}/ai/connections/${id}`)).connection).toMatchObject({ has_key: true, base_url: created.connection.base_url });
-    // moving to a service without a required key drops the stored key
-    const moved = await accountant.patch(`/o/${orgId}/ai/connections/${id}`, { preset: "custom-openai", base_url: "https://attacker.example/v1" });
+    // the drawer's edit: a new base URL and the key typed again travel in one PATCH, and are saved
+    const typed = await accountant.patch(`/o/${orgId}/ai/connections/${id}`, { preset: "deepseek", base_url: "https://gw.example.com/v1", key: "sk-live-NEW-KEY-1111122222" });
+    expect(typed.connection).toMatchObject({ has_key: true, key_hint: "…2222", base_url: "https://gw.example.com/v1" });
+    // a service without a required key: the stored key is never dropped silently
+    const refused = await accountant.patch(`/o/${orgId}/ai/connections/${id}`, { preset: "custom-openai", base_url: "https://attacker.example/v1" }, 400);
+    expect(refused.error.message).toContain("کلید API را دوباره وارد کنید");
+    expect((await owner.get(`/o/${orgId}/ai/connections/${id}`)).connection).toMatchObject({ has_key: true, preset: "deepseek", base_url: "https://gw.example.com/v1" });
+    // …only on purpose (remove_key), and a key-required service refuses that
+    await accountant.patch(`/o/${orgId}/ai/connections/${id}`, { remove_key: true }, 400);
+    const moved = await accountant.patch(`/o/${orgId}/ai/connections/${id}`, { preset: "custom-openai", base_url: "https://attacker.example/v1", remove_key: true });
     expect(moved.connection).toMatchObject({ has_key: false, key_hint: null, base_url: "https://attacker.example/v1" });
+    // a custom gateway: fixing the path keeps nothing hidden either — refused without the key, saved with it
+    const gw = await owner.post(`/o/${orgId}/ai/connections`, { preset: "custom-openai", base_url: "https://gw.example.com/v1", key: "sk-live-GATEWAY-KEY-12345678", models: { smart: ["m-1"] } });
+    await owner.patch(`/o/${orgId}/ai/connections/${gw.connection.id}`, { base_url: "https://gw.example.com/openai/v1" }, 400);
+    const fixed = await owner.patch(`/o/${orgId}/ai/connections/${gw.connection.id}`, { base_url: "https://gw.example.com/openai/v1", key: "sk-live-GATEWAY-KEY-12345678" });
+    expect(fixed.connection).toMatchObject({ has_key: true, key_hint: "…5678", base_url: "https://gw.example.com/openai/v1" });
     // edits that keep the destination keep the key
     const again = await owner.post(`/o/${orgId}/ai/connections`, { preset: "deepseek", key: "sk-live-OTHER-KEY-1234567890" });
     const kept = await owner.patch(`/o/${orgId}/ai/connections/${again.connection.id}`, { label: "x", preset: "deepseek", base_url: again.connection.base_url });
@@ -225,7 +239,8 @@ describe("AI key security events", () => {
     const a = first.connection.id;
     await owner.patch(`/o/${orgId}/ai/connections/${a}`, { key: "sk-live-EVENT-KEY-0987654321" });
     await owner.patch(`/o/${orgId}/ai/connections/${a}`, { label: "فقط نام" }); // no key change: no event
-    await owner.patch(`/o/${orgId}/ai/connections/${a}`, { preset: "custom-openai", base_url: "https://other.example/v1" }); // the key is dropped
+    await owner.patch(`/o/${orgId}/ai/connections/${a}`, { preset: "custom-openai", base_url: "https://other.example/v1" }, 400); // never dropped silently
+    await owner.patch(`/o/${orgId}/ai/connections/${a}`, { preset: "custom-openai", base_url: "https://other.example/v1", remove_key: true }); // the key is dropped
     const second = await owner.post(`/o/${orgId}/ai/connections`, { preset: "deepseek", key: "sk-live-EVENT-KEY-5555555555" });
     const b = second.connection.id;
     await owner.del(`/o/${orgId}/ai/connections/${b}`);
@@ -277,6 +292,33 @@ describe("web version SSRF guard", () => {
     expect(init?.redirect).toBe("manual");
     expect(init?.method).toBe("POST");
   });
+
+  it("names the guard's reason for Anthropic-protocol connections, retries nothing and flags the connection", async () => {
+    const { owner, orgId, ctx } = await server();
+    let lookups = 0;
+    aiNet.lookup = async (host) => {
+      if (host === "inside.example") lookups++;
+      return host === "inside.example" ? ["10.0.0.7"] : ["104.18.6.192"];
+    };
+    const fake = ((await owner.get(`/o/${orgId}/ai/connections`)).connections as { id: string; preset: string }[]).find((x) => x.preset === "fake")!;
+    await owner.patch(`/o/${orgId}/ai/connections/${fake.id}`, { enabled: false });
+    const created = await owner.post(`/o/${orgId}/ai/connections`, { preset: "custom-anthropic", base_url: "https://inside.example/v1", key: "sk-ant-test-1234567890", models: { smart: ["claude-x"], fast: ["claude-x"] } });
+    const id = created.connection.id as string;
+    try {
+      // the connection test shows the reason, not the SDK's "Connection error."
+      const report = await owner.post(`/o/${orgId}/ai/connections/${id}/test`, {});
+      expect(JSON.stringify(report)).toMatch(/داخلی/);
+      expect(JSON.stringify(report)).not.toContain("Connection error");
+      // the chain: one attempt (no network retry), the reason in the error, the connection flagged
+      lookups = 0;
+      await expect(runTurn(await ctx(), { job: "fast", feature: "digest", request: { system: "S", messages: [{ role: "user", parts: [{ type: "text", text: "سلام" }] }], effort: null, maxTokens: 100 } })).rejects.toThrow(/داخلی/);
+      expect(lookups).toBe(1);
+      expect((await owner.get(`/o/${orgId}/ai/connections/${id}`)).connection).toMatchObject({ status: "error" });
+    } finally {
+      await owner.del(`/o/${orgId}/ai/connections/${id}`);
+      await owner.patch(`/o/${orgId}/ai/connections/${fake.id}`, { enabled: true });
+    }
+  });
 });
 
 describe("data policy in feature prompts and the page context", () => {
@@ -296,12 +338,18 @@ describe("data policy in feature prompts and the page context", () => {
     // rows of a detail/party list (kind person) and rows carrying a party id
     expect(JSON.stringify(redactValue({ rows: [{ code: "1001", name: "حسن", kind: "person" }] }, "aggregates"))).not.toContain("حسن");
     expect(hideNames("«علی رضایی» ۵ میلیون معوق", ["علی رضایی"])).toBe("«[نام پنهان]» ۵ میلیون معوق");
+    // whole words only: a short name inside another word stays untouched
+    expect(hideNames("موجودی فعلی «علی» کم است؛ علی‌آباد و علی.", ["علی"])).toBe("موجودی فعلی «[نام پنهان]» کم است؛ علی‌آباد و [نام پنهان].");
+    expect(hideNames("مشتری (الف) بدهکار است", ["(الف)"])).toBe("مشتری [نام پنهان] بدهکار است");
   });
 
   it("redacts the page the person is on", async () => {
     const page = { path: "parties/1", title: "علی رضایی", record: { type: "party", id: "1", label: "علی رضایی 09121234567" }, report: { key: "ledger", params: { party: "علی رضایی" } } };
     const agg = redactPage(page, "aggregates");
     expect(JSON.stringify(agg)).not.toContain("علی رضایی");
+    // a filter that is a record id stays: the assistant can still read that statement
+    const byId = redactPage({ path: "reports/ledger", report: { key: "ledger", params: { party: "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b", from: "2026-03-21" } } }, "aggregates");
+    expect(byId.report?.params).toEqual({ party: "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b", from: "2026-03-21" });
     const masked = redactPage(page, "masked");
     expect(masked.record?.label).toContain("علی رضایی");
     expect(masked.record?.label).not.toContain("09121234567");

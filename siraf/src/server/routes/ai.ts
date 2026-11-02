@@ -21,11 +21,11 @@ import { loadPolicy, saveSettings, settingsPatchSchema, visibleSettings, disable
 import { loadEnv, runTurn } from "../modules/ai/chain";
 import { statusView } from "../modules/ai/engine";
 import { AiUnavailableError, asHttpError } from "../modules/ai/errors";
-import { abortLocal, continueChat, startChat, type Emit } from "../modules/ai/agent";
+import { AGENT_LIMITS, abortLocal, continueChat, startChat, type Emit } from "../modules/ai/agent";
 import { deleteThread, getData, listThreads, messageViews, ownThread, patchThread, rateMessage, requestStop, threadDetail } from "../modules/ai/threads";
 import { confirmAction, listActions, rejectAction } from "../modules/ai/actions";
 import { budgetState, orgTimeZone, usageReport } from "../modules/ai/usage";
-import { assertRelayAllowed, cloudLink, relayRequestSchema, relayToRun } from "../modules/ai/relay";
+import { assertRelayAllowed, cloudLink, redactRelay, relayRequestSchema, relayToRun } from "../modules/ai/relay";
 import { fakeEnabled } from "../modules/ai/adapters/fake";
 import { pgArray } from "../db";
 import { toolsFor } from "../modules/ai/tools";
@@ -356,16 +356,25 @@ aiRoutes.post("/relay", async (c) => {
   if (ctx.cfg.mode !== "cloud") throw notFound("این مسیر فقط در نسخهٔ وب است");
   if (c.get("session")?.kind !== "device") throw forbidden("فقط نسخهٔ ویندوز متصل به این کسب‌وکار می‌تواند از این مسیر استفاده کند");
   ctx.need("ai", "view");
-  const req = await body(c, relayRequestSchema);
-  // the business's switches (assistant, each feature, document reading) bind the Windows app too
+  // the business's switches (assistant, each feature, document reading) and its data policy bind the Windows app too
+  const relayed = await body(c, relayRequestSchema);
   const env = await loadEnv(ctx);
+  const req = redactRelay(relayed, env.settings.data_policy);
   assertRelayAllowed(ctx, env.settings, req);
   return sse<AiRelayEvent>(
     c,
     async (emit, signal) => {
-      const run = relayToRun(req, signal);
+      // the turn must end before the function is killed (300 s), as the assistant's own steps do
+      const deadline = AbortSignal.timeout(AGENT_LIMITS.hardMs);
+      const run = relayToRun(req, AbortSignal.any([signal, deadline]));
       // tools never run here: the request carries their descriptions only, the Windows app runs them
       const result = await runTurn(ctx, { ...run, env, hooks: { onText: (d) => emit({ type: "text", delta: d }), onThinking: (d) => emit({ type: "thinking", delta: d }) } });
+      if (result.result.stop === "aborted" && deadline.aborted && !signal.aborted) {
+        // cut off by the time limit, not by the person: the Windows app keeps the text it already
+        // received and shows a timeout (a plain "aborted" result would read as a stop)
+        emit({ type: "error", kind: "timeout", message_fa: aiErrorText("timeout", { desktop: true }).message, retry_after_ms: null });
+        return;
+      }
       emit({ type: "result", result });
     },
     (e) => [{ type: "error", ...errorEvent(c, e), retry_after_ms: null }],

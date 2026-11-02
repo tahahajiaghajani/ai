@@ -32,7 +32,7 @@ import { todayISO } from "@shared/jalali";
 import { uuidv7 } from "@shared/id";
 import { jTime } from "../../lib/fa";
 import {
-  catalogueLineIn, docTotals, envOf, priceLine, settleSplit, StatusOf, useCatalogue, useCoins, useGoldSettings, useLatestRate, wageTypeOptions, formOptions, gw,
+  catalogueLineIn, patchLine, docTotals, envOf, priceLine, settleSplit, StatusOf, useCatalogue, useCoins, useGoldSettings, useLatestRate, wageTypeOptions, formOptions, gw,
   type CatalogueRow, type LineIn, type PricedLine,
 } from "./shared";
 import { GoldStrip, KaratAvatar, KaratSeg } from "./kit";
@@ -68,6 +68,8 @@ interface SLine {
   brand?: string | null;
   seal_status?: string | null;
   unit_price?: string | null;
+  /** the unit price came back from the saved document (a board price for the seal it had) */
+  board_unit?: boolean;
   /** margin VAT: the cost of the bar sold */
   unit_cost?: string | null;
   /** buy side: reason of a deduction for the condition */
@@ -165,6 +167,7 @@ function SaleForm({ id }: { id: string | null }) {
         profit_pct: l.profit_pct, stone: D(l.stone ?? 0).isZero() ? null : l.stone, discount: D(l.discount).isZero() || l.kind === "old" || (l.kind === "bar" && l.direction === "in") ? null : l.discount, deduction_pct: l.deduction_pct,
         gold_bar_id: l.gold_bar_id, bar_no: l.bar_no ?? l.tag_no, serial_no: l.serial_no ?? l.extra?.bar?.serial_no ?? null, brand: l.brand ?? l.extra?.bar?.brand ?? null,
         seal_status: l.seal_status ?? l.extra?.bar?.seal_status ?? null, unit_price: l.extra?.unit_price ?? null, unit_cost: l.extra?.unit_cost ?? null, description: l.description,
+        board_unit: l.kind === "bar" && l.direction === "in" && !!l.extra?.unit_price,
       })),
     );
     setLocked(d.status !== "draft");
@@ -174,7 +177,7 @@ function SaleForm({ id }: { id: string | null }) {
   const rate = latest.data?.rate ?? null;
   const lineIn = (l: SLine): LineIn =>
     l.kind === "coin" || l.kind === "bar"
-      ? catalogueLineIn("sale", l, prods.get(l.item_id ?? ""), rate, settings.data, gram18, buyPrice)
+      ? catalogueLineIn("sale", l, prods.get(l.item_id ?? ""), rate, settings.data, gram18, buyPrice, env)
       : {
           kind: l.kind, direction: l.direction, form: l.form, qty: l.qty, fineness: l.fineness, weight: l.weight,
           gram_price: l.kind === "old" ? l.gram_price ?? buyPrice : l.gram_price, wage_type: l.wage_type, wage_value: l.wage_value,
@@ -198,7 +201,7 @@ function SaleForm({ id }: { id: string | null }) {
   const idOk = !!partyId || isNationalId(buyer.national_id ?? "") || isLegalNationalId(buyer.national_id ?? "");
   const readOnly = locked || !can("gold", "edit");
 
-  const set = (key: string, patch: Partial<SLine>) => setLines((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
+  const set = (key: string, patch: Partial<SLine>) => setLines((ls) => ls.map((l) => (l.key === key ? patchLine(l, patch) : l)));
   const remove = (key: string) => setLines((ls) => ls.filter((l) => l.key !== key));
   const focusScan = () => setTimeout(() => scanRef.current?.focus(), 30);
 

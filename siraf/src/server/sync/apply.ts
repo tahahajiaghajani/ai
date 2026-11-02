@@ -119,17 +119,21 @@ export async function writeAggregate(
   } else row.org_id = orgId;
   const result: WriteResult = {};
   for (let attempt = 0; attempt < 4; attempt++) {
+    // set once the aggregate itself is written: a failure after that (the bar lines below) is no
+    // clash of this row and is not retried; the savepoint rolls the whole aggregate back
+    let written = false;
     try {
       await savepoint(q, async () => {
         await upsertRoot(q, def.table, row);
         for (const ch of def.children ?? []) await replaceChildren(q, ch.table, ch.fk, agg.id, agg.children?.[ch.table] ?? [], orgId);
+        written = true;
+        // bar lines carry the bar's number (tag_no): keep them in step with the register
+        if (def.entity === "gold_bar") await retagBarLines(q, orgId, agg.id, false);
+        else if (def.entity === "gold_doc") await alignDocBarLines(q, agg.id);
       });
-      // bar lines carry the bar's number (tag_no): keep them in step with the register
-      if (def.entity === "gold_bar") await retagBarLines(q, orgId, agg.id, false);
-      else if (def.entity === "gold_doc") await alignDocBarLines(q, agg.id);
       return result;
     } catch (e) {
-      if (!isUnique(e) || attempt === 3) throw e;
+      if (!isUnique(e) || written || attempt === 3) throw e;
       // PGlite (pg-protocol) names it `constraint`, postgres.js `constraint_name`
       const constraint = String(e.constraint ?? e.constraint_name ?? "");
       if (def.numbered && constraint.includes("_no_")) {
@@ -138,7 +142,7 @@ export async function writeAggregate(
           result.renumbered = { column: "no", from: row.no, to };
           row.no = to;
         } else {
-          await moveLocalAside(q, def, orgId, row, "no");
+          await savepoint(q, () => moveLocalAside(q, def, orgId, row, "no"));
         }
         continue;
       }
@@ -150,9 +154,21 @@ export async function writeAggregate(
         continue;
       }
       if (def.table === "tz_items" && constraint.includes("rate_key")) {
-        // a board key belongs to one product: the row being written takes it (the latest write
-        // on either side), the other holder loses it and travels to the other side with that
-        await moveLocalAside(q, def, orgId, row, "rate_key", side === "local-yields");
+        // a board key belongs to one product: the later edit keeps it (updated_at, which syncs
+        // unchanged). When the row being written is the later one, the other holder loses the key
+        // (on a Windows app it is queued, so the cloud hears of it); otherwise the row being
+        // written comes without it — on the cloud the pushing app is told (`renumbered`), on a
+        // Windows app the local holder's push makes the cloud drop it there too
+        const holder = await q.one<{ updated_at: string }>(
+          `select updated_at from tz_items where org_id = $1 and id <> $2 and rate_key = $3 and deleted_at is null`,
+          [orgId, agg.id, row.rate_key],
+        );
+        if (holder && isOlder(row.updated_at, holder.updated_at)) {
+          if (side === "incoming-yields") result.renumbered = { column: "rate_key", from: row.rate_key, to: null };
+          row.rate_key = null;
+        } else {
+          await savepoint(q, () => moveLocalAside(q, def, orgId, row, "rate_key", side === "local-yields"));
+        }
         continue;
       }
       if (def.code && (constraint.includes("code") || constraint.includes("tag"))) {
@@ -162,7 +178,7 @@ export async function writeAggregate(
           result.renumbered = { column, from: row[column], to };
           row[column] = to;
         } else {
-          await moveLocalAside(q, def, orgId, row, column);
+          await savepoint(q, () => moveLocalAside(q, def, orgId, row, column));
         }
         continue;
       }
@@ -170,6 +186,13 @@ export async function writeAggregate(
     }
   }
   return result;
+}
+
+/** Whether a row's updated_at is strictly earlier than another's (a row without one is not). */
+function isOlder(a: unknown, b: unknown): boolean {
+  const ta = a == null ? NaN : new Date(a as string | Date).getTime();
+  const tb = b == null ? NaN : new Date(b as string | Date).getTime();
+  return Number.isFinite(ta) && Number.isFinite(tb) && ta < tb;
 }
 
 /** Next free code; a bar number is never reused, so soft-deleted bars count (as in nextBarNo). */

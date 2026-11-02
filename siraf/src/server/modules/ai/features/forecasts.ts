@@ -384,16 +384,17 @@ export async function cashflow13(ctx: Ctx, today: string, m: MoneyInfo): Promise
   // An open invoice is counted only up to what its party still owes in the books: a receipt or
   // payment (cash, or a cheque counted above) that was not allocated to the invoice leaves the
   // invoice "open" but already settled the debt; returns lower it too. The party's balance is
-  // given to its newest invoices (payments settle the oldest first).
+  // given to its newest invoices (payments settle the oldest first). A received cheque that bounced
+  // (cheques_bounced[party]) is no inflow above and is still owed, so it stays on the debt side.
   const partyIds = [...new Set(invoices.map((i) => i.party_id).filter((x): x is string => !!x))];
   if (partyIds.length) {
     const owed = await ctx.db.query<{ party_id: string; ar: string; ap: string }>(
       `select p.id as party_id,
-              coalesce(sum(case when a.system_key in ('ar', 'customer_advances') then l.debit - l.credit end), 0) as ar,
+              coalesce(sum(case when a.system_key in ('ar', 'customer_advances', 'cheques_bounced') then l.debit - l.credit end), 0) as ar,
               coalesce(sum(case when a.system_key = 'ap' then l.credit - l.debit end), 0) as ap
        from tz_voucher_lines l join tz_vouchers v on v.id = l.voucher_id join tz_accounts a on a.id = l.account_id
        join tz_parties p on p.detail_id = l.detail_id and p.org_id = l.org_id
-       where l.org_id = $1 and v.deleted_at is null and v.status in ('posted', 'final') and a.system_key in ('ar', 'customer_advances', 'ap')
+       where l.org_id = $1 and v.deleted_at is null and v.status in ('posted', 'final') and a.system_key in ('ar', 'customer_advances', 'cheques_bounced', 'ap')
          and v.date <= $2 and p.id = any($3::uuid[])
        group by p.id`,
       [ctx.org.id, today, `{${partyIds.join(",")}}`],

@@ -1,7 +1,9 @@
 // Users and permissions (کاربران و دسترسی‌ها): the three main roles (مالک، حسابدار، ناظر) as cards, the
 // preset roles under «نقش‌های بیشتر», the members with their role, last sign-in and status, per-area
 // overrides in the side sheet («هوش مصنوعی» included) and temporary passwords shown once. A business
-// always keeps one active owner; only owners add or change owners.
+// always keeps one active owner; only owners add or change owners. The page offers only the changes
+// the server allows (`memberChangeRule`: not your own access, not a member above you, nothing above
+// your own levels) and «رمز تازه» only where a reset can work (`password_reset` from the server).
 import { useMemo, useState } from "react";
 import { Button, Table, Modal, Form, Input, Select, Switch, Drawer, Tooltip, message } from "antd";
 import { Plus, KeyRound, ShieldCheck, Copy, Users, Sparkles, Crown, Calculator, Eye, ChevronDown, RotateCcw } from "lucide-react";
@@ -11,7 +13,10 @@ import { useSession } from "../../lib/session";
 import { useAction, useNotify } from "../../lib/hooks";
 import { PageHeader } from "../../components/layout";
 import { Chip, EmptyState, JDateTime } from "../../components/display";
-import { AREAS, CORE_ROLES, PRESET_ROLES, ROLES, LEVEL_ORDER, levelOf, permissionMap, type Role, type Area, type Level } from "@shared/permissions";
+import {
+  AREAS, CORE_ROLES, PRESET_ROLES, ROLES, LEVEL_ORDER, levelOf, memberChangeRule, permissionMap,
+  type MemberActor, type MemberGrant, type Role, type Area, type Level,
+} from "@shared/permissions";
 import { faDigits } from "@shared/format";
 import { Avatar, ICON, ICON14, Note, cx } from "../reports/kit";
 
@@ -35,7 +40,11 @@ interface MemberRow {
   email: string;
   full_name: string;
   last_login_at: string | null;
+  /** «رمز تازه» can work: an account this business made, working for no other business */
+  password_reset?: boolean;
 }
+
+const grantOf = (m: MemberRow): MemberGrant => ({ user_id: m.user_id, role: m.role, overrides: m.overrides });
 
 const levelLabel = (a: Area, l: Level) => (a === "ai" ? AI_LEVELS[l] : LEVELS[l]);
 const managesAi = (m: MemberRow) => levelOf(m.role, "ai", m.overrides) === "full";
@@ -93,23 +102,43 @@ export default function Members() {
   const update = useAction(({ id, ...v }: { id: string } & Record<string, unknown>) => api.patch(`/members/${id}`, v), { success: "ذخیره شد.", invalidate: [["members"]] });
   const reset = useAction((id: string) => api.post(`/members/${id}/password`, {}), { onSuccess: (r: any) => setTemp(r.temp_password) });
 
-  const iAmOwner = info.member.role === "owner";
+  const myId = me?.user?.id ?? "";
+  const actor = useMemo<MemberActor>(
+    () => ({ user_id: myId, role: info.member.role as Role, permissions: info.member.permissions, support: !!support }),
+    [myId, info.member.role, info.member.permissions, support],
+  );
+  const rule = (before: MemberGrant | null, after: MemberGrant | null) => memberChangeRule(actor, before, after);
   const editable = can("users", "edit") && writable;
   const members = q.data?.members ?? [];
   const activeOwners = members.filter((m) => m.role === "owner" && m.is_active).length;
   const count = (r: Role) => members.filter((m) => m.role === r && m.is_active).length;
   const shown = roleFilter ? members.filter((m) => m.role === roleFilter) : members;
   const aiManagers = members.filter((m) => m.is_active && managesAi(m));
-  const roleOptions = useMemo(
-    () => [
-      { label: "نقش‌های اصلی", options: CORE_ROLES.map((r) => ({ value: r, label: ROLES[r].title, disabled: r === "owner" && !iAmOwner })) },
-      { label: "نقش‌های بیشتر", options: PRESET_ROLES.map((r) => ({ value: r, label: ROLES[r].title })) },
-    ],
-    [iAmOwner],
-  );
-  // the last active owner keeps the role and stays active; owners are changed only by owners
+  // the roles this actor may give: to a new member (before null) or instead of a member's current one
+  const roleOptions = (before: MemberGrant | null) => {
+    const opt = (r: Role) => ({
+      value: r,
+      label: ROLES[r].title,
+      disabled: r !== before?.role && !!rule(before, before ? { ...before, role: r } : { user_id: "", role: r, overrides: {} }),
+    });
+    return [
+      { label: "نقش‌های اصلی", options: CORE_ROLES.map(opt) },
+      { label: "نقش‌های بیشتر", options: PRESET_ROLES.map(opt) },
+    ];
+  };
+  // the role a new member starts with: the one asked for when it may be given, else the first that may
+  const startRole = (want: Role | null): Role => {
+    const ok = (r: Role) => !rule(null, { user_id: "", role: r, overrides: {} });
+    return want && ok(want) ? want : ([...CORE_ROLES, ...PRESET_ROLES].find(ok) ?? want ?? "viewer");
+  };
+  // the last active owner keeps the role and stays active
   const lockedOwner = (m: MemberRow) => (m.role === "owner" && m.is_active && activeOwners <= 1 ? "کسب‌وکار باید دست‌کم یک مالک فعال داشته باشد" : null);
-  const ownerOnly = (m: MemberRow) => (m.role === "owner" && !iAmOwner ? "فقط مالک می‌تواند نقش مالک را تغییر دهد" : null);
+  // role and per-area access: owners only by owners, never your own (below the owner), never a member above you
+  const accessLock = (m: MemberRow) => rule(grantOf(m), null) ?? lockedOwner(m);
+  // activation: never yourself, owners only by owners, never a member above you
+  const activeLock = (m: MemberRow) =>
+    m.user_id === myId ? "حساب خودتان را نمی‌توانید غیرفعال کنید" : (rule(grantOf(m), grantOf(m)) ?? lockedOwner(m));
+  const canReset = (m: MemberRow) => can("users", "full") && !support && !!m.password_reset && m.user_id !== myId && !rule(grantOf(m), grantOf(m));
   const pick = (r: Role) => setRoleFilter((cur) => (cur === r ? null : r));
 
   return (
@@ -218,14 +247,14 @@ export default function Members() {
               title: "نقش",
               width: 170,
               render: (v: Role, r) => {
-                const lock = ownerOnly(r) ?? lockedOwner(r);
+                const lock = accessLock(r);
                 if (!editable) return <span>{ROLES[v]?.title}</span>;
                 const select = (
                   <Select
                     size="small"
                     variant="borderless"
                     value={v}
-                    options={roleOptions}
+                    options={roleOptions(grantOf(r))}
                     disabled={!!lock}
                     popupMatchSelectWidth={false}
                     style={{ width: "auto" }}
@@ -269,7 +298,7 @@ export default function Members() {
               title: "فعال",
               width: 72,
               render: (v: boolean, r) => {
-                const lock = me?.user?.id === r.user_id ? "حساب خودتان را نمی‌توانید غیرفعال کنید" : (ownerOnly(r) ?? lockedOwner(r));
+                const lock = activeLock(r);
                 const sw = (
                   <Switch size="small" checked={v} disabled={!editable || !!lock} onChange={(is_active) => update.mutate({ id: r.id, is_active })} aria-label={`فعال بودن ${r.full_name}`} />
                 );
@@ -279,20 +308,21 @@ export default function Members() {
             {
               key: "a",
               width: 96,
-              render: (_, r) =>
-                editable ? (
+              render: (_, r) => {
+                if (!editable) return null;
+                const lock = rule(grantOf(r), null);
+                return (
                   <span className="bk-ra">
-                    <Tooltip title="دسترسی‌ها">
-                      <Button size="small" type="text" icon={<ShieldCheck {...ICON14} />} onClick={() => setPerm(r)} aria-label={`دسترسی‌های ${r.full_name}`} disabled={!!ownerOnly(r)} />
+                    <Tooltip title={lock ?? "دسترسی‌ها"}>
+                      <Button size="small" type="text" icon={<ShieldCheck {...ICON14} />} onClick={() => setPerm(r)} aria-label={`دسترسی‌های ${r.full_name}`} disabled={!!lock} />
                     </Tooltip>
-                    {can("users", "full") && !support ? (
+                    {canReset(r) ? (
                       <Tooltip title="رمز تازه">
                         <Button
                           size="small"
                           type="text"
                           icon={<KeyRound {...ICON14} />}
                           aria-label={`رمز تازه برای ${r.full_name}`}
-                          disabled={!!ownerOnly(r)}
                           onClick={async () => {
                             if (await n.confirm(`رمز تازه برای ${r.full_name}؟`, "همهٔ ورودهای فعلی این کاربر بسته می‌شود.")) reset.mutate(r.id);
                           }}
@@ -300,14 +330,15 @@ export default function Members() {
                       </Tooltip>
                     ) : null}
                   </span>
-                ) : null,
+                );
+              },
             },
           ]}
         />
       </div>
 
       <Modal open={!!add} onCancel={() => setAdd(null)} title="افزودن کاربر" footer={null} destroyOnHidden width={480}>
-        <Form layout="vertical" requiredMark={false} onFinish={(v) => create.mutate(v)} initialValues={{ role: add ?? "accountant" }}>
+        <Form layout="vertical" requiredMark={false} onFinish={(v) => create.mutate(v)} initialValues={{ role: startRole(add) }}>
           <Form.Item name="full_name" label="نام" rules={[{ required: true, message: "نام را بنویسید." }]}>
             <Input autoFocus />
           </Form.Item>
@@ -316,7 +347,7 @@ export default function Members() {
           </Form.Item>
           <div className="bk-grid2">
             <Form.Item name="role" label="نقش">
-              <Select options={roleOptions} />
+              <Select options={roleOptions(null)} />
             </Form.Item>
             <Form.Item name="title" label="سمت (اختیاری)">
               <Input />
@@ -361,15 +392,38 @@ export default function Members() {
       </Modal>
 
       <Drawer open={!!perm} onClose={() => setPerm(null)} size={500} title={`دسترسی‌های ${perm?.full_name ?? ""}`} destroyOnHidden>
-        {perm ? <Overrides member={perm} onCancel={() => setPerm(null)} onSave={(overrides) => (update.mutate({ id: perm.id, overrides }), setPerm(null))} /> : null}
+        {perm ? (
+          <Overrides
+            member={perm}
+            actor={actor}
+            saving={update.isPending}
+            onCancel={() => setPerm(null)}
+            // the sheet closes only once the change is saved: a refusal keeps the edits
+            onSave={(overrides) => update.mutate({ id: perm.id, overrides }, { onSuccess: () => setPerm(null) })}
+          />
+        ) : null}
       </Drawer>
     </div>
   );
 }
 
-function Overrides({ member, onSave, onCancel }: { member: MemberRow; onSave: (o: Partial<Record<Area, Level>>) => void; onCancel: () => void }) {
+function Overrides({
+  member,
+  actor,
+  saving,
+  onSave,
+  onCancel,
+}: {
+  member: MemberRow;
+  actor: MemberActor;
+  saving: boolean;
+  onSave: (o: Partial<Record<Area, Level>>) => void;
+  onCancel: () => void;
+}) {
   const [form] = Form.useForm();
   const areas = Object.keys(AREAS) as Area[];
+  // below the owner, nobody gives more than they have: levels above the actor's own are not offered
+  const above = (a: Area, l: Level) => actor.role !== "owner" && LEVEL_ORDER.indexOf(l) > LEVEL_ORDER.indexOf(actor.permissions[a] ?? "none");
   const initial = Object.fromEntries(areas.map((a) => [a, member.overrides?.[a] ?? ""]));
   return (
     <div className="sf-form">
@@ -391,8 +445,8 @@ function Overrides({ member, onSave, onCancel }: { member: MemberRow; onSave: (o
             >
               <Select
                 options={[
-                  { value: "", label: `پیش‌فرض نقش (${levelLabel(a, levelOf(member.role, a))})` },
-                  ...LEVEL_ORDER.map((l) => ({ value: l, label: levelLabel(a, l) })),
+                  { value: "", label: `پیش‌فرض نقش (${levelLabel(a, levelOf(member.role, a))})`, disabled: above(a, levelOf(member.role, a)) },
+                  ...LEVEL_ORDER.map((l) => ({ value: l, label: levelLabel(a, l), disabled: above(a, l) })),
                 ]}
               />
             </Form.Item>
@@ -403,7 +457,7 @@ function Overrides({ member, onSave, onCancel }: { member: MemberRow; onSave: (o
             پیش‌فرض نقش
           </Button>
           <Button onClick={onCancel}>انصراف</Button>
-          <Button type="primary" htmlType="submit">
+          <Button type="primary" htmlType="submit" loading={saving}>
             ذخیره
           </Button>
         </div>

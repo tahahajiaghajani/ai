@@ -436,6 +436,35 @@ describe("access review fixes", () => {
     expect(users.find((u: { email: string }) => u.email === "rev-acc@example.com").password_withheld).toBe(false);
   });
 
+  it("still resets the accounts it made before the new_account marker, never ones that joined by e-mail", async () => {
+    // accounts added before the marker: their audit row «member_add» has no data
+    await owner.post(`/o/${org}/members`, { email: "rev-old-staff@example.com", full_name: "کارمند قدیمی", role: "viewer", password: "old-staff-pass-1" });
+    const joiner = new Client(app);
+    await joiner.post("/auth/signup", { email: "rev-old-joiner@example.com", password: "old-joiner-pass-1", full_name: "عضو قدیمی" });
+    await owner.post(`/o/${org}/members`, { email: "rev-old-joiner@example.com", full_name: "عضو قدیمی", role: "viewer" });
+    await db.query(
+      `update tz_audit set data = null where org_id = $1 and action = 'member_add'
+         and entity_id in (select id from tz_users where email in ('rev-old-staff@example.com', 'rev-old-joiner@example.com'))`,
+      [org],
+    );
+    const staff = await member("rev-old-staff@example.com");
+    const joined = await member("rev-old-joiner@example.com");
+    expect(staff.password_reset).toBe(true);
+    expect(joined.password_reset).toBe(false);
+    await owner.post(`/o/${org}/members/${staff.id}/password`, { password: "old-staff-new-1" });
+    await login("rev-old-staff@example.com", "old-staff-new-1");
+    await owner.post(`/o/${org}/members/${joined.id}/password`, { password: "taken-over-2" }, 403);
+    // the owner's Windows app keeps the hash of the account it made (offline sign-in after the update)
+    const { users } = await owner.get(`/sync/pull?org_id=${org}&cursor=0&user_cursor=0`);
+    expect(users.find((u: { email: string }) => u.email === "rev-old-staff@example.com")).toMatchObject({ password_withheld: false });
+    expect(users.find((u: { email: string }) => u.email === "rev-old-staff@example.com").password_hash).toBeTruthy();
+    expect(users.find((u: { email: string }) => u.email === "rev-old-joiner@example.com")).toMatchObject({ password_hash: null, password_withheld: true });
+    // only those who may reset are told whether a reset can work
+    const acc = await login("rev-acc@example.com", "rev-acc-pass-1");
+    const seen = (await acc.get(`/o/${org}/members`)).members;
+    expect(seen.every((m: { password_reset: boolean }) => m.password_reset === false)).toBe(true);
+  });
+
   it("never lets a member give more access than they have", async () => {
     await owner.post(`/o/${org}/members`, { email: "rev-delegate@example.com", full_name: "نمایندهٔ کاربران", role: "viewer", password: "rev-delegate-1" });
     await owner.post(`/o/${org}/members`, { email: "rev-peer@example.com", full_name: "ناظر دیگر", role: "viewer", password: "rev-peer-pass-1" });
@@ -490,6 +519,55 @@ describe("access review fixes", () => {
     expect(events[0].data.changes.role).toEqual(["viewer", "sales"]);
     expect(events[0].data.via).toBe("sync");
   });
+
+  it("keeps the year-end rules and memberships when a Windows app pushes them", async () => {
+    const push = (c: Client, aggs: { entity: string; row: Record<string, unknown>; children?: Record<string, unknown[]> }[]) =>
+      c.post(`/sync/push`, {
+        org_id: org, device_id: "00000000-0000-7000-8000-0000000000ab", protocol: SYNC_PROTOCOL,
+        aggregates: aggs.map((a) => ({ entity: a.entity, id: String(a.row.id), base_rev: Number(a.row.rev), row: { ...a.row, updated_at: new Date().toISOString() }, children: a.children ?? {} })),
+      });
+    const cash = (await db.one<{ id: string }>(`select id from tz_accounts where org_id = $1 and system_key = 'cash'`, [org]))!.id;
+    const capital = (await db.one<{ id: string }>(`select id from tz_accounts where org_id = $1 and system_key = 'capital'`, [org]))!.id;
+    const box = await db.one<{ detail_id: string }>(`select detail_id from tz_cash_boxes where org_id = $1`, [org]);
+    await owner.post(`/o/${org}/accounting/vouchers`, { date: "2026-04-01", lines: [{ account_id: cash, detail_id: box!.detail_id, debit: "70000000" }, { account_id: capital, credit: "70000000" }] });
+    const fy = (await owner.get(`/o/${org}`)).fiscal_years.find((f: { status: string }) => f.status !== "closed");
+    await owner.post(`/o/${org}/fiscal-years/${fy.id}/close`);
+    const fyRow = async () => (await db.one<Record<string, unknown>>(`select * from tz_fiscal_years where id = $1`, [fy.id]))!;
+    const opening = async () => (await db.one<Record<string, unknown>>(`select * from tz_vouchers where org_id = $1 and source_type = 'opening' and source_id = $2`, [org, fy.id]))!;
+    expect((await opening()).deleted_at).toBeNull();
+    const acc = await login("rev-acc@example.com", "rev-acc-pass-1");
+    // the accountant's Windows app cannot reopen the year…
+    const reopen = await push(acc, [{ entity: "fiscal_year", row: { ...(await fyRow()), status: "open" } }]);
+    expect(reopen.results[0]).toMatchObject({ status: "error" });
+    expect(reopen.results[0].message).toContain("مالک");
+    // …nor anyone remove its closing and opening vouchers without reopening it
+    const drop = await push(acc, [{ entity: "voucher", row: { ...(await opening()), deleted_at: new Date().toISOString() } }]);
+    expect(drop.results[0]).toMatchObject({ status: "error" });
+    const ownerDrop = await push(owner, [{ entity: "voucher", row: { ...(await opening()), deleted_at: new Date().toISOString() } }]);
+    expect(ownerDrop.results[0]).toMatchObject({ status: "error" });
+    expect((await fyRow()).status).toBe("closed");
+    expect((await opening()).deleted_at).toBeNull();
+    // an unchanged copy of such a voucher (an upload repeated) is still accepted
+    const same = await push(owner, [{ entity: "voucher", row: await opening(), children: { tz_voucher_lines: await db.query(`select * from tz_voucher_lines where voucher_id = $1`, [(await opening()).id]) } }]);
+    expect(same.results[0]).toMatchObject({ status: "ok" });
+    // the owner's reopening (the year first, then its vouchers removed) goes through
+    const ok = await push(owner, [
+      { entity: "voucher", row: { ...(await opening()), deleted_at: new Date().toISOString() } },
+      { entity: "fiscal_year", row: { ...(await fyRow()), status: "open", closed_at: null, closed_by: null } },
+    ]);
+    expect(ok.results.map((r: { status: string }) => r.status)).toEqual(["ok", "ok"]);
+    expect((await fyRow()).status).toBe("open");
+    expect((await opening()).deleted_at).not.toBeNull();
+    // a removed membership never comes back on another account
+    await owner.post(`/o/${org}/members`, { email: "rev-moved@example.com", full_name: "ناظر رفته", role: "viewer", password: "rev-moved-pass-1" });
+    const viewer = (await db.one<Record<string, unknown>>(`select m.* from tz_org_members m join tz_users u on u.id = m.user_id where m.org_id = $1 and u.email = 'rev-moved@example.com'`, [org]))!;
+    const other = (await db.one<{ id: string }>(`select id from tz_users where email = 'rev-acc@example.com'`))!.id;
+    await db.query(`update tz_org_members set deleted_at = now() where id = $1`, [viewer.id]);
+    const fresh = (await db.one<Record<string, unknown>>(`select * from tz_org_members where id = $1`, [viewer.id]))!;
+    const moved = await push(owner, [{ entity: "member", row: { ...fresh, user_id: other, deleted_at: null, is_active: true } }]);
+    expect(moved.results[0]).toMatchObject({ status: "error", message: "عضویت به حساب دیگری منتقل نمی‌شود" });
+    expect((await db.one<{ user_id: string }>(`select user_id from tz_org_members where id = $1`, [viewer.id]))!.user_id).toBe(viewer.user_id);
+  });
 });
 
 describe("the platform's owner (PLATFORM_ADMIN_EMAILS)", () => {
@@ -511,6 +589,28 @@ describe("the platform's owner (PLATFORM_ADMIN_EMAILS)", () => {
     // no admin sets another admin's password either (it would let him sign in as that admin)
     await deputy.post(`/admin/users/${id("third@example.com")}/password`, { reason: "درخواست تلفنی همکار" }, 400);
     await boss.get("/admin/overview");
+  });
+
+  it("never resets the password of an admin right after taking the role away", async () => {
+    const s = await makeServer({ config: { platformAdmins: ["boss@example.com"] } });
+    const app = { fetch: (r: Request) => (r.headers.set("x-forwarded-for", "10.72.0.5"), s.app.fetch(r)) };
+    const boss = new Client(app);
+    await boss.post("/auth/signup", { email: "boss@example.com", password: "boss-pass-1", full_name: "مالک سامانه" });
+    const deputy = new Client(app);
+    await deputy.post("/auth/signup", { email: "deputy@example.com", password: "deputy-pass-1", full_name: "معاون" });
+    const third = new Client(app);
+    await third.post("/auth/signup", { email: "third@example.com", password: "third-pass-12", full_name: "سوم" });
+    const { users } = await boss.get("/admin/users");
+    const id = (e: string) => users.find((u: { email: string }) => u.email === e).id;
+    await boss.post(`/admin/users/${id("deputy@example.com")}/platform-admin`, { granted: true });
+    await boss.post(`/admin/users/${id("third@example.com")}/platform-admin`, { granted: true });
+    await deputy.post(`/admin/users/${id("third@example.com")}/platform-admin`, { granted: false });
+    expect((await deputy.get(`/admin/users/${id("third@example.com")}`)).user.recently_admin).toBe(true);
+    await deputy.post(`/admin/users/${id("third@example.com")}/password`, { reason: "درخواست تلفنی همکار" }, 400);
+    await third.get("/auth/me");
+    // once the cool-down has passed, a former admin is an ordinary account again
+    await s.db.query(`update tz_audit set at = now() - interval '8 days' where action = 'admin_revoke' and entity_id = $1`, [id("third@example.com")]);
+    await deputy.post(`/admin/users/${id("third@example.com")}/password`, { reason: "درخواست تلفنی همکار" });
   });
 
   it("is granted only while the platform has no administrator; later addresses are granted from the console", async () => {
@@ -537,5 +637,11 @@ describe("the platform's owner (PLATFORM_ADMIN_EMAILS)", () => {
     await claimer.post("/auth/login", { email: "second@example.com", password: "claimed-pass-1" });
     expect((await claimer.get("/auth/me")).user.is_platform_admin).toBe(false);
     await claimer.get("/admin/overview", 403);
+    // such an account proves nothing about the address: the administrators can disable it
+    const { users } = await boss.get("/admin/users");
+    const squatter = users.find((u: { email: string }) => u.email === "second@example.com");
+    expect(squatter).toMatchObject({ env_admin: true, is_platform_admin: false });
+    await boss.patch(`/admin/users/${squatter.id}`, { disabled: true });
+    await new Client(app).post("/auth/login", { email: "second@example.com", password: "claimed-pass-1" }, 403);
   });
 });

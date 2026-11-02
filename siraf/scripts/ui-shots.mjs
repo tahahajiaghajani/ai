@@ -10,7 +10,7 @@
 //
 // Paths are relative to the organisation (`sales/invoices`, `` for the dashboard) unless they
 // start with `/` (`/login`, `/orgs`, `/admin`). `{key}` is replaced by an id from the seed
-// (e.g. `parties/{party_customer}`, see seed.json in the output). Default: every route of
+// (e.g. `parties/{party_customer}`, see seed.json in the output; `{org}` is the organisation's own id). Default: every route of
 // src/ui/modules/*/index.tsx without parameters, the editors of seeded documents, /login, /orgs, /admin.
 //
 // Assistant states: a path ending in `@ai=<state>` opens «دستیار سیراف» on that page before the screenshot:
@@ -376,9 +376,11 @@ async function main() {
   const requested = list(opt("paths")) ?? defaultPaths();
   const resolvePath = (p) => {
     let missing = null;
+    // `{org}` is the organisation itself (e.g. `/admin/orgs/{org}`)
+    const ids = { org: orgId, ...seed.ids };
     const filled = p.replace(/\{(\w+)\}/g, (_, k) => {
-      if (!seed.ids[k]) missing = k;
-      return seed.ids[k] ?? k;
+      if (!ids[k]) missing = k;
+      return ids[k] ?? k;
     });
     if (missing) return { skip: `no seeded id «${missing}»` };
     const [page, ai = null] = filled.split("@ai=");

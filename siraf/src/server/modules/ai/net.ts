@@ -11,7 +11,7 @@
 import { lookup as dnsLookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import { safeExternalUrl } from "../fx/net";
-import { ProviderError } from "./types";
+import { BlockedAddressError, ProviderError } from "./types";
 
 /** Name resolution used by the guard (tests replace it to stay off the network). */
 export const aiNet = {
@@ -37,23 +37,24 @@ export function guardedFetch(inner: typeof fetch): typeof fetch {
     try {
       url = urlOf(input);
     } catch {
-      throw new ProviderError("network", "نشانی سرویس معتبر نیست");
+      throw new BlockedAddressError("نشانی سرویس معتبر نیست");
     }
-    if (safeExternalUrl(url.href)) throw new ProviderError("network", "نشانی داخلی در نسخهٔ وب مجاز نیست");
+    if (safeExternalUrl(url.href)) throw new BlockedAddressError("نشانی داخلی در نسخهٔ وب مجاز نیست");
     const host = url.hostname.replace(/^\[|\]$/g, "");
     if (!isIP(host)) {
       let addresses: string[];
       try {
         addresses = await aiNet.lookup(host);
       } catch {
+        // a failed lookup may be passing (EAI_AGAIN): an ordinary network error, retried once
         throw new ProviderError("network", `نشانی سرویس پیدا نشد (${host})`);
       }
-      if (!addresses.length || addresses.some(internalAddress)) throw new ProviderError("network", "نشانی سرویس به یک نشانی داخلی می‌رسد و در نسخهٔ وب مجاز نیست");
+      if (!addresses.length || addresses.some(internalAddress)) throw new BlockedAddressError("نشانی سرویس به یک نشانی داخلی می‌رسد و در نسخهٔ وب مجاز نیست");
     }
     const res = await inner(input, { ...(init ?? {}), redirect: "manual" });
     if (res.status >= 300 && res.status < 400 && res.status !== 304) {
       await res.body?.cancel().catch(() => undefined);
-      throw new ProviderError("network", `سرویس به نشانی دیگری ارجاع داد (HTTP ${res.status})؛ نشانی دقیق سرویس را وارد کنید`, res.status);
+      throw new BlockedAddressError(`سرویس به نشانی دیگری ارجاع داد (HTTP ${res.status})؛ نشانی دقیق سرویس را وارد کنید`, res.status);
     }
     return res;
   }) as typeof fetch;

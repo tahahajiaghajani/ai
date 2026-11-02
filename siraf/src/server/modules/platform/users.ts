@@ -1,10 +1,13 @@
 // Account actions of «مدیریت سامانه»: disable/enable, sign out everywhere, a temporary password with
 // a reason, and granting or revoking the platform admin role. Each one is written to the platform
 // audit log (actor_kind 'platform') and as a security event. Guards: never on yourself, never the
-// last active platform admin, never against an address listed in PLATFORM_ADMIN_EMAILS (the
-// platform's owner: an admin he granted cannot lock him out or take his role), and never a
-// temporary password for a platform admin (it would let one admin sign in as another; their
-// password is changed by themselves or with their recovery code).
+// last active platform admin, never against an administrator whose address is listed in
+// PLATFORM_ADMIN_EMAILS (the platform's owner: an admin he granted cannot lock him out or take his
+// role — an account on a listed address that is not an administrator proves nothing and can be
+// disabled), and never a temporary password for a platform admin, a listed address, or an account
+// whose admin role was taken away in the last RECENT_ADMIN_DAYS days (it would let one admin sign
+// in as another, directly or by first revoking the role; their password is changed by themselves
+// or with their recovery code).
 import type { AuthUser, ServerConfig } from "../../context";
 import { bad, notFound } from "../../http/errors";
 import { hashPassword, readableCode } from "../../auth/password";
@@ -34,12 +37,22 @@ const ENV_ADMIN_MESSAGE = "این ایمیل در PLATFORM_ADMIN_EMAILS است (
 const activeAdmins = async (cfg: ServerConfig) =>
   (await cfg.db.one<{ n: number }>(`select count(*)::int as n from tz_users where is_platform_admin and not disabled`))?.n ?? 0;
 
+/** A former admin's account gets no temporary password for this long after the role was taken away. */
+export const RECENT_ADMIN_DAYS = 7;
+
+/** True when the account's platform admin role was revoked within RECENT_ADMIN_DAYS (platform audit log). */
+export const recentlyAdmin = async (cfg: ServerConfig, id: string) =>
+  !!(await cfg.db.one(
+    `select 1 from tz_audit where action = 'admin_revoke' and actor_kind = 'platform' and entity = 'user' and entity_id = $1 and at > now() - make_interval(days => $2) limit 1`,
+    [id, RECENT_ADMIN_DAYS],
+  ));
+
 /** Disables or enables an account; disabling also ends all of its sessions. */
 export async function setUserDisabled(cfg: ServerConfig, admin: AuthUser, id: string, disabled: boolean, reason: string | null, meta: Meta = {}) {
   const u = await target(cfg, id);
   if (u.id === admin.id) throw bad("حساب خودتان را نمی‌توانید غیرفعال کنید");
   if (u.disabled === disabled) return { ok: true };
-  if (disabled && envAdmin(cfg, u)) throw bad(ENV_ADMIN_MESSAGE);
+  if (disabled && u.is_platform_admin && envAdmin(cfg, u)) throw bad(ENV_ADMIN_MESSAGE);
   if (disabled && u.is_platform_admin && (await activeAdmins(cfg)) <= 1) throw bad("سامانه باید دست‌کم یک مدیر فعال داشته باشد");
   await cfg.db.tx(async (tx) => {
     // tz_user_touch gives the row a new revision so linked Windows apps receive the change
@@ -74,6 +87,8 @@ export async function temporaryPassword(cfg: ServerConfig, admin: AuthUser, id: 
   const u = await target(cfg, id);
   if (u.id === admin.id) throw bad("رمز خودتان را از «حساب من» عوض کنید");
   if (u.is_platform_admin || envAdmin(cfg, u)) throw bad("رمز مدیر سامانه را فقط خودش از «حساب من» یا با کد بازیابی عوض می‌کند");
+  if (await recentlyAdmin(cfg, u.id))
+    throw bad(`این حساب تا ${RECENT_ADMIN_DAYS} روز پیش مدیر سامانه بوده است؛ رمزش را خودش از «حساب من» یا با کد بازیابی عوض می‌کند`);
   const why = reason.trim();
   if (why.length < 5) throw bad("دلیل را بنویسید (دست‌کم ۵ نویسه)");
   const pw = readableCode(3, 4);

@@ -79,14 +79,27 @@ describe("forecast math", () => {
     expect(f.points[0].p90 - f.points[0].p10).toBeGreaterThan(10);
   });
 
-  it("reports the coverage of the band it shows, after widening", () => {
+  it("reports the coverage of the widened band out of sample: near 80% when calibrated, low when it is not", () => {
+    const covs: number[] = [];
     for (const seed of [1, 2, 3, 5, 8]) {
       const r = rng(seed);
       // mostly quiet with large jumps: the model's own band is far too narrow and gets widened
       const y = Array.from({ length: 40 }, (_, i) => 100 + (r() < 0.3 ? (r() - 0.5) * 200 : (r() - 0.5) * 4) + i);
       const f = forecastSeries(y, 3);
       expect(f.ok).toBe(true);
-      expect(f.backtest!.coverage80!).toBeGreaterThanOrEqual(0.8);
+      expect(f.backtest!.coverage80).not.toBeNull();
+      covs.push(f.backtest!.coverage80!);
+    }
+    // the widening learned from earlier errors holds on later ones (not ≥ 80% by construction)
+    expect(covs.reduce((a, x) => a + x, 0) / covs.length).toBeGreaterThan(0.55);
+    expect(covs.some((x) => x < 1)).toBe(true);
+    // errors that keep growing: the widening learned from the past is too narrow for what follows
+    for (const [seed, big] of [[6, 20], [9, 10]]) {
+      const r = rng(seed);
+      const growing = Array.from({ length: 40 }, (_, i) => 100 + normal(r) * (i < 33 ? 1 : big));
+      const g = forecastSeries(growing, 3);
+      expect(g.ok).toBe(true);
+      expect(g.backtest!.coverage80!).toBeLessThan(0.6);
     }
   });
 
@@ -202,6 +215,16 @@ describe("13-week cash flow and forecasts on seeded books", () => {
     // 4,000,000 (the other customer's cheque) + 1,000,000 cheque + 2,000,000 still owed: never 1,000,000 twice
     expect(inflow.toFixed()).toBe("7000000");
     expect(weeks[4].invoices_in).toBe("2000000");
+  });
+
+  it("counts the debt again when that cheque bounces (the bounced-cheques account is still owed)", async () => {
+    const ch = (await db.one<{ id: string }>(`select id from tz_cheques where org_id = $1 and serial_no = '12'`, [org]))!;
+    await c.post(`/o/${org}/treasury/cheques/${ch.id}/action`, { action: "bounce", date: "2026-11-02" });
+    const f = await cashflow13(ctx, TODAY, await moneyInfo(ctx));
+    const weeks = (f.details as { weeks: CashWeek[] }).weeks;
+    // the bounced cheque is no inflow any more; the customer still owes the whole 3,000,000
+    expect(weeks.reduce((a, w) => a.plus(D(w.cheques_in)), D(0)).toFixed()).toBe("4000000");
+    expect(weeks[4].invoices_in).toBe("3000000");
   });
 
   it("refuses a sales forecast with too little history and checks permissions", async () => {

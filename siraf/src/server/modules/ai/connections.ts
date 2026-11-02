@@ -86,6 +86,8 @@ export const connectionInputSchema = z.object({
   models: z.object({ smart: modelList, fast: modelList, vision: modelList }).partial().optional(),
   enabled: z.boolean().optional(),
   priority: z.number().int().min(0).max(1000).optional(),
+  /** PATCH only: drop the stored key on purpose (a key-required service refuses it) */
+  remove_key: z.boolean().optional(),
 });
 
 export const connectionTestSchema = connectionInputSchema.extend({ connection_id: z.string().uuid().nullish() });
@@ -260,12 +262,15 @@ export async function updateConnection(ctx: Ctx, id: string, patch: Partial<AiCo
   const protocol = patch.protocol && (preset.protocols ?? [preset.protocol]).includes(patch.protocol) ? patch.protocol : patch.preset ? preset.protocol : row.protocol;
   const baseUrl = patch.base_url !== undefined || patch.preset ? checkBaseUrl(ctx.cfg, preset, patch.base_url ?? preset.base_url) : row.base_url;
   // write-only key: blank keeps the stored one — but only while it goes to the same place: a new
-  // service or base URL needs the key typed again, so a stored key is never sent to another host
+  // service or base URL needs the key typed again, so a stored key is never sent to another host.
+  // A stored key is never dropped silently either (a gateway without a required key may still need
+  // it): the move is refused unless the key is typed again or remove_key says to save without it.
   const raw = cleanKey(patch.key);
   const sealed = raw ? sealKey(ctx, id, raw) : null;
   const moved = destination(preset.id, baseUrl) !== destination(row.preset, row.base_url);
-  const dropKey = moved && !sealed && !!row.secret_enc;
-  if (dropKey && preset.key_required) throw bad("سرویس یا نشانی اتصال عوض شده است؛ کلید API را دوباره وارد کنید");
+  const dropKey = !sealed && !!row.secret_enc && (moved || !!patch.remove_key);
+  if (dropKey && preset.key_required) throw bad(moved ? "سرویس یا نشانی اتصال عوض شده است؛ کلید API را دوباره وارد کنید" : "این سرویس بدون کلید API کار نمی‌کند");
+  if (dropKey && !patch.remove_key) throw bad("سرویس یا نشانی اتصال عوض شده است؛ کلید API را دوباره وارد کنید یا ذخیره بدون کلید را انتخاب کنید");
   const cur = modelsOf(row);
   const models = { smart: patch.models?.smart ?? cur.smart, fast: patch.models?.fast ?? cur.fast, vision: patch.models?.vision ?? cur.vision };
   const label = patch.label?.trim() || row.label;
@@ -284,7 +289,7 @@ export async function updateConnection(ctx: Ctx, id: string, patch: Partial<AiCo
     await audit(tx, ctx, sealed ? "ai_connection_key" : "ai_connection_update", "ai_connection", id, sealed ? `کلید اتصال «${label}» عوض شد` : `اتصال هوش مصنوعی «${label}» ویرایش شد`, sealed ? { key: sealed.hint } : undefined);
   });
   if (sealed) await keyEvent(ctx, { id, label, preset: preset.id }, row.secret_enc ? "replaced" : "added", sealed.hint);
-  else if (dropKey) await keyEvent(ctx, { id, label, preset: preset.id }, "removed", row.key_hint, "destination_changed");
+  else if (dropKey) await keyEvent(ctx, { id, label, preset: preset.id }, "removed", row.key_hint, moved ? "destination_changed" : "removed_by_user");
   return { connection: await publicConnection(ctx, id), warning: await duplicateWarning(ctx.db, ctx.org.id, id, sealed?.fp ?? null) };
 }
 

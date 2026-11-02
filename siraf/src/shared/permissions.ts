@@ -95,3 +95,56 @@ export function permissionMap(role: Role, overrides?: Partial<Record<Area, Level
 export function areasAbove(a: Record<Area, Level>, b: Record<Area, Level>): Area[] {
   return (Object.keys(AREAS) as Area[]).filter((k) => LEVEL_ORDER.indexOf(a[k] ?? "none") > LEVEL_ORDER.indexOf(b[k] ?? "none"));
 }
+
+/** A membership's role and per-area access, for the rule below. */
+export interface MemberGrant {
+  user_id: string;
+  role: Role;
+  overrides: Partial<Record<Area, Level>> | null;
+}
+
+/** Who is changing memberships: their account, role and effective levels; `support` for a support session. */
+export interface MemberActor {
+  user_id: string;
+  role: Role;
+  permissions: Record<Area, Level>;
+  support?: boolean;
+}
+
+export const OWNER_ONLY_MESSAGE = "فقط مالک می‌تواند نقش مالک را تغییر دهد";
+
+const sameOverrides = (a: MemberGrant["overrides"], b: MemberGrant["overrides"]) => {
+  const norm = (o: MemberGrant["overrides"]) =>
+    JSON.stringify(Object.entries(o ?? {}).filter(([, v]) => !!v).sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0)));
+  return norm(a) === norm(b);
+};
+
+/** True when two grants give the same role and per-area access. */
+export const sameGrant = (a: MemberGrant, b: MemberGrant) => a.role === b.role && sameOverrides(a.overrides, b.overrides);
+
+/**
+ * Who may change a membership — one rule for the members API, member rows pushed by a Windows app
+ * and the members page (which offers only what this allows):
+ * - only an owner gives, changes or takes the owner role;
+ * - below the owner, nobody changes their own role or per-area access, nobody touches a member who
+ *   has more access than they do, and nobody gives more access than they have.
+ * Returns why `actor` may not turn `before` (null: a new membership) into `after` (null: deactivated
+ * or removed), or null when the change is allowed. The caller has already checked users:edit.
+ */
+export function memberChangeRule(actor: MemberActor, before: MemberGrant | null, after: MemberGrant | null): string | null {
+  if ((before?.role === "owner" || after?.role === "owner") && (actor.role !== "owner" || actor.support)) return OWNER_ONLY_MESSAGE;
+  if (actor.support) return "اعضای کسب‌وکار را خود کسب‌وکار تغییر می‌دهد";
+  if (before && after && after.user_id && before.user_id !== after.user_id) return "عضویت به حساب دیگری منتقل نمی‌شود";
+  if (actor.role === "owner") return null;
+  if (before && before.user_id === actor.user_id && (!after || !sameGrant(before, after)))
+    return "نقش و دسترسی‌های خودتان را نمی‌توانید تغییر دهید؛ این کار با مالک است";
+  if (before) {
+    const above = areasAbove(permissionMap(before.role, before.overrides), actor.permissions);
+    if (above.length) return `دسترسی این عضو در «${AREAS[above[0]]}» از شما بیشتر است؛ تغییر آن با مالک است`;
+  }
+  if (after) {
+    const above = areasAbove(permissionMap(after.role, after.overrides), actor.permissions);
+    if (above.length) return `نمی‌توانید در «${AREAS[above[0]]}» دسترسی‌ای بیشتر از دسترسی خودتان بدهید`;
+  }
+  return null;
+}

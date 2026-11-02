@@ -16,7 +16,7 @@ import { barLineDefaults, coinLineDefaults, premiumToWage } from "@shared/gold-q
 import { fiscalYearFor } from "../accounting/fiscal";
 import { audit } from "../data/crud";
 import {
-  KINDS, DOC_KINDS, LINE_KIND_TITLES, bothPrices, docTotals, lineSide, pieceDefaults, priceLine,
+  KINDS, DOC_KINDS, LINE_KIND_TITLES, barUnitCost, bothPrices, docTotals, lineSide, pieceDefaults, priceLine,
   type DocKind, type Direction, type LineIn, type LineKind, type DocTotals,
 } from "./pricing";
 import { goldSettings, priceEnv } from "./settings";
@@ -240,7 +240,12 @@ export async function prepare(q: Queryable, ctx: Ctx, input: DocInput, docId: st
     if (has(l.gram_price) && D(l.gram_price).gt(0) && l.kind !== "coin") return false;
     if (l.kind === "coin") return (kind === "sale" || kind === "buyback" || kind === "purchase") && prods.get(l.item_id ?? "")?.gold_meta.pricing_mode === "weight";
     if (l.kind === "bar" && kind === "bullion_sale") return !mazaneh;
-    if (l.kind === "bar") return (kind === "sale" || kind === "buyback" || kind === "purchase" || (kind === "opening" && !has(l.cost))) && !(has(l.unit_price) && D(l.unit_price).gt(0));
+    if (l.kind === "bar") {
+      if (!(has(l.unit_price) && D(l.unit_price).gt(0))) return kind === "sale" || kind === "buyback" || kind === "purchase" || (kind === "opening" && !has(l.cost));
+      // a fixed price sold under VAT on the premium: the gram price splits it into metal and premium
+      const model = prods.get(l.item_id ?? bars.get(l.gold_bar_id ?? "")?.item_id ?? "");
+      return kind === "sale" && (l.direction ?? defaultDirection(kind, l.kind)) === "out" && model?.gold_meta.vat_mode === "wage_profit";
+    }
     switch (kind) {
       case "sale":
       case "purchase":
@@ -442,21 +447,25 @@ export async function prepare(q: Queryable, ctx: Ctx, input: DocInput, docId: st
       // bought from a customer (buy-back, trade-in): the board's buy price of an 18k gram, as for coins
       const buyIn = (kind === "sale" || kind === "buyback") && side === "buy";
       const barGram = gramPrice ?? (buyIn && !unit ? d.gram_price : null);
-      // margin VAT: on the price over the bar's own cost
-      const unitCost = sellSide && d.vat_mode === "margin" ? (bar?.cost && D(bar.cost).gt(0) ? D(bar.cost).toString() : "0") : null;
       Object.assign(draft, {
         gold_bar_id: bar?.id ?? null, item_id: model?.id ?? null, tag_no: bar?.bar_no ?? attrs.bar_no ?? null,
         title: draft.title ?? model?.name ?? "شمش", wage_type: wageType, wage_value: wageValue,
         extra: {
-          ...(direction === "in" ? { bar: attrs } : {}), ...(unit ? { unit_price: unit } : {}), ...(unitCost ? { unit_cost: unitCost } : {}), basis: d.basis, vat_mode: d.vat_mode,
+          ...(direction === "in" ? { bar: attrs } : {}), ...(unit ? { unit_price: unit } : {}), basis: d.basis, vat_mode: d.vat_mode,
           ...(feePct !== null ? { fee_pct: feePct, assay_fee: assayFee, sealed: sealed ? "1" : "0" } : {}),
         },
       });
       pin = {
         kind: "bar", direction, weight, fineness, gram_price: barGram, unit_price: unit, basis: d.basis, wage_type: wageType, wage_value: wageValue,
-        profit_pct: sellSide ? decimal(l.profit_pct, "سود", n, { max: 100 }) : null, vat_mode: d.vat_mode, unit_cost: unitCost, discount, cost: decimal(l.cost, "بهای تمام‌شده", n),
+        profit_pct: sellSide ? decimal(l.profit_pct, "سود", n, { max: 100 }) : null, vat_mode: d.vat_mode, unit_cost: null, discount, cost: decimal(l.cost, "بهای تمام‌شده", n),
         sealed, fee_pct: feePct, assay_fee: assayFee, opened_fineness: d.opened_fineness,
       };
+      // margin VAT: on the price over the bar's cost (a consigned bar: what its owner is owed)
+      if (sellSide && d.vat_mode === "margin") {
+        const unitCost = barUnitCost(bar, pin, env);
+        pin.unit_cost = unitCost;
+        draft.extra = { ...draft.extra, unit_cost: unitCost };
+      }
     }
 
     if (kind === "workshop_in" && l.kind === "piece" && (draft.wage_type ?? "percent") === "percent" && D(draft.wage_value ?? 0).gt(0) && !gram18 && !gramPrice) {

@@ -5,7 +5,7 @@
 // back; tools always run on the Windows app against its own database.
 import { z } from "zod";
 import type { Ctx, ServerConfig } from "../../context";
-import type { AiErrorKind, AiSettings } from "@shared/ai/types";
+import type { AiDataPolicy, AiErrorKind, AiSettings } from "@shared/ai/types";
 import type { AiRelayEvent } from "@shared/ai/api";
 import { aiErrorText } from "@shared/ai/errors";
 import { bad } from "../../http/errors";
@@ -14,6 +14,7 @@ import { FEATURE_SWITCH } from "./settings";
 import { readSse } from "./adapters/http";
 import type { ChainResult, RunOptions } from "./chain";
 import { recordUsage } from "./usage";
+import { redactContextBlock, redactDataBlocks, redactPrompt, redactToolContent } from "./redact";
 import type { TurnRequest } from "./types";
 
 export interface CloudLink {
@@ -139,6 +140,37 @@ export function assertRelayAllowed(ctx: Ctx, settings: AiSettings, body: RelayRe
   const sw = FEATURE_SWITCH[body.feature];
   if (sw && !settings.features[sw]) throw off();
   if (body.request.messages.some((m) => m.parts.some((p) => p.type === "file")) && !settings.features.capture) throw off();
+}
+
+/**
+ * Web side: the web version's data policy binds relayed turns too. The Windows app keeps its own
+ * AI settings (not synced; its policy may be laxer), so the relayed text is redacted again here
+ * under the web version's policy: data blocks and the context block of the questions, tool
+ * results, and identifiers in any text. Redacting what is already redacted changes nothing.
+ * A message whose text changed loses its native replay (it would carry the original text).
+ */
+export function redactRelay(body: RelayRequest, policy: AiDataPolicy): RelayRequest {
+  if (policy === "full") return body;
+  const messages = body.request.messages.map((m) => {
+    let changed = false;
+    const parts = m.parts.map((p) => {
+      if (p.type === "text") {
+        const text = redactPrompt(m.role === "user" ? redactContextBlock(redactDataBlocks(p.text, policy), policy) : p.text, policy);
+        if (text === p.text) return p;
+        changed = true;
+        return { ...p, text };
+      }
+      if (p.type === "tool_result") {
+        const content = redactToolContent(p.content, policy);
+        if (content === p.content) return p;
+        changed = true;
+        return { ...p, content };
+      }
+      return p;
+    });
+    return changed ? { ...m, parts, native: null } : m;
+  });
+  return { ...body, request: { ...body.request, messages } };
 }
 
 /** Web side: the request as a TurnRequest without a model (the web version's chain picks it). */

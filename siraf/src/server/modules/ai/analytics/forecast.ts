@@ -414,6 +414,8 @@ function naiveScale(y: number[], m: number): number {
 interface BacktestRun extends Backtest {
   /** errors divided by the band half-width (for widening) */
   ratios: number[];
+  /** the backtest origin of each ratio (chronological) */
+  origin: number[];
 }
 
 /** Rolling origin: fit on y[0..t), forecast up to `h` steps, compare with what happened. */
@@ -421,6 +423,7 @@ function backtest(y: number[], key: string, m: number, h: number, origins: numbe
   const fitter = FITTERS[key];
   const errs: number[] = [];
   const ratios: number[] = [];
+  const origin: number[] = [];
   let inside = 0;
   const start = Math.max(4, y.length - origins);
   for (let t = start; t < y.length; t++) {
@@ -435,6 +438,7 @@ function backtest(y: number[], key: string, m: number, h: number, origins: numbe
       if (actual >= b.p10 && actual <= b.p90) inside++;
       const half = actual >= b.p50 ? b.p90 - b.p50 : b.p50 - b.p10;
       ratios.push(half > 0 ? Math.abs(actual - b.p50) / half : actual === b.p50 ? 0 : Infinity);
+      origin.push(t);
     }
   }
   const scale = naiveScale(y, m);
@@ -445,7 +449,37 @@ function backtest(y: number[], key: string, m: number, h: number, origins: numbe
     coverage80: errs.length ? inside / errs.length : null,
     n: errs.length,
     ratios,
+    origin,
   };
+}
+
+const WIDEN_MIN = 6;
+
+/** The factor that widens the model's own band: the 80th percentile of the error ratios (≥ 1). */
+function widenOf(ratios: number[]): number {
+  const finite = ratios.filter((r) => Number.isFinite(r));
+  const k = finite.length >= WIDEN_MIN ? quantile(finite, 0.8) : 1;
+  return Math.max(1, Number.isFinite(k) ? k : 1);
+}
+
+/**
+ * Coverage of the widened band, out of sample: each error is judged against the widening learned
+ * from earlier origins only (an expanding window), so a band that keeps being too narrow shows a
+ * low coverage. Without enough earlier errors to learn from, the band was not widened from data
+ * and its plain backtest coverage is honest; with too few judged errors it is unknown (null).
+ */
+function outOfSampleCoverage(run: BacktestRun): number | null {
+  const finite = run.ratios.filter((r) => Number.isFinite(r)).length;
+  if (finite < WIDEN_MIN) return run.coverage80;
+  let judged = 0;
+  let hits = 0;
+  for (let i = 0; i < run.ratios.length; i++) {
+    const earlier = run.ratios.filter((_, j) => run.origin[j] < run.origin[i]);
+    if (earlier.filter((r) => Number.isFinite(r)).length < WIDEN_MIN) continue;
+    judged++;
+    if (run.ratios[i] <= widenOf(earlier) + 1e-12) hits++;
+  }
+  return judged >= 4 ? hits / judged : null;
 }
 
 function candidates(c: Classification, n: number, m: number): string[] {
@@ -485,13 +519,11 @@ export function forecastSeries(y: number[], h: number, opts: { seasonPeriod?: nu
   if (!best) return refuse("دادهٔ کافی برای آزمودن روش‌ها نیست");
   const model = FITTERS[best.key](series, m);
   if (!model) return refuse("دادهٔ کافی برای این روش نیست");
-  // widen the band when the backtest says it was too narrow (empirical 80% of error ratios)
-  const finite = best.run.ratios.filter((r) => Number.isFinite(r));
-  const k = finite.length >= 6 ? quantile(finite, 0.8) : 1;
-  const widen = Math.max(1, Number.isFinite(k) ? k : 1);
-  // the coverage reported is that of the band shown (widened), measured on the same backtest
-  const covered = best.run.ratios.filter((r) => r <= widen + 1e-12).length;
-  const coverage80 = best.run.ratios.length ? covered / best.run.ratios.length : best.run.coverage80;
+  // widen the band when the backtest says it was too narrow (empirical 80% of error ratios); the
+  // coverage reported is that of the widened band, measured out of sample (never on the errors
+  // that set the widening, which would read ≥ 80% whatever the forecast's quality)
+  const widen = widenOf(best.run.ratios);
+  const coverage80 = outOfSampleCoverage(best.run);
   return {
     ok: true,
     refused_reason_fa: null,

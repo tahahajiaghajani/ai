@@ -81,12 +81,21 @@ export function redactDataBlocks(text: string, policy: AiDataPolicy): string {
   });
 }
 
-/** "aggregates": known names (e.g. the labels of party references) replaced inside a free text. */
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * "aggregates": known names (e.g. the labels of party references) replaced inside a free text —
+ * whole words only, so «علی» never touches «فعلی» (a zero-width non-joiner counts as part of the word).
+ */
 export function hideNames(text: string, names: (string | null | undefined)[]): string {
   let out = String(text ?? "");
-  for (const n of [...new Set(names.map((x) => String(x ?? "").trim()).filter((x) => x.length >= 2))].sort((a, b) => b.length - a.length)) out = out.split(n).join("[نام پنهان]");
+  for (const n of [...new Set(names.map((x) => String(x ?? "").trim()).filter((x) => x.length >= 2))].sort((a, b) => b.length - a.length)) {
+    out = out.replace(new RegExp(`(?<![\\p{L}\\p{M}\\p{N}\u200c])${escapeRe(n)}(?![\\p{L}\\p{M}\\p{N}\u200c])`, "gu"), "[نام پنهان]");
+  }
   return out;
 }
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** The page the person is on, as sent to the model: identifiers masked; under "aggregates" no record label or page title of a record. */
 export function redactPage<T extends { title?: string; record?: { type: string; id: string; label?: string } | null; report?: { key: string; params?: Record<string, unknown> } | null }>(
@@ -97,6 +106,46 @@ export function redactPage<T extends { title?: string; record?: { type: string; 
   const out = { ...page };
   if (out.record) out.record = { ...out.record, label: policy === "aggregates" ? undefined : out.record.label ? maskText(out.record.label) : undefined };
   if (out.title) out.title = policy === "aggregates" && page.record ? undefined : maskText(out.title);
-  if (out.report) out.report = { ...out.report, params: (redactValue(out.report.params ?? {}, policy) as Record<string, unknown>) };
+  // report filters are mostly record ids (party=<uuid>): an id is no personal data and the tools
+  // take it, so it stays; any other value goes through the policy as tool output does
+  if (out.report) {
+    const params: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(out.report.params ?? {})) params[k] = typeof v === "string" && UUID_RE.test(v) ? v : (redactValue({ [k]: v }, policy) as Record<string, unknown>)[k];
+    out.report = { ...out.report, params };
+  }
   return out;
+}
+
+/**
+ * The `<context>` block at the start of an assistant question (prompts.ts contextBlock) under a
+ * policy: the member's name only under "masked"/"full", the page as redactPage leaves it. Used
+ * where the block was written under another policy (a Windows app relaying through the web version).
+ */
+const CONTEXT_RE = /<context>\n([^\n]*)\n<\/context>/g;
+export function redactContextBlock(text: string, policy: AiDataPolicy): string {
+  if (policy === "full") return text;
+  return String(text ?? "").replace(CONTEXT_RE, (whole, json: string) => {
+    try {
+      const o = JSON.parse(json) as Record<string, unknown>;
+      const member = o.member as { name?: unknown; role?: unknown } | undefined;
+      if (member && typeof member === "object") o.member = policy === "aggregates" ? { role: member.role } : { ...member, ...(typeof member.name === "string" ? { name: maskText(member.name) } : {}) };
+      if (o.current_page && typeof o.current_page === "object") {
+        const page = redactPage(o.current_page as Parameters<typeof redactPage>[0], policy) as Record<string, unknown>;
+        o.current_page = Object.fromEntries(Object.entries(page).filter(([, v]) => v !== undefined));
+      }
+      return `<context>\n${JSON.stringify(o)}\n</context>`;
+    } catch {
+      return `<context>\n${maskText(json)}\n</context>`;
+    }
+  });
+}
+
+/** A tool result as sent to the model (JSON text) under a policy; text that is not JSON is masked. */
+export function redactToolContent(content: string, policy: AiDataPolicy): string {
+  if (policy === "full") return content;
+  try {
+    return JSON.stringify(redactValue(JSON.parse(content), policy));
+  } catch {
+    return maskText(content);
+  }
 }

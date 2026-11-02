@@ -16,7 +16,7 @@ import { cloudLink, relayTurn } from "./relay";
 import { disabledByPlatform, loadPolicy, loadSettings } from "./settings";
 import { budgetState, recordUsage } from "./usage";
 import { orgAiDisabled } from "../platform/org-admin";
-import { ProviderError, type TurnHooks, type TurnRequest, type TurnResult } from "./types";
+import { BlockedAddressError, ProviderError, type TurnHooks, type TurnRequest, type TurnResult } from "./types";
 
 export interface ChainEntry {
   row: ConnRow;
@@ -236,6 +236,11 @@ export async function runTurn(ctx: Ctx, opts: RunOptions): Promise<ChainResult> 
         }
         if (pe.kind === "quota") {
           await hold(ctx, conn.id, entry.model, QUOTA_HOLD_MS, "quota", pe.message);
+          break;
+        }
+        if (pe instanceof BlockedAddressError) {
+          // the address itself is refused: no retry, and the connection shows why
+          await markConnection(ctx, conn.id, { ok: false, kind: pe.kind, detail: pe.message });
           break;
         }
         if ((pe.kind === "overloaded" || pe.kind === "timeout" || pe.kind === "network") && !retried) {

@@ -8,7 +8,7 @@ import { formatNumber } from "@shared/format";
 import { AI_REPORT_ALIASES, type AiExplanation } from "@shared/ai/api";
 import { isUuid } from "@shared/id";
 import { bad } from "../../../http/errors";
-import { compact, runReport, reportParams, REPORT_KEYS, type ReportKey, type ReportParams } from "../tools/reports";
+import { compact, reportForModel, runReport, reportParams, REPORT_KEYS, type ReportKey, type ReportParams } from "../tools/reports";
 import { periodInput, moneyInfo, businessToday, jd, type MoneyInfo, type PeriodArg } from "../tools/common";
 import { SYSTEM_RULES, dataBlock, narrate } from "./narrative";
 import { loadSettings } from "../settings";
@@ -144,9 +144,10 @@ export async function explainReport(ctx: Ctx, input: z.infer<typeof explainInput
   const m = await moneyInfo(ctx);
   const rt = { today, dataPolicy: (await loadSettings(ctx.db, ctx.org.id)).data_policy, putData: async () => "" };
   const req = pageParams(input.report, input.params, input.period ?? null);
-  const { def, out, period, to } = await runReport(ctx, req.key, { period: req.period, params: req.params }, rt);
+  const { def, out, period, to, params } = await runReport(ctx, req.key, { period: req.period, params: req.params }, rt);
   const periodFa = period ? period.label_fa : `تا ${jd(to)}`;
-  const data = { report: def.title_fa, period: periodFa, currency_unit: m.unit, weight_unit: "گرم", result: compact(out, 40) };
+  // the data policy covers what goes to the model; the template shown to the person keeps the names
+  const data = { report: def.title_fa, period: periodFa, currency_unit: m.unit, weight_unit: "گرم", result: compact(reportForModel(out, def, params, rt), 40) };
   const tpl = template(def.title_fa, periodFa, out, m);
   const questions = QUESTIONS[req.key] ?? ["مهم‌ترین تغییر نسبت به دورهٔ قبل چیست؟", "چه کاری برای بهبود این ارقام پیشنهاد می‌کنی؟"];
   const n = await narrate(

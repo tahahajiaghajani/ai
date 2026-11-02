@@ -29,7 +29,7 @@ export interface ProductRow {
   sku: string | null;
   is_active: boolean;
   gold_meta: GoldMeta;
-  /** coins: average cost of one coin in stock now (margin VAT of quotes) */
+  /** average cost of one coin / one own bar of the model in stock now (margin VAT of quotes) */
   avg_cost?: string | null;
 }
 
@@ -46,7 +46,10 @@ export async function products(q: Queryable, orgId: string, kinds: ProductKind[]
   const rows = await q.query<ProductRow>(
     `select ${COLS},
             case when kind = 'coin' then (select case when sum(m.qty) > 0 then round(sum(m.value) / sum(m.qty)) end from tz_stock_moves m
-                                          where m.org_id = tz_items.org_id and m.item_id = tz_items.id) end as avg_cost
+                                          where m.org_id = tz_items.org_id and m.item_id = tz_items.id)
+                 else (select case when count(*) > 0 then round(coalesce(sum(b.cost), 0) / count(*)) end from tz_gold_bars b
+                       where b.org_id = tz_items.org_id and b.item_id = tz_items.id and b.deleted_at is null and b.ownership = 'own'
+                         and b.status in ('in_stock', 'reserved')) end as avg_cost
      from tz_items where org_id = $1 and kind = any($2::text[]) and deleted_at is null ${extra} order by kind desc, length(code), code`,
     params,
   );

@@ -10,6 +10,7 @@ import { parseGoldMeta, normalizeRateKey } from "@shared/gold-meta";
 import { barLineDefaults, boardUnit, coinLineDefaults, productQuote, DEFAULT_BAR_DEFAULTS } from "@shared/gold-quote";
 import { docTotals, priceLine } from "@server/modules/gold/pricing";
 import migration0013 from "@server/db/migrations/0013_gold_bullion";
+import { catalogueLineIn, patchLine } from "@ui/modules/gold/shared";
 
 const G18 = "50000000";
 const NATIONAL_ID = "0010350829";
@@ -465,6 +466,25 @@ describe("coins and bars: catalogue, board, documents and reports", () => {
 });
 
 describe("coins and bars: review fixes (bar edits, buy prices, VAT modes, position, KYC, manual board)", () => {
+  it("drops a saved board price when a bar row's seal changes, keeps a typed one, and prices a consigned bar's margin on the screen", () => {
+    const saved = { key: "a", seal_status: "sealed", unit_price: "660000000", board_unit: true };
+    expect(patchLine(saved, { seal_status: "opened" })).toMatchObject({ seal_status: "opened", unit_price: null, board_unit: false });
+    expect(patchLine(saved, { seal_status: "sealed" }).unit_price).toBe("660000000");
+    const typed = patchLine(saved, { unit_price: "650000000" });
+    expect(patchLine(typed, { seal_status: "opened" }).unit_price).toBe("650000000");
+    // the opened bar is then bought by its metal at the buy gram, with the opened fee
+    const model = { id: "m", kind: "bar", rate_key: "bar_10", gold_weight: "10", fineness: "999.9", gold_meta: { family: "bar", vat_mode: "margin" } } as any;
+    const rate = { gram18: G18, buy_gram18: "49000000", coins: { bar_10: "700000000" }, coins_buy: { bar_10: "660000000" } } as any;
+    const env = { gram18: G18, profitPct: 0, taxPct: 10, deductionPct: 0, roundStep: 1000 };
+    const opened = catalogueLineIn("buyback", { kind: "bar", direction: "in", weight: "10", fineness: "999.9", ...patchLine(saved, { seal_status: "opened" }) }, model, rate, undefined, G18, null);
+    expect([opened.unit_price, opened.gram_price, opened.fee_pct]).toEqual([null, "49000000", "1.5"]);
+    // a consigned bar: the margin is over what its owner is owed (the whole board price) — no VAT
+    const sold = catalogueLineIn("sale", { kind: "bar", direction: "out", weight: "10", fineness: "999.9", ownership: "consignment" }, model, rate, undefined, G18, null, env);
+    expect(priceLine("sale", sold, env).tax).toBe("0");
+    const own = catalogueLineIn("sale", { kind: "bar", direction: "out", weight: "10", fineness: "999.9", unit_cost: "650000000" }, model, rate, undefined, G18, null, env);
+    expect(priceLine("sale", own, env).tax).toBe("5000000");
+  });
+
   it("prices fixed bar prices net, opened bars by metal at the buy gram, and VAT by mode", () => {
     // a board buy price is what we pay: no fee on top of it; an opened bar still pays the assay fee
     expect(buybackBar({ weight: 10, fineness: "999.9", gram18: G18, sealed: true, feeSealedPct: "0.5", unitPrice: "660000000", roundStep: 1000 }).total).toBe("660000000");
@@ -591,8 +611,45 @@ describe("coins and bars: review fixes (bar edits, buy prices, VAT modes, positi
     const look = await c.get(`${base}/gold/bars/lookup/${bar.bar_no}`);
     const tax = D("700000000").minus(D(bar.cost)).times("0.1").div(1000).toDecimalPlaces(0).times(1000).toString();
     expect(look.price.tax).toBe(tax);
+    // the /calc quote of the model (and the AI's) takes the average cost of its bars in stock, not 0
+    const b2 = (await c.get(`${base}/gold/bars/${ids.bar2}`)).bar;
+    const avg = D(bar.cost).plus(D(b2.cost)).div(2).toDecimalPlaces(0);
+    const modelQuote = await c.post(`${base}/gold/calc`, { type: "product", item_id: m.id, side: "sell" });
+    expect(modelQuote.result.total).toBe(D("700000000").plus(D("700000000").minus(avg).times("0.1").div(1000).toDecimalPlaces(0).times(1000)).toString());
     const barSale = await c.post(`${base}/gold/docs`, { kind: "sale", date: "2026-06-07", party_id: ids.customer, lines: [{ kind: "bar", gold_bar_id: ids.bar1 }] });
     expect([barSale.doc.lines[0].tax, barSale.doc.lines[0].total]).toEqual([tax, D("700000000").plus(tax).toString()]);
+  });
+
+  it("taxes a consigned margin-VAT bar on the margin over what its owner is owed", async () => {
+    const m = await product("bar_100");
+    await c.put(`${base}/gold/catalogue/${m.id}`, { kind: "bar", name: m.name, rate_key: m.rate_key, gold_weight: m.gold_weight, fineness: m.fineness, gold_meta: { ...m.gold_meta, vat_mode: "margin" } });
+    const cin = await c.post(`${base}/gold/docs`, {
+      kind: "consign_in", date: "2026-06-07", party_id: ids.wholesaler, settle: { mode: "rial" },
+      lines: [{ kind: "bar", item_id: m.id, weight: "100", fineness: "995", bar: { serial_no: "CN-1", brand: "برند ج" } }],
+    });
+    const barId = cin.doc.lines[0].gold_bar_id;
+    const look = await c.get(`${base}/gold/bars/${barId}`);
+    expect(look.bar.ownership).toBe("consignment");
+    // weight-priced: the owner is owed the metal, so only the premium is the margin
+    const premium = D(look.price.wage);
+    expect(premium.gt(0)).toBe(true);
+    const tax = premium.times("0.1").div(1000).toDecimalPlaces(0).times(1000).toString();
+    expect(look.price.tax).toBe(tax);
+    const sale = await c.post(`${base}/gold/docs`, { kind: "sale", date: "2026-06-07", gram18: G18, party_id: ids.customer, lines: [{ kind: "bar", gold_bar_id: barId }] });
+    const l = sale.doc.lines[0];
+    expect([l.wage, l.tax]).toEqual([premium.toString(), tax]);
+    expect(l.cost).toBe(l.gold_value);
+  });
+
+  it("splits a client-sent bar price into metal and premium at the latest rate when the document has no gram price", async () => {
+    const m = await product("bar_10");
+    await c.put(`${base}/gold/catalogue/${m.id}`, { kind: "bar", name: m.name, rate_key: m.rate_key, gold_weight: m.gold_weight, fineness: m.fineness, gold_meta: { ...m.gold_meta, vat_mode: "wage_profit" } });
+    const b2 = (await c.get(`${base}/gold/bars/${ids.bar2}`)).bar;
+    const expected = priceBar({ weight: b2.weight, fineness: b2.fineness, gram18: G18, unitPrice: "700000000", vatMode: "wage_profit", taxPct: 10, roundStep: 1000 });
+    expect(D(expected.tax).gt(0)).toBe(true);
+    const sale = await c.post(`${base}/gold/docs`, { kind: "sale", date: "2026-06-07", party_id: ids.customer, lines: [{ kind: "bar", gold_bar_id: ids.bar2, unit_price: "700000000" }] });
+    expect(sale.doc.lines[0].tax).toBe(expected.tax);
+    await c.post(`${base}/gold/docs/${sale.doc.id}/cancel`);
   });
 
   it("asks for the seller's id when آب‌شده is bought back or gold is bought from the public", async () => {
@@ -607,6 +664,13 @@ describe("coins and bars: review fixes (bar edits, buy prices, VAT modes, positi
       kind: "purchase", date: "2026-06-08", party_id: ids.anon, extra: { source: "public" }, lines: [{ kind: "coin", item_id: keyOf.medal_m, qty: 1, gram_price: "590000000" }],
     }, 400);
     expect(pub.error.message).toContain("فروشنده");
+  });
+
+  it("reports آب‌شده bought back apart from used gold", async () => {
+    const r = await c.get(`${base}/gold/reports/sales?kinds=buyback&group=category&from=2026-06-08&to=2026-06-08`);
+    const labels = r.rows.map((x: any) => x.label);
+    expect(labels).toContain("آب‌شده");
+    expect(labels).toContain("طلای مستعمل");
   });
 
   it("keeps the board prices a manual entry does not mention, and clears the ones sent empty", async () => {

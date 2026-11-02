@@ -3,7 +3,7 @@
 // local servers, the smart/fast/vision models (first = main, the rest are tried in order), enabled and priority.
 // «آزمایش اتصال» runs on the values in the form before they are saved.
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Button, Drawer, Input, InputNumber, Select, Switch } from "antd";
+import { Button, Checkbox, Drawer, Input, InputNumber, Select, Switch } from "antd";
 import { ChevronDown, ExternalLink, FlaskConical, Globe, Monitor, Plug, Route, ShieldCheck } from "lucide-react";
 import type { AiConnectionPublic, AiProtocol, AiTestReport } from "@shared/ai/types";
 import { useOrg } from "../../lib/org";
@@ -77,6 +77,7 @@ export function ConnectionDrawer({
   const [protocol, setProtocol] = useState<AiProtocol | undefined>(undefined);
   const [label, setLabel] = useState("");
   const [key, setKey] = useState("");
+  const [removeKey, setRemoveKey] = useState(false);
   const [baseUrl, setBaseUrl] = useState("");
   const [models, setModels] = useState<Record<Tier, string[]>>({ smart: [], fast: [], vision: [] });
   const [enabled, setEnabled] = useState(true);
@@ -99,6 +100,7 @@ export function ConnectionDrawer({
     setProtocol(c?.protocol ?? first?.protocol);
     setLabel(c?.label ?? "");
     setKey("");
+    setRemoveKey(false);
     setBaseUrl(c?.base_url ?? (editableBase(first) ? first?.base_url ?? "" : ""));
     setModels(c ? { smart: [...c.models.smart], fast: [...c.models.fast], vision: [...c.models.vision] } : presetModels(first));
     setEnabled(c?.enabled ?? true);
@@ -121,6 +123,12 @@ export function ConnectionDrawer({
   };
 
   const keyRequired = preset?.key_required !== false && regionOf(preset) !== "local";
+  // the stored key goes only where it was saved for (the server checks the same): a new service or
+  // base URL needs the key again, or an explicit «ذخیره بدون کلید» for a service that works without one
+  const destinationOf = (pid: string, url: string | null | undefined) => `${pid} ${String(url || presets.find((p) => p.id === pid)?.base_url || "").trim().replace(/\/+$/, "")}`;
+  const moved = editing && destinationOf(presetId, baseUrl.trim()) !== destinationOf(connection!.preset, connection!.base_url);
+  const keyAgain = editing && !!connection!.has_key && moved && !cleanKey(key);
+  const canDropKey = keyAgain && preset?.key_required === false;
   const baseRequired = !!preset?.base_url_required || !preset?.base_url;
   const input = (): Draft => ({
     label: label.trim() || preset?.label || "",
@@ -136,6 +144,7 @@ export function ConnectionDrawer({
   const problem = (): string | null => {
     if (!presetId) return "سرویس‌دهنده را انتخاب کنید.";
     if (!editing && keyRequired && !cleanKey(key)) return "کلید API را وارد کنید.";
+    if (keyAgain && !(canDropKey && removeKey)) return canDropKey ? "نشانی عوض شده است؛ کلید API را دوباره وارد کنید یا «ذخیره بدون کلید» را بزنید." : "نشانی عوض شده است؛ کلید API را دوباره وارد کنید.";
     if (baseRequired && !baseUrl.trim()) return "نشانی پایهٔ API را وارد کنید.";
     if (baseUrl.trim() && !/^https?:\/\/\S+$/i.test(baseUrl.trim())) return "نشانی پایه باید با https:// یا http:// شروع شود.";
     if (!input().models.smart.length) return "دست‌کم یک مدل هوشمند انتخاب کنید.";
@@ -148,7 +157,8 @@ export function ConnectionDrawer({
     setTesting(true);
     setReport(null);
     try {
-      const r = await api.post<AiTestReport>("/ai/test", { ...input(), connection_id: connection?.id ?? null });
+      // «ذخیره بدون کلید»: test without the stored key as well
+      const r = await api.post<AiTestReport>("/ai/test", { ...input(), connection_id: keyAgain ? null : connection?.id ?? null });
       const rep = objectOf<AiTestReport>(r, "report");
       setReport(rep);
       if (rep.available_models?.length) setListed(rep.available_models);
@@ -168,11 +178,10 @@ export function ConnectionDrawer({
       let saved: AiConnectionPublic | null = null;
       let warning: string | null = null;
       if (editing) {
-        const { key: k, ...meta } = body;
-        const r = await api.patch<{ connection: AiConnectionPublic; warning?: string | null }>(`/ai/connections/${connection!.id}`, meta);
+        // one request: a new key travels with a new service or base URL (the server refuses the move without it)
+        const r = await api.patch<{ connection: AiConnectionPublic; warning?: string | null }>(`/ai/connections/${connection!.id}`, keyAgain && removeKey ? { ...body, remove_key: true } : body);
         saved = objectOf<AiConnectionPublic>(r, "connection");
         warning = r?.warning ?? null;
-        if (k) saved = objectOf<AiConnectionPublic>(await api.put(`/ai/connections/${connection!.id}/key`, { key: k }), "connection") ?? saved;
       } else {
         const r = await api.post<{ connection: AiConnectionPublic; warning?: string | null }>("/ai/connections", body);
         saved = objectOf<AiConnectionPublic>(r, "connection");
@@ -204,7 +213,9 @@ export function ConnectionDrawer({
 
   const reg = REGION_LINE[regionOf(preset)];
   const keyHintLine = editing
-    ? connection!.key_unreadable
+    ? keyAgain
+      ? <span className="text-danger">نشانی عوض شده؛ کلید را دوباره وارد کنید</span>
+      : connection!.key_unreadable
       ? <span className="text-danger">کلید ذخیره‌شده خوانده نمی‌شود؛ دوباره واردش کنید</span>
       : connection!.has_key
         ? <>ذخیره‌شده <span className="ai-key">{connection!.key_hint ?? ""}</span></>
@@ -316,6 +327,11 @@ export function ConnectionDrawer({
             placeholder={editing && connection!.has_key ? "برای تغییر، کلید تازه را وارد کنید" : preset?.key_hint ?? ""}
             aria-label="کلید API"
           />
+          {canDropKey ? (
+            <Checkbox className="mt-2" checked={removeKey} onChange={(e) => setRemoveKey(e.target.checked)}>
+              ذخیره بدون کلید (کلید ذخیره‌شده حذف می‌شود)
+            </Checkbox>
+          ) : null}
         </Field>
 
         {editableBase(preset) ? (

@@ -309,7 +309,7 @@ async function runAnswer(s: RunState): Promise<void> {
       // ---- tool round
       const id = stepId();
       const ui = emptyUi();
-      const results = await runTools(s, id, r.toolCalls, byName, ui, stepSignal);
+      const results = await runTools(s, id, r.toolCalls, byName, ui, stepSignal, deadline);
       const note = step + 2 >= AGENT_LIMITS.maxSteps ? "Step limit reached: answer now with what the tool results above show; do not call more tools." : undefined;
       await insertStep(ctx, {
         id, threadId: thread.id, replyTo: s.replyTo, text: r.text,
@@ -331,6 +331,34 @@ async function runAnswer(s: RunState): Promise<void> {
   }
 }
 
+class ToolCutOff extends AppError {
+  constructor() {
+    super(504, "tool_timeout", "The tool did not finish within this request's time limit. Call it again, or narrow it (a shorter period, fewer rows).");
+  }
+}
+
+/** The tool's promise, or a ToolCutOff as soon as the step's signal fires. */
+function untilAborted<T>(p: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) {
+    p.catch(() => undefined);
+    return Promise.reject(new ToolCutOff());
+  }
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(new ToolCutOff());
+    signal.addEventListener("abort", onAbort, { once: true });
+    p.then(
+      (v) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(v);
+      },
+      (e) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(e);
+      },
+    );
+  });
+}
+
 async function runTools(
   s: RunState,
   messageId: string,
@@ -338,6 +366,8 @@ async function runTools(
   byName: Map<string, AiToolDef>,
   ui: StepUi,
   signal: AbortSignal,
+  /** web version: the step's time limit (a tool the person stops still finishes, as before) */
+  deadline: AbortSignal | null,
 ): Promise<StepParts["results"]> {
   const { ctx, env, thread, emit } = s;
   const policy = env.settings.data_policy;
@@ -366,7 +396,9 @@ async function runTools(
         const issues = parsed.error.issues.slice(0, 5).map((i) => `${i.path.join(".") || "input"}: ${i.message}`).join("; ");
         throw new AppError(400, "invalid_input", `Invalid input for ${call.name}: ${issues}`);
       }
-      res = await def.run(ctx, parsed.data, rt);
+      // the step's deadline bounds the tools too: a tool still running when it fires is answered
+      // with an error (its query may finish in the background; nothing of it is used)
+      res = deadline ? await untilAborted(def.run(ctx, parsed.data, rt), deadline) : await def.run(ctx, parsed.data, rt);
       ok = true;
       summary = res.summary_fa;
       let data: unknown = redactValue(res.data, policy);
@@ -396,7 +428,7 @@ async function runTools(
       const msg = e instanceof AppError ? e.message : "The tool failed unexpectedly.";
       if (!(e instanceof AppError)) ctx.cfg.log.error("ai tool failed", { tool: call.name, err: String((e as Error)?.message ?? e) });
       content = JSON.stringify({ error: msg });
-      summary = e instanceof AppError && /[؀-ۿ]/.test(msg) ? msg : "ابزار خطا داد";
+      summary = e instanceof ToolCutOff ? "زمان ابزار تمام شد" : e instanceof AppError && /[؀-ۿ]/.test(msg) ? msg : "ابزار خطا داد";
     }
     const ms = Date.now() - t0;
     ui.tools.push({ call_id: call.id, tool: call.name, title_fa: def?.title_fa ?? call.name, ok, ...(summary ? { summary_fa: summary } : {}) });

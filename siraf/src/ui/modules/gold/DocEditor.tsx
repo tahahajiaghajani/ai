@@ -23,7 +23,7 @@ import { uuidv7 } from "@shared/id";
 import { SEAL_TITLES } from "@shared/gold-catalogue";
 import { ApiError } from "../../lib/api";
 import {
-  gw, KINDS, catalogueLineIn, docTotals, envOf, priceLine, settleSplit, StatusOf, useCatalogue, useCoins, useGoldSettings, useLatestRate, wageTypeOptions, formOptions, WBalance,
+  gw, KINDS, catalogueLineIn, patchLine, docTotals, envOf, priceLine, settleSplit, StatusOf, useCatalogue, useCoins, useGoldSettings, useLatestRate, wageTypeOptions, formOptions, WBalance,
   type CatalogueRow, type DocKind, type LineKind, type Direction, type LineIn, type PricedLine,
 } from "./shared";
 
@@ -64,6 +64,8 @@ interface ELine {
   seal_status?: string | null;
   certificate_no?: string | null;
   unit_price?: string | null;
+  /** the unit price came back from the saved document (a board price for the seal it had) */
+  board_unit?: boolean;
 }
 
 interface SectionDef {
@@ -211,6 +213,7 @@ function DocEditor({ kind, id }: { kind: Exclude<DocKind, "sale">; id: string | 
         discount: (l.kind === "coin" || l.kind === "bar") && l.direction === "in" && !D(l.discount ?? 0).isZero() && l.description ? l.discount : null, description: l.description,
         gold_bar_id: l.gold_bar_id, bar_no: l.bar_no ?? l.tag_no, serial_no: l.serial_no ?? l.extra?.bar?.serial_no ?? null, brand: l.brand ?? l.extra?.bar?.brand ?? null,
         seal_status: l.seal_status ?? l.extra?.bar?.seal_status ?? null, certificate_no: l.certificate_no ?? l.extra?.bar?.certificate_no ?? null, unit_price: l.extra?.unit_price ?? null,
+        board_unit: kind === "buyback" && l.kind === "bar" && l.direction === "in" && !!l.extra?.unit_price,
       })),
     );
   }, [existing.data, kind]);
@@ -236,7 +239,7 @@ function DocEditor({ kind, id }: { kind: Exclude<DocKind, "sale">; id: string | 
   const split = settleSplit(due, { cash: { amount: cash.amount }, pos: { amount: pos.amount }, bank: { amount: bank.amount } });
   const readOnly = !can("gold", "edit") || existing.data?.status === "cancelled";
 
-  const set = (key: string, patch: Partial<ELine>) => setLines((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
+  const set = (key: string, patch: Partial<ELine>) => setLines((ls) => ls.map((l) => (l.key === key ? patchLine(l, patch) : l)));
   const remove = (key: string) => setLines((ls) => ls.filter((l) => l.key !== key));
   const add = (sec: SectionDef) =>
     setLines((ls) => [
@@ -451,7 +454,7 @@ function DocEditor({ kind, id }: { kind: Exclude<DocKind, "sale">; id: string | 
         )}
         {kind === "purchase" ? (
           <div className="flex flex-wrap items-center gap-3 md:col-span-4">
-            <Segmented value={source} disabled={readOnly} onChange={(v) => setSource(v as typeof source)} options={[{ value: "wholesaler", label: "همکار / بنکدار" }, { value: "ice", label: "حراج مرکز مبادله" }]} />
+            <Segmented value={source} disabled={readOnly} onChange={(v) => setSource(v as typeof source)} options={[{ value: "wholesaler", label: "همکار / بنکدار" }, { value: "ice", label: "حراج مرکز مبادله" }, { value: "public", label: "مردم / مشتری" }]} />
             {source === "ice" ? <Input className="!w-56" dir="ltr" value={auctionRef} disabled={readOnly} onChange={(e) => setAuctionRef(e.target.value)} placeholder="شماره‌ی حراج / قرارداد" /> : null}
           </div>
         ) : null}

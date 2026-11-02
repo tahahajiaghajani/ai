@@ -10,6 +10,7 @@ import { orgAdminState, type OrgAdminState } from "./org-admin";
 import { listSecurityEvents, type SecurityEventRow } from "./security";
 import { listSupportSessions, type SupportSessionRow } from "./support";
 import { FREE_DB_BYTES, systemHealth } from "./health";
+import { recentlyAdmin } from "./users";
 
 /** Start of the current Jalali month as an instant (Tehran has had no daylight saving since 2022). */
 export function jalaliMonthStart(today = todayISO()): string {
@@ -341,7 +342,9 @@ export async function userDetail(cfg: ServerConfig, userId: string) {
     listSecurityEvents(db, { user_id: userId, limit: 50 }),
     user.is_platform_admin ? listSupportSessions(db, { admin_user_id: userId, limit: 20 }) : Promise.resolve([] as SupportSessionRow[]),
   ]);
-  return { user: { ...user, env_admin: cfg.platformAdmins.includes(String(user.email).toLowerCase()) }, memberships, sessions, devices, events: events as SecurityEventRow[], support };
+  // recently_admin: the admin role was taken away lately, so no temporary password (users.ts)
+  const recently_admin = !user.is_platform_admin && (await recentlyAdmin(cfg, userId));
+  return { user: { ...user, env_admin: cfg.platformAdmins.includes(String(user.email).toLowerCase()), recently_admin }, memberships, sessions, devices, events: events as SecurityEventRow[], support };
 }
 
 // ---------------------------------------------------------------- admin audit log

@@ -6,7 +6,7 @@
 //   GET    /connections                 → { connections: AiConnectionPublic[]; app_secret_missing }   (ai:full)
 //   POST   /connections   AiConnectionInput            → { connection; warning }                    (ai:full)
 //   GET    /connections/:id               → { connection }                                           (ai:full)
-//   PATCH  /connections/:id  Partial<AiConnectionInput> → { connection; warning }                    (ai:full; blank key keeps it)
+//   PATCH  /connections/:id  Partial<AiConnectionInput> → { connection; warning }                    (ai:full; blank key keeps it while the destination is the same)
 //   DELETE /connections/:id                → { ok }                                                   (ai:full)
 //   PUT    /connections/:id/key  { key }   → { connection }                                           (ai:full; write-only)
 //   POST   /connections/:id/test { models? } → AiTestReport                                           (ai:full)
@@ -112,6 +112,9 @@ export interface AiConnectionInput {
   models?: { smart?: string[]; fast?: string[]; vision?: string[] };
   enabled?: boolean;
   priority?: number;
+  /** PATCH only: save without the stored key (refused for a key-required service). A new service
+   *  or base URL with a stored key needs either the key again or this flag. */
+  remove_key?: boolean;
 }
 
 export interface AiConnectionTestInput extends AiConnectionInput {

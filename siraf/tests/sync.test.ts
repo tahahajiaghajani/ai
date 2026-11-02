@@ -300,6 +300,27 @@ describe("synchronisation edge cases", () => {
     expect(after!.role).toBe("admin");
   });
 
+  it("an outdated member row from a non-owner gets the cloud's newer copy back instead of a refusal", async () => {
+    const p = await linkedPair("stale-member-owner@example.com");
+    const { SYNC_PROTOCOL } = await import("@shared/constants");
+    await p.web.post(`/o/${p.org}/members`, { email: "stale-admin@example.com", full_name: "مدیر", role: "admin", password: PASSWORD });
+    await p.web.post(`/o/${p.org}/members`, { email: "stale-member@example.com", full_name: "همکار", role: "accountant", password: PASSWORD });
+    const admin = new Client(p.web["app" as keyof Client] as never, "http://cloud.test");
+    await admin.post("/auth/login", { email: "stale-admin@example.com", password: PASSWORD });
+    const old = (await p.cloudDb.one<Record<string, unknown>>(`select m.* from tz_org_members m join tz_users u on u.id = m.user_id where m.org_id = $1 and u.email = 'stale-member@example.com'`, [p.org]))!;
+    // the admin's Windows app edits the title offline; the owner then makes the member an owner on the web
+    const offlineAt = new Date().toISOString();
+    await new Promise((r) => setTimeout(r, 20));
+    await p.web.patch(`/o/${p.org}/members/${old.id}`, { role: "owner" });
+    const res = await admin.post(`/sync/push`, {
+      org_id: p.org, device_id: uuidv7(), protocol: SYNC_PROTOCOL,
+      aggregates: [{ entity: "member", id: String(old.id), base_rev: Number(old.rev), row: { ...old, title: "عنوان آفلاین", updated_at: offlineAt }, children: {} }],
+    });
+    expect(res.results[0]).toMatchObject({ status: "conflict" });
+    expect(res.results[0].aggregate.row.role).toBe("owner");
+    expect((await p.cloudDb.one<{ role: string }>(`select role from tz_org_members where id = $1`, [old.id]))!.role).toBe("owner");
+  });
+
   it("uploading a business made on the desktop keeps syncing after the cloud account replaces the local user", async () => {
     const p = await pair("upload-owner@example.com");
     // the business was made on the Windows app alone, by a local account with the same e-mail

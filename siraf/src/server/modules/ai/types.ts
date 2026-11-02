@@ -141,3 +141,15 @@ export class ProviderError extends Error {
     this.name = "ProviderError";
   }
 }
+
+/**
+ * The web version's SSRF guard refused the address (internal, unresolvable or a redirect): no
+ * request went out and repeating it cannot help — the chain does not retry it and flags the
+ * connection with the reason.
+ */
+export class BlockedAddressError extends ProviderError {
+  constructor(message: string, status: number | null = null) {
+    super("network", message, status);
+    this.name = "BlockedAddressError";
+  }
+}

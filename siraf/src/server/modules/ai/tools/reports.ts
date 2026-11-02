@@ -303,11 +303,23 @@ export async function runReport(ctx: Ctx, key: ReportKey, input: { period?: z.in
     to = per.to;
   }
   const out = await def.run(ctx, { period: per, to, params, rt });
-  // "aggregates": rows grouped by party carry the party's name as their label (key/code stay)
-  if (rt.dataPolicy === "aggregates" && params.group === "party" && def.main && Array.isArray(out[def.main])) {
-    out[def.main] = (out[def.main] as Record<string, unknown>[]).map((r) => ({ ...r, label: partyName(null, (r.code as string | null) ?? null, rt), name: undefined, party_name: undefined }));
-  }
-  return { def, out, period: per, to };
+  return { def, out, period: per, to, params };
+}
+
+/**
+ * What the model sees of a report output. Under "aggregates", rows grouped by party carry the
+ * party's name as their label: the model gets the party's code, or a ranked placeholder when the
+ * row has none («شخص 1», «شخص 2»…, as analyze_metric does). The person's own table and texts keep
+ * the names — `out` itself is never changed.
+ */
+export function reportForModel(out: Record<string, any>, def: { main?: string }, params: ReportParams | null | undefined, rt: Pick<ToolRuntime, "dataPolicy">): Record<string, any> {
+  if (!(rt.dataPolicy === "aggregates" && params?.group === "party" && def.main && Array.isArray(out[def.main]))) return out;
+  const rows = (out[def.main] as Record<string, unknown>[]).map((r, i) => {
+    const code = (r.code as string | number | null | undefined) ?? null;
+    const label = r.key === "walkin" ? r.label : code ? partyName(null, code, rt) : `شخص ${i + 1}`;
+    return { ...r, label, name: undefined, party_name: undefined };
+  });
+  return { ...out, [def.main]: rows };
 }
 
 export const runReportTool = defineTool({
@@ -326,7 +338,7 @@ export const runReportTool = defineTool({
   level: "view",
   async run(ctx, input, rt) {
     const m: MoneyInfo = await moneyInfo(ctx);
-    const { def, out, period: per, to } = await runReport(ctx, input.report, input, rt);
+    const { def, out, period: per, to, params } = await runReport(ctx, input.report, input, rt);
     const rows = mainRows(out, def.main);
     let data_ref: string | undefined;
     let table: { title?: string; columns: Col[]; total_rows: number } | undefined;
@@ -342,7 +354,7 @@ export const runReportTool = defineTool({
     const refs: AiRef[] = [reportRef(input.report, def.title_fa, def.path)];
     const periodOut = per ? { from: per.from, to: per.to, from_fa: per.from_fa, to_fa: per.to_fa, label_fa: per.label_fa } : { as_of: to, as_of_fa: jd(to) };
     return {
-      data: { report: input.report, title_fa: def.title_fa, period: periodOut, currency_unit: m.unit, weight_unit: "گرم", result: compact(out, input.limit), data_ref: data_ref ?? null },
+      data: { report: input.report, title_fa: def.title_fa, period: periodOut, currency_unit: m.unit, weight_unit: "گرم", result: compact(reportForModel(out, def, params, rt), input.limit), data_ref: data_ref ?? null },
       refs,
       data_ref,
       table,

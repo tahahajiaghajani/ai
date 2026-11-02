@@ -18,7 +18,7 @@ import { KINDS, FORM_TITLES, WAGE_TYPE_TITLES, type DocKind, type PriceEnv } fro
 import { vatPctAt, type PremiumBand, type VatPeriod } from "@shared/gold";
 import { STANDARD_CATALOGUE, type GoldMeta, type ProductKind } from "@shared/gold-catalogue";
 import { DEFAULT_BAR_DEFAULTS, barLineDefaults, coinLineDefaults, premiumToWage, type BarDefaults, type QuoteEnv } from "@shared/gold-quote";
-import type { LineIn } from "../../../server/modules/gold/pricing";
+import { barUnitCost, type LineIn } from "../../../server/modules/gold/pricing";
 
 export * from "../../../server/modules/gold/pricing";
 
@@ -278,6 +278,27 @@ export interface CatalogueLineSrc {
   seal_status?: string | null;
   /** margin VAT: the cost of the bar sold (its own cost) */
   unit_cost?: string | null;
+  /** bars sold: a consigned bar's margin is over what its owner is owed */
+  ownership?: string | null;
+}
+
+/** A bar bought in whose unit price came back from a saved document: the board's price for its seal then. */
+export interface BoardUnitSrc {
+  seal_status?: string | null;
+  unit_price?: string | null;
+  board_unit?: boolean;
+}
+
+/**
+ * Applies a row patch. The board price a saved bar row came back with is for the seal it had then:
+ * a new seal drops it so the row is priced afresh (an opened bar by its metal with the fees), while a
+ * price the user types stays theirs.
+ */
+export function patchLine<T extends BoardUnitSrc>(l: T, patch: Partial<T>): T {
+  const next: T = { ...l, ...patch };
+  if ("unit_price" in patch) return { ...next, board_unit: false };
+  if (l.board_unit && "seal_status" in patch && (patch.seal_status ?? "sealed") !== (l.seal_status ?? "sealed")) return { ...next, unit_price: null, board_unit: false };
+  return next;
 }
 
 /**
@@ -287,6 +308,7 @@ export interface CatalogueLineSrc {
  */
 export function catalogueLineIn(
   docKind: DocKind, l: CatalogueLineSrc, prod: CatalogueRow | undefined, rate: Rate | null | undefined, s: GoldSettings | undefined, gram18: string | null, buyGram18?: string | null,
+  env?: PriceEnv,
 ): LineIn {
   const side = l.direction === "out" ? "sell" : "buy";
   const priced = docKind === "sale" || docKind === "buyback" || docKind === "purchase" || (docKind === "opening" && !l.cost);
@@ -307,7 +329,7 @@ export function catalogueLineIn(
   const sellSide = docKind === "sale" && side === "sell";
   const buyIn = (docKind === "sale" || docKind === "buyback") && side === "buy";
   const unit = l.unit_price || (sellSide || buyIn ? d.unit_price : null);
-  return {
+  const line: LineIn = {
     // bought from a customer: the buy price of an 18k gram (the screen's, else the board's)
     kind: "bar", direction: l.direction, weight: l.weight, fineness: l.fineness, gram_price: l.gram_price || (buyIn && !unit ? buyGram18 || d.gram_price : null),
     unit_price: unit, basis: d.basis, unit_cost: sellSide && d.vat_mode === "margin" ? l.unit_cost || "0" : null,
@@ -316,6 +338,9 @@ export function catalogueLineIn(
     profit_pct: sellSide ? l.profit_pct : null, vat_mode: d.vat_mode, discount: l.discount, cost: l.cost, sealed: (l.seal_status ?? "sealed") === "sealed",
     fee_pct: buyIn ? (unit ? "0" : d.fee_pct) : null, assay_fee: buyIn ? d.assay_fee : null, opened_fineness: d.opened_fineness,
   };
+  // a consigned bar: what its owner is owed at the screen's gram price (as docs.ts prepare)
+  if (line.unit_cost !== null && l.ownership === "consignment" && env) line.unit_cost = barUnitCost({ ownership: "consignment" }, line, env);
+  return line;
 }
 
 /** A 10 px filled triangle (Vazirmatn and Arad lack ▲ ▼). */

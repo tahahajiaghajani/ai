@@ -33,7 +33,7 @@ interface UserRow {
 }
 
 interface UserDetail {
-  user: UserRow & { has_recovery: boolean };
+  user: UserRow & { has_recovery: boolean; recently_admin?: boolean };
   memberships: { id: string; org_id: string; org_name: string; role: Role; title: string | null; is_active: boolean; org_status: OrgStatus }[];
   sessions: { id: string; kind: string; device_name: string | null; ip: string | null; user_agent: string | null; created_at: string; last_seen_at: string }[];
   devices: { id: string; name: string; app_version: string | null; org_name: string | null; last_push_at: string | null }[];
@@ -149,6 +149,8 @@ function UserSheet({ id, onClose }: { id: string; onClose: () => void }) {
             </bdi>
             <span className="mt-2 flex flex-wrap gap-1.5">
               {u.is_platform_admin ? <Chip tone="accent">مدیر سامانه{u.env_admin ? " (از تنظیمات)" : ""}</Chip> : null}
+              {/* a listed address is no proof of owning it: this account is not an administrator */}
+              {!u.is_platform_admin && u.env_admin ? <Chip tone="neutral">نشانی مالک سامانه، بدون دسترسی مدیر</Chip> : null}
               {u.disabled ? <Chip tone="danger">غیرفعال</Chip> : <Chip tone="in">فعال</Chip>}
               {!u.has_recovery ? <Chip tone="neutral">بدون کد بازیابی</Chip> : null}
             </span>
@@ -180,7 +182,7 @@ function UserSheet({ id, onClose }: { id: string; onClose: () => void }) {
               <Button
                 danger
                 icon={<UserX {...ICON14} />}
-                disabled={self || u.env_admin}
+                disabled={self || (u.is_platform_admin && u.env_admin)}
                 onClick={async () => {
                   if (await n.confirm(`غیرفعال کردن ${u.full_name}؟`, "از همهٔ دستگاه‌ها خارج می‌شود و دیگر نمی‌تواند وارد شود.", true, "غیرفعال کن"))
                     await run(() => api.patch(`/admin/users/${id}`, { disabled: true }), "حساب غیرفعال شد.");
@@ -199,9 +201,11 @@ function UserSheet({ id, onClose }: { id: string; onClose: () => void }) {
               خروج از همهٔ دستگاه‌ها
             </Button>
             {/* an admin's password is changed by himself (or with his recovery code), never from here */}
-            <Button icon={<KeyRound {...ICON14} />} disabled={self || u.is_platform_admin || u.env_admin} onClick={() => setPw(true)}>
-              رمز موقت
-            </Button>
+            <Tooltip title={!self && !u.is_platform_admin && u.recently_admin ? "دسترسی مدیر سامانه به‌تازگی از این حساب گرفته شده است" : undefined}>
+              <Button icon={<KeyRound {...ICON14} />} disabled={self || u.is_platform_admin || u.env_admin || !!u.recently_admin} onClick={() => setPw(true)}>
+                رمز موقت
+              </Button>
+            </Tooltip>
             {u.is_platform_admin ? (
               <Tooltip title={self ? "دسترسی خودتان را نمی‌توانید بردارید" : u.env_admin ? "این ایمیل در PLATFORM_ADMIN_EMAILS است" : undefined}>
                 <Button

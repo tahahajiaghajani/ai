@@ -156,6 +156,15 @@ function wageAmount(type: string | null | undefined, value: Num, weight: Num, go
   }
 }
 
+/**
+ * Margin VAT: the cost of one bar sold — its own cost, or for a consigned bar what its owner is
+ * owed, the metal value of the sale (posting's consignedBarSale books that as the cost).
+ */
+export function barUnitCost(bar: { ownership?: string | null; cost?: Num } | null | undefined, line: LineIn, env: PriceEnv): string {
+  if (bar?.ownership === "consignment") return priceLine("sale", { ...line, direction: "out", vat_mode: "exempt", unit_cost: null }, env).gold_value;
+  return has(bar?.cost) && D(bar!.cost as string).gt(0) ? D(bar!.cost as string).toString() : "0";
+}
+
 /** Price of one document line. Values are decimal strings rounded to the round step. */
 export function priceLine(docKind: DocKind, line: LineIn, env: PriceEnv): PricedLine {
   const step = env.roundStep;

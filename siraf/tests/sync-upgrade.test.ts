@@ -93,7 +93,8 @@ describe("an older Windows app against the updated cloud", () => {
     await quietly(p.deskDb, `delete from tz_gold_bars where id = $1`, [bar]);
     const party = (await p.local.post(`/o/${p.org}/data/party`, { name: "مشتری مانده در صف" })).row;
     await p.deskDb.query(`update tz_outbox set attempts = 5, last_error = 'null value in column' where id = $1`, [party.id]);
-    await p.deskDb.query(`update tz_kv set value = '"0012_sync"'::jsonb where key = 'sync.schema'`);
+    // the previous protocol's builds kept neither marker
+    await p.deskDb.query(`delete from tz_kv where key in ('sync.schema', 'sync.protocol')`);
 
     await p.client.syncNow();
     expect(p.client.state.last_error).toBeNull();
@@ -101,7 +102,45 @@ describe("an older Windows app against the updated cloud", () => {
     expect(await p.deskDb.one(`select bar_no from tz_gold_bars where id = $1`, [bar])).toEqual({ bar_no: "900001" });
     expect(await p.cloudDb.one(`select 1 as ok from tz_parties where id = $1`, [party.id])).toEqual({ ok: 1 });
     expect((await p.deskDb.one<{ value: string }>(`select value from tz_kv where key = 'sync.schema'`))!.value).toBe(SCHEMA_VERSION);
+    expect((await p.deskDb.one<{ value: number }>(`select value from tz_kv where key = 'sync.protocol'`))!.value).toBe(SYNC_PROTOCOL);
     expect(p.client.state.failed).toEqual([]);
+  });
+
+  it("an update that changes the database but not the sync protocol retries failed uploads without reading everything again", async () => {
+    const p = await linkedPair("schema-only-owner@example.com");
+    const urls: string[] = [];
+    const o = (p.client as unknown as { o: { fetch: typeof fetch } }).o;
+    const inner = o.fetch;
+    o.fetch = (async (u: RequestInfo | URL, init?: RequestInit) => (urls.push(String(u)), inner(u, init))) as typeof fetch;
+    const party = (await p.local.post(`/o/${p.org}/data/party`, { name: "مشتری مانده در صف" })).row;
+    await p.deskDb.query(`update tz_outbox set attempts = 5, last_error = 'خطا' where id = $1`, [party.id]);
+    // a build of the same protocol before `sync.protocol` was kept, one migration behind
+    await p.deskDb.query(`delete from tz_kv where key = 'sync.protocol'`);
+    await p.deskDb.query(`update tz_kv set value = '"0016_ai_features"'::jsonb where key = 'sync.schema'`);
+    await p.client.syncNow();
+    expect(p.client.state.last_error).toBeNull();
+    expect(await p.cloudDb.one(`select 1 as ok from tz_parties where id = $1`, [party.id])).toEqual({ ok: 1 });
+    expect(urls.filter((u) => u.includes("/sync/pull") && /[?&]cursor=0&/.test(u))).toEqual([]);
+    expect((await p.deskDb.one<{ value: string }>(`select value from tz_kv where key = 'sync.schema'`))!.value).toBe(SCHEMA_VERSION);
+    expect((await p.deskDb.one<{ value: number }>(`select value from tz_kv where key = 'sync.protocol'`))!.value).toBe(SYNC_PROTOCOL);
+  });
+
+  it("a Windows app newer than the web says that the web needs the update and keeps its changes", async () => {
+    const p = await linkedPair("old-web-owner@example.com");
+    const o = (p.client as unknown as { o: { fetch: typeof fetch } }).o;
+    const inner = o.fetch;
+    // the web still runs the previous protocol
+    o.fetch = (async (u: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(u);
+      if (url.includes("/sync/push")) return Response.json({ error: { message: "نسخه‌ی برنامه‌ی ویندوز با سرور هم‌خوان نیست؛ برنامه را به‌روز کنید" } }, { status: 400 });
+      if (url.includes("/sync/status")) return Response.json({ protocol: SYNC_PROTOCOL - 1, head: 0 });
+      return inner(u, init);
+    }) as typeof fetch;
+    const party = (await p.local.post(`/o/${p.org}/data/party`, { name: "مشتری ویندوز" })).row;
+    await p.client.syncNow();
+    expect(p.client.state.last_error).toContain("نسخه‌ی وب");
+    expect(p.client.state.last_error).not.toContain("برنامه را به‌روز کنید");
+    expect(await p.deskDb.one(`select 1 as queued from tz_outbox where id = $1`, [party.id])).toEqual({ queued: 1 });
   });
 });
 
@@ -144,12 +183,18 @@ describe("migration 0017 after an earlier build of 0013", () => {
     await s.db.query(`create index tz_items_rate_key_idx on tz_items (org_id, rate_key) where rate_key is not null and deleted_at is null`);
     const nim = (await s.db.one<{ id: string }>(`select id from tz_items where org_id = $1 and rate_key = 'nim'`, [org]))!;
     const rob = (await s.db.one<{ id: string }>(`select id from tz_items where org_id = $1 and rate_key = 'rob'`, [org]))!;
-    const [older, newer] = [nim.id, rob.id].sort();
-    await s.db.query(`update tz_items set rate_key = 'nim' where id = $1`, [rob.id]);
+    // make rob the product created first: it keeps the key although its id sorts later or earlier
+    await s.db.query(`update tz_items set created_at = now() - interval '1 day' where id = $1`, [rob.id]);
+    const [older, newer] = [rob.id, nim.id];
+    await quietly(s.db, `update tz_items set rate_key = 'nim' where id = $1`, [rob.id]);
+    const before = (await s.db.one<{ updated_at: string }>(`select updated_at from tz_items where id = $1`, [nim.id]))!.updated_at;
     await s.db.tx((tx) => tx.exec(rateKeyUnique));
     const held = await s.db.query<{ id: string }>(`select id from tz_items where org_id = $1 and rate_key = 'nim' and deleted_at is null`, [org]);
     expect(held.map((r) => r.id)).toEqual([older]);
-    expect((await s.db.one<{ rate_key: string | null }>(`select rate_key from tz_items where id = $1`, [newer]))!.rate_key).toBeNull();
+    const loser = (await s.db.one<{ rate_key: string | null; updated_at: string }>(`select rate_key, updated_at from tz_items where id = $1`, [newer]))!;
+    expect(loser.rate_key).toBeNull();
+    // a migration's touch keeps updated_at (it must not win last-writer-wins against a real edit)
+    expect(new Date(loser.updated_at).toISOString()).toBe(new Date(before).toISOString());
     expect(await s.db.one(`select 1 from pg_indexes where indexname = 'tz_items_rate_key_idx'`)).toBeNull();
     await expect(s.db.query(`update tz_items set rate_key = 'nim' where id = $1`, [newer])).rejects.toThrow();
     // on an up-to-date database it changes nothing
@@ -159,30 +204,63 @@ describe("migration 0017 after an earlier build of 0013", () => {
 });
 
 describe("clashes brought by coins and bars", () => {
-  it("a board key typed on both sides ends on one product, the same on both sides", async () => {
+  it("a board key typed on both sides ends on the product edited last, the same on both sides", async () => {
     const p = await linkedPair("key-owner@example.com");
-    const ins = `insert into tz_items (id, org_id, code, name, kind, rate_key, gold_weight, fineness) values ($1, $2, $3, 'مدال', 'coin', 'medal', 5, 900)`;
-    const mine = uuidv7();
-    const theirs = uuidv7();
-    await p.deskDb.query(ins, [mine, p.org, "C901"]);
-    await p.cloudDb.query(ins, [theirs, p.org, "C902"]);
+    const ins = (key: string) => `insert into tz_items (id, org_id, code, name, kind, rate_key, gold_weight, fineness) values ($1, $2, $3, 'مدال', 'coin', '${key}', 5, 900)`;
+    const pause = () => new Promise((r) => setTimeout(r, 20));
+    const holders = (db: Db, key: string) => db.query<{ id: string }>(`select id from tz_items where org_id = $1 and rate_key = $2 and deleted_at is null`, [p.org, key]);
+
+    // offline first, the web later: the web's choice stays, the Windows app's product loses the key
+    const offline = uuidv7();
+    const web = uuidv7();
+    await p.deskDb.query(ins("medal"), [offline, p.org, "C901"]);
+    await pause();
+    await p.cloudDb.query(ins("medal"), [web, p.org, "C902"]);
     await p.client.syncNow();
     await p.client.syncNow();
     expect(p.client.state.last_error).toBeNull();
-    const holders = (db: Db) => db.query<{ id: string }>(`select id from tz_items where org_id = $1 and rate_key = 'medal' and deleted_at is null`, [p.org]);
-    expect(await holders(p.cloudDb)).toEqual([{ id: mine }]);
-    expect(await holders(p.deskDb)).toEqual([{ id: mine }]);
-    expect(await p.deskDb.one(`select rate_key from tz_items where id = $1`, [theirs])).toEqual({ rate_key: null });
+    expect(await holders(p.cloudDb, "medal")).toEqual([{ id: web }]);
+    expect(await holders(p.deskDb, "medal")).toEqual([{ id: web }]);
+    expect(await p.cloudDb.one(`select rate_key from tz_items where id = $1`, [offline])).toEqual({ rate_key: null });
 
-    // pulled: the cloud's product takes the key, the local holder gives it up and is uploaded
+    // the web first, offline later: the Windows app's choice stays
+    const web2 = uuidv7();
+    const offline2 = uuidv7();
+    await p.cloudDb.query(ins("medal_3"), [web2, p.org, "C905"]);
+    await pause();
+    await p.deskDb.query(ins("medal_3"), [offline2, p.org, "C906"]);
+    await p.client.syncNow();
+    await p.client.syncNow();
+    expect(p.client.state.last_error).toBeNull();
+    expect(await holders(p.cloudDb, "medal_3")).toEqual([{ id: offline2 }]);
+    expect(await holders(p.deskDb, "medal_3")).toEqual([{ id: offline2 }]);
+    expect(await p.deskDb.one(`select rate_key from tz_items where id = $1`, [web2])).toEqual({ rate_key: null });
+
+    // pulled and newer: the cloud's product takes the key, the local holder gives it up and is uploaded
     const local = uuidv7();
     await quietly(p.deskDb, `insert into tz_items (id, org_id, code, name, kind, rate_key) values ($1, $2, 'C903', 'سکه محلی', 'coin', 'medal_2')`, [local, p.org]);
+    await pause();
     const cloud = uuidv7();
     await p.cloudDb.query(`insert into tz_items (id, org_id, code, name, kind, rate_key) values ($1, $2, 'C904', 'سکه ابری', 'coin', 'medal_2')`, [cloud, p.org]);
     await p.client.pullAll();
     expect(await p.deskDb.one(`select rate_key from tz_items where id = $1`, [cloud])).toEqual({ rate_key: "medal_2" });
     expect(await p.deskDb.one(`select rate_key from tz_items where id = $1`, [local])).toEqual({ rate_key: null });
     expect(await p.deskDb.one(`select 1 as queued from tz_outbox where entity = 'item' and id = $1`, [local])).toEqual({ queued: 1 });
+
+    // pulled but older than a pending local choice: the local holder keeps it, and its upload
+    // takes the key from the cloud's product there too
+    const cloud4 = uuidv7();
+    await p.cloudDb.query(`insert into tz_items (id, org_id, code, name, kind, rate_key) values ($1, $2, 'C907', 'سکه ابری ۲', 'coin', 'medal_4')`, [cloud4, p.org]);
+    await pause();
+    const local4 = uuidv7();
+    await p.deskDb.query(`insert into tz_items (id, org_id, code, name, kind, rate_key) values ($1, $2, 'C908', 'سکه محلی ۲', 'coin', 'medal_4')`, [local4, p.org]);
+    await p.client.pullAll();
+    expect(await holders(p.deskDb, "medal_4")).toEqual([{ id: local4 }]);
+    expect(await p.deskDb.one(`select rate_key from tz_items where id = $1`, [cloud4])).toEqual({ rate_key: null });
+    await p.client.syncNow();
+    await p.client.syncNow();
+    expect(await holders(p.cloudDb, "medal_4")).toEqual([{ id: local4 }]);
+    expect(await holders(p.deskDb, "medal_4")).toEqual([{ id: local4 }]);
   });
 
   it("a bar renumbered by the cloud never takes a deleted bar's number, and its documents follow", async () => {
@@ -209,6 +287,28 @@ describe("clashes brought by coins and bars", () => {
       expect(l.tag_no).toBe("900003");
       if (l.extra.bar?.bar_no) expect(l.extra.bar.bar_no).toBe("900003");
     }
+  });
+});
+
+describe("a failure after an aggregate is written", () => {
+  it("rolls back that aggregate only and leaves the push's transaction usable", async () => {
+    const s = await makeServer({ mode: "cloud" });
+    const c = new Client(s.app);
+    const org = await signupWithOrg(c, ["gold"], "gold");
+    await s.db.query(`create or replace function tz_test_fail() returns trigger language plpgsql as $$ begin raise exception 'bar lines locked'; end $$`);
+    await s.db.query(`create trigger tz_test_fail before update on tz_gold_lines for each statement execute function tz_test_fail()`);
+    const def = BY_ENTITY.get("gold_bar")!;
+    const bar = uuidv7();
+    const other = uuidv7();
+    await s.db.tx(async (tx) => {
+      await tx.query("set local taraz.applying = 'on'");
+      await expect(writeAggregate(tx, def, { entity: "gold_bar", id: bar, base_rev: 0, row: { id: bar, bar_no: "900001", weight: 10 }, children: {} }, org, "incoming-yields")).rejects.toThrow("bar lines locked");
+      expect(await tx.one(`select 1 from tz_gold_bars where id = $1`, [bar])).toBeNull();
+      // the next aggregate of the same push is applied as usual
+      await tx.query(`insert into tz_gold_bars (id, org_id, bar_no, weight) values ($1, $2, '900002', 5)`, [other, org]);
+    });
+    await s.db.query(`drop trigger tz_test_fail on tz_gold_lines`);
+    expect(await s.db.one(`select bar_no from tz_gold_bars where id = $1`, [other])).toEqual({ bar_no: "900002" });
   });
 });
 

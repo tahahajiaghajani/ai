@@ -217,9 +217,9 @@ const SALE_COLS = `
 const NUM_FIELDS = ["weight", "weight750", "gold_value", "wage", "profit", "discount", "tax", "stone", "coin_qty", "coins", "bars", "total", "old_weight750", "old_value", "cost"] as const;
 
 /** Product type of a sold line: jewellery, آب‌شده / weighed gold, each coin type, bars. */
-const PRODUCT_KEY = `case when l.kind = 'piece' then 'jewelry' when l.kind = 'bar' then 'bar' when l.kind = 'coin' then 'coin:' || coalesce(ci.rate_key, ci.id::text) when l.kind = 'old' then 'old' else 'bulk:' || coalesce(l.form, 'bullion') end`;
-const PRODUCT_LABEL = `case when l.kind = 'piece' then 'جواهرات و مصنوعات' when l.kind = 'bar' then 'شمش' when l.kind = 'coin' then coalesce(ci.name, 'سکه') when l.kind = 'old' then 'طلای مستعمل' when l.form = 'bullion' or l.form is null then 'آب‌شده' else 'طلای وزنی' end`;
-const PRODUCT_GROUP = `case when l.kind = 'piece' then 'jewelry' when l.kind = 'bar' then 'bar' when l.kind = 'coin' then 'coin' when l.kind = 'old' then 'old' else 'bullion' end`;
+const PRODUCT_KEY = `case when l.kind = 'piece' then 'jewelry' when l.kind = 'bar' then 'bar' when l.kind = 'coin' then 'coin:' || coalesce(ci.rate_key, ci.id::text) when l.kind = 'old' and l.form is distinct from 'bullion' then 'old' else 'bulk:' || coalesce(l.form, 'bullion') end`;
+const PRODUCT_LABEL = `case when l.kind = 'piece' then 'جواهرات و مصنوعات' when l.kind = 'bar' then 'شمش' when l.kind = 'coin' then coalesce(ci.name, 'سکه') when l.kind = 'old' and l.form is distinct from 'bullion' then 'طلای مستعمل' when l.form = 'bullion' or l.form is null then 'آب‌شده' else 'طلای وزنی' end`;
+const PRODUCT_GROUP = `case when l.kind = 'piece' then 'jewelry' when l.kind = 'bar' then 'bar' when l.kind = 'coin' then 'coin' when l.kind = 'old' and l.form is distinct from 'bullion' then 'old' else 'bullion' end`;
 
 export async function salesReport(ctx: Ctx, p: { from?: string | null; to?: string | null; group?: string | null; kinds?: string | null }) {
   ctx.need("gold", "view");
@@ -242,7 +242,8 @@ export async function salesReport(ctx: Ctx, p: { from?: string | null; to?: stri
     );
   } else if (group === "category") {
     rows = await ctx.db.query(
-      `select coalesce(c.id::text, l.kind) as key, coalesce(c.name, case l.kind when 'coin' then 'سکه' when 'bar' then 'شمش' when 'bulk' then 'طلای وزنی' when 'old' then 'طلای مستعمل' else 'بدون دسته' end) as label, ${SALE_COLS}
+      `select coalesce(c.id::text, case when l.kind = 'old' and l.form = 'bullion' then 'old:bullion' else l.kind end) as key,
+              coalesce(c.name, case when l.kind = 'old' and l.form = 'bullion' then 'آب‌شده' else case l.kind when 'coin' then 'سکه' when 'bar' then 'شمش' when 'bulk' then 'طلای وزنی' when 'old' then 'طلای مستعمل' else 'بدون دسته' end end) as label, ${SALE_COLS}
        ${base.replace("join tz_gold_lines l on l.doc_id = d.id", "join tz_gold_lines l on l.doc_id = d.id left join tz_gold_categories c on c.id = l.category_id")}
        group by 1, 2 order by 2`,
       params,

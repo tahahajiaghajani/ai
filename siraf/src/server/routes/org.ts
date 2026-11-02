@@ -14,7 +14,7 @@ import { supportPermissions } from "../context";
 import { orgAccess } from "../modules/platform/access";
 import { accessibleOrgs, endSupport, listSupportSessions, SUPPORT_LEVEL_TITLE } from "../modules/platform/support";
 import { requestMeta, securityEvent } from "../modules/platform/security";
-import { createdHere, memberChangeProblem } from "../modules/platform/members";
+import { createdHere, memberChangeProblem, RESETTABLE_SQL } from "../modules/platform/members";
 import { hashPassword, passwordProblem, readableCode } from "../auth/password";
 import { uuidv7 } from "@shared/id";
 import { insertMany, insertRow, updateRow } from "../db/sql";
@@ -181,11 +181,14 @@ const overridesSchema = z
 orgRoutes.get("/members", async (c) => {
   const ctx = c.get("ctx");
   ctx.need("users", "view");
+  // password_reset: whether «رمز تازه» can work for this member (POST /members/:id/password), told
+  // only to those who may reset (it also says whether the person works for another business)
   const rows = await ctx.db.query(
-    `select m.id, m.user_id, m.role, m.overrides, m.title, m.is_active, m.created_at, u.email, u.full_name, u.mobile, u.last_login_at, u.disabled
+    `select m.id, m.user_id, m.role, m.overrides, m.title, m.is_active, m.created_at, u.email, u.full_name, u.mobile, u.last_login_at, u.disabled,
+       ($2::boolean and ${RESETTABLE_SQL("$1", "u")}) as password_reset
      from tz_org_members m join tz_users u on u.id = m.user_id
      where m.org_id = $1 and m.deleted_at is null order by m.created_at`,
-    [ctx.org.id],
+    [ctx.org.id, ctx.can("users", "full") && !ctx.support],
   );
   return c.json({
     members: rows,
@@ -310,13 +313,13 @@ orgRoutes.post("/members/:id/password", async (c) => {
   // A business resets only an account it made itself, for someone who works for no other business,
   // and never a platform admin's (that one is reset from «مدیریت سامانه»)
   if (!(await createdHere(ctx.db, ctx.org.id, m.user_id)))
-    throw forbidden("این حساب را این کسب‌وکار نساخته است؛ رمز را صاحب حساب از «حساب من» یا با کد بازیابی عوض کند");
+    throw forbidden("این حساب پیش از عضویت در این کسب‌وکار ساخته شده بود؛ رمز آن را صاحب حساب خودش از «حساب من» عوض می‌کند (یا با کمک مدیر سامانه)");
   const elsewhere = await ctx.db.one(
     `select 1 from tz_users u where u.id = $1 and (u.is_platform_admin or exists (
        select 1 from tz_org_members o where o.user_id = u.id and o.org_id <> $2 and o.deleted_at is null))`,
     [m.user_id, ctx.org.id],
   );
-  if (elsewhere) throw forbidden("این کاربر در کسب‌وکار دیگری هم عضو است؛ رمز را خودش از «حساب من» یا با کد بازیابی عوض کند");
+  if (elsewhere) throw forbidden("این کاربر در کسب‌وکار دیگری هم عضو است؛ رمز را خودش از «حساب من» عوض می‌کند (یا با کمک مدیر سامانه)");
   const pw = input.password || readableCode(3, 4);
   const problem = passwordProblem(pw);
   if (problem) throw bad(problem);
