@@ -5,6 +5,7 @@ import type { LocalConfig } from "./config";
 import { SyncClient } from "./sync-client";
 import { backupDir, backupNow, listBackups, pruneBackups, scheduleRestore } from "./backup";
 import { APP_VERSION } from "@shared/constants";
+import { hashPassword } from "@server/auth/password";
 import { networkInterfaces, hostname } from "node:os";
 import type { PGlite } from "@electric-sql/pglite";
 
@@ -25,6 +26,7 @@ function lanAddresses(): string[] {
 export function createBridge(o: { dataDir: string; db: Db & { pg?: PGlite }; config: LocalConfig; log: Logger; save: () => void }): Bridge {
   const sync = new SyncClient({ db: o.db, config: o.config, save: o.save, log: o.log });
   let backupTimer: NodeJS.Timeout | null = null;
+  let firstBackup: NodeJS.Timeout | null = null;
   let localUrl = "";
 
   const doBackup = async (label = "auto") => {
@@ -45,11 +47,12 @@ export function createBridge(o: { dataDir: string; db: Db & { pg?: PGlite }; con
         const every = Math.max(1, o.config.backups.every_hours) * 3600000;
         backupTimer = setInterval(() => void doBackup("auto").catch((e) => o.log.warn("backup failed", String(e))), every);
         // a backup shortly after every start
-        setTimeout(() => void doBackup("auto").catch((e) => o.log.warn("backup failed", String(e))), 120000);
+        firstBackup = setTimeout(() => void doBackup("auto").catch((e) => o.log.warn("backup failed", String(e))), 120000);
       }
     },
     async stop() {
       if (backupTimer) clearInterval(backupTimer);
+      if (firstBackup) clearTimeout(firstBackup);
       await sync.stop();
     },
     async info() {
@@ -105,8 +108,12 @@ export function createBridge(o: { dataDir: string; db: Db & { pg?: PGlite }; con
       return sync.cloudOrgs(input.url, input.email, input.password);
     },
     async cloudLogin(email: string, password: string) {
-      const ok = await sync.verifyCloudPassword(email, password);
-      return { ok };
+      const r = await sync.verifyCloudPassword(email, password);
+      if (r.status !== "ok") return { ok: false, unreachable: r.status === "unreachable" };
+      // remember the password of this cloud account here, so that the next sign-in works offline
+      // (the next change of the account in the cloud replaces or drops it again)
+      await o.db.query(`update tz_users set password_hash = $2 where id = $1 and lower(email) = lower($3)`, [r.user_id, await hashPassword(password), email]);
+      return { ok: true, user_id: r.user_id };
     },
     notifyLocalWrite() {
       sync.nudge();

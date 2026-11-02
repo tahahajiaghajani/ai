@@ -41,7 +41,10 @@ export function listBackups(dir: string) {
 
 export function pruneBackups(dir: string, keep: number) {
   const autos = listBackups(dir).filter((b) => AUTO_FILE.test(b.name));
-  for (const b of autos.slice(Math.max(1, keep))) {
+  // a broken setting (NaN, a string, …) must never mean «keep none»: slice(NaN) would delete every copy
+  const n = Number(keep);
+  const k = Number.isFinite(n) ? Math.max(1, Math.floor(n)) : 30;
+  for (const b of autos.slice(k)) {
     try {
       unlinkSync(b.file);
     } catch {
@@ -56,19 +59,44 @@ export function scheduleRestore(dataDir: string, file: string) {
   writeFileSync(join(dataDir, "restore.pending"), file, "utf8");
 }
 
+/** The marker of a scheduled restore; while it exists the running server takes no more changes. */
+export function restorePending(dataDir: string) {
+  return existsSync(join(dataDir, "restore.pending"));
+}
+
 /**
  * Called before the database opens: if a restore is pending, keep the current database aside
- * and return the backup to load. The caller opens PGlite with `loadDataDir`.
+ * and return the backup to load. The caller opens PGlite with `loadDataDir` and, when that
+ * fails, puts the current database back with `undoRestore` (a broken backup must not leave
+ * an empty database behind).
  */
-export function takePendingRestore(dataDir: string): Buffer | null {
+export function takePendingRestore(dataDir: string): { data: Buffer; aside: string | null } | null {
   const marker = join(dataDir, "restore.pending");
   if (!existsSync(marker)) return null;
   const file = readFileSync(marker, "utf8").trim();
   rmSync(marker, { force: true });
-  if (!existsSync(file)) return null;
+  if (!file || !existsSync(file)) return null;
+  const data = readFileSync(file);
   const db = join(dataDir, "db");
-  if (existsSync(db)) renameSync(db, join(dataDir, `db-before-restore-${stamp()}`));
-  return readFileSync(file);
+  let aside: string | null = null;
+  if (existsSync(db)) {
+    aside = join(dataDir, `db-before-restore-${stamp()}`);
+    renameSync(db, aside);
+  }
+  return { data, aside };
+}
+
+/** A restore could not be loaded: drop what it left in `db` and put the previous database back. */
+export function undoRestore(dataDir: string, aside: string | null) {
+  const db = join(dataDir, "db");
+  if (existsSync(db)) {
+    try {
+      rmSync(db, { recursive: true, force: true });
+    } catch {
+      renameSync(db, join(dataDir, `db-failed-restore-${stamp()}`));
+    }
+  }
+  if (aside && existsSync(aside)) renameSync(aside, db);
 }
 
 export { basename };

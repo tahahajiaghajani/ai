@@ -14,7 +14,7 @@ import { faDigits, formatWeight } from "@shared/format";
 import { uuidv7 } from "@shared/id";
 import { accountByKey, cr, dr, postAuto, removeAuto, signed, type VoucherLineInput } from "../accounting/vouchers";
 import { KINDS, bulkAccountKey, roundTo, type DocKind, type Direction, type LineKind } from "./pricing";
-import { coinStock, defaultWarehouse, nextTagNo, tagTaken, ITEM_STATUS_TITLES, type GoldItemRow } from "./items";
+import { assertCoinStock, coinStock, defaultWarehouse, nextTagNo, tagTaken, ITEM_STATUS_TITLES, type GoldItemRow } from "./items";
 import { goldSettings, moneyStep } from "./settings";
 import { latestRate } from "./rates";
 
@@ -744,6 +744,8 @@ class Posting {
     }
     await this.createPieces();
     await this.writeCoinMoves();
+    // a back-dated document must not leave a later coin sale without stock
+    await assertCoinStock(this.tx, this.orgId, this.lines.filter((l) => l.kind === "coin" && l.direction === "out").map((l) => l.item_id!), this.doc.date);
     const party = this.doc.party_id ? await this.party() : null;
     const voucherId = await postAuto(
       this.tx,
@@ -780,7 +782,7 @@ export async function applyDoc(tx: Tx, ctx: Ctx, doc: DocRow, lines: LineRow[]):
  * pieces it consumed go back to stock, its coin moves go and — unless `keepVoucher` (an edit
  * that re-posts right after) — its voucher is removed.
  */
-export async function unapplyDoc(tx: Tx, ctx: Ctx, doc: DocRow, opts: { keepVoucher?: boolean } = {}) {
+export async function unapplyDoc(tx: Tx, ctx: Ctx, doc: DocRow, opts: { keepVoucher?: boolean } = {}): Promise<{ coinItems: string[] }> {
   const orgId = ctx.org.id;
   const created = await tx.query<GoldItemRow>(`select * from tz_gold_items where org_id = $1 and in_doc_id = $2 and deleted_at is null`, [orgId, doc.id]);
   for (const it of created) {
@@ -800,8 +802,16 @@ export async function unapplyDoc(tx: Tx, ctx: Ctx, doc: DocRow, opts: { keepVouc
     `update tz_gold_items set status = 'in_stock', out_doc_id = null, origin = $3 where org_id = $1 and out_doc_id = $2 and deleted_at is null`,
     [orgId, doc.id, ctx.cfg.origin],
   );
+  const moves = await tx.query<{ item_id: string; date: string }>(
+    `select item_id, min(date) as date from tz_stock_moves where org_id = $1 and source_id = $2 group by item_id`,
+    [orgId, doc.id],
+  );
   await tx.query(`delete from tz_stock_moves where org_id = $1 and source_id = $2`, [orgId, doc.id]);
+  const coinItems = moves.map((m) => m.item_id);
+  // coins it brought in must not have been sold since (an edit that re-posts checks after re-posting)
+  if (!opts.keepVoucher) for (const m of moves) await assertCoinStock(tx, orgId, [m.item_id], String(m.date).slice(0, 10));
   if (!opts.keepVoucher) await removeAuto(tx, orgId, "gold_doc", doc.id);
+  return { coinItems };
 }
 
 export { type Num };

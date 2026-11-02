@@ -11,6 +11,7 @@ import treasury from "./0008_treasury";
 import goods from "./0009_goods";
 import gold2 from "./0010_gold";
 import fx2 from "./0011_fx";
+import sync from "./0012_sync";
 
 export interface Migration {
   id: string;
@@ -30,6 +31,7 @@ export const MIGRATIONS: Migration[] = [
   { id: "0009_goods", title: "کالا، انبار و فاکتور", sql: goods },
   { id: "0010_gold", title: "طلا و جواهر (تکمیلی)", sql: gold2 },
   { id: "0011_fx", title: "صرافی و رمزارز (تکمیلی)", sql: fx2 },
+  { id: "0012_sync", title: "همگام‌سازی: ترتیب نسخه‌ی کاربران و نمایه‌ها", sql: sync },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].id;

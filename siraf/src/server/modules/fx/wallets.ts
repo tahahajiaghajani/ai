@@ -77,7 +77,27 @@ function token(w: WalletRef): { contract: string; decimals: number | null } | nu
 
 // ---------------------------------------------------------------- adapters
 
+/** Chains without tokens (UTXO coins): the wallet's asset must be the chain's own coin. */
+function nativeOnly(w: WalletRef) {
+  if (!NATIVE[w.chain]?.includes(w.code.toUpperCase())) throw new NetError(`روی شبکه‌ی ${w.chain} فقط ${NATIVE[w.chain]?.join("/") ?? w.chain} نگهداری می‌شود، نه ${w.code}`);
+}
+
+/** decimals() of a TRC20 contract (TronGrid's account answer does not carry it). */
+async function trc20Decimals(f: Fetch, owner: string, contract: string): Promise<number> {
+  const { json } = await fetchJson(f, "https://api.trongrid.io/wallet/triggerconstantcontract", "TronGrid", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ owner_address: owner, contract_address: contract, function_selector: "decimals()", parameter: "", visible: true }),
+  });
+  const hex = Array.isArray(json?.constant_result) ? String(json.constant_result[0] ?? "") : "";
+  if (json?.result?.result !== true || !/^[0-9a-fA-F]{1,64}$/.test(hex)) throw new NetError("TronGrid: تعداد اعشار توکن خوانده نشد");
+  const n = Number(BigInt(`0x${hex}`));
+  if (!Number.isFinite(n) || n > 36) throw new NetError("TronGrid: تعداد اعشار توکن معتبر نیست");
+  return n;
+}
+
 async function esplora(f: Fetch, host: string, label: string, w: WalletRef, withTxs: boolean): Promise<ChainBalance> {
+  nativeOnly(w);
   const { text } = await fetchJson(f, `${host}/api/address/${encodeURIComponent(w.address)}`, label);
   const chainPart = text.slice(text.indexOf('"chain_stats"'), text.indexOf('"mempool_stats"') > 0 ? text.indexOf('"mempool_stats"') : undefined);
   const memPart = text.indexOf('"mempool_stats"') >= 0 ? text.slice(text.indexOf('"mempool_stats"')) : "";
@@ -110,6 +130,7 @@ async function esplora(f: Fetch, host: string, label: string, w: WalletRef, with
 }
 
 async function doge(f: Fetch, w: WalletRef): Promise<ChainBalance> {
+  nativeOnly(w);
   const { json, text } = await fetchJson(f, `https://api.blockcypher.com/v1/doge/main/addrs/${encodeURIComponent(w.address)}/balance`, "BlockCypher");
   if (json?.final_balance === undefined && json?.balance === undefined) throw new NetError("BlockCypher: پاسخ معتبر نیست");
   const raw = json.final_balance !== undefined ? bigIntField(json.final_balance, text, "final_balance") : bigIntField(json.balance, text, "balance");
@@ -145,7 +166,8 @@ async function tron(f: Fetch, w: WalletRef, withTxs: boolean): Promise<ChainBala
   const native = { code: "TRX", balance: fromUnits(sun, 6) };
   const t = token(w);
   if (!t) return { balance: native.balance, source: "TronGrid" };
-  const decimals = t.decimals ?? w.decimals;
+  // an unknown contract: its own decimals, never the currency's display decimals
+  const decimals = t.decimals ?? (await trc20Decimals(f, w.address, t.contract));
   let raw = "0";
   for (const entry of acc?.trc20 ?? []) {
     for (const [contract, value] of Object.entries(entry as Record<string, string>)) if (contract === t.contract) raw = String(value);

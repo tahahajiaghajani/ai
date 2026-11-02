@@ -36,6 +36,15 @@ export function defaultConfig(): LocalConfig {
   };
 }
 
+function num(v: unknown, min: number, max: number, fallback: number) {
+  const n = typeof v === "number" ? v : typeof v === "string" && v.trim() !== "" ? Number(v) : NaN;
+  return Number.isFinite(n) && n >= min && n <= max ? n : fallback;
+}
+function int(v: unknown, min: number, max: number, fallback: number) {
+  const n = num(v, min, max, fallback);
+  return Number.isInteger(n) ? n : fallback;
+}
+
 export function configPath(dataDir: string) {
   return join(dataDir, "config.json");
 }
@@ -47,7 +56,15 @@ export function loadConfig(dataDir: string): LocalConfig {
     try {
       const raw = JSON.parse(readFileSync(p, "utf8"));
       const d = defaultConfig();
-      return { ...d, ...raw, lan: { ...d.lan, ...raw.lan }, backups: { ...d.backups, ...raw.backups }, cloud: { ...d.cloud, ...raw.cloud }, client: { ...d.client, ...raw.client } };
+      const c: LocalConfig = { ...d, ...raw, lan: { ...d.lan, ...raw.lan }, backups: { ...d.backups, ...raw.backups }, cloud: { ...d.cloud, ...raw.cloud }, client: { ...d.client, ...raw.client } };
+      // numbers typed in a text box («4000») or edited by hand must not break the start
+      // (a port "abc" would make the server listen on a named pipe; "4000" + 1 is "40001")
+      c.port = int(c.port, 1, 65535, d.port);
+      c.lan.port = int(c.lan.port, 1, 65535, d.lan.port);
+      c.lan.enabled = c.lan.enabled === true;
+      c.backups.keep = int(c.backups.keep, 1, 1000, d.backups.keep);
+      c.backups.every_hours = num(c.backups.every_hours, 1, 24 * 7, d.backups.every_hours);
+      return c;
     } catch {
       // a broken file is kept aside and replaced
       renameSync(p, `${p}.broken-${Date.now()}`);

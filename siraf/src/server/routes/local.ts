@@ -2,7 +2,7 @@
 // Only mounted when the app runs inside the Windows application.
 import { z } from "zod";
 import { router, body, requireUser } from "../http/hono";
-import { forbidden } from "../http/errors";
+import { bad, forbidden } from "../http/errors";
 import type { C } from "../http/hono";
 
 export const localRoutes = router();
@@ -52,8 +52,26 @@ localRoutes.post("/backups", async (c) => {
 localRoutes.post("/backups/restore", async (c) => {
   await needAdmin(c);
   const { file } = await body(c, z.object({ file: z.string().min(1) }));
+  // only a copy from the backups list: an arbitrary path on the computer is not a backup
+  const known = (await bridge(c).listBackups()).some((b) => b.file === file);
+  if (!known) throw bad("این فایل در فهرست نسخه‌های پشتیبان نیست");
   await bridge(c).restoreBackup(file);
   return c.json({ ok: true, restart: true });
+});
+
+/** Settings of the installation; a wrong value here (a port «abc», «keep: x») breaks the next start or deletes backups. */
+const settingsSchema = z.object({
+  lan: z.object({
+    enabled: z.boolean().optional(),
+    port: z.coerce.number().int("پورت باید عدد صحیح باشد").min(1024, "پورت باید بین ۱۰۲۴ و ۶۵۵۳۵ باشد").max(65535, "پورت باید بین ۱۰۲۴ و ۶۵۵۳۵ باشد").optional(),
+  }).strict().optional(),
+  backups: z.object({
+    dir: z.string().trim().min(1).max(500).nullable().optional(),
+    auto: z.boolean().optional(),
+    keep: z.coerce.number().int().min(1).max(1000).optional(),
+    every_hours: z.coerce.number().min(1).max(24 * 7).optional(),
+  }).strict().optional(),
+  cloud: z.object({ auto_sync: z.boolean().optional(), prices_via_cloud: z.boolean().optional() }).strict().optional(),
 });
 
 localRoutes.get("/settings", async (c) => {
@@ -62,7 +80,7 @@ localRoutes.get("/settings", async (c) => {
 });
 localRoutes.patch("/settings", async (c) => {
   await needAdmin(c);
-  const patch = await body(c, z.record(z.string(), z.unknown()));
+  const patch = await body(c, settingsSchema);
   return c.json(await bridge(c).setSettings(patch));
 });
 

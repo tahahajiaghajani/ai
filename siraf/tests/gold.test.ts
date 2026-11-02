@@ -673,3 +673,112 @@ describe("gold documents: posting, pieces, weights and reports", () => {
     expect(r.error.message).toContain("طلا");
   });
 });
+
+describe("gold: regressions", () => {
+  let c: Client;
+  let db: Db;
+  let org: string;
+  let base: string;
+  const ids: Record<string, string> = {};
+  const fetched: string[] = [];
+
+  // a fetch that behaves like the real one: it follows redirects unless told not to
+  const stubFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input instanceof Request ? input.url : input);
+    fetched.push(url);
+    if (url.startsWith("https://redirect.example.com/")) {
+      const location = "http://169.254.169.254/latest/meta-data";
+      if (init?.redirect === "manual") return new Response(null, { status: 302, headers: { location } });
+      if (init?.redirect === "error") throw new TypeError("redirect");
+      fetched.push(location);
+      return new Response(JSON.stringify({ g18: "50000000" }), { status: 200 });
+    }
+    if (url.startsWith("https://prices.example.com/")) return new Response(JSON.stringify({ g18: "50000000" }), { status: 200 });
+    return new Response(JSON.stringify({ g18: "50000000" }), { status: 200 });
+  }) as typeof fetch;
+
+  beforeAll(async () => {
+    const s = await makeServer({ config: { fetch: stubFetch } });
+    db = s.db;
+    c = new Client(s.app);
+    org = await signupWithOrg(c);
+    base = `/o/${org}`;
+    ids.box = (await c.get(`${base}/data/cash_box`)).rows[0].id;
+    ids.wholesaler = (await c.post(`${base}/data/party`, { name: "بنکدار", roles: ["wholesaler"] })).row.id;
+    ids.customer = (await c.post(`${base}/data/party`, { name: "مشتری", roles: ["customer"] })).row.id;
+    const coins = (await c.get(`${base}/data/item?f.kind=coin&size=50`)).rows;
+    ids.rob = coins.find((x: any) => x.name === "ربع سکه").id;
+    await c.put(`${base}/gold/settings`, { profit_pct: "7", tax_pct: "10", round_step: "1000", old_deduction_pct: "0" });
+    await c.post(`${base}/gold/rates`, { gram18: G18 });
+  });
+
+  it("does not follow a custom price source's redirect to a private address", async () => {
+    await c.put(`${base}/gold/settings`, { price_source: { url: "https://redirect.example.com/p.json", paths: { gram18: "g18" } } });
+    await c.post(`${base}/gold/rates/fetch`, { provider: "custom", save: false }, 400);
+    expect(fetched).not.toContain("http://169.254.169.254/latest/meta-data");
+  });
+
+  it("refuses IPv4-mapped IPv6 and unspecified addresses as price sources on the cloud", async () => {
+    for (const url of ["https://[::ffff:169.254.169.254]/x", "https://[::ffff:127.0.0.1]/x", "https://[::]/x", "https://[0:0:0:0:0:ffff:a00:1]/x"]) {
+      fetched.length = 0;
+      await c.put(`${base}/gold/settings`, { price_source: { url, paths: { gram18: "g18" } } });
+      await c.post(`${base}/gold/rates/fetch`, { provider: "custom", save: false }, 400);
+      expect(fetched, url).toHaveLength(0);
+    }
+    await c.put(`${base}/gold/settings`, { price_source: null });
+  });
+
+  it("refuses a back-dated coin sale that would leave a later sale without stock", async () => {
+    await c.post(`${base}/gold/docs`, {
+      kind: "purchase", date: "2026-05-01", party_id: ids.wholesaler, settle: { mode: "rial" },
+      lines: [{ kind: "coin", item_id: ids.rob, qty: "2", gram_price: "150000000" }],
+    });
+    await c.post(`${base}/gold/docs`, { kind: "sale", date: "2026-05-10", party_id: ids.customer, lines: [{ kind: "coin", item_id: ids.rob, qty: "2", gram_price: "160000000" }] });
+    const r = await c.post(`${base}/gold/docs`, { kind: "sale", date: "2026-05-05", party_id: ids.customer, lines: [{ kind: "coin", item_id: ids.rob, qty: "1", gram_price: "160000000" }] }, 400);
+    expect(r.error.message).toContain("کافی نیست");
+    const rob = (await c.get(`${base}/gold/coins`)).coins.find((x: any) => x.id === ids.rob);
+    expect(rob.qty).toBe("0");
+  });
+
+  it("refuses cancelling a coin purchase whose coins were sold", async () => {
+    const p = (await c.post(`${base}/gold/docs`, {
+      kind: "purchase", date: "2026-05-11", party_id: ids.wholesaler, settle: { mode: "rial" },
+      lines: [{ kind: "coin", item_id: ids.rob, qty: "1", gram_price: "150000000" }],
+    })).doc;
+    await c.post(`${base}/gold/docs`, { kind: "sale", date: "2026-05-12", party_id: ids.customer, lines: [{ kind: "coin", item_id: ids.rob, qty: "1", gram_price: "160000000" }] });
+    await c.post(`${base}/gold/docs/${p.id}/cancel`, {}, 400);
+    const rob = (await c.get(`${base}/gold/coins`)).coins.find((x: any) => x.id === ids.rob);
+    expect(rob.qty).toBe("0");
+  });
+
+  it("refuses a supplier of another organisation when creating tags in bulk", async () => {
+    const cat = (await c.get(`${base}/data/gold_category?size=5`)).rows[0].id;
+    const o3 = await c.post<{ id: string }>("/orgs", { name: "شعبه‌ی دوم", business_kind: "mixed", modules: ["gold"], base_currency: "IRR", fiscal_year: 1405 });
+    const other = (await c.post(`/o/${o3.id}/data/party`, { name: "امانت‌گذار شعبه‌ی دوم", roles: ["wholesaler"] })).row.id;
+    await c.post(`${base}/gold/items/bulk`, { items: [{ category_id: cat, gross_weight: "2", ownership: "consignment", supplier_id: other }] }, 400);
+    const r = await c.get(`${base}/gold/reports/consignment`);
+    expect(JSON.stringify(r)).not.toContain("امانت‌گذار شعبه‌ی دوم");
+  });
+
+  it("keeps documents of a closed fiscal year as they are", async () => {
+    const d = (await c.post(`${base}/gold/docs`, { kind: "buyback", date: "2026-06-01", gram18: G18, party_id: ids.customer, lines: [{ kind: "old", weight: "1" }] })).doc;
+    await db.query(`update tz_fiscal_years set status = 'closed' where id = $1`, [d.fiscal_year_id]);
+    try {
+      await c.post(`${base}/gold/docs/${d.id}/cancel`, {}, 400);
+      await c.del(`${base}/gold/docs/${d.id}`, 400);
+      await c.put(`${base}/gold/docs/${d.id}`, { kind: "buyback", date: "2026-06-01", gram18: G18, party_id: ids.customer, lines: [{ kind: "old", weight: "2" }] }, 400);
+      const v = await db.one<{ deleted_at: string | null; total_debit: string }>(`select deleted_at, total_debit from tz_vouchers where id = $1`, [d.voucher.id]);
+      expect(v?.deleted_at).toBeNull();
+      expect(D(v!.total_debit).toString()).toBe(d.total);
+    } finally {
+      await db.query(`update tz_fiscal_years set status = 'open' where id = $1`, [d.fiscal_year_id]);
+    }
+  });
+
+  it("never lets a rounded discount eat into the gold value", () => {
+    // gold 138,600 + wage 1,400 → profit 1% = 1,400; the discount is capped at wage + profit
+    const p = priceJewelry({ weight: 1, gram18: "138600", wageType: "fixed", wageValue: "1400", profitPct: 1, taxPct: 10, discount: "100000", roundStep: 1000 });
+    expect(D(p.discount).lte(D(p.wage).plus(D(p.profit)))).toBe(true);
+    expect(D(p.total).gte(D(p.goldValue))).toBe(true);
+  });
+});

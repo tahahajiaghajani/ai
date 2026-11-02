@@ -7,7 +7,9 @@
 //                                 the difference is realized profit on «سود (زیان) معاملات ارز».
 // - exchange (both foreign):     the out-leg leaves at its average cost, the in-leg comes in at
 //                                 the board's mid rate (or at the out cost when it has none).
-// - fee: paid by the customer through the in-leg (in base or any currency) → «درآمد کارمزد».
+// - fee: paid by the customer → «درآمد کارمزد»; in the currency they give it goes through the
+//   in-leg, in the currency they get it is taken off the out-leg, any other currency goes through
+//   the in-leg's method in that currency.
 // - network fee of a crypto withdrawal: «کارمزد شبکه» against the paying wallet.
 // The average cost is taken when the deal is posted; posting a back-dated deal later does not
 // re-value the deals that come after it.
@@ -222,7 +224,9 @@ export async function planDeal(q: Queryable, org: OrgRow, input: DealInput, opts
     else feeRate = rateMid(rates.get(feeC.id));
     if (!feeRate) throw bad(`نرخ ${feeC.code} برای تبدیل کارمزد در تابلو نیست`);
     feeBase = roundTo(D(fee).times(D(feeRate)), dp);
-    const feeLeg = feeC.id === inC.id ? inLeg : await resolveLeg(q, org.id, cur.base, input.in_method, input.in_ref_id, feeC, party?.id);
+    // in the currency the customer gives: on top of it; in the currency they get: taken off it
+    // (a rial fee on buying crypto into a wallet cannot go through the wallet)
+    const feeLeg = feeC.id === inC.id ? inLeg : feeC.id === outC.id ? outLeg : await resolveLeg(q, org.id, cur.base, input.in_method, input.in_ref_id, feeC, party?.id);
     lines.push(dr(feeLeg.account_id, feeBase, { detail_id: feeLeg.detail_id, ...(feeC.is_base ? {} : { currency_id: feeC.id, fx_debit: fee, fx_rate: feeRate }), description: `کارمزد ${fmt(fee, feeC.decimals)} ${feeC.code}` }));
     lines.push(cr(await accountByKey(q, org.id, "fx_commission"), feeBase, { description: "کارمزد معامله‌ی ارز" }));
   }

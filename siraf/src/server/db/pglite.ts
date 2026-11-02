@@ -46,7 +46,30 @@ export async function createPgliteDb(opts: PgliteOptions = {}): Promise<Db & { p
     pg,
     ...base,
     async tx<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
-      return pg.transaction(async (t) => fn({ ...make(t as unknown as PGlite), inTx: true }));
+      return pg.transaction(async (t) => {
+        const q = make(t as unknown as PGlite);
+        let failed: unknown = null;
+        const track = <A extends unknown[], R>(f: (...a: A) => Promise<R>) => async (...a: A): Promise<R> => {
+          try {
+            return await f(...a);
+          } catch (e) {
+            failed ??= e;
+            throw e;
+          }
+        };
+        const r = await fn({ query: track(q.query), one: track(q.one), exec: track(q.exec), inTx: true } as Tx);
+        // PostgreSQL answers COMMIT of a failed transaction with a silent ROLLBACK, so a statement
+        // that failed (and was caught) without a rollback to a savepoint would lose the whole
+        // transaction while the caller is told it succeeded. Fail it instead, as postgres.js does.
+        if (failed) {
+          try {
+            await t.query("select 1");
+          } catch {
+            throw failed;
+          }
+        }
+        return r;
+      });
     },
     async close() {
       await pg.close();

@@ -70,7 +70,7 @@ async function replaceChildren(q: Queryable, table: string, fk: string, parentId
   }
 }
 
-function isUnique(e: unknown): e is { code: string; constraint?: string } {
+function isUnique(e: unknown): e is { code: string; constraint?: string; constraint_name?: string } {
   return !!e && typeof e === "object" && (e as { code?: string }).code === "23505";
 }
 
@@ -119,7 +119,8 @@ export async function writeAggregate(
       return result;
     } catch (e) {
       if (!isUnique(e) || attempt === 3) throw e;
-      const constraint = String(e.constraint ?? "");
+      // PGlite (pg-protocol) names it `constraint`, postgres.js `constraint_name`
+      const constraint = String(e.constraint ?? e.constraint_name ?? "");
       if (def.numbered && constraint.includes("_no_")) {
         if (side === "incoming-yields") {
           const to = await nextNo(q, def.table, orgId, String(row.fiscal_year_id), def.numbered.byKind ? String(row.kind) : undefined);
@@ -128,6 +129,13 @@ export async function writeAggregate(
         } else {
           await moveLocalAside(q, def, orgId, row, "no");
         }
+        continue;
+      }
+      if (def.table === "tz_org_members" && constraint === "tz_org_members_uk" && side === "local-yields") {
+        // the same person already has a local membership under another id (a local account that
+        // the cloud account replaced): the cloud's membership is the one that counts
+        await q.query(`delete from tz_org_members where org_id = $1 and user_id = $2 and id <> $3`, [orgId, row.user_id, agg.id]);
+        await q.query(`delete from tz_outbox where entity = 'member' and id not in (select id from tz_org_members)`);
         continue;
       }
       if (def.code && (constraint.includes("code") || constraint.includes("tag"))) {
@@ -158,7 +166,7 @@ async function moveLocalAside(q: Queryable, def: AggregateDef, orgId: string, in
       cond += ` and kind = $${params.length}`;
     }
   }
-  const clash = await q.one<{ id: string; fiscal_year_id?: string; kind?: string }>(`select id, ${column === "no" ? "fiscal_year_id, kind" : "null as x"} from ${ident(def.table)} where ${cond}`, params);
+  const clash = await q.one<{ id: string }>(`select id from ${ident(def.table)} where ${cond}`, params);
   if (!clash) return;
   let to: unknown;
   if (column === "no") to = await nextNo(q, def.table, orgId, String(incoming.fiscal_year_id), def.numbered?.byKind ? String(incoming.kind) : undefined);

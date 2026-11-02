@@ -32,8 +32,12 @@ export interface DesktopBridge {
   link(input: { url: string; email: string; password: string; orgId?: string; direction: "download" | "upload" }): Promise<Record<string, unknown>>;
   unlink(): Promise<void>;
   cloudOrgs(input: { url: string; email: string; password: string }): Promise<unknown>;
-  /** sign-in fallback while linked: check the password against the cloud and cache it */
-  cloudLogin?(email: string, password: string): Promise<{ ok: boolean; user?: Record<string, unknown> }>;
+  /**
+   * Sign-in fallback while linked: check the password against the cloud and cache it. `user_id`
+   * is the cloud account's id (the local account must be that one); `unreachable` when the cloud
+   * could not be asked.
+   */
+  cloudLogin?(email: string, password: string): Promise<{ ok: boolean; user_id?: string; unreachable?: boolean }>;
   notifyLocalWrite(): void;
 }
 

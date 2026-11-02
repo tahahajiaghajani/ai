@@ -18,13 +18,15 @@ authRoutes.post("/signup", async (c) => {
   const input = await body(c, z.object({ email, password: z.string(), full_name: z.string().trim().min(2, "نام را کامل وارد کنید").max(120), mobile: z.string().trim().max(20).optional() }));
   const count = await cfg.db.one<{ n: number }>(`select count(*)::int as n from tz_users`);
   const first = (count?.n ?? 0) === 0;
-  if (!first && !cfg.allowSignup) throw forbidden(cfg.mode === "desktop" ? "کاربر جدید را مدیر از «تنظیمات ← کاربران» اضافه می‌کند" : "ثبت‌نام در این سامانه بسته است");
+  if (!first && !cfg.allowSignup && !cfg.platformAdmins.includes(input.email)) throw forbidden(cfg.mode === "desktop" ? "کاربر جدید را مدیر از «تنظیمات ← کاربران» اضافه می‌کند" : "ثبت‌نام در این سامانه بسته است");
   const problem = passwordProblem(input.password);
   if (problem) throw bad(problem);
   const exists = await cfg.db.one(`select 1 from tz_users where lower(email) = $1`, [input.email]);
   if (exists) throw bad("با این ایمیل قبلاً حساب ساخته شده است؛ وارد شوید");
   const recovery = readableCode(4, 4);
-  const isAdmin = first || cfg.platformAdmins.includes(input.email);
+  // the first account administers the platform only while no owner email is configured;
+  // otherwise whoever reached a fresh deployment first would see every business
+  const isAdmin = cfg.platformAdmins.includes(input.email) || (first && !cfg.platformAdmins.length);
   const user = await cfg.db.one<{ id: string }>(
     `insert into tz_users (id, email, full_name, mobile, password_hash, recovery_hash, is_platform_admin)
      values ($1, $2, $3, $4, $5, $6, $7) returning id`,
@@ -49,15 +51,23 @@ authRoutes.post("/login", async (c) => {
     [input.email],
   );
   let ok = user ? await verifyPassword(input.password, user.password_hash) : false;
-  // desktop linked to the cloud: accept the cloud password (new members, changed passwords)
+  // desktop linked to the cloud: accept the cloud password (new members, changed passwords,
+  // accounts whose password is not kept here) — for the very account the cloud vouched for, never
+  // for a local-only account that merely has the same e-mail
+  let unreachable = false;
   if (!ok && cfg.desktop?.cloudLogin) {
-    const r = await cfg.desktop.cloudLogin(input.email, input.password).catch(() => ({ ok: false }));
-    if (r.ok) {
-      user = await cfg.db.one(`select id, password_hash, disabled from tz_users where lower(email) = $1`, [input.email]);
+    const r = await cfg.desktop.cloudLogin(input.email, input.password).catch(() => ({ ok: false, unreachable: true, user_id: undefined }));
+    unreachable = !!r.unreachable;
+    if (r.ok && r.user_id) {
+      user = await cfg.db.one(`select id, password_hash, disabled from tz_users where id = $1 and lower(email) = $2`, [r.user_id, input.email]);
       ok = !!user;
     }
   }
-  if (!user || !ok) throw unauthorized("ایمیل یا رمز عبور درست نیست");
+  if (!user || !ok) {
+    throw unauthorized(unreachable
+      ? "ایمیل یا رمز عبور درست نیست؛ اگر نخستین بار است که با این حساب روی این رایانه وارد می‌شوید، به اینترنت وصل شوید و دوباره امتحان کنید"
+      : "ایمیل یا رمز عبور درست نیست");
+  }
   if (user.disabled) throw forbidden("حساب شما غیرفعال شده است؛ با مدیر تماس بگیرید");
   if (cfg.platformAdmins.includes(input.email)) await cfg.db.query(`update tz_users set is_platform_admin = true where id = $1 and not is_platform_admin`, [user.id]);
   const kind = input.device ? "device" : "web";

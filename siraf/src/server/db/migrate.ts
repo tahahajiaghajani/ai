@@ -25,7 +25,12 @@ export async function migrationStatus(db: Db): Promise<MigrationStatus> {
  * server instances: a transaction-level advisory lock serialises them and each one re-checks.
  */
 export async function migrate(db: Db, log: (msg: string) => void = () => {}): Promise<string[]> {
-  await db.exec(`create table if not exists tz_migrations (id text primary key, applied_at timestamptz not null default now())`);
+  // under the lock too: concurrent `create table if not exists` on a fresh database fails with a
+  // unique violation in the catalog (several server instances starting at once)
+  await db.tx(async (tx) => {
+    await tx.query("select pg_advisory_xact_lock(724100)");
+    await tx.exec(`create table if not exists tz_migrations (id text primary key, applied_at timestamptz not null default now())`);
+  });
   const done: string[] = [];
   for (const m of MIGRATIONS) {
     const ran = await db.tx(async (tx) => {

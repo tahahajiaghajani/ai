@@ -116,6 +116,19 @@ function pickValues(d: EntityDef, fields: FieldDef[], data: Record<string, unkno
   return out;
 }
 
+/** References must point at rows of the same business (ids are global, there are no FKs per org). */
+async function checkRefs(tx: Tx, ctx: Ctx, fields: FieldDef[], row: Record<string, unknown>) {
+  for (const f of fields) {
+    if (f.type !== "ref" || !f.ref) continue;
+    const v = row[f.name];
+    if (v === null || v === undefined) continue;
+    const table = f.ref === "account" ? "tz_accounts" : ENTITIES[f.ref]?.table;
+    if (!table) continue;
+    const found = await tx.one(`select 1 from ${ident(table)} where id = $1 and org_id = $2`, [v, ctx.org.id]);
+    if (!found) throw bad(`«${f.label}» پیدا نشد`);
+  }
+}
+
 // ---------- entity hooks ----------
 type Hook = (tx: Tx, ctx: Ctx, row: Record<string, unknown>, prev: Record<string, unknown> | null) => Promise<void>;
 
@@ -208,8 +221,10 @@ export async function list(ctx: Ctx, key: string, p: ListParams) {
   if (!p.includeInactive && d.fields.some((f) => f.name === "is_active") && !(p.filters && "is_active" in p.filters)) {
     // inactive rows stay visible in lists (greyed); selects hide them (see options)
   }
-  const size = Math.min(Math.max(p.size ?? 50, 1), 500);
-  const page = Math.max(p.page ?? 1, 1);
+  // query-string numbers may be NaN or huge: they would end up as `limit NaN` / `offset 1e+302`
+  const int = (v: number | undefined, dflt: number) => (Number.isFinite(v) ? Math.trunc(v!) : dflt);
+  const size = Math.min(Math.max(int(p.size, 50), 1), 500);
+  const page = Math.min(Math.max(int(p.page, 1), 1), 1_000_000);
   const sortField = p.sort && d.fields.some((f) => f.name === p.sort) ? p.sort : null;
   const order = sortField ? `${ident(sortField)} ${p.dir === "desc" ? "desc" : "asc"}` : orderClause(d);
   const totalRow = await ctx.db.one<{ n: number }>(`select count(*)::int as n from ${ident(d.table)} where ${where.join(" and ")}`, params);
@@ -288,6 +303,7 @@ async function createIn(tx: Tx, ctx: Ctx, key: string, data: Record<string, unkn
   const d = def(key);
   const fields = fieldsFor(d, ctx.org.modules);
   const row = pickValues(d, fields, data, true);
+  await checkRefs(tx, ctx, fields, row);
   if (d.code && !row[d.code.field]) row[d.code.field] = await nextCode(tx, d.table, ctx.org.id, d.code.start, d.code.field);
   await before[key]?.(tx, ctx, row, null);
   row.id = isUuid(data.id) ? data.id : uuidv7();
@@ -311,6 +327,7 @@ async function updateIn(tx: Tx, ctx: Ctx, key: string, id: string, data: Record<
   const prev = await tx.one<Record<string, unknown>>(`select * from ${ident(d.table)} where id = $1 and org_id = $2 and deleted_at is null`, [id, ctx.org.id]);
   if (!prev) throw notFound(`${d.title} پیدا نشد`);
   const patch = pickValues(d, fields, data, false);
+  await checkRefs(tx, ctx, fields, patch);
   if (d.code && patch[d.code.field] === null) delete patch[d.code.field];
   await before[key]?.(tx, ctx, patch, prev);
   patch.origin = ctx.cfg.origin;

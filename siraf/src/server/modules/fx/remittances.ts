@@ -100,6 +100,16 @@ async function postEvent(
   opts: { userId: string; origin: string },
 ): Promise<string | null> {
   const clean = lines.filter((l) => [l.debit, l.credit, l.fx_debit, l.fx_credit].some((x) => !D(x).isZero()));
+  if (src.voucherId && clean.length) {
+    // A remittance issued before its fiscal year was closed can still move on (sent, paid in the
+    // open year); its voucher in the closed year stays as it is.
+    const cur = await tx.one<{ date: string; year_status: string }>(
+      `select v.date, f.status as year_status from tz_vouchers v join tz_fiscal_years f on f.id = v.fiscal_year_id
+       where v.id = $1 and v.org_id = $2 and v.deleted_at is null`,
+      [src.voucherId, org.id],
+    );
+    if (cur?.year_status === "closed" && String(cur.date).slice(0, 10) === String(src.date).slice(0, 10)) return src.voucherId;
+  }
   if (!clean.length) {
     if (src.voucherId) {
       const live = await tx.one(`select 1 from tz_vouchers where id = $1 and org_id = $2 and deleted_at is null`, [src.voucherId, org.id]);

@@ -105,19 +105,50 @@ export function safeExternalUrl(raw: string): string | null {
     return "نشانی معتبر نیست";
   }
   if (u.protocol !== "https:") return "نشانی باید با https:// شروع شود";
-  const host = u.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  // a trailing dot ("localhost.") names the same host
+  const host = u.hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.+$/, "");
   if (!host || host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || host.endsWith(".internal") || !host.includes(".") && !host.includes(":")) {
     return "نشانی داخلی مجاز نیست";
   }
+  const privateV4 = (a: number, b: number) =>
+    a === 0 || a === 10 || a === 127 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127) || (a === 198 && (b === 18 || b === 19)) || a >= 224;
   const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
-  if (v4) {
-    const [a, b] = [Number(v4[1]), Number(v4[2])];
-    if (a === 0 || a === 10 || a === 127 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127) || a >= 224) {
+  if (v4 && privateV4(Number(v4[1]), Number(v4[2]))) return "نشانی داخلی مجاز نیست";
+  if (host.includes(":")) {
+    const groups = expandIpv6(host);
+    if (!groups) return "نشانی معتبر نیست";
+    const [g0] = groups;
+    const zeros = (n: number) => groups.slice(0, n).every((g) => g === 0);
+    // ::, ::1, unique-local fc00::/7, link-local fe80::/10, site-local fec0::/10, multicast ff00::/8
+    if (zeros(8) || (zeros(7) && groups[7] === 1) || (g0 & 0xfe00) === 0xfc00 || (g0 & 0xffc0) === 0xfe80 || (g0 & 0xffc0) === 0xfec0 || (g0 & 0xff00) === 0xff00) {
       return "نشانی داخلی مجاز نیست";
     }
+    // an IPv4 address carried inside IPv6: mapped ::ffff:a.b.c.d, compatible ::a.b.c.d, NAT64 64:ff9b::a.b.c.d
+    const embedded = (zeros(5) && (groups[5] === 0xffff || groups[5] === 0)) || (g0 === 0x64 && groups[1] === 0xff9b && groups.slice(2, 6).every((g) => g === 0)) || (g0 === 0x64 && groups[1] === 0xff9b && groups[2] === 1);
+    if (embedded && privateV4(groups[6] >> 8, groups[6] & 0xff)) return "نشانی داخلی مجاز نیست";
   }
-  if (host.includes(":") && (host === "::1" || host.startsWith("fc") || host.startsWith("fd") || host.startsWith("fe80") || host === "::")) return "نشانی داخلی مجاز نیست";
   return null;
+}
+
+/** Eight 16-bit groups of an IPv6 address (with an optional dotted IPv4 tail), or null. */
+function expandIpv6(host: string): number[] | null {
+  let h = host.split("%")[0];
+  const tail = /(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);
+  if (tail) {
+    const b = tail.slice(1).map(Number);
+    if (b.some((x) => x > 255)) return null;
+    h = `${h.slice(0, tail.index)}${((b[0] << 8) | b[1]).toString(16)}:${((b[2] << 8) | b[3]).toString(16)}`;
+  }
+  const halves = h.split("::");
+  if (halves.length > 2) return null;
+  const part = (s: string) => (s ? s.split(":") : []);
+  const head = part(halves[0]);
+  const rest = halves.length === 2 ? part(halves[1]) : [];
+  const fill = halves.length === 2 ? 8 - head.length - rest.length : 0;
+  if (fill < 0 || (halves.length === 1 && head.length !== 8)) return null;
+  const all = [...head, ...Array(fill).fill("0"), ...rest];
+  if (all.length !== 8 || all.some((g) => !/^[0-9a-f]{1,4}$/.test(g))) return null;
+  return all.map((g) => parseInt(g, 16));
 }
 
 /** Run `fn` over items with at most `limit` in flight. */

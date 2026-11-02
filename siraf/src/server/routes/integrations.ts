@@ -30,13 +30,16 @@ async function ownerCtx(cfg: ServerConfig, orgId: string): Promise<Ctx> {
 }
 
 /** Turn an online order into a sales invoice (draft or posted, per integration settings). */
-async function orderToInvoice(ctx: Ctx, kind: IntegrationKind | "api", config: IntegrationConfig, order: NormalizedOrder) {
+async function orderToInvoice(ctx: Ctx, kind: IntegrationKind | "api", config: IntegrationConfig, order: NormalizedOrder, integrationId: string | null = null) {
   if (!order.lines.length) throw bad("سفارش هیچ قلمی ندارد");
   const factor = D(config.price_factor || "1");
   return ctx.write(async (tx) => {
     const existing = await tx.one<{ id: string; no: number }>(
-      `select id, no from tz_invoices where org_id = $1 and source = $2 and external_ref = $3 and deleted_at is null`,
-      [ctx.org.id, kind, order.external_id],
+      // two shops of one business number their orders independently: an order is a duplicate only
+      // for the shop it came from (older invoices carry no shop and still count for every shop)
+      `select id, no from tz_invoices where org_id = $1 and source = $2 and external_ref = $3 and deleted_at is null
+         and (extra->>'integration_id' is null or extra->>'integration_id' = $4)`,
+      [ctx.org.id, kind, order.external_id, integrationId],
     );
     if (existing) return { invoice_id: existing.id, no: existing.no, duplicate: true };
     const partyId = order.customer.mobile || order.customer.email ? await findOrCreateCustomer(tx, ctx.org.id, ctx.cfg.origin, order.customer) : config.default_party_id ?? null;
@@ -77,16 +80,17 @@ async function orderToInvoice(ctx: Ctx, kind: IntegrationKind | "api", config: I
       notes: `سفارش ${order.external_id} از ${kind === "woocommerce" ? "ووکامرس" : kind === "shopify" ? "شاپیفای" : "فروشگاه اینترنتی"}${order.paid ? " (پرداخت‌شده)" : ""}`,
       lines,
     };
+    const extra = integrationId ? { extra: { integration_id: integrationId } } : {};
     let saved;
     try {
       await tx.query("savepoint tz_hook");
-      saved = await saveInvoiceTx(tx, ctx, input as never, null);
+      saved = await saveInvoiceTx(tx, ctx, input as never, null, extra);
       await tx.query("release savepoint tz_hook");
     } catch (e) {
       // e.g. not enough stock to post: keep the order as a draft invoice for review
       await tx.query("rollback to savepoint tz_hook");
       if (input.status !== "posted") throw e;
-      saved = await saveInvoiceTx(tx, ctx, { ...input, status: "draft" } as never, null);
+      saved = await saveInvoiceTx(tx, ctx, { ...input, status: "draft" } as never, null, extra);
     }
     await updateRow(tx, "tz_invoices", { id: saved.id, org_id: ctx.org.id }, { source: kind, external_ref: order.external_id, origin: ctx.cfg.origin });
     return { invoice_id: saved.id, no: (saved as { no?: number }).no ?? null, duplicate: false };
@@ -129,7 +133,7 @@ hookRoutes.post("/:id", async (c) => {
   if (!order) return c.json({ ok: true, ignored: true });
   try {
     const ctx = await ownerCtx(cfg, integ.org_id);
-    const result = await orderToInvoice(ctx, integ.kind, integ.config ?? { post: false }, order);
+    const result = await orderToInvoice(ctx, integ.kind, integ.config ?? { post: false }, order, integ.id);
     await cfg.db.query(`update tz_integration_events set status = 'processed', result = $2 where id = $1`, [eventId, result]);
     return c.json({ ok: true, ...result });
   } catch (e) {
@@ -162,7 +166,8 @@ publicApiRoutes.get("/ping", async (c) => {
 publicApiRoutes.get("/items", async (c) => {
   const ctx = await apiCtx(c, "read");
   const q = c.req.query("q") ?? "";
-  const page = Math.max(1, Number(c.req.query("page") ?? 1));
+  const n = Math.trunc(Number(c.req.query("page") ?? 1));
+  const page = Number.isFinite(n) ? Math.min(Math.max(1, n), 100_000) : 1;
   const params: unknown[] = [ctx.org.id];
   let cond = "i.org_id = $1 and i.deleted_at is null and i.is_active";
   if (q) {
@@ -286,7 +291,7 @@ integrationRoutes.post("/events/:id/retry", async (c) => {
   const order = normalizeOrder(integ.kind, ev.payload, ev.topic);
   try {
     const owner = await ownerCtx(ctx.cfg, ctx.org.id);
-    const result = await orderToInvoice(owner, integ.kind, integ.config ?? { post: false }, order);
+    const result = await orderToInvoice(owner, integ.kind, integ.config ?? { post: false }, order, integ.id);
     await ctx.db.query(`update tz_integration_events set status = 'processed', result = $2, error = null where id = $1`, [ev.id, result]);
     return c.json({ ok: true, ...result });
   } catch (e) {

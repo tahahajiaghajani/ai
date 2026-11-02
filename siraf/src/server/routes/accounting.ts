@@ -4,6 +4,7 @@ import { router, body } from "../http/hono";
 import { notFound, bad } from "../http/errors";
 import { createAccount, deleteAccount, updateAccount } from "../modules/accounting/accounts";
 import { deleteVoucher, getVoucher, saveVoucher } from "../modules/accounting/vouchers";
+import { assertYearOpen } from "../modules/accounting/fiscal";
 import * as reports from "../modules/accounting/reports";
 import { likeContains } from "../db";
 import { normalizeDigits } from "@shared/money";
@@ -127,9 +128,11 @@ accountingRoutes.post("/vouchers/:id/status", async (c) => {
   const { status } = await body(c, z.object({ status: z.enum(["draft", "posted", "final"]) }));
   ctx.need("accounting", status === "final" ? "full" : "edit");
   await ctx.write(async (tx) => {
-    const v = await tx.one<{ status: string }>(`select status from tz_vouchers where id = $1 and org_id = $2 and deleted_at is null`, [c.req.param("id"), ctx.org.id]);
+    const v = await tx.one<{ status: string; fiscal_year_id: string }>(`select status, fiscal_year_id from tz_vouchers where id = $1 and org_id = $2 and deleted_at is null`, [c.req.param("id"), ctx.org.id]);
     if (!v) throw notFound("سند پیدا نشد");
     if (v.status === "final") throw bad("سند قطعی قابل تغییر وضعیت نیست");
+    // finalising leaves the books as they are; anything else would change a closed year's balances
+    if (status !== "final") await assertYearOpen(tx, ctx.org.id, v.fiscal_year_id);
     await tx.query(
       `update tz_vouchers set status = $3, approved_by = case when $3 = 'final' then $4::uuid else approved_by end,
          approved_at = case when $3 = 'final' then now() else approved_at end, origin = $5 where id = $1 and org_id = $2`,

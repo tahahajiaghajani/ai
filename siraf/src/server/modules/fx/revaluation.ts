@@ -6,7 +6,7 @@
 // average cost of a currency is the revalued rate, so later profit is measured from there.
 import type { Ctx, OrgRow } from "../../context";
 import type { Queryable } from "../../db";
-import { bad, notFound } from "../../http/errors";
+import { bad, conflict, notFound } from "../../http/errors";
 import { D, isNumeric } from "@shared/money";
 import { uuidv7, isUuid } from "@shared/id";
 import { formatJalali } from "@shared/jalali";
@@ -95,6 +95,18 @@ export async function revaluationPreview(q: Queryable, org: OrgRow, input: Reval
   };
 }
 
+/**
+ * A later run measured its differences against the books including this date's run, so
+ * replacing or removing an earlier run would leave the later one wrong: go latest first.
+ */
+async function assertLatest(q: Queryable, orgId: string, date: string) {
+  const later = await q.one<{ date: string }>(
+    `select date from tz_vouchers where org_id = $1 and source_type = 'fx_revaluation' and deleted_at is null and date > $2 order by date desc limit 1`,
+    [orgId, date],
+  );
+  if (later) throw conflict(`تسعیر ارز تاریخ ${formatJalali(later.date)} بعد از این تاریخ ثبت شده است؛ ابتدا آن را حذف کنید`);
+}
+
 export async function previewRevaluation(ctx: Ctx, input: RevaluationInput) {
   ctx.need("fx", "view");
   ctx.need("reports", "view");
@@ -105,6 +117,8 @@ export async function postRevaluation(ctx: Ctx, input: RevaluationInput) {
   ctx.need("fx", "full");
   ctx.need("accounting", "edit");
   return ctx.write(async (tx) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date ?? "")) throw bad("تاریخ تسعیر معتبر نیست");
+    await assertLatest(tx, ctx.org.id, input.date);
     const p = await revaluationPreview(tx, ctx.org, input);
     if (p.missing_rates.length) throw bad(`نرخ این ارزها برای تسعیر معلوم نیست: ${p.missing_rates.join("، ")}`);
     const existing = await tx.one<{ source_id: string }>(
@@ -158,6 +172,7 @@ export async function removeRevaluation(ctx: Ctx, voucherId: string) {
       [voucherId, ctx.org.id],
     );
     if (!v) throw notFound("سند تسعیر پیدا نشد");
+    await assertLatest(tx, ctx.org.id, v.date);
     await removeAuto(tx, ctx.org.id, "fx_revaluation", v.source_id);
     await audit(tx, ctx, "delete", "fx_revaluation", v.source_id, `حذف تسعیر ${v.date}`);
     return { ok: true };

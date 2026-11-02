@@ -23,6 +23,14 @@ export interface SyncState {
   pulled: number;
 }
 
+/**
+ * Outbox entries of rows that belong to another business on this computer (one that is not the
+ * linked one): they are kept for a later link but never pushed into the linked organisation.
+ */
+const FOREIGN = `coalesce(case o.entity ${AGGREGATES.map(
+  (d) => `when '${d.entity}' then exists (select 1 from ${ident(d.table)} t where t.id = o.id and t.${d.table === "tz_orgs" ? "id" : "org_id"} <> $1)`,
+).join(" ")} else false end, false)`;
+
 export class SyncClient {
   state: SyncState = { linked: false, running: false, online: null, last_sync_at: null, last_error: null, pending: 0, failed: [], conflicts: 0, pushed: 0, pulled: 0 };
   private timer: NodeJS.Timeout | null = null;
@@ -89,15 +97,24 @@ export class SyncClient {
   }
 
   /** Check a password against the cloud (sign-in on a linked desktop) and pull the user row. */
-  async verifyCloudPassword(email: string, password: string): Promise<boolean> {
-    if (!this.state.linked) return false;
+  /**
+   * Check a password against the cloud (sign-in on this computer with an account whose password
+   * is not stored here). "wrong" when the cloud answered no, "unreachable" when it could not be
+   * asked. The check's own cloud session is closed right away.
+   */
+  async verifyCloudPassword(email: string, password: string): Promise<{ status: "ok"; user_id: string } | { status: "wrong" | "unreachable" }> {
+    if (!this.state.linked) return { status: "unreachable" };
+    let r: { token?: string; user_id?: string };
     try {
-      await this.api("/auth/login", { token: null, body: { email, password, device: { name: `بررسی ورود — ${hostname()}`, platform: "windows" } }, timeout: 15000 });
-      await this.pullAll();
-      return true;
-    } catch {
-      return false;
+      r = await this.api("/auth/login", { token: null, body: { email, password, device: { name: `بررسی ورود — ${hostname()}`, platform: "windows" } }, timeout: 15000 });
+    } catch (e) {
+      const status = (e as { status?: number }).status;
+      return { status: status && status >= 400 && status < 500 ? "wrong" : "unreachable" };
     }
+    if (r.token) await this.api("/auth/logout", { method: "POST", token: r.token, timeout: 15000 }).catch(() => undefined);
+    if (!r.user_id) return { status: "wrong" };
+    await this.pullAll().catch((e) => this.o.log.warn("pull after a cloud sign-in failed", String((e as Error).message ?? e)));
+    return { status: "ok", user_id: r.user_id };
   }
 
   async link(input: { url: string; email: string; password: string; orgId?: string; direction: "download" | "upload" }) {
@@ -156,16 +173,23 @@ export class SyncClient {
   }
 
   async refreshPending() {
-    const r = await this.o.db.one<{ n: number }>(`select count(*)::int as n from tz_outbox`);
+    const org = this.o.config.cloud.org_id;
+    if (!org) {
+      this.state.pending = 0;
+      this.state.failed = [];
+      return;
+    }
+    const r = await this.o.db.one<{ n: number }>(`select count(*)::int as n from tz_outbox o where not ${FOREIGN}`, [org]);
     this.state.pending = r?.n ?? 0;
-    this.state.failed = await this.o.db.query(`select entity, id, last_error as error from tz_outbox where attempts >= 5 order by changed_at limit 50`);
+    this.state.failed = await this.o.db.query(`select entity, id, last_error as error from tz_outbox o where attempts >= 5 and not ${FOREIGN} order by changed_at limit 50`, [org]);
   }
 
   async push(): Promise<number> {
     let total = 0;
     for (let round = 0; round < 50; round++) {
       const queued = await this.o.db.query<{ entity: string; id: string; changed_at: string }>(
-        `select entity, id, changed_at from tz_outbox where attempts < 5 order by changed_at limit 200`,
+        `select entity, id, changed_at from tz_outbox o where attempts < 5 and not ${FOREIGN} order by changed_at limit 200`,
+        [this.o.config.cloud.org_id],
       );
       if (!queued.length) break;
       const aggregates: WireAggregate[] = [];
@@ -179,7 +203,7 @@ export class SyncClient {
       const found = new Set(aggregates.map((a) => `${a.entity}:${a.id}`));
       for (const q of queued) if (!found.has(`${q.entity}:${q.id}`)) await this.o.db.query(`delete from tz_outbox where entity = $1 and id = $2`, [q.entity, q.id]);
       if (!aggregates.length) continue;
-      const res = await this.api<{ results: { entity: string; id: string; status: string; rev?: number; message?: string; renumbered?: { column: string; to: unknown } }[] }>(
+      const res = await this.api<{ results: { entity: string; id: string; status: string; rev?: number; message?: string; renumbered?: { column: string; to: unknown }; aggregate?: WireAggregate }[] }>(
         "/sync/push",
         { body: { org_id: this.o.config.cloud.org_id, device_id: this.o.config.device_id, protocol: SYNC_PROTOCOL, aggregates } },
       );
@@ -194,8 +218,16 @@ export class SyncClient {
             await tx.query(`update ${ident(def.table)} set rev = $2${extra} where id = $1`, r.renumbered ? [r.id, r.rev ?? 0, r.renumbered.to] : [r.id, r.rev ?? 0]);
             await tx.query(`delete from tz_outbox where entity = $1 and id = $2 and changed_at <= $3`, [r.entity, r.id, sentAt.get(key)]);
             total++;
+          } else if (r.status === "conflict" && def) {
+            this.state.conflicts++;
+            // take the cloud's winning copy now: a pull may already have moved past its revision
+            // (it skips aggregates waiting in the outbox). A newer local edit is pushed again.
+            const newer = await tx.one(`select 1 from tz_outbox where entity = $1 and id = $2 and changed_at > $3`, [r.entity, r.id, sentAt.get(key)]);
+            if (!newer) {
+              if (r.aggregate) await writeAggregate(tx, def, r.aggregate, this.o.config.cloud.org_id!, "local-yields");
+              await tx.query(`delete from tz_outbox where entity = $1 and id = $2`, [r.entity, r.id]);
+            }
           } else if (r.status === "conflict" || r.status === "skipped") {
-            if (r.status === "conflict") this.state.conflicts++;
             await tx.query(`delete from tz_outbox where entity = $1 and id = $2`, [r.entity, r.id]);
           } else {
             await tx.query(`update tz_outbox set attempts = attempts + 1, last_error = $3 where entity = $1 and id = $2`, [r.entity, r.id, r.message ?? "خطا"]);
@@ -210,6 +242,12 @@ export class SyncClient {
 
   async pullAll(): Promise<number> {
     let count = 0;
+    if (!(await this.kvGet<boolean>("sync.users_v2", false))) {
+      // once after the update: read the members' accounts again, so that password hashes an
+      // earlier version received for accounts this device may not hold are dropped
+      await this.kvSet("sync.user_cursor", 0);
+      await this.kvSet("sync.users_v2", true);
+    }
     for (let round = 0; round < 10000; round++) {
       const cursor = await this.kvGet<number>("sync.cursor", 0);
       const userCursor = await this.kvGet<number>("sync.user_cursor", 0);
@@ -249,11 +287,15 @@ export class SyncClient {
       await tx.query(`update tz_org_members set user_id = $2 where user_id = $1 and not exists (select 1 from tz_org_members m2 where m2.user_id = $2 and m2.org_id = tz_org_members.org_id)`, [local.id, u.id]);
       return;
     }
+    // The cloud shares a password hash only with devices whose user could set that password
+    // anyway; for any other account it says so (`password_withheld`) and a hash kept here from an
+    // earlier version or an earlier sign-in is dropped: that person signs in through the cloud.
+    const hash = u.password_withheld ? "excluded.password_hash" : "coalesce(excluded.password_hash, tz_users.password_hash)";
     await tx.query(
       `insert into tz_users (id, email, full_name, mobile, password_hash, disabled, prefs, rev, created_at, updated_at)
        values ($1, $2, $3, $4, $5, $6, coalesce($7::jsonb, '{}'::jsonb), $8, $9, $10)
        on conflict (id) do update set email = excluded.email, full_name = excluded.full_name, mobile = excluded.mobile,
-         password_hash = coalesce(excluded.password_hash, tz_users.password_hash), disabled = excluded.disabled, rev = excluded.rev, updated_at = excluded.updated_at`,
+         password_hash = ${hash}, disabled = excluded.disabled, rev = excluded.rev, updated_at = excluded.updated_at`,
       [u.id, u.email, u.full_name, u.mobile ?? null, u.password_hash ?? null, !!u.disabled, u.prefs ? JSON.stringify(u.prefs) : null, u.rev ?? 0, u.created_at ?? new Date().toISOString(), u.updated_at ?? new Date().toISOString()],
     );
   }

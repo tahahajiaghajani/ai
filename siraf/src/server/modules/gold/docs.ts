@@ -19,7 +19,7 @@ import {
 } from "./pricing";
 import { priceEnv } from "./settings";
 import { latestRate, type RateRow } from "./rates";
-import { normalizeTag, type CategoryRow, type GoldItemRow } from "./items";
+import { assertCoinStock, normalizeTag, type CategoryRow, type GoldItemRow } from "./items";
 import { applyDoc, settleDue, unapplyDoc, type DocRow, type LineRow, type Settle, type SettleMoney } from "./posting";
 
 // ---------------------------------------------------------------- input
@@ -436,10 +436,12 @@ export async function updateDoc(ctx: Ctx, id: string, input: DocInput) {
   return ctx.write(async (tx) => {
     const prev = await loadDocRow(tx, ctx.org.id, id);
     if (prev.kind !== input.kind) throw bad("نوع سند قابل تغییر نیست");
+    // documents of a closed fiscal year stay as they are
+    if (prev.status === "posted") await fiscalYearFor(tx, ctx.org.id, prev.date);
     const status = input.status ?? prev.status;
     if (status === "cancelled") throw conflict("سند باطل‌شده قابل ویرایش نیست؛ ابتدا آن را دوباره ثبت یا پیش‌نویس کنید");
     // undo the old posting first so its pieces are free again (its voucher is replaced in place)
-    if (prev.status === "posted") await unapplyDoc(tx, ctx, prev, { keepVoucher: status === "posted" });
+    const undone = prev.status === "posted" ? await unapplyDoc(tx, ctx, prev, { keepVoucher: status === "posted" }) : null;
     const p = await prepare(tx, ctx, input, id);
     const no = prev.fiscal_year_id === p.header.fiscal_year_id ? prev.no : await nextNo(tx, "tz_gold_docs", ctx.org.id, p.header.fiscal_year_id, input.kind);
     await tx.query(`delete from tz_gold_lines where doc_id = $1`, [id]);
@@ -447,6 +449,8 @@ export async function updateDoc(ctx: Ctx, id: string, input: DocInput) {
     await updateRow(tx, "tz_gold_docs", { id, org_id: ctx.org.id }, { ...p.header, no, status, origin: ctx.cfg.origin });
     let voucherId: string | null = null;
     if (status === "posted") voucherId = await applyDoc(tx, ctx, await loadDocRow(tx, ctx.org.id, id), lines);
+    // the old posting's coins (perhaps on an earlier date) must still cover the later sales
+    if (undone && status === "posted") await assertCoinStock(tx, ctx.org.id, undone.coinItems, prev.date < input.date ? prev.date : input.date);
     await updateRow(tx, "tz_gold_docs", { id, org_id: ctx.org.id }, { voucher_id: voucherId, origin: ctx.cfg.origin });
     await audit(tx, ctx, "update", "gold_doc", id, summary(input.kind, no));
     return readDoc(tx, ctx.org.id, id);
@@ -475,6 +479,7 @@ export async function cancelDoc(ctx: Ctx, id: string) {
   return ctx.write(async (tx) => {
     const doc = await loadDocRow(tx, ctx.org.id, id);
     if (doc.status !== "posted") throw conflict("فقط سند ثبت‌شده باطل می‌شود");
+    await fiscalYearFor(tx, ctx.org.id, doc.date); // documents of a closed year stay as they are
     await unapplyDoc(tx, ctx, doc);
     await updateRow(tx, "tz_gold_docs", { id, org_id: ctx.org.id }, { status: "cancelled", voucher_id: null, origin: ctx.cfg.origin });
     await audit(tx, ctx, "cancel", "gold_doc", id, summary(doc.kind, doc.no));
@@ -486,7 +491,10 @@ export async function deleteDoc(ctx: Ctx, id: string) {
   ctx.need("gold", "full");
   return ctx.write(async (tx) => {
     const doc = await loadDocRow(tx, ctx.org.id, id);
-    if (doc.status === "posted") await unapplyDoc(tx, ctx, doc);
+    if (doc.status === "posted") {
+      await fiscalYearFor(tx, ctx.org.id, doc.date); // documents of a closed year stay as they are
+      await unapplyDoc(tx, ctx, doc);
+    }
     await updateRow(tx, "tz_gold_docs", { id, org_id: ctx.org.id }, { deleted_at: new Date().toISOString(), voucher_id: null, origin: ctx.cfg.origin });
     await audit(tx, ctx, "delete", "gold_doc", id, summary(doc.kind, doc.no));
     return { ok: true };

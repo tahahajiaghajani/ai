@@ -113,7 +113,8 @@ export function priceJewelry(input: JewelryPriceInput): JewelryPrice {
   const goldR = r(gold);
   const wageR = r(wage);
   const profitR = r(profit);
-  const discountR = r(discount);
+  // capped again after rounding: a rounded-up discount must not reach into the gold value
+  const discountR = Decimal_min(D(r(discount)), D(wageR).plus(profitR)).toString();
   const taxR = r(tax);
   const stoneR = r(stone);
   const total = D(goldR).plus(wageR).plus(profitR).minus(discountR).plus(taxR).plus(stoneR);

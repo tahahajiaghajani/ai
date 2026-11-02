@@ -2,7 +2,7 @@
 // Starts the local server (embedded PostgreSQL + API + UI) in a utility process and shows it in
 // a window. In "client" mode it opens the server of another computer of the office network.
 import { app, BrowserWindow, utilityProcess, ipcMain, shell, dialog, Menu, Tray, nativeImage, nativeTheme, type UtilityProcess } from "electron";
-import { join } from "node:path";
+import { join, isAbsolute } from "node:path";
 import http from "node:http";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync, statSync, renameSync } from "node:fs";
 
@@ -240,6 +240,31 @@ function bootStatus(): { text: string; tau: number } {
   return { text: "باز کردن دفتر…", tau: 2.4 };
 }
 
+/** Same origin as the server the window shows (not a prefix test: http://127.0.0.1:3939@evil.example or :39390 pass that). */
+function isAppUrl(target: string): boolean {
+  try {
+    return !!serverUrl && new URL(target).origin === new URL(serverUrl).origin;
+  } catch {
+    return false;
+  }
+}
+
+/** Only web and mail links go to the system: file:, smb:, ms-… handlers can run programs. */
+function openExternalSafe(target: string) {
+  try {
+    const u = new URL(target);
+    if (u.protocol === "http:" || u.protocol === "https:" || u.protocol === "mailto:") void shell.openExternal(u.href);
+  } catch {
+    /* not a URL */
+  }
+}
+
+/** IPC from the app's own page only (a frame of another origin gets nothing from the main process). */
+function fromApp(e: { senderFrame?: { url: string } | null }): boolean {
+  const url = e.senderFrame?.url;
+  return !!url && isAppUrl(url);
+}
+
 function createWindow(url: string) {
   win = new BrowserWindow({
     width: 1366,
@@ -269,15 +294,16 @@ function createWindow(url: string) {
       win?.show();
     });
   });
-  // links to other sites open in the default browser
+  // links to other sites open in the default browser; the window itself (which carries the
+  // bridge of the preload) only ever shows the app's own server
   win.webContents.setWindowOpenHandler(({ url: target }) => {
-    if (!target.startsWith(serverUrl)) shell.openExternal(target);
+    if (!isAppUrl(target)) openExternalSafe(target);
     return { action: "deny" };
   });
   win.webContents.on("will-navigate", (e, target) => {
-    if (!target.startsWith(serverUrl) && !target.startsWith("data:")) {
+    if (!isAppUrl(target)) {
       e.preventDefault();
-      shell.openExternal(target);
+      openExternalSafe(target);
     }
   });
   win.on("close", (e) => {
@@ -356,6 +382,7 @@ function registerIpc() {
     }
   });
   ipcMain.handle("taraz:print", async (e, opts: { silent?: boolean; printer?: string; landscape?: boolean; pageSize?: string } = {}) => {
+    if (!fromApp(e)) throw new Error("forbidden");
     const wc = e.sender;
     return new Promise<void>((resolve, reject) =>
       wc.print({ silent: !!opts.silent, deviceName: opts.printer, landscape: !!opts.landscape, pageSize: (opts.pageSize as any) || "A4", printBackground: true }, (ok, reason) =>
@@ -363,23 +390,52 @@ function registerIpc() {
       ),
     );
   });
-  ipcMain.handle("taraz:printers", async (e) => (await e.sender.getPrintersAsync()).map((p) => ({ name: p.name, isDefault: (p as any).isDefault ?? false })));
+  ipcMain.handle("taraz:printers", async (e) => {
+    if (!fromApp(e)) throw new Error("forbidden");
+    return (await e.sender.getPrintersAsync()).map((p) => ({ name: p.name, isDefault: (p as any).isDefault ?? false }));
+  });
   ipcMain.handle("taraz:save-pdf", async (e, name: string) => {
-    const r = await dialog.showSaveDialog({ defaultPath: `${name || "siraf"}.pdf`, filters: [{ name: "PDF", extensions: ["pdf"] }] });
+    if (!fromApp(e)) throw new Error("forbidden");
+    // a suggested file name only, never a path
+    const safe = String(name ?? "").replace(/[\\/:*?"<>|\u0000-\u001f]+/g, " ").trim().slice(0, 120) || "siraf";
+    const r = await dialog.showSaveDialog({ defaultPath: `${safe}.pdf`, filters: [{ name: "PDF", extensions: ["pdf"] }] });
     if (r.canceled || !r.filePath) return null;
     const pdf = await e.sender.printToPDF({ printBackground: true, pageSize: "A4" });
     writeFileSync(r.filePath, pdf);
     return r.filePath;
   });
-  ipcMain.handle("taraz:open-path", async (_e, p: string) => {
+  // opens a folder (the backups folder) in Explorer; shell.openPath on a file would run it
+  ipcMain.handle("taraz:open-path", async (e, p: string) => {
+    // local folders only: a network path (\\host\share) would hand the Windows sign-in to that host
+    if (!fromApp(e) || typeof p !== "string" || !isAbsolute(p) || /^[\\/]{2}/.test(p)) throw new Error("forbidden");
+    let dir = false;
+    try {
+      dir = statSync(p).isDirectory();
+    } catch {
+      dir = false;
+    }
+    if (!dir) throw new Error("فقط پوشه باز می‌شود");
     await shell.openPath(p);
   });
-  ipcMain.handle("taraz:set-server", async (_e, url: string | null) => {
-    writeClientServer(url);
+  ipcMain.handle("taraz:set-server", async (e, url: string | null) => {
+    if (!fromApp(e)) throw new Error("forbidden");
+    let next: string | null = null;
+    if (url !== null && url !== undefined && url !== "") {
+      let u: URL;
+      try {
+        u = new URL(String(url));
+      } catch {
+        throw new Error("نشانی سرور درست نیست");
+      }
+      if (u.protocol !== "http:" && u.protocol !== "https:") throw new Error("نشانی سرور درست نیست");
+      next = u.origin;
+    }
+    writeClientServer(next);
     app.relaunch();
     await quit();
   });
-  ipcMain.handle("taraz:relaunch", async () => {
+  ipcMain.handle("taraz:relaunch", async (e) => {
+    if (!fromApp(e)) throw new Error("forbidden");
     app.relaunch();
     await quit();
   });

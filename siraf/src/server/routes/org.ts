@@ -40,6 +40,16 @@ orgsRoutes.post("/", async (c) => {
     city: z.string().trim().max(80).nullish(),
     address: z.string().trim().max(400).nullish(),
   }));
+  // On the Windows app, owning any business makes one an administrator of the installation
+  // (backups, restore, LAN, cloud link — see routes/local.ts); only existing administrators add
+  // businesses there, otherwise any member could promote themselves.
+  if (cfg.mode === "desktop" && !c.get("user").is_platform_admin) {
+    const admin = await cfg.db.one(
+      `select 1 from tz_org_members where user_id = $1 and role in ('owner','admin') and is_active and deleted_at is null limit 1`,
+      [c.get("user").id],
+    );
+    if (!admin) throw forbidden("کسب‌وکار جدید را مدیر این رایانه اضافه می‌کند");
+  }
   const r = await createOrg(cfg.db, c.get("user").id, input as never, cfg.origin);
   return c.json({ id: r.id });
 });
@@ -220,6 +230,16 @@ orgRoutes.post("/members/:id/password", async (c) => {
   const m = await ctx.db.one<{ user_id: string; role: Role }>(`select user_id, role from tz_org_members where id = $1 and org_id = $2 and deleted_at is null`, [c.req.param("id"), ctx.org.id]);
   if (!m) throw notFound("عضو پیدا نشد");
   if (m.role === "owner" && ctx.member.role !== "owner" && !ctx.user.is_platform_admin) throw forbidden();
+  // the account is global: a business may only reset it when the person works for no other
+  // business (anyone can add an existing account to their own business by its email)
+  if (!ctx.user.is_platform_admin) {
+    const elsewhere = await ctx.db.one(
+      `select 1 from tz_users u where u.id = $1 and (u.is_platform_admin or exists (
+         select 1 from tz_org_members o where o.user_id = u.id and o.org_id <> $2 and o.deleted_at is null))`,
+      [m.user_id, ctx.org.id],
+    );
+    if (elsewhere) throw forbidden("این کاربر در کسب‌وکار دیگری هم عضو است؛ رمز را خودش از «حساب من» یا با کد بازیابی عوض کند");
+  }
   const pw = input.password || readableCode(3, 4);
   const problem = passwordProblem(pw);
   if (problem) throw bad(problem);

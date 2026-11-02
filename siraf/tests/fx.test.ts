@@ -2,7 +2,7 @@
 // remittances out/in with their status machine, revaluation, market rates, wallet balances on
 // TRON/EVM/BTC (network stubbed) and reports.
 import { describe, it, expect, beforeAll } from "vitest";
-import { makeServer, Client, signupWithOrg } from "./helpers";
+import { makeServer, Client, signupWithOrg, accountId } from "./helpers";
 import type { Db } from "@server/db";
 import { D } from "@shared/money";
 
@@ -553,5 +553,201 @@ describe("fx: market rates for a toman business (Nobitex, custom source, refresh
     const board = await c2.get(`/o/${org2}/fx/rates`);
     expect(board.currencies.find((x: { code: string }) => x.code === "EUR").rate.source).toBe("manual");
     eq(board.currencies.find((x: { code: string }) => x.code === "BTC").rate.mid, 8_200_000_000);
+  });
+});
+
+describe("fx: review fixes (SSRF, revaluation order, chain balances, fees)", () => {
+  let c4: Client;
+  let db4: Db;
+  let org4: string;
+  const k: Record<string, string> = {};
+  const p = (x: string) => `/o/${org4}/fx${x}`;
+  const TRON2 = "TWd4WrZ9wn84f5x1hZhL4DHvk738ns5jwb";
+  const USDD = "TPYmHEhy5n8TCEfYGqW2rPxsghSfzghPDn";
+  const followed: string[] = [];
+  async function fetch4(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+    const url = String(input instanceof Request ? input.url : input);
+    if (url === "https://prices.example.com/usd") {
+      // a public host that redirects to the cloud metadata service: a fetch that follows
+      // redirects would read the internal answer
+      if (init?.redirect === "manual" || init?.redirect === "error") {
+        if (init.redirect === "error") throw new TypeError("redirect");
+        return new Response(null, { status: 302, headers: { location: "http://169.254.169.254/latest/meta-data/" } });
+      }
+      followed.push(url);
+      return json({ usd: "999999" });
+    }
+    if (url === `https://api.trongrid.io/v1/accounts/${TRON2}`) {
+      return json({ success: true, data: [{ balance: 1000000, trc20: [{ [USDD]: "1500000000000000000000" }] }] });
+    }
+    if (url === "https://api.trongrid.io/wallet/triggerconstantcontract") {
+      const b = JSON.parse(String(init?.body ?? "{}"));
+      if (b.contract_address === USDD && b.function_selector === "decimals()") {
+        return json({ result: { result: true }, constant_result: ["0000000000000000000000000000000000000000000000000000000000000012"] });
+      }
+      return json({ result: { result: false } });
+    }
+    return stubFetch(input, init);
+  }
+  async function vlines(voucherId: string) {
+    return db4.query<{ key: string; debit: string; credit: string; currency_id: string | null; fx_debit: string; fx_credit: string }>(
+      `select a.system_key as key, l.debit, l.credit, l.currency_id, l.fx_debit, l.fx_credit
+       from tz_voucher_lines l join tz_accounts a on a.id = l.account_id where l.voucher_id = $1 order by l.line_no`,
+      [voucherId],
+    );
+  }
+  const d4 = (b: Record<string, unknown>, e = 200) => c4.post(p("/deals"), { date: "2026-04-01", in_method: "cash", out_method: "cash", ...b }, e);
+
+  beforeAll(async () => {
+    const s = await makeServer({ config: { fetch: fetch4 as typeof fetch } });
+    db4 = s.db;
+    c4 = new Client(s.app);
+    await c4.post("/auth/signup", { email: "fx4@example.com", password: "s3cret-pass", full_name: "صراف" });
+    org4 = (await c4.post<{ id: string }>("/orgs", { name: "صرافی بازبینی", business_kind: "exchange", modules: ["fx"], base_currency: "IRR", fiscal_year: 1405 })).id;
+    for (const x of (await c4.get(p("/rates"))).currencies) k[x.code] = x.id;
+    await c4.post(p("/rates"), { at: "2026-03-25T08:00:00Z", rates: [
+      { currency_id: k.USD, buy: "1000000", sell: "1020000" },
+      { currency_id: k.AED, buy: "270000", sell: "280000" },
+      { currency_id: k.EUR, buy: "1150000", sell: "1170000" },
+    ] });
+  });
+
+  it("refuses custom price URLs that reach internal hosts through IPv6-mapped addresses or a trailing dot", async () => {
+    for (const url of ["https://[::ffff:127.0.0.1]/p", "https://[::ffff:a9fe:a9fe]/latest", "https://[64:ff9b::a9fe:a9fe]/x", "https://localhost./p", "https://metadata.google.internal./x"]) {
+      const r = await c4.put(p("/settings"), { custom: [{ code: "USD", url, path: "x" }] }, 400);
+      expect(r.error.message).toContain("داخلی");
+    }
+  });
+
+  it("does not follow a custom price source's redirect", async () => {
+    await c4.put(p("/settings"), { providers: ["custom", "open_er"], custom: [{ code: "USD", url: "https://prices.example.com/usd", path: "usd", unit: "base" }] });
+    const r = await c4.post(p("/rates/refresh"), { currency_ids: [k.USD] });
+    expect(followed).toHaveLength(0);
+    expect(r.usd_source).not.toBe("custom");
+    expect(r.errors.join(" ")).toContain("منبع سفارشی");
+    await c4.put(p("/settings"), { providers: ["kucoin", "okx", "open_er"], custom: [] });
+  });
+
+  it("refuses to remove or re-post a revaluation when a later one exists", async () => {
+    await d4({ date: "2026-04-03", in_currency_id: k.USD, in_amount: "100", out_currency_id: k.IRR, rate: "1000000" });
+    await c4.post(p("/rates"), { at: "2026-04-30T08:00:00Z", rates: [{ currency_id: k.USD, buy: "1090000", sell: "1110000" }] });
+    await c4.post(p("/rates"), { at: "2026-05-31T08:00:00Z", rates: [{ currency_id: k.USD, buy: "1190000", sell: "1210000" }] });
+    const first = await c4.post(p("/revaluation"), { date: "2026-04-30" });
+    const second = await c4.post(p("/revaluation"), { date: "2026-05-31" });
+    expect(second.voucher_id).toBeTruthy();
+    await c4.del(p(`/revaluations/${first.voucher_id}`), 409);
+    await c4.post(p("/revaluation"), { date: "2026-04-30" }, 409);
+    await c4.post(p("/revaluation"), { date: "2026-04-15" }, 409);
+    // the latest run still brings the books to the market
+    const pos = await c4.get(p("/reports/positions?date=2026-05-31"));
+    const usd = pos.rows.find((r: { code: string }) => r.code === "USD");
+    expect(D(usd.book_value).toFixed()).toBe("120000000");
+    // undo in order: latest first
+    await c4.del(p(`/revaluations/${second.voucher_id}`));
+    await c4.del(p(`/revaluations/${first.voucher_id}`));
+    expect((await c4.get(p("/revaluations"))).rows).toHaveLength(0);
+  });
+
+  it("buys crypto into a wallet with the fee in rial taken from the payout", async () => {
+    const w = (await c4.post(`/o/${org4}/data/wallet`, { name: "تتر", currency_id: k.USDT, chain: "TRON", address: TRON2 })).row;
+    const b = await d4({ date: "2026-04-04", in_currency_id: k.USDT, in_amount: "100", in_method: "wallet", in_ref_id: w.id, out_currency_id: k.IRR, rate: "1050000", fee: "500000" });
+    expect(D(b.deal.fee_base).toFixed()).toBe("500000");
+    const ls = await vlines(b.deal.voucher_id);
+    const cash = ls.filter((l) => l.key === "cash").reduce((a, l) => a.plus(D(l.credit)).minus(D(l.debit)), D(0));
+    expect(cash.toFixed()).toBe("104500000"); // 105,000,000 paid less the 500,000 fee
+    expect(ls.find((l) => l.key === "fx_commission")!.credit).toBe("500000");
+  });
+
+  it("reads a TRC20 token's own decimals and refuses tokens on chains without tokens", async () => {
+    const cur = (await c4.post(`/o/${org4}/data/currency`, { code: "USDD", name: "یو‌اس‌دی‌دی", kind: "crypto", decimals: 2 })).row;
+    const w = (await c4.post(`/o/${org4}/data/wallet`, { name: "USDD", currency_id: cur.id, chain: "TRON", address: TRON2, token_contract: USDD })).row;
+    const r = await c4.post(p(`/wallets/${w.id}/refresh`));
+    expect(r.error).toBeNull();
+    expect(D(r.live).toFixed()).toBe("1500");
+    const bw = (await c4.post(`/o/${org4}/data/wallet`, { name: "تتر روی بیت‌کوین", currency_id: k.USDT, chain: "BTC", address: BTC_ADDR, token_contract: "x" })).row;
+    const br = await c4.post(p(`/wallets/${bw.id}/refresh`));
+    expect(br.live).toBeNull();
+    expect(br.error).toBeTruthy();
+  });
+});
+
+describe("fx: documents of a closed fiscal year stay as they are", () => {
+  let c5: Client;
+  let db5: Db;
+  let org5: string;
+  let fy1404 = "";
+  const k: Record<string, string> = {};
+  const p = (x: string) => `/o/${org5}/fx${x}`;
+  const closeYear = () => db5.query(`update tz_fiscal_years set status = 'closed' where id = $1`, [fy1404]);
+  const openYear = () => db5.query(`update tz_fiscal_years set status = 'open' where id = $1`, [fy1404]);
+  const voucher = (id: string) => db5.one<{ deleted_at: string | null; date: string; fiscal_year_id: string; total_debit: string }>(
+    `select deleted_at, date, fiscal_year_id, total_debit from tz_vouchers where id = $1`, [id]);
+
+  beforeAll(async () => {
+    const s = await makeServer({ config: { fetch: stubFetch as typeof fetch } });
+    db5 = s.db;
+    c5 = new Client(s.app);
+    await c5.post("/auth/signup", { email: "fx5@example.com", password: "s3cret-pass", full_name: "صراف" });
+    org5 = (await c5.post<{ id: string }>("/orgs", { name: "صرافی سال بسته", business_kind: "exchange", modules: ["fx"], base_currency: "IRR", fiscal_year: 1405 })).id;
+    for (const x of (await c5.get(p("/rates"))).currencies) k[x.code] = x.id;
+    fy1404 = (await c5.post(`/o/${org5}/fiscal-years`, { jalali_year: 1404 })).fiscal_year.id;
+  });
+
+  it("refuses to change a closed year's deals and remittances, and still pays an old remittance in the open year", async () => {
+    const buy = { date: "2026-03-10", in_method: "cash", out_method: "cash", in_currency_id: k.USD, in_amount: "100", out_currency_id: k.IRR, rate: "1000000" };
+    const d = (await c5.post(p("/deals"), buy)).deal;
+    const corr = (await c5.post(`/o/${org5}/data/party`, { name: "همکار دبی", roles: ["correspondent"] })).row;
+    const rem = { date: "2026-03-10", direction: "out", correspondent_id: corr.id, currency_id: k.USD, amount: "50", rate: "1020000", pay_method: "cash", sender: { name: "فرستنده" }, beneficiary: { name: "گیرنده" } };
+    const r1 = (await c5.post(p("/remittances"), rem)).remittance;
+    const r2 = (await c5.post(p("/remittances"), rem)).remittance;
+    for (const v of [d.voucher_id, r1.voucher_id, r2.voucher_id]) expect((await voucher(v))!.fiscal_year_id).toBe(fy1404);
+    await closeYear();
+    try {
+      await c5.post(p(`/deals/${d.id}/cancel`), { reason: "اشتباه" }, 400);
+      await c5.del(p(`/deals/${d.id}`), 400);
+      await c5.put(p(`/deals/${d.id}`), { ...buy, date: "2026-04-05" }, 400); // moving it out of the closed year
+      // a remittance of the closed year moves on: sent, paid and un-paid in the open year
+      const sent = (await c5.post(p(`/remittances/${r1.id}/status`), { status: "sent" })).remittance;
+      expect(sent.voucher_id).toBe(r1.voucher_id);
+      const paid = (await c5.post(p(`/remittances/${r1.id}/status`), { status: "paid", date: "2026-04-05" })).remittance;
+      expect(paid.status).toBe("paid");
+      expect((await voucher(paid.paid_voucher_id))!.fiscal_year_id).not.toBe(fy1404);
+      const unpaid = (await c5.post(p(`/remittances/${r1.id}/status`), { status: "sent" })).remittance;
+      expect(unpaid.paid_voucher_id).toBeNull();
+      // …but cancelling or deleting one would remove a voucher of the closed year
+      await c5.post(p(`/remittances/${r2.id}/status`), { status: "cancelled" }, 400);
+      await c5.del(p(`/remittances/${r2.id}`), 400);
+      for (const v of [d.voucher_id, r1.voucher_id, r2.voucher_id]) {
+        const row = (await voucher(v))!;
+        expect(row.deleted_at).toBeNull();
+        expect(row.date).toBe("2026-03-10");
+        expect(row.fiscal_year_id).toBe(fy1404);
+      }
+      expect((await c5.get(p(`/deals/${d.id}`))).deal.status).toBe("posted");
+      expect((await c5.get(p(`/remittances/${r2.id}`))).remittance.status).toBe("pending");
+    } finally {
+      await openYear();
+    }
+  });
+
+  it("refuses to delete, move or un-post a manual voucher of a closed year", async () => {
+    const cash = await accountId(db5, org5, "cash");
+    const capital = await accountId(db5, org5, "capital");
+    const box = await db5.one<{ detail_id: string }>(`select detail_id from tz_cash_boxes where org_id = $1`, [org5]);
+    const lines = [{ account_id: cash, detail_id: box!.detail_id, debit: "500" }, { account_id: capital, credit: "500" }];
+    const v = (await c5.post(`/o/${org5}/accounting/vouchers`, { date: "2026-03-12", description: "سرمایه", lines })).voucher;
+    await closeYear();
+    try {
+      await c5.del(`/o/${org5}/accounting/vouchers/${v.id}`, 400);
+      await c5.put(`/o/${org5}/accounting/vouchers/${v.id}`, { date: "2026-04-12", description: "جابه‌جا", lines }, 400);
+      await c5.post(`/o/${org5}/accounting/vouchers/${v.id}/status`, { status: "draft" }, 400);
+      await c5.post(`/o/${org5}/accounting/vouchers/${v.id}/status`, { status: "final" }); // finalising changes no balance
+      const row = (await voucher(v.id))!;
+      expect(row.deleted_at).toBeNull();
+      expect(row.date).toBe("2026-03-12");
+      expect(D(row.total_debit).toNumber()).toBe(500);
+    } finally {
+      await openYear();
+    }
   });
 });

@@ -24,6 +24,15 @@ export async function fiscalYearFor(q: Queryable, orgId: string, date: string, o
   return fy;
 }
 
+/**
+ * A voucher of a closed fiscal year stays as it is: no edit, move, status change or delete, from
+ * any document or screen. Corrections of a closed year go into a new voucher in the open year.
+ */
+export async function assertYearOpen(q: Queryable, orgId: string, fiscalYearId: string): Promise<void> {
+  const fy = await q.one<{ title: string; status: string }>(`select title, status from tz_fiscal_years where id = $1 and org_id = $2`, [fiscalYearId, orgId]);
+  if (fy?.status === "closed") throw bad(`سال مالی ${fy.title} بسته شده است و سندهای آن تغییر نمی‌کنند؛ اصلاح را با سندی در سال مالی باز ثبت کنید`);
+}
+
 export async function listFiscalYears(q: Queryable, orgId: string): Promise<FiscalYear[]> {
   return q.query<FiscalYear>(
     `select id, org_id, title, start_date, end_date, status from tz_fiscal_years

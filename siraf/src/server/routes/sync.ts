@@ -48,13 +48,18 @@ syncRoutes.get("/status", async (c) => {
 syncRoutes.post("/register", async (c) => {
   const input = await body(c, z.object({ org_id: z.string(), device_id: z.string().uuid().optional(), name: z.string().max(120), platform: z.string().max(40).optional(), app_version: z.string().max(40).optional() }));
   const ctx = await orgCtx(c, input.org_id);
-  const id = input.device_id ?? uuidv7();
-  await ctx.db.query(
-    `insert into tz_devices (id, org_id, user_id, name, platform, app_version) values ($1, $2, $3, $4, $5, $6)
-     on conflict (id) do update set name = excluded.name, platform = excluded.platform, app_version = excluded.app_version, revoked_at = null`,
-    [id, ctx.org.id, ctx.user.id, input.name, input.platform ?? null, input.app_version ?? null],
-  );
-  return c.json({ device_id: id, protocol: SYNC_PROTOCOL });
+  // A device id is no secret (it rides along as the origin of synced rows): an id registered by
+  // another account or for another business gets a fresh one instead of taking that record over.
+  const save = (id: string) =>
+    ctx.db.one<{ id: string }>(
+      `insert into tz_devices (id, org_id, user_id, name, platform, app_version) values ($1, $2, $3, $4, $5, $6)
+       on conflict (id) do update set name = excluded.name, platform = excluded.platform, app_version = excluded.app_version, revoked_at = null
+       where tz_devices.org_id = excluded.org_id and tz_devices.user_id = excluded.user_id
+       returning id`,
+      [id, ctx.org.id, ctx.user.id, input.name, input.platform ?? null, input.app_version ?? null],
+    );
+  const row = (input.device_id ? await save(input.device_id) : null) ?? (await save(uuidv7()));
+  return c.json({ device_id: row!.id, protocol: SYNC_PROTOCOL });
 });
 
 /** Create the organisation in the cloud from a desktop that worked alone so far ("upload"). */
@@ -97,7 +102,7 @@ syncRoutes.post("/push", async (c) => {
   const input = await body(c, pushSchema);
   if (input.protocol !== SYNC_PROTOCOL) throw bad("نسخه‌ی برنامه‌ی ویندوز با سرور هم‌خوان نیست؛ برنامه را به‌روز کنید");
   const ctx = await orgCtx(c, input.org_id);
-  const results: { entity: string; id: string; status: "ok" | "conflict" | "error" | "skipped"; rev?: number; message?: string; renumbered?: unknown }[] = [];
+  const results: { entity: string; id: string; status: "ok" | "conflict" | "error" | "skipped"; rev?: number; message?: string; renumbered?: unknown; aggregate?: WireAggregate }[] = [];
   const list = [...input.aggregates].sort((a, b) => (BY_ENTITY.get(a.entity)?.order ?? 99) - (BY_ENTITY.get(b.entity)?.order ?? 99));
   await ctx.write(async (tx) => {
     await tx.query("set local taraz.applying = 'on'");
@@ -119,7 +124,7 @@ syncRoutes.post("/push", async (c) => {
         results.push({ entity: agg.entity, id: agg.id, status: "error", message: "دسترسی ویرایش این بخش را ندارید" });
         continue;
       }
-      if (def.entity === "org" && agg.id !== ctx.org.id) {
+      if (def.entity === "org" ? agg.id !== ctx.org.id : agg.row.org_id != null && agg.row.org_id !== ctx.org.id) {
         results.push({ entity: agg.entity, id: agg.id, status: "error", message: "سازمان نامعتبر" });
         continue;
       }
@@ -135,8 +140,18 @@ syncRoutes.post("/push", async (c) => {
         results.push({ entity: agg.entity, id: agg.id, status: "error", message: "شناسه متعلق به سازمان دیگری است" });
         continue;
       }
+      if (def.entity === "member" && ctx.member.role !== "owner" && !ctx.user.is_platform_admin) {
+        // as in the members API: only an owner gives or changes the owner role
+        const was = existing ? await tx.one<{ role: string }>(`select role from tz_org_members where id = $1`, [agg.id]) : null;
+        if (agg.row.role === "owner" || was?.role === "owner") {
+          results.push({ entity: agg.entity, id: agg.id, status: "error", message: "فقط مالک می‌تواند نقش مالک را تغییر دهد" });
+          continue;
+        }
+      }
       if (existing && existing.rev > agg.base_rev && new Date(existing.updated_at).getTime() > new Date(String(agg.row.updated_at ?? 0)).getTime()) {
-        results.push({ entity: agg.entity, id: agg.id, status: "conflict", rev: existing.rev });
+        // the cloud copy wins; hand it back, since the desktop may already have pulled past it
+        const [winner] = await readAggregates(tx, def, [agg.id]);
+        results.push({ entity: agg.entity, id: agg.id, status: "conflict", rev: existing.rev, aggregate: winner });
         continue;
       }
       try {
@@ -168,7 +183,7 @@ syncRoutes.post("/push", async (c) => {
       }
     }
   });
-  await ctx.db.query(`update tz_devices set last_push_at = now() where id = $1`, [input.device_id]);
+  await ctx.db.query(`update tz_devices set last_push_at = now() where id = $1 and org_id = $2 and user_id = $3`, [input.device_id, ctx.org.id, ctx.user.id]);
   const head = await ctx.db.one<{ rev: number }>(`select rev from tz_org_sync where org_id = $1`, [ctx.org.id]);
   return c.json({ results, head: head?.rev ?? 0 });
 });
@@ -190,17 +205,44 @@ syncRoutes.get("/pull", async (c) => {
       if (ids.length) aggregates.push(...(await readAggregates(ctx.db, def, ids)));
     }
   }
-  const users = await ctx.db.query<{ rev: number }>(
-    `select id, email, full_name, mobile, password_hash, disabled, prefs, rev, created_at, updated_at from tz_users
-     where rev > $2 and id in (select user_id from tz_org_members where org_id = $1) order by rev limit 500`,
-    [ctx.org.id, userCursor],
+  // The members' accounts come along so that they can sign in on the desktop. A password hash
+  // only goes where the caller could set that password anyway — the rule of «reset password» on
+  // the members page: their own account; for a member who manages users, the accounts that work
+  // for this business alone (an owner's only to an owner); everything for a platform admin.
+  // Anyone else signs in on that desktop through the cloud (`password_withheld`), and contact
+  // details of other members need the right to see users.
+  const share = [ctx.org.id, ctx.user.id, ctx.can("users", "view"), !!ctx.user.is_platform_admin, ctx.can("users", "full"), ctx.member.role === "owner"];
+  const userCols = `u.id, u.email, u.full_name, case when u.id = $2 or $3::boolean then u.mobile end as mobile,
+    case when s.ok then u.password_hash end as password_hash, not s.ok as password_withheld,
+    u.disabled, u.prefs, u.rev, u.created_at, u.updated_at`;
+  const shareJoin = `cross join lateral (select (u.id = $2 or $4::boolean or ($5::boolean and not u.is_platform_admin
+      and not exists (select 1 from tz_org_members o where o.user_id = u.id and o.org_id <> $1 and o.deleted_at is null)
+      and ($6::boolean or not exists (select 1 from tz_org_members m where m.user_id = u.id and m.org_id = $1 and m.role = 'owner' and m.deleted_at is null)))) as ok) s`;
+  const users = await ctx.db.query<{ id: string; rev: number }>(
+    `select ${userCols} from tz_users u ${shareJoin}
+     where u.rev > $7 and u.id in (select user_id from tz_org_members where org_id = $1) order by u.rev limit 500`,
+    [...share, userCursor],
   );
-  if (q.device_id) await ctx.db.query(`update tz_devices set last_pull_at = now(), cursor = $2 where id = $1`, [q.device_id, upto]);
+  // members in this window bring their account along even when its revision is below the user
+  // cursor (an existing account added to the organisation later)
+  const joined = upto > cursor
+    ? await ctx.db.query<{ id: string; rev: number }>(
+      `select ${userCols} from tz_users u ${shareJoin}
+       where u.id in (select user_id from tz_org_members where org_id = $1 and rev > $7 and rev <= $8)`,
+      [...share, cursor, upto],
+    )
+    : [];
+  const userCursorNext = users.length ? Math.max(...users.map((u) => Number(u.rev))) : userCursor;
+  const seen = new Set(users.map((u) => u.id));
+  for (const u of joined) if (!seen.has(u.id)) users.push(u);
+  if (q.device_id && /^[0-9a-f-]{36}$/i.test(q.device_id)) {
+    await ctx.db.query(`update tz_devices set last_pull_at = now(), cursor = $2 where id = $1 and org_id = $3 and user_id = $4`, [q.device_id, upto, ctx.org.id, ctx.user.id]);
+  }
   return c.json({
     aggregates,
     users,
     cursor: upto,
-    user_cursor: users.length ? Math.max(...users.map((u) => Number(u.rev))) : userCursor,
+    user_cursor: userCursorNext,
     head,
     has_more: upto < head,
   });

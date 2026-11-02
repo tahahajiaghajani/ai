@@ -138,6 +138,39 @@ export async function deleteRate(ctx: Ctx, id: string) {
 
 class SourceError extends Error {}
 
+/** IPv4 dotted quad of an IPv4-mapped / -compatible / NAT64 IPv6 literal (::ffff:7f00:1 → 127.0.0.1). */
+function embeddedIpv4(h: string): string | null {
+  const m = /^(?:(?:0{1,4}:){0,5}(?:ffff:)?|64:ff9b::|::(?:ffff:)?)(?:(\d{1,3}(?:\.\d{1,3}){3})|([0-9a-f]{1,4}):([0-9a-f]{1,4}))$/.exec(h);
+  if (!m) return null;
+  if (m[1]) return m[1];
+  const a = parseInt(m[2], 16);
+  const b = parseInt(m[3], 16);
+  return `${a >> 8}.${a & 255}.${b >> 8}.${b & 255}`;
+}
+
+function privateIpv4(h: string): boolean {
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);
+  if (!m) return false;
+  const [a, b] = [Number(m[1]), Number(m[2])];
+  return (
+    a === 0 || a === 10 || a === 127 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) ||
+    (a === 100 && b >= 64 && b <= 127) || (a === 198 && (b === 18 || b === 19)) || a >= 224
+  );
+}
+
+function privateHost(host: string): boolean {
+  const h = host.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
+  if (h === "localhost" || h.endsWith(".localhost") || h.endsWith(".internal") || h.endsWith(".local")) return true;
+  if (h.includes(":")) {
+    // IPv6 literal (the URL parser has already normalised it)
+    if (h === "::" || h === "::1") return true;
+    if (/^(fc|fd|fe[89ab])/.test(h)) return true;
+    const v4 = embeddedIpv4(h);
+    return v4 ? privateIpv4(v4) : false;
+  }
+  return privateIpv4(h);
+}
+
 /** Only public http(s) addresses (no loopback/private networks) unless running on the desktop. */
 export function checkUrl(raw: string, desktop: boolean): URL {
   let u: URL;
@@ -147,20 +180,33 @@ export function checkUrl(raw: string, desktop: boolean): URL {
     throw bad("نشانی منبع قیمت معتبر نیست");
   }
   if (u.protocol !== "https:" && !(desktop && u.protocol === "http:")) throw bad("نشانی منبع قیمت باید با https شروع شود");
-  const h = u.hostname.toLowerCase().replace(/^\[|\]$/g, "");
-  const privateHost =
-    h === "localhost" || h.endsWith(".localhost") || h.endsWith(".internal") || h.endsWith(".local") || h === "0.0.0.0" || h === "::1" ||
-    /^127\./.test(h) || /^10\./.test(h) || /^192\.168\./.test(h) || /^169\.254\./.test(h) || /^172\.(1[6-9]|2\d|3[01])\./.test(h) ||
-    /^(fc|fd|fe80)/.test(h);
-  if (privateHost && !desktop) throw bad("منبع قیمت باید نشانی عمومی اینترنتی باشد");
+  if (!desktop && privateHost(u.hostname)) throw bad("منبع قیمت باید نشانی عمومی اینترنتی باشد");
   return u;
 }
 
 async function getJson(ctx: Ctx, url: string, timeoutMs = 10_000): Promise<unknown> {
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), timeoutMs);
+  const desktop = ctx.cfg.mode === "desktop";
   try {
-    const res = await ctx.cfg.fetch(url, { signal: ac.signal, headers: { accept: "application/json, text/plain, */*", "user-agent": "Mozilla/5.0 (Siraf accounting)" } });
+    // redirects are followed by hand so that every hop passes the same address check
+    let target = url;
+    let res: Response | null = null;
+    for (let hop = 0; ; hop++) {
+      res = await ctx.cfg.fetch(target, {
+        signal: ac.signal, redirect: "manual", headers: { accept: "application/json, text/plain, */*", "user-agent": "Mozilla/5.0 (Siraf accounting)" },
+      });
+      if (res.status < 300 || res.status >= 400) break;
+      const loc = res.headers.get("location");
+      if (!loc || hop >= 3) throw new SourceError("تغییر مسیر بیش از حد یا نامعتبر");
+      let next: URL;
+      try {
+        next = checkUrl(new URL(loc, target).toString(), desktop);
+      } catch {
+        throw new SourceError("به نشانی غیرمجاز تغییر مسیر داد");
+      }
+      target = next.toString();
+    }
     if (!res.ok) throw new SourceError(`پاسخ ${res.status}`);
     const text = await res.text();
     if (text.length > 3_000_000) throw new SourceError("پاسخ بیش از حد بزرگ است");

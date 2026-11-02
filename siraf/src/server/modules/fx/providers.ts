@@ -148,7 +148,8 @@ export function customValue(f: Fetch, src: CustomSource): Promise<string> {
   return cached(f, `custom:${src.url}`, async () => {
     const problem = safeExternalUrl(src.url);
     if (problem) throw new NetError(`منبع سفارشی ${src.code}: ${problem}`);
-    const { json } = await fetchJson(f, src.url, `منبع سفارشی ${src.code}`);
+    // never follow a redirect: it could lead past the check above to an internal address
+    const { json } = await fetchJson(f, src.url, `منبع سفارشی ${src.code}`, { redirect: "manual" });
     return JSON.stringify(json);
   }).then((text) => {
     const v = pickPath(JSON.parse(text), src.path);

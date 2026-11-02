@@ -8,6 +8,8 @@ import { bad, conflict, notFound } from "../../http/errors";
 import { D, isNumeric, normalizeDigits, type Num } from "@shared/money";
 import { weight750 } from "@shared/gold";
 import { uuidv7, isUuid } from "@shared/id";
+import { faDigits } from "@shared/format";
+import { formatJalali } from "@shared/jalali";
 import { audit } from "../data/crud";
 import { latestRate } from "./rates";
 import { coinKey, pieceDefaults, priceLine } from "./pricing";
@@ -221,6 +223,13 @@ export async function bulkCreateItems(ctx: Ctx, input: { defaults?: Partial<Bulk
       (await tx.query<CategoryRow>(`select id, name, default_fineness, wage_type, wage_value, profit_pct from tz_gold_categories where org_id = $1 and deleted_at is null`, [ctx.org.id])).map((c) => [c.id, c]),
     );
     const wh = await defaultWarehouse(tx, ctx.org.id);
+    // suppliers must be parties of this organisation
+    const supplierIds = [...new Set(input.items.map((r) => r.supplier_id ?? input.defaults?.supplier_id).filter((v): v is string => !!v && isUuid(v)))];
+    const suppliers = new Set(
+      supplierIds.length
+        ? (await tx.query<{ id: string }>(`select id from tz_parties where org_id = $1 and id = any($2::uuid[]) and deleted_at is null`, [ctx.org.id, `{${supplierIds.join(",")}}`])).map((r) => r.id)
+        : [],
+    );
     let next = await nextTagNo(tx, ctx.org.id);
     const seen = new Set<string>();
     const rows: Record<string, unknown>[] = [];
@@ -228,6 +237,8 @@ export async function bulkCreateItems(ctx: Ctx, input: { defaults?: Partial<Bulk
       const it = { ...(input.defaults ?? {}), ...raw };
       const n = i + 1;
       const catId = it.category_id && isUuid(it.category_id) ? it.category_id : null;
+      const supplierId = it.supplier_id && isUuid(it.supplier_id) ? it.supplier_id : null;
+      if (supplierId && !suppliers.has(supplierId)) throw bad(`ردیف ${n}: تأمین‌کننده پیدا نشد`);
       if (catId && !cats.has(catId)) throw bad(`ردیف ${n}: دسته پیدا نشد`);
       const cat = catId ? cats.get(catId)! : null;
       const gross = D(it.gross_weight ?? 0);
@@ -259,7 +270,7 @@ export async function bulkCreateItems(ctx: Ctx, input: { defaults?: Partial<Bulk
         profit_pct: it.profit_pct !== undefined && it.profit_pct !== null && it.profit_pct !== "" ? D(it.profit_pct).toString() : null,
         stone_desc: it.stone_desc?.trim() || null,
         stone_price: D(it.stone_price ?? 0).toString(),
-        supplier_id: it.supplier_id && isUuid(it.supplier_id) ? it.supplier_id : null,
+        supplier_id: supplierId,
         ownership: it.ownership === "consignment" ? "consignment" : "own",
         status: "in_stock",
         warehouse_id: wh,
@@ -358,4 +369,23 @@ export async function coinStock(tx: Tx, orgId: string, itemId: string, date: str
   const qty = D(r?.q ?? 0);
   const value = D(r?.v ?? 0);
   return { qty, value, avg: qty.gt(0) ? value.div(qty) : null };
+}
+
+/**
+ * Refuses a change that leaves any of the coins with negative stock at the end of a day on or
+ * after `fromDate` (a back-dated sale, or cancelling a purchase whose coins were sold later).
+ */
+export async function assertCoinStock(tx: Tx, orgId: string, itemIds: string[], fromDate: string) {
+  for (const itemId of new Set(itemIds.filter(Boolean))) {
+    const r = await tx.one<{ date: string; bal: string }>(
+      `select date, bal from (
+         select date, sum(q) over (order by date) as bal
+         from (select date, sum(qty) as q from tz_stock_moves where org_id = $1 and item_id = $2 group by date) d
+       ) b where date >= $3 and bal < 0 order by date limit 1`,
+      [orgId, itemId, fromDate],
+    );
+    if (!r) continue;
+    const name = (await tx.one<{ name: string }>(`select name from tz_items where id = $1 and org_id = $2`, [itemId, orgId]))?.name ?? "";
+    throw bad(`موجودی «${name}» در تاریخ ${faDigits(formatJalali(String(r.date).slice(0, 10)))} کافی نیست (${faDigits(D(r.bal).toString())} عدد)؛ سندهای بعدی این سکه را بررسی کنید`);
+  }
 }

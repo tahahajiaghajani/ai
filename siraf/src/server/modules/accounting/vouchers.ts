@@ -8,7 +8,7 @@ import { bad, conflict, notFound } from "../../http/errors";
 import { D, round, type Num } from "@shared/money";
 import { uuidv7 } from "@shared/id";
 import { formatMoney } from "@shared/format";
-import { fiscalYearFor } from "./fiscal";
+import { assertYearOpen, fiscalYearFor } from "./fiscal";
 
 export type VoucherKind = "normal" | "opening" | "closing" | "temp_closing" | "auto";
 export type VoucherStatus = "draft" | "posted" | "final" | "void";
@@ -222,6 +222,7 @@ export async function saveVoucher(
   if (existing && !existing.deleted_at) {
     if (existing.status === "final") throw conflict("این سند قطعی شده و قابل ویرایش نیست");
     if (existing.kind === "auto" && !opts.allowAuto) throw conflict("این سند خودکار است؛ آن را از سند مبدأ (فاکتور، دریافت و …) ویرایش کنید");
+    if (!opts.allowClosedYear) await assertYearOpen(tx, org.id, existing.fiscal_year_id);
     no = existing.fiscal_year_id === fy.id ? existing.no : await nextNo(tx, "tz_vouchers", org.id, fy.id);
     await updateRow(tx, "tz_vouchers", { id: existing.id, org_id: org.id }, {
       fiscal_year_id: fy.id,
@@ -274,10 +275,11 @@ export async function saveVoucher(
 
 /** Soft-delete a manual voucher. */
 export async function deleteVoucher(tx: Tx, orgId: string, id: string, opts: { allowAuto?: boolean } = {}) {
-  const v = await tx.one<{ status: VoucherStatus; kind: VoucherKind }>(`select status, kind from tz_vouchers where id = $1 and org_id = $2 and deleted_at is null`, [id, orgId]);
+  const v = await tx.one<{ status: VoucherStatus; kind: VoucherKind; fiscal_year_id: string }>(`select status, kind, fiscal_year_id from tz_vouchers where id = $1 and org_id = $2 and deleted_at is null`, [id, orgId]);
   if (!v) throw notFound("سند پیدا نشد");
   if (v.status === "final") throw conflict("سند قطعی قابل حذف نیست");
   if (v.kind === "auto" && !opts.allowAuto) throw conflict("سند خودکار را از سند مبدأ حذف کنید");
+  await assertYearOpen(tx, orgId, v.fiscal_year_id);
   await tx.query(`delete from tz_voucher_lines where voucher_id = $1`, [id]);
   await tx.query(`update tz_vouchers set deleted_at = now(), total_debit = 0, total_credit = 0 where id = $1`, [id]);
 }
