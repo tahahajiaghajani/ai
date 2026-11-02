@@ -6,6 +6,7 @@ import type { ModuleKey } from "@shared/constants";
 import { forbidden } from "./http/errors";
 import { assertWritable } from "./modules/platform/org-admin";
 import { recordSupportWrite } from "./modules/platform/support";
+import { bumpLocal } from "./live";
 
 export type Mode = "cloud" | "desktop";
 
@@ -266,6 +267,7 @@ export function makeCtx(cfg: ServerConfig, user: AuthUser, org: OrgRow, member: 
         return out;
       });
       cfg.desktop?.notifyLocalWrite();
+      if (cfg.mode !== "cloud") bumpLocal(org.id);
       return result;
     },
     hasModule: (m) => Array.isArray(org.modules) && org.modules.includes(m),

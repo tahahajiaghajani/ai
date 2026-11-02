@@ -1,5 +1,5 @@
 /* Siraf · the AI pieces shared by many screens: the AI-filled field mark and the review bar, the narrative (safe
-   Markdown), the sparkle badge, source lines, severity marks, the confidence chip and quiet error rows.
+   Markdown), the AI-mark badge, source lines, severity marks, the confidence chip and quiet error rows.
    Tokens only (siraf/tokens.css), logical properties only, transform/opacity motion only, no `dark:` variants.
    Prefix `ai-` (src/ui/ai/{settings,insights,explain,capture,forecast,kit} only). */
 @layer components {
@@ -52,7 +52,7 @@
   .ai-conf[data-level="low"] { background: var(--sf-danger-tint); color: var(--sf-danger); }
   .ai-conf[data-level="low"] > i { background: var(--sf-danger); }
 
-  /* ---------------------------------------------------------------- the AI sparkle and the source line */
+  /* ---------------------------------------------------------------- the AI mark and the source line */
   .ai-spark { flex: none; color: var(--sf-text-3); }
   .ai-src { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; line-height: 18px; color: var(--sf-text-3); white-space: nowrap; }
   .ai-src .sf-latin { font-size: 12px; }

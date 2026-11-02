@@ -4,7 +4,7 @@
 import { Children, isValidElement, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Drawer, Badge } from "antd";
 import { useLocation, useNavigate } from "react-router";
-import { ArrowRight, Moon, Sun, PanelRight, Pin, House, Info, Sparkles, SquarePen } from "lucide-react";
+import { ArrowRight, Moon, Sun, PanelRight, Pin, House, Info, SquarePen } from "lucide-react";
 import { APP_NAME } from "@shared/constants";
 import { useOrg } from "../lib/org";
 import { useTheme } from "../lib/theme";
@@ -16,10 +16,12 @@ import { ShellCtx, usePageTitle, type ShellApi } from "./shell/context";
 import { SupportBanner } from "./shell/SupportBanner";
 import { AssistantHost } from "../ai/assistant/AssistantHost";
 import { openAssistant } from "../ai/assistant/bus";
-import { Ic } from "./shell/icons";
+import { Ic, AiIcon } from "./shell/icons";
 import { inSidebar, matchItem, pushRecent, routeSpace, spaceOf, useRelPath, useShellItems, useSpaceMemory, useSpaces, useStored } from "./shell/model";
 import type { SpaceKey } from "../modules/registry";
 import "./shell/shell.css";
+import { useSession } from "../lib/session";
+import { useLivePulse } from "../lib/live";
 
 export function Logo({ collapsed, light }: { collapsed?: boolean; light?: boolean }) {
   return <BrandLogo size={22} tone={light ? "white" : "ink"} compact={collapsed} />;
@@ -67,6 +69,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [title, setTitle] = useState<string | null>(null);
 
   const { orgId, can } = useOrg();
+  const { meta } = useSession();
+  // open screens refresh what another device changed (src/ui/lib/live.ts)
+  useLivePulse(orgId, meta?.mode === "desktop");
   const { dark, toggle } = useTheme();
   const nav = useNavigate();
   const loc = useLocation();
@@ -164,7 +169,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     ];
     if (can("ai", "view"))
       list.push(
-        { key: "assistant", label: `دستیار ${APP_NAME}`, icon: Sparkles, keywords: "هوش مصنوعی دستیار پرسش چت گفتگو ai", meta: "Ctrl J", run: () => openAssistant() },
+        { key: "assistant", label: `دستیار ${APP_NAME}`, icon: AiIcon, keywords: "هوش مصنوعی دستیار پرسش چت گفتگو ai", meta: "Ctrl J", run: () => openAssistant() },
         { key: "assistant-new", label: "گفت‌وگوی تازه با دستیار", icon: SquarePen, keywords: "هوش مصنوعی دستیار پرسش چت گفتگو جدید", run: () => openAssistant({ fresh: true }) },
       );
     if (!narrow) list.push({ key: "sidebar", label: pref.collapsed ? "باز کردن نوار کناری" : "جمع کردن نوار کناری", icon: PanelRight, keywords: "منو سایدبار", run: () => setPref((p) => ({ ...p, collapsed: !p.collapsed })) });

@@ -3,7 +3,8 @@
 // per-business switch is the business's platform state (PATCH /admin/orgs/:id ai_disabled).
 import { useEffect, useState } from "react";
 import { Button, Form, Input, Select, Switch, Table } from "antd";
-import { Power, Sparkles } from "lucide-react";
+import { Power } from "lucide-react";
+import { AiIcon } from "../../components/shell/icons";
 import { Link } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { PageHeader } from "../../components/layout";
@@ -108,7 +109,7 @@ export default function Ai() {
     return (
       <div>
         <PageHeader title="هوش مصنوعی" />
-        <EmptyState icon={Sparkles} title="گزارش هوش مصنوعی پس از به‌روزرسانی سرور در دسترس است" action={<Button onClick={() => (overview.refetch(), policy.refetch())}>دوباره</Button>} />
+        <EmptyState icon={AiIcon} title="گزارش هوش مصنوعی پس از به‌روزرسانی سرور در دسترس است" action={<Button onClick={() => (overview.refetch(), policy.refetch())}>دوباره</Button>} />
       </div>
     );
 
@@ -133,10 +134,10 @@ export default function Ai() {
         </Note>
       ) : null}
       <section className="ad-kpis" aria-label="آمار هوش مصنوعی">
-        <StatCard icon={<Sparkles {...ICON} />} title="کسب‌وکارهای فعال" value={<span className="sf-num">{fa(o.totals.businesses_enabled)}</span>} hint={`از ${fa(o.businesses.length)} کسب‌وکار`} />
+        <StatCard icon={<AiIcon {...ICON} />} title="کسب‌وکارهای فعال" value={<span className="sf-num">{fa(o.totals.businesses_enabled)}</span>} hint={`از ${fa(o.businesses.length)} کسب‌وکار`} />
         <StatCard icon={<Power {...ICON} />} title="اتصال‌ها" value={<span className="sf-num">{fa(o.totals.connections)}</span>} />
-        <StatCard icon={<Sparkles {...ICON} />} title="درخواست‌های این ماه" value={<span className="sf-num">{fa(o.totals.month_calls)}</span>} />
-        <StatCard icon={<Sparkles {...ICON} />} title="هزینهٔ این ماه" value={<span className="sf-num sf-latin">{usd(o.totals.month_cost_usd)}</span>} />
+        <StatCard icon={<AiIcon {...ICON} />} title="درخواست‌های این ماه" value={<span className="sf-num">{fa(o.totals.month_calls)}</span>} />
+        <StatCard icon={<AiIcon {...ICON} />} title="هزینهٔ این ماه" value={<span className="sf-num sf-latin">{usd(o.totals.month_cost_usd)}</span>} />
       </section>
       <div className="ad-grid">
         <Card title="کسب‌وکارها" flush>
@@ -147,7 +148,7 @@ export default function Ai() {
             dataSource={rows}
             pagination={{ pageSize: 30, hideOnSinglePage: true, size: "small", showSizeChanger: false }}
             scroll={phone ? undefined : { x: 720 }}
-            locale={{ emptyText: <EmptyState icon={Sparkles} title="هنوز کسب‌وکاری ساخته نشده است" /> }}
+            locale={{ emptyText: <EmptyState icon={AiIcon} title="هنوز کسب‌وکاری ساخته نشده است" /> }}
             columns={[
               {
                 key: "n",

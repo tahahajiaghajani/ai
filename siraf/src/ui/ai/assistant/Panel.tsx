@@ -20,7 +20,6 @@ import {
   Power,
   ScanSearch,
   SquarePen,
-  Sparkles,
   TrendingUp,
   Users,
   Wallet,
@@ -32,7 +31,7 @@ import { D } from "@shared/money";
 import type { AiStatus } from "@shared/ai/api";
 import { useOrg } from "../../lib/org";
 import { useNotify } from "../../lib/hooks";
-import { ChequeIcon, Ic, Keys } from "../../components/shell/icons";
+import { ChequeIcon, Ic, Keys, AiIcon } from "../../components/shell/icons";
 import { useRelPath, useShellItems } from "../../components/shell/model";
 import { resolveHref } from "../markdown/links";
 import { openAssistant } from "./bus";
@@ -195,7 +194,7 @@ function Suggestions({ list, onPick }: { list: Suggestion[]; onPick: (s: Suggest
     <div className="sa-sugg sf-stagger" role="list" aria-label="پیشنهادها">
       {list.map((s) => (
         <button key={s.key} type="button" role="listitem" className="sa-sugg-r sf-press" onClick={() => onPick(s)}>
-          <Ic icon={ICONS[s.icon] ?? Sparkles} />
+          <Ic icon={ICONS[s.icon] ?? AiIcon} />
           <span>{s.fill ? `${s.text}…` : s.text}</span>
         </button>
       ))}
@@ -496,7 +495,7 @@ export default function Panel({ open, onClose, pending }: { open: boolean; onClo
     );
   } else if (!snap.messages.length) {
     body = (
-      <Hello icon={Sparkles} title="از داده‌های کسب‌وکار بپرسید" text="پاسخ‌ها از دفترهای همین کسب‌وکار ساخته می‌شود و هر ثبتی پیش از انجام، تأیید شما را می‌خواهد.">
+      <Hello icon={AiIcon} title="از داده‌های کسب‌وکار بپرسید" text="پاسخ‌ها از دفترهای همین کسب‌وکار ساخته می‌شود و هر ثبتی پیش از انجام، تأیید شما را می‌خواهد.">
         <Suggestions list={suggestions} onPick={pickSuggestion} />
       </Hello>
     );
@@ -575,7 +574,7 @@ export default function Panel({ open, onClose, pending }: { open: boolean; onClo
         ) : (
           <button type="button" className="sa-h-t" aria-label="گفت‌وگوها" aria-expanded={false} onClick={() => setView("threads")}>
             <span className="sa-h-mark" aria-hidden>
-              <Ic icon={Sparkles} />
+              <Ic icon={AiIcon} />
             </span>
             <span className="sa-h-tt">
               <span className="sa-h-name">دستیار {APP_NAME}</span>

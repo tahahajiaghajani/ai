@@ -22,6 +22,7 @@ import { coaFor, levelOfCode, parentCode } from "../modules/accounting/coa";
 import { isEmail } from "@shared/validate";
 import { audit } from "../modules/data/crud";
 import { jalaliYearRange, toFa } from "@shared/jalali";
+import { pulse } from "../live";
 
 const modulesSchema = z.array(z.enum(["goods", "gold", "fx"]));
 
@@ -63,6 +64,9 @@ orgsRoutes.post("/", async (c) => {
 export const orgRoutes = router();
 // first for every /o/:org route: app.ts mounts orgRoutes right after loadOrg
 orgRoutes.use("*", orgAccess);
+
+// «زنده»: a token that changes whenever this business's data changes (src/server/live.ts)
+orgRoutes.get("/pulse", async (c) => c.json({ pulse: await pulse(c.get("ctx")) }));
 
 orgRoutes.get("/", async (c) => {
   const ctx = c.get("ctx");

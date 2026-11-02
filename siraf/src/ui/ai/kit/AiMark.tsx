@@ -5,7 +5,8 @@
 import "./ai.css";
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { Button, Tooltip } from "antd";
-import { ChevronDown, Sparkles } from "lucide-react";
+import { ChevronDown } from "lucide-react";
+import { AiIcon } from "../../components/shell/icons";
 import { pct } from "../../lib/fa";
 import { CONFIDENCE_LABEL, confidenceLevel } from "./model";
 
@@ -52,7 +53,7 @@ export function AiMark({ mark, children, className }: { mark?: AiMarkValue | nul
       {children}
       <Tooltip title={<MarkTip mark={mark} />}>
         <span className="ai-mark-b" role="img" aria-label={`${SOURCE_LABEL[mark.source ?? "capture"]}، ${CONFIDENCE_LABEL[level]}`} tabIndex={0}>
-          <Sparkles size={11} strokeWidth={1.6} absoluteStrokeWidth aria-hidden />
+          <AiIcon size={11} strokeWidth={1.6} absoluteStrokeWidth aria-hidden />
         </span>
       </Tooltip>
     </div>
@@ -110,7 +111,7 @@ export function AiReviewBar({
   return (
     <section className="ai-review no-print" aria-label="بازبینی مقدارهای پرشده با هوش مصنوعی">
       <div className="ai-review-h">
-        <Sparkles size={16} strokeWidth={1.4} absoluteStrokeWidth className="ai-spark" aria-hidden />
+        <AiIcon size={16} strokeWidth={1.4} absoluteStrokeWidth className="ai-spark" aria-hidden />
         <b>{source === "capture" ? "خوانده‌شده از تصویر" : "پیشنهاد دستیار"}</b>
         <span>
           {entries.length ? `${new Intl.NumberFormat("fa-IR").format(entries.length)} مقدار پر شد` : "مقداری پر نشد"}

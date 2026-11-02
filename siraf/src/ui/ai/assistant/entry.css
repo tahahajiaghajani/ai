@@ -11,7 +11,7 @@
     left: calc(var(--ai-dock-w, 420px) + 2 * var(--sf-panel-inset) + 16px);
   }
 
-  /* «دستیار» in the top bar: the fiscal-year pill's shape, the sparkle in Dusk (the AI signifier, one per region) */
+  /* «دستیار» in the top bar: the fiscal-year pill's shape, the AI mark in Dusk (the AI signifier, one per region) */
   .sh-ai {
     display: inline-flex;
     align-items: center;

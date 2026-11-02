@@ -4,7 +4,8 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { Button } from "antd";
-import { CircleAlert, Sparkles, Wallet } from "lucide-react";
+import { CircleAlert, Wallet } from "lucide-react";
+import { AiIcon } from "../../components/shell/icons";
 import { aiErrorText } from "@shared/ai/errors";
 import { useOrg } from "../../lib/org";
 import { useAiStatus } from "../kit/hooks";
@@ -33,7 +34,7 @@ export function SetupStrip() {
   const view =
     kind === "setup"
       ? {
-          icon: Sparkles,
+          icon: AiIcon,
           title: "هوش مصنوعی را راه‌اندازی کنید",
           text: "با کلید API یکی از سرویس‌ها، دستیار، تحلیل گزارش‌ها، خواندن فاکتور از عکس و پیش‌بینی‌ها به کار می‌افتد.",
           action: (

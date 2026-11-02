@@ -3,7 +3,8 @@
 import { useState, type ReactNode } from "react";
 import { Button } from "antd";
 import { useQuery } from "@tanstack/react-query";
-import { CircleAlert, MessageCircleQuestion, Sparkles } from "lucide-react";
+import { CircleAlert, MessageCircleQuestion } from "lucide-react";
+import { AiIcon } from "../../components/shell/icons";
 import type { AiPageContext } from "@shared/ai/types";
 import type { AiForecastNarrative, AiForecastQuery } from "@shared/ai/api";
 import { JALALI_MONTHS, toJalali } from "@shared/jalali";
@@ -99,7 +100,7 @@ export function ExplainForecast({ series, params, title }: { series: "cashflow" 
     <div className="ai-fc-x">
       <div className="ai-fc-xb">
         {series ? (
-          <Button icon={<Sparkles {...ICON} />} onClick={() => (on ? q.refetch() : setOn(true))} loading={q.isFetching}>
+          <Button icon={<AiIcon {...ICON} />} onClick={() => (on ? q.refetch() : setOn(true))} loading={q.isFetching}>
             توضیح با هوش مصنوعی
           </Button>
         ) : null}

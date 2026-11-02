@@ -4,7 +4,8 @@
 import "./admin.css";
 import { lazy, Suspense, type ReactNode } from "react";
 import { Button, Tooltip } from "antd";
-import { Activity, ArrowRight, Building2, Gauge, HeartPulse, LogOut, ShieldAlert, Sparkles, Users } from "lucide-react";
+import { Activity, ArrowRight, Building2, Gauge, HeartPulse, LogOut, ShieldAlert, Users } from "lucide-react";
+import { AiIcon } from "../../components/shell/icons";
 import { Link, useLocation, useNavigate } from "react-router";
 import { useSession } from "../../lib/session";
 import { Logo } from "../../components/brand";
@@ -24,7 +25,7 @@ const NAV = [
   { key: "", title: "پیشخوان", icon: Gauge },
   { key: "orgs", title: "کسب‌وکارها", icon: Building2 },
   { key: "users", title: "کاربران", icon: Users },
-  { key: "ai", title: "هوش مصنوعی", icon: Sparkles },
+  { key: "ai", title: "هوش مصنوعی", icon: AiIcon },
   { key: "security", title: "رویدادهای امنیتی", icon: ShieldAlert },
   { key: "health", title: "سلامت سامانه", icon: HeartPulse },
 ] as const;

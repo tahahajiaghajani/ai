@@ -11,7 +11,8 @@ import { useState } from "react";
 import { useSearchParams } from "react-router";
 import { Button, Drawer, Tooltip } from "antd";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowUpLeft, CircleAlert, MessageCircleQuestion, RotateCcw, Sparkles } from "lucide-react";
+import { ArrowUpLeft, CircleAlert, MessageCircleQuestion, RotateCcw } from "lucide-react";
+import { AiIcon } from "../../components/shell/icons";
 import type { AiPageContext } from "@shared/ai/types";
 import { aiErrorText } from "@shared/ai/errors";
 import { useOrg } from "../../lib/org";
@@ -57,7 +58,7 @@ export function AiExplainButton({ report, params, title, compact, disabled }: Ai
   return (
     <>
       <Tooltip title={compact ? label : undefined}>
-        <Button icon={<Sparkles {...ICON} />} onClick={() => setOpen(true)} disabled={disabled} aria-label={label} className={compact ? "ai-xb is-compact" : "ai-xb"} aria-haspopup="dialog">
+        <Button icon={<AiIcon {...ICON} />} onClick={() => setOpen(true)} disabled={disabled} aria-label={label} className={compact ? "ai-xb is-compact" : "ai-xb"} aria-haspopup="dialog">
           <span className="ai-xb-t">{label}</span>
         </Button>
       </Tooltip>
@@ -95,7 +96,7 @@ function ExplainDrawer({ report, params, title, onClose }: { report: string; par
       closable={{ placement: "end" }}
       title={
         <span className="ai-xd-h">
-          <Sparkles {...ICON} className="ai-spark" aria-hidden />
+          <AiIcon {...ICON} className="ai-spark" aria-hidden />
           <span>تحلیل «{title}»</span>
         </span>
       }

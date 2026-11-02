@@ -4,14 +4,14 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { Button, Dropdown } from "antd";
-import { BellOff, CalendarClock, ChevronDown, CircleCheck, Ellipsis, FileText, Lightbulb, Package, Sparkles, Users, X } from "lucide-react";
+import { BellOff, CalendarClock, ChevronDown, CircleCheck, Ellipsis, FileText, Lightbulb, Package, Users, X } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { AiInsight, AiRef } from "@shared/ai/types";
 import { addDays, todayISO } from "@shared/jalali";
 import { useOrg } from "../../lib/org";
 import { useNotify } from "../../lib/hooks";
 import { fa } from "../../lib/fa";
-import { ChequeIcon, Ic } from "../../components/shell/icons";
+import { ChequeIcon, Ic, AiIcon } from "../../components/shell/icons";
 import { openAssistant } from "../assistant/bus";
 import { Card, Empty, HeadLink, SkRows } from "../../modules/dashboard/kit";
 import { SEVERITY_LABEL, feedOf } from "../kit/model";
@@ -100,7 +100,7 @@ function InsightRow({ ins, onStatus }: { ins: AiInsight; onStatus: (status: AiIn
             </button>
           ) : (
             <button type="button" className="sf-link inline-flex items-center gap-1 border-0 bg-transparent p-0 text-[13px]" onClick={runAction}>
-              <Sparkles {...ICON14} aria-hidden />
+              <AiIcon {...ICON14} aria-hidden />
               {act.label}
             </button>
           )
@@ -196,7 +196,7 @@ export function InsightsCard() {
       label="بینش‌ها: آنچه امروز توجه می‌خواهد"
       end={
         feed.length ? (
-          <HeadLink icon={Sparkles} squeeze onClick={() => openAssistant({ prompt: "بینش‌های امروز را خلاصه کن و بگو از کدام شروع کنم.", send: true, context: { path: "", title: "پیشخوان" } })}>
+          <HeadLink icon={AiIcon} squeeze onClick={() => openAssistant({ prompt: "بینش‌های امروز را خلاصه کن و بگو از کدام شروع کنم.", send: true, context: { path: "", title: "پیشخوان" } })}>
             بپرس از دستیار
           </HeadLink>
         ) : null

@@ -4,7 +4,8 @@
 import { useState } from "react";
 import { Button, Input, Segmented } from "antd";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { CalendarRange, Copy, MessageCircleQuestion, Sparkles, Trash2 } from "lucide-react";
+import { CalendarRange, Copy, MessageCircleQuestion, Trash2 } from "lucide-react";
+import { AiIcon } from "../../components/shell/icons";
 import { useOrg } from "../../lib/org";
 import { useNotify } from "../../lib/hooks";
 import { EmptyState, JDateTime, Skeleton } from "../../components/display";
@@ -88,7 +89,7 @@ export function PlanTab() {
                 aria-label="افق برنامه"
               />
               <Input.TextArea value={focus} onChange={(e) => setFocus(e.target.value)} autoSize={{ minRows: 2, maxRows: 4 }} maxLength={300} placeholder="تمرکز (اختیاری)، مثلاً «وصول مطالبات و کم کردن کالای راکد»" aria-label="تمرکز برنامه" />
-              <Button type="primary" icon={<Sparkles {...ICON} />} loading={busy} onClick={make}>
+              <Button type="primary" icon={<AiIcon {...ICON} />} loading={busy} onClick={make}>
                 {busy ? "در حال نوشتن برنامه…" : "نوشتن برنامه"}
               </Button>
               {busy ? <p className="ai-fc-note">پیش‌بینی‌ها، چک‌ها و مطالبات خوانده می‌شود؛ ممکن است تا یک دقیقه طول بکشد.</p> : null}

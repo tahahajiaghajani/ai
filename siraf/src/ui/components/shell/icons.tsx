@@ -11,6 +11,17 @@ export const ChequeIcon: LucideIcon = createLucideIcon("Cheque", [
   ["path", { d: "M13.5 14.5c.8-.9 1.6.9 2.4 0s1.6-.9 2.6 0", key: "sig" }],
 ]);
 
+/**
+ * The AI mark: «AI» in a rounded chip on the 24 grid, for the assistant and every AI feature (it replaces Lucide's
+ * sparkles, which read as decoration). Same stroke rules as the Lucide set, so it sits in buttons, menus and badges.
+ */
+export const AiIcon: LucideIcon = createLucideIcon("SirafAi", [
+  ["rect", { x: "2", y: "4", width: "20", height: "16", rx: "4", key: "chip" }],
+  ["path", { d: "M6.8 16 9.6 8l2.8 8", key: "a" }],
+  ["path", { d: "M7.8 13.2h3.6", key: "bar" }],
+  ["path", { d: "M17 8v8", key: "i" }],
+]);
+
 /** A Lucide icon drawn to the shell's rules: 16 px, 1.4 px stroke at any size. */
 export function Ic({ icon: I, size = 16, ...rest }: { icon: LucideIcon; size?: number } & Omit<LucideProps, "ref">) {
   return <I size={size} strokeWidth={1.4} absoluteStrokeWidth aria-hidden {...rest} />;

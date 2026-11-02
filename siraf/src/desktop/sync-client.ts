@@ -10,6 +10,7 @@ import { SCHEMA_VERSION } from "@server/db/migrations";
 import { SYNC_PROTOCOL, APP_VERSION, APP_NAME } from "@shared/constants";
 import type { LocalConfig } from "./config";
 import { hostname } from "node:os";
+import { bumpLocal } from "@server/live";
 
 export interface SyncState {
   linked: boolean;
@@ -263,6 +264,8 @@ export class SyncClient {
           }
         }
       });
+      // the web version renumbered a record or won a conflict: open screens show its copy
+      if (res.results.some((r) => r.renumbered || (r.status === "conflict" && r.aggregate))) bumpLocal(this.o.config.cloud.org_id!);
       if (queued.length < 200) break;
     }
     this.state.pushed += total;
@@ -302,6 +305,8 @@ export class SyncClient {
       if (!page.has_more) break;
     }
     this.state.pulled += count;
+    // open screens refresh what the web version changed
+    if (count) bumpLocal(this.o.config.cloud.org_id!);
     return count;
   }
 

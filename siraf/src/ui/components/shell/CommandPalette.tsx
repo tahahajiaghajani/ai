@@ -5,11 +5,11 @@ import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type R
 import { createPortal } from "react-dom";
 import { useLocation, useNavigate } from "react-router";
 import { useQuery } from "@tanstack/react-query";
-import { Search, CornerDownLeft, History, User, FileText, Receipt, ArrowDownToLine, ArrowUpFromLine, ArrowLeftRight, Sparkles, type LucideIcon } from "lucide-react";
+import { Search, CornerDownLeft, History, User, FileText, Receipt, ArrowDownToLine, ArrowUpFromLine, ArrowLeftRight, type LucideIcon } from "lucide-react";
 import { useOrg } from "../../lib/org";
 import { useDebounced } from "../../lib/hooks";
 import { normalizeFa, toLatinDigits, docNo, jDate } from "../../lib/fa";
-import { ChequeIcon, Ic, Keys } from "./icons";
+import { ChequeIcon, Ic, Keys, AiIcon } from "./icons";
 import { readJSON, recentKey, spaceOf, useRelPath, useShellItems, type Recent } from "./model";
 import { INVOICE_KINDS, INVOICE_META, type InvoiceKind } from "../../modules/goods/labels";
 import { openAssistant } from "../../ai/assistant/bus";
@@ -236,7 +236,7 @@ function Palette({ onClose, commands }: { onClose: () => void; commands: Palette
           out.push({
             id: `s-${sg.key}`,
             group: ASK,
-            icon: Sparkles,
+            icon: AiIcon,
             label: sg.fill ? `${sg.text}…` : sg.text,
             run: () => (onClose(), openAssistant({ prompt: sg.text, send: !sg.fill })),
           });
@@ -290,7 +290,7 @@ function Palette({ onClose, commands }: { onClose: () => void; commands: Palette
     out.sort((a, b) => GROUP_ORDER.indexOf(a.group) - GROUP_ORDER.indexOf(b.group));
     // «بپرس از دستیار»: first for a question (or when nothing else matched), otherwise after the matches
     if (askable && s.length >= 2) {
-      const ask: Row = { id: "ask", group: ASK, icon: Sparkles, label: `بپرس از دستیار: «${s}»`, run: () => (onClose(), openAssistant({ prompt: s, send: true })) };
+      const ask: Row = { id: "ask", group: ASK, icon: AiIcon, label: `بپرس از دستیار: «${s}»`, run: () => (onClose(), openAssistant({ prompt: s, send: true })) };
       if (looksLikeQuestion(s) || !out.length) out.unshift(ask);
       else out.splice(Math.min(out.length, 39), 0, ask);
     }

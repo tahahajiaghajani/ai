@@ -3,7 +3,8 @@
 // Each fact opens its page; «ادامه در دستیار» carries the day into a conversation.
 import { useNavigate } from "react-router";
 import { Button } from "antd";
-import { Newspaper, Sparkles } from "lucide-react";
+import { Newspaper } from "lucide-react";
+import { AiIcon } from "../../components/shell/icons";
 import { useOrg } from "../../lib/org";
 import { jLong, jTime } from "../../lib/fa";
 import { faDigits } from "@shared/format";
@@ -54,7 +55,7 @@ export function BriefCard() {
       label="خلاصهٔ امروز"
       end={
         b ? (
-          <HeadLink icon={Sparkles} squeeze onClick={() => openAssistant({ prompt: ASK, send: true, context: { path: "", title: "پیشخوان" } })}>
+          <HeadLink icon={AiIcon} squeeze onClick={() => openAssistant({ prompt: ASK, send: true, context: { path: "", title: "پیشخوان" } })}>
             ادامه در دستیار
           </HeadLink>
         ) : null
@@ -77,7 +78,7 @@ export function BriefCard() {
           <Facts facts={b.facts} />
           <div className="ai-brief-f">
             <span className="inline-flex items-center gap-1.5">
-              {b.source === "ai" ? <Sparkles size={13} strokeWidth={1.4} absoluteStrokeWidth aria-hidden /> : null}
+              {b.source === "ai" ? <AiIcon size={13} strokeWidth={1.4} absoluteStrokeWidth aria-hidden /> : null}
               {b.source === "ai" ? "نوشتهٔ هوش مصنوعی از روی داده‌های سیراف" : "خلاصهٔ خودکار از داده‌های سیراف"}
             </span>
             {Number.isFinite(at) ? <span className="sf-end">ساعت {jTime(at)}</span> : null}

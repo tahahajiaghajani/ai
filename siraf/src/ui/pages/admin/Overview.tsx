@@ -1,7 +1,8 @@
 // «پیشخوان» of the platform: the figures that matter (businesses, people, Windows apps, database, AI),
 // what needs attention, live support sessions, the newest businesses and the latest security events.
 import { Link, useNavigate } from "react-router";
-import { AlertTriangle, Building2, CheckCircle2, Database, LifeBuoy, Monitor, ShieldAlert, Sparkles, Users } from "lucide-react";
+import { AlertTriangle, Building2, CheckCircle2, Database, LifeBuoy, Monitor, ShieldAlert, Users } from "lucide-react";
+import { AiIcon } from "../../components/shell/icons";
 import { PageHeader } from "../../components/layout";
 import { Skeleton, StatCard } from "../../components/display";
 import { Card } from "../../modules/reports/kit";
@@ -73,7 +74,7 @@ export default function Overview() {
               onClick={() => nav("/admin/health")}
             />
             <StatCard
-              icon={<Sparkles {...ICON} />}
+              icon={<AiIcon {...ICON} />}
               title="هزینهٔ هوش مصنوعی این ماه"
               value={<span className="sf-num sf-latin">{usd(k.ai.cost_month_usd ?? 0)}</span>}
               hint={k.ai.enabled_orgs === null ? "هنوز کسب‌وکاری کلید نگذاشته" : `${fa(k.ai.enabled_orgs)} کسب‌وکار با هوش مصنوعی · ${fa(k.ai.calls_month ?? 0)} درخواست`}

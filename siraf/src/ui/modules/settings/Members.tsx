@@ -6,7 +6,8 @@
 // your own levels) and «رمز تازه» only where a reset can work (`password_reset` from the server).
 import { useMemo, useState } from "react";
 import { Button, Table, Modal, Form, Input, Select, Switch, Drawer, Tooltip, message } from "antd";
-import { Plus, KeyRound, ShieldCheck, Copy, Users, Sparkles, Crown, Calculator, Eye, ChevronDown, RotateCcw } from "lucide-react";
+import { Plus, KeyRound, ShieldCheck, Copy, Users, Crown, Calculator, Eye, ChevronDown, RotateCcw } from "lucide-react";
+import { AiIcon } from "../../components/shell/icons";
 import { useQuery } from "@tanstack/react-query";
 import { useOrg } from "../../lib/org";
 import { useSession } from "../../lib/session";
@@ -74,7 +75,7 @@ function RoleCard({ role, count, active, onPick }: { role: Role; count: number; 
       </span>
       <span className="text-[13px] leading-5 text-ink-2">{r.about}</span>
       <span className="inline-flex items-center gap-1.5 text-[12px] text-ink-3">
-        <Sparkles size={13} strokeWidth={1.4} absoluteStrokeWidth aria-hidden />
+        <AiIcon size={13} strokeWidth={1.4} absoluteStrokeWidth aria-hidden />
         {AI_LEVELS[perms.ai]}
       </span>
     </button>
@@ -281,7 +282,7 @@ export default function Members() {
                     {managesAi(r) ? (
                       <Tooltip title="کلیدها و تنظیمات هوش مصنوعی را مدیریت می‌کند">
                         <span className="inline-flex items-center gap-1 text-[12px] text-ink-2">
-                          <Sparkles size={13} strokeWidth={1.4} absoluteStrokeWidth aria-hidden />
+                          <AiIcon size={13} strokeWidth={1.4} absoluteStrokeWidth aria-hidden />
                           کلیدهای هوش مصنوعی
                         </span>
                       </Tooltip>
