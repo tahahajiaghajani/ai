@@ -6,9 +6,8 @@ import { useOrg } from "../../lib/org";
 import { useSession } from "../../lib/session";
 import { PageHeader } from "../../components/layout";
 import { Wordmark, SirafTile } from "../../components/brand";
-import { faDigits } from "@shared/format";
 import { APP_NAME, APP_NAME_EN, APP_TAGLINE, APP_VERSION } from "@shared/constants";
-import { Keys } from "../reports/kit";
+import { Keys, Version } from "../reports/kit";
 
 const SHORTCUTS: [string[][], string][] = [
   [[["Ctrl", "K"]], "جست‌وجوی سراسری: هر صفحه، شخص، سند یا فرمان"],
@@ -68,7 +67,7 @@ export default function Help() {
 
   return (
     <div>
-      <PageHeader title="راهنما" subtitle={<span>{APP_NAME} <span className="sf-num">{faDigits(APP_VERSION)}</span></span>} />
+      <PageHeader title="راهنما" subtitle={<span>{APP_NAME} <Version v={APP_VERSION} /></span>} />
       <div className="bk-help">
         <div className="bk-card">
           <Article id="start" title="شروع کار در پنج قدم">
@@ -168,6 +167,7 @@ export default function Help() {
               <li>
                 سایت دیگر: سفارش را به‌صورت JSON با سرآیند <bdi dir="ltr" className="sf-mono">X-Taraz-Signature</bdi> (HMAC-SHA256 بدنه با کلید) یا <bdi dir="ltr" className="sf-mono">X-Taraz-Secret</bdi> بفرستید.
               </li>
+              <li>در برنامهٔ ویندوز اتصال ساخته نمی‌شود: سایت سفارش را به یک نشانی اینترنتی می‌فرستد، پس اتصال را در نسخهٔ وب بسازید؛ فاکتورهای ساخته‌شده با هم‌گامی به برنامهٔ ویندوز هم می‌رسند.</li>
               <li>هر سفارش، فاکتور فروش می‌شود. مشتری با ایمیل یا همراه پیدا یا ساخته می‌شود؛ کالا با SKU، بارکد، کد یا نام پیدا می‌شود و کالای ناشناخته به‌صورت «خدمت» ساخته می‌شود تا حسابدار بررسی کند.</li>
               <li>برنامه‌های دیگر با «کلید API» فهرست کالا و اشخاص را می‌خوانند و فاکتور ثبت می‌کنند.</li>
             </ol>
@@ -195,7 +195,7 @@ export default function Help() {
               <dl className="bk-dl" style={{ ["--cols" as string]: 2 }}>
                 <div>
                   <dt>نسخه</dt>
-                  <dd className="sf-num">{faDigits(APP_VERSION)}</dd>
+                  <dd><Version v={APP_VERSION} /></dd>
                 </div>
                 <div>
                   <dt>اجرا</dt>

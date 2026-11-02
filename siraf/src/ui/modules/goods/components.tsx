@@ -1,6 +1,6 @@
 // Shared pieces of the goods screens: the item picker (search by name, code or barcode with stock
 // and the price for the document's party), quantity display and small tags.
-import { useMemo, useState, type KeyboardEvent } from "react";
+import { useCallback, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Select } from "antd";
 import { useQuery } from "@tanstack/react-query";
 import "./sheet.css";
@@ -131,13 +131,17 @@ export function ItemSelect({
       notFoundContent={list.isFetching ? <div className="grid place-items-center py-3"><Loader /></div> : <div className="py-2 text-center text-ink-3">کالایی پیدا نشد</div>}
       onChange={(id) => onChange(options.find((o) => o.id === id) ?? null)}
       options={options.map((o) => ({ value: o.id, label: `${faDigits(o.code)} — ${o.name}`, item: o }))}
+      labelRender={(p) => {
+        const o = options.find((x) => x.id === p.value);
+        return o ? <span><span className="sf-docno">{faDigits(o.code)}</span> — <LatinRuns text={o.name} /></span> : p.label;
+      }}
       optionRender={(opt) => {
         const o = (opt.data as { item: ItemOpt }).item;
         const stock = o.wh_stock ?? o.stock;
         return (
           <div className="sf-opt">
             <span className="sf-opt-code">{faDigits(o.code)}</span>
-            <span className="sf-opt-main flex-1">{o.name}</span>
+            <span className="sf-opt-main flex-1"><LatinRuns text={o.name} /></span>
             {o.kind === "service" ? (
               <span className="text-[12px] text-ink-3">خدمت</span>
             ) : stock !== undefined && stock !== null ? (
@@ -149,6 +153,66 @@ export function ItemSelect({
       }}
     />
   );
+}
+
+/**
+ * A name that may carry Latin model names («Galaxy Tab A9», «Band 8», «C1»): every Latin run is an isolate in Geist
+ * with Latin digits (`.sf-latin`), so Vazirmatn's ss01 never turns its digits Persian. Persian text stays as is.
+ */
+const LATIN_RUN = /[A-Za-z][A-Za-z0-9.\-+/]*(?:[ ][A-Za-z0-9][A-Za-z0-9.\-+/]*)*/g;
+export function LatinRuns({ text }: { text: string | null | undefined }) {
+  if (!text) return null;
+  const parts: ReactNode[] = [];
+  let at = 0;
+  for (const m of text.matchAll(LATIN_RUN)) {
+    const i = m.index ?? 0;
+    if (i > at) parts.push(text.slice(at, i));
+    parts.push(<bdi key={i} dir="ltr" className="sf-latin">{m[0]}</bdi>);
+    at = i + m[0].length;
+  }
+  if (!parts.length) return <>{text}</>;
+  if (at < text.length) parts.push(text.slice(at));
+  return <>{parts}</>;
+}
+
+/**
+ * Keeps a sticky side sheet (`.sf-dsheet`) inside the viewport: its height is what is left below its top (or below
+ * its sticky offset once the page scrolls), so the footer with the total and the save action never falls below the
+ * fold. Writes `--sheet-max` on the element; the CSS falls back to the full height without it.
+ */
+export function useSheetFit<T extends HTMLElement>() {
+  const cleanup = useRef<(() => void) | null>(null);
+  return useCallback((el: T | null) => {
+    cleanup.current?.();
+    cleanup.current = null;
+    if (!el) return;
+    let raf = 0;
+    const fit = () => {
+      raf = 0;
+      const cs = getComputedStyle(el);
+      if (cs.position !== "sticky") {
+        el.style.removeProperty("--sheet-max");
+        return;
+      }
+      const stickTop = parseFloat(cs.insetBlockStart) || 0;
+      const top = Math.max(el.getBoundingClientRect().top, stickTop);
+      el.style.setProperty("--sheet-max", `${Math.max(320, Math.floor(window.innerHeight - top - 16))}px`);
+    };
+    const schedule = () => {
+      if (!raf) raf = requestAnimationFrame(fit);
+    };
+    fit();
+    window.addEventListener("scroll", schedule, { passive: true });
+    window.addEventListener("resize", schedule);
+    const ro = new ResizeObserver(schedule);
+    if (el.parentElement) ro.observe(el.parentElement);
+    cleanup.current = () => {
+      window.removeEventListener("scroll", schedule);
+      window.removeEventListener("resize", schedule);
+      ro.disconnect();
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, []);
 }
 
 /** Translates a stock quantity in the main unit into the line's unit. */

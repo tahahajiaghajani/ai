@@ -1,5 +1,5 @@
 // List of gold documents with filters by kind, status, date, party and number / tag search.
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { Button, Dropdown, Input, Select, Space } from "antd";
 import { Plus, Search } from "lucide-react";
@@ -44,7 +44,7 @@ export function NewDocButton({ kinds, label = "سند جدید", primary = true 
   );
 }
 
-export function DocsTable({ kinds, partyId, compact }: { kinds?: string; partyId?: string | null; compact?: boolean }) {
+export function DocsTable({ kinds, partyId, compact, empty }: { kinds?: string; partyId?: string | null; compact?: boolean; empty?: ReactNode }) {
   const { orgId, fy } = useOrg();
   const nav = useNavigate();
   const [sp] = useSearchParams();
@@ -62,6 +62,7 @@ export function DocsTable({ kinds, partyId, compact }: { kinds?: string; partyId
       params={params}
       queryKey={["table", "/gold/docs"]}
       onRowClick={(r) => nav(`/${orgId}/gold/docs/${r.id}`)}
+      empty={empty}
       rowClassName={(r) => (r.status === "cancelled" ? "row-muted" : "")}
       exportName="اسناد طلا"
       exportColumns={[

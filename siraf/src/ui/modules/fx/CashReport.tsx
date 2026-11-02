@@ -68,10 +68,10 @@ export default function CashReport() {
             columns={[
               { key: "box", dataIndex: "cash_box", title: "صندوق" },
               { key: "cur", title: "ارز", render: (_, r: any) => (r.is_base ? <span className="text-ink-2">{unit}</span> : <CurrencyName c={{ code: r.code, name: r.name }} />) },
-              { key: "open", title: "اول روز", className: "sf-num", render: (_, r: any) => <FxAmount v={r.opening} dp={dp(r)} /> },
+              { key: "open", title: "اول روز", className: "sf-num", render: (_, r: any) => <FxAmount v={r.opening} dp={dp(r)} zero="—" /> },
               { key: "in", title: "دریافت", className: "sf-num", render: (_, r: any) => (D(r.inflow).isZero() ? <span className="sf-zero">—</span> : <FxAmount v={r.inflow} dp={dp(r)} className="text-in" />) },
               { key: "out", title: "پرداخت", className: "sf-num", render: (_, r: any) => (D(r.outflow).isZero() ? <span className="sf-zero">—</span> : <FxAmount v={r.outflow} dp={dp(r)} className="" />) },
-              { key: "close", title: "پایان روز", className: "sf-num", render: (_, r: any) => <FxAmount v={r.closing} dp={dp(r)} strong /> },
+              { key: "close", title: "پایان روز", className: "sf-num", render: (_, r: any) => <FxAmount v={r.closing} dp={dp(r)} strong zero="—" /> },
               { key: "value", title: "ارزش دفتری", className: "sf-num", render: (_, r: any) => (r.is_base ? <span className="sf-zero">—</span> : <Money v={r.book_value} />) },
               {
                 key: "count",
@@ -104,11 +104,11 @@ export default function CashReport() {
               pagination={false}
               columns={[
                 { key: "c", title: "ارز", render: (_, r: any) => (r.code === org.base_currency ? <span className="text-ink-2">{unit}</span> : <CurrencyChip c={{ code: r.code, kind: "fiat" }} />) },
-                { key: "o", title: "اول روز", className: "sf-num", render: (_, r: any) => <FxAmount v={r.opening} dp={r.code === org.base_currency ? baseDp : r.decimals} /> },
-                { key: "i", title: "دریافت", className: "sf-num", render: (_, r: any) => <FxAmount v={r.inflow} dp={r.code === org.base_currency ? baseDp : r.decimals} /> },
-                { key: "p", title: "پرداخت", className: "sf-num", render: (_, r: any) => <FxAmount v={r.outflow} dp={r.code === org.base_currency ? baseDp : r.decimals} /> },
-                { key: "x", title: "پایان روز", className: "sf-num", render: (_, r: any) => <FxAmount v={r.closing} dp={r.code === org.base_currency ? baseDp : r.decimals} strong /> },
-                { key: "v", title: "ارزش دفتری", className: "sf-num", render: (_, r: any) => <Money v={r.book_value} /> },
+                { key: "o", title: "اول روز", className: "sf-num", render: (_, r: any) => <FxAmount v={r.opening} dp={r.code === org.base_currency ? baseDp : r.decimals} zero="—" /> },
+                { key: "i", title: "دریافت", className: "sf-num", render: (_, r: any) => <FxAmount v={r.inflow} dp={r.code === org.base_currency ? baseDp : r.decimals} zero="—" /> },
+                { key: "p", title: "پرداخت", className: "sf-num", render: (_, r: any) => <FxAmount v={r.outflow} dp={r.code === org.base_currency ? baseDp : r.decimals} zero="—" /> },
+                { key: "x", title: "پایان روز", className: "sf-num", render: (_, r: any) => <FxAmount v={r.closing} dp={r.code === org.base_currency ? baseDp : r.decimals} strong zero="—" /> },
+                { key: "v", title: "ارزش دفتری", className: "sf-num", render: (_, r: any) => <Money v={r.book_value ?? 0} zero="—" /> },
               ]}
               summary={() => (
                 <Table.Summary.Row>
@@ -132,7 +132,7 @@ export default function CashReport() {
                     </div>
                   ))}
                   <div className="r is-rule"><span>سود معاملات</span><span className="n"><Money v={deals.profit} /></span></div>
-                  <div className="r"><span>کارمزد</span><span className="n"><Money v={deals.fees} /></span></div>
+                  <div className="r"><span>کارمزد</span><span className="n"><Money v={deals.fees} zero="—" /></span></div>
                 </div>
                 <Link className="sf-link no-print mt-2 inline-block text-[13px]" to={`/${orgId}/fx/deals`}>فهرست معاملات</Link>
               </>

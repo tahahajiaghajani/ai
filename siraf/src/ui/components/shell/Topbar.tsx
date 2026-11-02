@@ -1,10 +1,12 @@
-// The glass top bar (components.md §1.3): sidebar toggle and breadcrumb at the start; the fiscal year,
-// the Windows-app badge, the theme and the account menu at the end. No page title: the page owns it.
+// The glass top bar (components.md §1.3): sidebar toggle and breadcrumb at the start; the fiscal year, the
+// theme and the account menu at the end. No page title: the page owns it. The Windows app is reached from
+// the sidebar footer's state («روی همین رایانه»). Its menus use the strong glass (they float over the
+// page's primary button, which would bleed through the lighter one).
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { Dropdown, Tooltip, type MenuProps } from "antd";
 import { useQueryClient } from "@tanstack/react-query";
-import { PanelRight, Menu, Search, ChevronLeft, ChevronDown, Calendar, Sun, Moon, SunMoon, Check, Monitor, KeyRound, LogOut, Building2, CircleHelp, ShieldCheck } from "lucide-react";
+import { PanelRight, Menu, Search, ChevronLeft, ChevronDown, Calendar, Sun, Moon, SunMoon, Check, KeyRound, LogOut, Building2, CircleHelp, ShieldCheck } from "lucide-react";
 import { useOrg } from "../../lib/org";
 import { useSession } from "../../lib/session";
 import { useTheme, type ThemePref } from "../../lib/theme";
@@ -114,7 +116,7 @@ function FiscalYear() {
     ],
   };
   return (
-    <Dropdown trigger={["click"]} menu={menu} rootClassName="sf-glass sh-menu" placement="bottomLeft">
+    <Dropdown trigger={["click"]} menu={menu} rootClassName="sf-glass sh-menu sh-menu-strong" placement="bottomLeft">
       <button type="button" className="sh-fy" aria-label={`سال مالی: ${fy.title}، تغییر سال مالی`}>
         <Ic icon={Calendar} />
         <span className="sh-fy-t">
@@ -159,27 +161,11 @@ function ThemeSwitch() {
   };
   const icon = pref === "system" ? SunMoon : dark ? Moon : Sun;
   return (
-    <Dropdown trigger={["click"]} menu={menu} rootClassName="sf-glass sh-menu" placement="bottomLeft">
+    <Dropdown trigger={["click"]} menu={menu} rootClassName="sf-glass sh-menu sh-menu-strong" placement="bottomLeft">
       <button type="button" className="sh-icon-btn" aria-label={`پوسته: ${THEMES.find((t) => t.key === pref)?.label}`}>
         <Ic icon={icon} />
       </button>
     </Dropdown>
-  );
-}
-
-// ---------------------------------------------------------------- Windows app badge
-function DesktopBadge() {
-  const { meta } = useSession();
-  const { orgId } = useOrg();
-  if (meta?.mode !== "desktop") return null;
-  const d = meta.desktop;
-  return (
-    <Tooltip title={[d?.computer, d?.version ? `نسخهٔ ${d.version}` : null].filter(Boolean).join("، ") || "نسخهٔ ویندوز"}>
-      <Link to={`/${orgId}/settings/desktop`} className="sh-badge" aria-label="نسخهٔ ویندوز: پشتیبان، شبکه و هم‌گامی">
-        <Ic icon={Monitor} size={14} />
-        <span>ویندوز</span>
-      </Link>
-    </Tooltip>
   );
 }
 
@@ -217,7 +203,7 @@ function Account() {
     { key: "logout", icon: <Ic icon={LogOut} />, label: "خروج", danger: true, onClick: () => logout() },
   ];
   return (
-    <Dropdown trigger={["click"]} menu={{ items }} rootClassName="sf-glass sh-menu" placement="bottomLeft">
+    <Dropdown trigger={["click"]} menu={{ items }} rootClassName="sf-glass sh-menu sh-menu-strong" placement="bottomLeft">
       <button type="button" className="sh-avatar" aria-label={`حساب کاربری: ${me?.user.full_name ?? ""}`}>
         {initials(me?.user.full_name)}
       </button>
@@ -242,7 +228,6 @@ export function Topbar({ crumbs, pathKey, onToggle, toggleLabel, onSearch, drawe
           </button>
         ) : null}
         <FiscalYear />
-        <DesktopBadge />
         <ThemeSwitch />
         <Account />
       </div>

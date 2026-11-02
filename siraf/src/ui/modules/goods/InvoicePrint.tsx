@@ -6,8 +6,8 @@ import { D, type Num } from "@shared/money";
 import { faDigits, formatNumber } from "@shared/format";
 import { formatJalali } from "@shared/jalali";
 import { amountToWords } from "@shared/words";
-import { APP_NAME } from "@shared/constants";
-import { SirafMark } from "../../components/brand";
+import { PrintColophon, PrintHead } from "./print";
+import { LatinRuns } from "./components";
 import { docNo } from "../../lib/fa";
 import { INVOICE_META, type InvoiceKind } from "./labels";
 
@@ -62,7 +62,6 @@ export function InvoicePrint({ data }: { data: PrintData }) {
   const dp = org.money_decimals ?? 0;
   const m = (v: Num) => formatNumber(v, { dp });
   const meta = INVOICE_META[data.kind];
-  const showLogo = org.settings?.print?.show_logo !== false && !!org.logo;
   const footer = (org.settings?.print?.footer as string | undefined) ?? "";
   const orgBox: [string, string | null | undefined][] = [
     ["نام", org.legal_name || org.name],
@@ -95,39 +94,26 @@ export function InvoicePrint({ data }: { data: PrintData }) {
   return (
     <div className="print-sheet sf-pr hidden print:block" dir="rtl">
       <style>{"@media print { @page { size: A4 portrait; margin: 14mm 12mm 16mm; } }"}</style>
-      <header className="sf-pr-head">
-        <div className="sf-pr-brand">{showLogo ? <img src={org.logo!} alt="" /> : <SirafMark size={32} variant="mono" />}</div>
-        <div className="sf-pr-biz">
-          <b>{org.legal_name || org.name}</b>
-          {org.economic_code ? <span>کد اقتصادی {faDigits(org.economic_code)}</span> : null}
-          <span>{[[org.province, org.city, org.address].filter(Boolean).join("، "), org.phone ? `تلفن ${faDigits(org.phone)}` : null].filter(Boolean).join("، ")}</span>
-        </div>
-        <div className="sf-pr-doc">
-          <b className="t">{data.kind === "sale" ? "صورتحساب فروش کالا و خدمات" : meta.title}</b>
-          <div>شماره‌ی <b>{data.no ? docNo(Number(data.no)) : "—"}</b></div>
-          <div>تاریخ <b>{formatJalali(data.date)}</b></div>
-          {data.dueDate ? <div>{data.kind === "quote" ? "اعتبار تا" : "سررسید"} {formatJalali(data.dueDate)}</div> : null}
-          {data.refNo ? <div>شماره‌ی عطف {faDigits(data.refNo)}</div> : null}
-          {data.draft ? <span className="sf-pr-badge">پیش‌نویس</span> : null}
-        </div>
-      </header>
+      <PrintHead
+        title={data.kind === "sale" ? "صورتحساب فروش کالا و خدمات" : meta.title}
+        rows={[
+          <>شماره‌ی <b>{data.no ? docNo(Number(data.no)) : "—"}</b></>,
+          <>تاریخ <b>{formatJalali(data.date)}</b></>,
+          ...(data.dueDate ? [<>{data.kind === "quote" ? "اعتبار تا" : "سررسید"} {formatJalali(data.dueDate)}</>] : []),
+          ...(data.refNo ? [<>شماره‌ی عطف {faDigits(data.refNo)}</>] : []),
+        ]}
+        badge={data.draft ? "پیش‌نویس" : null}
+      />
       <div className="sf-pr-parties">
         <Box title="فروشنده" rows={seller} />
         <Box title="خریدار" rows={buyer} />
       </div>
       <table>
-        <colgroup>
-          <col style={{ width: "4%" }} />
-          <col style={{ width: "7%" }} />
-          <col style={{ width: "22%" }} />
-          <col style={{ width: "6%" }} />
-          <col style={{ width: "5%" }} />
-        </colgroup>
         <thead>
           <tr>
             <th className="c">ردیف</th>
-            <th>کد</th>
-            <th>شرح کالا یا خدمت</th>
+            <th className="n">کد</th>
+            <th className="desc">شرح کالا یا خدمت</th>
             <th className="n">مقدار</th>
             <th>واحد</th>
             <th className="n">مبلغ واحد</th>
@@ -142,9 +128,9 @@ export function InvoicePrint({ data }: { data: PrintData }) {
           {data.lines.map((l, i) => (
             <tr key={i}>
               <td className="c">{faDigits(i + 1)}</td>
-              <td>{faDigits(l.code)}</td>
-              <td>
-                {l.name}
+              <td className="n">{faDigits(l.code)}</td>
+              <td className="desc">
+                <LatinRuns text={l.name} />
                 {l.description ? <span className="sub">{l.description}</span> : null}
               </td>
               <td className="n">{formatNumber(l.qty, { dp: 3 })}</td>
@@ -192,10 +178,7 @@ export function InvoicePrint({ data }: { data: PrintData }) {
         <div>مهر و امضای فروشنده</div>
         <div>مهر و امضای خریدار</div>
       </div>
-      <div className="sf-pr-colophon">
-        <span>{footer}</span>
-        <span>{APP_NAME} <span className="latn">| siraf.app</span></span>
-      </div>
+      <PrintColophon note={footer || undefined} />
     </div>
   );
 }

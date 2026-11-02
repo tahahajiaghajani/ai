@@ -136,7 +136,7 @@ function ChequeList({ direction, onOpen, activeId }: { direction: Direction; onO
                 <i className="sf-nuqta" aria-hidden />
                 {map[s][0]}
               </small>
-              <b>{faDigits(t?.count ?? 0)}</b>
+              <b>{t?.count ? faDigits(t.count) : <span className="sf-zero">—</span>}</b>
               <span><Amt v={t?.sum ?? 0} zero="—" /></span>
             </button>
           );

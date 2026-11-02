@@ -8,8 +8,7 @@ import { D, type Num } from "@shared/money";
 import { faDigits, formatNumber } from "@shared/format";
 import { formatJalali, formatJalaliDateTime } from "@shared/jalali";
 import { amountToWords, weightToWords } from "@shared/words";
-import { APP_NAME } from "@shared/constants";
-import { SirafMark } from "../../components/brand";
+import { PrintColophon, PrintHead } from "../goods/print";
 import { docNo } from "../../lib/fa";
 import { KINDS, formTitle, printWithPage, wageText, type DocKind } from "./shared";
 
@@ -32,31 +31,12 @@ function W({ v }: { v: Num }) {
 const fin = (v: Num | null | undefined) => faDigits(D(v ?? 750).toString());
 
 function SellerBlock({ title, doc }: { title: string; doc: any }) {
-  const { org } = useOrg();
-  const legal = [
-    org.economic_code ? `کد اقتصادی ${faDigits(org.economic_code)}` : null,
-    org.national_id ? `شناسه‌ی ملی ${faDigits(org.national_id)}` : null,
-    org.registration_no ? `شماره‌ی ثبت ${faDigits(org.registration_no)}` : null,
-  ].filter(Boolean).join("، ");
-  const addr = [[org.province, org.city, org.address].filter(Boolean).join("، "), org.postal_code ? `کد پستی ${faDigits(org.postal_code)}` : null, org.phone ? `تلفن ${faDigits(org.phone)}` : null]
-    .filter(Boolean)
-    .join("، ");
   return (
-    <header className="sf-pr-head">
-      <div className="sf-pr-brand">{org.logo ? <img src={org.logo} alt="" /> : <SirafMark size={32} variant="mono" />}</div>
-      <div className="sf-pr-biz">
-        <b>{org.legal_name || org.name}</b>
-        {legal ? <span>{legal}</span> : null}
-        {addr ? <span>{addr}</span> : null}
-      </div>
-      <div className="sf-pr-doc">
-        <b className="t">{title}</b>
-        <div>شماره‌ی <b>{docNo(Number(doc.no))}</b></div>
-        <div>تاریخ <b>{formatJalali(doc.date)}</b></div>
-        {doc.status === "cancelled" ? <span className="sf-pr-badge">باطل شده</span> : null}
-        {doc.status === "draft" ? <span className="sf-pr-badge">پیش‌نویس</span> : null}
-      </div>
-    </header>
+    <PrintHead
+      title={title}
+      rows={[<>شماره‌ی <b>{docNo(Number(doc.no))}</b></>, <>تاریخ <b>{formatJalali(doc.date)}</b></>]}
+      badge={doc.status === "cancelled" ? "باطل شده" : doc.status === "draft" ? "پیش‌نویس" : null}
+    />
   );
 }
 
@@ -100,12 +80,7 @@ function RateLine({ doc }: { doc: any }) {
 }
 
 function Colophon() {
-  return (
-    <div className="sf-pr-colophon">
-      <span>چاپ: {formatJalaliDateTime(new Date().toISOString())}</span>
-      <span>{APP_NAME} <span className="latn">| siraf.app</span></span>
-    </div>
-  );
+  return <PrintColophon />;
 }
 
 function Signatures({ left = "امضای خریدار", right = "مهر و امضای فروشنده" }: { left?: string; right?: string }) {
@@ -155,7 +130,7 @@ export function SaleInvoice({ doc }: { doc: any }) {
         <thead>
           <tr>
             <th className="c">ردیف</th>
-            <th>شرح کالا</th>
+            <th className="desc">شرح کالا</th>
             <th className="c">عیار</th>
             <th className="n">وزن (گرم)</th>
             <th className="n">ارزش طلا</th>
@@ -171,7 +146,7 @@ export function SaleInvoice({ doc }: { doc: any }) {
           {out.map((l: any, i: number) => (
             <tr key={l.id ?? i}>
               <td className="c">{faDigits(i + 1)}</td>
-              <td>
+              <td className="desc">
                 {l.kind === "coin" ? `${l.title ?? l.coin_name ?? "سکه"} × ${faDigits(D(l.qty).toString())}` : l.title}
                 {l.tag_no ? <span className="sub">اتیکت {faDigits(l.tag_no)}{l.kind === "piece" && l.wage_type ? `، اجرت ${wageText(l.wage_type, l.wage_value)}${l.profit_pct ? `، سود ${faDigits(D(l.profit_pct).toString())}٪` : ""}` : ""}</span> : null}
               </td>
@@ -332,7 +307,7 @@ export function DocSheet({ doc }: { doc: any }) {
         <thead>
           <tr>
             <th className="c">ردیف</th>
-            <th>شرح</th>
+            <th className="desc">شرح</th>
             <th>نوع</th>
             <th className="c">عیار</th>
             <th className="n">وزن (گرم)</th>
@@ -346,7 +321,7 @@ export function DocSheet({ doc }: { doc: any }) {
           {lines.map((l: any, i: number) => (
             <tr key={l.id ?? i}>
               <td className="c">{faDigits(i + 1)}</td>
-              <td>
+              <td className="desc">
                 {l.kind === "coin" ? `${l.title ?? "سکه"} × ${faDigits(D(l.qty).toString())}` : l.title}
                 {l.tag_no || l.assay_no || (l.kind === "old" && l.deduction_pct) ? (
                   <span className="sub">

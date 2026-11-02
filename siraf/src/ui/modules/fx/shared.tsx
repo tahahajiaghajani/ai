@@ -10,7 +10,7 @@ import { StatusTag } from "../../components/display";
 import { pct as faPct } from "../../lib/fa";
 import { useOrg } from "../../lib/org";
 import { RefSelect } from "../../components/inputs";
-import { formatNumber, faDigits } from "@shared/format";
+import { formatNumber, faDigits, groupDigits } from "@shared/format";
 import { formatJalaliDateTime } from "@shared/jalali";
 import { D, type Num } from "@shared/money";
 
@@ -61,7 +61,7 @@ export const SOURCE_FA: Record<string, string> = {
 };
 export const DEAL_STATUS: Record<string, [string, string]> = { draft: ["پیش‌نویس", "default"], posted: ["ثبت‌شده", "processing"], cancelled: ["باطل‌شده", "error"] };
 export const REM_STATUS: Record<string, [string, string]> = {
-  pending: ["در انتظار", "warning"], sent: ["ارسال‌شده", "processing"], paid: ["پرداخت‌شده", "success"], cancelled: ["لغوشده", "error"], returned: ["برگشتی", "error"],
+  pending: ["در انتظار", "default"], sent: ["در راه", "processing"], paid: ["پرداخت‌شده", "success"], cancelled: ["لغوشده", "error"], returned: ["برگشتی", "error"],
 };
 export const STATUS_ACTION: Record<string, string> = { sent: "ارسال به همکار", paid: "پرداخت شد", cancelled: "لغو حواله", returned: "برگشت حواله", pending: "بازگشت به «در انتظار»" };
 
@@ -150,7 +150,7 @@ export function CurrencyChip({ c, size = "sm" }: { c: Pick<BoardCurrency, "code"
 
 /** The round currency avatar (24 / 28 / 36). */
 export function CurrencyAvatar({ code, size }: { code: string; size?: "sm" | "lg" }) {
-  return <span className={`sf-cur-av ${size === "sm" ? "is-sm" : size === "lg" ? "is-lg" : ""}`} aria-hidden>{code.slice(0, 4)}</span>;
+  return <span className={`sf-cur-av ${size === "sm" ? "is-sm" : size === "lg" ? "is-lg" : ""}`} data-long={code.length >= 4 ? "" : undefined} aria-hidden>{code.slice(0, 4)}</span>;
 }
 
 /** Avatar + the Persian name over its code. */
@@ -172,6 +172,39 @@ export function SourceTag({ s, at }: { s?: string | null; at?: string | null }) 
   const t = <span className="whitespace-nowrap text-[13px] text-ink-3">{SOURCE_FA[s] ?? s}</span>;
   return at ? <Tooltip title={formatJalaliDateTime(at)}>{t}</Tooltip> : t;
 }
+
+/**
+ * A remittance status (components.md §4.8): open remittances («در انتظار»، «در راه») are a neutral chip with a sea
+ * nuqta, never amber (warning is for overdue only); paid is plain text; cancelled and returned are danger chips.
+ */
+export function RemStatus({ s }: { s: string }) {
+  if (s === "pending" || s === "sent") {
+    return (
+      <span className="sf-chip" data-tone="neutral">
+        <i className="sf-nuqta is-sea" aria-hidden />
+        <span>{REM_STATUS[s][0]}</span>
+      </span>
+    );
+  }
+  return <StatusTag s={s} map={REM_STATUS} />;
+}
+
+const COUNTRY_FA: Record<string, string> = {
+  UAE: "امارات", AE: "امارات", ARE: "امارات", "UNITED ARAB EMIRATES": "امارات", DUBAI: "امارات",
+  TR: "ترکیه", TUR: "ترکیه", TURKEY: "ترکیه", TURKIYE: "ترکیه", IR: "ایران", IRN: "ایران", IRAN: "ایران",
+  IQ: "عراق", IRQ: "عراق", IRAQ: "عراق", AF: "افغانستان", AFG: "افغانستان", AFGHANISTAN: "افغانستان",
+  CN: "چین", CHN: "چین", CHINA: "چین", DE: "آلمان", DEU: "آلمان", GERMANY: "آلمان", GB: "بریتانیا", UK: "بریتانیا", GBR: "بریتانیا",
+  US: "آمریکا", USA: "آمریکا", CA: "کانادا", CAN: "کانادا", CANADA: "کانادا", OM: "عمان", OMN: "عمان", OMAN: "عمان",
+  QA: "قطر", QAT: "قطر", QATAR: "قطر", AM: "ارمنستان", ARM: "ارمنستان", ARMENIA: "ارمنستان", GE: "گرجستان", GEO: "گرجستان", GEORGIA: "گرجستان",
+  MY: "مالزی", MYS: "مالزی", MALAYSIA: "مالزی", RU: "روسیه", RUS: "روسیه", RUSSIA: "روسیه", FR: "فرانسه", FRA: "فرانسه", FRANCE: "فرانسه",
+  IT: "ایتالیا", ITA: "ایتالیا", ITALY: "ایتالیا", NL: "هلند", NLD: "هلند", SE: "سوئد", SWE: "سوئد", AU: "استرالیا", AUS: "استرالیا",
+};
+
+/** A country as Persian text («UAE» → «امارات»); a name already in Persian is kept. */
+export const countryFa = (v: string | null | undefined) => (v ? COUNTRY_FA[v.trim().toUpperCase()] ?? v : v);
+
+/** A tracking code grouped in fours with Persian digits («۰۵۷۱ ۱۸۲۰ ۱۳»), the same everywhere it is shown. */
+export const trackNo = (v: string | null | undefined) => (v ? faDigits(groupDigits(String(v), 4)) : "—");
 
 /** A deal or remittance status: plain text for the normal state, a chip only for what needs attention. */
 export function FxStatus({ s, map }: { s: string; map: Record<string, [string, string]> }) {

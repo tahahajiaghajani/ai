@@ -763,7 +763,7 @@ function InvoiceEditor({ id }: { id: string | null }) {
                   </span>
                 </td>
                 <td colSpan={5} />
-                <td className="sf-gn"><Money v={D(calc.net).plus(D(calc.tax)).toString()} /></td>
+                <td className="sf-gn"><Money v={D(calc.net).plus(D(calc.tax)).toString()} zero="—" /></td>
                 {!readonly ? <td /> : null}
               </tr>
             </tfoot>
@@ -815,7 +815,7 @@ function InvoiceEditor({ id }: { id: string | null }) {
               </div>
               <div className="r is-total">
                 <span>مبلغ نهایی</span>
-                <span className="n"><Money v={calc.total} /><span className="sf-unit">{"\u00a0"}{unit}</span></span>
+                <span className="n">{D(calc.total).isZero() ? <span className="sf-zero">—</span> : <><Money v={calc.total} /><span className="sf-unit">{"\u00a0"}{unit}</span></>}</span>
               </div>
               {D(calc.total).gt(0) ? <div className="r is-words"><span>{amountToWords(calc.total, unit)}</span></div> : null}
             </div>

@@ -17,6 +17,7 @@ import { formatJalali, formatJalaliDateTime } from "@shared/jalali";
 import { numberToWords } from "@shared/words";
 import { CHAINS } from "@shared/entities";
 import { DEAL_STATUS, EXPLORER, Facts, FxAmount, KIND_FA, rateLabel } from "./shared";
+import { PrintColophon, PrintHead } from "../goods/print";
 
 export default function DealView() {
   const { id } = useParams();
@@ -132,8 +133,13 @@ export default function DealView() {
             <Segmented size="small" value={paper} onChange={(v) => setPaper(v as "a5" | "80mm")} options={[{ value: "a5", label: "A5" }, { value: "80mm", label: "۸۰ میلی‌متر" }]} />
           </div>
           <style>{paper === "80mm" ? "@media print { @page { size: 80mm auto; margin: 3mm; } }" : "@media print { @page { size: A5; margin: 8mm; } }"}</style>
-          <div className={`print-sheet sf-card mx-auto w-full shadow-e2 ${paper === "80mm" ? "max-w-[80mm] p-4 text-[12px]" : "max-w-[148mm] p-6 text-[13px]"}`}>
-            <div className="mb-3 flex items-center gap-3 border-b border-line pb-3">
+          <div className={`print-sheet sf-card sf-rcpt mx-auto w-full shadow-e2 ${paper === "80mm" ? "max-w-[80mm] p-4 text-[12px]" : "max-w-[148mm] p-6 text-[13px]"}`}>
+            {paper === "a5" ? (
+              <div className="hidden print:block">
+                <PrintHead title={`رسید ${KIND_FA[d.kind]}`} legal={false} rows={[<>شماره‌ی <b>{faDigits(d.no)}</b></>, <>تاریخ <b>{formatJalali(d.date)}</b></>]} badge={d.status === "cancelled" ? "باطل شده" : d.status === "draft" ? "پیش‌نویس" : null} />
+              </div>
+            ) : null}
+            <div className={`mb-3 flex items-center gap-3 border-b border-line pb-3 ${paper === "a5" ? "print:hidden" : ""}`}>
               {org.logo ? <img src={org.logo} alt="" className={`${paper === "80mm" ? "h-8 w-8" : "h-12 w-12"} rounded object-cover`} /> : null}
               <div className="min-w-0 flex-1">
                 <div className={`${paper === "80mm" ? "text-sm" : "text-lg"} font-semibold`}>{org.name}</div>
@@ -145,7 +151,7 @@ export default function DealView() {
               </div>
             </div>
             <div className="mb-3 grid grid-cols-2 gap-1 text-[12px]">
-              <div>تاریخ: <b className="sf-num">{formatJalali(d.date)}</b></div>
+              <div className={paper === "a5" ? "print:invisible" : ""}>تاریخ: <b className="sf-num">{formatJalali(d.date)}</b></div>
               <div className="text-end">ساعت: <b className="sf-num">{formatJalaliDateTime(d.created_at).split(" ")[1] ?? ""}</b></div>
               <div className="col-span-2">مشتری: <b>{customer}</b>{d.party_mobile ? <span className="sf-num">، {faDigits(d.party_mobile)}</span> : d.walkin?.mobile ? <span className="sf-num">، {faDigits(d.walkin.mobile)}</span> : null}</div>
               {d.walkin?.national_id || d.party_national_id ? <div className="col-span-2">کد ملی: <b className="sf-num">{faDigits(d.walkin?.national_id ?? d.party_national_id)}</b></div> : null}
@@ -153,7 +159,7 @@ export default function DealView() {
             </div>
 
             <div className="grid gap-2">
-              <div className="rounded-lg p-3 shadow-[inset_0_0_0_1px_var(--sf-line-2)]">
+              <div className="sf-rcpt-box rounded-lg p-3 shadow-[inset_0_0_0_1px_var(--sf-line-2)]">
                 <div className="text-[12px] text-ink-3">دریافت از مشتری</div>
                 <div className="flex items-baseline justify-between gap-2">
                   <b className={paper === "80mm" ? "text-base font-semibold" : "text-xl font-semibold"}><FxAmount v={d.in_amount} code={d.in_code === org.base_currency ? unit : d.in_code} dp={dpIn} /></b>
@@ -161,7 +167,7 @@ export default function DealView() {
                 </div>
                 <div className="text-[12px] leading-5 text-ink-2">{numberToWords(d.in_amount)} {nameOf(d.in_code, d.in_name)}</div>
               </div>
-              <div className="rounded-lg p-3 shadow-[inset_0_0_0_1px_var(--sf-line-2)]">
+              <div className="sf-rcpt-box rounded-lg p-3 shadow-[inset_0_0_0_1px_var(--sf-line-2)]">
                 <div className="text-[12px] text-ink-3">پرداخت به مشتری</div>
                 <div className="flex items-baseline justify-between gap-2">
                   <b className={paper === "80mm" ? "text-base font-semibold" : "text-xl font-semibold"}><FxAmount v={d.out_amount} code={d.out_code === org.base_currency ? unit : d.out_code} dp={dpOut} /></b>
@@ -189,7 +195,7 @@ export default function DealView() {
                 </div>
               ) : null}
               {d.network || d.address || d.tx_hash ? (
-                <div className="mt-1 grid gap-1 rounded-md p-2.5 shadow-[inset_0_0_0_1px_var(--sf-line)]">
+                <div className="sf-rcpt-box mt-1 grid gap-1 rounded-md p-2.5 shadow-[inset_0_0_0_1px_var(--sf-line)]">
                   {d.network ? <div>شبکه: <b className="sf-ltr">{chain}</b></div> : null}
                   {d.address ? <div className="break-all">نشانی: <bdi dir="ltr" className="sf-mono text-[12px]">{d.address}</bdi></div> : null}
                   {d.tx_hash ? <div className="break-all">TxID: <bdi dir="ltr" className="sf-mono text-[12px]">{d.tx_hash}</bdi></div> : null}
@@ -203,6 +209,7 @@ export default function DealView() {
               <div className="border-t border-line-3 pt-1.5">مهر و امضای صرافی</div>
             </div>
             <div className="mt-4 text-center text-[12px] text-ink-3">{d.status === "cancelled" ? "باطل شده" : "از اعتماد شما سپاسگزاریم."}</div>
+            {paper === "a5" ? <div className="hidden print:block"><PrintColophon /></div> : null}
           </div>
         </div>
 
@@ -214,7 +221,7 @@ export default function DealView() {
                 ["ارزش معامله", <Money v={d.base_value ?? 0} unit />],
                 ...(d.kind !== "buy" ? ([["میانگین بهای ارز", d.avg_cost ? <span className="sf-num">{rateLabel(d.avg_cost, baseDp)}</span> : "—"], ["بهای تمام‌شده", <Money v={d.cost_value ?? 0} />], ["سود (زیان) معامله", <Money v={d.profit ?? 0} colored />]] as [string, ReactNode][]) : []),
                 ...(d.kind === "exchange" && d.market_rate ? ([["نرخ روز ارز دریافتی", <span className="sf-num">{rateLabel(d.market_rate, baseDp)}</span>]] as [string, ReactNode][]) : []),
-                ["درآمد کارمزد", <Money v={d.fee_base ?? 0} />],
+                ["درآمد کارمزد", <Money v={d.fee_base ?? 0} zero="—" />],
                 ["سند حسابداری", d.voucher_id ? <Link className="sf-link" to={`/${orgId}/accounting/vouchers/${d.voucher_id}`}>سند {faDigits(d.voucher_no ?? "")}</Link> : "—"],
               ]}
             />

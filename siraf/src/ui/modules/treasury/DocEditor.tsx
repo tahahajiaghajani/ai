@@ -405,7 +405,7 @@ function Editor({ kind, doc }: { kind: DocKind; doc: any | null }) {
             <div>
               <small>جمع {KIND_TITLE[kind]}</small>
               <b>
-                <Amt v={total.toString()} zero="۰" /> <span className="sf-unit">{unit}</span>
+                {total.isZero() ? <span className="sf-zero">—</span> : <><Amt v={total.toString()} /> <span className="sf-unit">{unit}</span></>}
               </b>
             </div>
             {totals.fee.gt(0) ? (

@@ -1,19 +1,22 @@
 // The command palette (components.md §1.4): strong glass over the scrim, no open/close animation,
-// grouped results («اخیر»، «کارها»، «صفحه‌ها»، «اشخاص»، «اسناد»), matched characters in ink 600,
+// grouped results («اخیر»، «کارها»، «صفحه‌ها»، «اشخاص»، «اسناد و فاکتورها»), matched characters in ink 600,
 // the selected row with the 2 × 16 Dusk start bar, and keyboard hints in the footer.
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 import { useQuery } from "@tanstack/react-query";
-import { Search, CornerDownLeft, History, User, FileText, type LucideIcon } from "lucide-react";
+import { Search, CornerDownLeft, History, User, FileText, Receipt, ArrowDownToLine, ArrowUpFromLine, ArrowLeftRight, type LucideIcon } from "lucide-react";
 import { useOrg } from "../../lib/org";
 import { useDebounced } from "../../lib/hooks";
 import { normalizeFa, toLatinDigits, docNo, jDate } from "../../lib/fa";
-import { Ic, Keys } from "./icons";
-import { readJSON, recentKey, spaceOf, useShellItems, type Recent } from "./model";
+import { ChequeIcon, Ic, Keys } from "./icons";
+import { readJSON, recentKey, spaceOf, useRelPath, useShellItems, type Recent } from "./model";
+import { INVOICE_KINDS, INVOICE_META, type InvoiceKind } from "../../modules/goods/labels";
 
 export interface PaletteCommand {
   key: string;
+  /** Org-relative path the command opens: left out of the empty palette while that page is open. */
+  path?: string;
   label: string;
   icon: LucideIcon;
   keywords?: string;
@@ -114,12 +117,30 @@ export function CommandPalette({ open, onClose, commands = [] }: { open: boolean
   return createPortal(<Palette onClose={onClose} commands={commands} />, document.body);
 }
 
-const GROUP_ORDER = ["اخیر", "کارها", "صفحه‌ها", "اشخاص", "اسناد"];
+const DOCS = "اسناد و فاکتورها";
+const GROUP_ORDER = ["اخیر", "کارها", "صفحه‌ها", "اشخاص", DOCS];
+
+const TREASURY_KIND: Record<string, { label: string; icon: LucideIcon }> = {
+  receipt: { label: "دریافت", icon: ArrowDownToLine },
+  payment: { label: "پرداخت", icon: ArrowUpFromLine },
+  transfer: { label: "انتقال", icon: ArrowLeftRight },
+};
+
+interface DocHit {
+  id: string;
+  no: number;
+  date: string | null;
+  kind?: string;
+  party_name?: string | null;
+  buyer_name?: string | null;
+  description?: string | null;
+}
 
 function Palette({ onClose, commands }: { onClose: () => void; commands: PaletteCommand[] }) {
   const items = useShellItems();
-  const { orgId, api, can } = useOrg();
+  const { orgId, api, can, has } = useOrg();
   const nav = useNavigate();
+  const here = useRelPath() + useLocation().search;
   const [q, setQ] = useState("");
   const [idx, setIdx] = useState(0);
   const input = useRef<HTMLInputElement>(null);
@@ -141,9 +162,10 @@ function Palette({ onClose, commands }: { onClose: () => void; commands: Palette
     nav(`/${orgId}${path ? `/${path}` : ""}`);
   };
 
-  // records: people by name/code, vouchers by number
+  // records: people by name/code; vouchers, invoices, receipts/payments and cheques by number
   const digits = toLatinDigits(dq).replace(/[^\d]/g, "");
   const isNumber = !!dq && /^[\d۰-۹٠-٩\s]+$/.test(dq);
+  const invoiceKinds = has("goods") ? INVOICE_KINDS.filter((k) => can(INVOICE_META[k].area)) : [];
   const parties = useQuery({
     queryKey: ["palette-parties", orgId, dq],
     queryFn: () => api.get<{ options: { id: string; label: string; sub?: string | null }[] }>("/data/party/options", { q: dq }),
@@ -152,8 +174,28 @@ function Palette({ onClose, commands }: { onClose: () => void; commands: Palette
   });
   const vouchers = useQuery({
     queryKey: ["palette-vouchers", orgId, digits],
-    queryFn: () => api.get<{ rows: { id: string; no: number; date: string; description: string | null }[] }>("/accounting/vouchers", { q: digits, size: 5 }),
+    queryFn: () => api.get<{ rows: DocHit[] }>("/accounting/vouchers", { q: digits, size: 20 }),
     enabled: isNumber && !!digits && can("accounting"),
+    staleTime: 30_000,
+  });
+  const invoices = useQuery({
+    queryKey: ["palette-invoices", orgId, digits, invoiceKinds.join(",")],
+    queryFn: () => api.get<{ rows: DocHit[] }>("/goods/invoices", { kind: invoiceKinds.join(","), q: digits, sort: "no", dir: "asc", size: 20 }),
+    enabled: isNumber && !!digits && invoiceKinds.length > 0,
+    staleTime: 30_000,
+  });
+  const tdocs = useQuery({
+    queryKey: ["palette-treasury", orgId, digits],
+    queryFn: () => api.get<{ rows: DocHit[] }>("/treasury/docs", { q: digits, sort: "no", dir: "asc", size: 20 }),
+    enabled: isNumber && !!digits && can("treasury"),
+    staleTime: 30_000,
+  });
+  // cheque serials are long: a short number would match half the cheque book
+  const cheques = useQuery({
+    queryKey: ["palette-cheques", orgId, digits],
+    queryFn: () =>
+      api.get<{ rows: { id: string; direction: string; serial_no: string | null; sayad_no: string | null; bank_name: string | null; due_date: string | null }[] }>("/treasury/cheques", { q: digits, size: 3 }),
+    enabled: isNumber && digits.length >= 3 && can("treasury"),
     staleTime: 30_000,
   });
 
@@ -170,13 +212,14 @@ function Palette({ onClose, commands }: { onClose: () => void; commands: Palette
       run: () => go(i.path),
     });
     if (!s) {
-      const recents = readJSON<Recent[]>(recentKey(orgId), []);
+      // the page that is open is never offered again
+      const recents = readJSON<Recent[]>(recentKey(orgId), []).filter((r) => r.path !== here);
       for (const r of recents) {
         const it = r.key ? items.find((i) => i.key === r.key) : null;
         out.push({ id: `r-${r.path}`, group: "اخیر", icon: it?.icon ?? History, label: r.label, meta: it && !it.common ? spaceOf(it.space).title : undefined, run: () => go(r.path) });
       }
-      for (const i of items.filter((x) => x.action)) out.push(pageRow(i, "کارها"));
-      for (const c of commands) out.push({ id: `c-${c.key}`, group: "کارها", icon: c.icon, label: c.label, meta: c.meta, run: () => (onClose(), c.run()) });
+      for (const i of items.filter((x) => x.action && x.path !== here)) out.push(pageRow(i, "کارها"));
+      for (const c of commands.filter((x) => x.path === undefined || x.path !== here)) out.push({ id: `c-${c.key}`, group: "کارها", icon: c.icon, label: c.label, meta: c.meta, run: () => (onClose(), c.run()) });
       return out;
     }
     const scored: { row: Row; s: number }[] = [];
@@ -193,20 +236,38 @@ function Palette({ onClose, commands }: { onClose: () => void; commands: Palette
     for (const p of parties.data?.options?.slice(0, 5) ?? []) {
       out.push({ id: `p-${p.id}`, group: "اشخاص", icon: User, label: p.label, hl: score(p.label, "", s).hl, meta: p.sub ?? undefined, run: () => go(`parties/${p.id}`) });
     }
-    for (const v of vouchers.data?.rows ?? []) {
+    const when = (d: string | null | undefined) => (d ? jDate(new Date(d)) : null);
+    // the lists also match the number inside references, mobiles and descriptions (hence the ascending number
+    // order above, which brings the exact numbers forward): a document is found by its own number
+    const no = Number(digits);
+    const exact = <T extends { no: number }>(rows: T[] | undefined, max: number) => (rows ?? []).filter((r) => Number(r.no) === no).slice(0, max);
+    const docMeta = (...parts: (string | null | undefined)[]) => parts.filter(Boolean).join("، ") || undefined;
+    for (const v of exact(vouchers.data?.rows, 3)) {
+      out.push({ id: `v-${v.id}`, group: DOCS, icon: FileText, label: `سند ${docNo(v.no)}`, meta: docMeta(v.description, when(v.date)), run: () => go(`accounting/vouchers/${v.id}`) });
+    }
+    for (const v of exact(invoices.data?.rows, 5)) {
+      const m = INVOICE_META[(v.kind as InvoiceKind) ?? "sale"];
+      if (!m) continue;
+      out.push({ id: `i-${v.id}`, group: DOCS, icon: Receipt, label: `${m.title} ${docNo(v.no)}`, meta: docMeta(v.party_name ?? v.buyer_name, when(v.date)), run: () => go(`${m.path}/${v.id}`) });
+    }
+    for (const v of exact(tdocs.data?.rows, 3)) {
+      const k = TREASURY_KIND[v.kind ?? ""] ?? TREASURY_KIND.receipt;
+      out.push({ id: `t-${v.id}`, group: DOCS, icon: k.icon, label: `${k.label} ${docNo(v.no)}`, meta: docMeta(v.party_name ?? v.description, when(v.date)), run: () => go(`treasury/docs/${v.id}`) });
+    }
+    for (const c of cheques.data?.rows ?? []) {
       out.push({
-        id: `v-${v.id}`,
-        group: "اسناد",
-        icon: FileText,
-        label: `سند ${docNo(v.no)}`,
-        meta: [v.description, v.date ? jDate(new Date(v.date)) : null].filter(Boolean).join("، ") || undefined,
-        run: () => go(`accounting/vouchers/${v.id}`),
+        id: `q-${c.id}`,
+        group: DOCS,
+        icon: ChequeIcon,
+        label: `چک ${c.direction === "issued" ? "پرداختی" : "دریافتی"} ${c.serial_no ?? c.sayad_no ?? ""}`.trim(),
+        meta: docMeta(c.bank_name, c.due_date ? `سررسید ${when(c.due_date)}` : null),
+        run: () => go(`treasury/cheques${c.direction === "issued" ? "/issued" : ""}?open=${c.id}`),
       });
     }
     out.sort((a, b) => GROUP_ORDER.indexOf(a.group) - GROUP_ORDER.indexOf(b.group));
     return out.slice(0, 40);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q, items, commands, parties.data, vouchers.data, orgId]);
+  }, [q, digits, items, commands, parties.data, vouchers.data, invoices.data, tdocs.data, cheques.data, orgId, here]);
 
   useEffect(() => setIdx(0), [q]);
   const sel = Math.min(idx, Math.max(0, rows.length - 1));
@@ -236,7 +297,7 @@ function Palette({ onClose, commands }: { onClose: () => void; commands: Palette
     }
   };
 
-  const loading = (parties.isFetching || vouchers.isFetching) && !rows.length;
+  const loading = (parties.isFetching || vouchers.isFetching || invoices.isFetching || tdocs.isFetching || cheques.isFetching) && !rows.length;
   let n = -1;
   return (
     <div className="sh-pal-scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>

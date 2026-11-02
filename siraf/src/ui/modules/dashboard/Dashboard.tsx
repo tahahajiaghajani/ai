@@ -32,7 +32,7 @@ import { useOrg } from "../../lib/org";
 import { useSession } from "../../lib/session";
 import { PageHeader } from "../../components/layout";
 import { ChequeIcon, Ic } from "../../components/shell/icons";
-import { docNo, fa, jDate, jLong, jTime, pct } from "../../lib/fa";
+import { docNo, fa, jDate, jLong, jTime, pct, signed } from "../../lib/fa";
 import { stagger } from "../../lib/motion";
 import { todayISO } from "@shared/jalali";
 import { getWidgets } from "./widgets";
@@ -49,6 +49,7 @@ import {
 import {
   Amt,
   Card,
+  ClipText,
   Count,
   Delta,
   Empty,
@@ -439,6 +440,14 @@ function Kpis({
     ? treasury.cheques.received_overdue.count +
       treasury.cheques.issued_overdue.count
     : chq.filter((c) => c.due_date < spec.to).length;
+  const overdueSum = treasury
+    ? num(treasury.cheques.received_overdue.sum) +
+      num(treasury.cheques.issued_overdue.sum)
+    : chq
+        .filter((c) => c.due_date < spec.to)
+        .reduce((a, c) => a + num(c.amount), 0);
+  // nothing received this week: the overdue sum is the figure that matters; nothing at all: a quiet line
+  const chqFig = recvWeek ? recvWeek : overdueSum ? overdueSum : recvWeek;
   const perDay = days.map((x) =>
     chq.filter((c) => String(c.due_date).slice(0, 10) === x.date),
   );
@@ -452,7 +461,7 @@ function Kpis({
     title: `${jDate(isoDate(x.date))}: ${perDay[i].length ? `${fa(perDay[i].length)} چک` : "بدون چک"}`,
   }));
 
-  const s = useScale([income, net, ar, ap, recvWeek]);
+  const s = useScale([income, net, ar, ap, chqFig]);
   const trend: any[] = d?.trend ?? [];
   const hiNow = trend.length - 1;
   const loading = !d;
@@ -602,7 +611,15 @@ function Kpis({
           can("treasury", "view") ? go("treasury/cheques/due") : undefined
         }
       >
-        <KpiValue v={recvWeek} s={s} id="k-chq" loading={loading} />
+        {!loading && recvWeek !== null && !chqFig ? (
+          <div className="db-kpi-none">
+            {issuedN
+              ? "چک دریافتی سررسید نمی‌شود"
+              : "چکی سررسید نمی‌شود"}
+          </div>
+        ) : (
+          <KpiValue v={chqFig} s={s} id="k-chq" loading={loading} />
+        )}
         <div className="db-mini">
           <WeekDots days={weekDays} />
         </div>
@@ -611,10 +628,13 @@ function Kpis({
         ) : (
           <div className="db-kpi-foot">
             {overdue ? (
-              <span className="db-chip danger fig">
-                <span className="sf-nuqta" />
-                <Count n={overdue} /> سررسیدگذشته
-              </span>
+              <>
+                <span className="db-chip danger fig">
+                  <span className="sf-nuqta" />
+                  <Count n={overdue} /> سررسیدگذشته
+                </span>
+                {!recvWeek && overdueSum ? <span>بدون سررسید این هفته</span> : null}
+              </>
             ) : (
               <>
                 <span>
@@ -690,18 +710,12 @@ function TrendCard({ trend }: { trend: any[] | undefined }) {
           text="با ثبت فروش و هزینه‌ها، روند شش ماه اینجا می‌آید."
         />
       ) : view === "table" ? (
-        <div
-          className="db-list"
-          style={{
-            ["--cols" as string]:
-              "minmax(64px, 1fr) minmax(96px, auto) minmax(96px, auto) minmax(96px, auto)",
-          }}
-        >
+        <div className="db-list db-l-trend">
           <div className="db-list-h">
             <span>ماه</span>
-            <span className="text-end">درآمد</span>
-            <span className="text-end">هزینه</span>
-            <span className="text-end">سود</span>
+            <span>درآمد</span>
+            <span>هزینه</span>
+            <span>سود</span>
           </div>
           {rows
             .slice()
@@ -716,14 +730,8 @@ function TrendCard({ trend }: { trend: any[] | undefined }) {
                   <Amt v={r.expense} s={s} dp={1} />
                 </span>
                 <span className="db-num end">
-                  {r.profit ? (
-                    <bdi dir="ltr">
-                      {new Intl.NumberFormat("fa-IR", {
-                        minimumFractionDigits: 1,
-                        maximumFractionDigits: 1,
-                        signDisplay: "exceptZero",
-                      }).format(r.profit / s.div)}
-                    </bdi>
+                  {Math.abs(r.profit / s.div) >= 0.05 ? (
+                    <bdi dir="ltr">{signed(r.profit / s.div, 1)}</bdi>
                   ) : (
                     <span className="db-zero">—</span>
                   )}
@@ -741,7 +749,7 @@ function TrendCard({ trend }: { trend: any[] | undefined }) {
             <ResponsiveContainer width="100%" height="100%">
               <BarChart
                 data={rows}
-                margin={{ top: 8, right: 0, left: 0, bottom: 0 }}
+                margin={{ top: 8, right: 0, left: 4, bottom: 0 }}
                 barGap={2}
                 barCategoryGap="28%"
               >
@@ -754,7 +762,18 @@ function TrendCard({ trend }: { trend: any[] | undefined }) {
                   tick={{ fontSize: 12, fill: "var(--sf-text-3)" }}
                   interval={0}
                 />
-                <YAxis hide tickCount={3} />
+                <YAxis
+                  orientation="right"
+                  tickCount={3}
+                  width={40}
+                  axisLine={false}
+                  tickLine={false}
+                  tickMargin={10}
+                  tick={{ fontSize: 12, fill: "var(--sf-text-3)", textAnchor: "start" }}
+                  tickFormatter={(v: number) =>
+                    v === 0 ? fa(0) : fa(v / s.div, Math.abs(v / s.div) < 10 && v % s.div ? 1 : 0)
+                  }
+                />
                 <Tooltip
                   cursor={{ fill: "var(--sf-hover)" }}
                   content={<TrendTip s={s} />}
@@ -825,15 +844,14 @@ function TrendTip({
       </div>
       <div className="db-tip-r">
         <b>
-          <bdi dir="ltr">
-            {new Intl.NumberFormat("fa-IR", {
-              maximumFractionDigits: 1,
-              minimumFractionDigits: 1,
-              signDisplay: "exceptZero",
-            }).format(row.profit / s.div)}
-          </bdi>
+          {Math.abs(row.profit / s.div) >= 0.05 ? (
+            <bdi dir="ltr">{signed(row.profit / s.div, 1)}</bdi>
+          ) : (
+            "—"
+          )}
         </b>
-        سود، {s.unit}
+        <i className="db-tip-k none" />
+        سود
       </div>
     </div>
   );
@@ -887,6 +905,16 @@ function ChequesCard({ rows }: { rows: any[] | undefined }) {
 
 // ------------------------------------------------------------------ latest vouchers
 
+/** Latest first, as on the vouchers page: by date, then by number. */
+const latestFirst = (rows: any[]) =>
+  rows
+    .slice()
+    .sort(
+      (a, b) =>
+        String(b.date).slice(0, 10).localeCompare(String(a.date).slice(0, 10)) ||
+        num(b.no) - num(a.no),
+    );
+
 function RecentCard({ rows }: { rows: any[] | undefined }) {
   const { orgId, unit, can } = useOrg();
   const nav = useNavigate();
@@ -921,7 +949,7 @@ function RecentCard({ rows }: { rows: any[] | undefined }) {
         />
       ) : (
         <div className="db-list db-l-doc">
-          {rows.map((r) => (
+          {latestFirst(rows).map((r) => (
             <button
               key={r.id}
               type="button"
@@ -929,9 +957,13 @@ function RecentCard({ rows }: { rows: any[] | undefined }) {
               onClick={() => nav(`/${orgId}/accounting/vouchers/${r.id}`)}
             >
               <span className="db-doc">سند {docNo(num(r.no))}</span>
-              <span className="db-cell">
-                {r.description || <span className="db-zero">بی‌شرح</span>}
-              </span>
+              {r.description ? (
+                <ClipText className="db-cell" text={String(r.description)} />
+              ) : (
+                <span className="db-cell">
+                  <span className="db-zero">بی‌شرح</span>
+                </span>
+              )}
               <span className="db-num db-cell meta db-hide-sm">
                 {jDate(isoDate(r.date))}
               </span>

@@ -44,6 +44,10 @@ export default function StockReport() {
           </>
         }
       />
+      <div className="sf-print-head hidden print:block">
+        <div className="t">{org.name}</div>
+        <div className="s">{title}، {({ pieces: "اجناس به تفکیک دسته", bulk: "طلای وزنی و سکه", parties: "حساب وزنی اشخاص" } as Record<string, string>)[tab] ?? ""}</div>
+      </div>
       <div className="mb-4 grid sm:grid-cols-2 xl:grid-cols-4">
         <StatCard title="اجناس موجود" icon={<Ic icon={Tag} />} value={<>{gw(d?.totals.w750 ?? 0)}<span className="sf-unit">گرم ۷۵۰</span></>} hint={d ? <><span className="sf-num">{faDigits(d.totals.count)}</span> جنس، امانی <span className="sf-num">{faDigits(d.totals.consigned_count)}</span></> : null} />
         <StatCard title="کل طلای ما" icon={<Ic icon={Weight} />} value={<>{gw(d?.valuation.gold_w750 ?? 0)}<span className="sf-unit">گرم ۷۵۰</span></>} hint="مصنوعات، مستعمل، آبشده و نزد کارگاه" />
@@ -64,11 +68,8 @@ export default function StockReport() {
         />
       ) : null}
       <div className="print-sheet sf-card px-5 pb-4">
-        <div className="mb-3 hidden text-center print:block">
-          <div className="text-lg font-semibold">{org.name}</div>
-          <div className="font-semibold">{title}</div>
-        </div>
         <Tabs
+          className="sf-print-tabs"
           activeKey={tab}
           onChange={setTab}
           items={[

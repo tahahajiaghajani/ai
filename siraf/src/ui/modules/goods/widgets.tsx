@@ -98,17 +98,18 @@ function GoodsCard() {
             <>
               <div className="db-sub">
                 <span>پرفروش‌های این ماه</span>
-                <span className="db-caption">فروش و مقدار</span>
+                <span className="db-caption">مبلغ و مقدار</span>
               </div>
-              <div className="db-rank">
+              <div className="db-rank has-qty">
                 {top.slice(0, 5).map((t, i) => (
                   <div key={t.item_id} className="db-rank-r">
                     <span className="db-rank-n" title={t.name}>
                       {t.name}
                     </span>
-                    <span className="db-rank-v">
-                      {scaled(t.amount, sc, 1)}
-                      <small>مقدار {qty(t.qty)}</small>
+                    <span className="db-rank-v">{scaled(t.amount, sc, 1)}</span>
+                    <span className="db-rank-q">
+                      {qty(t.qty)}
+                      {t.unit ? ` ${t.unit}` : " واحد"}
                     </span>
                     <span className="db-rank-b" aria-hidden>
                       <i style={{ inlineSize: `${(Math.abs(num(t.amount)) / maxTop) * 100}%`, ["--i" as string]: i }} />

@@ -18,7 +18,8 @@ import { DETAIL_KINDS } from "../accounting/labels";
 import { exportExcel } from "../../lib/excel";
 
 export default function DetailBalances() {
-  const { api, fy, orgId, unit } = useOrg();
+  const { api, fy, orgId, unit, org } = useOrg();
+  const base = org.base_currency ?? "IRR";
   const nav = useNavigate();
   const [range, setRange] = useRange();
   const [kind, setKind] = useState<string | undefined>("person");
@@ -44,9 +45,11 @@ export default function DetailBalances() {
         }, { dr: D(0), cr: D(0) }),
     [rows],
   );
-  const hasFx = rows.some((r) => !D(r.fx_balance).isZero());
+  // «ارز» and «ماندهٔ ارزی» only when a row is in a currency other than the base one; «وزنی» only when a row has weight
+  const foreign = (r: any) => !!r.currency_code && r.currency_code !== base;
+  const hasCur = rows.some(foreign);
+  const hasFx = rows.some((r) => foreign(r) && !D(r.fx_balance).isZero());
   const hasW = rows.some((r) => !D(r.w_balance).isZero());
-  const hasCur = rows.some((r) => r.currency_id);
 
   return (
     <div>
@@ -129,10 +132,10 @@ export default function DetailBalances() {
             columns={[
               { key: "code", dataIndex: "code", title: "کد", width: 88, render: (v) => <span className="sf-num bk-3">{faDigits(v)}</span> },
               { key: "name", dataIndex: "name", title: "نام", ellipsis: true, render: (v, r: any) => (r.kind === "person" ? <Who name={v} /> : v) },
-              ...(hasCur ? [{ key: "cur", dataIndex: "currency_code", title: "ارز", width: 80, render: (v: string) => (v ? <bdi dir="ltr" className="sf-latin bk-2">{v}</bdi> : <span className="bk-plain">پایه</span>) }] : []),
+              ...(hasCur ? [{ key: "cur", dataIndex: "currency_code", title: "ارز", width: 80, render: (v: string) => (v && v !== base ? <bdi dir="ltr" className="sf-latin bk-2">{v}</bdi> : <span className="sf-zero">—</span>) }] : []),
               { key: "dr", title: "بدهکار", className: "sf-num", width: 152, render: (_, r: any) => (D(r.balance).gt(0) ? <Amt v={r.balance} /> : null) },
               { key: "cr", title: "بستانکار", className: "sf-num", width: 152, render: (_, r: any) => (D(r.balance).lt(0) ? <Amt v={D(r.balance).abs().toString()} /> : null) },
-              ...(hasFx ? [{ key: "fx", dataIndex: "fx_balance", title: "ماندهٔ ارزی", className: "sf-num", width: 152, render: (v: string, r: any) => (D(v).isZero() ? null : <Amount v={v} suffix={r.currency_code} />) }] : []),
+              ...(hasFx ? [{ key: "fx", dataIndex: "fx_balance", title: "ماندهٔ ارزی", className: "sf-num", width: 152, render: (v: string, r: any) => (D(v).isZero() || !foreign(r) ? null : <Amount v={v} suffix={r.currency_code} />) }] : []),
               ...(hasW ? [{ key: "w", dataIndex: "w_balance", title: "ماندهٔ وزنی (گرم)", className: "sf-num", width: 136, render: (v: string) => (D(v).isZero() ? null : <Weight v={v} unit={false} />) }] : []),
               { key: "last", dataIndex: "last_date", title: "آخرین گردش", width: 112, render: (v) => <JDate v={v} /> },
             ]}

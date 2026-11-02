@@ -12,12 +12,13 @@ import { useNotify } from "../../lib/hooks";
 import { errorText } from "../../lib/api";
 import { PageHeader, Section } from "../../components/layout";
 import { DateInput } from "../../components/inputs";
-import { JDateTime, Loader, Money, StatusTag } from "../../components/display";
+import { JDateTime, Loader, Money } from "../../components/display";
 import { D } from "@shared/money";
 import { faDigits, groupDigits } from "@shared/format";
 import { formatJalali, todayISO } from "@shared/jalali";
 import { numberToWords } from "@shared/words";
-import { Facts, FxAmount, METHOD_FA, REM_STATUS, STATUS_ACTION, rateLabel, type Method } from "./shared";
+import { Facts, FxAmount, METHOD_FA, REM_STATUS, RemStatus, STATUS_ACTION, countryFa, rateLabel, trackNo, type Method } from "./shared";
+import { PrintColophon, PrintHead } from "../goods/print";
 import { RemittanceForm } from "./RemittanceForm";
 
 const ICON: Record<string, React.ReactNode> = { sent: <Ic icon={Send} />, paid: <Ic icon={CircleCheck} />, cancelled: <Ic icon={Ban} />, returned: <Ic icon={Undo2} />, pending: <Ic icon={Undo2} /> };
@@ -51,7 +52,12 @@ export default function RemittanceView() {
   const out = r.direction === "out";
   const live = r.status !== "cancelled" && r.status !== "returned";
   const tz = (org.settings?.timezone as string) || "Asia/Tehran";
-  const primaryNext = can("fx", "edit") ? (r.next_statuses as string[]).find((x) => x === "sent" || x === "paid") ?? null : null;
+  // the primary action follows the status: pending → «ارسال به همکار» (or «پرداخت شد» for an incoming one), sent →
+  // «پرداخت شد»; once paid (or closed) the receipt print is the primary action and no forward step is offered
+  const forward = r.status === "pending" ? ["sent", "paid"] : r.status === "sent" ? ["paid"] : [];
+  const primaryNext = can("fx", "edit") ? (r.next_statuses as string[]).find((x) => forward.includes(x)) ?? null : null;
+  const actionLabel = (x: string) => (r.status === "paid" && x === "sent" ? "لغو پرداخت (بازگشت به «در راه»)" : STATUS_ACTION[x] ?? x);
+  const where = (country?: string | null, city?: string | null) => [countryFa(country), city].filter(Boolean).join("، ");
 
   const change = async () => {
     if (!action) return;
@@ -81,7 +87,7 @@ export default function RemittanceView() {
           <span className="sf-doc-meta">
             <RemStatus s={r.status} />
             <span className="sf-sep" aria-hidden />
-            <span>کد رهگیری <bdi dir="ltr" className="sf-num text-ink-2">{faDigits(groupDigits(r.tracking_code ?? "", 4))}</bdi></span>
+            <span>کد رهگیری <bdi dir="ltr" className="sf-num text-ink-2">{trackNo(r.tracking_code)}</bdi></span>
           </span>
         }
         actions={
@@ -92,7 +98,7 @@ export default function RemittanceView() {
               menu={{
                 items: [
                   ...(can("fx", "edit") && live ? [{ key: "edit", icon: <Ic icon={Pencil} />, label: "ویرایش حواله", onClick: () => setEdit(true) }] : []),
-                  ...(can("fx", "edit") ? (r.next_statuses as string[]).filter((x) => x !== primaryNext).map((x) => ({ key: x, icon: ICON[x], danger: x === "cancelled" || x === "returned", label: STATUS_ACTION[x] ?? x, onClick: () => { setAction(x); setActDate(todayISO(tz)); } })) : []),
+                  ...(can("fx", "edit") ? (r.next_statuses as string[]).filter((x) => x !== primaryNext).map((x) => ({ key: x, icon: ICON[x], danger: x === "cancelled" || x === "returned", label: actionLabel(x), onClick: () => { setAction(x); setActDate(todayISO(tz)); } })) : []),
                   ...(can("fx", "full") && r.status !== "paid"
                     ? [{ type: "divider" as const }, {
                         key: "del",
@@ -127,28 +133,31 @@ export default function RemittanceView() {
         }
       />
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px] print:block">
-        <div className="print-sheet sf-card p-6 shadow-e2">
-          <div className="mb-4 flex items-start gap-4 border-b border-line pb-4">
-            {org.logo ? <img src={org.logo} alt="" className="h-12 w-12 rounded object-cover" /> : null}
+        <div className="print-sheet sf-card sf-rcpt p-6 shadow-e2">
+          <div className="hidden print:block">
+            <PrintHead title={`رسید حواله‌ی ${out ? "صادره" : "وارده"}`} legal={false} rows={[<>شماره‌ی <b>{faDigits(r.no)}</b></>, <>تاریخ <b>{formatJalali(r.date)}</b></>]} badge={!live ? REM_STATUS[r.status]?.[0] : null} />
+          </div>
+          <div className="mb-4 flex items-start gap-4 border-b border-line pb-4 print:border-0 print:pb-0">
+            {org.logo ? <img src={org.logo} alt="" className="h-12 w-12 rounded object-cover print:hidden" /> : null}
             <div className="min-w-0 flex-1">
-              <div className="text-lg font-semibold">{org.name}</div>
-              <div className="text-[13px] text-ink-2">رسید حواله‌ی {out ? "صادره" : "وارده"}، شماره‌ی <span className="sf-docno">{faDigits(r.no)}</span>، <span className="sf-num">{formatJalali(r.date)}</span></div>
-              <div className="mt-3 text-[12px] text-ink-3">کد رهگیری</div>
-              <div><bdi dir="ltr" className="sf-num text-2xl font-semibold">{faDigits(groupDigits(r.tracking_code ?? "", 4))}</bdi></div>
+              <div className="text-lg font-semibold print:hidden">{org.name}</div>
+              <div className="text-[13px] text-ink-2 print:hidden">رسید حواله‌ی {out ? "صادره" : "وارده"}، شماره‌ی <span className="sf-docno">{faDigits(r.no)}</span>، <span className="sf-num">{formatJalali(r.date)}</span></div>
+              <div className="mt-3 text-[12px] text-ink-3 print:mt-0">کد رهگیری</div>
+              <div><bdi dir="ltr" className="sf-num text-2xl font-semibold">{trackNo(r.tracking_code)}</bdi></div>
             </div>
             {qr ? <img src={qr} alt="" className="h-24 w-24" /> : null}
           </div>
           <div className="grid gap-4 md:grid-cols-2">
             <div>
               <div className="sf-sec-t">فرستنده</div>
-              <Facts cols={1} items={[["نام", r.sender?.name ?? r.party_name], ["کد ملی", r.sender?.national_id ? <span className="sf-num">{faDigits(r.sender.national_id)}</span> : null], ["گذرنامه", r.sender?.passport_no], ["موبایل", r.sender?.mobile ? <span className="sf-num">{faDigits(r.sender.mobile)}</span> : null], ["کشور", r.sender?.country], ["نشانی", r.sender?.address]]} />
+              <Facts cols={1} items={[["نام", r.sender?.name ?? r.party_name], ["کد ملی", r.sender?.national_id ? <span className="sf-num">{faDigits(r.sender.national_id)}</span> : null], ["گذرنامه", r.sender?.passport_no], ["موبایل", r.sender?.mobile ? <span className="sf-num">{faDigits(r.sender.mobile)}</span> : null], ["کشور", countryFa(r.sender?.country)], ["نشانی", r.sender?.address]]} />
             </div>
             <div>
               <div className="sf-sec-t">ذی‌نفع</div>
-              <Facts cols={1} items={[["نام", r.beneficiary?.name], ["کشور و شهر", [r.beneficiary?.country, r.beneficiary?.city].filter(Boolean).join("، ")], ["بانک", r.beneficiary?.bank], ["حساب", r.beneficiary?.account ? <bdi dir="ltr" className="sf-mono">{r.beneficiary.account}</bdi> : null], ["کد ملی", r.beneficiary?.national_id ? <span className="sf-num">{faDigits(r.beneficiary.national_id)}</span> : null], ["گذرنامه", r.beneficiary?.passport_no], ["موبایل", r.beneficiary?.mobile ? <span className="sf-num">{faDigits(r.beneficiary.mobile)}</span> : null], ["نسبت", r.beneficiary?.relation]]} />
+              <Facts cols={1} items={[["نام", r.beneficiary?.name], ["کشور و شهر", where(r.beneficiary?.country, r.beneficiary?.city)], ["بانک", r.beneficiary?.bank], ["حساب", r.beneficiary?.account ? <bdi dir="ltr" className="sf-mono">{groupDigits(r.beneficiary.account, 4)}</bdi> : null], ["کد ملی", r.beneficiary?.national_id ? <span className="sf-num">{faDigits(r.beneficiary.national_id)}</span> : null], ["گذرنامه", r.beneficiary?.passport_no], ["موبایل", r.beneficiary?.mobile ? <span className="sf-num">{faDigits(r.beneficiary.mobile)}</span> : null], ["نسبت", r.beneficiary?.relation]]} />
             </div>
           </div>
-          <div className="mt-5 rounded-lg p-4 shadow-[inset_0_0_0_1px_var(--sf-line-2)]">
+          <div className="sf-rcpt-box mt-5 rounded-lg p-4 shadow-[inset_0_0_0_1px_var(--sf-line-2)]">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
               <span className="text-[13px] text-ink-3">مبلغ حواله</span>
               <b className="text-2xl font-semibold"><FxAmount v={r.amount} code={isBase(r.currency_code) ? unit : r.currency_code} dp={dpX} /></b>
@@ -169,14 +178,15 @@ export default function RemittanceView() {
             <div className="border-t border-line-3 pt-1.5">امضای {out ? "فرستنده" : "ذی‌نفع"}</div>
             <div className="border-t border-line-3 pt-1.5">مهر و امضای صرافی</div>
           </div>
+          <div className="hidden print:block"><PrintColophon /></div>
         </div>
 
         <div className="no-print grid content-start gap-4">
           <Section title="مسیر حواله">
             <RemRoute
-              from={out ? org.city || org.name : [r.sender?.country, r.sender?.city].filter(Boolean).join("، ") || r.correspondent_name}
+              from={out ? org.city || org.name : where(r.sender?.country, r.sender?.city) || r.correspondent_name}
               fromSub={out ? (r.sender?.name ?? r.party_name ?? "") : r.correspondent_name}
-              to={out ? [r.beneficiary?.country, r.beneficiary?.city].filter(Boolean).join("، ") || r.correspondent_name : org.city || org.name}
+              to={out ? where(r.beneficiary?.country, r.beneficiary?.city) || r.correspondent_name : org.city || org.name}
               toSub={r.beneficiary?.name ?? ""}
               paid={r.status === "paid"}
               dead={!live}
@@ -190,11 +200,11 @@ export default function RemittanceView() {
                 ["مشتری", r.party_id ? <Link className="sf-link" to={`/${orgId}/parties/${r.party_id}`}>{r.party_name}</Link> : null],
                 [out ? "دریافت در" : "پرداخت از", `${METHOD_FA[r.pay_method as Method] ?? r.pay_method}${r.pay_ref_name ? `، ${r.pay_ref_name}` : ""}`],
                 ["کارمزد همکار", !D(r.correspondent_fee).isZero() ? <FxAmount v={r.correspondent_fee} code={r.currency_code} dp={dpX} /> : null],
-                ["درآمد کارمزد", <Money v={r.fee_base ?? 0} />],
+                ["درآمد کارمزد", <Money v={r.fee_base ?? 0} zero="—" />],
                 ["تاریخ پرداخت", r.paid_date ? <span className="sf-num">{formatJalali(r.paid_date)}</span> : null],
                 ["سند ثبت", r.voucher_id ? <Link className="sf-link" to={`/${orgId}/accounting/vouchers/${r.voucher_id}`}>سند {faDigits(r.voucher_no ?? "")}</Link> : null],
                 ["سند پرداخت", r.paid_voucher_id ? <Link className="sf-link" to={`/${orgId}/accounting/vouchers/${r.paid_voucher_id}`}>سند {faDigits(r.paid_voucher_no ?? "")}</Link> : null],
-                ["کد رهگیری", <button type="button" className="inline-flex items-center gap-1.5 border-0 bg-transparent p-0 text-ink-2" onClick={() => navigator.clipboard?.writeText(String(r.tracking_code ?? "")).then(() => n.note("رونوشت شد."))} aria-label="رونوشت کد رهگیری"><Ic icon={Copy} size={14} className="text-ink-3" /><bdi dir="ltr" className="sf-num">{faDigits(r.tracking_code ?? "")}</bdi></button>],
+                ["کد رهگیری", <button type="button" className="inline-flex items-center gap-1.5 border-0 bg-transparent p-0 text-ink-2" onClick={() => navigator.clipboard?.writeText(String(r.tracking_code ?? "")).then(() => n.note("رونوشت شد."))} aria-label="رونوشت کد رهگیری"><Ic icon={Copy} size={14} className="text-ink-3" /><bdi dir="ltr" className="sf-num">{trackNo(r.tracking_code)}</bdi></button>],
               ]}
             />
           </Section>
@@ -242,12 +252,6 @@ export default function RemittanceView() {
       </Drawer>
     </div>
   );
-}
-
-/** Status of a remittance: «در راه» (sent) is a neutral chip with a sea nuqta; the normal state is plain text. */
-function RemStatus({ s }: { s: string }) {
-  if (s === "sent") return <span className="sf-chip" data-tone="neutral"><i className="sf-nuqta is-sea" aria-hidden /><span>در راه</span></span>;
-  return <StatusTag s={s} map={REM_STATUS} />;
 }
 
 /** The remittance route (components.md §4.8): origin and destination nuqtas joined by a sea line; until paid the

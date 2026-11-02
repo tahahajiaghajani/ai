@@ -70,10 +70,10 @@
   }
   .pg-note {
     margin: 20px 0 0;
-    font-size: 12px;
-    line-height: 18px;
+    font-size: 13px;
+    line-height: 20px;
     color: var(--sf-text-3);
-    text-align: center;
+    text-align: start;
     text-wrap: pretty;
   }
   .pg-back {
@@ -174,6 +174,27 @@
   .pg-form .ant-input-prefix { margin-inline-end: 8px; color: var(--sf-text-3); }
   .pg-form .ant-input-affix-wrapper-focused .ant-input-prefix { color: var(--sf-text-2); }
   .pg-form .ant-input-suffix .anticon, .pg-form .ant-input-password-icon { color: var(--sf-text-3); }
+  /* the password reveal: a 28 px target with its own inset ring; while it holds focus the field's ring steps back */
+  .pg-form .ant-input-password-icon {
+    display: inline-grid;
+    place-items: center;
+    inline-size: 28px;
+    block-size: 28px;
+    margin-inline: 2px -6px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: color var(--sf-dur-base) var(--sf-ease-out-quad), background-color var(--sf-dur-base) var(--sf-ease-out-quad);
+  }
+  .pg-form .ant-input-password-icon:focus-visible { outline: 2px solid var(--sf-focus-color); outline-offset: -2px; color: var(--sf-text); }
+  @media (hover: hover) and (pointer: fine) {
+    .pg-form .ant-input-password-icon:hover { color: var(--sf-text); background: var(--sf-hover); transition-duration: 0ms; }
+  }
+  .pg-form .ant-input-affix-wrapper:has(.ant-input-password-icon:focus-visible) {
+    border-color: var(--sf-line-2);
+    border-bottom-color: var(--sf-control-strong);
+    box-shadow: none;
+    outline: 0;
+  }
   .pg-ltr { direction: ltr; text-align: right; }
   .pg-form .ant-form-item-label > label::after { display: none; }
   .pg-form .ant-form-item.ant-form-item-with-help { margin-block-end: 16px; }
@@ -277,7 +298,7 @@
   [aria-checked="true"] > .pg-radio::after { transform: none; }
 
   /* module cards: a switch at the end and what the module brings */
-  .pg-switch { position: relative; flex: none; margin-block-start: 3px; inline-size: 32px; block-size: 18px; border-radius: var(--sf-radius-pill); background: var(--sf-control-strong); transition: background-color var(--sf-dur-base) var(--sf-ease-out-quad); }
+  .pg-switch { position: relative; flex: none; margin-block-start: 3px; inline-size: 32px; block-size: 18px; border-radius: var(--sf-radius-pill); background: var(--sf-line-3); transition: background-color var(--sf-dur-base) var(--sf-ease-out-quad); }
   .pg-switch::after { content: ""; position: absolute; inset-block-start: 2px; inset-inline-start: 2px; inline-size: 14px; block-size: 14px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgb(0 0 0 / 0.2); transition: transform var(--sf-dur-moderate) var(--sf-ease-out), background-color var(--sf-dur-base) var(--sf-ease-out-quad); }
   [aria-checked="true"] > .pg-switch { background: var(--sf-text); }
   [aria-checked="true"] > .pg-switch::after { transform: translateX(-14px); background: var(--sf-canvas); }
@@ -287,7 +308,7 @@
   .pg-feats { display: flex; flex-wrap: wrap; gap: 6px; margin-block-start: 10px; }
   .pg-feat { display: inline-flex; align-items: center; block-size: 24px; padding-inline: 9px; border-radius: var(--sf-radius-pill); background: var(--sf-sunken); font-size: 12px; line-height: 18px; color: var(--sf-text-2); }
   .pg-core { display: flex; align-items: flex-start; gap: 14px; padding: 14px 16px; border-radius: var(--sf-radius-lg); background: var(--sf-sunken); }
-  .pg-core .pg-choice-ic { background: var(--sf-surface); color: var(--sf-in); }
+  .pg-core .pg-choice-ic { background: var(--sf-surface); color: var(--sf-text-3); }
 
   /* ------------------------------------------------------------------ recovery code */
   .pg-key {
@@ -360,7 +381,7 @@
     inline-size: 28px;
     block-size: 28px;
     border-radius: 50%;
-    background: var(--sf-sunken);
+    background: var(--sf-neutral-tint);
     box-shadow: inset 0 0 0 1px var(--sf-line);
     font-size: 11px;
     line-height: 1;
@@ -408,7 +429,7 @@
     inline-size: 40px;
     block-size: 40px;
     border-radius: var(--sf-radius-md);
-    background: var(--sf-sunken);
+    background: var(--sf-neutral-tint);
     box-shadow: inset 0 0 0 1px var(--sf-line);
     font-family: var(--sf-font-display);
     font-variation-settings: "DSTY" 3;
@@ -420,6 +441,7 @@
   }
   .pg-org-name { display: flex; align-items: center; gap: 8px; font-size: 15px; line-height: 22px; font-weight: 600; }
   .pg-org-meta { margin-block-start: 2px; font-size: 13px; line-height: 20px; color: var(--sf-text-3); }
+  .pg-org-role { flex: none; font-size: 13px; line-height: 20px; color: var(--sf-text-2); white-space: nowrap; }
   .pg-chip { display: inline-flex; align-items: center; block-size: 22px; padding-inline: 8px; border-radius: var(--sf-radius-pill); background: var(--sf-neutral-tint); font-size: 12px; line-height: 18px; font-weight: 500; color: var(--sf-text-2); white-space: nowrap; }
 
   /* empty state (§7) */
@@ -451,6 +473,18 @@
   .pg-person { display: flex; align-items: center; gap: 10px; min-inline-size: 0; }
   .pg-person .pg-av { inline-size: 26px; block-size: 26px; font-size: 10.5px; }
   .pg-off { color: var(--sf-text-3); }
+
+  /* phones: the admin tables become two-line rows (name, then the meta) with the action at the end */
+  .pg-rows { list-style: none; margin: 0; padding: 0; }
+  .pg-rows > li { position: relative; display: flex; align-items: center; gap: 12px; min-block-size: 64px; padding: 10px 16px; }
+  .pg-rows > li + li::before { content: ""; position: absolute; inset-block-start: 0; inset-inline: 54px 0; block-size: 1px; background: var(--sf-line); }
+  .pg-rows .pg-av { inline-size: 28px; block-size: 28px; }
+  .pg-rows .pg-r-tx { flex: 1; min-inline-size: 0; }
+  .pg-rows .pg-r-t { display: flex; align-items: center; gap: 6px; min-inline-size: 0; font-size: 14px; line-height: 22px; font-weight: 500; color: var(--sf-text); }
+  .pg-rows .pg-r-m { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; margin-block-start: 1px; font-size: 12px; line-height: 18px; color: var(--sf-text-3); }
+  .pg-rows .pg-r-m .sf-latin { min-inline-size: 0; overflow-wrap: anywhere; }
+  .pg-rows > li.pg-off .pg-r-t { color: var(--sf-text-3); }
+  .pg-rows-empty { padding: 32px 16px; font-size: 14px; line-height: 22px; color: var(--sf-text-3); text-align: center; }
 
   /* ------------------------------------------------------------------ narrower windows */
   @media (max-width: 1099px) {

@@ -80,9 +80,10 @@ export function SyncNuqta({ tone }: { tone: SyncTone }) {
   return <span className={`sf-nuqta sh-nuqta sh-nuqta-${tone} ${tone === "syncing" ? "sf-pulse" : ""}`} {...(tone === "live" || tone === "syncing" ? { "data-live": "" } : {})} aria-hidden />;
 }
 
-export function SyncLine({ state }: { state: SyncState }) {
-  const body = (
-    <span className="sh-sync">
+/** The footer's state line; `onOpen` (Windows) turns the state into a link to «نسخهٔ ویندوز». */
+export function SyncLine({ state, onOpen }: { state: SyncState; onOpen?: () => void }) {
+  const label = (
+    <>
       <SyncNuqta tone={state.tone} />
       <span className="sh-sync-word">{state.word}</span>
       {state.meta ? (
@@ -91,6 +92,17 @@ export function SyncLine({ state }: { state: SyncState }) {
           <span className="sh-sync-meta">{state.meta}</span>
         </>
       ) : null}
+    </>
+  );
+  const body = (
+    <span className="sh-sync">
+      {onOpen ? (
+        <button type="button" className="sh-sync-open" onClick={onOpen} aria-label={`${state.word}${state.meta ? `، ${state.meta}` : ""}؛ نسخهٔ ویندوز: پشتیبان، شبکه و هم‌گامی`}>
+          {label}
+        </button>
+      ) : (
+        label
+      )}
       {state.tone === "failed" && state.retry ? (
         <button type="button" className="sf-link sh-sync-retry" onClick={state.retry}>
           تلاش دوباره
@@ -98,8 +110,22 @@ export function SyncLine({ state }: { state: SyncState }) {
       ) : null}
     </span>
   );
-  return state.detail ? (
-    <Tooltip title={state.detail} placement="top">
+  const tip = [state.detail, onOpen ? "نسخهٔ ویندوز: پشتیبان، شبکه و هم‌گامی" : null].filter(Boolean);
+  return tip.length ? (
+    <Tooltip
+      title={
+        tip.length > 1 ? (
+          <span className="sh-tip-lines">
+            {tip.map((t) => (
+              <span key={t}>{t}</span>
+            ))}
+          </span>
+        ) : (
+          tip[0]
+        )
+      }
+      placement="top"
+    >
       {body}
     </Tooltip>
   ) : (

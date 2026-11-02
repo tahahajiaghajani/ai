@@ -1,14 +1,14 @@
 // Trial balance (تراز آزمایشی) in 4, 6 or 8 columns at the group, general or subsidiary level. Rows open the ledger.
 import { useState } from "react";
-import { Segmented, Table } from "antd";
-import { Weight as WeightIcon } from "lucide-react";
+import { Button, Dropdown, Table } from "antd";
+import { ChevronDown, Weight as WeightIcon } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router";
 import { useOrg } from "../../lib/org";
 import { PageHeader } from "../../components/layout";
 import { Chip, EmptyState, Weight } from "../../components/display";
 import { ReportFilters, ReportTitle, useRange } from "./Filters";
-import { Amt, Card, ICON, Period, PrintFoot, ScalePicker, ScaleProvider, cx, unitCaption, useScale } from "./kit";
+import { Amt, Card, ICON, ICON14, Period, PrintFoot, ScalePicker, ScaleProvider, cx, unitCaption, useScale } from "./kit";
 import { faDigits, formatNumber } from "@shared/format";
 import { D } from "@shared/money";
 import { exportExcel } from "../../lib/excel";
@@ -46,19 +46,15 @@ export default function TrialBalance() {
       key: "code",
       dataIndex: "code",
       title: "کد",
-      width: 96,
-      render: (v: string, r: any) => (
-        <span className="sf-num bk-3" style={{ paddingInlineStart: (r.level - 1) * 12 }}>
-          {faDigits(v)}
-        </span>
-      ),
+      width: 80,
+      render: (v: string) => <span className="sf-num bk-3">{faDigits(v)}</span>,
     },
     {
       key: "name",
       dataIndex: "name",
       title: "نام حساب",
       ellipsis: true,
-      render: (v: string, r: any) => <span style={{ paddingInlineStart: (r.level - 1) * 16 }}>{v}</span>,
+      render: (v: string, r: any) => <span style={{ paddingInlineStart: (r.level - 1) * 12 }}>{v}</span>,
     },
     ...(cols === 8
       ? [{ key: "open", title: "ماندهٔ ابتدای دوره", children: [money("odr", "بدهکار", (r) => side(r.opening, "dr")), money("ocr", "بستانکار", (r) => side(r.opening, "cr"))] }]
@@ -67,6 +63,17 @@ export default function TrialBalance() {
     { key: "bal", title: cols === 4 ? "مانده" : "ماندهٔ پایان دوره", children: [money("bdr", "بدهکار", (r) => side(r.balance, "dr")), money("bcr", "بستانکار", (r) => side(r.balance, "cr"))] },
     ...(weights ? [{ key: "w", dataIndex: "w_balance", title: "ماندهٔ وزنی (گرم)", className: "sf-num", width: 136, render: (v: string) => <Weight v={v} zero="" unit={false} /> }] : []),
   ];
+
+  // the money groups of the chosen layout, shared by the screen table and the printed sheet
+  const groups: { key: string; title: string; dr: (r: any) => string; cr: (r: any) => string; tdr: string; tcr: string }[] = t
+    ? [
+        ...(cols === 8 ? [{ key: "open", title: "ماندهٔ ابتدای دوره", dr: (r: any) => side(r.opening, "dr"), cr: (r: any) => side(r.opening, "cr"), tdr: t.opening_dr, tcr: t.opening_cr }] : []),
+        ...(cols >= 6 ? [{ key: "turn", title: "گردش دوره", dr: (r: any) => r.debit, cr: (r: any) => r.credit, tdr: t.debit, tcr: t.credit }] : []),
+        { key: "bal", title: cols === 4 ? "مانده" : "ماندهٔ پایان دوره", dr: (r: any) => side(r.balance, "dr"), cr: (r: any) => side(r.balance, "cr"), tdr: t.balance_dr, tcr: t.balance_cr },
+      ]
+    : [];
+  const LEVELS: Record<number, string> = { 1: "گروه", 2: "کل", 3: "معین" };
+  const count = rows.filter((r) => r.level === level).length;
 
   return (
     <div>
@@ -95,6 +102,7 @@ export default function TrialBalance() {
       />
       <ScaleProvider scale={scale}>
         <Card
+          className={cols >= 6 ? "bk-wide" : undefined}
           title={`تراز ${faDigits(cols)} ستونی`}
           meta={
             <>
@@ -109,16 +117,42 @@ export default function TrialBalance() {
           }
           tools={
             <>
-              <Segmented size="small" value={level} onChange={(v) => setLevel(v as number)} options={[{ value: 1, label: "گروه" }, { value: 2, label: "کل" }, { value: 3, label: "معین" }]} />
-              <Segmented size="small" value={cols} onChange={(v) => setCols(v as 4 | 6 | 8)} options={[{ value: 4, label: "۴ ستونی" }, { value: 6, label: "۶ ستونی" }, { value: 8, label: "۸ ستونی" }]} />
+              <Dropdown
+                trigger={["click"]}
+                rootClassName="sf-glass"
+                menu={{
+                  selectable: true,
+                  multiple: true,
+                  selectedKeys: [`lv-${level}`, `c-${cols}`],
+                  onClick: ({ key }) => {
+                    const [k, v] = key.split("-");
+                    if (k === "lv") setLevel(Number(v));
+                    else setCols(Number(v) as 4 | 6 | 8);
+                  },
+                  items: [
+                    { type: "group", label: "سطح حساب‌ها", children: [1, 2, 3].map((v) => ({ key: `lv-${v}`, label: LEVELS[v] })) },
+                    { type: "divider" },
+                    { type: "group", label: "ستون‌ها", children: [4, 6, 8].map((v) => ({ key: `c-${v}`, label: `${faDigits(v)} ستونی` })) },
+                  ],
+                }}
+              >
+                <Button size="small" type="text" className="bk-view-btn">
+                  <span className="bk-3">نمایش</span>
+                  <span>
+                    {LEVELS[level]}، {faDigits(cols)} ستونی
+                  </span>
+                  <ChevronDown {...ICON14} aria-hidden />
+                </Button>
+              </Dropdown>
               <ScalePicker scale={scale} onChange={setScale} />
             </>
           }
           flush
         >
           <ReportTitle title={`تراز آزمایشی ${faDigits(cols)} ستونی`} range={range} />
+          <div className="no-print">
           <Table
-            className="bk-tbl"
+            className={cx("bk-tbl", weights && "has-tail")}
             size="small"
             rowKey="id"
             loading={q.isFetching && !q.data}
@@ -142,28 +176,75 @@ export default function TrialBalance() {
                 <Table.Summary fixed>
                   <Table.Summary.Row>
                     <Table.Summary.Cell index={0} colSpan={2} className="bk-sum-l">
-                      جمع<small>{faDigits(rows.filter((r) => r.level === level).length)} حساب</small>
+                      جمع<small>{faDigits(count)} حساب</small>
                     </Table.Summary.Cell>
-                    {cols === 8 ? (
-                      <>
-                        <Table.Summary.Cell index={2} className="sf-num"><Amt v={t.opening_dr} /></Table.Summary.Cell>
-                        <Table.Summary.Cell index={3} className="sf-num"><Amt v={t.opening_cr} /></Table.Summary.Cell>
-                      </>
-                    ) : null}
-                    {cols >= 6 ? (
-                      <>
-                        <Table.Summary.Cell index={4} className="sf-num"><Amt v={t.debit} /></Table.Summary.Cell>
-                        <Table.Summary.Cell index={5} className="sf-num"><Amt v={t.credit} /></Table.Summary.Cell>
-                      </>
-                    ) : null}
-                    <Table.Summary.Cell index={6} className="sf-num"><Amt v={t.balance_dr} /></Table.Summary.Cell>
-                    <Table.Summary.Cell index={7} className="sf-num"><Amt v={t.balance_cr} /></Table.Summary.Cell>
-                    {weights ? <Table.Summary.Cell index={8} /> : null}
+                    {groups.flatMap((g, i) => [
+                      <Table.Summary.Cell key={`${g.key}-dr`} index={2 + i * 2} className="sf-num"><Amt v={g.tdr} /></Table.Summary.Cell>,
+                      <Table.Summary.Cell key={`${g.key}-cr`} index={3 + i * 2} className="sf-num"><Amt v={g.tcr} /></Table.Summary.Cell>,
+                    ])}
+                    {weights ? <Table.Summary.Cell index={2 + groups.length * 2} /> : null}
                   </Table.Summary.Row>
                 </Table.Summary>
               ) : null
             }
           />
+          </div>
+          {t ? (
+            // the printed sheet: one plain table, so the totals (tfoot) share the columns of the rows above them
+            <div className="bk-po">
+              <table className={cx("bk-ptbl bk-tb-p", cols === 8 && "is-8")}>
+                <colgroup>
+                  <col className="c" />
+                  <col />
+                  {groups.flatMap((g) => [<col key={`${g.key}-dr`} className="m" />, <col key={`${g.key}-cr`} className="m" />])}
+                  {weights ? <col className="m" /> : null}
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th rowSpan={2}>کد</th>
+                    <th rowSpan={2}>نام حساب</th>
+                    {groups.map((g) => (
+                      <th key={g.key} colSpan={2} className="g">
+                        {g.title}
+                      </th>
+                    ))}
+                    {weights ? <th rowSpan={2} className="n">ماندهٔ وزنی (گرم)</th> : null}
+                  </tr>
+                  <tr>
+                    {groups.flatMap((g) => [
+                      <th key={`${g.key}-dr`} className="n">بدهکار</th>,
+                      <th key={`${g.key}-cr`} className="n">بستانکار</th>,
+                    ])}
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r) => (
+                    <tr key={r.id} className={`lv-${level === 1 ? 2 : r.level}`}>
+                      <td className="n">{faDigits(r.code)}</td>
+                      <td style={{ paddingInlineStart: (r.level - 1) * 12 }}>{r.name}</td>
+                      {groups.flatMap((g) => [
+                        <td key={`${g.key}-dr`} className="n"><Amt v={g.dr(r)} zero="" /></td>,
+                        <td key={`${g.key}-cr`} className="n"><Amt v={g.cr(r)} zero="" /></td>,
+                      ])}
+                      {weights ? <td className="n"><Weight v={r.w_balance} zero="" unit={false} /></td> : null}
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <td colSpan={2}>
+                      جمع {faDigits(count)} حساب
+                    </td>
+                    {groups.flatMap((g) => [
+                      <td key={`${g.key}-dr`} className="n"><Amt v={g.tdr} /></td>,
+                      <td key={`${g.key}-cr`} className="n"><Amt v={g.tcr} /></td>,
+                    ])}
+                    {weights ? <td /> : null}
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          ) : null}
           <PrintFoot sign={["تهیه‌کننده", "تأییدکننده"]} />
         </Card>
       </ScaleProvider>

@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import { useQuery, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { Alert, Button, Checkbox, Input, Segmented, Select, Table, Tooltip } from "antd";
-import { ArrowDown, ArrowLeftRight, Lock, RefreshCw, Repeat } from "lucide-react";
+import { ArrowDown, ArrowLeftRight, Info, Lock, RefreshCw, Repeat } from "lucide-react";
 import { Ic } from "../../components/shell/icons";
 import { useOrg } from "../../lib/org";
 import { useDebounced, useHotkey, useLocalState, useNotify } from "../../lib/hooks";
@@ -21,6 +21,7 @@ import { CHAINS } from "@shared/entities";
 import { isNationalId, isCryptoAddress, type ChainId } from "@shared/validate";
 import { numberToWords } from "@shared/words";
 import { CurrencyAvatar, CurrencyPick, FxAmount, KIND_FA, LegPicker, QuickCurrencies, rateLabel, useBoard, useCurrencyMap, type BoardCurrency, type LegValue } from "./shared";
+import { useSheetFit } from "../goods/components";
 
 const QUICK = ["USD", "EUR", "AED", "GBP", "TRY", "USDT", "BTC"];
 type Side = "give" | "get";
@@ -38,6 +39,7 @@ export default function Counter() {
   const editing = !!id;
   const [params] = useSearchParams();
   const { api, org, orgId, unit, can } = useOrg();
+  const sheetRef = useSheetFit<HTMLElement>();
   const nav = useNavigate();
   const qc = useQueryClient();
   const n = useNotify();
@@ -336,7 +338,9 @@ export default function Counter() {
           <section className="sf-doc-card" aria-label="معامله">
             <div className="sf-doc-h">
               <h2>معامله</h2>
-              <span className="sf-doc-hm">مبلغ هر طرف را بنویسید؛ طرف دیگر با نرخ حساب می‌شود.</span>
+              <Tooltip title="مبلغ هر طرف را بنویسید؛ طرف دیگر با نرخ حساب می‌شود.">
+                <span className="sf-doc-hm inline-flex items-center" aria-label="راهنما"><Ic icon={Info} size={14} /></span>
+              </Tooltip>
             </div>
             <div className="sf-doc-pad">
               <div className="grid items-stretch gap-3 lg:grid-cols-[minmax(0,1fr)_188px_minmax(0,1fr)]">
@@ -456,7 +460,7 @@ export default function Counter() {
         </div>
 
         {/* the deal sheet */}
-        <aside className="sf-dsheet" aria-label="خلاصه‌ی معامله">
+        <aside ref={sheetRef} className="sf-dsheet" aria-label="خلاصه‌ی معامله">
           <div className="sf-dsheet-b">
             <Summary
               kind={kind}
@@ -588,7 +592,8 @@ function Summary({
   const dp = (c: BoardCurrency | null) => (c ? (c.is_base ? baseDp : c.decimals) : 2);
   const giveTotal = p ? D(p.in_amount).plus(feeCurrency?.id === g?.id ? D(p.fee) : 0) : D(giveAmt);
   const sold = kind === "buy" ? g : t;
-  const amt = (c: BoardCurrency | null, v: string) => (c?.is_base ? <><Money v={v} /><span className="sf-unit">{"\u00a0"}{unit}</span></> : <FxAmount v={v} code={c?.code} dp={dp(c)} />);
+  const amt = (c: BoardCurrency | null, v: string) =>
+    D(v || 0).isZero() ? <span className="sf-zero">—</span> : c?.is_base ? <><Money v={v} /><span className="sf-unit">{"\u00a0"}{unit}</span></> : <FxAmount v={v} code={c?.code} dp={dp(c)} />;
   return (
     <>
       <div className="sf-sec-t">
@@ -653,8 +658,8 @@ function Summary({
             />
           ) : null}
         </>
-      ) : !error ? (
-        <div className="py-2 text-center text-[13px] text-ink-3">{kind ? "مبلغ و نرخ را وارد کنید تا سود و سند نمایش داده شود." : "دو ارز متفاوت انتخاب کنید."}</div>
+      ) : !error && !kind ? (
+        <div className="py-2 text-center text-[13px] text-ink-3">دو ارز متفاوت انتخاب کنید.</div>
       ) : null}
     </>
   );

@@ -21,7 +21,7 @@ export const goldNav: Omit<NavGroup, "icon" | "space"> = {
   module: "gold",
   items: [
     { key: "gold-rates", label: "تابلوی قیمت", path: "gold/rates", area: "gold", icon: Activity, keywords: "مظنه گرم ۱۸ سکه قیمت روز" },
-    { key: "gold-sale", label: "فروش (صندوق)", path: "gold/sale", area: "gold", level: "edit", icon: ShoppingBag, action: true, keywords: "فاکتور فروش طلا اتیکت" },
+    { key: "gold-sale", label: "فروش (صندوق)", path: "gold/sale", area: "gold", level: "edit", icon: ShoppingBag, action: true, workspace: true, keywords: "فاکتور فروش طلا اتیکت" },
     { key: "gold-purchase", label: "خرید از همکار", path: "gold/purchase", area: "gold", level: "edit", icon: Handshake, keywords: "بنکدار طلا به طلا" },
     { key: "gold-buyback", label: "خرید طلای مستعمل", path: "gold/buyback", area: "gold", level: "edit", icon: Recycle, keywords: "کهنه شکسته" },
     { key: "gold-docs", label: "اسناد طلا", path: "gold/docs", area: "gold", icon: Files },

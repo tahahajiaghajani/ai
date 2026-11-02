@@ -10,7 +10,7 @@ import { useOrg } from "../../lib/org";
 import { useAction, useNotify } from "../../lib/hooks";
 import { PageHeader } from "../../components/layout";
 import { EmptyState, JDateTime, Skeleton } from "../../components/display";
-import { Card, ICON, ICON14, Note } from "../reports/kit";
+import { Card, ICON, ICON14, Note, Version } from "../reports/kit";
 import { faDigits } from "@shared/format";
 
 function size(n: number) {
@@ -47,8 +47,8 @@ export default function Desktop() {
   const linked = !!d?.cloud?.linked;
   return (
     <div>
-      <PageHeader title="نسخهٔ ویندوز" subtitle={d ? <span>نسخهٔ <span className="sf-num">{faDigits(d.version)}</span>، {d.computer}</span> : null} />
-      <div className="grid items-start gap-4 xl:grid-cols-2">
+      <PageHeader title="نسخهٔ ویندوز" subtitle={d ? <span>نسخهٔ <Version v={d.version} />، {d.computer}</span> : null} />
+      <div className="bk-cols grid items-start gap-4 xl:grid-cols-2">
         <Card
           title="هم‌گامی با نسخهٔ وب"
           meta={
@@ -195,7 +195,7 @@ export default function Desktop() {
             <dl className="bk-dl">
               <div>
                 <dt>نسخه</dt>
-                <dd className="sf-num">{faDigits(d.version)}</dd>
+                <dd><Version v={d.version} /></dd>
               </div>
               <div>
                 <dt>رایانه</dt>

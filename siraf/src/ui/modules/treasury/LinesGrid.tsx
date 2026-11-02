@@ -10,7 +10,8 @@ import { AccountSelect, DateInput, DetailSelect, MoneyInput, PartySelect, RefSel
 import { StatusTag } from "../../components/display";
 import { Amt, Field, ICON14, Keys, cx } from "../reports/kit";
 import { faDigits } from "@shared/format";
-import { normalizeDigits } from "@shared/money";
+import { D, normalizeDigits } from "@shared/money";
+import { toLatinDigits } from "../../lib/fa";
 import { BANKS, KIND_METHODS, METHOD_LABEL, chequeStatusMap, isSayad, type DocKind, type Method } from "./labels";
 import { blankLine, lineTotals, remember, withMethod, type ChequeFields, type Line } from "./editor";
 
@@ -85,6 +86,7 @@ export function LinesGrid({ kind, lines, setLines, readonly, hasParty }: Props) 
   };
 
   const totals = lineTotals(lines);
+  const filled = lines.filter((l) => !D(l.amount ?? 0).isZero()).length;
 
   return (
     <>
@@ -204,9 +206,9 @@ export function LinesGrid({ kind, lines, setLines, readonly, hasParty }: Props) 
                       <Input
                         variant="borderless"
                         dir="ltr"
-                        className="sf-num"
+                        className="sf-code"
                         style={{ textAlign: "right" }}
-                        value={faDigits(l.ref_no)}
+                        value={toLatinDigits(l.ref_no ?? "")}
                         disabled={lock}
                         placeholder="شماره پیگیری"
                         onChange={(e) => set(i, { ref_no: normalizeDigits(e.target.value) })}
@@ -298,8 +300,9 @@ export function LinesGrid({ kind, lines, setLines, readonly, hasParty }: Props) 
                           <Input
                             dir="ltr"
                             className="sf-code"
+                            style={{ textAlign: "right" }}
                             maxLength={16}
-                            value={faDigits(cq.sayad_no)}
+                            value={cq.sayad_no ?? ""}
                             disabled={readonly}
                             status={cq.sayad_no && !isSayad(cq.sayad_no) ? "warning" : undefined}
                             onChange={(e) => setCheque(i, { sayad_no: normalizeDigits(e.target.value).replace(/\D/g, "") })}
@@ -383,7 +386,7 @@ export function LinesGrid({ kind, lines, setLines, readonly, hasParty }: Props) 
               <span className="bk-vt-track" aria-hidden />
               <div className="bk-vt-lab">
                 <b>جمع</b>
-                <span className="bk-plain">{faDigits(lines.filter((l) => l.amount).length)} ردیف</span>
+                {filled ? <span className="bk-plain">{faDigits(filled)} ردیف</span> : null}
               </div>
             </td>
             <td className="bk-money">

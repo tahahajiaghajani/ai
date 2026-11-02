@@ -7,7 +7,7 @@ import { Banknote, FileInput, Flame, Recycle, Send } from "lucide-react";
 import { Ic } from "../../components/shell/icons";
 import { useOrg } from "../../lib/org";
 import { PageHeader, Section } from "../../components/layout";
-import { StatCard, Money, Balance, JDate } from "../../components/display";
+import { StatCard, Money, Balance, JDate, EmptyState } from "../../components/display";
 import { D } from "@shared/money";
 import { faDigits } from "@shared/format";
 import { gw, SplitButton, WBalance } from "./shared";
@@ -44,23 +44,23 @@ export default function Workshop() {
         }
       />
       <div className="mb-4 grid sm:grid-cols-3">
-        <StatCard title="طلای مستعمل و شکسته" icon={<Ic icon={Recycle} />} value={<>{gw(l?.gold_old?.w ?? 0)}<span className="sf-unit">گرم ۷۵۰</span></>} hint={<>بهای دفتری <Money v={l?.gold_old?.rial ?? 0} /></>} />
-        <StatCard title="آبشده و شمش" icon={<Ic icon={Flame} />} value={<>{gw(l?.gold_bullion?.w ?? 0)}<span className="sf-unit">گرم ۷۵۰</span></>} hint={<>بهای دفتری <Money v={l?.gold_bullion?.rial ?? 0} /></>} />
-        <StatCard title="طلای ما نزد کارگاه‌ها" icon={<Ic icon={Send} />} value={<>{gw(l?.gold_at_workshop?.w ?? 0)}<span className="sf-unit">گرم ۷۵۰</span></>} hint={<>بهای دفتری <Money v={l?.gold_at_workshop?.rial ?? 0} /></>} />
+        <StatCard title="طلای مستعمل و شکسته" icon={<Ic icon={Recycle} />} value={<W750 v={l?.gold_old?.w} />} hint={<>بهای دفتری <Money v={l?.gold_old?.rial ?? 0} zero="—" /></>} />
+        <StatCard title="آبشده و شمش" icon={<Ic icon={Flame} />} value={<W750 v={l?.gold_bullion?.w} />} hint={<>بهای دفتری <Money v={l?.gold_bullion?.rial ?? 0} zero="—" /></>} />
+        <StatCard title="طلای ما نزد کارگاه‌ها" icon={<Ic icon={Send} />} value={<W750 v={l?.gold_at_workshop?.w} />} hint={<>بهای دفتری <Money v={l?.gold_at_workshop?.rial ?? 0} zero="—" /></>} />
       </div>
       <Section title="طلای نزد کارگاه‌ها و سازندگان" bodyClass="p-0" className="mb-4">
         <Table
-          className=""
+          className="sf-edge"
           size="small"
           rowKey="detail_id"
           loading={ws.isLoading}
           dataSource={ws.data ?? []}
           pagination={false}
           scroll={{ x: "max-content" }}
-          locale={{ emptyText: "طلایی نزد کارگاه‌ها نیست" }}
+          locale={{ emptyText: <EmptyState compact icon={Send} title="طلایی نزد کارگاه‌ها نیست." /> }}
           columns={[
             { key: "n", title: "کارگاه", render: (_, r: any) => <span><span className="sf-docno me-2 text-ink-3">{faDigits(r.code)}</span>{r.name}</span> },
-            { key: "w", dataIndex: "workshop_w", title: "وزن ۷۵۰ نزد کارگاه", className: "sf-num", render: (v) => <WBalance v={v} /> },
+            { key: "w", dataIndex: "workshop_w", title: "وزن ۷۵۰ نزد کارگاه (گرم)", className: "sf-num", render: (v) => <WBalance v={v} /> },
             { key: "r", dataIndex: "workshop_rial", title: "بهای دفتری", className: "sf-num", render: (v) => <Money v={v} /> },
             { key: "ap", title: "حساب ریالی (اجرت)", className: "sf-num", render: (_, r: any) => <Balance v={D(r.ar).plus(D(r.ap)).toString()} /> },
             { key: "d", dataIndex: "last_date", title: "آخرین گردش", render: (v) => <JDate v={v} /> },
@@ -76,8 +76,17 @@ export default function Workshop() {
       </Section>
       <section className="sf-card" aria-label="اسناد کارگاه، ذوب و آبشده">
         <div className="sf-doc-h"><h2>اسناد کارگاه، ذوب و آبشده</h2></div>
-        <DocsTable kinds="workshop_out,workshop_in,melt,bullion_sale" />
+        <DocsTable
+          kinds="workshop_out,workshop_in,melt,bullion_sale"
+          empty={<EmptyState compact icon={Flame} title="هنوز سندی برای کارگاه ثبت نشده است." action={edit ? <Button icon={<Ic icon={Send} />} onClick={() => nav(`/${orgId}/gold/workshop/out/new`)}>ارسال به کارگاه</Button> : undefined} />}
+        />
       </section>
     </div>
   );
+}
+
+/** A KPI weight in 750 equivalent: three decimals and «گرم ۷۵۰», or «—» when there is none. */
+function W750({ v }: { v: string | number | null | undefined }) {
+  if (!v || D(v).isZero()) return <span className="sf-zero">—</span>;
+  return <>{gw(v)}<span className="sf-unit">گرم ۷۵۰</span></>;
 }

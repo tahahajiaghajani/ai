@@ -1,10 +1,11 @@
-import { Fragment, Suspense, lazy, type ReactNode } from "react";
+import { Fragment, Suspense, lazy, useEffect, useState, type ReactNode } from "react";
 import { Routes, Route, Navigate, useParams, useLocation, useNavigate } from "react-router";
-import { Spin, Result, Button } from "antd";
+import { Result, Button } from "antd";
 import { Compass } from "lucide-react";
 import { useSession } from "./lib/session";
 import { OrgProvider, useOrgQuery } from "./lib/org";
 import { AppShell } from "./components/layout";
+import { SirafMark } from "./components/brand";
 import { ROUTES } from "./modules/registry";
 import { errorText } from "./lib/api";
 
@@ -16,10 +17,39 @@ const Orgs = lazy(() => import("./pages/orgs/Orgs"));
 const OrgWizard = lazy(() => import("./pages/orgs/OrgWizard"));
 const Admin = lazy(() => import("./pages/admin/Admin"));
 
+/** True once `ms` have passed since mount: quick loads never flash a loader (components.md §8). */
+function useAfter(ms: number) {
+  const [on, setOn] = useState(false);
+  useEffect(() => {
+    const t = window.setTimeout(() => setOn(true), ms);
+    return () => window.clearTimeout(t);
+  }, [ms]);
+  return on;
+}
+
+/**
+ * Waiting states. `full` (the session, an organisation, the first chunk of a route outside the shell) is
+ * the boot screen: the mark at 48 px on the canvas, its nuqtas setting beside the alef (static under
+ * reduced motion), shown only after 200 ms. Inside the shell a page that takes over a second shows the
+ * three rhombic nuqtas; never a spinner.
+ */
 export function Loading({ full }: { full?: boolean }) {
+  const shown = useAfter(full ? 200 : 1000);
+  if (full)
+    return (
+      <div className="sh-boot" role="status" aria-busy="true" aria-label="در حال بارگذاری">
+        {shown ? <SirafMark size={48} launch title="" className="sh-boot-mark" /> : null}
+      </div>
+    );
   return (
-    <div className={`grid place-content-center ${full ? "h-screen" : "h-64"}`}>
-      <Spin size="large" />
+    <div className="sh-wait" role="status" aria-busy="true" aria-label="در حال بارگذاری">
+      {shown ? (
+        <span className="sh-loader" aria-hidden>
+          <i />
+          <i />
+          <i />
+        </span>
+      ) : null}
     </div>
   );
 }

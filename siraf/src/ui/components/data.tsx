@@ -4,20 +4,20 @@
 // with tabular figures and never ellipsized, a sticky header, skeleton rows on the first load, the old rows at 60 %
 // on refetch, row actions revealed on hover, and empty states with one helpful line and one action.
 import "./kit.css";
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import { Table, Button, Input, Select, Drawer, Form, Switch, Dropdown, Upload, Tooltip, Popconfirm } from "antd";
+import { Children, Fragment, cloneElement, isValidElement, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactElement, type ReactNode } from "react";
+import { Table, Button, Input, Select, Drawer, Form, Switch, Dropdown, Upload, Tooltip, Popconfirm, Popover, Space, Segmented } from "antd";
 import type { ColumnsType, ColumnType, TablePaginationConfig, TableProps } from "antd/es/table";
-import { Plus, Pencil, Trash2, Download, RotateCw, Search, Ellipsis, Upload as UploadIcon, ImagePlus, Check, SearchX, CircleAlert, ListPlus } from "lucide-react";
+import { Plus, Pencil, Trash2, Download, RotateCw, Search, Ellipsis, Upload as UploadIcon, ImagePlus, Check, SearchX, CircleAlert, ListPlus, ListFilter, ChevronDown } from "lucide-react";
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import { ENTITIES, fieldsFor, type EntityDef, type FieldDef } from "@shared/entities";
 import { checkFormat } from "@shared/validate";
 import { faDigits } from "@shared/format";
 import { useOrg } from "../lib/org";
-import { useAction, useNotify, useDebounced } from "../lib/hooks";
+import { useAction, useNotify, useDebounced, useIsPhone } from "../lib/hooks";
 import { errorText } from "../lib/api";
 import { exportExcel } from "../lib/excel";
 import { Money, JDate, Weight, Amount, StatusTag, EmptyState, Chip } from "./display";
-import { NumberInput, MoneyInput, PctInput, WeightInput, DateInput, RefSelect, AccountSelect } from "./inputs";
+import { NumberInput, MoneyInput, PctInput, WeightInput, DateInput, RefSelect, AccountSelect, FilterChip, DateRangeChip } from "./inputs";
 import { PageHeader } from "./layout";
 import { ImportDrawer } from "./import";
 
@@ -66,6 +66,241 @@ function skeletonColumns<T>(cols: ColumnsType<T>): ColumnsType<T> {
         ),
     };
   });
+}
+
+// ---------------------------------------------------------------- phone: stacked rows
+
+const colKey = (c: ColumnType<any>) => String(c.key ?? (Array.isArray(c.dataIndex) ? c.dataIndex.join(".") : (c.dataIndex ?? "")));
+const colTitle = (c: ColumnType<any>) => (typeof c.title === "string" ? c.title : "");
+const isDateCol = (c: ColumnType<any>) => /(^|_|\.)(date|due|at|time|when)($|_)|date$/i.test(colKey(c)) || /تاریخ|سررسید|زمان/.test(colTitle(c));
+const isStatusCol = (c: ColumnType<any>) => /status|state/i.test(colKey(c)) || /^وضعیت/.test(colTitle(c));
+const isFigureCol = (c: ColumnType<any>) => /\bsf-num\b/.test(String(c.className ?? "")) && !isDateCol(c);
+const AMOUNT_RE = /amount|total|sum|net|price|value|balance|مبلغ|جمع|مانده|ارزش|کل/i;
+const NAME_RE = /name|party|title|desc|memo|customer|supplier|account|نام|شرح|طرف|شخص|عنوان|مشتری|حساب|دریافت از|پرداخت به|^از$|^به$/i;
+
+function cellOf<T>(c: ColumnType<T>, r: T, i: number): ReactNode {
+  const di = c.dataIndex;
+  const path = di === undefined || di === null ? [] : Array.isArray(di) ? di : [di];
+  let v: unknown = r;
+  for (const k of path) v = v == null ? undefined : (v as Record<string, unknown>)[k as string];
+  if (!path.length) v = undefined;
+  const out = c.render ? (c.render(v, r, i) as unknown) : v;
+  if (out && typeof out === "object" && !isValidElement(out) && !Array.isArray(out) && "children" in (out as object)) return (out as { children: ReactNode }).children;
+  if (out === undefined || out === null || out === "") return c.render ? null : <span className="sf-zero">—</span>;
+  return out as ReactNode;
+}
+
+/**
+ * Below 640 px a list row becomes a stack (no sideways scroll, no figure cut at the edge): line 1 the document number
+ * and date with the status and row actions at the end, line 2 the party or description, line 3 the amount on its own
+ * line, start-aligned, then up to three other columns as quiet «label value» pairs. Returns null when the columns
+ * cannot be stacked (grouped headers).
+ */
+function stackColumns<T>(cols: ColumnsType<T>, skeleton: boolean): ColumnsType<T> | null {
+  if (cols.some((c) => "children" in c && c.children)) return null;
+  const leaf = cols as ColumnType<T>[];
+  const titled = leaf.filter((c) => !!c.title && !c.hidden);
+  if (titled.length < 2) return null;
+  const actions = leaf.filter((c) => !c.title && (c.render || c.dataIndex));
+  const used = new Set<ColumnType<T>>();
+  const take = (c: ColumnType<T> | undefined) => (c && !used.has(c) ? (used.add(c), c) : undefined);
+  const first = titled[0];
+  const id = !isDateCol(first) && !isStatusCol(first) && !NAME_RE.test(colTitle(first) || colKey(first)) ? take(first) : undefined;
+  const date = take(titled.find((c) => !used.has(c) && isDateCol(c)));
+  const status = take(titled.find((c) => !used.has(c) && isStatusCol(c)));
+  const texts = titled.filter((c) => !used.has(c) && !isFigureCol(c) && !isDateCol(c));
+  const name = take(texts.find((c) => NAME_RE.test(colTitle(c)) || NAME_RE.test(colKey(c))) ?? texts[0]);
+  const figures = titled.filter((c) => !used.has(c) && isFigureCol(c));
+  const amount = take(figures.find((c) => AMOUNT_RE.test(colTitle(c)) || AMOUNT_RE.test(colKey(c))) ?? figures[0]);
+  const rest = titled.filter((c) => !used.has(c)).slice(0, 3);
+  const skel = (w: number | string) => <i className="sf-skel" style={{ inlineSize: w }} />;
+  return [
+    {
+      key: "__stack",
+      className: "sf-stk-cell",
+      render: (_: unknown, r: T, i: number) =>
+        skeleton ? (
+          <div className="sf-stk">
+            <div className="sf-stk-l1">{skel(120)}</div>
+            <div className="sf-stk-l2">{skel("62%")}</div>
+            <div className="sf-stk-l3">{skel(96)}</div>
+          </div>
+        ) : (
+          <div className="sf-stk">
+            <div className="sf-stk-l1">
+              {id ? <span className="sf-stk-id">{cellOf(id, r, i)}</span> : null}
+              {id && date ? <span className="sf-stk-dot" aria-hidden /> : null}
+              {date ? <span className="sf-stk-date">{cellOf(date, r, i)}</span> : null}
+              {!id && !date && name ? <span className="sf-stk-name">{cellOf(name, r, i)}</span> : null}
+              <span className="sf-stk-end">
+                {status ? cellOf(status, r, i) : null}
+                {actions.map((a) => (
+                  <Fragment key={colKey(a)}>{cellOf(a, r, i)}</Fragment>
+                ))}
+              </span>
+            </div>
+            {name && (id || date) ? <div className="sf-stk-l2">{cellOf(name, r, i)}</div> : null}
+            {amount || rest.length ? (
+              <div className="sf-stk-l3">
+                {amount ? (
+                  <span className="sf-stk-amt">
+                    {cellOf(amount, r, i)}
+                    {/\(([^)]+)\)/.test(colTitle(amount)) ? <span className="sf-unit">{"\u00a0"}{/\(([^)]+)\)/.exec(colTitle(amount))![1]}</span> : null}
+                  </span>
+                ) : null}
+                {rest.map((c) => (
+                  <span key={colKey(c)} className="sf-stk-kv">
+                    {colTitle(c) ? <span className="sf-stk-k">{colTitle(c)}</span> : null}
+                    <span className="sf-stk-v">{cellOf(c, r, i)}</span>
+                  </span>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ),
+    },
+  ];
+}
+
+// ---------------------------------------------------------------- filters row (§2)
+
+/** The toolbar's own controls, with fragments and antd `Space` wrappers opened up. */
+function flattenToolbar(node: ReactNode): ReactElement[] {
+  const out: ReactElement[] = [];
+  Children.forEach(node, (c) => {
+    if (!isValidElement(c)) return;
+    const props = c.props as { children?: ReactNode };
+    if (c.type === Fragment || c.type === Space) out.push(...flattenToolbar(props.children));
+    else out.push(c);
+  });
+  return out;
+}
+
+const isDateInput = (e: ReactElement | undefined): e is ReactElement<{ value?: string | null; onChange?: (v: string | null) => void; placeholder?: string }> => !!e && e.type === DateInput;
+const isSearchInput = (e: ReactElement) => e.type === Input || e.type === Input.Search;
+
+/** «از تاریخ» + «تا تاریخ» (side by side, or in a `.bk-range` wrapper with «تا» between) become one range chip. */
+function mergeDateRanges(items: ReactElement[]): ReactElement[] {
+  const out: ReactElement[] = [];
+  const chip = (a: ReactElement, b: ReactElement, key: string) => {
+    const pa = a.props as { value?: string | null; onChange?: (v: string | null) => void };
+    const pb = b.props as { value?: string | null; onChange?: (v: string | null) => void };
+    return (
+      <DateRangeChip
+        key={key}
+        value={{ from: pa.value ?? null, to: pb.value ?? null }}
+        onChange={(r) => {
+          if ((r.from ?? null) !== (pa.value ?? null)) pa.onChange?.(r.from);
+          if ((r.to ?? null) !== (pb.value ?? null)) pb.onChange?.(r.to);
+        }}
+      />
+    );
+  };
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i];
+    const inner = isDateInput(it) ? [] : flattenToolbar((it.props as { children?: ReactNode }).children).filter(isDateInput);
+    if (inner.length === 2 && flattenToolbar((it.props as { children?: ReactNode }).children).every((x) => isDateInput(x) || x.type === "span")) {
+      out.push(chip(inner[0], inner[1], String(it.key ?? `range${i}`)));
+    } else if (isDateInput(it) && isDateInput(items[i + 1]) && !/^تا/.test(String(it.props.placeholder ?? ""))) {
+      out.push(chip(it, items[i + 1], String(it.key ?? `range${i}`)));
+      i++;
+    } else out.push(it);
+  }
+  return out;
+}
+
+/** Whether a filter control holds a value (for the «پالایه‌های بیشتر (n)» count). */
+function isApplied(e: ReactElement): boolean {
+  const p = e.props as Record<string, unknown>;
+  if (e.type === Segmented || isSearchInput(e)) return false;
+  if (e.type === DateRangeChip) {
+    const v = p.value as { from?: string | null; to?: string | null };
+    return !!(v?.from || v?.to);
+  }
+  if (p["aria-pressed"] === true) return true;
+  const v = p.value;
+  if (Array.isArray(v)) return v.length > 0;
+  return v !== undefined && v !== null && v !== "" && v !== false;
+}
+
+const MAX_VISIBLE = 4;
+
+/**
+ * The filters row of a list (components.md §2): one row, at most four controls visible (the search plus three), the
+ * rest behind «پالایه‌های بیشتر» with the number applied; a from/to date pair is one range chip. On a phone: the search
+ * at full width and one «پالایه‌ها» button that opens a bottom sheet with the other filters.
+ */
+function FilterBar({ toolbar, tools, onClear }: { toolbar: ReactNode; tools: ReactNode; onClear?: () => void }) {
+  const phone = useIsPhone();
+  const [sheet, setSheet] = useState(false);
+  const all = mergeDateRanges(flattenToolbar(toolbar)).map((e, i) => (e.key == null ? cloneElement(e, { key: `f${i}` }) : e));
+  // «پاک کردن» (a `.sf-fclear` link) always stays at the end of the visible row
+  const isClear = (e: ReactElement) => /\bsf-fclear\b/.test(String((e.props as { className?: string }).className ?? ""));
+  // the search always comes first (it is the one that fills the row on a phone)
+  const controls = all.filter((e) => !isClear(e));
+  const si = controls.findIndex(isSearchInput);
+  const items = si > 0 ? [controls[si], ...controls.slice(0, si), ...controls.slice(si + 1)] : controls;
+  const trailing = all.filter(isClear);
+  const search = phone && items[0] && isSearchInput(items[0]) ? items[0] : null;
+  const rest = search ? items.slice(1) : items;
+  const visible = phone ? (search ? [search] : rest.length <= 1 ? rest : []) : items.length > MAX_VISIBLE ? items.slice(0, MAX_VISIBLE) : items;
+  const hidden = phone ? (search || rest.length > 1 ? rest : []) : items.slice(visible.length);
+  const applied = hidden.filter(isApplied).length;
+  const count = applied ? <span className="sf-fmore-n">{faDigits(applied)}</span> : null;
+  const moreLabel = phone ? "پالایه‌ها" : "پالایه‌های بیشتر";
+  const moreBtn = (
+    <span className={cx("sf-fchip", applied > 0 && "is-on")}>
+      <button type="button" className="sf-fchip-b" onClick={phone ? () => setSheet(true) : undefined} aria-haspopup="dialog">
+        <ListFilter {...ICON} className="sf-fchip-ic" aria-hidden />
+        <span className="sf-fchip-t">{moreLabel}</span>
+        {count}
+        {phone ? null : <ChevronDown size={14} strokeWidth={1.4} absoluteStrokeWidth className="sf-fchip-chev" aria-hidden />}
+      </button>
+    </span>
+  );
+  return (
+    <div className="sf-st-bar no-print" data-phone={phone ? "" : undefined}>
+      <div className="sf-st-filters">
+        {visible}
+        {hidden.length ? (
+          phone ? (
+            moreBtn
+          ) : (
+            <Popover trigger={["click"]} placement="bottomRight" rootClassName="sf-fmore-pop" content={<div className="sf-fmore">{hidden}</div>}>
+              {moreBtn}
+            </Popover>
+          )
+        ) : null}
+        {phone ? null : trailing}
+      </div>
+      <div className="sf-st-tools">{tools}</div>
+      {phone && hidden.length ? (
+        <Drawer
+          open={sheet}
+          onClose={() => setSheet(false)}
+          placement="bottom"
+          title="پالایه‌ها"
+          closable={{ placement: "end" }}
+          rootClassName="sf-fsheet"
+          size="auto"
+          footer={
+            <div className="sf-fsheet-f">
+              {onClear && applied ? (
+                <Button type="text" onClick={onClear}>
+                  پاک کردن همه
+                </Button>
+              ) : null}
+              <Button type="primary" onClick={() => setSheet(false)}>
+                نمایش نتایج
+              </Button>
+            </div>
+          }
+        >
+          <div className="sf-fmore">{hidden}</div>
+        </Drawer>
+      ) : null}
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------- server table
@@ -209,32 +444,48 @@ export function ServerTable<T extends { id?: string }>({
     }
   };
 
+  const phone = useIsPhone();
+  const stacked = useMemo(() => (phone ? stackColumns(cols, false) : null), [phone, cols]);
+  const stackedSkel = useMemo(() => (phone ? stackColumns(cols, true) : null), [phone, cols]);
+  const tableCols = stacked ? (firstLoad ? stackedSkel! : stacked) : firstLoad ? skelCols : cols;
+
   return (
-    <div className="sf-st" data-clickable={onRowClick ? "" : undefined} data-busy={q.isFetching && q.isPlaceholderData ? "" : undefined} aria-busy={q.isFetching || undefined}>
+    <div
+      className={cx("sf-st", stacked && "is-stacked")}
+      data-clickable={onRowClick ? "" : undefined}
+      data-busy={q.isFetching && q.isPlaceholderData ? "" : undefined}
+      aria-busy={q.isFetching || undefined}
+    >
       {hasBar ? (
-        <div className="sf-st-bar no-print">
-          <div className="sf-st-filters">{toolbar}</div>
-          <div className="sf-st-tools">
-            {tools}
-            <Tooltip title="بازخوانی">
-              <Button type="text" icon={<RotateCw {...ICON} className={q.isFetching && !firstLoad ? "sf-spin" : undefined} />} onClick={() => q.refetch()} aria-label="بازخوانی" />
-            </Tooltip>
-            {exportName && exportColumns ? (
-              <Tooltip title="خروجی اکسل">
-                <Button type="text" icon={<Download {...ICON} />} loading={exporting} onClick={doExport} aria-label="خروجی اکسل" />
+        <FilterBar
+          toolbar={toolbar}
+          onClear={onClearFilters}
+          tools={
+            <>
+              {tools}
+              <Tooltip title="بازخوانی">
+                <Button type="text" icon={<RotateCw {...ICON} className={q.isFetching && !firstLoad ? "sf-spin" : undefined} />} onClick={() => q.refetch()} aria-label="بازخوانی" />
               </Tooltip>
-            ) : null}
-          </div>
-        </div>
+              {exportName && exportColumns ? (
+                <Tooltip title="خروجی اکسل">
+                  <Button type="text" icon={<Download {...ICON} />} loading={exporting} onClick={doExport} aria-label="خروجی اکسل" />
+                </Tooltip>
+              ) : null}
+            </>
+          }
+        />
       ) : null}
       <Table<T>
         className="tz-table"
         size={size}
+        data-density={size === "small" ? "compact" : "comfortable"}
         rowKey={rowKey}
-        columns={firstLoad ? skelCols : cols}
+        columns={tableCols}
         dataSource={firstLoad ? skeletonRows : data.rows}
-        scroll={{ x: scrollX ?? "max-content" }}
-        sticky={sticky ? { offsetHeader: TOPBAR_OFFSET } : undefined}
+        scroll={stacked ? undefined : { x: scrollX ?? "max-content" }}
+        showHeader={!stacked}
+        tableLayout={stacked ? "fixed" : undefined}
+        sticky={sticky && !stacked ? { offsetHeader: TOPBAR_OFFSET } : undefined}
         rowSelection={firstLoad ? undefined : rowSelection}
         rowClassName={(r: T) => (firstLoad ? "sf-skel-row" : cx(rowClassName?.(r), activeKey != null && keyOf(r) === activeKey && "ant-table-row-selected"))}
         locale={{ emptyText: emptyNode }}
@@ -257,15 +508,47 @@ export function ServerTable<T extends { id?: string }>({
                 current: page,
                 pageSize: size_,
                 total: data.total,
-                showSizeChanger: true,
+                showSizeChanger: !phone,
                 pageSizeOptions: [20, 50, 100, 200],
                 showTotal: (t) => `${faDigits(t)} ردیف`,
                 size: "small",
+                simple: phone,
                 hideOnSinglePage: data.total <= 20,
               }
         }
       />
     </div>
+  );
+}
+
+// ---------------------------------------------------------------- client table
+
+export type DataTableProps<T> = TableProps<T> & {
+  /** stack rows on a phone instead of scrolling sideways (default true) */
+  stack?: boolean;
+};
+
+/**
+ * A client-side table with the kit's defaults (components.md §4): compact 32 px rows, numeric columns (`sf-num` or
+ * the old `align: "left"`) start-aligned, tabular and never ellipsized, `scroll.x` to fit, and on a phone the
+ * stacked rows of `ServerTable` (the amount on its own line) instead of a sideways scroll.
+ */
+export function DataTable<T extends object>({ columns, stack = true, size = "small", scroll, className, showHeader, sticky, ...rest }: DataTableProps<T>) {
+  const phone = useIsPhone();
+  const cols = useMemo(() => normalizeColumns(columns ?? []), [columns]);
+  const stacked = useMemo(() => (phone && stack ? stackColumns(cols, false) : null), [phone, stack, cols]);
+  return (
+    <Table<T>
+      {...rest}
+      className={cx("tz-table", stacked && "is-stacked", className)}
+      size={size}
+      data-density={size === "small" ? "compact" : "comfortable"}
+      columns={stacked ?? cols}
+      scroll={stacked ? undefined : (scroll ?? { x: "max-content" })}
+      showHeader={stacked ? false : showHeader}
+      tableLayout={stacked ? "fixed" : rest.tableLayout}
+      sticky={stacked ? undefined : sticky}
+    />
   );
 }
 
@@ -456,8 +739,28 @@ export async function shrinkImage(file: File, max = 640): Promise<string> {
 
 // ---------------------------------------------------------------- generated form
 
-/** Narrow sheets (≤ 600 px) set the fields two per row; wider forms keep the definition's 24-column spans. */
-const narrowSpan = (span: number) => (span > 12 ? 24 : 12);
+/** Short values that may sit two to a row in a sheet (components.md §5: «وزن + عیار»، «نرخ + اجرت»). */
+const SHORT_TYPES = new Set<FieldDef["type"]>(["money", "decimal", "int", "pct", "weight", "date", "code"]);
+
+/**
+ * Spans for a sheet: one column, except two neighbouring short fields (figures, dates, codes), which pair up.
+ * Wide pages keep the definition's 24-column spans.
+ */
+function sheetSpans(fs: FieldDef[]): number[] {
+  const out = fs.map(() => 24);
+  for (let i = 0; i + 1 < fs.length; i++) {
+    const a = fs[i];
+    const b = fs[i + 1];
+    if (SHORT_TYPES.has(a.type) && SHORT_TYPES.has(b.type) && (a.span ?? 12) <= 12 && (b.span ?? 12) <= 12) {
+      out[i] = 12;
+      out[i + 1] = 12;
+      i++;
+    }
+  }
+  return out;
+}
+
+const isEmptyValue = (v: unknown) => v === undefined || v === null || v === "" || (Array.isArray(v) && !v.length);
 
 /** «Ctrl ↵» inside a button: an LTR isolate in a 4 px RTL wrapper (components.md §6). */
 function KbdHint({ keys }: { keys: string[] }) {
@@ -478,7 +781,7 @@ export function EntityForm({ def, initial, onSaved, onCancel, extra }: { def: En
   const { api, org } = useOrg();
   const [form] = Form.useForm();
   const box = useRef<HTMLDivElement>(null);
-  const [narrow, setNarrow] = useState(false);
+  const [sheet, setSheet] = useState(true);
   const fields = fieldsFor(def, org.modules).filter((f) => !f.hidden);
   const editing = !!initial?.id;
   const sections = useMemo(() => {
@@ -494,27 +797,47 @@ export function EntityForm({ def, initial, onSaved, onCancel, extra }: { def: En
     for (const f of fields) v[f.name] = initial?.[f.name] ?? (editing ? null : f.default ?? null);
     return v;
   }, [initial, editing, fields]);
+  // long groups of optional fields (هویت، احراز هویت، تماس…) start closed: a section after the first with no required
+  // field, opened when it already holds something the user entered
+  const optionalSection = (title: string, fs: FieldDef[], i: number) => i > 0 && !!title && fs.length > 1 && !fs.some((f) => f.required);
+  const [open, setOpen] = useState<Set<string>>(
+    () =>
+      new Set(
+        sections
+          .filter(([title, fs], i) => !optionalSection(title, fs, i) || (editing && fs.some((f) => !isEmptyValue(initial?.[f.name]) && initial?.[f.name] !== f.default)))
+          .map(([title]) => title),
+      ),
+  );
+  const toggle = (title: string) =>
+    setOpen((o) => {
+      const n = new Set(o);
+      if (n.has(title)) n.delete(title);
+      else n.add(title);
+      return n;
+    });
   const save = useAction(
     (values: Record<string, any>) => (editing ? api.patch(`/data/${def.key}/${initial!.id}`, values) : api.post(`/data/${def.key}`, values)),
     { success: editing ? "ذخیره شد" : `${def.title} ثبت شد`, invalidate: [["table"], ["options", def.key], ["option", def.key]], onSuccess: (d: any) => onSaved?.(d.row) },
   );
 
-  // the sheet's width decides the grid; focus lands on the first empty required field (or the first field) at once,
-  // so keystrokes typed while the sheet slides in are never lost (components.md §1.5)
+  // a form inside a sheet is one column; focus lands at once on the first empty required text field (never a select
+  // that already has its default), so keystrokes typed while the sheet slides in are never lost (components.md §1.5)
   useEffect(() => {
     const el = box.current;
     if (!el) return;
-    const measure = () => setNarrow(el.clientWidth <= 600);
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    const items = [...el.querySelectorAll<HTMLElement>(".ant-form-item")];
-    const inputOf = (it: HTMLElement) => it.querySelector<HTMLInputElement | HTMLTextAreaElement>("input:not([disabled]):not([type=checkbox]):not([type=file]), textarea:not([disabled])");
-    const required = items.find((it) => it.querySelector(".ant-form-item-required") && inputOf(it) && !inputOf(it)!.value);
-    const target = inputOf(required ?? items[0] ?? el) ?? null;
+    setSheet(!!el.closest(".ant-drawer") || el.clientWidth <= 600);
+    const items = [...el.querySelectorAll<HTMLElement>(".ant-form-item")].filter((it) => !it.closest("[hidden]"));
+    const textOf = (it: HTMLElement) => (it.querySelector(".ant-select") ? null : it.querySelector<HTMLInputElement | HTMLTextAreaElement>("input:not([disabled]):not([readonly]):not([type=checkbox]):not([type=file]), textarea:not([disabled])"));
+    const required = items.filter((it) => it.querySelector(".ant-form-item-required"));
+    const target =
+      required.map(textOf).find((i) => i && !i.value) ??
+      required.map(textOf).find(Boolean) ??
+      items.map(textOf).find(Boolean) ??
+      el.querySelector<HTMLElement>("input:not([disabled]), textarea:not([disabled])");
     target?.focus({ preventScroll: true });
-    return () => ro.disconnect();
   }, []);
+
+  const sectionOf = (name: string) => sections.find(([, fs]) => fs.some((f) => f.name === name))?.[0];
 
   return (
     <div
@@ -527,18 +850,50 @@ export function EntityForm({ def, initial, onSaved, onCancel, extra }: { def: En
         }
       }}
     >
-      <Form form={form} layout="vertical" initialValues={initialValues} onFinish={(v) => save.mutate(v)} requiredMark="optional" scrollToFirstError>
-        {sections.map(([title, fs]) => (
-          <section key={title || "main"} className="sf-form-sec">
-            {title ? <h3 className="sf-form-sec-t">{title}</h3> : null}
-            <div className="sf-form-grid">
-              {fs.map((f) => {
-                const span = Math.min(f.span ?? 12, 24);
-                return (
-                  <div key={f.name} style={{ ["--span" as string]: narrow ? narrowSpan(span) : span }}>
+      <Form
+        form={form}
+        layout="vertical"
+        initialValues={initialValues}
+        onFinish={(v) => save.mutate(v)}
+        onFinishFailed={({ errorFields }) => {
+          // a mistake inside a closed section opens it, so the error is seen
+          const titles = errorFields.map((f) => sectionOf(String(f.name[0]))).filter((t): t is string => t !== undefined);
+          if (titles.some((t) => !open.has(t))) setOpen((o) => new Set([...o, ...titles]));
+        }}
+        // «(اختیاری)» only where it informs: never on a switch, nor inside a closed-by-default optional group
+        requiredMark={(label, { required }) =>
+          required || (isValidElement(label) && (label.props as Record<string, unknown>)["data-nomark"] !== undefined) ? (
+            label
+          ) : (
+            <>
+              {label}
+              <span className="ant-form-item-optional">(اختیاری)</span>
+            </>
+          )
+        }
+        scrollToFirstError
+      >
+        {sections.map(([title, fs], si) => {
+          const collapsible = optionalSection(title, fs, si);
+          const shown = !collapsible || open.has(title);
+          const spans = sheet ? sheetSpans(fs) : fs.map((f) => Math.min(f.span ?? 12, 24));
+          return (
+            <section key={title || "main"} className={cx("sf-form-sec", collapsible && "is-collapsible", shown && "is-open")}>
+              {collapsible ? (
+                <button type="button" className="sf-form-sec-t sf-form-sec-btn" aria-expanded={shown} onClick={() => toggle(title)}>
+                  <ChevronDown size={14} strokeWidth={1.4} absoluteStrokeWidth className="sf-form-sec-chev" aria-hidden />
+                  <span>{title}</span>
+                  <span className="sf-form-sec-meta">اختیاری</span>
+                </button>
+              ) : title ? (
+                <h3 className="sf-form-sec-t">{title}</h3>
+              ) : null}
+              <div className="sf-form-grid" hidden={!shown}>
+                {fs.map((f, i) => (
+                  <div key={f.name} style={{ ["--span" as string]: spans[i] }}>
                     <Form.Item
                       name={f.name}
-                      label={f.label}
+                      label={f.type === "bool" || collapsible ? <span data-nomark="">{f.label}</span> : f.label}
                       extra={f.help}
                       valuePropName={f.type === "bool" ? "checked" : "value"}
                       rules={[
@@ -552,11 +907,11 @@ export function EntityForm({ def, initial, onSaved, onCancel, extra }: { def: En
                       {f.type === "bool" ? <Switch disabled={f.readonly} /> : <FieldInput f={f} disabled={f.readonly} />}
                     </Form.Item>
                   </div>
-                );
-              })}
-            </div>
-          </section>
-        ))}
+                ))}
+              </div>
+            </section>
+          );
+        })}
         {extra}
         <div className="sf-form-foot">
           <Button onClick={onCancel}>انصراف</Button>
@@ -586,16 +941,6 @@ export interface EntityPageProps {
 
 const NUMERIC_TYPES = ["money", "decimal", "int", "weight", "pct"];
 
-let measureCtx: CanvasRenderingContext2D | null | undefined;
-/** The rendered width of a short label in the UI font (filter chips size to their words). */
-function textWidth(s: string, weight = 500, size = 14): number {
-  if (measureCtx === undefined) measureCtx = typeof document !== "undefined" ? document.createElement("canvas").getContext("2d") : null;
-  if (!measureCtx) return s.length * 8;
-  const family = getComputedStyle(document.body).fontFamily || "Vazirmatn, sans-serif";
-  measureCtx.font = `${weight} ${size}px ${family}`;
-  return measureCtx.measureText(s).width;
-}
-
 export function EntityPage({ entity, title, extraColumns = [], rowActions, headerActions, defaultFilters, onOpen, drawerWidth = 560, hideNew }: EntityPageProps) {
   const def = ENTITIES[entity];
   const [importing, setImporting] = useState(false);
@@ -611,18 +956,20 @@ export function EntityPage({ entity, title, extraColumns = [], rowActions, heade
   const n = useNotify();
   const del = useAction((id: string) => api.del(`/data/${entity}/${id}`), { success: "حذف شد", invalidate: [["table"], ["options", entity]] });
   const sheetOpen = editing !== undefined;
+  // one-record forms are one column (components.md §5): a sheet is 480–560 px, never a wide multi-column panel
+  const sheetWidth = Math.min(drawerWidth, 560);
 
   // toasts move beside an open sheet (siraf-antd.css reads --sf-sheet-w): tell it how wide this one is
   useEffect(() => {
     if (!sheetOpen) return;
     const root = document.documentElement;
     const prev = root.style.getPropertyValue("--sf-sheet-w");
-    root.style.setProperty("--sf-sheet-w", `${drawerWidth}px`);
+    root.style.setProperty("--sf-sheet-w", `${sheetWidth}px`);
     return () => {
       if (prev) root.style.setProperty("--sf-sheet-w", prev);
       else root.style.removeProperty("--sf-sheet-w");
     };
-  }, [sheetOpen, drawerWidth]);
+  }, [sheetOpen, sheetWidth]);
 
   const columns: ColumnsType<any> = [
     ...fields
@@ -691,7 +1038,7 @@ export function EntityPage({ entity, title, extraColumns = [], rowActions, heade
     <div>
       <PageHeader
         title={title ?? def.plural}
-        subtitle={total !== null ? `${faDigits(total)} ردیف` : undefined}
+        subtitle={total ? `${faDigits(total)} ردیف` : undefined}
         actions={
           <>
             {headerActions}
@@ -719,7 +1066,8 @@ export function EntityPage({ entity, title, extraColumns = [], rowActions, heade
               description={canEdit && !hideNew ? `اولین ${def.title} را ثبت کنید یا فهرست را از اکسل وارد کنید.` : undefined}
               action={
                 canEdit && !hideNew ? (
-                  <Button type="primary" icon={<Plus {...ICON} />} onClick={() => setEditing(null)}>
+                  // the header already holds the page's one primary: the empty state repeats it quietly
+                  <Button icon={<Plus {...ICON} />} onClick={() => setEditing(null)}>
                     {def.title} جدید
                   </Button>
                 ) : undefined
@@ -755,30 +1103,17 @@ export function EntityPage({ entity, title, extraColumns = [], rowActions, heade
                 onChange={(e) => setQ(e.target.value)}
                 className="!w-64 max-sm:!w-full"
               />
-              {filterFields.map((f) => {
-                const on = !!filters[f.name];
-                const opts = f.type === "bool" ? [{ value: "true", label: `${f.label}: بله` }, { value: "false", label: `${f.label}: خیر` }] : (f.options ?? []);
-                // a chip is as wide as its words (antd's placeholder is absolutely positioned and gives no width)
-                const shown = on ? String(opts.find((o) => o.value === filters[f.name])?.label ?? filters[f.name]) : f.label;
-                const width = Math.max(72, Math.ceil(textWidth(shown) * 1.06) + 54);
-                return (
-                  <Select
-                    key={f.name}
-                    allowClear
-                    variant={on ? "filled" : "borderless"}
-                    placeholder={f.label}
-                    aria-label={f.label}
-                    className={cx("sf-filter", on && "is-on")}
-                    style={{ width }}
-                    popupMatchSelectWidth={false}
-                    value={filters[f.name] || undefined}
-                    onChange={(v) => setFilters({ ...filters, [f.name]: v ?? "" })}
-                    options={opts}
-                  />
-                );
-              })}
-              {applied || q ? (
-                <button type="button" className="sf-link border-0 bg-transparent p-0 text-[13px]" onClick={clear}>
+              {filterFields.map((f) => (
+                <FilterChip
+                  key={f.name}
+                  label={f.label}
+                  value={filters[f.name] || null}
+                  onChange={(v) => setFilters({ ...filters, [f.name]: v ?? "" })}
+                  options={f.type === "bool" ? [{ value: "true", label: `${f.label}: بله` }, { value: "false", label: `${f.label}: خیر` }] : (f.options ?? []).map((o) => ({ value: String(o.value), label: o.label }))}
+                />
+              ))}
+              {applied ? (
+                <button type="button" className="sf-link sf-fclear" onClick={clear}>
                   پاک کردن
                 </button>
               ) : null}
@@ -789,8 +1124,9 @@ export function EntityPage({ entity, title, extraColumns = [], rowActions, heade
       <Drawer
         open={sheetOpen}
         onClose={() => setEditing(undefined)}
-        size={drawerWidth}
+        size={sheetWidth}
         placement="left"
+        closable={{ placement: "end" }}
         title={editing?.id ? `ویرایش ${def.title}` : `${def.title} جدید`}
         destroyOnHidden
         styles={{ body: { paddingBottom: 0 } }}

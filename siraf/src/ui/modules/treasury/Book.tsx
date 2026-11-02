@@ -5,10 +5,10 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Segmented, Table } from "antd";
-import { Landmark, Vault } from "lucide-react";
+import { Landmark, Wallet } from "lucide-react";
 import { useOrg } from "../../lib/org";
 import { PageHeader } from "../../components/layout";
-import { Balance, EmptyState, JDate, StatCard } from "../../components/display";
+import { Balance, EmptyState, JDate, Money, StatCard } from "../../components/display";
 import { ChequeIcon } from "../../components/shell/icons";
 import { exportExcel } from "../../lib/excel";
 import { ReportFilters, useRange } from "../reports/Filters";
@@ -19,6 +19,16 @@ import { D } from "@shared/money";
 import { KIND_TITLE, type DocKind } from "./labels";
 
 type Kind = "cash" | "bank";
+
+/** A KPI figure in «ریال» (`.sf-unit`); its side (بدهکار / بستانکار) goes in the caption, never as a «بد» suffix. */
+function KpiMoney({ v }: { v: string | number | null | undefined }) {
+  const d = D(v ?? 0);
+  return d.isZero() ? <span className="sf-zero">—</span> : <Money v={d.abs().toString()} unit />;
+}
+const sideWord = (v: string | number | null | undefined) => {
+  const d = D(v ?? 0);
+  return d.isZero() ? "" : d.gt(0) ? "، بدهکار" : "، بستانکار";
+};
 
 export default function Book() {
   const { api, orgId, unit } = useOrg();
@@ -67,9 +77,19 @@ export default function Book() {
     <div>
       <PageHeader title="دفتر صندوق و بانک" />
       <div className="no-print mb-4 grid sm:grid-cols-2 xl:grid-cols-3">
-        <StatCard title="جمع صندوق‌ها" icon={<Vault {...ICON} />} value={bal.data ? <Balance v={bal.data.cash_total} /> : "…"} hint={`${faDigits((bal.data?.boxes ?? []).length)} صندوق`} />
-        <StatCard title="جمع بانک‌ها" icon={<Landmark {...ICON} />} value={bal.data ? <Balance v={bal.data.bank_total} /> : "…"} hint={`${faDigits((bal.data?.banks ?? []).length)} حساب بانکی`} />
-        <StatCard title="چک‌های در جریان وصول" icon={<ChequeIcon {...ICON} />} value={bal.data ? <Amt v={inCollection.toString()} /> : "…"} hint="واگذارشده به بانک" />
+        <StatCard
+          title="جمع صندوق‌ها"
+          icon={<Wallet {...ICON} />}
+          value={bal.data ? <KpiMoney v={bal.data.cash_total} /> : "…"}
+          hint={`${faDigits((bal.data?.boxes ?? []).length)} صندوق${sideWord(bal.data?.cash_total)}`}
+        />
+        <StatCard
+          title="جمع بانک‌ها"
+          icon={<Landmark {...ICON} />}
+          value={bal.data ? <KpiMoney v={bal.data.bank_total} /> : "…"}
+          hint={`${faDigits((bal.data?.banks ?? []).length)} حساب بانکی${sideWord(bal.data?.bank_total)}`}
+        />
+        <StatCard title="چک‌های در جریان وصول" icon={<ChequeIcon {...ICON} />} value={bal.data ? <KpiMoney v={inCollection.toString()} /> : "…"} hint="واگذارشده به بانک" />
       </div>
 
       <div className="bk-filters no-print">
@@ -86,11 +106,11 @@ export default function Book() {
         />
       </div>
       {list.length ? (
-        <div className="bk-tiles no-print mb-4" role="group" aria-label={kind === "cash" ? "صندوق‌ها" : "حساب‌های بانکی"} style={{ gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))" }}>
+        <div className="bk-tiles is-cards no-print mb-4" role="group" aria-label={kind === "cash" ? "صندوق‌ها" : "حساب‌های بانکی"}>
           {list.map((x) => (
             <button key={x.id} type="button" className={cx("bk-tile", !x.is_active && "is-empty")} aria-pressed={x.id === id} onClick={() => setId(x.id)}>
               <small>
-                {kind === "cash" ? <Vault {...ICON14} aria-hidden /> : <Landmark {...ICON14} aria-hidden />}
+                {kind === "cash" ? <Wallet {...ICON14} aria-hidden /> : <Landmark {...ICON14} aria-hidden />}
                 <span className="truncate">{x.name}</span>
               </small>
               <b><Balance v={x.balance} /></b>
@@ -121,7 +141,7 @@ export default function Book() {
 
       {!id ? (
         <Card>
-          <EmptyState icon={kind === "cash" ? Vault : Landmark} title={kind === "cash" ? "صندوقی انتخاب نشده" : "حساب بانکی انتخاب نشده"} description={list.length ? "یکی را از بالا انتخاب کنید." : kind === "cash" ? "هنوز صندوقی تعریف نشده است." : "هنوز حساب بانکی تعریف نشده است."} />
+          <EmptyState icon={kind === "cash" ? Wallet : Landmark} title={kind === "cash" ? "صندوقی انتخاب نشده" : "حساب بانکی انتخاب نشده"} description={list.length ? "یکی را از بالا انتخاب کنید." : kind === "cash" ? "هنوز صندوقی تعریف نشده است." : "هنوز حساب بانکی تعریف نشده است."} />
         </Card>
       ) : (
         <Card
@@ -181,7 +201,7 @@ export default function Book() {
             loading={q.isLoading}
             dataSource={rows}
             pagination={{ pageSize: 200, hideOnSinglePage: true, size: "small", showSizeChanger: false }}
-            scroll={{ x: 1000 }}
+            scroll={{ x: 104 + 64 + 128 + 240 + 136 * 3 + 80 }}
             tableLayout="fixed"
             sticky={{ offsetHeader: 56 }}
             onRow={(r: any) => (r.opening ? {} : { onClick: () => open(r), onKeyDown: (e) => e.key === "Enter" && open(r), tabIndex: 0 })}
@@ -203,9 +223,9 @@ export default function Book() {
                   ),
               },
               { key: "desc", dataIndex: "description", title: "شرح", ellipsis: true, render: (v, r: any) => (r.opening ? v : <span className="bk-2">{v}</span>) },
-              { key: "dr", dataIndex: "debit", title: "دریافت", className: "sf-num", width: 148, render: (v) => (v ? <Amt v={v} zero="" colored /> : null) },
-              { key: "cr", dataIndex: "credit", title: "پرداخت", className: "sf-num", width: 148, render: (v) => (v ? <Amt v={v} zero="" /> : null) },
-              { key: "bal", dataIndex: "balance", title: "مانده", className: "sf-num", width: 156, render: (v) => <Amt v={D(v ?? 0).abs().toString()} /> },
+              { key: "dr", dataIndex: "debit", title: "دریافت", className: "sf-num", width: 136, render: (v) => (v ? <Amt v={v} zero="" colored /> : null) },
+              { key: "cr", dataIndex: "credit", title: "پرداخت", className: "sf-num", width: 136, render: (v) => (v ? <Amt v={v} zero="" /> : null) },
+              { key: "bal", dataIndex: "balance", title: "مانده", className: "sf-num", width: 136, render: (v) => <Amt v={D(v ?? 0).abs().toString()} /> },
               { key: "side", dataIndex: "balance", title: "تشخیص", width: 80, render: (v) => <span className="bk-plain">{side(v)}</span> },
             ]}
             summary={() =>

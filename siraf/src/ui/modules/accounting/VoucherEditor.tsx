@@ -370,7 +370,8 @@ export default function VoucherEditor() {
             <Field label="شمارهٔ عطف" extra="اختیاری">
               <Input value={refNo} onChange={(e) => setRefNo(e.target.value)} disabled={readonly} dir="ltr" className="sf-num" style={{ textAlign: "right" }} />
             </Field>
-            <div className="flex items-center gap-1 pb-px">
+            <Field label="نمایش">
+            <div className="flex items-center gap-1">
               <Tooltip title="ستون‌های ارزی: ارز، مبلغ ارزی و نرخ">
                 <button type="button" className="bk-tog" aria-pressed={showFx} onClick={() => setShowFx(!showFx)}>
                   <Coins {...ICON} aria-hidden />
@@ -384,10 +385,11 @@ export default function VoucherEditor() {
                 </button>
               </Tooltip>
             </div>
+            </Field>
         </div>
 
         <div ref={gridRef} className="bk-gridwrap" onKeyDownCapture={onGridKey}>
-          <table className="bk-grid" style={{ minInlineSize: 900 + extraCols * 130 }} role="grid" aria-label="ردیف‌های سند">
+          <table className="bk-grid bk-vgrid" style={{ ["--grid-min" as string]: `${900 + extraCols * 130}px` }} role="grid" aria-label="ردیف‌های سند">
             <thead>
               <tr>
                 <th className="bk-rn">ردیف</th>
@@ -453,10 +455,10 @@ export default function VoucherEditor() {
                     </td>
                     {showFx ? (
                       <>
-                        <td>
+                        <td className="bk-x">
                           <CurrencySelect className="w-full" variant="borderless" value={l.currency_id} disabled={readonly} onChange={(cid) => set(i, { currency_id: cid })} allowClear placeholder="—" />
                         </td>
-                        <td>
+                        <td className="bk-x">
                           <NumberInput
                             variant="borderless"
                             decimals={8}
@@ -475,7 +477,7 @@ export default function VoucherEditor() {
                             }}
                           />
                         </td>
-                        <td>
+                        <td className="bk-x">
                           <NumberInput
                             variant="borderless"
                             decimals={6}
@@ -496,7 +498,7 @@ export default function VoucherEditor() {
                       </>
                     ) : null}
                     {showW ? (
-                      <td>
+                      <td className="bk-x">
                         <WeightInput
                           variant="borderless"
                           allowNegative
@@ -511,10 +513,10 @@ export default function VoucherEditor() {
                         />
                       </td>
                     ) : null}
-                    <td data-cell={`${i}-3`} className="bk-money">
+                    <td data-cell={`${i}-3`} className="bk-money" data-label="بدهکار">
                       <AmountCell value={l.debit} disabled={readonly} onChange={(x) => set(i, { debit: x, credit: x ? null : l.credit })} onEq={() => balanceLine(i, "debit")} onEnter={() => (l.debit ? onEnter(i, 4) : onEnter(i, 3))} />
                     </td>
-                    <td data-cell={`${i}-4`} className="bk-money">
+                    <td data-cell={`${i}-4`} className="bk-money" data-label="بستانکار">
                       <AmountCell value={l.credit} disabled={readonly} onChange={(x) => set(i, { credit: x, debit: x ? null : l.debit })} onEq={() => balanceLine(i, "credit")} onEnter={() => onEnter(i, 4)} />
                     </td>
                     {!readonly ? (
@@ -549,10 +551,10 @@ export default function VoucherEditor() {
                     </span>
                   </div>
                 </td>
-                <td className="bk-money">
+                <td className="bk-money" data-label="بدهکار">
                   <span className="bk-vt-n"><Amt v={totals.dr.toString()} zero="—" /></span>
                 </td>
-                <td className="bk-money">
+                <td className="bk-money" data-label="بستانکار">
                   <span className="bk-vt-n"><Amt v={totals.cr.toString()} zero="—" /></span>
                 </td>
                 {!readonly ? <td /> : null}

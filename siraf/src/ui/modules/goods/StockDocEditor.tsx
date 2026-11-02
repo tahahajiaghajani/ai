@@ -50,7 +50,7 @@ function StockDocEditor({ id }: { id: string | null }) {
   const nav = useNavigate();
   const qc = useQueryClient();
   const n = useNotify();
-  const { api, org, can, orgId } = useOrg();
+  const { api, org, can, orgId, unit } = useOrg();
   const tz = (org.settings?.timezone as string) || "Asia/Tehran";
   const pathKind: StockDocKind | null = loc.pathname.includes("/inventory/count") ? "count" : null;
   const initial = (pathKind ?? (sp.get("kind") as StockDocKind) ?? "receipt") as StockDocKind;
@@ -255,7 +255,10 @@ function StockDocEditor({ id }: { id: string | null }) {
   const docValue = doc ? (doc.kind === "transfer" ? D(doc.value_in) : D(doc.value_in).plus(D(doc.value_out))) : null;
   const showCost = posted && kind !== "receipt";
   // grid columns between «کالا» and «توضیح» (for the footer)
-  const middleCols = count ? 3 + (posted ? 1 : 0) : 2 + (kind === "receipt" || kind === "adjust" ? 1 : 0) + (kind === "receipt" ? 1 : 0) + (showCost ? 1 : 0);
+  const middleCols = count ? 3 + (posted ? 1 : 0) : 2 + (kind === "receipt" || kind === "adjust" ? 1 : 0) + (kind === "receipt" ? 1 : 0) + (showCost ? (kind === "adjust" ? 1 : 2) : 0);
+  // the last middle column is the row amount whenever the grid has one: the total sits under it
+  const amountCol = kind === "receipt" || showCost || (count && posted);
+  const footTotal = kind === "receipt" ? receiptTotal : docValue && !docValue.isZero() ? docValue : null;
   const accountInfo = account ?? accQ.data ?? null;
   const needsDetail = accountInfo?.detail_mode && accountInfo.detail_mode !== "none";
   const accountHint: Record<string, string> = {
@@ -389,8 +392,9 @@ function StockDocEditor({ id }: { id: string | null }) {
                     <th className="w-[130px]">{kind === "adjust" ? "مقدار (+ اضافی / − کسری)" : "مقدار"}</th>
                     <th className="w-[100px]">واحد</th>
                     {kind === "receipt" || kind === "adjust" ? <th className="w-[150px]">بهای واحد</th> : null}
-                    {kind === "receipt" ? <th className="w-[150px]">جمع بها</th> : null}
-                    {showCost ? <th className="w-[150px]">بها (میانگین)</th> : null}
+                    {kind === "receipt" ? <th className="w-[150px]">مبلغ ({unit})</th> : null}
+                    {showCost && kind !== "adjust" ? <th className="w-[150px]">بهای واحد (میانگین)</th> : null}
+                    {showCost ? <th className="w-[150px]">مبلغ ({unit})</th> : null}
                   </>
                 )}
                 <th className="min-w-[160px]">توضیح</th>
@@ -442,6 +446,7 @@ function StockDocEditor({ id }: { id: string | null }) {
                           </td>
                         ) : null}
                         {kind === "receipt" ? <td className="sf-gn">{l.item ? <Money v={D(l.qty).times(D(l.unit_cost)).toDecimalPlaces(org.money_decimals ?? 0).toString()} /> : null}</td> : null}
+                        {showCost && kind !== "adjust" ? <td className="sf-gn text-ink-2">{l.item && !D(l.qty ?? 0).isZero() && l.cost ? <Money v={D(l.cost).div(D(l.qty).abs()).toString()} /> : <span className="sf-zero">—</span>}</td> : null}
                         {showCost ? <td className="sf-gn"><Money v={l.cost ?? 0} zero="—" /></td> : null}
                       </>
                     )}
@@ -465,9 +470,14 @@ function StockDocEditor({ id }: { id: string | null }) {
                     <span className="sf-cnt"><span className="sf-num">{faDigits(itemLines.length)}</span> ردیف</span>
                   </span>
                 </td>
-                <td colSpan={middleCols}>
-                  {kind === "receipt" ? <Money v={receiptTotal.toString()} /> : docValue && !docValue.isZero() ? <span>ارزش سند <Money v={docValue.toString()} /></span> : null}
-                </td>
+                {amountCol ? (
+                  <>
+                    {middleCols > 1 ? <td colSpan={middleCols - 1} className="text-end"><span className="sf-cnt">{kind === "receipt" ? "جمع مبلغ" : "ارزش سند"}</span></td> : null}
+                    <td className="sf-gn">{footTotal ? <Money v={footTotal.toString()} /> : <span className="sf-zero">—</span>}</td>
+                  </>
+                ) : (
+                  <td colSpan={middleCols} />
+                )}
                 <td colSpan={!readonly ? 2 : 1} />
               </tr>
             </tfoot>

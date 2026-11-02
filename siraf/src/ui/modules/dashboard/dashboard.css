@@ -106,6 +106,11 @@
     transition: background-color var(--sf-dur-base) var(--sf-ease-out-quad), color var(--sf-dur-base) var(--sf-ease-out-quad);
   }
   .db-hlink svg { color: var(--sf-text-3); }
+  /* a squeezable header link drops its words under 480 px (the icon stays, named by aria-label and title) */
+  @container db (max-width: 479.98px) {
+    .db-hlink.is-squeeze { padding-inline: 6px; }
+    .db-hlink.is-squeeze .db-hlink-t { display: none; }
+  }
   @media (hover: hover) and (pointer: fine) {
     .db-hlink:hover { background: var(--sf-hover); color: var(--sf-text); transition-duration: 0ms; }
   }
@@ -256,6 +261,7 @@
   }
   .db-kpi-val .db-unit { font-size: 12px; line-height: 18px; }
   .db-kpi-val.is-zero .db-fig-n { color: var(--sf-text-3); }
+  .db-kpi-none { display: flex; align-items: flex-end; min-block-size: var(--sf-type-figure-line); margin-block-start: 10px; font-size: 13px; line-height: 20px; color: var(--sf-text-3); }
   .db-kpi .db-mini { margin-block-start: auto; padding-block-start: 12px; }
   .db-kpi-foot { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; margin-block-start: 6px; min-block-size: 22px; font-size: 13px; line-height: 20px; color: var(--sf-text-3); }
   .db-kpi-foot .sf-nuqta { inline-size: 6px; block-size: 6px; color: var(--sf-warning-fill); }
@@ -290,13 +296,15 @@
   .db-segbar .t-in { background: var(--sf-in); }
   @keyframes db-grow-x { from { transform: scaleX(0); } to { transform: none; } }
 
-  .db-pair { display: grid; gap: 6px; inline-size: 100%; }
-  .db-pair-r { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; font-size: 12px; line-height: 16px; color: var(--sf-text-3); }
+  /* one grid for both rows, so the labels, tracks and figures share columns */
+  .db-pair { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 6px 8px; inline-size: 100%; font-size: 12px; line-height: 16px; color: var(--sf-text-3); }
+  .db-pair-r { display: contents; }
   .db-pair-l { min-inline-size: 30px; }
-  .db-pair-t { display: block; block-size: 6px; border-radius: var(--sf-radius-pill); background: var(--sf-sunken); }
+  /* tracks are recessed (well, not sunken: sunken is a black hole on a dark surface); fills stay quiet greys */
+  .db-pair-t { display: block; block-size: 6px; border-radius: var(--sf-radius-pill); background: var(--sf-well); box-shadow: inset 0 0 0 1px var(--sf-line); }
   .db-pair-t > i { display: block; block-size: 100%; border-radius: var(--sf-radius-pill); background: var(--sf-line-3); transform-origin: right; animation: db-grow-x 500ms var(--sf-ease-out) 120ms both; }
-  .db-pair-t > i.hi { background: var(--sf-text-3); }
-  .db-pair-v { font-variant-numeric: tabular-nums; color: var(--sf-text-2); white-space: nowrap; }
+  .db-pair-t > i.hi { background: var(--sf-text-3); opacity: .55; }
+  .db-pair-v { justify-self: start; font-variant-numeric: tabular-nums; color: var(--sf-text-2); white-space: nowrap; }
   @media (prefers-reduced-motion: reduce) { .db-segbar > i, .db-pair-t > i { animation: none; } }
   :root[data-motion="reduced"] :is(.db-segbar > i, .db-pair-t > i) { animation: none; }
 
@@ -357,19 +365,35 @@
   .db-cell.muted { color: var(--sf-text-2); }
   .db-cell.meta { font-size: 13px; color: var(--sf-text-3); }
   .db-num { font-variant-numeric: tabular-nums; white-space: nowrap; overflow: visible; text-overflow: clip; }
-  .db-num.end { text-align: end; }
+  /* figures are start-aligned (right in RTL): numbers are LTR runs, so the units digits share one x (§4.2) */
+  .db-num.end { text-align: start; }
+  .db-desc { display: block; }
+  .db-pad { visibility: hidden; }
   .db-doc { font-variant-numeric: tabular-nums; color: var(--sf-text-2); white-space: nowrap; }
   .db-in { color: var(--sf-in); }
   .db-excluded { color: var(--sf-text-3); }
 
   /* column sets of the lists */
-  .db-l-doc { --cols: 64px minmax(0, 1fr) 84px minmax(128px, auto); }
-  .db-l-chq { --cols: 84px 64px minmax(0, 1fr) minmax(128px, auto); }
-  .db-l-pos { --cols: minmax(0, 1fr) minmax(88px, auto) minmax(88px, auto); }
-  .db-l-tchq { --cols: 84px minmax(0, 1fr) minmax(96px, auto); }
+  /* every row is its own grid, so figure columns are fixed widths: auto would size each row to its own figure */
+  .db-l-doc { --cols: 64px minmax(0, 1fr) 84px var(--sf-col-money); }
+  .db-l-chq { --cols: 84px 64px minmax(0, 1fr) var(--sf-col-money); }
+  .db-l-pos { --cols: minmax(0, 1fr) 112px 112px; }
+  .db-l-tchq { --cols: 84px minmax(0, 1fr) var(--sum-col, 112px); }
+  .db-l-trend { --cols: minmax(64px, 1fr) 104px 104px 104px; }
   @container db (max-width: 559.98px) {
-    .db-l-doc { --cols: 64px minmax(0, 1fr) minmax(112px, auto); }
+    .db-l-doc { --cols: 64px minmax(0, 1fr) var(--sf-col-money-compact); }
+    .db-l-chq { --cols: 84px minmax(0, 1fr) var(--sf-col-money-compact); }
+    .db-l-pos { --cols: minmax(0, 1fr) 96px 96px; }
+    .db-l-trend { --cols: minmax(56px, 1fr) 84px 84px 84px; }
     .db-hide-sm { display: none; }
+  }
+  /* phones: a cheque's date sits above its party, the figure keeps its column */
+  @container db (max-width: 479.98px) {
+    .db-l-tchq { --cols: minmax(0, 1fr) var(--sum-col, 104px); }
+    .db-l-tchq .db-row { grid-template-areas: "d a" "p a"; row-gap: 0; padding-block: 6px; }
+    .db-l-tchq .db-row > :nth-child(1) { grid-area: d; font-size: 12px; line-height: 18px; }
+    .db-l-tchq .db-row > :nth-child(2) { grid-area: p; }
+    .db-l-tchq .db-row > :nth-child(3) { grid-area: a; }
   }
 
   /* widget slots: a widget that renders nothing (no permission) leaves no hole */
@@ -379,7 +403,9 @@
 
   /* ranking with a bar (comparing values → bars) */
   .db-rank { display: flex; flex-direction: column; gap: 10px; }
-  .db-rank-r { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; align-items: baseline; font-size: 13px; line-height: 20px; }
+  /* one figure column shared by every row (start-aligned, fixed width), so units digits line up (§4.2) */
+  .db-rank-r { display: grid; grid-template-columns: minmax(0, 1fr) var(--sum-col, 112px); gap: 4px 12px; align-items: baseline; font-size: 13px; line-height: 20px; }
+  .db-rank.has-qty .db-rank-r { grid-template-columns: minmax(0, 1fr) var(--sum-col, 96px) var(--qty-col, 72px); }
   button.db-rank-r { inline-size: 100%; border: 0; background: transparent; padding: 4px 8px; margin: -4px -8px; inline-size: calc(100% + 16px); border-radius: var(--sf-radius-sm); text-align: start; font-family: inherit; color: inherit; cursor: pointer; transition: background-color var(--sf-dur-base) var(--sf-ease-out-quad); }
   @media (hover: hover) and (pointer: fine) {
     button.db-rank-r:hover { background: var(--sf-hover); transition-duration: 0ms; }
@@ -387,15 +413,19 @@
   button.db-rank-r:focus-visible { outline: 2px solid var(--sf-focus-color); outline-offset: 0; }
   .db-rank { row-gap: 10px; }
   .db-rank-n { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--sf-text); }
-  .db-rank-v { font-variant-numeric: tabular-nums; color: var(--sf-text); white-space: nowrap; }
-  .db-rank-v small { font-size: 12px; color: var(--sf-text-3); margin-inline-start: 6px; }
-  .db-rank-b { grid-column: 1 / -1; display: block; block-size: 4px; border-radius: var(--sf-radius-pill); background: var(--sf-sunken); overflow: hidden; }
-  .db-rank-b > i { display: block; block-size: 100%; border-radius: inherit; background: var(--sf-text-3); opacity: .55; transform-origin: right; animation: db-grow-x 500ms var(--sf-ease-out) both; animation-delay: calc(var(--i, 0) * 30ms + 100ms); }
-  .db-rank-r:first-child .db-rank-b > i { background: var(--sf-accent-line); opacity: 1; }
+  .db-rank-v { justify-self: start; font-variant-numeric: tabular-nums; color: var(--sf-text); white-space: nowrap; }
+  .db-rank-q { justify-self: start; font-size: 12px; color: var(--sf-text-3); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .db-rank-b { grid-column: 1 / -1; display: block; block-size: 4px; border-radius: var(--sf-radius-pill); background: var(--sf-well); box-shadow: inset 0 0 0 1px var(--sf-line); overflow: hidden; }
+  /* every rank bar is a quiet grey; only the hovered row darkens to ink (Dusk stays for the primary action and series) */
+  .db-rank-b > i { display: block; block-size: 100%; border-radius: inherit; background: var(--sf-text-3); opacity: .55; transform-origin: right; animation: db-grow-x 500ms var(--sf-ease-out) both; animation-delay: calc(var(--i, 0) * 30ms + 100ms); transition: opacity var(--sf-dur-base) var(--sf-ease-out-quad); }
+  @media (hover: hover) and (pointer: fine) {
+    button.db-rank-r:hover .db-rank-b > i { opacity: .9; transition-duration: 0ms; }
+  }
   @media (prefers-reduced-motion: reduce) { .db-rank-b > i { animation: none; } }
   :root[data-motion="reduced"] .db-rank-b > i { animation: none; }
 
-  .db-sub { margin: 18px 0 8px; font-size: 13px; line-height: 20px; font-weight: 500; color: var(--sf-text-2); display: flex; align-items: center; gap: 8px; }
+  .db-sub { margin: 18px 0 8px; font-size: 13px; line-height: 20px; font-weight: 500; color: var(--sf-text-2); display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+  .db-sub > .sf-end { margin-inline-start: auto; }
   .db-sub > span:first-child { white-space: nowrap; }
   .db-sub .db-caption { margin-inline-start: auto; }
   .db-divider { block-size: 1px; background: var(--sf-line); margin: 16px -20px; }
@@ -452,6 +482,7 @@
   .db-tip-r b { font-size: 14px; line-height: 20px; font-weight: 600; color: var(--sf-text); font-variant-numeric: tabular-nums; }
   .db-tip-r .db-tip-k { inline-size: 10px; block-size: 3px; border-radius: 2px; background: var(--sf-accent-line); }
   .db-tip-r .db-tip-k.muted { background: var(--sf-chart-other); }
+  .db-tip-r .db-tip-k.none { background: transparent; }
   .db-toggle { display: inline-flex; padding: 2px; border-radius: var(--sf-radius-pill); background: var(--sf-sunken); box-shadow: inset 0 0 0 1px var(--sf-line); }
   .db-toggle > button { block-size: 24px; padding-inline: 10px; border: 0; border-radius: var(--sf-radius-pill); background: transparent; font-size: 12px; font-weight: 500; color: var(--sf-text-2); cursor: pointer; }
   .db-toggle > button[aria-pressed="true"] { background: var(--sf-segment-on); color: var(--sf-text); font-weight: 600; box-shadow: var(--sf-shadow-segment); }

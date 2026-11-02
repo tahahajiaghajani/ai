@@ -4,14 +4,14 @@
 // quiet in text-3 at the end, the amount in words underneath, the whole value selected on keyboard focus.
 import "./kit.css";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import { Input, Popover, Select, Button, type InputRef } from "antd";
-import { Calendar, ChevronLeft, ChevronRight } from "lucide-react";
+import { Input, Popover, Select, Button, Dropdown, type InputRef } from "antd";
+import { Calendar, ChevronLeft, ChevronRight, ChevronDown, X, Check, type LucideIcon } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { D, normalizeDigits } from "@shared/money";
 import { faDigits, formatNumber } from "@shared/format";
 import { numberToWords } from "@shared/words";
 import {
-  JALALI_MONTHS, WEEKDAYS_SHORT, addDays, formatJalali, fromJalali, monthLength, parseJalaliInput, toJalali, todayISO, weekday,
+  JALALI_MONTHS, WEEKDAYS_SHORT, addDays, formatJalali, fromJalali, monthLength, parseJalaliInput, presetRange, toJalali, todayISO, weekday,
 } from "@shared/jalali";
 import { useOrg } from "../lib/org";
 import { Loader } from "./display";
@@ -199,9 +199,18 @@ export function PctInput(props: NumberInputProps) {
  * one Dusk element, Fridays in the holiday red. Keyboard: ←/→ a day (mirrored: ← is the next day), ↑/↓ a week,
  * PageUp/PageDown a month, Home/End the row, Enter picks, Esc closes.
  */
-export function JalaliCalendar({ value, onPick, autoFocus, onEscape }: { value: string | null; onPick: (iso: string) => void; autoFocus?: boolean; onEscape?: () => void }) {
+export function JalaliCalendar({
+  value, onPick, autoFocus, onEscape, range,
+}: {
+  value: string | null;
+  onPick: (iso: string) => void;
+  autoFocus?: boolean;
+  onEscape?: () => void;
+  /** a range being picked: both ends are selected days, the days between a quiet tint */
+  range?: { from: string | null; to: string | null };
+}) {
   const today = todayISO();
-  const start = value ? toJalali(value) : toJalali(today);
+  const start = value ? toJalali(value) : range?.from ? toJalali(range.from) : toJalali(today);
   const [view, setView] = useState({ jy: start.jy, jm: start.jm });
   const [cursor, setCursor] = useState<string>(value ?? today);
   const grid = useRef<HTMLDivElement>(null);
@@ -300,9 +309,11 @@ export function JalaliCalendar({ value, onPick, autoFocus, onEscape }: { value: 
         {cells.map((d, i) => {
           if (!d) return <span key={i} />;
           const iso = fromJalali(view.jy, view.jm, d);
-          const cls = ["sf-cal-d", iso === value && "is-sel", iso === today && "is-today", i % 7 === 6 && "is-fri", iso === cursor && "is-cursor"].filter(Boolean).join(" ");
+          const end = !!range && (iso === range.from || iso === range.to);
+          const inside = !!range?.from && !!range.to && iso > range.from && iso < range.to;
+          const cls = ["sf-cal-d", (iso === value || end) && "is-sel", inside && "is-in", iso === today && "is-today", i % 7 === 6 && "is-fri", iso === cursor && "is-cursor"].filter(Boolean).join(" ");
           return (
-            <button key={i} type="button" tabIndex={-1} role="gridcell" aria-selected={iso === value} onClick={() => onPick(iso)} className={cls}>
+            <button key={i} type="button" tabIndex={-1} role="gridcell" aria-selected={iso === value || end} onClick={() => onPick(iso)} className={cls}>
               {faDigits(d)}
             </button>
           );
@@ -331,6 +342,7 @@ export interface DateInputProps {
   onPressEnter?: () => void;
   autoFocus?: boolean;
   id?: string;
+  "aria-label"?: string;
 }
 
 /** Jalali date: type `1405/1/15`, `15` or `امروز`, or pick from the calendar (↓ moves into it). Value is ISO. */
@@ -591,6 +603,197 @@ export function CurrencySelect(props: Omit<RefSelectProps, "entity"> & { kind?: 
       )}
       {...rest}
     />
+  );
+}
+
+// ---------------------------------------------------------------- filter chips (components.md §2)
+
+const cxi = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(" ");
+const CHEV = { size: 14, strokeWidth: 1.4, absoluteStrokeWidth: true } as const;
+
+function ChipIcon({ icon }: { icon?: LucideIcon | ReactNode }) {
+  if (!icon) return null;
+  if (typeof icon === "function" || (typeof icon === "object" && icon !== null && "render" in (icon as object))) {
+    const I = icon as LucideIcon;
+    return <I {...ICON} className="sf-fchip-ic" aria-hidden />;
+  }
+  return <span className="sf-fchip-ic">{icon as ReactNode}</span>;
+}
+
+/** The × that clears an applied chip: its own button, so the chip itself still opens the menu. */
+function ChipClear({ label, onClear }: { label: string; onClear: () => void }) {
+  return (
+    <button
+      type="button"
+      className="sf-fchip-x"
+      aria-label={`پاک کردن ${label}`}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClear();
+      }}
+    >
+      <X {...CHEV} aria-hidden />
+    </button>
+  );
+}
+
+export interface FilterChipProps {
+  /** the dimension («وضعیت»، «نوع سند»): the chip's words at rest */
+  label: string;
+  value?: string | null;
+  onChange?: (v: string | null) => void;
+  options: { value: string; label: ReactNode }[];
+  /** a 16 px lucide icon (text-3) before the words */
+  icon?: LucideIcon | ReactNode;
+  /** show the × when applied (default true) */
+  allowClear?: boolean;
+  disabled?: boolean;
+  className?: string;
+}
+
+/**
+ * A dimension filter (components.md §2): a 30 px pill with no ring at rest (the ring and the hover tint appear on
+ * hover), the chevron right after the words; applied, it is the row's one Dusk element (accent-tint-2 fill,
+ * accent-text, accent-border ring) and shows the chosen value with an × to clear.
+ */
+export function FilterChip({ label, value, onChange, options, icon, allowClear = true, disabled, className }: FilterChipProps) {
+  const on = value !== undefined && value !== null && value !== "";
+  const current = on ? options.find((o) => o.value === value) : undefined;
+  return (
+    <span className={cxi("sf-fchip", on && "is-on", disabled && "is-disabled", className)}>
+      <Dropdown
+        trigger={["click"]}
+        disabled={disabled}
+        placement="bottomRight"
+        rootClassName="sf-glass sf-fchip-menu"
+        menu={{
+          selectable: true,
+          selectedKeys: on ? [String(value)] : [],
+          items: options.map((o) => ({ key: String(o.value), label: o.label, extra: o.value === value ? <Check {...CHEV} aria-hidden /> : undefined })),
+          onClick: ({ key }) => onChange?.(key === value && allowClear ? null : key),
+        }}
+      >
+        <button type="button" className="sf-fchip-b" aria-haspopup="menu" aria-label={on ? `${label}: ${typeof current?.label === "string" ? current.label : value}` : label} disabled={disabled}>
+          <ChipIcon icon={icon} />
+          <span className="sf-fchip-t">{on ? current?.label ?? String(value) : label}</span>
+          {on && allowClear ? null : <ChevronDown {...CHEV} className="sf-fchip-chev" aria-hidden />}
+        </button>
+      </Dropdown>
+      {on && allowClear ? <ChipClear label={label} onClear={() => onChange?.(null)} /> : null}
+    </span>
+  );
+}
+
+/**
+ * A boolean filter («با پیش‌نویس‌ها»، «سررسیدگذشته»): the same pill with a 14 px box at the start that reads as a
+ * toggle at rest and fills with a check when on (then the chip wears the applied Dusk tint). `aria-pressed`.
+ */
+export function ToggleChip({ on, onChange, children, title, disabled, className }: { on: boolean; onChange: (on: boolean) => void; children: ReactNode; title?: string; disabled?: boolean; className?: string }) {
+  return (
+    <span className={cxi("sf-fchip sf-tchip", on && "is-on", disabled && "is-disabled", className)}>
+      <button type="button" className="sf-fchip-b" aria-pressed={on} title={title} disabled={disabled} onClick={() => onChange(!on)}>
+        <span className="sf-tchip-box" aria-hidden>
+          {on ? <Check size={10} strokeWidth={2.5} absoluteStrokeWidth /> : null}
+        </span>
+        <span className="sf-fchip-t">{children}</span>
+      </button>
+    </span>
+  );
+}
+
+export interface DateRange {
+  from: string | null;
+  to: string | null;
+}
+
+const RANGE_PRESETS: { key: "today" | "week" | "month" | "lastMonth" | "quarter" | "year"; label: string }[] = [
+  { key: "today", label: "امروز" },
+  { key: "week", label: "این هفته" },
+  { key: "month", label: "این ماه" },
+  { key: "lastMonth", label: "ماه قبل" },
+  { key: "quarter", label: "این فصل" },
+  { key: "year", label: "امسال" },
+];
+
+/** «۱۴۰۵/۰۸/۰۱ تا ۱۴۰۵/۰۸/۳۰», «از ۱۴۰۵/۰۸/۰۱», «تا ۱۴۰۵/۰۸/۳۰» or «امروز». */
+function rangeText({ from, to }: DateRange): string {
+  const today = todayISO();
+  const preset = from && to ? RANGE_PRESETS.find((p) => { const r = presetRange(p.key, today); return r.from === from && r.to === to; }) : undefined;
+  if (preset) return preset.label;
+  if (from && to && from === to) return from === today ? "امروز" : formatJalali(from);
+  if (from && to) return `${formatJalali(from)} تا ${formatJalali(to)}`;
+  if (from) return `از ${formatJalali(from)}`;
+  if (to) return `تا ${formatJalali(to)}`;
+  return "";
+}
+
+/**
+ * One chip for a date range (components.md §2: «A custom range is a filter chip that opens the Jalali range
+ * picker»). The popover holds the presets, the two typed fields and a month grid: the first click sets the start,
+ * the second the end. The × shows only when a range is set.
+ */
+export function DateRangeChip({ value, onChange, label = "تاریخ", className }: { value: DateRange; onChange: (r: DateRange) => void; label?: string; className?: string }) {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState<DateRange>(value);
+  const [picking, setPicking] = useState<"from" | "to">("from");
+  useEffect(() => {
+    if (open) {
+      setDraft(value);
+      setPicking("from");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+  const on = !!(value.from || value.to);
+  const commit = (r: DateRange, close = true) => {
+    onChange(r);
+    setDraft(r);
+    if (close) setOpen(false);
+  };
+  const pick = (iso: string) => {
+    if (picking === "from" || !draft.from) {
+      setDraft({ from: iso, to: null });
+      setPicking("to");
+      return;
+    }
+    const [a, b] = iso < draft.from ? [iso, draft.from] : [draft.from, iso];
+    commit({ from: a, to: b });
+  };
+  const today = todayISO();
+  const content = (
+    <div className="sf-range">
+      <div className="sf-range-p" role="group" aria-label="بازه‌های آماده">
+        {RANGE_PRESETS.map((p) => {
+          const r = presetRange(p.key, today);
+          const active = draft.from === r.from && draft.to === r.to;
+          return (
+            <button key={p.key} type="button" className={cxi("sf-range-pb", active && "is-on")} aria-pressed={active} onClick={() => commit({ from: r.from, to: r.to })}>
+              {p.label}
+            </button>
+          );
+        })}
+      </div>
+      <div className="sf-range-m">
+        <div className="sf-range-f">
+          <DateInput value={draft.from} onChange={(from) => commit({ ...draft, from }, false)} placeholder="از تاریخ" allowClear aria-label="از تاریخ" />
+          <span className="sf-range-sep">تا</span>
+          <DateInput value={draft.to} onChange={(to) => commit({ ...draft, to }, false)} placeholder="تا تاریخ" allowClear aria-label="تا تاریخ" />
+        </div>
+        <JalaliCalendar value={null} range={draft} onPick={pick} onEscape={() => setOpen(false)} />
+        <div className="sf-range-hint">{picking === "to" && draft.from && !draft.to ? "روز پایان بازه را انتخاب کنید." : "روز آغاز بازه را انتخاب کنید."}</div>
+      </div>
+    </div>
+  );
+  return (
+    <span className={cxi("sf-fchip", on && "is-on", className)}>
+      <Popover open={open} onOpenChange={setOpen} trigger={["click"]} placement="bottomRight" content={content} rootClassName="sf-range-pop" destroyOnHidden>
+        <button type="button" className="sf-fchip-b" aria-haspopup="dialog" aria-expanded={open} aria-label={on ? `${label}: ${rangeText(value)}` : label}>
+          <Calendar {...ICON} className="sf-fchip-ic" aria-hidden />
+          <span className="sf-fchip-t sf-num">{on ? rangeText(value) : label}</span>
+          {on ? null : <ChevronDown {...CHEV} className="sf-fchip-chev" aria-hidden />}
+        </button>
+      </Popover>
+      {on ? <ChipClear label={label} onClear={() => commit({ from: null, to: null }, false)} /> : null}
+    </span>
   );
 }
 

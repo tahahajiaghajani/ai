@@ -41,7 +41,7 @@
   :is(.ant-drawer, .ant-modal, .ant-popover) .sf-empty-tile { background: var(--sf-well); }
   .sf-empty-title { margin-block-start: 16px; font-size: 16px; line-height: 24px; font-weight: 600; color: var(--sf-text); }
   .sf-empty-compact .sf-empty-title { margin-block-start: 12px; font-size: 14px; line-height: 22px; }
-  .sf-empty-text { margin-block-start: 4px; font-size: 14px; line-height: 22px; color: var(--sf-text-2); text-wrap: pretty; }
+  .sf-empty-text { max-inline-size: 360px; margin-block-start: 4px; font-size: 14px; line-height: 22px; color: var(--sf-text-2); text-wrap: balance; }
   .sf-empty-act { display: flex; flex-direction: column; align-items: center; gap: 12px; margin-block-start: 16px; }
   .sf-empty-act .sf-mono { color: var(--sf-text-3); }
   /* the table's own placeholder cell: no hover tint, no rule */
@@ -113,13 +113,17 @@
   .sf-st-tools .ant-btn-icon-only { color: var(--sf-text-2); }
   .sf-st-sep { inline-size: 1px; block-size: 18px; margin-inline: 4px; background: var(--sf-line-2); }
 
-  /* inside a card the toolbar is padded and the table runs to the card's edges (components.md §4.1) */
-  :is(.tz-card, .sf-card) > .sf-st > .sf-st-bar { padding: 14px 16px 0; margin-block-end: 14px; }
-  :is(.tz-card, .sf-card) > .sf-st .ant-table-thead > tr > th { border-block-start: 1px solid var(--sf-line); }
+  /* a list card: the filters row sits ABOVE the card (components.md §2: «one row, above everything it scopes, never
+     inside a card»), 12 px over it; the card is the table itself and the table runs to its edges (§4.1) */
+  :is(.tz-card, .sf-card) > .sf-st > .sf-st-bar { padding: 0; margin-block-end: var(--sf-filters-gap); }
+  :is(.tz-card, .sf-card) > .sf-st > .ant-table-wrapper {
+    background: var(--sf-surface); border-radius: var(--sf-radius-lg); box-shadow: var(--sf-shadow-e1);
+  }
   :is(.tz-card, .sf-card) > .sf-st :is(.ant-table-thead > tr > th, .ant-table-tbody > tr > td, .ant-table-summary > tr > td):first-child { padding-inline-start: 20px; }
   :is(.tz-card, .sf-card) > .sf-st :is(.ant-table-thead > tr > th, .ant-table-tbody > tr > td, .ant-table-summary > tr > td):last-child { padding-inline-end: 16px; }
   :is(.tz-card, .sf-card) > .sf-st .ant-table-pagination.ant-pagination { margin: 0; padding: 10px 16px; }
-  :is(.tz-card, .sf-card) > .sf-st .ant-table-wrapper .ant-table { border-radius: 0 0 var(--sf-radius-lg) var(--sf-radius-lg); }
+  :is(.tz-card, .sf-card) > .sf-st .ant-table-wrapper .ant-table { border-radius: var(--sf-radius-lg); }
+  :is(.tz-card, .sf-card) > .sf-st .ant-table-wrapper:has(.ant-table-pagination) .ant-table { border-end-start-radius: 0; border-end-end-radius: 0; }
   :is(.tz-card, .sf-card) > .sf-st .ant-table-wrapper .ant-table-container { border-radius: 0; }
   :is(.tz-card, .sf-card) > .sf-st .ant-table-tbody > tr:last-child > td { border-block-end-color: transparent; }
   :is(.tz-card, .sf-card) > .sf-st:has(.ant-table-pagination) .ant-table-tbody > tr:last-child > td { border-block-end-color: var(--sf-line); }
@@ -140,25 +144,13 @@
   .sf-st .ant-table-tbody { transition: opacity var(--sf-dur-base) var(--sf-ease-out-quad); }
   .sf-st[data-busy] .ant-table-tbody { opacity: .6; transition-delay: 120ms; }
 
-  /* only the sorted column shows its arrow; the others show it on hover */
   @media (hover: hover) and (pointer: fine) {
-    .sf-st .ant-table-thead th.ant-table-column-has-sorters:not(.ant-table-column-sort) .ant-table-column-sorter { opacity: 0; transition: opacity var(--sf-dur-base) var(--sf-ease-out-quad); }
-    .sf-st .ant-table-thead th.ant-table-column-has-sorters:is(:hover, :focus-visible) .ant-table-column-sorter { opacity: 1; transition-duration: 0ms; }
     /* row actions appear on hover or focus at the end edge (components.md §4.1) */
     .sf-row-act { opacity: 0; transition: opacity var(--sf-dur-fast) var(--sf-ease-out); }
     .ant-table-tbody > tr:is(:hover, :focus-within, .ant-table-row-selected) .sf-row-act,
     .sf-row-act:has(.ant-dropdown-open) { opacity: 1; }
   }
   .sf-row-act { display: flex; align-items: center; }
-
-  /* filter chips (§2): pill selects with no ring at rest; an applied filter is the row's one Dusk element */
-  .sf-st-filters .ant-select.sf-filter { border-radius: var(--sf-radius-pill); }
-  .sf-st-filters .ant-select.sf-filter.ant-select-borderless { background: transparent; box-shadow: none; }
-  .sf-st-filters .ant-select.sf-filter.ant-select-borderless:hover { background: var(--sf-hover); box-shadow: inset 0 0 0 1px var(--sf-line-2); }
-  .sf-st-filters .ant-select.sf-filter :is(.ant-select-placeholder, .ant-select-selection-placeholder) { color: var(--sf-text-2); font-weight: 500; }
-  .sf-st-filters .ant-select.sf-filter.is-on { background: var(--sf-accent-tint-2); box-shadow: inset 0 0 0 1px var(--sf-accent-border); }
-  .sf-st-filters .ant-select.sf-filter.is-on :is(.ant-select-content, .ant-select-selection-item, .ant-select-suffix, .ant-select-arrow, .ant-select-clear) { color: var(--sf-accent-text); font-weight: 500; }
-  .sf-st-filters .ant-select.sf-filter.is-on .ant-select-clear { background: transparent; }
 
   /* ================================================================== forms (§5) */
   .sf-form-sec + .sf-form-sec { margin-block-start: 6px; padding-block-start: 18px; border-block-start: 1px solid var(--sf-line); }
@@ -263,8 +255,8 @@
     margin-inline-start: -1px; margin-block-start: -1px;
     border-inline-start: 1px solid var(--sf-line); border-block-start: 1px solid var(--sf-line);
   }
-  /* a card that only holds a server table lets the table reach its edges (the toolbar keeps its own padding) */
-  .tz-card:has(> .sf-st:only-child) { padding: 0; }
+  /* a card that only holds a server table hands its surface to the table, so the filters row sits on the canvas */
+  :is(.tz-card, .sf-card):has(> .sf-st:only-child) { padding: 0; background: transparent; box-shadow: none; border-color: transparent; overflow: visible; }
 }
 
 @layer components {
@@ -295,3 +287,277 @@
   .sf-form > form { display: flex; flex: 1 0 auto; flex-direction: column; }
   .sf-form .sf-form-foot { margin-block-start: auto; }
 }
+
+/* ====================================================================== filters row (components.md §2) */
+@layer components {
+  /* the chip: a 30 px pill, 12/10 padding, 13/500 text-2, a 16 px text-3 icon, the chevron right after the words; no
+     ring at rest (the ring and the hover tint appear on hover); applied = the row's one Dusk element with an × */
+  .sf-fchip {
+    position: relative; display: inline-flex; align-items: center; flex: none; max-inline-size: 100%;
+    block-size: 30px; border-radius: var(--sf-radius-pill); color: var(--sf-text-2);
+    transition: background-color var(--sf-dur-base) var(--sf-ease-out-quad), box-shadow var(--sf-dur-base) var(--sf-ease-out-quad);
+  }
+  .sf-fchip-b {
+    display: inline-flex; align-items: center; gap: 6px; min-inline-size: 0; block-size: 100%;
+    padding-inline: 12px 10px; border: 0; border-radius: inherit; background: transparent; color: inherit; cursor: pointer;
+    font-family: inherit; font-size: 13px; line-height: 20px; font-weight: 500; white-space: nowrap;
+  }
+  .sf-fchip-b:focus-visible { outline: 2px solid var(--sf-focus-color); outline-offset: 1px; }
+  .sf-fchip-b:disabled { cursor: not-allowed; color: var(--sf-text-4); }
+  .sf-fchip-t { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; }
+  .sf-fchip-t.sf-num { overflow: visible; text-overflow: clip; }
+  .sf-fchip-ic { flex: none; color: var(--sf-text-3); }
+  .sf-fchip-chev { flex: none; color: var(--sf-text-3); margin-inline-start: -2px; }
+  @media (hover: hover) and (pointer: fine) {
+    .sf-fchip:not(.is-disabled):hover { background: var(--sf-hover); box-shadow: inset 0 0 0 1px var(--sf-line-2); transition-duration: 0ms; }
+  }
+  .sf-fchip:has(.sf-fchip-b[aria-expanded="true"]), .sf-fchip:has(.ant-dropdown-open) { background: var(--sf-hover); box-shadow: inset 0 0 0 1px var(--sf-line-2); }
+  .sf-fchip.is-on, .sf-fchip.is-on:hover { background: var(--sf-accent-tint-2); color: var(--sf-accent-text); box-shadow: inset 0 0 0 1px var(--sf-accent-border); }
+  .sf-fchip.is-on .sf-fchip-ic, .sf-fchip.is-on .sf-fchip-chev { color: currentColor; }
+  .sf-fchip.is-on:has(.sf-fchip-x) .sf-fchip-b { padding-inline-end: 4px; }
+  .sf-fchip-x {
+    display: inline-grid; place-items: center; flex: none; inline-size: 22px; block-size: 22px; margin-inline: 0 4px;
+    border: 0; border-radius: var(--sf-radius-pill); background: transparent; color: currentColor; cursor: pointer; opacity: .8;
+  }
+  .sf-fchip-x:hover { opacity: 1; background: rgb(var(--sf-accent-line-rgb) / .16); }
+  .sf-fchip-x:focus-visible { outline: 2px solid var(--sf-focus-color); outline-offset: -1px; }
+  .sf-fmore-n {
+    display: inline-grid; place-items: center; min-inline-size: 18px; block-size: 18px; padding-inline: 5px; border-radius: var(--sf-radius-pill);
+    background: var(--sf-accent); color: var(--sf-on-accent); font-size: 12px; line-height: 1; font-weight: 600; font-variant-numeric: tabular-nums;
+  }
+  .sf-fclear { border: 0; background: transparent; padding: 0 4px; font-size: 13px; line-height: 30px; cursor: pointer; }
+
+  /* toggle chips: a 14 px box at the start reads as a toggle at rest and fills (with a check) when on */
+  .sf-tchip-box {
+    display: inline-grid; place-items: center; flex: none; inline-size: 14px; block-size: 14px; border-radius: 4px;
+    box-shadow: inset 0 0 0 1px var(--sf-control-strong); background: var(--sf-surface); color: var(--sf-canvas);
+  }
+  .sf-tchip.is-on .sf-tchip-box { background: var(--sf-accent-text); box-shadow: none; color: var(--sf-surface); }
+
+  /* the filters row: one line; everything a ServerTable toolbar holds takes the chip look */
+  .sf-st-filters { flex-wrap: nowrap; }
+  .sf-st-filters > .ant-input-affix-wrapper:first-child { flex: 0 1 288px; min-inline-size: 160px; inline-size: auto !important; block-size: 30px; }
+  .sf-st-filters .ant-select:not(.ant-select-multiple) {
+    inline-size: auto !important; min-inline-size: 0 !important; max-inline-size: 260px; flex: none;
+    block-size: 30px; padding-inline: 12px 10px; border-radius: var(--sf-radius-pill);
+    border-color: transparent !important; background: transparent !important; box-shadow: none !important;
+    font-size: 13px; font-weight: 500; cursor: pointer;
+    transition: background-color var(--sf-dur-base) var(--sf-ease-out-quad), box-shadow var(--sf-dur-base) var(--sf-ease-out-quad);
+  }
+  .sf-st-filters .ant-select:not(.ant-select-multiple) .ant-select-content { flex: 0 1 auto; min-inline-size: 0; }
+  .sf-st-filters .ant-select:not(.ant-select-multiple) :is(.ant-select-placeholder, .ant-select-content) { color: var(--sf-text-2); font-weight: 500; }
+  .sf-st-filters .ant-select:not(.ant-select-multiple) .ant-select-suffix { margin-inline-start: 6px; color: var(--sf-text-3); font-size: 11px; }
+  @media (hover: hover) and (pointer: fine) {
+    .sf-st-filters .ant-select:not(.ant-select-multiple):hover { background: var(--sf-hover) !important; box-shadow: inset 0 0 0 1px var(--sf-line-2) !important; }
+  }
+  .sf-st-filters .ant-select.ant-select-focused { box-shadow: inset 0 0 0 1px var(--sf-line-2) !important; background: var(--sf-hover) !important; }
+  .sf-st-filters .ant-select.ant-select-focused.ant-select-show-search { min-inline-size: 200px !important; }
+  /* applied: a value and no placeholder */
+  .sf-st-filters .ant-select:not(.ant-select-multiple):not(:has(.ant-select-placeholder)):not(.ant-select-focused) {
+    background: var(--sf-accent-tint-2) !important; box-shadow: inset 0 0 0 1px var(--sf-accent-border) !important;
+  }
+  .sf-st-filters .ant-select:not(.ant-select-multiple):not(:has(.ant-select-placeholder)):not(.ant-select-focused) :is(.ant-select-content, .ant-select-suffix, .ant-select-clear) { color: var(--sf-accent-text); }
+  .sf-st-filters .ant-select:not(:has(.ant-select-placeholder)) .ant-select-clear { opacity: 1; background: transparent; color: var(--sf-accent-text); }
+  .sf-st-filters .ant-select:not(:has(.ant-select-placeholder)):has(.ant-select-clear) .ant-select-suffix { visibility: hidden; }
+  /* a lone date field (an «as of» date) is a chip too */
+  .sf-st-filters .ant-input-affix-wrapper.sf-numin {
+    inline-size: 136px !important; block-size: 30px; border-radius: var(--sf-radius-pill); padding-inline: 12px 10px;
+    border-color: transparent; background: transparent; box-shadow: none;
+  }
+  .sf-st-filters .ant-input-affix-wrapper.sf-numin:hover { background: var(--sf-hover); box-shadow: inset 0 0 0 1px var(--sf-line-2); }
+  .sf-st-filters .ant-input-affix-wrapper.sf-numin:has(input:not(:placeholder-shown)):not(:focus-within) { background: var(--sf-accent-tint-2); box-shadow: inset 0 0 0 1px var(--sf-accent-border); }
+  .sf-st-filters .ant-input-affix-wrapper.sf-numin:has(input:not(:placeholder-shown)):not(:focus-within) input { color: var(--sf-accent-text); }
+  .sf-st-filters .ant-input-affix-wrapper.sf-numin input::placeholder { color: var(--sf-text-2); font-weight: 500; }
+  /* the module toggles (`.bk-tog`) read as toggle chips: the box replaces their icon */
+  .sf-st-filters .bk-tog, .sf-fmore .bk-tog {
+    display: inline-flex; align-items: center; gap: 6px; block-size: 30px; padding-inline: 10px 12px; border: 0;
+    border-radius: var(--sf-radius-pill); background: transparent; color: var(--sf-text-2); box-shadow: none;
+    font-size: 13px; font-weight: 500; white-space: nowrap; cursor: pointer;
+  }
+  .sf-st-filters .bk-tog > svg, .sf-fmore .bk-tog > svg { display: none; }
+  .sf-st-filters .bk-tog::before, .sf-fmore .bk-tog::before {
+    content: ""; flex: none; inline-size: 14px; block-size: 14px; border-radius: 4px;
+    box-shadow: inset 0 0 0 1px var(--sf-control-strong); background: var(--sf-surface);
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .sf-st-filters .bk-tog:hover { background: var(--sf-hover); box-shadow: inset 0 0 0 1px var(--sf-line-2); }
+  }
+  .sf-st-filters .bk-tog[aria-pressed="true"], .sf-fmore .bk-tog[aria-pressed="true"] { background: var(--sf-accent-tint-2); color: var(--sf-accent-text); box-shadow: inset 0 0 0 1px var(--sf-accent-border); }
+  .sf-st-filters .bk-tog[aria-pressed="true"]::before, .sf-fmore .bk-tog[aria-pressed="true"]::before {
+    box-shadow: none; background: var(--sf-accent-text);
+    -webkit-mask: var(--sf-check-mask) center / 10px no-repeat, linear-gradient(black, black); -webkit-mask-composite: xor;
+    mask: var(--sf-check-mask) center / 10px no-repeat exclude, linear-gradient(black, black);
+  }
+  .sf-st-filters, .sf-fmore { --sf-check-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E"); }
+  .sf-st-filters .bk-range { display: contents; }
+
+  /* «پالایه‌های بیشتر»: the hidden controls stacked as ordinary fields */
+  .sf-fmore { display: flex; flex-direction: column; align-items: stretch; gap: 10px; inline-size: 260px; max-inline-size: 100%; }
+  .sf-fmore > :is(.ant-select, .ant-input-affix-wrapper, .ant-input, .ant-segmented, .ant-picker) { inline-size: 100% !important; }
+  .sf-fmore > .sf-fchip { align-self: flex-start; }
+  .sf-fmore .bk-range { display: flex; align-items: center; gap: 8px; }
+  .sf-fmore .bk-range > .ant-input-affix-wrapper { flex: 1 1 0; inline-size: auto !important; }
+  .sf-fmore-pop .ant-popover-container { padding: 12px; }
+
+  /* the range picker: presets, two typed fields, one month grid */
+  .sf-range { display: flex; gap: 12px; }
+  .sf-range-p { display: flex; flex-direction: column; gap: 2px; min-inline-size: 96px; padding-inline-end: 12px; border-inline-end: 1px solid var(--sf-line); }
+  .sf-range-pb {
+    display: flex; align-items: center; block-size: 30px; padding-inline: 10px; border: 0; border-radius: var(--sf-radius-sm);
+    background: transparent; color: var(--sf-text-2); font-size: 13px; font-weight: 500; text-align: start; cursor: pointer; white-space: nowrap;
+  }
+  .sf-range-pb:hover { background: var(--sf-hover); color: var(--sf-text); }
+  .sf-range-pb.is-on { background: var(--sf-selected); color: var(--sf-text); font-weight: 600; }
+  .sf-range-pb:focus-visible { outline: 2px solid var(--sf-focus-color); outline-offset: -2px; }
+  .sf-range-m { display: flex; flex-direction: column; gap: 10px; }
+  .sf-range-f { display: flex; align-items: center; gap: 6px; }
+  .sf-range-f > .ant-input-affix-wrapper { flex: 1 1 0; inline-size: 0; }
+  .sf-range-sep { font-size: 12px; color: var(--sf-text-3); }
+  .sf-range-hint { font-size: 12px; line-height: 18px; color: var(--sf-text-3); }
+  .sf-cal-d.is-in { background: var(--sf-accent-tint); border-radius: 0; }
+  @media (max-width: 639.98px) {
+    .sf-range { flex-direction: column; }
+    .sf-range-p { flex-direction: row; flex-wrap: wrap; padding: 0 0 10px; border-inline-end: 0; border-block-end: 1px solid var(--sf-line); }
+  }
+
+  /* phone: the search fills the row, the other filters live in a bottom sheet */
+  .sf-st-bar[data-phone] { align-items: center; }
+  .sf-st-bar[data-phone] .sf-st-filters { flex: 1 1 auto; }
+  .sf-st-bar[data-phone] .sf-st-filters > .ant-input-affix-wrapper:first-child { flex: 1 1 auto; min-inline-size: 0; }
+  .sf-st-bar[data-phone] .sf-st-tools { gap: 0; }
+  .sf-fsheet .ant-drawer-section { border-start-start-radius: 16px; border-start-end-radius: 16px; }
+  .sf-fsheet .ant-drawer-content-wrapper { max-block-size: 80vh; }
+  .sf-fsheet .sf-fmore { inline-size: 100%; gap: 12px; }
+  .sf-fsheet .sf-fmore > :is(.ant-select, .ant-input-affix-wrapper) { block-size: 40px; }
+  .sf-fsheet-f { display: flex; justify-content: flex-end; gap: 8px; }
+}
+
+/* ====================================================================== phone: stacked rows (§4.1) */
+@layer components {
+  .sf-st.is-stacked .ant-table-tbody > tr > td.sf-stk-cell, .tz-table.is-stacked .ant-table-tbody > tr > td.sf-stk-cell { padding-block: 10px; padding-inline: 16px; white-space: normal; }
+  /* the stack never widens the table: a long description ellipsizes inside the phone's width */
+  :is(.sf-st, .tz-table).is-stacked .ant-table table { table-layout: fixed !important; inline-size: 100% !important; min-inline-size: 0 !important; }
+  .sf-stk { display: flex; flex-direction: column; gap: 2px; min-inline-size: 0; max-inline-size: 100%; overflow: hidden; }
+  .sf-stk-l1 { display: flex; align-items: center; gap: 8px; min-block-size: 22px; font-size: 13px; line-height: 20px; color: var(--sf-text-2); }
+  .sf-stk-id { color: var(--sf-text); font-weight: 600; }
+  .sf-stk-dot { inline-size: 3px; block-size: 3px; border-radius: 50%; background: var(--sf-text-4); flex: none; }
+  .sf-stk-date { color: var(--sf-text-3); }
+  .sf-stk-end { display: flex; align-items: center; gap: 6px; margin-inline-start: auto; }
+  .sf-stk-end .sf-row-act { opacity: 1; }
+  .sf-stk-l2, .sf-stk-name { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; line-height: 22px; color: var(--sf-text); }
+  .sf-stk-l3 { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 14px; row-gap: 2px; }
+  .sf-stk-amt { font-size: 15px; line-height: 24px; font-weight: 600; color: var(--sf-text); white-space: nowrap; }
+  .sf-stk-amt .sf-unit { font-size: 12px; font-weight: 400; color: var(--sf-text-3); }
+  .sf-stk-kv { display: inline-flex; align-items: baseline; gap: 4px; font-size: 13px; line-height: 20px; color: var(--sf-text-2); white-space: nowrap; }
+  .sf-stk-k { font-size: 12px; color: var(--sf-text-3); }
+  .sf-stk .sf-skel { block-size: 10px; margin-block: 5px; }
+  /* totals under a stacked list: label and figures wrap on one line instead of overflowing */
+  :is(.sf-st, .tz-table).is-stacked .ant-table-summary > tr { display: flex; flex-wrap: wrap; justify-content: space-between; column-gap: 12px; padding: 8px 16px; }
+  :is(.sf-st, .tz-table).is-stacked .ant-table-summary > tr > td { display: block; padding: 0 !important; border: 0 !important; }
+  :is(.sf-st, .tz-table).is-stacked .ant-table-summary > tr > td:empty { display: none; }
+  :is(.sf-st, .tz-table).is-stacked .ant-table-summary > tr { border-block-start: 1px solid var(--sf-line-3); }
+  :is(.sf-st, .tz-table).is-stacked .ant-pagination { justify-content: center; }
+}
+
+/* ====================================================================== antd tables everywhere (§4.1) */
+@layer components {
+  /* only the sorted column shows its 12 px arrow; the others reveal it on hover or keyboard focus */
+  .ant-table-thead th.ant-table-column-has-sorters:not(.ant-table-column-sort) .ant-table-column-sorter { opacity: 0; transition: opacity var(--sf-dur-base) var(--sf-ease-out-quad); }
+  .ant-table-thead th.ant-table-column-has-sorters:is(:hover, :focus-visible, :focus-within) .ant-table-column-sorter { opacity: 1; transition-duration: 0ms; }
+  .ant-table-column-sorter { font-size: 9px; }
+  .ant-table-column-sort .ant-table-column-sorter-inner > :not(.active) { display: none; }
+
+  /* no vertical rules: the fixed column's shadow only while something is scrolled under it, never on an empty table */
+  .ant-table :is(.ant-table-cell-fix-start-shadow, .ant-table-cell-fix-end-shadow):not(:is(.ant-table-cell-fix-start-shadow-show, .ant-table-cell-fix-end-shadow-show))::after { box-shadow: none; }
+  .ant-table.ant-table-empty .ant-table-cell-fix::after { box-shadow: none !important; display: none; }
+  .ant-table.ant-table-empty .ant-table-thead > tr > th.ant-table-cell-fix { background: var(--sf-surface); }
+  .ant-table-thead > tr > th::before { display: none; }
+  /* the tree indent and expand cell draw no line */
+  .ant-table .ant-table-row-indent, .ant-table .ant-table-row-expand-icon-cell { border: 0 !important; box-shadow: none; }
+  .ant-table .ant-table-row-indent::before, .ant-table .ant-table-row-indent::after { display: none; }
+  .ant-table-tbody > tr > td.ant-table-cell-with-append { border-inline: 0; }
+
+  /* a sideways-scrolling table fades its clipped edge instead of cutting a figure (no fixed column on that side) */
+  .ant-table.ant-table-fix-end-shadow-show:not(.ant-table-has-fix-end):not(.ant-table-empty) :is(.ant-table-content, .ant-table-body, .ant-table-header) {
+    -webkit-mask-image: linear-gradient(to right, transparent 0, black 28px); mask-image: linear-gradient(to right, transparent 0, black 28px);
+  }
+  .ant-table.ant-table-fix-start-shadow-show:not(.ant-table-has-fix-start):not(.ant-table-empty) :is(.ant-table-content, .ant-table-body, .ant-table-header) {
+    -webkit-mask-image: linear-gradient(to left, transparent 0, black 28px); mask-image: linear-gradient(to left, transparent 0, black 28px);
+  }
+  .ant-table.ant-table-fix-end-shadow-show.ant-table-fix-start-shadow-show:not(.ant-table-has-fix-end):not(.ant-table-has-fix-start):not(.ant-table-empty) :is(.ant-table-content, .ant-table-body, .ant-table-header) {
+    -webkit-mask-image: linear-gradient(to right, transparent 0, black 28px, black calc(100% - 28px), transparent 100%);
+    mask-image: linear-gradient(to right, transparent 0, black 28px, black calc(100% - 28px), transparent 100%);
+  }
+
+  /* compact density: 32 px rows at 13/20, whatever the cell holds (24 px avatars, 20 px chips, 28 px icon buttons) */
+  .ant-table-small .ant-table-tbody > tr > td { line-height: 20px; }
+  /* inline-flex cells (avatar + name, action groups) and Latin runs (Geist has other metrics) must not grow the line */
+  .ant-table-small .ant-table-tbody > tr > td > * { vertical-align: top; }
+  .ant-table-small .ant-table-tbody > tr > td :is(.sf-latin, .sf-mono, .sf-unit, bdi) { line-height: 16px; }
+  .ant-table-small .ant-table-thead > tr > th { padding-block: 7px; font-size: 12px; line-height: 18px; }
+  .ant-table-small .ant-table-tbody > tr > td :is(.ant-avatar, .bk-av):not(.is-lg) { inline-size: 24px; block-size: 24px; margin-block: -2px; line-height: 24px; }
+  .ant-table-small .ant-table-tbody > tr > td :is(.ant-tag, .sf-chip) { block-size: 20px; line-height: 18px; margin-block: 0; vertical-align: top; }
+  .ant-table-small .ant-table-tbody > tr > td .ant-btn:is(.ant-btn-sm, .ant-btn-icon-only) { margin-block: -4px; }
+  .ant-table-small .ant-table-tbody > tr > td .ant-switch { margin-block: -2px; }
+
+  /* header controls that do not fit a phone wrap below the title, and a segmented control scrolls inside itself */
+  @media (max-width: 639.98px) {
+    :is(.bk-card-h, .sf-section-h) { flex-wrap: wrap; row-gap: 8px; }
+    :is(.bk-card-x, .sf-section-x) { max-inline-size: 100%; min-inline-size: 0; }
+    .ant-segmented { max-inline-size: 100%; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; }
+    .ant-segmented::-webkit-scrollbar { display: none; }
+    .ant-segmented .ant-segmented-group { inline-size: max-content; }
+  }
+}
+
+/* ====================================================================== switch, sheets */
+@layer components {
+  /* switch (§5): off is a line-3 track with a 1 px control-strong ring, so it never reads as «on but disabled»; on is
+     solid ink with a canvas thumb that carries a small check */
+  .ant-switch:not(.ant-switch-checked) { background: var(--sf-line-3); box-shadow: inset 0 0 0 1px var(--sf-control-strong); }
+  .ant-switch:not(.ant-switch-checked):hover:not(.ant-switch-disabled) { background: var(--sf-line-3); box-shadow: inset 0 0 0 1px var(--sf-text-3); }
+  .ant-switch.ant-switch-checked .ant-switch-handle::after {
+    content: ""; position: absolute; inset: 0; background: var(--sf-text);
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E") center / 8px no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E") center / 8px no-repeat;
+  }
+  .ant-switch-small.ant-switch-checked .ant-switch-handle::after { -webkit-mask-size: 6px; mask-size: 6px; }
+
+  /* sheet header (§1.5): the title at the start; the "more" button and close (×) at the end, close last */
+  .ant-drawer-header .ant-drawer-header-title { display: contents; }
+  .ant-drawer-header .ant-drawer-title { order: 0; flex: 1 1 auto; min-inline-size: 0; }
+  .ant-drawer-header .ant-drawer-extra { order: 1; display: flex; align-items: center; gap: 4px; }
+  .ant-drawer-header .ant-drawer-close {
+    order: 2; display: inline-grid; place-items: center; inline-size: 32px; block-size: 32px; margin: 0; margin-inline-start: 4px;
+    border-radius: var(--sf-radius-md); color: var(--sf-text-2);
+  }
+  .ant-drawer-header .ant-drawer-close:hover { background: var(--sf-hover); color: var(--sf-text); }
+
+  /* collapsible optional groups in a sheet form */
+  .sf-form-sec-btn { inline-size: 100%; margin-block-end: 0; padding: 4px 0; border: 0; background: transparent; cursor: pointer; text-align: start; font-family: inherit; }
+  .sf-form-sec.is-open .sf-form-sec-btn { margin-block-end: 12px; }
+  .sf-form-sec-btn:focus-visible { outline: 2px solid var(--sf-focus-color); outline-offset: 2px; border-radius: var(--sf-radius-sm); }
+  .sf-form-sec-chev { color: var(--sf-text-3); transform: rotate(90deg); transition: transform var(--sf-dur-base) var(--sf-ease-out); }
+  .sf-form-sec.is-open .sf-form-sec-chev { transform: none; }
+  .sf-form-sec-meta { margin-inline-start: auto; font-size: 12px; font-weight: 400; color: var(--sf-text-3); }
+  .sf-form-sec.is-collapsible + .sf-form-sec { margin-block-start: 0; }
+  .sf-form-sec.is-collapsible:not(.is-open) { padding-block-end: 2px; }
+}
+
+/* ====================================================================== print (§12) */
+@media print {
+  /* wide tables print whole: no clipping scroll containers, fit the page, no sort arrows or sticky chrome */
+  .ant-table-wrapper :is(.ant-table-content, .ant-table-body, .ant-table-header) { overflow: visible !important; max-block-size: none !important; -webkit-mask-image: none !important; mask-image: none !important; }
+  .ant-table-wrapper .ant-table table { inline-size: 100% !important; min-inline-size: 0 !important; table-layout: auto !important; font-size: 9pt; }
+  .ant-table-wrapper .ant-table :is(th, td) { padding-inline: 4px !important; }
+  .ant-table-wrapper .ant-table-cell-fix { position: static !important; }
+  .ant-table-wrapper .ant-table-cell-fix::after, .ant-table-wrapper .ant-table-cell-fix::before { display: none !important; }
+  .ant-table-column-sorter, .ant-table-filter-trigger, .ant-table-sticky-scroll, .ant-table-pagination, .sf-row-act, .sf-st-bar { display: none !important; }
+  .ant-table-wrapper .ant-table-thead > tr > th { position: static !important; }
+  .ant-table-wrapper thead { display: table-header-group; }
+  .ant-table-wrapper tr { break-inside: avoid; }
+  /* a report wider than portrait (nine columns or more, or `.sf-print-wide`) asks for A4 landscape */
+  :root:has(.ant-table-wrapper table > colgroup > col:nth-child(9)) body,
+  :root:has(.sf-print-wide) body { page: sf-wide; }
+}
+@page sf-wide { size: A4 landscape; margin: 12mm 12mm 14mm; }

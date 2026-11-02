@@ -3,7 +3,7 @@
 // Module widgets (modules/*/widgets.tsx) build on these so every card on «پیشخوان» reads as one system.
 // Styles: ./dashboard.css (scoped under .db).
 import "./dashboard.css";
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import { Ic } from "../../components/shell/icons";
 import { fa, pct, splitDecimals } from "../../lib/fa";
@@ -94,13 +94,88 @@ export function Card({
   );
 }
 
-/** A quiet header action: ink text, hover tint, never Dusk (links are ink, components.md §0.4). */
-export function HeadLink({ children, onClick, icon }: { children: ReactNode; onClick: () => void; icon?: LucideIcon }) {
+/**
+ * A quiet header action: ink text, hover tint, never Dusk (links are ink, components.md §0.4). With `squeeze` (and an
+ * icon) the words drop under 480 px and the icon stays, named by its aria-label and title.
+ */
+export function HeadLink({ children, onClick, icon, squeeze }: { children: ReactNode; onClick: () => void; icon?: LucideIcon; squeeze?: boolean }) {
+  const name = squeeze && typeof children === "string" ? children : undefined;
   return (
-    <button type="button" className="db-hlink sf-press" onClick={onClick}>
+    <button type="button" className={`db-hlink sf-press ${squeeze && icon ? "is-squeeze" : ""}`} onClick={onClick} aria-label={name} title={name}>
       {icon ? <Ic icon={icon} size={14} /> : null}
-      {children}
+      <span className="db-hlink-t">{children}</span>
     </button>
+  );
+}
+
+// ------------------------------------------------------------------ mixed-direction text that must fit one line
+
+let canvas: HTMLCanvasElement | null = null;
+const ELLIPSIS = "…";
+
+/** The longest logical prefix of `text` (cut at a word when it can) that fits `width` px with «…». */
+function fitText(text: string, width: number, font: string): string {
+  canvas ??= document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+  if (!ctx || width <= 0) return text;
+  ctx.font = font;
+  const w = (t: string) => ctx.measureText(t).width;
+  // canvas ignores the font's ss01 and tabular features: keep a small margin
+  const room = width - 6;
+  if (w(text) <= room) return text;
+  let lo = 0;
+  let hi = text.length;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (w(text.slice(0, mid).trimEnd() + ELLIPSIS) <= room) lo = mid;
+    else hi = mid - 1;
+  }
+  let cut = text.slice(0, lo);
+  const space = cut.search(/\s\S*$/);
+  // cut at the last word boundary unless that would throw away most of the line
+  if (space > lo * 0.5) cut = cut.slice(0, space);
+  // never end on a separator or a lone letter (an abbreviation such as «ش» reads as a broken word)
+  for (let prev = ""; prev !== cut; ) {
+    prev = cut;
+    cut = cut.replace(/[\s،,:;—–-]+$/, "").replace(/(\S)\s+\S$/u, "$1");
+  }
+  return cut + ELLIPSIS;
+}
+
+/**
+ * One line of text that may mix Persian and Latin runs. CSS ellipsis cuts bidi text in visual order, so a trailing
+ * Latin run loses its start («…ading LLC»); this cuts in logical order at a word («Dubai…») and keeps the full text in
+ * the title. The cell's width comes from its grid column, never from its content.
+ */
+export function ClipText({ text, className }: { text: string; className?: string }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const [width, setWidth] = useState(0);
+  const [fonts, setFonts] = useState(0);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    setWidth(el.clientWidth);
+    const ro = new ResizeObserver(([e]) => setWidth(Math.round(e.contentRect.width)));
+    ro.observe(el);
+    let live = true;
+    document.fonts?.ready.then(() => live && setFonts((n) => n + 1));
+    return () => {
+      live = false;
+      ro.disconnect();
+    };
+  }, []);
+  const shown = useMemo(() => {
+    const el = ref.current;
+    if (!el || !width) return text;
+    const cs = getComputedStyle(el);
+    return fitText(text, width, `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`);
+    // fonts: re-measure once the web fonts are in
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [text, width, fonts]);
+  return (
+    <span ref={ref} className={`db-desc ${className ?? ""}`} title={shown !== text ? text : undefined}>
+      {shown}
+    </span>
   );
 }
 

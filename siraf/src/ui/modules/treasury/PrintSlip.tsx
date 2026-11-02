@@ -8,7 +8,8 @@ import { amountToWords } from "@shared/words";
 import { D } from "@shared/money";
 import { KIND_SLIP, METHOD_SHORT, type DocKind } from "./labels";
 import type { Line } from "./editor";
-import { PrintFoot, PrintHead } from "../reports/kit";
+import { PrintFoot, PrintHead, Ref } from "../reports/kit";
+import { Fragment, type ReactNode } from "react";
 
 interface Props {
   kind: DocKind;
@@ -27,24 +28,30 @@ export function PrintSlip({ kind, no, date, partyName, accountName, description,
   const fees = lines.reduce((a, l) => a.plus(D(l.fee)), D(0));
   const who = partyName ?? accountName ?? "";
 
+  // bank references are Latin by nature: Geist Mono, LTR, Latin digits (grouped in 4 when long)
+  const ref = (label: string, v: string) => (
+    <>
+      {label} <Ref v={v} />
+    </>
+  );
   const detail = (l: Line) => {
-    const parts: string[] = [];
+    const parts: ReactNode[] = [];
     if (kind === "transfer") parts.push(l.direction === "out" ? "برداشت از" : "واریز به");
     else if (!(l.method === "pos" && l.names.src?.includes(METHOD_SHORT.pos))) parts.push(`${METHOD_SHORT[l.method]} —`);
     if (l.method === "cheque") {
       const c = l.cheque;
       if (c.serial_no) parts.push(`سریال ${faDigits(c.serial_no)}`);
-      if (c.sayad_no) parts.push(`صیادی ${faDigits(c.sayad_no)}`);
+      if (c.sayad_no) parts.push(ref("صیادی", c.sayad_no));
       if (c.bank_name || l.names.bank) parts.push(`بانک ${c.bank_name || l.names.bank}`);
       if (c.due_date) parts.push(`سررسید ${formatJalali(c.due_date)}`);
       if (l.names.party && !partyName) parts.push(`(${l.names.party})`);
     } else {
       if (l.names.src) parts.push(l.names.src);
       if (l.names.detail) parts.push(l.names.detail);
-      if (l.ref_no) parts.push(`پیگیری ${faDigits(l.ref_no)}`);
+      if (l.ref_no) parts.push(ref("پیگیری", l.ref_no));
     }
     if (l.description) parts.push(`— ${l.description}`);
-    return parts.join(" ");
+    return parts.map((p, i) => <Fragment key={i}>{i ? " " : null}{p}</Fragment>);
   };
 
   return (

@@ -12,7 +12,7 @@ import { APP_NAME, APP_VERSION } from "@shared/constants";
 import { useOrg } from "../../lib/org";
 import { Figure } from "../../components/display";
 import { SirafMark } from "../../components/brand";
-import { docNo as faDocNo } from "../../lib/fa";
+import { docNo as faDocNo, toLatinDigits } from "../../lib/fa";
 
 export const ICON = { size: 16, strokeWidth: 1.4, absoluteStrokeWidth: true } as const;
 export const ICON14 = { size: 14, strokeWidth: 1.4, absoluteStrokeWidth: true } as const;
@@ -138,6 +138,44 @@ export function DocNo({ n, prefix }: { n: number | string | null | undefined; pr
 }
 export const docNo = (n: number | string | null | undefined) => (n === null || n === undefined || n === "" ? "" : Number.isFinite(Number(n)) ? faDocNo(Number(n)) : faDigits(n));
 
+/** «۰۹۰۱ ۷۸۵ ۳۹۰۰»: a phone number in Persian digits, grouped the Iranian way (mobile 4-3-4, landline 3-4-4). */
+export function phoneFa(s: string | number | null | undefined): string {
+  const raw = String(s ?? "");
+  const d = toLatinDigits(raw).replace(/\D/g, "");
+  if (/^09\d{9}$/.test(d)) return faDigits(`${d.slice(0, 4)} ${d.slice(4, 7)} ${d.slice(7)}`);
+  if (/^0\d{10}$/.test(d)) return faDigits(`${d.slice(0, 3)} ${d.slice(3, 7)} ${d.slice(7)}`);
+  return faDigits(raw);
+}
+
+/** A phone number: an LTR isolate in tabular Persian digits. */
+export function Phone({ v }: { v: string | number | null | undefined }) {
+  if (v === null || v === undefined || v === "") return <span className="sf-zero">—</span>;
+  return (
+    <bdi dir="ltr" className="sf-num">
+      {phoneFa(v)}
+    </bdi>
+  );
+}
+
+/**
+ * A bank reference (tracking, Sayad, IBAN, card): Latin by nature, so Geist Mono in an LTR isolate with Latin digits;
+ * long bare numbers and IBANs are grouped in 4 («PAYA-28892», «1234 5678 9012 3456», «IR06 2960 …»).
+ */
+export function refText(s: string | number | null | undefined): string {
+  const t = toLatinDigits(String(s ?? "")).trim();
+  const bare = t.replace(/\s+/g, "");
+  if (/^(IR)?\d{8,}$/i.test(bare)) return bare.toUpperCase().replace(/(.{4})(?=.)/g, "$1 ");
+  return t;
+}
+export function Ref({ v, className }: { v: string | number | null | undefined; className?: string }) {
+  if (v === null || v === undefined || v === "") return <span className="sf-zero">—</span>;
+  return (
+    <bdi dir="ltr" className={cx("sf-mono", className)}>
+      {refText(v)}
+    </bdi>
+  );
+}
+
 // ---------------------------------------------------------------- report scale («مبالغ به میلیون ریال»)
 
 export type Scale = 1 | 1000 | 1000000;
@@ -205,10 +243,29 @@ export function Amt({ v, parens, zero = "—", colored, className, strong }: { v
   const dp = scale === 1 ? (org.money_decimals ?? 0) : scale === 1000 ? 0 : 1;
   const r = d.toDecimalPlaces(dp);
   if (r.isZero()) return zero ? <span className={cx("sf-num sf-zero", className)}>{zero}</span> : null;
+  const minDp = scale === 1000000 ? 1 : undefined;
   return (
     <span className={cx("sf-num", colored && r.gt(0) && "sf-in-t", strong && "font-semibold", className)}>
-      <Figure v={r} dp={dp} minDp={scale === 1000000 ? 1 : undefined} parens={parens} />
+      {parens && r.isNeg() ? (
+        // the closing parenthesis hangs past the column's edge, so the units digits of every row line up
+        <bdi dir="ltr" className="sf-ltr">
+          (<Figure v={r.abs()} dp={dp} minDp={minDp} />
+          <span className="bk-hang">)</span>
+        </bdi>
+      ) : (
+        <Figure v={r} dp={dp} minDp={minDp} />
+      )}
     </span>
+  );
+}
+
+/** A version string: Latin by nature, «1.0.0» in Geist inside an LTR isolate (never Persian digits with Latin dots). */
+export function Version({ v }: { v: string | null | undefined }) {
+  if (!v) return <span className="sf-zero">—</span>;
+  return (
+    <bdi dir="ltr" className="sf-latin">
+      {toLatinDigits(String(v))}
+    </bdi>
   );
 }
 
@@ -295,7 +352,7 @@ export function PrintFoot({ sign }: { sign?: string[] }) {
       ) : null}
       <div className="bk-pf-meta">
         <span className="bk-pf-brand">
-          <SirafMark size={12} variant="mono" title="" /> {APP_NAME} {faDigits(APP_VERSION)}
+          <SirafMark size={12} variant="mono" title="" /> {APP_NAME} <Version v={APP_VERSION} />
         </span>
         <span className="sf-num">
           چاپ {formatJalali(now.toISOString().slice(0, 10))}، {faDigits(now.toTimeString().slice(0, 5))}

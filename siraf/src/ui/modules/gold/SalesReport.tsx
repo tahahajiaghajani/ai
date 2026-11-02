@@ -43,6 +43,15 @@ export default function SalesReport() {
     setFrom(r.from);
     setTo(r.to);
   };
+  // the preset the range is (nothing selected for a custom range)
+  const presetOf = (): string | undefined => {
+    if (fy && from === fy.start_date && to === fy.end_date) return "year";
+    for (const k of ["today", "month", "lastMonth"] as const) {
+      const r = presetRange(k as "month", todayISO(tz));
+      if (r.from === from && r.to === to) return k;
+    }
+    return undefined;
+  };
   const keyTitle: Record<Group, string> = { day: "تاریخ", month: "ماه", doc: "فاکتور", category: "دسته", party: "مشتری" };
   const label = (r: any) => {
     if (group === "day") return <JDate v={r.date} />;
@@ -70,30 +79,61 @@ export default function SalesReport() {
     ],
     [],
   );
+  const toExcel = () =>
+    exportExcel(`فروش طلا ${d.from} تا ${d.to}`, [
+      { title: keyTitle[group], value: (r: any) => (group === "day" ? formatJalali(r.date) : group === "doc" ? `${r.no} - ${r.label ?? ""}` : r.label) },
+      ...cols.map((c) => ({ title: c.title, value: (r: any) => r[c.key], type: "number" as const })),
+    ], d.rows);
+  // on screen a few figures share a cell (a main figure over a text-3 second line) so every money column fits the
+  // panel; a column that is «—» for the whole result says nothing and is left out (Excel keeps every column)
+  type VCol = { title: string; key: string; type: string; sub?: { key: string; type: string; pre?: string; post?: string } };
+  const view: VCol[] = [
+    { title: "فاکتور", key: "docs", type: "count", sub: { key: "pieces", type: "count", post: "جنس" } },
+    { title: "وزن (گرم)", key: "weight", type: "w", sub: { key: "weight750", type: "w", pre: "معادل ۷۵۰:" } },
+    { title: "ارزش طلا", key: "gold_value", type: "m" },
+    { title: "اجرت", key: "wage", type: "m" },
+    { title: "سود", key: "profit", type: "m" },
+    { title: "تخفیف", key: "discount", type: "m" },
+    { title: "مالیات", key: "tax", type: "m" },
+    { title: "سنگ", key: "stone", type: "m" },
+    { title: "سکه", key: "coins", type: "m" },
+    { title: "جمع فروش", key: "total", type: "m" },
+    { title: "طلای کهنه", key: "old_value", type: "m", sub: { key: "old_weight750", type: "w", post: "گرم ۷۵۰" } },
+    { title: "سود ناخالص", key: "margin", type: "m", sub: { key: "cost", type: "m", pre: "بها" } },
+  ];
+  const any = (k: string) => !D(t?.[k] ?? 0).isZero() || (d?.rows ?? []).some((r: any) => !D(r[k] ?? 0).isZero());
+  const shown = view.filter((c) => c.type === "count" || !d || any(c.key) || (c.sub && any(c.sub.key)));
+  const vcell = (c: VCol, r: any) => (
+    <div className="sf-gdl">
+      <span>{cell(c.type, r?.[c.key])}</span>
+      {c.sub && !D(r?.[c.sub.key] ?? 0).isZero() && !(c.sub.key === "weight750" && D(r?.weight750 ?? 0).eq(D(r?.weight ?? 0))) ? (
+        <span className="m">{c.sub.pre ? `${c.sub.pre} ` : ""}{cell(c.sub.type, r[c.sub.key])}{c.sub.post ? ` ${c.sub.post}` : ""}</span>
+      ) : null}
+    </div>
+  );
   const cell = (type: string, v: any) =>
     type === "count" ? <span className="sf-num">{faDigits(v ?? 0)}</span> : type === "w" ? (D(v).isZero() ? <span className="sf-zero">—</span> : <span className="sf-num">{gw(v)}</span>) : <Money v={v ?? 0} zero="—" />;
   return (
     <div>
-      <PageHeader title="گزارش فروش طلا" subtitle={d ? <span className="sf-doc-meta"><span className="sf-num">{formatJalali(d.from)}</span>&nbsp;تا&nbsp;<span className="sf-num">{formatJalali(d.to)}</span></span> : null} actions={<Button icon={<Ic icon={Printer} />} onClick={() => window.print()}>چاپ</Button>} />
+      <PageHeader
+        title="گزارش فروش طلا"
+        actions={
+          <>
+            <Button icon={<Ic icon={FileSpreadsheet} />} disabled={!d} onClick={toExcel}>اکسل</Button>
+            <Button icon={<Ic icon={Printer} />} onClick={() => window.print()}>چاپ</Button>
+          </>
+        }
+      />
+      <div className="sf-print-head hidden print:block">
+        <div className="t">{org.name}</div>
+        <div className="s">گزارش فروش طلا {d ? `از ${formatJalali(d.from)} تا ${formatJalali(d.to)}` : ""}</div>
+      </div>
       <div className="sf-filters no-print">
-        <Segmented size="small" onChange={(v) => preset(v as "month")} options={[{ value: "today", label: "امروز" }, { value: "month", label: "این ماه" }, { value: "lastMonth", label: "ماه قبل" }, { value: "year", label: "سال مالی" }]} />
+        <Segmented size="small" value={presetOf() ?? ""} onChange={(v) => preset(v as "month")} options={[{ value: "today", label: "امروز" }, { value: "month", label: "این ماه" }, { value: "lastMonth", label: "ماه قبل" }, { value: "year", label: "سال مالی" }]} />
         <DateInput value={from} onChange={setFrom} placeholder="از تاریخ" className="!w-36" />
         <DateInput value={to} onChange={setTo} placeholder="تا تاریخ" className="!w-36" />
         <Segmented size="small" value={group} onChange={(v) => setGroup(v as Group)} options={[{ value: "day", label: "روزانه" }, { value: "month", label: "ماهانه" }, { value: "doc", label: "فاکتور" }, { value: "category", label: "دسته" }, { value: "party", label: "مشتری" }]} />
         <label className="flex items-center gap-2 text-[13px] text-ink-2"><Switch size="small" checked={bullion} onChange={setBullion} /> با فروش آبشده</label>
-        <Button
-          className="!ms-auto"
-          icon={<Ic icon={FileSpreadsheet} />}
-          disabled={!d}
-          onClick={() =>
-            exportExcel(`فروش طلا ${d.from} تا ${d.to}`, [
-              { title: keyTitle[group], value: (r: any) => (group === "day" ? formatJalali(r.date) : group === "doc" ? `${r.no} - ${r.label ?? ""}` : r.label) },
-              ...cols.map((c) => ({ title: c.title, value: (r: any) => r[c.key], type: "number" as const })),
-            ], d.rows)
-          }
-        >
-          اکسل
-        </Button>
       </div>
       <div className="mb-4 grid sm:grid-cols-2 xl:grid-cols-4">
         <StatCard title="فاکتورهای فروش" icon={<Ic icon={ReceiptText} />} value={faDigits(t?.docs ?? 0)} hint={<><span className="sf-num">{faDigits(t?.pieces ?? 0)}</span> جنس</>} />
@@ -102,10 +142,6 @@ export default function SalesReport() {
         <StatCard title="سود ناخالص" icon={<Ic icon={TrendingUp} />} value={<Money v={t?.margin ?? 0} unit />} hint={<>بدون مالیات؛ مالیات <Money v={t?.tax ?? 0} /></>} />
       </div>
       <div className="print-sheet sf-card">
-        <div className="mb-3 hidden text-center print:block">
-          <div className="text-lg font-semibold">{org.name}</div>
-          <div className="font-semibold">گزارش فروش طلا {d ? `از ${formatJalali(d.from)} تا ${formatJalali(d.to)}` : ""}</div>
-        </div>
         <Table
           className=""
           size="small"
@@ -117,15 +153,15 @@ export default function SalesReport() {
           onRow={(r: any) => (group === "doc" ? { onClick: () => nav(`/${orgId}/gold/docs/${r.key}`), style: { cursor: "pointer" } } : {})}
           columns={[
             { key: "k", title: keyTitle[group], fixed: "right" as const, render: (_: unknown, r: any) => label(r) },
-            ...cols.map((c) => ({ key: c.key, dataIndex: c.key, title: c.title, className: "sf-num", render: (v: any) => cell(c.type, v) })),
+            ...shown.map((c) => ({ key: c.key, title: c.title, className: "sf-num", render: (_: unknown, r: any) => vcell(c, r) })),
           ]}
           summary={() =>
             t ? (
               <Table.Summary fixed>
                 <Table.Summary.Row>
                   <Table.Summary.Cell index={0}>جمع</Table.Summary.Cell>
-                  {cols.map((c, i) => (
-                    <Table.Summary.Cell key={c.key} index={i + 1} className="sf-num">{cell(c.type, t[c.key])}</Table.Summary.Cell>
+                  {shown.map((c, i) => (
+                    <Table.Summary.Cell key={c.key} index={i + 1} className="sf-num">{vcell(c, t)}</Table.Summary.Cell>
                   ))}
                 </Table.Summary.Row>
               </Table.Summary>

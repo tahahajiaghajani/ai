@@ -102,9 +102,40 @@
 
   .sf-gstrip .sf-delta { block-size: 20px; }
 
+  /* the strip never slices a figure: items are flex:none and snap; past the edge the end fades (data-more); in a
+     narrow container the secondary items (the second coin, the world ounce) step out; on a phone it is a 2-column
+     grid of label-over-value cells */
+  .sf-gstrip-c { container-type: inline-size; min-inline-size: 0; }
+  .sf-gstrip { scroll-snap-type: x mandatory; scroll-padding-inline: 14px; }
+  .sf-gstrip > .gi, .sf-gstrip > .live { flex: none; scroll-snap-align: start; }
+  .sf-gstrip[data-more] { -webkit-mask-image: linear-gradient(to left, transparent, #000 40px); mask-image: linear-gradient(to left, transparent, #000 40px); }
+  @container (max-width: 1020px) { .sf-gstrip > .gi.is-opt { display: none; } }
+  @container (max-width: 600px) {
+    .sf-gstrip {
+      display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 0; padding: 10px 14px; overflow: visible;
+      -webkit-mask-image: none; mask-image: none;
+    }
+    .sf-gstrip > .gi.is-opt:not(.is-world) { display: flex; }
+    .sf-gstrip > .gi.is-world { display: none; }
+    .sf-gstrip > .gi { display: flex; flex-wrap: wrap; align-items: center; column-gap: 6px; row-gap: 0; padding-inline: 12px 0; min-inline-size: 0; white-space: nowrap; }
+    .sf-gstrip > .gi:nth-child(odd) { padding-inline-start: 0; }
+    .sf-gstrip > .gi + .gi { border-inline-start: 0; }
+    .sf-gstrip > .gi:nth-child(even) { border-inline-start: 1px solid var(--sf-gold-line); }
+    .sf-gstrip > .gi > .gk { flex-basis: 100%; font-size: 12px; line-height: 18px; }
+    .sf-gstrip > .gi > .sf-gold-av { display: none; }
+    .sf-gstrip > .gi > .gv, .sf-gstrip > .gi > .usd { font-size: 14px; line-height: 22px; }
+    .sf-gstrip > .live { grid-column: 1 / -1; margin: 0; padding: 6px 0 0; box-shadow: inset 0 1px 0 var(--sf-gold-line); }
+  }
+
   /* calculator result: the figure column on the well */
   .sf-gcalc .ant-segmented { inline-size: 100%; }
   .sf-gcalc .sf-sums { --sum-col: 132px; }
+  :root[data-theme="dark"] .sf-gcalc .sf-sums { background: var(--sf-well); box-shadow: inset 0 0 0 1px var(--sf-line); }
+
+  /* a document line: the title over one text-3 meta line (kind، tag، category); wage % under its amount */
+  .sf-gdl { display: flex; flex-direction: column; min-inline-size: 0; }
+  .sf-gdl > .t { color: var(--sf-text); white-space: nowrap; }
+  .sf-gdl > .m { font-size: 12px; line-height: 18px; color: var(--sf-text-3); white-space: nowrap; }
 
   /* ================================================================== labels page (sheet preview of tags) */
   .sf-tagprev { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }

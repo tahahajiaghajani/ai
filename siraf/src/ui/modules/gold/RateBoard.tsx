@@ -2,7 +2,7 @@
 // entry (mazaneh ↔ gram18 linked), a counter calculator and the price history.
 import { useMemo, useState, type ReactNode } from "react";
 import { Button, Drawer, Form, Input, Select, Segmented, Tooltip, Popconfirm, Alert } from "antd";
-import { CloudDownload, Plus, Settings, Trash2, Calculator as CalcIcon } from "lucide-react";
+import { CloudDownload, Coins, Plus, Settings, Trash2, Calculator as CalcIcon } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useOrg } from "../../lib/org";
 import { useAction, useNotify } from "../../lib/hooks";
@@ -14,7 +14,6 @@ import { Ic } from "../../components/shell/icons";
 import { D } from "@shared/money";
 import { formatNumber, faDigits } from "@shared/format";
 import { gram18FromMazaneh, mazanehFromGram18, priceJewelry, priceOldGold, priceBullion, weightForBudget, type WageType } from "@shared/gold";
-import { KaratAvatar } from "./kit";
 import { RateChange, RateStamp, SplitButton, stepOf, useGoldSettings, useLatestRate, wageTypeOptions, coinTitle, type Rate, type GoldSettings } from "./shared";
 
 const COIN_KEYS = ["emami", "bahar", "nim", "rob", "gerami"] as const;
@@ -104,7 +103,7 @@ export default function RateBoard() {
       <div className="sf-gcoins mb-4" role="group" aria-label="سکه و ارز">
         {COIN_KEYS.map((k) => (
           <div key={k}>
-            <KaratAvatar kind="coin" small />
+            <Ic icon={Coins} size={16} className="shrink-0 text-ink-3" />
             <div className="t">
               <span className="l">سکه‌ی {coinTitle(k)}</span>
               <span className="v">{r?.coins?.[k] ? formatNumber(r.coins[k]) : <span className="sf-zero">—</span>}</span>

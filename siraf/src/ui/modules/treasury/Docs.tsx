@@ -1,4 +1,5 @@
 // Lists of receipts (دریافت‌ها), payments (پرداخت‌ها) and transfers (انتقال وجه) of the fiscal year.
+// «شرح» has no width of its own: it takes what the fixed columns leave, at least 220 px (scrollX = their sum + 220).
 import { useState } from "react";
 import { Button, Input } from "antd";
 import { Plus, Search, CalendarCheck, ArrowDownToLine, ArrowUpFromLine, ArrowLeftRight } from "lucide-react";
@@ -68,7 +69,7 @@ export default function TreasuryDocs({ kind }: { kind: DocKind }) {
           path="/treasury/docs"
           queryKey={["table", "treasury-docs"]}
           params={params}
-          scrollX={transfer ? 900 : 1040}
+          scrollX={transfer ? 1120 : 1116}
           onRowClick={(r: any) => nav(`/${orgId}/treasury/docs/${r.id}`)}
           filtered={filtered}
           onClearFilters={() => {
@@ -126,12 +127,12 @@ export default function TreasuryDocs({ kind }: { kind: DocKind }) {
             </>
           }
           columns={[
-            { key: "no", dataIndex: "no", title: "شماره", width: 92, sorter: true, render: (v) => <DocNo n={v} /> },
-            { key: "date", dataIndex: "date", title: "تاریخ", width: 108, sorter: true, render: (v) => <JDate v={v} /> },
+            { key: "no", dataIndex: "no", title: "شماره", width: 80, sorter: true, render: (v) => <DocNo n={v} /> },
+            { key: "date", dataIndex: "date", title: "تاریخ", width: 104, sorter: true, render: (v) => <JDate v={v} /> },
             ...(transfer
               ? [
-                  { key: "from", dataIndex: "from_name", title: "از", width: 220, ellipsis: true, render: (v: string) => v ?? <span className="sf-zero">—</span> },
-                  { key: "to", dataIndex: "to_name", title: "به", width: 220, ellipsis: true, render: (v: string) => v ?? <span className="sf-zero">—</span> },
+                  { key: "from", dataIndex: "from_name", title: "از", width: 160, ellipsis: true, render: (v: string) => v ?? <span className="sf-zero">—</span> },
+                  { key: "to", dataIndex: "to_name", title: "به", width: 160, ellipsis: true, render: (v: string) => v ?? <span className="sf-zero">—</span> },
                 ]
               : [
                   {
@@ -156,10 +157,10 @@ export default function TreasuryDocs({ kind }: { kind: DocKind }) {
                   },
                 ]),
             { key: "description", dataIndex: "description", title: "شرح", ellipsis: true, render: (v) => <span className="bk-2">{v}</span> },
-            { key: "total", dataIndex: "total", title: `مبلغ (${unit})`, className: "sf-num", width: 160, sorter: true, render: (v) => <Amt v={v} colored={kind === "receipt"} /> },
+            { key: "total", dataIndex: "total", title: `مبلغ (${unit})`, className: "sf-num", width: 136, sorter: true, render: (v) => <Amt v={v} colored={kind === "receipt"} /> },
             { key: "fees", dataIndex: "fees", title: "کارمزد", className: "sf-num", width: 104, render: (v) => (D(v).isZero() ? <span className="sf-zero">—</span> : <Amt v={v} />) },
             { key: "voucher", dataIndex: "voucher_no", title: "سند", width: 64, render: (v) => (v ? <span className="bk-3 sf-num">{faDigits(v)}</span> : <span className="sf-zero">—</span>) },
-            { key: "by", dataIndex: "created_by_name", title: "ثبت‌کننده", width: 112, ellipsis: true, render: (v) => <span className="bk-3">{v ?? "—"}</span> },
+            { key: "by", dataIndex: "created_by_name", title: "ثبت‌کننده", width: 104, ellipsis: true, render: (v) => <span className="bk-3">{v ?? "—"}</span> },
           ]}
         />
       </div>

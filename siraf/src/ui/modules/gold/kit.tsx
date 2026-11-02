@@ -1,5 +1,6 @@
 // Small presentation pieces of the «طلا» module: the gold price strip (the one amber surface in the product), the
 // karat avatar, the karat selector and the karat text/tag. Gold materials stay inside this module (components.md §4.7).
+import { useEffect, useRef } from "react";
 import { Coins, Recycle } from "lucide-react";
 import { D, type Num } from "@shared/money";
 import { faDigits, formatNumber } from "@shared/format";
@@ -56,10 +57,31 @@ export function KaratSeg({ value, onChange, disabled, small, options = KARATS }:
  * coins and the world ounce (Latin digits, a Latin currency symbol) — and the time of the rate with the live nuqta.
  */
 export function GoldStrip({ rate, change, changePct, coins }: { rate: Rate | null | undefined; change?: string | null; changePct?: string | null; coins?: Coin[] }) {
+  const ref = useRef<HTMLDivElement>(null);
+  // an item is whole or hidden, never sliced: when the strip scrolls, its end edge fades to say there is more
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const check = () => {
+      const rest = el.scrollWidth - el.clientWidth - Math.abs(el.scrollLeft);
+      if (rest > 1) el.setAttribute("data-more", "");
+      else el.removeAttribute("data-more");
+    };
+    check();
+    el.addEventListener("scroll", check, { passive: true });
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    return () => {
+      el.removeEventListener("scroll", check);
+      ro.disconnect();
+    };
+  }, [rate]);
   if (!rate) {
     return (
-      <div className="sf-gstrip" role="group" aria-label="قیمت روز">
-        <span className="gi"><span className="gk">قیمت روز</span><span>هنوز قیمتی در تابلو ثبت نشده است.</span></span>
+      <div className="sf-gstrip-c">
+        <div className="sf-gstrip" role="group" aria-label="قیمت روز">
+          <span className="gi"><span className="gk">قیمت روز</span><span>هنوز قیمتی در تابلو ثبت نشده است.</span></span>
+        </div>
       </div>
     );
   }
@@ -67,29 +89,30 @@ export function GoldStrip({ rate, change, changePct, coins }: { rate: Rate | nul
   const short = (name: string) => name.replace(/\s*\(.*?\)\s*/g, " ").trim();
   const at = new Date(rate.at);
   const fresh = Date.now() - at.getTime() < 6 * 3600_000;
+  const coinItems: { key: string; label: string; v: string }[] = priced.length
+    ? priced.map((c) => ({ key: c.id, label: short(c.name), v: c.price! }))
+    : (["emami", "nim"] as const).filter((k) => rate.coins?.[k]).map((k) => ({ key: k, label: k === "emami" ? "سکه‌ی امامی" : coinTitle(k), v: rate.coins[k] }));
   return (
-    <div className="sf-gstrip" role="group" aria-label="قیمت روز">
-      {rate.gram18 ? (
-        <span className="gi">
-          <span className="sf-gold-av is-sm" aria-hidden>۱۸</span>
-          <span className="gk">طلای ۱۸ عیار</span>
-          <span className="gv">{formatNumber(rate.gram18)}</span>
-          <RateChange change={change} pct={changePct} />
+    <div className="sf-gstrip-c">
+      <div ref={ref} className="sf-gstrip" role="group" aria-label="قیمت روز">
+        {rate.gram18 ? (
+          <span className="gi is-lead">
+            <span className="sf-gold-av is-sm" aria-hidden>۱۸</span>
+            <span className="gk">طلای ۱۸ عیار</span>
+            <span className="gv">{formatNumber(rate.gram18)}</span>
+            <RateChange change={change} pct={changePct} />
+          </span>
+        ) : null}
+        {rate.mazaneh ? <span className="gi"><span className="gk">مظنه</span><span className="gv">{formatNumber(rate.mazaneh)}</span></span> : null}
+        {coinItems.map((c, i) => (
+          <span key={c.key} className={`gi ${i > 0 ? "is-opt" : ""}`}><span className="gk">{c.label}</span><span className="gv">{formatNumber(c.v)}</span></span>
+        ))}
+        {rate.ounce_usd ? <span className="gi is-opt is-world"><span className="gk">انس جهانی</span><span className="usd">${formatNumber(rate.ounce_usd, { dp: 2, minDp: 2, fa: false })}</span></span> : null}
+        <span className="live" title={rate.source === "manual" ? "قیمت دستی" : "قیمت زنده"}>
+          <i className="sf-nuqta" data-live={fresh ? "" : undefined} aria-hidden />
+          <span className="sf-num">{jTime(at)}</span>
         </span>
-      ) : null}
-      {rate.mazaneh ? <span className="gi"><span className="gk">مظنه</span><span className="gv">{formatNumber(rate.mazaneh)}</span></span> : null}
-            {priced.length
-        ? priced.map((c) => (
-            <span key={c.id} className="gi"><span className="gk">{short(c.name)}</span><span className="gv">{formatNumber(c.price!)}</span></span>
-          ))
-        : (["emami", "nim"] as const).filter((k) => rate.coins?.[k]).map((k) => (
-            <span key={k} className="gi"><span className="gk">{k === "emami" ? "سکه‌ی امامی" : coinTitle(k)}</span><span className="gv">{formatNumber(rate.coins[k])}</span></span>
-          ))}
-      {rate.ounce_usd ? <span className="gi"><span className="gk">انس جهانی</span><span className="usd">${formatNumber(rate.ounce_usd, { dp: 2, minDp: 2, fa: false })}</span></span> : null}
-      <span className="live" title={rate.source === "manual" ? "قیمت دستی" : "قیمت زنده"}>
-        <i className="sf-nuqta" data-live={fresh ? "" : undefined} aria-hidden />
-        <span className="sf-num">{jTime(at)}</span>
-      </span>
+      </div>
     </div>
   );
 }

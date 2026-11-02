@@ -22,6 +22,7 @@ import { uuidv7 } from "@shared/id";
 import { gw, ITEM_STATUS, SplitButton, StatusOf, wageText, wageTypeOptions } from "./shared";
 import { KaratText } from "./kit";
 import { PrintLabelsModal, type LabelItem } from "./Labels";
+import { LatinRuns } from "../goods/components";
 
 export default function Items() {
   const { api, orgId, can } = useOrg();
@@ -144,20 +145,20 @@ export default function Items() {
             pagination={{ current: page, pageSize: size, total: list.data?.total ?? 0, showSizeChanger: true, pageSizeOptions: [50, 100, 200, 500], size: "small", showTotal: (t) => `${faDigits(t)} جنس`, onChange: (p, s) => { setPage(p); setSize(s); } }}
             columns={[
               { key: "tag", dataIndex: "tag_no", title: "اتیکت", render: (v) => <span className="sf-docno">{faDigits(v)}</span> },
-              { key: "title", title: "شرح", render: (_, r: any) => <div className="leading-5"><div>{r.title || r.category_name || "—"}</div>{r.stone_desc ? <div className="text-[12px] text-ink-3">{r.stone_desc}</div> : null}</div> },
+              { key: "title", title: "شرح", render: (_, r: any) => <div className="leading-5"><div><LatinRuns text={r.title || r.category_name || "—"} /></div>{r.stone_desc ? <div className="text-[12px] text-ink-3">{r.stone_desc}</div> : null}</div> },
               { key: "cat", dataIndex: "category_name", title: "دسته", render: (v) => <span className="text-ink-2">{v ?? "—"}</span> },
               { key: "fin", dataIndex: "fineness", title: "عیار", render: (v) => <KaratText fineness={v} /> },
               { key: "gross", dataIndex: "gross_weight", title: "وزن کل", className: "sf-num", render: (v) => <span className="sf-num">{gw(v)}</span> },
               { key: "stone", dataIndex: "stone_weight", title: "سنگ", className: "sf-num", render: (v) => (D(v).isZero() ? <span className="sf-zero">—</span> : <span className="sf-num">{gw(v)}</span>) },
               { key: "net", dataIndex: "net_weight", title: "خالص", className: "sf-num", render: (v) => <span className="sf-num">{gw(v)}</span> },
-              { key: "w750", dataIndex: "weight750", title: "۷۵۰", className: "sf-num", render: (v) => <span className="sf-num">{gw(v)}</span> },
+              { key: "w750", dataIndex: "weight750", title: "معادل ۷۵۰", className: "sf-num", render: (v) => <span className="sf-num">{gw(v)}</span> },
               { key: "wage", title: "اجرت", render: (_, r: any) => wageText(r.wage_type, r.wage_value) },
               { key: "cost", dataIndex: "cost", title: "بها", className: "sf-num", render: (v) => <Money v={v ?? 0} zero="—" /> },
               { key: "own", dataIndex: "ownership", title: "مالکیت", render: (v, r: any) => (v === "consignment" ? <span className="inline-flex items-center gap-2"><Chip tone="neutral">امانی</Chip><span className="text-[13px] text-ink-3">{r.supplier_name ?? ""}</span></span> : <span className="text-[13px] text-ink-3">{r.supplier_name ?? ""}</span>) },
               { key: "st", dataIndex: "status", title: "وضعیت", render: (v) => <StatusOf s={v} map={ITEM_STATUS} /> },
               {
                 key: "act", width: 44, fixed: "left" as const, render: (_, r: any) => (
-                  <span onClick={(e) => e.stopPropagation()}>
+                  <span className="sf-row-act" onClick={(e) => e.stopPropagation()}>
                     <Dropdown
                       trigger={["click"]}
                       menu={{

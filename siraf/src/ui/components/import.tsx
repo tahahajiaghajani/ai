@@ -195,6 +195,7 @@ export function ImportDrawer({ def, open, onClose }: { def: EntityDef; open: boo
       }}
       size={SHEET_W}
       placement="left"
+      closable={{ placement: "end" }}
       title={`ورود ${def.plural} از اکسل`}
       destroyOnHidden
       extra={

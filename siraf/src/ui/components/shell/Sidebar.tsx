@@ -179,10 +179,12 @@ function SpaceSwitcher({ spaces, space, onSpace, rail, select }: { spaces: Space
     );
   if (select)
     return (
-      <Dropdown trigger={["click"]} menu={menu} rootClassName="sf-glass sh-menu">
+      <Dropdown trigger={["click"]} menu={menu} rootClassName="sf-glass sh-menu sh-menu-space" placement="bottom">
         <button type="button" className="sh-space-select" aria-label={`بخش: ${cur.title}، تغییر بخش`}>
-          <Ic icon={cur.icon} />
-          <span>{cur.title}</span>
+          <span className="sh-space-ic" aria-hidden>
+            <Ic icon={cur.icon} />
+          </span>
+          <span className="sh-space-t">{cur.title}</span>
           <Ic icon={ChevronsUpDown} className="sh-biz-chev" />
         </button>
       </Dropdown>
@@ -274,7 +276,16 @@ function NavRow({
 function Footer({ rail, onSettings, onNavigate, settingsActive }: { rail?: boolean; onSettings: () => void; onNavigate?: () => void; settingsActive: boolean }) {
   const sync = useSyncState();
   const { orgId } = useOrg();
+  const { meta } = useSession();
   const nav = useNavigate();
+  // on Windows the state opens «نسخهٔ ویندوز» (backup, network and sync)
+  const desktop = meta?.mode === "desktop";
+  const openDesktop = desktop
+    ? () => {
+        onNavigate?.();
+        nav(`/${orgId}/settings/desktop`);
+      }
+    : undefined;
   const help = () => {
     onNavigate?.();
     nav(`/${orgId}/help`);
@@ -283,9 +294,15 @@ function Footer({ rail, onSettings, onNavigate, settingsActive }: { rail?: boole
     return (
       <div className="sh-foot sh-foot-rail">
         <Tooltip title={[sync.word, sync.meta].filter(Boolean).join("، ")} placement="left">
-          <span className="sh-rail-sync" tabIndex={0} aria-label={sync.word}>
-            {sync.tone === "web" ? <span className="sf-nuqta sh-nuqta sh-nuqta-web" aria-hidden /> : <SyncNuqta tone={sync.tone} />}
-          </span>
+          {openDesktop ? (
+            <button type="button" className="sh-rail-sync" aria-label={`${sync.word}، نسخهٔ ویندوز`} onClick={openDesktop}>
+              <SyncNuqta tone={sync.tone} />
+            </button>
+          ) : (
+            <span className="sh-rail-sync" tabIndex={0} aria-label={sync.word}>
+              {sync.tone === "web" ? <span className="sf-nuqta sh-nuqta sh-nuqta-web" aria-hidden /> : <SyncNuqta tone={sync.tone} />}
+            </span>
+          )}
         </Tooltip>
         <Tooltip title="تنظیمات" placement="left">
           <button type="button" className="sh-icon-btn" aria-label="تنظیمات" aria-pressed={settingsActive} onClick={onSettings}>
@@ -296,7 +313,7 @@ function Footer({ rail, onSettings, onNavigate, settingsActive }: { rail?: boole
     );
   return (
     <div className="sh-foot">
-      <SyncLine state={sync} />
+      <SyncLine state={sync} onOpen={openDesktop} />
       <span className="sh-foot-tools">
         <Tooltip title="راهنما و میانبرها">
           <button type="button" className="sh-icon-btn sh-icon-sm" aria-label="راهنما" onClick={help}>
@@ -361,7 +378,7 @@ export function Sidebar(p: SidebarProps) {
             </button>
           )
         ) : (
-          <SpaceSwitcher spaces={spaces} space={space} onSpace={p.onSpace} rail={rail} select={spaces.length >= 5 && p.width < 236} />
+          <SpaceSwitcher spaces={spaces} space={space} onSpace={p.onSpace} rail={rail} select={spaces.length >= 5} />
         )}
         {rail ? (
           <Tooltip
@@ -395,6 +412,7 @@ export function Sidebar(p: SidebarProps) {
               {common.map((i) => row(i))}
             </nav>
           ) : null}
+          {common.length && sections[0] && sections[0].label === null ? <div className="sh-div" role="separator" /> : null}
           {sections.map((s) => {
             const id = `${space}:${s.label ?? ""}`;
             const hasActive = s.items.some((i) => i.key === active?.key);

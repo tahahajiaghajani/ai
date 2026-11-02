@@ -7,7 +7,7 @@ import { useSession } from "../../lib/session";
 import { useAction } from "../../lib/hooks";
 import { PageHeader } from "../../components/layout";
 import { JDateTime } from "../../components/display";
-import { Avatar, Card, ICON, ICON14 } from "../reports/kit";
+import { Card, ICON, ICON14 } from "../reports/kit";
 
 export default function Account() {
   const { me, refresh } = useSession();
@@ -18,8 +18,8 @@ export default function Account() {
   return (
     <div>
       <PageHeader title="حساب کاربری من" subtitle={me?.user.email ? <bdi dir="ltr" className="sf-latin">{me.user.email}</bdi> : undefined} />
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card title="مشخصات" tools={<Avatar name={me?.user.full_name} />}>
+      <div className="bk-cols grid items-start gap-4 lg:grid-cols-2">
+        <Card title="مشخصات">
           <Form layout="vertical" requiredMark={false} initialValues={me?.user} onFinish={(v) => profile.mutate(v)}>
             <Form.Item name="full_name" label="نام" rules={[{ required: true, message: "نام را بنویسید." }]}><Input /></Form.Item>
             <Form.Item label="ایمیل"><Input value={me?.user.email} disabled dir="ltr" className="sf-latin" /></Form.Item>

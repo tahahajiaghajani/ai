@@ -58,7 +58,7 @@ export default function Integrations() {
     <div>
       <PageHeader
         title="اتصال‌ها و API"
-        subtitle={<Link className="sf-link" to={`/${orgId}/help#shop`}>راهنمای اتصال فروشگاه</Link>}
+        subtitle={<Link className="sf-link bk-hlink" to={`/${orgId}/help#shop`}>راهنما</Link>}
         actions={
           editable && tab !== "events" ? (
             <Button type="primary" icon={<Plus {...ICON} />} onClick={() => (tab === "api" ? setKeyModal(true) : setAdd(true))}>
@@ -68,9 +68,10 @@ export default function Integrations() {
         }
       />
       {meta?.mode === "desktop" ? (
-        <Note className="mb-4">
-          <b>فروشگاه اینترنتی به نسخهٔ وب وصل می‌شود.</b> سایت باید سفارش را به یک نشانی اینترنتی بفرستد؛ این اتصال‌ها را در نسخهٔ وب بسازید. فاکتورهای ساخته‌شده با هم‌گامی به همین برنامه هم می‌رسند.
-        </Note>
+        <p className="bk-line mb-4">
+          <i className="sf-nuqta" aria-hidden />
+          اتصال فروشگاه در نسخهٔ وب ساخته می‌شود.
+        </p>
       ) : null}
       <Tabs
         activeKey={tab}

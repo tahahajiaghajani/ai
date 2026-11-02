@@ -9,7 +9,7 @@ import { ChevronDown } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useOrg } from "../../lib/org";
 import { D, type Num } from "@shared/money";
-import { formatNumber, formatWeight, faDigits } from "@shared/format";
+import { formatNumber, faDigits } from "@shared/format";
 import { formatJalaliDateTime } from "@shared/jalali";
 import { StatusTag, Weight } from "../../components/display";
 import { Ic } from "../../components/shell/icons";
@@ -83,7 +83,7 @@ export function WBalance({ v }: { v: Num }) {
   if (d.isZero()) return <span className="sf-num sf-zero">—</span>;
   return (
     <span className="sf-num">
-      {formatWeight(d.abs())}
+      {formatNumber(d.abs(), { dp: 3, minDp: 3 })}
       {"\u00a0"}
       <span className="sf-bal-side">{d.gt(0) ? "بد" : "بس"}</span>
     </span>

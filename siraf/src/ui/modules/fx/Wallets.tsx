@@ -69,9 +69,10 @@ export default function Wallets() {
 
   // totals per asset (our wallets only)
   const totals = useMemo(() => {
-    const m = new Map<string, { code: string; dp: number; live: ReturnType<typeof D>; book: ReturnType<typeof D>; value: ReturnType<typeof D>; unchecked: number }>();
+    const m = new Map<string, { code: string; dp: number; live: ReturnType<typeof D>; book: ReturnType<typeof D>; value: ReturnType<typeof D>; unchecked: number; count: number }>();
     for (const w of rows.filter((x) => x.kind !== "customer")) {
-      const t = m.get(w.currency_id) ?? { code: w.currency_code, dp: Number(w.currency_decimals ?? 8), live: D(0), book: D(0), value: D(0), unchecked: 0 };
+      const t = m.get(w.currency_id) ?? { code: w.currency_code, dp: Number(w.currency_decimals ?? 8), live: D(0), book: D(0), value: D(0), unchecked: 0, count: 0 };
+      t.count += 1;
       if (w.last_balance === null) t.unchecked += 1;
       t.live = t.live.plus(D(w.last_balance ?? 0));
       t.book = t.book.plus(D(w.book_balance));
@@ -98,18 +99,20 @@ export default function Wallets() {
         <div className="mb-4 grid sm:grid-cols-2 xl:grid-cols-4">
           {totals.map((t) => {
             const diff = t.live.minus(t.book);
+            const none = t.unchecked > 0 && t.live.isZero() && t.unchecked >= t.count;
             return (
               <StatCard
                 key={t.code}
-                icon={<span className="sf-cur-av is-sm">{t.code.slice(0, 4)}</span>}
-                title="موجودی زنده"
-                value={<FxAmount v={t.live.toFixed()} code={t.code} dp={t.dp} />}
+                title={<span className="inline-flex items-center gap-2"><CurrencyChip c={{ code: t.code, kind: "crypto" }} />موجودی زنده</span>}
+                value={none ? <span className="sf-zero">—</span> : <FxAmount v={t.live.toFixed()} code={t.code} dp={t.dp} />}
                 hint={
-                  diff.isZero() ? (
-                    <span className="inline-flex flex-wrap items-center gap-1">دفتری <FxAmount v={t.book.toFixed()} dp={t.dp} /><span className="sf-sep" aria-hidden />تطبیق دارد</span>
+                  none ? (
+                    <span className="inline-flex flex-wrap items-center gap-1">بررسی‌نشده<span className="sf-sep" aria-hidden />دفتری <FxAmount v={t.book.toFixed()} code={t.code} dp={t.dp} /></span>
+                  ) : diff.isZero() ? (
+                    <span className="inline-flex flex-wrap items-center gap-1">دفتری <FxAmount v={t.book.toFixed()} code={t.code} dp={t.dp} /><span className="sf-sep" aria-hidden />تطبیق دارد</span>
                   ) : (
                     <span className="inline-flex flex-wrap items-center gap-2">
-                      <Chip tone="warning" fig>اختلاف <bdi dir="ltr">{formatNumber(diff, { dp: t.dp, fa: false })}</bdi></Chip>
+                      {t.unchecked ? null : <Chip tone="warning" fig>اختلاف <SignedFx v={diff} code={t.code} dp={t.dp} /></Chip>}
                       {t.unchecked ? <span><span className="sf-num">{faDigits(t.unchecked)}</span> بررسی‌نشده</span> : null}
                     </span>
                   )
@@ -179,13 +182,13 @@ export default function Wallets() {
               title: "اختلاف",
               className: "sf-num",
               render: (_, w) =>
-                w.kind === "customer" || w.difference === null ? <span className="sf-zero">—</span> : D(w.difference).isZero() ? <span className="text-[13px] text-in">تطبیق</span> : <Chip tone="warning" fig><bdi dir="ltr">{formatNumber(D(w.difference), { dp: Number(w.currency_decimals ?? 8), fa: false, sign: true })}</bdi></Chip>,
+                w.kind === "customer" || w.difference === null || w.last_balance === null ? <span className="sf-zero">—</span> : D(w.difference).isZero() ? <span className="text-[13px] text-in">تطبیق</span> : <Chip tone="warning" fig><SignedFx v={D(w.difference)} code={w.currency_code} dp={Number(w.currency_decimals ?? 8)} /></Chip>,
             },
             {
               key: "act",
               width: 90,
               render: (_, w) => (
-                <span className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                <span className="sf-row-act gap-1" onClick={(e) => e.stopPropagation()}>
                   <Tooltip title="بررسی موجودی"><Button size="small" type="text" icon={<Ic icon={RefreshCw} className={busy === w.id ? "sf-spin" : undefined} />} onClick={() => refreshOne(w)} /></Tooltip>
                   {can("fx", "edit") ? (
                     <Dropdown
@@ -242,4 +245,10 @@ function TxList({ w, txs, onLoad, loading }: { w: WalletRow; txs?: any[]; onLoad
       ))}
     </div>
   );
+}
+
+/** A signed crypto difference in one script: «−0.035 BTC» (U+2212, Latin digits, Geist) as one LTR isolate. */
+function SignedFx({ v, code, dp }: { v: ReturnType<typeof D>; code: string; dp: number }) {
+  const sign = v.isNeg() ? "\u2212" : v.gt(0) ? "+" : "";
+  return <bdi dir="ltr" className="sf-latin">{sign}{formatNumber(v.abs(), { dp, fa: false })} {code}</bdi>;
 }

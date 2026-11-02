@@ -2,12 +2,13 @@
 // item, customer, item group or month; purchases by item or supplier. Excel export, print.
 import { useState } from "react";
 import { Button, Segmented, Table, Tabs } from "antd";
+import { DataTable } from "../../components/data";
 import { Boxes, FileSpreadsheet, Percent, Printer, ReceiptText, ShoppingBag, TrendingUp } from "lucide-react";
 import { Ic } from "../../components/shell/icons";
 import { useQuery } from "@tanstack/react-query";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Legend } from "recharts";
 import { useOrg } from "../../lib/org";
-import { useNotify } from "../../lib/hooks";
+import { useIsPhone, useNotify } from "../../lib/hooks";
 import { exportExcel } from "../../lib/excel";
 import { PageHeader } from "../../components/layout";
 import { Money, StatCard } from "../../components/display";
@@ -15,7 +16,7 @@ import { DateInput, PartySelect } from "../../components/inputs";
 import { D } from "@shared/money";
 import { faDigits, formatCompact, formatNumber } from "@shared/format";
 import { formatJalali, presetRange, todayISO } from "@shared/jalali";
-import { Qty } from "./components";
+import { LatinRuns, Qty } from "./components";
 
 type Tab = "item" | "party" | "category" | "month" | "p-item" | "p-party";
 
@@ -47,6 +48,15 @@ export default function SalesReports() {
   const rows = (r.data?.rows ?? []) as any[];
   const totals = r.data?.totals;
   const sales = t.side === "sales";
+  const phone = useIsPhone();
+  const presetOf = (): string | undefined => {
+    if (fy && from === fy.start_date && to === fy.end_date) return "fy";
+    for (const k of ["quarter", "month", "lastMonth", "today"] as const) {
+      const p = presetRange(k as "month", todayISO());
+      if (p.from === from && p.to === to) return k;
+    }
+    return undefined;
+  };
   const exportRows = async () => {
     try {
       await exportExcel(t.label, [
@@ -80,6 +90,7 @@ export default function SalesReports() {
       <div className="sf-filters no-print">
         <Segmented
           size="small"
+          value={presetOf() ?? ""}
           options={[
             { value: "fy", label: "سال مالی" },
             { value: "quarter", label: "فصل" },
@@ -137,8 +148,7 @@ export default function SalesReports() {
             </ResponsiveContainer>
           </div>
         ) : null}
-        <Table
-          className=""
+        <DataTable
           size="small"
           rowKey="key"
           loading={r.isLoading}
@@ -146,7 +156,7 @@ export default function SalesReports() {
           pagination={{ pageSize: 100, hideOnSinglePage: true, size: "small" }}
           scroll={{ x: "max-content" }}
           columns={[
-            { key: "label", dataIndex: "label", title: t.col, render: (v, x: any) => <span>{x.code ? <span className="sf-docno me-2 text-ink-3">{faDigits(x.code)}</span> : null}{v}</span> },
+            { key: "label", dataIndex: "label", title: t.col, render: (v, x: any) => <span>{x.code ? <span className="sf-docno me-2 text-ink-3">{faDigits(x.code)}</span> : null}<LatinRuns text={v} /></span> },
             ...(t.group === "item" ? [{ key: "qty", dataIndex: "qty", title: "مقدار", className: "sf-num", render: (v: string) => <Qty v={v} /> }] : []),
             { key: "amount", dataIndex: "amount", title: sales ? "فروش خالص" : "مبلغ خرید", className: "sf-num", sorter: (a: any, b: any) => D(a.amount).cmp(D(b.amount)), render: (v: string) => <Money v={v} /> },
             ...(sales
@@ -158,8 +168,9 @@ export default function SalesReports() {
               : [{ key: "tax", dataIndex: "tax", title: "مالیات", className: "sf-num", render: (v: string) => <Money v={v} /> }]),
             { key: "invoices", dataIndex: "invoices", title: "فاکتور", className: "sf-num", render: (v: number) => <span className="sf-num">{faDigits(v)}</span> },
           ]}
+          showSorterTooltip={false}
           summary={() =>
-            totals && rows.length ? (
+            totals && rows.length && !phone ? (
               <Table.Summary.Row>
                 <Table.Summary.Cell index={0} colSpan={t.group === "item" ? 2 : 1}>جمع</Table.Summary.Cell>
                 <Table.Summary.Cell index={1} className="sf-num"><Money v={totals.amount} /></Table.Summary.Cell>

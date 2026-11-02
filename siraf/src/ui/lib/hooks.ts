@@ -1,4 +1,4 @@
-import { createElement, useEffect, useRef, useState, type ReactNode } from "react";
+import { createElement, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { App } from "antd";
 import { CircleCheck, CircleAlert } from "lucide-react";
 import { useMutation, useQueryClient, type QueryKey } from "@tanstack/react-query";
@@ -199,3 +199,21 @@ export function useLocalState<T>(key: string, initial: T): [T, (v: T) => void] {
     },
   ];
 }
+
+/** A CSS media query as React state (re-renders when it flips). */
+export function useMediaQuery(query: string): boolean {
+  return useSyncExternalStore(
+    (cb) => {
+      if (typeof window === "undefined" || !window.matchMedia) return () => {};
+      const m = window.matchMedia(query);
+      m.addEventListener("change", cb);
+      return () => m.removeEventListener("change", cb);
+    },
+    () => (typeof window !== "undefined" && !!window.matchMedia && window.matchMedia(query).matches),
+    () => false,
+  );
+}
+
+/** Phone layout (below 640 px): tables stack their rows and filters move into a bottom sheet. */
+export const PHONE_QUERY = "(max-width: 639.98px)";
+export const useIsPhone = () => useMediaQuery(PHONE_QUERY);

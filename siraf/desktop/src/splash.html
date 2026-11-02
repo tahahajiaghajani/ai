@@ -50,11 +50,11 @@ body{position:relative;font-family:"Vazirmatn","Segoe UI",Tahoma,sans-serif;colo
 .tagline{position:absolute;left:0;right:0;top:188px;margin:0;text-align:center;font-size:13.5px;line-height:22px;color:rgb(255 255 255 / .66);animation:fade 420ms var(--ease-out) 500ms both}
 
 .foot{position:absolute;left:40px;right:40px;top:254px;animation:fade 360ms var(--ease-out) 620ms both}
-.rule{position:relative;height:9px}
+.rule{position:relative;height:9px;container-type:inline-size}
 .track,.fill{position:absolute;right:0;top:4px;height:1px;width:100%;background:var(--line)}
 .fill{height:1.5px;top:3.75px;background:rgb(255 255 255 / .82);transform-origin:100% 50%;transform:scaleX(var(--p,0));transition:transform 600ms var(--ease-out)}
-.head{position:absolute;top:1px;right:0;width:7px;height:7px;margin-right:-3.5px;transform:translateX(calc(var(--p,0) * -440px)) rotate(45deg) scale(.7071);background:#fff;transition:transform 600ms var(--ease-out),background-color 300ms var(--ease-out)}
-.meta{display:flex;justify-content:space-between;align-items:baseline;margin-top:10px;font-size:11.5px;line-height:18px}
+.head{position:absolute;top:1px;right:0;width:7px;height:7px;margin-right:-3.5px;transform:translateX(calc(var(--p,0) * -100cqw)) rotate(45deg) scale(.7071);background:#fff;transition:transform 600ms var(--ease-out),background-color 300ms var(--ease-out)}
+.meta{display:flex;justify-content:space-between;align-items:baseline;margin-top:10px;font-size:12px;line-height:18px}
 .status{color:rgb(255 255 255 / .70)}
 .ver{color:rgb(255 255 255 / .42)}
 body.done .head{background:var(--in);box-shadow:0 0 0 3px rgb(109 199 148 / .18)}

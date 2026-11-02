@@ -2,8 +2,8 @@
 // book and market value and unrealized profit; realized profit of a period by currency and day.
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Alert, Button, Segmented, Table, Tabs } from "antd";
-import { ArrowLeftRight, ChartLine, Percent, Printer, Rows3, TrendingUp, Wallet } from "lucide-react";
+import { Button, Segmented, Table, Tabs, Tooltip as Tip } from "antd";
+import { ArrowLeftRight, ChartLine, Info, Percent, Printer, Rows3, TrendingUp, Wallet } from "lucide-react";
 import { Ic } from "../../components/shell/icons";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Legend } from "recharts";
 import { useOrg } from "../../lib/org";
@@ -13,7 +13,7 @@ import { Money, StatCard, EmptyState, JDate } from "../../components/display";
 import { D } from "@shared/money";
 import { faDigits, formatCompact } from "@shared/format";
 import { formatJalali, presetRange, todayISO } from "@shared/jalali";
-import { CurrencyName, FxAmount, KIND_FA, rateLabel } from "./shared";
+import { CurrencyAvatar, CurrencyName, FxAmount, KIND_FA, rateLabel } from "./shared";
 
 const LEG_FA: Record<string, string> = { fx_cash: "صندوق", fx_bank: "بانک", crypto_wallets: "کیف‌پول" };
 
@@ -85,31 +85,54 @@ export default function Positions() {
                   scroll={{ x: "max-content" }}
                   locale={{ emptyText: <EmptyState title="موجودی ارزی ثبت نشده است" /> }}
                   expandable={{
-                    rowExpandable: (r: any) => r.legs.length > 0,
+                    rowExpandable: (r: any) => r.legs.length > 0 || !D(r.customers_net ?? 0).isZero() || !D(r.correspondents_net ?? 0).isZero(),
                     expandedRowRender: (r: any) => (
-                      <div className="grid gap-1 py-1">
+                      <div className="sf-pos-legs">
                         {r.legs.map((l: any) => (
-                          <div key={`${l.key}-${l.detail_id}`} className="flex flex-wrap gap-4 text-xs">
-                            <span className="w-16 text-ink-3">{LEG_FA[l.key] ?? l.key}</span>
-                            <span className="w-48">{l.name ?? "—"}</span>
+                          <div key={`${l.key}-${l.detail_id}`} className="r">
+                            <span className="k">{LEG_FA[l.key] ?? l.key}</span>
+                            <span className="nm">{l.name ?? "—"}</span>
                             <FxAmount v={l.fx} code={r.code} dp={r.decimals} />
-                            <Money v={l.base} />
+                            <span className="b"><Money v={l.base} /></span>
                           </div>
                         ))}
+                        {!D(r.customers_net ?? 0).isZero() ? (
+                          <div className="r">
+                            <span className="k">مشتریان</span>
+                            <span className="nm">{D(r.customers_net).gt(0) ? "طلب از مشتریان" : "بدهی به مشتریان"}</span>
+                            <FxAmount v={D(r.customers_net).abs().toFixed()} code={r.code} dp={r.decimals} />
+                            <span className="b" />
+                          </div>
+                        ) : null}
+                        {!D(r.correspondents_net ?? 0).isZero() ? (
+                          <div className="r">
+                            <span className="k">همکاران</span>
+                            <span className="nm">{D(r.correspondents_net).gt(0) ? "طلب از همکاران" : "بدهی به همکاران"}</span>
+                            <FxAmount v={D(r.correspondents_net).abs().toFixed()} code={r.code} dp={r.decimals} />
+                            <span className="b" />
+                          </div>
+                        ) : null}
                       </div>
                     ),
                   }}
                   columns={[
-                    { key: "c", title: "ارز", render: (_, r: any) => <CurrencyName c={r} /> },
+                    { key: "c", title: "ارز", render: (_, r: any) => <span className="sf-pos-cur"><CurrencyAvatar code={r.code} size="sm" /><span>{r.name}</span></span> },
                     { key: "h", title: "موجودی", className: "sf-num", render: (_, r: any) => <FxAmount v={r.holdings} dp={r.decimals} strong /> },
                     { key: "avg", title: "میانگین بها", className: "sf-num", render: (_, r: any) => <span className="sf-num">{r.avg_cost ? rateLabel(r.avg_cost, baseDp) : "—"}</span> },
                     { key: "book", title: "ارزش دفتری", className: "sf-num", render: (_, r: any) => <Money v={r.book_value} /> },
                     { key: "rate", title: "نرخ روز", className: "sf-num", render: (_, r: any) => <span className="sf-num text-ink-3">{r.market_rate ? rateLabel(r.market_rate, baseDp) : "—"}</span> },
                     { key: "mv", title: "ارزش روز", className: "sf-num", render: (_, r: any) => (r.market_value ? <Money v={r.market_value} /> : <span className="sf-zero">—</span>) },
-                    { key: "un", title: "تحقق‌نیافته", className: "sf-num", render: (_, r: any) => (r.unrealized ? <Money v={r.unrealized} /> : <span className="sf-zero">—</span>) },
-                    { key: "cust", title: "مانده‌ی مشتریان", className: "sf-num", render: (_, r: any) => <FxAmount v={r.customers_net} dp={r.decimals} zero="—" /> },
-                    { key: "corr", title: "مانده‌ی همکاران", className: "sf-num", render: (_, r: any) => <FxAmount v={r.correspondents_net} dp={r.decimals} zero="—" /> },
-                    { key: "exp", title: "موقعیت خالص", className: "sf-num", render: (_, r: any) => <FxAmount v={r.exposure} dp={r.decimals} strong /> },
+                    { key: "un", title: "تحقق‌نیافته", className: "sf-num", render: (_, r: any) => (r.unrealized ? <Money v={r.unrealized} zero="—" /> : <span className="sf-zero">—</span>) },
+                    {
+                      key: "exp",
+                      title: (
+                        <Tip title="موجودی (صندوق‌ها، بانک‌ها و کیف‌پول‌های ارزی) به‌اضافه‌ی طلب از مشتریان و همکاران، منهای بدهی به آن‌ها. میانگین بها = ارزش دفتری ÷ موجودی.">
+                          <span className="inline-flex items-center gap-1">موقعیت خالص<Ic icon={Info} size={14} className="text-ink-3" /></span>
+                        </Tip>
+                      ),
+                      className: "sf-num",
+                      render: (_, r: any) => <FxAmount v={r.exposure} dp={r.decimals} strong />,
+                    },
                   ]}
                   summary={(rows) =>
                     rows.length ? (
@@ -119,14 +142,11 @@ export default function Positions() {
                         <Table.Summary.Cell index={5} />
                         <Table.Summary.Cell index={6} className="sf-num"><Money v={p?.totals.market_value ?? 0} /></Table.Summary.Cell>
                         <Table.Summary.Cell index={7} className="sf-num"><Money v={p?.totals.unrealized ?? 0} /></Table.Summary.Cell>
-                        <Table.Summary.Cell index={8} colSpan={3} />
+                        <Table.Summary.Cell index={8} />
                       </Table.Summary.Row>
                     ) : null
                   }
                 />
-                <div className="border-t border-line px-5 py-3 text-[12px] leading-5 text-ink-3">
-                  موجودی = صندوق‌های ارزی + بانک‌های ارزی + کیف‌پول‌ها. میانگین بها = ارزش دفتری ÷ موجودی (پس از تسعیر، نرخ تسعیر). موقعیت خالص = موجودی + طلب از مشتریان و همکاران − بدهی به آن‌ها.
-                </div>
               </Section>
             ),
           },

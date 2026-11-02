@@ -2,8 +2,8 @@
 // kind, nature, dimensions (subsidiary, currency, gold weight, automatic-posting role) and how many lines it carries.
 // ↑/↓ move, ← opens a branch and → closes it (mirrored for RTL), Enter edits.
 import { useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { Button, Drawer, Form, Input, Select, Switch, Tooltip } from "antd";
-import { Plus, Pencil, Trash2, Search, Download, ChevronLeft, ListTree, ChevronsDownUp, ChevronsUpDown } from "lucide-react";
+import { Button, Drawer, Dropdown, Form, Input, Select, Switch, Tooltip } from "antd";
+import { Plus, Pencil, Trash2, Search, Download, ChevronLeft, ListTree, ChevronsDownUp, ChevronsUpDown, Ellipsis } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useOrg } from "../../lib/org";
 import { useAction, useNotify } from "../../lib/hooks";
@@ -64,6 +64,10 @@ export default function Accounts() {
   const n = useNotify();
   const full = can("accounting", "full");
   const del = useAction((id: string) => api.del(`/accounting/accounts/${id}`), { success: "حساب حذف شد.", invalidate: [["accounts"]] });
+  const addChild = (a: Acc) => setEdit({ parent_id: a.id, kind: a.kind, nature: a.nature, level: a.level + 1 });
+  const remove = async (a: Acc) => {
+    if (await n.confirm(`حذف حساب «${a.name}»؟`, "این حساب گردشی ندارد و از کدینگ برداشته می‌شود.", true)) del.mutate(a.id);
+  };
   const accounts = q.data ?? [];
 
   const kids = useMemo(() => {
@@ -168,7 +172,7 @@ export default function Accounts() {
       />
       <section className="bk-card">
         <header className="bk-card-h">
-          <Input allowClear prefix={<Search {...ICON} className="bk-3" />} placeholder="کد یا نام حساب" className="!w-72" value={search} onChange={(e) => setSearch(e.target.value)} />
+          <Input allowClear prefix={<Search {...ICON} className="bk-3" />} placeholder="کد یا نام حساب" style={{ flex: "1 1 200px", maxInlineSize: 288 }} value={search} onChange={(e) => setSearch(e.target.value)} />
           <div className="bk-card-x">
             <Tooltip title={allOpen ? "بستن همه" : "باز کردن همه"}>
               <Button
@@ -246,29 +250,37 @@ export default function Accounts() {
                   </span>
                   <span className="bk-tree-c sf-num">{a.line_count ? faDigits(a.line_count) : "—"}</span>
                   {full ? (
-                    <span className="bk-ra" onClick={(e) => e.stopPropagation()}>
-                      {a.level < 3 ? (
-                        <Tooltip title={`${LEVEL[a.level + 1]} تازه زیر این حساب`}>
-                          <Button size="small" type="text" tabIndex={-1} icon={<Plus {...ICON14} />} onClick={() => setEdit({ parent_id: a.id, kind: a.kind, nature: a.nature, level: a.level + 1 })} aria-label="زیرحساب" />
+                    <span className="bk-tree-act" onClick={(e) => e.stopPropagation()}>
+                      <span className="bk-ra">
+                        {a.level < 3 ? (
+                          <Tooltip title={`${LEVEL[a.level + 1]} تازه زیر این حساب`}>
+                            <Button size="small" type="text" tabIndex={-1} icon={<Plus {...ICON14} />} onClick={() => addChild(a)} aria-label="زیرحساب" />
+                          </Tooltip>
+                        ) : null}
+                        <Tooltip title="ویرایش">
+                          <Button size="small" type="text" tabIndex={-1} icon={<Pencil {...ICON14} />} onClick={() => setEdit(a)} aria-label="ویرایش" />
                         </Tooltip>
-                      ) : null}
-                      <Tooltip title="ویرایش">
-                        <Button size="small" type="text" tabIndex={-1} icon={<Pencil {...ICON14} />} onClick={() => setEdit(a)} aria-label="ویرایش" />
-                      </Tooltip>
-                      {!a.line_count ? (
-                        <Tooltip title="حذف">
-                          <Button
-                            size="small"
-                            type="text"
-                            tabIndex={-1}
-                            icon={<Trash2 {...ICON14} />}
-                            onClick={async () => {
-                              if (await n.confirm(`حذف حساب «${a.name}»؟`, "این حساب گردشی ندارد و از کدینگ برداشته می‌شود.", true)) del.mutate(a.id);
-                            }}
-                            aria-label="حذف"
-                          />
-                        </Tooltip>
-                      ) : null}
+                        {!a.line_count ? (
+                          <Tooltip title="حذف">
+                            <Button size="small" type="text" tabIndex={-1} icon={<Trash2 {...ICON14} />} onClick={() => remove(a)} aria-label="حذف" />
+                          </Tooltip>
+                        ) : null}
+                      </span>
+                      {/* phones: one ⋯ menu instead of three always-visible icons */}
+                      <Dropdown
+                        trigger={["click"]}
+                        rootClassName="sf-glass"
+                        placement="bottomLeft"
+                        menu={{
+                          items: [
+                            ...(a.level < 3 ? [{ key: "add", icon: <Plus {...ICON14} />, label: `${LEVEL[a.level + 1]} تازه زیر این حساب`, onClick: () => addChild(a) }] : []),
+                            { key: "edit", icon: <Pencil {...ICON14} />, label: "ویرایش", onClick: () => setEdit(a) },
+                            ...(!a.line_count ? [{ key: "del", icon: <Trash2 {...ICON14} />, label: "حذف", danger: true, onClick: () => remove(a) }] : []),
+                          ],
+                        }}
+                      >
+                        <Button size="small" type="text" tabIndex={-1} className="bk-ra-m" icon={<Ellipsis {...ICON} />} aria-label="کارها" />
+                      </Dropdown>
                     </span>
                   ) : (
                     <span />

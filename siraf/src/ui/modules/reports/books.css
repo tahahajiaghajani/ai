@@ -7,6 +7,8 @@
   /* ================================================================== cards */
   .bk-card { position: relative; min-inline-size: 0; background: var(--sf-surface); border-radius: var(--sf-radius-lg); box-shadow: var(--sf-shadow-e1); }
   .bk-card + .bk-card, .bk-stack > * + * { margin-block-start: var(--sf-stack); }
+  /* cards laid out in a grid take the grid's gap only, so the tops of the columns line up */
+  .bk-cols > .bk-card + .bk-card { margin-block-start: 0; }
   .bk-card-h {
     display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
     min-block-size: 56px; padding: 12px 16px 12px 20px; padding-inline: 20px 16px;
@@ -19,6 +21,10 @@
   .bk-cap { font-size: 12px; line-height: 18px; color: var(--sf-text-3); white-space: nowrap; }
   .bk-meta { font-size: 13px; line-height: 20px; color: var(--sf-text-3); }
   .bk-meta b { font-weight: 500; color: var(--sf-text-2); }
+  /* one quiet line in place of a banner: 13 px text-3 after a neutral nuqta */
+  .bk-line { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 13px; line-height: 20px; color: var(--sf-text-3); }
+  .bk-line > .sf-nuqta { color: var(--sf-text-3); }
+  a.sf-link.bk-hlink { font-weight: 400; color: var(--sf-text-2); }
   .bk-sep { display: inline-block; inline-size: 1px; block-size: .9em; margin-inline: .5em; vertical-align: -.1em; background: var(--sf-line-3); }
 
   /* neutral period chip: «۱۴۰۵/۰۱/۰۱ تا ۱۴۰۵/۱۲/۲۹» */
@@ -57,7 +63,15 @@
   .bk-tbl.ant-table-wrapper .ant-table { background: transparent; }
   .bk-tbl :is(.ant-table-thead > tr > th, .ant-table-tbody > tr > td, .ant-table-summary > tr > td):first-child { padding-inline-start: 20px; }
   .bk-tbl :is(.ant-table-thead > tr > th, .ant-table-tbody > tr > td, .ant-table-summary > tr > td):last-child { padding-inline-end: 20px; }
+  /* grouped headers: only the outermost cells of the table take the 20 px inset; a sub-header keeps its column's padding */
+  .bk-tbl .ant-table-thead > tr:not(:first-child) > th:first-child { padding-inline-start: revert-layer; }
+  .bk-tbl.has-tail .ant-table-thead > tr:not(:first-child) > th:last-child { padding-inline-end: revert-layer; }
+  /* a group header («گردش دوره») starts where its first figure column starts, over a hairline that spans its columns */
+  .bk-tbl .ant-table-thead > tr > th[colspan]:not([colspan="1"]) { text-align: start; box-shadow: inset 0 -1px 0 var(--sf-line); }
   .bk-tbl .ant-table-tbody > tr:last-child > td { border-block-end-color: transparent; }
+  /* «نمایش  معین، ۶ ستونی ⌄»: the report's view menu in a card header */
+  .bk-view-btn.ant-btn { gap: 6px; padding-inline: 8px 6px; font-size: 13px; }
+  .bk-view-btn .lucide { color: var(--sf-text-3); }
   .bk-tbl .ant-table-summary > tr > td { block-size: var(--sf-tfoot-h-compact); font-weight: 600; }
   .bk-tbl .ant-table-summary .bk-sum-l { font-weight: 600; }
   .bk-tbl .ant-table-summary .bk-sum-l small { margin-inline-start: 8px; font-size: 13px; font-weight: 400; color: var(--sf-text-3); }
@@ -128,23 +142,61 @@
   .bk-st-sum { position: relative; margin-block-start: 4px; padding-block-start: 4px; font-weight: 600; }
   .bk-st-sum::before { content: ""; position: absolute; inset-inline: 8px; inset-block-start: 0; block-size: 1px; background: var(--sf-line-3); }
   .bk-st-sum.is-soft::before { background: var(--sf-line-2); }
+  /* the grand total: a 600-weight row between a line-3 rule and the accountant's double rule, on the rows' own inset */
   .bk-st-net {
     display: grid; grid-template-columns: minmax(0, 1fr) var(--sum-col); align-items: center; column-gap: 16px;
-    margin-block-start: 24px; padding: 14px 16px; margin-inline: -16px; border-radius: var(--sf-radius-md);
-    background: var(--sf-well); box-shadow: inset 0 0 0 1px var(--sf-line);
+    margin-block-start: 24px; padding-block: 12px 11px;
+    border-block-start: 1px solid var(--sf-line-3); border-block-end: 3px double var(--sf-line-3);
   }
   .bk-st-net > div:first-child { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 10px; font-size: 16px; line-height: 24px; font-weight: 600; }
   .bk-st-net > div:first-child small { font-size: 13px; font-weight: 400; color: var(--sf-text-3); }
   .bk-st-net > :last-child { justify-self: start; font-size: 16px; line-height: 24px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .bk-st-net .sf-nuqta { inline-size: 7px; block-size: 7px; align-self: center; }
-  .bk-st-cols { display: grid; gap: 32px; }
+  .bk-st-cols { display: grid; gap: 32px; align-items: stretch; }
+  .bk-st-cols > div { display: flex; flex-direction: column; min-inline-size: 0; }
+  .bk-st-cols > div > .bk-st-net { margin-block-start: auto; }
+  .bk-st-cols > div > :nth-last-child(2) { margin-block-end: 24px; }
   @media (min-width: 1100px) { .bk-st-cols { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 48px; } }
+  /* a one-column statement keeps its figures near their labels: the body is at most 760 px, from the start edge */
+  .bk-stmt.is-narrow > :not(.bk-po) { max-inline-size: 760px; }
+  /* accounting parentheses: «)» hangs past the figure column's edge so units digits line up with the positives */
+  .bk-hang { display: inline-block; inline-size: 0; }
+
+  /* ================================================================== a file's hero (§3.1): the balance, the dimensions that hold a value, one quiet line */
+  .bk-hero {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 12px 40px;
+    padding: 18px 22px 16px; margin-block-end: var(--sf-stack); background-image: var(--sf-hero-glow);
+  }
+  .bk-hero-main { display: flex; flex-direction: column; min-inline-size: 0; }
+  .bk-hero-l { display: flex; align-items: center; gap: 6px; font-size: 14px; line-height: 22px; font-weight: 500; color: var(--sf-text-2); }
+  .bk-hero-l .lucide { color: var(--sf-text-3); }
+  .bk-hero-v { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 8px; margin-block-start: 6px; color: var(--sf-text); }
+  .bk-hero-v .sf-t-hero { font-variant-numeric: proportional-nums; white-space: nowrap; }
+  .bk-hero-v > .sf-zero { font-size: var(--sf-type-hero-size); line-height: var(--sf-type-hero-line); font-weight: 300; }
+  .bk-hero-u { font-size: var(--sf-type-hero-unit-size); line-height: 24px; color: var(--sf-text-3); }
+  .bk-hero-c { margin-block-start: 2px; font-size: 13px; line-height: 20px; color: var(--sf-text-2); }
+  .bk-hero-x { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px 32px; }
+  .bk-hero-x > div { display: flex; flex-direction: column; min-inline-size: 0; padding-inline-start: 16px; box-shadow: inset -1px 0 0 var(--sf-line); }
+  .bk-hero-x small { display: flex; align-items: center; gap: 6px; font-size: 12px; line-height: 18px; color: var(--sf-text-3); white-space: nowrap; }
+  .bk-hero-x b { margin-block-start: 4px; font-size: 18px; line-height: 26px; font-weight: 500; color: var(--sf-text); white-space: nowrap; }
+  .bk-hero-x b .sf-num { font-variant-numeric: proportional-nums; }
+  .bk-hero-x b .sf-unit { font-size: 12px; }
+  .bk-hero-x span { font-size: 12px; line-height: 18px; color: var(--sf-text-3); }
+  .bk-hero-x { grid-column: 2; grid-row: 1; align-self: end; }
+  .bk-hero-q { grid-column: 2; align-self: end; justify-self: end; max-inline-size: 360px; margin: 0; font-size: 13px; line-height: 20px; color: var(--sf-text-3); text-align: end; }
+  .bk-hero-x + .bk-hero-q { grid-column: 1 / -1; justify-self: start; max-inline-size: none; padding-block-start: 10px; box-shadow: inset 0 1px 0 var(--sf-line); text-align: start; inline-size: 100%; }
+  @media (max-width: 640px) {
+    .bk-hero { grid-template-columns: minmax(0, 1fr); padding: 16px; }
+    .bk-hero-x { grid-column: 1; grid-row: auto; }
+    .bk-hero-q { grid-column: 1; justify-self: start; text-align: start; }
+    .bk-hero-x > div { padding-inline-start: 0; box-shadow: none; }
+  }
 
   /* ================================================================== stat strip (§4.4) */
   .bk-strip { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px 36px; padding: 12px 20px; }
   .bk-strip > div { display: flex; flex-direction: column; min-inline-size: 0; }
   .bk-strip small { font-size: 12px; line-height: 18px; color: var(--sf-text-3); white-space: nowrap; }
-  .bk-strip b { font-size: 16px; line-height: 24px; font-weight: 500; color: var(--sf-text); white-space: nowrap; font-variant-numeric: proportional-nums; }
+  .bk-strip b { font-size: 18px; line-height: 26px; font-weight: 500; color: var(--sf-text); white-space: nowrap; font-variant-numeric: proportional-nums; }
   .bk-strip b .sf-num { font-variant-numeric: proportional-nums; }
   .bk-strip b .sf-unit, .bk-strip b .sf-bal-side { font-size: 12px; }
 
@@ -258,6 +310,38 @@
   .bk-sub-st { display: flex; align-items: center; align-self: center; gap: 6px; font-size: 12px; color: var(--sf-text-3); }
 
   /* add-line row */
+  /* the voucher grid: its width comes from the visible columns; on phones each line stacks, debit and credit on its last row */
+  .bk-vgrid { min-inline-size: var(--grid-min, 900px); }
+  @media (max-width: 639px) {
+    .bk-vgrid { min-inline-size: 0; }
+    .bk-vgrid, .bk-vgrid > tbody, .bk-vgrid > tfoot { display: block; }
+    .bk-vgrid > thead { display: none; }
+    .bk-vgrid > tbody > tr, .bk-vgrid > tfoot > tr {
+      display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 32px; align-items: center; column-gap: 4px;
+      padding: 6px 8px; box-shadow: inset 0 -1px 0 var(--sf-line);
+    }
+    .bk-vgrid > tbody > tr > td { display: block; block-size: auto; padding: 1px 0; box-shadow: none !important; }
+    .bk-vgrid > tbody > tr > td:first-child, .bk-vgrid > tbody > tr > td:last-child { padding-inline: 0; }
+    .bk-vgrid > tbody > tr > td.bk-rn { display: none; }
+    .bk-vgrid > tbody > tr > td[data-cell$="-0"] { order: 1; grid-column: 1 / 3; font-weight: 500; }
+    .bk-vgrid > tbody > tr > td.bk-del { order: 2; grid-column: 3; inline-size: auto; }
+    .bk-vgrid > tbody > tr > td.bk-del > * { opacity: 1; }
+    .bk-vgrid > tbody > tr > td[data-cell$="-1"] { order: 3; grid-column: 1 / 3; }
+    .bk-vgrid > tbody > tr > td[data-cell$="-1"]:has(> .bk-muted) { display: none; }
+    .bk-vgrid > tbody > tr > td[data-cell$="-2"] { order: 4; grid-column: 1 / 3; }
+    .bk-vgrid > tbody > tr > td.bk-x { order: 5; grid-column: 1 / 3; }
+    .bk-vgrid > tbody > tr > td.bk-money { order: 6; min-inline-size: 0; grid-column: 1; }
+    .bk-vgrid > tbody > tr > td.bk-money ~ td.bk-money { grid-column: 2; }
+    .bk-vgrid > :is(tbody, tfoot) > tr > td.bk-money::before {
+      content: attr(data-label); display: block; padding-inline: 8px; font-size: 12px; line-height: 18px; font-weight: 400; color: var(--sf-text-3);
+    }
+    .bk-vgrid > tfoot > tr.bk-vt { padding-block: 8px; box-shadow: none; }
+    .bk-vgrid > tfoot > tr.bk-vt > td { display: block; block-size: auto; padding: 0 !important; }
+    .bk-vgrid > tfoot > tr.bk-vt > td:first-child { grid-column: 1 / -1; padding-block-end: 6px !important; }
+    .bk-vgrid > tfoot > tr.bk-vt > td:not(.bk-money):not(:first-child) { display: none; }
+    .bk-vgrid > tfoot > tr.bk-vt > td.bk-money { grid-column: 1; }
+    .bk-vgrid > tfoot > tr.bk-vt > td.bk-money ~ td.bk-money { grid-column: 2; }
+  }
   .bk-grid-add { display: flex; align-items: center; gap: 12px; padding: 8px 12px 8px 16px; padding-inline: 16px 12px; }
   .bk-grid-add .bk-keys { margin-inline-start: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; font-size: 12px; line-height: 18px; color: var(--sf-text-3); }
   .bk-grid-add .bk-keys > span { display: inline-flex; align-items: center; gap: 6px; }
@@ -267,6 +351,8 @@
   /* ================================================================== totals + the «نشستن» settle (§4.10, §13.3) */
   .bk-grid > tfoot > tr.bk-vt { position: relative; }
   .bk-grid > tfoot > tr.bk-vt > td { block-size: 44px; padding: 8px 8px 0; vertical-align: middle; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  /* a total sits on its cells' text edge: the body cell's 4 px plus the input's 8 px */
+  .bk-grid > tfoot > tr.bk-vt > td.bk-money { padding-inline: 4px; }
   .bk-vt .bk-vt-n { padding-inline: 8px; color: var(--sf-text-2); transition: color var(--sf-dur-base) var(--sf-ease-out-quad) 0ms; }
   .bk-vt[data-state="settled"] .bk-vt-n { color: var(--sf-text); transition-delay: 280ms; }
   .bk-vt-lab { display: flex; align-items: center; gap: 10px; min-block-size: 22px; padding-inline-start: 4px; }
@@ -338,6 +424,10 @@
   .bk-tile[data-tone="in"] > small .sf-nuqta { color: var(--sf-in); }
   @media (hover: hover) and (pointer: fine) { .bk-tile:not([aria-pressed="true"]):hover { background: var(--sf-hover-row); transition-duration: 0ms; } }
   .bk-tile:active { transform: none; }
+  /* a picker of accounts (cash boxes, banks): separate fixed-width cards, never one band stretched across the page */
+  .bk-tiles.is-cards { grid-template-columns: repeat(auto-fill, minmax(220px, 280px)); gap: 12px; overflow: visible; border-radius: 0; background: none; box-shadow: none; }
+  .bk-tiles.is-cards > .bk-tile { margin: 0; border: 0; border-radius: var(--sf-radius-lg); background: var(--sf-surface); box-shadow: var(--sf-shadow-e1); overflow: hidden; }
+  .bk-tiles.is-cards > .bk-tile[aria-pressed="true"] { background: var(--sf-selected); box-shadow: var(--sf-shadow-e1), inset 0 0 0 1px var(--sf-accent-border); }
 
   /* cheques by due date: one stat grid of buckets, each a column of figures */
   .bk-due { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); overflow: hidden; border-radius: var(--sf-radius-lg); background: var(--sf-surface); box-shadow: var(--sf-shadow-e1); }
@@ -435,12 +525,28 @@
     display: inline-flex; align-items: center; flex: none; block-size: 20px; padding-inline: 7px; border-radius: var(--sf-radius-xs);
     font-size: 12px; line-height: 18px; font-weight: 500; color: var(--sf-text-2); background: var(--sf-neutral-tint); white-space: nowrap;
   }
-  .bk-tree .bk-ra { justify-self: end; }
+  .bk-tree-act { justify-self: end; display: inline-flex; align-items: center; }
+  .bk-tree-act .bk-ra-m { display: none; }
+  @media (hover: hover) and (pointer: fine) {
+    .bk-tree .bk-ra { opacity: 0; transition: opacity var(--sf-dur-fast) var(--sf-ease-out); }
+    .bk-tree-r:is(:hover, :focus-within, .is-cursor) .bk-ra { opacity: 1; }
+  }
   .bk-tree-r mark { background: none; color: var(--sf-text); font-weight: 600; text-decoration: underline; text-decoration-color: rgb(var(--sf-ink-rgb) / .28); text-underline-offset: 4px; }
   @media (max-width: 899px) {
     .bk-tree-h, .bk-tree-r { grid-template-columns: minmax(0, 1fr) 72px 104px; }
     .bk-tree-h > :nth-child(2), .bk-tree-h > :nth-child(3), .bk-tree-h > :nth-child(4),
     .bk-tree-r > :nth-child(2), .bk-tree-r > :nth-child(3), .bk-tree-r > :nth-child(4) { display: none; }
+  }
+  /* phones: the name takes the row (up to two lines), the actions fold into one ⋯ menu, «گردش» goes */
+  @media (max-width: 639px) {
+    .bk-tree-h, .bk-tree-r { grid-template-columns: minmax(0, 1fr) 32px; column-gap: 4px; padding-inline: 8px 4px; }
+    .bk-tree-h > :nth-child(5), .bk-tree-r > :nth-child(5) { display: none; }
+    .bk-tree-r { block-size: auto; min-block-size: 40px; padding-block: 4px; }
+    .bk-tree-ind > i { inline-size: 12px; }
+    .bk-tree-ind > i::before { inset-inline-start: 5.5px; }
+    .bk-tree-label { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-height: 20px; }
+    .bk-tree-act .bk-ra { display: none; }
+    .bk-tree-act .bk-ra-m { display: inline-flex; }
   }
 
   /* settings */
@@ -462,7 +568,9 @@
   .bk-savebar {
     position: sticky; inset-block-end: 0; z-index: 3; display: flex; align-items: center; justify-content: flex-end; gap: 8px;
     padding: 12px 20px; border-radius: 0 0 var(--sf-radius-lg) var(--sf-radius-lg);
-    background: var(--sf-surface); box-shadow: inset 0 1px 0 var(--sf-line);
+    background: var(--sf-surface);
+    /* content scrolls under it: a line-2 hairline and a soft upward shadow say so */
+    box-shadow: inset 0 1px 0 var(--sf-line-2), 0 -10px 16px -14px rgb(var(--sf-ink-rgb) / .28);
   }
   .bk-savebar > .bk-savebar-m { margin-inline-end: auto; font-size: 12px; line-height: 18px; color: var(--sf-text-3); }
 
@@ -555,6 +663,7 @@
 }
 
 /* ===================================================================== print */
+@page bk-wide { size: A4 landscape; margin: 10mm; }
 @media print {
   .bk-po { display: block !important; }
   .bk-card { box-shadow: none !important; border-radius: 0 !important; background: #fff !important; }
@@ -577,7 +686,8 @@
   .bk-tbl tr { break-inside: avoid; }
   .bk-tbl .ant-table-pagination { display: none !important; }
   .bk-st-row, .bk-st-net { break-inside: avoid; }
-  .bk-st-net { background: none !important; box-shadow: inset 0 1pt 0 #000, inset 0 -1pt 0 #000 !important; border-radius: 0 !important; margin-inline: 0 !important; padding-inline: 0 !important; }
+  .bk-st-net { border-block-start: 1pt solid #000 !important; border-block-end: 3pt double #000 !important; }
+  .bk-stmt.is-narrow > :not(.bk-po) { max-inline-size: none; }
 
   .bk-ph { display: grid !important; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 12px; padding-block-end: 8px; margin-block-end: 12px; border-block-end: 1pt solid #000; color: #000; }
   .bk-ph-org { display: flex; align-items: flex-start; gap: 10px; }
@@ -601,6 +711,20 @@
   .bk-ptbl tfoot td { padding-block: 5px; font-weight: 700; border-block-start: 1pt solid #000; border-block-end: 0; }
   .bk-ptbl tr { break-inside: avoid; }
   .bk-ptbl thead { display: table-header-group; }
+  .bk-ptbl tfoot { display: table-row-group; }
+
+  /* the printed trial balance: an explicit grid; money th and td share one width and one start edge */
+  .bk-tb-p { table-layout: fixed; }
+  .bk-tb-p col.c { inline-size: 15mm; }
+  .bk-tb-p col.m { inline-size: 33mm; }
+  .bk-tb-p.is-8 col.m { inline-size: 29mm; }
+  .bk-tb-p :is(th, td) { padding-inline: 0 4mm; overflow-wrap: anywhere; }
+  .bk-tb-p :is(th, td).n { white-space: nowrap; overflow: visible; }
+  .bk-tb-p th.g { padding-block-end: 1px; border-block-end: .5pt solid rgb(0 0 0 / .35); }
+  .bk-tb-p tbody tr.lv-1 td { font-weight: 700; }
+  .bk-tb-p tbody tr.lv-2 td { font-weight: 600; }
+  .bk-tb-p td .sf-num { font-variant-numeric: tabular-nums; }
+  .bk-wide { page: bk-wide; }
   .bk-pwords { margin-block-start: 6px; font-size: 9pt; line-height: 1.6; }
   .bk-pparty { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 16px; margin-block-end: 10px; font-size: 10pt; }
   .bk-pparty small { display: block; font-size: 8.5pt; color: #57524c; }

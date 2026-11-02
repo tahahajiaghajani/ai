@@ -42,8 +42,11 @@ export interface NavItem {
   section?: string;
   /** Shown at the top of every space (پیشخوان، اشخاص). */
   common?: boolean;
-  /** Starts something new: listed under «کارها» in the command palette. */
+  /** Starts something new: listed under «کارها» in the command palette and kept out of the sidebar (page
+   *  headers carry the create buttons), unless it is also a `workspace`. */
   action?: boolean;
+  /** A counter screen people work in all day (gold sale, FX counter): an action that stays in the sidebar. */
+  workspace?: boolean;
   /** A live count at the end of the row. */
   count?: NavCount;
 }

@@ -8,7 +8,7 @@ import { ArrowLeftRight, Plus, Table2 } from "lucide-react";
 import { registerWidget } from "../dashboard/widgets";
 import { useOrg } from "../../lib/org";
 import { Ic } from "../../components/shell/icons";
-import { fa, pct } from "../../lib/fa";
+import { fa, pct, splitDecimals } from "../../lib/fa";
 import { Amt, Card, Count, Empty, HeadLink, Sk, SkRows, Stat, num, scaled, useScale } from "../dashboard/kit";
 import { useLive } from "./shared";
 
@@ -18,7 +18,23 @@ function FxWidget() {
 }
 
 const latin = (n: number, dp: number) => new Intl.NumberFormat("en-US", { minimumFractionDigits: 0, maximumFractionDigits: dp }).format(n);
-const holding = (n: number, decimals: number) => new Intl.NumberFormat("fa-IR", { maximumFractionDigits: Math.min(Math.max(decimals, 0), 8) }).format(n);
+const holding = (n: number, decimals: number) => new Intl.NumberFormat("fa-IR", { maximumFractionDigits: Math.min(Math.max(decimals, 0), 4) }).format(n);
+
+/**
+ * Holdings of different currencies in one start-aligned column: the fraction is padded with hidden digits to the
+ * longest fraction in the list, so the decimal separators (and the units digits) of every row share one x.
+ */
+function Holding({ text, frac }: { text: string; frac: number }) {
+  const [, dec] = splitDecimals(text);
+  const have = dec ? dec.length - 1 : 0;
+  const pad = frac - have;
+  return (
+    <bdi dir="ltr">
+      {text}
+      {pad > 0 ? <span className="db-pad" aria-hidden>{(dec ? "" : "٫") + "۰".repeat(pad)}</span> : null}
+    </bdi>
+  );
+}
 
 function Move({ pct: p }: { pct: string | null | undefined }) {
   if (p === null || p === undefined || p === "") return null;
@@ -53,6 +69,8 @@ function FxCard() {
     .filter((r: any) => num(r.holdings) !== 0)
     .sort((a: any, b: any) => Math.abs(num(b.market_value ?? b.book_value)) - Math.abs(num(a.market_value ?? a.book_value)))
     .slice(0, 4);
+  const held = positions.map((p) => holding(num(p.holdings), p.decimals ?? 2));
+  const frac = Math.max(0, ...held.map((h) => (splitDecimals(h)[1] ? splitDecimals(h)[1].length - 1 : 0)));
   const profit = s?.day?.profit !== null && s?.day?.profit !== undefined ? num(s.day.profit) + num(s.day.fees) : null;
   const sc = useScale(s ? [s.day?.volume, profit, ...positions.map((p) => p.market_value ?? p.book_value)] : [], 5);
   const baseDp = org.money_decimals ?? 0;
@@ -148,10 +166,10 @@ function FxCard() {
               <div className="db-list db-l-pos">
                 <div className="db-list-h">
                   <span>ارز</span>
-                  <span className="text-end">موجودی</span>
-                  <span className="text-end">ارزش روز</span>
+                  <span>موجودی</span>
+                  <span>ارزش روز</span>
                 </div>
-                {positions.map((p) => (
+                {positions.map((p, i) => (
                   <button key={p.currency_id} type="button" className="db-row" onClick={go("fx/positions")}>
                     <span className="flex min-w-0 items-center gap-2">
                       <span className="db-rate-h">
@@ -159,7 +177,9 @@ function FxCard() {
                       </span>
                       <span className="db-cell muted">{p.name}</span>
                     </span>
-                    <span className="db-num end">{holding(num(p.holdings), p.decimals ?? 2)}</span>
+                    <span className="db-num end">
+                      <Holding text={held[i]} frac={frac} />
+                    </span>
                     <span className="db-num end">{p.market_value !== null ? <Amt v={p.market_value} s={sc} /> : <span className="db-zero">بی‌نرخ</span>}</span>
                   </button>
                 ))}

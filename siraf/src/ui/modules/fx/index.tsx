@@ -21,7 +21,7 @@ export const fxNav: Omit<NavGroup, "icon" | "space"> = {
   module: "fx",
   items: [
     { key: "fx-rates", label: "تابلوی نرخ", path: "fx/rates", area: "fx", icon: Activity, keywords: "نرخ ارز قیمت دلار بازار" },
-    { key: "fx-new", label: "معاملهٔ جدید", path: "fx/deals/new", area: "fx", level: "edit", icon: ArrowLeftRight, action: true, keywords: "معامله‌ی جدید خرید فروش تبدیل ارز باجه صندوق" },
+    { key: "fx-new", label: "معاملهٔ جدید", path: "fx/deals/new", area: "fx", level: "edit", icon: ArrowLeftRight, action: true, workspace: true, keywords: "معامله‌ی جدید خرید فروش تبدیل ارز باجه صندوق" },
     { key: "fx-deals", label: "معاملات", path: "fx/deals", area: "fx", icon: Rows3, keywords: "معاملات ارز رسید" },
     { key: "fx-remittances", label: "حواله‌ها", path: "fx/remittances", area: "fx", icon: Send, keywords: "حواله صادره وارده همکار رهگیری" },
     { key: "wallets", label: "کیف‌پول‌ها", path: "fx/wallets", area: "fx", icon: WalletCards, keywords: "کیف پول رمزارز موجودی بلاک‌چین" },

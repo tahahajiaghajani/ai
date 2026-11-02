@@ -4,7 +4,7 @@
 import { Children, isValidElement, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Drawer, Badge } from "antd";
 import { useLocation, useNavigate } from "react-router";
-import { ArrowRight, Moon, Sun, PanelRight, Pin, House } from "lucide-react";
+import { ArrowRight, Moon, Sun, PanelRight, Pin, House, Info } from "lucide-react";
 import { APP_NAME } from "@shared/constants";
 import { useOrg } from "../lib/org";
 import { useTheme } from "../lib/theme";
@@ -14,7 +14,7 @@ import { Topbar, type Crumb } from "./shell/Topbar";
 import { CommandPalette as Palette, type PaletteCommand } from "./shell/CommandPalette";
 import { ShellCtx, usePageTitle, type ShellApi } from "./shell/context";
 import { Ic } from "./shell/icons";
-import { matchItem, pushRecent, routeSpace, spaceOf, useRelPath, useShellItems, useSpaceMemory, useSpaces, useStored } from "./shell/model";
+import { inSidebar, matchItem, pushRecent, routeSpace, spaceOf, useRelPath, useShellItems, useSpaceMemory, useSpaces, useStored } from "./shell/model";
 import type { SpaceKey } from "../modules/registry";
 import "./shell/shell.css";
 
@@ -35,6 +35,16 @@ function useViewportWidth() {
     return () => window.removeEventListener("resize", on);
   }, []);
   return w;
+}
+
+/**
+ * The Windows app with a hidden title bar (`titleBarOverlay`, enabled by the desktop app through its preload
+ * bridge): the shell keeps a 40 px drag strip and leaves the caption buttons' corner (the top right in RTL) clear.
+ */
+function hasTitleBarOverlay(): boolean {
+  if (typeof window === "undefined") return false;
+  const bridge = (window as unknown as { siraf?: { titleBarOverlay?: boolean } }).siraf;
+  return !!bridge?.titleBarOverlay;
 }
 
 interface SidebarPref {
@@ -59,7 +69,10 @@ export function AppShell({ children }: { children: ReactNode }) {
   const loc = useLocation();
   const rel = useRelPath();
 
-  const items = useShellItems();
+  const allItems = useShellItems();
+  // the sidebar's items (create-actions stay in the palette); the route is matched against them so
+  // «سند جدید» highlights «اسناد حسابداری» and its breadcrumb reads «اسناد حسابداری › سند جدید»
+  const items = useMemo(() => allItems.filter(inSidebar), [allItems]);
   const spaces = useSpaces(items);
   const active = useMemo(() => matchItem(items, rel), [items, rel]);
   const current = routeSpace(active, rel);
@@ -108,8 +121,12 @@ export function AppShell({ children }: { children: ReactNode }) {
   const detail = !active || rel !== active.path;
   const crumbs: Crumb[] = [];
   const spaceLabel = spaceOf(space).label;
-  if (!detail && active) {
-    crumbs.push({ label: active.common ? spaceOf(fallback).label : spaceLabel });
+  if (!detail && active?.common) {
+    // a page every space shares (پیشخوان، اشخاص) is its own root, never the remembered module: like any
+    // top-level page its name would repeat the H1, so «اشخاص» fades in only once the H1 scrolls away
+    crumbs.push({ label: active.label, current: true, reveal: true });
+  } else if (!detail && active) {
+    crumbs.push({ label: spaceLabel });
     crumbs.push({ label: active.label, current: true, reveal: true });
   } else {
     // a record of a page every space shares (a person's file) needs no space in front of it
@@ -139,7 +156,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const commands = useMemo<PaletteCommand[]>(() => {
     const list: PaletteCommand[] = [
       { key: "theme", label: dark ? "پوستهٔ روشن" : "پوستهٔ تیره", icon: dark ? Sun : Moon, keywords: "تم حالت شب روز رنگ", run: toggle },
-      { key: "home", label: "رفتن به پیشخوان", icon: House, keywords: "داشبورد خانه", run: () => go("") },
+      { key: "home", label: "رفتن به پیشخوان", icon: House, keywords: "داشبورد خانه", path: "", run: () => go("") },
+      { key: "about", label: `دربارهٔ ${APP_NAME}`, icon: Info, keywords: "نسخه درباره سیراف اعتبار", path: "help#about", run: () => go("help#about") },
     ];
     if (!narrow) list.push({ key: "sidebar", label: pref.collapsed ? "باز کردن نوار کناری" : "جمع کردن نوار کناری", icon: PanelRight, keywords: "منو سایدبار", run: () => setPref((p) => ({ ...p, collapsed: !p.collapsed })) });
     if (active && !detail)
@@ -176,7 +194,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <ShellCtx.Provider value={shell}>
       <div
-        className={`sh-app ${mobile ? "is-mobile" : ""} ${rail ? "is-rail" : ""}`}
+        className={`sh-app ${mobile ? "is-mobile" : ""} ${rail ? "is-rail" : ""} ${hasTitleBarOverlay() ? "has-titlebar" : ""}`}
         style={{ ["--sh-side-w" as string]: `${rail ? 60 : width}px` }}
       >
         {mobile ? null : sidebar(false)}
@@ -198,7 +216,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             mask
             rootClassName="sh-drawer no-print"
             styles={{
-              wrapper: { margin: 0, borderRadius: 0, boxShadow: "var(--sf-shadow-e4)" },
+              wrapper: { margin: 0, borderRadius: 0, boxShadow: "var(--sf-shadow-e4), 0 0 0 1px var(--sf-line-2)" },
               section: { background: "var(--sf-canvas)" },
               body: { padding: 0 },
               mask: { background: "var(--sf-scrim)" },

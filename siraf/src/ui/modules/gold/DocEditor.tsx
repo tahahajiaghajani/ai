@@ -5,8 +5,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Alert, Button, Input, Radio, Segmented, Select, type InputRef } from "antd";
-import { Banknote, CreditCard, Landmark, Plus, ScanBarcode, X } from "lucide-react";
+import { Alert, Button, Input, Radio, Segmented, Select, Tooltip, type InputRef } from "antd";
+import { Banknote, CreditCard, Info, Landmark, Plus, ScanBarcode, X } from "lucide-react";
 import { Ic } from "../../components/shell/icons";
 import { useOrg } from "../../lib/org";
 import { useHotkey, useNotify } from "../../lib/hooks";
@@ -381,15 +381,13 @@ function DocEditor({ kind, id }: { kind: Exclude<DocKind, "sale">; id: string | 
             {!D(totals.total).isZero() ? <Sum k={kind === "workshop_in" ? "اجرت قابل پرداخت" : "جمع کل"} m={totals.total} strong /> : null}
             {D(totals.weight_out).isZero() && D(totals.weight_in).isZero() && D(totals.total).isZero() ? <div className="r is-sub"><span>هنوز ردیفی نیست</span><span className="n">—</span></div> : null}
             </div>
-            {["workshop_out", "melt", "consign_return"].includes(kind) ? <div className="sf-field-h mt-2">بهای ریالی از میانگین دفتری حساب‌ها هنگام ثبت محاسبه می‌شود.</div> : null}
           </div>
 
           {rule.modes ? (
             <div className="sf-doc-card sf-doc-pad">
-              <div className="sf-sec-t mb-2">{kind === "consign_in" ? "تسویه با امانت‌گذار هنگام فروش" : "نوع تسویه"}</div>
-              <Segmented block value={mode} disabled={readOnly} onChange={(v) => setMode(v as "rial" | "weight")} options={[{ value: "rial", label: "ریالی" }, { value: "weight", label: "وزنی (طلا به طلا)" }]} />
-              <div className="sf-field-h mt-2">
-                {mode === "weight"
+              <div className="sf-sec-t mb-2">
+                <span>{kind === "consign_in" ? "تسویه با امانت‌گذار هنگام فروش" : "نوع تسویه"}</span>
+                <Tooltip title={mode === "weight"
                   ? kind === "bullion_sale"
                     ? "وزن آبشده از بدهی وزنی ما به خریدار کم می‌شود."
                     : kind === "consign_in"
@@ -397,8 +395,11 @@ function DocEditor({ kind, id }: { kind: Exclude<DocKind, "sale">; id: string | 
                       : "وزن ۷۵۰ طلا به حساب وزنی همکار و اجرت (و سکه) به‌صورت ریالی بستانکار می‌شود."
                   : kind === "consign_in"
                     ? "با فروش هر جنس، ارزش طلا به نرخ روز فروش به‌اضافه‌ی اجرت همکار بستانکار می‌شود."
-                    : "کل مبلغ به‌صورت ریالی تسویه یا به حساب طرف منظور می‌شود."}
+                    : "کل مبلغ به‌صورت ریالی تسویه یا به حساب طرف منظور می‌شود."}>
+                  <span className="sf-sec-x text-ink-3" aria-label="راهنما"><Ic icon={Info} size={14} /></span>
+                </Tooltip>
               </div>
+              <Segmented block value={mode} disabled={readOnly} onChange={(v) => setMode(v as "rial" | "weight")} options={[{ value: "rial", label: "ریالی" }, { value: "weight", label: "وزنی (طلا به طلا)" }]} />
             </div>
           ) : null}
 
@@ -419,9 +420,9 @@ function DocEditor({ kind, id }: { kind: Exclude<DocKind, "sale">; id: string | 
             <div className="sf-doc-card sf-doc-pad">
               <div className="sf-sec-t">
                 <span>{rule.cash === "receive" ? "دریافت" : "پرداخت"}</span>
-                <span className="sf-sec-x text-[12px] text-ink-3">قابل تسویه <Money v={due} /></span>
+                <span className="sf-sec-x text-[12px] text-ink-3">قابل تسویه <Money v={due} zero="—" /></span>
               </div>
-              <div className="sf-pay" style={{ ["--sum-col" as string]: "132px" }}>
+              <div className="sf-pay is-2row" style={{ ["--sum-col" as string]: "132px" }}>
                 <Pay icon={Banknote} label="نقد" entity="cash_box" v={cash} set={setCash} readOnly={readOnly} />
                 {rule.cash === "receive" ? <Pay icon={CreditCard} label="کارتخوان" entity="pos_terminal" v={pos} set={setPos} readOnly={readOnly} /> : null}
                 <Pay icon={Landmark} label="بانک" entity="bank_account" v={bank} set={setBank} readOnly={readOnly} />

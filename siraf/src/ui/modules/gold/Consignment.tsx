@@ -38,7 +38,7 @@ export default function Consignment() {
       />
       <Section title="امانی نزد ما به تفکیک امانت‌گذار" extra={<button type="button" className="sf-link inline-flex items-center gap-1.5" onClick={() => nav(`/${orgId}/gold/items?ownership=consignment`)}><Ic icon={LayoutGrid} size={14} />اجناس امانی</button>} bodyClass="p-0" className="mb-4">
         <Table
-          className=""
+          className="sf-edge"
           size="small"
           rowKey={(r: any) => r.supplier_id ?? "none"}
           loading={rep.isLoading}
@@ -50,9 +50,9 @@ export default function Consignment() {
           columns={[
             { key: "n", title: "امانت‌گذار", render: (_, r: any) => <span>{r.supplier_code ? <span className="sf-docno me-2 text-ink-3">{faDigits(r.supplier_code)}</span> : null}{r.supplier_name ?? "نامشخص"}</span> },
             { key: "p", dataIndex: "pieces", title: "اجناس موجود", className: "sf-num", render: (v) => <span className="sf-num">{faDigits(v)}</span> },
-            { key: "w", dataIndex: "w750", title: "معادل ۷۵۰ موجود", className: "sf-num", render: (v) => <span className="sf-num">{gw(v)}</span> },
-            { key: "s", title: "فروخته‌شده", className: "sf-num", render: (_, r: any) => (r.sold ? <span className="sf-num">{faDigits(r.sold.pieces)} جنس، {gw(r.sold.w750)} گرم</span> : <span className="sf-zero">—</span>) },
-            { key: "gw", title: "حساب وزنی (بدهی ما)", className: "sf-num", render: (_, r: any) => <WBalance v={r.bal?.gold_w ?? 0} /> },
+            { key: "w", dataIndex: "w750", title: "معادل ۷۵۰ موجود (گرم)", className: "sf-num", render: (v) => (D(v ?? 0).isZero() ? <span className="sf-zero">—</span> : <span className="sf-num">{gw(v)}</span>) },
+            { key: "s", title: "فروخته‌شده (گرم ۷۵۰)", className: "sf-num", render: (_, r: any) => (r.sold ? <span className="sf-num">{gw(r.sold.w750)}<span className="text-ink-3"> ({faDigits(r.sold.pieces)} جنس)</span></span> : <span className="sf-zero">—</span>) },
+            { key: "gw", title: "حساب وزنی، بدهی ما (گرم)", className: "sf-num", render: (_, r: any) => <WBalance v={r.bal?.gold_w ?? 0} /> },
             { key: "ap", title: "حساب ریالی", className: "sf-num", render: (_, r: any) => <Balance v={D(r.bal?.ar ?? 0).plus(D(r.bal?.ap ?? 0)).toString()} /> },
           ]}
         />

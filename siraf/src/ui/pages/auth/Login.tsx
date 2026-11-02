@@ -7,7 +7,8 @@ import { useSession } from "../../lib/session";
 import { AuthLayout } from "./AuthLayout";
 import { FormAlert, ICON, useBlurValidation, LTR } from "../kit";
 
-export const passwordIcon = (visible: boolean) => (visible ? <EyeOff {...ICON} aria-label="پنهان کردن رمز" /> : <Eye {...ICON} aria-label="نمایش رمز" />);
+// antd wraps this in its own focusable span.ant-input-password-icon (role=button, aria-label), styled in pages.css
+export const passwordIcon = (visible: boolean) => (visible ? <EyeOff {...ICON} aria-hidden /> : <Eye {...ICON} aria-hidden />);
 
 export default function Login() {
   const { refresh, meta, me } = useSession();

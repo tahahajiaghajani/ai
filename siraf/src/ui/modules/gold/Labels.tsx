@@ -2,7 +2,7 @@
 // a label printer (one label per page) or an A4 sheet of labels.
 import { useEffect, useRef, useState } from "react";
 import JsBarcode from "jsbarcode";
-import { Button, Modal, Segmented, Select, Switch } from "antd";
+import { Button, Drawer, Segmented, Select, Switch } from "antd";
 import { Printer } from "lucide-react";
 import { Ic } from "../../components/shell/icons";
 import { useOrg } from "../../lib/org";
@@ -59,8 +59,8 @@ function Label({ it, o, orgName, last }: { it: LabelItem; o: LabelOptions; orgNa
       className="gold-label flex flex-col items-center justify-center overflow-hidden bg-white text-black"
       style={{ width: `${s.w}mm`, height: `${s.h}mm`, padding: "1mm", boxSizing: "border-box", fontSize: small ? "6.5pt" : "7.5pt", lineHeight: 1.15, pageBreakAfter: o.mode === "roll" && !last ? "always" : undefined, breakInside: "avoid" }}
     >
-      {o.showOrg && !small ? <div className="w-full truncate text-center font-semibold">{orgName}</div> : null}
-      <Barcode value={it.tag_no} height={small ? 16 : 22} width={s.w >= 60 ? 1.3 : 1.05} />
+      {o.showOrg && !small ? <div className="w-full truncate text-center font-semibold" style={{ marginBlockEnd: "1mm" }}>{orgName}</div> : null}
+      <Barcode value={it.tag_no} height={small ? 16 : o.showOrg ? 18 : 22} width={s.w >= 60 ? 1.3 : 1.05} />
       <div className="sf-num font-semibold" style={{ fontSize: small ? "7pt" : "8pt" }}>{faDigits(it.tag_no)}</div>
       <div className="flex w-full justify-between gap-1">
         <span>وزن <b className="sf-num">{gw(it.gross_weight)}</b></span>
@@ -112,12 +112,13 @@ export function PrintLabelsModal({ open, onClose, items }: { open: boolean; onCl
   const s = SIZES[o.size] ?? SIZES["50x25"];
   return (
     <>
-      <Modal
+      <Drawer
         open={open}
-        onCancel={onClose}
+        onClose={onClose}
+        size={480}
         title={`چاپ ${faDigits(items.length)} اتیکت`}
         footer={
-          <Button type="primary" icon={<Ic icon={Printer} />} disabled={!items.length} onClick={() => printWithPage(o.mode === "roll" ? `${s.w}mm ${s.h}mm` : "A4 portrait", o.mode === "roll" ? "0" : "8mm")}>
+          <Button type="primary" block icon={<Ic icon={Printer} />} disabled={!items.length} onClick={() => printWithPage(o.mode === "roll" ? `${s.w}mm ${s.h}mm` : "A4 portrait", o.mode === "roll" ? "0" : "8mm")}>
             چاپ
           </Button>
         }
@@ -125,7 +126,7 @@ export function PrintLabelsModal({ open, onClose, items }: { open: boolean; onCl
         rootClassName="no-print"
       >
         <div className="grid gap-3">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid gap-3">
             <div>
               <div className="sf-field-l mb-1.5">اندازه‌ی اتیکت</div>
               <Select className="w-full" value={o.size} onChange={(size) => update({ size })} options={Object.entries(SIZES).map(([value, x]) => ({ value, label: x.label }))} />
@@ -140,7 +141,7 @@ export function PrintLabelsModal({ open, onClose, items }: { open: boolean; onCl
             <label className="flex items-center gap-2"><Switch size="small" checked={o.showWage} onChange={(showWage) => update({ showWage })} /> اجرت</label>
           </div>
           <div className="sf-field-l">پیش‌نمایش</div>
-          <div className="flex max-h-64 flex-wrap gap-3 overflow-auto rounded-lg bg-well p-4">
+          <div className="flex flex-wrap gap-3 overflow-auto rounded-lg bg-well p-4">
             {items.slice(0, 6).map((it) => (
               <div key={it.id} className="rounded-sm shadow-e1">
                 <Label it={it} o={{ ...o, mode: "a4" }} orgName={org.name} />
@@ -148,7 +149,7 @@ export function PrintLabelsModal({ open, onClose, items }: { open: boolean; onCl
             ))}
           </div>
         </div>
-      </Modal>
+      </Drawer>
       {open ? <LabelSheet items={items} options={o} /> : null}
     </>
   );

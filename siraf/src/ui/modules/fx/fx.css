@@ -17,6 +17,9 @@
   }
   .sf-cur-av.is-sm { inline-size: 24px; block-size: 24px; font-size: 9px; }
   .sf-cur-av.is-lg { inline-size: 36px; block-size: 36px; font-size: 11px; }
+  /* four-letter codes (USDT) widen into a pill instead of spilling out of the circle */
+  .sf-cur-av[data-long] { inline-size: auto; min-inline-size: 32px; padding-inline: 4px; border-radius: var(--sf-radius-pill); font-size: 8.5px; letter-spacing: 0; }
+  .sf-cur-av.is-sm[data-long] { min-inline-size: 30px; padding-inline: 3px; font-size: 8px; }
   .sf-cur-name { display: flex; align-items: center; gap: 10px; min-inline-size: 0; }
   .sf-cur-name > .t { display: flex; flex-direction: column; min-inline-size: 0; line-height: 18px; }
   .sf-cur-name > .t > b { font-weight: 500; color: var(--sf-text); font-size: 13px; line-height: 20px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -47,7 +50,8 @@
     display: flex; flex-direction: column; gap: 6px; padding: 12px 14px 12px; min-inline-size: 0;
     margin-inline-start: -1px; margin-block-start: -1px; border-inline-start: 1px solid var(--sf-line); border-block-start: 1px solid var(--sf-line);
   }
-  .sf-fxlive .h { display: flex; align-items: center; gap: 8px; }
+  @media (max-width: 639px) { .sf-fxlive { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .sf-fxlive .h { display: flex; align-items: center; gap: 8px; min-inline-size: 0; }
   .sf-fxlive .h > .sf-delta { margin-inline-start: auto; }
   .sf-fxlive .p { font-family: var(--sf-font-latin); font-feature-settings: normal; font-variant-numeric: tabular-nums; direction: ltr; text-align: end;
     font-size: 17px; line-height: 24px; font-weight: 500; color: var(--sf-text); white-space: nowrap; align-self: flex-start; }
@@ -102,11 +106,59 @@
   @media (prefers-reduced-motion: reduce) { .sf-route-line .ln.is-drawn { animation: none; stroke-dashoffset: 0; } }
   .sf-chip > .sf-nuqta.is-sea { color: var(--sf-sea); }
 
+  /* the remittance list: the route (names ellipsize, never figures) over its tracking code; the amount over its rial
+     equivalent — two lines per row so the list fits the panel without a sideways scroll */
+  .sf-rem-route { display: flex; flex-direction: column; min-inline-size: 0; max-inline-size: 240px; }
+  .sf-rem-route > .nm { display: flex; align-items: center; gap: 6px; min-inline-size: 0; }
+  .sf-rem-route > .nm > .a, .sf-rem-route > .nm > .b { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; unicode-bidi: isolate; }
+  .sf-rem-route > .nm > .a { color: var(--sf-text-2); flex: 0 1 auto; }
+  .sf-rem-route > .nm > .b { color: var(--sf-text); flex: 0 1 auto; }
+  .sf-rem-route > .tk, .sf-rem-amt > .eq { font-size: 12px; line-height: 18px; color: var(--sf-text-3); white-space: nowrap; }
+  .is-stacked .sf-rem-route { max-inline-size: 190px; }
+  .sf-rem-corr { display: block; max-inline-size: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sf-rem-amt { display: flex; flex-direction: column; align-items: flex-start; }
+
+  /* the rate grid: the currency on one line so rows stay compact (36 px) */
+  .sf-rate-cur { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; min-inline-size: 0; }
+  .sf-rate-cur > b { font-weight: 500; color: var(--sf-text); }
+  .sf-rate-cur > .c { font-size: 12px; color: var(--sf-text-3); }
+  .sf-rate-cur > .k { font-size: 12px; color: var(--sf-text-3); }
+  /* the rate list on a phone: the currency at the start, buy over sell at the end, nothing sliced */
+  .sf-rate-list { display: flex; flex-direction: column; }
+  .sf-rate-list > .r { display: flex; align-items: center; gap: 12px; padding: 8px 16px; box-shadow: inset 0 -1px 0 var(--sf-line); }
+  .sf-rate-list > .r:last-child { box-shadow: none; }
+  .sf-rate-list .cur { display: flex; align-items: center; gap: 10px; min-inline-size: 0; flex: 1 1 auto; padding: 0; border: 0; background: none; text-align: start; cursor: pointer; color: inherit; font: inherit; }
+  .sf-rate-list .cur > .t { display: flex; flex-direction: column; min-inline-size: 0; }
+  .sf-rate-list .cur > .t > b { font-size: 14px; line-height: 20px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sf-rate-list .cur > .t > span { font-size: 12px; line-height: 18px; color: var(--sf-text-3); white-space: nowrap; }
+  .sf-rate-list .v { display: flex; flex-direction: column; gap: 2px; flex: none; inline-size: 150px; }
+  .sf-rate-list .v > label { display: grid; grid-template-columns: 34px minmax(0, 1fr); align-items: center; }
+  .sf-rate-list .v > label > span { font-size: 12px; color: var(--sf-text-3); }
+
+  /* positions: the currency on one line (avatar + name) and the expanded row's legs in four aligned columns */
+  .sf-pos-cur { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+  .sf-pos-legs { display: grid; grid-template-columns: 72px minmax(160px, 260px) max-content max-content; column-gap: 24px; row-gap: 2px; padding-block: 4px; font-size: 13px; line-height: 22px; }
+  .sf-pos-legs > .r { display: contents; }
+  .sf-pos-legs .k { color: var(--sf-text-3); }
+  .sf-pos-legs .nm { color: var(--sf-text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sf-pos-legs .b { color: var(--sf-text-3); font-variant-numeric: tabular-nums; }
+
+  /* receipts in print: ink only, hairline rules instead of rounded boxes, no cell borders on the totals */
+  @media print {
+    .sf-rcpt { box-shadow: none !important; border-radius: 0 !important; padding: 0 !important; }
+    .sf-rcpt-box { border-radius: 0 !important; box-shadow: none !important; padding: 2mm 0 !important; border-block: .5pt solid var(--sf-text); }
+    .sf-rcpt-box + .sf-rcpt-box { border-block-start: 0; margin-block-start: -0.5rem; }
+    .sf-rcpt .sf-sums > .r > * { box-shadow: none; border: 0; }
+    .sf-rcpt .sf-sums > .r.is-total > * { border-block-start: .5pt solid var(--sf-text); }
+  }
+
   /* ================================================================== the customer board (TV) */
   .sf-tv {
     position: fixed; inset: 0; z-index: 1000; overflow: auto; isolation: isolate;
     color: var(--sf-on-brand); background: var(--sf-grad-dusk);
     padding: clamp(24px, 3.2vw, 56px) clamp(24px, 4vw, 72px);
+    /* header, the rates filling the screen, the ticker and brand pinned to the bottom row */
+    display: grid; grid-template-rows: auto 1fr auto; min-block-size: 100dvh;
   }
   .sf-tv::after { content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none; background-image: var(--sf-grain); background-size: var(--sf-grain-size); opacity: var(--sf-grain-opacity); mix-blend-mode: overlay; }
   .sf-tv-h { display: flex; align-items: center; gap: 20px; padding-block-end: clamp(16px, 2vw, 28px); border-block-end: 1px solid rgb(255 255 255 / .14); }
@@ -114,31 +166,42 @@
   .sf-tv-biz > b { font-family: var(--sf-font-display); font-variation-settings: "DSTY" 3; font-size: clamp(26px, 2.6vw, 44px); line-height: 1.25; font-weight: 700; color: var(--sf-on-brand); }
   .sf-tv-biz > span { font-size: clamp(14px, 1.1vw, 19px); color: var(--sf-on-brand-2); }
   .sf-tv-clock { margin-inline-start: auto; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
-  .sf-tv-clock > b { font-size: clamp(30px, 3vw, 52px); line-height: 1.1; font-weight: 500; font-variant-numeric: tabular-nums; color: var(--sf-on-brand); }
+  .sf-tv-clock > b { font-size: clamp(30px, 3vw, 52px); line-height: 1.1; font-weight: 500; font-variant-numeric: proportional-nums; color: var(--sf-on-brand); }
   .sf-tv-clock > span { font-size: clamp(13px, 1vw, 18px); color: var(--sf-on-brand-2); }
   .sf-tv-x { color: var(--sf-on-brand-2) !important; }
-  .sf-tv-cols { display: grid; gap: clamp(24px, 3vw, 56px); grid-template-columns: repeat(auto-fit, minmax(min(100%, 520px), 1fr)); margin-block-start: clamp(16px, 2.2vw, 32px); }
+  .sf-tv-cols { display: grid; gap: clamp(24px, 3vw, 56px); grid-template-columns: repeat(auto-fit, minmax(min(100%, 520px), 1fr)); align-content: center; margin-block: clamp(16px, 2.2vw, 32px); }
+  /* a short board stacks crypto under the currencies: one column, one size, the screen filled */
+  .sf-tv-cols.is-stacked { grid-template-columns: minmax(0, 1fr); row-gap: clamp(20px, 3vh, 40px); }
   .sf-tv-sec > h2 { display: flex; align-items: center; gap: 10px; margin: 0 0 8px; font-size: clamp(15px, 1.15vw, 20px); font-weight: 500; color: var(--sf-on-brand-2); }
   .sf-tv-sec > h2 > i { display: inline-block; inline-size: 7px; block-size: 7px; border-radius: 1px; transform: rotate(45deg); background: currentColor; }
-  .sf-tv-t { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; column-gap: clamp(20px, 3vw, 56px); align-items: center; }
+  /* one figure size for the whole board: as large as the screen height and the column allow, shared by both sections
+     (the same --len and --rows), so the figure columns line up from section to section */
+  .sf-tv-t {
+    --fig: max(18px, min(clamp(24px, 2.4vh + 1.4vw, 64px), calc((100cqi - 240px) / (var(--len, 10) * 1.32 + 1)), calc((100dvh - 300px) / (var(--rows, 9) * 1.75))));
+    display: grid; grid-template-columns: minmax(0, 1fr) repeat(2, calc(var(--len, 10) * .62 * var(--fig))); column-gap: clamp(20px, 3vw, 56px); align-items: center;
+  }
   .sf-tv-t > .th { padding-block: 8px; font-size: clamp(13px, .95vw, 16px); color: var(--sf-on-brand-3); text-align: start; }
   .sf-tv-t > .th.n { min-inline-size: 6ch; }
-  .sf-tv-t > .c { display: flex; align-items: center; gap: 14px; min-inline-size: 0; padding-block: clamp(10px, 1.1vw, 16px); border-block-start: 1px solid rgb(255 255 255 / .10); }
+  .sf-tv-t > .c { display: flex; align-items: center; gap: 14px; min-inline-size: 0; padding-block: clamp(8px, 1.3vh, 22px); border-block-start: 1px solid rgb(255 255 255 / .10); }
   .sf-tv-t > .c > .code { display: inline-grid; place-items: center; min-inline-size: 3.6em; block-size: 1.8em; padding-inline: .5em; border-radius: var(--sf-radius-pill);
     font-family: var(--sf-font-latin); font-feature-settings: normal; font-weight: 600; font-size: clamp(13px, 1.05vw, 18px); letter-spacing: .03em; direction: ltr;
     background: rgb(255 255 255 / .10); color: var(--sf-on-brand); box-shadow: inset 0 0 0 1px rgb(255 255 255 / .14); }
   .sf-tv-t > .c > .nm { font-size: clamp(18px, 1.6vw, 28px); font-weight: 500; color: var(--sf-on-brand); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .sf-tv-sec { container-type: inline-size; min-inline-size: 0; }
-  .sf-tv-t > .v { padding-block: clamp(10px, 1.1vw, 16px); border-block-start: 1px solid rgb(255 255 255 / .10);
-    font-size: min(44px, max(18px, calc((100cqi - 240px) / (var(--len, 10) * 1.32 + 1)))); line-height: 1.2; font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--sf-on-brand); }
+  .sf-tv-t > .v { padding-block: clamp(8px, 1.3vh, 22px); border-block-start: 1px solid rgb(255 255 255 / .10);
+    /* one size for the whole board (the shared --len), as large as the screen height allows and the column fits */
+    font-size: var(--fig); line-height: 1.2; font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--sf-on-brand); }
   .sf-tv-t > .v.is-sell { color: var(--sf-on-brand); font-weight: 600; }
   .sf-tv-t > .v.is-buy { color: var(--sf-on-brand-2); }
   .sf-tv-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 32px; margin-block-start: clamp(20px, 2.4vw, 40px); padding-block-start: 16px; border-block-start: 1px solid rgb(255 255 255 / .14); }
   .sf-tv-foot > span { display: inline-flex; align-items: center; gap: 10px; font-size: clamp(14px, 1.05vw, 18px); color: var(--sf-on-brand-2); }
   .sf-tv-foot .px { font-family: var(--sf-font-latin); font-feature-settings: normal; direction: ltr; font-variant-numeric: tabular-nums; color: var(--sf-on-brand); font-weight: 500; }
   .sf-tv-foot .code { font-family: var(--sf-font-latin); font-feature-settings: normal; font-weight: 600; letter-spacing: .03em; color: var(--sf-on-brand); }
-  .sf-tv-foot .up { color: color-mix(in srgb, var(--sf-in) 45%, white); }
-  .sf-tv-foot .down { color: color-mix(in srgb, var(--sf-danger) 45%, white); }
+  /* deltas: a 10 px triangle and a signed figure, light enough for 4.5:1 on Dusk (direction never by colour alone) */
+  .sf-tv-foot .dl { display: inline-flex; align-items: center; gap: 4px; font-variant-numeric: tabular-nums; }
+  .sf-tv-foot .dl svg { inline-size: 10px; block-size: 10px; flex: none; }
+  .sf-tv-foot .up { color: color-mix(in srgb, var(--sf-in) 22%, white); }
+  .sf-tv-foot .down { color: color-mix(in srgb, var(--sf-danger) 22%, white); }
   .sf-tv-brand { margin-inline-start: auto; display: inline-flex; align-items: center; gap: 8px; color: var(--sf-on-brand-3); font-size: 13px; }
   .sf-tv .sf-flash-up { animation-name: sf-tv-flash-up; }
   .sf-tv .sf-flash-down { animation-name: sf-tv-flash-down; }

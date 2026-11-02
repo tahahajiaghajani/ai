@@ -33,6 +33,7 @@ import {
   type LineIn, type PricedLine,
 } from "./shared";
 import { GoldStrip, KaratAvatar, KaratSeg } from "./kit";
+import { useSheetFit } from "../goods/components";
 import { PrintArea, printSheet, type PrintFormat } from "./Invoice";
 
 interface SLine {
@@ -81,6 +82,7 @@ function SaleForm({ id }: { id: string | null }) {
   const latest = useLatestRate();
   const coins = useCoins();
   const scanRef = useRef<InputRef>(null);
+  const sheetRef = useSheetFit<HTMLElement>();
 
   const existing = useQuery({ queryKey: ["gold-doc", id], queryFn: () => api.get(`/gold/docs/${id}`).then((r) => r.doc), enabled: !!id });
   const boxes = useQuery({ queryKey: ["options", "cash_box", "", {}], queryFn: () => api.get("/data/cash_box/options").then((r) => r.options as any[]), staleTime: 60_000 });
@@ -144,7 +146,7 @@ function SaleForm({ id }: { id: string | null }) {
         key: l.id, kind: l.kind, direction: l.direction, gold_item_id: l.gold_item_id, tag_no: l.tag_no, item_id: l.item_id, title: l.title,
         category_name: l.category_name, ownership: l.ownership, form: l.form, qty: l.qty, fineness: l.fineness, weight: l.weight, stone_weight: l.stone_weight,
         gram_price: l.kind === "coin" || (l.gram_price && l.gram_price !== d.gram18) ? l.gram_price : null, wage_type: l.wage_type, wage_value: l.wage_value,
-        profit_pct: l.profit_pct, stone: l.stone, discount: D(l.discount).isZero() || l.kind === "old" ? null : l.discount, deduction_pct: l.deduction_pct,
+        profit_pct: l.profit_pct, stone: D(l.stone ?? 0).isZero() ? null : l.stone, discount: D(l.discount).isZero() || l.kind === "old" ? null : l.discount, deduction_pct: l.deduction_pct,
       })),
     );
     setLocked(d.status !== "draft");
@@ -188,7 +190,7 @@ function SaleForm({ id }: { id: string | null }) {
         {
           key: uuidv7(), kind: "piece", direction: "out", gold_item_id: x.gold_item_id, tag_no: x.tag_no, title: x.title, category_name: x.category_name,
           ownership: x.ownership, weight: x.weight, fineness: x.fineness, stone_weight: x.stone_weight, wage_type: x.wage_type, wage_value: x.wage_value,
-          profit_pct: x.profit_pct, stone: x.stone,
+          profit_pct: x.profit_pct, stone: x.stone && !D(x.stone).isZero() ? x.stone : null,
         },
       ]);
       setTag("");
@@ -405,7 +407,7 @@ function SaleForm({ id }: { id: string | null }) {
             {outLines.length ? (
               <div className="sf-glines sf-stagger mt-2">
                 {outLines.map(({ l, p }) => (
-                  <SaleLine key={l.key} l={l} p={p} readOnly={readOnly} coins={coins.data ?? []} defaultProfit={env.profitPct} onChange={(patch) => set(l.key, patch)} onRemove={() => remove(l.key)} />
+                  <SaleLine key={l.key} l={l} p={p} breakdown={outLines.length > 1} readOnly={readOnly} coins={coins.data ?? []} defaultProfit={env.profitPct} onChange={(patch) => set(l.key, patch)} onRemove={() => remove(l.key)} />
                 ))}
               </div>
             ) : (
@@ -447,11 +449,11 @@ function SaleForm({ id }: { id: string | null }) {
                       <tr key={l.key}>
                         <td><Input variant="borderless" disabled={readOnly} value={l.title ?? ""} placeholder="طلای مستعمل" onChange={(e) => set(l.key, { title: e.target.value })} /></td>
                         <td>
-                          <WeightInput variant="borderless" disabled={readOnly} value={l.weight} onChange={(v) => set(l.key, { weight: v })} />
+                          {readOnly ? <span className="sf-gsub !text-[13px] !text-ink"><Weight v={l.weight ?? 0} unit={false} zero="—" /></span> : <WeightInput variant="borderless" suffix={undefined} value={l.weight} onChange={(v) => set(l.key, { weight: v })} />}
                           {!D(p.weight750).isZero() ? <span className="sf-gsub">معادل ۷۵۰: <Weight v={p.weight750} unit={false} /></span> : null}
                         </td>
                         <td><NumberInput variant="borderless" decimals={1} disabled={readOnly} value={l.fineness} onChange={(v) => set(l.key, { fineness: v })} /></td>
-                        <td><PctInput variant="borderless" disabled={readOnly} value={l.deduction_pct} onChange={(v) => set(l.key, { deduction_pct: v })} /></td>
+                        <td><PctInput variant="borderless" suffix={undefined} disabled={readOnly} value={l.deduction_pct} onChange={(v) => set(l.key, { deduction_pct: v })} /></td>
                         <td><MoneyInput variant="borderless" disabled={readOnly} value={l.gram_price} placeholder={buyPrice ? formatNumber(buyPrice) : ""} onChange={(v) => set(l.key, { gram_price: v })} /></td>
                         <td className="sf-gn">
                           <Money v={p.total} />
@@ -472,7 +474,7 @@ function SaleForm({ id }: { id: string | null }) {
         </div>
 
         {/* ---------------------------------------------------------------- the sale sheet */}
-        <aside className="sf-dsheet" aria-label="فاکتور">
+        <aside ref={sheetRef} className="sf-dsheet" aria-label="فاکتور">
           <div className="sf-dsheet-b">
             <div className="sf-field">
               <div className="sf-field-l">مشتری</div>
@@ -550,7 +552,7 @@ function SaleForm({ id }: { id: string | null }) {
 
             <div className="sf-field">
               <div className="sf-sec-t"><span>{payOut ? "پرداخت به مشتری" : "دریافت"}</span></div>
-              <div className="sf-pay">
+              <div className="sf-pay is-2row">
                 <PayRow icon={Banknote} label="نقد" entity="cash_box" pay={cash} setPay={setCash} readOnly={readOnly} onRest={() => fillRest("cash")} />
                 {!payOut ? <PayRow icon={CreditCard} label="کارتخوان" entity="pos_terminal" pay={pos} setPay={setPos} readOnly={readOnly} onRest={() => fillRest("pos")} /> : null}
                 <PayRow icon={Landmark} label="واریز" entity="bank_account" pay={bank} setPay={setBank} readOnly={readOnly} onRest={() => fillRest("bank")} />
@@ -649,9 +651,10 @@ function PayRow({ icon, label, entity, pay, setPay, readOnly, onRest }: { icon: 
   );
 }
 
-function SaleLine({ l, p, readOnly, coins, defaultProfit, onChange, onRemove }: {
+function SaleLine({ l, p, breakdown, readOnly, coins, defaultProfit, onChange, onRemove }: {
   l: SLine;
   p: PricedLine;
+  breakdown?: boolean;
   readOnly: boolean;
   coins: { id: string; name: string; price: string | null; fineness: string | null; qty: string }[];
   defaultProfit: unknown;
@@ -774,7 +777,7 @@ function SaleLine({ l, p, readOnly, coins, defaultProfit, onChange, onRemove }: 
         )}
       </div>
 
-      {!coin ? (
+      {!coin && breakdown ? (
         <div className="sf-gline-why">
           <span>ارزش طلا <span className="n"><Money v={p.gold_value} zero="—" /></span></span>
           <span className="sf-sep" aria-hidden />

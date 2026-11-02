@@ -41,7 +41,14 @@ export default function Ledger() {
   const hasFx = rows.some((r) => !D(r.fx_debit).isZero() || !D(r.fx_credit).isZero());
   const hasW = rows.some((r) => !D(r.w_debit).isZero() || !D(r.w_credit).isZero());
   const data = useMemo(() => (d ? [{ __open: true, key: "opening", balance: d.opening }, ...rows.map((r) => ({ ...r, key: `${r.voucher_id}-${r.line_no}` }))] : []), [d, rows]);
-  const name = title ?? rows[0]?.detail_name ?? rows[0]?.account_name ?? null;
+  // the «حساب» column says nothing when every row is on one account (the account picked as the filter);
+  // «تفصیلی» says nothing when no row has one, or when every row is on the filtered detail
+  const showAcc = !rows.length || rows.some((r) => r.account_code !== rows[0].account_code);
+  const showDet = rows.some((r) => r.detail_name) && (!detailId || rows.some((r) => r.detail_name !== rows[0].detail_name));
+  // the card's title: what was picked, else what the rows say (the detail when filtering by one, else the single account)
+  const name = title ?? (detailId ? rows[0]?.detail_name : !showAcc && rows[0] ? `${faDigits(rows[0].account_code)} ${rows[0].account_name}` : null) ?? null;
+  const lead = 1 + (showAcc ? 1 : 0) + (showDet ? 1 : 0); // the cells the opening row spans
+  const tableX = 104 + 64 + (showAcc ? 220 : 0) + (showDet ? 180 : 0) + 240 + (hasFx ? 136 + 112 : 0) + (hasW ? 128 : 0) + 136 * 3 + 84;
 
   return (
     <div>
@@ -146,7 +153,7 @@ export default function Ledger() {
             loading={q.isFetching && !d}
             dataSource={data}
             pagination={{ pageSize: 200, hideOnSinglePage: true, size: "small", showSizeChanger: false }}
-            scroll={{ x: 1040 }}
+            scroll={{ x: tableX }}
             tableLayout="fixed"
             sticky={{ offsetHeader: 56 }}
             locale={{ emptyText: " " }}
@@ -165,16 +172,39 @@ export default function Ledger() {
             columns={[
               { key: "date", dataIndex: "date", title: "تاریخ", width: 104, render: (v, r: any) => (r.__open ? null : <JDate v={v} />) },
               { key: "no", dataIndex: "no", title: "سند", width: 64, render: (v, r: any) => (r.__open ? null : <DocNo n={v} />) },
+              ...(showAcc
+                ? [
+                    {
+                      key: "acc",
+                      title: "حساب",
+                      width: 220,
+                      ellipsis: true,
+                      render: (_: unknown, r: any) => (r.__open ? <span>ماندهٔ ابتدای دوره</span> : <Acc code={r.account_code} name={r.account_name} />),
+                      onCell: (r: any) => (r.__open ? { colSpan: lead } : {}),
+                    },
+                  ]
+                : []),
+              ...(showDet
+                ? [
+                    {
+                      key: "det",
+                      dataIndex: "detail_name",
+                      title: "تفصیلی",
+                      width: 180,
+                      ellipsis: true,
+                      render: (v: string | null, r: any) => (r.__open && !showAcc ? <span>ماندهٔ ابتدای دوره</span> : v ?? <span className="sf-zero">—</span>),
+                      onCell: (r: any) => (r.__open ? (showAcc ? { colSpan: 0 } : { colSpan: lead }) : {}),
+                    },
+                  ]
+                : []),
               {
-                key: "acc",
-                title: "حساب",
-                width: 220,
+                key: "desc",
+                dataIndex: "description",
+                title: "شرح",
                 ellipsis: true,
-                render: (_, r: any) => (r.__open ? <span>ماندهٔ ابتدای دوره</span> : <Acc code={r.account_code} name={r.account_name} />),
-                onCell: (r: any) => (r.__open ? { colSpan: 3 } : {}),
+                render: (v: string, r: any) => (r.__open && lead === 1 ? <span>ماندهٔ ابتدای دوره</span> : <span className="bk-2">{v}</span>),
+                onCell: (r: any) => (r.__open && lead > 1 ? { colSpan: 0 } : {}),
               },
-              { key: "det", dataIndex: "detail_name", title: "تفصیلی", width: 180, ellipsis: true, render: (v) => v ?? <span className="sf-zero">—</span>, onCell: (r: any) => (r.__open ? { colSpan: 0 } : {}) },
-              { key: "desc", dataIndex: "description", title: "شرح", ellipsis: true, render: (v) => <span className="bk-2">{v}</span>, onCell: (r: any) => (r.__open ? { colSpan: 0 } : {}) },
               ...(hasFx
                 ? [
                     {
@@ -190,16 +220,16 @@ export default function Ledger() {
               ...(hasW
                 ? [{ key: "w", title: "وزن (گرم)", className: "sf-num", width: 128, render: (_: unknown, r: any) => (r.__open || (D(r.w_debit).isZero() && D(r.w_credit).isZero()) ? null : <Weight v={D(r.w_debit).minus(D(r.w_credit)).toString()} unit={false} />) }]
                 : []),
-              { key: "dr", dataIndex: "debit", title: "بدهکار", className: "sf-num", width: 144, render: (v, r: any) => (r.__open ? null : <Amt v={v} zero="" />) },
-              { key: "cr", dataIndex: "credit", title: "بستانکار", className: "sf-num", width: 144, render: (v, r: any) => (r.__open ? null : <Amt v={v} zero="" />) },
-              { key: "bal", dataIndex: "balance", title: "مانده", className: "sf-num", width: 152, render: (v) => <Amt v={D(v ?? 0).abs().toString()} /> },
-              { key: "side", dataIndex: "balance", title: "تشخیص", width: 80, render: (v) => <span className="bk-plain">{side(v)}</span> },
+              { key: "dr", dataIndex: "debit", title: "بدهکار", className: "sf-num", width: 136, render: (v, r: any) => (r.__open ? null : <Amt v={v} zero="" />) },
+              { key: "cr", dataIndex: "credit", title: "بستانکار", className: "sf-num", width: 136, render: (v, r: any) => (r.__open ? null : <Amt v={v} zero="" />) },
+              { key: "bal", dataIndex: "balance", title: "مانده", className: "sf-num", width: 136, render: (v) => <Amt v={D(v ?? 0).abs().toString()} /> },
+              { key: "side", dataIndex: "balance", title: "تشخیص", width: 84, render: (v) => <span className="bk-plain">{side(v)}</span> },
             ]}
             summary={() =>
               d ? (
                 <Table.Summary fixed>
                   <Table.Summary.Row>
-                    <Table.Summary.Cell index={0} colSpan={5 + (hasFx ? 2 : 0) + (hasW ? 1 : 0)} className="bk-sum-l">
+                    <Table.Summary.Cell index={0} colSpan={2 + lead + (hasFx ? 2 : 0) + (hasW ? 1 : 0)} className="bk-sum-l">
                       جمع دوره<small>{faDigits(rows.length)} ردیف</small>
                     </Table.Summary.Cell>
                     <Table.Summary.Cell index={1} className="sf-num"><Amt v={d.totals.debit} /></Table.Summary.Cell>

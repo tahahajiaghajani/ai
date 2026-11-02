@@ -103,7 +103,7 @@ export default function Recover() {
               </Button>
             </div>
           </Form>
-          <p className="pg-note">کاربرِ یک کسب‌وکار هستید و کد را ندارید؟ مدیر می‌تواند رمزتان را از «تنظیمات ← کاربران» تازه کند.</p>
+          <p className="pg-note">کد بازیابی ندارید؟ مدیر کسب‌وکارتان می‌تواند رمز را تازه کند.</p>
         </>
       )}
     </AuthLayout>

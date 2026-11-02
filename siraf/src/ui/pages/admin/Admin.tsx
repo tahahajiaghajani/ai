@@ -1,6 +1,6 @@
 // Platform owner's page: users (disable / enable), businesses and database usage.
-import { useState, type ReactNode } from "react";
-import { Button, Input, Switch, Table, Tabs, Tooltip } from "antd";
+import { useState, useSyncExternalStore, type ReactNode } from "react";
+import { Button, Input, Spin, Switch, Table, Tabs, Tooltip } from "antd";
 import { ArrowRight, Database, Building2, Users, FileText, Search } from "lucide-react";
 import { Link, useNavigate } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -40,6 +40,20 @@ function Stat({ icon, label, children, foot, visual, i }: { icon: ReactNode; lab
   );
 }
 
+// below 640 px the tables become two-line rows (a table there would hide the «فعال» switch off-screen)
+const PHONE = "(max-width: 639px)";
+function usePhone(): boolean {
+  return useSyncExternalStore(
+    (cb) => {
+      const m = window.matchMedia(PHONE);
+      m.addEventListener("change", cb);
+      return () => m.removeEventListener("change", cb);
+    },
+    () => window.matchMedia(PHONE).matches,
+    () => false,
+  );
+}
+
 function Count({ n }: { n: number }) {
   const v = useCountUp(n);
   return <span className="sf-t-figure sf-num">{fa(Math.round(v))}</span>;
@@ -53,10 +67,23 @@ export default function Admin() {
   const [q, setQ] = useState("");
   const [tab, setTab] = useState("users");
   const dq = useDebounced(q);
+  const phone = usePhone();
   const isAdmin = !!me?.user.is_platform_admin;
-  const stats = useQuery({ queryKey: ["admin", "stats"], queryFn: () => api.get<{ stats: Record<string, number> }>("/admin/stats"), enabled: isAdmin });
-  const users = useQuery({ queryKey: ["admin", "users", dq], queryFn: () => api.get<{ users: any[] }>("/admin/users", { q: dq }), enabled: isAdmin });
-  const orgs = useQuery({ queryKey: ["admin", "orgs"], queryFn: () => api.get<{ orgs: any[] }>("/admin/orgs"), enabled: isAdmin });
+  const stats = useQuery({
+    queryKey: ["admin", "stats"],
+    queryFn: () => api.get<{ stats: Record<string, number> }>("/admin/stats"),
+    enabled: isAdmin,
+  });
+  const users = useQuery({
+    queryKey: ["admin", "users", dq],
+    queryFn: () => api.get<{ users: any[] }>("/admin/users", { q: dq }),
+    enabled: isAdmin,
+  });
+  const orgs = useQuery({
+    queryKey: ["admin", "orgs"],
+    queryFn: () => api.get<{ orgs: any[] }>("/admin/orgs"),
+    enabled: isAdmin,
+  });
 
   if (!isAdmin)
     return (
@@ -92,6 +119,22 @@ export default function Admin() {
 
   const userRows = users.data?.users ?? [];
   const orgRows = orgs.data?.orgs ?? [];
+  const kindTitle = (v: string) => BUSINESS_KINDS.find((b) => b.key === v)?.title.replace(/\s*\(.*\)$/, "") ?? v;
+  const activeSwitch = (u: any) => (
+    <Switch
+      size="small"
+      checked={!u.disabled}
+      disabled={u.id === me!.user.id}
+      onChange={(on) => toggle(u.id, !on)}
+      aria-label={u.disabled ? `فعال کردن ${u.full_name}` : `غیرفعال کردن ${u.full_name}`}
+    />
+  );
+  const loadingRows = (busy: boolean) =>
+    busy ? (
+      <li className="pg-rows-empty !block">
+        <Spin size="small" />
+      </li>
+    ) : null;
 
   return (
     <PlainFrame wide>
@@ -106,13 +149,35 @@ export default function Admin() {
       </div>
 
       <section className="pg-stats" aria-label="آمار سامانه" aria-busy={stats.isLoading}>
-        <Stat i={0} icon={<Users {...ICON} />} label="کاربران" foot={s?.disabled_users ? <><span className="sf-num">{fa(s.disabled_users)}</span> غیرفعال</> : "همه فعال"}>
+        <Stat
+          i={0}
+          icon={<Users {...ICON} />}
+          label="کاربران"
+          foot={
+            s?.disabled_users ? (
+              <>
+                <span className="sf-num">{fa(s.disabled_users)}</span> غیرفعال
+              </>
+            ) : (
+              "همه فعال"
+            )
+          }
+        >
           <Count n={s?.users ?? 0} />
         </Stat>
         <Stat i={1} icon={<Building2 {...ICON} />} label="کسب‌وکارها">
           <Count n={s?.orgs ?? 0} />
         </Stat>
-        <Stat i={2} icon={<FileText {...ICON} />} label="اسناد حسابداری" foot={<><span className="sf-num">{fa(s?.active_sessions ?? 0)}</span> نشست فعال در ۷ روز</>}>
+        <Stat
+          i={2}
+          icon={<FileText {...ICON} />}
+          label="اسناد حسابداری"
+          foot={
+            <>
+              <span className="sf-num">{fa(s?.active_sessions ?? 0)}</span> نشست فعال در ۷ روز
+            </>
+          }
+        >
           <Count n={s?.vouchers ?? 0} />
         </Stat>
         <Stat
@@ -121,12 +186,28 @@ export default function Admin() {
           label="حجم پایگاه‌داده"
           visual={
             cloud ? (
-              <div className="pg-meter" data-hot={ratio > 0.8 || undefined} role="meter" aria-label="سهم مصرف‌شده از طرح رایگان" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(ratio * 100)}>
+              <div
+                className="pg-meter"
+                data-hot={ratio > 0.8 || undefined}
+                role="meter"
+                aria-label="سهم مصرف‌شده از طرح رایگان"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={Math.round(ratio * 100)}
+              >
                 <i style={{ inlineSize: `${Math.max(ratio * 100, 1)}%` }} />
               </div>
             ) : null
           }
-          foot={cloud ? <>از ۵۰۰ مگابایت طرح رایگان، <span className="sf-num">{fa(ratio * 100, 0)}٪</span></> : "روی همین رایانه"}
+          foot={
+            cloud ? (
+              <>
+                از ۵۰۰ مگابایت طرح رایگان، <span className="sf-num">{fa(ratio * 100, 0)}٪</span>
+              </>
+            ) : (
+              "روی همین رایانه"
+            )
+          }
         >
           <span className="sf-t-figure sf-num">{fa(usedMb, usedMb < 10 ? 1 : 0)}</span>
           <span className="sf-unit">مگابایت</span>
@@ -139,8 +220,14 @@ export default function Admin() {
           onChange={setTab}
           tabBarStyle={{ paddingInline: 16 }}
           items={[
-            { key: "users", label: <>کاربران {users.data ? <span className="sf-num ms-1 text-ink-3">{fa(userRows.length)}</span> : null}</> },
-            { key: "orgs", label: <>کسب‌وکارها {orgs.data ? <span className="sf-num ms-1 text-ink-3">{fa(orgRows.length)}</span> : null}</> },
+            {
+              key: "users",
+              label: <>کاربران {users.data ? <span className="sf-num ms-1 text-ink-3">{fa(userRows.length)}</span> : null}</>,
+            },
+            {
+              key: "orgs",
+              label: <>کسب‌وکارها {orgs.data ? <span className="sf-num ms-1 text-ink-3">{fa(orgRows.length)}</span> : null}</>,
+            },
           ]}
         />
         {tab === "users" ? (
@@ -157,45 +244,123 @@ export default function Admin() {
               />
               <span className="pg-count">{users.data ? `${fa(userRows.length)} کاربر` : null}</span>
             </div>
-            <Table
-              size="small"
-              rowKey="id"
-              loading={users.isLoading}
-              dataSource={userRows}
-              pagination={{ pageSize: 25, hideOnSinglePage: true }}
-              scroll={{ x: 880 }}
-              rowClassName={(u: any) => (u.disabled ? "pg-off" : "")}
-              locale={{ emptyText: q ? `برای «${q}» کاربری پیدا نشد.` : "هنوز کاربری نیست." }}
-              columns={[
-                {
-                  key: "name",
-                  title: "نام",
-                  render: (_: unknown, u: any) => (
-                    <span className="pg-person">
-                      <span className="pg-av" aria-hidden>
-                        {initials(u.full_name)}
-                      </span>
-                      <span className="truncate font-medium">{u.full_name}</span>
-                      {u.is_platform_admin ? <span className="pg-chip">مدیر سامانه</span> : null}
-                      {u.disabled ? <span className="pg-chip">غیرفعال</span> : null}
+            {phone ? (
+              <ul className="pg-rows" aria-label="کاربران" aria-busy={users.isLoading}>
+                {userRows.map((u: any) => (
+                  <li key={u.id} className={u.disabled ? "pg-off" : undefined}>
+                    <span className="pg-av" aria-hidden>
+                      {initials(u.full_name)}
                     </span>
-                  ),
-                },
-                { key: "email", title: "ایمیل", dataIndex: "email", render: (v: string) => <span className="sf-latin">{v}</span> },
-                { key: "orgs", title: "کسب‌وکار", dataIndex: "orgs", width: 96, render: (v: number) => <span className="sf-num">{fa(v ?? 0)}</span> },
-                { key: "seen", title: "آخرین ورود", dataIndex: "last_seen_at", width: 168, render: (v: string | null) => <When v={v} /> },
-                { key: "created", title: "عضویت", dataIndex: "created_at", width: 168, render: (v: string) => <When v={v} /> },
-                {
-                  key: "active",
-                  title: "فعال",
-                  width: 72,
-                  render: (_: unknown, u: any) => (
-                    <Switch size="small" checked={!u.disabled} disabled={u.id === me!.user.id} onChange={(on) => toggle(u.id, !on)} aria-label={u.disabled ? `فعال کردن ${u.full_name}` : `غیرفعال کردن ${u.full_name}`} />
-                  ),
-                },
-              ]}
-            />
+                    <span className="pg-r-tx">
+                      <span className="pg-r-t">
+                        <span className="truncate">{u.full_name}</span>
+                        {u.is_platform_admin ? <span className="pg-chip">مدیر سامانه</span> : null}
+                        {u.disabled ? <span className="pg-chip">غیرفعال</span> : null}
+                      </span>
+                      <span className="pg-r-m">
+                        <span className="sf-latin">{u.email}</span>
+                        <span className="whitespace-nowrap">
+                          آخرین ورود <When v={u.last_seen_at} />
+                        </span>
+                      </span>
+                    </span>
+                    {activeSwitch(u)}
+                  </li>
+                ))}
+                {userRows.length ? null : (loadingRows(users.isLoading) ?? <li className="pg-rows-empty !block">{q ? `برای «${q}» کاربری پیدا نشد.` : "هنوز کاربری نیست."}</li>)}
+              </ul>
+            ) : (
+              <Table
+                size="small"
+                rowKey="id"
+                loading={users.isLoading}
+                dataSource={userRows}
+                pagination={{ pageSize: 25, hideOnSinglePage: true }}
+                scroll={{ x: 880 }}
+                rowClassName={(u: any) => (u.disabled ? "pg-off" : "")}
+                locale={{
+                  emptyText: q ? `برای «${q}» کاربری پیدا نشد.` : "هنوز کاربری نیست.",
+                }}
+                columns={[
+                  {
+                    key: "name",
+                    title: "نام",
+                    render: (_: unknown, u: any) => (
+                      <span className="pg-person">
+                        <span className="pg-av" aria-hidden>
+                          {initials(u.full_name)}
+                        </span>
+                        <span className="truncate font-medium">{u.full_name}</span>
+                        {u.is_platform_admin ? <span className="pg-chip">مدیر سامانه</span> : null}
+                        {u.disabled ? <span className="pg-chip">غیرفعال</span> : null}
+                      </span>
+                    ),
+                  },
+                  {
+                    key: "email",
+                    title: "ایمیل",
+                    dataIndex: "email",
+                    render: (v: string) => <span className="sf-latin">{v}</span>,
+                  },
+                  {
+                    key: "orgs",
+                    title: "کسب‌وکار",
+                    dataIndex: "orgs",
+                    width: 96,
+                    render: (v: number) => <span className="sf-num">{fa(v ?? 0)}</span>,
+                  },
+                  {
+                    key: "seen",
+                    title: "آخرین ورود",
+                    dataIndex: "last_seen_at",
+                    width: 168,
+                    render: (v: string | null) => <When v={v} />,
+                  },
+                  {
+                    key: "created",
+                    title: "عضویت",
+                    dataIndex: "created_at",
+                    width: 168,
+                    render: (v: string) => <When v={v} />,
+                  },
+                  {
+                    key: "active",
+                    title: "فعال",
+                    width: 72,
+                    render: (_: unknown, u: any) => activeSwitch(u),
+                  },
+                ]}
+              />
+            )}
           </>
+        ) : phone ? (
+          <ul className="pg-rows" aria-label="کسب‌وکارها" aria-busy={orgs.isLoading}>
+            {orgRows.map((o: any) => (
+              <li key={o.id}>
+                <span className="pg-av !rounded-md" aria-hidden>
+                  {String(o.name ?? "")
+                    .trim()
+                    .slice(0, 1)}
+                </span>
+                <span className="pg-r-tx">
+                  <Link to={`/${o.id}`} className="pg-r-t !text-ink">
+                    <span className="truncate">{o.name}</span>
+                  </Link>
+                  <span className="pg-r-m">
+                    <span>{kindTitle(o.business_kind)}</span>
+                    <span>
+                      <span className="sf-num">{fa(o.members ?? 0)}</span> کاربر
+                      {SEP}
+                      <span className="sf-num">{fa(o.vouchers ?? 0)}</span> سند
+                      {SEP}
+                      <span className="sf-num">{fa(o.invoices ?? 0)}</span> فاکتور
+                    </span>
+                  </span>
+                </span>
+              </li>
+            ))}
+            {orgRows.length ? null : (loadingRows(orgs.isLoading) ?? <li className="pg-rows-empty !block">هنوز کسب‌وکاری ساخته نشده.</li>)}
+          </ul>
         ) : (
           <Table
             size="small"
@@ -212,23 +377,54 @@ export default function Admin() {
                 render: (_: unknown, o: any) => (
                   <Link to={`/${o.id}`} className="pg-person !text-ink hover:underline">
                     <span className="pg-av !rounded-md" aria-hidden>
-                      {String(o.name ?? "").trim().slice(0, 1)}
+                      {String(o.name ?? "")
+                        .trim()
+                        .slice(0, 1)}
                     </span>
                     <span className="truncate font-medium">{o.name}</span>
                   </Link>
                 ),
               },
-              { key: "kind", title: "نوع", dataIndex: "business_kind", render: (v: string) => <span className="text-ink-2">{BUSINESS_KINDS.find((b) => b.key === v)?.title.replace(/\s*\(.*\)$/, "") ?? v}</span> },
+              {
+                key: "kind",
+                title: "نوع",
+                dataIndex: "business_kind",
+                render: (v: string) => <span className="text-ink-2">{kindTitle(v)}</span>,
+              },
               {
                 key: "modules",
                 title: "بخش‌ها",
                 dataIndex: "modules",
                 render: (v: string[]) => <span className="text-ink-2">{(v ?? []).length ? (v ?? []).map((m) => MODULES.find((x) => x.key === m)?.title ?? m).join(SEP) : "—"}</span>,
               },
-              { key: "members", title: "کاربر", dataIndex: "members", width: 72, render: (v: number) => <span className="sf-num">{fa(v ?? 0)}</span> },
-              { key: "vouchers", title: "سند", dataIndex: "vouchers", width: 88, render: (v: number) => <span className="sf-num">{fa(v ?? 0)}</span> },
-              { key: "invoices", title: "فاکتور", dataIndex: "invoices", width: 88, render: (v: number) => <span className="sf-num">{fa(v ?? 0)}</span> },
-              { key: "last", title: "آخرین فعالیت", dataIndex: "last_activity", width: 168, render: (v: string | null) => <When v={v} /> },
+              {
+                key: "members",
+                title: "کاربر",
+                dataIndex: "members",
+                width: 72,
+                render: (v: number) => <span className="sf-num">{fa(v ?? 0)}</span>,
+              },
+              {
+                key: "vouchers",
+                title: "سند",
+                dataIndex: "vouchers",
+                width: 88,
+                render: (v: number) => <span className="sf-num">{fa(v ?? 0)}</span>,
+              },
+              {
+                key: "invoices",
+                title: "فاکتور",
+                dataIndex: "invoices",
+                width: 88,
+                render: (v: number) => <span className="sf-num">{fa(v ?? 0)}</span>,
+              },
+              {
+                key: "last",
+                title: "آخرین فعالیت",
+                dataIndex: "last_activity",
+                width: 168,
+                render: (v: string | null) => <When v={v} />,
+              },
             ]}
           />
         )}

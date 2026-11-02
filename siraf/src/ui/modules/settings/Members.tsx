@@ -84,7 +84,7 @@ export default function Members() {
               width: 180,
               render: (v, r: any) =>
                 editable ? (
-                  <Select size="small" variant="borderless" value={v} options={roles} className="!w-40" onChange={(role) => update.mutate({ id: r.id, role })} />
+                  <Select size="small" variant="borderless" value={v} options={roles} popupMatchSelectWidth={false} style={{ width: "auto" }} onChange={(role) => update.mutate({ id: r.id, role })} />
                 ) : (
                   <span>{ROLES[v as Role]?.title}</span>
                 ),

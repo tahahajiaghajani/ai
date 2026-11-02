@@ -73,6 +73,9 @@ export function useShellItems(): ShellItem[] {
   return useMemo(() => groups.flatMap((g) => g.items.map((i) => ({ ...i, space: g.space, group: g.label }))), [groups]);
 }
 
+/** Items the sidebar lists: create-actions live in page headers and the palette («کارها»), counters stay. */
+export const inSidebar = (i: NavItem) => !i.action || !!i.workspace;
+
 /** The segmented control's spaces: enabled modules with at least one non-common item the member may open. */
 export function useSpaces(items: ShellItem[]): Space[] {
   return useMemo(() => SPACES.filter((s) => items.some((i) => i.space === s.key && !i.common)), [items]);

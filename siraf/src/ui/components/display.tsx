@@ -2,8 +2,8 @@
 // Number rules (components.md §0.3, §4.2): tabular Persian figures, decimals full size in text-2, a negative is an
 // isolated true minus («−۱۲۳» in an LTR isolate, never red), units small and quiet after a no-break space.
 import "./kit.css";
-import type { ReactNode } from "react";
-import { Tooltip } from "antd";
+import { cloneElement, isValidElement, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { Button, Tooltip } from "antd";
 import { Inbox, ChevronLeft, type LucideIcon } from "lucide-react";
 import { D, type Num } from "@shared/money";
 import { formatNumber, faDigits, balanceSide } from "@shared/format";
@@ -201,7 +201,9 @@ const ICON = { size: 16, strokeWidth: 1.4, absoluteStrokeWidth: true } as const;
 
 /**
  * Empty state (components.md §7): a 56 px sunken tile with a 28 px icon, a title, one helpful sentence and at most
- * one action (plus an optional quiet link). Never an illustration inside data views.
+ * one action (plus an optional quiet link). Never an illustration inside data views. Dusk stays rare: when the page
+ * header already shows a primary button, a primary `action` is drawn as a default button (or pass `primary={false}`;
+ * `primary` forces it back).
  */
 export function EmptyState({
   title = "هنوز موردی ثبت نشده است",
@@ -211,6 +213,7 @@ export function EmptyState({
   icon: Icon = Inbox,
   compact,
   className,
+  primary,
 }: {
   title?: ReactNode;
   description?: ReactNode;
@@ -219,17 +222,27 @@ export function EmptyState({
   icon?: LucideIcon;
   compact?: boolean;
   className?: string;
+  primary?: boolean;
 }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [headerPrimary, setHeaderPrimary] = useState(false);
+  useLayoutEffect(() => {
+    if (primary !== undefined) return;
+    setHeaderPrimary(!!document.querySelector(".sf-ph-actions .ant-btn-primary, .sf-ph-actions .ant-btn-color-primary.ant-btn-variant-solid"));
+  }, [primary]);
+  const demote = primary === false || (primary === undefined && headerPrimary);
+  const isPrimaryButton = isValidElement(action) && action.type === Button && (action.props as { type?: string }).type === "primary";
+  const act = demote && isPrimaryButton ? cloneElement(action as React.ReactElement<{ type?: string }>, { type: "default" }) : action;
   return (
-    <div className={cx("sf-empty sf-fade", compact && "sf-empty-compact", className)}>
+    <div ref={ref} className={cx("sf-empty sf-fade", compact && "sf-empty-compact", className)}>
       <div className="sf-empty-tile" aria-hidden>
         <Icon size={compact ? 22 : 28} strokeWidth={1.5} absoluteStrokeWidth />
       </div>
       <div className="sf-empty-title">{title}</div>
       {description ? <div className="sf-empty-text">{description}</div> : null}
-      {action || secondary ? (
+      {act || secondary ? (
         <div className="sf-empty-act">
-          {action}
+          {act}
           {secondary}
         </div>
       ) : null}

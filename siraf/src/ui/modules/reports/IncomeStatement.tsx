@@ -48,7 +48,7 @@ export default function IncomeStatement() {
   const net = D(d?.net ?? 0);
   const margin = D(d?.total_income ?? 0).isZero() ? null : net.div(D(d.total_income));
   return (
-    <div className="mx-auto max-w-[960px]">
+    <div>
       <PageHeader title="صورت سود و زیان" />
       <ReportFilters range={range} setRange={setRange} />
       <ScaleProvider scale={scale}>
@@ -61,7 +61,7 @@ export default function IncomeStatement() {
             </>
           }
           tools={<ScalePicker scale={scale} onChange={setScale} />}
-          bodyClass="bk-stmt !px-7 !py-6"
+          bodyClass="bk-stmt is-narrow !px-7 !py-6"
         >
           <ReportTitle title="صورت سود و زیان" range={range} />
           {q.isLoading || !d ? (

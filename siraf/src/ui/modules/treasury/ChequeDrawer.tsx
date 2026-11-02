@@ -3,17 +3,17 @@
 import { useState } from "react";
 import { Link } from "react-router";
 import { useQuery } from "@tanstack/react-query";
-import { Button, Drawer } from "antd";
-import { CircleAlert, Undo2 } from "lucide-react";
+import { Button, Drawer, Dropdown } from "antd";
+import { CircleAlert, Ellipsis, Undo2 } from "lucide-react";
 import { useOrg } from "../../lib/org";
 import { errorText } from "../../lib/api";
 import { Chip, EmptyState, JDate, JDateTime, Skeleton, StatusTag } from "../../components/display";
-import { faDigits, groupDigits } from "@shared/format";
+import { faDigits } from "@shared/format";
 import { formatJalali } from "@shared/jalali";
 import { amountToWords } from "@shared/words";
 import { ACTION_LABEL, KIND_TITLE, chequeStatusMap, type ChequeAction, type DocKind } from "./labels";
 import { ChequeActionModal, chequeTitle, type ChequeLike } from "./ChequeAction";
-import { Amt, ICON14, docNo } from "../reports/kit";
+import { Amt, ICON, ICON14, Ref, docNo } from "../reports/kit";
 
 /** Due-date chip of an open cheque: overdue (danger), today or within a week (warning); otherwise nothing. */
 export function DueBadge({ c }: { c: { open: boolean; overdue: boolean; days: number } }) {
@@ -39,12 +39,28 @@ export function ChequeDrawer({ id, onClose }: { id: string | null; onClose: () =
   const canEdit = can("treasury", "edit");
   const history = (c?.history ?? []) as any[];
   const dash = <span className="sf-zero">—</span>;
+  // the operations that move the cheque forward are buttons; undoing the last one is a quiet item in the ⋯ menu
+  const actions = ((canEdit && c?.actions) || []) as ChequeAction[];
+  const forward = actions.filter((a) => a !== "undo");
+  const canUndo = actions.includes("undo");
   return (
     <Drawer
       open={!!id}
       onClose={onClose}
       size={520}
       destroyOnHidden
+      extra={
+        canUndo ? (
+          <Dropdown
+            trigger={["click"]}
+            rootClassName="sf-glass"
+            placement="bottomLeft"
+            menu={{ items: [{ key: "undo", icon: <Undo2 {...ICON14} />, label: ACTION_LABEL[dir as "received"].undo ?? "برگشت آخرین عملیات", onClick: () => setAct("undo") }] }}
+          >
+            <Button type="text" size="small" icon={<Ellipsis {...ICON} />} aria-label="کارهای بیشتر" />
+          </Dropdown>
+        ) : null
+      }
       title={
         c ? (
           <div>
@@ -74,10 +90,10 @@ export function ChequeDrawer({ id, onClose }: { id: string | null; onClose: () =
           </div>
           <div className="bk-cap mt-1" style={{ whiteSpace: "normal" }}>{amountToWords(c.amount, unit)}</div>
 
-          {canEdit && c.actions?.length ? (
+          {forward.length ? (
             <div className="bk-acts mt-4">
-              {(c.actions as ChequeAction[]).map((a) => (
-                <Button key={a} size="small" danger={a === "bounce"} icon={a === "undo" ? <Undo2 {...ICON14} /> : undefined} onClick={() => setAct(a)}>
+              {forward.map((a) => (
+                <Button key={a} size="small" danger={a === "bounce"} onClick={() => setAct(a)}>
                   {ACTION_LABEL[dir as "received"][a] ?? a}
                 </Button>
               ))}
@@ -100,7 +116,7 @@ export function ChequeDrawer({ id, onClose }: { id: string | null; onClose: () =
             </div>
             <div>
               <dt>شناسهٔ صیادی</dt>
-              <dd>{c.sayad_no ? <bdi dir="ltr" className="sf-mono">{groupDigits(c.sayad_no)}</bdi> : dash}</dd>
+              <dd>{c.sayad_no ? <Ref v={c.sayad_no} /> : dash}</dd>
             </div>
             <div>
               <dt>بانک و شعبه</dt>

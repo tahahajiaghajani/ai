@@ -150,6 +150,13 @@
   .sf-pay > .r > .m > .k { flex: none; color: var(--sf-text); }
   .sf-pay > .r > .m > .acct { flex: 1 1 auto; min-inline-size: 0; }
   .sf-pay > .r > .n { display: flex; align-items: center; gap: 4px; min-inline-size: 0; }
+  /* two-row payment line: the method and its whole account name on top, the amount below in the figure column */
+  .sf-pay.is-2row > .r { grid-template-columns: 20px minmax(0, 1fr) calc(var(--sum-col, 148px) + 14px); grid-template-rows: auto auto; row-gap: 2px; padding-block: 8px; }
+  .sf-pay.is-2row > .r > .ic { grid-row: 1; }
+  .sf-pay.is-2row > .r > .m { grid-column: 2 / -1; grid-row: 1; }
+  .sf-pay.is-2row > .r > .m > .acct .ant-select-selection-item, .sf-pay.is-2row > .r > .m > .acct :is(.ant-select-content, .ant-select-content-value) { color: var(--sf-text-2); }
+  .sf-pay.is-2row > .r > .n { grid-column: 3; grid-row: 2; }
+  .sf-pay.is-2row > .r.is-ref { grid-template-rows: auto; padding-block: 4px 8px; }
   .sf-pay > .r > .n > :first-child { flex: 1 1 auto; min-inline-size: 0; }
   .sf-pay > .r.is-ref { min-block-size: 36px; grid-template-columns: 20px minmax(0, 1fr); }
   .sf-pay > .r:last-child { box-shadow: none; }
@@ -182,13 +189,15 @@
   /* (the counter sale and the exchange counter: the maths, the payment and the save footer in one sticky panel) */
   .sf-dsheet {
     --sum-col: 148px;
-    position: sticky; inset-block-start: calc(var(--sf-topbar-h) + 16px);
-    display: flex; flex-direction: column; max-block-size: calc(100dvh - var(--sf-topbar-h) - 32px);
+    position: sticky; inset-block-start: calc(var(--sf-topbar-h) + var(--sf-panel-inset) + var(--sf-page-top));
+    display: flex; flex-direction: column;
+    max-block-size: var(--sheet-max, calc(100dvh - var(--sf-topbar-h) - var(--sf-panel-inset) - var(--sf-page-top) - 16px));
     background: var(--sf-surface); border-radius: var(--sf-radius-xl); box-shadow: var(--sf-shadow-e2);
     min-inline-size: 0; overflow: hidden;
   }
   .sf-dsheet-b { flex: 1 1 auto; min-block-size: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; padding: 16px 20px 16px; overscroll-behavior: contain; }
   .sf-dsheet-f {
+    position: sticky; inset-block-end: 0; z-index: 1;
     flex: none; display: flex; align-items: center; gap: 8px; min-block-size: 64px; padding: 10px 16px 10px 20px;
     box-shadow: inset 0 1px 0 var(--sf-line); background: var(--sf-surface);
   }
@@ -250,6 +259,20 @@
   .sf-strip .v .sf-unit { font-size: 12px; font-weight: 400; }
   .sf-strip.is-compact .v { font-size: 16px; line-height: 24px; }
 
+  /* the print header of a report: the business, then the report and its range — first on the page, ink only */
+  .sf-print-head { text-align: center; margin-block-end: 4mm; }
+  .sf-print-head > .t { font-size: 13pt; line-height: 1.4; font-weight: 700; }
+  .sf-print-head > .s { font-size: 10pt; line-height: 1.5; }
+  @media print {
+    .sf-print-tabs > .ant-tabs-nav { display: none !important; }
+    :is(.sf-print-tabs, .print-sheet) .sf-chip { background: none !important; box-shadow: inset 0 0 0 .5pt var(--sf-text); color: var(--sf-text) !important; }
+    :is(.sf-print-tabs, .print-sheet) .sf-chip > .sf-nuqta { display: none; }
+  }
+
+  /* a table flush in a card: its outer cells align with the card title (20 px), components.md §4.1 */
+  .sf-edge .ant-table :is(th, td):first-child { padding-inline-start: 20px !important; }
+  .sf-edge .ant-table :is(th, td):last-child { padding-inline-end: 20px !important; }
+
   /* tables inside cards: no own radius, edges reach the card */
   .sf-doc-card > .ant-table-wrapper .ant-table { background: transparent; }
 }
@@ -279,7 +302,11 @@
   .sf-pr tr { break-inside: avoid; }
   .sf-pr th { font-size: 8.5pt; font-weight: 500; text-align: start; padding: 1.2mm 1.5mm; border-block: 1pt solid var(--sf-text); white-space: nowrap; }
   .sf-pr td { font-size: 9.5pt; padding: 1.2mm 1.5mm; border-block-end: .5pt solid var(--sf-text); vertical-align: top; }
-  .sf-pr td.n, .sf-pr th.n { white-space: nowrap; text-align: start; }
+  .sf-pr td.n, .sf-pr th.n { white-space: nowrap; text-align: start; inline-size: 1%; }
+  .sf-pr td.c, .sf-pr th.c { inline-size: 1%; white-space: nowrap; }
+  /* the description takes the room the figures leave (at least 38 mm), its meta one quiet 8 pt line */
+  .sf-pr th.desc, .sf-pr td.desc { inline-size: 30%; min-inline-size: 38mm; }
+  .sf-pr td.desc .sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-inline-size: 72mm; }
   .sf-pr td.c, .sf-pr th.c { text-align: center; }
   .sf-pr td .sub { display: block; font-size: 8pt; color: var(--sf-text-2); }
   .sf-pr tfoot td { font-weight: 700; border-block-start: 1pt solid var(--sf-text); border-block-end: 0; }
@@ -297,6 +324,9 @@
   .sf-pr-sign > div { padding-block-start: 1.5mm; border-block-start: .5pt solid var(--sf-text); margin-inline: 8mm; }
   .sf-pr-colophon { display: flex; justify-content: space-between; margin-block-start: 6mm; font-size: 7.5pt; color: var(--sf-text-3); }
   .sf-pr-colophon .latn { font-family: var(--sf-font-latin); font-feature-settings: normal; direction: ltr; unicode-bidi: isolate; }
+  /* rules, not boxes: the receipts' amount blocks print as hairlines (0.5 pt), never as rounded boxes */
+  .sf-pr-amt { padding-block: 2mm; border-block: .5pt solid var(--sf-text); margin-block: 3mm; }
+  .sf-pr .mono { font-family: var(--sf-font-mono); font-feature-settings: normal; direction: ltr; unicode-bidi: isolate; }
   /* the 80 mm receipt: one column, 9 pt body, 11 pt total */
   .sf-rc { inline-size: 72mm; margin-inline: auto; color: var(--sf-text); background: var(--sf-surface); font-size: 9pt; line-height: 1.55; font-variant-numeric: tabular-nums; }
   .sf-rc-c { text-align: center; }

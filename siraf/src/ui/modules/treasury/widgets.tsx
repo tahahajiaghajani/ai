@@ -105,7 +105,7 @@ function TreasuryCard() {
               </span>
             ) : null}
             <span className="sf-end">
-              <HeadLink icon={ChequeIcon} onClick={go("treasury/cheques/due")}>
+              <HeadLink icon={ChequeIcon} squeeze onClick={go("treasury/cheques/due")}>
                 سررسید چک‌ها
               </HeadLink>
             </span>

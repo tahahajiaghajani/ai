@@ -39,7 +39,8 @@ export function AuthLayout({
 }) {
   const { meta } = useSession();
   const desktop = meta?.mode === "desktop";
-  const version = meta?.version ? toPersianDigits(meta.version) : null;
+  // «۱٫۰٫۰»: Persian digits with the Persian decimal separator, never ASCII full stops between them
+  const version = meta?.version ? toPersianDigits(meta.version).replace(/\./g, "٫") : null;
   return (
     <div className="pg-auth">
       <div className="pg-form-side">
@@ -81,7 +82,9 @@ export function AuthLayout({
         <footer className="pg-form-foot">
           <span className="sf-nuqta" data-live="" aria-hidden />
           <span>{desktop ? "داده‌ها روی همین رایانه نگه داشته می‌شوند" : "سامانه در دسترس است"}</span>
-          <span className="pg-foot-end">{version ? <span>نسخهٔ {version}</span> : null}</span>
+          <span className="pg-foot-end">{version ? <span>
+                نسخهٔ <span className="sf-num">{version}</span>
+              </span> : null}</span>
         </footer>
       </div>
 

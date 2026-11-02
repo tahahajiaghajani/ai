@@ -54,8 +54,9 @@ export default function Orgs() {
                       <span className="truncate">{o.name}</span>
                       {o.id === last && orgs.length > 1 ? <span className="pg-chip">آخرین بار</span> : null}
                     </span>
-                    <span className="pg-org-meta block">{[kindTitle(o.business_kind), ...mods, role].filter(Boolean).join(SEP)}</span>
+                    <span className="pg-org-meta block">{[kindTitle(o.business_kind), ...mods].filter(Boolean).join(SEP)}</span>
                   </span>
+                  {role ? <span className="pg-org-role">{role}</span> : null}
                   <ChevronLeft {...ICON} className="pg-chev" aria-hidden />
                 </Link>
               );

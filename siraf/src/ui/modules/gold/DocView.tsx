@@ -59,6 +59,9 @@ export default function DocView() {
   };
   const s = d.settle ?? {};
   const names = d.settle_names ?? {};
+  const lines: any[] = d.lines ?? [];
+  // a column that is «—» on every row says nothing: it is left out
+  const has = (k: string) => lines.some((l) => !D(l[k] ?? 0).isZero());
 
   return (
     <div className="sf-doc">
@@ -95,8 +98,8 @@ export default function DocView() {
             <div><dt>{rule.partyLabel || "طرف حساب"}</dt><dd>{d.party ? <Link className="sf-link" to={`/${orgId}/parties/${d.party.id}`}>{d.party.name}</Link> : d.buyer?.name ?? "—"}</dd></div>
             <div><dt>گرم ۱۸ عیار</dt><dd className="sf-num">{d.gram18 ? formatNumber(d.gram18) : "—"}</dd></div>
             <div><dt>مظنه</dt><dd className="sf-num">{d.mazaneh ? formatNumber(d.mazaneh) : "—"}</dd></div>
-            <div><dt>وزن ۷۵۰ خروجی</dt><dd className="sf-num">{gw(d.weight_out)}</dd></div>
-            <div><dt>وزن ۷۵۰ ورودی</dt><dd className="sf-num">{gw(d.weight_in)}</dd></div>
+            <div><dt>وزن ۷۵۰ خروجی (گرم)</dt><dd className="sf-num">{D(d.weight_out ?? 0).isZero() ? <span className="sf-zero">—</span> : gw(d.weight_out)}</dd></div>
+            <div><dt>وزن ۷۵۰ ورودی (گرم)</dt><dd className="sf-num">{D(d.weight_in ?? 0).isZero() ? <span className="sf-zero">—</span> : gw(d.weight_in)}</dd></div>
             <div><dt>سند حسابداری</dt><dd>{d.voucher ? <Link to={`/${orgId}/accounting/vouchers/${d.voucher.id}`} className="sf-link sf-num">سند {faDigits(d.voucher.no)}</Link> : "—"}</dd></div>
           </dl>
         </div>
@@ -107,39 +110,53 @@ export default function DocView() {
             rowKey="id"
             pagination={false}
             scroll={{ x: "max-content" }}
-            dataSource={d.lines}
+            dataSource={lines}
             columns={[
-              { key: "no", dataIndex: "line_no", title: "#", render: (v) => <span className="sf-num">{faDigits(v)}</span> },
-              { key: "k", title: "نوع", render: (_, l: any) => <span className="text-ink-2">{LINE_LABEL[l.kind]}{l.kind === "bulk" ? `، ${formTitle(l.form)}` : ""}{kind === "melt" ? (l.direction === "out" ? " (ورودی)" : " (حاصل)") : ""}</span> },
+              { key: "no", dataIndex: "line_no", title: "#", width: 40, render: (v) => <span className="sf-num text-ink-3">{faDigits(v)}</span> },
               { key: "t", title: "شرح", render: (_, l: any) => (
-                <div>
-                  <div>{l.kind === "coin" ? `${l.title ?? l.coin_name} × ${faDigits(D(l.qty).toString())}` : l.title}</div>
-                  <div className="text-xs text-ink-3">
-                    {l.tag_no ? <span>اتیکت <span className="sf-docno">{faDigits(l.tag_no)}</span></span> : null}
-                    {l.category_name ? `، ${l.category_name}` : ""}
-                    {l.assay_no ? `، انگ ${l.assay_no}` : ""}
-                    {l.item_status && l.kind === "piece" ? <>، {ITEM_STATUS[l.item_status]?.[0] ?? l.item_status}</> : null}
+                <div className="sf-gdl">
+                  <div className="t">{l.kind === "coin" ? `${l.title ?? l.coin_name} × ${faDigits(D(l.qty).toString())}` : l.title ?? LINE_LABEL[l.kind]}</div>
+                  <div className="m">
+                    {[
+                      `${LINE_LABEL[l.kind]}${l.kind === "bulk" ? `، ${formTitle(l.form)}` : ""}${kind === "melt" ? (l.direction === "out" ? " (ورودی)" : " (حاصل)") : ""}`,
+                      l.tag_no ? <span key="tag">اتیکت <span className="sf-docno">{faDigits(l.tag_no)}</span></span> : null,
+                      l.category_name,
+                      l.assay_no ? `انگ ${l.assay_no}` : null,
+                      l.item_status && l.kind === "piece" ? ITEM_STATUS[l.item_status]?.[0] ?? l.item_status : null,
+                    ].filter(Boolean).map((x, i) => <span key={i}>{i ? "، " : ""}{x}</span>)}
                   </div>
                 </div>
               ) },
               { key: "f", dataIndex: "fineness", title: "عیار", render: (v, l: any) => <KaratText fineness={v ?? 750} coin={l.kind === "coin"} /> },
-              { key: "w", dataIndex: "weight", title: "وزن", className: "sf-num", render: (v, l: any) => (l.kind === "coin" ? "—" : <span className="sf-num">{gw(v)}</span>) },
-              { key: "w750", dataIndex: "weight750", title: "۷۵۰", className: "sf-num", render: (v, l: any) => (l.kind === "coin" ? "—" : <span className="sf-num">{gw(v)}</span>) },
+              { key: "w", dataIndex: "weight", title: "وزن (گرم)", className: "sf-num", render: (v, l: any) => (l.kind === "coin" ? <span className="sf-zero">—</span> : (
+                <div className="sf-gdl">
+                  <span className="sf-num">{gw(v)}</span>
+                  {!D(l.weight750 ?? 0).eq(D(v ?? 0)) ? <span className="m">۷۵۰: <span className="sf-num">{gw(l.weight750)}</span></span> : null}
+                </div>
+              )) },
               ...(money
                 ? [
-                    { key: "gp", dataIndex: "gram_price", title: "قیمت", className: "sf-num", render: (v: string) => <Money v={v ?? 0} zero="—" /> },
-                    { key: "gv", dataIndex: "gold_value", title: "ارزش طلا", className: "sf-num", render: (v: string) => <Money v={v} zero="—" /> },
-                    { key: "wg", title: "اجرت", className: "sf-num", render: (_: unknown, l: any) => (D(l.wage).isZero() ? "—" : <div><Money v={l.wage} /><div className="text-xs text-ink-3">{wageText(l.wage_type, l.wage_value)}</div></div>) },
+                    ...(lines.some((l: any) => l.kind === "coin" || (l.gram_price && d.gram18 && !D(l.gram_price).eq(D(d.gram18))))
+                      ? [{ key: "gp", dataIndex: "gram_price", title: "نرخ", className: "sf-num", render: (v: string) => <Money v={v ?? 0} zero="—" /> }]
+                      : []),
+                    ...(has("gold_value") ? [{ key: "gv", dataIndex: "gold_value", title: "ارزش طلا", className: "sf-num", render: (v: string) => <Money v={v} zero="—" /> }] : []),
+                    ...(has("wage") ? [{ key: "wg", title: "اجرت", className: "sf-num", render: (_: unknown, l: any) => (D(l.wage).isZero() ? <span className="sf-zero">—</span> : <div className="sf-gdl"><Money v={l.wage} /><div className="m">{wageText(l.wage_type, l.wage_value)}</div></div>) }] : []),
                     ...(kind === "sale" ? [
-                      { key: "pr", dataIndex: "profit", title: "سود", className: "sf-num", render: (v: string) => <Money v={v} zero="—" /> },
-                      { key: "ds", dataIndex: "discount", title: "تخفیف", className: "sf-num", render: (v: string) => <Money v={v} zero="—" /> },
-                      { key: "tx", dataIndex: "tax", title: "مالیات", className: "sf-num", render: (v: string) => <Money v={v} zero="—" /> },
+                      ...(has("profit") ? [{ key: "pr", dataIndex: "profit", title: "سود", className: "sf-num", render: (v: string) => <Money v={v} zero="—" /> }] : []),
+                      ...(has("discount") ? [{ key: "ds", dataIndex: "discount", title: "تخفیف", className: "sf-num", render: (v: string) => <Money v={v} zero="—" /> }] : []),
+                      ...(has("tax") ? [{ key: "tx", dataIndex: "tax", title: "مالیات", className: "sf-num", render: (v: string) => <Money v={v} zero="—" /> }] : []),
                     ] : []),
-                    ...(kind === "buyback" ? [{ key: "dd", title: "کسر", className: "sf-num", render: (_: unknown, l: any) => <Money v={l.discount} zero="—" /> }] : []),
-                    { key: "tt", dataIndex: "total", title: "جمع", className: "sf-num", render: (v: string) => <Money v={v} className="font-medium" /> },
+                    ...(has("stone") ? [{ key: "st", dataIndex: "stone", title: "سنگ", className: "sf-num", render: (v: string) => <Money v={v} zero="—" /> }] : []),
+                    ...(kind === "buyback" && has("discount") ? [{ key: "dd", title: "کسر", className: "sf-num", render: (_: unknown, l: any) => <Money v={l.discount} zero="—" /> }] : []),
+                    { key: "tt", dataIndex: "total", title: "جمع", className: "sf-num", render: (v: string, l: any) => (
+                      <div className="sf-gdl">
+                        <Money v={v} zero="—" className="font-medium" />
+                        {d.status === "posted" && !D(l.cost ?? 0).isZero() ? <span className="m">بهای دفتری <Money v={l.cost} /></span> : null}
+                      </div>
+                    ) },
                   ]
                 : []),
-              ...(d.status === "posted" ? [{ key: "cost", dataIndex: "cost", title: "بهای دفتری", className: "sf-num", render: (v: string | null) => <Money v={v ?? 0} zero="—" /> }] : []),
+              ...(!money && d.status === "posted" && has("cost") ? [{ key: "cost", dataIndex: "cost", title: "بهای دفتری", className: "sf-num", render: (v: string | null) => <Money v={v ?? 0} zero="—" /> }] : []),
             ]}
           />
         </Section>

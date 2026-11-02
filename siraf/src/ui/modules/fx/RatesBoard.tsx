@@ -7,7 +7,7 @@ import { ArrowDown, ArrowUp, ChevronDown, Coins, History, Maximize2, Plus, Refre
 import { Ic } from "../../components/shell/icons";
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip as RTooltip, CartesianGrid, Legend } from "recharts";
 import { useOrg } from "../../lib/org";
-import { useAction, useHotkey, useNotify } from "../../lib/hooks";
+import { useAction, useHotkey, useIsPhone, useNotify } from "../../lib/hooks";
 import { PageHeader, Section } from "../../components/layout";
 import { NumberInput, PctInput, MoneyInput } from "../../components/inputs";
 import { JDateTime, EmptyState, Loader } from "../../components/display";
@@ -22,6 +22,15 @@ import { ago, Change, CurrencyAvatar, CurrencyChip, CUR_KIND_FA, fnum, rateLabel
 
 const TICKER = ["BTC", "ETH", "USDT", "TRX", "SOL", "TON", "USD", "EUR"];
 
+/** A dollar price: 2 decimals at $1 and above, 4 below («$0.3146»). */
+const usd = (v: string) => `$${formatNumber(v, { dp: D(v).lt(1) ? 4 : 2, minDp: D(v).lt(1) ? 4 : 2, fa: false })}`;
+
+/** An amount in millions of the base unit for a strip that states its one scale in the caption. */
+const millions = (v: string) => {
+  const m = D(v).div(1_000_000);
+  return formatNumber(m, { dp: m.lt(10) ? 2 : m.lt(1000) ? 1 : 0 });
+};
+
 export default function RatesBoard() {
   const { api, orgId, can, unit, org } = useOrg();
   const qc = useQueryClient();
@@ -35,6 +44,7 @@ export default function RatesBoard() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const gridRef = useRef<HTMLDivElement>(null);
   const canEdit = can("fx", "edit");
+  const phone = useIsPhone();
   const live = useLive(TICKER);
   const base = board.data?.base;
   const dp = base?.decimals ?? org.money_decimals ?? 0;
@@ -154,9 +164,15 @@ export default function RatesBoard() {
           <div className="grid h-40 place-content-center"><Loader /></div>
         ) : !rows.length ? (
           <EmptyState icon={Coins} title="ارزی برای نمایش نیست" description="از «ارزها و رمزارزها» ارزی را فعال کنید." />
+        ) : phone ? (
+          <div className="sf-rate-list">
+            {rows.map((c) => (
+              <RateItem key={c.id} c={c} e={edits[c.id] ?? {}} dp={dp} canEdit={canEdit} onEdit={(patch) => setEdits({ ...edits, [c.id]: { ...(edits[c.id] ?? {}), ...patch } })} onHistory={() => setHistory(c)} />
+            ))}
+          </div>
         ) : (
           <div ref={gridRef} className="sf-grid-wrap">
-            <table className="sf-grid min-w-[900px]">
+            <table className="sf-grid sf-rate-grid min-w-[900px]">
               <thead>
                 <tr>
                   <th className="min-w-[220px]">ارز</th>
@@ -220,19 +236,19 @@ function RateRow({ c, i, e, dp, canEdit, onEdit, focusCell, onHistory }: {
   return (
     <tr className={dirty ? "is-dirty" : ""}>
       <td>
-        <span className="sf-cur-name">
-          <CurrencyAvatar code={c.code} />
-          <span className="t">
-            <b>{c.name}</b>
-            <span className="inline-flex items-center gap-2"><bdi dir="ltr" className="sf-latin">{c.code}</bdi>{c.kind !== "fiat" ? <span>{CUR_KIND_FA[c.kind]}</span> : null}{dirty ? <span className="inline-flex items-center gap-1.5 text-ink-2"><i className="sf-dirty-dot" aria-hidden />ذخیره‌نشده</span> : null}</span>
-          </span>
+        <span className="sf-rate-cur">
+          <CurrencyAvatar code={c.code} size="sm" />
+          <b>{c.name}</b>
+          <bdi dir="ltr" className="sf-latin c">{c.code}</bdi>
+          {c.kind !== "fiat" ? <span className="k">{CUR_KIND_FA[c.kind]}</span> : null}
+          {dirty ? <span className="inline-flex items-center gap-1.5 text-ink-2"><i className="sf-dirty-dot" aria-hidden />ذخیره‌نشده</span> : null}
         </span>
       </td>
       <td data-cell={`${i}-0`} className={flashBuy}>
-        <NumberInput variant="borderless" decimals={decimals} value={buy} disabled={!canEdit} onChange={(v) => onEdit({ buy: v })} onPressEnter={() => focusCell(i, 1)} aria-label={`نرخ خرید ${c.name}`} />
+        <NumberInput variant="borderless" decimals={decimals} value={buy} placeholder="—" disabled={!canEdit} onChange={(v) => onEdit({ buy: v })} onPressEnter={() => focusCell(i, 1)} aria-label={`نرخ خرید ${c.name}`} />
       </td>
       <td data-cell={`${i}-1`} className={flashSell}>
-        <NumberInput variant="borderless" decimals={decimals} value={sell} disabled={!canEdit} onChange={(v) => onEdit({ sell: v })} onPressEnter={() => focusCell(i + 1, 0)} aria-label={`نرخ فروش ${c.name}`} />
+        <NumberInput variant="borderless" decimals={decimals} value={sell} placeholder="—" disabled={!canEdit} onChange={(v) => onEdit({ sell: v })} onPressEnter={() => focusCell(i + 1, 0)} aria-label={`نرخ فروش ${c.name}`} />
       </td>
       <td className="sf-gn text-ink-2">{mid ? rateLabel(mid, dp) : <span className="sf-zero">—</span>}</td>
       <td className="sf-gn text-ink-3">{spread ? `${fnum(spread.toFixed(), 2)}٪` : <span className="sf-zero">—</span>}</td>
@@ -258,10 +274,10 @@ function LiveStrip() {
   const d = live.data;
   return (
     <section className="sf-doc-card" aria-label="قیمت زنده‌ی بازار">
-      <div className="sf-doc-h">
+      <div className="sf-doc-h flex-wrap">
         <h2>بازار جهانی</h2>
-        <span className="sf-doc-hm inline-flex items-center gap-2">
-          {d?.usd_rate ? <>دلار مبنا <b className="sf-num font-medium text-ink">{rateLabel(d.usd_rate)}</b> {unit}<span className="sf-sep" aria-hidden />{SOURCE_FA[d.usd_source ?? ""] ?? d.usd_source}</> : <span className="text-warning">نرخ دلار مبنا ثبت نشده</span>}
+        <span className="sf-doc-hm inline-flex flex-wrap items-center gap-x-2">
+          {d?.usd_rate ? <>دلار مبنا <b className="sf-num font-medium text-ink">{rateLabel(d.usd_rate)}</b> {unit}<span className="sf-sep" aria-hidden />{SOURCE_FA[d.usd_source ?? ""] ?? d.usd_source}<span className="sf-sep" aria-hidden />معادل‌ها به میلیون {unit}</> : <span className="text-warning">نرخ دلار مبنا ثبت نشده</span>}
         </span>
         <div className="sf-doc-hx text-[12px] text-ink-3">
           {d ? <><i className="sf-nuqta" data-live="" aria-hidden /><span className="sf-num">{jTime(new Date(d.at))}</span></> : null}
@@ -275,7 +291,7 @@ function LiveStrip() {
       ) : (
         <>
           <div className="sf-fxlive">
-            {(d?.quotes ?? []).map((x) => <LiveTile key={x.code} x={x} unit={unit} />)}
+            {(d?.quotes ?? []).filter((x) => x.code !== "USD").map((x) => <LiveTile key={x.code} x={x} />)}
           </div>
           {d?.errors?.length ? <div className="border-t border-line px-5 py-2 text-[12px] text-ink-3">{d.errors.join("، ")}</div> : null}
         </>
@@ -284,7 +300,7 @@ function LiveStrip() {
   );
 }
 
-function LiveTile({ x, unit }: { x: { code: string; kind: Kind; price_usd: string | null; change_24h: string | null; price_base: string | null; source: string | null }; unit: string }) {
+function LiveTile({ x }: { x: { code: string; kind: Kind; price_usd: string | null; change_24h: string | null; price_base: string | null; source: string | null } }) {
   const flash = useFlash(x.price_usd);
   return (
     <div className={flash}>
@@ -292,8 +308,8 @@ function LiveTile({ x, unit }: { x: { code: string; kind: Kind; price_usd: strin
         <CurrencyChip c={{ code: x.code, kind: x.kind }} />
         <Change pct={x.change_24h} />
       </div>
-      <bdi className="p" dir="ltr">{x.price_usd ? `$${formatNumber(x.price_usd, { dp: D(x.price_usd).lt(10) ? 4 : 2, minDp: 2, fa: false })}` : "—"}</bdi>
-      <div className="s">{x.price_base ? <>{formatCompact(x.price_base)} {unit}</> : x.source ? SOURCE_FA[x.source] ?? x.source : "بی‌پاسخ"}</div>
+      <bdi className="p" dir="ltr">{x.price_usd ? usd(x.price_usd) : "—"}</bdi>
+      <div className="s">{x.price_base ? <span className="sf-num">{millions(x.price_base)}</span> : x.source ? SOURCE_FA[x.source] ?? x.source : "بی‌پاسخ"}</div>
     </div>
   );
 }
@@ -503,9 +519,11 @@ function DisplayBoard({ rows, onClose, dp, unit, live }: { rows: BoardCurrency[]
   }, []);
   const fiat = rows.filter((r) => r.kind !== "crypto");
   const crypto = rows.filter((r) => r.kind === "crypto");
+  // one figure size for both sections: the longest figure on the whole board sets it
+  const len = Math.max(6, ...rows.flatMap((c) => [c.rate?.buy, c.rate?.sell].map((v) => (v ? rateLabel(v, dp).length : 0))));
   const block = (title: string, list: BoardCurrency[]) =>
     list.length ? (
-      <section className="sf-tv-sec" style={{ ["--len" as string]: Math.max(6, ...list.flatMap((c) => [c.rate?.buy, c.rate?.sell].map((v) => (v ? rateLabel(v, dp).length : 0)))) }}>
+      <section className="sf-tv-sec">
         <h2><i aria-hidden />{title}</h2>
         <div className="sf-tv-t" role="table" aria-label={title}>
           <div className="th" role="columnheader">ارز</div>
@@ -529,18 +547,23 @@ function DisplayBoard({ rows, onClose, dp, unit, live }: { rows: BoardCurrency[]
         </div>
         <Button type="text" className="sf-tv-x" icon={<Ic icon={X} />} onClick={onClose} aria-label="بستن تابلو" />
       </header>
-      <div className="sf-tv-cols">
+      <div className={`sf-tv-cols ${rows.length <= 9 ? "is-stacked" : ""}`} style={{ ["--len" as string]: len, ["--rows" as string]: rows.length + 2 * [fiat, crypto].filter((x) => x.length).length }}>
         {block("ارزها", fiat)}
         {block("رمزارزها", crypto)}
       </div>
       <footer className="sf-tv-foot">
-        {live.filter((l) => l.price_usd).map((l) => {
+        {live.filter((l) => l.price_usd && l.code !== "USD").map((l) => {
           const ch = l.change_24h ? D(l.change_24h) : null;
           return (
             <span key={l.code}>
               <bdi dir="ltr" className="code">{l.code}</bdi>
-              <bdi dir="ltr" className="px">${formatNumber(l.price_usd!, { dp: D(l.price_usd).lt(10) ? 4 : 2, minDp: 2, fa: false })}</bdi>
-              {ch && !ch.isZero() ? <span className={ch.gt(0) ? "up" : "down"}>{faPct(ch.abs().div(100).toNumber(), 2)}</span> : null}
+              <bdi dir="ltr" className="px">{usd(l.price_usd!)}</bdi>
+              {ch && !ch.isZero() ? (
+                <span className={`dl ${ch.gt(0) ? "up" : "down"}`}>
+                  <svg viewBox="0 0 10 10" aria-hidden><path d={ch.gt(0) ? "M5 1.5 9 8H1z" : "M5 8.5 1 2h8z"} fill="currentColor" /></svg>
+                  <bdi dir="ltr">{ch.gt(0) ? "+" : "\u2212"}{formatNumber(ch.abs(), { dp: 2, minDp: 2 })}٪</bdi>
+                </span>
+              ) : null}
             </span>
           );
         })}
@@ -562,5 +585,37 @@ function TvRow({ c, dp }: { c: BoardCurrency; dp: number }) {
       <div className={`v is-buy ${fb}`} role="cell">{c.rate?.buy ? rateLabel(c.rate.buy, dp) : "—"}</div>
       <div className={`v is-sell ${fs}`} role="cell">{c.rate?.sell ? rateLabel(c.rate.sell, dp) : "—"}</div>
     </>
+  );
+}
+
+// ---------------------------------------------------------------- phone: one row per currency
+
+/** On a phone the grid becomes rows: the currency at the start, buy over sell at the end (still editable). */
+function RateItem({ c, e, dp, canEdit, onEdit, onHistory }: {
+  c: BoardCurrency;
+  e: { buy?: string | null; sell?: string | null };
+  dp: number;
+  canEdit: boolean;
+  onEdit: (patch: { buy?: string | null; sell?: string | null }) => void;
+  onHistory: () => void;
+}) {
+  const buy = e.buy !== undefined ? e.buy : c.rate?.buy ?? null;
+  const sell = e.sell !== undefined ? e.sell : c.rate?.sell ?? null;
+  const mid = buy && sell ? D(buy).plus(D(sell)).div(2).toFixed() : c.rate?.mid ?? buy ?? sell;
+  const decimals = mid && D(mid).lt(100) ? 8 : dp;
+  return (
+    <div className="r">
+      <button type="button" className="cur" onClick={onHistory} aria-label={`تاریخچه‌ی نرخ ${c.name}`}>
+        <CurrencyAvatar code={c.code} size="sm" />
+        <span className="t">
+          <b>{c.name}</b>
+          <span><bdi dir="ltr" className="sf-latin">{c.code}</bdi>{c.rate ? <><span className="sf-sep" aria-hidden />{ago(c.rate.at)}</> : null}</span>
+        </span>
+      </button>
+      <div className="v">
+        <label><span>خرید</span><NumberInput size="small" variant="borderless" decimals={decimals} value={buy} placeholder="—" disabled={!canEdit} onChange={(v) => onEdit({ buy: v })} aria-label={`نرخ خرید ${c.name}`} /></label>
+        <label><span>فروش</span><NumberInput size="small" variant="borderless" decimals={decimals} value={sell} placeholder="—" disabled={!canEdit} onChange={(v) => onEdit({ sell: v })} aria-label={`نرخ فروش ${c.name}`} /></label>
+      </div>
+    </div>
   );
 }

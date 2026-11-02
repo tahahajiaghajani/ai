@@ -11,10 +11,10 @@ import { useDebounced } from "../../lib/hooks";
 import { PageHeader } from "../../components/layout";
 import { ServerTable } from "../../components/data";
 import { DateInput, PartySelect } from "../../components/inputs";
-import { Chip, Money, JDate, StatusTag, EmptyState } from "../../components/display";
+import { Chip, Money, JDate, EmptyState } from "../../components/display";
 import { D } from "@shared/money";
 import { faDigits, formatNumber } from "@shared/format";
-import { FxAmount, REM_STATUS } from "./shared";
+import { FxAmount, REM_STATUS, RemStatus, trackNo } from "./shared";
 
 export default function Remittances() {
   const { orgId, can } = useOrg();
@@ -90,16 +90,37 @@ function List() {
           </Space>
         }
         columns={[
-          { key: "no", dataIndex: "no", title: "شماره", width: 72, render: (v) => <span className="sf-docno">{faDigits(v)}</span> },
-          { key: "date", dataIndex: "date", title: "تاریخ", render: (v) => <JDate v={v} /> },
-          { key: "dir", dataIndex: "direction", title: "نوع", render: (v) => <span className="text-ink-2">{v === "out" ? "صادره" : "وارده"}</span> },
-          { key: "track", dataIndex: "tracking_code", title: "کد رهگیری", render: (v) => <bdi dir="ltr" className="sf-num text-ink-2">{faDigits(v ?? "")}</bdi> },
-          { key: "who", title: "فرستنده ← ذی‌نفع", render: (_, r: any) => <span className="inline-flex items-center gap-1.5"><span className="text-ink-2">{r.sender?.name ?? r.party_name ?? "—"}</span><Ic icon={ArrowLeft} size={14} className="text-ink-3" /><span>{r.beneficiary?.name ?? "—"}</span></span> },
-          { key: "corr", dataIndex: "correspondent_name", title: "همکار" },
-          { key: "amount", title: "مبلغ", className: "sf-num", render: (_, r: any) => <FxAmount v={r.amount} code={r.currency_code === org.base_currency ? unit : r.currency_code} dp={r.currency_code === org.base_currency ? baseDp : Number(r.currency_decimals ?? 2)} strong /> },
-          { key: "base", dataIndex: "base_amount", title: "معادل", className: "sf-num", render: (v) => <Money v={v ?? 0} /> },
-          { key: "fee", dataIndex: "fee_base", title: "کارمزد", className: "sf-num", render: (v) => <Money v={v ?? 0} zero="—" /> },
-          { key: "status", dataIndex: "status", title: "وضعیت", render: (v) => <StatusTag s={v} map={REM_STATUS} /> },
+          { key: "no", dataIndex: "no", title: "شماره", width: 64, render: (v) => <span className="sf-docno">{faDigits(v)}</span> },
+          { key: "date", dataIndex: "date", title: "تاریخ", width: 104, render: (v) => <JDate v={v} /> },
+          { key: "dir", dataIndex: "direction", title: "نوع", width: 72, render: (v) => <span className="text-ink-2">{v === "out" ? "صادره" : "وارده"}</span> },
+          {
+            key: "who",
+            title: "فرستنده ← ذی‌نفع",
+            render: (_, r: any) => (
+              <div className="sf-rem-route">
+                <span className="nm">
+                  <span dir="auto" className="a">{r.sender?.name ?? r.party_name ?? "—"}</span>
+                  <Ic icon={ArrowLeft} size={14} className="shrink-0 text-ink-3" />
+                  <span dir="auto" className="b">{r.beneficiary?.name ?? "—"}</span>
+                </span>
+                <span className="tk">کد رهگیری <bdi dir="ltr" className="sf-num">{trackNo(r.tracking_code)}</bdi></span>
+              </div>
+            ),
+          },
+          { key: "corr", dataIndex: "correspondent_name", title: "همکار", render: (v) => <span className="sf-rem-corr" title={v}>{v}</span> },
+          {
+            key: "amount",
+            title: "مبلغ",
+            className: "sf-num",
+            render: (_, r: any) => (
+              <div className="sf-rem-amt">
+                <FxAmount v={r.amount} code={r.currency_code === org.base_currency ? unit : r.currency_code} dp={r.currency_code === org.base_currency ? baseDp : Number(r.currency_decimals ?? 2)} strong />
+                {r.currency_code !== org.base_currency ? <span className="eq"><Money v={r.base_amount ?? 0} zero="—" /><span className="sf-unit">{"\u00a0"}{unit}</span></span> : null}
+              </div>
+            ),
+          },
+          { key: "fee", dataIndex: "fee_base", title: `کارمزد (${unit})`, className: "sf-num", render: (v) => <Money v={v ?? 0} zero="—" /> },
+          { key: "status", dataIndex: "status", title: "وضعیت", width: 108, render: (v) => <RemStatus s={v} /> },
         ]}
       />
     </div>
@@ -155,7 +176,7 @@ function Correspondents() {
             title: "حواله‌های باز",
             render: (_, r: any) => (
               <span className="inline-flex flex-wrap gap-1.5">
-                {r.open.out_pending ? <Chip tone="warning" fig>{faDigits(r.open.out_pending)} در انتظار</Chip> : null}
+                {r.open.out_pending ? <span className="sf-chip sf-chip-fig" data-tone="neutral"><i className="sf-nuqta is-sea" aria-hidden /><span>{faDigits(r.open.out_pending)} در انتظار</span></span> : null}
                 {r.open.out_sent ? <span className="sf-chip sf-chip-fig" data-tone="neutral"><i className="sf-nuqta is-sea" aria-hidden /><span>{faDigits(r.open.out_sent)} در راه</span></span> : null}
                 {r.open.in_pending ? <Chip tone="neutral" fig>{faDigits(r.open.in_pending)} وارده</Chip> : null}
                 {!r.open.out_pending && !r.open.out_sent && !r.open.in_pending ? <span className="sf-zero">—</span> : null}

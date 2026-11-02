@@ -14,7 +14,7 @@ import { Chip, Money, StatCard } from "../../components/display";
 import { DateInput, RefSelect } from "../../components/inputs";
 import { faDigits, formatNumber } from "@shared/format";
 import { formatJalali } from "@shared/jalali";
-import { Qty } from "./components";
+import { LatinRuns, Qty } from "./components";
 
 export default function StockReport() {
   const { api, orgId, org, can } = useOrg();
@@ -91,9 +91,9 @@ export default function StockReport() {
         </Space>
       </div>
       <div className="sf-card print-sheet">
-        <div className="mb-3 hidden text-center print:block">
-          <div className="text-lg font-semibold">{org.name}</div>
-          <div className="text-base font-semibold">گزارش موجودی کالا{date ? ` تا ${formatJalali(date)}` : ""}</div>
+        <div className="sf-print-head hidden print:block">
+          <div className="t">{org.name}</div>
+          <div className="s">گزارش موجودی کالا{date ? ` تا ${formatJalali(date)}` : ""}</div>
         </div>
         <Table
           className=""
@@ -106,7 +106,7 @@ export default function StockReport() {
           onRow={(x: any) => ({ onClick: () => nav(`/${orgId}/inventory/kardex?item_id=${x.item_id}${x.warehouse_id ? `&warehouse_id=${x.warehouse_id}` : ""}`), style: { cursor: "pointer" } })}
           columns={[
             { key: "code", dataIndex: "code", title: "کد", width: 90, render: (v) => <span className="sf-docno">{faDigits(v)}</span> },
-            { key: "name", dataIndex: "name", title: "نام کالا", render: (v, x: any) => <span className="inline-flex items-center gap-2">{v}{x.low ? <Chip tone="warning">کم‌موجود</Chip> : null}</span> },
+            { key: "name", dataIndex: "name", title: "نام کالا", render: (v, x: any) => <span className="inline-flex items-center gap-2"><span><LatinRuns text={v} /></span>{x.low ? <Chip tone="warning" className="sf-pr-chip">کم‌موجود</Chip> : null}</span> },
             { key: "cat", dataIndex: "category_name", title: "گروه", render: (v) => v ?? <span className="sf-zero">—</span> },
             ...(by === "warehouse" ? [{ key: "wh", dataIndex: "warehouse_name", title: "انبار" }] : []),
             { key: "qty", dataIndex: "qty", title: "موجودی", className: "sf-num", sorter: (a: any, b: any) => Number(a.qty) - Number(b.qty), render: (v: string, x: any) => <Qty v={v} unit={x.unit_name} /> },

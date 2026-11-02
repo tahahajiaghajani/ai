@@ -1,13 +1,13 @@
 // Transfer between cash boxes and bank accounts (انتقال وجه): a source, a destination, the amount
 // and an optional bank fee on either side. Shows the current balance of both sides.
 import { Input, Segmented } from "antd";
-import { ArrowLeft, Landmark, Vault } from "lucide-react";
+import { ArrowLeft, Landmark, Wallet } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
+import { toLatinDigits } from "../../lib/fa";
 import { useOrg } from "../../lib/org";
 import { MoneyInput, RefSelect } from "../../components/inputs";
 import { Balance } from "../../components/display";
 import { normalizeDigits } from "@shared/money";
-import { faDigits } from "@shared/format";
 import { amountToWords } from "@shared/words";
 import { remember, type Line } from "./editor";
 import { Field, ICON } from "../reports/kit";
@@ -32,7 +32,7 @@ export function TransferForm({ lines, setLines, readonly }: { lines: Line[]; set
     return (
       <div className="bk-xfer-side">
         <h3>
-          {isBank ? <Landmark {...ICON} className="bk-3" aria-hidden /> : <Vault {...ICON} className="bk-3" aria-hidden />}
+          {isBank ? <Landmark {...ICON} className="bk-3" aria-hidden /> : <Wallet {...ICON} className="bk-3" aria-hidden />}
           {i === 0 ? "از (برداشت)" : "به (واریز)"}
           <Segmented
             size="small"
@@ -77,7 +77,7 @@ export function TransferForm({ lines, setLines, readonly }: { lines: Line[]; set
         {isBank ? (
           <div className="bk-grid2" style={{ rowGap: 12 }}>
             <Field label="شمارهٔ پیگیری">
-              <Input dir="ltr" className="sf-num" style={{ textAlign: "right" }} value={faDigits(l.ref_no)} disabled={readonly} onChange={(e) => set(i, { ref_no: normalizeDigits(e.target.value) })} />
+              <Input dir="ltr" className="sf-code" style={{ textAlign: "right" }} value={toLatinDigits(l.ref_no ?? "")} disabled={readonly} onChange={(e) => set(i, { ref_no: normalizeDigits(e.target.value) })} />
             </Field>
             <Field label="کارمزد بانکی" extra="اختیاری">
               <MoneyInput value={l.fee} disabled={readonly} placeholder="—" onChange={(v) => set(i, { fee: v })} />
