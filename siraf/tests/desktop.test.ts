@@ -214,7 +214,7 @@ const h = vi.hoisted(() => ({
   relaunched: 0,
 }));
 
-vi.mock("../desktop/node_modules/electron/index.js", () => {
+vi.mock("electron", () => {
   const webContents = {
     once() {},
     on(ev: string, fn: (...a: unknown[]) => unknown) {

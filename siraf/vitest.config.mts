@@ -10,6 +10,8 @@ export default defineConfig({
       "@server": r("./src/server"),
       "@ui": r("./src/ui"),
       "@local": r("./src/desktop"),
+      // installed only for the Windows build; tests mock it (see tests/stubs/electron.ts)
+      electron: r("./tests/stubs/electron.ts"),
     },
   },
   test: { include: ["tests/**/*.test.ts"], environment: "node", testTimeout: 60000, hookTimeout: 60000, pool: "forks" },
