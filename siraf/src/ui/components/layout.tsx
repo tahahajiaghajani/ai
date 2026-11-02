@@ -14,23 +14,13 @@ import { useSession } from "../lib/session";
 import { api } from "../lib/api";
 import { faDigits } from "@shared/format";
 import { formatJalaliDateTime } from "@shared/jalali";
-import { APP_NAME } from "@shared/constants";
 import { useTheme } from "../lib/theme";
+import { Logo as BrandLogo } from "./brand";
 
 const { Sider, Header, Content } = Layout;
 
 export function Logo({ collapsed, light }: { collapsed?: boolean; light?: boolean }) {
-  return (
-    <div className="flex items-center gap-2.5">
-      <img src="/favicon.svg" alt="" className="h-8 w-8 rounded-lg" />
-      {!collapsed ? (
-        <div className="leading-tight">
-          <div className={`text-lg font-extrabold ${light ? "text-white" : "text-ink"}`}>{APP_NAME}</div>
-          <div className={`text-[10px] ${light ? "text-[var(--tz-sidebar-text)]" : "text-muted"}`}>حسابداری و مدیریت کسب‌وکار</div>
-        </div>
-      ) : null}
-    </div>
-  );
+  return <BrandLogo size={22} tone={light ? "white" : "ink"} compact={collapsed} />;
 }
 
 function useVisibleNav(): NavGroup[] {
@@ -311,7 +301,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 qc.invalidateQueries();
               }}
               popupMatchSelectWidth={false}
-              className="hidden min-w-[130px] md:block"
+              className="hidden min-w-[130px] md:inline-flex"
               options={info.fiscal_years.map((f) => ({ value: f.id, label: `${f.title}${f.status === "closed" ? " (بسته)" : ""}` }))}
             />
           ) : null}

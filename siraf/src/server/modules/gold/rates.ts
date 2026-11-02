@@ -160,7 +160,7 @@ async function getJson(ctx: Ctx, url: string, timeoutMs = 10_000): Promise<unkno
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), timeoutMs);
   try {
-    const res = await ctx.cfg.fetch(url, { signal: ac.signal, headers: { accept: "application/json, text/plain, */*", "user-agent": "Mozilla/5.0 (Taraz accounting)" } });
+    const res = await ctx.cfg.fetch(url, { signal: ac.signal, headers: { accept: "application/json, text/plain, */*", "user-agent": "Mozilla/5.0 (Siraf accounting)" } });
     if (!res.ok) throw new SourceError(`پاسخ ${res.status}`);
     const text = await res.text();
     if (text.length > 3_000_000) throw new SourceError("پاسخ بیش از حد بزرگ است");

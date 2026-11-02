@@ -1,54 +1,49 @@
 import type { ReactNode } from "react";
-import { CheckCircleFilled } from "@ant-design/icons";
-import { Logo } from "../../components/layout";
-import { APP_NAME } from "@shared/constants";
+import { Logo } from "../../components/brand";
+import { APP_NAME, APP_TAGLINE_EN } from "@shared/constants";
 import { useSession } from "../../lib/session";
 import { faDigits } from "@shared/format";
 
-const POINTS = [
-  "حسابداری دوطرفه با کدینگ استاندارد، سند خودکار و ترازنامه",
-  "انبار، خرید و فروش، چک و خزانه‌داری کامل",
-  "طلا و جواهر: اتیکت، اجرت، آبشده و حساب وزنی",
-  "صرافی نقدی و دیجیتال: حواله، کیف‌پول و قیمت زنده",
-  "نسخه‌ی ویندوز آفلاین و وب، هم‌گام با هم",
-];
+// the first two sentences of the Persian story (brief §2), for the brand panel
+const STORY =
+  "هزار سال پیش، سیراف در کرانهٔ خلیج فارس بندرِ پررونقِ داد و ستد با چین و هند و آفریقا بود. سیرافِ امروز همان بندر است برای کسب‌وکار شما: کالا، طلا، نقد و چک، حواله و رمزارز به یک‌جا می‌رسند و در یک دفتر می‌نشینند.";
 
+// Login, sign-up and first-run layout (components.md §11.1): the form at the start, the Dusk brand panel at the end.
 export function AuthLayout({ title, subtitle, children }: { title: string; subtitle?: ReactNode; children: ReactNode }) {
   const { meta } = useSession();
   return (
-    <div className="grid min-h-screen lg:grid-cols-[1fr_1.05fr]">
+    <div className="grid min-h-screen bg-canvas lg:grid-cols-[minmax(0,1fr)_44%] xl:grid-cols-[minmax(0,1fr)_640px]">
       <div className="flex items-center justify-center p-6 md:p-10">
         <div className="w-full max-w-[400px]">
           <div className="mb-8 lg:hidden">
-            <Logo />
+            <Logo size={24} />
           </div>
-          <h1 className="m-0 text-2xl font-extrabold">{title}</h1>
-          {subtitle ? <p className="mb-6 mt-2 text-sm text-muted">{subtitle}</p> : <div className="mb-6" />}
+          <h1 className="sf-display m-0 text-[30px] font-bold leading-[42px]">{title}</h1>
+          {subtitle ? <p className="mb-7 mt-1.5 text-sm text-ink-2">{subtitle}</p> : <div className="mb-7" />}
           {children}
-          <div className="mt-10 text-center text-[11px] text-muted">
+          <div className="mt-10 text-center text-xs text-ink-3">
             {APP_NAME} · {meta?.mode === "desktop" ? "نسخه‌ی ویندوز" : "نسخه‌ی وب"} {faDigits(meta?.version ?? "")}
           </div>
         </div>
       </div>
-      <div className="relative hidden overflow-hidden lg:block" style={{ background: "radial-gradient(1200px 600px at 20% 10%, #13a3c455, transparent 60%), radial-gradient(900px 500px at 90% 90%, #b8862f44, transparent 60%), linear-gradient(160deg, #0b1f33, #071321)" }}>
-        <div className="absolute inset-0 opacity-[0.07]" style={{ backgroundImage: "linear-gradient(#fff 1px, transparent 1px), linear-gradient(90deg, #fff 1px, transparent 1px)", backgroundSize: "36px 36px" }} />
-        <div className="relative flex h-full flex-col justify-between p-12 text-white">
-          <Logo light />
-          <div>
-            <div className="text-4xl font-extrabold leading-[1.4]">
-              دفترهای کسب‌وکارتان،
-              <br />
-              <span style={{ color: "#e9c46a" }}>همیشه تراز.</span>
-            </div>
-            <ul className="mt-8 space-y-3 p-0">
-              {POINTS.map((p) => (
-                <li key={p} className="flex list-none items-center gap-3 text-[15px] text-[#c7d3e0]">
-                  <CheckCircleFilled style={{ color: "#13a3c4" }} /> {p}
-                </li>
-              ))}
-            </ul>
+      <div className="sf-brand m-2 ms-0 hidden lg:block">
+        <div className="sf-brand-in">
+          <Logo size={36} tone="white" launch />
+          <p className="sf-tagline">
+            هر داد و ستد،
+            <br />
+            به حساب می‌نشیند.
+          </p>
+          <span className="sf-horizon" aria-hidden="true" />
+          <p className="sf-en">{APP_TAGLINE_EN}</p>
+          <p className="sf-story">{STORY}</p>
+          <div className="sf-bfoot">
+            <span>حسابداری و مدیریت کسب‌وکار</span>
+            <span className="sf-nuqta" />
+            <span>وب و ویندوز</span>
+            <span className="sf-nuqta" />
+            <span>با اینترنت و بی‌اینترنت</span>
           </div>
-          <div className="text-xs text-[#8aa0b6]">ساخته‌شده برای کسب‌وکارهای فارسی‌زبان — تقویم شمسی، مالیات ۱۴۰۵، سامانه‌ی مؤدیان و چک صیادی</div>
         </div>
       </div>
     </div>

@@ -55,7 +55,7 @@ export default function Signup() {
   if (me && !code) return <Navigate to="/" replace />;
   if (meta && !meta.allow_signup) return <Navigate to="/login" replace />;
   return (
-    <AuthLayout title={code ? "حساب ساخته شد" : "ساخت حساب تراز"} subtitle={code ? undefined : "چند ثانیه بیشتر طول نمی‌کشد. بعد از آن کسب‌وکارتان را تعریف می‌کنید."}>
+    <AuthLayout title={code ? "حساب ساخته شد" : "ساخت حساب سیراف"} subtitle={code ? undefined : "چند ثانیه بیشتر طول نمی‌کشد. بعد از آن کسب‌وکارتان را تعریف می‌کنید."}>
       {code ? (
         <RecoveryCode
           code={code}

@@ -91,7 +91,7 @@ export default function Desktop() {
         </Section>
 
         <Section title={<span><WifiOutlined /> حالت شبکه (چند رایانه در فروشگاه)</span>}>
-          <p className="mt-0 text-sm text-muted">با روشن کردن حالت شبکه، رایانه‌ها و گوشی‌های دیگرِ همین شبکه می‌توانند با مرورگر یا برنامه‌ی تراز به این رایانه وصل شوند و هم‌زمان کار کنند.</p>
+          <p className="mt-0 text-sm text-muted">با روشن کردن حالت شبکه، رایانه‌ها و گوشی‌های دیگرِ همین شبکه می‌توانند با مرورگر یا برنامه‌ی سیراف به این رایانه وصل شوند و هم‌زمان کار کنند.</p>
           {settings.data ? (
             <Form layout="inline" initialValues={settings.data.lan} onFinish={(v) => saveSettings.mutate({ lan: v })}>
               <Form.Item name="enabled" valuePropName="checked" label="فعال"><Switch /></Form.Item>

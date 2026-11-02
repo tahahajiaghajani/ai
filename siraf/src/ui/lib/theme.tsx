@@ -1,92 +1,117 @@
+// Siraf theme provider (design system: src/ui/siraf/README.md). Based on the design system's drop-in
+// ThemeProvider: a three-way preference (system, light, dark) stored under "siraf.theme", the resolved mode on
+// <html data-theme>, antd 6 in RTL with fa_IR inside <StyleProvider layer>, and bottom-left toasts.
+// It keeps the API the app already uses: useTheme().dark and useTheme().toggle().
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { ConfigProvider, theme as antTheme, App as AntApp } from "antd";
+import { App as AntApp, ConfigProvider, type ThemeConfig } from "antd";
 import { StyleProvider } from "@ant-design/cssinjs";
 import faIR from "antd/locale/fa_IR";
+import { sirafConfig, SIRAF, type SirafMode } from "../siraf/siraf-theme";
 
-interface ThemeValue {
+export type ThemePref = "system" | "light" | "dark";
+export type { SirafMode };
+
+/** localStorage key of the preference. index.html reads the same key before first paint. */
+export const THEME_KEY = "siraf.theme";
+/** The key used while the app was called «تراز»; read once and moved to THEME_KEY. */
+const LEGACY_KEY = "taraz.theme";
+
+const media = () => window.matchMedia("(prefers-color-scheme: dark)");
+const resolve = (p: ThemePref): SirafMode => (p === "system" ? (media().matches ? "dark" : "light") : p);
+const isPref = (v: unknown): v is ThemePref => v === "system" || v === "light" || v === "dark";
+
+function readPref(): ThemePref {
+  try {
+    const v = localStorage.getItem(THEME_KEY);
+    if (isPref(v)) return v;
+    const old = localStorage.getItem(LEGACY_KEY);
+    if (old !== null) {
+      localStorage.removeItem(LEGACY_KEY);
+      if (isPref(old)) {
+        localStorage.setItem(THEME_KEY, old);
+        return old;
+      }
+    }
+  } catch {
+    /* private window or blocked storage */
+  }
+  return "system";
+}
+
+export interface ThemeValue {
+  /** What the user chose: follow the OS, or a fixed theme. */
+  pref: ThemePref;
+  /** The theme in effect now. */
+  mode: SirafMode;
+  setPref: (p: ThemePref) => void;
+  /** Same as mode === "dark" (kept for the existing screens). */
   dark: boolean;
+  /** Switch to the other theme and keep it (a fixed light or dark preference). */
   toggle: () => void;
 }
-const Ctx = createContext<ThemeValue>({ dark: false, toggle: () => {} });
 
-const FONT = 'Vazirmatn, system-ui, "Segoe UI", Tahoma, sans-serif';
+const Ctx = createContext<ThemeValue>({ pref: "system", mode: "light", setPref: () => {}, dark: false, toggle: () => {} });
 
-function antConfig(dark: boolean) {
-  const primary = dark ? "#22a6c4" : "#0e7490";
+// LEGACY (remove with the old shell): today's sidebar still renders <Menu theme="dark"> on the dark legacy sidebar
+// (--tz-sidebar). The design system styles only the light menu, so antd would fall back to its navy dark menu;
+// these tokens give that menu warm ink tones until the shell is rebuilt on the canvas sidebar (components.md §1.2).
+function legacyDarkMenu(mode: SirafMode): NonNullable<ThemeConfig["components"]>["Menu"] {
+  const dark = mode === "dark";
   return {
-    algorithm: dark ? antTheme.darkAlgorithm : antTheme.defaultAlgorithm,
-    token: {
-      colorPrimary: primary,
-      colorInfo: primary,
-      colorSuccess: dark ? "#22c55e" : "#15803d",
-      colorWarning: "#d97706",
-      colorError: dark ? "#f87171" : "#dc2626",
-      colorLink: primary,
-      borderRadius: 8,
-      borderRadiusLG: 12,
-      fontFamily: FONT,
-      fontSize: 13,
-      controlHeight: 34,
-      colorBgLayout: dark ? "#0a111c" : "#f4f6f9",
-      colorBgContainer: dark ? "#101a29" : "#ffffff",
-      colorBgElevated: dark ? "#142235" : "#ffffff",
-      colorBorder: dark ? "#2a3b52" : "#d4d9e2",
-      colorBorderSecondary: dark ? "#1e2b3d" : "#e5e8ee",
-      colorText: dark ? "#e2e8f0" : "#0f172a",
-      colorTextSecondary: dark ? "#94a3b8" : "#64748b",
-      wireframe: false,
-    },
-    components: {
-      Layout: { siderBg: "transparent", headerBg: "transparent", bodyBg: dark ? "#0a111c" : "#f4f6f9" },
-      Menu: {
-        darkItemBg: "transparent",
-        darkSubMenuItemBg: "transparent",
-        darkPopupBg: dark ? "#0c1624" : "#102a43",
-        darkItemSelectedBg: "rgba(19,163,196,0.22)",
-        darkItemSelectedColor: "#ffffff",
-        darkItemColor: "#c7d3e0",
-        darkItemHoverBg: "rgba(255,255,255,0.06)",
-        itemBorderRadius: 8,
-        itemMarginInline: 8,
-        itemHeight: 38,
-        subMenuItemBorderRadius: 8,
-        fontSize: 13,
-      },
-      Table: {
-        headerBg: dark ? "#0d1623" : "#f8fafc",
-        headerColor: dark ? "#94a3b8" : "#64748b",
-        rowHoverBg: dark ? "#132033" : "#f1f7f9",
-        cellPaddingBlockSM: 6,
-        cellPaddingInlineSM: 8,
-        cellPaddingBlock: 10,
-        borderColor: dark ? "#1e2b3d" : "#e5e8ee",
-      },
-      Card: { headerFontSize: 14 },
-      Button: { fontWeight: 500, primaryShadow: "none", defaultShadow: "none" },
-      Tabs: { horizontalMargin: "0 0 12px 0" },
-      Form: { itemMarginBottom: 14, verticalLabelPadding: "0 0 4px" },
-      Modal: { titleFontSize: 15 },
-      Tag: { defaultBg: dark ? "#142235" : "#f1f5f9" },
-    },
+    darkItemBg: "transparent",
+    darkSubMenuItemBg: "transparent",
+    darkPopupBg: dark ? SIRAF.dark.raised : "#2B2622",
+    darkItemColor: "#D3CEC8",
+    darkItemHoverColor: "#FFFFFF",
+    darkItemHoverBg: "rgba(255,248,236,0.06)",
+    darkItemSelectedBg: "rgba(255,248,236,0.11)",
+    darkItemSelectedColor: "#FFFFFF",
+    darkGroupTitleColor: "#BAB5AF",
+    darkDangerItemColor: SIRAF.dark.danger,
+  };
+}
+
+function config(mode: SirafMode) {
+  const c = sirafConfig(mode);
+  const theme = c.theme ?? {};
+  return {
+    ...c,
+    theme: { ...theme, components: { ...theme.components, Menu: { ...theme.components?.Menu, ...legacyDarkMenu(mode) } } },
   };
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [dark, setDark] = useState(() => document.documentElement.dataset.theme === "dark");
+  const [pref, setPref] = useState<ThemePref>(readPref);
+  const [mode, setMode] = useState<SirafMode>(() => resolve(pref));
   useEffect(() => {
-    document.documentElement.dataset.theme = dark ? "dark" : "light";
+    const apply = () => setMode(resolve(pref));
+    apply();
     try {
-      localStorage.setItem("taraz.theme", dark ? "dark" : "light");
+      localStorage.setItem(THEME_KEY, pref);
     } catch {
-      /* ignore */
+      /* private window */
     }
-  }, [dark]);
-  const value = useMemo(() => ({ dark, toggle: () => setDark((d) => !d) }), [dark]);
+    if (pref !== "system") return;
+    const m = media();
+    m.addEventListener("change", apply);
+    return () => m.removeEventListener("change", apply);
+  }, [pref]);
+  useEffect(() => {
+    document.documentElement.dataset.theme = mode; // tokens.css follows this attribute
+    // the browser / title-bar colour follows the theme in effect, not only the OS preference
+    document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]').forEach((m) => (m.content = SIRAF[mode].canvas));
+  }, [mode]);
+  const cfg = useMemo(() => config(mode), [mode]);
+  const value = useMemo<ThemeValue>(
+    () => ({ pref, mode, setPref, dark: mode === "dark", toggle: () => setPref(mode === "dark" ? "light" : "dark") }),
+    [pref, mode],
+  );
   return (
     <Ctx.Provider value={value}>
       <StyleProvider layer>
-        <ConfigProvider direction="rtl" locale={faIR} theme={antConfig(dark)}>
-          <AntApp message={{ top: 64, maxCount: 3 }} notification={{ placement: "bottomLeft" }}>
+        <ConfigProvider {...cfg} locale={faIR}>
+          {/* toasts: bottom-left (the end corner in RTL), at most 3; `message` is not used for confirmations */}
+          <AntApp notification={{ placement: "bottomLeft", maxCount: 3, duration: 4 }} message={{ maxCount: 1, top: 64 }}>
             {children}
           </AntApp>
         </ConfigProvider>
@@ -95,6 +120,4 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   );
 }
 
-export function useTheme() {
-  return useContext(Ctx);
-}
+export const useTheme = () => useContext(Ctx);

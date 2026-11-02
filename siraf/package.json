@@ -2,7 +2,7 @@
   "name": "siraf",
   "version": "1.0.0",
   "private": true,
-  "description": "تراز — حسابداری و مدیریت کسب‌وکار فارسی: کالا، طلا، صرافی (وب + ویندوز)",
+  "description": "سیراف — حسابداری و مدیریت کسب‌وکار فارسی: کالا، طلا، صرافی (وب + ویندوز)",
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "dev:ui": "vite",
@@ -31,6 +31,7 @@
     "hono": "^4.13.16",
     "jalaali-js": "^2.0.1",
     "jsbarcode": "^3.12.3",
+    "lucide-react": "1.59.0",
     "next": "^16.4.3",
     "postgres": "^4.0.0",
     "qrcode": "^1.5.4",
@@ -54,7 +55,6 @@
     "tailwindcss": "^4.3.3",
     "tsx": "^4.23.15",
     "typescript": "^5.9.3",
-    "vazirmatn": "^33.0.3",
     "vite": "^8.3.5",
     "vitest": "^5.0.5"
   }

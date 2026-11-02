@@ -6,7 +6,7 @@ import type { Logger } from "@server/context";
 import { AGGREGATES, BY_ENTITY, type WireAggregate } from "@server/sync/registry";
 import { readAggregates, writeAggregate } from "@server/sync/apply";
 import { ident } from "@server/db/sql";
-import { SYNC_PROTOCOL, APP_VERSION } from "@shared/constants";
+import { SYNC_PROTOCOL, APP_VERSION, APP_NAME } from "@shared/constants";
 import type { LocalConfig } from "./config";
 import { hostname } from "node:os";
 
@@ -78,7 +78,7 @@ export class SyncClient {
   }
 
   async login(url: string, email: string, password: string): Promise<string> {
-    const r = await this.api<{ token: string }>("/auth/login", { url, token: null, body: { email, password, device: { name: `تراز ویندوز — ${hostname()}`, platform: "windows" } } });
+    const r = await this.api<{ token: string }>("/auth/login", { url, token: null, body: { email, password, device: { name: `${APP_NAME} ویندوز — ${hostname()}`, platform: "windows" } } });
     return r.token;
   }
 

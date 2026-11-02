@@ -6,7 +6,7 @@ const fs = require("fs");
 const path = require("path");
 
 const out = path.join(__dirname, "..", "build");
-const font = path.join(__dirname, "..", "..", "src", "ui", "static", "fonts", "vazirmatn-var.woff2");
+const font = path.join(__dirname, "..", "..", "src", "ui", "static", "fonts", "siraf", "Vazirmatn-Variable.woff2");
 fs.mkdirSync(out, { recursive: true });
 
 const LOGO = (size) => `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 64 64">

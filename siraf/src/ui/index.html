@@ -3,23 +3,47 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#0b1f33" />
     <meta name="robots" content="noindex" />
+    <title>سیراف</title>
+    <meta name="description" content="سیراف — هر داد و ستد، به حساب می‌نشیند." />
+    <meta name="application-name" content="سیراف" />
+    <meta name="apple-mobile-web-app-title" content="سیراف" />
+    <!-- the canvas colour of each theme; the script below and ThemeProvider pin both to the theme in effect -->
+    <meta name="theme-color" content="#F7F4F0" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#110F0E" media="(prefers-color-scheme: dark)" />
+    <link rel="icon" href="/favicon.ico" sizes="32x32" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="preload" href="/fonts/vazirmatn-var.woff2" as="font" type="font/woff2" crossorigin />
-    <title>تراز — حسابداری و مدیریت کسب‌وکار</title>
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="preload" href="/fonts/siraf/Vazirmatn-Variable.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/siraf/AradVF.woff2" as="font" type="font/woff2" crossorigin />
     <script>
+      // pre-paint theme (key "siraf.theme"; the «تراز» key "taraz.theme" is moved over once)
       try {
-        var t = localStorage.getItem("taraz.theme");
-        if (t === "dark" || (!t && window.matchMedia("(prefers-color-scheme: dark)").matches)) document.documentElement.dataset.theme = "dark";
+        var p = localStorage.getItem("siraf.theme");
+        if (!p) {
+          var o = localStorage.getItem("taraz.theme");
+          if (o === "light" || o === "dark") localStorage.setItem("siraf.theme", (p = o));
+          if (o !== null) localStorage.removeItem("taraz.theme");
+        }
+        if (p !== "light" && p !== "dark") p = "system";
+        var m = p === "system" ? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light") : p;
+        document.documentElement.dataset.theme = m;
+        if (p !== "system") {
+          var c = m === "dark" ? "#110F0E" : "#F7F4F0";
+          document.querySelectorAll('meta[name="theme-color"]').forEach(function (e) { e.setAttribute("content", c); });
+        }
       } catch (e) {}
     </script>
   </head>
   <body>
     <div id="root">
-      <div class="boot">
-        <div class="boot-mark">تراز</div>
-        <div class="boot-bar"><span></span></div>
+      <div class="boot" role="status" aria-label="سیراف در حال باز شدن است">
+        <svg class="boot-mark sf-launch" viewBox="0 0 64 64" aria-hidden="true" fill="currentColor">
+          <path d="M40 12L48 4V52L40 60Z" />
+          <path class="sf-nq" d="M24 12L32 20L24 28L16 20Z" />
+          <path class="sf-nq" d="M24 28L32 36L24 44L16 36Z" />
+          <path class="sf-nq" d="M24 44L32 52L24 60L16 52Z" />
+        </svg>
       </div>
     </div>
     <script type="module" src="./main.tsx"></script>

@@ -113,7 +113,7 @@ function startBackend(): Promise<{ url: string; host: string }> {
 function createSplash() {
   splash = new BrowserWindow({ width: 420, height: 260, frame: false, resizable: false, show: false, center: true, backgroundColor: "#381634", icon: iconPath, skipTaskbar: false });
   const html = `<!doctype html><html dir="rtl" lang="fa"><meta charset="utf-8"><style>
-    @font-face{font-family:V;src:url("file://${join(__dirname, "renderer", "fonts", "vazirmatn-var.woff2").replace(/\\/g, "/")}")}
+    @font-face{font-family:V;src:url("file://${join(__dirname, "renderer", "fonts", "siraf", "Vazirmatn-Variable.woff2").replace(/\\/g, "/")}")}
     body{margin:0;height:100vh;display:grid;place-content:center;gap:14px;text-align:center;background:radial-gradient(500px 300px at 20% 0%,#8f4a8355,transparent),linear-gradient(160deg,#50224B,#240D21);color:#fff;font-family:V,Tahoma,sans-serif}
     .t{font-size:44px;font-weight:800}.s{font-size:13px;color:#a9b8c9}.b{width:180px;height:3px;background:#ffffff22;border-radius:3px;overflow:hidden;margin:auto}
     .b i{display:block;height:100%;width:40%;background:linear-gradient(90deg,#E7BADF,#D9B36A);animation:m 1.1s ease-in-out infinite}@keyframes m{0%{transform:translateX(180%)}100%{transform:translateX(-260%)}}

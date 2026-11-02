@@ -15,7 +15,7 @@ export default function Login() {
   if (meta?.first_run) return <Navigate to="/setup" replace />;
   if (me) return <Navigate to={sp.get("next") || "/"} replace />;
   return (
-    <AuthLayout title="ورود به تراز" subtitle="با ایمیل و رمز عبور حساب خود وارد شوید.">
+    <AuthLayout title="ورود به سیراف" subtitle="با ایمیل و رمز عبور حساب خود وارد شوید.">
       {err ? <Alert type="error" showIcon className="!mb-4" title={err} /> : null}
       <Form
         layout="vertical"

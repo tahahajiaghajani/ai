@@ -6,7 +6,7 @@ import { PageHeader } from "../../components/layout";
 import { useOrg } from "../../lib/org";
 import { useSession } from "../../lib/session";
 import { faDigits } from "@shared/format";
-import { APP_VERSION } from "@shared/constants";
+import { APP_NAME, APP_VERSION } from "@shared/constants";
 
 function Kbd({ children }: { children: ReactNode }) {
   return <span className="tz-kbd ltr">{children}</span>;
@@ -116,7 +116,7 @@ export default function Help() {
           <li>پشتیبان خودکار هر ۶ ساعت و کمی پس از هر بار باز کردن برنامه گرفته می‌شود؛ از همان صفحه می‌توانید پشتیبان بگیرید یا برگردانید.</li>
           {!desktop ? (
             <li>
-              فایل نصب ویندوز در صفحه‌ی Releases مخزن GitHub برنامه است (Taraz-Setup). آن را روی فلش هم می‌توانید ببرید و روی هر
+              فایل نصب ویندوز در صفحه‌ی Releases مخزن GitHub برنامه است (Siraf-Setup). آن را روی فلش هم می‌توانید ببرید و روی هر
               رایانه اجرا کنید.
             </li>
           ) : null}
@@ -136,7 +136,7 @@ export default function Help() {
             ووکامرس: پیشخوان وردپرس ← ووکامرس ← پیکربندی ← پیشرفته ← Webhooks ← افزودن؛ موضوع «Order created» (و در صورت نیاز
             «Order updated»)، نشانی تحویل = نشانی Webhook، رمز = کلید.
           </li>
-          <li>شاپیفای: Settings ← Notifications ← Webhooks؛ رویداد «Order creation» با قالب JSON و همان نشانی؛ کلید امضای شاپیفای را در تراز وارد کنید.</li>
+          <li>شاپیفای: Settings ← Notifications ← Webhooks؛ رویداد «Order creation» با قالب JSON و همان نشانی؛ کلید امضای شاپیفای را در سیراف وارد کنید.</li>
           <li>هر سفارش، فاکتور فروش می‌شود. مشتری با ایمیل یا موبایل پیدا یا ساخته می‌شود؛ کالا با SKU، بارکد، کد یا نام پیدا می‌شود و کالای ناشناخته به‌صورت «خدمت» ساخته می‌شود تا حسابدار بررسی کند.</li>
           <li>برنامه‌های دیگر می‌توانند با «کلید API» فهرست کالا و اشخاص را بخوانند و فاکتور ثبت کنند.</li>
         </ol>
@@ -146,7 +146,7 @@ export default function Help() {
 
   return (
     <div>
-      <PageHeader title="راهنما" subtitle={`تراز ${faDigits(APP_VERSION)}`} />
+      <PageHeader title="راهنما" subtitle={`${APP_NAME} ${faDigits(APP_VERSION)}`} />
       <div className="tz-card p-2 md:p-3">
         <Collapse ghost defaultActiveKey={["start", "keys"]} items={items} />
       </div>

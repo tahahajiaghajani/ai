@@ -1,0 +1,35 @@
+/* Siraf · reusable motion (components.md §13). Tokens live in tokens.css §3; §6 there turns every movement amount into
+   the identity under prefers-reduced-motion or data-motion="reduced", so these keep only their opacity fade.
+   Transform and opacity only, ease-out only, never `transition: all`. Keyframes are for first appearance only
+   (launch, first load of a session); anything that can re-trigger uses a CSS transition. */
+@layer components {
+  /* enter: opacity + an 8 px rise (KPI tiles, cards on the first load of a session, list inserts) */
+  .sf-enter { animation: sf-enter var(--sf-dur-moderate) var(--sf-ease-out) both; animation-delay: calc(var(--sf-i, 0) * var(--sf-stagger)); }
+  /* fade: opacity only (skeleton → content, a module's nav swap) */
+  .sf-fade { animation: sf-fade var(--sf-dur-crossfade) linear both; }
+  /* pop: popovers and dialogs built by hand — scale .96 → 1 from the trigger's origin */
+  .sf-pop { animation: sf-pop var(--sf-dur-base) var(--sf-ease-out) both; }
+  /* stagger: the direct children enter one after another, 30 ms apart, at most 6 (the rest enter with the 6th) */
+  .sf-stagger > * { animation: sf-enter var(--sf-dur-moderate) var(--sf-ease-out) both; }
+  .sf-stagger > :nth-child(2) { animation-delay: calc(1 * var(--sf-stagger)); }
+  .sf-stagger > :nth-child(3) { animation-delay: calc(2 * var(--sf-stagger)); }
+  .sf-stagger > :nth-child(4) { animation-delay: calc(3 * var(--sf-stagger)); }
+  .sf-stagger > :nth-child(5) { animation-delay: calc(4 * var(--sf-stagger)); }
+  .sf-stagger > :nth-child(n + 6) { animation-delay: calc(5 * var(--sf-stagger)); }
+  /* press: buttons, rows and tiles that act like buttons */
+  .sf-press { transition: transform var(--sf-dur-fast) var(--sf-ease-out); }
+  .sf-press:active { transform: scale(var(--sf-press-scale)); }
+  /* launch: the mark's three nuqtas set beside the alef (login, splash and the boot screen only) */
+  .sf-launch .sf-nq { animation: sf-set 450ms var(--sf-ease-out) both; transform-box: fill-box; }
+  .sf-launch .sf-nq:nth-of-type(2) { animation-delay: 60ms; }
+  .sf-launch .sf-nq:nth-of-type(3) { animation-delay: 120ms; }
+
+  @keyframes sf-enter { from { opacity: 0; transform: translateY(var(--sf-enter-shift)); } to { opacity: 1; transform: none; } }
+  @keyframes sf-fade { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes sf-pop { from { opacity: 0; transform: scale(var(--sf-enter-scale)); } to { opacity: 1; transform: none; } }
+  @keyframes sf-set { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+
+  /* the launch is pure movement: under reduced motion it is not played at all */
+  @media (prefers-reduced-motion: reduce) { .sf-launch .sf-nq { animation: none; } }
+  :root[data-motion="reduced"] .sf-launch .sf-nq { animation: none; }
+}

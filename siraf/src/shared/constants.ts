@@ -1,8 +1,20 @@
 // App-wide constants shared by the web app, the desktop app and the server.
 
-export const APP_NAME = "تراز";
-export const APP_NAME_EN = "Taraz";
-export const APP_TAGLINE = "حسابداری و مدیریت کسب‌وکار — کالا، طلا، صرافی";
+/** The product name «سیراف» (until Nov 2026 «تراز»; internal identifiers such as tz_ tables, TARAZ_* env vars and
+ *  taraz.* setting keys keep the old name). Use it wherever the app names itself. */
+export const APP_NAME = "سیراف";
+/** The Latin name, set in Geist 600 at −0.025 em where it is shown as a wordmark. */
+export const APP_NAME_EN = "Siraf";
+/** The tagline (brief §2). */
+export const APP_TAGLINE = "هر داد و ستد، به حساب می‌نشیند.";
+export const APP_TAGLINE_EN = "Where trade settles.";
+/** Supporting lines: use one at a time. */
+export const APP_LINES = [
+  { fa: "کالا، طلا، ارز — یک دفتر.", en: "Goods, gold, currency. One set of books." },
+  { fa: "حسابِ روشن، داد و ستدِ آسوده.", en: "Clear books, calm trade." },
+] as const;
+/** What the app is, in one line (window titles, the About screen, meta descriptions). */
+export const APP_DESCRIPTION = "حسابداری و مدیریت کسب‌وکار — کالا، طلا، صرافی";
 /** Bumped with every release; the desktop app compares it with the cloud to offer updates. */
 export const APP_VERSION = "1.0.0";
 /** Sync protocol version — the server refuses clients with another major. */

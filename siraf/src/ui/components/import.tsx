@@ -269,7 +269,7 @@ export function ImportDrawer({ def, open, onClose }: { def: EntityDef; open: boo
               { key: "h", title: "ستون فایل", dataIndex: "h", width: 200, render: (v: string) => <span className="font-medium">{v}</span> },
               {
                 key: "f",
-                title: "فیلد در تراز",
+                title: "فیلد در سیراف",
                 width: 260,
                 render: (_: unknown, r: { i: number }) => (
                   <Select

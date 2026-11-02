@@ -46,7 +46,7 @@ export default function Setup() {
         {[
           { v: "local", icon: <DesktopOutlined />, t: "شروع روی همین رایانه", d: "کسب‌وکار تازه می‌سازید؛ داده‌ها روی همین ویندوز ذخیره می‌شوند و بعداً هر وقت خواستید به نسخه‌ی وب وصلش می‌کنید." },
           { v: "cloud", icon: <CloudDownloadOutlined />, t: "اتصال به حساب ابری (نسخه‌ی وب)", d: "اگر در نسخه‌ی وب حساب و کسب‌وکار دارید، اطلاعات دریافت می‌شود و از این به بعد دو طرف هم‌گام می‌مانند." },
-          ...(window.taraz?.setServer ? [{ v: "client", icon: <ClusterOutlined />, t: "اتصال به سرور شبکه‌ی فروشگاه", d: "تراز روی رایانه‌ی دیگری از شبکه‌ی داخلی نصب و «حالت شبکه» آن روشن است؛ این رایانه فقط به آن وصل می‌شود." }] : []),
+          ...(window.taraz?.setServer ? [{ v: "client", icon: <ClusterOutlined />, t: "اتصال به سرور شبکه‌ی فروشگاه", d: "سیراف روی رایانه‌ی دیگری از شبکه‌ی داخلی نصب و «حالت شبکه» آن روشن است؛ این رایانه فقط به آن وصل می‌شود." }] : []),
         ].map((o) => (
           <Radio key={o.v} value={o.v} className="tz-soft !m-0 !flex !items-start !p-3">
             <div className="ms-1">
@@ -178,7 +178,7 @@ export default function Setup() {
   }
 
   return (
-    <AuthLayout title="خوش آمدید" subtitle="تراز روی این رایانه نصب شد. چطور شروع می‌کنید؟">
+    <AuthLayout title="خوش آمدید" subtitle="سیراف روی این رایانه نصب شد. چطور شروع می‌کنید؟">
       <Steps size="small" current={step} className="!mb-6" items={[{ title: "روش شروع" }, { title: mode === "cloud" ? "حساب ابری" : mode === "client" ? "سرور شبکه" : "حساب مدیر" }, { title: "کسب‌وکار" }]} />
       {body}
     </AuthLayout>
