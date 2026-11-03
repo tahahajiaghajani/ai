@@ -1,8 +1,9 @@
 // Visual QA: builds the UI, starts the local (Windows-flavour) server on a fresh data dir, creates
 // the owner and an organisation with all modules, fills it with demo data (scripts/demo-seed.mts),
 // signs in with Playwright and screenshots pages in light and dark theme (1440×900) plus a few
-// pages on a phone (390×844). Writes PNGs and report.json (console errors, page errors and failed
-// API calls per page) into the output folder, then stops the server.
+// pages on a phone (390×844). Writes PNGs and report.json (console errors, page errors, failed API calls,
+// horizontal scroll and Persian text that joins across two elements, per page) into the output folder, then
+// stops the server.
 //
 //   node scripts/ui-shots.mjs [--port 4102] [--out <dir>] [--paths a,b,c] [--themes light,dark]
 //        [--mobile [a,b]] [--no-mobile] [--no-build] [--static <dir>] [--concurrency 3]
@@ -127,8 +128,10 @@ function defaultPaths() {
     "fx/remittances/{remittance}", "fx/remittances/{remittance_in}", "gold/docs/{gold_sale}", "gold/sale/{gold_sale}", "gold/docs/{gold_purchase}",
   ];
   const assistant = ["reports/income-statement@ai=chat", "reports/income-statement@ai=chat-top", "@ai=empty", "sales/invoices@ai=palette", "gold/rates@ai=palette-empty", "sales/invoices@ai=setup", ...(AI_FAKE ? ["@ai=live", "@ai=live-tools", "@ai=live-tools-top", "purchases/invoices/new@ai=capture", "purchases/invoices/new@ai=capture-use", "reports/forecast?tab=plan@ai=plan"] : [])];
-  const admin = ["/admin", "/admin/orgs", "/admin/orgs/{org}", "/admin/users", "/admin/ai", "/admin/security", "/admin/health"];
-  return [...[...paths].sort((a, b) => a.localeCompare(b)), ...detail, ...assistant, "/login", "/orgs", ...admin];
+  // screens behind a ?tab= parameter: each tab is its own screen (the bare route shows only the first one)
+  const tabs = ["settings/ai?tab=jobs", "settings/ai?tab=features", "settings/ai?tab=usage", "settings/ai?tab=activity", "reports/forecast?tab=demand", "reports/forecast?tab=stock", "reports/forecast?tab=rates"];
+  const admin = ["/admin", "/admin/orgs", "/admin/orgs/{org}", "/admin/users", "/admin/ai", "/admin/security", "/admin/security?tab=admin", "/admin/health"];
+  return [...[...paths].sort((a, b) => a.localeCompare(b)), ...tabs, ...detail, ...assistant, "/login", "/orgs", ...admin];
 }
 
 // ---------------------------------------------------------------- assistant fixture (screenshots only)
@@ -510,12 +513,46 @@ async function main() {
         result: [...document.querySelectorAll(".ant-result-error .ant-result-title, .ant-result-warning .ant-result-title, .ant-result-403 .ant-result-title, .ant-result-500 .ant-result-title")].map((e) => e.textContent).join(" | "),
         alerts: [...document.querySelectorAll(".ant-alert-error")].map((e) => e.textContent?.slice(0, 200)),
         hscroll: document.documentElement.scrollWidth > window.innerWidth + 1,
+        // Persian text that joins across two elements: the browser shapes one inline run across element
+        // boundaries, so «…شخصی» right before «پیشنهادی…» with only a CSS margin between them reads as one word
+        // (a medial «ی» joined to «پ»). Only a space, a ZWNJ or a block / flex / inline-block boundary separates
+        // them. <mark> search highlights split one word on purpose and are not counted.
+        joined: (() => {
+          const JOINS_NEXT = /[ئبت-خس-غـ-هيپچکگی]$/;
+          const LETTER = /^[ء-يٱ-ۓ]/;
+          const display = (el) => getComputedStyle(el).display;
+          const flows = (el) => ["inline", "contents"].includes(display(el)) && el.tagName !== "BR";
+          const root = (t) => {
+            let e = t.parentElement;
+            while (e && flows(e)) e = e.parentElement;
+            return e;
+          };
+          const marked = (t) => !!t.parentElement?.closest("mark");
+          const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+            acceptNode: (n) => (n.nodeType === 1 && (["SCRIPT", "STYLE", "TEMPLATE"].includes(n.tagName) || display(n) === "none") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
+          });
+          const out = new Set();
+          let prev = null;
+          for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+            if (n.nodeType === 1) {
+              if (!flows(n)) prev = null;
+              continue;
+            }
+            if (!n.nodeValue) continue;
+            if (prev && JOINS_NEXT.test(prev.nodeValue) && LETTER.test(n.nodeValue) && !marked(prev) && !marked(n) && root(prev) === root(n)) {
+              out.add(`${prev.nodeValue.slice(-16)}|${n.nodeValue.slice(0, 16)}`);
+            }
+            prev = n;
+          }
+          return [...out].slice(0, 8);
+        })(),
       }));
       if (state.theme !== job.theme && !(job.theme === "light" && !state.theme)) entry.flags.push(`theme_is_${state.theme}`);
       if (state.notFound) entry.flags.push("route_not_found");
       if (state.result) entry.flags.push(`result: ${state.result}`);
       for (const a of state.alerts) entry.flags.push(`error_alert: ${a}`);
       if (state.hscroll) entry.flags.push("horizontal_scroll");
+      for (const j of state.joined) entry.flags.push(`joined_text: ${j}`);
       entry.final_url = page.url().slice(url.length);
       if (job.auth && entry.final_url.startsWith("/login")) entry.flags.push("redirected_to_login");
       const dir = join(OUT, job.variant === "mobile" ? `mobile-${job.theme}` : job.theme);
