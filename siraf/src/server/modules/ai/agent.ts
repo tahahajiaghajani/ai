@@ -15,7 +15,7 @@ import { toolsFor } from "./tools";
 import type { AiToolDef, ToolResult, ToolRuntime } from "./tools/registry";
 import { storeProposal } from "./actions";
 import { AiUnavailableError } from "./errors";
-import { assertUsable, chainFor, loadEnv, runTurn, unavailable, type AiEnv } from "./chain";
+import { assertUsable, chainFor, loadEnv, runTurn, unavailable, WEB_LABEL, webFirst, webLink, type AiEnv } from "./chain";
 import { ASSISTANT_SYSTEM, businessNotes, contextBlock } from "./prompts";
 import { redactPrompt, redactValue } from "./redact";
 import { dropNulls, jsonSchemaOf } from "./schema";
@@ -25,7 +25,6 @@ import {
 } from "./threads";
 import { orgTimeZone } from "./usage";
 import { addUsage, ZERO_USAGE, type NeutralMessage, type Part, type ToolCall, type ToolSpec, type Usage } from "./types";
-import { cloudLink } from "./relay";
 
 /** Per-request limits (tests may lower them). */
 export const AGENT_LIMITS = {
@@ -106,7 +105,7 @@ export async function startChat(ctx: Ctx, req: AiChatRequest, emit: Emit, client
     }
   }
   const chain = await chainFor(ctx, "assistant", env);
-  if (!chain.entries.length && !(ctx.cfg.mode === "desktop" && env.settings.use_cloud && cloudLink(ctx.cfg))) {
+  if (!chain.entries.length && !webLink(ctx, env)) {
     throw unavailable(ctx, chain.total ? (chain.held ?? "rate") : "not_configured");
   }
 
@@ -168,8 +167,10 @@ async function runAnswer(s: RunState): Promise<void> {
   const tools = toolsFor(ctx, { proposals: env.settings.features.proposals });
   const byName = new Map(tools.map((t) => [t.name, t]));
   const specs = toolSpecs(tools);
-  const first = (await chainFor(ctx, "assistant", env)).entries[0];
-  emit({ type: "meta", thread_id: thread.id, message_id: s.answerId, model: first?.model ?? null, connection: first?.row.label ?? null });
+  // «اول نسخهٔ وب»: the web version's chain picks the model, so none is named in advance
+  const viaWeb = !!webFirst(ctx, env, "assistant");
+  const first = viaWeb ? undefined : (await chainFor(ctx, "assistant", env)).entries[0];
+  emit({ type: "meta", thread_id: thread.id, message_id: s.answerId, model: first?.model ?? null, connection: first?.row.label ?? (viaWeb ? WEB_LABEL : null) });
 
   let usage: Usage = { ...ZERO_USAGE };
   let cost = "0";

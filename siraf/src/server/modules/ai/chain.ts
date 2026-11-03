@@ -1,6 +1,8 @@
 // Routing: a job's ordered (connection, model) chain, provider errors turned into decisions
 // (next connection, short holds, one retry), budgets checked before every call and every call
 // written to the usage ledger. Holds live in the database so every server instance respects them.
+// The Windows app may also ask the linked web version: last, when every local link failed, or
+// first for the jobs in `cloud_first` («اول نسخهٔ وب»).
 import type { Ctx } from "../../context";
 import type { AiErrorKind, AiJob, AiProtocol, AiSettings } from "@shared/ai/types";
 import type { AiPolicy } from "@shared/ai/api";
@@ -10,9 +12,10 @@ import { presetById } from "@shared/ai/presets";
 import { uuidv7 } from "@shared/id";
 import { createAdapter } from "./adapters";
 import { fakeEnabled } from "./adapters/fake";
+import { CONNECT_MS } from "./adapters/http";
 import { adapterEnv, connectionRows, markConnection, resolveConnection, type ConnRow } from "./connections";
 import { AiUnavailableError } from "./errors";
-import { cloudLink, relayTurn } from "./relay";
+import { cloudLink, relayTurn, type CloudLink } from "./relay";
 import { disabledByPlatform, loadPolicy, loadSettings } from "./settings";
 import { budgetState, recordUsage } from "./usage";
 import { orgAiDisabled } from "../platform/org-admin";
@@ -91,6 +94,19 @@ function message(kind: AiErrorKind, ctx: Ctx, byPlatform = false): string {
 
 export function unavailable(ctx: Ctx, kind: AiErrorKind, byPlatform = false): AiUnavailableError {
   return new AiUnavailableError(kind, message(kind, ctx, byPlatform));
+}
+
+/** How the Windows app names the web version where a connection's label would stand. */
+export const WEB_LABEL = "نسخهٔ وب";
+
+/** The linked web version, when this Windows app may use its connections («استفاده از اتصال‌های نسخهٔ وب»). */
+export function webLink(ctx: Ctx, env: AiEnv): CloudLink | null {
+  return ctx.cfg.mode === "desktop" && env.settings.use_cloud ? cloudLink(ctx.cfg) : null;
+}
+
+/** «اول نسخهٔ وب»: the linked web version answers this job before any connection of this computer. */
+export function webFirst(ctx: Ctx, env: AiEnv, job: AiJob): CloudLink | null {
+  return env.settings.cloud_first.includes(job) ? webLink(ctx, env) : null;
 }
 
 /** May this connection be used here (runtime, test mode, platform policy)? */
@@ -185,14 +201,46 @@ function stripForRetry(req: Omit<TurnRequest, "model">): Omit<TurnRequest, "mode
   return { ...req, effort: null };
 }
 
+/**
+ * «اول نسخهٔ وب»: one turn through the web version before this computer's chain. Its answer is final — a refusal or a
+ * stop included, never asked again of another model. A failure (unreachable, no answer begun within CONNECT_MS, its
+ * connections held, switched off or over budget there) comes back as the error, so that this computer's connections
+ * answer instead; once part of an answer has reached the person, the failure is thrown, as in the chain.
+ */
+async function askWebFirst(ctx: Ctx, link: CloudLink, opts: RunOptions): Promise<ChainResult | AiUnavailableError> {
+  let emitted = false;
+  const hooks: TurnHooks = {
+    onText: (d) => {
+      emitted = true;
+      opts.hooks?.onText?.(d);
+    },
+    onThinking: (d) => opts.hooks?.onThinking?.(d),
+  };
+  try {
+    return await relayTurn(ctx, link, { ...opts, hooks }, CONNECT_MS);
+  } catch (e) {
+    if (emitted || opts.request.signal?.aborted || !(e instanceof AiUnavailableError) || e.kind === "refusal") throw e;
+    return e;
+  }
+}
+
 /** One model turn through the job's chain with fallbacks. */
 export async function runTurn(ctx: Ctx, opts: RunOptions): Promise<ChainResult> {
   const env = opts.env ?? (await loadEnv(ctx));
   await assertUsable(ctx, env);
+  const link = webLink(ctx, env);
+  // the Windows app with «اول نسخهٔ وب» on for this job: a model on this computer (minutes for the assistant's long
+  // first prompt without a graphics card) answers only when the web version cannot
+  let webError: AiUnavailableError | null = null;
+  if (link && env.settings.cloud_first.includes(opts.job)) {
+    const first = await askWebFirst(ctx, link, opts);
+    if (!(first instanceof AiUnavailableError)) return first;
+    webError = first;
+  }
   const { entries, held, total } = await chainFor(ctx, opts.job, env);
 
   if (!entries.length) {
-    const link = ctx.cfg.mode === "desktop" && env.settings.use_cloud ? cloudLink(ctx.cfg) : null;
+    if (webError) throw webError;
     if (link) return relayTurn(ctx, link, opts);
     throw unavailable(ctx, total ? (held ?? "rate") : "not_configured");
   }
@@ -290,9 +338,9 @@ export async function runTurn(ctx: Ctx, opts: RunOptions): Promise<ChainResult> 
     }
   }
   // the Windows app: every local link failed (a foreign service refused Iran, a gateway was down, a quota ran
-  // out), so the web version's connections answer when «استفاده از اتصال‌های نسخهٔ وب» is on
-  const link = ctx.cfg.mode === "desktop" && env.settings.use_cloud && lastKind !== "refusal" ? cloudLink(ctx.cfg) : null;
-  if (link) return relayTurn(ctx, link, opts);
+  // out), so the web version's connections answer when «استفاده از اتصال‌های نسخهٔ وب» is on — unless it was
+  // asked first and could not
+  if (link && !webError && lastKind !== "refusal") return relayTurn(ctx, link, opts);
   const err = unavailable(ctx, lastKind);
   if (lastDetail && ctx.can("ai", "full")) err.message = `${err.message} (${lastDetail.slice(0, 200)})`;
   throw err;

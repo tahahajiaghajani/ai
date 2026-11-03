@@ -77,6 +77,11 @@ export interface AiSettings {
   retention_days: number;
   /** Windows app linked to the web version: send model calls through the web version's connections */
   use_cloud: boolean;
+  /**
+   * Windows app with use_cloud on: jobs the web version answers first («اول نسخهٔ وب»); this computer's connections
+   * answer them only when the web version cannot. Always empty on the web version.
+   */
+  cloud_first: AiJob[];
 }
 
 // ---------------------------------------------------------------- assistant: references, proposals, events

@@ -1,6 +1,7 @@
 // Windows app → web version relay. When the Windows app is linked to the web version and the
 // business turned on «استفاده از اتصال‌های نسخهٔ وب», model calls that no local connection can
-// serve go to POST /api/o/:org/ai/relay of the web version with the device token: the web version
+// serve — and, with «اول نسخهٔ وب», every call of the jobs chosen for it, before the local chain —
+// go to POST /api/o/:org/ai/relay of the web version with the device token: the web version
 // runs only the model turn through its own chain (its keys never leave it) and streams the result
 // back; tools always run on the Windows app against its own database.
 import { z } from "zod";
@@ -67,24 +68,32 @@ export const relayRequestSchema = z.object({
 });
 export type RelayRequest = z.infer<typeof relayRequestSchema>;
 
-/** Desktop side: one model turn through the web version. */
-export async function relayTurn(ctx: Ctx, link: CloudLink, opts: RunOptions): Promise<ChainResult> {
+/**
+ * Desktop side: one model turn through the web version. With `startMs`, the web version must begin its answer within
+ * that time (it sends its headers before the model runs), or the turn fails with `network`.
+ */
+export async function relayTurn(ctx: Ctx, link: CloudLink, opts: RunOptions, startMs?: number): Promise<ChainResult> {
   if (link.org_id !== ctx.org.id) throw new AiUnavailableError("not_configured", aiErrorText("not_configured", { canManage: ctx.can("ai", "full"), desktop: true }).message);
   const { signal, ...request } = opts.request;
   const body: RelayRequest = { job: opts.job, feature: opts.feature, request: request as RelayRequest["request"] };
   const t0 = Date.now();
+  const start = new AbortController();
+  const timer = startMs ? setTimeout(() => start.abort(), startMs) : null;
   let res: Response;
   try {
     res = await ctx.cfg.fetch(`${link.url}/api/o/${link.org_id}/ai/relay`, {
       method: "POST",
       headers: { "content-type": "application/json", accept: "text/event-stream", authorization: `Bearer ${link.token}` },
       body: JSON.stringify(body),
-      signal,
+      signal: timer ? (signal ? AbortSignal.any([signal, start.signal]) : start.signal) : signal,
     });
   } catch {
     if (signal?.aborted) return aborted();
     throw new AiUnavailableError("network", aiErrorText("network", { desktop: true }).message);
+  } finally {
+    if (timer) clearTimeout(timer);
   }
+  if (signal?.aborted) return aborted();
   if (!res.ok || !res.body) {
     let msg = "";
     try {

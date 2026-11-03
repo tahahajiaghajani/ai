@@ -95,6 +95,7 @@
   .ai-auto { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: var(--sf-radius-md); background: var(--sf-sunken); font-size: 13px; line-height: 20px; color: var(--sf-text-2); }
   .ai-auto .ai-mid { color: var(--sf-text); }
   .ai-effort { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding-block-start: 4px; font-size: 13px; color: var(--sf-text-2); }
+  .ai-webfirst { display: inline-flex; align-items: center; gap: 8px; margin-inline-start: auto; cursor: pointer; }
 
   /* ---------------------------------------------------------------- features: switch rows */
   .ai-sw { display: flex; flex-direction: column; }

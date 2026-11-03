@@ -117,7 +117,7 @@ export function FeaturesTab({ settings, mode, linked: linkedView }: { settings: 
             <div className="ai-sw">
               <SwitchRow
                 title="استفاده از اتصال‌های نسخهٔ وب"
-                about="وقتی اتصال محلی برای کاری نباشد، درخواست از راه نسخهٔ وب به مدل می‌رسد؛ ابزارها روی همین رایانه اجرا می‌شوند."
+                about="کاری که اتصال محلی ندارد یا اتصال‌های محلی‌اش خطا بدهند، و کاری که در «کارها و مدل‌ها» «اول نسخهٔ وب» دارد، از راه نسخهٔ وب پاسخ می‌گیرد؛ ابزارها روی همین رایانه اجرا می‌شوند."
                 checked={s.use_cloud}
                 disabled={!linked}
                 onChange={(v) => setS({ ...s, use_cloud: v })}

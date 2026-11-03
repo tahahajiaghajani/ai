@@ -134,6 +134,7 @@ export type AiSettingsPatch = Partial<{
   instructions: string;
   retention_days: number;
   use_cloud: boolean;
+  cloud_first: AiJob[];
 }>;
 
 export interface AiSettingsView {

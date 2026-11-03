@@ -41,6 +41,7 @@ export function withDefaults(s: Partial<Settings> | null | undefined): Settings 
     instructions: s?.instructions ?? "",
     retention_days: s?.retention_days ?? 90,
     use_cloud: s?.use_cloud ?? false,
+    cloud_first: s?.cloud_first ?? [],
   };
 }
 
@@ -129,7 +130,7 @@ export default function AiSettings() {
           </div>
         )
       ) : tab === "jobs" ? (
-        <RoutingTab settings={s} connections={list} />
+        <RoutingTab settings={s} connections={list} mode={view?.mode} linked={view?.linked} />
       ) : tab === "features" ? (
         <FeaturesTab settings={s} mode={view?.mode} linked={view?.linked} />
       ) : tab === "usage" ? (
