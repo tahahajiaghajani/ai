@@ -20,6 +20,10 @@ describe("pickPath", () => {
     expect(pickPath(answer, "items[1].price")).toBe(1_190_000);
     expect(pickPath(answer, "items.1.price")).toBe(1_190_000);
     expect(pickPath(answer, "coins.emami.value")).toBe("830000000");
+    // positions typed the way the app shows digits
+    expect(pickPath(answer, "items[۱].price")).toBe(1_190_000);
+    expect(pickPath(answer, "items.۱.price")).toBe(1_190_000);
+    expect(pickPath(answer, "items[١].price")).toBe(1_190_000);
   });
 
   it("picks an array item by a field", () => {

@@ -4,17 +4,21 @@
 //   items[0].price         an array item by position (also items.0.price)
 //   items[symbol=USD].sell the first array item whose field equals the text (quotes optional:
 //                          [symbol="USD"]); free price APIs often answer with such lists
-// A key that is not there gives undefined; nothing throws.
+// A key that is not there gives undefined; nothing throws. Positions may be typed in Persian or Arabic digits
+// (items[۰].price), since the app shows every digit in Persian.
 
 type Step = string | { field: string; equals: string };
 
+const DIGITS = /^[0-9۰-۹٠-٩]+$/;
+const ascii = (s: string) => s.replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x06f0)).replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660));
+
 function steps(path: string): Step[] {
   const out: Step[] = [];
-  const re = /\[\s*([^\]=]+?)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\]]*?))\s*\]|\[\s*(\d+)\s*\]|([^.[\]]+)/g;
+  const re = /\[\s*([^\]=]+?)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\]]*?))\s*\]|\[\s*([0-9۰-۹٠-٩]+)\s*\]|([^.[\]]+)/g;
   for (const m of String(path ?? "").matchAll(re)) {
     if (m[1] !== undefined) out.push({ field: m[1], equals: (m[2] ?? m[3] ?? m[4] ?? "").trim() });
-    else if (m[5] !== undefined) out.push(m[5]);
-    else if (m[6] !== undefined && m[6].trim()) out.push(m[6].trim());
+    else if (m[5] !== undefined) out.push(ascii(m[5]));
+    else if (m[6] !== undefined && m[6].trim()) out.push(DIGITS.test(m[6].trim()) ? ascii(m[6].trim()) : m[6].trim());
   }
   return out;
 }
