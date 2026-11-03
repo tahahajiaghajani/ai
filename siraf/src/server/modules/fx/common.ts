@@ -89,7 +89,7 @@ export const PROVIDERS: { id: string; title: string; covers: string }[] = [
   { id: "coingecko", title: "CoinGecko", covers: "رمزارزها (محدودیت تعداد درخواست)" },
   { id: "mempool", title: "mempool.space", covers: "بیت‌کوین و نسبت ارزهای جهانی" },
   { id: "open_er", title: "open.er-api", covers: "نرخ رسمی ارزهای جهانی به دلار" },
-  { id: "tgju", title: "tgju.org", covers: "بازار آزاد تهران: دلار، ارزها، تتر و رمزارزهای رایج به ریال/تومان" },
+  { id: "tgju", title: "tgju.org", covers: "بازار آزاد تهران: دلار و ارزها به ریال/تومان" },
   { id: "nobitex", title: "نوبیتکس", covers: "قیمت ریالی/تومانی رمزارز و تتر (فقط از داخل ایران)" },
   { id: "gold_api", title: "gold-api", covers: "انس طلا و نقره" },
   { id: "custom", title: "منبع سفارشی", covers: "هر API با نشانی و مسیر JSON دلخواه" },

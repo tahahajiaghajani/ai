@@ -246,8 +246,8 @@ export async function refreshRates(ctx: Ctx, currencyIds: string[] = [], kinds: 
   const rial = RIAL.has(cur.base.code);
   const toBase = cur.base.code === "IRT" ? D("0.1") : D(1);
 
-  // 1) prices already in the base currency: custom sources, then (rial and toman bases) tgju and Nobitex in
-  //    the order of the settings
+  // 1) prices already in the base currency: custom sources, then (rial and toman bases) tgju's currencies and
+  //    Nobitex's crypto in the order of the settings
   const direct = new Map<string, { price: string; source: string }>();
   if (s.providers.includes("custom")) {
     // all at once (one request per distinct URL, shared through the provider cache): one after another, a few

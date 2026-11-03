@@ -1,7 +1,8 @@
 // Live prices that work from both runtimes. The tgju feed comes from its copy abroad on the web and
 // its copy in Iran on the Windows app, falling back to the other copy. It feeds the gold board and,
-// for rial and toman businesses, the exchange board: free-market dollar, currencies, tether and
-// common crypto in rial. Nobitex is asked on its current host.
+// for rial and toman businesses, the exchange board: the free-market dollar and currencies in rial.
+// Its tether row barely moves and sits under the exchanges, so crypto keeps its exchange prices ×
+// the dollar. Nobitex is asked on its current host.
 import { describe, it, expect, beforeAll } from "vitest";
 import { makeServer, Client, signupWithOrg } from "./helpers";
 import { D } from "@shared/money";
@@ -32,7 +33,7 @@ function feed() {
 
 function market(url: string): Response | null {
   if (url.startsWith("https://open.er-api.com/")) return json({ result: "success", rates: { USD: 1, EUR: 0.86, AED: 3.6725, JPY: 157.6 } });
-  if (url.startsWith("https://api.kucoin.com/")) return json({ code: "200000", data: { ticker: [{ symbol: "ETH-USDT", last: "2300", changeRate: "0.01" }] } });
+  if (url.startsWith("https://api.kucoin.com/")) return json({ code: "200000", data: { ticker: [{ symbol: "ETH-USDT", last: "2300", changeRate: "0.01" }, { symbol: "BTC-USDT", last: "76548.25", changeRate: "0" }] } });
   return null;
 }
 
@@ -51,8 +52,10 @@ describe("tgju feed: which copy, which key", () => {
     expect(tgjuKeyOf("USD", "fiat")).toEqual({ key: "price_dollar_rl", units: 1 });
     expect(tgjuKeyOf("eur", "fiat")).toEqual({ key: "price_eur", units: 1 });
     expect(tgjuKeyOf("JPY", "fiat")).toEqual({ key: "price_jpy", units: 100 });
-    expect(tgjuKeyOf("USDT", "crypto")).toEqual({ key: "crypto-tether-irr", units: 1 });
-    expect(tgjuKeyOf("PEPE", "crypto")).toBeNull();
+    // the feed's tether and crypto rows are derived and lag the exchanges: never used on their own
+    expect(tgjuKeyOf("USDT", "crypto")).toBeNull();
+    expect(tgjuKeyOf("BTC", "crypto")).toBeNull();
+    expect(tgjuKeyOf("USDT", "crypto", "crypto-tether-irr")).toEqual({ key: "crypto-tether-irr", units: 1 });
     expect(tgjuKeyOf("XAU", "metal")).toBeNull();
     expect(tgjuKeyOf("IRT", "fiat")).toBeNull();
     expect(tgjuKeyOf("USD", "fiat", "price_dollar_dt")).toEqual({ key: "price_dollar_dt", units: 1 });
@@ -82,7 +85,7 @@ describe("prices on the web version (rial business)", () => {
     org = await signupWithOrg(c);
   });
 
-  it("fills the exchange board from tgju without any setup: the dollar, currencies, tether and bitcoin in rial", async () => {
+  it("fills the exchange board from tgju without any setup: the dollar and currencies in rial", async () => {
     const r = await c.post(`/o/${org}/fx/rates/refresh`, {});
     expect(r.usd_source).toBe("tgju");
     eq(r.usd_rate, 2_745_000);
@@ -93,9 +96,10 @@ describe("prices on the web version (rial business)", () => {
     eq(rate("EUR").mid, 3_081_600);
     expect(rate("EUR").source).toBe("tgju");
     eq(rate("JPY").mid, 17_420); // 1,742,030 per 100 yen
-    eq(rate("USDT").mid, 2_693_980); // the tether market, not the dollar
-    expect(rate("USDT").source).toBe("tgju");
-    eq(rate("BTC").mid, 206_205_676_000);
+    // crypto: the exchange's dollar price × the free-market dollar, not tgju's lagging tether row
+    expect(rate("USDT").source).not.toBe("tgju");
+    expect(rate("BTC").source).toBe("kucoin");
+    eq(rate("BTC").mid, D("76548.25").times(2_745_000).toDecimalPlaces(0).toFixed());
     // a row five days old is skipped: the official cross with the free-market dollar instead
     expect(rate("AED").source).toBe("open_er");
     eq(rate("AED").mid, D(2_745_000).div(3.6725).toDecimalPlaces(0).toFixed());

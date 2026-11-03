@@ -116,7 +116,7 @@ export const AI_PRESETS: AiPreset[] = [
     region: "foreign",
     note: `یک کلید برای صدها مدل از سازندگان مختلف؛ هزینهٔ هر پاسخ را خودش گزارش می‌کند. شرکتی آمریکایی است و از ایران در دسترس نیست. ${NOTE_FOREIGN_DATA}`,
     models: { smart: ["anthropic/claude-opus-5.5"], fast: ["google/gemini-3.5-flash-lite"], vision: ["google/gemini-3.8-flash"] },
-    suggested: ["anthropic/claude-opus-5.5", "anthropic/claude-sonnet-5.5", "openai/gpt-6.1-sol", "google/gemini-3.8-flash", "deepseek/deepseek-v4.1-flash", "google/gemma-4-31b-it:free", "nvidia/nemotron-3.5-super-vl:free"],
+    suggested: ["anthropic/claude-opus-5.5", "anthropic/claude-sonnet-5.5", "openai/gpt-6.1-sol", "google/gemini-3.8-flash", "deepseek/deepseek-v4.1-flash", "google/gemma-4-31b-it:free", "google/gemma-4-26b-a4b-it:free"],
     media: { images: true, pdf: false },
     chat_effort: false,
   },
@@ -196,8 +196,9 @@ export const AI_PRESETS: AiPreset[] = [
     runtimes: ["web", "desktop"],
     region: "foreign",
     note: `مدل‌های اروپایی Mistral. ${NOTE_FOREIGN_DATA}`,
-    models: { smart: ["mistral-large-latest", "mistral-small-latest"], fast: ["mistral-small-latest"], vision: ["mistral-large-latest"] },
-    suggested: ["mistral-large-latest", "mistral-small-latest"],
+    // Small is the model of the free mode; Large is a preview model the training opt-out does not cover
+    models: { smart: ["mistral-small-latest"], fast: ["mistral-small-latest"], vision: ["mistral-small-latest"] },
+    suggested: ["mistral-small-latest", "mistral-large-latest"],
     media: { images: true, pdf: false },
   },
   {

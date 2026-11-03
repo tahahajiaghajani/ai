@@ -57,27 +57,19 @@ export function tgjuPrice(v: unknown): string | null {
 /** Rows older than this are skipped (some rarely traded currencies stand still for years). */
 export const TGJU_FX_MAX_AGE_MS = 72 * 3600_000;
 
-/** tgju keys of crypto prices in rial (Iranian exchanges, priced through tether). */
-const CRYPTO: Record<string, string> = {
-  USDT: "crypto-tether-irr", BTC: "crypto-bitcoin-irr", ETH: "crypto-ethereum-irr", USDC: "crypto-usd-coin-irr",
-  BNB: "crypto-binance-coin-irr", XRP: "crypto-ripple-irr", ADA: "crypto-cardano-irr", DOGE: "crypto-dogecoin-irr",
-  SOL: "crypto-solana-irr", TRX: "crypto-tron-irr", TON: "crypto-toncoin-irr", LTC: "crypto-litecoin-irr",
-  DOT: "crypto-polkadot-irr", LINK: "crypto-chainlink-irr", XLM: "crypto-stellar-irr", XMR: "crypto-monero-irr",
-  DASH: "crypto-dash-irr", EOS: "crypto-eos-irr", BCH: "crypto-bitcoin-cash-irr", AVAX: "crypto-avalanche-irr",
-  SHIB: "crypto-shiba-inu-irr",
-};
-
 /** Currencies the feed quotes per 100 units (all others per one unit). */
 const PER_100 = new Set(["JPY"]);
 
 /**
- * Where a currency's rial price sits in the feed and how many units that price is for. A currency's
- * own `price_ids.tgju` wins (for example "price_dollar_dt"); it is then taken as the price of one unit.
+ * Where a currency's rial price sits in the feed and how many units that price is for: fiat currencies only.
+ * The feed's tether row (crypto-tether-irr) barely moves and sits about 1.5% under the exchanges, and its
+ * crypto-*-irr rows are the world price times that row, so crypto keeps its exchange prices × the dollar.
+ * A currency's own `price_ids.tgju` wins (for example "price_dollar_dt" or the exchange centre's
+ * "ice_transfer_usd_sell"); it is then taken as the price of one unit.
  */
 export function tgjuKeyOf(code: string, kind: string, own?: string | null): { key: string; units: number } | null {
   if (own) return { key: own, units: 1 };
   const c = code.toUpperCase();
-  if (kind === "crypto") return CRYPTO[c] ? { key: CRYPTO[c], units: 1 } : null;
   if (kind !== "fiat" || !/^[A-Z]{3}$/.test(c) || c === "IRR" || c === "IRT") return null;
   if (c === "USD") return { key: "price_dollar_rl", units: 1 };
   return { key: `price_${c.toLowerCase()}`, units: PER_100.has(c) ? 100 : 1 };

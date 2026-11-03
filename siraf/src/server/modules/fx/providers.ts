@@ -1,8 +1,8 @@
 // Live market prices. Every provider is fetched in bulk at most once per 45 seconds (per server
 // instance and fetch function) and answers in US dollars; the rate board turns them into the
 // base currency. Binance and Bybit block some regions, so the defaults are KuCoin and OKX.
-// tgju (the Tehran free market, from either of its two copies) and Nobitex (only reachable from Iran)
-// answer in rial; custom sources can answer in either.
+// tgju (the Tehran free market's dollar and currencies, from either of its two copies) and Nobitex (only
+// reachable from Iran) answer in rial; custom sources can answer in either.
 import { D } from "@shared/money";
 import type { CurrencyKind, CustomSource } from "./common";
 import { fetchJson, NetError, pickPath, safeExternalUrl, type Fetch } from "./net";
@@ -152,7 +152,7 @@ export interface TgjuFeed {
 }
 
 /**
- * Rial prices of the tgju feed by tgju key (price_dollar_rl, price_eur, crypto-tether-irr …), from whichever
+ * Rial prices of the tgju feed by tgju key (price_dollar_rl, price_eur …), from whichever
  * of its copies answers: the one in Iran first on the Windows app, the one abroad first on the web. A failure
  * is kept like an answer (45 seconds), so one refresh never waits twice for copies that do not answer.
  */

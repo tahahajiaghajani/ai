@@ -47,7 +47,7 @@ export interface RateBubble {
 export interface RateMeta {
   /** retail (تک‌فروشی) sell prices of the source */
   retail?: Record<string, string>;
-  /** the source's own bubble figures (percent) */
+  /** the source's own bubble figures (tgju: rial amounts, not percent; stored only, never shown) */
   provider_bubble?: Record<string, string>;
   /** keys whose price at the source was older than the staleness limit */
   stale?: string[];
