@@ -112,6 +112,8 @@ export interface AiConnectionInput {
   models?: { smart?: string[]; fast?: string[]; vision?: string[] };
   enabled?: boolean;
   priority?: number;
+  /** the provider's free plan: usage counted at zero cost, outside the budget */
+  free_tier?: boolean;
   /** PATCH only: save without the stored key (refused for a key-required service). A new service
    *  or base URL with a stored key needs either the key again or this flag. */
   remove_key?: boolean;

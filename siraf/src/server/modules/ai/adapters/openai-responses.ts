@@ -3,7 +3,7 @@
 // items are stored verbatim and replayed in the next request (function_call_output answers them).
 import { openaiEffort, openaiReasoningModel } from "@shared/ai/effort";
 import { ProviderError, type Adapter, type AdapterEnv, type NeutralMessage, type ResolvedConnection, type ToolCall, type TurnRequest, type TurnResult, ZERO_USAGE } from "../types";
-import { CONNECT_MS, IDLE_MS, errorFromResponse, idleSignal, joinUrl, networkError, parseArgs, readSse } from "./http";
+import { IDLE_MS, connectMs, errorFromResponse, idleSignal, joinUrl, networkError, parseArgs, readSse } from "./http";
 import { strictSchema } from "../schema";
 
 type Item = Record<string, unknown>;
@@ -90,7 +90,7 @@ export function openaiResponsesAdapter(conn: ResolvedConnection, env: AdapterEnv
       let status: string | null = null;
       let incomplete: string | null = null;
       let refusal = "";
-      const t = idleSignal(req.signal, CONNECT_MS);
+      const t = idleSignal(req.signal, connectMs(conn));
       try {
         let res: Response | null = null;
         for (let attempt = 0; !res; attempt++) {

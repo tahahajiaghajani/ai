@@ -3,7 +3,7 @@
 // local servers, the smart/fast/vision models (first = main, the rest are tried in order), enabled and priority.
 // «آزمایش اتصال» runs on the values in the form before they are saved.
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Button, Checkbox, Drawer, Input, InputNumber, Select, Switch } from "antd";
+import { AutoComplete, Button, Checkbox, Drawer, Input, InputNumber, Select, Switch } from "antd";
 import { ChevronDown, ExternalLink, FlaskConical, Globe, Monitor, Plug, Route, ShieldCheck } from "lucide-react";
 import type { AiConnectionPublic, AiProtocol, AiTestReport } from "@shared/ai/types";
 import { useOrg } from "../../lib/org";
@@ -44,11 +44,12 @@ const PROTOCOL_LABEL: Record<AiProtocol, string> = {
 const regionOf = (p: AiPresetView | undefined): Region => p?.region ?? "any";
 const editableBase = (p: AiPresetView | undefined) => !!p && (p.base_url_required || !p.base_url || regionOf(p) !== "foreign");
 
+/** A new connection starts with every suggested model of each tier: the first answers, the rest stand in (free quotas are per model). */
 function presetModels(p: AiPresetView | undefined): Record<Tier, string[]> {
-  return { smart: p?.models.smart.slice(0, 1) ?? [], fast: p?.models.fast.slice(0, 1) ?? [], vision: p?.models.vision.slice(0, 1) ?? [] };
+  return { smart: [...(p?.models.smart ?? [])], fast: [...(p?.models.fast ?? [])], vision: [...(p?.models.vision ?? [])] };
 }
 
-type Draft = Omit<AiConnectionInput, "models" | "label"> & { label: string; models: Record<Tier, string[]>; enabled: boolean; priority: number };
+type Draft = Omit<AiConnectionInput, "models" | "label"> & { label: string; models: Record<Tier, string[]>; enabled: boolean; priority: number; free_tier: boolean };
 
 export function ConnectionDrawer({
   open,
@@ -81,6 +82,7 @@ export function ConnectionDrawer({
   const [baseUrl, setBaseUrl] = useState("");
   const [models, setModels] = useState<Record<Tier, string[]>>({ smart: [], fast: [], vision: [] });
   const [enabled, setEnabled] = useState(true);
+  const [freeTier, setFreeTier] = useState(false);
   const [priority, setPriority] = useState<number>(1);
   const [more, setMore] = useState(false);
   const [region, setRegion] = useState(false);
@@ -104,6 +106,7 @@ export function ConnectionDrawer({
     setBaseUrl(c?.base_url ?? (editableBase(first) ? first?.base_url ?? "" : ""));
     setModels(c ? { smart: [...c.models.smart], fast: [...c.models.fast], vision: [...c.models.vision] } : presetModels(first));
     setEnabled(c?.enabled ?? true);
+    setFreeTier(c?.free_tier ?? false);
     setPriority(c?.priority ?? count + 1);
     setMore(false);
     setRegion(false);
@@ -139,6 +142,8 @@ export function ConnectionDrawer({
     models: { smart: models.smart.map((m) => m.trim()).filter(Boolean), fast: models.fast.map((m) => m.trim()).filter(Boolean), vision: models.vision.map((m) => m.trim()).filter(Boolean) },
     enabled,
     priority,
+    // a local model costs nothing anyway
+    free_tier: preset?.region === "local" ? false : freeTier,
   });
 
   const problem = (): string | null => {
@@ -335,8 +340,25 @@ export function ConnectionDrawer({
         </Field>
 
         {editableBase(preset) ? (
-          <Field label="نشانی پایهٔ API" extra={baseRequired ? null : "اختیاری"} hint={regionOf(preset) === "local" ? "نشانی سرور محلی روی همین رایانه یا شبکهٔ داخلی." : "همان نشانی که سرویس در راهنمایش داده است."}>
-            <Input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} className="ai-ltr-in" dir="ltr" spellCheck={false} placeholder={preset?.base_url ?? "https://example.com/v1"} />
+          <Field
+            label="نشانی پایهٔ API"
+            extra={baseRequired ? null : "اختیاری"}
+            hint={regionOf(preset) === "local" ? "نشانی سرور محلی روی همین رایانه یا شبکهٔ داخلی." : preset?.base_url_candidates?.length ? "نشانی‌های دیگر همین سرویس در فهرست این خانه است؛ اگر یکی در دسترس نبود، دیگری را امتحان کنید." : "همان نشانی که سرویس در راهنمایش داده است."}
+          >
+            {preset?.base_url_candidates?.length ? (
+              <AutoComplete
+                value={baseUrl}
+                onChange={(v) => setBaseUrl(String(v ?? ""))}
+                options={preset.base_url_candidates.map((u) => ({ value: u, label: <span dir="ltr">{u}</span> }))}
+                className="ai-ltr-in w-full"
+                placeholder={preset.base_url ?? "https://example.com/v1"}
+                aria-label="نشانی پایهٔ API"
+              >
+                <Input dir="ltr" spellCheck={false} />
+              </AutoComplete>
+            ) : (
+              <Input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} className="ai-ltr-in" dir="ltr" spellCheck={false} placeholder={preset?.base_url ?? "https://example.com/v1"} />
+            )}
           </Field>
         ) : null}
 
@@ -367,6 +389,15 @@ export function ConnectionDrawer({
             </div>
             <Switch checked={enabled} onChange={setEnabled} aria-label="فعال" />
           </div>
+          {preset?.region !== "local" ? (
+            <div className="ai-sw-r">
+              <div>
+                <div className="ai-sw-t">طرح رایگان سرویس</div>
+                <div className="ai-sw-d">برای کلید بدون پرداخت، مثل Gemini با کلید Google AI Studio: مصرف این اتصال صفر دلار حساب می‌شود و از بودجه کم نمی‌کند. سقف درخواست‌های طرح رایگان را خود سرویس تعیین می‌کند.</div>
+              </div>
+              <Switch checked={freeTier} onChange={setFreeTier} aria-label="طرح رایگان سرویس" />
+            </div>
+          ) : null}
         </div>
 
         <button type="button" className="ai-sec-t border-0 bg-transparent p-0 text-start" onClick={() => setMore((m) => !m)} aria-expanded={more} style={{ cursor: "pointer" }}>

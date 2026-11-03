@@ -599,4 +599,37 @@ describe("Windows app → web version relay", () => {
     const { events: offEv } = await stream(desk.app, owner, `/o/${deskOrg}/ai/chat`, { text: "سلام" });
     expect(offEv.find((e) => e.type === "error")).toMatchObject({ kind: "disabled" });
   });
+
+  it("falls back to the web version's connections when every local connection fails", async () => {
+    const cloud = await setup("10.0.0.77");
+    const device = new Client(cloud.app);
+    const login = await device.post("/auth/login", { email: "owner@example.com", password: "s3cret-pass", device: { name: "ویندوز فروشگاه", platform: "windows" } });
+    // a foreign service refuses the shop's address; everything else goes to the linked web version
+    const desk = await makeServer({
+      mode: "desktop",
+      config: {
+        fetch: (async (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = String(input instanceof Request ? input.url : input);
+          if (url.includes("deepseek")) return new Response(JSON.stringify({ error: { message: "User location is not supported for the API use." } }), { status: 400, headers: { "content-type": "application/json" } });
+          return cloud.app.fetch(new Request(url.replace(/\/o\/[0-9a-f-]{36}\//, `/o/${cloud.orgId}/`), init));
+        }) as typeof fetch,
+      },
+    });
+    // its own address: sign-ups are limited per address and hour across this file
+    const owner = new Client({ fetch: (r: Request) => (r.headers.set("x-forwarded-for", "10.0.0.78"), desk.app.fetch(r)) });
+    const deskOrg = await signupWithOrg(owner, ["goods"]);
+    registerCloudLink(desk.db, () => ({ url: "http://local.test", token: login.token, org_id: deskOrg }));
+    const { connection } = await owner.post(`/o/${deskOrg}/ai/connections`, { preset: "deepseek", key: "sk-deepseek-0000000001", models: { smart: ["deepseek-chat"], fast: ["deepseek-chat"] } });
+    // without the switch the region error is the answer
+    const { events: before } = await stream(desk.app, owner, `/o/${deskOrg}/ai/chat`, { text: "سلام" });
+    expect(before.find((e) => e.type === "error")).toMatchObject({ kind: "region" });
+    await owner.put(`/o/${deskOrg}/ai/settings`, { use_cloud: true });
+    const { events } = await stream(desk.app, owner, `/o/${deskOrg}/ai/chat`, { text: "سلام" });
+    expect(events.find((e) => e.type === "error")).toBeUndefined();
+    expect(events[events.length - 1]).toMatchObject({ type: "done", stop: "end" });
+    const routes = await desk.db.query<{ route: string; connection_id: string | null; ok: boolean }>(`select route, connection_id, ok from tz_ai_usage order by created_at`);
+    // the local attempt failed, then the web version answered
+    expect(routes.some((u) => u.connection_id === connection.id && !u.ok)).toBe(true);
+    expect(routes[routes.length - 1].route).toBe("via_cloud");
+  });
 });

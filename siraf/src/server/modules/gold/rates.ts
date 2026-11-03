@@ -1,6 +1,6 @@
 // Daily price board (تابلوی قیمت): manual entry (mazaneh ↔ gram18), history, the latest rate
 // and live prices from the internet:
-//   tgju      — unofficial JSON of tgju.org (Iranian market, prices in rial)
+//   tgju      — unofficial JSON of tgju.org (Iranian market, prices in rial; two copies, see fx/tgju.ts)
 //   goldapi   — world ounce in USD (api.gold-api.com) × the free-market dollar → gram18
 //   custom    — any JSON URL with JSON paths of the fields (settings.gold.price_source)
 // From abroad Iranian sites may be blocked and vice versa, so "auto" tries them in turn.
@@ -13,7 +13,9 @@ import { coinBubble, gram18FromOunce, mazanehFromGram18, gram18FromMazaneh, TROY
 import { RATE_KEY_RE, TGJU_BUBBLE, TGJU_RETAIL, TGJU_SELL, parsianSut } from "@shared/gold-catalogue";
 import { faDigits } from "@shared/format";
 import { uuidv7 } from "@shared/id";
+import { pickPath } from "@shared/json-path";
 import { goldSettings, type CustomSource, type LiveProvider } from "./settings";
+import { tgjuFeedAnswered, tgjuFeedUrls, tgjuRows, tgjuTime } from "../fx/tgju";
 
 export interface RateRow {
   id: string;
@@ -326,15 +328,6 @@ async function getJson(ctx: Ctx, url: string, timeoutMs = 10_000): Promise<unkno
   }
 }
 
-/** Read `a.b[0].c` from a JSON value. */
-export function pickPath(obj: unknown, path: string): unknown {
-  let cur: unknown = obj;
-  for (const part of path.replace(/\[(\d+)\]/g, ".$1").split(".").filter(Boolean)) {
-    if (cur === null || cur === undefined) return undefined;
-    cur = (cur as Record<string, unknown>)[part];
-  }
-  return cur;
-}
 
 /** A price out of a value like 1234567, "1,234,567", "۱٬۲۳۴٬۵۶۷" or {p: "…"}. */
 function priceOf(v: unknown): ReturnType<typeof D> | null {
@@ -364,18 +357,25 @@ export interface LiveResult {
   warnings: string[];
 }
 
-/** Time of a tgju row («ts»: Tehran local time) — null when the row has none. */
-function tgjuTime(v: unknown): number | null {
-  if (!v || typeof v !== "object") return null;
-  const ts = (v as Record<string, unknown>).ts;
-  if (typeof ts !== "string" || !/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(ts)) return null;
-  const t = Date.parse(`${ts.replace(" ", "T").slice(0, 19)}+03:30`);
-  return Number.isNaN(t) ? null : t;
+/** The tgju feed from whichever of its two copies answers (the one in Iran first on the Windows app). */
+async function tgjuFeed(ctx: Ctx): Promise<Record<string, unknown>> {
+  const failed: string[] = [];
+  for (const url of tgjuFeedUrls(ctx.cfg.fetch, ctx.cfg.mode === "desktop")) {
+    try {
+      const cur = tgjuRows(await getJson(ctx, url));
+      if (!cur.geram18 && !cur.mesghal) throw new SourceError("قیمت گرم ۱۸ در پاسخ نبود");
+      tgjuFeedAnswered(ctx.cfg.fetch, url);
+      return cur;
+    } catch (e) {
+      if (!(e instanceof SourceError)) throw e;
+      failed.push(`${new URL(url).hostname} ${e.message}`);
+    }
+  }
+  throw new SourceError(failed.join("، "));
 }
 
 async function fromTgju(ctx: Ctx): Promise<LiveResult> {
-  const data = (await getJson(ctx, "https://call1.tgju.org/ajax.json")) as Record<string, unknown>;
-  const cur = (data && typeof data === "object" && data.current && typeof data.current === "object" ? data.current : data) as Record<string, unknown>;
+  const cur = await tgjuFeed(ctx);
   const get = (k: string) => toBase(ctx, priceOf(cur?.[k]), "rial");
   const gram18 = get("geram18");
   const mazaneh = get("mesghal");

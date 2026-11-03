@@ -54,7 +54,7 @@
 </td><td valign="top">
 
 **صرافی و رمزارز**
-- تابلوی نرخ خرید و فروش با **قیمت زنده** (KuCoin، OKX، CoinGecko، نوبیتکس، منبع سفارشی)
+- تابلوی نرخ خرید و فروش با **قیمت زنده** (tgju، KuCoin، OKX، CoinGecko، نوبیتکس، منبع سفارشی)
 - خرید، فروش و تبدیل هر جفت‌ارز با میانگین بها و سود محقق‌شده؛ احراز هویت مشتری؛ **حوالهٔ** صادره و وارده
 - **کیف‌پول‌های رمزارز با موجودی زنده از بلاک‌چین** (بیت‌کوین، اتریوم و ERC20، BSC، ترون و USDT-TRC20، سولانا، TON و …)، موقعیت ارزی و تسعیر
 
@@ -82,6 +82,7 @@
 |---|---|
 | راه‌اندازی: Supabase، Vercel و فایل نصب | [`docs/SETUP_FA.md`](docs/SETUP_FA.md) |
 | نسخهٔ ویندوز: نصب، شبکهٔ فروشگاه، پشتیبان | [`docs/DESKTOP_FA.md`](docs/DESKTOP_FA.md) |
+| اتصال‌ها: هوش مصنوعی رایگان، قیمت زنده، کیف‌پول، فروشگاه | [`docs/CONNECTIONS_FA.md`](docs/CONNECTIONS_FA.md) |
 | معماری و همگام‌سازی | [`docs/ARCHITECTURE_FA.md`](docs/ARCHITECTURE_FA.md) |
 | نام، نشان، رنگ‌ها و قلم‌ها | [`docs/BRAND_FA.md`](docs/BRAND_FA.md) |
 | پایگاه دادهٔ کامل برای Supabase | [`supabase/schema.sql`](supabase/schema.sql) |

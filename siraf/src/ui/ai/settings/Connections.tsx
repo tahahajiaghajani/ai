@@ -91,6 +91,12 @@ function ConnectionCard({
           </div>
           <div className="ai-conn-meta">
             <span>{preset?.label ?? c.preset}</span>
+            {c.free_tier ? (
+              <>
+                <span className="bk-sep" aria-hidden />
+                <span>طرح رایگان</span>
+              </>
+            ) : null}
             <span className="bk-sep" aria-hidden />
             {c.key_unreadable ? (
               <span className="text-danger">کلید خوانده نمی‌شود</span>

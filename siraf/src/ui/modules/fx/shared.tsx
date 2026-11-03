@@ -56,7 +56,7 @@ export const KIND_COLOR: Record<string, string> = { buy: "cyan", sell: "gold", e
 export const CUR_KIND_FA: Record<Kind, string> = { fiat: "ارز", crypto: "رمزارز", metal: "فلز" };
 export const METHOD_FA: Record<Method, string> = { cash: "صندوق", bank: "بانک", wallet: "کیف‌پول", party: "حساب مشتری" };
 export const SOURCE_FA: Record<string, string> = {
-  manual: "دستی", kucoin: "KuCoin", okx: "OKX", coingecko: "CoinGecko", mempool: "mempool", open_er: "نرخ رسمی", nobitex: "نوبیتکس",
+  manual: "دستی", kucoin: "KuCoin", okx: "OKX", coingecko: "CoinGecko", mempool: "mempool", open_er: "نرخ رسمی", tgju: "tgju", nobitex: "نوبیتکس",
   nobitex_usdt: "تتر نوبیتکس", gold_api: "gold-api", custom: "منبع سفارشی", stable: "≈ دلار", base: "ارز پایه", USD: "دلار",
 };
 export const DEAL_STATUS: Record<string, [string, string]> = { draft: ["پیش‌نویس", "default"], posted: ["ثبت‌شده", "processing"], cancelled: ["باطل‌شده", "error"] };

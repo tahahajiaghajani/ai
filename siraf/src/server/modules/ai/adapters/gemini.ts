@@ -3,7 +3,7 @@
 // thoughts and thought signatures included — stored and replayed exactly.
 import { geminiThinkingLevel } from "@shared/ai/effort";
 import { ProviderError, type Adapter, type AdapterEnv, type NeutralMessage, type ResolvedConnection, type ToolCall, type TurnRequest, type TurnResult, ZERO_USAGE } from "../types";
-import { CONNECT_MS, IDLE_MS, errorFromResponse, idleSignal, joinUrl, networkError, readSse } from "./http";
+import { IDLE_MS, connectMs, errorFromResponse, idleSignal, joinUrl, networkError, readSse } from "./http";
 import { geminiSchema } from "../schema";
 
 type GPart = Record<string, unknown>;
@@ -95,7 +95,7 @@ export function geminiAdapter(conn: ResolvedConnection, env: AdapterEnv): Adapte
       const parts: GPart[] = [];
       let finish: string | null = null;
       let blocked = false;
-      const t = idleSignal(req.signal, CONNECT_MS);
+      const t = idleSignal(req.signal, connectMs(conn));
       try {
         let res: Response | null = null;
         for (let attempt = 0; !res; attempt++) {

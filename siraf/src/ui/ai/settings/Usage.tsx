@@ -142,7 +142,7 @@ function BudgetCard({ settings, month, unpriced }: { settings: AiSettings; month
         </label>
         <label className="bk-f">
           <span className="bk-f-l">هشدار در</span>
-          <InputNumber<number> className="w-full" min={1} max={100} value={b.alert_pct} onChange={(x) => setB({ ...b, alert_pct: Number(x) || 80 })} suffix="٪" aria-label="هشدار در درصد" controls={false} />
+          <InputNumber<number> className="w-full" min={10} max={100} value={b.alert_pct} onChange={(x) => setB({ ...b, alert_pct: Number(x) || 80 })} suffix="٪" aria-label="هشدار در درصد" controls={false} />
         </label>
       </div>
       <div className="mt-3 flex items-center gap-3">

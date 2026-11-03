@@ -89,12 +89,13 @@ export const PROVIDERS: { id: string; title: string; covers: string }[] = [
   { id: "coingecko", title: "CoinGecko", covers: "رمزارزها (محدودیت تعداد درخواست)" },
   { id: "mempool", title: "mempool.space", covers: "بیت‌کوین و نسبت ارزهای جهانی" },
   { id: "open_er", title: "open.er-api", covers: "نرخ رسمی ارزهای جهانی به دلار" },
-  { id: "nobitex", title: "نوبیتکس", covers: "قیمت ریالی/تومانی رمزارز و تتر (از داخل ایران)" },
+  { id: "tgju", title: "tgju.org", covers: "بازار آزاد تهران: دلار، ارزها، تتر و رمزارزهای رایج به ریال/تومان" },
+  { id: "nobitex", title: "نوبیتکس", covers: "قیمت ریالی/تومانی رمزارز و تتر (فقط از داخل ایران)" },
   { id: "gold_api", title: "gold-api", covers: "انس طلا و نقره" },
   { id: "custom", title: "منبع سفارشی", covers: "هر API با نشانی و مسیر JSON دلخواه" },
 ];
 
-export const DEFAULT_PROVIDERS = ["kucoin", "okx", "coingecko", "open_er", "gold_api"];
+export const DEFAULT_PROVIDERS = ["tgju", "kucoin", "okx", "coingecko", "open_er", "gold_api"];
 
 export function fxSettings(org: Pick<OrgRow, "settings">): FxSettings {
   const s = ((org.settings ?? {}) as Record<string, unknown>).fx as Record<string, unknown> | undefined;

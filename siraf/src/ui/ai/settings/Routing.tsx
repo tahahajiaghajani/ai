@@ -1,6 +1,6 @@
 // «کارها و مدل‌ها»: for each job (دستیار، تحلیل و گزارش، کارهای سریع، خواندن تصویر و سند) the ordered chain of
 // connection + model — the first that works answers, the next ones take over on errors — and the effort of the job.
-// An empty chain means «خودکار»: the first enabled connection's model of the job's tier.
+// An empty chain means «خودکار»: every enabled connection by priority, each with the models of the job's tier in order.
 import { useEffect, useMemo, useState } from "react";
 import { AutoComplete, Button, Segmented, Select, Tooltip } from "antd";
 import { ArrowDown, ArrowUp, Plus, X } from "lucide-react";
@@ -9,7 +9,7 @@ import { useOrg } from "../../lib/org";
 import { useNotify } from "../../lib/hooks";
 import { fa } from "../../lib/fa";
 import { EmptyState } from "../../components/display";
-import { EFFORTS, EFFORT_LABEL, JOBS, JOB_LABEL, cleanChain, defaultLink, modelOptions, moveLink, type ChainLink } from "../kit/model";
+import { EFFORTS, EFFORT_LABEL, JOBS, JOB_LABEL, autoChain, cleanChain, modelOptions, moveLink, type ChainLink } from "../kit/model";
 import { useAiInvalidate } from "../kit/hooks";
 
 const ICON14 = { size: 14, strokeWidth: 1.4, absoluteStrokeWidth: true } as const;
@@ -17,7 +17,8 @@ const ICON14 = { size: 14, strokeWidth: 1.4, absoluteStrokeWidth: true } as cons
 function ChainEditor({ job, chain, connections, onChange }: { job: AiJob; chain: ChainLink[]; connections: AiConnectionPublic[]; onChange: (c: ChainLink[]) => void }) {
   const tier = JOB_LABEL[job].tier;
   const live = connections.filter((c) => c.enabled);
-  const auto = defaultLink(job, connections);
+  const autoLinks = autoChain(job, connections);
+  const auto = autoLinks[0] ?? null;
   const conn = (id: string) => connections.find((c) => c.id === id);
   const add = () => {
     const used = new Set(chain.map((l) => `${l.connection_id}\u0000${l.model}`));
@@ -33,13 +34,14 @@ function ChainEditor({ job, chain, connections, onChange }: { job: AiJob; chain:
           {auto ? (
             <>
               خودکار: <span className="ai-mid">{auto.model}</span> از «{conn(auto.connection_id)?.label}»
+              {autoLinks.length > 1 ? `، با ${fa(autoLinks.length - 1)} جایگزین` : null}
             </>
           ) : (
             "خودکار؛ هنوز اتصال فعالی نیست."
           )}
         </span>
         {live.length ? (
-          <Button size="small" icon={<Plus {...ICON14} />} onClick={add}>
+          <Button size="small" icon={<Plus {...ICON14} />} onClick={() => (autoLinks.length ? onChange(autoLinks.slice(0, 8)) : add())}>
             تعیین زنجیره
           </Button>
         ) : null}
