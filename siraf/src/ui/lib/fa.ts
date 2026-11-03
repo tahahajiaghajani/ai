@@ -17,7 +17,7 @@ export const signed = (n: number, decimals = 0) => nf(decimals, { signDisplay: "
 export const accounting = (n: number, decimals = 0) => (n < 0 ? `(${fa(-n, decimals)})` : fa(n, decimals));
 
 /** Ledger balance (دفتر کل، معین، صورت‌حساب): «مانده» unsigned plus its «تشخیص» column — debit «بد», credit «بس»,
- *  zero «—». In Vazirmatn U+2212 is the same 6 px glyph as the hyphen, so ledgers never rely on the sign. */
+ *  zero «—». In Siraf Num (Vazirmatn digits) U+2212 is the same 6 px glyph as the hyphen, so ledgers never rely on the sign. */
 export const balance = (n: number, decimals = 0): [amount: string, side: "بد" | "بس" | "—"] =>
   n === 0 ? ["—", "—"] : [fa(Math.abs(n), decimals), n > 0 ? "بد" : "بس"];
 
@@ -86,5 +86,5 @@ export const matchesFa = (text: string, query: string) => {
   return normalizeFa(query).split(" ").filter(Boolean).every((w) => t.includes(w));
 };
 
-/** Never join figures with «·»: Vazirmatn's Persian zero «۰» is a dot, so «۵ · ۲» reads «۵۰۲». */
+/** Never join figures with «·»: the Persian zero «۰» of Siraf Num (Vazirmatn's digits) is a dot, so «۵ · ۲» reads «۵۰۲». */
 export const SEP = "، ";

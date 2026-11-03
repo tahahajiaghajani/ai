@@ -157,7 +157,7 @@ export function ItemSelect({
 
 /**
  * A name that may carry Latin model names («Galaxy Tab A9», «Band 8», «C1»): every Latin run is an isolate in Geist
- * with Latin digits (`.sf-latin`), so Vazirmatn's ss01 never turns its digits Persian. Persian text stays as is.
+ * with Latin digits (`.sf-latin`), so Siraf Num (whose ASCII digits are Persian) never draws its digits. Persian text stays as is.
  */
 const LATIN_RUN = /[A-Za-z][A-Za-z0-9.\-+/]*(?:[ ][A-Za-z0-9][A-Za-z0-9.\-+/]*)*/g;
 export function LatinRuns({ text }: { text: string | null | undefined }) {

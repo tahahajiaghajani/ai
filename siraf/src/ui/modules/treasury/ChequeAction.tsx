@@ -128,7 +128,7 @@ export function ChequeActionModal({ cheque, action, onClose }: { cheque: ChequeL
             </Field>
           ) : null}
           {dir === "issued" && action === "clear" ? (
-            <div className="bk-f-h">از حساب بانکی <b className="bk-2" style={{ fontWeight: 500 }}>{cheque.bank_account_name ?? "—"}</b></div>
+            <div className="bk-f-h">از حساب بانکی <b className="bk-2" style={{ fontWeight: "var(--sf-weight-medium)" }}>{cheque.bank_account_name ?? "—"}</b></div>
           ) : null}
           {action === "cash" ? (
             <Field label="صندوق دریافت‌کننده">

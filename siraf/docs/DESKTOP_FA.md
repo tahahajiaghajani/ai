@@ -77,7 +77,7 @@
 - هم‌گامی خطا می‌دهد: اتصال اینترنت و نشانی نسخهٔ وب را بررسی کنید؛ اگر رمز حساب وب عوض شده، از «تنظیمات ← نسخهٔ ویندوز» دوباره وصل شوید.
 
 ## برای توسعه‌دهنده
-- کد Electron در `desktop/src`: `main.ts` (پنجره‌ها، سرور محلی در utility process، Tray، چاپ، حالت کلاینت شبکه، `--smoke-test`)، `preload.ts` (پل امن `window.siraf`/`window.taraz` و گزارش تم) و `splash.html` (صفحهٔ آغاز ۵۲۰ × ۳۲۰ بی‌قاب با گوشه‌های گرد؛ قلم Vazirmatn را از فونت‌های همراه برنامه می‌خواند و API آن `siraf.step / progress / status / version / ready` است).
+- کد Electron در `desktop/src`: `main.ts` (پنجره‌ها، سرور محلی در utility process، Tray، چاپ، حالت کلاینت شبکه، `--smoke-test`)، `preload.ts` (پل امن `window.siraf`/`window.taraz` و گزارش تم) و `splash.html` (صفحهٔ آغاز ۵۲۰ × ۳۲۰ بی‌قاب با گوشه‌های گرد؛ قلم‌های Arad و Siraf Num را از فونت‌های همراه برنامه می‌خواند و API آن `siraf.step / progress / status / version / ready` است).
 - تصویرهای ویندوز در `desktop/build`: `icon.ico` (برش‌های دست‌چین ۱۶ تا ۲۵۶ پیکسل)، `tray.png` و `tray@1.5x.png` و `tray@2x.png`، و تصویرهای نصب‌کننده (`installerSidebar.bmp`، `installerHeader.bmp`). این‌ها از بستهٔ برند می‌آیند: `cd desktop && npm run icons -- <brand/final>`.
 - ساخت: `node scripts/build-desktop.mjs` و سپس `cd desktop && npx electron-builder --win nsis --x64`. CI (`.github/workflows/siraf.yml`) همین را روی ویندوز واقعی می‌سازد، بی‌صدا نصب و با `Siraf.exe --smoke-test` آزمایش می‌کند و فایل را در Releases منتشر می‌کند.
 - نام‌های داخلی قدیمی عمداً مانده‌اند تا داده‌ها و نصب‌های موجود نشکنند: متغیرهای محیطی `TARAZ_*` (مثل `TARAZ_DATA_DIR`)، کانال‌های IPC `taraz:*`، جدول‌های `tz_*` و تنظیم PostgreSQL `taraz.*`.

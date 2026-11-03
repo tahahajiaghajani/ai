@@ -8,8 +8,12 @@ import { SIRAF, type SirafMode, type SirafPalette } from "./siraf-palette";
 
 export { SIRAF, type SirafMode };
 
-const FONT = '"Vazirmatn", system-ui, "Segoe UI", Tahoma, sans-serif';
-const FONT_CODE = '"Geist Mono", ui-monospace, "Cascadia Mono", Consolas, monospace';
+// digits and separators come from «Siraf Num» (a digit-only Vazirmatn subset), Persian letters from Arad UI
+// (Arad at 104%), Latin from Geist. The stacks are the tokens.css variables themselves, so @media print swaps
+// antd's text to the static print cuts too (a literal list would print the variable fonts as Type 3).
+// Nothing in the app reads these tokens in JS (antd only does for Watermark, which is not used).
+const FONT = "var(--sf-font-sans)";
+const FONT_CODE = "var(--sf-font-mono)";
 const EASE_OUT = "cubic-bezier(0.23, 1, 0.32, 1)";
 const EASE_OUT_QUAD = "cubic-bezier(0.25, 0.46, 0.45, 0.94)";
 const EASE_IN_OUT = "cubic-bezier(0.77, 0, 0.175, 1)";
@@ -138,7 +142,8 @@ export function sirafTheme(mode: SirafMode): ThemeConfig {
       controlOutlineWidth: 3,
       lineWidthFocus: 2,
 
-      // ---- type (Vazirmatn everywhere in antd; Arad is applied by the app to page/section titles only) ----
+      // ---- type (Arad UI everywhere in antd, Arad at its own proportions for page/section titles, Siraf Num for
+      // every digit; weights 450 / 540 / 600) ----
       fontFamily: FONT,
       fontFamilyCode: FONT_CODE,
       fontSize: 14,
@@ -250,7 +255,7 @@ export function sirafTheme(mode: SirafMode): ThemeConfig {
         dangerItemActiveBg: p.dangerTint,
       },
       Button: {
-        fontWeight: 500,
+        fontWeight: 540,
         iconGap: 6,
         primaryShadow: "inset 0 1px 0 rgba(255,255,255,0.10)",
         defaultShadow: p.buttonShadow,
@@ -464,7 +469,7 @@ export function sirafConfig(mode: SirafMode): Omit<ConfigProviderProps, "childre
     direction: "rtl",
     theme: sirafTheme(mode),
     // 36 px unfilled table headers at 13/20, weight 400, text-3 (compact: 32 px at 12/18, siraf-antd.css); rows come from the Table tokens
-    table: { styles: { header: { cell: { paddingBlock: 8, fontSize: 13, lineHeight: "20px", fontWeight: 400 } } } },
+    table: { styles: { header: { cell: { paddingBlock: 8, fontSize: 13, lineHeight: "20px", fontWeight: 450 } } } },
     // the side sheet: floating, inset 8, radius 16, e4, no scrim (detail views stay beside their list)
     drawer: {
       mask: false,
@@ -486,7 +491,7 @@ export function sirafConfig(mode: SirafMode): Omit<ConfigProviderProps, "childre
       },
     },
     card: { styles: { root: { boxShadow: p.e1, borderColor: "transparent" } } },
-    tag: { variant: "filled", styles: { root: { borderRadius: 999, fontWeight: 500, marginInlineEnd: 0, paddingInline: 8 } } },
+    tag: { variant: "filled", styles: { root: { borderRadius: 999, fontWeight: 540, marginInlineEnd: 0, paddingInline: 8 } } },
     // segmented label weights live in siraf-antd.css (500, the selected one 600): an inline weight here would beat it
     tooltip: { arrow: false, trigger: "hover", mouseEnterDelay: 0.4, mouseLeaveDelay: 0.05, styles: { container: { padding: "6px 8px", borderRadius: 6, fontSize: 12, lineHeight: "18px", minHeight: 0, color: p.tooltipText } } },
     popover: { arrow: false, trigger: "click", mouseEnterDelay: 0.1, mouseLeaveDelay: 0.1 },
@@ -502,7 +507,7 @@ export function sirafConfig(mode: SirafMode): Omit<ConfigProviderProps, "childre
           boxShadow: p.e3,
           padding: "12px 14px",
         },
-        title: { fontSize: 14, fontWeight: 500, marginBottom: 2 },
+        title: { fontSize: 14, fontWeight: 540, marginBottom: 2 },
         description: { fontSize: 13, color: p.text2 },
       },
     },

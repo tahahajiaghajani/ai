@@ -28,8 +28,8 @@ const SHORTCUTS: [string[][], string][] = [
 const DATE_INPUTS = ["۱۴۰۵/۰۲/۱۵ یا ۱۴۰۵۰۲۱۵", "۲/۱۵ (امسال)", "۱۵ (همین ماه)", "امروز، دیروز، فردا"];
 
 const FONTS: { name: string; role: string; by: string; file: string; latin?: boolean }[] = [
-  { name: "وزیرمتن", role: "متن و ارقام", by: "The Vazirmatn Project Authors", file: "OFL-Vazirmatn.txt" },
-  { name: "آراد", role: "عنوان‌ها و نام سیراف", by: "The Arad Project Authors", file: "OFL-Arad.txt" },
+  { name: "آراد", role: "متن، عنوان‌ها و نام سیراف", by: "محمد درویشی · The Arad Project Authors", file: "OFL-Arad.txt" },
+  { name: "رقم‌های سیراف (برگرفته از وزیرمتن)", role: "همهٔ عددها", by: "The Vazirmatn Project Authors", file: "OFL-Vazirmatn.txt" },
   { name: "Geist و Geist Mono", role: "متن لاتین و کدها", by: "Vercel و basement.studio", file: "OFL-Geist.txt", latin: true },
 ];
 

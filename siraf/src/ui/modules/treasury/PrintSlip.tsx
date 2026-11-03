@@ -93,7 +93,7 @@ export function PrintSlip({ kind, no, date, partyName, accountName, description,
           <tr>
             <td colSpan={2}>
               جمع
-              {fees.gt(0) ? <span style={{ fontWeight: 400 }}> (کارمزد بانکی {formatMoney(fees, dp)})</span> : null}
+              {fees.gt(0) ? <span style={{ fontWeight: "var(--sf-weight-regular)" }}> (کارمزد بانکی {formatMoney(fees, dp)})</span> : null}
             </td>
             <td className="n">{formatMoney(total, dp)}</td>
           </tr>

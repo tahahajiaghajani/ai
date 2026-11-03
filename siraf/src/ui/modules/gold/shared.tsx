@@ -343,7 +343,7 @@ export function catalogueLineIn(
   return line;
 }
 
-/** A 10 px filled triangle (Vazirmatn and Arad lack ▲ ▼). */
+/** A 10 px filled triangle (Arad and the digit font lack ▲ ▼). */
 export function Tri({ up }: { up: boolean }) {
   return (
     <svg viewBox="0 0 10 10" aria-hidden>

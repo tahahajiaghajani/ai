@@ -120,7 +120,7 @@ export function FxAmount({ v, code, dp = 8, colored, className, strong, zero }: 
   );
 }
 
-/** A 10 px filled triangle (Vazirmatn lacks ▲ ▼). */
+/** A 10 px filled triangle (Arad and the digit font lack ▲ ▼). */
 function Tri({ up }: { up: boolean }) {
   return (
     <svg viewBox="0 0 10 10" aria-hidden>

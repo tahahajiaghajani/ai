@@ -11,9 +11,9 @@
   .sf-gstrip > .gi { display: flex; align-items: center; gap: 8px; padding-inline: 14px; font-size: 13px; line-height: 20px; color: var(--sf-text-2); white-space: nowrap; }
   .sf-gstrip > .gi:first-child { padding-inline-start: 0; }
   .sf-gstrip > .gi + .gi { border-inline-start: 1px solid var(--sf-gold-line); }
-  .sf-gstrip .gk { font-weight: 500; color: var(--sf-gold-text); }
-  .sf-gstrip .gv { font-weight: 500; color: var(--sf-text); font-variant-numeric: tabular-nums; }
-  .sf-gstrip .usd { font-family: var(--sf-font-latin); font-feature-settings: normal; font-weight: 500; color: var(--sf-text); direction: ltr; unicode-bidi: isolate; }
+  .sf-gstrip .gk { font-weight: var(--sf-weight-medium); color: var(--sf-gold-text); }
+  .sf-gstrip .gv { font-weight: var(--sf-weight-medium); color: var(--sf-text); font-variant-numeric: tabular-nums; }
+  .sf-gstrip .usd { font-family: var(--sf-font-latin); font-feature-settings: normal; font-weight: var(--sf-weight-medium); color: var(--sf-text); direction: ltr; unicode-bidi: isolate; }
   .sf-gstrip > .live { margin-inline-start: auto; padding-inline-start: 14px; display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--sf-text-3); white-space: nowrap; }
   .sf-gstrip > .live .sf-nuqta { inline-size: 6px; block-size: 6px; }
 
@@ -29,7 +29,7 @@
   .sf-kseg { display: inline-flex; align-items: center; gap: 2px; padding: 2px; border-radius: var(--sf-radius-pill); background: var(--sf-well); inline-size: 100%; min-block-size: 32px; }
   .sf-kseg > button {
     flex: 1 1 0; min-inline-size: 34px; block-size: 28px; padding-inline: 8px; border: 0; border-radius: var(--sf-radius-pill); cursor: pointer;
-    background: transparent; color: var(--sf-text-2); font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap;
+    background: transparent; color: var(--sf-text-2); font-size: 13px; font-weight: var(--sf-weight-medium); font-variant-numeric: tabular-nums; white-space: nowrap;
     transition: background-color var(--sf-dur-base) var(--sf-ease-out-quad), color var(--sf-dur-base) var(--sf-ease-out-quad);
   }
   @media (hover: hover) and (pointer: fine) { .sf-kseg > button:not([aria-pressed="true"]):not(:disabled):hover { background: var(--sf-hover); color: var(--sf-text); transition-duration: 0ms; } }
@@ -86,9 +86,9 @@
   @media (max-width: 1100px) { .sf-gboard { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   .sf-gboard > .t { position: relative; display: flex; flex-direction: column; gap: 10px; padding: 16px 20px 14px; min-inline-size: 0; margin-inline-start: -1px; margin-block-start: -1px; border-inline-start: 1px solid var(--sf-line); border-block-start: 1px solid var(--sf-line); }
   .sf-gboard > .t.is-lead { background: linear-gradient(to bottom, var(--sf-gold-tint), transparent 70%); }
-  .sf-gboard .l { display: flex; align-items: center; gap: 8px; font-size: 13px; line-height: 20px; font-weight: 500; color: var(--sf-text-2); }
+  .sf-gboard .l { display: flex; align-items: center; gap: 8px; font-size: 13px; line-height: 20px; font-weight: var(--sf-weight-medium); color: var(--sf-text-2); }
   .sf-gboard .t.is-lead .l { color: var(--sf-gold-text); }
-  .sf-gboard .v { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 6px; font-size: clamp(22px, 2.3vw, 28px); line-height: 36px; font-weight: 500; color: var(--sf-text); font-variant-numeric: proportional-nums; white-space: nowrap; }
+  .sf-gboard .v { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 6px; font-size: clamp(22px, 2.3vw, 28px); line-height: 36px; font-weight: var(--sf-weight-medium); color: var(--sf-text); font-variant-numeric: proportional-nums; white-space: nowrap; }
   .sf-gboard .t.is-lead .v { font-size: clamp(24px, 2.6vw, 32px); }
   .sf-gboard .v .sf-unit { font-size: 12px; line-height: 18px; }
   .sf-gboard .f { margin-block-start: auto; display: flex; align-items: center; gap: 8px; min-block-size: 22px; font-size: 13px; line-height: 20px; color: var(--sf-text-3); }
@@ -97,7 +97,7 @@
   .sf-gcoins > div { display: flex; align-items: center; gap: 10px; padding: 12px 16px; min-inline-size: 0; margin-inline-start: -1px; margin-block-start: -1px; border-inline-start: 1px solid var(--sf-line); border-block-start: 1px solid var(--sf-line); }
   .sf-gcoins .t { display: flex; flex-direction: column; min-inline-size: 0; }
   .sf-gcoins .l { font-size: 12px; line-height: 18px; color: var(--sf-text-3); white-space: nowrap; }
-  .sf-gcoins .v { font-size: 15px; line-height: 22px; font-weight: 500; color: var(--sf-text); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .sf-gcoins .v { font-size: 15px; line-height: 22px; font-weight: var(--sf-weight-medium); color: var(--sf-text); font-variant-numeric: tabular-nums; white-space: nowrap; }
   .sf-gcoins .v.latn { font-family: var(--sf-font-latin); font-feature-settings: normal; direction: ltr; unicode-bidi: isolate; }
 
   .sf-gstrip .sf-delta { block-size: 20px; }

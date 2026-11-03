@@ -7,9 +7,10 @@
 <title>سیراف</title>
 <!--
   «سیراف» · the Windows splash, 520 × 320 (from the brand package: brand/final/splash.html).
-  Self-contained: inline SVG and CSS, no network. The only external file is Vazirmatn (SIL OFL 1.1, © The Vazirmatn Project
-  Authors), loaded from the fonts bundled with the app (renderer/fonts/siraf/, next to this file in desktop/app). The wordmark
-  is outlined (Arad, OFL; customised), so it needs no font.
+  Self-contained: inline SVG and CSS, no network. The only external files are the app's own fonts (renderer/fonts/siraf/,
+  next to this file in desktop/app): Arad (SIL OFL 1.1, Reserved Font Name «Arad», © The Arad Project Authors; unmodified)
+  and Siraf Num (a digit-only subset of Vazirmatn, SIL OFL 1.1, © The Vazirmatn Project Authors). The wordmark is outlined
+  (drawn from Arad, OFL), so it needs no font.
   The window is frameless and transparent; .card draws the rounded Dusk surface with a hairline edge.
   Launch (transform and opacity only): the alef is drawn top to bottom by a sliding pen mask, then the three nuqtas set beside
   it to its height (60 ms stagger, 450 ms in all); the name and the line follow. Progress is the totals rule drawing from
@@ -23,7 +24,8 @@
   Without calls it eases toward 86 % on its own. Add ?still (or #still) to the URL to render a static frame.
 -->
 <style>
-@font-face{font-family:"Vazirmatn";src:url("renderer/fonts/siraf/Vazirmatn-Variable.woff2") format("woff2-variations"),url("renderer/fonts/siraf/Vazirmatn-Variable.woff2") format("woff2");font-weight:100 900;font-style:normal;font-display:block}
+@font-face{font-family:"Siraf Num";src:url("renderer/fonts/siraf/SirafNum.woff2") format("woff2-variations"),url("renderer/fonts/siraf/SirafNum.woff2") format("woff2");font-weight:100 900;font-style:normal;font-display:block;unicode-range:U+0025,U+002C-002F,U+0030-0039,U+0660-066C,U+06F0-06F9,U+2212}
+@font-face{font-family:"Arad UI";src:url("renderer/fonts/siraf/AradVF.woff2") format("woff2-variations"),url("renderer/fonts/siraf/AradVF.woff2") format("woff2");font-weight:100 1000;font-style:normal;font-display:block;size-adjust:104%;unicode-range:U+0000-002F,U+003A-0040,U+005B-0060,U+007B-00BF,U+00D7,U+00F7,U+0600-06FF,U+0750-077F,U+08A0-08FF,U+200B-206F,U+25CC,U+FB50-FDFF,U+FE70-FEFF}
 :root{
   --ease-out:cubic-bezier(.23,1,.32,1);
   --ink-on-dusk:rgb(255 255 255 / .92);
@@ -34,7 +36,7 @@
 html,body{margin:0;width:520px;height:320px;overflow:hidden;background:transparent}
 .card{position:absolute;inset:0;overflow:hidden;border-radius:12px;background:#240D21;isolation:isolate}
 .card::after{content:"";position:absolute;inset:0;border-radius:inherit;box-shadow:inset 0 0 0 1px rgb(255 248 236 / .09);pointer-events:none}
-body{position:relative;font-family:"Vazirmatn","Segoe UI",Tahoma,sans-serif;color:#fff;-webkit-font-smoothing:antialiased;user-select:none;cursor:default}
+body{position:relative;font-family:"Siraf Num","Arad UI","Segoe UI",Tahoma,sans-serif;font-variation-settings:"DSTY" 3;font-weight:450;color:#fff;-webkit-font-smoothing:antialiased;user-select:none;cursor:default}
 .sky{position:absolute;inset:0;background:
   radial-gradient(120% 70% at 85% 118%, rgb(226 134 112 / .30), transparent 62%),
   linear-gradient(162deg, #240D21 0%, #381634 38%, #50224B 72%, #6A2E63 100%)}
@@ -54,7 +56,7 @@ body{position:relative;font-family:"Vazirmatn","Segoe UI",Tahoma,sans-serif;colo
 .track,.fill{position:absolute;right:0;top:4px;height:1px;width:100%;background:var(--line)}
 .fill{height:1.5px;top:3.75px;background:rgb(255 255 255 / .82);transform-origin:100% 50%;transform:scaleX(var(--p,0));transition:transform 600ms var(--ease-out)}
 .head{position:absolute;top:1px;right:0;width:7px;height:7px;margin-right:-3.5px;transform:translateX(calc(var(--p,0) * -100cqw)) rotate(45deg) scale(.7071);background:#fff;transition:transform 600ms var(--ease-out),background-color 300ms var(--ease-out)}
-.meta{display:flex;justify-content:space-between;align-items:baseline;margin-top:10px;font-size:12px;line-height:18px}
+.meta{display:flex;justify-content:space-between;align-items:baseline;margin-top:10px;font-size:12px;line-height:18px;font-weight:480}
 .status{color:rgb(255 255 255 / .70)}
 .ver{color:rgb(255 255 255 / .42)}
 body.done .head{background:var(--in);box-shadow:0 0 0 3px rgb(109 199 148 / .18)}

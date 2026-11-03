@@ -65,7 +65,7 @@ export function ChequeDrawer({ id, onClose }: { id: string | null; onClose: () =
         c ? (
           <div>
             <div>{chequeTitle(c)}</div>
-            <div className="bk-cap" style={{ fontWeight: 400 }}>
+            <div className="bk-cap" style={{ fontWeight: "var(--sf-weight-regular)" }}>
               {dir === "received" ? "چک دریافتی" : "چک پرداختی"}
               {c.doc_no ? `، ${KIND_TITLE[c.doc_kind as DocKind] ?? "سند"} ${docNo(c.doc_no)}` : ""}
             </div>
@@ -188,7 +188,7 @@ export function ChequeDrawer({ id, onClose }: { id: string | null; onClose: () =
                     <span>{h.title}</span>
                     <StatusTag s={h.to} map={chequeStatusMap(dir)} />
                     {h.voucher_id && h.voucher_no && can("accounting", "view") ? (
-                      <Link className="sf-link" style={{ fontWeight: 400, fontSize: 12 }} to={`/${orgId}/accounting/vouchers/${h.voucher_id}`}>
+                      <Link className="sf-link" style={{ fontWeight: "var(--sf-weight-regular)", fontSize: 12 }} to={`/${orgId}/accounting/vouchers/${h.voucher_id}`}>
                         سند {docNo(h.voucher_no)}
                       </Link>
                     ) : null}

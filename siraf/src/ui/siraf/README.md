@@ -17,7 +17,7 @@ The foundation of the «سیراف» redesign. The specs live in the brand packa
 | `../lib/fa.ts` | Persian figures and dates: `fa`, `grams`, `signed`, `accounting`, `balance`, `docNo`, `pct`, `compact`, `splitDecimals`, `parseAmount`, `jDate`/`jLong`/`jTime`…, and search (`normalizeFa`, `matchesFa`). The app's existing `@shared/format` keeps working; prefer `fa.ts` on restyled screens. |
 | `../lib/motion.ts` | `useReducedMotion`, `prefersReducedMotion`, `cssDuration`, `stagger(i)`, `useCountUp`. |
 | `../components/brand.tsx` | `<SirafMark/>`, `<Wordmark/>`, `<Logo/>` and `<SirafTile/>`. |
-| `../static/fonts/siraf/` | Vazirmatn, Arad, Geist and Geist Mono (variable), the `print/` static set, and the OFL licences. These files are the only font source. Vazirmatn and Arad are preloaded in `index.html`. |
+| `../static/fonts/siraf/` | Arad (text and titles), Siraf Num (every digit; a digit subset of Vazirmatn, rebuilt by `scripts/build-siraf-num.py`), Geist and Geist Mono (variable), the `print/` static set, and the OFL licences. These files are the only font source. Arad and Siraf Num are preloaded in `index.html`. |
 
 ## Theme
 
@@ -44,7 +44,7 @@ All of these follow the theme, so never add `dark:` variants.
 | Accent | `bg-accent`, `hover:bg-accent-hover`, `text-accent-text`, `bg-accent-tint`, `bg-accent-tint-2`, `bg-accent-bar` |
 | Semantic | `text-in`, `bg-in-tint`, `text-danger`, `bg-danger-tint`, `text-warning`, `bg-warning-fill`, `bg-warning-tint`, `bg-neutral-tint`, `text-holiday` |
 | Modules | `text-gold-text`, `bg-gold`, `bg-gold-tint`, `border-gold-line` (inside «طلا» only); `text-sea-text`, `bg-sea-tint` (inside «صرافی» only) |
-| Fonts | `font-sans` (Vazirmatn), `font-display` (Arad, 16 px or more, never numbers), `font-latin` (Geist), `font-mono` (Geist Mono) |
+| Fonts | `font-sans` (Arad UI + Siraf Num digits + Geist Latin), `font-display` (Arad at its own proportions, titles), `font-latin` (Geist), `font-mono` (Geist Mono). Weights `font-normal` 450, `font-medium` 540, `font-semibold` 600 (400/500/700 in print) |
 | Shape | `rounded-xs`, `rounded-sm`, `rounded-md`, `rounded-lg`, `rounded-xl`; `shadow-e1`, `shadow-e2`, `shadow-e3`, `shadow-e4`; `ease-out`, `ease-in-out` |
 
 ## Classes
@@ -121,8 +121,8 @@ Hard-coded colours that the aliases cannot reach. Move them to `--sf-chart-*` or
 
 1. **Use tokens only.** Use the bridge utilities or `var(--sf-*)`. Never use raw hex, `dark:` variants or new `--tz-*` / legacy utilities.
 2. **Keep Dusk rare.** Use it only for the primary action, focus, the selected-state indicator and the main chart series, and at most once per region. Links are ink (`.sf-link`). Checkbox, radio and switch are ink.
-3. **Write numbers to the rules.** Use Vazirmatn with `.sf-num` (tabular). Never use Arad for numbers. Never ellipsize money; give money columns 136 px or more (128 px compact). Render with `fa.ts`: document numbers with `docNo()`, ledgers with `balance()`. Put signed numbers in `.sf-ltr`.
-4. **Type.** Never use the `font` shorthand, because it resets `ss01` (Persian digits), DSTY and tabular figures. Use the `.sf-t-*` classes or longhands. Persian text is at least 12 px; values are at least 13 px. Use weights 400, 500 and 600 (440 for the hero only).
+3. **Write numbers to the rules.** Digits are drawn by Siraf Num in every stack; use `.sf-num` (tabular) in columns. Arad never draws a number. Never ellipsize money; give money columns 136 px or more (128 px compact). Render with `fa.ts`: document numbers with `docNo()`, ledgers with `balance()`. Put signed numbers in `.sf-ltr`.
+4. **Type.** Never use the `font` shorthand, because it resets `ss01` (Persian digits), DSTY and tabular figures. Use the `.sf-t-*` classes or longhands. Persian text is at least 12 px; values are at least 13 px. Use the weight tokens `--sf-weight-regular` (450), `--sf-weight-medium` (540) and `--sf-weight-strong` (600), never a raw 400 or 500 (Arad is lighter than Vazirmatn; print maps them to 400/500/700). 440 is for the hero only.
 5. **Bidi.** An element with its own direction is a bare isolate with no margin. Put spacing on an RTL wrapper (`.sf-end`).
 6. **Density.** Ledgers and lists default to compact (`size="small"`, 32 px rows). The dashboard is comfortable.
 7. **Status is the exception.** The normal state is plain `text-ink-3` text. Chips are only for pending, bounced or overdue, and draft. Never show warnings on an amber surface, because amber belongs to gold.

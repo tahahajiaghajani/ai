@@ -1,6 +1,10 @@
 /* =====================================================================================================
-   سیراف · Siraf — design tokens                                              tokens.css · v1.1
-   11 Aban 1405 · 2 Nov 2026 · source of truth for the rebuild of src/ui (web + Windows app)
+   سیراف · Siraf — design tokens                                              tokens.css · v1.2
+   12 Aban 1405 · 3 Nov 2026 · source of truth for the rebuild of src/ui (web + Windows app)
+
+   v1.2 sets the whole interface in Arad, the wordmark's own typeface (one pen from the logo to the table
+   cell, docs/BRAND_FA.md §5), with every digit drawn by «Siraf Num», a digit-only subset of Vazirmatn that
+   keeps money columns tabular and the separators narrow. UI weights are 450 / 540 / 600.
 
    v1.1 applies the polish and usability reviews (components.md lists every rule that changed):
      opaque focus colour and a 3:1 control edge (--sf-control-strong) · denser ledgers (40 / 32 px rows,
@@ -10,7 +14,7 @@
      the brand surface lit at its horizon · --sf-holiday for calendars.
 
    What is here
-     §1  @font-face — Vazirmatn, Arad, Geist, Geist Mono (variable, ./fonts/) + static print set
+     §1  @font-face — Arad (text and titles), Siraf Num (digits), Geist, Geist Mono + static print set
      §2  Brand constants — Dusk «شامگاه» (primary) 50–950, Gold «زر» 50–950, brand gradients, grain
      §3  Scale tokens — type, spacing, radii, sizes, density, z-index, motion (theme-independent)
      §4  Light theme «کاغذ و مرکب» (paper and ink) — the default
@@ -45,24 +49,42 @@
 
 /* -----------------------------------------------------------------------------------------------------
    §1  FONTS — all SIL OFL 1.1 (licences in ./fonts/OFL-*.txt; list them on the About screen)
-   Preload Vazirmatn + Arad (~221 KB, the critical pair); Geist and Geist Mono load on first use.
-   Arad is a Reserved Font Name: the file ships unmodified (no subsetting, no instancing).
+   Preload Arad + Siraf Num (~115 KB, the critical pair); Geist and Geist Mono load on first use.
+   Arad is a Reserved Font Name: the file ships unmodified (no subsetting, no instancing). size-adjust and
+   unicode-range below are CSS descriptors applied at render time; they do not change the file.
    ----------------------------------------------------------------------------------------------------- */
 
-/* Persian UI, tables and every numeral · vazirmatn@33.0.3 Vazirmatn[wght].woff2 · sha256 4e3fa217…cad92
-   (Vazirmatn has no Reserved Font Name. A narrower-figure derivative, "Siraf Figures", is an optional later
-   step: components.md §0.3.) */
+/* Every digit and the number separators, wherever they appear (cells, KPI figures, inputs, dates, titles).
+   «Siraf Num» 33.003 SirafNum.woff2 (8 KB): a digit-only subset of Vazirmatn (OFL 1.1, no Reserved Font Name;
+   its copyright is kept, OFL-Vazirmatn.txt ships with it; scripts/build-siraf-num.py rebuilds it). Its cmap maps
+   ASCII 0–9 to the Persian digit glyphs, so digits are Persian without any feature. Under tabular-nums its
+   ٬ and ٫ stay narrow (Arad's own tnum spreads them, so Arad never draws a number). */
 @font-face {
-  font-family: "Vazirmatn";
-  src: url("/fonts/siraf/Vazirmatn-Variable.woff2") format("woff2-variations"),
-       url("/fonts/siraf/Vazirmatn-Variable.woff2") format("woff2");
+  font-family: "Siraf Num";
+  src: url("/fonts/siraf/SirafNum.woff2") format("woff2-variations"),
+       url("/fonts/siraf/SirafNum.woff2") format("woff2");
   font-weight: 100 900;
   font-style: normal;
   font-display: swap;
+  unicode-range: U+0025, U+002C-002F, U+0030-0039, U+0660-066C, U+06F0-06F9, U+2212;
 }
 
-/* Persian display and brand, ≥ 16 px only, never numbers · Arad 2.5.1 AradVF.woff2 · sha256 16cc1168…77a41
-   Axes: wght 100–1000, DSTY 1–3 (dot style). Siraf always uses DSTY 3 (rhombic nuqtas) — see §8. */
+/* Persian UI text: menus, tables, forms, paragraphs · Arad 2.5.1 AradVF.woff2 · sha256 16cc1168…77a41
+   The same file as the display face below (it downloads once). size-adjust 104% gives Arad's slightly smaller
+   Persian letters the apparent size the scale was drawn for; the range keeps Latin letters for Geist. */
+@font-face {
+  font-family: "Arad UI";
+  src: url("/fonts/siraf/AradVF.woff2") format("woff2-variations"),
+       url("/fonts/siraf/AradVF.woff2") format("woff2");
+  font-weight: 100 1000;
+  font-style: normal;
+  font-display: swap;
+  size-adjust: 104%;
+  unicode-range: U+0000-002F, U+003A-0040, U+005B-0060, U+007B-00BF, U+00D7, U+00F7, U+0600-06FF, U+0750-077F, U+08A0-08FF, U+200B-206F, U+25CC, U+FB50-FDFF, U+FE70-FEFF;
+}
+
+/* Persian display and brand: page and section titles, the wordmark, the splash · the same AradVF.woff2 at its
+   own proportions. Axes: wght 100–1000, DSTY 1–3 (dot style). Siraf always uses DSTY 3 (rhombic nuqtas) — §8. */
 @font-face {
   font-family: "Arad";
   src: url("/fonts/siraf/AradVF.woff2") format("woff2-variations"),
@@ -84,7 +106,7 @@
 
 /* Codes that are Latin by nature: IBAN/Sheba, card number, wallet address, tx hash, supplier SKU, request id
    (slashed zero) · sha256 cf5bf55f…46b25. Business document numbers (voucher, invoice, cheque, receipt) are
-   Persian digits in Vazirmatn, not Geist Mono. */
+   Persian digits in Siraf Num, not Geist Mono. */
 @font-face {
   font-family: "Geist Mono";
   src: url("/fonts/siraf/GeistMono-Variable.woff2") format("woff2-variations"),
@@ -96,9 +118,14 @@
 
 /* Print set (static files; variable fonts print as Type3, ~79 KB vs ~14 KB a page). Only §7 uses these
    families, so they never download on screen. Load them before window.print()/printToPDF (components.md §12). */
-@font-face { font-family: "Vazirmatn Print"; src: url("/fonts/siraf/print/Vazirmatn-Regular.woff2") format("woff2"); font-weight: 400; font-display: block; }
-@font-face { font-family: "Vazirmatn Print"; src: url("/fonts/siraf/print/Vazirmatn-Medium.woff2") format("woff2"); font-weight: 500; font-display: block; }
-@font-face { font-family: "Vazirmatn Print"; src: url("/fonts/siraf/print/Vazirmatn-Bold.woff2") format("woff2"); font-weight: 700; font-display: block; }
+/* Arad Print: the designer's own static cuts with rhombic dots (Dots3), unmodified. Siraf Num Print: the digit subset
+   of the static Vazirmatn cuts, same range as on screen. */
+@font-face { font-family: "Arad Print"; src: url("/fonts/siraf/print/Arad-RegularDots3.woff2") format("woff2"); font-weight: 400; font-display: block; }
+@font-face { font-family: "Arad Print"; src: url("/fonts/siraf/print/Arad-MediumDots3.woff2") format("woff2"); font-weight: 500; font-display: block; }
+@font-face { font-family: "Arad Print"; src: url("/fonts/siraf/print/Arad-BoldDots3.woff2") format("woff2"); font-weight: 700; font-display: block; }
+@font-face { font-family: "Siraf Num Print"; src: url("/fonts/siraf/print/SirafNum-Regular.woff2") format("woff2"); font-weight: 400; font-display: block; unicode-range: U+0025, U+002C-002F, U+0030-0039, U+0660-066C, U+06F0-06F9, U+2212; }
+@font-face { font-family: "Siraf Num Print"; src: url("/fonts/siraf/print/SirafNum-Medium.woff2") format("woff2"); font-weight: 500; font-display: block; unicode-range: U+0025, U+002C-002F, U+0030-0039, U+0660-066C, U+06F0-06F9, U+2212; }
+@font-face { font-family: "Siraf Num Print"; src: url("/fonts/siraf/print/SirafNum-Bold.woff2") format("woff2"); font-weight: 700; font-display: block; unicode-range: U+0025, U+002C-002F, U+0030-0039, U+0660-066C, U+06F0-06F9, U+2212; }
 @font-face { font-family: "Geist Print"; src: url("/fonts/siraf/print/Geist-Regular.woff2") format("woff2"); font-weight: 400; font-display: block; }
 @font-face { font-family: "Geist Mono Print"; src: url("/fonts/siraf/print/GeistMono-Regular.woff2") format("woff2"); font-weight: 400; font-display: block; }
 
@@ -180,14 +207,16 @@
    ----------------------------------------------------------------------------------------------------- */
 :root {
   /* ---- font stacks ---- */
-  --sf-font-sans: "Vazirmatn", system-ui, "Segoe UI", Tahoma, sans-serif;
-  --sf-font-display: "Arad", "Vazirmatn", system-ui, sans-serif;
-  --sf-font-latin: "Geist", "Vazirmatn", system-ui, sans-serif;
+  /* Siraf Num first: it only covers digits and separators, so every number in any stack is drawn by it */
+  --sf-font-sans: "Siraf Num", "Arad UI", "Geist", "Arad", system-ui, "Segoe UI", Tahoma, sans-serif;
+  --sf-font-display: "Siraf Num", "Arad", "Geist", system-ui, sans-serif;
+  --sf-font-latin: "Geist", "Siraf Num", "Arad UI", system-ui, sans-serif;
   --sf-font-mono: "Geist Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
 
-  /* ---- type scale: size / line-height / weight (+ family). Arad never below 16 px, never for numbers.
-         UI weights: 400, 500, 600 — plus 440 for the hero figure only. 600 means "sum" (totals rows, calc and
-         footer totals) or a title (card, dialog, sheet); figures are 500. Nothing under 400 below 20 px.
+  /* ---- type scale: size / line-height / weight (+ family). Text is Arad UI (size-adjusted Arad), titles
+         Arad at its own proportions; Arad never draws a number (Siraf Num does).
+         UI weights: 450, 540, 600 — plus 440 for the hero figure only. 600 means "sum" (totals rows, calc and
+         footer totals) or a title (card, dialog, sheet); figures are 500. Nothing under 450 below 20 px.
          Minimum sizes: Persian text ≥ 12 px; values (cells, sums, inputs, chips that hold a figure, bookmarks)
          ≥ 13 px. Below 12 px only decoration: avatar initials (10.5), a currency code in an avatar (9.5),
          kbd (11, Geist). ---- */
@@ -196,11 +225,12 @@
   --sf-type-page-size: 26px;      --sf-type-page-line: 36px;      --sf-type-page-weight: 700;     /* Arad · PageHeader title */
   --sf-type-section-size: 18px;   --sf-type-section-line: 28px;   --sf-type-section-weight: 700;  /* Arad · section headings */
   --sf-type-title-size: 16px;     --sf-type-title-line: 24px;     --sf-type-title-weight: 600;    /* card, dialog, sheet titles */
-  --sf-type-body-size: 14px;      --sf-type-body-line: 22px;      --sf-type-body-weight: 400;     /* default UI, inputs, menus, cells */
-  --sf-type-dense-size: 13px;     --sf-type-dense-line: 20px;     --sf-type-dense-weight: 400;    /* compact tables (the ledger default) */
-  --sf-type-label-size: 13px;     --sf-type-label-line: 20px;     --sf-type-label-weight: 500;    /* labels, chips, segmented (table headers are 400) */
-  --sf-type-caption-size: 12px;   --sf-type-caption-line: 18px;   --sf-type-caption-weight: 400;  /* meta, timestamps, helper text, compact headers */
-  --sf-type-paragraph-size: 14px; --sf-type-paragraph-line: 26px; --sf-type-paragraph-weight: 400;/* help, long text */
+  --sf-weight-regular: 450;       --sf-weight-medium: 540;        --sf-weight-strong: 600;        /* the three UI weights */
+  --sf-type-body-size: 14px;      --sf-type-body-line: 22px;      --sf-type-body-weight: 450;     /* default UI, inputs, menus, cells */
+  --sf-type-dense-size: 13px;     --sf-type-dense-line: 20px;     --sf-type-dense-weight: 450;    /* compact tables (the ledger default) */
+  --sf-type-label-size: 13px;     --sf-type-label-line: 20px;     --sf-type-label-weight: 540;    /* labels, chips, segmented (table headers are 450) */
+  --sf-type-caption-size: 12px;   --sf-type-caption-line: 18px;   --sf-type-caption-weight: 480;  /* meta, timestamps, helper text, compact headers */
+  --sf-type-paragraph-size: 14px; --sf-type-paragraph-line: 26px; --sf-type-paragraph-weight: 450;/* help, long text */
   --sf-type-hero-size: 40px;      --sf-type-hero-line: 46px;      --sf-type-hero-weight: 440;     /* hero balance, proportional digits */
   --sf-type-hero-unit-size: 17px;                                                                 /* unit beside the hero figure, text-3 */
   --sf-type-figure-size: 28px;    --sf-type-figure-line: 36px;    --sf-type-figure-weight: 500;   /* KPI figures, proportional digits */
@@ -550,9 +580,12 @@
 @media print {
   :root:root:root {   /* (0,3,0) beats both dark-theme selectors */
     color-scheme: light;
-    --sf-font-sans: "Vazirmatn Print", "Vazirmatn", Tahoma, sans-serif;
-    --sf-font-display: "Vazirmatn Print", "Vazirmatn", Tahoma, sans-serif;   /* print headings in Vazirmatn Bold, never a static Arad */
-    --sf-font-latin: "Geist Print", "Vazirmatn Print", sans-serif;
+    --sf-font-sans: "Siraf Num Print", "Arad Print", "Geist Print", Tahoma, sans-serif;
+    --sf-font-display: "Siraf Num Print", "Arad Print", Tahoma, sans-serif;   /* print headings in Arad Print Bold (Dots3) */
+    --sf-font-latin: "Geist Print", "Siraf Num Print", "Arad Print", sans-serif;
+    /* the static print files exist at 400 / 500 / 700 only: weight matching must not pick Medium for 450 */
+    --sf-weight-regular: 400; --sf-weight-medium: 500; --sf-weight-strong: 700;
+    --sf-type-body-weight: 400; --sf-type-dense-weight: 400; --sf-type-caption-weight: 400; --sf-type-paragraph-weight: 400; --sf-type-label-weight: 500;
     --sf-font-mono: "Geist Mono Print", Consolas, monospace;
     --sf-canvas: #FFFFFF; --sf-surface: #FFFFFF; --sf-raised: #FFFFFF; --sf-sunken: #F4F2EF; --sf-well: #F4F2EF;
     --sf-text: #000000; --sf-text-2: #2E2A26; --sf-text-3: #57524C; --sf-ink-rgb: 0 0 0;
@@ -570,8 +603,9 @@
    ----------------------------------------------------------------------------------------------------- */
 @layer base {
   :root {
-    /* ss01 = Persian digits in Vazirmatn and Arad (Ant Design prints Latin digits; this renders them Persian).
-       DSTY 3 = rhombic nuqtas wherever Arad appears; fonts without the axis ignore it. */
+    /* Digits come from Siraf Num, whose cmap already draws ASCII digits as Persian; ss01 (Persian digits in
+       Arad and Vazirmatn) stays only as a harmless fallback. DSTY 3 = rhombic nuqtas wherever Arad appears;
+       fonts without the axis ignore it. */
     font-feature-settings: "ss01";
     font-variation-settings: "DSTY" 3;
     -webkit-font-smoothing: antialiased;
@@ -586,7 +620,7 @@
     font-family: var(--sf-font-sans);
     font-size: var(--sf-type-body-size);
     line-height: var(--sf-type-body-line);
-    font-weight: 400;
+    font-weight: var(--sf-type-body-weight);
     color: var(--sf-text);
     background: var(--sf-canvas);
   }
@@ -641,12 +675,12 @@
   .sf-end   { margin-inline-start: auto; }                                       /* the RTL wrapper that pushes an isolate to the end */
   .sf-dec   { font-size: calc(var(--sf-type-decimal-scale) * 1em); color: var(--sf-text-2); }  /* full size; gold-weight columns leave decimals in ink */
   :is(.sf-t-hero, .sf-t-figure) .sf-dec { font-size: calc(var(--sf-type-decimal-scale-display) * 1em); color: var(--sf-text-3); }
-  .sf-unit  { font-size: calc(var(--sf-type-unit-scale) * 1em); color: var(--sf-text-3); font-weight: 400; }
+  .sf-unit  { font-size: calc(var(--sf-type-unit-scale) * 1em); color: var(--sf-text-3); font-weight: var(--sf-weight-regular); }
   .sf-excluded { color: var(--sf-text-3); text-decoration: none; }               /* bounced/returned: never struck through (the strike hides «۰») */
   .sf-sr    { position: absolute; inline-size: 1px; block-size: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }  /* screen readers only */
 
   /* ---- links are ink, underlined: Dusk is kept for the primary action, focus and selection ---- */
-  .sf-link { color: var(--sf-text); font-weight: 500; text-decoration-line: underline; text-decoration-thickness: 1px;
+  .sf-link { color: var(--sf-text); font-weight: var(--sf-weight-medium); text-decoration-line: underline; text-decoration-thickness: 1px;
     text-decoration-color: rgb(var(--sf-ink-rgb) / .28); text-underline-offset: 4px;
     transition: text-decoration-color var(--sf-dur-base) var(--sf-ease-out-quad); }
   .sf-link:hover { text-decoration-color: var(--sf-text); transition-duration: 0ms; }

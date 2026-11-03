@@ -8,10 +8,10 @@
   .ai-ins-r.is-gone { animation: ai-out var(--sf-dur-base, 160ms) var(--sf-ease-out) both; }
   @keyframes ai-out { to { opacity: 0; transform: translateY(-4px); } }
   .ai-ins-h { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; min-inline-size: 0; }
-  .ai-ins-t { font-size: 14px; line-height: 22px; font-weight: 500; color: var(--sf-text); text-wrap: pretty; }
+  .ai-ins-t { font-size: 14px; line-height: 22px; font-weight: var(--sf-weight-medium); color: var(--sf-text); text-wrap: pretty; }
   .ai-ins-b { grid-column: 1 / -1; margin: 0; font-size: 13px; line-height: 20px; color: var(--sf-text-2); text-wrap: pretty; }
   .ai-ins-f { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 2px 16px; margin-block-start: 2px; font-size: 12px; line-height: 18px; color: var(--sf-text-3); }
-  .ai-ins-f b { font-weight: 500; color: var(--sf-text-2); font-variant-numeric: tabular-nums; }
+  .ai-ins-f b { font-weight: var(--sf-weight-medium); color: var(--sf-text-2); font-variant-numeric: tabular-nums; }
   .ai-ins-a { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; margin-block-start: 6px; font-size: 13px; line-height: 20px; }
   .ai-ins-a .sf-link { white-space: nowrap; }
   .ai-why-b { display: inline-flex; align-items: center; gap: 4px; padding: 0; border: 0; background: none; font: inherit; font-size: 13px; color: var(--sf-text-3); cursor: pointer; }
@@ -38,7 +38,7 @@
   button.ai-fact { cursor: pointer; border-radius: var(--sf-radius-sm); margin: -4px -6px; padding: 4px 6px; transition: background-color var(--sf-dur-base) var(--sf-ease-out-quad); }
   @media (hover: hover) and (pointer: fine) { button.ai-fact:hover { background: var(--sf-hover); transition-duration: 0ms; } }
   .ai-fact > small { font-size: 12px; line-height: 18px; color: var(--sf-text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .ai-fact > b { font-size: 15px; line-height: 22px; font-weight: 500; color: var(--sf-text); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .ai-fact > b { font-size: 15px; line-height: 22px; font-weight: var(--sf-weight-medium); color: var(--sf-text); font-variant-numeric: tabular-nums; white-space: nowrap; }
   .ai-fact[data-tone="in"] > b { color: var(--sf-in); }
   .ai-fact[data-tone="danger"] > b { color: var(--sf-danger); }
   .ai-fact[data-tone="warning"] > b { color: var(--sf-warning); }

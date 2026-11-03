@@ -179,7 +179,7 @@ export function ClipText({ text, className }: { text: string; className?: string
   );
 }
 
-/** Separator between words or figures: a hairline, never «·» (Vazirmatn's zero is a dot). */
+/** Separator between words or figures: a hairline, never «·» (the Persian zero of Siraf Num, from Vazirmatn, is a dot). */
 export const Sep = () => <span className="db-sep" aria-hidden />;
 
 // ------------------------------------------------------------------ deltas

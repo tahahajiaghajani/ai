@@ -257,7 +257,7 @@ function textOf(node: ReactNode): string {
   return "";
 }
 
-/** Arad never sets figures: the digit runs of a string title are set in Vazirmatn. */
+/** Arad never sets figures: the digit runs of a string title are drawn by Siraf Num (weight 600, tabular). */
 function titleWithFigures(title: ReactNode): ReactNode {
   if (typeof title !== "string" || !/[0-9۰-۹]/.test(title)) return title;
   return title.split(/([0-9۰-۹][0-9۰-۹٫٬/.,-]*)/).map((part, i) =>

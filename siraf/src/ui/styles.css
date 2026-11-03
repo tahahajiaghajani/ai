@@ -14,6 +14,10 @@
   --font-display: var(--sf-font-display);
   --font-latin: var(--sf-font-latin);
   --font-mono: var(--sf-font-mono);
+  /* the three UI weights (450 / 540 / 600 on screen, 400 / 500 / 700 in print) */
+  --font-weight-normal: var(--sf-weight-regular);
+  --font-weight-medium: var(--sf-weight-medium);
+  --font-weight-semibold: var(--sf-weight-strong);
   --color-canvas: var(--sf-canvas);
   --color-surface: var(--sf-surface);
   --color-raised: var(--sf-raised);
@@ -146,7 +150,7 @@
     font-family: var(--sf-font-latin);
     font-feature-settings: normal;
     font-size: var(--sf-type-kbd-size);
-    font-weight: 500;
+    font-weight: var(--sf-weight-medium);
     line-height: 18px;
     min-inline-size: 20px;
     padding-inline: 5px;
@@ -188,7 +192,7 @@
   .tz-grid th {
     font-size: 12px;
     line-height: 18px;
-    font-weight: 400;
+    font-weight: var(--sf-weight-regular);
     color: var(--sf-text-3);
     background: var(--sf-surface);
     padding: 7px 8px;

@@ -44,7 +44,7 @@
   @media (max-width: 639px) { .ai-review-l { grid-template-columns: minmax(0, 1fr) auto; } .ai-review-l .k { grid-column: 1 / -1; } .ai-review-l .n { grid-column: 1 / -1; } }
 
   /* the confidence chip («۹۲٪») beside a value */
-  .ai-conf { display: inline-flex; align-items: center; gap: 5px; block-size: 20px; padding-inline: 6px 8px; border-radius: var(--sf-radius-pill); font-size: 12px; line-height: 18px; font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; background: var(--sf-neutral-tint); color: var(--sf-text-2); }
+  .ai-conf { display: inline-flex; align-items: center; gap: 5px; block-size: 20px; padding-inline: 6px 8px; border-radius: var(--sf-radius-pill); font-size: 12px; line-height: 18px; font-weight: var(--sf-weight-medium); font-variant-numeric: tabular-nums; white-space: nowrap; background: var(--sf-neutral-tint); color: var(--sf-text-2); }
   .ai-conf > i { inline-size: 6px; block-size: 6px; border-radius: 50%; background: var(--sf-text-3); }
   .ai-conf[data-level="high"] > i { background: var(--sf-in); }
   .ai-conf[data-level="mid"] { background: var(--sf-warning-tint); color: var(--sf-warning); }
@@ -73,14 +73,14 @@
   .ai-md code { padding: 1px 5px; border-radius: var(--sf-radius-xs); background: var(--sf-sunken); font-family: var(--sf-font-mono); font-size: 12px; direction: ltr; unicode-bidi: isolate; }
   .ai-md blockquote { margin: 0 0 10px; padding-inline-start: 12px; box-shadow: inset -2px 0 0 var(--sf-line-3); color: var(--sf-text-2); }
   .ai-md hr { border: 0; block-size: 1px; background: var(--sf-line); margin-block: 14px; }
-  .ai-md a { color: var(--sf-text); font-weight: 500; text-decoration-line: underline; text-decoration-thickness: 1px; text-decoration-color: rgb(var(--sf-ink-rgb) / .28); text-underline-offset: 4px; }
+  .ai-md a { color: var(--sf-text); font-weight: var(--sf-weight-medium); text-decoration-line: underline; text-decoration-thickness: 1px; text-decoration-color: rgb(var(--sf-ink-rgb) / .28); text-underline-offset: 4px; }
   .ai-md table { inline-size: 100%; margin: 0 0 12px; border-collapse: collapse; font-size: 13px; line-height: 20px; }
-  .ai-md th { padding: 6px 8px; text-align: start; font-size: 12px; font-weight: 400; color: var(--sf-text-3); box-shadow: inset 0 -1px 0 var(--sf-line-2); white-space: nowrap; }
+  .ai-md th { padding: 6px 8px; text-align: start; font-size: 12px; font-weight: var(--sf-weight-regular); color: var(--sf-text-3); box-shadow: inset 0 -1px 0 var(--sf-line-2); white-space: nowrap; }
   .ai-md td { padding: 6px 8px; box-shadow: inset 0 -1px 0 var(--sf-line); font-variant-numeric: tabular-nums; }
   .ai-md-wrap { overflow-x: auto; }
 
   /* ---------------------------------------------------------------- severity mark of an insight */
-  .ai-sev { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; line-height: 18px; font-weight: 500; color: var(--sf-text-3); white-space: nowrap; }
+  .ai-sev { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; line-height: 18px; font-weight: var(--sf-weight-medium); color: var(--sf-text-3); white-space: nowrap; }
   .ai-sev > .sf-nuqta { inline-size: 6px; block-size: 6px; color: var(--sf-text-3); }
   .ai-sev[data-sev="critical"] { color: var(--sf-danger); }
   .ai-sev[data-sev="critical"] > .sf-nuqta { color: var(--sf-danger); }
@@ -108,6 +108,6 @@
   .ai-subx { align-self: flex-end; margin-inline-start: auto; }
   /* a chart's tooltip card */
   .ai-tip-card { min-inline-size: 150px; padding: 8px 10px; border-radius: var(--sf-radius-md); background: var(--sf-raised); box-shadow: var(--sf-shadow-e3); font-size: 12px; line-height: 18px; color: var(--sf-text-3); }
-  .ai-tip-card > div:first-child { margin-block-end: 4px; color: var(--sf-text-2); font-weight: 500; }
+  .ai-tip-card > div:first-child { margin-block-end: 4px; color: var(--sf-text-2); font-weight: var(--sf-weight-medium); }
   .ai-tip-card b { font-size: 14px; line-height: 20px; font-weight: 600; color: var(--sf-text); font-variant-numeric: tabular-nums; }
 }

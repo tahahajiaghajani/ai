@@ -27,7 +27,7 @@
   .ant-switch.ant-switch-checked .ant-switch-handle::before { background-color: var(--sf-canvas); }
 
   /* segmented: the selected pill is only 1.16:1 against its track, so the label turns 600 (and the pill has a 16 % ring) */
-  .ant-segmented .ant-segmented-item { font-weight: 500; }
+  .ant-segmented .ant-segmented-item { font-weight: var(--sf-weight-medium); }
   .ant-segmented .ant-segmented-item-selected { font-weight: 600; }
 
   /* links are ink with a quiet underline; Dusk is reserved for the primary action, focus and selection */
@@ -36,7 +36,7 @@
   }
   :is(.ant-typography a, a.ant-typography, .ant-btn-variant-link):hover { text-decoration-color: var(--sf-text); }
 
-  /* page and section titles are Arad (DSTY 3); everything else stays Vazirmatn */
+  /* page and section titles are Arad at its own proportions (DSTY 3); everything else is Arad UI, digits Siraf Num */
   h1.ant-typography, h2.ant-typography { font-family: var(--sf-font-display); font-variation-settings: "DSTY" 3; font-weight: 700; letter-spacing: 0; }
 
   /* numbers: put className "sf-num" on money/weight/rate columns — tabular, start-aligned (right in RTL) and NEVER
@@ -65,7 +65,7 @@
   .ant-table-column-sorter :is(.ant-table-column-sorter-up, .ant-table-column-sorter-down).active { color: var(--sf-text); }
 
   /* sidebar menu: medium labels; icons never coloured */
-  .ant-menu-light .ant-menu-item, .ant-menu-light .ant-menu-submenu-title { font-weight: 500; }
+  .ant-menu-light .ant-menu-item, .ant-menu-light .ant-menu-submenu-title { font-weight: var(--sf-weight-medium); }
   .ant-menu-light .ant-menu-item .ant-menu-item-icon { color: var(--sf-text-3); }
   .ant-menu-light .ant-menu-item-selected .ant-menu-item-icon { color: var(--sf-text); }
 
