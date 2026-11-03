@@ -1,0 +1,53 @@
+# Windows installer of «سیراف» (NSIS, Persian, per-user by default, keeps data on uninstall)
+appId: ir.siraf.app
+productName: Siraf
+copyright: "© سیراف"
+directories:
+  app: app
+  output: release
+  buildResources: build
+asar: false
+npmRebuild: false
+nodeGypRebuild: false
+buildDependenciesFromSource: false
+electronVersion: 45.2.1
+compression: maximum
+electronLanguages: [fa, en-US]
+publish:
+  - provider: github
+    owner: tahahajiaghajani
+    repo: ai
+    releaseType: release
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: build/icon.ico
+  artifactName: "Siraf-Setup-${version}.exe"
+  executableName: Siraf
+  legalTrademarks: "سیراف"
+  requestedExecutionLevel: asInvoker
+nsis:
+  oneClick: false
+  perMachine: false
+  allowElevation: true
+  allowToChangeInstallationDirectory: true
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  installerHeaderIcon: build/icon.ico
+  installerSidebar: build/installerSidebar.bmp
+  uninstallerSidebar: build/installerSidebar.bmp
+  installerHeader: build/installerHeader.bmp
+  license: build/license_fa.txt
+  installerLanguages: [fa_IR]
+  language: "1065"
+  multiLanguageInstaller: false
+  unicode: true
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: "سیراف"
+  uninstallDisplayName: "سیراف — حسابداری و مدیریت کسب‌وکار"
+  menuCategory: false
+  runAfterFinish: true
+  deleteAppDataOnUninstall: false
+  include: build/installer.nsh

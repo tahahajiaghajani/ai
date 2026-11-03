@@ -1,0 +1,344 @@
+/* Siraf · document screens of the goods, gold and fx modules (invoice editor, counter sale, exchange counter, stock
+   documents, the view pages and their prints). Tokens only, logical properties only, no `transition: all`, no `dark:`.
+   Rules: components.md §4.2 (one start-aligned figure column), §4.4 (totals), §4.7 (gold), §4.8 (exchange), §4.10
+   (editable grids), §5 (forms) and §12 (print). Imported by goods, gold and fx screens. */
+@layer components {
+  /* ================================================================== cards and fields */
+  .sf-doc { display: flex; flex-direction: column; gap: 16px; min-inline-size: 0; }
+  .sf-doc > .sf-ph { margin-block-end: 4px; }
+  /* a locked document reads as read-only, not as disabled: sunken fill, no ring, text-2 (components.md §0.6) */
+  .sf-doc :is(.ant-input-outlined.ant-input-disabled, .ant-input-affix-wrapper.ant-input-affix-wrapper-disabled, .ant-picker.ant-picker-disabled, .ant-select.ant-select-disabled.ant-select-outlined) {
+    background: var(--sf-sunken); border-color: transparent; box-shadow: none; cursor: default;
+  }
+  .sf-doc :is(.ant-input.ant-input-disabled, .ant-input-affix-wrapper-disabled .ant-input, .ant-picker-disabled input, .ant-select-disabled :is(.ant-select-selection-item, .ant-select-content, .ant-select-content-value)) {
+    color: var(--sf-text-2); -webkit-text-fill-color: currentColor; cursor: default;
+  }
+  .sf-doc :is(.ant-input-affix-wrapper-disabled, .ant-select-disabled) :is(.ant-input-suffix, .ant-select-suffix, .ant-select-arrow) { opacity: .7; }
+  .sf-doc-card { background: var(--sf-surface); border-radius: var(--sf-radius-lg); box-shadow: var(--sf-shadow-e1); min-inline-size: 0; }
+  .sf-doc-pad { padding: 20px; }
+  .sf-doc-h {
+    display: flex; align-items: center; gap: 10px; min-block-size: 56px; padding: 12px 20px;
+    box-shadow: inset 0 -1px 0 var(--sf-line);
+  }
+  .sf-doc-h > h2, .sf-doc-h > .sf-doc-ht { margin: 0; font-size: 16px; line-height: 24px; font-weight: 600; color: var(--sf-text); }
+  .sf-doc-h .sf-doc-hm { font-size: 13px; line-height: 20px; color: var(--sf-text-3); }
+  .sf-doc-h .sf-doc-hx { margin-inline-start: auto; display: flex; align-items: center; gap: 6px; }
+  .sf-doc-h > h2 { white-space: nowrap; }
+  @media (max-width: 639px) { .sf-doc-h { flex-wrap: wrap; row-gap: 6px; padding-inline: 16px; } .sf-doc-pad { padding: 16px; } }
+
+  .sf-fields { display: grid; gap: 16px 12px; grid-template-columns: repeat(auto-fill, minmax(176px, 1fr)); }
+  .sf-field { display: flex; flex-direction: column; gap: 6px; min-inline-size: 0; }
+  .sf-field.span-2 { grid-column: span 2; }
+  @media (max-width: 639px) { .sf-field.span-2 { grid-column: auto; } }
+  .sf-field-l {
+    display: flex; align-items: center; gap: 8px; min-block-size: 20px;
+    font-size: 13px; line-height: 20px; font-weight: var(--sf-weight-medium); color: var(--sf-text-2); white-space: nowrap;
+  }
+  .sf-field-l > .sf-field-x { margin-inline-start: auto; display: inline-flex; align-items: center; gap: 8px; font-weight: var(--sf-weight-regular); color: var(--sf-text-3); font-size: 12px; }
+  .sf-field-h { font-size: 12px; line-height: 18px; color: var(--sf-text-3); }
+  .sf-field-v { display: flex; align-items: center; min-block-size: 32px; font-size: 14px; line-height: 20px; color: var(--sf-text); }
+  .sf-field-err { display: flex; align-items: center; gap: 6px; font-size: 12px; line-height: 18px; color: var(--sf-danger); }
+  .sf-field-warn { display: flex; align-items: center; gap: 6px; font-size: 12px; line-height: 18px; color: var(--sf-text-2); }
+  .sf-field-warn > svg { color: var(--sf-warning-fill); flex: none; }
+
+  /* section titles inside a card: 13/20 600 with an optional quiet action at the end */
+  .sf-sec-t { display: flex; align-items: center; gap: 8px; min-block-size: 28px; font-size: 13px; line-height: 20px; font-weight: 600; color: var(--sf-text); }
+  .sf-sec-t > .sf-sec-m { font-weight: var(--sf-weight-regular); color: var(--sf-text-3); }
+  .sf-sec-t > .sf-sec-x { margin-inline-start: auto; display: inline-flex; align-items: center; gap: 8px; font-weight: var(--sf-weight-regular); }
+
+  /* quiet inline actions (a link-like button): ink with the 28 % underline (.sf-link) */
+  button.sf-link { background: none; border: 0; padding: 0; cursor: pointer; font: inherit; font-size: 13px; line-height: 20px; }
+  button.sf-link:disabled { cursor: not-allowed; color: var(--sf-text-4); text-decoration-color: transparent; }
+
+  /* document numbers (فاکتور ۵۸, سند ۱۲۴): Persian digits, tabular, text-2, never grouped */
+  .sf-docno { font-variant-numeric: tabular-nums; color: var(--sf-text-2); white-space: nowrap; }
+  .sf-sep { display: inline-block; inline-size: 1px; block-size: .9em; margin-inline: .5em; vertical-align: -.1em; background: var(--sf-line-3); }
+
+  /* the meta line under a document title (status, who, when, voucher) */
+  .sf-doc-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 0; font-size: 13px; line-height: 20px; color: var(--sf-text-3); }
+  .sf-doc-meta a { color: var(--sf-text-2); }
+
+  /* ================================================================== scan box (barcode / tag) */
+  .sf-scan { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .sf-scan .sf-scan-in { inline-size: min(100%, 320px); }
+  .sf-scan .sf-scan-in .ant-input { font-variant-numeric: tabular-nums; }
+  .sf-scan .sf-scan-in .ant-input-prefix { color: var(--sf-text-3); margin-inline-end: 8px; }
+  .sf-scan-k { font-size: 12px; line-height: 18px; color: var(--sf-text-3); white-space: nowrap; }
+
+  /* ================================================================== editable grid (§4.10) */
+  .sf-grid-wrap { overflow-x: auto; scroll-padding-block: var(--sf-th-h-compact) var(--sf-tfoot-h-compact); }
+  .sf-grid { inline-size: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; line-height: 20px; }
+  .sf-grid th {
+    position: sticky; inset-block-start: 0; z-index: 1;
+    block-size: var(--sf-th-h-compact); padding: 0 8px; text-align: start; white-space: nowrap;
+    font-size: 12px; line-height: 18px; font-weight: var(--sf-weight-regular); color: var(--sf-text-3);
+    background: var(--sf-surface); box-shadow: inset 0 -1px 0 var(--sf-line), inset 0 1px 0 var(--sf-line);
+  }
+  .sf-grid th:first-child, .sf-grid td:first-child { padding-inline-start: 20px; }
+  .sf-grid th:last-child, .sf-grid td:last-child { padding-inline-end: 16px; }
+  .sf-grid td { block-size: 36px; padding: 2px 4px; vertical-align: middle; border-block-end: 1px solid var(--sf-line); color: var(--sf-text); }
+  .sf-grid td.sf-gn { padding-inline: 8px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .sf-grid td.sf-gi { color: var(--sf-text-3); font-variant-numeric: tabular-nums; font-size: 12px; }
+  .sf-grid td.sf-gu { padding-inline: 8px; color: var(--sf-text-3); white-space: nowrap; }
+  .sf-grid tbody tr { transition: background-color var(--sf-dur-base) var(--sf-ease-out-quad); }
+  @media (hover: hover) and (pointer: fine) { .sf-grid tbody tr:hover { background: var(--sf-hover-row); transition-duration: 0ms; } }
+  .sf-grid tbody tr:last-child td { border-block-end-color: transparent; }
+  /* cells are inputs that read as text until hover (an inset line-2 ring) or focus (the 2 px ring, inset) */
+  .sf-grid :is(.ant-input-borderless, .ant-input-affix-wrapper-borderless, .ant-select-borderless, .ant-input-number-borderless) {
+    border-radius: var(--sf-radius-sm); transition: box-shadow var(--sf-dur-base) var(--sf-ease-out-quad);
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .sf-grid :is(.ant-input-borderless, .ant-input-affix-wrapper-borderless, .ant-select-borderless):not(.ant-input-disabled, .ant-input-affix-wrapper-disabled, .ant-select-disabled):hover {
+      box-shadow: inset 0 0 0 1px var(--sf-line-2); transition-duration: 0ms;
+    }
+  }
+  .sf-grid :is(.ant-input-borderless:focus, .ant-input-affix-wrapper-borderless:focus-within, .ant-select-borderless.ant-select-focused) {
+    box-shadow: inset 0 0 0 2px var(--sf-accent-text);
+  }
+  .sf-grid :is(.ant-input-disabled, .ant-input-affix-wrapper-disabled, .ant-select-disabled) { background: transparent; color: var(--sf-text-2); }
+  .sf-doc .sf-grid :is(.ant-input-outlined.ant-input-disabled, .ant-input-affix-wrapper.ant-input-affix-wrapper-disabled, .ant-select.ant-select-disabled) { background: transparent; }
+  .sf-grid tfoot td {
+    position: sticky; inset-block-end: 0; z-index: 1;
+    block-size: var(--sf-tfoot-h-compact); padding: 0 8px; border-block-end: 0;
+    font-weight: 600; background: var(--sf-surface); box-shadow: inset 0 1px 0 var(--sf-line-3);
+  }
+  .sf-grid tfoot td .sf-cnt { font-weight: var(--sf-weight-regular); color: var(--sf-text-3); }
+  /* row actions show on hover or focus at the end edge */
+  .sf-grid .sf-row-x { display: flex; justify-content: center; }
+  @media (hover: hover) and (pointer: fine) {
+    .sf-grid .sf-row-x { opacity: 0; transition: opacity var(--sf-dur-fast) var(--sf-ease-out); }
+    .sf-grid tr:is(:hover, :focus-within) .sf-row-x { opacity: 1; }
+  }
+  .sf-grid .sf-gsub { display: block; font-size: 12px; line-height: 16px; color: var(--sf-text-3); padding-inline: 8px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+  /* ================================================================== the figure column (§4.2, §4.7) */
+  /* every vertical list of figures shares ONE start-aligned column: the maths, the payments and the settle row */
+  .sf-sums {
+    --sum-col: 148px;
+    display: grid; grid-template-columns: minmax(0, 1fr) var(--sum-col);
+    padding: 6px 14px 8px; border-radius: var(--sf-radius-lg); background: var(--sf-well);
+    font-size: 13px; line-height: 20px; color: var(--sf-text-2);
+  }
+  .sf-sums.is-flat { background: transparent; padding-inline: 0; }
+  .sf-sums > .r { display: contents; }
+  .sf-sums > .r > * { display: flex; align-items: center; min-block-size: 30px; min-inline-size: 0; white-space: nowrap; }
+  .sf-sums > .r > :first-child { padding-inline-end: 16px; gap: 6px; }
+  .sf-sums > .r > .n { justify-content: flex-start; font-variant-numeric: tabular-nums; color: var(--sf-text); }
+  .sf-sums > .r .why { color: var(--sf-text-3); overflow: hidden; text-overflow: ellipsis; }
+  .sf-sums > .r.is-sub > .n, .sf-sums > .r.is-sub > :first-child { color: var(--sf-text-3); }
+  .sf-sums > .r.is-in > .n { color: var(--sf-in); }
+  .sf-sums > .r.is-field > * { min-block-size: 38px; }
+  .sf-sums > .r.is-field > .n { padding-block: 3px; }
+  .sf-sums > .r.is-field > .n > * { inline-size: 100%; }
+  .sf-sums > .r.is-total > * {
+    min-block-size: 42px; margin-block-start: 4px; box-shadow: inset 0 1px 0 var(--sf-line-3);
+    font-size: 14px; font-weight: 600; color: var(--sf-text);
+  }
+  .sf-sums > .r.is-total > .n { font-size: 16px; }
+  .sf-sums > .r.is-words > * { min-block-size: 0; padding-block: 0 6px; white-space: normal; }
+  .sf-sums > .r.is-words > :first-child { grid-column: 1 / -1; font-size: 12px; line-height: 18px; color: var(--sf-text-3); text-wrap: pretty; }
+  .sf-sums > .r.is-rule > * { margin-block-start: 4px; box-shadow: inset 0 1px 0 var(--sf-line); }
+
+  /* payments: icon, method (+ its account), the amount in the same figure column */
+  .sf-pay { display: flex; flex-direction: column; }
+  .sf-pay > .r {
+    display: grid; grid-template-columns: 20px minmax(0, 1fr) calc(var(--sum-col, 148px) + 14px); align-items: center; column-gap: 10px;
+    min-block-size: 44px; padding-block: 4px; box-shadow: inset 0 -1px 0 var(--sf-line); font-size: 14px;
+  }
+  .sf-pay > .r > .ic { color: var(--sf-text-3); display: inline-grid; }
+  .sf-pay > .r > .m { display: flex; align-items: center; gap: 8px; min-inline-size: 0; }
+  .sf-pay > .r > .m > .k { flex: none; color: var(--sf-text); }
+  .sf-pay > .r > .m > .acct { flex: 1 1 auto; min-inline-size: 0; }
+  .sf-pay > .r > .n { display: flex; align-items: center; gap: 4px; min-inline-size: 0; }
+  /* two-row payment line: the method and its whole account name on top, the amount below in the figure column */
+  .sf-pay.is-2row > .r { grid-template-columns: 20px minmax(0, 1fr) calc(var(--sum-col, 148px) + 14px); grid-template-rows: auto auto; row-gap: 2px; padding-block: 8px; }
+  .sf-pay.is-2row > .r > .ic { grid-row: 1; }
+  .sf-pay.is-2row > .r > .m { grid-column: 2 / -1; grid-row: 1; }
+  .sf-pay.is-2row > .r > .m > .acct .ant-select-selection-item, .sf-pay.is-2row > .r > .m > .acct :is(.ant-select-content, .ant-select-content-value) { color: var(--sf-text-2); }
+  .sf-pay.is-2row > .r > .n { grid-column: 3; grid-row: 2; }
+  .sf-pay.is-2row > .r.is-ref { grid-template-rows: auto; padding-block: 4px 8px; }
+  .sf-pay > .r > .n > :first-child { flex: 1 1 auto; min-inline-size: 0; }
+  .sf-pay > .r.is-ref { min-block-size: 36px; grid-template-columns: 20px minmax(0, 1fr); }
+  .sf-pay > .r:last-child { box-shadow: none; }
+
+  /* settle row: «تسویه شد» with its in nuqta on the rule; otherwise the remaining amount in warning */
+  .sf-settle {
+    position: relative; display: grid; grid-template-columns: minmax(0, 1fr) calc(var(--sum-col, 148px) + 14px); align-items: center;
+    min-block-size: 44px; font-size: 14px;
+  }
+  .sf-settle::before { content: ""; position: absolute; inset-inline: 0; inset-block-start: 0; block-size: 1px; background: var(--sf-line-3); transform-origin: right; animation: sf-rule-draw 300ms var(--sf-ease-out) both; }
+  .sf-settle::after {
+    content: ""; position: absolute; inset-inline-start: 0; inset-block-start: -3px; inline-size: 7px; block-size: 7px;
+    border-radius: 1px; transform: rotate(45deg); background: var(--sf-in);
+    transition: background-color var(--sf-dur-moderate) var(--sf-ease-out);
+  }
+  .sf-settle > .k { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: var(--sf-weight-medium); color: var(--sf-in); }
+  .sf-settle > .k > .h { font-weight: var(--sf-weight-regular); color: var(--sf-text-3); }
+  .sf-settle > .n { justify-self: start; font-variant-numeric: tabular-nums; font-weight: 600; }
+  .sf-settle[data-state="due"]::after { background: var(--sf-warning-fill); }
+  .sf-settle[data-state="due"] > .k, .sf-settle[data-state="due"] > .n { color: var(--sf-warning); }
+  .sf-settle[data-state="over"]::after { background: var(--sf-danger); }
+  .sf-settle[data-state="over"] > .k, .sf-settle[data-state="over"] > .n { color: var(--sf-danger); }
+  .sf-settle[data-state="idle"]::after { background: var(--sf-line-3); }
+  .sf-settle[data-state="idle"] > .k { color: var(--sf-text-3); font-weight: var(--sf-weight-regular); }
+  @keyframes sf-rule-draw { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+  @media (prefers-reduced-motion: reduce) { .sf-settle::before { animation: none; } }
+  :root[data-motion="reduced"] .sf-settle::before { animation: none; }
+
+  /* ================================================================== the side sheet of a page-level document */
+  /* (the counter sale and the exchange counter: the maths, the payment and the save footer in one sticky panel) */
+  .sf-dsheet {
+    --sum-col: 148px;
+    position: sticky; inset-block-start: calc(var(--sf-topbar-h) + var(--sf-panel-inset) + var(--sf-page-top));
+    display: flex; flex-direction: column;
+    max-block-size: var(--sheet-max, calc(100dvh - var(--sf-topbar-h) - var(--sf-panel-inset) - var(--sf-page-top) - 16px));
+    background: var(--sf-surface); border-radius: var(--sf-radius-xl); box-shadow: var(--sf-shadow-e2);
+    min-inline-size: 0; overflow: hidden;
+  }
+  .sf-dsheet-b { flex: 1 1 auto; min-block-size: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; padding: 16px 20px 16px; overscroll-behavior: contain; }
+  .sf-dsheet-f {
+    position: sticky; inset-block-end: 0; z-index: 1;
+    flex: none; display: flex; align-items: center; gap: 8px; min-block-size: 64px; padding: 10px 16px 10px 20px;
+    box-shadow: inset 0 1px 0 var(--sf-line); background: var(--sf-surface);
+  }
+  .sf-dsheet-f .tot { display: flex; flex-direction: column; min-inline-size: 0; }
+  .sf-dsheet-f .tot small { font-size: 12px; line-height: 16px; color: var(--sf-text-3); }
+  .sf-dsheet-f .tot b { font-size: 17px; line-height: 26px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--sf-text); }
+  .sf-dsheet-f .tot b .sf-unit { font-size: 12px; font-weight: var(--sf-weight-regular); }
+  .sf-dsheet-f .act { margin-inline-start: auto; display: flex; gap: 8px; flex: none; }
+  .sf-dsheet-f { flex-wrap: wrap; row-gap: 8px; }
+  @media (max-width: 1199px) { .sf-dsheet { position: static; max-block-size: none; } }
+
+  /* the two-column document page: content at the start, the sheet at the end */
+  .sf-dpage { display: grid; gap: 16px; align-items: start; grid-template-columns: minmax(0, 1fr); }
+  @media (min-width: 1200px) { .sf-dpage { grid-template-columns: minmax(0, 1fr) clamp(360px, 30vw, 420px); } }
+
+  /* the shortcut inside a button (an LTR isolate inside a 4 px RTL wrapper) */
+  .sf-kw { display: inline-flex; margin-inline-start: 6px; }
+  .sf-kw > bdi { display: inline-flex; gap: 2px; }
+  .sf-kw kbd {
+    display: inline-grid; place-items: center; min-inline-size: 18px; block-size: 18px; padding-inline: 4px; border-radius: var(--sf-radius-xs);
+    font-family: var(--sf-font-latin); font-feature-settings: normal; font-size: 11px; line-height: 1; font-weight: var(--sf-weight-medium);
+    background: var(--sf-sunken); color: var(--sf-text-2); box-shadow: inset 0 0 0 1px var(--sf-line-2);
+  }
+  .ant-btn-primary .sf-kw kbd { background: rgb(255 255 255 / .14); color: rgb(255 255 255 / .86); box-shadow: none; }
+
+  /* ================================================================== key / value blocks (view pages) */
+  .sf-kv { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 14px 20px; }
+  .sf-kv > div { display: flex; flex-direction: column; gap: 2px; min-inline-size: 0; }
+  .sf-kv dt, .sf-kv .k { font-size: 12px; line-height: 18px; color: var(--sf-text-3); }
+  .sf-kv dd, .sf-kv .v { margin: 0; font-size: 14px; line-height: 22px; color: var(--sf-text); overflow-wrap: anywhere; }
+
+  /* a quiet inline alert line (never on an amber surface): a nuqta + lead words in the tone */
+  .sf-inline { display: flex; align-items: flex-start; gap: 8px; padding: 10px 14px; border-radius: var(--sf-radius-lg); background: var(--sf-surface); box-shadow: inset 0 0 0 1px var(--sf-line-2); font-size: 13px; line-height: 20px; color: var(--sf-text-2); }
+  .sf-inline > .sf-nuqta { margin-block-start: 7px; flex: none; color: var(--sf-text-3); }
+  .sf-inline[data-tone="warning"] > .sf-nuqta { color: var(--sf-warning-fill); }
+  .sf-inline[data-tone="danger"] > .sf-nuqta { color: var(--sf-danger); }
+  .sf-inline[data-tone="in"] > .sf-nuqta { color: var(--sf-in); }
+  .sf-inline b { font-weight: 600; color: var(--sf-text); }
+  .sf-inline[data-tone="warning"] b { color: var(--sf-warning); }
+  .sf-inline[data-tone="danger"] b { color: var(--sf-danger); }
+
+  /* delta chip: a 10 px SVG triangle and the percent, direction × meaning */
+  .sf-delta { display: inline-flex; align-items: center; gap: 4px; block-size: 22px; padding-inline: 7px 8px; border-radius: var(--sf-radius-pill); font-size: 13px; line-height: 18px; font-weight: var(--sf-weight-medium); font-variant-numeric: tabular-nums; white-space: nowrap; background: var(--sf-neutral-tint); color: var(--sf-text-2); }
+  .sf-delta[data-dir="up"] { background: var(--sf-in-tint); color: var(--sf-in); }
+  .sf-delta[data-dir="down"] { background: var(--sf-danger-tint); color: var(--sf-danger); }
+  .sf-delta svg { inline-size: 10px; block-size: 10px; flex: none; }
+  /* the 4 px grid's rhombic nuqta at any size */
+  .sf-dot { display: inline-block; inline-size: 6px; block-size: 6px; flex: none; border-radius: 1px; transform: rotate(45deg); background: currentColor; }
+
+  /* report filters row: one row above everything it scopes */
+  .sf-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-block-end: var(--sf-filters-gap); }
+  .sf-filters > .sf-filters-end { margin-inline-start: auto; display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--sf-text-3); }
+
+  /* a summary strip of figures (§4.4): label over figure, 36 px apart, one money scale */
+  .sf-strip { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px 36px; padding: 12px 20px; }
+  .sf-strip > div { display: flex; flex-direction: column; min-inline-size: 0; }
+  .sf-strip .l { font-size: 12px; line-height: 18px; color: var(--sf-text-3); white-space: nowrap; }
+  .sf-strip .v { font-size: 18px; line-height: 26px; font-weight: var(--sf-weight-medium); color: var(--sf-text); white-space: nowrap; font-variant-numeric: proportional-nums; }
+  .sf-strip .v .sf-unit { font-size: 12px; font-weight: var(--sf-weight-regular); }
+  .sf-strip.is-compact .v { font-size: 16px; line-height: 24px; }
+
+  /* the print header of a report: the business, then the report and its range — first on the page, ink only */
+  .sf-print-head { text-align: center; margin-block-end: 4mm; }
+  .sf-print-head > .t { font-size: 13pt; line-height: 1.4; font-weight: 700; }
+  .sf-print-head > .s { font-size: 10pt; line-height: 1.5; }
+  @media print {
+    .sf-print-tabs > .ant-tabs-nav { display: none !important; }
+    :is(.sf-print-tabs, .print-sheet) .sf-chip { background: none !important; box-shadow: inset 0 0 0 .5pt var(--sf-text); color: var(--sf-text) !important; }
+    :is(.sf-print-tabs, .print-sheet) .sf-chip > .sf-nuqta { display: none; }
+  }
+
+  /* a table flush in a card: its outer cells align with the card title (20 px), components.md §4.1 */
+  .sf-edge .ant-table :is(th, td):first-child { padding-inline-start: 20px !important; }
+  .sf-edge .ant-table :is(th, td):last-child { padding-inline-end: 20px !important; }
+
+  /* tables inside cards: no own radius, edges reach the card */
+  .sf-doc-card > .ant-table-wrapper .ant-table { background: transparent; }
+}
+
+/* ================================================================== print (§12) */
+/* the printable sheet: ink on white, Arad and Siraf Num print set (tokens.css §7 swaps the fonts), hairline rules, figures
+   tabular and start-aligned, totals in one figure column, units in headers */
+@layer components {
+  .sf-pr { color: var(--sf-text); background: var(--sf-surface); font-size: 10pt; line-height: 1.55; font-variant-numeric: tabular-nums; }
+  .sf-pr * { border-color: var(--sf-text); }
+  .sf-pr-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 4mm; align-items: start; padding-block-end: 3mm; border-block-end: 1pt solid var(--sf-text); margin-block-end: 3mm; }
+  .sf-pr-brand { display: flex; align-items: center; gap: 2.5mm; }
+  .sf-pr-brand img { block-size: 12mm; inline-size: 12mm; object-fit: contain; }
+  .sf-pr-biz b { display: block; font-size: 13pt; font-weight: 700; line-height: 1.35; }
+  .sf-pr-biz span { display: block; font-size: 8.5pt; line-height: 1.5; }
+  .sf-pr-doc { text-align: end; font-size: 9pt; line-height: 1.6; }
+  .sf-pr-doc b.t { display: block; font-size: 14pt; line-height: 1.3; font-weight: 700; margin-block-end: 1mm; }
+  .sf-pr-badge { display: inline-block; margin-block-start: 1mm; padding: 0 2mm; border: .5pt solid var(--sf-text); font-size: 8.5pt; font-weight: 700; }
+  .sf-pr-parties { display: grid; grid-template-columns: 1fr 1fr; gap: 4mm; margin-block-end: 3mm; }
+  .sf-pr-party { padding: 2mm 3mm; border: .5pt solid var(--sf-text); border-radius: 1.5mm; }
+  .sf-pr-party > .l { font-size: 8pt; color: var(--sf-text-3); }
+  .sf-pr-party > .v { font-size: 10pt; font-weight: 700; }
+  .sf-pr-party > .m { font-size: 8.5pt; line-height: 1.6; }
+  .sf-pr-note { font-size: 8.5pt; margin-block: 1.5mm; }
+  .sf-pr table { inline-size: 100%; border-collapse: collapse; }
+  .sf-pr thead { display: table-header-group; }
+  .sf-pr tr { break-inside: avoid; }
+  .sf-pr th { font-size: 8.5pt; font-weight: var(--sf-weight-medium); text-align: start; padding: 1.2mm 1.5mm; border-block: 1pt solid var(--sf-text); white-space: nowrap; }
+  .sf-pr td { font-size: 9.5pt; padding: 1.2mm 1.5mm; border-block-end: .5pt solid var(--sf-text); vertical-align: top; }
+  .sf-pr td.n, .sf-pr th.n { white-space: nowrap; text-align: start; inline-size: 1%; }
+  .sf-pr td.c, .sf-pr th.c { inline-size: 1%; white-space: nowrap; }
+  /* the description takes the room the figures leave (at least 38 mm), its meta one quiet 8 pt line */
+  .sf-pr th.desc, .sf-pr td.desc { inline-size: 30%; min-inline-size: 38mm; }
+  .sf-pr td.desc .sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-inline-size: 72mm; }
+  .sf-pr td.c, .sf-pr th.c { text-align: center; }
+  .sf-pr td .sub { display: block; font-size: 8pt; color: var(--sf-text-2); }
+  .sf-pr tfoot td { font-weight: 700; border-block-start: 1pt solid var(--sf-text); border-block-end: 0; }
+  .sf-pr-foot { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 5mm; margin-block-start: 3mm; align-items: start; }
+  .sf-pr-sums { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 0; font-size: 9.5pt; }
+  .sf-pr-sums > .r { display: contents; }
+  .sf-pr-sums > .r > * { padding-block: .6mm; }
+  .sf-pr-sums > .r > .n { text-align: start; white-space: nowrap; min-inline-size: 30mm; padding-inline-start: 4mm; }
+  .sf-pr-sums > .r.is-total > * { border-block-start: 1pt solid var(--sf-text); padding-block-start: 1.2mm; font-size: 11.5pt; font-weight: 700; }
+  .sf-pr-sums > .r.is-sub > * { color: var(--sf-text-2); }
+  .sf-pr-box { padding: 2mm 3mm; border: .5pt solid var(--sf-text); border-radius: 1.5mm; }
+  .sf-pr-box > .t { font-size: 9pt; font-weight: 700; margin-block-end: 1mm; }
+  .sf-pr-words { margin-block-start: 2mm; font-size: 9pt; }
+  .sf-pr-sign { display: grid; grid-template-columns: 1fr 1fr; gap: 20mm; margin-block-start: 12mm; text-align: center; font-size: 9pt; }
+  .sf-pr-sign > div { padding-block-start: 1.5mm; border-block-start: .5pt solid var(--sf-text); margin-inline: 8mm; }
+  .sf-pr-colophon { display: flex; justify-content: space-between; margin-block-start: 6mm; font-size: 7.5pt; color: var(--sf-text-3); }
+  .sf-pr-colophon .latn { font-family: var(--sf-font-latin); font-feature-settings: normal; direction: ltr; unicode-bidi: isolate; }
+  /* rules, not boxes: the receipts' amount blocks print as hairlines (0.5 pt), never as rounded boxes */
+  .sf-pr-amt { padding-block: 2mm; border-block: .5pt solid var(--sf-text); margin-block: 3mm; }
+  .sf-pr .mono { font-family: var(--sf-font-mono); font-feature-settings: normal; direction: ltr; unicode-bidi: isolate; }
+  /* the 80 mm receipt: one column, 9 pt body, 11 pt total */
+  .sf-rc { inline-size: 72mm; margin-inline: auto; color: var(--sf-text); background: var(--sf-surface); font-size: 9pt; line-height: 1.55; font-variant-numeric: tabular-nums; }
+  .sf-rc-c { text-align: center; }
+  .sf-rc-c b.biz { display: block; font-size: 11pt; font-weight: 700; }
+  .sf-rc-c b.t { display: block; margin-block-start: 1mm; font-size: 10pt; font-weight: 700; }
+  .sf-rc hr { border: 0; border-block-start: .5pt dashed var(--sf-text); margin-block: 1.5mm; }
+  .sf-rc-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 3mm; }
+  .sf-rc-row > :last-child { text-align: start; white-space: nowrap; min-inline-size: 24mm; }
+  .sf-rc-row.is-total { font-size: 11pt; font-weight: 700; }
+  .sf-rc-item { margin-block-end: 1.5mm; }
+  .sf-rc-item > b { font-weight: 700; }
+  .sf-rc-item > .m { font-size: 8.5pt; color: var(--sf-text-2); }
+  .sf-rc .mono { font-family: var(--sf-font-mono); font-feature-settings: normal; direction: ltr; unicode-bidi: isolate; font-size: 8.5pt; }
+  .sf-rc-thanks { text-align: center; font-size: 8.5pt; }
+}

@@ -1,0 +1,143 @@
+/* Siraf · the «طلا» module: the gold price strip (the one amber surface in the product), karat tags and chips, the
+   gold avatar, the counter-sale item rows and the rate board. Gold materials appear only inside this module and
+   never as a generic highlight (components.md §0.4, §4.7). Weights stay ink, never gold. */
+@layer components {
+  /* ================================================================== price strip (44 h, gold tint, gold-line ring) */
+  .sf-gstrip {
+    display: flex; align-items: center; min-block-size: 44px; padding-inline: 14px; border-radius: var(--sf-radius-lg);
+    background: var(--sf-gold-tint); box-shadow: inset 0 0 0 1px var(--sf-gold-line); overflow-x: auto; scrollbar-width: none;
+  }
+  .sf-gstrip::-webkit-scrollbar { display: none; }
+  .sf-gstrip > .gi { display: flex; align-items: center; gap: 8px; padding-inline: 14px; font-size: 13px; line-height: 20px; color: var(--sf-text-2); white-space: nowrap; }
+  .sf-gstrip > .gi:first-child { padding-inline-start: 0; }
+  .sf-gstrip > .gi + .gi { border-inline-start: 1px solid var(--sf-gold-line); }
+  .sf-gstrip .gk { font-weight: var(--sf-weight-medium); color: var(--sf-gold-text); }
+  .sf-gstrip .gv { font-weight: var(--sf-weight-medium); color: var(--sf-text); font-variant-numeric: tabular-nums; }
+  .sf-gstrip .usd { font-family: var(--sf-font-latin); font-feature-settings: normal; font-weight: var(--sf-weight-medium); color: var(--sf-text); direction: ltr; unicode-bidi: isolate; }
+  .sf-gstrip > .live { margin-inline-start: auto; padding-inline-start: 14px; display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--sf-text-3); white-space: nowrap; }
+  .sf-gstrip > .live .sf-nuqta { inline-size: 6px; block-size: 6px; }
+
+  /* ================================================================== karat */
+  .sf-karat {
+    display: inline-flex; align-items: center; block-size: 20px; padding-inline: 6px; border-radius: var(--sf-radius-xs); flex: none;
+    font-size: 13px; line-height: 16px; font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums;
+    color: var(--sf-gold-text); background: var(--sf-gold-tint); box-shadow: inset 0 0 0 1px var(--sf-gold-line);
+  }
+  .sf-karat-plain { font-size: 13px; line-height: 20px; color: var(--sf-text-3); white-space: nowrap; }
+
+  /* karat selector: a segmented row; the selected karat is gold tint + gold text + a gold-line ring */
+  .sf-kseg { display: inline-flex; align-items: center; gap: 2px; padding: 2px; border-radius: var(--sf-radius-pill); background: var(--sf-well); inline-size: 100%; min-block-size: 32px; }
+  .sf-kseg > button {
+    flex: 1 1 0; min-inline-size: 34px; block-size: 28px; padding-inline: 8px; border: 0; border-radius: var(--sf-radius-pill); cursor: pointer;
+    background: transparent; color: var(--sf-text-2); font-size: 13px; font-weight: var(--sf-weight-medium); font-variant-numeric: tabular-nums; white-space: nowrap;
+    transition: background-color var(--sf-dur-base) var(--sf-ease-out-quad), color var(--sf-dur-base) var(--sf-ease-out-quad);
+  }
+  @media (hover: hover) and (pointer: fine) { .sf-kseg > button:not([aria-pressed="true"]):not(:disabled):hover { background: var(--sf-hover); color: var(--sf-text); transition-duration: 0ms; } }
+  .sf-kseg > button[aria-pressed="true"] { background: var(--sf-gold-tint); color: var(--sf-gold-text); font-weight: 600; box-shadow: inset 0 0 0 1px var(--sf-gold-line); }
+  .sf-kseg > button:focus-visible { outline: 2px solid var(--sf-focus-color); outline-offset: 1px; }
+  .sf-kseg > button:disabled { cursor: not-allowed; color: var(--sf-text-4); }
+  .sf-kseg > button:disabled[aria-pressed="true"] { color: var(--sf-gold-text); }
+  .sf-kseg.is-sm { min-block-size: 28px; }
+  .sf-kseg.is-sm > button { block-size: 24px; min-inline-size: 30px; font-size: 12.5px; }
+
+  /* ================================================================== gold avatar (36 list / 22 strip) */
+  .sf-gold-av {
+    display: grid; place-items: center; inline-size: 36px; block-size: 36px; flex: none; border-radius: 10px;
+    background: var(--sf-grad-gold); color: var(--sf-gold-900); font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums;
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / .45), inset 0 0 0 1px color-mix(in srgb, var(--sf-gold-800) 18%, transparent);
+  }
+  .sf-gold-av.is-sm { inline-size: 22px; block-size: 22px; border-radius: 6px; font-size: 10.5px; }
+  .sf-gold-av.is-coin { border-radius: 50%; }
+  .sf-gold-av.is-old { background: var(--sf-sunken); color: var(--sf-text-2); box-shadow: inset 0 0 0 1px var(--sf-line-2); }
+  .sf-gold-av svg { inline-size: 16px; block-size: 16px; }
+  .sf-gold-av.is-sm svg { inline-size: 12px; block-size: 12px; }
+
+  /* ================================================================== counter sale: item rows */
+  .sf-glines { display: flex; flex-direction: column; }
+  .sf-gline { position: relative; display: grid; gap: 12px; padding: 14px 20px 16px; box-shadow: inset 0 -1px 0 var(--sf-line); }
+  .sf-gline:last-child { box-shadow: none; }
+  .sf-gline.sf-enter { animation-duration: var(--sf-dur-moderate); }
+  .sf-gline-h { display: flex; align-items: center; gap: 12px; min-inline-size: 0; }
+  .sf-gline-t { display: flex; flex-direction: column; min-inline-size: 0; flex: 1 1 auto; }
+  .sf-gline-t > b { font-size: 14px; line-height: 20px; font-weight: 600; color: var(--sf-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sf-gline-t > span { display: flex; flex-wrap: wrap; align-items: center; gap: 0; font-size: 12px; line-height: 18px; color: var(--sf-text-3); }
+  .sf-gline-t .ant-select, .sf-gline-t .ant-input { max-inline-size: 360px; }
+  .sf-gline-sum { display: flex; flex-direction: column; align-items: flex-start; min-inline-size: 128px; }
+  .sf-gline-sum small { font-size: 12px; line-height: 16px; color: var(--sf-text-3); }
+  .sf-gline-sum b { font-size: 15px; line-height: 22px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--sf-text); }
+  .sf-gline-x { flex: none; }
+  .sf-gline-f { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); }
+  .sf-gline-f > .sf-field.is-wide { grid-column: span 2; }
+  .sf-gline-why { display: flex; flex-wrap: wrap; align-items: center; gap: 0; font-size: 12px; line-height: 18px; color: var(--sf-text-3); }
+  .sf-gline-why .n { color: var(--sf-text-2); font-variant-numeric: tabular-nums; }
+  .sf-gline-ro { display: flex; align-items: center; gap: 6px; block-size: 32px; padding-inline: 10px; border-radius: var(--sf-radius-md); background: var(--sf-sunken); color: var(--sf-text); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .sf-gline-ro .sf-unit { margin-inline-start: auto; }
+  .sf-gline-empty { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 36px 20px 40px; text-align: center; color: var(--sf-text-2); font-size: 14px; line-height: 22px; }
+  .sf-gline-empty .tile { display: grid; place-items: center; inline-size: 56px; block-size: 56px; border-radius: var(--sf-radius-lg); background: var(--sf-sunken); color: var(--sf-text-3); box-shadow: inset 0 0 0 1px var(--sf-line); }
+  .sf-gline-empty .k { font-size: 12px; color: var(--sf-text-3); }
+
+  /* the rate field with its lock and time; the market note below it */
+  .sf-lock-note { display: flex; align-items: center; gap: 8px; margin-block-start: -6px; font-size: 12px; line-height: 18px; color: var(--sf-text-3); }
+  .sf-lock-note > .sf-link { margin-inline-start: auto; font-size: 13px; }
+  .sf-lock-sfx { display: inline-flex; align-items: center; gap: 4px; color: var(--sf-text-3); font-size: 12px; font-variant-numeric: tabular-nums; }
+
+  /* ================================================================== rate board */
+  .sf-gboard { display: grid; gap: 0; grid-template-columns: repeat(4, minmax(0, 1fr)); background: var(--sf-surface); border-radius: var(--sf-radius-lg); box-shadow: var(--sf-shadow-e1); overflow: hidden; }
+  @media (max-width: 1100px) { .sf-gboard { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .sf-gboard > .t { position: relative; display: flex; flex-direction: column; gap: 10px; padding: 16px 20px 14px; min-inline-size: 0; margin-inline-start: -1px; margin-block-start: -1px; border-inline-start: 1px solid var(--sf-line); border-block-start: 1px solid var(--sf-line); }
+  .sf-gboard > .t.is-lead { background: linear-gradient(to bottom, var(--sf-gold-tint), transparent 70%); }
+  .sf-gboard .l { display: flex; align-items: center; gap: 8px; font-size: 13px; line-height: 20px; font-weight: var(--sf-weight-medium); color: var(--sf-text-2); }
+  .sf-gboard .t.is-lead .l { color: var(--sf-gold-text); }
+  .sf-gboard .v { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 6px; font-size: clamp(22px, 2.3vw, 28px); line-height: 36px; font-weight: var(--sf-weight-medium); color: var(--sf-text); font-variant-numeric: proportional-nums; white-space: nowrap; }
+  .sf-gboard .t.is-lead .v { font-size: clamp(24px, 2.6vw, 32px); }
+  .sf-gboard .v .sf-unit { font-size: 12px; line-height: 18px; }
+  .sf-gboard .f { margin-block-start: auto; display: flex; align-items: center; gap: 8px; min-block-size: 22px; font-size: 13px; line-height: 20px; color: var(--sf-text-3); }
+
+  .sf-gcoins { display: grid; gap: 0; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); background: var(--sf-surface); border-radius: var(--sf-radius-lg); box-shadow: var(--sf-shadow-e1); overflow: hidden; }
+  .sf-gcoins > div { display: flex; align-items: center; gap: 10px; padding: 12px 16px; min-inline-size: 0; margin-inline-start: -1px; margin-block-start: -1px; border-inline-start: 1px solid var(--sf-line); border-block-start: 1px solid var(--sf-line); }
+  .sf-gcoins .t { display: flex; flex-direction: column; min-inline-size: 0; }
+  .sf-gcoins .l { font-size: 12px; line-height: 18px; color: var(--sf-text-3); white-space: nowrap; }
+  .sf-gcoins .v { font-size: 15px; line-height: 22px; font-weight: var(--sf-weight-medium); color: var(--sf-text); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .sf-gcoins .v.latn { font-family: var(--sf-font-latin); font-feature-settings: normal; direction: ltr; unicode-bidi: isolate; }
+
+  .sf-gstrip .sf-delta { block-size: 20px; }
+
+  /* the strip never slices a figure: items are flex:none and snap; past the edge the end fades (data-more); in a
+     narrow container the secondary items (the second coin, the world ounce) step out; on a phone it is a 2-column
+     grid of label-over-value cells */
+  .sf-gstrip-c { container-type: inline-size; min-inline-size: 0; }
+  .sf-gstrip { scroll-snap-type: x mandatory; scroll-padding-inline: 14px; }
+  .sf-gstrip > .gi, .sf-gstrip > .live { flex: none; scroll-snap-align: start; }
+  .sf-gstrip[data-more] { -webkit-mask-image: linear-gradient(to left, transparent, #000 40px); mask-image: linear-gradient(to left, transparent, #000 40px); }
+  @container (max-width: 1020px) { .sf-gstrip > .gi.is-opt { display: none; } }
+  @container (max-width: 600px) {
+    .sf-gstrip {
+      display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 0; padding: 10px 14px; overflow: visible;
+      -webkit-mask-image: none; mask-image: none;
+    }
+    .sf-gstrip > .gi.is-opt:not(.is-world) { display: flex; }
+    .sf-gstrip > .gi.is-world { display: none; }
+    .sf-gstrip > .gi { display: flex; flex-wrap: wrap; align-items: center; column-gap: 6px; row-gap: 0; padding-inline: 12px 0; min-inline-size: 0; white-space: nowrap; }
+    .sf-gstrip > .gi:nth-child(odd) { padding-inline-start: 0; }
+    .sf-gstrip > .gi + .gi { border-inline-start: 0; }
+    .sf-gstrip > .gi:nth-child(even) { border-inline-start: 1px solid var(--sf-gold-line); }
+    .sf-gstrip > .gi > .gk { flex-basis: 100%; font-size: 12px; line-height: 18px; }
+    .sf-gstrip > .gi > .sf-gold-av { display: none; }
+    .sf-gstrip > .gi > .gv, .sf-gstrip > .gi > .usd { font-size: 14px; line-height: 22px; }
+    .sf-gstrip > .live { grid-column: 1 / -1; margin: 0; padding: 6px 0 0; box-shadow: inset 0 1px 0 var(--sf-gold-line); }
+  }
+
+  /* calculator result: the figure column on the well */
+  .sf-gcalc .ant-segmented { inline-size: 100%; }
+  .sf-gcalc .sf-sums { --sum-col: 132px; }
+  :root[data-theme="dark"] .sf-gcalc .sf-sums { background: var(--sf-well); box-shadow: inset 0 0 0 1px var(--sf-line); }
+
+  /* a document line: the title over one text-3 meta line (kind، tag، category); wage % under its amount */
+  .sf-gdl { display: flex; flex-direction: column; min-inline-size: 0; }
+  .sf-gdl > .t { color: var(--sf-text); white-space: nowrap; }
+  .sf-gdl > .m { font-size: 12px; line-height: 18px; color: var(--sf-text-3); white-space: nowrap; }
+
+  /* ================================================================== labels page (sheet preview of tags) */
+  .sf-tagprev { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+  .sf-tagprev > div { padding: 12px; border-radius: var(--sf-radius-md); background: var(--sf-well); box-shadow: inset 0 0 0 1px var(--sf-line); }
+}

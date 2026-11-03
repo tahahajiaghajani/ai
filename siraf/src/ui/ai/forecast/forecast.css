@@ -1,0 +1,93 @@
+/* «پیش‌بینی و برنامه‌ریزی»: KPI strip, fan and cash charts with their legends, the shortfall notice, rate range bars
+   and the plan reader. Tokens only, logical properties, no amber surfaces (warnings are a coloured mark). */
+@layer components {
+  .ai-fc .ai-tabs { margin-block-end: 16px; }
+
+  .ai-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 1px; overflow: hidden; border-radius: var(--sf-radius-lg); background: var(--sf-line); box-shadow: var(--sf-shadow-e1); }
+  .ai-kpi { display: flex; flex-direction: column; gap: 2px; min-inline-size: 0; padding: 14px 16px; background: var(--sf-surface); }
+  .ai-kpi > small { font-size: 12px; line-height: 18px; color: var(--sf-text-3); }
+  .ai-kpi > b { font-size: 20px; line-height: 28px; font-weight: var(--sf-weight-medium); color: var(--sf-text); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .ai-kpi > span { font-size: 12px; line-height: 18px; color: var(--sf-text-3); font-variant-numeric: tabular-nums; }
+  .ai-kpi[data-tone="danger"] > b { color: var(--sf-danger); }
+  .ai-fc-next { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-block: 14px 4px; }
+  .ai-fc-next .ai-kpi { padding: 10px 12px; border-radius: var(--sf-radius-md); background: var(--sf-sunken); }
+  .ai-fc-next .ai-kpi > b { font-size: 16px; line-height: 24px; }
+
+  .ai-fc-alert { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; border-radius: var(--sf-radius-md); background: var(--sf-surface); box-shadow: inset 0 0 0 1px var(--sf-danger-border); font-size: 13px; line-height: 20px; color: var(--sf-text-2); }
+  .ai-fc-alert > .sf-nuqta { flex: none; margin-block-start: 7px; color: var(--sf-danger); }
+  .ai-fc-alert b { font-weight: 600; color: var(--sf-text); }
+  .ai-fc-alert[data-tone="neutral"] { box-shadow: inset 0 0 0 1px var(--sf-line-2); }
+  .ai-fc-alert[data-tone="neutral"] > .sf-nuqta { color: var(--sf-text-3); }
+
+  .ai-fc-chart { inline-size: 100%; }
+  .ai-fc-chart .recharts-surface { overflow: visible; }
+  .ai-fc-chart .recharts-cartesian-axis-tick-value { font-family: var(--sf-font-sans); font-variant-numeric: tabular-nums; }
+  .ai-fc-legend { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-block-start: 8px; font-size: 12px; line-height: 18px; color: var(--sf-text-3); }
+  .ai-fc-legend > span { display: inline-flex; align-items: center; gap: 6px; }
+  .ai-fc-legend i { display: inline-block; inline-size: 12px; block-size: 8px; border-radius: 2px; }
+  .ai-fc-legend i.is-in { background: var(--sf-accent-line); }
+  .ai-fc-legend i.is-out { background: var(--sf-chart-other); }
+  .ai-fc-legend i.is-line, .ai-fc-legend i.is-actual { block-size: 2px; background: var(--sf-text); }
+  .ai-fc-legend i.is-actual { background: var(--sf-text-2); }
+  .ai-fc-legend i.is-median { block-size: 0; border-block-start: 2px dashed var(--sf-accent-line); border-radius: 0; }
+  .ai-fc-legend i.is-band { background: rgb(var(--sf-accent-line-rgb) / .18); }
+  .ai-fc-legend i.is-short { background: rgb(var(--sf-ink-rgb) / .04); box-shadow: inset 0 0 0 1px var(--sf-danger-border); }
+
+  .ai-fc-note { margin: 12px 0 0; font-size: 12px; line-height: 18px; color: var(--sf-text-3); text-wrap: pretty; }
+  .ai-fc-acc { display: flex; flex-wrap: wrap; gap: 4px 18px; margin: 12px 0 0; font-size: 12px; line-height: 18px; color: var(--sf-text-3); }
+  .ai-fc-acc b { font-weight: var(--sf-weight-medium); color: var(--sf-text-2); }
+  .ai-fc-x { display: flex; flex-direction: column; gap: 10px; margin-block-start: 14px; padding-block-start: 14px; box-shadow: inset 0 1px 0 var(--sf-line); }
+  .ai-fc-xb { display: flex; flex-wrap: wrap; gap: 8px; }
+
+  .ai-fc-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+  .ai-fc-bar > .sf-end { margin-inline-start: auto; }
+  .ai-fc-pick { inline-size: 260px; max-inline-size: 100%; }
+
+  .ai-fc-short > td:first-child { box-shadow: inset -2px 0 0 var(--sf-danger), inset 0 -1px 0 var(--sf-line); }
+  .ai-fc-items { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 4px 0; list-style: none; font-size: 13px; line-height: 20px; }
+  .ai-fc-items > li { display: flex; justify-content: space-between; gap: 16px; color: var(--sf-text-2); }
+  .ai-fc-items b { font-weight: var(--sf-weight-medium); font-variant-numeric: tabular-nums; color: var(--sf-text); white-space: nowrap; }
+  .ai-fc-item { display: flex; flex-direction: column; gap: 0; min-inline-size: 0; }
+  .ai-fc-item small { font-size: 12px; line-height: 18px; color: var(--sf-text-3); }
+  .ai-fc-item > span { font-size: 12px; line-height: 18px; color: var(--sf-text-3); }
+
+  /* rates */
+  .ai-rates { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+  .ai-rate { display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; border-radius: var(--sf-radius-md); background: var(--sf-surface); box-shadow: inset 0 0 0 1px var(--sf-line); }
+  .ai-rate > header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; }
+  .ai-rate h3 { margin: 0; font-size: 14px; line-height: 22px; font-weight: 600; color: var(--sf-text); }
+  .ai-rate > header > span { font-size: 12px; line-height: 18px; color: var(--sf-text-3); }
+  .ai-rate-last { display: flex; align-items: baseline; gap: 6px; }
+  .ai-rate-last b { font-size: 20px; line-height: 28px; font-weight: var(--sf-weight-medium); color: var(--sf-text); }
+  .ai-rate-last span { font-size: 12px; color: var(--sf-text-3); }
+  .ai-rate-h { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+  .ai-rate-h > li { display: grid; grid-template-columns: 64px minmax(60px, 1fr) auto; align-items: center; gap: 10px; font-size: 12px; line-height: 18px; }
+  .ai-rate-h .k { color: var(--sf-text-3); }
+  .ai-rate-h .v { color: var(--sf-text-2); white-space: nowrap; }
+  .ai-rate-bar { position: relative; block-size: 8px; border-radius: var(--sf-radius-pill); background: var(--sf-sunken); }
+  .ai-rate-bar > i { position: absolute; inset-block: 0; border-radius: var(--sf-radius-pill); background: rgb(var(--sf-accent-line-rgb) / .35); }
+  .ai-rate-bar > em { position: absolute; inset-block: -3px; inline-size: 2px; margin-inline-start: -1px; border-radius: 1px; background: var(--sf-text); }
+  .ai-rate .ai-fc-acc { margin: 0; }
+  /* phones: the range goes under its bar so long rial figures never leave the card */
+  @media (max-width: 520px) {
+    .ai-rate-h > li { grid-template-columns: 56px minmax(0, 1fr); row-gap: 2px; }
+    .ai-rate-h .v { grid-column: 2; }
+  }
+  .ai-rate[data-selected] { box-shadow: inset 0 0 0 1.5px rgb(var(--sf-accent-line-rgb) / .7); }
+  .ai-rate-pick { all: unset; cursor: pointer; border-radius: var(--sf-radius-sm); }
+  .ai-rate-pick:hover { color: var(--sf-accent-text); text-decoration: underline; text-underline-offset: 3px; }
+  .ai-rate-pick:focus-visible { outline: 2px solid rgb(var(--sf-accent-line-rgb) / .8); outline-offset: 2px; }
+
+  /* plan */
+  .ai-plan { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
+  @media (min-width: 1024px) { .ai-plan { grid-template-columns: 320px minmax(0, 1fr); } }
+  .ai-plan-new { display: flex; flex-direction: column; gap: 10px; }
+  .ai-plan-l { display: flex; flex-direction: column; margin: 0; padding: 4px 0; list-style: none; }
+  .ai-plan-i { display: flex; flex-direction: column; gap: 2px; inline-size: 100%; padding: 10px 16px; border: 0; background: none; font: inherit; text-align: start; cursor: pointer; box-shadow: inset 0 -1px 0 var(--sf-line); transition: background-color var(--sf-dur-base) var(--sf-ease-out-quad); }
+  .ai-plan-l > li:last-child .ai-plan-i { box-shadow: none; }
+  .ai-plan-i b { font-size: 13px; line-height: 20px; font-weight: var(--sf-weight-medium); color: var(--sf-text); }
+  .ai-plan-i span { font-size: 12px; line-height: 18px; color: var(--sf-text-3); }
+  .ai-plan-i[aria-selected="true"] { background: var(--sf-accent-tint); box-shadow: inset -2px 0 0 var(--sf-accent); }
+  @media (hover: hover) and (pointer: fine) { .ai-plan-i:not([aria-selected="true"]):hover { background: var(--sf-hover); transition-duration: 0ms; } }
+  .ai-plan-md { max-inline-size: 72ch; }
+}

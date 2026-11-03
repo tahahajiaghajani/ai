@@ -1,0 +1,107 @@
+/* Siraf · the brand surface (components.md §11.1): login, onboarding, About. The Dusk sky with grain, the tagline that
+   settles onto the horizon, and its last light. Only on brand surfaces — never inside the app. */
+@layer components {
+  .sf-brand {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    border-radius: var(--sf-radius-xl);
+    color: var(--sf-on-brand);
+    background: var(--sf-grad-dusk);
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.1);
+  }
+  .sf-brand::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background-image: var(--sf-grain);
+    background-size: var(--sf-grain-size);
+    opacity: var(--sf-grain-opacity);
+    mix-blend-mode: overlay;
+  }
+  .sf-brand-in {
+    position: relative;
+    z-index: 1;
+    block-size: 100%;
+    display: flex;
+    flex-direction: column;
+    padding: 44px 48px 40px;
+  }
+  .sf-brand .sf-horizon {
+    position: relative;
+    display: block;
+    block-size: 1px;
+    margin-block-start: 22px;
+    margin-inline: -48px;
+    background: var(--sf-horizon-line);
+  }
+  .sf-brand .sf-horizon::after {
+    content: "";
+    position: absolute;
+    z-index: -1;
+    inset-inline: 0;
+    inset-block-start: -300px;
+    block-size: 1600px;
+    pointer-events: none;
+    background: var(--sf-horizon-light);
+  }
+  .sf-brand .sf-horizon::before {
+    content: "";
+    position: absolute;
+    inset-inline-start: 50px;
+    inset-block-start: -4px;
+    inline-size: 9px;
+    block-size: 9px;
+    transform: rotate(45deg);
+    border-radius: 1px;
+    background: #fff;
+    box-shadow: var(--sf-horizon-glow);
+  }
+  .sf-brand .sf-tagline {
+    margin: auto 0 0;
+    font-family: var(--sf-font-display);
+    font-variation-settings: "DSTY" 3;
+    font-size: clamp(40px, 4.2vw, var(--sf-type-display-xl-size));
+    line-height: 1.2;
+    font-weight: var(--sf-type-display-weight);
+    letter-spacing: 0;
+  }
+  .sf-brand .sf-en {
+    margin-block-start: 18px;
+    margin-block-end: 0;
+    font-family: var(--sf-font-latin);
+    font-feature-settings: normal;
+    font-size: 17px;
+    line-height: 24px;
+    font-weight: var(--sf-weight-medium);
+    letter-spacing: -0.01em;
+    color: var(--sf-on-brand-2);
+    direction: ltr;
+    text-align: end;
+  }
+  .sf-brand .sf-story {
+    margin: 28px 0 0;
+    max-inline-size: 430px;
+    font-size: 13px;
+    line-height: 24px;
+    color: var(--sf-on-brand-3);
+  }
+  .sf-brand .sf-bfoot {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    margin-block-start: 30px;
+    padding-block-start: 18px;
+    font-size: 12px;
+    line-height: 18px;
+    color: var(--sf-on-brand-3);
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.14);
+  }
+  .sf-brand .sf-bfoot .sf-nuqta {
+    inline-size: 5px;
+    block-size: 5px;
+    color: rgb(255 255 255 / 0.6);
+  }
+}

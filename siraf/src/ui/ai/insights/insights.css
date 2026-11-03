@@ -1,0 +1,56 @@
+/* «پیشخوان» AI cards: the insights feed («بینش‌ها»), «خلاصهٔ امروز» and the AI status strip. They sit in the dashboard's
+   grid and build on its card (.db-card); tokens only, no amber surfaces, Dusk only on the strip's single action. */
+@layer components {
+  /* ---------------------------------------------------------------- insights feed */
+  .ai-ins { display: flex; flex-direction: column; margin-inline: -20px; }
+  .ai-ins-r { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; padding: 12px 12px 12px 20px; padding-inline: 20px 12px; box-shadow: inset 0 -1px 0 var(--sf-line); }
+  .ai-ins-r:last-child { box-shadow: none; }
+  .ai-ins-r.is-gone { animation: ai-out var(--sf-dur-base, 160ms) var(--sf-ease-out) both; }
+  @keyframes ai-out { to { opacity: 0; transform: translateY(-4px); } }
+  .ai-ins-h { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; min-inline-size: 0; }
+  .ai-ins-t { font-size: 14px; line-height: 22px; font-weight: var(--sf-weight-medium); color: var(--sf-text); text-wrap: pretty; }
+  .ai-ins-b { grid-column: 1 / -1; margin: 0; font-size: 13px; line-height: 20px; color: var(--sf-text-2); text-wrap: pretty; }
+  .ai-ins-f { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 2px 16px; margin-block-start: 2px; font-size: 12px; line-height: 18px; color: var(--sf-text-3); }
+  .ai-ins-f b { font-weight: var(--sf-weight-medium); color: var(--sf-text-2); font-variant-numeric: tabular-nums; }
+  .ai-ins-a { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; margin-block-start: 6px; font-size: 13px; line-height: 20px; }
+  .ai-ins-a .sf-link { white-space: nowrap; }
+  .ai-why-b { display: inline-flex; align-items: center; gap: 4px; padding: 0; border: 0; background: none; font: inherit; font-size: 13px; color: var(--sf-text-3); cursor: pointer; }
+  .ai-why-b:hover { color: var(--sf-text); }
+  .ai-why-b svg { transition: transform var(--sf-dur-base) var(--sf-ease-out); }
+  .ai-why-b[aria-expanded="true"] svg { transform: rotate(180deg); }
+  .ai-why { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 8px; margin-block-start: 8px; padding: 10px 12px; border-radius: var(--sf-radius-md); background: var(--sf-sunken); font-size: 13px; line-height: 20px; color: var(--sf-text-2); }
+  .ai-why dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 14px; margin: 0; }
+  .ai-why dt { color: var(--sf-text-3); white-space: nowrap; }
+  .ai-why dd { margin: 0; color: var(--sf-text); font-variant-numeric: tabular-nums; }
+  .ai-refs { display: flex; flex-wrap: wrap; gap: 6px; }
+  .ai-ref { display: inline-flex; align-items: center; gap: 6px; block-size: 24px; padding-inline: 8px 10px; border-radius: var(--sf-radius-pill); background: var(--sf-surface); box-shadow: inset 0 0 0 1px var(--sf-line-2); font-size: 12px; line-height: 18px; color: var(--sf-text-2); white-space: nowrap; text-decoration: none; transition: background-color var(--sf-dur-base) var(--sf-ease-out-quad); }
+  .ai-ref svg { color: var(--sf-text-3); }
+  @media (hover: hover) and (pointer: fine) { a.ai-ref:hover { background: var(--sf-hover); color: var(--sf-text); transition-duration: 0ms; } }
+  .ai-ins-more { display: flex; justify-content: center; padding-block: 8px 0; }
+  .ai-clear { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: var(--sf-radius-md); background: var(--sf-sunken); font-size: 13px; line-height: 20px; color: var(--sf-text-2); }
+  .ai-clear svg { flex: none; color: var(--sf-in); }
+
+  /* ---------------------------------------------------------------- «خلاصهٔ امروز» */
+  .ai-brief { display: flex; flex-direction: column; gap: 14px; }
+  .ai-brief .ai-md { font-size: 14px; line-height: 26px; }
+  .ai-brief-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 20px; padding-block-start: 12px; box-shadow: inset 0 1px 0 var(--sf-line); }
+  .ai-fact { display: flex; flex-direction: column; gap: 2px; min-inline-size: 0; padding: 0; border: 0; background: none; font: inherit; color: inherit; text-align: start; }
+  button.ai-fact { cursor: pointer; border-radius: var(--sf-radius-sm); margin: -4px -6px; padding: 4px 6px; transition: background-color var(--sf-dur-base) var(--sf-ease-out-quad); }
+  @media (hover: hover) and (pointer: fine) { button.ai-fact:hover { background: var(--sf-hover); transition-duration: 0ms; } }
+  .ai-fact > small { font-size: 12px; line-height: 18px; color: var(--sf-text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ai-fact > b { font-size: 15px; line-height: 22px; font-weight: var(--sf-weight-medium); color: var(--sf-text); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .ai-fact[data-tone="in"] > b { color: var(--sf-in); }
+  .ai-fact[data-tone="danger"] > b { color: var(--sf-danger); }
+  .ai-fact[data-tone="warning"] > b { color: var(--sf-warning); }
+  .ai-fact > span { font-size: 11px; line-height: 16px; color: var(--sf-text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ai-brief-f { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; font-size: 12px; line-height: 18px; color: var(--sf-text-3); }
+  .ai-brief-f > .sf-end { margin-inline-start: auto; }
+
+  /* ---------------------------------------------------------------- AI status strip (set-up, switched off, budget) */
+  .ai-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; padding: 14px 16px 14px 20px; padding-inline: 20px 16px; }
+  .ai-strip-ic { display: grid; place-items: center; flex: none; inline-size: 40px; block-size: 40px; border-radius: var(--sf-radius-lg); background: var(--sf-accent-tint); color: var(--sf-accent-text); }
+  .ai-strip-t { flex: 1 1 260px; min-inline-size: 0; }
+  .ai-strip-t > b { display: block; font-size: 15px; line-height: 22px; font-weight: 600; color: var(--sf-text); }
+  .ai-strip-t > span { display: block; font-size: 13px; line-height: 20px; color: var(--sf-text-2); text-wrap: pretty; }
+  .ai-strip-x { display: flex; align-items: center; gap: 8px; }
+}
