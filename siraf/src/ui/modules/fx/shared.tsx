@@ -6,7 +6,7 @@ import "../goods/sheet.css";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import { Select, Segmented, Tooltip } from "antd";
-import { StatusTag } from "../../components/display";
+import { SourceCredit, StatusTag } from "../../components/display";
 import { pct as faPct } from "../../lib/fa";
 import { useOrg } from "../../lib/org";
 import { RefSelect } from "../../components/inputs";
@@ -26,6 +26,15 @@ export interface BoardRate {
   mid: string | null;
   at: string;
   source: string;
+  /** a custom source's own name and link, shown next to its rate (free plans such as EZRate's ask for it) */
+  source_label?: string | null;
+  source_link?: string | null;
+}
+
+/** The name and link of a custom source, as the board and the market answers give them. */
+export interface SourceLabel {
+  source_label: string;
+  source_link: string | null;
 }
 
 export interface BoardCurrency {
@@ -166,10 +175,10 @@ export function CurrencyName({ c, sub }: { c: Pick<BoardCurrency, "code" | "name
   );
 }
 
-/** Where a rate came from: plain text-3 (a source is not a status). */
-export function SourceTag({ s, at }: { s?: string | null; at?: string | null }) {
+/** Where a rate came from: plain text-3 (a source is not a status); a custom source by its own name, linked. */
+export function SourceTag({ s, at, label, link }: { s?: string | null; at?: string | null; label?: string | null; link?: string | null }) {
   if (!s) return <span className="sf-zero">—</span>;
-  const t = <span className="whitespace-nowrap text-[13px] text-ink-3">{SOURCE_FA[s] ?? s}</span>;
+  const t = <span className="whitespace-nowrap text-[13px] text-ink-3">{label ? <SourceCredit label={label} link={link} bare /> : SOURCE_FA[s] ?? s}</span>;
   return at ? <Tooltip title={formatJalaliDateTime(at)}>{t}</Tooltip> : t;
 }
 
@@ -262,6 +271,7 @@ export interface LiveAnswer {
   base: { code: string; decimals: number };
   usd_rate: string | null;
   usd_source: string | null;
+  usd_label?: SourceLabel | null;
   quotes: LiveQuote[];
   errors: string[];
 }

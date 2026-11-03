@@ -27,7 +27,7 @@ const person = z.record(z.string(), z.union([z.string(), z.number(), z.null()]))
 const q = (c: { req: { query(): Record<string, string> } }) => c.req.query();
 
 // ---------------------------------------------------------------- settings
-fxRoutes.get("/settings", (c) => c.json(readSettings(c.get("ctx"))));
+fxRoutes.get("/settings", async (c) => c.json(await readSettings(c.get("ctx"))));
 fxRoutes.put("/settings", async (c) => {
   const input = await body(
     c,
@@ -43,7 +43,13 @@ fxRoutes.put("/settings", async (c) => {
         path: z.string().max(300),
         unit: z.enum(["base", "usd"]).default("base"),
         factor: z.union([z.string(), z.number()]).nullish(),
+        // the request header that carries this runtime's key (the key itself goes in `keys`)
+        header: z.string().max(100).nullish(),
+        label: z.string().max(100).nullish(),
+        link: z.string().max(400).nullish(),
       })).max(30).optional(),
+      // keys of custom sources on this runtime, per origin: write-only, never returned
+      keys: z.array(z.object({ origin: z.string().max(300), key: z.string().max(2000).nullish(), remove: z.boolean().nullish() })).max(30).optional(),
     }),
   );
   return c.json(await writeSettings(c.get("ctx"), input));

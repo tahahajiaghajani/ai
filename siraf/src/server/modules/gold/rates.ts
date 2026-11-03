@@ -16,6 +16,7 @@ import { uuidv7 } from "@shared/id";
 import { pickPath } from "@shared/json-path";
 import { goldSettings, type CustomSource, type LiveProvider } from "./settings";
 import { tgjuFeedAnswered, tgjuFeedUrls, tgjuRows, tgjuTime } from "../fx/tgju";
+import { SourceKeyError, sourceRequests } from "../fx/source-keys";
 
 export interface RateRow {
   id: string;
@@ -55,6 +56,9 @@ export interface RateMeta {
   carried?: string[];
   /** fields further than the deviation limit from the previous rate (confirmed by the user) */
   deviations?: string[];
+  /** the custom source's own name and link, shown next to its prices (a free plan such as EZRate's asks for it) */
+  source_label?: string;
+  source_link?: string;
 }
 
 const COLS = "id, at, mazaneh, gram18, gram24, ounce_usd, usd, buy_gram18, coins, coins_buy, bubbles, meta, source, note";
@@ -288,17 +292,22 @@ export function checkUrl(raw: string, desktop: boolean): URL {
   return u;
 }
 
-async function getJson(ctx: Ctx, url: string, timeoutMs = 10_000): Promise<unknown> {
+/**
+ * GET a JSON answer. `keyed`: the request carries a key (in `headers` or the URL), so a redirect is followed only within
+ * the same origin — the key never reaches another site.
+ */
+async function getJson(ctx: Ctx, url: string, opts: { headers?: Record<string, string>; keyed?: boolean; timeoutMs?: number } = {}): Promise<unknown> {
   const ac = new AbortController();
-  const timer = setTimeout(() => ac.abort(), timeoutMs);
+  const timer = setTimeout(() => ac.abort(), opts.timeoutMs ?? 10_000);
   const desktop = ctx.cfg.mode === "desktop";
+  const origin = new URL(url).origin;
   try {
     // redirects are followed by hand so that every hop passes the same address check
     let target = url;
     let res: Response | null = null;
     for (let hop = 0; ; hop++) {
       res = await ctx.cfg.fetch(target, {
-        signal: ac.signal, redirect: "manual", headers: { accept: "application/json, text/plain, */*", "user-agent": "Mozilla/5.0 (Siraf accounting)" },
+        signal: ac.signal, redirect: "manual", headers: { accept: "application/json, text/plain, */*", "user-agent": "Mozilla/5.0 (Siraf accounting)", ...(opts.headers ?? {}) },
       });
       if (res.status < 300 || res.status >= 400) break;
       const loc = res.headers.get("location");
@@ -309,6 +318,7 @@ async function getJson(ctx: Ctx, url: string, timeoutMs = 10_000): Promise<unkno
       } catch {
         throw new SourceError("به نشانی غیرمجاز تغییر مسیر داد");
       }
+      if (opts.keyed && next.origin !== origin) throw new SourceError("به نشانی دیگری تغییر مسیر داد؛ کلید فرستاده نشد");
       target = next.toString();
     }
     if (!res.ok) throw new SourceError(`پاسخ ${res.status}`);
@@ -462,8 +472,16 @@ async function fromGoldApi(ctx: Ctx, usdGiven?: Num): Promise<LiveResult> {
 }
 
 async function fromCustom(ctx: Ctx, src: CustomSource): Promise<LiveResult> {
-  const url = checkUrl(src.url, ctx.cfg.mode === "desktop");
-  const data = await getJson(ctx, url.toString());
+  // a source that sends a key is asked only where this runtime has its key (header, or {key} in the URL)
+  let req;
+  try {
+    req = await sourceRequests(ctx, "gold")(src);
+  } catch (e) {
+    if (e instanceof SourceKeyError) throw new SourceError(e.message);
+    throw e;
+  }
+  const url = checkUrl(req.url, ctx.cfg.mode === "desktop");
+  const data = await getJson(ctx, url.toString(), { headers: req.headers, keyed: req.keyed });
   const unit = src.unit ?? "rial";
   const get = (f: string) => (src.paths[f] ? priceOf(pickPath(data, src.paths[f]!)) : null);
   const money = (f: string) => toBase(ctx, get(f), unit);
@@ -478,6 +496,7 @@ async function fromCustom(ctx: Ctx, src: CustomSource): Promise<LiveResult> {
       ounce_usd: get("ounce_usd")?.toString(), usd: money("usd")?.toString(),
       coins: Object.fromEntries(Object.keys(src.paths).filter((k) => RATE_KEY_RE.test(k) && !isMarketField(k)).map((k) => [k, money(k)?.toString()])),
       coins_buy: Object.fromEntries(Object.keys(src.paths).filter((k) => k.startsWith("buy:")).map((k) => [k.slice(4), money(k)?.toString()])),
+      ...(src.label ? { meta: { source_label: src.label, ...(src.link ? { source_link: src.link } : {}) } } : {}),
     },
   };
 }

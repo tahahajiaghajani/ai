@@ -751,3 +751,96 @@ describe("fx: documents of a closed fiscal year stay as they are", () => {
     }
   });
 });
+
+describe("fx: custom sources with a key ({key} in the URL, a header, one answer per key)", () => {
+  const NAV_KEY = "nav-Free3Month-7Q2wX9";
+  const A_KEY = "ezr_live_businessA_0001";
+  const B_KEY = "ezr_live_businessB_0002";
+  const EZ = "https://api.ezrate.me/v1/rates?symbols=usd&quote=IRR";
+  const asked: { url: string; key: string | null }[] = [];
+  async function keyFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+    const url = String(input instanceof Request ? input.url : input);
+    const h = new Headers(init?.headers);
+    const key = h.get("x-api-key") ?? h.get("authorization")?.replace(/^Bearer /, "") ?? null;
+    asked.push({ url, key });
+    if (url.startsWith("https://api.navasan.tech/latest/")) {
+      // Navasan answers in toman, its key in the query
+      return new URL(url).searchParams.get("api_key") === NAV_KEY ? json({ usd_sell: { value: "274500" }, eur: { value: "308160" } }) : json({ error: "bad key" }, 401);
+    }
+    if (url.startsWith("https://api.ezrate.me/")) {
+      // two accounts, two answers: a business must never read the answer fetched with another's key
+      if (key === A_KEY) return json({ data: [{ symbol: "usd", buy: 2_740_000, sell: 2_745_000 }] });
+      if (key === B_KEY) return json({ data: [{ symbol: "usd", buy: 2_700_000, sell: 2_705_000 }] });
+      return json({ error: "invalid API key" }, 401);
+    }
+    return new Response("not stubbed", { status: 404 });
+  }
+  let c: Client;
+  const newOrg = async (name: string) => (await c.post<{ id: string }>("/orgs", { name, business_kind: "exchange", modules: ["fx"], base_currency: "IRR", fiscal_year: 1405 })).id;
+  const usdRow = (url: string, extra: Record<string, unknown> = {}) => ({ code: "USD", url, path: "data[symbol=usd].sell", unit: "base", ...extra });
+
+  beforeAll(async () => {
+    const s = await makeServer({ config: { fetch: keyFetch as typeof fetch, secretSource: "env" } });
+    c = new Client(s.app);
+    await c.post("/auth/signup", { email: "keys@example.com", password: "s3cret-pass", full_name: "صراف" });
+  });
+
+  it("fills {key} in the URL from the key saved on this runtime; the settings keep {key}", async () => {
+    const org = await newOrg("صرافی نوسان");
+    const url = "https://api.navasan.tech/latest/?api_key={key}";
+    const saved = await c.put(`/o/${org}/fx/settings`, {
+      providers: ["custom"],
+      custom: [{ code: "USD", url, path: "usd_sell.value", unit: "base", factor: "10" }, { code: "EUR", url, path: "eur.value", unit: "base", factor: "10" }],
+      keys: [{ origin: "https://api.navasan.tech", key: NAV_KEY }],
+    });
+    expect(saved.keys).toEqual([{ origin: "https://api.navasan.tech", hint: "…2wX9", unreadable: false }]);
+    asked.length = 0;
+    const r = await c.post(`/o/${org}/fx/rates/refresh`, {});
+    expect(r.usd_source).toBe("custom");
+    eq(r.usd_rate, 2_745_000); // 274,500 toman × 10
+    const board = await c.get(`/o/${org}/fx/rates`);
+    eq(board.currencies.find((x: { code: string }) => x.code === "EUR").rate.mid, 3_081_600);
+    expect(asked.map((a) => a.url)).toEqual([`https://api.navasan.tech/latest/?api_key=${NAV_KEY}`]);
+    const read = await c.get(`/o/${org}/fx/settings`);
+    expect(read.settings.custom[0].url).toBe(url);
+    expect(JSON.stringify([saved, r, board, read, await c.get(`/o/${org}`)])).not.toContain(NAV_KEY);
+  });
+
+  it("keeps the answers of businesses with different keys apart: the header and the key are part of the cache key", async () => {
+    const a = await newOrg("صرافی الف");
+    const b = await newOrg("صرافی ب");
+    const none = await newOrg("صرافی بی‌کلید");
+    await c.put(`/o/${a}/fx/settings`, { providers: ["custom"], custom: [usdRow(EZ, { header: "X-API-Key" })], keys: [{ origin: "https://api.ezrate.me", key: A_KEY }] });
+    await c.put(`/o/${b}/fx/settings`, { providers: ["custom"], custom: [usdRow(EZ, { header: "X-API-Key" })], keys: [{ origin: "https://api.ezrate.me", key: B_KEY }] });
+    await c.put(`/o/${none}/fx/settings`, { providers: ["custom"], custom: [usdRow(EZ)] });
+    asked.length = 0;
+    eq((await c.post(`/o/${a}/fx/rates/refresh`, {})).usd_rate, 2_745_000);
+    eq((await c.post(`/o/${b}/fx/rates/refresh`, {})).usd_rate, 2_705_000); // its own account, not A's cached answer
+    const bare = await c.post(`/o/${none}/fx/rates/refresh`, {});
+    expect(bare.usd_rate).toBeNull(); // no key: refused by the service, and A's answer is not lent to it
+    expect(bare.errors.join(" ")).toContain("401");
+    expect(asked).toEqual([{ url: EZ, key: A_KEY }, { url: EZ, key: B_KEY }, { url: EZ, key: null }]);
+    // inside the cache window the same business with the same key is not asked again
+    await c.post(`/o/${a}/fx/rates/refresh`, {});
+    expect(asked).toHaveLength(3);
+  });
+
+  it("sends a key in Authorization exactly as typed («Bearer …»)", async () => {
+    const org = await newOrg("صرافی بیرر");
+    await c.put(`/o/${org}/fx/settings`, { providers: ["custom"], custom: [usdRow(EZ, { header: "Authorization" })], keys: [{ origin: "https://api.ezrate.me", key: `Bearer ${A_KEY}` }] });
+    asked.length = 0;
+    eq((await c.post(`/o/${org}/fx/rates/refresh`, {})).usd_rate, 2_745_000);
+    expect(asked).toEqual([{ url: EZ, key: A_KEY }]);
+  });
+
+  it("does not ask a source whose key this runtime lacks, and keeps no key for an address no source uses", async () => {
+    const org = await newOrg("صرافی بی‌کلید ۲");
+    const lone = await c.put(`/o/${org}/fx/settings`, { keys: [{ origin: "https://api.ezrate.me", key: A_KEY }] }, 400);
+    expect(lone.error.message).toContain("api.ezrate.me");
+    await c.put(`/o/${org}/fx/settings`, { providers: ["custom"], custom: [usdRow("https://api.navasan.tech/latest/?api_key={key}", { path: "usd_sell.value", factor: "10" })] });
+    asked.length = 0;
+    const r = await c.post(`/o/${org}/fx/rates/refresh`, {});
+    expect(r.errors.join(" ")).toContain("کلید api.navasan.tech در نسخهٔ وب ذخیره نشده است");
+    expect(asked).toEqual([]);
+  });
+});

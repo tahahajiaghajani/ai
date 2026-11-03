@@ -189,6 +189,10 @@ export default function Help() {
               <li>نسخهٔ وب و نسخهٔ ویندوز هر کدام با اینترنت خودشان قیمت می‌گیرند. tgju دو نشانی دارد، یکی در ایران و یکی بیرون، و هر نسخه آن را که در دسترس است می‌خواند. نرخ‌های ذخیره‌شده میان دو نسخه هم‌گام می‌شوند.</li>
               <li>
                 «منبع سفارشی» هر نشانی JSON را می‌پذیرد. مسیر قیمت مثل <bdi dir="ltr" className="sf-mono">data.price</bdi>، <bdi dir="ltr" className="sf-mono">items[0].sell</bdi> یا <bdi dir="ltr" className="sf-mono">items[symbol=USD].sell</bdi> است.
+                کلید سرویس در سرآیندی مثل <bdi dir="ltr" className="sf-mono">X-API-Key</bdi> یا به جای <bdi dir="ltr" className="sf-mono">{"{key}"}</bdi> در نشانی فرستاده می‌شود. کلید فقط در همان نسخه (وب یا ویندوز)، رمزگذاری‌شده، می‌ماند و فقط به همان نشانی می‌رود.
+              </li>
+              <li>
+                EZRate قیمت طلا، سکه و ارز را با طرح رایگانِ دارای مجوز می‌دهد (۵۰ درخواست در روز): نشانی <bdi dir="ltr" className="sf-mono">https://api.ezrate.me/v1/rates?symbols=usd,g18,emami&amp;quote=IRR</bdi> با واحد ریال، سرآیند <bdi dir="ltr" className="sf-mono">X-API-Key</bdi> و مسیرهایی مثل <bdi dir="ltr" className="sf-mono">data[symbol=g18].sell</bdi>. طرح رایگانش می‌خواهد نامش کنار قیمت‌ها بیاید؛ «نام منبع» را EZRate بگذارید.
               </li>
               <li>tgju غیررسمی است و شرایط سایتش استفاده از قیمت‌ها را بی‌اجازهٔ کتبی مجاز نمی‌داند. اگر هیچ منبعی پاسخ نداد، قیمت را دستی ثبت کنید.</li>
             </ul>

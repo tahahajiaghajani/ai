@@ -4,8 +4,10 @@
 // tgju (the Tehran free market's dollar and currencies, from either of its two copies) and Nobitex (only
 // reachable from Iran) answer in rial; custom sources can answer in either.
 import { D } from "@shared/money";
+import { needsKey } from "@shared/price-source";
 import type { CurrencyKind, CustomSource } from "./common";
 import { fetchJson, NetError, pickPath, safeExternalUrl, type Fetch } from "./net";
+import type { SourceRequest } from "./source-keys";
 import { TGJU_FX_MAX_AGE_MS, tgjuFeedAnswered, tgjuFeedUrls, tgjuPrice, tgjuRows, tgjuTime } from "./tgju";
 
 export interface MarketQuote {
@@ -195,13 +197,20 @@ export function goldApiPrice(f: Fetch, symbol: string): Promise<string> {
   });
 }
 
-/** Value of one custom source (any HTTPS JSON API with a dotted path to the number). */
-export function customValue(f: Fetch, src: CustomSource): Promise<string> {
-  return cached(f, `custom:${src.url}`, async () => {
-    const problem = safeExternalUrl(src.url);
+/**
+ * Value of one custom source (any HTTPS JSON API with a path to the number). A source that sends a key is asked with
+ * `req` from source-keys.ts (the key in its header or in place of {key}); without one it is not asked at all. Rows on
+ * one URL share one answer only when they send the same header with the same key: the cache key holds the header name
+ * and a fingerprint of the key, so a business never reads an answer fetched with another business's key.
+ */
+export function customValue(f: Fetch, src: CustomSource, req?: SourceRequest): Promise<string> {
+  if (!req && needsKey(src)) return Promise.reject(new NetError(`منبع سفارشی ${src.code}: کلید این منبع خوانده نشد`));
+  const r = req ?? { url: src.url, headers: {}, cacheKey: src.url, keyed: false };
+  return cached(f, `custom:${r.cacheKey}`, async () => {
+    const problem = safeExternalUrl(r.url);
     if (problem) throw new NetError(`منبع سفارشی ${src.code}: ${problem}`);
-    // never follow a redirect: it could lead past the check above to an internal address
-    const { json } = await fetchJson(f, src.url, `منبع سفارشی ${src.code}`, { redirect: "manual" });
+    // never follow a redirect: it could lead past the check above to an internal address, or take the key elsewhere
+    const { json } = await fetchJson(f, r.url, `منبع سفارشی ${src.code}`, { redirect: "manual", headers: r.headers });
     return JSON.stringify(json);
   }).then((text) => {
     const v = pickPath(JSON.parse(text), src.path);

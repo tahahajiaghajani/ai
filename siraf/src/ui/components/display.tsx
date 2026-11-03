@@ -113,6 +113,20 @@ export function Fa({ children }: { children: ReactNode }) {
   return <>{typeof children === "string" || typeof children === "number" ? faDigits(children) : children}</>;
 }
 
+/**
+ * A custom price source named next to its prices («منبع: EZRate», the name linked to its site): free plans such as
+ * EZRate's ask for it. `bare` leaves out «منبع:» where a column already says it.
+ */
+export function SourceCredit({ label, link, bare, className }: { label: string; link?: string | null; bare?: boolean; className?: string }) {
+  const name = link ? <a href={link} target="_blank" rel="noreferrer" className="sf-link">{label}</a> : label;
+  return (
+    <span className={`whitespace-nowrap ${className ?? ""}`}>
+      {bare ? null : "منبع: "}
+      <bdi>{name}</bdi>
+    </span>
+  );
+}
+
 // ---------------------------------------------------------------- status
 
 /** Chip tones (components.md §4.3): tint fill + coloured text + a 5 px nuqta. Info (blue) is retired. */

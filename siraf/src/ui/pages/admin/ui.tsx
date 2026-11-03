@@ -34,6 +34,7 @@ export const EVENT_KIND: Record<string, string> = {
   support_end: "پایان حالت پشتیبانی",
   org_status: "وضعیت کسب‌وکار",
   ai_key: "کلید هوش مصنوعی",
+  price_key: "کلید منبع قیمت",
 };
 
 const REASON: Record<string, string> = {
@@ -67,14 +68,19 @@ export function eventDetail(e: SecurityEvent): string {
   const d = e.data ?? {};
   const parts: string[] = [];
   const reason = d.reason && REASON[d.reason] ? REASON[d.reason] : typeof d.reason === "string" ? `دلیل: ${d.reason}` : null;
-  if (reason && e.kind !== "ai_key") parts.push(reason);
+  if (reason && e.kind !== "ai_key" && e.kind !== "price_key") parts.push(reason);
   if (e.kind === "platform_admin") parts.push(d.granted ? "داده شد" : "گرفته شد");
   if (e.kind === "support_start" && d.level) parts.push(d.level === "edit" ? "مشاهده و اصلاح" : "فقط مشاهده");
   if (e.kind === "org_status" && d.to) parts.push(ORG_STATUS[d.to as OrgStatus]?.[0] ?? d.to);
   if (e.kind === "member_changed" && d.changes?.role) parts.push(`نقش: ${d.changes.role.join(" ← ")}`);
   if (e.kind === "member_changed" && d.changes?.overrides) parts.push("دسترسی ویژه");
   if (e.kind === "member_changed" && d.changes?.is_active) parts.push(d.changes.is_active[1] ? "فعال شد" : "غیرفعال شد");
-  if (e.kind === "ai_key") {
+  if (e.kind === "price_key") {
+    if (d.board_title) parts.push(d.board_title);
+    if (typeof d.origin === "string") parts.push(d.origin.replace(/^https?:\/\//, ""));
+    if (d.runtime) parts.push(d.runtime === "desktop" ? "نسخهٔ ویندوز" : "نسخهٔ وب");
+  }
+  if (e.kind === "ai_key" || e.kind === "price_key") {
     if (d.label) parts.push(`«${d.label}»`);
     if (d.action && KEY_ACTION[d.action]) parts.push(KEY_ACTION[d.action]);
     if (typeof d.key_hint === "string") parts.push(d.key_hint);

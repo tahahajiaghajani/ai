@@ -3,9 +3,9 @@
 // manual entry (mazaneh ↔ gram18 linked, a confirmation for prices far from the last ones), a
 // counter calculator (jewellery, used gold, آب‌شده, coins and bars) and the price history.
 import { useMemo, useState, type ReactNode } from "react";
-import { Button, Drawer, Form, Input, Modal, Select, Segmented, Switch, Table, Tooltip, Popconfirm, Alert } from "antd";
+import { Button, Checkbox, Drawer, Form, Input, Modal, Select, Segmented, Switch, Table, Tooltip, Popconfirm, Alert } from "antd";
 import { CloudDownload, Coins, Plus, Settings, Trash2, Calculator as CalcIcon, Clock } from "lucide-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useOrg } from "../../lib/org";
 import { useAction, useNotify } from "../../lib/hooks";
 import { PageHeader, Section } from "../../components/layout";
@@ -18,7 +18,8 @@ import { formatNumber, faDigits } from "@shared/format";
 import { gram18FromMazaneh, mazanehFromGram18, priceJewelry, priceOldGold, priceBullion, weightForBudget, type WageType } from "@shared/gold";
 import { variantChips } from "@shared/gold-catalogue";
 import { productQuote } from "@shared/gold-quote";
-import { RateChange, RateStamp, SplitButton, stepOf, quoteEnvOf, useCatalogue, useGoldSettings, useLatestRate, wageTypeOptions, coinTitle, type Rate, type GoldSettings, type CatalogueRow } from "./shared";
+import { needsKey, sourceOrigin } from "@shared/price-source";
+import { RateChange, RateSource, RateStamp, SplitButton, stepOf, quoteEnvOf, useCatalogue, useGoldSettings, useLatestRate, wageTypeOptions, coinTitle, type Rate, type GoldSettings, type CatalogueRow } from "./shared";
 import { BubbleCell } from "./Coins";
 import { ApiError } from "../../lib/api";
 const SOURCES: Record<string, string> = { manual: "دستی", tgju: "tgju", goldapi: "انس جهانی", custom: "منبع دلخواه" };
@@ -57,7 +58,7 @@ export default function RateBoard() {
   // null = the source chosen in «منبع پیش‌فرض» (the server reads it); the menu forces one source
   const fetchLive = useAction((provider: string | null) => api.post("/gold/rates/fetch", { provider }), {
     onSuccess: (d: any) => {
-      n.ok(`قیمت زنده از «${SOURCES[d.rate.source] ?? d.rate.source}» ثبت شد`);
+      n.ok(`قیمت زنده از «${d.rate.meta?.source_label ?? SOURCES[d.rate.source] ?? d.rate.source}» ثبت شد`);
       for (const w of d.warnings ?? []) n.info(w);
       invalidate();
     },
@@ -155,7 +156,7 @@ export default function RateBoard() {
                 { title: coinTitle(k, names), value: (x: Rate) => x.coins?.[k] ?? null, type: "number" as const },
                 { title: `خرید ${coinTitle(k, names)}`, value: (x: Rate) => x.coins_buy?.[k] ?? null, type: "number" as const },
               ]),
-              { title: "منبع", value: (x) => SOURCES[x.source] ?? x.source },
+              { title: "منبع", value: (x) => (x.source === "custom" && x.meta?.source_label) || SOURCES[x.source] || x.source },
             ]}
             columns={[
               { key: "at", dataIndex: "at", title: "زمان", width: 140, render: (v) => <JDateTime v={v} /> },
@@ -164,7 +165,7 @@ export default function RateBoard() {
               { key: "emami", title: "سکه‌ی امامی", className: "sf-num", width: 140, render: (_, x) => <Money v={x.coins?.emami ?? 0} zero="—" /> },
               { key: "bubble", title: "حباب امامی", className: "sf-num", width: 96, render: (_, x) => (x.bubbles?.emami?.domestic ? <span className="sf-num">{formatNumber(x.bubbles.emami.domestic, { dp: 2 })}٪</span> : <span className="sf-zero">—</span>) },
               { key: "ounce", dataIndex: "ounce_usd", title: "انس (دلار)", className: "sf-num", width: 88, render: (v) => (v ? <bdi dir="ltr" className="sf-latin">{formatNumber(v, { dp: 2, minDp: 2, fa: false })}</bdi> : <span className="sf-zero">—</span>) },
-              { key: "src", dataIndex: "source", title: "منبع", render: (v) => <span className="text-ink-3">{SOURCES[v] ?? v}</span> },
+              { key: "src", dataIndex: "source", title: "منبع", render: (_, x) => <span className="text-ink-3"><RateSource rate={x} bare /></span> },
               ...(can("gold", "full")
                 ? [{
                     key: "del", width: 44, render: (_: unknown, x: Rate) => (
@@ -455,14 +456,30 @@ function PriceSettings({ open, onClose, settings }: { open: boolean; onClose: ()
   const { api, orgId } = useOrg();
   const qc = useQueryClient();
   const [form] = Form.useForm();
+  // the custom source's key on this runtime: where it goes and «…abcd», never the key itself
+  const keyInfo = useQuery({
+    queryKey: ["gold-price-key", orgId],
+    queryFn: () => api.get<{ price_key: { origin: string; hint: string | null; unreadable: boolean } | null; runtime: "cloud" | "desktop" }>("/gold/settings"),
+    enabled: open,
+  });
   const save = useAction((v: any) => api.put("/gold/settings", v), {
     success: "تنظیمات ذخیره شد",
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["gold-settings"] });
+      qc.invalidateQueries({ queryKey: ["gold-price-key", orgId] });
       qc.invalidateQueries({ queryKey: ["org", orgId] });
       onClose();
     },
   });
+  const url: string | undefined = Form.useWatch(["price_source", "url"], form);
+  const header: string | undefined = Form.useWatch(["price_source", "header"], form);
+  const runtime = keyInfo.data?.runtime === "desktop" ? "نسخهٔ ویندوز" : "نسخهٔ وب";
+  const savedKey = keyInfo.data?.price_key ?? null;
+  const stored = savedKey && savedKey.origin === sourceOrigin(url) ? savedKey : null;
+  const keyNote = stored
+    ? stored.unreadable ? "کلید ذخیره‌شده باز نمی‌شود؛ دوباره وارد کنید" : <>ذخیره‌شده در {runtime}: <bdi dir="ltr" className="sf-latin">{stored.hint ?? "…"}</bdi></>
+    : savedKey ? "کلید قبلی برای نشانی دیگری است و با ذخیره حذف می‌شود"
+    : needsKey({ url, header }) ? `در ${runtime} کلیدی ذخیره نشده است` : `فقط در ${runtime} نگه داشته می‌شود`;
   const catalogue = useCatalogue("coin");
   const board = (catalogue.data?.rows ?? []).filter((p) => p.is_active && p.rate_key && p.gold_meta.pricing_mode === "board");
   const PATHS: [string, string][] = [
@@ -475,7 +492,7 @@ function PriceSettings({ open, onClose, settings }: { open: boolean; onClose: ()
         form={form}
         layout="vertical"
         initialValues={{ ...settings, price_source: settings.price_source ?? { url: "", unit: "rial", paths: {} } }}
-        onFinish={(v) => save.mutate({ ...v, bars: { ...settings.bars, ...v.bars }, price_source: v.price_source?.url ? v.price_source : null })}
+        onFinish={(v) => save.mutate({ ...v, bars: { ...settings.bars, ...v.bars }, price_source: v.price_source?.url ? { ...v.price_source, key: v.price_source.key?.trim() || null } : null })}
       >
         <div className="mb-2 text-xs font-semibold text-ink-3">محاسبه‌ی قیمت</div>
         <div className="grid grid-cols-2 gap-x-3">
@@ -507,12 +524,27 @@ function PriceSettings({ open, onClose, settings }: { open: boolean; onClose: ()
         <Form.Item name="usd" label="دلار بازار آزاد برای محاسبه از انس" extra="اگر نرخ دلار در ماژول صرافی ثبت شده باشد همان استفاده می‌شود"><MoneyInput /></Form.Item>
         <div className="bg-sunken rounded-lg p-3">
           <div className="mb-2 text-xs font-semibold">منبع دلخواه (JSON)</div>
-          <Form.Item name={["price_source", "url"]} label="نشانی (https)"><Input dir="ltr" placeholder="https://example.com/prices.json" /></Form.Item>
+          <Form.Item name={["price_source", "url"]} label="نشانی (https)" extra={<>کلیدی که در نشانی می‌آید: به جای آن <span className="sf-ltr">{"{key}"}</span></>}><Input dir="ltr" className="sf-code" placeholder="https://example.com/prices.json" /></Form.Item>
           <Form.Item name={["price_source", "unit"]} label="واحد قیمت‌ها"><Select options={[{ value: "rial", label: "ریال" }, { value: "toman", label: "تومان" }]} /></Form.Item>
+          <div className="grid grid-cols-2 gap-x-3">
+            <Form.Item name={["price_source", "header"]} label="سرآیند کلید"><Input dir="ltr" className="sf-code" placeholder="X-API-Key" /></Form.Item>
+            <Form.Item name={["price_source", "key"]} label="کلید API" extra={keyNote}>
+              <Input.Password dir="ltr" className="sf-code" autoComplete="new-password" spellCheck={false} placeholder={stored && !stored.unreadable ? stored.hint ?? "" : ""} />
+            </Form.Item>
+          </div>
+          {stored ? (
+            <Form.Item name={["price_source", "remove_key"]} valuePropName="checked" className="!-mt-2 !mb-2">
+              <Checkbox>حذف کلید ذخیره‌شده</Checkbox>
+            </Form.Item>
+          ) : null}
+          <div className="grid grid-cols-2 gap-x-3">
+            <Form.Item name={["price_source", "label"]} label="نام منبع کنار قیمت‌ها"><Input placeholder="EZRate" /></Form.Item>
+            <Form.Item name={["price_source", "link"]} label="پیوند نام منبع"><Input dir="ltr" className="sf-code" placeholder="https://ezrate.me" /></Form.Item>
+          </div>
           <div className="sf-field-l mb-1.5">مسیر هر قیمت در پاسخ، مثل <span className="sf-ltr">data.gold.g18</span>، <span className="sf-ltr">items[0].price</span> یا <span className="sf-ltr">items[symbol=IR_GOLD_18K].price</span></div>
           <div className="grid grid-cols-2 gap-x-3">
             {PATHS.map(([k, label]) => (
-              <Form.Item key={k} name={["price_source", "paths", k]} label={label} className="!mb-2"><Input dir="ltr" size="small" /></Form.Item>
+              <Form.Item key={k} name={["price_source", "paths", k]} label={label} className="!mb-2"><Input dir="ltr" size="small" className="sf-code" /></Form.Item>
             ))}
           </div>
         </div>
