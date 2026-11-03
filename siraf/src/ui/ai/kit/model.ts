@@ -114,11 +114,22 @@ export function cleanChain(chain: ChainLink[], connectionIds: Set<string>): Chai
 
 /** The chain the engine uses when a job has none: the first enabled connection's model of the job's tier. */
 export function defaultLink(job: AiJob, connections: AiConnectionPublic[]): ChainLink | null {
+  return autoChain(job, connections)[0] ?? null;
+}
+
+/**
+ * What «خودکار» runs (as the server's chainFor does): every enabled connection by «اولویت», each with every model
+ * of the job's tier in order, so a free plan's next model answers when the first one's daily quota runs out.
+ */
+export function autoChain(job: AiJob, connections: AiConnectionPublic[]): ChainLink[] {
   const tier = JOB_LABEL[job].tier;
-  const c = connections.filter((x) => x.enabled).sort((a, b) => a.priority - b.priority)[0];
-  if (!c) return null;
-  const model = c.models[tier][0] ?? c.models.smart[0];
-  return model ? { connection_id: c.id, model } : null;
+  return connections
+    .filter((x) => x.enabled)
+    .sort((a, b) => a.priority - b.priority)
+    .flatMap((c) => {
+      const models = c.models[tier].length ? c.models[tier] : c.models.smart;
+      return [...new Set(models.filter(Boolean))].map((model) => ({ connection_id: c.id, model }));
+    });
 }
 
 /** Model suggestions for a connection and a tier: its chosen models first, then the provider's list, no repeats. */

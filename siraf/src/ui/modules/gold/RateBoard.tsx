@@ -54,7 +54,8 @@ export default function RateBoard() {
     qc.invalidateQueries({ queryKey: ["gold-rates"] });
     qc.invalidateQueries({ queryKey: ["gold-summary"] });
   };
-  const fetchLive = useAction((provider: string) => api.post("/gold/rates/fetch", { provider }), {
+  // null = the source chosen in «منبع پیش‌فرض» (the server reads it); the menu forces one source
+  const fetchLive = useAction((provider: string | null) => api.post("/gold/rates/fetch", { provider }), {
     onSuccess: (d: any) => {
       n.ok(`قیمت زنده از «${SOURCES[d.rate.source] ?? d.rate.source}» ثبت شد`);
       for (const w of d.warnings ?? []) n.info(w);
@@ -83,7 +84,7 @@ export default function RateBoard() {
               <SplitButton
                 icon={<Ic icon={CloudDownload} />}
                 loading={fetchLive.isPending}
-                onClick={() => fetchLive.mutate("auto")}
+                onClick={() => fetchLive.mutate(null)}
                 items={[
                   { key: "tgju", label: "tgju.org، بازار داخلی", onClick: () => fetchLive.mutate("tgju") },
                   { key: "goldapi", label: "انس جهانی × دلار بازار آزاد", onClick: () => fetchLive.mutate("goldapi") },
@@ -508,7 +509,7 @@ function PriceSettings({ open, onClose, settings }: { open: boolean; onClose: ()
           <div className="mb-2 text-xs font-semibold">منبع دلخواه (JSON)</div>
           <Form.Item name={["price_source", "url"]} label="نشانی (https)"><Input dir="ltr" placeholder="https://example.com/prices.json" /></Form.Item>
           <Form.Item name={["price_source", "unit"]} label="واحد قیمت‌ها"><Select options={[{ value: "rial", label: "ریال" }, { value: "toman", label: "تومان" }]} /></Form.Item>
-          <div className="sf-field-l mb-1.5">مسیر هر قیمت در پاسخ، مثل <span className="sf-ltr">data.gold.g18</span> یا <span className="sf-ltr">items[0].price</span></div>
+          <div className="sf-field-l mb-1.5">مسیر هر قیمت در پاسخ، مثل <span className="sf-ltr">data.gold.g18</span>، <span className="sf-ltr">items[0].price</span> یا <span className="sf-ltr">items[symbol=IR_GOLD_18K].price</span></div>
           <div className="grid grid-cols-2 gap-x-3">
             {PATHS.map(([k, label]) => (
               <Form.Item key={k} name={["price_source", "paths", k]} label={label} className="!mb-2"><Input dir="ltr" size="small" /></Form.Item>

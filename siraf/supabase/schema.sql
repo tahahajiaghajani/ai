@@ -1933,3 +1933,10 @@ drop index if exists tz_items_rate_key_idx;
 create unique index if not exists tz_items_rate_key_uk on tz_items (org_id, rate_key) where rate_key is not null and deleted_at is null;
 
 insert into tz_migrations (id) values ('0017_rate_key_unique') on conflict (id) do nothing;
+
+-- ---------------------------------------------------------------------------
+-- 0018_ai_free_tier — هوش مصنوعی: طرح رایگان اتصال‌ها
+-- ---------------------------------------------------------------------------
+alter table tz_ai_connections add column if not exists free_tier boolean not null default false;
+
+insert into tz_migrations (id) values ('0018_ai_free_tier') on conflict (id) do nothing;

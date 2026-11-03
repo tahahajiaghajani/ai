@@ -18,7 +18,8 @@ import { fa } from "../../lib/fa";
 import { ConfidenceChip } from "../kit/AiMark";
 import { LINE_FIELDS, captureRows, confidenceLevel, errorKindOf, failText, lineConfidence } from "../kit/model";
 import { useAiStatus } from "../kit/hooks";
-import { captureOf, prepareFile, type PreparedFile } from "./file";
+import { CAPTURE_MAX_BYTES, CAPTURE_WEB_MAX_BYTES, captureOf, prepareFile, type PreparedFile } from "./file";
+import { useSession } from "../../lib/session";
 
 export interface AiCaptureButtonProps {
   /** what is being read: a purchase invoice, a national ID card, a cheque or a receipt */
@@ -81,6 +82,9 @@ type Phase = { k: "pick" } | { k: "ready"; file: PreparedFile } | { k: "reading"
 
 function CaptureModal({ kind, onClose, onUse }: { kind: AiCaptureResult["kind"]; onClose: () => void; onUse: (r: AiCaptureResult) => void }) {
   const { api, can, orgId } = useOrg();
+  const { meta } = useSession();
+  // the Windows app's own server takes larger files than Vercel does
+  const maxBytes = meta?.mode === "desktop" ? CAPTURE_MAX_BYTES : CAPTURE_WEB_MAX_BYTES;
   const nav = useNavigate();
   const [phase, setPhase] = useState<Phase>({ k: "pick" });
   const [drag, setDrag] = useState(false);
@@ -102,7 +106,7 @@ function CaptureModal({ kind, onClose, onUse }: { kind: AiCaptureResult["kind"];
     if (!f) return;
     setProblem(null);
     try {
-      const p = await prepareFile(f);
+      const p = await prepareFile(f, maxBytes);
       if (alive.current) setPhase({ k: "ready", file: p });
     } catch (e) {
       setProblem((e as Error).message);

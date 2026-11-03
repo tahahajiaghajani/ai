@@ -3,6 +3,8 @@
 import type { AiCaptureResult } from "@shared/ai/types";
 
 export const CAPTURE_MAX_BYTES = 10 * 1024 * 1024;
+/** The web version: Vercel refuses a request over 4.5 MB, and base64 makes a file a third larger. */
+export const CAPTURE_WEB_MAX_BYTES = 3 * 1024 * 1024;
 const MAX_SIDE = 2000;
 const SHRINK_OVER = 1.5 * 1024 * 1024;
 export const CAPTURE_MIMES = ["image/png", "image/jpeg", "image/webp", "application/pdf"];
@@ -32,12 +34,16 @@ function toBase64(buf: ArrayBuffer): string {
 }
 
 /** Whether a file can be sent at all: the Persian reason when it cannot. */
-export function fileProblem(f: { type: string; size: number }): string | null {
+export function fileProblem(f: { type: string; size: number }, max = CAPTURE_MAX_BYTES): string | null {
   const mime = f.type === "image/jpg" ? "image/jpeg" : f.type;
   if (!CAPTURE_MIMES.includes(mime)) return "فقط تصویر JPG، PNG، WebP یا فایل PDF پذیرفته می‌شود.";
-  if (f.size > CAPTURE_MAX_BYTES) return `حجم فایل ${mb(f.size)} است؛ حداکثر ۱۰ مگابایت.`;
+  // a photo is shrunk before sending; a PDF goes as it is
+  if (f.size > (mime === "application/pdf" ? max : CAPTURE_MAX_BYTES)) return tooBig(f.size, max);
   return null;
 }
+
+const tooBig = (size: number, max: number) =>
+  `حجم فایل ${mb(size)} است؛ حداکثر ${new Intl.NumberFormat("fa-IR").format(Math.round(max / 1024 / 1024))} مگابایت${max < CAPTURE_MAX_BYTES ? " در نسخهٔ وب" : ""}.`;
 
 /** The size a photo is scaled to (long side at most `max`), or null when it is small enough already. */
 export function shrinkSize(w: number, h: number, max = MAX_SIDE): { w: number; h: number } | null {
@@ -65,13 +71,15 @@ async function shrink(f: File): Promise<{ blob: Blob; w: number; h: number } | n
   return blob ? { blob, ...size } : null;
 }
 
-export async function prepareFile(f: File): Promise<PreparedFile> {
-  const problem = fileProblem(f);
+/** `max`: the largest file the server takes here (CAPTURE_WEB_MAX_BYTES on the web version). */
+export async function prepareFile(f: File, max = CAPTURE_MAX_BYTES): Promise<PreparedFile> {
+  const problem = fileProblem(f, max);
   if (problem) throw new Error(problem);
   const pdf = f.type === "application/pdf";
   if (pdf) return { name: f.name, mime: f.type, data: toBase64(await f.arrayBuffer()), url: null, pdf, note: `PDF، ${mb(f.size)}` };
   const s = await shrink(f);
   const blob = s?.blob ?? f;
+  if (blob.size > max) throw new Error(tooBig(blob.size, max));
   const mime = blob === f ? (f.type === "image/jpg" ? "image/jpeg" : f.type) : "image/jpeg";
   const dims = s ? `${new Intl.NumberFormat("fa-IR").format(s.w)}×${new Intl.NumberFormat("fa-IR").format(s.h)}` : "";
   return { name: f.name || "تصویر", mime, data: toBase64(await blob.arrayBuffer()), url: URL.createObjectURL(blob), pdf, note: [mb(blob.size), dims].filter(Boolean).join("، ") };

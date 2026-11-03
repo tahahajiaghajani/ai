@@ -87,7 +87,8 @@ export function FeaturesTab({ settings, mode, linked: linkedView }: { settings: 
               <Radio key={p} value={p}>
                 <span className="ai-policy-t">
                   {POLICY_LABEL[p].title}
-                  {p === "masked" ? <span className="bk-cap" style={{ marginInlineStart: 8 }}>پیشنهادی</span> : null}
+                  {/* a real space: without it «…شخصی» and «پیشنهادی» are shaped as one word (the margin alone does not separate them) */}
+                  {p === "masked" ? <>{" "}<span className="bk-cap" style={{ marginInlineStart: 4 }}>پیشنهادی</span></> : null}
                 </span>
                 <span className="ai-policy-d">{POLICY_LABEL[p].about}</span>
               </Radio>

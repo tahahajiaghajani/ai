@@ -14,6 +14,7 @@ import {
   confidenceLevel,
   connectionTone,
   dayOf,
+  autoChain,
   defaultLink,
   errorKindOf,
   explainOf,
@@ -46,6 +47,7 @@ const conn = (o: Partial<AiConnectionPublic> = {}): AiConnectionPublic => ({
   paused_until: null,
   enabled: true,
   priority: 1,
+  free_tier: false,
   updated_at: "2026-11-02T00:00:00Z",
   ...o,
 });
@@ -93,6 +95,18 @@ describe("connections and chains", () => {
     // no fast model: the smart one serves
     expect(defaultLink("fast", list)).toEqual({ connection_id: "c1", model: "s" });
     expect(defaultLink("assistant", [conn({ enabled: false })])).toBeNull();
+    // «خودکار» runs every model of the tier in order, connection by connection (free quotas are per model)
+    const free = conn({ id: "g", priority: 1, models: { smart: ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-3.8-flash"], fast: ["gemini-3.5-flash-lite"], vision: [] } });
+    const paid = conn({ id: "p", priority: 2, models: { smart: ["claude-opus-5-5"], fast: [], vision: [] } });
+    expect(autoChain("assistant", [paid, free])).toEqual([
+      { connection_id: "g", model: "gemini-3.8-flash" },
+      { connection_id: "g", model: "gemini-3.6-flash" },
+      { connection_id: "p", model: "claude-opus-5-5" },
+    ]);
+    expect(autoChain("vision", [free])).toEqual([
+      { connection_id: "g", model: "gemini-3.8-flash" },
+      { connection_id: "g", model: "gemini-3.6-flash" },
+    ]);
     expect(modelOptions(conn({ available_models: ["claude-opus-5-5", "claude-sonnet-5-5"] }), "fast")).toEqual(["claude-haiku-5-5", "claude-opus-5-5", "claude-sonnet-5-5"]);
   });
 
@@ -221,6 +235,9 @@ describe("capture", () => {
     expect(fileProblem({ type: "application/pdf", size: 1000 })).toBeNull();
     expect(fileProblem({ type: "image/gif", size: 1000 })).toMatch(/فقط/);
     expect(fileProblem({ type: "image/png", size: 11 * 1024 * 1024 })).toMatch(/حداکثر/);
+    // the web version: a PDF goes as it is and must fit Vercel's request limit; a photo is shrunk first
+    expect(fileProblem({ type: "application/pdf", size: 4 * 1024 * 1024 }, 3 * 1024 * 1024)).toMatch(/حداکثر ۳ مگابایت در نسخهٔ وب/);
+    expect(fileProblem({ type: "image/jpeg", size: 6 * 1024 * 1024 }, 3 * 1024 * 1024)).toBeNull();
     expect(shrinkSize(1600, 1200)).toBeNull();
     expect(shrinkSize(4000, 3000)).toEqual({ w: 2000, h: 1500 });
     expect(shrinkSize(3000, 6000)).toEqual({ w: 1000, h: 2000 });

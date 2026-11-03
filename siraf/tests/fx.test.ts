@@ -30,7 +30,7 @@ async function stubFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
   if (url.startsWith("https://api.coingecko.com/")) return json({}, 429);
   if (url.startsWith("https://open.er-api.com/")) return json({ result: "success", rates: { USD: 1, EUR: 0.8, AED: 3.6725, IRR: 42000 } });
   if (url.startsWith("https://api.gold-api.com/")) return json({ price: 3900, symbol: "XAU" });
-  if (url.startsWith("https://api.nobitex.ir/")) return new Response("blocked", { status: 502 });
+  if (url.startsWith("https://apiv2.nobitex.ir/")) return new Response("blocked", { status: 502 });
   if (url === `https://api.trongrid.io/v1/accounts/${TRON_ADDR}`) {
     return json({ success: true, data: [{ address: "41...", balance: 143000652, trc20: [{ TVoLHooTu9uthsczLDpkBhz5ES8ueoqX11: "99" }, { [USDT_TRC20]: "556601745" }] }] });
   }
@@ -489,7 +489,7 @@ describe("fx: market rates for a toman business (Nobitex, custom source, refresh
   async function iranFetch(input: RequestInfo | URL): Promise<Response> {
     const url = String(input instanceof Request ? input.url : input);
     urls.push(url);
-    if (url.startsWith("https://api.nobitex.ir/market/stats")) {
+    if (url.startsWith("https://apiv2.nobitex.ir/market/stats")) {
       expect(url).toContain("dstCurrency=rls");
       return json({ status: "ok", stats: {
         "btc-rls": { isClosed: false, latest: "82000000000", bestBuy: "81900000000", bestSell: "82100000000", dayChange: "1.5" },
@@ -536,11 +536,11 @@ describe("fx: market rates for a toman business (Nobitex, custom source, refresh
     expect(rate("USD").source).toBe("custom");
     eq(rate("ETH").mid, 210_000_000); // KuCoin 2000 USD × 105,000 (not on the Nobitex stub)
     eq(rate("EUR").mid, 131_250); // 1 / 0.8 × 105,000
-    expect(urls.filter((u) => u.startsWith("https://api.nobitex.ir/")).length).toBe(1);
+    expect(urls.filter((u) => u.startsWith("https://apiv2.nobitex.ir/")).length).toBe(1);
     // a second refresh inside 45 s uses the cache and finds nothing new
     const again = await c2.post(`/o/${org2}/fx/rates/refresh`, {});
     expect(again.updated).toBe(0);
-    expect(urls.filter((u) => u.startsWith("https://api.nobitex.ir/")).length).toBe(1);
+    expect(urls.filter((u) => u.startsWith("https://apiv2.nobitex.ir/")).length).toBe(1);
     // the custom URL (which may carry a key) is hidden from the public board settings
     expect(JSON.stringify(board.settings)).not.toContain("secret");
   });

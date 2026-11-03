@@ -7,7 +7,8 @@ import { bad, notFound } from "../../http/errors";
 import { D, isNumeric } from "@shared/money";
 import { uuidv7, isUuid } from "@shared/id";
 import { currencyBook, fxSettings, latestRates, orgTz, rateMid, type CurrencyBook, type FxSettings, type StoredRate } from "./common";
-import { customValue, marketQuotes, nobitexStats, openErRates } from "./providers";
+import { customValue, freshTgju, marketQuotes, nobitexStats, openErRates, tgjuPrices } from "./providers";
+import { tgjuKeyOf } from "./tgju";
 import { NetError, type Fetch } from "./net";
 
 const RIAL = new Set(["IRR", "IRT"]);
@@ -22,15 +23,22 @@ export function roundRate(x: Decimal, baseDp: number): string {
 const errText = (e: unknown, label: string) => (e instanceof NetError ? e.message : `${label}: ${(e as Error)?.message ?? "خطا"}`);
 
 /**
- * Base-currency price of one US dollar. Order: a custom USD source, the manual board rate,
- * official rates (bases other than rial/toman), any stored USD rate, and — rial bases only —
- * Nobitex's tether price as a stand-in.
+ * Base-currency price of one US dollar. Order: a custom USD source, tgju's free-market dollar (rial and
+ * toman bases), the manual board rate, official rates (other bases), any stored USD rate, and — rial
+ * bases only — Nobitex's tether price as a stand-in.
+ * `live` (the ticker, polled every few seconds while a board is open): a stored USD rate wins over the
+ * custom source and tgju, which are then asked only by «به‌روزرسانی از بازار» — a free API's monthly quota
+ * would otherwise drain at one request a minute, and tgju's feed is not ours to poll.
  */
-export async function usdToBase(f: Fetch, cur: CurrencyBook, s: FxSettings, stored: Map<string, StoredRate>, errors: string[]): Promise<{ rate: string | null; source: string | null; fresh: boolean }> {
+export async function usdToBase(f: Fetch, cur: CurrencyBook, s: FxSettings, stored: Map<string, StoredRate>, errors: string[], opts: { live?: boolean; desktop?: boolean } = {}): Promise<{ rate: string | null; source: string | null; fresh: boolean }> {
   const base = cur.base;
   if (base.code === "USD") return { rate: "1", source: "base", fresh: false };
   const usd = cur.byCode.get("USD");
+  const rial = RIAL.has(base.code);
   const custom = s.providers.includes("custom") ? s.custom.find((c) => c.code.toUpperCase() === "USD" && c.unit === "base") : undefined;
+  const tgju = rial && s.providers.includes("tgju");
+  const kept = usd ? stored.get(usd.id) : undefined;
+  if (opts.live && (custom || tgju) && kept && rateMid(kept)) return { rate: rateMid(kept), source: kept.source, fresh: false };
   if (custom) {
     try {
       return { rate: await customValue(f, custom), source: "custom", fresh: true };
@@ -38,9 +46,14 @@ export async function usdToBase(f: Fetch, cur: CurrencyBook, s: FxSettings, stor
       errors.push(errText(e, "منبع سفارشی"));
     }
   }
+  if (tgju) {
+    const feed = await tgjuPrices(f, opts.desktop);
+    const v = freshTgju(feed.prices.get(usd?.price_ids?.tgju ? String(usd.price_ids.tgju) : "price_dollar_rl"));
+    if (v) return { rate: base.code === "IRT" ? D(v).div(10).toFixed() : v, source: "tgju", fresh: true };
+    errors.push(feed.error ?? "tgju: نرخ دلار در پاسخ نبود یا قدیمی بود");
+  }
   const storedUsd = usd ? stored.get(usd.id) : undefined;
   if (storedUsd?.source === "manual" && rateMid(storedUsd)) return { rate: rateMid(storedUsd), source: "manual", fresh: false };
-  const rial = RIAL.has(base.code);
   if (!rial && s.providers.includes("open_er")) {
     try {
       const rates = await openErRates(f);
@@ -197,7 +210,7 @@ export async function liveQuotes(ctx: Ctx, symbols: string[]) {
   const { quotes, errors: qe } = await marketQuotes(ctx.cfg.fetch, items, s.providers);
   errors.push(...qe);
   const stored = await latestRates(ctx.db, ctx.org.id);
-  const usd = await usdToBase(ctx.cfg.fetch, cur, s, stored, errors);
+  const usd = await usdToBase(ctx.cfg.fetch, cur, s, stored, errors, { live: true, desktop: ctx.cfg.mode === "desktop" });
   return {
     at: new Date().toISOString(),
     base: { code: cur.base.code, decimals: cur.base.decimals },
@@ -228,29 +241,46 @@ export async function refreshRates(ctx: Ctx, currencyIds: string[] = [], kinds: 
   const stored = await latestRates(ctx.db, ctx.org.id);
   const errors: string[] = [];
   const targets = cur.list.filter((c) => !c.is_base && c.is_active && (!currencyIds.length || currencyIds.includes(c.id)) && (!kinds.length || kinds.includes(c.kind)));
-  const usd = await usdToBase(f, cur, s, stored, errors);
+  const desktop = ctx.cfg.mode === "desktop";
+  const usd = await usdToBase(f, cur, s, stored, errors, { desktop });
   const rial = RIAL.has(cur.base.code);
   const toBase = cur.base.code === "IRT" ? D("0.1") : D(1);
 
-  // 1) prices already in the base currency: custom sources, then Nobitex for rial bases
+  // 1) prices already in the base currency: custom sources, then (rial and toman bases) tgju's currencies and
+  //    Nobitex's crypto in the order of the settings
   const direct = new Map<string, { price: string; source: string }>();
   if (s.providers.includes("custom")) {
-    for (const c of targets) {
+    // all at once (one request per distinct URL, shared through the provider cache): one after another, a few
+    // unreachable sources at 10 seconds each could pass the route's time limit
+    const jobs = targets.flatMap((c) => {
       const src = s.custom.find((x) => x.code.toUpperCase() === c.code.toUpperCase());
-      if (!src || c.code === "USD") continue;
-      try {
-        const v = await customValue(f, src);
-        if (src.unit === "base") direct.set(c.id, { price: v, source: "custom" });
-        else if (usd.rate) direct.set(c.id, { price: D(v).times(D(usd.rate)).toFixed(), source: "custom" });
-      } catch (e) {
-        errors.push(errText(e, "منبع سفارشی"));
-      }
-    }
+      return src && c.code !== "USD" ? [{ c, src }] : [];
+    });
+    const got = await Promise.allSettled(jobs.map((j) => customValue(f, j.src)));
+    got.forEach((r, i) => {
+      const { c, src } = jobs[i];
+      if (r.status === "rejected") return void errors.push(errText(r.reason, "منبع سفارشی"));
+      if (src.unit === "base") direct.set(c.id, { price: r.value, source: "custom" });
+      else if (usd.rate) direct.set(c.id, { price: D(r.value).times(D(usd.rate)).toFixed(), source: "custom" });
+    });
   }
-  if (rial && s.providers.includes("nobitex")) {
-    const crypto = targets.filter((c) => c.kind === "crypto" && !direct.has(c.id));
-    const symOf = (c: (typeof crypto)[number]) => String(c.price_ids?.nobitex || c.code).toLowerCase();
-    if (crypto.length) {
+  for (const p of rial ? s.providers : []) {
+    if (p === "tgju") {
+      const wanted = targets.flatMap((c) => {
+        const at = c.code !== "USD" && !direct.has(c.id) ? tgjuKeyOf(c.code, c.kind, c.price_ids?.tgju ? String(c.price_ids.tgju) : null) : null;
+        return at ? [{ c, ...at }] : [];
+      });
+      if (!wanted.length) continue;
+      const feed = await tgjuPrices(f, desktop);
+      if (feed.error) errors.push(feed.error);
+      for (const { c, key, units } of wanted) {
+        const v = freshTgju(feed.prices.get(key));
+        if (v) direct.set(c.id, { price: D(v).div(units).times(toBase).toFixed(), source: "tgju" });
+      }
+    } else if (p === "nobitex") {
+      const crypto = targets.filter((c) => c.kind === "crypto" && !direct.has(c.id));
+      const symOf = (c: (typeof crypto)[number]) => String(c.price_ids?.nobitex || c.code).toLowerCase();
+      if (!crypto.length) continue;
       try {
         const st = await nobitexStats(f, crypto.map(symOf));
         for (const c of crypto) {
@@ -267,7 +297,13 @@ export async function refreshRates(ctx: Ctx, currencyIds: string[] = [], kinds: 
   const rest = targets.filter((c) => !direct.has(c.id) && c.code !== "USD");
   const { quotes, errors: qe } = rest.length ? await marketQuotes(f, rest.map((c) => ({ code: c.code, kind: c.kind, price_ids: c.price_ids })), s.providers) : { quotes: new Map(), errors: [] };
   errors.push(...qe);
-  if (!usd.rate && rest.length) errors.unshift("نرخ دلار به ارز پایه معلوم نیست؛ ابتدا نرخ دلار را در تابلو دستی ثبت کنید");
+  if (!usd.rate && rest.length) {
+    errors.unshift(
+      rial && !s.providers.includes("tgju")
+        ? "نرخ دلار به ارز پایه معلوم نیست؛ «tgju.org» را در تنظیمات منابع قیمت روشن کنید یا نرخ دلار را در تابلو دستی ثبت کنید"
+        : "نرخ دلار به ارز پایه معلوم نیست؛ ابتدا نرخ دلار را در تابلو دستی ثبت کنید",
+    );
+  }
 
   // 3) board rows with the margin
   const margin = D(s.margin_pct).div(100);

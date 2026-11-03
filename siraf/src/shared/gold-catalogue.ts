@@ -120,7 +120,7 @@ export const TGJU_SELL: Record<string, string> = {
 };
 /** tgju retail (تک‌فروشی) keys → board keys. */
 export const TGJU_RETAIL: Record<string, string> = { retail_sekee: "emami", retail_sekeb: "bahar", retail_nim: "nim", retail_rob: "rob", retail_gerami: "gerami" };
-/** tgju bubble rows (percent, the provider's own formula) → board keys. */
+/** tgju bubble rows (rial amounts over the coin's gold value, the provider's own formula; not percent) → board keys. */
 export const TGJU_BUBBLE: Record<string, string> = { coin_blubber: "emami", sekeb_blubber: "bahar", nim_blubber: "nim", rob_blubber: "rob", gerami_blubber: "gerami" };
 /** A Parsian row of a feed («parsian_500», «sekke-parsian-1000»…) → the Parsian size in sut. */
 export function parsianSut(providerKey: string): number | null {

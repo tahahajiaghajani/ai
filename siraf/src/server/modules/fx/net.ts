@@ -82,16 +82,8 @@ export function hexToDec(hex: string): string {
 }
 
 /** Value at a dotted path inside parsed JSON (`data.0.price`, `stats.usdt-rls.latest`). */
-export function pickPath(obj: unknown, path: string): unknown {
-  let cur: unknown = obj;
-  for (const part of path.split(".").map((p) => p.trim()).filter(Boolean)) {
-    if (cur === null || cur === undefined) return undefined;
-    if (Array.isArray(cur)) cur = cur[Number(part)];
-    else if (typeof cur === "object") cur = (cur as Record<string, unknown>)[part];
-    else return undefined;
-  }
-  return cur;
-}
+/** The path reader shared with the gold board (src/shared/json-path.ts): keys, [0], [field=value]. */
+export { pickPath } from "@shared/json-path";
 
 /**
  * Custom price sources are typed by the business owner; refuse obvious internal targets so the

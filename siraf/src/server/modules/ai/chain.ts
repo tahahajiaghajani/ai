@@ -43,6 +43,30 @@ export interface ChainResult {
 const RATE_HOLD_MS = 60_000;
 const RATE_HOLD_MAX_MS = 10 * 60_000;
 const QUOTA_HOLD_MS = 30 * 60_000;
+const DAY_MS = 24 * 60 * 60_000;
+
+/** Milliseconds until the next midnight in a time zone (Google's free quotas reset at midnight Pacific). */
+export function msUntilMidnight(timeZone: string, now = new Date()): number {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone, hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" }).formatToParts(now);
+  const n = (t: string) => Number(parts.find((p) => p.type === t)?.value ?? 0) % 24;
+  const secs = n("hour") * 3600 + Number(parts.find((p) => p.type === "minute")?.value ?? 0) * 60 + Number(parts.find((p) => p.type === "second")?.value ?? 0);
+  return (86_400 - secs) * 1000;
+}
+
+/**
+ * How long a spent quota keeps a model out of the chain. A model the plan does not include at all («limit: 0»,
+ * e.g. a Pro model on a free Gemini key): a day. Google's daily free quota («…PerDay…»): until just after its reset at
+ * midnight Pacific — but a reset that is minutes away may come late, so then only the usual half hour. Anything else:
+ * half an hour, or what the provider asks for (at most a day).
+ */
+export function quotaHoldMs(message: string, retryAfterMs: number | null = null, now = new Date()): number {
+  if (/\blimit: 0\b/.test(message)) return DAY_MS;
+  if (/PerDay/.test(message)) {
+    const left = msUntilMidnight("America/Los_Angeles", now);
+    return left > 23 * 60 * 60_000 ? QUOTA_HOLD_MS : Math.max(QUOTA_HOLD_MS, left + 5 * 60_000);
+  }
+  return Math.min(Math.max(QUOTA_HOLD_MS, retryAfterMs ?? 0), DAY_MS);
+}
 
 export interface AiEnv {
   settings: AiSettings;
@@ -116,9 +140,11 @@ export async function chainFor(ctx: Ctx, job: AiJob, env: AiEnv): Promise<{ entr
   if (routed.length) {
     entries = routed.flatMap((x) => (byId.has(x.connection_id) ? [{ row: byId.get(x.connection_id)!, model: x.model }] : []));
   } else {
+    // every model of the tier in its listed order («اولی اصلی است؛ بقیه به‌ترتیب جایگزین می‌شوند»): a free plan's
+    // daily quota is per model, so the second model keeps answering when the first one runs out
     entries = rows.flatMap((row) => {
-      const m = row.models?.[tier]?.[0] ?? row.models?.smart?.[0];
-      return m ? [{ row, model: m }] : [];
+      const models = row.models?.[tier]?.length ? row.models[tier]! : (row.models?.smart ?? []);
+      return [...new Set(models.filter(Boolean))].map((model) => ({ row, model }));
     });
   }
   const total = entries.length;
@@ -201,7 +227,7 @@ export async function runTurn(ctx: Ctx, opts: RunOptions): Promise<ChainResult> 
         const result = await adapter.turn({ ...req, model: entry.model }, hooks);
         const cost = await recordUsage(ctx, {
           feature: opts.feature, job: opts.job, connection_id: conn.id, preset: conn.preset.id, model: result.model || entry.model, usage: result.usage,
-          provider_cost: result.providerCostUsd, local, ms: Date.now() - t0, ok: result.stop !== "refusal", error_kind: result.stop === "refusal" ? "refusal" : null, thread_id: opts.threadId,
+          provider_cost: result.providerCostUsd, local, free: entry.row.free_tier, ms: Date.now() - t0, ok: result.stop !== "refusal", error_kind: result.stop === "refusal" ? "refusal" : null, thread_id: opts.threadId,
         });
         if (entry.row.status !== "ok") void markConnection(ctx, conn.id, { ok: true });
         const out: ChainResult = { result, connection_id: conn.id, connection_label: conn.label, preset: conn.preset.id, protocol: conn.protocol, model: result.model || entry.model, requested_model: entry.model, route: "direct", cost_usd: cost.cost_usd, priced: cost.priced };
@@ -225,17 +251,19 @@ export async function runTurn(ctx: Ctx, opts: RunOptions): Promise<ChainResult> 
           return { result: { text: "", toolCalls: [], stop: "aborted", usage: { input: 0, output: 0, cache_read: 0, cache_write: 0, reasoning: 0 }, model: entry.model, native: null }, connection_id: conn.id, connection_label: conn.label, preset: conn.preset.id, protocol: conn.protocol, model: entry.model, route: "direct", cost_usd: "0", priced: true };
         }
         const pe = e instanceof ProviderError ? e : new ProviderError("other", String((e as Error)?.message ?? e).slice(0, 300));
-        await recordUsage(ctx, { feature: opts.feature, job: opts.job, connection_id: conn.id, preset: conn.preset.id, model: entry.model, ms: Date.now() - t0, ok: false, error_kind: pe.kind, thread_id: opts.threadId });
+        await recordUsage(ctx, { feature: opts.feature, job: opts.job, connection_id: conn.id, preset: conn.preset.id, model: entry.model, free: entry.row.free_tier, ms: Date.now() - t0, ok: false, error_kind: pe.kind, thread_id: opts.threadId });
         lastKind = pe.kind;
         lastDetail = pe.message;
         // part of an answer already reached the person: a second model would start it over
         if (emitted) throw new AiUnavailableError(pe.kind, message(pe.kind, ctx));
         if (pe.kind === "rate") {
-          await hold(ctx, conn.id, "", Math.min(Math.max(pe.retryAfterMs ?? RATE_HOLD_MS, 5_000), RATE_HOLD_MAX_MS), "rate", pe.message);
+          // per model: providers (Gemini, OpenAI, Groq…) count requests per minute per model, so the connection's
+          // other models stay usable; a provider that counts per key answers the next model with its own 429
+          await hold(ctx, conn.id, entry.model, Math.min(Math.max(pe.retryAfterMs ?? RATE_HOLD_MS, 5_000), RATE_HOLD_MAX_MS), "rate", pe.message);
           break;
         }
         if (pe.kind === "quota") {
-          await hold(ctx, conn.id, entry.model, QUOTA_HOLD_MS, "quota", pe.message);
+          await hold(ctx, conn.id, entry.model, quotaHoldMs(pe.message, pe.retryAfterMs), "quota", pe.message);
           break;
         }
         if (pe instanceof BlockedAddressError) {
@@ -261,6 +289,10 @@ export async function runTurn(ctx: Ctx, opts: RunOptions): Promise<ChainResult> 
       }
     }
   }
+  // the Windows app: every local link failed (a foreign service refused Iran, a gateway was down, a quota ran
+  // out), so the web version's connections answer when «استفاده از اتصال‌های نسخهٔ وب» is on
+  const link = ctx.cfg.mode === "desktop" && env.settings.use_cloud && lastKind !== "refusal" ? cloudLink(ctx.cfg) : null;
+  if (link) return relayTurn(ctx, link, opts);
   const err = unavailable(ctx, lastKind);
   if (lastDetail && ctx.can("ai", "full")) err.message = `${err.message} (${lastDetail.slice(0, 200)})`;
   throw err;

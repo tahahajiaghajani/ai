@@ -65,7 +65,7 @@ export function defaultSettings(kind: BusinessKind): OrgSettings {
     costing: "average",
     allow_negative_stock: kind === "services",
     gold: { profit_pct: DEFAULT_GOLD_PROFIT_PCT, tax_pct: DEFAULT_VAT_PCT, round_step: "1000", old_deduction_pct: "0" },
-    fx: { providers: ["kucoin", "okx", "coingecko", "open_er"], margin_pct: "0.5", refresh_seconds: 60 },
+    fx: { providers: ["tgju", "kucoin", "okx", "coingecko", "open_er", "gold_api"], margin_pct: "0.5", refresh_seconds: 60 },
     print: { show_logo: true, footer: "" },
   };
 }

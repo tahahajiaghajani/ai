@@ -1,10 +1,12 @@
 // Live market prices. Every provider is fetched in bulk at most once per 45 seconds (per server
 // instance and fetch function) and answers in US dollars; the rate board turns them into the
 // base currency. Binance and Bybit block some regions, so the defaults are KuCoin and OKX.
-// Nobitex answers in rial (only reachable from Iran); custom sources can answer in either.
+// tgju (the Tehran free market's dollar and currencies, from either of its two copies) and Nobitex (only
+// reachable from Iran) answer in rial; custom sources can answer in either.
 import { D } from "@shared/money";
 import type { CurrencyKind, CustomSource } from "./common";
 import { fetchJson, NetError, pickPath, safeExternalUrl, type Fetch } from "./net";
+import { TGJU_FX_MAX_AGE_MS, tgjuFeedAnswered, tgjuFeedUrls, tgjuPrice, tgjuRows, tgjuTime } from "./tgju";
 
 export interface MarketQuote {
   code: string;
@@ -111,11 +113,14 @@ export interface NobitexStat {
   dayChange: string | null;
 }
 
-/** Rial prices from Nobitex (`btc`, `usdt` …); reachable only from inside Iran. */
+/**
+ * Rial prices from Nobitex (`btc`, `usdt` …); reachable only from inside Iran. Its old host api.nobitex.ir
+ * no longer resolves (Nov 2026); apiv2 is the public market API.
+ */
 export function nobitexStats(f: Fetch, symbols: string[]): Promise<Map<string, NobitexStat>> {
   const sorted = Array.from(new Set(symbols.map((s) => s.toLowerCase()).filter(Boolean))).sort();
   return cached(f, `nobitex:${sorted.join(",")}`, async () => {
-    const url = `https://api.nobitex.ir/market/stats?srcCurrency=${encodeURIComponent(sorted.join(","))}&dstCurrency=rls`;
+    const url = `https://apiv2.nobitex.ir/market/stats?srcCurrency=${encodeURIComponent(sorted.join(","))}&dstCurrency=rls`;
     const { json } = await fetchJson(f, url, "نوبیتکس");
     if (json?.status !== "ok" || !json.stats) throw new NetError("نوبیتکس: پاسخ معتبر نیست");
     const m = new Map<string, NobitexStat>();
@@ -131,6 +136,53 @@ export function nobitexStats(f: Fetch, symbols: string[]): Promise<Map<string, N
     }
     return m;
   });
+}
+
+export interface TgjuQuote {
+  /** rial */
+  price: string;
+  /** when the market last traded it (null when the row has no time) */
+  at: number | null;
+}
+
+export interface TgjuFeed {
+  prices: Map<string, TgjuQuote>;
+  /** why neither copy answered (then `prices` is empty) */
+  error: string | null;
+}
+
+/**
+ * Rial prices of the tgju feed by tgju key (price_dollar_rl, price_eur …), from whichever
+ * of its copies answers: the one in Iran first on the Windows app, the one abroad first on the web. A failure
+ * is kept like an answer (45 seconds), so one refresh never waits twice for copies that do not answer.
+ */
+export function tgjuPrices(f: Fetch, desktop = false): Promise<TgjuFeed> {
+  return cached(f, "tgju", async () => {
+    const failed: string[] = [];
+    for (const url of tgjuFeedUrls(f, desktop)) {
+      const host = new URL(url).hostname;
+      try {
+        const { json } = await fetchJson(f, url, host, { redirect: "manual" });
+        const prices = new Map<string, TgjuQuote>();
+        for (const [k, v] of Object.entries(tgjuRows(json))) {
+          const price = tgjuPrice(v);
+          if (price) prices.set(k, { price, at: tgjuTime(v) });
+        }
+        if (!prices.has("price_dollar_rl")) throw new NetError(`${host}: پاسخ معتبر نیست`);
+        tgjuFeedAnswered(f, url);
+        return { prices, error: null };
+      } catch (e) {
+        failed.push(e instanceof NetError ? e.message : `${host}: اتصال برقرار نشد`);
+      }
+    }
+    return { prices: new Map(), error: `tgju: ${failed.join("، ")}` };
+  });
+}
+
+/** A tgju price that is not older than the board allows (rows of rarely traded currencies stand still). */
+export function freshTgju(q: TgjuQuote | undefined, now = Date.now()): string | null {
+  if (!q) return null;
+  return q.at !== null && now - q.at > TGJU_FX_MAX_AGE_MS ? null : q.price;
 }
 
 /** Troy-ounce price in USD of XAU / XAG / XPT / XPD. */

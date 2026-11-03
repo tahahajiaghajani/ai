@@ -37,6 +37,8 @@ export interface AiConnectionPublic {
   paused_until: string | null;
   enabled: boolean;
   priority: number;
+  /** the provider's free plan (Gemini with an AI Studio key, OpenRouter free models…): counted at zero cost */
+  free_tier: boolean;
   created_by_name?: string | null;
   updated_at: string;
 }

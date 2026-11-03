@@ -23,6 +23,8 @@ export interface UsageEntry {
   provider_cost?: string | null;
   /** runs on this computer: costs nothing */
   local?: boolean;
+  /** a connection on the provider's free plan: costs nothing either */
+  free?: boolean;
   ms?: number | null;
   ok: boolean;
   error_kind?: AiErrorKind | null;
@@ -38,7 +40,8 @@ export function orgTimeZone(ctx: Ctx): string {
 export async function recordUsage(ctx: Ctx, e: UsageEntry): Promise<{ cost_usd: string; priced: boolean }> {
   const u = e.usage ?? { input: 0, output: 0, cache_read: 0, cache_write: 0, reasoning: 0 };
   const est = e.model ? estimateCostUsd(e.model, u, { day: todayISO(orgTimeZone(ctx)), local: e.local }) : { usd: "0", priced: true };
-  const cost = e.provider_cost && /^\d+(\.\d+)?(e-?\d+)?$/i.test(e.provider_cost) ? { usd: D(e.provider_cost).toDecimalPlaces(6).toFixed(), priced: true } : est;
+  const reported = e.provider_cost && /^\d+(\.\d+)?(e-?\d+)?$/i.test(e.provider_cost) ? { usd: D(e.provider_cost).toDecimalPlaces(6).toFixed(), priced: true } : est;
+  const cost = e.free ? { usd: "0", priced: true } : reported;
   try {
     await ctx.write(
       (tx) =>

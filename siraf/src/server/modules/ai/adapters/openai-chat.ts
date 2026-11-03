@@ -4,7 +4,7 @@
 // visible: reasoning_content, Gemini-compatible thought signatures, OpenRouter's reported cost.
 import { chatReasoningEffort } from "@shared/ai/effort";
 import { ProviderError, type Adapter, type AdapterEnv, type NeutralMessage, type ResolvedConnection, type ToolCall, type TurnRequest, type TurnResult, ZERO_USAGE } from "../types";
-import { CONNECT_MS, IDLE_MS, errorFromResponse, idleSignal, joinUrl, networkError, parseArgs, readSse } from "./http";
+import { IDLE_MS, connectMs, errorFromResponse, idleSignal, joinUrl, networkError, parseArgs, readSse } from "./http";
 import { APP_NAME_EN } from "@shared/constants";
 
 type Msg = Record<string, unknown>;
@@ -121,7 +121,7 @@ export function openaiChatAdapter(conn: ResolvedConnection, env: AdapterEnv): Ad
       let cost: string | null = null;
       const usage = { ...ZERO_USAGE };
       const calls = new Map<number, { id: string; name: string; args: string; extra?: Msg }>();
-      const t = idleSignal(req.signal, CONNECT_MS);
+      const t = idleSignal(req.signal, connectMs(conn));
       try {
         let res: Response | null = null;
         for (let attempt = 0; !res; attempt++) {

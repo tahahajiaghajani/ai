@@ -9,6 +9,24 @@ import { ProviderError } from "../types";
 export const IDLE_MS = 90_000;
 /** Connection + first byte. */
 export const CONNECT_MS = 45_000;
+/**
+ * Connection + first byte from a model on this computer or the shop's network: a PC without a graphics
+ * card can take minutes to read the assistant's long first prompt (later turns reuse it).
+ */
+export const LOCAL_CONNECT_MS = 300_000;
+
+/** The first-byte limit of a connection: long for a model at a local or private address. */
+export function connectMs(conn: { preset: { region: string }; baseUrl: string }): number {
+  if (conn.preset.region === "local") return LOCAL_CONNECT_MS;
+  let host = "";
+  try {
+    host = new URL(conn.baseUrl).hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  } catch {
+    return CONNECT_MS;
+  }
+  const local = host === "localhost" || host === "::1" || host.endsWith(".local") || /^127\./.test(host) || /^10\./.test(host) || /^192\.168\./.test(host) || /^172\.(1[6-9]|2\d|3[01])\./.test(host);
+  return local ? LOCAL_CONNECT_MS : CONNECT_MS;
+}
 
 /** An AbortSignal that fires when `parent` aborts or `ms` pass; `touch(next?)` restarts the timer (optionally with a new length). */
 export function idleSignal(parent: AbortSignal | undefined, ms: number) {
@@ -121,6 +139,8 @@ const AUTH_RE = /invalid[_ ]api[_ ]key|incorrect api key|api key not valid|inval
 /** Daily/no-credit quota vs a short per-minute limit (a 429 is a short limit unless it says otherwise). */
 export function rateOrQuota(code: string | null, message: string): "rate" | "quota" {
   if (/\blimit: 0\b/.test(message)) return "quota";
+  // before the per-minute test: Gemini's daily-quota 429 also says «Please retry in 41s»
+  if (/PerDay|per[-_ ]?day\b|\bRPD\b|\bdaily\b/i.test(message)) return "quota";
   if (/per\s*minute|PerMinute|RPM|TPM|retry in \d/i.test(message)) return "rate";
   if (code === "insufficient_quota" || QUOTA_RE.test(message)) return "quota";
   return "rate";
@@ -165,7 +185,8 @@ export async function errorFromResponse(res: Response, known: (string | null)[] 
     message = eo?.message ?? (typeof e === "string" ? e : null) ?? j.message ?? j.detail ?? message;
     code = eo?.code != null ? String(eo.code) : (eo?.type ?? eo?.status ?? null);
     if (eo?.status && eo.status !== code) message = `${eo.status}: ${message}`;
-    if (eo?.details) message += ` ${JSON.stringify(eo.details).slice(0, 400)}`;
+    // long enough for Gemini's QuotaFailure, which names the exhausted quota (…PerDay… or …PerMinute…)
+    if (eo?.details) message += ` ${JSON.stringify(eo.details).slice(0, 1500)}`;
   } catch {
     /* not JSON */
   }

@@ -463,7 +463,7 @@ function SettingsModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
           </div>
           <div>
             <div className="mb-2 flex items-center text-xs font-semibold text-ink-3">
-              منابع سفارشی (هر API با پاسخ JSON؛ مثلاً tgju، BrsApi یا Navasan با کلید خودتان)
+              منابع سفارشی (هر API با پاسخ JSON؛ مثلاً Navasan با کلید خودتان)
               <Button size="small" type="link" icon={<Ic icon={Plus} />} className="ms-auto" onClick={() => setV({ ...v, custom: [...custom, { code: "USD", url: "", path: "", unit: "base", factor: null }] })}>
                 منبع
               </Button>
@@ -484,7 +484,7 @@ function SettingsModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
             ) : (
               <div className="text-xs text-ink-3">منبع سفارشی تعریف نشده است.</div>
             )}
-            <Alert className="!mt-2" type="info" showIcon title="منبع سفارشی فقط وقتی استفاده می‌شود که «منبع سفارشی» در فهرست بالا فعال باشد. برای ریال به تومان ضریب ۰٫۱ بگذارید." />
+            <Alert className="!mt-2" type="info" showIcon title={<>منبع سفارشی فقط وقتی استفاده می‌شود که «منبع سفارشی» در فهرست بالا فعال باشد. مسیر مثل <span className="sf-ltr">data.price</span>، <span className="sf-ltr">items[0].sell</span> یا <span className="sf-ltr">items[symbol=USD].sell</span>؛ برای قیمت ریالی در حساب تومانی ضریب ۰٫۱ و برای قیمت تومانی در حساب ریالی ضریب ۱۰.</>} />
           </div>
         </div>
       )}

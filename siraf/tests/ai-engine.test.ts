@@ -8,14 +8,14 @@ import { createApp } from "@server/app";
 import { makeCtx, type AuthUser, type MemberRow, type OrgRow, type ServerConfig } from "@server/context";
 import { cleanKey, decryptKey, encryptKey, keyFingerprint, keyHint, keyReadable, scrubSecrets } from "@server/modules/ai/crypto";
 import { anthropicAdapter, anthropicSchema } from "@server/modules/ai/adapters/anthropic";
-import { runTurn } from "@server/modules/ai/chain";
+import { msUntilMidnight, quotaHoldMs, runTurn } from "@server/modules/ai/chain";
 import { jsonSchemaOf } from "@server/modules/ai/schema";
 import { readSchemaFor } from "@server/modules/ai/features/capture";
 import { z as zod } from "zod";
 import { openaiChatAdapter } from "@server/modules/ai/adapters/openai-chat";
 import { openaiResponsesAdapter } from "@server/modules/ai/adapters/openai-responses";
 import { geminiAdapter } from "@server/modules/ai/adapters/gemini";
-import { classifyStatus, readSse } from "@server/modules/ai/adapters/http";
+import { CONNECT_MS, LOCAL_CONNECT_MS, classifyStatus, connectMs, errorFromResponse, readSse } from "@server/modules/ai/adapters/http";
 import { ProviderError, type AdapterEnv, type NeutralMessage, type ResolvedConnection, type TurnResult } from "@server/modules/ai/types";
 import { presetById } from "@shared/ai/presets";
 import { estimateCostUsd } from "@shared/ai/prices";
@@ -428,6 +428,48 @@ describe("error classification", () => {
     expect(classifyStatus(400, "messages.1: invalid schema for tool")).toBe("invalid");
   });
 
+  // the Gemini free tier answers both of its limits with the same words and «Please retry in …»; only the
+  // quota it names tells a minute from a day
+  const geminiLimit = (quotaId: string, limit: number, retry: string) =>
+    new Response(
+      JSON.stringify({
+        error: {
+          code: 429,
+          message: `You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/usage?tab=rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: ${limit}, model: gemini-3.8-flash\nPlease retry in ${retry}.`,
+          status: "RESOURCE_EXHAUSTED",
+          details: [
+            { "@type": "type.googleapis.com/google.rpc.Help", links: [{ description: "Learn more about Gemini API quotas", url: "https://ai.google.dev/gemini-api/docs/rate-limits" }] },
+            { "@type": "type.googleapis.com/google.rpc.QuotaFailure", violations: [{ quotaMetric: "generativelanguage.googleapis.com/generate_content_free_tier_requests", quotaId, quotaDimensions: { location: "global", model: "gemini-3.8-flash" }, quotaValue: String(limit) }] },
+            { "@type": "type.googleapis.com/google.rpc.RetryInfo", retryDelay: retry.replace(/\.\d+/, "") },
+          ],
+        },
+      }),
+      { status: 429, headers: { "content-type": "application/json" } },
+    );
+
+  it("tells Gemini's daily quota from its per-minute limit", async () => {
+    const day = await errorFromResponse(geminiLimit("GenerateRequestsPerDayPerProjectPerModel-FreeTier", 20, "41.2s"));
+    expect(day.kind).toBe("quota");
+    expect(day.message).toContain("PerDay");
+    const minute = await errorFromResponse(geminiLimit("GenerateRequestsPerMinutePerProjectPerModel-FreeTier", 5, "20.5s"));
+    expect(minute.kind).toBe("rate");
+    expect(minute.retryAfterMs).toBe(20_500);
+    expect(classifyStatus(429, "Rate limit exceeded: free-models-per-day. Add 10 credits to unlock 1000 free model requests per day")).toBe("quota");
+    expect(classifyStatus(429, "Rate limit exceeded: free-models-per-min.")).toBe("rate");
+    expect(classifyStatus(429, "Rate limit reached for model `llama-3.3-70b-versatile` on tokens per minute (TPM): Limit 8000")).toBe("rate");
+    expect(classifyStatus(429, "Rate limit reached for model `qwen/qwen3-32b` on requests per day (RPD): Limit 1000")).toBe("quota");
+  });
+
+  it("waits longer for the first byte of a model on this computer or the shop's network", () => {
+    const at = (region: string, baseUrl: string) => connectMs({ preset: { region }, baseUrl });
+    expect(at("local", "http://localhost:11434/v1")).toBe(LOCAL_CONNECT_MS);
+    expect(at("custom", "http://192.168.1.20:1234/v1")).toBe(LOCAL_CONNECT_MS);
+    expect(at("custom", "http://127.0.0.1:8080/v1")).toBe(LOCAL_CONNECT_MS);
+    expect(at("custom", "http://ai-pc.local:11434/v1")).toBe(LOCAL_CONNECT_MS);
+    expect(at("foreign", "https://generativelanguage.googleapis.com/v1beta")).toBe(CONNECT_MS);
+    expect(at("custom", "https://api.example.com/v1")).toBe(CONNECT_MS);
+  });
+
   it("parses SSE across chunk borders, comments and multi-line data", async () => {
     const body = new Response(": ping\n\nevent: a\ndata: {\"x\":\ndata: 1}\n\ndata: [DONE]\n\n").body!;
     const out = [];
@@ -464,10 +506,32 @@ async function engineServer(handler: Handler) {
 
 const ok = (text: string) => sse([{ choices: [{ delta: { content: text }, finish_reason: "stop" }] }, { choices: [], usage: { prompt_tokens: 1000, completion_tokens: 100 } }, "[DONE]"]);
 
+describe("quota holds", () => {
+  const H = 60 * 60_000;
+  it("counts to the next midnight in a time zone", () => {
+    // 2026-11-03 10:00 UTC = 02:00 in Los Angeles (PST, UTC−8): 22 hours to midnight
+    expect(msUntilMidnight("America/Los_Angeles", new Date("2026-11-03T10:00:00Z"))).toBe(22 * H);
+    // 2026-07-01 06:30 UTC = 23:30 in Los Angeles (PDT, UTC−7)
+    expect(msUntilMidnight("America/Los_Angeles", new Date("2026-07-01T06:30:00Z"))).toBe(H / 2);
+  });
+
+  it("waits for Google's daily reset, a day for a model outside the plan, half an hour otherwise", () => {
+    const perDay = "429: RESOURCE_EXHAUSTED: Quota exceeded for metric: generate_content_free_tier_requests, limit: 20, model: gemini-3.8-flash [{\"quotaId\":\"GenerateRequestsPerDayPerProjectPerModel-FreeTier\"}]";
+    expect(quotaHoldMs(perDay, null, new Date("2026-11-03T10:00:00Z"))).toBe(22 * H + 5 * 60_000);
+    // just after midnight Pacific a late reset is likely: only the usual half hour
+    expect(quotaHoldMs(perDay, null, new Date("2026-11-03T08:10:00Z"))).toBe(30 * 60_000);
+    expect(quotaHoldMs("429: Quota exceeded for metric: generate_content_free_tier_requests, limit: 0, model: gemini-4-argon")).toBe(24 * H);
+    expect(quotaHoldMs("402: insufficient credits")).toBe(30 * 60_000);
+    expect(quotaHoldMs("429: insufficient_quota", 2 * H)).toBe(2 * H);
+    expect(quotaHoldMs("429: insufficient_quota", 48 * H)).toBe(24 * H);
+  });
+});
+
 describe("routing chain, holds and budgets", () => {
   it("falls back to the next connection on a rate limit and holds the first one", async () => {
     const s = await engineServer((url) => (url.includes("deepseek") ? json(429, { error: { message: "Rate limit reached per minute" } }, { "retry-after": "30" }) : ok("پاسخ دوم")));
-    const a = await s.c.post(`/o/${s.orgId}/ai/connections`, { preset: "deepseek", key: "sk-deepseek-0000000001", models: { fast: ["deepseek-chat"] } });
+    // one model for every job: a hold on it pauses the whole connection
+    const a = await s.c.post(`/o/${s.orgId}/ai/connections`, { preset: "deepseek", key: "sk-deepseek-0000000001", models: { smart: ["deepseek-chat"], fast: ["deepseek-chat"], vision: ["deepseek-chat"] } });
     await s.c.post(`/o/${s.orgId}/ai/connections`, { preset: "openrouter", key: "sk-or-v1-000000000002", models: { fast: ["openai/gpt-6-luna"] } });
     const ctx = await s.ctx();
     expect((await aiStatus(ctx, "fast")).ok).toBe(true);
@@ -487,6 +551,51 @@ describe("routing chain, holds and budgets", () => {
     expect(list.connections.find((x: { id: string }) => x.id === a.connection.id).status).toBe("paused");
     await s.c.post(`/o/${s.orgId}/ai/connections/${a.connection.id}/resume`);
     expect(await s.db.one(`select 1 from tz_ai_holds where connection_id = $1`, [a.connection.id])).toBeNull();
+  });
+
+  it("holds only the model that hit a per-minute limit: the connection's next model answers", async () => {
+    const s = await engineServer((_url, init) => (JSON.parse(String(init.body ?? "{}")).model === "a/limited" ? json(429, { error: { message: "Rate limit reached per minute" } }, { "retry-after": "20" }) : ok("از مدل دوم")));
+    const a = await s.c.post(`/o/${s.orgId}/ai/connections`, { preset: "openrouter", key: "sk-or-v1-000000000002", models: { smart: ["b/free"], fast: ["a/limited", "b/free"], vision: ["b/free"] } });
+    const ctx = await s.ctx();
+    const r = await generate(ctx, { job: "fast", feature: "digest", system: "S", prompt: "x" });
+    expect(r.text).toBe("از مدل دوم");
+    expect(r.model).toBe("b/free");
+    const holds = await s.db.query<{ model: string; kind: string }>(`select model, kind from tz_ai_holds where connection_id = $1`, [a.connection.id]);
+    expect(holds).toEqual([{ model: "a/limited", kind: "rate" }]);
+    // the held model is skipped without a request; the connection itself is not paused
+    const before = s.calls.filter((c) => c.body?.model === "a/limited").length;
+    expect((await generate(ctx, { job: "fast", feature: "digest", system: "S", prompt: "y" })).model).toBe("b/free");
+    expect(s.calls.filter((c) => c.body?.model === "a/limited").length).toBe(before);
+    const list = await s.c.get(`/o/${s.orgId}/ai/connections`);
+    expect(list.connections[0].status).not.toBe("paused");
+  });
+
+  it("tries a tier's next model when the first one's daily free quota is spent", async () => {
+    const s = await engineServer((_url, init) =>
+      JSON.parse(String(init.body ?? "{}")).model === "g/flash" ? json(429, { error: { message: "You exceeded your current quota. Quota exceeded for metric: generate_content_free_tier_requests, limit: 0, PerDay" } }) : ok("از مدل سبک"),
+    );
+    const a = await s.c.post(`/o/${s.orgId}/ai/connections`, { preset: "openrouter", key: "sk-or-v1-000000000002", models: { smart: ["g/flash", "g/flash-lite"] } });
+    const r = await generate(await s.ctx(), { job: "analysis", feature: "explain", system: "S", prompt: "x" });
+    expect(r.text).toBe("از مدل سبک");
+    expect(r.model).toBe("g/flash-lite");
+    const hold = await s.db.one<{ model: string; kind: string }>(`select model, kind from tz_ai_holds where connection_id = $1`, [a.connection.id]);
+    expect(hold).toEqual({ model: "g/flash", kind: "quota" });
+  });
+
+  it("records a free-plan connection's calls at zero cost", async () => {
+    const s = await engineServer(() => ok("رایگان"));
+    const a = await s.c.post(`/o/${s.orgId}/ai/connections`, { preset: "openrouter", key: "sk-or-v1-000000000002", models: { smart: ["anthropic/claude-opus-5.5"] }, free_tier: true });
+    expect(a.connection.free_tier).toBe(true);
+    await generate(await s.ctx(), { job: "analysis", feature: "explain", system: "S", prompt: "x" });
+    const row = await s.db.one<{ cost_usd: string; priced: boolean; input: number }>(`select cost_usd::text, priced, input from tz_ai_usage where feature = 'explain'`);
+    expect(Number(row?.cost_usd)).toBe(0);
+    expect(row?.priced).toBe(true);
+    expect(row?.input).toBe(1000);
+    // switched off again, the same call is priced
+    await s.c.patch(`/o/${s.orgId}/ai/connections/${a.connection.id}`, { free_tier: false });
+    await generate(await s.ctx(), { job: "analysis", feature: "explain2", system: "S", prompt: "x" });
+    const paid = await s.db.one<{ cost_usd: string }>(`select cost_usd::text from tz_ai_usage where feature = 'explain2'`);
+    expect(Number(paid?.cost_usd)).toBeGreaterThan(0);
   });
 
   it("moves on after an auth error, marks the connection and validates structured output", async () => {

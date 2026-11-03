@@ -14,6 +14,7 @@ import { audit } from "../data/crud";
 import { safeExternalUrl } from "../fx/net";
 import { cleanKey, decryptKey, encryptKey, keyFingerprint, keyHint, keyReadable, KeyUnreadableError, scrubSecrets } from "./crypto";
 import { createAdapter } from "./adapters";
+import { connectMs } from "./adapters/http";
 import { fakeEnabled } from "./adapters/fake";
 import { ProviderError, type AdapterEnv, type ResolvedConnection } from "./types";
 import { recordUsage } from "./usage";
@@ -41,6 +42,8 @@ export interface ConnRow {
   checked_at: string | null;
   enabled: boolean;
   priority: number;
+  /** the provider's free plan: calls cost nothing in the usage ledger (0018) */
+  free_tier: boolean;
   created_by: string | null;
   updated_at: string;
 }
@@ -86,6 +89,7 @@ export const connectionInputSchema = z.object({
   models: z.object({ smart: modelList, fast: modelList, vision: modelList }).partial().optional(),
   enabled: z.boolean().optional(),
   priority: z.number().int().min(0).max(1000).optional(),
+  free_tier: z.boolean().optional(),
   /** PATCH only: drop the stored key on purpose (a key-required service refuses it) */
   remove_key: z.boolean().optional(),
 });
@@ -157,12 +161,13 @@ export function toPublic(cfg: ServerConfig, row: ConnRow, pausedUntil: string | 
     paused_until: pausedUntil,
     enabled: row.enabled,
     priority: row.priority,
+    free_tier: !!row.free_tier,
     created_by_name: row.created_by ? (names?.get(row.created_by) ?? null) : null,
     updated_at: row.updated_at,
   };
 }
 
-const COLS = `id, org_id, label, preset, protocol, base_url, secret_enc, key_hint, key_fp, models, available_models, models_at, status, last_error, checked_at, enabled, priority, created_by, updated_at`;
+const COLS = `id, org_id, label, preset, protocol, base_url, secret_enc, key_hint, key_fp, models, available_models, models_at, status, last_error, checked_at, enabled, priority, free_tier, created_by, updated_at`;
 
 export async function connectionRows(q: Queryable, orgId: string): Promise<ConnRow[]> {
   return q.query<ConnRow>(`select ${COLS} from tz_ai_connections where org_id = $1 and deleted_at is null order by priority, created_at`, [orgId]);
@@ -175,18 +180,37 @@ export async function connectionRow(q: Queryable, orgId: string, id: string): Pr
   return row;
 }
 
-/** Connection-level holds (rate limits): connection id → until. */
-export async function connectionHolds(q: Queryable, orgId: string): Promise<Map<string, string>> {
-  const rows = await q.query<{ connection_id: string; until: string }>(
-    `select connection_id, max(until) as until from tz_ai_holds where org_id = $1 and model = '' and until > now() group by connection_id`,
+/**
+ * When each connection is paused: a hold on the whole connection, or holds on every model it lists (rate limits
+ * and quotas are held per model) — then until the first of them ends. Connection id → until.
+ */
+export async function connectionHolds(q: Queryable, orgId: string, rows: ConnRow[]): Promise<Map<string, string>> {
+  const holds = await q.query<{ connection_id: string; model: string; until: string }>(
+    `select connection_id, model, max(until) as until from tz_ai_holds where org_id = $1 and until > now() group by connection_id, model`,
     [orgId],
   );
-  return new Map(rows.map((r) => [r.connection_id, r.until]));
+  const out = new Map<string, string>();
+  for (const row of rows) {
+    const mine = holds.filter((h) => h.connection_id === row.id);
+    if (!mine.length) continue;
+    const t = (v: string) => Date.parse(String(v));
+    const whole = mine.filter((h) => h.model === "").map((h) => h.until).sort((a, b) => t(a) - t(b));
+    if (whole.length) {
+      out.set(row.id, whole[whole.length - 1]);
+      continue;
+    }
+    const m = modelsOf(row);
+    const listed = [...new Set([...m.smart, ...m.fast, ...m.vision])];
+    const until = listed.map((model) => mine.find((h) => h.model === model)?.until ?? null);
+    if (listed.length && until.every(Boolean)) out.set(row.id, (until as string[]).sort((a, b) => t(a) - t(b))[0]);
+  }
+  return out;
 }
 
 export async function listConnections(ctx: Ctx): Promise<AiConnectionPublic[]> {
   ctx.need("ai", "full");
-  const [rows, holds] = await Promise.all([connectionRows(ctx.db, ctx.org.id), connectionHolds(ctx.db, ctx.org.id)]);
+  const rows = await connectionRows(ctx.db, ctx.org.id);
+  const holds = await connectionHolds(ctx.db, ctx.org.id, rows);
   const ids = [...new Set(rows.map((r) => r.created_by).filter(Boolean))] as string[];
   const names = new Map<string, string>();
   if (ids.length) {
@@ -198,7 +222,7 @@ export async function listConnections(ctx: Ctx): Promise<AiConnectionPublic[]> {
 
 export async function publicConnection(ctx: Ctx, id: string): Promise<AiConnectionPublic> {
   const row = await connectionRow(ctx.db, ctx.org.id, id);
-  const holds = await connectionHolds(ctx.db, ctx.org.id);
+  const holds = await connectionHolds(ctx.db, ctx.org.id, [row]);
   return toPublic(ctx.cfg, row, holds.get(id) ?? null);
 }
 
@@ -245,9 +269,9 @@ export async function createConnection(ctx: Ctx, input: AiConnectionInput): Prom
   await ctx.write(async (tx) => {
     const pr = input.priority ?? (await tx.one<{ n: number }>(`select coalesce(max(priority) + 1, 0)::int as n from tz_ai_connections where org_id = $1 and deleted_at is null`, [ctx.org.id]))?.n ?? 0;
     await tx.query(
-      `insert into tz_ai_connections (id, org_id, label, preset, protocol, base_url, secret_enc, key_hint, key_fp, models, enabled, priority, created_by, updated_by)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12, $13, $13)`,
-      [id, ctx.org.id, label, preset.id, protocol, baseUrl, sealed?.enc ?? null, sealed?.hint ?? null, sealed?.fp ?? null, JSON.stringify(models), input.enabled ?? true, pr, ctx.user.id],
+      `insert into tz_ai_connections (id, org_id, label, preset, protocol, base_url, secret_enc, key_hint, key_fp, models, enabled, priority, created_by, updated_by, free_tier)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12, $13, $13, $14)`,
+      [id, ctx.org.id, label, preset.id, protocol, baseUrl, sealed?.enc ?? null, sealed?.hint ?? null, sealed?.fp ?? null, JSON.stringify(models), input.enabled ?? true, pr, ctx.user.id, input.free_tier ?? false],
     );
     await audit(tx, ctx, "ai_connection_create", "ai_connection", id, `اتصال هوش مصنوعی «${label}» ساخته شد`, { preset: preset.id, key: sealed ? sealed.hint : null });
   });
@@ -281,9 +305,9 @@ export async function updateConnection(ctx: Ctx, id: string, patch: Partial<AiCo
          key_fp = case when $15 then null else coalesce($12, key_fp) end,
          status = case when $10::text is not null or $13 then 'unchecked' else status end,
          last_error = case when $10::text is not null or $13 then null else last_error end,
-         updated_by = $14, updated_at = now()
+         free_tier = $16, updated_by = $14, updated_at = now()
        where org_id = $1 and id = $2`,
-      [ctx.org.id, id, label, preset.id, protocol, baseUrl, JSON.stringify(models), patch.enabled ?? row.enabled, patch.priority ?? row.priority, sealed?.enc ?? null, sealed?.hint ?? null, sealed?.fp ?? null, baseUrl !== row.base_url || protocol !== row.protocol || moved, ctx.user.id, dropKey],
+      [ctx.org.id, id, label, preset.id, protocol, baseUrl, JSON.stringify(models), patch.enabled ?? row.enabled, patch.priority ?? row.priority, sealed?.enc ?? null, sealed?.hint ?? null, sealed?.fp ?? null, baseUrl !== row.base_url || protocol !== row.protocol || moved, ctx.user.id, dropKey, patch.free_tier ?? !!row.free_tier],
     );
     if (sealed) await tx.query(`delete from tz_ai_holds where connection_id = $1`, [id]);
     await audit(tx, ctx, sealed ? "ai_connection_key" : "ai_connection_update", "ai_connection", id, sealed ? `کلید اتصال «${label}» عوض شد` : `اتصال هوش مصنوعی «${label}» ویرایش شد`, sealed ? { key: sealed.hint } : undefined);
@@ -340,7 +364,7 @@ const TEST_SYSTEM = "You check that an API connection works. Answer in Persian w
 const TEST_PROMPT = "فقط بنویس: سلام";
 
 /** «آزمایش اتصال»: read the model list, then one short real reply from each model. */
-export async function testResolved(ctx: Ctx, conn: ResolvedConnection, models: string[], persistId: string | null): Promise<AiTestReport> {
+export async function testResolved(ctx: Ctx, conn: ResolvedConnection, models: string[], persistId: string | null, free = false): Promise<AiTestReport> {
   const started = Date.now();
   const adapter = createAdapter(conn, adapterEnv(ctx.cfg));
   let available: string[] | undefined;
@@ -355,16 +379,18 @@ export async function testResolved(ctx: Ctx, conn: ResolvedConnection, models: s
   for (const model of tryModels) {
     const t0 = Date.now();
     try {
-      const r = await adapter.turn({ model, system: TEST_SYSTEM, messages: [{ role: "user", parts: [{ type: "text", text: TEST_PROMPT }] }], maxTokens: 1024, effort: "low", signal: AbortSignal.timeout(60_000) });
+      // a model on this computer may first have to load from disk: three minutes instead of one
+      const limit = connectMs(conn) > 60_000 ? 180_000 : 60_000;
+      const r = await adapter.turn({ model, system: TEST_SYSTEM, messages: [{ role: "user", parts: [{ type: "text", text: TEST_PROMPT }] }], maxTokens: 1024, effort: "low", signal: AbortSignal.timeout(limit) });
       const ms = Date.now() - t0;
-      await recordUsage(ctx, { feature: "test", connection_id: persistId, preset: conn.preset.id, model: r.model, usage: r.usage, provider_cost: r.providerCostUsd, local: conn.preset.region === "local", ms, ok: true });
+      await recordUsage(ctx, { feature: "test", connection_id: persistId, preset: conn.preset.id, model: r.model, usage: r.usage, provider_cost: r.providerCostUsd, local: conn.preset.region === "local", free, ms, ok: true });
       if (r.stop === "refusal") rows.push({ model, ok: false, ms, kind: "refusal", message_fa: aiErrorText("refusal").message });
       else if (!r.text.trim()) rows.push({ model, ok: false, ms, kind: "empty", message_fa: aiErrorText("empty").message });
       else rows.push({ model, ok: true, ms, reply: r.text.trim().slice(0, 200) });
     } catch (e) {
       const pe = e instanceof ProviderError ? e : new ProviderError("other", String((e as Error)?.message ?? e));
       const ms = Date.now() - t0;
-      await recordUsage(ctx, { feature: "test", connection_id: persistId, preset: conn.preset.id, model, ms, ok: false, error_kind: pe.kind });
+      await recordUsage(ctx, { feature: "test", connection_id: persistId, preset: conn.preset.id, model, free, ms, ok: false, error_kind: pe.kind });
       rows.push({ model, ok: false, ms, kind: pe.kind, message_fa: aiErrorText(pe.kind, { canManage: true, desktop: ctx.cfg.mode === "desktop" }).message, provider_message: scrubSecrets(pe.message, [conn.key]).slice(0, 400) });
     }
   }
@@ -401,7 +427,7 @@ export async function testConnection(ctx: Ctx, id: string, models?: string[]): P
     return { ok: false, ms: 0, models: [{ model: "", ok: false, ms: 0, kind: pe.kind ?? "other", message_fa: pe.message }], route: "direct" };
   }
   const m = modelsOf(row);
-  return testResolved(ctx, conn, models?.length ? models : [...m.smart.slice(0, 1), ...m.fast.slice(0, 1), ...m.vision.slice(0, 1)], id);
+  return testResolved(ctx, conn, models?.length ? models : [...m.smart.slice(0, 1), ...m.fast.slice(0, 1), ...m.vision.slice(0, 1)], id, !!row.free_tier);
 }
 
 /**
@@ -431,7 +457,7 @@ export async function testUnsaved(ctx: Ctx, input: AiConnectionInput & { connect
   if (!key && preset.key_required) throw bad("کلید API را وارد کنید");
   const conn: ResolvedConnection = { id: input.connection_id ?? "unsaved", label: input.label ?? preset.label, preset, protocol, baseUrl, key };
   const models = [...(input.models?.smart ?? preset.models.smart).slice(0, 1), ...(input.models?.fast ?? preset.models.fast).slice(0, 1), ...(input.models?.vision ?? preset.models.vision).slice(0, 1)];
-  return testResolved(ctx, conn, models, null);
+  return testResolved(ctx, conn, models, null, !!input.free_tier);
 }
 
 export async function refreshModels(ctx: Ctx, id: string): Promise<{ models: string[]; connection: AiConnectionPublic }> {
