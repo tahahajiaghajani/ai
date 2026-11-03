@@ -8,9 +8,8 @@ import type { AiEffort, AiErrorKind, AiJob, AiSettings } from "@shared/ai/types"
 import type { AiStatus } from "@shared/ai/api";
 import { aiErrorText } from "@shared/ai/errors";
 import { AiUnavailableError } from "./errors";
-import { assertUsable, chainFor, loadEnv, runTurn, unavailable, type AiEnv } from "./chain";
+import { assertUsable, chainFor, loadEnv, runTurn, unavailable, WEB_LABEL, webFirst, webLink, type AiEnv } from "./chain";
 import { appSecretMissing } from "./connections";
-import { cloudLink } from "./relay";
 import { redactDataBlocks, redactPrompt } from "./redact";
 import { dropNulls, jsonSchemaOf } from "./schema";
 import { disabledByPlatform, FEATURE_SWITCH } from "./settings";
@@ -113,8 +112,7 @@ export async function aiStatus(ctx: Ctx, job: AiJob = "assistant"): Promise<{ ok
     const env = await loadEnv(ctx);
     await assertUsable(ctx, env);
     const { entries, held, total } = await chainFor(ctx, job, env);
-    if (entries.length) return { ok: true };
-    if (ctx.cfg.mode === "desktop" && env.settings.use_cloud && cloudLink(ctx.cfg)) return { ok: true };
+    if (entries.length || webLink(ctx, env)) return { ok: true };
     const kind: AiErrorKind = total ? (held ?? "rate") : "not_configured";
     return { ok: false, kind, message_fa: unavailable(ctx, kind).message };
   } catch (e) {
@@ -131,7 +129,7 @@ export async function statusView(ctx: Ctx, env?: AiEnv): Promise<AiStatus> {
   const byPlatform = disabledByPlatform(e.policy, ctx.org.id);
   const budget = await budgetState(ctx, e.settings, e.policy);
   const { entries, held, total } = await chainFor(ctx, "assistant", e);
-  const link = ctx.cfg.mode === "desktop" && e.settings.use_cloud ? cloudLink(ctx.cfg) : null;
+  const link = webLink(ctx, e);
   const configured = entries.length > 0 || total > 0 || !!link;
   let kind: AiErrorKind | null = null;
   if (!canUse) kind = "disabled";
@@ -140,7 +138,8 @@ export async function statusView(ctx: Ctx, env?: AiEnv): Promise<AiStatus> {
   else if (budget.state === "stopped") kind = "budget";
   else if (!entries.length && !link) kind = total ? (held ?? "rate") : "not_configured";
   const text = kind ? aiErrorText(kind, { canManage, desktop: ctx.cfg.mode === "desktop", byPlatform }) : null;
-  const first = entries[0];
+  // «اول نسخهٔ وب» for the assistant: the web version answers first, with a model its own chain picks
+  const first = webFirst(ctx, e, "assistant") ? undefined : entries[0];
   return {
     enabled: !byPlatform && e.settings.enabled,
     configured,
@@ -154,7 +153,7 @@ export async function statusView(ctx: Ctx, env?: AiEnv): Promise<AiStatus> {
     features: e.settings.features,
     budget,
     model: first?.model ?? null,
-    connection: first?.row.label ?? (link ? "نسخهٔ وب" : null),
+    connection: first?.row.label ?? (link ? WEB_LABEL : null),
     route: first ? "direct" : link ? "via_cloud" : null,
     mode: ctx.cfg.mode,
     app_secret_missing: canManage && appSecretMissing(ctx.cfg),

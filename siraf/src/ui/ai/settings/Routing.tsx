@@ -1,11 +1,14 @@
 // «کارها و مدل‌ها»: for each job (دستیار، تحلیل و گزارش، کارهای سریع، خواندن تصویر و سند) the ordered chain of
 // connection + model — the first that works answers, the next ones take over on errors — and the effort of the job.
 // An empty chain means «خودکار»: every enabled connection by priority, each with the models of the job's tier in order.
+// In the Windows app with «استفاده از اتصال‌های نسخهٔ وب» on, «اول نسخهٔ وب» lets the web version answer a job before
+// this computer's chain (a model on a computer without a graphics card is slow for the assistant's long prompts).
 import { useEffect, useMemo, useState } from "react";
-import { AutoComplete, Button, Segmented, Select, Tooltip } from "antd";
+import { AutoComplete, Button, Segmented, Select, Switch, Tooltip } from "antd";
 import { ArrowDown, ArrowUp, Plus, X } from "lucide-react";
 import type { AiConnectionPublic, AiEffort, AiJob, AiSettings } from "@shared/ai/types";
 import { useOrg } from "../../lib/org";
+import { useSession } from "../../lib/session";
 import { useNotify } from "../../lib/hooks";
 import { fa } from "../../lib/fa";
 import { EmptyState } from "../../components/display";
@@ -105,25 +108,31 @@ function ChainEditor({ job, chain, connections, onChange }: { job: AiJob; chain:
   );
 }
 
-export function RoutingTab({ settings, connections }: { settings: AiSettings; connections: AiConnectionPublic[] }) {
+export function RoutingTab({ settings, connections, mode, linked: linkedView }: { settings: AiSettings; connections: AiConnectionPublic[]; mode?: "cloud" | "desktop"; linked?: boolean }) {
   const { api } = useOrg();
+  const { meta } = useSession();
   const n = useNotify();
   const refresh = useAiInvalidate();
   const [routing, setRouting] = useState(settings.routing);
   const [effort, setEffort] = useState(settings.effort);
+  const [cloudFirst, setCloudFirst] = useState(settings.cloud_first);
   const [saving, setSaving] = useState(false);
   useEffect(() => {
     setRouting(settings.routing);
     setEffort(settings.effort);
+    setCloudFirst(settings.cloud_first);
   }, [settings]);
   const ids = useMemo(() => new Set(connections.map((c) => c.id)), [connections]);
-  const dirty = JSON.stringify(routing) !== JSON.stringify(settings.routing) || JSON.stringify(effort) !== JSON.stringify(settings.effort);
+  // «اول نسخهٔ وب»: only in the Windows app, linked, with «استفاده از اتصال‌های نسخهٔ وب» on
+  const webFirst = (mode ?? meta?.mode) === "desktop" && settings.use_cloud && (linkedView ?? !!meta?.desktop?.cloud?.linked);
+  const dirty =
+    JSON.stringify(routing) !== JSON.stringify(settings.routing) || JSON.stringify(effort) !== JSON.stringify(settings.effort) || JSON.stringify(cloudFirst) !== JSON.stringify(settings.cloud_first);
 
   const save = async () => {
     const clean = Object.fromEntries(JOBS.map((j) => [j, cleanChain(routing[j] ?? [], ids)])) as AiSettings["routing"];
     setSaving(true);
     try {
-      await api.put("/ai/settings", { ...settings, routing: clean, effort });
+      await api.put("/ai/settings", { ...settings, routing: clean, effort, cloud_first: cloudFirst });
       n.ok("کارها و مدل‌ها ذخیره شد.");
       refresh();
     } catch (e) {
@@ -160,6 +169,19 @@ export function RoutingTab({ settings, connections }: { settings: AiSettings; co
                   options={EFFORTS.map((e) => ({ value: e, label: EFFORT_LABEL[e] }))}
                   aria-label={`میزان تلاش ${JOB_LABEL[j].title}`}
                 />
+                {webFirst ? (
+                  <Tooltip title="این کار اول از اتصال‌های نسخهٔ وب پاسخ می‌گیرد و اتصال‌های این رایانه فقط وقتی پاسخ می‌دهند که نسخهٔ وب در دسترس نباشد.">
+                    <label className="ai-webfirst">
+                      <span>اول نسخهٔ وب</span>
+                      <Switch
+                        size="small"
+                        checked={cloudFirst.includes(j)}
+                        onChange={(v) => setCloudFirst((cf) => JOBS.filter((x) => (x === j ? v : cf.includes(x))))}
+                        aria-label={`اول نسخهٔ وب برای ${JOB_LABEL[j].title}`}
+                      />
+                    </label>
+                  </Tooltip>
+                ) : null}
               </div>
             </div>
           </div>

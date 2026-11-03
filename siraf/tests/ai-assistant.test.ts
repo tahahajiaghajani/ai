@@ -12,7 +12,9 @@ import { AGENT_LIMITS } from "@server/modules/ai/agent";
 import { history } from "@server/modules/ai/threads";
 import { makeCtx, type AuthUser, type MemberRow, type OrgRow, type ServerConfig } from "@server/context";
 import { quietLog } from "./helpers";
-import { redactRelay, registerCloudLink } from "@server/modules/ai/relay";
+import { redactRelay, registerCloudLink, relayTurn } from "@server/modules/ai/relay";
+import { runTurn } from "@server/modules/ai/chain";
+import { AiUnavailableError } from "@server/modules/ai/errors";
 import { uuidv7 } from "@shared/id";
 import type { AiStreamEvent } from "@shared/ai/types";
 
@@ -631,5 +633,115 @@ describe("Windows app → web version relay", () => {
     // the local attempt failed, then the web version answered
     expect(routes.some((u) => u.connection_id === connection.id && !u.ok)).toBe(true);
     expect(routes[routes.length - 1].route).toBe("via_cloud");
+  });
+
+  it("asks the web version first for the jobs chosen for it, and this computer only when the web version cannot answer", async () => {
+    const cloud = await setup("10.0.0.79");
+    const device = new Client(cloud.app);
+    const login = await device.post("/auth/login", { email: "owner@example.com", password: "s3cret-pass", device: { name: "ویندوز بی کارت گرافیک", platform: "windows" } });
+    // Ollama on this computer (slow without a graphics card) and the linked web version, each counted, each able to fail
+    const calls = { web: 0, ollama: 0 };
+    const down = { web: false, ollama: false };
+    const ollamaReply = (text: string) =>
+      new Response(
+        [
+          `data: ${JSON.stringify({ model: "qwen3.5:9b", choices: [{ index: 0, delta: { role: "assistant", content: text }, finish_reason: null }] })}`,
+          `data: ${JSON.stringify({ model: "qwen3.5:9b", choices: [{ index: 0, delta: {}, finish_reason: "stop" }], usage: { prompt_tokens: 11_000, completion_tokens: 6 } })}`,
+          "data: [DONE]",
+          "",
+        ].join("\n\n"),
+        { headers: { "content-type": "text/event-stream" } },
+      );
+    const deskFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input instanceof Request ? input.url : input);
+      if (url.startsWith("http://127.0.0.1:11434/")) {
+        calls.ollama++;
+        if (down.ollama) throw new TypeError("fetch failed");
+        return ollamaReply("پاسخ مدل همین رایانه");
+      }
+      calls.web++;
+      if (down.web) throw new TypeError("fetch failed");
+      return cloud.app.fetch(new Request(url.replace(/\/o\/[0-9a-f-]{36}\//, `/o/${cloud.orgId}/`), init));
+    }) as typeof fetch;
+    const desk = await makeServer({ mode: "desktop", config: { fetch: deskFetch } });
+    // its own address: sign-ups are limited per address and hour across this file
+    const owner = new Client({ fetch: (r: Request) => (r.headers.set("x-forwarded-for", "10.0.0.80"), desk.app.fetch(r)) });
+    const deskOrg = await signupWithOrg(owner, ["goods"]);
+    registerCloudLink(desk.db, () => ({ url: "http://local.test", token: login.token, org_id: deskOrg }));
+    const { connection } = await owner.post(`/o/${deskOrg}/ai/connections`, { preset: "ollama", models: { smart: ["qwen3.5:9b"], fast: ["qwen3.5:4b"] } });
+    await owner.put(`/o/${deskOrg}/ai/settings`, { use_cloud: true });
+    const chat = async (text: string) => {
+      const at = { ...calls };
+      const { events } = await stream(desk.app, owner, `/o/${deskOrg}/ai/chat`, { text });
+      return { events, web: calls.web - at.web, ollama: calls.ollama - at.ollama };
+    };
+    const last = async () => (await desk.db.query<{ route: string; connection_id: string | null; ok: boolean }>(`select route, connection_id, ok from tz_ai_usage order by created_at desc limit 1`))[0];
+
+    // the option off: this computer answers every job, as before
+    expect(await owner.get(`/o/${deskOrg}/ai/status`)).toMatchObject({ ok: true, route: "direct", model: "qwen3.5:9b" });
+    let r = await chat("سلام");
+    expect(r).toMatchObject({ web: 0, ollama: 1 });
+    expect(r.events[r.events.length - 1]).toMatchObject({ type: "done", stop: "end" });
+
+    // «اول نسخهٔ وب» for the assistant: only known jobs, and only in the Windows app
+    await owner.put(`/o/${deskOrg}/ai/settings`, { cloud_first: ["assistant", "everything"] }, 400);
+    const saved = await owner.put(`/o/${deskOrg}/ai/settings`, { cloud_first: ["assistant"] });
+    expect(saved.settings.cloud_first).toEqual(["assistant"]);
+    expect((await cloud.owner.put(`/o/${cloud.orgId}/ai/settings`, { cloud_first: ["assistant"] })).settings.cloud_first).toEqual([]);
+    expect(await owner.get(`/o/${deskOrg}/ai/status`)).toMatchObject({ ok: true, route: "via_cloud", connection: "نسخهٔ وب", model: null });
+
+    // the assistant goes to the web version before any connection of this computer
+    r = await chat("سلام");
+    expect(r).toMatchObject({ web: 1, ollama: 0 });
+    expect(r.events.find((e) => e.type === "meta")).toMatchObject({ model: null, connection: "نسخهٔ وب" });
+    expect(r.events.find((e) => e.type === "error")).toBeUndefined();
+    expect(r.events[r.events.length - 1]).toMatchObject({ type: "done", stop: "end" });
+    expect(await last()).toMatchObject({ route: "via_cloud", ok: true });
+    expect(await cloud.db.one(`select 1 as x from tz_ai_usage where feature = 'assistant'`)).not.toBeNull();
+
+    // a job left off keeps this computer first
+    const u = (await desk.db.one<AuthUser>(`select id, email, full_name, mobile, is_platform_admin, disabled, prefs from tz_users limit 1`))!;
+    const org = (await desk.db.one<OrgRow>(`select * from tz_orgs where id = $1`, [deskOrg]))!;
+    const m = (await desk.db.one<MemberRow>(`select id, org_id, user_id, role, overrides, is_active from tz_org_members where org_id = $1`, [deskOrg]))!;
+    const deskCfg = { mode: "desktop", db: desk.db, secret: "test-secret", allowSignup: true, platformAdmins: [], origin: "00000000-0000-7000-8000-000000000001", log: quietLog, fetch: deskFetch } as ServerConfig;
+    const at = { ...calls };
+    const analysis = await runTurn(makeCtx(deskCfg, u, org, m), { job: "analysis", feature: "explain", request: { system: "S", messages: [{ role: "user", parts: [{ type: "text", text: "تحلیل کن" }] }], effort: null, maxTokens: 100 } });
+    expect(analysis).toMatchObject({ route: "direct", connection_id: connection.id });
+    expect({ web: calls.web - at.web, ollama: calls.ollama - at.ollama }).toEqual({ web: 0, ollama: 1 });
+
+    // a refusal of the web version's model is the answer: never asked again of this computer
+    r = await chat("[refuse] بنویس");
+    expect(r).toMatchObject({ web: 1, ollama: 0 });
+    expect(r.events[r.events.length - 1]).toMatchObject({ type: "done", stop: "refusal" });
+
+    // the web version cannot answer (its connections refuse its location here): this computer answers
+    r = await chat("[error:region] سلام");
+    expect(r).toMatchObject({ web: 1, ollama: 1 });
+    expect(r.events.find((e) => e.type === "error")).toBeUndefined();
+    expect(r.events[r.events.length - 1]).toMatchObject({ type: "done", stop: "end" });
+
+    // the web version is unreachable (no internet): one try, then this computer answers
+    down.web = true;
+    r = await chat("سلام");
+    expect(r).toMatchObject({ web: 1, ollama: 1 });
+    expect(r.events.find((e) => e.type === "error")).toBeUndefined();
+    expect(r.events.filter((e) => e.type === "text").map((e) => (e as { delta: string }).delta).join("")).toBe("پاسخ مدل همین رایانه");
+    expect(r.events[r.events.length - 1]).toMatchObject({ type: "done", stop: "end" });
+    expect(await last()).toMatchObject({ route: "direct", connection_id: connection.id, ok: true });
+
+    // both fail: this computer's error, and the web version is not asked a second time
+    down.ollama = true;
+    r = await chat("سلام");
+    expect(r.web).toBe(1);
+    expect(r.ollama).toBeGreaterThan(0);
+    expect(r.events.find((e) => e.type === "error")).toMatchObject({ kind: "network" });
+
+    // a web version that does not begin its answer in time counts as unreachable
+    const hang = ((_input: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((_ok, fail) => init?.signal?.addEventListener("abort", () => fail(new Error("aborted"))))) as typeof fetch;
+    const t0 = Date.now();
+    const slow = relayTurn(makeCtx({ ...deskCfg, fetch: hang }, u, org, m), { url: "http://local.test", token: login.token, org_id: deskOrg }, { job: "assistant", feature: "assistant", request: { system: "S", messages: [{ role: "user", parts: [{ type: "text", text: "سلام" }] }], maxTokens: 100 } }, 50);
+    await expect(slow).rejects.toBeInstanceOf(AiUnavailableError);
+    await expect(slow).rejects.toMatchObject({ kind: "network" });
+    expect(Date.now() - t0).toBeLessThan(5_000);
   });
 });

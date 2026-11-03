@@ -34,6 +34,7 @@ export function defaultSettings(): AiSettings {
     instructions: "",
     retention_days: 90,
     use_cloud: false,
+    cloud_first: [],
   };
 }
 
@@ -60,6 +61,8 @@ export function normalizeSettings(raw: unknown): AiSettings {
     instructions: typeof r.instructions === "string" ? r.instructions : "",
     retention_days: typeof r.retention_days === "number" ? r.retention_days : d.retention_days,
     use_cloud: typeof r.use_cloud === "boolean" ? r.use_cloud : d.use_cloud,
+    // known jobs only, each once, in the jobs' own order
+    cloud_first: Array.isArray(r.cloud_first) ? JOBS.filter((j) => (r.cloud_first as unknown[]).includes(j)) : d.cloud_first,
   };
 }
 
@@ -83,6 +86,7 @@ const usd = z
 
 const route = z.array(z.object({ connection_id: z.string().uuid(), model: z.string().regex(MODEL_ID_RE, "شناسهٔ مدل معتبر نیست") })).max(8);
 const effort = z.enum(["low", "medium", "high", "max"]);
+const job = z.enum(["assistant", "analysis", "fast", "vision"]);
 
 export const settingsPatchSchema = z
   .object({
@@ -95,6 +99,7 @@ export const settingsPatchSchema = z
     instructions: z.string().max(4000, "یادداشت کسب‌وکار حداکثر ۴۰۰۰ نویسه است"),
     retention_days: z.number().int().min(7).max(3650),
     use_cloud: z.boolean(),
+    cloud_first: z.array(job).max(JOBS.length),
   })
   .partial();
 
@@ -116,6 +121,8 @@ export async function saveSettings(ctx: Ctx, patch: AiSettingsPatch): Promise<Ai
       effort: { ...cur.effort, ...(patch.effort ?? {}) },
       features: { ...cur.features, ...(patch.features ?? {}) },
       budgets: { ...cur.budgets, ...(patch.budgets ?? {}) },
+      // «اول نسخهٔ وب» belongs to the Windows app: the web version has no web version to ask first
+      ...(ctx.cfg.mode === "cloud" ? { cloud_first: [] } : {}),
     });
     await tx.query(
       `insert into tz_ai_settings (org_id, settings, updated_by, updated_at) values ($1, $2::jsonb, $3, now())
@@ -132,6 +139,7 @@ export function visibleSettings(s: AiSettings, canManage: boolean): AiSettings {
   return {
     ...s,
     routing: { assistant: [], analysis: [], fast: [], vision: [] },
+    cloud_first: [],
     budgets: { monthly_usd: null, user_daily_usd: null, alert_pct: s.budgets.alert_pct },
     instructions: "",
   };
