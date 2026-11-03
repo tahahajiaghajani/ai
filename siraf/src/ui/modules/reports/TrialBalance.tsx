@@ -13,10 +13,12 @@ import { faDigits, formatNumber } from "@shared/format";
 import { D } from "@shared/money";
 import { exportExcel } from "../../lib/excel";
 import { AiExplainButton } from "../../ai/explain/AiExplainButton";
+import { usePrinting } from "../../lib/print";
 
 const TOP = 56;
 
 export default function TrialBalance() {
+  const printing = usePrinting(); // antd's sticky header would print as its own, misaligned table
   const { api, fy, orgId, unit, has } = useOrg();
   const nav = useNavigate();
   const [range, setRange] = useRange();
@@ -162,7 +164,7 @@ export default function TrialBalance() {
             pagination={false}
             bordered={false}
             scroll={{ x: "max-content" }}
-            sticky={{ offsetHeader: TOP }}
+            sticky={printing ? undefined : { offsetHeader: TOP }}
             locale={{ emptyText: q.isLoading ? " " : <EmptyState title="در این دوره گردشی نیست" description="بازهٔ تاریخ را تغییر دهید یا پیش‌نویس‌ها را هم بیاورید." /> }}
             rowClassName={(r: any) => cx("bk-click", `bk-lv-${level === 1 ? 2 : r.level}`)}
             onRow={(r: any) => ({

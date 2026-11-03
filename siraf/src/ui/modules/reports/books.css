@@ -666,6 +666,9 @@
 @page bk-wide { size: A4 landscape; margin: 10mm; }
 @media print {
   .bk-po { display: block !important; }
+  /* an account cell wraps on paper: code and name first, the detail (person, bank account) under them */
+  .bk-acc { flex-wrap: wrap; column-gap: 6px; row-gap: 0; }
+  .bk-acc > small { flex: 0 1 auto; }
   .bk-card { box-shadow: none !important; border-radius: 0 !important; background: #fff !important; }
   .bk-card-h { display: none !important; }
   .bk-tbl :is(.ant-table-content, .ant-table-body, .ant-table-container, .ant-table) { overflow: visible !important; }

@@ -16,6 +16,7 @@ import { exportExcel } from "../../lib/excel";
 import { formatJalali } from "@shared/jalali";
 import { faDigits } from "@shared/format";
 import { AiExplainButton } from "../../ai/explain/AiExplainButton";
+import { usePrinting } from "../../lib/print";
 
 const side = (v: string | number | null | undefined) => {
   const d = D(v ?? 0);
@@ -23,6 +24,7 @@ const side = (v: string | number | null | undefined) => {
 };
 
 export default function Ledger() {
+  const printing = usePrinting(); // antd's sticky header would print as its own, misaligned table
   const { api, fy, orgId, unit } = useOrg();
   const nav = useNavigate();
   const [sp] = useSearchParams();
@@ -156,7 +158,7 @@ export default function Ledger() {
             pagination={{ pageSize: 200, hideOnSinglePage: true, size: "small", showSizeChanger: false }}
             scroll={{ x: tableX }}
             tableLayout="fixed"
-            sticky={{ offsetHeader: 56 }}
+            sticky={printing ? undefined : { offsetHeader: 56 }}
             locale={{ emptyText: " " }}
             rowClassName={(r: any) => cx(r.__open ? "bk-open" : "bk-click")}
             onRow={(r: any) =>

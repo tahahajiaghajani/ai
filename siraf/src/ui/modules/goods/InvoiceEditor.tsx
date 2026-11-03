@@ -22,7 +22,8 @@ import { uuidv7 } from "@shared/id";
 import { calcInvoice } from "../../../server/modules/goods/calc";
 import { INVOICE_KINDS, INVOICE_META, RETURN_KIND, SETTLEMENT, kindFromPath, type InvoiceKind } from "./labels";
 import { InvoiceStatus, ItemSelect, KindTag, inUnit, type ItemOpt } from "./components";
-import { InvoicePrint, type PrintData } from "./InvoicePrint";
+import { INVOICE_PAGE, InvoicePrint, type PrintData } from "./InvoicePrint";
+import { printWithPage } from "../../lib/print";
 import type { AiCaptureResult } from "@shared/ai/types";
 import { AiCaptureButton } from "../../ai/capture/AiCaptureButton";
 import { captureDay, lineNumbers, markOf, matchItem, matchParty, val } from "../../ai/capture/apply";
@@ -565,7 +566,7 @@ function InvoiceEditor({ id }: { id: string | null }) {
             ) : null}
             {!readonly && !meta.sale && !isReturn ? <AiCaptureButton kind="purchase_invoice" onResult={applyCapture} compact /> : null}
             <Tooltip title="چاپ فاکتور">
-              <Button icon={<Ic icon={Printer} />} onClick={() => window.print()} aria-label="چاپ" />
+              <Button icon={<Ic icon={Printer} />} onClick={() => printWithPage(INVOICE_PAGE.size, INVOICE_PAGE.margin)} aria-label="چاپ" />
             </Tooltip>
             {!readonly ? (
               <>

@@ -157,7 +157,7 @@ export default function Items() {
               { key: "own", dataIndex: "ownership", title: "مالکیت", render: (v, r: any) => (v === "consignment" ? <span className="inline-flex items-center gap-2"><Chip tone="neutral">امانی</Chip><span className="text-[13px] text-ink-3">{r.supplier_name ?? ""}</span></span> : <span className="text-[13px] text-ink-3">{r.supplier_name ?? ""}</span>) },
               { key: "st", dataIndex: "status", title: "وضعیت", render: (v) => <StatusOf s={v} map={ITEM_STATUS} /> },
               {
-                key: "act", width: 44, fixed: "left" as const, render: (_, r: any) => (
+                key: "act", width: 44, fixed: "end" as const, render: (_, r: any) => (
                   <span className="sf-row-act" onClick={(e) => e.stopPropagation()}>
                     <Dropdown
                       trigger={["click"]}

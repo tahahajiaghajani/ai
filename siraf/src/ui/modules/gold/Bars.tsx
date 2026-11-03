@@ -164,7 +164,7 @@ function Register({ initialQ }: { initialQ: string }) {
               { key: "cost", dataIndex: "cost", title: "بها", className: "sf-num", render: (v) => <Money v={v ?? 0} zero="—" /> },
               { key: "st", dataIndex: "status", title: "وضعیت", render: (v) => <StatusOf s={v} map={BAR_STATUS} /> },
               {
-                key: "act", width: 44, fixed: "left" as const, render: (_, r) => (
+                key: "act", width: 44, fixed: "end" as const, render: (_, r) => (
                   <span className="sf-row-act" onClick={(e) => e.stopPropagation()}>
                     <Dropdown
                       trigger={["click"]}

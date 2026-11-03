@@ -21,6 +21,7 @@ import { ChequeActionModal } from "./ChequeAction";
 import { ChequeDrawer, DueBadge } from "./ChequeDrawer";
 import { ChequesDue } from "./ChequesDue";
 import { Amt, ICON, ICON14, Who, cx, docNo } from "../reports/kit";
+import { usePrinting } from "../../lib/print";
 
 /** The tone of a status tile's nuqta: what needs attention is coloured, the rest is quiet. */
 const TILE_TONE: Record<string, string | undefined> = { bounced: "danger", deposited: "warning", cleared: "in" };
@@ -68,6 +69,7 @@ export default function Cheques() {
 }
 
 function ChequeList({ direction, onOpen, activeId }: { direction: Direction; onOpen: (id: string) => void; activeId: string | null }) {
+  const printing = usePrinting(); // antd's sticky header would print as its own, misaligned table
   const { api, orgId, can, unit } = useOrg();
   const n = useNotify();
   const [q, setQ] = useState("");
@@ -175,7 +177,7 @@ function ChequeList({ direction, onOpen, activeId }: { direction: Direction; onO
             loading={query.isLoading}
             dataSource={data?.rows ?? []}
             scroll={{ x: 1040 }}
-            sticky={{ offsetHeader: 56 }}
+            sticky={printing ? undefined : { offsetHeader: 56 }}
             locale={{
               emptyText: query.isLoading ? (
                 " "

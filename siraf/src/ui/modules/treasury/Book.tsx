@@ -18,6 +18,7 @@ import { formatJalali } from "@shared/jalali";
 import { D } from "@shared/money";
 import { KIND_TITLE, type DocKind } from "./labels";
 import { AiExplainButton } from "../../ai/explain/AiExplainButton";
+import { usePrinting } from "../../lib/print";
 
 type Kind = "cash" | "bank";
 
@@ -32,6 +33,7 @@ const sideWord = (v: string | number | null | undefined) => {
 };
 
 export default function Book() {
+  const printing = usePrinting(); // antd's sticky header would print as its own, misaligned table
   const { api, orgId, unit } = useOrg();
   const nav = useNavigate();
   const [sp, setSp] = useSearchParams();
@@ -204,7 +206,7 @@ export default function Book() {
             pagination={{ pageSize: 200, hideOnSinglePage: true, size: "small", showSizeChanger: false }}
             scroll={{ x: 104 + 64 + 128 + 240 + 136 * 3 + 80 }}
             tableLayout="fixed"
-            sticky={{ offsetHeader: 56 }}
+            sticky={printing ? undefined : { offsetHeader: 56 }}
             onRow={(r: any) => (r.opening ? {} : { onClick: () => open(r), onKeyDown: (e) => e.key === "Enter" && open(r), tabIndex: 0 })}
             rowClassName={(r: any) => (r.opening ? "bk-open" : "bk-click")}
             columns={[

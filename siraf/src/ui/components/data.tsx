@@ -16,6 +16,7 @@ import { useOrg } from "../lib/org";
 import { useAction, useNotify, useDebounced, useIsPhone } from "../lib/hooks";
 import { errorText } from "../lib/api";
 import { exportExcel } from "../lib/excel";
+import { usePrinting } from "../lib/print";
 import { Money, JDate, Weight, Amount, StatusTag, EmptyState, Chip } from "./display";
 import { NumberInput, MoneyInput, PctInput, WeightInput, DateInput, RefSelect, AccountSelect, FilterChip, DateRangeChip } from "./inputs";
 import { PageHeader } from "./layout";
@@ -344,6 +345,7 @@ export function ServerTable<T extends { id?: string }>({
   activeKey, empty, filtered, onClearFilters, rowSelection, sticky = true, size = "small", onData,
 }: ServerTableProps<T>) {
   const { api } = useOrg();
+  const printing = usePrinting(); // a sticky header prints as its own, misaligned table (lib/print.ts)
   const [page, setPage] = useState(1);
   const [size_, setSize] = useState(pageSize);
   const [sort, setSort] = useState<{ field?: string; dir?: "asc" | "desc" }>({});
@@ -485,7 +487,7 @@ export function ServerTable<T extends { id?: string }>({
         scroll={stacked ? undefined : { x: scrollX ?? "max-content" }}
         showHeader={!stacked}
         tableLayout={stacked ? "fixed" : undefined}
-        sticky={sticky && !stacked ? { offsetHeader: TOPBAR_OFFSET } : undefined}
+        sticky={sticky && !stacked && !printing ? { offsetHeader: TOPBAR_OFFSET } : undefined}
         rowSelection={firstLoad ? undefined : rowSelection}
         rowClassName={(r: T) => (firstLoad ? "sf-skel-row" : cx(rowClassName?.(r), activeKey != null && keyOf(r) === activeKey && "ant-table-row-selected"))}
         locale={{ emptyText: emptyNode }}
@@ -535,6 +537,7 @@ export type DataTableProps<T> = TableProps<T> & {
  */
 export function DataTable<T extends object>({ columns, stack = true, size = "small", scroll, className, showHeader, sticky, ...rest }: DataTableProps<T>) {
   const phone = useIsPhone();
+  const printing = usePrinting();
   const cols = useMemo(() => normalizeColumns(columns ?? []), [columns]);
   const stacked = useMemo(() => (phone && stack ? stackColumns(cols, false) : null), [phone, stack, cols]);
   return (
@@ -547,7 +550,7 @@ export function DataTable<T extends object>({ columns, stack = true, size = "sma
       scroll={stacked ? undefined : (scroll ?? { x: "max-content" })}
       showHeader={stacked ? false : showHeader}
       tableLayout={stacked ? "fixed" : rest.tableLayout}
-      sticky={stacked ? undefined : sticky}
+      sticky={stacked || printing ? undefined : sticky}
     />
   );
 }

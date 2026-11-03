@@ -549,15 +549,31 @@
   /* wide tables print whole: no clipping scroll containers, fit the page, no sort arrows or sticky chrome */
   .ant-table-wrapper :is(.ant-table-content, .ant-table-body, .ant-table-header) { overflow: visible !important; max-block-size: none !important; -webkit-mask-image: none !important; mask-image: none !important; }
   .ant-table-wrapper .ant-table table { inline-size: 100% !important; min-inline-size: 0 !important; table-layout: auto !important; font-size: 9pt; }
+  /* the paper sizes columns by their content: the screen's column widths would add up past the page, and the
+     hidden measure row (it holds the column titles) has no place on paper */
+  .ant-table-wrapper .ant-table table > colgroup > col { inline-size: auto !important; min-inline-size: 0 !important; }
+  .ant-table-wrapper .ant-table-measure-row { display: none !important; }
   .ant-table-wrapper .ant-table :is(th, td) { padding-inline: 4px !important; }
+  /* on paper text wraps: an ellipsis would hide it, and a one-line name or description widens the table past the
+     page. Figures (.sf-num) stay on one line; headers may take two lines */
+  .ant-table-wrapper .ant-table-cell-ellipsis { overflow: visible !important; text-overflow: clip !important; }
+  .ant-table-wrapper :is(.ant-table-tbody, .ant-table-summary) > tr > td:not(.sf-num),
+  .ant-table-wrapper :is(.ant-table-tbody, .ant-table-summary) > tr > td:not(.sf-num) *,
+  .ant-table-wrapper .ant-table-thead > tr > th { white-space: normal !important; }
+  /* …by words: an ellipsis part of a flex row (min-inline-size 0, overflow hidden) would otherwise be squeezed
+     below its longest word and broken between letters */
+  .ant-table-wrapper :is(.ant-table-tbody, .ant-table-summary) > tr > td:not(.sf-num) * { overflow: visible !important; text-overflow: clip !important; min-inline-size: auto !important; }
   .ant-table-wrapper .ant-table-cell-fix { position: static !important; }
   .ant-table-wrapper .ant-table-cell-fix::after, .ant-table-wrapper .ant-table-cell-fix::before { display: none !important; }
   .ant-table-column-sorter, .ant-table-filter-trigger, .ant-table-sticky-scroll, .ant-table-pagination, .sf-row-act, .sf-st-bar { display: none !important; }
   .ant-table-wrapper .ant-table-thead > tr > th { position: static !important; }
   .ant-table-wrapper thead { display: table-header-group; }
   .ant-table-wrapper tr { break-inside: avoid; }
-  /* a report wider than portrait (nine columns or more, or `.sf-print-wide`) asks for A4 landscape */
-  :root:has(.ant-table-wrapper table > colgroup > col:nth-child(9)) body,
-  :root:has(.sf-print-wide) body { page: sf-wide; }
+  /* a report wider than portrait (a printed table of nine columns or more, or `.sf-print-wide`) asks for A4
+     landscape. antd writes a <col> only for a column with a width, so the header cells are counted; a table kept
+     off paper (.no-print, print:hidden) does not count, and a print with a page of its own keeps it (printWithPage,
+     lib/print.ts, puts .sf-own-page on <html> for an A5 sheet, a roll receipt or labels) */
+  :root:not(.sf-own-page):has(.ant-table-wrapper:not(.no-print, .print\:hidden, :is(.no-print, .print\:hidden) *) .ant-table-thead > tr > th:nth-child(9)) body,
+  :root:not(.sf-own-page):has(.sf-print-wide) body { page: sf-wide; }
 }
 @page sf-wide { size: A4 landscape; margin: 12mm 12mm 14mm; }

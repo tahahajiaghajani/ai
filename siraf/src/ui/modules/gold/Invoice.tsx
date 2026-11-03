@@ -1,7 +1,8 @@
 // Printable gold documents. The sale invoice lists weight, fineness, gold value, wage, seller
 // profit and VAT separately (as Iranian rules for gold sellers require; VAT is charged on wage
-// and profit only), with the amount in words. Formats: A5 invoice, 80 mm till receipt, and a
-// generic A5 sheet for the other document kinds. Rendered hidden on screen, shown in print.
+// and profit only), with the amount in words. Formats: the invoice sheet, 80 mm till receipt, and
+// a generic sheet for the other document kinds, each on the smallest page its table fits (A5, A4,
+// A4 landscape — printSheet). Rendered hidden on screen, shown in print.
 import type { ReactNode } from "react";
 import { useOrg } from "../../lib/org";
 import { D, type Num } from "@shared/money";
@@ -112,7 +113,7 @@ function Row({ k, v, strong, sub }: { k: ReactNode; v: ReactNode; strong?: boole
   );
 }
 
-/** A5 sale invoice (فاکتور فروش طلا و جواهر). */
+/** Sale invoice (فاکتور فروش طلا و جواهر): eleven columns, so it prints on A4 landscape. */
 export function SaleInvoice({ doc }: { doc: any }) {
   const { unit } = useOrg();
   const out = (doc.lines ?? []).filter((l: any) => l.direction === "out");
@@ -293,7 +294,7 @@ const PARTY_LABEL: Partial<Record<DocKind, string>> = {
   melt: "ذوب‌کار", bullion_sale: "خریدار", opening: "—",
 };
 
-/** A5 sheet of any non-sale gold document (receipt, delivery note, melt report…). */
+/** Sheet of any non-sale gold document (receipt, delivery note, melt report…): A5 or A4, by its columns. */
 export function DocSheet({ doc }: { doc: any }) {
   const { unit } = useOrg();
   const kind = doc.kind as DocKind;
@@ -393,8 +394,27 @@ export function PrintArea({ doc, format }: { doc: any; format: PrintFormat }) {
 }
 
 /**
- * Print the sheet rendered by <PrintArea>: A5, or an 80 mm roll receipt whose page is exactly as
- * long as the receipt (CSS has no «auto» page height). Call after switching the format.
+ * The smallest page the sheet's widest table fits, measured at its narrowest (min-content) on the hidden
+ * sheet: A5 portrait (134 mm inside 7 mm margins), A4 portrait (186 mm) or A4 landscape (273 mm). Screen
+ * fonts measure a little wider than the print cuts, so a borderline sheet gets the larger page, never a cut one.
+ */
+function sheetPage(): [size: string, margin: string] {
+  let px = 0;
+  for (const t of document.querySelectorAll<HTMLTableElement>(".print-sheet .gold-print table")) {
+    const prev = t.style.inlineSize;
+    t.style.inlineSize = "min-content";
+    px = Math.max(px, t.getBoundingClientRect().width);
+    t.style.inlineSize = prev;
+  }
+  const mm = (px * 25.4) / 96;
+  if (mm <= 134) return ["A5 portrait", "7mm"];
+  if (mm <= 186) return ["A4 portrait", "10mm 12mm"];
+  return ["A4 landscape", "10mm 12mm"];
+}
+
+/**
+ * Print the sheet rendered by <PrintArea>: on the page its table fits (sheetPage), or an 80 mm roll receipt
+ * whose page is exactly as long as the receipt (CSS has no «auto» page height). Call after switching the format.
  */
 export function printSheet(format: PrintFormat) {
   setTimeout(() => {
@@ -402,7 +422,7 @@ export function printSheet(format: PrintFormat) {
       const el = document.querySelector<HTMLElement>("[data-gold-receipt]");
       const px = el?.getBoundingClientRect().height ?? 900;
       printWithPage(`80mm ${Math.ceil((px * 25.4) / 96) + 6}mm`, "2mm 4mm");
-    } else printWithPage("A5 portrait", "7mm");
+    } else printWithPage(...sheetPage());
   }, 80);
 }
 

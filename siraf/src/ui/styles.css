@@ -291,7 +291,13 @@
   .ant-layout-sider,
   .tz-header,
   .ant-message,
-  .ant-notification {
+  .ant-notification,
+  /* floating layers never print (a tooltip left under the pointer would land on the sheet) */
+  .ant-tooltip,
+  .ant-popover,
+  .ant-dropdown,
+  .ant-select-dropdown,
+  .ant-picker-dropdown {
     display: none !important;
   }
   .print-sheet {

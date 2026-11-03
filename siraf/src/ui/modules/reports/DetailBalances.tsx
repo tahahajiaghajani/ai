@@ -17,8 +17,10 @@ import { matchesFa } from "../../lib/fa";
 import { DETAIL_KINDS } from "../accounting/labels";
 import { exportExcel } from "../../lib/excel";
 import { AiExplainButton } from "../../ai/explain/AiExplainButton";
+import { usePrinting } from "../../lib/print";
 
 export default function DetailBalances() {
+  const printing = usePrinting(); // antd's sticky header would print as its own, misaligned table
   const { api, fy, orgId, unit, org } = useOrg();
   const base = org.base_currency ?? "IRR";
   const nav = useNavigate();
@@ -124,7 +126,7 @@ export default function DetailBalances() {
             dataSource={rows}
             pagination={{ pageSize: 100, hideOnSinglePage: true, size: "small", showSizeChanger: false }}
             scroll={{ x: "max-content" }}
-            sticky={{ offsetHeader: 56 }}
+            sticky={printing ? undefined : { offsetHeader: 56 }}
             locale={{ emptyText: q.isLoading ? " " : <EmptyState title={search ? "چیزی پیدا نشد" : "مانده‌ای نیست"} description={search ? "عبارت جستجو یا پالایه‌ها را تغییر دهید." : undefined} /> }}
             rowClassName={() => cx("bk-click")}
             onRow={(r: any) => ({

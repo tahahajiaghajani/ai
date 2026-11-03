@@ -13,6 +13,7 @@ import { matchesFa } from "../../lib/fa";
 import { faDigits } from "@shared/format";
 import { ENTITIES } from "@shared/entities";
 import { ICON, Who } from "../reports/kit";
+import { usePrinting } from "../../lib/print";
 
 const ACTION: Record<string, string> = {
   create: "ثبت",
@@ -186,6 +187,7 @@ function SupportSessions() {
 }
 
 function Events() {
+  const printing = usePrinting(); // antd's sticky header would print as its own, misaligned table
   const { api } = useOrg();
   const q = useQuery({ queryKey: ["audit"], queryFn: () => api.get("/audit").then((r) => r.rows as any[]) });
   const [search, setSearch] = useState("");
@@ -228,7 +230,7 @@ function Events() {
             pagination={{ pageSize: 50, hideOnSinglePage: true, size: "small", showSizeChanger: false }}
             scroll={{ x: 960 }}
             tableLayout="fixed"
-            sticky={{ offsetHeader: 56 }}
+            sticky={printing ? undefined : { offsetHeader: 56 }}
             locale={{ emptyText: q.isLoading ? " " : <EmptyState icon={ScrollText} title={search || action !== "all" ? "رویدادی با این شرایط نیست" : "هنوز رویدادی ثبت نشده"} /> }}
             columns={[
               { key: "at", dataIndex: "at", title: "زمان", width: 152, render: (v) => <span className="bk-2"><JDateTime v={v} /></span> },

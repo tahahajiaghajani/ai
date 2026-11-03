@@ -131,7 +131,7 @@ export default function Coins() {
               { key: "fam", title: "خانواده", render: (_, r) => <span className="text-ink-2">{FAMILY_TITLES[r.gold_meta.family ?? "other"]}</span> },
               { key: "mode", title: "قیمت", render: (_, r) => <span className="text-[13px] text-ink-3">{PRICING_MODE_TITLES[r.gold_meta.pricing_mode ?? "board"]}</span> },
               {
-                key: "act", width: 44, fixed: "left" as const, render: (_, r) => (
+                key: "act", width: 44, fixed: "end" as const, render: (_, r) => (
                   <span className="sf-row-act" onClick={(e) => e.stopPropagation()}>
                     <Dropdown
                       trigger={["click"]}

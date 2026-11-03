@@ -375,7 +375,7 @@ function StockDocEditor({ id }: { id: string | null }) {
         ) : null}
 
         <div ref={gridRef} className="sf-grid-wrap">
-          <table className="sf-grid min-w-[860px]">
+          <table className="sf-grid min-w-[860px] print:min-w-0">
             <thead>
               <tr>
                 <th className="w-10">ردیف</th>

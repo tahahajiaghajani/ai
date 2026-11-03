@@ -381,7 +381,8 @@ function registerIpc() {
       }
     }
   });
-  ipcMain.handle("taraz:print", async (e, opts: { silent?: boolean; printer?: string; landscape?: boolean; pageSize?: string } = {}) => {
+  // pageSize: a named paper («A5») or a custom one in microns ({ width, height }: an 80 mm roll, labels)
+  ipcMain.handle("taraz:print", async (e, opts: { silent?: boolean; printer?: string; landscape?: boolean; pageSize?: string | { width: number; height: number } } = {}) => {
     if (!fromApp(e)) throw new Error("forbidden");
     const wc = e.sender;
     return new Promise<void>((resolve, reject) =>
@@ -400,7 +401,8 @@ function registerIpc() {
     const safe = String(name ?? "").replace(/[\\/:*?"<>|\u0000-\u001f]+/g, " ").trim().slice(0, 120) || "siraf";
     const r = await dialog.showSaveDialog({ defaultPath: `${safe}.pdf`, filters: [{ name: "PDF", extensions: ["pdf"] }] });
     if (r.canceled || !r.filePath) return null;
-    const pdf = await e.sender.printToPDF({ printBackground: true, pageSize: "A4" });
+    // the page's own @page size wins (A4 landscape reports and invoices, A5 receipts); A4 when it sets none
+    const pdf = await e.sender.printToPDF({ printBackground: true, pageSize: "A4", preferCSSPageSize: true });
     writeFileSync(r.filePath, pdf);
     return r.filePath;
   });

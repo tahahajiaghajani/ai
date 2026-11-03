@@ -5,7 +5,7 @@ import { contextBridge, ipcRenderer } from "electron";
 const bridge = {
   isDesktop: true,
   version: process.env.npm_package_version ?? "",
-  print: (opts?: { silent?: boolean; printer?: string; landscape?: boolean; pageSize?: string }) => ipcRenderer.invoke("taraz:print", opts ?? {}),
+  print: (opts?: { silent?: boolean; printer?: string; landscape?: boolean; pageSize?: string | { width: number; height: number } }) => ipcRenderer.invoke("taraz:print", opts ?? {}),
   printers: () => ipcRenderer.invoke("taraz:printers"),
   savePdf: (name: string) => ipcRenderer.invoke("taraz:save-pdf", name),
   openPath: (p: string) => ipcRenderer.invoke("taraz:open-path", p),

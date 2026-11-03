@@ -156,7 +156,7 @@ export default function SalesReport() {
           scroll={{ x: "max-content" }}
           onRow={(r: any) => (group === "doc" ? { onClick: () => nav(`/${orgId}/gold/docs/${r.key}`), style: { cursor: "pointer" } } : {})}
           columns={[
-            { key: "k", title: keyTitle[group], fixed: "right" as const, render: (_: unknown, r: any) => label(r) },
+            { key: "k", title: keyTitle[group], fixed: "start" as const, render: (_: unknown, r: any) => label(r) },
             ...shown.map((c) => ({ key: c.key, title: c.title, className: "sf-num", render: (_: unknown, r: any) => vcell(c, r) })),
           ]}
           summary={() =>

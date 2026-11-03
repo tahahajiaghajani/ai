@@ -382,37 +382,9 @@ export function RateStamp({ rate }: { rate: Rate | null | undefined }) {
 }
 
 /**
- * Print a sheet with a given page size: adds an @page rule for the print, then removes it.
- * The sheet itself is any element with `hidden print:block` inside the page.
+ * Print a sheet with a given page size (lib/print.ts; the goods invoice prints through it too).
  */
-export function printWithPage(size: string, margin = "6mm") {
-  const style = document.createElement("style");
-  style.setAttribute("data-gold-print", "1");
-  // the page size of this print, without the app frame's padding around the sheet
-  // (the frame's full-height layout would otherwise add blank pages — wasted labels on a roll)
-  style.textContent = `@page { size: ${size}; margin: ${margin}; }
-@media print {
-  html, body, #root { height: auto !important; min-height: 0 !important; }
-  .min-h-screen, .ant-layout { min-height: 0 !important; height: auto !important; background: #fff !important; }
-  .ant-layout-content { padding: 0 !important; }
-}`;
-  document.head.appendChild(style);
-  const done = () => {
-    style.remove();
-    window.removeEventListener("afterprint", done);
-  };
-  window.addEventListener("afterprint", done);
-  setTimeout(() => {
-    const bridge = (window as unknown as { taraz?: { print?: (o?: Record<string, unknown>) => Promise<unknown> } }).taraz;
-    if (bridge?.print) {
-      // the Windows app prints asynchronously through Electron
-      Promise.resolve(bridge.print({})).catch(() => window.print()).finally(done);
-    } else {
-      window.print();
-      setTimeout(done, 1500);
-    }
-  }, 60);
-}
+export { printWithPage } from "../../lib/print";
 
 /** Section title row used inside cards. */
 export function Caption({ children, extra }: { children: ReactNode; extra?: ReactNode }) {

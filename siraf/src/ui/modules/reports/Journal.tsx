@@ -13,8 +13,10 @@ import { faDigits } from "@shared/format";
 import { formatJalali } from "@shared/jalali";
 import { exportExcel } from "../../lib/excel";
 import { AiExplainButton } from "../../ai/explain/AiExplainButton";
+import { usePrinting } from "../../lib/print";
 
 export default function Journal() {
+  const printing = usePrinting(); // antd's sticky header would print as its own, misaligned table
   const { api, fy, unit, orgId } = useOrg();
   const nav = useNavigate();
   const [range, setRange] = useRange("month");
@@ -67,7 +69,7 @@ export default function Journal() {
           pagination={{ pageSize: 300, hideOnSinglePage: true, size: "small", showSizeChanger: false }}
           scroll={{ x: 980 }}
           tableLayout="fixed"
-          sticky={{ offsetHeader: 56 }}
+          sticky={printing ? undefined : { offsetHeader: 56 }}
           locale={{ emptyText: q.isLoading ? " " : <EmptyState title="در این دوره سندی نیست" description="بازهٔ تاریخ را تغییر دهید." /> }}
           rowClassName={(r: any) => cx("bk-click", first(index.get(`${r.voucher_id}-${r.line_no}`) ?? 0) && "bk-vstart")}
           onRow={(r: any) => ({ onClick: () => nav(`/${orgId}/accounting/vouchers/${r.voucher_id}`) })}

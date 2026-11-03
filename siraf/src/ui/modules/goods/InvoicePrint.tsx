@@ -57,6 +57,9 @@ function Box({ title, rows }: { title: string; rows: [string, string | null | un
   );
 }
 
+/** The page of a printed invoice (also passed to the Windows app by the print button). */
+export const INVOICE_PAGE = { size: "A4 landscape", margin: "10mm 12mm 12mm" } as const;
+
 export function InvoicePrint({ data }: { data: PrintData }) {
   const { org, unit } = useOrg();
   const dp = org.money_decimals ?? 0;
@@ -93,7 +96,8 @@ export function InvoicePrint({ data }: { data: PrintData }) {
   if (!D(t.deductions).isZero()) totalRows.push(["کسورات", t.deductions]);
   return (
     <div className="print-sheet sf-pr hidden print:block" dir="rtl">
-      <style>{"@media print { @page { size: A4 portrait; margin: 14mm 12mm 16mm; } }"}</style>
+      {/* eleven columns, as on the official form: A4 landscape (portrait cuts the last columns of six money figures) */}
+      <style>{`@media print { @page { size: ${INVOICE_PAGE.size}; margin: ${INVOICE_PAGE.margin}; } }`}</style>
       <PrintHead
         title={data.kind === "sale" ? "صورتحساب فروش کالا و خدمات" : meta.title}
         rows={[
