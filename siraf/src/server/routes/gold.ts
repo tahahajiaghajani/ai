@@ -14,6 +14,9 @@ import { catalogueAction, coinKardex, deleteProduct, productSchema, products, sa
 import { barEditSchema, barLookup, listBars, readBar, setBarReserved, updateBar } from "../modules/gold/bars";
 import { coinBubbles, goldPosition } from "../modules/gold/position";
 import { KINDS } from "../modules/gold/pricing";
+import { publicKeys } from "../modules/fx/source-keys";
+import { sourceOrigin } from "@shared/price-source";
+import type { Ctx } from "../context";
 
 export const goldRoutes = router();
 
@@ -27,10 +30,20 @@ const page = (q: Record<string, string>) => ({ page: q.page ? Number(q.page) || 
 
 // ---------------------------------------------------------------- settings
 
-goldRoutes.get("/settings", (c) => {
+/**
+ * The custom source's key on this runtime, for those who may change it: where it goes and «…abcd», never the key.
+ * Null when this runtime keeps none for the source's address (or the reader may not manage the settings).
+ */
+async function priceKey(ctx: Ctx) {
+  if (!ctx.can("gold", "full") && !ctx.can("settings", "edit")) return null;
+  const origin = sourceOrigin(goldSettings(ctx.org).price_source?.url);
+  return (await publicKeys(ctx, "gold")).find((k) => k.origin === origin) ?? null;
+}
+
+goldRoutes.get("/settings", async (c) => {
   const ctx = c.get("ctx");
   ctx.need("gold", "view");
-  return c.json({ settings: goldSettings(ctx.org), kinds: KINDS });
+  return c.json({ settings: goldSettings(ctx.org), kinds: KINDS, price_key: await priceKey(ctx), runtime: ctx.cfg.mode });
 });
 
 goldRoutes.put("/settings", async (c) => {
@@ -46,6 +59,12 @@ goldRoutes.put("/settings", async (c) => {
           url: z.string().max(500).nullish(),
           unit: z.enum(["rial", "toman"]).nullish(),
           paths: z.record(z.string().max(45), z.string().max(200).nullish()).nullish(),
+          // the request header that carries this runtime's key; the key itself is write-only and never returned
+          header: z.string().max(100).nullish(),
+          label: z.string().max(100).nullish(),
+          link: z.string().max(400).nullish(),
+          key: z.string().max(2000).nullish(),
+          remove_key: z.boolean().nullish(),
         })
         .nullish(),
       kyc: z.object({ enabled: z.boolean().nullish(), threshold: num }).nullish(),
@@ -77,7 +96,7 @@ goldRoutes.put("/settings", async (c) => {
       vat_history: input.vat_history === undefined ? undefined : (input.vat_history ?? []).map((v) => ({ from: v.from, pct: String(v.pct) })),
     }),
   );
-  return c.json({ settings });
+  return c.json({ settings, price_key: await priceKey(ctx), runtime: ctx.cfg.mode });
 });
 
 // ---------------------------------------------------------------- rates

@@ -1,5 +1,6 @@
 // Provider keys at rest: AES-256-GCM "v2" envelopes. The data key is derived from this runtime's
-// secret with HKDF (purpose "siraf/ai-keys"); the key id names the secret that sealed it (a
+// secret with HKDF (purpose "siraf/ai-keys"; keys of custom price sources use "siraf/price-keys",
+// fx/source-keys.ts); the key id names the secret that sealed it (a
 // changed secret is detected without trying); the additional data binds a ciphertext to its
 // business and connection, so a value copied to another row never opens. Strict: anything that is
 // not a v2 envelope is unreadable — there is no plaintext pass-through.
@@ -34,21 +35,21 @@ function aad(b: KeyBinding): Buffer {
   return Buffer.from(`${b.orgId}:${b.connectionId}`, "utf8");
 }
 
-export function encryptKey(secret: string, binding: KeyBinding, plain: string): string {
+export function encryptKey(secret: string, binding: KeyBinding, plain: string, purpose = PURPOSE): string {
   const iv = randomBytes(12);
-  const c = createCipheriv("aes-256-gcm", derive(secret, PURPOSE), iv);
+  const c = createCipheriv("aes-256-gcm", derive(secret, purpose), iv);
   c.setAAD(aad(binding));
   const enc = Buffer.concat([c.update(plain, "utf8"), c.final()]);
   return [VERSION, secretKeyId(secret), iv.toString("base64url"), enc.toString("base64url"), c.getAuthTag().toString("base64url")].join(".");
 }
 
-export function decryptKey(secret: string, binding: KeyBinding, stored: string | null | undefined): string {
+export function decryptKey(secret: string, binding: KeyBinding, stored: string | null | undefined, purpose = PURPOSE): string {
   const parts = String(stored ?? "").split(".");
   if (parts.length !== 5 || parts[0] !== VERSION) throw new KeyUnreadableError();
   const [, kid, iv, enc, tag] = parts;
   if (kid !== secretKeyId(secret)) throw new KeyUnreadableError();
   try {
-    const d = createDecipheriv("aes-256-gcm", derive(secret, PURPOSE), Buffer.from(iv, "base64url"));
+    const d = createDecipheriv("aes-256-gcm", derive(secret, purpose), Buffer.from(iv, "base64url"));
     d.setAAD(aad(binding));
     d.setAuthTag(Buffer.from(tag, "base64url"));
     return Buffer.concat([d.update(Buffer.from(enc, "base64url")), d.final()]).toString("utf8");
@@ -58,9 +59,9 @@ export function decryptKey(secret: string, binding: KeyBinding, stored: string |
 }
 
 /** Can this stored value be opened with the current secret? (never throws) */
-export function keyReadable(secret: string, binding: KeyBinding, stored: string | null | undefined): boolean {
+export function keyReadable(secret: string, binding: KeyBinding, stored: string | null | undefined, purpose = PURPOSE): boolean {
   try {
-    decryptKey(secret, binding, stored);
+    decryptKey(secret, binding, stored, purpose);
     return true;
   } catch {
     return false;

@@ -11,7 +11,7 @@ import { useOrg } from "../../lib/org";
 import { D, type Num } from "@shared/money";
 import { formatNumber, faDigits } from "@shared/format";
 import { formatJalaliDateTime } from "@shared/jalali";
-import { StatusTag, Weight } from "../../components/display";
+import { SourceCredit, StatusTag, Weight } from "../../components/display";
 import { Ic } from "../../components/shell/icons";
 import { pct as faPct } from "../../lib/fa";
 import { KINDS, FORM_TITLES, WAGE_TYPE_TITLES, type DocKind, type PriceEnv } from "../../../server/modules/gold/pricing";
@@ -104,7 +104,8 @@ export interface GoldSettings {
   purchase_tax_pct: string;
   provider: "auto" | "tgju" | "goldapi" | "custom";
   usd: string | null;
-  price_source: { url: string; unit?: "rial" | "toman"; paths: Record<string, string> } | null;
+  /** a custom JSON source; `header` (or {key} in `url`) carries the key this runtime keeps (never sent to the page) */
+  price_source: { url: string; unit?: "rial" | "toman"; paths: Record<string, string>; header?: string; label?: string; link?: string } | null;
   kyc?: { enabled: boolean; threshold: string | null };
   bars?: BarDefaults & { premium_bands: PremiumBand[] };
   vat_history?: VatPeriod[];
@@ -124,7 +125,11 @@ export interface Rate {
   coins: Record<string, string>;
   coins_buy?: Record<string, string>;
   bubbles?: Record<string, { domestic: string | null; world: string | null; domestic_amount: string | null; world_amount: string | null }>;
-  meta?: { retail?: Record<string, string>; provider_bubble?: Record<string, string>; stale?: string[]; carried?: string[]; deviations?: string[] };
+  meta?: {
+    retail?: Record<string, string>; provider_bubble?: Record<string, string>; stale?: string[]; carried?: string[]; deviations?: string[];
+    /** a custom source's own name and link, shown next to its prices */
+    source_label?: string; source_link?: string;
+  };
   source: string;
   note?: string | null;
 }
@@ -366,7 +371,13 @@ export function RateChange({ change, pct, amount }: { change: string | null | un
   );
 }
 
-const SOURCE_FA: Record<string, string> = { manual: "دستی", tgju: "tgju", goldapi: "انس جهانی", custom: "منبع دلخواه" };
+export const SOURCE_FA: Record<string, string> = { manual: "دستی", tgju: "tgju", goldapi: "انس جهانی", custom: "منبع دلخواه" };
+
+/** Where a rate came from: a custom source by its own name («منبع: EZRate», linked), others by their title. */
+export function RateSource({ rate, bare }: { rate: Pick<Rate, "source" | "meta">; bare?: boolean }) {
+  const label = rate.source === "custom" ? rate.meta?.source_label : undefined;
+  return label ? <SourceCredit label={label} link={rate.meta?.source_link} bare={bare} /> : <span>{SOURCE_FA[rate.source] ?? rate.source}</span>;
+}
 
 export function RateStamp({ rate }: { rate: Rate | null | undefined }) {
   if (!rate) return <span>قیمتی ثبت نشده است</span>;
@@ -375,7 +386,7 @@ export function RateStamp({ rate }: { rate: Rate | null | undefined }) {
       <span className="inline-flex items-center gap-2">
         <span className="sf-num">{formatJalaliDateTime(rate.at)}</span>
         <span className="sf-sep" aria-hidden />
-        <span>{SOURCE_FA[rate.source] ?? rate.source}</span>
+        <RateSource rate={rate} />
       </span>
     </Tooltip>
   );

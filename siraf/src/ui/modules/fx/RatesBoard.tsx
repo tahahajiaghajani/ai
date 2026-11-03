@@ -10,7 +10,7 @@ import { useOrg } from "../../lib/org";
 import { useAction, useHotkey, useIsPhone, useNotify } from "../../lib/hooks";
 import { PageHeader, Section } from "../../components/layout";
 import { NumberInput, PctInput, MoneyInput } from "../../components/inputs";
-import { JDateTime, EmptyState, Loader } from "../../components/display";
+import { JDateTime, EmptyState, Loader, SourceCredit } from "../../components/display";
 import { APP_NAME } from "@shared/constants";
 import { pct as faPct } from "../../lib/fa";
 import { D } from "@shared/money";
@@ -18,6 +18,7 @@ import { faDigits, formatCompact, formatNumber } from "@shared/format";
 import { formatJalali, formatJalaliDateTime, todayISO } from "@shared/jalali";
 import { SirafMark } from "../../components/brand";
 import { jTime } from "../../lib/fa";
+import { hostOf, needsKey, sourceOrigin } from "@shared/price-source";
 import { ago, Change, CurrencyAvatar, CurrencyChip, CUR_KIND_FA, fnum, rateLabel, SOURCE_FA, SourceTag, useBoard, useFlash, useLive, type BoardCurrency, type Kind } from "./shared";
 
 const TICKER = ["BTC", "ETH", "USDT", "TRX", "SOL", "TON", "USD", "EUR"];
@@ -86,7 +87,7 @@ export default function RatesBoard() {
       const details = [
         r.unchanged ? `${faDigits(r.unchanged)} نرخ بدون تغییر` : null,
         r.missing?.length ? `بدون قیمت: ${r.missing.join("، ")}` : null,
-        r.usd_rate ? `نرخ دلار مبنا: ${rateLabel(r.usd_rate, dp)} (${SOURCE_FA[r.usd_source] ?? r.usd_source})` : null,
+        r.usd_rate ? `نرخ دلار مبنا: ${rateLabel(r.usd_rate, dp)} (${r.usd_label?.source_label ?? SOURCE_FA[r.usd_source] ?? r.usd_source})` : null,
       ].filter(Boolean);
       if (r.errors?.length) n.notify.warning({ title: head, description: <div className="text-xs leading-6">{[...details, ...r.errors].map((x: string, i: number) => <div key={i}>{x}</div>)}</div>, duration: 8 });
       else n.notify.success({ title: head, description: details.length ? <div className="text-xs leading-6">{details.map((x, i) => <div key={i}>{x}</div>)}</div> : undefined, duration: 5 });
@@ -253,7 +254,7 @@ function RateRow({ c, i, e, dp, canEdit, onEdit, focusCell, onHistory }: {
       <td className="sf-gn text-ink-2">{mid ? rateLabel(mid, dp) : <span className="sf-zero">—</span>}</td>
       <td className="sf-gn text-ink-3">{spread ? `${fnum(spread.toFixed(), 2)}٪` : <span className="sf-zero">—</span>}</td>
       <td className="sf-gn"><Change pct={c.change_pct} /></td>
-      <td className="sf-gn"><SourceTag s={c.rate?.source} /></td>
+      <td className="sf-gn"><SourceTag s={c.rate?.source} label={c.rate?.source_label} link={c.rate?.source_link} /></td>
       <td className="sf-gn text-[13px] text-ink-3">{c.rate ? <Tooltip title={formatJalaliDateTime(c.rate.at)}><span>{ago(c.rate.at)}</span></Tooltip> : <span className="sf-zero">—</span>}</td>
       <td>
         <span className="sf-row-x">
@@ -277,7 +278,7 @@ function LiveStrip() {
       <div className="sf-doc-h flex-wrap">
         <h2>بازار جهانی</h2>
         <span className="sf-doc-hm inline-flex flex-wrap items-center gap-x-2">
-          {d?.usd_rate ? <>دلار مبنا <b className="sf-num font-medium text-ink">{rateLabel(d.usd_rate)}</b> {unit}<span className="sf-sep" aria-hidden />{SOURCE_FA[d.usd_source ?? ""] ?? d.usd_source}<span className="sf-sep" aria-hidden />معادل‌ها به میلیون {unit}</> : <span className="text-warning">نرخ دلار مبنا ثبت نشده</span>}
+          {d?.usd_rate ? <>دلار مبنا <b className="sf-num font-medium text-ink">{rateLabel(d.usd_rate)}</b> {unit}<span className="sf-sep" aria-hidden />{d.usd_label ? <SourceCredit label={d.usd_label.source_label} link={d.usd_label.source_link} /> : SOURCE_FA[d.usd_source ?? ""] ?? d.usd_source}<span className="sf-sep" aria-hidden />معادل‌ها به میلیون {unit}</> : <span className="text-warning">نرخ دلار مبنا ثبت نشده</span>}
         </span>
         <div className="sf-doc-hx text-[12px] text-ink-3">
           {d ? <><i className="sf-nuqta" data-live="" aria-hidden /><span className="sf-num">{jTime(new Date(d.at))}</span></> : null}
@@ -389,21 +390,35 @@ function HistoryDrawer({ currency, onClose, dp }: { currency: BoardCurrency | nu
 
 interface Custom {
   code: string;
+  /** may hold {key}: the key this runtime keeps fills it */
   url: string;
   path: string;
   unit: "base" | "usd";
   factor?: string | null;
+  /** request header that carries the key («X-API-Key») */
+  header?: string | null;
+  label?: string | null;
+  link?: string | null;
+}
+
+/** A custom source's key on this runtime, as the server shows it: where it goes and «…abcd» only. */
+interface SavedKey {
+  origin: string;
+  hint: string | null;
+  unreadable: boolean;
 }
 
 function SettingsModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
   const { api } = useOrg();
   const q = useQuery({ queryKey: ["fx-settings"], queryFn: () => api.get("/fx/settings") });
   const [v, setV] = useState<any>(null);
+  // new keys typed here, or keys to remove, per origin; write-only (the server never returns a key)
+  const [keys, setKeys] = useState<Record<string, { key?: string; remove?: boolean }>>({});
   useEffect(() => {
     if (q.data && !v) setV({ ...q.data.settings });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q.data]);
-  const save = useAction(() => api.put("/fx/settings", v), { success: "تنظیمات صرافی ذخیره شد", invalidate: [["fx-settings"], ["fx-live"]], onSuccess: () => { onSaved(); onClose(); } });
+  const save = useAction(() => api.put("/fx/settings", { ...v, keys: keyChanges }), { success: "تنظیمات صرافی ذخیره شد", invalidate: [["fx-settings"], ["fx-live"]], onSuccess: () => { onSaved(); onClose(); } });
   const providers: { id: string; title: string; covers: string }[] = q.data?.providers ?? [];
   const order: string[] = v?.providers ?? [];
   const move = (id: string, d: -1 | 1) => {
@@ -416,6 +431,18 @@ function SettingsModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
   };
   const custom: Custom[] = v?.custom ?? [];
   const setCustom = (i: number, patch: Partial<Custom>) => setV({ ...v, custom: custom.map((c, k) => (k === i ? { ...c, ...patch } : c)) });
+  // a new row starts as a copy of the last one (rows of one service differ only in the symbol and the path)
+  const last = custom[custom.length - 1];
+  const addRow = () =>
+    setV({ ...v, custom: [...custom, last ? { ...last, code: "", path: "" } : { code: "USD", url: "", path: "", unit: "base", factor: null }] });
+  const saved: SavedKey[] = q.data?.keys ?? [];
+  const runtime = q.data?.runtime === "desktop" ? "نسخهٔ ویندوز" : "نسخهٔ وب";
+  // one key per service: every origin a source sends a key to (a header name, or {key} in its address)
+  const keyed = [...new Set(custom.filter((c) => needsKey(c)).map((c) => sourceOrigin(c.url)).filter((o): o is string => !!o))];
+  // only for services a row still uses (a key typed before its address changed stays here)
+  const keyChanges = Object.entries(keys)
+    .filter(([origin, k]) => keyed.includes(origin) && (k.key?.trim() || k.remove))
+    .map(([origin, k]) => ({ origin, key: k.key?.trim() || null, remove: !!k.remove }));
   return (
     <Modal open onCancel={onClose} title="تنظیمات صرافی و منابع قیمت" width={760} okText="ذخیره" cancelText="انصراف" onOk={() => save.mutate(undefined)} confirmLoading={save.isPending} destroyOnHidden>
       {!v ? (
@@ -464,7 +491,7 @@ function SettingsModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
           <div>
             <div className="mb-2 flex items-center text-xs font-semibold text-ink-3">
               منابع سفارشی (هر API با پاسخ JSON؛ مثلاً Navasan با کلید خودتان)
-              <Button size="small" type="link" icon={<Ic icon={Plus} />} className="ms-auto" onClick={() => setV({ ...v, custom: [...custom, { code: "USD", url: "", path: "", unit: "base", factor: null }] })}>
+              <Button size="small" type="link" icon={<Ic icon={Plus} />} className="ms-auto" onClick={addRow}>
                 منبع
               </Button>
             </div>
@@ -473,18 +500,57 @@ function SettingsModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
                 {custom.map((c, i) => (
                   <div key={i} className="bg-sunken rounded-lg grid gap-2 p-2 sm:grid-cols-[80px_1fr_150px_110px_80px_32px]">
                     <Input size="small" dir="ltr" value={c.code} placeholder="USD" onChange={(e) => setCustom(i, { code: e.target.value.toUpperCase() })} />
-                    <Input size="small" dir="ltr" value={c.url} placeholder={c.url === "" && q.data?.can_edit === false ? "(محرمانه)" : "https://…"} onChange={(e) => setCustom(i, { url: e.target.value })} />
-                    <Input size="small" dir="ltr" value={c.path} placeholder="data.price" onChange={(e) => setCustom(i, { path: e.target.value })} />
+                    <Input size="small" dir="ltr" className="sf-code" value={c.url} placeholder={c.url === "" && q.data?.can_edit === false ? "(محرمانه)" : "https://…"} onChange={(e) => setCustom(i, { url: e.target.value })} />
+                    <Input size="small" dir="ltr" className="sf-code" value={c.path} placeholder="data.price" onChange={(e) => setCustom(i, { path: e.target.value })} />
                     <Select size="small" value={c.unit} onChange={(u) => setCustom(i, { unit: u })} options={[{ value: "base", label: "به ارز پایه" }, { value: "usd", label: "به دلار" }]} />
                     <Input size="small" dir="ltr" value={c.factor ?? ""} placeholder="ضریب" onChange={(e) => setCustom(i, { factor: e.target.value || null })} />
                     <Button size="small" type="text" danger icon={<Ic icon={X} />} onClick={() => setV({ ...v, custom: custom.filter((_, k) => k !== i) })} aria-label="حذف" />
+                    <div className="grid gap-2 sm:col-span-6 sm:grid-cols-3">
+                      <Input size="small" dir="ltr" className="sf-code" value={c.header ?? ""} placeholder="X-API-Key" aria-label="سرآیند کلید" prefix={<span className="text-[12px] text-ink-3">سرآیند</span>} onChange={(e) => setCustom(i, { header: e.target.value || null })} />
+                      <Input size="small" value={c.label ?? ""} aria-label="نام منبع کنار نرخ‌ها" prefix={<span className="text-[12px] text-ink-3">نام منبع</span>} onChange={(e) => setCustom(i, { label: e.target.value || null })} />
+                      <Input size="small" dir="ltr" className="sf-code" value={c.link ?? ""} placeholder="https://…" aria-label="پیوند نام منبع" prefix={<span className="text-[12px] text-ink-3">پیوند</span>} onChange={(e) => setCustom(i, { link: e.target.value || null })} />
+                    </div>
                   </div>
                 ))}
               </div>
             ) : (
               <div className="text-xs text-ink-3">منبع سفارشی تعریف نشده است.</div>
             )}
-            <Alert className="!mt-2" type="info" showIcon title={<>منبع سفارشی فقط وقتی استفاده می‌شود که «منبع سفارشی» در فهرست بالا فعال باشد. مسیر مثل <span className="sf-ltr">data.price</span>، <span className="sf-ltr">items[0].sell</span> یا <span className="sf-ltr">items[symbol=USD].sell</span>؛ برای قیمت ریالی در حساب تومانی ضریب ۰٫۱ و برای قیمت تومانی در حساب ریالی ضریب ۱۰.</>} />
+            {keyed.length ? (
+              <div className="mt-3 grid gap-1.5">
+                <div className="text-xs font-semibold text-ink-3">کلید سرویس‌ها، فقط در {runtime}</div>
+                {keyed.map((origin) => {
+                  const st = saved.find((k) => k.origin === origin);
+                  const ch = keys[origin] ?? {};
+                  return (
+                    <div key={origin} className="bg-sunken rounded-lg grid items-center gap-2 px-3 py-1.5 sm:grid-cols-[150px_1fr_auto]">
+                      <bdi dir="ltr" className="sf-latin truncate text-[13px]" title={origin}>{hostOf(origin)}</bdi>
+                      <Input.Password
+                        size="small"
+                        dir="ltr"
+                        className="sf-code"
+                        autoComplete="new-password"
+                        spellCheck={false}
+                        aria-label={`کلید ${hostOf(origin)}`}
+                        value={ch.key ?? ""}
+                        disabled={!!ch.remove}
+                        placeholder={st && !st.unreadable ? st.hint ?? "" : ""}
+                        onChange={(e) => setKeys({ ...keys, [origin]: { key: e.target.value } })}
+                      />
+                      <span className="flex items-center gap-2 whitespace-nowrap text-xs text-ink-3">
+                        {ch.remove ? "با ذخیره حذف می‌شود" : st ? (st.unreadable ? <span className="text-warning">باز نمی‌شود؛ دوباره وارد کنید</span> : "ذخیره‌شده") : "ذخیره نشده"}
+                        {st ? (
+                          <Button size="small" type="link" danger={!ch.remove} onClick={() => setKeys({ ...keys, [origin]: { remove: !ch.remove } })}>
+                            {ch.remove ? "نگه‌داشتن" : "حذف"}
+                          </Button>
+                        ) : null}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
+            <Alert className="!mt-2" type="info" showIcon title={<>منبع سفارشی فقط وقتی استفاده می‌شود که «منبع سفارشی» در فهرست بالا فعال باشد. مسیر مثل <span className="sf-ltr">data.price</span>، <span className="sf-ltr">items[0].sell</span> یا <span className="sf-ltr">items[symbol=USD].sell</span>؛ برای قیمت ریالی در حساب تومانی ضریب ۰٫۱ و برای قیمت تومانی در حساب ریالی ضریب ۱۰. کلیدی که در نشانی می‌آید: به جای آن <span className="sf-ltr">{"{key}"}</span>.</>} />
           </div>
         </div>
       )}
@@ -519,6 +585,8 @@ function DisplayBoard({ rows, onClose, dp, unit, live }: { rows: BoardCurrency[]
   }, []);
   const fiat = rows.filter((r) => r.kind !== "crypto");
   const crypto = rows.filter((r) => r.kind === "crypto");
+  // a custom source names itself next to its rates (free plans such as EZRate's ask for it)
+  const credits = [...new Map(rows.filter((r) => r.rate?.source === "custom" && r.rate.source_label).map((r) => [r.rate!.source_label!, r.rate!.source_link ?? null])).entries()];
   // one figure size for both sections: the longest figure on the whole board sets it
   const len = Math.max(6, ...rows.flatMap((c) => [c.rate?.buy, c.rate?.sell].map((v) => (v ? rateLabel(v, dp).length : 0))));
   const block = (title: string, list: BoardCurrency[]) =>
@@ -567,6 +635,7 @@ function DisplayBoard({ rows, onClose, dp, unit, live }: { rows: BoardCurrency[]
             </span>
           );
         })}
+        {credits.map(([label, link]) => <SourceCredit key={label} label={label} link={link} className="sf-tv-src" />)}
         <span className="sf-tv-brand"><SirafMark size={16} variant="white" />{APP_NAME}</span>
       </footer>
     </div>
@@ -610,6 +679,7 @@ function RateItem({ c, e, dp, canEdit, onEdit, onHistory }: {
         <span className="t">
           <b>{c.name}</b>
           <span><bdi dir="ltr" className="sf-latin">{c.code}</bdi>{c.rate ? <><span className="sf-sep" aria-hidden />{ago(c.rate.at)}</> : null}</span>
+          {c.rate?.source_label ? <SourceCredit label={c.rate.source_label} /> : null}
         </span>
       </button>
       <div className="v">

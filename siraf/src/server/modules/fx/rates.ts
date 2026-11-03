@@ -10,6 +10,7 @@ import { currencyBook, fxSettings, latestRates, orgTz, rateMid, type CurrencyBoo
 import { customValue, freshTgju, marketQuotes, nobitexStats, openErRates, tgjuPrices } from "./providers";
 import { tgjuKeyOf } from "./tgju";
 import { NetError, type Fetch } from "./net";
+import { sourceRequests, type SourceRequests } from "./source-keys";
 
 const RIAL = new Set(["IRR", "IRT"]);
 type Decimal = ReturnType<typeof D>;
@@ -22,6 +23,12 @@ export function roundRate(x: Decimal, baseDp: number): string {
 
 const errText = (e: unknown, label: string) => (e instanceof NetError ? e.message : `${label}: ${(e as Error)?.message ?? "خطا"}`);
 
+/** The name a custom source shows next to its rates («EZRate») and its link, when it has one. */
+function customLabel(s: FxSettings, code: string): { source_label: string; source_link: string | null } | null {
+  const src = s.custom.find((x) => x.code.toUpperCase() === code.toUpperCase());
+  return src?.label ? { source_label: src.label, source_link: src.link ?? null } : null;
+}
+
 /**
  * Base-currency price of one US dollar. Order: a custom USD source, tgju's free-market dollar (rial and
  * toman bases), the manual board rate, official rates (other bases), any stored USD rate, and — rial
@@ -29,8 +36,9 @@ const errText = (e: unknown, label: string) => (e instanceof NetError ? e.messag
  * `live` (the ticker, polled every few seconds while a board is open): a stored USD rate wins over the
  * custom source and tgju, which are then asked only by «به‌روزرسانی از بازار» — a free API's monthly quota
  * would otherwise drain at one request a minute, and tgju's feed is not ours to poll.
+ * `requests` (source-keys.ts) gives a custom source that sends a key its request on this runtime.
  */
-export async function usdToBase(f: Fetch, cur: CurrencyBook, s: FxSettings, stored: Map<string, StoredRate>, errors: string[], opts: { live?: boolean; desktop?: boolean } = {}): Promise<{ rate: string | null; source: string | null; fresh: boolean }> {
+export async function usdToBase(f: Fetch, cur: CurrencyBook, s: FxSettings, stored: Map<string, StoredRate>, errors: string[], opts: { live?: boolean; desktop?: boolean; requests?: SourceRequests } = {}): Promise<{ rate: string | null; source: string | null; fresh: boolean }> {
   const base = cur.base;
   if (base.code === "USD") return { rate: "1", source: "base", fresh: false };
   const usd = cur.byCode.get("USD");
@@ -41,9 +49,9 @@ export async function usdToBase(f: Fetch, cur: CurrencyBook, s: FxSettings, stor
   if (opts.live && (custom || tgju) && kept && rateMid(kept)) return { rate: rateMid(kept), source: kept.source, fresh: false };
   if (custom) {
     try {
-      return { rate: await customValue(f, custom), source: "custom", fresh: true };
+      return { rate: await customValue(f, custom, opts.requests ? await opts.requests(custom) : undefined), source: "custom", fresh: true };
     } catch (e) {
-      errors.push(errText(e, "منبع سفارشی"));
+      errors.push(errText(e, `منبع سفارشی ${custom.code}`));
     }
   }
   if (tgju) {
@@ -101,7 +109,8 @@ export async function ratesBoard(ctx: Ctx) {
       const pm = rateMid(p);
       return {
         ...c,
-        rate: l ? { id: l.id, buy: l.buy, sell: l.sell, mid: lm, at: l.at, source: l.source } : null,
+        // a custom source's own name next to its rate (a free plan such as EZRate's asks for it)
+        rate: l ? { id: l.id, buy: l.buy, sell: l.sell, mid: lm, at: l.at, source: l.source, ...(l.source === "custom" ? customLabel(s, c.code) : null) } : null,
         change_pct: lm && pm && D(pm).gt(0) ? D(lm).div(D(pm)).minus(1).times(100).toDecimalPlaces(2).toFixed() : null,
       };
     }),
@@ -210,12 +219,13 @@ export async function liveQuotes(ctx: Ctx, symbols: string[]) {
   const { quotes, errors: qe } = await marketQuotes(ctx.cfg.fetch, items, s.providers);
   errors.push(...qe);
   const stored = await latestRates(ctx.db, ctx.org.id);
-  const usd = await usdToBase(ctx.cfg.fetch, cur, s, stored, errors, { live: true, desktop: ctx.cfg.mode === "desktop" });
+  const usd = await usdToBase(ctx.cfg.fetch, cur, s, stored, errors, { live: true, desktop: ctx.cfg.mode === "desktop", requests: sourceRequests(ctx, "fx") });
   return {
     at: new Date().toISOString(),
     base: { code: cur.base.code, decimals: cur.base.decimals },
     usd_rate: usd.rate,
     usd_source: usd.source,
+    usd_label: usd.source === "custom" ? customLabel(s, "USD") : null,
     quotes: items.map((i) => {
       const q = quotes.get(i.code);
       return {
@@ -242,7 +252,8 @@ export async function refreshRates(ctx: Ctx, currencyIds: string[] = [], kinds: 
   const errors: string[] = [];
   const targets = cur.list.filter((c) => !c.is_base && c.is_active && (!currencyIds.length || currencyIds.includes(c.id)) && (!kinds.length || kinds.includes(c.kind)));
   const desktop = ctx.cfg.mode === "desktop";
-  const usd = await usdToBase(f, cur, s, stored, errors, { desktop });
+  const requests = sourceRequests(ctx, "fx");
+  const usd = await usdToBase(f, cur, s, stored, errors, { desktop, requests });
   const rial = RIAL.has(cur.base.code);
   const toBase = cur.base.code === "IRT" ? D("0.1") : D(1);
 
@@ -256,10 +267,10 @@ export async function refreshRates(ctx: Ctx, currencyIds: string[] = [], kinds: 
       const src = s.custom.find((x) => x.code.toUpperCase() === c.code.toUpperCase());
       return src && c.code !== "USD" ? [{ c, src }] : [];
     });
-    const got = await Promise.allSettled(jobs.map((j) => customValue(f, j.src)));
+    const got = await Promise.allSettled(jobs.map(async (j) => customValue(f, j.src, await requests(j.src))));
     got.forEach((r, i) => {
       const { c, src } = jobs[i];
-      if (r.status === "rejected") return void errors.push(errText(r.reason, "منبع سفارشی"));
+      if (r.status === "rejected") return void errors.push(errText(r.reason, `منبع سفارشی ${src.code}`));
       if (src.unit === "base") direct.set(c.id, { price: r.value, source: "custom" });
       else if (usd.rate) direct.set(c.id, { price: D(r.value).times(D(usd.rate)).toFixed(), source: "custom" });
     });
@@ -352,6 +363,7 @@ export async function refreshRates(ctx: Ctx, currencyIds: string[] = [], kinds: 
     missing,
     usd_rate: usd.rate,
     usd_source: usd.source,
+    usd_label: usd.source === "custom" ? customLabel(s, "USD") : null,
     rows: rows.map((r) => ({ code: codes.get(String(r.currency_id)), buy: r.buy, sell: r.sell, mid: r.mid, source: r.source })),
     errors: Array.from(new Set(errors)),
   };

@@ -203,6 +203,8 @@
   .sf-tv-foot .up { color: color-mix(in srgb, var(--sf-in) 22%, white); }
   .sf-tv-foot .down { color: color-mix(in srgb, var(--sf-danger) 22%, white); }
   .sf-tv-brand { margin-inline-start: auto; display: inline-flex; align-items: center; gap: 8px; color: var(--sf-on-brand-3); font-size: 13px; }
+  /* «منبع: EZRate»: a custom source named next to its rates, its name light on Dusk like the figures */
+  .sf-tv-src a { color: var(--sf-on-brand); text-decoration: underline; text-underline-offset: 3px; }
   .sf-tv .sf-flash-up { animation-name: sf-tv-flash-up; }
   .sf-tv .sf-flash-down { animation-name: sf-tv-flash-down; }
   @keyframes sf-tv-flash-up { from { background-color: color-mix(in srgb, var(--sf-in) 30%, transparent); } to { background-color: transparent; } }

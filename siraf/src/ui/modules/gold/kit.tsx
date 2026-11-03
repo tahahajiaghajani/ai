@@ -5,6 +5,7 @@ import { Coins, Recycle } from "lucide-react";
 import { D, type Num } from "@shared/money";
 import { faDigits, formatNumber } from "@shared/format";
 import { Ic } from "../../components/shell/icons";
+import { SourceCredit } from "../../components/display";
 import { jTime } from "../../lib/fa";
 import { coinTitle, RateChange, type Coin, type Rate } from "./shared";
 
@@ -111,6 +112,7 @@ export function GoldStrip({ rate, change, changePct, coins }: { rate: Rate | nul
         <span className="live" title={rate.source === "manual" ? "قیمت دستی" : "قیمت زنده"}>
           <i className="sf-nuqta" data-live={fresh ? "" : undefined} aria-hidden />
           <span className="sf-num">{jTime(at)}</span>
+          {rate.source === "custom" && rate.meta?.source_label ? <SourceCredit label={rate.meta.source_label} link={rate.meta.source_link} /> : null}
         </span>
       </div>
     </div>

@@ -10,6 +10,8 @@ import type { PriceEnv } from "./pricing";
 import { vatPctAt, type PremiumBand, type VatPeriod } from "@shared/gold";
 import { RATE_KEY_RE } from "@shared/gold-catalogue";
 import { DEFAULT_BAR_DEFAULTS, type BarDefaults, type QuoteEnv } from "@shared/gold-quote";
+import { cleanSourceLabel, cleanSourceLink, needsKey, sourceOrigin } from "@shared/price-source";
+import { keyedSourceProblem, saveKeys } from "../fx/source-keys";
 
 /** Market fields a rate source can deliver (JSON paths of a custom source point at them). */
 export const RATE_FIELDS = ["gram18", "mazaneh", "gram24", "ounce_usd", "usd", "buy_gram18"] as const;
@@ -23,10 +25,16 @@ export const PATH_KEY_RE = /^(?:buy:)?[a-z0-9_]{2,40}$/;
 export const isPathKey = (k: string) => (RATE_FIELDS as readonly string[]).includes(k) || (PATH_KEY_RE.test(k) && RATE_KEY_RE.test(k.replace(/^buy:/, "")));
 
 export interface CustomSource {
+  /** may hold {key}: the key saved on this runtime fills it (fx/source-keys.ts) */
   url: string;
   /** unit of the prices returned by the source */
   unit?: "rial" | "toman";
   paths: Record<string, string>;
+  /** request header that carries the key saved on this runtime (X-API-Key); the key itself is never in settings */
+  header?: string;
+  /** the name shown next to its prices («EZRate») and its link */
+  label?: string;
+  link?: string;
 }
 
 /** Identification (KYC) before coins, bars and آب‌شده change hands. */
@@ -78,7 +86,12 @@ function parseSource(raw: unknown): CustomSource | null {
   const paths: Record<string, string> = {};
   const src = (o.paths && typeof o.paths === "object" ? o.paths : {}) as Record<string, unknown>;
   for (const [f, v] of Object.entries(src)) if (isPathKey(f) && typeof v === "string" && v.trim()) paths[f] = v.trim();
-  return { url: o.url.trim(), unit: o.unit === "toman" ? "toman" : "rial", paths };
+  // header kept as written (sync and PATCH /o/:org write it unchecked): fx/source-keys.ts refuses a header that may
+  // not carry a key before anything is sent
+  const header = typeof o.header === "string" && o.header.trim() ? o.header.trim().slice(0, 100) : null;
+  const link = cleanSourceLink(o.link);
+  const label = cleanSourceLabel(o.label) ?? (link ? new URL(link).hostname : null);
+  return { url: o.url.trim(), unit: o.unit === "toman" ? "toman" : "rial", paths, ...(header ? { header } : {}), ...(label ? { label } : {}), ...(link ? { link } : {}) };
 }
 
 const num = (v: unknown, fallback: string) => (isNumeric(v) ? D(v as string).toString() : fallback);
@@ -175,7 +188,17 @@ export interface GoldSettingsInput {
   purchase_tax_pct?: string | null;
   provider?: LiveProvider | null;
   usd?: string | null;
-  price_source?: { url?: string | null; unit?: "rial" | "toman" | null; paths?: Record<string, string | null | undefined> | null } | null;
+  price_source?: {
+    url?: string | null;
+    unit?: "rial" | "toman" | null;
+    paths?: Record<string, string | null | undefined> | null;
+    header?: string | null;
+    label?: string | null;
+    link?: string | null;
+    /** write-only: the source's key on this runtime (kept in tz_price_keys, never in settings) */
+    key?: string | null;
+    remove_key?: boolean | null;
+  } | null;
   kyc?: { enabled?: boolean | null; threshold?: string | null } | null;
   bars?: Partial<Record<"basis" | "fee_sealed_pct" | "fee_opened_pct" | "assay_fee" | "opened_fineness", string | null>> & { premium_bands?: { max?: string | null; pct: string }[] | null } | null;
   vat_history?: { from: string; pct: string }[] | null;
@@ -200,17 +223,31 @@ export async function saveGoldSettings(tx: Tx, ctx: Ctx, input: GoldSettingsInpu
     gold[k] = D(v).toString();
   }
   if (input.provider !== undefined) gold.provider = input.provider ?? "auto";
+  // keys of the custom source on this runtime (tz_price_keys): only the origin the source still sends a key to keeps one
+  let keyed: Set<string> | null = null;
   if (input.price_source !== undefined) {
     const ps = input.price_source;
-    if (!ps || !ps.url?.trim()) delete gold.price_source;
-    else {
+    if (!ps || !ps.url?.trim()) {
+      delete gold.price_source;
+      keyed = new Set();
+    } else {
       const paths: Record<string, string> = {};
       for (const [f, p] of Object.entries(ps.paths ?? {})) {
         if (!isPathKey(f)) throw bad(`کلید «${f}» در مسیرهای منبع قیمت معتبر نیست`);
         if (typeof p === "string" && p.trim()) paths[f] = p.trim();
       }
       if (!paths.gram18 && !paths.mazaneh) throw bad("برای منبع دلخواه، مسیر قیمت «گرم ۱۸» یا «مظنه» را در پاسخ JSON مشخص کنید");
-      gold.price_source = { url: ps.url.trim(), unit: ps.unit === "toman" ? "toman" : "rial", paths };
+      const url = ps.url.trim();
+      if (!sourceOrigin(url)) throw bad("نشانی منبع قیمت معتبر نیست");
+      const header = ps.header?.trim() || null;
+      const problem = keyedSourceProblem({ url, header: ps.header });
+      if (problem) throw bad(`منبع دلخواه: ${problem}`);
+      const link = cleanSourceLink(ps.link);
+      if (ps.link?.trim() && !link) throw bad("منبع دلخواه: پیوند نام منبع باید نشانی https باشد");
+      const label = cleanSourceLabel(ps.label) ?? (link ? new URL(link).hostname : null);
+      gold.price_source = { url, unit: ps.unit === "toman" ? "toman" : "rial", paths, ...(header ? { header } : {}), ...(label ? { label } : {}), ...(link ? { link } : {}) };
+      keyed = needsKey({ url, header }) ? new Set([sourceOrigin(url)!]) : new Set();
+      if (ps.key?.trim() && !keyed.size) throw bad("منبع دلخواه: برای کلید، «نام سرآیند» را بنویسید یا {key} را در نشانی بگذارید");
     }
   }
   if (input.kyc !== undefined) {
@@ -242,6 +279,11 @@ export async function saveGoldSettings(tx: Tx, ctx: Ctx, input: GoldSettingsInpu
   }
   settings.gold = gold;
   const saved = await updateRow<OrgRow>(tx, "tz_orgs", { id: ctx.org.id }, { settings, origin: ctx.cfg.origin });
+  if (keyed) {
+    const ps = input.price_source;
+    const origin = [...keyed][0];
+    await saveKeys(tx, ctx, "gold", origin && (ps?.key?.trim() || ps?.remove_key) ? [{ origin, key: ps?.key, remove: ps?.remove_key }] : [], keyed);
+  }
   ctx.org.settings = saved?.settings ?? (settings as OrgRow["settings"]);
   return goldSettings({ ...ctx.org, settings: ctx.org.settings });
 }

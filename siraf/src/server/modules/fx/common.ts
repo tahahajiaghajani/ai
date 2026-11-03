@@ -5,6 +5,7 @@ import type { Queryable } from "../../db";
 import type { OrgRow } from "../../context";
 import { bad } from "../../http/errors";
 import { D, type Num } from "@shared/money";
+import { cleanSourceLabel, cleanSourceLink } from "@shared/price-source";
 import { accountByKey } from "../accounting/vouchers";
 
 // ---------------------------------------------------------------- currencies
@@ -65,13 +66,39 @@ export function roundTo(v: Num, decimals: number): string {
 export interface CustomSource {
   /** currency code this source prices (USD, EUR, USDT …) */
   code: string;
+  /** may hold {key}: the key saved on this runtime fills it (fx/source-keys.ts) */
   url: string;
-  /** dotted path to the price inside the JSON answer */
+  /** path to the price inside the JSON answer (@shared/json-path) */
   path: string;
   /** "base": the price is already in the base currency; "usd": in US dollars */
   unit: "base" | "usd";
   /** multiply the value (e.g. 0.1 to turn rial into toman) */
   factor?: string | null;
+  /** request header that carries the key saved on this runtime (X-API-Key); the key itself is never in settings */
+  header?: string | null;
+  /** the name shown next to its rates («EZRate») and its link */
+  label?: string | null;
+  link?: string | null;
+}
+
+/** A stored row as the settings hold it: written by this module, but also by sync and PATCH /o/:org unchecked. */
+function parseCustom(raw: unknown): CustomSource | null {
+  if (!raw || typeof raw !== "object") return null;
+  const c = raw as Record<string, unknown>;
+  if (!c.code || !c.url || !c.path) return null;
+  const link = cleanSourceLink(c.link);
+  const label = cleanSourceLabel(c.label) ?? (link ? new URL(link).hostname : null);
+  return {
+    code: String(c.code),
+    url: String(c.url),
+    path: String(c.path),
+    unit: c.unit === "usd" ? "usd" : "base",
+    factor: c.factor === undefined || c.factor === null || c.factor === "" ? null : String(c.factor),
+    // kept as written: fx/source-keys.ts refuses a header that may not carry a key before anything is sent
+    header: typeof c.header === "string" && c.header.trim() ? c.header.trim().slice(0, 100) : null,
+    label,
+    link,
+  };
 }
 
 export interface FxSettings {
@@ -108,7 +135,7 @@ export function fxSettings(org: Pick<OrgRow, "settings">): FxSettings {
     refresh_seconds: Number.isFinite(refresh) && refresh >= 10 ? Math.min(Math.round(refresh), 3600) : 60,
     kyc_threshold: kyc !== undefined && kyc !== null && kyc !== "" && D(kyc as string).gt(0) ? D(kyc as string).toFixed() : null,
     allow_negative: s?.allow_negative === true,
-    custom: Array.isArray(s?.custom) ? (s!.custom as CustomSource[]).filter((c) => c && c.code && c.url && c.path) : [],
+    custom: Array.isArray(s?.custom) ? (s!.custom as unknown[]).map(parseCustom).filter((c): c is CustomSource => !!c) : [],
   };
 }
 

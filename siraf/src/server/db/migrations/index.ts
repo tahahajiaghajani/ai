@@ -18,6 +18,7 @@ import platform from "./0015_platform";
 import aiFeatures from "./0016_ai_features";
 import rateKeyUnique from "./0017_rate_key_unique";
 import aiFreeTier from "./0018_ai_free_tier";
+import priceKeys from "./0019_price_keys";
 
 export interface Migration {
   id: string;
@@ -44,6 +45,7 @@ export const MIGRATIONS: Migration[] = [
   { id: "0016_ai_features", title: "هوش مصنوعی: بینش‌ها، برنامه‌ها و خواندن اسناد", sql: aiFeatures },
   { id: "0017_rate_key_unique", title: "طلا: یک کالا برای هر کلید تابلو", sql: rateKeyUnique },
   { id: "0018_ai_free_tier", title: "هوش مصنوعی: طرح رایگان اتصال‌ها", sql: aiFreeTier },
+  { id: "0019_price_keys", title: "قیمت زنده: کلید منبع‌های سفارشی در هر نسخه", sql: priceKeys },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].id;

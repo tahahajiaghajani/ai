@@ -28,6 +28,8 @@ const LOCAL_ONLY: Record<string, string> = {
   tz_ai_insights: "derived insights (recomputed on each runtime)",
   tz_ai_plans: "saved AI plans",
   tz_ai_captures: "documents read by AI before they become drafts",
+  // keys of custom price sources: encrypted with this runtime's secret, like AI keys
+  tz_price_keys: "custom price sources' keys of this runtime",
   // platform administration (web version)
   tz_support_sessions: "super-admin support sessions (web version)",
   tz_security_events: "sign-in and security events",

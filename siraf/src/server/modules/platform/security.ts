@@ -24,6 +24,7 @@ export type SecurityEventKind =
   | "support_end"
   | "org_status"
   | "ai_key" // AI connection key added, replaced or removed (stream B)
+  | "price_key" // key of a custom price source added, replaced or removed (data.board, data.origin, data.runtime)
   | (string & {});
 
 export interface SecurityEventInput {
