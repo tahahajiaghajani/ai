@@ -12,11 +12,12 @@ import { CORE_CHOICE_LISTS, CORE_TABLES, USER_TABLE } from "./core";
 import { ACCESS_TABLES } from "./access";
 import { NOTIFY_TABLES } from "./notify";
 import { SLA_CHOICE_LISTS, SLA_SERVICE_TABLES } from "./sla";
+import { FLOW_TABLES } from "./flows";
 
 export { CUSTOM_FIELD_TYPES, VIEW_KINDS } from "./core";
 
 /** Table definitions per module; a module adds its file's export here. */
-const MODULE_TABLES: TableDef[][] = [CORE_TABLES, ACCESS_TABLES, NOTIFY_TABLES, SLA_SERVICE_TABLES];
+const MODULE_TABLES: TableDef[][] = [CORE_TABLES, ACCESS_TABLES, NOTIFY_TABLES, SLA_SERVICE_TABLES, FLOW_TABLES];
 
 /** Every table by key (resolved definitions). */
 export const TABLES = new Map<string, TableDef>();

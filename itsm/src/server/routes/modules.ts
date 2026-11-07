@@ -7,6 +7,7 @@
 import { router } from "../http/hono";
 import { aiRoutes } from "./ai";
 import { accessRoutes } from "./access";
+import { flowRoutes } from "./flows";
 import { installAccessModel } from "../access";
 import { notifyRoutes } from "./notify";
 import { installNotify } from "../modules/notify";
@@ -30,3 +31,4 @@ moduleRoutes.route("/calendars", calendarRoutes);
 moduleRoutes.route("/sla", slaRoutes);
 moduleRoutes.route("/approvals", approvalRoutes);
 moduleRoutes.route("/rules", ruleRoutes);
+moduleRoutes.route("/flows", flowRoutes);

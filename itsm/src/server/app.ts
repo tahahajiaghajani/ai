@@ -13,6 +13,7 @@ import { hookRoutes, publicApiRoutes, integrationRoutes } from "./routes/integra
 import { localRoutes } from "./routes/local";
 import { adminRoutes } from "./routes/admin";
 import { recordRoutes } from "./routes/records";
+import { flowHookRoutes } from "./routes/flows";
 import { jobCounter, tick } from "./jobs";
 import "./engine";
 import { migrationStatus } from "./db/migrate";
@@ -100,6 +101,7 @@ export function createApp(cfg: ServerConfig) {
   app.route("/o/:org", org);
 
   app.route("/sync", syncRoutes);
+  app.route("/hooks/flows", flowHookRoutes);
   app.route("/hooks", hookRoutes);
   app.route("/v1", publicApiRoutes);
   if (cfg.mode === "desktop") app.route("/local", localRoutes);
