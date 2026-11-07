@@ -45,6 +45,8 @@ const work = recordModule({
       workspace: true,
       keywords: "کار وظیفه پیگیری تابلو تقویم todo",
       search: { group: "کارها" },
+      // the timeline of «کارها»: from when a task was opened to its due date
+      list: { preset: { timeline: { start: "opened_at", end: "due_at" } } },
     },
   ],
 });

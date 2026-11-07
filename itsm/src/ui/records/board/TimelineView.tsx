@@ -119,8 +119,9 @@ export function TimelineView({ def, start, end, filter, q, onOpen }: TimelineVie
                     style={{ gridColumn: `${b.offset + 1} / span ${b.span}`, gridRow: b.lane + 1 }}
                     onClick={() => onOpen(b.event.row)}
                   >
-                    <RecordNo no={b.event.row.number ? String(b.event.row.number) : null} />
-                    <span className="rk-bar-t">{label}</span>
+                    {/* a short bar has room for the title only (the tooltip has the rest) */}
+                    {b.span > (wide ? 8 : 3) ? <RecordNo no={b.event.row.number ? String(b.event.row.number) : null} /> : null}
+                    <span className="rk-bar-t">{label || b.event.row.number}</span>
                   </button>
                 </Tooltip>
               );
