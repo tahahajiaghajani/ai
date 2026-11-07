@@ -66,6 +66,8 @@ export interface StartInput {
   depth: number;
   parentRunId?: string | null;
   test?: boolean;
+  /** the flow's configured table: record steps without a table of their own use it when the run has no record */
+  table?: string | null;
 }
 
 const START = "@start";
@@ -76,6 +78,7 @@ export async function startRun(q: Queryable, input: StartInput): Promise<string>
   const id = uuidv7();
   const runtime: Runtime = { tokens: [{ id: "t1", node: START, frames: [] }], frames: {}, steps: 0, seq: 0, ids: 1 };
   const trigger = { ...input.trigger };
+  if (!trigger.table && input.table) trigger.table = input.table;
   const context = {
     trigger,
     vars: {},
@@ -526,6 +529,8 @@ async function handlerStep(x: Exec, token: Token, node: FlowNode, key: string, s
   } catch (e) {
     if (e instanceof RunAborted) throw e;
     restore(x, snap);
+    // the snapshot holds copies: continue with this token's copy
+    token = x.rt.tokens.find((t) => t.id === token.id) ?? token;
     p.newWaits = [];
     outcome = e instanceof StepFailed ? e.outcome : { error: errorText(e) };
   }

@@ -97,6 +97,7 @@ async function fireFlow(cfg: ServerConfig, orgId: string, f: PublishedFlow, t: T
       actorId: null,
       runAs: resolveRunAs(f.trigger, null, f.publisher),
       depth: 0,
+      table: f.trigger.table ?? null,
     });
     return true;
   });

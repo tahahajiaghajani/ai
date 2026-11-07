@@ -136,6 +136,7 @@ export async function testRun(ctx: Ctx, id: string, input: { table?: string | nu
       runAs: { kind: "user", userId: ctx.user.id },
       depth: 0,
       test: true,
+      table: (row.trigger_table as string) || null,
     }),
   );
   await executeRun(ctx.cfg, runId, { deadline: Date.now() + INLINE_MS });
@@ -162,6 +163,7 @@ export async function manualRun(ctx: Ctx, id: string, input: { table?: string | 
       actorId: ctx.user.id,
       runAs: resolveRunAs(t, ctx.user.id, publisher?.created_by ?? null),
       depth: 0,
+      table: t.table ?? null,
     }),
   );
   await executeRun(ctx.cfg, runId, { deadline: Date.now() + INLINE_MS });
@@ -319,6 +321,7 @@ export async function webhookRun(cfg: ServerConfig, flowId: string, token: strin
       actorId: null,
       runAs: resolveRunAs(version.trigger, null, publisher?.created_by ?? null),
       depth: 0,
+      table: version.trigger?.table ?? null,
     }),
   );
   return { run, org: f.org_id };

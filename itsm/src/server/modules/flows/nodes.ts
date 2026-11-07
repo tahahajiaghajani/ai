@@ -219,6 +219,7 @@ registerBuiltinStepHandler("subflow", {
       runAs: resolveRunAs(version.trigger ?? { run_as: "trigger_user" }, s.run.runAsId, publisher?.created_by ?? null),
       depth: s.run.depth + 1,
       parentRunId: wait ? s.run.id : null,
+      table: version.trigger?.table ?? null,
     });
     if (!wait) return { output: { run_id: child, state: "running" } };
     return { wait: { kind: "subflow", key: `run:${child}`, data: { run_id: child } }, output: { run_id: child } };

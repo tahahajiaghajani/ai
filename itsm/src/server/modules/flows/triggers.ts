@@ -155,6 +155,7 @@ export async function startCatalogFlows(
         actorId: order.actorId ?? null,
         runAs: resolveRunAs(f.trigger, order.actorId ?? null, f.publisher),
         depth: 0,
+        table: f.trigger.table ?? null,
       }),
     );
   }
