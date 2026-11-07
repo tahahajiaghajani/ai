@@ -81,7 +81,7 @@ describe("support mode and platform administration", () => {
       expect(session).toMatchObject({ level: "view", state: "active" });
       const info = await admin.get(`/o/${org}`);
       expect(info.support).toMatchObject({ active: true, level: "view" });
-      expect(info.member.permissions).toEqual({ settings: "view", users: "view", integrations: "view", ai: "none", reports: "view" });
+      expect(info.member.permissions).toEqual({ settings: "view", users: "view", integrations: "view", ai: "none", reports: "view", work: "view" });
       const { rows } = await admin.get(`/o/${org}/data/test_item`);
       expect(rows.map((r: { name: string }) => r.name)).toContain("قلم نخست");
       await admin.post(`/o/${org}/data/test_item`, item("نفوذی"), 403);
@@ -312,7 +312,7 @@ describe("role matrix", () => {
 
   it("lets a member see the organisation, its members and reports and use the assistant, but change no settings", async () => {
     const info = await staff.get(`/o/${org}`);
-    expect(info.member.permissions).toEqual({ settings: "view", users: "view", integrations: "none", ai: "edit", reports: "view" });
+    expect(info.member.permissions).toEqual({ settings: "view", users: "view", integrations: "none", ai: "edit", reports: "view", work: "edit" });
     await staff.get(`/o/${org}/data/test_item`);
     await staff.post(`/o/${org}/data/test_item`, item("قلم کارشناس"), 403);
     await staff.patch(`/o/${org}`, { phone: "02100000000" }, 403);
@@ -324,7 +324,7 @@ describe("role matrix", () => {
 
   it("lets the viewer see and ask, never write", async () => {
     const info = await viewer.get(`/o/${org}`);
-    expect(info.member.permissions).toEqual({ settings: "view", users: "none", integrations: "none", ai: "view", reports: "view" });
+    expect(info.member.permissions).toEqual({ settings: "view", users: "none", integrations: "none", ai: "view", reports: "view", work: "view" });
     const { row } = await owner.post(`/o/${org}/data/test_item`, item("قلم مالک"));
     await viewer.get(`/o/${org}/data/test_item`);
     await viewer.post(`/o/${org}/data/test_item`, item("نوشتن ناظر"), 403);
@@ -407,7 +407,7 @@ describe("access review fixes", () => {
   it("an edit support session cannot leave an API key, a webhook or an AI connection behind", async () => {
     const { session } = await admin.post(`/admin/orgs/${org}/support`, { level: "edit", reason: "بررسی اتصال سامانهٔ پایش", hours: 1 });
     const info = await admin.get(`/o/${org}`);
-    expect(info.member.permissions).toEqual({ settings: "full", users: "view", integrations: "view", ai: "edit", reports: "full" });
+    expect(info.member.permissions).toEqual({ settings: "full", users: "view", integrations: "view", ai: "edit", reports: "full", work: "full" });
     await admin.get(`/o/${org}/integrations/api-keys`);
     await admin.post(`/o/${org}/integrations/api-keys`, { name: "کلید پشتیبانی", scopes: ["read"] }, 403);
     await admin.post(`/o/${org}/integrations`, { name: "وب‌هوک پشتیبانی", secret: "chosen-secret-0123456789" }, 403);

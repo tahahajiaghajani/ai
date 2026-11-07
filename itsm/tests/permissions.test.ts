@@ -1,4 +1,4 @@
-// The platform's provisional access model (src/shared/permissions.ts): five areas and four roles, the same on the
+// The platform's provisional access model (src/shared/permissions.ts): six areas and four roles, the same on the
 // server (ctx.need), in the sync registry and in the UI (nav items, can()). A later ITSM access model replaces it;
 // until then these checks keep every place that names an area or a role consistent with it.
 import { describe, it, expect } from "vitest";
@@ -23,7 +23,7 @@ function files(dir: string, out: string[] = []): string[] {
 
 describe("areas and roles", () => {
   it("has exactly the platform's areas and roles", () => {
-    expect(areas).toEqual(["settings", "users", "integrations", "ai", "reports"]);
+    expect(areas).toEqual(["settings", "users", "integrations", "ai", "reports", "work"]);
     expect(roles.sort()).toEqual(["admin", "member", "owner", "viewer"]);
     expect([...CORE_ROLES]).toEqual(["owner", "member", "viewer"]);
     expect([...PRESET_ROLES]).toEqual(["admin"]);
@@ -37,10 +37,10 @@ describe("areas and roles", () => {
   it("gives each role the documented level in every area", () => {
     const matrix = Object.fromEntries(roles.map((r) => [r, permissionMap(r)]));
     expect(matrix).toEqual({
-      owner: { settings: "full", users: "full", integrations: "full", ai: "full", reports: "full" },
-      admin: { settings: "full", users: "full", integrations: "full", ai: "full", reports: "full" },
-      member: { settings: "view", users: "view", integrations: "none", ai: "edit", reports: "view" },
-      viewer: { settings: "view", users: "none", integrations: "none", ai: "view", reports: "view" },
+      owner: { settings: "full", users: "full", integrations: "full", ai: "full", reports: "full", work: "full" },
+      admin: { settings: "full", users: "full", integrations: "full", ai: "full", reports: "full", work: "full" },
+      member: { settings: "view", users: "view", integrations: "none", ai: "edit", reports: "view", work: "edit" },
+      viewer: { settings: "view", users: "none", integrations: "none", ai: "view", reports: "view", work: "view" },
     });
   });
 

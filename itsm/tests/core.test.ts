@@ -80,7 +80,7 @@ describe("core: accounts, organisations, settings and members", () => {
     const member = new Client(app);
     await member.post("/auth/login", { email: "member@example.com", password: added.temp_password });
     const seen = await member.get(`/o/${org}`);
-    expect(seen.member.permissions).toEqual({ settings: "view", users: "view", integrations: "none", ai: "edit", reports: "view" });
+    expect(seen.member.permissions).toEqual({ settings: "view", users: "view", integrations: "none", ai: "edit", reports: "view", work: "edit" });
     await member.patch(`/o/${org}`, { name: "تغییر نام" }, 403);
 
     await c.patch(`/o/${org}/members/${m.id}`, { role: "viewer" });
