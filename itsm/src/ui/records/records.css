@@ -416,6 +416,7 @@
   a.rk-link-a:hover .rk-link-t { text-decoration: underline; text-underline-offset: 3px; }
   .rk-link-t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
   .rk-link-s { font-size: 12px; color: var(--ds-text-3); white-space: nowrap; }
+  .rk-more { align-self: flex-start; font-size: 13px; }
   .rk-addlink { display: flex; flex-direction: column; gap: 6px; padding: 8px; border-radius: var(--ds-radius-md); background: var(--ds-sunken); }
   .rk-addlink-a { display: flex; justify-content: flex-end; gap: 6px; }
   .rk-hist li { display: flex; flex-direction: column; gap: 2px; font-size: 12px; }

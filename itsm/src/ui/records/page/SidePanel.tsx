@@ -12,11 +12,12 @@ import { useOrg } from "../../lib/org";
 import { useLocalState, useNotify } from "../../lib/hooks";
 import { cx } from "../../components/blocks";
 import { attachmentUrl } from "../data/api";
-import { useActivity, useAttachments, useLinks, useMe, useRecordActions } from "../data/hooks";
-import { displayOf, fieldOf, valuesOf, type Schema } from "../model/schema";
+import { useActivity, useAttachments, useLinks, useMe, useRecordActions, useRecordList } from "../data/hooks";
+import { displayOf, displayText, fieldOf, valuesOf, type Schema } from "../model/schema";
+import { encodeFilter } from "../model/filter";
 import { relTime } from "../model/activity";
 import type { LinkItem, TableMeta } from "../model/types";
-import { recordPath, type RecordContext, type SidePanelWidget } from "../extensions";
+import { newRecordPath, recordPath, tablePath, type RecordContext, type SidePanelWidget } from "../extensions";
 import { RecordNo, UserChip, FieldValue } from "../fields/display";
 import { RecordSelect, UserSelect } from "../fields/RecordSelect";
 
@@ -64,11 +65,66 @@ export function SidePanel({ def, schema, ctx, widgets }: { def: TableMeta; schem
             {w.render(ctx)}
           </SideCard>
         ))}
+      {(def.form?.related ?? [])
+        .filter((r) => !!schema.def(r.table))
+        .map((r) => (
+          <RelatedCard key={`${r.table}:${r.field}`} schema={schema} ctx={ctx} table={r.table} field={r.field} label={r.label} />
+        ))}
       {def.features?.watchers ? <Watchers def={def} ctx={ctx} /> : null}
       {def.features?.attachments ? <Attachments def={def} ctx={ctx} /> : null}
       {def.features?.links ? <Links def={def} schema={schema} ctx={ctx} /> : null}
       {def.features?.history !== false ? <RecentChanges def={def} schema={schema} ctx={ctx} /> : null}
     </aside>
+  );
+}
+
+// ---------------------------------------------------------------- related lists
+
+/** A related list in brief: how many, the first five, and the whole list (filtered to this record) one click away. */
+function RelatedCard({ schema, ctx, table, field, label }: { schema: Schema; ctx: RecordContext; table: string; field: string; label?: string }) {
+  const { orgId } = useOrg();
+  const target = schema.def(table)!;
+  const cond = { f: field, op: "eq" as const, v: ctx.row.id };
+  const list = useRecordList(table, { filter: cond, size: 5, sort: "-updated_at", fields: ["number", target.display, ...(target.states ? [target.states.field] : [])] });
+  const rows = list.data?.rows ?? [];
+  const total = list.data?.total ?? rows.length;
+  const stateF = target.states ? fieldOf(target, target.states.field) : undefined;
+  return (
+    <SideCard
+      id={`rel-${table}-${field}`}
+      title={label ?? target.plural}
+      count={total}
+      actions={
+        target.can.create ? (
+          <Tooltip title={`${target.label} تازه`}>
+            <Link className="rk-x" to={`/${orgId}/${newRecordPath(table)}?${new URLSearchParams({ [field]: ctx.row.id })}`} aria-label={`${target.label} تازه`}>
+              <Plus {...I14} aria-hidden />
+            </Link>
+          </Tooltip>
+        ) : null
+      }
+    >
+      {rows.length ? (
+        <ul className="rk-links">
+          {rows.map((r) => (
+            <li key={r.id} className="rk-link-g">
+              <Link className="rk-link-a" to={`/${orgId}/${recordPath(table, r.id)}`}>
+                <RecordNo no={r.number ? String(r.number) : null} />
+                <span className="rk-link-t">{displayText(target, r)}</span>
+              </Link>
+              {stateF ? <FieldValue field={stateF} value={r[stateF.name]} table={table} schema={schema} compact /> : null}
+            </li>
+          ))}
+        </ul>
+      ) : list.isLoading ? null : (
+        <p className="rk-hint">موردی ندارد.</p>
+      )}
+      {total > rows.length ? (
+        <Link className="ds-link rk-more" to={`/${orgId}/${tablePath(table)}?filter=${encodeURIComponent(encodeFilter(cond))}`}>
+          همهٔ {faDigits(total)} مورد
+        </Link>
+      ) : null}
+    </SideCard>
   );
 }
 

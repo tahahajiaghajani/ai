@@ -129,9 +129,11 @@ const Incident = () => { const { id } = useParams(); return <RecordPage table="i
   «بارگذاری دوباره» drops my changes. While editing, a newer version arriving through «زنده» shows a warning.
 - **Tabs**: the form's tabs, then the module's `tabs`, then the related lists of `def.form.related` (embedded
   `RecordList`s tied to this record; «تازه» from there pre-fills the parent field).
-- **Side panel**: the module's `sidePanels`, then پیگیری‌کنندگان (watch, add or remove people), پیوست‌ها (drag and
-  drop upload, image previews, download, delete), پیوندها (typed links with their Persian direction labels; add a
-  link to any record), آخرین تغییرات. Cards fold; the choice is remembered.
+- **Side panel**: the module's `sidePanels`, then each related list in brief (its count, the first five records, «+»
+  for a new one tied to this record, «همهٔ n مورد» opening the list filtered to it), پیگیری‌کنندگان (watch, add or
+  remove people), پیوست‌ها (drag and drop upload, image previews, download, delete), پیوندها (typed links with their
+  Persian direction labels; add a link to any record), آخرین تغییرات. Cards fold; the choice is remembered. The demo
+  table `todo` lists its sub-tasks (`parent_id`) this way.
 - **Activity stream** (§ below the form): filter chips همه / یادداشت‌های عمومی / یادداشت‌های داخلی / سامانه; journal
   entries and field changes newest first (one save = one item; the creation is «این رکورد را ثبت کرد»).
 - **Composer**: two tabs — «پاسخ به درخواست‌کننده» (public comment; plain surface, «درخواست‌کننده این پاسخ را

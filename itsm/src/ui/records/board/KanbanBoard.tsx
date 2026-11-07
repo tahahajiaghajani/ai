@@ -83,17 +83,24 @@ export function KanbanBoard({ def, schema, field, filter, q, wip = {}, cardField
   const [over, setOver] = useState<string | null>(null);
   const [pending, setPending] = useState<{ row: RecordRow; t: TransitionTarget } | null>(null);
   const all = useMemo(() => {
-    const byCol = new Map<string, RecordRow[]>();
+    // a saved move patches the row in every cached list at once, so a card sits in the column of its value (not of
+    // the query that loaded it) and never flickers back while the columns reload; a row two queries hold counts once
+    const latest = new Map<string, RecordRow>();
     const display: Record<string, string> = {};
-    queries.forEach((qr, i) => {
+    for (const qr of queries) {
       Object.assign(display, qr.data?.display ?? {});
       for (const r of qr.data?.rows ?? []) {
-        const k = moved.get(r.id) ?? columns[i].key;
-        byCol.set(k, [...(byCol.get(k) ?? []), r]);
+        const seen = latest.get(r.id);
+        if (!seen || r.version > seen.version) latest.set(r.id, r);
       }
-    });
+    }
+    const byCol = new Map<string, RecordRow[]>();
+    for (const r of latest.values()) {
+      const k = moved.get(r.id) ?? columnKeyOf(field, r);
+      byCol.set(k, [...(byCol.get(k) ?? []), r]);
+    }
     return { byCol, display };
-  }, [queries, columns, moved]);
+  }, [queries, field, moved]);
 
   const finish = (id: string) =>
     setMoved((m) => {

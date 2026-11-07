@@ -8,6 +8,9 @@ import { decodeFilter, encodeFilter, isCondShape } from "./filter";
 import { sameValue } from "./values";
 import type { ViewRow } from "./types";
 
+/** Every field of a saved view: lists leave out long values (the filter, the columns) unless they are asked for. */
+export const VIEW_FIELDS = ["table_key", "name", "owner_id", "shared", "is_default", "kind", "filter", "q", "columns", "sort", "group_by", "page_size"];
+
 export type ListMode = "list" | "board" | "calendar" | "timeline";
 export const LIST_MODES: ListMode[] = ["list", "board", "calendar", "timeline"];
 export const PAGE_SIZES = [20, 50, 100, 200];

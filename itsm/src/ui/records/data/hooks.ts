@@ -12,6 +12,7 @@ import { registerLiveQueries } from "../../lib/live";
 import { makeSchema, type Schema } from "../model/schema";
 import { mergeActivity, type ActivityItem } from "../model/activity";
 import { clientEnv } from "../model/policies";
+import { VIEW_FIELDS } from "../model/views";
 import type { DisplayMap, ListQuery, ListResult, RecordResult, RecordRow, TableMeta, ViewRow } from "../model/types";
 import { recordsApi, uploadAttachment } from "./api";
 
@@ -42,6 +43,12 @@ export function useSchema() {
     gcTime: 30 * 60_000,
   });
   return { schema: q.data, isLoading: q.isLoading, error: q.error, refetch: q.refetch };
+}
+
+/** Every table definition the caller may read (the brief's `useTableDefs`; the same cache as `useSchema`). */
+export function useTableDefs() {
+  const s = useSchema();
+  return { tables: s.schema ? [...s.schema.tables.values()] : [], choices: s.schema?.choices ?? {}, schema: s.schema, isLoading: s.isLoading, error: s.error };
 }
 
 /** One table's definition (and the schema around it). `missing` once loaded without it (unknown or unreadable). */
@@ -139,7 +146,7 @@ export function useViews(table: string | null | undefined) {
   const { api, orgId } = useOrg();
   return useQuery({
     queryKey: keys.views(orgId, table ?? ""),
-    queryFn: async () => (await recordsApi.list(api, "view", { filter: { f: "table_key", op: "eq", v: table }, size: 200, sort: "name", total: false })).rows as ViewRow[],
+    queryFn: async () => (await recordsApi.list(api, "view", { filter: { f: "table_key", op: "eq", v: table }, size: 200, sort: "name", fields: VIEW_FIELDS, total: false })).rows as ViewRow[],
     enabled: !!table,
     staleTime: 60_000,
   });

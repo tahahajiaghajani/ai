@@ -313,6 +313,7 @@ async function seedTodos(call, orgId) {
   await call("POST", `${base}/${ids[0]}/journal`, { kind: "work_note", body: "غلتک ورودی ساییده شده؛ قطعهٔ یدکی در انبار هست." });
   await call("PATCH", `${base}/${ids[0]}`, { priority: "1" });
   await call("POST", `${base}/${ids[0]}/links`, { kind: "related", table: "todo", id: ids[1] });
+  await call("POST", base, { short_description: "سفارش غلتک یدکی چاپگر", priority: "3", parent_id: ids[0], assigned_to: me, due_at: day(2, 12) });
   await call("POST", `/o/${orgId}/r/view`, { table_key: "todo", name: "فوری‌های باز", shared: true, filter: { and: [{ f: "priority", op: "in", v: ["1", "2"] }, { f: "active", op: "eq", v: true }] }, sort: "-priority", columns: ["number", "short_description", "state", "priority", "assigned_to", "due_at"] });
   return ids[0];
 }

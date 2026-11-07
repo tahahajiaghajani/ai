@@ -22,7 +22,7 @@ export {
 } from "./extensions";
 export { recordModule, recordSearch, RecordListRoute, RecordPageRoute, type RecordModuleSpec, type RecordTableEntry } from "./module";
 export {
-  useSchema, useTableDef, useRecordList, useRecord, useAggregate, useActivity, useLinks, useAttachments, useViews, useRecordActions, useViewActions, useMe, useRefreshSchema, keys as recordKeys,
+  useSchema, useTableDefs, useTableDef, useRecordList, useRecord, useAggregate, useActivity, useLinks, useAttachments, useViews, useRecordActions, useViewActions, useMe, useRefreshSchema, keys as recordKeys,
 } from "./data/hooks";
 export { recordsApi, uploadAttachment, attachmentUrl } from "./data/api";
 export type { UiPolicy, UiPolicyAction, FormState } from "./model/policies";

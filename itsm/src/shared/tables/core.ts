@@ -147,6 +147,7 @@ const todo: TableDef = {
   ],
   scope: {},
   features: { tags: true, kanban: "state", calendar: { start: "due_at" } },
+  form: { related: [{ table: "todo", field: "parent_id", label: "کارهای زیرمجموعه", columns: ["number", "short_description", "state", "assigned_to", "due_at"] }] },
   list: { columns: ["number", "short_description", "state", "priority", "assigned_to", "due_at", "updated_at"], order: "-updated_at" },
   ai: { title: "short_description", text: ["description", "close_notes"] },
 };

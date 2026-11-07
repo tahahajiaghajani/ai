@@ -6,7 +6,7 @@ import { engineOrg, type EngineOrg } from "./engine-helpers";
 import { FORM_ROW } from "@shared/model/arrangement";
 import { formLayout } from "../src/ui/records/model/layout";
 import { quickCond } from "../src/ui/records/model/filter";
-import { viewBody, emptyListState } from "../src/ui/records/model/views";
+import { viewBody, emptyListState, stateOfView, VIEW_FIELDS } from "../src/ui/records/model/views";
 import type { TableDef } from "@shared/model/types";
 
 describe("record UI ↔ engine", () => {
@@ -53,6 +53,12 @@ describe("record UI ↔ engine", () => {
     await e.owner.post(`/o/${e.org}/r/todo`, { short_description: "عادی", priority: "4" });
     const listed = await e.owner.post(`/o/${e.org}/r/todo/query`, { filter: v.row.filter, sort: v.row.sort, size: v.row.page_size });
     expect(listed.rows.map((x: { short_description: string }) => x.short_description)).toEqual(["فوری"]);
+    // a list leaves the long fields (filter, columns) out unless they are asked for: the views menu asks for them
+    const bare = (await e.owner.get(`/o/${e.org}/r/view?ids=${v.row.id}`)).rows[0];
+    expect(bare.filter).toBeUndefined();
+    const full = (await e.owner.get(`/o/${e.org}/r/view?ids=${v.row.id}&fields=${VIEW_FIELDS.join(",")}`)).rows[0];
+    expect(stateOfView(full).state.filter).toEqual(body.filter);
+    expect(stateOfView(full).columns).toEqual(["number", "short_description", "priority"]);
     // another member sees the shared view but cannot change it
     const m = await e.member("member");
     const seen = await m.client.post(`/o/${e.org}/r/view/query`, { filter: { f: "table_key", op: "eq", v: "todo" } });

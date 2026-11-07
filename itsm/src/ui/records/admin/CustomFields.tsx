@@ -24,6 +24,7 @@ import "../records.css";
 const I16 = { size: 16, strokeWidth: 1.4, absoluteStrokeWidth: true } as const;
 const I14 = { size: 14, strokeWidth: 1.4, absoluteStrokeWidth: true } as const;
 const NAME = /^[a-z0-9_]{1,40}$/;
+const CUSTOM_FIELD_COLUMNS = ["table_key", "name", "label", "type", "choices", "options", "ref", "required", "list", "search", "filter", "help", "section", "max_length", "sort_order", "active"];
 
 export default function CustomFields() {
   const { can } = useOrg();
@@ -35,7 +36,8 @@ export default function CustomFields() {
   const editable = can("settings", "edit");
   const rows = useRecordList(
     "custom_field",
-    { filter: def ? { and: [{ f: "table_key", op: "eq", v: def.key }, { f: "name", op: "ne", v: FORM_ROW }] } : null, size: 500, sort: "sort_order,name", total: false },
+    // every field: lists leave out long values (the static `options`) unless asked for, and the editor needs them
+    { filter: def ? { and: [{ f: "table_key", op: "eq", v: def.key }, { f: "name", op: "ne", v: FORM_ROW }] } : null, size: 500, sort: "sort_order,name", fields: CUSTOM_FIELD_COLUMNS, total: false },
     { enabled: !!def },
   );
   const [editing, setEditing] = useState<{ row?: RecordRow; base?: FieldDef } | null>(null);

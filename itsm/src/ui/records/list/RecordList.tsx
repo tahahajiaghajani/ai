@@ -127,7 +127,8 @@ function ListBody({ def, schema, preset: presetProp, title, actions, embedded, b
   const applied = useRef<string | null>(null);
   const applyView = useCallback(
     (v: ViewRow | null) => {
-      applied.current = v?.id ?? null;
+      // "" = chosen «همه»: the default view must not come back
+      applied.current = v?.id ?? "";
       if (!v) {
         set({ ...emptyListState(baseState(preset)) });
         setViewColumns(null);
@@ -372,8 +373,10 @@ function ListBody({ def, schema, preset: presetProp, title, actions, embedded, b
   const saveView = async () => {
     if (!current) return;
     try {
-      await viewActions.update(current, viewBody(state, columns, quickCond(def, state.quick)));
-      set({ quick: [] });
+      const body = viewBody(state, columns, quickCond(def, state.quick));
+      await viewActions.update(current, body);
+      // the quick filters now live in the view's filter
+      set({ quick: [], filter: (body.filter as Cond | null) ?? null });
       n.ok(`نمای «${current.name}» ذخیره شد`);
     } catch (e) {
       n.error(e);
