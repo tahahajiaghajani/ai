@@ -423,3 +423,33 @@ describe("saved views", () => {
     expect(mine.owner_id).toBe(p.req.userId);
   });
 });
+
+describe("no self-escalation", () => {
+  it("an access administrator does not widen their own reach through profiles or group memberships", async () => {
+    const ua = p.uadmin.client;
+    // their own workspaces, unit and domain are set by someone else
+    const own = await ua.put(`${P}/access/members/${p.uadmin.userId}`, { workspaces: [ws.hr] }, 403);
+    expect(own.error.message).toMatch(/خودتان/);
+    await ua.put(`${P}/access/members/${p.uadmin.userId}`, { org_unit_id: u.co }, 403);
+    // nor do they make themselves someone's delegate
+    await ua.put(`${P}/access/members/${p.vendor.userId}`, { out_of_office: true, delegate_id: p.uadmin.userId }, 403);
+    // nor join a restricted group or a secure workspace's group, nor make themselves a lead
+    await ua.post(`${P}/access/groups/${g.secret}/members`, { user_ids: [p.uadmin.userId] }, 403);
+    await ua.post(`${P}/access/groups/${g.hr}/members`, { user_ids: [p.uadmin.userId] }, 403);
+    await ua.post(`${P}/access/groups/${g.vendor}/members`, { user_ids: [p.uadmin.userId] });
+    await ua.post(`${P}/access/groups/${g.vendor}/members`, { user_ids: [p.uadmin.userId], kind: "lead" }, 403);
+    // what they do for others stays allowed
+    await ua.post(`${P}/access/groups/${g.vendor}/members`, { user_ids: [p.outsider.userId], kind: "observer" });
+  });
+
+  it("member access details keep field security (the phone needs the personal group)", async () => {
+    await e.owner.put(`${P}/access/members/${p.req.userId}`, { phone: "09121234567" });
+    await e.owner.put(`${P}/access/roles/directory`, { name: "فهرست اعضا", persona: "agent", grants: { users: { read: "all" } }, field_groups: [], contains: [], workspaces: "member", domains: "own" });
+    await e.owner.put(`${P}/access/members/${p.outsider.userId}`, { roles: ["directory"] });
+    const seenByDirectory = await p.outsider.client.get(`${P}/access/members/${p.req.userId}`);
+    expect(seenByDirectory.profile).not.toHaveProperty("phone");
+    const seenByLead = await p.lead.client.get(`${P}/access/members/${p.req.userId}`);
+    expect(seenByLead.profile.phone).toBe("09121234567");
+    await e.owner.put(`${P}/access/members/${p.outsider.userId}`, { roles: ["requester"] });
+  });
+});

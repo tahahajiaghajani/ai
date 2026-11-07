@@ -19,6 +19,7 @@ import {
 } from "@shared/access";
 import { accessSettings, buildSubject, catalogOf, prepareSubject, snapshotFor, subjectOf, type AccessSettings } from "./subject";
 import { participantSources, readSql } from "./predicate";
+import { access } from "./provider";
 
 // ----- who may administer access ------------------------------------------------------------------------------
 
@@ -386,6 +387,9 @@ export async function memberAccess(ctx: Ctx, userId: string): Promise<MemberAcce
   const settings = accessSettings(ctx.org);
   const snap = await snapshotFor(ctx, ctx.db, true);
   const profile = await ctx.db.one<Record<string, unknown>>(`select ${PROFILE_FIELDS.join(", ")} from sm_member_profiles where org_id = $1 and user_id = $2 and deleted_at is null`, [ctx.org.id, userId]);
+  // field security as everywhere: the phone (personal) only for those who carry the group
+  const visible = access().visibleFields(ctx, tableDef("member_profile")!);
+  if (profile && visible) for (const k of Object.keys(profile)) if (k !== "id" && k !== "version" && !visible.has(k)) delete profile[k];
   const groups = await ctx.db.query<MemberAccessDetail["groups"][number]>(
     `select gm.id, gm.group_id, g.name, gm.kind, g.roles, gm.valid_from, gm.valid_to, gm.version
      from sm_group_members gm join sm_groups g on g.id = gm.group_id and g.deleted_at is null

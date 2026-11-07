@@ -223,6 +223,9 @@ A source must push its own parameters and must not put `$` in string literals.
     contained roles exist, no containment loop); nobody but an owner (or the system) grants roles (to a profile or a
     group) or defines a role whose closure exceeds their own effective access (`exceeds`), changes their own roles,
     or changes the roles of a member with more access than they have; a role's key never changes.
+  - *No self-escalation*: below the owner, nobody changes their own workspaces, unit or domain, names themselves
+    another member's delegate, admits themselves to a restricted group or a secure workspace's group, or makes
+    themselves a group's lead.
   - *Trees*: paths, cycles, children (§2). *Workspaces*: one default.
 - **Sync pushes** are judged by the same provider on the cloud (`canCreate`, `canWrite`/`canDelete` on the stored row,
   hidden and unwritable fields keep the cloud's values); hooks do not run again there.
@@ -352,7 +355,8 @@ in area `users`) are read in full by every subject with any read grant in their 
 5. Restrictions (domains, confidential rows, secure workspaces, restricted groups) are AND-ed with grants and are
    not passed by `workspaces: all`, `tenant_admin` or support sessions; only membership, the record's own people,
    the access list or the named field group pass them.
-6. Nobody grants or defines access above their own, or changes their own roles (owners excepted).
+6. Nobody grants or defines access above their own, changes their own roles, workspaces, unit or domain, makes
+   themselves a delegate or a lead, or joins a restricted or secure group by themselves (owners excepted).
 7. Anchors (`unit_id`, `domain_id`) are derived by the server, never taken from callers.
 8. What a member may read changes ⇒ their scope epoch moves (trigger) and the access version moves (trigger).
 9. An unreadable record does not exist for the caller (404); an unreadable table is 403 for lists.

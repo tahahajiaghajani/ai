@@ -241,14 +241,21 @@ async function profileHook(w: WriteArgs): Promise<void> {
   } as never);
   if (idOf(next.delegate_id) && idOf(next.delegate_id) === idOf(next.user_id)) throw bad("جانشین هر کس باید فرد دیگری باشد");
   if (idOf(next.manager_id) && idOf(next.manager_id) === idOf(next.user_id)) throw bad("مدیر مستقیم هر کس باید فرد دیگری باشد");
+  const s = isOwner(ctx) ? null : await callerSubject(ctx, tx);
+  const self = String(next.user_id) === ctx.user.id;
+  if (s) {
+    // nobody widens their own reach through a profile: their own workspaces, unit or domain, or someone else's delegate
+    const touched = (f: string) => (op === "create" ? !!next[f] && !(Array.isArray(next[f]) && !(next[f] as unknown[]).length) : w.changed.has(f));
+    if (self && ["workspaces", "org_unit_id", "domain_unit_id"].some(touched)) throw forbidden("فضاهای کاری، واحد و دامنهٔ خودتان را نمی‌توانید تغییر دهید؛ این کار با مالک یا مدیر دیگری است");
+    if (!self && touched("delegate_id") && idOf(next.delegate_id) === ctx.user.id) throw forbidden("خودتان را جانشین عضو دیگری نکنید؛ جانشین را خود او یا مدیر دیگری می‌گذارد");
+  }
   const rolesChanged = op === "create" ? strings(next.roles).length > 0 : w.changed.has("roles");
   if (!rolesChanged) return;
   const roles = [...new Set(strings(next.roles))];
   next.roles = roles;
-  const s = isOwner(ctx) ? null : await callerSubject(ctx, tx);
   checkGrantable(ctx, snap, roles, s);
   if (!s) return;
-  if (String(next.user_id) === ctx.user.id) throw forbidden("نقش‌های خودتان را نمی‌توانید تغییر دهید؛ این کار با مالک یا مدیر دیگری است");
+  if (self) throw forbidden("نقش‌های خودتان را نمی‌توانید تغییر دهید؛ این کار با مالک یا مدیر دیگری است");
   // nobody changes the roles of a member who has more access than they do
   if (prev) {
     const catalog = catalogOf(snap, accessSettings(ctx.org));
@@ -272,6 +279,24 @@ async function groupHook(w: WriteArgs): Promise<void> {
   }
 }
 
+/**
+ * Nobody but an owner admits themselves to a restricted group or a group of a secure workspace, or makes themselves a
+ * group's lead: membership of those is given by someone else (a lead, an administrator).
+ */
+async function membershipHook(w: WriteArgs): Promise<void> {
+  const { ctx, tx, next, prev, op } = w;
+  if (op === "delete" || isOwner(ctx) || String(next.user_id) !== ctx.user.id) return;
+  if (op !== "create" && !["user_id", "group_id", "kind"].some((f) => w.changed.has(f))) return;
+  const s = await callerSubject(ctx, tx);
+  if (!s) return;
+  const snap = await snapshotFor(ctx, tx);
+  const g = snap.groups.get(String(next.group_id));
+  const secure = !!g?.workspace_id && !!snap.workspaces.get(g.workspace_id)?.secure;
+  const joining = op === "create" || w.changed.has("group_id") || w.changed.has("user_id");
+  if (joining && (g?.restricted || secure)) throw forbidden("عضویت خودتان در گروه محدود یا گروه فضای کاری امن را سرپرست آن یا مالک می‌دهد");
+  if (next.kind === "lead" && (joining || prev?.kind !== "lead")) throw forbidden("خودتان را سرپرست گروه نکنید؛ این کار با سرپرست دیگر یا مدیر سامانه است");
+}
+
 async function workspaceHook(w: WriteArgs): Promise<void> {
   const { ctx, tx, next, op } = w;
   if (op === "delete" || next.is_default !== true || (op !== "create" && !w.changed.has("is_default"))) return;
@@ -292,5 +317,6 @@ export function installAccessHooks(): void {
   registerHooks("group", { beforeWrite: groupHook });
   registerHooks("role", { beforeWrite: roleHook });
   registerHooks("member_profile", { beforeWrite: profileHook });
+  registerHooks("group_member", { beforeWrite: membershipHook });
   registerHooks("workspace", { afterWrite: workspaceHook });
 }
