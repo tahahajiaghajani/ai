@@ -1,6 +1,7 @@
 // Add or edit a connection (a side sheet): the provider with its Persian note and «دریافت کلید ↗», where it works from
 // (Iran, the Windows app, data leaving the country), the name, the write-only key, the base URL for gateways, custom and
-// local servers, the smart/fast/vision models (first = main, the rest are tried in order), enabled and priority.
+// local servers, the smart/fast/vision models (first = main, the rest are tried in order), the embedding model of
+// «نمایه و بازیابی» (optional; the only model of an embedding-only service), enabled and priority.
 // «آزمایش اتصال» runs on the values in the form before they are saved.
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { AutoComplete, Button, Checkbox, Drawer, Input, InputNumber, Select, Switch } from "antd";
@@ -52,6 +53,9 @@ function presetModels(p: AiPresetView | undefined): Record<Tier, string[]> {
 
 type Draft = Omit<AiConnectionInput, "models" | "label"> & { label: string; models: Record<Tier, string[]>; enabled: boolean; priority: number; free_tier: boolean };
 
+/** The embedding model a new connection starts with: an embedding-only service's first suggestion, else none (opt-in). */
+const presetEmbed = (p: AiPresetView | undefined) => (p?.embed_only ? (p.embed?.models[0] ?? "") : "");
+
 export function ConnectionDrawer({
   open,
   connection,
@@ -91,6 +95,8 @@ export function ConnectionDrawer({
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [listed, setListed] = useState<string[]>([]);
+  const [embedModel, setEmbedModel] = useState("");
+  const [embedDims, setEmbedDims] = useState<number | null>(null);
 
   const preset = presets.find((p) => p.id === presetId);
 
@@ -113,6 +119,8 @@ export function ConnectionDrawer({
     setRegion(false);
     setReport(null);
     setListed(c?.available_models ?? []);
+    setEmbedModel(c ? (c.embed?.model ?? "") : presetEmbed(first));
+    setEmbedDims(c ? (c.embed?.dims ?? null) : first?.embed_only ? (first.embed?.dims ?? null) : null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, connection?.id]);
 
@@ -124,6 +132,8 @@ export function ConnectionDrawer({
     setModels(presetModels(p));
     setListed([]);
     setReport(null);
+    setEmbedModel(presetEmbed(p));
+    setEmbedDims(p?.embed_only ? (p.embed?.dims ?? null) : null);
   };
 
   const keyRequired = preset?.key_required !== false && regionOf(preset) !== "local";
@@ -145,6 +155,7 @@ export function ConnectionDrawer({
     priority,
     // a local model costs nothing anyway
     free_tier: preset?.region === "local" ? false : freeTier,
+    embed: embedModel.trim() ? { model: embedModel.trim(), dims: embedDims } : null,
   });
 
   const problem = (): string | null => {
@@ -153,7 +164,9 @@ export function ConnectionDrawer({
     if (keyAgain && !(canDropKey && removeKey)) return canDropKey ? "نشانی عوض شده است؛ کلید API را دوباره وارد کنید یا «ذخیره بدون کلید» را بزنید." : "نشانی عوض شده است؛ کلید API را دوباره وارد کنید.";
     if (baseRequired && !baseUrl.trim()) return "نشانی پایهٔ API را وارد کنید.";
     if (baseUrl.trim() && !/^https?:\/\/\S+$/i.test(baseUrl.trim())) return "نشانی پایه باید با https:// یا http:// شروع شود.";
-    if (!input().models.smart.length) return "دست‌کم یک مدل هوشمند انتخاب کنید.";
+    if (preset?.embed_only) {
+      if (!embedModel.trim()) return "مدل بردارسازی را انتخاب کنید.";
+    } else if (!input().models.smart.length) return "دست‌کم یک مدل هوشمند انتخاب کنید.";
     return null;
   };
 
@@ -363,10 +376,12 @@ export function ConnectionDrawer({
           </Field>
         ) : null}
 
-        <div className="ai-sec-t">
-          مدل‌ها <small>اولی اصلی است؛ بقیه به‌ترتیب جایگزین می‌شوند</small>
-        </div>
-        {TIERS.map((t) => (
+        {!preset?.embed_only ? (
+          <div className="ai-sec-t">
+            مدل‌ها <small>اولی اصلی است؛ بقیه به‌ترتیب جایگزین می‌شوند</small>
+          </div>
+        ) : null}
+        {(preset?.embed_only ? [] : TIERS).map((t) => (
           <Field key={t} label={`مدل ${TIER_LABEL[t]}`} extra={t === "smart" ? "دستیار و تحلیل" : t === "fast" ? "کارهای سریع" : "خواندن عکس و PDF"}>
             <Select
               mode="tags"
@@ -381,6 +396,31 @@ export function ConnectionDrawer({
             />
           </Field>
         ))}
+
+        {preset && (preset.embed || preset.protocol !== "anthropic") ? (
+          <>
+            <div className="ai-sec-t">
+              بردارسازی <small>{preset.embed_only ? "مدلی که اسناد و رکوردها را برای جست‌وجو بردار می‌کند" : "اختیاری؛ برای جست‌وجوی معنایی در «نمایه و بازیابی»"}</small>
+            </div>
+            <div className="ai-grid2">
+              <Field label="مدل بردارسازی" extra={preset.embed_only ? null : "اختیاری"}>
+                <AutoComplete
+                  value={embedModel}
+                  onChange={(v) => setEmbedModel(String(v ?? ""))}
+                  options={[...new Set([...(preset.embed?.models ?? []), ...listed.filter((m) => /embed|bge|e5|gte|minilm/i.test(m))])].map((m) => ({ value: m, label: <span className="ai-mid">{m}</span> }))}
+                  className="ai-ltr-in w-full"
+                  placeholder={preset.embed?.models[0] ?? "نام مدل بردارسازی"}
+                  aria-label="مدل بردارسازی"
+                >
+                  <Input dir="ltr" spellCheck={false} allowClear />
+                </AutoComplete>
+              </Field>
+              <Field label="اندازهٔ بردار" extra="اختیاری" hint="خالی یعنی اندازهٔ خود مدل؛ برای مدل‌های بزرگ ۷۶۸ یا ۱۰۲۴ پیشنهاد می‌شود.">
+                <InputNumber min={8} max={8192} value={embedDims ?? undefined} onChange={(v) => setEmbedDims(v ? Number(v) : null)} className="w-full" placeholder="اندازهٔ خود مدل" disabled={!embedModel.trim()} />
+              </Field>
+            </div>
+          </>
+        ) : null}
 
         <div className="ai-sw">
           <div className="ai-sw-r">

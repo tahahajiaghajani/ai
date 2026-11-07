@@ -10,7 +10,7 @@
 import { z } from "zod";
 import type { Ctx, ServerConfig } from "../../../context";
 import type { Queryable } from "../../../db";
-import type { AiDocStatus } from "@shared/ai/rag";
+import type { AiDocPages, AiDocStatus } from "@shared/ai/rag";
 import { DOC_COLLECTION, DOC_DOCUMENT } from "@shared/tables/docs";
 import { clipTokens, detectLang } from "@shared/ai/text";
 import { presetById } from "@shared/ai/presets";
@@ -292,8 +292,8 @@ export async function removeOwned(ctx: Ctx, table: typeof DOC_DOCUMENT | typeof 
   await ctx.write((tx) => removeIn(tx, ctx, table, id, { skipAccess: owner }));
 }
 
-/** Pages of a document for the viewer (the caller must read it). */
-export async function documentPages(ctx: Ctx, id: string): Promise<{ id: string; title: string; status: AiDocStatus; pages: { page: number; text: string }[]; ocr: boolean }> {
+/** Pages of a document for the viewer (the caller must read it), and the text of a cited chunk of it to highlight. */
+export async function documentPages(ctx: Ctx, id: string, chunk?: string | null): Promise<AiDocPages> {
   const { def } = await defFor(ctx, DOC_DOCUMENT);
   const env = await condEnv(ctx);
   const row = await loadReadable(ctx.db, ctx, def, id, env);
@@ -304,6 +304,11 @@ export async function documentPages(ctx: Ctx, id: string): Promise<{ id: string;
     const r = await extractDocument(sys, row, { ocr: false });
     pages = (r?.pages ?? []).map((p) => ({ ...p, ocr: false }));
   }
-  return { id, title: String(row.title ?? ""), status: (row.status as AiDocStatus) ?? "ingesting", pages: pages.map((p) => ({ page: p.page, text: p.text })), ocr: !!row.ocr || pages.some((p) => p.ocr) };
+  let highlight: AiDocPages["highlight"] = null;
+  if (chunk && /^[0-9a-f-]{36}$/i.test(chunk)) {
+    const c = await ctx.db.one<{ page: number | null; text: string }>(`select page, text from sm_ai_chunks where org_id = $1 and id = $2 and table_key = $3 and record_id = $4`, [ctx.org.id, chunk, DOC_DOCUMENT, id]);
+    if (c) highlight = { page: c.page, text: c.text };
+  }
+  return { id, title: String(row.title ?? ""), status: (row.status as AiDocStatus) ?? "ingesting", pages: pages.map((p) => ({ page: p.page, text: p.text })), ocr: !!row.ocr || pages.some((p) => p.ocr), highlight };
 }
 

@@ -1,5 +1,6 @@
-// Settings → «هوش مصنوعی» (ai:full): the organisation's own AI engine. Five tabs — «اتصال‌ها» (keys and providers, with a
+// Settings → «هوش مصنوعی» (ai:full): the organisation's own AI engine. Six tabs — «اتصال‌ها» (keys and providers, with a
 // per-model connection test), «کارها و مدل‌ها» (which model does which job, in what order, with what effort),
+// «نمایه و بازیابی» (the embedding model, the index per table and collection, rebuilds, a retrieval test box),
 // «قابلیت‌ها و حریم خصوصی», «مصرف و بودجه» and «فعالیت دستیار». Members without ai:full see a short no-access state.
 import "../kit/ai.css";
 import "./settings.css";
@@ -19,10 +20,12 @@ import { RoutingTab } from "./Routing";
 import { FeaturesTab } from "./Features";
 import { UsageTab } from "./Usage";
 import { ActivityTab } from "./Activity";
+import { RetrievalTab } from "./Retrieval";
 
 const TABS = [
   { key: "connections", label: "اتصال‌ها" },
   { key: "jobs", label: "کارها و مدل‌ها" },
+  { key: "retrieval", label: "نمایه و بازیابی" },
   { key: "features", label: "قابلیت‌ها و حریم خصوصی" },
   { key: "usage", label: "مصرف و بودجه" },
   { key: "activity", label: "فعالیت دستیار" },
@@ -132,6 +135,8 @@ export default function AiSettings() {
         )
       ) : tab === "jobs" ? (
         <RoutingTab settings={s} connections={list} mode={view?.mode} linked={view?.linked} />
+      ) : tab === "retrieval" ? (
+        <RetrievalTab settings={s} connections={list} />
       ) : tab === "features" ? (
         <FeaturesTab settings={s} mode={view?.mode} linked={view?.linked} />
       ) : tab === "usage" ? (

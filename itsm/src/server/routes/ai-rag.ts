@@ -127,7 +127,7 @@ ragRoutes.post("/docs/upload", bodyLimit({ maxSize: UPLOAD_LIMIT, onError: tooLa
   return c.json({ document });
 });
 
-ragRoutes.get("/docs/:id/pages", async (c) => c.json(await documentPages(c.get("ctx"), c.req.param("id"))));
+ragRoutes.get("/docs/:id/pages", async (c) => c.json(await documentPages(c.get("ctx"), c.req.param("id"), c.req.query("chunk") ?? null)));
 
 ragRoutes.post("/docs/:id/reingest", async (c) => {
   await reingestDocument(c.get("ctx"), c.req.param("id"));

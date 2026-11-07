@@ -1,0 +1,226 @@
+/* <AskPanel>, the documents library and viewer, «نمایه و بازیابی». Tokens only (src/ui/ds/README.md). */
+@layer components {
+  .ask {
+    display: flex;
+    flex-direction: column;
+    gap: var(--ds-space-3, 12px);
+  }
+  .ask-box {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+  }
+  .ask-box textarea {
+    flex: 1;
+  }
+  .ask-hint,
+  .ask-wait,
+  .ask-label,
+  .ask-note {
+    color: var(--ds-text-3);
+    font-size: 12px;
+  }
+  .ask-intro {
+    color: var(--ds-text-3);
+    font-size: 13px;
+  }
+  .ask-answer {
+    border: 1px solid var(--ds-line);
+    border-radius: var(--ds-radius-lg, 12px);
+    background: var(--ds-surface);
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .ask-answer-h {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--ds-text-3);
+  }
+  .ask-q {
+    color: var(--ds-text);
+    font-weight: var(--ds-weight-medium);
+    flex: 1;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .ask-text {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .ask-error {
+    color: var(--ds-danger);
+    font-size: 13px;
+  }
+  .ask-unsupported {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 12px;
+    color: var(--ds-text-3);
+  }
+  .ask-unsupported ul {
+    margin: 0;
+    padding-inline-start: 18px;
+  }
+  .ask-sources {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    border-top: 1px solid var(--ds-line);
+    padding-top: 10px;
+  }
+  .ask-src {
+    display: flex;
+    gap: 10px;
+    width: 100%;
+    text-align: start;
+    background: transparent;
+    border: 0;
+    padding: 6px 8px;
+    border-radius: var(--ds-radius-md, 8px);
+    cursor: pointer;
+    color: inherit;
+  }
+  .ask-src:hover,
+  .ask-src:focus-visible {
+    background: var(--ds-well, var(--ds-sunken));
+  }
+  .ask-src-n {
+    flex: none;
+    width: 22px;
+    height: 22px;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--ds-sunken);
+    color: var(--ds-text-2);
+    font-size: 12px;
+  }
+  .ask-src-b {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  .ask-src-t {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: var(--ds-weight-medium);
+  }
+  .ask-src-m {
+    color: var(--ds-text-3);
+    font-size: 12px;
+  }
+  .ask-src-x {
+    color: var(--ds-text-2);
+    font-size: 12px;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+  .ask.is-compact .ask-answer {
+    padding: 10px 12px;
+  }
+
+  /* the library */
+  .docs-grid {
+    display: grid;
+    grid-template-columns: minmax(220px, 280px) 1fr;
+    gap: 16px;
+    align-items: start;
+  }
+  @media (max-width: 899.98px) {
+    .docs-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+  .docs-colls {
+    list-style: none;
+    margin: 0;
+    padding: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .docs-coll {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 8px 10px;
+    border: 0;
+    border-radius: var(--ds-radius-md, 8px);
+    background: transparent;
+    color: var(--ds-text-2);
+    text-align: start;
+    cursor: pointer;
+  }
+  .docs-coll:hover {
+    background: var(--ds-well, var(--ds-sunken));
+  }
+  .docs-coll[aria-current="true"] {
+    background: var(--ds-accent-tint);
+    color: var(--ds-text);
+  }
+  .docs-coll-n {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .docs-drop {
+    margin-bottom: 12px;
+  }
+  .docs-drop .ant-upload-drag {
+    border-radius: var(--ds-radius-lg, 12px);
+  }
+  .docs-drop-t {
+    color: var(--ds-text-2);
+    font-size: 13px;
+  }
+  .docs-meta {
+    color: var(--ds-text-3);
+    font-size: 12px;
+  }
+
+  /* the viewer */
+  .docv-page {
+    border-top: 1px solid var(--ds-line);
+    padding-top: 12px;
+    margin-top: 12px;
+    scroll-margin-top: 80px;
+  }
+  .docv-page:first-child {
+    border-top: 0;
+    margin-top: 0;
+    padding-top: 0;
+  }
+  .docv-page-h {
+    color: var(--ds-text-3);
+    font-size: 12px;
+    margin-bottom: 6px;
+  }
+  .docv-para {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    line-height: 1.9;
+    margin: 0 0 8px;
+    padding: 2px 6px;
+    border-radius: var(--ds-radius-sm, 6px);
+  }
+  .docv-para.is-hl {
+    background: var(--ds-accent-tint);
+    box-shadow: inset 3px 0 0 var(--ds-accent-bar, var(--ds-accent));
+  }
+}

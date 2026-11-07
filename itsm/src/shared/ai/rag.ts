@@ -9,7 +9,7 @@
 //   POST /rag/rebuild        { table? } → { queued }   re-index (one table or everything)   (ai:full)
 //   POST /rag/reconcile      → { queued }              compare the index with the records  (ai:full)
 //   POST /docs/upload        multipart: collection_id, file, title? → { document }          (adds to a collection)
-//   GET  /docs/:id/pages     → AiDocPages                                                  (reads the document)
+//   GET  /docs/:id/pages     ?chunk= → AiDocPages (with the cited passage to highlight)     (reads the document)
 //   POST /docs/:id/reingest  → { ok }                                                      (changes the document)
 //
 // Every passage and citation comes from a record the asking member may read now, with only the fields they may see:
@@ -169,4 +169,6 @@ export interface AiDocPages {
   pages: { page: number; text: string }[];
   /** the text was read by a vision model */
   ocr: boolean;
+  /** GET …/pages?chunk=<id>: the cited passage to highlight (null when it is not a chunk of this document) */
+  highlight?: { page: number | null; text: string } | null;
 }
