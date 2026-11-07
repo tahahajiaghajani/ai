@@ -62,8 +62,11 @@ export const FIELD_TYPES: Record<FieldType, FieldTypeInfo> = {
 export const COLOR_KEYS = ["gray", "red", "orange", "gold", "green", "teal", "blue", "indigo", "purple", "magenta"] as const;
 export type ColorKey = (typeof COLOR_KEYS)[number];
 
-/** Field-level security groups: a field in a group is only visible to callers whose roles carry the group. */
-export type FieldGroup = "internal" | "financial" | "personal" | "security" | "hr" | "admin";
+/**
+ * Field-level security groups: a field in a group is only visible to (and writable by) callers whose roles carry
+ * the group; fields without a group follow row access (docs/spec/ACCESS.md § Field security).
+ */
+export type FieldGroup = "internal" | "financial" | "personal" | "security" | "hr" | "admin" | "ai_private";
 export const FIELD_GROUPS: Record<FieldGroup, string> = {
   internal: "داخلی (کارشناسان)",
   financial: "مالی",
@@ -71,6 +74,7 @@ export const FIELD_GROUPS: Record<FieldGroup, string> = {
   security: "امنیت",
   hr: "منابع انسانی",
   admin: "مدیریت",
+  ai_private: "خصوصی هوش مصنوعی",
 };
 
 /**
@@ -81,10 +85,11 @@ export const MODULE_KEYS = ["core"] as const;
 export type ModuleKey = (typeof MODULE_KEYS)[number] | (string & {});
 
 /**
- * The access area a table belongs to. Today these are the platform's provisional areas (`@shared/permissions`);
- * the ITSM access model (src/server/access) maps them to its own grants.
+ * The access area a table belongs to: a key of the area registry (`@shared/access` — the platform's areas
+ * `settings`, `users`, `integrations`, `ai`, `reports`, `work` plus the ITSM areas such as `incident`, `org`…;
+ * modules add theirs with `registerArea`). Roles grant read/create/write/delete/approve/admin per area.
  */
-export type AreaKey = Area;
+export type AreaKey = Area | (string & {});
 
 /** One option of a choice field (static in code, or a row of a tenant-editable choice list). */
 export interface Option {
@@ -165,10 +170,14 @@ export interface StateDef {
   color?: ColorKey;
 }
 
-/** Who may take a transition (default provider: an area level; the ITSM access model may refine it). */
+/**
+ * Who may take a transition. The access model reads `level` as: view = may read the record, edit = the role's write
+ * scope covers the record, full = the `approve` grant of `area`; `roles` (role keys) additionally requires one of them.
+ */
 export interface AreaOp {
   area: AreaKey;
   level: Level;
+  roles?: string[];
 }
 
 export interface Transition {
@@ -205,6 +214,20 @@ export interface ScopeFields {
   domain?: string;
   /** workspace column (default "workspace_id") */
   workspace?: string;
+  /**
+   * requester-side user fields, in priority order: whose record it is. The access model takes the record's
+   * `unit_id`/`domain_id` from the first non-empty one's profile and lets department heads and line managers read
+   * the records of their people (default: `own` minus the assignee fields)
+   */
+  requester?: string[];
+  /** fields a caller who reaches a record only as its requester may change (unset = no requester restriction) */
+  requesterWritable?: string[];
+  /** transitions a caller who reaches a record only as its requester may take (unset = none when requesterWritable is set) */
+  requesterTransitions?: { from?: string[]; to: string }[];
+  /** field group whose holders read confidential rows (features.confidential; default "hr" in area hr, else "security") */
+  confidentialGroup?: FieldGroup;
+  /** reference data every member reads in full (org structure, roles…); writes still need the area's grants */
+  public?: boolean;
 }
 
 /** Records of another table that point at this one, listed on the form (e.g. a problem's incidents). */

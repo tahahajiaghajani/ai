@@ -13,9 +13,10 @@
 // - Table row rules (`TableDef.rowAccess`) are applied by the engine on top of the provider; a provider does not
 //   repeat them.
 import type { Ctx } from "../context";
+import type { Queryable } from "../db";
 import type { FieldGroup, TableDef, Transition } from "@shared/model/types";
 import type { CondEnv } from "@shared/model/conditions";
-import type { Level } from "@shared/permissions";
+import type { Area, Level } from "@shared/permissions";
 import { DEFAULT_TIMEZONE } from "@shared/constants";
 
 export type Row = Record<string, unknown>;
@@ -41,6 +42,12 @@ export interface AccessProvider {
   canTransition(ctx: Ctx, def: TableDef, row: Row, t: Transition): boolean;
   /** The caller's identity for conditions: groups, unit, time zone… (cached per request by the engine). */
   env(ctx: Ctx): Promise<CondEnv>;
+  /**
+   * Load whatever the synchronous methods above need about the caller (their roles, groups, units…) through `q` —
+   * the request's transaction when there is one. The engine awaits it before any other call for a context
+   * (`orgSchema`); a provider that needs nothing leaves it out.
+   */
+  prepare?(ctx: Ctx, q: Queryable): Promise<void>;
 }
 
 export const isSystem = (ctx: Ctx) => ctx.actor === "system";
@@ -60,14 +67,14 @@ export function levelFor(def: TableDef, op: keyof typeof DEFAULT_LEVELS): Level 
 export const defaultProvider: AccessProvider = {
   name: "default",
   readWhere(ctx, def, alias, params) {
-    if (!isSystem(ctx) && !ctx.can(def.area, levelFor(def, "read"))) return "false";
+    if (!isSystem(ctx) && !ctx.can(def.area as Area, levelFor(def, "read"))) return "false";
     params.push(ctx.org.id);
     return `${alias}.org_id = $${params.length}`;
   },
-  canReadTable: (ctx, def) => isSystem(ctx) || ctx.can(def.area, levelFor(def, "read")),
-  canCreate: (ctx, def) => isSystem(ctx) || ctx.can(def.area, levelFor(def, "create")),
-  canWrite: (ctx, def, row) => row.org_id === ctx.org.id && (isSystem(ctx) || ctx.can(def.area, levelFor(def, "write"))),
-  canDelete: (ctx, def, row) => row.org_id === ctx.org.id && (isSystem(ctx) || ctx.can(def.area, levelFor(def, "delete"))),
+  canReadTable: (ctx, def) => isSystem(ctx) || ctx.can(def.area as Area, levelFor(def, "read")),
+  canCreate: (ctx, def) => isSystem(ctx) || ctx.can(def.area as Area, levelFor(def, "create")),
+  canWrite: (ctx, def, row) => row.org_id === ctx.org.id && (isSystem(ctx) || ctx.can(def.area as Area, levelFor(def, "write"))),
+  canDelete: (ctx, def, row) => row.org_id === ctx.org.id && (isSystem(ctx) || ctx.can(def.area as Area, levelFor(def, "delete"))),
   visibleFields: () => null,
   writableFields: () => null,
   hasFieldGroup(ctx, group) {
@@ -75,7 +82,7 @@ export const defaultProvider: AccessProvider = {
     if (group === "internal") return ctx.member.role !== "viewer";
     return true;
   },
-  canTransition: (ctx, _def, _row, t) => isSystem(ctx) || !t.roles || ctx.can(t.roles.area, t.roles.level),
+  canTransition: (ctx, _def, _row, t) => isSystem(ctx) || !t.roles || ctx.can(t.roles.area as Area, t.roles.level),
   async env(ctx) {
     return {
       userId: ctx.user.id,

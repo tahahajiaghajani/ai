@@ -76,7 +76,9 @@ onTableRegistered((def) => {
   registerAggregate({
     entity: def.key,
     table: def.table,
-    area: def.area,
+    // an access area of the ITSM model (`@shared/access`): engine roots are judged by the access provider, never by
+    // the membership-role level of `area`
+    area: def.area as Area,
     order: 10,
     engine: "record",
     ...(def.numbered ? { numbered: { byKind: false }, nextNumber: (q: Queryable, orgId: string) => allocateNumber(q, def, orgId) } : {}),

@@ -30,6 +30,7 @@ const LOCAL_ONLY: Record<string, string> = {
   sm_jobs: "job queue and outbox of record events (each runtime runs its own)",
   sm_blobs: "attachment contents (fetched lazily by the Windows app, uploaded after a push)",
   sm_scope_epochs: "per member: bumped when what they may read changes (read by the cloud's pull)",
+  sm_access_state: "per organisation: the access configuration's version (each runtime its own; caches revalidate against it)",
   // platform administration (web version)
   sm_support_sessions: "super-admin support sessions (web version)",
   sm_security_events: "sign-in and security events",

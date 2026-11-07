@@ -14,6 +14,7 @@ import { CUSTOM_FIELD_TYPES } from "@shared/tables/core";
 import type { Ctx } from "../context";
 import type { Queryable } from "../db";
 import { notFound } from "../http/errors";
+import { access } from "../access/provider";
 
 export interface OrgSchema {
   /** effective definition of a table (custom fields and labels applied) */
@@ -76,11 +77,16 @@ async function stampOf(q: Queryable, orgId: string): Promise<string> {
   return `${r?.a ?? ""}|${r?.b ?? ""}`;
 }
 
-/** The effective schema of the caller's organisation (memoised on the request). */
+/**
+ * The effective schema of the caller's organisation (memoised on the request). Every engine entry point awaits it
+ * first, so it also lets the access provider load the caller's subject (`prepare`) through the same queryable — inside
+ * a transaction that is the transaction itself (PGlite has a single connection).
+ */
 export function orgSchema(ctx: Ctx, q: Queryable = ctx.db): Promise<OrgSchema> {
   const hit = memo.get(ctx);
   if (hit && hit.gen === generation) return hit.p;
-  const p = loadSchema(q, ctx.org.id);
+  const provider = access();
+  const p = provider.prepare ? Promise.all([loadSchema(q, ctx.org.id), provider.prepare(ctx, q)]).then(([s]) => s) : loadSchema(q, ctx.org.id);
   memo.set(ctx, { gen: generation, p });
   p.catch(() => memo.delete(ctx));
   return p;

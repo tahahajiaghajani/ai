@@ -9,11 +9,12 @@ import { BASE_COLUMNS, FIELD_TYPES, refTarget } from "../model/types";
 import { setTableLookup, validateCond } from "../model/conditions";
 import { CLOSE_CODES, DEFAULT_TASK_STATES, TASK_FIELDS, TASK_SCOPE } from "../model/task";
 import { CORE_CHOICE_LISTS, CORE_TABLES, USER_TABLE } from "./core";
+import { ACCESS_TABLES } from "./access";
 
 export { CUSTOM_FIELD_TYPES, VIEW_KINDS } from "./core";
 
 /** Table definitions per module; a module adds its file's export here. */
-const MODULE_TABLES: TableDef[][] = [CORE_TABLES];
+const MODULE_TABLES: TableDef[][] = [CORE_TABLES, ACCESS_TABLES];
 
 /** Every table by key (resolved definitions). */
 export const TABLES = new Map<string, TableDef>();
@@ -95,6 +96,12 @@ export function buildTable(input: TableDef): TableDef {
   }));
   const features = { history: true, sync: true, ...(task ? { journal: true, attachments: true, watchers: true, links: true } : {}), ...input.features };
   if (features.watchers && !fields.some((f) => f.name === "watch_list")) fields.push({ name: "watch_list", label: "پیگیری‌کنندگان", type: "users", span: 24 });
+  // confidential rows (docs/spec/ACCESS.md): only the assignment group, the people on the record, those on its access
+  // list and holders of the table's confidential field group read a row flagged confidential
+  if (features.confidential) {
+    if (!fields.some((f) => f.name === "confidential")) fields.push({ name: "confidential", label: "محرمانه", type: "bool", default: false, filter: true, span: 6 });
+    if (!fields.some((f) => f.name === "access_list")) fields.push({ name: "access_list", label: "فهرست دسترسی", type: "users", span: 18 });
+  }
   const states = input.states ?? (task ? DEFAULT_TASK_STATES : undefined);
   if (states) {
     const options: Option[] = states.states.map((s, i) => ({ value: s.value, label: s.label, color: s.color, order: i + 1 }));
@@ -136,7 +143,9 @@ export function buildTable(input: TableDef): TableDef {
     }
   }
   const scope = input.scope && Object.keys(input.scope).length ? input.scope : task ? TASK_SCOPE : input.scope ?? {};
-  for (const c of [...(scope.own ?? []), scope.watchers, scope.group].filter(Boolean) as string[]) if (!has(c)) fail(input, `scope field "${c}" does not exist`);
+  for (const c of [...(scope.own ?? []), ...(scope.requester ?? []), ...(scope.requesterWritable ?? []), scope.watchers, scope.group].filter(Boolean) as string[]) {
+    if (!has(c)) fail(input, `scope field "${c}" does not exist`);
+  }
   const def: TableDef = { ...input, fields, features, states, scope };
   if (task) {
     const close = fields.find((f) => f.name === "close_code");

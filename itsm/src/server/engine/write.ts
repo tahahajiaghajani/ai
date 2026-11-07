@@ -51,6 +51,9 @@ export interface WriteOptions {
 const IGNORED = new Set(["id", "org_id", "no", "number", "rev", "version", "created_at", "created_by", "updated_at", "updated_by", "deleted_at", "origin", "custom", "domain_id", "unit_id"]);
 
 const LOCKED_DEFAULT: StateCategory[] = ["closed", "canceled"];
+/** Base columns the access model keeps (src/server/access/hooks.ts): set by hooks, never by callers. */
+const ANCHORS = ["unit_id", "domain_id"];
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const LOCKED_MESSAGE = "این رکورد بسته شده است و دیگر ویرایش نمی‌شود؛ برای تغییر، آن را بازگشایی کنید";
 export const VERSION_MESSAGE = "این رکورد را کس دیگری در این فاصله تغییر داده است؛ آن را دوباره باز کنید و تغییرهای خود را دوباره اعمال کنید";
 
@@ -326,6 +329,14 @@ async function pipeline(p: PipelineInput): Promise<Row> {
       if (creating || !sameValue(f, prev?.[f.name], next[f.name])) changed.add(f.name);
       else changed.delete(f.name);
     }
+    // the access anchors (unit_id, domain_id) are never taken from input; the access model's hook sets them
+    for (const k of ANCHORS) {
+      const v = typeof next[k] === "string" && UUID.test(next[k]) ? String(next[k]).toLowerCase() : null;
+      if ((before[k] ?? null) === v) continue;
+      next[k] = v;
+      if (creating ? v !== null : (prev?.[k] ?? null) !== v) changed.add(k);
+      else changed.delete(k);
+    }
     problems.throwIfAny();
   }
 
@@ -395,6 +406,7 @@ async function insertRow(tx: Tx, ctx: Ctx, def: TableDef, next: Row): Promise<Ro
   };
   if (def.numbered) push("no", await allocateNumber(tx, def, ctx.org.id));
   if (next.workspace_id) push("workspace_id", next.workspace_id);
+  for (const k of ANCHORS) if (next[k]) push(k, next[k]);
   const custom: Row = {};
   for (const f of def.fields) {
     if (f.base) continue;
@@ -424,7 +436,7 @@ async function updateRow(tx: Tx, ctx: Ctx, def: TableDef, prev: Row, next: Row, 
       customChanged = true;
       continue;
     }
-    if (f.base && f.name !== "workspace_id") continue;
+    if (f.base && f.name !== "workspace_id" && !ANCHORS.includes(f.name)) continue;
     set(f.name, columnValue(f, next[f.name]), jsonb(f) ? "::jsonb" : "");
   }
   if (customChanged) {

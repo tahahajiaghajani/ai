@@ -101,6 +101,16 @@ export const TASK_SCOPE: ScopeFields = {
   own: ["caller_id", "requested_for", "opened_by", "assigned_to"],
   watchers: "watch_list",
   group: "assignment_group_id",
+  // the record belongs to the person it is for (its unit/domain anchors come from their profile)
+  requester: ["requested_for", "caller_id", "opened_by"],
+  // a requester (who is not also working on the record) adds public comments and attachments and changes only these
+  requesterWritable: ["description", "urgency", "watch_list"],
+  // … and may confirm or reopen a resolved record and cancel a new one
+  requesterTransitions: [
+    { from: ["resolved"], to: "closed" },
+    { from: ["resolved"], to: "in_progress" },
+    { from: ["new"], to: "canceled" },
+  ],
 };
 
 export const TASK_STATES: StateDef[] = [

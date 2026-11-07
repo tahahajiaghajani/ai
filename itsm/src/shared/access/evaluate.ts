@@ -1,0 +1,365 @@
+// The in-memory form of the access policy: whether a subject may read, change or delete one row, why, which fields
+// they see and which transitions they may take. The server compiles the SAME rules into SQL
+// (src/server/access/predicate.ts) and the parity tests (tests/access-parity.test.ts) prove both agree on random
+// organisations; single-row checks (canWrite, canDelete, explain) use this form. docs/spec/ACCESS.md § Evaluation.
+// Imported by the UI: keep it free of server imports.
+import type { FieldGroup, TableDef, Transition } from "../model/types";
+import { grantIn, SCOPE_LABELS, type Effective, type FullGrant, type Scope } from "./model";
+import { areaLabel } from "./areas";
+
+/** Who is asking, resolved once per request (src/server/access/subject.ts builds it). */
+export interface Subject {
+  orgId: string;
+  userId: string;
+  /** a member, a platform administrator's support session, or the platform itself (jobs, flows) */
+  kind: "user" | "support" | "system";
+  eff: Effective;
+  /** groups whose records the subject reads: member, lead and observer memberships, plus the groups below groups they lead */
+  groups: string[];
+  /** groups whose records the subject may change (observers excluded) */
+  writeGroups: string[];
+  /** groups the subject leads */
+  ledGroups: string[];
+  unitId: string | null;
+  /** the subject's unit and every unit below it */
+  unitTree: string[];
+  /** units the subject manages, with everything below them (department heads read their people's records) */
+  managedTree: string[];
+  /** people whose manager (or manager's manager) the subject is */
+  reportees: string[];
+  /** out-of-office members who named the subject their delegate (the subject works their assigned records) */
+  delegators: string[];
+  /** the organisation separates domains */
+  domainSeparation: boolean;
+  domainId: string | null;
+  /** the subject's domain and the domains below it */
+  domainTree: string[];
+  /** workspaces the subject belongs to (explicitly or through a group) */
+  workspaces: string[];
+  /** the organisation's secure workspaces (only their members read their records) */
+  secureWorkspaces: string[];
+  /** the organisation's restricted groups (only their members read the records assigned to them) */
+  restrictedGroups: string[];
+}
+
+export type Row = Record<string, unknown>;
+
+/** The columns of a table the access model reads (from `def.scope`, with defaults). */
+export interface ScopeColumns {
+  /** own user fields (a scalar user or an array of users) */
+  own: { name: string; array: boolean }[];
+  /** requester-side own fields, in priority order */
+  requester: { name: string; array: boolean }[];
+  /** own fields that are not requester-side (the assignee) */
+  assignee: { name: string; array: boolean }[];
+  watchers: string | null;
+  group: string | null;
+  unit: string;
+  domain: string;
+  workspace: string;
+  confidential: boolean;
+  confidentialGroup: FieldGroup;
+  accessList: string | null;
+  public: boolean;
+  requesterWritable: string[] | null;
+  requesterTransitions: { from?: string[]; to: string }[] | null;
+}
+
+const columns = new WeakMap<TableDef, ScopeColumns>();
+
+export function scopeColumns(def: TableDef): ScopeColumns {
+  let c = columns.get(def);
+  if (c) return c;
+  const s = def.scope ?? {};
+  const field = (name: string) => def.fields.find((f) => f.name === name);
+  const userField = (name: string) => {
+    const f = field(name);
+    return f && (f.type === "user" || f.type === "users") ? { name, array: f.type === "users" } : null;
+  };
+  const list = (names: string[]) => names.map(userField).filter((x): x is { name: string; array: boolean } => !!x);
+  const requesterNames = s.requester ?? (s.own ?? []).filter((n) => n !== "assigned_to");
+  // requester-side fields count as own even when a table lists them only under `requester`
+  const own = list([...new Set([...(s.own ?? []), ...requesterNames])]);
+  const requester = list(requesterNames);
+  const assignee = own.filter((f) => !requesterNames.includes(f.name));
+  const groupField = s.group && field(s.group) ? s.group : null;
+  const confidential = !!def.features?.confidential;
+  c = {
+    own,
+    requester,
+    assignee,
+    watchers: s.watchers && field(s.watchers) ? s.watchers : null,
+    group: groupField,
+    unit: s.unit ?? "unit_id",
+    domain: s.domain ?? "domain_id",
+    workspace: s.workspace ?? "workspace_id",
+    confidential,
+    confidentialGroup: s.confidentialGroup ?? (def.area === "hr" ? "hr" : "security"),
+    accessList: confidential && field("access_list") ? "access_list" : null,
+    public: !!s.public,
+    requesterWritable: s.requesterWritable ?? null,
+    requesterTransitions: s.requesterTransitions ?? (s.requesterWritable ? [] : null),
+  };
+  columns.set(def, c);
+  return c;
+}
+
+const holds = (v: unknown, who: string): boolean => (Array.isArray(v) ? v.includes(who) : v === who);
+const holdsAny = (v: unknown, set: readonly string[]): boolean =>
+  set.length > 0 && (Array.isArray(v) ? v.some((x) => set.includes(x as string)) : typeof v === "string" && set.includes(v));
+const idOf = (v: unknown): string | null => (typeof v === "string" && v ? v : null);
+
+/** Secure workspaces the subject is not a member of / restricted groups they are not in. */
+export const secureOutside = (s: Subject) => s.secureWorkspaces.filter((w) => !s.workspaces.includes(w));
+export const restrictedOutside = (s: Subject) => s.restrictedGroups.filter((g) => !s.groups.includes(g));
+
+// ----- the rule's parts (each mirrored by a SQL term in src/server/access/predicate.ts) ---------------------------
+
+export function domainOk(s: Subject, c: ScopeColumns, row: Row): boolean {
+  if (!s.domainSeparation || s.eff.domainsAll) return true;
+  const d = idOf(row[c.domain]);
+  return d === null || s.domainTree.includes(d);
+}
+
+export function hasGroup(s: Subject, g: FieldGroup): boolean {
+  return s.kind !== "user" || s.eff.fieldGroups.includes(g);
+}
+
+export function confidentialOk(s: Subject, c: ScopeColumns, row: Row): boolean {
+  if (!c.confidential || row.confidential !== true || hasGroup(s, c.confidentialGroup)) return true;
+  if (c.group && holdsAny(row[c.group], s.groups)) return true;
+  if ([...c.assignee, ...c.requester].some((f) => holds(row[f.name], s.userId))) return true;
+  return !!c.accessList && holds(row[c.accessList], s.userId);
+}
+
+export function ownMatch(s: Subject, c: ScopeColumns, row: Row): string | null {
+  for (const f of c.own) if (holds(row[f.name], s.userId)) return f.name;
+  if (c.watchers && holds(row[c.watchers], s.userId)) return c.watchers;
+  for (const f of c.assignee) if (holdsAny(row[f.name], s.delegators)) return `${f.name}:delegate`;
+  return null;
+}
+
+const assigneeOwn = (s: Subject, c: ScopeColumns, row: Row) => c.assignee.some((f) => holds(row[f.name], s.userId) || holdsAny(row[f.name], s.delegators));
+const requesterOwn = (s: Subject, c: ScopeColumns, row: Row) => c.requester.some((f) => holds(row[f.name], s.userId));
+
+export function scopeMatch(s: Subject, c: ScopeColumns, row: Row, scope: Scope, write = false): boolean {
+  switch (scope) {
+    case "group":
+      return !!c.group && holdsAny(row[c.group], write ? s.writeGroups : s.groups);
+    case "unit": {
+      const u = idOf(row[c.unit]);
+      return u !== null && u === s.unitId;
+    }
+    case "unit_tree": {
+      const u = idOf(row[c.unit]);
+      return u !== null && s.unitTree.includes(u);
+    }
+    case "domain": {
+      if (!s.domainSeparation) return true;
+      const d = idOf(row[c.domain]);
+      return d === null || s.domainTree.includes(d);
+    }
+    case "all":
+      return true;
+    default:
+      return false;
+  }
+}
+
+export function workspaceOk(s: Subject, c: ScopeColumns, row: Row): boolean {
+  const w = idOf(row[c.workspace]);
+  if (w === null) return true;
+  if (s.eff.workspacesAll) return !secureOutside(s).includes(w);
+  return s.workspaces.includes(w);
+}
+
+export function secureOk(s: Subject, c: ScopeColumns, row: Row): boolean {
+  const w = idOf(row[c.workspace]);
+  return w === null || !secureOutside(s).includes(w);
+}
+
+export function restrictedOk(s: Subject, c: ScopeColumns, row: Row): boolean {
+  if (!c.group) return true;
+  const g = idOf(row[c.group]);
+  return g === null || !restrictedOutside(s).includes(g);
+}
+
+/** Department heads (their units' subtrees) and line managers (their reportees) read their people's records. */
+export function requesterSideMatch(s: Subject, c: ScopeColumns, row: Row): boolean {
+  if (!c.requester.length) return false;
+  const u = idOf(row[c.unit]);
+  if (u !== null && s.managedTree.includes(u)) return true;
+  return c.requester.some((f) => holdsAny(row[f.name], s.reportees));
+}
+
+// ----- decisions --------------------------------------------------------------------------------------------------
+
+export interface RowExtra {
+  /** the subject is a participant through a registered source (an open approval, …), checked in SQL */
+  participant?: boolean;
+}
+
+/** May `s` read `row` of `def`? */
+export function canReadRow(s: Subject, def: TableDef, row: Row, extra: RowExtra = {}): boolean {
+  if (s.kind === "system") return true;
+  if (row.org_id !== undefined && row.org_id !== s.orgId) return false;
+  if (def.virtual) return true;
+  const g = grantIn(s.eff, def.area);
+  if (g.read === "none") return false;
+  const c = scopeColumns(def);
+  if (c.public) return true;
+  if (!domainOk(s, c, row) || !confidentialOk(s, c, row)) return false;
+  if (ownMatch(s, c, row) || extra.participant) return true;
+  if (scopeMatch(s, c, row, g.read) && workspaceOk(s, c, row) && restrictedOk(s, c, row)) return true;
+  return requesterSideMatch(s, c, row) && secureOk(s, c, row) && restrictedOk(s, c, row);
+}
+
+/**
+ * How `s` may change `row`: "full" (every writable field), "requester" (only the table's requesterWritable fields:
+ * the subject reaches the record only as its requester) or null. `op: "delete"` asks about deleting (requesters of
+ * tables with a requester whitelist never delete).
+ */
+export function writeMode(s: Subject, def: TableDef, row: Row, op: "write" | "delete" = "write"): "full" | "requester" | null {
+  if (s.kind === "system") return "full";
+  if (row.org_id !== undefined && row.org_id !== s.orgId) return null;
+  if (def.virtual) return null;
+  const g = grantIn(s.eff, def.area);
+  const scope = op === "write" ? g.write : g.delete;
+  if (scope === "none") return null;
+  const c = scopeColumns(def);
+  if (!domainOk(s, c, row) || !confidentialOk(s, c, row)) return null;
+  if (assigneeOwn(s, c, row)) return "full";
+  if (scopeMatch(s, c, row, scope, true) && workspaceOk(s, c, row) && restrictedOk(s, c, row)) return "full";
+  if (requesterOwn(s, c, row)) {
+    if (!c.requesterWritable) return "full";
+    return op === "write" ? "requester" : null;
+  }
+  return null;
+}
+
+/** May `s` take transition `t` on `row` (beyond being allowed to change it)? */
+export function canTransitionRow(s: Subject, def: TableDef, row: Row, t: Transition): boolean {
+  if (s.kind === "system") return true;
+  const mode = writeMode(s, def, row);
+  if (!mode) return false;
+  if (mode === "requester") {
+    const c = scopeColumns(def);
+    const state = String(row[def.states?.field ?? "state"] ?? "");
+    if (!(c.requesterTransitions ?? []).some((r) => r.to === t.to && (!r.from || r.from.includes(state)))) return false;
+  }
+  if (t.roles) {
+    if (t.roles.roles?.length && !t.roles.roles.some((k) => s.eff.roles.includes(k))) return false;
+    const g = grantIn(s.eff, t.roles.area);
+    if (t.roles.level === "full" && !g.approve) return false;
+    if (t.roles.level === "edit" && (mode !== "full" || g.write === "none")) return false;
+    if (t.roles.level === "view" && g.read === "none") return false;
+  }
+  return true;
+}
+
+/** Fields of `def` the subject may not see (their field group is not among the subject's). */
+export function hiddenFields(s: Subject, def: TableDef): string[] {
+  if (s.kind !== "user") return [];
+  return def.fields.filter((f) => f.group && !s.eff.fieldGroups.includes(f.group)).map((f) => f.name);
+}
+
+/** The subject's grant in the table's area. */
+export const tableGrant = (s: Subject, def: TableDef): FullGrant => grantIn(s.eff, def.area);
+
+// ----- explanation («بررسی دسترسی») ----------------------------------------------------------------------------
+
+export interface ExplainLayer {
+  key: "tenant" | "grant" | "public" | "domain" | "confidential" | "own" | "participant" | "scope" | "workspace" | "restricted" | "requester_side";
+  label: string;
+  /** passed, failed, or not applicable (null) */
+  ok: boolean | null;
+  detail: string;
+}
+
+export interface RowExplanation {
+  read: boolean;
+  write: "full" | "requester" | null;
+  delete: boolean;
+  /** what made it readable */
+  via: "system" | "public" | "own" | "participant" | "scope" | "requester_side" | null;
+  layers: ExplainLayer[];
+}
+
+/** Every layer of the read rule with pass/fail and a Persian reason, plus the write and delete decisions. */
+export function explainRow(s: Subject, def: TableDef, row: Row, extra: RowExtra = {}): RowExplanation {
+  const layers: ExplainLayer[] = [];
+  const read = canReadRow(s, def, row, extra);
+  const write = writeMode(s, def, row);
+  const del = writeMode(s, def, row, "delete") === "full";
+  if (s.kind === "system") return { read, write, delete: del, via: "system", layers: [{ key: "tenant", label: "سامانه", ok: true, detail: "سامانه در سازمان خود به همه چیز دسترسی دارد" }] };
+  const c = scopeColumns(def);
+  const g = grantIn(s.eff, def.area);
+  const tenant = row.org_id === undefined || row.org_id === s.orgId;
+  layers.push({ key: "tenant", label: "سازمان", ok: tenant, detail: tenant ? "رکورد از همین سازمان است" : "رکورد از سازمان دیگری است" });
+  layers.push({
+    key: "grant",
+    label: "مجوز نقش‌ها",
+    ok: g.read !== "none",
+    detail:
+      g.read === "none"
+        ? `هیچ‌یک از نقش‌ها در «${areaLabel(def.area)}» اجازهٔ مشاهده نمی‌دهد`
+        : `مشاهده: «${SCOPE_LABELS[g.read]}»، ویرایش: «${SCOPE_LABELS[g.write]}»، حذف: «${SCOPE_LABELS[g.delete]}»`,
+  });
+  if (c.public) layers.push({ key: "public", label: "دادهٔ مرجع", ok: true, detail: "همهٔ اعضا این جدول را می‌بینند" });
+  const dOk = domainOk(s, c, row);
+  layers.push({
+    key: "domain",
+    label: "دامنه",
+    ok: !s.domainSeparation ? null : dOk,
+    detail: !s.domainSeparation
+      ? "جداسازی دامنه‌ها خاموش است"
+      : s.eff.domainsAll
+        ? "نقش‌ها همهٔ دامنه‌ها را می‌بینند"
+        : dOk
+          ? "رکورد در دامنهٔ کاربر یا بدون دامنه است"
+          : "رکورد در دامنهٔ دیگری است",
+  });
+  const isConf = c.confidential && row.confidential === true;
+  const cOk = confidentialOk(s, c, row);
+  layers.push({
+    key: "confidential",
+    label: "محرمانگی",
+    ok: isConf ? cOk : null,
+    detail: !isConf
+      ? "رکورد محرمانه نیست"
+      : cOk
+        ? "کاربر عضو گروه، کارشناس، درخواست‌دهنده، در فهرست دسترسی یا دارای گروه فیلد لازم است"
+        : "رکورد محرمانه است و کاربر جزو کسانی نیست که آن را می‌بینند",
+  });
+  const own = ownMatch(s, c, row);
+  const fieldLabel = (n: string) => def.fields.find((f) => f.name === n.replace(/:delegate$/, ""))?.label ?? n;
+  layers.push({
+    key: "own",
+    label: "مالکیت یا مشارکت",
+    ok: c.own.length || c.watchers ? !!own : null,
+    detail: own ? (own.endsWith(":delegate") ? `جانشین کسی است که «${fieldLabel(own)}» این رکورد است` : `کاربر «${fieldLabel(own)}» این رکورد است`) : "کاربر در فیلدهای مالکیت این رکورد نیست",
+  });
+  if (extra.participant !== undefined) layers.push({ key: "participant", label: "مشارکت", ok: !!extra.participant, detail: extra.participant ? "کاربر در تأیید یا مشارکتی باز روی این رکورد است" : "مشارکتی در کار نیست" });
+  const sOk = scopeMatch(s, c, row, g.read);
+  layers.push({ key: "scope", label: "دامنهٔ دید نقش", ok: g.read === "none" || g.read === "own" ? null : sOk, detail: `دامنهٔ «${SCOPE_LABELS[g.read]}» ${sOk ? "این رکورد را در بر می‌گیرد" : "این رکورد را در بر نمی‌گیرد"}` });
+  const wOk = workspaceOk(s, c, row);
+  layers.push({
+    key: "workspace",
+    label: "فضای کاری",
+    ok: row[c.workspace] ? wOk : null,
+    detail: !row[c.workspace] ? "رکورد فضای کاری ندارد (عمومی است)" : wOk ? "کاربر به فضای کاری این رکورد دسترسی دارد" : "رکورد در فضای کاری‌ای است که کاربر عضو آن نیست (یا فضای کاری امن است)",
+  });
+  const rOk = restrictedOk(s, c, row);
+  layers.push({ key: "restricted", label: "گروه محدود", ok: c.group && row[c.group] && s.restrictedGroups.includes(String(row[c.group])) ? rOk : null, detail: rOk ? "محدودیت گروه مانع نیست" : "رکورد به گروهی محدود ارجاع شده که کاربر عضو آن نیست" });
+  const rs = requesterSideMatch(s, c, row);
+  layers.push({ key: "requester_side", label: "مدیر واحد یا مدیر مستقیم", ok: c.requester.length ? rs : null, detail: rs ? "رکورد از آنِ یکی از افراد واحد یا زیردستان کاربر است" : "رکورد از آنِ افراد زیر نظر کاربر نیست" });
+  let via: RowExplanation["via"] = null;
+  if (read) {
+    if (c.public) via = "public";
+    else if (own) via = "own";
+    else if (extra.participant) via = "participant";
+    else if (sOk && wOk && rOk) via = "scope";
+    else via = "requester_side";
+  }
+  return { read, write, delete: del, via, layers };
+}
