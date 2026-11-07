@@ -143,7 +143,7 @@ export default function RcaCanvasTab({ ctx }: { ctx: RecordContext }) {
       >
         <ul className="flex flex-col gap-2">
           {c.hypotheses.map((h) => (
-            <li key={h.id} className="grid gap-1.5 rounded-md bg-sunken p-2.5 lg:grid-cols-[1.4fr_1.4fr_8rem_7rem_auto] lg:items-start">
+            <li key={h.id} className="grid gap-1.5 rounded-md bg-sunken p-2.5 lg:grid-cols-[1.4fr_1.4fr_8rem_9rem_auto] lg:items-start">
               <Input.TextArea value={h.text} onChange={(e) => setC(setHypothesis(c, h.id, { text: e.target.value }))} readOnly={ro} autoSize={{ minRows: 1, maxRows: 4 }} aria-label="فرضیه" />
               <Input.TextArea value={h.evidence} onChange={(e) => setC(setHypothesis(c, h.id, { evidence: e.target.value }))} readOnly={ro} autoSize={{ minRows: 1, maxRows: 4 }} placeholder="شواهد (رخداد، تغییر، گزارش…)" aria-label="شواهد" />
               <Select value={h.status} onChange={(v) => setC(setHypothesis(c, h.id, { status: v }))} disabled={ro} options={HYPOTHESIS_STATES.map((s) => ({ value: s.value, label: s.label }))} aria-label="وضعیت فرضیه" />
