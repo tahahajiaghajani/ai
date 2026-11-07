@@ -120,7 +120,8 @@ export const persian = (s: string) => toPersianDigits(s);
 /** «۲ ساعت و ۱۵ دقیقه» from seconds (empty for nothing). */
 export function durationText(seconds: number | null | undefined): string {
   if (seconds === null || seconds === undefined || !Number.isFinite(seconds)) return "";
-  return persian(humanDuration(seconds * 1000)) || "کمتر از یک دقیقه";
+  if (seconds < 60) return "کمتر از یک دقیقه";
+  return persian(humanDuration(seconds * 1000));
 }
 
 /** The primary of a merge: the oldest of the selected incidents (by opening time, then number). */

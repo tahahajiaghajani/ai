@@ -73,7 +73,8 @@ export function cleanRca(raw: unknown): RcaCanvas {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return out;
   const r = raw as Record<string, unknown>;
   if (Array.isArray(r.whys)) {
-    for (const w of r.whys.slice(0, RCA_LIMITS.whys)) {
+    for (const w of r.whys) {
+      if (out.whys.length >= RCA_LIMITS.whys) break;
       if (w && typeof w === "object") out.whys.push({ question: str((w as Why).question, 500), answer: str((w as Why).answer) });
     }
   }
@@ -87,7 +88,8 @@ export function cleanRca(raw: unknown): RcaCanvas {
     }
   }
   if (Array.isArray(r.timeline)) {
-    for (const t of r.timeline.slice(0, RCA_LIMITS.timeline)) {
+    for (const t of r.timeline) {
+      if (out.timeline.length >= RCA_LIMITS.timeline) break;
       if (!t || typeof t !== "object") continue;
       const at = str((t as { at?: unknown }).at, 40);
       const text = str((t as { text?: unknown }).text, 500).trim();
@@ -95,7 +97,8 @@ export function cleanRca(raw: unknown): RcaCanvas {
     }
   }
   if (Array.isArray(r.hypotheses)) {
-    for (const h of r.hypotheses.slice(0, RCA_LIMITS.hypotheses)) {
+    for (const h of r.hypotheses) {
+      if (out.hypotheses.length >= RCA_LIMITS.hypotheses) break;
       if (!h || typeof h !== "object") continue;
       const x = h as Record<string, unknown>;
       const text = str(x.text, 500).trim();

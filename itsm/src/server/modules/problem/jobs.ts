@@ -9,6 +9,7 @@
 //                               the end of the monitoring window after a fix (recurrence check), known errors due for
 //                               review
 import { addDays, todayISO } from "@shared/jalali";
+import type { Cond } from "@shared/model/conditions";
 import { addJournalIn, defFor, onRecordEvent, orgTz, systemCtx, transitionIn, updateIn, type RecordEvent } from "../../engine";
 import { enqueue, registerJobHandler, type JobContext } from "../../jobs";
 import type { Ctx } from "../../context";
@@ -82,7 +83,9 @@ export async function problemSweep(sys: Ctx, now = Date.now()): Promise<ProblemS
   // inactive problems: the coordinator and the manager are reminded once per period
   if (cfg.inactivity_days > 0) {
     const before = new Date(now - cfg.inactivity_days * 86_400_000).toISOString();
-    const idle = await liveRows(sys.db, sys, "problem", { and: [{ f: "active", op: "eq", v: true }, { f: "updated_at", op: "lt", v: before }, { or: [{ f: "reminded_at", op: "empty" }, { f: "reminded_at", op: "lt", v: before }] }] }, { limit: 200 });
+    // activity = what people did (a write of theirs or of the problem's tasks), never the system's own bookkeeping
+    const quiet: Cond = { or: [{ and: [{ f: "last_activity_at", op: "nempty" }, { f: "last_activity_at", op: "lt", v: before }] }, { and: [{ f: "last_activity_at", op: "empty" }, { f: "opened_at", op: "lt", v: before }] }] };
+    const idle = await liveRows(sys.db, sys, "problem", { and: [{ f: "active", op: "eq", v: true }, quiet, { or: [{ f: "reminded_at", op: "empty" }, { f: "reminded_at", op: "lt", v: before }] }] }, { limit: 200 });
     for (const p of idle) {
       const users = [...new Set([p.assigned_to, p.manager_id].filter(isUuid))];
       await sys.write(async (tx) => {
@@ -90,7 +93,7 @@ export async function problemSweep(sys: Ctx, now = Date.now()): Promise<ProblemS
           await notifyPeople(tx, sys.org.id, { table: "problem", id: p.id, users, event: "custom", label: "مشکل بی‌فعالیت", subject: "مشکل {{record.number}} مدتی است پیشرفتی نداشته است", body: `در ${cfg.inactivity_days} روز گذشته روی این مشکل کاری ثبت نشده است.`, channels: ["in_app", "email"], source: "مشکلات" });
         }
         await updateIn(tx, sys, "problem", p.id, { reminded_at: iso }, { trusted: true, keepVersion: true });
-      }).then(() => out.reminded++, () => undefined);
+      }).then(() => out.reminded++, (e) => sys.cfg.log?.warn?.("problem inactivity", { id: p.id, error: (e as Error).message }));
     }
   }
 
