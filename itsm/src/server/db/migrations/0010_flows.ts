@@ -42,6 +42,7 @@ create index if not exists sm_flow_runs_org_idx on sm_flow_runs (org_id, started
 create index if not exists sm_flow_runs_flow_idx on sm_flow_runs (org_id, flow_id, started_at desc);
 create index if not exists sm_flow_runs_open_idx on sm_flow_runs (org_id, state) where state in ('running', 'waiting');
 create index if not exists sm_flow_runs_parent_idx on sm_flow_runs (parent_run_id) where parent_run_id is not null;
+create index if not exists sm_flow_runs_ended_idx on sm_flow_runs (ended_at) where ended_at is not null;
 alter table sm_flow_runs enable row level security;
 
 create table if not exists sm_flow_run_steps (

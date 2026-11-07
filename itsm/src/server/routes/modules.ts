@@ -7,6 +7,7 @@
 import { router } from "../http/hono";
 import { aiRoutes } from "./ai";
 import { accessRoutes } from "./access";
+import { flowRoutes } from "./flows";
 import { installAccessModel } from "../access";
 
 // the ITSM access model is the engine's access provider in every runtime (docs/spec/ACCESS.md)
@@ -16,3 +17,4 @@ export const moduleRoutes = router();
 
 moduleRoutes.route("/ai", aiRoutes);
 moduleRoutes.route("/access", accessRoutes);
+moduleRoutes.route("/flows", flowRoutes);
