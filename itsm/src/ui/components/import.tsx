@@ -1,11 +1,13 @@
-// «ورود از اکسل» for any master-data entity: read an .xlsx/.csv file in the browser, map its
-// columns to fields, check everything on the server without saving, then import in batches.
+// «ورود از اکسل»: read an .xlsx/.csv file in the browser, map its columns to fields, check everything on the server
+// without saving, then import in batches. `ImportSheet` works on any target (an `ImportTarget`: its fields and how a
+// batch is sent); `ImportDrawer` is the master-data entities' target (@shared/entities, /data/:entity/import) and the
+// record engine's tables use `ImportSheet` with POST /r/:table/import (src/ui/records/list/ImportRecords.tsx).
 import "./kit.css";
 import { useEffect, useMemo, useState } from "react";
 import { Alert, Button, Checkbox, Drawer, Progress, Select, Table, Upload } from "antd";
 import { Check, Download, FileSpreadsheet, FileUp, RotateCcw, ListChecks } from "lucide-react";
-import { useQueryClient } from "@tanstack/react-query";
-import { importFields, type EntityDef, type FieldDef } from "@shared/entities";
+import { useQueryClient, type QueryKey } from "@tanstack/react-query";
+import { importFields, type EntityDef } from "@shared/entities";
 import { readSpreadsheet } from "@shared/sheet";
 import { faDigits } from "@shared/format";
 import { normalizeDigits } from "@shared/money";
@@ -33,7 +35,7 @@ function Steps({ step }: { step: 1 | 2 | 3 }) {
   );
 }
 
-interface Result {
+export interface ImportResultRow {
   row: number;
   ok: boolean;
   action?: "create" | "update";
@@ -46,7 +48,30 @@ interface Summary {
   updated: number;
   failed: number;
   dry: boolean;
-  errors: Result[];
+  errors: ImportResultRow[];
+}
+
+/** A field a file column can be mapped to. */
+export interface ImportField {
+  name: string;
+  label: string;
+  /** must be mapped (no default fills it) */
+  required?: boolean;
+}
+
+/** What an import sheet imports into. */
+export interface ImportTarget {
+  /** «کارها»: the sheet's title and the names of the sample and error files */
+  plural: string;
+  fields: ImportField[];
+  /** the label of «update rows that already exist» (null: the target only creates) */
+  updateLabel?: string | null;
+  /** sends one batch (rows keyed by field name; `offset` = index of its first row in the file) */
+  run: (rows: Record<string, string>[], o: { dry: boolean; update: boolean; offset: number }) => Promise<{ results: ImportResultRow[]; created: number; updated: number; failed: number }>;
+  /** queries to refresh after an import */
+  invalidate?: QueryKey[];
+  /** rows per request (default 200) */
+  batch?: number;
 }
 
 const norm = (s: string) =>
@@ -57,9 +82,9 @@ const norm = (s: string) =>
     .toLowerCase();
 
 /** Guess which field each column is for: exact label or name first, then a label that contains it. */
-function guessMapping(header: string[], fields: FieldDef[]): (string | null)[] {
+export function guessMapping(header: string[], fields: ImportField[]): (string | null)[] {
   const used = new Set<string>();
-  const pick = (h: string, test: (f: FieldDef, nh: string) => boolean) => {
+  const pick = (h: string, test: (f: ImportField, nh: string) => boolean) => {
     const nh = norm(h);
     if (!nh) return null;
     const f = fields.find((x) => !used.has(x.name) && test(x, nh));
@@ -70,16 +95,33 @@ function guessMapping(header: string[], fields: FieldDef[]): (string | null)[] {
   return out.map((v, i) => v ?? pick(header[i], (f, nh) => nh.length >= 2 && (norm(f.label).startsWith(nh) || nh.startsWith(norm(f.label.replace(/\(.*\)/, ""))))));
 }
 
-function requiredMissing(fields: FieldDef[], mapping: (string | null)[]) {
-  return fields.filter((f) => f.required && f.default === undefined && f.type !== "code" && !mapping.includes(f.name));
+function requiredMissing(fields: ImportField[], mapping: (string | null)[]) {
+  return fields.filter((f) => f.required && !mapping.includes(f.name));
 }
 
+/** «ورود از اکسل» of a master-data entity (/data/:entity/import). */
 export function ImportDrawer({ def, open, onClose }: { def: EntityDef; open: boolean; onClose: () => void }) {
   const { org, api } = useOrg();
+  const target = useMemo<ImportTarget>(() => {
+    const fields = importFields(def, org.modules);
+    const hasCode = fields.some((f) => f.name === (def.code?.field ?? "code"));
+    return {
+      plural: def.plural,
+      fields: fields.map((f) => ({ name: f.name, label: f.label, required: !!f.required && f.default === undefined && f.type !== "code" })),
+      updateLabel: hasCode ? "اگر کد از قبل وجود داشت، به‌روزرسانی شود" : null,
+      run: (rows, o) => api.post(`/data/${def.key}/import`, { rows, update_existing: o.update, dry_run: o.dry, offset: o.offset }),
+      invalidate: [["table"], ["options"]],
+    };
+  }, [def, org.modules, api]);
+  return <ImportSheet target={target} open={open} onClose={onClose} />;
+}
+
+/** The import sheet of any target. */
+export function ImportSheet({ target, open, onClose }: { target: ImportTarget; open: boolean; onClose: () => void }) {
   const qc = useQueryClient();
   const n = useNotify();
-  const fields = useMemo(() => importFields(def, org.modules), [def, org.modules]);
-  const hasCode = fields.some((f) => f.name === (def.code?.field ?? "code"));
+  const fields = target.fields;
+  const BATCH_SIZE = target.batch ?? BATCH;
   const [file, setFile] = useState<{ name: string; sheet: string; header: string[]; rows: string[][]; headerRow: number } | null>(null);
   const [mapping, setMapping] = useState<(string | null)[]>([]);
   const [updateExisting, setUpdateExisting] = useState(false);
@@ -126,23 +168,17 @@ export function ImportDrawer({ def, open, onClose }: { def: EntityDef; open: boo
     setSummary(null);
     setProgress({ done: 0, total });
     try {
-      for (let start = 0; start < total; start += BATCH) {
-        const r = await api.post<{ results: Result[]; created: number; updated: number; failed: number }>(`/data/${def.key}/import`, {
-          rows: payload(file.rows.slice(start, start + BATCH)),
-          update_existing: updateExisting,
-          dry_run: dry,
-          offset: start,
-        });
+      for (let start = 0; start < total; start += BATCH_SIZE) {
+        const r = await target.run(payload(file.rows.slice(start, start + BATCH_SIZE)), { dry, update: updateExisting, offset: start });
         acc.created += r.created;
         acc.updated += r.updated;
         acc.failed += r.failed;
         acc.errors.push(...r.results.filter((x) => !x.ok));
-        setProgress({ done: Math.min(start + BATCH, total), total });
+        setProgress({ done: Math.min(start + BATCH_SIZE, total), total });
       }
       setSummary(acc);
       if (!dry) {
-        qc.invalidateQueries({ queryKey: ["table"] });
-        qc.invalidateQueries({ queryKey: ["options"] });
+        for (const k of target.invalidate ?? []) qc.invalidateQueries({ queryKey: k });
         if (!acc.failed) n.ok(`${faDigits(acc.created + acc.updated)} ردیف وارد شد`);
       }
     } catch (e) {
@@ -156,19 +192,19 @@ export function ImportDrawer({ def, open, onClose }: { def: EntityDef; open: boo
   const sheetRow = (dataIndex: number) => (file ? file.headerRow + dataIndex + 2 : dataIndex + 2);
 
   const template = () =>
-    exportExcel(`نمونه‌ی ورود ${def.plural}`, fields.map((f) => ({ title: f.label, value: () => "", width: Math.max(14, f.label.length + 4) })), [], def.plural);
+    exportExcel(`نمونه‌ی ورود ${target.plural}`, fields.map((f) => ({ title: f.label, value: () => "", width: Math.max(14, f.label.length + 4) })), [], target.plural);
 
   const errorsFile = () => {
     if (!file || !summary) return;
     const cols = file.header.map((h, i) => ({ title: h, value: (r: { cells: string[] }) => r.cells[i] ?? "" }));
     const rows = summary.errors.map((e) => ({ cells: file.rows[e.row] ?? [], error: e.error ?? "" }));
-    exportExcel(`خطاهای ورود ${def.plural}`, [{ title: "خطا", value: (r: { error: string }) => r.error, width: 40 }, ...cols] as never, rows, "خطاها");
+    exportExcel(`خطاهای ورود ${target.plural}`, [{ title: "خطا", value: (r: { error: string }) => r.error, width: 40 }, ...cols] as never, rows, "خطاها");
   };
 
   const missing = file ? requiredMissing(fields, mapping) : [];
   const mapped = mapping.filter(Boolean).length;
   const busy = !!progress;
-  const fieldOptions = fields.map((f) => ({ value: f.name, label: `${f.label}${f.required && f.default === undefined && f.type !== "code" ? " *" : ""}` }));
+  const fieldOptions = fields.map((f) => ({ value: f.name, label: `${f.label}${f.required ? " *" : ""}` }));
   const imported = !!summary && !summary.dry && summary.created + summary.updated > 0;
   const step: 1 | 2 | 3 = !file ? 1 : summary || progress ? 3 : 2;
 
@@ -196,7 +232,7 @@ export function ImportDrawer({ def, open, onClose }: { def: EntityDef; open: boo
       size={SHEET_W}
       placement="left"
       closable={{ placement: "end" }}
-      title={`ورود ${def.plural} از اکسل`}
+      title={`ورود ${target.plural} از اکسل`}
       destroyOnHidden
       extra={
         <Button type="text" icon={<Download {...ICON} />} onClick={template}>
@@ -206,9 +242,9 @@ export function ImportDrawer({ def, open, onClose }: { def: EntityDef; open: boo
       footer={
         file ? (
           <div className="flex flex-wrap items-center gap-3 py-1">
-            {hasCode ? (
+            {target.updateLabel ? (
               <Checkbox checked={updateExisting} onChange={(e) => setUpdateExisting(e.target.checked)} disabled={busy || imported}>
-                اگر کد از قبل وجود داشت، به‌روزرسانی شود
+                {target.updateLabel}
               </Checkbox>
             ) : null}
             <div className="ms-auto flex gap-2">
@@ -252,7 +288,7 @@ export function ImportDrawer({ def, open, onClose }: { def: EntityDef; open: boo
               </div>
             </Upload.Dragger>
             <p className="ds-note">
-              ستون‌ها را نمی‌دانید؟ «فایل نمونه» را بگیرید؛ عنوان ستون‌هایش همان فیلدهای {def.plural} است.
+              ستون‌ها را نمی‌دانید؟ «فایل نمونه» را بگیرید؛ عنوان ستون‌هایش همان فیلدهای {target.plural} است.
             </p>
           </>
         ) : (
@@ -319,7 +355,7 @@ export function ImportDrawer({ def, open, onClose }: { def: EntityDef; open: boo
                 dataSource={summary.errors}
                 pagination={{ pageSize: 8, hideOnSinglePage: true, showSizeChanger: false, size: "small" }}
                 columns={[
-                  { key: "row", title: "ردیف فایل", width: 96, className: "ds-num", render: (_: unknown, r: Result) => faDigits(sheetRow(r.row)) },
+                  { key: "row", title: "ردیف فایل", width: 96, className: "ds-num", render: (_: unknown, r: ImportResultRow) => faDigits(sheetRow(r.row)) },
                   { key: "error", title: "خطا", dataIndex: "error", render: (v: string) => <span className="text-danger">{v}</span> },
                 ]}
               />
