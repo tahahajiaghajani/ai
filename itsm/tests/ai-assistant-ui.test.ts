@@ -1,4 +1,4 @@
-// «دستیار سیراف» UI logic (no browser): the SSE reader and the client's continue/reconnect loop, how stream events
+// «دستیار» (the assistant) UI logic (no browser): the SSE reader and the client's continue/reconnect loop, how stream events
 // build the conversation, safe links, page context, suggested prompts, figures, attachments and the thread list.
 import { describe, expect, it } from "vitest";
 import type { AiProposal, AiStreamEvent } from "@shared/ai/types";
@@ -6,8 +6,9 @@ import { ApiError, type OrgApi } from "../src/ui/lib/api";
 import { SseParser, aiClient, errorEvent, readFrames, toStreamEvent } from "../src/ui/ai/client";
 import { applyEvent, blankMessage, fromView, knownRefs, settle, withProposal, type UiMessage } from "../src/ui/ai/assistant/state";
 import { resolveHref, safePath } from "../src/ui/ai/markdown/links";
-import { pageContext, titleOf } from "../src/ui/ai/assistant/context";
-import { looksLikeQuestion, promptName, suggestionsFor } from "../src/ui/ai/assistant/prompts";
+import { REPORT_PAGES, RECORD_ROUTES, pageContext, titleOf } from "../src/ui/ai/assistant/context";
+import { APP_NAME } from "@shared/constants";
+import { BY_PAGE, RECORD, S, looksLikeQuestion, promptName, suggestionsFor } from "../src/ui/ai/assistant/prompts";
 import { decimalParts, figureText, isNumeric, toNumber } from "../src/ui/ai/assistant/format";
 import { MAX_FILES, MAX_PDF, overTotal, refuseFile } from "../src/ui/ai/assistant/attach";
 import { groupThreads } from "../src/ui/ai/assistant/threads-model";
@@ -151,8 +152,8 @@ const run = (events: AiStreamEvent[], start: UiMessage[] = [blankMessage("user",
 
 const proposal = (status: AiProposal["status"] = "proposed"): AiProposal => ({
   id: "p1",
-  kind: "sales_invoice",
-  title_fa: "پیش‌نویس فاکتور فروش",
+  kind: "test_item",
+  title_fa: "پیش‌نویس قلم",
   summary_fa: "",
   preview: [],
   status,
@@ -165,7 +166,7 @@ describe("applyEvent", () => {
       { type: "meta", thread_id: "t", message_id: "m1", model: "claude-sonnet-4-6", connection: "A" },
       { type: "tool_start", call_id: "c1", tool: "run_report", title_fa: "گزارش فروش" },
       { type: "thinking", delta: "..." },
-      { type: "tool_end", call_id: "c1", ok: true, summary_fa: "۸ ردیف", refs: [{ type: "report", id: "sales", label: "فروش", path: "sales/reports" }] },
+      { type: "tool_end", call_id: "c1", ok: true, summary_fa: "۸ ردیف", refs: [{ type: "report", id: "members", label: "اعضا", path: "settings/users" }] },
       { type: "chart", data_ref: "d1", spec: { kind: "bar", x: "m", series: [{ field: "v", label: "فروش" }] } },
       { type: "chart", data_ref: "d1", spec: { kind: "bar", x: "m", series: [{ field: "v", label: "فروش" }] } },
       { type: "table", data_ref: "d2", columns: [{ key: "a", title: "الف" }], total_rows: 3 },
@@ -181,7 +182,7 @@ describe("applyEvent", () => {
     expect(a.charts).toHaveLength(1);
     expect(a.tables).toHaveLength(1);
     expect(a.proposals[0].id).toBe("p1");
-    expect(a.refs.map((r) => r.id)).toEqual(["sales"]);
+    expect(a.refs.map((r) => r.id)).toEqual(["members"]);
   });
 
   it("marks tools still running as failed on error and keeps the message", () => {
@@ -225,7 +226,7 @@ describe("applyEvent", () => {
     expect(settle(stopped, "error")).toBe(stopped);
 
     const withP = run([{ type: "proposal", proposal: proposal() }, { type: "done", message_id: "m", stop: "end" }]);
-    const done = withProposal(withP, { ...proposal("executed"), result: { type: "invoice", id: UUID, label: "فاکتور ۱۲", path: `sales/invoices/${UUID}` } });
+    const done = withProposal(withP, { ...proposal("executed"), result: { type: "test_doc", id: UUID, label: "سند ۱۲", path: `test/docs/${UUID}` } });
     expect(done[1].proposals[0].status).toBe("executed");
     expect(knownRefs(done).map((r) => r.id)).toEqual([UUID]);
   });
@@ -240,60 +241,74 @@ describe("applyEvent", () => {
 // ---------------------------------------------------------------- links
 
 describe("links in answers", () => {
-  const refs = [{ type: "invoice", id: UUID, label: "فاکتور", path: `sales/invoices/${UUID}` }];
-  const pages = new Set(["sales/invoices", "reports/trial-balance"]);
+  const refs = [{ type: "test_doc", id: UUID, label: "سند", path: `test/docs/${UUID}` }];
+  const pages = new Set(["test/docs", "settings/users"]);
 
   it("allows records the tools returned and the app's own pages", () => {
-    expect(resolveHref(`record:invoice/${UUID}`, refs, pages)).toBe(`sales/invoices/${UUID}`);
-    expect(resolveHref(`/sales/invoices/${UUID}`, refs, pages)).toBe(`sales/invoices/${UUID}`);
-    expect(resolveHref("reports/trial-balance?from=2026-03-21", refs, pages)).toBe("reports/trial-balance?from=2026-03-21");
-    expect(resolveHref(`/${UUID}/sales/invoices`, refs, pages)).toBe("sales/invoices");
+    expect(resolveHref(`record:test_doc/${UUID}`, refs, pages)).toBe(`test/docs/${UUID}`);
+    expect(resolveHref(`/test/docs/${UUID}`, refs, pages)).toBe(`test/docs/${UUID}`);
+    expect(resolveHref("settings/users?q=reza", refs, pages)).toBe("settings/users?q=reza");
+    expect(resolveHref(`/${UUID}/test/docs`, refs, pages)).toBe("test/docs");
   });
 
   it("refuses everything else", () => {
-    for (const bad of ["https://evil.example", "javascript:alert(1)", "//evil.example/x", "data:text/html,x", "mailto:a@b.c", `record:invoice/${UUID.replace("3f", "00")}`, `sales/invoices/${UUID.replace("3f", "00")}`, "../admin", "settings/secret", ""]) {
+    for (const bad of ["https://evil.example", "javascript:alert(1)", "//evil.example/x", "data:text/html,x", "mailto:a@b.c", `record:test_doc/${UUID.replace("3f", "00")}`, `test/docs/${UUID.replace("3f", "00")}`, "../admin", "settings/secret", ""]) {
       expect(resolveHref(bad, refs, pages)).toBeNull();
     }
     expect(safePath("a/../b")).toBeNull();
-    expect(safePath("sales\\x")).toBeNull();
-    expect(safePath("/sales/invoices/")).toBe("sales/invoices");
+    expect(safePath("test\\x")).toBeNull();
+    expect(safePath("/test/docs/")).toBe("test/docs");
   });
 });
 
 // ---------------------------------------------------------------- page context, prompts
 
 describe("page context", () => {
-  it("names the record of a detail page and the report with its filters", () => {
-    expect(pageContext(`/sales/invoices/${UUID}/`, "", "فاکتور فروش ۱۲")).toEqual({ path: `sales/invoices/${UUID}`, title: "فاکتور فروش ۱۲", record: { type: "invoice", id: UUID, label: "فاکتور فروش ۱۲" } });
-    expect(pageContext("reports/trial-balance", "?from=2026-03-21&x=" + "a".repeat(200), "تراز آزمایشی")).toEqual({ path: "reports/trial-balance", title: "تراز آزمایشی", report: { key: "trial_balance", params: { from: "2026-03-21" } } });
-    expect(pageContext("sales/invoices/new", "", null)).toEqual({ path: "sales/invoices/new" });
+  it("names the record of a detail page and the report with its filters (routes a module registers)", () => {
+    // the platform has none of its own: a module registers its detail routes and report pages
+    expect(pageContext(`/test/docs/${UUID}/`, "", "سند ۱۲")).toEqual({ path: `test/docs/${UUID}`, title: "سند ۱۲" });
+    RECORD_ROUTES.push({ re: /^test\/docs\/([^/]+)$/, type: "test_doc" });
+    REPORT_PAGES["test/summary"] = "test_summary";
+    expect(pageContext(`/test/docs/${UUID}/`, "", "سند ۱۲")).toEqual({ path: `test/docs/${UUID}`, title: "سند ۱۲", record: { type: "test_doc", id: UUID, label: "سند ۱۲" } });
+    expect(pageContext("test/summary", "?from=2026-03-21&x=" + "a".repeat(200), "خلاصه")).toEqual({ path: "test/summary", title: "خلاصه", report: { key: "test_summary", params: { from: "2026-03-21" } } });
+    expect(pageContext("test/docs/new", "", null)).toEqual({ path: "test/docs/new" });
+    expect(pageContext("settings/users", "", "کاربران و دسترسی‌ها")).toEqual({ path: "settings/users", title: "کاربران و دسترسی‌ها" });
   });
 
   it("reads the page title from the window title", () => {
-    expect(titleOf("فاکتور فروش ۱۲ — سیراف", "سیراف")).toBe("فاکتور فروش ۱۲");
-    expect(titleOf("سیراف", "سیراف")).toBeNull();
-    expect(titleOf("  ", "سیراف")).toBeNull();
+    expect(titleOf(`کاربران و دسترسی‌ها — ${APP_NAME}`, APP_NAME)).toBe("کاربران و دسترسی‌ها");
+    expect(titleOf(APP_NAME, APP_NAME)).toBeNull();
+    expect(titleOf("  ", APP_NAME)).toBeNull();
   });
 });
 
 describe("suggested prompts", () => {
   const all = { has: () => true, canDraft: true };
+  // as a module registers its starters
+  RECORD.test_doc = [S("r-doc", "doc", "این سند را خلاصه کن")];
+  BY_PAGE.push(["test", [S("t-mod", "chart", "روند سندهای این ماه را نشان بده", { module: "test" }), S("t-draft", "draft", "یک سند تازه آماده کن", { draft: true })]]);
+
   it("prefers the record, then the page, then general questions, without duplicates", () => {
-    const s = suggestionsFor(`sales/invoices/${UUID}`, { ...all, recordType: "invoice" }, 4);
-    expect(s[0].key).toBe("r-inv");
+    const s = suggestionsFor(`test/docs/${UUID}`, { ...all, recordType: "test_doc" }, 4);
+    expect(s[0].key).toBe("r-doc");
     expect(s).toHaveLength(4);
     expect(new Set(s.map((x) => x.key)).size).toBe(4);
+    // the platform's own pages and general questions
+    expect(suggestionsFor("settings/users", all, 3).map((x) => x.key)).toEqual(["us-roles", "us-managers", "us-inactive"]);
+    expect(suggestionsFor("", all, 2).map((x) => x.key)).toEqual(["today", "my-access"]);
   });
-  it("hides drafts without ai:edit and questions of modules the business does not use", () => {
-    const s = suggestionsFor("gold", { has: (m) => m !== "gold", canDraft: false }, 10);
-    expect(s.some((x) => x.module === "gold" || x.draft)).toBe(false);
-    expect(suggestionsFor("sales", { has: () => true, canDraft: false }, 10).some((x) => x.draft)).toBe(false);
+  it("hides drafts without ai:edit, questions of modules the organisation does not use and of areas the person cannot see", () => {
+    const s = suggestionsFor("test", { has: (m) => m !== "test", canDraft: false }, 10);
+    expect(s.some((x) => x.module === "test" || x.draft)).toBe(false);
+    expect(suggestionsFor("test", { has: () => true, canDraft: false }, 10).some((x) => x.draft)).toBe(false);
+    expect(suggestionsFor("test", { has: () => true, canDraft: true }, 10).map((x) => x.key)).toEqual(expect.arrayContaining(["t-mod", "t-draft"]));
+    expect(suggestionsFor("settings/users", { ...all, can: (a) => a !== "users" }, 10).some((x) => x.area === "users")).toBe(false);
   });
   it("names saved prompts by their first words and tells questions from page names", () => {
-    expect(promptName("فروش این ماه را با ماه پیش مقایسه کن")).toBe("فروش این ماه را…");
-    expect(looksLikeQuestion("ماندهٔ بانک چقدر است؟")).toBe(true);
-    expect(looksLikeQuestion("چقدر فروختیم")).toBe(true);
-    expect(looksLikeQuestion("فاکتور")).toBe(false);
+    expect(promptName("اعضای این ماه را با ماه پیش مقایسه کن")).toBe("اعضای این ماه را…");
+    expect(looksLikeQuestion("چند عضو غیرفعال داریم؟")).toBe(true);
+    expect(looksLikeQuestion("چقدر طول کشید")).toBe(true);
+    expect(looksLikeQuestion("کاربران")).toBe(false);
     expect(looksLikeQuestion("چهار")).toBe(false);
   });
 });

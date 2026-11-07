@@ -1,13 +1,14 @@
-// Synchronisation across an update of the schema (coins and bars, migration 0013), and the
-// clashes that new data brings: board keys, bar numbers, a business made read-only.
+// Synchronisation across updates of the app: a Windows app on another sync protocol, rows from an older schema
+// (without the columns added since), the full re-read after a protocol change and the retry of failed uploads after
+// a schema change, data migrations that must not travel as edits, a failure inside one aggregate of a push, and an
+// organisation made read-only by the platform admin. Records are those of the fixture module.
 import { describe, it, expect } from "vitest";
+import "./fixtures/module";
 import { makeServer, Client, signupWithOrg } from "./helpers";
 import { SyncClient } from "@local/sync-client";
 import { defaultConfig } from "@local/config";
-import { writeAggregate } from "@server/sync/apply";
+import { afterWrite, writeAggregate } from "@server/sync/apply";
 import { BY_ENTITY } from "@server/sync/registry";
-import goldBullion from "@server/db/migrations/0013_gold_bullion";
-import rateKeyUnique from "@server/db/migrations/0017_rate_key_unique";
 import { SCHEMA_VERSION } from "@server/db/migrations";
 import { SYNC_PROTOCOL } from "@shared/constants";
 import { uuidv7 } from "@shared/id";
@@ -29,14 +30,14 @@ async function linkedPair(email: string) {
   await web.post("/auth/signup", { email, password: PASSWORD, full_name: "مالک ابری" });
   const config = defaultConfig();
   const client = new SyncClient({ db: deskSrv.db, config, save() {}, log: { info() {}, warn() {}, error() {} }, fetch: cloudFetch });
-  const local = new Client(deskSrv.app, "http://desk.test");
-  const org = (await web.post<{ id: string }>("/orgs", { name: "طلافروشی هم‌گام", business_kind: "gold", modules: ["gold"], base_currency: "IRR", fiscal_year: 1405 })).id;
+  const local = new Client({ fetch: (r: Request) => { r.headers.set("x-forwarded-for", `10.18.${ipSeq}.1`); return deskSrv.app.fetch(r); } }, "http://desk.test");
+  const org = (await web.post<{ id: string }>("/orgs", { name: "سازمان هم‌گام" })).id;
   await client.link({ url: "http://cloud.test", email, password: PASSWORD, orgId: org, direction: "download" });
   await local.post("/auth/login", { email, password: PASSWORD });
   return { cloudDb: cloudSrv.db, deskDb: deskSrv.db, web, client, local, org };
 }
 
-/** a change made as if it came from a sync (no outbox entry, no new updated_at) */
+/** a change made as if it came from a sync or a data migration (no outbox entry, no new updated_at) */
 async function quietly(db: Db, sql: string, params: unknown[] = []) {
   await db.tx(async (tx) => {
     await tx.query("set local itsm.applying = 'on'");
@@ -44,63 +45,62 @@ async function quietly(db: Db, sql: string, params: unknown[] = []) {
   });
 }
 
-const keys = (db: Db, org: string) =>
-  db.query<{ id: string; rate_key: string | null; gold_meta: Record<string, unknown> }>(
-    `select id, rate_key, gold_meta from sm_items where org_id = $1 and kind in ('coin', 'bar') and deleted_at is null order by id`,
-    [org],
-  );
+const items = (db: Db, org: string) =>
+  db.query<{ id: string; code: string; name: string; notes: string | null; tags: string[] }>(`select id, code, name, notes, tags from sm_test_items where org_id = $1 and deleted_at is null order by code`, [org]);
 
-describe("an older Windows app against the updated cloud", () => {
-  it("the cloud refuses a push of the previous protocol", async () => {
-    expect(SYNC_PROTOCOL).toBeGreaterThanOrEqual(2);
+describe("a Windows app of another version against the cloud", () => {
+  it("the cloud refuses a push of another protocol", async () => {
     const p = await linkedPair("proto-owner@example.com");
-    const res = await p.web.post(`/sync/push`, { org_id: p.org, device_id: uuidv7(), protocol: 1, aggregates: [] }, 400);
-    expect(res.error.message).toContain("به‌روز");
+    for (const protocol of [SYNC_PROTOCOL - 1, SYNC_PROTOCOL + 1]) {
+      const res = await p.web.post(`/sync/push`, { org_id: p.org, device_id: uuidv7(), protocol, aggregates: [] }, 400);
+      expect(res.error.message).toContain("به‌روز");
+    }
   });
 
   it("a row without the columns added since keeps their stored values (or takes their defaults)", async () => {
     const s = await makeServer({ mode: "cloud" });
     const c = new Client(s.app);
-    const org = await signupWithOrg(c, ["gold"], "gold");
-    const item = (await s.db.one<Record<string, unknown>>(`select * from sm_items where org_id = $1 and rate_key = 'parsian_500'`, [org]))!;
-    const { rate_key: _k, gold_meta: _m, ...old } = item;
-    const def = BY_ENTITY.get("item")!;
+    const org = await signupWithOrg(c);
+    const made = (await c.post(`/o/${org}/data/test_item`, { name: "سرور", tags: ["critical"], qty: "4" })).row;
+    const item = (await s.db.one<Record<string, unknown>>(`select * from sm_test_items where id = $1`, [made.id]))!;
+    // an older build that knew neither `tags` nor `qty`
+    const { tags: _t, qty: _q, ...old } = item;
+    const def = BY_ENTITY.get("test_item")!;
     await s.db.tx(async (tx) => {
       await tx.query("set local itsm.applying = 'on'");
-      await writeAggregate(tx, def, { entity: "item", id: String(item.id), base_rev: 0, row: { ...old, name: "پارسیان نیم گرمی" }, children: {} }, org, "incoming-yields");
-      // a new coin from the older app: gold_meta (NOT NULL) takes its default
+      await writeAggregate(tx, def, { entity: "test_item", id: String(item.id), base_rev: 0, row: { ...old, name: "سرور اصلی" }, children: {} }, org, "incoming-yields");
+      // a new row from the older app: `tags` (NOT NULL) and `qty` take their defaults
       const id = uuidv7();
-      await writeAggregate(tx, def, { entity: "item", id, base_rev: 0, row: { ...old, id, code: "C900", name: "سکه تازه" }, children: {} }, org, "incoming-yields");
-      const fresh = await tx.one<{ rate_key: string | null; gold_meta: unknown }>(`select rate_key, gold_meta from sm_items where id = $1`, [id]);
-      expect(fresh).toEqual({ rate_key: null, gold_meta: {} });
+      await writeAggregate(tx, def, { entity: "test_item", id, base_rev: 0, row: { ...old, id, code: "9001", name: "قلم تازه" }, children: {} }, org, "incoming-yields");
+      const fresh = await tx.one<{ tags: unknown; qty: string }>(`select tags, qty::text as qty from sm_test_items where id = $1`, [id]);
+      expect(fresh).toEqual({ tags: [], qty: "0" });
     });
-    const after = (await s.db.one<Record<string, unknown>>(`select * from sm_items where id = $1`, [item.id]))!;
-    expect(after.name).toBe("پارسیان نیم گرمی");
-    expect(after.rate_key).toBe("parsian_500");
-    expect(after.gold_meta).toEqual(item.gold_meta);
+    const after = (await s.db.one<Record<string, unknown>>(`select name, tags, qty::text as qty from sm_test_items where id = $1`, [item.id]))!;
+    expect(after).toEqual({ name: "سرور اصلی", tags: ["critical"], qty: "4" });
   });
 
-  it("after the update the Windows app reads everything again and retries uploads that failed", async () => {
+  it("after a protocol update the Windows app reads everything again and retries uploads that failed", async () => {
     const p = await linkedPair("upgrade-owner@example.com");
-    const before = await keys(p.cloudDb, p.org);
-    expect(before.length).toBeGreaterThan(40);
-    // what the previous version left behind: board keys and metadata it did not know, a bar it
-    // skipped, a party the cloud refused five times
-    const bar = uuidv7();
-    await p.cloudDb.query(`insert into sm_gold_bars (id, org_id, bar_no, weight, fineness) values ($1, $2, '900001', 10, 999.9)`, [bar, p.org]);
+    await p.web.post(`/o/${p.org}/data/test_item`, { name: "قلم ابری", notes: "یادداشت ابری", tags: ["shared"] });
+    const doc = (await p.web.post(`/o/${p.org}/test/docs`, { title: "سند ابری", lines: [{ text: "ردیف", qty: 1 }] })).doc;
     await p.client.syncNow();
-    await quietly(p.deskDb, `update sm_items set rate_key = null, gold_meta = '{}'::jsonb where org_id = $1`, [p.org]);
-    await quietly(p.deskDb, `delete from sm_gold_bars where id = $1`, [bar]);
-    const party = (await p.local.post(`/o/${p.org}/data/party`, { name: "مشتری مانده در صف" })).row;
-    await p.deskDb.query(`update sm_outbox set attempts = 5, last_error = 'null value in column' where id = $1`, [party.id]);
+    const before = await items(p.cloudDb, p.org);
+    // what the previous version left behind: a column it did not know, a record it skipped, an upload the cloud
+    // refused five times
+    await quietly(p.deskDb, `update sm_test_items set notes = null, tags = '[]'::jsonb where org_id = $1`, [p.org]);
+    await quietly(p.deskDb, `delete from sm_test_docs where id = $1`, [doc.id]);
+    const stuck = (await p.local.post(`/o/${p.org}/data/test_item`, { name: "قلم مانده در صف" })).row;
+    await p.deskDb.query(`update sm_outbox set attempts = 5, last_error = 'null value in column' where id = $1`, [stuck.id]);
     // the previous protocol's builds kept neither marker
     await p.deskDb.query(`delete from sm_kv where key in ('sync.schema', 'sync.protocol')`);
 
     await p.client.syncNow();
     expect(p.client.state.last_error).toBeNull();
-    expect(await keys(p.deskDb, p.org)).toEqual(before);
-    expect(await p.deskDb.one(`select bar_no from sm_gold_bars where id = $1`, [bar])).toEqual({ bar_no: "900001" });
-    expect(await p.cloudDb.one(`select 1 as ok from sm_parties where id = $1`, [party.id])).toEqual({ ok: 1 });
+    const after = await items(p.deskDb, p.org);
+    expect(after.filter((r) => r.id !== stuck.id)).toEqual(before);
+    expect(await p.deskDb.one(`select title from sm_test_docs where id = $1`, [doc.id])).toEqual({ title: "سند ابری" });
+    expect(await p.deskDb.query(`select text from sm_test_doc_lines where doc_id = $1`, [doc.id])).toEqual([{ text: "ردیف" }]);
+    expect(await p.cloudDb.one(`select 1 as ok from sm_test_items where id = $1`, [stuck.id])).toEqual({ ok: 1 });
     expect((await p.deskDb.one<{ value: string }>(`select value from sm_kv where key = 'sync.schema'`))!.value).toBe(SCHEMA_VERSION);
     expect((await p.deskDb.one<{ value: number }>(`select value from sm_kv where key = 'sync.protocol'`))!.value).toBe(SYNC_PROTOCOL);
     expect(p.client.state.failed).toEqual([]);
@@ -112,14 +112,13 @@ describe("an older Windows app against the updated cloud", () => {
     const o = (p.client as unknown as { o: { fetch: typeof fetch } }).o;
     const inner = o.fetch;
     o.fetch = (async (u: RequestInfo | URL, init?: RequestInit) => (urls.push(String(u)), inner(u, init))) as typeof fetch;
-    const party = (await p.local.post(`/o/${p.org}/data/party`, { name: "مشتری مانده در صف" })).row;
-    await p.deskDb.query(`update sm_outbox set attempts = 5, last_error = 'خطا' where id = $1`, [party.id]);
-    // a build of the same protocol before `sync.protocol` was kept, one migration behind
-    await p.deskDb.query(`delete from sm_kv where key = 'sync.protocol'`);
-    await p.deskDb.query(`update sm_kv set value = '"0016_ai_features"'::jsonb where key = 'sync.schema'`);
+    const stuck = (await p.local.post(`/o/${p.org}/data/test_item`, { name: "قلم مانده در صف" })).row;
+    await p.deskDb.query(`update sm_outbox set attempts = 5, last_error = 'خطا' where id = $1`, [stuck.id]);
+    // a build of the same protocol, one migration behind
+    await p.deskDb.query(`update sm_kv set value = '"0003_integrations"'::jsonb where key = 'sync.schema'`);
     await p.client.syncNow();
     expect(p.client.state.last_error).toBeNull();
-    expect(await p.cloudDb.one(`select 1 as ok from sm_parties where id = $1`, [party.id])).toEqual({ ok: 1 });
+    expect(await p.cloudDb.one(`select 1 as ok from sm_test_items where id = $1`, [stuck.id])).toEqual({ ok: 1 });
     expect(urls.filter((u) => u.includes("/sync/pull") && /[?&]cursor=0&/.test(u))).toEqual([]);
     expect((await p.deskDb.one<{ value: string }>(`select value from sm_kv where key = 'sync.schema'`))!.value).toBe(SCHEMA_VERSION);
     expect((await p.deskDb.one<{ value: number }>(`select value from sm_kv where key = 'sync.protocol'`))!.value).toBe(SYNC_PROTOCOL);
@@ -129,199 +128,103 @@ describe("an older Windows app against the updated cloud", () => {
     const p = await linkedPair("old-web-owner@example.com");
     const o = (p.client as unknown as { o: { fetch: typeof fetch } }).o;
     const inner = o.fetch;
-    // the web still runs the previous protocol
+    // the web still runs an older protocol
     o.fetch = (async (u: RequestInfo | URL, init?: RequestInit) => {
       const url = String(u);
       if (url.includes("/sync/push")) return Response.json({ error: { message: "نسخه‌ی برنامه‌ی ویندوز با سرور هم‌خوان نیست؛ برنامه را به‌روز کنید" } }, { status: 400 });
       if (url.includes("/sync/status")) return Response.json({ protocol: SYNC_PROTOCOL - 1, head: 0 });
       return inner(u, init);
     }) as typeof fetch;
-    const party = (await p.local.post(`/o/${p.org}/data/party`, { name: "مشتری ویندوز" })).row;
+    const item = (await p.local.post(`/o/${p.org}/data/test_item`, { name: "قلم ویندوز" })).row;
     await p.client.syncNow();
     expect(p.client.state.last_error).toContain("نسخه‌ی وب");
     expect(p.client.state.last_error).not.toContain("برنامه را به‌روز کنید");
-    expect(await p.deskDb.one(`select 1 as queued from sm_outbox where id = $1`, [party.id])).toEqual({ queued: 1 });
+    expect(await p.deskDb.one(`select 1 as queued from sm_outbox where id = $1`, [item.id])).toEqual({ queued: 1 });
   });
 });
 
-describe("migration 0013 on both runtimes", () => {
-  it("on a Windows app it queues nothing for upload (the cloud runs it too)", async () => {
+describe("data migrations on both runtimes (itsm.applying)", () => {
+  it("on a Windows app they queue nothing for upload (the cloud runs the same migration)", async () => {
     const s = await makeServer({ mode: "desktop" });
     const c = new Client(s.app);
-    const org = await signupWithOrg(c, ["gold"], "gold");
-    await s.db.query(`delete from sm_items where org_id = $1 and rate_key in ('emami_1403', 'parsian_100', 'bar_10')`, [org]);
-    await s.db.query(`update sm_items set rate_key = null, gold_meta = '{}'::jsonb where org_id = $1 and rate_key = 'nim'`, [org]);
+    const org = await signupWithOrg(c);
+    await c.post(`/o/${org}/data/test_item`, { name: "قلم" });
     await s.db.query(`delete from sm_outbox`);
-    await s.db.tx((tx) => tx.exec(goldBullion));
-    const back = await s.db.query<{ rate_key: string }>(`select rate_key from sm_items where org_id = $1 and rate_key in ('emami_1403', 'parsian_100', 'bar_10', 'nim')`, [org]);
-    expect(back.map((r) => r.rate_key).sort()).toEqual(["bar_10", "emami_1403", "nim", "parsian_100"]);
+    await quietly(s.db, `update sm_test_items set notes = 'پر شده با migration' where org_id = $1`, [org]);
     expect(await s.db.query(`select entity, id from sm_outbox`)).toEqual([]);
+    // an ordinary write still queues
+    await s.db.query(`update sm_test_items set notes = 'ویرایش' where org_id = $1`, [org]);
+    expect((await s.db.query(`select entity from sm_outbox`)).map((r) => (r as { entity: string }).entity)).toEqual(["test_item"]);
   });
 
-  it("on the cloud its touches get revisions but keep updated_at", async () => {
+  it("on the cloud their touches get revisions but keep updated_at", async () => {
     const s = await makeServer({ mode: "cloud" });
     const c = new Client(s.app);
-    const org = await signupWithOrg(c, ["gold"], "gold");
-    const nim = (await s.db.one<{ id: string; rev: number }>(`select id, rev from sm_items where org_id = $1 and rate_key = 'nim'`, [org]))!;
-    await quietly(s.db, `update sm_items set rate_key = null, gold_meta = '{}'::jsonb, updated_at = '2026-01-01T00:00:00Z' where id = $1`, [nim.id]);
-    const mid = (await s.db.one<{ rev: number }>(`select rev from sm_items where id = $1`, [nim.id]))!.rev;
-    await s.db.tx((tx) => tx.exec(goldBullion));
-    const after = (await s.db.one<{ rate_key: string; rev: number; updated_at: string }>(`select rate_key, rev, updated_at from sm_items where id = $1`, [nim.id]))!;
-    expect(after.rate_key).toBe("nim");
+    const org = await signupWithOrg(c);
+    const made = (await c.post(`/o/${org}/data/test_item`, { name: "قلم" })).row;
+    await quietly(s.db, `update sm_test_items set updated_at = '2026-01-01T00:00:00Z' where id = $1`, [made.id]);
+    const mid = (await s.db.one<{ rev: number }>(`select rev from sm_test_items where id = $1`, [made.id]))!.rev;
+    await quietly(s.db, `update sm_test_items set notes = 'پر شده با migration' where id = $1`, [made.id]);
+    const after = (await s.db.one<{ notes: string; rev: number; updated_at: string }>(`select notes, rev, updated_at from sm_test_items where id = $1`, [made.id]))!;
+    expect(after.notes).toBe("پر شده با migration");
+    // a desktop pulls it (new revision) without it winning last-writer-wins against a real edit (old updated_at)
     expect(Number(after.rev)).toBeGreaterThan(Number(mid));
     expect(new Date(after.updated_at).toISOString()).toBe("2026-01-01T00:00:00.000Z");
   });
 });
 
-describe("migration 0017 after an earlier build of 0013", () => {
-  it("keeps a doubled board key on the oldest product and makes the key unique", async () => {
+describe("a failure while an aggregate is written", () => {
+  it("rolls back that aggregate only and leaves the push's transaction usable", async () => {
     const s = await makeServer({ mode: "cloud" });
     const c = new Client(s.app);
-    const org = await signupWithOrg(c, ["gold"], "gold");
-    // the database as the earlier 0013 left it: a plain index, so a key could be doubled
-    await s.db.query(`drop index sm_items_rate_key_uk`);
-    await s.db.query(`create index sm_items_rate_key_idx on sm_items (org_id, rate_key) where rate_key is not null and deleted_at is null`);
-    const nim = (await s.db.one<{ id: string }>(`select id from sm_items where org_id = $1 and rate_key = 'nim'`, [org]))!;
-    const rob = (await s.db.one<{ id: string }>(`select id from sm_items where org_id = $1 and rate_key = 'rob'`, [org]))!;
-    // make rob the product created first: it keeps the key although its id sorts later or earlier
-    await s.db.query(`update sm_items set created_at = now() - interval '1 day' where id = $1`, [rob.id]);
-    const [older, newer] = [rob.id, nim.id];
-    await quietly(s.db, `update sm_items set rate_key = 'nim' where id = $1`, [rob.id]);
-    const before = (await s.db.one<{ updated_at: string }>(`select updated_at from sm_items where id = $1`, [nim.id]))!.updated_at;
-    await s.db.tx((tx) => tx.exec(rateKeyUnique));
-    const held = await s.db.query<{ id: string }>(`select id from sm_items where org_id = $1 and rate_key = 'nim' and deleted_at is null`, [org]);
-    expect(held.map((r) => r.id)).toEqual([older]);
-    const loser = (await s.db.one<{ rate_key: string | null; updated_at: string }>(`select rate_key, updated_at from sm_items where id = $1`, [newer]))!;
-    expect(loser.rate_key).toBeNull();
-    // a migration's touch keeps updated_at (it must not win last-writer-wins against a real edit)
-    expect(new Date(loser.updated_at).toISOString()).toBe(new Date(before).toISOString());
-    expect(await s.db.one(`select 1 from pg_indexes where indexname = 'sm_items_rate_key_idx'`)).toBeNull();
-    await expect(s.db.query(`update sm_items set rate_key = 'nim' where id = $1`, [newer])).rejects.toThrow();
-    // on an up-to-date database it changes nothing
-    await s.db.tx((tx) => tx.exec(rateKeyUnique));
-    expect((await s.db.query(`select id from sm_items where org_id = $1 and rate_key = 'nim'`, [org])).map((r) => (r as { id: string }).id)).toEqual([older]);
-  });
-});
-
-describe("clashes brought by coins and bars", () => {
-  it("a board key typed on both sides ends on the product edited last, the same on both sides", async () => {
-    const p = await linkedPair("key-owner@example.com");
-    const ins = (key: string) => `insert into sm_items (id, org_id, code, name, kind, rate_key, gold_weight, fineness) values ($1, $2, $3, 'مدال', 'coin', '${key}', 5, 900)`;
-    const pause = () => new Promise((r) => setTimeout(r, 20));
-    const holders = (db: Db, key: string) => db.query<{ id: string }>(`select id from sm_items where org_id = $1 and rate_key = $2 and deleted_at is null`, [p.org, key]);
-
-    // offline first, the web later: the web's choice stays, the Windows app's product loses the key
-    const offline = uuidv7();
-    const web = uuidv7();
-    await p.deskDb.query(ins("medal"), [offline, p.org, "C901"]);
-    await pause();
-    await p.cloudDb.query(ins("medal"), [web, p.org, "C902"]);
-    await p.client.syncNow();
-    await p.client.syncNow();
-    expect(p.client.state.last_error).toBeNull();
-    expect(await holders(p.cloudDb, "medal")).toEqual([{ id: web }]);
-    expect(await holders(p.deskDb, "medal")).toEqual([{ id: web }]);
-    expect(await p.cloudDb.one(`select rate_key from sm_items where id = $1`, [offline])).toEqual({ rate_key: null });
-
-    // the web first, offline later: the Windows app's choice stays
-    const web2 = uuidv7();
-    const offline2 = uuidv7();
-    await p.cloudDb.query(ins("medal_3"), [web2, p.org, "C905"]);
-    await pause();
-    await p.deskDb.query(ins("medal_3"), [offline2, p.org, "C906"]);
-    await p.client.syncNow();
-    await p.client.syncNow();
-    expect(p.client.state.last_error).toBeNull();
-    expect(await holders(p.cloudDb, "medal_3")).toEqual([{ id: offline2 }]);
-    expect(await holders(p.deskDb, "medal_3")).toEqual([{ id: offline2 }]);
-    expect(await p.deskDb.one(`select rate_key from sm_items where id = $1`, [web2])).toEqual({ rate_key: null });
-
-    // pulled and newer: the cloud's product takes the key, the local holder gives it up and is uploaded
-    const local = uuidv7();
-    await quietly(p.deskDb, `insert into sm_items (id, org_id, code, name, kind, rate_key) values ($1, $2, 'C903', 'سکه محلی', 'coin', 'medal_2')`, [local, p.org]);
-    await pause();
-    const cloud = uuidv7();
-    await p.cloudDb.query(`insert into sm_items (id, org_id, code, name, kind, rate_key) values ($1, $2, 'C904', 'سکه ابری', 'coin', 'medal_2')`, [cloud, p.org]);
-    await p.client.pullAll();
-    expect(await p.deskDb.one(`select rate_key from sm_items where id = $1`, [cloud])).toEqual({ rate_key: "medal_2" });
-    expect(await p.deskDb.one(`select rate_key from sm_items where id = $1`, [local])).toEqual({ rate_key: null });
-    expect(await p.deskDb.one(`select 1 as queued from sm_outbox where entity = 'item' and id = $1`, [local])).toEqual({ queued: 1 });
-
-    // pulled but older than a pending local choice: the local holder keeps it, and its upload
-    // takes the key from the cloud's product there too
-    const cloud4 = uuidv7();
-    await p.cloudDb.query(`insert into sm_items (id, org_id, code, name, kind, rate_key) values ($1, $2, 'C907', 'سکه ابری ۲', 'coin', 'medal_4')`, [cloud4, p.org]);
-    await pause();
-    const local4 = uuidv7();
-    await p.deskDb.query(`insert into sm_items (id, org_id, code, name, kind, rate_key) values ($1, $2, 'C908', 'سکه محلی ۲', 'coin', 'medal_4')`, [local4, p.org]);
-    await p.client.pullAll();
-    expect(await holders(p.deskDb, "medal_4")).toEqual([{ id: local4 }]);
-    expect(await p.deskDb.one(`select rate_key from sm_items where id = $1`, [cloud4])).toEqual({ rate_key: null });
-    await p.client.syncNow();
-    await p.client.syncNow();
-    expect(await holders(p.cloudDb, "medal_4")).toEqual([{ id: local4 }]);
-    expect(await holders(p.deskDb, "medal_4")).toEqual([{ id: local4 }]);
-  });
-
-  it("a bar renumbered by the cloud never takes a deleted bar's number, and its documents follow", async () => {
-    const p = await linkedPair("bar-owner@example.com");
-    const base = `/o/${p.org}`;
-    await p.local.post(`${base}/gold/rates`, { gram18: "50000000", buy_gram18: "49000000", ounce_usd: "2000", usd: "1000000", coins: { emami: "600000000" } });
-    const seller = (await p.local.post(`${base}/data/party`, { name: "بنکدار", roles: ["wholesaler"] })).row.id;
-    const model = (await p.deskDb.one<{ id: string }>(`select id from sm_items where org_id = $1 and rate_key = 'bar_10'`, [p.org]))!.id;
-    const buy = await p.local.post(`${base}/gold/docs`, {
-      kind: "purchase", date: "2026-06-05", party_id: seller,
-      lines: [{ kind: "bar", item_id: model, weight: "10", fineness: "999.9", bar: { serial_no: "ZX-1", brand: "نمونه" } }],
+    const org = await signupWithOrg(c);
+    const def = BY_ENTITY.get("test_doc")!;
+    const lines = (doc: string) => ({ sm_test_doc_lines: [{ id: uuidv7(), doc_id: doc, line_no: 1, text: "ردیف", qty: 1 }] });
+    // a child row the database refuses
+    await s.db.query(`create or replace function sm_test_fail() returns trigger language plpgsql as $$ begin raise exception 'doc lines locked'; end $$`);
+    await s.db.query(`create trigger sm_test_fail before insert on sm_test_doc_lines for each row execute function sm_test_fail()`);
+    const a = uuidv7();
+    const b = uuidv7();
+    await s.db.tx(async (tx) => {
+      await tx.query("set local itsm.applying = 'on'");
+      await expect(writeAggregate(tx, def, { entity: "test_doc", id: a, base_rev: 0, row: { id: a, no: 1, title: "الف" }, children: lines(a) }, org, "incoming-yields")).rejects.toThrow("doc lines locked");
+      expect(await tx.one(`select 1 from sm_test_docs where id = $1`, [a])).toBeNull();
+      // the next aggregate of the same push is applied as usual
+      await writeAggregate(tx, def, { entity: "test_doc", id: b, base_rev: 0, row: { id: b, no: 2, title: "ب" }, children: {} }, org, "incoming-yields");
     });
-    const line = buy.doc.lines[0];
-    expect(line.bar_no).toBe("900001");
-    // meanwhile on the web: a live bar 900001 and a deleted 900002
-    await p.cloudDb.query(`insert into sm_gold_bars (id, org_id, bar_no, weight) values ($1, $2, '900001', 5)`, [uuidv7(), p.org]);
-    await p.cloudDb.query(`insert into sm_gold_bars (id, org_id, bar_no, weight, deleted_at) values ($1, $2, '900002', 5, now())`, [uuidv7(), p.org]);
-    await p.client.syncNow();
-    expect(p.client.state.last_error).toBeNull();
-    const barId = line.gold_bar_id as string;
-    for (const db of [p.cloudDb, p.deskDb]) {
-      expect(await db.one(`select bar_no from sm_gold_bars where id = $1`, [barId])).toEqual({ bar_no: "900003" });
-      const l = (await db.one<{ tag_no: string; extra: { bar?: { bar_no?: string } } }>(`select tag_no, extra from sm_gold_lines where gold_bar_id = $1`, [barId]))!;
-      expect(l.tag_no).toBe("900003");
-      if (l.extra.bar?.bar_no) expect(l.extra.bar.bar_no).toBe("900003");
+    await s.db.query(`drop trigger sm_test_fail on sm_test_doc_lines`);
+    expect(await s.db.one(`select title from sm_test_docs where id = $1`, [b])).toEqual({ title: "ب" });
+
+    // a module's follow-up that fails after the aggregate was written: rolled back too, never retried as a clash
+    let calls = 0;
+    afterWrite.set("test_doc", async () => {
+      calls++;
+      throw Object.assign(new Error("follow-up failed"), { code: "23505", constraint: "sm_test_docs_no_uk" });
+    });
+    try {
+      const d = uuidv7();
+      await s.db.tx(async (tx) => {
+        await tx.query("set local itsm.applying = 'on'");
+        await expect(writeAggregate(tx, def, { entity: "test_doc", id: d, base_rev: 0, row: { id: d, no: 3, title: "ج" }, children: lines(d) }, org, "incoming-yields")).rejects.toThrow("follow-up failed");
+        expect(await tx.one(`select 1 from sm_test_docs where id = $1`, [d])).toBeNull();
+      });
+      expect(calls).toBe(1);
+    } finally {
+      afterWrite.delete("test_doc");
     }
   });
 });
 
-describe("a failure after an aggregate is written", () => {
-  it("rolls back that aggregate only and leaves the push's transaction usable", async () => {
-    const s = await makeServer({ mode: "cloud" });
-    const c = new Client(s.app);
-    const org = await signupWithOrg(c, ["gold"], "gold");
-    await s.db.query(`create or replace function sm_test_fail() returns trigger language plpgsql as $$ begin raise exception 'bar lines locked'; end $$`);
-    await s.db.query(`create trigger sm_test_fail before update on sm_gold_lines for each statement execute function sm_test_fail()`);
-    const def = BY_ENTITY.get("gold_bar")!;
-    const bar = uuidv7();
-    const other = uuidv7();
-    await s.db.tx(async (tx) => {
-      await tx.query("set local itsm.applying = 'on'");
-      await expect(writeAggregate(tx, def, { entity: "gold_bar", id: bar, base_rev: 0, row: { id: bar, bar_no: "900001", weight: 10 }, children: {} }, org, "incoming-yields")).rejects.toThrow("bar lines locked");
-      expect(await tx.one(`select 1 from sm_gold_bars where id = $1`, [bar])).toBeNull();
-      // the next aggregate of the same push is applied as usual
-      await tx.query(`insert into sm_gold_bars (id, org_id, bar_no, weight) values ($1, $2, '900002', 5)`, [other, org]);
-    });
-    await s.db.query(`drop trigger sm_test_fail on sm_gold_lines`);
-    expect(await s.db.one(`select bar_no from sm_gold_bars where id = $1`, [other])).toEqual({ bar_no: "900002" });
-  });
-});
-
-describe("a business made read-only by the platform admin", () => {
+describe("an organisation made read-only by the platform admin", () => {
   it("keeps receiving the cloud's changes while its own uploads are refused", async () => {
     const p = await linkedPair("readonly-owner@example.com");
-    const web = (await p.web.post(`/o/${p.org}/data/party`, { name: "مشتری وب" })).row;
+    const web = (await p.web.post(`/o/${p.org}/data/test_item`, { name: "قلم وب" })).row;
     await p.cloudDb.query(`insert into sm_org_admin (org_id, status) values ($1, 'read_only')`, [p.org]);
-    const local = (await p.local.post(`/o/${p.org}/data/party`, { name: "مشتری ویندوز" })).row;
+    const local = (await p.local.post(`/o/${p.org}/data/test_item`, { name: "قلم ویندوز" })).row;
     await p.client.syncNow();
-    expect(await p.deskDb.one(`select name from sm_parties where id = $1`, [web.id])).toEqual({ name: "مشتری وب" });
+    expect(await p.deskDb.one(`select name from sm_test_items where id = $1`, [web.id])).toEqual({ name: "قلم وب" });
     expect(p.client.state.last_error).toContain("فقط‌خواندنی");
     expect(await p.deskDb.one(`select 1 as queued from sm_outbox where id = $1`, [local.id])).toEqual({ queued: 1 });
-    expect(await p.cloudDb.one(`select 1 from sm_parties where id = $1`, [local.id])).toBeNull();
+    expect(await p.cloudDb.one(`select 1 from sm_test_items where id = $1`, [local.id])).toBeNull();
   });
 });

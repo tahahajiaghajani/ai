@@ -1,21 +1,19 @@
 // Forecasting toolkit — pure TypeScript, no database, no model. Every forecast is a range
 // (p10/p50/p90) with its measured accuracy (rolling-origin backtest: MASE against the naive
 // benchmark and the hit rate of the 80% band), and the toolkit refuses when the data is too thin.
+// The platform's AI layer uses it for count series (e.g. how many records a period will bring);
+// the numbers come from here, a model only narrates them.
 //
-// - Demand/sales series: classified by ADI and CV² (Syntetos–Boylan–Croston). Intermittent and
-//   lumpy series use Croston, SBA (bias-corrected Croston) or TSB (Teunter–Syntetos–Babai, which
-//   decays when an item stops selling); smooth and erratic series use naive, seasonal naive, simple
-//   exponential smoothing ETS(A,N,N), damped Holt ETS(A,Ad,N) or additive Holt-Winters ETS(A,A,A).
-//   The method with the lowest backtest error wins; its band is widened when the backtest shows
-//   that it was too narrow (split-conformal style).
-// - Prices and rates: EWMA volatility (RiskMetrics λ = 0.94) on daily log returns and empirical
-//   quantiles of overlapping h-day returns; the wider band per side is shown. The median is today's
-//   price: no direction is ever implied.
-// - Historical VaR / expected shortfall from scenario P&L.
+// - Count series are classified by ADI and CV² (Syntetos–Boylan–Croston). Intermittent and lumpy
+//   series use Croston, SBA (bias-corrected Croston) or TSB (Teunter–Syntetos–Babai, which decays
+//   when occurrences stop); smooth and erratic series use naive, seasonal naive, simple exponential
+//   smoothing ETS(A,N,N), damped Holt ETS(A,Ad,N) or additive Holt-Winters ETS(A,A,A). The method
+//   with the lowest backtest error wins; its band is widened when the backtest shows that it was
+//   too narrow (split-conformal style).
+// - Robust outlier scores (median / MAD) for spotting an unusual period.
 //
 // Estimates are computed in binary floating point — their uncertainty is many orders of magnitude
-// larger than its rounding — and the callers round them to the unit's decimals as decimal
-// strings. Observed money (balances, sums of documents) never goes through this file.
+// larger than its rounding — and the callers round them for display.
 
 export type DemandClass = "smooth" | "erratic" | "intermittent" | "lumpy";
 
@@ -492,7 +490,7 @@ function candidates(c: Classification, n: number, m: number): string[] {
 }
 
 /**
- * Forecast `h` periods of a demand/sales series (oldest first). `seasonPeriod` (12 for Jalali
+ * Forecast `h` periods of a count series (oldest first). `seasonPeriod` (12 for Jalali
  * months, 52 for weeks) enables seasonal methods once two full cycles exist.
  */
 export function forecastSeries(y: number[], h: number, opts: { seasonPeriod?: number; nonNegative?: boolean; minPeriods?: number } = {}): ForecastOutcome {
@@ -506,7 +504,7 @@ export function forecastSeries(y: number[], h: number, opts: { seasonPeriod?: nu
   if (series.length < minPeriods) return refuse(`دادهٔ کافی نیست: دست‌کم ${minPeriods} دوره لازم است و ${series.length} دوره وجود دارد`);
   if (cls.nonzero === 0) return refuse("در این دوره هیچ مقداری ثبت نشده است");
   const intermittent = cls.cls === "intermittent" || cls.cls === "lumpy";
-  if (intermittent && cls.nonzero < 8) return refuse(`دادهٔ کافی نیست: برای تقاضای پراکنده دست‌کم ۸ دورهٔ دارای فروش لازم است و ${cls.nonzero} دوره وجود دارد`);
+  if (intermittent && cls.nonzero < 8) return refuse(`دادهٔ کافی نیست: برای سری پراکنده دست‌کم ۸ دورهٔ دارای رخداد لازم است و ${cls.nonzero} دوره وجود دارد`);
 
   const origins = Math.min(12, Math.max(4, Math.floor(series.length / 3)));
   const steps = Math.min(h, 3);
@@ -534,116 +532,4 @@ export function forecastSeries(y: number[], h: number, opts: { seasonPeriod?: nu
     backtest: { mae: best.run.mae, mase: best.run.mase, coverage80, n: best.run.n },
     mean: avg,
   };
-}
-
-// ---------------------------------------------------------------- prices and rates
-
-export function logReturns(prices: number[]): number[] {
-  const out: number[] = [];
-  for (let i = 1; i < prices.length; i++) if (prices[i] > 0 && prices[i - 1] > 0) out.push(Math.log(prices[i] / prices[i - 1]));
-  return out;
-}
-
-/** RiskMetrics EWMA daily volatility, seeded with the sample variance of the first returns. */
-export function ewmaSigma(returns: number[], lambda = 0.94): number {
-  if (returns.length < 2) return 0;
-  const seed = returns.slice(0, Math.min(20, returns.length));
-  let v = seed.reduce((a, r) => a + r * r, 0) / seed.length;
-  for (const r of returns) v = lambda * v + (1 - lambda) * r * r;
-  return Math.sqrt(v);
-}
-
-export interface RateRangeOutcome {
-  ok: boolean;
-  refused_reason_fa: string | null;
-  last: number;
-  sigma_daily: number;
-  /** a jump larger than 4σ in the last move, the band uses the long-run σ when larger */
-  high_uncertainty: boolean;
-  method_fa: string;
-  points: (Band & { h: number })[];
-  backtest: Backtest | null;
-}
-
-function parametric(last: number, sigma: number, h: number) {
-  const d = Z80 * sigma * Math.sqrt(h);
-  return { lo: last * Math.exp(-d), hi: last * Math.exp(d) };
-}
-
-/** h-day log returns over overlapping windows. */
-function horizonReturns(prices: number[], h: number): number[] {
-  const out: number[] = [];
-  for (let i = h; i < prices.length; i++) if (prices[i] > 0 && prices[i - h] > 0) out.push(Math.log(prices[i] / prices[i - h]));
-  return out;
-}
-
-/** The band shown for closes `prices` (oldest first): EWMA σ (long-run σ after a >4σ jump), widened by historical quantiles once 250 returns exist. */
-function rateBand(prices: number[], horizons: number[]): { sigma: number; high: boolean; bands: { lo: number; hi: number }[] } {
-  const returns = logReturns(prices);
-  const last = prices[prices.length - 1] ?? 0;
-  let sigma = ewmaSigma(returns);
-  const lastMove = Math.abs(returns[returns.length - 1] ?? 0);
-  const high = sigma > 0 && lastMove > 4 * sigma;
-  if (high) sigma = Math.max(sigma, stdev(returns));
-  const historical = returns.length >= 250;
-  const bands = horizons.map((h) => {
-    const p = parametric(last, sigma, h);
-    let lo = p.lo;
-    let hi = p.hi;
-    if (historical) {
-      const hr = horizonReturns(prices, h);
-      lo = Math.min(lo, last * Math.exp(quantile(hr, 0.1)));
-      hi = Math.max(hi, last * Math.exp(quantile(hr, 0.9)));
-    }
-    return { lo, hi };
-  });
-  return { sigma, high, bands };
-}
-
-/**
- * Ranges of a price `horizons` days ahead from daily closes (oldest first). Needs 60 closes; with
- * 250 or more the historical quantiles join the parametric band and the wider side wins.
- */
-export function rateRanges(prices: number[], horizons: number[], opts: { minCloses?: number } = {}): RateRangeOutcome {
-  const minCloses = opts.minCloses ?? 60;
-  const last = prices[prices.length - 1] ?? 0;
-  const returns = logReturns(prices);
-  const refuse = (why: string): RateRangeOutcome => ({ ok: false, refused_reason_fa: why, last, sigma_daily: 0, high_uncertainty: false, method_fa: "—", points: [], backtest: null });
-  if (prices.length < minCloses) return refuse(`برای بازهٔ احتمالی دست‌کم ${minCloses} نرخ روزانه لازم است و ${prices.length} روز ثبت شده است`);
-  const now = rateBand(prices, horizons);
-  const sigma = now.sigma;
-  const high = now.high;
-  const historical = returns.length >= 250;
-  const points = horizons.map((h, i) => ({ h, p10: now.bands[i].lo, p50: last, p90: now.bands[i].hi }));
-  // calibration: the same band as shown (σ, jump rule and historical quantiles as known at each
-  // origin) against what happened
-  const h0 = horizons[0] ?? 1;
-  let hit = 0;
-  let n = 0;
-  for (let t = Math.max(minCloses - 1, prices.length - 1 - 60 - h0); t + h0 < prices.length; t++) {
-    const past = rateBand(prices.slice(0, t + 1), [h0]);
-    if (!(past.sigma > 0)) continue;
-    const b = past.bands[0];
-    const actual = prices[t + h0];
-    n++;
-    if (actual >= b.lo && actual <= b.hi) hit++;
-  }
-  return {
-    ok: true,
-    refused_reason_fa: null,
-    last,
-    sigma_daily: sigma,
-    high_uncertainty: high,
-    method_fa: historical ? "نوسان EWMA و چندک‌های تاریخی (پهن‌ترِ دو بازه)" : "نوسان EWMA (λ = ۰٫۹۴)",
-    points,
-    backtest: n ? { mae: null, mase: null, coverage80: hit / n, n } : null,
-  };
-}
-
-/** Historical VaR and expected shortfall at `level` (losses as positive numbers). */
-export function historicalVaR(pnl: number[], level = 0.95): { var: number; es: number } | null {
-  if (pnl.length < 20) return null;
-  const cut = quantile(pnl, 1 - level);
-  const tail = pnl.filter((x) => x <= cut);
-  return { var: Math.max(0, -cut), es: Math.max(0, -mean(tail)) };
 }

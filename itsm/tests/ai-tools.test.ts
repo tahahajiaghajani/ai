@@ -1,21 +1,20 @@
-// The assistant's tools: catalogue and filtering, numbers equal to the report services on seeded
-// data, permissions and modules, the calculator, Jalali periods, and the proposal executors.
-import { describe, it, expect, beforeAll } from "vitest";
+// The assistant's generic tools (who am I, my organisation, today; its members; an exact calculator; charts), the
+// way a module adds tools and proposal executors, Jalali periods resolved on the server, and the context block the
+// model receives. A module's tools are stood in for by the fixture module's records.
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { z } from "zod";
+import "./fixtures/module";
 import { makeServer, Client, signupWithOrg, quietLog } from "./helpers";
 import type { Db } from "@server/db";
 import { makeCtx, type Ctx, type ServerConfig, type AuthUser, type OrgRow, type MemberRow } from "@server/context";
 import type { Role } from "@shared/permissions";
-import { D } from "@shared/money";
-import { ALL_TOOLS, toolsFor } from "@server/modules/ai/tools/index";
-import { EXECUTORS, executeProposal } from "@server/modules/ai/tools/proposals";
-import type { AiToolDef, ToolRuntime, ToolResult } from "@server/modules/ai/tools/registry";
+import { ALL_TOOLS, registerTool, toolsFor } from "@server/modules/ai/tools/index";
+import { EXECUTORS, executeProposal, parsePayload, registerProposalExecutor } from "@server/modules/ai/tools/proposals";
+import { defineTool, type AiToolDef, type ToolRuntime, type ToolResult } from "@server/modules/ai/tools/registry";
 import { comparePeriod, parseDateInput, presetPeriod, previousMonthToDate, resolvePeriod } from "@server/modules/ai/analytics/period";
 import { contextBlock } from "@server/modules/ai/prompts";
 import { evaluate } from "@server/modules/ai/analytics/calc";
-import * as acc from "@server/modules/accounting/reports";
-import { analysis } from "@server/modules/goods/reports";
-import { reportForModel } from "@server/modules/ai/tools/reports";
-import { goldPosition } from "@server/modules/gold/position";
+import { create as crudCreate } from "@server/modules/data/crud";
 
 const TODAY = "2026-11-02"; // 1405/08/11
 
@@ -23,13 +22,12 @@ let db: Db;
 let c: Client;
 let org: string;
 let cfg: ServerConfig;
-const ids: Record<string, string> = {};
 
-async function ctxAs(role: Role, opts: { modules?: string[]; overrides?: MemberRow["overrides"] } = {}): Promise<Ctx> {
-  const user = (await db.one<AuthUser>(`select id, email, full_name, mobile, is_platform_admin, disabled, prefs from sm_users limit 1`))!;
+async function ctxAs(role: Role, opts: { overrides?: MemberRow["overrides"]; timezone?: string } = {}): Promise<Ctx> {
+  const user = (await db.one<AuthUser>(`select id, email, full_name, mobile, is_platform_admin, disabled, prefs from sm_users where email = 'owner@example.com'`))!;
   const o = (await db.one<OrgRow>(`select * from sm_orgs where id = $1`, [org]))!;
-  if (opts.modules) o.modules = opts.modules as OrgRow["modules"];
-  const m = (await db.one<MemberRow>(`select id, org_id, user_id, role, overrides, is_active from sm_org_members where org_id = $1 limit 1`, [org]))!;
+  if (opts.timezone) o.settings = { ...(o.settings ?? {}), timezone: opts.timezone } as OrgRow["settings"];
+  const m = (await db.one<MemberRow>(`select id, org_id, user_id, role, overrides, is_active from sm_org_members where org_id = $1 and user_id = $2`, [org, user.id]))!;
   return makeCtx(cfg, user, o, { ...m, role, overrides: opts.overrides ?? {} });
 }
 
@@ -41,7 +39,7 @@ function runtime(policy: ToolRuntime["dataPolicy"] = "full"): ToolRuntime & { st
     stored,
     async putData(rows) {
       stored.push(rows);
-      return `ref${stored.length}`;
+      return `ref${stored.length}xxxxxx`;
     },
   };
 }
@@ -58,64 +56,132 @@ async function run(name: string, input: unknown, ctx?: Ctx, rt = runtime()): Pro
   return (await t.run(ctx ?? (await ctxAs("owner")), parsed, rt)) as ToolResult & { data: any };
 }
 
+// a module's read tool and its proposal (a draft record confirmed by a person), as a later module registers them
+const findItems = defineTool({
+  name: "find_test_items",
+  title_fa: "جست‌وجوی قلم‌ها",
+  description: "Finds items of the fixture module by part of their name and returns at most ten of them with their codes. Test-only tool standing in for a module's read tool.",
+  input: z.object({ query: z.string().max(80) }),
+  kind: "read",
+  area: "settings",
+  level: "view",
+  async run(ctx, input) {
+    ctx.need("settings", "view");
+    const rows = await ctx.db.query<{ code: string; name: string }>(`select code, name from sm_test_items where org_id = $1 and name ilike $2 and deleted_at is null order by code limit 10`, [ctx.org.id, `%${input.query}%`]);
+    return { data: { items: rows, total_rows: rows.length }, summary_fa: `${rows.length} قلم` };
+  },
+});
+const proposeItem = defineTool({
+  name: "propose_test_item",
+  title_fa: "پیش‌نویس قلم",
+  description: "Prepares a new item of the fixture module as a proposal; nothing is saved until a permitted person confirms it. Test-only tool standing in for a module's proposal tool.",
+  input: z.object({ name: z.string().min(2).max(120) }),
+  kind: "propose",
+  area: "settings",
+  level: "edit",
+  async run(_ctx, input) {
+    return {
+      data: { proposed: true },
+      proposal: { kind: "test_item", title_fa: "قلم تازه", summary_fa: input.name, payload: { name: input.name }, preview: [{ label: "نام", value: input.name }], area: "settings", level: "edit" },
+    };
+  },
+});
+const removers: (() => void)[] = [];
+
 describe("ai tools", () => {
   beforeAll(async () => {
     const s = await makeServer();
     db = s.db;
     c = new Client(s.app);
-    org = await signupWithOrg(c);
+    org = await signupWithOrg(c, { timezone: "Asia/Tehran" });
     cfg = { mode: "cloud", db, secret: "test-secret", allowSignup: true, platformAdmins: [], origin: "cloud", log: quietLog, fetch: globalThis.fetch.bind(globalThis) } as ServerConfig;
-    const o = (p: string) => `/o/${org}${p}`;
-    const unit = (await db.one<{ id: string }>(`select id from sm_units where org_id = $1 and name = 'عدد'`, [org]))!.id;
-    ids.itemA = (await c.post(o("/data/item"), { name: "دوربین مداربسته", kind: "goods", unit_id: unit, vat_pct: "0", sale_price: "1500000", reorder_point: "15" })).row.id;
-    ids.itemB = (await c.post(o("/data/item"), { name: "کابل شبکه", kind: "goods", unit_id: unit, vat_pct: "10", sale_price: "200000" })).row.id;
-    const cust = (await c.post(o("/data/party"), { name: "فروشگاه نیک", roles: ["customer"], mobile: "09121234567" })).row;
-    const supp = (await c.post(o("/data/party"), { name: "پخش البرز", roles: ["supplier"] })).row;
-    ids.customer = cust.id;
-    ids.supplier = supp.id;
-    await c.post(o("/goods/invoices"), { kind: "purchase", date: "2026-09-10", party_id: supp.id, lines: [{ item_id: ids.itemA, qty: "20", unit_price: "1000000", vat_pct: "0" }, { item_id: ids.itemB, qty: "100", unit_price: "100000", vat_pct: "0" }] });
-    // Mehr 1405 (2026-09-23 … 2026-10-22) and Aban 1405 sales
-    await c.post(o("/goods/invoices"), { kind: "sale", date: "2026-09-25", due_date: "2026-10-10", party_id: cust.id, lines: [{ item_id: ids.itemA, qty: "4", unit_price: "1500000", vat_pct: "0" }] });
-    await c.post(o("/goods/invoices"), { kind: "sale", date: "2026-10-15", party_id: cust.id, discount: "50000", lines: [{ item_id: ids.itemA, qty: "2", unit_price: "1600000", vat_pct: "0" }, { item_id: ids.itemB, qty: "10", unit_price: "200000", vat_pct: "10" }] });
-    await c.post(o("/goods/invoices"), { kind: "sale", date: "2026-10-28", party_id: cust.id, lines: [{ item_id: ids.itemB, qty: "5", unit_price: "210000", vat_pct: "10" }] });
-    const box = (await db.one<{ id: string }>(`select id from sm_cash_boxes where org_id = $1 limit 1`, [org]))!.id;
-    ids.box = box;
-    await c.post(o("/treasury/docs"), { kind: "receipt", date: "2026-10-20", party_id: cust.id, lines: [{ method: "cash", cash_box_id: box, amount: "2000000" }] });
-    await c.post(o("/treasury/docs"), { kind: "receipt", date: "2026-10-21", party_id: cust.id, lines: [{ method: "cheque", amount: "3000000", cheque: { serial_no: "556677", due_date: "2026-11-10" } }] });
-    await c.post(o("/gold/rates"), { gram18: "80000000", mazaneh: "346000000" });
-    const board = await c.get(o("/fx/rates"));
-    for (const x of board.currencies) ids[`cur_${x.code}`] = x.id;
-    await c.post(o("/fx/rates"), { at: "2026-11-01T08:00:00Z", rates: [{ currency_id: ids.cur_USD, buy: "1000000", sell: "1020000" }] });
+    await c.post(`/o/${org}/members`, { email: "ali@example.com", full_name: "علی رضایی", role: "member", password: "ali-pass-1405" });
+    await c.post(`/o/${org}/members`, { email: "sara@example.com", full_name: "سارا محمدی", role: "admin", password: "sara-pass-1405", title: "سرپرست پشتیبانی" });
+    await c.post(`/o/${org}/members`, { email: "reza@example.com", full_name: "رضا کریمی", role: "viewer", password: "reza-pass-1405" });
+    await c.post(`/o/${org}/data/test_item`, { name: "سوئیچ هسته" });
+    removers.push(registerTool(findItems as AiToolDef), registerTool(proposeItem as AiToolDef));
+    removers.push(
+      registerProposalExecutor("test_item", async (ctx, payload) => {
+        const p = parsePayload(z.object({ name: z.string().min(2) }), payload);
+        const row = await crudCreate(ctx, "test_item", { name: p.name });
+        return { type: "test_item", id: String(row.id), label: String(row.name) };
+      }),
+    );
   });
+  afterAll(() => removers.forEach((r) => r()));
 
-  it("has 20–24 tools with unique snake_case names, English descriptions and zod inputs", () => {
-    expect(ALL_TOOLS.length).toBeGreaterThanOrEqual(20);
-    expect(ALL_TOOLS.length).toBeLessThanOrEqual(24);
+  it("has the platform's generic tools with unique snake_case names, English descriptions and zod inputs", () => {
     const names = ALL_TOOLS.map((t) => t.name);
+    expect(names.slice(0, 4)).toEqual(["get_org_context", "list_members", "calculate", "render_chart"]);
     expect(new Set(names).size).toBe(names.length);
     for (const t of ALL_TOOLS) {
       expect(t.name).toMatch(/^[a-z][a-z0-9_]+$/);
       expect(t.description.length).toBeGreaterThan(60);
-      const persian = (t.description.match(/[\u0600-\u06FF]/g) ?? []).length;
+      const persian = (t.description.match(/[؀-ۿ]/g) ?? []).length;
       expect(persian / t.description.length).toBeLessThan(0.05);
       expect(typeof t.input.parse).toBe("function");
     }
+    // a module's tool of the same name replaces the earlier one
+    const again = registerTool(findItems as AiToolDef);
+    expect(ALL_TOOLS.filter((t) => t.name === "find_test_items")).toHaveLength(1);
+    again();
+    registerTool(findItems as AiToolDef);
   });
 
-  it("filters tools by permission, proposals switch and modules", async () => {
+  it("filters tools by permission and the proposals switch", async () => {
     const owner = toolsFor(await ctxAs("owner"), { proposals: true }).map((t) => t.name);
-    expect(owner).toContain("propose_invoice");
-    expect(owner).toContain("propose_gold_doc");
+    expect(owner).toEqual(expect.arrayContaining(["get_org_context", "list_members", "calculate", "render_chart", "find_test_items", "propose_test_item"]));
     const ownerNoProposals = toolsFor(await ctxAs("owner"), { proposals: false }).map((t) => t.name);
     expect(ownerNoProposals.some((n) => n.startsWith("propose_"))).toBe(false);
+    // a viewer asks and reads, but neither sees members (users: none) nor prepares drafts
     const viewer = toolsFor(await ctxAs("viewer"), { proposals: true }).map((t) => t.name);
-    expect(viewer.some((n) => n.startsWith("propose_"))).toBe(false);
-    expect(viewer).toContain("run_report");
-    const goodsOnly = toolsFor(await ctxAs("owner", { modules: ["goods"] }), { proposals: true }).map((t) => t.name);
-    for (const n of ["price_quote", "coin_bubble", "propose_gold_doc", "propose_fx_deal"]) expect(goodsOnly).not.toContain(n);
-    const warehouse = toolsFor(await ctxAs("warehouse"), { proposals: true }).map((t) => t.name);
-    expect(warehouse).not.toContain("cheques_calendar");
-    expect(warehouse).toContain("inventory_advice");
+    expect(viewer).toEqual(["get_org_context", "calculate", "render_chart", "find_test_items"]);
+    // a member sees members; drafts need the record's own area too
+    const member = toolsFor(await ctxAs("member"), { proposals: true }).map((t) => t.name);
+    expect(member).toContain("list_members");
+    expect(member).not.toContain("propose_test_item");
+    // proposals also need ai:edit (the assistant's own routes need ai:view first)
+    const askOnly = toolsFor(await ctxAs("owner", { overrides: { ai: "view" } }), { proposals: true });
+    expect(askOnly.some((t) => t.kind === "propose")).toBe(false);
+  });
+
+  it("tells who asks, about which organisation and when (today in the organisation's time zone, Jalali)", async () => {
+    const r = await run("get_org_context", {}, await ctxAs("member"));
+    expect(r.data.organisation).toMatchObject({ name: "سازمان آزمایشی", modules: [], active_members: 4 });
+    expect(r.data.you).toMatchObject({ name: "مالک آزمایشی", role: "member", role_fa: "عضو" });
+    expect(r.data.you.access.users).toMatchObject({ level: "view", title_fa: "کاربران و دسترسی‌ها" });
+    expect(r.data.you.access.integrations.level).toBe("none");
+    expect(r.data.today.time_zone).toBe("Asia/Tehran");
+    expect(r.data.today.iso).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(r.data.today.jalali).toMatch(/^[۰-۹]{4}\/[۰-۹]{2}\/[۰-۹]{2}$/);
+    expect(r.data.today.jalali_year).toBeGreaterThanOrEqual(1405);
+    expect(r.summary_fa).toContain("سازمان آزمایشی");
+    // another time zone's «today» is the organisation's own
+    const far = await run("get_org_context", {}, await ctxAs("owner", { timezone: "Pacific/Kiritimati" }));
+    expect(far.data.today.time_zone).toBe("Pacific/Kiritimati");
+  });
+
+  it("lists members with masking by the data policy, filters by role and checks users:view", async () => {
+    const all = await run("list_members", {}, await ctxAs("owner"));
+    expect(all.data.total_rows).toBe(4);
+    expect(all.data.members[0]).toMatchObject({ role: "owner", role_fa: "مالک", active: true });
+    expect(all.data.members.map((m: { name: string }) => m.name)).toEqual(["مالک آزمایشی", "سارا محمدی", "علی رضایی", "رضا کریمی"]);
+    expect(all.data.members.find((m: { name: string }) => m.name === "سارا محمدی").title).toBe("سرپرست پشتیبانی");
+    expect(all.table?.columns.map((x) => x.key)).toEqual(expect.arrayContaining(["label", "role"]));
+    expect(all.data_ref).toBeTruthy();
+    const admins = await run("list_members", { role: "admin" }, await ctxAs("owner"));
+    expect(admins.data.members.map((m: { name: string }) => m.name)).toEqual(["سارا محمدی"]);
+    const byName = await run("list_members", { query: "رضا" }, await ctxAs("owner"));
+    expect(byName.data.members.map((m: { name: string }) => m.name)).toEqual(expect.arrayContaining(["علی رضایی", "رضا کریمی"]));
+    // masked: e-mail addresses are not shown in full
+    const masked = await run("list_members", {}, await ctxAs("owner"), runtime("masked"));
+    expect(JSON.stringify(masked.data)).not.toContain("ali@example.com");
+    // aggregates: counts by role only
+    const agg = await run("list_members", {}, await ctxAs("owner"), runtime("aggregates"));
+    expect(agg.data.members).toBeUndefined();
+    expect(agg.data.by_role.map((r: { role: string; members: number }) => [r.role, r.members])).toEqual(expect.arrayContaining([["owner", 1], ["admin", 1], ["member", 1], ["viewer", 1]]));
+    expect(JSON.stringify(agg.data)).not.toContain("سارا");
+    await expect(run("list_members", {}, await ctxAs("viewer"))).rejects.toThrow();
   });
 
   it("calculates exactly without eval", async () => {
@@ -127,6 +193,13 @@ describe("ai tools", () => {
     expect(r.data.rounded).toBe("3.3333");
     await expect(run("calculate", { expression: "1 / 0" })).rejects.toThrow(/صفر/);
     await expect(run("calculate", { expression: "process.exit()" })).rejects.toThrow();
+  });
+
+  it("draws a chart only of rows another tool stored", async () => {
+    const r = await run("render_chart", { data_ref: "ref1xxxxxx", kind: "bar", series: [{ field: "value", label: "تعداد" }], unit: "مورد" });
+    expect(r.chart).toMatchObject({ kind: "bar", x: "label", unit: "مورد" });
+    expect(r.data_ref).toBe("ref1xxxxxx");
+    await expect(run("render_chart", { data_ref: "ref1'; drop--", kind: "bar", series: [{ field: "value", label: "x" }] })).rejects.toThrow();
   });
 
   it("resolves Jalali periods on the server", () => {
@@ -147,24 +220,6 @@ describe("ai tools", () => {
     expect(() => resolvePeriod({ from: "1405/13/40" }, TODAY)).toThrow();
   });
 
-  it("analyze_metric sales equal the goods sales report", async () => {
-    const ctx = await ctxAs("owner");
-    for (const [from, to] of [["2026-09-23", "2026-10-22"], ["2026-10-23", "2026-11-21"]]) {
-      const rep = await analysis(ctx, "sales", { group: "item", from, to });
-      const r = await run("analyze_metric", { metric: "sales_amount", period: { from, to } }, ctx);
-      expect(D(r.data.total).toFixed()).toBe(D(rep.totals.amount).toFixed());
-      const p = await run("analyze_metric", { metric: "gross_profit", period: { from, to } }, ctx);
-      expect(D(p.data.total).toFixed()).toBe(D(rep.totals.profit).toFixed());
-    }
-    const byItem = await run("analyze_metric", { metric: "sales_amount", period: { preset: "this_quarter" }, group_by: "item" }, ctx);
-    const rep = await analysis(ctx, "sales", { group: "item", from: "2026-09-23", to: "2026-12-21" });
-    for (const row of rep.rows) expect(D(byItem.data.rows.find((r: any) => r.key === row.key)?.value ?? 0).toFixed()).toBe(D(row.amount).toFixed());
-    const monthly = await run("analyze_metric", { metric: "sales_amount", period: { preset: "this_quarter" }, group_by: "month", compare_to: "previous_period" }, ctx);
-    expect(monthly.data.rows.map((r: any) => r.label)).toEqual(["مهر ۱۴۰۵", "آبان ۱۴۰۵", "آذر ۱۴۰۵"]);
-    expect(monthly.chart?.kind).toBe("line");
-    expect(monthly.data.comparison.period.label_fa).toBe("تابستان ۱۴۰۵");
-  });
-
   it("compares month to date with the first days of the previous month", () => {
     // 1405/08/21: 1–21 Aban against 1–21 Mehr (not 10–30 Mehr)
     const cur = presetPeriod("month_to_date", "2026-11-12");
@@ -174,186 +229,38 @@ describe("ai tools", () => {
     expect(prev.days).toBe(21);
     // the 31st of a 31-day month against a 30-day month: cut at that month's end
     const long = presetPeriod("month_to_date", "2026-08-22"); // 1405/05/31
-    const p2 = previousMonthToDate(long);
-    expect(p2.to).toBe("2026-07-22"); // 1405/04/31
+    expect(previousMonthToDate(long).to).toBe("2026-07-22"); // 1405/04/31
     const esf = previousMonthToDate(presetPeriod("month_to_date", "2027-04-20")); // 1406/01/31 against Esfand 1405
-    expect(esf.from).toBe("2027-02-20");
-    expect(esf.to).toBe("2027-03-20");
+    expect([esf.from, esf.to]).toEqual(["2027-02-20", "2027-03-20"]);
   });
 
-  it("analyze_metric keeps totals and the comparison ahead of a long time series, bounded, and hides names under aggregates", async () => {
-    const ctx = await ctxAs("owner");
-    const daily = await run("analyze_metric", { metric: "sales_amount", period: { preset: "last_365_days" }, group_by: "day", compare_to: "previous_period" }, ctx);
-    const keys = Object.keys(daily.data);
-    expect(keys.indexOf("comparison")).toBeLessThan(keys.indexOf("rows"));
-    expect(keys.indexOf("total")).toBeLessThan(keys.indexOf("rows"));
-    expect(keys[keys.length - 1]).toBe("rows");
-    expect(daily.data.rows_total).toBe(365);
-    expect(daily.data.rows).toHaveLength(60);
-    expect(daily.data.rows_omitted).toMatch(/305/);
-    expect(daily.data.rows.at(-1).key).toBe(TODAY);
-    expect(JSON.stringify(daily.data).length).toBeLessThan(24_000);
-    const byParty = await run("analyze_metric", { metric: "sales_amount", period: { preset: "this_year" }, group_by: "party" }, ctx, runtime("aggregates"));
-    expect(byParty.data.rows.length).toBeGreaterThan(0);
-    expect(byParty.data.rows[0].label).toBe("شخص 1");
-    expect(byParty.data.rows[0].key).toBeUndefined();
-    const named = await run("analyze_metric", { metric: "sales_amount", period: { preset: "this_year" }, group_by: "party" }, ctx, runtime("masked"));
-    expect(named.data.rows[0].label).not.toMatch(/^شخص \d/);
+  it("gives the model a context block with the organisation, today and the member, following the data policy", async () => {
+    const ctx = await ctxAs("member");
+    const parse = (b: string) => JSON.parse(b.replace(/<\/?context>/g, ""));
+    const full = parse(await contextBlock(ctx, { path: "settings/users", title: "کاربران", record: null, report: null }, "full"));
+    expect(full).toMatchObject({ organisation: "سازمان آزمایشی", modules: [], member: { name: "مالک آزمایشی", role: "member", role_fa: "عضو" }, current_page: { path: "settings/users", title: "کاربران" } });
+    expect(full.today.time_zone).toBe("Asia/Tehran");
+    const agg = parse(await contextBlock(ctx, null, "aggregates"));
+    expect(agg.member).toEqual({ role: "member", role_fa: "عضو" });
+    expect(agg.current_page).toBeUndefined();
   });
 
-  it("run_report hides party names from the model under aggregates, never from the person's table", async () => {
-    const ctx = await ctxAs("owner");
-    const rt = runtime("aggregates");
-    const r = await run("run_report", { report: "sales_report", period: { preset: "this_year" }, params: { group: "party" } }, ctx, rt);
-    const modelRows = (Array.isArray(r.data.result.rows) ? r.data.result.rows : r.data.result.rows.rows) as Record<string, unknown>[];
-    expect(modelRows.length).toBeGreaterThan(0);
-    expect(JSON.stringify(r.data)).not.toContain("فروشگاه نیک");
-    expect(String(modelRows[0].label)).toMatch(/^شخص \S+/);
-    // the table shown in the chat keeps the real names
-    expect(rt.stored[0].map((x) => x.label)).toContain("فروشگاه نیک");
-    // the same report under "masked": names as before
-    const named = await run("run_report", { report: "sales_report", period: { preset: "this_year" }, params: { group: "party" } }, ctx, runtime("masked"));
-    expect(JSON.stringify(named.data)).toContain("فروشگاه نیک");
-    // rows without a code (gold_sales by party): ranked placeholders, the walk-in row stays as it is
-    const gold = { rows: [{ key: "p1", label: "علی" }, { key: "walkin", label: "مشتری گذری" }, { key: "p2", label: "رضا" }] };
-    const seen = reportForModel(gold, { main: "rows" }, { group: "party" }, rt);
-    expect(seen.rows.map((x: { label: string }) => x.label)).toEqual(["شخص 1", "مشتری گذری", "شخص 3"]);
-    expect(gold.rows[0].label).toBe("علی");
-  });
-
-  it("tells the model the unit the tools format money in", async () => {
-    const ctx = await ctxAs("owner");
-    const block = await contextBlock(ctx, null);
-    const unit = JSON.parse(block.replace(/<\/?context>/g, "")).money_unit_shown_to_people;
-    expect(unit).toMatch(ctx.org.base_currency === "IRT" ? /toman/ : ctx.org.base_currency === "IRR" ? /rial/ : new RegExp(ctx.org.base_currency));
-    const toman = await ctxAs("owner");
-    toman.org = { ...toman.org, base_currency: "IRT" };
-    const base = (await db.one<{ code: string; symbol: string | null }>(`select code, symbol from sm_currencies where org_id = $1 and is_base`, [org]))!;
-    await db.query(`update sm_currencies set code = 'IRT', symbol = null where org_id = $1 and is_base`, [org]);
-    try {
-      expect(JSON.parse((await contextBlock(toman, null)).replace(/<\/?context>/g, "")).money_unit_shown_to_people).toMatch(/toman/);
-    } finally {
-      await db.query(`update sm_currencies set code = $2, symbol = $3 where org_id = $1 and is_base`, [org, base.code, base.symbol]);
-    }
-  });
-
-  it("balances and reports equal the accounting services", async () => {
-    const ctx = await ctxAs("owner");
-    const tb = await acc.trialBalance(db, org, { from: "2026-03-21", to: "2027-03-20", level: 3, nonZero: true });
-    const r = await run("run_report", { report: "trial_balance", period: { preset: "fiscal_year" } }, ctx);
-    expect(r.data.result.totals).toEqual(expect.objectContaining({ debit: tb.totals.debit, credit: tb.totals.credit }));
-    expect(r.table?.total_rows).toBe(tb.rows.length);
-    const is = await acc.incomeStatement(db, org, { from: "2026-03-21", to: "2027-03-20" });
-    const r2 = await run("run_report", { report: "income_statement", period: { preset: "fiscal_year" } }, ctx);
-    expect(r2.data.result.net).toBe(is.net);
-    const inc = await run("analyze_metric", { metric: "income", period: { preset: "fiscal_year" } }, ctx);
-    expect(D(inc.data.total).toFixed()).toBe(D(is.total_income).toFixed());
-    const ar = await run("analyze_metric", { metric: "receivables", period: { to: TODAY } }, ctx);
-    const balance = (await c.get(`/o/${org}/treasury/party-balance/${ids.customer}`)).balance;
-    expect(D(ar.data.total).toFixed()).toBe(D(balance).toFixed());
-    const cash = await run("analyze_metric", { metric: "cash_balance", period: { to: TODAY } }, ctx);
-    const bal = await c.get(`/o/${org}/treasury/balances`);
-    expect(D(cash.data.total).toFixed()).toBe(D(bal.cash_total).toFixed());
-  });
-
-  it("enforces report permissions and modules like the routes", async () => {
-    const warehouse = await ctxAs("warehouse");
-    await expect(run("run_report", { report: "cheques_due" }, warehouse)).rejects.toThrow();
-    await expect(run("find_records", { type: "voucher" }, warehouse)).rejects.toThrow();
-    const goodsOnly = await ctxAs("owner", { modules: ["goods"] });
-    await expect(run("run_report", { report: "gold_stock" }, goodsOnly)).rejects.toThrow(/فعال/);
-    const cashier = await ctxAs("cashier", { overrides: { reports: "none" } });
-    await expect(run("analyze_metric", { metric: "gross_profit" }, cashier)).rejects.toThrow();
-  });
-
-  it("finds and reads records, masking identifiers by the data policy", async () => {
-    const masked = await run("find_records", { type: "party", query: "نیک" }, undefined, runtime("masked"));
-    expect(masked.data.rows[0].name).toBe("فروشگاه نیک");
-    expect(masked.data.rows[0].mobile).not.toContain("1234567");
-    const full = await run("find_records", { type: "party", query: "۰۹۱۲۱۲۳۴۵۶۷" }, undefined, runtime("full"));
-    expect(full.data.rows[0].mobile).toBe("09121234567");
-    const agg = await run("find_records", { type: "party", query: "نیک" }, undefined, runtime("aggregates"));
-    expect(agg.data.rows[0].name).not.toContain("نیک");
-    const inv = await run("find_records", { type: "invoice", period: { preset: "last_month" } });
-    expect(inv.data.rows).toHaveLength(2); // the two sales of Mehr (the purchase is in Shahrivar)
-    const one = await run("get_record", { type: "invoice", id: inv.refs![0].id });
-    expect(one.data.lines.length).toBeGreaterThan(0);
-    const party = await run("get_record", { type: "party", id: ids.customer });
-    expect(party.data.balance.current_account).toContain("ریال");
-  });
-
-  it("gives positions, quotes and cheques", async () => {
-    const q = await run("price_quote", { kind: "jewelry", weight: "10", wage_type: "percent", wage_value: "10", profit_pct: "7" });
-    // 10 g × 80,000,000 = 800,000,000; wage 80,000,000; profit 61,600,000; VAT on wage+profit
-    expect(q.data.breakdown[0].amount).toBe("800000000");
-    expect(q.data.rates_used.gram18).toBe("80000000");
-    const melted = await run("price_quote", { kind: "melted", weight: "4.6083", fineness: "705" });
-    expect(D(melted.data.total).toFixed()).toBe("346000000");
-    const g = await run("get_rates", { kind: "gold" });
-    expect(g.data.gram18).toBe("80000000");
-    const fx = await run("get_rates", { kind: "fx" });
-    expect(fx.data.rows.find((r: any) => r.code === "USD").buy).toBe("1000000");
-    const cal = await run("cheques_calendar", {});
-    expect(D(cal.data.totals.received).toFixed()).toBe("3000000");
-    const debt = await run("receivables_collection", {});
-    expect(debt.data.rows[0].party).toBe("فروشگاه نیک");
-    const reorder = await run("inventory_advice", { mode: "reorder" });
-    expect(reorder.data.rows.map((r: any) => r.item)).toContain("دوربین مداربسته"); // 14 left ≤ reorder point 15
-    const pos = await run("positions", { kind: "all" });
-    const gp = await goldPosition(await ctxAs("owner"), TODAY);
-    expect(pos.data.gold.totals.weight750).toBe(gp.totals.weight750);
-    const rep = await run("run_report", { report: "gold_position", period: { to: TODAY } });
-    expect(rep.data.result.totals.book).toBe(gp.totals.book);
-    expect(pos.data.fx.rows).toEqual([]);
-    const anomalies = await run("find_anomalies", { period: { preset: "last_90_days" } });
-    expect(Array.isArray(anomalies.data.rows)).toBe(true);
-  });
-
-  it("proposal tools prepare drafts and executors create them only with permission", async () => {
+  it("a module's proposal tool prepares a draft; its executor writes only for a permitted person", async () => {
     const owner = await ctxAs("owner");
-    const p = await run("propose_invoice", { kind: "sale", party: "فروشگاه نیک", lines: [{ item: "کابل شبکه", qty: 3 }] }, owner);
-    expect(p.proposal?.kind).toBe("sales_invoice");
-    expect(p.proposal?.area).toBe("sales");
-    expect(p.proposal?.preview.find((x) => x.label === "مبلغ کل")?.value).toContain("۶۶۰٬۰۰۰");
-    const viewer = await ctxAs("viewer");
-    await expect(executeProposal(viewer, "sales_invoice", p.proposal!.payload)).rejects.toThrow();
-    const created = await executeProposal(owner, "sales_invoice", p.proposal!.payload);
-    const inv = await db.one<{ status: string; total: string }>(`select status, total from sm_invoices where id = $1`, [created.id]);
-    expect(inv).toEqual({ status: "draft", total: "660000" });
-
-    await expect(run("propose_invoice", { kind: "sale", party: "نیک", lines: [{ item: "کابل شبکه", qty: 1 }] }, owner)).rejects.toThrow(/شناسه/);
-
-    const cashAcc = (await db.one<{ code: string }>(`select code from sm_accounts where org_id = $1 and system_key = 'cash'`, [org]))!.code;
-    const expAcc = (await db.one<{ code: string }>(`select code from sm_accounts where org_id = $1 and system_key = 'misc_expense'`, [org]))!.code;
-    await expect(run("propose_voucher", { description: "هزینه", lines: [{ account: expAcc, debit: 100 }, { account: cashAcc, credit: 90 }] }, owner)).rejects.toThrow(/تراز/);
-    const box = (await db.one<{ name: string }>(`select d.name from sm_cash_boxes b join sm_details d on d.id = b.detail_id where b.org_id = $1 limit 1`, [org]))!.name;
-    const v = await run("propose_voucher", { description: "هزینهٔ پذیرایی", lines: [{ account: expAcc, debit: 100000 }, { account: cashAcc, detail: box, credit: 100000 }] }, owner);
-    const vr = await executeProposal(owner, "voucher", v.proposal!.payload);
-    expect((await db.one<{ status: string }>(`select status from sm_vouchers where id = $1`, [vr.id]))!.status).toBe("draft");
-    await expect(executeProposal(await ctxAs("sales"), "voucher", v.proposal!.payload)).rejects.toThrow();
-
-    const t = await run("propose_treasury_doc", { kind: "receipt", party: ids.customer, amount: "50000", money_unit: "toman", via: { method: "cash" } }, owner);
-    expect((t.proposal!.payload as any).lines[0].amount).toBe("500000");
-    const tr = await executeProposal(owner, "receipt", t.proposal!.payload);
-    expect(tr.type).toBe("treasury_doc");
-
-    const party = await run("propose_party", { kind: "person", name: "رضا کریمی", national_id: "0084575948", mobile: "09351112233" }, owner);
-    const pr = await executeProposal(owner, "party", party.proposal!.payload);
-    expect(pr.type).toBe("party");
-    await expect(run("propose_party", { kind: "person", name: "دیگری", mobile: "09351112233" }, owner)).rejects.toThrow(/پیش‌تر/);
-    await expect(run("propose_party", { kind: "person", name: "کد بد", national_id: "1234567890" }, owner)).rejects.toThrow(/کد ملی/);
-
-    const fx = await run("propose_fx_deal", { side: "buy", currency: "USD", amount: "100" }, owner);
-    const fr = await executeProposal(owner, "fx_deal", fx.proposal!.payload);
-    const deal = await db.one<{ status: string; rate: string }>(`select status, rate from sm_fx_deals where id = $1`, [fr.id]);
-    expect(deal!.status).toBe("draft");
-    expect(D(deal!.rate).toFixed()).toBe("1000000");
-
-    const gd = await run("propose_gold_doc", { kind: "buyback", lines: [{ kind: "old", weight: "5", fineness: "750" }] }, owner);
-    expect(gd.proposal!.kind).toBe("gold_doc");
-    const gr = await executeProposal(owner, "gold_doc", gd.proposal!.payload);
-    expect((await db.one<{ status: string }>(`select status from sm_gold_docs where id = $1`, [gr.id]))!.status).toBe("draft");
-
-    expect(Object.keys(EXECUTORS).sort()).toEqual(["fx_deal", "gold_doc", "party", "payment", "purchase_invoice", "quote", "receipt", "sales_invoice", "transfer", "voucher"]);
+    const p = await run("propose_test_item", { name: "روتر شعبه" }, owner);
+    expect(p.proposal).toMatchObject({ kind: "test_item", area: "settings", level: "edit" });
+    // nothing is written by the tool itself
+    expect(await db.one(`select 1 from sm_test_items where org_id = $1 and name = 'روتر شعبه'`, [org])).toBeNull();
+    await expect(executeProposal(await ctxAs("viewer"), "test_item", p.proposal!.payload)).rejects.toThrow();
+    await expect(executeProposal(owner, "test_item", { name: "" })).rejects.toThrow(/پیشنهاد معتبر نیست/);
+    await expect(executeProposal(owner, "no_such_kind", {})).rejects.toThrow(/پشتیبانی نمی‌شود/);
+    const ref = await executeProposal(owner, "test_item", p.proposal!.payload);
+    expect(ref).toMatchObject({ type: "test_item", label: "روتر شعبه" });
+    expect(await db.one(`select code from sm_test_items where id = $1`, [ref.id])).toEqual({ code: "1002" });
+    expect(Object.keys(EXECUTORS)).toEqual(["test_item"]);
+    // a module's read tool repeats its route's permission check
+    const found = await run("find_test_items", { query: "سوئیچ" }, await ctxAs("viewer"));
+    expect(found.data.items.map((i: { name: string }) => i.name)).toEqual(["سوئیچ هسته"]);
+    await expect(run("find_test_items", { query: "x" }, await ctxAs("viewer", { overrides: { settings: "none" } }))).rejects.toThrow();
   });
 });
