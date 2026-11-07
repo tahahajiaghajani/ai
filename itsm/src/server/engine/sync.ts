@@ -17,7 +17,6 @@
 //   the platform's trigger; groups, units and roles of the ITSM access model through `bumpScopeEpoch`). A Windows
 //   app whose epoch is behind is told to pull everything again — which also tombstones what it may no longer read.
 import type { FieldDef, TableDef } from "@shared/model/types";
-import { FIELD_TYPES } from "@shared/model/types";
 import { evaluate, type CondEnv } from "@shared/model/conditions";
 import type { Ctx } from "../context";
 import type { Queryable, Tx } from "../db";
@@ -74,7 +73,7 @@ async function canWriteRow(q: Queryable, ctx: Ctx, def: TableDef, row: Row, env:
   return !!(await q.one(`select 1 from ${def.table} t where t.id = $1 and ${rule}`, params));
 }
 
-function coerceProblem(f: FieldDef, v: unknown, prev: unknown, ctx: Ctx, schema: OrgSchema, env: CondEnv): { value?: unknown; error?: string } {
+function coerceProblem(f: FieldDef, v: unknown, prev: unknown, schema: OrgSchema, env: CondEnv): { value?: unknown; error?: string } {
   try {
     const out = coerceValue(f, v, { schema, tz: env.tz || "Asia/Tehran" }, prev);
     return { value: out === KEEP ? prev : out };
@@ -131,7 +130,7 @@ async function checkRecord(tx: Tx, ctx: Ctx, def: TableDef, schema: OrgSchema, e
     }
     const raw = f.custom ? custom![f.name] : row[f.name];
     const before = prev ? prev[f.name] : undefined;
-    const r = coerceProblem(f, raw, before, ctx, schema, env);
+    const r = coerceProblem(f, raw, before, schema, env);
     if (r.error) return r.error;
     const value = f.type === "bool" ? !!r.value : r.value;
     if (prev && !sameValue(f, before, value) && !f.system && !f.readonly && f.name !== def.states?.field && writable && !writable.has(f.name)) {
@@ -174,7 +173,6 @@ async function checkSide(tx: Tx, ctx: Ctx, agg: AggregateDef, schema: OrgSchema,
   if (agg.engine === "journal" && (row.visibility === "internal" || prev?.visibility === "internal") && !isSystemCtx(ctx) && !access().hasFieldGroup(ctx, "internal")) {
     return "اجازهٔ ثبت یادداشت داخلی را ندارید";
   }
-  if (agg.engine === "history" && prev && !row.deleted_at) return null;
   return null;
 }
 
@@ -272,6 +270,3 @@ export async function pullEngine(ctx: Ctx, agg: AggregateDef, cursor: number, up
   }
   return out;
 }
-
-/** Whether a field travels as JSON (for callers building wire rows by hand). */
-export const isJsonField = (f: FieldDef) => FIELD_TYPES[f.type].sql === "jsonb";

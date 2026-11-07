@@ -3,7 +3,6 @@
 // through the write pipeline (write.ts) inside `ctx.write`. Responses carry the referenced records' labels in
 // `display` (one query per referenced table) and, for a single record, `meta` (what the caller may do with it).
 import type { FieldDef, TableDef } from "@shared/model/types";
-import { FIELD_TYPES, STATE_CATEGORIES } from "@shared/model/types";
 import type { Cond, CondEnv } from "@shared/model/conditions";
 import { validateCond } from "@shared/model/conditions";
 import { stateCategory, transitionsFrom } from "@shared/model/task";
@@ -372,13 +371,4 @@ export async function bulkUpdate(ctx: Ctx, table: string, p: BulkParams): Promis
     }
   });
   return { updated, failed };
-}
-
-/** Category labels for the UI (state colours come from the state model). */
-export const CATEGORY_LABELS = Object.fromEntries(Object.entries(STATE_CATEGORIES).map(([k, v]) => [k, v.label]));
-
-/** Fields a list column / filter may use (visible, and not secret). */
-export function listableFields(ctx: Ctx, def: TableDef): FieldDef[] {
-  const visible = access().visibleFields(ctx, def);
-  return def.fields.filter((f) => (!visible || visible.has(f.name)) && f.type !== "secret" && FIELD_TYPES[f.type]);
 }

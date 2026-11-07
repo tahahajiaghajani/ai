@@ -315,6 +315,29 @@ curl -H "Authorization: Bearer CRON_SECRET_شما" https://itsm-xyz.vercel.app/a
 
 اگر پروژه با این حال متوقف شد: داشبورد Supabase ← پروژه ← `Resume project` ← تأیید. چند دقیقه بعد برنامه دوباره کار می‌کند. پروژهٔ متوقف را زیاد معطل نگذارید؛ Supabase پس از مدتی امکان بازگرداندن را برمی‌دارد.
 
+### ۴-۱. صف کارهای پس‌زمینه (هر دقیقه؛ پیشنهادی)
+
+کارهای پس‌زمینه (اعلان‌ها، زمان‌سنج‌های توافق سطح خدمت، یادآوری‌ها…) در صفی در پایگاه داده می‌مانند. نسخهٔ وب پس از هر تغییری که کاری در صف بگذارد، همان کار را بلافاصله پس از پاسخ انجام می‌دهد و `itsm/vercel.json` هم روزی یک بار نشانی `/api/cron/tick` را صدا می‌زند؛ ولی کارهای زمان‌دار (مثلاً هشدار نزدیک شدن موعد) به ضربانی هر دقیقه نیاز دارند. Vercel در پلن Hobby فقط روزی یک بار اجرا می‌کند، پس این ضربان را خود Supabase بزند:
+
+1. داشبورد Supabase ← پروژه ← `Database` ← `Extensions`: دو افزونهٔ `pg_cron` و `pg_net` را روشن کنید.
+2. `SQL Editor` ← `New query`، نشانی برنامه و `CRON_SECRET` خودتان را بگذارید و `Run` بزنید:
+
+```sql
+select cron.schedule('itsm-tick', '* * * * *', $$
+  select net.http_post(
+    url := 'https://itsm-xyz.vercel.app/api/cron/tick',
+    headers := jsonb_build_object('Authorization', 'Bearer CRON_SECRET_شما')
+  );
+$$);
+```
+
+**باید ببینید:** در `Integrations` ← `Cron` ردیف `itsm-tick`؛ چند دقیقه بعد در `History` اجراهای موفق. آزمون دستی:
+```bash
+curl -X POST -H "Authorization: Bearer CRON_SECRET_شما" https://itsm-xyz.vercel.app/api/cron/tick
+# پاسخ درست: {"ok":true,"ran":0,"failed":0,"more":false}
+```
+برای برداشتن: `select cron.unschedule('itsm-tick');`. نسخهٔ ویندوز به این کار نیازی ندارد؛ صف خودش را هر ۱۰ ثانیه اجرا می‌کند.
+
 ---
 
 ## ۵. دامنهٔ اختصاصی و دسترسی از داخل ایران
