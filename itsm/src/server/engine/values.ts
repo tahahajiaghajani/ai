@@ -383,7 +383,7 @@ export function validateRow(def: TableDef, row: Record<string, unknown>, changed
       const target = vc.schema.def(key);
       if (!target) problems.add(f.name, `«${f.label}»: جدول «${key}» وجود ندارد`);
       else {
-        const p = validateCond(v, target, { lookup: vc.schema.lookup });
+        const p = validateCond(v, target, { lookup: vc.schema.lookup, rules: !!f.rules });
         if (p) problems.add(f.name, `«${f.label}»: ${p}`);
       }
     }

@@ -10,11 +10,12 @@ import { setTableLookup, validateCond } from "../model/conditions";
 import { CLOSE_CODES, DEFAULT_TASK_STATES, TASK_FIELDS, TASK_SCOPE } from "../model/task";
 import { CORE_CHOICE_LISTS, CORE_TABLES, USER_TABLE } from "./core";
 import { ACCESS_TABLES } from "./access";
+import { SLA_CHOICE_LISTS, SLA_SERVICE_TABLES } from "./sla";
 
 export { CUSTOM_FIELD_TYPES, VIEW_KINDS } from "./core";
 
 /** Table definitions per module; a module adds its file's export here. */
-const MODULE_TABLES: TableDef[][] = [CORE_TABLES, ACCESS_TABLES];
+const MODULE_TABLES: TableDef[][] = [CORE_TABLES, ACCESS_TABLES, SLA_SERVICE_TABLES];
 
 /** Every table by key (resolved definitions). */
 export const TABLES = new Map<string, TableDef>();
@@ -182,7 +183,7 @@ export function registerTable(input: TableDef): TableDef {
 }
 
 setTableLookup((key) => TABLES.get(key));
-for (const [key, options] of Object.entries(CORE_CHOICE_LISTS)) registerChoiceList(key, options);
+for (const [key, options] of Object.entries({ ...CORE_CHOICE_LISTS, ...SLA_CHOICE_LISTS })) registerChoiceList(key, options);
 
 /** The members of the organisation as a reference target (virtual: no table of its own). */
 export const USER_DEF = buildTable(USER_TABLE);

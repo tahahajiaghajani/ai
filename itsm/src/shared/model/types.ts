@@ -131,6 +131,8 @@ export interface FieldDef {
   condTable?: string;
   /** … or the field of this row that holds the table key */
   condTableField?: string;
+  /** conditions fields: also allow the rule operators changed / changes_to / changes_from (business rules, SLAs) */
+  rules?: boolean;
   min?: number;
   max?: number;
   maxLength?: number;
