@@ -11,7 +11,7 @@ import { create, remove, systemCtx, update } from "@server/engine";
 import { tick } from "@server/jobs";
 import type { Ctx } from "@server/context";
 import {
-  activeEmbedder, forceStoreBackend, indexNow, queueBackfill, reconcile, indexSession, retrieve, storeBackend, RAG_JOBS,
+  activeEmbedder, ensureAnnIndexes, forceStoreBackend, indexNow, queueBackfill, reconcile, indexSession, retrieve, setAnnMinRows, storeBackend, RAG_JOBS,
 } from "@server/modules/ai/rag";
 
 const before = process.env.ITSM_AI_FAKE;
@@ -207,6 +207,24 @@ describe("provider embeddings", () => {
     const keys = await e.db.query<{ vec_key: string | null; n: number }>(`select vec_key, count(*)::int as n from sm_ai_chunks where org_id = $1 and kind = 'chunk' group by vec_key`, [e.org]);
     expect(keys).toEqual([{ vec_key: "fake:fake-embed:48", n: expect.any(Number) }]);
     expect(await stateOf(bad)).toMatchObject({ vec_pending: false, vec_key: "fake:fake-embed:48" });
+  });
+});
+
+describe("approximate neighbours", () => {
+  it("creates HNSW indexes per embedding model and for the local vectors once large enough, and searches through them", async () => {
+    setAnnMinRows(1);
+    try {
+      const made = await ensureAnnIndexes(e.db, await storeBackend(e.db));
+      expect(made).toContain("sm_ai_chunks_lvec_hnsw");
+      expect(made.some((n) => /^sm_ai_chunks_vec_[0-9a-f]+_hnsw$/.test(n))).toBe(true);
+      const idx = await e.db.query<{ indexdef: string }>(`select indexdef from pg_indexes where indexname = any($1::text[])`, [`{${made.join(",")}}`]);
+      expect(idx.map((i) => i.indexdef).join("\n")).toMatch(/USING hnsw/);
+      // ensureAnnIndexes forgets the cached "no index" answer: this query goes through HNSW (iterative scan)
+      const r = await retrieve(owner, "وای‌فای سالن همایش");
+      expect(r.passages.length).toBeGreaterThan(0);
+    } finally {
+      setAnnMinRows(20_000);
+    }
   });
 });
 

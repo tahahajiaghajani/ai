@@ -71,6 +71,17 @@ const ROWS: PriceRow[] = [
   { match: /^mistral-small/, price: p(0.15, 0.6, 0.015, 0.15) },
   { match: /^gpt-oss-120b/, price: p(0.15, 0.6, 0.015, 0.15) },
   { match: /^gpt-oss-20b/, price: p(0.075, 0.3, 0.0075, 0.075) },
+  // embedding models of retrieval (input tokens only; list prices, indicative)
+  { match: /^text-embedding-3-small/, price: p(0.02, 0, 0, 0) },
+  { match: /^text-embedding-3-large/, price: p(0.13, 0, 0, 0) },
+  { match: /^gemini-embedding-001/, price: p(0.15, 0, 0, 0) },
+  { match: /^mistral-embed/, price: p(0.1, 0, 0, 0) },
+  { match: /^voyage-3\.5-lite/, price: p(0.02, 0, 0, 0) },
+  { match: /^voyage-3\.5(?!-lite)/, price: p(0.06, 0, 0, 0) },
+  { match: /^voyage-multilingual-2/, price: p(0.12, 0, 0, 0) },
+  { match: /^embed-v4\.0/, price: p(0.12, 0, 0, 0) },
+  { match: /^embed-multilingual-v3\.0/, price: p(0.1, 0, 0, 0) },
+  { match: /^fake-embed/, price: p(0.02, 0, 0, 0) },
   // the test-only responder (ITSM_AI_FAKE=1): nominal prices so usage pages have something to show
   { match: /^fake-/, price: p(1, 5, 0.1, 1.25) },
 ];

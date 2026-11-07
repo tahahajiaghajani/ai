@@ -7,6 +7,7 @@ import { embedCall, embedApiOf } from "@server/modules/ai/adapters/embed";
 import { embedConfigOf } from "@server/modules/ai/connections";
 import { normalizeSettings, settingsPatchSchema } from "@server/modules/ai/settings";
 import { presetById } from "@shared/ai/presets";
+import { estimateCostUsd } from "@shared/ai/prices";
 import { ProviderError, type AdapterEnv, type ResolvedConnection } from "@server/modules/ai/types";
 
 function stub(handler: (url: string, body: any, headers: Record<string, string>) => Response) {
@@ -80,6 +81,16 @@ describe("embedding adapters", () => {
     const wrongSize = stub(() => json({ data: [{ index: 0, embedding: [1, 2, 3] }] }));
     const e4 = await embedCall(conn("openai", "https://api.openai.com/v1"), { model: "m", dims: 2, api: "openai" }, ["x"], "query", wrongSize.env).catch((e) => e);
     expect(e4.message).toMatch(/۳|3/);
+  });
+});
+
+describe("embedding prices", () => {
+  it("prices embedding input tokens (nothing for output) and local models at zero", () => {
+    const u = { input: 1_000_000, output: 0, cache_read: 0, cache_write: 0 };
+    expect(estimateCostUsd("text-embedding-3-small", u, { day: "2026-11-07" })).toEqual({ usd: "0.02", priced: true });
+    expect(estimateCostUsd("voyage-3.5-lite", u, { day: "2026-11-07" })).toEqual({ usd: "0.02", priced: true });
+    expect(estimateCostUsd("voyage-3.5", u, { day: "2026-11-07" })).toEqual({ usd: "0.06", priced: true });
+    expect(estimateCostUsd("bge-m3", u, { day: "2026-11-07", local: true })).toEqual({ usd: "0", priced: true });
   });
 });
 
