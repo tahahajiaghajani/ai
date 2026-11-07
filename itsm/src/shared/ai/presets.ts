@@ -7,6 +7,10 @@ export type AiRuntime = "web" | "desktop";
 /** where the service runs: drives the data-leaves-the-country notice */
 export type AiRegion = "foreign" | "iran" | "local" | "any";
 
+/** Embedding API styles: one adapter each (src/server/modules/ai/rag/embed.ts). */
+export type AiEmbedApi = "openai" | "gemini" | "voyage" | "cohere" | "jina" | "fake";
+export const AI_EMBED_APIS: AiEmbedApi[] = ["openai", "gemini", "voyage", "cohere", "jina", "fake"];
+
 export interface AiPreset {
   id: string;
   /** Persian label of the provider */
@@ -41,6 +45,13 @@ export interface AiPreset {
   badge?: string;
   /** only offered when the server runs with ITSM_AI_FAKE=1 (tests and screenshots) */
   test_only?: boolean;
+  /**
+   * the service's embedding API («مدل بردارسازی» of retrieval): its style, suggested models (first = default) and the
+   * suggested size of the vectors (null = the model's own). Absent: the service has none (Anthropic).
+   */
+  embed?: { api: AiEmbedApi; models: string[]; dims?: number | null };
+  /** a service that only embeds (Voyage, Cohere, Jina): no chat models */
+  embed_only?: boolean;
 }
 
 const NOTE_FOREIGN_DATA = "داده‌های هر پرسش برای پاسخ به خارج از کشور فرستاده می‌شود.";
@@ -81,6 +92,7 @@ export const AI_PRESETS: AiPreset[] = [
     models: { smart: ["gpt-6.1-sol"], fast: ["gpt-6-luna"], vision: ["gpt-6.1-terra"] },
     suggested: ["gpt-6.1-sol", "gpt-6-astra", "gpt-6.1-terra", "gpt-6-luna"],
     media: { images: true, pdf: true },
+    embed: { api: "openai", models: ["text-embedding-3-small", "text-embedding-3-large"], dims: null },
   },
   {
     id: "google",
@@ -102,6 +114,7 @@ export const AI_PRESETS: AiPreset[] = [
     },
     suggested: ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemma-4-31b-it", "gemma-4-26b-a4b-it", "gemini-4-argon"],
     media: { images: true, pdf: true },
+    embed: { api: "gemini", models: ["gemini-embedding-001"], dims: 768 },
   },
   {
     id: "openrouter",
@@ -151,6 +164,7 @@ export const AI_PRESETS: AiPreset[] = [
     models: { smart: ["qwen3.8-max"], fast: ["qwen3.8-flash"], vision: ["qwen3.7-plus"] },
     suggested: ["qwen3.8-max", "qwen3.7-plus", "qwen3.8-flash"],
     media: { images: true, pdf: false },
+    embed: { api: "openai", models: ["text-embedding-v4"], dims: 1024 },
   },
   {
     id: "moonshot",
@@ -200,6 +214,7 @@ export const AI_PRESETS: AiPreset[] = [
     models: { smart: ["mistral-small-latest"], fast: ["mistral-small-latest"], vision: ["mistral-small-latest"] },
     suggested: ["mistral-small-latest", "mistral-large-latest"],
     media: { images: true, pdf: false },
+    embed: { api: "openai", models: ["mistral-embed"], dims: null },
   },
   {
     id: "groq",
@@ -256,6 +271,7 @@ export const AI_PRESETS: AiPreset[] = [
     models: { smart: ["claude-sonnet-5-5"], fast: ["gemini-3.5-flash-lite"], vision: ["gemini-3.8-flash"] },
     suggested: ["claude-opus-5-5", "claude-sonnet-5-5", "gpt-6.1-sol", "gemini-3.8-flash", "gemini-3.5-flash-lite", "deepseek-flash"],
     media: { images: true, pdf: false },
+    embed: { api: "openai", models: ["text-embedding-3-small"], dims: null },
     badge: "ایرانی",
   },
   {
@@ -274,6 +290,7 @@ export const AI_PRESETS: AiPreset[] = [
     models: { smart: ["claude-sonnet-5-5"], fast: ["gemini-3.5-flash-lite"], vision: ["gemini-3.8-flash"] },
     suggested: ["claude-opus-5-5", "claude-sonnet-5-5", "gpt-6.1-sol", "gemini-3.8-flash", "gemini-3.5-flash-lite"],
     media: { images: true, pdf: false },
+    embed: { api: "openai", models: ["text-embedding-3-small"], dims: null },
     badge: "ایرانی",
   },
   {
@@ -291,6 +308,7 @@ export const AI_PRESETS: AiPreset[] = [
     models: { smart: ["claude-sonnet-5-5"], fast: ["gemini-3.5-flash-lite"], vision: ["gemini-3.8-flash"] },
     suggested: ["claude-opus-5-5", "claude-sonnet-5-5", "gpt-6.1-sol", "gemini-3.8-flash"],
     media: { images: true, pdf: false },
+    embed: { api: "openai", models: ["text-embedding-3-small"], dims: null },
     badge: "ایرانی",
   },
   {
@@ -308,6 +326,7 @@ export const AI_PRESETS: AiPreset[] = [
     models: { smart: [], fast: [], vision: [] },
     suggested: [],
     media: { images: true, pdf: false },
+    embed: { api: "openai", models: [], dims: null },
   },
   {
     id: "ollama",
@@ -324,6 +343,7 @@ export const AI_PRESETS: AiPreset[] = [
     models: { smart: ["qwen3.5:9b"], fast: ["qwen3.5:4b"], vision: ["gemma4:e4b"] },
     suggested: ["qwen3.5:4b", "qwen3.5:9b", "gemma4:e4b", "gemma4:12b", "gemma4:26b", "qwen3.8:27b", "gemma4:31b"],
     media: { images: true, pdf: false },
+    embed: { api: "openai", models: ["bge-m3", "qwen3-embedding:0.6b", "nomic-embed-text"], dims: null },
     send_max_tokens: false,
     chat_effort: true,
   },
@@ -342,6 +362,7 @@ export const AI_PRESETS: AiPreset[] = [
     models: { smart: [], fast: [], vision: [] },
     suggested: [],
     media: { images: true, pdf: false },
+    embed: { api: "openai", models: [], dims: null },
     send_max_tokens: false,
   },
   {
@@ -359,7 +380,62 @@ export const AI_PRESETS: AiPreset[] = [
     models: { smart: [], fast: [], vision: [] },
     suggested: [],
     media: { images: true, pdf: false },
+    embed: { api: "openai", models: [], dims: null },
     send_max_tokens: false,
+  },
+  {
+    id: "voyage",
+    label: "Voyage AI — فقط بردارسازی",
+    protocol: "openai-chat",
+    base_url: "https://api.voyageai.com/v1",
+    base_url_required: false,
+    key_required: true,
+    key_url: "https://dashboard.voyageai.com/api-keys",
+    key_hint: "pa-…",
+    runtimes: ["web", "desktop"],
+    region: "foreign",
+    note: `فقط برای «نمایه و بازیابی»: بردارهای چندزبانهٔ باکیفیت (فارسی هم) برای جست‌وجوی معنایی اسناد و رکوردها. پاسخ‌گویی دستیار از اتصال دیگری است. ${NOTE_NO_IRAN} ${NOTE_FOREIGN_DATA}`,
+    models: { smart: [], fast: [], vision: [] },
+    suggested: [],
+    media: { images: false, pdf: false },
+    embed: { api: "voyage", models: ["voyage-3.5", "voyage-3.5-lite", "voyage-multilingual-2"], dims: 1024 },
+    embed_only: true,
+  },
+  {
+    id: "cohere",
+    label: "Cohere — فقط بردارسازی",
+    protocol: "openai-chat",
+    base_url: "https://api.cohere.com",
+    base_url_required: false,
+    key_required: true,
+    key_url: "https://dashboard.cohere.com/api-keys",
+    key_hint: null,
+    runtimes: ["web", "desktop"],
+    region: "foreign",
+    note: `فقط برای «نمایه و بازیابی»: مدل‌های چندزبانهٔ Embed. پاسخ‌گویی دستیار از اتصال دیگری است. ${NOTE_NO_IRAN} ${NOTE_FOREIGN_DATA}`,
+    models: { smart: [], fast: [], vision: [] },
+    suggested: [],
+    media: { images: false, pdf: false },
+    embed: { api: "cohere", models: ["embed-v4.0", "embed-multilingual-v3.0"], dims: 1024 },
+    embed_only: true,
+  },
+  {
+    id: "jina",
+    label: "Jina AI — فقط بردارسازی",
+    protocol: "openai-chat",
+    base_url: "https://api.jina.ai/v1",
+    base_url_required: false,
+    key_required: true,
+    key_url: "https://jina.ai/api-dashboard/key-manager",
+    key_hint: "jina_…",
+    runtimes: ["web", "desktop"],
+    region: "foreign",
+    note: `فقط برای «نمایه و بازیابی»: بردارهای چندزبانه با سهم رایگان آزمایشی. پاسخ‌گویی دستیار از اتصال دیگری است. ${NOTE_FOREIGN_DATA}`,
+    models: { smart: [], fast: [], vision: [] },
+    suggested: [],
+    media: { images: false, pdf: false },
+    embed: { api: "jina", models: ["jina-embeddings-v3"], dims: 1024 },
+    embed_only: true,
   },
   {
     id: "custom-openai",
@@ -377,6 +453,7 @@ export const AI_PRESETS: AiPreset[] = [
     models: { smart: [], fast: [], vision: [] },
     suggested: [],
     media: { images: true, pdf: false },
+    embed: { api: "openai", models: [], dims: null },
   },
   {
     id: "custom-anthropic",
@@ -409,6 +486,7 @@ export const AI_PRESETS: AiPreset[] = [
     models: { smart: ["fake-smart"], fast: ["fake-fast"], vision: ["fake-vision"] },
     suggested: ["fake-smart", "fake-fast", "fake-vision"],
     media: { images: true, pdf: true },
+    embed: { api: "fake", models: ["fake-embed"], dims: 64 },
     test_only: true,
   },
 ];

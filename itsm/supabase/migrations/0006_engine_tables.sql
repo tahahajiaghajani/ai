@@ -445,6 +445,111 @@ drop trigger if exists sm_delegations_sync on sm_delegations;
 create trigger sm_delegations_sync before insert or update on sm_delegations for each row execute function sm_sync_touch('delegation');
 alter table sm_delegations enable row level security;
 
+-- doc_collection: مجموعه‌های اسناد
+create table if not exists sm_doc_collections (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_doc_collections add column if not exists workspace_id uuid;
+alter table sm_doc_collections add column if not exists domain_id uuid;
+alter table sm_doc_collections add column if not exists unit_id uuid;
+alter table sm_doc_collections add column if not exists created_at timestamptz not null default now();
+alter table sm_doc_collections add column if not exists created_by uuid;
+alter table sm_doc_collections add column if not exists updated_at timestamptz not null default now();
+alter table sm_doc_collections add column if not exists updated_by uuid;
+alter table sm_doc_collections add column if not exists rev bigint not null default 0;
+alter table sm_doc_collections add column if not exists version integer not null default 1;
+alter table sm_doc_collections add column if not exists deleted_at timestamptz;
+alter table sm_doc_collections add column if not exists origin text;
+alter table sm_doc_collections add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_doc_collections add column if not exists name text;
+alter table sm_doc_collections add column if not exists classification text;
+alter table sm_doc_collections add column if not exists description text;
+alter table sm_doc_collections add column if not exists owner_id uuid;
+alter table sm_doc_collections add column if not exists sharing text;
+alter table sm_doc_collections add column if not exists share_users jsonb;
+alter table sm_doc_collections add column if not exists share_groups jsonb;
+alter table sm_doc_collections add column if not exists share_units jsonb;
+alter table sm_doc_collections add column if not exists ai_enabled boolean not null default true;
+alter table sm_doc_collections add column if not exists open_contrib boolean not null default false;
+create index if not exists sm_doc_collections_rev_idx on sm_doc_collections (org_id, rev);
+create index if not exists sm_doc_collections_upd_idx on sm_doc_collections (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_doc_collections_crt_idx on sm_doc_collections (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_doc_collections_owner_id_idx on sm_doc_collections (org_id, owner_id) where deleted_at is null;
+create index if not exists sm_doc_collections_workspace_acc_idx on sm_doc_collections (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_doc_collections_unit_acc_idx on sm_doc_collections (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_doc_collections_domain_acc_idx on sm_doc_collections (org_id, domain_id) where deleted_at is null and domain_id is not null;
+drop trigger if exists sm_doc_collections_sync on sm_doc_collections;
+create trigger sm_doc_collections_sync before insert or update on sm_doc_collections for each row execute function sm_sync_touch('doc_collection');
+alter table sm_doc_collections enable row level security;
+
+-- doc_document: اسناد
+create table if not exists sm_doc_documents (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_doc_documents add column if not exists workspace_id uuid;
+alter table sm_doc_documents add column if not exists domain_id uuid;
+alter table sm_doc_documents add column if not exists unit_id uuid;
+alter table sm_doc_documents add column if not exists created_at timestamptz not null default now();
+alter table sm_doc_documents add column if not exists created_by uuid;
+alter table sm_doc_documents add column if not exists updated_at timestamptz not null default now();
+alter table sm_doc_documents add column if not exists updated_by uuid;
+alter table sm_doc_documents add column if not exists rev bigint not null default 0;
+alter table sm_doc_documents add column if not exists version integer not null default 1;
+alter table sm_doc_documents add column if not exists deleted_at timestamptz;
+alter table sm_doc_documents add column if not exists origin text;
+alter table sm_doc_documents add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_doc_documents add column if not exists title text;
+alter table sm_doc_documents add column if not exists collection_id uuid;
+alter table sm_doc_documents add column if not exists owner_id uuid;
+alter table sm_doc_documents add column if not exists status text;
+alter table sm_doc_documents add column if not exists language text;
+alter table sm_doc_documents add column if not exists pages integer;
+alter table sm_doc_documents add column if not exists file_id text;
+alter table sm_doc_documents add column if not exists file_name text;
+alter table sm_doc_documents add column if not exists mime text;
+alter table sm_doc_documents add column if not exists size integer;
+alter table sm_doc_documents add column if not exists ocr boolean not null default false;
+alter table sm_doc_documents add column if not exists error text;
+alter table sm_doc_documents add column if not exists summary text;
+alter table sm_doc_documents add column if not exists tags jsonb;
+create index if not exists sm_doc_documents_rev_idx on sm_doc_documents (org_id, rev);
+create index if not exists sm_doc_documents_upd_idx on sm_doc_documents (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_doc_documents_crt_idx on sm_doc_documents (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_doc_documents_collection_id_idx on sm_doc_documents (org_id, collection_id) where deleted_at is null;
+create index if not exists sm_doc_documents_owner_id_idx on sm_doc_documents (org_id, owner_id) where deleted_at is null;
+create index if not exists sm_doc_documents_workspace_acc_idx on sm_doc_documents (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_doc_documents_unit_acc_idx on sm_doc_documents (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_doc_documents_domain_acc_idx on sm_doc_documents (org_id, domain_id) where deleted_at is null and domain_id is not null;
+drop trigger if exists sm_doc_documents_sync on sm_doc_documents;
+create trigger sm_doc_documents_sync before insert or update on sm_doc_documents for each row execute function sm_sync_touch('doc_document');
+alter table sm_doc_documents enable row level security;
+
 -- email_channel: کانال‌های ایمیل
 create table if not exists sm_email_channels (
   id uuid primary key,

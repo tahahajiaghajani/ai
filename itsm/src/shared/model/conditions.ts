@@ -116,7 +116,7 @@ export function opsFor(type: FieldType, target?: string | null): Op[] {
   else if (type === "users") ops = [...ARRAY_OPS, "is_me", "in_my_groups", "in_my_unit", "in_my_unit_tree"];
   else if (type === "group" || (type === "ref" && target === "group")) ops = [...CHOICE_OPS, "is_my_group", "in_my_groups"];
   else if (type === "ref") ops = target === "org_unit" ? [...CHOICE_OPS, "in_my_unit", "in_my_unit_tree"] : CHOICE_OPS;
-  else if (type === "refs") ops = target === "group" ? [...ARRAY_OPS, "is_my_group", "in_my_groups"] : ARRAY_OPS;
+  else if (type === "refs") ops = target === "group" ? [...ARRAY_OPS, "is_my_group", "in_my_groups"] : target === "org_unit" ? [...ARRAY_OPS, "in_my_unit", "in_my_unit_tree"] : ARRAY_OPS;
   else if (info.array) ops = ARRAY_OPS;
   else if (info.numeric) ops = NUM_OPS;
   else if (type === "bool") ops = ["eq", "ne", "empty", "nempty"];

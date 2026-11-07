@@ -131,7 +131,8 @@ async function activeHolds(ctx: Ctx): Promise<Hold[]> {
   return ctx.db.query<Hold>(`select connection_id, model, until, kind from sm_ai_holds where org_id = $1 and until > now()`, [ctx.org.id]);
 }
 
-async function hold(ctx: Ctx, connectionId: string, model: string, ms: number, kind: AiErrorKind, reason: string): Promise<void> {
+/** Pause one model of a connection (or the whole connection with model "") on every server instance. */
+export async function hold(ctx: Ctx, connectionId: string, model: string, ms: number, kind: AiErrorKind, reason: string): Promise<void> {
   const until = new Date(Date.now() + ms).toISOString();
   await ctx
     .write(

@@ -7,6 +7,7 @@ import ai from "./0004_ai";
 import engine from "./0005_engine";
 import access from "./0007_access";
 import notify from "./0010_notify";
+import aiRag from "./0020_ai_rag";
 import { ddlForAll } from "../../engine/ddl";
 
 export interface Migration {
@@ -32,6 +33,7 @@ export const MIGRATIONS: Migration[] = [
   },
   { id: "0007_access", title: "دسترسی: نسخهٔ پیکربندی دسترسی و شمارندهٔ دامنهٔ دید اعضا", sql: access },
   { id: "0010_notify", title: "اعلان‌ها: گزارش ارسال، ایمیل‌های ارسالی و دریافتی و وضعیت صندوق‌ها", sql: notify },
+  { id: "0020_ai_rag", title: "هوش مصنوعی: نمایه و بازیابی (قطعه‌ها، بردارها، متن اسناد هوشمند)", sql: aiRag },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].id;

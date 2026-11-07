@@ -42,6 +42,7 @@ export function withDefaults(s: Partial<Settings> | null | undefined): Settings 
     retention_days: s?.retention_days ?? 90,
     use_cloud: s?.use_cloud ?? false,
     cloud_first: s?.cloud_first ?? [],
+    rag: { enabled: true, embed_connection_id: null, rerank: false, summaries: true, top_k: 8, ...(s?.rag ?? {}) },
   };
 }
 

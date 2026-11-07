@@ -39,6 +39,8 @@ export interface AiConnectionPublic {
   priority: number;
   /** the provider's free plan (Gemini with an AI Studio key, OpenRouter free models…): counted at zero cost */
   free_tier: boolean;
+  /** the embedding model of «نمایه و بازیابی» on this connection (null: it does not embed) */
+  embed?: AiEmbedConfig | null;
   created_by_name?: string | null;
   updated_at: string;
 }
@@ -52,7 +54,28 @@ export interface AiTestReport {
   route: "direct" | "via_cloud";
 }
 
+/** A connection's embedding capability: model, vector size (null = the model's own) and API style. */
+export interface AiEmbedConfig {
+  model: string;
+  dims: number | null;
+  api: "openai" | "gemini" | "voyage" | "cohere" | "jina" | "fake";
+}
+
 // ---------------------------------------------------------------- settings
+
+/** «نمایه و بازیابی»: the organisation's retrieval (RAG) settings on this runtime. */
+export interface AiRagSettings {
+  /** records and documents are indexed and AI answers may cite them */
+  enabled: boolean;
+  /** the connection whose embedding model indexes everything (null = the first enabled connection that embeds) */
+  embed_connection_id: string | null;
+  /** a fast model re-orders the passages found before an answer (one more model call per question) */
+  rerank: boolean;
+  /** a short summary of each uploaded document (one model call per document) */
+  summaries: boolean;
+  /** passages an answer may use */
+  top_k: number;
+}
 
 export type AiDataPolicy = "full" | "masked" | "aggregates";
 
@@ -80,6 +103,8 @@ export interface AiSettings {
    * answer them only when the web version cannot. Always empty on the web version.
    */
   cloud_first: AiJob[];
+  /** «نمایه و بازیابی» (retrieval) */
+  rag: AiRagSettings;
 }
 
 // ---------------------------------------------------------------- assistant: references, proposals, events

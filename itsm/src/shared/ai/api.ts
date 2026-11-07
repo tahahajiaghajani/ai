@@ -43,6 +43,7 @@ import type { Area, Level } from "../permissions";
 import type { AiPreset } from "./presets";
 import type {
   AiConnectionPublic,
+  AiEmbedConfig,
   AiEffort,
   AiErrorKind,
   AiJob,
@@ -110,6 +111,8 @@ export interface AiConnectionInput {
   priority?: number;
   /** the provider's free plan: usage counted at zero cost, outside the budget */
   free_tier?: boolean;
+  /** the embedding model of retrieval; null or a blank model = this connection does not embed */
+  embed?: { model?: string | null; dims?: number | null; api?: AiEmbedConfig["api"] } | null;
   /** PATCH only: save without the stored key (refused for a key-required service). A new service
    *  or base URL with a stored key needs either the key again or this flag. */
   remove_key?: boolean;
@@ -131,6 +134,7 @@ export type AiSettingsPatch = Partial<{
   retention_days: number;
   use_cloud: boolean;
   cloud_first: AiJob[];
+  rag: Partial<AiSettings["rag"]>;
 }>;
 
 export interface AiSettingsView {

@@ -12,6 +12,8 @@ import { notifyRoutes } from "./notify";
 import { installNotify } from "../modules/notify";
 import { installSlaService } from "../modules/sla";
 import { approvalRoutes, calendarRoutes, ruleRoutes, slaRoutes } from "./sla";
+import { ragRoutes } from "./ai-rag";
+import { installRag } from "../modules/ai/rag";
 
 // the ITSM access model is the engine's access provider in every runtime (docs/spec/ACCESS.md)
 installAccessModel();
@@ -21,9 +23,13 @@ installNotify();
 // calendars, SLAs, approvals and the rules of records (docs/spec/services/sla.md)
 installSlaService();
 
+// the AI index, retrieval, cited answers and the smart documents library (docs/spec/AI.md)
+installRag();
+
 export const moduleRoutes = router();
 
 moduleRoutes.route("/ai", aiRoutes);
+moduleRoutes.route("/ai", ragRoutes);
 moduleRoutes.route("/access", accessRoutes);
 moduleRoutes.route("/notify", notifyRoutes);
 moduleRoutes.route("/calendars", calendarRoutes);

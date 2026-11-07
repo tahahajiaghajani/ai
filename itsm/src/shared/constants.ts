@@ -20,7 +20,7 @@ export const APP_VERSION = "1.0.0";
  * synced table gains a column or a new synced kind appears, so a Windows app that does not know them
  * cannot overwrite them.
  */
-export const SYNC_PROTOCOL = 4;
+export const SYNC_PROTOCOL = 5;
 
 /**
  * Optional modules an organisation switches on («ماژول‌ها»). The platform itself has none; later modules

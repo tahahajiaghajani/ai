@@ -11,6 +11,15 @@ export interface PgliteOptions {
   desktop?: boolean;
   /** start from a backup (tar.gz of a data folder) */
   loadDataDir?: Blob;
+  /** offer the pgvector extension to the database (default true; the AI index enables it when it is offered) */
+  vector?: boolean;
+}
+
+let vectorExt: Promise<unknown | null> | null = null;
+/** The pgvector build for PGlite when it is installed (the Windows app ships it); null otherwise. */
+function pgliteVector(): Promise<unknown | null> {
+  vectorExt ??= import("@electric-sql/pglite-pgvector").then((m) => m.vector ?? null).catch(() => null);
+  return vectorExt;
 }
 
 const parsers = {
@@ -21,7 +30,8 @@ const parsers = {
 };
 
 export async function createPgliteDb(opts: PgliteOptions = {}): Promise<Db & { pg: PGlite }> {
-  const options = { parsers, ...(opts.loadDataDir ? { loadDataDir: opts.loadDataDir } : {}) };
+  const vector = opts.vector === false ? null : await pgliteVector();
+  const options = { parsers, ...(opts.loadDataDir ? { loadDataDir: opts.loadDataDir } : {}), ...(vector ? { extensions: { vector } } : {}) } as ConstructorParameters<typeof PGlite>[0];
   const pg = opts.dataDir ? new PGlite(opts.dataDir, options) : new PGlite(options);
   await pg.waitReady;
   if (opts.desktop) await pg.exec(`set itsm.mode = 'desktop'`);
