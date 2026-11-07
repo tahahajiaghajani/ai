@@ -117,6 +117,8 @@
   .rk-tb { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; min-inline-size: 0; }
   .rk-tb-s, .rk-tb-e { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-inline-size: 0; }
   .rk-search { inline-size: 240px; max-inline-size: 100%; }
+  .rk-qf { display: flex; align-items: center; gap: 6px; min-inline-size: 0; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; margin-block: -2px 0; }
+  .rk-qf > * { flex: none; }
   .rk-group { inline-size: 172px; }
   .rk-tool { color: var(--ds-text-3); }
   .rk-fbtn.is-on { color: var(--ds-text); border-color: var(--ds-control-strong); }

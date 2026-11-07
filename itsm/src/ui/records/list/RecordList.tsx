@@ -109,7 +109,7 @@ function ListBody({ def, schema, preset: presetProp, title, actions, embedded, b
   const preset = useMemo<ListPreset>(() => ({ ...ext.list, ...presetProp, board: { ...ext.list?.board, ...presetProp?.board } }), [ext.list, presetProp]);
   const [state, set] = useListState(preset, !!embedded);
   const [params] = useSearchParams();
-  const { columns, setColumns, setViewColumns, widths } = useColumns(def, schema, preset);
+  const { columns, setColumns, setViewColumns, widths } = useColumns(def, schema, preset, !!embedded);
   const views = useViews(embedded ? null : def.key);
   const viewActions = useViewActions(def.key);
   const actionsApi = useRecordActions(def.key);
@@ -465,13 +465,6 @@ function ListBody({ def, schema, preset: presetProp, title, actions, embedded, b
           <Button className={cx("rk-fbtn", (filterOpen || conditionCount > 0) && "is-on")} icon={<ListFilter {...I16} />} onClick={() => setFilterOpen((o) => !o)} aria-expanded={filterOpen}>
             پالایه{conditionCount ? <Badge count={faDigits(conditionCount)} size="small" className="rk-badge" /> : null}
           </Button>
-          {!phone
-            ? qfs.map((q) => (
-                <ToggleChip key={q.key} on={state.quick.includes(q.key)} onChange={(on) => set({ quick: on ? [...state.quick, q.key] : state.quick.filter((k) => k !== q.key) })}>
-                  {q.label}
-                </ToggleChip>
-              ))
-            : null}
         </div>
         <div className="rk-tb-e">
           {modes.length > 1 ? (
@@ -501,9 +494,23 @@ function ListBody({ def, schema, preset: presetProp, title, actions, embedded, b
           <Tooltip title="بازخوانی">
             <Button type="text" className="rk-tool" icon={<RotateCw {...I16} className={list.isFetching && !firstLoad ? "ds-spin" : undefined} />} onClick={() => list.refetch()} aria-label="بازخوانی" />
           </Tooltip>
+          {embedded && def.can.create ? (
+            <Button icon={<Plus {...I16} />} onClick={() => nav(newPath())}>
+              {def.label} تازه
+            </Button>
+          ) : null}
         </div>
       </div>
 
+      {qfs.length ? (
+        <div className="rk-qf" role="group" aria-label="پالایه‌های سریع">
+          {qfs.map((q) => (
+            <ToggleChip key={q.key} on={state.quick.includes(q.key)} onChange={(on) => set({ quick: on ? [...state.quick, q.key] : state.quick.filter((k) => k !== q.key) })}>
+              {q.label}
+            </ToggleChip>
+          ))}
+        </div>
+      ) : null}
       {filterOpen ? (
         <div className="rk-fpanel ds-enter">
           <FilterBuilder def={def} schema={schema} value={state.filter} onChange={(c) => set({ filter: c })} display={display} tz={tz} />

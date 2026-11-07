@@ -57,11 +57,14 @@ export function useListState(preset: ListPreset | undefined, local = false) {
   return [state, set] as const;
 }
 
-/** A person's columns of a table (preset defaults, saved per person; a view's columns override for the page). */
-export function useColumns(def: TableMeta | undefined, schema: Schema | undefined, preset: ListPreset | undefined) {
+/**
+ * A person's columns of a table (preset defaults, saved per person; a view's columns override for the page). An
+ * embedded list (a related list) keeps its own choice, apart from the table's main list.
+ */
+export function useColumns(def: TableMeta | undefined, schema: Schema | undefined, preset: ListPreset | undefined, embedded = false) {
   const { orgId } = useOrg();
   const { userId } = useMe();
-  const key = def ? columnsKey(orgId, userId ?? "anon", def.key) : "";
+  const key = def ? `${columnsKey(orgId, userId ?? "anon", def.key)}${embedded ? ".embedded" : ""}` : "";
   const [prefs, setPrefs] = useState<ColumnPrefs | null>(null);
   const [viewCols, setViewCols] = useState<string[] | null>(null);
   const loadedFor = useRef("");
