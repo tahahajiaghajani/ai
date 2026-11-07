@@ -76,7 +76,7 @@ export function summarize(s: Subject, settings: AccessSettings): AccessSummary {
     legacy: s.eff.legacy,
     roles: s.eff.roles,
     grants,
-    field_groups: s.kind === "user" ? s.eff.fieldGroups : (Object.keys(FIELD_GROUPS) as FieldGroup[]),
+    field_groups: s.kind === "system" ? (Object.keys(FIELD_GROUPS) as FieldGroup[]) : s.eff.fieldGroups,
     workspaces_all: s.eff.workspacesAll,
     domains_all: s.eff.domainsAll,
     groups: s.groups,

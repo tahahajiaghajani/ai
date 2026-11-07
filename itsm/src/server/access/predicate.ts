@@ -170,7 +170,7 @@ function and(terms: string[]): string {
   return t.length === 1 ? t[0] : `(${t.join(" and ")})`;
 }
 
-const hasGroup = (s: Subject, g: string) => s.kind !== "user" || s.eff.fieldGroups.includes(g as never);
+const hasGroup = (s: Subject, g: string) => s.kind === "system" || s.eff.fieldGroups.includes(g as never);
 
 const PLACEHOLDER = /\$(\d+)/g;
 

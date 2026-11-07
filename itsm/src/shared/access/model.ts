@@ -234,6 +234,9 @@ export const MEMBERSHIP_FIELD_GROUPS: Record<MembershipRole, FieldGroup[]> = {
   viewer: [],
 };
 
+/** Field groups a support session does not read (restricted data needs a member's explicit role). */
+export const SUPPORT_EXCLUDED_GROUPS: FieldGroup[] = ["hr", "security", "ai_private"];
+
 /** The ITSM role a member without ITSM roles works as in the ITSM areas (legacy mode). */
 export const MEMBERSHIP_FALLBACK: Record<MembershipRole, string> = {
   owner: "tenant_admin",
@@ -261,8 +264,10 @@ export interface ComposeInput {
  * - Members without ITSM roles (legacy mode, every member of an organisation that has not assigned roles yet): in the
  *   membership-role areas exactly the membership role's levels (and its field groups); elsewhere the role it maps to
  *   (owner/admin → tenant_admin, member → agent, viewer → auditor).
- * - Support sessions: «مشاهده» reads everything (every field group); «مشاهده و اصلاح» works like tenant_admin; in the
- *   membership-role areas both keep the session's levels (members are never changed, keys only seen).
+ * - Support sessions: «مشاهده» reads everything, «مشاهده و اصلاح» works like tenant_admin; in the membership-role
+ *   areas both keep the session's levels (members are never changed, keys only seen). Like a tenant admin, a session
+ *   does not read the HR, security and AI-private field groups (nor, in the subject, secure workspaces and restricted
+ *   groups).
  */
 export function composeEffective(input: ComposeInput): Effective {
   const { catalog } = input;
@@ -276,7 +281,8 @@ export function composeEffective(input: ComposeInput): Effective {
       input.support === "edit" && admin
         ? { roles: ["tenant_admin"], ...combineRoles([admin]), legacy: false }
         : { roles: [], grants: { "*": fullGrant({ read: "all" }) }, fieldGroups: [], workspacesAll: true, domainsAll: true, legacy: false };
-    base.fieldGroups = Object.keys(FIELD_GROUPS).sort() as FieldGroup[];
+    // like a tenant admin: every field group but the HR and security ones, which take an explicit role
+    base.fieldGroups = (Object.keys(FIELD_GROUPS) as FieldGroup[]).filter((g) => !SUPPORT_EXCLUDED_GROUPS.includes(g)).sort();
     base.workspacesAll = true;
     base.domainsAll = true;
     return membership(base);

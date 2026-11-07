@@ -313,7 +313,11 @@ async function build(ctx: Ctx, q: Queryable): Promise<Built> {
   ctxSnapshots.set(ctx, snap);
   if (ctx.actor === "support" && ctx.support) {
     const eff = composeEffective({ role: null, levels: supportPermissions(ctx.support.level), explicit: [], catalog: catalogOf(snap, settings), support: ctx.support.level });
-    return { subject: bare(orgId, ctx.user.id, "support", eff, settings), env: { userId: ctx.user.id, groups: [], groupUsers: [ctx.user.id], unitId: null, unitTree: [], unitUsers: [], unitTreeUsers: [], domainId: null }, until: Infinity };
+    // a support session is nobody's member: secure workspaces and restricted groups stay closed to it
+    const subject = bare(orgId, ctx.user.id, "support", eff, settings);
+    subject.secureWorkspaces = [...snap.workspaces.values()].filter((w) => w.secure).map((w) => w.id).sort();
+    subject.restrictedGroups = [...snap.groups.values()].filter((g) => g.restricted && g.active !== false).map((g) => g.id).sort();
+    return { subject, env: { userId: ctx.user.id, groups: [], groupUsers: [ctx.user.id], unitId: null, unitTree: [], unitUsers: [], unitTreeUsers: [], domainId: null }, until: Infinity };
   }
   const key = `${version}:${epoch}:${settings.domainSeparation}:${settings.preset}:${ctx.member.role}:${JSON.stringify(ctx.member.overrides ?? {})}`;
   const id = `${orgId}:${ctx.user.id}`;
@@ -351,6 +355,12 @@ export async function snapshotFor(ctx: Ctx, q: Queryable = ctx.db, fresh = false
   if (hit) return hit;
   const { version } = await versionOf(q, ctx.org.id, null);
   return snapshotOf(q, ctx.org.id, version);
+}
+
+/** Read an organisation's access tables afresh (tools and tests; requests use the cached `snapshotFor`). */
+export async function loadOrgSnapshot(q: Queryable, orgId: string): Promise<Snapshot> {
+  const { version } = await versionOf(q, orgId, null);
+  return loadSnapshot(q, orgId, version);
 }
 
 /** Forget cached snapshots and subjects (tests). */

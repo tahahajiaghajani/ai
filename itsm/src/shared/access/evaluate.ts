@@ -122,7 +122,7 @@ export function domainOk(s: Subject, c: ScopeColumns, row: Row): boolean {
 }
 
 export function hasGroup(s: Subject, g: FieldGroup): boolean {
-  return s.kind !== "user" || s.eff.fieldGroups.includes(g);
+  return s.kind === "system" || s.eff.fieldGroups.includes(g);
 }
 
 export function confidentialOk(s: Subject, c: ScopeColumns, row: Row): boolean {
@@ -259,7 +259,7 @@ export function canTransitionRow(s: Subject, def: TableDef, row: Row, t: Transit
 
 /** Fields of `def` the subject may not see (their field group is not among the subject's). */
 export function hiddenFields(s: Subject, def: TableDef): string[] {
-  if (s.kind !== "user") return [];
+  if (s.kind === "system") return [];
   return def.fields.filter((f) => f.group && !s.eff.fieldGroups.includes(f.group)).map((f) => f.name);
 }
 

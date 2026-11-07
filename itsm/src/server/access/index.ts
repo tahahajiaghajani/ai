@@ -8,7 +8,7 @@ import { installAccessHooks } from "./hooks";
 
 export { itsmProvider } from "./itsm";
 export { readSql, writeSql, registerParticipantSource, type ParticipantSource } from "./predicate";
-export { prepareSubject, subjectOf, snapshotFor, accessSettings, buildSubject, clearAccessCaches, type AccessSettings, type Snapshot } from "./subject";
+export { prepareSubject, subjectOf, snapshotFor, loadOrgSnapshot, accessSettings, buildSubject, clearAccessCaches, type AccessSettings, type Snapshot } from "./subject";
 export { installAccessHooks, checkGrantable } from "./hooks";
 export * from "./service";
 
