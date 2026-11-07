@@ -234,7 +234,7 @@ export async function saveRole(ctx: Ctx, key: string, input: RoleInput): Promise
     const row = (await roleRows(tx, ctx.org.id)).find((r) => r.key === key);
     if (row) await updateIn(tx, ctx, "role", row.id, data, { version: input.version ?? undefined });
     else await createIn(tx, ctx, "role", data);
-    await audit(tx, ctx, row ? "update" : "create", "role", key, `${row ? "تغییر" : "ساخت"} نقش «${data.name}»`, { key, grants: data.grants, field_groups: data.field_groups, contains: data.contains });
+    await audit(tx, ctx, row ? "update" : "create", "role", null, `${row ? "تغییر" : "ساخت"} نقش «${data.name}» (${key})`, { key, grants: data.grants, field_groups: data.field_groups, contains: data.contains });
   });
   const { roles } = await listRoles(await refreshed(ctx));
   return roles.find((r) => r.key === key)!;
@@ -248,7 +248,7 @@ export async function resetRole(ctx: Ctx, key: string): Promise<void> {
     const row = (await roleRows(tx, ctx.org.id)).find((r) => r.key === key);
     if (!row) return;
     await removeIn(tx, ctx, "role", row.id);
-    await audit(tx, ctx, "reset", "role", key, `بازگشت نقش «${key}» به پیش‌فرض`);
+    await audit(tx, ctx, "reset", "role", null, `بازگشت نقش «${key}» به پیش‌فرض`, { key });
   });
 }
 
@@ -267,7 +267,7 @@ export async function deleteRole(ctx: Ctx, key: string): Promise<void> {
     const row = (await roleRows(tx, ctx.org.id)).find((r) => r.key === key);
     if (!row) throw notFound("نقش پیدا نشد");
     await removeIn(tx, ctx, "role", row.id);
-    await audit(tx, ctx, "delete", "role", key, `حذف نقش «${key}»`);
+    await audit(tx, ctx, "delete", "role", null, `حذف نقش «${key}»`, { key });
   });
 }
 
