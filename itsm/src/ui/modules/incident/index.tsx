@@ -27,6 +27,7 @@ const WarRoom = lazy(() => import("./WarRoom"));
 const Dashboard = lazy(() => import("./Dashboard"));
 const Settings = lazy(() => import("./Settings"));
 const QueuePage = lazy(() => import("./QueuePage"));
+const TemplatePicker = lazy(() => import("./TemplatePicker"));
 
 /** A record-page widget that loads with first use. */
 const widget = (C: ComponentType<{ ctx: RecordContext }>) => (ctx: RecordContext): ReactNode => (
@@ -68,7 +69,14 @@ const module = recordModule({
       table: "incident", path: "incidents", label: "همهٔ رخدادها", noun: "رخداد", icon: Siren, area: "work",
       keywords: "رخداد قطعی خرابی اختلال حادثه INC",
       search: { group: "رخدادها" },
-      list: { preset: { rowTone: (r) => rowTone(r), emptyText: "هنوز رخدادی ثبت نشده است" } },
+      list: {
+        preset: { rowTone: (r) => rowTone(r), emptyText: "هنوز رخدادی ثبت نشده است" },
+        actions: (
+          <Suspense fallback={null}>
+            <TemplatePicker />
+          </Suspense>
+        ),
+      },
       extensions: {
         headerActions: (ctx) => (
           <Suspense key="incident-actions" fallback={null}>
