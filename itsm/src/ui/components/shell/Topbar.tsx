@@ -13,6 +13,7 @@ import { useTheme, type ThemePref } from "../../lib/theme";
 import { toggleAssistant, useAssistantOpen } from "../../ai/assistant/bus";
 import { switchedOff, useAiStatus, useCanAsk } from "../../ai/assistant/useAi";
 import { Ic, Keys, AiIcon } from "./icons";
+import { NotificationBell } from "../../modules/notify/Bell";
 
 export interface Crumb {
   label: string;
@@ -208,6 +209,7 @@ export function Topbar({ crumbs, pathKey, onToggle, toggleLabel, onSearch, drawe
       </Tooltip>
       <Crumbs crumbs={crumbs} pathKey={pathKey} />
       <div className="sh-tb-end">
+        <NotificationBell />
         <AssistantButton compact={!!onSearch} />
         {onSearch ? (
           <button type="button" className="sh-icon-btn" aria-label="جست‌وجو یا فرمان" onClick={onSearch}>

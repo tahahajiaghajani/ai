@@ -5,7 +5,7 @@
 import { z } from "zod";
 import { router, body, query } from "../http/hono";
 import { INBOX_KINDS, NOTIFY_EVENT_KEYS, type InboxKind } from "@shared/notify";
-import { getPrefs, listInbox, markAllRead, markRead, savePrefs, unreadCount } from "../modules/notify/inbox";
+import { getPrefs, listInbox, markAllRead, markRead, savePrefs, snooze, unreadCount, MAX_SNOOZE_MS } from "../modules/notify/inbox";
 import { checkInbox, deliveryLog, emailLog, inboxStatus, listRules, preview, testChannel, testEmail } from "../modules/notify/admin";
 
 export const notifyRoutes = router();
@@ -18,11 +18,12 @@ notifyRoutes.get("/inbox", async (c) => {
     z.object({
       kind: z.enum(Object.keys(INBOX_KINDS) as [InboxKind, ...InboxKind[]]).optional(),
       unread: z.enum(["0", "1", "true", "false"]).optional(),
+      snoozed: z.enum(["0", "1", "true", "false"]).optional(),
       limit: z.coerce.number().int().min(1).max(100).optional(),
       before: z.string().max(40).optional(),
     }),
   );
-  return c.json(await listInbox(c.get("ctx"), { kind: q.kind ?? null, unread: q.unread === "1" || q.unread === "true", limit: q.limit, before: q.before ?? null }));
+  return c.json(await listInbox(c.get("ctx"), { kind: q.kind ?? null, unread: q.unread === "1" || q.unread === "true", snoozed: q.snoozed === "1" || q.snoozed === "true", limit: q.limit, before: q.before ?? null }));
 });
 
 notifyRoutes.get("/inbox/count", async (c) => c.json({ unread: await unreadCount(c.get("ctx")) }));
@@ -33,6 +34,22 @@ notifyRoutes.post("/inbox/read", async (c) => {
   if (b.all) await markAllRead(ctx);
   else await markRead(ctx, b.ids ?? []);
   return c.json({ unread: await unreadCount(ctx) });
+});
+
+// «بعداً یادآوری کن»: `minutes` from now or an ISO time `until`; neither (or until: null) brings the items back now
+notifyRoutes.post("/inbox/snooze", async (c) => {
+  const b = await body(
+    c,
+    z.object({
+      ids: z.array(z.string().max(40)).min(1).max(200),
+      minutes: z.number().int().min(1).max(MAX_SNOOZE_MS / 60_000).optional(),
+      until: z.string().max(40).nullish(),
+    }),
+  );
+  const ctx = c.get("ctx");
+  const until = b.minutes ? new Date(Date.now() + b.minutes * 60_000) : b.until ? new Date(b.until) : null;
+  const changed = await snooze(ctx, b.ids, until);
+  return c.json({ changed, until: until?.toISOString() ?? null, unread: await unreadCount(ctx) });
 });
 
 notifyRoutes.get("/prefs", async (c) => c.json({ prefs: await getPrefs(c.get("ctx")) }));

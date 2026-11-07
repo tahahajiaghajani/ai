@@ -1135,6 +1135,7 @@ alter table sm_notifications add column if not exists kind text;
 alter table sm_notifications add column if not exists actor_id uuid;
 alter table sm_notifications add column if not exists rule_key text;
 alter table sm_notifications add column if not exists read_at timestamptz;
+alter table sm_notifications add column if not exists snoozed_until timestamptz;
 create index if not exists sm_notifications_rev_idx on sm_notifications (org_id, rev);
 create index if not exists sm_notifications_upd_idx on sm_notifications (org_id, updated_at desc, id desc) where deleted_at is null;
 create index if not exists sm_notifications_crt_idx on sm_notifications (org_id, created_at desc, id desc) where deleted_at is null;

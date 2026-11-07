@@ -205,6 +205,7 @@ const inbox: TableDef = {
     { name: "actor_id", label: "انجام‌دهنده", type: "user", span: 8 },
     { name: "rule_key", label: "قانون", type: "string", maxLength: 80, ltr: true, span: 8 },
     { name: "read_at", label: "خوانده‌شده", type: "datetime", readonly: true, list: true, filter: true, span: 8 },
+    { name: "snoozed_until", label: "به تعویق تا", type: "datetime", readonly: true, filter: true, span: 8 },
   ],
   scope: { own: ["user_id"], requester: ["user_id"] },
   rowAccess: { read: OWN, write: OWN },

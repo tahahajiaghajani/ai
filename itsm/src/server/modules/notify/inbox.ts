@@ -2,7 +2,8 @@
 // personal engine rows (`notification`, `notification_pref`: the row rule lets only their owner read or change them,
 // whatever the person's roles); reads start from the engine's `readable` predicate, writes go through the engine with
 // the owner checked here — so history-free rows still move `rev` and reach the person's Windows app.
-// «همه را خواندم» moves one watermark (`read_before`) instead of touching every row.
+// «همه را خواندم» moves one watermark (`read_before`) instead of touching every row. «بعداً یادآوری کن» (snooze)
+// hides an item until a time; it then comes back unread at the top (its `shown_at` is the end of the snooze).
 import type { Cond } from "@shared/model/conditions";
 import { cleanPrefs, INBOX_KINDS, NOTIFY_EVENTS, type InboxKind, type NotifyPrefs } from "@shared/notify";
 import type { Ctx } from "../../context";
@@ -23,6 +24,9 @@ export interface InboxItem {
   kind: InboxKind;
   actor_id: string | null;
   created_at: string;
+  /** when it (re)appeared: the end of a snooze, else created_at — the list's order and its `before` cursor */
+  shown_at: string;
+  snoozed_until: string | null;
   read: boolean;
 }
 
@@ -47,7 +51,12 @@ async function myPrefRow(ctx: Ctx): Promise<PrefRow | null> {
   return ctx.db.one<PrefRow>(`select t.* from ${def.table} t where t.user_id = $1 and ${where} limit 1`, params);
 }
 
-const unreadSql = (alias: string, watermarkParam: string) => `${alias}.read_at is null and ${alias}.created_at > coalesce(${watermarkParam}::timestamptz, '-infinity'::timestamptz)`;
+/** When an item (re)appeared: the end of its snooze, else its creation. */
+const shownSql = (alias: string) => `greatest(${alias}.created_at, coalesce(${alias}.snoozed_until, ${alias}.created_at))`;
+/** Snoozed now (hidden from the list and the count until the time comes). */
+const snoozedSql = (alias: string) => `(${alias}.snoozed_until is not null and ${alias}.snoozed_until > now())`;
+const unreadSql = (alias: string, watermarkParam: string) =>
+  `${alias}.read_at is null and not ${snoozedSql(alias)} and ${shownSql(alias)} > coalesce(${watermarkParam}::timestamptz, '-infinity'::timestamptz)`;
 
 /** Unread inbox items of the caller. */
 export async function unreadCount(ctx: Ctx): Promise<number> {
@@ -63,8 +72,10 @@ export async function unreadCount(ctx: Ctx): Promise<number> {
 export interface InboxQuery {
   kind?: InboxKind | null;
   unread?: boolean;
+  /** only the items snoozed now (otherwise they are left out until their time comes) */
+  snoozed?: boolean;
   limit?: number;
-  /** created_at of the last item already shown (older ones come next) */
+  /** shown_at of the last item already shown (older ones come next) */
   before?: string | null;
 }
 
@@ -80,18 +91,19 @@ export async function listInbox(ctx: Ctx, q: InboxQuery = {}): Promise<{ items: 
     where.push(`t.kind = $${params.length}`);
   }
   if (q.unread) where.push(unreadSql("t", "$2"));
+  where.push(q.snoozed ? snoozedSql("t") : `not ${snoozedSql("t")}`);
   if (q.before) {
     const d = new Date(q.before);
     if (Number.isNaN(d.getTime())) throw bad("زمان معتبر نیست");
     params.push(d.toISOString());
-    where.push(`t.created_at < $${params.length}::timestamptz`);
+    where.push(`${shownSql("t")} < $${params.length}::timestamptz`);
   }
   where.push(readable(ctx, def, "t", params, env));
   const limit = Math.min(Math.max(q.limit ?? 30, 1), 100);
   const rows = await ctx.db.query<Record<string, any>>(
     `select t.id, t.title, t.body, t.link, t.table_key, t.record_id, t.record_number, t.event, t.kind, t.actor_id, t.created_at, t.read_at,
-            (${unreadSql("t", "$2")}) as unread
-     from ${def.table} t where ${where.join(" and ")} order by t.created_at desc, t.id desc limit ${limit + 1}`,
+            t.snoozed_until, ${shownSql("t")} as shown_at, (${unreadSql("t", "$2")}) as unread
+     from ${def.table} t where ${where.join(" and ")} order by ${shownSql("t")} desc, t.id desc limit ${limit + 1}`,
     params,
   );
   const more = rows.length > limit;
@@ -107,6 +119,8 @@ export async function listInbox(ctx: Ctx, q: InboxQuery = {}): Promise<{ items: 
     kind: (r.kind in INBOX_KINDS ? r.kind : "direct") as InboxKind,
     actor_id: r.actor_id ?? null,
     created_at: new Date(r.created_at).toISOString(),
+    shown_at: new Date(r.shown_at).toISOString(),
+    snoozed_until: r.snoozed_until ? new Date(r.snoozed_until).toISOString() : null,
     read: !r.unread,
   }));
   const refs = new RefSet();
@@ -128,6 +142,42 @@ export async function markRead(ctx: Ctx, ids: string[]): Promise<number> {
   await ctx.write(
     async (tx) => {
       for (const r of mine) await updateIn(tx, ctx, "notification", r.id, { read_at: new Date().toISOString() }, { trusted: true, skipAccess: true });
+    },
+    { internal: true },
+  );
+  return mine.length;
+}
+
+/** The longest snooze (a month): longer than that is a reason to turn the notification off. */
+export const MAX_SNOOZE_MS = 30 * 24 * 3600_000;
+
+/**
+ * «بعداً یادآوری کن»: hide some of the caller's items until `until` (they come back unread at the top); `null`
+ * brings the snoozed ones among them back now. Others' ids are ignored. Returns how many items changed.
+ */
+export async function snooze(ctx: Ctx, ids: string[], until: Date | null): Promise<number> {
+  const clean = [...new Set(ids.filter(isUuid).map((x) => x.toLowerCase()))].slice(0, 200);
+  if (!clean.length) return 0;
+  if (until) {
+    if (Number.isNaN(until.getTime())) throw bad("زمان معتبر نیست");
+    const ms = until.getTime() - Date.now();
+    if (ms < 60_000) throw bad("زمان یادآوری باید در آینده باشد");
+    if (ms > MAX_SNOOZE_MS) throw bad("بیش از یک ماه نمی‌توان اعلان را به تعویق انداخت");
+  }
+  const def = defOf("notification");
+  const env = await condEnv(ctx);
+  const params: unknown[] = [ctx.user.id, pgArray(clean)];
+  const where = readable(ctx, def, "t", params, env);
+  const mine = await ctx.db.query<{ id: string }>(
+    `select t.id from ${def.table} t where t.user_id = $1 and t.id = any($2::uuid[]) and ${until ? "true" : snoozedSql("t")} and ${where}`,
+    params,
+  );
+  if (!mine.length) return 0;
+  // the item comes back unread when the snooze ends («now» ends it at once)
+  const data = { snoozed_until: (until ?? new Date()).toISOString(), read_at: null };
+  await ctx.write(
+    async (tx) => {
+      for (const r of mine) await updateIn(tx, ctx, "notification", r.id, data, { trusted: true, skipAccess: true });
     },
     { internal: true },
   );
