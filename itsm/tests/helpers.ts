@@ -2,7 +2,6 @@
 import { createPgliteDb } from "@server/db/pglite";
 import { migrate } from "@server/db/migrate";
 import { createApp } from "@server/app";
-import type { Db } from "@server/db";
 import type { ServerConfig } from "@server/context";
 
 export const quietLog = { info() {}, warn() {}, error: (m: string, d?: unknown) => console.error(m, d) };
@@ -47,13 +46,11 @@ export class Client {
   del = <T = any>(p: string, expect?: number) => this.req<T>("DELETE", p, undefined, expect);
 }
 
-export async function signupWithOrg(c: Client, modules: ("goods" | "gold" | "fx")[] = ["goods", "gold", "fx"], kind = "mixed") {
-  await c.post("/auth/signup", { email: "owner@example.com", password: "s3cret-pass", full_name: "مالک آزمایشی" });
-  const { id } = await c.post<{ id: string }>("/orgs", { name: "فروشگاه آزمایشی", business_kind: kind, modules, base_currency: "IRR", fiscal_year: 1405 });
-  return id;
-}
+export const ORG_NAME = "سازمان آزمایشی";
 
-export async function accountId(db: Db, orgId: string, key: string) {
-  const r = await db.one<{ id: string }>(`select id from sm_accounts where org_id = $1 and system_key = $2`, [orgId, key]);
-  return r!.id;
+/** Signs up (the first account of a server administers the platform) and creates an organisation; returns its id. */
+export async function signupWithOrg(c: Client, opts: { email?: string; name?: string; timezone?: string } = {}) {
+  await c.post("/auth/signup", { email: opts.email ?? "owner@example.com", password: "s3cret-pass", full_name: "مالک آزمایشی" });
+  const { id } = await c.post<{ id: string }>("/orgs", { name: opts.name ?? ORG_NAME, ...(opts.timezone ? { timezone: opts.timezone } : {}) });
+  return id;
 }

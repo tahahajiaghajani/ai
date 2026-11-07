@@ -1,174 +1,166 @@
+// The platform core: accounts (sign-up, sign-in, recovery), organisations (the generic wizard: a name and an
+// optional time zone), their settings, members and the audit log, and the generic master-data CRUD (through the
+// fixture module, as a later module will use it).
 import { describe, it, expect, beforeAll } from "vitest";
-import { makeServer, Client, signupWithOrg, accountId } from "./helpers";
+import "./fixtures/module";
+import { makeServer, Client, signupWithOrg, ORG_NAME } from "./helpers";
 import type { Db } from "@server/db";
-import { D } from "@shared/money";
+import { DEFAULT_TIMEZONE } from "@shared/constants";
 
-describe("core: auth, organisation, vouchers, reports", () => {
+describe("core: accounts, organisations, settings and members", () => {
   let c: Client;
   let db: Db;
+  let app: Awaited<ReturnType<typeof makeServer>>["app"];
   let org: string;
+  let recovery = "";
   beforeAll(async () => {
     const s = await makeServer();
     db = s.db;
+    app = s.app;
     c = new Client(s.app);
-    org = await signupWithOrg(c);
+    expect(await c.get("/meta")).toMatchObject({ first_run: true, allow_signup: true, mode: "cloud" });
+    const r = await c.post("/auth/signup", { email: "owner@example.com", password: "s3cret-pass", full_name: "مالک آزمایشی" });
+    recovery = r.recovery_code;
+    org = (await c.post<{ id: string }>("/orgs", { name: ORG_NAME })).id;
   });
 
-  it("creates the organisation with chart of accounts, fiscal year and defaults", async () => {
+  it("makes the first account the platform administrator and reports the app's identity", async () => {
+    const me = await c.get("/auth/me");
+    expect(me.user).toMatchObject({ email: "owner@example.com", is_platform_admin: true });
+    expect(me.orgs.map((o: { id: string }) => o.id)).toEqual([org]);
+    const meta = await c.get("/meta");
+    expect(meta).toMatchObject({ app: "ITSM", version: "1.0.0", sync_protocol: 1, first_run: false, signed_in: true });
+    expect(meta.schema.pending).toEqual([]);
+    const health = await c.get("/health");
+    expect(health).toMatchObject({ ok: true, db: "ok", mode: "cloud" });
+  });
+
+  it("creates an organisation from its name alone, with the default time zone and the creator as owner", async () => {
     const info = await c.get(`/o/${org}`);
-    expect(info.org.name).toBe("فروشگاه آزمایشی");
-    expect(info.fiscal_years).toHaveLength(1);
-    expect(info.fiscal_years[0].start_date).toBe("2026-03-21");
+    expect(info.org).toMatchObject({ name: ORG_NAME, modules: [] });
+    expect(info.org.settings.timezone).toBe(DEFAULT_TIMEZONE);
     expect(info.member.role).toBe("owner");
-    const accounts = await c.get(`/o/${org}/accounting/accounts`);
-    expect(accounts.accounts.length).toBeGreaterThan(100);
-    const keys = accounts.accounts.map((a: { system_key: string }) => a.system_key).filter(Boolean);
-    expect(keys).toEqual(expect.arrayContaining(["cash", "ar", "sales", "gold_inventory", "fx_cash", "crypto_wallets"]));
+    expect(Object.values(info.member.permissions).every((l) => l === "full")).toBe(true);
+    expect(info.counts.members).toBe(1);
+    expect(info.status).toEqual({ status: "active", reason: null });
+    // a chosen time zone, an unknown one, a name too short, unknown modules dropped
+    const other = await c.post<{ id: string }>("/orgs", { name: "دفتر کابل", timezone: "Asia/Kabul", modules: ["no-such-module"] });
+    const o2 = await c.get(`/o/${other.id}`);
+    expect(o2.org.settings.timezone).toBe("Asia/Kabul");
+    expect(o2.org.modules).toEqual([]);
+    await c.post("/orgs", { name: "بد بد", timezone: "Mars/Olympus" }, 400);
+    await c.post("/orgs", { name: "x" }, 400);
+    const list = await c.get("/orgs");
+    expect(list.orgs.map((o: { name: string; timezone: string }) => [o.name, o.timezone])).toEqual([
+      [ORG_NAME, DEFAULT_TIMEZONE],
+      ["دفتر کابل", "Asia/Kabul"],
+    ]);
   });
 
-  it("creates master data with automatic codes and detail accounts", async () => {
-    const p = await c.post(`/o/${org}/data/party`, { name: "علی رضایی", mobile: "۰۹۱۲۱۲۳۴۵۶۷", roles: ["customer"] });
-    expect(p.row.code).toBe("1001");
-    expect(p.row.mobile).toBe("09121234567");
-    expect(p.row.detail_id).toBeTruthy();
-    const list = await c.get(`/o/${org}/data/party?q=رضایی`);
-    expect(list.total).toBe(1);
-    await c.post(`/o/${org}/data/party`, { name: "بد", national_id: "1234567890" }, 400);
-    // each kind of detail account keeps to its own code band (the cash box already holds 20001)
-    const d = await db.one<{ code: string }>(`select code from sm_details where id = $1`, [p.row.detail_id]);
-    expect(Number(d!.code)).toBeGreaterThanOrEqual(10001);
-    expect(Number(d!.code)).toBeLessThan(20000);
-  });
-
-  it("posts a balanced voucher and rejects an unbalanced one", async () => {
-    const cash = await accountId(db, org, "cash");
-    const capital = await accountId(db, org, "capital");
-    const box = await db.one<{ detail_id: string }>(`select detail_id from sm_cash_boxes where org_id = $1`, [org]);
-    const v = await c.post(`/o/${org}/accounting/vouchers`, {
-      date: "2026-04-01",
-      description: "آورده‌ی نقدی",
-      lines: [
-        { account_id: cash, detail_id: box!.detail_id, debit: "500000000" },
-        { account_id: capital, credit: "500000000" },
-      ],
-    });
-    expect(v.voucher.no).toBe(1);
-    const bad = await c.post(`/o/${org}/accounting/vouchers`, { date: "2026-04-01", lines: [{ account_id: cash, detail_id: box!.detail_id, debit: "10" }, { account_id: capital, credit: "9" }] }, 400);
-    expect(bad.error.message).toContain("تراز نیست");
-    const missingDetail = await c.post(`/o/${org}/accounting/vouchers`, { date: "2026-04-01", lines: [{ account_id: cash, debit: "10" }, { account_id: capital, credit: "10" }] }, 400);
-    expect(missingDetail.error.message).toContain("تفصیلی");
-    const tb = await c.get(`/o/${org}/accounting/reports/trial-balance?level=1`);
-    expect(tb.totals.debit).toBe("500000000");
-    expect(tb.totals.credit).toBe("500000000");
-    const bs = await c.get(`/o/${org}/accounting/reports/balance-sheet`);
-    expect(bs.balanced).toBe(true);
-    expect(bs.total_assets).toBe("500000000");
-  });
-
-  it("closes the fiscal year and opens the next one with the balances", async () => {
-    const fy = (await c.get(`/o/${org}`)).fiscal_years[0];
-    const r = await c.post(`/o/${org}/fiscal-years/${fy.id}/close`);
-    expect(r.ok).toBe(true);
+  it("updates the profile and merges settings one level deep; refuses an unknown time zone", async () => {
+    await c.patch(`/o/${org}`, { legal_name: "شرکت نمونه", city: "تهران", settings: { timezone: "Europe/Istanbul", print: { footer: "پانویس" } } });
     const info = await c.get(`/o/${org}`);
-    expect(info.fiscal_years).toHaveLength(2);
-    const next = info.fiscal_years.find((f: { id: string }) => f.id === r.next_fiscal_year_id);
-    const tb = await c.get(`/o/${org}/accounting/reports/trial-balance?level=3&fiscal_year_id=${next.id}`);
-    const cashRow = tb.rows.find((x: { code: string }) => x.code === "1101");
-    expect(cashRow.balance).toBe("500000000");
+    expect(info.org).toMatchObject({ legal_name: "شرکت نمونه", city: "تهران" });
+    expect(info.org.settings.timezone).toBe("Europe/Istanbul");
+    // the rest of the print group is kept
+    expect(info.org.settings.print).toEqual({ show_logo: true, footer: "پانویس" });
+    await c.patch(`/o/${org}`, { settings: { timezone: "Nowhere/City" } }, 400);
+  });
+
+  it("adds a member with a temporary password, changes the role and records both", async () => {
+    const added = await c.post(`/o/${org}/members`, { email: "Member@Example.com", full_name: "همکار نمونه", role: "member" });
+    expect(added.temp_password).toBeTruthy();
+    const { members, roles } = await c.get(`/o/${org}/members`);
+    expect(roles.map((r: { key: string }) => r.key)).toEqual(["owner", "member", "viewer", "admin"]);
+    const m = members.find((x: { email: string }) => x.email === "member@example.com");
+    expect(m).toMatchObject({ role: "member", is_active: true, full_name: "همکار نمونه" });
+    await c.post(`/o/${org}/members`, { email: "member@example.com", full_name: "تکراری", role: "viewer" }, 409);
+    await c.post(`/o/${org}/members`, { email: "x@example.com", full_name: "نقش ناشناخته", role: "accountant" }, 400);
+
+    const member = new Client(app);
+    await member.post("/auth/login", { email: "member@example.com", password: added.temp_password });
+    const seen = await member.get(`/o/${org}`);
+    expect(seen.member.permissions).toEqual({ settings: "view", users: "view", integrations: "none", ai: "edit", reports: "view" });
+    await member.patch(`/o/${org}`, { name: "تغییر نام" }, 403);
+
+    await c.patch(`/o/${org}/members/${m.id}`, { role: "viewer" });
+    expect((await member.get(`/o/${org}`)).member.role).toBe("viewer");
+    await member.get(`/o/${org}/members`, 403);
+    // the last owner stays an owner
+    const own = members.find((x: { role: string }) => x.role === "owner");
+    await c.patch(`/o/${org}/members/${own.id}`, { role: "admin" }, 400);
+
+    const audit = await c.get(`/o/${org}/audit`);
+    expect(audit.rows.some((r: { action: string; entity: string }) => r.action === "member_add" && r.entity === "member")).toBe(true);
+    const changed = await db.one(`select 1 from sm_security_events where kind = 'member_changed' and org_id = $1`, [org]);
+    expect(changed).toBeTruthy();
+  });
+
+  it("signs in, refuses a wrong password, signs out, and resets the password with the recovery code", async () => {
+    const other = new Client(app);
+    await other.post("/auth/login", { email: "owner@example.com", password: "wrong-password" }, 401);
+    await other.post("/auth/login", { email: "OWNER@example.com", password: "s3cret-pass" });
+    await other.get("/auth/me");
+    await other.post("/auth/logout");
+    await other.get("/auth/me", 401);
+
+    await other.post("/auth/recover", { email: "owner@example.com", code: "AAAA-BBBB-CCCC-DDDD", next: "another-pass-1" }, 400);
+    const r = await other.post("/auth/recover", { email: "owner@example.com", code: recovery.toLowerCase(), next: "another-pass-1" });
+    expect(r.recovery_code).toBeTruthy();
+    expect(r.recovery_code).not.toBe(recovery);
+    // every session of the account ended with the reset
+    await c.get("/auth/me", 401);
+    await c.post("/auth/login", { email: "owner@example.com", password: "another-pass-1" });
+    const events = await db.query<{ kind: string }>(`select kind from sm_security_events order by at`);
+    expect(events.map((e) => e.kind)).toEqual(expect.arrayContaining(["sign_up", "sign_in", "password_recover", "member_added"]));
   });
 });
 
-describe("accounting reports: brought-forward balances and foreign currencies", () => {
+describe("generic master data (the fixture module's entities)", () => {
   let c: Client;
-  let db: Db;
   let org: string;
-  let box: string;
-  const acc: Record<string, string> = {};
-  const cur: Record<string, string> = {};
-  const o = (p: string) => `/o/${org}${p}`;
-  const post = (date: string, lines: unknown[]) => c.post(o("/accounting/vouchers"), { date, lines });
-  const bal = (rows: { balance: string }[]) => rows.map((r) => r.balance);
   beforeAll(async () => {
     const s = await makeServer();
-    db = s.db;
     c = new Client(s.app);
     org = await signupWithOrg(c);
-    for (const k of ["cash", "capital", "misc_expense", "fx_parties"]) acc[k] = await accountId(db, org, k);
-    for (const r of await db.query<{ id: string; code: string }>(`select id, code from sm_currencies where org_id = $1`, [org])) cur[r.code] = r.id;
-    box = (await db.one<{ detail_id: string }>(`select detail_id from sm_cash_boxes where org_id = $1`, [org]))!.detail_id;
   });
 
-  it("reports the opening voucher of a year as its opening balance, not as turnover", async () => {
-    await post("2026-04-01", [{ account_id: acc.cash, detail_id: box, debit: "500000000" }, { account_id: acc.capital, credit: "500000000" }]);
-    await post("2026-06-01", [{ account_id: acc.misc_expense, debit: "30000000" }, { account_id: acc.cash, detail_id: box, credit: "30000000" }]);
-    const fy1 = (await c.get(o(""))).fiscal_years[0];
-    const closed = await c.post(o(`/fiscal-years/${fy1.id}/close`));
-    const fy2 = (await c.get(o(""))).fiscal_years.find((f: { id: string }) => f.id === closed.next_fiscal_year_id);
-    expect(fy2.start_date).toBe("2027-03-21");
-    const opening = await c.get(o(`/accounting/vouchers?fiscal_year_id=${fy2.id}&kind=opening`));
-    expect(opening.rows.map((v: { date: string }) => v.date)).toEqual(["2027-03-21"]);
-    await post("2027-04-10", [{ account_id: acc.misc_expense, debit: "20000000" }, { account_id: acc.cash, detail_id: box, credit: "20000000" }]);
+  it("creates rows with automatic codes, normalises and validates fields, searches and filters", async () => {
+    const g = await c.post(`/o/${org}/data/test_group`, { name: "شبکه" });
+    expect(g.row.code).toBe("1");
+    const a = await c.post(`/o/${org}/data/test_item`, { name: "سوئیچ طبقهٔ دوم", mobile: "۰۹۱۲۱۲۳۴۵۶۷", group_id: g.row.id, tags: ["critical"], qty: "۱۲" });
+    expect(a.row).toMatchObject({ code: "1001", kind: "hardware", mobile: "09121234567", tags: ["critical"], is_active: true });
+    expect(Number(a.row.qty)).toBe(12);
+    const b = await c.post(`/o/${org}/data/test_item`, { name: "مجوز نرم‌افزار", kind: "software" });
+    expect(b.row.code).toBe("1002");
+    await c.post(`/o/${org}/data/test_item`, { name: "بد", email: "not-an-email" }, 400);
+    await c.post(`/o/${org}/data/test_item`, { name: "بد", kind: "vehicle" }, 400);
+    await c.post(`/o/${org}/data/test_item`, { kind: "software" }, 400);
+    await c.post(`/o/${org}/data/test_item`, { name: "بد", group_id: "00000000-0000-7000-8000-000000000099" }, 400);
+    await c.get(`/o/${org}/data/no_such_entity`, 404);
 
-    // 6/8-column trial balance of the new year, over the range the screen asks for
-    const year = `fiscal_year_id=${fy2.id}&from=${fy2.start_date}&to=${fy2.end_date}`;
-    const tb = await c.get(o(`/accounting/reports/trial-balance?level=3&${year}`));
-    const row = (code: string) => tb.rows.find((r: { code: string }) => r.code === code);
-    const cols = (r: { opening: string; debit: string; credit: string; balance: string }) => [r.opening, r.debit, r.credit, r.balance];
-    expect(cols(row("1101"))).toEqual(["470000000", "0", "20000000", "450000000"]); // cash
-    expect(cols(row("5101"))).toEqual(["-500000000", "0", "0", "-500000000"]); // capital
-    expect(cols(row("5301"))).toEqual(["30000000", "0", "0", "30000000"]); // the year's loss carried in
-    for (const r of tb.rows) expect(D(r.opening).plus(D(r.debit)).minus(D(r.credit)).toString()).toBe(r.balance);
-    expect(tb.totals).toEqual({ opening_dr: "470000000", opening_cr: "470000000", debit: "20000000", credit: "20000000", balance_dr: "470000000", balance_cr: "470000000" });
+    expect((await c.get(`/o/${org}/data/test_item?q=سوئیچ`)).total).toBe(1);
+    expect((await c.get(`/o/${org}/data/test_item?f.kind=software`)).rows.map((r: { code: string }) => r.code)).toEqual(["1002"]);
+    expect((await c.get(`/o/${org}/data/test_item?f.tags=critical`)).total).toBe(1);
+    const opts = await c.get(`/o/${org}/data/test_item/options?q=مجوز`);
+    expect(opts.options).toHaveLength(1);
+    expect(opts.options[0]).toMatchObject({ label: "مجوز نرم‌افزار", sub: "1002" });
 
-    // the ledger of the year starts from the brought-forward balance and lists only the year's movements
-    const led = await c.get(o(`/accounting/reports/ledger?account_id=${acc.cash}&${year}`));
-    expect(led.opening).toBe("470000000");
-    expect(bal(led.rows)).toEqual(["450000000"]);
-    expect(led.totals).toMatchObject({ debit: "0", credit: "20000000", balance: "450000000" });
-
-    // without a fiscal year (statements, cash book): from the new year on, the same opening …
-    const fromNewYear = await c.get(o(`/accounting/reports/ledger?account_id=${acc.cash}&from=${fy2.start_date}`));
-    expect(fromNewYear.opening).toBe("470000000");
-    expect(bal(fromNewYear.rows)).toEqual(["450000000"]);
-    expect(fromNewYear.totals).toMatchObject({ debit: "0", credit: "20000000", balance: "450000000" });
-    // … and a range that also holds the old year's closing keeps the opening voucher as a movement
-    const across = await c.get(o(`/accounting/reports/ledger?account_id=${acc.cash}&from=2026-05-01`));
-    expect(across.opening).toBe("500000000");
-    expect(bal(across.rows)).toEqual(["470000000", "0", "470000000", "450000000"]);
-    expect(across.totals.balance).toBe("450000000");
-    const all = await c.get(o(`/accounting/reports/trial-balance?level=3`));
-    expect(all.rows.find((r: { code: string }) => r.code === "1101").balance).toBe("450000000");
+    const u = await c.patch(`/o/${org}/data/test_item/${b.row.id}`, { notes: "تمدید سالانه", is_active: false });
+    expect(u.row).toMatchObject({ notes: "تمدید سالانه", is_active: false });
+    // inactive rows stay in lists but not in pickers
+    expect((await c.get(`/o/${org}/data/test_item/options?q=مجوز`)).options).toHaveLength(0);
+    await c.del(`/o/${org}/data/test_item/${b.row.id}`);
+    await c.get(`/o/${org}/data/test_item/${b.row.id}`, 404);
+    const audit = await c.get(`/o/${org}/audit`);
+    expect(audit.rows.map((r: { action: string; entity: string }) => `${r.action}:${r.entity}`)).toEqual(expect.arrayContaining(["create:test_item", "update:test_item", "delete:test_item"]));
   });
 
-  it("keeps foreign amounts per currency in the ledger and the party statement", async () => {
-    const party = (await c.post(o("/data/party"), { name: "مشتری ارزی", roles: ["customer"] })).row;
-    const fx = (code: string, side: "debit" | "credit", amount: string, rate: string) => ({
-      account_id: acc.fx_parties,
-      detail_id: party.detail_id,
-      currency_id: cur[code],
-      fx_rate: rate,
-      [side]: D(amount).times(rate).toString(),
-      [`fx_${side}`]: amount,
-    });
-    await post("2027-04-01", [fx("USD", "debit", "100", "1000000"), fx("EUR", "debit", "50", "1150000"), { account_id: acc.capital, credit: "157500000" }]);
-    await post("2027-05-10", [{ account_id: acc.capital, debit: "30000000" }, fx("USD", "credit", "30", "1000000")]);
-
-    for (const by of [`account_id=${acc.fx_parties}`, `detail_id=${party.detail_id}`]) {
-      const led = await c.get(o(`/accounting/reports/ledger?${by}&from=2027-05-01`));
-      expect(led.opening).toBe("157500000");
-      // 100 USD + 50 EUR is not «150» of anything
-      expect(led.opening_fx).toBeNull();
-      expect(led.totals.fx_balance).toBeNull();
-      expect(led.fx_balances).toEqual([
-        { currency_id: cur.EUR, currency_code: "EUR", opening: "50", debit: "0", credit: "0", balance: "50" },
-        { currency_id: cur.USD, currency_code: "USD", opening: "100", debit: "0", credit: "30", balance: "70" },
-      ]);
-      // the running foreign balance of a line is in the line's own currency
-      expect(led.rows.map((r: { currency_code: string; fx_balance: string }) => [r.currency_code, r.fx_balance])).toEqual([["USD", "70"]]);
-    }
-    // one currency: a single foreign figure as before
-    const usd = await c.get(o(`/accounting/reports/ledger?detail_id=${party.detail_id}&currency_id=${cur.USD}&from=2027-05-01`));
-    expect([usd.opening_fx, usd.totals.fx_balance]).toEqual(["100", "70"]);
-    expect(usd.fx_balances.map((f: { currency_code: string }) => f.currency_code)).toEqual(["USD"]);
+  it("numbers a fixture module's records per organisation", async () => {
+    const d1 = await c.post(`/o/${org}/test/docs`, { title: "اول", lines: [{ text: "ردیف", qty: 2 }] });
+    const d2 = await c.post(`/o/${org}/test/docs`, { title: "دوم" });
+    expect([d1.doc.no, d2.doc.no]).toEqual([1, 2]);
+    const read = await c.get(`/o/${org}/test/docs/${d1.doc.id}`);
+    expect(read.lines.map((l: { text: string; qty: string }) => [l.text, Number(l.qty)])).toEqual([["ردیف", 2]]);
   });
 });

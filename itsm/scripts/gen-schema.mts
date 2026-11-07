@@ -6,6 +6,7 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync, readdirSync, rmSync
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { MIGRATIONS } from "../src/server/db/migrations/index";
+import { APP_NAME } from "../src/shared/constants";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const dir = join(root, "supabase");
@@ -13,9 +14,9 @@ const migDir = join(dir, "migrations");
 const check = process.argv.includes("--check");
 
 const header = `-- ============================================================================
--- «سیراف» — پایگاه داده‌ی کامل برای Supabase (PostgreSQL 15+)
+-- «${APP_NAME}» — پایگاه دادهٔ کامل برای Supabase (PostgreSQL 15+)
 -- این فایل را یک بار در Supabase ← SQL Editor ← New query بچسبانید و Run بزنید.
--- اجرای دوباره بی‌خطر است (همه‌ی دستورها idempotent هستند).
+-- اجرای دوباره بی‌خطر است (همهٔ دستورها idempotent هستند).
 -- برنامه هم هنگام اجرا migrationهای جاافتاده را خودکار اعمال می‌کند (AUTO_MIGRATE).
 -- این فایل خودکار از src/server/db/migrations ساخته می‌شود: npm run schema
 -- ============================================================================
@@ -34,7 +35,7 @@ insert into sm_migrations (id) values ('${id}') on conflict (id) do nothing;
 const files = new Map<string, string>();
 files.set(join(dir, "schema.sql"), `${header}\ncreate table if not exists sm_migrations (id text primary key, applied_at timestamptz not null default now());\n\n${MIGRATIONS.map((m) => wrap(m.id, m.title, m.sql)).join("\n")}`);
 for (const m of MIGRATIONS) {
-  files.set(join(migDir, `${m.id}.sql`), `-- «سیراف» migration ${m.id} — ${m.title}\ncreate table if not exists sm_migrations (id text primary key, applied_at timestamptz not null default now());\n\n${wrap(m.id, m.title, m.sql)}`);
+  files.set(join(migDir, `${m.id}.sql`), `-- «${APP_NAME}» migration ${m.id} — ${m.title}\ncreate table if not exists sm_migrations (id text primary key, applied_at timestamptz not null default now());\n\n${wrap(m.id, m.title, m.sql)}`);
 }
 
 let stale: string[] = [];

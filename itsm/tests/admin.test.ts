@@ -19,7 +19,7 @@ describe("platform admin", () => {
     expect(stats).toMatchObject({ users: 2, orgs: 1, disabled_users: 0 });
     expect(stats.db_bytes).toBeGreaterThan(0);
     const { orgs } = await admin.get("/admin/orgs");
-    expect(orgs[0]).toMatchObject({ name: "فروشگاه آزمایشی", members: 1 });
+    expect(orgs[0]).toMatchObject({ name: "سازمان آزمایشی", members: 1 });
   });
 
   it("disables an account and signs it out everywhere", async () => {
@@ -45,16 +45,19 @@ describe("memberChangeRule (members page and API)", () => {
     expect(memberChangeRule(delegate, g("me", "viewer", { users: "edit" }), null)).toMatch(/خودتان/);
     expect(memberChangeRule(delegate, g("me", "viewer", { users: "edit" }), g("me", "viewer", { users: "edit" }))).toBeNull();
     expect(memberChangeRule(delegate, g("o", "owner"), null)).toBe(OWNER_ONLY_MESSAGE);
-    expect(memberChangeRule(delegate, g("a", "accountant"), null)).toMatch(/از شما بیشتر است/);
+    expect(memberChangeRule(delegate, g("a", "member"), null)).toMatch(/از شما بیشتر است/);
+    expect(memberChangeRule(delegate, g("d", "admin"), null)).toMatch(/از شما بیشتر است/);
     expect(memberChangeRule(delegate, g("p", "viewer"), null)).toBeNull();
     expect(memberChangeRule(actorOf("owner"), g("me", "owner"), null)).toBeNull();
   });
 
   it("offers only roles and levels at or below the actor's own", () => {
-    const offered = (["owner", "admin", "accountant", "viewer", "sales"] as Role[]).filter((r) => !memberChangeRule(delegate, null, g("", r)));
+    const offered = (["owner", "admin", "member", "viewer"] as Role[]).filter((r) => !memberChangeRule(delegate, null, g("", r)));
     expect(offered).toEqual(["viewer"]);
+    // an admin (the owner's deputy) offers everything below the owner
+    expect((["owner", "admin", "member", "viewer"] as Role[]).filter((r) => !memberChangeRule(actorOf("admin"), null, g("", r)))).toEqual(["admin", "member", "viewer"]);
     expect(memberChangeRule(delegate, g("p", "viewer"), g("p", "viewer", { users: "edit" }))).toBeNull();
     expect(memberChangeRule(delegate, g("p", "viewer"), g("p", "viewer", { users: "full" }))).toMatch(/بیشتر از دسترسی خودتان/);
-    expect(memberChangeRule({ ...actorOf("owner"), support: true }, g("p", "viewer"), g("p", "sales"))).toMatch(/خود سازمان/);
+    expect(memberChangeRule({ ...actorOf("owner"), support: true }, g("p", "viewer"), g("p", "member"))).toMatch(/خود سازمان/);
   });
 });

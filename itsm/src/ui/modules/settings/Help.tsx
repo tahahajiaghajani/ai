@@ -71,7 +71,7 @@ export default function Help() {
                 نام، لوگو و منطقهٔ زمانی سازمان: <Link className="ds-link" to={to("settings/org")}>تنظیمات سازمان</Link>
               </li>
               <li>
-                همکاران را با ایمیل اضافه کنید و نقش هر کدام را تعیین کنید: <Link className="ds-link" to={to("settings/members")}>کاربران و دسترسی‌ها</Link>
+                همکاران را با ایمیل اضافه کنید و نقش هر کدام را تعیین کنید: <Link className="ds-link" to={to("settings/users")}>کاربران و دسترسی‌ها</Link>
               </li>
               <li>
                 یک اتصال هوش مصنوعی بسازید (رایگان یا محلی، پایین‌تر): <Link className="ds-link" to={to("settings/ai")}>تنظیمات هوش مصنوعی</Link>
