@@ -6,8 +6,8 @@
 //   onRecordEvent("sla", async (e, jctx) => { if (e.kind === "record.state_changed") … }, { tables: ["incident"] });
 //
 // Kinds: record.created · record.updated (payload.changed = field names) · record.state_changed (from/to and their
-// categories) · record.assigned (assigned_to and/or assignment group changed) · record.deleted · record.restored ·
-// record.commented (a journal entry) · record.watched.
+// categories) · record.assigned (assigned_to and/or assignment group changed) · record.deleted · record.commented (a
+// journal entry). Modules may emit kinds of their own with `emitEvent` (e.g. "record.sla_breached").
 // Delivery is at-least-once: one job per event runs the matching subscribers in registration order; a subscriber
 // that throws makes the job retry with backoff, and subscribers that already succeeded are skipped on the retry.
 // Subscribers run outside any transaction (open `jctx.db.tx` or use `systemCtx`), on the runtime that applied the
@@ -19,8 +19,8 @@ import { enqueue, registerJobHandler, type Job, type JobContext } from "../jobs"
 import { actorId } from "./env";
 
 export type RecordEventKind =
-  | "record.created" | "record.updated" | "record.state_changed" | "record.assigned" | "record.deleted" | "record.restored"
-  | "record.commented" | "record.watched";
+  | "record.created" | "record.updated" | "record.state_changed" | "record.assigned" | "record.deleted" | "record.commented"
+  | `record.${string}`;
 
 export interface RecordEvent {
   kind: RecordEventKind;
@@ -46,9 +46,6 @@ export interface RecordEvent {
   assignment_group?: { from: string | null; to: string | null };
   /** record.commented: the journal entry */
   entry?: { id: string; kind: string; visibility: string };
-  /** record.watched */
-  user_id?: string;
-  watching?: boolean;
   /** anything else a module adds to its own events */
   data?: Record<string, unknown>;
 }

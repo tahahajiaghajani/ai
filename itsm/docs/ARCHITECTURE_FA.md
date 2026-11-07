@@ -35,9 +35,13 @@
 | `0002_platform` | `sm_support_sessions`، `sm_security_events`، `sm_org_admin` (وضعیت و یادداشت هر سازمان) |
 | `0003_integrations` | `sm_api_keys`، `sm_integrations` (وب‌هوک‌ها)، `sm_integration_events` |
 | `0004_ai` | `sm_ai_connections`، `sm_ai_settings`، `sm_ai_holds`، `sm_ai_usage`، `sm_ai_threads`، `sm_ai_messages`، `sm_ai_tool_calls`، `sm_ai_actions`، `sm_ai_data_refs` |
+| `0005_engine` | موتور رکوردها: `sm_meta`، `sm_numbers`، `sm_jobs` (صف کارها و رویدادها)، `sm_history`، `sm_journal`، `sm_attachments`، `sm_blobs`، `sm_links`، `sm_scope_epochs` |
+| `0006_engine_tables` | جدول‌های رکوردها (`sm_todos`، `sm_views`، `sm_custom_fields`، `sm_choices` و هر جدولی که ماژول‌ها تعریف کنند) — ساخته‌شده از تعریف جدول‌ها |
 
 - همهٔ جدول‌ها `sm_` دارند؛ RLS روشن و بدون policy است و نقش‌های عمومی Supabase (`anon`، `authenticated`) هیچ دسترسی‌ای ندارند. فقط اتصال سرور به پایگاه داده می‌رسد.
 - همهٔ migrationها **idempotent** هستند (`if not exists`، `create or replace`، `drop … if exists`) و روی هر دو اجرا خودکار اعمال می‌شوند. migration منتشرشده ویرایش نمی‌شود؛ فایل تازه اضافه و در `index.ts` ثبت می‌شود. `npm run schema` فایل‌های `supabase/schema.sql` و `supabase/migrations/*.sql` را می‌سازد و CI با `npm run check:schema` به‌روز بودنشان را می‌سنجد.
+- **موتور رکوردها** (`src/server/engine`، راهنمای فنی: [spec/ENGINE.md](spec/ENGINE.md)): هر چیزی که کاربر ITSM با آن کار می‌کند — رخداد، مشکل، تغییر، درخواست، CI، دارایی، مقالهٔ دانش و حتی تنظیم‌هایی مثل تعریف SLA — رکوردِ جدولی است که یک بار در `src/shared/tables` تعریف می‌شود. جدول پایگاه داده، اعتبارسنجی، گردش وضعیت، تاریخچهٔ فیلدها، یادداشت‌ها، پیوست‌ها، پیوندها، رویدادها، هم‌گامی و API عمومی `/api/o/:org/r/:table` همه از همین تعریف ساخته می‌شوند. جدول یا فیلد تازه migration دستی نمی‌خواهد: `reconcileSchema` پس از migrationها روی هر دو اجرا DDL ساخته‌شده را (اگر عوض شده باشد) اعمال می‌کند. همهٔ خواندن‌ها و نوشتن‌ها از «ارائه‌دهندهٔ دسترسی» (`src/server/access/provider.ts`) می‌گذرند.
+- **صف کارها** (`src/server/jobs`): رویدادهای رکوردها و کارهای پس‌زمینه در `sm_jobs` می‌مانند؛ ویندوز هر ۱۰ ثانیه، وب پس از هر درخواستی که کاری در صف گذاشت و با `/api/cron/tick` (راهنمای راه‌اندازی، بخش ۴-۱) اجرایشان می‌کند.
 - تنظیم‌های جلسهٔ PostgreSQL: `itsm.mode` (`desktop` در نسخهٔ ویندوز) و `itsm.applying` (`on` هنگام اعمال دادهٔ هم‌گامی یا migration داده، تا تغییر دوباره در صف نرود).
 
 ## همگام‌سازی (src/server/sync، src/desktop/sync-client.ts)
