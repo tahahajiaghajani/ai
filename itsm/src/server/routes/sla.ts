@@ -10,7 +10,8 @@ import { forbidden } from "../http/errors";
 import { access } from "../access/provider";
 import { defFor } from "../engine";
 import {
-  cancelApprovals, decide, decideMany, holidaysBetween, myApprovals, recordApprovals, requestApproval, seedCalendars, slaConfig, slaTimeline, uiPolicies,
+  approverSources, cancelApprovals, decide, decideMany, holidaysBetween, myApprovalCount, myApprovals, recordApprovals, requestApproval, seedCalendars, slaConfig,
+  slaTimeline, uiPolicies,
 } from "../modules/sla";
 import { IR_HOLIDAY_YEARS } from "../modules/sla/holidays-ir";
 
@@ -72,6 +73,11 @@ approvalRoutes.get("/mine", async (c) => {
   const q = query(c, z.object({ scope: z.enum(["pending", "decided"]).optional(), limit: z.coerce.number().int().min(1).max(500).optional() }));
   return c.json(await myApprovals(c.get("ctx"), q));
 });
+
+approvalRoutes.get("/mine/count", async (c) => c.json({ count: await myApprovalCount(c.get("ctx")) }));
+
+// owner sources modules registered (the rule builder offers them)
+approvalRoutes.get("/sources", (c) => c.json({ owners: approverSources() }));
 
 approvalRoutes.post("/decide", async (c) => {
   const input = await body(c, decision.extend({ ids: z.array(UUID).min(1).max(200) }));

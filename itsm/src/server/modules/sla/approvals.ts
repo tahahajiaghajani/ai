@@ -592,6 +592,14 @@ async function displayOf(ctx: Ctx, rows: Row[]): Promise<Record<string, string>>
   return resolveDisplay(ctx.db, ctx, env, schema, refs);
 }
 
+/** How many approvals wait for the caller (also as a delegate): the nav count of «تأییدهای من». */
+export async function myApprovalCount(ctx: Ctx): Promise<number> {
+  const delegations = await activeDelegations(ctx.db, ctx, "approvals");
+  const who = [ctx.user.id, ...delegatorsOf(delegations, ctx.user.id)];
+  const rows = await liveRows(ctx.db, systemFrom(ctx), "approval", { and: [{ f: "state", op: "eq", v: "requested" }, { f: "approver_id", op: "in", v: who }] }, "t.id limit 1000");
+  return rows.length;
+}
+
 /** The caller's approvals: waiting for them (also as a delegate), or decided by them. */
 export async function myApprovals(ctx: Ctx, opts: { scope?: "pending" | "decided"; limit?: number } = {}): Promise<{ approvals: ApprovalView[]; display: Record<string, string>; delegators: string[] }> {
   const sys = systemFrom(ctx);

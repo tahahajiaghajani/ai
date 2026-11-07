@@ -36,7 +36,9 @@ export function installSlaService(): void {
 
 export { seedCalendars, seedCalendarsIn, holidaysBetween, calendarFor, SEED_DELAY_MS } from "./calendars";
 export { fireTimer, recordTimers, slaTimeline, schedule as scheduleSlaTimer } from "./sla";
-export { decide, decideMany, myApprovals, recordApprovals, requestApproval, cancelApprovals, activeDelegations, delegateOf, delegatorsOf, managerOf, registerApproverSource } from "./approvals";
+export {
+  decide, decideMany, myApprovals, myApprovalCount, recordApprovals, requestApproval, cancelApprovals, activeDelegations, delegateOf, delegatorsOf, managerOf, registerApproverSource, approverSources,
+} from "./approvals";
 export { registerPriorityDefault, setOnCallResolver, MAX_RULE_DEPTH } from "./rules";
 export { uiPolicies, policiesOf } from "./policies";
 export { config as slaConfig, forgetConfig } from "./common";

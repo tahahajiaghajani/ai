@@ -5,6 +5,7 @@
 // on every write path through hooks (src/server/modules/sla/rules.ts, policies.ts).
 // Imported by the UI: keep it free of server imports.
 import type { Option, TableDef } from "../model/types";
+import { ITIL_MATRIX } from "../sla/rules";
 
 export const RULE_TIMINGS: Option[] = [
   { value: "before", label: "پیش از ذخیره" },
@@ -105,7 +106,7 @@ const priorityMatrix: TableDef = {
     { name: "impact_field", label: "فیلد اثر", type: "string", maxLength: 60, default: "impact", ltr: true, span: 8 },
     { name: "urgency_field", label: "فیلد فوریت", type: "string", maxLength: 60, default: "urgency", ltr: true, span: 8 },
     { name: "priority_field", label: "فیلد اولویت", type: "string", maxLength: 60, default: "priority", ltr: true, span: 8 },
-    { name: "cells", label: "خانه‌ها", type: "json", required: true, default: {}, span: 24, help: "{ «اثر»: { «فوریت»: «اولویت» } }" },
+    { name: "cells", label: "خانه‌ها", type: "json", required: true, default: ITIL_MATRIX, span: 24, help: "{ «اثر»: { «فوریت»: «اولویت» } }" },
     { name: "active", label: "فعال", type: "bool", default: true, list: true, filter: true, span: 8 },
     { name: "description", label: "شرح", type: "text", span: 24 },
   ],

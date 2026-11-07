@@ -5,6 +5,10 @@
 // rule); the record's people see them on the record (the service checks that they may read it).
 // Imported by the UI: keep it free of server imports.
 import type { Option, TableDef } from "../model/types";
+import type { LevelDef } from "../sla/approvals";
+
+/** What a new approval rule asks until its levels are edited: the requester's manager. */
+export const DEFAULT_LEVELS: LevelDef[] = [{ name: "مدیر درخواست‌دهنده", sources: [{ kind: "manager" }], rule: "any" }];
 
 export const APPROVAL_ROW_STATES: Option[] = [
   { value: "waiting", label: "در نوبت", color: "gray" },
@@ -63,7 +67,7 @@ const approvalRule: TableDef = {
     { name: "table_key", label: "جدول", type: "string", required: true, maxLength: 60, list: true, filter: true, ltr: true, span: 12 },
     { name: "condition", label: "شرط", type: "conditions", condTableField: "table_key", rules: true, span: 24, help: "تأییدها وقتی درخواست می‌شوند که این شرط برقرار شود (هنگام ثبت، یا با تغییری که آن را برقرار کند)" },
     { name: "mode", label: "ترتیب سطح‌ها", type: "choice", choices: APPROVAL_MODES, default: "sequential", list: true, span: 8 },
-    { name: "levels", label: "سطح‌های تأیید", type: "json", required: true, default: [], span: 24 },
+    { name: "levels", label: "سطح‌های تأیید", type: "json", required: true, default: DEFAULT_LEVELS, span: 24 },
     { name: "auto_approve", label: "شرط تأیید خودکار", type: "conditions", condTableField: "table_key", span: 24, section: "مهلت و استثناها" },
     { name: "allow_self_approval", label: "تأیید رکورد خود مجاز است", type: "bool", default: false, span: 8, section: "مهلت و استثناها", help: "بدون آن، درخواست‌دهنده و کارشناس رکورد آن را تأیید نمی‌کنند" },
     { name: "remind_every", label: "یادآوری هر", type: "duration", min: 0, span: 8, section: "مهلت و استثناها" },
