@@ -9,9 +9,12 @@
 //        [--paths a,b,c] [--themes light,dark] [--mobile a,b | --no-mobile] [--no-build] [--keep-server]
 //
 // Paths are relative to the organisation (`settings/users`, `` for the home page) unless they start with `/`
-// (`/login`, `/orgs`, `/admin`). `{org}` is replaced by the organisation's id. A path ending in `@ai` opens the
-// assistant (Ctrl J) before the screenshot. Default: every route of src/ui/modules/*/index.tsx without parameters,
-// the AI settings tabs, the assistant, /login, /orgs, the organisation wizard and the /admin console.
+// (`/login`, `/orgs`, `/admin`). `{org}` is replaced by the organisation's id, `{todo}` by a demo «کار» record. A path
+// ending in `@ai` opens the assistant (Ctrl J) before the screenshot. Default: every route of
+// src/ui/modules/*/index.tsx without parameters, the AI settings tabs, the assistant, the record UI's generic pages
+// on the demo `todo` table (list, board, calendar, timeline, a record, a new record, the generic `r/:table` routes and
+// the designers), /login, /orgs, the organisation wizard and the /admin console. Demo records are created once
+// through the API (states, priorities, due dates, tags, a reply, a work note, a link, a saved view).
 //
 // Internal: `tsx scripts/ui-shots.mjs --serve-internal <dataDir> <port> <staticDir>` runs the server.
 import { spawn } from "node:child_process";
@@ -57,7 +60,7 @@ const NO_BUILD = flag("no-build");
 const OWNER = { email: opt("email", "owner@example.com"), password: opt("password", "Owner-pass-1405"), full_name: "سارا محمدی" };
 const MEMBER = { email: "member@example.com", full_name: "علی رضایی", role: "member", password: "Member-pass-1405" };
 const ORG = { name: "واحد فناوری اطلاعات نمونه", timezone: "Asia/Tehran" };
-const MOBILE_DEFAULT = ["/login", "/orgs", "", "settings/users", "settings/ai", "help", "/admin", "@ai"];
+const MOBILE_DEFAULT = ["/login", "/orgs", "", "settings/users", "settings/ai", "help", "/admin", "@ai", "todo", "todo?mode=board", "todo?mode=calendar", "todo/{todo}", "todo/new", "settings/forms?table=todo"];
 const MOBILE = flag("no-mobile") ? [] : list(opt("mobile")) ?? MOBILE_DEFAULT;
 const THEME_KEY = "itsm.theme";
 
@@ -92,8 +95,12 @@ function defaultPaths(desktop) {
   }
   if (!desktop) paths.delete("settings/desktop");
   const tabs = ["settings/ai?tab=jobs", "settings/ai?tab=features", "settings/ai?tab=usage", "settings/ai?tab=activity"];
+  const records = [
+    "todo?mode=board", "todo?mode=calendar", "todo?mode=timeline", "todo?group=state", "todo/{todo}", "todo/new",
+    "r/todo", "r/view", "r/custom_field", "r/todo/{todo}", "settings/fields?table=todo", "settings/forms?table=todo", "settings/choices?list=todo.category",
+  ];
   const admin = ["/admin", "/admin/orgs", "/admin/orgs/{org}", "/admin/users", "/admin/ai", "/admin/security", "/admin/health"];
-  return [...[...paths].sort((a, b) => a.localeCompare(b)), ...tabs, "@ai", "/login", "/orgs", "/orgs/new", ...admin];
+  return [...[...paths].sort((a, b) => a.localeCompare(b)), ...tabs, ...records, "@ai", "/login", "/orgs", "/orgs/new", ...admin];
 }
 
 // ---------------------------------------------------------------- server
@@ -168,8 +175,11 @@ async function main() {
   const members = (await call("GET", `/o/${orgId}/members`)).members;
   if (!members.some((m) => m.email === MEMBER.email)) await call("POST", `/o/${orgId}/members`, MEMBER);
   log(`owner ${OWNER.email}, organisation ${orgId}, ${meta.mode} mode`);
+  const todoId = await seedTodos(call, orgId);
+  log(`demo «کار» records ready (${todoId})`);
+  const fill = (p) => p.replace(/\{org\}/g, orgId).replace(/\{todo\}/g, todoId);
 
-  const requested = (list(opt("paths")) ?? defaultPaths(meta.mode === "desktop")).map((p) => p.replace(/\{org\}/g, orgId));
+  const requested = (list(opt("paths")) ?? defaultPaths(meta.mode === "desktop")).map(fill);
   const target = (p) => {
     const [page, ai] = p.endsWith("@ai") ? [p.slice(0, -3), true] : [p, false];
     return { href: page.startsWith("/") ? page : `/${orgId}${page ? `/${page}` : ""}`, auth: !/^\/(login|setup|recover|signup)\b/.test(page), ai };
@@ -194,7 +204,7 @@ async function main() {
 
   const jobs = [];
   for (const theme of THEMES) for (const p of requested) jobs.push({ path: p, ...target(p), variant: "desktop", theme, viewport: { width: 1440, height: 900 } });
-  for (const theme of THEMES) for (const p of MOBILE.map((x) => x.replace(/\{org\}/g, orgId))) jobs.push({ path: p, ...target(p), variant: "mobile", theme, viewport: { width: 375, height: 812 } });
+  for (const theme of THEMES) for (const p of MOBILE.map(fill)) jobs.push({ path: p, ...target(p), variant: "mobile", theme, viewport: { width: 375, height: 812 } });
   log(`${jobs.length} screenshots to take`);
 
   const contexts = new Map();
@@ -271,6 +281,41 @@ async function main() {
   writeFileSync(join(OUT, "report.json"), JSON.stringify(report, null, 2));
   log(`${report.summary.ok}/${report.summary.pages} pages without problems; report.json in ${OUT}`);
   return bad.length ? 1 : 0;
+}
+
+/**
+ * Demo records of the engine's `todo` table for the record UI's pages: created once (the first run of a data dir),
+ * then reused. Returns the id of the record the record-page screenshots open.
+ */
+async function seedTodos(call, orgId) {
+  const base = `/o/${orgId}/r/todo`;
+  const have = await call("POST", `${base}/query`, { q: "چاپگر طبقهٔ سوم", size: 1, total: false });
+  if (have.rows.length) return have.rows[0].id;
+  const me = (await call("GET", "/auth/me")).user.id;
+  const other = (await call("GET", `/o/${orgId}/members`)).members.find((m) => m.email === MEMBER.email)?.user_id ?? null;
+  const day = (d, h = 9) => new Date(Date.now() + d * 86400000).toISOString().slice(0, 10) + `T${String(h - 3).padStart(2, "0")}:30:00.000Z`;
+  const rows = [
+    { short_description: "چاپگر طبقهٔ سوم کاغذ گیر می‌کند", priority: "2", assigned_to: me, due_at: day(1, 10), tags: ["سخت‌افزار", "چاپگر"], estimate: "2.5", description: "از صبح **سه بار** کاغذ گیر کرده است.\n\n- مدل: HP M404\n- محل: اتاق ۳۱۲" },
+    { short_description: "تمدید گواهی SSL درگاه", priority: "1", assigned_to: me, due_at: day(-1, 11), tags: ["امنیت"], estimate: "1" },
+    { short_description: "نصب نرم‌افزار حسابداری برای واحد مالی", priority: "3", assigned_to: other, due_at: day(3, 14), estimate: "4" },
+    { short_description: "پشتیبان‌گیری هفتگی سرور پرونده‌ها", priority: "4", due_at: day(5, 9), tags: ["نگهداری"] },
+    { short_description: "جلسهٔ هماهنگی با تأمین‌کنندهٔ اینترنت", priority: "3", assigned_to: me, due_at: day(0, 15), category: "meeting" },
+    { short_description: "گزارش ماهانهٔ رخدادها", priority: "4", due_at: day(9, 12), category: "report" },
+  ];
+  const ids = [];
+  for (const r of rows) ids.push((await call("POST", base, { ...r, watch_list: [me] })).row.id);
+  const tr = async (id, to, data = {}) => call("POST", `${base}/${id}/transition`, { to, data });
+  await tr(ids[0], "in_progress");
+  await tr(ids[2], "on_hold");
+  await tr(ids[3], "resolved", { close_code: "solved", close_notes: "پشتیبان کامل شد." });
+  await tr(ids[4], "in_progress");
+  await call("POST", `${base}/${ids[0]}/journal`, { kind: "comment", body: "سلام؛ کارشناس فنی امروز سر می‌زند و غلتک را بررسی می‌کند." });
+  await call("POST", `${base}/${ids[0]}/journal`, { kind: "work_note", body: "غلتک ورودی ساییده شده؛ قطعهٔ یدکی در انبار هست." });
+  await call("PATCH", `${base}/${ids[0]}`, { priority: "1" });
+  await call("POST", `${base}/${ids[0]}/links`, { kind: "related", table: "todo", id: ids[1] });
+  await call("POST", base, { short_description: "سفارش غلتک یدکی چاپگر", priority: "3", parent_id: ids[0], assigned_to: me, due_at: day(2, 12) });
+  await call("POST", `/o/${orgId}/r/view`, { table_key: "todo", name: "فوری‌های باز", shared: true, filter: { and: [{ f: "priority", op: "in", v: ["1", "2"] }, { f: "active", op: "eq", v: true }] }, sort: "-priority", columns: ["number", "short_description", "state", "priority", "assigned_to", "due_at"] });
+  return ids[0];
 }
 
 let code = 1;
