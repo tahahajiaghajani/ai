@@ -10,7 +10,6 @@ import { cleanKey, decryptKey, encryptKey, keyFingerprint, keyHint, keyReadable,
 import { anthropicAdapter, anthropicSchema } from "@server/modules/ai/adapters/anthropic";
 import { msUntilMidnight, quotaHoldMs, runTurn } from "@server/modules/ai/chain";
 import { jsonSchemaOf } from "@server/modules/ai/schema";
-import { readSchemaFor } from "@server/modules/ai/features/capture";
 import { z as zod } from "zod";
 import { openaiChatAdapter } from "@server/modules/ai/adapters/openai-chat";
 import { openaiResponsesAdapter } from "@server/modules/ai/adapters/openai-responses";
@@ -88,7 +87,7 @@ function conn(preset: string, over: Partial<ResolvedConnection> = {}): ResolvedC
 
 const env = (f: typeof fetch): AdapterEnv => ({ fetch: f, mode: "cloud" });
 const user = (text: string): NeutralMessage => ({ role: "user", parts: [{ type: "text", text }] });
-const TOOL = { name: "get_total", description: "Total sales", schema: { type: "object", properties: { month: { type: "string" } }, required: ["month"] } };
+const TOOL = { name: "get_total", description: "Total requests", schema: { type: "object", properties: { month: { type: "string" } }, required: ["month"] } };
 
 /** History after one tool round, replaying the adapter's own native content. */
 function afterTool(r: TurnResult, c: ResolvedConnection, model: string): NeutralMessage[] {
@@ -352,13 +351,18 @@ describe("Anthropic adapter (official SDK)", () => {
     walk(out);
     expect(out.properties.name.description).toContain("minLength: 1");
     expect(out.required).toEqual(["name", "map"]);
-    // an open map cannot be expressed: closed (the capture reads therefore name their fields)
+    // an open map cannot be expressed: closed (a document reading therefore names its fields)
     expect(out.properties.map).toEqual({ type: "object", properties: {}, additionalProperties: false });
-    // every document kind's reading schema names its fields
-    const cheque = anthropicSchema(jsonSchemaOf(readSchemaFor("cheque"))) as any;
-    walk(cheque);
-    expect(Object.keys(cheque.properties.fields.properties)).toContain("amount_words");
-    expect(JSON.stringify(cheque)).not.toContain('"type":["');
+    // a reading schema of the kind a module uses to read a document (nullable fields, nested objects, a list)
+    const reading = zod.object({
+      fields: zod.object({ title: zod.string().max(200).nullish(), serial_no: zod.string().max(60).nullish(), reported_at: zod.string().nullish(), priority: zod.enum(["low", "medium", "high"]).nullish() }),
+      lines: zod.array(zod.object({ text: zod.string().max(200), qty: zod.number().nullish() })).max(50),
+      confidence: zod.number().min(0).max(1),
+    });
+    const doc = anthropicSchema(jsonSchemaOf(reading)) as any;
+    walk(doc);
+    expect(Object.keys(doc.properties.fields.properties)).toEqual(["title", "serial_no", "reported_at", "priority"]);
+    expect(JSON.stringify(doc)).not.toContain('"type":["');
   });
 
   it("puts the normalised schema in output_config.format and the tools", async () => {
@@ -494,7 +498,7 @@ async function engineServer(handler: Handler) {
   const app = createApp(cfg);
   const c = new Client(app);
   await c.post("/auth/signup", { email: "owner@example.com", password: "s3cret-pass", full_name: "مالک" });
-  const { id: orgId } = await c.post<{ id: string }>("/orgs", { name: "فروشگاه", business_kind: "mixed", modules: ["goods"], base_currency: "IRR", fiscal_year: 1405 });
+  const { id: orgId } = await c.post<{ id: string }>("/orgs", { name: "سازمان آزمایشی" });
   const ctx = async () => {
     const u = (await db.one<AuthUser>(`select id, email, full_name, mobile, is_platform_admin, disabled, prefs from sm_users where email = 'owner@example.com'`))!;
     const org = (await db.one<OrgRow>(`select * from sm_orgs where id = $1`, [orgId]))!;
@@ -675,15 +679,17 @@ describe("routing chain, holds and budgets", () => {
 
 describe("data policy", () => {
   it("masks identifiers by key and pattern; aggregates also hides names", () => {
-    const data = { party: { type: "party", name: "علی رضایی", national_id: "0012345678", mobile: "09121234567" }, note: "تماس با 09351112233", total: "1200" };
+    const data = { requester: { type: "requester", name: "علی رضایی", national_id: "0012345678", mobile: "09121234567" }, note: "تماس با 09351112233", total: "1200" };
     const masked = redactValue(data, "masked") as any;
-    expect(masked.party.name).toBe("علی رضایی");
-    expect(masked.party.national_id).toBe("***5678");
-    expect(masked.party.mobile).toBe("***4567");
+    expect(masked.requester.name).toBe("علی رضایی");
+    expect(masked.requester.national_id).toBe("***5678");
+    expect(masked.requester.mobile).toBe("***4567");
     expect(masked.note).toBe("تماس با ***2233");
     expect(masked.total).toBe("1200");
     const agg = redactValue(data, "aggregates") as any;
-    expect(agg.party.name).toBe("[نام پنهان]");
+    expect(agg.requester.name).toBe("[نام پنهان]");
+    // members listed by a tool are people too
+    expect((redactValue({ members: [{ type: "member", name: "سارا", email: "sara@example.com" }] }, "aggregates") as any).members[0].name).toBe("[نام پنهان]");
     expect(redactValue(data, "full")).toEqual(data);
     expect(maskText("کد ملی 0499370899")).toBe("کد ملی ***0899");
     expect(maskText("مبلغ 1234567890")).toBe("مبلغ 1234567890");

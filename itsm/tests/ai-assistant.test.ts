@@ -14,6 +14,12 @@ import { makeCtx, type AuthUser, type MemberRow, type OrgRow, type ServerConfig 
 import { quietLog } from "./helpers";
 import { redactRelay, registerCloudLink, relayTurn } from "@server/modules/ai/relay";
 import { runTurn } from "@server/modules/ai/chain";
+import { registerAiFeature } from "@server/modules/ai/settings";
+
+// AI features a module registers (their ledger labels) under one of the switches: a summary under its own switch
+// (here «پیش‌نویس به پیشنهاد دستیار»), a document reading under «فایل و تصویر»
+registerAiFeature("test_summary", "proposals");
+registerAiFeature("test_reading", "files");
 import { AiUnavailableError } from "@server/modules/ai/errors";
 import { uuidv7 } from "@shared/id";
 import type { AiStreamEvent } from "@shared/ai/types";
@@ -46,7 +52,7 @@ const propose = defineTool({
   description: "Prepare a test draft (test only).",
   input: z.object({ amount: z.string() }),
   kind: "propose",
-  area: "sales",
+  area: "settings",
   level: "edit",
   async run(_ctx, input) {
     return {
@@ -58,7 +64,7 @@ const propose = defineTool({
         summary_fa: `مبلغ ${input.amount}`,
         payload: { amount: input.amount },
         preview: [{ label: "مبلغ", value: input.amount }],
-        area: "sales",
+        area: "settings",
         level: "edit",
       },
     };
@@ -71,9 +77,9 @@ beforeAll(() => {
   process.env.ITSM_AI_FAKE = "1";
   ALL_TOOLS.push(echo as unknown as AiToolDef, propose as unknown as AiToolDef);
   EXECUTORS.test_doc = async (ctx, payload) => {
-    ctx.need("sales", "edit");
+    ctx.need("settings", "edit");
     executed++;
-    return { type: "invoice", id: uuidv7(), label: `سند ${(payload as { amount: string }).amount}` };
+    return { type: "test_doc", id: uuidv7(), label: `سند ${(payload as { amount: string }).amount}` };
   };
 });
 
@@ -131,7 +137,7 @@ async function setup(ip?: string) {
   const { app, db } = await makeServer({ config: { secretSource: "env" } });
   // a sign-up from another address (sign-ups are limited per address and hour)
   const owner = new Client(ip ? { fetch: (r: Request) => (r.headers.set("x-forwarded-for", ip), app.fetch(r)) } : app);
-  const orgId = await signupWithOrg(owner, ["goods"]);
+  const orgId = await signupWithOrg(owner);
   const { connection } = await owner.post(`/o/${orgId}/ai/connections`, { preset: "fake" });
   return { app, db, owner, orgId, connection };
 }
@@ -254,7 +260,7 @@ describe("assistant chat over SSE (fake model)", () => {
     const view = (await owner.get(`/o/${orgId}/ai/threads/${threadId}/messages`)).messages;
     expect(view[1]).toMatchObject({ status: "error", error: { kind: "auth" } });
 
-    const accountant = await member(owner, app, orgId, "acc@example.com", "accountant");
+    const accountant = await member(owner, app, orgId, "acc@example.com", "member");
     await accountant.get(`/o/${orgId}/ai/threads/${threadId}`, 404);
     await accountant.get(`/o/${orgId}/ai/threads/${threadId}/messages`, 404);
     expect((await accountant.get(`/o/${orgId}/ai/threads`)).threads).toEqual([]);
@@ -412,11 +418,11 @@ describe("permissions and proposals", () => {
 
     await viewer.post(`/o/${orgId}/ai/actions/${p.id}/confirm`, {}, 404);
     const { actions } = await owner.get(`/o/${orgId}/ai/actions`);
-    expect(actions[0]).toMatchObject({ id: p.id, can_decide: true, area: "sales", level: "edit" });
+    expect(actions[0]).toMatchObject({ id: p.id, can_decide: true, area: "settings", level: "edit" });
     expect((await viewer.get(`/o/${orgId}/ai/actions`)).actions).toEqual([]);
 
     const c1 = await owner.post(`/o/${orgId}/ai/actions/${p.id}/confirm`, {});
-    expect(c1.proposal).toMatchObject({ status: "executed", result: { type: "invoice" } });
+    expect(c1.proposal).toMatchObject({ status: "executed", result: { type: "test_doc" } });
     const c2 = await owner.post(`/o/${orgId}/ai/actions/${p.id}/confirm`, {});
     expect(c2.proposal.result).toEqual(c1.proposal.result);
     expect(executed).toBe(1);
@@ -440,7 +446,7 @@ describe("permissions and proposals", () => {
 });
 
 describe("connections, settings and the platform overview", () => {
-  it("never returns a key; accountants manage, viewers cannot; blank key keeps the old one", async () => {
+  it("never returns a key; admins manage, viewers cannot; blank key keeps the old one", async () => {
     const { app, owner, orgId } = await setup();
     const key = "sk-live-VERY-SECRET-1234567890";
     const created = await owner.post(`/o/${orgId}/ai/connections`, { preset: "deepseek", key: ` ${key}‏ ` });
@@ -450,7 +456,7 @@ describe("connections, settings and the platform overview", () => {
     const list = await owner.get(`/o/${orgId}/ai/connections`);
     expect(JSON.stringify(list)).not.toContain("VERY-SECRET");
 
-    const accountant = await member(owner, app, orgId, "acc2@example.com", "accountant");
+    const accountant = await member(owner, app, orgId, "acc2@example.com", "admin");
     const patched = await accountant.patch(`/o/${orgId}/ai/connections/${created.connection.id}`, { label: "دیپ‌سیک", key: "" });
     expect(patched.connection).toMatchObject({ label: "دیپ‌سیک", has_key: true, key_hint: "…7890" });
     const replaced = await accountant.put(`/o/${orgId}/ai/connections/${created.connection.id}/key`, { key: "sk-new-key-abcdefgh" });
@@ -463,7 +469,7 @@ describe("connections, settings and the platform overview", () => {
     await owner.post(`/o/${orgId}/ai/connections`, { preset: "custom-openai", base_url: "http://127.0.0.1:11434/v1", key: "x-123456789" }, 400);
     await owner.post(`/o/${orgId}/ai/connections`, { preset: "ollama" }, 400);
 
-    // routing must name this business's connections
+    // routing must name this organisation's connections
     await owner.put(`/o/${orgId}/ai/settings`, { routing: { assistant: [{ connection_id: uuidv7(), model: "x" }] } }, 400);
     const s = await owner.put(`/o/${orgId}/ai/settings`, { routing: { assistant: [{ connection_id: created.connection.id, model: created.connection.models.smart[0] }] }, data_policy: "aggregates", instructions: "مبالغ به تومان" });
     expect(s.settings).toMatchObject({ data_policy: "aggregates", instructions: "مبالغ به تومان" });
@@ -473,7 +479,7 @@ describe("connections, settings and the platform overview", () => {
 
     // the platform admin (first account) sees metadata only
     const overview = await owner.get(`/admin/ai/overview`);
-    expect(overview.businesses[0]).toMatchObject({ org_id: orgId, connections: 1, presets: ["fake"] });
+    expect(overview.orgs[0]).toMatchObject({ org_id: orgId, connections: 1, presets: ["fake"] });
     expect(JSON.stringify(overview)).not.toMatch(/sk-|VERY-SECRET|secret_enc|key_hint/);
     const policy = await owner.put(`/admin/ai/policy`, { disabled_orgs: [orgId] });
     expect(policy.policy.disabled_orgs).toEqual([orgId]);
@@ -488,7 +494,7 @@ describe("connections, settings and the platform overview", () => {
     try {
       const { app } = await makeServer();
       const owner = new Client(app);
-      const orgId = await signupWithOrg(owner, ["goods"]);
+      const orgId = await signupWithOrg(owner);
       const err = await owner.post(`/o/${orgId}/ai/connections`, { preset: "deepseek", key: "sk-1234567890abcdef" }, 400);
       expect(err.error.message).toContain("APP_SECRET");
       expect((await owner.get(`/o/${orgId}/ai/status`)).app_secret_missing).toBe(true);
@@ -500,7 +506,7 @@ describe("connections, settings and the platform overview", () => {
 
 describe("relayed turns follow the web version's data policy", () => {
   it("hides names and identifiers the Windows app sent under its own, laxer policy", () => {
-    const ctxBlock = `<context>\n${JSON.stringify({ business: "طلای نمونه", member: { name: "مریم احمدی", role: "owner" }, current_page: { path: "parties/1", title: "علی رضایی", record: { type: "party", id: "1", label: "علی رضایی" } } })}\n</context>`;
+    const ctxBlock = `<context>\n${JSON.stringify({ organisation: "سازمان نمونه", member: { name: "مریم احمدی", role: "owner" }, current_page: { path: "people/1", title: "علی رضایی", record: { type: "person", id: "1", label: "علی رضایی" } } })}\n</context>`;
     const body = {
       job: "assistant" as const,
       feature: "assistant",
@@ -508,10 +514,10 @@ describe("relayed turns follow the web version's data policy", () => {
         system: "S",
         maxTokens: 100,
         messages: [
-          { role: "user" as const, parts: [{ type: "text" as const, text: `${ctxBlock}\nبدهی علی رضایی با موبایل 09121234567 چقدر است؟` }] },
-          { role: "assistant" as const, parts: [{ type: "tool_call" as const, id: "c1", name: "find_records", input: { query: "علی" } }], native: { protocol: "anthropic" as const, model: "m", connection_id: "x", content: [] } },
-          { role: "user" as const, parts: [{ type: "tool_result" as const, id: "c1", name: "find_records", content: JSON.stringify({ rows: [{ party_id: "p1", name: "علی رضایی", mobile: "09121234567", balance: "5000" }] }) }] },
-          { role: "user" as const, parts: [{ type: "text" as const, text: `<data name="plan_facts">\n${JSON.stringify({ collections: [{ party: "شرکت الف", overdue: "10" }] })}\n</data>\nWrite.` }] },
+          { role: "user" as const, parts: [{ type: "text" as const, text: `${ctxBlock}\nدرخواست‌های علی رضایی با موبایل 09121234567 چند تاست؟` }] },
+          { role: "assistant" as const, parts: [{ type: "tool_call" as const, id: "c1", name: "list_members", input: { query: "علی" } }], native: { protocol: "anthropic" as const, model: "m", connection_id: "x", content: [] } },
+          { role: "user" as const, parts: [{ type: "tool_result" as const, id: "c1", name: "list_members", content: JSON.stringify({ rows: [{ user_id: "p1", name: "علی رضایی", mobile: "09121234567", open: "5000" }] }) }] },
+          { role: "user" as const, parts: [{ type: "text" as const, text: `<data name="plan_facts">\n${JSON.stringify({ waiting: [{ requester: "شرکت الف", minutes: "10" }] })}\n</data>\nWrite.` }] },
         ],
       },
     };
@@ -525,8 +531,8 @@ describe("relayed turns follow the web version's data policy", () => {
     expect((agg.request.messages[2].parts[0] as { content: string }).content).not.toContain("علی رضایی");
     expect((agg.request.messages[2].parts[0] as { content: string }).content).toContain("5000");
     // the page title and record label of the context are gone; the person's own question keeps the name they typed
-    expect((agg.request.messages[0].parts[0] as { text: string }).text).toContain("بدهی علی رضایی");
-    expect(JSON.parse((agg.request.messages[0].parts[0] as { text: string }).text.split("\n")[1])).toMatchObject({ member: { role: "owner" }, current_page: { path: "parties/1", record: { id: "1" } } });
+    expect((agg.request.messages[0].parts[0] as { text: string }).text).toContain("درخواست‌های علی رضایی");
+    expect(JSON.parse((agg.request.messages[0].parts[0] as { text: string }).text.split("\n")[1])).toMatchObject({ member: { role: "owner" }, current_page: { path: "people/1", record: { id: "1" } } });
     expect(JSON.stringify(JSON.parse((agg.request.messages[0].parts[0] as { text: string }).text.split("\n")[1]))).not.toContain("علی رضایی");
     // "full" on the web version: sent as the Windows app wrote it
     expect(redactRelay(body, "full")).toBe(body);
@@ -540,7 +546,7 @@ describe("Windows app → web version relay", () => {
     // a device session of the same account (what linking the Windows app creates)
     const device = new Client(cloud.app);
     const login = await device.post("/auth/login", { email: "owner@example.com", password: "s3cret-pass", device: { name: "ویندوز آزمایشی", platform: "windows" } });
-    const relayBody = { job: "fast", feature: "digest", request: { system: "S", messages: [{ role: "user", parts: [{ type: "text", text: "سلام" }] }], maxTokens: 100 } };
+    const relayBody = { job: "fast", feature: "test_summary", request: { system: "S", messages: [{ role: "user", parts: [{ type: "text", text: "سلام" }] }], maxTokens: 100 } };
     // a browser session may not use the relay
     const web = await cloud.app.fetch(new Request(`http://local.test/api/o/${cloud.orgId}/ai/relay`, { method: "POST", headers: { "content-type": "application/json", cookie: cloud.owner.cookie }, body: JSON.stringify(relayBody) }));
     expect(web.status).toBe(403);
@@ -553,12 +559,12 @@ describe("Windows app → web version relay", () => {
     const desk = await makeServer({
       mode: "desktop",
       config: {
-        // requests for the desktop's business go to the linked cloud business
+        // requests for the desktop's organisation go to the linked cloud organisation
         fetch: (async (input: RequestInfo | URL, init?: RequestInit) => cloud.app.fetch(new Request(String(input).replace(/\/o\/[0-9a-f-]{36}\//, `/o/${cloud.orgId}/`), init))) as typeof fetch,
       },
     });
     const owner = new Client(desk.app);
-    const deskOrg = await signupWithOrg(owner, ["goods"]);
+    const deskOrg = await signupWithOrg(owner);
     registerCloudLink(desk.db, () => ({ url: "http://local.test", token: login.token, org_id: deskOrg }));
     expect((await owner.get(`/o/${deskOrg}/ai/status`)).ok).toBe(false);
     await owner.put(`/o/${deskOrg}/ai/settings`, { use_cloud: true });
@@ -578,9 +584,9 @@ describe("Windows app → web version relay", () => {
     // the web version's switches bind relayed turns too
     const relay = (b: unknown) => cloud.app.fetch(new Request(`http://local.test/api/o/${cloud.orgId}/ai/relay`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${login.token}` }, body: JSON.stringify(b) }));
     const asAssistant = { ...relayBody, job: "assistant", feature: "assistant" };
-    const withFile = { ...relayBody, job: "vision", feature: "capture", request: { ...relayBody.request, messages: [{ role: "user", parts: [{ type: "file", mime: "application/pdf", data: "JVBERi0=" }, { type: "text", text: "بخوان" }] }] } };
+    const withFile = { ...relayBody, job: "vision", feature: "test_reading", request: { ...relayBody.request, messages: [{ role: "user", parts: [{ type: "file", mime: "application/pdf", data: "JVBERi0=" }, { type: "text", text: "بخوان" }] }] } };
     expect((await relay({ ...relayBody, feature: "anything-else" })).status).toBe(400);
-    await cloud.owner.put(`/o/${cloud.orgId}/ai/settings`, { features: { assistant: false, capture: false } });
+    await cloud.owner.put(`/o/${cloud.orgId}/ai/settings`, { features: { assistant: false, proposals: true, files: false } });
     const off = await relay(asAssistant);
     expect(off.status).toBe(403);
     expect(((await off.json()) as { error: { code: string } }).error.code).toBe("ai_disabled");
@@ -619,7 +625,7 @@ describe("Windows app → web version relay", () => {
     });
     // its own address: sign-ups are limited per address and hour across this file
     const owner = new Client({ fetch: (r: Request) => (r.headers.set("x-forwarded-for", "10.0.0.78"), desk.app.fetch(r)) });
-    const deskOrg = await signupWithOrg(owner, ["goods"]);
+    const deskOrg = await signupWithOrg(owner);
     registerCloudLink(desk.db, () => ({ url: "http://local.test", token: login.token, org_id: deskOrg }));
     const { connection } = await owner.post(`/o/${deskOrg}/ai/connections`, { preset: "deepseek", key: "sk-deepseek-0000000001", models: { smart: ["deepseek-chat"], fast: ["deepseek-chat"] } });
     // without the switch the region error is the answer
@@ -666,7 +672,7 @@ describe("Windows app → web version relay", () => {
     const desk = await makeServer({ mode: "desktop", config: { fetch: deskFetch } });
     // its own address: sign-ups are limited per address and hour across this file
     const owner = new Client({ fetch: (r: Request) => (r.headers.set("x-forwarded-for", "10.0.0.80"), desk.app.fetch(r)) });
-    const deskOrg = await signupWithOrg(owner, ["goods"]);
+    const deskOrg = await signupWithOrg(owner);
     registerCloudLink(desk.db, () => ({ url: "http://local.test", token: login.token, org_id: deskOrg }));
     const { connection } = await owner.post(`/o/${deskOrg}/ai/connections`, { preset: "ollama", models: { smart: ["qwen3.5:9b"], fast: ["qwen3.5:4b"] } });
     await owner.put(`/o/${deskOrg}/ai/settings`, { use_cloud: true });
@@ -705,7 +711,7 @@ describe("Windows app → web version relay", () => {
     const m = (await desk.db.one<MemberRow>(`select id, org_id, user_id, role, overrides, is_active from sm_org_members where org_id = $1`, [deskOrg]))!;
     const deskCfg = { mode: "desktop", db: desk.db, secret: "test-secret", allowSignup: true, platformAdmins: [], origin: "00000000-0000-7000-8000-000000000001", log: quietLog, fetch: deskFetch } as ServerConfig;
     const at = { ...calls };
-    const analysis = await runTurn(makeCtx(deskCfg, u, org, m), { job: "analysis", feature: "explain", request: { system: "S", messages: [{ role: "user", parts: [{ type: "text", text: "تحلیل کن" }] }], effort: null, maxTokens: 100 } });
+    const analysis = await runTurn(makeCtx(deskCfg, u, org, m), { job: "analysis", feature: "test_summary", request: { system: "S", messages: [{ role: "user", parts: [{ type: "text", text: "تحلیل کن" }] }], effort: null, maxTokens: 100 } });
     expect(analysis).toMatchObject({ route: "direct", connection_id: connection.id });
     expect({ web: calls.web - at.web, ollama: calls.ollama - at.ollama }).toEqual({ web: 0, ollama: 1 });
 

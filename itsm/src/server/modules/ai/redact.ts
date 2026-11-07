@@ -33,6 +33,8 @@ export function maskText(text: string): string {
 const SENSITIVE_KEY = /(^|_)(national_?id|nid|melli|mobile|phone|tel|telephone|fax|card(_no|_number)?|iban|sheba|passport(_no)?|postal(_code)?|zip|address|birth(_date)?|id_card)($|_)/i;
 const NAME_KEY = /^(party|party_name|customer|customer_name|supplier|supplier_name|counterparty|counterparty_name|full_name|person|person_name|payee|payer|drawer|holder|owner_name|beneficiary|sender|receiver|contact|contact_name|first_name|last_name|father_name|member|member_name|user_name|created_by_name|requester|requester_name|caller|caller_name|reporter|reporter_name|assignee|assignee_name|agent|agent_name|approver|approver_name|technician|author|author_name|employee|employee_name)$/i;
 const PARTY_TYPES = new Set(["party", "person", "customer", "supplier", "member", "user", "requester", "contact", "employee", "agent"]);
+/** A row carrying a person's id or code is a person's row (its name and label are hidden under "aggregates"). */
+const PERSON_ID_KEY = /^(party|person|customer|supplier|requester|assignee|caller|reporter|member|employee|contact|agent|user)_(id|code)$/i;
 
 /** Apply the data policy to a JSON value (a copy is returned). */
 export function redactValue(value: unknown, policy: AiDataPolicy): unknown {
@@ -50,7 +52,7 @@ export function redactValue(value: unknown, policy: AiDataPolicy): unknown {
       const o = v as Record<string, unknown>;
       // a person's row: typed as one, under a person-like key, or carrying a person's id (members, requesters…)
       const isParty =
-        PARTY_TYPES.has(String(o.type ?? o.kind ?? "")) || /party|customer|supplier|requester|assignee|member|employee/i.test(key) || "party_id" in o || "party_code" in o || "user_id" in o;
+        PARTY_TYPES.has(String(o.type ?? o.kind ?? "")) || /party|customer|supplier|requester|assignee|member|employee/i.test(key) || Object.keys(o).some((k) => PERSON_ID_KEY.test(k));
       const out: Record<string, unknown> = {};
       for (const [k, x] of Object.entries(o)) out[k] = walk(x, k, isParty);
       return out;
@@ -66,11 +68,19 @@ export function redactPrompt(text: string, policy: AiDataPolicy): string {
 }
 
 /**
- * Apply the data policy inside the `<data name="…">` blocks of a feature prompt (narrative.ts
- * dataBlock): each block is JSON on one line, so it is parsed and redacted like tool output
+ * Apply the data policy inside the `<data name="…">` blocks of a feature prompt (`dataBlock` below):
+ * each block is JSON on one line, so it is parsed and redacted like tool output
  * (names hidden under "aggregates"); the rest of the prompt is left to redactPrompt.
  */
 const DATA_BLOCK_RE = /<data name="([^"\n]*)">\n([^\n]*)\n<\/data>/g;
+
+/**
+ * Facts handed to a model inside a prompt (a module's feature prompt: a summary, a plan): one JSON line in a
+ * `<data name="…">` block, so that `redactDataBlocks` can apply the data policy to it before it is sent.
+ */
+export function dataBlock(name: string, data: unknown): string {
+  return `<data name="${String(name).replace(/["\n]/g, "")}">\n${JSON.stringify(data)}\n</data>`;
+}
 export function redactDataBlocks(text: string, policy: AiDataPolicy): string {
   if (policy === "full") return text;
   return String(text ?? "").replace(DATA_BLOCK_RE, (whole, name: string, json: string) => {

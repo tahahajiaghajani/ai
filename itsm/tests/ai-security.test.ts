@@ -14,8 +14,7 @@ import { EXECUTORS } from "@server/modules/ai/tools/proposals";
 import { hashPayload, storeProposal } from "@server/modules/ai/actions";
 import { createThread, purgeOld } from "@server/modules/ai/threads";
 import { aiNet, guardedFetch, internalAddress } from "@server/modules/ai/net";
-import { hideNames, redactDataBlocks, redactPage, redactValue } from "@server/modules/ai/redact";
-import { dataBlock } from "@server/modules/ai/features/narrative";
+import { dataBlock, hideNames, redactDataBlocks, redactPage, redactValue } from "@server/modules/ai/redact";
 import { contextBlock } from "@server/modules/ai/prompts";
 import { makeCtx, type AuthUser, type Ctx, type MemberRow, type OrgRow, type ServerConfig } from "@server/context";
 import { uuidv7 } from "@shared/id";
@@ -29,17 +28,17 @@ const proposeMulti = defineTool({
   name: "propose_multi",
   title_fa: "پیش‌نویس چندبخشی",
   description: "Prepare a draft whose payload has several keys (test only).",
-  input: z.object({ party_id: z.string() }),
+  input: z.object({ requester_id: z.string() }),
   kind: "propose",
-  area: "sales",
+  area: "settings",
   level: "edit",
   async run(_ctx, input) {
     // insertion order differs from jsonb's key order (by length, then bytes)
-    const payload = { kind: "sale", party_id: input.party_id, lines: [{ item_id: "i-1", qty: "2", unit_price: "1500" }], date: "2026-11-02" };
+    const payload = { kind: "request", requester_id: input.requester_id, lines: [{ item_id: "i-1", qty: "2", note: "1500" }], date: "2026-11-02" };
     return {
-      data: { party_id: input.party_id },
+      data: { requester_id: input.requester_id },
       summary_fa: "پیش‌نویس آماده شد",
-      proposal: { kind: "test_multi", title_fa: "فاکتور آزمایشی", summary_fa: "فاکتور", payload, preview: [{ label: "شخص", value: input.party_id }], area: "sales", level: "edit" },
+      proposal: { kind: "test_multi", title_fa: "پیش‌نویس آزمایشی", summary_fa: "پیش‌نویس", payload, preview: [{ label: "درخواست‌کننده", value: input.requester_id }], area: "settings", level: "edit" },
     };
   },
 });
@@ -65,7 +64,7 @@ beforeAll(() => {
   ALL_TOOLS.push(proposeMulti as unknown as AiToolDef, echo as unknown as AiToolDef);
   EXECUTORS.test_multi = async (_ctx, payload) => {
     multiPayload = payload;
-    return { type: "invoice", id: uuidv7(), label: "فاکتور آزمایشی" };
+    return { type: "test_doc", id: uuidv7(), label: "سند آزمایشی" };
   };
 });
 
@@ -106,7 +105,7 @@ async function setup() {
   const cfg: ServerConfig = { mode: "cloud", db, secret: "test-secret", secretSource: "env", allowSignup: true, platformAdmins: [], origin: "cloud", log: quietLog, fetch: globalThis.fetch.bind(globalThis) };
   const app = createApp(cfg);
   const owner = new Client(app);
-  const orgId = await signupWithOrg(owner, ["goods"]);
+  const orgId = await signupWithOrg(owner);
   await owner.post(`/o/${orgId}/ai/connections`, { preset: "fake" });
   const ctx = async (): Promise<Ctx> => {
     const u = (await db.one<AuthUser>(`select id, email, full_name, mobile, is_platform_admin, disabled, prefs from sm_users where email = 'owner@example.com'`))!;
@@ -126,16 +125,16 @@ const proposalOf = (events: AiStreamEvent[]) => (events.find((e) => e.type === "
 describe("proposals", () => {
   it("confirms a multi-key proposal after the jsonb round trip, and still refuses a changed payload", async () => {
     const { app, db, owner, orgId } = await server();
-    const p = proposalOf(await stream(app, owner, `/o/${orgId}/ai/chat`, { text: '[tool:propose_multi {"party_id":"p-77"}]' }));
+    const p = proposalOf(await stream(app, owner, `/o/${orgId}/ai/chat`, { text: '[tool:propose_multi {"requester_id":"p-77"}]' }));
     // the stored jsonb really has another key order than the object that was hashed
     const stored = await db.one<{ payload: Record<string, unknown> }>(`select payload from sm_ai_actions where id = $1`, [p.id]);
-    expect(Object.keys(stored!.payload)).not.toEqual(["kind", "party_id", "lines", "date"]);
+    expect(Object.keys(stored!.payload)).not.toEqual(["kind", "requester_id", "lines", "date"]);
     const c = await owner.post(`/o/${orgId}/ai/actions/${p.id}/confirm`, {});
-    expect(c.proposal).toMatchObject({ status: "executed", result: { type: "invoice" }, error: null });
-    expect(multiPayload).toMatchObject({ kind: "sale", party_id: "p-77", date: "2026-11-02" });
+    expect(c.proposal).toMatchObject({ status: "executed", result: { type: "test_doc" }, error: null });
+    expect(multiPayload).toMatchObject({ kind: "request", requester_id: "p-77", date: "2026-11-02" });
 
-    const p2 = proposalOf(await stream(app, owner, `/o/${orgId}/ai/chat`, { text: '[tool:propose_multi {"party_id":"p-78"}]' }));
-    await db.query(`update sm_ai_actions set payload = jsonb_set(payload, '{party_id}', '"p-99"') where id = $1`, [p2.id]);
+    const p2 = proposalOf(await stream(app, owner, `/o/${orgId}/ai/chat`, { text: '[tool:propose_multi {"requester_id":"p-78"}]' }));
+    await db.query(`update sm_ai_actions set payload = jsonb_set(payload, '{requester_id}', '"p-99"') where id = $1`, [p2.id]);
     await owner.post(`/o/${orgId}/ai/actions/${p2.id}/confirm`, {}, 409);
   });
 
@@ -149,11 +148,11 @@ describe("proposals", () => {
     const { ctx } = await server();
     const c = await ctx();
     const thread = await createThread(c, "آزمایش", null);
-    const proposal = (amount: string) => ({ kind: "test_multi", title_fa: `فاکتور ${amount}`, summary_fa: "", payload: { amount }, preview: [], area: "sales" as const, level: "edit" as const });
-    const first = await storeProposal(c, { threadId: thread.id, messageId: uuidv7(), callId: "call_0_propose_invoice", tool: "propose_multi", proposal: proposal("1") });
-    const second = await storeProposal(c, { threadId: thread.id, messageId: uuidv7(), callId: "call_0_propose_invoice", tool: "propose_multi", proposal: proposal("2") });
+    const proposal = (amount: string) => ({ kind: "test_multi", title_fa: `پیش‌نویس ${amount}`, summary_fa: "", payload: { amount }, preview: [], area: "settings" as const, level: "edit" as const });
+    const first = await storeProposal(c, { threadId: thread.id, messageId: uuidv7(), callId: "call_0_propose_multi", tool: "propose_multi", proposal: proposal("1") });
+    const second = await storeProposal(c, { threadId: thread.id, messageId: uuidv7(), callId: "call_0_propose_multi", tool: "propose_multi", proposal: proposal("2") });
     expect(second.id).not.toBe(first.id);
-    expect(second.title_fa).toBe("فاکتور 2");
+    expect(second.title_fa).toBe("پیش‌نویس 2");
     // the same step retried keeps one row
     const msg = uuidv7();
     const a = await storeProposal(c, { threadId: thread.id, messageId: msg, callId: "x", tool: "propose_multi", proposal: proposal("3") });
@@ -165,8 +164,8 @@ describe("proposals", () => {
 describe("AI access withdrawn", () => {
   it("closes conversations, stored data and proposals to a member whose AI level is none", async () => {
     const { app, db, owner, orgId } = await server();
-    const acc = await member(owner, app, orgId, "acc-none@example.com", "accountant");
-    const events = await stream(app, acc, `/o/${orgId}/ai/chat`, { text: '[tool:sec_echo {"n":2}] [tool:propose_multi {"party_id":"p-1"}]' });
+    const acc = await member(owner, app, orgId, "acc-none@example.com", "admin");
+    const events = await stream(app, acc, `/o/${orgId}/ai/chat`, { text: '[tool:sec_echo {"n":2}] [tool:propose_multi {"requester_id":"p-1"}]' });
     const meta = events[0] as Extract<AiStreamEvent, { type: "meta" }>;
     const end = events.find((e) => e.type === "tool_end" && e.data_ref) as Extract<AiStreamEvent, { type: "tool_end" }>;
     const p = proposalOf(events);
@@ -191,7 +190,7 @@ describe("stored keys and connection tests", () => {
     const { app, owner, orgId } = await server();
     const created = await owner.post(`/o/${orgId}/ai/connections`, { preset: "deepseek", key: "sk-live-OWNER-KEY-1234567890" });
     const id = created.connection.id;
-    const accountant = await member(owner, app, orgId, "acc-keys@example.com", "accountant");
+    const accountant = await member(owner, app, orgId, "acc-keys@example.com", "admin");
     // «test» with the saved key but another service or address: refused before any request
     const t = await accountant.post(`/o/${orgId}/ai/test`, { connection_id: id, preset: "custom-openai", base_url: "https://attacker.example/v1", key: "" }, 400);
     expect(t.error.message).toContain("کلید API را دوباره وارد کنید");
@@ -322,8 +321,8 @@ describe("web version SSRF guard", () => {
 });
 
 describe("data policy in feature prompts and the page context", () => {
-  it("hides party names inside data blocks under aggregates and masks identifiers under masked", () => {
-    const facts = { collections: [{ party: "علی رضایی", overdue: "5000000" }], rows: [{ party_id: "p1", name: "شرکت الف", balance: "10" }], note: "تماس 09121234567" };
+  it("hides people's names inside data blocks under aggregates and masks identifiers under masked", () => {
+    const facts = { waiting: [{ requester: "علی رضایی", minutes: "5000000" }], rows: [{ requester_id: "p1", name: "شرکت الف", open: "10" }], note: "تماس 09121234567" };
     const prompt = `${dataBlock("plan_facts", facts)}\nWrite the plan.`;
     const agg = redactDataBlocks(prompt, "aggregates");
     expect(agg).not.toContain("علی رضایی");
@@ -335,21 +334,21 @@ describe("data policy in feature prompts and the page context", () => {
     expect(masked).toContain("علی رضایی");
     expect(masked).not.toContain("09121234567");
     expect(redactDataBlocks(prompt, "full")).toBe(prompt);
-    // rows of a detail/party list (kind person) and rows carrying a party id
+    // rows of a list of people (kind person) and rows carrying a person's id
     expect(JSON.stringify(redactValue({ rows: [{ code: "1001", name: "حسن", kind: "person" }] }, "aggregates"))).not.toContain("حسن");
-    expect(hideNames("«علی رضایی» ۵ میلیون معوق", ["علی رضایی"])).toBe("«[نام پنهان]» ۵ میلیون معوق");
+    expect(hideNames("«علی رضایی» ۵ درخواست باز دارد", ["علی رضایی"])).toBe("«[نام پنهان]» ۵ درخواست باز دارد");
     // whole words only: a short name inside another word stays untouched
-    expect(hideNames("موجودی فعلی «علی» کم است؛ علی‌آباد و علی.", ["علی"])).toBe("موجودی فعلی «[نام پنهان]» کم است؛ علی‌آباد و [نام پنهان].");
-    expect(hideNames("مشتری (الف) بدهکار است", ["(الف)"])).toBe("مشتری [نام پنهان] بدهکار است");
+    expect(hideNames("درخواست فعلی «علی» باز است؛ علی‌آباد و علی.", ["علی"])).toBe("درخواست فعلی «[نام پنهان]» باز است؛ علی‌آباد و [نام پنهان].");
+    expect(hideNames("کاربر (الف) منتظر است", ["(الف)"])).toBe("کاربر [نام پنهان] منتظر است");
   });
 
   it("redacts the page the person is on", async () => {
-    const page = { path: "parties/1", title: "علی رضایی", record: { type: "party", id: "1", label: "علی رضایی 09121234567" }, report: { key: "ledger", params: { party: "علی رضایی" } } };
+    const page = { path: "people/1", title: "علی رضایی", record: { type: "person", id: "1", label: "علی رضایی 09121234567" }, report: { key: "requests", params: { requester: "علی رضایی" } } };
     const agg = redactPage(page, "aggregates");
     expect(JSON.stringify(agg)).not.toContain("علی رضایی");
-    // a filter that is a record id stays: the assistant can still read that statement
-    const byId = redactPage({ path: "reports/ledger", report: { key: "ledger", params: { party: "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b", from: "2026-03-21" } } }, "aggregates");
-    expect(byId.report?.params).toEqual({ party: "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b", from: "2026-03-21" });
+    // a filter that is a record id stays: the assistant can still read that report
+    const byId = redactPage({ path: "reports/requests", report: { key: "requests", params: { requester: "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b", from: "2026-03-21" } } }, "aggregates");
+    expect(byId.report?.params).toEqual({ requester: "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b", from: "2026-03-21" });
     const masked = redactPage(page, "masked");
     expect(masked.record?.label).toContain("علی رضایی");
     expect(masked.record?.label).not.toContain("09121234567");
@@ -357,22 +356,22 @@ describe("data policy in feature prompts and the page context", () => {
     const block = await contextBlock(await ctx(), page, "aggregates");
     expect(block).not.toContain("علی رضایی");
     expect(block).not.toContain("09121234567");
-    expect(block).toContain("parties/1");
+    expect(block).toContain("people/1");
   });
 });
 
-describe("captured documents", () => {
-  it("are purged after the retention (never kept over 30 days)", async () => {
+describe("retention", () => {
+  it("purges conversations older than the retention and expired stored rows, never pinned ones", async () => {
     const { db, ctx, orgId } = await server();
     const c = await ctx();
-    const ins = (days: number) =>
-      db.query(`insert into sm_ai_captures (id, org_id, user_id, kind, sha256, mime, result, model, created_at) values ($1, $2, $3, 'id_card', $4, 'image/png', '{}'::jsonb, 'm', now() - ($5::int * interval '1 day'))`, [uuidv7(), orgId, c.user.id, uuidv7(), days]);
-    await ins(1);
-    await ins(10);
-    await ins(40);
-    await purgeOld(c, 90);
-    expect((await db.query(`select 1 from sm_ai_captures where org_id = $1`, [orgId])).length).toBe(2);
-    await purgeOld(c, 7);
-    expect((await db.query(`select 1 from sm_ai_captures where org_id = $1`, [orgId])).length).toBe(1);
+    const old = await createThread(c, "گفت‌وگوی قدیمی", null);
+    const pinned = await createThread(c, "سنجاق‌شده", null);
+    const fresh = await createThread(c, "تازه", null);
+    await db.query(`update sm_ai_threads set updated_at = now() - interval '40 days' where id = any($1::uuid[])`, [`{${old.id},${pinned.id}}`]);
+    await db.query(`update sm_ai_threads set pinned = true where id = $1`, [pinned.id]);
+    await purgeOld(c, 30);
+    const left = (await db.query<{ id: string }>(`select id from sm_ai_threads where org_id = $1`, [orgId])).map((r) => r.id);
+    expect(left).not.toContain(old.id);
+    expect(left).toEqual(expect.arrayContaining([pinned.id, fresh.id]));
   });
 });
