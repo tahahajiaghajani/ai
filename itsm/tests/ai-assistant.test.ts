@@ -190,13 +190,13 @@ describe("assistant chat over SSE (fake model)", () => {
 
   it("accepts files without a question and tool directives whose input holds arrays", async () => {
     const { app, owner, orgId } = await setup();
-    const file = { name: "فاکتور.pdf", mime: "application/pdf", data: Buffer.from("%PDF-1.4 test").toString("base64") };
+    const file = { name: "گزارش.pdf", mime: "application/pdf", data: Buffer.from("%PDF-1.4 test").toString("base64") };
     const r = await stream(app, owner, `/o/${orgId}/ai/chat`, { text: "", attachments: [file] });
     expect(r.events[r.events.length - 1]).toMatchObject({ type: "done", stop: "end" });
     const meta = r.events[0] as Extract<AiStreamEvent, { type: "meta" }>;
     const { messages } = await owner.get(`/o/${orgId}/ai/threads/${meta.thread_id}/messages`);
-    expect(messages[0]).toMatchObject({ role: "user", text: "", attachments: [{ name: "فاکتور.pdf" }] });
-    expect((await owner.get(`/o/${orgId}/ai/threads`)).threads[0].title).toBe("فاکتور.pdf");
+    expect(messages[0]).toMatchObject({ role: "user", text: "", attachments: [{ name: "گزارش.pdf" }] });
+    expect((await owner.get(`/o/${orgId}/ai/threads`)).threads[0].title).toBe("گزارش.pdf");
     // nothing at all is still refused before streaming
     await owner.post(`/o/${orgId}/ai/chat`, { text: "  " }, 400);
     const t = await stream(app, owner, `/o/${orgId}/ai/chat`, { text: '[tool:test_echo {"n":3,"list":[1,[2]],"o":{"a":"]"}}]' });

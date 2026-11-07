@@ -1,5 +1,5 @@
 // Printing: the paper a sheet asks of the Windows app (Electron's print takes it from the call, not from CSS),
-// so an invoice on A4 landscape or a receipt on an 80 mm roll comes out of the printer as it was laid out.
+// so a wide report on A4 landscape or a slip on an 80 mm roll comes out of the printer as it was laid out.
 import { describe, it, expect } from "vitest";
 import { electronPage } from "../src/ui/lib/print";
 

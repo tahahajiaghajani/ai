@@ -9,7 +9,7 @@ const r = (p: string) => fileURLToPath(new URL(p, import.meta.url));
 const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 /** The web app manifest («افزودن به صفحهٔ اصلی»), named from src/shared/constants.ts like everything else. */
-export function webManifest(): string {
+function webManifest(): string {
   return `${JSON.stringify(
     {
       name: APP_NAME,
