@@ -6,31 +6,10 @@
 import type { Cond } from "@shared/model/conditions";
 import type { Ctx } from "../../context";
 import { aggregate, type AggregateResult } from "../../engine";
+import type { Bucket, IncidentDashboard } from "@shared/incident/api";
 
-export interface Bucket {
-  key: string;
-  label: string;
-  count: number;
-}
+export type { Bucket, IncidentDashboard };
 
-export interface IncidentDashboard {
-  days: number;
-  from: string;
-  open: { total: number; unassigned: number; major: number; by_priority: Bucket[]; by_state: Bucket[] };
-  flow: { created: number; resolved: number; trend: { key: string; label: string; created: number; resolved: number }[] };
-  times: {
-    mtta_median: number | null;
-    mttr_median: number | null;
-    mttr_p90: number | null;
-    by_priority: { key: string; label: string; count: number; median: number | null; p90: number | null }[];
-  };
-  quality: { reopen_rate: number | null; first_time_rate: number | null; reassign_avg: number | null; ping_pong_rate: number | null; known_error_rate: number | null; template_rate: number | null };
-  ageing: Bucket[];
-  sla: { met: number; breached: number; compliance: number | null; at_risk: number } | null;
-  major: { declared: number; mttr_median: number | null; reviews: number };
-  channels: Bucket[];
-  categories: Bucket[];
-}
 
 const num = (v: unknown): number | null => (v === null || v === undefined || v === "" ? null : Number.isFinite(Number(v)) ? Number(v) : null);
 const count = (r: AggregateResult | null): number => num(r?.totals.count) ?? 0;

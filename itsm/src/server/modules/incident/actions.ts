@@ -4,7 +4,8 @@
 // context: the engine and the access provider decide what they may read and change.
 import type { Cond } from "@shared/model/conditions";
 import { stateCategory } from "@shared/model/task";
-import { knownErrorMatch, similarity, SIMILAR_MIN, words, type Match } from "@shared/incident/logic";
+import { knownErrorMatch, similarity, SIMILAR_MIN, words } from "@shared/incident/logic";
+import type { KnownErrorHit, Readiness, SimilarHit } from "@shared/incident/api";
 import { ACTIVE_KE_STATES } from "@shared/problem/logic";
 import type { Ctx } from "../../context";
 import { createIn, defFor, get, list, savepoint, transitionIn, updateIn } from "../../engine";
@@ -187,12 +188,6 @@ export async function applyKnownError(ctx: Ctx, incidentId: string, keId: string
 // ---------------------------------------------------------------------------------------------------------------
 // What blocks a resolution (the resolve dialog's checklist)
 
-export interface Readiness {
-  can_resolve: boolean;
-  blockers: string[];
-  tasks: { id: string; number: string | null; short_description: string; state: string }[];
-  missing: string[];
-}
 
 export async function readiness(ctx: Ctx, id: string): Promise<Readiness> {
   const r = await get(ctx, "incident", id);
@@ -216,19 +211,6 @@ export async function readiness(ctx: Ctx, id: string): Promise<Readiness> {
 
 const SIMILAR_FIELDS = ["number", "short_description", "description", "state", "priority", "category", "subcategory", "ci_id", "service_id", "caller_id", "opened_at", "resolved_at", "close_code", "close_notes", "problem_id", "known_error_id", "assigned_to", "parent_id", "merged_into", "active"];
 
-export interface SimilarHit extends Match {
-  id: string;
-  number: string | null;
-  short_description: string;
-  state: string;
-  priority: string | null;
-  opened_at: string | null;
-  resolved_at: string | null;
-  close_code: string | null;
-  close_notes: string | null;
-  open: boolean;
-  problem_id: string | null;
-}
 
 /** The longest distinctive words of a title (search candidates). */
 const keyWords = (text: unknown, n = 2) => [...new Set(words(text))].sort((a, b) => b.length - a.length).slice(0, n);
@@ -285,15 +267,6 @@ export async function similarIncidents(ctx: Ctx, id: string, limit = 8): Promise
   return { hits: hits.slice(0, Math.max(1, Math.min(30, limit))), display };
 }
 
-export interface KnownErrorHit extends Match {
-  id: string;
-  number: string | null;
-  short_description: string;
-  state: string;
-  workaround: string | null;
-  problem_id: string | null;
-  use_count: number;
-}
 
 /** Published known errors that fit an incident (empty when the caller may not read the KEDB). */
 export async function knownErrorMatches(ctx: Ctx, id: string, limit = 5): Promise<{ hits: KnownErrorHit[] }> {
@@ -320,3 +293,4 @@ export async function knownErrorMatches(ctx: Ctx, id: string, limit = 5): Promis
 }
 
 export { faList };
+export type { KnownErrorHit, Readiness, SimilarHit };

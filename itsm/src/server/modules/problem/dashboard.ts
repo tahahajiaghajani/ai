@@ -6,27 +6,10 @@ import type { Cond } from "@shared/model/conditions";
 import { ACTIVE_KE_STATES } from "@shared/problem/logic";
 import type { Ctx } from "../../context";
 import { aggregate, list, type AggregateResult } from "../../engine";
+import type { Bucket, ProblemDashboard } from "@shared/incident/api";
 
-export interface Bucket {
-  key: string;
-  label: string;
-  count: number;
-}
+export type { ProblemDashboard };
 
-export interface ProblemDashboard {
-  days: number;
-  from: string;
-  open: { total: number; with_known_error: number; proactive: number; by_state: Bucket[]; by_priority: Bucket[] };
-  ageing: Bucket[];
-  times: { rca_median: number | null; fix_median: number | null };
-  coverage: { incidents: number; linked: number; rate: number | null; majors: number; majors_with_problem: number; major_rate: number | null };
-  known_errors: { active: number; published: number; by_effectiveness: Bucket[] };
-  capa: { open: number; overdue: number; done: number } | null;
-  candidates: number | null;
-  top: { id: string; number: string | null; short_description: string; state: string; risk_score: number; incident_count: number }[];
-  pareto: { categories: Bucket[]; cis: Bucket[] };
-  display: Record<string, string>;
-}
 
 const num = (v: unknown): number | null => (v === null || v === undefined || v === "" ? null : Number.isFinite(Number(v)) ? Number(v) : null);
 const count = (r: AggregateResult | null): number => num(r?.totals.count) ?? 0;
