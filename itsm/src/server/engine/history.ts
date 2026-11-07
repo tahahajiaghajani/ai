@@ -40,7 +40,8 @@ export async function writeHistory(q: Queryable, ctx: Ctx, def: TableDef, record
     if (!audited(def, f)) continue;
     const before = prev ? prev[name] ?? null : null;
     const after = next[name] ?? null;
-    if (!prev && (after === null || after === false || (Array.isArray(after) && !after.length))) continue;
+    // a create records what the caller set (and the initial state), not the engine's own stamps and counters
+    if (!prev && (f!.system || after === null || after === false || (Array.isArray(after) && !after.length))) continue;
     rows.push([uuidv7(), ctx.org.id, def.key, recordId, name, JSON.stringify(stored(f!, before)), JSON.stringify(stored(f!, after)), actor]);
   }
   if (!rows.length) return 0;

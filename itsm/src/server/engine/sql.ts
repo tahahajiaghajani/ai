@@ -13,6 +13,7 @@ import { tableDef, USER_DEF } from "@shared/tables";
 import { pgArray } from "../db";
 import type { Ctx } from "../context";
 import { access, isSystem } from "../access/provider";
+import { bad } from "../http/errors";
 
 /** Push a parameter and return its placeholder. */
 export function ph(params: unknown[], v: unknown): string {
@@ -283,7 +284,7 @@ export function orderSql(def: TableDef, alias: string, sort: string, params: unk
     const name = part.replace(/^[-+]/, "");
     const f = def.fields.find((x) => x.name === name);
     const problem = f ? check(f) : `فیلد «${name}» در «${def.label}» وجود ندارد`;
-    if (problem) throw new Error(problem);
+    if (problem) throw bad(problem);
     const dir = desc ? "desc" : "asc";
     lastDir = dir;
     let expr = fieldExpr(def, f!, alias);

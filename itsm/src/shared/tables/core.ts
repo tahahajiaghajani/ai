@@ -79,7 +79,7 @@ const choice: TableDef = {
     { name: "value", label: "مقدار", type: "string", required: true, maxLength: 80, list: true, ltr: true, span: 12 },
     { name: "label", label: "برچسب", type: "string", required: true, maxLength: 120, list: true, search: true, span: 12 },
     { name: "color", label: "رنگ", type: "color", span: 6 },
-    { name: "sort_order", label: "ترتیب", type: "int", default: 0, list: true, span: 6 },
+    { name: "sort_order", label: "ترتیب", type: "int", list: true, span: 6, help: "خالی: ترتیب گزینهٔ پیش‌فرض هم‌مقدار، یا پس از همه" },
     { name: "parent", label: "مقدار والد", type: "string", maxLength: 80, ltr: true, span: 12, help: "برای فهرست‌های وابسته (مثلاً زیردسته‌ای که به یک دسته تعلق دارد)" },
     { name: "active", label: "فعال", type: "bool", default: true, list: true, filter: true, span: 6 },
   ],
