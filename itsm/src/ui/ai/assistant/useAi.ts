@@ -33,7 +33,7 @@ export function useAiStatus() {
   });
 }
 
-/** The assistant is switched off (business or platform). */
+/** The assistant is switched off (organisation or platform). */
 export const isOff = (s: AiStatus | undefined) => !!s && (!s.enabled || s.features?.assistant === false);
 
 /**

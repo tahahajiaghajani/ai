@@ -1,4 +1,4 @@
-// «کاربران»: every account with its businesses, sessions, last activity and failed sign-ins; the side sheet
+// «کاربران»: every account with its organisations, sessions, last activity and failed sign-ins; the side sheet
 // (/admin/users/<id>) shows memberships, live sessions, Windows apps and security events, and the account
 // actions: disable/enable, sign out everywhere, a temporary password with a reason, platform admin on/off.
 import { useState } from "react";

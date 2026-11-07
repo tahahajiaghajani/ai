@@ -1,5 +1,5 @@
-// The entry to «حالت پشتیبانی»: why (required, shown on the business's audit page), at what level and for how
-// long (at most four hours). On success the business opens with the support band on top.
+// The entry to «حالت پشتیبانی»: why (required, shown on the organisation's audit page), at what level and for how
+// long (at most four hours). On success the organisation opens with the support band on top.
 import { useState } from "react";
 import { Button, Form, Input, Modal, Radio, Select } from "antd";
 import { useNavigate } from "react-router";

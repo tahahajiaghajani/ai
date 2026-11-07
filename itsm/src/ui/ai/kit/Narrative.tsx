@@ -1,5 +1,5 @@
 // A model-written narrative as safe Markdown: GFM tables and lists, no raw HTML, no images, and links only inside the
-// app (a path like "/reports/ledger?account=…" opens in this business; anything else stays plain text).
+// app (a path like "/reports/ledger?account=…" opens in this organisation; anything else stays plain text).
 import "./ai.css";
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";

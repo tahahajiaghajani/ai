@@ -1,6 +1,6 @@
-// «مدیریت سامانه» — the platform admin's console, in its own frame (no business is open here):
+// «مدیریت سامانه» — the platform admin's console, in its own frame (no organisation is open here):
 // پیشخوان، سازمان‌ها، کاربران، هوش مصنوعی، رویدادهای امنیتی، سلامت سامانه. Every section lives at
-// /admin/<section>; a business opens at /admin/orgs/<id>, an account at /admin/users/<id>.
+// /admin/<section>; an organisation opens at /admin/orgs/<id>, an account at /admin/users/<id>.
 import "./admin.css";
 import { lazy, Suspense, type ReactNode } from "react";
 import { Button, Tooltip } from "antd";

@@ -1,5 +1,5 @@
 // Audit log (گزارش رویدادها): who changed what and when — the last 300 events, searchable on the page —
-// and the platform admin's support sessions in this business («حالت پشتیبانی»): reason, level, start,
+// and the platform admin's support sessions in this organisation («حالت پشتیبانی»): reason, level, start,
 // end and the changes made in each; an owner or manager can end a live one.
 import { useMemo, useState } from "react";
 import { Button, Input, Segmented, Table, Tooltip } from "antd";

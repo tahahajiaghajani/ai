@@ -1,5 +1,5 @@
-/* First-impression surfaces (components.md §11): sign in, sign up, recovery, first run, the new-business
-   wizard, the business chooser and the platform admin page. Tokens only; logical properties only; transform and
+/* First-impression surfaces (components.md §11): sign in, sign up, recovery, first run, the new-organisation
+   wizard, the organisation chooser and the platform admin page. Tokens only; logical properties only; transform and
    opacity only for motion. Everything here is scoped under .pg-auth (the split brand layout) or .pg-plain (the quiet
    canvas pages), so nothing leaks into the app shell. */
 @layer components {
@@ -248,7 +248,7 @@
   .pg-req li[data-ok] .pg-req-m::before { display: none; }
   .pg-req li svg { color: var(--ds-in); }
 
-  /* ------------------------------------------------------------------ choice cards (start mode, business kind, modules) */
+  /* ------------------------------------------------------------------ choice cards (start mode, start kind, modules) */
   .pg-choices { display: grid; gap: 10px; }
   .pg-choices[data-cols="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .pg-choice {
@@ -396,13 +396,13 @@
   .pg-ph .pg-ph-end { margin-inline-start: auto; display: flex; align-items: center; gap: 8px; }
   .pg-greet { margin: 0 0 6px; font-size: 14px; line-height: 22px; color: var(--ds-text-2); }
 
-  /* the business chooser: a calm column centred in the window */
+  /* the organisation chooser: a calm column centred in the window */
   .pg-chooser { display: flex; flex-direction: column; justify-content: center; min-block-size: calc(100dvh - 56px - 104px - 8vh); max-inline-size: 560px; margin-inline: auto; }
   .pg-org-new .pg-org-logo { background: transparent; box-shadow: inset 0 0 0 1px var(--ds-line-3); color: var(--ds-text-3); border: 0; }
   .pg-org-new .pg-org-logo svg { color: var(--ds-text-2); }
   .pg-org-new .pg-org-name { font-weight: var(--ds-weight-medium); }
 
-  /* the business list: one card, hairline rows */
+  /* the organisation list: one card, hairline rows */
   .pg-list { margin-block-start: 20px; border-radius: var(--ds-radius-lg); background: var(--ds-surface); box-shadow: var(--ds-shadow-e1); overflow: hidden; }
   .pg-org {
     position: relative;

@@ -1,4 +1,4 @@
-/* «مدیریت سامانه»: its own frame (no business is open): a sidebar at the start edge, the content panel beside it;
+/* «مدیریت سامانه»: its own frame (no organisation is open): a sidebar at the start edge, the content panel beside it;
    under 900 px the sidebar becomes a top bar with a scrolling row of sections. Design tokens only. */
 @layer components {
   .ad-app { display: grid; grid-template-columns: 232px minmax(0, 1fr); min-block-size: 100dvh; background: var(--ds-canvas); }

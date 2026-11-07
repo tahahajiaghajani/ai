@@ -1,4 +1,4 @@
-// One conversation per business, kept outside React: an answer keeps streaming while the panel is closed or the
+// One conversation per organisation, kept outside React: an answer keeps streaming while the panel is closed or the
 // page changes, and reopening the panel shows it where it is. Events are applied in batches once per frame.
 import { useSyncExternalStore } from "react";
 import type { AiPageContext, AiProposal, AiStreamEvent } from "@shared/ai/types";
@@ -226,7 +226,7 @@ function dropFailed(messages: UiMessage[]): UiMessage[] {
 
 const stores = new Map<string, AssistantStore>();
 
-/** The conversation store of a business (kept for the whole session). */
+/** The conversation store of an organisation (kept for the whole session). */
 export function storeFor(orgId: string, client: AiClient): AssistantStore {
   let s = stores.get(orgId);
   if (!s) {

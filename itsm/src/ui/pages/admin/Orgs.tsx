@@ -1,4 +1,4 @@
-// «سازمان‌ها»: every business with its owner, modules, members, Windows apps, last activity and platform
+// «سازمان‌ها»: every organisation with its owner, modules, members, Windows apps, last activity and platform
 // status; search by name or a member's email/mobile, filters by status, module, inactivity and support.
 import { useState } from "react";
 import { Input, Segmented, Select, Table } from "antd";

@@ -1,6 +1,6 @@
-// One business in «مدیریت سامانه»: platform metadata only (never its documents): profile, owners and members,
+// One organisation in «مدیریت سامانه»: platform metadata only (never its documents): profile, owners and members,
 // sizes, Windows apps, AI status, platform status with its reason, the AI switch, internal notes, support
-// sessions and security events. «حالت پشتیبانی» opens the business itself.
+// sessions and security events. «حالت پشتیبانی» opens the organisation itself.
 import { useEffect, useState } from "react";
 import { Button, Form, Input, Segmented, Switch, Tooltip } from "antd";
 import { Building2, LifeBuoy, LogIn } from "lucide-react";

@@ -1,7 +1,7 @@
-// The band above the top bar of a business:
+// The band above the top bar of an organisation:
 // - for the platform admin in «حالت پشتیبانی»: the level, the reason, the time left and «پایان حالت پشتیبانی»
-//   (when the time runs out he is taken back to the business's page in «مدیریت سامانه»);
-// - for members of a business the platform admin made read-only: the status and its reason.
+//   (when the time runs out he is taken back to the organisation's page in «مدیریت سامانه»);
+// - for members of an organisation the platform admin made read-only: the status and its reason.
 import { useEffect, useState } from "react";
 import { Button, Tooltip } from "antd";
 import { LifeBuoy, Lock } from "lucide-react";

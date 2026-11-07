@@ -1,5 +1,5 @@
-// «پیشخوان» of the platform: the figures that matter (businesses, people, Windows apps, database, AI),
-// what needs attention, live support sessions, the newest businesses and the latest security events.
+// «پیشخوان» of the platform: the figures that matter (organisations, people, Windows apps, database, AI),
+// what needs attention, live support sessions, the newest organisations and the latest security events.
 import { Link, useNavigate } from "react-router";
 import { AlertTriangle, Building2, CheckCircle2, Database, LifeBuoy, Monitor, ShieldAlert, Users } from "lucide-react";
 import { AiIcon } from "../../components/shell/icons";

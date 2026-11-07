@@ -98,7 +98,7 @@
      bottom-left stack moves beside it. antd positions the stack with a physical `left`. */
   :root:has(.ant-drawer-open) .ant-notification-bottomLeft { left: calc(var(--ds-sheet-w) + 2 * var(--ds-panel-inset) + 16px); }
 
-  /* codes inside inputs (IBAN, card, wallet): LTR, Geist Mono, no ss01 — business document numbers stay Persian digits */
+  /* codes inside inputs (IBAN, card, wallet): LTR, Geist Mono, no ss01 — record numbers stay Persian digits */
   .ant-input.ds-code, .ds-code .ant-input { font-family: var(--ds-font-mono); font-feature-settings: normal; direction: ltr; text-align: left; }
 
   /* menus and select popups are solid raised; a menu that floats over scrolling content (the account menu, a table's

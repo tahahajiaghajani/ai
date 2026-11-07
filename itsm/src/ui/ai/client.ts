@@ -1,4 +1,4 @@
-// The business's AI endpoints (/api/o/:org/ai/*) for the UI: typed calls, and the reader of the assistant's answers —
+// The organisation's AI endpoints (/api/o/:org/ai/*) for the UI: typed calls, and the reader of the assistant's answers —
 // server-sent events over a fetch POST (an EventSource cannot POST), with heartbeats, stop, an idle watchdog and the
 // automatic «continue» (a long answer spans several requests; a dropped connection resumes from the stored steps).
 import type {

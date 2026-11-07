@@ -164,7 +164,7 @@
     radial-gradient(620px 230px at calc(100% - 140px) 300px, rgb(166 82 152 / .50), transparent 72%),
     linear-gradient(180deg, transparent 300px, rgb(14 4 12 / .38) 301px, rgb(14 4 12 / .50) 700px);
   --ds-horizon-glow: 0 0 0 4px rgb(255 255 255 / .10), 0 0 20px 6px rgb(255 214 190 / .38);   /* the resting nuqta */
-  /* 1b · small tiles with no horizon (business switcher, app icon — matches final/app-icon.svg): the ember sits
+  /* 1b · small tiles with no horizon (organisation switcher, app icon — matches final/app-icon.svg): the ember sits
          in the lower start corner. */
   --ds-grad-dusk-tile:
     radial-gradient(120% 70% at 85% 118%, rgb(226 134 112 / .30), transparent 62%),

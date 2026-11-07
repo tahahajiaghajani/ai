@@ -1,4 +1,4 @@
-// Guard: every business table travels between the Windows app and the web, unless it is listed
+// Guard: every organisation table travels between the Windows app and the web, unless it is listed
 // here as deliberately local. A new module table that is neither a sync root nor a child of one
 // would otherwise silently stay on one side.
 import { describe, it, expect, beforeAll } from "vitest";
@@ -11,11 +11,11 @@ const LOCAL_ONLY: Record<string, string> = {
   sm_audit: "each side keeps its own event log",
   sm_devices: "registered Windows apps (cloud side)",
   sm_api_keys: "API keys are used against the web version only",
-  sm_integrations: "online shops post their orders to the web version",
+  sm_integrations: "other systems post their webhooks to the web version",
   sm_integration_events: "raw webhook deliveries (web version)",
   sm_org_sync: "per-organisation revision counter",
   // AI: each runtime (web, Windows) keeps its own connections — keys are encrypted with that
-  // runtime's secret — and its own usage, conversations, proposals and derived insights
+  // runtime's secret — and its own usage, conversations and proposals
   sm_ai_connections: "AI provider connections with this runtime's encrypted key",
   sm_ai_settings: "AI settings of this runtime (refers to its connections)",
   sm_ai_holds: "rate-limit / quota holds per connection and model",
@@ -25,18 +25,13 @@ const LOCAL_ONLY: Record<string, string> = {
   sm_ai_tool_calls: "audit of the assistant's tool calls",
   sm_ai_actions: "proposals waiting for a person's confirmation",
   sm_ai_data_refs: "tables and charts referenced from answers",
-  sm_ai_insights: "derived insights (recomputed on each runtime)",
-  sm_ai_plans: "saved AI plans",
-  sm_ai_captures: "documents read by AI before they become drafts",
-  // keys of custom price sources: encrypted with this runtime's secret, like AI keys
-  sm_price_keys: "custom price sources' keys of this runtime",
   // platform administration (web version)
   sm_support_sessions: "super-admin support sessions (web version)",
   sm_security_events: "sign-in and security events",
-  sm_org_admin: "platform status and limits of a business (web version)",
+  sm_org_admin: "platform status and limits of an organisation (web version)",
 };
 
-describe("sync registry covers every business table", () => {
+describe("sync registry covers every organisation table", () => {
   let db: Db;
   let tables: { name: string; cols: string[] }[];
   beforeAll(async () => {
@@ -55,6 +50,11 @@ describe("sync registry covers every business table", () => {
     const children = new Set(AGGREGATES.flatMap((a) => (a.children ?? []).map((c) => c.table)));
     const stray = tables.filter((t) => t.cols.includes("org_id") && !roots.has(t.name) && !children.has(t.name) && !(t.name in LOCAL_ONLY)).map((t) => t.name);
     expect(stray).toEqual([]);
+  });
+
+  it("lists as local only tables that exist (the list never rots)", () => {
+    const names = new Set(tables.map((t) => t.name));
+    expect(Object.keys(LOCAL_ONLY).filter((t) => !names.has(t))).toEqual([]);
   });
 
   it("gives every root the sync columns and its trigger", async () => {

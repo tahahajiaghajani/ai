@@ -1,4 +1,4 @@
-// Settings → «هوش مصنوعی» (ai:full): the business's own AI engine. Five tabs — «اتصال‌ها» (keys and providers, with a
+// Settings → «هوش مصنوعی» (ai:full): the organisation's own AI engine. Five tabs — «اتصال‌ها» (keys and providers, with a
 // per-model connection test), «کارها و مدل‌ها» (which model does which job, in what order, with what effort),
 // «قابلیت‌ها و حریم خصوصی», «مصرف و بودجه» and «فعالیت دستیار». Members without ai:full see a short no-access state.
 import "../kit/ai.css";

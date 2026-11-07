@@ -1,5 +1,5 @@
 // «قابلیت‌ها و حریم خصوصی»: the master switch «دستیار فعال است», a switch per feature, what is sent to the models (the
-// data policy, in plain words), how long conversations are kept, the business's own notes and instructions, and in
+// data policy, in plain words), how long conversations are kept, the organisation's own notes and instructions, and in
 // the Windows app «استفاده از اتصال‌های نسخهٔ وب».
 import { useEffect, useState, type ReactNode } from "react";
 import { Button, Input, Radio, Select, Switch } from "antd";

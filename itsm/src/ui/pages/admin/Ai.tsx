@@ -1,6 +1,6 @@
 // «هوش مصنوعی» of the platform: the platform policy (kill switch, allowed services, default monthly cap per
-// business) and every business's AI status and usage this month — never keys or conversations. The
-// per-business switch is the business's platform state (PATCH /admin/orgs/:id ai_disabled).
+// organisation) and every organisation's AI status and usage this month — never keys or conversations. The
+// per-organisation switch is the organisation's platform state (PATCH /admin/orgs/:id ai_disabled).
 import { useEffect, useState } from "react";
 import { Button, Form, Input, Select, Switch, Table } from "antd";
 import { Power } from "lucide-react";
@@ -94,7 +94,7 @@ export default function Ai() {
   const qc = useQueryClient();
   const overview = useQuery({ queryKey: ["admin", "ai", "overview"], queryFn: () => api.get<AiAdminOverview>("/admin/ai/overview"), retry: (c, e) => !notReady(e) && c < 2 });
   const policy = useQuery({ queryKey: ["admin", "ai", "policy"], queryFn: () => api.get<{ policy: AiPolicy }>("/admin/ai/policy"), retry: (c, e) => !notReady(e) && c < 2 });
-  // the platform's own per-business switch (sm_org_admin.ai_disabled)
+  // the platform's own per-organisation switch (sm_org_admin.ai_disabled)
   const orgs = useAdminQuery<{ orgs: { id: string; ai_disabled: boolean }[] }>(["orgs", "", "", "", ""], "/admin/orgs");
   const off = new Set((orgs.data?.orgs ?? []).filter((o) => o.ai_disabled).map((o) => o.id));
 

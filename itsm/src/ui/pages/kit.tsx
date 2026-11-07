@@ -1,4 +1,4 @@
-// Small shared parts of the first-impression pages (auth, onboarding, business chooser, platform admin).
+// Small shared parts of the first-impression pages (auth, onboarding, organisation chooser, platform admin).
 // Styles: ./pages.css (scoped under .pg-auth / .pg-plain).
 import "./pages.css";
 import { useCallback, type ReactNode } from "react";
@@ -96,7 +96,7 @@ export function initials(name: string | null | undefined): string {
   return parts.length === 1 ? parts[0].slice(0, 1) : `${parts[0].slice(0, 1)}‌${parts[parts.length - 1].slice(0, 1)}`;
 }
 
-/** The quiet frame of the business chooser and the platform admin page: a glass top bar on the canvas. */
+/** The quiet frame of the organisation chooser and the platform admin page: a glass top bar on the canvas. */
 export function PlainFrame({ children, wide }: { children: ReactNode; wide?: boolean }) {
   const { me, logout } = useSession();
   const nav = useNavigate();

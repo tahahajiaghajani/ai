@@ -195,7 +195,7 @@ function Suggestions({ list, onPick }: { list: Suggestion[]; onPick: (s: Suggest
   );
 }
 
-/** The person's own daily cap (not the business's monthly one) stopped the assistant. */
+/** The person's own daily cap (not the organisation's monthly one) stopped the assistant. */
 function dailyCapHit(b: AiStatus["budget"]): boolean {
   if (!b.today_cap_usd) return false;
   try {
