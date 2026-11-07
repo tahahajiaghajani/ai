@@ -89,17 +89,18 @@ function handlerFor(kind: string): JobHandler | undefined {
 
 const NIL = "00000000-0000-0000-0000-000000000000";
 
-let hint = false;
-/** Did this process queue a job since the last call? (the web version ticks after such a request) */
-export function takeJobHint(): boolean {
-  const h = hint;
-  hint = false;
-  return h;
+let enqueued = 0;
+/**
+ * How many jobs this process has queued so far. The web version compares it before and after a request and ticks
+ * when the request queued something (a concurrent request may tick too early — harmless — but never too late).
+ */
+export function jobCounter(): number {
+  return enqueued;
 }
 
 /** Add a job (use the caller's transaction for jobs that follow a write). Returns its id (or the queued twin's). */
 export async function enqueue(q: Queryable, job: JobInput): Promise<string> {
-  hint = true;
+  enqueued++;
   const runAt = job.runAt ? new Date(job.runAt).toISOString() : job.delayMs ? new Date(Date.now() + job.delayMs).toISOString() : null;
   const id = uuidv7();
   const row = await q.one<{ id: string }>(

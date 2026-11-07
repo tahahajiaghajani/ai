@@ -13,7 +13,7 @@ import { hookRoutes, publicApiRoutes, integrationRoutes } from "./routes/integra
 import { localRoutes } from "./routes/local";
 import { adminRoutes } from "./routes/admin";
 import { recordRoutes } from "./routes/records";
-import { takeJobHint, tick } from "./jobs";
+import { jobCounter, tick } from "./jobs";
 import "./engine";
 import { migrationStatus } from "./db/migrate";
 import { APP_NAME, APP_VERSION, SYNC_PROTOCOL } from "@shared/constants";
@@ -85,9 +85,10 @@ export function createApp(cfg: ServerConfig) {
   org.use("*", requireUser, loadOrg);
   // after a write that queued jobs (record events…), the web version runs them once the response is sent
   org.use("*", async (c, next) => {
+    const before = jobCounter();
     await next();
     const m = c.req.method;
-    if (cfg.waitUntil && m !== "GET" && m !== "HEAD" && m !== "OPTIONS" && takeJobHint()) {
+    if (cfg.waitUntil && m !== "GET" && m !== "HEAD" && m !== "OPTIONS" && jobCounter() !== before) {
       cfg.waitUntil(() => tick(cfg, { budgetMs: 4000 }).catch((e) => cfg.log.warn("job tick failed", String((e as Error)?.message ?? e))));
     }
   });
