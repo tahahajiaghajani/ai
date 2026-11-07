@@ -140,8 +140,9 @@ export function installFlowHooks(): void {
       if (!def || def.virtual) throw bad(`جدول «${table}» وجود ندارد`, { fields: { table_key: "جدول وجود ندارد" } });
       const p = scheduleProblem(n.spec);
       if (p) throw bad(p, { fields: { spec: p } });
-      const t = n.template as Record<string, unknown>;
-      if (!t || typeof t !== "object" || Array.isArray(t) || !Object.keys(t).length) throw bad("مقدارهای رکورد را وارد کنید", { fields: { template: "دست‌کم یک مقدار لازم است" } });
+      const t = (n.template ?? {}) as Record<string, unknown>;
+      if (typeof t !== "object" || Array.isArray(t)) throw bad("مقدارهای رکورد معتبر نیست", { fields: { template: "شیء JSON لازم است" } });
+      if (n.active && !Object.keys(t).length) throw bad("پیش از فعال‌کردن، مقدارهای رکورد را تعیین کنید", { fields: { template: "دست‌کم یک مقدار لازم است" } });
       for (const k of Object.keys(t)) {
         const f = def.fields.find((x) => x.name === k);
         if (!f) throw bad(`فیلد «${k}» در «${def.label}» نیست`, { fields: { template: `فیلد «${k}» در این جدول نیست` } });

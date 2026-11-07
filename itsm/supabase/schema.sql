@@ -1310,7 +1310,7 @@ alter table sm_schedules add column if not exists deleted_at timestamptz;
 alter table sm_schedules add column if not exists origin text;
 alter table sm_schedules add column if not exists custom jsonb not null default '{}'::jsonb;
 alter table sm_schedules add column if not exists name text;
-alter table sm_schedules add column if not exists active boolean not null default true;
+alter table sm_schedules add column if not exists active boolean not null default false;
 alter table sm_schedules add column if not exists table_key text;
 alter table sm_schedules add column if not exists spec jsonb;
 alter table sm_schedules add column if not exists template jsonb;

@@ -25,6 +25,8 @@ interface CardData extends Record<string, unknown> {
   warnings: number;
   status: StepStatus | null;
   current: boolean;
+  /** output ports that already have an edge (their label is on the edge) */
+  connected: string[];
 }
 
 const FlowCard = memo(function FlowCard({ data, selected }: NodeProps<Node<CardData, "flow">>) {
@@ -57,7 +59,7 @@ const FlowCard = memo(function FlowCard({ data, selected }: NodeProps<Node<CardD
           className={cx(p.error && "is-error")}
           style={tb ? { left: spread(i) } : { top: spread(i) }}
         >
-          {ports.length > 1 ? <span className={cx("fl-port", tb ? "is-tb" : "is-rl")}>{p.label}</span> : null}
+          {ports.length > 1 && !data.connected.includes(p.key) ? <span className={cx("fl-port", tb ? "is-tb" : "is-rl")}>{p.label}</span> : null}
         </Handle>
       ))}
     </div>
@@ -121,9 +123,10 @@ function Inner(p: FlowCanvasProps) {
           warnings: counts.get(n.id)?.w ?? 0,
           status: p.statuses?.[n.id] ?? null,
           current: !!p.current?.includes(n.id),
+          connected: p.graph.edges.filter((e) => e.source === n.id).map((e) => e.port ?? "out"),
         },
       })),
-    [p.graph.nodes, p.selected, p.readOnly, p.direction, p.statuses, p.current, p.tableLabel, p.trigger, p.triggerTitle, counts],
+    [p.graph.nodes, p.graph.edges, p.selected, p.readOnly, p.direction, p.statuses, p.current, p.tableLabel, p.trigger, p.triggerTitle, counts],
   );
   const edges = useMemo<Edge[]>(
     () =>

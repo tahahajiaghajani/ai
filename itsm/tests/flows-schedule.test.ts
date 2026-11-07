@@ -26,6 +26,7 @@ describe("flows: schedules", () => {
   it("creates a record from the template once per occurrence, as the chosen member, with Jalali pills", async () => {
     const s = await o.owner.post(`${k.P}/r/schedule`, {
       name: "نگهداری ماهانه",
+      active: true,
       table_key: "todo",
       spec: { kind: "monthly", time: "09:00", days: [1] },
       template: { short_description: "نگهداری {{jalali.month_name}} {{jalali.year}}", due_at: "{{now + 3d}}" },
@@ -62,16 +63,20 @@ describe("flows: schedules", () => {
   });
 
   it("refuses invalid schedules and templates when they are saved", async () => {
-    const base = { name: "بد", table_key: "todo", spec: { kind: "daily", time: "08:00" }, template: { short_description: "x" } };
+    const base = { name: "بد", active: true, table_key: "todo", spec: { kind: "daily", time: "08:00" }, template: { short_description: "x" } };
     await o.owner.post(`${k.P}/r/schedule`, { ...base, spec: { kind: "daily", time: "8" } }, 400);
     await o.owner.post(`${k.P}/r/schedule`, { ...base, template: { nope: 1 } }, 400);
+    await o.owner.post(`${k.P}/r/schedule`, { ...base, template: {} }, 400);
+    // an inactive schedule may wait for its template; the spec has a default
+    const draft = await o.owner.post(`${k.P}/r/schedule`, { name: "پیش‌نویس", table_key: "todo" });
+    expect(draft.row.spec).toEqual({ kind: "monthly", time: "09:00", days: [1] });
     await o.owner.post(`${k.P}/r/schedule`, { ...base, template: { reopen_count: 1 } }, 400);
     await o.owner.post(`${k.P}/r/schedule`, { ...base, table_key: "flow" }, 400);
     await o.owner.post(`${k.P}/r/schedule`, { ...base, table_key: "nothing" }, 400);
   });
 
   it("keeps the error of a failed occurrence and plans the next one", async () => {
-    const s = await o.owner.post(`${k.P}/r/schedule`, { name: "خراب", table_key: "todo", spec: { kind: "daily", time: "08:00" }, template: { short_description: "x", priority: "{{jalali.year}}" } });
+    const s = await o.owner.post(`${k.P}/r/schedule`, { name: "خراب", active: true, table_key: "todo", spec: { kind: "daily", time: "08:00" }, template: { short_description: "x", priority: "{{jalali.year}}" } });
     const t0 = Date.UTC(2026, 5, 1, 0, 0);
     await runScheduler(o.cfg, o.org, t0);
     const first = Date.parse(String((await timer("schedule", s.row.id))!.next_at));
@@ -116,7 +121,7 @@ describe("flows: schedules", () => {
 
   it("runs as a job that comes back every minute while something is scheduled", async () => {
     await o.db.query(`delete from sm_jobs where org_id = $1 and kind = 'flows.scheduler'`, [o.org]);
-    await o.owner.post(`${k.P}/r/schedule`, { name: "روزانه", table_key: "todo", spec: { kind: "daily", time: "08:00" }, template: { short_description: "روزانه" } });
+    await o.owner.post(`${k.P}/r/schedule`, { name: "روزانه", active: true, table_key: "todo", spec: { kind: "daily", time: "08:00" }, template: { short_description: "روزانه" } });
     await k.drain();
     const job = await o.db.one<{ status: string; run_at: string }>(`select status, run_at from sm_jobs where org_id = $1 and kind = 'flows.scheduler' order by created_at desc limit 1`, [o.org]);
     expect(job!.status).toBe("queued");

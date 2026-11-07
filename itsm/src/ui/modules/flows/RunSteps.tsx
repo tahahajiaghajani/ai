@@ -33,7 +33,7 @@ export const triggerLabel = (k: string) => TRIGGER_LABEL[k] ?? k;
 /** «۲ ثانیه»، «۳ دقیقه»… */
 export function durationText(ms: number | null | undefined): string {
   if (ms === null || ms === undefined) return "";
-  if (ms < 1000) return `${faDigits(ms)} هزارم ثانیه`;
+  if (ms < 1000) return "کمتر از یک ثانیه";
   const s = Math.round(ms / 1000);
   if (s < 60) return `${faDigits(s)} ثانیه`;
   const m = Math.round(s / 60);
@@ -60,8 +60,8 @@ function StepRow({ s, graphLabel }: { s: FlowStepView; graphLabel?: string }) {
           {port && (nodeDef(s.node_type)?.ports.length ?? 0) > 1 ? <span className="fl-step-meta"> ← {port.label}</span> : null}
         </div>
         <div className="fl-step-meta">
-          {formatJalaliDateTime(s.started_at)}
-          {s.duration_ms !== null ? ` · ${durationText(s.duration_ms)}` : ""}
+          <bdi className="ds-num">{formatJalaliDateTime(s.started_at)}</bdi>
+          {s.duration_ms !== null ? <> · <bdi>{durationText(s.duration_ms)}</bdi></> : null}
         </div>
         {s.error ? <div className="text-danger" style={{ fontSize: 12.5, marginTop: 4 }}>{s.error}</div> : null}
         {logs.map((l, i) => (

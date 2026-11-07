@@ -3,15 +3,16 @@
 import { tick } from "@server/jobs";
 import type { EngineOrg } from "./engine-helpers";
 import type { Client } from "./helpers";
+import type { FlowEdge, FlowGraph, FlowNode, NodeType } from "@shared/flows";
 
-export const N = (id: string, type: string, config: Record<string, unknown> = {}, label?: string) => ({ id, type, config, ...(label ? { label } : {}) });
-export const E = (source: string, target: string, port?: string) => ({ id: `${source}-${port ?? "out"}-${target}`, source, target, ...(port ? { port } : {}) });
+export const N = (id: string, type: string, config: Record<string, unknown> = {}, label?: string): FlowNode => ({ id, type: type as NodeType, config, ...(label ? { label } : {}) });
+export const E = (source: string, target: string, port?: string): FlowEdge => ({ id: `${source}-${port ?? "out"}-${target}`, source, target, ...(port ? { port } : {}) });
 
 /** A graph: «شروع» → the nodes along `edges` (the trigger node is added). */
-export const graph = (nodes: ReturnType<typeof N>[], edges: ReturnType<typeof E>[]) => ({ nodes: [N("trigger", "trigger"), ...nodes], edges });
+export const graph = (nodes: FlowNode[], edges: FlowEdge[]): FlowGraph => ({ nodes: [N("trigger", "trigger"), ...nodes], edges });
 
 /** A straight line: trigger → n1 → n2 … */
-export const line = (...nodes: ReturnType<typeof N>[]) => graph(nodes, nodes.map((n, i) => E(i ? nodes[i - 1].id : "trigger", n.id)));
+export const line = (...nodes: FlowNode[]): FlowGraph => graph(nodes, nodes.map((n, i) => E(i ? nodes[i - 1].id : "trigger", n.id)));
 
 let seq = 0;
 

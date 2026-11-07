@@ -34,7 +34,8 @@ export const FLOW: TableDef = {
     { name: "trigger_events", label: "رویدادها", type: "multichoice", choices: opts(TRIGGER_EVENTS), span: 12, section: "آغازگر" },
     { name: "trigger_fields", label: "فقط با تغییر این فیلدها", type: "tags", span: 12, section: "آغازگر" },
     { name: "trigger_condition", label: "شرط رکورد", type: "conditions", condTableField: "trigger_table", span: 24, section: "آغازگر" },
-    { name: "schedule", label: "زمان‌بندی", type: "json", span: 24, section: "آغازگر" },
+    // edited in the designer's trigger panel (the schedule editor), not as JSON text
+    { name: "schedule", label: "زمان‌بندی", type: "json", hidden: true, span: 24, section: "آغازگر" },
     { name: "catalog_item", label: "قلم کاتالوگ", type: "string", maxLength: 80, ltr: true, span: 12, section: "آغازگر" },
     { name: "webhook_token", label: "کلید وب‌هوک", type: "secret", span: 12, section: "آغازگر" },
     { name: "run_as", label: "اجرا با دسترسی", type: "choice", choices: opts(RUN_AS_OPTIONS), required: true, default: "trigger_user", span: 12, section: "اجرا" },
@@ -123,10 +124,11 @@ export const SCHEDULE: TableDef = {
   display: "name",
   fields: [
     { name: "name", label: "نام", type: "string", required: true, maxLength: 120, list: true, search: true, sort: true, span: 12 },
-    { name: "active", label: "فعال", type: "bool", default: true, list: true, filter: true, span: 6 },
+    { name: "active", label: "فعال", type: "bool", default: false, list: true, filter: true, span: 6 },
     { name: "table_key", label: "جدول", type: "string", required: true, maxLength: 60, ltr: true, list: true, filter: true, span: 12 },
-    { name: "spec", label: "تکرار", type: "json", required: true, span: 24 },
-    { name: "template", label: "مقدارهای رکورد", type: "json", required: true, span: 24 },
+    // both edited in the record page's «تکرار» panel (schedule editor, field values with clock pills)
+    { name: "spec", label: "تکرار", type: "json", required: true, hidden: true, default: { kind: "monthly", time: "09:00", days: [1] }, span: 24 },
+    { name: "template", label: "مقدارهای رکورد", type: "json", hidden: true, span: 24 },
     { name: "run_as", label: "ساخته به نام", type: "user", required: true, default: "$me", list: true, span: 12 },
     { name: "description", label: "شرح", type: "text", maxLength: 2000, span: 24 },
   ],

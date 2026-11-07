@@ -219,7 +219,7 @@ export default function Designer() {
         </Note>
       ) : null}
       <div className="fl-designer">
-        <aside className="fl-panel" aria-label="گام‌ها">
+        <aside className="fl-panel fl-palette" aria-label="گام‌ها">
           <div className="fl-panel-h">گام‌ها</div>
           <div className="fl-panel-b" style={{ gap: 2 }}>
             {paletteGroups().map((g) => (
@@ -251,7 +251,7 @@ export default function Designer() {
             ))}
           </div>
         </aside>
-        <div style={{ display: "flex", flexDirection: "column", gap: 6, minHeight: 0 }}>
+        <div className="fl-center" style={{ display: "flex", flexDirection: "column", gap: 6, minHeight: 0 }}>
           <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
             <Segmented
               size="small"
@@ -290,7 +290,7 @@ export default function Designer() {
             fitKey={fitKey}
           />
         </div>
-        <aside className="fl-panel" aria-label="ویژگی‌ها">
+        <aside className="fl-panel fl-inspector" aria-label="ویژگی‌ها">
           {sel && sel.type === "trigger" ? (
             <TriggerInspector
               value={draft}

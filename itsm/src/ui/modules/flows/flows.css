@@ -19,6 +19,17 @@
   .fl-designer .fl-panel {
     max-height: none;
   }
+  /* on narrow screens: the canvas first, then the properties, then the palette */
+  .fl-designer .fl-center {
+    order: 1;
+  }
+  .fl-designer .fl-inspector {
+    order: 2;
+  }
+  .fl-designer .fl-palette {
+    order: 3;
+    max-height: 340px;
+  }
 }
 
 .fl-panel {
@@ -338,4 +349,15 @@
 }
 .fl-run-canvas {
   height: 440px;
+}
+
+/* the canvas fills the designer's middle column; inputs fill the property panel */
+.fl-designer .fl-canvas {
+  flex: 1;
+  min-height: 420px;
+}
+.fl-panel-b .ant-select,
+.fl-panel-b .ant-picker,
+.fl-rows .ant-select {
+  width: 100%;
 }

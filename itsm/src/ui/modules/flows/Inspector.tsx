@@ -143,8 +143,8 @@ export function NodeInspector(p: InspectorProps) {
         <Labelled label="نام گام">
           <Input value={p.node.label ?? ""} placeholder={def.label} maxLength={80} onChange={(e) => p.onChange({ label: e.target.value })} disabled={p.readOnly} />
         </Labelled>
-        <Typography.Text type="secondary" className="fl-mono" copyable={{ text: `{{steps.${p.node.id}.output}}`, tooltips: ["رونوشت داده", "رونوشت شد"] }}>
-          {p.node.id}
+        <Typography.Text type="secondary" copyable={{ text: `{{steps.${p.node.id}.output}}`, tooltips: ["رونوشت دادهٔ خروجی", "رونوشت شد"] }}>
+          شناسهٔ گام: <bdi className="fl-mono">{p.node.id}</bdi>
         </Typography.Text>
         {def.fields.filter((f) => fieldShown(f, p.node.config)).map((f) => (
           <Labelled key={f.key} label={f.label} problem={fieldProblem(f.key)}>
