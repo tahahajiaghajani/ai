@@ -1,4 +1,4 @@
-// Rows of the flows' runtime tables (migration 0010_flows) and the SQL that reads and writes them. Runs are runtime
+// Rows of the flows' runtime tables (migration 0011_flows) and the SQL that reads and writes them. Runs are runtime
 // state of the runtime that executes them — plain tables, written only here and by the executor.
 import type { Queryable } from "../../db";
 import type { FlowGraph, FlowRunView, FlowStepView, NodeType, RunState, StepStatus, TriggerConfig } from "@shared/flows";

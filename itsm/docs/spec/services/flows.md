@@ -30,7 +30,7 @@ Contents: [1 Code](#1-code) · [2 Tables](#2-tables) · [3 The graph and its nod
 | `src/shared/flows/schedule.ts` | `nextOccurrence`, `scheduleProblem`, `describeSchedule`, `parseCron`, `SCHEDULE_PRESETS` |
 | `src/shared/flows/validate.ts` | `validateGraph`, `triggerProblems`, `cleanGraph`, `emptyGraph`, graph helpers |
 | `src/shared/tables/flows.ts` | TableDefs `flow`, `flow_version`, `flow_connection`, `schedule` |
-| `src/server/db/migrations/0010_flows.ts` | runtime tables `sm_flow_runs`, `sm_flow_run_steps`, `sm_flow_waits`, `sm_flow_loop_items`, `sm_flow_timers` |
+| `src/server/db/migrations/0011_flows.ts` | runtime tables `sm_flow_runs`, `sm_flow_run_steps`, `sm_flow_waits`, `sm_flow_loop_items`, `sm_flow_timers` |
 | `src/server/modules/flows/executor.ts` | `startRun`, `executeRun`, `resumeFlowWait`, `cancelRun`; job handlers `flows.run`, `flows.resume`, `flows.timer`, `flows.recheck` |
 | `src/server/modules/flows/nodes.ts`, `http.ts` | built-in step handlers |
 | `src/server/modules/flows/registry.ts` | `registerFlowStepHandler`, `registerFlowSkill`, `setFlowBusinessClock` |
@@ -70,7 +70,7 @@ fields of the table only; required to activate), `run_as` (the member records ar
 `description`. `spec` and `template` are edited in the record page's «تکرار» panel, not as JSON; `meta.schedule` =
 `{ description, next_at, last_at, last_error }`.
 
-Runtime tables (migration `0010_flows`, plain tables of the runtime that executes the runs, never synchronised —
+Runtime tables (migration `0011_flows`, plain tables of the runtime that executes the runs, never synchronised —
 `tests/sync-registry.test.ts` lists them as local): `sm_flow_runs` (one row per run: flow, version, `state`
 `running | waiting | completed | failed | canceled`, `test`, trigger kind/table/record, `actor_id`, identity `run_as` +
 `run_as_kind`, `depth`, `parent_run_id`, `context` (the data), `runtime` (tokens and frames), `current_nodes`,

@@ -8,7 +8,7 @@
 //                    with an engine secret, static headers, timeout (the per-organisation allow-list)
 // - schedule         recurring record creation from a template (monthly maintenance todo…), Jalali-friendly
 // Runs and their step logs are runtime state of the runtime that executes them (sm_flow_runs, sm_flow_run_steps,
-// sm_flow_waits: migration 0010_flows) — not engine tables: no history or events per step, never synchronised.
+// sm_flow_waits: migration 0011_flows) — not engine tables: no history or events per step, never synchronised.
 import type { Option, TableDef } from "../model/types";
 import { RUN_AS_OPTIONS, TRIGGER_EVENTS, TRIGGER_KINDS } from "../flows/nodes";
 

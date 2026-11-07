@@ -1655,7 +1655,7 @@ create trigger sm_roles_access after insert or update or delete on sm_roles for 
 insert into sm_migrations (id) values ('0007_access') on conflict (id) do nothing;
 
 -- ---------------------------------------------------------------------------
--- 0010_flows — گردش‌کارها: اجراها، گزارش گام‌ها، انتظارها و زمان‌بندی
+-- 0011_flows — گردش‌کارها: اجراها، گزارش گام‌ها، انتظارها و زمان‌بندی
 -- ---------------------------------------------------------------------------
 create table if not exists sm_flow_runs (
   id uuid primary key,
@@ -1753,4 +1753,4 @@ create table if not exists sm_flow_timers (
 );
 alter table sm_flow_timers enable row level security;
 
-insert into sm_migrations (id) values ('0010_flows') on conflict (id) do nothing;
+insert into sm_migrations (id) values ('0011_flows') on conflict (id) do nothing;

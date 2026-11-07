@@ -1,8 +1,8 @@
--- «ITSM» migration 0010_flows — گردش‌کارها: اجراها، گزارش گام‌ها، انتظارها و زمان‌بندی
+-- «ITSM» migration 0011_flows — گردش‌کارها: اجراها، گزارش گام‌ها، انتظارها و زمان‌بندی
 create table if not exists sm_migrations (id text primary key, applied_at timestamptz not null default now());
 
 -- ---------------------------------------------------------------------------
--- 0010_flows — گردش‌کارها: اجراها، گزارش گام‌ها، انتظارها و زمان‌بندی
+-- 0011_flows — گردش‌کارها: اجراها، گزارش گام‌ها، انتظارها و زمان‌بندی
 -- ---------------------------------------------------------------------------
 create table if not exists sm_flow_runs (
   id uuid primary key,
@@ -100,4 +100,4 @@ create table if not exists sm_flow_timers (
 );
 alter table sm_flow_timers enable row level security;
 
-insert into sm_migrations (id) values ('0010_flows') on conflict (id) do nothing;
+insert into sm_migrations (id) values ('0011_flows') on conflict (id) do nothing;

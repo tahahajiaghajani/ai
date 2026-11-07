@@ -6,7 +6,7 @@ import integrations from "./0003_integrations";
 import ai from "./0004_ai";
 import engine from "./0005_engine";
 import access from "./0007_access";
-import flows from "./0010_flows";
+import flows from "./0011_flows";
 import { ddlForAll } from "../../engine/ddl";
 
 export interface Migration {
@@ -31,7 +31,7 @@ export const MIGRATIONS: Migration[] = [
     },
   },
   { id: "0007_access", title: "دسترسی: نسخهٔ پیکربندی دسترسی و شمارندهٔ دامنهٔ دید اعضا", sql: access },
-  { id: "0010_flows", title: "گردش‌کارها: اجراها، گزارش گام‌ها، انتظارها و زمان‌بندی", sql: flows },
+  { id: "0011_flows", title: "گردش‌کارها: اجراها، گزارش گام‌ها، انتظارها و زمان‌بندی", sql: flows },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].id;
