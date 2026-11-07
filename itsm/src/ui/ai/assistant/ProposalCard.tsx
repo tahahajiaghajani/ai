@@ -1,10 +1,10 @@
 // A draft the assistant prepared. Nothing is written until a permitted person confirms it here (the server re-checks
-// the document's own permission, runs the module's normal service and records it in the audit log); «ویرایش در فرم»
+// the record's own permission, runs the module's normal service and records it in the audit log); «ویرایش در فرم»
 // opens the same data in the module's own form instead. The card is drawn from the stored proposal, not from the
 // model's words.
 import { useState } from "react";
 import { Button } from "antd";
-import { Receipt, FileText, ArrowDownToLine, ArrowUpFromLine, ArrowLeftRight, Gem, UserPlus, FilePen, CircleCheck, TriangleAlert, ArrowUpLeft, type LucideIcon } from "lucide-react";
+import { UserPlus, FilePen, CircleCheck, TriangleAlert, ArrowUpLeft, type LucideIcon } from "lucide-react";
 import type { AiProposal } from "@shared/ai/types";
 import { useNotify } from "../../lib/hooks";
 import { jDayMonth, jTime } from "../../lib/fa";
@@ -13,18 +13,9 @@ import { Ic } from "../../components/shell/icons";
 import { safePath } from "../markdown/links";
 import { useAiClient } from "./useAi";
 
+// icons of proposal kinds; the platform proposes nothing itself, modules add theirs (anything else shows a draft)
 const KIND_ICON: Record<string, LucideIcon> = {
-  sales_invoice: Receipt,
-  purchase_invoice: Receipt,
-  invoice: Receipt,
-  voucher: FileText,
-  receipt: ArrowDownToLine,
-  payment: ArrowUpFromLine,
-  transfer: ArrowLeftRight,
-  treasury_doc: ArrowDownToLine,
-  gold_doc: Gem,
-  fx_deal: ArrowLeftRight,
-  party: UserPlus,
+  member: UserPlus,
 };
 
 const STATUS: Record<AiProposal["status"], [string, ChipTone]> = {

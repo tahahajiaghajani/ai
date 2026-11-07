@@ -1,4 +1,4 @@
-// Siraf theme provider (design system: src/ui/ds/README.md). Based on the design system's drop-in
+// The theme provider (design system: src/ui/ds/README.md). Based on the design system's drop-in
 // ThemeProvider: a three-way preference (system, light, dark) stored under "itsm.theme", the resolved mode on
 // <html data-theme>, antd 6 in RTL with fa_IR inside <StyleProvider layer>, and bottom-left toasts.
 // It keeps the API the app already uses: useTheme().dark and useTheme().toggle().
@@ -13,8 +13,6 @@ export type { DsMode };
 
 /** localStorage key of the preference. index.html reads the same key before first paint. */
 export const THEME_KEY = "itsm.theme";
-/** The key used while the app was called «تراز»; read once and moved to THEME_KEY. */
-const LEGACY_KEY = "itsm.theme";
 
 const media = () => window.matchMedia("(prefers-color-scheme: dark)");
 const resolve = (p: ThemePref): DsMode => (p === "system" ? (media().matches ? "dark" : "light") : p);
@@ -24,14 +22,6 @@ function readPref(): ThemePref {
   try {
     const v = localStorage.getItem(THEME_KEY);
     if (isPref(v)) return v;
-    const old = localStorage.getItem(LEGACY_KEY);
-    if (old !== null) {
-      localStorage.removeItem(LEGACY_KEY);
-      if (isPref(old)) {
-        localStorage.setItem(THEME_KEY, old);
-        return old;
-      }
-    }
   } catch {
     /* private window or blocked storage */
   }

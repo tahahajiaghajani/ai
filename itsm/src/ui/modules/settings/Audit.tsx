@@ -25,14 +25,11 @@ const ACTION: Record<string, string> = {
   unpost: "برگشت از قطعی",
   cancel: "ابطال",
   member_add: "افزودن کاربر",
-  cheque_deposit: "واگذاری چک",
-  cheque_clear: "وصول چک",
-  cheque_cash: "وصول نقدی چک",
-  cheque_bounce: "برگشت چک",
-  cheque_endorse: "خرج چک",
-  cheque_return: "عودت چک",
-  cheque_cancel: "ابطال چک",
-  cheque_undo: "برگشت عملیات چک",
+  ai_connection_create: "ساخت اتصال",
+  ai_connection_update: "ویرایش اتصال",
+  ai_connection_key: "تعویض کلید",
+  ai_connection_delete: "حذف اتصال",
+  ai_action: "تأیید پیشنهاد دستیار",
   support_start: "آغاز پشتیبانی",
   support_end: "پایان پشتیبانی",
   support_write: "تغییر",
@@ -43,22 +40,13 @@ const ACTION: Record<string, string> = {
 /** Who made the change: a member, the platform admin in a support session, or from «مدیریت سامانه». */
 const ACTOR: Record<string, [string, "warning" | "accent"]> = { support: ["پشتیبانی", "warning"], platform: ["مدیر سامانه", "accent"] };
 
-/** Persian names of the audited parts; definitions fall back to their entity title, anything else to «سایر». */
+/** Persian names of the audited parts; a module's records fall back to their entity title, anything else to «سایر». */
 const ENTITY: Record<string, string> = {
-  voucher: "سند حسابداری",
-  account: "حساب",
-  fiscal_year: "سال مالی",
-  invoice: "فاکتور",
-  stock_doc: "سند انبار",
-  treasury_doc: "سند خزانه",
-  cheque: "چک",
-  remittance: "حواله",
-  fx_deal: "معاملهٔ ارز",
-  fx_revaluation: "تسعیر ارز",
-  fx_rate: "نرخ ارز",
-  gold_doc: "سند طلا",
-  gold_rate: "نرخ طلا",
   member: "کاربر",
+  ai_connection: "اتصال هوش مصنوعی",
+  ai_settings: "تنظیمات هوش مصنوعی",
+  integration: "وب‌هوک",
+  api_key: "کلید API",
   org: "سازمان",
   support_session: "حالت پشتیبانی",
 };

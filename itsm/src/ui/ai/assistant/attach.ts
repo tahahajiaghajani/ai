@@ -1,4 +1,4 @@
-// Files sent with a question: images (a photo of an invoice, a cheque, a screenshot) and PDFs. They travel inside the
+// Files sent with a question: images (a photo of a document, an error on a screen, a screenshot) and PDFs. They travel inside the
 // JSON body, so they are kept small: large photos are scaled down in the browser before sending, and the whole
 // question stays under the size a serverless request accepts.
 import type { AiAttachmentInput } from "@shared/ai/api";

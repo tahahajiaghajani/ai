@@ -131,7 +131,6 @@ function toneOf(key: string, color: string): ChipTone | null {
       return "danger";
     case "warning":
     case "orange":
-    case "gold":
     case "yellow":
       return "warning";
     case "purple":
@@ -255,7 +254,7 @@ export function StatCard({
   value: ReactNode;
   hint?: ReactNode;
   icon?: ReactNode;
-  tone?: "brand" | "gold" | "ok" | "bad" | "muted";
+  tone?: "brand" | "ok" | "bad" | "muted";
   onClick?: () => void;
   className?: string;
 }) {

@@ -78,10 +78,10 @@ function Home() {
 }
 
 /**
- * A page of the signed-in app, mounted afresh for every path. Routes such as
- * accounting/vouchers/:id and accounting/vouchers/new render the same component at the same
- * place, so React would otherwise keep the open document's state (voucher #12's lines in the
- * «سند جدید» form). Only the path counts: a page changing its own query string keeps its state.
+ * A page of the signed-in app, mounted afresh for every path. Routes such as <module>/<records>/:id
+ * and <module>/<records>/new render the same component at the same place, so React would otherwise
+ * keep the open record's state (record #12's fields in the «تازه» form). Only the path counts: a
+ * page changing its own query string keeps its state.
  */
 function Page({ children }: { children: ReactNode }) {
   const { pathname } = useLocation();

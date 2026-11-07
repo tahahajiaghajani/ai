@@ -169,7 +169,7 @@ export default function Desktop() {
                 <Form.Item name="port" label="پورت" className="!mb-0"><Input dir="ltr" className="ds-num !w-28" /></Form.Item>
                 <Button htmlType="submit">ذخیره</Button>
               </div>
-              <div className="blk-f-h mt-3">رایانه‌ها و گوشی‌های همین شبکه با مرورگر یا برنامهٔ سیراف به این رایانه وصل می‌شوند و هم‌زمان کار می‌کنند؛ تغییر پس از اجرای دوبارهٔ برنامه اعمال می‌شود.</div>
+              <div className="blk-f-h mt-3">رایانه‌ها و گوشی‌های همین شبکه با مرورگر یا برنامهٔ ویندوز به این رایانه وصل می‌شوند و هم‌زمان کار می‌کنند؛ تغییر پس از اجرای دوبارهٔ برنامه اعمال می‌شود.</div>
             </Form>
           ) : null}
           {d?.lan?.enabled && lanUrl ? (

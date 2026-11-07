@@ -2,20 +2,21 @@
 // app's upload, or (in the Windows app) a download from the web version. The shell polls a cheap
 // token (GET /o/:org/pulse, src/server/live.ts) while the window is visible and refreshes the
 // read-only views on screen when it changes. Editors and forms are left alone (never reset a
-// document someone is typing into), and so are quotes that price a sale being made.
+// record someone is typing into).
 import { useEffect, useRef } from "react";
 import { useQueryClient, type Query } from "@tanstack/react-query";
 import { api, orgApi } from "./api";
 
-/** Query keys (their first part) of read-only views: lists, reports, balances, dashboards. */
-const LIVE = new Set([
-  "table", "org", "shell-counts", "dashboard", "dash-pl", "dash-cash-accounts", "dash-cash-ledger",
-  "accounts", "audit", "tb", "bs", "income", "journal", "ledger", "detail-bal", "party-bal", "party-st",
-  "treasury-summary", "treasury-balances", "treasury-book", "treasury-cheques", "treasury-due", "treasury-singles",
-  "goods-summary", "goods-items", "goods-stock", "goods-kardex", "goods-analysis",
-  "gold-summary", "gold-stock", "gold-coins", "gold-kardex", "gold-party-balances", "gold-position", "gold-sales", "gold-consignment", "gold-bubbles", "gold-rates", "gold-rates-spark",
-  "fx-summary", "fx-wallets", "fx-positions", "fx-positions-dash", "fx-party-bal", "fx-cash-report", "fx-deals-report", "fx-revaluations",
-]);
+/**
+ * Query keys (their first part) of read-only views: lists, the home page, the members and audit pages, integrations.
+ * Modules add the keys of their own read-only views with `registerLiveQueries`.
+ */
+const LIVE = new Set(["table", "org", "shell-counts", "home", "members", "audit", "integrations", "integration-events", "api-keys"]);
+
+/** Adds query keys (their first part) of a module's read-only views to the ones «زنده» refreshes. */
+export function registerLiveQueries(...keys: string[]): void {
+  for (const k of keys) LIVE.add(k);
+}
 
 export const isLiveQuery = (q: Pick<Query, "queryKey">): boolean => LIVE.has(String(q.queryKey[0] ?? ""));
 

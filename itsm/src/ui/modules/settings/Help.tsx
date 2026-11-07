@@ -1,5 +1,6 @@
-// «راهنما»: getting started, keyboard shortcuts, the how-tos people ask about most, and «دربارهٔ سیراف» (the version
-// and the open-source font licences). Every page's explanations live here instead of on the page itself.
+// «راهنما»: getting started, keyboard shortcuts, the how-tos people ask about most, and «دربارهٔ …» (the version and
+// the open-source font licences). Every page's explanations live here instead of on the page itself; modules add
+// their own articles here when they arrive.
 import { useEffect, type ReactNode } from "react";
 import { Link, useLocation } from "react-router";
 import { useOrg } from "../../lib/org";
@@ -7,31 +8,25 @@ import { useSession } from "../../lib/session";
 import { PageHeader } from "../../components/layout";
 import { Wordmark, BrandTile } from "../../components/brand";
 import { APP_NAME, APP_NAME_EN, APP_TAGLINE, APP_VERSION } from "@shared/constants";
+import { ROLES, type Role } from "@shared/permissions";
 import { Keys, Version } from "../../components/blocks";
 
 const SHORTCUTS: [string[][], string][] = [
-  [[["Ctrl", "K"]], "جست‌وجوی سراسری: هر صفحه، شخص، سند یا فرمان"],
-  [[["Ctrl", "J"]], "باز و بسته کردن «دستیار سیراف»"],
-  [[["Enter"]], "خانهٔ بعد در سند، فاکتور و دریافت و پرداخت"],
-  [[["F2"], ["Ctrl", "Enter"]], "ثبت سند یا فاکتور"],
-  [[["Alt", "F2"]], "ثبت و شروع سند تازه (دریافت و پرداخت)"],
-  [[["Alt", "N"]], "ردیف تازه در سند و فاکتور؛ سند تازه در فهرست‌ها"],
-  [[["↑"], ["↓"]], "در جدول سند: همان ستون در ردیف بالا یا پایین"],
-  [[["="]], "در مبلغ سند حسابداری: مبلغی که سند را تراز می‌کند (Space در خانهٔ خالی هم)"],
-  [[["Ctrl", "D"]], "در سند حسابداری: همان خانهٔ ردیف بالا"],
-  [[["Ctrl", "Delete"]], "در سند حسابداری: حذف ردیف"],
-  [[["F4"]], "خانهٔ اسکن بارکد در فاکتور"],
-  [[["+"], ["*"]], "در خانهٔ مبلغ: سه صفر (۲۵۰ ← ۲۵۰٬۰۰۰)"],
+  [[["Ctrl", "K"]], "جست‌وجوی سراسری: هر صفحه یا فرمان"],
+  [[["Ctrl", "J"]], "باز و بسته کردن «دستیار»"],
   [[["Alt", "↑"], ["Alt", "↓"]], "در خانهٔ تاریخ: روز بعد یا روز قبل"],
+  [[["+"], ["*"]], "در خانهٔ عدد: سه صفر (۲۵۰ ← ۲۵۰٬۰۰۰)"],
 ];
 
 const DATE_INPUTS = ["۱۴۰۵/۰۲/۱۵ یا ۱۴۰۵۰۲۱۵", "۲/۱۵ (امسال)", "۱۵ (همین ماه)", "امروز، دیروز، فردا"];
 
 const FONTS: { name: string; role: string; by: string; file: string; latin?: boolean }[] = [
-  { name: "آراد", role: "متن، عنوان‌ها و نام سیراف", by: "محمد درویشی · The Arad Project Authors", file: "OFL-Arad.txt" },
-  { name: "رقم‌های سیراف (برگرفته از وزیرمتن)", role: "همهٔ عددها", by: "The Vazirmatn Project Authors", file: "OFL-Vazirmatn.txt" },
+  { name: "آراد", role: "متن و عنوان‌ها", by: "محمد درویشی · The Arad Project Authors", file: "OFL-Arad.txt" },
+  { name: "DS Num (برگرفته از وزیرمتن)", role: "همهٔ عددها", by: "The Vazirmatn Project Authors", file: "OFL-Vazirmatn.txt" },
   { name: "Geist و Geist Mono", role: "متن لاتین و کدها", by: "Vercel و basement.studio", file: "OFL-Geist.txt", latin: true },
 ];
+
+const ROLE_ORDER: Role[] = ["owner", "admin", "member", "viewer"];
 
 function Article({ id, title, children }: { id: string; title: string; children: ReactNode }) {
   return (
@@ -43,13 +38,13 @@ function Article({ id, title, children }: { id: string; title: string; children:
 }
 
 export default function Help() {
-  const { org, has } = useOrg();
+  const { org } = useOrg();
   const { meta } = useSession();
   const loc = useLocation();
   const to = (p: string) => `/${org.id}/${p}`;
   const desktop = meta?.mode === "desktop";
 
-  // a link like /help#fiscal lands on its article
+  // a link like /help#ai lands on its article
   useEffect(() => {
     if (!loc.hash) return;
     requestAnimationFrame(() => document.getElementById(loc.hash.slice(1))?.scrollIntoView({ block: "start" }));
@@ -58,13 +53,10 @@ export default function Help() {
   const toc: [string, string][] = [
     ["start", "شروع کار"],
     ["keys", "میانبرها و ورود تاریخ"],
-    ["vouchers", "سند و تراز"],
-    ["fiscal", "بستن سال مالی"],
-    ["import", "ورود از اکسل"],
+    ["members", "اعضا و نقش‌ها"],
     ["sync", "نسخهٔ ویندوز و هم‌گامی"],
-    ["ai", "هوش مصنوعی رایگان"],
-    ["prices", "قیمت زنده"],
-    ["shop", "فروشگاه اینترنتی"],
+    ["ai", "هوش مصنوعی رایگان و محلی"],
+    ["integrations", "وب‌هوک و API"],
     ["about", `دربارهٔ ${APP_NAME}`],
   ];
 
@@ -73,21 +65,18 @@ export default function Help() {
       <PageHeader title="راهنما" subtitle={<span>{APP_NAME} <Version v={APP_VERSION} /></span>} />
       <div className="blk-help">
         <div className="blk-card">
-          <Article id="start" title="شروع کار در پنج قدم">
+          <Article id="start" title="شروع کار در چهار قدم">
             <ol className="blk-steps">
               <li>
-                اطلاعات سازمان، لوگو، نرخ مالیات و بخش‌ها: <Link className="ds-link" to={to("settings/org")}>تنظیمات سازمان</Link>
+                نام، لوگو و منطقهٔ زمانی سازمان: <Link className="ds-link" to={to("settings/org")}>تنظیمات سازمان</Link>
               </li>
               <li>
-                تعریف‌ها: <Link className="ds-link" to={to("parties")}>اشخاص</Link>، صندوق و بانک، کالاها یا اجناس طلا یا ارزها؛ یکی‌یکی، یا همه با هم از اکسل (دکمهٔ «ورود از اکسل» بالای هر فهرست).
+                همکاران را با ایمیل اضافه کنید و نقش هر کدام را تعیین کنید: <Link className="ds-link" to={to("settings/members")}>کاربران و دسترسی‌ها</Link>
               </li>
               <li>
-                مانده‌های اول دوره: یک <Link className="ds-link" to={to("accounting/vouchers/new")}>سند حسابداری</Link> با نوع «افتتاحیه» (موجودی صندوق و بانک، طلب و بدهی اشخاص، سرمایه).
+                یک اتصال هوش مصنوعی بسازید (رایگان یا محلی، پایین‌تر): <Link className="ds-link" to={to("settings/ai")}>تنظیمات هوش مصنوعی</Link>
               </li>
-              <li>کار روزانه: فاکتور، دریافت و پرداخت، چک، فروش طلا، معاملهٔ ارز و حواله؛ سند حسابداری هر کدام خودکار ثبت می‌شود.</li>
-              <li>
-                گزارش‌ها: <Link className="ds-link" to={to("reports/trial-balance")}>تراز آزمایشی</Link>، دفتر کل و معین، ماندهٔ اشخاص، سود و زیان و ترازنامه؛ همه با خروجی اکسل و چاپ.
-              </li>
+              <li>برای کار بی‌اینترنت یا در شبکهٔ داخلی، برنامهٔ ویندوز را نصب کنید و به همین نسخه وصل کنید.</li>
             </ol>
           </Article>
 
@@ -118,34 +107,15 @@ export default function Help() {
             </div>
           </Article>
 
-          <Article id="vouchers" title="سند حسابداری و تراز">
+          <Article id="members" title="اعضا و نقش‌ها">
             <ul>
-              <li>هر ردیف سند یا بدهکار است یا بستانکار؛ با نوشتن در یکی، دیگری پاک می‌شود.</li>
-              <li>تا جمع بدهکار و بستانکار برابر نشود، کنار «جمع» اختلاف را می‌بینید. وقتی برابر شد، سند «می‌نشیند»: خط جمع کامل می‌شود و «سند تراز است» می‌آید.</li>
-              <li>«=» در خانهٔ مبلغ، همان مبلغی را می‌نویسد که سند را تراز می‌کند.</li>
-              <li>اسناد خودکار (از فاکتور، دریافت و پرداخت، چک و…) فقط از سند مبدأشان تغییر می‌کنند.</li>
-              <li>در گزارش‌ها مانده با ستون «تشخیص» (بد یا بس) می‌آید و منفی‌ها در صورت‌های مالی داخل پرانتز.</li>
-            </ul>
-          </Article>
-
-          <Article id="fiscal" title="بستن سال مالی">
-            <ul>
-              <li>با بستن سال، حساب‌های درآمد و هزینه به «خلاصهٔ سود و زیان» بسته می‌شوند و سود یا زیان به «سود و زیان انباشته» می‌رود.</li>
-              <li>سند اختتامیه صادر می‌شود و همان مانده‌ها، همراه با مبالغ ارزی و وزن طلا، با سند افتتاحیه به سال بعد منتقل می‌شوند.</li>
-              <li>اسناد پیش‌نویس باید پیش از بستن ثبت یا حذف شوند.</li>
-              <li>
-                هر وقت لازم شد می‌توانید سال را دوباره باز کنید: <Link className="ds-link" to={to("accounting/fiscal-years")}>سال‌های مالی</Link>
-              </li>
-            </ul>
-          </Article>
-
-          <Article id="import" title="ورود اطلاعات از اکسل">
-            <ul>
-              <li>در فهرست اشخاص، کالاها، اجناس طلا، ارزها و… دکمهٔ «ورود از اکسل» را بزنید. «فایل نمونه» ستون‌های قابل ورود را دارد.</li>
-              <li>ردیف اول فایل عنوان ستون‌هاست؛ ستون‌ها خودکار با فیلدها جور می‌شوند و می‌توانید تغییرشان دهید.</li>
-              <li>«بررسی بدون ثبت» همهٔ ردیف‌ها را بدون ذخیره بررسی می‌کند. ردیف‌های خطادار وارد نمی‌شوند و «فایل خطاها» را برای اصلاح دریافت می‌کنید.</li>
-              <li>مبالغ با ارقام فارسی و جداکننده، تاریخ شمسی، گزینه‌ها با همان عنوان برنامه (مثلاً «مشتری، تأمین‌کننده») و گروه و واحد با نام پذیرفته می‌شوند؛ گروه یا واحدی که وجود ندارد ساخته می‌شود.</li>
-              <li>با تیک «اگر کد از قبل وجود داشت، به‌روزرسانی شود» قیمت‌ها را دسته‌جمعی از اکسل به‌روز کنید.</li>
+              {ROLE_ORDER.map((r) => (
+                <li key={r}>
+                  <b>{ROLES[r].title}</b>: {ROLES[r].about}
+                </li>
+              ))}
+              <li>مالک می‌تواند دسترسی هر عضو را بخش به بخش کم یا زیاد کند. زیر مالک، هیچ‌کس نقش و دسترسی خودش را عوض نمی‌کند و دسترسی‌ای بیشتر از دسترسی خودش نمی‌دهد.</li>
+              <li>مدیر سامانه (سازندهٔ نخستین حساب) عضو سازمان‌ها نیست؛ فقط با «حالت پشتیبانی» زمان‌دار و ثبت‌شده در گزارش رویدادها وارد سازمانی می‌شود.</li>
             </ul>
           </Article>
 
@@ -153,64 +123,46 @@ export default function Help() {
             <ul>
               <li>نسخهٔ ویندوز بدون اینترنت کامل کار می‌کند؛ داده‌ها روی همان رایانه در پایگاه‌دادهٔ داخلی ذخیره می‌شوند.</li>
               <li>برای یکی شدن با نسخهٔ وب: در برنامهٔ ویندوز «تنظیمات ← نسخهٔ ویندوز» نشانی سایت و ایمیل و رمز حساب وب را بدهید و سازمان را انتخاب کنید. از آن پس هر تغییر در چند ثانیه به طرف دیگر می‌رسد و نبود اینترنت فقط هم‌گامی را عقب می‌اندازد.</li>
-              <li>اگر یک سند هم‌زمان در دو جا ویرایش شود، آخرین ویرایش می‌ماند و در گزارش رویدادها دیده می‌شود.</li>
-              <li>چند رایانه یا گوشی در یک فروشگاه: «حالت شبکه» در همان صفحه؛ بقیه با نشانی رایانهٔ اصلی به آن وصل می‌شوند.</li>
+              <li>اگر یک رکورد هم‌زمان در دو جا ویرایش شود، آخرین ویرایش می‌ماند و در گزارش رویدادها دیده می‌شود.</li>
+              <li>چند رایانه یا گوشی در یک دفتر: «حالت شبکه» در همان صفحه؛ بقیه با نشانی رایانهٔ اصلی به آن وصل می‌شوند.</li>
               <li>پشتیبان خودکار هر ۶ ساعت و کمی پس از هر بار باز کردن برنامه گرفته می‌شود؛ از همان صفحه پشتیبان بگیرید یا برگردانید.</li>
-              {!desktop ? <li>فایل نصب ویندوز در صفحهٔ Releases مخزن GitHub برنامه است (Siraf-Setup). آن را روی فلش هم می‌توانید ببرید و روی هر رایانه اجرا کنید.</li> : null}
+              {!desktop ? <li>فایل نصب ویندوز در صفحهٔ Releases مخزن GitHub برنامه است ({APP_NAME_EN}-Setup). آن را روی فلش هم می‌توانید ببرید و روی هر رایانه اجرا کنید.</li> : null}
             </ul>
           </Article>
 
-          <Article id="ai" title="هوش مصنوعی با Gemini رایگان">
+          <Article id="ai" title="هوش مصنوعی رایگان و محلی">
             <ol className="blk-steps">
               <li>
-                کلید رایگان: با یک حساب Google در <bdi dir="ltr" className="ds-mono">aistudio.google.com</bdi> ← API Keys ← Create API key. AI Studio از اینترنت ایران باز نمی‌شود و Google استفاده را به کشورهای پشتیبانی‌شده محدود کرده است؛ پذیرفتن شرایطش با مالک سازمان است.
+                Gemini رایگان: با یک حساب Google در <bdi dir="ltr" className="ds-mono">aistudio.google.com</bdi> ← API Keys ← Create API key. AI Studio از اینترنت ایران باز نمی‌شود و Google استفاده را به کشورهای پشتیبانی‌شده محدود کرده است؛ پذیرفتن شرایطش با مالک سازمان است.
               </li>
               <li>
                 {desktop ? "در نسخهٔ وب" : "در"} <Link className="ds-link" to={to("settings/ai")}>تنظیمات هوش مصنوعی</Link> ← «افزودن اتصال» ← «Gemini (Google AI Studio)». کلید را بچسبانید، «طرح رایگان سرویس» را روشن کنید و «ذخیره» را بزنید.
               </li>
-              <li>مدل‌های رایگان به‌ترتیب گذاشته می‌شوند و هر کدام سقف روزانهٔ خودش را دارد. وقتی سهم یکی تمام شد، بعدی پاسخ می‌دهد. شمارش هر روز ساعت ۱۱:۳۰ تهران صفر می‌شود (از اواخر اسفند تا اوایل آبان ۱۰:۳۰).</li>
+              <li>مدل‌های رایگان به‌ترتیب گذاشته می‌شوند و هر کدام سقف روزانهٔ خودش را دارد. وقتی سهم یکی تمام شد، بعدی پاسخ می‌دهد.</li>
               <li>در طرح رایگان، Google از داده‌ها برای بهبود محصولاتش استفاده می‌کند؛ در «قابلیت‌ها و حریم خصوصی» گزینهٔ «پوشاندن اطلاعات شخصی» را نگه دارید.</li>
-              <li>نسخهٔ ویندوز: Gemini از اینترنت ایران پاسخ نمی‌دهد. در «قابلیت‌ها و حریم خصوصی»، «استفاده از اتصال‌های نسخهٔ وب» را روشن کنید. برای کار بی‌اینترنت، Ollama را نصب کنید و اتصال «Ollama — مدل محلی» را بسازید. اگر رایانه کارت گرافیک ندارد، در «کارها و مدل‌ها» برای «دستیار» و «تحلیل و گزارش»، «اول نسخهٔ وب» را روشن کنید تا Ollama فقط وقتی پاسخ دهد که نسخهٔ وب در دسترس نیست.</li>
+              <li>
+                مدل محلی (بی‌اینترنت، داده از رایانه بیرون نمی‌رود): Ollama یا LM Studio را نصب کنید، یک مدل بگیرید (مثلاً <bdi dir="ltr" className="ds-mono">ollama pull qwen3:8b</bdi>) و اتصال «Ollama — مدل محلی» را بسازید.
+              </li>
+              <li>نسخهٔ ویندوز در ایران: Gemini از اینترنت ایران پاسخ نمی‌دهد. در «قابلیت‌ها و حریم خصوصی»، «استفاده از اتصال‌های نسخهٔ وب» را روشن کنید، یا از درگاه‌های ایرانی سازگار با OpenAI و مدل محلی کمک بگیرید.</li>
             </ol>
           </Article>
 
-          <Article id="prices" title="قیمت زنده طلا و ارز">
-            <ul>
-              {has("gold") ? (
-                <li>
-                  طلا: <Link className="ds-link" to={to("gold/rates")}>تابلوی قیمت</Link> ← «دریافت قیمت زنده». منبع «خودکار» اول منبع دلخواه، بعد tgju و بعد انس جهانی را امتحان می‌کند. tgju کلید نمی‌خواهد.
-                </li>
-              ) : null}
-              {has("fx") ? (
-                <li>
-                  ارز و رمزارز: <Link className="ds-link" to={to("fx/rates")}>تابلوی نرخ</Link> ← پیکان کنار «به‌روزرسانی از بازار» ← «تنظیمات نرخ و منابع قیمت». «tgju.org» را تیک بزنید و بالای فهرست بگذارید. دلار بازار آزاد و ارزها به ریال یا تومان از آن می‌آیند و رمزارزها از KuCoin و OKX. برای نرخ تتر بازار ایران، منبع سفارشی اکسیر را بگذارید (راهنمای اتصال‌ها).
-                </li>
-              ) : null}
-              <li>نسخهٔ وب و نسخهٔ ویندوز هر کدام با اینترنت خودشان قیمت می‌گیرند. tgju دو نشانی دارد، یکی در ایران و یکی بیرون، و هر نسخه آن را که در دسترس است می‌خواند. نرخ‌های ذخیره‌شده میان دو نسخه هم‌گام می‌شوند.</li>
-              <li>
-                «منبع سفارشی» هر نشانی JSON را می‌پذیرد. مسیر قیمت مثل <bdi dir="ltr" className="ds-mono">data.price</bdi>، <bdi dir="ltr" className="ds-mono">items[0].sell</bdi> یا <bdi dir="ltr" className="ds-mono">items[symbol=USD].sell</bdi> است.
-                کلید سرویس در سرآیندی مثل <bdi dir="ltr" className="ds-mono">X-API-Key</bdi> یا به جای <bdi dir="ltr" className="ds-mono">{"{key}"}</bdi> در نشانی فرستاده می‌شود. کلید فقط در همان نسخه (وب یا ویندوز)، رمزگذاری‌شده، می‌ماند و فقط به همان نشانی می‌رود.
-              </li>
-              <li>
-                EZRate قیمت طلا، سکه و ارز را با طرح رایگانِ دارای مجوز می‌دهد (۵۰ درخواست در روز): نشانی <bdi dir="ltr" className="ds-mono">https://api.ezrate.me/v1/rates?symbols=usd,g18,emami&amp;quote=IRR</bdi> با واحد ریال، سرآیند <bdi dir="ltr" className="ds-mono">X-API-Key</bdi> و مسیرهایی مثل <bdi dir="ltr" className="ds-mono">data[symbol=g18].sell</bdi>. طرح رایگانش می‌خواهد نامش کنار قیمت‌ها بیاید؛ «نام منبع» را EZRate بگذارید.
-              </li>
-              <li>tgju غیررسمی است و شرایط سایتش استفاده از قیمت‌ها را بی‌اجازهٔ کتبی مجاز نمی‌داند. اگر هیچ منبعی پاسخ نداد، قیمت را دستی ثبت کنید.</li>
-            </ul>
-          </Article>
-
-          <Article id="shop" title="اتصال به فروشگاه اینترنتی">
+          <Article id="integrations" title="وب‌هوک و API">
             <ol className="blk-steps">
               <li>
-                در نسخهٔ وب، <Link className="ds-link" to={to("settings/integrations")}>اتصال‌ها و API</Link> ← «اتصال تازه». نشانی Webhook و کلید را رونوشت کنید.
+                در نسخهٔ وب، <Link className="ds-link" to={to("settings/integrations")}>اتصال‌ها و API</Link> ← «وب‌هوک تازه». نشانی وب‌هوک و کلید امضا را رونوشت کنید (کلید فقط یک بار نشان داده می‌شود).
               </li>
-              <li>ووکامرس: پیشخوان وردپرس ← ووکامرس ← پیکربندی ← پیشرفته ← Webhooks ← افزودن؛ موضوع «Order created» (و در صورت نیاز «Order updated»)، نشانی تحویل = نشانی Webhook، رمز = کلید، نسخهٔ API: WP REST API v3.</li>
-              <li>شاپیفای: Settings ← Notifications ← Webhooks؛ رویداد «Order creation» با قالب JSON و همان نشانی؛ کلید امضای شاپیفای را هنگام ساخت اتصال در سیراف وارد کنید.</li>
               <li>
-                سایت دیگر: سفارش را به‌صورت JSON با سرآیند <bdi dir="ltr" className="ds-mono">X-Taraz-Signature</bdi> (HMAC-SHA256 بدنه با کلید) یا <bdi dir="ltr" className="ds-mono">X-Taraz-Secret</bdi> بفرستید.
+                سامانهٔ فرستنده رویداد را به‌صورت JSON با روش POST به همان نشانی می‌فرستد، با سرآیند <bdi dir="ltr" className="ds-mono">X-Signature</bdi> (HMAC-SHA256 بدنه با کلید، به شکل hex یا <bdi dir="ltr" className="ds-mono">sha256=…</bdi>) یا در صورت ناچاری <bdi dir="ltr" className="ds-mono">X-Webhook-Secret</bdi> (خود کلید، فقط روی HTTPS).
               </li>
-              <li>در برنامهٔ ویندوز اتصال ساخته نمی‌شود: سایت سفارش را به یک نشانی اینترنتی می‌فرستد، پس اتصال را در نسخهٔ وب بسازید؛ فاکتورهای ساخته‌شده با هم‌گامی به برنامهٔ ویندوز هم می‌رسند.</li>
-              <li>هر سفارش، فاکتور فروش می‌شود. مشتری با ایمیل یا همراه پیدا یا ساخته می‌شود؛ کالا با SKU، بارکد، کد یا نام پیدا می‌شود و کالای ناشناخته به‌صورت «خدمت» ساخته می‌شود تا حسابدار بررسی کند.</li>
-              <li>برنامه‌های دیگر با «کلید API» فهرست کالا و اشخاص را می‌خوانند و فاکتور ثبت می‌کنند.</li>
+              <li>
+                موضوع رویداد از سرآیند <bdi dir="ltr" className="ds-mono">X-Topic</bdi> یا فیلد <bdi dir="ltr" className="ds-mono">topic</bdi>/<bdi dir="ltr" className="ds-mono">event</bdi>/<bdi dir="ltr" className="ds-mono">type</bdi> خوانده می‌شود و شناسهٔ رویداد از <bdi dir="ltr" className="ds-mono">X-Event-Id</bdi> یا <bdi dir="ltr" className="ds-mono">id</bdi>؛ ارسال دوباره با همان شناسه یک بار ثبت می‌شود.
+              </li>
+              <li>رویدادی که هنوز بخشی برای پردازشش نیست، «دریافت شد» می‌ماند و بعداً با «تلاش دوباره» پردازش می‌شود.</li>
+              <li>
+                برنامه‌های دیگر با «کلید API» و سرآیند <bdi dir="ltr" className="ds-mono">Authorization: Bearer sm_…</bdi> به <bdi dir="ltr" className="ds-mono">/api/v1</bdi> وصل می‌شوند؛ <bdi dir="ltr" className="ds-mono">GET /api/v1/ping</bdi> سازمان کلید را برمی‌گرداند.
+              </li>
+              <li>در برنامهٔ ویندوز وب‌هوک ساخته نمی‌شود: سامانهٔ فرستنده به یک نشانی اینترنتی نیاز دارد، پس آن را در نسخهٔ وب بسازید.</li>
             </ol>
           </Article>
         </div>

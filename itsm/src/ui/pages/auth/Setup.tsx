@@ -11,6 +11,7 @@ import { SignupForm } from "./Signup";
 import { RecoveryCode } from "./RecoveryCode";
 import { passwordIcon } from "./Login";
 import { FormAlert, ICON, initials, useBlurValidation, LTR } from "../kit";
+import { APP_NAME } from "@shared/constants";
 
 declare global {
   interface Window {
@@ -112,7 +113,7 @@ export default function Setup() {
     { v: "local", icon: <Monitor {...ICON} />, t: "شروع روی همین رایانه", d: "سازمان تازه می‌سازید و داده‌ها روی همین ویندوز می‌مانند؛ هر وقت خواستید به نسخهٔ وب وصلش می‌کنید." },
     { v: "cloud", icon: <CloudDownload {...ICON} />, t: "اتصال به حساب ابری", d: "در نسخهٔ وب حساب و سازمان دارید؟ داده‌ها دریافت می‌شوند و از این به بعد دو طرف هم‌گام می‌مانند." },
     ...(window.itsm?.setServer
-      ? [{ v: "client" as const, icon: <Network {...ICON} />, t: "اتصال به سرور شبکهٔ فروشگاه", d: "سیراف روی رایانهٔ دیگری از شبکهٔ داخلی با «حالت شبکه» روشن است؛ این رایانه فقط به آن وصل می‌شود." }]
+      ? [{ v: "client" as const, icon: <Network {...ICON} />, t: "اتصال به سرور شبکهٔ داخلی", d: `${APP_NAME} روی رایانهٔ دیگری از شبکهٔ داخلی با «حالت شبکه» روشن است؛ این رایانه فقط به آن وصل می‌شود.` }]
       : []),
   ];
 
@@ -124,7 +125,7 @@ export default function Setup() {
   };
 
   let title: ReactNode = "خوش آمدید";
-  let subtitle: ReactNode = "سیراف روی این رایانه نصب شد. چطور شروع می‌کنید؟";
+  let subtitle: ReactNode = `${APP_NAME} روی این رایانه نصب شد. چطور شروع می‌کنید؟`;
   let body: ReactNode = (
     <>
       <ChoiceCards options={options} value={mode} onChange={setMode} onEnter={() => setStep(1)} />
@@ -192,7 +193,7 @@ export default function Setup() {
               label="نشانی نسخهٔ وب"
               rules={[
                 { required: true, message: "نشانی نسخهٔ وب را وارد کنید." },
-                { type: "url", message: "نشانی کامل را وارد کنید، مثلاً https://siraf.example.com" },
+                { type: "url", message: "نشانی کامل را وارد کنید، مثلاً https://itsm.example.com" },
               ]}
             >
               <Input size="large" classNames={LTR} spellCheck={false} prefix={<Link2 {...ICON} aria-hidden />} autoFocus inputMode="url" />

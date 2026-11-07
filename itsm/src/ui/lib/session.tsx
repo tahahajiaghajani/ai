@@ -31,6 +31,8 @@ export interface OrgSummary {
   name: string;
   modules: ModuleKey[];
   logo: string | null;
+  /** IANA time zone (the organisation's settings) */
+  timezone: string | null;
   /** the caller's role (null while a platform admin works there in support mode) */
   role: string | null;
   support?: { level: "view" | "edit"; expires_at: string } | null;

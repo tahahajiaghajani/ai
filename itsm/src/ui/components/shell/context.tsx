@@ -7,7 +7,7 @@ export interface ShellApi {
   /** The current page's title as plain text (set by PageHeader). */
   setTitle: (title: string | null) => void;
   openPalette: () => void;
-  /** opens «دستیار سیراف» (see src/ui/ai/assistant/bus.ts) */
+  /** opens the assistant «دستیار» (see src/ui/ai/assistant/bus.ts) */
   openAssistant: (req?: AssistantRequest) => void;
 }
 

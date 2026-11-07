@@ -19,16 +19,10 @@ import type { AiUsageView } from "../kit/types";
 type Period = "month" | "30d" | "lastMonth";
 const PERIOD_LABEL: Record<Period, string> = { month: "این ماه", "30d": "۳۰ روز اخیر", lastMonth: "ماه قبل" };
 
+/** Titles of the usage ledger's `feature` column; modules that call the models add theirs. */
 export const USAGE_FEATURE_LABEL: Record<string, string> = {
   assistant: "دستیار",
   chat: "دستیار",
-  explain: "تحلیل گزارش",
-  capture: "خواندن از تصویر",
-  brief: "خلاصهٔ امروز",
-  digest: "خلاصهٔ امروز",
-  insights: "بینش‌ها",
-  plan: "برنامهٔ ماه",
-  forecast: "پیش‌بینی",
   test: "آزمایش اتصال",
   relay: "نسخهٔ ویندوز",
 };

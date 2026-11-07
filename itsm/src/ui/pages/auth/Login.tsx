@@ -6,6 +6,7 @@ import { api, errorText, ApiError } from "../../lib/api";
 import { useSession } from "../../lib/session";
 import { AuthLayout } from "./AuthLayout";
 import { FormAlert, ICON, useBlurValidation, LTR } from "../kit";
+import { APP_NAME } from "@shared/constants";
 
 // antd wraps this in its own focusable span.ant-input-password-icon (role=button, aria-label), styled in pages.css
 export const passwordIcon = (visible: boolean) => (visible ? <EyeOff {...ICON} aria-hidden /> : <Eye {...ICON} aria-hidden />);
@@ -22,7 +23,7 @@ export default function Login() {
   if (me) return <Navigate to={sp.get("next") || "/"} replace />;
   const canSignup = !!meta?.allow_signup && meta.mode === "cloud";
   return (
-    <AuthLayout title="ورود به سیراف" subtitle="با ایمیل و رمز عبورتان وارد شوید.">
+    <AuthLayout title={`ورود به ${APP_NAME}`} subtitle="با ایمیل و رمز عبورتان وارد شوید.">
       {err ? <FormAlert>{err}</FormAlert> : null}
       <Form
         form={form}

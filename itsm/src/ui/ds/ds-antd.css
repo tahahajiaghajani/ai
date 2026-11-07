@@ -76,7 +76,7 @@
   /* tags are status chips: 22 px pills (tint + text); our 5 px nuqta can be passed as the icon */
   .ant-tag { block-size: 22px; line-height: 20px; font-size: 12px; display: inline-flex; align-items: center; gap: 6px; }
 
-  /* warnings never sit on an amber fill (amber surfaces belong to gold): Alert type="warning" is a surface with a line
+  /* warnings never sit on an amber fill: Alert type="warning" is a surface with a line
      ring and a warning-fill icon; wrap the lead words in <b> to colour them */
   .ant-alert-warning { background: var(--ds-surface); border-color: var(--ds-line-2); }
   .ant-alert-warning .ant-alert-icon { color: var(--ds-warning-fill); }

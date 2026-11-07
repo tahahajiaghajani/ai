@@ -1,22 +1,22 @@
-// The business chooser: every business this account belongs to, the last one used first-marked.
+// The organisation chooser: every organisation this account belongs to, the last one used marked.
 import { Button } from "antd";
 import { Plus, ChevronLeft, Building2 } from "lucide-react";
 import { Link, useNavigate } from "react-router";
 import { useSession } from "../../lib/session";
 import { toPersianDigits, SEP } from "../../lib/fa";
-import { BUSINESS_KINDS, MODULES } from "@shared/constants";
+import { APP_NAME, MODULES, TIMEZONES } from "@shared/constants";
 import { ROLES } from "@shared/permissions";
 import { ICON, PlainFrame } from "../kit";
 
 function lastOrg(): string | null {
   try {
-    return localStorage.getItem("itsm.lastOrg") ?? localStorage.getItem("itsm.lastOrg");
+    return localStorage.getItem("itsm.lastOrg");
   } catch {
     return null;
   }
 }
 
-const kindTitle = (k: string) => BUSINESS_KINDS.find((b) => b.key === k)?.title.replace(/\s*\(.*\)$/, "") ?? k;
+const zoneTitle = (tz: string | null | undefined) => (tz ? (TIMEZONES.find((z) => z.value === tz)?.label.replace(/\s*\(.*\)$/, "") ?? tz) : null);
 
 export default function Orgs() {
   const { me } = useSession();
@@ -30,7 +30,7 @@ export default function Orgs() {
         <div>
           {first ? <p className="pg-greet">سلام {first}،</p> : null}
           <div className="pg-ph">
-            <h1 className="ds-t-page">{orgs.length ? "سازمان‌های شما" : "به سیراف خوش آمدید"}</h1>
+            <h1 className="ds-t-page">{orgs.length ? "سازمان‌های شما" : `به ${APP_NAME} خوش آمدید`}</h1>
             {orgs.length > 1 ? <span className="pg-ph-meta ds-num">{toPersianDigits(String(orgs.length))} سازمان</span> : null}
           </div>
         </div>
@@ -54,7 +54,7 @@ export default function Orgs() {
                       <span className="truncate">{o.name}</span>
                       {o.id === last && orgs.length > 1 ? <span className="pg-chip">آخرین بار</span> : null}
                     </span>
-                    <span className="pg-org-meta block">{[kindTitle(o.business_kind), ...mods].filter(Boolean).join(SEP)}</span>
+                    <span className="pg-org-meta block">{[zoneTitle(o.timezone), ...mods].filter(Boolean).join(SEP)}</span>
                   </span>
                   {role ? <span className="pg-org-role">{role}</span> : null}
                   <ChevronLeft {...ICON} className="pg-chev" aria-hidden />
@@ -67,7 +67,7 @@ export default function Orgs() {
               </span>
               <span className="min-w-0 flex-1">
                 <span className="pg-org-name">سازمان تازه</span>
-                <span className="pg-org-meta block">کالا، طلا، صرافی یا خدمات؛ در سه گام</span>
+                <span className="pg-org-meta block">نام و منطقهٔ زمانی؛ در یک گام</span>
               </span>
               <ChevronLeft {...ICON} className="pg-chev" aria-hidden />
             </Link>
@@ -79,7 +79,7 @@ export default function Orgs() {
                 <Building2 size={28} strokeWidth={1.4} absoluteStrokeWidth aria-hidden />
               </span>
               <h2>هنوز سازمانی ندارید.</h2>
-              <p>اولین سازمانتان را بسازید؛ کدینگ حساب‌ها و سال مالی خودکار آماده می‌شود.</p>
+              <p>اولین سازمانتان را بسازید؛ بعد اعضا را دعوت کنید و نقش هر کدام را تعیین کنید.</p>
               <Button type="primary" icon={<Plus {...ICON} />} onClick={() => nav("/orgs/new")}>
                 ساخت سازمان
               </Button>

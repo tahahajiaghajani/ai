@@ -348,7 +348,7 @@ export function ImportDrawer({ def, open, onClose }: { def: EntityDef; open: boo
                 },
                 {
                   key: "f",
-                  title: "فیلد در سیراف",
+                  title: "فیلد در برنامه",
                   width: 260,
                   render: (_: unknown, r: { i: number }) => (
                     <Select

@@ -1,4 +1,4 @@
-// «دستیار سیراف» — mounted once in AppShell. Light on purpose: it listens for openAssistant() (Topbar button, Ctrl K
+// «دستیار» (the assistant) — mounted once in AppShell. Light on purpose: it listens for openAssistant() (Topbar button, Ctrl K
 // palette, «بپرس» links) and Ctrl+J (any keyboard layout: the physical J key), keeps the open state, and loads the
 // panel itself (Markdown, charts) only when it is first needed — or quietly once the app is idle.
 import { Suspense, lazy, useCallback, useEffect, useRef, useState } from "react";

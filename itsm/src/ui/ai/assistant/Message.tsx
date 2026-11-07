@@ -11,14 +11,9 @@ import {
   ThumbsUp,
   ThumbsDown,
   BookmarkPlus,
-  Receipt,
   FileText,
-  User,
-  Package,
-  Gem,
-  ArrowLeftRight,
-  Wallet,
-  BookOpenText,
+  Users,
+  Building2,
   ChartColumn,
   Link2,
   RotateCcw,
@@ -31,7 +26,7 @@ import {
 import type { AiErrorKind, AiProposal, AiRef } from "@shared/ai/types";
 import { fa } from "../../lib/fa";
 import { Loader } from "../../components/display";
-import { ChequeIcon, Ic } from "../../components/shell/icons";
+import { Ic } from "../../components/shell/icons";
 import { Markdown } from "../markdown/Markdown";
 import { refPath } from "../markdown/links";
 import { ChartCard, TableCard } from "./DataViews";
@@ -39,19 +34,11 @@ import { ProposalCard } from "./ProposalCard";
 import type { Phase } from "./store";
 import type { UiMessage, UiTool } from "./state";
 
+// icons of the records an answer used, by ref type; modules add theirs (anything else shows a link)
 const REF_ICON: Record<string, LucideIcon> = {
-  invoice: Receipt,
-  voucher: FileText,
-  party: User,
-  item: Package,
-  gold_doc: Gem,
-  gold_bar: Gem,
-  coin: Gem,
-  fx_deal: ArrowLeftRight,
-  remittance: ArrowLeftRight,
-  cheque: ChequeIcon,
-  treasury_doc: Wallet,
-  account: BookOpenText,
+  org: Building2,
+  member: Users,
+  record: FileText,
   report: ChartColumn,
 };
 

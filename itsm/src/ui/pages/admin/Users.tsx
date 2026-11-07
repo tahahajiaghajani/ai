@@ -42,11 +42,12 @@ interface UserDetail {
 
 function browser(ua: string | null): string {
   if (!ua) return "";
+  // the Windows app's user agent also names Chrome, so it is checked first
+  if (/Electron\//.test(ua)) return "برنامهٔ ویندوز";
   if (/Edg\//.test(ua)) return "Edge";
   if (/Chrome\//.test(ua)) return "Chrome";
   if (/Firefox\//.test(ua)) return "Firefox";
   if (/Safari\//.test(ua)) return "Safari";
-  if (/Electron|Siraf/i.test(ua)) return "برنامهٔ ویندوز";
   return "";
 }
 

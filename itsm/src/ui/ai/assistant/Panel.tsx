@@ -1,4 +1,4 @@
-// «دستیار سیراف» — the panel. Docked at the end edge of wide screens (resizable; the page makes room), floating over
+// «دستیار» (the assistant) — the panel. Docked at the end edge of wide screens (resizable; the page makes room), floating over
 // the page on mid-size screens and a full-screen sheet on phones. The conversation lives in the store (store.ts), so
 // an answer keeps streaming while the panel is closed or the page changes.
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
@@ -13,16 +13,13 @@ import {
   CircleAlert,
   FilePen,
   FileText,
-  Gem,
+  CalendarDays,
   KeyRound,
-  ArrowLeftRight,
-  Package,
   Power,
   ScanSearch,
   SquarePen,
   TrendingUp,
   Users,
-  Wallet,
   X,
   type LucideIcon,
 } from "lucide-react";

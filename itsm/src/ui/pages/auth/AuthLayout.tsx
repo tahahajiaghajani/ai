@@ -1,14 +1,10 @@
 import type { ReactNode } from "react";
 import { Monitor, Globe } from "lucide-react";
 import { Logo } from "../../components/brand";
-import { APP_TAGLINE_EN } from "@shared/constants";
+import { APP_DESCRIPTION, APP_NAME, APP_TAGLINE, APP_TAGLINE_EN } from "@shared/constants";
 import { useSession } from "../../lib/session";
 import { toPersianDigits } from "../../lib/fa";
 import { ICON, ThemeToggle } from "../kit";
-
-// the first two sentences of the Persian story (brief §2), for the brand panel
-const STORY =
-  "هزار سال پیش، سیراف در کرانهٔ خلیج فارس بندرِ پررونقِ داد و ستد با چین و هند و آفریقا بود. سیرافِ امروز همان بندر است برای سازمان شما: کالا، طلا، نقد و چک، حواله و رمزارز به یک‌جا می‌رسند و در یک دفتر می‌نشینند.";
 
 export interface AuthSteps {
   labels: string[];
@@ -88,7 +84,7 @@ export function AuthLayout({
         </footer>
       </div>
 
-      <aside className="ds-brand pg-brand pg-in" aria-label="سیراف">
+      <aside className="ds-brand pg-brand pg-in" aria-label={APP_NAME}>
         <div className="ds-brand-in">
           <div className="pg-brand-top">
             <span className="pg-brand-logo">
@@ -108,20 +104,16 @@ export function AuthLayout({
               ))}
             </ol>
           ) : null}
-          <p className="ds-tagline">
-            هر داد و ستد،
-            <br />
-            به حساب می‌نشیند.
-          </p>
+          <p className="ds-tagline">{APP_TAGLINE}</p>
           <span className="ds-horizon" aria-hidden="true" />
           <p className="ds-en">{APP_TAGLINE_EN}</p>
-          {steps ? null : <p className="ds-story">{STORY}</p>}
+          {steps ? null : <p className="ds-story">{APP_DESCRIPTION}</p>}
           <div className="ds-bfoot">
-            <span>حسابداری و مدیریت سازمان</span>
-            <span className="ds-nuqta" />
             <span>وب و ویندوز</span>
             <span className="ds-nuqta" />
             <span>با اینترنت و بی‌اینترنت</span>
+            <span className="ds-nuqta" />
+            <span>دستیار هوشمند</span>
           </div>
         </div>
       </aside>

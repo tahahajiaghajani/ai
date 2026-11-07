@@ -167,7 +167,7 @@ export async function listOrgs(q: Queryable, f: OrgListFilter = {}) {
   }
   if (f.support) where.push(`exists (select 1 from sm_support_sessions s where s.org_id = o.id and s.ended_at is null and s.expires_at > now())`);
   const rows = await q.query<Record<string, unknown> & { last_activity: string | null }>(
-    `select o.id, o.name, o.legal_name, o.modules, o.city, o.created_at,
+    `select o.id, o.name, o.legal_name, o.modules, o.city, o.settings->>'timezone' as timezone, o.created_at,
             coalesce(a.status, 'active') as status, a.status_reason, coalesce(a.ai_disabled, false) as ai_disabled,
             (select count(*)::int from sm_org_members m where m.org_id = o.id and m.deleted_at is null and m.is_active) as members,
             (select json_build_object('name', u.full_name, 'email', u.email, 'mobile', u.mobile)
@@ -234,7 +234,7 @@ export async function orgSizes(q: Queryable, orgId: string): Promise<{ total_byt
 export async function orgDetail(cfg: ServerConfig, orgId: string, adminUserId: string) {
   const db = cfg.db;
   const org = await db.one(
-    `select id, name, legal_name, modules, city, phone, email, website, created_at, updated_at, logo
+    `select id, name, legal_name, modules, city, phone, email, website, settings->>'timezone' as timezone, created_at, updated_at, logo
      from sm_orgs where id = $1 and deleted_at is null`,
     [orgId],
   );

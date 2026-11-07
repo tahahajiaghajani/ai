@@ -2,7 +2,8 @@
 // `javascript:` link, a path to someone else's record), so an answer links only to:
 //   • a record the conversation's tools returned (`record:<type>/<id>`, or that record's own in-app path), and
 //   • a page of the app the person can open (the sidebar's paths, no ids).
-// Everything else renders as plain text. Paths are org-relative («sales/invoices/<id>»), never absolute URLs.
+// Everything else renders as plain text. Paths are org-relative («settings/members», «<module>/<records>/<id>»), never
+// absolute URLs.
 import type { AiRef } from "@shared/ai/types";
 import { isUuid } from "@shared/id";
 
@@ -24,14 +25,14 @@ const SCHEME = /^([a-z][a-z0-9+.-]*):/i;
 export function resolveHref(href: string | null | undefined, refs: readonly AiRef[], pages: ReadonlySet<string>): string | null {
   const h = (href ?? "").trim();
   if (!h) return null;
-  // record:invoice/<id> (also siraf://invoice/<id>): only a record a tool returned
+  // record:<type>/<id> (also record://<type>/<id>): only a record a tool returned
   const ref = h.match(/^record:\/{0,2}([a-z_]+)\/([^/?#\s]+)$/i);
   if (ref) {
     const hit = refs.find((r) => r.type === ref[1] && r.id === ref[2]);
     return hit ? safePath(hit.path) : null;
   }
   if (SCHEME.test(h) || h.startsWith("//")) return null; // http(s), javascript:, data:, mailto: …
-  // «/<org id>/sales/…» → «sales/…»
+  // «/<org id>/settings/…» → «settings/…»
   const trimmed = h.replace(/^\/+/, "");
   const first = trimmed.split(/[/?#]/)[0];
   const path = safePath(isUuid(first) ? trimmed.slice(first.length) : trimmed);

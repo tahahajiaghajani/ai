@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Button, Checkbox } from "antd";
 import { Copy, Check, Download } from "lucide-react";
-import { APP_NAME_EN } from "@shared/constants";
+import { APP_NAME, APP_NAME_EN } from "@shared/constants";
 import { FormAlert, ICON } from "../kit";
 
 /**
@@ -33,9 +33,9 @@ export function RecoveryCode({ code, onDone }: { code: string; onDone: () => voi
   };
 
   const save = () => {
-    const text = `${APP_NAME_EN} recovery code\n\n${code}\n\nکد بازیابی سیراف — با این کد می‌توانید رمز عبور تازه بگذارید. آن را جای امنی نگه دارید.\n`;
+    const text = `${APP_NAME_EN} recovery code\n\n${code}\n\nکد بازیابی ${APP_NAME} — با این کد می‌توانید رمز عبور تازه بگذارید. آن را جای امنی نگه دارید.\n`;
     const url = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
-    const a = Object.assign(document.createElement("a"), { href: url, download: "siraf-recovery-code.txt" });
+    const a = Object.assign(document.createElement("a"), { href: url, download: `${APP_NAME_EN.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-recovery-code.txt` });
     document.body.appendChild(a);
     a.click();
     a.remove();

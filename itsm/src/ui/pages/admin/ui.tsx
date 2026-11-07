@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "../../lib/api";
 import { fa, jDate, jTime } from "../../lib/fa";
 import { Chip, type ChipTone } from "../../components/display";
-import { BUSINESS_KINDS, MODULES } from "@shared/constants";
+import { MODULES, TIMEZONES } from "@shared/constants";
 
 export const ICON = { size: 16, strokeWidth: 1.4, absoluteStrokeWidth: true } as const;
 export const ICON14 = { size: 14, strokeWidth: 1.4, absoluteStrokeWidth: true } as const;
@@ -123,7 +123,8 @@ export const bytes = (b: number | null | undefined) => {
   return `${fa(Math.max(1, Math.round(n / 1024)))} کیلوبایت`;
 };
 
-export const kindTitle = (v: string) => BUSINESS_KINDS.find((b) => b.key === v)?.title.replace(/\s*\(.*\)$/, "") ?? v;
+/** «تهران» for Asia/Tehran: the label of a known time zone without its IANA name, or the name itself. */
+export const zoneTitle = (v: string | null | undefined) => (v ? (TIMEZONES.find((z) => z.value === v)?.label.replace(/\s*\(.*\)$/, "") ?? v) : null);
 export const moduleTitle = (m: string) => MODULES.find((x) => x.key === m)?.title ?? m;
 
 export function Mods({ list }: { list: string[] | null | undefined }) {

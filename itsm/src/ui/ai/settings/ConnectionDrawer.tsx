@@ -13,6 +13,7 @@ import { TIER_LABEL, cleanKey } from "../kit/model";
 import { objectOf } from "../kit/hooks";
 import type { AiConnectionInput, AiPresetView } from "../kit/types";
 import { TestReport } from "./TestReport";
+import { APP_NAME } from "@shared/constants";
 
 type Tier = "smart" | "fast" | "vision";
 const TIERS: Tier[] = ["smart", "fast", "vision"];
@@ -434,7 +435,7 @@ export function RegionNote(): ReactNode {
       <li>
         <i className="ds-nuqta" aria-hidden />
         <span>
-          <b>سرویس‌های خارجی</b> (Claude، OpenAI، Gemini و …) به نشانی‌های ایران پاسخ نمی‌دهند. نسخهٔ وب سیراف بیرون از ایران اجرا می‌شود و مستقیم وصل می‌شود.
+          <b>سرویس‌های خارجی</b> (Claude، OpenAI، Gemini و …) به نشانی‌های ایران پاسخ نمی‌دهند. نسخهٔ وب برنامه بیرون از ایران اجرا می‌شود و مستقیم وصل می‌شود.
         </span>
       </li>
       <li>
@@ -453,7 +454,7 @@ export function RegionNote(): ReactNode {
         <i className="ds-nuqta" aria-hidden />
         <span>
           <ShieldCheck size={13} strokeWidth={1.4} absoluteStrokeWidth className="me-1 inline align-[-2px] text-ink-3" aria-hidden />
-          با سرویس خارجی یا درگاه، پرسش و داده‌های لازم برای پاسخ از سیراف بیرون می‌رود؛ «حریم خصوصی» تعیین می‌کند کد ملی، موبایل و حساب‌ها پوشانده شود.
+          با سرویس خارجی یا درگاه، پرسش و داده‌های لازم برای پاسخ از {APP_NAME} بیرون می‌رود؛ «حریم خصوصی» تعیین می‌کند کد ملی، موبایل، ایمیل و شماره‌ها پوشانده شود.
         </span>
       </li>
     </ul>

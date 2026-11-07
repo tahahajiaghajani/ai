@@ -1,21 +1,21 @@
 /* =====================================================================================================
-   سیراف · Siraf — design tokens                                              tokens.css · v1.2
-   12 Aban 1405 · 3 Nov 2026 · source of truth for the rebuild of src/ui (web + Windows app)
+   Design system «ds» — design tokens                                         tokens.css · v1.2
+   The source of truth of src/ui (web + Windows app). The product's brand is chosen later; until then the
+   placeholder mark lives in src/ui/components/brand.tsx and these tokens stay brand-neutral in name.
 
-   v1.2 sets the whole interface in Arad, the wordmark's own typeface (one pen from the logo to the table
-   cell, docs/BRAND_FA.md §5), with every digit drawn by «DS Num», a digit-only subset of Vazirmatn that
-   keeps money columns tabular and the separators narrow. UI weights are 450 / 540 / 600.
+   v1.2 sets the whole interface in Arad with every digit drawn by «DS Num», a digit-only subset of
+   Vazirmatn that keeps number columns tabular and the separators narrow. UI weights are 450 / 540 / 600.
 
    v1.1 applies the polish and usability reviews (components.md lists every rule that changed):
      opaque focus colour and a 3:1 control edge (--ds-control-strong) · denser ledgers (40 / 32 px rows,
      48 px top bar) · a neutral selected row with a Dusk start bar (--ds-accent-bar) · paler, lilac accent
-     tints · warning moved off the gold hue · info (blue) retired · figure weights 440 / 500 · decimals at
+     tints · warning moved off the amber hue · info (blue) retired · figure weights 440 / 500 · decimals at
      full size below 24 px · brighter dark-theme secondary text · the dark top bar no longer a lighter band ·
      the brand surface lit at its horizon · --ds-holiday for calendars.
 
    What is here
      §1  @font-face — Arad (text and titles), DS Num (digits), Geist, Geist Mono + static print set
-     §2  Brand constants — Dusk «شامگاه» (primary) 50–950, Gold «زر» 50–950, brand gradients, grain
+     §2  Brand constants — Dusk «شامگاه» (primary) 50–950, brand gradients, grain
      §3  Scale tokens — type, spacing, radii, sizes, density, z-index, motion (theme-independent)
      §4  Light theme «کاغذ و مرکب» (paper and ink) — the default
      §5  Dark theme «زغال گرم» (warm charcoal) — OS preference and the in-app toggle
@@ -56,7 +56,7 @@
 
 /* Every digit and the number separators, wherever they appear (cells, KPI figures, inputs, dates, titles).
    «DS Num» 33.003 DSNum.woff2 (8 KB): a digit-only subset of Vazirmatn (OFL 1.1, no Reserved Font Name;
-   its copyright is kept, OFL-Vazirmatn.txt ships with it; scripts/build-siraf-num.py rebuilds it). Its cmap maps
+   its copyright is kept, OFL-Vazirmatn.txt ships with it; renamed «DS Num», no Reserved Font Name). Its cmap maps
    ASCII 0–9 to the Persian digit glyphs, so digits are Persian without any feature. Under tabular-nums its
    ٬ and ٫ stay narrow (Arad's own tnum spreads them, so Arad never draws a number). */
 @font-face {
@@ -83,8 +83,8 @@
   unicode-range: U+0000-002F, U+003A-0040, U+005B-0060, U+007B-00BF, U+00D7, U+00F7, U+0600-06FF, U+0750-077F, U+08A0-08FF, U+200B-206F, U+25CC, U+FB50-FDFF, U+FE70-FEFF;
 }
 
-/* Persian display and brand: page and section titles, the wordmark, the splash · the same AradVF.woff2 at its
-   own proportions. Axes: wght 100–1000, DSTY 1–3 (dot style). Siraf always uses DSTY 3 (rhombic nuqtas) — §8. */
+/* Persian display: page and section titles, the splash · the same AradVF.woff2 at its own proportions.
+   Axes: wght 100–1000, DSTY 1–3 (dot style). The app always uses DSTY 3 (rhombic nuqtas) — §8. */
 @font-face {
   font-family: "Arad";
   src: url("/fonts/ds/AradVF.woff2") format("woff2-variations"),
@@ -94,7 +94,7 @@
   font-display: swap;
 }
 
-/* Latin: the name "Siraf", Latin words, amounts written with a Latin currency code · geist@1.9.0 · sha256 5c558802…cae512 */
+/* Latin: a Latin product name, Latin words, codes and units written in Latin · geist@1.9.0 · sha256 5c558802…cae512 */
 @font-face {
   font-family: "Geist";
   src: url("/fonts/ds/Geist-Variable.woff2") format("woff2-variations"),
@@ -104,9 +104,8 @@
   font-display: swap;
 }
 
-/* Codes that are Latin by nature: IBAN/Sheba, card number, wallet address, tx hash, supplier SKU, request id
-   (slashed zero) · sha256 cf5bf55f…46b25. Business document numbers (voucher, invoice, cheque, receipt) are
-   Persian digits in DS Num, not Geist Mono. */
+/* Codes that are Latin by nature: host names, IP and MAC addresses, serial numbers, API keys, request ids
+   (slashed zero) · sha256 cf5bf55f…46b25. Record numbers of the app are Persian digits in DS Num, not Geist Mono. */
 @font-face {
   font-family: "Geist Mono";
   src: url("/fonts/ds/GeistMono-Variable.woff2") format("woff2-variations"),
@@ -149,23 +148,7 @@
   --ds-dusk-900: #381634;
   --ds-dusk-950: #240D21;
 
-  /* Gold scale — «زر», OKLCH hue 76–87. Lives ONLY inside the gold module (karat tags, gold avatars,
-     the gold price strip, gold-weight chips). Never a second accent, never on the logo. Amber-tinted
-     surfaces belong to gold alone: warnings never sit on an amber fill (§4, components.md §0.4).
-     100/300/400/500/700/950 are the brief's role colours; 50/200/600/800/900 interpolated. */
-  --ds-gold-50:  #FCF9F2;
-  --ds-gold-100: #F7EFE0;   /* light gold tint */
-  --ds-gold-200: #EDDEBE;
-  --ds-gold-300: #D4BB86;   /* light gold line */
-  --ds-gold-400: #C7A662;   /* dark-theme gold solid */
-  --ds-gold-500: #AF8C4A;   /* light gold solid */
-  --ds-gold-600: #987536;
-  --ds-gold-700: #7F5E25;   /* light gold text, 5.9:1 on surface */
-  --ds-gold-800: #63471A;
-  --ds-gold-900: #463315;
-  --ds-gold-950: #2E2515;   /* dark gold tint */
-
-  /* The only four gradients (brief §3). Never on buttons, text, sidebars, table headers or the logo. */
+  /* The only gradients. Never on buttons, text, sidebars or table headers. */
   /* 1 · «شامگاه» — brand surfaces only: login/onboarding, splash, installer, About, OG image.
          The sky darkens toward the zenith; the last light sits ON the horizon line, not at the bottom edge,
          so it is drawn by the horizon element itself (1a) and holds for any copy length or window height.
@@ -186,8 +169,6 @@
   --ds-grad-dusk-tile:
     radial-gradient(120% 70% at 85% 118%, rgb(226 134 112 / .30), transparent 62%),
     linear-gradient(162deg, #240D21 0%, #381634 38%, #50224B 72%, #6A2E63 100%);
-  /* 3 · «زرِ ساییده» brushed gold — gold-module badges, karat avatars, gold-strip icons; ≤ 40 px. */
-  --ds-grad-gold: linear-gradient(135deg, #C19F66 0%, #E1D0A1 48%, #A77E3F 100%);
   /* (2 · chart area and 4 · glass edge are theme-dependent: §4/§5.) */
 
   /* Grain: fractal noise, 160 px tile, used at opacity .06–.08 with mix-blend-mode: overlay, on Dusk only. */
@@ -237,7 +218,7 @@
   --ds-type-code-size: 12.5px;    --ds-type-code-line: 20px;      --ds-type-code-weight: 400;     /* Geist Mono, LTR isolate, groups of 4 */
   --ds-type-kbd-size: 11px;                                                                       /* Geist 500 */
   --ds-type-latin-scale: .94em;   /* Geist inline in Persian text */
-  --ds-type-brand-tracking: -.025em; /* "Siraf" in Geist 600 only — never letter-space Persian (Chromium ignores it on Arabic script anyway) */
+  --ds-type-brand-tracking: -.025em; /* a Latin product name in Geist 600 only — never letter-space Persian (Chromium ignores it on Arabic script anyway) */
   --ds-type-decimal-scale: 1;     /* decimals never shrink in cells, inputs, sums and strips: they carry value (milligrams, cents) */
   --ds-type-decimal-scale-display: .65; /* only inside display figures ≥ 24 px (.ds-t-hero, .ds-t-figure): ≥ 18 px, text-3 */
   --ds-type-unit-scale: .78;      /* units 75–80 % size, text-3, after a no-break space */
@@ -281,13 +262,12 @@
   --ds-sidebar-w: 244px;      --ds-rail-w: 60px;          --ds-nav-item-h: 32px;
   --ds-topbar-h: 48px;        --ds-panel-inset: 8px;
   --ds-sheet-w: 480px;        --ds-sheet-w-min: 420px;    --ds-sheet-w-wide: 560px;   /* one-record forms and details */
-  --ds-sheet-w-max: 880px;    /* line-item editors (multi-line vouchers and invoices) when not a full page */
+  --ds-sheet-w-max: 880px;    /* line-item editors (multi-line records) when not a full page */
   --ds-palette-w: 680px;      --ds-palette-top: 13vh;     --ds-palette-input-h: 56px;  --ds-palette-row-h: 42px;  --ds-palette-footer-h: 40px;
   --ds-nuqta: 7px;            /* status/sync dot: a 7 px square rotated 45° */
   --ds-content-max: 1280px;
 
-  /* ---- density: comfortable (dashboard) and compact (the default on ledger and list routes:
-         اسناد، دفتر کل، صورت‌حساب، فاکتورها، چک‌ها، حواله‌ها) — components.md §4.1 ---- */
+  /* ---- density: comfortable (home, dashboards) and compact (the default on long list routes) ---- */
   --ds-row-h: 40px;           --ds-row-h-compact: 32px;       /* 14/20 cells · 13/20 cells */
   --ds-th-h: 36px;            --ds-th-h-compact: 32px;        /* 13/20 · 12/18, weight 400, text-3 */
   --ds-tfoot-h: 40px;         --ds-tfoot-h-compact: 36px;     /* totals row */
@@ -395,16 +375,15 @@
   --ds-in-halo: rgb(27 114 72 / .18);                                                    /* 3 px halo of the live/sync nuqta */
   --ds-danger: #B63731;       --ds-danger-tint: #F6E6E5;   --ds-danger-border: #EBC6C4;  /* errors, overdue, bounced — nothing else · chip 4.85:1 */
   --ds-danger-solid: #B63731; --ds-danger-solid-hover: #A12B27;                          /* destructive button fill, white text */
-  --ds-warning: #A35612;      --ds-warning-tint: #FEEFE4;  --ds-warning-border: #F8CAA7; /* OKLCH h 55–62, off the gold hue (78–85) · 4.66–5.39:1 on every fill, 4.79 on its tint */
+  --ds-warning: #A35612;      --ds-warning-tint: #FEEFE4;  --ds-warning-border: #F8CAA7; /* OKLCH h 55–62, off the amber hue (78–85) · 4.66–5.39:1 on every fill, 4.79 on its tint */
   --ds-warning-fill: #F29A43;                                                            /* nuqta, icon, meter segment — never text */
   --ds-neutral-tint: #F2F1EF;                                                            /* neutral chip: draft, in transit, archived */
   --ds-holiday: #B63731;      /* Fridays and holidays in calendars: the cultural red, a role of its own so danger stays rare */
   /* Outflow is --ds-text (ink), never red. Excluded amounts (bounced, returned) are --ds-text-3 and never struck through.
-     Info (blue) is retired: a neutral chip + icon, or a --ds-sea nuqta inside «صرافی». Amber surfaces are gold's alone:
+     Info (blue) is retired: a neutral chip + icon, or a --ds-sea nuqta. No amber surfaces:
      warning banners are --ds-surface + --ds-ring with a --ds-warning-fill nuqta; only 22 px chips use --ds-warning-tint. */
 
-  /* ---- module materials ---- */
-  --ds-gold-text: #7F5E25;    --ds-gold: #AF8C4A;          --ds-gold-tint: #F7EFE0;      --ds-gold-line: #D4BB86;
+  /* ---- a second material (teal «دریا»): a module's own accent, sparingly ---- */
   --ds-sea-text: #13676F;     --ds-sea: #2D8992;           --ds-sea-tint: #E1F2F4;       --ds-sea-line: #A3CDD2;
 
   /* ---- charts: categorical, FIXED order, never cycled; past 6 series fold into «سایر» or facet.
@@ -473,7 +452,6 @@
     --ds-danger: #EA7E73;  --ds-danger-tint: #362522;  --ds-danger-border: #5C3833;  --ds-danger-solid: #BB4840;  --ds-danger-solid-hover: #A73E37;
     --ds-warning: #F2A866;  --ds-warning-tint: #3A281B;  --ds-warning-border: #6F4829;  --ds-warning-fill: #F29A43;
     --ds-neutral-tint: #2B2926;  --ds-holiday: #EA7E73;
-    --ds-gold-text: #DDC084;  --ds-gold: #C7A662;  --ds-gold-tint: #2E2515;  --ds-gold-line: #866E40;
     --ds-sea-text: #7BC6CE;  --ds-sea: #49A1AB;  --ds-sea-tint: #11282B;  --ds-sea-line: #255F65;
     --ds-chart-1: #A15397;  --ds-chart-2: #BF881E;  --ds-chart-3: #17A7B4;  --ds-chart-4: #C35C3C;
     --ds-chart-5: #5568C1;  --ds-chart-6: #69A25D;  --ds-chart-7: #904E18;  --ds-chart-8: #5194D5;  --ds-chart-other: #5E5A56;
@@ -508,7 +486,6 @@
     --ds-danger: #EA7E73;  --ds-danger-tint: #362522;  --ds-danger-border: #5C3833;  --ds-danger-solid: #BB4840;  --ds-danger-solid-hover: #A73E37;
     --ds-warning: #F2A866;  --ds-warning-tint: #3A281B;  --ds-warning-border: #6F4829;  --ds-warning-fill: #F29A43;
     --ds-neutral-tint: #2B2926;  --ds-holiday: #EA7E73;
-    --ds-gold-text: #DDC084;  --ds-gold: #C7A662;  --ds-gold-tint: #2E2515;  --ds-gold-line: #866E40;
     --ds-sea-text: #7BC6CE;  --ds-sea: #49A1AB;  --ds-sea-tint: #11282B;  --ds-sea-line: #255F65;
     --ds-chart-1: #A15397;  --ds-chart-2: #BF881E;  --ds-chart-3: #17A7B4;  --ds-chart-4: #C35C3C;
     --ds-chart-5: #5568C1;  --ds-chart-6: #69A25D;  --ds-chart-7: #904E18;  --ds-chart-8: #5194D5;  --ds-chart-other: #5E5A56;
@@ -673,7 +650,7 @@
   .ds-latin { font-family: var(--ds-font-latin); font-feature-settings: normal; font-size: var(--ds-type-latin-scale); direction: ltr; unicode-bidi: isolate; }
   .ds-mono  { font-family: var(--ds-font-mono); font-feature-settings: normal; font-size: var(--ds-type-code-size); line-height: var(--ds-type-code-line); direction: ltr; unicode-bidi: isolate; }
   .ds-end   { margin-inline-start: auto; }                                       /* the RTL wrapper that pushes an isolate to the end */
-  .ds-dec   { font-size: calc(var(--ds-type-decimal-scale) * 1em); color: var(--ds-text-2); }  /* full size; gold-weight columns leave decimals in ink */
+  .ds-dec   { font-size: calc(var(--ds-type-decimal-scale) * 1em); color: var(--ds-text-2); }  /* full size in cells, inputs and sums */
   :is(.ds-t-hero, .ds-t-figure) .ds-dec { font-size: calc(var(--ds-type-decimal-scale-display) * 1em); color: var(--ds-text-3); }
   .ds-unit  { font-size: calc(var(--ds-type-unit-scale) * 1em); color: var(--ds-text-3); font-weight: var(--ds-weight-regular); }
   .ds-excluded { color: var(--ds-text-3); text-decoration: none; }               /* bounced/returned: never struck through (the strike hides «۰») */

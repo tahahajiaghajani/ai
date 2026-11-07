@@ -8,6 +8,7 @@ import { AuthLayout } from "./AuthLayout";
 import { RecoveryCode } from "./RecoveryCode";
 import { passwordIcon } from "./Login";
 import { FormAlert, ICON, PasswordRules, newPasswordRules, useBlurValidation, LTR } from "../kit";
+import { APP_NAME } from "@shared/constants";
 
 /** The account form (sign-up on the web, the first admin on Windows). Calls onDone with the recovery code. */
 export function SignupForm({ onDone, submitText = "ساخت حساب", busyText = "در حال ساخت حساب…", extraActions }: { onDone: (code: string) => void; submitText?: string; busyText?: string; extraActions?: React.ReactNode }) {
@@ -93,7 +94,7 @@ export default function Signup() {
   return (
     <AuthLayout
       swapKey={code ? "code" : "form"}
-      title={code ? "حساب ساخته شد" : "ساخت حساب سیراف"}
+      title={code ? "حساب ساخته شد" : `ساخت حساب ${APP_NAME}`}
       subtitle={code ? "پیش از ادامه، کد بازیابی را جای امنی نگه دارید." : "چند ثانیه بیشتر طول نمی‌کشد؛ بعد سازمانتان را تعریف می‌کنید."}
     >
       {code ? (

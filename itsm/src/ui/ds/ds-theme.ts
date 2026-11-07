@@ -1,4 +1,4 @@
-// Siraf · سیراف — Ant Design 6 theme (checked against antd 6.6.8: `tsc --strict` with excess-property checks,
+// Design system «ds» — Ant Design 6 theme (checked against antd 6.6.8: `tsc --strict` with excess-property checks,
 // and rendered in build/antd-proof-*.png). Values come from ./ds-palette.ts, generated from ../tokens.css.
 // v1.1: links in ink, Dusk only for the primary action / focus / selection / main series; 2 px field focus;
 // 3:1 control edges; ink checkbox, radio and switch; 40 / 32 px table rows; neutral selected row + start bar.
@@ -441,7 +441,7 @@ export function dsTheme(mode: DsMode): ThemeConfig {
       Dropdown: { paddingBlock: 5, zIndexPopup: 1050 },
       Message: { contentBg: p.raised, contentPadding: "8px 14px" },
       Notification: { width: 360, progressBg: p.accentLine, colorSuccessBg: p.raised, colorErrorBg: p.raised, colorInfoBg: p.raised, colorWarningBg: p.raised },
-      // (Alert type="warning": a surface fill with a warning icon — amber surfaces belong to gold; see ds-antd.css)
+      // (Alert type="warning": a surface fill with a warning icon — no amber surfaces; see ds-antd.css)
       Alert: { borderRadius: 12, defaultPadding: "10px 14px", withDescriptionPadding: "14px 16px", withDescriptionIconSize: 18 },
       Badge: { colorError: p.dangerSolid, textFontSize: 11, textFontSizeSM: 11, textFontWeight: 600, indicatorHeight: 16, indicatorHeightSM: 14, dotSize: 6, statusSize: 6 },
       Breadcrumb: { itemColor: p.text3, linkColor: p.text3, linkHoverColor: p.text, lastItemColor: p.text, separatorColor: p.text4, separatorMargin: 6, iconFontSize: 14 },

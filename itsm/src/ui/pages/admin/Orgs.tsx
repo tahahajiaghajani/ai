@@ -9,22 +9,21 @@ import { Chip, EmptyState } from "../../components/display";
 import { useDebounced, useIsPhone } from "../../lib/hooks";
 import { fa } from "../../lib/fa";
 import { MODULES } from "@shared/constants";
-import { ICON, Mods, StatusChip, ago, kindTitle, useAdminQuery, type OrgStatus } from "./ui";
+import { ICON, Mods, StatusChip, ago, zoneTitle, useAdminQuery, type OrgStatus } from "./ui";
 
 export interface OrgListRow {
   id: string;
   name: string;
   legal_name: string | null;
-  business_kind: string;
   modules: string[];
   city: string | null;
+  timezone: string | null;
   created_at: string;
   status: OrgStatus;
   status_reason: string | null;
   ai_disabled: boolean;
   members: number;
   owner: { name: string; email: string; mobile: string | null } | null;
-  vouchers: number;
   devices: number;
   last_activity: string | null;
   support_active: boolean;
@@ -135,8 +134,7 @@ export default function Orgs() {
                           {r.support_active ? <LifeBuoy size={14} strokeWidth={1.4} absoluteStrokeWidth className="text-warning" aria-label="در حالت پشتیبانی" /> : null}
                         </span>
                         <span className="ad-sub">
-                          {kindTitle(r.business_kind)}
-                          {r.city ? ` · ${r.city}` : ""}
+                          {[r.legal_name, r.city, zoneTitle(r.timezone)].filter(Boolean).join(" · ") || "—"}
                         </span>
                       </span>
                     ),

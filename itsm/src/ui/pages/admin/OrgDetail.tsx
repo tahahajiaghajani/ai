@@ -17,7 +17,7 @@ import { ROLES, type Role } from "@shared/permissions";
 import type { AiAdminOverview } from "@shared/ai/api";
 import { SupportDialog } from "./SupportDialog";
 import { timeLeft } from "../../components/shell/SupportBanner";
-import { ICON, EVENT_KIND, Mods, ORG_STATUS, StatusChip, When, ago, bytes, eventDetail, kindTitle, usd, useAdminQuery, type OrgStatus, type SecurityEvent } from "./ui";
+import { ICON, EVENT_KIND, Mods, ORG_STATUS, StatusChip, When, ago, bytes, eventDetail, zoneTitle, usd, useAdminQuery, type OrgStatus, type SecurityEvent } from "./ui";
 
 interface SupportRow {
   id: string;
@@ -32,7 +32,7 @@ interface SupportRow {
 }
 
 interface Detail {
-  org: { id: string; name: string; legal_name: string | null; business_kind: string; modules: string[]; base_currency: string; province: string | null; city: string | null; phone: string | null; mobile: string | null; email: string | null; created_at: string };
+  org: { id: string; name: string; legal_name: string | null; modules: string[]; timezone: string | null; city: string | null; phone: string | null; email: string | null; website: string | null; created_at: string };
   admin: { status: OrgStatus; status_reason: string | null; notes: string | null; ai_disabled: boolean; updated_at: string | null; updated_by_name: string | null };
   members: { id: string; user_id: string; role: Role; title: string | null; is_active: boolean; full_name: string; email: string; mobile: string | null; last_login_at: string | null; disabled: boolean }[];
   devices: { id: string; name: string; platform: string | null; app_version: string | null; last_push_at: string | null; last_pull_at: string | null; revoked_at: string | null; user_name: string | null }[];
@@ -43,7 +43,8 @@ interface Detail {
   is_member: boolean;
 }
 
-const SIZE_NAME: Record<string, string> = { audit: "گزارش رویدادها", voucher: "اسناد حسابداری", invoice: "فاکتورها", gold_doc: "اسناد طلا", fx_deal: "معاملات ارز", treasury_doc: "اسناد خزانه" };
+// the platform's own kinds of records; a module's synchronised roots are named by their entity (ENTITIES) when they have one
+const SIZE_NAME: Record<string, string> = { audit: "گزارش رویدادها" };
 const sizeName = (e: string) => SIZE_NAME[e] ?? ENTITIES[e]?.plural ?? e;
 
 function AiStatus({ orgId, disabled }: { orgId: string; disabled: boolean }) {
@@ -225,8 +226,8 @@ export default function OrgDetail({ id }: { id: string }) {
         <div className="ad-stack">
           <Card title="مشخصات">
             <dl className="ad-dl">
-              <dt>نوع</dt>
-              <dd>{kindTitle(d.org.business_kind)}</dd>
+              <dt>منطقهٔ زمانی</dt>
+              <dd>{zoneTitle(d.org.timezone) ?? "—"}</dd>
               {d.org.legal_name ? (
                 <>
                   <dt>نام حقوقی</dt>
@@ -256,12 +257,12 @@ export default function OrgDetail({ id }: { id: string }) {
                     ))
                   : "—"}
               </dd>
-              {d.org.phone || d.org.mobile || d.org.email ? (
+              {d.org.phone || d.org.email || d.org.website ? (
                 <>
                   <dt>تماس</dt>
                   <dd>
                     <bdi dir="ltr" className="ds-latin">
-                      {[d.org.mobile, d.org.phone, d.org.email].filter(Boolean).join(" · ")}
+                      {[d.org.phone, d.org.email, d.org.website].filter(Boolean).join(" · ")}
                     </bdi>
                   </dd>
                 </>
@@ -269,7 +270,7 @@ export default function OrgDetail({ id }: { id: string }) {
               {d.org.city ? (
                 <>
                   <dt>شهر</dt>
-                  <dd>{[d.org.province, d.org.city].filter(Boolean).join("، ")}</dd>
+                  <dd>{d.org.city}</dd>
                 </>
               ) : null}
             </dl>

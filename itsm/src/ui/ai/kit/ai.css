@@ -1,7 +1,7 @@
 /* The AI pieces shared by many screens: the AI-filled field mark and the review bar, the narrative (safe
    Markdown), the AI-mark badge, source lines, severity marks, the confidence chip and quiet error rows.
    Tokens only (ds/tokens.css), logical properties only, transform/opacity motion only, no `dark:` variants.
-   Prefix `ai-` (src/ui/ai/{settings,insights,explain,capture,forecast,kit} only). */
+   Prefix `ai-` (src/ui/ai/{settings,kit} and the AI parts of modules only). */
 @layer components {
   /* ---------------------------------------------------------------- AI-filled field (confidence ring + reason) */
   .ai-mark { position: relative; min-inline-size: 0; border-radius: var(--ds-radius-md); }
@@ -104,7 +104,7 @@
 
   /* a header button of an AI action (explain, capture): icon only under 640 px when compact */
   @media (max-width: 639px) { .ai-xb.is-compact { padding-inline: 8px; } .ai-xb.is-compact .ai-xb-t { display: none; } }
-  /* the capture button at the end of a form row (a cheque's details) */
+  /* the capture button at the end of a form row (fill the row from a document) */
   .ai-subx { align-self: flex-end; margin-inline-start: auto; }
   /* a chart's tooltip card */
   .ai-tip-card { min-inline-size: 150px; padding: 8px 10px; border-radius: var(--ds-radius-md); background: var(--ds-raised); box-shadow: var(--ds-shadow-e3); font-size: 12px; line-height: 18px; color: var(--ds-text-3); }

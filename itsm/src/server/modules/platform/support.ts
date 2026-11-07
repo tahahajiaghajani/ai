@@ -184,6 +184,8 @@ export interface AccessibleOrg {
   name: string;
   modules: string[];
   logo: string | null;
+  /** IANA time zone from the organisation's settings */
+  timezone: string | null;
   role: string | null;
   is_active: boolean | null;
   /** set when the platform admin enters through a support session */
@@ -197,7 +199,7 @@ export interface AccessibleOrg {
  */
 export async function accessibleOrgs(q: Queryable, user: Pick<AuthUser, "id" | "is_platform_admin">): Promise<AccessibleOrg[]> {
   const rows = await q.query<AccessibleOrg & { support_level: SupportLevel | null; support_expires_at: string | null }>(
-    `select o.id, o.name, o.modules, o.logo, m.role, m.is_active,
+    `select o.id, o.name, o.modules, o.logo, o.settings->>'timezone' as timezone, m.role, m.is_active,
             s.level as support_level, s.expires_at as support_expires_at
      from sm_orgs o
      left join sm_org_members m on m.org_id = o.id and m.user_id = $1 and m.deleted_at is null
