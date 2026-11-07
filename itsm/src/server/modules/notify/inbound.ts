@@ -15,6 +15,7 @@ import { addressMatches, subjectNumbers } from "@shared/notify";
 import type { TableDef } from "@shared/model/types";
 import type { Ctx, ServerConfig } from "../../context";
 import type { Queryable } from "../../db";
+import { pgArray } from "../../db";
 import { enqueue, registerJobHandler, type Job, type JobContext } from "../../jobs";
 import { addAttachmentIn, addJournalIn, createIn, maxAttachmentBytes, systemCtx } from "../../engine";
 import { readersOf } from "../../access";
@@ -200,7 +201,8 @@ export function loopReason(p: ParsedMail, ownAddresses: string[]): string | null
   if (header(p, "x-autoreply") || header(p, "x-autorespond") || header(p, "x-auto-reply")) return "auto_reply";
   const precedence = header(p, "precedence").trim().toLowerCase();
   if (precedence === "auto_reply") return "auto_reply";
-  if (["bulk", "list", "junk"].includes(precedence) || p.headers.has("list-id") || p.headers.has("list-unsubscribe")) return "bulk";
+  // mailparser gathers List-Id, List-Unsubscribe… under "list"
+  if (["bulk", "list", "junk"].includes(precedence) || p.headers.has("list") || p.headers.has("list-id") || p.headers.has("list-unsubscribe")) return "bulk";
   if (AUTO_SUBJECT.test((p.subject ?? "").trim())) return "auto_reply";
   return null;
 }
@@ -243,7 +245,7 @@ async function threadOf(sys: Ctx, p: ParsedMail): Promise<{ def: TableDef; id: s
   if (refs.length) {
     const hit = await sys.db.one<{ table_key: string; record_id: string }>(
       `select table_key, record_id from sm_email_messages where org_id = $1 and message_id = any($2::text[]) and record_id is not null order by created_at desc limit 1`,
-      [sys.org.id, refs],
+      [sys.org.id, pgArray(refs)],
     );
     if (hit) {
       const def = tableDef(hit.table_key);

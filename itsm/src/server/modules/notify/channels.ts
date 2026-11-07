@@ -7,6 +7,7 @@ import { createHmac } from "node:crypto";
 import { APP_NAME_EN } from "@shared/constants";
 import { CHANNEL_KINDS, renderTemplate, type ChannelKind } from "@shared/notify";
 import type { Ctx, ServerConfig } from "../../context";
+import { pgArray } from "../../db";
 import { fetchText } from "../../net";
 import { guardedFetch } from "../ai/net";
 import { channelSecret } from "./mail";
@@ -32,7 +33,7 @@ export interface ChannelRow {
 export async function channelRows(sys: Ctx, ids?: string[]): Promise<ChannelRow[]> {
   if (ids && !ids.length) return [];
   return ids
-    ? systemRows<ChannelRow>(sys, "notification_channel", "t.id = any($1::uuid[])", [`{${ids.join(",")}}`])
+    ? systemRows<ChannelRow>(sys, "notification_channel", "t.id = any($1::uuid[])", [pgArray(ids)])
     : systemRows<ChannelRow>(sys, "notification_channel", "true", [], "order by t.created_at");
 }
 
