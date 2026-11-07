@@ -8,41 +8,13 @@ import {
   type Connection, type Edge, type EdgeChange, type Node, type NodeChange, type NodeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import {
-  BadgeCheck, Bell, FilePlus, Flag, GitBranch, Globe, Hourglass, Merge, MessageSquareText, PencilLine, Repeat, Sparkles, Split, Timer,
-  Variable, Workflow, Zap, type LucideIcon,
-} from "lucide-react";
 import { nodeDef, nodeLabel, type FlowGraph, type FlowNode, type FlowProblem, type NodeType, type StepStatus, type TriggerConfig } from "@shared/flows";
 import { faDigits } from "@shared/format";
 import { useTheme } from "../../lib/theme";
 import { cx } from "../../components/blocks";
 import { NODE_H, NODE_W, connect, connectProblem, nodeSummary, removeNodes, type Direction } from "./model";
+import { NodeIcon } from "./icons";
 import "./flows.css";
-
-export const NODE_ICONS: Record<string, LucideIcon> = {
-  zap: Zap,
-  "pencil-line": PencilLine,
-  "file-plus": FilePlus,
-  "message-square-text": MessageSquareText,
-  bell: Bell,
-  "badge-check": BadgeCheck,
-  hourglass: Hourglass,
-  timer: Timer,
-  "git-branch": GitBranch,
-  split: Split,
-  merge: Merge,
-  repeat: Repeat,
-  globe: Globe,
-  variable: Variable,
-  workflow: Workflow,
-  sparkles: Sparkles,
-  flag: Flag,
-};
-
-export function NodeIcon({ type, size = 15 }: { type: string; size?: number }) {
-  const Icon = NODE_ICONS[nodeDef(type)?.icon ?? ""] ?? Workflow;
-  return <Icon size={size} strokeWidth={1.5} absoluteStrokeWidth aria-hidden />;
-}
 
 interface CardData extends Record<string, unknown> {
   node: FlowNode;
