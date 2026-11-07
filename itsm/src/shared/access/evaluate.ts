@@ -142,28 +142,25 @@ export function ownMatch(s: Subject, c: ScopeColumns, row: Row): string | null {
 const assigneeOwn = (s: Subject, c: ScopeColumns, row: Row) => c.assignee.some((f) => holds(row[f.name], s.userId) || holdsAny(row[f.name], s.delegators));
 const requesterOwn = (s: Subject, c: ScopeColumns, row: Row) => c.requester.some((f) => holds(row[f.name], s.userId));
 
+/**
+ * Does `scope` reach the row? Scopes are cumulative — each reaches what the narrower ones reach — so the most
+ * permissive of a subject's grants never sees less: group = the group field holds one of the subject's groups;
+ * unit = group ∨ the subject's unit; unit_tree = group ∨ the subject's unit subtree; domain = group ∨ unit subtree ∨
+ * the subject's domain subtree (or no domain; everything when the organisation does not separate domains); all.
+ * (`own` is not a scope term: own records are matched by `ownMatch`.)
+ */
 export function scopeMatch(s: Subject, c: ScopeColumns, row: Row, scope: Scope, write = false): boolean {
-  switch (scope) {
-    case "group":
-      return !!c.group && holdsAny(row[c.group], write ? s.writeGroups : s.groups);
-    case "unit": {
-      const u = idOf(row[c.unit]);
-      return u !== null && u === s.unitId;
-    }
-    case "unit_tree": {
-      const u = idOf(row[c.unit]);
-      return u !== null && s.unitTree.includes(u);
-    }
-    case "domain": {
-      if (!s.domainSeparation) return true;
-      const d = idOf(row[c.domain]);
-      return d === null || s.domainTree.includes(d);
-    }
-    case "all":
-      return true;
-    default:
-      return false;
-  }
+  if (scope === "all") return true;
+  if (scope === "none" || scope === "own") return false;
+  if (c.group && holdsAny(row[c.group], write ? s.writeGroups : s.groups)) return true;
+  if (scope === "group") return false;
+  const u = idOf(row[c.unit]);
+  if (scope === "unit") return u !== null && u === s.unitId;
+  if (u !== null && s.unitTree.includes(u)) return true;
+  if (scope === "unit_tree") return false;
+  if (!s.domainSeparation) return true;
+  const d = idOf(row[c.domain]);
+  return d === null || s.domainTree.includes(d);
 }
 
 export function workspaceOk(s: Subject, c: ScopeColumns, row: Row): boolean {

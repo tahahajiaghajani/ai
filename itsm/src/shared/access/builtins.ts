@@ -80,7 +80,8 @@ export function builtinRoles(preset: DeskPreset = "open"): RoleDef[] {
         problem: RW(D, "group", { approve: true }),
         change: RW(D, "group", { approve: true }),
         work: RW(D, "group", { approve: true }),
-        org: RW("all", "group"),
+        // the memberships of the groups they work in: add, change, remove
+        org: RW("all", "group", { delete: "group" }),
       },
       { contains: ["agent"], field_groups: ["internal", "personal"] },
     ),
@@ -100,7 +101,7 @@ export function builtinRoles(preset: DeskPreset = "open"): RoleDef[] {
         knowledge: RW("all", "all", { approve: true }),
         survey: RW("all", "all"),
         reports: RW("all", "all"),
-        org: RW("all", "all"),
+        org: RW("all", "all", { delete: "group" }),
       },
       { contains: ["team_lead"], field_groups: ["financial", "internal", "personal"] },
     ),

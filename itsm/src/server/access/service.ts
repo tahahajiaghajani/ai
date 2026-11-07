@@ -528,6 +528,16 @@ export async function checkAccess(ctx: Ctx, input: { user_id: string; table: str
   return out;
 }
 
+/**
+ * Why the caller's own subject can or cannot read `row` of `def` (every layer, the participant sources probed in SQL):
+ * the server form of `explainRow`, for tools that explain a decision to the person it concerns.
+ */
+export async function explainAccess(ctx: Ctx, def: TableDef, row: Record<string, unknown>): Promise<RowExplanation> {
+  const s = (await prepareSubject(ctx)).subject;
+  const participant = row.id ? await participantOf(ctx.db, s, def, String(row.id)) : null;
+  return explainRow(s, def, row, participant === null ? {} : { participant });
+}
+
 /** Is the subject a participant of the record through a registered source (null when no source applies)? */
 async function participantOf(q: Queryable, s: Subject, def: TableDef, id: string): Promise<boolean | null> {
   const params: unknown[] = [id];

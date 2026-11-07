@@ -108,22 +108,16 @@ class Builder {
     return or(terms);
   }
 
+  /** Cumulative scopes, as `scopeMatch`: group ⊂ unit, unit_tree ⊂ domain ⊂ all. */
   scope(scope: Scope, write: boolean): string {
     const c = this.c;
-    switch (scope) {
-      case "group":
-        return c.group ? this.holdsAny(c.group, false, write ? this.s.writeGroups : this.s.groups) : "false";
-      case "unit":
-        return this.s.unitId ? `coalesce(${this.col(c.unit)} = ${this.p(this.s.unitId)}::uuid, false)` : "false";
-      case "unit_tree":
-        return this.holdsAny(c.unit, false, this.s.unitTree);
-      case "domain":
-        return this.s.domainSeparation ? this.nullOrAny(c.domain, this.s.domainTree) : "true";
-      case "all":
-        return "true";
-      default:
-        return "false";
-    }
+    if (scope === "all") return "true";
+    if (scope === "none" || scope === "own") return "false";
+    const terms = [c.group ? this.holdsAny(c.group, false, write ? this.s.writeGroups : this.s.groups) : "false"];
+    if (scope === "unit") terms.push(this.s.unitId ? `coalesce(${this.col(c.unit)} = ${this.p(this.s.unitId)}::uuid, false)` : "false");
+    if (scope === "unit_tree" || scope === "domain") terms.push(this.holdsAny(c.unit, false, this.s.unitTree));
+    if (scope === "domain") terms.push(this.s.domainSeparation ? this.nullOrAny(c.domain, this.s.domainTree) : "true");
+    return or(terms);
   }
 
   workspace(): string {

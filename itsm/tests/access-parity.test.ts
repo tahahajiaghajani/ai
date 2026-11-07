@@ -10,7 +10,7 @@ import { createPgliteDb } from "@server/db/pglite";
 import { migrate } from "@server/db/migrate";
 import type { Db } from "@server/db";
 import { buildSubject, loadOrgSnapshot, readSql, writeSql } from "@server/access";
-import { canReadRow, composeEffective, roleCatalog, writeMode, SCOPES, type Subject } from "@shared/access";
+import { canReadRow, composeEffective, roleCatalog, scopeColumns, scopeMatch, writeMode, SCOPES, type Subject } from "@shared/access";
 import { tableDef } from "@shared/tables";
 import type { TableDef } from "@shared/model/types";
 
@@ -133,6 +133,13 @@ async function compare(s: Subject, def: TableDef, rows: Record<string, unknown>[
   params = [s.orgId];
   const del = await ids(`select t.id from ${def.table} t where t.org_id = $1 and ${writeSql(s, def, "t", params, "delete")}`, params);
   expect(del, `delete ${label}`).toEqual(rows.filter((row) => writeMode(s, def, row, "delete") === "full").map((x) => String(x.id)).sort());
+  // the scope ladder is cumulative: a wider scope never reaches fewer rows
+  const c = scopeColumns(def);
+  for (const row of rows) {
+    for (let i = 1; i < SCOPES.length - 1; i++) {
+      if (scopeMatch(s, c, row, SCOPES[i])) expect(scopeMatch(s, c, row, SCOPES[i + 1]), `${SCOPES[i]} ⊄ ${SCOPES[i + 1]} ${label}`).toBe(true);
+    }
+  }
   tally.read += read.length;
   tally.write += write.length;
   tally.total += rows.length;

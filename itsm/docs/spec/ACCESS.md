@@ -72,7 +72,8 @@ Windows app's own provider need), changed only with the write grants of their ar
   continuity, cmdb, asset, software, contract, procurement, vendor, service, risk, compliance, financial, project,
   workforce, hr, facilities, reports (the brief's `report`), and the platform areas org, users, settings,
   integrations, ai, flows, notifications, audit. `registerArea({ key, label, group })` adds one.
-- **Scopes**, ordered: `none < own < group < unit < unit_tree < domain < all`.
+- **Scopes**, ordered: `none < own < group < unit < unit_tree < domain < all`, and cumulative — each reaches what
+  the narrower ones reach — so the most permissive of a subject's grants never sees less than another.
 - **Operations**: `read`, `write`, `delete` take a scope; `create`, `approve`, `admin` are flags. `fullGrant` makes a
   grant coherent: read ≥ write and delete; whoever creates reads at least their own.
 - **Grants**: `Record<AreaKey | "*", Grant>`; `"*"` applies to every area a role does not name.
@@ -149,8 +150,9 @@ readable(s, T, r) =
 | own | the subject is in an own field (`scope.own` ∪ `scope.requester`; users fields hold them), in `scope.watchers`, or an assignee field holds one of `s.delegators` |
 | participant | a registered participant source holds (e.g. an approver of a pending approval) — SQL only, §7 |
 | scope(group) | `r.<group>` ∈ `s.groups` (for writes: `s.writeGroups`) |
-| scope(unit / unit_tree) | `r.unit_id` = `s.unitId` / ∈ `s.unitTree` |
-| scope(domain) | separation off, or `r.domain_id` null or in `s.domainTree` |
+| scope(unit) | scope(group) ∨ `r.unit_id` = `s.unitId` |
+| scope(unit_tree) | scope(group) ∨ `r.unit_id` ∈ `s.unitTree` |
+| scope(domain) | scope(unit_tree) ∨ separation off ∨ `r.domain_id` null or in `s.domainTree` |
 | scope(all) | always |
 | workspaceOk | `r.workspace_id` null; or roles reach all workspaces and it is not a secure one the subject is outside; or it is one of `s.workspaces` |
 | secureOk | `r.workspace_id` null or not a secure workspace the subject is outside |
@@ -318,8 +320,8 @@ release, event) becomes `grp`.
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | `requester` | own+C W:own | own+C W:own | – | – | – | all | all | – | – | own+C W:own | own+C W:own | – | own+C W:own | – | all | own | – | – | member / own |
 | `agent` | all+C W:grp | all+C W:grp | all+C W:grp | all+C W:grp | all | all+C W:own | all | all | all | own+C W:own | own+C W:own | – | all+C W:grp | all | all | all | – | internal, personal | member / own |
-| `team_lead` | all+C W:grp Ap | all+C W:grp Ap | all+C W:grp Ap | all+C W:grp Ap | all | all+C W:own | all | all | all | own+C W:own | own+C W:own | – | all+C W:grp Ap | all | all+C W:grp | all | – | internal, personal | member / own |
-| `service_desk_manager` | all+C W:all D:all Ap | all+C W:all D:all Ap | all+C W:all D:all Ap | all+C W:grp Ap | all | all+C W:all Ap | all+C W:all Ad | all | all | own+C W:own | own+C W:own | – | all+C W:all D:all Ap | all+C W:all | all+C W:all | all | – | financial, internal, personal | member / own |
+| `team_lead` | all+C W:grp Ap | all+C W:grp Ap | all+C W:grp Ap | all+C W:grp Ap | all | all+C W:own | all | all | all | own+C W:own | own+C W:own | – | all+C W:grp Ap | all | all+C W:grp D:grp | all | – | internal, personal | member / own |
+| `service_desk_manager` | all+C W:all D:all Ap | all+C W:all D:all Ap | all+C W:all D:all Ap | all+C W:grp Ap | all | all+C W:all Ap | all+C W:all Ad | all | all | own+C W:own | own+C W:own | – | all+C W:all D:all Ap | all+C W:all | all+C W:all D:grp | all | – | financial, internal, personal | member / own |
 | `incident_manager` | all+C W:all Ap | all+C W:grp | all+C W:grp | all+C W:grp | all | all+C W:own | all | all | all | own+C W:own | own+C W:own | – | all+C W:grp | all | all | all | – | internal, personal | member / own |
 | `problem_manager` | all+C W:grp | all+C W:grp | all+C W:all Ap | all+C W:grp | all | all+C W:all | all | all | all | own+C W:own | own+C W:own | – | all+C W:grp | all | all | all | – | internal, personal | member / own |
 | `change_manager` | all+C W:grp | all+C W:grp | all+C W:grp | all+C W:all Ap | all+C W:grp | all+C W:own | all | all | all | own+C W:own | own+C W:own | – | all+C W:grp | all | all | all | – | internal, personal | member / own |
