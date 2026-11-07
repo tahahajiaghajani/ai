@@ -144,7 +144,7 @@ function UserSheet({ id, onClose }: { id: string; onClose: () => void }) {
       ) : (
         <div className="ad-stack">
           <div>
-            <bdi dir="ltr" className="sf-latin block text-ink-2">
+            <bdi dir="ltr" className="ds-latin block text-ink-2">
               {u.email}
             </bdi>
             <span className="mt-2 flex flex-wrap gap-1.5">
@@ -166,7 +166,7 @@ function UserSheet({ id, onClose }: { id: string; onClose: () => void }) {
               <>
                 <dt>موبایل</dt>
                 <dd>
-                  <bdi dir="ltr" className="sf-latin">
+                  <bdi dir="ltr" className="ds-latin">
                     {u.mobile}
                   </bdi>
                 </dd>
@@ -239,7 +239,7 @@ function UserSheet({ id, onClose }: { id: string; onClose: () => void }) {
                 {d.memberships.map((m) => (
                   <li key={m.id}>
                     <span className="ad-li-main">
-                      <Link to={`/admin/orgs/${m.org_id}`} className="ad-li-t sf-link">
+                      <Link to={`/admin/orgs/${m.org_id}`} className="ad-li-t ds-link">
                         {m.org_name}
                       </Link>
                       <span className="ad-li-d">
@@ -257,7 +257,7 @@ function UserSheet({ id, onClose }: { id: string; onClose: () => void }) {
             )}
           </Card>
 
-          <Card title="نشست‌های باز" meta={<span className="ad-sub sf-num">{fa(d.sessions.length)}</span>} flush>
+          <Card title="نشست‌های باز" meta={<span className="ad-sub ds-num">{fa(d.sessions.length)}</span>} flush>
             {d.sessions.length ? (
               <ul className="ad-list">
                 {d.sessions.map((s) => (
@@ -265,7 +265,7 @@ function UserSheet({ id, onClose }: { id: string; onClose: () => void }) {
                     <span className="ad-li-main">
                       <span className="ad-li-t">{s.kind === "device" ? (s.device_name ?? "برنامهٔ ویندوز") : browser(s.user_agent) || "مرورگر"}</span>
                       <span className="ad-li-d">
-                        <bdi dir="ltr" className="sf-latin">
+                        <bdi dir="ltr" className="ds-latin">
                           {s.ip ?? ""}
                         </bdi>
                         {` · آغاز ${ago(s.created_at)}`}
@@ -280,7 +280,7 @@ function UserSheet({ id, onClose }: { id: string; onClose: () => void }) {
             )}
           </Card>
 
-          <Card title="رویدادهای امنیتی" tools={<Link to={`/admin/security?user=${id}`} className="sf-link text-[13px]">همه</Link>} flush>
+          <Card title="رویدادهای امنیتی" tools={<Link to={`/admin/security?user=${id}`} className="ds-link text-[13px]">همه</Link>} flush>
             {d.events.length ? (
               <ul className="ad-list">
                 {d.events.slice(0, 12).map((e) => (
@@ -355,7 +355,7 @@ export default function Users({ openId }: { openId: string | null }) {
                       <div className="flex min-w-0 items-start gap-2">
                         <div className="min-w-0 flex-1">
                           <div className="truncate font-medium">{r.full_name}</div>
-                          <bdi dir="ltr" className="sf-latin ad-sub block truncate">
+                          <bdi dir="ltr" className="ds-latin ad-sub block truncate">
                             {r.email}
                           </bdi>
                         </div>
@@ -374,16 +374,16 @@ export default function Users({ openId }: { openId: string | null }) {
                           {r.full_name}
                           {r.is_platform_admin ? <Chip tone="accent">مدیر سامانه</Chip> : null}
                         </span>
-                        <bdi dir="ltr" className="sf-latin ad-sub block truncate">
+                        <bdi dir="ltr" className="ds-latin ad-sub block truncate">
                           {r.email}
                         </bdi>
                       </span>
                     ),
                   },
-                  { key: "o", dataIndex: "orgs", title: "کسب‌وکار", width: 90, className: "sf-num", render: (v) => fa(v) },
-                  { key: "s", dataIndex: "sessions", title: "نشست باز", width: 90, className: "sf-num", render: (v) => fa(v) },
+                  { key: "o", dataIndex: "orgs", title: "کسب‌وکار", width: 90, className: "ds-num", render: (v) => fa(v) },
+                  { key: "s", dataIndex: "sessions", title: "نشست باز", width: 90, className: "ds-num", render: (v) => fa(v) },
                   { key: "seen", dataIndex: "last_seen_at", title: "آخرین فعالیت", width: 140, render: (v) => <span className="text-ink-2">{ago(v)}</span> },
-                  { key: "f", dataIndex: "failed_24h", title: "ورود ناموفق", width: 100, className: "sf-num", render: (v) => (v ? <span className="text-danger">{fa(v)}</span> : <span className="text-ink-3">—</span>) },
+                  { key: "f", dataIndex: "failed_24h", title: "ورود ناموفق", width: 100, className: "ds-num", render: (v) => (v ? <span className="text-danger">{fa(v)}</span> : <span className="text-ink-3">—</span>) },
                   { key: "st", dataIndex: "disabled", title: "وضعیت", width: 100, render: (v) => (v ? <Chip tone="danger">غیرفعال</Chip> : <Chip tone="in">فعال</Chip>) },
                 ]
           }

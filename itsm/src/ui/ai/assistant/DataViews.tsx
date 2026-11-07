@@ -1,6 +1,6 @@
 // Charts and tables inside an answer. The rows come from the server (GET /ai/data/:ref, stored by the tool that
 // computed them), never from the model's words, so a chart cannot show a number the books do not have.
-// Charts use the --sf-chart-* series in their fixed order; every chart can switch to its table and export to Excel.
+// Charts use the --ds-chart-* series in their fixed order; every chart can switch to its table and export to Excel.
 import { useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ResponsiveContainer, BarChart, Bar, LineChart, Line, AreaChart, Area, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
@@ -16,7 +16,7 @@ import { useAiClient } from "./useAi";
 import { decimalParts, figureText, isNumeric, toNumber } from "./format";
 import type { UiTable } from "./state";
 
-const SERIES = ["var(--sf-chart-1)", "var(--sf-chart-3)", "var(--sf-chart-4)", "var(--sf-chart-5)", "var(--sf-chart-6)", "var(--sf-chart-2)"];
+const SERIES = ["var(--ds-chart-1)", "var(--ds-chart-3)", "var(--ds-chart-4)", "var(--ds-chart-5)", "var(--ds-chart-6)", "var(--ds-chart-2)"];
 const MAX_SLICES = 6;
 const MAX_BARS = 12;
 
@@ -35,7 +35,7 @@ function Value({ v, numeric }: { v: unknown; numeric?: boolean }) {
   if ((numeric || typeof v === "number") && isNumeric(v)) {
     const p = decimalParts(v as string | number);
     return p.neg ? (
-      <bdi dir="ltr" className="sf-ltr">
+      <bdi dir="ltr" className="ds-ltr">
         {"−"}
         {p.text}
       </bdi>
@@ -87,7 +87,7 @@ function Rows({ n }: { n: number }) {
   return (
     <div className="sa-card-skel" aria-busy="true" aria-label="در حال بارگذاری">
       {Array.from({ length: n }, (_, i) => (
-        <i key={i} className="sf-skel" style={{ inlineSize: `${[86, 62, 74, 55][i % 4]}%` }} />
+        <i key={i} className="ds-skel" style={{ inlineSize: `${[86, 62, 74, 55][i % 4]}%` }} />
       ))}
     </div>
   );
@@ -137,7 +137,7 @@ function DataTable({ columns, rows }: { columns: { key: string; title: string; n
           {rows.map((r, i) => (
             <tr key={i}>
               {columns.map((c) => (
-                <td key={c.key} className={c.numeric ? "sf-num" : undefined}>
+                <td key={c.key} className={c.numeric ? "ds-num" : undefined}>
                   <Value v={r[c.key]} numeric={c.numeric} />
                 </td>
               ))}
@@ -207,9 +207,9 @@ function BarList({ rows, spec }: { rows: Row[]; spec: AiChartSpec }) {
             <span className="sa-bar-track" aria-hidden>
               <i className={v < 0 ? "is-neg" : undefined} style={{ inlineSize: `${Math.max(1.5, (Math.abs(v) / max) * 100)}%` }} />
             </span>
-            <span className="sa-bar-v sf-num">
+            <span className="sa-bar-v ds-num">
               {p.neg ? (
-                <bdi dir="ltr" className="sf-ltr">
+                <bdi dir="ltr" className="ds-ltr">
                   {"−"}
                   {p.text}
                 </bdi>
@@ -236,7 +236,7 @@ function Donut({ rows, spec }: { rows: Row[]; spec: AiChartSpec }) {
   }, [rows, spec.x, s.field]);
   const total = slices.reduce((a, x) => a + x.value, 0) || 1;
   // past six slices the rest folds into «سایر», drawn in the neutral «other» colour
-  const color = (i: number) => (folded && i === slices.length - 1 ? "var(--sf-chart-other)" : SERIES[i % SERIES.length]);
+  const color = (i: number) => (folded && i === slices.length - 1 ? "var(--ds-chart-other)" : SERIES[i % SERIES.length]);
   return (
     <div className="sa-donut">
       <div className="sa-donut-c" aria-hidden>
@@ -255,7 +255,7 @@ function Donut({ rows, spec }: { rows: Row[]; spec: AiChartSpec }) {
           <li key={x.name}>
             <i style={{ background: color(i) }} />
             <span className="sa-legend-n">{x.name}</span>
-            <span className="sa-legend-v sf-num">{`؜${fa((x.value / total) * 100, 1)}٪`}</span>
+            <span className="sa-legend-v ds-num">{`؜${fa((x.value / total) * 100, 1)}٪`}</span>
           </li>
         ))}
       </ul>
@@ -276,20 +276,20 @@ function AxisChart({ rows, spec }: { rows: Row[]; spec: AiChartSpec }) {
       }),
     [rows, spec],
   );
-  const tick = { fontSize: 12, fill: "var(--sf-text-3)" };
+  const tick = { fontSize: 12, fill: "var(--ds-text-3)" };
   const common = {
     data,
     margin: { top: 8, right: 0, left: 4, bottom: 0 },
   };
   const axes = (
     <>
-      <CartesianGrid vertical={false} stroke="var(--sf-chart-grid)" />
-      <XAxis dataKey={spec.x} reversed tickLine={false} axisLine={{ stroke: "var(--sf-chart-axis)" }} tick={tick} minTickGap={12} />
+      <CartesianGrid vertical={false} stroke="var(--ds-chart-grid)" />
+      <XAxis dataKey={spec.x} reversed tickLine={false} axisLine={{ stroke: "var(--ds-chart-axis)" }} tick={tick} minTickGap={12} />
       <YAxis orientation="right" width={52} tickCount={4} axisLine={false} tickLine={false} tickMargin={8} tick={{ ...tick, textAnchor: "start" }} tickFormatter={(v: number) => (v === 0 ? fa(0) : compact(v))} />
-      <Tooltip cursor={spec.kind === "bar" ? { fill: "var(--sf-hover)" } : { stroke: "var(--sf-chart-crosshair)" }} content={<ChartTip unit={spec.unit} x={spec.x} />} isAnimationActive={false} />
+      <Tooltip cursor={spec.kind === "bar" ? { fill: "var(--ds-hover)" } : { stroke: "var(--ds-chart-crosshair)" }} content={<ChartTip unit={spec.unit} x={spec.x} />} isAnimationActive={false} />
     </>
   );
-  const color = (i: number) => (spec.series.length === 1 ? "var(--sf-accent-line)" : SERIES[i % SERIES.length]);
+  const color = (i: number) => (spec.series.length === 1 ? "var(--ds-accent-line)" : SERIES[i % SERIES.length]);
   return (
     <div className="sa-chart">
       <ResponsiveContainer width="100%" height="100%">

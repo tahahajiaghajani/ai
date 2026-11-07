@@ -1,81 +1,81 @@
-/* Siraf · سیراف — the app stylesheet. The design system lives in ./siraf/ (README.md there).
+/* Siraf · سیراف — the app stylesheet. The design system lives in ./ds/ (README.md there).
    Layer order: Ant Design's CSS-in-JS (<StyleProvider layer>) sits in `antd`, between Tailwind's base and its
-   components/utilities, so siraf-antd.css (components) and Tailwind utilities still adjust Ant Design. */
+   components/utilities, so ds-antd.css (components) and Tailwind utilities still adjust Ant Design. */
 @layer theme, base, antd, components, utilities;
 @import "tailwindcss";
-@import "./siraf/tokens.css"; /* fonts, tokens, base primitives (@layer base) */
-@import "./siraf/siraf-antd.css"; /* @layer components: after antd's CSS-in-JS layer */
-@import "./siraf/motion.css"; /* @layer components: enter / fade / stagger / press / launch */
-@import "./siraf/brand.css"; /* @layer components: the Dusk brand surface (login, onboarding, About) */
+@import "./ds/tokens.css"; /* fonts, tokens, base primitives (@layer base) */
+@import "./ds/ds-antd.css"; /* @layer components: after antd's CSS-in-JS layer */
+@import "./ds/motion.css"; /* @layer components: enter / fade / stagger / press / launch */
+@import "./ds/brand.css"; /* @layer components: the Dusk brand surface (login, onboarding, About) */
 
 /* Tailwind v4 bridge: utilities read the Siraf variables, so dark mode needs no `dark:` variants (antd-theme.md §1) */
 @theme inline {
-  --font-sans: var(--sf-font-sans);
-  --font-display: var(--sf-font-display);
-  --font-latin: var(--sf-font-latin);
-  --font-mono: var(--sf-font-mono);
+  --font-sans: var(--ds-font-sans);
+  --font-display: var(--ds-font-display);
+  --font-latin: var(--ds-font-latin);
+  --font-mono: var(--ds-font-mono);
   /* the three UI weights (450 / 540 / 600 on screen, 400 / 500 / 700 in print) */
-  --font-weight-normal: var(--sf-weight-regular);
-  --font-weight-medium: var(--sf-weight-medium);
-  --font-weight-semibold: var(--sf-weight-strong);
-  --color-canvas: var(--sf-canvas);
-  --color-surface: var(--sf-surface);
-  --color-raised: var(--sf-raised);
-  --color-sunken: var(--sf-sunken);
-  --color-well: var(--sf-well);
-  --color-ink: var(--sf-text);
-  --color-ink-2: var(--sf-text-2);
-  --color-ink-3: var(--sf-text-3);
-  --color-ink-4: var(--sf-text-4);
-  --color-line: var(--sf-line);
-  --color-line-2: var(--sf-line-2);
-  --color-line-3: var(--sf-line-3);
-  --color-control-strong: var(--sf-control-strong);
-  --color-accent: var(--sf-accent);
-  --color-accent-hover: var(--sf-accent-hover);
-  --color-accent-text: var(--sf-accent-text);
-  --color-accent-tint: var(--sf-accent-tint);
-  --color-accent-tint-2: var(--sf-accent-tint-2);
-  --color-accent-bar: var(--sf-accent-bar);
-  --color-focus: var(--sf-focus-color);
-  --color-in: var(--sf-in);
-  --color-in-tint: var(--sf-in-tint);
-  --color-danger: var(--sf-danger);
-  --color-danger-tint: var(--sf-danger-tint);
-  --color-warning: var(--sf-warning);
-  --color-warning-fill: var(--sf-warning-fill);
-  --color-warning-tint: var(--sf-warning-tint);
-  --color-neutral-tint: var(--sf-neutral-tint);
-  --color-holiday: var(--sf-holiday);
-  --color-gold-text: var(--sf-gold-text);
-  --color-gold: var(--sf-gold);
-  --color-gold-tint: var(--sf-gold-tint);
-  --color-gold-line: var(--sf-gold-line);
-  --color-sea-text: var(--sf-sea-text);
-  --color-sea-tint: var(--sf-sea-tint);
-  --radius-xs: var(--sf-radius-xs);
-  --radius-sm: var(--sf-radius-sm);
-  --radius-md: var(--sf-radius-md);
-  --radius-lg: var(--sf-radius-lg);
-  --radius-xl: var(--sf-radius-xl);
-  --shadow-e1: var(--sf-shadow-e1);
-  --shadow-e2: var(--sf-shadow-e2);
-  --shadow-e3: var(--sf-shadow-e3);
-  --shadow-e4: var(--sf-shadow-e4);
-  --ease-out: var(--sf-ease-out);
-  --ease-in-out: var(--sf-ease-in-out);
+  --font-weight-normal: var(--ds-weight-regular);
+  --font-weight-medium: var(--ds-weight-medium);
+  --font-weight-semibold: var(--ds-weight-strong);
+  --color-canvas: var(--ds-canvas);
+  --color-surface: var(--ds-surface);
+  --color-raised: var(--ds-raised);
+  --color-sunken: var(--ds-sunken);
+  --color-well: var(--ds-well);
+  --color-ink: var(--ds-text);
+  --color-ink-2: var(--ds-text-2);
+  --color-ink-3: var(--ds-text-3);
+  --color-ink-4: var(--ds-text-4);
+  --color-line: var(--ds-line);
+  --color-line-2: var(--ds-line-2);
+  --color-line-3: var(--ds-line-3);
+  --color-control-strong: var(--ds-control-strong);
+  --color-accent: var(--ds-accent);
+  --color-accent-hover: var(--ds-accent-hover);
+  --color-accent-text: var(--ds-accent-text);
+  --color-accent-tint: var(--ds-accent-tint);
+  --color-accent-tint-2: var(--ds-accent-tint-2);
+  --color-accent-bar: var(--ds-accent-bar);
+  --color-focus: var(--ds-focus-color);
+  --color-in: var(--ds-in);
+  --color-in-tint: var(--ds-in-tint);
+  --color-danger: var(--ds-danger);
+  --color-danger-tint: var(--ds-danger-tint);
+  --color-warning: var(--ds-warning);
+  --color-warning-fill: var(--ds-warning-fill);
+  --color-warning-tint: var(--ds-warning-tint);
+  --color-neutral-tint: var(--ds-neutral-tint);
+  --color-holiday: var(--ds-holiday);
+  --color-gold-text: var(--ds-gold-text);
+  --color-gold: var(--ds-gold);
+  --color-gold-tint: var(--ds-gold-tint);
+  --color-gold-line: var(--ds-gold-line);
+  --color-sea-text: var(--ds-sea-text);
+  --color-sea-tint: var(--ds-sea-tint);
+  --radius-xs: var(--ds-radius-xs);
+  --radius-sm: var(--ds-radius-sm);
+  --radius-md: var(--ds-radius-md);
+  --radius-lg: var(--ds-radius-lg);
+  --radius-xl: var(--ds-radius-xl);
+  --shadow-e1: var(--ds-shadow-e1);
+  --shadow-e2: var(--ds-shadow-e2);
+  --shadow-e3: var(--ds-shadow-e3);
+  --shadow-e4: var(--ds-shadow-e4);
+  --ease-out: var(--ds-ease-out);
+  --ease-in-out: var(--ds-ease-in-out);
 
   /* ---- LEGACY utility colours (Taraz names; see "Legacy aliases" below). Do not use them in new code. ---- */
-  --color-bg: var(--sf-canvas); /* bg-bg → bg-canvas */
-  --color-surface-2: var(--sf-sunken); /* bg-surface-2 → bg-sunken */
-  --color-line-strong: var(--sf-line-3); /* border-line-strong → border-line-3 */
-  --color-muted: var(--sf-text-3); /* text-muted → text-ink-3 (or text-ink-2 for secondary body text) */
-  --color-brand: var(--sf-accent); /* bg-brand → bg-accent; text-brand is remapped below to accent-text */
-  --color-brand-soft: var(--sf-accent-tint); /* bg-brand-soft → bg-accent-tint */
-  --color-gold-soft: var(--sf-gold-tint); /* bg-gold-soft → bg-gold-tint */
-  --color-ok: var(--sf-in); /* text-ok → text-in */
-  --color-bad: var(--sf-danger); /* text-bad → text-danger */
-  --color-warn: var(--sf-warning); /* text-warn → text-warning */
+  --color-bg: var(--ds-canvas); /* bg-bg → bg-canvas */
+  --color-surface-2: var(--ds-sunken); /* bg-surface-2 → bg-sunken */
+  --color-line-strong: var(--ds-line-3); /* border-line-strong → border-line-3 */
+  --color-muted: var(--ds-text-3); /* text-muted → text-ink-3 (or text-ink-2 for secondary body text) */
+  --color-brand: var(--ds-accent); /* bg-brand → bg-accent; text-brand is remapped below to accent-text */
+  --color-brand-soft: var(--ds-accent-tint); /* bg-brand-soft → bg-accent-tint */
+  --color-gold-soft: var(--ds-gold-tint); /* bg-gold-soft → bg-gold-tint */
+  --color-ok: var(--ds-in); /* text-ok → text-in */
+  --color-bad: var(--ds-danger); /* text-bad → text-danger */
+  --color-warn: var(--ds-warning); /* text-warn → text-warning */
 }
 
 /* =====================================================================================================
@@ -84,21 +84,21 @@
      grep -rnE "tz-|text-muted|bg-surface-2|brand|gold-soft|text-ok|text-bad|text-warn|line-strong|row-muted|row-level|\bnum\b|\bltr\b" src/ui
    ===================================================================================================== */
 :root {
-  --tz-bg: var(--sf-canvas);
-  --tz-surface: var(--sf-surface);
-  --tz-surface-2: var(--sf-sunken);
-  --tz-line: var(--sf-line);
-  --tz-line-strong: var(--sf-line-3);
-  --tz-text: var(--sf-text);
-  --tz-muted: var(--sf-text-3);
-  --tz-primary: var(--sf-accent-text);
-  --tz-primary-soft: var(--sf-accent-tint);
-  --tz-gold: var(--sf-gold-text);
-  --tz-gold-soft: var(--sf-gold-tint);
-  --tz-success: var(--sf-in);
-  --tz-danger: var(--sf-danger);
-  --tz-warning: var(--sf-warning);
-  --tz-shadow: var(--sf-shadow-e1);
+  --tz-bg: var(--ds-canvas);
+  --tz-surface: var(--ds-surface);
+  --tz-surface-2: var(--ds-sunken);
+  --tz-line: var(--ds-line);
+  --tz-line-strong: var(--ds-line-3);
+  --tz-text: var(--ds-text);
+  --tz-muted: var(--ds-text-3);
+  --tz-primary: var(--ds-accent-text);
+  --tz-primary-soft: var(--ds-accent-tint);
+  --tz-gold: var(--ds-gold-text);
+  --tz-gold-soft: var(--ds-gold-tint);
+  --tz-success: var(--ds-in);
+  --tz-danger: var(--ds-danger);
+  --tz-warning: var(--ds-warning);
+  --tz-shadow: var(--ds-shadow-e1);
   /* the old navy sidebar (and the TV rates board) become warm charcoal until the shell moves to the canvas sidebar */
   --tz-sidebar: #1c1916;
   --tz-sidebar-2: #221d18;
@@ -117,7 +117,7 @@
 }
 
 @layer components {
-  /* .num / .ltr: the old names of .sf-num / .sf-ltr. `.num` no longer sets "tnum" (it cancelled ss01, the Persian digits) */
+  /* .num / .ltr: the old names of .ds-num / .ds-ltr. `.num` no longer sets "tnum" (it cancelled ss01, the Persian digits) */
   .num {
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
@@ -128,39 +128,39 @@
   }
   /* cards: the e1 ring + shadow (the transparent border keeps `!border-brand` selections working) */
   .tz-card {
-    background: var(--sf-surface);
+    background: var(--ds-surface);
     border: 1px solid transparent;
-    border-radius: var(--sf-radius-lg);
-    box-shadow: var(--sf-shadow-e1);
+    border-radius: var(--ds-radius-lg);
+    box-shadow: var(--ds-shadow-e1);
   }
   .tz-soft {
-    background: var(--sf-sunken);
-    border: 1px solid var(--sf-line);
+    background: var(--ds-sunken);
+    border: 1px solid var(--ds-line);
     border-radius: 10px;
   }
   .tz-neg {
-    color: var(--sf-danger);
+    color: var(--ds-danger);
   }
   .tz-pos {
-    color: var(--sf-in);
+    color: var(--ds-in);
   }
   /* keyboard keys: Geist 11/500 on sunken, an inset line-2 ring with a 1 px bottom edge (components.md §1.2) */
   .tz-kbd {
     display: inline-block;
-    font-family: var(--sf-font-latin);
+    font-family: var(--ds-font-latin);
     font-feature-settings: normal;
-    font-size: var(--sf-type-kbd-size);
-    font-weight: var(--sf-weight-medium);
+    font-size: var(--ds-type-kbd-size);
+    font-weight: var(--ds-weight-medium);
     line-height: 18px;
     min-inline-size: 20px;
     padding-inline: 5px;
     text-align: center;
-    border-radius: var(--sf-radius-xs);
-    color: var(--sf-text-2);
-    background: var(--sf-sunken);
+    border-radius: var(--ds-radius-xs);
+    color: var(--ds-text-2);
+    background: var(--ds-sunken);
     box-shadow:
-      inset 0 0 0 1px var(--sf-line-2),
-      inset 0 -1px 0 var(--sf-line-2);
+      inset 0 0 0 1px var(--ds-line-2),
+      inset 0 -1px 0 var(--ds-line-2);
   }
 
   /* dense financial tables: unfilled headers come from the theme; level rows for trial balances and opening rows */
@@ -169,18 +169,18 @@
   }
   .tz-table .ant-table-summary td {
     font-weight: 600;
-    background: var(--sf-surface);
+    background: var(--ds-surface);
   }
   .tz-table .row-level-1 td {
     font-weight: 600;
-    background: var(--sf-sunken);
+    background: var(--ds-sunken);
   }
   .tz-table .row-level-2 td {
     font-weight: 600;
   }
   /* inactive / excluded rows: text-3, never dimmed below legibility and never struck through */
   .tz-table .row-muted td {
-    color: var(--sf-text-3);
+    color: var(--ds-text-3);
   }
 
   /* editable document grids (voucher, invoice): unfilled 12/18 headers in text-3, hairline rows, a line-3 totals rule */
@@ -192,11 +192,11 @@
   .tz-grid th {
     font-size: 12px;
     line-height: 18px;
-    font-weight: var(--sf-weight-regular);
-    color: var(--sf-text-3);
-    background: var(--sf-surface);
+    font-weight: var(--ds-weight-regular);
+    color: var(--ds-text-3);
+    background: var(--ds-surface);
     padding: 7px 8px;
-    border-bottom: 1px solid var(--sf-line-2);
+    border-bottom: 1px solid var(--ds-line-2);
     text-align: start;
     white-space: nowrap;
     position: sticky;
@@ -205,16 +205,16 @@
   }
   .tz-grid td {
     padding: 3px 4px;
-    border-bottom: 1px solid var(--sf-line);
+    border-bottom: 1px solid var(--ds-line);
     vertical-align: middle;
   }
   .tz-grid tr:hover td {
-    background: var(--sf-hover-row);
+    background: var(--ds-hover-row);
   }
   .tz-grid tfoot td {
     font-weight: 600;
-    background: var(--sf-surface);
-    border-top: 1px solid var(--sf-line-3);
+    background: var(--ds-surface);
+    border-top: 1px solid var(--ds-line-3);
     border-bottom: 0;
     padding: 8px;
   }
@@ -223,10 +223,10 @@
 @layer utilities {
   /* legacy text colours whose bridge colour is a fill: text in Dusk / gold uses the readable text role */
   .text-brand {
-    color: var(--sf-accent-text);
+    color: var(--ds-accent-text);
   }
   .text-gold {
-    color: var(--sf-gold-text);
+    color: var(--ds-gold-text);
   }
 }
 /* ================================ end of legacy aliases ================================ */
@@ -239,24 +239,24 @@
   }
   * {
     scrollbar-width: thin;
-    scrollbar-color: var(--sf-line-3) transparent;
+    scrollbar-color: var(--ds-line-3) transparent;
   }
   /* nothing focused may hide under the sticky top bar (WCAG 2.4.11) */
   html {
-    scroll-padding-top: var(--sf-topbar-h);
+    scroll-padding-top: var(--ds-topbar-h);
   }
 }
 
 /* the mark's one colour: Dusk on paper, warm white on charcoal (brief §7; components/brand.tsx) */
 @layer components {
-  .sf-mark-color {
-    color: var(--sf-dusk-700);
+  .ds-mark-color {
+    color: var(--ds-dusk-700);
   }
-  :root[data-theme="dark"] .sf-mark-color {
+  :root[data-theme="dark"] .ds-mark-color {
     color: #f2f0ec;
   }
   @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) .sf-mark-color {
+    :root:not([data-theme="light"]) .ds-mark-color {
       color: #f2f0ec;
     }
   }
@@ -269,7 +269,7 @@
   place-content: center;
   justify-items: center;
   gap: 14px;
-  color: var(--sf-dusk-700);
+  color: var(--ds-dusk-700);
 }
 .boot-mark {
   inline-size: 56px;

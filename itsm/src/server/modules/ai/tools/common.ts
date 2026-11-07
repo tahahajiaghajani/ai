@@ -32,7 +32,7 @@ export function moneyInfo(ctx: Ctx): Promise<MoneyInfo> {
   if (!p) {
     p = ctx.db
       .one<{ code: string; symbol: string | null; name: string; decimals: number }>(
-        `select code, symbol, name, decimals from tz_currencies where org_id = $1 and is_base and deleted_at is null limit 1`,
+        `select code, symbol, name, decimals from sm_currencies where org_id = $1 and is_base and deleted_at is null limit 1`,
         [ctx.org.id],
       )
       .then((c) => {
@@ -49,7 +49,7 @@ export function fiscalYears(ctx: Ctx): Promise<FiscalYearLite[]> {
   let p = fyCache.get(ctx);
   if (!p) {
     p = ctx.db.query<FiscalYearLite>(
-      `select id, title, start_date, end_date, status from tz_fiscal_years where org_id = $1 and deleted_at is null order by start_date`,
+      `select id, title, start_date, end_date, status from sm_fiscal_years where org_id = $1 and deleted_at is null order by start_date`,
       [ctx.org.id],
     );
     fyCache.set(ctx, p);
@@ -301,7 +301,7 @@ export async function resolveParty(q: Queryable, ctx: Ctx, query: string): Promi
   if (!s) throw bad("شخص را مشخص کنید");
   const cols = "id, code, name, detail_id, national_id, mobile, roles, is_active";
   if (isUuid(s)) {
-    const r = await q.one<PartyHit>(`select ${cols} from tz_parties where id = $1 and org_id = $2 and deleted_at is null`, [s, ctx.org.id]);
+    const r = await q.one<PartyHit>(`select ${cols} from sm_parties where id = $1 and org_id = $2 and deleted_at is null`, [s, ctx.org.id]);
     if (!r) throw bad("شخص پیدا نشد");
     return r;
   }
@@ -309,20 +309,20 @@ export async function resolveParty(q: Queryable, ctx: Ctx, query: string): Promi
   if (/^\+?\d{3,14}$/.test(digits)) {
     const mobile = digits.replace(/^\+98/, "0").replace(/^0098/, "0").replace(/^98(?=9\d{9}$)/, "0");
     const rows = await q.query<PartyHit>(
-      `select ${cols} from tz_parties where org_id = $1 and deleted_at is null and (code = $2 or national_id = $2 or mobile = $3 or economic_code = $2) limit 5`,
+      `select ${cols} from sm_parties where org_id = $1 and deleted_at is null and (code = $2 or national_id = $2 or mobile = $3 or economic_code = $2) limit 5`,
       [ctx.org.id, digits, /^9\d{9}$/.test(mobile) ? `0${mobile}` : mobile],
     );
     if (rows.length === 1) return rows[0];
     if (rows.length > 1) throw ambiguous("شخص", s, rows.map((r) => ({ id: r.id, label: `${r.name} (${r.code})` })));
   }
   const rows = await q.query<PartyHit>(
-    `select ${cols} from tz_parties where org_id = $1 and deleted_at is null and ${faSql("name")} = $2 order by is_active desc limit 5`,
+    `select ${cols} from sm_parties where org_id = $1 and deleted_at is null and ${faSql("name")} = $2 order by is_active desc limit 5`,
     [ctx.org.id, faNorm(s)],
   );
   if (rows.length === 1) return rows[0];
   if (rows.length > 1) throw ambiguous("شخص", s, rows.map((r) => ({ id: r.id, label: `${r.name} (${r.code})` })));
   const near = await q.query<{ id: string; label: string }>(
-    `select id, name || ' (' || code || ')' as label from tz_parties where org_id = $1 and deleted_at is null and ${faSql("name")} like $2 order by length(name) limit 6`,
+    `select id, name || ' (' || code || ')' as label from sm_parties where org_id = $1 and deleted_at is null and ${faSql("name")} like $2 order by length(name) limit 6`,
     [ctx.org.id, likePattern(s)],
   );
   throw bad(
@@ -352,25 +352,25 @@ export async function resolveItem(q: Queryable, ctx: Ctx, query: string, kinds: 
   const cols = "id, code, name, kind, unit_id, sale_price, purchase_price, vat_pct, is_active, gold_weight, fineness";
   const kindArr = `{${kinds.join(",")}}`;
   if (isUuid(s)) {
-    const r = await q.one<ItemHit>(`select ${cols} from tz_items where id = $1 and org_id = $2 and deleted_at is null and kind = any($3::text[])`, [s, ctx.org.id, kindArr]);
+    const r = await q.one<ItemHit>(`select ${cols} from sm_items where id = $1 and org_id = $2 and deleted_at is null and kind = any($3::text[])`, [s, ctx.org.id, kindArr]);
     if (!r) throw bad("کالا پیدا نشد");
     return r;
   }
   const code = normalizeDigits(s);
   const byCode = await q.query<ItemHit>(
-    `select ${cols} from tz_items where org_id = $1 and deleted_at is null and kind = any($3::text[]) and (code = $2 or barcode = $2 or sku = $2) limit 3`,
+    `select ${cols} from sm_items where org_id = $1 and deleted_at is null and kind = any($3::text[]) and (code = $2 or barcode = $2 or sku = $2) limit 3`,
     [ctx.org.id, code, kindArr],
   );
   if (byCode.length === 1) return byCode[0];
   const byName = await q.query<ItemHit>(
-    `select ${cols} from tz_items where org_id = $1 and deleted_at is null and kind = any($3::text[]) and ${faSql("name")} = $2 order by is_active desc limit 5`,
+    `select ${cols} from sm_items where org_id = $1 and deleted_at is null and kind = any($3::text[]) and ${faSql("name")} = $2 order by is_active desc limit 5`,
     [ctx.org.id, faNorm(s), kindArr],
   );
   if (byName.length === 1) return byName[0];
   const many = byCode.length > 1 ? byCode : byName;
   if (many.length > 1) throw ambiguous("کالا", s, many.map((r) => ({ id: r.id, label: `${r.name} (${r.code})` })));
   const near = await q.query<{ id: string; label: string }>(
-    `select id, name || ' (' || code || ')' as label from tz_items where org_id = $1 and deleted_at is null and kind = any($3::text[]) and ${faSql("name")} like $2 order by length(name) limit 6`,
+    `select id, name || ' (' || code || ')' as label from sm_items where org_id = $1 and deleted_at is null and kind = any($3::text[]) and ${faSql("name")} like $2 order by length(name) limit 6`,
     [ctx.org.id, likePattern(s), kindArr],
   );
   throw bad(
@@ -395,14 +395,14 @@ export async function resolveAccount(q: Queryable, ctx: Ctx, query: string, opts
   if (!s) throw bad("حساب را مشخص کنید");
   const cols = "id, code, name, kind, is_postable, system_key, detail_mode";
   const rows = isUuid(s)
-    ? await q.query<AccountHit>(`select ${cols} from tz_accounts where id = $1 and org_id = $2 and deleted_at is null`, [s, ctx.org.id])
+    ? await q.query<AccountHit>(`select ${cols} from sm_accounts where id = $1 and org_id = $2 and deleted_at is null`, [s, ctx.org.id])
     : await q.query<AccountHit>(
-        `select ${cols} from tz_accounts where org_id = $1 and deleted_at is null and (code = $2 or ${faSql("name")} = $3) order by level desc limit 5`,
+        `select ${cols} from sm_accounts where org_id = $1 and deleted_at is null and (code = $2 or ${faSql("name")} = $3) order by level desc limit 5`,
         [ctx.org.id, normalizeDigits(s), faNorm(s)],
       );
   if (!rows.length) {
     const near = await q.query<{ id: string; label: string }>(
-      `select id, code || ' ' || name as label from tz_accounts where org_id = $1 and deleted_at is null and is_postable and ${faSql("name")} like $2 order by code limit 6`,
+      `select id, code || ' ' || name as label from sm_accounts where org_id = $1 and deleted_at is null and is_postable and ${faSql("name")} like $2 order by code limit 6`,
       [ctx.org.id, likePattern(s)],
     );
     throw bad(`حساب «${s}» پیدا نشد`, near.length ? { candidates: near } : undefined);
@@ -415,7 +415,7 @@ export async function resolveAccount(q: Queryable, ctx: Ctx, query: string, opts
 
 /** A cash box or bank account by id, exact code or exact name. */
 export async function resolveMoneyBox(q: Queryable, ctx: Ctx, kind: "cash" | "bank", query: string | null | undefined): Promise<{ id: string; name: string; detail_id: string | null }> {
-  const table = kind === "cash" ? "tz_cash_boxes" : "tz_bank_accounts";
+  const table = kind === "cash" ? "sm_cash_boxes" : "sm_bank_accounts";
   const label = kind === "cash" ? "صندوق" : "حساب بانکی";
   const s = String(query ?? "").trim();
   if (!s) {
@@ -452,9 +452,9 @@ export async function resolveCurrency(q: Queryable, ctx: Ctx, query: string): Pr
   if (!s) throw bad("ارز را مشخص کنید");
   const cols = "id, code, name, kind, decimals, is_base";
   const r = isUuid(s)
-    ? await q.one<CurrencyHit>(`select ${cols} from tz_currencies where id = $1 and org_id = $2 and deleted_at is null`, [s, ctx.org.id])
+    ? await q.one<CurrencyHit>(`select ${cols} from sm_currencies where id = $1 and org_id = $2 and deleted_at is null`, [s, ctx.org.id])
     : await q.one<CurrencyHit>(
-        `select ${cols} from tz_currencies where org_id = $1 and deleted_at is null and (upper(code) = upper($2) or ${faSql("name")} = $3) limit 1`,
+        `select ${cols} from sm_currencies where org_id = $1 and deleted_at is null and (upper(code) = upper($2) or ${faSql("name")} = $3) limit 1`,
         [ctx.org.id, s, faNorm(s)],
       );
   if (!r) throw bad(`ارز «${s}» تعریف نشده است`);

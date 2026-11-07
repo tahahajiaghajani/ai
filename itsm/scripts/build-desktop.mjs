@@ -1,7 +1,7 @@
 // Prepares desktop/app (what electron-builder packages) for the Windows app of «سیراف»: the built SPA, the bundled
 // local server (backend.cjs), the Electron main/preload, the splash, the icons, PGlite and a minimal package.json.
 //   node scripts/build-desktop.mjs            → then: cd desktop && npx electron-builder --win
-// The splash (desktop/src/splash.html) loads Arad and Siraf Num from renderer/fonts/siraf/, so the SPA build must carry the fonts.
+// The splash (desktop/src/splash.html) loads Arad and DS Num from renderer/fonts/ds/, so the SPA build must carry the fonts.
 import { build } from "esbuild";
 import { execSync } from "node:child_process";
 import { cpSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from "node:fs";
@@ -18,7 +18,7 @@ rmSync(app, { recursive: true, force: true });
 mkdirSync(app, { recursive: true });
 
 console.log("• building the user interface");
-execSync("npx vite build", { cwd: root, stdio: "inherit", env: { ...process.env, TARAZ_UI_OUT: "./desktop/app/renderer" } });
+execSync("npx vite build", { cwd: root, stdio: "inherit", env: { ...process.env, ITSM_UI_OUT: "./desktop/app/renderer" } });
 
 console.log("• bundling the local server");
 await build({
@@ -66,7 +66,7 @@ for (const f of ["icon.png", "icon.ico", "tray.png", "tray@1.5x.png", "tray@2x.p
   if (existsSync(join(desktop, "build", f))) cpSync(join(desktop, "build", f), join(app, f));
 }
 cpSync(join(desktop, "src/splash.html"), join(app, "splash.html"));
-for (const f of ["AradVF.woff2", "SirafNum.woff2"]) if (!existsSync(join(app, "renderer/fonts/siraf", f))) throw new Error(`renderer/fonts/siraf/${f} missing: the splash needs it`);
+for (const f of ["AradVF.woff2", "DSNum.woff2"]) if (!existsSync(join(app, "renderer/fonts/ds", f))) throw new Error(`renderer/fonts/ds/${f} missing: the splash needs it`);
 
 writeFileSync(
   join(app, "package.json"),

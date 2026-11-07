@@ -28,7 +28,7 @@ export function StatusMark({ c }: { c: AiConnectionPublic }) {
   if (tone === "ok")
     return (
       <span className="ai-st" data-tone="ok">
-        <i className="sf-nuqta" aria-hidden />
+        <i className="ds-nuqta" aria-hidden />
         {TONE_LABEL.ok}
       </span>
     );
@@ -118,7 +118,7 @@ function ConnectionCard({
         </div>
         <Dropdown
           trigger={["click"]}
-          rootClassName="sf-glass"
+          rootClassName="ds-glass"
           placement="bottomLeft"
           menu={{
             items: [
@@ -241,7 +241,7 @@ export function ConnectionsTab({
     <>
       {!secretOk ? (
         <Note tone="warning" className="mb-4">
-          <b>کلید رمزنگاری سامانه تنظیم نشده است.</b> کلیدهای API فقط پس از تنظیم متغیر <bdi dir="ltr" className="sf-mono">APP_SECRET</bdi> در سرور ذخیره می‌شوند؛ از مدیر سامانه بخواهید آن را تنظیم کند.
+          <b>کلید رمزنگاری سامانه تنظیم نشده است.</b> کلیدهای API فقط پس از تنظیم متغیر <bdi dir="ltr" className="ds-mono">APP_SECRET</bdi> در سرور ذخیره می‌شوند؛ از مدیر سامانه بخواهید آن را تنظیم کند.
         </Note>
       ) : null}
       {loading ? (

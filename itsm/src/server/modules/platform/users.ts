@@ -26,7 +26,7 @@ interface Target {
 
 async function target(cfg: ServerConfig, id: string): Promise<Target> {
   if (!/^[0-9a-f-]{36}$/i.test(id)) throw notFound("کاربر پیدا نشد");
-  const u = await cfg.db.one<Target>(`select id, email, full_name, is_platform_admin, disabled from tz_users where id = $1`, [id]);
+  const u = await cfg.db.one<Target>(`select id, email, full_name, is_platform_admin, disabled from sm_users where id = $1`, [id]);
   if (!u) throw notFound("کاربر پیدا نشد");
   return u;
 }
@@ -35,7 +35,7 @@ const envAdmin = (cfg: ServerConfig, u: Target) => cfg.platformAdmins.includes(u
 const ENV_ADMIN_MESSAGE = "این ایمیل در PLATFORM_ADMIN_EMAILS است (مالک سامانه)؛ نخست آن را از تنظیمات سرور بردارید";
 
 const activeAdmins = async (cfg: ServerConfig) =>
-  (await cfg.db.one<{ n: number }>(`select count(*)::int as n from tz_users where is_platform_admin and not disabled`))?.n ?? 0;
+  (await cfg.db.one<{ n: number }>(`select count(*)::int as n from sm_users where is_platform_admin and not disabled`))?.n ?? 0;
 
 /** A former admin's account gets no temporary password for this long after the role was taken away. */
 export const RECENT_ADMIN_DAYS = 7;
@@ -43,7 +43,7 @@ export const RECENT_ADMIN_DAYS = 7;
 /** True when the account's platform admin role was revoked within RECENT_ADMIN_DAYS (platform audit log). */
 export const recentlyAdmin = async (cfg: ServerConfig, id: string) =>
   !!(await cfg.db.one(
-    `select 1 from tz_audit where action = 'admin_revoke' and actor_kind = 'platform' and entity = 'user' and entity_id = $1 and at > now() - make_interval(days => $2) limit 1`,
+    `select 1 from sm_audit where action = 'admin_revoke' and actor_kind = 'platform' and entity = 'user' and entity_id = $1 and at > now() - make_interval(days => $2) limit 1`,
     [id, RECENT_ADMIN_DAYS],
   ));
 
@@ -55,9 +55,9 @@ export async function setUserDisabled(cfg: ServerConfig, admin: AuthUser, id: st
   if (disabled && u.is_platform_admin && envAdmin(cfg, u)) throw bad(ENV_ADMIN_MESSAGE);
   if (disabled && u.is_platform_admin && (await activeAdmins(cfg)) <= 1) throw bad("سامانه باید دست‌کم یک مدیر فعال داشته باشد");
   await cfg.db.tx(async (tx) => {
-    // tz_user_touch gives the row a new revision so linked Windows apps receive the change
-    await tx.query(`update tz_users set disabled = $2 where id = $1`, [id, disabled]);
-    if (disabled) await tx.query(`update tz_sessions set revoked_at = now() where user_id = $1 and revoked_at is null`, [id]);
+    // sm_user_touch gives the row a new revision so linked Windows apps receive the change
+    await tx.query(`update sm_users set disabled = $2 where id = $1`, [id, disabled]);
+    if (disabled) await tx.query(`update sm_sessions set revoked_at = now() where user_id = $1 and revoked_at is null`, [id]);
     await platformAudit(tx, cfg, admin, {
       action: disabled ? "user_disable" : "user_enable",
       entity: "user",
@@ -74,7 +74,7 @@ export async function setUserDisabled(cfg: ServerConfig, admin: AuthUser, id: st
 export async function signOutEverywhere(cfg: ServerConfig, admin: AuthUser, id: string, meta: Meta = {}) {
   const u = await target(cfg, id);
   const n = await cfg.db.tx(async (tx) => {
-    const rows = await tx.query(`update tz_sessions set revoked_at = now() where user_id = $1 and revoked_at is null returning id`, [id]);
+    const rows = await tx.query(`update sm_sessions set revoked_at = now() where user_id = $1 and revoked_at is null returning id`, [id]);
     await platformAudit(tx, cfg, admin, { action: "user_sign_out", entity: "user", entity_id: id, summary: `خروج ${u.email} از همهٔ دستگاه‌ها (${rows.length} نشست)` });
     return rows.length;
   });
@@ -94,8 +94,8 @@ export async function temporaryPassword(cfg: ServerConfig, admin: AuthUser, id: 
   const pw = readableCode(3, 4);
   const hash = await hashPassword(pw);
   await cfg.db.tx(async (tx) => {
-    await tx.query(`update tz_users set password_hash = $2 where id = $1`, [id, hash]);
-    await tx.query(`update tz_sessions set revoked_at = now() where user_id = $1 and revoked_at is null`, [id]);
+    await tx.query(`update sm_users set password_hash = $2 where id = $1`, [id, hash]);
+    await tx.query(`update sm_sessions set revoked_at = now() where user_id = $1 and revoked_at is null`, [id]);
     await platformAudit(tx, cfg, admin, { action: "user_password", entity: "user", entity_id: id, summary: `رمز موقت برای ${u.email}؛ دلیل: ${why}`, data: { reason: why } });
   });
   await securityEvent(cfg.db, { kind: "password_reset", user_id: id, email: u.email, ...meta, data: { scope: "platform", reason: why.slice(0, 200), by: admin.id, by_name: admin.full_name } });
@@ -113,9 +113,9 @@ export async function setPlatformAdmin(cfg: ServerConfig, admin: AuthUser, id: s
     if (!u.disabled && (await activeAdmins(cfg)) <= 1) throw bad("سامانه باید دست‌کم یک مدیر فعال داشته باشد");
   }
   await cfg.db.tx(async (tx) => {
-    await tx.query(`update tz_users set is_platform_admin = $2 where id = $1`, [id, granted]);
+    await tx.query(`update sm_users set is_platform_admin = $2 where id = $1`, [id, granted]);
     // a revoked admin's live support sessions end with the role
-    if (!granted) await tx.query(`update tz_support_sessions set ended_at = now(), ended_by = $2 where admin_user_id = $1 and ended_at is null and expires_at > now()`, [id, admin.id]);
+    if (!granted) await tx.query(`update sm_support_sessions set ended_at = now(), ended_by = $2 where admin_user_id = $1 and ended_at is null and expires_at > now()`, [id, admin.id]);
     await platformAudit(tx, cfg, admin, {
       action: granted ? "admin_grant" : "admin_revoke",
       entity: "user",

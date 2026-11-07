@@ -122,7 +122,7 @@ async function checkRefs(tx: Tx, ctx: Ctx, fields: FieldDef[], row: Record<strin
     if (f.type !== "ref" || !f.ref) continue;
     const v = row[f.name];
     if (v === null || v === undefined) continue;
-    const table = f.ref === "account" ? "tz_accounts" : ENTITIES[f.ref]?.table;
+    const table = f.ref === "account" ? "sm_accounts" : ENTITIES[f.ref]?.table;
     if (!table) continue;
     const found = await tx.one(`select 1 from ${ident(table)} where id = $1 and org_id = $2`, [v, ctx.org.id]);
     if (!found) throw bad(`«${f.label}» پیدا نشد`);
@@ -388,7 +388,7 @@ async function resolveRef(tx: Tx, ctx: Ctx, f: FieldDef, value: unknown, cache: 
   const text = normalizeDigits(raw).replace(/[يى]/g, "ی").replace(/ك/g, "ک").trim();
   if (f.ref === "account") {
     const r = await tx.one<{ id: string }>(
-      `select id from tz_accounts where org_id = $1 and deleted_at is null and (code = $2 or lower(name) = lower($2)) order by is_postable desc limit 1`,
+      `select id from sm_accounts where org_id = $1 and deleted_at is null and (code = $2 or lower(name) = lower($2)) order by is_postable desc limit 1`,
       [ctx.org.id, text],
     );
     id = r?.id ?? null;
@@ -499,7 +499,7 @@ export async function importRows(ctx: Ctx, key: string, rows: Record<string, unk
       const raw = rows[i] ?? {};
       if (!Object.values(raw).some((v) => v !== null && v !== undefined && String(v).trim() !== "")) continue;
       cache.createdInRow = [];
-      await tx.query("savepoint tz_import_row");
+      await tx.query("savepoint sm_import_row");
       try {
         const data = await importValues(tx, ctx, fields, raw, cache);
         let existing: { id: string } | null = null;
@@ -512,10 +512,10 @@ export async function importRows(ctx: Ctx, key: string, rows: Record<string, unk
           if (existing && !opts.updateExisting) throw conflict(`کد «${codeValue}» از قبل وجود دارد`);
         }
         const saved = existing ? await updateIn(tx, ctx, key, existing.id, data) : await createIn(tx, ctx, key, data);
-        await tx.query("release savepoint tz_import_row");
+        await tx.query("release savepoint sm_import_row");
         results.push({ row: offset + i, ok: true, action: existing ? "update" : "create", id: String(saved?.id), label: String(saved?.[d.display] ?? "") });
       } catch (e) {
-        await tx.query("rollback to savepoint tz_import_row");
+        await tx.query("rollback to savepoint sm_import_row");
         for (const k of cache.createdInRow) cache.map.delete(k);
         const err = e instanceof AppError ? e : dbErrorMessage(e);
         results.push({ row: offset + i, ok: false, error: err?.message ?? String((e as Error)?.message ?? e) });
@@ -539,16 +539,16 @@ export async function importRows(ctx: Ctx, key: string, rows: Record<string, unk
 
 /** Where a master row is referenced; used to refuse deleting rows in use. */
 const USAGE: Record<string, [string, string][]> = {
-  party: [["tz_invoices", "party_id"], ["tz_treasury_docs", "party_id"], ["tz_cheques", "party_id"], ["tz_gold_docs", "party_id"], ["tz_fx_deals", "party_id"], ["tz_remittances", "party_id"]],
-  item: [["tz_invoice_lines", "item_id"], ["tz_stock_lines", "item_id"], ["tz_stock_moves", "item_id"]],
-  warehouse: [["tz_stock_moves", "warehouse_id"]],
-  cash_box: [["tz_treasury_lines", "cash_box_id"]],
-  bank_account: [["tz_treasury_lines", "bank_account_id"], ["tz_cheques", "bank_account_id"]],
-  currency: [["tz_voucher_lines", "currency_id"], ["tz_fx_deals", "in_currency_id"], ["tz_fx_deals", "out_currency_id"]],
-  unit: [["tz_items", "unit_id"]],
-  gold_item: [["tz_gold_lines", "gold_item_id"]],
-  gold_category: [["tz_gold_items", "category_id"]],
-  wallet: [["tz_treasury_lines", "wallet_id"]],
+  party: [["sm_invoices", "party_id"], ["sm_treasury_docs", "party_id"], ["sm_cheques", "party_id"], ["sm_gold_docs", "party_id"], ["sm_fx_deals", "party_id"], ["sm_remittances", "party_id"]],
+  item: [["sm_invoice_lines", "item_id"], ["sm_stock_lines", "item_id"], ["sm_stock_moves", "item_id"]],
+  warehouse: [["sm_stock_moves", "warehouse_id"]],
+  cash_box: [["sm_treasury_lines", "cash_box_id"]],
+  bank_account: [["sm_treasury_lines", "bank_account_id"], ["sm_cheques", "bank_account_id"]],
+  currency: [["sm_voucher_lines", "currency_id"], ["sm_fx_deals", "in_currency_id"], ["sm_fx_deals", "out_currency_id"]],
+  unit: [["sm_items", "unit_id"]],
+  gold_item: [["sm_gold_lines", "gold_item_id"]],
+  gold_category: [["sm_gold_items", "category_id"]],
+  wallet: [["sm_treasury_lines", "wallet_id"]],
 };
 
 export async function remove(ctx: Ctx, key: string, id: string) {
@@ -563,10 +563,10 @@ export async function remove(ctx: Ctx, key: string, id: string) {
       if (used) throw conflict(`این ${d.title} در اسناد استفاده شده و قابل حذف نیست؛ می‌توانید آن را غیرفعال کنید`);
     }
     if (prev.detail_id) {
-      const usedDetail = await tx.one(`select 1 from tz_voucher_lines where org_id = $1 and (detail_id = $2 or detail2_id = $2) limit 1`, [ctx.org.id, prev.detail_id]);
+      const usedDetail = await tx.one(`select 1 from sm_voucher_lines where org_id = $1 and (detail_id = $2 or detail2_id = $2) limit 1`, [ctx.org.id, prev.detail_id]);
       if (usedDetail) throw conflict(`این ${d.title} گردش حسابداری دارد و قابل حذف نیست؛ می‌توانید آن را غیرفعال کنید`);
       await archiveDetail(tx, ctx.org.id, prev.detail_id as string);
-      await tx.query(`update tz_details set deleted_at = now() where id = $1`, [prev.detail_id]);
+      await tx.query(`update sm_details set deleted_at = now() where id = $1`, [prev.detail_id]);
     }
     await tx.query(`update ${ident(d.table)} set deleted_at = now() where id = $1`, [id]);
     await audit(tx, ctx, "delete", key, id, String(prev[d.display] ?? ""));
@@ -576,7 +576,7 @@ export async function remove(ctx: Ctx, key: string, id: string) {
 
 export async function audit(q: Queryable, ctx: Ctx, action: string, entity: string, entityId: string | null, summary: string, data?: unknown) {
   await q.query(
-    `insert into tz_audit (id, org_id, user_id, action, entity, entity_id, summary, data, origin) values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+    `insert into sm_audit (id, org_id, user_id, action, entity, entity_id, summary, data, origin) values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
     [uuidv7(), ctx.org.id, ctx.user.id, action, entity, entityId, summary.slice(0, 300), data ?? null, ctx.cfg.origin],
   );
 }

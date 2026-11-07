@@ -82,9 +82,9 @@ function Row({ t, active, onOpen, onRename, onPin, onDelete }: { t: AiThreadSumm
         <span className="sa-th-t" dir="auto">
           {t.title || "گفت‌وگوی بی‌نام"}
         </span>
-        <span className="sa-th-m sf-num">{when(t.updated_at)}</span>
+        <span className="sa-th-m ds-num">{when(t.updated_at)}</span>
       </button>
-      <Dropdown trigger={["click"]} menu={menu} rootClassName="sf-glass sh-menu sh-menu-strong" placement="bottomLeft">
+      <Dropdown trigger={["click"]} menu={menu} rootClassName="ds-glass sh-menu sh-menu-strong" placement="bottomLeft">
         <button type="button" className="sh-icon-btn sh-icon-sm sa-th-more" aria-label={`کارهای «${t.title}»`}>
           <Ic icon={MoreHorizontal} />
         </button>
@@ -153,7 +153,7 @@ export function Threads({ activeId, onOpen, onDeleted }: { activeId: string | nu
         {threads.isLoading ? (
           <div className="sa-card-skel" aria-busy="true" aria-label="در حال بارگذاری">
             {[78, 56, 70, 48, 64].map((w, i) => (
-              <i key={i} className="sf-skel" style={{ inlineSize: `${w}%` }} />
+              <i key={i} className="ds-skel" style={{ inlineSize: `${w}%` }} />
             ))}
           </div>
         ) : threads.isError ? (

@@ -21,12 +21,12 @@
 //   empty  — a new conversation with the page's suggested questions
 //   setup  — AI not configured yet (the owner's «راه‌اندازی» state)
 //   palette — Ctrl K with a question typed: the «بپرس از دستیار» row (palette-empty: the suggested questions)
-//   live   — with SIRAF_AI_FAKE=1: the real engine with its fake model (demo-seed adds the fake connection);
+//   live   — with ITSM_AI_FAKE=1: the real engine with its fake model (demo-seed adds the fake connection);
 //            the question is typed into the composer and the shot waits for the answer
 //   live-tools — the same with a question whose fake-model directives run analyze_metric (chart), run_report (table)
 //            and propose_invoice (a draft card) on the seeded books; «live-tools-top» shows its start
 //   capture — on a form with «خواندن از تصویر»: a PDF whose bytes carry a [json:…] reply is read by the fake vision
-//            model and the result is shown; «capture-use» applies it to the form (SIRAF_AI_FAKE=1)
+//            model and the result is shown; «capture-use» applies it to the form (ITSM_AI_FAKE=1)
 //   plan   — on reports/forecast?tab=plan: writes a plan and shows it
 //
 // Internal: `tsx scripts/ui-shots.mjs --serve-internal <dataDir> <port> <staticDir>` runs the server.
@@ -74,11 +74,11 @@ const FULL_PAGE = flag("full-page");
 const NO_BUILD = flag("no-build");
 const STATIC = opt("static") ? resolve(opt("static")) : null;
 const MOBILE_DEFAULT = ["", "sales/invoices", "sales/invoices/new", "parties", "treasury/receipts", "gold/sale", "fx/rates", "fx/deals/new", "reports/trial-balance", "/login", "reports/income-statement@ai=chat", "@ai=empty"];
-const AI_FAKE = process.env.SIRAF_AI_FAKE === "1";
+const AI_FAKE = process.env.ITSM_AI_FAKE === "1";
 const MOBILE = flag("no-mobile") ? [] : list(opt("mobile")) ?? MOBILE_DEFAULT;
 const OWNER = { email: "demo@example.com", password: "Demo-pass-1405", full_name: "سارا محمدی" };
 const ORG = { name: "بازرگانی نیک‌آوران", business_kind: "mixed", modules: ["goods", "gold", "fx"], base_currency: "IRR", city: "تهران" };
-const THEME_KEYS = ["taraz.theme", "siraf.theme"];
+const THEME_KEYS = ["itsm.theme", "itsm.theme"];
 
 for (const t of THEMES) if (!["light", "dark"].includes(t)) throw new Error(`unknown theme ${t}`);
 
@@ -166,7 +166,7 @@ function aiMessages() {
         { call_id: "c1", tool: "analyze_metric", title_fa: "تحلیل فروش و سود ماه به ماه", ok: true, summary_fa: "۶ ماه، ۲ سری" },
         { call_id: "c2", tool: "run_report", title_fa: "گزارش فروش کالا", ok: true, summary_fa: "۸ کالا" },
       ],
-      text: "فروش **آبان** تا امروز **۱۸۶٫۴ میلیون ریال** است؛ نسبت به مهر **۱۲٪ بیشتر**، و سود ناخالص با رشد کمتری (۷٪) بالا رفته است.\n\n- حاشیهٔ سود ناخالص از **۲۴٫۱٪** به **۲۲٫۸٪** رسیده؛ تخفیف‌های فاکتورهای عمده اثر داشته است.\n- سه کالای اول **۵۸٪** فروش ماه را ساخته‌اند.\n- بزرگ‌ترین فاکتور ماه [فاکتور فروش ۱۰۲۴](siraf:invoice/" + INVOICE_ID + ") به مبلغ ۴۲ میلیون ریال بوده است.",
+      text: "فروش **آبان** تا امروز **۱۸۶٫۴ میلیون ریال** است؛ نسبت به مهر **۱۲٪ بیشتر**، و سود ناخالص با رشد کمتری (۷٪) بالا رفته است.\n\n- حاشیهٔ سود ناخالص از **۲۴٫۱٪** به **۲۲٫۸٪** رسیده؛ تخفیف‌های فاکتورهای عمده اثر داشته است.\n- سه کالای اول **۵۸٪** فروش ماه را ساخته‌اند.\n- بزرگ‌ترین فاکتور ماه [فاکتور فروش ۱۰۲۴](record:invoice/" + INVOICE_ID + ") به مبلغ ۴۲ میلیون ریال بوده است.",
       refs: [
         { type: "report", id: "sales", label: "گزارش فروش", path: "sales/reports" },
         { type: "invoice", id: INVOICE_ID, label: "فاکتور فروش ۱۰۲۴", path: `sales/invoices/${INVOICE_ID}` },
@@ -275,7 +275,7 @@ async function openAi(page, state) {
     return;
   }
   const chat = state.startsWith("chat");
-  await page.evaluate((c) => window.dispatchEvent(new CustomEvent("siraf:assistant", { detail: c ? { threadId: "demo" } : { fresh: true } })), chat);
+  await page.evaluate((c) => window.dispatchEvent(new CustomEvent("itsm:assistant", { detail: c ? { threadId: "demo" } : { fresh: true } })), chat);
   await page.locator('.sa-panel[data-open="true"]').waitFor({ timeout: 15000 });
   if (state.startsWith("live")) {
     const box = page.locator(".sa-comp-in");
@@ -284,7 +284,7 @@ async function openAi(page, state) {
     await page.locator(".sa-msg-a").last().waitFor({ timeout: 15000 });
     await page.waitForFunction(() => !document.querySelector(".sa-msg-a.is-live"), null, { timeout: 60000 });
   }
-  await page.waitForFunction(() => !document.querySelector(".sa-panel .sf-skel"), null, { timeout: 15000 }).catch(() => {});
+  await page.waitForFunction(() => !document.querySelector(".sa-panel .ds-skel"), null, { timeout: 15000 }).catch(() => {});
   if (chat || state === "live-tools" || state === "live-tools-top") await page.locator(".sa-card").first().waitFor({ timeout: 10000 }).catch(() => {});
   await page.waitForTimeout(900); // the panel's slide and the charts' first draw
   if (state === "chat-top" || state === "live-tools-top") {
@@ -320,7 +320,7 @@ async function main() {
   let staticDir = STATIC ?? join(tmpdir(), "siraf-ui-shots-build");
   if (!NO_BUILD) {
     log(`building UI into ${staticDir}`);
-    await run(join(ROOT, "node_modules", ".bin", "vite"), ["build", "--logLevel", "warn"], { env: { TARAZ_UI_OUT: staticDir }, logFile: join(OUT, "build.log") });
+    await run(join(ROOT, "node_modules", ".bin", "vite"), ["build", "--logLevel", "warn"], { env: { ITSM_UI_OUT: staticDir }, logFile: join(OUT, "build.log") });
   } else if (!existsSync(join(staticDir, "index.html"))) {
     staticDir = join(ROOT, "public");
     log(`--no-build: no build in the default dir, serving ${staticDir}`);
@@ -389,7 +389,7 @@ async function main() {
     if (missing) return { skip: `no seeded id «${missing}»` };
     const [page, ai = null] = filled.split("@ai=");
     if (ai && !AI_STATES.includes(ai)) return { skip: `unknown assistant state «${ai}»` };
-    if (LIVE_STATES.includes(ai) && !AI_FAKE) return { skip: `@ai=${ai} needs SIRAF_AI_FAKE=1` };
+    if (LIVE_STATES.includes(ai) && !AI_FAKE) return { skip: `@ai=${ai} needs ITSM_AI_FAKE=1` };
     return { href: page.startsWith("/") ? page : `/${orgId}${page ? `/${page}` : ""}`, auth: !/^\/(login|setup|recover|signup)\b/.test(page), ai };
   };
 
@@ -449,8 +449,8 @@ async function main() {
       await ctx.addInitScript(({ keys, theme, org }) => {
         try {
           for (const k of keys) localStorage.setItem(k, theme);
-          localStorage.setItem("taraz.lastOrg", org);
-          localStorage.setItem("siraf.lastOrg", org);
+          localStorage.setItem("itsm.lastOrg", org);
+          localStorage.setItem("itsm.lastOrg", org);
         } catch {}
       }, { keys: THEME_KEYS, theme: job.theme, org: orgId });
       contexts.set(key, ctx);
@@ -496,8 +496,8 @@ async function main() {
       const deadline = Date.now() + 20000;
       let quietSince = 0;
       while (Date.now() < deadline) {
-        // skeletons of the kit (sf-skel, db-sk, aria-busy) count as loading too, so lazy pages are shot with their data
-        const busy = pending > 0 || (await page.locator('.boot, .ant-spin-spinning, .ant-skeleton-active, .sf-skel, .db-sk, main [aria-busy="true"]').count().catch(() => 0)) > 0;
+        // skeletons of the kit (ds-skel, db-sk, aria-busy) count as loading too, so lazy pages are shot with their data
+        const busy = pending > 0 || (await page.locator('.boot, .ant-spin-spinning, .ant-skeleton-active, .ds-skel, .db-sk, main [aria-busy="true"]').count().catch(() => 0)) > 0;
         if (busy) quietSince = 0;
         else if (!quietSince) quietSince = Date.now();
         else if (Date.now() - quietSince > 500) break;

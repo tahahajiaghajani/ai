@@ -41,9 +41,9 @@ export default function HealthPage() {
         <>
           <section className="ad-kpis" aria-label="خلاصه">
             <StatCard title="وضعیت" value={h.ok ? "رو به راه" : "نیازمند توجه"} hint={h.ok ? "همهٔ بررسی‌ها درست است" : `${fa(h.checks.filter((c) => c.tone === "warning" || c.tone === "danger").length)} مورد نیازمند توجه`} />
-            <StatCard title="نسخه" value={<span className="sf-num sf-latin">{h.version}</span>} hint={h.mode === "cloud" ? "نسخهٔ وب" : "نسخهٔ ویندوز"} />
-            <StatCard title="ساختار پایگاه داده" value={<span className="sf-num">{fa(h.migrations.applied)} از {fa(h.migrations.expected)}</span>} hint={h.migrations.latest ? <span className="sf-latin">{h.migrations.latest}</span> : undefined} />
-            <StatCard title="حجم پایگاه داده" value={<span className="sf-num">{bytes(h.db.bytes)}</span>} hint={h.db.limit ? `از ${bytes(h.db.limit)}` : h.db.kind === "pglite" ? "پایگاه دادهٔ همین رایانه" : undefined} />
+            <StatCard title="نسخه" value={<span className="ds-num ds-latin">{h.version}</span>} hint={h.mode === "cloud" ? "نسخهٔ وب" : "نسخهٔ ویندوز"} />
+            <StatCard title="ساختار پایگاه داده" value={<span className="ds-num">{fa(h.migrations.applied)} از {fa(h.migrations.expected)}</span>} hint={h.migrations.latest ? <span className="ds-latin">{h.migrations.latest}</span> : undefined} />
+            <StatCard title="حجم پایگاه داده" value={<span className="ds-num">{bytes(h.db.bytes)}</span>} hint={h.db.limit ? `از ${bytes(h.db.limit)}` : h.db.kind === "pglite" ? "پایگاه دادهٔ همین رایانه" : undefined} />
           </section>
           <Card title="بررسی‌ها" className="ad-section-gap" flush>
             {h.checks.map((c) => {

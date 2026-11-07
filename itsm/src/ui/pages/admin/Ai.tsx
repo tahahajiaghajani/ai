@@ -78,7 +78,7 @@ function PolicyCard({ policy }: { policy: AiPolicy }) {
           extra="بودجهٔ هر کسب‌وکار فقط می‌تواند کمتر از این باشد؛ خالی یعنی بدون سقف."
           rules={[{ pattern: /^\d+(\.\d{1,2})?$/, message: "عدد درست بنویسید، مثلاً 20 یا 12.5" }]}
         >
-          <Input dir="ltr" className="sf-latin" inputMode="decimal" placeholder="20" style={{ maxInlineSize: 160 }} />
+          <Input dir="ltr" className="ds-latin" inputMode="decimal" placeholder="20" style={{ maxInlineSize: 160 }} />
         </Form.Item>
         <Button htmlType="submit" loading={busy === "policy"}>
           ذخیرهٔ سیاست
@@ -94,7 +94,7 @@ export default function Ai() {
   const qc = useQueryClient();
   const overview = useQuery({ queryKey: ["admin", "ai", "overview"], queryFn: () => api.get<AiAdminOverview>("/admin/ai/overview"), retry: (c, e) => !notReady(e) && c < 2 });
   const policy = useQuery({ queryKey: ["admin", "ai", "policy"], queryFn: () => api.get<{ policy: AiPolicy }>("/admin/ai/policy"), retry: (c, e) => !notReady(e) && c < 2 });
-  // the platform's own per-business switch (tz_org_admin.ai_disabled)
+  // the platform's own per-business switch (sm_org_admin.ai_disabled)
   const orgs = useAdminQuery<{ orgs: { id: string; ai_disabled: boolean }[] }>(["orgs", "", "", "", ""], "/admin/orgs");
   const off = new Set((orgs.data?.orgs ?? []).filter((o) => o.ai_disabled).map((o) => o.id));
 
@@ -134,10 +134,10 @@ export default function Ai() {
         </Note>
       ) : null}
       <section className="ad-kpis" aria-label="آمار هوش مصنوعی">
-        <StatCard icon={<AiIcon {...ICON} />} title="کسب‌وکارهای فعال" value={<span className="sf-num">{fa(o.totals.businesses_enabled)}</span>} hint={`از ${fa(o.businesses.length)} کسب‌وکار`} />
-        <StatCard icon={<Power {...ICON} />} title="اتصال‌ها" value={<span className="sf-num">{fa(o.totals.connections)}</span>} />
-        <StatCard icon={<AiIcon {...ICON} />} title="درخواست‌های این ماه" value={<span className="sf-num">{fa(o.totals.month_calls)}</span>} />
-        <StatCard icon={<AiIcon {...ICON} />} title="هزینهٔ این ماه" value={<span className="sf-num sf-latin">{usd(o.totals.month_cost_usd)}</span>} />
+        <StatCard icon={<AiIcon {...ICON} />} title="کسب‌وکارهای فعال" value={<span className="ds-num">{fa(o.totals.businesses_enabled)}</span>} hint={`از ${fa(o.businesses.length)} کسب‌وکار`} />
+        <StatCard icon={<Power {...ICON} />} title="اتصال‌ها" value={<span className="ds-num">{fa(o.totals.connections)}</span>} />
+        <StatCard icon={<AiIcon {...ICON} />} title="درخواست‌های این ماه" value={<span className="ds-num">{fa(o.totals.month_calls)}</span>} />
+        <StatCard icon={<AiIcon {...ICON} />} title="هزینهٔ این ماه" value={<span className="ds-num ds-latin">{usd(o.totals.month_cost_usd)}</span>} />
       </section>
       <div className="ad-grid">
         <Card title="کسب‌وکارها" flush>
@@ -155,10 +155,10 @@ export default function Ai() {
                 title: "کسب‌وکار",
                 render: (_, b) => (
                   <span className="block min-w-0">
-                    <Link to={`/admin/orgs/${b.org_id}`} className="sf-link block truncate">
+                    <Link to={`/admin/orgs/${b.org_id}`} className="ds-link block truncate">
                       {b.name}
                     </Link>
-                    <span className="ad-sub">{b.connections ? <span className="sf-latin">{b.presets.join("، ")}</span> : "بدون کلید"}</span>
+                    <span className="ad-sub">{b.connections ? <span className="ds-latin">{b.presets.join("، ")}</span> : "بدون کلید"}</span>
                   </span>
                 ),
               },
@@ -172,7 +172,7 @@ export default function Ai() {
                       render: (_: unknown, b: AiAdminBusiness) =>
                         !b.connections ? <span className="text-ink-3">—</span> : b.status === "error" ? <Chip tone="danger">خطا</Chip> : b.enabled ? <Chip tone="in">روشن</Chip> : <Chip tone="neutral">خاموش</Chip>,
                     },
-                    { key: "c", title: "این ماه", width: 110, render: (_: unknown, b: AiAdminBusiness) => <span className="sf-num sf-latin">{usd(b.month.cost_usd)}</span> },
+                    { key: "c", title: "این ماه", width: 110, render: (_: unknown, b: AiAdminBusiness) => <span className="ds-num ds-latin">{usd(b.month.cost_usd)}</span> },
                     { key: "u", title: "آخرین استفاده", width: 120, render: (_: unknown, b: AiAdminBusiness) => <span className="text-ink-2">{ago(b.last_used_at)}</span> },
                   ]),
               {

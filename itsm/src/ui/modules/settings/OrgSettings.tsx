@@ -50,7 +50,7 @@ export default function OrgSettings() {
   });
   const s = org.settings ?? {};
   const editable = can("settings", "edit");
-  const ltr = { dir: "ltr" as const, className: "sf-num", style: { textAlign: "right" as const } };
+  const ltr = { dir: "ltr" as const, className: "ds-num", style: { textAlign: "right" as const } };
 
   return (
     <div>
@@ -80,8 +80,8 @@ export default function OrgSettings() {
               <div className="bk-grid3">
                 <Form.Item name="phone" label="تلفن"><Input {...ltr} inputMode="tel" /></Form.Item>
                 <Form.Item name="mobile" label="همراه"><Input {...ltr} inputMode="tel" /></Form.Item>
-                <Form.Item name="email" label="ایمیل"><Input dir="ltr" className="sf-latin" /></Form.Item>
-                <Form.Item name="website" label="وب‌سایت"><Input dir="ltr" className="sf-latin" /></Form.Item>
+                <Form.Item name="email" label="ایمیل"><Input dir="ltr" className="ds-latin" /></Form.Item>
+                <Form.Item name="website" label="وب‌سایت"><Input dir="ltr" className="ds-latin" /></Form.Item>
                 <Form.Item name="province" label="استان"><Input /></Form.Item>
                 <Form.Item name="city" label="شهر"><Input /></Form.Item>
                 <Form.Item name="postal_code" label="کد پستی"><Input {...ltr} /></Form.Item>
@@ -117,9 +117,9 @@ export default function OrgSettings() {
             <Sec title="سامانهٔ مؤدیان" desc="برای صورتحساب الکترونیکی؛ شناسه از کارپوشهٔ سامانه.">
               <div className="bk-grid3">
                 <Form.Item name={["moadian", "memory_id"]} label="شناسهٔ یکتای حافظهٔ مالیاتی" extra="شش نویسه" rules={[{ pattern: /^[A-Za-z0-9]{6}$/, message: "شناسهٔ حافظه شش نویسهٔ لاتین یا رقم است." }]}>
-                  <Input dir="ltr" maxLength={6} className="sf-code" />
+                  <Input dir="ltr" maxLength={6} className="ds-code" />
                 </Form.Item>
-                <Form.Item name={["moadian", "branch_code"]} label="کد شعبه (اختیاری)"><Input dir="ltr" maxLength={10} className="sf-code" /></Form.Item>
+                <Form.Item name={["moadian", "branch_code"]} label="کد شعبه (اختیاری)"><Input dir="ltr" maxLength={10} className="ds-code" /></Form.Item>
               </div>
             </Sec>
             {has("gold") ? (

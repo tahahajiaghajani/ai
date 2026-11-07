@@ -47,8 +47,8 @@ describe("cross-organisation access", () => {
   });
 
   it("refuses references to rows of another business in master data", async () => {
-    const unitB = await db.one<{ id: string }>(`select id from tz_units where org_id = $1 limit 1`, [attackerOrg]);
-    const accB = await db.one<{ id: string }>(`select id from tz_accounts where org_id = $1 and is_postable limit 1`, [attackerOrg]);
+    const unitB = await db.one<{ id: string }>(`select id from sm_units where org_id = $1 limit 1`, [attackerOrg]);
+    const accB = await db.one<{ id: string }>(`select id from sm_accounts where org_id = $1 and is_postable limit 1`, [attackerOrg]);
     // creating with another business's unit / ledger account
     await victim.post(`/o/${victimOrg}/data/item`, { name: "کالای الف", unit_id: unitB!.id }, 400);
     await victim.post(`/o/${victimOrg}/data/item`, { name: "کالای ب", sales_account_id: accB!.id }, 400);
@@ -59,10 +59,10 @@ describe("cross-organisation access", () => {
     const r = await victim.post(`/o/${victimOrg}/data/item/import`, { rows: [{ name: "کالای د", unit_id: unitB!.id }] });
     expect(r.failed).toBe(1);
     // own references still work
-    const unitA = await db.one<{ id: string }>(`select id from tz_units where org_id = $1 limit 1`, [victimOrg]);
+    const unitA = await db.one<{ id: string }>(`select id from sm_units where org_id = $1 limit 1`, [victimOrg]);
     const ok = await victim.post(`/o/${victimOrg}/data/item`, { name: "کالای ه", unit_id: unitA!.id });
     expect(ok.row.unit_id).toBe(unitA!.id);
-    const items = await db.query<{ n: number }>(`select count(*)::int as n from tz_items where org_id = $1 and unit_id = $2`, [victimOrg, unitB!.id]);
+    const items = await db.query<{ n: number }>(`select count(*)::int as n from sm_items where org_id = $1 and unit_id = $2`, [victimOrg, unitB!.id]);
     expect(items[0].n).toBe(0);
   });
 });
@@ -200,7 +200,7 @@ describe("what a desktop receives when it synchronises", () => {
     await owner.post(`/o/${org}/members`, { email: "manager@example.com", full_name: "مدیر", role: "admin", password: "manager-pass-1" });
     await owner.post(`/o/${org}/members`, { email: "clerk2@example.com", full_name: "حسابدار", role: "accountant", password: "clerk2-pass-1" });
     await owner.post(`/o/${org}/members`, { email: "seller2@example.com", full_name: "فروشنده", role: "sales", password: "seller2-pass-1" });
-    await db.query(`update tz_users set mobile = '09120000011' where email = 'clerk2@example.com'`);
+    await db.query(`update sm_users set mobile = '09120000011' where email = 'clerk2@example.com'`);
     // an accountant who also keeps the books of a business of their own
     const freelance = new Client(app);
     await freelance.post("/auth/signup", { email: "freelance@example.com", password: "freelance-pass-1", full_name: "حسابدار آزاد" });
@@ -252,12 +252,12 @@ describe("what a desktop receives when it synchronises", () => {
     // device ids are no secret: they ride along as the origin of synchronised rows
     const theirs = await seller.post<{ device_id: string }>("/sync/register", { org_id: org, device_id: mine.device_id, name: "دستکاری‌شده" });
     expect(theirs.device_id).not.toBe(mine.device_id);
-    const row = await db.one<{ name: string; user_id: string }>(`select name, user_id from tz_devices where id = $1`, [mine.device_id]);
+    const row = await db.one<{ name: string; user_id: string }>(`select name, user_id from sm_devices where id = $1`, [mine.device_id]);
     expect(row!.name).toBe("رایانه‌ی مالک");
     await pull(seller, `&device_id=${mine.device_id}`);
-    expect((await db.one<{ at: string | null }>(`select last_pull_at as at from tz_devices where id = $1`, [mine.device_id]))!.at).toBeNull();
+    expect((await db.one<{ at: string | null }>(`select last_pull_at as at from sm_devices where id = $1`, [mine.device_id]))!.at).toBeNull();
     await pull(owner, `&device_id=${mine.device_id}`);
-    expect((await db.one<{ at: string | null }>(`select last_pull_at as at from tz_devices where id = $1`, [mine.device_id]))!.at).not.toBeNull();
+    expect((await db.one<{ at: string | null }>(`select last_pull_at as at from sm_devices where id = $1`, [mine.device_id]))!.at).not.toBeNull();
     const again = await owner.post<{ device_id: string }>("/sync/register", { org_id: org, device_id: mine.device_id, name: "رایانه‌ی مالک (نو)" });
     expect(again.device_id).toBe(mine.device_id);
   });

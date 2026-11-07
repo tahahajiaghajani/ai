@@ -84,7 +84,7 @@ function isUnique(e: unknown): e is { code: string; constraint?: string; constra
 
 let sp = 0;
 async function savepoint<T>(q: Queryable, fn: () => Promise<T>): Promise<T> {
-  const name = `tz_sp_${++sp}`;
+  const name = `sm_sp_${++sp}`;
   await q.query(`savepoint ${name}`);
   try {
     const r = await fn();
@@ -114,7 +114,7 @@ export async function writeAggregate(
   side: "incoming-yields" | "local-yields",
 ): Promise<WriteResult> {
   const row: Record<string, unknown> = { ...agg.row, id: agg.id };
-  if (def.table === "tz_orgs") {
+  if (def.table === "sm_orgs") {
     row.id = orgId;
   } else row.org_id = orgId;
   const result: WriteResult = {};
@@ -146,21 +146,21 @@ export async function writeAggregate(
         }
         continue;
       }
-      if (def.table === "tz_org_members" && constraint === "tz_org_members_uk" && side === "local-yields") {
+      if (def.table === "sm_org_members" && constraint === "sm_org_members_uk" && side === "local-yields") {
         // the same person already has a local membership under another id (a local account that
         // the cloud account replaced): the cloud's membership is the one that counts
-        await q.query(`delete from tz_org_members where org_id = $1 and user_id = $2 and id <> $3`, [orgId, row.user_id, agg.id]);
-        await q.query(`delete from tz_outbox where entity = 'member' and id not in (select id from tz_org_members)`);
+        await q.query(`delete from sm_org_members where org_id = $1 and user_id = $2 and id <> $3`, [orgId, row.user_id, agg.id]);
+        await q.query(`delete from sm_outbox where entity = 'member' and id not in (select id from sm_org_members)`);
         continue;
       }
-      if (def.table === "tz_items" && constraint.includes("rate_key")) {
+      if (def.table === "sm_items" && constraint.includes("rate_key")) {
         // a board key belongs to one product: the later edit keeps it (updated_at, which syncs
         // unchanged). When the row being written is the later one, the other holder loses the key
         // (on a Windows app it is queued, so the cloud hears of it); otherwise the row being
         // written comes without it — on the cloud the pushing app is told (`renumbered`), on a
         // Windows app the local holder's push makes the cloud drop it there too
         const holder = await q.one<{ updated_at: string }>(
-          `select updated_at from tz_items where org_id = $1 and id <> $2 and rate_key = $3 and deleted_at is null`,
+          `select updated_at from sm_items where org_id = $1 and id <> $2 and rate_key = $3 and deleted_at is null`,
           [orgId, agg.id, row.rate_key],
         );
         if (holder && isOlder(row.updated_at, holder.updated_at)) {
@@ -214,9 +214,9 @@ async function nextFreeCode(q: Queryable, def: AggregateDef, orgId: string): Pro
  */
 async function retagBarLines(q: Queryable, orgId: string, barId: string, queue: boolean) {
   const docs = await q.query<{ doc_id: string }>(
-    `update tz_gold_lines l set tag_no = b.bar_no,
+    `update sm_gold_lines l set tag_no = b.bar_no,
        extra = case when l.extra->'bar' ? 'bar_no' then jsonb_set(l.extra, '{bar,bar_no}', to_jsonb(b.bar_no)) else l.extra end
-     from tz_gold_bars b
+     from sm_gold_bars b
      where b.id = $2 and l.org_id = $1 and l.gold_bar_id = b.id
        and (l.tag_no is distinct from b.bar_no or (l.extra->'bar' ? 'bar_no' and l.extra->'bar'->>'bar_no' is distinct from b.bar_no))
      returning l.doc_id`,
@@ -225,11 +225,11 @@ async function retagBarLines(q: Queryable, orgId: string, barId: string, queue: 
   const ids = [...new Set(docs.map((d) => d.doc_id))];
   if (!ids.length) return;
   const arr = `{${ids.join(",")}}`;
-  // an update of the root assigns a new revision on the cloud (taraz.applying keeps updated_at)
-  await q.query(`update tz_gold_docs set rev = rev where id = any($1::uuid[])`, [arr]);
+  // an update of the root assigns a new revision on the cloud (itsm.applying keeps updated_at)
+  await q.query(`update sm_gold_docs set rev = rev where id = any($1::uuid[])`, [arr]);
   if (queue) {
     await q.query(
-      `insert into tz_outbox (entity, id, changed_at) select 'gold_doc', id, now() from tz_gold_docs where id = any($1::uuid[])
+      `insert into sm_outbox (entity, id, changed_at) select 'gold_doc', id, now() from sm_gold_docs where id = any($1::uuid[])
        on conflict (entity, id) do update set changed_at = now()`,
       [arr],
     );
@@ -239,9 +239,9 @@ async function retagBarLines(q: Queryable, orgId: string, barId: string, queue: 
 /** The bar lines of a written document take the current numbers of their bars. */
 async function alignDocBarLines(q: Queryable, docId: string) {
   await q.query(
-    `update tz_gold_lines l set tag_no = b.bar_no,
+    `update sm_gold_lines l set tag_no = b.bar_no,
        extra = case when l.extra->'bar' ? 'bar_no' then jsonb_set(l.extra, '{bar,bar_no}', to_jsonb(b.bar_no)) else l.extra end
-     from tz_gold_bars b
+     from sm_gold_bars b
      where l.doc_id = $1 and l.gold_bar_id = b.id and b.org_id = l.org_id
        and (l.tag_no is distinct from b.bar_no or (l.extra->'bar' ? 'bar_no' and l.extra->'bar'->>'bar_no' is distinct from b.bar_no))`,
     [docId],
@@ -268,7 +268,7 @@ async function moveLocalAside(q: Queryable, def: AggregateDef, orgId: string, in
   await q.query(`update ${ident(def.table)} set ${ident(column)} = $2 where id = $1`, [clash.id, to]);
   if (queue) {
     await q.query(
-      `insert into tz_outbox (entity, id, changed_at) values ($1, $2, now()) on conflict (entity, id) do update set changed_at = now()`,
+      `insert into sm_outbox (entity, id, changed_at) values ($1, $2, now()) on conflict (entity, id) do update set changed_at = now()`,
       [def.entity, clash.id],
     );
   }

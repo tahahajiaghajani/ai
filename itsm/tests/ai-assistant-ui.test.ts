@@ -244,14 +244,14 @@ describe("links in answers", () => {
   const pages = new Set(["sales/invoices", "reports/trial-balance"]);
 
   it("allows records the tools returned and the app's own pages", () => {
-    expect(resolveHref(`siraf:invoice/${UUID}`, refs, pages)).toBe(`sales/invoices/${UUID}`);
+    expect(resolveHref(`record:invoice/${UUID}`, refs, pages)).toBe(`sales/invoices/${UUID}`);
     expect(resolveHref(`/sales/invoices/${UUID}`, refs, pages)).toBe(`sales/invoices/${UUID}`);
     expect(resolveHref("reports/trial-balance?from=2026-03-21", refs, pages)).toBe("reports/trial-balance?from=2026-03-21");
     expect(resolveHref(`/${UUID}/sales/invoices`, refs, pages)).toBe("sales/invoices");
   });
 
   it("refuses everything else", () => {
-    for (const bad of ["https://evil.example", "javascript:alert(1)", "//evil.example/x", "data:text/html,x", "mailto:a@b.c", `siraf:invoice/${UUID.replace("3f", "00")}`, `sales/invoices/${UUID.replace("3f", "00")}`, "../admin", "settings/secret", ""]) {
+    for (const bad of ["https://evil.example", "javascript:alert(1)", "//evil.example/x", "data:text/html,x", "mailto:a@b.c", `record:invoice/${UUID.replace("3f", "00")}`, `sales/invoices/${UUID.replace("3f", "00")}`, "../admin", "settings/secret", ""]) {
       expect(resolveHref(bad, refs, pages)).toBeNull();
     }
     expect(safePath("a/../b")).toBeNull();

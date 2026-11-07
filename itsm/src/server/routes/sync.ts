@@ -48,10 +48,10 @@ async function orgCtx(c: C, orgId: string): Promise<Ctx> {
   const cfg = c.get("cfg");
   const user = c.get("user");
   if (!/^[0-9a-f-]{36}$/i.test(orgId)) throw bad("شناسه‌ی سازمان معتبر نیست");
-  const org = await cfg.db.one<OrgRow>(`select * from tz_orgs where id = $1 and deleted_at is null`, [orgId]);
+  const org = await cfg.db.one<OrgRow>(`select * from sm_orgs where id = $1 and deleted_at is null`, [orgId]);
   if (!org) throw notFound("کسب‌وکار در فضای ابری پیدا نشد");
   const member = await cfg.db.one<MemberRow>(
-    `select id, org_id, user_id, role, overrides, is_active from tz_org_members where org_id = $1 and user_id = $2 and deleted_at is null`,
+    `select id, org_id, user_id, role, overrides, is_active from sm_org_members where org_id = $1 and user_id = $2 and deleted_at is null`,
     [orgId, user.id],
   );
   if (!member || !member.is_active) throw forbidden("شما عضو این کسب‌وکار نیستید");
@@ -62,7 +62,7 @@ async function orgCtx(c: C, orgId: string): Promise<Ctx> {
 
 syncRoutes.get("/status", async (c) => {
   const ctx = await orgCtx(c, c.req.query("org_id") ?? "");
-  const head = await ctx.db.one<{ rev: number }>(`select rev from tz_org_sync where org_id = $1`, [ctx.org.id]);
+  const head = await ctx.db.one<{ rev: number }>(`select rev from sm_org_sync where org_id = $1`, [ctx.org.id]);
   return c.json({ protocol: SYNC_PROTOCOL, head: head?.rev ?? 0, server_time: new Date().toISOString() });
 });
 
@@ -73,9 +73,9 @@ syncRoutes.post("/register", async (c) => {
   // another account or for another business gets a fresh one instead of taking that record over.
   const save = (id: string) =>
     ctx.db.one<{ id: string }>(
-      `insert into tz_devices (id, org_id, user_id, name, platform, app_version) values ($1, $2, $3, $4, $5, $6)
+      `insert into sm_devices (id, org_id, user_id, name, platform, app_version) values ($1, $2, $3, $4, $5, $6)
        on conflict (id) do update set name = excluded.name, platform = excluded.platform, app_version = excluded.app_version, revoked_at = null
-       where tz_devices.org_id = excluded.org_id and tz_devices.user_id = excluded.user_id
+       where sm_devices.org_id = excluded.org_id and sm_devices.user_id = excluded.user_id
        returning id`,
       [id, ctx.org.id, ctx.user.id, input.name, input.platform ?? null, input.app_version ?? null],
     );
@@ -90,18 +90,18 @@ syncRoutes.post("/adopt", async (c) => {
   const input = await body(c, z.object({ org: z.record(z.string(), z.unknown()) }));
   const orgId = String(input.org.id ?? "");
   if (!/^[0-9a-f-]{36}$/i.test(orgId)) throw bad("شناسه‌ی سازمان معتبر نیست");
-  const exists = await cfg.db.one<{ id: string }>(`select id from tz_orgs where id = $1`, [orgId]);
+  const exists = await cfg.db.one<{ id: string }>(`select id from sm_orgs where id = $1`, [orgId]);
   if (exists) {
-    const m = await cfg.db.one(`select 1 from tz_org_members where org_id = $1 and user_id = $2 and deleted_at is null and role in ('owner','admin')`, [orgId, user.id]);
+    const m = await cfg.db.one(`select 1 from sm_org_members where org_id = $1 and user_id = $2 and deleted_at is null and role in ('owner','admin')`, [orgId, user.id]);
     if (!m) throw forbidden("این کسب‌وکار در فضای ابری متعلق به حساب دیگری است");
     return c.json({ ok: true, existed: true });
   }
   await cfg.db.tx(async (tx) => {
     await lockOrg(tx, orgId);
-    await tx.query("set local taraz.applying = 'on'");
+    await tx.query("set local itsm.applying = 'on'");
     const def = BY_ENTITY.get("org")!;
     await writeAggregate(tx, def, { entity: "org", id: orgId, base_rev: 0, row: { ...input.org, created_by: user.id }, children: {} }, orgId, "incoming-yields");
-    await tx.query(`insert into tz_org_members (id, org_id, user_id, role, origin) values ($1, $2, $3, 'owner', 'cloud') on conflict (org_id, user_id) do nothing`, [uuidv7(), orgId, user.id]);
+    await tx.query(`insert into sm_org_members (id, org_id, user_id, role, origin) values ($1, $2, $3, 'owner', 'cloud') on conflict (org_id, user_id) do nothing`, [uuidv7(), orgId, user.id]);
   });
   return c.json({ ok: true, existed: false });
 });
@@ -136,12 +136,12 @@ syncRoutes.post("/push", async (c) => {
     return { kind: "member_changed", user_id: next.user_id, data: { changes, via: "sync" } };
   };
   await ctx.write(async (tx) => {
-    await tx.query("set local taraz.applying = 'on'");
+    await tx.query("set local itsm.applying = 'on'");
     // stock moves of costed documents before and after they are replaced (see recompute below)
     const touches: { item_id: string; date: string }[] = [];
     const movesOf = (id: string) =>
       tx.query<{ item_id: string; date: string }>(
-        `select item_id, min(date) as date from tz_stock_moves where org_id = $1 and source_id = $2 group by item_id`,
+        `select item_id, min(date) as date from sm_stock_moves where org_id = $1 and source_id = $2 group by item_id`,
         [ctx.org.id, id],
       );
     for (const agg of list as WireAggregate[]) {
@@ -160,7 +160,7 @@ syncRoutes.post("/push", async (c) => {
         continue;
       }
       if (def.entity === "member") {
-        const u = await tx.one(`select 1 from tz_users where id = $1`, [agg.row.user_id]);
+        const u = await tx.one(`select 1 from sm_users where id = $1`, [agg.row.user_id]);
         if (!u) {
           results.push({ entity: agg.entity, id: agg.id, status: "skipped", message: "کاربر محلی در فضای ابری حساب ندارد" });
           continue;
@@ -184,7 +184,7 @@ syncRoutes.post("/push", async (c) => {
       // vouchers of a closed year are never changed or removed (reopening the year removes them;
       // its fiscal_year row comes first in the batch, see the order in the registry)
       if (def.entity === "fiscal_year" && existing) {
-        const stored = await tx.one<{ status: string }>(`select status from tz_fiscal_years where id = $1`, [agg.id]);
+        const stored = await tx.one<{ status: string }>(`select status from sm_fiscal_years where id = $1`, [agg.id]);
         const incoming = String(agg.row.status ?? stored?.status ?? "");
         if (stored?.status === "closed" && incoming !== "closed" && ctx.member.role !== "owner" && ctx.member.role !== "admin") {
           results.push({ entity: agg.entity, id: agg.id, status: "error", message: "باز کردن دوبارهٔ سال مالی بسته با مالک کسب‌وکار است" });
@@ -197,7 +197,7 @@ syncRoutes.post("/push", async (c) => {
       }
       if (def.entity === "voucher" && existing) {
         const v = await tx.one<{ total_debit: string; total_credit: string; deleted_at: string | null }>(
-          `select v.total_debit, v.total_credit, v.deleted_at from tz_vouchers v join tz_fiscal_years f on f.id = v.source_id
+          `select v.total_debit, v.total_credit, v.deleted_at from sm_vouchers v join sm_fiscal_years f on f.id = v.source_id
            where v.id = $1 and v.source_type in ('closing', 'opening') and f.status = 'closed'`,
           [agg.id],
         );
@@ -212,7 +212,7 @@ syncRoutes.post("/push", async (c) => {
         // the members page's rules (routes/org.ts): owners only by owners, nobody changes themselves
         // or grants above their own access, and the business keeps an active owner
         const was = existing
-          ? await tx.one<StoredMember>(`select user_id, role, overrides, is_active, deleted_at from tz_org_members where id = $1`, [agg.id])
+          ? await tx.one<StoredMember>(`select user_id, role, overrides, is_active, deleted_at from sm_org_members where id = $1`, [agg.id])
           : null;
         const next = {
           user_id: String(agg.row.user_id ?? ""),
@@ -237,7 +237,7 @@ syncRoutes.post("/push", async (c) => {
         }
         if (wasLive && was!.role === "owner" && (!next.live || next.role !== "owner")) {
           const others = await tx.one<{ n: number }>(
-            `select count(*)::int as n from tz_org_members where org_id = $1 and id <> $2 and role = 'owner' and is_active and deleted_at is null`,
+            `select count(*)::int as n from sm_org_members where org_id = $1 and id <> $2 and role = 'owner' and is_active and deleted_at is null`,
             [ctx.org.id, agg.id],
           );
           if (!others?.n) {
@@ -263,27 +263,27 @@ syncRoutes.post("/push", async (c) => {
     // here; recompute them like a local edit would. The new costs get revisions and flow back to
     // every device. A failure must not block the upload: costs can be recomputed later.
     if (touches.length) {
-      await tx.query("set local taraz.applying = 'off'");
-      await tx.query("savepoint tz_recost");
+      await tx.query("set local itsm.applying = 'off'");
+      await tx.query("savepoint sm_recost");
       try {
-        const goods = await tx.query<{ id: string }>(`select id from tz_items where org_id = $1 and kind = 'goods' and id = any($2::uuid[])`, [ctx.org.id, pgArray([...new Set(touches.map((t) => t.item_id))])]);
+        const goods = await tx.query<{ id: string }>(`select id from sm_items where org_id = $1 and kind = 'goods' and id = any($2::uuid[])`, [ctx.org.id, pgArray([...new Set(touches.map((t) => t.item_id))])]);
         const keep = new Set(goods.map((g) => g.id));
         const mine = touches.filter((t) => keep.has(t.item_id));
         if (mine.length) await afterStockChange(tx, ctx, mine, undefined, { checkNegative: false });
-        await tx.query("release savepoint tz_recost");
+        await tx.query("release savepoint sm_recost");
       } catch (e) {
-        await tx.query("rollback to savepoint tz_recost");
+        await tx.query("rollback to savepoint sm_recost");
         ctx.cfg.log.warn("cost recompute after push failed", String((e as Error).message ?? e));
       }
     }
   });
   for (const e of memberEvents) {
-    const email = (await ctx.db.one<{ email: string }>(`select email from tz_users where id = $1`, [e.user_id]))?.email ?? null;
+    const email = (await ctx.db.one<{ email: string }>(`select email from sm_users where id = $1`, [e.user_id]))?.email ?? null;
     const event: SecurityEventInput = { kind: e.kind, user_id: e.user_id, email, org_id: ctx.org.id, ...requestMeta(c), data: { ...e.data, by: ctx.user.id, by_name: ctx.user.full_name } };
     await securityEvent(ctx.db, event);
   }
-  await ctx.db.query(`update tz_devices set last_push_at = now() where id = $1 and org_id = $2 and user_id = $3`, [input.device_id, ctx.org.id, ctx.user.id]);
-  const head = await ctx.db.one<{ rev: number }>(`select rev from tz_org_sync where org_id = $1`, [ctx.org.id]);
+  await ctx.db.query(`update sm_devices set last_push_at = now() where id = $1 and org_id = $2 and user_id = $3`, [input.device_id, ctx.org.id, ctx.user.id]);
+  const head = await ctx.db.one<{ rev: number }>(`select rev from sm_org_sync where org_id = $1`, [ctx.org.id]);
   return c.json({ results, head: head?.rev ?? 0 });
 });
 
@@ -292,13 +292,13 @@ syncRoutes.get("/pull", async (c) => {
   const ctx = await orgCtx(c, q.org_id ?? "");
   const cursor = Math.max(0, Number(q.cursor ?? 0) || 0);
   const userCursor = Math.max(0, Number(q.user_cursor ?? 0) || 0);
-  const head = (await ctx.db.one<{ rev: number }>(`select rev from tz_org_sync where org_id = $1`, [ctx.org.id]))?.rev ?? 0;
+  const head = (await ctx.db.one<{ rev: number }>(`select rev from sm_org_sync where org_id = $1`, [ctx.org.id]))?.rev ?? 0;
   const upto = Math.min(cursor + WINDOW, head);
   const aggregates: WireAggregate[] = [];
   if (upto > cursor) {
     for (const def of AGGREGATES) {
       const ids = (await ctx.db.query<{ id: string }>(
-        `select id from ${ident(def.table)} where ${def.table === "tz_orgs" ? "id" : "org_id"} = $1 and rev > $2 and rev <= $3 order by rev`,
+        `select id from ${ident(def.table)} where ${def.table === "sm_orgs" ? "id" : "org_id"} = $1 and rev > $2 and rev <= $3 order by rev`,
         [ctx.org.id, cursor, upto],
       )).map((r) => r.id);
       if (ids.length) aggregates.push(...(await readAggregates(ctx.db, def, ids)));
@@ -316,19 +316,19 @@ syncRoutes.get("/pull", async (c) => {
     u.disabled, u.prefs, u.rev, u.created_at, u.updated_at`;
   const shareJoin = `cross join lateral (select (u.id = $2 or $4::boolean or ($5::boolean and not u.is_platform_admin
       and ${CREATED_HERE_SQL("$1", "u.id")}
-      and not exists (select 1 from tz_org_members o where o.user_id = u.id and o.org_id <> $1 and o.deleted_at is null)
-      and ($6::boolean or not exists (select 1 from tz_org_members m where m.user_id = u.id and m.org_id = $1 and m.role = 'owner' and m.deleted_at is null)))) as ok) s`;
+      and not exists (select 1 from sm_org_members o where o.user_id = u.id and o.org_id <> $1 and o.deleted_at is null)
+      and ($6::boolean or not exists (select 1 from sm_org_members m where m.user_id = u.id and m.org_id = $1 and m.role = 'owner' and m.deleted_at is null)))) as ok) s`;
   const users = await ctx.db.query<{ id: string; rev: number }>(
-    `select ${userCols} from tz_users u ${shareJoin}
-     where u.rev > $7 and u.id in (select user_id from tz_org_members where org_id = $1) order by u.rev limit 500`,
+    `select ${userCols} from sm_users u ${shareJoin}
+     where u.rev > $7 and u.id in (select user_id from sm_org_members where org_id = $1) order by u.rev limit 500`,
     [...share, userCursor],
   );
   // members in this window bring their account along even when its revision is below the user
   // cursor (an existing account added to the organisation later)
   const joined = upto > cursor
     ? await ctx.db.query<{ id: string; rev: number }>(
-      `select ${userCols} from tz_users u ${shareJoin}
-       where u.id in (select user_id from tz_org_members where org_id = $1 and rev > $7 and rev <= $8)`,
+      `select ${userCols} from sm_users u ${shareJoin}
+       where u.id in (select user_id from sm_org_members where org_id = $1 and rev > $7 and rev <= $8)`,
       [...share, cursor, upto],
     )
     : [];
@@ -336,7 +336,7 @@ syncRoutes.get("/pull", async (c) => {
   const seen = new Set(users.map((u) => u.id));
   for (const u of joined) if (!seen.has(u.id)) users.push(u);
   if (q.device_id && /^[0-9a-f-]{36}$/i.test(q.device_id)) {
-    await ctx.db.query(`update tz_devices set last_pull_at = now(), cursor = $2 where id = $1 and org_id = $3 and user_id = $4`, [q.device_id, upto, ctx.org.id, ctx.user.id]);
+    await ctx.db.query(`update sm_devices set last_pull_at = now(), cursor = $2 where id = $1 and org_id = $3 and user_id = $4`, [q.device_id, upto, ctx.org.id, ctx.user.id]);
   }
   return c.json({
     aggregates,

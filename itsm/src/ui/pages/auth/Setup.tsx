@@ -14,7 +14,7 @@ import { FormAlert, ICON, initials, useBlurValidation, LTR } from "../kit";
 
 declare global {
   interface Window {
-    taraz?: {
+    itsm?: {
       isDesktop: true;
       version: string;
       setServer?: (url: string | null) => Promise<void>;
@@ -111,7 +111,7 @@ export default function Setup() {
   const options: Option[] = [
     { v: "local", icon: <Monitor {...ICON} />, t: "شروع روی همین رایانه", d: "کسب‌وکار تازه می‌سازید و داده‌ها روی همین ویندوز می‌مانند؛ هر وقت خواستید به نسخهٔ وب وصلش می‌کنید." },
     { v: "cloud", icon: <CloudDownload {...ICON} />, t: "اتصال به حساب ابری", d: "در نسخهٔ وب حساب و کسب‌وکار دارید؟ داده‌ها دریافت می‌شوند و از این به بعد دو طرف هم‌گام می‌مانند." },
-    ...(window.taraz?.setServer
+    ...(window.itsm?.setServer
       ? [{ v: "client" as const, icon: <Network {...ICON} />, t: "اتصال به سرور شبکهٔ فروشگاه", d: "سیراف روی رایانهٔ دیگری از شبکهٔ داخلی با «حالت شبکه» روشن است؛ این رایانه فقط به آن وصل می‌شود." }]
       : []),
   ];
@@ -284,7 +284,7 @@ export default function Setup() {
         onFinish={async (v) => {
           setBusy(true);
           try {
-            await window.taraz?.setServer?.(String(v.url).replace(/\/+$/, ""));
+            await window.itsm?.setServer?.(String(v.url).replace(/\/+$/, ""));
           } finally {
             setBusy(false);
           }

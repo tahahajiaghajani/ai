@@ -24,7 +24,7 @@ export async function createPgliteDb(opts: PgliteOptions = {}): Promise<Db & { p
   const options = { parsers, ...(opts.loadDataDir ? { loadDataDir: opts.loadDataDir } : {}) };
   const pg = opts.dataDir ? new PGlite(opts.dataDir, options) : new PGlite(options);
   await pg.waitReady;
-  if (opts.desktop) await pg.exec(`set taraz.mode = 'desktop'`);
+  if (opts.desktop) await pg.exec(`set itsm.mode = 'desktop'`);
 
   const make = (q: Pick<PGlite, "query" | "exec">) => ({
     async query<T = Row>(text: string, params: unknown[] = []): Promise<T[]> {

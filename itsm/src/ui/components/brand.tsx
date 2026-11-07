@@ -15,7 +15,7 @@ const CUT_16 = "M11 1h1v1h-1ZM5 2h1v1h-1ZM10 2h2v12h-2ZM4 3h3v1h-3ZM3 4h5v1h-5ZM
 const CUT_24 = "M17 1h1v1h-1ZM16 2h2v1h-2ZM8 3h1v1h-1ZM15 3h3v17h-3ZM7 4h3v1h-3ZM6 5h5v1h-5ZM5 6h7v1h-7ZM6 7h5v1h-5ZM7 8h3v1h-3ZM8 9h1v1h-1ZM7 10h3v1h-3ZM6 11h5v1h-5ZM5 12h7v1h-7ZM6 13h5v1h-5ZM7 14h3v1h-3ZM8 15h1v1h-1ZM7 16h3v1h-3ZM6 17h5v1h-5ZM5 18h7v1h-7ZM6 19h5v1h-5ZM7 20h3v1h-3ZM15 20h2v1h-2ZM8 21h1v1h-1ZM15 21h1v1h-1Z";
 
 const fillOf = (v: MarkVariant) => (v === "white" ? "#FFFFFF" : "currentColor");
-const classOf = (v: MarkVariant) => (v === "color" ? "sf-mark-color" : undefined);
+const classOf = (v: MarkVariant) => (v === "color" ? "ds-mark-color" : undefined);
 
 interface MarkProps {
   /** Box size in px (the 64-unit box; the drawing is 56/64 of it). 16 and 24 (and their multiples) use the pixel cuts. */
@@ -30,9 +30,9 @@ interface MarkProps {
 }
 
 /** The mark alone. */
-export function SirafMark({ size = 24, variant = "color", title = APP_NAME, className, style, launch }: MarkProps) {
+export function BrandMark({ size = 24, variant = "color", title = APP_NAME, className, style, launch }: MarkProps) {
   const a11y = title ? { role: "img", "aria-label": title } : { "aria-hidden": true as const };
-  const cls = [classOf(variant), launch ? "sf-launch" : null, className].filter(Boolean).join(" ") || undefined;
+  const cls = [classOf(variant), launch ? "ds-launch" : null, className].filter(Boolean).join(" ") || undefined;
   const cut = launch ? null : size % 24 === 0 && size <= 48 ? 24 : size % 16 === 0 && size <= 32 ? 16 : null;
   if (cut) {
     return (
@@ -45,7 +45,7 @@ export function SirafMark({ size = 24, variant = "color", title = APP_NAME, clas
     <svg width={size} height={size} viewBox="0 0 64 64" fill={fillOf(variant)} className={cls} style={{ flex: "none", ...style }} {...a11y}>
       <path d={ALEF} />
       {NUQTAS.map((d) => (
-        <path key={d} d={d} className={launch ? "sf-nq" : undefined} />
+        <path key={d} d={d} className={launch ? "ds-nq" : undefined} />
       ))}
     </svg>
   );
@@ -55,17 +55,17 @@ export type WordTone = "ink" | "white" | "current";
 
 /** «سیراف» set in Arad 760, DSTY 3 (rhombic dots), letter-spacing 0. Arad only at 16 px and above. */
 export function Wordmark({ size = 20, tone = "ink", latin, className, style }: { size?: number; tone?: WordTone; latin?: boolean; className?: string; style?: CSSProperties }) {
-  const color = tone === "white" ? "#FFFFFF" : tone === "ink" ? "var(--sf-text)" : "currentColor";
+  const color = tone === "white" ? "#FFFFFF" : tone === "ink" ? "var(--ds-text)" : "currentColor";
   if (latin) {
     // "Siraf" in Geist 600 at −0.025 em, an LTR isolate
     return (
-      <span dir="ltr" className={className} style={{ fontFamily: "var(--sf-font-latin)", fontFeatureSettings: "normal", fontWeight: 600, letterSpacing: "var(--sf-type-brand-tracking)", fontSize: size, lineHeight: 1, color, unicodeBidi: "isolate", ...style }}>
+      <span dir="ltr" className={className} style={{ fontFamily: "var(--ds-font-latin)", fontFeatureSettings: "normal", fontWeight: 600, letterSpacing: "var(--ds-type-brand-tracking)", fontSize: size, lineHeight: 1, color, unicodeBidi: "isolate", ...style }}>
         {APP_NAME_EN}
       </span>
     );
   }
   return (
-    <span className={className} style={{ fontFamily: "var(--sf-font-display)", fontVariationSettings: '"DSTY" 3', fontWeight: 760, letterSpacing: 0, fontSize: Math.max(16, size), lineHeight: 1, color, whiteSpace: "nowrap", ...style }}>
+    <span className={className} style={{ fontFamily: "var(--ds-font-display)", fontVariationSettings: '"DSTY" 3', fontWeight: 760, letterSpacing: 0, fontSize: Math.max(16, size), lineHeight: 1, color, whiteSpace: "nowrap", ...style }}>
       {APP_NAME}
     </span>
   );
@@ -81,7 +81,7 @@ export function Wordmark({ size = 20, tone = "ink", latin, className, style }: {
 export function Logo({ size = 20, tone = "ink", compact, latin, launch, className }: { size?: number; tone?: "ink" | "white"; compact?: boolean; latin?: boolean; launch?: boolean; className?: string }) {
   const markBox = Math.round(size * 0.906);
   const variant: MarkVariant = tone === "white" ? "white" : "color";
-  if (compact) return <SirafMark size={markBox} variant={variant} launch={launch} className={className} />;
+  if (compact) return <BrandMark size={markBox} variant={variant} launch={launch} className={className} />;
   return (
     <span
       className={className}
@@ -91,7 +91,7 @@ export function Logo({ size = 20, tone = "ink", compact, latin, launch, classNam
       style={{ display: "inline-flex", alignItems: "baseline", gap: Math.max(1, Math.round(size * 0.057)), lineHeight: 1, flex: "none" }}
     >
       {/* the drawing's foot (y 60 of 64) sits on the word's baseline */}
-      <SirafMark size={markBox} variant={variant} title="" launch={launch} style={{ marginBottom: -Math.round((markBox * 4) / 64), alignSelf: "baseline" }} />
+      <BrandMark size={markBox} variant={variant} title="" launch={launch} style={{ marginBottom: -Math.round((markBox * 4) / 64), alignSelf: "baseline" }} />
       <span aria-hidden="true">
         <Wordmark size={size} tone={tone} latin={latin} style={latin ? { fontSize: size * 0.92 } : undefined} />
       </span>
@@ -100,7 +100,7 @@ export function Logo({ size = 20, tone = "ink", compact, latin, launch, classNam
 }
 
 /** The mark in its tile (business switcher, About): the app icon's gradient, the white mark at 64 %, radius 23 %. */
-export function SirafTile({ size = 30, className }: { size?: number; className?: string }) {
+export function BrandTile({ size = 30, className }: { size?: number; className?: string }) {
   return (
     <span
       className={className}
@@ -111,11 +111,11 @@ export function SirafTile({ size = 30, className }: { size?: number; className?:
         blockSize: size,
         flex: "none",
         borderRadius: Math.round(size * 0.23),
-        background: "var(--sf-grad-dusk-tile)",
+        background: "var(--ds-grad-dusk-tile)",
         boxShadow: "inset 0 1px 0 rgb(255 255 255 / .14)",
       }}
     >
-      <SirafMark size={Math.round(size * 0.66)} variant="white" title="" />
+      <BrandMark size={Math.round(size * 0.66)} variant="white" title="" />
     </span>
   );
 }

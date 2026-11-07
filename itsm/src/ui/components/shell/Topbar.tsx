@@ -30,7 +30,7 @@ function useH1Hidden(dep: unknown) {
     let raf = 0;
     const check = () => {
       raf = 0;
-      const h1 = document.querySelector(".sf-ph h1");
+      const h1 = document.querySelector(".ds-ph h1");
       const bar = document.querySelector(".sh-topbar");
       if (!h1 || !bar) return setHidden(false);
       setHidden(h1.getBoundingClientRect().bottom <= bar.getBoundingClientRect().bottom + 2);
@@ -119,7 +119,7 @@ function FiscalYear() {
     ],
   };
   return (
-    <Dropdown trigger={["click"]} menu={menu} rootClassName="sf-glass sh-menu sh-menu-strong" placement="bottomLeft">
+    <Dropdown trigger={["click"]} menu={menu} rootClassName="ds-glass sh-menu sh-menu-strong" placement="bottomLeft">
       <button type="button" className="sh-fy" aria-label={`سال مالی: ${fy.title}، تغییر سال مالی`}>
         <Ic icon={Calendar} />
         <span className="sh-fy-t">
@@ -164,7 +164,7 @@ function ThemeSwitch() {
   };
   const icon = pref === "system" ? SunMoon : dark ? Moon : Sun;
   return (
-    <Dropdown trigger={["click"]} menu={menu} rootClassName="sf-glass sh-menu sh-menu-strong" placement="bottomLeft">
+    <Dropdown trigger={["click"]} menu={menu} rootClassName="ds-glass sh-menu sh-menu-strong" placement="bottomLeft">
       <button type="button" className="sh-icon-btn" aria-label={`پوسته: ${THEMES.find((t) => t.key === pref)?.label}`}>
         <Ic icon={icon} />
       </button>
@@ -206,7 +206,7 @@ function Account() {
     { key: "logout", icon: <Ic icon={LogOut} />, label: "خروج", danger: true, onClick: () => logout() },
   ];
   return (
-    <Dropdown trigger={["click"]} menu={{ items }} rootClassName="sf-glass sh-menu sh-menu-strong" placement="bottomLeft">
+    <Dropdown trigger={["click"]} menu={{ items }} rootClassName="ds-glass sh-menu sh-menu-strong" placement="bottomLeft">
       <button type="button" className="sh-avatar" aria-label={`حساب کاربری: ${me?.user.full_name ?? ""}`}>
         {initials(me?.user.full_name)}
       </button>

@@ -5,7 +5,7 @@ import { Compass } from "lucide-react";
 import { useSession } from "./lib/session";
 import { OrgProvider, useOrgQuery } from "./lib/org";
 import { AppShell } from "./components/layout";
-import { SirafMark } from "./components/brand";
+import { BrandMark } from "./components/brand";
 import { ROUTES } from "./modules/registry";
 import { errorText } from "./lib/api";
 
@@ -38,7 +38,7 @@ export function Loading({ full }: { full?: boolean }) {
   if (full)
     return (
       <div className="sh-boot" role="status" aria-busy="true" aria-label="در حال بارگذاری">
-        {shown ? <SirafMark size={48} launch title="" className="sh-boot-mark" /> : null}
+        {shown ? <BrandMark size={48} launch title="" className="sh-boot-mark" /> : null}
       </div>
     );
   return (
@@ -68,7 +68,7 @@ function Home() {
   if (!me) return <Navigate to="/login" replace />;
   let last: string | null = null;
   try {
-    last = localStorage.getItem("taraz.lastOrg");
+    last = localStorage.getItem("itsm.lastOrg");
   } catch {
     /* ignore */
   }
@@ -88,7 +88,7 @@ function Page({ children }: { children: ReactNode }) {
   // the page enters with the shared motion (opacity + an 8 px rise; opacity only under reduced motion)
   return (
     <Fragment key={pathname}>
-      <div className="sf-enter">{children}</div>
+      <div className="ds-enter">{children}</div>
     </Fragment>
   );
 }
@@ -97,7 +97,7 @@ function Page({ children }: { children: ReactNode }) {
 function NotFound({ org }: { org: string }) {
   const nav = useNavigate();
   return (
-    <div className="sh-empty sf-enter" role="status">
+    <div className="sh-empty ds-enter" role="status">
       <span className="sh-empty-tile" aria-hidden>
         <Compass size={28} strokeWidth={1.4} absoluteStrokeWidth />
       </span>

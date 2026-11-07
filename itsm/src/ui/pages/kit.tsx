@@ -18,7 +18,7 @@ export const LTR = { input: "pg-ltr" };
 export function FormAlert({ children, tone = "danger" }: { children: ReactNode; tone?: "danger" | "warning" | "info" }) {
   return (
     <div className="pg-alert pg-swap" data-tone={tone} role={tone === "danger" ? "alert" : "status"}>
-      {tone === "warning" ? <span className="sf-nuqta" aria-hidden /> : <CircleAlert {...ICON} aria-hidden />}
+      {tone === "warning" ? <span className="ds-nuqta" aria-hidden /> : <CircleAlert {...ICON} aria-hidden />}
       <div className="min-w-0 flex-1">{children}</div>
     </div>
   );
@@ -127,7 +127,7 @@ export function PlainFrame({ children, wide }: { children: ReactNode; wide?: boo
                     label: (
                       <div className="py-1">
                         <div className="text-[13px] font-semibold leading-5 text-ink">{user.full_name}</div>
-                        <div className="sf-latin text-ink-3">{user.email}</div>
+                        <div className="ds-latin text-ink-3">{user.email}</div>
                       </div>
                     ),
                   },

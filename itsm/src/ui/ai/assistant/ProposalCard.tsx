@@ -111,7 +111,7 @@ export function ProposalCard({ proposal, onChange, onNavigate }: { proposal: AiP
               {proposal.lines.map((l, i) => (
                 <tr key={i}>
                   {l.cells.map((c, k) => (
-                    <td key={k} className={/^[\s\d۰-۹٬,٫.\-−٪%]+$/.test(c) ? "sf-num" : undefined}>
+                    <td key={k} className={/^[\s\d۰-۹٬,٫.\-−٪%]+$/.test(c) ? "ds-num" : undefined}>
                       {c}
                     </td>
                   ))}
@@ -125,7 +125,7 @@ export function ProposalCard({ proposal, onChange, onNavigate }: { proposal: AiP
         <ul className="sa-prop-warn">
           {proposal.warnings.map((w, i) => (
             <li key={i}>
-              <i className="sf-nuqta" aria-hidden />
+              <i className="ds-nuqta" aria-hidden />
               {w}
             </li>
           ))}

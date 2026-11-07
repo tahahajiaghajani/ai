@@ -71,7 +71,7 @@ const ROWS: PriceRow[] = [
   { match: /^mistral-small/, price: p(0.15, 0.6, 0.015, 0.15) },
   { match: /^gpt-oss-120b/, price: p(0.15, 0.6, 0.015, 0.15) },
   { match: /^gpt-oss-20b/, price: p(0.075, 0.3, 0.0075, 0.075) },
-  // the test-only responder (SIRAF_AI_FAKE=1): nominal prices so usage pages have something to show
+  // the test-only responder (ITSM_AI_FAKE=1): nominal prices so usage pages have something to show
   { match: /^fake-/, price: p(1, 5, 0.1, 1.25) },
 ];
 

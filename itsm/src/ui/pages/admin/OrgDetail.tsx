@@ -61,13 +61,13 @@ function AiStatus({ orgId, disabled }: { orgId: string; disabled: boolean }) {
     <dl className="ad-dl">
       <dt>اتصال‌ها</dt>
       <dd>
-        <span className="sf-num">{fa(b.connections)}</span> · <span className="sf-latin">{b.presets.join("، ")}</span>
+        <span className="ds-num">{fa(b.connections)}</span> · <span className="ds-latin">{b.presets.join("، ")}</span>
       </dd>
       <dt>وضعیت</dt>
       <dd>{disabled || b.disabled_by_platform ? <Chip tone="neutral">خاموش از سوی سامانه</Chip> : b.status === "error" ? <Chip tone="danger">خطا</Chip> : b.enabled ? <Chip tone="in">روشن</Chip> : <Chip tone="neutral">خاموش</Chip>}</dd>
       <dt>این ماه</dt>
       <dd>
-        <span className="sf-num sf-latin">{usd(b.month.cost_usd)}</span> · <span className="sf-num">{fa(b.month.calls)}</span> درخواست · <span className="sf-num">{fa(b.users_month)}</span> نفر
+        <span className="ds-num ds-latin">{usd(b.month.cost_usd)}</span> · <span className="ds-num">{fa(b.month.calls)}</span> درخواست · <span className="ds-num">{fa(b.users_month)}</span> نفر
       </dd>
       <dt>آخرین استفاده</dt>
       <dd>{ago(b.last_used_at)}</dd>
@@ -249,7 +249,7 @@ export default function OrgDetail({ id }: { id: string }) {
                   ? owners.map((o) => (
                       <span key={o.id} className="block">
                         {o.full_name} ·{" "}
-                        <bdi dir="ltr" className="sf-latin">
+                        <bdi dir="ltr" className="ds-latin">
                           {o.mobile ?? o.email}
                         </bdi>
                       </span>
@@ -260,7 +260,7 @@ export default function OrgDetail({ id }: { id: string }) {
                 <>
                   <dt>تماس</dt>
                   <dd>
-                    <bdi dir="ltr" className="sf-latin">
+                    <bdi dir="ltr" className="ds-latin">
                       {[d.org.mobile, d.org.phone, d.org.email].filter(Boolean).join(" · ")}
                     </bdi>
                   </dd>
@@ -275,15 +275,15 @@ export default function OrgDetail({ id }: { id: string }) {
             </dl>
           </Card>
 
-          <Card title="اعضا" meta={<span className="ad-sub sf-num">{fa(d.members.length)}</span>} flush>
+          <Card title="اعضا" meta={<span className="ad-sub ds-num">{fa(d.members.length)}</span>} flush>
             <ul className="ad-list">
               {d.members.map((m) => (
                 <li key={m.id}>
                   <span className="ad-li-main">
-                    <Link to={`/admin/users/${m.user_id}`} className="ad-li-t sf-link">
+                    <Link to={`/admin/users/${m.user_id}`} className="ad-li-t ds-link">
                       {m.full_name}
                     </Link>
-                    <bdi dir="ltr" className="sf-latin ad-li-d">
+                    <bdi dir="ltr" className="ds-latin ad-li-d">
                       {m.email}
                     </bdi>
                   </span>
@@ -339,7 +339,7 @@ export default function OrgDetail({ id }: { id: string }) {
                       <span className="ad-li-t">{sizeName(s.entity)}</span>
                     </span>
                     <span className="ad-li-end">
-                      <span className="sf-num">{fa(s.rows)}</span> ردیف · <span className="sf-num">{bytes(s.bytes)}</span>
+                      <span className="ds-num">{fa(s.rows)}</span> ردیف · <span className="ds-num">{bytes(s.bytes)}</span>
                     </span>
                   </li>
                 ))}
@@ -369,7 +369,7 @@ export default function OrgDetail({ id }: { id: string }) {
               <p className="m-0 px-5 py-4 text-[13px] text-ink-3">برنامهٔ ویندوزی به این کسب‌وکار وصل نیست.</p>
             )}
           </Card>
-          <Card title="رویدادهای امنیتی" tools={<Link to={`/admin/security?org=${d.org.id}`} className="sf-link text-[13px]">همه</Link>} flush>
+          <Card title="رویدادهای امنیتی" tools={<Link to={`/admin/security?org=${d.org.id}`} className="ds-link text-[13px]">همه</Link>} flush>
             {d.events.length ? (
               <ul className="ad-list">
                 {d.events.slice(0, 8).map((e) => (

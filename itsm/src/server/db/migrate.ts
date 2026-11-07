@@ -11,7 +11,7 @@ export interface MigrationStatus {
 export async function migrationStatus(db: Db): Promise<MigrationStatus> {
   let applied: string[] = [];
   try {
-    applied = (await db.query<{ id: string }>("select id from tz_migrations order by id")).map((r) => r.id);
+    applied = (await db.query<{ id: string }>("select id from sm_migrations order by id")).map((r) => r.id);
   } catch {
     applied = [];
   }
@@ -29,16 +29,16 @@ export async function migrate(db: Db, log: (msg: string) => void = () => {}): Pr
   // unique violation in the catalog (several server instances starting at once)
   await db.tx(async (tx) => {
     await tx.query("select pg_advisory_xact_lock(724100)");
-    await tx.exec(`create table if not exists tz_migrations (id text primary key, applied_at timestamptz not null default now())`);
+    await tx.exec(`create table if not exists sm_migrations (id text primary key, applied_at timestamptz not null default now())`);
   });
   const done: string[] = [];
   for (const m of MIGRATIONS) {
     const ran = await db.tx(async (tx) => {
       await tx.query("select pg_advisory_xact_lock(724100)");
-      const exists = await tx.one("select 1 from tz_migrations where id = $1", [m.id]);
+      const exists = await tx.one("select 1 from sm_migrations where id = $1", [m.id]);
       if (exists) return false;
       await tx.exec(m.sql);
-      await tx.query("insert into tz_migrations (id) values ($1) on conflict (id) do nothing", [m.id]);
+      await tx.query("insert into sm_migrations (id) values ($1) on conflict (id) do nothing", [m.id]);
       return true;
     });
     if (ran) {

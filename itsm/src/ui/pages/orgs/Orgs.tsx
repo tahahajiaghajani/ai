@@ -10,7 +10,7 @@ import { ICON, PlainFrame } from "../kit";
 
 function lastOrg(): string | null {
   try {
-    return localStorage.getItem("siraf.lastOrg") ?? localStorage.getItem("taraz.lastOrg");
+    return localStorage.getItem("itsm.lastOrg") ?? localStorage.getItem("itsm.lastOrg");
   } catch {
     return null;
   }
@@ -26,17 +26,17 @@ export default function Orgs() {
   const first = (me?.user.full_name ?? "").trim().split(/\s+/)[0];
   return (
     <PlainFrame>
-      <div className="pg-chooser sf-stagger">
+      <div className="pg-chooser ds-stagger">
         <div>
           {first ? <p className="pg-greet">سلام {first}،</p> : null}
           <div className="pg-ph">
-            <h1 className="sf-t-page">{orgs.length ? "کسب‌وکارهای شما" : "به سیراف خوش آمدید"}</h1>
-            {orgs.length > 1 ? <span className="pg-ph-meta sf-num">{toPersianDigits(String(orgs.length))} کسب‌وکار</span> : null}
+            <h1 className="ds-t-page">{orgs.length ? "کسب‌وکارهای شما" : "به سیراف خوش آمدید"}</h1>
+            {orgs.length > 1 ? <span className="pg-ph-meta ds-num">{toPersianDigits(String(orgs.length))} کسب‌وکار</span> : null}
           </div>
         </div>
 
         {orgs.length ? (
-          <nav className="pg-list sf-stagger" aria-label="کسب‌وکارها">
+          <nav className="pg-list ds-stagger" aria-label="کسب‌وکارها">
             {orgs.map((o) => {
               const role = o.role ? ROLES[o.role as keyof typeof ROLES]?.title ?? o.role : null;
               const mods = o.modules.map((m) => MODULES.find((x) => x.key === m)?.title).filter(Boolean);

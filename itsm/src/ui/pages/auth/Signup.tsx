@@ -109,7 +109,7 @@ export default function Signup() {
           <SignupForm onDone={setCode} />
           <p className="pg-alt">
             حساب دارید؟{" "}
-            <Link to="/login" className="sf-link">
+            <Link to="/login" className="ds-link">
               وارد شوید
             </Link>
           </p>

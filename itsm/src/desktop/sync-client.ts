@@ -1,5 +1,5 @@
 // The desktop side of synchronisation with the cloud (the web app on Vercel + Supabase).
-// Local changes are queued by triggers in tz_outbox; every few seconds (and right after a local
+// Local changes are queued by triggers in sm_outbox; every few seconds (and right after a local
 // change) the client pushes them and then pulls everything new from the cloud.
 import type { Db } from "@server/db";
 import type { Logger } from "@server/context";
@@ -30,7 +30,7 @@ export interface SyncState {
  * linked one): they are kept for a later link but never pushed into the linked organisation.
  */
 const FOREIGN = `coalesce(case o.entity ${AGGREGATES.map(
-  (d) => `when '${d.entity}' then exists (select 1 from ${ident(d.table)} t where t.id = o.id and t.${d.table === "tz_orgs" ? "id" : "org_id"} <> $1)`,
+  (d) => `when '${d.entity}' then exists (select 1 from ${ident(d.table)} t where t.id = o.id and t.${d.table === "sm_orgs" ? "id" : "org_id"} <> $1)`,
 ).join(" ")} else false end, false)`;
 
 export class SyncClient {
@@ -128,15 +128,15 @@ export class SyncClient {
     const token = await this.login(url, input.email, input.password);
     let orgId = input.orgId;
     if (input.direction === "upload") {
-      const local = await this.o.db.query<Record<string, unknown>>(`select * from tz_orgs where deleted_at is null order by created_at`);
+      const local = await this.o.db.query<Record<string, unknown>>(`select * from sm_orgs where deleted_at is null order by created_at`);
       const org = orgId ? local.find((o) => o.id === orgId) : local[0];
       if (!org) throw new Error("کسب‌وکاری روی این رایانه نیست که بارگذاری شود");
       orgId = String(org.id);
       await this.api("/sync/adopt", { url, token, body: { org } });
     } else {
       if (!orgId) throw new Error("کسب‌وکار ابری را انتخاب کنید");
-      const exists = await this.o.db.one(`select 1 from tz_orgs where id = $1`, [orgId]);
-      const others = await this.o.db.one<{ n: number }>(`select count(*)::int as n from tz_orgs where id <> $1 and deleted_at is null`, [orgId]);
+      const exists = await this.o.db.one(`select 1 from sm_orgs where id = $1`, [orgId]);
+      const others = await this.o.db.one<{ n: number }>(`select count(*)::int as n from sm_orgs where id <> $1 and deleted_at is null`, [orgId]);
       if (!exists && (others?.n ?? 0) > 0) {
         // allowed: several businesses side by side; nothing to clear
       }
@@ -163,7 +163,7 @@ export class SyncClient {
   private async queueEverything(orgId: string) {
     for (const def of AGGREGATES) {
       await this.o.db.query(
-        `insert into tz_outbox (entity, id, changed_at) select $1, id, now() from ${ident(def.table)} where ${def.table === "tz_orgs" ? "id" : "org_id"} = $2
+        `insert into sm_outbox (entity, id, changed_at) select $1, id, now() from ${ident(def.table)} where ${def.table === "sm_orgs" ? "id" : "org_id"} = $2
          on conflict (entity, id) do update set changed_at = now(), attempts = 0`,
         [def.entity, orgId],
       );
@@ -171,11 +171,11 @@ export class SyncClient {
   }
 
   private async kvGet<T>(key: string, dflt: T): Promise<T> {
-    const r = await this.o.db.one<{ value: T }>(`select value from tz_kv where key = $1`, [key]);
+    const r = await this.o.db.one<{ value: T }>(`select value from sm_kv where key = $1`, [key]);
     return (r?.value ?? dflt) as T;
   }
   private async kvSet(key: string, value: unknown) {
-    await this.o.db.query(`insert into tz_kv (key, value, updated_at) values ($1, $2::jsonb, now()) on conflict (key) do update set value = excluded.value, updated_at = now()`, [key, JSON.stringify(value)]);
+    await this.o.db.query(`insert into sm_kv (key, value, updated_at) values ($1, $2::jsonb, now()) on conflict (key) do update set value = excluded.value, updated_at = now()`, [key, JSON.stringify(value)]);
   }
 
   /**
@@ -191,12 +191,12 @@ export class SyncClient {
     const protocol = (await this.kvGet<number | null>("sync.protocol", null)) ?? (schema ? 2 : null);
     if (schema === SCHEMA_VERSION && protocol === SYNC_PROTOCOL) return;
     await this.o.db.tx(async (tx) => {
-      const kv = `insert into tz_kv (key, value, updated_at) values ($1, $2::jsonb, now()) on conflict (key) do update set value = excluded.value, updated_at = now()`;
+      const kv = `insert into sm_kv (key, value, updated_at) values ($1, $2::jsonb, now()) on conflict (key) do update set value = excluded.value, updated_at = now()`;
       if (protocol !== SYNC_PROTOCOL) {
         await tx.query(kv, ["sync.cursor", "0"]);
         await tx.query(kv, ["sync.user_cursor", "0"]);
       }
-      await tx.query(`update tz_outbox set attempts = 0, last_error = null where attempts > 0`);
+      await tx.query(`update sm_outbox set attempts = 0, last_error = null where attempts > 0`);
       await tx.query(kv, ["sync.schema", JSON.stringify(SCHEMA_VERSION)]);
       await tx.query(kv, ["sync.protocol", JSON.stringify(SYNC_PROTOCOL)]);
     });
@@ -209,16 +209,16 @@ export class SyncClient {
       this.state.failed = [];
       return;
     }
-    const r = await this.o.db.one<{ n: number }>(`select count(*)::int as n from tz_outbox o where not ${FOREIGN}`, [org]);
+    const r = await this.o.db.one<{ n: number }>(`select count(*)::int as n from sm_outbox o where not ${FOREIGN}`, [org]);
     this.state.pending = r?.n ?? 0;
-    this.state.failed = await this.o.db.query(`select entity, id, last_error as error from tz_outbox o where attempts >= 5 and not ${FOREIGN} order by changed_at limit 50`, [org]);
+    this.state.failed = await this.o.db.query(`select entity, id, last_error as error from sm_outbox o where attempts >= 5 and not ${FOREIGN} order by changed_at limit 50`, [org]);
   }
 
   async push(): Promise<number> {
     let total = 0;
     for (let round = 0; round < 50; round++) {
       const queued = await this.o.db.query<{ entity: string; id: string; changed_at: string }>(
-        `select entity, id, changed_at from tz_outbox o where attempts < 5 and not ${FOREIGN} order by changed_at limit 200`,
+        `select entity, id, changed_at from sm_outbox o where attempts < 5 and not ${FOREIGN} order by changed_at limit 200`,
         [this.o.config.cloud.org_id],
       );
       if (!queued.length) break;
@@ -231,7 +231,7 @@ export class SyncClient {
         aggregates.push(...(await readAggregates(this.o.db, def, ids)));
       }
       const found = new Set(aggregates.map((a) => `${a.entity}:${a.id}`));
-      for (const q of queued) if (!found.has(`${q.entity}:${q.id}`)) await this.o.db.query(`delete from tz_outbox where entity = $1 and id = $2`, [q.entity, q.id]);
+      for (const q of queued) if (!found.has(`${q.entity}:${q.id}`)) await this.o.db.query(`delete from sm_outbox where entity = $1 and id = $2`, [q.entity, q.id]);
       if (!aggregates.length) continue;
       const res = await this.api<{ results: { entity: string; id: string; status: string; rev?: number; message?: string; renumbered?: { column: string; to: unknown }; aggregate?: WireAggregate }[] }>(
         "/sync/push",
@@ -239,28 +239,28 @@ export class SyncClient {
       );
       const sentAt = new Map(queued.map((q) => [`${q.entity}:${q.id}`, q.changed_at]));
       await this.o.db.tx(async (tx) => {
-        await tx.query("set local taraz.applying = 'on'");
+        await tx.query("set local itsm.applying = 'on'");
         for (const r of res.results) {
           const def = BY_ENTITY.get(r.entity);
           const key = `${r.entity}:${r.id}`;
           if (r.status === "ok" && def) {
             const extra = r.renumbered ? `, ${ident(r.renumbered.column)} = $3` : "";
             await tx.query(`update ${ident(def.table)} set rev = $2${extra} where id = $1`, r.renumbered ? [r.id, r.rev ?? 0, r.renumbered.to] : [r.id, r.rev ?? 0]);
-            await tx.query(`delete from tz_outbox where entity = $1 and id = $2 and changed_at <= $3`, [r.entity, r.id, sentAt.get(key)]);
+            await tx.query(`delete from sm_outbox where entity = $1 and id = $2 and changed_at <= $3`, [r.entity, r.id, sentAt.get(key)]);
             total++;
           } else if (r.status === "conflict" && def) {
             this.state.conflicts++;
             // take the cloud's winning copy now: a pull may already have moved past its revision
             // (it skips aggregates waiting in the outbox). A newer local edit is pushed again.
-            const newer = await tx.one(`select 1 from tz_outbox where entity = $1 and id = $2 and changed_at > $3`, [r.entity, r.id, sentAt.get(key)]);
+            const newer = await tx.one(`select 1 from sm_outbox where entity = $1 and id = $2 and changed_at > $3`, [r.entity, r.id, sentAt.get(key)]);
             if (!newer) {
               if (r.aggregate) await writeAggregate(tx, def, r.aggregate, this.o.config.cloud.org_id!, "local-yields");
-              await tx.query(`delete from tz_outbox where entity = $1 and id = $2`, [r.entity, r.id]);
+              await tx.query(`delete from sm_outbox where entity = $1 and id = $2`, [r.entity, r.id]);
             }
           } else if (r.status === "conflict" || r.status === "skipped") {
-            await tx.query(`delete from tz_outbox where entity = $1 and id = $2`, [r.entity, r.id]);
+            await tx.query(`delete from sm_outbox where entity = $1 and id = $2`, [r.entity, r.id]);
           } else {
-            await tx.query(`update tz_outbox set attempts = attempts + 1, last_error = $3 where entity = $1 and id = $2`, [r.entity, r.id, r.message ?? "خطا"]);
+            await tx.query(`update sm_outbox set attempts = attempts + 1, last_error = $3 where entity = $1 and id = $2`, [r.entity, r.id, r.message ?? "خطا"]);
           }
         }
       });
@@ -289,9 +289,9 @@ export class SyncClient {
       );
       const orgId = this.o.config.cloud.org_id!;
       await this.o.db.tx(async (tx) => {
-        await tx.query("set local taraz.applying = 'on'");
+        await tx.query("set local itsm.applying = 'on'");
         for (const u of page.users) await this.mergeUser(tx, u);
-        const dirty = new Set((await tx.query<{ entity: string; id: string }>(`select entity, id from tz_outbox`)).map((r) => `${r.entity}:${r.id}`));
+        const dirty = new Set((await tx.query<{ entity: string; id: string }>(`select entity, id from sm_outbox`)).map((r) => `${r.entity}:${r.id}`));
         const sorted = [...page.aggregates].sort((a, b) => (BY_ENTITY.get(a.entity)?.order ?? 99) - (BY_ENTITY.get(b.entity)?.order ?? 99));
         for (const agg of sorted) {
           const def = BY_ENTITY.get(agg.entity);
@@ -299,8 +299,8 @@ export class SyncClient {
           await writeAggregate(tx, def, agg, orgId, "local-yields");
           count++;
         }
-        await tx.query(`insert into tz_kv (key, value) values ('sync.cursor', $1::jsonb) on conflict (key) do update set value = excluded.value, updated_at = now()`, [JSON.stringify(page.cursor)]);
-        await tx.query(`insert into tz_kv (key, value) values ('sync.user_cursor', $1::jsonb) on conflict (key) do update set value = excluded.value, updated_at = now()`, [JSON.stringify(page.user_cursor)]);
+        await tx.query(`insert into sm_kv (key, value) values ('sync.cursor', $1::jsonb) on conflict (key) do update set value = excluded.value, updated_at = now()`, [JSON.stringify(page.cursor)]);
+        await tx.query(`insert into sm_kv (key, value) values ('sync.user_cursor', $1::jsonb) on conflict (key) do update set value = excluded.value, updated_at = now()`, [JSON.stringify(page.user_cursor)]);
       });
       if (!page.has_more) break;
     }
@@ -312,22 +312,22 @@ export class SyncClient {
 
   /** A cloud user replaces a local user with the same e-mail (references are moved over). */
   private async mergeUser(tx: Pick<Db, "query" | "one">, u: Record<string, unknown>) {
-    const local = await tx.one<{ id: string }>(`select id from tz_users where lower(email) = lower($1)`, [u.email]);
+    const local = await tx.one<{ id: string }>(`select id from sm_users where lower(email) = lower($1)`, [u.email]);
     if (local && local.id !== u.id) {
-      await tx.query(`update tz_users set email = email || '.local-' || substr(id::text, 1, 8) where id = $1`, [local.id]);
-      await tx.query(`insert into tz_users (id, email, full_name, mobile, password_hash, disabled, prefs, rev, created_at, updated_at)
+      await tx.query(`update sm_users set email = email || '.local-' || substr(id::text, 1, 8) where id = $1`, [local.id]);
+      await tx.query(`insert into sm_users (id, email, full_name, mobile, password_hash, disabled, prefs, rev, created_at, updated_at)
                       values ($1, $2, $3, $4, $5, $6, coalesce($7::jsonb, '{}'::jsonb), $8, $9, $10)`,
         [u.id, u.email, u.full_name, u.mobile ?? null, u.password_hash ?? null, !!u.disabled, u.prefs ? JSON.stringify(u.prefs) : null, u.rev ?? 0, u.created_at ?? new Date().toISOString(), u.updated_at ?? new Date().toISOString()]);
-      await tx.query(`update tz_sessions set user_id = $2 where user_id = $1`, [local.id, u.id]);
-      await tx.query(`update tz_org_members set user_id = $2 where user_id = $1 and not exists (select 1 from tz_org_members m2 where m2.user_id = $2 and m2.org_id = tz_org_members.org_id)`, [local.id, u.id]);
+      await tx.query(`update sm_sessions set user_id = $2 where user_id = $1`, [local.id, u.id]);
+      await tx.query(`update sm_org_members set user_id = $2 where user_id = $1 and not exists (select 1 from sm_org_members m2 where m2.user_id = $2 and m2.org_id = sm_org_members.org_id)`, [local.id, u.id]);
       return;
     }
     // The cloud shares a password hash only with devices whose user could set that password
     // anyway; for any other account it says so (`password_withheld`) and a hash kept here from an
     // earlier version or an earlier sign-in is dropped: that person signs in through the cloud.
-    const hash = u.password_withheld ? "excluded.password_hash" : "coalesce(excluded.password_hash, tz_users.password_hash)";
+    const hash = u.password_withheld ? "excluded.password_hash" : "coalesce(excluded.password_hash, sm_users.password_hash)";
     await tx.query(
-      `insert into tz_users (id, email, full_name, mobile, password_hash, disabled, prefs, rev, created_at, updated_at)
+      `insert into sm_users (id, email, full_name, mobile, password_hash, disabled, prefs, rev, created_at, updated_at)
        values ($1, $2, $3, $4, $5, $6, coalesce($7::jsonb, '{}'::jsonb), $8, $9, $10)
        on conflict (id) do update set email = excluded.email, full_name = excluded.full_name, mobile = excluded.mobile,
          password_hash = ${hash}, disabled = excluded.disabled, rev = excluded.rev, updated_at = excluded.updated_at`,

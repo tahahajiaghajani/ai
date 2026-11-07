@@ -172,7 +172,7 @@ export function Composer({ handle, orgId, has, disabled, busy, onSend, onStop, c
   return (
     <div className={`sa-comp ${disabled ? "is-disabled" : ""}`}>
       {slashOpen ? (
-        <div className="sa-slash sf-pop" role="listbox" id="sa-slash" aria-label="دستورهای آماده">
+        <div className="sa-slash ds-pop" role="listbox" id="sa-slash" aria-label="دستورهای آماده">
           <div className="sa-slash-h">دستورهای آماده</div>
           {slashItems.map((p, i) => (
             <div
@@ -231,7 +231,7 @@ export function Composer({ handle, orgId, has, disabled, busy, onSend, onStop, c
               <span key={f.key} className="sa-file">
                 {f.preview ? <img src={f.preview} alt="" className="sa-file-img" /> : <Ic icon={FileText} size={14} />}
                 <span className="sa-file-n">{f.name}</span>
-                <span className="sa-file-s sf-num">{fileSize(f.size)}</span>
+                <span className="sa-file-s ds-num">{fileSize(f.size)}</span>
                 <button
                   type="button"
                   className="sa-ctx-x"
@@ -297,7 +297,7 @@ export function Composer({ handle, orgId, has, disabled, busy, onSend, onStop, c
               {model}
             </bdi>
           ) : null}
-          <span className="sf-end">
+          <span className="ds-end">
             {busy ? (
               <Tooltip title="توقف" mouseEnterDelay={0.3}>
                 <button

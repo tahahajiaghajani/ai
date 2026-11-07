@@ -5,7 +5,7 @@ import { Link, useLocation } from "react-router";
 import { useOrg } from "../../lib/org";
 import { useSession } from "../../lib/session";
 import { PageHeader } from "../../components/layout";
-import { Wordmark, SirafTile } from "../../components/brand";
+import { Wordmark, BrandTile } from "../../components/brand";
 import { APP_NAME, APP_NAME_EN, APP_TAGLINE, APP_VERSION } from "@shared/constants";
 import { Keys, Version } from "../reports/kit";
 
@@ -76,17 +76,17 @@ export default function Help() {
           <Article id="start" title="شروع کار در پنج قدم">
             <ol className="bk-steps">
               <li>
-                اطلاعات کسب‌وکار، لوگو، نرخ مالیات و بخش‌ها: <Link className="sf-link" to={to("settings/org")}>تنظیمات کسب‌وکار</Link>
+                اطلاعات کسب‌وکار، لوگو، نرخ مالیات و بخش‌ها: <Link className="ds-link" to={to("settings/org")}>تنظیمات کسب‌وکار</Link>
               </li>
               <li>
-                تعریف‌ها: <Link className="sf-link" to={to("parties")}>اشخاص</Link>، صندوق و بانک، کالاها یا اجناس طلا یا ارزها؛ یکی‌یکی، یا همه با هم از اکسل (دکمهٔ «ورود از اکسل» بالای هر فهرست).
+                تعریف‌ها: <Link className="ds-link" to={to("parties")}>اشخاص</Link>، صندوق و بانک، کالاها یا اجناس طلا یا ارزها؛ یکی‌یکی، یا همه با هم از اکسل (دکمهٔ «ورود از اکسل» بالای هر فهرست).
               </li>
               <li>
-                مانده‌های اول دوره: یک <Link className="sf-link" to={to("accounting/vouchers/new")}>سند حسابداری</Link> با نوع «افتتاحیه» (موجودی صندوق و بانک، طلب و بدهی اشخاص، سرمایه).
+                مانده‌های اول دوره: یک <Link className="ds-link" to={to("accounting/vouchers/new")}>سند حسابداری</Link> با نوع «افتتاحیه» (موجودی صندوق و بانک، طلب و بدهی اشخاص، سرمایه).
               </li>
               <li>کار روزانه: فاکتور، دریافت و پرداخت، چک، فروش طلا، معاملهٔ ارز و حواله؛ سند حسابداری هر کدام خودکار ثبت می‌شود.</li>
               <li>
-                گزارش‌ها: <Link className="sf-link" to={to("reports/trial-balance")}>تراز آزمایشی</Link>، دفتر کل و معین، ماندهٔ اشخاص، سود و زیان و ترازنامه؛ همه با خروجی اکسل و چاپ.
+                گزارش‌ها: <Link className="ds-link" to={to("reports/trial-balance")}>تراز آزمایشی</Link>، دفتر کل و معین، ماندهٔ اشخاص، سود و زیان و ترازنامه؛ همه با خروجی اکسل و چاپ.
               </li>
             </ol>
           </Article>
@@ -134,7 +134,7 @@ export default function Help() {
               <li>سند اختتامیه صادر می‌شود و همان مانده‌ها، همراه با مبالغ ارزی و وزن طلا، با سند افتتاحیه به سال بعد منتقل می‌شوند.</li>
               <li>اسناد پیش‌نویس باید پیش از بستن ثبت یا حذف شوند.</li>
               <li>
-                هر وقت لازم شد می‌توانید سال را دوباره باز کنید: <Link className="sf-link" to={to("accounting/fiscal-years")}>سال‌های مالی</Link>
+                هر وقت لازم شد می‌توانید سال را دوباره باز کنید: <Link className="ds-link" to={to("accounting/fiscal-years")}>سال‌های مالی</Link>
               </li>
             </ul>
           </Article>
@@ -163,10 +163,10 @@ export default function Help() {
           <Article id="ai" title="هوش مصنوعی با Gemini رایگان">
             <ol className="bk-steps">
               <li>
-                کلید رایگان: با یک حساب Google در <bdi dir="ltr" className="sf-mono">aistudio.google.com</bdi> ← API Keys ← Create API key. AI Studio از اینترنت ایران باز نمی‌شود و Google استفاده را به کشورهای پشتیبانی‌شده محدود کرده است؛ پذیرفتن شرایطش با مالک کسب‌وکار است.
+                کلید رایگان: با یک حساب Google در <bdi dir="ltr" className="ds-mono">aistudio.google.com</bdi> ← API Keys ← Create API key. AI Studio از اینترنت ایران باز نمی‌شود و Google استفاده را به کشورهای پشتیبانی‌شده محدود کرده است؛ پذیرفتن شرایطش با مالک کسب‌وکار است.
               </li>
               <li>
-                {desktop ? "در نسخهٔ وب" : "در"} <Link className="sf-link" to={to("settings/ai")}>تنظیمات هوش مصنوعی</Link> ← «افزودن اتصال» ← «Gemini (Google AI Studio)». کلید را بچسبانید، «طرح رایگان سرویس» را روشن کنید و «ذخیره» را بزنید.
+                {desktop ? "در نسخهٔ وب" : "در"} <Link className="ds-link" to={to("settings/ai")}>تنظیمات هوش مصنوعی</Link> ← «افزودن اتصال» ← «Gemini (Google AI Studio)». کلید را بچسبانید، «طرح رایگان سرویس» را روشن کنید و «ذخیره» را بزنید.
               </li>
               <li>مدل‌های رایگان به‌ترتیب گذاشته می‌شوند و هر کدام سقف روزانهٔ خودش را دارد. وقتی سهم یکی تمام شد، بعدی پاسخ می‌دهد. شمارش هر روز ساعت ۱۱:۳۰ تهران صفر می‌شود (از اواخر اسفند تا اوایل آبان ۱۰:۳۰).</li>
               <li>در طرح رایگان، Google از داده‌ها برای بهبود محصولاتش استفاده می‌کند؛ در «قابلیت‌ها و حریم خصوصی» گزینهٔ «پوشاندن اطلاعات شخصی» را نگه دارید.</li>
@@ -178,21 +178,21 @@ export default function Help() {
             <ul>
               {has("gold") ? (
                 <li>
-                  طلا: <Link className="sf-link" to={to("gold/rates")}>تابلوی قیمت</Link> ← «دریافت قیمت زنده». منبع «خودکار» اول منبع دلخواه، بعد tgju و بعد انس جهانی را امتحان می‌کند. tgju کلید نمی‌خواهد.
+                  طلا: <Link className="ds-link" to={to("gold/rates")}>تابلوی قیمت</Link> ← «دریافت قیمت زنده». منبع «خودکار» اول منبع دلخواه، بعد tgju و بعد انس جهانی را امتحان می‌کند. tgju کلید نمی‌خواهد.
                 </li>
               ) : null}
               {has("fx") ? (
                 <li>
-                  ارز و رمزارز: <Link className="sf-link" to={to("fx/rates")}>تابلوی نرخ</Link> ← پیکان کنار «به‌روزرسانی از بازار» ← «تنظیمات نرخ و منابع قیمت». «tgju.org» را تیک بزنید و بالای فهرست بگذارید. دلار بازار آزاد و ارزها به ریال یا تومان از آن می‌آیند و رمزارزها از KuCoin و OKX. برای نرخ تتر بازار ایران، منبع سفارشی اکسیر را بگذارید (راهنمای اتصال‌ها).
+                  ارز و رمزارز: <Link className="ds-link" to={to("fx/rates")}>تابلوی نرخ</Link> ← پیکان کنار «به‌روزرسانی از بازار» ← «تنظیمات نرخ و منابع قیمت». «tgju.org» را تیک بزنید و بالای فهرست بگذارید. دلار بازار آزاد و ارزها به ریال یا تومان از آن می‌آیند و رمزارزها از KuCoin و OKX. برای نرخ تتر بازار ایران، منبع سفارشی اکسیر را بگذارید (راهنمای اتصال‌ها).
                 </li>
               ) : null}
               <li>نسخهٔ وب و نسخهٔ ویندوز هر کدام با اینترنت خودشان قیمت می‌گیرند. tgju دو نشانی دارد، یکی در ایران و یکی بیرون، و هر نسخه آن را که در دسترس است می‌خواند. نرخ‌های ذخیره‌شده میان دو نسخه هم‌گام می‌شوند.</li>
               <li>
-                «منبع سفارشی» هر نشانی JSON را می‌پذیرد. مسیر قیمت مثل <bdi dir="ltr" className="sf-mono">data.price</bdi>، <bdi dir="ltr" className="sf-mono">items[0].sell</bdi> یا <bdi dir="ltr" className="sf-mono">items[symbol=USD].sell</bdi> است.
-                کلید سرویس در سرآیندی مثل <bdi dir="ltr" className="sf-mono">X-API-Key</bdi> یا به جای <bdi dir="ltr" className="sf-mono">{"{key}"}</bdi> در نشانی فرستاده می‌شود. کلید فقط در همان نسخه (وب یا ویندوز)، رمزگذاری‌شده، می‌ماند و فقط به همان نشانی می‌رود.
+                «منبع سفارشی» هر نشانی JSON را می‌پذیرد. مسیر قیمت مثل <bdi dir="ltr" className="ds-mono">data.price</bdi>، <bdi dir="ltr" className="ds-mono">items[0].sell</bdi> یا <bdi dir="ltr" className="ds-mono">items[symbol=USD].sell</bdi> است.
+                کلید سرویس در سرآیندی مثل <bdi dir="ltr" className="ds-mono">X-API-Key</bdi> یا به جای <bdi dir="ltr" className="ds-mono">{"{key}"}</bdi> در نشانی فرستاده می‌شود. کلید فقط در همان نسخه (وب یا ویندوز)، رمزگذاری‌شده، می‌ماند و فقط به همان نشانی می‌رود.
               </li>
               <li>
-                EZRate قیمت طلا، سکه و ارز را با طرح رایگانِ دارای مجوز می‌دهد (۵۰ درخواست در روز): نشانی <bdi dir="ltr" className="sf-mono">https://api.ezrate.me/v1/rates?symbols=usd,g18,emami&amp;quote=IRR</bdi> با واحد ریال، سرآیند <bdi dir="ltr" className="sf-mono">X-API-Key</bdi> و مسیرهایی مثل <bdi dir="ltr" className="sf-mono">data[symbol=g18].sell</bdi>. طرح رایگانش می‌خواهد نامش کنار قیمت‌ها بیاید؛ «نام منبع» را EZRate بگذارید.
+                EZRate قیمت طلا، سکه و ارز را با طرح رایگانِ دارای مجوز می‌دهد (۵۰ درخواست در روز): نشانی <bdi dir="ltr" className="ds-mono">https://api.ezrate.me/v1/rates?symbols=usd,g18,emami&amp;quote=IRR</bdi> با واحد ریال، سرآیند <bdi dir="ltr" className="ds-mono">X-API-Key</bdi> و مسیرهایی مثل <bdi dir="ltr" className="ds-mono">data[symbol=g18].sell</bdi>. طرح رایگانش می‌خواهد نامش کنار قیمت‌ها بیاید؛ «نام منبع» را EZRate بگذارید.
               </li>
               <li>tgju غیررسمی است و شرایط سایتش استفاده از قیمت‌ها را بی‌اجازهٔ کتبی مجاز نمی‌داند. اگر هیچ منبعی پاسخ نداد، قیمت را دستی ثبت کنید.</li>
             </ul>
@@ -201,12 +201,12 @@ export default function Help() {
           <Article id="shop" title="اتصال به فروشگاه اینترنتی">
             <ol className="bk-steps">
               <li>
-                در نسخهٔ وب، <Link className="sf-link" to={to("settings/integrations")}>اتصال‌ها و API</Link> ← «اتصال تازه». نشانی Webhook و کلید را رونوشت کنید.
+                در نسخهٔ وب، <Link className="ds-link" to={to("settings/integrations")}>اتصال‌ها و API</Link> ← «اتصال تازه». نشانی Webhook و کلید را رونوشت کنید.
               </li>
               <li>ووکامرس: پیشخوان وردپرس ← ووکامرس ← پیکربندی ← پیشرفته ← Webhooks ← افزودن؛ موضوع «Order created» (و در صورت نیاز «Order updated»)، نشانی تحویل = نشانی Webhook، رمز = کلید، نسخهٔ API: WP REST API v3.</li>
               <li>شاپیفای: Settings ← Notifications ← Webhooks؛ رویداد «Order creation» با قالب JSON و همان نشانی؛ کلید امضای شاپیفای را هنگام ساخت اتصال در سیراف وارد کنید.</li>
               <li>
-                سایت دیگر: سفارش را به‌صورت JSON با سرآیند <bdi dir="ltr" className="sf-mono">X-Taraz-Signature</bdi> (HMAC-SHA256 بدنه با کلید) یا <bdi dir="ltr" className="sf-mono">X-Taraz-Secret</bdi> بفرستید.
+                سایت دیگر: سفارش را به‌صورت JSON با سرآیند <bdi dir="ltr" className="ds-mono">X-Taraz-Signature</bdi> (HMAC-SHA256 بدنه با کلید) یا <bdi dir="ltr" className="ds-mono">X-Taraz-Secret</bdi> بفرستید.
               </li>
               <li>در برنامهٔ ویندوز اتصال ساخته نمی‌شود: سایت سفارش را به یک نشانی اینترنتی می‌فرستد، پس اتصال را در نسخهٔ وب بسازید؛ فاکتورهای ساخته‌شده با هم‌گامی به برنامهٔ ویندوز هم می‌رسند.</li>
               <li>هر سفارش، فاکتور فروش می‌شود. مشتری با ایمیل یا همراه پیدا یا ساخته می‌شود؛ کالا با SKU، بارکد، کد یا نام پیدا می‌شود و کالای ناشناخته به‌صورت «خدمت» ساخته می‌شود تا حسابدار بررسی کند.</li>
@@ -226,7 +226,7 @@ export default function Help() {
 
           <section id="about" className="bk-card overflow-hidden" style={{ scrollMarginTop: 72 }}>
             <div className="bk-about-h">
-              <SirafTile size={44} />
+              <BrandTile size={44} />
               <div>
                 <Wordmark size={24} tone="white" />
                 <small>{APP_TAGLINE}</small>
@@ -244,7 +244,7 @@ export default function Help() {
                 </div>
                 <div className="is-wide">
                   <dt>نام لاتین</dt>
-                  <dd><bdi dir="ltr" className="sf-latin" style={{ fontWeight: 600, letterSpacing: "-.025em" }}>{APP_NAME_EN}</bdi></dd>
+                  <dd><bdi dir="ltr" className="ds-latin" style={{ fontWeight: 600, letterSpacing: "-.025em" }}>{APP_NAME_EN}</bdi></dd>
                 </div>
               </dl>
               <div className="bk-sheet-sec" style={{ marginBlockStart: 20 }}>قلم‌ها</div>
@@ -255,12 +255,12 @@ export default function Help() {
                       <b className="block">{f.name}</b>
                       <span className="block bk-3" style={{ fontSize: 12 }}>{f.role}</span>
                       <span className="block bk-3" style={{ fontSize: 12 }}>
-                        {f.latin ? f.by : <bdi dir="ltr" className="sf-latin">{f.by}</bdi>}
+                        {f.latin ? f.by : <bdi dir="ltr" className="ds-latin">{f.by}</bdi>}
                       </span>
                     </span>
-                    <span className="sf-end">
-                      <a className="bk-lnk" href={`/fonts/siraf/${f.file}`} target="_blank" rel="noreferrer">
-                        <bdi dir="ltr" className="sf-latin">SIL OFL 1.1</bdi>
+                    <span className="ds-end">
+                      <a className="bk-lnk" href={`/fonts/ds/${f.file}`} target="_blank" rel="noreferrer">
+                        <bdi dir="ltr" className="ds-latin">SIL OFL 1.1</bdi>
                       </a>
                     </span>
                   </div>

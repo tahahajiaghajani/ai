@@ -496,9 +496,9 @@ async function engineServer(handler: Handler) {
   await c.post("/auth/signup", { email: "owner@example.com", password: "s3cret-pass", full_name: "مالک" });
   const { id: orgId } = await c.post<{ id: string }>("/orgs", { name: "فروشگاه", business_kind: "mixed", modules: ["goods"], base_currency: "IRR", fiscal_year: 1405 });
   const ctx = async () => {
-    const u = (await db.one<AuthUser>(`select id, email, full_name, mobile, is_platform_admin, disabled, prefs from tz_users where email = 'owner@example.com'`))!;
-    const org = (await db.one<OrgRow>(`select * from tz_orgs where id = $1`, [orgId]))!;
-    const m = (await db.one<MemberRow>(`select id, org_id, user_id, role, overrides, is_active from tz_org_members where org_id = $1 and user_id = $2`, [orgId, u.id]))!;
+    const u = (await db.one<AuthUser>(`select id, email, full_name, mobile, is_platform_admin, disabled, prefs from sm_users where email = 'owner@example.com'`))!;
+    const org = (await db.one<OrgRow>(`select * from sm_orgs where id = $1`, [orgId]))!;
+    const m = (await db.one<MemberRow>(`select id, org_id, user_id, role, overrides, is_active from sm_org_members where org_id = $1 and user_id = $2`, [orgId, u.id]))!;
     return makeCtx(cfg, u, org, m);
   };
   return { c, db, orgId, calls, ctx };
@@ -538,10 +538,10 @@ describe("routing chain, holds and budgets", () => {
     const r = await generate(ctx, { job: "fast", feature: "digest", system: "S", prompt: "خلاصه" });
     expect(r.text).toBe("پاسخ دوم");
     expect(r.model).toBe("openai/gpt-6-luna");
-    const hold = await s.db.one<{ until: string; kind: string }>(`select until, kind from tz_ai_holds where connection_id = $1`, [a.connection.id]);
+    const hold = await s.db.one<{ until: string; kind: string }>(`select until, kind from sm_ai_holds where connection_id = $1`, [a.connection.id]);
     expect(hold?.kind).toBe("rate");
     expect(Date.parse(hold!.until) - Date.now()).toBeGreaterThan(20_000);
-    const usage = await s.db.query<{ ok: boolean; error_kind: string | null }>(`select ok, error_kind from tz_ai_usage where feature = 'digest' order by created_at`);
+    const usage = await s.db.query<{ ok: boolean; error_kind: string | null }>(`select ok, error_kind from sm_ai_usage where feature = 'digest' order by created_at`);
     expect(usage.map((u) => u.ok)).toEqual([false, true]);
     // the held connection is skipped without a request
     const before = s.calls.filter((c) => c.url.includes("deepseek")).length;
@@ -550,7 +550,7 @@ describe("routing chain, holds and budgets", () => {
     const list = await s.c.get(`/o/${s.orgId}/ai/connections`);
     expect(list.connections.find((x: { id: string }) => x.id === a.connection.id).status).toBe("paused");
     await s.c.post(`/o/${s.orgId}/ai/connections/${a.connection.id}/resume`);
-    expect(await s.db.one(`select 1 from tz_ai_holds where connection_id = $1`, [a.connection.id])).toBeNull();
+    expect(await s.db.one(`select 1 from sm_ai_holds where connection_id = $1`, [a.connection.id])).toBeNull();
   });
 
   it("holds only the model that hit a per-minute limit: the connection's next model answers", async () => {
@@ -560,7 +560,7 @@ describe("routing chain, holds and budgets", () => {
     const r = await generate(ctx, { job: "fast", feature: "digest", system: "S", prompt: "x" });
     expect(r.text).toBe("از مدل دوم");
     expect(r.model).toBe("b/free");
-    const holds = await s.db.query<{ model: string; kind: string }>(`select model, kind from tz_ai_holds where connection_id = $1`, [a.connection.id]);
+    const holds = await s.db.query<{ model: string; kind: string }>(`select model, kind from sm_ai_holds where connection_id = $1`, [a.connection.id]);
     expect(holds).toEqual([{ model: "a/limited", kind: "rate" }]);
     // the held model is skipped without a request; the connection itself is not paused
     const before = s.calls.filter((c) => c.body?.model === "a/limited").length;
@@ -578,7 +578,7 @@ describe("routing chain, holds and budgets", () => {
     const r = await generate(await s.ctx(), { job: "analysis", feature: "explain", system: "S", prompt: "x" });
     expect(r.text).toBe("از مدل سبک");
     expect(r.model).toBe("g/flash-lite");
-    const hold = await s.db.one<{ model: string; kind: string }>(`select model, kind from tz_ai_holds where connection_id = $1`, [a.connection.id]);
+    const hold = await s.db.one<{ model: string; kind: string }>(`select model, kind from sm_ai_holds where connection_id = $1`, [a.connection.id]);
     expect(hold).toEqual({ model: "g/flash", kind: "quota" });
   });
 
@@ -587,14 +587,14 @@ describe("routing chain, holds and budgets", () => {
     const a = await s.c.post(`/o/${s.orgId}/ai/connections`, { preset: "openrouter", key: "sk-or-v1-000000000002", models: { smart: ["anthropic/claude-opus-5.5"] }, free_tier: true });
     expect(a.connection.free_tier).toBe(true);
     await generate(await s.ctx(), { job: "analysis", feature: "explain", system: "S", prompt: "x" });
-    const row = await s.db.one<{ cost_usd: string; priced: boolean; input: number }>(`select cost_usd::text, priced, input from tz_ai_usage where feature = 'explain'`);
+    const row = await s.db.one<{ cost_usd: string; priced: boolean; input: number }>(`select cost_usd::text, priced, input from sm_ai_usage where feature = 'explain'`);
     expect(Number(row?.cost_usd)).toBe(0);
     expect(row?.priced).toBe(true);
     expect(row?.input).toBe(1000);
     // switched off again, the same call is priced
     await s.c.patch(`/o/${s.orgId}/ai/connections/${a.connection.id}`, { free_tier: false });
     await generate(await s.ctx(), { job: "analysis", feature: "explain2", system: "S", prompt: "x" });
-    const paid = await s.db.one<{ cost_usd: string }>(`select cost_usd::text from tz_ai_usage where feature = 'explain2'`);
+    const paid = await s.db.one<{ cost_usd: string }>(`select cost_usd::text from sm_ai_usage where feature = 'explain2'`);
     expect(Number(paid?.cost_usd)).toBeGreaterThan(0);
   });
 
@@ -607,7 +607,7 @@ describe("routing chain, holds and budgets", () => {
     const { z } = await import("zod");
     const r = await generate(await s.ctx(), { job: "analysis", feature: "explain", system: "S", prompt: "x", schema: z.object({ total: z.string(), note: z.string().optional() }) });
     expect(r.object).toEqual({ total: "12" });
-    const row = await s.db.one<{ status: string; last_error: { kind: string; detail: string } }>(`select status, last_error from tz_ai_connections where id = $1`, [a.connection.id]);
+    const row = await s.db.one<{ status: string; last_error: { kind: string; detail: string } }>(`select status, last_error from sm_ai_connections where id = $1`, [a.connection.id]);
     expect(row?.status).toBe("error");
     expect(row?.last_error.kind).toBe("auth");
     expect(JSON.stringify(row)).not.toContain("sk-deepseek-0000000001");

@@ -47,7 +47,7 @@ function Nav({ support }: { support: number }) {
           {n.title}
           {n.key === "orgs" && support ? (
             <Tooltip title="حالت پشتیبانی در جریان">
-              <span className="ad-nav-badge sf-num">{support}</span>
+              <span className="ad-nav-badge ds-num">{support}</span>
             </Tooltip>
           ) : null}
         </Link>

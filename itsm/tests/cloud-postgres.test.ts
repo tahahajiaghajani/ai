@@ -39,7 +39,7 @@ describe("cloud runtime over the PostgreSQL protocol (postgres.js)", () => {
   });
 
   it("stores json columns as real JSON (not JSON strings)", async () => {
-    const rows = await db.query<{ t: string; m: string }>(`select jsonb_typeof(detail_kinds) as t, (select jsonb_typeof(modules) from tz_orgs where id = $1) as m from tz_accounts where org_id = $1 and system_key = 'cash'`, [org]);
+    const rows = await db.query<{ t: string; m: string }>(`select jsonb_typeof(detail_kinds) as t, (select jsonb_typeof(modules) from sm_orgs where id = $1) as m from sm_accounts where org_id = $1 and system_key = 'cash'`, [org]);
     expect(rows[0]).toEqual({ t: "array", m: "array" });
     const info = await c.get(`/o/${org}`);
     expect(info.org.modules).toEqual(["goods", "gold", "fx"]);
@@ -53,7 +53,7 @@ describe("cloud runtime over the PostgreSQL protocol (postgres.js)", () => {
     expect(suppliers.options.map((o: { label: string }) => o.label)).toContain("تأمین‌کننده");
     const cash = await accountId(db, org, "cash");
     const capital = await accountId(db, org, "capital");
-    const box = await db.one<{ detail_id: string }>(`select detail_id from tz_cash_boxes where org_id = $1`, [org]);
+    const box = await db.one<{ detail_id: string }>(`select detail_id from sm_cash_boxes where org_id = $1`, [org]);
     const v = await c.post(`/o/${org}/accounting/vouchers`, { date: "2026-06-01", lines: [{ account_id: cash, detail_id: box!.detail_id, debit: "123456789.5" }, { account_id: capital, credit: "123456789.5" }] });
     const got = await c.get(`/o/${org}/accounting/vouchers/${v.voucher.id}`);
     expect(got.voucher.total_debit).toBe("123456790"); // rial has no decimals: rounded half-up
@@ -87,7 +87,7 @@ describe("database adapters behave the same", () => {
     await server.start();
     cloud = createPostgresDb({ url: `postgres://postgres:postgres@127.0.0.1:${port}/postgres`, ssl: false, max: 1 });
     desktop = await createPgliteDb();
-    for (const d of [cloud, desktop]) await d.exec(`create table tz_t (id int primary key, v text)`);
+    for (const d of [cloud, desktop]) await d.exec(`create table sm_t (id int primary key, v text)`);
   });
 
   afterAll(async () => {
@@ -100,35 +100,35 @@ describe("database adapters behave the same", () => {
   it("a transaction whose failed statement was caught (no savepoint) fails instead of silently rolling back", async () => {
     for (const d of [cloud, desktop]) {
       const run = d.tx(async (tx) => {
-        await tx.query(`insert into tz_t values (1, 'a')`);
+        await tx.query(`insert into sm_t values (1, 'a')`);
         try {
-          await tx.query(`insert into tz_t values (1, 'duplicate')`);
+          await tx.query(`insert into sm_t values (1, 'duplicate')`);
         } catch {
           /* ignored by the caller */
         }
         return "saved";
       });
       await expect(run, d.kind).rejects.toMatchObject({ code: "23505" });
-      expect(await d.query(`select * from tz_t`), d.kind).toEqual([]);
+      expect(await d.query(`select * from sm_t`), d.kind).toEqual([]);
     }
   });
 
   it("a statement rolled back to its savepoint keeps the rest of the transaction", async () => {
     for (const d of [cloud, desktop]) {
       const r = await d.tx(async (tx) => {
-        await tx.query(`insert into tz_t values (2, 'a')`);
+        await tx.query(`insert into sm_t values (2, 'a')`);
         await tx.query(`savepoint s1`);
         try {
-          await tx.query(`insert into tz_t values (2, 'duplicate')`);
+          await tx.query(`insert into sm_t values (2, 'duplicate')`);
         } catch {
           await tx.query(`rollback to savepoint s1`);
         }
-        await tx.query(`insert into tz_t values (3, 'b')`);
+        await tx.query(`insert into sm_t values (3, 'b')`);
         return "saved";
       });
       expect(r).toBe("saved");
-      expect((await d.query<{ id: number }>(`select id from tz_t order by id`)).map((x) => x.id), d.kind).toEqual([2, 3]);
-      await d.query(`delete from tz_t`);
+      expect((await d.query<{ id: number }>(`select id from sm_t order by id`)).map((x) => x.id), d.kind).toEqual([2, 3]);
+      await d.query(`delete from sm_t`);
     }
   });
 });
@@ -139,11 +139,11 @@ describe("indexes for the hot queries", () => {
     await migrate(db);
     await db.exec(`set enable_seqscan = off`);
     const missing: string[] = [];
-    for (const def of [...AGGREGATES.filter((a) => a.table !== "tz_orgs"), { table: "tz_users" }]) {
-      const sql = def.table === "tz_users"
-        ? `explain select id from tz_users where rev > $1 order by rev limit 500`
+    for (const def of [...AGGREGATES.filter((a) => a.table !== "sm_orgs"), { table: "sm_users" }]) {
+      const sql = def.table === "sm_users"
+        ? `explain select id from sm_users where rev > $1 order by rev limit 500`
         : `explain select id from ${def.table} where org_id = $1 and rev > $2 and rev <= $3 order by rev`;
-      const params = def.table === "tz_users" ? [0] : ["00000000-0000-0000-0000-000000000001", 0, 100];
+      const params = def.table === "sm_users" ? [0] : ["00000000-0000-0000-0000-000000000001", 0, 100];
       const plan = (await db.query<{ "QUERY PLAN": string }>(sql, params)).map((r) => r["QUERY PLAN"]).join("\n");
       if (!/Index Cond: .*\brev\b/.test(plan)) missing.push(def.table);
     }
@@ -154,7 +154,7 @@ describe("indexes for the hot queries", () => {
 
 describe.skipIf(!process.env.TEST_DATABASE_URL)("migrations and revisions on a real PostgreSQL server (TEST_DATABASE_URL)", () => {
   const url = new URL(process.env.TEST_DATABASE_URL ?? "postgres://localhost/postgres");
-  const name = `siraf_test_${Date.now()}`;
+  const name = `itsm_test_${Date.now()}`;
   let admin: Db;
   const dbs: Db[] = [];
 
@@ -181,22 +181,22 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("migrations and revisions on a r
   it("user revisions follow commit order, so a pull never moves its cursor past an uncommitted change", async () => {
     const [db] = dbs;
     await migrate(db);
-    const [a, b] = await db.query<{ id: string }>(`insert into tz_users (email) values ('a@example.com'), ('b@example.com') returning id`);
+    const [a, b] = await db.query<{ id: string }>(`insert into sm_users (email) values ('a@example.com'), ('b@example.com') returning id`);
     let release!: () => void;
     const gate = new Promise<void>((r) => (release = r));
     let updated!: () => void;
     const started = new Promise<void>((r) => (updated = r));
     // a slow transaction (e.g. disabling a user) updates A first …
     const slow = db.tx(async (tx) => {
-      await tx.query(`update tz_users set disabled = true where id = $1`, [a.id]);
+      await tx.query(`update sm_users set disabled = true where id = $1`, [a.id]);
       updated();
       await gate;
     });
     await started;
     // … while B logs in and commits; a desktop pulling now takes B's revision as its cursor
-    const fast = dbs[1].query(`update tz_users set last_login_at = now() where id = $1`, [b.id]);
+    const fast = dbs[1].query(`update sm_users set last_login_at = now() where id = $1`, [b.id]);
     await new Promise((r) => setTimeout(r, 150));
-    const pull = async (cursor: number) => dbs[2].query<{ id: string; rev: number }>(`select id, rev from tz_users where rev > $1 order by rev`, [cursor]);
+    const pull = async (cursor: number) => dbs[2].query<{ id: string; rev: number }>(`select id, rev from sm_users where rev > $1 order by rev`, [cursor]);
     const cursor = Math.max(...(await pull(0)).map((u) => u.rev));
     release();
     await Promise.all([slow, fast]);

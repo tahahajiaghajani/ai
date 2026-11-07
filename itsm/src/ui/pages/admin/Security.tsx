@@ -118,13 +118,13 @@ function Events() {
                   render: (_: unknown, e: SecurityEvent) =>
                     e.user_id ? (
                       <Link to={`/admin/users/${e.user_id}`} className="block min-w-0">
-                        <span className="sf-link block truncate">{e.user_name ?? e.email}</span>
-                        <bdi dir="ltr" className="sf-latin ad-sub block truncate">
+                        <span className="ds-link block truncate">{e.user_name ?? e.email}</span>
+                        <bdi dir="ltr" className="ds-latin ad-sub block truncate">
                           {e.email}
                         </bdi>
                       </Link>
                     ) : (
-                      <bdi dir="ltr" className="sf-latin block truncate text-ink-2">
+                      <bdi dir="ltr" className="ds-latin block truncate text-ink-2">
                         {e.email ?? "—"}
                       </bdi>
                     ),
@@ -134,7 +134,7 @@ function Events() {
                   title: "کسب‌وکار",
                   width: 160,
                   ellipsis: true,
-                  render: (_: unknown, e: SecurityEvent) => (e.org_id ? <Link to={`/admin/orgs/${e.org_id}`} className="sf-link">{e.org_name}</Link> : <span className="text-ink-3">—</span>),
+                  render: (_: unknown, e: SecurityEvent) => (e.org_id ? <Link to={`/admin/orgs/${e.org_id}`} className="ds-link">{e.org_name}</Link> : <span className="text-ink-3">—</span>),
                 },
                 { key: "d", title: "شرح", ellipsis: { showTitle: false }, render: (_: unknown, e: SecurityEvent) => <Tooltip title={eventDetail(e)}><span className="text-ink-2">{eventDetail(e) || "—"}</span></Tooltip> },
                 {
@@ -144,7 +144,7 @@ function Events() {
                   width: 130,
                   render: (v: string | null, e: SecurityEvent) => (
                     <Tooltip title={e.user_agent}>
-                      <bdi dir="ltr" className="sf-latin text-ink-2">
+                      <bdi dir="ltr" className="ds-latin text-ink-2">
                         {v ?? "—"}
                       </bdi>
                     </Tooltip>
@@ -223,11 +223,11 @@ function AdminAudit() {
                   ellipsis: true,
                   render: (_: unknown, r: AuditRow) =>
                     r.target_org_id ? (
-                      <Link to={`/admin/orgs/${r.target_org_id}`} className="sf-link">
+                      <Link to={`/admin/orgs/${r.target_org_id}`} className="ds-link">
                         {r.org_name}
                       </Link>
                     ) : r.target_user_id ? (
-                      <Link to={`/admin/users/${r.target_user_id}`} className="sf-link">
+                      <Link to={`/admin/users/${r.target_user_id}`} className="ds-link">
                         {r.target_name}
                       </Link>
                     ) : (

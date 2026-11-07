@@ -133,7 +133,7 @@ export function NumberInput({ value, onChange, decimals = 0, allowNegative, word
         autoComplete="off"
         spellCheck={false}
         dir="ltr"
-        className={`sf-numin ${rest.className ?? ""}`}
+        className={`ds-numin ${rest.className ?? ""}`}
         style={rest.style}
         value={groupForDisplay(raw)}
         prefix={prefix}
@@ -172,7 +172,7 @@ export function NumberInput({ value, onChange, decimals = 0, allowNegative, word
           });
         }}
       />
-      {wordsText ? <div className="sf-words">{wordsText}</div> : null}
+      {wordsText ? <div className="ds-words">{wordsText}</div> : null}
     </div>
   );
 }
@@ -275,10 +275,10 @@ export function JalaliCalendar({
     }
   };
   return (
-    <div className="sf-cal">
-      <div className="sf-cal-h">
+    <div className="ds-cal">
+      <div className="ds-cal-h">
         <Button size="small" type="text" icon={<ChevronRight {...ICON} />} onClick={() => move(-1)} aria-label="ماه قبل" />
-        <div className="sf-cal-title">
+        <div className="ds-cal-title">
           <Select
             size="small"
             variant="borderless"
@@ -300,18 +300,18 @@ export function JalaliCalendar({
         </div>
         <Button size="small" type="text" icon={<ChevronLeft {...ICON} />} onClick={() => move(1)} aria-label="ماه بعد" />
       </div>
-      <div className="sf-cal-wd" aria-hidden>
+      <div className="ds-cal-wd" aria-hidden>
         {WEEKDAYS_SHORT.map((w) => (
           <span key={w}>{w}</span>
         ))}
       </div>
-      <div className="sf-cal-days" ref={grid} tabIndex={0} role="grid" aria-label={`${JALALI_MONTHS[view.jm - 1]} ${faDigits(view.jy)}`} onKeyDown={onKey}>
+      <div className="ds-cal-days" ref={grid} tabIndex={0} role="grid" aria-label={`${JALALI_MONTHS[view.jm - 1]} ${faDigits(view.jy)}`} onKeyDown={onKey}>
         {cells.map((d, i) => {
           if (!d) return <span key={i} />;
           const iso = fromJalali(view.jy, view.jm, d);
           const end = !!range && (iso === range.from || iso === range.to);
           const inside = !!range?.from && !!range.to && iso > range.from && iso < range.to;
-          const cls = ["sf-cal-d", (iso === value || end) && "is-sel", inside && "is-in", iso === today && "is-today", i % 7 === 6 && "is-fri", iso === cursor && "is-cursor"].filter(Boolean).join(" ");
+          const cls = ["ds-cal-d", (iso === value || end) && "is-sel", inside && "is-in", iso === today && "is-today", i % 7 === 6 && "is-fri", iso === cursor && "is-cursor"].filter(Boolean).join(" ");
           return (
             <button key={i} type="button" tabIndex={-1} role="gridcell" aria-selected={iso === value || end} onClick={() => onPick(iso)} className={cls}>
               {faDigits(d)}
@@ -319,11 +319,11 @@ export function JalaliCalendar({
           );
         })}
       </div>
-      <div className="sf-cal-f">
-        <button type="button" className="sf-link" onClick={() => onPick(today)}>
+      <div className="ds-cal-f">
+        <button type="button" className="ds-link" onClick={() => onPick(today)}>
           امروز
         </button>
-        <span className="sf-cal-f-date">{formatJalali(today, { style: "full" })}</span>
+        <span className="ds-cal-f-date">{formatJalali(today, { style: "full" })}</span>
       </div>
     </div>
   );
@@ -420,7 +420,7 @@ export function DateInput({ value, onChange, placeholder = "۱۴۰۵/۰۱/۱۵",
         dir="ltr"
         autoComplete="off"
         spellCheck={false}
-        className={`sf-numin ${rest.className ?? ""}`}
+        className={`ds-numin ${rest.className ?? ""}`}
         style={rest.style}
         status={invalid ? "error" : undefined}
         aria-invalid={invalid || undefined}
@@ -548,12 +548,12 @@ export function RefSelect({ entity, value, onChange, filters, placeholder, showC
         const opt = (o.data as { option: Opt }).option;
         if (render) return render(opt);
         return showCode && opt.sub ? (
-          <span className="sf-opt">
-            <span className="sf-opt-code">{faDigits(opt.sub)}</span>
-            <span className="sf-opt-main">{opt.label}</span>
+          <span className="ds-opt">
+            <span className="ds-opt-code">{faDigits(opt.sub)}</span>
+            <span className="ds-opt-main">{opt.label}</span>
           </span>
         ) : (
-          <span className="sf-opt-main">{opt.label}</span>
+          <span className="ds-opt-main">{opt.label}</span>
         );
       }}
     />
@@ -575,9 +575,9 @@ export function PartySelect({ role, ...props }: Omit<RefSelectProps, "entity"> &
       placeholder="نام، کد یا موبایل شخص…"
       filters={role ? { role } : undefined}
       render={(o) => (
-        <span className="sf-opt">
-          <span className="sf-opt-main">{o.label}</span>
-          <span className="sf-opt-sub">{faDigits(o.mobile ?? o.sub ?? "")}</span>
+        <span className="ds-opt">
+          <span className="ds-opt-main">{o.label}</span>
+          <span className="ds-opt-sub">{faDigits(o.mobile ?? o.sub ?? "")}</span>
         </span>
       )}
       {...props}
@@ -594,10 +594,10 @@ export function CurrencySelect(props: Omit<RefSelectProps, "entity"> & { kind?: 
       filters={kind ? { kind } : undefined}
       placeholder="ارز…"
       render={(o) => (
-        <span className="sf-opt">
-          <span className="sf-opt-main">{o.label}</span>
-          <span className="sf-opt-sub">
-            <span className="sf-latin font-semibold">{o.code}</span>
+        <span className="ds-opt">
+          <span className="ds-opt-main">{o.label}</span>
+          <span className="ds-opt-sub">
+            <span className="ds-latin font-semibold">{o.code}</span>
           </span>
         </span>
       )}
@@ -615,9 +615,9 @@ function ChipIcon({ icon }: { icon?: LucideIcon | ReactNode }) {
   if (!icon) return null;
   if (typeof icon === "function" || (typeof icon === "object" && icon !== null && "render" in (icon as object))) {
     const I = icon as LucideIcon;
-    return <I {...ICON} className="sf-fchip-ic" aria-hidden />;
+    return <I {...ICON} className="ds-fchip-ic" aria-hidden />;
   }
-  return <span className="sf-fchip-ic">{icon as ReactNode}</span>;
+  return <span className="ds-fchip-ic">{icon as ReactNode}</span>;
 }
 
 /** The × that clears an applied chip: its own button, so the chip itself still opens the menu. */
@@ -625,7 +625,7 @@ function ChipClear({ label, onClear }: { label: string; onClear: () => void }) {
   return (
     <button
       type="button"
-      className="sf-fchip-x"
+      className="ds-fchip-x"
       aria-label={`پاک کردن ${label}`}
       onClick={(e) => {
         e.stopPropagation();
@@ -660,12 +660,12 @@ export function FilterChip({ label, value, onChange, options, icon, allowClear =
   const on = value !== undefined && value !== null && value !== "";
   const current = on ? options.find((o) => o.value === value) : undefined;
   return (
-    <span className={cxi("sf-fchip", on && "is-on", disabled && "is-disabled", className)}>
+    <span className={cxi("ds-fchip", on && "is-on", disabled && "is-disabled", className)}>
       <Dropdown
         trigger={["click"]}
         disabled={disabled}
         placement="bottomRight"
-        rootClassName="sf-glass sf-fchip-menu"
+        rootClassName="ds-glass ds-fchip-menu"
         menu={{
           selectable: true,
           selectedKeys: on ? [String(value)] : [],
@@ -673,10 +673,10 @@ export function FilterChip({ label, value, onChange, options, icon, allowClear =
           onClick: ({ key }) => onChange?.(key === value && allowClear ? null : key),
         }}
       >
-        <button type="button" className="sf-fchip-b" aria-haspopup="menu" aria-label={on ? `${label}: ${typeof current?.label === "string" ? current.label : value}` : label} disabled={disabled}>
+        <button type="button" className="ds-fchip-b" aria-haspopup="menu" aria-label={on ? `${label}: ${typeof current?.label === "string" ? current.label : value}` : label} disabled={disabled}>
           <ChipIcon icon={icon} />
-          <span className="sf-fchip-t">{on ? current?.label ?? String(value) : label}</span>
-          {on && allowClear ? null : <ChevronDown {...CHEV} className="sf-fchip-chev" aria-hidden />}
+          <span className="ds-fchip-t">{on ? current?.label ?? String(value) : label}</span>
+          {on && allowClear ? null : <ChevronDown {...CHEV} className="ds-fchip-chev" aria-hidden />}
         </button>
       </Dropdown>
       {on && allowClear ? <ChipClear label={label} onClear={() => onChange?.(null)} /> : null}
@@ -690,12 +690,12 @@ export function FilterChip({ label, value, onChange, options, icon, allowClear =
  */
 export function ToggleChip({ on, onChange, children, title, disabled, className }: { on: boolean; onChange: (on: boolean) => void; children: ReactNode; title?: string; disabled?: boolean; className?: string }) {
   return (
-    <span className={cxi("sf-fchip sf-tchip", on && "is-on", disabled && "is-disabled", className)}>
-      <button type="button" className="sf-fchip-b" aria-pressed={on} title={title} disabled={disabled} onClick={() => onChange(!on)}>
-        <span className="sf-tchip-box" aria-hidden>
+    <span className={cxi("ds-fchip ds-tchip", on && "is-on", disabled && "is-disabled", className)}>
+      <button type="button" className="ds-fchip-b" aria-pressed={on} title={title} disabled={disabled} onClick={() => onChange(!on)}>
+        <span className="ds-tchip-box" aria-hidden>
           {on ? <Check size={10} strokeWidth={2.5} absoluteStrokeWidth /> : null}
         </span>
-        <span className="sf-fchip-t">{children}</span>
+        <span className="ds-fchip-t">{children}</span>
       </button>
     </span>
   );
@@ -760,36 +760,36 @@ export function DateRangeChip({ value, onChange, label = "تاریخ", className
   };
   const today = todayISO();
   const content = (
-    <div className="sf-range">
-      <div className="sf-range-p" role="group" aria-label="بازه‌های آماده">
+    <div className="ds-range">
+      <div className="ds-range-p" role="group" aria-label="بازه‌های آماده">
         {RANGE_PRESETS.map((p) => {
           const r = presetRange(p.key, today);
           const active = draft.from === r.from && draft.to === r.to;
           return (
-            <button key={p.key} type="button" className={cxi("sf-range-pb", active && "is-on")} aria-pressed={active} onClick={() => commit({ from: r.from, to: r.to })}>
+            <button key={p.key} type="button" className={cxi("ds-range-pb", active && "is-on")} aria-pressed={active} onClick={() => commit({ from: r.from, to: r.to })}>
               {p.label}
             </button>
           );
         })}
       </div>
-      <div className="sf-range-m">
-        <div className="sf-range-f">
+      <div className="ds-range-m">
+        <div className="ds-range-f">
           <DateInput value={draft.from} onChange={(from) => commit({ ...draft, from }, false)} placeholder="از تاریخ" allowClear aria-label="از تاریخ" />
-          <span className="sf-range-sep">تا</span>
+          <span className="ds-range-sep">تا</span>
           <DateInput value={draft.to} onChange={(to) => commit({ ...draft, to }, false)} placeholder="تا تاریخ" allowClear aria-label="تا تاریخ" />
         </div>
         <JalaliCalendar value={null} range={draft} onPick={pick} onEscape={() => setOpen(false)} />
-        <div className="sf-range-hint">{picking === "to" && draft.from && !draft.to ? "روز پایان بازه را انتخاب کنید." : "روز آغاز بازه را انتخاب کنید."}</div>
+        <div className="ds-range-hint">{picking === "to" && draft.from && !draft.to ? "روز پایان بازه را انتخاب کنید." : "روز آغاز بازه را انتخاب کنید."}</div>
       </div>
     </div>
   );
   return (
-    <span className={cxi("sf-fchip", on && "is-on", className)}>
-      <Popover open={open} onOpenChange={setOpen} trigger={["click"]} placement="bottomRight" content={content} rootClassName="sf-range-pop" destroyOnHidden>
-        <button type="button" className="sf-fchip-b" aria-haspopup="dialog" aria-expanded={open} aria-label={on ? `${label}: ${rangeText(value)}` : label}>
-          <Calendar {...ICON} className="sf-fchip-ic" aria-hidden />
-          <span className="sf-fchip-t sf-num">{on ? rangeText(value) : label}</span>
-          {on ? null : <ChevronDown {...CHEV} className="sf-fchip-chev" aria-hidden />}
+    <span className={cxi("ds-fchip", on && "is-on", className)}>
+      <Popover open={open} onOpenChange={setOpen} trigger={["click"]} placement="bottomRight" content={content} rootClassName="ds-range-pop" destroyOnHidden>
+        <button type="button" className="ds-fchip-b" aria-haspopup="dialog" aria-expanded={open} aria-label={on ? `${label}: ${rangeText(value)}` : label}>
+          <Calendar {...ICON} className="ds-fchip-ic" aria-hidden />
+          <span className="ds-fchip-t ds-num">{on ? rangeText(value) : label}</span>
+          {on ? null : <ChevronDown {...CHEV} className="ds-fchip-chev" aria-hidden />}
         </button>
       </Popover>
       {on ? <ChipClear label={label} onClear={() => commit({ from: null, to: null }, false)} /> : null}

@@ -12,8 +12,8 @@ const ICON = { size: 16, strokeWidth: 1.4, absoluteStrokeWidth: true } as const;
 const icon = (tone: "in" | "danger" | "warning") =>
   createElement(
     "span",
-    { className: "sf-toast-ic", "data-tone": tone, "aria-hidden": true },
-    tone === "in" ? createElement(CircleCheck, ICON) : tone === "danger" ? createElement(CircleAlert, ICON) : createElement("i", { className: "sf-nuqta" }),
+    { className: "ds-toast-ic", "data-tone": tone, "aria-hidden": true },
+    tone === "in" ? createElement(CircleCheck, ICON) : tone === "danger" ? createElement(CircleAlert, ICON) : createElement("i", { className: "ds-nuqta" }),
   );
 
 /** A sentence ends with a full stop (the copy rules in components.md §9); questions and quotes are left alone. */
@@ -55,7 +55,7 @@ export function useNotify() {
             "button",
             {
               type: "button",
-              className: "sf-link",
+              className: "ds-link",
               style: { background: "none", border: 0, padding: 0, cursor: "pointer", fontSize: 13 },
               onClick: () => {
                 o.action!.onClick();
@@ -93,7 +93,7 @@ export function useNotify() {
           content: content ? sentence(content) : undefined,
           icon: null,
           width: 440,
-          className: "sf-confirm",
+          className: "ds-confirm",
           okText: okText ?? confirmVerb(title, danger),
           cancelText: "انصراف",
           okButtonProps: danger ? { danger: true, variant: "solid", color: "danger" } : undefined,

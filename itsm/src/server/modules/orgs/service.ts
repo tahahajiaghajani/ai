@@ -76,7 +76,7 @@ export async function createOrg(db: Db, userId: string, input: CreateOrgInput, o
   const modules = Array.from(new Set(input.modules)).filter((m): m is ModuleKey => ["goods", "gold", "fx"].includes(m));
   await db.tx(async (tx) => {
     await lockOrg(tx, orgId);
-    await insertRow(tx, "tz_orgs", {
+    await insertRow(tx, "sm_orgs", {
       id: orgId,
       name: input.name.trim(),
       legal_name: input.legal_name?.trim() || null,
@@ -93,7 +93,7 @@ export async function createOrg(db: Db, userId: string, input: CreateOrgInput, o
       created_by: userId,
       origin,
     }, "id");
-    await insertRow(tx, "tz_org_members", { id: uuidv7(), org_id: orgId, user_id: userId, role: "owner", origin }, "id");
+    await insertRow(tx, "sm_org_members", { id: uuidv7(), org_id: orgId, user_id: userId, role: "owner", origin }, "id");
     await seedOrg(tx, orgId, modules, base, input.fiscal_year ?? currentJalaliYear(todayISO()), origin);
   });
   return { id: orgId };
@@ -109,7 +109,7 @@ export async function seedOrg(
 ) {
   // fiscal year
   const range = jalaliYearRange(jy);
-  await insertRow(tx, "tz_fiscal_years", { id: uuidv7(), org_id: orgId, title: `سال مالی ${toFa(jy)}`, start_date: range.start, end_date: range.end, status: "open", origin }, "id");
+  await insertRow(tx, "sm_fiscal_years", { id: uuidv7(), org_id: orgId, title: `سال مالی ${toFa(jy)}`, start_date: range.start, end_date: range.end, status: "open", origin }, "id");
 
   // currencies (the base currency always exists)
   const baseId = uuidv7();
@@ -124,7 +124,7 @@ export async function seedOrg(
       currencies.push({ id: uuidv7(), org_id: orgId, code, name, symbol, kind: "crypto", decimals, sort: 100 + i, price_ids: { coingecko, kucoin, okx: kucoin, nobitex: code.toLowerCase() }, origin }),
     );
   }
-  await insertMany(tx, "tz_currencies", currencies);
+  await insertMany(tx, "sm_currencies", currencies);
 
   // chart of accounts
   const entries = coaFor(modules);
@@ -132,7 +132,7 @@ export async function seedOrg(
   for (const e of entries) ids.set(e.code, uuidv7());
   await insertMany(
     tx,
-    "tz_accounts",
+    "sm_accounts",
     entries.map((e, i) => {
       const level = levelOfCode(e.code);
       const p = parentCode(e.code);
@@ -160,19 +160,19 @@ export async function seedOrg(
   // a cash box, a walk-in customer, a warehouse and units
   const cashId = uuidv7();
   const cashDetail = await ensureDetail(tx, orgId, "cash", cashId, "صندوق اصلی");
-  await insertRow(tx, "tz_cash_boxes", { id: cashId, org_id: orgId, code: "1", name: "صندوق اصلی", detail_id: cashDetail, origin }, "id");
+  await insertRow(tx, "sm_cash_boxes", { id: cashId, org_id: orgId, code: "1", name: "صندوق اصلی", detail_id: cashDetail, origin }, "id");
 
   const walkinId = uuidv7();
   const walkinDetail = await ensureDetail(tx, orgId, "person", walkinId, "مشتری نقدی (گذری)");
-  await insertRow(tx, "tz_parties", { id: walkinId, org_id: orgId, code: "1000", name: "مشتری نقدی (گذری)", roles: ["customer"], detail_id: walkinDetail, notes: "برای فروش‌های نقدی بدون ثبت مشخصات خریدار", origin }, "id");
+  await insertRow(tx, "sm_parties", { id: walkinId, org_id: orgId, code: "1000", name: "مشتری نقدی (گذری)", roles: ["customer"], detail_id: walkinDetail, notes: "برای فروش‌های نقدی بدون ثبت مشخصات خریدار", origin }, "id");
 
   if (modules.includes("goods") || modules.includes("gold")) {
-    await insertRow(tx, "tz_warehouses", { id: uuidv7(), org_id: orgId, code: "1", name: modules.includes("gold") && !modules.includes("goods") ? "ویترین و گاوصندوق" : "انبار مرکزی", origin }, "id");
+    await insertRow(tx, "sm_warehouses", { id: uuidv7(), org_id: orgId, code: "1", name: modules.includes("gold") && !modules.includes("goods") ? "ویترین و گاوصندوق" : "انبار مرکزی", origin }, "id");
   }
   const unitIds: Record<string, string> = {};
   await insertMany(
     tx,
-    "tz_units",
+    "sm_units",
     UNITS.map(([name, decimals]) => {
       const id = uuidv7();
       unitIds[name] = id;
@@ -183,12 +183,12 @@ export async function seedOrg(
   if (modules.includes("gold")) {
     await insertMany(
       tx,
-      "tz_gold_categories",
+      "sm_gold_categories",
       GOLD_CATEGORIES.map(([name, wage_type, wage_value], i) => ({ id: uuidv7(), org_id: orgId, code: String(i + 1), name, wage_type, wage_value, origin })),
     );
     await insertMany(
       tx,
-      "tz_items",
+      "sm_items",
       COINS.map(([name, weight, fineness], i) => ({
         id: uuidv7(), org_id: orgId, code: `C${i + 1}`, name, kind: "coin", unit_id: unitIds["عدد"], gold_weight: weight, fineness, vat_pct: 0, origin,
       })),

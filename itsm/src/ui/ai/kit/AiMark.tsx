@@ -133,7 +133,7 @@ export function AiReviewBar({
         <ul className="ai-review-w">
           {warn.map((w) => (
             <li key={w}>
-              <i className="sf-nuqta" aria-hidden />
+              <i className="ds-nuqta" aria-hidden />
               <span>{w}</span>
             </li>
           ))}

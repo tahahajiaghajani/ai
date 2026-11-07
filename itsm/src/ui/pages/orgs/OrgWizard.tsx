@@ -7,7 +7,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { api, errorText } from "../../lib/api";
 import { useSession } from "../../lib/session";
 import { toPersianDigits } from "../../lib/fa";
-import { SirafMark } from "../../components/brand";
+import { BrandMark } from "../../components/brand";
 import { BUSINESS_KINDS, MODULES, BASE_CURRENCIES, type BusinessKind, type ModuleKey } from "@shared/constants";
 import { currentJalaliYear } from "@shared/jalali";
 import { AuthLayout } from "../auth/AuthLayout";
@@ -122,7 +122,7 @@ export default function OrgWizard() {
     body = (
       <>
         <div className="pg-core !items-center">
-          <SirafMark size={48} launch title="" className="me-1" />
+          <BrandMark size={48} launch title="" className="me-1" />
           <dl className="m-0 grid flex-1 grid-cols-[auto_minmax(0,1fr)] gap-x-6 gap-y-1 text-[13px] leading-5">
             <dt className="text-ink-3">نوع فعالیت</dt>
             <dd className="m-0 text-ink">{BUSINESS_KINDS.find((b) => b.key === kind)?.title.replace(/\s*\(.*\)$/, "")}</dd>
@@ -130,7 +130,7 @@ export default function OrgWizard() {
             <dd className="m-0 text-ink">{moduleList(modules)}</dd>
             <dt className="text-ink-3">پول و سال مالی</dt>
             <dd className="m-0 text-ink">
-              {currency}، سال <span className="sf-num">{fy(created.year)}</span>
+              {currency}، سال <span className="ds-num">{fy(created.year)}</span>
             </dd>
           </dl>
         </div>

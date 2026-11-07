@@ -19,14 +19,14 @@ import { orgStatus, statusError } from "../modules/platform/org-admin";
 
 /** Act on behalf of the organisation's owner (webhooks and API keys have no signed-in user). */
 async function ownerCtx(cfg: ServerConfig, orgId: string): Promise<Ctx> {
-  const org = await cfg.db.one<OrgRow>(`select * from tz_orgs where id = $1 and deleted_at is null`, [orgId]);
+  const org = await cfg.db.one<OrgRow>(`select * from sm_orgs where id = $1 and deleted_at is null`, [orgId]);
   if (!org) throw notFound("کسب‌وکار پیدا نشد");
   const member = await cfg.db.one<MemberRow>(
-    `select id, org_id, user_id, role, overrides, is_active from tz_org_members where org_id = $1 and role = 'owner' and is_active and deleted_at is null order by created_at limit 1`,
+    `select id, org_id, user_id, role, overrides, is_active from sm_org_members where org_id = $1 and role = 'owner' and is_active and deleted_at is null order by created_at limit 1`,
     [orgId],
   );
   if (!member) throw forbidden("مالک کسب‌وکار پیدا نشد");
-  const user = await cfg.db.one<AuthUser>(`select id, email, full_name, mobile, is_platform_admin, disabled, prefs from tz_users where id = $1`, [member.user_id]);
+  const user = await cfg.db.one<AuthUser>(`select id, email, full_name, mobile, is_platform_admin, disabled, prefs from sm_users where id = $1`, [member.user_id]);
   // a suspended business is closed to keys and shops as to its members (read-only refuses writes in ctx.write)
   const status = await orgStatus(cfg.db, orgId);
   if (status.status === "suspended") throw statusError(status);
@@ -41,7 +41,7 @@ async function orderToInvoice(ctx: Ctx, kind: IntegrationKind | "api", config: I
     const existing = await tx.one<{ id: string; no: number }>(
       // two shops of one business number their orders independently: an order is a duplicate only
       // for the shop it came from (older invoices carry no shop and still count for every shop)
-      `select id, no from tz_invoices where org_id = $1 and source = $2 and external_ref = $3 and deleted_at is null
+      `select id, no from sm_invoices where org_id = $1 and source = $2 and external_ref = $3 and deleted_at is null
          and (extra->>'integration_id' is null or extra->>'integration_id' = $4)`,
       [ctx.org.id, kind, order.external_id, integrationId],
     );
@@ -54,8 +54,8 @@ async function orderToInvoice(ctx: Ctx, kind: IntegrationKind | "api", config: I
       if (!itemId) {
         // unknown product: created as a service item (no stock) for the accountant to review
         itemId = uuidv7();
-        await insertRow(tx, "tz_items", {
-          id: itemId, org_id: ctx.org.id, code: await nextCode(tx, "tz_items", ctx.org.id, 10001), name: line.name.slice(0, 200) || "کالای فروشگاه اینترنتی",
+        await insertRow(tx, "sm_items", {
+          id: itemId, org_id: ctx.org.id, code: await nextCode(tx, "sm_items", ctx.org.id, 10001), name: line.name.slice(0, 200) || "کالای فروشگاه اینترنتی",
           kind: "service", sku: line.sku || null, sale_price: D(line.unit_price).times(factor).toString(), description: "ساخته‌شده از سفارش فروشگاه اینترنتی", origin: ctx.cfg.origin,
         }, "id");
       }
@@ -70,7 +70,7 @@ async function orderToInvoice(ctx: Ctx, kind: IntegrationKind | "api", config: I
         warehouse_id: config.warehouse_id ?? null,
       });
     }
-    const fy = await tx.one(`select 1 from tz_fiscal_years where org_id = $1 and status <> 'closed' and deleted_at is null and start_date <= $2 and end_date >= $2`, [ctx.org.id, order.date]);
+    const fy = await tx.one(`select 1 from sm_fiscal_years where org_id = $1 and status <> 'closed' and deleted_at is null and start_date <= $2 and end_date >= $2`, [ctx.org.id, order.date]);
     const date = fy ? order.date : todayISO((ctx.org.settings?.timezone as string) || "Asia/Tehran");
     const input = {
       kind: "sale" as const,
@@ -87,16 +87,16 @@ async function orderToInvoice(ctx: Ctx, kind: IntegrationKind | "api", config: I
     const extra = integrationId ? { extra: { integration_id: integrationId } } : {};
     let saved;
     try {
-      await tx.query("savepoint tz_hook");
+      await tx.query("savepoint sm_hook");
       saved = await saveInvoiceTx(tx, ctx, input as never, null, extra);
-      await tx.query("release savepoint tz_hook");
+      await tx.query("release savepoint sm_hook");
     } catch (e) {
       // e.g. not enough stock to post: keep the order as a draft invoice for review
-      await tx.query("rollback to savepoint tz_hook");
+      await tx.query("rollback to savepoint sm_hook");
       if (input.status !== "posted") throw e;
       saved = await saveInvoiceTx(tx, ctx, { ...input, status: "draft" } as never, null, extra);
     }
-    await updateRow(tx, "tz_invoices", { id: saved.id, org_id: ctx.org.id }, { source: kind, external_ref: order.external_id, origin: ctx.cfg.origin });
+    await updateRow(tx, "sm_invoices", { id: saved.id, org_id: ctx.org.id }, { source: kind, external_ref: order.external_id, origin: ctx.cfg.origin });
     return { invoice_id: saved.id, no: (saved as { no?: number }).no ?? null, duplicate: false };
   });
 }
@@ -128,21 +128,21 @@ hookRoutes.post("/:id", async (c) => {
   const order = isOrder ? normalizeOrder(integ.kind, payload, topic) : null;
   const eventId = uuidv7();
   const inserted = await cfg.db.one<{ id: string }>(
-    `insert into tz_integration_events (id, org_id, integration_id, topic, external_id, payload, status)
+    `insert into sm_integration_events (id, org_id, integration_id, topic, external_id, payload, status)
      values ($1, $2, $3, $4, $5, $6, $7) on conflict do nothing returning id`,
     [eventId, integ.org_id, integ.id, topic, order?.external_id ?? null, payload, isOrder ? "received" : "ignored"],
   );
-  await cfg.db.query(`update tz_integrations set last_event_at = now() where id = $1`, [integ.id]);
+  await cfg.db.query(`update sm_integrations set last_event_at = now() where id = $1`, [integ.id]);
   if (!inserted) return c.json({ ok: true, duplicate: true });
   if (!order) return c.json({ ok: true, ignored: true });
   try {
     const ctx = await ownerCtx(cfg, integ.org_id);
     const result = await orderToInvoice(ctx, integ.kind, integ.config ?? { post: false }, order, integ.id);
-    await cfg.db.query(`update tz_integration_events set status = 'processed', result = $2 where id = $1`, [eventId, result]);
+    await cfg.db.query(`update sm_integration_events set status = 'processed', result = $2 where id = $1`, [eventId, result]);
     return c.json({ ok: true, ...result });
   } catch (e) {
     const message = String((e as Error).message ?? e).slice(0, 500);
-    await cfg.db.query(`update tz_integration_events set status = 'failed', error = $2 where id = $1`, [eventId, message]);
+    await cfg.db.query(`update sm_integration_events set status = 'failed', error = $2 where id = $1`, [eventId, message]);
     // 200 so the shop does not retry forever; the event can be retried from the app
     return c.json({ ok: false, message });
   }
@@ -180,8 +180,8 @@ publicApiRoutes.get("/items", async (c) => {
   }
   const rows = await ctx.db.query(
     `select i.id, i.code, i.name, i.kind, i.sku, i.barcode, i.sale_price, i.vat_pct,
-            coalesce((select sum(m.qty) from tz_stock_moves m where m.org_id = i.org_id and m.item_id = i.id), 0) as stock
-     from tz_items i where ${cond} order by i.code limit 100 offset ${(page - 1) * 100}`,
+            coalesce((select sum(m.qty) from sm_stock_moves m where m.org_id = i.org_id and m.item_id = i.id), 0) as stock
+     from sm_items i where ${cond} order by i.code limit 100 offset ${(page - 1) * 100}`,
     params,
   );
   return c.json({ items: rows, page });
@@ -192,7 +192,7 @@ publicApiRoutes.get("/parties", async (c) => {
   const mobile = c.req.query("mobile");
   const email = c.req.query("email");
   const rows = await ctx.db.query(
-    `select id, code, name, mobile, email, national_id from tz_parties where org_id = $1 and deleted_at is null
+    `select id, code, name, mobile, email, national_id from sm_parties where org_id = $1 and deleted_at is null
        and (($2::text is not null and mobile = $2) or ($3::text is not null and lower(email) = lower($3))) limit 20`,
     [ctx.org.id, mobile ?? null, email ?? null],
   );
@@ -233,9 +233,9 @@ integrationRoutes.get("/", async (c) => {
   ctx.need("integrations", "view");
   const rows = await ctx.db.query(
     `select id, kind, name, config, is_active, last_event_at, created_at,
-            (select count(*)::int from tz_integration_events e where e.integration_id = i.id) as events,
-            (select count(*)::int from tz_integration_events e where e.integration_id = i.id and e.status = 'failed') as failed
-     from tz_integrations i where org_id = $1 and deleted_at is null order by created_at`,
+            (select count(*)::int from sm_integration_events e where e.integration_id = i.id) as events,
+            (select count(*)::int from sm_integration_events e where e.integration_id = i.id and e.status = 'failed') as failed
+     from sm_integrations i where org_id = $1 and deleted_at is null order by created_at`,
     [ctx.org.id],
   );
   return c.json({ integrations: rows.map((r) => ({ ...r, webhook_path: `/api/hooks/${r.id}` })) });
@@ -259,7 +259,7 @@ integrationRoutes.patch("/:id", async (c) => {
   const ctx = c.get("ctx");
   ctx.need("integrations", "full");
   const input = await body(c, z.object({ name: z.string().trim().min(2).max(120).optional(), config: configSchema.optional(), is_active: z.boolean().optional() }));
-  const row = await ctx.write((tx) => updateRow(tx, "tz_integrations", { id: c.req.param("id"), org_id: ctx.org.id }, { ...input, origin: ctx.cfg.origin }, "id, kind, name, config, is_active"));
+  const row = await ctx.write((tx) => updateRow(tx, "sm_integrations", { id: c.req.param("id"), org_id: ctx.org.id }, { ...input, origin: ctx.cfg.origin }, "id, kind, name, config, is_active"));
   if (!row) throw notFound("اتصال پیدا نشد");
   return c.json({ integration: row });
 });
@@ -267,7 +267,7 @@ integrationRoutes.patch("/:id", async (c) => {
 integrationRoutes.delete("/:id", async (c) => {
   const ctx = c.get("ctx");
   ctx.need("integrations", "full");
-  await ctx.write((tx) => tx.query(`update tz_integrations set deleted_at = now(), is_active = false where id = $1 and org_id = $2`, [c.req.param("id"), ctx.org.id]));
+  await ctx.write((tx) => tx.query(`update sm_integrations set deleted_at = now(), is_active = false where id = $1 and org_id = $2`, [c.req.param("id"), ctx.org.id]));
   return c.json({ ok: true });
 });
 
@@ -276,7 +276,7 @@ integrationRoutes.get("/events", async (c) => {
   ctx.need("integrations", "view");
   const rows = await ctx.db.query(
     `select e.id, e.integration_id, e.received_at, e.topic, e.external_id, e.status, e.result, e.error, i.name as integration_name
-     from tz_integration_events e left join tz_integrations i on i.id = e.integration_id
+     from sm_integration_events e left join sm_integrations i on i.id = e.integration_id
      where e.org_id = $1 order by e.received_at desc limit 200`,
     [ctx.org.id],
   );
@@ -287,7 +287,7 @@ integrationRoutes.post("/events/:id/retry", async (c) => {
   const ctx = c.get("ctx");
   ctx.need("integrations", "edit");
   const ev = await ctx.db.one<{ id: string; integration_id: string; payload: unknown; topic: string }>(
-    `select id, integration_id, payload, topic from tz_integration_events where id = $1 and org_id = $2`,
+    `select id, integration_id, payload, topic from sm_integration_events where id = $1 and org_id = $2`,
     [c.req.param("id"), ctx.org.id],
   );
   if (!ev) throw notFound("رویداد پیدا نشد");
@@ -296,11 +296,11 @@ integrationRoutes.post("/events/:id/retry", async (c) => {
   try {
     const owner = await ownerCtx(ctx.cfg, ctx.org.id);
     const result = await orderToInvoice(owner, integ.kind, integ.config ?? { post: false }, order, integ.id);
-    await ctx.db.query(`update tz_integration_events set status = 'processed', result = $2, error = null where id = $1`, [ev.id, result]);
+    await ctx.db.query(`update sm_integration_events set status = 'processed', result = $2, error = null where id = $1`, [ev.id, result]);
     return c.json({ ok: true, ...result });
   } catch (e) {
     const message = String((e as Error).message ?? e).slice(0, 500);
-    await ctx.db.query(`update tz_integration_events set status = 'failed', error = $2 where id = $1`, [ev.id, message]);
+    await ctx.db.query(`update sm_integration_events set status = 'failed', error = $2 where id = $1`, [ev.id, message]);
     throw bad(message);
   }
 });
@@ -310,7 +310,7 @@ integrationRoutes.get("/api-keys", async (c) => {
   ctx.need("integrations", "view");
   const rows = await ctx.db.query(
     `select k.id, k.name, k.prefix, k.scopes, k.created_at, k.last_used_at, k.revoked_at, u.full_name as created_by_name
-     from tz_api_keys k left join tz_users u on u.id = k.created_by where k.org_id = $1 order by k.created_at desc`,
+     from sm_api_keys k left join sm_users u on u.id = k.created_by where k.org_id = $1 order by k.created_at desc`,
     [ctx.org.id],
   );
   return c.json({ keys: rows });
@@ -325,6 +325,6 @@ integrationRoutes.post("/api-keys", async (c) => {
 integrationRoutes.delete("/api-keys/:id", async (c) => {
   const ctx = c.get("ctx");
   ctx.need("integrations", "full");
-  await ctx.db.query(`update tz_api_keys set revoked_at = now() where id = $1 and org_id = $2`, [c.req.param("id"), ctx.org.id]);
+  await ctx.db.query(`update sm_api_keys set revoked_at = now() where id = $1 and org_id = $2`, [c.req.param("id"), ctx.org.id]);
   return c.json({ ok: true });
 });

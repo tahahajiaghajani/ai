@@ -34,7 +34,7 @@ const COLUMNS = `s.id, s.org_id, s.admin_user_id, s.level, s.reason, s.started_a
 /** The admin's live session in a business (null when none, ended or expired). */
 export async function activeSupportSession(q: Queryable, orgId: string, adminUserId: string): Promise<SupportSession | null> {
   return q.one<SupportSession>(
-    `select id, level, reason, started_at, expires_at from tz_support_sessions
+    `select id, level, reason, started_at, expires_at from sm_support_sessions
      where org_id = $1 and admin_user_id = $2 and ended_at is null and expires_at > now()
      order by started_at desc limit 1`,
     [orgId, adminUserId],
@@ -59,10 +59,10 @@ export async function listSupportSessions(
   params.push(Math.min(500, Math.max(1, f.limit ?? 100)));
   return q.query<SupportSessionRow>(
     `select ${COLUMNS}, a.full_name as admin_name, a.email as admin_email, b.full_name as ended_by_name, o.name as org_name
-     from tz_support_sessions s
-     left join tz_users a on a.id = s.admin_user_id
-     left join tz_users b on b.id = s.ended_by
-     left join tz_orgs o on o.id = s.org_id
+     from sm_support_sessions s
+     left join sm_users a on a.id = s.admin_user_id
+     left join sm_users b on b.id = s.ended_by
+     left join sm_orgs o on o.id = s.org_id
      ${where.length ? `where ${where.join(" and ")}` : ""}
      order by s.started_at desc
      limit $${params.length}`,
@@ -78,7 +78,7 @@ async function supportAudit(
   e: { org_id: string; user_id: string; action: string; session_id: string; summary: string; data?: Record<string, unknown>; actor_kind: "support" | "user" },
 ) {
   await tx.query(
-    `insert into tz_audit (id, org_id, user_id, action, entity, entity_id, summary, data, origin, actor_kind, support_session_id)
+    `insert into sm_audit (id, org_id, user_id, action, entity, entity_id, summary, data, origin, actor_kind, support_session_id)
      values ($1, $2, $3, $4, 'support_session', $5, $6, $7, $8, $9, $5)`,
     [uuidv7(), e.org_id, e.user_id, e.action, e.session_id, e.summary.slice(0, 300), e.data ?? null, cfg.origin, e.actor_kind],
   );
@@ -104,21 +104,21 @@ export async function startSupport(
   if (reason.length < 5) throw bad("دلیل ورود را بنویسید (دست‌کم ۵ نویسه)؛ در گزارش رویدادهای کسب‌وکار دیده می‌شود");
   const hours = Math.round(input.hours ?? SUPPORT_MAX_HOURS);
   if (!(hours >= 1 && hours <= SUPPORT_MAX_HOURS)) throw bad(`مدت حالت پشتیبانی بین ۱ تا ${faHours(SUPPORT_MAX_HOURS)} است`);
-  const org = await db.one<{ id: string; name: string }>(`select id, name from tz_orgs where id = $1 and deleted_at is null`, [orgId]);
+  const org = await db.one<{ id: string; name: string }>(`select id, name from sm_orgs where id = $1 and deleted_at is null`, [orgId]);
   if (!org) throw notFound("کسب‌وکار پیدا نشد");
-  const member = await db.one(`select 1 from tz_org_members where org_id = $1 and user_id = $2 and deleted_at is null and is_active`, [orgId, admin.id]);
+  const member = await db.one(`select 1 from sm_org_members where org_id = $1 and user_id = $2 and deleted_at is null and is_active`, [orgId, admin.id]);
   if (member) throw bad("شما عضو این کسب‌وکار هستید و با همان عضویت وارد می‌شوید");
   const id = uuidv7();
   const replaced = await db.tx(async (tx) => {
     const old = await tx.query<{ id: string }>(
-      `update tz_support_sessions set ended_at = now(), ended_by = $3
+      `update sm_support_sessions set ended_at = now(), ended_by = $3
        where org_id = $1 and admin_user_id = $2 and ended_at is null and expires_at > now() returning id`,
       [orgId, admin.id, admin.id],
     );
     for (const o of old)
       await supportAudit(tx, cfg, { org_id: orgId, user_id: admin.id, action: "support_end", session_id: o.id, summary: "پایان حالت پشتیبانی (با آغاز جلسهٔ تازه)", actor_kind: "support" });
     await tx.query(
-      `insert into tz_support_sessions (id, org_id, admin_user_id, level, reason, expires_at) values ($1, $2, $3, $4, $5, now() + make_interval(hours => $6))`,
+      `insert into sm_support_sessions (id, org_id, admin_user_id, level, reason, expires_at) values ($1, $2, $3, $4, $5, now() + make_interval(hours => $6))`,
       [id, orgId, admin.id, input.level, reason.slice(0, 500), hours],
     );
     await supportAudit(tx, cfg, {
@@ -150,12 +150,12 @@ export async function endSupport(
   meta: { ip?: string | null; user_agent?: string | null } = {},
 ): Promise<SupportSessionRow> {
   const db = cfg.db;
-  const s = await db.one<SupportSessionRow>(`select ${COLUMNS} from tz_support_sessions s where s.id = $1`, [sessionId]);
+  const s = await db.one<SupportSessionRow>(`select ${COLUMNS} from sm_support_sessions s where s.id = $1`, [sessionId]);
   if (!s || (opts.member && s.org_id !== opts.member.org_id)) throw notFound("جلسهٔ پشتیبانی پیدا نشد");
   if (!opts.member && !by.is_platform_admin) throw forbidden();
   if (s.state === "active") {
     const ended = await db.tx(async (tx) => {
-      const r = await tx.one(`update tz_support_sessions set ended_at = now(), ended_by = $2 where id = $1 and ended_at is null returning id`, [sessionId, by.id]);
+      const r = await tx.one(`update sm_support_sessions set ended_at = now(), ended_by = $2 where id = $1 and ended_at is null returning id`, [sessionId, by.id]);
       if (!r) return false;
       await supportAudit(tx, cfg, {
         org_id: s.org_id,
@@ -172,7 +172,7 @@ export async function endSupport(
   }
   const [row] = await db.query<SupportSessionRow>(
     `select ${COLUMNS}, a.full_name as admin_name, a.email as admin_email, b.full_name as ended_by_name, o.name as org_name
-     from tz_support_sessions s left join tz_users a on a.id = s.admin_user_id left join tz_users b on b.id = s.ended_by left join tz_orgs o on o.id = s.org_id
+     from sm_support_sessions s left join sm_users a on a.id = s.admin_user_id left join sm_users b on b.id = s.ended_by left join sm_orgs o on o.id = s.org_id
      where s.id = $1`,
     [sessionId],
   );
@@ -202,10 +202,10 @@ export async function accessibleOrgs(q: Queryable, user: Pick<AuthUser, "id" | "
   const rows = await q.query<AccessibleOrg & { support_level: SupportLevel | null; support_expires_at: string | null }>(
     `select o.id, o.name, o.business_kind, o.modules, o.base_currency, o.money_decimals, o.logo, m.role, m.is_active,
             s.level as support_level, s.expires_at as support_expires_at
-     from tz_orgs o
-     left join tz_org_members m on m.org_id = o.id and m.user_id = $1 and m.deleted_at is null
+     from sm_orgs o
+     left join sm_org_members m on m.org_id = o.id and m.user_id = $1 and m.deleted_at is null
      left join lateral (
-       select level, expires_at from tz_support_sessions x
+       select level, expires_at from sm_support_sessions x
        where $2::boolean and x.org_id = o.id and x.admin_user_id = $1 and x.ended_at is null and x.expires_at > now()
        order by x.started_at desc limit 1
      ) s on true
@@ -245,7 +245,7 @@ export function describeSupportWrite(method: string, path: string): string {
 
 /**
  * Inside a support session's write: unless the change already wrote its own audit row (tagged by the
- * tz_audit trigger), list it once so no support change goes unrecorded.
+ * sm_audit trigger), list it once so no support change goes unrecorded.
  */
 export async function recordSupportWrite(
   tx: Tx,
@@ -255,11 +255,11 @@ export async function recordSupportWrite(
   sessionId: string,
   request: { method: string; path: string } | null,
 ): Promise<void> {
-  const logged = await tx.one(`select 1 from tz_audit where org_id = $1 and support_session_id = $2 and at = now() limit 1`, [orgId, sessionId]);
+  const logged = await tx.one(`select 1 from sm_audit where org_id = $1 and support_session_id = $2 and at = now() limit 1`, [orgId, sessionId]);
   if (logged) return;
   const path = request?.path.replace(/^.*?\/o\/[0-9a-f-]{36}/i, "") ?? null;
   await tx.query(
-    `insert into tz_audit (id, org_id, user_id, action, entity, summary, data, origin, actor_kind, support_session_id)
+    `insert into sm_audit (id, org_id, user_id, action, entity, summary, data, origin, actor_kind, support_session_id)
      values ($1, $2, $3, 'support_write', null, $4, $5, $6, 'support', $7)`,
     [uuidv7(), orgId, userId, request ? describeSupportWrite(request.method, request.path) : "تغییر در حالت پشتیبانی", request ? { method: request.method, path } : null, cfg.origin, sessionId],
   );

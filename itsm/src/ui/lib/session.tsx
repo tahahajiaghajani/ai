@@ -70,8 +70,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const onUnauthorized = () => qc.setQueryData(["me"], null);
-    window.addEventListener("taraz:unauthorized", onUnauthorized);
-    return () => window.removeEventListener("taraz:unauthorized", onUnauthorized);
+    window.addEventListener("itsm:unauthorized", onUnauthorized);
+    return () => window.removeEventListener("itsm:unauthorized", onUnauthorized);
   }, [qc]);
 
   const value: SessionValue = {

@@ -1,4 +1,4 @@
-// The assistant end to end with the scripted fake model (SIRAF_AI_FAKE=1): SSE events and their
+// The assistant end to end with the scripted fake model (ITSM_AI_FAKE=1): SSE events and their
 // order, persistence, continue and stop, permissions (viewer: read tools only), proposals
 // (confirm/reject/idempotency/expiry, audit), connections CRUD (keys never returned) and the
 // platform overview.
@@ -18,7 +18,7 @@ import { AiUnavailableError } from "@server/modules/ai/errors";
 import { uuidv7 } from "@shared/id";
 import type { AiStreamEvent } from "@shared/ai/types";
 
-const before = { fake: process.env.SIRAF_AI_FAKE, budget: AGENT_LIMITS.budgetMs, hard: AGENT_LIMITS.hardMs };
+const before = { fake: process.env.ITSM_AI_FAKE, budget: AGENT_LIMITS.budgetMs, hard: AGENT_LIMITS.hardMs };
 
 const echo = defineTool({
   name: "test_echo",
@@ -68,7 +68,7 @@ const propose = defineTool({
 let executed = 0;
 
 beforeAll(() => {
-  process.env.SIRAF_AI_FAKE = "1";
+  process.env.ITSM_AI_FAKE = "1";
   ALL_TOOLS.push(echo as unknown as AiToolDef, propose as unknown as AiToolDef);
   EXECUTORS.test_doc = async (ctx, payload) => {
     ctx.need("sales", "edit");
@@ -78,8 +78,8 @@ beforeAll(() => {
 });
 
 afterAll(() => {
-  if (before.fake === undefined) delete process.env.SIRAF_AI_FAKE;
-  else process.env.SIRAF_AI_FAKE = before.fake;
+  if (before.fake === undefined) delete process.env.ITSM_AI_FAKE;
+  else process.env.ITSM_AI_FAKE = before.fake;
   AGENT_LIMITS.budgetMs = before.budget;
   AGENT_LIMITS.hardMs = before.hard;
   for (const t of [echo, propose]) ALL_TOOLS.splice(ALL_TOOLS.indexOf(t as unknown as AiToolDef), 1);
@@ -157,7 +157,7 @@ describe("assistant chat over SSE (fake model)", () => {
     expect(text).toContain("total: 1200");
 
     // what reached the model: the mobile number was masked (data policy "masked")
-    const step = await db.one<{ parts: { results: { content: string }[] } }>(`select parts from tz_ai_messages where role = 'assistant' and parts->>'final' = 'false'`);
+    const step = await db.one<{ parts: { results: { content: string }[] } }>(`select parts from sm_ai_messages where role = 'assistant' and parts->>'final' = 'false'`);
     expect(step!.parts.results[0].content).not.toContain("09121234567");
 
     const { threads } = await owner.get(`/o/${orgId}/ai/threads`);
@@ -352,10 +352,10 @@ describe("answers cut short, switched off or replayed", () => {
     const plain = await stream(app, owner, `/o/${orgId}/ai/chat`, { thread_id: threadId, text: "ممنون" });
     expect(plain.events[plain.events.length - 1]).toMatchObject({ type: "done", stop: "end" });
     // both answers carry native content (thinking blocks, signatures) as the provider returned it
-    expect((await db.query(`select 1 from tz_ai_messages where thread_id = $1 and role = 'assistant' and native is not null`, [threadId])).length).toBe(2);
-    const u = (await db.one<AuthUser>(`select id, email, full_name, mobile, is_platform_admin, disabled, prefs from tz_users limit 1`))!;
-    const org = (await db.one<OrgRow>(`select * from tz_orgs where id = $1`, [orgId]))!;
-    const m = (await db.one<MemberRow>(`select id, org_id, user_id, role, overrides, is_active from tz_org_members where org_id = $1`, [orgId]))!;
+    expect((await db.query(`select 1 from sm_ai_messages where thread_id = $1 and role = 'assistant' and native is not null`, [threadId])).length).toBe(2);
+    const u = (await db.one<AuthUser>(`select id, email, full_name, mobile, is_platform_admin, disabled, prefs from sm_users limit 1`))!;
+    const org = (await db.one<OrgRow>(`select * from sm_orgs where id = $1`, [orgId]))!;
+    const m = (await db.one<MemberRow>(`select id, org_id, user_id, role, overrides, is_active from sm_org_members where org_id = $1`, [orgId]))!;
     const ctx = makeCtx({ mode: "cloud", db, secret: "s", allowSignup: true, platformAdmins: [], origin: "cloud", log: quietLog, fetch: globalThis.fetch.bind(globalThis) } as ServerConfig, u, org, m);
     const h = await history(ctx, threadId);
     expect(h.messages.map((x) => x.role)).toEqual(["user", "assistant", "user", "assistant"]);
@@ -420,7 +420,7 @@ describe("permissions and proposals", () => {
     const c2 = await owner.post(`/o/${orgId}/ai/actions/${p.id}/confirm`, {});
     expect(c2.proposal.result).toEqual(c1.proposal.result);
     expect(executed).toBe(1);
-    const audit = await db.one<{ user_id: string; data: { source: string; proposal_id: string } }>(`select user_id, data from tz_audit where action = 'ai_action'`);
+    const audit = await db.one<{ user_id: string; data: { source: string; proposal_id: string } }>(`select user_id, data from sm_audit where action = 'ai_action'`);
     expect(audit?.data).toMatchObject({ source: "ai", proposal_id: p.id });
     await owner.post(`/o/${orgId}/ai/actions/${p.id}/reject`, {}, 409);
 
@@ -431,7 +431,7 @@ describe("permissions and proposals", () => {
     await owner.post(`/o/${orgId}/ai/actions/${p2.id}/confirm`, {}, 409);
     const o3 = await stream(app, owner, `/o/${orgId}/ai/chat`, { text: '[tool:propose_test {"amount":"8"}]' });
     const p3 = (o3.events.find((e) => e.type === "proposal") as Extract<AiStreamEvent, { type: "proposal" }>).proposal;
-    await db.query(`update tz_ai_actions set expires_at = now() - interval '1 minute' where id = $1`, [p3.id]);
+    await db.query(`update sm_ai_actions set expires_at = now() - interval '1 minute' where id = $1`, [p3.id]);
     await owner.post(`/o/${orgId}/ai/actions/${p3.id}/confirm`, {}, 409);
     expect(executed).toBe(1);
     const threadId = (o.events[0] as { thread_id: string }).thread_id;
@@ -566,14 +566,14 @@ describe("Windows app → web version relay", () => {
     const { events: ev } = await stream(desk.app, owner, `/o/${deskOrg}/ai/chat`, { text: '[tool:test_echo {"n":4}]' });
     expect(ev.find((e) => e.type === "tool_end")).toMatchObject({ ok: true });
     expect(ev[ev.length - 1]).toMatchObject({ type: "done", stop: "end" });
-    const local = await desk.db.query<{ route: string }>(`select route from tz_ai_usage`);
+    const local = await desk.db.query<{ route: string }>(`select route from sm_ai_usage`);
     expect(local.length).toBe(2);
     expect(local.every((u) => u.route === "via_cloud")).toBe(true);
-    const remote = await cloud.db.query<{ feature: string }>(`select feature from tz_ai_usage where feature = 'assistant'`);
+    const remote = await cloud.db.query<{ feature: string }>(`select feature from sm_ai_usage where feature = 'assistant'`);
     expect(remote.length).toBe(2);
     // the tool ran on the Windows app's database, never on the web version
-    expect(await desk.db.one(`select 1 as x from tz_ai_tool_calls`)).not.toBeNull();
-    expect(await cloud.db.one(`select 1 as x from tz_ai_tool_calls`)).toBeNull();
+    expect(await desk.db.one(`select 1 as x from sm_ai_tool_calls`)).not.toBeNull();
+    expect(await cloud.db.one(`select 1 as x from sm_ai_tool_calls`)).toBeNull();
 
     // the web version's switches bind relayed turns too
     const relay = (b: unknown) => cloud.app.fetch(new Request(`http://local.test/api/o/${cloud.orgId}/ai/relay`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${login.token}` }, body: JSON.stringify(b) }));
@@ -629,7 +629,7 @@ describe("Windows app → web version relay", () => {
     const { events } = await stream(desk.app, owner, `/o/${deskOrg}/ai/chat`, { text: "سلام" });
     expect(events.find((e) => e.type === "error")).toBeUndefined();
     expect(events[events.length - 1]).toMatchObject({ type: "done", stop: "end" });
-    const routes = await desk.db.query<{ route: string; connection_id: string | null; ok: boolean }>(`select route, connection_id, ok from tz_ai_usage order by created_at`);
+    const routes = await desk.db.query<{ route: string; connection_id: string | null; ok: boolean }>(`select route, connection_id, ok from sm_ai_usage order by created_at`);
     // the local attempt failed, then the web version answered
     expect(routes.some((u) => u.connection_id === connection.id && !u.ok)).toBe(true);
     expect(routes[routes.length - 1].route).toBe("via_cloud");
@@ -675,7 +675,7 @@ describe("Windows app → web version relay", () => {
       const { events } = await stream(desk.app, owner, `/o/${deskOrg}/ai/chat`, { text });
       return { events, web: calls.web - at.web, ollama: calls.ollama - at.ollama };
     };
-    const last = async () => (await desk.db.query<{ route: string; connection_id: string | null; ok: boolean }>(`select route, connection_id, ok from tz_ai_usage order by created_at desc limit 1`))[0];
+    const last = async () => (await desk.db.query<{ route: string; connection_id: string | null; ok: boolean }>(`select route, connection_id, ok from sm_ai_usage order by created_at desc limit 1`))[0];
 
     // the option off: this computer answers every job, as before
     expect(await owner.get(`/o/${deskOrg}/ai/status`)).toMatchObject({ ok: true, route: "direct", model: "qwen3.5:9b" });
@@ -697,12 +697,12 @@ describe("Windows app → web version relay", () => {
     expect(r.events.find((e) => e.type === "error")).toBeUndefined();
     expect(r.events[r.events.length - 1]).toMatchObject({ type: "done", stop: "end" });
     expect(await last()).toMatchObject({ route: "via_cloud", ok: true });
-    expect(await cloud.db.one(`select 1 as x from tz_ai_usage where feature = 'assistant'`)).not.toBeNull();
+    expect(await cloud.db.one(`select 1 as x from sm_ai_usage where feature = 'assistant'`)).not.toBeNull();
 
     // a job left off keeps this computer first
-    const u = (await desk.db.one<AuthUser>(`select id, email, full_name, mobile, is_platform_admin, disabled, prefs from tz_users limit 1`))!;
-    const org = (await desk.db.one<OrgRow>(`select * from tz_orgs where id = $1`, [deskOrg]))!;
-    const m = (await desk.db.one<MemberRow>(`select id, org_id, user_id, role, overrides, is_active from tz_org_members where org_id = $1`, [deskOrg]))!;
+    const u = (await desk.db.one<AuthUser>(`select id, email, full_name, mobile, is_platform_admin, disabled, prefs from sm_users limit 1`))!;
+    const org = (await desk.db.one<OrgRow>(`select * from sm_orgs where id = $1`, [deskOrg]))!;
+    const m = (await desk.db.one<MemberRow>(`select id, org_id, user_id, role, overrides, is_active from sm_org_members where org_id = $1`, [deskOrg]))!;
     const deskCfg = { mode: "desktop", db: desk.db, secret: "test-secret", allowSignup: true, platformAdmins: [], origin: "00000000-0000-7000-8000-000000000001", log: quietLog, fetch: deskFetch } as ServerConfig;
     const at = { ...calls };
     const analysis = await runTurn(makeCtx(deskCfg, u, org, m), { job: "analysis", feature: "explain", request: { system: "S", messages: [{ role: "user", parts: [{ type: "text", text: "تحلیل کن" }] }], effort: null, maxTokens: 100 } });

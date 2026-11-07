@@ -1,4 +1,4 @@
-// Proposals: writes the assistant prepared (tz_ai_actions). Nothing changes until a permitted
+// Proposals: writes the assistant prepared (sm_ai_actions). Nothing changes until a permitted
 // person confirms one: confirming re-checks the proposal's own area/level, runs the executor of
 // stream D (the normal service, inside its own ctx.write), and writes an «ai_action» audit row
 // with the confirming person as the actor. Confirming twice returns the first result; proposals
@@ -93,12 +93,12 @@ export async function storeProposal(ctx: Ctx, c: { threadId: string; messageId: 
   const row = await ctx.write(
     async (tx) => {
       await tx.query(
-        `insert into tz_ai_actions (id, org_id, thread_id, message_id, user_id, kind, tool, area, level, payload, payload_hash, preview, idempotency_key, expires_at)
+        `insert into sm_ai_actions (id, org_id, thread_id, message_id, user_id, kind, tool, area, level, payload, payload_hash, preview, idempotency_key, expires_at)
          values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12::jsonb, $13, now() + interval '24 hours')
          on conflict (idempotency_key) do nothing`,
         [id, ctx.org.id, c.threadId, c.messageId, ctx.user.id, p.kind, c.tool, p.area, p.level, JSON.stringify(p.payload ?? null), hashPayload(p.payload), JSON.stringify(preview), key],
       );
-      return tx.one<ActionRow>(`select ${COLS} from tz_ai_actions where idempotency_key = $1`, [key]);
+      return tx.one<ActionRow>(`select ${COLS} from sm_ai_actions where idempotency_key = $1`, [key]);
     },
     { internal: true },
   );
@@ -107,13 +107,13 @@ export async function storeProposal(ctx: Ctx, c: { threadId: string; messageId: 
 
 export async function proposalViews(ctx: Ctx, ids: string[]): Promise<AiProposal[]> {
   if (!ids.length) return [];
-  const rows = await ctx.db.query<ActionRow>(`select ${COLS} from tz_ai_actions where org_id = $1 and id = any($2::uuid[])`, [ctx.org.id, pgArray(ids)]);
+  const rows = await ctx.db.query<ActionRow>(`select ${COLS} from sm_ai_actions where org_id = $1 and id = any($2::uuid[])`, [ctx.org.id, pgArray(ids)]);
   return rows.map(toProposal);
 }
 
 async function actionRow(ctx: Ctx, id: string): Promise<ActionRow> {
   if (!/^[0-9a-f-]{36}$/i.test(id)) throw notFound("پیشنهاد پیدا نشد");
-  const r = await ctx.db.one<ActionRow>(`select ${COLS} from tz_ai_actions where org_id = $1 and id = $2`, [ctx.org.id, id]);
+  const r = await ctx.db.one<ActionRow>(`select ${COLS} from sm_ai_actions where org_id = $1 and id = $2`, [ctx.org.id, id]);
   if (!r) throw notFound("پیشنهاد پیدا نشد");
   return r;
 }
@@ -144,14 +144,14 @@ export async function confirmAction(ctx: Ctx, id: string): Promise<AiProposal> {
   const status = effectiveStatus(r);
   if (status === "executed") return toProposal(r);
   if (status === "expired") {
-    await ctx.write((tx) => tx.query(`update tz_ai_actions set status = 'expired', updated_at = now() where id = $1 and status = 'proposed'`, [id]), { internal: true });
+    await ctx.write((tx) => tx.query(`update sm_ai_actions set status = 'expired', updated_at = now() where id = $1 and status = 'proposed'`, [id]), { internal: true });
     throw conflict("این پیشنهاد منقضی شده است؛ از دستیار بخواهید دوباره آماده‌اش کند");
   }
   if (status !== "proposed") throw conflict(`این پیشنهاد ${STATUS_FA[status]} است`);
   const claimed = await ctx.write(
     (tx) =>
       tx.one(
-        `update tz_ai_actions set status = 'executing', confirmed_by = $2, confirmed_at = now(), updated_at = now() where id = $1 and status = 'proposed' and expires_at > now() returning id`,
+        `update sm_ai_actions set status = 'executing', confirmed_by = $2, confirmed_at = now(), updated_at = now() where id = $1 and status = 'proposed' and expires_at > now() returning id`,
         [id, ctx.user.id],
       ),
     { internal: true },
@@ -162,7 +162,7 @@ export async function confirmAction(ctx: Ctx, id: string): Promise<AiProposal> {
     throw conflict(`این پیشنهاد ${STATUS_FA[effectiveStatus(r)]} است`);
   }
   if (hashPayload(r.payload) !== r.payload_hash) {
-    await ctx.write((tx) => tx.query(`update tz_ai_actions set status = 'failed', error = $2, updated_at = now() where id = $1`, [id, "داده‌های پیشنهاد دست خورده است"]), { internal: true });
+    await ctx.write((tx) => tx.query(`update sm_ai_actions set status = 'failed', error = $2, updated_at = now() where id = $1`, [id, "داده‌های پیشنهاد دست خورده است"]), { internal: true });
     throw conflict("داده‌های پیشنهاد دست خورده است و اجرا نشد");
   }
   let ref: AiRef;
@@ -171,11 +171,11 @@ export async function confirmAction(ctx: Ctx, id: string): Promise<AiProposal> {
   } catch (e) {
     const msg = e instanceof AppError ? e.message : "اجرای پیشنهاد ناموفق بود";
     if (!(e instanceof AppError)) ctx.cfg.log.error("ai proposal failed", String((e as Error)?.message ?? e));
-    await ctx.write((tx) => tx.query(`update tz_ai_actions set status = 'failed', error = $2, updated_at = now() where id = $1`, [id, msg.slice(0, 500)]), { internal: true });
+    await ctx.write((tx) => tx.query(`update sm_ai_actions set status = 'failed', error = $2, updated_at = now() where id = $1`, [id, msg.slice(0, 500)]), { internal: true });
     return toProposal(await actionRow(ctx, id));
   }
   await ctx.write(async (tx) => {
-    await tx.query(`update tz_ai_actions set status = 'executed', result = $2::jsonb, error = null, updated_at = now() where id = $1`, [id, JSON.stringify(ref)]);
+    await tx.query(`update sm_ai_actions set status = 'executed', result = $2::jsonb, error = null, updated_at = now() where id = $1`, [id, JSON.stringify(ref)]);
     await audit(tx, ctx, "ai_action", r.kind, /^[0-9a-f-]{36}$/i.test(ref.id) ? ref.id : null, `${r.preview.title_fa} (پیشنهاد دستیار، تأیید شد)`, {
       source: "ai",
       proposal_id: id,
@@ -195,7 +195,7 @@ export async function rejectAction(ctx: Ctx, id: string, reason?: string): Promi
   const status = effectiveStatus(r);
   if (status !== "proposed") throw conflict(`این پیشنهاد ${STATUS_FA[status]} است`);
   await ctx.write(
-    (tx) => tx.query(`update tz_ai_actions set status = 'rejected', confirmed_by = $2, confirmed_at = now(), error = $3, updated_at = now() where id = $1 and status = 'proposed'`, [id, ctx.user.id, reason?.trim().slice(0, 300) || null]),
+    (tx) => tx.query(`update sm_ai_actions set status = 'rejected', confirmed_by = $2, confirmed_at = now(), error = $3, updated_at = now() where id = $1 and status = 'proposed'`, [id, ctx.user.id, reason?.trim().slice(0, 300) || null]),
     { internal: true },
   );
   return toProposal(await actionRow(ctx, id));
@@ -217,7 +217,7 @@ export async function listActions(ctx: Ctx, opts: { status?: AiProposalStatus; m
   params.push(Math.min(Math.max(opts.limit ?? 50, 1), 200));
   const rows = await ctx.db.query<ActionRow & { user_name: string | null; confirmer_name: string | null }>(
     `select ${COLS.split(", ").map((c) => `a.${c}`).join(", ")}, u.full_name as user_name, cu.full_name as confirmer_name
-     from tz_ai_actions a left join tz_users u on u.id = a.user_id left join tz_users cu on cu.id = a.confirmed_by
+     from sm_ai_actions a left join sm_users u on u.id = a.user_id left join sm_users cu on cu.id = a.confirmed_by
      where ${where} order by a.created_at desc limit $${params.length}`,
     params,
   );

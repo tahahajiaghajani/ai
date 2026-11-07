@@ -29,7 +29,7 @@ const TOPBAR_OFFSET = 56;
 const SKELETON_ROWS = 8;
 const SKEL_WIDTHS = [72, 58, 84, 64, 90, 52, 76, 66];
 
-/** Columns the kit treats as figures: `className: "sf-num"`, or the old RTL convention `align: "left"`. */
+/** Columns the kit treats as figures: `className: "ds-num"`, or the old RTL convention `align: "left"`. */
 function isNumericColumn(c: ColumnType<any>): boolean {
   return c.align === "left" || /\bsf-num\b/.test(String(c.className ?? ""));
 }
@@ -44,7 +44,7 @@ function normalizeColumns<T>(cols: ColumnsType<T>): ColumnsType<T> {
     const col = c as ColumnType<T>;
     if (!isNumericColumn(col)) return c;
     const { align: _align, ...rest } = col;
-    return { ...rest, className: cx(String(col.className ?? "").replace(/\bsf-num\b/, "").trim(), "sf-num"), ellipsis: false };
+    return { ...rest, className: cx(String(col.className ?? "").replace(/\bsf-num\b/, "").trim(), "ds-num"), ellipsis: false };
   });
 }
 
@@ -61,8 +61,8 @@ function skeletonColumns<T>(cols: ColumnsType<T>): ColumnsType<T> {
       onCell: undefined,
       render: (_: unknown, __: T, row: number) =>
         bare ? null : (
-          <span className="sf-skel-cell">
-            <i className="sf-skel" style={{ inlineSize: numeric ? 72 : `${SKEL_WIDTHS[(i + row) % SKEL_WIDTHS.length]}%`, minInlineSize: 32, maxInlineSize: 220 }} />
+          <span className="ds-skel-cell">
+            <i className="ds-skel" style={{ inlineSize: numeric ? 72 : `${SKEL_WIDTHS[(i + row) % SKEL_WIDTHS.length]}%`, minInlineSize: 32, maxInlineSize: 220 }} />
           </span>
         ),
     };
@@ -87,7 +87,7 @@ function cellOf<T>(c: ColumnType<T>, r: T, i: number): ReactNode {
   if (!path.length) v = undefined;
   const out = c.render ? (c.render(v, r, i) as unknown) : v;
   if (out && typeof out === "object" && !isValidElement(out) && !Array.isArray(out) && "children" in (out as object)) return (out as { children: ReactNode }).children;
-  if (out === undefined || out === null || out === "") return c.render ? null : <span className="sf-zero">—</span>;
+  if (out === undefined || out === null || out === "") return c.render ? null : <span className="ds-zero">—</span>;
   return out as ReactNode;
 }
 
@@ -114,45 +114,45 @@ function stackColumns<T>(cols: ColumnsType<T>, skeleton: boolean): ColumnsType<T
   const figures = titled.filter((c) => !used.has(c) && isFigureCol(c));
   const amount = take(figures.find((c) => AMOUNT_RE.test(colTitle(c)) || AMOUNT_RE.test(colKey(c))) ?? figures[0]);
   const rest = titled.filter((c) => !used.has(c)).slice(0, 3);
-  const skel = (w: number | string) => <i className="sf-skel" style={{ inlineSize: w }} />;
+  const skel = (w: number | string) => <i className="ds-skel" style={{ inlineSize: w }} />;
   return [
     {
       key: "__stack",
-      className: "sf-stk-cell",
+      className: "ds-stk-cell",
       render: (_: unknown, r: T, i: number) =>
         skeleton ? (
-          <div className="sf-stk">
-            <div className="sf-stk-l1">{skel(120)}</div>
-            <div className="sf-stk-l2">{skel("62%")}</div>
-            <div className="sf-stk-l3">{skel(96)}</div>
+          <div className="ds-stk">
+            <div className="ds-stk-l1">{skel(120)}</div>
+            <div className="ds-stk-l2">{skel("62%")}</div>
+            <div className="ds-stk-l3">{skel(96)}</div>
           </div>
         ) : (
-          <div className="sf-stk">
-            <div className="sf-stk-l1">
-              {id ? <span className="sf-stk-id">{cellOf(id, r, i)}</span> : null}
-              {id && date ? <span className="sf-stk-dot" aria-hidden /> : null}
-              {date ? <span className="sf-stk-date">{cellOf(date, r, i)}</span> : null}
-              {!id && !date && name ? <span className="sf-stk-name">{cellOf(name, r, i)}</span> : null}
-              <span className="sf-stk-end">
+          <div className="ds-stk">
+            <div className="ds-stk-l1">
+              {id ? <span className="ds-stk-id">{cellOf(id, r, i)}</span> : null}
+              {id && date ? <span className="ds-stk-dot" aria-hidden /> : null}
+              {date ? <span className="ds-stk-date">{cellOf(date, r, i)}</span> : null}
+              {!id && !date && name ? <span className="ds-stk-name">{cellOf(name, r, i)}</span> : null}
+              <span className="ds-stk-end">
                 {status ? cellOf(status, r, i) : null}
                 {actions.map((a) => (
                   <Fragment key={colKey(a)}>{cellOf(a, r, i)}</Fragment>
                 ))}
               </span>
             </div>
-            {name && (id || date) ? <div className="sf-stk-l2">{cellOf(name, r, i)}</div> : null}
+            {name && (id || date) ? <div className="ds-stk-l2">{cellOf(name, r, i)}</div> : null}
             {amount || rest.length ? (
-              <div className="sf-stk-l3">
+              <div className="ds-stk-l3">
                 {amount ? (
-                  <span className="sf-stk-amt">
+                  <span className="ds-stk-amt">
                     {cellOf(amount, r, i)}
-                    {/\(([^)]+)\)/.test(colTitle(amount)) ? <span className="sf-unit">{"\u00a0"}{/\(([^)]+)\)/.exec(colTitle(amount))![1]}</span> : null}
+                    {/\(([^)]+)\)/.test(colTitle(amount)) ? <span className="ds-unit">{"\u00a0"}{/\(([^)]+)\)/.exec(colTitle(amount))![1]}</span> : null}
                   </span>
                 ) : null}
                 {rest.map((c) => (
-                  <span key={colKey(c)} className="sf-stk-kv">
-                    {colTitle(c) ? <span className="sf-stk-k">{colTitle(c)}</span> : null}
-                    <span className="sf-stk-v">{cellOf(c, r, i)}</span>
+                  <span key={colKey(c)} className="ds-stk-kv">
+                    {colTitle(c) ? <span className="ds-stk-k">{colTitle(c)}</span> : null}
+                    <span className="ds-stk-v">{cellOf(c, r, i)}</span>
                   </span>
                 ))}
               </div>
@@ -235,7 +235,7 @@ function FilterBar({ toolbar, tools, onClear }: { toolbar: ReactNode; tools: Rea
   const phone = useIsPhone();
   const [sheet, setSheet] = useState(false);
   const all = mergeDateRanges(flattenToolbar(toolbar)).map((e, i) => (e.key == null ? cloneElement(e, { key: `f${i}` }) : e));
-  // «پاک کردن» (a `.sf-fclear` link) always stays at the end of the visible row
+  // «پاک کردن» (a `.ds-fclear` link) always stays at the end of the visible row
   const isClear = (e: ReactElement) => /\bsf-fclear\b/.test(String((e.props as { className?: string }).className ?? ""));
   // the search always comes first (it is the one that fills the row on a phone)
   const controls = all.filter((e) => !isClear(e));
@@ -247,34 +247,34 @@ function FilterBar({ toolbar, tools, onClear }: { toolbar: ReactNode; tools: Rea
   const visible = phone ? (search ? [search] : rest.length <= 1 ? rest : []) : items.length > MAX_VISIBLE ? items.slice(0, MAX_VISIBLE) : items;
   const hidden = phone ? (search || rest.length > 1 ? rest : []) : items.slice(visible.length);
   const applied = hidden.filter(isApplied).length;
-  const count = applied ? <span className="sf-fmore-n">{faDigits(applied)}</span> : null;
+  const count = applied ? <span className="ds-fmore-n">{faDigits(applied)}</span> : null;
   const moreLabel = phone ? "پالایه‌ها" : "پالایه‌های بیشتر";
   const moreBtn = (
-    <span className={cx("sf-fchip", applied > 0 && "is-on")}>
-      <button type="button" className="sf-fchip-b" onClick={phone ? () => setSheet(true) : undefined} aria-haspopup="dialog">
-        <ListFilter {...ICON} className="sf-fchip-ic" aria-hidden />
-        <span className="sf-fchip-t">{moreLabel}</span>
+    <span className={cx("ds-fchip", applied > 0 && "is-on")}>
+      <button type="button" className="ds-fchip-b" onClick={phone ? () => setSheet(true) : undefined} aria-haspopup="dialog">
+        <ListFilter {...ICON} className="ds-fchip-ic" aria-hidden />
+        <span className="ds-fchip-t">{moreLabel}</span>
         {count}
-        {phone ? null : <ChevronDown size={14} strokeWidth={1.4} absoluteStrokeWidth className="sf-fchip-chev" aria-hidden />}
+        {phone ? null : <ChevronDown size={14} strokeWidth={1.4} absoluteStrokeWidth className="ds-fchip-chev" aria-hidden />}
       </button>
     </span>
   );
   return (
-    <div className="sf-st-bar no-print" data-phone={phone ? "" : undefined}>
-      <div className="sf-st-filters">
+    <div className="ds-st-bar no-print" data-phone={phone ? "" : undefined}>
+      <div className="ds-st-filters">
         {visible}
         {hidden.length ? (
           phone ? (
             moreBtn
           ) : (
-            <Popover trigger={["click"]} placement="bottomRight" rootClassName="sf-fmore-pop" content={<div className="sf-fmore">{hidden}</div>}>
+            <Popover trigger={["click"]} placement="bottomRight" rootClassName="ds-fmore-pop" content={<div className="ds-fmore">{hidden}</div>}>
               {moreBtn}
             </Popover>
           )
         ) : null}
         {phone ? null : trailing}
       </div>
-      <div className="sf-st-tools">{tools}</div>
+      <div className="ds-st-tools">{tools}</div>
       {phone && hidden.length ? (
         <Drawer
           open={sheet}
@@ -282,10 +282,10 @@ function FilterBar({ toolbar, tools, onClear }: { toolbar: ReactNode; tools: Rea
           placement="bottom"
           title="پالایه‌ها"
           closable={{ placement: "end" }}
-          rootClassName="sf-fsheet"
+          rootClassName="ds-fsheet"
           size="auto"
           footer={
-            <div className="sf-fsheet-f">
+            <div className="ds-fsheet-f">
               {onClear && applied ? (
                 <Button type="text" onClick={onClear}>
                   پاک کردن همه
@@ -297,7 +297,7 @@ function FilterBar({ toolbar, tools, onClear }: { toolbar: ReactNode; tools: Rea
             </div>
           }
         >
-          <div className="sf-fmore">{hidden}</div>
+          <div className="ds-fmore">{hidden}</div>
         </Drawer>
       ) : null}
     </div>
@@ -453,7 +453,7 @@ export function ServerTable<T extends { id?: string }>({
 
   return (
     <div
-      className={cx("sf-st", stacked && "is-stacked")}
+      className={cx("ds-st", stacked && "is-stacked")}
       data-clickable={onRowClick ? "" : undefined}
       data-busy={q.isFetching && q.isPlaceholderData ? "" : undefined}
       aria-busy={q.isFetching || undefined}
@@ -466,7 +466,7 @@ export function ServerTable<T extends { id?: string }>({
             <>
               {tools}
               <Tooltip title="بازخوانی">
-                <Button type="text" icon={<RotateCw {...ICON} className={q.isFetching && !firstLoad ? "sf-spin" : undefined} />} onClick={() => q.refetch()} aria-label="بازخوانی" />
+                <Button type="text" icon={<RotateCw {...ICON} className={q.isFetching && !firstLoad ? "ds-spin" : undefined} />} onClick={() => q.refetch()} aria-label="بازخوانی" />
               </Tooltip>
               {exportName && exportColumns ? (
                 <Tooltip title="خروجی اکسل">
@@ -489,7 +489,7 @@ export function ServerTable<T extends { id?: string }>({
         tableLayout={stacked ? "fixed" : undefined}
         sticky={sticky && !stacked && !printing ? { offsetHeader: TOPBAR_OFFSET } : undefined}
         rowSelection={firstLoad ? undefined : rowSelection}
-        rowClassName={(r: T) => (firstLoad ? "sf-skel-row" : cx(rowClassName?.(r), activeKey != null && keyOf(r) === activeKey && "ant-table-row-selected"))}
+        rowClassName={(r: T) => (firstLoad ? "ds-skel-row" : cx(rowClassName?.(r), activeKey != null && keyOf(r) === activeKey && "ant-table-row-selected"))}
         locale={{ emptyText: emptyNode }}
         onRow={
           onRowClick && !firstLoad
@@ -531,7 +531,7 @@ export type DataTableProps<T> = TableProps<T> & {
 };
 
 /**
- * A client-side table with the kit's defaults (components.md §4): compact 32 px rows, numeric columns (`sf-num` or
+ * A client-side table with the kit's defaults (components.md §4): compact 32 px rows, numeric columns (`ds-num` or
  * the old `align: "left"`) start-aligned, tabular and never ellipsized, `scroll.x` to fit, and on a phone the
  * stacked rows of `ServerTable` (the amount on its own line) instead of a sideways scroll.
  */
@@ -561,7 +561,7 @@ export function DataTable<T extends object>({ columns, stack = true, size = "sma
 const LATIN_FORMATS = new Set<FieldDef["format"]>(["iban", "card", "email", "sayad", "taxGoodsId"]);
 
 export function renderCell(f: FieldDef, v: unknown, row?: Record<string, unknown>): ReactNode {
-  if (v === null || v === undefined || v === "") return <span className="sf-zero">—</span>;
+  if (v === null || v === undefined || v === "") return <span className="ds-zero">—</span>;
   switch (f.type) {
     case "money":
       return <Money v={v as string} />;
@@ -576,13 +576,13 @@ export function renderCell(f: FieldDef, v: unknown, row?: Record<string, unknown
       return <JDate v={v as string} />;
     case "bool":
       // «فعال» is the normal state (plain text); the exception — inactive — is the neutral chip
-      if (f.name === "is_active") return v ? <span className="sf-status">فعال</span> : <Chip tone="neutral">غیرفعال</Chip>;
+      if (f.name === "is_active") return v ? <span className="ds-status">فعال</span> : <Chip tone="neutral">غیرفعال</Chip>;
       return v ? (
         <span className="inline-flex text-ink-2" aria-label="بله">
           <Check {...ICON} />
         </span>
       ) : (
-        <span className="sf-zero" aria-label="خیر">
+        <span className="ds-zero" aria-label="خیر">
           —
         </span>
       );
@@ -604,10 +604,10 @@ export function renderCell(f: FieldDef, v: unknown, row?: Record<string, unknown
       return <RefLabel entity={f.ref!} id={String(v)} />;
     case "code":
     case "text":
-      if (f.format && LATIN_FORMATS.has(f.format)) return <bdi className="sf-mono">{String(v)}</bdi>;
-      return f.ltr ? <span className="sf-num">{faDigits(String(v))}</span> : <span>{String(v)}</span>;
+      if (f.format && LATIN_FORMATS.has(f.format)) return <bdi className="ds-mono">{String(v)}</bdi>;
+      return f.ltr ? <span className="ds-num">{faDigits(String(v))}</span> : <span>{String(v)}</span>;
     case "image":
-      return <img src={String(v)} alt="" className="block h-7 w-7 rounded-md object-cover shadow-[inset_0_0_0_1px_var(--sf-line-2)]" />;
+      return <img src={String(v)} alt="" className="block h-7 w-7 rounded-md object-cover shadow-[inset_0_0_0_1px_var(--ds-line-2)]" />;
     default:
       return String(v);
   }
@@ -621,7 +621,7 @@ export function RefLabel({ entity, id }: { entity: string; id: string }) {
     queryFn: () => api.get<{ options: { id: string; label: string; sub?: string }[] }>(`/data/${entity}/options`, { ids: id }).then((r) => r.options[0] ?? null),
     staleTime: 300_000,
   });
-  if (!q.data) return q.isLoading ? <i className="sf-skel inline-block align-middle" style={{ inlineSize: 72 }} /> : <span className="sf-zero">—</span>;
+  if (!q.data) return q.isLoading ? <i className="ds-skel inline-block align-middle" style={{ inlineSize: 72 }} /> : <span className="ds-zero">—</span>;
   return <span>{q.data.label}</span>;
 }
 
@@ -654,7 +654,7 @@ export function FieldInput({ f, ...props }: { f: FieldDef; value?: any; onChange
     case "json":
       return (
         <Input.TextArea
-          className="sf-code"
+          className="ds-code"
           autoSize={{ minRows: 2, maxRows: 8 }}
           value={typeof props.value === "string" ? props.value : props.value ? JSON.stringify(props.value) : ""}
           onChange={(e) => props.onChange?.(e.target.value)}
@@ -669,7 +669,7 @@ export function FieldInput({ f, ...props }: { f: FieldDef; value?: any; onChange
       return (
         <Input
           dir={f.ltr ? "ltr" : undefined}
-          className={latin ? "sf-code" : f.ltr ? "sf-numin" : ""}
+          className={latin ? "ds-code" : f.ltr ? "ds-numin" : ""}
           inputMode={f.format === "mobile" ? "tel" : f.format === "email" ? "email" : digits ? "numeric" : undefined}
           placeholder={f.type === "code" ? "خودکار" : undefined}
           maxLength={f.maxLength}
@@ -685,11 +685,11 @@ export function FieldInput({ f, ...props }: { f: FieldDef; value?: any; onChange
 export function ImageInput({ value, onChange }: { value?: string | null; onChange?: (v: string | null) => void }) {
   const n = useNotify();
   return (
-    <div className="sf-img">
+    <div className="ds-img">
       {value ? (
-        <img src={value} alt="" className="sf-img-thumb" />
+        <img src={value} alt="" className="ds-img-thumb" />
       ) : (
-        <span className="sf-img-thumb sf-img-empty" aria-hidden>
+        <span className="ds-img-thumb ds-img-empty" aria-hidden>
           <ImagePlus size={22} strokeWidth={1.4} absoluteStrokeWidth />
         </span>
       )}
@@ -713,7 +713,7 @@ export function ImageInput({ value, onChange }: { value?: string | null; onChang
             حذف تصویر
           </Button>
         ) : (
-          <span className="sf-note">JPG یا PNG؛ خودکار کوچک می‌شود.</span>
+          <span className="ds-note">JPG یا PNG؛ خودکار کوچک می‌شود.</span>
         )}
       </div>
     </div>
@@ -768,7 +768,7 @@ const isEmptyValue = (v: unknown) => v === undefined || v === null || v === "" |
 /** «Ctrl ↵» inside a button: an LTR isolate in a 4 px RTL wrapper (components.md §6). */
 function KbdHint({ keys }: { keys: string[] }) {
   return (
-    <span className="sf-kbd-w" aria-hidden>
+    <span className="ds-kbd-w" aria-hidden>
       <bdi dir="ltr" className="sh-keys">
         {keys.map((k) => (
           <kbd key={k} className="sh-kbd">
@@ -845,7 +845,7 @@ export function EntityForm({ def, initial, onSaved, onCancel, extra }: { def: En
   return (
     <div
       ref={box}
-      className="sf-form"
+      className="ds-form"
       onKeyDown={(e) => {
         if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
           e.preventDefault();
@@ -881,17 +881,17 @@ export function EntityForm({ def, initial, onSaved, onCancel, extra }: { def: En
           const shown = !collapsible || open.has(title);
           const spans = sheet ? sheetSpans(fs) : fs.map((f) => Math.min(f.span ?? 12, 24));
           return (
-            <section key={title || "main"} className={cx("sf-form-sec", collapsible && "is-collapsible", shown && "is-open")}>
+            <section key={title || "main"} className={cx("ds-form-sec", collapsible && "is-collapsible", shown && "is-open")}>
               {collapsible ? (
-                <button type="button" className="sf-form-sec-t sf-form-sec-btn" aria-expanded={shown} onClick={() => toggle(title)}>
-                  <ChevronDown size={14} strokeWidth={1.4} absoluteStrokeWidth className="sf-form-sec-chev" aria-hidden />
+                <button type="button" className="ds-form-sec-t ds-form-sec-btn" aria-expanded={shown} onClick={() => toggle(title)}>
+                  <ChevronDown size={14} strokeWidth={1.4} absoluteStrokeWidth className="ds-form-sec-chev" aria-hidden />
                   <span>{title}</span>
-                  <span className="sf-form-sec-meta">اختیاری</span>
+                  <span className="ds-form-sec-meta">اختیاری</span>
                 </button>
               ) : title ? (
-                <h3 className="sf-form-sec-t">{title}</h3>
+                <h3 className="ds-form-sec-t">{title}</h3>
               ) : null}
-              <div className="sf-form-grid" hidden={!shown}>
+              <div className="ds-form-grid" hidden={!shown}>
                 {fs.map((f, i) => (
                   <div key={f.name} style={{ ["--span" as string]: spans[i] }}>
                     <Form.Item
@@ -916,7 +916,7 @@ export function EntityForm({ def, initial, onSaved, onCancel, extra }: { def: En
           );
         })}
         {extra}
-        <div className="sf-form-foot">
+        <div className="ds-form-foot">
           <Button onClick={onCancel}>انصراف</Button>
           <Button type="primary" htmlType="submit" loading={save.isPending}>
             {save.isPending ? "در حال ثبت…" : editing ? "ذخیره‌ی تغییرات" : "ثبت"}
@@ -962,15 +962,15 @@ export function EntityPage({ entity, title, extraColumns = [], rowActions, heade
   // one-record forms are one column (components.md §5): a sheet is 480–560 px, never a wide multi-column panel
   const sheetWidth = Math.min(drawerWidth, 560);
 
-  // toasts move beside an open sheet (siraf-antd.css reads --sf-sheet-w): tell it how wide this one is
+  // toasts move beside an open sheet (ds-antd.css reads --ds-sheet-w): tell it how wide this one is
   useEffect(() => {
     if (!sheetOpen) return;
     const root = document.documentElement;
-    const prev = root.style.getPropertyValue("--sf-sheet-w");
-    root.style.setProperty("--sf-sheet-w", `${sheetWidth}px`);
+    const prev = root.style.getPropertyValue("--ds-sheet-w");
+    root.style.setProperty("--ds-sheet-w", `${sheetWidth}px`);
     return () => {
-      if (prev) root.style.setProperty("--sf-sheet-w", prev);
-      else root.style.removeProperty("--sf-sheet-w");
+      if (prev) root.style.setProperty("--ds-sheet-w", prev);
+      else root.style.removeProperty("--ds-sheet-w");
     };
   }, [sheetOpen, sheetWidth]);
 
@@ -984,7 +984,7 @@ export function EntityPage({ entity, title, extraColumns = [], rowActions, heade
           dataIndex: f.name,
           title: f.label,
           sorter: ["text", "code", "date", "money", "decimal", "int", "weight"].includes(f.type),
-          className: numeric || f.type === "date" || f.type === "code" ? "sf-num" : undefined,
+          className: numeric || f.type === "date" || f.type === "code" ? "ds-num" : undefined,
           width: f.type === "money" || f.type === "weight" ? 136 : undefined,
           render: (v: unknown, row: Record<string, unknown>) => renderCell(f, v, row),
         };
@@ -1018,8 +1018,8 @@ export function EntityPage({ entity, title, extraColumns = [], rowActions, heade
         ];
         if (!items.length) return null;
         return (
-          <span className="sf-row-act" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
-            <Dropdown trigger={["click"]} menu={{ items }} placement="bottomLeft" rootClassName="sf-glass">
+          <span className="ds-row-act" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+            <Dropdown trigger={["click"]} menu={{ items }} placement="bottomLeft" rootClassName="ds-glass">
               <Button type="text" size="small" icon={<Ellipsis {...ICON} />} aria-label="عملیات" />
             </Dropdown>
           </span>
@@ -1053,7 +1053,7 @@ export function EntityPage({ entity, title, extraColumns = [], rowActions, heade
           </>
         }
       />
-      <div className="sf-card">
+      <div className="ds-card">
         <ServerTable
           path={`/data/${entity}`}
           params={params}
@@ -1077,7 +1077,7 @@ export function EntityPage({ entity, title, extraColumns = [], rowActions, heade
               }
               secondary={
                 canEdit && !hideNew ? (
-                  <button type="button" className="sf-link border-0 bg-transparent p-0 text-[13px]" onClick={() => setImporting(true)}>
+                  <button type="button" className="ds-link border-0 bg-transparent p-0 text-[13px]" onClick={() => setImporting(true)}>
                     ورود از اکسل
                   </button>
                 ) : undefined
@@ -1116,7 +1116,7 @@ export function EntityPage({ entity, title, extraColumns = [], rowActions, heade
                 />
               ))}
               {applied ? (
-                <button type="button" className="sf-link sf-fclear" onClick={clear}>
+                <button type="button" className="ds-link ds-fclear" onClick={clear}>
                   پاک کردن
                 </button>
               ) : null}

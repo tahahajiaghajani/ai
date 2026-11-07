@@ -51,7 +51,7 @@ orgsRoutes.post("/", async (c) => {
   // businesses there, otherwise any member could promote themselves.
   if (cfg.mode === "desktop" && !c.get("user").is_platform_admin) {
     const admin = await cfg.db.one(
-      `select 1 from tz_org_members where user_id = $1 and role in ('owner','admin') and is_active and deleted_at is null limit 1`,
+      `select 1 from sm_org_members where user_id = $1 and role in ('owner','admin') and is_active and deleted_at is null limit 1`,
       [c.get("user").id],
     );
     if (!admin) throw forbidden("کسب‌وکار جدید را مدیر این رایانه اضافه می‌کند");
@@ -72,8 +72,8 @@ orgRoutes.get("/", async (c) => {
   const ctx = c.get("ctx");
   const [fiscalYears, base, counts] = await Promise.all([
     listFiscalYears(ctx.db, ctx.org.id),
-    ctx.db.one(`select id, code, name, symbol, decimals from tz_currencies where org_id = $1 and is_base and deleted_at is null`, [ctx.org.id]),
-    ctx.db.one(`select (select count(*)::int from tz_org_members where org_id = $1 and deleted_at is null and is_active) as members`, [ctx.org.id]),
+    ctx.db.one(`select id, code, name, symbol, decimals from sm_currencies where org_id = $1 and is_base and deleted_at is null`, [ctx.org.id]),
+    ctx.db.one(`select (select count(*)::int from sm_org_members where org_id = $1 and deleted_at is null and is_active) as members`, [ctx.org.id]),
   ]);
   const s = ctx.support ?? null;
   return c.json({
@@ -131,7 +131,7 @@ orgRoutes.patch("/", async (c) => {
       patch.modules = modules;
       await addModuleData(tx, ctx.org.id, ctx.org.modules, modules, ctx.cfg.origin);
     }
-    return updateRow(tx, "tz_orgs", { id: ctx.org.id }, patch);
+    return updateRow(tx, "sm_orgs", { id: ctx.org.id }, patch);
   });
   return c.json({ org: result });
 });
@@ -140,37 +140,37 @@ orgRoutes.patch("/", async (c) => {
 async function addModuleData(tx: import("../db").Tx, orgId: string, before: ModuleKey[], after: ModuleKey[], origin: string) {
   const added = after.filter((m) => !before.includes(m));
   if (!added.length) return;
-  const existing = new Map((await tx.query<{ id: string; code: string }>(`select id, code from tz_accounts where org_id = $1 and deleted_at is null`, [orgId])).map((r) => [r.code, r.id]));
-  const keys = new Set((await tx.query<{ system_key: string }>(`select system_key from tz_accounts where org_id = $1 and system_key is not null and deleted_at is null`, [orgId])).map((r) => r.system_key));
+  const existing = new Map((await tx.query<{ id: string; code: string }>(`select id, code from sm_accounts where org_id = $1 and deleted_at is null`, [orgId])).map((r) => [r.code, r.id]));
+  const keys = new Set((await tx.query<{ system_key: string }>(`select system_key from sm_accounts where org_id = $1 and system_key is not null and deleted_at is null`, [orgId])).map((r) => r.system_key));
   const rows = coaFor(after).filter((e) => e.module && added.includes(e.module) && !existing.has(e.code) && !(e.key && keys.has(e.key)));
   for (const e of rows) existing.set(e.code, uuidv7());
-  await insertMany(tx, "tz_accounts", rows.map((e) => ({
+  await insertMany(tx, "sm_accounts", rows.map((e) => ({
     id: existing.get(e.code), org_id: orgId, parent_id: parentCode(e.code) ? existing.get(parentCode(e.code)!) ?? null : null,
     code: e.code, name: e.name, level: levelOfCode(e.code), kind: e.kind, nature: e.nature, is_postable: levelOfCode(e.code) === 3,
     detail_mode: e.detail?.mode ?? "none", detail_kinds: e.detail?.kinds ?? [], fx_mode: e.fx ?? "none", weight_mode: e.weight ?? "none",
     system_key: e.key ?? null, sort: 500, origin,
   })));
   if (added.includes("fx")) {
-    const have = new Set((await tx.query<{ code: string }>(`select code from tz_currencies where org_id = $1 and deleted_at is null`, [orgId])).map((r) => r.code));
+    const have = new Set((await tx.query<{ code: string }>(`select code from sm_currencies where org_id = $1 and deleted_at is null`, [orgId])).map((r) => r.code));
     const cur: Record<string, unknown>[] = [];
     FIAT.forEach(([code, name, symbol, decimals], i) => { if (!have.has(code)) cur.push({ id: uuidv7(), org_id: orgId, code, name, symbol, kind: "fiat", decimals, sort: 10 + i, origin }); });
     CRYPTO.forEach(([code, name, symbol, decimals, cg, ku], i) => { if (!have.has(code)) cur.push({ id: uuidv7(), org_id: orgId, code, name, symbol, kind: "crypto", decimals, sort: 100 + i, price_ids: { coingecko: cg, kucoin: ku, okx: ku, nobitex: code.toLowerCase() }, origin }); });
-    await insertMany(tx, "tz_currencies", cur);
+    await insertMany(tx, "sm_currencies", cur);
   }
   if (added.includes("gold")) {
-    const cats = await tx.one<{ n: number }>(`select count(*)::int as n from tz_gold_categories where org_id = $1`, [orgId]);
+    const cats = await tx.one<{ n: number }>(`select count(*)::int as n from sm_gold_categories where org_id = $1`, [orgId]);
     if (!cats?.n) {
       const names = ["انگشتر", "گردنبند", "دستبند", "النگو", "گوشواره", "سرویس", "آویز", "زنجیر"];
-      await insertMany(tx, "tz_gold_categories", names.map((name, i) => ({ id: uuidv7(), org_id: orgId, code: String(i + 1), name, wage_type: "percent", wage_value: "15", origin })));
+      await insertMany(tx, "sm_gold_categories", names.map((name, i) => ({ id: uuidv7(), org_id: orgId, code: String(i + 1), name, wage_type: "percent", wage_value: "15", origin })));
     }
-    const wh = await tx.one(`select 1 from tz_warehouses where org_id = $1 and deleted_at is null`, [orgId]);
-    if (!wh) await insertRow(tx, "tz_warehouses", { id: uuidv7(), org_id: orgId, code: "1", name: "ویترین و گاوصندوق", origin }, "id");
+    const wh = await tx.one(`select 1 from sm_warehouses where org_id = $1 and deleted_at is null`, [orgId]);
+    if (!wh) await insertRow(tx, "sm_warehouses", { id: uuidv7(), org_id: orgId, code: "1", name: "ویترین و گاوصندوق", origin }, "id");
     // the standard coins and bars (stream A's catalogue)
     await seedGoldCatalogue(tx, orgId, origin);
   }
   if (added.includes("goods")) {
-    const wh = await tx.one(`select 1 from tz_warehouses where org_id = $1 and deleted_at is null`, [orgId]);
-    if (!wh) await insertRow(tx, "tz_warehouses", { id: uuidv7(), org_id: orgId, code: "1", name: "انبار مرکزی", origin }, "id");
+    const wh = await tx.one(`select 1 from sm_warehouses where org_id = $1 and deleted_at is null`, [orgId]);
+    if (!wh) await insertRow(tx, "sm_warehouses", { id: uuidv7(), org_id: orgId, code: "1", name: "انبار مرکزی", origin }, "id");
   }
 }
 
@@ -190,7 +190,7 @@ orgRoutes.get("/members", async (c) => {
   const rows = await ctx.db.query(
     `select m.id, m.user_id, m.role, m.overrides, m.title, m.is_active, m.created_at, u.email, u.full_name, u.mobile, u.last_login_at, u.disabled,
        ($2::boolean and ${RESETTABLE_SQL("$1", "u")}) as password_reset
-     from tz_org_members m join tz_users u on u.id = m.user_id
+     from sm_org_members m join sm_users u on u.id = m.user_id
      where m.org_id = $1 and m.deleted_at is null order by m.created_at`,
     [ctx.org.id, ctx.can("users", "full") && !ctx.support],
   );
@@ -215,7 +215,7 @@ orgRoutes.post("/members", async (c) => {
   if (refusal) throw forbidden(refusal);
   let temp: string | null = null;
   const result = await ctx.write(async (tx) => {
-    let user = await tx.one<{ id: string }>(`select id from tz_users where lower(email) = $1`, [input.email]);
+    let user = await tx.one<{ id: string }>(`select id from sm_users where lower(email) = $1`, [input.email]);
     const created = !user;
     if (!user) {
       // the platform's administrators (PLATFORM_ADMIN_EMAILS) make their own accounts: one made
@@ -224,15 +224,15 @@ orgRoutes.post("/members", async (c) => {
       const pw = input.password || (temp = readableCode(3, 4));
       const problem = passwordProblem(pw);
       if (problem) throw bad(problem);
-      user = await insertRow(tx, "tz_users", { id: uuidv7(), email: input.email, full_name: input.full_name, password_hash: await hashPassword(pw) }, "id");
+      user = await insertRow(tx, "sm_users", { id: uuidv7(), email: input.email, full_name: input.full_name, password_hash: await hashPassword(pw) }, "id");
     }
-    const exists = await tx.one<{ id: string; deleted_at: string | null }>(`select id, deleted_at from tz_org_members where org_id = $1 and user_id = $2`, [ctx.org.id, user!.id]);
+    const exists = await tx.one<{ id: string; deleted_at: string | null }>(`select id, deleted_at from sm_org_members where org_id = $1 and user_id = $2`, [ctx.org.id, user!.id]);
     if (exists && !exists.deleted_at) throw conflict("این کاربر قبلاً عضو است");
     if (exists) {
       // a member who comes back starts from the role: per-area access of the old membership is dropped
-      await tx.query(`update tz_org_members set deleted_at = null, is_active = true, role = $2, title = $3, overrides = '{}'::jsonb where id = $1`, [exists.id, input.role, input.title ?? null]);
+      await tx.query(`update sm_org_members set deleted_at = null, is_active = true, role = $2, title = $3, overrides = '{}'::jsonb where id = $1`, [exists.id, input.role, input.title ?? null]);
     } else {
-      await insertRow(tx, "tz_org_members", { id: uuidv7(), org_id: ctx.org.id, user_id: user!.id, role: input.role, title: input.title ?? null, origin: ctx.cfg.origin }, "id");
+      await insertRow(tx, "sm_org_members", { id: uuidv7(), org_id: ctx.org.id, user_id: user!.id, role: input.role, title: input.title ?? null, origin: ctx.cfg.origin }, "id");
     }
     // new_account marks an account this business made (see createdHere: password resets)
     await audit(tx, ctx, "member_add", "member", user!.id, `${input.email} (${ROLES[input.role].title})`, { new_account: created });
@@ -261,7 +261,7 @@ orgRoutes.patch("/members/:id", async (c) => {
     is_active: z.boolean().optional(),
   }));
   const m = await ctx.db.one<MemberState>(
-    `select m.id, m.role, m.user_id, m.is_active, m.overrides, m.title, u.email from tz_org_members m join tz_users u on u.id = m.user_id
+    `select m.id, m.role, m.user_id, m.is_active, m.overrides, m.title, u.email from sm_org_members m join sm_users u on u.id = m.user_id
      where m.id = $1 and m.org_id = $2 and m.deleted_at is null`,
     [c.req.param("id"), ctx.org.id],
   );
@@ -278,10 +278,10 @@ orgRoutes.patch("/members/:id", async (c) => {
   const losesOwner = m.role === "owner" && m.is_active && ((input.role && input.role !== "owner") || input.is_active === false);
   await ctx.write(async (tx) => {
     if (losesOwner) {
-      const owners = await tx.one<{ n: number }>(`select count(*)::int as n from tz_org_members where org_id = $1 and role = 'owner' and deleted_at is null and is_active`, [ctx.org.id]);
+      const owners = await tx.one<{ n: number }>(`select count(*)::int as n from sm_org_members where org_id = $1 and role = 'owner' and deleted_at is null and is_active`, [ctx.org.id]);
       if ((owners?.n ?? 0) <= 1) throw bad("کسب‌وکار باید دست‌کم یک مالک فعال داشته باشد");
     }
-    await updateRow(tx, "tz_org_members", { id: m.id, org_id: ctx.org.id }, { ...input, origin: ctx.cfg.origin });
+    await updateRow(tx, "sm_org_members", { id: m.id, org_id: ctx.org.id }, { ...input, origin: ctx.cfg.origin });
   });
   // role, per-area overrides and activation are privilege changes: logged as security events
   const changes: Record<string, unknown> = {};
@@ -305,7 +305,7 @@ orgRoutes.post("/members/:id/password", async (c) => {
   ctx.need("users", "full");
   const input = await body(c, z.object({ password: z.string().optional() }));
   const m = await ctx.db.one<{ user_id: string; role: Role; overrides: Partial<Record<Area, Level>> | null; email: string }>(
-    `select m.user_id, m.role, m.overrides, u.email from tz_org_members m join tz_users u on u.id = m.user_id where m.id = $1 and m.org_id = $2 and m.deleted_at is null`,
+    `select m.user_id, m.role, m.overrides, u.email from sm_org_members m join sm_users u on u.id = m.user_id where m.id = $1 and m.org_id = $2 and m.deleted_at is null`,
     [c.req.param("id"), ctx.org.id],
   );
   if (!m) throw notFound("عضو پیدا نشد");
@@ -319,16 +319,16 @@ orgRoutes.post("/members/:id/password", async (c) => {
   if (!(await createdHere(ctx.db, ctx.org.id, m.user_id)))
     throw forbidden("این حساب پیش از عضویت در این کسب‌وکار ساخته شده بود؛ رمز آن را صاحب حساب خودش از «حساب من» عوض می‌کند (یا با کمک مدیر سامانه)");
   const elsewhere = await ctx.db.one(
-    `select 1 from tz_users u where u.id = $1 and (u.is_platform_admin or exists (
-       select 1 from tz_org_members o where o.user_id = u.id and o.org_id <> $2 and o.deleted_at is null))`,
+    `select 1 from sm_users u where u.id = $1 and (u.is_platform_admin or exists (
+       select 1 from sm_org_members o where o.user_id = u.id and o.org_id <> $2 and o.deleted_at is null))`,
     [m.user_id, ctx.org.id],
   );
   if (elsewhere) throw forbidden("این کاربر در کسب‌وکار دیگری هم عضو است؛ رمز را خودش از «حساب من» عوض می‌کند (یا با کمک مدیر سامانه)");
   const pw = input.password || readableCode(3, 4);
   const problem = passwordProblem(pw);
   if (problem) throw bad(problem);
-  await ctx.db.query(`update tz_users set password_hash = $2 where id = $1`, [m.user_id, await hashPassword(pw)]);
-  await ctx.db.query(`update tz_sessions set revoked_at = now() where user_id = $1 and revoked_at is null`, [m.user_id]);
+  await ctx.db.query(`update sm_users set password_hash = $2 where id = $1`, [m.user_id, await hashPassword(pw)]);
+  await ctx.db.query(`update sm_sessions set revoked_at = now() where user_id = $1 and revoked_at is null`, [m.user_id]);
   await securityEvent(ctx.db, {
     kind: "password_reset",
     user_id: m.user_id,
@@ -355,9 +355,9 @@ orgRoutes.post("/fiscal-years", async (c) => {
     end = r.end;
   }
   if (!start || !end || start > end) throw bad("بازه‌ی سال مالی معتبر نیست");
-  const overlap = await ctx.db.one(`select 1 from tz_fiscal_years where org_id = $1 and deleted_at is null and start_date <= $3 and end_date >= $2`, [ctx.org.id, start, end]);
+  const overlap = await ctx.db.one(`select 1 from sm_fiscal_years where org_id = $1 and deleted_at is null and start_date <= $3 and end_date >= $2`, [ctx.org.id, start, end]);
   if (overlap) throw conflict("این بازه با سال مالی دیگری هم‌پوشانی دارد");
-  const row = await ctx.write((tx) => insertRow(tx, "tz_fiscal_years", { id: uuidv7(), org_id: ctx.org.id, title: input.title || `سال مالی ${toFa(input.jalali_year ?? start!.slice(0, 4))}`, start_date: start, end_date: end, status: "open", origin: ctx.cfg.origin }));
+  const row = await ctx.write((tx) => insertRow(tx, "sm_fiscal_years", { id: uuidv7(), org_id: ctx.org.id, title: input.title || `سال مالی ${toFa(input.jalali_year ?? start!.slice(0, 4))}`, start_date: start, end_date: end, status: "open", origin: ctx.cfg.origin }));
   return c.json({ fiscal_year: row });
 });
 
@@ -380,7 +380,7 @@ orgRoutes.get("/audit", async (c: C) => {
   const params: unknown[] = [ctx.org.id];
   if (before) params.push(before);
   const rows = await ctx.db.query(
-    `select a.*, u.full_name, u.email from tz_audit a left join tz_users u on u.id = a.user_id
+    `select a.*, u.full_name, u.email from sm_audit a left join sm_users u on u.id = a.user_id
      where a.org_id = $1 ${before ? "and a.at < $2" : ""} order by a.at desc limit 300`,
     params,
   );

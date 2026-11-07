@@ -8,17 +8,17 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync, sta
 
 const APP_TITLE = "سیراف";
 const APP_ID = "ir.siraf.app";
-/** The window canvas of each theme (`--sf-canvas` in src/ui/siraf/tokens.css), so the window never flashes white. */
+/** The window canvas of each theme (`--ds-canvas` in src/ui/ds/tokens.css), so the window never flashes white. */
 const CANVAS = { light: "#F7F4F0", dark: "#110F0E" } as const;
 type ThemePref = "system" | "light" | "dark";
 type ThemeMode = keyof typeof CANVAS;
-const isSmoke = process.argv.includes("--smoke-test") || process.env.TARAZ_SMOKE === "1";
+const isSmoke = process.argv.includes("--smoke-test") || process.env.ITSM_SMOKE === "1";
 
 const dataDir = resolveDataDir();
 
 /** %APPDATA%/Siraf/data; a preview installed under the old name «تراز» keeps its data (moved once). */
 function resolveDataDir(): string {
-  if (process.env.TARAZ_DATA_DIR) return process.env.TARAZ_DATA_DIR;
+  if (process.env.ITSM_DATA_DIR) return process.env.ITSM_DATA_DIR;
   const appData = app.getPath("appData");
   const next = join(appData, "Siraf", "data");
   const old = join(appData, "Taraz", "data");
@@ -97,8 +97,8 @@ function startBackend(): Promise<{ url: string; host: string }> {
       stdio: "pipe",
       env: {
         ...process.env,
-        TARAZ_DATA_DIR: dataDir,
-        TARAZ_STATIC_DIR: join(__dirname, "renderer"),
+        ITSM_DATA_DIR: dataDir,
+        ITSM_STATIC_DIR: join(__dirname, "renderer"),
         NODE_ENV: "production",
       },
     });
@@ -145,7 +145,7 @@ function startBackend(): Promise<{ url: string; host: string }> {
 
 // ---------------------------------------------------------------- splash
 // desktop/src/splash.html (copied next to main.cjs): 520 × 320, frameless, rounded, the three-nuqta launch and a real
-// progress line driven by the stages below through its `siraf.*` API.
+// progress line driven by the stages below through its `itsm.*` API.
 const SPLASH_MIN_MS = 1100; // let the launch (≈ 1 s) finish even on a fast start
 let splashShownAt = 0;
 let splashLoaded: Promise<void> = Promise.resolve();
@@ -178,7 +178,7 @@ function createSplash() {
     splash?.show();
   });
   splash.on("closed", () => (splash = null));
-  void splashCall(`siraf.version(${JSON.stringify(`نسخهٔ ${faDigits(app.getVersion())}`)})`);
+  void splashCall(`itsm.version(${JSON.stringify(`نسخهٔ ${faDigits(app.getVersion())}`)})`);
 }
 
 /** Runs `js` in the splash once it has loaded (ignored when the splash is gone). */
@@ -192,7 +192,7 @@ async function splashCall(js: string) {
   }
 }
 function splashStep(p: number, cap: number, status: string, tau?: number) {
-  void splashCall(`siraf.step(${p}, ${cap}, ${JSON.stringify(status)}${tau ? `, ${tau}` : ""})`);
+  void splashCall(`itsm.step(${p}, ${cap}, ${JSON.stringify(status)}${tau ? `, ${tau}` : ""})`);
 }
 
 /** Completes the progress line, then swaps the splash for the main window. */
@@ -200,7 +200,7 @@ async function finishSplash(show: () => void) {
   if (!splash || splash.isDestroyed()) return show();
   const wait = Math.max(0, SPLASH_MIN_MS - (splashShownAt ? Date.now() - splashShownAt : 0));
   if (wait) await new Promise((r) => setTimeout(r, wait));
-  await splashCall(`siraf.ready("آماده است")`);
+  await splashCall(`itsm.ready("آماده است")`);
   await new Promise((r) => setTimeout(r, 650));
   show();
   splash?.destroy();
@@ -368,7 +368,7 @@ function setupMenu() {
 
 function registerIpc() {
   // the page reports its theme (preference and the theme in effect): the title bar, the window canvas and the next start follow it
-  ipcMain.on("siraf:theme", (e, t: { pref?: string; mode?: string }) => {
+  ipcMain.on("itsm:theme", (e, t: { pref?: string; mode?: string }) => {
     const pref: ThemePref = t?.pref === "light" || t?.pref === "dark" ? t.pref : "system";
     const mode: ThemeMode = t?.mode === "dark" ? "dark" : "light";
     if (nativeTheme.themeSource !== pref) nativeTheme.themeSource = pref;
@@ -382,7 +382,7 @@ function registerIpc() {
     }
   });
   // pageSize: a named paper («A5») or a custom one in microns ({ width, height }: an 80 mm roll, labels)
-  ipcMain.handle("taraz:print", async (e, opts: { silent?: boolean; printer?: string; landscape?: boolean; pageSize?: string | { width: number; height: number } } = {}) => {
+  ipcMain.handle("itsm:print", async (e, opts: { silent?: boolean; printer?: string; landscape?: boolean; pageSize?: string | { width: number; height: number } } = {}) => {
     if (!fromApp(e)) throw new Error("forbidden");
     const wc = e.sender;
     return new Promise<void>((resolve, reject) =>
@@ -391,11 +391,11 @@ function registerIpc() {
       ),
     );
   });
-  ipcMain.handle("taraz:printers", async (e) => {
+  ipcMain.handle("itsm:printers", async (e) => {
     if (!fromApp(e)) throw new Error("forbidden");
     return (await e.sender.getPrintersAsync()).map((p) => ({ name: p.name, isDefault: (p as any).isDefault ?? false }));
   });
-  ipcMain.handle("taraz:save-pdf", async (e, name: string) => {
+  ipcMain.handle("itsm:save-pdf", async (e, name: string) => {
     if (!fromApp(e)) throw new Error("forbidden");
     // a suggested file name only, never a path
     const safe = String(name ?? "").replace(/[\\/:*?"<>|\u0000-\u001f]+/g, " ").trim().slice(0, 120) || "siraf";
@@ -407,7 +407,7 @@ function registerIpc() {
     return r.filePath;
   });
   // opens a folder (the backups folder) in Explorer; shell.openPath on a file would run it
-  ipcMain.handle("taraz:open-path", async (e, p: string) => {
+  ipcMain.handle("itsm:open-path", async (e, p: string) => {
     // local folders only: a network path (\\host\share) would hand the Windows sign-in to that host
     if (!fromApp(e) || typeof p !== "string" || !isAbsolute(p) || /^[\\/]{2}/.test(p)) throw new Error("forbidden");
     let dir = false;
@@ -419,7 +419,7 @@ function registerIpc() {
     if (!dir) throw new Error("فقط پوشه باز می‌شود");
     await shell.openPath(p);
   });
-  ipcMain.handle("taraz:set-server", async (e, url: string | null) => {
+  ipcMain.handle("itsm:set-server", async (e, url: string | null) => {
     if (!fromApp(e)) throw new Error("forbidden");
     let next: string | null = null;
     if (url !== null && url !== undefined && url !== "") {
@@ -436,7 +436,7 @@ function registerIpc() {
     app.relaunch();
     await quit();
   });
-  ipcMain.handle("taraz:relaunch", async (e) => {
+  ipcMain.handle("itsm:relaunch", async (e) => {
     if (!fromApp(e)) throw new Error("forbidden");
     app.relaunch();
     await quit();
@@ -461,7 +461,7 @@ function httpGet(url: string, attempts = 10): Promise<{ status: number; body: st
 }
 
 async function smokeTest() {
-  const out = process.env.TARAZ_SMOKE_OUT;
+  const out = process.env.ITSM_SMOKE_OUT;
   try {
     const { url } = await startBackend();
     const health = JSON.parse((await httpGet(`${url}/api/health`)).body);

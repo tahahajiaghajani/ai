@@ -17,9 +17,9 @@ export interface Logger {
 }
 
 export const consoleLogger: Logger = {
-  info: (m, d) => console.log(`[taraz] ${m}`, d ?? ""),
-  warn: (m, d) => console.warn(`[taraz] ${m}`, d ?? ""),
-  error: (m, d) => console.error(`[taraz] ${m}`, d ?? ""),
+  info: (m, d) => console.log(`[itsm] ${m}`, d ?? ""),
+  warn: (m, d) => console.warn(`[itsm] ${m}`, d ?? ""),
+  error: (m, d) => console.error(`[itsm] ${m}`, d ?? ""),
 };
 
 /** Capabilities that only exist inside the Windows app (backups, LAN, cloud link…). */
@@ -139,7 +139,7 @@ export interface SupportSession {
   expires_at: string;
 }
 
-/** Platform status of a business (tz_org_admin): read_only refuses writes, suspended closes it to its members. */
+/** Platform status of a business (sm_org_admin): read_only refuses writes, suspended closes it to its members. */
 export type OrgStatus = "active" | "read_only" | "suspended";
 export interface OrgPlatformStatus {
   status: OrgStatus;
@@ -181,8 +181,8 @@ export interface Ctx {
 /** Serialises writes of one organisation (and keeps revision numbers in commit order). */
 export async function lockOrg(tx: Tx, orgId: string): Promise<void> {
   await tx.query(
-    `insert into tz_org_sync (org_id, rev) values ($1, 0)
-     on conflict (org_id) do update set rev = tz_org_sync.rev`,
+    `insert into sm_org_sync (org_id, rev) values ($1, 0)
+     on conflict (org_id) do update set rev = sm_org_sync.rev`,
     [orgId],
   );
 }
@@ -256,8 +256,8 @@ export function makeCtx(cfg: ServerConfig, user: AuthUser, org: OrgRow, member: 
         if (!wopts?.internal) await assertWritable(tx, org.id);
         if (support) {
           const live = await tx.one(
-            `select set_config('taraz.actor_kind', 'support', true), set_config('taraz.support_session', id::text, true)
-             from tz_support_sessions where id = $1 and ended_at is null and expires_at > now()`,
+            `select set_config('itsm.actor_kind', 'support', true), set_config('itsm.support_session', id::text, true)
+             from sm_support_sessions where id = $1 and ended_at is null and expires_at > now()`,
             [support.id],
           );
           if (!live) throw forbidden("حالت پشتیبانی شما پایان یافته است");

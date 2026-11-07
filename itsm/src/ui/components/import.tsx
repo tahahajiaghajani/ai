@@ -21,7 +21,7 @@ const SHEET_W = 880;
 function Steps({ step }: { step: 1 | 2 | 3 }) {
   const items = ["انتخاب فایل", "جور کردن ستون‌ها", "بررسی و ورود"];
   return (
-    <div className="sf-steps" aria-label={`مرحله‌ی ${faDigits(step)} از ۳`}>
+    <div className="ds-steps" aria-label={`مرحله‌ی ${faDigits(step)} از ۳`}>
       {items.map((t, i) => (
         <span key={t} className="contents">
           {i ? <hr aria-hidden /> : null}
@@ -172,15 +172,15 @@ export function ImportDrawer({ def, open, onClose }: { def: EntityDef; open: boo
   const imported = !!summary && !summary.dry && summary.created + summary.updated > 0;
   const step: 1 | 2 | 3 = !file ? 1 : summary || progress ? 3 : 2;
 
-  // toasts move beside an open sheet (siraf-antd.css reads --sf-sheet-w)
+  // toasts move beside an open sheet (ds-antd.css reads --ds-sheet-w)
   useEffect(() => {
     if (!open) return;
     const root = document.documentElement;
-    const prev = root.style.getPropertyValue("--sf-sheet-w");
-    root.style.setProperty("--sf-sheet-w", `${SHEET_W}px`);
+    const prev = root.style.getPropertyValue("--ds-sheet-w");
+    root.style.setProperty("--ds-sheet-w", `${SHEET_W}px`);
     return () => {
-      if (prev) root.style.setProperty("--sf-sheet-w", prev);
-      else root.style.removeProperty("--sf-sheet-w");
+      if (prev) root.style.setProperty("--ds-sheet-w", prev);
+      else root.style.removeProperty("--ds-sheet-w");
     };
   }, [open]);
 
@@ -240,30 +240,30 @@ export function ImportDrawer({ def, open, onClose }: { def: EntityDef; open: boo
         <Steps step={step} />
         {!file ? (
           <>
-            <Upload.Dragger className="sf-drop" accept=".xlsx,.csv,.txt" showUploadList={false} beforeUpload={load} multiple={false}>
+            <Upload.Dragger className="ds-drop" accept=".xlsx,.csv,.txt" showUploadList={false} beforeUpload={load} multiple={false}>
               <div className="flex flex-col items-center gap-3">
-                <span className="sf-file-ic" aria-hidden>
+                <span className="ds-file-ic" aria-hidden>
                   <FileSpreadsheet size={20} strokeWidth={1.4} absoluteStrokeWidth />
                 </span>
                 <div className="text-[14px] font-medium text-ink">فایل اکسل یا CSV را اینجا رها کنید یا برای انتخاب کلیک کنید</div>
-                <div className="sf-note max-w-sm">
-                  پسوند <bdi className="sf-latin">.xlsx</bdi> یا <bdi className="sf-latin">.csv</bdi>؛ ردیف اول عنوان ستون‌ها باشد. ستون‌ها را در مرحله‌ی بعد با فیلدها جور می‌کنید.
+                <div className="ds-note max-w-sm">
+                  پسوند <bdi className="ds-latin">.xlsx</bdi> یا <bdi className="ds-latin">.csv</bdi>؛ ردیف اول عنوان ستون‌ها باشد. ستون‌ها را در مرحله‌ی بعد با فیلدها جور می‌کنید.
                 </div>
               </div>
             </Upload.Dragger>
-            <p className="sf-note">
+            <p className="ds-note">
               ستون‌ها را نمی‌دانید؟ «فایل نمونه» را بگیرید؛ عنوان ستون‌هایش همان فیلدهای {def.plural} است.
             </p>
           </>
         ) : (
           <>
-            <div className="sf-file">
-              <span className="sf-file-ic" aria-hidden>
+            <div className="ds-file">
+              <span className="ds-file-ic" aria-hidden>
                 <FileSpreadsheet size={18} strokeWidth={1.4} absoluteStrokeWidth />
               </span>
               <div className="min-w-0 flex-1">
-                <div className="sf-file-name">{file.name}</div>
-                <div className="sf-file-meta">
+                <div className="ds-file-name">{file.name}</div>
+                <div className="ds-file-meta">
                   برگه‌ی «{file.sheet}»، {faDigits(file.rows.length)} ردیف، {faDigits(mapped)} از {faDigits(file.header.length)} ستون جور شده
                 </div>
               </div>
@@ -287,7 +287,7 @@ export function ImportDrawer({ def, open, onClose }: { def: EntityDef; open: boo
             {progress ? (
               <Progress
                 percent={Math.round((progress.done / Math.max(progress.total, 1)) * 100)}
-                format={() => <span className="sf-num text-[13px] text-ink-2">{faDigits(progress.done)} از {faDigits(progress.total)}</span>}
+                format={() => <span className="ds-num text-[13px] text-ink-2">{faDigits(progress.done)} از {faDigits(progress.total)}</span>}
               />
             ) : null}
 
@@ -319,7 +319,7 @@ export function ImportDrawer({ def, open, onClose }: { def: EntityDef; open: boo
                 dataSource={summary.errors}
                 pagination={{ pageSize: 8, hideOnSinglePage: true, showSizeChanger: false, size: "small" }}
                 columns={[
-                  { key: "row", title: "ردیف فایل", width: 96, className: "sf-num", render: (_: unknown, r: Result) => faDigits(sheetRow(r.row)) },
+                  { key: "row", title: "ردیف فایل", width: 96, className: "ds-num", render: (_: unknown, r: Result) => faDigits(sheetRow(r.row)) },
                   { key: "error", title: "خطا", dataIndex: "error", render: (v: string) => <span className="text-danger">{v}</span> },
                 ]}
               />
@@ -368,7 +368,7 @@ export function ImportDrawer({ def, open, onClose }: { def: EntityDef; open: boo
                 { key: "s", title: "نمونه", dataIndex: "sample", ellipsis: true, render: (v: string) => <span className="text-ink-3">{v || "—"}</span> },
               ]}
             />
-            <p className="sf-note">
+            <p className="ds-note">
               مبالغ با ارقام فارسی یا جداکننده، تاریخ شمسی (۱۴۰۳/۰۵/۱۲)، گزینه‌ها با همان عنوانی که در برنامه می‌بینید و موارد مرتبط (گروه، واحد، حساب…) با نام یا کد پذیرفته می‌شوند. خانه‌های خالی نادیده
               گرفته می‌شوند.
             </p>

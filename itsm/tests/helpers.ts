@@ -54,6 +54,6 @@ export async function signupWithOrg(c: Client, modules: ("goods" | "gold" | "fx"
 }
 
 export async function accountId(db: Db, orgId: string, key: string) {
-  const r = await db.one<{ id: string }>(`select id from tz_accounts where org_id = $1 and system_key = $2`, [orgId, key]);
+  const r = await db.one<{ id: string }>(`select id from sm_accounts where org_id = $1 and system_key = $2`, [orgId, key]);
   return r!.id;
 }

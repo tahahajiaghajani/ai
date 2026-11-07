@@ -229,7 +229,7 @@ export interface AiUsageReport {
   budget: AiBudgetState;
 }
 
-/** Platform policy (tz_kv "ai.policy"), set by the platform administrator. */
+/** Platform policy (sm_kv "ai.policy"), set by the platform administrator. */
 export interface AiPolicy {
   /** AI off for every business */
   kill_switch: boolean;

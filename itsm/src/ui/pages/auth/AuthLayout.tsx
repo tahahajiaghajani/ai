@@ -80,16 +80,16 @@ export function AuthLayout({
         </div>
 
         <footer className="pg-form-foot">
-          <span className="sf-nuqta" data-live="" aria-hidden />
+          <span className="ds-nuqta" data-live="" aria-hidden />
           <span>{desktop ? "داده‌ها روی همین رایانه نگه داشته می‌شوند" : "سامانه در دسترس است"}</span>
           <span className="pg-foot-end">{version ? <span>
-                نسخهٔ <span className="sf-num">{version}</span>
+                نسخهٔ <span className="ds-num">{version}</span>
               </span> : null}</span>
         </footer>
       </div>
 
-      <aside className="sf-brand pg-brand pg-in" aria-label="سیراف">
-        <div className="sf-brand-in">
+      <aside className="ds-brand pg-brand pg-in" aria-label="سیراف">
+        <div className="ds-brand-in">
           <div className="pg-brand-top">
             <span className="pg-brand-logo">
               <Logo size={36} tone="white" launch />
@@ -108,19 +108,19 @@ export function AuthLayout({
               ))}
             </ol>
           ) : null}
-          <p className="sf-tagline">
+          <p className="ds-tagline">
             هر داد و ستد،
             <br />
             به حساب می‌نشیند.
           </p>
-          <span className="sf-horizon" aria-hidden="true" />
-          <p className="sf-en">{APP_TAGLINE_EN}</p>
-          {steps ? null : <p className="sf-story">{STORY}</p>}
-          <div className="sf-bfoot">
+          <span className="ds-horizon" aria-hidden="true" />
+          <p className="ds-en">{APP_TAGLINE_EN}</p>
+          {steps ? null : <p className="ds-story">{STORY}</p>}
+          <div className="ds-bfoot">
             <span>حسابداری و مدیریت کسب‌وکار</span>
-            <span className="sf-nuqta" />
+            <span className="ds-nuqta" />
             <span>وب و ویندوز</span>
-            <span className="sf-nuqta" />
+            <span className="ds-nuqta" />
             <span>با اینترنت و بی‌اینترنت</span>
           </div>
         </div>

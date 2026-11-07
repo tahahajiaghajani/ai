@@ -21,7 +21,7 @@ export interface ToolRuntime {
   signal?: AbortSignal;
 }
 
-/** What a proposal tool hands to the loop; the loop stores it in tz_ai_actions. */
+/** What a proposal tool hands to the loop; the loop stores it in sm_ai_actions. */
 export interface AiProposalInput {
   kind: string; // must have an executor registered in ./proposals.ts
   title_fa: string;

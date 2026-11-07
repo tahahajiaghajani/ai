@@ -149,7 +149,7 @@ export default function Orgs() {
                       r.owner ? (
                         <span className="block min-w-0">
                           <span className="block truncate">{r.owner.name}</span>
-                          <bdi dir="ltr" className="sf-latin ad-sub block truncate">
+                          <bdi dir="ltr" className="ds-latin ad-sub block truncate">
                             {r.owner.email}
                           </bdi>
                         </span>
@@ -158,8 +158,8 @@ export default function Orgs() {
                       ),
                   },
                   { key: "mods", title: "بخش‌ها", width: 190, render: (_, r) => <Mods list={r.modules} /> },
-                  { key: "members", dataIndex: "members", title: "اعضا", width: 70, className: "sf-num", render: (v) => fa(v) },
-                  { key: "devices", dataIndex: "devices", title: "ویندوز", width: 70, className: "sf-num", render: (v) => (v ? fa(v) : <span className="text-ink-3">—</span>) },
+                  { key: "members", dataIndex: "members", title: "اعضا", width: 70, className: "ds-num", render: (v) => fa(v) },
+                  { key: "devices", dataIndex: "devices", title: "ویندوز", width: 70, className: "ds-num", render: (v) => (v ? fa(v) : <span className="text-ink-3">—</span>) },
                   { key: "act", dataIndex: "last_activity", title: "آخرین فعالیت", width: 130, render: (v) => <span className="text-ink-2">{ago(v)}</span> },
                   {
                     key: "status",

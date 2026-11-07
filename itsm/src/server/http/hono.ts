@@ -45,10 +45,10 @@ export const loadOrg: MiddlewareHandler<Env> = async (c, next) => {
   const user = c.get("user");
   const orgId = c.req.param("org") ?? "";
   if (!/^[0-9a-f-]{36}$/i.test(orgId)) throw notFound("سازمان پیدا نشد");
-  const org = await cfg.db.one<OrgRow>(`select * from tz_orgs where id = $1 and deleted_at is null`, [orgId]);
+  const org = await cfg.db.one<OrgRow>(`select * from sm_orgs where id = $1 and deleted_at is null`, [orgId]);
   if (!org) throw notFound("سازمان پیدا نشد");
   let member = await cfg.db.one<MemberRow>(
-    `select id, org_id, user_id, role, overrides, is_active from tz_org_members
+    `select id, org_id, user_id, role, overrides, is_active from sm_org_members
      where org_id = $1 and user_id = $2 and deleted_at is null`,
     [orgId, user.id],
   );

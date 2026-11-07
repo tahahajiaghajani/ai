@@ -1,4 +1,4 @@
-// Scripted, deterministic model for tests and screenshots (only when SIRAF_AI_FAKE=1). It never
+// Scripted, deterministic model for tests and screenshots (only when ITSM_AI_FAKE=1). It never
 // touches the network. What the last user message asks decides what it does:
 //   [tool:NAME {json}]      call tool NAME with that input (several directives → parallel calls)
 //   [loop:N NAME {json}]    call NAME again after each result until it ran N times, then answer
@@ -14,7 +14,7 @@ import { ProviderError, type Adapter, type NeutralMessage, type ToolCall, type T
 export const FAKE_MODELS = ["fake-smart", "fake-fast", "fake-vision"];
 
 export function fakeEnabled(): boolean {
-  return process.env.SIRAF_AI_FAKE === "1";
+  return process.env.ITSM_AI_FAKE === "1";
 }
 
 const sleep = (ms: number, signal?: AbortSignal) =>

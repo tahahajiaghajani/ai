@@ -75,7 +75,7 @@ export function useOrgQuery(orgId: string) {
 }
 
 export function OrgProvider({ orgId, info, children }: { orgId: string; info: OrgInfo; children: ReactNode }) {
-  const key = `taraz.fy.${orgId}`;
+  const key = `itsm.fy.${orgId}`;
   const [fyId, setFyId] = useState<string | null>(() => {
     try {
       return localStorage.getItem(key);
@@ -88,7 +88,7 @@ export function OrgProvider({ orgId, info, children }: { orgId: string; info: Or
     // a business opened in support mode is not «the last business» the admin returns to
     if (visiting) return;
     try {
-      localStorage.setItem("taraz.lastOrg", orgId);
+      localStorage.setItem("itsm.lastOrg", orgId);
     } catch {
       /* ignore */
     }

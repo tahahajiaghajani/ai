@@ -39,14 +39,14 @@ async function linkedPair(email: string) {
 /** a change made as if it came from a sync (no outbox entry, no new updated_at) */
 async function quietly(db: Db, sql: string, params: unknown[] = []) {
   await db.tx(async (tx) => {
-    await tx.query("set local taraz.applying = 'on'");
+    await tx.query("set local itsm.applying = 'on'");
     await tx.query(sql, params);
   });
 }
 
 const keys = (db: Db, org: string) =>
   db.query<{ id: string; rate_key: string | null; gold_meta: Record<string, unknown> }>(
-    `select id, rate_key, gold_meta from tz_items where org_id = $1 and kind in ('coin', 'bar') and deleted_at is null order by id`,
+    `select id, rate_key, gold_meta from sm_items where org_id = $1 and kind in ('coin', 'bar') and deleted_at is null order by id`,
     [org],
   );
 
@@ -62,19 +62,19 @@ describe("an older Windows app against the updated cloud", () => {
     const s = await makeServer({ mode: "cloud" });
     const c = new Client(s.app);
     const org = await signupWithOrg(c, ["gold"], "gold");
-    const item = (await s.db.one<Record<string, unknown>>(`select * from tz_items where org_id = $1 and rate_key = 'parsian_500'`, [org]))!;
+    const item = (await s.db.one<Record<string, unknown>>(`select * from sm_items where org_id = $1 and rate_key = 'parsian_500'`, [org]))!;
     const { rate_key: _k, gold_meta: _m, ...old } = item;
     const def = BY_ENTITY.get("item")!;
     await s.db.tx(async (tx) => {
-      await tx.query("set local taraz.applying = 'on'");
+      await tx.query("set local itsm.applying = 'on'");
       await writeAggregate(tx, def, { entity: "item", id: String(item.id), base_rev: 0, row: { ...old, name: "پارسیان نیم گرمی" }, children: {} }, org, "incoming-yields");
       // a new coin from the older app: gold_meta (NOT NULL) takes its default
       const id = uuidv7();
       await writeAggregate(tx, def, { entity: "item", id, base_rev: 0, row: { ...old, id, code: "C900", name: "سکه تازه" }, children: {} }, org, "incoming-yields");
-      const fresh = await tx.one<{ rate_key: string | null; gold_meta: unknown }>(`select rate_key, gold_meta from tz_items where id = $1`, [id]);
+      const fresh = await tx.one<{ rate_key: string | null; gold_meta: unknown }>(`select rate_key, gold_meta from sm_items where id = $1`, [id]);
       expect(fresh).toEqual({ rate_key: null, gold_meta: {} });
     });
-    const after = (await s.db.one<Record<string, unknown>>(`select * from tz_items where id = $1`, [item.id]))!;
+    const after = (await s.db.one<Record<string, unknown>>(`select * from sm_items where id = $1`, [item.id]))!;
     expect(after.name).toBe("پارسیان نیم گرمی");
     expect(after.rate_key).toBe("parsian_500");
     expect(after.gold_meta).toEqual(item.gold_meta);
@@ -87,22 +87,22 @@ describe("an older Windows app against the updated cloud", () => {
     // what the previous version left behind: board keys and metadata it did not know, a bar it
     // skipped, a party the cloud refused five times
     const bar = uuidv7();
-    await p.cloudDb.query(`insert into tz_gold_bars (id, org_id, bar_no, weight, fineness) values ($1, $2, '900001', 10, 999.9)`, [bar, p.org]);
+    await p.cloudDb.query(`insert into sm_gold_bars (id, org_id, bar_no, weight, fineness) values ($1, $2, '900001', 10, 999.9)`, [bar, p.org]);
     await p.client.syncNow();
-    await quietly(p.deskDb, `update tz_items set rate_key = null, gold_meta = '{}'::jsonb where org_id = $1`, [p.org]);
-    await quietly(p.deskDb, `delete from tz_gold_bars where id = $1`, [bar]);
+    await quietly(p.deskDb, `update sm_items set rate_key = null, gold_meta = '{}'::jsonb where org_id = $1`, [p.org]);
+    await quietly(p.deskDb, `delete from sm_gold_bars where id = $1`, [bar]);
     const party = (await p.local.post(`/o/${p.org}/data/party`, { name: "مشتری مانده در صف" })).row;
-    await p.deskDb.query(`update tz_outbox set attempts = 5, last_error = 'null value in column' where id = $1`, [party.id]);
+    await p.deskDb.query(`update sm_outbox set attempts = 5, last_error = 'null value in column' where id = $1`, [party.id]);
     // the previous protocol's builds kept neither marker
-    await p.deskDb.query(`delete from tz_kv where key in ('sync.schema', 'sync.protocol')`);
+    await p.deskDb.query(`delete from sm_kv where key in ('sync.schema', 'sync.protocol')`);
 
     await p.client.syncNow();
     expect(p.client.state.last_error).toBeNull();
     expect(await keys(p.deskDb, p.org)).toEqual(before);
-    expect(await p.deskDb.one(`select bar_no from tz_gold_bars where id = $1`, [bar])).toEqual({ bar_no: "900001" });
-    expect(await p.cloudDb.one(`select 1 as ok from tz_parties where id = $1`, [party.id])).toEqual({ ok: 1 });
-    expect((await p.deskDb.one<{ value: string }>(`select value from tz_kv where key = 'sync.schema'`))!.value).toBe(SCHEMA_VERSION);
-    expect((await p.deskDb.one<{ value: number }>(`select value from tz_kv where key = 'sync.protocol'`))!.value).toBe(SYNC_PROTOCOL);
+    expect(await p.deskDb.one(`select bar_no from sm_gold_bars where id = $1`, [bar])).toEqual({ bar_no: "900001" });
+    expect(await p.cloudDb.one(`select 1 as ok from sm_parties where id = $1`, [party.id])).toEqual({ ok: 1 });
+    expect((await p.deskDb.one<{ value: string }>(`select value from sm_kv where key = 'sync.schema'`))!.value).toBe(SCHEMA_VERSION);
+    expect((await p.deskDb.one<{ value: number }>(`select value from sm_kv where key = 'sync.protocol'`))!.value).toBe(SYNC_PROTOCOL);
     expect(p.client.state.failed).toEqual([]);
   });
 
@@ -113,16 +113,16 @@ describe("an older Windows app against the updated cloud", () => {
     const inner = o.fetch;
     o.fetch = (async (u: RequestInfo | URL, init?: RequestInit) => (urls.push(String(u)), inner(u, init))) as typeof fetch;
     const party = (await p.local.post(`/o/${p.org}/data/party`, { name: "مشتری مانده در صف" })).row;
-    await p.deskDb.query(`update tz_outbox set attempts = 5, last_error = 'خطا' where id = $1`, [party.id]);
+    await p.deskDb.query(`update sm_outbox set attempts = 5, last_error = 'خطا' where id = $1`, [party.id]);
     // a build of the same protocol before `sync.protocol` was kept, one migration behind
-    await p.deskDb.query(`delete from tz_kv where key = 'sync.protocol'`);
-    await p.deskDb.query(`update tz_kv set value = '"0016_ai_features"'::jsonb where key = 'sync.schema'`);
+    await p.deskDb.query(`delete from sm_kv where key = 'sync.protocol'`);
+    await p.deskDb.query(`update sm_kv set value = '"0016_ai_features"'::jsonb where key = 'sync.schema'`);
     await p.client.syncNow();
     expect(p.client.state.last_error).toBeNull();
-    expect(await p.cloudDb.one(`select 1 as ok from tz_parties where id = $1`, [party.id])).toEqual({ ok: 1 });
+    expect(await p.cloudDb.one(`select 1 as ok from sm_parties where id = $1`, [party.id])).toEqual({ ok: 1 });
     expect(urls.filter((u) => u.includes("/sync/pull") && /[?&]cursor=0&/.test(u))).toEqual([]);
-    expect((await p.deskDb.one<{ value: string }>(`select value from tz_kv where key = 'sync.schema'`))!.value).toBe(SCHEMA_VERSION);
-    expect((await p.deskDb.one<{ value: number }>(`select value from tz_kv where key = 'sync.protocol'`))!.value).toBe(SYNC_PROTOCOL);
+    expect((await p.deskDb.one<{ value: string }>(`select value from sm_kv where key = 'sync.schema'`))!.value).toBe(SCHEMA_VERSION);
+    expect((await p.deskDb.one<{ value: number }>(`select value from sm_kv where key = 'sync.protocol'`))!.value).toBe(SYNC_PROTOCOL);
   });
 
   it("a Windows app newer than the web says that the web needs the update and keeps its changes", async () => {
@@ -140,7 +140,7 @@ describe("an older Windows app against the updated cloud", () => {
     await p.client.syncNow();
     expect(p.client.state.last_error).toContain("نسخه‌ی وب");
     expect(p.client.state.last_error).not.toContain("برنامه را به‌روز کنید");
-    expect(await p.deskDb.one(`select 1 as queued from tz_outbox where id = $1`, [party.id])).toEqual({ queued: 1 });
+    expect(await p.deskDb.one(`select 1 as queued from sm_outbox where id = $1`, [party.id])).toEqual({ queued: 1 });
   });
 });
 
@@ -149,24 +149,24 @@ describe("migration 0013 on both runtimes", () => {
     const s = await makeServer({ mode: "desktop" });
     const c = new Client(s.app);
     const org = await signupWithOrg(c, ["gold"], "gold");
-    await s.db.query(`delete from tz_items where org_id = $1 and rate_key in ('emami_1403', 'parsian_100', 'bar_10')`, [org]);
-    await s.db.query(`update tz_items set rate_key = null, gold_meta = '{}'::jsonb where org_id = $1 and rate_key = 'nim'`, [org]);
-    await s.db.query(`delete from tz_outbox`);
+    await s.db.query(`delete from sm_items where org_id = $1 and rate_key in ('emami_1403', 'parsian_100', 'bar_10')`, [org]);
+    await s.db.query(`update sm_items set rate_key = null, gold_meta = '{}'::jsonb where org_id = $1 and rate_key = 'nim'`, [org]);
+    await s.db.query(`delete from sm_outbox`);
     await s.db.tx((tx) => tx.exec(goldBullion));
-    const back = await s.db.query<{ rate_key: string }>(`select rate_key from tz_items where org_id = $1 and rate_key in ('emami_1403', 'parsian_100', 'bar_10', 'nim')`, [org]);
+    const back = await s.db.query<{ rate_key: string }>(`select rate_key from sm_items where org_id = $1 and rate_key in ('emami_1403', 'parsian_100', 'bar_10', 'nim')`, [org]);
     expect(back.map((r) => r.rate_key).sort()).toEqual(["bar_10", "emami_1403", "nim", "parsian_100"]);
-    expect(await s.db.query(`select entity, id from tz_outbox`)).toEqual([]);
+    expect(await s.db.query(`select entity, id from sm_outbox`)).toEqual([]);
   });
 
   it("on the cloud its touches get revisions but keep updated_at", async () => {
     const s = await makeServer({ mode: "cloud" });
     const c = new Client(s.app);
     const org = await signupWithOrg(c, ["gold"], "gold");
-    const nim = (await s.db.one<{ id: string; rev: number }>(`select id, rev from tz_items where org_id = $1 and rate_key = 'nim'`, [org]))!;
-    await quietly(s.db, `update tz_items set rate_key = null, gold_meta = '{}'::jsonb, updated_at = '2026-01-01T00:00:00Z' where id = $1`, [nim.id]);
-    const mid = (await s.db.one<{ rev: number }>(`select rev from tz_items where id = $1`, [nim.id]))!.rev;
+    const nim = (await s.db.one<{ id: string; rev: number }>(`select id, rev from sm_items where org_id = $1 and rate_key = 'nim'`, [org]))!;
+    await quietly(s.db, `update sm_items set rate_key = null, gold_meta = '{}'::jsonb, updated_at = '2026-01-01T00:00:00Z' where id = $1`, [nim.id]);
+    const mid = (await s.db.one<{ rev: number }>(`select rev from sm_items where id = $1`, [nim.id]))!.rev;
     await s.db.tx((tx) => tx.exec(goldBullion));
-    const after = (await s.db.one<{ rate_key: string; rev: number; updated_at: string }>(`select rate_key, rev, updated_at from tz_items where id = $1`, [nim.id]))!;
+    const after = (await s.db.one<{ rate_key: string; rev: number; updated_at: string }>(`select rate_key, rev, updated_at from sm_items where id = $1`, [nim.id]))!;
     expect(after.rate_key).toBe("nim");
     expect(Number(after.rev)).toBeGreaterThan(Number(mid));
     expect(new Date(after.updated_at).toISOString()).toBe("2026-01-01T00:00:00.000Z");
@@ -179,36 +179,36 @@ describe("migration 0017 after an earlier build of 0013", () => {
     const c = new Client(s.app);
     const org = await signupWithOrg(c, ["gold"], "gold");
     // the database as the earlier 0013 left it: a plain index, so a key could be doubled
-    await s.db.query(`drop index tz_items_rate_key_uk`);
-    await s.db.query(`create index tz_items_rate_key_idx on tz_items (org_id, rate_key) where rate_key is not null and deleted_at is null`);
-    const nim = (await s.db.one<{ id: string }>(`select id from tz_items where org_id = $1 and rate_key = 'nim'`, [org]))!;
-    const rob = (await s.db.one<{ id: string }>(`select id from tz_items where org_id = $1 and rate_key = 'rob'`, [org]))!;
+    await s.db.query(`drop index sm_items_rate_key_uk`);
+    await s.db.query(`create index sm_items_rate_key_idx on sm_items (org_id, rate_key) where rate_key is not null and deleted_at is null`);
+    const nim = (await s.db.one<{ id: string }>(`select id from sm_items where org_id = $1 and rate_key = 'nim'`, [org]))!;
+    const rob = (await s.db.one<{ id: string }>(`select id from sm_items where org_id = $1 and rate_key = 'rob'`, [org]))!;
     // make rob the product created first: it keeps the key although its id sorts later or earlier
-    await s.db.query(`update tz_items set created_at = now() - interval '1 day' where id = $1`, [rob.id]);
+    await s.db.query(`update sm_items set created_at = now() - interval '1 day' where id = $1`, [rob.id]);
     const [older, newer] = [rob.id, nim.id];
-    await quietly(s.db, `update tz_items set rate_key = 'nim' where id = $1`, [rob.id]);
-    const before = (await s.db.one<{ updated_at: string }>(`select updated_at from tz_items where id = $1`, [nim.id]))!.updated_at;
+    await quietly(s.db, `update sm_items set rate_key = 'nim' where id = $1`, [rob.id]);
+    const before = (await s.db.one<{ updated_at: string }>(`select updated_at from sm_items where id = $1`, [nim.id]))!.updated_at;
     await s.db.tx((tx) => tx.exec(rateKeyUnique));
-    const held = await s.db.query<{ id: string }>(`select id from tz_items where org_id = $1 and rate_key = 'nim' and deleted_at is null`, [org]);
+    const held = await s.db.query<{ id: string }>(`select id from sm_items where org_id = $1 and rate_key = 'nim' and deleted_at is null`, [org]);
     expect(held.map((r) => r.id)).toEqual([older]);
-    const loser = (await s.db.one<{ rate_key: string | null; updated_at: string }>(`select rate_key, updated_at from tz_items where id = $1`, [newer]))!;
+    const loser = (await s.db.one<{ rate_key: string | null; updated_at: string }>(`select rate_key, updated_at from sm_items where id = $1`, [newer]))!;
     expect(loser.rate_key).toBeNull();
     // a migration's touch keeps updated_at (it must not win last-writer-wins against a real edit)
     expect(new Date(loser.updated_at).toISOString()).toBe(new Date(before).toISOString());
-    expect(await s.db.one(`select 1 from pg_indexes where indexname = 'tz_items_rate_key_idx'`)).toBeNull();
-    await expect(s.db.query(`update tz_items set rate_key = 'nim' where id = $1`, [newer])).rejects.toThrow();
+    expect(await s.db.one(`select 1 from pg_indexes where indexname = 'sm_items_rate_key_idx'`)).toBeNull();
+    await expect(s.db.query(`update sm_items set rate_key = 'nim' where id = $1`, [newer])).rejects.toThrow();
     // on an up-to-date database it changes nothing
     await s.db.tx((tx) => tx.exec(rateKeyUnique));
-    expect((await s.db.query(`select id from tz_items where org_id = $1 and rate_key = 'nim'`, [org])).map((r) => (r as { id: string }).id)).toEqual([older]);
+    expect((await s.db.query(`select id from sm_items where org_id = $1 and rate_key = 'nim'`, [org])).map((r) => (r as { id: string }).id)).toEqual([older]);
   });
 });
 
 describe("clashes brought by coins and bars", () => {
   it("a board key typed on both sides ends on the product edited last, the same on both sides", async () => {
     const p = await linkedPair("key-owner@example.com");
-    const ins = (key: string) => `insert into tz_items (id, org_id, code, name, kind, rate_key, gold_weight, fineness) values ($1, $2, $3, 'مدال', 'coin', '${key}', 5, 900)`;
+    const ins = (key: string) => `insert into sm_items (id, org_id, code, name, kind, rate_key, gold_weight, fineness) values ($1, $2, $3, 'مدال', 'coin', '${key}', 5, 900)`;
     const pause = () => new Promise((r) => setTimeout(r, 20));
-    const holders = (db: Db, key: string) => db.query<{ id: string }>(`select id from tz_items where org_id = $1 and rate_key = $2 and deleted_at is null`, [p.org, key]);
+    const holders = (db: Db, key: string) => db.query<{ id: string }>(`select id from sm_items where org_id = $1 and rate_key = $2 and deleted_at is null`, [p.org, key]);
 
     // offline first, the web later: the web's choice stays, the Windows app's product loses the key
     const offline = uuidv7();
@@ -221,7 +221,7 @@ describe("clashes brought by coins and bars", () => {
     expect(p.client.state.last_error).toBeNull();
     expect(await holders(p.cloudDb, "medal")).toEqual([{ id: web }]);
     expect(await holders(p.deskDb, "medal")).toEqual([{ id: web }]);
-    expect(await p.cloudDb.one(`select rate_key from tz_items where id = $1`, [offline])).toEqual({ rate_key: null });
+    expect(await p.cloudDb.one(`select rate_key from sm_items where id = $1`, [offline])).toEqual({ rate_key: null });
 
     // the web first, offline later: the Windows app's choice stays
     const web2 = uuidv7();
@@ -234,29 +234,29 @@ describe("clashes brought by coins and bars", () => {
     expect(p.client.state.last_error).toBeNull();
     expect(await holders(p.cloudDb, "medal_3")).toEqual([{ id: offline2 }]);
     expect(await holders(p.deskDb, "medal_3")).toEqual([{ id: offline2 }]);
-    expect(await p.deskDb.one(`select rate_key from tz_items where id = $1`, [web2])).toEqual({ rate_key: null });
+    expect(await p.deskDb.one(`select rate_key from sm_items where id = $1`, [web2])).toEqual({ rate_key: null });
 
     // pulled and newer: the cloud's product takes the key, the local holder gives it up and is uploaded
     const local = uuidv7();
-    await quietly(p.deskDb, `insert into tz_items (id, org_id, code, name, kind, rate_key) values ($1, $2, 'C903', 'سکه محلی', 'coin', 'medal_2')`, [local, p.org]);
+    await quietly(p.deskDb, `insert into sm_items (id, org_id, code, name, kind, rate_key) values ($1, $2, 'C903', 'سکه محلی', 'coin', 'medal_2')`, [local, p.org]);
     await pause();
     const cloud = uuidv7();
-    await p.cloudDb.query(`insert into tz_items (id, org_id, code, name, kind, rate_key) values ($1, $2, 'C904', 'سکه ابری', 'coin', 'medal_2')`, [cloud, p.org]);
+    await p.cloudDb.query(`insert into sm_items (id, org_id, code, name, kind, rate_key) values ($1, $2, 'C904', 'سکه ابری', 'coin', 'medal_2')`, [cloud, p.org]);
     await p.client.pullAll();
-    expect(await p.deskDb.one(`select rate_key from tz_items where id = $1`, [cloud])).toEqual({ rate_key: "medal_2" });
-    expect(await p.deskDb.one(`select rate_key from tz_items where id = $1`, [local])).toEqual({ rate_key: null });
-    expect(await p.deskDb.one(`select 1 as queued from tz_outbox where entity = 'item' and id = $1`, [local])).toEqual({ queued: 1 });
+    expect(await p.deskDb.one(`select rate_key from sm_items where id = $1`, [cloud])).toEqual({ rate_key: "medal_2" });
+    expect(await p.deskDb.one(`select rate_key from sm_items where id = $1`, [local])).toEqual({ rate_key: null });
+    expect(await p.deskDb.one(`select 1 as queued from sm_outbox where entity = 'item' and id = $1`, [local])).toEqual({ queued: 1 });
 
     // pulled but older than a pending local choice: the local holder keeps it, and its upload
     // takes the key from the cloud's product there too
     const cloud4 = uuidv7();
-    await p.cloudDb.query(`insert into tz_items (id, org_id, code, name, kind, rate_key) values ($1, $2, 'C907', 'سکه ابری ۲', 'coin', 'medal_4')`, [cloud4, p.org]);
+    await p.cloudDb.query(`insert into sm_items (id, org_id, code, name, kind, rate_key) values ($1, $2, 'C907', 'سکه ابری ۲', 'coin', 'medal_4')`, [cloud4, p.org]);
     await pause();
     const local4 = uuidv7();
-    await p.deskDb.query(`insert into tz_items (id, org_id, code, name, kind, rate_key) values ($1, $2, 'C908', 'سکه محلی ۲', 'coin', 'medal_4')`, [local4, p.org]);
+    await p.deskDb.query(`insert into sm_items (id, org_id, code, name, kind, rate_key) values ($1, $2, 'C908', 'سکه محلی ۲', 'coin', 'medal_4')`, [local4, p.org]);
     await p.client.pullAll();
     expect(await holders(p.deskDb, "medal_4")).toEqual([{ id: local4 }]);
-    expect(await p.deskDb.one(`select rate_key from tz_items where id = $1`, [cloud4])).toEqual({ rate_key: null });
+    expect(await p.deskDb.one(`select rate_key from sm_items where id = $1`, [cloud4])).toEqual({ rate_key: null });
     await p.client.syncNow();
     await p.client.syncNow();
     expect(await holders(p.cloudDb, "medal_4")).toEqual([{ id: local4 }]);
@@ -268,7 +268,7 @@ describe("clashes brought by coins and bars", () => {
     const base = `/o/${p.org}`;
     await p.local.post(`${base}/gold/rates`, { gram18: "50000000", buy_gram18: "49000000", ounce_usd: "2000", usd: "1000000", coins: { emami: "600000000" } });
     const seller = (await p.local.post(`${base}/data/party`, { name: "بنکدار", roles: ["wholesaler"] })).row.id;
-    const model = (await p.deskDb.one<{ id: string }>(`select id from tz_items where org_id = $1 and rate_key = 'bar_10'`, [p.org]))!.id;
+    const model = (await p.deskDb.one<{ id: string }>(`select id from sm_items where org_id = $1 and rate_key = 'bar_10'`, [p.org]))!.id;
     const buy = await p.local.post(`${base}/gold/docs`, {
       kind: "purchase", date: "2026-06-05", party_id: seller,
       lines: [{ kind: "bar", item_id: model, weight: "10", fineness: "999.9", bar: { serial_no: "ZX-1", brand: "نمونه" } }],
@@ -276,14 +276,14 @@ describe("clashes brought by coins and bars", () => {
     const line = buy.doc.lines[0];
     expect(line.bar_no).toBe("900001");
     // meanwhile on the web: a live bar 900001 and a deleted 900002
-    await p.cloudDb.query(`insert into tz_gold_bars (id, org_id, bar_no, weight) values ($1, $2, '900001', 5)`, [uuidv7(), p.org]);
-    await p.cloudDb.query(`insert into tz_gold_bars (id, org_id, bar_no, weight, deleted_at) values ($1, $2, '900002', 5, now())`, [uuidv7(), p.org]);
+    await p.cloudDb.query(`insert into sm_gold_bars (id, org_id, bar_no, weight) values ($1, $2, '900001', 5)`, [uuidv7(), p.org]);
+    await p.cloudDb.query(`insert into sm_gold_bars (id, org_id, bar_no, weight, deleted_at) values ($1, $2, '900002', 5, now())`, [uuidv7(), p.org]);
     await p.client.syncNow();
     expect(p.client.state.last_error).toBeNull();
     const barId = line.gold_bar_id as string;
     for (const db of [p.cloudDb, p.deskDb]) {
-      expect(await db.one(`select bar_no from tz_gold_bars where id = $1`, [barId])).toEqual({ bar_no: "900003" });
-      const l = (await db.one<{ tag_no: string; extra: { bar?: { bar_no?: string } } }>(`select tag_no, extra from tz_gold_lines where gold_bar_id = $1`, [barId]))!;
+      expect(await db.one(`select bar_no from sm_gold_bars where id = $1`, [barId])).toEqual({ bar_no: "900003" });
+      const l = (await db.one<{ tag_no: string; extra: { bar?: { bar_no?: string } } }>(`select tag_no, extra from sm_gold_lines where gold_bar_id = $1`, [barId]))!;
       expect(l.tag_no).toBe("900003");
       if (l.extra.bar?.bar_no) expect(l.extra.bar.bar_no).toBe("900003");
     }
@@ -295,20 +295,20 @@ describe("a failure after an aggregate is written", () => {
     const s = await makeServer({ mode: "cloud" });
     const c = new Client(s.app);
     const org = await signupWithOrg(c, ["gold"], "gold");
-    await s.db.query(`create or replace function tz_test_fail() returns trigger language plpgsql as $$ begin raise exception 'bar lines locked'; end $$`);
-    await s.db.query(`create trigger tz_test_fail before update on tz_gold_lines for each statement execute function tz_test_fail()`);
+    await s.db.query(`create or replace function sm_test_fail() returns trigger language plpgsql as $$ begin raise exception 'bar lines locked'; end $$`);
+    await s.db.query(`create trigger sm_test_fail before update on sm_gold_lines for each statement execute function sm_test_fail()`);
     const def = BY_ENTITY.get("gold_bar")!;
     const bar = uuidv7();
     const other = uuidv7();
     await s.db.tx(async (tx) => {
-      await tx.query("set local taraz.applying = 'on'");
+      await tx.query("set local itsm.applying = 'on'");
       await expect(writeAggregate(tx, def, { entity: "gold_bar", id: bar, base_rev: 0, row: { id: bar, bar_no: "900001", weight: 10 }, children: {} }, org, "incoming-yields")).rejects.toThrow("bar lines locked");
-      expect(await tx.one(`select 1 from tz_gold_bars where id = $1`, [bar])).toBeNull();
+      expect(await tx.one(`select 1 from sm_gold_bars where id = $1`, [bar])).toBeNull();
       // the next aggregate of the same push is applied as usual
-      await tx.query(`insert into tz_gold_bars (id, org_id, bar_no, weight) values ($1, $2, '900002', 5)`, [other, org]);
+      await tx.query(`insert into sm_gold_bars (id, org_id, bar_no, weight) values ($1, $2, '900002', 5)`, [other, org]);
     });
-    await s.db.query(`drop trigger tz_test_fail on tz_gold_lines`);
-    expect(await s.db.one(`select bar_no from tz_gold_bars where id = $1`, [other])).toEqual({ bar_no: "900002" });
+    await s.db.query(`drop trigger sm_test_fail on sm_gold_lines`);
+    expect(await s.db.one(`select bar_no from sm_gold_bars where id = $1`, [other])).toEqual({ bar_no: "900002" });
   });
 });
 
@@ -316,12 +316,12 @@ describe("a business made read-only by the platform admin", () => {
   it("keeps receiving the cloud's changes while its own uploads are refused", async () => {
     const p = await linkedPair("readonly-owner@example.com");
     const web = (await p.web.post(`/o/${p.org}/data/party`, { name: "مشتری وب" })).row;
-    await p.cloudDb.query(`insert into tz_org_admin (org_id, status) values ($1, 'read_only')`, [p.org]);
+    await p.cloudDb.query(`insert into sm_org_admin (org_id, status) values ($1, 'read_only')`, [p.org]);
     const local = (await p.local.post(`/o/${p.org}/data/party`, { name: "مشتری ویندوز" })).row;
     await p.client.syncNow();
-    expect(await p.deskDb.one(`select name from tz_parties where id = $1`, [web.id])).toEqual({ name: "مشتری وب" });
+    expect(await p.deskDb.one(`select name from sm_parties where id = $1`, [web.id])).toEqual({ name: "مشتری وب" });
     expect(p.client.state.last_error).toContain("فقط‌خواندنی");
-    expect(await p.deskDb.one(`select 1 as queued from tz_outbox where id = $1`, [local.id])).toEqual({ queued: 1 });
-    expect(await p.cloudDb.one(`select 1 from tz_parties where id = $1`, [local.id])).toBeNull();
+    expect(await p.deskDb.one(`select 1 as queued from sm_outbox where id = $1`, [local.id])).toEqual({ queued: 1 });
+    expect(await p.cloudDb.one(`select 1 from sm_parties where id = $1`, [local.id])).toBeNull();
   });
 });

@@ -245,7 +245,7 @@ export function ConnectionDrawer({
               حذف اتصال
             </Button>
           ) : null}
-          <span className="sf-end">
+          <span className="ds-end">
             <Button icon={<FlaskConical size={16} strokeWidth={1.4} absoluteStrokeWidth />} loading={testing} onClick={test}>
               آزمایش اتصال
             </Button>
@@ -259,7 +259,7 @@ export function ConnectionDrawer({
       <div className="ai-form">
         {!secretOk ? (
           <Note tone="warning">
-            <b>کلید رمزنگاری سامانه تنظیم نشده است.</b> تا مدیر سامانه متغیر <bdi dir="ltr" className="sf-mono">APP_SECRET</bdi> را تنظیم نکند، کلید تازه ذخیره نمی‌شود.
+            <b>کلید رمزنگاری سامانه تنظیم نشده است.</b> تا مدیر سامانه متغیر <bdi dir="ltr" className="ds-mono">APP_SECRET</bdi> را تنظیم نکند، کلید تازه ذخیره نمی‌شود.
           </Note>
         ) : null}
 
@@ -282,7 +282,7 @@ export function ConnectionDrawer({
                 {preset.key_url ? (
                   <>
                     {" "}
-                    <a className="sf-link ai-ext" href={preset.key_url} target="_blank" rel="noopener noreferrer">
+                    <a className="ds-link ai-ext" href={preset.key_url} target="_blank" rel="noopener noreferrer">
                       دریافت کلید
                       <ExternalLink size={12} strokeWidth={1.4} absoluteStrokeWidth aria-hidden />
                     </a>
@@ -291,7 +291,7 @@ export function ConnectionDrawer({
               </p>
             ) : preset.key_url ? (
               <p>
-                <a className="sf-link ai-ext" href={preset.key_url} target="_blank" rel="noopener noreferrer">
+                <a className="ds-link ai-ext" href={preset.key_url} target="_blank" rel="noopener noreferrer">
                   دریافت کلید
                   <ExternalLink size={12} strokeWidth={1.4} absoluteStrokeWidth aria-hidden />
                 </a>
@@ -301,7 +301,7 @@ export function ConnectionDrawer({
               <reg.icon size={14} strokeWidth={1.4} absoluteStrokeWidth aria-hidden />
               <span>
                 {reg.text}{" "}
-                <button type="button" className="sf-link border-0 bg-transparent p-0 text-[12px]" onClick={() => setRegion((r) => !r)} aria-expanded={region}>
+                <button type="button" className="ds-link border-0 bg-transparent p-0 text-[12px]" onClick={() => setRegion((r) => !r)} aria-expanded={region}>
                   {region ? "بستن" : "بیشتر"}
                 </button>
               </span>
@@ -432,25 +432,25 @@ export function RegionNote(): ReactNode {
   return (
     <ul className="ai-region ai-well">
       <li>
-        <i className="sf-nuqta" aria-hidden />
+        <i className="ds-nuqta" aria-hidden />
         <span>
           <b>سرویس‌های خارجی</b> (Claude، OpenAI، Gemini و …) به نشانی‌های ایران پاسخ نمی‌دهند. نسخهٔ وب سیراف بیرون از ایران اجرا می‌شود و مستقیم وصل می‌شود.
         </span>
       </li>
       <li>
-        <i className="sf-nuqta" aria-hidden />
+        <i className="ds-nuqta" aria-hidden />
         <span>
           <b>نسخهٔ ویندوز داخل ایران</b> از درگاه ایرانی (متیس، اول‌ای‌آی، گپ‌جی‌پی‌تی) یا از «استفاده از اتصال‌های نسخهٔ وب» کمک می‌گیرد.
         </span>
       </li>
       <li>
-        <i className="sf-nuqta" aria-hidden />
+        <i className="ds-nuqta" aria-hidden />
         <span>
           <b>مدل محلی</b> (Ollama، LM Studio، llama.cpp) روی همان رایانه اجرا می‌شود و داده از رایانه بیرون نمی‌رود.
         </span>
       </li>
       <li>
-        <i className="sf-nuqta" aria-hidden />
+        <i className="ds-nuqta" aria-hidden />
         <span>
           <ShieldCheck size={13} strokeWidth={1.4} absoluteStrokeWidth className="me-1 inline align-[-2px] text-ink-3" aria-hidden />
           با سرویس خارجی یا درگاه، پرسش و داده‌های لازم برای پاسخ از سیراف بیرون می‌رود؛ «حریم خصوصی» تعیین می‌کند کد ملی، موبایل و حساب‌ها پوشانده شود.

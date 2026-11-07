@@ -1,6 +1,6 @@
-// Siraf · motion helpers (components.md §13). Durations and easings are CSS tokens (tokens.css §3); read them from
+// Motion helpers (components.md §13). Durations and easings are CSS tokens (tokens.css §3); read them from
 // CSS so prefers-reduced-motion and data-motion="reduced" (tokens.css §6) apply everywhere. The CSS side is
-// src/ui/siraf/motion.css: .sf-enter, .sf-fade, .sf-pop, .sf-stagger, .sf-press, .sf-launch.
+// src/ui/ds/motion.css: .ds-enter, .ds-fade, .ds-pop, .ds-stagger, .ds-press, .ds-launch.
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 
 /** True when the OS asks for reduced motion or the app sets <html data-motion="reduced"> (or data-power="low"). */
@@ -28,8 +28,8 @@ export function useReducedMotion(): boolean {
   return reduced;
 }
 
-/** A duration token in ms, e.g. cssDuration("--sf-dur-sheet") → 240 (150 under reduced motion). */
-export function cssDuration(token: `--sf-dur-${string}`, fallback = 200): number {
+/** A duration token in ms, e.g. cssDuration("--ds-dur-sheet") → 240 (150 under reduced motion). */
+export function cssDuration(token: `--ds-dur-${string}`, fallback = 200): number {
   if (typeof window === "undefined") return fallback;
   const v = getComputedStyle(document.documentElement).getPropertyValue(token).trim();
   const n = parseFloat(v);
@@ -37,8 +37,8 @@ export function cssDuration(token: `--sf-dur-${string}`, fallback = 200): number
   return v.endsWith("ms") ? n : v.endsWith("s") ? n * 1000 : n;
 }
 
-/** Inline style for the n-th item of a hand-built stagger with .sf-enter (at most 6 are staggered, 30 ms apart). */
-export const stagger = (i: number): CSSProperties => ({ ["--sf-i" as string]: Math.min(Math.max(i, 0), 5) });
+/** Inline style for the n-th item of a hand-built stagger with .ds-enter (at most 6 are staggered, 30 ms apart). */
+export const stagger = (i: number): CSSProperties => ({ ["--ds-i" as string]: Math.min(Math.max(i, 0), 5) });
 
 // the default entering curve, cubic-bezier(.23, 1, .32, 1), approximated for JS-driven values
 const easeOut = (t: number) => 1 - Math.pow(1 - t, 4);

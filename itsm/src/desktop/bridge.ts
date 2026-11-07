@@ -34,7 +34,7 @@ export function createBridge(o: { dataDir: string; db: Db & { pg?: PGlite }; con
     const dir = backupDir(o.dataDir, o.config.backups.dir);
     const r = await backupNow(o.db.pg, dir, label);
     pruneBackups(dir, o.config.backups.keep);
-    await o.db.query(`insert into tz_kv (key, value) values ('backup.last', $1::jsonb) on conflict (key) do update set value = excluded.value, updated_at = now()`, [JSON.stringify({ at: new Date().toISOString(), file: r.file, size: r.size })]);
+    await o.db.query(`insert into sm_kv (key, value) values ('backup.last', $1::jsonb) on conflict (key) do update set value = excluded.value, updated_at = now()`, [JSON.stringify({ at: new Date().toISOString(), file: r.file, size: r.size })]);
     return r;
   };
 
@@ -56,7 +56,7 @@ export function createBridge(o: { dataDir: string; db: Db & { pg?: PGlite }; con
       await sync.stop();
     },
     async info() {
-      const last = await o.db.one<{ value: unknown }>(`select value from tz_kv where key = 'backup.last'`).catch(() => null);
+      const last = await o.db.one<{ value: unknown }>(`select value from sm_kv where key = 'backup.last'`).catch(() => null);
       return {
         version: APP_VERSION,
         data_dir: o.dataDir,
@@ -112,7 +112,7 @@ export function createBridge(o: { dataDir: string; db: Db & { pg?: PGlite }; con
       if (r.status !== "ok") return { ok: false, unreachable: r.status === "unreachable", limited: r.status === "limited" };
       // remember the password of this cloud account here, so that the next sign-in works offline
       // (the next change of the account in the cloud replaces or drops it again)
-      await o.db.query(`update tz_users set password_hash = $2 where id = $1 and lower(email) = lower($3)`, [r.user_id, await hashPassword(password), email]);
+      await o.db.query(`update sm_users set password_hash = $2 where id = $1 and lower(email) = lower($3)`, [r.user_id, await hashPassword(password), email]);
       return { ok: true, user_id: r.user_id };
     },
     notifyLocalWrite() {

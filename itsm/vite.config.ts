@@ -20,7 +20,7 @@ export default defineConfig({
     alias: { "@shared": r("./src/shared"), "@ui": r("./src/ui") },
   },
   build: {
-    outDir: process.env.TARAZ_UI_OUT ? r(process.env.TARAZ_UI_OUT) : r("./public"),
+    outDir: process.env.ITSM_UI_OUT ? r(process.env.ITSM_UI_OUT) : r("./public"),
     emptyOutDir: true,
     target: "es2020",
     chunkSizeWarningLimit: 4000,

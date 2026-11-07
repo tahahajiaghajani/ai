@@ -82,7 +82,7 @@ export async function loadEnv(ctx: Ctx): Promise<AiEnv> {
     loadPolicy(ctx.cfg),
     ctx.cfg.mode === "cloud" ? orgAiDisabled(ctx.db, ctx.org.id).catch(() => false) : false,
   ]);
-  // «مدیریت سامانه» can switch one business off (tz_org_admin) as well as through the policy
+  // «مدیریت سامانه» can switch one business off (sm_org_admin) as well as through the policy
   if (offByAdmin && !policy.disabled_orgs.includes(ctx.org.id)) policy.disabled_orgs = [...policy.disabled_orgs, ctx.org.id];
   return { settings, policy };
 }
@@ -128,7 +128,7 @@ interface Hold {
 }
 
 async function activeHolds(ctx: Ctx): Promise<Hold[]> {
-  return ctx.db.query<Hold>(`select connection_id, model, until, kind from tz_ai_holds where org_id = $1 and until > now()`, [ctx.org.id]);
+  return ctx.db.query<Hold>(`select connection_id, model, until, kind from sm_ai_holds where org_id = $1 and until > now()`, [ctx.org.id]);
 }
 
 async function hold(ctx: Ctx, connectionId: string, model: string, ms: number, kind: AiErrorKind, reason: string): Promise<void> {
@@ -137,8 +137,8 @@ async function hold(ctx: Ctx, connectionId: string, model: string, ms: number, k
     .write(
       (tx) =>
         tx.query(
-          `insert into tz_ai_holds (id, org_id, connection_id, model, until, kind, reason) values ($1, $2, $3, $4, $5, $6, $7)
-           on conflict (connection_id, model) do update set until = greatest(tz_ai_holds.until, excluded.until), kind = excluded.kind, reason = excluded.reason`,
+          `insert into sm_ai_holds (id, org_id, connection_id, model, until, kind, reason) values ($1, $2, $3, $4, $5, $6, $7)
+           on conflict (connection_id, model) do update set until = greatest(sm_ai_holds.until, excluded.until), kind = excluded.kind, reason = excluded.reason`,
           [uuidv7(), ctx.org.id, connectionId, model, until, kind, reason.slice(0, 300)],
         ),
       { internal: true },

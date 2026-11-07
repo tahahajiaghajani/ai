@@ -1,5 +1,5 @@
-// The business's AI settings (tz_ai_settings, one JSON per business and runtime) and the
-// platform's AI policy (tz_kv "ai.policy", web version only).
+// The business's AI settings (sm_ai_settings, one JSON per business and runtime) and the
+// platform's AI policy (sm_kv "ai.policy", web version only).
 import { z } from "zod";
 import type { Ctx, ServerConfig } from "../../context";
 import { pgArray, type Queryable } from "../../db";
@@ -67,7 +67,7 @@ export function normalizeSettings(raw: unknown): AiSettings {
 }
 
 export async function loadSettings(q: Queryable, orgId: string): Promise<AiSettings> {
-  const row = await q.one<{ settings: unknown }>(`select settings from tz_ai_settings where org_id = $1`, [orgId]);
+  const row = await q.one<{ settings: unknown }>(`select settings from sm_ai_settings where org_id = $1`, [orgId]);
   return normalizeSettings(row?.settings);
 }
 
@@ -108,7 +108,7 @@ export async function saveSettings(ctx: Ctx, patch: AiSettingsPatch): Promise<Ai
   ctx.need("ai", "full");
   const routed = Object.values(patch.routing ?? {}).flatMap((l) => (l ?? []).map((x) => x.connection_id));
   if (routed.length) {
-    const rows = await ctx.db.query<{ id: string }>(`select id from tz_ai_connections where org_id = $1 and deleted_at is null and id = any($2::uuid[])`, [ctx.org.id, pgArray([...new Set(routed)])]);
+    const rows = await ctx.db.query<{ id: string }>(`select id from sm_ai_connections where org_id = $1 and deleted_at is null and id = any($2::uuid[])`, [ctx.org.id, pgArray([...new Set(routed)])]);
     const ok = new Set(rows.map((r) => r.id));
     if (routed.some((id) => !ok.has(id))) throw bad("یکی از اتصال‌های زنجیرهٔ مدل‌ها پیدا نشد");
   }
@@ -125,7 +125,7 @@ export async function saveSettings(ctx: Ctx, patch: AiSettingsPatch): Promise<Ai
       ...(ctx.cfg.mode === "cloud" ? { cloud_first: [] } : {}),
     });
     await tx.query(
-      `insert into tz_ai_settings (org_id, settings, updated_by, updated_at) values ($1, $2::jsonb, $3, now())
+      `insert into sm_ai_settings (org_id, settings, updated_by, updated_at) values ($1, $2::jsonb, $3, now())
        on conflict (org_id) do update set settings = excluded.settings, updated_by = excluded.updated_by, updated_at = now()`,
       [ctx.org.id, JSON.stringify(next), ctx.user.id],
     );
@@ -156,7 +156,7 @@ export function defaultPolicy(): AiPolicy {
 /** The platform policy; the Windows app is its own platform and has none. */
 export async function loadPolicy(cfg: ServerConfig, q: Queryable = cfg.db): Promise<AiPolicy> {
   if (cfg.mode !== "cloud") return defaultPolicy();
-  const row = await q.one<{ value: unknown; updated_at: string }>(`select value, updated_at from tz_kv where key = $1`, [POLICY_KEY]);
+  const row = await q.one<{ value: unknown; updated_at: string }>(`select value, updated_at from sm_kv where key = $1`, [POLICY_KEY]);
   const v = (row?.value && typeof row.value === "object" ? row.value : {}) as Partial<AiPolicy>;
   const d = defaultPolicy();
   return {
@@ -184,7 +184,7 @@ export async function savePolicy(cfg: ServerConfig, patch: z.infer<typeof policy
   const next = { ...cur, ...patch };
   delete (next as Partial<AiPolicy>).updated_at;
   await cfg.db.query(
-    `insert into tz_kv (key, value, updated_at) values ($1, $2::jsonb, now())
+    `insert into sm_kv (key, value, updated_at) values ($1, $2::jsonb, now())
      on conflict (key) do update set value = excluded.value, updated_at = now()`,
     [POLICY_KEY, JSON.stringify(next)],
   );

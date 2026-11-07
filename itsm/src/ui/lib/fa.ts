@@ -1,4 +1,4 @@
-// Siraf · Persian figures, dates and search — the only formatting the UI should use.
+// Persian figures, dates and search — the only formatting the UI should use.
 // fa-IR gives ٬ thousands, ٫ decimal and LRM + U+2212 for minus; these helpers add the brand rules on top.
 
 const nf = (d = 0, o: Intl.NumberFormatOptions = {}) =>
@@ -17,7 +17,7 @@ export const signed = (n: number, decimals = 0) => nf(decimals, { signDisplay: "
 export const accounting = (n: number, decimals = 0) => (n < 0 ? `(${fa(-n, decimals)})` : fa(n, decimals));
 
 /** Ledger balance (دفتر کل، معین، صورت‌حساب): «مانده» unsigned plus its «تشخیص» column — debit «بد», credit «بس»,
- *  zero «—». In Siraf Num (Vazirmatn digits) U+2212 is the same 6 px glyph as the hyphen, so ledgers never rely on the sign. */
+ *  zero «—». In DS Num (Vazirmatn digits) U+2212 is the same 6 px glyph as the hyphen, so ledgers never rely on the sign. */
 export const balance = (n: number, decimals = 0): [amount: string, side: "بد" | "بس" | "—"] =>
   n === 0 ? ["—", "—"] : [fa(Math.abs(n), decimals), n > 0 ? "بد" : "بس"];
 
@@ -34,7 +34,7 @@ export const pct = (ratio: number, decimals = 1) => "؜" + nf(decimals, { style:
 export const compact = (n: number, maxDecimals = 1) =>
   new Intl.NumberFormat("fa-IR", { notation: "compact", maximumFractionDigits: maxDecimals }).format(n);
 
-/** Splits a formatted figure so the decimals can be styled: «۱۲٫۳۴۵» → ["۱۲", "٫۳۴۵"]. They stay full size (`.sf-dec`,
+/** Splits a formatted figure so the decimals can be styled: «۱۲٫۳۴۵» → ["۱۲", "٫۳۴۵"]. They stay full size (`.ds-dec`,
  *  text-2; ink in gold-weight columns) and only step down to 65 % text-3 inside display figures ≥ 24 px (hero, KPI). */
 export const splitDecimals = (s: string): [string, string] => {
   const i = s.lastIndexOf("٫");
@@ -86,5 +86,5 @@ export const matchesFa = (text: string, query: string) => {
   return normalizeFa(query).split(" ").filter(Boolean).every((w) => t.includes(w));
 };
 
-/** Never join figures with «·»: the Persian zero «۰» of Siraf Num (Vazirmatn's digits) is a dot, so «۵ · ۲» reads «۵۰۲». */
+/** Never join figures with «·»: the Persian zero «۰» of DS Num (Vazirmatn's digits) is a dot, so «۵ · ۲» reads «۵۰۲». */
 export const SEP = "، ";

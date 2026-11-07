@@ -73,7 +73,7 @@ const THREAD_COLS = `id, org_id, user_id, title, context, pinned, archived_at, r
 /** The caller's own thread (anyone else's is "not found"). */
 export async function ownThread(ctx: Ctx, id: string): Promise<ThreadRow> {
   if (!/^[0-9a-f-]{36}$/i.test(id)) throw notFound("گفتگو پیدا نشد");
-  const t = await ctx.db.one<ThreadRow>(`select ${THREAD_COLS} from tz_ai_threads where id = $1 and org_id = $2 and user_id = $3`, [id, ctx.org.id, ctx.user.id]);
+  const t = await ctx.db.one<ThreadRow>(`select ${THREAD_COLS} from sm_ai_threads where id = $1 and org_id = $2 and user_id = $3`, [id, ctx.org.id, ctx.user.id]);
   if (!t) throw notFound("گفتگو پیدا نشد");
   return t;
 }
@@ -86,7 +86,7 @@ export function threadTitle(text: string): string {
 export async function createThread(ctx: Ctx, title: string, context: AiPageContext | null): Promise<ThreadRow> {
   const id = uuidv7();
   await ctx.write(
-    (tx) => tx.query(`insert into tz_ai_threads (id, org_id, user_id, title, context) values ($1, $2, $3, $4, $5::jsonb)`, [id, ctx.org.id, ctx.user.id, title.slice(0, 200), context ? JSON.stringify(context) : null]),
+    (tx) => tx.query(`insert into sm_ai_threads (id, org_id, user_id, title, context) values ($1, $2, $3, $4, $5::jsonb)`, [id, ctx.org.id, ctx.user.id, title.slice(0, 200), context ? JSON.stringify(context) : null]),
     { internal: true },
   );
   return ownThread(ctx, id);
@@ -109,10 +109,10 @@ export async function listThreads(ctx: Ctx, opts: { q?: string; archived?: boole
   let where = `org_id = $1 and user_id = $2 and archived_at is ${opts.archived ? "not null" : "null"}`;
   if (opts.q?.trim()) {
     params.push(likeContains(opts.q.trim()));
-    where += ` and (title ilike $${params.length} or exists (select 1 from tz_ai_messages m where m.thread_id = tz_ai_threads.id and m.role = 'user' and m.text ilike $${params.length}))`;
+    where += ` and (title ilike $${params.length} or exists (select 1 from sm_ai_messages m where m.thread_id = sm_ai_threads.id and m.role = 'user' and m.text ilike $${params.length}))`;
   }
   params.push(Math.min(opts.limit ?? 100, 300));
-  const rows = await ctx.db.query<ThreadRow>(`select ${THREAD_COLS} from tz_ai_threads where ${where} order by pinned desc, updated_at desc limit $${params.length}`, params);
+  const rows = await ctx.db.query<ThreadRow>(`select ${THREAD_COLS} from sm_ai_threads where ${where} order by pinned desc, updated_at desc limit $${params.length}`, params);
   return rows.map(threadSummary);
 }
 
@@ -121,7 +121,7 @@ export async function patchThread(ctx: Ctx, id: string, patch: { title?: string;
   await ctx.write(
     (tx) =>
       tx.query(
-        `update tz_ai_threads set title = coalesce($2, title), pinned = coalesce($3, pinned),
+        `update sm_ai_threads set title = coalesce($2, title), pinned = coalesce($3, pinned),
            archived_at = case when $4::boolean is null then archived_at when $4::boolean then coalesce(archived_at, now()) else null end
          where id = $1`,
         [id, patch.title?.trim() ? patch.title.trim().slice(0, 200) : null, patch.pinned ?? null, patch.archived ?? null],
@@ -134,12 +134,12 @@ export async function patchThread(ctx: Ctx, id: string, patch: { title?: string;
 export async function deleteThread(ctx: Ctx, id: string): Promise<void> {
   const t = await ownThread(ctx, id);
   if (running(t)) throw conflict("پاسخی در این گفتگو در حال آماده شدن است؛ پس از پایان آن دوباره امتحان کنید");
-  await ctx.write((tx) => tx.query(`delete from tz_ai_threads where id = $1`, [id]), { internal: true });
+  await ctx.write((tx) => tx.query(`delete from sm_ai_threads where id = $1`, [id]), { internal: true });
 }
 
 /** Conversations older than the retention period are removed (with their messages and data). */
 /** Read documents (ID cards, cheques: national ids, birth dates, IBANs) live no longer than the retention, and never over 30 days (their cache window). */
-const CAPTURE_PURGE_SQL = `delete from tz_ai_captures where org_id = $1 and created_at < now() - (least(greatest($2::int, 1), 30) * interval '1 day')`;
+const CAPTURE_PURGE_SQL = `delete from sm_ai_captures where org_id = $1 and created_at < now() - (least(greatest($2::int, 1), 30) * interval '1 day')`;
 
 export async function purgeCaptures(ctx: Ctx, days: number): Promise<void> {
   await ctx.write((tx) => tx.query(CAPTURE_PURGE_SQL, [ctx.org.id, days]), { internal: true }).catch(() => undefined);
@@ -149,8 +149,8 @@ export async function purgeOld(ctx: Ctx, days: number): Promise<void> {
   await ctx
     .write(
       async (tx) => {
-        await tx.query(`delete from tz_ai_threads where org_id = $1 and pinned = false and updated_at < now() - ($2::int * interval '1 day') and (run_until is null or run_until < now())`, [ctx.org.id, days]);
-        await tx.query(`delete from tz_ai_data_refs where org_id = $1 and expires_at < now()`, [ctx.org.id]);
+        await tx.query(`delete from sm_ai_threads where org_id = $1 and pinned = false and updated_at < now() - ($2::int * interval '1 day') and (run_until is null or run_until < now())`, [ctx.org.id, days]);
+        await tx.query(`delete from sm_ai_data_refs where org_id = $1 and expires_at < now()`, [ctx.org.id]);
         await tx.query(CAPTURE_PURGE_SQL, [ctx.org.id, days]);
       },
       { internal: true },
@@ -165,7 +165,7 @@ export async function acquireRun(ctx: Ctx, threadId: string, runId: string, leas
   const r = await ctx.write(
     (tx) =>
       tx.one(
-        `update tz_ai_threads set run_id = $2, run_until = now() + ($3::int * interval '1 millisecond'), stop_requested_at = null, updated_at = now()
+        `update sm_ai_threads set run_id = $2, run_until = now() + ($3::int * interval '1 millisecond'), stop_requested_at = null, updated_at = now()
          where id = $1 and (run_id is null or run_until is null or run_until < now()) returning id`,
         [threadId, runId, leaseMs],
       ),
@@ -177,25 +177,25 @@ export async function acquireRun(ctx: Ctx, threadId: string, runId: string, leas
 /** Keep the lease while a long answer (Windows app: no time budget) is still working. */
 export async function renewRun(ctx: Ctx, threadId: string, runId: string, leaseMs: number): Promise<void> {
   await ctx
-    .write((tx) => tx.query(`update tz_ai_threads set run_until = now() + ($3::int * interval '1 millisecond') where id = $1 and run_id = $2`, [threadId, runId, leaseMs]), { internal: true })
+    .write((tx) => tx.query(`update sm_ai_threads set run_until = now() + ($3::int * interval '1 millisecond') where id = $1 and run_id = $2`, [threadId, runId, leaseMs]), { internal: true })
     .catch(() => undefined);
 }
 
 export async function releaseRun(ctx: Ctx, threadId: string, runId: string): Promise<void> {
   await ctx
-    .write((tx) => tx.query(`update tz_ai_threads set run_id = null, run_until = null, updated_at = now() where id = $1 and run_id = $2`, [threadId, runId]), { internal: true })
+    .write((tx) => tx.query(`update sm_ai_threads set run_id = null, run_until = null, updated_at = now() where id = $1 and run_id = $2`, [threadId, runId]), { internal: true })
     .catch(() => undefined);
 }
 
 export async function stopRequested(ctx: Ctx, threadId: string, runId: string): Promise<boolean> {
-  const r = await ctx.db.one<{ stop: boolean }>(`select (stop_requested_at is not null) as stop from tz_ai_threads where id = $1 and run_id = $2`, [threadId, runId]);
+  const r = await ctx.db.one<{ stop: boolean }>(`select (stop_requested_at is not null) as stop from sm_ai_threads where id = $1 and run_id = $2`, [threadId, runId]);
   return r ? r.stop : true;
 }
 
 export async function requestStop(ctx: Ctx, threadId: string): Promise<boolean> {
   const t = await ownThread(ctx, threadId);
   if (!running(t)) return false;
-  await ctx.write((tx) => tx.query(`update tz_ai_threads set stop_requested_at = now() where id = $1 and run_id is not null`, [threadId]), { internal: true });
+  await ctx.write((tx) => tx.query(`update sm_ai_threads set stop_requested_at = now() where id = $1 and run_id is not null`, [threadId]), { internal: true });
   return true;
 }
 
@@ -206,10 +206,10 @@ export async function insertUserMessage(ctx: Ctx, threadId: string, text: string
   await ctx.write(
     async (tx) => {
       await tx.query(
-        `insert into tz_ai_messages (id, thread_id, org_id, user_id, role, kind, text, parts, native, status) values ($1, $2, $3, $4, 'user', 'message', $5, $6::jsonb, $7::jsonb, 'done')`,
+        `insert into sm_ai_messages (id, thread_id, org_id, user_id, role, kind, text, parts, native, status) values ($1, $2, $3, $4, 'user', 'message', $5, $6::jsonb, $7::jsonb, 'done')`,
         [id, threadId, ctx.org.id, ctx.user.id, text, JSON.stringify(meta), JSON.stringify({ parts: modelParts })],
       );
-      await tx.query(`update tz_ai_threads set updated_at = now() where id = $1`, [threadId]);
+      await tx.query(`update sm_ai_threads set updated_at = now() where id = $1`, [threadId]);
     },
     { internal: true },
   );
@@ -233,11 +233,11 @@ export async function insertStep(ctx: Ctx, s: StepInput, extra?: (tx: Tx) => Pro
   await ctx.write(
     async (tx) => {
       await tx.query(
-        `insert into tz_ai_messages (id, thread_id, org_id, user_id, role, kind, reply_to, text, parts, native, model, connection_id, usage, status)
+        `insert into sm_ai_messages (id, thread_id, org_id, user_id, role, kind, reply_to, text, parts, native, model, connection_id, usage, status)
          values ($1, $2, $3, $4, 'assistant', 'step', $5, $6, $7::jsonb, $8::jsonb, $9, $10, $11::jsonb, $12)`,
         [s.id, s.threadId, ctx.org.id, ctx.user.id, s.replyTo, s.text, JSON.stringify(s.parts), s.native ? JSON.stringify(s.native) : null, s.model, s.connectionId, s.usage ? JSON.stringify(s.usage) : null, s.status],
       );
-      await tx.query(`update tz_ai_threads set updated_at = now() where id = $1`, [s.threadId]);
+      await tx.query(`update sm_ai_threads set updated_at = now() where id = $1`, [s.threadId]);
       if (extra) await extra(tx);
     },
     { internal: true },
@@ -246,7 +246,7 @@ export async function insertStep(ctx: Ctx, s: StepInput, extra?: (tx: Tx) => Pro
 
 async function messageRows(ctx: Ctx, threadId: string): Promise<MessageRow[]> {
   return ctx.db.query<MessageRow>(
-    `select id, role, kind, reply_to, text, parts, native, model, connection_id, usage, rating, status, created_at from tz_ai_messages where thread_id = $1 order by seq`,
+    `select id, role, kind, reply_to, text, parts, native, model, connection_id, usage, rating, status, created_at from sm_ai_messages where thread_id = $1 order by seq`,
     [threadId],
   );
 }
@@ -368,18 +368,18 @@ export async function messageViews(ctx: Ctx, thread: ThreadRow): Promise<AiMessa
 export async function rateMessage(ctx: Ctx, id: string, rating: 1 | -1 | null): Promise<void> {
   if (!/^[0-9a-f-]{36}$/i.test(id)) throw notFound("پیام پیدا نشد");
   const row = await ctx.db.one<{ id: string }>(
-    `select m.id from tz_ai_messages m join tz_ai_threads t on t.id = m.thread_id where m.id = $1 and m.role = 'assistant' and t.org_id = $2 and t.user_id = $3`,
+    `select m.id from sm_ai_messages m join sm_ai_threads t on t.id = m.thread_id where m.id = $1 and m.role = 'assistant' and t.org_id = $2 and t.user_id = $3`,
     [id, ctx.org.id, ctx.user.id],
   );
   if (!row) throw notFound("پیام پیدا نشد");
-  await ctx.write((tx) => tx.query(`update tz_ai_messages set rating = $2 where id = $1`, [id, rating]), { internal: true });
+  await ctx.write((tx) => tx.query(`update sm_ai_messages set rating = $2 where id = $1`, [id, rating]), { internal: true });
 }
 
 // ---------------------------------------------------------------- tool-call log and data refs
 
 export async function logToolCall(tx: Tx, ctx: Ctx, c: { id: string; threadId: string; messageId: string; tool: string; input: unknown; ok: boolean; summary: string | null; ms: number }): Promise<void> {
   await tx.query(
-    `insert into tz_ai_tool_calls (id, thread_id, message_id, org_id, user_id, tool, input, ok, summary, ms) values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10)`,
+    `insert into sm_ai_tool_calls (id, thread_id, message_id, org_id, user_id, tool, input, ok, summary, ms) values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10)`,
     [c.id, c.threadId, c.messageId, ctx.org.id, ctx.user.id, c.tool, JSON.stringify(c.input ?? null), c.ok, c.summary?.slice(0, 300) ?? null, Math.round(c.ms)],
   );
 }
@@ -392,7 +392,7 @@ export async function putData(ctx: Ctx, threadId: string | null, rows: Record<st
   await ctx.write(
     (tx) =>
       tx.query(
-        `insert into tz_ai_data_refs (id, org_id, user_id, thread_id, rows, meta, expires_at) values ($1, $2, $3, $4, $5::jsonb, $6::jsonb, now() + ($7::int * interval '1 day'))`,
+        `insert into sm_ai_data_refs (id, org_id, user_id, thread_id, rows, meta, expires_at) values ($1, $2, $3, $4, $5::jsonb, $6::jsonb, now() + ($7::int * interval '1 day'))`,
         [id, ctx.org.id, ctx.user.id, threadId, JSON.stringify(kept), JSON.stringify({ ...(meta ?? {}), total_rows: rows.length, truncated: rows.length > kept.length }), retentionDays],
       ),
     { internal: true },
@@ -403,7 +403,7 @@ export async function putData(ctx: Ctx, threadId: string | null, rows: Record<st
 export async function getData(ctx: Ctx, ref: string): Promise<AiDataView> {
   if (!/^[0-9a-f-]{36}$/i.test(ref)) throw notFound("داده پیدا نشد");
   const r = await ctx.db.one<{ id: string; rows: Record<string, unknown>[]; meta: Record<string, unknown> | null }>(
-    `select id, rows, meta from tz_ai_data_refs where id = $1 and org_id = $2 and user_id = $3 and expires_at > now()`,
+    `select id, rows, meta from sm_ai_data_refs where id = $1 and org_id = $2 and user_id = $3 and expires_at > now()`,
     [ref, ctx.org.id, ctx.user.id],
   );
   if (!r) throw notFound("داده پیدا نشد");

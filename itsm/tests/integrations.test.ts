@@ -51,12 +51,12 @@ describe("online shops and the public API", () => {
     expect(res.status).toBe(200);
     const out = await res.json();
     expect(out).toMatchObject({ ok: true, duplicate: false });
-    const inv = await db.one(`select kind, status, source, external_ref, voucher_id is not null as posted, party_id from tz_invoices where id = $1`, [out.invoice_id]);
+    const inv = await db.one(`select kind, status, source, external_ref, voucher_id is not null as posted, party_id from sm_invoices where id = $1`, [out.invoice_id]);
     expect(inv).toMatchObject({ kind: "sale", status: "posted", source: "woocommerce", external_ref: "501", posted: true });
-    const party = await db.one(`select name, mobile, email from tz_parties where id = $1`, [inv!.party_id]);
+    const party = await db.one(`select name, mobile, email from sm_parties where id = $1`, [inv!.party_id]);
     expect(party).toMatchObject({ name: "سارا کریمی", mobile: "09121112233", email: "sara@example.com" });
     const lines = await db.query(
-      `select i.name, i.kind, l.qty, l.unit_price from tz_invoice_lines l join tz_items i on i.id = l.item_id where l.invoice_id = $1 order by i.name`,
+      `select i.name, i.kind, l.qty, l.unit_price from sm_invoice_lines l join sm_items i on i.id = l.item_id where l.invoice_id = $1 order by i.name`,
       [out.invoice_id],
     );
     // toman prices ×10 → rial; the unknown product became a service item
@@ -69,7 +69,7 @@ describe("online shops and the public API", () => {
   it("ignores the same order twice and refuses a wrong signature", async () => {
     const again = await (await send(order)).json();
     expect(again.duplicate).toBe(true);
-    const n = await db.one<{ n: number }>(`select count(*)::int as n from tz_invoices where org_id = $1 and source = 'woocommerce'`, [org]);
+    const n = await db.one<{ n: number }>(`select count(*)::int as n from sm_invoices where org_id = $1 and source = 'woocommerce'`, [org]);
     expect(n!.n).toBe(1);
     expect((await send({ ...order, id: 502 }, "wrong-secret")).status).toBe(401);
     const events = await c.get(`/o/${org}/integrations/events`);
@@ -86,6 +86,6 @@ describe("online shops and the public API", () => {
     expect(r).toMatchObject({ ok: true, duplicate: false });
     const inv = await (await api(`/invoices/${r.invoice_id}`)).json();
     expect(inv.invoice).toMatchObject({ kind: "sale", status: "draft" });
-    expect((await app.fetch(new Request("http://api.test/api/v1/items", { headers: { authorization: "Bearer tz_bad_key" } }))).status).toBe(401);
+    expect((await app.fetch(new Request("http://api.test/api/v1/items", { headers: { authorization: "Bearer sm_bad_key" } }))).status).toBe(401);
   });
 });

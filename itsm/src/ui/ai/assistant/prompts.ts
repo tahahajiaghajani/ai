@@ -179,7 +179,7 @@ export const QUICK_PROMPTS: QuickPrompt[] = [
   { key: "q-fx", name: "موقعیت ارزی", text: "موقعیت باز ارزی و سود و زیان امروز را به تفکیک ارز بگو.", module: "fx" },
 ];
 
-const ownKey = (orgId: string) => `siraf.ai.prompts.${orgId}`;
+const ownKey = (orgId: string) => `itsm.ai.prompts.${orgId}`;
 
 /** The person's own quick prompts (this browser only). */
 export function readOwnPrompts(orgId: string): QuickPrompt[] {

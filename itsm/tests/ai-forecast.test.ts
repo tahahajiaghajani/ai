@@ -154,14 +154,14 @@ describe("13-week cash flow and forecasts on seeded books", () => {
     c = new Client(s.app);
     org = await signupWithOrg(c, ["goods"]);
     const o = (p: string) => `/o/${org}${p}`;
-    const unit = (await db.one<{ id: string }>(`select id from tz_units where org_id = $1 and name = 'عدد'`, [org]))!.id;
+    const unit = (await db.one<{ id: string }>(`select id from sm_units where org_id = $1 and name = 'عدد'`, [org]))!.id;
     const item = (await c.post(o("/data/item"), { name: "کالای آزمایشی", kind: "goods", unit_id: unit, vat_pct: "0" })).row.id;
     cust = (await c.post(o("/data/party"), { name: "مشتری", roles: ["customer"] })).row.id;
     const supp = (await c.post(o("/data/party"), { name: "تأمین‌کننده", roles: ["supplier"] })).row.id;
     // money and cheques come from and go to other parties than the open invoices' (those are tested below)
     const cust2 = (await c.post(o("/data/party"), { name: "مشتری دوم", roles: ["customer"] })).row.id;
     const supp2 = (await c.post(o("/data/party"), { name: "تأمین‌کنندهٔ دوم", roles: ["supplier"] })).row.id;
-    const box = (await db.one<{ id: string }>(`select id from tz_cash_boxes where org_id = $1 limit 1`, [org]))!.id;
+    const box = (await db.one<{ id: string }>(`select id from sm_cash_boxes where org_id = $1 limit 1`, [org]))!.id;
     const bank = (await c.post(o("/data/bank_account"), { name: "ملت", bank_name: "ملت" })).row.id;
     const book = (await c.post(o("/data/cheque_book"), { bank_account_id: bank, title: "دسته‌چک", serial_from: "100001", serial_to: "100050", sheets: 50 })).row.id;
     // cash 10,000,000 on hand
@@ -172,9 +172,9 @@ describe("13-week cash flow and forecasts on seeded books", () => {
     // an open sales invoice due in week 5 (2026-11-28 … 12-04)
     await c.post(o("/goods/invoices"), { kind: "purchase", date: "2026-09-01", party_id: supp, settlement: "credit", lines: [{ item_id: item, qty: "10", unit_price: "100000", vat_pct: "0" }] });
     await c.post(o("/goods/invoices"), { kind: "sale", date: "2026-10-30", due_date: "2026-11-30", party_id: cust, lines: [{ item_id: item, qty: "2", unit_price: "1500000", vat_pct: "0" }] });
-    const user = (await db.one<AuthUser>(`select id, email, full_name, mobile, is_platform_admin, disabled, prefs from tz_users limit 1`))!;
-    const orgRow = (await db.one<OrgRow>(`select * from tz_orgs where id = $1`, [org]))!;
-    const m = (await db.one<MemberRow>(`select id, org_id, user_id, role, overrides, is_active from tz_org_members where org_id = $1`, [org]))!;
+    const user = (await db.one<AuthUser>(`select id, email, full_name, mobile, is_platform_admin, disabled, prefs from sm_users limit 1`))!;
+    const orgRow = (await db.one<OrgRow>(`select * from sm_orgs where id = $1`, [org]))!;
+    const m = (await db.one<MemberRow>(`select id, org_id, user_id, role, overrides, is_active from sm_org_members where org_id = $1`, [org]))!;
     const cfg = { mode: "cloud", db, secret: "s", allowSignup: true, platformAdmins: [], origin: "cloud", log: quietLog, fetch: globalThis.fetch.bind(globalThis) } as ServerConfig;
     ctx = makeCtx(cfg, user, orgRow, m);
   });
@@ -218,7 +218,7 @@ describe("13-week cash flow and forecasts on seeded books", () => {
   });
 
   it("counts the debt again when that cheque bounces (the bounced-cheques account is still owed)", async () => {
-    const ch = (await db.one<{ id: string }>(`select id from tz_cheques where org_id = $1 and serial_no = '12'`, [org]))!;
+    const ch = (await db.one<{ id: string }>(`select id from sm_cheques where org_id = $1 and serial_no = '12'`, [org]))!;
     await c.post(`/o/${org}/treasury/cheques/${ch.id}/action`, { action: "bounce", date: "2026-11-02" });
     const f = await cashflow13(ctx, TODAY, await moneyInfo(ctx));
     const weeks = (f.details as { weeks: CashWeek[] }).weeks;

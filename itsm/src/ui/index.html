@@ -19,16 +19,16 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <link rel="preload" href="/fonts/siraf/SirafNum.woff2" as="font" type="font/woff2" crossorigin />
-    <link rel="preload" href="/fonts/siraf/AradVF.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/ds/DSNum.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/ds/AradVF.woff2" as="font" type="font/woff2" crossorigin />
     <script>
-      // pre-paint theme (key "siraf.theme"; the «تراز» key "taraz.theme" is moved over once)
+      // pre-paint theme (key "itsm.theme"; the «تراز» key "itsm.theme" is moved over once)
       try {
-        var p = localStorage.getItem("siraf.theme");
+        var p = localStorage.getItem("itsm.theme");
         if (!p) {
-          var o = localStorage.getItem("taraz.theme");
-          if (o === "light" || o === "dark") localStorage.setItem("siraf.theme", (p = o));
-          if (o !== null) localStorage.removeItem("taraz.theme");
+          var o = localStorage.getItem("itsm.theme");
+          if (o === "light" || o === "dark") localStorage.setItem("itsm.theme", (p = o));
+          if (o !== null) localStorage.removeItem("itsm.theme");
         }
         if (p !== "light" && p !== "dark") p = "system";
         var m = p === "system" ? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light") : p;
@@ -43,11 +43,11 @@
   <body>
     <div id="root">
       <div class="boot" role="status" aria-label="سیراف در حال باز شدن است">
-        <svg class="boot-mark sf-launch" viewBox="0 0 64 64" aria-hidden="true" fill="currentColor">
+        <svg class="boot-mark ds-launch" viewBox="0 0 64 64" aria-hidden="true" fill="currentColor">
           <path d="M40 12L48 4V52L40 60Z" />
-          <path class="sf-nq" d="M24 12L32 20L24 28L16 20Z" />
-          <path class="sf-nq" d="M24 28L32 36L24 44L16 36Z" />
-          <path class="sf-nq" d="M24 44L32 52L24 60L16 52Z" />
+          <path class="ds-nq" d="M24 12L32 20L24 28L16 20Z" />
+          <path class="ds-nq" d="M24 28L32 36L24 44L16 36Z" />
+          <path class="ds-nq" d="M24 44L32 52L24 60L16 52Z" />
         </svg>
       </div>
     </div>

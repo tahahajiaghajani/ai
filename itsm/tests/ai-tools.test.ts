@@ -26,10 +26,10 @@ let cfg: ServerConfig;
 const ids: Record<string, string> = {};
 
 async function ctxAs(role: Role, opts: { modules?: string[]; overrides?: MemberRow["overrides"] } = {}): Promise<Ctx> {
-  const user = (await db.one<AuthUser>(`select id, email, full_name, mobile, is_platform_admin, disabled, prefs from tz_users limit 1`))!;
-  const o = (await db.one<OrgRow>(`select * from tz_orgs where id = $1`, [org]))!;
+  const user = (await db.one<AuthUser>(`select id, email, full_name, mobile, is_platform_admin, disabled, prefs from sm_users limit 1`))!;
+  const o = (await db.one<OrgRow>(`select * from sm_orgs where id = $1`, [org]))!;
   if (opts.modules) o.modules = opts.modules as OrgRow["modules"];
-  const m = (await db.one<MemberRow>(`select id, org_id, user_id, role, overrides, is_active from tz_org_members where org_id = $1 limit 1`, [org]))!;
+  const m = (await db.one<MemberRow>(`select id, org_id, user_id, role, overrides, is_active from sm_org_members where org_id = $1 limit 1`, [org]))!;
   return makeCtx(cfg, user, o, { ...m, role, overrides: opts.overrides ?? {} });
 }
 
@@ -66,7 +66,7 @@ describe("ai tools", () => {
     org = await signupWithOrg(c);
     cfg = { mode: "cloud", db, secret: "test-secret", allowSignup: true, platformAdmins: [], origin: "cloud", log: quietLog, fetch: globalThis.fetch.bind(globalThis) } as ServerConfig;
     const o = (p: string) => `/o/${org}${p}`;
-    const unit = (await db.one<{ id: string }>(`select id from tz_units where org_id = $1 and name = 'عدد'`, [org]))!.id;
+    const unit = (await db.one<{ id: string }>(`select id from sm_units where org_id = $1 and name = 'عدد'`, [org]))!.id;
     ids.itemA = (await c.post(o("/data/item"), { name: "دوربین مداربسته", kind: "goods", unit_id: unit, vat_pct: "0", sale_price: "1500000", reorder_point: "15" })).row.id;
     ids.itemB = (await c.post(o("/data/item"), { name: "کابل شبکه", kind: "goods", unit_id: unit, vat_pct: "10", sale_price: "200000" })).row.id;
     const cust = (await c.post(o("/data/party"), { name: "فروشگاه نیک", roles: ["customer"], mobile: "09121234567" })).row;
@@ -78,7 +78,7 @@ describe("ai tools", () => {
     await c.post(o("/goods/invoices"), { kind: "sale", date: "2026-09-25", due_date: "2026-10-10", party_id: cust.id, lines: [{ item_id: ids.itemA, qty: "4", unit_price: "1500000", vat_pct: "0" }] });
     await c.post(o("/goods/invoices"), { kind: "sale", date: "2026-10-15", party_id: cust.id, discount: "50000", lines: [{ item_id: ids.itemA, qty: "2", unit_price: "1600000", vat_pct: "0" }, { item_id: ids.itemB, qty: "10", unit_price: "200000", vat_pct: "10" }] });
     await c.post(o("/goods/invoices"), { kind: "sale", date: "2026-10-28", party_id: cust.id, lines: [{ item_id: ids.itemB, qty: "5", unit_price: "210000", vat_pct: "10" }] });
-    const box = (await db.one<{ id: string }>(`select id from tz_cash_boxes where org_id = $1 limit 1`, [org]))!.id;
+    const box = (await db.one<{ id: string }>(`select id from sm_cash_boxes where org_id = $1 limit 1`, [org]))!.id;
     ids.box = box;
     await c.post(o("/treasury/docs"), { kind: "receipt", date: "2026-10-20", party_id: cust.id, lines: [{ method: "cash", cash_box_id: box, amount: "2000000" }] });
     await c.post(o("/treasury/docs"), { kind: "receipt", date: "2026-10-21", party_id: cust.id, lines: [{ method: "cheque", amount: "3000000", cheque: { serial_no: "556677", due_date: "2026-11-10" } }] });
@@ -228,12 +228,12 @@ describe("ai tools", () => {
     expect(unit).toMatch(ctx.org.base_currency === "IRT" ? /toman/ : ctx.org.base_currency === "IRR" ? /rial/ : new RegExp(ctx.org.base_currency));
     const toman = await ctxAs("owner");
     toman.org = { ...toman.org, base_currency: "IRT" };
-    const base = (await db.one<{ code: string; symbol: string | null }>(`select code, symbol from tz_currencies where org_id = $1 and is_base`, [org]))!;
-    await db.query(`update tz_currencies set code = 'IRT', symbol = null where org_id = $1 and is_base`, [org]);
+    const base = (await db.one<{ code: string; symbol: string | null }>(`select code, symbol from sm_currencies where org_id = $1 and is_base`, [org]))!;
+    await db.query(`update sm_currencies set code = 'IRT', symbol = null where org_id = $1 and is_base`, [org]);
     try {
       expect(JSON.parse((await contextBlock(toman, null)).replace(/<\/?context>/g, "")).money_unit_shown_to_people).toMatch(/toman/);
     } finally {
-      await db.query(`update tz_currencies set code = $2, symbol = $3 where org_id = $1 and is_base`, [org, base.code, base.symbol]);
+      await db.query(`update sm_currencies set code = $2, symbol = $3 where org_id = $1 and is_base`, [org, base.code, base.symbol]);
     }
   });
 
@@ -318,18 +318,18 @@ describe("ai tools", () => {
     const viewer = await ctxAs("viewer");
     await expect(executeProposal(viewer, "sales_invoice", p.proposal!.payload)).rejects.toThrow();
     const created = await executeProposal(owner, "sales_invoice", p.proposal!.payload);
-    const inv = await db.one<{ status: string; total: string }>(`select status, total from tz_invoices where id = $1`, [created.id]);
+    const inv = await db.one<{ status: string; total: string }>(`select status, total from sm_invoices where id = $1`, [created.id]);
     expect(inv).toEqual({ status: "draft", total: "660000" });
 
     await expect(run("propose_invoice", { kind: "sale", party: "نیک", lines: [{ item: "کابل شبکه", qty: 1 }] }, owner)).rejects.toThrow(/شناسه/);
 
-    const cashAcc = (await db.one<{ code: string }>(`select code from tz_accounts where org_id = $1 and system_key = 'cash'`, [org]))!.code;
-    const expAcc = (await db.one<{ code: string }>(`select code from tz_accounts where org_id = $1 and system_key = 'misc_expense'`, [org]))!.code;
+    const cashAcc = (await db.one<{ code: string }>(`select code from sm_accounts where org_id = $1 and system_key = 'cash'`, [org]))!.code;
+    const expAcc = (await db.one<{ code: string }>(`select code from sm_accounts where org_id = $1 and system_key = 'misc_expense'`, [org]))!.code;
     await expect(run("propose_voucher", { description: "هزینه", lines: [{ account: expAcc, debit: 100 }, { account: cashAcc, credit: 90 }] }, owner)).rejects.toThrow(/تراز/);
-    const box = (await db.one<{ name: string }>(`select d.name from tz_cash_boxes b join tz_details d on d.id = b.detail_id where b.org_id = $1 limit 1`, [org]))!.name;
+    const box = (await db.one<{ name: string }>(`select d.name from sm_cash_boxes b join sm_details d on d.id = b.detail_id where b.org_id = $1 limit 1`, [org]))!.name;
     const v = await run("propose_voucher", { description: "هزینهٔ پذیرایی", lines: [{ account: expAcc, debit: 100000 }, { account: cashAcc, detail: box, credit: 100000 }] }, owner);
     const vr = await executeProposal(owner, "voucher", v.proposal!.payload);
-    expect((await db.one<{ status: string }>(`select status from tz_vouchers where id = $1`, [vr.id]))!.status).toBe("draft");
+    expect((await db.one<{ status: string }>(`select status from sm_vouchers where id = $1`, [vr.id]))!.status).toBe("draft");
     await expect(executeProposal(await ctxAs("sales"), "voucher", v.proposal!.payload)).rejects.toThrow();
 
     const t = await run("propose_treasury_doc", { kind: "receipt", party: ids.customer, amount: "50000", money_unit: "toman", via: { method: "cash" } }, owner);
@@ -345,14 +345,14 @@ describe("ai tools", () => {
 
     const fx = await run("propose_fx_deal", { side: "buy", currency: "USD", amount: "100" }, owner);
     const fr = await executeProposal(owner, "fx_deal", fx.proposal!.payload);
-    const deal = await db.one<{ status: string; rate: string }>(`select status, rate from tz_fx_deals where id = $1`, [fr.id]);
+    const deal = await db.one<{ status: string; rate: string }>(`select status, rate from sm_fx_deals where id = $1`, [fr.id]);
     expect(deal!.status).toBe("draft");
     expect(D(deal!.rate).toFixed()).toBe("1000000");
 
     const gd = await run("propose_gold_doc", { kind: "buyback", lines: [{ kind: "old", weight: "5", fineness: "750" }] }, owner);
     expect(gd.proposal!.kind).toBe("gold_doc");
     const gr = await executeProposal(owner, "gold_doc", gd.proposal!.payload);
-    expect((await db.one<{ status: string }>(`select status from tz_gold_docs where id = $1`, [gr.id]))!.status).toBe("draft");
+    expect((await db.one<{ status: string }>(`select status from sm_gold_docs where id = $1`, [gr.id]))!.status).toBe("draft");
 
     expect(Object.keys(EXECUTORS).sort()).toEqual(["fx_deal", "gold_doc", "party", "payment", "purchase_invoice", "quote", "receipt", "sales_invoice", "transfer", "voucher"]);
   });

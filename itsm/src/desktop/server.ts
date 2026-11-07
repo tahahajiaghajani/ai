@@ -92,7 +92,7 @@ export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
   let hasUsers = false;
   const firstRun = async () => {
     if (hasUsers) return false;
-    const r = await db.one<{ n: number }>(`select count(*)::int as n from tz_users`).catch(() => null);
+    const r = await db.one<{ n: number }>(`select count(*)::int as n from sm_users`).catch(() => null);
     hasUsers = (r?.n ?? 0) > 0;
     return !hasUsers;
   };

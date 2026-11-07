@@ -39,7 +39,7 @@ export interface AiPreset {
   /** accepts `reasoning_effort` on chat completions */
   chat_effort?: boolean;
   badge?: string;
-  /** only offered when the server runs with SIRAF_AI_FAKE=1 (tests and screenshots) */
+  /** only offered when the server runs with ITSM_AI_FAKE=1 (tests and screenshots) */
   test_only?: boolean;
 }
 

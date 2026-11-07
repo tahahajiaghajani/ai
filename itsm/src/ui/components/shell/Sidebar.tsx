@@ -11,7 +11,7 @@ import { useSession } from "../../lib/session";
 import { fa } from "../../lib/fa";
 import { ROLES, type Role } from "@shared/permissions";
 import type { NavCount, Space, SpaceKey } from "../../modules/registry";
-import { SirafTile } from "../brand";
+import { BrandTile } from "../brand";
 import { Ic, Keys } from "./icons";
 import { sectionsOf, spaceOf, useStored, type ShellItem } from "./model";
 import { SyncLine, SyncNuqta, useSyncState } from "./sync";
@@ -127,9 +127,9 @@ function BizSwitcher({ rail, onNavigate }: { rail?: boolean; onNavigate?: () => 
       onClick: () => (onNavigate?.(), nav("/orgs/new")),
     },
   ];
-  const tile = org.logo ? <img src={org.logo} alt="" className="sh-tile-img" /> : <SirafTile size={30} />;
+  const tile = org.logo ? <img src={org.logo} alt="" className="sh-tile-img" /> : <BrandTile size={30} />;
   return (
-    <Dropdown trigger={["click"]} menu={{ items }} rootClassName="sf-glass sh-menu" placement={rail ? "bottomRight" : "bottom"}>
+    <Dropdown trigger={["click"]} menu={{ items }} rootClassName="ds-glass sh-menu" placement={rail ? "bottomRight" : "bottom"}>
       {rail ? (
         <Tooltip title={org.name} placement="left">
           <button type="button" className="sh-biz sh-biz-rail" aria-label={`کسب‌وکار: ${org.name}`}>
@@ -169,7 +169,7 @@ function SpaceSwitcher({ spaces, space, onSpace, rail, select }: { spaces: Space
   };
   if (rail)
     return (
-      <Dropdown trigger={["click"]} menu={menu} rootClassName="sf-glass sh-menu" placement="bottomRight">
+      <Dropdown trigger={["click"]} menu={menu} rootClassName="ds-glass sh-menu" placement="bottomRight">
         <Tooltip title={`بخش: ${cur.title}`} placement="left">
           <button type="button" className="sh-rail-btn sh-rail-space" aria-label={`بخش: ${cur.title}، تغییر بخش`}>
             <Ic icon={cur.icon} />
@@ -179,7 +179,7 @@ function SpaceSwitcher({ spaces, space, onSpace, rail, select }: { spaces: Space
     );
   if (select)
     return (
-      <Dropdown trigger={["click"]} menu={menu} rootClassName="sf-glass sh-menu sh-menu-space" placement="bottom">
+      <Dropdown trigger={["click"]} menu={menu} rootClassName="ds-glass sh-menu sh-menu-space" placement="bottom">
         <button type="button" className="sh-space-select" aria-label={`بخش: ${cur.title}، تغییر بخش`}>
           <span className="sh-space-ic" aria-hidden>
             <Ic icon={cur.icon} />
@@ -232,7 +232,7 @@ function NavRow({
       {item.icon ? <Ic icon={item.icon} /> : <span className="sh-dot" aria-hidden />}
       {rail ? null : <span className="sh-label">{item.label}</span>}
       {!rail && count ? (
-        <span className="sh-count sf-num" title={item.count ? `${fa(count)} ${COUNT_HINT[item.count]}` : undefined}>
+        <span className="sh-count ds-num" title={item.count ? `${fa(count)} ${COUNT_HINT[item.count]}` : undefined}>
           {fa(count)}
         </span>
       ) : null}
@@ -259,7 +259,7 @@ function NavRow({
     ],
   };
   const row = (
-    <Dropdown trigger={["contextMenu"]} menu={menu} rootClassName="sf-glass sh-menu">
+    <Dropdown trigger={["contextMenu"]} menu={menu} rootClassName="ds-glass sh-menu">
       {link}
     </Dropdown>
   );
@@ -300,7 +300,7 @@ function Footer({ rail, onSettings, onNavigate, settingsActive }: { rail?: boole
             </button>
           ) : (
             <span className="sh-rail-sync" tabIndex={0} aria-label={sync.word}>
-              {sync.tone === "web" ? <span className="sf-nuqta sh-nuqta sh-nuqta-web" aria-hidden /> : <SyncNuqta tone={sync.tone} />}
+              {sync.tone === "web" ? <span className="ds-nuqta sh-nuqta sh-nuqta-web" aria-hidden /> : <SyncNuqta tone={sync.tone} />}
             </span>
           )}
         </Tooltip>
@@ -338,7 +338,7 @@ export function Sidebar(p: SidebarProps) {
     drafts: can("accounting"),
     cheques: can("treasury"),
   });
-  const [closed, setClosed] = useStored<string[]>("siraf.nav.closed", []);
+  const [closed, setClosed] = useStored<string[]>("itsm.nav.closed", []);
   const { common, sections } = useMemo(() => sectionsOf(items, space), [items, space]);
   const pinned = useMemo(() => pins.map((k) => items.find((i) => i.key === k)).filter((i): i is ShellItem => !!i), [pins, items]);
   const togglePin = (key: string) => p.onPins(pins.includes(key) ? pins.filter((k) => k !== key) : [...pins, key].slice(0, MAX_PINS));
@@ -397,7 +397,7 @@ export function Sidebar(p: SidebarProps) {
           <button type="button" className="sh-search" onClick={p.onPalette} aria-keyshortcuts="Control+K">
             <Ic icon={Search} />
             <span className="sh-search-ph">جست‌وجو یا فرمان</span>
-            <span className="sf-end">
+            <span className="ds-end">
               <Keys keys={["Ctrl", "K"]} />
             </span>
           </button>

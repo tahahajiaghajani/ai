@@ -44,21 +44,21 @@ export default function Overview() {
             <StatCard
               icon={<Building2 {...ICON} />}
               title="کسب‌وکارها"
-              value={<span className="sf-num">{fa(k.orgs.total)}</span>}
+              value={<span className="ds-num">{fa(k.orgs.total)}</span>}
               hint={`${fa(k.orgs.active_30d)} فعال در ۳۰ روز · ${fa(k.orgs.new_30d)} تازه`}
               onClick={() => nav("/admin/orgs")}
             />
             <StatCard
               icon={<Users {...ICON} />}
               title="کاربران فعال امروز"
-              value={<span className="sf-num">{fa(k.users.active_today)}</span>}
+              value={<span className="ds-num">{fa(k.users.active_today)}</span>}
               hint={`${fa(k.users.active_7d)} در ۷ روز · از ${fa(k.users.total)} حساب`}
               onClick={() => nav("/admin/users")}
             />
             <StatCard
               icon={<Database {...ICON} />}
               title="حجم پایگاه داده"
-              value={<span className="sf-num">{bytes(k.db.bytes)}</span>}
+              value={<span className="ds-num">{bytes(k.db.bytes)}</span>}
               hint={
                 k.db.limit ? (
                   <>
@@ -76,7 +76,7 @@ export default function Overview() {
             <StatCard
               icon={<AiIcon {...ICON} />}
               title="هزینهٔ هوش مصنوعی این ماه"
-              value={<span className="sf-num sf-latin">{usd(k.ai.cost_month_usd ?? 0)}</span>}
+              value={<span className="ds-num ds-latin">{usd(k.ai.cost_month_usd ?? 0)}</span>}
               hint={k.ai.enabled_orgs === null ? "هنوز کسب‌وکاری کلید نگذاشته" : `${fa(k.ai.enabled_orgs)} کسب‌وکار با هوش مصنوعی · ${fa(k.ai.calls_month ?? 0)} درخواست`}
               onClick={() => nav("/admin/ai")}
             />
@@ -93,7 +93,7 @@ export default function Overview() {
                           <AlertTriangle {...ICON} />
                         </span>
                         <span className="ad-li-main">
-                          <Link to={a.path} className="ad-li-t sf-link">
+                          <Link to={a.path} className="ad-li-t ds-link">
                             {a.title}
                           </Link>
                           {a.detail ? <span className="ad-li-d">{a.detail}</span> : null}
@@ -116,7 +116,7 @@ export default function Overview() {
                 )}
               </Card>
 
-              <Card title="کسب‌وکارهای تازه" tools={<Link to="/admin/orgs" className="sf-link text-[13px]">همه</Link>} flush>
+              <Card title="کسب‌وکارهای تازه" tools={<Link to="/admin/orgs" className="ds-link text-[13px]">همه</Link>} flush>
                 <ul className="ad-list">
                   {d.recent_orgs.map((o) => (
                     <li key={o.id}>
@@ -124,7 +124,7 @@ export default function Overview() {
                         <Building2 {...ICON} />
                       </span>
                       <span className="ad-li-main">
-                        <Link to={`/admin/orgs/${o.id}`} className="ad-li-t sf-link">
+                        <Link to={`/admin/orgs/${o.id}`} className="ad-li-t ds-link">
                           {o.name}
                         </Link>
                         <span className="ad-li-d">{o.owner_name ? `مالک: ${o.owner_name}` : "بدون مالک فعال"}</span>
@@ -138,11 +138,11 @@ export default function Overview() {
 
             <div className="ad-stack">
               <section className="ad-kpis ad-kpis-2">
-                <StatCard icon={<Monitor {...ICON} />} title="برنامهٔ ویندوز" value={<span className="sf-num">{fa(k.devices.total)}</span>} hint={`${fa(k.devices.active_7d)} همگام در ۷ روز`} />
+                <StatCard icon={<Monitor {...ICON} />} title="برنامهٔ ویندوز" value={<span className="ds-num">{fa(k.devices.total)}</span>} hint={`${fa(k.devices.active_7d)} همگام در ۷ روز`} />
                 <StatCard
                   icon={<ShieldAlert {...ICON} />}
                   title="ورود ناموفق در ۲۴ ساعت"
-                  value={<span className="sf-num">{fa(k.security.failed_sign_ins_24h)}</span>}
+                  value={<span className="ds-num">{fa(k.security.failed_sign_ins_24h)}</span>}
                   hint={`${fa(k.security.events_24h)} رویداد امنیتی`}
                   onClick={() => nav("/admin/security?kind=sign_in&ok=false")}
                 />
@@ -157,7 +157,7 @@ export default function Overview() {
                           <LifeBuoy {...ICON} />
                         </span>
                         <span className="ad-li-main">
-                          <Link to={`/admin/orgs/${s.org_id}`} className="ad-li-t sf-link">
+                          <Link to={`/admin/orgs/${s.org_id}`} className="ad-li-t ds-link">
                             {s.org_name}
                           </Link>
                           <span className="ad-li-d">
@@ -171,7 +171,7 @@ export default function Overview() {
                 </Card>
               ) : null}
 
-              <Card title="رویدادهای امنیتی" tools={<Link to="/admin/security" className="sf-link text-[13px]">همه</Link>} flush>
+              <Card title="رویدادهای امنیتی" tools={<Link to="/admin/security" className="ds-link text-[13px]">همه</Link>} flush>
                 {d.recent_events.length ? (
                   <ul className="ad-list">
                     {d.recent_events.map((e) => (

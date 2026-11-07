@@ -97,7 +97,7 @@ describe("support mode and platform administration", () => {
       await admin.post(`/o/${org}/members`, { email: "x@example.com", full_name: "کاربر تازه", role: "owner" }, 403);
       await admin.get(`/o/${org}/members`);
       const tagged = await db.query<{ action: string; actor_kind: string; support_session_id: string }>(
-        `select action, actor_kind, support_session_id from tz_audit where org_id = $1 and support_session_id = $2 order by at`,
+        `select action, actor_kind, support_session_id from sm_audit where org_id = $1 and support_session_id = $2 order by at`,
         [org, session.id],
       );
       expect(tagged.length).toBeGreaterThanOrEqual(2); // the start and the new party
@@ -120,7 +120,7 @@ describe("support mode and platform administration", () => {
     it("ends by itself when the time is up", async () => {
       const { session } = await admin.post(`/admin/orgs/${org}/support`, { level: "edit", reason: "آزمون پایان خودکار", hours: 1 });
       await admin.get(`/o/${org}`);
-      await db.query(`update tz_support_sessions set expires_at = now() - interval '1 second' where id = $1`, [session.id]);
+      await db.query(`update sm_support_sessions set expires_at = now() - interval '1 second' where id = $1`, [session.id]);
       await admin.get(`/o/${org}`, 403);
       const { sessions } = await admin.get(`/admin/orgs/${org}/support`);
       expect(sessions.find((s: { id: string }) => s.id === session.id)?.state).toBe("expired");
@@ -250,7 +250,7 @@ describe("support mode and platform administration", () => {
       const changed = (await admin.get(`/admin/security-events?kind=member_changed&org=${org}`)).events;
       expect(changed[1].data.changes.overrides).toEqual([{}, { ai: "view" }]);
       // never a password in a log line
-      const all = await db.query(`select data::text as t from tz_security_events`);
+      const all = await db.query(`select data::text as t from sm_security_events`);
       expect(all.some((r) => /zargar-pass|wrong-pass/.test(String(r.t)))).toBe(false);
       await admin.get("/admin/users/not-an-id", 404);
     });
@@ -309,7 +309,7 @@ describe("role matrix", () => {
     const info = await accountant.get(`/o/${org}`);
     expect(info.member.permissions).toMatchObject({ accounting: "full", gold: "full", fx: "full", settings: "edit", users: "view", ai: "full" });
     await accountant.post(`/o/${org}/data/party`, party("مشتری حسابدار"));
-    const cat = await db.one<{ id: string }>(`select id from tz_gold_categories where org_id = $1 limit 1`, [org]);
+    const cat = await db.one<{ id: string }>(`select id from sm_gold_categories where org_id = $1 limit 1`, [org]);
     await accountant.del(`/o/${org}/data/gold_category/${cat!.id}`);
     await accountant.patch(`/o/${org}`, { phone: "02100000000" });
     await accountant.get(`/o/${org}/members`);
@@ -323,7 +323,7 @@ describe("role matrix", () => {
     expect(info.member.permissions).toMatchObject({ accounting: "view", gold: "view", reports: "view", settings: "view", users: "none", integrations: "none", ai: "view" });
     await viewer.get(`/o/${org}/data/party`);
     await viewer.post(`/o/${org}/data/party`, party("نوشتن ناظر"), 403);
-    const p = await db.one<{ id: string }>(`select id from tz_parties where org_id = $1 limit 1`, [org]);
+    const p = await db.one<{ id: string }>(`select id from sm_parties where org_id = $1 limit 1`, [org]);
     await viewer.patch(`/o/${org}/data/party/${p!.id}`, { name: "تغییر ناظر" }, 403);
     await viewer.del(`/o/${org}/data/party/${p!.id}`, 403);
     await viewer.patch(`/o/${org}`, { phone: "02100000001" }, 403);
@@ -332,7 +332,7 @@ describe("role matrix", () => {
 
   it("adds the standard coins and bars when gold is switched on later", async () => {
     const { id } = await owner.post<{ id: string }>("/orgs", { name: "فروشگاه دوم", business_kind: "trading", modules: ["goods"], base_currency: "IRR", fiscal_year: 1405 });
-    const count = async () => (await db.one<{ n: number }>(`select count(*)::int as n from tz_items where org_id = $1 and kind in ('coin', 'bar') and deleted_at is null`, [id]))!.n;
+    const count = async () => (await db.one<{ n: number }>(`select count(*)::int as n from sm_items where org_id = $1 and kind in ('coin', 'bar') and deleted_at is null`, [id]))!.n;
     expect(await count()).toBe(0);
     await owner.patch(`/o/${id}`, { modules: ["goods", "gold"] });
     expect(await count()).toBeGreaterThan(0);
@@ -443,8 +443,8 @@ describe("access review fixes", () => {
     await joiner.post("/auth/signup", { email: "rev-old-joiner@example.com", password: "old-joiner-pass-1", full_name: "عضو قدیمی" });
     await owner.post(`/o/${org}/members`, { email: "rev-old-joiner@example.com", full_name: "عضو قدیمی", role: "viewer" });
     await db.query(
-      `update tz_audit set data = null where org_id = $1 and action = 'member_add'
-         and entity_id in (select id from tz_users where email in ('rev-old-staff@example.com', 'rev-old-joiner@example.com'))`,
+      `update sm_audit set data = null where org_id = $1 and action = 'member_add'
+         and entity_id in (select id from sm_users where email in ('rev-old-staff@example.com', 'rev-old-joiner@example.com'))`,
       [org],
     );
     const staff = await member("rev-old-staff@example.com");
@@ -488,7 +488,7 @@ describe("access review fixes", () => {
     await delegate.patch(`/o/${org}/members/${acc.id}`, { is_active: false }, 403);
     // a removed member who comes back starts from the role, without old overrides
     const p = await member("rev-peer@example.com");
-    await db.query(`update tz_org_members set deleted_at = now() where id = $1`, [p.id]);
+    await db.query(`update sm_org_members set deleted_at = now() where id = $1`, [p.id]);
     await owner.post(`/o/${org}/members`, { email: "rev-peer@example.com", full_name: "ناظر دیگر", role: "viewer" });
     expect((await member("rev-peer@example.com")).overrides).toEqual({});
   });
@@ -500,7 +500,7 @@ describe("access review fixes", () => {
         aggregates: [{ entity: "member", id: String(row.id), base_rev: Number(row.rev), row: { ...row, updated_at: new Date().toISOString() }, children: {} }],
       });
     const rowOf = async (email: string) =>
-      (await db.one<Record<string, unknown>>(`select m.* from tz_org_members m join tz_users u on u.id = m.user_id where m.org_id = $1 and u.email = $2`, [org, email]))!;
+      (await db.one<Record<string, unknown>>(`select m.* from sm_org_members m join sm_users u on u.id = m.user_id where m.org_id = $1 and u.email = $2`, [org, email]))!;
     const delegate = await login("rev-delegate@example.com", "rev-delegate-1");
     const self = await push(delegate, { ...(await rowOf("rev-delegate@example.com")), role: "admin", overrides: {} });
     expect(self.results[0]).toMatchObject({ status: "error" });
@@ -526,14 +526,14 @@ describe("access review fixes", () => {
         org_id: org, device_id: "00000000-0000-7000-8000-0000000000ab", protocol: SYNC_PROTOCOL,
         aggregates: aggs.map((a) => ({ entity: a.entity, id: String(a.row.id), base_rev: Number(a.row.rev), row: { ...a.row, updated_at: new Date().toISOString() }, children: a.children ?? {} })),
       });
-    const cash = (await db.one<{ id: string }>(`select id from tz_accounts where org_id = $1 and system_key = 'cash'`, [org]))!.id;
-    const capital = (await db.one<{ id: string }>(`select id from tz_accounts where org_id = $1 and system_key = 'capital'`, [org]))!.id;
-    const box = await db.one<{ detail_id: string }>(`select detail_id from tz_cash_boxes where org_id = $1`, [org]);
+    const cash = (await db.one<{ id: string }>(`select id from sm_accounts where org_id = $1 and system_key = 'cash'`, [org]))!.id;
+    const capital = (await db.one<{ id: string }>(`select id from sm_accounts where org_id = $1 and system_key = 'capital'`, [org]))!.id;
+    const box = await db.one<{ detail_id: string }>(`select detail_id from sm_cash_boxes where org_id = $1`, [org]);
     await owner.post(`/o/${org}/accounting/vouchers`, { date: "2026-04-01", lines: [{ account_id: cash, detail_id: box!.detail_id, debit: "70000000" }, { account_id: capital, credit: "70000000" }] });
     const fy = (await owner.get(`/o/${org}`)).fiscal_years.find((f: { status: string }) => f.status !== "closed");
     await owner.post(`/o/${org}/fiscal-years/${fy.id}/close`);
-    const fyRow = async () => (await db.one<Record<string, unknown>>(`select * from tz_fiscal_years where id = $1`, [fy.id]))!;
-    const opening = async () => (await db.one<Record<string, unknown>>(`select * from tz_vouchers where org_id = $1 and source_type = 'opening' and source_id = $2`, [org, fy.id]))!;
+    const fyRow = async () => (await db.one<Record<string, unknown>>(`select * from sm_fiscal_years where id = $1`, [fy.id]))!;
+    const opening = async () => (await db.one<Record<string, unknown>>(`select * from sm_vouchers where org_id = $1 and source_type = 'opening' and source_id = $2`, [org, fy.id]))!;
     expect((await opening()).deleted_at).toBeNull();
     const acc = await login("rev-acc@example.com", "rev-acc-pass-1");
     // the accountant's Windows app cannot reopen the year…
@@ -548,7 +548,7 @@ describe("access review fixes", () => {
     expect((await fyRow()).status).toBe("closed");
     expect((await opening()).deleted_at).toBeNull();
     // an unchanged copy of such a voucher (an upload repeated) is still accepted
-    const same = await push(owner, [{ entity: "voucher", row: await opening(), children: { tz_voucher_lines: await db.query(`select * from tz_voucher_lines where voucher_id = $1`, [(await opening()).id]) } }]);
+    const same = await push(owner, [{ entity: "voucher", row: await opening(), children: { sm_voucher_lines: await db.query(`select * from sm_voucher_lines where voucher_id = $1`, [(await opening()).id]) } }]);
     expect(same.results[0]).toMatchObject({ status: "ok" });
     // the owner's reopening (the year first, then its vouchers removed) goes through
     const ok = await push(owner, [
@@ -560,13 +560,13 @@ describe("access review fixes", () => {
     expect((await opening()).deleted_at).not.toBeNull();
     // a removed membership never comes back on another account
     await owner.post(`/o/${org}/members`, { email: "rev-moved@example.com", full_name: "ناظر رفته", role: "viewer", password: "rev-moved-pass-1" });
-    const viewer = (await db.one<Record<string, unknown>>(`select m.* from tz_org_members m join tz_users u on u.id = m.user_id where m.org_id = $1 and u.email = 'rev-moved@example.com'`, [org]))!;
-    const other = (await db.one<{ id: string }>(`select id from tz_users where email = 'rev-acc@example.com'`))!.id;
-    await db.query(`update tz_org_members set deleted_at = now() where id = $1`, [viewer.id]);
-    const fresh = (await db.one<Record<string, unknown>>(`select * from tz_org_members where id = $1`, [viewer.id]))!;
+    const viewer = (await db.one<Record<string, unknown>>(`select m.* from sm_org_members m join sm_users u on u.id = m.user_id where m.org_id = $1 and u.email = 'rev-moved@example.com'`, [org]))!;
+    const other = (await db.one<{ id: string }>(`select id from sm_users where email = 'rev-acc@example.com'`))!.id;
+    await db.query(`update sm_org_members set deleted_at = now() where id = $1`, [viewer.id]);
+    const fresh = (await db.one<Record<string, unknown>>(`select * from sm_org_members where id = $1`, [viewer.id]))!;
     const moved = await push(owner, [{ entity: "member", row: { ...fresh, user_id: other, deleted_at: null, is_active: true } }]);
     expect(moved.results[0]).toMatchObject({ status: "error", message: "عضویت به حساب دیگری منتقل نمی‌شود" });
-    expect((await db.one<{ user_id: string }>(`select user_id from tz_org_members where id = $1`, [viewer.id]))!.user_id).toBe(viewer.user_id);
+    expect((await db.one<{ user_id: string }>(`select user_id from sm_org_members where id = $1`, [viewer.id]))!.user_id).toBe(viewer.user_id);
   });
 });
 
@@ -609,7 +609,7 @@ describe("the platform's owner (PLATFORM_ADMIN_EMAILS)", () => {
     await deputy.post(`/admin/users/${id("third@example.com")}/password`, { reason: "درخواست تلفنی همکار" }, 400);
     await third.get("/auth/me");
     // once the cool-down has passed, a former admin is an ordinary account again
-    await s.db.query(`update tz_audit set at = now() - interval '8 days' where action = 'admin_revoke' and entity_id = $1`, [id("third@example.com")]);
+    await s.db.query(`update sm_audit set at = now() - interval '8 days' where action = 'admin_revoke' and entity_id = $1`, [id("third@example.com")]);
     await deputy.post(`/admin/users/${id("third@example.com")}/password`, { reason: "درخواست تلفنی همکار" });
   });
 

@@ -1,4 +1,4 @@
-// Platform status of a business (tz_org_admin): «فعال», «فقط‌خواندنی» (writes refused), «معلق»
+// Platform status of a business (sm_org_admin): «فعال», «فقط‌خواندنی» (writes refused), «معلق»
 // (closed to its members), internal notes and the per-business AI switch. Only the platform admin
 // changes them (routes/admin.ts); every business reads its own status through ctx.
 import type { Queryable } from "../../db";
@@ -22,12 +22,12 @@ export interface OrgAdminState {
 }
 
 export async function orgStatus(q: Queryable, orgId: string): Promise<OrgPlatformStatus> {
-  const r = await q.one<{ status: OrgStatus; status_reason: string | null }>(`select status, status_reason from tz_org_admin where org_id = $1`, [orgId]);
+  const r = await q.one<{ status: OrgStatus; status_reason: string | null }>(`select status, status_reason from sm_org_admin where org_id = $1`, [orgId]);
   return { status: r?.status ?? "active", reason: r?.status_reason ?? null };
 }
 
 export async function orgAdminState(q: Queryable, orgId: string): Promise<OrgAdminState> {
-  const r = await q.one<OrgAdminState>(`select org_id, status, status_reason, notes, ai_disabled, limits, updated_by, updated_at from tz_org_admin where org_id = $1`, [orgId]);
+  const r = await q.one<OrgAdminState>(`select org_id, status, status_reason, notes, ai_disabled, limits, updated_by, updated_at from sm_org_admin where org_id = $1`, [orgId]);
   return r ?? { org_id: orgId, status: "active", status_reason: null, notes: null, ai_disabled: false, limits: {}, updated_by: null, updated_at: null };
 }
 
@@ -36,7 +36,7 @@ export async function orgAdminState(q: Queryable, orgId: string): Promise<OrgAdm
  * every model call of the business (and say so in its status).
  */
 export async function orgAiDisabled(q: Queryable, orgId: string): Promise<boolean> {
-  const r = await q.one<{ ai_disabled: boolean }>(`select ai_disabled from tz_org_admin where org_id = $1`, [orgId]);
+  const r = await q.one<{ ai_disabled: boolean }>(`select ai_disabled from sm_org_admin where org_id = $1`, [orgId]);
   return !!r?.ai_disabled;
 }
 
@@ -73,7 +73,7 @@ export async function updateOrgAdmin(
   meta: { ip?: string | null; user_agent?: string | null } = {},
 ): Promise<OrgAdminState> {
   const db = cfg.db;
-  const org = await db.one<{ id: string; name: string }>(`select id, name from tz_orgs where id = $1 and deleted_at is null`, [orgId]);
+  const org = await db.one<{ id: string; name: string }>(`select id, name from sm_orgs where id = $1 and deleted_at is null`, [orgId]);
   if (!org) throw notFound("کسب‌وکار پیدا نشد");
   const before = await orgAdminState(db, orgId);
   const status = patch.status ?? before.status;
@@ -91,7 +91,7 @@ export async function updateOrgAdmin(
   const notesChanged = next.notes !== before.notes;
   const saved = await db.tx(async (tx) => {
     const row = await tx.one<OrgAdminState>(
-      `insert into tz_org_admin (org_id, status, status_reason, notes, ai_disabled, updated_by, updated_at)
+      `insert into sm_org_admin (org_id, status, status_reason, notes, ai_disabled, updated_by, updated_at)
        values ($1, $2, $3, $4, $5, $6, now())
        on conflict (org_id) do update set status = excluded.status, status_reason = excluded.status_reason, notes = excluded.notes,
          ai_disabled = excluded.ai_disabled, updated_by = excluded.updated_by, updated_at = now()

@@ -37,9 +37,9 @@ export function memberChangeProblem(ctx: Ctx, before: MemberGrant | null, after:
  * were written in the same transaction, so their timestamps (both now()) are equal.
  */
 export const CREATED_HERE_SQL = (orgParam: string, userExpr: string) =>
-  `exists (select 1 from tz_audit a where a.org_id = ${orgParam} and a.action = 'member_add' and a.entity_id = ${userExpr}
+  `exists (select 1 from sm_audit a where a.org_id = ${orgParam} and a.action = 'member_add' and a.entity_id = ${userExpr}
      and (a.data @> '{"new_account": true}'::jsonb
-       or (a.data is null and a.at = (select cu.created_at from tz_users cu where cu.id = ${userExpr}))))`;
+       or (a.data is null and a.at = (select cu.created_at from sm_users cu where cu.id = ${userExpr}))))`;
 
 export async function createdHere(q: Queryable, orgId: string, userId: string): Promise<boolean> {
   return !!(await q.one(`select 1 where ${CREATED_HERE_SQL("$1", "$2::uuid")}`, [orgId, userId]));
@@ -52,4 +52,4 @@ export async function createdHere(q: Queryable, orgId: string, userId: string): 
  */
 export const RESETTABLE_SQL = (orgParam: string, userAlias: string) =>
   `(${CREATED_HERE_SQL(orgParam, `${userAlias}.id`)} and not ${userAlias}.is_platform_admin
-     and not exists (select 1 from tz_org_members o where o.user_id = ${userAlias}.id and o.org_id <> ${orgParam} and o.deleted_at is null))`;
+     and not exists (select 1 from sm_org_members o where o.user_id = ${userAlias}.id and o.org_id <> ${orgParam} and o.deleted_at is null))`;

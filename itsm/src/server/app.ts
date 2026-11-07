@@ -42,7 +42,7 @@ export function createApp(cfg: ServerConfig) {
 
   app.get("/meta", optionalUser, async (c) => {
     const status = await migrationStatus(cfg.db).catch(() => null);
-    const users = await cfg.db.one<{ n: number }>(`select count(*)::int as n from tz_users`).catch(() => null);
+    const users = await cfg.db.one<{ n: number }>(`select count(*)::int as n from sm_users`).catch(() => null);
     const user = c.get("user");
     return c.json({
       app: APP_NAME,

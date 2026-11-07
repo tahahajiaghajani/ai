@@ -31,7 +31,7 @@ async function build(): Promise<FetchApp> {
       consoleLogger.error("migration failed", String((e as Error)?.message ?? e));
     }
   }
-  const secret = process.env.APP_SECRET || createHash("sha256").update(`taraz:${url}`).digest("hex");
+  const secret = process.env.APP_SECRET || createHash("sha256").update(`itsm:${url}`).digest("hex");
   return createApp({
     mode: "cloud",
     db,

@@ -60,7 +60,7 @@ export function electronPage(size: string): ElectronPage {
 /**
  * Print a sheet with a given page size: adds an @page rule for the print, then removes it.
  * The sheet itself is any element with `hidden print:block` inside the page. While it prints, <html> carries
- * `sf-own-page`, so the wide-report rule (kit.css) does not move this print to its landscape page.
+ * `ds-own-page`, so the wide-report rule (kit.css) does not move this print to its landscape page.
  */
 export function printWithPage(size: string, margin = "6mm") {
   const style = document.createElement("style");
@@ -74,18 +74,18 @@ export function printWithPage(size: string, margin = "6mm") {
   .ant-layout-content { padding: 0 !important; }
 }`;
   document.head.appendChild(style);
-  document.documentElement.classList.add("sf-own-page");
+  document.documentElement.classList.add("ds-own-page");
   let finished = false;
   const done = () => {
     if (finished) return;
     finished = true;
     style.remove();
-    document.documentElement.classList.remove("sf-own-page");
+    document.documentElement.classList.remove("ds-own-page");
     window.removeEventListener("afterprint", done);
   };
   window.addEventListener("afterprint", done);
   setTimeout(() => {
-    const bridge = (window as unknown as { taraz?: { print?: (o?: Record<string, unknown>) => Promise<unknown> } }).taraz;
+    const bridge = (window as unknown as { itsm?: { print?: (o?: Record<string, unknown>) => Promise<unknown> } }).itsm;
     if (bridge?.print) {
       // the Windows app prints asynchronously through Electron, on the paper of this page
       Promise.resolve(bridge.print({ ...electronPage(size) })).catch(() => window.print()).finally(done);

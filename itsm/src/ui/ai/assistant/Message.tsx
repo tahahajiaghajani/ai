@@ -307,7 +307,7 @@ function AssistantMessage({ m, last, env }: { m: UiMessage; last: boolean; env: 
             </>
           ) : null}
           {m.model ? (
-            <span className="sf-end">
+            <span className="ds-end">
               <bdi dir="ltr" className="sa-model">
                 {m.model}
               </bdi>

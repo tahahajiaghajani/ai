@@ -24,7 +24,7 @@ const STATUS: Record<AiProposalStatus, { label: string; tone: "warning" | "dange
 
 export function ProposalStatus({ s }: { s: AiProposalStatus }) {
   const m = STATUS[s] ?? { label: s, tone: "neutral" as const };
-  return m.tone ? <Chip tone={m.tone}>{m.label}</Chip> : <span className="sf-status">{m.label}</span>;
+  return m.tone ? <Chip tone={m.tone}>{m.label}</Chip> : <span className="ds-status">{m.label}</span>;
 }
 
 function ProposalDetail({ a }: { a: AiActionView }) {
@@ -70,7 +70,7 @@ function ProposalDetail({ a }: { a: AiActionView }) {
         <ul className="ai-review-w">
           {a.warnings.map((w) => (
             <li key={w}>
-              <i className="sf-nuqta" aria-hidden />
+              <i className="ds-nuqta" aria-hidden />
               <span>{w}</span>
             </li>
           ))}
@@ -79,7 +79,7 @@ function ProposalDetail({ a }: { a: AiActionView }) {
       {a.error ? <div className="text-[13px] text-danger">{a.error}</div> : null}
       {a.result?.path ? (
         <div>
-          <Link className="sf-link text-[13px]" to={`/${orgId}/${a.result.path.replace(/^\/+/, "")}`}>
+          <Link className="ds-link text-[13px]" to={`/${orgId}/${a.result.path.replace(/^\/+/, "")}`}>
             مشاهدهٔ {a.result.label}
           </Link>
         </div>
@@ -124,10 +124,10 @@ function Proposals() {
         }}
         columns={[
           { key: "at", dataIndex: "created_at", title: "زمان", width: 150, render: (v) => <span className="bk-2"><JDateTime v={v} /></span> },
-          { key: "user", dataIndex: ["user", "name"], title: "درخواست‌کننده", width: 150, ellipsis: true, render: (v) => v ?? <span className="sf-zero">—</span> },
+          { key: "user", dataIndex: ["user", "name"], title: "درخواست‌کننده", width: 150, ellipsis: true, render: (v) => v ?? <span className="ds-zero">—</span> },
           { key: "title", dataIndex: "title_fa", title: "پیش‌نویس", ellipsis: true },
           { key: "st", dataIndex: "status", title: "وضعیت", width: 136, render: (v: AiProposalStatus) => <ProposalStatus s={v} /> },
-          { key: "by", dataIndex: ["confirmed_by", "name"], title: "تأیید یا رد", width: 150, ellipsis: true, render: (v) => v ?? <span className="sf-zero">—</span> },
+          { key: "by", dataIndex: ["confirmed_by", "name"], title: "تأیید یا رد", width: 150, ellipsis: true, render: (v) => v ?? <span className="ds-zero">—</span> },
         ]}
       />
     </Card>
@@ -162,8 +162,8 @@ function ToolCalls() {
         }}
         columns={[
           { key: "at", dataIndex: "created_at", title: "زمان", width: 150, render: (v) => <span className="bk-2"><JDateTime v={v} /></span> },
-          { key: "user", dataIndex: ["user", "name"], title: "کاربر", width: 150, ellipsis: true, render: (v) => v ?? <span className="sf-zero">—</span> },
-          { key: "tool", title: "ابزار", width: 200, ellipsis: true, render: (_, t) => t.title_fa ?? <bdi dir="ltr" className="sf-mono text-[12px]">{t.tool}</bdi> },
+          { key: "user", dataIndex: ["user", "name"], title: "کاربر", width: 150, ellipsis: true, render: (v) => v ?? <span className="ds-zero">—</span> },
+          { key: "tool", title: "ابزار", width: 200, ellipsis: true, render: (_, t) => t.title_fa ?? <bdi dir="ltr" className="ds-mono text-[12px]">{t.tool}</bdi> },
           {
             key: "ok",
             dataIndex: "ok",
@@ -176,8 +176,8 @@ function ToolCalls() {
                 <span className="inline-flex items-center gap-1 text-danger"><CircleX size={14} strokeWidth={1.4} absoluteStrokeWidth aria-hidden />ناموفق</span>
               ),
           },
-          { key: "sum", dataIndex: "summary", title: "خلاصه", ellipsis: true, render: (v) => v ?? <span className="sf-zero">—</span> },
-          { key: "ms", dataIndex: "ms", title: "مدت", width: 112, render: (v) => (v ? <span className="sf-num bk-2">{duration(v)}</span> : <span className="sf-zero">—</span>) },
+          { key: "sum", dataIndex: "summary", title: "خلاصه", ellipsis: true, render: (v) => v ?? <span className="ds-zero">—</span> },
+          { key: "ms", dataIndex: "ms", title: "مدت", width: 112, render: (v) => (v ? <span className="ds-num bk-2">{duration(v)}</span> : <span className="ds-zero">—</span>) },
         ]}
       />
     </Card>

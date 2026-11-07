@@ -46,7 +46,7 @@ export async function recordUsage(ctx: Ctx, e: UsageEntry): Promise<{ cost_usd: 
     await ctx.write(
       (tx) =>
         tx.query(
-          `insert into tz_ai_usage (id, org_id, user_id, feature, job, connection_id, preset, model, route, input, output, cache_read, cache_write, reasoning, cost_usd, priced, ms, ok, error_kind, thread_id)
+          `insert into sm_ai_usage (id, org_id, user_id, feature, job, connection_id, preset, model, route, input, output, cache_read, cache_write, reasoning, cost_usd, priced, ms, ok, error_kind, thread_id)
            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)`,
           [
             uuidv7(), ctx.org.id, ctx.user.id, e.feature.slice(0, 40), e.job ?? null, e.connection_id ?? null, e.preset ?? null, e.model ?? null, e.route ?? "direct",
@@ -70,7 +70,7 @@ export function periodDays(ctx: Ctx): { monthStart: string; today: string } {
 
 async function spentSince(ctx: Ctx, day: string, userId: string | null): Promise<string> {
   const r = await ctx.db.one<{ s: string | null }>(
-    `select coalesce(sum(cost_usd), 0)::text as s from tz_ai_usage
+    `select coalesce(sum(cost_usd), 0)::text as s from sm_ai_usage
      where org_id = $1 and created_at >= ($2::date)::timestamp at time zone $3 ${userId ? "and user_id = $4" : ""}`,
     userId ? [ctx.org.id, day, orgTimeZone(ctx), userId] : [ctx.org.id, day, orgTimeZone(ctx)],
   );
@@ -117,13 +117,13 @@ export async function usageReport(ctx: Ctx, from: string, to: string, budget: Ai
   const where = `org_id = $1 and created_at >= ($2::date)::timestamp at time zone $4 and created_at < (($3::date) + 1)::timestamp at time zone $4`;
   const p = [ctx.org.id, from, to, tz];
   const [all, byDay, byModel, byFeature, byUser] = await Promise.all([
-    ctx.db.one(`select ${totalsSql} from tz_ai_usage where ${where}`, p),
-    ctx.db.query(`select to_char(created_at at time zone $4, 'YYYY-MM-DD') as day, ${totalsSql} from tz_ai_usage where ${where} group by 1 order by 1`, p),
-    ctx.db.query(`select coalesce(model, '') as model, max(preset) as preset, ${totalsSql} from tz_ai_usage where ${where} group by 1 order by sum(cost_usd) desc, count(*) desc limit 50`, p),
-    ctx.db.query(`select feature, ${totalsSql} from tz_ai_usage where ${where} group by 1 order by sum(cost_usd) desc, count(*) desc`, p),
+    ctx.db.one(`select ${totalsSql} from sm_ai_usage where ${where}`, p),
+    ctx.db.query(`select to_char(created_at at time zone $4, 'YYYY-MM-DD') as day, ${totalsSql} from sm_ai_usage where ${where} group by 1 order by 1`, p),
+    ctx.db.query(`select coalesce(model, '') as model, max(preset) as preset, ${totalsSql} from sm_ai_usage where ${where} group by 1 order by sum(cost_usd) desc, count(*) desc limit 50`, p),
+    ctx.db.query(`select feature, ${totalsSql} from sm_ai_usage where ${where} group by 1 order by sum(cost_usd) desc, count(*) desc`, p),
     ctx.db.query(
       `select u.user_id, max(us.full_name) as name, ${totalsOf("u.")}
-       from tz_ai_usage u left join tz_users us on us.id = u.user_id
+       from sm_ai_usage u left join sm_users us on us.id = u.user_id
        where ${where.replace(/\b(org_id|created_at)\b/g, "u.$1")} group by u.user_id order by sum(u.cost_usd) desc limit 100`,
       p,
     ),

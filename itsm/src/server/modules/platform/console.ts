@@ -32,22 +32,22 @@ export interface AiFigures {
 /** AI usage this (Jalali) month from the engine's ledger, when its tables exist; null parts otherwise. */
 export async function aiFigures(db: Db): Promise<AiFigures> {
   const out: AiFigures = { enabled_orgs: null, calls_month: null, errors_month: null, cost_month_usd: null };
-  if (await tableExists(db, "tz_ai_connections")) {
+  if (await tableExists(db, "sm_ai_connections")) {
     const r = await db
       .one<{ n: number }>(
-        `select count(distinct c.org_id)::int as n from tz_ai_connections c
-         join tz_orgs o on o.id = c.org_id and o.deleted_at is null
-         left join tz_org_admin a on a.org_id = c.org_id
+        `select count(distinct c.org_id)::int as n from sm_ai_connections c
+         join sm_orgs o on o.id = c.org_id and o.deleted_at is null
+         left join sm_org_admin a on a.org_id = c.org_id
          where c.deleted_at is null and c.enabled and not coalesce(a.ai_disabled, false)`,
       )
       .catch(() => null);
     out.enabled_orgs = r?.n ?? null;
   }
-  if (await tableExists(db, "tz_ai_usage")) {
+  if (await tableExists(db, "sm_ai_usage")) {
     const r = await db
       .one<{ calls: number; errors: number; cost: string }>(
         `select count(*)::int as calls, count(*) filter (where not ok)::int as errors, coalesce(sum(cost_usd), 0)::text as cost
-         from tz_ai_usage where created_at >= $1`,
+         from sm_ai_usage where created_at >= $1`,
         [jalaliMonthStart()],
       )
       .catch(() => null);
@@ -75,25 +75,25 @@ export async function overview(cfg: ServerConfig) {
   const db = cfg.db;
   const k = await db.one<Record<string, number>>(
     `select
-       (select count(*)::int from tz_orgs where deleted_at is null) as orgs_total,
-       (select count(*)::int from tz_orgs where deleted_at is null and created_at > now() - interval '30 days') as orgs_new_30d,
+       (select count(*)::int from sm_orgs where deleted_at is null) as orgs_total,
+       (select count(*)::int from sm_orgs where deleted_at is null and created_at > now() - interval '30 days') as orgs_new_30d,
        (select count(*)::int from (
-          select org_id from tz_audit where at > now() - interval '30 days' and org_id is not null and actor_kind = 'user'
-          union select org_id from tz_vouchers where updated_at > now() - interval '30 days') t
-        join tz_orgs o on o.id = t.org_id and o.deleted_at is null) as orgs_active_30d,
-       (select count(*)::int from tz_org_admin a join tz_orgs o on o.id = a.org_id and o.deleted_at is null where a.status = 'read_only') as orgs_read_only,
-       (select count(*)::int from tz_org_admin a join tz_orgs o on o.id = a.org_id and o.deleted_at is null where a.status = 'suspended') as orgs_suspended,
-       (select count(*)::int from tz_users) as users_total,
-       (select count(*)::int from tz_users where disabled) as users_disabled,
-       (select count(*)::int from tz_users where is_platform_admin and not disabled) as users_admins,
-       (select count(*)::int from tz_users where created_at > now() - interval '30 days') as users_new_30d,
-       (select count(distinct user_id)::int from tz_sessions where last_seen_at > now() - interval '1 day') as users_active_today,
-       (select count(distinct user_id)::int from tz_sessions where last_seen_at > now() - interval '7 days') as users_active_7d,
-       (select count(*)::int from tz_devices where revoked_at is null) as devices_total,
-       (select count(*)::int from tz_devices where revoked_at is null and greatest(last_push_at, last_pull_at) > now() - interval '7 days') as devices_active_7d,
-       (select count(*)::int from tz_security_events where at > now() - interval '1 day') as events_24h,
-       (select count(*)::int from tz_security_events where at > now() - interval '1 day' and kind = 'sign_in' and not ok) as failed_sign_ins_24h,
-       (select count(*)::int from tz_support_sessions where ended_at is null and expires_at > now()) as support_active,
+          select org_id from sm_audit where at > now() - interval '30 days' and org_id is not null and actor_kind = 'user'
+          union select org_id from sm_vouchers where updated_at > now() - interval '30 days') t
+        join sm_orgs o on o.id = t.org_id and o.deleted_at is null) as orgs_active_30d,
+       (select count(*)::int from sm_org_admin a join sm_orgs o on o.id = a.org_id and o.deleted_at is null where a.status = 'read_only') as orgs_read_only,
+       (select count(*)::int from sm_org_admin a join sm_orgs o on o.id = a.org_id and o.deleted_at is null where a.status = 'suspended') as orgs_suspended,
+       (select count(*)::int from sm_users) as users_total,
+       (select count(*)::int from sm_users where disabled) as users_disabled,
+       (select count(*)::int from sm_users where is_platform_admin and not disabled) as users_admins,
+       (select count(*)::int from sm_users where created_at > now() - interval '30 days') as users_new_30d,
+       (select count(distinct user_id)::int from sm_sessions where last_seen_at > now() - interval '1 day') as users_active_today,
+       (select count(distinct user_id)::int from sm_sessions where last_seen_at > now() - interval '7 days') as users_active_7d,
+       (select count(*)::int from sm_devices where revoked_at is null) as devices_total,
+       (select count(*)::int from sm_devices where revoked_at is null and greatest(last_push_at, last_pull_at) > now() - interval '7 days') as devices_active_7d,
+       (select count(*)::int from sm_security_events where at > now() - interval '1 day') as events_24h,
+       (select count(*)::int from sm_security_events where at > now() - interval '1 day' and kind = 'sign_in' and not ok) as failed_sign_ins_24h,
+       (select count(*)::int from sm_support_sessions where ended_at is null and expires_at > now()) as support_active,
        pg_database_size(current_database())::bigint as db_bytes`,
   );
   const n = (key: string) => Number(k?.[key] ?? 0);
@@ -103,9 +103,9 @@ export async function overview(cfg: ServerConfig) {
     listSupportSessions(db, { active: true, limit: 20 }),
     db.query<{ id: string; name: string; created_at: string; owner_name: string | null }>(
       `select o.id, o.name, o.created_at,
-              (select u.full_name from tz_org_members m join tz_users u on u.id = m.user_id
+              (select u.full_name from sm_org_members m join sm_users u on u.id = m.user_id
                where m.org_id = o.id and m.role = 'owner' and m.deleted_at is null order by m.created_at limit 1) as owner_name
-       from tz_orgs o where o.deleted_at is null order by o.created_at desc limit 5`,
+       from sm_orgs o where o.deleted_at is null order by o.created_at desc limit 5`,
     ),
     listSecurityEvents(db, { limit: 6 }),
   ]);
@@ -147,8 +147,8 @@ export interface OrgListFilter {
 }
 
 const LAST_ACTIVITY = `greatest(
-  (select max(x.at) from tz_audit x where x.org_id = o.id and x.actor_kind = 'user'),
-  (select max(v.updated_at) from tz_vouchers v where v.org_id = o.id))`;
+  (select max(x.at) from sm_audit x where x.org_id = o.id and x.actor_kind = 'user'),
+  (select max(v.updated_at) from sm_vouchers v where v.org_id = o.id))`;
 
 export async function listOrgs(q: Queryable, f: OrgListFilter = {}) {
   const where = ["o.deleted_at is null"];
@@ -157,7 +157,7 @@ export async function listOrgs(q: Queryable, f: OrgListFilter = {}) {
     params.push(likeContains(f.q.trim()));
     const p = `$${params.length}`;
     where.push(`(o.name ilike ${p} or o.legal_name ilike ${p} or exists (
-      select 1 from tz_org_members m join tz_users u on u.id = m.user_id
+      select 1 from sm_org_members m join sm_users u on u.id = m.user_id
       where m.org_id = o.id and m.deleted_at is null and (u.email ilike ${p} or u.full_name ilike ${p} or u.mobile ilike ${p})))`);
   }
   if (f.status) {
@@ -168,19 +168,19 @@ export async function listOrgs(q: Queryable, f: OrgListFilter = {}) {
     params.push(f.module);
     where.push(`o.modules @> jsonb_build_array($${params.length}::text)`);
   }
-  if (f.support) where.push(`exists (select 1 from tz_support_sessions s where s.org_id = o.id and s.ended_at is null and s.expires_at > now())`);
+  if (f.support) where.push(`exists (select 1 from sm_support_sessions s where s.org_id = o.id and s.ended_at is null and s.expires_at > now())`);
   const rows = await q.query<Record<string, unknown> & { last_activity: string | null }>(
     `select o.id, o.name, o.legal_name, o.business_kind, o.modules, o.base_currency, o.city, o.created_at,
             coalesce(a.status, 'active') as status, a.status_reason, coalesce(a.ai_disabled, false) as ai_disabled,
-            (select count(*)::int from tz_org_members m where m.org_id = o.id and m.deleted_at is null and m.is_active) as members,
+            (select count(*)::int from sm_org_members m where m.org_id = o.id and m.deleted_at is null and m.is_active) as members,
             (select json_build_object('name', u.full_name, 'email', u.email, 'mobile', u.mobile)
-               from tz_org_members m join tz_users u on u.id = m.user_id
+               from sm_org_members m join sm_users u on u.id = m.user_id
               where m.org_id = o.id and m.role = 'owner' and m.deleted_at is null and m.is_active order by m.created_at limit 1) as owner,
-            (select count(*)::int from tz_vouchers v where v.org_id = o.id and v.deleted_at is null) as vouchers,
-            (select count(*)::int from tz_devices d where d.org_id = o.id and d.revoked_at is null) as devices,
+            (select count(*)::int from sm_vouchers v where v.org_id = o.id and v.deleted_at is null) as vouchers,
+            (select count(*)::int from sm_devices d where d.org_id = o.id and d.revoked_at is null) as devices,
             ${LAST_ACTIVITY} as last_activity,
-            exists (select 1 from tz_support_sessions s where s.org_id = o.id and s.ended_at is null and s.expires_at > now()) as support_active
-     from tz_orgs o left join tz_org_admin a on a.org_id = o.id
+            exists (select 1 from sm_support_sessions s where s.org_id = o.id and s.ended_at is null and s.expires_at > now()) as support_active
+     from sm_orgs o left join sm_org_admin a on a.org_id = o.id
      where ${where.join(" and ")}
      order by o.created_at desc limit 500`,
     params,
@@ -200,7 +200,7 @@ async function sizeTablesOf(q: Queryable) {
     all.push({ entity: a.entity, table: a.table, root: true });
     for (const ch of a.children ?? []) if (!all.some((x) => x.table === ch.table)) all.push({ entity: a.entity, table: ch.table, root: false });
   }
-  all.push({ entity: "audit", table: "tz_audit", root: true });
+  all.push({ entity: "audit", table: "sm_audit", root: true });
   const have = new Set(
     (await q.query<{ table_name: string }>(
       `select table_name from information_schema.columns where table_schema = current_schema() and column_name = 'org_id' and table_name = any($1::text[])`,
@@ -221,7 +221,7 @@ export interface OrgSize {
 export async function orgSizes(q: Queryable, orgId: string): Promise<{ total_bytes: number; items: OrgSize[] }> {
   const by = new Map<string, OrgSize>();
   for (const t of await sizeTablesOf(q)) {
-    const live = t.root && t.table !== "tz_audit" ? "deleted_at is null" : "true";
+    const live = t.root && t.table !== "sm_audit" ? "deleted_at is null" : "true";
     const r = await q.one<{ rows: number; bytes: number }>(
       `select count(*) filter (where ${live})::int as rows, coalesce(sum(pg_column_size(t.*)), 0)::bigint as bytes from ${t.table} t where org_id = $1`,
       [orgId],
@@ -239,32 +239,32 @@ export async function orgDetail(cfg: ServerConfig, orgId: string, adminUserId: s
   const db = cfg.db;
   const org = await db.one(
     `select id, name, legal_name, business_kind, modules, base_currency, province, city, phone, mobile, email, website, created_at, updated_at, logo
-     from tz_orgs where id = $1 and deleted_at is null`,
+     from sm_orgs where id = $1 and deleted_at is null`,
     [orgId],
   );
   if (!org) return null;
   const [admin, members, devices, activity, sizes, sessions, events, member] = await Promise.all([
     orgAdminState(db, orgId).then(async (a: OrgAdminState) => ({
       ...a,
-      updated_by_name: a.updated_by ? ((await db.one<{ full_name: string }>(`select full_name from tz_users where id = $1`, [a.updated_by]))?.full_name ?? null) : null,
+      updated_by_name: a.updated_by ? ((await db.one<{ full_name: string }>(`select full_name from sm_users where id = $1`, [a.updated_by]))?.full_name ?? null) : null,
     })),
     db.query(
       `select m.id, m.user_id, m.role, m.title, m.is_active, m.created_at, u.full_name, u.email, u.mobile, u.last_login_at, u.disabled
-       from tz_org_members m join tz_users u on u.id = m.user_id
+       from sm_org_members m join sm_users u on u.id = m.user_id
        where m.org_id = $1 and m.deleted_at is null
        order by case m.role when 'owner' then 0 when 'admin' then 1 when 'accountant' then 2 else 3 end, m.created_at`,
       [orgId],
     ),
     db.query(
       `select d.id, d.name, d.platform, d.app_version, d.created_at, d.last_push_at, d.last_pull_at, d.revoked_at, u.full_name as user_name
-       from tz_devices d left join tz_users u on u.id = d.user_id where d.org_id = $1 order by greatest(d.last_push_at, d.last_pull_at, d.created_at) desc limit 50`,
+       from sm_devices d left join sm_users u on u.id = d.user_id where d.org_id = $1 order by greatest(d.last_push_at, d.last_pull_at, d.created_at) desc limit 50`,
       [orgId],
     ),
-    db.one<{ last_activity: string | null }>(`select ${LAST_ACTIVITY} as last_activity from tz_orgs o where o.id = $1`, [orgId]),
+    db.one<{ last_activity: string | null }>(`select ${LAST_ACTIVITY} as last_activity from sm_orgs o where o.id = $1`, [orgId]),
     orgSizes(db, orgId),
     listSupportSessions(db, { org_id: orgId, limit: 30 }),
     listSecurityEvents(db, { org_id: orgId, limit: 30 }),
-    db.one(`select 1 from tz_org_members where org_id = $1 and user_id = $2 and deleted_at is null and is_active`, [orgId, adminUserId]),
+    db.one(`select 1 from sm_org_members where org_id = $1 and user_id = $2 and deleted_at is null and is_active`, [orgId, adminUserId]),
   ]);
   return {
     org,
@@ -298,15 +298,15 @@ export async function listUsers(cfg: ServerConfig, f: UserListFilter = {}) {
   if (f.filter === "admins") where.push("u.is_platform_admin");
   if (f.filter === "disabled") where.push("u.disabled");
   if (f.filter === "never") where.push("u.last_login_at is null");
-  if (f.filter === "inactive") where.push(`coalesce((select max(s.last_seen_at) from tz_sessions s where s.user_id = u.id), u.created_at) < now() - interval '30 days'`);
+  if (f.filter === "inactive") where.push(`coalesce((select max(s.last_seen_at) from sm_sessions s where s.user_id = u.id), u.created_at) < now() - interval '30 days'`);
   const rows = await cfg.db.query<{ email: string } & Record<string, unknown>>(
     `select u.id, u.email, u.full_name, u.mobile, u.is_platform_admin, u.disabled, u.created_at, u.last_login_at,
-            (select max(s.last_seen_at) from tz_sessions s where s.user_id = u.id) as last_seen_at,
-            (select count(*)::int from tz_org_members m join tz_orgs o on o.id = m.org_id and o.deleted_at is null
+            (select max(s.last_seen_at) from sm_sessions s where s.user_id = u.id) as last_seen_at,
+            (select count(*)::int from sm_org_members m join sm_orgs o on o.id = m.org_id and o.deleted_at is null
               where m.user_id = u.id and m.deleted_at is null and m.is_active) as orgs,
-            (select count(*)::int from tz_sessions s where s.user_id = u.id and s.revoked_at is null and s.expires_at > now()) as sessions,
-            (select count(*)::int from tz_security_events e where e.user_id = u.id and e.kind = 'sign_in' and not e.ok and e.at > now() - interval '1 day') as failed_24h
-     from tz_users u ${where.length ? `where ${where.join(" and ")}` : ""}
+            (select count(*)::int from sm_sessions s where s.user_id = u.id and s.revoked_at is null and s.expires_at > now()) as sessions,
+            (select count(*)::int from sm_security_events e where e.user_id = u.id and e.kind = 'sign_in' and not e.ok and e.at > now() - interval '1 day') as failed_24h
+     from sm_users u ${where.length ? `where ${where.join(" and ")}` : ""}
      order by u.created_at desc limit 300`,
     params,
   );
@@ -317,25 +317,25 @@ export async function userDetail(cfg: ServerConfig, userId: string) {
   const db = cfg.db;
   const user = await db.one<{ email: string } & Record<string, unknown>>(
     `select id, email, full_name, mobile, is_platform_admin, disabled, created_at, updated_at, last_login_at, recovery_hash is not null as has_recovery
-     from tz_users where id = $1`,
+     from sm_users where id = $1`,
     [userId],
   );
   if (!user) return null;
   const [memberships, sessions, devices, events, support] = await Promise.all([
     db.query(
       `select m.id, m.org_id, o.name as org_name, m.role, m.title, m.is_active, m.created_at, coalesce(a.status, 'active') as org_status
-       from tz_org_members m join tz_orgs o on o.id = m.org_id and o.deleted_at is null left join tz_org_admin a on a.org_id = o.id
+       from sm_org_members m join sm_orgs o on o.id = m.org_id and o.deleted_at is null left join sm_org_admin a on a.org_id = o.id
        where m.user_id = $1 and m.deleted_at is null order by m.created_at`,
       [userId],
     ),
     db.query(
-      `select id, kind, device_name, ip, user_agent, created_at, last_seen_at, expires_at from tz_sessions
+      `select id, kind, device_name, ip, user_agent, created_at, last_seen_at, expires_at from sm_sessions
        where user_id = $1 and revoked_at is null and expires_at > now() order by last_seen_at desc limit 50`,
       [userId],
     ),
     db.query(
       `select d.id, d.name, d.platform, d.app_version, d.created_at, d.last_push_at, d.last_pull_at, o.name as org_name
-       from tz_devices d left join tz_orgs o on o.id = d.org_id where d.user_id = $1 and d.revoked_at is null
+       from sm_devices d left join sm_orgs o on o.id = d.org_id where d.user_id = $1 and d.revoked_at is null
        order by greatest(d.last_push_at, d.last_pull_at, d.created_at) desc limit 50`,
       [userId],
     ),
@@ -384,10 +384,10 @@ export async function adminAudit(q: Queryable, f: AdminAuditFilter = {}) {
             u.full_name as actor_name, u.email as actor_email,
             o.id as target_org_id, o.name as org_name,
             t.id as target_user_id, t.full_name as target_name, t.email as target_email
-     from tz_audit a
-     left join tz_users u on u.id = a.user_id
-     left join tz_orgs o on o.id = coalesce(a.org_id, case when a.entity = 'org' then a.entity_id end)
-     left join tz_users t on a.entity = 'user' and t.id = a.entity_id
+     from sm_audit a
+     left join sm_users u on u.id = a.user_id
+     left join sm_orgs o on o.id = coalesce(a.org_id, case when a.entity = 'org' then a.entity_id end)
+     left join sm_users t on a.entity = 'user' and t.id = a.entity_id
      where ${where.join(" and ")}
      order by a.at desc
      limit $${params.length}`,

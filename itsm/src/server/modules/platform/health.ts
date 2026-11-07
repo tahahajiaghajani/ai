@@ -54,7 +54,7 @@ export async function systemHealth(cfg: ServerConfig): Promise<SystemHealth> {
   }
   const latency = reachable ? Date.now() - started : null;
   let applied: string[] = [];
-  if (reachable) applied = (await db.query<{ id: string }>(`select id from tz_migrations order by id`).catch(() => [])).map((r) => r.id);
+  if (reachable) applied = (await db.query<{ id: string }>(`select id from sm_migrations order by id`).catch(() => [])).map((r) => r.id);
   const have = new Set(applied);
   const missing = MIGRATIONS.filter((m) => !have.has(m.id)).map((m) => m.id);
   const secret = secretSource(cfg);

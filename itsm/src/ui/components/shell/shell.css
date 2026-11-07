@@ -1,20 +1,20 @@
-/* Siraf · the app shell (components.md §1): the canvas sidebar, the glass top bar, the content panel, the command
+/* The app shell (components.md §1): the canvas sidebar, the glass top bar, the content panel, the command
    palette and the page header. Tokens only (tokens.css); logical properties only; no `transition: all`.
    The document scrolls (not the panel), so window-based behaviour, sticky elements and full-page screenshots keep
    working: the sidebar is sticky, and the top bar is a sticky glass strip whose 8 px canvas band and rounded corners
    are painted by its wrapper, so the content scrolls under the glass and never shows above it. */
 @layer components {
   html:has(.sh-app) {
-    scroll-padding-top: calc(var(--sf-topbar-h) + var(--sf-panel-inset) + 8px);
+    scroll-padding-top: calc(var(--ds-topbar-h) + var(--ds-panel-inset) + 8px);
   }
 
   /* ------------------------------------------------------------------ frame */
   .sh-app {
-    --sh-side-w: var(--sf-sidebar-w);
+    --sh-side-w: var(--ds-sidebar-w);
     display: grid;
     grid-template-columns: var(--sh-side-w) minmax(0, 1fr);
     min-block-size: 100dvh;
-    background: var(--sf-canvas);
+    background: var(--ds-canvas);
   }
   .sh-app.is-mobile {
     grid-template-columns: minmax(0, 1fr);
@@ -23,37 +23,37 @@
     min-inline-size: 0;
     display: flex;
     flex-direction: column;
-    padding-block: 0 var(--sf-panel-inset);
-    padding-inline: 0 var(--sf-panel-inset);
+    padding-block: 0 var(--ds-panel-inset);
+    padding-inline: 0 var(--ds-panel-inset);
   }
 
   /* the sticky strip: an 8 px canvas band, 1 px canvas edges over the panel's ring and the two rounded corners */
   .sh-top-wrap {
     position: sticky;
     inset-block-start: 0;
-    z-index: var(--sf-z-topbar);
-    padding-block-start: var(--sf-panel-inset);
+    z-index: var(--ds-z-topbar);
+    padding-block-start: var(--ds-panel-inset);
     margin-inline: -1px;
     padding-inline: 1px;
     background:
-      linear-gradient(var(--sf-canvas), var(--sf-canvas)) top / 100% var(--sf-panel-inset) no-repeat,
-      linear-gradient(var(--sf-canvas), var(--sf-canvas)) left top / 1px 100% no-repeat,
-      linear-gradient(var(--sf-canvas), var(--sf-canvas)) right top / 1px 100% no-repeat,
-      radial-gradient(circle at 100% 100%, transparent 11.5px, var(--sf-canvas) 12px) 1px var(--sf-panel-inset) / 12px 12px no-repeat,
-      radial-gradient(circle at 0 100%, transparent 11.5px, var(--sf-canvas) 12px) calc(100% - 1px) var(--sf-panel-inset) / 12px 12px no-repeat;
+      linear-gradient(var(--ds-canvas), var(--ds-canvas)) top / 100% var(--ds-panel-inset) no-repeat,
+      linear-gradient(var(--ds-canvas), var(--ds-canvas)) left top / 1px 100% no-repeat,
+      linear-gradient(var(--ds-canvas), var(--ds-canvas)) right top / 1px 100% no-repeat,
+      radial-gradient(circle at 100% 100%, transparent 11.5px, var(--ds-canvas) 12px) 1px var(--ds-panel-inset) / 12px 12px no-repeat,
+      radial-gradient(circle at 0 100%, transparent 11.5px, var(--ds-canvas) 12px) calc(100% - 1px) var(--ds-panel-inset) / 12px 12px no-repeat;
   }
   .sh-panel {
     position: relative;
     flex: 1 0 auto;
-    min-block-size: calc(100dvh - var(--sf-topbar-h) - 2 * var(--sf-panel-inset));
-    background: var(--sf-surface);
-    border-radius: 0 0 var(--sf-radius-lg) var(--sf-radius-lg);
-    box-shadow: var(--sf-shadow-e1);
+    min-block-size: calc(100dvh - var(--ds-topbar-h) - 2 * var(--ds-panel-inset));
+    background: var(--ds-surface);
+    border-radius: 0 0 var(--ds-radius-lg) var(--ds-radius-lg);
+    box-shadow: var(--ds-shadow-e1);
     overflow: clip;
   }
   .sh-page {
-    padding-block: var(--sf-page-top) 28px;
-    padding-inline: var(--sf-gutter);
+    padding-block: var(--ds-page-top) 28px;
+    padding-inline: var(--ds-gutter);
   }
   @media (max-width: 639px) {
     .sh-page {
@@ -73,13 +73,13 @@
   .sh-app.is-mobile .sh-topbar {
     border-radius: 0;
     clip-path: none;
-    box-shadow: inset 0 -1px 0 var(--sf-line);
+    box-shadow: inset 0 -1px 0 var(--ds-line);
     padding-inline: 8px 10px;
   }
   .sh-app.is-mobile .sh-panel {
     border-radius: 0;
     box-shadow: none;
-    min-block-size: calc(100dvh - var(--sf-topbar-h));
+    min-block-size: calc(100dvh - var(--ds-topbar-h));
   }
 
   /* ------------------------------------------------------------------ top bar */
@@ -87,15 +87,15 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    block-size: var(--sf-topbar-h);
+    block-size: var(--ds-topbar-h);
     padding-inline: 12px 14px;
-    border-radius: var(--sf-radius-lg) var(--sf-radius-lg) 0 0;
-    background: var(--sf-glass-bg);
-    -webkit-backdrop-filter: var(--sf-glass-filter);
-    backdrop-filter: var(--sf-glass-filter);
+    border-radius: var(--ds-radius-lg) var(--ds-radius-lg) 0 0;
+    background: var(--ds-glass-bg);
+    -webkit-backdrop-filter: var(--ds-glass-filter);
+    backdrop-filter: var(--ds-glass-filter);
     box-shadow:
-      var(--sf-glass-ring),
-      inset 0 -1px 0 var(--sf-line);
+      var(--ds-glass-ring),
+      inset 0 -1px 0 var(--ds-line);
     clip-path: inset(-1px -1px 0 -1px);
   }
   .sh-crumbs {
@@ -106,7 +106,7 @@
     margin-inline-start: 2px;
     font-size: 14px;
     line-height: 20px;
-    color: var(--sf-text-3);
+    color: var(--ds-text-3);
     white-space: nowrap;
   }
   .sh-crumb,
@@ -129,28 +129,28 @@
   }
   .sh-crumb-sep {
     flex: none;
-    color: var(--sf-text-4);
+    color: var(--ds-text-4);
   }
   .sh-crumb-link {
     color: inherit;
     text-decoration: none;
-    border-radius: var(--sf-radius-xs);
-    transition: color var(--sf-dur-base) var(--sf-ease-out-quad);
+    border-radius: var(--ds-radius-xs);
+    transition: color var(--ds-dur-base) var(--ds-ease-out-quad);
   }
   .sh-crumb-link:hover {
-    color: var(--sf-text);
+    color: var(--ds-text);
     transition-duration: 0ms;
   }
   .sh-crumb-cur {
-    font-weight: var(--sf-weight-medium);
-    color: var(--sf-text);
+    font-weight: var(--ds-weight-medium);
+    color: var(--ds-text);
     overflow: hidden;
     text-overflow: ellipsis;
   }
   .sh-crumb-reveal {
     flex: 0 1 auto;
     opacity: 0;
-    transition: opacity var(--sf-dur-base) var(--sf-ease-out-quad);
+    transition: opacity var(--ds-dur-base) var(--ds-ease-out-quad);
   }
   .sh-crumb-reveal.is-shown {
     opacity: 1;
@@ -188,27 +188,27 @@
     flex: none;
     padding: 0;
     border: 0;
-    border-radius: var(--sf-radius-md);
+    border-radius: var(--ds-radius-md);
     background: transparent;
-    color: var(--sf-text-2);
+    color: var(--ds-text-2);
     cursor: pointer;
     transition:
-      background-color var(--sf-dur-base) var(--sf-ease-out-quad),
-      color var(--sf-dur-base) var(--sf-ease-out-quad),
-      transform var(--sf-dur-fast) var(--sf-ease-out);
+      background-color var(--ds-dur-base) var(--ds-ease-out-quad),
+      color var(--ds-dur-base) var(--ds-ease-out-quad),
+      transform var(--ds-dur-fast) var(--ds-ease-out);
   }
   .sh-icon-btn:hover,
   .sh-icon-btn.ant-dropdown-open {
-    background: var(--sf-hover);
-    color: var(--sf-text);
-    transition-duration: 0ms, 0ms, var(--sf-dur-fast);
+    background: var(--ds-hover);
+    color: var(--ds-text);
+    transition-duration: 0ms, 0ms, var(--ds-dur-fast);
   }
   .sh-icon-btn:active {
-    transform: scale(var(--sf-press-scale));
+    transform: scale(var(--ds-press-scale));
   }
   .sh-icon-btn[aria-pressed="true"] {
-    background: var(--sf-selected);
-    color: var(--sf-text);
+    background: var(--ds-selected);
+    color: var(--ds-text);
   }
   .sh-icon-sm {
     inline-size: 28px;
@@ -223,31 +223,31 @@
     padding-inline: 10px 8px;
     margin-inline-end: 6px;
     border: 0;
-    border-radius: var(--sf-radius-md);
+    border-radius: var(--ds-radius-md);
     background: transparent;
-    box-shadow: inset 0 0 0 1px var(--sf-line-2);
+    box-shadow: inset 0 0 0 1px var(--ds-line-2);
     font-family: inherit;
     font-size: 13px;
     line-height: 20px;
-    font-weight: var(--sf-weight-medium);
-    color: var(--sf-text-2);
+    font-weight: var(--ds-weight-medium);
+    color: var(--ds-text-2);
     white-space: nowrap;
     cursor: pointer;
-    transition: background-color var(--sf-dur-base) var(--sf-ease-out-quad);
+    transition: background-color var(--ds-dur-base) var(--ds-ease-out-quad);
   }
   .sh-fy svg {
-    color: var(--sf-text-3);
+    color: var(--ds-text-3);
     flex: none;
   }
   .sh-fy:hover,
   .sh-fy.ant-dropdown-open {
-    background: var(--sf-hover);
-    color: var(--sf-text);
+    background: var(--ds-hover);
+    color: var(--ds-text);
     transition-duration: 0ms;
   }
   .sh-fy-closed {
-    font-weight: var(--sf-weight-regular);
-    color: var(--sf-text-3);
+    font-weight: var(--ds-weight-regular);
+    color: var(--ds-text-3);
   }
 
   .sh-avatar {
@@ -258,21 +258,21 @@
     margin-inline-start: 6px;
     padding: 0;
     border: 0;
-    border-radius: var(--sf-radius-pill);
-    background: var(--sf-neutral-tint);
-    box-shadow: inset 0 0 0 1px var(--sf-line);
+    border-radius: var(--ds-radius-pill);
+    background: var(--ds-neutral-tint);
+    box-shadow: inset 0 0 0 1px var(--ds-line);
     font-family: inherit;
     font-size: 12px;
     line-height: 1;
     font-weight: 600;
-    color: var(--sf-text-2);
+    color: var(--ds-text-2);
     cursor: pointer;
-    transition: box-shadow var(--sf-dur-base) var(--sf-ease-out-quad);
+    transition: box-shadow var(--ds-dur-base) var(--ds-ease-out-quad);
   }
   .sh-avatar:hover,
   .sh-avatar.ant-dropdown-open {
-    box-shadow: inset 0 0 0 1px var(--sf-line-3);
-    color: var(--sf-text);
+    box-shadow: inset 0 0 0 1px var(--ds-line-3);
+    color: var(--ds-text);
     transition-duration: 0ms;
   }
 
@@ -280,14 +280,14 @@
   .sh-side {
     position: sticky;
     inset-block-start: 0;
-    z-index: var(--sf-z-sidebar);
+    z-index: var(--ds-z-sidebar);
     display: flex;
     flex-direction: column;
     block-size: 100dvh;
     min-block-size: 0;
     padding-block: 10px;
     padding-inline: 12px 8px;
-    background: var(--sf-canvas);
+    background: var(--ds-canvas);
   }
   .sh-side-head {
     display: flex;
@@ -309,11 +309,11 @@
     font-family: inherit;
     text-align: start;
     cursor: pointer;
-    transition: background-color var(--sf-dur-base) var(--sf-ease-out-quad);
+    transition: background-color var(--ds-dur-base) var(--ds-ease-out-quad);
   }
   .sh-biz:hover,
   .sh-biz.ant-dropdown-open {
-    background: var(--sf-hover);
+    background: var(--ds-hover);
     transition-duration: 0ms;
   }
   .sh-tile-img {
@@ -322,7 +322,7 @@
     flex: none;
     border-radius: 7px;
     object-fit: cover;
-    box-shadow: inset 0 0 0 1px var(--sf-line);
+    box-shadow: inset 0 0 0 1px var(--ds-line);
   }
   .sh-biz-t {
     display: flex;
@@ -334,7 +334,7 @@
     font-size: 14px;
     line-height: 20px;
     font-weight: 600;
-    color: var(--sf-text);
+    color: var(--ds-text);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -342,14 +342,14 @@
   .sh-biz-sub {
     font-size: 12px;
     line-height: 16px;
-    color: var(--sf-text-3);
+    color: var(--ds-text-3);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
   .sh-biz-chev {
     flex: none;
-    color: var(--sf-text-3);
+    color: var(--ds-text-3);
   }
 
   /* the space switcher: content-sized segments with a uniform padding; the bold label is measured in advance
@@ -359,9 +359,9 @@
     gap: 2px;
     margin-block-start: 10px;
     padding: 2px;
-    border-radius: var(--sf-radius-pill);
-    background: var(--sf-sunken);
-    box-shadow: inset 0 0 0 1px var(--sf-line);
+    border-radius: var(--ds-radius-pill);
+    background: var(--ds-sunken);
+    box-shadow: inset 0 0 0 1px var(--ds-line);
   }
   .sh-seg > button {
     display: inline-flex;
@@ -373,18 +373,18 @@
     block-size: 28px;
     padding-inline: 7px;
     border: 0;
-    border-radius: var(--sf-radius-pill);
+    border-radius: var(--ds-radius-pill);
     background: transparent;
     font-family: inherit;
-    font-size: var(--sf-type-label-size);
-    line-height: var(--sf-type-label-line);
-    font-weight: var(--sf-weight-medium);
-    color: var(--sf-text-2);
+    font-size: var(--ds-type-label-size);
+    line-height: var(--ds-type-label-line);
+    font-weight: var(--ds-weight-medium);
+    color: var(--ds-text-2);
     white-space: nowrap;
     cursor: pointer;
     transition:
-      background-color var(--sf-dur-base) var(--sf-ease-out-quad),
-      color var(--sf-dur-base) var(--sf-ease-out-quad);
+      background-color var(--ds-dur-base) var(--ds-ease-out-quad),
+      color var(--ds-dur-base) var(--ds-ease-out-quad);
   }
   .sh-seg > button::after {
     content: attr(data-label);
@@ -394,14 +394,14 @@
     font-weight: 600;
   }
   .sh-seg > button:hover {
-    color: var(--sf-text);
+    color: var(--ds-text);
     transition-duration: 0ms;
   }
   .sh-seg > button[aria-pressed="true"] {
-    background: var(--sf-segment-on);
-    color: var(--sf-text);
+    background: var(--ds-segment-on);
+    color: var(--ds-text);
     font-weight: 600;
-    box-shadow: var(--sf-shadow-segment);
+    box-shadow: var(--ds-shadow-segment);
   }
   .sh-space-select,
   .sh-back {
@@ -413,14 +413,14 @@
     margin-block-start: 10px;
     padding-inline: 10px 8px;
     border: 0;
-    border-radius: var(--sf-radius-md);
-    background: var(--sf-sunken);
-    box-shadow: inset 0 0 0 1px var(--sf-line);
+    border-radius: var(--ds-radius-md);
+    background: var(--ds-sunken);
+    box-shadow: inset 0 0 0 1px var(--ds-line);
     font-family: inherit;
     font-size: 13px;
     line-height: 20px;
     font-weight: 600;
-    color: var(--sf-text);
+    color: var(--ds-text);
     text-align: start;
     cursor: pointer;
   }
@@ -433,19 +433,19 @@
     white-space: nowrap;
   }
   .sh-back svg {
-    color: var(--sf-text-3);
+    color: var(--ds-text-3);
   }
   /* five modules or more: a select-style row (the current module's icon and name, chevrons at the end) */
   .sh-space-select {
     gap: 8px;
     block-size: 36px;
     padding-inline: 4px 8px;
-    background: var(--sf-sunken);
-    transition: box-shadow var(--sf-dur-base) var(--sf-ease-out-quad);
+    background: var(--ds-sunken);
+    transition: box-shadow var(--ds-dur-base) var(--ds-ease-out-quad);
   }
   .sh-space-select:hover,
   .sh-space-select.ant-dropdown-open {
-    box-shadow: inset 0 0 0 1px var(--sf-line-3);
+    box-shadow: inset 0 0 0 1px var(--ds-line-3);
     transition-duration: 0ms;
   }
   .sh-space-ic {
@@ -455,9 +455,9 @@
     inline-size: 28px;
     block-size: 28px;
     border-radius: 7px;
-    background: var(--sf-segment-on);
-    box-shadow: var(--sf-shadow-segment);
-    color: var(--sf-text);
+    background: var(--ds-segment-on);
+    box-shadow: var(--ds-shadow-segment);
+    color: var(--ds-text);
   }
   .sh-menu-space .ant-dropdown-menu {
     min-inline-size: 200px;
@@ -468,10 +468,10 @@
     box-shadow: none;
     padding-inline: 10px;
     font-size: 14px;
-    transition: background-color var(--sf-dur-base) var(--sf-ease-out-quad);
+    transition: background-color var(--ds-dur-base) var(--ds-ease-out-quad);
   }
   .sh-back:hover {
-    background: var(--sf-hover);
+    background: var(--ds-hover);
     transition-duration: 0ms;
   }
 
@@ -485,22 +485,22 @@
     margin-block-start: 10px;
     padding-inline: 10px 6px;
     border: 0;
-    border-radius: var(--sf-radius-md);
-    background: var(--sf-raised);
+    border-radius: var(--ds-radius-md);
+    background: var(--ds-raised);
     box-shadow:
-      0 0 0 1px var(--sf-line-2),
-      var(--sf-shadow-button);
+      0 0 0 1px var(--ds-line-2),
+      var(--ds-shadow-button);
     font-family: inherit;
     font-size: 13px;
     line-height: 20px;
-    color: var(--sf-text-3);
+    color: var(--ds-text-3);
     text-align: start;
     cursor: pointer;
-    transition: color var(--sf-dur-base) var(--sf-ease-out-quad);
+    transition: color var(--ds-dur-base) var(--ds-ease-out-quad);
   }
   .sh-search:hover {
-    color: var(--sf-text-2);
-    background-image: linear-gradient(var(--sf-hover), var(--sf-hover));
+    color: var(--ds-text-2);
+    background-image: linear-gradient(var(--ds-hover), var(--ds-hover));
     transition-duration: 0ms;
   }
   .sh-search-ph {
@@ -509,7 +509,7 @@
     text-overflow: ellipsis;
   }
 
-  /* kbd group: a bare LTR isolate; spacing goes on the RTL wrapper (.sf-end) or the parent's gap */
+  /* kbd group: a bare LTR isolate; spacing goes on the RTL wrapper (.ds-end) or the parent's gap */
   .sh-keys {
     display: inline-flex;
     gap: 3px;
@@ -522,17 +522,17 @@
     min-inline-size: 20px;
     block-size: 20px;
     padding-inline: 5px;
-    border-radius: var(--sf-radius-xs);
-    background: var(--sf-sunken);
+    border-radius: var(--ds-radius-xs);
+    background: var(--ds-sunken);
     box-shadow:
-      inset 0 0 0 1px var(--sf-line-2),
-      inset 0 -1px 0 var(--sf-line-2);
-    font-family: var(--sf-font-latin);
+      inset 0 0 0 1px var(--ds-line-2),
+      inset 0 -1px 0 var(--ds-line-2);
+    font-family: var(--ds-font-latin);
     font-feature-settings: normal;
-    font-size: var(--sf-type-kbd-size);
-    font-weight: var(--sf-weight-medium);
+    font-size: var(--ds-type-kbd-size);
+    font-weight: var(--ds-weight-medium);
     line-height: 1;
-    color: var(--sf-text-2);
+    color: var(--ds-text-2);
   }
   .ant-tooltip .sh-keys-tip .sh-kbd {
     background: rgb(255 255 255 / 0.14);
@@ -558,10 +558,10 @@
   }
   .sh-scroll:hover,
   .sh-scroll:focus-within {
-    scrollbar-color: var(--sf-line-3) transparent;
+    scrollbar-color: var(--ds-line-3) transparent;
   }
   .sh-swap {
-    animation: sf-fade var(--sf-dur-fast) linear both;
+    animation: ds-fade var(--ds-dur-fast) linear both;
   }
   .sh-nav {
     display: flex;
@@ -580,26 +580,26 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    block-size: var(--sf-nav-item-h);
+    block-size: var(--ds-nav-item-h);
     padding-inline: 10px;
-    border-radius: var(--sf-radius-md);
+    border-radius: var(--ds-radius-md);
     font-size: 14px;
     line-height: 20px;
-    font-weight: var(--sf-weight-medium);
-    color: var(--sf-text-2);
+    font-weight: var(--ds-weight-medium);
+    color: var(--ds-text-2);
     white-space: nowrap;
     text-decoration: none;
-    transition: background-color var(--sf-dur-base) var(--sf-ease-out-quad);
+    transition: background-color var(--ds-dur-base) var(--ds-ease-out-quad);
   }
   .sh-item > svg {
     flex: none;
-    color: var(--sf-text-3);
+    color: var(--ds-text-3);
   }
   /* hover is a whisper (≈3 % ink), selected a clear step above it (≈9 %) with the label at 600:
      hovering a neighbour never reads as a second selection. No accent and no bar (§1.2). */
   .sh-item:hover {
-    background: color-mix(in srgb, var(--sf-hover) 75%, transparent);
-    color: var(--sf-text);
+    background: color-mix(in srgb, var(--ds-hover) 75%, transparent);
+    color: var(--ds-text);
     transition-duration: 0ms;
   }
   .sh-item:focus-visible {
@@ -608,13 +608,13 @@
   .sh-item[aria-current="page"],
   .sh-item[aria-current="page"]:hover {
     background:
-      linear-gradient(color-mix(in srgb, var(--sf-hover) 50%, transparent), color-mix(in srgb, var(--sf-hover) 50%, transparent)),
-      var(--sf-selected);
-    color: var(--sf-text);
+      linear-gradient(color-mix(in srgb, var(--ds-hover) 50%, transparent), color-mix(in srgb, var(--ds-hover) 50%, transparent)),
+      var(--ds-selected);
+    color: var(--ds-text);
     font-weight: 600;
   }
   .sh-item[aria-current="page"] > svg {
-    color: var(--sf-text);
+    color: var(--ds-text);
   }
   /* the common items and an unlabeled main list are split by a hairline, not an empty gap */
   .sh-div {
@@ -622,7 +622,7 @@
     block-size: 1px;
     margin-block: 8px;
     margin-inline: 10px;
-    background: var(--sf-line);
+    background: var(--ds-line);
   }
   .sh-div + .sh-nav {
     margin-block-start: 0;
@@ -637,17 +637,17 @@
     flex: none;
     font-size: 12px;
     line-height: 18px;
-    font-weight: var(--sf-weight-medium);
-    color: var(--sf-text-3);
+    font-weight: var(--ds-weight-medium);
+    color: var(--ds-text-3);
   }
   .sh-item-bm {
-    font-weight: var(--sf-weight-regular);
+    font-weight: var(--ds-weight-regular);
   }
   .sh-bm-meta {
     flex: none;
     font-size: 12px;
     line-height: 18px;
-    color: var(--sf-text-3);
+    color: var(--ds-text-3);
   }
   .sh-dot {
     inline-size: 16px;
@@ -663,26 +663,26 @@
     margin-block: 20px 4px;
     padding: 0 10px;
     border: 0;
-    border-radius: var(--sf-radius-sm);
+    border-radius: var(--ds-radius-sm);
     background: none;
     font-family: inherit;
-    font-size: var(--sf-type-caption-size);
-    line-height: var(--sf-type-caption-line);
-    font-weight: var(--sf-weight-medium);
-    color: var(--sf-text-3);
+    font-size: var(--ds-type-caption-size);
+    line-height: var(--ds-type-caption-line);
+    font-weight: var(--ds-weight-medium);
+    color: var(--ds-text-3);
     text-align: start;
   }
   button.sh-sec-label {
     cursor: pointer;
   }
   button.sh-sec-label:hover {
-    color: var(--sf-text-2);
+    color: var(--ds-text-2);
   }
   .sh-sec-chev {
     opacity: 0;
     transition:
-      opacity var(--sf-dur-base) var(--sf-ease-out-quad),
-      transform var(--sf-dur-moderate) var(--sf-ease-in-out);
+      opacity var(--ds-dur-base) var(--ds-ease-out-quad),
+      transform var(--ds-dur-moderate) var(--ds-ease-in-out);
   }
   button.sh-sec-label:hover .sh-sec-chev,
   button.sh-sec-label:focus-visible .sh-sec-chev,
@@ -705,10 +705,10 @@
     min-block-size: 40px;
     padding-block: 6px 0;
     padding-inline: 10px 0;
-    box-shadow: inset 0 1px 0 var(--sf-line);
-    font-size: var(--sf-type-caption-size);
-    line-height: var(--sf-type-caption-line);
-    color: var(--sf-text-2);
+    box-shadow: inset 0 1px 0 var(--ds-line);
+    font-size: var(--ds-type-caption-size);
+    line-height: var(--ds-type-caption-line);
+    color: var(--ds-text-2);
   }
   .sh-sync {
     display: inline-flex;
@@ -718,7 +718,7 @@
     white-space: nowrap;
   }
   .sh-sync-meta {
-    color: var(--sf-text-3);
+    color: var(--ds-text-3);
     overflow: hidden;
     text-overflow: ellipsis;
   }
@@ -727,7 +727,7 @@
     flex: none;
     inline-size: 1px;
     block-size: 0.9em;
-    background: var(--sf-line-3);
+    background: var(--ds-line-3);
   }
   .sh-sync-open {
     display: inline-flex;
@@ -738,18 +738,18 @@
     padding-block: 3px;
     padding-inline: 6px;
     border: 0;
-    border-radius: var(--sf-radius-sm);
+    border-radius: var(--ds-radius-sm);
     background: none;
     font-family: inherit;
     font-size: inherit;
     line-height: inherit;
     color: inherit;
     cursor: pointer;
-    transition: background-color var(--sf-dur-base) var(--sf-ease-out-quad);
+    transition: background-color var(--ds-dur-base) var(--ds-ease-out-quad);
   }
   .sh-sync-open:hover {
-    background: var(--sf-hover);
-    color: var(--sf-text);
+    background: var(--ds-hover);
+    color: var(--ds-text);
     transition-duration: 0ms;
   }
   .sh-tip-lines {
@@ -772,14 +772,14 @@
     flex: none;
   }
   .sh-nuqta-offline {
-    color: var(--sf-warning-fill);
+    color: var(--ds-warning-fill);
   }
   .sh-nuqta-failed {
-    color: var(--sf-danger);
+    color: var(--ds-danger);
   }
   .sh-nuqta-local,
   .sh-nuqta-web {
-    color: var(--sf-text-4);
+    color: var(--ds-text-4);
   }
 
   /* inner-edge resize handle */
@@ -799,9 +799,9 @@
     inset-inline-start: 2px;
     inline-size: 2px;
     border-radius: 2px;
-    background: var(--sf-line-3);
+    background: var(--ds-line-3);
     opacity: 0;
-    transition: opacity var(--sf-dur-base) var(--sf-ease-out-quad);
+    transition: opacity var(--ds-dur-base) var(--ds-ease-out-quad);
   }
   .sh-resize:hover::after,
   .sh-resize.is-drag::after {
@@ -835,22 +835,22 @@
     block-size: 32px;
     padding: 0;
     border: 0;
-    border-radius: var(--sf-radius-md);
+    border-radius: var(--ds-radius-md);
     background: transparent;
-    color: var(--sf-text-2);
+    color: var(--ds-text-2);
     cursor: pointer;
-    transition: background-color var(--sf-dur-base) var(--sf-ease-out-quad);
+    transition: background-color var(--ds-dur-base) var(--ds-ease-out-quad);
   }
   .sh-rail-btn:hover,
   .sh-rail-btn.ant-dropdown-open {
-    background: var(--sf-hover);
-    color: var(--sf-text);
+    background: var(--ds-hover);
+    color: var(--ds-text);
     transition-duration: 0ms;
   }
   .sh-rail-space {
-    background: var(--sf-sunken);
-    box-shadow: inset 0 0 0 1px var(--sf-line);
-    color: var(--sf-text);
+    background: var(--ds-sunken);
+    box-shadow: inset 0 0 0 1px var(--ds-line);
+    color: var(--ds-text);
   }
   .sh-rail .sh-scroll {
     inline-size: calc(100% + 8px);
@@ -862,7 +862,7 @@
   .sh-rail .sh-nav + .sh-nav {
     margin-block-start: 8px;
     padding-block-start: 8px;
-    box-shadow: inset 0 1px 0 var(--sf-line);
+    box-shadow: inset 0 1px 0 var(--ds-line);
   }
   .sh-rail .sh-item {
     inline-size: 36px;
@@ -877,8 +877,8 @@
     block-size: 5px;
     border-radius: 1px;
     transform: rotate(45deg);
-    background: var(--sf-accent-text);
-    box-shadow: 0 0 0 2px var(--sf-canvas);
+    background: var(--ds-accent-text);
+    box-shadow: 0 0 0 2px var(--ds-canvas);
   }
   .sh-foot-rail {
     flex-direction: column;
@@ -890,7 +890,7 @@
     place-items: center;
     inline-size: 28px;
     block-size: 24px;
-    border-radius: var(--sf-radius-sm);
+    border-radius: var(--ds-radius-sm);
   }
 
   /* the mobile / narrow drawer */
@@ -904,11 +904,11 @@
   }
   /* the scrim at full strength; over the dark canvas the token alone barely reads, so dark deepens it */
   .sh-drawer .ant-drawer-mask {
-    background: var(--sf-scrim) !important;
+    background: var(--ds-scrim) !important;
     opacity: 1;
   }
   :root[data-theme="dark"] .sh-drawer .ant-drawer-mask {
-    background: color-mix(in srgb, var(--sf-scrim) 65%, var(--sf-sunken)) !important;
+    background: color-mix(in srgb, var(--ds-scrim) 65%, var(--ds-sunken)) !important;
   }
 
   /* touch: 40 px rows and no keyboard hints */
@@ -944,8 +944,8 @@
   .sh-menu .ant-dropdown-menu {
     min-inline-size: 220px;
   }
-  .ant-dropdown.sh-menu.sf-glass .ant-dropdown-menu {
-    background: var(--sf-glass-strong);
+  .ant-dropdown.sh-menu.ds-glass .ant-dropdown-menu {
+    background: var(--ds-glass-strong);
   }
   .sh-menu-row,
   .sh-menu-org {
@@ -961,11 +961,11 @@
     block-size: 20px;
     flex: none;
     border-radius: 5px;
-    background: var(--sf-neutral-tint);
-    box-shadow: inset 0 0 0 1px var(--sf-line);
+    background: var(--ds-neutral-tint);
+    box-shadow: inset 0 0 0 1px var(--ds-line);
     font-size: 11px;
     font-weight: 600;
-    color: var(--sf-text-2);
+    color: var(--ds-text-2);
   }
   .sh-menu-org-n {
     max-inline-size: 220px;
@@ -975,13 +975,13 @@
   }
   .sh-menu-meta {
     font-size: 12px;
-    color: var(--sf-text-3);
+    color: var(--ds-text-3);
   }
   .sh-menu-check {
     margin-inline-start: auto;
     padding-inline-start: 12px;
     box-sizing: content-box;
-    color: var(--sf-text);
+    color: var(--ds-text);
   }
   .sh-menu .sh-menu-me {
     cursor: default !important;
@@ -996,41 +996,41 @@
     font-size: 14px;
     line-height: 20px;
     font-weight: 600;
-    color: var(--sf-text);
+    color: var(--ds-text);
   }
   .sh-me-mail {
     align-self: flex-start;
-    font-family: var(--sf-font-latin);
+    font-family: var(--ds-font-latin);
     font-feature-settings: normal;
     font-size: 12px;
     line-height: 18px;
-    color: var(--sf-text-3);
+    color: var(--ds-text-3);
   }
 
   /* ------------------------------------------------------------------ command palette */
   .sh-pal-scrim {
     position: fixed;
     inset: 0;
-    z-index: var(--sf-z-palette);
+    z-index: var(--ds-z-palette);
     display: flex;
     justify-content: center;
     align-items: flex-start;
-    padding-block-start: var(--sf-palette-top);
+    padding-block-start: var(--ds-palette-top);
     padding-inline: 16px;
-    background: var(--sf-scrim);
+    background: var(--ds-scrim);
   }
   .sh-pal {
     display: flex;
     flex-direction: column;
-    inline-size: min(var(--sf-palette-w), 100%);
-    max-block-size: calc(100dvh - var(--sf-palette-top) - 24px);
-    border-radius: var(--sf-radius-lg);
-    background: var(--sf-glass-strong);
-    -webkit-backdrop-filter: var(--sf-glass-filter);
-    backdrop-filter: var(--sf-glass-filter);
+    inline-size: min(var(--ds-palette-w), 100%);
+    max-block-size: calc(100dvh - var(--ds-palette-top) - 24px);
+    border-radius: var(--ds-radius-lg);
+    background: var(--ds-glass-strong);
+    -webkit-backdrop-filter: var(--ds-glass-filter);
+    backdrop-filter: var(--ds-glass-filter);
     box-shadow:
-      var(--sf-shadow-e4),
-      var(--sf-glass-edge);
+      var(--ds-shadow-e4),
+      var(--ds-glass-edge);
     overflow: hidden;
   }
   .sh-pal-in {
@@ -1038,10 +1038,10 @@
     align-items: center;
     gap: 10px;
     flex: none;
-    block-size: var(--sf-palette-input-h);
+    block-size: var(--ds-palette-input-h);
     padding-inline: 16px;
-    box-shadow: inset 0 -1px 0 var(--sf-line);
-    color: var(--sf-text-3);
+    box-shadow: inset 0 -1px 0 var(--ds-line);
+    color: var(--ds-text-3);
   }
   .sh-pal-in input {
     flex: 1;
@@ -1053,13 +1053,13 @@
     font-family: inherit;
     font-size: 17px;
     line-height: 24px;
-    color: var(--sf-text);
+    color: var(--ds-text);
   }
   .sh-pal-in input:focus-visible {
     outline: none;
   }
   .sh-pal-in input::placeholder {
-    color: var(--sf-text-3);
+    color: var(--ds-text-3);
   }
   .sh-pal-list {
     flex: 0 1 auto;
@@ -1073,33 +1073,33 @@
     padding: 8px 10px 4px;
     font-size: 12px;
     line-height: 18px;
-    font-weight: var(--sf-weight-medium);
-    color: var(--sf-text-3);
+    font-weight: var(--ds-weight-medium);
+    color: var(--ds-text-3);
   }
   .sh-pal-r {
     position: relative;
     display: flex;
     align-items: center;
     gap: 10px;
-    block-size: var(--sf-palette-row-h);
+    block-size: var(--ds-palette-row-h);
     padding-inline: 10px;
-    border-radius: var(--sf-radius-md);
+    border-radius: var(--ds-radius-md);
     font-size: 14px;
     line-height: 20px;
-    color: var(--sf-text-2);
+    color: var(--ds-text-2);
     cursor: pointer;
     user-select: none;
   }
   .sh-pal-r > svg {
     flex: none;
-    color: var(--sf-text-3);
+    color: var(--ds-text-3);
   }
   .sh-pal-r.is-on {
-    background: var(--sf-selected);
-    color: var(--sf-text);
+    background: var(--ds-selected);
+    color: var(--ds-text);
   }
   .sh-pal-r.is-on > svg {
-    color: var(--sf-text);
+    color: var(--ds-text);
   }
   .sh-pal-r.is-on::before {
     content: "";
@@ -1109,7 +1109,7 @@
     inline-size: 2px;
     block-size: 16px;
     border-radius: 2px;
-    background: var(--sf-accent-bar);
+    background: var(--ds-accent-bar);
   }
   .sh-pal-label {
     flex: 0 1 auto;
@@ -1120,7 +1120,7 @@
   }
   .sh-pal-label mark {
     background: none;
-    color: var(--sf-text);
+    color: var(--ds-text);
     font-weight: 600;
   }
   .sh-pal-meta {
@@ -1128,7 +1128,7 @@
     min-inline-size: 0;
     font-size: 12px;
     line-height: 18px;
-    color: var(--sf-text-3);
+    color: var(--ds-text-3);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1137,7 +1137,7 @@
     display: inline-grid;
     place-items: center;
     flex: none;
-    color: var(--sf-text-3);
+    color: var(--ds-text-3);
   }
   .sh-pal-empty {
     display: flex;
@@ -1150,19 +1150,19 @@
   .sh-pal-empty-t {
     font-size: 14px;
     line-height: 22px;
-    color: var(--sf-text-2);
+    color: var(--ds-text-2);
   }
   .sh-pal-f {
     display: flex;
     align-items: center;
     gap: 16px;
     flex: none;
-    block-size: var(--sf-palette-footer-h);
+    block-size: var(--ds-palette-footer-h);
     padding-inline: 16px;
-    box-shadow: inset 0 1px 0 var(--sf-line);
+    box-shadow: inset 0 1px 0 var(--ds-line);
     font-size: 12px;
     line-height: 18px;
-    color: var(--sf-text-3);
+    color: var(--ds-text-3);
   }
   .sh-pal-f > span {
     display: inline-flex;
@@ -1180,15 +1180,15 @@
   }
 
   /* ------------------------------------------------------------------ page header (components.md §2) */
-  .sf-ph {
+  .ds-ph {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: 8px 12px;
     min-block-size: 36px;
-    margin-block-end: var(--sf-stack);
+    margin-block-end: var(--ds-stack);
   }
-  .sf-ph-t {
+  .ds-ph-t {
     display: flex;
     flex-wrap: wrap;
     align-items: baseline;
@@ -1196,29 +1196,29 @@
     row-gap: 2px;
     min-inline-size: 0;
   }
-  .sf-ph h1 {
+  .ds-ph h1 {
     margin: 0;
-    font-family: var(--sf-font-display);
+    font-family: var(--ds-font-display);
     font-variation-settings: "DSTY" 3;
-    font-size: var(--sf-type-page-size);
-    line-height: var(--sf-type-page-line);
-    font-weight: var(--sf-type-page-weight);
+    font-size: var(--ds-type-page-size);
+    line-height: var(--ds-type-page-line);
+    font-weight: var(--ds-type-page-weight);
     letter-spacing: 0;
-    color: var(--sf-text);
+    color: var(--ds-text);
   }
-  /* Arad never sets figures: the numbers in a title («سند ۱۲۴») are drawn by Siraf Num */
-  .sf-ph-num {
-    font-family: var(--sf-font-sans);
+  /* Arad never sets figures: the numbers in a title («سند ۱۲۴») are drawn by DS Num */
+  .ds-ph-num {
+    font-family: var(--ds-font-sans);
     font-variation-settings: normal;
     font-weight: 600;
     font-variant-numeric: tabular-nums;
   }
-  .sf-ph-meta {
+  .ds-ph-meta {
     font-size: 13px;
     line-height: 20px;
-    color: var(--sf-text-3);
+    color: var(--ds-text-3);
   }
-  .sf-ph-actions {
+  .ds-ph-actions {
     margin-inline-start: auto;
     display: flex;
     flex-wrap: wrap;
@@ -1226,35 +1226,35 @@
     gap: 8px;
   }
   @media (max-width: 639px) {
-    .sf-ph h1 {
+    .ds-ph h1 {
       font-size: 22px;
       line-height: 32px;
     }
   }
 
   /* cards (Section) */
-  .sf-section-h {
+  .ds-section-h {
     display: flex;
     align-items: center;
     gap: 10px;
     min-block-size: 52px;
     padding: 12px 20px;
-    box-shadow: inset 0 -1px 0 var(--sf-line);
+    box-shadow: inset 0 -1px 0 var(--ds-line);
   }
-  .sf-section-h h2 {
+  .ds-section-h h2 {
     margin: 0;
     font-size: 15px;
     line-height: 22px;
     font-weight: 600;
-    color: var(--sf-text);
+    color: var(--ds-text);
   }
-  .sf-section-x {
+  .ds-section-x {
     margin-inline-start: auto;
     display: flex;
     align-items: center;
     gap: 6px;
   }
-  .sf-section-b {
+  .ds-section-b {
     padding: 16px 20px;
   }
 
@@ -1272,22 +1272,22 @@
     place-items: center;
     inline-size: 56px;
     block-size: 56px;
-    border-radius: var(--sf-radius-lg);
-    background: var(--sf-sunken);
-    color: var(--sf-text-3);
+    border-radius: var(--ds-radius-lg);
+    background: var(--ds-sunken);
+    color: var(--ds-text-3);
   }
   .sh-empty-t {
     margin: 16px 0 0;
     font-size: 16px;
     line-height: 24px;
     font-weight: 600;
-    color: var(--sf-text);
+    color: var(--ds-text);
   }
   .sh-empty-d {
     margin: 4px 0 0;
     font-size: 14px;
     line-height: 22px;
-    color: var(--sf-text-2);
+    color: var(--ds-text-2);
   }
   .sh-empty-a {
     margin-block-start: 16px;
@@ -1325,15 +1325,15 @@
     display: grid;
     place-items: center;
     min-block-size: 100dvh;
-    background: var(--sf-canvas);
+    background: var(--ds-canvas);
   }
   .sh-boot-mark {
-    animation: sf-fade var(--sf-dur-crossfade) linear both;
+    animation: ds-fade var(--ds-dur-crossfade) linear both;
   }
   /* the shell crossfades in over the boot screen (no fill mode: once done, nothing stays on the frame that
      could become the top bar's backdrop root) */
   .sh-app {
-    animation: sf-fade var(--sf-dur-crossfade) linear;
+    animation: ds-fade var(--ds-dur-crossfade) linear;
   }
   .sh-wait {
     display: grid;
@@ -1344,8 +1344,8 @@
   .sh-loader {
     display: inline-flex;
     gap: 7px;
-    color: var(--sf-text-3);
-    animation: sf-fade var(--sf-dur-crossfade) linear both;
+    color: var(--ds-text-3);
+    animation: ds-fade var(--ds-dur-crossfade) linear both;
   }
   .sh-loader > i {
     inline-size: 6px;
@@ -1354,7 +1354,7 @@
     background: currentColor;
     transform: rotate(45deg);
     opacity: 0.3;
-    animation: sh-nq 900ms var(--sf-ease-in-out) infinite;
+    animation: sh-nq 900ms var(--ds-ease-in-out) infinite;
   }
   .sh-loader > i:nth-child(2) {
     animation-delay: 120ms;

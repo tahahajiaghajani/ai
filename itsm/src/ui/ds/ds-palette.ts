@@ -1,6 +1,6 @@
 // GENERATED from tokens.css by scripts/antd-palette.mjs — do not edit by hand; edit tokens.css and regenerate.
 // Hex/rgba only: Ant Design's algorithm and its CSS-in-JS read these as plain colours.
-export const SIRAF = {
+export const DS_PALETTE = {
   light: {
     canvas: "#F7F4F0",
     surface: "#FFFEFD",
@@ -155,5 +155,5 @@ export const SIRAF = {
   }
 } as const;
 
-export type SirafMode = keyof typeof SIRAF;
-export type SirafPalette = (typeof SIRAF)[SirafMode];
+export type DsMode = keyof typeof DS_PALETTE;
+export type DsPalette = (typeof DS_PALETTE)[DsMode];

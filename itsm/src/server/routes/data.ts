@@ -46,7 +46,7 @@ dataRoutes.get("/:entity/options", async (c) => {
     }
     const rows = await ctx.db.query(
       `select id, name as label, code as sub, code, name, detail_mode, detail_kinds, fx_mode, currency_id, weight_mode, system_key, level
-       from tz_accounts where ${cond} order by code limit 60`,
+       from sm_accounts where ${cond} order by code limit 60`,
       params,
     );
     return c.json({ options: rows });

@@ -58,7 +58,7 @@ export default function Integrations() {
     <div>
       <PageHeader
         title="اتصال‌ها و API"
-        subtitle={<Link className="sf-link bk-hlink" to={`/${orgId}/help#shop`}>راهنما</Link>}
+        subtitle={<Link className="ds-link bk-hlink" to={`/${orgId}/help#shop`}>راهنما</Link>}
         actions={
           editable && tab !== "events" ? (
             <Button type="primary" icon={<Plus {...ICON} />} onClick={() => (tab === "api" ? setKeyModal(true) : setAdd(true))}>
@@ -69,7 +69,7 @@ export default function Integrations() {
       />
       {meta?.mode === "desktop" ? (
         <p className="bk-line mb-4">
-          <i className="sf-nuqta" aria-hidden />
+          <i className="ds-nuqta" aria-hidden />
           اتصال فروشگاه در نسخهٔ وب ساخته می‌شود.
         </p>
       ) : null}
@@ -100,7 +100,7 @@ export default function Integrations() {
                 title: "نشانی Webhook",
                 render: (_, r) => (
                   <span className="flex min-w-0 items-center gap-1">
-                    <bdi dir="ltr" className="sf-mono bk-2 truncate">{`${origin}${r.webhook_path}`}</bdi>
+                    <bdi dir="ltr" className="ds-mono bk-2 truncate">{`${origin}${r.webhook_path}`}</bdi>
                     {copyBtn(`${origin}${r.webhook_path}`)}
                   </span>
                 ),
@@ -111,7 +111,7 @@ export default function Integrations() {
                 title: "سفارش‌ها",
                 width: 140,
                 render: (_, r) => (
-                  <span className="inline-flex items-center gap-2 sf-num">
+                  <span className="inline-flex items-center gap-2 ds-num">
                     {faDigits(r.events)}
                     {r.failed ? <Chip tone="danger" fig>{faDigits(r.failed)} ناموفق</Chip> : null}
                   </span>
@@ -149,7 +149,7 @@ export default function Integrations() {
           meta={<span className="bk-cap">۲۰۰ رویداد آخر</span>}
           tools={
             <Tooltip title="بازخوانی">
-              <Button type="text" icon={<RotateCw {...ICON} className={events.isFetching ? "sf-spin" : undefined} />} onClick={() => events.refetch()} aria-label="بازخوانی" />
+              <Button type="text" icon={<RotateCw {...ICON} className={events.isFetching ? "ds-spin" : undefined} />} onClick={() => events.refetch()} aria-label="بازخوانی" />
             </Tooltip>
           }
           flush
@@ -166,7 +166,7 @@ export default function Integrations() {
             columns={[
               { key: "at", dataIndex: "received_at", title: "زمان", width: 160, render: (v) => <span className="bk-2"><JDateTime v={v} /></span> },
               { key: "from", dataIndex: "integration_name", title: "فروشگاه", width: 180, ellipsis: true },
-              { key: "ext", dataIndex: "external_id", title: "سفارش", width: 104, render: (v) => (v ? <span className="bk-docno">{faDigits(v)}</span> : <span className="sf-zero">—</span>) },
+              { key: "ext", dataIndex: "external_id", title: "سفارش", width: 104, render: (v) => (v ? <span className="bk-docno">{faDigits(v)}</span> : <span className="ds-zero">—</span>) },
               { key: "st", dataIndex: "status", title: "وضعیت", width: 120, render: (v) => <StatusTag s={v} map={EV_STATUS} /> },
               {
                 key: "res",
@@ -178,7 +178,7 @@ export default function Integrations() {
                   ) : r.error ? (
                     <span className="text-danger">{r.error}</span>
                   ) : (
-                    <span className="sf-zero">—</span>
+                    <span className="ds-zero">—</span>
                   ),
               },
               {
@@ -208,7 +208,7 @@ export default function Integrations() {
               locale={{ emptyText: <EmptyState icon={KeyRound} title="کلیدی ساخته نشده" action={editable ? <Button icon={<Plus {...ICON} />} onClick={() => setKeyModal(true)}>کلید تازه</Button> : undefined} /> }}
               columns={[
                 { key: "name", dataIndex: "name", title: "نام", ellipsis: true },
-                { key: "prefix", dataIndex: "prefix", title: "شناسه", width: 180, render: (v) => <bdi dir="ltr" className="sf-mono bk-2">tz_{v}_…</bdi> },
+                { key: "prefix", dataIndex: "prefix", title: "شناسه", width: 180, render: (v) => <bdi dir="ltr" className="ds-mono bk-2">sm_{v}_…</bdi> },
                 { key: "scopes", dataIndex: "scopes", title: "اجازه", width: 160, render: (v: string[]) => <span className="bk-2">{v.map((x) => (x === "read" ? "خواندن" : "ثبت")).join("، ")}</span> },
                 { key: "used", dataIndex: "last_used_at", title: "آخرین استفاده", width: 160, render: (v) => <span className="bk-2"><JDateTime v={v} /></span> },
                 { key: "st", dataIndex: "revoked_at", title: "وضعیت", width: 96, render: (v) => (v ? <Chip tone="danger">باطل</Chip> : <span className="bk-plain">فعال</span>) },
@@ -236,12 +236,12 @@ export default function Integrations() {
           </Card>
           <Card title="نمونهٔ ثبت سفارش از برنامهٔ دیگر">
             <pre className="bk-code">{`POST ${origin}/api/v1/orders
-Authorization: Bearer tz_xxxxxxxx_...
+Authorization: Bearer sm_xxxxxxxx_...
 { "id": "1043", "customer": { "name": "علی", "mobile": "09121234567" },
   "items": [ { "sku": "A-100", "name": "کالا", "qty": 2, "price": 1500000 } ],
   "shipping": 300000, "post": false }`}</pre>
             <div className="bk-f-h mt-3">
-              نشانی‌های دیگر: <bdi dir="ltr" className="sf-mono">GET /api/v1/items?q=</bdi> (کالاها با موجودی)، <bdi dir="ltr" className="sf-mono">GET /api/v1/parties?mobile=</bdi>، <bdi dir="ltr" className="sf-mono">GET /api/v1/invoices/:id</bdi>، <bdi dir="ltr" className="sf-mono">GET /api/v1/ping</bdi>
+              نشانی‌های دیگر: <bdi dir="ltr" className="ds-mono">GET /api/v1/items?q=</bdi> (کالاها با موجودی)، <bdi dir="ltr" className="ds-mono">GET /api/v1/parties?mobile=</bdi>، <bdi dir="ltr" className="ds-mono">GET /api/v1/invoices/:id</bdi>، <bdi dir="ltr" className="ds-mono">GET /api/v1/ping</bdi>
             </div>
           </Card>
         </div>
@@ -250,14 +250,14 @@ Authorization: Bearer tz_xxxxxxxx_...
         <Form layout="vertical" requiredMark={false} initialValues={{ kind: "woocommerce", config: { post: false, prices_include_vat: true, price_factor: "1" } }} onFinish={(v) => create.mutate(v)}>
           <Form.Item name="kind" label="نوع فروشگاه"><Select options={Object.entries(KIND).map(([value, label]) => ({ value, label }))} /></Form.Item>
           <Form.Item name="name" label="نام" rules={[{ required: true }]}><Input placeholder="مثلاً فروشگاه وردپرسی" /></Form.Item>
-          <Form.Item name="secret" label="کلید امضا (Secret)، اختیاری" extra="برای شاپیفای کلید امضای Webhook همان پنل؛ برای بقیه خالی بماند تا ساخته شود."><Input dir="ltr" className="sf-code" /></Form.Item>
+          <Form.Item name="secret" label="کلید امضا (Secret)، اختیاری" extra="برای شاپیفای کلید امضای Webhook همان پنل؛ برای بقیه خالی بماند تا ساخته شود."><Input dir="ltr" className="ds-code" /></Form.Item>
           <Form.Item name={["config", "warehouse_id"]} label="انبار"><RefSelect entity="warehouse" allowClear /></Form.Item>
           <Form.Item name={["config", "default_party_id"]} label="مشتری پیش‌فرض (سفارش بی‌نام)"><PartySelect allowClear /></Form.Item>
           <Space size="large" wrap>
             <Form.Item name={["config", "post"]} label="ثبت قطعی فاکتور (خروج از انبار و سند)" valuePropName="checked"><Switch /></Form.Item>
             <Form.Item name={["config", "prices_include_vat"]} label="قیمت‌های سایت با مالیات است" valuePropName="checked"><Switch /></Form.Item>
           </Space>
-          <Form.Item name={["config", "price_factor"]} label="ضریب قیمت" extra="اگر سایت به تومان و حساب‌ها به ریال است: ۱۰"><Input dir="ltr" className="sf-num !w-32" /></Form.Item>
+          <Form.Item name={["config", "price_factor"]} label="ضریب قیمت" extra="اگر سایت به تومان و حساب‌ها به ریال است: ۱۰"><Input dir="ltr" className="ds-num !w-32" /></Form.Item>
           <div className="flex justify-end gap-2 pt-2">
             <Button onClick={() => setAdd(false)}>انصراف</Button>
             <Button type="primary" htmlType="submit" loading={create.isPending}>ساخت اتصال</Button>

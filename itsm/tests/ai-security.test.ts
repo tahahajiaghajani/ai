@@ -23,7 +23,7 @@ import type { AiStreamEvent } from "@shared/ai/types";
 import { ProviderError } from "@server/modules/ai/types";
 import { runTurn } from "@server/modules/ai/chain";
 
-const before = { fake: process.env.SIRAF_AI_FAKE, lookup: aiNet.lookup };
+const before = { fake: process.env.ITSM_AI_FAKE, lookup: aiNet.lookup };
 
 const proposeMulti = defineTool({
   name: "propose_multi",
@@ -61,7 +61,7 @@ const echo = defineTool({
 let multiPayload: unknown = null;
 
 beforeAll(() => {
-  process.env.SIRAF_AI_FAKE = "1";
+  process.env.ITSM_AI_FAKE = "1";
   ALL_TOOLS.push(proposeMulti as unknown as AiToolDef, echo as unknown as AiToolDef);
   EXECUTORS.test_multi = async (_ctx, payload) => {
     multiPayload = payload;
@@ -70,8 +70,8 @@ beforeAll(() => {
 });
 
 afterAll(() => {
-  if (before.fake === undefined) delete process.env.SIRAF_AI_FAKE;
-  else process.env.SIRAF_AI_FAKE = before.fake;
+  if (before.fake === undefined) delete process.env.ITSM_AI_FAKE;
+  else process.env.ITSM_AI_FAKE = before.fake;
   aiNet.lookup = before.lookup;
   for (const t of [proposeMulti, echo]) ALL_TOOLS.splice(ALL_TOOLS.indexOf(t as unknown as AiToolDef), 1);
   delete EXECUTORS.test_multi;
@@ -109,9 +109,9 @@ async function setup() {
   const orgId = await signupWithOrg(owner, ["goods"]);
   await owner.post(`/o/${orgId}/ai/connections`, { preset: "fake" });
   const ctx = async (): Promise<Ctx> => {
-    const u = (await db.one<AuthUser>(`select id, email, full_name, mobile, is_platform_admin, disabled, prefs from tz_users where email = 'owner@example.com'`))!;
-    const org = (await db.one<OrgRow>(`select * from tz_orgs where id = $1`, [orgId]))!;
-    const m = (await db.one<MemberRow>(`select id, org_id, user_id, role, overrides, is_active from tz_org_members where org_id = $1 and user_id = $2`, [orgId, u.id]))!;
+    const u = (await db.one<AuthUser>(`select id, email, full_name, mobile, is_platform_admin, disabled, prefs from sm_users where email = 'owner@example.com'`))!;
+    const org = (await db.one<OrgRow>(`select * from sm_orgs where id = $1`, [orgId]))!;
+    const m = (await db.one<MemberRow>(`select id, org_id, user_id, role, overrides, is_active from sm_org_members where org_id = $1 and user_id = $2`, [orgId, u.id]))!;
     return makeCtx(cfg, u, org, m);
   };
   return { app, db, owner, orgId, ctx };
@@ -128,14 +128,14 @@ describe("proposals", () => {
     const { app, db, owner, orgId } = await server();
     const p = proposalOf(await stream(app, owner, `/o/${orgId}/ai/chat`, { text: '[tool:propose_multi {"party_id":"p-77"}]' }));
     // the stored jsonb really has another key order than the object that was hashed
-    const stored = await db.one<{ payload: Record<string, unknown> }>(`select payload from tz_ai_actions where id = $1`, [p.id]);
+    const stored = await db.one<{ payload: Record<string, unknown> }>(`select payload from sm_ai_actions where id = $1`, [p.id]);
     expect(Object.keys(stored!.payload)).not.toEqual(["kind", "party_id", "lines", "date"]);
     const c = await owner.post(`/o/${orgId}/ai/actions/${p.id}/confirm`, {});
     expect(c.proposal).toMatchObject({ status: "executed", result: { type: "invoice" }, error: null });
     expect(multiPayload).toMatchObject({ kind: "sale", party_id: "p-77", date: "2026-11-02" });
 
     const p2 = proposalOf(await stream(app, owner, `/o/${orgId}/ai/chat`, { text: '[tool:propose_multi {"party_id":"p-78"}]' }));
-    await db.query(`update tz_ai_actions set payload = jsonb_set(payload, '{party_id}', '"p-99"') where id = $1`, [p2.id]);
+    await db.query(`update sm_ai_actions set payload = jsonb_set(payload, '{party_id}', '"p-99"') where id = $1`, [p2.id]);
     await owner.post(`/o/${orgId}/ai/actions/${p2.id}/confirm`, {}, 409);
   });
 
@@ -172,7 +172,7 @@ describe("AI access withdrawn", () => {
     const p = proposalOf(events);
     await acc.get(`/o/${orgId}/ai/threads/${meta.thread_id}/messages`);
     await acc.get(`/o/${orgId}/ai/data/${end.data_ref}`);
-    await db.query(`update tz_org_members set overrides = '{"ai":"none"}'::jsonb where user_id = (select id from tz_users where email = 'acc-none@example.com')`);
+    await db.query(`update sm_org_members set overrides = '{"ai":"none"}'::jsonb where user_id = (select id from sm_users where email = 'acc-none@example.com')`);
     await acc.get(`/o/${orgId}/ai/threads/${meta.thread_id}`, 403);
     await acc.get(`/o/${orgId}/ai/threads/${meta.thread_id}/messages`, 403);
     await acc.patch(`/o/${orgId}/ai/threads/${meta.thread_id}`, { title: "x" }, 403);
@@ -182,7 +182,7 @@ describe("AI access withdrawn", () => {
     await acc.post(`/o/${orgId}/ai/actions/${p.id}/confirm`, {}, 403);
     await acc.post(`/o/${orgId}/ai/actions/${p.id}/reject`, {}, 403);
     await acc.del(`/o/${orgId}/ai/threads/${meta.thread_id}`, 403);
-    expect((await db.one<{ status: string }>(`select status from tz_ai_actions where id = $1`, [p.id]))!.status).toBe("proposed");
+    expect((await db.one<{ status: string }>(`select status from sm_ai_actions where id = $1`, [p.id]))!.status).toBe("proposed");
   });
 });
 
@@ -245,7 +245,7 @@ describe("AI key security events", () => {
     const b = second.connection.id;
     await owner.del(`/o/${orgId}/ai/connections/${b}`);
     const rows = await db.query<{ user_id: string; data: Record<string, unknown> }>(
-      `select user_id, data from tz_security_events where kind = 'ai_key' and org_id = $1 and data->>'connection_id' in ($2, $3) order by at, id`,
+      `select user_id, data from sm_security_events where kind = 'ai_key' and org_id = $1 and data->>'connection_id' in ($2, $3) order by at, id`,
       [orgId, a, b],
     );
     expect(rows.map((r) => [r.data.connection_id === a ? "a" : "b", r.data.action, r.data.key_hint])).toEqual([
@@ -366,13 +366,13 @@ describe("captured documents", () => {
     const { db, ctx, orgId } = await server();
     const c = await ctx();
     const ins = (days: number) =>
-      db.query(`insert into tz_ai_captures (id, org_id, user_id, kind, sha256, mime, result, model, created_at) values ($1, $2, $3, 'id_card', $4, 'image/png', '{}'::jsonb, 'm', now() - ($5::int * interval '1 day'))`, [uuidv7(), orgId, c.user.id, uuidv7(), days]);
+      db.query(`insert into sm_ai_captures (id, org_id, user_id, kind, sha256, mime, result, model, created_at) values ($1, $2, $3, 'id_card', $4, 'image/png', '{}'::jsonb, 'm', now() - ($5::int * interval '1 day'))`, [uuidv7(), orgId, c.user.id, uuidv7(), days]);
     await ins(1);
     await ins(10);
     await ins(40);
     await purgeOld(c, 90);
-    expect((await db.query(`select 1 from tz_ai_captures where org_id = $1`, [orgId])).length).toBe(2);
+    expect((await db.query(`select 1 from sm_ai_captures where org_id = $1`, [orgId])).length).toBe(2);
     await purgeOld(c, 7);
-    expect((await db.query(`select 1 from tz_ai_captures where org_id = $1`, [orgId])).length).toBe(1);
+    expect((await db.query(`select 1 from sm_ai_captures where org_id = $1`, [orgId])).length).toBe(1);
   });
 });

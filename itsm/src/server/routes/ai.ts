@@ -311,13 +311,13 @@ aiRoutes.get("/tool-calls", async (c) => {
   params.push(q.limit ?? 100);
   const rows = await ctx.db.query<{ id: string; thread_id: string | null; user_id: string | null; name: string | null; tool: string; ok: boolean; summary: string | null; ms: number | null; input: unknown; created_at: string }>(
     `select t.id, t.thread_id, t.user_id, u.full_name as name, t.tool, t.ok, t.summary, t.ms, t.input, t.created_at
-     from tz_ai_tool_calls t left join tz_users u on u.id = t.user_id where ${where} order by t.created_at desc limit $${params.length}`,
+     from sm_ai_tool_calls t left join sm_users u on u.id = t.user_id where ${where} order by t.created_at desc limit $${params.length}`,
     params,
   );
   // conversation ids are only linked for the caller's own conversations
   const own = new Set(
     rows.length
-      ? (await ctx.db.query<{ id: string }>(`select id from tz_ai_threads where user_id = $1 and id = any($2::uuid[])`, [ctx.user.id, pgArray(rows.map((r) => r.thread_id).filter(Boolean) as string[])])).map((r) => r.id)
+      ? (await ctx.db.query<{ id: string }>(`select id from sm_ai_threads where user_id = $1 and id = any($2::uuid[])`, [ctx.user.id, pgArray(rows.map((r) => r.thread_id).filter(Boolean) as string[])])).map((r) => r.id)
       : [],
   );
   const titles = new Map(toolsFor(ctx, { proposals: true }).map((t) => [t.name, t.title_fa]));

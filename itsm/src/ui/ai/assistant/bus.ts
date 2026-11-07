@@ -17,7 +17,7 @@ export interface AssistantRequest {
   mode?: "open" | "toggle" | "close";
 }
 
-const EVENT = "siraf:assistant";
+const EVENT = "itsm:assistant";
 
 export function openAssistant(req: AssistantRequest = {}): void {
   window.dispatchEvent(new CustomEvent<AssistantRequest>(EVENT, { detail: req }));

@@ -26,7 +26,7 @@ export default function Desktop() {
   const backups = useQuery({ queryKey: ["local-backups"], queryFn: () => api.get("/local/backups").then((r) => r.backups), enabled: meta?.mode === "desktop" });
   const settings = useQuery({ queryKey: ["local-settings"], queryFn: () => api.get("/local/settings"), enabled: meta?.mode === "desktop" });
   const backupNow = useAction(() => api.post("/local/backups"), { success: "پشتیبان گرفته شد", invalidate: [["local-backups"], ["local-info"]] });
-  const restore = useAction((file: string) => api.post("/local/backups/restore", { file }), { onSuccess: () => { n.ok("بازگردانی پس از راه‌اندازی دوباره‌ی برنامه انجام می‌شود"); window.taraz?.relaunch?.(); } });
+  const restore = useAction((file: string) => api.post("/local/backups/restore", { file }), { onSuccess: () => { n.ok("بازگردانی پس از راه‌اندازی دوباره‌ی برنامه انجام می‌شود"); window.itsm?.relaunch?.(); } });
   const saveSettings = useAction((v: any) => api.patch("/local/settings", v), { success: "ذخیره شد؛ تغییر شبکه پس از اجرای دوباره‌ی برنامه اعمال می‌شود", invalidate: [["local-settings"], ["local-info"]] });
   const syncNow = useAction(() => api.post("/local/sync"), { success: "همگام‌سازی انجام شد", invalidate: [["local-info"], ["local-sync"]] });
   const unlink = useAction(() => api.post("/local/cloud/unlink"), { success: "اتصال قطع شد", invalidate: [["local-info"]] });
@@ -53,7 +53,7 @@ export default function Desktop() {
           title="هم‌گامی با نسخهٔ وب"
           meta={
             <span className="inline-flex items-center gap-2 bk-meta">
-              <i className="sf-nuqta" data-live={linked ? "" : undefined} style={linked ? undefined : { color: "var(--sf-text-3)" }} aria-hidden />
+              <i className="ds-nuqta" data-live={linked ? "" : undefined} style={linked ? undefined : { color: "var(--ds-text-3)" }} aria-hidden />
               {linked ? "متصل" : "متصل نیست"}
             </span>
           }
@@ -63,11 +63,11 @@ export default function Desktop() {
               <dl className="bk-dl">
                 <div className="is-wide">
                   <dt>نسخهٔ وب</dt>
-                  <dd><bdi dir="ltr" className="sf-latin">{d.cloud.url}</bdi></dd>
+                  <dd><bdi dir="ltr" className="ds-latin">{d.cloud.url}</bdi></dd>
                 </div>
                 <div>
                   <dt>حساب</dt>
-                  <dd><bdi dir="ltr" className="sf-latin">{d.cloud.email}</bdi></dd>
+                  <dd><bdi dir="ltr" className="ds-latin">{d.cloud.email}</bdi></dd>
                 </div>
                 <div>
                   <dt>آخرین هم‌گامی</dt>
@@ -75,7 +75,7 @@ export default function Desktop() {
                 </div>
                 <div>
                   <dt>تغییرات در صف ارسال</dt>
-                  <dd className="sf-num">{faDigits(d.sync.pending)}</dd>
+                  <dd className="ds-num">{faDigits(d.sync.pending)}</dd>
                 </div>
               </dl>
               {d.sync.last_error ? <Note tone="warning" className="mt-4"><b>آخرین هم‌گامی کامل نشد.</b> {d.sync.last_error}</Note> : null}
@@ -85,7 +85,7 @@ export default function Desktop() {
                 </Note>
               ) : null}
               <div className="mt-5 flex flex-wrap gap-2">
-                <Button type="primary" icon={<RefreshCw {...ICON} className={syncNow.isPending ? "sf-spin" : undefined} />} onClick={() => syncNow.mutate(undefined)}>
+                <Button type="primary" icon={<RefreshCw {...ICON} className={syncNow.isPending ? "ds-spin" : undefined} />} onClick={() => syncNow.mutate(undefined)}>
                   هم‌گامی الان
                 </Button>
                 <Button
@@ -117,7 +117,7 @@ export default function Desktop() {
             <>
               {d?.backups?.dir ? (
                 <Tooltip title="باز کردن پوشه">
-                  <Button type="text" icon={<FolderOpen {...ICON} />} onClick={() => window.taraz?.openPath?.(d.backups.dir)} aria-label="باز کردن پوشه" />
+                  <Button type="text" icon={<FolderOpen {...ICON} />} onClick={() => window.itsm?.openPath?.(d.backups.dir)} aria-label="باز کردن پوشه" />
                 </Tooltip>
               ) : null}
               <Button size="small" icon={<DatabaseBackup {...ICON14} />} loading={backupNow.isPending} onClick={() => backupNow.mutate(undefined)}>
@@ -137,8 +137,8 @@ export default function Desktop() {
             locale={{ emptyText: <EmptyState compact icon={DatabaseBackup} title="هنوز پشتیبانی گرفته نشده" /> }}
             columns={[
               { key: "at", dataIndex: "at", title: "زمان", width: 160, render: (v) => <JDateTime v={v} /> },
-              { key: "size", dataIndex: "size", title: "حجم", width: 112, render: (v) => <span className="bk-2 sf-num">{size(v)}</span> },
-              { key: "name", dataIndex: "file", title: "فایل", ellipsis: true, render: (v) => <bdi dir="ltr" className="sf-mono bk-3">{String(v).split(/[\\/]/).pop()}</bdi> },
+              { key: "size", dataIndex: "size", title: "حجم", width: 112, render: (v) => <span className="bk-2 ds-num">{size(v)}</span> },
+              { key: "name", dataIndex: "file", title: "فایل", ellipsis: true, render: (v) => <bdi dir="ltr" className="ds-mono bk-3">{String(v).split(/[\\/]/).pop()}</bdi> },
               {
                 key: "a",
                 width: 104,
@@ -166,7 +166,7 @@ export default function Desktop() {
             <Form layout="vertical" initialValues={settings.data.lan} onFinish={(v) => saveSettings.mutate({ lan: v })}>
               <div className="flex flex-wrap items-end gap-3">
                 <Form.Item name="enabled" valuePropName="checked" label="فعال" className="!mb-0"><Switch /></Form.Item>
-                <Form.Item name="port" label="پورت" className="!mb-0"><Input dir="ltr" className="sf-num !w-28" /></Form.Item>
+                <Form.Item name="port" label="پورت" className="!mb-0"><Input dir="ltr" className="ds-num !w-28" /></Form.Item>
                 <Button htmlType="submit">ذخیره</Button>
               </div>
               <div className="bk-f-h mt-3">رایانه‌ها و گوشی‌های همین شبکه با مرورگر یا برنامهٔ سیراف به این رایانه وصل می‌شوند و هم‌زمان کار می‌کنند؛ تغییر پس از اجرای دوبارهٔ برنامه اعمال می‌شود.</div>
@@ -199,15 +199,15 @@ export default function Desktop() {
               </div>
               <div>
                 <dt>رایانه</dt>
-                <dd><bdi dir="ltr" className="sf-latin">{d.computer}</bdi></dd>
+                <dd><bdi dir="ltr" className="ds-latin">{d.computer}</bdi></dd>
               </div>
               <div className="is-wide">
                 <dt>پوشهٔ داده</dt>
-                <dd><bdi dir="ltr" className="sf-mono">{d.data_dir}</bdi></dd>
+                <dd><bdi dir="ltr" className="ds-mono">{d.data_dir}</bdi></dd>
               </div>
               <div className="is-wide">
                 <dt>شناسهٔ دستگاه</dt>
-                <dd><bdi dir="ltr" className="sf-mono bk-2">{d.device_id}</bdi></dd>
+                <dd><bdi dir="ltr" className="ds-mono bk-2">{d.device_id}</bdi></dd>
               </div>
             </dl>
           ) : (
@@ -233,8 +233,8 @@ function LinkModal({ open, onClose, currentOrg }: { open: boolean; onClose: () =
   return (
     <Modal open={open} onCancel={onClose} title="اتصال به نسخهٔ وب" footer={null} destroyOnHidden width={520}>
       <Form form={form} layout="vertical" requiredMark={false} initialValues={{ url: "https://" }}>
-        <Form.Item name="url" label="نشانی نسخهٔ وب" rules={[{ required: true, type: "url", message: "نشانی درست نیست." }]}><Input dir="ltr" className="sf-latin" /></Form.Item>
-        <Form.Item name="email" label="ایمیل حساب ابری" rules={[{ required: true, type: "email", message: "ایمیل درست نیست." }]}><Input dir="ltr" className="sf-latin" /></Form.Item>
+        <Form.Item name="url" label="نشانی نسخهٔ وب" rules={[{ required: true, type: "url", message: "نشانی درست نیست." }]}><Input dir="ltr" className="ds-latin" /></Form.Item>
+        <Form.Item name="email" label="ایمیل حساب ابری" rules={[{ required: true, type: "email", message: "ایمیل درست نیست." }]}><Input dir="ltr" className="ds-latin" /></Form.Item>
         <Form.Item name="password" label="رمز عبور" rules={[{ required: true }]}><Input.Password dir="ltr" /></Form.Item>
         <Form.Item label="جهت">
           <Select

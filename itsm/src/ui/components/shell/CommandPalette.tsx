@@ -330,7 +330,7 @@ function Palette({ onClose, commands }: { onClose: () => void; commands: Palette
   let n = -1;
   return (
     <div className="sh-pal-scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="sh-pal sf-layer-raised" role="dialog" aria-modal="true" aria-label="جست‌وجو و فرمان" onKeyDown={onKey}>
+      <div className="sh-pal ds-layer-raised" role="dialog" aria-modal="true" aria-label="جست‌وجو و فرمان" onKeyDown={onKey}>
         <div className="sh-pal-in">
           <Ic icon={Search} size={18} />
           <input
@@ -346,7 +346,7 @@ function Palette({ onClose, commands }: { onClose: () => void; commands: Palette
             autoComplete="off"
             spellCheck={false}
           />
-          <span className="sf-end">
+          <span className="ds-end">
             <Keys keys={["Esc"]} />
           </span>
         </div>
@@ -377,7 +377,7 @@ function Palette({ onClose, commands }: { onClose: () => void; commands: Palette
                   </span>
                   {r.meta ? <span className="sh-pal-meta">{r.meta}</span> : null}
                   {k === sel ? (
-                    <span className="sf-end sh-pal-enter" aria-hidden>
+                    <span className="ds-end sh-pal-enter" aria-hidden>
                       <Ic icon={CornerDownLeft} size={14} />
                     </span>
                   ) : null}
@@ -388,7 +388,7 @@ function Palette({ onClose, commands }: { onClose: () => void; commands: Palette
           {!rows.length && q.trim() && !loading ? (
             <div className="sh-pal-empty">
               <div className="sh-pal-empty-t">برای «{q.trim()}» چیزی پیدا نشد.</div>
-              <button type="button" className="sf-link" onClick={() => go("help")}>
+              <button type="button" className="ds-link" onClick={() => go("help")}>
                 جست‌وجو در راهنما
               </button>
             </div>

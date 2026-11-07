@@ -132,8 +132,8 @@ export function sectionsOf(items: ShellItem[], space: SpaceKey): { common: Shell
 
 /** Keeps the last page of each space and the last space, per organisation. */
 export function useSpaceMemory(orgId: string, current: SpaceKey | null, rel: string, search: string) {
-  const [last, setLast] = useStored<SpaceKey>(`siraf.space.${orgId}`, "accounting");
-  const [pages, setPages] = useStored<Partial<Record<SpaceKey, string>>>(`siraf.spacePages.${orgId}`, {});
+  const [last, setLast] = useStored<SpaceKey>(`itsm.space.${orgId}`, "accounting");
+  const [pages, setPages] = useStored<Partial<Record<SpaceKey, string>>>(`itsm.spacePages.${orgId}`, {});
   useEffect(() => {
     if (!current) return;
     if (current !== "settings" && current !== last) setLast(current);
@@ -150,7 +150,7 @@ export interface Recent {
   label: string;
   key?: string;
 }
-export const recentKey = (orgId: string) => `siraf.recent.${orgId}`;
+export const recentKey = (orgId: string) => `itsm.recent.${orgId}`;
 export function pushRecent(orgId: string, r: Recent) {
   const list = readJSON<Recent[]>(recentKey(orgId), []).filter((x) => x.path !== r.path);
   writeJSON(recentKey(orgId), [r, ...list].slice(0, 5));

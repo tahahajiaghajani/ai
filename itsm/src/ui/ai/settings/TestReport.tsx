@@ -33,7 +33,7 @@ export function TestReport({ report }: { report: AiTestReport }) {
           <thead>
             <tr>
               <th className="c-ok">
-                <span className="sf-sr">نتیجه</span>
+                <span className="ds-sr">نتیجه</span>
               </th>
               <th className="c-m">مدل</th>
               <th className="c-ms">زمان</th>
@@ -53,7 +53,7 @@ export function TestReport({ report }: { report: AiTestReport }) {
                 <td className="c-m">
                   <span className="ai-mid">{m.model}</span>
                 </td>
-                <td className="c-ms">{m.ms ? duration(m.ms) : <span className="sf-zero">—</span>}</td>
+                <td className="c-ms">{m.ms ? duration(m.ms) : <span className="ds-zero">—</span>}</td>
                 <td className="c-r">
                   {m.ok ? (
                     <span>{m.reply?.trim() ? `«${m.reply.trim()}»` : "پاسخ داد"}</span>

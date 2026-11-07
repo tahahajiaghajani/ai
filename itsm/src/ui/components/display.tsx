@@ -16,7 +16,7 @@ const NBSP = "\u00a0";
 const MINUS = "\u2212"; // U+2212: the true minus (the hyphen is a different, shorter glyph)
 
 /**
- * The figure itself: digits with the decimals in `.sf-dec` (full size, text-2; they step down only inside display
+ * The figure itself: digits with the decimals in `.ds-dec` (full size, text-2; they step down only inside display
  * figures) and, when negative, an isolated true minus or accounting parentheses. `inkDecimals` keeps the decimals
  * in ink (gold weights: a milligram is money).
  */
@@ -27,18 +27,18 @@ export function Figure({ v, dp, minDp, parens, inkDecimals, sign }: { v: Num; dp
   const body = (
     <>
       {int}
-      {dec ? inkDecimals ? dec : <span className="sf-dec">{dec}</span> : null}
+      {dec ? inkDecimals ? dec : <span className="ds-dec">{dec}</span> : null}
     </>
   );
-  if (neg) return <bdi dir="ltr" className="sf-ltr">{parens ? <>({body})</> : <>{MINUS}{body}</>}</bdi>;
-  if (sign && !r.isZero()) return <bdi dir="ltr" className="sf-ltr">+{body}</bdi>;
+  if (neg) return <bdi dir="ltr" className="ds-ltr">{parens ? <>({body})</> : <>{MINUS}{body}</>}</bdi>;
+  if (sign && !r.isZero()) return <bdi dir="ltr" className="ds-ltr">+{body}</bdi>;
   return body;
 }
 
 const Unit = ({ children }: { children: ReactNode }) => (
   <>
     {NBSP}
-    <span className="sf-unit">{children}</span>
+    <span className="ds-unit">{children}</span>
   </>
 );
 
@@ -46,11 +46,11 @@ const Unit = ({ children }: { children: ReactNode }) => (
 export function Money({ v, dp, zero, colored, parens, className, unit }: { v: Num; dp?: number; zero?: string; colored?: boolean; parens?: boolean; className?: string; unit?: boolean }) {
   const { org, unit: u } = useOrg();
   const d = D(v);
-  if (d.isZero() && zero !== undefined) return <span className={cx("sf-num sf-zero", className)}>{zero}</span>;
+  if (d.isZero() && zero !== undefined) return <span className={cx("ds-num ds-zero", className)}>{zero}</span>;
   const places = dp ?? org.money_decimals ?? 0;
   const pos = d.toDecimalPlaces(places).gt(0);
   return (
-    <span className={cx("sf-num", colored && pos && "sf-in-t", className)}>
+    <span className={cx("ds-num", colored && pos && "ds-in-t", className)}>
       <Figure v={d} dp={places} parens={parens} />
       {unit ? <Unit>{u}</Unit> : null}
     </span>
@@ -60,9 +60,9 @@ export function Money({ v, dp, zero, colored, parens, className, unit }: { v: Nu
 /** A plain quantity, rate or count with up to `dp` decimals and an optional unit after it. */
 export function Amount({ v, dp = 8, minDp, zero = "", className, suffix }: { v: Num; dp?: number; minDp?: number; zero?: string; className?: string; suffix?: ReactNode }) {
   const d = D(v);
-  if (d.isZero() && zero) return <span className={cx("sf-num sf-zero", className)}>{zero}</span>;
+  if (d.isZero() && zero) return <span className={cx("ds-num ds-zero", className)}>{zero}</span>;
   return (
-    <span className={cx("sf-num", className)}>
+    <span className={cx("ds-num", className)}>
       <Figure v={d} dp={dp} minDp={minDp} />
       {suffix ? <Unit>{suffix}</Unit> : null}
     </span>
@@ -72,9 +72,9 @@ export function Amount({ v, dp = 8, minDp, zero = "", className, suffix }: { v: 
 /** Gold weight: always 3 decimals, at full size and in ink (components.md §4.7). */
 export function Weight({ v, zero = "", unit = true }: { v: Num; zero?: string; unit?: boolean }) {
   const d = D(v);
-  if (d.isZero() && zero) return <span className="sf-num sf-zero">{zero}</span>;
+  if (d.isZero() && zero) return <span className="ds-num ds-zero">{zero}</span>;
   return (
-    <span className="sf-num">
+    <span className="ds-num">
       <Figure v={d} dp={3} minDp={3} inkDecimals />
       {unit ? <Unit>گرم</Unit> : null}
     </span>
@@ -85,13 +85,13 @@ export function Weight({ v, zero = "", unit = true }: { v: Num; zero?: string; u
 export function Balance({ v, dp }: { v: Num; dp?: number }) {
   const { org } = useOrg();
   const d = D(v);
-  if (d.isZero()) return <span className="sf-num sf-zero">—</span>;
+  if (d.isZero()) return <span className="ds-num ds-zero">—</span>;
   const side = balanceSide(d);
   return (
-    <span className="sf-num">
+    <span className="ds-num">
       <Figure v={d.abs()} dp={dp ?? org.money_decimals ?? 0} />
       {NBSP}
-      <span className="sf-bal-side" data-side={side === "بد" ? "dr" : "cr"}>
+      <span className="ds-bal-side" data-side={side === "بد" ? "dr" : "cr"}>
         {side}
       </span>
     </span>
@@ -100,13 +100,13 @@ export function Balance({ v, dp }: { v: Num; dp?: number }) {
 
 /** «۱۴۰۵/۰۸/۱۰» — tabular, start-aligned. */
 export function JDate({ v, style }: { v: string | null | undefined; style?: "short" | "long" | "full" }) {
-  if (!v) return <span className="sf-zero">—</span>;
-  return <span className={style && style !== "short" ? "whitespace-nowrap" : "sf-num"}>{formatJalali(v, { style })}</span>;
+  if (!v) return <span className="ds-zero">—</span>;
+  return <span className={style && style !== "short" ? "whitespace-nowrap" : "ds-num"}>{formatJalali(v, { style })}</span>;
 }
 
 export function JDateTime({ v }: { v: string | null | undefined }) {
-  if (!v) return <span className="sf-zero">—</span>;
-  return <span className="sf-num">{formatJalaliDateTime(v)}</span>;
+  if (!v) return <span className="ds-zero">—</span>;
+  return <span className="ds-num">{formatJalaliDateTime(v)}</span>;
 }
 
 export function Fa({ children }: { children: ReactNode }) {
@@ -118,7 +118,7 @@ export function Fa({ children }: { children: ReactNode }) {
  * EZRate's ask for it. `bare` leaves out «منبع:» where a column already says it.
  */
 export function SourceCredit({ label, link, bare, className }: { label: string; link?: string | null; bare?: boolean; className?: string }) {
-  const name = link ? <a href={link} target="_blank" rel="noreferrer" className="sf-link">{label}</a> : label;
+  const name = link ? <a href={link} target="_blank" rel="noreferrer" className="ds-link">{label}</a> : label;
   return (
     <span className={`whitespace-nowrap ${className ?? ""}`}>
       {bare ? null : "منبع: "}
@@ -135,8 +135,8 @@ export type ChipTone = "warning" | "danger" | "neutral" | "in" | "accent";
 /** A 22 px status chip: the nuqta, then the word. `fig` when it holds a figure (13 px, tabular). */
 export function Chip({ tone = "neutral", fig, dot = true, children, className, title }: { tone?: ChipTone; fig?: boolean; dot?: boolean; children: ReactNode; className?: string; title?: string }) {
   return (
-    <span className={cx("sf-chip", fig && "sf-chip-fig", className)} data-tone={tone} title={title}>
-      {dot ? <i className="sf-nuqta" aria-hidden /> : null}
+    <span className={cx("ds-chip", fig && "ds-chip-fig", className)} data-tone={tone} title={title}>
+      {dot ? <i className="ds-nuqta" aria-hidden /> : null}
       <span>{children}</span>
     </span>
   );
@@ -205,7 +205,7 @@ export function StatusTag({ s, map, chip }: { s: string | null | undefined; map?
   if (!s) return null;
   const [label, color] = (map ?? STATUS)[s] ?? STATUS[s] ?? [s, "default"];
   const tone = toneOf(s, color) ?? (chip ? "neutral" : null);
-  if (!tone) return <span className="sf-status">{label}</span>;
+  if (!tone) return <span className="ds-status">{label}</span>;
   return <Chip tone={tone}>{label}</Chip>;
 }
 
@@ -242,20 +242,20 @@ export function EmptyState({
   const [headerPrimary, setHeaderPrimary] = useState(false);
   useLayoutEffect(() => {
     if (primary !== undefined) return;
-    setHeaderPrimary(!!document.querySelector(".sf-ph-actions .ant-btn-primary, .sf-ph-actions .ant-btn-color-primary.ant-btn-variant-solid"));
+    setHeaderPrimary(!!document.querySelector(".ds-ph-actions .ant-btn-primary, .ds-ph-actions .ant-btn-color-primary.ant-btn-variant-solid"));
   }, [primary]);
   const demote = primary === false || (primary === undefined && headerPrimary);
   const isPrimaryButton = isValidElement(action) && action.type === Button && (action.props as { type?: string }).type === "primary";
   const act = demote && isPrimaryButton ? cloneElement(action as React.ReactElement<{ type?: string }>, { type: "default" }) : action;
   return (
-    <div ref={ref} className={cx("sf-empty sf-fade", compact && "sf-empty-compact", className)}>
-      <div className="sf-empty-tile" aria-hidden>
+    <div ref={ref} className={cx("ds-empty ds-fade", compact && "ds-empty-compact", className)}>
+      <div className="ds-empty-tile" aria-hidden>
         <Icon size={compact ? 22 : 28} strokeWidth={1.5} absoluteStrokeWidth />
       </div>
-      <div className="sf-empty-title">{title}</div>
-      {description ? <div className="sf-empty-text">{description}</div> : null}
+      <div className="ds-empty-title">{title}</div>
+      {description ? <div className="ds-empty-text">{description}</div> : null}
       {act || secondary ? (
-        <div className="sf-empty-act">
+        <div className="ds-empty-act">
           {act}
           {secondary}
         </div>
@@ -267,10 +267,10 @@ export function EmptyState({
 /** The loader for waits over a second: three rhombic nuqtas in the mark's rhythm (never a spinner in content). */
 export function Loader({ label = "در حال بارگذاری", className }: { label?: string; className?: string }) {
   return (
-    <span className={cx("sf-loader", className)} role="status" aria-label={label}>
-      <i className="sf-nuqta" />
-      <i className="sf-nuqta" />
-      <i className="sf-nuqta" />
+    <span className={cx("ds-loader", className)} role="status" aria-label={label}>
+      <i className="ds-nuqta" />
+      <i className="ds-nuqta" />
+      <i className="ds-nuqta" />
     </span>
   );
 }
@@ -279,9 +279,9 @@ export function Loader({ label = "در حال بارگذاری", className }: { 
 export function Skeleton({ rows = 3, className }: { rows?: number; className?: string }) {
   const widths = [88, 64, 76, 55, 82, 70, 60, 90];
   return (
-    <div className={cx("sf-skel-block", className)} aria-busy="true" aria-label="در حال بارگذاری">
+    <div className={cx("ds-skel-block", className)} aria-busy="true" aria-label="در حال بارگذاری">
       {Array.from({ length: rows }, (_, i) => (
-        <i key={i} className="sf-skel" style={{ inlineSize: `${widths[i % widths.length]}%` }} />
+        <i key={i} className="ds-skel" style={{ inlineSize: `${widths[i % widths.length]}%` }} />
       ))}
     </div>
   );
@@ -314,7 +314,7 @@ export function StatCard({
   const interactive = !!onClick;
   return (
     <div
-      className={cx("sf-stat", interactive && "sf-stat-link", className)}
+      className={cx("ds-stat", interactive && "ds-stat-link", className)}
       onClick={onClick}
       role={interactive ? "button" : undefined}
       tabIndex={interactive ? 0 : undefined}
@@ -329,21 +329,21 @@ export function StatCard({
           : undefined
       }
     >
-      <div className="sf-stat-label">
+      <div className="ds-stat-label">
         {icon ? (
-          <span className="sf-stat-ic" aria-hidden>
+          <span className="ds-stat-ic" aria-hidden>
             {icon}
           </span>
         ) : null}
         <span className="min-w-0">{title}</span>
         {interactive ? (
-          <span className="sf-stat-go" aria-hidden>
+          <span className="ds-stat-go" aria-hidden>
             <ChevronLeft {...ICON} />
           </span>
         ) : null}
       </div>
-      <div className="sf-stat-val sf-t-figure">{value}</div>
-      {hint ? <div className="sf-stat-foot">{hint}</div> : null}
+      <div className="ds-stat-val ds-t-figure">{value}</div>
+      {hint ? <div className="ds-stat-foot">{hint}</div> : null}
     </div>
   );
 }
@@ -352,7 +352,7 @@ export function StatCard({
 export function Hint({ children, tip }: { children: ReactNode; tip: ReactNode }) {
   return (
     <Tooltip title={tip}>
-      <span className="sf-hint">{children}</span>
+      <span className="ds-hint">{children}</span>
     </Tooltip>
   );
 }

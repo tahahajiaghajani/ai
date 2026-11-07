@@ -17,7 +17,7 @@ export function StatusChip({ s }: { s: OrgStatus | null | undefined }) {
   return <Chip tone={tone}>{t}</Chip>;
 }
 
-/** Persian titles of security events (tz_security_events.kind). */
+/** Persian titles of security events (sm_security_events.kind). */
 export const EVENT_KIND: Record<string, string> = {
   sign_in: "ورود",
   sign_up: "ساخت حساب",
@@ -96,8 +96,8 @@ export function When({ v, block }: { v: string | null | undefined; block?: boole
   const d = new Date(v);
   return (
     <span className={`${block ? "flex flex-col" : "inline-flex items-baseline gap-2"} whitespace-nowrap`}>
-      <span className="sf-num">{jDate(d)}</span>
-      <span className="sf-num text-ink-3">{jTime(d)}</span>
+      <span className="ds-num">{jDate(d)}</span>
+      <span className="ds-num text-ink-3">{jTime(d)}</span>
     </span>
   );
 }
@@ -144,12 +144,12 @@ export const usd = (v: string | number | null | undefined) => (v === null || v =
 
 export function Empty({ icon, title, action }: { icon: ReactNode; title: string; action?: ReactNode }) {
   return (
-    <div className="sf-empty sf-fade">
-      <div className="sf-empty-tile" aria-hidden>
+    <div className="ds-empty ds-fade">
+      <div className="ds-empty-tile" aria-hidden>
         {icon}
       </div>
-      <div className="sf-empty-title">{title}</div>
-      {action ? <div className="sf-empty-act">{action}</div> : null}
+      <div className="ds-empty-title">{title}</div>
+      {action ? <div className="ds-empty-act">{action}</div> : null}
     </div>
   );
 }

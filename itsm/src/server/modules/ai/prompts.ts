@@ -45,7 +45,7 @@ export async function contextBlock(ctx: Ctx, rawPage: AiPageContext | null | und
   const today = todayISO(orgTimeZone(ctx));
   const fy = await ctx.db
     .one<{ title: string; start_date: string; end_date: string; status: string }>(
-      `select title, start_date, end_date, status from tz_fiscal_years where org_id = $1 and deleted_at is null and start_date <= $2 and end_date >= $2 order by start_date desc limit 1`,
+      `select title, start_date, end_date, status from sm_fiscal_years where org_id = $1 and deleted_at is null and start_date <= $2 and end_date >= $2 order by start_date desc limit 1`,
       [ctx.org.id, today],
     )
     .catch(() => null);

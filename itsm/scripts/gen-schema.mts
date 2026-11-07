@@ -27,14 +27,14 @@ function wrap(id: string, title: string, sql: string) {
 -- ---------------------------------------------------------------------------
 ${sql.trim()}
 
-insert into tz_migrations (id) values ('${id}') on conflict (id) do nothing;
+insert into sm_migrations (id) values ('${id}') on conflict (id) do nothing;
 `;
 }
 
 const files = new Map<string, string>();
-files.set(join(dir, "schema.sql"), `${header}\ncreate table if not exists tz_migrations (id text primary key, applied_at timestamptz not null default now());\n\n${MIGRATIONS.map((m) => wrap(m.id, m.title, m.sql)).join("\n")}`);
+files.set(join(dir, "schema.sql"), `${header}\ncreate table if not exists sm_migrations (id text primary key, applied_at timestamptz not null default now());\n\n${MIGRATIONS.map((m) => wrap(m.id, m.title, m.sql)).join("\n")}`);
 for (const m of MIGRATIONS) {
-  files.set(join(migDir, `${m.id}.sql`), `-- «سیراف» migration ${m.id} — ${m.title}\ncreate table if not exists tz_migrations (id text primary key, applied_at timestamptz not null default now());\n\n${wrap(m.id, m.title, m.sql)}`);
+  files.set(join(migDir, `${m.id}.sql`), `-- «سیراف» migration ${m.id} — ${m.title}\ncreate table if not exists sm_migrations (id text primary key, applied_at timestamptz not null default now());\n\n${wrap(m.id, m.title, m.sql)}`);
 }
 
 let stale: string[] = [];

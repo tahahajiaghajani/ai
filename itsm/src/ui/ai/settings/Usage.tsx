@@ -47,13 +47,13 @@ function rangeOf(p: Period) {
 
 function Rank({ rows, label }: { rows: { key: string; name: string; cost: number; calls: number; hi?: boolean }[]; label: string }) {
   const max = Math.max(0.000001, ...rows.map((r) => r.cost));
-  if (!rows.length) return <div className="bk-line"><i className="sf-nuqta" aria-hidden />مصرفی ثبت نشده.</div>;
+  if (!rows.length) return <div className="bk-line"><i className="ds-nuqta" aria-hidden />مصرفی ثبت نشده.</div>;
   return (
     <div className="ai-rank" role="list" aria-label={label}>
       {rows.slice(0, 8).map((r) => (
         <div key={r.key} className="ai-rank-r" role="listitem">
           <span className="ai-rank-n" title={r.name}>{r.name}</span>
-          <span className="ai-rank-v">{usd(r.cost)} <span className="sf-unit">دلار</span></span>
+          <span className="ai-rank-v">{usd(r.cost)} <span className="ds-unit">دلار</span></span>
           <span className="ai-rank-q">{fa(r.calls)} بار</span>
           <span className="ai-rank-b" aria-hidden>
             <i className={r.hi ? "hi" : ""} style={{ inlineSize: `${Math.max(2, (r.cost / max) * 100)}%` }} />
@@ -116,7 +116,7 @@ function BudgetCard({ settings, month, unpriced }: { settings: AiSettings; month
     <Card title="بودجه" meta={<span className="bk-cap">برآورد از روی تعرفهٔ سرویس‌ها، به دلار</span>}>
       <div className="ai-meter">
         <div className="ai-meter-fig">
-          <b className="sf-num">{usd(month)}</b>
+          <b className="ds-num">{usd(month)}</b>
           <span>دلار در این ماه</span>
           {b.monthly_usd ? <span>از {usd(b.monthly_usd)} دلار</span> : <span>بدون سقف ماهانه</span>}
         </div>
@@ -198,11 +198,11 @@ export function UsageTab({ settings }: { settings: AiSettings }) {
               <div className="ai-chart" role="img" aria-label="مصرف روزانهٔ هوش مصنوعی">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={days} margin={{ top: 8, right: 0, left: 4, bottom: 0 }} barCategoryGap="22%">
-                    <CartesianGrid vertical={false} stroke="var(--sf-chart-grid)" />
-                    <XAxis dataKey="day" reversed tickLine={false} axisLine={{ stroke: "var(--sf-chart-axis)" }} tick={{ fontSize: 12, fill: "var(--sf-text-3)" }} tickFormatter={(d: string) => jDayMonth(day(d))} minTickGap={24} />
-                    <YAxis orientation="right" tickCount={3} width={44} axisLine={false} tickLine={false} tickMargin={8} tick={{ fontSize: 12, fill: "var(--sf-text-3)", textAnchor: "start" }} tickFormatter={(v: number) => (metric === "cost" ? usd(v) : fa(v))} />
-                    <Tooltip cursor={{ fill: "var(--sf-hover)" }} content={<DayTip />} isAnimationActive={false} />
-                    <Bar dataKey={metric} fill="var(--sf-accent-line)" radius={[4, 4, 0, 0]} maxBarSize={24} animationDuration={500} />
+                    <CartesianGrid vertical={false} stroke="var(--ds-chart-grid)" />
+                    <XAxis dataKey="day" reversed tickLine={false} axisLine={{ stroke: "var(--ds-chart-axis)" }} tick={{ fontSize: 12, fill: "var(--ds-text-3)" }} tickFormatter={(d: string) => jDayMonth(day(d))} minTickGap={24} />
+                    <YAxis orientation="right" tickCount={3} width={44} axisLine={false} tickLine={false} tickMargin={8} tick={{ fontSize: 12, fill: "var(--ds-text-3)", textAnchor: "start" }} tickFormatter={(v: number) => (metric === "cost" ? usd(v) : fa(v))} />
+                    <Tooltip cursor={{ fill: "var(--ds-hover)" }} content={<DayTip />} isAnimationActive={false} />
+                    <Bar dataKey={metric} fill="var(--ds-accent-line)" radius={[4, 4, 0, 0]} maxBarSize={24} animationDuration={500} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>

@@ -17,13 +17,13 @@ export default function Account() {
   const revoke = useAction((id: string) => api.del(`/auth/sessions/${id}`), { success: "از آن دستگاه خارج شد.", invalidate: [["sessions"]] });
   return (
     <div>
-      <PageHeader title="حساب کاربری من" subtitle={me?.user.email ? <bdi dir="ltr" className="sf-latin">{me.user.email}</bdi> : undefined} />
+      <PageHeader title="حساب کاربری من" subtitle={me?.user.email ? <bdi dir="ltr" className="ds-latin">{me.user.email}</bdi> : undefined} />
       <div className="bk-cols grid items-start gap-4 lg:grid-cols-2">
         <Card title="مشخصات">
           <Form layout="vertical" requiredMark={false} initialValues={me?.user} onFinish={(v) => profile.mutate(v)}>
             <Form.Item name="full_name" label="نام" rules={[{ required: true, message: "نام را بنویسید." }]}><Input /></Form.Item>
-            <Form.Item label="ایمیل"><Input value={me?.user.email} disabled dir="ltr" className="sf-latin" /></Form.Item>
-            <Form.Item name="mobile" label="همراه"><Input dir="ltr" className="sf-num" style={{ textAlign: "right" }} inputMode="tel" /></Form.Item>
+            <Form.Item label="ایمیل"><Input value={me?.user.email} disabled dir="ltr" className="ds-latin" /></Form.Item>
+            <Form.Item name="mobile" label="همراه"><Input dir="ltr" className="ds-num" style={{ textAlign: "right" }} inputMode="tel" /></Form.Item>
             <div className="flex justify-end"><Button type="primary" htmlType="submit" loading={profile.isPending}>ذخیره</Button></div>
           </Form>
         </Card>
@@ -58,8 +58,8 @@ export default function Account() {
                   </span>
                 ),
               },
-              { key: "ua", dataIndex: "user_agent", title: "مشخصات", ellipsis: true, render: (v) => <bdi dir="ltr" className="sf-latin bk-3" style={{ fontSize: 12 }}>{v}</bdi> },
-              { key: "ip", dataIndex: "ip", title: "IP", width: 136, render: (v) => <bdi dir="ltr" className="sf-mono bk-2">{v}</bdi> },
+              { key: "ua", dataIndex: "user_agent", title: "مشخصات", ellipsis: true, render: (v) => <bdi dir="ltr" className="ds-latin bk-3" style={{ fontSize: 12 }}>{v}</bdi> },
+              { key: "ip", dataIndex: "ip", title: "IP", width: 136, render: (v) => <bdi dir="ltr" className="ds-mono bk-2">{v}</bdi> },
               { key: "seen", dataIndex: "last_seen_at", title: "آخرین فعالیت", width: 168, render: (v) => <span className="bk-2"><JDateTime v={v} /></span> },
               {
                 key: "a",

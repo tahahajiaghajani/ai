@@ -73,7 +73,7 @@ function SupportBand() {
   return (
     <div
       role="status"
-      className="no-print flex min-h-10 flex-wrap items-center gap-x-3 gap-y-1 border-b border-[var(--sf-warning-border)] bg-warning-tint px-4 py-1.5 text-[13px] leading-5 text-ink"
+      className="no-print flex min-h-10 flex-wrap items-center gap-x-3 gap-y-1 border-b border-[var(--ds-warning-border)] bg-warning-tint px-4 py-1.5 text-[13px] leading-5 text-ink"
     >
       <span className="inline-flex items-center gap-2 font-semibold text-warning">
         <LifeBuoy {...ICON} aria-hidden />
@@ -86,7 +86,7 @@ function SupportBand() {
       </Tooltip>
       <span className="ms-auto inline-flex items-center gap-3">
         <span className="text-ink-2">
-          <span className="sf-num">{timeLeft(Math.max(0, left))}</span> مانده
+          <span className="ds-num">{timeLeft(Math.max(0, left))}</span> مانده
         </span>
         <Button size="small" onClick={end} loading={ending}>
           پایان حالت پشتیبانی

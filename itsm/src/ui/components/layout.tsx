@@ -48,7 +48,7 @@ function useViewportWidth() {
  */
 function hasTitleBarOverlay(): boolean {
   if (typeof window === "undefined") return false;
-  const bridge = (window as unknown as { siraf?: { titleBarOverlay?: boolean } }).siraf;
+  const bridge = (window as unknown as { itsm?: { titleBarOverlay?: boolean } }).itsm;
   return !!bridge?.titleBarOverlay;
 }
 
@@ -61,7 +61,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const vw = useViewportWidth();
   const mobile = vw < 768;
   const narrow = vw < 1100;
-  const [pref, setPref] = useStored<SidebarPref>("siraf.sidebar", { w: SIDEBAR_W, collapsed: false });
+  const [pref, setPref] = useStored<SidebarPref>("itsm.sidebar", { w: SIDEBAR_W, collapsed: false });
   const width = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, Number(pref.w) || SIDEBAR_W));
   const rail = !mobile && (narrow || pref.collapsed);
   const [drawer, setDrawer] = useState(false);
@@ -87,7 +87,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const memory = useSpaceMemory(orgId, current, rel, loc.search);
   const fallback: SpaceKey = spaces.some((s) => s.key === memory.last) ? memory.last : (spaces[0]?.key ?? "accounting");
   const space: SpaceKey = current ?? fallback;
-  const [pins, setPins] = useStored<string[]>(`siraf.pins.${orgId}`, []);
+  const [pins, setPins] = useStored<string[]>(`itsm.pins.${orgId}`, []);
 
   const go = useCallback((path: string) => nav(`/${orgId}${path ? `/${path.replace(/^\//, "")}` : ""}`), [nav, orgId]);
   const firstOf = (s: SpaceKey) => items.find((i) => i.space === s && !i.common)?.path ?? "";
@@ -230,10 +230,10 @@ export function AppShell({ children }: { children: ReactNode }) {
             mask
             rootClassName="sh-drawer no-print"
             styles={{
-              wrapper: { margin: 0, borderRadius: 0, boxShadow: "var(--sf-shadow-e4), 0 0 0 1px var(--sf-line-2)" },
-              section: { background: "var(--sf-canvas)" },
+              wrapper: { margin: 0, borderRadius: 0, boxShadow: "var(--ds-shadow-e4), 0 0 0 1px var(--ds-line-2)" },
+              section: { background: "var(--ds-canvas)" },
               body: { padding: 0 },
-              mask: { background: "var(--sf-scrim)" },
+              mask: { background: "var(--ds-scrim)" },
             }}
           >
             {sidebar(true)}
@@ -257,12 +257,12 @@ function textOf(node: ReactNode): string {
   return "";
 }
 
-/** Arad never sets figures: the digit runs of a string title are drawn by Siraf Num (weight 600, tabular). */
+/** Arad never sets figures: the digit runs of a string title are drawn by DS Num (weight 600, tabular). */
 function titleWithFigures(title: ReactNode): ReactNode {
   if (typeof title !== "string" || !/[0-9۰-۹]/.test(title)) return title;
   return title.split(/([0-9۰-۹][0-9۰-۹٫٬/.,-]*)/).map((part, i) =>
     i % 2 ? (
-      <span key={i} className="sf-ph-num">
+      <span key={i} className="ds-ph-num">
         {part}
       </span>
     ) : (
@@ -276,32 +276,32 @@ export function PageHeader({ title, subtitle, actions, back, extra }: { title: R
   const text = textOf(title).trim();
   usePageTitle(text || null);
   return (
-    <div className="sf-ph no-print">
+    <div className="ds-ph no-print">
       {back ? (
         <button type="button" className="sh-icon-btn" onClick={() => (typeof back === "string" ? nav(back) : nav(-1))} aria-label="بازگشت">
           <Ic icon={ArrowRight} />
         </button>
       ) : null}
-      <div className="sf-ph-t">
+      <div className="ds-ph-t">
         <h1>{titleWithFigures(title)}</h1>
-        {subtitle ? <div className="sf-ph-meta">{subtitle}</div> : null}
+        {subtitle ? <div className="ds-ph-meta">{subtitle}</div> : null}
       </div>
       {extra}
-      {actions ? <div className="sf-ph-actions">{actions}</div> : null}
+      {actions ? <div className="ds-ph-actions">{actions}</div> : null}
     </div>
   );
 }
 
 export function Section({ title, extra, children, className, bodyClass }: { title?: ReactNode; extra?: ReactNode; children: ReactNode; className?: string; bodyClass?: string }) {
   return (
-    <section className={`tz-card sf-section ${className ?? ""}`}>
+    <section className={`tz-card ds-section ${className ?? ""}`}>
       {title || extra ? (
-        <div className="sf-section-h">
+        <div className="ds-section-h">
           {title ? <h2>{title}</h2> : null}
-          {extra ? <div className="sf-section-x">{extra}</div> : null}
+          {extra ? <div className="ds-section-x">{extra}</div> : null}
         </div>
       ) : null}
-      <div className={bodyClass ?? "sf-section-b"}>{children}</div>
+      <div className={bodyClass ?? "ds-section-b"}>{children}</div>
     </section>
   );
 }

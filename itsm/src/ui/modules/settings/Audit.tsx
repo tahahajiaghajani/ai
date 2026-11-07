@@ -116,7 +116,7 @@ function SupportSessions() {
   const end = useAction((id: string) => api.post(`/support-sessions/${id}/end`), { success: "حالت پشتیبانی پایان یافت.", invalidate: [["support-sessions"], ["audit"]] });
   const canEnd = !!q.data?.can_end;
   return (
-    <div className="sf-card">
+    <div className="ds-card">
       <Table<SupportRow>
         className="bk-tbl"
         size="small"
@@ -138,7 +138,7 @@ function SupportSessions() {
               <span className="min-w-0">
                 <span className="block truncate">{r.admin_name ?? "—"}</span>
                 {r.admin_email ? (
-                  <bdi dir="ltr" className="sf-latin bk-3 block truncate" style={{ fontSize: 12 }}>
+                  <bdi dir="ltr" className="ds-latin bk-3 block truncate" style={{ fontSize: 12 }}>
                     {r.admin_email}
                   </bdi>
                 ) : null}
@@ -203,10 +203,10 @@ function Events() {
   );
   return (
     <div>
-      <div className="sf-card">
-        <div className="sf-st">
-          <div className="sf-st-bar">
-            <div className="sf-st-filters">
+      <div className="ds-card">
+        <div className="ds-st">
+          <div className="ds-st-bar">
+            <div className="ds-st-filters">
               <Input allowClear prefix={<Search {...ICON} className="bk-3" />} placeholder="کاربر، بخش یا شرح" value={search} onChange={(e) => setSearch(e.target.value)} className="!w-64" />
               <Segmented
                 value={action}

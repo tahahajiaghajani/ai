@@ -19,7 +19,7 @@ export interface MarkdownProps {
   className?: string;
 }
 
-/** Keeps every URL as written; links.ts decides what becomes a link (react-markdown's default would drop `siraf:`). */
+/** Keeps every URL as written; links.ts decides what becomes a link (react-markdown's default would drop `record:`). */
 const keep = (url: string) => url;
 
 /** Figures inside table cells line up (tabular); text cells keep their natural width. */
@@ -33,7 +33,7 @@ function MarkdownImpl({ text, streaming, resolve, hrefOf, onNavigate, className 
       return (
         <a
           href={hrefOf(path)}
-          className="sf-link"
+          className="ds-link"
           onClick={(e) => {
             if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
             e.preventDefault();
@@ -52,7 +52,7 @@ function MarkdownImpl({ text, streaming, resolve, hrefOf, onNavigate, className 
       </div>
     ),
     td: ({ children, style }) => (
-      <td style={style} className={isFigure(children) ? "sf-num" : undefined}>
+      <td style={style} className={isFigure(children) ? "ds-num" : undefined}>
         {children}
       </td>
     ),

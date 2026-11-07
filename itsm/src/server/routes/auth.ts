@@ -15,13 +15,13 @@ const email = z.string().trim().toLowerCase().refine(isEmail, "ایمیل معت
 export const authRoutes = router();
 
 const hasActiveAdmin = async (db: import("../db").Db) =>
-  !!(await db.one(`select 1 from tz_users where is_platform_admin and not disabled limit 1`));
+  !!(await db.one(`select 1 from sm_users where is_platform_admin and not disabled limit 1`));
 
 authRoutes.post("/signup", async (c) => {
   const cfg = c.get("cfg");
   limitByIp(c, "signup", 10, 3600000);
   const input = await body(c, z.object({ email, password: z.string(), full_name: z.string().trim().min(2, "نام را کامل وارد کنید").max(120), mobile: z.string().trim().max(20).optional() }));
-  const count = await cfg.db.one<{ n: number }>(`select count(*)::int as n from tz_users`);
+  const count = await cfg.db.one<{ n: number }>(`select count(*)::int as n from sm_users`);
   const first = (count?.n ?? 0) === 0;
   // An address in PLATFORM_ADMIN_EMAILS is no proof of owning it (nothing is e-mailed): it opens a
   // closed sign-up and becomes administrator only while the platform has no active administrator
@@ -30,14 +30,14 @@ authRoutes.post("/signup", async (c) => {
   if (!first && !cfg.allowSignup && !bootstrap) throw forbidden(cfg.mode === "desktop" ? "کاربر جدید را مدیر از «تنظیمات ← کاربران» اضافه می‌کند" : "ثبت‌نام در این سامانه بسته است");
   const problem = passwordProblem(input.password);
   if (problem) throw bad(problem);
-  const exists = await cfg.db.one(`select 1 from tz_users where lower(email) = $1`, [input.email]);
+  const exists = await cfg.db.one(`select 1 from sm_users where lower(email) = $1`, [input.email]);
   if (exists) throw bad("با این ایمیل قبلاً حساب ساخته شده است؛ وارد شوید");
   const recovery = readableCode(4, 4);
   // the first account administers the platform only while no owner email is configured;
   // otherwise whoever reached a fresh deployment first would see every business
   const isAdmin = bootstrap || (first && !cfg.platformAdmins.length);
   const user = await cfg.db.one<{ id: string }>(
-    `insert into tz_users (id, email, full_name, mobile, password_hash, recovery_hash, is_platform_admin)
+    `insert into sm_users (id, email, full_name, mobile, password_hash, recovery_hash, is_platform_admin)
      values ($1, $2, $3, $4, $5, $6, $7) returning id`,
     [uuidv7(), input.email, input.full_name, input.mobile || null, await hashPassword(input.password), sha256(recovery.replace(/-/g, "")), isAdmin],
   );
@@ -64,7 +64,7 @@ authRoutes.post("/login", async (c) => {
     throw e;
   }
   let user = await cfg.db.one<{ id: string; password_hash: string | null; disabled: boolean }>(
-    `select id, password_hash, disabled from tz_users where lower(email) = $1`,
+    `select id, password_hash, disabled from sm_users where lower(email) = $1`,
     [input.email],
   );
   let ok = user ? await verifyPassword(input.password, user.password_hash) : false;
@@ -78,7 +78,7 @@ authRoutes.post("/login", async (c) => {
     if (r.limited) throw tooMany("وب‌سایت سیراف تلاش‌های زیاد این حساب را موقتاً نمی‌پذیرد؛ چند دقیقه بعد دوباره امتحان کنید");
     unreachable = !!r.unreachable;
     if (r.ok && r.user_id) {
-      user = await cfg.db.one(`select id, password_hash, disabled from tz_users where id = $1 and lower(email) = $2`, [r.user_id, input.email]);
+      user = await cfg.db.one(`select id, password_hash, disabled from sm_users where id = $1 and lower(email) = $2`, [r.user_id, input.email]);
       ok = !!user;
     }
   }
@@ -96,8 +96,8 @@ authRoutes.post("/login", async (c) => {
     // only while the platform has no active administrator (see sign-up): otherwise whoever made an
     // account with a listed address first — by sign-up or as a business's new member — would get it
     const promoted = await cfg.db.one(
-      `update tz_users set is_platform_admin = true where id = $1 and not is_platform_admin
-         and not exists (select 1 from tz_users a where a.is_platform_admin and not a.disabled) returning id`,
+      `update sm_users set is_platform_admin = true where id = $1 and not is_platform_admin
+         and not exists (select 1 from sm_users a where a.is_platform_admin and not a.disabled) returning id`,
       [user.id],
     );
     if (promoted) await securityEvent(cfg.db, { kind: "platform_admin", user_id: user.id, email: input.email, ...requestMeta(c), data: { granted: true, by: "env" } });
@@ -127,7 +127,7 @@ authRoutes.patch("/me", requireUser, async (c) => {
   const input = await body(c, z.object({ full_name: z.string().trim().min(2).max(120).optional(), mobile: z.string().trim().max(20).nullable().optional(), prefs: z.record(z.string(), z.unknown()).optional() }));
   const u = c.get("user");
   await cfg.db.query(
-    `update tz_users set full_name = coalesce($2, full_name), mobile = case when $3::boolean then $4 else mobile end,
+    `update sm_users set full_name = coalesce($2, full_name), mobile = case when $3::boolean then $4 else mobile end,
        prefs = case when $5::jsonb is null then prefs else prefs || $5::jsonb end where id = $1`,
     [u.id, input.full_name ?? null, input.mobile !== undefined, input.mobile ?? null, input.prefs ? JSON.stringify(input.prefs) : null],
   );
@@ -137,7 +137,7 @@ authRoutes.patch("/me", requireUser, async (c) => {
 authRoutes.post("/password", requireUser, async (c) => {
   const cfg = c.get("cfg");
   const input = await body(c, z.object({ current: z.string(), next: z.string() }));
-  const u = await cfg.db.one<{ password_hash: string }>(`select password_hash from tz_users where id = $1`, [c.get("user").id]);
+  const u = await cfg.db.one<{ password_hash: string }>(`select password_hash from sm_users where id = $1`, [c.get("user").id]);
   const me = c.get("user");
   if (!(await verifyPassword(input.current, u?.password_hash))) {
     await securityEvent(cfg.db, { kind: "password_change", ok: false, user_id: me.id, email: me.email, ...requestMeta(c), data: { reason: "wrong_password" } });
@@ -145,9 +145,9 @@ authRoutes.post("/password", requireUser, async (c) => {
   }
   const problem = passwordProblem(input.next);
   if (problem) throw bad(problem);
-  await cfg.db.query(`update tz_users set password_hash = $2 where id = $1`, [me.id, await hashPassword(input.next)]);
+  await cfg.db.query(`update sm_users set password_hash = $2 where id = $1`, [me.id, await hashPassword(input.next)]);
   // sign out other sessions
-  await cfg.db.query(`update tz_sessions set revoked_at = now() where user_id = $1 and id <> $2 and revoked_at is null and kind = 'web'`, [me.id, c.get("session").id]);
+  await cfg.db.query(`update sm_sessions set revoked_at = now() where user_id = $1 and id <> $2 and revoked_at is null and kind = 'web'`, [me.id, c.get("session").id]);
   await securityEvent(cfg.db, { kind: "password_change", user_id: me.id, email: me.email, ...requestMeta(c) });
   return c.json({ ok: true });
 });
@@ -156,7 +156,7 @@ authRoutes.post("/recover", async (c) => {
   const cfg = c.get("cfg");
   limitByIp(c, "recover", 10, 3600000);
   const input = await body(c, z.object({ email, code: z.string().trim().min(8), next: z.string() }));
-  const u = await cfg.db.one<{ id: string; recovery_hash: string | null }>(`select id, recovery_hash from tz_users where lower(email) = $1`, [input.email]);
+  const u = await cfg.db.one<{ id: string; recovery_hash: string | null }>(`select id, recovery_hash from sm_users where lower(email) = $1`, [input.email]);
   const code = input.code.toUpperCase().replace(/[^A-Z0-9]/g, "");
   if (!u || !u.recovery_hash || u.recovery_hash !== sha256(code)) {
     await securityEvent(cfg.db, { kind: "password_recover", ok: false, user_id: u?.id ?? null, email: input.email, ...requestMeta(c), data: { reason: u ? "wrong_code" : "unknown_account" } });
@@ -165,15 +165,15 @@ authRoutes.post("/recover", async (c) => {
   const problem = passwordProblem(input.next);
   if (problem) throw bad(problem);
   const recovery = readableCode(4, 4);
-  await cfg.db.query(`update tz_users set password_hash = $2, recovery_hash = $3 where id = $1`, [u.id, await hashPassword(input.next), sha256(recovery.replace(/-/g, ""))]);
-  await cfg.db.query(`update tz_sessions set revoked_at = now() where user_id = $1 and revoked_at is null`, [u.id]);
+  await cfg.db.query(`update sm_users set password_hash = $2, recovery_hash = $3 where id = $1`, [u.id, await hashPassword(input.next), sha256(recovery.replace(/-/g, ""))]);
+  await cfg.db.query(`update sm_sessions set revoked_at = now() where user_id = $1 and revoked_at is null`, [u.id]);
   await securityEvent(cfg.db, { kind: "password_recover", user_id: u.id, email: input.email, ...requestMeta(c) });
   return c.json({ ok: true, recovery_code: recovery });
 });
 
 authRoutes.get("/sessions", requireUser, async (c) => {
   const rows = await c.get("cfg").db.query(
-    `select id, kind, device_name, ip, user_agent, created_at, last_seen_at from tz_sessions
+    `select id, kind, device_name, ip, user_agent, created_at, last_seen_at from sm_sessions
      where user_id = $1 and revoked_at is null and expires_at > now() order by last_seen_at desc`,
     [c.get("user").id],
   );
@@ -181,6 +181,6 @@ authRoutes.get("/sessions", requireUser, async (c) => {
 });
 
 authRoutes.delete("/sessions/:id", requireUser, async (c) => {
-  await c.get("cfg").db.query(`update tz_sessions set revoked_at = now() where id = $1 and user_id = $2`, [c.req.param("id"), c.get("user").id]);
+  await c.get("cfg").db.query(`update sm_sessions set revoked_at = now() where id = $1 and user_id = $2`, [c.req.param("id"), c.get("user").id]);
   return c.json({ ok: true });
 });

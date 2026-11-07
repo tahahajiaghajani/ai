@@ -6,10 +6,10 @@ type ParentPort = { postMessage(m: unknown): void; on(ev: "message", fn: (e: { d
 const parent = (process as unknown as { parentPort?: ParentPort }).parentPort;
 
 async function main() {
-  const dataDir = process.env.TARAZ_DATA_DIR;
-  const staticDir = process.env.TARAZ_STATIC_DIR;
-  if (!dataDir || !staticDir) throw new Error("TARAZ_DATA_DIR / TARAZ_STATIC_DIR missing");
-  const port = process.env.TARAZ_PORT ? Number(process.env.TARAZ_PORT) : undefined;
+  const dataDir = process.env.ITSM_DATA_DIR;
+  const staticDir = process.env.ITSM_STATIC_DIR;
+  if (!dataDir || !staticDir) throw new Error("ITSM_DATA_DIR / ITSM_STATIC_DIR missing");
+  const port = process.env.ITSM_PORT ? Number(process.env.ITSM_PORT) : undefined;
   const server = await startLocal({ dataDir, staticDir, port });
   const ready = { type: "ready", url: server.url, port: server.port, host: server.host };
   if (parent) parent.postMessage(ready);

@@ -61,16 +61,16 @@ function RoleCard({ role, count, active, onPick }: { role: Role; count: number; 
       aria-pressed={active}
       className={cx(
         "flex min-w-0 flex-col items-start gap-2 rounded-lg border bg-surface p-4 text-start transition-colors",
-        active ? "border-[var(--sf-accent-border)] bg-accent-tint" : "border-line hover:bg-[var(--sf-hover)]",
+        active ? "border-[var(--ds-accent-border)] bg-accent-tint" : "border-line hover:bg-[var(--ds-hover)]",
       )}
     >
       <span className="flex w-full items-center gap-2">
         <span className="inline-grid size-8 place-items-center rounded-md bg-sunken text-ink-2" aria-hidden>
           <Icon {...ICON} />
         </span>
-        <span className="sf-t-title text-ink">{r.title}</span>
+        <span className="ds-t-title text-ink">{r.title}</span>
         <span className="ms-auto text-[13px] text-ink-3">
-          <span className="sf-num">{faDigits(count)}</span> نفر
+          <span className="ds-num">{faDigits(count)}</span> نفر
         </span>
       </span>
       <span className="text-[13px] leading-5 text-ink-2">{r.about}</span>
@@ -173,7 +173,7 @@ export default function Members() {
           <span className="text-ink-3">({PRESET_ROLES.map((r) => ROLES[r].title).join("، ")})</span>
         </button>
         {more ? (
-          <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4 sf-fade">
+          <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4 ds-fade">
             {PRESET_ROLES.map((r) => (
               <button
                 key={r}
@@ -182,13 +182,13 @@ export default function Members() {
                 onClick={() => pick(r)}
                 className={cx(
                   "flex flex-col items-start gap-1 rounded-md border p-3 text-start",
-                  roleFilter === r ? "border-[var(--sf-accent-border)] bg-accent-tint" : "border-line bg-surface hover:bg-[var(--sf-hover)]",
+                  roleFilter === r ? "border-[var(--ds-accent-border)] bg-accent-tint" : "border-line bg-surface hover:bg-[var(--ds-hover)]",
                 )}
               >
                 <span className="flex w-full items-center gap-2 font-medium text-ink">
                   {ROLES[r].title}
                   <span className="ms-auto text-[12px] text-ink-3">
-                    <span className="sf-num">{faDigits(count(r))}</span> نفر
+                    <span className="ds-num">{faDigits(count(r))}</span> نفر
                   </span>
                 </span>
                 <span className="text-[12px] leading-5 text-ink-2">{ROLES[r].about}</span>
@@ -234,14 +234,14 @@ export default function Members() {
                       {r.full_name}
                       {me?.user?.id === r.user_id ? <span className="bk-plain">(شما)</span> : null}
                     </span>
-                    <bdi dir="ltr" className="sf-latin bk-3 block truncate" style={{ fontSize: 12 }}>
+                    <bdi dir="ltr" className="ds-latin bk-3 block truncate" style={{ fontSize: 12 }}>
                       {r.email}
                     </bdi>
                   </span>
                 </span>
               ),
             },
-            { key: "title", dataIndex: "title", title: "سمت", width: 140, render: (v) => (v ? <span className="bk-2">{v}</span> : <span className="sf-zero">—</span>) },
+            { key: "title", dataIndex: "title", title: "سمت", width: 140, render: (v) => (v ? <span className="bk-2">{v}</span> : <span className="ds-zero">—</span>) },
             {
               key: "role",
               dataIndex: "role",
@@ -287,7 +287,7 @@ export default function Members() {
                         </span>
                       </Tooltip>
                     ) : null}
-                    {!k && !managesAi(r) ? <span className="sf-zero">—</span> : null}
+                    {!k && !managesAi(r) ? <span className="ds-zero">—</span> : null}
                   </span>
                 );
               },
@@ -344,7 +344,7 @@ export default function Members() {
             <Input autoFocus />
           </Form.Item>
           <Form.Item name="email" label="ایمیل (نام کاربری)" rules={[{ required: true, type: "email", message: "ایمیل درست نیست." }]}>
-            <Input dir="ltr" className="sf-latin" />
+            <Input dir="ltr" className="ds-latin" />
           </Form.Item>
           <div className="bk-grid2">
             <Form.Item name="role" label="نقش">
@@ -427,7 +427,7 @@ function Overrides({
   const above = (a: Area, l: Level) => actor.role !== "owner" && LEVEL_ORDER.indexOf(l) > LEVEL_ORDER.indexOf(actor.permissions[a] ?? "none");
   const initial = Object.fromEntries(areas.map((a) => [a, member.overrides?.[a] ?? ""]));
   return (
-    <div className="sf-form">
+    <div className="ds-form">
       <Form
         form={form}
         layout="vertical"
@@ -435,7 +435,7 @@ function Overrides({
         onFinish={(v: Record<Area, Level | "">) => onSave(Object.fromEntries(Object.entries(v).filter(([, x]) => x)) as Partial<Record<Area, Level>>)}
       >
         <Note className="mb-4">نقش «{ROLES[member.role]?.title}» پیش‌فرض هر بخش را تعیین می‌کند؛ هر بخش را جداگانه می‌توانید تغییر دهید.</Note>
-        <div className="sf-form-grid">
+        <div className="ds-form-grid">
           {areas.map((a) => (
             <Form.Item
               key={a}
@@ -453,7 +453,7 @@ function Overrides({
             </Form.Item>
           ))}
         </div>
-        <div className="sf-form-foot">
+        <div className="ds-form-foot">
           <Button icon={<RotateCcw {...ICON14} />} onClick={() => form.setFieldsValue(Object.fromEntries(areas.map((a) => [a, ""])))} className="me-auto">
             پیش‌فرض نقش
           </Button>

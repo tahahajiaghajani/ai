@@ -295,13 +295,13 @@ describe("Windows app window and bridge", () => {
     dataDir = tmp();
     // client mode: the window shows the server of another computer straight away (no local backend)
     writeFileSync(join(dataDir, "config.json"), JSON.stringify({ client: { server_url: SERVER } }));
-    process.env.TARAZ_DATA_DIR = dataDir;
+    process.env.ITSM_DATA_DIR = dataDir;
     const main = "../desktop/src/main.ts";
     await import(/* @vite-ignore */ main);
     for (let i = 0; i < 50 && !h.ipc.size; i++) await new Promise((r) => setTimeout(r, 20));
   });
   afterAll(() => {
-    delete process.env.TARAZ_DATA_DIR;
+    delete process.env.ITSM_DATA_DIR;
     rmSync(dataDir, { recursive: true, force: true });
   });
 
@@ -329,7 +329,7 @@ describe("Windows app window and bridge", () => {
   });
 
   it("opens folders only, and only for the app's own page", async () => {
-    const open = h.ipc.get("taraz:open-path")!;
+    const open = h.ipc.get("itsm:open-path")!;
     h.opened.length = 0;
     const exe = join(dataDir, "run.exe");
     writeFileSync(exe, "MZ");
@@ -342,7 +342,7 @@ describe("Windows app window and bridge", () => {
   });
 
   it("accepts only a web address as the network server", async () => {
-    const set = h.ipc.get("taraz:set-server")!;
+    const set = h.ipc.get("itsm:set-server")!;
     const before = readdirSync(dataDir).length;
     await expect(Promise.resolve().then(() => set(fromApp, "file:///C:/Users/Public/evil.html"))).rejects.toThrow();
     await expect(Promise.resolve().then(() => set(fromElsewhere, "http://192.0.2.50:8080"))).rejects.toThrow();

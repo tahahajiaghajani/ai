@@ -77,7 +77,7 @@ export function useSyncState(): SyncState {
 /** The 7 px rhombic nuqta in the tone's colour (pulses only while syncing: the one loop). */
 export function SyncNuqta({ tone }: { tone: SyncTone }) {
   if (tone === "web") return null;
-  return <span className={`sf-nuqta sh-nuqta sh-nuqta-${tone} ${tone === "syncing" ? "sf-pulse" : ""}`} {...(tone === "live" || tone === "syncing" ? { "data-live": "" } : {})} aria-hidden />;
+  return <span className={`ds-nuqta sh-nuqta sh-nuqta-${tone} ${tone === "syncing" ? "ds-pulse" : ""}`} {...(tone === "live" || tone === "syncing" ? { "data-live": "" } : {})} aria-hidden />;
 }
 
 /** The footer's state line; `onOpen` (Windows) turns the state into a link to «نسخهٔ ویندوز». */
@@ -104,7 +104,7 @@ export function SyncLine({ state, onOpen }: { state: SyncState; onOpen?: () => v
         label
       )}
       {state.tone === "failed" && state.retry ? (
-        <button type="button" className="sf-link sh-sync-retry" onClick={state.retry}>
+        <button type="button" className="ds-link sh-sync-retry" onClick={state.retry}>
           تلاش دوباره
         </button>
       ) : null}

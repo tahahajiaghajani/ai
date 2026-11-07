@@ -43,7 +43,7 @@ async function request<T>(method: string, path: string, body?: unknown, query?: 
   }
   if (!res.ok) {
     const e = data?.error;
-    if (res.status === 401 && path !== "/auth/login" && path !== "/auth/me") window.dispatchEvent(new CustomEvent("taraz:unauthorized"));
+    if (res.status === 401 && path !== "/auth/login" && path !== "/auth/me") window.dispatchEvent(new CustomEvent("itsm:unauthorized"));
     throw new ApiError(res.status, e?.code ?? "error", e?.message ?? `خطای ${res.status}`, e?.details);
   }
   return data as T;
@@ -52,7 +52,7 @@ async function request<T>(method: string, path: string, body?: unknown, query?: 
 /**
  * POST whose answer is a stream (server-sent events): resolves with the open Response as soon as the headers
  * arrive, so the caller reads the body as it comes. A refused request fails like the JSON calls (ApiError with
- * the server's Persian message, 401 → `taraz:unauthorized`); an abort through `signal` rejects with its AbortError.
+ * the server's Persian message, 401 → `itsm:unauthorized`); an abort through `signal` rejects with its AbortError.
  */
 async function openStream(path: string, body: unknown, signal?: AbortSignal): Promise<Response> {
   let res: Response;
@@ -77,7 +77,7 @@ async function openStream(path: string, body: unknown, signal?: AbortSignal): Pr
       data = null;
     }
     const e = data?.error;
-    if (res.status === 401) window.dispatchEvent(new CustomEvent("taraz:unauthorized"));
+    if (res.status === 401) window.dispatchEvent(new CustomEvent("itsm:unauthorized"));
     throw new ApiError(res.status, e?.code ?? "error", e?.message ?? `خطای ${res.status}`, e?.details);
   }
   if (!res.body) throw new ApiError(0, "network", "پاسخ سرور خوانده نشد؛ دوباره تلاش کنید");

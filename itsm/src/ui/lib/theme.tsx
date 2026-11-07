@@ -1,23 +1,23 @@
-// Siraf theme provider (design system: src/ui/siraf/README.md). Based on the design system's drop-in
-// ThemeProvider: a three-way preference (system, light, dark) stored under "siraf.theme", the resolved mode on
+// Siraf theme provider (design system: src/ui/ds/README.md). Based on the design system's drop-in
+// ThemeProvider: a three-way preference (system, light, dark) stored under "itsm.theme", the resolved mode on
 // <html data-theme>, antd 6 in RTL with fa_IR inside <StyleProvider layer>, and bottom-left toasts.
 // It keeps the API the app already uses: useTheme().dark and useTheme().toggle().
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { App as AntApp, ConfigProvider, type ThemeConfig } from "antd";
 import { StyleProvider } from "@ant-design/cssinjs";
 import faIR from "antd/locale/fa_IR";
-import { sirafConfig, SIRAF, type SirafMode } from "../siraf/siraf-theme";
+import { dsConfig, DS_PALETTE, type DsMode } from "../ds/ds-theme";
 
 export type ThemePref = "system" | "light" | "dark";
-export type { SirafMode };
+export type { DsMode };
 
 /** localStorage key of the preference. index.html reads the same key before first paint. */
-export const THEME_KEY = "siraf.theme";
+export const THEME_KEY = "itsm.theme";
 /** The key used while the app was called «تراز»; read once and moved to THEME_KEY. */
-const LEGACY_KEY = "taraz.theme";
+const LEGACY_KEY = "itsm.theme";
 
 const media = () => window.matchMedia("(prefers-color-scheme: dark)");
-const resolve = (p: ThemePref): SirafMode => (p === "system" ? (media().matches ? "dark" : "light") : p);
+const resolve = (p: ThemePref): DsMode => (p === "system" ? (media().matches ? "dark" : "light") : p);
 const isPref = (v: unknown): v is ThemePref => v === "system" || v === "light" || v === "dark";
 
 function readPref(): ThemePref {
@@ -42,7 +42,7 @@ export interface ThemeValue {
   /** What the user chose: follow the OS, or a fixed theme. */
   pref: ThemePref;
   /** The theme in effect now. */
-  mode: SirafMode;
+  mode: DsMode;
   setPref: (p: ThemePref) => void;
   /** Same as mode === "dark" (kept for the existing screens). */
   dark: boolean;
@@ -55,24 +55,24 @@ const Ctx = createContext<ThemeValue>({ pref: "system", mode: "light", setPref: 
 // LEGACY (remove with the old shell): today's sidebar still renders <Menu theme="dark"> on the dark legacy sidebar
 // (--tz-sidebar). The design system styles only the light menu, so antd would fall back to its navy dark menu;
 // these tokens give that menu warm ink tones until the shell is rebuilt on the canvas sidebar (components.md §1.2).
-function legacyDarkMenu(mode: SirafMode): NonNullable<ThemeConfig["components"]>["Menu"] {
+function legacyDarkMenu(mode: DsMode): NonNullable<ThemeConfig["components"]>["Menu"] {
   const dark = mode === "dark";
   return {
     darkItemBg: "transparent",
     darkSubMenuItemBg: "transparent",
-    darkPopupBg: dark ? SIRAF.dark.raised : "#2B2622",
+    darkPopupBg: dark ? DS_PALETTE.dark.raised : "#2B2622",
     darkItemColor: "#D3CEC8",
     darkItemHoverColor: "#FFFFFF",
     darkItemHoverBg: "rgba(255,248,236,0.06)",
     darkItemSelectedBg: "rgba(255,248,236,0.11)",
     darkItemSelectedColor: "#FFFFFF",
     darkGroupTitleColor: "#BAB5AF",
-    darkDangerItemColor: SIRAF.dark.danger,
+    darkDangerItemColor: DS_PALETTE.dark.danger,
   };
 }
 
-function config(mode: SirafMode) {
-  const c = sirafConfig(mode);
+function config(mode: DsMode) {
+  const c = dsConfig(mode);
   const theme = c.theme ?? {};
   return {
     ...c,
@@ -82,7 +82,7 @@ function config(mode: SirafMode) {
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [pref, setPref] = useState<ThemePref>(readPref);
-  const [mode, setMode] = useState<SirafMode>(() => resolve(pref));
+  const [mode, setMode] = useState<DsMode>(() => resolve(pref));
   useEffect(() => {
     const apply = () => setMode(resolve(pref));
     apply();
@@ -99,7 +99,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     document.documentElement.dataset.theme = mode; // tokens.css follows this attribute
     // the browser / title-bar colour follows the theme in effect, not only the OS preference
-    document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]').forEach((m) => (m.content = SIRAF[mode].canvas));
+    document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]').forEach((m) => (m.content = DS_PALETTE[mode].canvas));
   }, [mode]);
   const cfg = useMemo(() => config(mode), [mode]);
   const value = useMemo<ThemeValue>(

@@ -65,7 +65,7 @@ export default function Login() {
           label={
             <span className="pg-lbl">
               <span>رمز عبور</span>
-              <Link to="/recover" className="sf-link">
+              <Link to="/recover" className="ds-link">
                 فراموش کرده‌اید؟
               </Link>
             </span>
@@ -83,7 +83,7 @@ export default function Login() {
       {canSignup ? (
         <p className="pg-alt">
           کسب‌وکار تازه دارید؟{" "}
-          <Link to="/signup" className="sf-link">
+          <Link to="/signup" className="ds-link">
             ساخت حساب
           </Link>
         </p>

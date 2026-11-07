@@ -2,7 +2,7 @@
 // person stops it, the step limit is reached, or (web version) the request's time budget runs out
 // — then a `continue` event tells the client to POST /threads/:id/continue. Read tools run in
 // parallel with validated input and the caller's permissions; proposal tools only prepare drafts
-// (tz_ai_actions). Every finished step is persisted before the next one starts.
+// (sm_ai_actions). Every finished step is persisted before the next one starts.
 import type { Ctx } from "../../context";
 import type { AiErrorKind, AiStreamEvent } from "@shared/ai/types";
 import type { AiChatRequest } from "@shared/ai/api";

@@ -10,7 +10,7 @@ import "./entry.css";
 const load = () => import("./Panel");
 const Panel = lazy(load);
 
-const OPEN_KEY = "siraf.ai.open";
+const OPEN_KEY = "itsm.ai.open";
 
 function readOpen(): boolean {
   try {

@@ -1,4 +1,4 @@
-// Security events (tz_security_events): sign-ins (failed ones too), password changes and resets,
+// Security events (sm_security_events): sign-ins (failed ones too), password changes and resets,
 // member and role changes, platform-admin grants, support sessions, business status, AI key changes.
 // Other streams record their own events with `securityEvent(db, e)`. It never throws: a lost log line
 // must not fail the request. Passwords, keys, tokens and session ids are never recorded.
@@ -46,25 +46,25 @@ export async function securityEvent(db: Queryable, e: SecurityEventInput): Promi
   const inTx = "inTx" in db && (db as { inTx?: boolean }).inTx === true;
   const insert = () =>
     db.query(
-      `insert into tz_security_events (id, kind, ok, user_id, email, org_id, ip, user_agent, data) values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      `insert into sm_security_events (id, kind, ok, user_id, email, org_id, ip, user_agent, data) values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
       [uuidv7(), e.kind, e.ok ?? true, e.user_id ?? null, e.email?.toLowerCase().slice(0, 200) ?? null, e.org_id ?? null, e.ip?.slice(0, 80) ?? null, e.user_agent?.slice(0, 300) ?? null, e.data ?? null],
     );
   try {
     if (inTx) {
       // a failed statement would abort the caller's transaction: keep the insert in a savepoint
-      await db.query("savepoint tz_security_event");
+      await db.query("savepoint sm_security_event");
       try {
         await insert();
-        await db.query("release savepoint tz_security_event");
+        await db.query("release savepoint sm_security_event");
       } catch {
-        await db.query("rollback to savepoint tz_security_event");
+        await db.query("rollback to savepoint sm_security_event");
       }
       return;
     }
     await insert();
     if (Date.now() - lastPrune > 6 * 3600_000) {
       lastPrune = Date.now();
-      await db.query(`delete from tz_security_events where at < now() - make_interval(days => $1)`, [SECURITY_RETENTION_DAYS]);
+      await db.query(`delete from sm_security_events where at < now() - make_interval(days => $1)`, [SECURITY_RETENTION_DAYS]);
     }
   } catch {
     // never fail the request for a log line
@@ -133,9 +133,9 @@ export async function listSecurityEvents(q: Queryable, f: SecurityEventFilter = 
   params.push(Math.min(500, Math.max(1, f.limit ?? 100)));
   return q.query<SecurityEventRow>(
     `select e.id, e.at, e.kind, e.ok, e.user_id, e.email, e.org_id, e.ip, e.user_agent, e.data, u.full_name as user_name, o.name as org_name
-     from tz_security_events e
-     left join tz_users u on u.id = e.user_id
-     left join tz_orgs o on o.id = e.org_id
+     from sm_security_events e
+     left join sm_users u on u.id = e.user_id
+     left join sm_orgs o on o.id = e.org_id
      ${where.length ? `where ${where.join(" and ")}` : ""}
      order by e.at desc, e.id desc
      limit $${params.length}`,

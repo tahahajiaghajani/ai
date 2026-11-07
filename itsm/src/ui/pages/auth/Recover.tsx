@@ -87,7 +87,7 @@ export default function Recover() {
                 { pattern: /^[A-Z0-9]{4}(-[A-Z0-9]{4}){3}$/, message: "کد بازیابی ۱۶ نویسه است." },
               ]}
             >
-              <Input size="large" className="sf-code" prefix={<KeyRound {...ICON} aria-hidden />} autoComplete="one-time-code" spellCheck={false} placeholder="XXXX-XXXX-XXXX-XXXX" maxLength={19} />
+              <Input size="large" className="ds-code" prefix={<KeyRound {...ICON} aria-hidden />} autoComplete="one-time-code" spellCheck={false} placeholder="XXXX-XXXX-XXXX-XXXX" maxLength={19} />
             </Form.Item>
             <Form.Item
               name="next"

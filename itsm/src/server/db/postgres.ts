@@ -108,7 +108,7 @@ export function createPostgresDb(opts: PostgresOptions): Db {
     connect_timeout: 15,
     ssl: opts.ssl === false ? false : "require",
     onnotice: () => {},
-    connection: { application_name: "taraz" },
+    connection: { application_name: "itsm" },
     types: {
       // keep dates as 'YYYY-MM-DD' and timestamps as ISO strings, int8 as JS numbers
       date: { to: 1082, from: [1082], serialize: (x: unknown) => String(x), parse: (x: string) => x },

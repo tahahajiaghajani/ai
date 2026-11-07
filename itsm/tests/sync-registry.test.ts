@@ -8,32 +8,32 @@ import { AGGREGATES } from "@server/sync/registry";
 import type { Db } from "@server/db";
 
 const LOCAL_ONLY: Record<string, string> = {
-  tz_audit: "each side keeps its own event log",
-  tz_devices: "registered Windows apps (cloud side)",
-  tz_api_keys: "API keys are used against the web version only",
-  tz_integrations: "online shops post their orders to the web version",
-  tz_integration_events: "raw webhook deliveries (web version)",
-  tz_org_sync: "per-organisation revision counter",
+  sm_audit: "each side keeps its own event log",
+  sm_devices: "registered Windows apps (cloud side)",
+  sm_api_keys: "API keys are used against the web version only",
+  sm_integrations: "online shops post their orders to the web version",
+  sm_integration_events: "raw webhook deliveries (web version)",
+  sm_org_sync: "per-organisation revision counter",
   // AI: each runtime (web, Windows) keeps its own connections — keys are encrypted with that
   // runtime's secret — and its own usage, conversations, proposals and derived insights
-  tz_ai_connections: "AI provider connections with this runtime's encrypted key",
-  tz_ai_settings: "AI settings of this runtime (refers to its connections)",
-  tz_ai_holds: "rate-limit / quota holds per connection and model",
-  tz_ai_usage: "usage ledger of this runtime",
-  tz_ai_threads: "assistant conversations (private to their author)",
-  tz_ai_messages: "assistant messages",
-  tz_ai_tool_calls: "audit of the assistant's tool calls",
-  tz_ai_actions: "proposals waiting for a person's confirmation",
-  tz_ai_data_refs: "tables and charts referenced from answers",
-  tz_ai_insights: "derived insights (recomputed on each runtime)",
-  tz_ai_plans: "saved AI plans",
-  tz_ai_captures: "documents read by AI before they become drafts",
+  sm_ai_connections: "AI provider connections with this runtime's encrypted key",
+  sm_ai_settings: "AI settings of this runtime (refers to its connections)",
+  sm_ai_holds: "rate-limit / quota holds per connection and model",
+  sm_ai_usage: "usage ledger of this runtime",
+  sm_ai_threads: "assistant conversations (private to their author)",
+  sm_ai_messages: "assistant messages",
+  sm_ai_tool_calls: "audit of the assistant's tool calls",
+  sm_ai_actions: "proposals waiting for a person's confirmation",
+  sm_ai_data_refs: "tables and charts referenced from answers",
+  sm_ai_insights: "derived insights (recomputed on each runtime)",
+  sm_ai_plans: "saved AI plans",
+  sm_ai_captures: "documents read by AI before they become drafts",
   // keys of custom price sources: encrypted with this runtime's secret, like AI keys
-  tz_price_keys: "custom price sources' keys of this runtime",
+  sm_price_keys: "custom price sources' keys of this runtime",
   // platform administration (web version)
-  tz_support_sessions: "super-admin support sessions (web version)",
-  tz_security_events: "sign-in and security events",
-  tz_org_admin: "platform status and limits of a business (web version)",
+  sm_support_sessions: "super-admin support sessions (web version)",
+  sm_security_events: "sign-in and security events",
+  sm_org_admin: "platform status and limits of a business (web version)",
 };
 
 describe("sync registry covers every business table", () => {

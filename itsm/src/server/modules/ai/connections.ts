@@ -170,12 +170,12 @@ export function toPublic(cfg: ServerConfig, row: ConnRow, pausedUntil: string | 
 const COLS = `id, org_id, label, preset, protocol, base_url, secret_enc, key_hint, key_fp, models, available_models, models_at, status, last_error, checked_at, enabled, priority, free_tier, created_by, updated_at`;
 
 export async function connectionRows(q: Queryable, orgId: string): Promise<ConnRow[]> {
-  return q.query<ConnRow>(`select ${COLS} from tz_ai_connections where org_id = $1 and deleted_at is null order by priority, created_at`, [orgId]);
+  return q.query<ConnRow>(`select ${COLS} from sm_ai_connections where org_id = $1 and deleted_at is null order by priority, created_at`, [orgId]);
 }
 
 export async function connectionRow(q: Queryable, orgId: string, id: string): Promise<ConnRow> {
   if (!/^[0-9a-f-]{36}$/i.test(id)) throw notFound("اتصال پیدا نشد");
-  const row = await q.one<ConnRow>(`select ${COLS} from tz_ai_connections where org_id = $1 and id = $2 and deleted_at is null`, [orgId, id]);
+  const row = await q.one<ConnRow>(`select ${COLS} from sm_ai_connections where org_id = $1 and id = $2 and deleted_at is null`, [orgId, id]);
   if (!row) throw notFound("اتصال پیدا نشد");
   return row;
 }
@@ -186,7 +186,7 @@ export async function connectionRow(q: Queryable, orgId: string, id: string): Pr
  */
 export async function connectionHolds(q: Queryable, orgId: string, rows: ConnRow[]): Promise<Map<string, string>> {
   const holds = await q.query<{ connection_id: string; model: string; until: string }>(
-    `select connection_id, model, max(until) as until from tz_ai_holds where org_id = $1 and until > now() group by connection_id, model`,
+    `select connection_id, model, max(until) as until from sm_ai_holds where org_id = $1 and until > now() group by connection_id, model`,
     [orgId],
   );
   const out = new Map<string, string>();
@@ -214,7 +214,7 @@ export async function listConnections(ctx: Ctx): Promise<AiConnectionPublic[]> {
   const ids = [...new Set(rows.map((r) => r.created_by).filter(Boolean))] as string[];
   const names = new Map<string, string>();
   if (ids.length) {
-    const us = await ctx.db.query<{ id: string; full_name: string }>(`select id, full_name from tz_users where id = any($1::uuid[])`, [pgArray(ids)]);
+    const us = await ctx.db.query<{ id: string; full_name: string }>(`select id, full_name from sm_users where id = any($1::uuid[])`, [pgArray(ids)]);
     for (const u of us) names.set(u.id, u.full_name);
   }
   return rows.map((r) => toPublic(ctx.cfg, r, holds.get(r.id) ?? null, names));
@@ -247,7 +247,7 @@ async function keyEvent(ctx: Ctx, conn: { id: string; label: string; preset: str
 
 async function duplicateWarning(q: Queryable, orgId: string, id: string, fp: string | null): Promise<string | null> {
   if (!fp) return null;
-  const dup = await q.one<{ label: string }>(`select label from tz_ai_connections where org_id = $1 and key_fp = $2 and id <> $3 and deleted_at is null`, [orgId, fp, id]);
+  const dup = await q.one<{ label: string }>(`select label from sm_ai_connections where org_id = $1 and key_fp = $2 and id <> $3 and deleted_at is null`, [orgId, fp, id]);
   return dup ? `همین کلید در اتصال «${dup.label}» هم ثبت شده است.` : null;
 }
 
@@ -267,9 +267,9 @@ export async function createConnection(ctx: Ctx, input: AiConnectionInput): Prom
   };
   const label = input.label?.trim() || preset.label;
   await ctx.write(async (tx) => {
-    const pr = input.priority ?? (await tx.one<{ n: number }>(`select coalesce(max(priority) + 1, 0)::int as n from tz_ai_connections where org_id = $1 and deleted_at is null`, [ctx.org.id]))?.n ?? 0;
+    const pr = input.priority ?? (await tx.one<{ n: number }>(`select coalesce(max(priority) + 1, 0)::int as n from sm_ai_connections where org_id = $1 and deleted_at is null`, [ctx.org.id]))?.n ?? 0;
     await tx.query(
-      `insert into tz_ai_connections (id, org_id, label, preset, protocol, base_url, secret_enc, key_hint, key_fp, models, enabled, priority, created_by, updated_by, free_tier)
+      `insert into sm_ai_connections (id, org_id, label, preset, protocol, base_url, secret_enc, key_hint, key_fp, models, enabled, priority, created_by, updated_by, free_tier)
        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12, $13, $13, $14)`,
       [id, ctx.org.id, label, preset.id, protocol, baseUrl, sealed?.enc ?? null, sealed?.hint ?? null, sealed?.fp ?? null, JSON.stringify(models), input.enabled ?? true, pr, ctx.user.id, input.free_tier ?? false],
     );
@@ -300,7 +300,7 @@ export async function updateConnection(ctx: Ctx, id: string, patch: Partial<AiCo
   const label = patch.label?.trim() || row.label;
   await ctx.write(async (tx) => {
     await tx.query(
-      `update tz_ai_connections set label = $3, preset = $4, protocol = $5, base_url = $6, models = $7::jsonb, enabled = $8, priority = $9,
+      `update sm_ai_connections set label = $3, preset = $4, protocol = $5, base_url = $6, models = $7::jsonb, enabled = $8, priority = $9,
          secret_enc = case when $15 then null else coalesce($10, secret_enc) end, key_hint = case when $15 then null else coalesce($11, key_hint) end,
          key_fp = case when $15 then null else coalesce($12, key_fp) end,
          status = case when $10::text is not null or $13 then 'unchecked' else status end,
@@ -309,7 +309,7 @@ export async function updateConnection(ctx: Ctx, id: string, patch: Partial<AiCo
        where org_id = $1 and id = $2`,
       [ctx.org.id, id, label, preset.id, protocol, baseUrl, JSON.stringify(models), patch.enabled ?? row.enabled, patch.priority ?? row.priority, sealed?.enc ?? null, sealed?.hint ?? null, sealed?.fp ?? null, baseUrl !== row.base_url || protocol !== row.protocol || moved, ctx.user.id, dropKey, patch.free_tier ?? !!row.free_tier],
     );
-    if (sealed) await tx.query(`delete from tz_ai_holds where connection_id = $1`, [id]);
+    if (sealed) await tx.query(`delete from sm_ai_holds where connection_id = $1`, [id]);
     await audit(tx, ctx, sealed ? "ai_connection_key" : "ai_connection_update", "ai_connection", id, sealed ? `کلید اتصال «${label}» عوض شد` : `اتصال هوش مصنوعی «${label}» ویرایش شد`, sealed ? { key: sealed.hint } : undefined);
   });
   if (sealed) await keyEvent(ctx, { id, label, preset: preset.id }, row.secret_enc ? "replaced" : "added", sealed.hint);
@@ -327,8 +327,8 @@ export async function deleteConnection(ctx: Ctx, id: string): Promise<void> {
   const row = await connectionRow(ctx.db, ctx.org.id, id);
   await ctx.write(async (tx) => {
     // the key is dropped, not kept in a deleted row
-    await tx.query(`update tz_ai_connections set deleted_at = now(), secret_enc = null, key_fp = null, enabled = false, updated_by = $3, updated_at = now() where org_id = $1 and id = $2`, [ctx.org.id, id, ctx.user.id]);
-    await tx.query(`delete from tz_ai_holds where connection_id = $1`, [id]);
+    await tx.query(`update sm_ai_connections set deleted_at = now(), secret_enc = null, key_fp = null, enabled = false, updated_by = $3, updated_at = now() where org_id = $1 and id = $2`, [ctx.org.id, id, ctx.user.id]);
+    await tx.query(`delete from sm_ai_holds where connection_id = $1`, [id]);
     await audit(tx, ctx, "ai_connection_delete", "ai_connection", id, `اتصال هوش مصنوعی «${row.label}» حذف شد`);
   });
   if (row.secret_enc) await keyEvent(ctx, row, "removed", row.key_hint);
@@ -356,7 +356,7 @@ export function resolveConnection(cfg: ServerConfig, row: ConnRow): ResolvedConn
 export async function markConnection(ctx: Ctx, id: string, outcome: { ok: true } | { ok: false; kind: AiErrorKind; detail: string }): Promise<void> {
   const err = outcome.ok ? null : { kind: outcome.kind, message: aiErrorText(outcome.kind, { canManage: true, desktop: ctx.cfg.mode === "desktop" }).message, at: new Date().toISOString(), detail: scrubSecrets(outcome.detail).slice(0, 500) };
   await ctx
-    .write((tx) => tx.query(`update tz_ai_connections set status = $3, last_error = coalesce($4::jsonb, last_error), checked_at = now() where org_id = $1 and id = $2`, [ctx.org.id, id, outcome.ok ? "ok" : "error", err ? JSON.stringify(err) : null]), { internal: true })
+    .write((tx) => tx.query(`update sm_ai_connections set status = $3, last_error = coalesce($4::jsonb, last_error), checked_at = now() where org_id = $1 and id = $2`, [ctx.org.id, id, outcome.ok ? "ok" : "error", err ? JSON.stringify(err) : null]), { internal: true })
     .catch(() => undefined);
 }
 
@@ -400,7 +400,7 @@ export async function testResolved(ctx: Ctx, conn: ResolvedConnection, models: s
     await ctx.write(
       (tx) =>
         tx.query(
-          `update tz_ai_connections set status = $3, last_error = $4::jsonb, checked_at = now(),
+          `update sm_ai_connections set status = $3, last_error = $4::jsonb, checked_at = now(),
              available_models = coalesce($5::jsonb, available_models), models_at = case when $5::jsonb is null then models_at else now() end
            where org_id = $1 and id = $2`,
           [
@@ -472,13 +472,13 @@ export async function refreshModels(ctx: Ctx, id: string): Promise<{ models: str
     const pe = e instanceof ProviderError ? e : new ProviderError("other", String(e));
     throw conflict(`${aiErrorText(pe.kind, { canManage: true }).message} ${scrubSecrets(pe.message, [conn.key]).slice(0, 200)}`);
   }
-  await ctx.write((tx) => tx.query(`update tz_ai_connections set available_models = $3::jsonb, models_at = now() where org_id = $1 and id = $2`, [ctx.org.id, id, JSON.stringify(models)]), { internal: true });
+  await ctx.write((tx) => tx.query(`update sm_ai_connections set available_models = $3::jsonb, models_at = now() where org_id = $1 and id = $2`, [ctx.org.id, id, JSON.stringify(models)]), { internal: true });
   return { models, connection: await publicConnection(ctx, id) };
 }
 
 export async function resumeConnection(ctx: Ctx, id: string): Promise<AiConnectionPublic> {
   ctx.need("ai", "full");
   await connectionRow(ctx.db, ctx.org.id, id);
-  await ctx.write((tx) => tx.query(`delete from tz_ai_holds where org_id = $1 and connection_id = $2`, [ctx.org.id, id]), { internal: true });
+  await ctx.write((tx) => tx.query(`delete from sm_ai_holds where org_id = $1 and connection_id = $2`, [ctx.org.id, id]), { internal: true });
   return publicConnection(ctx, id);
 }

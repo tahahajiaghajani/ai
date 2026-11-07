@@ -35,7 +35,7 @@ describe("core: auth, organisation, vouchers, reports", () => {
     expect(list.total).toBe(1);
     await c.post(`/o/${org}/data/party`, { name: "بد", national_id: "1234567890" }, 400);
     // each kind of detail account keeps to its own code band (the cash box already holds 20001)
-    const d = await db.one<{ code: string }>(`select code from tz_details where id = $1`, [p.row.detail_id]);
+    const d = await db.one<{ code: string }>(`select code from sm_details where id = $1`, [p.row.detail_id]);
     expect(Number(d!.code)).toBeGreaterThanOrEqual(10001);
     expect(Number(d!.code)).toBeLessThan(20000);
   });
@@ -43,7 +43,7 @@ describe("core: auth, organisation, vouchers, reports", () => {
   it("posts a balanced voucher and rejects an unbalanced one", async () => {
     const cash = await accountId(db, org, "cash");
     const capital = await accountId(db, org, "capital");
-    const box = await db.one<{ detail_id: string }>(`select detail_id from tz_cash_boxes where org_id = $1`, [org]);
+    const box = await db.one<{ detail_id: string }>(`select detail_id from sm_cash_boxes where org_id = $1`, [org]);
     const v = await c.post(`/o/${org}/accounting/vouchers`, {
       date: "2026-04-01",
       description: "آورده‌ی نقدی",
@@ -94,8 +94,8 @@ describe("accounting reports: brought-forward balances and foreign currencies", 
     c = new Client(s.app);
     org = await signupWithOrg(c);
     for (const k of ["cash", "capital", "misc_expense", "fx_parties"]) acc[k] = await accountId(db, org, k);
-    for (const r of await db.query<{ id: string; code: string }>(`select id, code from tz_currencies where org_id = $1`, [org])) cur[r.code] = r.id;
-    box = (await db.one<{ detail_id: string }>(`select detail_id from tz_cash_boxes where org_id = $1`, [org]))!.detail_id;
+    for (const r of await db.query<{ id: string; code: string }>(`select id, code from sm_currencies where org_id = $1`, [org])) cur[r.code] = r.id;
+    box = (await db.one<{ detail_id: string }>(`select detail_id from sm_cash_boxes where org_id = $1`, [org]))!.detail_id;
   });
 
   it("reports the opening voucher of a year as its opening balance, not as turnover", async () => {

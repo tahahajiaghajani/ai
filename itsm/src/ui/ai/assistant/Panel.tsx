@@ -65,7 +65,7 @@ const ICONS: Record<PromptIcon, LucideIcon> = {
 // ---------------------------------------------------------------- layout: dock, float, sheet
 
 type Mode = "dock" | "float" | "sheet";
-const W_KEY = "siraf.ai.w";
+const W_KEY = "itsm.ai.w";
 const W_MIN = 360;
 const W_DEFAULT = 420;
 const W_MAX = 720;
@@ -177,7 +177,7 @@ function usePageContext() {
 
 function Hello({ icon, title, text, children, tone }: { icon: LucideIcon; title: string; text?: string; children?: React.ReactNode; tone?: "accent" | "quiet" }) {
   return (
-    <div className="sa-hello sf-enter">
+    <div className="sa-hello ds-enter">
       <span className={`sa-hello-mark ${tone === "quiet" ? "is-quiet" : ""}`} aria-hidden>
         <Ic icon={icon} size={22} />
       </span>
@@ -191,9 +191,9 @@ function Hello({ icon, title, text, children, tone }: { icon: LucideIcon; title:
 function Suggestions({ list, onPick }: { list: Suggestion[]; onPick: (s: Suggestion) => void }) {
   if (!list.length) return null;
   return (
-    <div className="sa-sugg sf-stagger" role="list" aria-label="پیشنهادها">
+    <div className="sa-sugg ds-stagger" role="list" aria-label="پیشنهادها">
       {list.map((s) => (
-        <button key={s.key} type="button" role="listitem" className="sa-sugg-r sf-press" onClick={() => onPick(s)}>
+        <button key={s.key} type="button" role="listitem" className="sa-sugg-r ds-press" onClick={() => onPick(s)}>
           <Ic icon={ICONS[s.icon] ?? AiIcon} />
           <span>{s.fill ? `${s.text}…` : s.text}</span>
         </button>
@@ -453,7 +453,7 @@ export default function Panel({ open, onClose, pending }: { open: boolean; onClo
     body = (
       <div className="sa-card-skel sa-pad" aria-busy="true" aria-label="در حال بارگذاری">
         {[64, 82, 48].map((w, i) => (
-          <i key={i} className="sf-skel" style={{ inlineSize: `${w}%` }} />
+          <i key={i} className="ds-skel" style={{ inlineSize: `${w}%` }} />
         ))}
       </div>
     );
@@ -483,7 +483,7 @@ export default function Panel({ open, onClose, pending }: { open: boolean; onClo
     body = (
       <div className="sa-card-skel sa-pad" aria-busy="true" aria-label="در حال بارگذاری گفت‌وگو">
         {[40, 86, 72, 58, 80].map((w, i) => (
-          <i key={i} className="sf-skel" style={{ inlineSize: `${w}%` }} />
+          <i key={i} className="ds-skel" style={{ inlineSize: `${w}%` }} />
         ))}
       </div>
     );
@@ -587,7 +587,7 @@ export default function Panel({ open, onClose, pending }: { open: boolean; onClo
             <Ic icon={ChevronDown} size={14} className="sa-h-chev" />
           </button>
         )}
-        <span className="sf-end sa-h-x">
+        <span className="ds-end sa-h-x">
           {view === "chat" && s && !off_ && !notConfigured ? (
             <Tooltip title="گفت‌وگوی تازه" mouseEnterDelay={0.4}>
               <button
@@ -624,7 +624,7 @@ export default function Panel({ open, onClose, pending }: { open: boolean; onClo
       {away && view === "chat" && snap.messages.length ? (
         <button
           type="button"
-          className="sa-jump sf-pop"
+          className="sa-jump ds-pop"
           aria-label="رفتن به آخرین پیام"
           onClick={() => {
             stick.current = true;

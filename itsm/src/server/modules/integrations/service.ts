@@ -34,25 +34,25 @@ export async function createApiKey(ctx: Ctx, name: string, scopes: string[]) {
   ctx.need("integrations", "full");
   const prefix = randomToken(6).replace(/[^A-Za-z0-9]/g, "").slice(0, 8).padEnd(8, "x");
   const secret = randomToken(24);
-  const key = `tz_${prefix}_${secret}`;
+  const key = `sm_${prefix}_${secret}`;
   await ctx.write((tx) =>
-    insertRow(tx, "tz_api_keys", { id: uuidv7(), org_id: ctx.org.id, name, prefix, key_hash: sha256(key), scopes, created_by: ctx.user.id }, "id"),
+    insertRow(tx, "sm_api_keys", { id: uuidv7(), org_id: ctx.org.id, name, prefix, key_hash: sha256(key), scopes, created_by: ctx.user.id }, "id"),
   );
   return { key, prefix };
 }
 
 export async function resolveApiKey(db: Db, key: string | null | undefined): Promise<{ org_id: string; scopes: string[]; id: string } | null> {
-  if (!key || !/^tz_[A-Za-z0-9]{8}_[A-Za-z0-9_-]{20,}$/.test(key)) return null;
+  if (!key || !/^sm_[A-Za-z0-9]{8}_[A-Za-z0-9_-]{20,}$/.test(key)) return null;
   const prefix = key.split("_")[1];
   const row = await db.one<{ id: string; org_id: string; key_hash: string; scopes: string[]; revoked_at: string | null }>(
-    `select id, org_id, key_hash, scopes, revoked_at from tz_api_keys where prefix = $1`,
+    `select id, org_id, key_hash, scopes, revoked_at from sm_api_keys where prefix = $1`,
     [prefix],
   );
   if (!row || row.revoked_at) return null;
   const a = Buffer.from(row.key_hash);
   const b = Buffer.from(sha256(key));
   if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
-  await db.query(`update tz_api_keys set last_used_at = now() where id = $1`, [row.id]);
+  await db.query(`update sm_api_keys set last_used_at = now() where id = $1`, [row.id]);
   return { org_id: row.org_id, scopes: row.scopes ?? [], id: row.id };
 }
 
@@ -62,7 +62,7 @@ export async function createIntegration(ctx: Ctx, input: { kind: IntegrationKind
   ctx.need("integrations", "full");
   const secret = input.secret?.trim() || randomToken(24);
   const row = await ctx.write((tx) =>
-    insertRow(tx, "tz_integrations", {
+    insertRow(tx, "sm_integrations", {
       id: uuidv7(), org_id: ctx.org.id, kind: input.kind, name: input.name, config: input.config, secret: encryptSecret(ctx.cfg.secret, secret), origin: ctx.cfg.origin,
     }),
   );
@@ -182,17 +182,17 @@ export function normalizeOrder(kind: IntegrationKind, body: any, topic: string):
 /** Find (by mobile, email) or create the customer of an online order. */
 export async function findOrCreateCustomer(tx: Tx, orgId: string, origin: string, c: NormalizedOrder["customer"]): Promise<string> {
   if (c.mobile) {
-    const r = await tx.one<{ id: string }>(`select id from tz_parties where org_id = $1 and mobile = $2 and deleted_at is null limit 1`, [orgId, c.mobile]);
+    const r = await tx.one<{ id: string }>(`select id from sm_parties where org_id = $1 and mobile = $2 and deleted_at is null limit 1`, [orgId, c.mobile]);
     if (r) return r.id;
   }
   if (c.email) {
-    const r = await tx.one<{ id: string }>(`select id from tz_parties where org_id = $1 and lower(email) = lower($2) and deleted_at is null limit 1`, [orgId, c.email]);
+    const r = await tx.one<{ id: string }>(`select id from sm_parties where org_id = $1 and lower(email) = lower($2) and deleted_at is null limit 1`, [orgId, c.email]);
     if (r) return r.id;
   }
   const id = uuidv7();
-  const code = await nextCode(tx, "tz_parties", orgId, 1001);
+  const code = await nextCode(tx, "sm_parties", orgId, 1001);
   const detail = await ensureDetail(tx, orgId, "person", id, c.name);
-  await insertRow(tx, "tz_parties", {
+  await insertRow(tx, "sm_parties", {
     id, org_id: orgId, code, name: c.name.slice(0, 200), roles: ["customer"], mobile: c.mobile || null, email: c.email || null,
     national_id: c.national_id || null, postal_code: c.postal_code || null, address: c.address || null, city: c.city || null,
     detail_id: detail, tags: ["فروشگاه اینترنتی"], origin,
@@ -205,8 +205,8 @@ export async function matchItems(tx: Tx, orgId: string, lines: NormalizedOrder["
   const out: { item_id: string | null; line: NormalizedOrder["lines"][number] }[] = [];
   for (const l of lines) {
     let item: { id: string } | null = null;
-    if (l.sku) item = await tx.one(`select id from tz_items where org_id = $1 and deleted_at is null and (sku = $2 or barcode = $2 or code = $2) limit 1`, [orgId, l.sku]);
-    if (!item && l.name) item = await tx.one(`select id from tz_items where org_id = $1 and deleted_at is null and name = $2 limit 1`, [orgId, l.name]);
+    if (l.sku) item = await tx.one(`select id from sm_items where org_id = $1 and deleted_at is null and (sku = $2 or barcode = $2 or code = $2) limit 1`, [orgId, l.sku]);
+    if (!item && l.name) item = await tx.one(`select id from sm_items where org_id = $1 and deleted_at is null and name = $2 limit 1`, [orgId, l.name]);
     out.push({ item_id: item?.id ?? null, line: l });
   }
   return out;
@@ -214,7 +214,7 @@ export async function matchItems(tx: Tx, orgId: string, lines: NormalizedOrder["
 
 export async function loadIntegration(db: Db, id: string) {
   const row = await db.one<{ id: string; org_id: string; kind: IntegrationKind; name: string; config: IntegrationConfig; secret: string | null; is_active: boolean }>(
-    `select id, org_id, kind, name, config, secret, is_active from tz_integrations where id = $1 and deleted_at is null`,
+    `select id, org_id, kind, name, config, secret, is_active from sm_integrations where id = $1 and deleted_at is null`,
     [id],
   );
   if (!row) throw notFound("اتصال پیدا نشد");

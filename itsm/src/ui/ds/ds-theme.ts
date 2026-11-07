@@ -1,26 +1,26 @@
 // Siraf · سیراف — Ant Design 6 theme (checked against antd 6.6.8: `tsc --strict` with excess-property checks,
-// and rendered in build/antd-proof-*.png). Values come from ./siraf-palette.ts, generated from ../tokens.css.
+// and rendered in build/antd-proof-*.png). Values come from ./ds-palette.ts, generated from ../tokens.css.
 // v1.1: links in ink, Dusk only for the primary action / focus / selection / main series; 2 px field focus;
 // 3:1 control edges; ink checkbox, radio and switch; 40 / 32 px table rows; neutral selected row + start bar.
 import type { ConfigProviderProps, ThemeConfig } from "antd";
 import { theme as antTheme } from "antd";
-import { SIRAF, type SirafMode, type SirafPalette } from "./siraf-palette";
+import { DS_PALETTE, type DsMode, type DsPalette } from "./ds-palette";
 
-export { SIRAF, type SirafMode };
+export { DS_PALETTE, type DsMode };
 
-// digits and separators come from «Siraf Num» (a digit-only Vazirmatn subset), Persian letters from Arad UI
+// digits and separators come from «DS Num» (a digit-only Vazirmatn subset), Persian letters from Arad UI
 // (Arad at 104%), Latin from Geist. The stacks are the tokens.css variables themselves, so @media print swaps
 // antd's text to the static print cuts too (a literal list would print the variable fonts as Type 3).
 // Nothing in the app reads these tokens in JS (antd only does for Watermark, which is not used).
-const FONT = "var(--sf-font-sans)";
-const FONT_CODE = "var(--sf-font-mono)";
+const FONT = "var(--ds-font-sans)";
+const FONT_CODE = "var(--ds-font-mono)";
 const EASE_OUT = "cubic-bezier(0.23, 1, 0.32, 1)";
 const EASE_OUT_QUAD = "cubic-bezier(0.25, 0.46, 0.45, 0.94)";
 const EASE_IN_OUT = "cubic-bezier(0.77, 0, 0.175, 1)";
 
 /** The ThemeConfig for <ConfigProvider theme={…}>. */
-export function sirafTheme(mode: SirafMode): ThemeConfig {
-  const p: SirafPalette = SIRAF[mode];
+export function dsTheme(mode: DsMode): ThemeConfig {
+  const p: DsPalette = DS_PALETTE[mode];
   const dark = mode === "dark";
   // focus on a field: the 1 px active border + a 1 px shadow = a 2 px ring, then the soft 3 px halo
   const focusShadow = `0 0 0 1px ${p.accentText}, 0 0 0 4px ${p.focusSoft}`;
@@ -29,7 +29,7 @@ export function sirafTheme(mode: SirafMode): ThemeConfig {
   const errorShadow = `0 0 0 1px ${p.danger}, 0 0 0 4px ${errorHalo}`;
   const warningShadow = `0 0 0 1px ${p.warning}, 0 0 0 4px ${warningHalo}`;
 
-  // input-like controls share one look: surface fill, a line-2 outline with a 3:1 bottom edge (siraf-antd.css),
+  // input-like controls share one look: surface fill, a line-2 outline with a 3:1 bottom edge (ds-antd.css),
   // line-3 on hover, a 2 px Dusk ring + soft halo on focus
   const field: NonNullable<NonNullable<ThemeConfig["components"]>["Input"]> = {
     activeBorderColor: p.accentText,
@@ -61,7 +61,7 @@ export function sirafTheme(mode: SirafMode): ThemeConfig {
       colorWarning: p.warning,
       colorError: p.danger,
       colorInfo: p.info,
-      // links are ink with a 1 px underline at 28 % (siraf-antd.css): Dusk stays rare
+      // links are ink with a 1 px underline at 28 % (ds-antd.css): Dusk stays rare
       colorLink: p.text,
       colorLinkHover: p.text,
       colorLinkActive: p.text2,
@@ -142,7 +142,7 @@ export function sirafTheme(mode: SirafMode): ThemeConfig {
       controlOutlineWidth: 3,
       lineWidthFocus: 2,
 
-      // ---- type (Arad UI everywhere in antd, Arad at its own proportions for page/section titles, Siraf Num for
+      // ---- type (Arad UI everywhere in antd, Arad at its own proportions for page/section titles, DS Num for
       // every digit; weights 450 / 540 / 600) ----
       fontFamily: FONT,
       fontFamilyCode: FONT_CODE,
@@ -350,7 +350,7 @@ export function sirafTheme(mode: SirafMode): ThemeConfig {
       // checkbox, radio and switch: a 3:1 control-strong edge at rest; "on" is an ink fill with a canvas mark (not Dusk)
       Checkbox: { borderRadiusSM: 4, colorBorder: p.controlStrong, colorPrimary: p.text, colorPrimaryHover: p.text2, colorWhite: p.canvas },
       Radio: { radioSize: 16, dotSize: 8, colorBorder: p.controlStrong, colorPrimary: p.text, colorPrimaryHover: p.text2, colorWhite: p.canvas, buttonBg: p.raised, buttonCheckedBg: p.raised, buttonColor: p.text2, buttonSolidCheckedBg: p.text, buttonSolidCheckedHoverBg: p.text2, buttonSolidCheckedActiveBg: p.text2, buttonSolidCheckedColor: p.canvas },
-      // off: white thumb on the control-strong track (3.7 / 4.1:1); on: ink track, canvas thumb (siraf-antd.css)
+      // off: white thumb on the control-strong track (3.7 / 4.1:1); on: ink track, canvas thumb (ds-antd.css)
       Switch: { trackHeight: 18, trackMinWidth: 32, trackPadding: 2, handleSize: 14, trackHeightSM: 16, trackMinWidthSM: 28, handleSizeSM: 12, handleBg: "#FFFFFF", handleShadow: "0 1px 2px rgba(0,0,0,0.2)", colorPrimary: p.text, colorPrimaryHover: p.text2, colorTextQuaternary: p.controlStrong, colorTextTertiary: dark ? "#94908B" : p.text3 },
       Segmented: {
         trackBg: p.sunken,
@@ -411,7 +411,7 @@ export function sirafTheme(mode: SirafMode): ThemeConfig {
         headerBorderRadius: 0,
         bodySortBg: "transparent",
         rowHoverBg: p.hoverRowSolid,
-        rowSelectedBg: p.selectedRowSolid, // neutral; the 3 px --sf-accent-bar at the start edge carries the state (siraf-antd.css)
+        rowSelectedBg: p.selectedRowSolid, // neutral; the 3 px --ds-accent-bar at the start edge carries the state (ds-antd.css)
         rowSelectedHoverBg: p.selectedRowSolid,
         rowExpandedBg: p.hoverRowSolid,
         borderColor: p.line,
@@ -441,7 +441,7 @@ export function sirafTheme(mode: SirafMode): ThemeConfig {
       Dropdown: { paddingBlock: 5, zIndexPopup: 1050 },
       Message: { contentBg: p.raised, contentPadding: "8px 14px" },
       Notification: { width: 360, progressBg: p.accentLine, colorSuccessBg: p.raised, colorErrorBg: p.raised, colorInfoBg: p.raised, colorWarningBg: p.raised },
-      // (Alert type="warning": a surface fill with a warning icon — amber surfaces belong to gold; see siraf-antd.css)
+      // (Alert type="warning": a surface fill with a warning icon — amber surfaces belong to gold; see ds-antd.css)
       Alert: { borderRadius: 12, defaultPadding: "10px 14px", withDescriptionPadding: "14px 16px", withDescriptionIconSize: 18 },
       Badge: { colorError: p.dangerSolid, textFontSize: 11, textFontSizeSM: 11, textFontWeight: 600, indicatorHeight: 16, indicatorHeightSM: 14, dotSize: 6, statusSize: 6 },
       Breadcrumb: { itemColor: p.text3, linkColor: p.text3, linkHoverColor: p.text, lastItemColor: p.text, separatorColor: p.text4, separatorMargin: 6, iconFontSize: 14 },
@@ -463,12 +463,12 @@ export function sirafTheme(mode: SirafMode): ThemeConfig {
 }
 
 /** Everything else on <ConfigProvider>: direction, semantic class/style hooks that tokens cannot reach. */
-export function sirafConfig(mode: SirafMode): Omit<ConfigProviderProps, "children" | "locale"> {
-  const p = SIRAF[mode];
+export function dsConfig(mode: DsMode): Omit<ConfigProviderProps, "children" | "locale"> {
+  const p = DS_PALETTE[mode];
   return {
     direction: "rtl",
-    theme: sirafTheme(mode),
-    // 36 px unfilled table headers at 13/20, weight 400, text-3 (compact: 32 px at 12/18, siraf-antd.css); rows come from the Table tokens
+    theme: dsTheme(mode),
+    // 36 px unfilled table headers at 13/20, weight 400, text-3 (compact: 32 px at 12/18, ds-antd.css); rows come from the Table tokens
     table: { styles: { header: { cell: { paddingBlock: 8, fontSize: 13, lineHeight: "20px", fontWeight: 450 } } } },
     // the side sheet: floating, inset 8, radius 16, e4, no scrim (detail views stay beside their list)
     drawer: {
@@ -492,11 +492,11 @@ export function sirafConfig(mode: SirafMode): Omit<ConfigProviderProps, "childre
     },
     card: { styles: { root: { boxShadow: p.e1, borderColor: "transparent" } } },
     tag: { variant: "filled", styles: { root: { borderRadius: 999, fontWeight: 540, marginInlineEnd: 0, paddingInline: 8 } } },
-    // segmented label weights live in siraf-antd.css (500, the selected one 600): an inline weight here would beat it
+    // segmented label weights live in ds-antd.css (500, the selected one 600): an inline weight here would beat it
     tooltip: { arrow: false, trigger: "hover", mouseEnterDelay: 0.4, mouseLeaveDelay: 0.05, styles: { container: { padding: "6px 8px", borderRadius: 6, fontSize: 12, lineHeight: "18px", minHeight: 0, color: p.tooltipText } } },
     popover: { arrow: false, trigger: "click", mouseEnterDelay: 0.1, mouseLeaveDelay: 0.1 },
     // toasts: floating glass, bottom-left (the end corner in RTL) — placement is set where the App/notification is
-    // created; while a side sheet is open the stack moves beside it (siraf-antd.css)
+    // created; while a side sheet is open the stack moves beside it (ds-antd.css)
     notification: {
       styles: {
         root: {
