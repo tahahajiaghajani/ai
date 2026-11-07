@@ -10,11 +10,12 @@ import { loadEnv } from "../chain";
 import { activeEmbedder, embedHeldUntil } from "./embed";
 import { ragTables } from "./registry";
 import { storeBackend } from "./store";
-import { scheduleEmbed } from "./indexer";
+import { ensureSchedules, scheduleEmbed } from "./indexer";
 
 export async function ragStatus(ctx: Ctx): Promise<AiRagStatus> {
   ctx.need("ai", "full");
   const env = await loadEnv(ctx);
+  await ensureSchedules(ctx.db, ctx.cfg.mode, ctx.org.id).catch(() => undefined);
   const [backend, embedder, schema] = await Promise.all([storeBackend(ctx.db), activeEmbedder(ctx, env), orgSchema(ctx)]);
   const rows = await ctx.db.query<{ table_key: string; documents: number; chunks: number; errors: number; pending: number; last: string | null; last_error: string | null }>(
     `select table_key, count(*)::int as documents, coalesce(sum(chunks), 0)::int as chunks, count(*) filter (where status = 'error')::int as errors,

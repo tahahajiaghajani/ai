@@ -26,6 +26,7 @@ import { activeEmbedder, embedTexts, EmbedUnavailableError } from "./embed";
 import { cosine, LOCAL_DIMS, localEmbed } from "./local-embed";
 import { citationPath, isRagTable, ragSource, ragTables } from "./registry";
 import { hasAnnIndex, keyDims, parseVector, storeBackend, vectorSql, type StoreBackend } from "./store";
+import { ensureSchedules } from "./indexer";
 
 export const DOC_TABLE = "doc_document";
 
@@ -105,6 +106,8 @@ export async function retrieve(ctx: Ctx, query: string, opts: RetrieveOptions = 
   const done = (passages: RetrievedPassage[]) => ({ passages, info: { ...info, ms: Date.now() - t0 } });
   const q = String(query ?? "").trim().slice(0, 2000);
   if (!env.settings.rag.enabled || !q) return done([]);
+  // the first question of an organisation queues its reconciliation (it also indexes records written before)
+  await ensureSchedules(ctx.db, ctx.cfg.mode, ctx.org.id).catch(() => undefined);
   const k = Math.min(30, Math.max(1, opts.k ?? env.settings.rag.top_k));
 
   const schema = await orgSchema(ctx);
