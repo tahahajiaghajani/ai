@@ -28,6 +28,10 @@ const LOCAL_ONLY: Record<string, string> = {
   // record engine bookkeeping of each runtime
   sm_numbers: "record number counters (each runtime its own; sync renumbers on a clash)",
   sm_jobs: "job queue and outbox of record events (each runtime runs its own)",
+  sm_flow_runs: "flow runs of the runtime that executes them (docs/spec/services/flows.md)",
+  sm_flow_run_steps: "step logs of those runs",
+  sm_flow_waits: "what waiting runs wait for (timers, conditions, approvals)",
+  sm_flow_timers: "the scheduler's plan of this runtime",
   sm_blobs: "attachment contents (fetched lazily by the Windows app, uploaded after a push)",
   sm_scope_epochs: "per member: bumped when what they may read changes (read by the cloud's pull)",
   sm_access_state: "per organisation: the access configuration's version (each runtime its own; caches revalidate against it)",

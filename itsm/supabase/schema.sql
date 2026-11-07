@@ -833,6 +833,154 @@ drop trigger if exists sm_custom_fields_sync on sm_custom_fields;
 create trigger sm_custom_fields_sync before insert or update on sm_custom_fields for each row execute function sm_sync_touch('custom_field');
 alter table sm_custom_fields enable row level security;
 
+-- flow: گردش‌کارها
+create table if not exists sm_flows (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_flows add column if not exists workspace_id uuid;
+alter table sm_flows add column if not exists domain_id uuid;
+alter table sm_flows add column if not exists unit_id uuid;
+alter table sm_flows add column if not exists created_at timestamptz not null default now();
+alter table sm_flows add column if not exists created_by uuid;
+alter table sm_flows add column if not exists updated_at timestamptz not null default now();
+alter table sm_flows add column if not exists updated_by uuid;
+alter table sm_flows add column if not exists rev bigint not null default 0;
+alter table sm_flows add column if not exists version integer not null default 1;
+alter table sm_flows add column if not exists deleted_at timestamptz;
+alter table sm_flows add column if not exists origin text;
+alter table sm_flows add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_flows add column if not exists name text;
+alter table sm_flows add column if not exists active boolean not null default false;
+alter table sm_flows add column if not exists dirty boolean not null default false;
+alter table sm_flows add column if not exists description text;
+alter table sm_flows add column if not exists trigger text;
+alter table sm_flows add column if not exists trigger_table text;
+alter table sm_flows add column if not exists trigger_events jsonb;
+alter table sm_flows add column if not exists trigger_fields jsonb;
+alter table sm_flows add column if not exists trigger_condition jsonb;
+alter table sm_flows add column if not exists schedule jsonb;
+alter table sm_flows add column if not exists catalog_item text;
+alter table sm_flows add column if not exists webhook_token text;
+alter table sm_flows add column if not exists run_as text;
+alter table sm_flows add column if not exists run_as_user uuid;
+alter table sm_flows add column if not exists graph jsonb;
+alter table sm_flows add column if not exists version_no integer;
+alter table sm_flows add column if not exists version_id uuid;
+alter table sm_flows add column if not exists published_at timestamptz;
+create index if not exists sm_flows_rev_idx on sm_flows (org_id, rev);
+create index if not exists sm_flows_upd_idx on sm_flows (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_flows_crt_idx on sm_flows (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_flows_trigger_table_idx on sm_flows (org_id, trigger_table) where deleted_at is null;
+create unique index if not exists sm_flows_name_uk on sm_flows (org_id, name) where deleted_at is null;
+drop trigger if exists sm_flows_sync on sm_flows;
+create trigger sm_flows_sync before insert or update on sm_flows for each row execute function sm_sync_touch('flow');
+alter table sm_flows enable row level security;
+
+-- flow_connection: اتصال‌های HTTP
+create table if not exists sm_flow_connections (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_flow_connections add column if not exists workspace_id uuid;
+alter table sm_flow_connections add column if not exists domain_id uuid;
+alter table sm_flow_connections add column if not exists unit_id uuid;
+alter table sm_flow_connections add column if not exists created_at timestamptz not null default now();
+alter table sm_flow_connections add column if not exists created_by uuid;
+alter table sm_flow_connections add column if not exists updated_at timestamptz not null default now();
+alter table sm_flow_connections add column if not exists updated_by uuid;
+alter table sm_flow_connections add column if not exists rev bigint not null default 0;
+alter table sm_flow_connections add column if not exists version integer not null default 1;
+alter table sm_flow_connections add column if not exists deleted_at timestamptz;
+alter table sm_flow_connections add column if not exists origin text;
+alter table sm_flow_connections add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_flow_connections add column if not exists name text;
+alter table sm_flow_connections add column if not exists active boolean not null default true;
+alter table sm_flow_connections add column if not exists base_url text;
+alter table sm_flow_connections add column if not exists hosts jsonb;
+alter table sm_flow_connections add column if not exists auth text;
+alter table sm_flow_connections add column if not exists auth_name text;
+alter table sm_flow_connections add column if not exists username text;
+alter table sm_flow_connections add column if not exists secret text;
+alter table sm_flow_connections add column if not exists headers jsonb;
+alter table sm_flow_connections add column if not exists timeout integer;
+alter table sm_flow_connections add column if not exists description text;
+create index if not exists sm_flow_connections_rev_idx on sm_flow_connections (org_id, rev);
+create index if not exists sm_flow_connections_upd_idx on sm_flow_connections (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_flow_connections_crt_idx on sm_flow_connections (org_id, created_at desc, id desc) where deleted_at is null;
+create unique index if not exists sm_flow_connections_name_uk on sm_flow_connections (org_id, name) where deleted_at is null;
+drop trigger if exists sm_flow_connections_sync on sm_flow_connections;
+create trigger sm_flow_connections_sync before insert or update on sm_flow_connections for each row execute function sm_sync_touch('flow_connection');
+alter table sm_flow_connections enable row level security;
+
+-- flow_version: نسخه‌های گردش‌کار
+create table if not exists sm_flow_versions (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_flow_versions add column if not exists workspace_id uuid;
+alter table sm_flow_versions add column if not exists domain_id uuid;
+alter table sm_flow_versions add column if not exists unit_id uuid;
+alter table sm_flow_versions add column if not exists created_at timestamptz not null default now();
+alter table sm_flow_versions add column if not exists created_by uuid;
+alter table sm_flow_versions add column if not exists updated_at timestamptz not null default now();
+alter table sm_flow_versions add column if not exists updated_by uuid;
+alter table sm_flow_versions add column if not exists rev bigint not null default 0;
+alter table sm_flow_versions add column if not exists version integer not null default 1;
+alter table sm_flow_versions add column if not exists deleted_at timestamptz;
+alter table sm_flow_versions add column if not exists origin text;
+alter table sm_flow_versions add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_flow_versions add column if not exists title text;
+alter table sm_flow_versions add column if not exists flow_id uuid;
+alter table sm_flow_versions add column if not exists version_no integer;
+alter table sm_flow_versions add column if not exists note text;
+alter table sm_flow_versions add column if not exists trigger jsonb;
+alter table sm_flow_versions add column if not exists graph jsonb;
+create index if not exists sm_flow_versions_rev_idx on sm_flow_versions (org_id, rev);
+create index if not exists sm_flow_versions_upd_idx on sm_flow_versions (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_flow_versions_crt_idx on sm_flow_versions (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_flow_versions_flow_id_idx on sm_flow_versions (org_id, flow_id) where deleted_at is null;
+create unique index if not exists sm_flow_versions_flow_id_version_no_uk on sm_flow_versions (org_id, flow_id, version_no) where deleted_at is null;
+drop trigger if exists sm_flow_versions_sync on sm_flow_versions;
+create trigger sm_flow_versions_sync before insert or update on sm_flow_versions for each row execute function sm_sync_touch('flow_version');
+alter table sm_flow_versions enable row level security;
+
 -- group: گروه‌ها
 create table if not exists sm_groups (
   id uuid primary key,
@@ -1131,6 +1279,49 @@ create unique index if not exists sm_roles_key_uk on sm_roles (org_id, key) wher
 drop trigger if exists sm_roles_sync on sm_roles;
 create trigger sm_roles_sync before insert or update on sm_roles for each row execute function sm_sync_touch('role');
 alter table sm_roles enable row level security;
+
+-- schedule: زمان‌بندی‌ها
+create table if not exists sm_schedules (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_schedules add column if not exists workspace_id uuid;
+alter table sm_schedules add column if not exists domain_id uuid;
+alter table sm_schedules add column if not exists unit_id uuid;
+alter table sm_schedules add column if not exists created_at timestamptz not null default now();
+alter table sm_schedules add column if not exists created_by uuid;
+alter table sm_schedules add column if not exists updated_at timestamptz not null default now();
+alter table sm_schedules add column if not exists updated_by uuid;
+alter table sm_schedules add column if not exists rev bigint not null default 0;
+alter table sm_schedules add column if not exists version integer not null default 1;
+alter table sm_schedules add column if not exists deleted_at timestamptz;
+alter table sm_schedules add column if not exists origin text;
+alter table sm_schedules add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_schedules add column if not exists name text;
+alter table sm_schedules add column if not exists active boolean not null default true;
+alter table sm_schedules add column if not exists table_key text;
+alter table sm_schedules add column if not exists spec jsonb;
+alter table sm_schedules add column if not exists template jsonb;
+alter table sm_schedules add column if not exists run_as uuid;
+alter table sm_schedules add column if not exists description text;
+create index if not exists sm_schedules_rev_idx on sm_schedules (org_id, rev);
+create index if not exists sm_schedules_upd_idx on sm_schedules (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_schedules_crt_idx on sm_schedules (org_id, created_at desc, id desc) where deleted_at is null;
+drop trigger if exists sm_schedules_sync on sm_schedules;
+create trigger sm_schedules_sync before insert or update on sm_schedules for each row execute function sm_sync_touch('schedule');
+alter table sm_schedules enable row level security;
 
 -- todo: کارها
 create table if not exists sm_todos (
@@ -1462,3 +1653,95 @@ drop trigger if exists sm_roles_access on sm_roles;
 create trigger sm_roles_access after insert or update or delete on sm_roles for each row execute function sm_access_roles();
 
 insert into sm_migrations (id) values ('0007_access') on conflict (id) do nothing;
+
+-- ---------------------------------------------------------------------------
+-- 0010_flows — گردش‌کارها: اجراها، گزارش گام‌ها، انتظارها و زمان‌بندی
+-- ---------------------------------------------------------------------------
+create table if not exists sm_flow_runs (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  flow_id uuid not null,
+  flow_name text not null default '',
+  version_id uuid,
+  version_no integer,
+  graph jsonb,
+  state text not null default 'running',
+  test boolean not null default false,
+  trigger_kind text not null,
+  trigger_table text,
+  trigger_record_id uuid,
+  actor_id uuid,
+  run_as uuid,
+  run_as_kind text not null default 'user',
+  depth integer not null default 0,
+  parent_run_id uuid,
+  parent_wait_id uuid,
+  context jsonb not null default '{}'::jsonb,
+  runtime jsonb not null default '{}'::jsonb,
+  current_nodes text[] not null default '{}',
+  steps_count integer not null default 0,
+  error text,
+  lease_by text,
+  lease_until timestamptz,
+  started_at timestamptz not null default now(),
+  ended_at timestamptz,
+  updated_at timestamptz not null default now()
+);
+create index if not exists sm_flow_runs_org_idx on sm_flow_runs (org_id, started_at desc, id desc);
+create index if not exists sm_flow_runs_flow_idx on sm_flow_runs (org_id, flow_id, started_at desc);
+create index if not exists sm_flow_runs_open_idx on sm_flow_runs (org_id, state) where state in ('running', 'waiting');
+create index if not exists sm_flow_runs_parent_idx on sm_flow_runs (parent_run_id) where parent_run_id is not null;
+alter table sm_flow_runs enable row level security;
+
+create table if not exists sm_flow_run_steps (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  run_id uuid not null references sm_flow_runs(id) on delete cascade,
+  key text not null,
+  node_id text not null,
+  node_type text not null,
+  label text not null default '',
+  status text not null,
+  port text,
+  input jsonb,
+  output jsonb,
+  error text,
+  started_at timestamptz not null default now(),
+  ended_at timestamptz,
+  duration_ms integer
+);
+create unique index if not exists sm_flow_run_steps_key_idx on sm_flow_run_steps (run_id, key);
+alter table sm_flow_run_steps enable row level security;
+
+create table if not exists sm_flow_waits (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  run_id uuid not null references sm_flow_runs(id) on delete cascade,
+  token_id text not null,
+  node_id text not null,
+  step_key text not null,
+  kind text not null,
+  key text,
+  due_at timestamptz,
+  data jsonb not null default '{}'::jsonb,
+  result jsonb,
+  created_at timestamptz not null default now()
+);
+create index if not exists sm_flow_waits_key_idx on sm_flow_waits (org_id, key) where key is not null;
+create index if not exists sm_flow_waits_run_idx on sm_flow_waits (run_id);
+alter table sm_flow_waits enable row level security;
+
+create table if not exists sm_flow_timers (
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  kind text not null,
+  ref_id uuid not null,
+  spec_key text not null,
+  next_at timestamptz,
+  last_at timestamptz,
+  last_error text,
+  updated_at timestamptz not null default now(),
+  primary key (org_id, kind, ref_id)
+);
+alter table sm_flow_timers enable row level security;
+
+insert into sm_migrations (id) values ('0010_flows') on conflict (id) do nothing;
