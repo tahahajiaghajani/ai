@@ -72,6 +72,14 @@ describe("an agent of another group (need to know)", () => {
     // an agent may not declare (no approve grant); a problem manager neither
     await w.p.agent.client.post(`${w.P}/incident/${desk.id}/major`, { action: "declare" }, 403);
     await w.p.pm.client.post(`${w.P}/incident/${desk.id}/major`, { action: "declare" }, 403);
+    // a mandatory task of another group blocks the resolution without being shown to the desk's agent
+    const hidden = (await w.o.post(`${w.P}/r/incident_task`, { incident_id: desk.id, short_description: "کار محرمانهٔ شبکه", assignment_group_id: w.g.network })).row;
+    const ready = await w.p.agent.client.get(`${w.P}/incident/${desk.id}/readiness`);
+    expect([ready.open_tasks, ready.tasks]).toEqual([1, []]);
+    const refused = await w.p.agent.client.post(`${w.P}/r/incident/${desk.id}/transition`, { to: "resolved", data: { close_code: "solved", close_notes: "x" } }, 409);
+    expect(refused.error.message).toContain("1 کار دیگر");
+    expect(refused.error.message).not.toContain(hidden.number);
+    expect((await w.o.get(`${w.P}/incident/${desk.id}/readiness`)).tasks.map((t: any) => t.number)).toEqual([hidden.number]);
     // the record tells the screens what the caller may do
     const meta = (await w.p.agent.client.get(`${w.P}/r/incident/${desk.id}`)).meta.incident;
     expect(meta).toEqual({ can_work: true, can_manage_major: false, ai: [] });

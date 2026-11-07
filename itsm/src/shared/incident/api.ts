@@ -76,6 +76,9 @@ export interface KnownErrorHit extends Match {
 export interface Readiness {
   can_resolve: boolean;
   blockers: string[];
+  /** open mandatory tasks, readable or not */
+  open_tasks: number;
+  /** those of them the caller may read */
   tasks: { id: string; number: string | null; short_description: string; state: string }[];
   missing: string[];
 }

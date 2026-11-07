@@ -184,7 +184,11 @@ export async function openMandatoryTasks(q: Queryable, ctx: Ctx, incidentId: str
 async function canResolve(w: WriteArgs): Promise<string | null> {
   const open = await openMandatoryTasks(w.tx, w.ctx, String(w.next.id));
   if (!open.length) return null;
-  return `پیش از حل رخداد، کارهای الزامیِ باز را ببندید: ${faList(open.slice(0, 5).map((t) => String(t.number ?? t.short_description)))}${open.length > 5 ? " و…" : ""}`;
+  // name only the tasks the person may read; the others are counted
+  const seen = new Set((await liveRows(w.tx, w.ctx, "incident_task", { f: "incident_id", op: "eq", v: String(w.next.id) }, { limit: 200 })).map((t) => t.id));
+  const named = open.filter((t) => seen.has(t.id)).slice(0, 5).map((t) => String(t.number));
+  const rest = open.length - named.length;
+  return `پیش از حل رخداد، کارهای الزامیِ باز را ببندید: ${faList([...named, ...(rest ? [`${rest} کار دیگر`] : [])])}`;
 }
 
 async function canReopen(w: WriteArgs): Promise<string | null> {

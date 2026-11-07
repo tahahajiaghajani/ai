@@ -195,13 +195,16 @@ export async function readiness(ctx: Ctx, id: string): Promise<Readiness> {
   const blockers: string[] = [];
   const open = await openMandatoryTasks(ctx.db, ctx, id);
   if (open.length) blockers.push(`${open.length} کار الزامی باز است`);
+  // tasks the caller may not read are counted, never shown
+  const readable = open.length ? new Set((await list(ctx, "incident_task", { ids: open.map((x) => x.id), size: open.length, total: false, fields: ["number"] }).catch(() => ({ rows: [] as Row[] }))).rows.map((x) => x.id)) : new Set<string>();
   const t = def.states?.transitions.find((x) => x.to === "resolved");
   const missing = (t?.requires ?? []).filter((f) => r.row[f] === null || r.row[f] === undefined || r.row[f] === "").map((f) => def.fields.find((x) => x.name === f)?.label ?? f);
   if (!r.meta.transitions.some((x) => x.to === "resolved")) blockers.push("در وضعیت کنونی یا با دسترسی شما «حل شد» در دسترس نیست");
   return {
     can_resolve: !blockers.length,
     blockers,
-    tasks: open.map((x) => ({ id: x.id, number: x.number ?? null, short_description: String(x.short_description ?? ""), state: String(x.state) })),
+    open_tasks: open.length,
+    tasks: open.filter((x) => readable.has(x.id)).map((x) => ({ id: x.id, number: x.number ?? null, short_description: String(x.short_description ?? ""), state: String(x.state) })),
     missing,
   };
 }

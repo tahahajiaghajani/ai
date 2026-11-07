@@ -48,7 +48,7 @@ export default function IncidentActions({ ctx }: { ctx: RecordContext }) {
     enabled: open && work,
     staleTime: 15_000,
   });
-  const openTasks = ready.data?.tasks.length ?? 0;
+  const openTasks = ready.data?.open_tasks ?? 0;
 
   const related = useAction(({ mode }: { mode: "child" | "copy" | "follow_up" }) => incidentApi.related(api, row.id, mode), {
     success: (d) => `${d.row.number} ساخته شد.`,
