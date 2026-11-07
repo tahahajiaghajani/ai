@@ -2,6 +2,7 @@
 // and AI entries) and field history merged into one time-ordered feed, newest first. Changes one person made in one
 // save are one item; the values the record was created with are the «ایجاد» item. Filter chips: همه / عمومی /
 // داخلی / سامانه. Pure: no React, no antd.
+import { formatJalaliDateTime, toFa } from "@shared/jalali";
 import type { HistoryEntry, JournalEntry } from "./types";
 
 export type ActivityFilter = "all" | "public" | "internal" | "system";
@@ -85,3 +86,15 @@ export const JOURNAL_KIND_LABELS: Record<string, string> = {
   approval: "تأیید",
   ai: "هوش مصنوعی",
 };
+
+/** «همین حالا»، «۵ دقیقه پیش»، «۳ ساعت پیش»، «۲ روز پیش»; older than a week: the Jalali date. */
+export function relTime(iso: string, now: number = Date.now(), tz = "Asia/Tehran"): string {
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return "";
+  const s = Math.max(0, Math.round((now - t) / 1000));
+  if (s < 60) return "همین حالا";
+  if (s < 3600) return `${toFa(Math.floor(s / 60))} دقیقه پیش`;
+  if (s < 86400) return `${toFa(Math.floor(s / 3600))} ساعت پیش`;
+  if (s < 7 * 86400) return `${toFa(Math.floor(s / 86400))} روز پیش`;
+  return formatJalaliDateTime(iso, tz).split(" ")[0];
+}
