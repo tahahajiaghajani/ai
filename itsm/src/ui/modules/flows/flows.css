@@ -1,0 +1,341 @@
+/* Flows: the visual designer (palette · canvas · property panel) and the run views. ds tokens only; the canvas
+   keeps React Flow's coordinates left-to-right while every node reads right-to-left. */
+
+.fl-designer {
+  display: grid;
+  grid-template-columns: 224px minmax(0, 1fr) 360px;
+  gap: var(--ds-space-3);
+  height: calc(100vh - 176px);
+  min-height: 540px;
+}
+@media (max-width: 1180px) {
+  .fl-designer {
+    grid-template-columns: minmax(0, 1fr);
+    height: auto;
+  }
+  .fl-designer .fl-canvas {
+    height: 68vh;
+  }
+  .fl-designer .fl-panel {
+    max-height: none;
+  }
+}
+
+.fl-panel {
+  background: var(--ds-surface);
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-radius-lg);
+  overflow: auto;
+  min-height: 0;
+}
+.fl-panel-h {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  padding: var(--ds-space-3) var(--ds-space-4);
+  border-bottom: 1px solid var(--ds-line);
+  font-weight: var(--ds-weight-medium);
+  position: sticky;
+  top: 0;
+  background: var(--ds-surface);
+  z-index: 1;
+}
+.fl-panel-b {
+  padding: var(--ds-space-3) var(--ds-space-4) var(--ds-space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-3);
+}
+
+/* palette */
+.fl-pal-group {
+  color: var(--ds-text-3);
+  font-size: 12px;
+  margin: var(--ds-space-2) 0 var(--ds-space-1);
+}
+.fl-pal-item {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: var(--ds-radius-sm);
+  border: 1px solid transparent;
+  background: none;
+  color: var(--ds-text);
+  cursor: grab;
+  text-align: start;
+  font: inherit;
+}
+.fl-pal-item:hover,
+.fl-pal-item:focus-visible {
+  background: var(--ds-accent-tint);
+  border-color: var(--ds-accent-border);
+  outline: none;
+}
+.fl-pal-item small {
+  display: block;
+  color: var(--ds-text-3);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+/* canvas */
+.fl-canvas {
+  position: relative;
+  background: var(--ds-sunken);
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-radius-lg);
+  overflow: hidden;
+  min-height: 0;
+}
+.fl-canvas .react-flow {
+  --xy-edge-stroke-default: var(--ds-line-3);
+  --xy-edge-stroke-selected-default: var(--ds-accent);
+  --xy-connectionline-stroke-default: var(--ds-accent);
+  --xy-handle-background-color-default: var(--ds-surface);
+  --xy-handle-border-color-default: var(--ds-line-3);
+  --xy-background-pattern-dots-color-default: var(--ds-line-2);
+  --xy-minimap-background-color-default: var(--ds-surface);
+  --xy-controls-button-background-color-default: var(--ds-surface);
+  --xy-controls-button-background-color-hover-default: var(--ds-accent-tint);
+  --xy-controls-button-color-default: var(--ds-text-2);
+  --xy-controls-button-border-color-default: var(--ds-line);
+  --xy-edge-label-background-color-default: var(--ds-surface);
+  --xy-edge-label-color-default: var(--ds-text-2);
+  background: transparent;
+}
+.fl-canvas .react-flow__edge.is-error path {
+  stroke: var(--ds-danger);
+  stroke-dasharray: 5 4;
+}
+.fl-canvas .react-flow__edge-textbg {
+  fill: var(--ds-surface);
+}
+.fl-canvas .react-flow__edge-text {
+  font-family: var(--ds-font-sans);
+  font-size: 11px;
+  fill: var(--ds-text-2);
+}
+.fl-canvas .react-flow__attribution {
+  display: none;
+}
+
+/* nodes */
+.fl-node {
+  width: 248px;
+  min-height: 76px;
+  background: var(--ds-surface);
+  border: 1px solid var(--ds-line-2);
+  border-radius: var(--ds-radius-md);
+  box-shadow: var(--ds-shadow-e1);
+  padding: 9px 12px 10px;
+  font-family: var(--ds-font-sans);
+  color: var(--ds-text);
+  font-size: 13px;
+  position: relative;
+}
+.fl-node.is-trigger {
+  border-color: var(--ds-accent-border);
+  background: var(--ds-accent-tint);
+}
+.fl-node.is-sel {
+  border-color: var(--ds-accent);
+  box-shadow: 0 0 0 2px var(--ds-accent-line), var(--ds-shadow-e2);
+}
+.fl-node.has-error {
+  border-color: var(--ds-danger-border);
+}
+.fl-node.is-completed {
+  border-inline-start: 3px solid var(--ds-in);
+}
+.fl-node.is-failed {
+  border-inline-start: 3px solid var(--ds-danger);
+}
+.fl-node.is-waiting,
+.fl-node.is-running {
+  border-inline-start: 3px solid var(--ds-warning);
+}
+.fl-node.is-current {
+  box-shadow: 0 0 0 2px var(--ds-warning-border), var(--ds-shadow-e2);
+}
+.fl-node-h {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.fl-node-ic {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--ds-radius-sm);
+  background: var(--ds-sunken);
+  color: var(--ds-accent-text);
+  flex: none;
+}
+.fl-node-t {
+  font-weight: var(--ds-weight-medium);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+.fl-node-s {
+  margin-top: 4px;
+  color: var(--ds-text-3);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fl-badge {
+  flex: none;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--ds-radius-pill);
+  font-size: 11px;
+  display: inline-grid;
+  place-items: center;
+  background: var(--ds-danger-tint);
+  color: var(--ds-danger);
+}
+.fl-badge.is-warning {
+  background: var(--ds-warning-tint);
+  color: var(--ds-warning);
+}
+.fl-node .react-flow__handle {
+  width: 10px;
+  height: 10px;
+  border-width: 1.5px;
+}
+.fl-node .react-flow__handle.is-error {
+  border-color: var(--ds-danger);
+}
+.fl-port {
+  position: absolute;
+  font-size: 10.5px;
+  color: var(--ds-text-3);
+  white-space: nowrap;
+  pointer-events: none;
+}
+.fl-port.is-tb {
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+.fl-port.is-rl {
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+/* property panel */
+.fl-field-label {
+  color: var(--ds-text-2);
+  font-size: 12.5px;
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.fl-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.fl-row {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr) auto;
+  gap: 6px;
+  align-items: start;
+}
+.fl-row.is-rule {
+  grid-template-columns: minmax(0, 1fr) 118px minmax(0, 1fr) auto;
+}
+.fl-pills {
+  width: 340px;
+  max-height: 380px;
+  overflow: auto;
+}
+.fl-pill {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  border: 0;
+  background: none;
+  border-radius: var(--ds-radius-sm);
+  color: var(--ds-text);
+  cursor: pointer;
+  text-align: start;
+  font: inherit;
+}
+.fl-pill:hover,
+.fl-pill:focus-visible {
+  background: var(--ds-accent-tint);
+  outline: none;
+}
+.fl-pill code {
+  font-family: var(--ds-font-mono);
+  font-size: 11px;
+  color: var(--ds-text-3);
+  direction: ltr;
+}
+.fl-mono {
+  font-family: var(--ds-font-mono);
+  font-size: 12px;
+}
+
+/* runs */
+.fl-steps {
+  display: flex;
+  flex-direction: column;
+}
+.fl-step {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) auto;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--ds-line);
+  align-items: start;
+}
+.fl-step:last-child {
+  border-bottom: 0;
+}
+.fl-step-meta {
+  color: var(--ds-text-3);
+  font-size: 12px;
+  margin-top: 2px;
+}
+.fl-step pre,
+.fl-json {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  background: var(--ds-sunken);
+  border-radius: var(--ds-radius-sm);
+  font-family: var(--ds-font-mono);
+  font-size: 11.5px;
+  direction: ltr;
+  text-align: left;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 260px;
+  overflow: auto;
+}
+.fl-run-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: var(--ds-space-3);
+}
+@media (max-width: 1000px) {
+  .fl-run-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.fl-run-canvas {
+  height: 440px;
+}
