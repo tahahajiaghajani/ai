@@ -8,11 +8,19 @@ import { router } from "../http/hono";
 import { aiRoutes } from "./ai";
 import { accessRoutes } from "./access";
 import { installAccessModel } from "../access";
+import { installSlaService } from "../modules/sla";
+import { approvalRoutes, calendarRoutes, ruleRoutes, slaRoutes } from "./sla";
 
 // the ITSM access model is the engine's access provider in every runtime (docs/spec/ACCESS.md)
 installAccessModel();
+// calendars, SLAs, approvals and the rules of records (docs/spec/services/sla.md)
+installSlaService();
 
 export const moduleRoutes = router();
 
 moduleRoutes.route("/ai", aiRoutes);
 moduleRoutes.route("/access", accessRoutes);
+moduleRoutes.route("/calendars", calendarRoutes);
+moduleRoutes.route("/sla", slaRoutes);
+moduleRoutes.route("/approvals", approvalRoutes);
+moduleRoutes.route("/rules", ruleRoutes);

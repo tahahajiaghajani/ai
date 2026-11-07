@@ -55,10 +55,23 @@ export async function createOrg(db: Db, userId: string, input: CreateOrgInput, o
   return { id: orgId };
 }
 
+/** A module's day-one data of an organisation (runs inside the creating transaction; keep it light — queue a job). */
+export type OrgSeeder = (tx: Tx, orgId: string, modules: ModuleKey[], origin: string) => Promise<void>;
+const seeders: OrgSeeder[] = [];
+
+/** Add a seeder (e.g. the SLA service queues the default calendars and official holidays). Returns an unregister function. */
+export function registerOrgSeed(fn: OrgSeeder): () => void {
+  seeders.push(fn);
+  return () => {
+    const i = seeders.indexOf(fn);
+    if (i >= 0) seeders.splice(i, 1);
+  };
+}
+
 /**
  * What a new organisation (or a module switched on later) needs on day one. The platform itself needs
- * nothing beyond the organisation and its owner; modules add their own defaults here.
+ * nothing beyond the organisation and its owner; modules add their own defaults with `registerOrgSeed`.
  */
-export async function seedOrg(_tx: Tx, _orgId: string, _modules: ModuleKey[], _origin: string): Promise<void> {
-  // no platform defaults yet
+export async function seedOrg(tx: Tx, orgId: string, modules: ModuleKey[], origin: string): Promise<void> {
+  for (const fn of seeders) await fn(tx, orgId, modules, origin);
 }

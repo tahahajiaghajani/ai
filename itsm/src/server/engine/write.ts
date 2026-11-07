@@ -318,7 +318,7 @@ async function pipeline(p: PipelineInput): Promise<Row> {
 
   // module hooks (values they set are coerced like a caller's)
   const hooks = hooksFor(def.key);
-  const w: WriteArgs = { tx, ctx, def, op, next, prev, changed, transition, env };
+  const w: WriteArgs = { tx, ctx, def, op, next, prev, changed, transition, env, input: new Set(Object.keys(values)), via: opts.via, trusted: !!opts.trusted };
   if (hooks.some((h) => h.beforeWrite)) {
     const before = { ...next };
     for (const h of hooks) await h.beforeWrite?.(w);
@@ -548,7 +548,7 @@ export async function removeIn(tx: Tx, ctx: Ctx, table: string, id: string, opts
   const { def, env } = await prepare(tx, ctx, table);
   const prev = await startFrom(tx, ctx, def, env, id, opts, "delete");
   const hooks = hooksFor(def.key);
-  const w: WriteArgs = { tx, ctx, def, op: "delete", next: { ...prev, deleted_at: new Date().toISOString() }, prev, changed: new Set(["deleted_at"]), env };
+  const w: WriteArgs = { tx, ctx, def, op: "delete", next: { ...prev, deleted_at: new Date().toISOString() }, prev, changed: new Set(["deleted_at"]), env, input: new Set(), via: opts.via, trusted: !!opts.trusted };
   for (const h of hooks) await h.beforeWrite?.(w);
   const row = await tx.one<Row>(
     `update ${def.table} set deleted_at = now(), updated_at = now(), updated_by = $3, version = version + 1 where id = $1 and org_id = $2 returning *`,

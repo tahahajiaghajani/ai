@@ -20,7 +20,7 @@ export type { ExportParams, ExportResult, ImportParams, ImportResult } from "./t
 export { tablesMeta, tableMeta } from "./meta";
 export type { TableMeta } from "./meta";
 export { registerHooks, registerRecordMeta, hooksFor } from "./hooks";
-export type { TableHooks, WriteArgs, WriteOp, MetaArgs, MetaProvider } from "./hooks";
+export type { TableHooks, WriteArgs, WriteOp, MetaArgs, MetaProvider, PushArgs } from "./hooks";
 export { onRecordEvent, emitEvent } from "./events";
 export type { RecordEvent, RecordEventKind, RecordEventHandler, RecordEventInput } from "./events";
 export { allocateNumber, formatNumber } from "./numbering";

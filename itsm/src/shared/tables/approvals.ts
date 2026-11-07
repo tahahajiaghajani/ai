@@ -97,6 +97,7 @@ const approval: TableDef = {
     { name: "rule_id", label: "قاعدهٔ تأیید", type: "ref", ref: "approval_rule", readonly: true, filter: true, span: 8 },
     { name: "level", label: "سطح", type: "int", readonly: true, default: 1, list: true, span: 12 },
     { name: "level_name", label: "نام سطح", type: "string", readonly: true, maxLength: 120, span: 12 },
+    { name: "round", label: "دور درخواست", type: "int", readonly: true, default: 1, span: 6 },
     { name: "approver_id", label: "تأییدکننده", type: "user", readonly: true, list: true, filter: true, index: true, span: 8 },
     { name: "group_id", label: "از گروه", type: "group", readonly: true, filter: true, span: 8 },
     { name: "source", label: "منبع تأییدکننده", type: "choice", choices: APPROVER_SOURCES, readonly: true, span: 8 },
