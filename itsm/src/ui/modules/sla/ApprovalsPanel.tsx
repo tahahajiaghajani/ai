@@ -49,9 +49,11 @@ export default function ApprovalsPanel({ ctx }: { ctx: RecordContext }) {
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center gap-2">
-        <ChoiceTag option={aggOption} value={aggregate} strong />
-      </div>
+      {steps.length ? (
+        <div className="flex items-center gap-2">
+          <ChoiceTag option={aggOption} value={aggregate} strong />
+        </div>
+      ) : null}
       {!steps.length ? (
         <p className="text-[13px] text-ink-3">برای این رکورد تأییدی خواسته نشده است.</p>
       ) : (
@@ -67,14 +69,14 @@ export default function ApprovalsPanel({ ctx }: { ctx: RecordContext }) {
                 return (
                   <li key={a.id} className="flex flex-col gap-1 rounded-md bg-sunken px-2.5 py-2">
                     <div className="flex min-w-0 items-center gap-2">
-                      {a.approver_id ? <UserChip id={a.approver_id} display={display} compact /> : <span className="text-[13px] text-ink-3">{a.state === "skipped" ? "بدون تأییدکننده" : "خودکار"}</span>}
+                      {a.approver_id ? <UserChip id={a.approver_id} display={display} /> : <span className="text-[13px] text-ink-3">{a.state === "skipped" ? "بدون تأییدکننده" : "خودکار"}</span>}
                       <span className="ms-auto shrink-0">
                         <ApprovalState state={a.state} />
                       </span>
                     </div>
                     {a.delegated_from ? (
                       <span className="text-[12px] text-ink-3">
-                        به جانشینی از <UserChip id={a.delegated_from} display={display} compact />
+                        به جانشینی از <UserChip id={a.delegated_from} display={display} />
                       </span>
                     ) : null}
                     {a.decided_at ? (

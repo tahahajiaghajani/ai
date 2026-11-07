@@ -41,7 +41,7 @@ function TimeBox({ value, onChange, label, disabled }: { value: string; onChange
     <Input
       size="small"
       dir="ltr"
-      className="ds-num w-[68px] text-center"
+      className="ds-num !w-[72px] text-center"
       value={value}
       placeholder="08:00"
       aria-label={label}
@@ -103,7 +103,7 @@ export default function WeekEditor({ ctx }: { ctx: RecordContext }) {
         <div className="hidden items-center gap-3 px-3 py-1.5 sm:flex" aria-hidden>
           <span className="w-24 shrink-0" />
           <span className="flex-1" />
-          <div className="relative w-40 shrink-0 text-[11px] text-ink-3 md:w-56">
+          <div className="relative h-4 w-40 shrink-0 text-[11px] text-ink-3 md:w-56">
             {TICKS.map((h) => (
               <span key={h} className="ds-num absolute -translate-x-1/2 rtl:translate-x-1/2" style={{ insetInlineStart: `${(h / 24) * 100}%` }}>
                 {toFa(h)}

@@ -7,6 +7,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { registerTable } from "@shared/tables";
 import type { TableDef } from "@shared/model/types";
 import { aggregate, levelOutcome, levelsProblem, needed, roundOutcome } from "@shared/sla/approvals";
+import { DEFAULT_LEVELS } from "@shared/tables/approvals";
 import { tick } from "@server/jobs";
 import { registerApproverSource } from "@server/modules/sla";
 import type { Client } from "./helpers";
@@ -418,6 +419,9 @@ describe("approvals", () => {
     const noTable = await e.owner.post(`${P}/r/approval_rule`, { name: "بی‌جدول", table_key: "nope", levels: [{ sources: [{ kind: "manager" }] }] }, 400);
     expect(noTable.error.details.fields.table_key).toBeTruthy();
     await e.owner.post(`${P}/r/approval_rule`, { name: "روی خودش", table_key: "approval", levels: [{ sources: [{ kind: "manager" }] }] }, 400);
+    // a rule created without levels (the form hides them behind the builder) asks the requester's manager
+    const plain = (await e.owner.post(`${P}/r/approval_rule`, { name: "بی‌سطح در فرم", table_key: "apv_case", active: false })).row;
+    expect(plain.levels).toEqual(DEFAULT_LEVELS);
     // an inactive rule asks nobody
     for (const r of ruleIds) await e.owner.patch(`${P}/r/approval_rule/${r}`, { active: false });
     const quiet = await file("any");

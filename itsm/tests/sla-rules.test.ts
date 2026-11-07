@@ -159,6 +159,10 @@ describe("rules of records", () => {
     expect((await create({ impact: "1", urgency: "1" })).priority).toBe("4");
     await e.owner.del(`${P}/r/priority_matrix/${m.id}`);
     expect((await create({ impact: "1", urgency: "1" })).priority).toBe("1");
+    // a matrix created without cells (the form hides them behind the grid editor) starts as ITIL
+    const plain = await post("priority_matrix", { name: "پیش‌فرض" });
+    expect(plain.cells).toEqual(ITIL_MATRIX);
+    await e.owner.del(`${P}/r/priority_matrix/${plain.id}`);
   });
 
   it("categories: a tree per table keeps the choice lists in step, fills the default group and stays in its workspace", async () => {

@@ -155,7 +155,11 @@ export function useSlaRefresh() {
   const qc = useQueryClient();
   const { orgId } = useOrg();
   return {
-    approvals: () => qc.invalidateQueries({ queryKey: ["sla", orgId, "approvals"] }),
+    approvals: () => {
+      // the «تأییدهای من» badge of the sidebar too
+      void qc.invalidateQueries({ queryKey: ["shell-counts", orgId] });
+      return qc.invalidateQueries({ queryKey: ["sla", orgId, "approvals"] });
+    },
     holidays: () => {
       void qc.invalidateQueries({ queryKey: ["records-holidays", orgId] });
       void qc.invalidateQueries({ queryKey: ["sla", orgId, "calendar-spec"] });

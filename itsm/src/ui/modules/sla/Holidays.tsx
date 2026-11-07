@@ -7,7 +7,7 @@ import { Button, Drawer, Form, Input, Popconfirm, Segmented, Select, Switch } fr
 import { CalendarPlus, CalendarX, Check, Plus, Trash2 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { HOLIDAY_KINDS } from "@shared/tables/sla";
-import { currentJalaliYear, formatJalali, todayISO, toFa } from "@shared/jalali";
+import { currentJalaliYear, formatJalali, todayISO, toFa, toJalali } from "@shared/jalali";
 import { useOrg } from "../../lib/org";
 import { useAction } from "../../lib/hooks";
 import { PageHeader } from "../../components/layout";
@@ -126,21 +126,28 @@ export default function Holidays() {
       ) : (
         <div className="grid gap-3 lg:grid-cols-2">
           {months.map((m) => (
-            <section key={m.month} className="flex flex-col rounded-lg border border-line bg-surface" aria-label={m.label}>
+            <section key={m.month} className="flex min-w-0 flex-col rounded-lg border border-line bg-surface" aria-label={m.label}>
               <header className="flex items-baseline justify-between border-b border-line px-3 py-2">
                 <span className="ds-t-title text-ink">{m.label}</span>
                 <span className="ds-num text-[12px] text-ink-3">{toFa(m.items.length)}</span>
               </header>
               <ul className="flex flex-col divide-y divide-[var(--ds-line)]">
                 {m.items.map((h) => (
-                  <li key={h.id} className={cx("flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2", h.active === false && "opacity-60")}>
-                    <button type="button" className="flex min-w-0 flex-1 items-baseline gap-3 text-start" onClick={() => setOpen(h)}>
+                  <li key={h.id} className={cx("flex items-center gap-x-3 px-3 py-2", h.active === false && "opacity-60")}>
+                    <button
+                      type="button"
+                      className="flex min-w-0 flex-1 items-baseline gap-3 text-start"
+                      onClick={() => setOpen(h)}
+                      aria-label={`${formatJalali(h.date, { style: "long" })}، ${h.title}`}
+                    >
+                      <span className={cx("ds-num w-6 shrink-0 text-end text-[15px]", h.half_day ? "text-ink-2" : "text-holiday")}>{toFa(toJalali(h.date).jd)}</span>
                       <span className="w-16 shrink-0 text-[12px] text-ink-3">{weekdayName(h.date)}</span>
-                      <span className="ds-num w-12 shrink-0 text-[13px] text-ink-2">{formatJalali(h.date, { style: "short" })}</span>
-                      <span className={cx("min-w-0 truncate text-[13px]", h.half_day ? "text-ink" : "text-holiday")}>{h.title}</span>
+                      <span className="min-w-0 truncate text-[13px] text-ink" title={h.title}>
+                        {h.title}
+                      </span>
                     </button>
-                    <span className="flex flex-wrap items-center gap-1.5">
-                      {set === "all" ? <ChoiceTag option={sets.find((o) => o.value === h.holiday_set)} value={h.holiday_set} /> : null}
+                    <span className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+                      {h.holiday_set !== "ir" ? <ChoiceTag option={sets.find((o) => o.value === h.holiday_set)} value={h.holiday_set} /> : null}
                       {h.half_day ? <Chip dot={false}>نیمه‌تعطیل</Chip> : null}
                       {h.predicted ? (
                         <>

@@ -7,7 +7,7 @@ import { DEFAULT_HOURS, FULL_HOURS, calendarOf, localInstant } from "@shared/sla
 import { ITIL_MATRIX } from "@shared/sla/rules";
 import { fromJalali } from "@shared/jalali";
 import {
-  approvalSteps, categoryTree, copyDayTo, dayBars, dayProblem, dueState, durationsDraft, durationsValue, holidaysByMonth, levelSentence, matrixDraft,
+  approvalSteps, axisLabels, categoryTree, copyDayTo, dayBars, dayProblem, dueState, durationsDraft, durationsValue, holidaysByMonth, levelSentence, matrixDraft,
   matrixValue, minutesText, moveItem, nextInterval, normalizeTime, ruleText, setCell, slaPreview, sourceText, suggestCode, upcomingDays, weekDraft,
   weekTotals, withDay, type Names,
 } from "../src/ui/modules/sla/model";
@@ -109,6 +109,12 @@ describe("SLA definition preview", () => {
     // past Thursday noon the target runs over Friday into Saturday
     const thu = localInstant(fromJalali(1405, 8, 21), 11 * 60, TZ);
     expect(slaPreview({ duration: 2 * 3600, warn: [], cal, start: thu }).end).toBe(localInstant(fromJalali(1405, 8, 23), 9 * 60, TZ));
+  });
+
+  it("keeps the axis readable: crowded warning labels give way to the deadline", () => {
+    const m = (kind: "start" | "warn" | "breach", pos: number) => ({ kind, pos });
+    expect(axisLabels([m("start", 0), m("warn", 50), m("warn", 75), m("warn", 90), m("breach", 100)])).toEqual([true, true, true, true, true]);
+    expect(axisLabels([m("start", 0), m("warn", 2), m("warn", 80), m("warn", 92), m("warn", 97), m("breach", 100)])).toEqual([true, false, true, true, false, true]);
   });
 
   it("has nothing to show without a target or working time", () => {

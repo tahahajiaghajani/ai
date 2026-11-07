@@ -183,6 +183,21 @@ export function slaPreview(o: { duration: number | null | undefined; warn: unkno
   return { duration, start: o.start, end, marks, working, wallMs: end - o.start };
 }
 
+/** Which marks of the axis keep their label: the start and the deadline always, a warning when it has room (`gap` %). */
+export function axisLabels(marks: readonly Pick<PreviewMark, "kind" | "pos">[], gap = 6): boolean[] {
+  const end = marks.find((m) => m.kind === "breach")?.pos ?? 100;
+  let last = -Infinity;
+  return marks.map((m) => {
+    if (m.kind !== "warn") {
+      if (m.kind === "start") last = m.pos;
+      return true;
+    }
+    const ok = m.pos - last >= gap && end - m.pos >= gap;
+    if (ok) last = m.pos;
+    return ok;
+  });
+}
+
 /** The per-priority targets as a draft of seconds (one entry per priority option). */
 export function durationsDraft(raw: unknown, priorities: readonly Option[]): Record<string, number | null> {
   const map = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};

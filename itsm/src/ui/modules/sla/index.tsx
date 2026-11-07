@@ -122,8 +122,18 @@ const mine = {
   count: { key: "approvals:mine", hint: "تأیید در انتظار شما", load: approvalsApi.count },
 };
 
+/** Sidebar order of the settings group (tables and pages interleaved). */
+const ORDER = ["calendar", "holidays", "sla_definition", "task_sla", "approval_rule", "business_rule", "assignment_rule", "priority_matrix", "categories", "ui_policy"];
+const rank = (key: string) => {
+  const i = ORDER.indexOf(key.split(":")[1] ?? "");
+  return i < 0 ? ORDER.length : i;
+};
+
 export const slaUi: ModuleUi = {
-  nav: [...approvalsUi.nav.map((g) => ({ ...g, items: [mine, ...g.items] })), ...settingsUi.nav],
+  nav: [
+    ...approvalsUi.nav.map((g) => ({ ...g, items: [mine, ...g.items] })),
+    ...settingsUi.nav.map((g) => ({ ...g, items: [...g.items].sort((a, b) => rank(a.key) - rank(b.key)) })),
+  ],
   routes: [...approvalsUi.routes, ...settingsUi.routes],
   searches: [...(approvalsUi.searches ?? []), ...(settingsUi.searches ?? [])],
   segments: { ...approvalsUi.segments, ...settingsUi.segments },

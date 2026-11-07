@@ -16,7 +16,7 @@ import { ChoiceTag, DateTimeInput, DurationInput, type RecordContext } from "../
 import { optionsOf } from "../../records/model/schema";
 import { spanText } from "../../records/model/sla";
 import { useCalendarSpec } from "./api";
-import { durationsDraft, durationsValue, slaPreview } from "./model";
+import { axisLabels, durationsDraft, durationsValue, slaPreview } from "./model";
 
 const WARN_OPTIONS = Array.from({ length: 19 }, (_, i) => (i + 1) * 5).map((n) => ({ value: n, label: `${toFa(n)}٪` }));
 
@@ -43,7 +43,7 @@ export default function SlaPreview({ ctx }: { ctx: RecordContext }) {
   // the preview: a priority, a start, the calendar
   const [priority, setPriority] = useState<string | undefined>(undefined);
   const chosen = priority ?? priorities.find((p) => durations[p.value])?.value ?? priorities[0]?.value;
-  const [start, setStart] = useState<string>(() => new Date().toISOString());
+  const [start, setStart] = useState<string>(() => new Date(Math.floor(Date.now() / 60_000) * 60_000).toISOString());
   const calId = typeof row.calendar_id === "string" && row.calendar_id ? row.calendar_id : null;
   const today = todayISO(timezone);
   const spec = useCalendarSpec(calId, addDays(today, -1), addDays(today, 400));
@@ -55,6 +55,7 @@ export default function SlaPreview({ ctx }: { ctx: RecordContext }) {
   const durationSec = fixed ? Number(row.duration) || null : chosen ? durations[chosen] : null;
   const startMs = Date.parse(start);
   const p = useMemo(() => slaPreview({ duration: durationSec, warn, cal, start: Number.isNaN(startMs) ? Date.now() : startMs }), [durationSec, warn, cal, startMs]);
+  const labels = axisLabels(p.marks);
 
   const save = async () => {
     setSaving(true);
@@ -95,7 +96,9 @@ export default function SlaPreview({ ctx }: { ctx: RecordContext }) {
                 <span className="w-40 shrink-0">
                   <ChoiceTag option={o} value={o.value} />
                 </span>
-                <DurationInput size="small" value={durations[o.value]} disabled={!canEdit} onChange={(v) => setDurations((d) => ({ ...d, [o.value]: typeof v === "number" && v > 0 ? v : null }))} />
+                <div className="w-full max-w-[280px]">
+                  <DurationInput size="small" value={durations[o.value]} disabled={!canEdit} onChange={(v) => setDurations((d) => ({ ...d, [o.value]: typeof v === "number" && v > 0 ? v : null }))} />
+                </div>
                 {!durations[o.value] ? <span className="text-[12px] text-ink-3">بی‌هدف: زمان‌سنجی شروع نمی‌شود</span> : null}
               </div>
             ))}
@@ -141,9 +144,11 @@ export default function SlaPreview({ ctx }: { ctx: RecordContext }) {
               {p.working.map(([a, b], i) => (
                 <span key={i} className="absolute inset-y-0 rounded-full bg-accent-tint-2" style={{ insetInlineStart: `${a}%`, width: `${Math.max(0.4, b - a)}%` }} />
               ))}
-              {p.marks.map((m) => (
+              {p.marks.map((m, i) => (
                 <span key={`${m.kind}:${m.pct}`} className="absolute -top-6 flex -translate-x-1/2 flex-col items-center rtl:translate-x-1/2" style={{ insetInlineStart: `${m.pos}%` }}>
-                  <span className={cx("ds-num text-[11px]", m.kind === "breach" ? "text-danger" : m.kind === "warn" ? "text-warning" : "text-ink-3")}>{m.kind === "start" ? "۰" : `${toFa(m.pct)}٪`}</span>
+                  <span className={cx("ds-num h-4 text-[11px]", m.kind === "breach" ? "text-danger" : m.kind === "warn" ? "text-warning" : "text-ink-3")}>
+                    {labels[i] ? (m.kind === "start" ? "۰" : `${toFa(m.pct)}٪`) : ""}
+                  </span>
                   <span className={cx("mt-0.5 h-5 w-0.5 rounded-full", m.kind === "breach" ? "bg-[var(--ds-danger)]" : m.kind === "warn" ? "bg-[var(--ds-warning)]" : "bg-[var(--ds-text-3)]")} />
                 </span>
               ))}

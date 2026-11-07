@@ -149,7 +149,7 @@ export default function LevelsBuilder({ ctx }: { ctx: RecordContext }) {
                 {l.rule === "count" || l.rule === "percent" ? (
                   <NumberInput
                     size="small"
-                    className="w-[110px]"
+                    className="!w-[110px]"
                     value={l.threshold ?? null}
                     disabled={!canEdit}
                     suffix={l.rule === "percent" ? "٪" : "نفر"}

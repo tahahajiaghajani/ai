@@ -86,7 +86,7 @@ export default function Approvals() {
           render: (_, a) => (
             <div className="flex flex-col gap-0.5 text-[13px]">
               <span className="ds-num text-ink-2">{formatJalaliDateTime(a.requested_at, tz)}</span>
-              {a.requested_by ? <UserChip id={a.requested_by} display={display} compact /> : <span className="text-ink-3">قاعدهٔ خودکار</span>}
+              {a.requested_by ? <UserChip id={a.requested_by} display={display} /> : <span className="text-ink-3">قاعدهٔ خودکار</span>}
             </div>
           ),
         }
@@ -126,7 +126,7 @@ export default function Approvals() {
         <div className="flex flex-wrap items-center justify-end gap-1.5">
           {a.on_behalf_of ? (
             <span className="me-auto text-[12px] text-ink-3">
-              به جانشینی از <UserChip id={a.on_behalf_of} display={display} compact />
+              به جانشینی از <UserChip id={a.on_behalf_of} display={display} />
             </span>
           ) : null}
           {a.can_decide ? (
@@ -172,7 +172,7 @@ export default function Approvals() {
             {q.data.delegators.map((u, i) => (
               <span key={u}>
                 {i ? "، " : ""}
-                <UserChip id={u} display={display} compact />
+                <UserChip id={u} display={display} />
               </span>
             ))}{" "}
             هستید
