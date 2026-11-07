@@ -14,6 +14,7 @@ export const AREAS = {
   integrations: "اتصال‌ها و API",
   ai: "هوش مصنوعی و دستیار",
   reports: "گزارش‌ها",
+  work: "کارها و رکوردها",
 } as const;
 export type Area = keyof typeof AREAS;
 
@@ -35,13 +36,13 @@ export const ROLES: Record<Role, { title: string; levels: Partial<Record<Area, L
     title: "عضو",
     kind: "core",
     about: "کار در سازمان، دیدن اعضا و گزارش‌ها، پرسش از دستیار و آماده کردن پیش‌نویس؛ بدون تغییر تنظیمات",
-    levels: { settings: "view", users: "view", integrations: "none", ai: "edit", reports: "view" },
+    levels: { settings: "view", users: "view", integrations: "none", ai: "edit", reports: "view", work: "edit" },
   },
   viewer: {
     title: "ناظر",
     kind: "core",
     about: "فقط مشاهده و پرسش از دستیار؛ بدون تغییر",
-    levels: { settings: "view", users: "none", integrations: "none", ai: "view", reports: "view" },
+    levels: { settings: "view", users: "none", integrations: "none", ai: "view", reports: "view", work: "view" },
   },
   admin: { title: "مدیر", kind: "preset", about: "مانند مالک، جز تغییر مالکان", levels: {}, all: "full" },
 };

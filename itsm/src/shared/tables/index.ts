@@ -1,0 +1,182 @@
+// The table registry: every TableDef of the app, resolved once at load time (task fields merged, base fields added,
+// placeholders replaced, the definition checked). Modules add their tables in their own file
+// (src/shared/tables/<module>.ts) and list it in MODULE_TABLES below; tests and plugins may also call
+// `registerTable`. The server derives the DDL, the sync registry and the API from here; the UI gets the same
+// definitions (with the organisation's customisations) from GET /api/o/:org/meta/tables.
+// Imported by the UI: keep it free of server imports.
+import type { FieldDef, Option, TableDef } from "../model/types";
+import { BASE_COLUMNS, FIELD_TYPES, refTarget } from "../model/types";
+import { setTableLookup, validateCond } from "../model/conditions";
+import { CLOSE_CODES, DEFAULT_TASK_STATES, TASK_FIELDS, TASK_SCOPE } from "../model/task";
+import { CORE_CHOICE_LISTS, CORE_TABLES, USER_TABLE } from "./core";
+
+export { CUSTOM_FIELD_TYPES, VIEW_KINDS } from "./core";
+
+/** Table definitions per module; a module adds its file's export here. */
+const MODULE_TABLES: TableDef[][] = [CORE_TABLES];
+
+/** Every table by key (resolved definitions). */
+export const TABLES = new Map<string, TableDef>();
+
+/** Default options of choice lists (used until an organisation edits the list in `sm_choices`). */
+export const CHOICE_LISTS = new Map<string, Option[]>();
+
+export function registerChoiceList(key: string, options: Option[]): void {
+  CHOICE_LISTS.set(key, options);
+}
+
+const listeners: ((def: TableDef) => void)[] = [];
+
+/** Called for every table registered from now on and for every table already registered. */
+export function onTableRegistered(fn: (def: TableDef) => void): void {
+  listeners.push(fn);
+  for (const def of TABLES.values()) fn(def);
+}
+
+export function tableDef(key: string): TableDef | undefined {
+  return TABLES.get(key);
+}
+
+export function fieldOf(def: TableDef, name: string): FieldDef | undefined {
+  return def.fields.find((f) => f.name === name);
+}
+
+/** Tables with a physical table (not the virtual `user`), sorted by key. */
+export function physicalTables(): TableDef[] {
+  return [...TABLES.values()].filter((d) => !d.virtual).sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+}
+
+const IDENT = /^[a-z][a-z0-9_]{0,62}$/;
+/** PostgreSQL reserved words a column name may not be (generated SQL does not quote identifiers). */
+const RESERVED = new Set(
+  ("all analyse analyze and any array as asc asymmetric authorization binary both case cast check collate collation column concurrently " +
+    "constraint create cross current_catalog current_date current_role current_schema current_time current_timestamp current_user default " +
+    "deferrable desc distinct do else end except false fetch for foreign freeze from full grant group having ilike in initially inner intersect " +
+    "into is isnull join lateral leading left like limit localtime localtimestamp natural not notnull null offset on only or order outer " +
+    "overlaps placing primary references returning right select session_user similar some symmetric system_user table tablesample then to " +
+    "trailing true union unique user using variadic verbose when where window with").split(" "),
+);
+
+/** The base fields every table has, as (system) field definitions — lists, filters and sorts can name them. */
+function baseFields(def: TableDef): FieldDef[] {
+  const out: FieldDef[] = [];
+  if (def.numbered) out.push({ name: "number", label: "شماره", type: "string", system: true, base: true, list: true, search: true, sort: true, ltr: true, audit: false });
+  out.push(
+    { name: "created_at", label: "زمان ایجاد", type: "datetime", system: true, base: true, sort: true, filter: true, audit: false },
+    { name: "created_by", label: "ایجادکننده", type: "user", system: true, base: true, filter: true, audit: false },
+    { name: "updated_at", label: "آخرین تغییر", type: "datetime", system: true, base: true, sort: true, filter: true, audit: false },
+    { name: "updated_by", label: "آخرین تغییردهنده", type: "user", system: true, base: true, filter: true, audit: false },
+    { name: "workspace_id", label: "فضای کاری", type: "ref", ref: "workspace", base: true, hidden: true, filter: true },
+    { name: "domain_id", label: "دامنه", type: "ref", ref: "org_unit", system: true, base: true, hidden: true },
+    { name: "unit_id", label: "واحد سازمانی", type: "ref", ref: "org_unit", system: true, base: true, hidden: true, filter: true },
+  );
+  return out;
+}
+
+function fail(def: { key?: string }, msg: string): never {
+  throw new Error(`table "${def.key}": ${msg}`);
+}
+
+/** Resolve and check a table definition (developer errors throw at load time). */
+export function buildTable(input: TableDef): TableDef {
+  if (!IDENT.test(input.key)) fail(input, "key must be [a-z][a-z0-9_]*");
+  if (!input.virtual && !/^sm_[a-z0-9_]+$/.test(input.table)) fail(input, "table must be sm_*");
+  const task = input.extends === "task";
+  let fields: FieldDef[] = task ? TASK_FIELDS.map((f) => ({ ...f })) : [];
+  for (const f of input.fields) {
+    const at = fields.findIndex((x) => x.name === f.name);
+    if (at >= 0) fields[at] = { ...fields[at], ...f };
+    else fields.push({ ...f });
+  }
+  fields = fields.map((f) => ({
+    ...f,
+    ref: f.ref === "$self" ? input.key : f.ref,
+    choices: typeof f.choices === "string" ? f.choices.replace(/^\$table\./, `${input.key}.`) : f.choices,
+  }));
+  const features = { history: true, sync: true, ...(task ? { journal: true, attachments: true, watchers: true, links: true } : {}), ...input.features };
+  if (features.watchers && !fields.some((f) => f.name === "watch_list")) fields.push({ name: "watch_list", label: "پیگیری‌کنندگان", type: "users", span: 24 });
+  const states = input.states ?? (task ? DEFAULT_TASK_STATES : undefined);
+  if (states) {
+    const options: Option[] = states.states.map((s, i) => ({ value: s.value, label: s.label, color: s.color, order: i + 1 }));
+    const at = fields.findIndex((f) => f.name === states.field);
+    const stateField: FieldDef = { ...(at >= 0 ? fields[at] : { name: states.field, label: "وضعیت", list: true, filter: true, sort: true, index: true }), type: "choice", choices: options, default: states.initial };
+    if (at >= 0) fields[at] = stateField;
+    else fields.push(stateField);
+  }
+  if (!input.virtual) {
+    for (const f of fields) {
+      if (!IDENT.test(f.name)) fail(input, `field name "${f.name}"`);
+      if ((BASE_COLUMNS as readonly string[]).includes(f.name)) fail(input, `"${f.name}" is a base column`);
+      if (f.name.startsWith("u_")) fail(input, `"${f.name}": u_ is reserved for custom fields`);
+      if (RESERVED.has(f.name)) fail(input, `"${f.name}" is a reserved SQL word`);
+    }
+    fields.push(...baseFields(input));
+  }
+  const names = new Set<string>();
+  for (const f of fields) {
+    if (names.has(f.name)) fail(input, `duplicate field "${f.name}"`);
+    names.add(f.name);
+    if (!(f.type in FIELD_TYPES)) fail(input, `field "${f.name}" has unknown type "${f.type}"`);
+    if ((f.type === "ref" || f.type === "refs") && !f.ref) fail(input, `ref field "${f.name}" needs ref`);
+    if (f.dependsOn && !fields.some((x) => x.name === f.dependsOn)) fail(input, `field "${f.name}" depends on unknown "${f.dependsOn}"`);
+  }
+  const has = (n: string) => names.has(n);
+  if (!has(input.display)) fail(input, `display field "${input.display}" does not exist`);
+  for (const c of input.list?.columns ?? []) if (!has(c)) fail(input, `list column "${c}" does not exist`);
+  for (const c of (input.list?.order ?? "").split(",").map((s) => s.trim().replace(/^-/, "")).filter(Boolean)) if (!has(c)) fail(input, `list order "${c}" does not exist`);
+  for (const u of input.unique ?? []) for (const c of u) if (!has(c)) fail(input, `unique field "${c}" does not exist`);
+  if (features.kanban && !has(features.kanban)) fail(input, `kanban field "${features.kanban}" does not exist`);
+  if (features.calendar && (!has(features.calendar.start) || (features.calendar.end && !has(features.calendar.end)))) fail(input, "calendar fields do not exist");
+  if (states) {
+    const values = new Set(states.states.map((s) => s.value));
+    if (!values.has(states.initial)) fail(input, `initial state "${states.initial}" is not a state`);
+    for (const t of states.transitions) {
+      if (!values.has(t.to) || (t.from !== "*" && t.from.some((x) => !values.has(x)))) fail(input, `transition to "${t.to}" names an unknown state`);
+      for (const r of t.requires ?? []) if (!has(r)) fail(input, `transition to "${t.to}" requires unknown field "${r}"`);
+    }
+  }
+  const scope = input.scope && Object.keys(input.scope).length ? input.scope : task ? TASK_SCOPE : input.scope ?? {};
+  for (const c of [...(scope.own ?? []), scope.watchers, scope.group].filter(Boolean) as string[]) if (!has(c)) fail(input, `scope field "${c}" does not exist`);
+  const def: TableDef = { ...input, fields, features, states, scope };
+  if (task) {
+    const close = fields.find((f) => f.name === "close_code");
+    if (typeof close?.choices === "string" && !CHOICE_LISTS.has(close.choices)) CHOICE_LISTS.set(close.choices, CLOSE_CODES);
+  }
+  return def;
+}
+
+/** Check the conditions a definition carries (once every table is known: they may walk into other tables). */
+function checkConditions(def: TableDef): void {
+  for (const [what, cond] of [["rowAccess.read", def.rowAccess?.read], ["rowAccess.write", def.rowAccess?.write]] as const) {
+    if (!cond) continue;
+    const problem = validateCond(cond, def);
+    if (problem) fail(def, `${what}: ${problem}`);
+  }
+  for (const f of def.fields) {
+    if (!f.refFilter) continue;
+    const target = refTarget(f, def.key);
+    const t = target ? TABLES.get(target) : undefined;
+    if (t) {
+      const problem = validateCond(f.refFilter, t);
+      if (problem) fail(def, `refFilter of "${f.name}": ${problem}`);
+    }
+  }
+}
+
+/** Add (or replace) a table. Returns the resolved definition. */
+export function registerTable(input: TableDef): TableDef {
+  const def = buildTable(input);
+  TABLES.set(def.key, def);
+  checkConditions(def);
+  for (const fn of listeners) fn(def);
+  return def;
+}
+
+setTableLookup((key) => TABLES.get(key));
+for (const [key, options] of Object.entries(CORE_CHOICE_LISTS)) registerChoiceList(key, options);
+
+/** The members of the organisation as a reference target (virtual: no table of its own). */
+export const USER_DEF = buildTable(USER_TABLE);
+TABLES.set(USER_DEF.key, USER_DEF);
+for (const group of MODULE_TABLES) for (const t of group) TABLES.set(t.key, buildTable(t));
+for (const def of TABLES.values()) checkConditions(def);

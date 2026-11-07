@@ -4,6 +4,8 @@ import core from "./0001_core";
 import platform from "./0002_platform";
 import integrations from "./0003_integrations";
 import ai from "./0004_ai";
+import engine from "./0005_engine";
+import { ddlForAll } from "../../engine/ddl";
 
 export interface Migration {
   id: string;
@@ -16,6 +18,16 @@ export const MIGRATIONS: Migration[] = [
   { id: "0002_platform", title: "مدیریت سامانه: حالت پشتیبانی، رویدادهای امنیتی و وضعیت سازمان‌ها", sql: platform },
   { id: "0003_integrations", title: "اتصال‌ها: کلیدهای API و وب‌هوک‌ها", sql: integrations },
   { id: "0004_ai", title: "هوش مصنوعی: اتصال‌ها، مصرف، گفتگوها و پیشنهادها", sql: ai },
+  { id: "0005_engine", title: "موتور رکوردها: صف کارها، تاریخچه، یادداشت‌ها، پیوست‌ها، پیوندها و شماره‌ها", sql: engine },
+  {
+    id: "0006_engine_tables",
+    title: "جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها)",
+    // generated from the table registry when read (src/server/engine/ddl.ts); reconcileSchema re-applies it on
+    // every database whose copy is older, so this migration never needs editing by hand
+    get sql() {
+      return ddlForAll();
+    },
+  },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].id;

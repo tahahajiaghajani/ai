@@ -1,5 +1,6 @@
 import type { Db } from "./index";
 import { MIGRATIONS, SCHEMA_VERSION } from "./migrations";
+import { reconcileSchema } from "../engine/ddl";
 
 export interface MigrationStatus {
   applied: string[];
@@ -46,5 +47,7 @@ export async function migrate(db: Db, log: (msg: string) => void = () => {}): Pr
       log(`migration ${m.id} applied`);
     }
   }
+  // the record engine's tables follow the table registry (new tables and fields of this version)
+  await reconcileSchema(db, log);
   return done;
 }

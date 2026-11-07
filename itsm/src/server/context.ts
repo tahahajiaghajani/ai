@@ -42,6 +42,8 @@ export interface DesktopBridge {
    */
   cloudLogin?(email: string, password: string): Promise<{ ok: boolean; user_id?: string; unreachable?: boolean; limited?: boolean }>;
   notifyLocalWrite(): void;
+  /** Fetch an attachment's content from the linked cloud (blobs travel lazily); null when unavailable. */
+  fetchBlob?(orgId: string, sha256: string): Promise<Uint8Array | null>;
 }
 
 export interface ServerConfig {
@@ -65,6 +67,11 @@ export interface ServerConfig {
   log: Logger;
   /** fetch used for every outbound call (AI providers, integrations; lets tests stub it) */
   fetch: typeof fetch;
+  /**
+   * Keeps background work alive after the response (cloud: Next.js `after`, Vercel's waitUntil). The API kicks the
+   * job queue through it after every write request; absent on the desktop (its own timer ticks) and in tests.
+   */
+  waitUntil?: (work: Promise<unknown>) => void;
 }
 
 export interface AuthUser {
@@ -147,8 +154,11 @@ export interface Ctx {
   user: AuthUser;
   org: OrgRow;
   member: MemberRow;
-  /** who acts: a member ("user") or the platform admin in a support session ("support") */
-  actor?: "user" | "support";
+  /**
+   * who acts: a member ("user"), the platform admin in a support session ("support") or the platform itself
+   * ("system": jobs, flows and rules acting on their own, see engine `systemCtx`)
+   */
+  actor?: "user" | "support" | "system";
   /** the active support session when `actor` is "support" */
   support?: SupportSession | null;
   /** the organisation's platform status (loaded for /o/:org requests) */
