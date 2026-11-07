@@ -3,7 +3,7 @@
 // what was done and what was refused per record (the engine checks every record on its own).
 import { useEffect, useMemo, useState } from "react";
 import { Button, Dropdown, Modal, Select, Tooltip } from "antd";
-import { X, UserCheck, ArrowLeftRight, PenLine, Eye, Trash2, Ellipsis } from "lucide-react";
+import { X, UserCheck, ArrowLeftRight, PenLine, Trash2, Ellipsis } from "lucide-react";
 import type { Cond } from "@shared/model/conditions";
 import type { FieldDef } from "@shared/model/types";
 import { faDigits } from "@shared/format";

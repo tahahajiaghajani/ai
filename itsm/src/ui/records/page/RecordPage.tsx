@@ -31,6 +31,7 @@ import { ConflictDialog } from "./ConflictDialog";
 import { ActivityStream } from "./ActivityStream";
 import { SidePanel } from "./SidePanel";
 import { RecordList } from "../list/RecordList";
+import "../records.css";
 
 export interface RecordPageProps {
   table: string;

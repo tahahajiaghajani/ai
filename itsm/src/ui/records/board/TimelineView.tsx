@@ -19,6 +19,7 @@ import { displayText, fieldOf, stateOf, type Schema } from "../model/schema";
 import { stateColor } from "../model/colors";
 import type { RecordRow, TableMeta } from "../model/types";
 import { RecordNo } from "../fields/display";
+import "../records.css";
 
 const I16 = { size: 16, strokeWidth: 1.4, absoluteStrokeWidth: true } as const;
 const SPANS = { "2w": 14, "4w": 28, "3m": 91 } as const;

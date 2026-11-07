@@ -1,6 +1,6 @@
 // Parts of the list toolbar: the saved-views menu (personal and shared views, the default one, «ذخیره» and
 // «ذخیره به‌عنوان نمای جدید») and the column chooser (show, hide and order columns; back to the defaults).
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 import { Button, Checkbox, Dropdown, Input, Modal, Popover, Tooltip, type MenuProps } from "antd";
 import { Bookmark, ChevronDown, Columns3, Star, Users, ArrowUp, ArrowDown, RotateCcw, Search } from "lucide-react";
@@ -89,6 +89,14 @@ function SaveViewModal({ open, onClose, onSave, defaultName }: { open: boolean; 
   const [isDefault, setDefault] = useState(false);
   const [busy, setBusy] = useState(false);
   const n = useNotify();
+  // fresh values the moment it opens (not after the open animation: that would wipe what a fast typist wrote)
+  useEffect(() => {
+    if (!open) return;
+    setName(defaultName);
+    setShared(false);
+    setDefault(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
   const submit = async () => {
     if (!name.trim()) return;
     setBusy(true);
@@ -112,7 +120,6 @@ function SaveViewModal({ open, onClose, onSave, defaultName }: { open: boolean; 
       okButtonProps={{ disabled: !name.trim(), loading: busy }}
       destroyOnHidden
       width={420}
-      afterOpenChange={(o) => o && setName(defaultName)}
     >
       <div className="rk-stack">
         <label className="rk-lbl" htmlFor="rk-view-name">

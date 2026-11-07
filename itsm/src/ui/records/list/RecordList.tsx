@@ -42,6 +42,7 @@ import { exportList, ImportRecords } from "./transfer";
 import { KanbanBoard } from "../board/KanbanBoard";
 import { CalendarView } from "../board/CalendarView";
 import { TimelineView } from "../board/TimelineView";
+import "../records.css";
 
 const I16 = { size: 16, strokeWidth: 1.4, absoluteStrokeWidth: true } as const;
 const I14 = { size: 14, strokeWidth: 1.4, absoluteStrokeWidth: true } as const;

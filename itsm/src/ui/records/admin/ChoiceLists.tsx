@@ -3,10 +3,12 @@
 // stays valid on records that carry it but is not offered for new values). New values are added here too. One
 // «ذخیره» writes only what changed; the definitions refresh everywhere.
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router";
 import { Button, Input, Select, Switch, Table, Tooltip } from "antd";
 import { Plus, ArrowUp, ArrowDown, Save, RotateCcw } from "lucide-react";
 import type { Option } from "@shared/model/types";
 import { COLOR_KEYS } from "@shared/model/types";
+import { faDigits } from "@shared/format";
 import { useOrg } from "../../lib/org";
 import { useNotify } from "../../lib/hooks";
 import { PageHeader } from "../../components/layout";
@@ -15,9 +17,8 @@ import { Card } from "../../components/blocks";
 import { useRecordActions, useRecordList, useRefreshSchema, useSchema } from "../data/hooks";
 import { COLOR_LABELS } from "../model/colors";
 import { sameValue } from "../model/values";
-import type { RecordRow } from "../model/types";
 import { ChoiceTag } from "../fields/display";
-import { useSearchParams } from "react-router";
+import "../records.css";
 
 const I14 = { size: 14, strokeWidth: 1.4, absoluteStrokeWidth: true } as const;
 const I16 = { size: 16, strokeWidth: 1.4, absoluteStrokeWidth: true } as const;
@@ -83,7 +84,7 @@ export default function ChoiceLists() {
         changed++;
       }
       await refresh();
-      n.ok(changed ? `${changed.toLocaleString("fa-IR")} گزینه ذخیره شد` : "تغییری نبود");
+      n.ok(changed ? `${faDigits(changed)} گزینه ذخیره شد` : "تغییری نبود");
     } catch (e) {
       n.error(e);
     } finally {
@@ -198,4 +199,3 @@ export default function ChoiceLists() {
 
 const strip = (o: Item) => ({ value: o.value, label: o.label, color: o.color ?? null, parent: o.parent ?? null, active: o.active !== false });
 
-export type { RecordRow };

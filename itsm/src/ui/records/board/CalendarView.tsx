@@ -23,6 +23,7 @@ import { displayText, fieldOf, stateOf, type Schema } from "../model/schema";
 import { stateColor } from "../model/colors";
 import { isConflict, type RecordRow, type TableMeta } from "../model/types";
 import { RecordNo } from "../fields/display";
+import "../records.css";
 
 const I16 = { size: 16, strokeWidth: 1.4, absoluteStrokeWidth: true } as const;
 const MAX_IN_CELL = 3;
@@ -38,7 +39,7 @@ export interface CalendarViewProps {
   onOpen: (row: RecordRow) => void;
 }
 
-export function CalendarView({ def, schema, start, end, filter, q, onOpen }: CalendarViewProps) {
+export function CalendarView({ def, start, end, filter, q, onOpen }: CalendarViewProps) {
   const { api, orgId } = useOrg();
   const { tz } = useMe();
   const n = useNotify();

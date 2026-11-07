@@ -116,7 +116,7 @@ export function RecordSelect({ table, value, onChange, multiple, filter, display
   }, [rest.disabled]);
 
   if (schema && !def)
-    return <Select {...rest} disabled mode={multiple ? "multiple" : undefined} value={ids.length ? ids : undefined} placeholder={`«${table}» هنوز در دسترس نیست`} options={ids.map((id) => ({ value: id, label: displayOf(display, id) ?? id.slice(0, 8) }))} />;
+    return <Select {...rest} disabled mode={multiple ? "multiple" : undefined} value={ids.length ? ids : undefined} placeholder="هنوز در دسترس نیست" options={ids.map((id) => ({ value: id, label: displayOf(display, id) ?? id.slice(0, 8) }))} />;
 
   const isUser = def?.key === "user";
   const single = !multiple && ids.length === 1 ? ids[0] : null;

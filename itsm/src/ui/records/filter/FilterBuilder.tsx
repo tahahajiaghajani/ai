@@ -23,6 +23,7 @@ import { sameValue } from "../model/values";
 import type { DisplayMap } from "../model/types";
 import { ChoiceTag } from "../fields/display";
 import { RecordSelect } from "../fields/RecordSelect";
+import "../records.css";
 
 const I14 = { size: 14, strokeWidth: 1.4, absoluteStrokeWidth: true } as const;
 const MAX_DEPTH = 3;

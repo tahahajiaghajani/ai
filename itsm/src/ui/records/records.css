@@ -368,6 +368,9 @@
   .rk-f-inline { display: flex; align-items: flex-start; gap: 6px; min-inline-size: 0; }
   .rk-f-inline-in { flex: 1; min-inline-size: 0; }
   .rk-f-inline-a { display: inline-flex; gap: 4px; padding-block-start: 2px; }
+  .rk-empty-toggle { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border: 0; border-radius: var(--ds-radius-sm); background: none; color: var(--ds-text-2); font: inherit; font-size: 13px; cursor: pointer; }
+  .rk-empty-toggle:hover { background: var(--ds-hover); color: var(--ds-text); }
+  .rk-empty-toggle:focus-visible { outline: 2px solid var(--ds-focus-color); }
   .rk-savebar {
     position: sticky; inset-block-end: 12px; z-index: 3; display: flex; align-items: center; justify-content: flex-end; gap: 8px;
     padding: 10px 14px; border: 1px solid var(--ds-line-2); border-radius: var(--ds-radius-lg); background: var(--ds-raised); box-shadow: var(--ds-shadow-e3);
@@ -494,8 +497,9 @@
   .rk-lay-tab-h .ant-input, .rk-lay-sec-h .ant-input { max-inline-size: 280px; }
   .rk-lay-sec { display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px dashed var(--ds-line-3); border-radius: var(--ds-radius-md); background: var(--ds-sunken); }
   .rk-lay-sec.is-over { border-color: var(--ds-focus-color); background: var(--ds-accent-tint); }
-  .rk-lay-fields { display: flex; flex-wrap: wrap; gap: 6px; min-block-size: 32px; margin: 0; padding: 0; list-style: none; }
-  .rk-lay-f { display: inline-flex; align-items: center; gap: 2px; padding: 2px 2px 2px 8px; border: 1px solid var(--ds-line-2); border-radius: var(--ds-radius-sm); background: var(--ds-surface); font-size: 13px; cursor: grab; }
+  .rk-lay-fields { display: flex; flex-direction: column; gap: 4px; min-block-size: 32px; margin: 0; padding: 0; list-style: none; }
+  .rk-lay-f { display: flex; align-items: center; gap: 2px; padding: 2px 10px 2px 2px; padding-inline: 10px 2px; border: 1px solid var(--ds-line-2); border-radius: var(--ds-radius-sm); background: var(--ds-surface); font-size: 13px; cursor: grab; }
+  .rk-lay-f > span { flex: 1; min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .rk-lay-f.is-drag { opacity: .5; }
   .rk-lay-pool { position: sticky; inset-block-start: 64px; display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--ds-line); border-radius: var(--ds-radius-lg); background: var(--ds-surface); }
   .rk-swatch { display: inline-block; inline-size: 12px; block-size: 12px; border-radius: 50%; background: var(--rk-hue); vertical-align: middle; }

@@ -18,11 +18,12 @@ import { recordsApi } from "../data/api";
 import { keys, useAggregate, useMe, useRecordActions } from "../data/hooks";
 import { andAll } from "../model/filter";
 import { aggregateColumns, boolColumns, choiceColumns, columnKeyOf, EMPTY_KEY, planDrop, wipState, type BoardColumn } from "../model/kanban";
-import { defaultSort, displayText, fieldOf, valuesOf, type Schema } from "../model/schema";
+import { defaultSort, displayText, fieldOf, isEmptyValue, valuesOf, type Schema } from "../model/schema";
 import { isConflict, type RecordRow, type TableMeta } from "../model/types";
 import { dayOf } from "../model/calendar";
 import { FieldValue, RecordNo, UserChip, ChoiceTag } from "../fields/display";
 import { TransitionDialog, type TransitionTarget } from "../page/TransitionDialog";
+import "../records.css";
 
 const I14 = { size: 14, strokeWidth: 1.4, absoluteStrokeWidth: true } as const;
 const PER_COLUMN = 50;
@@ -254,7 +255,7 @@ export function Card({ row, def, schema, display, fields, skip = [], me, tz, onO
         <span className="rk-kcard-f">
           {facts.map((x) => {
             const f = fieldOf(def, x)!;
-            if (x === "due_at" && overdue) return null;
+            if ((x === "due_at" && overdue) || isEmptyValue(row[x])) return null;
             return (
               <span key={x} className="rk-kcard-v" title={f.label}>
                 <FieldValue field={f} value={row[x]} table={def.key} schema={schema} display={display} compact me={me} tz={tz} />

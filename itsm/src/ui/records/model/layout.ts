@@ -87,7 +87,7 @@ function defaultLayout(def: TableDef, fields: FieldDef[]): LayoutTab[] {
 }
 
 /** Layout from the organisation's arrangement; fields it does not name keep their default place. */
-function arrangedLayout(def: TableDef, fields: FieldDef[], arr: FormArrangement): LayoutTab[] {
+function arrangedLayout(fields: FieldDef[], arr: FormArrangement): LayoutTab[] {
   const body = fields.filter((f) => !engineField(f));
   const byName = new Map(body.map((f) => [f.name, f]));
   const placed = new Set<string>();
@@ -128,7 +128,7 @@ function arrangedLayout(def: TableDef, fields: FieldDef[], arr: FormArrangement)
 export function formLayout(def: TableDef, o: LayoutOptions = { mode: "update" }): LayoutTab[] {
   const fields = formFields(def, o);
   const arr = o.ignoreArrangement ? undefined : def.form?.arrangement;
-  const tabs = arr?.tabs?.length ? arrangedLayout(def, fields, arr) : defaultLayout(def, fields);
+  const tabs = arr?.tabs?.length ? arrangedLayout(fields, arr) : defaultLayout(def, fields);
   const out = tabs.filter((t) => t.sections.length);
   if (!out.length) out.push({ key: "t0", label: MAIN_TAB, sections: [] });
   if (o.mode !== "create") out[0].sections.push(...systemSection(fields));

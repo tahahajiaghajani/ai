@@ -19,6 +19,7 @@ import { COLOR_LABELS } from "../model/colors";
 import { formLayout } from "../model/layout";
 import { ChoiceTag } from "../fields/display";
 import { TablePicker, customisableTables, useTableParam } from "./shared";
+import "../records.css";
 
 const I16 = { size: 16, strokeWidth: 1.4, absoluteStrokeWidth: true } as const;
 const I14 = { size: 14, strokeWidth: 1.4, absoluteStrokeWidth: true } as const;

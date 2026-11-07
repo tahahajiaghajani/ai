@@ -16,6 +16,7 @@ import { arrangementOf, formFields } from "../model/layout";
 import { fieldOf } from "../model/schema";
 import { sameValue } from "../model/values";
 import { TablePicker, useTableParam } from "./shared";
+import "../records.css";
 
 const I14 = { size: 14, strokeWidth: 1.4, absoluteStrokeWidth: true } as const;
 const I16 = { size: 16, strokeWidth: 1.4, absoluteStrokeWidth: true } as const;
