@@ -70,44 +70,48 @@ export async function aggregate(ctx: Ctx, table: string, p: AggregateParams): Pr
   if (metrics.length > 10) throw bad("حداکثر ده سنجه");
   const limit = Math.min(Math.max(Math.trunc(p.limit ?? 500) || 500, 1), 5000);
 
-  const params: unknown[] = [];
-  const where = [readable(ctx, def, "t", params, env)];
-  if (filter) where.push(toSql(filter, def, "t", params, env, { ctx, lookup: schema.lookup }));
-  if (p.q) {
-    const visible = access().visibleFields(ctx, def);
-    const s = searchSql(def, "t", p.q, params, (f) => !visible || visible.has(f.name));
-    if (s) where.push(s);
-  }
-  const whereSql = where.map((w) => `(${w})`).join(" and ");
+  // every statement builds its own parameter list (a statement must use exactly the parameters it is given)
+  const visible = access().visibleFields(ctx, def);
+  const whereOf = (params: unknown[]) => {
+    const where = [readable(ctx, def, "t", params, env)];
+    if (filter) where.push(toSql(filter, def, "t", params, env, { ctx, lookup: schema.lookup }));
+    if (p.q) {
+      const s = searchSql(def, "t", p.q, params, (f) => !visible || visible.has(f.name));
+      if (s) where.push(s);
+    }
+    return where.map((w) => `(${w})`).join(" and ");
+  };
+  const expr = (path: string, params: unknown[]) => pathExpr(def, path, "t", params, env, { ctx, lookup: schema.lookup });
 
-  // metric expressions
-  const metricSql: string[] = [];
+  // metrics (checked once; their SQL is built per statement)
   for (const m of metrics) {
     if (!METRIC_FNS.includes(m.fn)) throw bad(`سنجهٔ «${String(m.fn)}» شناخته نیست`);
-    if (m.fn === "count" && !m.field) {
-      metricSql.push(`count(*)::int as "count"`);
-      continue;
-    }
+    if (m.fn === "count" && !m.field) continue;
     if (!m.field || !pathVisible(ctx, def, m.field, schema)) throw bad(`فیلد «${m.field ?? ""}» برای سنجه در دسترس نیست`);
-    const x = pathExpr(def, m.field, "t", params, env, { ctx, lookup: schema.lookup });
-    const info = FIELD_TYPES[x.field.type];
+    const x = expr(m.field, []);
     const dated = x.field.type === "date" || x.field.type === "datetime";
-    const key = metricKey(m);
-    if (m.fn === "count") metricSql.push(`count(${x.expr})::int as "${key}"`);
-    else if (!info.numeric && !(dated && (m.fn === "min" || m.fn === "max"))) throw bad(`«${x.field.label}» عددی نیست`);
-    else if (m.fn === "sum") metricSql.push(`sum(${x.expr})::numeric::text as "${key}"`);
-    else if (m.fn === "avg") metricSql.push(`round(avg(${x.expr})::numeric, 6)::text as "${key}"`);
-    else if (m.fn === "min" || m.fn === "max") metricSql.push(`${m.fn}(${x.expr})${dated ? "" : "::numeric::text"} as "${key}"`);
-    else metricSql.push(`percentile_cont(${m.fn === "median" ? "0.5" : "0.9"}) within group (order by ${x.expr})::numeric::text as "${key}"`);
+    if (m.fn !== "count" && !FIELD_TYPES[x.field.type].numeric && !(dated && (m.fn === "min" || m.fn === "max"))) throw bad(`«${x.field.label}» عددی نیست`);
   }
+  const metricsOf = (params: unknown[]) =>
+    metrics.map((m) => {
+      const key = metricKey(m);
+      if (m.fn === "count" && !m.field) return `count(*)::int as "count"`;
+      const x = expr(m.field!, params);
+      const dated = x.field.type === "date" || x.field.type === "datetime";
+      if (m.fn === "count") return `count(${x.expr})::int as "${key}"`;
+      if (m.fn === "sum") return `sum(${x.expr})::numeric::text as "${key}"`;
+      if (m.fn === "avg") return `round(avg(${x.expr})::numeric, 6)::text as "${key}"`;
+      if (m.fn === "min" || m.fn === "max") return `${m.fn}(${x.expr})${dated ? "" : "::numeric::text"} as "${key}"`;
+      return `percentile_cont(${m.fn === "median" ? "0.5" : "0.9"}) within group (order by ${x.expr})::numeric::text as "${key}"`;
+    });
 
   // group keys
   const keys: Key[] = [];
   for (const g of groupBy) {
     if (!pathVisible(ctx, def, g.field, schema)) throw bad(`گروه‌بندی بر پایهٔ «${g.field}» ممکن نیست`);
-    const x = pathExpr(def, g.field, "t", params, env, { ctx, lookup: schema.lookup });
+    const x = expr(g.field, []);
     if (UNGROUPABLE.has(x.field.type)) throw bad(`گروه‌بندی بر پایهٔ «${x.field.label}» ممکن نیست`);
-    const k: Key = { path: g.field, field: x.field, def: x.def, expr: x.expr };
+    const k: Key = { path: g.field, field: x.field, def: x.def, expr: "" };
     if (x.field.type === "date" || x.field.type === "datetime") {
       k.bucket = g.bucket && g.bucket in DATE_UNITS ? g.bucket : "day";
     } else if (g.bucket) throw bad(`«${x.field.label}» تاریخ نیست`);
@@ -119,10 +123,13 @@ export async function aggregate(ctx: Ctx, table: string, p: AggregateParams): Pr
   const tz = env.tz || "Asia/Tehran";
   for (const k of keys.filter((x) => x.bucket)) {
     const dated = k.field.type === "date";
+    const params: unknown[] = [];
+    const whereSql = whereOf(params);
+    const e = expr(k.path, params).expr;
     const r = await ctx.db.one<{ lo: string | number | null; hi: string | number | null }>(
       dated
-        ? `select min(${k.expr})::text as lo, max(${k.expr})::text as hi from ${def.table} t where ${whereSql}`
-        : `select (extract(epoch from min(${k.expr})) * 1000)::bigint as lo, (extract(epoch from max(${k.expr})) * 1000)::bigint as hi from ${def.table} t where ${whereSql}`,
+        ? `select min(${e})::text as lo, max(${e})::text as hi from ${def.table} t where ${whereSql}`
+        : `select (extract(epoch from min(${e})) * 1000)::bigint as lo, (extract(epoch from max(${e})) * 1000)::bigint as hi from ${def.table} t where ${whereSql}`,
       params,
     );
     if (r?.lo === null || r?.lo === undefined || r.hi === null || r.hi === undefined) {
@@ -133,9 +140,12 @@ export async function aggregate(ctx: Ctx, table: string, p: AggregateParams): Pr
     k.starts = bucketStarts(day(r.lo), day(r.hi), k.bucket!);
   }
 
+  const params: unknown[] = [];
+  const whereSql = whereOf(params);
   const joins: string[] = [];
   const selects: string[] = [];
   keys.forEach((k, i) => {
+    k.expr = expr(k.path, params).expr;
     if (k.array) {
       joins.push(`left join lateral jsonb_array_elements_text(case when jsonb_typeof(${k.expr}) = 'array' then ${k.expr} else '[]'::jsonb end) g${i}(v) on true`);
       selects.push(`g${i}.v as k${i}`);
@@ -151,6 +161,7 @@ export async function aggregate(ctx: Ctx, table: string, p: AggregateParams): Pr
       }
     } else selects.push(`${k.expr} as k${i}`);
   });
+  const metricSql = metricsOf(params);
 
   const groupSql = keys.length ? ` group by ${keys.map((_, i) => `k${i}`).join(", ")}` : "";
   const firstMetric = metricKey(metrics[0]);
@@ -165,7 +176,9 @@ export async function aggregate(ctx: Ctx, table: string, p: AggregateParams): Pr
       params,
     )
     : [];
-  const totalsRow = await ctx.db.one<Record<string, unknown>>(`select ${metricSql.join(", ")} from ${def.table} t where ${whereSql}`, params);
+  const totalParams: unknown[] = [];
+  const totalWhere = whereOf(totalParams);
+  const totalsRow = await ctx.db.one<Record<string, unknown>>(`select ${metricsOf(totalParams).join(", ")} from ${def.table} t where ${totalWhere}`, totalParams);
 
   const metricKeys = metrics.map(metricKey);
   const refs = new RefSet();

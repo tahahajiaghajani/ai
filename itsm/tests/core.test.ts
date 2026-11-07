@@ -29,7 +29,7 @@ describe("core: accounts, organisations, settings and members", () => {
     expect(me.user).toMatchObject({ email: "owner@example.com", is_platform_admin: true });
     expect(me.orgs.map((o: { id: string }) => o.id)).toEqual([org]);
     const meta = await c.get("/meta");
-    expect(meta).toMatchObject({ app: "ITSM", version: "1.0.0", sync_protocol: 1, first_run: false, signed_in: true });
+    expect(meta).toMatchObject({ app: "ITSM", version: "1.0.0", sync_protocol: 2, first_run: false, signed_in: true });
     expect(meta.schema.pending).toEqual([]);
     const health = await c.get("/health");
     expect(health).toMatchObject({ ok: true, db: "ok", mode: "cloud" });

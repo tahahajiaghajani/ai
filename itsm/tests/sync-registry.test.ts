@@ -25,6 +25,11 @@ const LOCAL_ONLY: Record<string, string> = {
   sm_ai_tool_calls: "audit of the assistant's tool calls",
   sm_ai_actions: "proposals waiting for a person's confirmation",
   sm_ai_data_refs: "tables and charts referenced from answers",
+  // record engine bookkeeping of each runtime
+  sm_numbers: "record number counters (each runtime its own; sync renumbers on a clash)",
+  sm_jobs: "job queue and outbox of record events (each runtime runs its own)",
+  sm_blobs: "attachment contents (fetched lazily by the Windows app, uploaded after a push)",
+  sm_scope_epochs: "per member: bumped when what they may read changes (read by the cloud's pull)",
   // platform administration (web version)
   sm_support_sessions: "super-admin support sessions (web version)",
   sm_security_events: "sign-in and security events",
