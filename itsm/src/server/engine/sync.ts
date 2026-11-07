@@ -31,6 +31,7 @@ import { coerceValue, FieldError, KEEP } from "./values";
 import { fromDb, type Row } from "./read";
 import { recordEvents, sameValue } from "./write";
 import { emitEvent } from "./events";
+import { hooksFor } from "./hooks";
 
 /** Engine-maintained columns a push may not move on an existing row. */
 const PINNED = ["id", "org_id", "no", "created_at", "created_by"];
@@ -150,6 +151,20 @@ async function checkRecord(tx: Tx, ctx: Ctx, def: TableDef, schema: OrgSchema, e
   if ("custom" in row || prev) row.custom = custom;
   if (!prev && def.rowAccess?.write && !isSystemCtx(ctx) && !evaluate(def.rowAccess.write, fromDb(def, { ...row }), env, def, schema.lookup)) {
     return `اجازهٔ ایجاد این ${def.label} را ندارید`;
+  }
+  // module rules that only validate (the ones with side effects ran on the Windows app where the person acted)
+  const checks = hooksFor(def.key).filter((h) => h.validatePush);
+  if (checks.length && !(row.deleted_at && !prev?.deleted_at)) {
+    const next = fromDb(def, { ...(prev ?? {}), ...row });
+    const changed = new Set<string>();
+    for (const f of def.fields) {
+      if (f.base) continue;
+      if (prev ? !sameValue(f, prev[f.name], next[f.name]) : !(next[f.name] === null || next[f.name] === undefined || next[f.name] === false)) changed.add(f.name);
+    }
+    for (const h of checks) {
+      const refusal = await h.validatePush!({ tx, ctx, def, prev, next, changed, env });
+      if (refusal) return refusal;
+    }
   }
   return null;
 }

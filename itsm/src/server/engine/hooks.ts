@@ -36,6 +36,25 @@ export interface WriteArgs {
   /** the transition being taken (op "transition") */
   transition?: Transition;
   env: CondEnv;
+  /** the fields the caller's input set (empty for deletes) */
+  input?: ReadonlySet<string>;
+  /** how the write came in (WriteOptions.via; default "api") */
+  via?: "api" | "import" | "sync";
+  /** trusted server code wrote it (WriteOptions.trusted) */
+  trusted?: boolean;
+}
+
+/** A row a Windows app pushed (the cloud applying it): hooks do not run again, but may refuse it. */
+export interface PushArgs {
+  tx: Tx;
+  ctx: Ctx;
+  def: TableDef;
+  /** the stored row (null when the push creates it) */
+  prev: Row | null;
+  /** the row as it will be stored */
+  next: Row;
+  changed: Set<string>;
+  env: CondEnv;
 }
 
 export type HookResult = string | null | undefined | void;
@@ -45,6 +64,8 @@ export interface TableHooks {
   afterWrite?(w: WriteArgs & { row: Row }): Promise<void> | void;
   validateTransition?(w: WriteArgs & { transition: Transition }): Promise<HookResult> | HookResult;
   guards?: Record<string, (w: WriteArgs & { transition: Transition }) => Promise<HookResult> | HookResult>;
+  /** a sync push of a record (rules with side effects ran where the person acted): a Persian refusal or null */
+  validatePush?(p: PushArgs): Promise<HookResult> | HookResult;
 }
 
 const registry = new Map<string, TableHooks[]>();
