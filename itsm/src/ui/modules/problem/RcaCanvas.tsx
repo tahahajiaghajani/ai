@@ -115,8 +115,8 @@ export default function RcaCanvasTab({ ctx }: { ctx: RecordContext }) {
       <Section title="خط زمانی">
         <ul className="flex flex-col gap-1">
           {c.timeline.map((t, i) => (
-            <li key={`${t.at}-${i}`} className="flex items-start gap-2 text-[13px]">
-              <span className="ds-num w-[132px] shrink-0 text-ink-3">{t.at && !Number.isNaN(Date.parse(t.at)) ? formatJalaliDateTime(t.at, timezone) : t.at}</span>
+            <li key={`${t.at}-${i}`} className="flex flex-col gap-0.5 text-[13px] sm:flex-row sm:items-start sm:gap-2">
+              <span className="ds-num shrink-0 text-ink-3 sm:w-[132px]">{t.at && !Number.isNaN(Date.parse(t.at)) ? formatJalaliDateTime(t.at, timezone) : t.at}</span>
               <span className="min-w-0 flex-1 text-ink">{t.text}</span>
               {!ro ? <Button type="text" size="small" aria-label="حذف" icon={<Trash2 {...ICON14} />} onClick={() => setC(removeAt(c, "timeline", i))} /> : null}
             </li>

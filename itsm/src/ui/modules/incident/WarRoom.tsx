@@ -128,8 +128,8 @@ export default function WarRoom() {
             ) : (
               <ol className="flex flex-col" aria-label="خط زمانی رخداد">
                 {items.map((x) => (
-                  <li key={x.id} className="flex gap-3 border-b border-line py-2 last:border-b-0">
-                    <span className="ds-num w-[132px] shrink-0 text-[12px] text-ink-3">{formatJalaliDateTime(x.at, timezone)}</span>
+                  <li key={x.id} className="flex flex-col gap-1 border-b border-line py-2 last:border-b-0 sm:flex-row sm:gap-3">
+                    <span className="ds-num shrink-0 text-[12px] text-ink-3 sm:w-[132px]">{formatJalaliDateTime(x.at, timezone)}</span>
                     <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                       <div className="flex items-start gap-2">
                         <ChoiceTag option={{ value: x.kind, label: TIMELINE_KINDS[x.kind]?.label ?? x.kind, color: TIMELINE_KINDS[x.kind]?.color as never }} value={x.kind} />

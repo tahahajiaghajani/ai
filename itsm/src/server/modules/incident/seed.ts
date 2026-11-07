@@ -180,7 +180,7 @@ export async function seedIncidentDefaultsIn(tx: Tx, ctx: Ctx, opts: { force?: b
   for (const d of slaDefinitions(cals.office, cals.always)) await ensure(tx, sys, out, "sla_definition", { table_key: "incident", name: d.name }, d);
   for (const r of notificationRules()) await ensure(tx, sys, out, "notification_rule", { table_key: "incident", name: r.name }, r);
   await ensure(tx, sys, out, "ui_policy", { table_key: "incident", name: "رخداد عمده مدیر لازم دارد" }, {
-    condition: { f: "major_state", op: "eq", v: "accepted" }, actions: [{ field: "mi_manager_id", mandatory: true }], message: "رخداد عمده: مدیر رخداد عمده را مشخص کنید", tone: "warning", sort_order: 100,
+    condition: { f: "major_state", op: "eq", v: "accepted" }, actions: [{ field: "mi_manager_id", mandatory: true }], sort_order: 100,
   });
   for (const [i, t] of TEMPLATES.entries()) await ensure(tx, sys, out, "incident_template", { name: t.name }, { ...t, sort_order: (i + 1) * 10 });
   for (const [i, r] of RESPONSES.entries()) await ensure(tx, sys, out, "incident_response", { name: r.name }, { ...r, sort_order: (i + 1) * 10 });

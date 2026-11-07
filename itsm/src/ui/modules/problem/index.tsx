@@ -27,7 +27,8 @@ const widget = (C: ComponentType<{ ctx: RecordContext }>, key: string) => (ctx: 
 
 const ICONS: Record<string, typeof Bug> = { mine: User, triage: Search, monitoring: Activity };
 
-const queueNav = (q: ProblemQueue): NavItem => ({ key: `problem:q:${q.key}`, label: q.label, path: q.path, icon: ICONS[q.key] ?? Bug, area: "work", keywords: "مشکل صف" });
+const SECTION = "مشکلات";
+const queueNav = (q: ProblemQueue): NavItem => ({ key: `problem:q:${q.key}`, label: q.label, path: q.path, icon: ICONS[q.key] ?? Bug, section: SECTION, area: "work", keywords: "مشکل صف" });
 
 const module = recordModule({
   key: "problem",
@@ -35,7 +36,7 @@ const module = recordModule({
   group: { key: "problem", label: "مشکلات" },
   tables: [
     {
-      table: "problem", path: "problems", label: "همهٔ مشکلات", noun: "مشکل", icon: Bug, area: "work",
+      table: "problem", path: "problems", label: "همهٔ مشکلات", noun: "مشکل", icon: Bug, section: SECTION, area: "work",
       keywords: "مشکل علت ریشه‌ای تحلیل PRB", search: { group: "مشکلات" },
       list: { preset: { emptyText: "هنوز مشکلی ثبت نشده است" } },
       extensions: {
@@ -49,21 +50,21 @@ const module = recordModule({
       },
     },
     {
-      table: "known_error", path: "known-errors", label: "خطاهای شناخته‌شده", noun: "خطای شناخته‌شده", icon: BookAlert, area: "work",
+      table: "known_error", path: "known-errors", label: "خطاهای شناخته‌شده", noun: "خطای شناخته‌شده", icon: BookAlert, section: SECTION, area: "work",
       keywords: "خطای شناخته‌شده راه‌حل موقت KEDB KE", search: { group: "خطاهای شناخته‌شده" },
     },
     {
-      table: "problem_candidate", path: "problem-candidates", label: "نامزدهای مشکل", noun: "نامزد مشکل", icon: Radar, area: "work", newAction: false,
+      table: "problem_candidate", path: "problem-candidates", label: "نامزدهای مشکل", noun: "نامزد مشکل", icon: Radar, section: SECTION, area: "work", newAction: false,
       keywords: "نامزد مشکل تکرار رخداد خوشه", search: false,
       list: { actions: <Suspense fallback={null}><RunCandidates /></Suspense>, preset: { quick: ["open"], emptyText: "نامزدی نیست؛ قاعده‌ها هر شب رخدادهای تکراری را بررسی می‌کنند" } },
       extensions: { headerActions: widget(Candidate, "candidate-actions") },
     },
     {
       table: "corrective_action", path: "corrective-actions", label: "اقدام‌های اصلاحی", noun: "اقدام اصلاحی", icon: ShieldCheck, area: "work",
-      section: "کارها", keywords: "اقدام اصلاحی پیشگیرانه CAPA",
+      section: SECTION, keywords: "اقدام اصلاحی پیشگیرانه CAPA",
     },
     {
-      table: "problem_task", path: "problem-tasks", label: "کارهای مشکل", noun: "کار مشکل", icon: ListTodo, area: "work", section: "کارها", newAction: false,
+      table: "problem_task", path: "problem-tasks", label: "کارهای مشکل", noun: "کار مشکل", icon: ListTodo, area: "work", section: SECTION, newAction: false,
       keywords: "کار مشکل تحلیل PTASK",
       extensions: { headerActions: widget(Task, "task-actions") },
     },

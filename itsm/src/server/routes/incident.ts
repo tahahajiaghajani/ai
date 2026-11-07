@@ -18,6 +18,11 @@ import { seedProblemDefaults } from "../modules/problem";
 const UUID = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, "شناسه معتبر نیست");
 const id = (v: string | undefined) => UUID.parse(v ?? "").toLowerCase();
 const text = (max: number) => z.string().max(max, `حداکثر ${max} نویسه`);
+/** A record as the caller may see it (fields they may not read stripped), never the raw stored row. */
+const shaped = async (ctx: Parameters<typeof get>[0], table: string, rid: string) => {
+  const r = await get(ctx, table, rid);
+  return { row: r.row, display: r.display };
+};
 
 export const incidentRoutes = router();
 
@@ -68,7 +73,9 @@ incidentRoutes.get("/:id/readiness", async (c) => c.json(await readiness(c.get("
 
 incidentRoutes.post("/:id/escalate", async (c) => {
   const input = await body(c, z.object({ kind: z.enum(["functional", "hierarchical"]), group_id: UUID.nullish(), reason: text(2000) }));
-  return c.json({ row: await escalate(c.get("ctx"), id(c.req.param("id")), input) });
+  const ctx = c.get("ctx");
+  const row = await escalate(ctx, id(c.req.param("id")), input);
+  return c.json(await shaped(ctx, "incident", row.id));
 });
 
 incidentRoutes.post("/:id/merge", async (c) => {
@@ -78,12 +85,16 @@ incidentRoutes.post("/:id/merge", async (c) => {
 
 incidentRoutes.post("/:id/related", async (c) => {
   const input = await body(c, z.object({ mode: z.enum(["child", "copy", "follow_up"]), short_description: text(200).nullish() }));
-  return c.json({ row: await createRelated(c.get("ctx"), id(c.req.param("id")), input.mode, input) });
+  const ctx = c.get("ctx");
+  const row = await createRelated(ctx, id(c.req.param("id")), input.mode, input);
+  return c.json(await shaped(ctx, "incident", row.id));
 });
 
 incidentRoutes.post("/:id/apply-known-error", async (c) => {
   const input = await body(c, z.object({ known_error_id: UUID, resolve: z.boolean().optional() }));
-  return c.json({ row: await applyKnownError(c.get("ctx"), id(c.req.param("id")), input.known_error_id, { resolve: input.resolve }) });
+  const ctx = c.get("ctx");
+  const row = await applyKnownError(ctx, id(c.req.param("id")), input.known_error_id, { resolve: input.resolve });
+  return c.json(await shaped(ctx, "incident", row.id));
 });
 
 const major = z.object({
@@ -99,7 +110,9 @@ const major = z.object({
 
 incidentRoutes.post("/:id/major", async (c) => {
   const { action, ...input } = await body(c, major);
-  return c.json({ row: await majorAction(c.get("ctx"), id(c.req.param("id")), action, { ...input, bridge_url: input.bridge_url || undefined, chat_url: input.chat_url || undefined }) });
+  const ctx = c.get("ctx");
+  const row = await majorAction(ctx, id(c.req.param("id")), action, { ...input, bridge_url: input.bridge_url || undefined, chat_url: input.chat_url || undefined });
+  return c.json(await shaped(ctx, "incident", row.id));
 });
 
 incidentRoutes.get("/:id/timeline", async (c) => c.json(await timelineOf(c.get("ctx"), id(c.req.param("id")))));
@@ -133,7 +146,11 @@ incidentRoutes.post("/:id/updates", async (c) => {
   return c.json(await sendUpdate(c.get("ctx"), id(c.req.param("id")), input));
 });
 
-incidentRoutes.post("/:id/review", async (c) => c.json(await draftReview(c.get("ctx"), id(c.req.param("id")))));
+incidentRoutes.post("/:id/review", async (c) => {
+  const ctx = c.get("ctx");
+  const r = await draftReview(ctx, id(c.req.param("id")));
+  return c.json({ ...(await shaped(ctx, "incident_review", r.row.id)), created: r.created });
+});
 
 // AI skills (only when the AI layer registered them): suggestions, never writes
 const SKILLS = ["summarize", "suggestResolution", "draftKnowledge", "draftUpdate"] as const;

@@ -178,6 +178,7 @@ const incident: TableDef = {
     { name: "assigned_to", label: "کارشناس", type: "user", section: MAIN },
     { name: "hold_reason", label: "دلیل انتظار", type: "choice", choices: "incident.hold_reason", filter: true, list: true, span: 8, section: MAIN },
     { name: "escalation", label: "سطح تشدید", type: "int", section: MAIN },
+    { name: "approval", label: "تأیید", type: "choice", hidden: true },
     { name: "vip", label: "کاربر ویژه", type: "bool", system: true, filter: true, span: 8, section: MAIN },
     { name: "security_incident", label: "رخداد امنیتی", type: "bool", default: false, filter: true, span: 8, section: MAIN, help: "رخداد را محرمانه می‌کند و به گروه امنیت می‌سپارد" },
     { name: "template_id", label: "الگو", type: "ref", ref: "incident_template", filter: true, span: 8, section: MAIN },

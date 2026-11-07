@@ -264,6 +264,7 @@ export async function timelineOf(ctx: Ctx, id: string): Promise<{ items: Timelin
 
   const kids = await list(ctx, "incident", { filter: { f: "parent_id", op: "eq", v: id }, fields: ["number", "short_description", "opened_at"], size: 200, total: false, sort: "opened_at" }).catch(() => null);
   for (const k of kids?.rows ?? []) {
+    display[k.id] = `${k.number ?? ""} — ${k.short_description ?? ""}`;
     items.push({ id: `c:${k.id}`, at: k.opened_at ?? row.opened_at, kind: "child", title: `رخداد فرزند ${k.number ?? ""}: ${k.short_description ?? ""}`, source: "child", ref: { table: "incident", id: k.id, number: k.number ?? null } });
   }
 

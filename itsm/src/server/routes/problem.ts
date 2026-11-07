@@ -22,6 +22,12 @@ const fromInput = z.object({
   assigned_to: UUID.nullish(),
 });
 
+/** A record as the caller may see it (fields they may not read stripped), never the raw stored row. */
+const shaped = async (ctx: Parameters<typeof get>[0], table: string, rid: string) => {
+  const r = await get(ctx, table, rid);
+  return { row: r.row, display: r.display };
+};
+
 export const problemRoutes = router();
 
 problemRoutes.get("/dashboard", async (c) => {
@@ -32,7 +38,9 @@ problemRoutes.get("/dashboard", async (c) => {
 problemRoutes.post("/from-incidents", async (c) => {
   const input = await body(c, fromInput.extend({ incident_ids: ids }));
   const { incident_ids, ...rest } = input;
-  return c.json(await createFromIncidents(c.get("ctx"), incident_ids, rest));
+  const ctx = c.get("ctx");
+  const r = await createFromIncidents(ctx, incident_ids, rest);
+  return c.json({ problem: (await shaped(ctx, "problem", r.problem.id)).row, done: r.done, failed: r.failed });
 });
 
 // run the candidate rules now: whoever may create candidates (problem managers and above)
@@ -46,7 +54,9 @@ problemRoutes.post("/candidates/run", async (c) => {
 
 problemRoutes.post("/candidates/:id/promote", async (c) => {
   const input = await body(c, fromInput);
-  return c.json(await promoteCandidate(c.get("ctx"), id(c.req.param("id")), input));
+  const ctx = c.get("ctx");
+  const r = await promoteCandidate(ctx, id(c.req.param("id")), input);
+  return c.json({ problem: (await shaped(ctx, "problem", r.problem.id)).row, done: r.done, failed: r.failed });
 });
 
 problemRoutes.post("/candidates/:id/merge", async (c) => {
@@ -54,7 +64,11 @@ problemRoutes.post("/candidates/:id/merge", async (c) => {
   return c.json(await mergeCandidate(c.get("ctx"), id(c.req.param("id")), input.problem_id));
 });
 
-problemRoutes.post("/tasks/:id/copy-findings", async (c) => c.json({ row: await copyFindings(c.get("ctx"), id(c.req.param("id"))) }));
+problemRoutes.post("/tasks/:id/copy-findings", async (c) => {
+  const ctx = c.get("ctx");
+  const row = await copyFindings(ctx, id(c.req.param("id")));
+  return c.json(await shaped(ctx, "problem", row.id));
+});
 
 problemRoutes.post("/:id/link-incidents", async (c) => {
   const input = await body(c, z.object({ incident_ids: ids, unlink: z.boolean().optional() }));
@@ -71,7 +85,11 @@ problemRoutes.post("/:id/share", async (c) => {
   return c.json(await shareSolution(c.get("ctx"), id(c.req.param("id")), input));
 });
 
-problemRoutes.post("/:id/known-error", async (c) => c.json({ row: await createKnownError(c.get("ctx"), id(c.req.param("id"))) }));
+problemRoutes.post("/:id/known-error", async (c) => {
+  const ctx = c.get("ctx");
+  const row = await createKnownError(ctx, id(c.req.param("id")));
+  return c.json(await shaped(ctx, "known_error", row.id));
+});
 
 // AI skills (only when the AI layer registered them): suggestions, never writes
 const SKILLS = ["draftRca", "summarize"] as const;
