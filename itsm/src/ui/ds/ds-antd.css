@@ -1,0 +1,108 @@
+/* Siraf · Ant Design 6 — the rules design tokens cannot express. Load AFTER antd's styles:
+   with `@layer theme, base, antd, components, utilities;` put this file in `components` and render antd through
+   <StyleProvider layer> (its CSS-in-JS then lives in the `antd` layer), so these rules win without !important. */
+@layer components {
+  /* focus: the opaque brand ring (2 px gap + 2 px, 5.6:1 or more) on every antd control; rows and cells draw it inside */
+  :where(.ant-btn, .ant-segmented-item, .ant-tabs-tab-btn, .ant-pagination-item, .ant-pagination-prev, .ant-pagination-next,
+         .ant-switch, .ant-menu-item, .ant-menu-submenu-title, .ant-tag, .ant-drawer-close, .ant-modal-close, .ant-typography a):focus-visible,
+  :where(.ant-checkbox, .ant-radio):has(input:focus-visible) {
+    outline: 2px solid var(--sf-focus-color);
+    outline-offset: 2px;
+  }
+  :where(.ant-table-tbody > tr, .ant-table-cell, .ant-picker-cell):focus-visible { outline: 2px solid var(--sf-focus-color); outline-offset: -2px; }
+  /* raised layers: the box-shadow ring's gap takes their fill (tokens.css §8) */
+  :where(.ant-drawer-section, .ant-modal-container, .ant-dropdown-menu, .ant-popover-container, .ant-select-dropdown, .ant-picker-dropdown) {
+    --sf-focus-gap: var(--sf-raised);
+    --sf-focus-ring: 0 0 0 2px var(--sf-raised), 0 0 0 4px var(--sf-focus-color);
+  }
+
+  /* fields: a line-2 outline whose bottom edge is --sf-control-strong (line-2 alone is 1.3:1). Hover, focus, status and
+     disabled states hand the bottom edge back to antd's own colour (revert-layer → the antd layer). */
+  :is(.ant-input-outlined, .ant-input-number-outlined, .ant-picker-outlined, .ant-select-outlined) { border-bottom-color: var(--sf-control-strong); }
+  :is(.ant-input-outlined, .ant-input-number-outlined, .ant-picker-outlined, .ant-select-outlined):is(:hover, :focus, :focus-within,
+     .ant-input-affix-wrapper-focused, .ant-input-number-focused, .ant-picker-focused, .ant-select-focused, .ant-select-open,
+     [class*="-status-error"], [class*="-status-warning"], [class*="-disabled"]) { border-bottom-color: revert-layer; }
+
+  /* switch "on": an ink track (Switch.colorPrimary) with a canvas thumb */
+  .ant-switch.ant-switch-checked .ant-switch-handle::before { background-color: var(--sf-canvas); }
+
+  /* segmented: the selected pill is only 1.16:1 against its track, so the label turns 600 (and the pill has a 16 % ring) */
+  .ant-segmented .ant-segmented-item { font-weight: var(--sf-weight-medium); }
+  .ant-segmented .ant-segmented-item-selected { font-weight: 600; }
+
+  /* links are ink with a quiet underline; Dusk is reserved for the primary action, focus and selection */
+  :is(.ant-typography a, a.ant-typography, .ant-btn-variant-link) {
+    text-decoration-line: underline; text-decoration-thickness: 1px; text-decoration-color: rgb(var(--sf-ink-rgb) / .28); text-underline-offset: 4px;
+  }
+  :is(.ant-typography a, a.ant-typography, .ant-btn-variant-link):hover { text-decoration-color: var(--sf-text); }
+
+  /* page and section titles are Arad at its own proportions (DSTY 3); everything else is Arad UI, digits Siraf Num */
+  h1.ant-typography, h2.ant-typography { font-family: var(--sf-font-display); font-variation-settings: "DSTY" 3; font-weight: 700; letter-spacing: 0; }
+
+  /* numbers: put className "sf-num" on money/weight/rate columns — tabular, start-aligned (right in RTL) and NEVER
+     ellipsized («…٬۹۰۳٬۰۰۰» is a different number). Size the column to its widest value + 24 px (≥ 136 px at 14 px,
+     ≥ 128 px at 13 px); text columns take the squeeze; past that the table scrolls sideways. An overflowing figure
+     spills visibly instead of hiding. (No letter-spacing: Chromium ignores it on Persian digits.) */
+  .ant-table .sf-num { font-variant-numeric: tabular-nums; white-space: nowrap; text-overflow: clip; overflow: visible; }
+
+  /* density: compact tables (size="small") have 32 px headers at 12/18; the comfortable header is 36 px (sirafConfig) */
+  .ant-table-small .ant-table-thead > tr > th { padding-block: 7px; font-size: 12px; line-height: 18px; }
+  /* compact rows: 20 px content + 2 × 6 px = 32 px (+ the 1 px rule, as antd counts it); a status chip, the selection
+     checkbox and the 13 px line must not stretch them */
+  .ant-table-small .ant-table-tbody > tr > td { line-height: 20px; }
+  .ant-table-small :is(.ant-tag, .ant-checkbox-wrapper) { block-size: 20px; line-height: 18px; vertical-align: top; }
+
+  /* totals row: a stronger rule above, weight 600, sticky with the summary (Table.Summary fixed); 40 / 36 px */
+  .ant-table-summary > tr > td,
+  .ant-table-summary > tr > th { border-block-start: 1px solid var(--sf-line-3); border-block-end: 0; font-weight: 600; background: var(--sf-surface); }
+
+  /* the selected row (the record open in the sheet): the neutral fill (rowSelectedBg) plus a 3 px Dusk bar at the start
+     edge. inset −3 px draws on the right, the start side of this RTL-only app. */
+  .ant-table-tbody > tr.ant-table-row-selected > td:first-child { box-shadow: inset calc(-1 * var(--sf-selected-bar)) 0 0 var(--sf-accent-bar); }
+
+  /* sorted column: no tinted column (bodySortBg is transparent); the active header and its arrow turn ink (not Dusk) */
+  .ant-table-column-sort.ant-table-cell, th.ant-table-column-has-sorters.ant-table-column-sort { color: var(--sf-text); }
+  .ant-table-column-sorter :is(.ant-table-column-sorter-up, .ant-table-column-sorter-down).active { color: var(--sf-text); }
+
+  /* sidebar menu: medium labels; icons never coloured */
+  .ant-menu-light .ant-menu-item, .ant-menu-light .ant-menu-submenu-title { font-weight: var(--sf-weight-medium); }
+  .ant-menu-light .ant-menu-item .ant-menu-item-icon { color: var(--sf-text-3); }
+  .ant-menu-light .ant-menu-item-selected .ant-menu-item-icon { color: var(--sf-text); }
+
+  /* hover appears instantly and fades out over 160 ms (brief §5) */
+  .ant-menu-item, .ant-btn-variant-text, .ant-table-tbody > tr > td { transition-property: background-color, color; transition-duration: var(--sf-dur-base); transition-timing-function: var(--sf-ease-out-quad); }
+  .ant-menu-item:hover, .ant-btn-variant-text:hover, .ant-table-tbody > tr:hover > td { transition-duration: 0ms; }
+
+  /* tags are status chips: 22 px pills (tint + text); our 5 px nuqta can be passed as the icon */
+  .ant-tag { block-size: 22px; line-height: 20px; font-size: 12px; display: inline-flex; align-items: center; gap: 6px; }
+
+  /* warnings never sit on an amber fill (amber surfaces belong to gold): Alert type="warning" is a surface with a line
+     ring and a warning-fill icon; wrap the lead words in <b> to colour them */
+  .ant-alert-warning { background: var(--sf-surface); border-color: var(--sf-line-2); }
+  .ant-alert-warning .ant-alert-icon { color: var(--sf-warning-fill); }
+  .ant-alert-warning .ant-alert-title { color: var(--sf-text); }
+  .ant-alert-warning .ant-alert-title b { color: var(--sf-warning); font-weight: 600; }
+
+  /* calendars: today is a neutral ring at 600 (selected stays Dusk); give Fridays className "sf-holiday" in cellRender */
+  .ant-picker-cell-in-view.ant-picker-cell-today .ant-picker-cell-inner { font-weight: 600; }
+  .ant-picker-cell-in-view.ant-picker-cell-today .ant-picker-cell-inner::before { border-color: var(--sf-control-strong); }
+  .ant-picker-cell-in-view .sf-holiday { color: var(--sf-holiday); }
+
+  /* the side sheet slides from the end edge (left in RTL) with the sheet curve: 240 ms in, 180 ms out. A sheet opened
+     from the keyboard (a shortcut or the palette) passes `rootClassName="sf-instant"` and appears at once. */
+  .ant-drawer-content-wrapper { transition-timing-function: var(--sf-ease-sheet) !important; transition-duration: var(--sf-dur-sheet) !important; }
+  .ant-drawer [class*="ant-drawer-panel-motion"][class*="-leave-active"] { transition-duration: var(--sf-dur-sheet-exit) !important; }
+  .ant-drawer.sf-instant [class*="ant-drawer-panel-motion"] { transition: none !important; }
+
+  /* toasts never cover the open sheet (its footer holds the primary action and the total): while a sheet is open the
+     bottom-left stack moves beside it. antd positions the stack with a physical `left`. */
+  :root:has(.ant-drawer-open) .ant-notification-bottomLeft { left: calc(var(--sf-sheet-w) + 2 * var(--sf-panel-inset) + 16px); }
+
+  /* codes inside inputs (IBAN, card, wallet): LTR, Geist Mono, no ss01 — business document numbers stay Persian digits */
+  .ant-input.sf-code, .sf-code .ant-input { font-family: var(--sf-font-mono); font-feature-settings: normal; direction: ltr; text-align: left; }
+
+  /* menus and select popups are solid raised; a menu that floats over scrolling content (the account menu, a table's
+     "more" menu) opts into the floating glass with rootClassName="sf-glass" */
+  .ant-dropdown .ant-dropdown-menu, .ant-select-dropdown { -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .ant-dropdown.sf-glass .ant-dropdown-menu { background: var(--sf-glass-float); -webkit-backdrop-filter: var(--sf-glass-filter); backdrop-filter: var(--sf-glass-filter); }
+}

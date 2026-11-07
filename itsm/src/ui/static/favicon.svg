@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16">
+  <title>سیراف</title>
+  <!-- Hand-pixelled 16 px cut of mark A: three 1-3-5-3-1 nuqtas sharing their tip rows (solid 1 px necks) beside a 2 px alef
+       with a 1 px 45° step at both ends. Every edge sits on the pixel grid, so it is crisp at 16 and 32 px. Dusk on light,
+       warm white on dark. -->
+  <style>path{fill:#6A2E63}@media (prefers-color-scheme:dark){path{fill:#F2F0EC}}</style>
+  <path d="M11 1h1v1h-1ZM5 2h1v1h-1ZM10 2h2v12h-2ZM4 3h3v1h-3ZM3 4h5v1h-5ZM4 5h3v1h-3ZM5 6h1v1h-1ZM4 7h3v1h-3ZM3 8h5v1h-5ZM4 9h3v1h-3ZM5 10h1v1h-1ZM4 11h3v1h-3ZM3 12h5v1h-5ZM4 13h3v1h-3ZM5 14h1v1h-1ZM10 14h1v1h-1Z"/>
+</svg>

@@ -1,0 +1,310 @@
+/* Siraf · سیراف — the app stylesheet. The design system lives in ./siraf/ (README.md there).
+   Layer order: Ant Design's CSS-in-JS (<StyleProvider layer>) sits in `antd`, between Tailwind's base and its
+   components/utilities, so siraf-antd.css (components) and Tailwind utilities still adjust Ant Design. */
+@layer theme, base, antd, components, utilities;
+@import "tailwindcss";
+@import "./siraf/tokens.css"; /* fonts, tokens, base primitives (@layer base) */
+@import "./siraf/siraf-antd.css"; /* @layer components: after antd's CSS-in-JS layer */
+@import "./siraf/motion.css"; /* @layer components: enter / fade / stagger / press / launch */
+@import "./siraf/brand.css"; /* @layer components: the Dusk brand surface (login, onboarding, About) */
+
+/* Tailwind v4 bridge: utilities read the Siraf variables, so dark mode needs no `dark:` variants (antd-theme.md §1) */
+@theme inline {
+  --font-sans: var(--sf-font-sans);
+  --font-display: var(--sf-font-display);
+  --font-latin: var(--sf-font-latin);
+  --font-mono: var(--sf-font-mono);
+  /* the three UI weights (450 / 540 / 600 on screen, 400 / 500 / 700 in print) */
+  --font-weight-normal: var(--sf-weight-regular);
+  --font-weight-medium: var(--sf-weight-medium);
+  --font-weight-semibold: var(--sf-weight-strong);
+  --color-canvas: var(--sf-canvas);
+  --color-surface: var(--sf-surface);
+  --color-raised: var(--sf-raised);
+  --color-sunken: var(--sf-sunken);
+  --color-well: var(--sf-well);
+  --color-ink: var(--sf-text);
+  --color-ink-2: var(--sf-text-2);
+  --color-ink-3: var(--sf-text-3);
+  --color-ink-4: var(--sf-text-4);
+  --color-line: var(--sf-line);
+  --color-line-2: var(--sf-line-2);
+  --color-line-3: var(--sf-line-3);
+  --color-control-strong: var(--sf-control-strong);
+  --color-accent: var(--sf-accent);
+  --color-accent-hover: var(--sf-accent-hover);
+  --color-accent-text: var(--sf-accent-text);
+  --color-accent-tint: var(--sf-accent-tint);
+  --color-accent-tint-2: var(--sf-accent-tint-2);
+  --color-accent-bar: var(--sf-accent-bar);
+  --color-focus: var(--sf-focus-color);
+  --color-in: var(--sf-in);
+  --color-in-tint: var(--sf-in-tint);
+  --color-danger: var(--sf-danger);
+  --color-danger-tint: var(--sf-danger-tint);
+  --color-warning: var(--sf-warning);
+  --color-warning-fill: var(--sf-warning-fill);
+  --color-warning-tint: var(--sf-warning-tint);
+  --color-neutral-tint: var(--sf-neutral-tint);
+  --color-holiday: var(--sf-holiday);
+  --color-gold-text: var(--sf-gold-text);
+  --color-gold: var(--sf-gold);
+  --color-gold-tint: var(--sf-gold-tint);
+  --color-gold-line: var(--sf-gold-line);
+  --color-sea-text: var(--sf-sea-text);
+  --color-sea-tint: var(--sf-sea-tint);
+  --radius-xs: var(--sf-radius-xs);
+  --radius-sm: var(--sf-radius-sm);
+  --radius-md: var(--sf-radius-md);
+  --radius-lg: var(--sf-radius-lg);
+  --radius-xl: var(--sf-radius-xl);
+  --shadow-e1: var(--sf-shadow-e1);
+  --shadow-e2: var(--sf-shadow-e2);
+  --shadow-e3: var(--sf-shadow-e3);
+  --shadow-e4: var(--sf-shadow-e4);
+  --ease-out: var(--sf-ease-out);
+  --ease-in-out: var(--sf-ease-in-out);
+
+  /* ---- LEGACY utility colours (Taraz names; see "Legacy aliases" below). Do not use them in new code. ---- */
+  --color-bg: var(--sf-canvas); /* bg-bg → bg-canvas */
+  --color-surface-2: var(--sf-sunken); /* bg-surface-2 → bg-sunken */
+  --color-line-strong: var(--sf-line-3); /* border-line-strong → border-line-3 */
+  --color-muted: var(--sf-text-3); /* text-muted → text-ink-3 (or text-ink-2 for secondary body text) */
+  --color-brand: var(--sf-accent); /* bg-brand → bg-accent; text-brand is remapped below to accent-text */
+  --color-brand-soft: var(--sf-accent-tint); /* bg-brand-soft → bg-accent-tint */
+  --color-gold-soft: var(--sf-gold-tint); /* bg-gold-soft → bg-gold-tint */
+  --color-ok: var(--sf-in); /* text-ok → text-in */
+  --color-bad: var(--sf-danger); /* text-bad → text-danger */
+  --color-warn: var(--sf-warning); /* text-warn → text-warning */
+}
+
+/* =====================================================================================================
+   LEGACY ALIASES — keep today's screens working in the Siraf palette until each screen is migrated.
+   Remove this whole block (and the legacy colours in @theme above) once nothing uses them:
+     grep -rnE "tz-|text-muted|bg-surface-2|brand|gold-soft|text-ok|text-bad|text-warn|line-strong|row-muted|row-level|\bnum\b|\bltr\b" src/ui
+   ===================================================================================================== */
+:root {
+  --tz-bg: var(--sf-canvas);
+  --tz-surface: var(--sf-surface);
+  --tz-surface-2: var(--sf-sunken);
+  --tz-line: var(--sf-line);
+  --tz-line-strong: var(--sf-line-3);
+  --tz-text: var(--sf-text);
+  --tz-muted: var(--sf-text-3);
+  --tz-primary: var(--sf-accent-text);
+  --tz-primary-soft: var(--sf-accent-tint);
+  --tz-gold: var(--sf-gold-text);
+  --tz-gold-soft: var(--sf-gold-tint);
+  --tz-success: var(--sf-in);
+  --tz-danger: var(--sf-danger);
+  --tz-warning: var(--sf-warning);
+  --tz-shadow: var(--sf-shadow-e1);
+  /* the old navy sidebar (and the TV rates board) become warm charcoal until the shell moves to the canvas sidebar */
+  --tz-sidebar: #1c1916;
+  --tz-sidebar-2: #221d18;
+  --tz-sidebar-text: #d3cec8;
+  --tz-sidebar-active: #d8b1d4;
+}
+:root[data-theme="dark"] {
+  --tz-sidebar: #0b0a08;
+  --tz-sidebar-2: #110f0e;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --tz-sidebar: #0b0a08;
+    --tz-sidebar-2: #110f0e;
+  }
+}
+
+@layer components {
+  /* .num / .ltr: the old names of .sf-num / .sf-ltr. `.num` no longer sets "tnum" (it cancelled ss01, the Persian digits) */
+  .num {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .ltr {
+    direction: ltr;
+    unicode-bidi: isolate;
+  }
+  /* cards: the e1 ring + shadow (the transparent border keeps `!border-brand` selections working) */
+  .tz-card {
+    background: var(--sf-surface);
+    border: 1px solid transparent;
+    border-radius: var(--sf-radius-lg);
+    box-shadow: var(--sf-shadow-e1);
+  }
+  .tz-soft {
+    background: var(--sf-sunken);
+    border: 1px solid var(--sf-line);
+    border-radius: 10px;
+  }
+  .tz-neg {
+    color: var(--sf-danger);
+  }
+  .tz-pos {
+    color: var(--sf-in);
+  }
+  /* keyboard keys: Geist 11/500 on sunken, an inset line-2 ring with a 1 px bottom edge (components.md §1.2) */
+  .tz-kbd {
+    display: inline-block;
+    font-family: var(--sf-font-latin);
+    font-feature-settings: normal;
+    font-size: var(--sf-type-kbd-size);
+    font-weight: var(--sf-weight-medium);
+    line-height: 18px;
+    min-inline-size: 20px;
+    padding-inline: 5px;
+    text-align: center;
+    border-radius: var(--sf-radius-xs);
+    color: var(--sf-text-2);
+    background: var(--sf-sunken);
+    box-shadow:
+      inset 0 0 0 1px var(--sf-line-2),
+      inset 0 -1px 0 var(--sf-line-2);
+  }
+
+  /* dense financial tables: unfilled headers come from the theme; level rows for trial balances and opening rows */
+  .tz-table .ant-table-tbody > tr > td {
+    font-size: 13px;
+  }
+  .tz-table .ant-table-summary td {
+    font-weight: 600;
+    background: var(--sf-surface);
+  }
+  .tz-table .row-level-1 td {
+    font-weight: 600;
+    background: var(--sf-sunken);
+  }
+  .tz-table .row-level-2 td {
+    font-weight: 600;
+  }
+  /* inactive / excluded rows: text-3, never dimmed below legibility and never struck through */
+  .tz-table .row-muted td {
+    color: var(--sf-text-3);
+  }
+
+  /* editable document grids (voucher, invoice): unfilled 12/18 headers in text-3, hairline rows, a line-3 totals rule */
+  .tz-grid {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+  .tz-grid th {
+    font-size: 12px;
+    line-height: 18px;
+    font-weight: var(--sf-weight-regular);
+    color: var(--sf-text-3);
+    background: var(--sf-surface);
+    padding: 7px 8px;
+    border-bottom: 1px solid var(--sf-line-2);
+    text-align: start;
+    white-space: nowrap;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+  }
+  .tz-grid td {
+    padding: 3px 4px;
+    border-bottom: 1px solid var(--sf-line);
+    vertical-align: middle;
+  }
+  .tz-grid tr:hover td {
+    background: var(--sf-hover-row);
+  }
+  .tz-grid tfoot td {
+    font-weight: 600;
+    background: var(--sf-surface);
+    border-top: 1px solid var(--sf-line-3);
+    border-bottom: 0;
+    padding: 8px;
+  }
+}
+
+@layer utilities {
+  /* legacy text colours whose bridge colour is a fill: text in Dusk / gold uses the readable text role */
+  .text-brand {
+    color: var(--sf-accent-text);
+  }
+  .text-gold {
+    color: var(--sf-gold-text);
+  }
+}
+/* ================================ end of legacy aliases ================================ */
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--sf-line-3) transparent;
+  }
+  /* nothing focused may hide under the sticky top bar (WCAG 2.4.11) */
+  html {
+    scroll-padding-top: var(--sf-topbar-h);
+  }
+}
+
+/* the mark's one colour: Dusk on paper, warm white on charcoal (brief §7; components/brand.tsx) */
+@layer components {
+  .sf-mark-color {
+    color: var(--sf-dusk-700);
+  }
+  :root[data-theme="dark"] .sf-mark-color {
+    color: #f2f0ec;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .sf-mark-color {
+      color: #f2f0ec;
+    }
+  }
+}
+
+/* boot screen (index.html, before React mounts): the mark's nuqtas set beside the alef, on the canvas */
+.boot {
+  height: 100%;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 14px;
+  color: var(--sf-dusk-700);
+}
+.boot-mark {
+  inline-size: 56px;
+  block-size: 56px;
+}
+:root[data-theme="dark"] .boot {
+  color: #f2f0ec;
+}
+
+/* printing: only the printable sheet (tokens.css §7 switches to light ink on white and the static print fonts) */
+@media print {
+  @page {
+    margin: 10mm;
+  }
+  body {
+    background: #fff !important;
+  }
+  .no-print,
+  .ant-layout-sider,
+  .tz-header,
+  .ant-message,
+  .ant-notification,
+  /* floating layers never print (a tooltip left under the pointer would land on the sheet) */
+  .ant-tooltip,
+  .ant-popover,
+  .ant-dropdown,
+  .ant-select-dropdown,
+  .ant-picker-dropdown {
+    display: none !important;
+  }
+  .print-sheet {
+    box-shadow: none !important;
+    border: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: auto !important;
+  }
+}

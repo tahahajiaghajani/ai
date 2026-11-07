@@ -1,0 +1,579 @@
+/* Siraf · the shared kit (data.tsx, display.tsx, inputs.tsx, import.tsx): tables, figures, chips, empty states,
+   skeletons, stat tiles, forms, the Jalali calendar. Tokens only (siraf/tokens.css), logical properties only, no
+   `transition: all`, no `dark:` variants (every token follows the theme). The rules are components.md §3–9. */
+@layer components {
+  /* ================================================================== figures */
+  .sf-zero { color: var(--sf-text-3); }
+  .sf-in-t { color: var(--sf-in); }
+  .ant-table .ant-table-tbody > tr > td .sf-in-t { color: var(--sf-in); }
+  .sf-bal-side { font-size: 12px; color: var(--sf-text-3); font-weight: var(--sf-weight-regular); }
+  .sf-hint { cursor: help; border-block-end: 1px dashed var(--sf-line-3); }
+
+  /* ================================================================== status chips (§4.3) */
+  .sf-status { font-size: 13px; line-height: 20px; color: var(--sf-text-3); white-space: nowrap; }
+  .sf-chip {
+    display: inline-flex; align-items: center; gap: 6px; vertical-align: middle;
+    block-size: 22px; padding-inline: 8px 9px; border-radius: var(--sf-radius-pill);
+    font-size: 12px; line-height: 18px; font-weight: var(--sf-weight-medium); white-space: nowrap;
+    background: var(--sf-neutral-tint); color: var(--sf-text-2);
+  }
+  .sf-chip > .sf-nuqta { inline-size: 5px; block-size: 5px; }
+  .sf-chip-fig { font-size: 13px; font-variant-numeric: tabular-nums; }
+  .sf-chip[data-tone="warning"] { background: var(--sf-warning-tint); color: var(--sf-warning); }
+  .sf-chip[data-tone="warning"] > .sf-nuqta { color: var(--sf-warning-fill); }
+  .sf-chip[data-tone="danger"] { background: var(--sf-danger-tint); color: var(--sf-danger); }
+  .sf-chip[data-tone="in"] { background: var(--sf-in-tint); color: var(--sf-in); }
+  .sf-chip[data-tone="accent"] { background: var(--sf-accent-tint-2); color: var(--sf-accent-text); }
+  .ant-table-small .sf-chip { block-size: 20px; vertical-align: top; }
+
+  /* ================================================================== empty states (§7) */
+  .sf-empty {
+    display: flex; flex-direction: column; align-items: center; text-align: center;
+    max-inline-size: 360px; margin-inline: auto; padding: 40px 16px 36px; white-space: normal;
+  }
+  .sf-empty-compact { padding-block: 20px; }
+  .sf-empty-tile {
+    display: grid; place-items: center; inline-size: 56px; block-size: 56px;
+    border-radius: var(--sf-radius-lg); background: var(--sf-sunken); color: var(--sf-text-3);
+    box-shadow: inset 0 0 0 1px var(--sf-line);
+  }
+  .sf-empty-compact .sf-empty-tile { inline-size: 44px; block-size: 44px; border-radius: 10px; }
+  :is(.ant-drawer, .ant-modal, .ant-popover) .sf-empty-tile { background: var(--sf-well); }
+  .sf-empty-title { margin-block-start: 16px; font-size: 16px; line-height: 24px; font-weight: 600; color: var(--sf-text); }
+  .sf-empty-compact .sf-empty-title { margin-block-start: 12px; font-size: 14px; line-height: 22px; }
+  .sf-empty-text { max-inline-size: 360px; margin-block-start: 4px; font-size: 14px; line-height: 22px; color: var(--sf-text-2); text-wrap: balance; }
+  .sf-empty-act { display: flex; flex-direction: column; align-items: center; gap: 12px; margin-block-start: 16px; }
+  .sf-empty-act .sf-mono { color: var(--sf-text-3); }
+  /* the table's own placeholder cell: no hover tint, no rule */
+  .ant-table .ant-table-placeholder > td,
+  .ant-table .ant-table-placeholder:hover > td { background: transparent; border-block-end: 0; }
+  .ant-table-small .ant-table-placeholder > td { line-height: normal; }
+
+  /* ================================================================== loading (§8) */
+  .sf-loader { display: inline-flex; align-items: center; gap: 6px; color: var(--sf-text-3); }
+  .sf-loader > .sf-nuqta { inline-size: 6px; block-size: 6px; animation: sf-loader 900ms var(--sf-ease-in-out) infinite; opacity: .3; }
+  .sf-loader > .sf-nuqta:nth-child(2) { animation-delay: 120ms; }
+  .sf-loader > .sf-nuqta:nth-child(3) { animation-delay: 240ms; }
+  @keyframes sf-loader { 0%, 100% { opacity: .3; } 50% { opacity: 1; } }
+
+  .sf-skel {
+    display: block; block-size: 10px; border-radius: 6px;
+    background: linear-gradient(to left, var(--sf-hover) 0%, var(--sf-selected) 50%, var(--sf-hover) 100%) 0 0 / 300% 100% var(--sf-hover);
+    animation: sf-shimmer 1.4s linear infinite;
+  }
+  .sf-skel-block { display: flex; flex-direction: column; gap: 12px; padding-block: 6px; animation: sf-skel-in var(--sf-dur-crossfade) linear 200ms both; }
+  .sf-skel-row > td { animation: sf-skel-in var(--sf-dur-crossfade) linear 200ms both; }
+  .sf-skel-row:hover > td { background: transparent !important; }
+  @keyframes sf-shimmer { from { background-position: 0 0; } to { background-position: 100% 0; } }
+  @keyframes sf-skel-in { from { opacity: 0; } to { opacity: 1; } }
+
+  @media (prefers-reduced-motion: reduce) {
+    .sf-skel, .sf-loader > .sf-nuqta { animation: none; }
+    .sf-loader > .sf-nuqta { opacity: .6; }
+  }
+  :root:is([data-motion="reduced"], [data-power="low"]) :is(.sf-skel, .sf-loader > .sf-nuqta) { animation: none; }
+  :root:is([data-motion="reduced"], [data-power="low"]) .sf-loader > .sf-nuqta { opacity: .6; }
+
+  /* ================================================================== stat tiles (§3.2) */
+  .sf-stat {
+    container-type: inline-size;
+    position: relative; display: flex; flex-direction: column; min-inline-size: 0;
+    padding: 14px 16px 13px; border-radius: var(--sf-radius-lg);
+    background: var(--sf-surface); box-shadow: var(--sf-shadow-e1);
+    transition: background-color var(--sf-dur-base) var(--sf-ease-out-quad);
+  }
+  .sf-stat-label { display: flex; align-items: center; gap: 6px; min-inline-size: 0; font-size: 13px; line-height: 20px; font-weight: var(--sf-weight-medium); color: var(--sf-text-2); }
+  .sf-stat-ic { display: inline-grid; place-items: center; flex: none; inline-size: 16px; block-size: 16px; font-size: 15px; line-height: 1; color: var(--sf-text-3); }
+  .sf-stat-ic svg { inline-size: 16px; block-size: 16px; }
+  .sf-stat-go { display: inline-grid; margin-inline-start: auto; color: var(--sf-text-3); opacity: 0; transform: translateX(3px); transition: opacity var(--sf-dur-base) var(--sf-ease-out), transform var(--sf-dur-base) var(--sf-ease-out); }
+  .sf-stat .sf-stat-val {
+    display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 5px; margin-block-start: 10px;
+    font-size: clamp(18px, 10.5cqi, var(--sf-type-figure-size)); line-height: 1.3; font-weight: var(--sf-weight-medium);
+    color: var(--sf-text); font-variant-numeric: proportional-nums; overflow-wrap: anywhere;
+  }
+  /* big standalone figures are proportional (tabular Persian digits are much wider), units 12/18 text-3 */
+  .sf-stat .sf-stat-val :is(.sf-num, .num) { font-variant-numeric: proportional-nums; }
+  .sf-stat .sf-stat-val :is(.sf-unit, .text-muted, .text-xs, .text-\[11px\]) { font-size: 12px; line-height: 18px; font-weight: var(--sf-weight-regular); color: var(--sf-text-3); }
+  .sf-stat .sf-stat-val .sf-bal-side { font-size: 13px; }
+  .sf-stat-foot { margin-block-start: auto; padding-block-start: 6px; font-size: 13px; line-height: 20px; color: var(--sf-text-3); }
+  .sf-stat-foot .sf-dec { color: inherit; }
+  .sf-stat-link { cursor: pointer; }
+  .sf-stat-link:focus-visible { outline: 2px solid var(--sf-focus-color); outline-offset: -2px; }
+  @media (hover: hover) and (pointer: fine) {
+    .sf-stat-link:hover { background-color: color-mix(in srgb, var(--sf-surface), var(--sf-text) 2.5%); transition-duration: 0ms; }
+    .sf-stat-link:is(:hover, :focus-visible) .sf-stat-go { opacity: 1; transform: none; }
+  }
+
+  /* ================================================================== server table (§4.1, §4.9) */
+  .sf-st { position: relative; min-inline-size: 0; }
+  .sf-st-bar { display: flex; align-items: flex-start; gap: 8px; margin-block-end: var(--sf-filters-gap); }
+  .sf-st-filters { display: flex; flex: 1 1 auto; flex-wrap: wrap; align-items: center; gap: 8px; min-inline-size: 0; }
+  .sf-st-filters > .ant-space { gap: 8px !important; }
+  .sf-st-tools { display: flex; flex: none; align-items: center; gap: 4px; margin-inline-start: auto; }
+  .sf-st-tools .ant-btn-icon-only { color: var(--sf-text-2); }
+  .sf-st-sep { inline-size: 1px; block-size: 18px; margin-inline: 4px; background: var(--sf-line-2); }
+
+  /* a list card: the filters row sits ABOVE the card (components.md §2: «one row, above everything it scopes, never
+     inside a card»), 12 px over it; the card is the table itself and the table runs to its edges (§4.1) */
+  :is(.tz-card, .sf-card) > .sf-st > .sf-st-bar { padding: 0; margin-block-end: var(--sf-filters-gap); }
+  :is(.tz-card, .sf-card) > .sf-st > .ant-table-wrapper {
+    background: var(--sf-surface); border-radius: var(--sf-radius-lg); box-shadow: var(--sf-shadow-e1);
+  }
+  :is(.tz-card, .sf-card) > .sf-st :is(.ant-table-thead > tr > th, .ant-table-tbody > tr > td, .ant-table-summary > tr > td):first-child { padding-inline-start: 20px; }
+  :is(.tz-card, .sf-card) > .sf-st :is(.ant-table-thead > tr > th, .ant-table-tbody > tr > td, .ant-table-summary > tr > td):last-child { padding-inline-end: 16px; }
+  :is(.tz-card, .sf-card) > .sf-st .ant-table-pagination.ant-pagination { margin: 0; padding: 10px 16px; }
+  :is(.tz-card, .sf-card) > .sf-st .ant-table-wrapper .ant-table { border-radius: var(--sf-radius-lg); }
+  :is(.tz-card, .sf-card) > .sf-st .ant-table-wrapper:has(.ant-table-pagination) .ant-table { border-end-start-radius: 0; border-end-end-radius: 0; }
+  :is(.tz-card, .sf-card) > .sf-st .ant-table-wrapper .ant-table-container { border-radius: 0; }
+  :is(.tz-card, .sf-card) > .sf-st .ant-table-tbody > tr:last-child > td { border-block-end-color: transparent; }
+  :is(.tz-card, .sf-card) > .sf-st:has(.ant-table-pagination) .ant-table-tbody > tr:last-child > td { border-block-end-color: var(--sf-line); }
+  .ant-table-wrapper .ant-table-sticky-holder { border-radius: 0; }
+
+  .sf-card { background: var(--sf-surface); border-radius: var(--sf-radius-lg); box-shadow: var(--sf-shadow-e1); }
+
+  /* numeric columns: tabular, start-aligned (right), never ellipsized; an overflowing figure spills instead of hiding */
+  .ant-table :is(td, th).sf-num { font-variant-numeric: tabular-nums; white-space: nowrap; text-overflow: clip; overflow: visible; }
+
+  /* rows: clickable rows are pointer + keyboard reachable; the focus ring is drawn inside */
+  .sf-st[data-clickable] .ant-table-tbody > tr.ant-table-row { cursor: pointer; }
+  .sf-st .ant-table-tbody > tr.ant-table-row:focus-visible { outline: 2px solid var(--sf-focus-color); outline-offset: -2px; }
+  .sf-st .ant-table-tbody > tr.ant-table-row:focus-visible > td { background: var(--sf-hover-row); }
+  .ant-table-tbody > tr.row-muted > td { color: var(--sf-text-3); }
+
+  /* refetch (another page, a new filter): the old rows stay at 60 % — no skeleton, no layout jump */
+  .sf-st .ant-table-tbody { transition: opacity var(--sf-dur-base) var(--sf-ease-out-quad); }
+  .sf-st[data-busy] .ant-table-tbody { opacity: .6; transition-delay: 120ms; }
+
+  @media (hover: hover) and (pointer: fine) {
+    /* row actions appear on hover or focus at the end edge (components.md §4.1) */
+    .sf-row-act { opacity: 0; transition: opacity var(--sf-dur-fast) var(--sf-ease-out); }
+    .ant-table-tbody > tr:is(:hover, :focus-within, .ant-table-row-selected) .sf-row-act,
+    .sf-row-act:has(.ant-dropdown-open) { opacity: 1; }
+  }
+  .sf-row-act { display: flex; align-items: center; }
+
+  /* ================================================================== forms (§5) */
+  .sf-form-sec + .sf-form-sec { margin-block-start: 6px; padding-block-start: 18px; border-block-start: 1px solid var(--sf-line); }
+  .sf-form-sec-t { display: flex; align-items: center; gap: 8px; margin-block-end: 12px; font-size: 13px; line-height: 20px; font-weight: 600; color: var(--sf-text); }
+  .sf-form-grid { display: grid; grid-template-columns: repeat(24, minmax(0, 1fr)); column-gap: 12px; }
+  .sf-form-grid > * { grid-column: span var(--span, 24) / span var(--span, 24); min-inline-size: 0; }
+  @media (max-width: 639px) { .sf-form-grid > * { grid-column: 1 / -1; } }
+  .sf-form-grid .ant-form-item { margin-block-end: 16px; }
+  .sf-form-grid .ant-form-item-extra { font-size: 12px; line-height: 18px; color: var(--sf-text-3); margin-block-start: 4px; min-block-size: 0; }
+  .sf-form-foot {
+    position: sticky; inset-block-end: 0; z-index: 3;
+    display: flex; align-items: center; justify-content: flex-end; gap: 8px;
+    margin-inline: -20px; margin-block-start: 4px; padding: 14px 20px;
+    background: var(--sf-raised); border-block-start: 1px solid var(--sf-line);
+  }
+  .sf-form-foot-meta { margin-inline-end: auto; font-size: 12px; line-height: 18px; color: var(--sf-text-3); }
+  /* the shortcut inside the primary button: a 4 px RTL wrapper around the LTR keys */
+  .sf-kbd-w { display: inline-flex; margin-inline-start: 4px; }
+  .ant-btn-primary .sf-kbd-w .sh-kbd { background: rgb(255 255 255 / .14); box-shadow: none; color: rgb(255 255 255 / .86); block-size: 18px; min-inline-size: 18px; }
+  .ant-btn .sf-kbd-w .sh-keys { display: inline-flex; gap: 2px; }
+
+  /* image picker */
+  .sf-img { display: flex; align-items: center; gap: 12px; }
+  .sf-img-thumb { inline-size: 72px; block-size: 72px; border-radius: var(--sf-radius-md); object-fit: cover; box-shadow: inset 0 0 0 1px var(--sf-line-2); background: var(--sf-sunken); }
+  .sf-img-empty { display: grid; place-items: center; color: var(--sf-text-3); }
+
+  /* ================================================================== inputs (§5) */
+  /* numbers and dates type LTR but sit start-aligned (right), like every other field */
+  .sf-numin input.ant-input, input.ant-input.sf-numin { text-align: right; font-variant-numeric: tabular-nums; }
+  .sf-numin .ant-input-suffix, .sf-numin .ant-input-prefix { color: var(--sf-text-3); font-size: 13px; }
+  .sf-words { margin-block-start: 4px; font-size: 12px; line-height: 18px; color: var(--sf-text-3); text-wrap: pretty; }
+  .sf-opt { display: flex; align-items: center; gap: 8px; min-inline-size: 0; }
+  .sf-opt-main { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sf-opt-sub { flex: none; margin-inline-start: auto; font-size: 12px; color: var(--sf-text-3); font-variant-numeric: tabular-nums; }
+  .sf-opt-code { flex: none; min-inline-size: 3.2em; font-size: 12px; color: var(--sf-text-3); font-variant-numeric: tabular-nums; }
+
+  /* ================================================================== Jalali calendar (antd-theme.md §7) */
+  .sf-cal { inline-size: 268px; user-select: none; }
+  .sf-cal-h { display: flex; align-items: center; justify-content: space-between; gap: 4px; margin-block-end: 6px; }
+  .sf-cal-h .ant-select-selection-item, .sf-cal-h .ant-select-content { font-size: 14px; font-weight: 600; }
+  .sf-cal-title { display: flex; align-items: center; gap: 0; }
+  .sf-cal-wd, .sf-cal-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 2px; text-align: center; }
+  .sf-cal-wd > span { font-size: 12px; line-height: 24px; color: var(--sf-text-3); }
+  .sf-cal-wd > span:last-child { color: var(--sf-holiday); }
+  .sf-cal-days:focus-visible { outline: none; }
+  .sf-cal-d {
+    display: grid; place-items: center; block-size: 32px; border: 0; border-radius: var(--sf-radius-sm);
+    background: transparent; color: var(--sf-text); font-size: 13px; font-variant-numeric: tabular-nums; cursor: pointer;
+    transition: background-color var(--sf-dur-base) var(--sf-ease-out-quad);
+  }
+  @media (hover: hover) and (pointer: fine) { .sf-cal-d:hover { background: var(--sf-hover); transition-duration: 0ms; } }
+  .sf-cal-d.is-fri { color: var(--sf-holiday); }
+  .sf-cal-d.is-today { box-shadow: inset 0 0 0 1px var(--sf-control-strong); font-weight: 600; }
+  .sf-cal-d.is-cursor { outline: 2px solid var(--sf-focus-color); outline-offset: -2px; }
+  .sf-cal-days:not(:focus-within) .sf-cal-d.is-cursor:not(:focus-visible) { outline: none; }
+  .sf-cal-d.is-sel, .sf-cal-d.is-sel:hover { background: var(--sf-accent); color: #fff; font-weight: 600; box-shadow: none; }
+  .sf-cal-f { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-block-start: 8px; padding-block-start: 8px; border-block-start: 1px solid var(--sf-line); }
+  .sf-cal-f .sf-link { font-size: 13px; background: none; border: 0; padding: 0; cursor: pointer; }
+  .sf-cal-f-date { font-size: 12px; line-height: 18px; color: var(--sf-text-3); }
+
+  /* ================================================================== import drawer */
+  .sf-drop.ant-upload-wrapper .ant-upload-drag { border-radius: var(--sf-radius-lg); border: 1px dashed var(--sf-line-3); background: var(--sf-well); transition: border-color var(--sf-dur-base) var(--sf-ease-out-quad), background-color var(--sf-dur-base) var(--sf-ease-out-quad); }
+  .sf-drop.ant-upload-wrapper .ant-upload-drag:hover, .sf-drop.ant-upload-wrapper .ant-upload-drag-hover { border-color: var(--sf-accent-text); }
+  .sf-drop .ant-upload-btn { padding: 36px 24px !important; }
+  .sf-steps { display: flex; align-items: center; gap: 8px; font-size: 13px; line-height: 20px; color: var(--sf-text-3); }
+  .sf-steps b { display: inline-grid; place-items: center; inline-size: 20px; block-size: 20px; border-radius: 50%; font-size: 12px; font-weight: 600; background: var(--sf-well); color: var(--sf-text-2); box-shadow: inset 0 0 0 1px var(--sf-line-2); }
+  .sf-steps b.is-on { background: var(--sf-text); color: var(--sf-canvas); box-shadow: none; }
+  .sf-steps span.is-on { color: var(--sf-text); font-weight: var(--sf-weight-medium); }
+  .sf-steps hr { flex: 0 0 24px; border: 0; block-size: 1px; background: var(--sf-line-2); margin: 0; }
+  .sf-file { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: var(--sf-radius-lg); background: var(--sf-well); }
+  .sf-file-ic { display: grid; place-items: center; inline-size: 36px; block-size: 36px; flex: none; border-radius: var(--sf-radius-md); background: var(--sf-raised); color: var(--sf-text-2); box-shadow: inset 0 0 0 1px var(--sf-line-2); }
+  .sf-file-name { font-weight: var(--sf-weight-medium); color: var(--sf-text); overflow-wrap: anywhere; }
+  .sf-file-meta { font-size: 12px; line-height: 18px; color: var(--sf-text-3); }
+  .sf-note { font-size: 12px; line-height: 20px; color: var(--sf-text-3); }
+
+  /* ================================================================== toasts (§9) */
+  .sf-toast-ic { display: inline-grid; margin-block-start: 2px; }
+  .sf-toast-ic[data-tone="in"] { color: var(--sf-in); }
+  .sf-toast-ic[data-tone="danger"] { color: var(--sf-danger); }
+  .sf-toast-ic[data-tone="warning"] { color: var(--sf-warning-fill); }
+  .sf-toast-ic .sf-nuqta { inline-size: 7px; block-size: 7px; margin: 4px; }
+  .ant-notification .ant-notification-notice-icon:has(.sf-toast-ic) { font-size: 16px; line-height: 20px; }
+  .ant-notification .ant-notification-notice:has(.sf-toast-ic) .ant-notification-notice-title { margin-inline-start: 26px; }
+  .ant-notification .ant-notification-notice:has(.sf-toast-ic) .ant-notification-notice-description { margin-inline-start: 26px; }
+
+  /* confirmation dialog (§1.6): a question, one sentence, cancel then the confirming action at the end edge */
+  .sf-confirm .ant-modal-confirm-title { font-size: 16px; line-height: 24px; font-weight: 600; }
+  .sf-confirm .ant-modal-confirm-content { font-size: 14px; line-height: 22px; color: var(--sf-text-2); }
+  .sf-confirm .ant-modal-confirm-paragraph { max-inline-size: none; }
+  .sf-confirm .ant-modal-confirm-btns { margin-block-start: 20px; }
+}
+
+/* A row of stat tiles (and nothing else) in a grid joins into ONE stat card with hairline dividers: gap 0, the e1
+   ring on the grid, each tile's start and top edges drawn as a 1 px line that the card clips at its outer edges
+   (works for any column count and for wrapped rows). In `utilities` so it beats the page's own `gap-3`. */
+@layer utilities {
+  :where(.grid, .flex):has(> .sf-stat):not(:has(> :not(.sf-stat))) {
+    gap: 0; background: var(--sf-surface); border-radius: var(--sf-radius-lg); box-shadow: var(--sf-shadow-e1); overflow: hidden;
+  }
+  :where(.grid, .flex):has(> .sf-stat):not(:has(> :not(.sf-stat))) > .sf-stat {
+    border-radius: 0; box-shadow: none; background-color: transparent;
+    margin-inline-start: -1px; margin-block-start: -1px;
+    border-inline-start: 1px solid var(--sf-line); border-block-start: 1px solid var(--sf-line);
+  }
+  /* a card that only holds a server table hands its surface to the table, so the filters row sits on the canvas */
+  :is(.tz-card, .sf-card):has(> .sf-st:only-child) { padding: 0; background: transparent; box-shadow: none; border-color: transparent; overflow: visible; }
+}
+
+@layer components {
+  .sf-spin { animation: sf-spin 900ms linear infinite; }
+  @keyframes sf-spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .sf-spin { animation: none; } }
+  .sf-st .ant-pagination-total-text { color: var(--sf-text-3); font-size: 13px; margin-inline-end: auto; }
+  .sf-st .ant-table-pagination.ant-pagination { row-gap: 8px; }
+}
+
+@layer components {
+  /* a 28 px icon button inside a 32 px compact row must not stretch it */
+  .ant-table-small .sf-row-act .ant-btn { margin-block: -4px; }
+}
+
+@layer components {
+  /* skeleton cells hold the row's line height, so skeleton rows are as tall as real ones (no jump on arrival) */
+  .sf-skel-cell { display: flex; align-items: center; block-size: 20px; }
+  .ant-table-middle .sf-skel-cell, .ant-table:not(.ant-table-small) .sf-skel-cell { block-size: 22px; }
+  /* sortable headers: no fill on hover (the arrow appearing is the feedback) */
+  .sf-st .ant-table-thead > tr > th.ant-table-column-has-sorters:hover { background: var(--sf-surface); }
+  .sf-st .ant-table-thead > tr > th.ant-table-column-has-sorters:hover::before { background-color: transparent !important; }
+  /* the fixed actions column: no seam in the header and no shadow when nothing scrolls under it */
+  .sf-st .ant-table-thead > tr > th.ant-table-cell-fix:not(.ant-table-column-has-sorters):empty { background: var(--sf-surface); }
+  /* a sheet form fills the sheet, so its footer sits at the bottom edge however short the form is */
+  .ant-drawer-body:has(> .sf-form) { display: flex; flex-direction: column; }
+  .sf-form { display: flex; flex: 1 0 auto; flex-direction: column; }
+  .sf-form > form { display: flex; flex: 1 0 auto; flex-direction: column; }
+  .sf-form .sf-form-foot { margin-block-start: auto; }
+}
+
+/* ====================================================================== filters row (components.md §2) */
+@layer components {
+  /* the chip: a 30 px pill, 12/10 padding, 13/500 text-2, a 16 px text-3 icon, the chevron right after the words; no
+     ring at rest (the ring and the hover tint appear on hover); applied = the row's one Dusk element with an × */
+  .sf-fchip {
+    position: relative; display: inline-flex; align-items: center; flex: none; max-inline-size: 100%;
+    block-size: 30px; border-radius: var(--sf-radius-pill); color: var(--sf-text-2);
+    transition: background-color var(--sf-dur-base) var(--sf-ease-out-quad), box-shadow var(--sf-dur-base) var(--sf-ease-out-quad);
+  }
+  .sf-fchip-b {
+    display: inline-flex; align-items: center; gap: 6px; min-inline-size: 0; block-size: 100%;
+    padding-inline: 12px 10px; border: 0; border-radius: inherit; background: transparent; color: inherit; cursor: pointer;
+    font-family: inherit; font-size: 13px; line-height: 20px; font-weight: var(--sf-weight-medium); white-space: nowrap;
+  }
+  .sf-fchip-b:focus-visible { outline: 2px solid var(--sf-focus-color); outline-offset: 1px; }
+  .sf-fchip-b:disabled { cursor: not-allowed; color: var(--sf-text-4); }
+  .sf-fchip-t { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; }
+  .sf-fchip-t.sf-num { overflow: visible; text-overflow: clip; }
+  .sf-fchip-ic { flex: none; color: var(--sf-text-3); }
+  .sf-fchip-chev { flex: none; color: var(--sf-text-3); margin-inline-start: -2px; }
+  @media (hover: hover) and (pointer: fine) {
+    .sf-fchip:not(.is-disabled):hover { background: var(--sf-hover); box-shadow: inset 0 0 0 1px var(--sf-line-2); transition-duration: 0ms; }
+  }
+  .sf-fchip:has(.sf-fchip-b[aria-expanded="true"]), .sf-fchip:has(.ant-dropdown-open) { background: var(--sf-hover); box-shadow: inset 0 0 0 1px var(--sf-line-2); }
+  .sf-fchip.is-on, .sf-fchip.is-on:hover { background: var(--sf-accent-tint-2); color: var(--sf-accent-text); box-shadow: inset 0 0 0 1px var(--sf-accent-border); }
+  .sf-fchip.is-on .sf-fchip-ic, .sf-fchip.is-on .sf-fchip-chev { color: currentColor; }
+  .sf-fchip.is-on:has(.sf-fchip-x) .sf-fchip-b { padding-inline-end: 4px; }
+  .sf-fchip-x {
+    display: inline-grid; place-items: center; flex: none; inline-size: 22px; block-size: 22px; margin-inline: 0 4px;
+    border: 0; border-radius: var(--sf-radius-pill); background: transparent; color: currentColor; cursor: pointer; opacity: .8;
+  }
+  .sf-fchip-x:hover { opacity: 1; background: rgb(var(--sf-accent-line-rgb) / .16); }
+  .sf-fchip-x:focus-visible { outline: 2px solid var(--sf-focus-color); outline-offset: -1px; }
+  .sf-fmore-n {
+    display: inline-grid; place-items: center; min-inline-size: 18px; block-size: 18px; padding-inline: 5px; border-radius: var(--sf-radius-pill);
+    background: var(--sf-accent); color: var(--sf-on-accent); font-size: 12px; line-height: 1; font-weight: 600; font-variant-numeric: tabular-nums;
+  }
+  .sf-fclear { border: 0; background: transparent; padding: 0 4px; font-size: 13px; line-height: 30px; cursor: pointer; }
+
+  /* toggle chips: a 14 px box at the start reads as a toggle at rest and fills (with a check) when on */
+  .sf-tchip-box {
+    display: inline-grid; place-items: center; flex: none; inline-size: 14px; block-size: 14px; border-radius: 4px;
+    box-shadow: inset 0 0 0 1px var(--sf-control-strong); background: var(--sf-surface); color: var(--sf-canvas);
+  }
+  .sf-tchip.is-on .sf-tchip-box { background: var(--sf-accent-text); box-shadow: none; color: var(--sf-surface); }
+
+  /* the filters row: one line; everything a ServerTable toolbar holds takes the chip look */
+  .sf-st-filters { flex-wrap: nowrap; }
+  .sf-st-filters > .ant-input-affix-wrapper:first-child { flex: 0 1 288px; min-inline-size: 160px; inline-size: auto !important; block-size: 30px; }
+  .sf-st-filters .ant-select:not(.ant-select-multiple) {
+    inline-size: auto !important; min-inline-size: 0 !important; max-inline-size: 260px; flex: none;
+    block-size: 30px; padding-inline: 12px 10px; border-radius: var(--sf-radius-pill);
+    border-color: transparent !important; background: transparent !important; box-shadow: none !important;
+    font-size: 13px; font-weight: var(--sf-weight-medium); cursor: pointer;
+    transition: background-color var(--sf-dur-base) var(--sf-ease-out-quad), box-shadow var(--sf-dur-base) var(--sf-ease-out-quad);
+  }
+  .sf-st-filters .ant-select:not(.ant-select-multiple) .ant-select-content { flex: 0 1 auto; min-inline-size: 0; }
+  .sf-st-filters .ant-select:not(.ant-select-multiple) :is(.ant-select-placeholder, .ant-select-content) { color: var(--sf-text-2); font-weight: var(--sf-weight-medium); }
+  .sf-st-filters .ant-select:not(.ant-select-multiple) .ant-select-suffix { margin-inline-start: 6px; color: var(--sf-text-3); font-size: 11px; }
+  @media (hover: hover) and (pointer: fine) {
+    .sf-st-filters .ant-select:not(.ant-select-multiple):hover { background: var(--sf-hover) !important; box-shadow: inset 0 0 0 1px var(--sf-line-2) !important; }
+  }
+  .sf-st-filters .ant-select.ant-select-focused { box-shadow: inset 0 0 0 1px var(--sf-line-2) !important; background: var(--sf-hover) !important; }
+  .sf-st-filters .ant-select.ant-select-focused.ant-select-show-search { min-inline-size: 200px !important; }
+  /* applied: a value and no placeholder */
+  .sf-st-filters .ant-select:not(.ant-select-multiple):not(:has(.ant-select-placeholder)):not(.ant-select-focused) {
+    background: var(--sf-accent-tint-2) !important; box-shadow: inset 0 0 0 1px var(--sf-accent-border) !important;
+  }
+  .sf-st-filters .ant-select:not(.ant-select-multiple):not(:has(.ant-select-placeholder)):not(.ant-select-focused) :is(.ant-select-content, .ant-select-suffix, .ant-select-clear) { color: var(--sf-accent-text); }
+  .sf-st-filters .ant-select:not(:has(.ant-select-placeholder)) .ant-select-clear { opacity: 1; background: transparent; color: var(--sf-accent-text); }
+  .sf-st-filters .ant-select:not(:has(.ant-select-placeholder)):has(.ant-select-clear) .ant-select-suffix { visibility: hidden; }
+  /* a lone date field (an «as of» date) is a chip too */
+  .sf-st-filters .ant-input-affix-wrapper.sf-numin {
+    inline-size: 136px !important; block-size: 30px; border-radius: var(--sf-radius-pill); padding-inline: 12px 10px;
+    border-color: transparent; background: transparent; box-shadow: none;
+  }
+  .sf-st-filters .ant-input-affix-wrapper.sf-numin:hover { background: var(--sf-hover); box-shadow: inset 0 0 0 1px var(--sf-line-2); }
+  .sf-st-filters .ant-input-affix-wrapper.sf-numin:has(input:not(:placeholder-shown)):not(:focus-within) { background: var(--sf-accent-tint-2); box-shadow: inset 0 0 0 1px var(--sf-accent-border); }
+  .sf-st-filters .ant-input-affix-wrapper.sf-numin:has(input:not(:placeholder-shown)):not(:focus-within) input { color: var(--sf-accent-text); }
+  .sf-st-filters .ant-input-affix-wrapper.sf-numin input::placeholder { color: var(--sf-text-2); font-weight: var(--sf-weight-medium); }
+  /* the module toggles (`.bk-tog`) read as toggle chips: the box replaces their icon */
+  .sf-st-filters .bk-tog, .sf-fmore .bk-tog {
+    display: inline-flex; align-items: center; gap: 6px; block-size: 30px; padding-inline: 10px 12px; border: 0;
+    border-radius: var(--sf-radius-pill); background: transparent; color: var(--sf-text-2); box-shadow: none;
+    font-size: 13px; font-weight: var(--sf-weight-medium); white-space: nowrap; cursor: pointer;
+  }
+  .sf-st-filters .bk-tog > svg, .sf-fmore .bk-tog > svg { display: none; }
+  .sf-st-filters .bk-tog::before, .sf-fmore .bk-tog::before {
+    content: ""; flex: none; inline-size: 14px; block-size: 14px; border-radius: 4px;
+    box-shadow: inset 0 0 0 1px var(--sf-control-strong); background: var(--sf-surface);
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .sf-st-filters .bk-tog:hover { background: var(--sf-hover); box-shadow: inset 0 0 0 1px var(--sf-line-2); }
+  }
+  .sf-st-filters .bk-tog[aria-pressed="true"], .sf-fmore .bk-tog[aria-pressed="true"] { background: var(--sf-accent-tint-2); color: var(--sf-accent-text); box-shadow: inset 0 0 0 1px var(--sf-accent-border); }
+  .sf-st-filters .bk-tog[aria-pressed="true"]::before, .sf-fmore .bk-tog[aria-pressed="true"]::before {
+    box-shadow: none; background: var(--sf-accent-text);
+    -webkit-mask: var(--sf-check-mask) center / 10px no-repeat, linear-gradient(black, black); -webkit-mask-composite: xor;
+    mask: var(--sf-check-mask) center / 10px no-repeat exclude, linear-gradient(black, black);
+  }
+  .sf-st-filters, .sf-fmore { --sf-check-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E"); }
+  .sf-st-filters .bk-range { display: contents; }
+
+  /* «پالایه‌های بیشتر»: the hidden controls stacked as ordinary fields */
+  .sf-fmore { display: flex; flex-direction: column; align-items: stretch; gap: 10px; inline-size: 260px; max-inline-size: 100%; }
+  .sf-fmore > :is(.ant-select, .ant-input-affix-wrapper, .ant-input, .ant-segmented, .ant-picker) { inline-size: 100% !important; }
+  .sf-fmore > .sf-fchip { align-self: flex-start; }
+  .sf-fmore .bk-range { display: flex; align-items: center; gap: 8px; }
+  .sf-fmore .bk-range > .ant-input-affix-wrapper { flex: 1 1 0; inline-size: auto !important; }
+  .sf-fmore-pop .ant-popover-container { padding: 12px; }
+
+  /* the range picker: presets, two typed fields, one month grid */
+  .sf-range { display: flex; gap: 12px; }
+  .sf-range-p { display: flex; flex-direction: column; gap: 2px; min-inline-size: 96px; padding-inline-end: 12px; border-inline-end: 1px solid var(--sf-line); }
+  .sf-range-pb {
+    display: flex; align-items: center; block-size: 30px; padding-inline: 10px; border: 0; border-radius: var(--sf-radius-sm);
+    background: transparent; color: var(--sf-text-2); font-size: 13px; font-weight: var(--sf-weight-medium); text-align: start; cursor: pointer; white-space: nowrap;
+  }
+  .sf-range-pb:hover { background: var(--sf-hover); color: var(--sf-text); }
+  .sf-range-pb.is-on { background: var(--sf-selected); color: var(--sf-text); font-weight: 600; }
+  .sf-range-pb:focus-visible { outline: 2px solid var(--sf-focus-color); outline-offset: -2px; }
+  .sf-range-m { display: flex; flex-direction: column; gap: 10px; }
+  .sf-range-f { display: flex; align-items: center; gap: 6px; }
+  .sf-range-f > .ant-input-affix-wrapper { flex: 1 1 0; inline-size: 0; }
+  .sf-range-sep { font-size: 12px; color: var(--sf-text-3); }
+  .sf-range-hint { font-size: 12px; line-height: 18px; color: var(--sf-text-3); }
+  .sf-cal-d.is-in { background: var(--sf-accent-tint); border-radius: 0; }
+  @media (max-width: 639.98px) {
+    .sf-range { flex-direction: column; }
+    .sf-range-p { flex-direction: row; flex-wrap: wrap; padding: 0 0 10px; border-inline-end: 0; border-block-end: 1px solid var(--sf-line); }
+  }
+
+  /* phone: the search fills the row, the other filters live in a bottom sheet */
+  .sf-st-bar[data-phone] { align-items: center; }
+  .sf-st-bar[data-phone] .sf-st-filters { flex: 1 1 auto; }
+  .sf-st-bar[data-phone] .sf-st-filters > .ant-input-affix-wrapper:first-child { flex: 1 1 auto; min-inline-size: 0; }
+  .sf-st-bar[data-phone] .sf-st-tools { gap: 0; }
+  .sf-fsheet .ant-drawer-section { border-start-start-radius: 16px; border-start-end-radius: 16px; }
+  .sf-fsheet .ant-drawer-content-wrapper { max-block-size: 80vh; }
+  .sf-fsheet .sf-fmore { inline-size: 100%; gap: 12px; }
+  .sf-fsheet .sf-fmore > :is(.ant-select, .ant-input-affix-wrapper) { block-size: 40px; }
+  .sf-fsheet-f { display: flex; justify-content: flex-end; gap: 8px; }
+}
+
+/* ====================================================================== phone: stacked rows (§4.1) */
+@layer components {
+  .sf-st.is-stacked .ant-table-tbody > tr > td.sf-stk-cell, .tz-table.is-stacked .ant-table-tbody > tr > td.sf-stk-cell { padding-block: 10px; padding-inline: 16px; white-space: normal; }
+  /* the stack never widens the table: a long description ellipsizes inside the phone's width */
+  :is(.sf-st, .tz-table).is-stacked .ant-table table { table-layout: fixed !important; inline-size: 100% !important; min-inline-size: 0 !important; }
+  .sf-stk { display: flex; flex-direction: column; gap: 2px; min-inline-size: 0; max-inline-size: 100%; overflow: hidden; }
+  .sf-stk-l1 { display: flex; align-items: center; gap: 8px; min-block-size: 22px; font-size: 13px; line-height: 20px; color: var(--sf-text-2); }
+  .sf-stk-id { color: var(--sf-text); font-weight: 600; }
+  .sf-stk-dot { inline-size: 3px; block-size: 3px; border-radius: 50%; background: var(--sf-text-4); flex: none; }
+  .sf-stk-date { color: var(--sf-text-3); }
+  .sf-stk-end { display: flex; align-items: center; gap: 6px; margin-inline-start: auto; }
+  .sf-stk-end .sf-row-act { opacity: 1; }
+  .sf-stk-l2, .sf-stk-name { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; line-height: 22px; color: var(--sf-text); }
+  .sf-stk-l3 { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 14px; row-gap: 2px; }
+  .sf-stk-amt { font-size: 15px; line-height: 24px; font-weight: 600; color: var(--sf-text); white-space: nowrap; }
+  .sf-stk-amt .sf-unit { font-size: 12px; font-weight: var(--sf-weight-regular); color: var(--sf-text-3); }
+  .sf-stk-kv { display: inline-flex; align-items: baseline; gap: 4px; font-size: 13px; line-height: 20px; color: var(--sf-text-2); white-space: nowrap; }
+  .sf-stk-k { font-size: 12px; color: var(--sf-text-3); }
+  .sf-stk .sf-skel { block-size: 10px; margin-block: 5px; }
+  /* totals under a stacked list: label and figures wrap on one line instead of overflowing */
+  :is(.sf-st, .tz-table).is-stacked .ant-table-summary > tr { display: flex; flex-wrap: wrap; justify-content: space-between; column-gap: 12px; padding: 8px 16px; }
+  :is(.sf-st, .tz-table).is-stacked .ant-table-summary > tr > td { display: block; padding: 0 !important; border: 0 !important; }
+  :is(.sf-st, .tz-table).is-stacked .ant-table-summary > tr > td:empty { display: none; }
+  :is(.sf-st, .tz-table).is-stacked .ant-table-summary > tr { border-block-start: 1px solid var(--sf-line-3); }
+  :is(.sf-st, .tz-table).is-stacked .ant-pagination { justify-content: center; }
+}
+
+/* ====================================================================== antd tables everywhere (§4.1) */
+@layer components {
+  /* only the sorted column shows its 12 px arrow; the others reveal it on hover or keyboard focus */
+  .ant-table-thead th.ant-table-column-has-sorters:not(.ant-table-column-sort) .ant-table-column-sorter { opacity: 0; transition: opacity var(--sf-dur-base) var(--sf-ease-out-quad); }
+  .ant-table-thead th.ant-table-column-has-sorters:is(:hover, :focus-visible, :focus-within) .ant-table-column-sorter { opacity: 1; transition-duration: 0ms; }
+  .ant-table-column-sorter { font-size: 9px; }
+  .ant-table-column-sort .ant-table-column-sorter-inner > :not(.active) { display: none; }
+
+  /* no vertical rules: the fixed column's shadow only while something is scrolled under it, never on an empty table */
+  .ant-table :is(.ant-table-cell-fix-start-shadow, .ant-table-cell-fix-end-shadow):not(:is(.ant-table-cell-fix-start-shadow-show, .ant-table-cell-fix-end-shadow-show))::after { box-shadow: none; }
+  .ant-table.ant-table-empty .ant-table-cell-fix::after { box-shadow: none !important; display: none; }
+  .ant-table.ant-table-empty .ant-table-thead > tr > th.ant-table-cell-fix { background: var(--sf-surface); }
+  .ant-table-thead > tr > th::before { display: none; }
+  /* the tree indent and expand cell draw no line */
+  .ant-table .ant-table-row-indent, .ant-table .ant-table-row-expand-icon-cell { border: 0 !important; box-shadow: none; }
+  .ant-table .ant-table-row-indent::before, .ant-table .ant-table-row-indent::after { display: none; }
+  .ant-table-tbody > tr > td.ant-table-cell-with-append { border-inline: 0; }
+
+  /* a sideways-scrolling table fades its clipped edge instead of cutting a figure (no fixed column on that side) */
+  .ant-table.ant-table-fix-end-shadow-show:not(.ant-table-has-fix-end):not(.ant-table-empty) :is(.ant-table-content, .ant-table-body, .ant-table-header) {
+    -webkit-mask-image: linear-gradient(to right, transparent 0, black 28px); mask-image: linear-gradient(to right, transparent 0, black 28px);
+  }
+  .ant-table.ant-table-fix-start-shadow-show:not(.ant-table-has-fix-start):not(.ant-table-empty) :is(.ant-table-content, .ant-table-body, .ant-table-header) {
+    -webkit-mask-image: linear-gradient(to left, transparent 0, black 28px); mask-image: linear-gradient(to left, transparent 0, black 28px);
+  }
+  .ant-table.ant-table-fix-end-shadow-show.ant-table-fix-start-shadow-show:not(.ant-table-has-fix-end):not(.ant-table-has-fix-start):not(.ant-table-empty) :is(.ant-table-content, .ant-table-body, .ant-table-header) {
+    -webkit-mask-image: linear-gradient(to right, transparent 0, black 28px, black calc(100% - 28px), transparent 100%);
+    mask-image: linear-gradient(to right, transparent 0, black 28px, black calc(100% - 28px), transparent 100%);
+  }
+
+  /* compact density: 32 px rows at 13/20, whatever the cell holds (24 px avatars, 20 px chips, 28 px icon buttons) */
+  .ant-table-small .ant-table-tbody > tr > td { line-height: 20px; }
+  /* inline-flex cells (avatar + name, action groups) and Latin runs (Geist has other metrics) must not grow the line */
+  .ant-table-small .ant-table-tbody > tr > td > * { vertical-align: top; }
+  .ant-table-small .ant-table-tbody > tr > td :is(.sf-latin, .sf-mono, .sf-unit, bdi) { line-height: 16px; }
+  .ant-table-small .ant-table-thead > tr > th { padding-block: 7px; font-size: 12px; line-height: 18px; }
+  .ant-table-small .ant-table-tbody > tr > td :is(.ant-avatar, .bk-av):not(.is-lg) { inline-size: 24px; block-size: 24px; margin-block: -2px; line-height: 24px; }
+  .ant-table-small .ant-table-tbody > tr > td :is(.ant-tag, .sf-chip) { block-size: 20px; line-height: 18px; margin-block: 0; vertical-align: top; }
+  .ant-table-small .ant-table-tbody > tr > td .ant-btn:is(.ant-btn-sm, .ant-btn-icon-only) { margin-block: -4px; }
+  .ant-table-small .ant-table-tbody > tr > td .ant-switch { margin-block: -2px; }
+
+  /* header controls that do not fit a phone wrap below the title, and a segmented control scrolls inside itself */
+  @media (max-width: 639.98px) {
+    :is(.bk-card-h, .sf-section-h) { flex-wrap: wrap; row-gap: 8px; }
+    :is(.bk-card-x, .sf-section-x) { max-inline-size: 100%; min-inline-size: 0; }
+    .ant-segmented { max-inline-size: 100%; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; }
+    .ant-segmented::-webkit-scrollbar { display: none; }
+    .ant-segmented .ant-segmented-group { inline-size: max-content; }
+  }
+}
+
+/* ====================================================================== switch, sheets */
+@layer components {
+  /* switch (§5): off is a line-3 track with a 1 px control-strong ring, so it never reads as «on but disabled»; on is
+     solid ink with a canvas thumb that carries a small check */
+  .ant-switch:not(.ant-switch-checked) { background: var(--sf-line-3); box-shadow: inset 0 0 0 1px var(--sf-control-strong); }
+  .ant-switch:not(.ant-switch-checked):hover:not(.ant-switch-disabled) { background: var(--sf-line-3); box-shadow: inset 0 0 0 1px var(--sf-text-3); }
+  .ant-switch.ant-switch-checked .ant-switch-handle::after {
+    content: ""; position: absolute; inset: 0; background: var(--sf-text);
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E") center / 8px no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E") center / 8px no-repeat;
+  }
+  .ant-switch-small.ant-switch-checked .ant-switch-handle::after { -webkit-mask-size: 6px; mask-size: 6px; }
+
+  /* sheet header (§1.5): the title at the start; the "more" button and close (×) at the end, close last */
+  .ant-drawer-header .ant-drawer-header-title { display: contents; }
+  .ant-drawer-header .ant-drawer-title { order: 0; flex: 1 1 auto; min-inline-size: 0; }
+  .ant-drawer-header .ant-drawer-extra { order: 1; display: flex; align-items: center; gap: 4px; }
+  .ant-drawer-header .ant-drawer-close {
+    order: 2; display: inline-grid; place-items: center; inline-size: 32px; block-size: 32px; margin: 0; margin-inline-start: 4px;
+    border-radius: var(--sf-radius-md); color: var(--sf-text-2);
+  }
+  .ant-drawer-header .ant-drawer-close:hover { background: var(--sf-hover); color: var(--sf-text); }
+
+  /* collapsible optional groups in a sheet form */
+  .sf-form-sec-btn { inline-size: 100%; margin-block-end: 0; padding: 4px 0; border: 0; background: transparent; cursor: pointer; text-align: start; font-family: inherit; }
+  .sf-form-sec.is-open .sf-form-sec-btn { margin-block-end: 12px; }
+  .sf-form-sec-btn:focus-visible { outline: 2px solid var(--sf-focus-color); outline-offset: 2px; border-radius: var(--sf-radius-sm); }
+  .sf-form-sec-chev { color: var(--sf-text-3); transform: rotate(90deg); transition: transform var(--sf-dur-base) var(--sf-ease-out); }
+  .sf-form-sec.is-open .sf-form-sec-chev { transform: none; }
+  .sf-form-sec-meta { margin-inline-start: auto; font-size: 12px; font-weight: var(--sf-weight-regular); color: var(--sf-text-3); }
+  .sf-form-sec.is-collapsible + .sf-form-sec { margin-block-start: 0; }
+  .sf-form-sec.is-collapsible:not(.is-open) { padding-block-end: 2px; }
+}
+
+/* ====================================================================== print (§12) */
+@media print {
+  /* wide tables print whole: no clipping scroll containers, fit the page, no sort arrows or sticky chrome */
+  .ant-table-wrapper :is(.ant-table-content, .ant-table-body, .ant-table-header) { overflow: visible !important; max-block-size: none !important; -webkit-mask-image: none !important; mask-image: none !important; }
+  .ant-table-wrapper .ant-table table { inline-size: 100% !important; min-inline-size: 0 !important; table-layout: auto !important; font-size: 9pt; }
+  /* the paper sizes columns by their content: the screen's column widths would add up past the page, and the
+     hidden measure row (it holds the column titles) has no place on paper */
+  .ant-table-wrapper .ant-table table > colgroup > col { inline-size: auto !important; min-inline-size: 0 !important; }
+  .ant-table-wrapper .ant-table-measure-row { display: none !important; }
+  .ant-table-wrapper .ant-table :is(th, td) { padding-inline: 4px !important; }
+  /* on paper text wraps: an ellipsis would hide it, and a one-line name or description widens the table past the
+     page. Figures (.sf-num) stay on one line; headers may take two lines */
+  .ant-table-wrapper .ant-table-cell-ellipsis { overflow: visible !important; text-overflow: clip !important; }
+  .ant-table-wrapper :is(.ant-table-tbody, .ant-table-summary) > tr > td:not(.sf-num),
+  .ant-table-wrapper :is(.ant-table-tbody, .ant-table-summary) > tr > td:not(.sf-num) *,
+  .ant-table-wrapper .ant-table-thead > tr > th { white-space: normal !important; }
+  /* …by words: an ellipsis part of a flex row (min-inline-size 0, overflow hidden) would otherwise be squeezed
+     below its longest word and broken between letters */
+  .ant-table-wrapper :is(.ant-table-tbody, .ant-table-summary) > tr > td:not(.sf-num) * { overflow: visible !important; text-overflow: clip !important; min-inline-size: auto !important; }
+  .ant-table-wrapper .ant-table-cell-fix { position: static !important; }
+  .ant-table-wrapper .ant-table-cell-fix::after, .ant-table-wrapper .ant-table-cell-fix::before { display: none !important; }
+  .ant-table-column-sorter, .ant-table-filter-trigger, .ant-table-sticky-scroll, .ant-table-pagination, .sf-row-act, .sf-st-bar { display: none !important; }
+  .ant-table-wrapper .ant-table-thead > tr > th { position: static !important; }
+  .ant-table-wrapper thead { display: table-header-group; }
+  .ant-table-wrapper tr { break-inside: avoid; }
+  /* a report wider than portrait (a printed table of nine columns or more, or `.sf-print-wide`) asks for A4
+     landscape. antd writes a <col> only for a column with a width, so the header cells are counted; a table kept
+     off paper (.no-print, print:hidden) does not count, and a print with a page of its own keeps it (printWithPage,
+     lib/print.ts, puts .sf-own-page on <html> for an A5 sheet, a roll receipt or labels) */
+  :root:not(.sf-own-page):has(.ant-table-wrapper:not(.no-print, .print\:hidden, :is(.no-print, .print\:hidden) *) .ant-table-thead > tr > th:nth-child(9)) body,
+  :root:not(.sf-own-page):has(.sf-print-wide) body { page: sf-wide; }
+}
+@page sf-wide { size: A4 landscape; margin: 12mm 12mm 14mm; }

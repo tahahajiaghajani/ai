@@ -1,0 +1,150 @@
+/* Siraf · the assistant's answers (safe Markdown). Tokens only; logical properties; Persian paragraph rhythm. */
+@layer components {
+  .sa-md {
+    font-size: var(--sf-type-body-size);
+    line-height: 26px;
+    color: var(--sf-text);
+    overflow-wrap: anywhere;
+    min-inline-size: 0;
+  }
+  .sa-md > :first-child {
+    margin-block-start: 0;
+  }
+  .sa-md > :last-child {
+    margin-block-end: 0;
+  }
+  .sa-md :is(p, ul, ol, blockquote, .sa-md-table, .sa-md-pre) {
+    margin-block: 0 12px;
+  }
+  .sa-md strong {
+    font-weight: 600;
+    color: var(--sf-text);
+  }
+  .sa-md em {
+    font-style: normal;
+    color: var(--sf-text-2);
+  }
+  .sa-md :is(ul, ol) {
+    padding-inline-start: 22px;
+  }
+  .sa-md li {
+    margin-block: 4px;
+    padding-inline-start: 2px;
+  }
+  .sa-md li::marker {
+    color: var(--sf-text-3);
+  }
+  .sa-md li > :is(ul, ol) {
+    margin-block: 4px 0;
+  }
+  .sa-md .sa-md-h {
+    margin-block: 18px 8px;
+    font-size: 15px;
+    line-height: 24px;
+    font-weight: 600;
+    color: var(--sf-text);
+  }
+  .sa-md .sa-md-h4 {
+    margin-block: 14px 6px;
+    font-size: 14px;
+    line-height: 22px;
+  }
+  .sa-md blockquote {
+    padding-inline-start: 12px;
+    border-inline-start: 2px solid var(--sf-line-3);
+    color: var(--sf-text-2);
+  }
+  .sa-md hr {
+    margin-block: 16px;
+    border: 0;
+    border-block-start: 1px solid var(--sf-line);
+  }
+  .sa-md code {
+    padding: 1px 5px;
+    border-radius: var(--sf-radius-xs);
+    background: var(--sf-sunken);
+    font-family: var(--sf-font-mono);
+    font-feature-settings: normal;
+    font-size: var(--sf-type-code-size);
+    unicode-bidi: isolate;
+  }
+  .sa-md .sa-md-pre {
+    padding: 10px 12px;
+    border-radius: var(--sf-radius-md);
+    background: var(--sf-sunken);
+    box-shadow: inset 0 0 0 1px var(--sf-line);
+    overflow-x: auto;
+    text-align: left;
+  }
+  .sa-md .sa-md-pre code {
+    padding: 0;
+    background: none;
+    line-height: var(--sf-type-code-line);
+    white-space: pre;
+  }
+  .sa-md a.sf-link {
+    cursor: pointer;
+  }
+  .sa-md .sa-md-nolink {
+    color: inherit;
+  }
+  .sa-md .sa-md-img {
+    color: var(--sf-text-3);
+  }
+
+  /* GFM tables: hairline rows, unfilled header, tabular figures; wide tables scroll inside their frame */
+  .sa-md .sa-md-table {
+    max-inline-size: 100%;
+    overflow-x: auto;
+    border-radius: var(--sf-radius-md);
+    box-shadow: inset 0 0 0 1px var(--sf-line);
+  }
+  .sa-md .sa-md-table:focus-visible {
+    outline: 2px solid var(--sf-focus-color);
+    outline-offset: 2px;
+  }
+  .sa-md table {
+    inline-size: 100%;
+    border-collapse: collapse;
+    font-size: var(--sf-type-dense-size);
+    line-height: var(--sf-type-dense-line);
+  }
+  .sa-md :is(th, td) {
+    padding-block: 6px;
+    padding-inline: 10px;
+    text-align: start;
+    vertical-align: top;
+  }
+  .sa-md th {
+    font-size: 12px;
+    line-height: 18px;
+    font-weight: var(--sf-weight-regular);
+    color: var(--sf-text-3);
+    white-space: nowrap;
+    box-shadow: inset 0 -1px 0 var(--sf-line);
+  }
+  .sa-md td {
+    border-block-start: 1px solid var(--sf-line);
+  }
+  .sa-md tr:first-child td {
+    border-block-start: 0;
+  }
+  .sa-md td.sf-num {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  /* the caret while the answer is written: a still 2 px bar after the last word (no blinking: loops are reserved) */
+  .sa-md.is-streaming > :is(p, h3, h4, blockquote):last-child::after,
+  .sa-md.is-streaming > :is(ul, ol):last-child > li:last-child::after {
+    content: "";
+    display: inline-block;
+    inline-size: 2px;
+    block-size: 1.05em;
+    margin-inline-start: 3px;
+    vertical-align: -0.16em;
+    border-radius: 1px;
+    background: var(--sf-accent-text);
+    opacity: 0.85;
+  }
+}
