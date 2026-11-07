@@ -133,7 +133,9 @@ export async function replaceChunks(q: Queryable, b: StoreBackend, orgId: string
 export async function setChunkVectors(q: Queryable, b: StoreBackend, key: string, items: { id: string; vec: number[] }[]): Promise<void> {
   const { type } = vectorSql(b);
   for (const it of items) {
-    if (b.kind === "pgvector") await q.query(`update sm_ai_chunks set vec_key = $2, vec_v = $3::${type}, vec = null where id = $1`, [it.id, key, vecText(it.vec)]);
+    // an empty vector: the model refused this text for good — the key is set so it is not asked again
+    if (!it.vec.length) await q.query(`update sm_ai_chunks set vec_key = $2, vec = null${b.kind === "pgvector" ? ", vec_v = null" : ""} where id = $1`, [it.id, key]);
+    else if (b.kind === "pgvector") await q.query(`update sm_ai_chunks set vec_key = $2, vec_v = $3::${type}, vec = null where id = $1`, [it.id, key, vecText(it.vec)]);
     else await q.query(`update sm_ai_chunks set vec_key = $2, vec = $3::real[] where id = $1`, [it.id, key, arrText(it.vec)]);
   }
 }

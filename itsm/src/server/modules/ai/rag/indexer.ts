@@ -181,7 +181,9 @@ export async function indexRecord(s: IndexSession, table: string, id: string, op
 
   const writes: ChunkWrite[] = chunks.map((c: Chunk, i) => {
     const child = c.kind === "chunk";
-    const vec = child && key ? (reuse.get(hashes[i]) ?? null) : null;
+    const got = child && key ? reuse.get(hashes[i]) : undefined;
+    // an empty vector: the model refused this text for good (it keeps the key, without a vector)
+    const vec = got?.length ? got : null;
     return {
       id: ids.get(c.ord)!,
       org_id: orgId,
@@ -204,7 +206,7 @@ export async function indexRecord(s: IndexSession, table: string, id: string, op
       version,
       ...anchors,
       lvec: child ? localEmbed(c.embedText) : null,
-      vec_key: vec ? key : null,
+      vec_key: got ? key : null,
       vec,
     };
   });

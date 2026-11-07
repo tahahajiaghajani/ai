@@ -70,8 +70,10 @@ const RATE_HOLD_MS = 60_000;
 /**
  * Vectors of `texts` from the organisation's embedding model (same order). Throws EmbedUnavailableError when AI is off,
  * over budget, held, or the provider fails (after one retry of a passing failure); nothing is half-done for the caller.
+ * A batch the provider refuses as invalid is tried text by text: a text it refuses alone gets an empty vector (it can
+ * never be embedded; full text and the local vector still find it), so one bad text never blocks the others.
  */
-export async function embedTexts(ctx: Ctx, info: EmbedderInfo, texts: string[], kind: EmbedKind, opts: { signal?: AbortSignal; env?: AiEnv } = {}): Promise<number[][]> {
+export async function embedTexts(ctx: Ctx, info: EmbedderInfo, texts: string[], kind: EmbedKind, opts: { signal?: AbortSignal; env?: AiEnv; raw?: boolean } = {}): Promise<number[][]> {
   if (!texts.length) return [];
   const env = opts.env ?? (await loadEnv(ctx));
   try {
@@ -92,7 +94,7 @@ export async function embedTexts(ctx: Ctx, info: EmbedderInfo, texts: string[], 
   const policy = env.settings.data_policy;
   const local = conn.preset.region === "local";
   // what leaves the server: the normal form, personal identifiers masked by the data policy, at most ~6000 tokens each
-  const inputs = texts.map((t) => clipTokens(local ? normalizeFa(t) : redactPrompt(normalizeFa(t), policy), 6000) || ".");
+  const inputs = opts.raw ? texts : texts.map((t) => clipTokens(local ? normalizeFa(t) : redactPrompt(normalizeFa(t), policy), 6000) || ".");
   const out: number[][] = [];
   const size = EMBED_BATCH[info.config.api] ?? 64;
   for (let i = 0; i < inputs.length; i += size) {
@@ -122,6 +124,17 @@ export async function embedTexts(ctx: Ctx, info: EmbedderInfo, texts: string[], 
           const ms = quotaHoldMs(pe.message, pe.retryAfterMs);
           await hold(ctx, conn.id, info.config.model, ms, "quota", pe.message);
           throw new EmbedUnavailableError("quota", aiErrorText("quota").message, ms);
+        }
+        if (pe.kind === "invalid" && batch.length > 1) {
+          for (const one of batch) {
+            try {
+              out.push(...(await embedTexts(ctx, info, [one], kind, { ...opts, env, raw: true })));
+            } catch (e1) {
+              if (e1 instanceof EmbedUnavailableError && e1.kind === "invalid") out.push([]);
+              else throw e1;
+            }
+          }
+          break;
         }
         if (!(pe instanceof BlockedAddressError) && (pe.kind === "overloaded" || pe.kind === "timeout" || pe.kind === "network") && !retried) {
           retried = true;
