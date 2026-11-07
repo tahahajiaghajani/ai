@@ -252,8 +252,9 @@ export function chunkDocument(doc: RagDocument, options: ChunkOptions = {}): Chu
       sectionOfChild.push(cur.section);
     };
     sections.forEach((sec, si) => {
-      // a new section starts a new chunk once the current one is big enough
-      if (cur && cur.tokens >= o.min) {
+      // a new section starts a new chunk once the current one is big enough; a new page always does (page anchors)
+      const lastPage = cur?.blocks[cur.blocks.length - 1]?.page ?? null;
+      if (cur && (cur.tokens >= o.min || (lastPage !== null && lastPage !== sec[0].page))) {
         emit();
         cur = null;
       }

@@ -11,7 +11,7 @@ const ROOT = join(__dirname, "..");
 
 describe("migrations", () => {
   it("are numbered, titled in Persian and in order", () => {
-    expect(MIGRATIONS.map((m) => m.id)).toEqual(["0001_core", "0002_platform", "0003_integrations", "0004_ai", "0005_engine", "0006_engine_tables", "0007_access", "0010_notify"]);
+    expect(MIGRATIONS.map((m) => m.id)).toEqual(["0001_core", "0002_platform", "0003_integrations", "0004_ai", "0005_engine", "0006_engine_tables", "0007_access", "0010_notify", "0020_ai_rag"]);
     for (const m of MIGRATIONS) expect(m.title).toMatch(/[؀-ۿ]/);
   });
 

@@ -486,14 +486,21 @@ export function installIndexer(): void {
   registerJobHandler(RAG_JOBS.reconcile, runReconcile);
   registerJobHandler(RAG_JOBS.sweep, runSweep);
   // every write of an indexed table (the web version also for rows a Windows app pushed)
+  // (never throws: a failure is retried by its own rag.index job, so the other subscribers of the event are not held up)
   onRecordEvent(
     "ai.rag",
     async (e, jctx) => {
+      const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!uuid.test(String(e.org_id)) || !uuid.test(String(e.id))) return;
       if (!isRagTable(ragTables().find((d) => d.key === e.table))) return;
-      const s = await indexSession(jctx.cfg, e.org_id);
-      if (e.kind === "record.deleted") await removeFromIndex(jctx.db, e.org_id, e.table, e.id);
-      else await indexRecord(s, e.table, e.id);
-      await ensureSchedules(jctx.db, jctx.cfg.mode, e.org_id);
+      try {
+        if (e.kind === "record.deleted") await removeFromIndex(jctx.db, e.org_id, e.table, e.id);
+        else await indexRecord(await indexSession(jctx.cfg, e.org_id), e.table, e.id);
+        await ensureSchedules(jctx.db, jctx.cfg.mode, e.org_id);
+      } catch (err) {
+        jctx.log.warn("ai index: record not indexed, retried by a job", String((err as Error)?.message ?? err));
+        await enqueue(jctx.db, { kind: RAG_JOBS.index, orgId: e.org_id, payload: { table: e.table, id: e.id }, delayMs: 15_000, dedupeKey: `${RAG_JOBS.index}:${e.table}:${e.id}` }).catch(() => undefined);
+      }
     },
     { kinds: ["record.created", "record.updated", "record.deleted"] },
   );
