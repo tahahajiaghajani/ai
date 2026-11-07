@@ -52,7 +52,7 @@ function Events() {
   const rows = list.data?.pages.flat() ?? [];
   const scoped = params.get("user") || params.get("org");
   return (
-    <div className="bk-card">
+    <div className="blk-card">
       <div className="ad-filters">
         <Input allowClear prefix={<Search {...ICON} className="text-ink-3" />} placeholder="ایمیل، نام، سازمان یا IP" value={q} onChange={(e) => setQ(e.target.value)} aria-label="جست‌وجو" />
         <Select
@@ -85,7 +85,7 @@ function Events() {
         ) : null}
       </div>
       <Table<SecurityEvent>
-        className="bk-tbl"
+        className="blk-tbl"
         size="small"
         rowKey="id"
         loading={list.isLoading}
@@ -173,7 +173,7 @@ function AdminAudit() {
   const list = usePaged<AuditRow>(["audit", query], "/admin/audit", "rows", query);
   const rows = list.data?.pages.flat() ?? [];
   return (
-    <div className="bk-card">
+    <div className="blk-card">
       <div className="ad-filters">
         <Input allowClear prefix={<Search {...ICON} className="text-ink-3" />} placeholder="شرح، مدیر یا سازمان" value={q} onChange={(e) => setQ(e.target.value)} aria-label="جست‌وجو" />
         <Segmented
@@ -187,7 +187,7 @@ function AdminAudit() {
         />
       </div>
       <Table<AuditRow>
-        className="bk-tbl"
+        className="blk-tbl"
         size="small"
         rowKey="id"
         loading={list.isLoading}

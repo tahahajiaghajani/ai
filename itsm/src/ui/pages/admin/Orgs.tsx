@@ -57,7 +57,7 @@ export default function Orgs() {
   return (
     <div>
       <PageHeader title="سازمان‌ها" subtitle={list.data ? `${fa(rows.length)} سازمان` : undefined} />
-      <div className="bk-card">
+      <div className="blk-card">
         <div className="ad-filters">
           <Input allowClear prefix={<Search {...ICON} className="text-ink-3" />} placeholder="نام، ایمیل یا موبایل اعضا" value={q} onChange={(e) => setQ(e.target.value)} aria-label="جست‌وجوی سازمان" />
           <Segmented
@@ -96,7 +96,7 @@ export default function Orgs() {
           />
         </div>
         <Table<OrgListRow>
-          className="bk-tbl"
+          className="blk-tbl"
           size="middle"
           rowKey="id"
           loading={list.isLoading}

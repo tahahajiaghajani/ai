@@ -8,7 +8,7 @@ import { ChevronDown, ExternalLink, FlaskConical, Globe, Monitor, Plug, Route, S
 import type { AiConnectionPublic, AiProtocol, AiTestReport } from "@shared/ai/types";
 import { useOrg } from "../../lib/org";
 import { useNotify } from "../../lib/hooks";
-import { Field, Note } from "../../modules/reports/kit";
+import { Field, Note } from "../../components/blocks";
 import { TIER_LABEL, cleanKey } from "../kit/model";
 import { objectOf } from "../kit/hooks";
 import type { AiConnectionInput, AiPresetView } from "../kit/types";

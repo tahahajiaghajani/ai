@@ -8,7 +8,7 @@ import { useOrg } from "../../lib/org";
 import { useNotify } from "../../lib/hooks";
 import { Chip, EmptyState, Skeleton } from "../../components/display";
 import { fa, jDate, jTime } from "../../lib/fa";
-import { Note } from "../../modules/reports/kit";
+import { Note } from "../../components/blocks";
 import { ERROR_HELP, TIER_LABEL, TONE_LABEL, connectionTone } from "../kit/model";
 import { objectOf, useAiInvalidate } from "../kit/hooks";
 import type { AiPresetView } from "../kit/types";
@@ -93,11 +93,11 @@ function ConnectionCard({
             <span>{preset?.label ?? c.preset}</span>
             {c.free_tier ? (
               <>
-                <span className="bk-sep" aria-hidden />
+                <span className="blk-sep" aria-hidden />
                 <span>طرح رایگان</span>
               </>
             ) : null}
-            <span className="bk-sep" aria-hidden />
+            <span className="blk-sep" aria-hidden />
             {c.key_unreadable ? (
               <span className="text-danger">کلید خوانده نمی‌شود</span>
             ) : c.has_key ? (
@@ -110,7 +110,7 @@ function ConnectionCard({
             )}
             {c.created_by_name ? (
               <>
-                <span className="bk-sep" aria-hidden />
+                <span className="blk-sep" aria-hidden />
                 <span>{c.created_by_name}</span>
               </>
             ) : null}
@@ -164,8 +164,8 @@ function ConnectionCard({
       <footer className="ai-conn-f">
         <span className="ai-src">
           {c.checked_at ? `آخرین بررسی ${when(c.checked_at)}` : "هنوز آزمایش نشده"}
-          {c.available_models?.length ? <> <span className="bk-sep" aria-hidden /> {fa(c.available_models.length)} مدل در دسترس</> : null}
-          {c.priority ? <> <span className="bk-sep" aria-hidden /> اولویت {fa(c.priority)}</> : null}
+          {c.available_models?.length ? <> <span className="blk-sep" aria-hidden /> {fa(c.available_models.length)} مدل در دسترس</> : null}
+          {c.priority ? <> <span className="blk-sep" aria-hidden /> اولویت {fa(c.priority)}</> : null}
         </span>
         <span className="ai-acts">
           <Button size="small" type="text" onClick={onEdit}>
@@ -245,17 +245,17 @@ export function ConnectionsTab({
         </Note>
       ) : null}
       {loading ? (
-        <div className="bk-card">
-          <div className="bk-card-b">
+        <div className="blk-card">
+          <div className="blk-card-b">
             <Skeleton rows={6} />
           </div>
         </div>
       ) : error ? (
-        <div className="bk-card">
+        <div className="blk-card">
           <EmptyState icon={CircleAlert} title="فهرست اتصال‌ها بارگذاری نشد." description={(error as Error)?.message} action={<Button onClick={refresh}>تلاش دوباره</Button>} />
         </div>
       ) : !list.length ? (
-        <div className="bk-card">
+        <div className="blk-card">
           <EmptyState
             icon={KeyRound}
             title="هنوز اتصالی ثبت نشده."
@@ -266,7 +266,7 @@ export function ConnectionsTab({
               </Button>
             }
           />
-          <div className="bk-card-b" style={{ paddingBlockStart: 0 }}>
+          <div className="blk-card-b" style={{ paddingBlockStart: 0 }}>
             <RegionNote />
           </div>
         </div>

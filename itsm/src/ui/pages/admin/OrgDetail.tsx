@@ -8,7 +8,7 @@ import { Link, useNavigate } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { PageHeader } from "../../components/layout";
 import { Chip, EmptyState, Skeleton } from "../../components/display";
-import { Card, Note } from "../../modules/reports/kit";
+import { Card, Note } from "../../components/blocks";
 import { api, ApiError } from "../../lib/api";
 import { useNotify } from "../../lib/hooks";
 import { fa } from "../../lib/fa";

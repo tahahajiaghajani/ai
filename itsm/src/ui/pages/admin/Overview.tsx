@@ -5,7 +5,7 @@ import { AlertTriangle, Building2, CheckCircle2, Database, LifeBuoy, Monitor, Sh
 import { AiIcon } from "../../components/shell/icons";
 import { PageHeader } from "../../components/layout";
 import { Skeleton, StatCard } from "../../components/display";
-import { Card } from "../../modules/reports/kit";
+import { Card } from "../../components/blocks";
 import { fa } from "../../lib/fa";
 import { ICON, EVENT_KIND, When, ago, bytes, eventDetail, usd, useAdminQuery, type SecurityEvent } from "./ui";
 import { timeLeft } from "../../components/shell/SupportBanner";

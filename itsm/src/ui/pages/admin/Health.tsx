@@ -4,7 +4,7 @@ import { Button } from "antd";
 import { CheckCircle2, CircleAlert, Info, RefreshCw, TriangleAlert } from "lucide-react";
 import { PageHeader } from "../../components/layout";
 import { Skeleton, StatCard } from "../../components/display";
-import { Card } from "../../modules/reports/kit";
+import { Card } from "../../components/blocks";
 import { fa } from "../../lib/fa";
 import { ICON, When, bytes, useAdminQuery } from "./ui";
 

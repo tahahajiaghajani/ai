@@ -9,7 +9,7 @@ import { Link } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { PageHeader } from "../../components/layout";
 import { Chip, EmptyState, Skeleton, StatCard } from "../../components/display";
-import { Card, Note } from "../../modules/reports/kit";
+import { Card, Note } from "../../components/blocks";
 import { api, ApiError } from "../../lib/api";
 import { useIsPhone, useNotify } from "../../lib/hooks";
 import { fa } from "../../lib/fa";
@@ -142,7 +142,7 @@ export default function Ai() {
       <div className="ad-grid">
         <Card title="سازمان‌ها" flush>
           <Table<AiAdminBusiness>
-            className="bk-tbl"
+            className="blk-tbl"
             size="middle"
             rowKey="org_id"
             dataSource={rows}

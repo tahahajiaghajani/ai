@@ -7,7 +7,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { api } from "../../lib/api";
 import { useNotify } from "../../lib/hooks";
 import { useSession } from "../../lib/session";
-import { Note } from "../../modules/reports/kit";
+import { Note } from "../../components/blocks";
 import { faDigits } from "@shared/format";
 
 export function SupportDialog({ org, open, onClose }: { org: { id: string; name: string } | null; open: boolean; onClose: () => void }) {

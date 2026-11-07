@@ -8,7 +8,7 @@ import { useOrg } from "../../lib/org";
 import { useSession } from "../../lib/session";
 import { useNotify } from "../../lib/hooks";
 import { fa } from "../../lib/fa";
-import { Note } from "../../modules/reports/kit";
+import { Note } from "../../components/blocks";
 import { FEATURE_KEYS, FEATURE_LABEL, POLICY_LABEL } from "../kit/model";
 import { useAiInvalidate } from "../kit/hooks";
 
@@ -17,12 +17,12 @@ const POLICIES: AiDataPolicy[] = ["masked", "aggregates", "full"];
 
 function Sec({ title, desc, children }: { title: ReactNode; desc?: ReactNode; children: ReactNode }) {
   return (
-    <div className="bk-set">
+    <div className="blk-set">
       <div>
-        <div className="bk-set-t">{title}</div>
-        {desc ? <div className="bk-set-d">{desc}</div> : null}
+        <div className="blk-set-t">{title}</div>
+        {desc ? <div className="blk-set-d">{desc}</div> : null}
       </div>
-      <div className="bk-set-b">{children}</div>
+      <div className="blk-set-b">{children}</div>
     </div>
   );
 }
@@ -65,8 +65,8 @@ export function FeaturesTab({ settings, mode, linked: linkedView }: { settings: 
   };
 
   return (
-    <div className="bk-card">
-      <div className="bk-card-b" style={{ paddingBlock: 0 }}>
+    <div className="blk-card">
+      <div className="blk-card-b" style={{ paddingBlock: 0 }}>
         <Sec title="دستیار" desc="خاموش کردن، همهٔ کارهای هوش مصنوعی این سازمان را متوقف می‌کند؛ بینش‌ها بدون مدل ادامه دارند.">
           <div className="ai-sw">
             <SwitchRow title="دستیار فعال است" about={s.enabled ? "پرسش، تحلیل و خواندن از تصویر برای اعضای مجاز باز است." : "هیچ درخواستی به مدل‌ها فرستاده نمی‌شود."} checked={s.enabled} onChange={(v) => setS({ ...s, enabled: v })} />
@@ -88,16 +88,16 @@ export function FeaturesTab({ settings, mode, linked: linkedView }: { settings: 
                 <span className="ai-policy-t">
                   {POLICY_LABEL[p].title}
                   {/* a real space: without it «…شخصی» and «پیشنهادی» are shaped as one word (the margin alone does not separate them) */}
-                  {p === "masked" ? <>{" "}<span className="bk-cap" style={{ marginInlineStart: 4 }}>پیشنهادی</span></> : null}
+                  {p === "masked" ? <>{" "}<span className="blk-cap" style={{ marginInlineStart: 4 }}>پیشنهادی</span></> : null}
                 </span>
                 <span className="ai-policy-d">{POLICY_LABEL[p].about}</span>
               </Radio>
             ))}
           </Radio.Group>
           <div className="mt-4 grid max-w-xs gap-1.5">
-            <span className="bk-f-l">نگه‌داری گفت‌وگوها</span>
+            <span className="blk-f-l">نگه‌داری گفت‌وگوها</span>
             <Select value={s.retention_days} onChange={(v) => setS({ ...s, retention_days: v })} options={RETENTION.map((d) => ({ value: d, label: `${fa(d)} روز` }))} aria-label="نگه‌داری گفت‌وگوها" />
-            <span className="bk-f-h">گفت‌وگوهای قدیمی‌تر از این، خودکار پاک می‌شوند.</span>
+            <span className="blk-f-h">گفت‌وگوهای قدیمی‌تر از این، خودکار پاک می‌شوند.</span>
           </div>
         </Sec>
 
@@ -131,7 +131,7 @@ export function FeaturesTab({ settings, mode, linked: linkedView }: { settings: 
           </Sec>
         ) : null}
       </div>
-      <div className="bk-savebar">
+      <div className="blk-savebar">
         <Button type="primary" loading={saving} disabled={!dirty} onClick={save}>
           ذخیره
         </Button>

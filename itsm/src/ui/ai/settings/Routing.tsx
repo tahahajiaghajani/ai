@@ -144,21 +144,21 @@ export function RoutingTab({ settings, connections, mode, linked: linkedView }: 
 
   if (!connections.length)
     return (
-      <div className="bk-card">
+      <div className="blk-card">
         <EmptyState title="اول یک اتصال اضافه کنید." description="هر کار از مدل‌های اتصال‌های شما استفاده می‌کند." />
       </div>
     );
 
   return (
-    <div className="bk-card">
-      <div className="bk-card-b" style={{ paddingBlock: 0 }}>
+    <div className="blk-card">
+      <div className="blk-card-b" style={{ paddingBlock: 0 }}>
         {JOBS.map((j) => (
-          <div key={j} className="bk-set">
+          <div key={j} className="blk-set">
             <div>
-              <div className="bk-set-t">{JOB_LABEL[j].title}</div>
-              <div className="bk-set-d">{JOB_LABEL[j].about}</div>
+              <div className="blk-set-t">{JOB_LABEL[j].title}</div>
+              <div className="blk-set-d">{JOB_LABEL[j].about}</div>
             </div>
-            <div className="bk-set-b ai-job">
+            <div className="blk-set-b ai-job">
               <ChainEditor job={j} chain={routing[j] ?? []} connections={connections} onChange={(c) => setRouting((r) => ({ ...r, [j]: c }))} />
               <div className="ai-effort">
                 <span>میزان تلاش</span>
@@ -187,8 +187,8 @@ export function RoutingTab({ settings, connections, mode, linked: linkedView }: 
           </div>
         ))}
       </div>
-      <div className="bk-savebar">
-        <span className="bk-savebar-m">تلاش بیشتر یعنی پاسخ دقیق‌تر، کندتر و پرهزینه‌تر؛ مدلی که پشتیبانی نکند، آن را نادیده می‌گیرد.</span>
+      <div className="blk-savebar">
+        <span className="blk-savebar-m">تلاش بیشتر یعنی پاسخ دقیق‌تر، کندتر و پرهزینه‌تر؛ مدلی که پشتیبانی نکند، آن را نادیده می‌گیرد.</span>
         <Button type="primary" loading={saving} disabled={!dirty} onClick={save}>
           ذخیره
         </Button>

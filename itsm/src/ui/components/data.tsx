@@ -180,7 +180,7 @@ function flattenToolbar(node: ReactNode): ReactElement[] {
 const isDateInput = (e: ReactElement | undefined): e is ReactElement<{ value?: string | null; onChange?: (v: string | null) => void; placeholder?: string }> => !!e && e.type === DateInput;
 const isSearchInput = (e: ReactElement) => e.type === Input || e.type === Input.Search;
 
-/** «از تاریخ» + «تا تاریخ» (side by side, or in a `.bk-range` wrapper with «تا» between) become one range chip. */
+/** «از تاریخ» + «تا تاریخ» (side by side, or in a `.blk-range` wrapper with «تا» between) become one range chip. */
 function mergeDateRanges(items: ReactElement[]): ReactElement[] {
   const out: ReactElement[] = [];
   const chip = (a: ReactElement, b: ReactElement, key: string) => {

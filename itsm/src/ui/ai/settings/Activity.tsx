@@ -8,7 +8,7 @@ import type { AiProposalStatus } from "@shared/ai/types";
 import { useOrg } from "../../lib/org";
 import { Chip, EmptyState, JDateTime } from "../../components/display";
 import { FilterChip } from "../../components/inputs";
-import { Card } from "../../modules/reports/kit";
+import { Card } from "../../components/blocks";
 import { duration } from "../kit/model";
 import { useAiActions, useAiToolCalls } from "../kit/hooks";
 import type { AiActionView, AiToolCallView } from "../kit/types";
@@ -95,7 +95,7 @@ function Proposals() {
   return (
     <Card
       title="پیش‌نویس‌های دستیار"
-      meta={<span className="bk-cap">هر پیش‌نویس فقط با تأیید کسی که دسترسی دارد ثبت می‌شود</span>}
+      meta={<span className="blk-cap">هر پیش‌نویس فقط با تأیید کسی که دسترسی دارد ثبت می‌شود</span>}
       tools={
         <FilterChip
           label="وضعیت"
@@ -107,7 +107,7 @@ function Proposals() {
       flush
     >
       <Table<AiActionView>
-        className="bk-tbl"
+        className="blk-tbl"
         size="small"
         rowKey="id"
         loading={q.isLoading}
@@ -123,7 +123,7 @@ function Proposals() {
           ),
         }}
         columns={[
-          { key: "at", dataIndex: "created_at", title: "زمان", width: 150, render: (v) => <span className="bk-2"><JDateTime v={v} /></span> },
+          { key: "at", dataIndex: "created_at", title: "زمان", width: 150, render: (v) => <span className="blk-2"><JDateTime v={v} /></span> },
           { key: "user", dataIndex: ["user", "name"], title: "درخواست‌کننده", width: 150, ellipsis: true, render: (v) => v ?? <span className="ds-zero">—</span> },
           { key: "title", dataIndex: "title_fa", title: "پیش‌نویس", ellipsis: true },
           { key: "st", dataIndex: "status", title: "وضعیت", width: 136, render: (v: AiProposalStatus) => <ProposalStatus s={v} /> },
@@ -141,12 +141,12 @@ function ToolCalls() {
   return (
     <Card
       title="ابزارهای اجراشده"
-      meta={<span className="bk-cap">هر ابزار با دسترسی همان کاربر اجرا می‌شود</span>}
+      meta={<span className="blk-cap">هر ابزار با دسترسی همان کاربر اجرا می‌شود</span>}
       tools={<FilterChip label="نتیجه" value={result} onChange={setResult} options={[{ value: "ok", label: "موفق" }, { value: "failed", label: "ناموفق" }]} />}
       flush
     >
       <Table<AiToolCallView>
-        className="bk-tbl"
+        className="blk-tbl"
         size="small"
         rowKey="id"
         loading={q.isLoading}
@@ -161,7 +161,7 @@ function ToolCalls() {
           ),
         }}
         columns={[
-          { key: "at", dataIndex: "created_at", title: "زمان", width: 150, render: (v) => <span className="bk-2"><JDateTime v={v} /></span> },
+          { key: "at", dataIndex: "created_at", title: "زمان", width: 150, render: (v) => <span className="blk-2"><JDateTime v={v} /></span> },
           { key: "user", dataIndex: ["user", "name"], title: "کاربر", width: 150, ellipsis: true, render: (v) => v ?? <span className="ds-zero">—</span> },
           { key: "tool", title: "ابزار", width: 200, ellipsis: true, render: (_, t) => t.title_fa ?? <bdi dir="ltr" className="ds-mono text-[12px]">{t.tool}</bdi> },
           {
@@ -177,7 +177,7 @@ function ToolCalls() {
               ),
           },
           { key: "sum", dataIndex: "summary", title: "خلاصه", ellipsis: true, render: (v) => v ?? <span className="ds-zero">—</span> },
-          { key: "ms", dataIndex: "ms", title: "مدت", width: 112, render: (v) => (v ? <span className="ds-num bk-2">{duration(v)}</span> : <span className="ds-zero">—</span>) },
+          { key: "ms", dataIndex: "ms", title: "مدت", width: 112, render: (v) => (v ? <span className="ds-num blk-2">{duration(v)}</span> : <span className="ds-zero">—</span>) },
         ]}
       />
     </Card>

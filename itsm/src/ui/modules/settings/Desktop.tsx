@@ -10,7 +10,7 @@ import { useOrg } from "../../lib/org";
 import { useAction, useNotify } from "../../lib/hooks";
 import { PageHeader } from "../../components/layout";
 import { EmptyState, JDateTime, Skeleton } from "../../components/display";
-import { Card, ICON, ICON14, Note, Version } from "../reports/kit";
+import { Card, ICON, ICON14, Note, Version } from "../../components/blocks";
 import { faDigits } from "@shared/format";
 
 function size(n: number) {
@@ -48,11 +48,11 @@ export default function Desktop() {
   return (
     <div>
       <PageHeader title="نسخهٔ ویندوز" subtitle={d ? <span>نسخهٔ <Version v={d.version} />، {d.computer}</span> : null} />
-      <div className="bk-cols grid items-start gap-4 xl:grid-cols-2">
+      <div className="blk-cols grid items-start gap-4 xl:grid-cols-2">
         <Card
           title="هم‌گامی با نسخهٔ وب"
           meta={
-            <span className="inline-flex items-center gap-2 bk-meta">
+            <span className="inline-flex items-center gap-2 blk-meta">
               <i className="ds-nuqta" data-live={linked ? "" : undefined} style={linked ? undefined : { color: "var(--ds-text-3)" }} aria-hidden />
               {linked ? "متصل" : "متصل نیست"}
             </span>
@@ -60,7 +60,7 @@ export default function Desktop() {
         >
           {linked ? (
             <>
-              <dl className="bk-dl">
+              <dl className="blk-dl">
                 <div className="is-wide">
                   <dt>نسخهٔ وب</dt>
                   <dd><bdi dir="ltr" className="ds-latin">{d.cloud.url}</bdi></dd>
@@ -112,7 +112,7 @@ export default function Desktop() {
 
         <Card
           title="پشتیبان‌گیری"
-          meta={<span className="bk-cap">خودکار هر {faDigits(settings.data?.backups?.every_hours ?? 6)} ساعت، {faDigits(settings.data?.backups?.keep ?? 30)} نسخهٔ آخر</span>}
+          meta={<span className="blk-cap">خودکار هر {faDigits(settings.data?.backups?.every_hours ?? 6)} ساعت، {faDigits(settings.data?.backups?.keep ?? 30)} نسخهٔ آخر</span>}
           tools={
             <>
               {d?.backups?.dir ? (
@@ -128,7 +128,7 @@ export default function Desktop() {
           flush
         >
           <Table
-            className="bk-tbl"
+            className="blk-tbl"
             size="small"
             rowKey="file"
             dataSource={backups.data ?? []}
@@ -137,13 +137,13 @@ export default function Desktop() {
             locale={{ emptyText: <EmptyState compact icon={DatabaseBackup} title="هنوز پشتیبانی گرفته نشده" /> }}
             columns={[
               { key: "at", dataIndex: "at", title: "زمان", width: 160, render: (v) => <JDateTime v={v} /> },
-              { key: "size", dataIndex: "size", title: "حجم", width: 112, render: (v) => <span className="bk-2 ds-num">{size(v)}</span> },
-              { key: "name", dataIndex: "file", title: "فایل", ellipsis: true, render: (v) => <bdi dir="ltr" className="ds-mono bk-3">{String(v).split(/[\\/]/).pop()}</bdi> },
+              { key: "size", dataIndex: "size", title: "حجم", width: 112, render: (v) => <span className="blk-2 ds-num">{size(v)}</span> },
+              { key: "name", dataIndex: "file", title: "فایل", ellipsis: true, render: (v) => <bdi dir="ltr" className="ds-mono blk-3">{String(v).split(/[\\/]/).pop()}</bdi> },
               {
                 key: "a",
                 width: 104,
                 render: (_, r: any) => (
-                  <span className="bk-ra">
+                  <span className="blk-ra">
                     <Button
                       size="small"
                       type="text"
@@ -161,7 +161,7 @@ export default function Desktop() {
           />
         </Card>
 
-        <Card title="حالت شبکه" meta={<span className="bk-cap">چند رایانه در یک فروشگاه</span>}>
+        <Card title="حالت شبکه" meta={<span className="blk-cap">چند رایانه در یک فروشگاه</span>}>
           {settings.data ? (
             <Form layout="vertical" initialValues={settings.data.lan} onFinish={(v) => saveSettings.mutate({ lan: v })}>
               <div className="flex flex-wrap items-end gap-3">
@@ -169,14 +169,14 @@ export default function Desktop() {
                 <Form.Item name="port" label="پورت" className="!mb-0"><Input dir="ltr" className="ds-num !w-28" /></Form.Item>
                 <Button htmlType="submit">ذخیره</Button>
               </div>
-              <div className="bk-f-h mt-3">رایانه‌ها و گوشی‌های همین شبکه با مرورگر یا برنامهٔ سیراف به این رایانه وصل می‌شوند و هم‌زمان کار می‌کنند؛ تغییر پس از اجرای دوبارهٔ برنامه اعمال می‌شود.</div>
+              <div className="blk-f-h mt-3">رایانه‌ها و گوشی‌های همین شبکه با مرورگر یا برنامهٔ سیراف به این رایانه وصل می‌شوند و هم‌زمان کار می‌کنند؛ تغییر پس از اجرای دوبارهٔ برنامه اعمال می‌شود.</div>
             </Form>
           ) : null}
           {d?.lan?.enabled && lanUrl ? (
             <div className="mt-4 grid gap-2">
-              <div className="bk-f-l">نشانی برای دستگاه‌های دیگر</div>
+              <div className="blk-f-l">نشانی برای دستگاه‌های دیگر</div>
               {d.lan.addresses.map((a: string) => (
-                <div key={a} className="bk-copy">
+                <div key={a} className="blk-copy">
                   <code>http://{a}:{d.lan.port}</code>
                   <Tooltip title="رونوشت">
                     <Button type="text" size="small" icon={<Copy {...ICON14} />} aria-label="رونوشت" onClick={() => { void navigator.clipboard?.writeText(`http://${a}:${d.lan.port}`); message.success("رونوشت شد."); }} />
@@ -192,7 +192,7 @@ export default function Desktop() {
 
         <Card title="دربارهٔ این نصب">
           {d ? (
-            <dl className="bk-dl">
+            <dl className="blk-dl">
               <div>
                 <dt>نسخه</dt>
                 <dd><Version v={d.version} /></dd>
@@ -207,7 +207,7 @@ export default function Desktop() {
               </div>
               <div className="is-wide">
                 <dt>شناسهٔ دستگاه</dt>
-                <dd><bdi dir="ltr" className="ds-mono bk-2">{d.device_id}</bdi></dd>
+                <dd><bdi dir="ltr" className="ds-mono blk-2">{d.device_id}</bdi></dd>
               </div>
             </dl>
           ) : (

@@ -12,7 +12,7 @@ import { Chip, EmptyState, JDateTime } from "../../components/display";
 import { matchesFa } from "../../lib/fa";
 import { faDigits } from "@shared/format";
 import { ENTITIES } from "@shared/entities";
-import { ICON, Who } from "../reports/kit";
+import { ICON, Who } from "../../components/blocks";
 import { usePrinting } from "../../lib/print";
 
 const ACTION: Record<string, string> = {
@@ -118,7 +118,7 @@ function SupportSessions() {
   return (
     <div className="ds-card">
       <Table<SupportRow>
-        className="bk-tbl"
+        className="blk-tbl"
         size="small"
         rowKey="id"
         loading={q.isLoading}
@@ -128,7 +128,7 @@ function SupportSessions() {
         tableLayout="fixed"
         locale={{ emptyText: q.isLoading ? " " : <EmptyState icon={LifeBuoy} title="مدیر سامانه تاکنون در حالت پشتیبانی وارد این سازمان نشده است" /> }}
         columns={[
-          { key: "at", dataIndex: "started_at", title: "آغاز", width: 152, render: (v) => <span className="bk-2"><JDateTime v={v} /></span> },
+          { key: "at", dataIndex: "started_at", title: "آغاز", width: 152, render: (v) => <span className="blk-2"><JDateTime v={v} /></span> },
           {
             key: "who",
             title: "مدیر سامانه",
@@ -138,7 +138,7 @@ function SupportSessions() {
               <span className="min-w-0">
                 <span className="block truncate">{r.admin_name ?? "—"}</span>
                 {r.admin_email ? (
-                  <bdi dir="ltr" className="ds-latin bk-3 block truncate" style={{ fontSize: 12 }}>
+                  <bdi dir="ltr" className="ds-latin blk-3 block truncate" style={{ fontSize: 12 }}>
                     {r.admin_email}
                   </bdi>
                 ) : null}
@@ -153,13 +153,13 @@ function SupportSessions() {
             width: 168,
             render: (_, r) =>
               r.state === "active" ? (
-                <span className="bk-2">
+                <span className="blk-2">
                   تا <JDateTime v={r.expires_at} />
                 </span>
               ) : (
-                <span className="bk-2">
+                <span className="blk-2">
                   <JDateTime v={r.ended_at ?? r.expires_at} />
-                  {r.ended_by_name && r.state === "ended" ? <span className="bk-3 block truncate text-[12px]">به دست {r.ended_by_name}</span> : null}
+                  {r.ended_by_name && r.state === "ended" ? <span className="blk-3 block truncate text-[12px]">به دست {r.ended_by_name}</span> : null}
                 </span>
               ),
           },
@@ -207,7 +207,7 @@ function Events() {
         <div className="ds-st">
           <div className="ds-st-bar">
             <div className="ds-st-filters">
-              <Input allowClear prefix={<Search {...ICON} className="bk-3" />} placeholder="کاربر، بخش یا شرح" value={search} onChange={(e) => setSearch(e.target.value)} className="!w-64" />
+              <Input allowClear prefix={<Search {...ICON} className="blk-3" />} placeholder="کاربر، بخش یا شرح" value={search} onChange={(e) => setSearch(e.target.value)} className="!w-64" />
               <Segmented
                 value={action}
                 onChange={(v) => setAction(String(v))}
@@ -222,7 +222,7 @@ function Events() {
             </div>
           </div>
           <Table
-            className="bk-tbl"
+            className="blk-tbl"
             size="small"
             rowKey="id"
             loading={q.isLoading}
@@ -233,7 +233,7 @@ function Events() {
             sticky={printing ? undefined : { offsetHeader: 56 }}
             locale={{ emptyText: q.isLoading ? " " : <EmptyState icon={ScrollText} title={search || action !== "all" ? "رویدادی با این شرایط نیست" : "هنوز رویدادی ثبت نشده"} /> }}
             columns={[
-              { key: "at", dataIndex: "at", title: "زمان", width: 152, render: (v) => <span className="bk-2"><JDateTime v={v} /></span> },
+              { key: "at", dataIndex: "at", title: "زمان", width: 152, render: (v) => <span className="blk-2"><JDateTime v={v} /></span> },
               {
                 key: "user",
                 dataIndex: "full_name",
@@ -251,9 +251,9 @@ function Events() {
                   ),
               },
               { key: "action", dataIndex: "action", title: "عمل", width: 104, render: (v) => <span className={v === "delete" ? "text-danger" : undefined}>{actionName(v)}</span> },
-              { key: "entity", dataIndex: "entity", title: "بخش", width: 140, ellipsis: true, render: (v) => <span className="bk-2">{entityName(v)}</span> },
+              { key: "entity", dataIndex: "entity", title: "بخش", width: 140, ellipsis: true, render: (v) => <span className="blk-2">{entityName(v)}</span> },
               { key: "summary", dataIndex: "summary", title: "شرح", ellipsis: true },
-              { key: "origin", dataIndex: "origin", title: "مبدأ", width: 80, render: (v) => <span className="bk-plain">{v === "cloud" ? "وب" : "ویندوز"}</span> },
+              { key: "origin", dataIndex: "origin", title: "مبدأ", width: 80, render: (v) => <span className="blk-plain">{v === "cloud" ? "وب" : "ویندوز"}</span> },
             ]}
           />
         </div>

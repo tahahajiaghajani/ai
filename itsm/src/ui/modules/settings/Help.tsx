@@ -7,7 +7,7 @@ import { useSession } from "../../lib/session";
 import { PageHeader } from "../../components/layout";
 import { Wordmark, BrandTile } from "../../components/brand";
 import { APP_NAME, APP_NAME_EN, APP_TAGLINE, APP_VERSION } from "@shared/constants";
-import { Keys, Version } from "../reports/kit";
+import { Keys, Version } from "../../components/blocks";
 
 const SHORTCUTS: [string[][], string][] = [
   [[["Ctrl", "K"]], "جست‌وجوی سراسری: هر صفحه، شخص، سند یا فرمان"],
@@ -35,7 +35,7 @@ const FONTS: { name: string; role: string; by: string; file: string; latin?: boo
 
 function Article({ id, title, children }: { id: string; title: string; children: ReactNode }) {
   return (
-    <article id={id} className="bk-art" style={{ scrollMarginTop: 72 }}>
+    <article id={id} className="blk-art" style={{ scrollMarginTop: 72 }}>
       <h2>{title}</h2>
       {children}
     </article>
@@ -71,10 +71,10 @@ export default function Help() {
   return (
     <div>
       <PageHeader title="راهنما" subtitle={<span>{APP_NAME} <Version v={APP_VERSION} /></span>} />
-      <div className="bk-help">
-        <div className="bk-card">
+      <div className="blk-help">
+        <div className="blk-card">
           <Article id="start" title="شروع کار در پنج قدم">
-            <ol className="bk-steps">
+            <ol className="blk-steps">
               <li>
                 اطلاعات سازمان، لوگو، نرخ مالیات و بخش‌ها: <Link className="ds-link" to={to("settings/org")}>تنظیمات سازمان</Link>
               </li>
@@ -94,7 +94,7 @@ export default function Help() {
           <Article id="keys" title="میانبرهای صفحه‌کلید">
             <div>
               {SHORTCUTS.map(([groups, d], i) => (
-                <div key={i} className="bk-keyrow">
+                <div key={i} className="blk-keyrow">
                   <span>
                     {groups.map((g, j) => (
                       <span key={j} className="inline-flex items-center gap-1.5">
@@ -107,14 +107,14 @@ export default function Help() {
                 </div>
               ))}
             </div>
-            <div className="bk-well mt-5">
-              <div className="bk-f-l mb-1">نوشتن تاریخ</div>
+            <div className="blk-well mt-5">
+              <div className="blk-f-l mb-1">نوشتن تاریخ</div>
               <div className="flex flex-wrap gap-x-6 gap-y-1 text-[14px] leading-7">
                 {DATE_INPUTS.map((d) => (
                   <span key={d}>{d}</span>
                 ))}
               </div>
-              <div className="bk-f-h mt-1">ارقام فارسی و انگلیسی هر دو پذیرفته می‌شوند. میانبرها روی صفحه‌کلید فارسی هم کار می‌کنند.</div>
+              <div className="blk-f-h mt-1">ارقام فارسی و انگلیسی هر دو پذیرفته می‌شوند. میانبرها روی صفحه‌کلید فارسی هم کار می‌کنند.</div>
             </div>
           </Article>
 
@@ -161,7 +161,7 @@ export default function Help() {
           </Article>
 
           <Article id="ai" title="هوش مصنوعی با Gemini رایگان">
-            <ol className="bk-steps">
+            <ol className="blk-steps">
               <li>
                 کلید رایگان: با یک حساب Google در <bdi dir="ltr" className="ds-mono">aistudio.google.com</bdi> ← API Keys ← Create API key. AI Studio از اینترنت ایران باز نمی‌شود و Google استفاده را به کشورهای پشتیبانی‌شده محدود کرده است؛ پذیرفتن شرایطش با مالک سازمان است.
               </li>
@@ -199,7 +199,7 @@ export default function Help() {
           </Article>
 
           <Article id="shop" title="اتصال به فروشگاه اینترنتی">
-            <ol className="bk-steps">
+            <ol className="blk-steps">
               <li>
                 در نسخهٔ وب، <Link className="ds-link" to={to("settings/integrations")}>اتصال‌ها و API</Link> ← «اتصال تازه». نشانی Webhook و کلید را رونوشت کنید.
               </li>
@@ -215,25 +215,25 @@ export default function Help() {
           </Article>
         </div>
 
-        <aside className="bk-toc">
-          <nav className="bk-card py-2" aria-label="فهرست راهنما">
+        <aside className="blk-toc">
+          <nav className="blk-card py-2" aria-label="فهرست راهنما">
             {toc.map(([id, label]) => (
-              <a key={id} href={`#${id}`} className="bk-toc-a" onClick={(e) => { e.preventDefault(); document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" }); history.replaceState(null, "", `#${id}`); }}>
+              <a key={id} href={`#${id}`} className="blk-toc-a" onClick={(e) => { e.preventDefault(); document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" }); history.replaceState(null, "", `#${id}`); }}>
                 {label}
               </a>
             ))}
           </nav>
 
-          <section id="about" className="bk-card overflow-hidden" style={{ scrollMarginTop: 72 }}>
-            <div className="bk-about-h">
+          <section id="about" className="blk-card overflow-hidden" style={{ scrollMarginTop: 72 }}>
+            <div className="blk-about-h">
               <BrandTile size={44} />
               <div>
                 <Wordmark size={24} tone="white" />
                 <small>{APP_TAGLINE}</small>
               </div>
             </div>
-            <div className="bk-card-b">
-              <dl className="bk-dl" style={{ ["--cols" as string]: 2 }}>
+            <div className="blk-card-b">
+              <dl className="blk-dl" style={{ ["--cols" as string]: 2 }}>
                 <div>
                   <dt>نسخه</dt>
                   <dd><Version v={APP_VERSION} /></dd>
@@ -247,26 +247,26 @@ export default function Help() {
                   <dd><bdi dir="ltr" className="ds-latin" style={{ fontWeight: 600, letterSpacing: "-.025em" }}>{APP_NAME_EN}</bdi></dd>
                 </div>
               </dl>
-              <div className="bk-sheet-sec" style={{ marginBlockStart: 20 }}>قلم‌ها</div>
+              <div className="blk-sheet-sec" style={{ marginBlockStart: 20 }}>قلم‌ها</div>
               <div>
                 {FONTS.map((f) => (
-                  <div key={f.file} className="bk-lic">
+                  <div key={f.file} className="blk-lic">
                     <span className="min-w-0">
                       <b className="block">{f.name}</b>
-                      <span className="block bk-3" style={{ fontSize: 12 }}>{f.role}</span>
-                      <span className="block bk-3" style={{ fontSize: 12 }}>
+                      <span className="block blk-3" style={{ fontSize: 12 }}>{f.role}</span>
+                      <span className="block blk-3" style={{ fontSize: 12 }}>
                         {f.latin ? f.by : <bdi dir="ltr" className="ds-latin">{f.by}</bdi>}
                       </span>
                     </span>
                     <span className="ds-end">
-                      <a className="bk-lnk" href={`/fonts/ds/${f.file}`} target="_blank" rel="noreferrer">
+                      <a className="blk-lnk" href={`/fonts/ds/${f.file}`} target="_blank" rel="noreferrer">
                         <bdi dir="ltr" className="ds-latin">SIL OFL 1.1</bdi>
                       </a>
                     </span>
                   </div>
                 ))}
               </div>
-              <div className="bk-f-h mt-3">هر سه قلم آزاد و متن‌باز با «پروانهٔ قلم آزاد SIL»، نسخهٔ ۱٫۱ منتشر شده‌اند و متن کامل پروانه همراه برنامه است.</div>
+              <div className="blk-f-h mt-3">هر سه قلم آزاد و متن‌باز با «پروانهٔ قلم آزاد SIL»، نسخهٔ ۱٫۱ منتشر شده‌اند و متن کامل پروانه همراه برنامه است.</div>
             </div>
           </section>
         </aside>

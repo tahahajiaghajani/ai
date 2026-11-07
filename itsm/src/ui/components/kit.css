@@ -368,35 +368,35 @@
   .ds-st-filters .ant-input-affix-wrapper.ds-numin:has(input:not(:placeholder-shown)):not(:focus-within) { background: var(--ds-accent-tint-2); box-shadow: inset 0 0 0 1px var(--ds-accent-border); }
   .ds-st-filters .ant-input-affix-wrapper.ds-numin:has(input:not(:placeholder-shown)):not(:focus-within) input { color: var(--ds-accent-text); }
   .ds-st-filters .ant-input-affix-wrapper.ds-numin input::placeholder { color: var(--ds-text-2); font-weight: var(--ds-weight-medium); }
-  /* the module toggles (`.bk-tog`) read as toggle chips: the box replaces their icon */
-  .ds-st-filters .bk-tog, .ds-fmore .bk-tog {
+  /* the module toggles (`.blk-tog`) read as toggle chips: the box replaces their icon */
+  .ds-st-filters .blk-tog, .ds-fmore .blk-tog {
     display: inline-flex; align-items: center; gap: 6px; block-size: 30px; padding-inline: 10px 12px; border: 0;
     border-radius: var(--ds-radius-pill); background: transparent; color: var(--ds-text-2); box-shadow: none;
     font-size: 13px; font-weight: var(--ds-weight-medium); white-space: nowrap; cursor: pointer;
   }
-  .ds-st-filters .bk-tog > svg, .ds-fmore .bk-tog > svg { display: none; }
-  .ds-st-filters .bk-tog::before, .ds-fmore .bk-tog::before {
+  .ds-st-filters .blk-tog > svg, .ds-fmore .blk-tog > svg { display: none; }
+  .ds-st-filters .blk-tog::before, .ds-fmore .blk-tog::before {
     content: ""; flex: none; inline-size: 14px; block-size: 14px; border-radius: 4px;
     box-shadow: inset 0 0 0 1px var(--ds-control-strong); background: var(--ds-surface);
   }
   @media (hover: hover) and (pointer: fine) {
-    .ds-st-filters .bk-tog:hover { background: var(--ds-hover); box-shadow: inset 0 0 0 1px var(--ds-line-2); }
+    .ds-st-filters .blk-tog:hover { background: var(--ds-hover); box-shadow: inset 0 0 0 1px var(--ds-line-2); }
   }
-  .ds-st-filters .bk-tog[aria-pressed="true"], .ds-fmore .bk-tog[aria-pressed="true"] { background: var(--ds-accent-tint-2); color: var(--ds-accent-text); box-shadow: inset 0 0 0 1px var(--ds-accent-border); }
-  .ds-st-filters .bk-tog[aria-pressed="true"]::before, .ds-fmore .bk-tog[aria-pressed="true"]::before {
+  .ds-st-filters .blk-tog[aria-pressed="true"], .ds-fmore .blk-tog[aria-pressed="true"] { background: var(--ds-accent-tint-2); color: var(--ds-accent-text); box-shadow: inset 0 0 0 1px var(--ds-accent-border); }
+  .ds-st-filters .blk-tog[aria-pressed="true"]::before, .ds-fmore .blk-tog[aria-pressed="true"]::before {
     box-shadow: none; background: var(--ds-accent-text);
     -webkit-mask: var(--ds-check-mask) center / 10px no-repeat, linear-gradient(black, black); -webkit-mask-composite: xor;
     mask: var(--ds-check-mask) center / 10px no-repeat exclude, linear-gradient(black, black);
   }
   .ds-st-filters, .ds-fmore { --ds-check-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E"); }
-  .ds-st-filters .bk-range { display: contents; }
+  .ds-st-filters .blk-range { display: contents; }
 
   /* «پالایه‌های بیشتر»: the hidden controls stacked as ordinary fields */
   .ds-fmore { display: flex; flex-direction: column; align-items: stretch; gap: 10px; inline-size: 260px; max-inline-size: 100%; }
   .ds-fmore > :is(.ant-select, .ant-input-affix-wrapper, .ant-input, .ant-segmented, .ant-picker) { inline-size: 100% !important; }
   .ds-fmore > .ds-fchip { align-self: flex-start; }
-  .ds-fmore .bk-range { display: flex; align-items: center; gap: 8px; }
-  .ds-fmore .bk-range > .ant-input-affix-wrapper { flex: 1 1 0; inline-size: auto !important; }
+  .ds-fmore .blk-range { display: flex; align-items: center; gap: 8px; }
+  .ds-fmore .blk-range > .ant-input-affix-wrapper { flex: 1 1 0; inline-size: auto !important; }
   .ds-fmore-pop .ant-popover-container { padding: 12px; }
 
   /* the range picker: presets, two typed fields, one month grid */
@@ -495,15 +495,15 @@
   .ant-table-small .ant-table-tbody > tr > td > * { vertical-align: top; }
   .ant-table-small .ant-table-tbody > tr > td :is(.ds-latin, .ds-mono, .ds-unit, bdi) { line-height: 16px; }
   .ant-table-small .ant-table-thead > tr > th { padding-block: 7px; font-size: 12px; line-height: 18px; }
-  .ant-table-small .ant-table-tbody > tr > td :is(.ant-avatar, .bk-av):not(.is-lg) { inline-size: 24px; block-size: 24px; margin-block: -2px; line-height: 24px; }
+  .ant-table-small .ant-table-tbody > tr > td :is(.ant-avatar, .blk-av):not(.is-lg) { inline-size: 24px; block-size: 24px; margin-block: -2px; line-height: 24px; }
   .ant-table-small .ant-table-tbody > tr > td :is(.ant-tag, .ds-chip) { block-size: 20px; line-height: 18px; margin-block: 0; vertical-align: top; }
   .ant-table-small .ant-table-tbody > tr > td .ant-btn:is(.ant-btn-sm, .ant-btn-icon-only) { margin-block: -4px; }
   .ant-table-small .ant-table-tbody > tr > td .ant-switch { margin-block: -2px; }
 
   /* header controls that do not fit a phone wrap below the title, and a segmented control scrolls inside itself */
   @media (max-width: 639.98px) {
-    :is(.bk-card-h, .ds-section-h) { flex-wrap: wrap; row-gap: 8px; }
-    :is(.bk-card-x, .ds-section-x) { max-inline-size: 100%; min-inline-size: 0; }
+    :is(.blk-card-h, .ds-section-h) { flex-wrap: wrap; row-gap: 8px; }
+    :is(.blk-card-x, .ds-section-x) { max-inline-size: 100%; min-inline-size: 0; }
     .ant-segmented { max-inline-size: 100%; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; }
     .ant-segmented::-webkit-scrollbar { display: none; }
     .ant-segmented .ant-segmented-group { inline-size: max-content; }

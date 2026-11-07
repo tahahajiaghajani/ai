@@ -19,7 +19,7 @@ import {
   type MemberActor, type MemberGrant, type Role, type Area, type Level,
 } from "@shared/permissions";
 import { faDigits } from "@shared/format";
-import { Avatar, ICON, ICON14, Note, cx } from "../reports/kit";
+import { Avatar, ICON, ICON14, Note, cx } from "../../components/blocks";
 
 const LEVELS: Record<Level, string> = { none: "بدون دسترسی", view: "مشاهده", edit: "ثبت و ویرایش", full: "کامل (حذف و تأیید)" };
 /** What each level means for the assistant («هوش مصنوعی» area). */
@@ -204,9 +204,9 @@ export default function Members() {
         </Note>
       ) : null}
 
-      <div className="bk-card">
+      <div className="blk-card">
         <Table<MemberRow>
-          className="bk-tbl"
+          className="blk-tbl"
           size="middle"
           rowKey="id"
           loading={q.isLoading}
@@ -232,16 +232,16 @@ export default function Members() {
                   <span className="min-w-0">
                     <span className="flex items-center gap-2 font-medium">
                       {r.full_name}
-                      {me?.user?.id === r.user_id ? <span className="bk-plain">(شما)</span> : null}
+                      {me?.user?.id === r.user_id ? <span className="blk-plain">(شما)</span> : null}
                     </span>
-                    <bdi dir="ltr" className="ds-latin bk-3 block truncate" style={{ fontSize: 12 }}>
+                    <bdi dir="ltr" className="ds-latin blk-3 block truncate" style={{ fontSize: 12 }}>
                       {r.email}
                     </bdi>
                   </span>
                 </span>
               ),
             },
-            { key: "title", dataIndex: "title", title: "سمت", width: 140, render: (v) => (v ? <span className="bk-2">{v}</span> : <span className="ds-zero">—</span>) },
+            { key: "title", dataIndex: "title", title: "سمت", width: 140, render: (v) => (v ? <span className="blk-2">{v}</span> : <span className="ds-zero">—</span>) },
             {
               key: "role",
               dataIndex: "role",
@@ -292,7 +292,7 @@ export default function Members() {
                 );
               },
             },
-            { key: "login", dataIndex: "last_login_at", title: "آخرین ورود", width: 160, render: (v) => <span className="bk-2"><JDateTime v={v} /></span> },
+            { key: "login", dataIndex: "last_login_at", title: "آخرین ورود", width: 160, render: (v) => <span className="blk-2"><JDateTime v={v} /></span> },
             {
               key: "active",
               dataIndex: "is_active",
@@ -313,7 +313,7 @@ export default function Members() {
                 if (!editable) return null;
                 const lock = rule(grantOf(r), null);
                 return (
-                  <span className="bk-ra">
+                  <span className="blk-ra">
                     <Tooltip title={lock ?? "دسترسی‌ها"}>
                       <Button size="small" type="text" icon={<ShieldCheck {...ICON14} />} onClick={() => setPerm(r)} aria-label={`دسترسی‌های ${r.full_name}`} disabled={!!lock} />
                     </Tooltip>
@@ -346,7 +346,7 @@ export default function Members() {
           <Form.Item name="email" label="ایمیل (نام کاربری)" rules={[{ required: true, type: "email", message: "ایمیل درست نیست." }]}>
             <Input dir="ltr" className="ds-latin" />
           </Form.Item>
-          <div className="bk-grid2">
+          <div className="blk-grid2">
             <Form.Item name="role" label="نقش">
               <Select options={roleOptions(null)} />
             </Form.Item>
@@ -376,7 +376,7 @@ export default function Members() {
         <Note tone="warning" className="mb-4">
           <b>این رمز دوباره نمایش داده نمی‌شود.</b> آن را به کاربر بدهید؛ پس از ورود می‌تواند رمز را عوض کند.
         </Note>
-        <div className="bk-copy">
+        <div className="blk-copy">
           <code style={{ fontSize: 18, letterSpacing: ".04em" }}>{temp}</code>
           <Tooltip title="رونوشت">
             <Button

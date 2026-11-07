@@ -11,7 +11,7 @@ import { useOrg } from "../../lib/org";
 import { PageHeader } from "../../components/layout";
 import { EmptyState, Skeleton } from "../../components/display";
 import { fa } from "../../lib/fa";
-import { Note } from "../../modules/reports/kit";
+import { Note } from "../../components/blocks";
 import { connectionTone } from "../kit/model";
 import { useAiConnections, useAiPresets, useAiSettings, useAiStatus } from "../kit/hooks";
 import { ConnectionsTab } from "./Connections";
@@ -69,7 +69,7 @@ export default function AiSettings() {
     return (
       <div>
         <PageHeader title="هوش مصنوعی" />
-        <div className="bk-card">
+        <div className="blk-card">
           <EmptyState icon={ShieldOff} title="دسترسی به تنظیمات هوش مصنوعی ندارید." description="کلیدها و تنظیمات را مالک یا حسابدار سازمان مدیریت می‌کند." />
         </div>
       </div>
@@ -119,12 +119,12 @@ export default function AiSettings() {
         />
       ) : !s ? (
         settings.error ? (
-          <div className="bk-card">
+          <div className="blk-card">
             <EmptyState title="تنظیمات بارگذاری نشد." description={(settings.error as Error).message} action={<Button onClick={() => settings.refetch()}>تلاش دوباره</Button>} />
           </div>
         ) : (
-          <div className="bk-card">
-            <div className="bk-card-b">
+          <div className="blk-card">
+            <div className="blk-card-b">
               <Skeleton rows={8} />
             </div>
           </div>

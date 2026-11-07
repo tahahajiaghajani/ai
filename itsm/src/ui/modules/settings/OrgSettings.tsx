@@ -10,26 +10,26 @@ import { PageHeader } from "../../components/layout";
 import { ImageInput } from "../../components/data";
 import { PctInput, NumberInput } from "../../components/inputs";
 import { MODULES, type ModuleKey } from "@shared/constants";
-import { Note, cx } from "../reports/kit";
+import { Note, cx } from "../../components/blocks";
 
 const MOD_ICON: Record<string, typeof Package> = { goods: Package, gold: Gem, fx: ArrowLeftRight };
 
 function Sec({ title, desc, children }: { title: ReactNode; desc?: ReactNode; children: ReactNode }) {
   return (
-    <div className="bk-set">
+    <div className="blk-set">
       <div>
-        <div className="bk-set-t">{title}</div>
-        {desc ? <div className="bk-set-d">{desc}</div> : null}
+        <div className="blk-set-t">{title}</div>
+        {desc ? <div className="blk-set-d">{desc}</div> : null}
       </div>
-      <div className="bk-set-b">{children}</div>
+      <div className="blk-set-b">{children}</div>
     </div>
   );
 }
 
 function SaveBar({ loading, disabled, note }: { loading: boolean; disabled?: boolean; note?: ReactNode }) {
   return (
-    <div className="bk-savebar">
-      {note ? <span className="bk-savebar-m">{note}</span> : null}
+    <div className="blk-savebar">
+      {note ? <span className="blk-savebar-m">{note}</span> : null}
       <Button type="primary" htmlType="submit" loading={loading} disabled={disabled}>
         ذخیره
       </Button>
@@ -65,10 +65,10 @@ export default function OrgSettings() {
         ]}
       />
       {tab === "profile" ? (
-        <Form layout="vertical" requiredMark={false} disabled={!editable} initialValues={org} onFinish={(v) => save.mutate(v)} className="bk-card">
+        <Form layout="vertical" requiredMark={false} disabled={!editable} initialValues={org} onFinish={(v) => save.mutate(v)} className="blk-card">
           <div className="px-5">
             <Sec title="نام و شناسه‌ها" desc="روی فاکتورها، رسیدها و گزارش‌های چاپی می‌آید.">
-              <div className="bk-grid3">
+              <div className="blk-grid3">
                 <Form.Item name="name" label="نام تجاری" rules={[{ required: true, message: "نام تجاری را بنویسید." }]}><Input /></Form.Item>
                 <Form.Item name="legal_name" label="نام ثبتی (اختیاری)"><Input /></Form.Item>
                 <Form.Item name="registration_no" label="شمارهٔ ثبت (اختیاری)"><Input {...ltr} /></Form.Item>
@@ -77,7 +77,7 @@ export default function OrgSettings() {
               </div>
             </Sec>
             <Sec title="تماس و نشانی">
-              <div className="bk-grid3">
+              <div className="blk-grid3">
                 <Form.Item name="phone" label="تلفن"><Input {...ltr} inputMode="tel" /></Form.Item>
                 <Form.Item name="mobile" label="همراه"><Input {...ltr} inputMode="tel" /></Form.Item>
                 <Form.Item name="email" label="ایمیل"><Input dir="ltr" className="ds-latin" /></Form.Item>
@@ -101,11 +101,11 @@ export default function OrgSettings() {
           disabled={!editable}
           initialValues={{ ...s, gold: s.gold ?? {}, fx: s.fx ?? {}, moadian: s.moadian ?? {} }}
           onFinish={(v) => save.mutate({ settings: { ...v, gold: { ...(s.gold ?? {}), ...(v.gold ?? {}) }, fx: { ...(s.fx ?? {}), ...(v.fx ?? {}) } } })}
-          className="bk-card"
+          className="blk-card"
         >
           <div className="px-5">
             <Sec title="مالیات و انبار">
-              <div className="bk-grid3">
+              <div className="blk-grid3">
                 <Form.Item name="vat_pct" label="مالیات بر ارزش افزوده" extra="نرخ ۱۴۰۵: ۱۰٪"><PctInput /></Form.Item>
                 <Form.Item name="timezone" label="منطقهٔ زمانی">
                   <Select options={[{ value: "Asia/Tehran", label: "تهران" }, { value: "Asia/Kabul", label: "کابل" }, { value: "Asia/Dubai", label: "دبی" }, { value: "Europe/Istanbul", label: "استانبول" }]} />
@@ -115,7 +115,7 @@ export default function OrgSettings() {
               </div>
             </Sec>
             <Sec title="سامانهٔ مؤدیان" desc="برای صورتحساب الکترونیکی؛ شناسه از کارپوشهٔ سامانه.">
-              <div className="bk-grid3">
+              <div className="blk-grid3">
                 <Form.Item name={["moadian", "memory_id"]} label="شناسهٔ یکتای حافظهٔ مالیاتی" extra="شش نویسه" rules={[{ pattern: /^[A-Za-z0-9]{6}$/, message: "شناسهٔ حافظه شش نویسهٔ لاتین یا رقم است." }]}>
                   <Input dir="ltr" maxLength={6} className="ds-code" />
                 </Form.Item>
@@ -124,7 +124,7 @@ export default function OrgSettings() {
             </Sec>
             {has("gold") ? (
               <Sec title="طلا و جواهر" desc="پیش‌فرض‌های فاکتور فروش و خرید طلا.">
-                <div className="bk-grid4">
+                <div className="blk-grid4">
                   <Form.Item name={["gold", "profit_pct"]} label="سود فروشنده"><PctInput /></Form.Item>
                   <Form.Item name={["gold", "tax_pct"]} label="مالیات اجرت و سود" extra="۱۴۰۵: ۱۰٪"><PctInput /></Form.Item>
                   <Form.Item name={["gold", "round_step"]} label="گرد کردن مبالغ به"><NumberInput /></Form.Item>
@@ -134,7 +134,7 @@ export default function OrgSettings() {
             ) : null}
             {has("fx") ? (
               <Sec title="صرافی" desc="حاشیهٔ خرید و فروش و به‌روزرسانی قیمت زنده.">
-                <div className="bk-grid3">
+                <div className="blk-grid3">
                   <Form.Item name={["fx", "margin_pct"]} label="حاشیه روی نرخ بازار"><PctInput /></Form.Item>
                   <Form.Item name={["fx", "refresh_seconds"]} label="به‌روزرسانی قیمت زنده" extra="بر حسب ثانیه"><NumberInput suffix="ثانیه" /></Form.Item>
                 </div>
@@ -144,7 +144,7 @@ export default function OrgSettings() {
           {editable ? <SaveBar loading={save.isPending} /> : null}
         </Form>
       ) : (
-        <Form layout="vertical" disabled={!can("settings", "full")} initialValues={{ modules: org.modules }} onFinish={(v) => save.mutate(v)} className="bk-card">
+        <Form layout="vertical" disabled={!can("settings", "full")} initialValues={{ modules: org.modules }} onFinish={(v) => save.mutate(v)} className="blk-card">
           <div className="px-5 pt-5">
             <Note className="mb-4">روشن کردن یک بخش حساب‌ها و تنظیمات پیش‌فرض آن را می‌افزاید؛ خاموش کردن فقط منوها را پنهان می‌کند و داده‌ای حذف نمی‌شود.</Note>
             <Form.Item name="modules" noStyle>
@@ -161,18 +161,18 @@ export default function OrgSettings() {
 
 function ModulePicker({ value = [], onChange, disabled }: { value?: ModuleKey[]; onChange?: (v: ModuleKey[]) => void; disabled?: boolean }) {
   return (
-    <Checkbox.Group value={value} onChange={(v) => onChange?.(v as ModuleKey[])} disabled={disabled} className="bk-mods w-full">
+    <Checkbox.Group value={value} onChange={(v) => onChange?.(v as ModuleKey[])} disabled={disabled} className="blk-mods w-full">
       {MODULES.map((m) => {
         const Icon = MOD_ICON[m.key] ?? Package;
         const on = value.includes(m.key);
         return (
-          <label key={m.key} className={cx("bk-mod", on && "is-on")}>
-            <span className="bk-mod-ic" aria-hidden>
+          <label key={m.key} className={cx("blk-mod", on && "is-on")}>
+            <span className="blk-mod-ic" aria-hidden>
               <Icon size={18} strokeWidth={1.4} absoluteStrokeWidth />
             </span>
             <span className="min-w-0">
-              <span className="bk-mod-t block">{m.title}</span>
-              <span className="bk-mod-d block">{m.description}</span>
+              <span className="blk-mod-t block">{m.title}</span>
+              <span className="blk-mod-d block">{m.description}</span>
             </span>
             <Checkbox value={m.key} />
           </label>

@@ -15,7 +15,7 @@
   .ai-conn-name { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: 15px; line-height: 22px; font-weight: 600; color: var(--ds-text); }
   .ai-conn-name > span:first-child { min-inline-size: 0; overflow-wrap: anywhere; }
   .ai-conn-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 0; margin-block-start: 2px; font-size: 12px; line-height: 18px; color: var(--ds-text-3); }
-  .ai-conn-meta .bk-sep { block-size: .85em; }
+  .ai-conn-meta .blk-sep { block-size: .85em; }
   .ai-key { font-family: var(--ds-font-mono); font-size: 12px; direction: ltr; unicode-bidi: isolate; color: var(--ds-text-2); }
   .ai-st { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; line-height: 18px; font-weight: var(--ds-weight-medium); color: var(--ds-text-3); white-space: nowrap; }
   .ai-st > .ds-nuqta { inline-size: 6px; block-size: 6px; }
@@ -64,7 +64,7 @@
 
   /* ---------------------------------------------------------------- the provider form (side sheet) */
   .ai-form { display: flex; flex-direction: column; gap: 16px; }
-  .ai-form .bk-f-h { text-wrap: pretty; }
+  .ai-form .blk-f-h { text-wrap: pretty; }
   .ai-presetnote { display: flex; flex-direction: column; gap: 6px; }
   .ai-presetnote > p { margin: 0; font-size: 13px; line-height: 20px; color: var(--ds-text-2); text-wrap: pretty; }
   .ai-presetnote .ai-reg { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; line-height: 18px; color: var(--ds-text-3); }

@@ -11,7 +11,7 @@ import { useOrg } from "../../lib/org";
 import { useNotify } from "../../lib/hooks";
 import { fa, jDayMonth } from "../../lib/fa";
 import { EmptyState, Skeleton } from "../../components/display";
-import { Card } from "../../modules/reports/kit";
+import { Card } from "../../components/blocks";
 import { budgetShare, budgetState, num, tokens, usd } from "../kit/model";
 import { useAiInvalidate, useAiUsage } from "../kit/hooks";
 import type { AiUsageView } from "../kit/types";
@@ -47,7 +47,7 @@ function rangeOf(p: Period) {
 
 function Rank({ rows, label }: { rows: { key: string; name: string; cost: number; calls: number; hi?: boolean }[]; label: string }) {
   const max = Math.max(0.000001, ...rows.map((r) => r.cost));
-  if (!rows.length) return <div className="bk-line"><i className="ds-nuqta" aria-hidden />مصرفی ثبت نشده.</div>;
+  if (!rows.length) return <div className="blk-line"><i className="ds-nuqta" aria-hidden />مصرفی ثبت نشده.</div>;
   return (
     <div className="ai-rank" role="list" aria-label={label}>
       {rows.slice(0, 8).map((r) => (
@@ -113,7 +113,7 @@ function BudgetCard({ settings, month, unpriced }: { settings: AiSettings; month
     />
   );
   return (
-    <Card title="بودجه" meta={<span className="bk-cap">برآورد از روی تعرفهٔ سرویس‌ها، به دلار</span>}>
+    <Card title="بودجه" meta={<span className="blk-cap">برآورد از روی تعرفهٔ سرویس‌ها، به دلار</span>}>
       <div className="ai-meter">
         <div className="ai-meter-fig">
           <b className="ds-num">{usd(month)}</b>
@@ -132,21 +132,21 @@ function BudgetCard({ settings, month, unpriced }: { settings: AiSettings; month
         </div>
       </div>
       <div className="ai-grid2 mt-5" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))" }}>
-        <label className="bk-f">
-          <span className="bk-f-l">سقف ماهانهٔ سازمان</span>
+        <label className="blk-f">
+          <span className="blk-f-l">سقف ماهانهٔ سازمان</span>
           {money(b.monthly_usd, (v) => setB({ ...b, monthly_usd: v }), "سقف ماهانه")}
         </label>
-        <label className="bk-f">
-          <span className="bk-f-l">سقف روزانهٔ هر کاربر</span>
+        <label className="blk-f">
+          <span className="blk-f-l">سقف روزانهٔ هر کاربر</span>
           {money(b.user_daily_usd, (v) => setB({ ...b, user_daily_usd: v }), "سقف روزانهٔ هر کاربر")}
         </label>
-        <label className="bk-f">
-          <span className="bk-f-l">هشدار در</span>
+        <label className="blk-f">
+          <span className="blk-f-l">هشدار در</span>
           <InputNumber<number> className="w-full" min={10} max={100} value={b.alert_pct} onChange={(x) => setB({ ...b, alert_pct: Number(x) || 80 })} suffix="٪" aria-label="هشدار در درصد" controls={false} />
         </label>
       </div>
       <div className="mt-3 flex items-center gap-3">
-        <span className="bk-f-h flex-1">با رسیدن به سقف، درخواست تازه به مدل‌ها فرستاده نمی‌شود؛ بینش‌ها بدون مدل ادامه دارند.</span>
+        <span className="blk-f-h flex-1">با رسیدن به سقف، درخواست تازه به مدل‌ها فرستاده نمی‌شود؛ بینش‌ها بدون مدل ادامه دارند.</span>
         <Button type="primary" loading={saving} disabled={!dirty} onClick={save}>
           ذخیره
         </Button>
@@ -177,10 +177,10 @@ export function UsageTab({ settings }: { settings: AiSettings }) {
 
   return (
     <div className="ai-usage">
-      <div className="bk-stack">
+      <div className="blk-stack">
         <Card
           title="مصرف"
-          meta={u ? <span className="bk-cap">{fa(u.totals.calls)} درخواست، {tokens(num(u.totals.input) + num(u.totals.output))} توکن، {usd(u.totals.cost_usd)} دلار</span> : null}
+          meta={u ? <span className="blk-cap">{fa(u.totals.calls)} درخواست، {tokens(num(u.totals.input) + num(u.totals.output))} توکن، {usd(u.totals.cost_usd)} دلار</span> : null}
           tools={<Segmented<Period> size="small" value={period} onChange={setPeriod} options={(Object.keys(PERIOD_LABEL) as Period[]).map((p) => ({ value: p, label: PERIOD_LABEL[p] }))} aria-label="دوره" />}
         >
           {q.isLoading ? (
@@ -192,7 +192,7 @@ export function UsageTab({ settings }: { settings: AiSettings }) {
           ) : (
             <>
               <div className="mb-2 flex items-center justify-between gap-3">
-                <span className="bk-cap">{metric === "cost" ? "هزینهٔ روزانه، دلار" : "تعداد درخواست در روز"}</span>
+                <span className="blk-cap">{metric === "cost" ? "هزینهٔ روزانه، دلار" : "تعداد درخواست در روز"}</span>
                 <Segmented<"cost" | "calls"> size="small" value={metric} onChange={setMetric} options={[{ value: "cost", label: "هزینه" }, { value: "calls", label: "درخواست" }]} aria-label="نمایش" />
               </div>
               <div className="ai-chart" role="img" aria-label="مصرف روزانهٔ هوش مصنوعی">
@@ -215,7 +215,7 @@ export function UsageTab({ settings }: { settings: AiSettings }) {
           </Card>
         ) : null}
       </div>
-      <div className="bk-stack">
+      <div className="blk-stack">
         <BudgetCard settings={settings} month={monthCost} unpriced={num(u?.totals.unpriced_calls) > 0} />
         {u && !empty ? (
           <>

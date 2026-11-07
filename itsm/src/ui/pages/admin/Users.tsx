@@ -8,7 +8,7 @@ import { Link, useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { PageHeader } from "../../components/layout";
 import { Chip, EmptyState, Skeleton } from "../../components/display";
-import { Card, Note } from "../../modules/reports/kit";
+import { Card, Note } from "../../components/blocks";
 import { api } from "../../lib/api";
 import { useDebounced, useIsPhone, useNotify } from "../../lib/hooks";
 import { useSession } from "../../lib/session";
@@ -66,7 +66,7 @@ function TempPassword({ user, open, onClose }: { user: UserRow; open: boolean; o
           <Note tone="warning" className="mb-4">
             <b>این رمز دوباره نمایش داده نمی‌شود.</b> آن را به کاربر بدهید؛ پس از ورود رمز را عوض کند.
           </Note>
-          <div className="bk-copy">
+          <div className="blk-copy">
             <code style={{ fontSize: 18, letterSpacing: ".04em" }}>{pw}</code>
             <Tooltip title="رونوشت">
               <Button
@@ -320,7 +320,7 @@ export default function Users({ openId }: { openId: string | null }) {
   return (
     <div>
       <PageHeader title="کاربران" subtitle={list.data ? `${fa(rows.length)} حساب` : undefined} />
-      <div className="bk-card">
+      <div className="blk-card">
         <div className="ad-filters">
           <Input allowClear prefix={<Search {...ICON} className="text-ink-3" />} placeholder="نام، ایمیل یا موبایل" value={q} onChange={(e) => setQ(e.target.value)} aria-label="جست‌وجوی کاربر" />
           <Segmented
@@ -336,7 +336,7 @@ export default function Users({ openId }: { openId: string | null }) {
           />
         </div>
         <Table<UserRow>
-          className="bk-tbl"
+          className="blk-tbl"
           size="middle"
           rowKey="id"
           loading={list.isLoading}

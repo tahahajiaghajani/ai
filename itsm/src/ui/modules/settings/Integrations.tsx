@@ -9,7 +9,7 @@ import { useSession } from "../../lib/session";
 import { useAction, useNotify } from "../../lib/hooks";
 import { PageHeader } from "../../components/layout";
 import { Chip, EmptyState, JDateTime, StatusTag } from "../../components/display";
-import { Card, Field, ICON, ICON14, Note, docNo } from "../reports/kit";
+import { Card, Field, ICON, ICON14, Note, docNo } from "../../components/blocks";
 import { RefSelect, PartySelect } from "../../components/inputs";
 import { faDigits } from "@shared/format";
 
@@ -58,7 +58,7 @@ export default function Integrations() {
     <div>
       <PageHeader
         title="اتصال‌ها و API"
-        subtitle={<Link className="ds-link bk-hlink" to={`/${orgId}/help#shop`}>راهنما</Link>}
+        subtitle={<Link className="ds-link blk-hlink" to={`/${orgId}/help#shop`}>راهنما</Link>}
         actions={
           editable && tab !== "events" ? (
             <Button type="primary" icon={<Plus {...ICON} />} onClick={() => (tab === "api" ? setKeyModal(true) : setAdd(true))}>
@@ -68,7 +68,7 @@ export default function Integrations() {
         }
       />
       {meta?.mode === "desktop" ? (
-        <p className="bk-line mb-4">
+        <p className="blk-line mb-4">
           <i className="ds-nuqta" aria-hidden />
           اتصال فروشگاه در نسخهٔ وب ساخته می‌شود.
         </p>
@@ -83,9 +83,9 @@ export default function Integrations() {
         ]}
       />
       {tab === "shops" ? (
-        <Card title="فروشگاه‌ها" meta={<span className="bk-cap">هر سفارش سایت، یک فاکتور فروش خودکار</span>} flush>
+        <Card title="فروشگاه‌ها" meta={<span className="blk-cap">هر سفارش سایت، یک فاکتور فروش خودکار</span>} flush>
           <Table
-            className="bk-tbl"
+            className="blk-tbl"
             size="middle"
             rowKey="id"
             loading={list.isLoading}
@@ -94,13 +94,13 @@ export default function Integrations() {
             scroll={{ x: 980 }}
             locale={{ emptyText: <EmptyState icon={Store} title="هنوز فروشگاهی وصل نشده" description="ووکامرس، شاپیفای یا هر سایتی که سفارش را به‌صورت JSON بفرستد." action={editable ? <Button type="primary" icon={<Plus {...ICON} />} onClick={() => setAdd(true)}>اتصال تازه</Button> : undefined} /> }}
             columns={[
-              { key: "name", dataIndex: "name", title: "نام", width: 200, render: (v, r) => <div><div className="font-medium">{v}</div><div className="bk-3" style={{ fontSize: 12 }}>{KIND[r.kind]}</div></div> },
+              { key: "name", dataIndex: "name", title: "نام", width: 200, render: (v, r) => <div><div className="font-medium">{v}</div><div className="blk-3" style={{ fontSize: 12 }}>{KIND[r.kind]}</div></div> },
               {
                 key: "url",
                 title: "نشانی Webhook",
                 render: (_, r) => (
                   <span className="flex min-w-0 items-center gap-1">
-                    <bdi dir="ltr" className="ds-mono bk-2 truncate">{`${origin}${r.webhook_path}`}</bdi>
+                    <bdi dir="ltr" className="ds-mono blk-2 truncate">{`${origin}${r.webhook_path}`}</bdi>
                     {copyBtn(`${origin}${r.webhook_path}`)}
                   </span>
                 ),
@@ -117,14 +117,14 @@ export default function Integrations() {
                   </span>
                 ),
               },
-              { key: "last", dataIndex: "last_event_at", title: "آخرین سفارش", width: 160, render: (v) => <span className="bk-2"><JDateTime v={v} /></span> },
+              { key: "last", dataIndex: "last_event_at", title: "آخرین سفارش", width: 160, render: (v) => <span className="blk-2"><JDateTime v={v} /></span> },
               { key: "active", dataIndex: "is_active", title: "فعال", width: 72, render: (v, r) => <Switch size="small" checked={v} disabled={!editable} onChange={(is_active) => toggle.mutate({ id: r.id, is_active })} aria-label="فعال" /> },
               {
                 key: "a",
                 width: 56,
                 render: (_, r) =>
                   editable ? (
-                    <span className="bk-ra">
+                    <span className="blk-ra">
                       <Tooltip title="حذف اتصال">
                         <Button
                           size="small"
@@ -146,7 +146,7 @@ export default function Integrations() {
       ) : tab === "events" ? (
         <Card
           title="سفارش‌های دریافتی"
-          meta={<span className="bk-cap">۲۰۰ رویداد آخر</span>}
+          meta={<span className="blk-cap">۲۰۰ رویداد آخر</span>}
           tools={
             <Tooltip title="بازخوانی">
               <Button type="text" icon={<RotateCw {...ICON} className={events.isFetching ? "ds-spin" : undefined} />} onClick={() => events.refetch()} aria-label="بازخوانی" />
@@ -155,7 +155,7 @@ export default function Integrations() {
           flush
         >
           <Table
-            className="bk-tbl"
+            className="blk-tbl"
             size="small"
             rowKey="id"
             loading={events.isLoading}
@@ -164,9 +164,9 @@ export default function Integrations() {
             scroll={{ x: 900 }}
             locale={{ emptyText: <EmptyState icon={Inbox} title="هنوز سفارشی نرسیده" /> }}
             columns={[
-              { key: "at", dataIndex: "received_at", title: "زمان", width: 160, render: (v) => <span className="bk-2"><JDateTime v={v} /></span> },
+              { key: "at", dataIndex: "received_at", title: "زمان", width: 160, render: (v) => <span className="blk-2"><JDateTime v={v} /></span> },
               { key: "from", dataIndex: "integration_name", title: "فروشگاه", width: 180, ellipsis: true },
-              { key: "ext", dataIndex: "external_id", title: "سفارش", width: 104, render: (v) => (v ? <span className="bk-docno">{faDigits(v)}</span> : <span className="ds-zero">—</span>) },
+              { key: "ext", dataIndex: "external_id", title: "سفارش", width: 104, render: (v) => (v ? <span className="blk-docno">{faDigits(v)}</span> : <span className="ds-zero">—</span>) },
               { key: "st", dataIndex: "status", title: "وضعیت", width: 120, render: (v) => <StatusTag s={v} map={EV_STATUS} /> },
               {
                 key: "res",
@@ -174,7 +174,7 @@ export default function Integrations() {
                 ellipsis: true,
                 render: (_, r) =>
                   r.result?.invoice_id ? (
-                    <Link className="bk-lnk" to={`/${orgId}/sales/invoices/${r.result.invoice_id}`}>فاکتور {docNo(r.result.no ?? "")}</Link>
+                    <Link className="blk-lnk" to={`/${orgId}/sales/invoices/${r.result.invoice_id}`}>فاکتور {docNo(r.result.no ?? "")}</Link>
                   ) : r.error ? (
                     <span className="text-danger">{r.error}</span>
                   ) : (
@@ -195,10 +195,10 @@ export default function Integrations() {
           />
         </Card>
       ) : (
-        <div className="bk-stack">
-          <Card title="کلیدهای API" meta={<span className="bk-cap">دسترسی برنامه‌های دیگر</span>} flush>
+        <div className="blk-stack">
+          <Card title="کلیدهای API" meta={<span className="blk-cap">دسترسی برنامه‌های دیگر</span>} flush>
             <Table
-              className="bk-tbl"
+              className="blk-tbl"
               size="middle"
               rowKey="id"
               dataSource={keys.data ?? []}
@@ -208,16 +208,16 @@ export default function Integrations() {
               locale={{ emptyText: <EmptyState icon={KeyRound} title="کلیدی ساخته نشده" action={editable ? <Button icon={<Plus {...ICON} />} onClick={() => setKeyModal(true)}>کلید تازه</Button> : undefined} /> }}
               columns={[
                 { key: "name", dataIndex: "name", title: "نام", ellipsis: true },
-                { key: "prefix", dataIndex: "prefix", title: "شناسه", width: 180, render: (v) => <bdi dir="ltr" className="ds-mono bk-2">sm_{v}_…</bdi> },
-                { key: "scopes", dataIndex: "scopes", title: "اجازه", width: 160, render: (v: string[]) => <span className="bk-2">{v.map((x) => (x === "read" ? "خواندن" : "ثبت")).join("، ")}</span> },
-                { key: "used", dataIndex: "last_used_at", title: "آخرین استفاده", width: 160, render: (v) => <span className="bk-2"><JDateTime v={v} /></span> },
-                { key: "st", dataIndex: "revoked_at", title: "وضعیت", width: 96, render: (v) => (v ? <Chip tone="danger">باطل</Chip> : <span className="bk-plain">فعال</span>) },
+                { key: "prefix", dataIndex: "prefix", title: "شناسه", width: 180, render: (v) => <bdi dir="ltr" className="ds-mono blk-2">sm_{v}_…</bdi> },
+                { key: "scopes", dataIndex: "scopes", title: "اجازه", width: 160, render: (v: string[]) => <span className="blk-2">{v.map((x) => (x === "read" ? "خواندن" : "ثبت")).join("، ")}</span> },
+                { key: "used", dataIndex: "last_used_at", title: "آخرین استفاده", width: 160, render: (v) => <span className="blk-2"><JDateTime v={v} /></span> },
+                { key: "st", dataIndex: "revoked_at", title: "وضعیت", width: 96, render: (v) => (v ? <Chip tone="danger">باطل</Chip> : <span className="blk-plain">فعال</span>) },
                 {
                   key: "a",
                   width: 88,
                   render: (_, r) =>
                     !r.revoked_at && editable ? (
-                      <span className="bk-ra">
+                      <span className="blk-ra">
                         <Button
                           size="small"
                           type="text"
@@ -235,12 +235,12 @@ export default function Integrations() {
             />
           </Card>
           <Card title="نمونهٔ ثبت سفارش از برنامهٔ دیگر">
-            <pre className="bk-code">{`POST ${origin}/api/v1/orders
+            <pre className="blk-code">{`POST ${origin}/api/v1/orders
 Authorization: Bearer sm_xxxxxxxx_...
 { "id": "1043", "customer": { "name": "علی", "mobile": "09121234567" },
   "items": [ { "sku": "A-100", "name": "کالا", "qty": 2, "price": 1500000 } ],
   "shipping": 300000, "post": false }`}</pre>
-            <div className="bk-f-h mt-3">
+            <div className="blk-f-h mt-3">
               نشانی‌های دیگر: <bdi dir="ltr" className="ds-mono">GET /api/v1/items?q=</bdi> (کالاها با موجودی)، <bdi dir="ltr" className="ds-mono">GET /api/v1/parties?mobile=</bdi>، <bdi dir="ltr" className="ds-mono">GET /api/v1/invoices/:id</bdi>، <bdi dir="ltr" className="ds-mono">GET /api/v1/ping</bdi>
             </div>
           </Card>
@@ -279,7 +279,7 @@ Authorization: Bearer sm_xxxxxxxx_...
         <div className="grid gap-4">
           {shown?.lines.map(([label, value]) => (
             <Field key={label} label={label}>
-              <div className="bk-copy">
+              <div className="blk-copy">
                 <code>{value}</code>
                 {copyBtn(value)}
               </div>
