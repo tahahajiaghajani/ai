@@ -287,6 +287,33 @@ describe("preferences and the inbox", () => {
     expect((await items(agent, "?unread=1")).some((x) => x.record_id === row.id)).toBe(true);
   });
 
+  it("snoozes items: hidden and not counted until their time, then back unread at the top", async () => {
+    const { row } = await e.owner.post(`${P}/r/todo`, { short_description: "بعداً یادآوری کن", assigned_to: agent.userId });
+    await drain();
+    const item = (await items(agent)).find((x) => x.record_id === row.id)!;
+    const before = (await agent.client.get(`${P}/notify/inbox/count`)).unread as number;
+    const r = await agent.client.post(`${P}/notify/inbox/snooze`, { ids: [item.id], minutes: 60 });
+    expect(r).toMatchObject({ changed: 1, unread: before - 1 });
+    expect((await items(agent)).some((x) => x.id === item.id)).toBe(false);
+    expect((await items(agent, "?snoozed=1")).map((x) => x.id)).toEqual([item.id]);
+    // nobody else can snooze it; a time in the past or beyond a month is refused
+    expect((await agentB.client.post(`${P}/notify/inbox/snooze`, { ids: [item.id], minutes: 5 })).changed).toBe(0);
+    await agent.client.post(`${P}/notify/inbox/snooze`, { ids: [item.id], until: new Date(Date.now() - 60_000).toISOString() }, 400);
+    await agent.client.post(`${P}/notify/inbox/snooze`, { ids: [item.id], minutes: 31 * 24 * 60 }, 400);
+    // «همه را خواندم» while it waits, then its time comes: back unread, at the top
+    await agent.client.post(`${P}/notify/inbox/read`, { all: true });
+    await e.db.query(`update sm_notifications set snoozed_until = clock_timestamp() where id = $1`, [item.id]);
+    const back = await items(agent);
+    expect(back[0]).toMatchObject({ id: item.id, read: false });
+    expect((await agent.client.get(`${P}/notify/inbox/count`)).unread).toBe(1);
+    // «بازگرداندن اکنون» ends a snooze at once
+    await agent.client.post(`${P}/notify/inbox/snooze`, { ids: [item.id], minutes: 30 });
+    expect((await agent.client.get(`${P}/notify/inbox/count`)).unread).toBe(0);
+    expect((await agent.client.post(`${P}/notify/inbox/snooze`, { ids: [item.id], until: null })).changed).toBe(1);
+    expect((await items(agent))[0]).toMatchObject({ id: item.id, read: false });
+    await agent.client.post(`${P}/notify/inbox/read`, { ids: [item.id] });
+  });
+
   it("shows the delivery log to people with notification settings, without subjects of records they may not read", async () => {
     const r = await e.owner.get(`${P}/notify/log?limit=200`);
     expect(r.entries.length).toBeGreaterThan(5);
