@@ -183,7 +183,8 @@ export function registerTable(input: TableDef): TableDef {
 }
 
 setTableLookup((key) => TABLES.get(key));
-for (const [key, options] of Object.entries({ ...CORE_CHOICE_LISTS, ...SLA_CHOICE_LISTS })) registerChoiceList(key, options);
+for (const [key, options] of Object.entries(CORE_CHOICE_LISTS)) registerChoiceList(key, options);
+for (const [key, options] of Object.entries(SLA_CHOICE_LISTS)) registerChoiceList(key, options);
 
 /** The members of the organisation as a reference target (virtual: no table of its own). */
 export const USER_DEF = buildTable(USER_TABLE);
