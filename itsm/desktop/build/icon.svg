@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="256" height="256">
+  <!-- placeholder monogram (desktop/scripts/make-icons.cjs, src/ui/components/brand.tsx) -->
+  <defs><linearGradient id="t" x1="0" y1="0" x2=".35" y2="1"><stop offset="0" stop-color="#240D21"/><stop offset="1" stop-color="#6A2E63"/></linearGradient></defs>
+  <rect width="24" height="24" rx="5.4" fill="url(#t)"/>
+  <g fill="#FFFFFF"><rect x="6" y="6" width="3" height="12"/><rect x="11" y="6" width="7" height="3"/><rect x="13" y="9" width="3" height="9"/></g>
+</svg>

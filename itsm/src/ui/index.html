@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex" />
+    <!-- %APP_…% placeholders are filled from src/shared/constants.ts by vite.config.ts -->
+    <title>%APP_NAME%</title>
+    <meta name="description" content="%APP_NAME% — %APP_DESCRIPTION%" />
+    <meta name="application-name" content="%APP_NAME%" />
+    <meta name="apple-mobile-web-app-title" content="%APP_NAME%" />
+    <!-- the canvas colour of each theme; the script below and ThemeProvider pin both to the theme in effect -->
+    <meta name="theme-color" content="#F7F4F0" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#110F0E" media="(prefers-color-scheme: dark)" />
+    <link rel="icon" href="/favicon.ico" sizes="32x32" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <!-- installable on phones («افزودن به صفحهٔ اصلی»): opens full screen like an app -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <link rel="preload" href="/fonts/ds/DSNum.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/ds/AradVF.woff2" as="font" type="font/woff2" crossorigin />
+    <script>
+      // pre-paint theme (key "itsm.theme", the same as src/ui/lib/theme.tsx)
+      try {
+        var p = localStorage.getItem("itsm.theme");
+        if (p !== "light" && p !== "dark") p = "system";
+        var m = p === "system" ? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light") : p;
+        document.documentElement.dataset.theme = m;
+        if (p !== "system") {
+          var c = m === "dark" ? "#110F0E" : "#F7F4F0";
+          document.querySelectorAll('meta[name="theme-color"]').forEach(function (e) { e.setAttribute("content", c); });
+        }
+      } catch (e) {}
+    </script>
+  </head>
+  <body>
+    <div id="root">
+      <div class="boot" role="status" aria-label="%APP_NAME% در حال باز شدن است">
+        <!-- the placeholder monogram of src/ui/components/brand.tsx -->
+        <svg class="boot-mark ds-launch" viewBox="5 5 14 14" aria-hidden="true" fill="currentColor">
+          <rect class="ds-nq" x="6" y="6" width="3" height="12" />
+          <rect class="ds-nq" x="11" y="6" width="7" height="3" />
+          <rect class="ds-nq" x="13" y="9" width="3" height="9" />
+        </svg>
+      </div>
+    </div>
+    <script type="module" src="./main.tsx"></script>
+  </body>
+</html>

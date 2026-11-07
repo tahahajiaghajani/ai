@@ -1,0 +1,55 @@
+# Windows installer (NSIS, Persian, per-user by default, keeps data on uninstall).
+# The product's name is APP_NAME_EN of src/shared/constants.ts (tests/desktop.test.ts checks productName, executableName,
+# artifactName and shortcutName against it); appId is an internal identifier and stays when the product is renamed.
+appId: app.itsm.desktop
+productName: ITSM
+copyright: "© ITSM"
+directories:
+  app: app
+  output: release
+  buildResources: build
+asar: false
+npmRebuild: false
+nodeGypRebuild: false
+buildDependenciesFromSource: false
+electronVersion: 45.2.1
+compression: maximum
+electronLanguages: [fa, en-US]
+publish:
+  - provider: github
+    owner: tahahajiaghajani
+    repo: ai
+    releaseType: release
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: build/icon.ico
+  artifactName: "ITSM-Setup-${version}.exe"
+  executableName: ITSM
+  legalTrademarks: "ITSM"
+  requestedExecutionLevel: asInvoker
+nsis:
+  oneClick: false
+  perMachine: false
+  allowElevation: true
+  allowToChangeInstallationDirectory: true
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  installerHeaderIcon: build/icon.ico
+  installerSidebar: build/installerSidebar.bmp
+  uninstallerSidebar: build/installerSidebar.bmp
+  installerHeader: build/installerHeader.bmp
+  license: build/license_fa.txt
+  installerLanguages: [fa_IR]
+  language: "1065"
+  multiLanguageInstaller: false
+  unicode: true
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: "ITSM"
+  uninstallDisplayName: "ITSM — مدیریت هوشمند خدمات فناوری اطلاعات"
+  menuCategory: false
+  runAfterFinish: true
+  deleteAppDataOnUninstall: false
+  include: build/installer.nsh

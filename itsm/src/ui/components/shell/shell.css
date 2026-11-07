@@ -1,0 +1,1371 @@
+/* The app shell (components.md §1): the canvas sidebar, the glass top bar, the content panel, the command
+   palette and the page header. Tokens only (tokens.css); logical properties only; no `transition: all`.
+   The document scrolls (not the panel), so window-based behaviour, sticky elements and full-page screenshots keep
+   working: the sidebar is sticky, and the top bar is a sticky glass strip whose 8 px canvas band and rounded corners
+   are painted by its wrapper, so the content scrolls under the glass and never shows above it. */
+@layer components {
+  html:has(.sh-app) {
+    scroll-padding-top: calc(var(--ds-topbar-h) + var(--ds-panel-inset) + 8px);
+  }
+
+  /* ------------------------------------------------------------------ frame */
+  .sh-app {
+    --sh-side-w: var(--ds-sidebar-w);
+    display: grid;
+    grid-template-columns: var(--sh-side-w) minmax(0, 1fr);
+    min-block-size: 100dvh;
+    background: var(--ds-canvas);
+  }
+  .sh-app.is-mobile {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .sh-main {
+    min-inline-size: 0;
+    display: flex;
+    flex-direction: column;
+    padding-block: 0 var(--ds-panel-inset);
+    padding-inline: 0 var(--ds-panel-inset);
+  }
+
+  /* the sticky strip: an 8 px canvas band, 1 px canvas edges over the panel's ring and the two rounded corners */
+  .sh-top-wrap {
+    position: sticky;
+    inset-block-start: 0;
+    z-index: var(--ds-z-topbar);
+    padding-block-start: var(--ds-panel-inset);
+    margin-inline: -1px;
+    padding-inline: 1px;
+    background:
+      linear-gradient(var(--ds-canvas), var(--ds-canvas)) top / 100% var(--ds-panel-inset) no-repeat,
+      linear-gradient(var(--ds-canvas), var(--ds-canvas)) left top / 1px 100% no-repeat,
+      linear-gradient(var(--ds-canvas), var(--ds-canvas)) right top / 1px 100% no-repeat,
+      radial-gradient(circle at 100% 100%, transparent 11.5px, var(--ds-canvas) 12px) 1px var(--ds-panel-inset) / 12px 12px no-repeat,
+      radial-gradient(circle at 0 100%, transparent 11.5px, var(--ds-canvas) 12px) calc(100% - 1px) var(--ds-panel-inset) / 12px 12px no-repeat;
+  }
+  .sh-panel {
+    position: relative;
+    flex: 1 0 auto;
+    min-block-size: calc(100dvh - var(--ds-topbar-h) - 2 * var(--ds-panel-inset));
+    background: var(--ds-surface);
+    border-radius: 0 0 var(--ds-radius-lg) var(--ds-radius-lg);
+    box-shadow: var(--ds-shadow-e1);
+    overflow: clip;
+  }
+  .sh-page {
+    padding-block: var(--ds-page-top) 28px;
+    padding-inline: var(--ds-gutter);
+  }
+  @media (max-width: 639px) {
+    .sh-page {
+      padding-inline: 16px;
+    }
+  }
+
+  /* phones: full-bleed panel, no inset */
+  .sh-app.is-mobile .sh-main {
+    padding: 0;
+  }
+  .sh-app.is-mobile .sh-top-wrap {
+    padding: 0;
+    margin: 0;
+    background: none;
+  }
+  .sh-app.is-mobile .sh-topbar {
+    border-radius: 0;
+    clip-path: none;
+    box-shadow: inset 0 -1px 0 var(--ds-line);
+    padding-inline: 8px 10px;
+  }
+  .sh-app.is-mobile .sh-panel {
+    border-radius: 0;
+    box-shadow: none;
+    min-block-size: calc(100dvh - var(--ds-topbar-h));
+  }
+
+  /* ------------------------------------------------------------------ top bar */
+  .sh-topbar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    block-size: var(--ds-topbar-h);
+    padding-inline: 12px 14px;
+    border-radius: var(--ds-radius-lg) var(--ds-radius-lg) 0 0;
+    background: var(--ds-glass-bg);
+    -webkit-backdrop-filter: var(--ds-glass-filter);
+    backdrop-filter: var(--ds-glass-filter);
+    box-shadow:
+      var(--ds-glass-ring),
+      inset 0 -1px 0 var(--ds-line);
+    clip-path: inset(-1px -1px 0 -1px);
+  }
+  .sh-crumbs {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-inline-size: 0;
+    margin-inline-start: 2px;
+    font-size: 14px;
+    line-height: 20px;
+    color: var(--ds-text-3);
+    white-space: nowrap;
+  }
+  .sh-crumb,
+  .sh-crumb-reveal {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-inline-size: 0;
+  }
+  .sh-crumb {
+    flex: none;
+  }
+  .sh-crumb-mid {
+    flex: 0 1 auto;
+    overflow: hidden;
+  }
+  .sh-crumb-mid > :last-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .sh-crumb-sep {
+    flex: none;
+    color: var(--ds-text-4);
+  }
+  .sh-crumb-link {
+    color: inherit;
+    text-decoration: none;
+    border-radius: var(--ds-radius-xs);
+    transition: color var(--ds-dur-base) var(--ds-ease-out-quad);
+  }
+  .sh-crumb-link:hover {
+    color: var(--ds-text);
+    transition-duration: 0ms;
+  }
+  .sh-crumb-cur {
+    font-weight: var(--ds-weight-medium);
+    color: var(--ds-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .sh-crumb-reveal {
+    flex: 0 1 auto;
+    opacity: 0;
+    transition: opacity var(--ds-dur-base) var(--ds-ease-out-quad);
+  }
+  .sh-crumb-reveal.is-shown {
+    opacity: 1;
+  }
+  .sh-crumbs {
+    overflow: hidden;
+  }
+  @media (max-width: 639px) {
+    .sh-topbar .sh-crumbs,
+    .sh-topbar .sh-badge {
+      display: none;
+    }
+  }
+  .sh-tb-end {
+    margin-inline-start: auto;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    flex: none;
+  }
+
+  /* buttons of the chrome */
+  .sh-icon-btn {
+    position: relative;
+    display: inline-grid;
+    place-items: center;
+    inline-size: 32px;
+    block-size: 32px;
+    flex: none;
+    padding: 0;
+    border: 0;
+    border-radius: var(--ds-radius-md);
+    background: transparent;
+    color: var(--ds-text-2);
+    cursor: pointer;
+    transition:
+      background-color var(--ds-dur-base) var(--ds-ease-out-quad),
+      color var(--ds-dur-base) var(--ds-ease-out-quad),
+      transform var(--ds-dur-fast) var(--ds-ease-out);
+  }
+  .sh-icon-btn:hover,
+  .sh-icon-btn.ant-dropdown-open {
+    background: var(--ds-hover);
+    color: var(--ds-text);
+    transition-duration: 0ms, 0ms, var(--ds-dur-fast);
+  }
+  .sh-icon-btn:active {
+    transform: scale(var(--ds-press-scale));
+  }
+  .sh-icon-btn[aria-pressed="true"] {
+    background: var(--ds-selected);
+    color: var(--ds-text);
+  }
+  .sh-icon-sm {
+    inline-size: 28px;
+    block-size: 28px;
+  }
+
+  .sh-avatar {
+    display: inline-grid;
+    place-items: center;
+    inline-size: 28px;
+    block-size: 28px;
+    margin-inline-start: 6px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--ds-radius-pill);
+    background: var(--ds-neutral-tint);
+    box-shadow: inset 0 0 0 1px var(--ds-line);
+    font-family: inherit;
+    font-size: 12px;
+    line-height: 1;
+    font-weight: 600;
+    color: var(--ds-text-2);
+    cursor: pointer;
+    transition: box-shadow var(--ds-dur-base) var(--ds-ease-out-quad);
+  }
+  .sh-avatar:hover,
+  .sh-avatar.ant-dropdown-open {
+    box-shadow: inset 0 0 0 1px var(--ds-line-3);
+    color: var(--ds-text);
+    transition-duration: 0ms;
+  }
+
+  /* ------------------------------------------------------------------ sidebar */
+  .sh-side {
+    position: sticky;
+    inset-block-start: 0;
+    z-index: var(--ds-z-sidebar);
+    display: flex;
+    flex-direction: column;
+    block-size: 100dvh;
+    min-block-size: 0;
+    padding-block: 10px;
+    padding-inline: 12px 8px;
+    background: var(--ds-canvas);
+  }
+  .sh-side-head {
+    display: flex;
+    flex-direction: column;
+    flex: none;
+  }
+
+  .sh-biz {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    inline-size: 100%;
+    block-size: 48px;
+    padding-inline: 6px 8px;
+    border: 0;
+    border-radius: 10px;
+    background: transparent;
+    color: inherit;
+    font-family: inherit;
+    text-align: start;
+    cursor: pointer;
+    transition: background-color var(--ds-dur-base) var(--ds-ease-out-quad);
+  }
+  .sh-biz:hover,
+  .sh-biz.ant-dropdown-open {
+    background: var(--ds-hover);
+    transition-duration: 0ms;
+  }
+  .sh-tile-img {
+    inline-size: 30px;
+    block-size: 30px;
+    flex: none;
+    border-radius: 7px;
+    object-fit: cover;
+    box-shadow: inset 0 0 0 1px var(--ds-line);
+  }
+  .sh-biz-t {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-inline-size: 0;
+  }
+  .sh-biz-name {
+    font-size: 14px;
+    line-height: 20px;
+    font-weight: 600;
+    color: var(--ds-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .sh-biz-sub {
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--ds-text-3);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .sh-biz-chev {
+    flex: none;
+    color: var(--ds-text-3);
+  }
+
+  /* the space switcher: content-sized segments with a uniform padding; the bold label is measured in advance
+     (::after) so the "on" weight never shifts the segments */
+  .sh-seg {
+    display: flex;
+    gap: 2px;
+    margin-block-start: 10px;
+    padding: 2px;
+    border-radius: var(--ds-radius-pill);
+    background: var(--ds-sunken);
+    box-shadow: inset 0 0 0 1px var(--ds-line);
+  }
+  .sh-seg > button {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    flex: 1 1 auto;
+    min-inline-size: 0;
+    block-size: 28px;
+    padding-inline: 7px;
+    border: 0;
+    border-radius: var(--ds-radius-pill);
+    background: transparent;
+    font-family: inherit;
+    font-size: var(--ds-type-label-size);
+    line-height: var(--ds-type-label-line);
+    font-weight: var(--ds-weight-medium);
+    color: var(--ds-text-2);
+    white-space: nowrap;
+    cursor: pointer;
+    transition:
+      background-color var(--ds-dur-base) var(--ds-ease-out-quad),
+      color var(--ds-dur-base) var(--ds-ease-out-quad);
+  }
+  .sh-seg > button::after {
+    content: attr(data-label);
+    block-size: 0;
+    overflow: hidden;
+    visibility: hidden;
+    font-weight: 600;
+  }
+  .sh-seg > button:hover {
+    color: var(--ds-text);
+    transition-duration: 0ms;
+  }
+  .sh-seg > button[aria-pressed="true"] {
+    background: var(--ds-segment-on);
+    color: var(--ds-text);
+    font-weight: 600;
+    box-shadow: var(--ds-shadow-segment);
+  }
+  .sh-space-select,
+  .sh-back {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    inline-size: 100%;
+    block-size: 34px;
+    margin-block-start: 10px;
+    padding-inline: 10px 8px;
+    border: 0;
+    border-radius: var(--ds-radius-md);
+    background: var(--ds-sunken);
+    box-shadow: inset 0 0 0 1px var(--ds-line);
+    font-family: inherit;
+    font-size: 13px;
+    line-height: 20px;
+    font-weight: 600;
+    color: var(--ds-text);
+    text-align: start;
+    cursor: pointer;
+  }
+  .sh-space-select > .sh-space-t,
+  .sh-back > span {
+    flex: 1;
+    min-inline-size: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .sh-back svg {
+    color: var(--ds-text-3);
+  }
+  /* five modules or more: a select-style row (the current module's icon and name, chevrons at the end) */
+  .sh-space-select {
+    gap: 8px;
+    block-size: 36px;
+    padding-inline: 4px 8px;
+    background: var(--ds-sunken);
+    transition: box-shadow var(--ds-dur-base) var(--ds-ease-out-quad);
+  }
+  .sh-space-select:hover,
+  .sh-space-select.ant-dropdown-open {
+    box-shadow: inset 0 0 0 1px var(--ds-line-3);
+    transition-duration: 0ms;
+  }
+  .sh-space-ic {
+    display: inline-grid;
+    place-items: center;
+    flex: none;
+    inline-size: 28px;
+    block-size: 28px;
+    border-radius: 7px;
+    background: var(--ds-segment-on);
+    box-shadow: var(--ds-shadow-segment);
+    color: var(--ds-text);
+  }
+  .sh-menu-space .ant-dropdown-menu {
+    min-inline-size: 200px;
+  }
+  .sh-back {
+    block-size: 32px;
+    background: transparent;
+    box-shadow: none;
+    padding-inline: 10px;
+    font-size: 14px;
+    transition: background-color var(--ds-dur-base) var(--ds-ease-out-quad);
+  }
+  .sh-back:hover {
+    background: var(--ds-hover);
+    transition-duration: 0ms;
+  }
+
+  /* command entry */
+  .sh-search {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    inline-size: 100%;
+    block-size: 34px;
+    margin-block-start: 10px;
+    padding-inline: 10px 6px;
+    border: 0;
+    border-radius: var(--ds-radius-md);
+    background: var(--ds-raised);
+    box-shadow:
+      0 0 0 1px var(--ds-line-2),
+      var(--ds-shadow-button);
+    font-family: inherit;
+    font-size: 13px;
+    line-height: 20px;
+    color: var(--ds-text-3);
+    text-align: start;
+    cursor: pointer;
+    transition: color var(--ds-dur-base) var(--ds-ease-out-quad);
+  }
+  .sh-search:hover {
+    color: var(--ds-text-2);
+    background-image: linear-gradient(var(--ds-hover), var(--ds-hover));
+    transition-duration: 0ms;
+  }
+  .sh-search-ph {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* kbd group: a bare LTR isolate; spacing goes on the RTL wrapper (.ds-end) or the parent's gap */
+  .sh-keys {
+    display: inline-flex;
+    gap: 3px;
+    direction: ltr;
+    unicode-bidi: isolate;
+  }
+  .sh-kbd {
+    display: inline-grid;
+    place-items: center;
+    min-inline-size: 20px;
+    block-size: 20px;
+    padding-inline: 5px;
+    border-radius: var(--ds-radius-xs);
+    background: var(--ds-sunken);
+    box-shadow:
+      inset 0 0 0 1px var(--ds-line-2),
+      inset 0 -1px 0 var(--ds-line-2);
+    font-family: var(--ds-font-latin);
+    font-feature-settings: normal;
+    font-size: var(--ds-type-kbd-size);
+    font-weight: var(--ds-weight-medium);
+    line-height: 1;
+    color: var(--ds-text-2);
+  }
+  .ant-tooltip .sh-keys-tip .sh-kbd {
+    background: rgb(255 255 255 / 0.14);
+    box-shadow: none;
+    color: inherit;
+  }
+
+  /* the scrolling nav column */
+  .sh-scroll {
+    flex: 1;
+    min-block-size: 0;
+    margin-block-start: 14px;
+    margin-inline: -4px;
+    padding-inline: 4px;
+    padding-block-end: 12px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+    -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 16px), transparent);
+    mask-image: linear-gradient(to bottom, #000 calc(100% - 16px), transparent);
+  }
+  .sh-scroll:hover,
+  .sh-scroll:focus-within {
+    scrollbar-color: var(--ds-line-3) transparent;
+  }
+  .sh-swap {
+    animation: ds-fade var(--ds-dur-fast) linear both;
+  }
+  .sh-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+  .sh-nav + .sh-nav {
+    margin-block-start: 10px;
+  }
+  .sh-sec + .sh-nav {
+    margin-block-start: 10px;
+  }
+
+  .sh-item {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    block-size: var(--ds-nav-item-h);
+    padding-inline: 10px;
+    border-radius: var(--ds-radius-md);
+    font-size: 14px;
+    line-height: 20px;
+    font-weight: var(--ds-weight-medium);
+    color: var(--ds-text-2);
+    white-space: nowrap;
+    text-decoration: none;
+    transition: background-color var(--ds-dur-base) var(--ds-ease-out-quad);
+  }
+  .sh-item > svg {
+    flex: none;
+    color: var(--ds-text-3);
+  }
+  /* hover is a whisper (≈3 % ink), selected a clear step above it (≈9 %) with the label at 600:
+     hovering a neighbour never reads as a second selection. No accent and no bar (§1.2). */
+  .sh-item:hover {
+    background: color-mix(in srgb, var(--ds-hover) 75%, transparent);
+    color: var(--ds-text);
+    transition-duration: 0ms;
+  }
+  .sh-item:focus-visible {
+    outline-offset: -2px;
+  }
+  .sh-item[aria-current="page"],
+  .sh-item[aria-current="page"]:hover {
+    background:
+      linear-gradient(color-mix(in srgb, var(--ds-hover) 50%, transparent), color-mix(in srgb, var(--ds-hover) 50%, transparent)),
+      var(--ds-selected);
+    color: var(--ds-text);
+    font-weight: 600;
+  }
+  .sh-item[aria-current="page"] > svg {
+    color: var(--ds-text);
+  }
+  /* the common items and an unlabeled main list are split by a hairline, not an empty gap */
+  .sh-div {
+    flex: none;
+    block-size: 1px;
+    margin-block: 8px;
+    margin-inline: 10px;
+    background: var(--ds-line);
+  }
+  .sh-div + .sh-nav {
+    margin-block-start: 0;
+  }
+  .sh-label {
+    flex: 1;
+    min-inline-size: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .sh-count {
+    flex: none;
+    font-size: 12px;
+    line-height: 18px;
+    font-weight: var(--ds-weight-medium);
+    color: var(--ds-text-3);
+  }
+  .sh-item-bm {
+    font-weight: var(--ds-weight-regular);
+  }
+  .sh-bm-meta {
+    flex: none;
+    font-size: 12px;
+    line-height: 18px;
+    color: var(--ds-text-3);
+  }
+  .sh-dot {
+    inline-size: 16px;
+    block-size: 16px;
+    flex: none;
+  }
+
+  .sh-sec-label {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    inline-size: 100%;
+    margin-block: 20px 4px;
+    padding: 0 10px;
+    border: 0;
+    border-radius: var(--ds-radius-sm);
+    background: none;
+    font-family: inherit;
+    font-size: var(--ds-type-caption-size);
+    line-height: var(--ds-type-caption-line);
+    font-weight: var(--ds-weight-medium);
+    color: var(--ds-text-3);
+    text-align: start;
+  }
+  button.sh-sec-label {
+    cursor: pointer;
+  }
+  button.sh-sec-label:hover {
+    color: var(--ds-text-2);
+  }
+  .sh-sec-chev {
+    opacity: 0;
+    transition:
+      opacity var(--ds-dur-base) var(--ds-ease-out-quad),
+      transform var(--ds-dur-moderate) var(--ds-ease-in-out);
+  }
+  button.sh-sec-label:hover .sh-sec-chev,
+  button.sh-sec-label:focus-visible .sh-sec-chev,
+  button.sh-sec-label[aria-expanded="false"] .sh-sec-chev {
+    opacity: 1;
+  }
+  button.sh-sec-label[aria-expanded="false"] .sh-sec-chev {
+    transform: rotate(90deg);
+  }
+  .sh-sec:first-child .sh-sec-label {
+    margin-block-start: 2px;
+  }
+
+  /* footer */
+  .sh-foot {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: none;
+    min-block-size: 40px;
+    padding-block: 6px 0;
+    padding-inline: 10px 0;
+    box-shadow: inset 0 1px 0 var(--ds-line);
+    font-size: var(--ds-type-caption-size);
+    line-height: var(--ds-type-caption-line);
+    color: var(--ds-text-2);
+  }
+  .sh-sync {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-inline-size: 0;
+    white-space: nowrap;
+  }
+  .sh-sync-meta {
+    color: var(--ds-text-3);
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .sh-sep {
+    display: inline-block;
+    flex: none;
+    inline-size: 1px;
+    block-size: 0.9em;
+    background: var(--ds-line-3);
+  }
+  .sh-sync-open {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-inline-size: 0;
+    margin-inline: -6px;
+    padding-block: 3px;
+    padding-inline: 6px;
+    border: 0;
+    border-radius: var(--ds-radius-sm);
+    background: none;
+    font-family: inherit;
+    font-size: inherit;
+    line-height: inherit;
+    color: inherit;
+    cursor: pointer;
+    transition: background-color var(--ds-dur-base) var(--ds-ease-out-quad);
+  }
+  .sh-sync-open:hover {
+    background: var(--ds-hover);
+    color: var(--ds-text);
+    transition-duration: 0ms;
+  }
+  .sh-tip-lines {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .sh-sync-retry {
+    font-size: inherit;
+    background: none;
+    border: 0;
+    padding: 0;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .sh-foot-tools {
+    margin-inline-start: auto;
+    display: flex;
+    gap: 2px;
+    flex: none;
+  }
+  .sh-nuqta-offline {
+    color: var(--ds-warning-fill);
+  }
+  .sh-nuqta-failed {
+    color: var(--ds-danger);
+  }
+  .sh-nuqta-local,
+  .sh-nuqta-web {
+    color: var(--ds-text-4);
+  }
+
+  /* inner-edge resize handle */
+  .sh-resize {
+    position: absolute;
+    inset-block: 0;
+    inset-inline-end: -4px;
+    inline-size: 6px;
+    cursor: col-resize;
+    touch-action: none;
+    z-index: 2;
+  }
+  .sh-resize::after {
+    content: "";
+    position: absolute;
+    inset-block: 12px;
+    inset-inline-start: 2px;
+    inline-size: 2px;
+    border-radius: 2px;
+    background: var(--ds-line-3);
+    opacity: 0;
+    transition: opacity var(--ds-dur-base) var(--ds-ease-out-quad);
+  }
+  .sh-resize:hover::after,
+  .sh-resize.is-drag::after {
+    opacity: 1;
+    transition-delay: 0.15s;
+  }
+  .sh-resize.is-drag::after {
+    transition-delay: 0s;
+  }
+
+  /* ---- the 60 px rail ---- */
+  .sh-rail {
+    padding-inline: 12px;
+    align-items: center;
+  }
+  .sh-rail .sh-side-head {
+    align-items: center;
+    gap: 6px;
+  }
+  .sh-biz-rail {
+    inline-size: 40px;
+    block-size: 40px;
+    padding: 0;
+    justify-content: center;
+    margin-block-end: 4px;
+  }
+  .sh-rail-btn {
+    display: grid;
+    place-items: center;
+    inline-size: 36px;
+    block-size: 32px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--ds-radius-md);
+    background: transparent;
+    color: var(--ds-text-2);
+    cursor: pointer;
+    transition: background-color var(--ds-dur-base) var(--ds-ease-out-quad);
+  }
+  .sh-rail-btn:hover,
+  .sh-rail-btn.ant-dropdown-open {
+    background: var(--ds-hover);
+    color: var(--ds-text);
+    transition-duration: 0ms;
+  }
+  .sh-rail-space {
+    background: var(--ds-sunken);
+    box-shadow: inset 0 0 0 1px var(--ds-line);
+    color: var(--ds-text);
+  }
+  .sh-rail .sh-scroll {
+    inline-size: calc(100% + 8px);
+    margin-block-start: 10px;
+  }
+  .sh-rail .sh-nav {
+    align-items: center;
+  }
+  .sh-rail .sh-nav + .sh-nav {
+    margin-block-start: 8px;
+    padding-block-start: 8px;
+    box-shadow: inset 0 1px 0 var(--ds-line);
+  }
+  .sh-rail .sh-item {
+    inline-size: 36px;
+    padding: 0;
+    justify-content: center;
+  }
+  .sh-rail-dot {
+    position: absolute;
+    inset-block-start: 6px;
+    inset-inline-end: 6px;
+    inline-size: 5px;
+    block-size: 5px;
+    border-radius: 1px;
+    transform: rotate(45deg);
+    background: var(--ds-accent-text);
+    box-shadow: 0 0 0 2px var(--ds-canvas);
+  }
+  .sh-foot-rail {
+    flex-direction: column;
+    gap: 6px;
+    padding: 6px 0 0;
+  }
+  .sh-rail-sync {
+    display: grid;
+    place-items: center;
+    inline-size: 28px;
+    block-size: 24px;
+    border-radius: var(--ds-radius-sm);
+  }
+
+  /* the mobile / narrow drawer */
+  .sh-drawer .ant-drawer-body {
+    padding: 0 !important;
+  }
+  .sh-drawer .sh-side {
+    position: static;
+    block-size: 100%;
+    padding-block: 12px;
+  }
+  /* the scrim at full strength; over the dark canvas the token alone barely reads, so dark deepens it */
+  .sh-drawer .ant-drawer-mask {
+    background: var(--ds-scrim) !important;
+    opacity: 1;
+  }
+  :root[data-theme="dark"] .sh-drawer .ant-drawer-mask {
+    background: color-mix(in srgb, var(--ds-scrim) 65%, var(--ds-sunken)) !important;
+  }
+
+  /* touch: 40 px rows and no keyboard hints */
+  @media (pointer: coarse) {
+    .sh-item {
+      block-size: 40px;
+    }
+    .sh-nav {
+      gap: 2px;
+    }
+    .sh-search {
+      block-size: 40px;
+    }
+    .sh-search .sh-keys {
+      display: none;
+    }
+    .sh-seg > button {
+      block-size: 34px;
+    }
+    .sh-space-select {
+      block-size: 44px;
+    }
+    .sh-foot {
+      min-block-size: 48px;
+    }
+    .sh-icon-sm {
+      inline-size: 36px;
+      block-size: 36px;
+    }
+  }
+
+  /* ------------------------------------------------------------------ menus of the chrome */
+  .sh-menu .ant-dropdown-menu {
+    min-inline-size: 220px;
+  }
+  .ant-dropdown.sh-menu.ds-glass .ant-dropdown-menu {
+    background: var(--ds-glass-strong);
+  }
+  .sh-menu-row,
+  .sh-menu-org {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-inline-size: 0;
+  }
+  .sh-menu-org-i {
+    display: inline-grid;
+    place-items: center;
+    inline-size: 20px;
+    block-size: 20px;
+    flex: none;
+    border-radius: 5px;
+    background: var(--ds-neutral-tint);
+    box-shadow: inset 0 0 0 1px var(--ds-line);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--ds-text-2);
+  }
+  .sh-menu-org-n {
+    max-inline-size: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .sh-menu-meta {
+    font-size: 12px;
+    color: var(--ds-text-3);
+  }
+  .sh-menu-check {
+    margin-inline-start: auto;
+    padding-inline-start: 12px;
+    box-sizing: content-box;
+    color: var(--ds-text);
+  }
+  .sh-menu .sh-menu-me {
+    cursor: default !important;
+  }
+  .sh-me {
+    display: flex;
+    flex-direction: column;
+    padding-block: 4px;
+    min-inline-size: 200px;
+  }
+  .sh-me-name {
+    font-size: 14px;
+    line-height: 20px;
+    font-weight: 600;
+    color: var(--ds-text);
+  }
+  .sh-me-mail {
+    align-self: flex-start;
+    font-family: var(--ds-font-latin);
+    font-feature-settings: normal;
+    font-size: 12px;
+    line-height: 18px;
+    color: var(--ds-text-3);
+  }
+
+  /* ------------------------------------------------------------------ command palette */
+  .sh-pal-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: var(--ds-z-palette);
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    padding-block-start: var(--ds-palette-top);
+    padding-inline: 16px;
+    background: var(--ds-scrim);
+  }
+  .sh-pal {
+    display: flex;
+    flex-direction: column;
+    inline-size: min(var(--ds-palette-w), 100%);
+    max-block-size: calc(100dvh - var(--ds-palette-top) - 24px);
+    border-radius: var(--ds-radius-lg);
+    background: var(--ds-glass-strong);
+    -webkit-backdrop-filter: var(--ds-glass-filter);
+    backdrop-filter: var(--ds-glass-filter);
+    box-shadow:
+      var(--ds-shadow-e4),
+      var(--ds-glass-edge);
+    overflow: hidden;
+  }
+  .sh-pal-in {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: none;
+    block-size: var(--ds-palette-input-h);
+    padding-inline: 16px;
+    box-shadow: inset 0 -1px 0 var(--ds-line);
+    color: var(--ds-text-3);
+  }
+  .sh-pal-in input {
+    flex: 1;
+    min-inline-size: 0;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    padding: 0;
+    font-family: inherit;
+    font-size: 17px;
+    line-height: 24px;
+    color: var(--ds-text);
+  }
+  .sh-pal-in input:focus-visible {
+    outline: none;
+  }
+  .sh-pal-in input::placeholder {
+    color: var(--ds-text-3);
+  }
+  .sh-pal-list {
+    flex: 0 1 auto;
+    max-block-size: 440px;
+    padding: 6px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scroll-padding-block: 6px;
+  }
+  .sh-pal-g {
+    padding: 8px 10px 4px;
+    font-size: 12px;
+    line-height: 18px;
+    font-weight: var(--ds-weight-medium);
+    color: var(--ds-text-3);
+  }
+  .sh-pal-r {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    block-size: var(--ds-palette-row-h);
+    padding-inline: 10px;
+    border-radius: var(--ds-radius-md);
+    font-size: 14px;
+    line-height: 20px;
+    color: var(--ds-text-2);
+    cursor: pointer;
+    user-select: none;
+  }
+  .sh-pal-r > svg {
+    flex: none;
+    color: var(--ds-text-3);
+  }
+  .sh-pal-r.is-on {
+    background: var(--ds-selected);
+    color: var(--ds-text);
+  }
+  .sh-pal-r.is-on > svg {
+    color: var(--ds-text);
+  }
+  .sh-pal-r.is-on::before {
+    content: "";
+    position: absolute;
+    inset-inline-start: 0;
+    inset-block-start: calc(50% - 8px);
+    inline-size: 2px;
+    block-size: 16px;
+    border-radius: 2px;
+    background: var(--ds-accent-bar);
+  }
+  .sh-pal-label {
+    flex: 0 1 auto;
+    min-inline-size: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .sh-pal-label mark {
+    background: none;
+    color: var(--ds-text);
+    font-weight: 600;
+  }
+  .sh-pal-meta {
+    flex: 0 1 auto;
+    min-inline-size: 0;
+    font-size: 12px;
+    line-height: 18px;
+    color: var(--ds-text-3);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .sh-pal-enter {
+    display: inline-grid;
+    place-items: center;
+    flex: none;
+    color: var(--ds-text-3);
+  }
+  .sh-pal-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    padding: 28px 16px;
+    text-align: center;
+  }
+  .sh-pal-empty-t {
+    font-size: 14px;
+    line-height: 22px;
+    color: var(--ds-text-2);
+  }
+  .sh-pal-f {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex: none;
+    block-size: var(--ds-palette-footer-h);
+    padding-inline: 16px;
+    box-shadow: inset 0 1px 0 var(--ds-line);
+    font-size: 12px;
+    line-height: 18px;
+    color: var(--ds-text-3);
+  }
+  .sh-pal-f > span {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  @media (max-width: 639px) {
+    .sh-pal-scrim {
+      padding-block-start: 8px;
+      padding-inline: 8px;
+    }
+    .sh-pal-f {
+      display: none;
+    }
+  }
+
+  /* ------------------------------------------------------------------ page header (components.md §2) */
+  .ds-ph {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+    min-block-size: 36px;
+    margin-block-end: var(--ds-stack);
+  }
+  .ds-ph-t {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    column-gap: 12px;
+    row-gap: 2px;
+    min-inline-size: 0;
+  }
+  .ds-ph h1 {
+    margin: 0;
+    font-family: var(--ds-font-display);
+    font-variation-settings: "DSTY" 3;
+    font-size: var(--ds-type-page-size);
+    line-height: var(--ds-type-page-line);
+    font-weight: var(--ds-type-page-weight);
+    letter-spacing: 0;
+    color: var(--ds-text);
+  }
+  /* Arad never sets figures: the numbers in a title («سند ۱۲۴») are drawn by DS Num */
+  .ds-ph-num {
+    font-family: var(--ds-font-sans);
+    font-variation-settings: normal;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .ds-ph-meta {
+    font-size: 13px;
+    line-height: 20px;
+    color: var(--ds-text-3);
+  }
+  .ds-ph-actions {
+    margin-inline-start: auto;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+  @media (max-width: 639px) {
+    .ds-ph h1 {
+      font-size: 22px;
+      line-height: 32px;
+    }
+  }
+
+  /* cards (Section) */
+  .ds-section-h {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-block-size: 52px;
+    padding: 12px 20px;
+    box-shadow: inset 0 -1px 0 var(--ds-line);
+  }
+  .ds-section-h h2 {
+    margin: 0;
+    font-size: 15px;
+    line-height: 22px;
+    font-weight: 600;
+    color: var(--ds-text);
+  }
+  .ds-section-x {
+    margin-inline-start: auto;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .ds-section-b {
+    padding: 16px 20px;
+  }
+
+  /* the 404 inside the shell */
+  .sh-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    max-inline-size: 360px;
+    margin: 12vh auto 0;
+    text-align: center;
+  }
+  .sh-empty-tile {
+    display: grid;
+    place-items: center;
+    inline-size: 56px;
+    block-size: 56px;
+    border-radius: var(--ds-radius-lg);
+    background: var(--ds-sunken);
+    color: var(--ds-text-3);
+  }
+  .sh-empty-t {
+    margin: 16px 0 0;
+    font-size: 16px;
+    line-height: 24px;
+    font-weight: 600;
+    color: var(--ds-text);
+  }
+  .sh-empty-d {
+    margin: 4px 0 0;
+    font-size: 14px;
+    line-height: 22px;
+    color: var(--ds-text-2);
+  }
+  .sh-empty-a {
+    margin-block-start: 16px;
+  }
+
+  /* ------------------------------------------------------------------ Windows title bar overlay
+     (.has-titlebar: the caption buttons sit in the top-right ~140 × 40 corner, which in RTL is the sidebar's
+     head; the sidebar starts 40 px lower, its top strip and the top bar's band drag the window) */
+  .sh-app.has-titlebar .sh-side {
+    padding-block-start: 40px;
+  }
+  .sh-app.has-titlebar .sh-side::before {
+    content: "";
+    position: absolute;
+    inset-inline: 0;
+    inset-block-start: 0;
+    block-size: 40px;
+    -webkit-app-region: drag;
+  }
+  .sh-app.has-titlebar .sh-top-wrap {
+    -webkit-app-region: drag;
+  }
+  .sh-app.has-titlebar .sh-top-wrap :is(button, a, input, [role="button"]) {
+    -webkit-app-region: no-drag;
+  }
+  .sh-app.has-titlebar.is-rail .sh-topbar {
+    padding-inline-start: 92px;
+  }
+  .sh-app.has-titlebar.is-mobile .sh-topbar {
+    padding-inline-start: 148px;
+  }
+
+  /* ------------------------------------------------------------------ boot and waiting (components.md §8, §11) */
+  .sh-boot {
+    display: grid;
+    place-items: center;
+    min-block-size: 100dvh;
+    background: var(--ds-canvas);
+  }
+  .sh-boot-mark {
+    animation: ds-fade var(--ds-dur-crossfade) linear both;
+  }
+  /* the shell crossfades in over the boot screen (no fill mode: once done, nothing stays on the frame that
+     could become the top bar's backdrop root) */
+  .sh-app {
+    animation: ds-fade var(--ds-dur-crossfade) linear;
+  }
+  .sh-wait {
+    display: grid;
+    place-items: center;
+    min-block-size: 256px;
+  }
+  /* three 6 px rhombic nuqtas in the mark's rhythm, each .3 → 1 → .3 over 900 ms, 120 ms apart */
+  .sh-loader {
+    display: inline-flex;
+    gap: 7px;
+    color: var(--ds-text-3);
+    animation: ds-fade var(--ds-dur-crossfade) linear both;
+  }
+  .sh-loader > i {
+    inline-size: 6px;
+    block-size: 6px;
+    border-radius: 1px;
+    background: currentColor;
+    transform: rotate(45deg);
+    opacity: 0.3;
+    animation: sh-nq 900ms var(--ds-ease-in-out) infinite;
+  }
+  .sh-loader > i:nth-child(2) {
+    animation-delay: 120ms;
+  }
+  .sh-loader > i:nth-child(3) {
+    animation-delay: 240ms;
+  }
+  @keyframes sh-nq {
+    0%,
+    100% {
+      opacity: 0.3;
+    }
+    45% {
+      opacity: 1;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .sh-loader > i {
+      animation: none;
+      opacity: 0.6;
+    }
+  }
+  :root[data-motion="reduced"] .sh-loader > i {
+    animation: none;
+    opacity: 0.6;
+  }
+
+  /* ------------------------------------------------------------------ print: the page alone, at full height */
+  @media print {
+    .sh-app {
+      display: block;
+      min-block-size: 0;
+      background: #fff;
+    }
+    .sh-main,
+    .sh-app.is-mobile .sh-main {
+      display: block;
+      padding: 0;
+    }
+    .sh-top-wrap,
+    .sh-side {
+      display: none !important;
+    }
+    .sh-panel {
+      min-block-size: 0;
+      box-shadow: none;
+      border-radius: 0;
+      overflow: visible;
+      background: #fff;
+    }
+    .sh-page {
+      padding: 0;
+    }
+  }
+}

@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=520, height=320, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title></title>
+<!--
+  The Windows splash, 520 × 320. Self-contained: inline SVG and CSS, no network. The only external files are the app's
+  own fonts (renderer/fonts/ds/, next to this file in desktop/app): Arad (SIL OFL 1.1, Reserved Font Name «Arad»,
+  © The Arad Project Authors; unmodified), DS Num (a digit-only subset of Vazirmatn, SIL OFL 1.1, © The Vazirmatn Project
+  Authors) and Geist (SIL OFL 1.1) for Latin letters.
+  The product's name and tagline come from src/shared/constants.ts through the query string (?name=…&tagline=…, set by
+  desktop/src/main.ts), so this file never names the product itself. The mark is the placeholder monogram of
+  src/ui/components/brand.tsx.
+  The window is frameless and transparent; .card draws the rounded Dusk surface with a hairline edge.
+  Launch (transform and opacity only): the tile settles, the monogram's three bars set one after another (60 ms
+  stagger), then the name and the tagline rise. Progress is the rule drawing from start to end (right → left).
+  API for the Electron main process (desktop/src/main.ts, webContents.executeJavaScript):
+    itsm.step(p, cap, "…")  a real stage: jump to p (never backwards) and ease toward cap until the next stage
+    itsm.progress(0…1)      follow real progress exactly
+    itsm.status("…")        the status line, e.g. "باز کردن داده‌ها…"
+    itsm.version("…")       e.g. "نسخهٔ ۱٫۲٫۰"
+    itsm.ready()            completes the rule; its head settles as the green status dot (then close the window)
+  Without calls it eases toward 86 % on its own. Add ?still (or #still) to the URL to render a static frame.
+-->
+<style>
+@font-face{font-family:"DS Num";src:url("renderer/fonts/ds/DSNum.woff2") format("woff2-variations"),url("renderer/fonts/ds/DSNum.woff2") format("woff2");font-weight:100 900;font-style:normal;font-display:block;unicode-range:U+0025,U+002C-002F,U+0030-0039,U+0660-066C,U+06F0-06F9,U+2212}
+@font-face{font-family:"Arad UI";src:url("renderer/fonts/ds/AradVF.woff2") format("woff2-variations"),url("renderer/fonts/ds/AradVF.woff2") format("woff2");font-weight:100 1000;font-style:normal;font-display:block;size-adjust:104%;unicode-range:U+0000-002F,U+003A-0040,U+005B-0060,U+007B-00BF,U+00D7,U+00F7,U+0600-06FF,U+0750-077F,U+08A0-08FF,U+200B-206F,U+25CC,U+FB50-FDFF,U+FE70-FEFF}
+@font-face{font-family:"Geist";src:url("renderer/fonts/ds/Geist-Variable.woff2") format("woff2-variations"),url("renderer/fonts/ds/Geist-Variable.woff2") format("woff2");font-weight:100 900;font-style:normal;font-display:block}
+:root{
+  --ease-out:cubic-bezier(.23,1,.32,1);
+  --line:rgb(255 248 236 / .14);
+  --in:#6DC794;
+}
+*{box-sizing:border-box}
+html,body{margin:0;width:520px;height:320px;overflow:hidden;background:transparent}
+.card{position:absolute;inset:0;overflow:hidden;border-radius:12px;background:#240D21;isolation:isolate}
+.card::after{content:"";position:absolute;inset:0;border-radius:inherit;box-shadow:inset 0 0 0 1px rgb(255 248 236 / .09);pointer-events:none}
+body{position:relative;font-family:"DS Num","Arad UI","Geist","Segoe UI",Tahoma,sans-serif;font-variation-settings:"DSTY" 3;font-weight:450;color:#fff;-webkit-font-smoothing:antialiased;user-select:none;cursor:default}
+.sky{position:absolute;inset:0;background:
+  radial-gradient(120% 70% at 85% 118%, rgb(226 134 112 / .30), transparent 62%),
+  linear-gradient(162deg, #240D21 0%, #381634 38%, #50224B 72%, #6A2E63 100%)}
+.sky::after{content:"";position:absolute;inset:0;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 1 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");opacity:.07;mix-blend-mode:overlay}
+.edge{position:absolute;inset:0 0 auto 0;height:1px;background:rgb(255 248 236 / .10)}
+
+.lockup{position:absolute;left:0;right:0;top:62px;display:flex;flex-direction:column;align-items:center;gap:14px}
+.tile{width:60px;height:60px;border-radius:14px;background:rgb(255 255 255 / .10);box-shadow:inset 0 0 0 1px rgb(255 255 255 / .14);display:grid;place-items:center;animation:settle 320ms var(--ease-out) both}
+.tile svg{width:44px;height:44px;fill:#fff;overflow:visible}
+.n{transform-box:fill-box;transform-origin:50% 50%;animation:set 180ms var(--ease-out) both}
+.n1{animation-delay:150ms}.n2{animation-delay:210ms}.n3{animation-delay:270ms}
+.name{margin:0;font-family:"Geist","Arad UI","DS Num","Segoe UI",sans-serif;font-size:26px;line-height:30px;font-weight:600;letter-spacing:-.01em;animation:rise 420ms var(--ease-out) 330ms both}
+.tagline{margin:0;text-align:center;font-size:13.5px;line-height:22px;color:rgb(255 255 255 / .66);animation:fade 420ms var(--ease-out) 500ms both}
+
+.foot{position:absolute;left:40px;right:40px;top:254px;animation:fade 360ms var(--ease-out) 620ms both}
+.rule{position:relative;height:9px;container-type:inline-size}
+.track,.fill{position:absolute;right:0;top:4px;height:1px;width:100%;background:var(--line)}
+.fill{height:1.5px;top:3.75px;background:rgb(255 255 255 / .82);transform-origin:100% 50%;transform:scaleX(var(--p,0));transition:transform 600ms var(--ease-out)}
+.head{position:absolute;top:1px;right:0;width:7px;height:7px;margin-right:-3.5px;transform:translateX(calc(var(--p,0) * -100cqw)) rotate(45deg) scale(.7071);background:#fff;transition:transform 600ms var(--ease-out),background-color 300ms var(--ease-out)}
+.meta{display:flex;justify-content:space-between;align-items:baseline;margin-top:10px;font-size:12px;line-height:18px;font-weight:480}
+.status{color:rgb(255 255 255 / .70)}
+.ver{color:rgb(255 255 255 / .42)}
+body.done .head{background:var(--in);box-shadow:0 0 0 3px rgb(109 199 148 / .18)}
+
+@keyframes settle{from{opacity:0;transform:scale(.92)}to{opacity:1;transform:none}}
+@keyframes set{from{opacity:0;transform:translateY(-6px) scale(.86)}to{opacity:1;transform:none}}
+@keyframes rise{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+@media (prefers-reduced-motion:reduce){
+  .tile,.n,.name{animation:fade 150ms linear both}
+  .n1,.n2,.n3{animation-delay:0ms}
+  .fill,.head{transition:none}
+}
+</style>
+</head>
+<body>
+<main class="card">
+<div class="sky"></div>
+<div class="lockup">
+  <span class="tile" aria-hidden="true">
+    <svg viewBox="5 5 14 14">
+      <rect class="n n1" x="6" y="6" width="3" height="12"/>
+      <rect class="n n2" x="11" y="6" width="7" height="3"/>
+      <rect class="n n3" x="13" y="9" width="3" height="9"/>
+    </svg>
+  </span>
+  <p class="name" id="name" dir="auto"></p>
+  <p class="tagline" id="tagline"></p>
+</div>
+<div class="foot" aria-live="polite">
+  <div class="rule"><div class="track"></div><div class="fill"></div><div class="head"></div></div>
+  <div class="meta"><span class="status" id="status">باز کردن داده‌ها…</span><span class="ver" id="ver"></span></div>
+</div>
+<div class="edge"></div>
+</main>
+<script>
+(function () {
+  var root = document.documentElement, body = document.body, shown = 0, timer;
+  var stage = { from: 0, cap: 0.86, at: performance.now() + 700, tau: 2.6 }, follow = false;
+  var still = /still/.test(location.search + location.hash);
+  var q = new URLSearchParams(location.search);
+  var name = q.get('name') || '', tagline = q.get('tagline') || '';
+  document.getElementById('name').textContent = name;
+  document.getElementById('tagline').textContent = tagline;
+  document.title = name;
+  function set(p) { p = Math.max(0, Math.min(1, p)); if (p < shown) return; shown = p; root.style.setProperty('--p', p.toFixed(4)); }
+  function tick() {
+    if (follow) return;
+    var t = Math.max(0, performance.now() - stage.at) / 1000;
+    set(stage.from + (stage.cap - stage.from) * (1 - Math.exp(-t / stage.tau)));
+  }
+  window.itsm = {
+    step: function (p, cap, s, tau) {
+      follow = false;
+      stage = { from: Math.max(p, shown), cap: Math.max(cap == null ? p : cap, p, shown), at: performance.now(), tau: tau || 2.6 };
+      if (s) this.status(s);
+      tick();
+    },
+    progress: function (p) { follow = true; set(p); },
+    status: function (s) { document.getElementById('status').textContent = s; },
+    version: function (v) { document.getElementById('ver').textContent = v; },
+    ready: function (s) { follow = true; set(1); clearInterval(timer); if (s) this.status(s); setTimeout(function () { body.classList.add('done'); }, 600); }
+  };
+  if (still) { follow = true; set(0.58); } else { timer = setInterval(tick, 120); tick(); }
+})();
+</script>
+</body>
+</html>

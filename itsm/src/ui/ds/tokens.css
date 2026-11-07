@@ -1,0 +1,679 @@
+/* =====================================================================================================
+   Design system «ds» — design tokens                                         tokens.css · v1.2
+   The source of truth of src/ui (web + Windows app). The product's brand is chosen later; until then the
+   placeholder mark lives in src/ui/components/brand.tsx and these tokens stay brand-neutral in name.
+
+   v1.2 sets the whole interface in Arad with every digit drawn by «DS Num», a digit-only subset of
+   Vazirmatn that keeps number columns tabular and the separators narrow. UI weights are 450 / 540 / 600.
+
+   v1.1 applies the polish and usability reviews (components.md lists every rule that changed):
+     opaque focus colour and a 3:1 control edge (--ds-control-strong) · denser ledgers (40 / 32 px rows,
+     48 px top bar) · a neutral selected row with a Dusk start bar (--ds-accent-bar) · paler, lilac accent
+     tints · warning moved off the amber hue · info (blue) retired · figure weights 440 / 500 · decimals at
+     full size below 24 px · brighter dark-theme secondary text · the dark top bar no longer a lighter band ·
+     the brand surface lit at its horizon · --ds-holiday for calendars.
+
+   What is here
+     §1  @font-face — Arad (text and titles), DS Num (digits), Geist, Geist Mono + static print set
+     §2  Brand constants — Dusk «شامگاه» (primary) 50–950, brand gradients, grain
+     §3  Scale tokens — type, spacing, radii, sizes, density, z-index, motion (theme-independent)
+     §4  Light theme «کاغذ و مرکب» (paper and ink) — the default
+     §5  Dark theme «زغال گرم» (warm charcoal) — OS preference and the in-app toggle
+     §6  Preference and capability overrides — reduced motion, reduced transparency, more contrast,
+         forced colours, no backdrop-filter, the Windows app's low-power switch
+     §7  Print
+     §8  Base primitives — root defaults, form-control inheritance, focus, type/number/bidi helpers,
+         the rhombic nuqta (◆), the sync pulse
+
+   How to use
+     • Theme: <html data-theme="light|dark">. With no attribute the OS preference decides (§5).
+       Motion/power overrides: data-motion="reduced", data-power="low" (both optional, set by the app).
+       Density: data-density="compact" on a page or panel (ledgers and lists; components.md §4.1).
+     • Every value is a plain hex or rgb() — no oklch()/color-mix()/light-dark() — so the same values can be
+       fed to Ant Design's theme algorithm (it parses hex/rgb only) and render identically everywhere.
+       The OKLCH source of each colour is noted; palettes come from director/scripts/palette.mjs.
+     • Never set type with the `font` shorthand. In Chromium (checked on 153) `font:` resets
+       font-feature-settings ("ss01" → Persian digits), font-variation-settings ("DSTY" 3 → rhombic dots) and
+       font-variant-numeric (tabular-nums). Use the longhands or the .ds-t-* classes in §8.
+     • Import order in the app: `@layer theme, base, antd, components, utilities;` first, then Tailwind,
+       then this file. Custom properties are unlayered on purpose; §8 lives in `@layer base`.
+     • Themes apply to <html> only (custom properties that reference other properties are resolved there).
+       §6/§7 overrides use `:root:root:root` where they must beat the dark-theme selectors.
+
+   Contrast (WCAG 2): every text token below is ≥ 4.5:1 on canvas, surface, raised, sunken and well of its theme
+   (--ds-text-4 is for disabled controls only, never for content). Non-text (1.4.11): the focus colour,
+   --ds-control-strong and --ds-accent-bar reach 3:1 on every fill they touch. Dark --ds-text-3 also reaches
+   APCA |Lc| 60. All pairs, both themes: scripts/check-tokens.mjs → build/token-report.json.
+   ===================================================================================================== */
+
+
+/* -----------------------------------------------------------------------------------------------------
+   §1  FONTS — all SIL OFL 1.1 (licences in ./fonts/OFL-*.txt; list them on the About screen)
+   Preload Arad + DS Num (~115 KB, the critical pair); Geist and Geist Mono load on first use.
+   Arad is a Reserved Font Name: the file ships unmodified (no subsetting, no instancing). size-adjust and
+   unicode-range below are CSS descriptors applied at render time; they do not change the file.
+   ----------------------------------------------------------------------------------------------------- */
+
+/* Every digit and the number separators, wherever they appear (cells, KPI figures, inputs, dates, titles).
+   «DS Num» 33.003 DSNum.woff2 (8 KB): a digit-only subset of Vazirmatn (OFL 1.1, no Reserved Font Name;
+   its copyright is kept, OFL-Vazirmatn.txt ships with it; renamed «DS Num», no Reserved Font Name). Its cmap maps
+   ASCII 0–9 to the Persian digit glyphs, so digits are Persian without any feature. Under tabular-nums its
+   ٬ and ٫ stay narrow (Arad's own tnum spreads them, so Arad never draws a number). */
+@font-face {
+  font-family: "DS Num";
+  src: url("/fonts/ds/DSNum.woff2") format("woff2-variations"),
+       url("/fonts/ds/DSNum.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0025, U+002C-002F, U+0030-0039, U+0660-066C, U+06F0-06F9, U+2212;
+}
+
+/* Persian UI text: menus, tables, forms, paragraphs · Arad 2.5.1 AradVF.woff2 · sha256 16cc1168…77a41
+   The same file as the display face below (it downloads once). size-adjust 104% gives Arad's slightly smaller
+   Persian letters the apparent size the scale was drawn for; the range keeps Latin letters for Geist. */
+@font-face {
+  font-family: "Arad UI";
+  src: url("/fonts/ds/AradVF.woff2") format("woff2-variations"),
+       url("/fonts/ds/AradVF.woff2") format("woff2");
+  font-weight: 100 1000;
+  font-style: normal;
+  font-display: swap;
+  size-adjust: 104%;
+  unicode-range: U+0000-002F, U+003A-0040, U+005B-0060, U+007B-00BF, U+00D7, U+00F7, U+0600-06FF, U+0750-077F, U+08A0-08FF, U+200B-206F, U+25CC, U+FB50-FDFF, U+FE70-FEFF;
+}
+
+/* Persian display: page and section titles, the splash · the same AradVF.woff2 at its own proportions.
+   Axes: wght 100–1000, DSTY 1–3 (dot style). The app always uses DSTY 3 (rhombic nuqtas) — §8. */
+@font-face {
+  font-family: "Arad";
+  src: url("/fonts/ds/AradVF.woff2") format("woff2-variations"),
+       url("/fonts/ds/AradVF.woff2") format("woff2");
+  font-weight: 100 1000;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Latin: a Latin product name, Latin words, codes and units written in Latin · geist@1.9.0 · sha256 5c558802…cae512 */
+@font-face {
+  font-family: "Geist";
+  src: url("/fonts/ds/Geist-Variable.woff2") format("woff2-variations"),
+       url("/fonts/ds/Geist-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Codes that are Latin by nature: host names, IP and MAC addresses, serial numbers, API keys, request ids
+   (slashed zero) · sha256 cf5bf55f…46b25. Record numbers of the app are Persian digits in DS Num, not Geist Mono. */
+@font-face {
+  font-family: "Geist Mono";
+  src: url("/fonts/ds/GeistMono-Variable.woff2") format("woff2-variations"),
+       url("/fonts/ds/GeistMono-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Print set (static files; variable fonts print as Type3, ~79 KB vs ~14 KB a page). Only §7 uses these
+   families, so they never download on screen. Load them before window.print()/printToPDF (components.md §12). */
+/* Arad Print: the designer's own static cuts with rhombic dots (Dots3), unmodified. DS Num Print: the digit subset
+   of the static Vazirmatn cuts, same range as on screen. */
+@font-face { font-family: "Arad Print"; src: url("/fonts/ds/print/Arad-RegularDots3.woff2") format("woff2"); font-weight: 400; font-display: block; }
+@font-face { font-family: "Arad Print"; src: url("/fonts/ds/print/Arad-MediumDots3.woff2") format("woff2"); font-weight: 500; font-display: block; }
+@font-face { font-family: "Arad Print"; src: url("/fonts/ds/print/Arad-BoldDots3.woff2") format("woff2"); font-weight: 700; font-display: block; }
+@font-face { font-family: "DS Num Print"; src: url("/fonts/ds/print/DSNum-Regular.woff2") format("woff2"); font-weight: 400; font-display: block; unicode-range: U+0025, U+002C-002F, U+0030-0039, U+0660-066C, U+06F0-06F9, U+2212; }
+@font-face { font-family: "DS Num Print"; src: url("/fonts/ds/print/DSNum-Medium.woff2") format("woff2"); font-weight: 500; font-display: block; unicode-range: U+0025, U+002C-002F, U+0030-0039, U+0660-066C, U+06F0-06F9, U+2212; }
+@font-face { font-family: "DS Num Print"; src: url("/fonts/ds/print/DSNum-Bold.woff2") format("woff2"); font-weight: 700; font-display: block; unicode-range: U+0025, U+002C-002F, U+0030-0039, U+0660-066C, U+06F0-06F9, U+2212; }
+@font-face { font-family: "Geist Print"; src: url("/fonts/ds/print/Geist-Regular.woff2") format("woff2"); font-weight: 400; font-display: block; }
+@font-face { font-family: "Geist Mono Print"; src: url("/fonts/ds/print/GeistMono-Regular.woff2") format("woff2"); font-weight: 400; font-display: block; }
+
+
+/* -----------------------------------------------------------------------------------------------------
+   §2  BRAND CONSTANTS (same in both themes)
+   ----------------------------------------------------------------------------------------------------- */
+:root {
+  /* Primary scale — «شامگاه» Dusk, OKLCH hue 332. 700 is the signature colour.
+     L: .975 .95 .905 .84 .75 .62 .50 .405 .335 .265 .205
+     (The UI's accent roles in §4/§5 are tuned separately; this scale is for illustration and brand work.) */
+  --ds-dusk-50:  #FCF4FA;
+  --ds-dusk-100: #F9E9F6;
+  --ds-dusk-200: #F2D5ED;
+  --ds-dusk-300: #E7BADF;
+  --ds-dusk-400: #D298C9;
+  --ds-dusk-500: #B168A7;
+  --ds-dusk-600: #8C4384;
+  --ds-dusk-700: #6A2E63;   /* signature */
+  --ds-dusk-800: #50224B;
+  --ds-dusk-900: #381634;
+  --ds-dusk-950: #240D21;
+
+  /* The only gradients. Never on buttons, text, sidebars or table headers. */
+  /* 1 · «شامگاه» — brand surfaces only: login/onboarding, splash, installer, About, OG image.
+         The sky darkens toward the zenith; the last light sits ON the horizon line, not at the bottom edge,
+         so it is drawn by the horizon element itself (1a) and holds for any copy length or window height.
+         Always pair with the grain (--ds-grain). */
+  --ds-grad-dusk: linear-gradient(180deg, #1C0A1A 0%, #2B1027 45%, #43203D 100%);
+  /* 1a · the horizon (components.md §11.1): a 1 px line, its light and the sea below it.
+         --ds-horizon-light paints `.horizon::after`, a box from 300 px above the line to 1300 px below it
+         (inset-block-start: -300px; block-size: 1600px; z-index: -1), so y = 300 px is the line. The light is
+         centred 54 px from the start (right) edge, under the resting nuqta. */
+  --ds-horizon-line: linear-gradient(90deg, rgb(255 236 226 / 0), rgb(255 236 226 / .20) 35%, rgb(255 236 226 / .50));
+  --ds-horizon-light:
+    radial-gradient(240px 110px at calc(100% - 54px) 300px, rgb(248 176 132 / .42), transparent 70%),
+    radial-gradient(620px 230px at calc(100% - 140px) 300px, rgb(166 82 152 / .50), transparent 72%),
+    linear-gradient(180deg, transparent 300px, rgb(14 4 12 / .38) 301px, rgb(14 4 12 / .50) 700px);
+  --ds-horizon-glow: 0 0 0 4px rgb(255 255 255 / .10), 0 0 20px 6px rgb(255 214 190 / .38);   /* the resting nuqta */
+  /* 1b · small tiles with no horizon (organisation switcher, app icon — matches final/app-icon.svg): the ember sits
+         in the lower start corner. */
+  --ds-grad-dusk-tile:
+    radial-gradient(120% 70% at 85% 118%, rgb(226 134 112 / .30), transparent 62%),
+    linear-gradient(162deg, #240D21 0%, #381634 38%, #50224B 72%, #6A2E63 100%);
+  /* (2 · chart area and 4 · glass edge are theme-dependent: §4/§5.) */
+
+  /* Grain: fractal noise, 160 px tile, used at opacity .06–.08 with mix-blend-mode: overlay, on Dusk only. */
+  --ds-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n' x='0' y='0'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='.33 .33 .33 0 0 .33 .33 .33 0 0 .33 .33 .33 0 0 0 0 0 0 1'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+  --ds-grain-size: 160px;
+  --ds-grain-opacity: .07;
+
+  /* Text on brand surfaces (Dusk gradient): white / 72 % white for secondary (≥ 7.9:1) / 56 % (≥ 5.4:1) */
+  --ds-on-brand: #FFFFFF;
+  --ds-on-brand-2: rgb(255 255 255 / .72);
+  --ds-on-brand-3: rgb(255 255 255 / .56);
+}
+
+
+/* -----------------------------------------------------------------------------------------------------
+   §3  SCALE TOKENS (theme-independent)
+   ----------------------------------------------------------------------------------------------------- */
+:root {
+  /* ---- font stacks ---- */
+  /* DS Num first: it only covers digits and separators, so every number in any stack is drawn by it */
+  --ds-font-sans: "DS Num", "Arad UI", "Geist", "Arad", system-ui, "Segoe UI", Tahoma, sans-serif;
+  --ds-font-display: "DS Num", "Arad", "Geist", system-ui, sans-serif;
+  --ds-font-latin: "Geist", "DS Num", "Arad UI", system-ui, sans-serif;
+  --ds-font-mono: "Geist Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+
+  /* ---- type scale: size / line-height / weight (+ family). Text is Arad UI (size-adjusted Arad), titles
+         Arad at its own proportions; Arad never draws a number (DS Num does).
+         UI weights: 450, 540, 600 — plus 440 for the hero figure only. 600 means "sum" (totals rows, calc and
+         footer totals) or a title (card, dialog, sheet); figures are 500. Nothing under 450 below 20 px.
+         Minimum sizes: Persian text ≥ 12 px; values (cells, sums, inputs, chips that hold a figure, bookmarks)
+         ≥ 13 px. Below 12 px only decoration: avatar initials (10.5), a currency code in an avatar (9.5),
+         kbd (11, Geist). ---- */
+  --ds-type-display-size: 48px;   --ds-type-display-line: 60px;   --ds-type-display-weight: 760;  /* Arad · splash, onboarding, first-run */
+  --ds-type-display-xl-size: 60px; --ds-type-display-xl-line: 72px;                              /* Arad · marketing 56–64 */
+  --ds-type-page-size: 26px;      --ds-type-page-line: 36px;      --ds-type-page-weight: 700;     /* Arad · PageHeader title */
+  --ds-type-section-size: 18px;   --ds-type-section-line: 28px;   --ds-type-section-weight: 700;  /* Arad · section headings */
+  --ds-type-title-size: 16px;     --ds-type-title-line: 24px;     --ds-type-title-weight: 600;    /* card, dialog, sheet titles */
+  --ds-weight-regular: 450;       --ds-weight-medium: 540;        --ds-weight-strong: 600;        /* the three UI weights */
+  --ds-type-body-size: 14px;      --ds-type-body-line: 22px;      --ds-type-body-weight: 450;     /* default UI, inputs, menus, cells */
+  --ds-type-dense-size: 13px;     --ds-type-dense-line: 20px;     --ds-type-dense-weight: 450;    /* compact tables (the ledger default) */
+  --ds-type-label-size: 13px;     --ds-type-label-line: 20px;     --ds-type-label-weight: 540;    /* labels, chips, segmented (table headers are 450) */
+  --ds-type-caption-size: 12px;   --ds-type-caption-line: 18px;   --ds-type-caption-weight: 480;  /* meta, timestamps, helper text, compact headers */
+  --ds-type-paragraph-size: 14px; --ds-type-paragraph-line: 26px; --ds-type-paragraph-weight: 450;/* help, long text */
+  --ds-type-hero-size: 40px;      --ds-type-hero-line: 46px;      --ds-type-hero-weight: 440;     /* hero balance, proportional digits */
+  --ds-type-hero-unit-size: 17px;                                                                 /* unit beside the hero figure, text-3 */
+  --ds-type-figure-size: 28px;    --ds-type-figure-line: 36px;    --ds-type-figure-weight: 500;   /* KPI figures, proportional digits */
+  --ds-type-code-size: 12.5px;    --ds-type-code-line: 20px;      --ds-type-code-weight: 400;     /* Geist Mono, LTR isolate, groups of 4 */
+  --ds-type-kbd-size: 11px;                                                                       /* Geist 500 */
+  --ds-type-latin-scale: .94em;   /* Geist inline in Persian text */
+  --ds-type-brand-tracking: -.025em; /* a Latin product name in Geist 600 only — never letter-space Persian (Chromium ignores it on Arabic script anyway) */
+  --ds-type-decimal-scale: 1;     /* decimals never shrink in cells, inputs, sums and strips: they carry value (milligrams, cents) */
+  --ds-type-decimal-scale-display: .65; /* only inside display figures ≥ 24 px (.ds-t-hero, .ds-t-figure): ≥ 18 px, text-3 */
+  --ds-type-unit-scale: .78;      /* units 75–80 % size, text-3, after a no-break space */
+
+  /* ---- spacing: 4 px base ---- */
+  --ds-space-0: 0;
+  --ds-space-px: 1px;
+  --ds-space-0-5: 2px;
+  --ds-space-1: 4px;
+  --ds-space-1-5: 6px;
+  --ds-space-2: 8px;
+  --ds-space-2-5: 10px;
+  --ds-space-3: 12px;
+  --ds-space-4: 16px;
+  --ds-space-5: 20px;
+  --ds-space-6: 24px;
+  --ds-space-7: 28px;
+  --ds-space-8: 32px;
+  --ds-space-10: 40px;
+  --ds-space-12: 48px;
+  --ds-space-16: 64px;
+  --ds-space-20: 80px;
+  --ds-gutter: 28px;          /* content padding inside the panel (desktop); 16 px under 640 px */
+  --ds-card-padding: 20px;    /* 16 dense, 24 roomy */
+  --ds-stack: 16px;           /* gap between cards */
+  --ds-page-top: 16px;        /* top bar → page header */
+  --ds-filters-gap: 12px;     /* filters row → the content it scopes */
+
+  /* ---- radii (nested radii are concentric: inner = outer − padding) ---- */
+  --ds-radius-xs: 4px;        /* kbd, checkbox, tiny tags */
+  --ds-radius-sm: 6px;        /* dense-table controls, menu rows, tooltip */
+  --ds-radius-md: 8px;        /* buttons, inputs, nav items */
+  --ds-radius-lg: 12px;       /* cards, menus, popovers, dialogs, palette, content panel */
+  --ds-radius-xl: 16px;       /* side sheet, fullscreen */
+  --ds-radius-pill: 999px;    /* chips, segmented, filters */
+  --ds-radius-icon: 22.5%;    /* app-icon squircle */
+
+  /* ---- component sizes ---- */
+  --ds-control-h: 32px;       --ds-control-h-sm: 28px;    --ds-control-h-lg: 40px;
+  --ds-icon: 16px;            --ds-icon-stroke: 1.4px;    /* Lucide 24-grid at 16 px → stroke-width 2.1 */
+  --ds-sidebar-w: 244px;      --ds-rail-w: 60px;          --ds-nav-item-h: 32px;
+  --ds-topbar-h: 48px;        --ds-panel-inset: 8px;
+  --ds-sheet-w: 480px;        --ds-sheet-w-min: 420px;    --ds-sheet-w-wide: 560px;   /* one-record forms and details */
+  --ds-sheet-w-max: 880px;    /* line-item editors (multi-line records) when not a full page */
+  --ds-palette-w: 680px;      --ds-palette-top: 13vh;     --ds-palette-input-h: 56px;  --ds-palette-row-h: 42px;  --ds-palette-footer-h: 40px;
+  --ds-nuqta: 7px;            /* status/sync dot: a 7 px square rotated 45° */
+  --ds-content-max: 1280px;
+
+  /* ---- density: comfortable (home, dashboards) and compact (the default on long list routes) ---- */
+  --ds-row-h: 40px;           --ds-row-h-compact: 32px;       /* 14/20 cells · 13/20 cells */
+  --ds-th-h: 36px;            --ds-th-h-compact: 32px;        /* 13/20 · 12/18, weight 400, text-3 */
+  --ds-tfoot-h: 40px;         --ds-tfoot-h-compact: 36px;     /* totals row */
+  --ds-col-money: 136px;      --ds-col-money-compact: 128px;  /* floor for money/weight columns: widest value + 24, never less */
+  --ds-selected-bar: 3px;     /* the start-edge bar of a selected table row (palette rows use 2 × 16) */
+
+  /* ---- layers (Ant Design's zIndexPopupBase is 1000: modals 1000, popovers ~1030, messages ~1010) ---- */
+  --ds-z-sticky: 10;          /* sticky table header / totals */
+  --ds-z-topbar: 30;
+  --ds-z-sidebar: 40;
+  --ds-z-sheet: 1000;
+  --ds-z-popover: 1050;
+  --ds-z-palette: 1100;
+  --ds-z-toast: 1200;
+
+  /* ---- motion (brief §5). Animate transform and opacity only; never `transition: all`. ---- */
+  --ds-dur-instant: 0ms;      /* hover-in, keyboard focus, sorting, ⌘K, a sheet opened from the keyboard */
+  --ds-dur-fast: 100ms;       /* press, small colour changes, sidebar content swap (fade only) */
+  --ds-dur-base: 160ms;       /* hover-out, popovers, tabs, the breadcrumb's current item */
+  --ds-dur-moderate: 200ms;   /* dialogs, list insert/remove, accordion */
+  --ds-dur-slow: 300ms;       /* toasts, digit roll; skeleton → content crossfade uses --ds-dur-crossfade */
+  --ds-dur-crossfade: 150ms;
+  --ds-dur-sheet: 240ms;      /* side sheet in (opened dozens of times a day: quick) */
+  --ds-dur-sheet-exit: 180ms; /* side sheet out */
+  --ds-dur-hero: 500ms;       /* first chart draw, launch mark */
+  --ds-dur-flash: 1200ms;     /* changed live-rate cell: tint fades out */
+  --ds-dur-pulse: 2000ms;     /* the sync nuqta while syncing — the only loop in the product */
+  --ds-exit-ratio: .75;       /* exits run at ≈ 0.75 × the entry duration */
+  --ds-stagger: 30ms;         /* at most 6 items, never blocks input */
+
+  --ds-ease-out: cubic-bezier(.23, 1, .32, 1);        /* default for anything entering */
+  --ds-ease-out-quad: cubic-bezier(.25, .46, .45, .94); /* hover and colour */
+  --ds-ease-in-out: cubic-bezier(.77, 0, .175, 1);    /* on-screen movement */
+  --ds-ease-sheet: cubic-bezier(.32, .72, 0, 1);      /* sheets and drawers */
+  /* springs (drag and gestures only): { type: "spring", duration: .35–.5, bounce: ≤ .15 } */
+
+  /* movement amounts — §6 sets them to identity under reduced motion, so nothing moves */
+  --ds-enter-scale: .96;      /* popovers, dialogs, menus: scale .96 → 1 from the trigger's origin */
+  --ds-press-scale: .98;      /* pressed buttons and rows */
+  --ds-enter-shift: 8px;      /* toasts, list inserts */
+  --ds-sheet-shift: 100%;     /* side sheet slides in from the end edge (left in RTL) */
+
+  /* ---- glass: what components read. The theme supplies the tints and the blur (§4, §5);
+         §6 swaps these for solid fills when glass is unavailable or unwanted. ---- */
+  --ds-glass-bg: var(--ds-glass-tint);              /* the top bar: the panel at rest */
+  --ds-glass-float: var(--ds-glass-float-tint);     /* menus over content, toasts, read-only sheets */
+  --ds-glass-filter: var(--ds-glass-blur);
+  --ds-glass-strong: var(--ds-glass-strong-tint);   /* glass that sits ABOVE a scrim (command palette) */
+}
+
+
+/* -----------------------------------------------------------------------------------------------------
+   §4  LIGHT THEME «کاغذ و مرکب» — warm paper and ink (default)
+   Neutrals: paper hue 80, ink hue 72 (OKLCH); 90–95 % of every screen is these.
+   ----------------------------------------------------------------------------------------------------- */
+:root {
+  color-scheme: light;
+
+  /* ---- surfaces (3 elevations above the canvas, plus sunken) ---- */
+  --ds-canvas: #F7F4F0;       /* app background, sidebar, top-bar strip                     L .968 */
+  --ds-surface: #FFFEFD;      /* content panel, cards, inputs                                L .998 */
+  --ds-raised: #FFFFFF;       /* menus, popovers, side sheet, palette, segmented "on"        L 1    */
+  --ds-sunken: #F1EEE9;       /* segmented track, read-only fields, code blocks, kbd         L .950 */
+  --ds-well: #F4F1EC;         /* recessed area INSIDE raised layers (sheet, dialog): sums, tracks — sunken is relative to the canvas */
+
+  /* ---- text (ink) ---- */
+  --ds-text: #221D18;         /* primary ink; outflow amounts; links (underlined) · 16.6:1 on surface */
+  --ds-text-2: #544F49;       /* secondary; decimals in cells · 8.0:1 */
+  --ds-text-3: #6E6964;       /* labels, table headers, meta, placeholders, excluded amounts · 5.4 surface / 4.69 sunken and selected row */
+  --ds-text-4: #9C9792;       /* disabled controls only — never content (2.9:1) */
+  --ds-ink-rgb: 33 29 24;     /* base of every alpha line, tint and shadow */
+
+  /* ---- lines, control edges and interaction tints ---- */
+  --ds-line: rgb(33 29 24 / .08);     /* hairlines, card ring, row separators — decoration, never a control's only edge */
+  --ds-line-2: rgb(33 29 24 / .13);   /* control outline (1.3:1, so always paired with --ds-control-strong) */
+  --ds-line-3: rgb(33 29 24 / .22);   /* totals rule, strong divider, hovered control outline */
+  --ds-control-strong: #8A847E;       /* the edge that identifies a control: checkbox and radio ring, switch-off track,
+                                         the bottom edge of inputs, selects and date fields · 3.19–3.70:1 on every fill   L .617 */
+  --ds-hover: rgb(33 29 24 / .04);    /* shown instantly, fades out over --ds-dur-base */
+  --ds-hover-row: rgb(33 29 24 / .05);
+  --ds-selected: rgb(33 29 24 / .07); /* selected nav item, palette row and table row (the row adds --ds-accent-bar) */
+  --ds-pressed: rgb(33 29 24 / .10);
+  --ds-segment-on: #FFFFFF;           /* segmented "on" pill (raised, with --ds-shadow-segment, weight 600) */
+  --ds-scrim: rgb(10 8 7 / .42);      /* behind dialogs and the palette (never behind the side sheet) */
+
+  /* ---- accent: Dusk. Reserved for the primary action, focus, the selected-state indicator (active tab, selected
+         row and palette bars, selected day, applied filter) and the main chart series — at most one per region. ---- */
+  --ds-accent: #6A2E63;               /* the single primary action per view · white text 9.6:1 */
+  --ds-accent-hover: #50224B;         /* hover and pressed */
+  --ds-accent-text: #8C4384;          /* active tab text, caret, text-field focus ring · 6.4:1 (links are ink) */
+  --ds-accent-line: #8C4384;          /* the main chart series */
+  --ds-accent-line-rgb: 140 67 132;
+  --ds-accent-bar: #6A2E63;           /* start bar of the selected table row and palette row · 8.3:1 on --ds-selected */
+  --ds-accent-tint: #FAF5F9;          /* selected option, in-range days          OKLCH .975 .007 332 (lilac, not pink) */
+  --ds-accent-tint-2: #F6EDF4;        /* applied filter, "this period" chip, the scrubbed date · .955 .013 */
+  --ds-accent-border: #E6CDE2;        /* applied filter edge                                        .875 .039 */
+  --ds-on-accent: #FFFFFF;
+  --ds-selection: #F0DCEC;            /* ::selection                                                .915 .030 */
+  --ds-focus-color: #8C4384;          /* opaque: 5.6–6.5:1 on every light fill (was 45 % alpha, 2.06:1) */
+  --ds-focus-gap: var(--ds-surface);  /* the 2 px gap of the ring; raised layers redeclare it (§8) */
+  --ds-focus-ring: 0 0 0 2px var(--ds-focus-gap), 0 0 0 4px var(--ds-focus-color);  /* where an outline cannot be used */
+
+  /* ---- semantic (data only; chips are text on their own tint, never a solid fill) ---- */
+  --ds-in: #1B7248;           --ds-in-tint: #E4EDE7;       --ds-in-border: #BFD7CA;      /* money in, success · chip 4.95:1 */
+  --ds-in-halo: rgb(27 114 72 / .18);                                                    /* 3 px halo of the live/sync nuqta */
+  --ds-danger: #B63731;       --ds-danger-tint: #F6E6E5;   --ds-danger-border: #EBC6C4;  /* errors, overdue, bounced — nothing else · chip 4.85:1 */
+  --ds-danger-solid: #B63731; --ds-danger-solid-hover: #A12B27;                          /* destructive button fill, white text */
+  --ds-warning: #A35612;      --ds-warning-tint: #FEEFE4;  --ds-warning-border: #F8CAA7; /* OKLCH h 55–62, off the amber hue (78–85) · 4.66–5.39:1 on every fill, 4.79 on its tint */
+  --ds-warning-fill: #F29A43;                                                            /* nuqta, icon, meter segment — never text */
+  --ds-neutral-tint: #F2F1EF;                                                            /* neutral chip: draft, in transit, archived */
+  --ds-holiday: #B63731;      /* Fridays and holidays in calendars: the cultural red, a role of its own so danger stays rare */
+  /* Outflow is --ds-text (ink), never red. Excluded amounts (bounced, returned) are --ds-text-3 and never struck through.
+     Info (blue) is retired: a neutral chip + icon, or a --ds-sea nuqta. No amber surfaces:
+     warning banners are --ds-surface + --ds-ring with a --ds-warning-fill nuqta; only 22 px chips use --ds-warning-tint. */
+
+  /* ---- a second material (teal «دریا»): a module's own accent, sparingly ---- */
+  --ds-sea-text: #13676F;     --ds-sea: #2D8992;           --ds-sea-tint: #E1F2F4;       --ds-sea-line: #A3CDD2;
+
+  /* ---- charts: categorical, FIXED order, never cycled; past 6 series fold into «سایر» or facet.
+     Validated (dataviz validator, adjacent pairs): worst CVD ΔE 14.7, normal 24.4. Slots 2 and 8 are under 3:1
+     on surface → charts always carry direct labels or a table view. Scatter/all-pairs forms: max 3 series. ---- */
+  --ds-chart-1: #8C4384;      /* dusk «شامگاه» */
+  --ds-chart-2: #E3A638;      /* saffron «زعفران» (2.13:1 — labels required) */
+  --ds-chart-3: #0298A4;      /* sea «دریا» */
+  --ds-chart-4: #C45E3D;      /* clay «سفال» */
+  --ds-chart-5: #495AB2;      /* indigo «نیل» */
+  --ds-chart-6: #659D58;      /* sage «مریم‌گلی» */
+  --ds-chart-7: #7B4200;      /* walnut «گردو» */
+  --ds-chart-8: #7BB5F0;      /* sky «آسمان» (2.15:1 — labels required) */
+  --ds-chart-other: #B5B0AA;  /* «سایر» fold-in, neutral */
+  --ds-chart-grid: rgb(33 29 24 / .06);       /* ≤ 3 hairlines, solid, or none */
+  --ds-chart-axis: rgb(33 29 24 / .22);       /* baseline */
+  --ds-chart-crosshair: rgb(33 29 24 / .25);  /* 1 px */
+  --ds-chart-compare: #6E6964;                /* comparison period: dashed 4 3, 1.25 px */
+  --ds-chart-area-top: .16;                   /* gradient 2 · accent-line from 16 % to 2 % */
+  --ds-chart-area-bottom: .02;
+  --ds-grad-chart-area: linear-gradient(180deg, rgb(140 67 132 / .16), rgb(140 67 132 / .02));
+  --ds-hero-glow: none;                       /* dark theme only */
+
+  /* ---- elevation: shadows tinted with ink 33 29 24, never pure black ---- */
+  --ds-ring: 0 0 0 1px rgb(33 29 24 / .08);
+  --ds-shadow-e1: 0 0 0 1px rgb(33 29 24 / .08), 0 1px 2px rgb(33 29 24 / .04);                    /* card (dense ledgers: ring alone) */
+  --ds-shadow-e2: 0 0 0 1px rgb(33 29 24 / .08), 0 2px 2px rgb(33 29 24 / .04), 0 8px 8px -8px rgb(33 29 24 / .04); /* sticky header, hovered card */
+  --ds-shadow-e3: 0 0 0 1px rgb(33 29 24 / .08), 0 1px 1px rgb(33 29 24 / .02), 0 4px 8px -4px rgb(33 29 24 / .05), 0 16px 24px -8px rgb(33 29 24 / .08);  /* menu, popover, tooltip */
+  --ds-shadow-e4: 0 0 0 1px rgb(33 29 24 / .08), 0 1px 1px rgb(33 29 24 / .02), 0 8px 16px -4px rgb(33 29 24 / .05), 0 24px 40px -8px rgb(33 29 24 / .10); /* dialog, side sheet, palette */
+  --ds-shadow-segment: 0 0 0 1px rgb(33 29 24 / .16), 0 1px 2px rgb(33 29 24 / .08);                /* the "on" pill: a 16 % ring, so it reads on cheap panels */
+  --ds-shadow-button: 0 1px 1px rgb(33 29 24 / .04);                                                 /* default button; primary has none */
+  --ds-glass-edge: inset 0 1px 0 rgb(255 255 255 / .7);                                               /* gradient 4 · 1 px top highlight */
+
+  /* ---- glass: the top bar (--ds-glass-tint), menus over content and toasts (--ds-glass-float-tint), the palette
+         (strong). Never cards, tables or forms (form sheets are solid raised). ---- */
+  --ds-glass-tint: rgb(255 254 253 / .78);
+  --ds-glass-float-tint: rgb(255 254 253 / .78);
+  --ds-glass-strong-tint: rgb(255 254 253 / .92);
+  --ds-glass-blur: saturate(1.6) blur(20px);
+  --ds-glass-ring: 0 0 0 1px rgb(33 29 24 / .08);
+  --ds-glass-shadow: 0 0 0 1px rgb(33 29 24 / .08), inset 0 1px 0 rgb(255 255 255 / .7);
+  --ds-tooltip-bg: #221D18;   --ds-tooltip-text: #F2F0EC;
+}
+
+
+/* -----------------------------------------------------------------------------------------------------
+   §5  DARK THEME «زغال گرم» — warm charcoal, never navy. Elevation = lighter surface + hairline ring +
+   top highlight; only floating layers cast shadows. The two blocks below MUST stay identical
+   (scripts/check-tokens.mjs fails the build if they drift).
+   Accent: lower chroma than light (accent-text C .065, accent-line .081) so links, lines and bars read orchid,
+   not pink. Secondary text is brighter than WCAG alone asks (APCA |Lc| ≥ 75 / ≥ 60 on canvas, surface and raised). The top bar's glass is built
+   on the panel colour, so it never shows as a lighter band; floating layers keep the raised tint.
+   ----------------------------------------------------------------------------------------------------- */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --ds-canvas: #110F0E;  --ds-surface: #191715;  --ds-raised: #211F1D;  --ds-sunken: #0B0A08;  --ds-well: #151311;
+    --ds-text: #F2F0EC;  --ds-text-2: #D3CEC8;  --ds-text-3: #BAB5AF;  --ds-text-4: #66625E;  --ds-ink-rgb: 255 248 236;
+    --ds-line: rgb(255 248 236 / .07);  --ds-line-2: rgb(255 248 236 / .12);  --ds-line-3: rgb(255 248 236 / .20);  --ds-control-strong: #827D78;
+    --ds-hover: rgb(255 248 236 / .05);  --ds-hover-row: rgb(255 248 236 / .05);  --ds-selected: rgb(255 248 236 / .08);  --ds-pressed: rgb(255 248 236 / .11);
+    --ds-segment-on: #2A2725;  --ds-scrim: rgb(10 8 7 / .56);
+    --ds-accent: #934F8A;  --ds-accent-hover: #9E5995;  --ds-accent-text: #D8B1D4;  --ds-accent-line: #CA9AC5;  --ds-accent-line-rgb: 202 154 197;  --ds-accent-bar: #CA9AC5;
+    --ds-accent-tint: #2A2027;  --ds-accent-tint-2: #372634;  --ds-accent-border: #5F425A;  --ds-on-accent: #FFFFFF;  --ds-selection: #4E2B49;
+    --ds-focus-color: #D8B1D4;
+    --ds-in: #6DC794;  --ds-in-tint: #253027;  --ds-in-border: #344F3E;  --ds-in-halo: rgb(109 199 148 / .18);
+    --ds-danger: #EA7E73;  --ds-danger-tint: #362522;  --ds-danger-border: #5C3833;  --ds-danger-solid: #BB4840;  --ds-danger-solid-hover: #A73E37;
+    --ds-warning: #F2A866;  --ds-warning-tint: #3A281B;  --ds-warning-border: #6F4829;  --ds-warning-fill: #F29A43;
+    --ds-neutral-tint: #2B2926;  --ds-holiday: #EA7E73;
+    --ds-sea-text: #7BC6CE;  --ds-sea: #49A1AB;  --ds-sea-tint: #11282B;  --ds-sea-line: #255F65;
+    --ds-chart-1: #A15397;  --ds-chart-2: #BF881E;  --ds-chart-3: #17A7B4;  --ds-chart-4: #C35C3C;
+    --ds-chart-5: #5568C1;  --ds-chart-6: #69A25D;  --ds-chart-7: #904E18;  --ds-chart-8: #5194D5;  --ds-chart-other: #5E5A56;
+    --ds-chart-grid: rgb(255 248 236 / .06);  --ds-chart-axis: rgb(255 248 236 / .20);  --ds-chart-crosshair: rgb(255 248 236 / .25);  --ds-chart-compare: #94908B;
+    --ds-chart-area-top: .12;  --ds-chart-area-bottom: 0;
+    --ds-grad-chart-area: linear-gradient(180deg, rgb(202 154 197 / .12), rgb(202 154 197 / 0));
+    --ds-hero-glow: radial-gradient(70% 90% at 50% 0%, rgb(147 79 138 / .06), transparent 70%);
+    --ds-ring: 0 0 0 1px rgb(255 248 236 / .07);
+    --ds-shadow-e1: 0 0 0 1px rgb(255 248 236 / .07), inset 0 1px 0 rgb(255 248 236 / .04);
+    --ds-shadow-e2: 0 0 0 1px rgb(255 248 236 / .08), inset 0 1px 0 rgb(255 248 236 / .05);
+    --ds-shadow-e3: 0 0 0 1px rgb(255 248 236 / .09), inset 0 1px 0 rgb(255 248 236 / .05), 0 8px 32px rgb(0 0 0 / .45);
+    --ds-shadow-e4: 0 0 0 1px rgb(255 248 236 / .09), inset 0 1px 0 rgb(255 248 236 / .06), 0 4px 40px rgb(0 0 0 / .35), 0 3px 12px rgb(0 0 0 / .30);
+    --ds-shadow-segment: 0 0 0 1px rgb(255 248 236 / .16), inset 0 1px 0 rgb(255 248 236 / .06);
+    --ds-shadow-button: inset 0 1px 0 rgb(255 248 236 / .05);
+    --ds-glass-edge: inset 0 1px 0 rgb(255 248 236 / .07);
+    --ds-glass-tint: rgb(25 23 21 / .72);  --ds-glass-float-tint: rgb(33 31 29 / .66);  --ds-glass-strong-tint: rgb(33 31 29 / .88);  --ds-glass-blur: saturate(1.7) blur(28px);
+    --ds-glass-ring: 0 0 0 1px rgb(255 248 236 / .09);  --ds-glass-shadow: 0 0 0 1px rgb(255 248 236 / .09), inset 0 1px 0 rgb(255 248 236 / .07);
+    --ds-tooltip-bg: #34312E;  --ds-tooltip-text: #F2F0EC;
+  }
+}
+:root[data-theme="dark"] {
+    color-scheme: dark;
+    --ds-canvas: #110F0E;  --ds-surface: #191715;  --ds-raised: #211F1D;  --ds-sunken: #0B0A08;  --ds-well: #151311;
+    --ds-text: #F2F0EC;  --ds-text-2: #D3CEC8;  --ds-text-3: #BAB5AF;  --ds-text-4: #66625E;  --ds-ink-rgb: 255 248 236;
+    --ds-line: rgb(255 248 236 / .07);  --ds-line-2: rgb(255 248 236 / .12);  --ds-line-3: rgb(255 248 236 / .20);  --ds-control-strong: #827D78;
+    --ds-hover: rgb(255 248 236 / .05);  --ds-hover-row: rgb(255 248 236 / .05);  --ds-selected: rgb(255 248 236 / .08);  --ds-pressed: rgb(255 248 236 / .11);
+    --ds-segment-on: #2A2725;  --ds-scrim: rgb(10 8 7 / .56);
+    --ds-accent: #934F8A;  --ds-accent-hover: #9E5995;  --ds-accent-text: #D8B1D4;  --ds-accent-line: #CA9AC5;  --ds-accent-line-rgb: 202 154 197;  --ds-accent-bar: #CA9AC5;
+    --ds-accent-tint: #2A2027;  --ds-accent-tint-2: #372634;  --ds-accent-border: #5F425A;  --ds-on-accent: #FFFFFF;  --ds-selection: #4E2B49;
+    --ds-focus-color: #D8B1D4;
+    --ds-in: #6DC794;  --ds-in-tint: #253027;  --ds-in-border: #344F3E;  --ds-in-halo: rgb(109 199 148 / .18);
+    --ds-danger: #EA7E73;  --ds-danger-tint: #362522;  --ds-danger-border: #5C3833;  --ds-danger-solid: #BB4840;  --ds-danger-solid-hover: #A73E37;
+    --ds-warning: #F2A866;  --ds-warning-tint: #3A281B;  --ds-warning-border: #6F4829;  --ds-warning-fill: #F29A43;
+    --ds-neutral-tint: #2B2926;  --ds-holiday: #EA7E73;
+    --ds-sea-text: #7BC6CE;  --ds-sea: #49A1AB;  --ds-sea-tint: #11282B;  --ds-sea-line: #255F65;
+    --ds-chart-1: #A15397;  --ds-chart-2: #BF881E;  --ds-chart-3: #17A7B4;  --ds-chart-4: #C35C3C;
+    --ds-chart-5: #5568C1;  --ds-chart-6: #69A25D;  --ds-chart-7: #904E18;  --ds-chart-8: #5194D5;  --ds-chart-other: #5E5A56;
+    --ds-chart-grid: rgb(255 248 236 / .06);  --ds-chart-axis: rgb(255 248 236 / .20);  --ds-chart-crosshair: rgb(255 248 236 / .25);  --ds-chart-compare: #94908B;
+    --ds-chart-area-top: .12;  --ds-chart-area-bottom: 0;
+    --ds-grad-chart-area: linear-gradient(180deg, rgb(202 154 197 / .12), rgb(202 154 197 / 0));
+    --ds-hero-glow: radial-gradient(70% 90% at 50% 0%, rgb(147 79 138 / .06), transparent 70%);
+    --ds-ring: 0 0 0 1px rgb(255 248 236 / .07);
+    --ds-shadow-e1: 0 0 0 1px rgb(255 248 236 / .07), inset 0 1px 0 rgb(255 248 236 / .04);
+    --ds-shadow-e2: 0 0 0 1px rgb(255 248 236 / .08), inset 0 1px 0 rgb(255 248 236 / .05);
+    --ds-shadow-e3: 0 0 0 1px rgb(255 248 236 / .09), inset 0 1px 0 rgb(255 248 236 / .05), 0 8px 32px rgb(0 0 0 / .45);
+    --ds-shadow-e4: 0 0 0 1px rgb(255 248 236 / .09), inset 0 1px 0 rgb(255 248 236 / .06), 0 4px 40px rgb(0 0 0 / .35), 0 3px 12px rgb(0 0 0 / .30);
+    --ds-shadow-segment: 0 0 0 1px rgb(255 248 236 / .16), inset 0 1px 0 rgb(255 248 236 / .06);
+    --ds-shadow-button: inset 0 1px 0 rgb(255 248 236 / .05);
+    --ds-glass-edge: inset 0 1px 0 rgb(255 248 236 / .07);
+    --ds-glass-tint: rgb(25 23 21 / .72);  --ds-glass-float-tint: rgb(33 31 29 / .66);  --ds-glass-strong-tint: rgb(33 31 29 / .88);  --ds-glass-blur: saturate(1.7) blur(28px);
+    --ds-glass-ring: 0 0 0 1px rgb(255 248 236 / .09);  --ds-glass-shadow: 0 0 0 1px rgb(255 248 236 / .09), inset 0 1px 0 rgb(255 248 236 / .07);
+    --ds-tooltip-bg: #34312E;  --ds-tooltip-text: #F2F0EC;
+}
+
+
+/* -----------------------------------------------------------------------------------------------------
+   §6  PREFERENCE AND CAPABILITY OVERRIDES
+   ----------------------------------------------------------------------------------------------------- */
+
+/* Reduced motion (OS setting, or the in-app switch data-motion="reduced"): keep opacity and colour changes
+   (≤ 150 ms), drop all movement, crossfade digits instead of rolling them (JS: matchMedia), stop the pulse. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --ds-dur-moderate: 150ms; --ds-dur-slow: 150ms; --ds-dur-sheet: 150ms; --ds-dur-sheet-exit: 150ms; --ds-dur-hero: 150ms; --ds-dur-flash: 150ms;
+    --ds-enter-scale: 1; --ds-press-scale: 1; --ds-enter-shift: 0px; --ds-sheet-shift: 0px; --ds-stagger: 0ms;
+  }
+}
+:root[data-motion="reduced"] {
+  --ds-dur-moderate: 150ms; --ds-dur-slow: 150ms; --ds-dur-sheet: 150ms; --ds-dur-sheet-exit: 150ms; --ds-dur-hero: 150ms; --ds-dur-flash: 150ms;
+  --ds-enter-scale: 1; --ds-press-scale: 1; --ds-enter-shift: 0px; --ds-sheet-shift: 0px; --ds-stagger: 0ms;
+}
+
+/* Glass falls back to solid fills: no backdrop-filter, reduced transparency, or the Windows app's low-power switch
+   (data-power="low"). The top bar falls back to the panel (surface), never to raised, so dark mode shows no band. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root { --ds-glass-bg: var(--ds-surface); --ds-glass-float: var(--ds-raised); --ds-glass-strong: var(--ds-raised); --ds-glass-filter: none; }
+}  /* :root here has the same specificity as §3 and comes later, so it wins in both themes */
+@media (prefers-reduced-transparency: reduce) {
+  :root { --ds-glass-bg: var(--ds-surface); --ds-glass-float: var(--ds-raised); --ds-glass-strong: var(--ds-raised); --ds-glass-filter: none; }
+}
+:root[data-power="low"] { --ds-glass-bg: var(--ds-surface); --ds-glass-float: var(--ds-raised); --ds-glass-strong: var(--ds-raised); --ds-glass-filter: none; --ds-grain-opacity: 0; }
+
+/* More contrast: stronger lines, tertiary text promoted to secondary, control edges in secondary ink. */
+@media (prefers-contrast: more) {
+  :root:root:root {
+    --ds-line: rgb(var(--ds-ink-rgb) / .16); --ds-line-2: rgb(var(--ds-ink-rgb) / .26); --ds-line-3: rgb(var(--ds-ink-rgb) / .40);
+    --ds-text-3: var(--ds-text-2); --ds-control-strong: var(--ds-text-2);
+  }
+}
+
+/* Forced colours (Windows high contrast): the system palette wins; keep structure, focus and selection visible. */
+@media (forced-colors: active) {
+  :root:root:root {
+    --ds-ring: 0 0 0 1px CanvasText; --ds-focus-color: Highlight; --ds-focus-ring: 0 0 0 2px Highlight;
+    --ds-control-strong: CanvasText; --ds-accent-bar: Highlight; --ds-glass-filter: none;
+  }
+}
+
+
+/* -----------------------------------------------------------------------------------------------------
+   §7  PRINT — always light ink on white, static fonts, no shadows or glass (see components.md §12)
+   ----------------------------------------------------------------------------------------------------- */
+@media print {
+  :root:root:root {   /* (0,3,0) beats both dark-theme selectors */
+    color-scheme: light;
+    --ds-font-sans: "DS Num Print", "Arad Print", "Geist Print", Tahoma, sans-serif;
+    --ds-font-display: "DS Num Print", "Arad Print", Tahoma, sans-serif;   /* print headings in Arad Print Bold (Dots3) */
+    --ds-font-latin: "Geist Print", "DS Num Print", "Arad Print", sans-serif;
+    /* the static print files exist at 400 / 500 / 700 only: weight matching must not pick Medium for 450 */
+    --ds-weight-regular: 400; --ds-weight-medium: 500; --ds-weight-strong: 700;
+    --ds-type-body-weight: 400; --ds-type-dense-weight: 400; --ds-type-caption-weight: 400; --ds-type-paragraph-weight: 400; --ds-type-label-weight: 500;
+    --ds-font-mono: "Geist Mono Print", Consolas, monospace;
+    --ds-canvas: #FFFFFF; --ds-surface: #FFFFFF; --ds-raised: #FFFFFF; --ds-sunken: #F4F2EF; --ds-well: #F4F2EF;
+    --ds-text: #000000; --ds-text-2: #2E2A26; --ds-text-3: #57524C; --ds-ink-rgb: 0 0 0;
+    --ds-line: rgb(0 0 0 / .18); --ds-line-2: rgb(0 0 0 / .30); --ds-line-3: rgb(0 0 0 / .55); --ds-control-strong: #57524C;
+    --ds-accent: #6A2E63; --ds-accent-text: #6A2E63; --ds-in: #1B7248; --ds-danger: #B63731;
+    --ds-ring: none; --ds-shadow-e1: none; --ds-shadow-e2: none; --ds-shadow-e3: none; --ds-shadow-e4: none;
+    --ds-glass-tint: #FFFFFF; --ds-glass-float-tint: #FFFFFF; --ds-glass-strong-tint: #FFFFFF; --ds-glass-blur: none;
+    --ds-glass-bg: #FFFFFF; --ds-glass-float: #FFFFFF; --ds-glass-strong: #FFFFFF; --ds-glass-filter: none; --ds-hero-glow: none;
+  }
+}
+
+
+/* -----------------------------------------------------------------------------------------------------
+   §8  BASE PRIMITIVES (optional but recommended; everything else lives in components)
+   ----------------------------------------------------------------------------------------------------- */
+@layer base {
+  :root {
+    /* Digits come from DS Num, whose cmap already draws ASCII digits as Persian; ss01 (Persian digits in
+       Arad and Vazirmatn) stays only as a harmless fallback. DSTY 3 = rhombic nuqtas wherever Arad appears;
+       fonts without the axis ignore it. */
+    font-feature-settings: "ss01";
+    font-variation-settings: "DSTY" 3;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    -webkit-tap-highlight-color: transparent;
+    background: var(--ds-canvas);
+  }
+  /* Body text on <body>, not :root — the root font-size stays 16 px so rem-based spacing (Tailwind) is untouched. */
+  body {
+    margin: 0;
+    font-family: var(--ds-font-sans);
+    font-size: var(--ds-type-body-size);
+    line-height: var(--ds-type-body-line);
+    font-weight: var(--ds-type-body-weight);
+    color: var(--ds-text);
+    background: var(--ds-canvas);
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  /* UA styles give controls `font: -webkit-small-control`, which resets ss01/DSTY/tnum: inherit them back. */
+  button, input, select, textarea, optgroup {
+    font: inherit;
+    font-feature-settings: inherit;
+    font-variation-settings: inherit;
+    font-variant-numeric: inherit;
+    letter-spacing: inherit;
+    color: inherit;
+  }
+  ::selection { background: var(--ds-selection); color: inherit; }
+
+  /* ---- focus: an opaque 2 px ring with a 2 px gap; rows and grid cells draw it inside their box ---- */
+  :focus-visible { outline: 2px solid var(--ds-focus-color); outline-offset: 2px; }
+  :focus:not(:focus-visible) { outline: none; }
+  :is(tr, td, th, [role="row"], [role="gridcell"], [role="option"]):focus-visible { outline-offset: -2px; }
+  /* raised layers (sheet, dialog, menu, popover, palette): the box-shadow ring's gap takes their fill */
+  :where(.ds-layer-raised, [data-layer="raised"]) {
+    --ds-focus-gap: var(--ds-raised);
+    --ds-focus-ring: 0 0 0 2px var(--ds-raised), 0 0 0 4px var(--ds-focus-color);
+  }
+
+  /* ---- type roles (longhands only — see the header) ---- */
+  .ds-display, .ds-t-display, .ds-t-page, .ds-t-section {
+    font-family: var(--ds-font-display);
+    font-variation-settings: "DSTY" 3;
+    letter-spacing: 0;
+  }
+  .ds-t-display  { font-size: var(--ds-type-display-size);  line-height: var(--ds-type-display-line);  font-weight: var(--ds-type-display-weight); }
+  .ds-t-page     { font-size: var(--ds-type-page-size);     line-height: var(--ds-type-page-line);     font-weight: var(--ds-type-page-weight); }
+  .ds-t-section  { font-size: var(--ds-type-section-size);  line-height: var(--ds-type-section-line);  font-weight: var(--ds-type-section-weight); }
+  .ds-t-title    { font-size: var(--ds-type-title-size);    line-height: var(--ds-type-title-line);    font-weight: var(--ds-type-title-weight); }
+  .ds-t-body     { font-size: var(--ds-type-body-size);     line-height: var(--ds-type-body-line);     font-weight: var(--ds-type-body-weight); }
+  .ds-t-dense    { font-size: var(--ds-type-dense-size);    line-height: var(--ds-type-dense-line);    font-weight: var(--ds-type-dense-weight); }
+  .ds-t-label    { font-size: var(--ds-type-label-size);    line-height: var(--ds-type-label-line);    font-weight: var(--ds-type-label-weight); }
+  .ds-t-caption  { font-size: var(--ds-type-caption-size);  line-height: var(--ds-type-caption-line);  font-weight: var(--ds-type-caption-weight); }
+  .ds-t-paragraph{ font-size: var(--ds-type-paragraph-size);line-height: var(--ds-type-paragraph-line);font-weight: var(--ds-type-paragraph-weight); }
+  .ds-t-hero     { font-size: var(--ds-type-hero-size);     line-height: var(--ds-type-hero-line);     font-weight: var(--ds-type-hero-weight); font-variant-numeric: proportional-nums; }
+  .ds-t-figure   { font-size: var(--ds-type-figure-size);   line-height: var(--ds-type-figure-line);   font-weight: var(--ds-type-figure-weight); font-variant-numeric: proportional-nums; }
+
+  /* ---- numbers and bidi ----
+     An element with its own direction is a BARE inline isolate: no margin, padding or inset of its own (a logical
+     margin would resolve against ITS direction and land on the wrong side). Spacing goes on an RTL wrapper:
+     <span class="ds-end"><bdi dir="ltr" class="keys">…</bdi></span>. scripts/check-preview.cjs enforces it. */
+  .ds-num   { font-variant-numeric: tabular-nums; white-space: nowrap; }          /* columns, axes, live rates */
+  .ds-ltr   { direction: ltr; unicode-bidi: isolate; }                           /* every signed number, every shortcut */
+  .ds-latin { font-family: var(--ds-font-latin); font-feature-settings: normal; font-size: var(--ds-type-latin-scale); direction: ltr; unicode-bidi: isolate; }
+  .ds-mono  { font-family: var(--ds-font-mono); font-feature-settings: normal; font-size: var(--ds-type-code-size); line-height: var(--ds-type-code-line); direction: ltr; unicode-bidi: isolate; }
+  .ds-end   { margin-inline-start: auto; }                                       /* the RTL wrapper that pushes an isolate to the end */
+  .ds-dec   { font-size: calc(var(--ds-type-decimal-scale) * 1em); color: var(--ds-text-2); }  /* full size in cells, inputs and sums */
+  :is(.ds-t-hero, .ds-t-figure) .ds-dec { font-size: calc(var(--ds-type-decimal-scale-display) * 1em); color: var(--ds-text-3); }
+  .ds-unit  { font-size: calc(var(--ds-type-unit-scale) * 1em); color: var(--ds-text-3); font-weight: var(--ds-weight-regular); }
+  .ds-excluded { color: var(--ds-text-3); text-decoration: none; }               /* bounced/returned: never struck through (the strike hides «۰») */
+  .ds-sr    { position: absolute; inline-size: 1px; block-size: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }  /* screen readers only */
+
+  /* ---- links are ink, underlined: Dusk is kept for the primary action, focus and selection ---- */
+  .ds-link { color: var(--ds-text); font-weight: var(--ds-weight-medium); text-decoration-line: underline; text-decoration-thickness: 1px;
+    text-decoration-color: rgb(var(--ds-ink-rgb) / .28); text-underline-offset: 4px;
+    transition: text-decoration-color var(--ds-dur-base) var(--ds-ease-out-quad); }
+  .ds-link:hover { text-decoration-color: var(--ds-text); transition-duration: 0ms; }
+
+  /* ---- the rhombic nuqta ◆ (no font has the glyph: draw it) ---- */
+  .ds-nuqta {
+    display: inline-block; flex: none;
+    inline-size: var(--ds-nuqta); block-size: var(--ds-nuqta);
+    background: currentColor; transform: rotate(45deg); border-radius: 1px;
+  }
+  .ds-nuqta[data-live] { color: var(--ds-in); box-shadow: 0 0 0 3px var(--ds-in-halo); }
+  .ds-pulse { animation: ds-pulse var(--ds-dur-pulse) var(--ds-ease-in-out) infinite; }
+  @keyframes ds-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+  @media (prefers-reduced-motion: reduce) { .ds-pulse { animation: none; } }
+  :root[data-motion="reduced"] .ds-pulse, :root[data-power="low"] .ds-pulse { animation: none; }
+
+  /* ---- hover effects only where hover exists ---- */
+  @media (hover: none), (pointer: coarse) { body { --ds-hover: transparent; --ds-hover-row: transparent; } }
+}

@@ -1,0 +1,18 @@
+{
+  "name": "itsm-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "ITSM — نسخهٔ ویندوز (Electron)",
+  "author": "ITSM",
+  "scripts": {
+    "icons": "node scripts/make-icons.cjs",
+    "dist": "electron-builder --win nsis --x64 --publish never",
+    "dist:dir": "electron-builder --win dir --x64 --publish never"
+  },
+  "devDependencies": {
+    "electron": "^45.2.1",
+    "electron-builder": "^26.18.0",
+    "pngjs": "^7.0.0",
+    "resedit": "^3.1.0"
+  }
+}

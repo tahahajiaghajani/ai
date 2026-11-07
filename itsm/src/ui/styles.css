@@ -1,0 +1,155 @@
+/* The app stylesheet. The design system lives in ./ds/ (README.md there).
+   Layer order: Ant Design's CSS-in-JS (<StyleProvider layer>) sits in `antd`, between Tailwind's base and its
+   components/utilities, so ds-antd.css (components) and Tailwind utilities still adjust Ant Design. */
+@layer theme, base, antd, components, utilities;
+@import "tailwindcss";
+@import "./ds/tokens.css"; /* fonts, tokens, base primitives (@layer base) */
+@import "./ds/ds-antd.css"; /* @layer components: after antd's CSS-in-JS layer */
+@import "./ds/motion.css"; /* @layer components: enter / fade / stagger / press / launch */
+@import "./ds/brand.css"; /* @layer components: the brand surface (login, onboarding, About) */
+
+/* Tailwind v4 bridge: utilities read the design-system variables, so dark mode needs no `dark:` variants */
+@theme inline {
+  --font-sans: var(--ds-font-sans);
+  --font-display: var(--ds-font-display);
+  --font-latin: var(--ds-font-latin);
+  --font-mono: var(--ds-font-mono);
+  /* the three UI weights (450 / 540 / 600 on screen, 400 / 500 / 700 in print) */
+  --font-weight-normal: var(--ds-weight-regular);
+  --font-weight-medium: var(--ds-weight-medium);
+  --font-weight-semibold: var(--ds-weight-strong);
+  --color-canvas: var(--ds-canvas);
+  --color-surface: var(--ds-surface);
+  --color-raised: var(--ds-raised);
+  --color-sunken: var(--ds-sunken);
+  --color-well: var(--ds-well);
+  --color-ink: var(--ds-text);
+  --color-ink-2: var(--ds-text-2);
+  --color-ink-3: var(--ds-text-3);
+  --color-ink-4: var(--ds-text-4);
+  --color-line: var(--ds-line);
+  --color-line-2: var(--ds-line-2);
+  --color-line-3: var(--ds-line-3);
+  --color-control-strong: var(--ds-control-strong);
+  --color-accent: var(--ds-accent);
+  --color-accent-hover: var(--ds-accent-hover);
+  --color-accent-text: var(--ds-accent-text);
+  --color-accent-tint: var(--ds-accent-tint);
+  --color-accent-tint-2: var(--ds-accent-tint-2);
+  --color-accent-bar: var(--ds-accent-bar);
+  --color-focus: var(--ds-focus-color);
+  --color-in: var(--ds-in);
+  --color-in-tint: var(--ds-in-tint);
+  --color-danger: var(--ds-danger);
+  --color-danger-tint: var(--ds-danger-tint);
+  --color-warning: var(--ds-warning);
+  --color-warning-fill: var(--ds-warning-fill);
+  --color-warning-tint: var(--ds-warning-tint);
+  --color-neutral-tint: var(--ds-neutral-tint);
+  --color-holiday: var(--ds-holiday);
+  --color-sea-text: var(--ds-sea-text);
+  --color-sea-tint: var(--ds-sea-tint);
+  --radius-xs: var(--ds-radius-xs);
+  --radius-sm: var(--ds-radius-sm);
+  --radius-md: var(--ds-radius-md);
+  --radius-lg: var(--ds-radius-lg);
+  --radius-xl: var(--ds-radius-xl);
+  --shadow-e1: var(--ds-shadow-e1);
+  --shadow-e2: var(--ds-shadow-e2);
+  --shadow-e3: var(--ds-shadow-e3);
+  --shadow-e4: var(--ds-shadow-e4);
+  --ease-out: var(--ds-ease-out);
+  --ease-in-out: var(--ds-ease-in-out);
+}
+
+@layer components {
+  /* dense data tables (the kit's DataTable / ServerTable): 13 px cells, a weighted summary row */
+  .ds-table .ant-table-tbody > tr > td {
+    font-size: 13px;
+  }
+  .ds-table .ant-table-summary td {
+    font-weight: 600;
+    background: var(--ds-surface);
+  }
+  /* inactive rows: text-3, never dimmed below legibility and never struck through */
+  .ds-table .row-muted td {
+    color: var(--ds-text-3);
+  }
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--ds-line-3) transparent;
+  }
+  /* nothing focused may hide under the sticky top bar (WCAG 2.4.11) */
+  html {
+    scroll-padding-top: var(--ds-topbar-h);
+  }
+}
+
+/* the mark's one colour: the accent on paper, warm white on charcoal (components/brand.tsx) */
+@layer components {
+  .ds-mark-color {
+    color: var(--ds-dusk-700);
+  }
+  :root[data-theme="dark"] .ds-mark-color {
+    color: #f2f0ec;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .ds-mark-color {
+      color: #f2f0ec;
+    }
+  }
+}
+
+/* boot screen (index.html, before React mounts): the placeholder mark's tiles settle, on the canvas */
+.boot {
+  height: 100%;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 14px;
+  color: var(--ds-dusk-700);
+}
+.boot-mark {
+  inline-size: 56px;
+  block-size: 56px;
+}
+:root[data-theme="dark"] .boot {
+  color: #f2f0ec;
+}
+
+/* printing: only the printable sheet (tokens.css §7 switches to light ink on white and the static print fonts) */
+@media print {
+  @page {
+    margin: 10mm;
+  }
+  body {
+    background: #fff !important;
+  }
+  .no-print,
+  .ant-layout-sider,
+  .ant-message,
+  .ant-notification,
+  /* floating layers never print (a tooltip left under the pointer would land on the sheet) */
+  .ant-tooltip,
+  .ant-popover,
+  .ant-dropdown,
+  .ant-select-dropdown,
+  .ant-picker-dropdown {
+    display: none !important;
+  }
+  .print-sheet {
+    box-shadow: none !important;
+    border: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: auto !important;
+  }
+}
