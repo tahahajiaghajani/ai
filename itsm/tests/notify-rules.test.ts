@@ -306,8 +306,8 @@ describe("preferences and the inbox", () => {
     const back = await items(agent);
     expect(back[0]).toMatchObject({ id: item.id, read: false });
     expect((await agent.client.get(`${P}/notify/inbox/count`)).unread).toBe(1);
-    // «بازگرداندن اکنون» ends a snooze at once
-    await agent.client.post(`${P}/notify/inbox/snooze`, { ids: [item.id], minutes: 30 });
+    // «بازگرداندن اکنون» ends a snooze at once (the shortest snooze, a minute, is accepted)
+    expect((await agent.client.post(`${P}/notify/inbox/snooze`, { ids: [item.id], minutes: 1 })).changed).toBe(1);
     expect((await agent.client.get(`${P}/notify/inbox/count`)).unread).toBe(0);
     expect((await agent.client.post(`${P}/notify/inbox/snooze`, { ids: [item.id], until: null })).changed).toBe(1);
     expect((await items(agent))[0]).toMatchObject({ id: item.id, read: false });

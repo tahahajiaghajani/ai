@@ -161,7 +161,7 @@ export async function snooze(ctx: Ctx, ids: string[], until: Date | null): Promi
   if (until) {
     if (Number.isNaN(until.getTime())) throw bad("زمان معتبر نیست");
     const ms = until.getTime() - Date.now();
-    if (ms < 60_000) throw bad("زمان یادآوری باید در آینده باشد");
+    if (ms < 10_000) throw bad("زمان یادآوری باید در آینده باشد");
     if (ms > MAX_SNOOZE_MS) throw bad("بیش از یک ماه نمی‌توان اعلان را به تعویق انداخت");
   }
   const def = defOf("notification");
