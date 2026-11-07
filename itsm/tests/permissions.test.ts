@@ -6,6 +6,7 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { AREAS, CORE_ROLES, LEVEL_ORDER, PRESET_ROLES, ROLES, can, levelOf, permissionMap, type Area, type Level, type Role } from "@shared/permissions";
 import { AGGREGATES } from "@server/sync/registry";
+import { isArea } from "@shared/access";
 import { NAV } from "../src/ui/modules/registry";
 
 const ROOT = join(__dirname, "..");
@@ -65,7 +66,11 @@ describe("every place that names an area uses a known one", () => {
     }
     expect(used.size).toBeGreaterThan(2);
     for (const a of used) expect(areas, a).toContain(a);
-    for (const a of AGGREGATES) expect(areas, a.entity).toContain(a.area);
+    // engine tables name an area of the access model's registry (@shared/access); the platform's own roots a membership area
+    for (const a of AGGREGATES) {
+      if (a.engine === "record") expect(isArea(a.area), `${a.entity}: ${a.area}`).toBe(true);
+      else expect(areas, a.entity).toContain(a.area);
+    }
   });
 
   it("UI: nav items and can() calls", () => {

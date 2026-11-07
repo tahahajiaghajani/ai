@@ -19,7 +19,11 @@ import {
 } from "@shared/access";
 import { FIELD_GROUPS, type FieldGroup } from "@shared/model/types";
 import { permissionMap, type Role as MembershipRole } from "@shared/permissions";
-import { accessSettings, catalogOf, memberDomain, snapshotFor, subjectOf, type Snapshot } from "./subject";
+import type { Queryable } from "../db";
+import type { Subject } from "@shared/access";
+import { access } from "./provider";
+import { itsmProvider } from "./itsm";
+import { accessSettings, catalogOf, memberDomain, prepareSubject, snapshotFor, type Snapshot } from "./subject";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const idOf = (v: unknown): string | null => (typeof v === "string" && UUID.test(v) ? v.toLowerCase() : Array.isArray(v) && typeof v[0] === "string" && UUID.test(v[0]) ? v[0].toLowerCase() : null);
@@ -39,14 +43,24 @@ export function describeExcess(extra: string[]): string {
 
 const isOwner = (ctx: Ctx) => ctx.member.role === "owner" && !ctx.support;
 
-/** Nobody hands out roles that reach beyond their own access (owners and the system excepted). */
-export function checkGrantable(ctx: Ctx, snap: Snapshot, keys: string[]): void {
-  if (isSystemCtx(ctx) || isOwner(ctx)) return;
+/**
+ * The caller's subject when the ITSM model decides — null for the system and while another provider is installed
+ * (tests' fakes): the hooks then keep the data consistent (anchors, paths, valid roles) but judge nobody.
+ */
+async function callerSubject(ctx: Ctx, q: Queryable): Promise<Subject | null> {
+  if (isSystemCtx(ctx) || access() !== itsmProvider) return null;
+  const s = (await prepareSubject(ctx, q)).subject;
+  return s.kind === "user" ? s : null;
+}
+
+/** Role keys must exist; nobody hands out roles that reach beyond their own access (owners and the system excepted). */
+export function checkGrantable(ctx: Ctx, snap: Snapshot, keys: string[], s: Subject | null): void {
   const catalog = catalogOf(snap, accessSettings(ctx.org));
   const unknown = keys.filter((k) => !catalog.has(k));
   if (unknown.length) throw bad(`نقش «${unknown[0]}» وجود ندارد`);
+  if (!s || isOwner(ctx)) return;
   const wanted = combineRoles(roleClosure(keys, catalog).map((k) => catalog.get(k)!));
-  const extra = exceeds(wanted, subjectOf(ctx).eff);
+  const extra = exceeds(wanted, s.eff);
   if (extra.length) throw forbidden(`نمی‌توانید نقشی با دسترسی بیشتر از دسترسی خودتان بدهید: ${describeExcess(extra)}`);
 }
 
@@ -81,9 +95,8 @@ async function everyTable(w: WriteArgs): Promise<void> {
   if (!requesterChanged && !(c.group && w.changed.has(c.group))) return;
   const snap = await snapshotFor(ctx, tx);
   if (requesterChanged) await anchors(w, snap);
-  if (isSystemCtx(ctx)) return;
-  const s = subjectOf(ctx);
-  if (s.kind !== "user") return;
+  const s = await callerSubject(ctx, tx);
+  if (!s) return;
   // assignment constraint: only groups of the caller's workspaces (unless their roles reach every workspace)
   if (c.group && w.changed.has(c.group) && next[c.group] && !s.eff.workspacesAll) {
     const g = snap.groups.get(String(next[c.group]));
@@ -187,8 +200,9 @@ function roleFromRow(r: Record<string, unknown>): RoleDef {
 
 async function roleHook(w: WriteArgs): Promise<void> {
   const { ctx, tx, next, prev, op } = w;
+  const s = isOwner(ctx) ? null : await callerSubject(ctx, tx);
   if (op === "delete") {
-    if (!isSystemCtx(ctx) && !isOwner(ctx)) checkDefinable(ctx, roleFromRow(prev!), "remove");
+    if (s) checkDefinable(s, roleFromRow(prev!), "remove");
     return;
   }
   if (prev && String(prev.key) !== String(next.key)) throw bad("کلید نقش پس از ساخت تغییر نمی‌کند");
@@ -197,13 +211,11 @@ async function roleHook(w: WriteArgs): Promise<void> {
   const role = roleFromRow(next);
   const problem = roleProblem(role, catalog);
   if (problem) throw bad(problem);
-  if (!isSystemCtx(ctx) && !isOwner(ctx)) checkDefinable(ctx, role, "define");
+  if (s) checkDefinable(s, role, "define");
 }
 
 /** A role definition (with what it contains) may not reach beyond the caller's own access. */
-function checkDefinable(ctx: Ctx, role: RoleDef, what: "define" | "remove"): void {
-  const s = subjectOf(ctx);
-  if (s.kind !== "user") return;
+function checkDefinable(s: Subject, role: RoleDef, what: "define" | "remove"): void {
   const wanted = combineRoles([role]);
   const extra = exceeds(wanted, s.eff);
   if (extra.length) {
@@ -230,15 +242,13 @@ async function profileHook(w: WriteArgs): Promise<void> {
   if (idOf(next.delegate_id) && idOf(next.delegate_id) === idOf(next.user_id)) throw bad("جانشین هر کس باید فرد دیگری باشد");
   if (idOf(next.manager_id) && idOf(next.manager_id) === idOf(next.user_id)) throw bad("مدیر مستقیم هر کس باید فرد دیگری باشد");
   const rolesChanged = op === "create" ? strings(next.roles).length > 0 : w.changed.has("roles");
-  if (!rolesChanged || isSystemCtx(ctx)) return;
+  if (!rolesChanged) return;
   const roles = [...new Set(strings(next.roles))];
   next.roles = roles;
-  if (isOwner(ctx)) {
-    checkGrantable(ctx, snap, roles);
-    return;
-  }
+  const s = isOwner(ctx) ? null : await callerSubject(ctx, tx);
+  checkGrantable(ctx, snap, roles, s);
+  if (!s) return;
   if (String(next.user_id) === ctx.user.id) throw forbidden("نقش‌های خودتان را نمی‌توانید تغییر دهید؛ این کار با مالک یا مدیر دیگری است");
-  checkGrantable(ctx, snap, roles);
   // nobody changes the roles of a member who has more access than they do
   if (prev) {
     const catalog = catalogOf(snap, accessSettings(ctx.org));
@@ -247,17 +257,18 @@ async function profileHook(w: WriteArgs): Promise<void> {
       [ctx.org.id, String(next.user_id)],
     );
     const theirs = composeEffective({ role: target?.role ?? "viewer", levels: permissionMap(target?.role ?? "viewer", target?.overrides as never), explicit: strings(prev.roles), catalog });
-    const above = exceeds(theirs, subjectOf(ctx).eff);
+    const above = exceeds(theirs, s.eff);
     if (above.length && !theirs.legacy) throw forbidden(`دسترسی این عضو از شما بیشتر است (${describeExcess(above)})؛ تغییر نقش‌های او با مالک است`);
   }
 }
 
 async function groupHook(w: WriteArgs): Promise<void> {
   const { ctx, tx, next, op } = w;
-  if (op === "delete" || isSystemCtx(ctx)) return;
+  if (op === "delete") return;
   if (op === "create" ? strings(next.roles).length > 0 : w.changed.has("roles")) {
     next.roles = [...new Set(strings(next.roles))];
-    checkGrantable(ctx, await snapshotFor(ctx, tx, true), strings(next.roles));
+    const s = isOwner(ctx) ? null : await callerSubject(ctx, tx);
+    checkGrantable(ctx, await snapshotFor(ctx, tx, true), strings(next.roles), s);
   }
 }
 

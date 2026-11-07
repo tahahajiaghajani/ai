@@ -172,8 +172,34 @@ function and(terms: string[]): string {
 
 const hasGroup = (s: Subject, g: string) => s.kind !== "user" || s.eff.fieldGroups.includes(g as never);
 
+const PLACEHOLDER = /\$(\d+)/g;
+
+/**
+ * Terms folded away (an `all` scope makes the whole OR true…) may have pushed parameters the final SQL no longer
+ * names: drop them and renumber this predicate's own placeholders (those after `start`; the caller's stay).
+ */
+function compact(sql: string, params: unknown[], start: number): string {
+  const used = new Set<number>();
+  for (const m of sql.matchAll(PLACEHOLDER)) if (Number(m[1]) > start) used.add(Number(m[1]));
+  if (used.size === params.length - start) return sql;
+  const map = new Map<number, number>();
+  const kept: unknown[] = [];
+  for (let k = start + 1; k <= params.length; k++) {
+    if (!used.has(k)) continue;
+    kept.push(params[k - 1]);
+    map.set(k, start + kept.length);
+  }
+  params.splice(start, params.length - start, ...kept);
+  return sql.replace(PLACEHOLDER, (m, d: string) => (Number(d) > start ? `$${map.get(Number(d))}` : m));
+}
+
 /** The rows of `def` (aliased `alias`) the subject may read — tenant isolation included, deleted rows not filtered. */
 export function readSql(s: Subject, def: TableDef, alias: string, params: unknown[]): string {
+  const start = params.length;
+  return compact(readTerms(s, def, alias, params), params, start);
+}
+
+function readTerms(s: Subject, def: TableDef, alias: string, params: unknown[]): string {
   params.push(s.orgId);
   const org = `${alias}.org_id = $${params.length}`;
   if (s.kind === "system" || def.virtual) return org;
@@ -192,6 +218,11 @@ export function readSql(s: Subject, def: TableDef, alias: string, params: unknow
  * (resp. `=== "full"` for delete); used for bulk operations and the parity tests.
  */
 export function writeSql(s: Subject, def: TableDef, alias: string, params: unknown[], op: "write" | "delete" = "write"): string {
+  const start = params.length;
+  return compact(writeTerms(s, def, alias, params, op), params, start);
+}
+
+function writeTerms(s: Subject, def: TableDef, alias: string, params: unknown[], op: "write" | "delete"): string {
   params.push(s.orgId);
   const org = `${alias}.org_id = $${params.length}`;
   if (s.kind === "system") return org;
