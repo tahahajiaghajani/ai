@@ -3,7 +3,7 @@
 // they may see, whether they may create).
 import type { FieldDef, Option, TableDef } from "@shared/model/types";
 import type { Ctx } from "../context";
-import { forbidden } from "../http/errors";
+import { forbidden, notFound } from "../http/errors";
 import { access } from "../access/provider";
 import { isSystemCtx } from "./env";
 import { orgSchema, type OrgSchema } from "./schema";
@@ -42,7 +42,7 @@ export async function tablesMeta(ctx: Ctx): Promise<{ tables: TableMeta[]; choic
 export async function tableMeta(ctx: Ctx, key: string): Promise<{ table: TableMeta; choices: Record<string, Option[]> }> {
   const schema = await orgSchema(ctx);
   const def = tableDef(key) ? schema.def(key) : undefined;
-  if (!def) throw forbidden(`جدول «${key}» وجود ندارد`);
+  if (!def) throw notFound(`جدول «${key}» وجود ندارد`);
   if (!access().canReadTable(ctx, def)) throw forbidden(`به «${def.plural}» دسترسی ندارید`);
   const lists = new Set<string>();
   const table = metaOf(ctx, def, lists);

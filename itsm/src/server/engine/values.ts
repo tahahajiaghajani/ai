@@ -186,7 +186,7 @@ export function parseDateTime(raw: unknown, tz: string): string | null {
     const t = Date.parse(s);
     return Number.isNaN(t) ? null : new Date(t).toISOString();
   }
-  const m = /^(\S+?)(?:[T\s]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/.exec(s);
+  const m = /^(\S+?)(?:[T\s]+(\d{1,2}):(\d{2})(?::(\d{2})(?:\.\d{1,6})?)?)?$/.exec(s);
   if (!m) return null;
   const day = parseDate(m[1], tz);
   if (!day) return null;

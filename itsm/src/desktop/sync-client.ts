@@ -366,6 +366,10 @@ export class SyncClient {
           }
           if (gone) count++;
         }
+        if (page.tombstones?.length) {
+          // contents no attachment here refers to any more leave this computer too
+          await tx.query(`delete from sm_blobs b where b.org_id = $1 and not exists (select 1 from sm_attachments a where a.org_id = b.org_id and a.sha256 = b.sha256)`, [orgId]);
+        }
         await tx.query(kv, ["sync.cursor", JSON.stringify(page.cursor)]);
         await tx.query(kv, ["sync.user_cursor", JSON.stringify(page.user_cursor)]);
         if (page.epoch !== undefined) await tx.query(kv, ["sync.epoch", JSON.stringify(page.epoch)]);

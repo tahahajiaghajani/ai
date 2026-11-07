@@ -436,9 +436,12 @@ async function updateRow(tx: Tx, ctx: Ctx, def: TableDef, prev: Row, next: Row, 
     }
     set("custom", JSON.stringify(custom), "::jsonb");
   }
-  set("updated_by", actorId(ctx));
   sets.push("updated_at = now()");
-  if (!opts.keepVersion) sets.push("version = version + 1");
+  // an engine stamp (watchers, first response…) is nobody's edit: version and updated_by stay
+  if (!opts.keepVersion) {
+    set("updated_by", actorId(ctx));
+    sets.push("version = version + 1");
+  }
   params.push(prev.id, ctx.org.id);
   return (await tx.one<Row>(`update ${def.table} set ${sets.join(", ")} where id = $${params.length - 1} and org_id = $${params.length} returning *`, params))!;
 }

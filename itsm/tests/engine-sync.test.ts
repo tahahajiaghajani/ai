@@ -188,6 +188,8 @@ describe("record engine synchronisation", () => {
     for (const t of ["sm_journal", "sm_history", "sm_attachments"]) {
       expect((await deskDb.one<{ n: number }>(`select count(*)::int as n from ${t} where record_id = $1`, [first]))!.n, t).toBe(0);
     }
+    // the screenshot's content went with it (the other attachment's content stays)
+    expect((await deskDb.query<{ size: number }>(`select size from sm_blobs order by size`)).map((b) => Number(b.size))).toEqual([PNG.byteLength + 1]);
     // the scope widens again (another rule, a new group…): the epoch moves and the desktop reads everything again
     hideSecret = false;
     await bumpScopeEpoch(cloudDb, org, (await web.get("/auth/me")).user.id);
