@@ -1,12 +1,13 @@
-// Users and permissions (کاربران و دسترسی‌ها): the three main roles (مالک، حسابدار، ناظر) as cards, the
-// preset roles under «نقش‌های بیشتر», the members with their role, last sign-in and status, per-area
-// overrides in the side sheet («هوش مصنوعی» included) and temporary passwords shown once. A business
-// always keeps one active owner; only owners add or change owners. The page offers only the changes
-// the server allows (`memberChangeRule`: not your own access, not a member above you, nothing above
-// your own levels) and «رمز تازه» only where a reset can work (`password_reset` from the server).
+// Users and permissions (کاربران و دسترسی‌ها): the three main roles (مالک، عضو، ناظر) as cards, the preset roles
+// under «نقش‌های بیشتر» (مدیر), the members with their role, last sign-in and status, per-area overrides in the side
+// sheet («هوش مصنوعی» included) and temporary passwords shown once. An organisation always keeps one active owner;
+// only owners add or change owners. The page offers only the changes the server allows (`memberChangeRule`: not
+// your own access, not a member above you, nothing above your own levels) and «رمز تازه» only where a reset can
+// work (`password_reset` from the server). `?q=` filters the list (the command palette's member search opens it).
 import { useMemo, useState } from "react";
+import { useSearchParams } from "react-router";
 import { Button, Table, Modal, Form, Input, Select, Switch, Drawer, Tooltip, message } from "antd";
-import { Plus, KeyRound, ShieldCheck, Copy, Users, Crown, Calculator, Eye, ChevronDown, RotateCcw } from "lucide-react";
+import { Plus, KeyRound, ShieldCheck, Copy, Users, Crown, UserRound, Eye, ChevronDown, RotateCcw, Search } from "lucide-react";
 import { AiIcon } from "../../components/shell/icons";
 import { useQuery } from "@tanstack/react-query";
 import { useOrg } from "../../lib/org";
@@ -19,6 +20,7 @@ import {
   type MemberActor, type MemberGrant, type Role, type Area, type Level,
 } from "@shared/permissions";
 import { faDigits } from "@shared/format";
+import { normalizeFa } from "../../lib/fa";
 import { Avatar, ICON, ICON14, Note, cx } from "../../components/blocks";
 
 const LEVELS: Record<Level, string> = { none: "بدون دسترسی", view: "مشاهده", edit: "ثبت و ویرایش", full: "کامل (حذف و تأیید)" };
@@ -29,7 +31,7 @@ const AI_LEVELS: Record<Level, string> = {
   edit: "دستیار پیش‌نویس آماده می‌کند",
   full: "مدیریت کلیدها، تنظیمات و مصرف",
 };
-const ROLE_ICON: Record<string, typeof Crown> = { owner: Crown, accountant: Calculator, viewer: Eye };
+const ROLE_ICON: Record<string, typeof Crown> = { owner: Crown, member: UserRound, viewer: Eye };
 
 interface MemberRow {
   id: string;
@@ -41,7 +43,7 @@ interface MemberRow {
   email: string;
   full_name: string;
   last_login_at: string | null;
-  /** «رمز تازه» can work: an account this business made, working for no other business */
+  /** «رمز تازه» can work: an account this organisation made, working for no other organisation */
   password_reset?: boolean;
 }
 
@@ -92,6 +94,8 @@ export default function Members() {
   const [temp, setTemp] = useState<string | null>(null);
   const [more, setMore] = useState(false);
   const [roleFilter, setRoleFilter] = useState<Role | null>(null);
+  const [params] = useSearchParams();
+  const [term, setTerm] = useState(() => params.get("q") ?? "");
   const create = useAction((v: Record<string, unknown>) => api.post("/members", v), {
     invalidate: [["members"], ["org"]],
     onSuccess: (r: any) => {
@@ -113,7 +117,8 @@ export default function Members() {
   const members = q.data?.members ?? [];
   const activeOwners = members.filter((m) => m.role === "owner" && m.is_active).length;
   const count = (r: Role) => members.filter((m) => m.role === r && m.is_active).length;
-  const shown = roleFilter ? members.filter((m) => m.role === roleFilter) : members;
+  const needle = normalizeFa(term.trim());
+  const shown = members.filter((m) => (!roleFilter || m.role === roleFilter) && (!needle || normalizeFa(`${m.full_name} ${m.email} ${m.title ?? ""}`).includes(needle)));
   const aiManagers = members.filter((m) => m.is_active && managesAi(m));
   // the roles this actor may give: to a new member (before null) or instead of a member's current one
   const roleOptions = (before: MemberGrant | null) => {
@@ -149,7 +154,7 @@ export default function Members() {
         subtitle={members.length ? `${faDigits(members.length)} کاربر` : undefined}
         actions={
           editable ? (
-            <Button type="primary" icon={<Plus {...ICON} />} onClick={() => setAdd("accountant")}>
+            <Button type="primary" icon={<Plus {...ICON} />} onClick={() => setAdd("member")}>
               افزودن کاربر
             </Button>
           ) : null
@@ -205,6 +210,19 @@ export default function Members() {
       ) : null}
 
       <div className="blk-card">
+        {members.length > 5 || term ? (
+          <div className="blk-card-b" style={{ paddingBlockEnd: 0 }}>
+            <Input
+              allowClear
+              value={term}
+              onChange={(e) => setTerm(e.target.value)}
+              prefix={<Search {...ICON14} aria-hidden />}
+              placeholder="جست‌وجوی نام، ایمیل یا سمت…"
+              aria-label="جست‌وجوی کاربران"
+              style={{ maxWidth: 320 }}
+            />
+          </div>
+        ) : null}
         <Table<MemberRow>
           className="blk-tbl"
           size="middle"
@@ -217,7 +235,7 @@ export default function Members() {
             emptyText: (
               <EmptyState
                 icon={Users}
-                title={roleFilter ? `کسی نقش «${ROLES[roleFilter].title}» ندارد` : "کاربری نیست"}
+                title={term.trim() ? `کاربری با «${term.trim()}» پیدا نشد` : roleFilter ? `کسی نقش «${ROLES[roleFilter].title}» ندارد` : "کاربری نیست"}
                 action={roleFilter && editable ? <Button onClick={() => setAdd(roleFilter)}>افزودن {ROLES[roleFilter].title}</Button> : undefined}
               />
             ),

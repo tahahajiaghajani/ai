@@ -1,7 +1,7 @@
-// «مدیریت سامانه» ← هوش مصنوعی: AI status and usage of every business (platform metadata only —
-// never keys, prompts or conversations) and the platform policy.
+// «مدیریت سامانه» ← هوش مصنوعی: AI status and usage of every organisation (platform metadata only — never keys,
+// prompts or conversations) and the platform policy.
 import type { ServerConfig } from "../../context";
-import type { AiAdminBusiness, AiAdminOverview } from "@shared/ai/api";
+import type { AiAdminOrg, AiAdminOverview } from "@shared/ai/api";
 import type { AiErrorKind } from "@shared/ai/types";
 import { fromJalali, toJalali, todayISO } from "@shared/jalali";
 import { D } from "@shared/money";
@@ -51,7 +51,7 @@ export async function adminOverview(cfg: ServerConfig): Promise<AiAdminOverview>
      order by coalesce(u.cost, '0')::numeric desc, o.name`,
     [monthStart],
   );
-  const businesses: AiAdminBusiness[] = rows.map((r) => {
+  const orgs: AiAdminOrg[] = rows.map((r) => {
     const settings = normalizeSettings(r.settings);
     return {
       org_id: r.id,
@@ -68,12 +68,12 @@ export async function adminOverview(cfg: ServerConfig): Promise<AiAdminOverview>
     };
   });
   return {
-    businesses,
+    orgs,
     totals: {
-      businesses_enabled: businesses.filter((b) => b.enabled && !b.disabled_by_platform && b.connections > 0).length,
-      connections: businesses.reduce((n, b) => n + b.connections, 0),
-      month_cost_usd: businesses.reduce((s, b) => s.plus(b.month.cost_usd), D(0)).toFixed(),
-      month_calls: businesses.reduce((n, b) => n + b.month.calls, 0),
+      orgs_enabled: orgs.filter((b) => b.enabled && !b.disabled_by_platform && b.connections > 0).length,
+      connections: orgs.reduce((n, b) => n + b.connections, 0),
+      month_cost_usd: orgs.reduce((s, b) => s.plus(b.month.cost_usd), D(0)).toFixed(),
+      month_calls: orgs.reduce((n, b) => n + b.month.calls, 0),
     },
     policy,
   };

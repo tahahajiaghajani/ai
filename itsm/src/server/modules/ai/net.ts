@@ -1,5 +1,5 @@
 // Outbound requests to AI providers from the web version (SSRF guard). The base URL is checked as
-// text when it is saved (fx/net safeExternalUrl), and again on every request here: the host name
+// text when it is saved (src/server/net.ts safeExternalUrl), and again on every request here: the host name
 // must resolve to public addresses only (a name such as 127.0.0.1.nip.io or one with an A record
 // to 10.x/169.254.169.254 is refused), and redirects are never followed (a public host answering
 // 30x to an internal address gets nothing). The Windows app is exempt: it may use LAN servers.
@@ -10,7 +10,7 @@
 // does not expose without the undici package.
 import { lookup as dnsLookup } from "node:dns/promises";
 import { isIP } from "node:net";
-import { safeExternalUrl } from "../fx/net";
+import { safeExternalUrl } from "../../net";
 import { BlockedAddressError, ProviderError } from "./types";
 
 /** Name resolution used by the guard (tests replace it to stay off the network). */

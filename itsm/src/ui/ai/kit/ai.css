@@ -111,3 +111,13 @@
   .ai-tip-card > div:first-child { margin-block-end: 4px; color: var(--ds-text-2); font-weight: var(--ds-weight-medium); }
   .ai-tip-card b { font-size: 14px; line-height: 20px; font-weight: 600; color: var(--ds-text); font-variant-numeric: tabular-nums; }
 }
+
+/* ---------------------------------------------------------------- the AI strip of the home page (SetupStrip.tsx) */
+@layer components {
+  .ai-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; padding-block: 14px; padding-inline: 20px 16px; }
+  .ai-strip-ic { display: grid; place-items: center; flex: none; inline-size: 40px; block-size: 40px; border-radius: var(--ds-radius-lg); background: var(--ds-accent-tint); color: var(--ds-accent-text); }
+  .ai-strip-t { flex: 1 1 260px; min-inline-size: 0; }
+  .ai-strip-t > b { display: block; font-size: 15px; line-height: 22px; font-weight: 600; color: var(--ds-text); }
+  .ai-strip-t > span { display: block; font-size: 13px; line-height: 20px; color: var(--ds-text-2); text-wrap: pretty; }
+  .ai-strip-x { display: flex; align-items: center; gap: 8px; }
+}

@@ -1,5 +1,5 @@
-// Contracts of Siraf's AI layer shared by the server (engine, tools, features) and the UI
-// (assistant, AI settings, insights, forecasts). Client-safe: no server imports.
+// Contracts of the AI layer shared by the server (engine, tools, the assistant) and the UI (assistant, AI
+// settings, the platform console). Client-safe: no server imports.
 // Owners may ADD fields and union members; never rename or remove one without updating every user.
 
 // ---------------------------------------------------------------- providers and connections
@@ -61,18 +61,16 @@ export interface AiSettings {
   /** job -> ordered chain of { connection_id, model }; the first that works answers */
   routing: Record<AiJob, { connection_id: string; model: string }[]>;
   effort: Record<AiJob, AiEffort>;
+  /** switches of the AI features; modules add theirs (each with a default) */
   features: {
     assistant: boolean;
     proposals: boolean; // the assistant may prepare drafts for confirmation
-    insights: boolean; // dashboard insights and the daily brief
-    explain: boolean; // «تحلیل با هوش مصنوعی» on reports
-    capture: boolean; // reading invoices, ID cards and cheques from images
-    forecast: boolean; // forecasts and plans
+    files: boolean; // images and PDFs may be sent to the models (questions with files, a module's document reading)
   };
   /** masked = national ids, mobiles, card numbers and IBANs are masked before anything reaches a model */
   data_policy: AiDataPolicy;
   budgets: { monthly_usd: string | null; user_daily_usd: string | null; alert_pct: number };
-  /** free text the business writes about itself and how answers should look */
+  /** free text the organisation writes about itself and how answers should look */
   instructions: string;
   retention_days: number;
   /** Windows app linked to the web version: send model calls through the web version's connections */
@@ -88,10 +86,10 @@ export interface AiSettings {
 
 /** A link to a record the answer talks about (rendered as a chip that opens the record). */
 export interface AiRef {
-  type: string; // "invoice" | "voucher" | "party" | "item" | "gold_doc" | "gold_bar" | "fx_deal" | "remittance" | "cheque" | "treasury_doc" | "account" | "report" …
+  type: string; // "member" | "org" | "report" | a module's record type («incident», «asset»…)
   id: string;
   label: string;
-  path?: string; // in-app path (without the org prefix), e.g. "sales/invoices/<id>"
+  path?: string; // in-app path (without the org prefix), e.g. "settings/users"
 }
 
 export type AiProposalStatus = "proposed" | "executing" | "executed" | "rejected" | "expired" | "failed";
@@ -99,7 +97,7 @@ export type AiProposalStatus = "proposed" | "executing" | "executed" | "rejected
 /** A write the assistant prepared; nothing happens until a permitted person confirms it. */
 export interface AiProposal {
   id: string;
-  kind: string; // "sales_invoice" | "purchase_invoice" | "voucher" | "receipt" | "payment" | "gold_doc" | "fx_deal" | "party" …
+  kind: string; // the executor that runs it once confirmed (src/server/modules/ai/tools/proposals.ts), e.g. a module's «incident»
   title_fa: string;
   summary_fa: string;
   /** rows shown on the card: label/value pairs, money as formatted strings */
@@ -173,44 +171,4 @@ export interface AiMessageView {
   error?: { kind: AiErrorKind; message_fa: string } | null;
   /** a step budget ran out: POST /threads/:id/continue finishes it */
   can_continue?: boolean;
-}
-
-// ---------------------------------------------------------------- insights, forecasts, plans, captures
-
-export type AiSeverity = "info" | "notice" | "warning" | "critical";
-
-export interface AiInsight {
-  id: string; // stable: derived from the org and a dedupe key
-  kind: string; // "cheques_due" | "cash_shortfall" | "overdue_receivables" | "low_stock" | "dead_stock" | "sales_change" | "anomaly" | "coin_bubble" | "position" | "kyc" …
-  module: "core" | "goods" | "gold" | "fx" | "treasury" | "accounting";
-  severity: AiSeverity;
-  title_fa: string;
-  body_fa: string;
-  why_fa: string; // «چرا این را می‌بینم؟»
-  facts: { label: string; value: string }[];
-  refs: AiRef[];
-  action?: { label: string; path?: string; prompt?: string } | null;
-  status: "new" | "seen" | "snoozed" | "dismissed" | "done";
-  created_at: string;
-}
-
-/** A forecast is always a range with its measured accuracy, never a single "target". */
-export interface AiForecastSeries {
-  key: string;
-  title_fa: string;
-  unit: string;
-  history: { period: string; value: string }[];
-  forecast: { period: string; p10: string; p50: string; p90: string }[];
-  method: string;
-  backtest: { mase: string | null; coverage80: string | null; n: number } | null;
-  refused_reason_fa?: string | null; // too little data
-}
-
-export interface AiCaptureResult {
-  id: string;
-  kind: "purchase_invoice" | "id_card" | "cheque" | "receipt";
-  fields: Record<string, { value: string | null; confidence: number; note_fa?: string }>;
-  lines?: Record<string, { value: string | null; confidence: number }>[];
-  warnings: string[];
-  model: string | null;
 }

@@ -1,7 +1,7 @@
 // /api/admin — «مدیریت سامانه», only for platform admins (PLATFORM_ADMIN_EMAILS or the first account):
-// overview, businesses (platform metadata, status, notes, AI switch, support sessions), accounts,
+// overview, organisations (platform metadata, status, notes, AI switch, support sessions), accounts,
 // security events, the admin audit log and system health. /admin/ai (stream B) is the AI policy.
-// Nothing here returns a business's documents: those need a support session.
+// Nothing here returns an organisation's documents: those need a support session.
 import { z } from "zod";
 import type { MiddlewareHandler } from "hono";
 import { router, body, requireUser, type Env } from "../http/hono";
@@ -48,7 +48,7 @@ adminRoutes.get("/stats", async (c) => {
   });
 });
 
-// ---------------------------------------------------------------- businesses
+// ---------------------------------------------------------------- organisations
 
 adminRoutes.get("/orgs", async (c) => {
   const status = c.req.query("status");

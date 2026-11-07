@@ -16,7 +16,7 @@ import type { AiToolDef, ToolResult, ToolRuntime } from "./tools/registry";
 import { storeProposal } from "./actions";
 import { AiUnavailableError } from "./errors";
 import { assertUsable, chainFor, loadEnv, runTurn, unavailable, WEB_LABEL, webFirst, webLink, type AiEnv } from "./chain";
-import { ASSISTANT_SYSTEM, businessNotes, contextBlock } from "./prompts";
+import { ASSISTANT_SYSTEM, contextBlock, orgNotes } from "./prompts";
 import { redactPrompt, redactValue } from "./redact";
 import { dropNulls, jsonSchemaOf } from "./schema";
 import {
@@ -97,7 +97,7 @@ export async function startChat(ctx: Ctx, req: AiChatRequest, emit: Emit, client
   if (text.length > 20_000) throw bad("پرسش بیش از اندازه طولانی است");
   const attachments = req.attachments ?? [];
   if (attachments.length) {
-    if (!env.settings.features.capture) throw bad("فرستادن فایل به هوش مصنوعی در تنظیمات خاموش است");
+    if (!env.settings.features.files) throw bad("فرستادن فایل به هوش مصنوعی در تنظیمات خاموش است");
     if (attachments.length > ATTACH_MAX) throw bad(`حداکثر ${ATTACH_MAX} فایل در هر پرسش`);
     for (const a of attachments) {
       if (!ATTACH_MIME.test(a.mime)) throw bad("فقط تصویر (PNG، JPEG، WebP، GIF) و PDF پذیرفته می‌شود");
@@ -117,7 +117,7 @@ export async function startChat(ctx: Ctx, req: AiChatRequest, emit: Emit, client
     const prior = await history(ctx, thread.id);
     const block = await contextBlock(ctx, req.context ?? thread.context, env.settings.data_policy);
     // files without a question: the model is asked what they are and what can be done with them
-    const question = text || "(The person sent the attached file(s) without a question: say briefly what they contain and what you can do with them in Siraf.)";
+    const question = text || "(The person sent the attached file(s) without a question: say briefly what they contain and what you can do with them in this app.)";
     const modelText = `${block}\n\n${redactPrompt(question, env.settings.data_policy)}`;
     // stored for replay without the file contents (they are sent only with this question)
     const storedParts: Part[] = [...attachments.map((a) => ({ type: "text" as const, text: `[attachment: ${a.name} (${a.mime})]` })), { type: "text", text: modelText }];
@@ -237,7 +237,7 @@ async function runAnswer(s: RunState): Promise<void> {
           },
           request: {
             system: ASSISTANT_SYSTEM,
-            systemNotes: businessNotes(env.settings.instructions),
+            systemNotes: orgNotes(env.settings.instructions),
             messages: s.messages,
             tools: specs.length ? specs : undefined,
             effort: env.settings.effort.assistant,

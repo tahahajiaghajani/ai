@@ -140,7 +140,7 @@ export async function confirmAction(ctx: Ctx, id: string): Promise<AiProposal> {
   ctx.need("ai", "view");
   let r = await actionRow(ctx, id);
   assertVisible(ctx, r);
-  if (!canDecide(ctx, r)) throw forbidden("برای تأیید این پیشنهاد، دسترسی همان سند را لازم دارید");
+  if (!canDecide(ctx, r)) throw forbidden("برای تأیید این پیشنهاد، دسترسی همان بخش را لازم دارید");
   const status = effectiveStatus(r);
   if (status === "executed") return toProposal(r);
   if (status === "expired") {

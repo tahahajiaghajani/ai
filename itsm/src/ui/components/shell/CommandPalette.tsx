@@ -1,17 +1,17 @@
-// The command palette (components.md §1.4): strong glass over the scrim, no open/close animation,
-// grouped results («اخیر»، «کارها»، «صفحه‌ها»، «اشخاص»، «اسناد و فاکتورها»), matched characters in ink 600,
-// the selected row with the 2 × 16 Dusk start bar, and keyboard hints in the footer.
+// The command palette (components.md §1.4): strong glass over the scrim, no open/close animation, grouped results
+// («اخیر»، «کارها»، «صفحه‌ها» and the records modules search: «اعضا» today), matched characters in ink 600, the
+// selected row with the 2 × 16 accent start bar, and keyboard hints in the footer.
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useLocation, useNavigate } from "react-router";
-import { useQuery } from "@tanstack/react-query";
-import { Search, CornerDownLeft, History, User, FileText, Receipt, ArrowDownToLine, ArrowUpFromLine, ArrowLeftRight, type LucideIcon } from "lucide-react";
+import { useQueries } from "@tanstack/react-query";
+import { Search, CornerDownLeft, History, FileText, type LucideIcon } from "lucide-react";
 import { useOrg } from "../../lib/org";
 import { useDebounced } from "../../lib/hooks";
-import { normalizeFa, toLatinDigits, docNo, jDate } from "../../lib/fa";
-import { ChequeIcon, Ic, Keys, AiIcon } from "./icons";
+import { normalizeFa } from "../../lib/fa";
+import { Ic, Keys, AiIcon } from "./icons";
 import { readJSON, recentKey, spaceOf, useRelPath, useShellItems, type Recent } from "./model";
-import { INVOICE_KINDS, INVOICE_META, type InvoiceKind } from "../../modules/goods/labels";
+import { SEARCHES } from "../../modules/registry";
 import { openAssistant } from "../../ai/assistant/bus";
 import { pageContext } from "../../ai/assistant/context";
 import { looksLikeQuestion, suggestionsFor } from "../../ai/assistant/prompts";
@@ -121,26 +121,10 @@ export function CommandPalette({ open, onClose, commands = [] }: { open: boolean
   return createPortal(<Palette onClose={onClose} commands={commands} />, document.body);
 }
 
-const DOCS = "اسناد و فاکتورها";
 const ASK = "از دستیار بپرسید";
 
-const GROUP_ORDER = ["اخیر", "کارها", "صفحه‌ها", "اشخاص", DOCS];
-
-const TREASURY_KIND: Record<string, { label: string; icon: LucideIcon }> = {
-  receipt: { label: "دریافت", icon: ArrowDownToLine },
-  payment: { label: "پرداخت", icon: ArrowUpFromLine },
-  transfer: { label: "انتقال", icon: ArrowLeftRight },
-};
-
-interface DocHit {
-  id: string;
-  no: number;
-  date: string | null;
-  kind?: string;
-  party_name?: string | null;
-  buyer_name?: string | null;
-  description?: string | null;
-}
+/** Pages and commands first, then the records modules search, in the order the modules list them. */
+const GROUP_ORDER = ["اخیر", "کارها", "صفحه‌ها", ...SEARCHES.map((x) => x.group)];
 
 function Palette({ onClose, commands }: { onClose: () => void; commands: PaletteCommand[] }) {
   const items = useShellItems();
@@ -173,42 +157,18 @@ function Palette({ onClose, commands }: { onClose: () => void; commands: Palette
     nav(`/${orgId}${path ? `/${path}` : ""}`);
   };
 
-  // records: people by name/code; vouchers, invoices, receipts/payments and cheques by number
-  const digits = toLatinDigits(dq).replace(/[^\d]/g, "");
-  const isNumber = !!dq && /^[\d۰-۹٠-٩\s]+$/.test(dq);
-  const invoiceKinds = has("goods") ? INVOICE_KINDS.filter((k) => can(INVOICE_META[k].area)) : [];
-  const parties = useQuery({
-    queryKey: ["palette-parties", orgId, dq],
-    queryFn: () => api.get<{ options: { id: string; label: string; sub?: string | null }[] }>("/data/party/options", { q: dq }),
-    enabled: dq.length >= 2 && can("parties"),
-    staleTime: 30_000,
+  // records: every search a module registered that this member may use (members by name or e-mail today)
+  const searches = SEARCHES.filter((x) => (!x.module || has(x.module)) && (!x.area || can(x.area, x.level ?? "view")));
+  const found = useQueries({
+    queries: searches.map((x) => ({
+      queryKey: ["palette-search", orgId, x.key, dq],
+      queryFn: () => x.run(api, dq),
+      enabled: dq.length >= (x.minLength ?? 2),
+      staleTime: 30_000,
+    })),
   });
-  const vouchers = useQuery({
-    queryKey: ["palette-vouchers", orgId, digits],
-    queryFn: () => api.get<{ rows: DocHit[] }>("/accounting/vouchers", { q: digits, size: 20 }),
-    enabled: isNumber && !!digits && can("accounting"),
-    staleTime: 30_000,
-  });
-  const invoices = useQuery({
-    queryKey: ["palette-invoices", orgId, digits, invoiceKinds.join(",")],
-    queryFn: () => api.get<{ rows: DocHit[] }>("/goods/invoices", { kind: invoiceKinds.join(","), q: digits, sort: "no", dir: "asc", size: 20 }),
-    enabled: isNumber && !!digits && invoiceKinds.length > 0,
-    staleTime: 30_000,
-  });
-  const tdocs = useQuery({
-    queryKey: ["palette-treasury", orgId, digits],
-    queryFn: () => api.get<{ rows: DocHit[] }>("/treasury/docs", { q: digits, sort: "no", dir: "asc", size: 20 }),
-    enabled: isNumber && !!digits && can("treasury"),
-    staleTime: 30_000,
-  });
-  // cheque serials are long: a short number would match half the cheque book
-  const cheques = useQuery({
-    queryKey: ["palette-cheques", orgId, digits],
-    queryFn: () =>
-      api.get<{ rows: { id: string; direction: string; serial_no: string | null; sayad_no: string | null; bank_name: string | null; due_date: string | null }[] }>("/treasury/cheques", { q: digits, size: 3 }),
-    enabled: isNumber && digits.length >= 3 && can("treasury"),
-    staleTime: 30_000,
-  });
+  const foundData = found.map((f) => f.data);
+  const searching = found.some((f) => f.isFetching);
 
   const rows = useMemo<Row[]>(() => {
     const s = q.trim();
@@ -256,37 +216,9 @@ function Palette({ onClose, commands }: { onClose: () => void; commands: Palette
     }
     scored.sort((a, b) => b.s - a.s);
     out.push(...scored.map((x) => x.row));
-    for (const p of parties.data?.options?.slice(0, 5) ?? []) {
-      out.push({ id: `p-${p.id}`, group: "اشخاص", icon: User, label: p.label, hl: score(p.label, "", s).hl, meta: p.sub ?? undefined, run: () => go(`parties/${p.id}`) });
-    }
-    const when = (d: string | null | undefined) => (d ? jDate(new Date(d)) : null);
-    // the lists also match the number inside references, mobiles and descriptions (hence the ascending number
-    // order above, which brings the exact numbers forward): a document is found by its own number
-    const no = Number(digits);
-    const exact = <T extends { no: number }>(rows: T[] | undefined, max: number) => (rows ?? []).filter((r) => Number(r.no) === no).slice(0, max);
-    const docMeta = (...parts: (string | null | undefined)[]) => parts.filter(Boolean).join("، ") || undefined;
-    for (const v of exact(vouchers.data?.rows, 3)) {
-      out.push({ id: `v-${v.id}`, group: DOCS, icon: FileText, label: `سند ${docNo(v.no)}`, meta: docMeta(v.description, when(v.date)), run: () => go(`accounting/vouchers/${v.id}`) });
-    }
-    for (const v of exact(invoices.data?.rows, 5)) {
-      const m = INVOICE_META[(v.kind as InvoiceKind) ?? "sale"];
-      if (!m) continue;
-      out.push({ id: `i-${v.id}`, group: DOCS, icon: Receipt, label: `${m.title} ${docNo(v.no)}`, meta: docMeta(v.party_name ?? v.buyer_name, when(v.date)), run: () => go(`${m.path}/${v.id}`) });
-    }
-    for (const v of exact(tdocs.data?.rows, 3)) {
-      const k = TREASURY_KIND[v.kind ?? ""] ?? TREASURY_KIND.receipt;
-      out.push({ id: `t-${v.id}`, group: DOCS, icon: k.icon, label: `${k.label} ${docNo(v.no)}`, meta: docMeta(v.party_name ?? v.description, when(v.date)), run: () => go(`treasury/docs/${v.id}`) });
-    }
-    for (const c of cheques.data?.rows ?? []) {
-      out.push({
-        id: `q-${c.id}`,
-        group: DOCS,
-        icon: ChequeIcon,
-        label: `چک ${c.direction === "issued" ? "پرداختی" : "دریافتی"} ${c.serial_no ?? c.sayad_no ?? ""}`.trim(),
-        meta: docMeta(c.bank_name, c.due_date ? `سررسید ${when(c.due_date)}` : null),
-        run: () => go(`treasury/cheques${c.direction === "issued" ? "/issued" : ""}?open=${c.id}`),
-      });
-    }
+    searches.forEach((x, i) => {
+      for (const h of foundData[i] ?? []) out.push({ id: `f-${x.key}-${h.id}`, group: x.group, icon: x.icon, label: h.label, hl: score(h.label, "", s).hl, meta: h.meta, run: () => go(h.path) });
+    });
     out.sort((a, b) => GROUP_ORDER.indexOf(a.group) - GROUP_ORDER.indexOf(b.group));
     // «بپرس از دستیار»: first for a question (or when nothing else matched), otherwise after the matches
     if (askable && s.length >= 2) {
@@ -296,7 +228,7 @@ function Palette({ onClose, commands }: { onClose: () => void; commands: Palette
     }
     return out.slice(0, 40);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q, digits, items, commands, parties.data, vouchers.data, invoices.data, tdocs.data, cheques.data, orgId, here, askable, canDraft]);
+  }, [q, items, commands, foundData, orgId, here, askable, canDraft]);
 
   useEffect(() => setIdx(0), [q]);
   const sel = Math.min(idx, Math.max(0, rows.length - 1));
@@ -326,7 +258,7 @@ function Palette({ onClose, commands }: { onClose: () => void; commands: Palette
     }
   };
 
-  const loading = (parties.isFetching || vouchers.isFetching || invoices.isFetching || tdocs.isFetching || cheques.isFetching) && !rows.length;
+  const loading = searching && !rows.length;
   let n = -1;
   return (
     <div className="sh-pal-scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>

@@ -16,7 +16,7 @@ export interface AiErrorContext {
   canManage?: boolean;
   /** shown in the Windows app */
   desktop?: boolean;
-  /** turned off by the platform administrator (not by the business) */
+  /** turned off by the platform administrator (not by the organisation) */
   byPlatform?: boolean;
 }
 

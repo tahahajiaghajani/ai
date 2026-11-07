@@ -1,4 +1,4 @@
-/* Siraf · سیراف — the app stylesheet. The design system lives in ./ds/ (README.md there).
+/* The app stylesheet. The design system lives in ./ds/ (README.md there).
    Layer order: Ant Design's CSS-in-JS (<StyleProvider layer>) sits in `antd`, between Tailwind's base and its
    components/utilities, so ds-antd.css (components) and Tailwind utilities still adjust Ant Design. */
 @layer theme, base, antd, components, utilities;
@@ -6,9 +6,9 @@
 @import "./ds/tokens.css"; /* fonts, tokens, base primitives (@layer base) */
 @import "./ds/ds-antd.css"; /* @layer components: after antd's CSS-in-JS layer */
 @import "./ds/motion.css"; /* @layer components: enter / fade / stagger / press / launch */
-@import "./ds/brand.css"; /* @layer components: the Dusk brand surface (login, onboarding, About) */
+@import "./ds/brand.css"; /* @layer components: the brand surface (login, onboarding, About) */
 
-/* Tailwind v4 bridge: utilities read the Siraf variables, so dark mode needs no `dark:` variants (antd-theme.md §1) */
+/* Tailwind v4 bridge: utilities read the design-system variables, so dark mode needs no `dark:` variants */
 @theme inline {
   --font-sans: var(--ds-font-sans);
   --font-display: var(--ds-font-display);
@@ -64,172 +64,22 @@
   --shadow-e4: var(--ds-shadow-e4);
   --ease-out: var(--ds-ease-out);
   --ease-in-out: var(--ds-ease-in-out);
-
-  /* ---- LEGACY utility colours (Taraz names; see "Legacy aliases" below). Do not use them in new code. ---- */
-  --color-bg: var(--ds-canvas); /* bg-bg → bg-canvas */
-  --color-surface-2: var(--ds-sunken); /* bg-surface-2 → bg-sunken */
-  --color-line-strong: var(--ds-line-3); /* border-line-strong → border-line-3 */
-  --color-muted: var(--ds-text-3); /* text-muted → text-ink-3 (or text-ink-2 for secondary body text) */
-  --color-brand: var(--ds-accent); /* bg-brand → bg-accent; text-brand is remapped below to accent-text */
-  --color-brand-soft: var(--ds-accent-tint); /* bg-brand-soft → bg-accent-tint */
-  --color-gold-soft: var(--ds-gold-tint); /* bg-gold-soft → bg-gold-tint */
-  --color-ok: var(--ds-in); /* text-ok → text-in */
-  --color-bad: var(--ds-danger); /* text-bad → text-danger */
-  --color-warn: var(--ds-warning); /* text-warn → text-warning */
-}
-
-/* =====================================================================================================
-   LEGACY ALIASES — keep today's screens working in the Siraf palette until each screen is migrated.
-   Remove this whole block (and the legacy colours in @theme above) once nothing uses them:
-     grep -rnE "tz-|text-muted|bg-surface-2|brand|gold-soft|text-ok|text-bad|text-warn|line-strong|row-muted|row-level|\bnum\b|\bltr\b" src/ui
-   ===================================================================================================== */
-:root {
-  --tz-bg: var(--ds-canvas);
-  --tz-surface: var(--ds-surface);
-  --tz-surface-2: var(--ds-sunken);
-  --tz-line: var(--ds-line);
-  --tz-line-strong: var(--ds-line-3);
-  --tz-text: var(--ds-text);
-  --tz-muted: var(--ds-text-3);
-  --tz-primary: var(--ds-accent-text);
-  --tz-primary-soft: var(--ds-accent-tint);
-  --tz-gold: var(--ds-gold-text);
-  --tz-gold-soft: var(--ds-gold-tint);
-  --tz-success: var(--ds-in);
-  --tz-danger: var(--ds-danger);
-  --tz-warning: var(--ds-warning);
-  --tz-shadow: var(--ds-shadow-e1);
-  /* the old navy sidebar (and the TV rates board) become warm charcoal until the shell moves to the canvas sidebar */
-  --tz-sidebar: #1c1916;
-  --tz-sidebar-2: #221d18;
-  --tz-sidebar-text: #d3cec8;
-  --tz-sidebar-active: #d8b1d4;
-}
-:root[data-theme="dark"] {
-  --tz-sidebar: #0b0a08;
-  --tz-sidebar-2: #110f0e;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --tz-sidebar: #0b0a08;
-    --tz-sidebar-2: #110f0e;
-  }
 }
 
 @layer components {
-  /* .num / .ltr: the old names of .ds-num / .ds-ltr. `.num` no longer sets "tnum" (it cancelled ss01, the Persian digits) */
-  .num {
-    font-variant-numeric: tabular-nums;
-    white-space: nowrap;
-  }
-  .ltr {
-    direction: ltr;
-    unicode-bidi: isolate;
-  }
-  /* cards: the e1 ring + shadow (the transparent border keeps `!border-brand` selections working) */
-  .tz-card {
-    background: var(--ds-surface);
-    border: 1px solid transparent;
-    border-radius: var(--ds-radius-lg);
-    box-shadow: var(--ds-shadow-e1);
-  }
-  .tz-soft {
-    background: var(--ds-sunken);
-    border: 1px solid var(--ds-line);
-    border-radius: 10px;
-  }
-  .tz-neg {
-    color: var(--ds-danger);
-  }
-  .tz-pos {
-    color: var(--ds-in);
-  }
-  /* keyboard keys: Geist 11/500 on sunken, an inset line-2 ring with a 1 px bottom edge (components.md §1.2) */
-  .tz-kbd {
-    display: inline-block;
-    font-family: var(--ds-font-latin);
-    font-feature-settings: normal;
-    font-size: var(--ds-type-kbd-size);
-    font-weight: var(--ds-weight-medium);
-    line-height: 18px;
-    min-inline-size: 20px;
-    padding-inline: 5px;
-    text-align: center;
-    border-radius: var(--ds-radius-xs);
-    color: var(--ds-text-2);
-    background: var(--ds-sunken);
-    box-shadow:
-      inset 0 0 0 1px var(--ds-line-2),
-      inset 0 -1px 0 var(--ds-line-2);
-  }
-
-  /* dense financial tables: unfilled headers come from the theme; level rows for trial balances and opening rows */
-  .tz-table .ant-table-tbody > tr > td {
+  /* dense data tables (the kit's DataTable / ServerTable): 13 px cells, a weighted summary row */
+  .ds-table .ant-table-tbody > tr > td {
     font-size: 13px;
   }
-  .tz-table .ant-table-summary td {
+  .ds-table .ant-table-summary td {
     font-weight: 600;
     background: var(--ds-surface);
   }
-  .tz-table .row-level-1 td {
-    font-weight: 600;
-    background: var(--ds-sunken);
-  }
-  .tz-table .row-level-2 td {
-    font-weight: 600;
-  }
-  /* inactive / excluded rows: text-3, never dimmed below legibility and never struck through */
-  .tz-table .row-muted td {
+  /* inactive rows: text-3, never dimmed below legibility and never struck through */
+  .ds-table .row-muted td {
     color: var(--ds-text-3);
   }
-
-  /* editable document grids (voucher, invoice): unfilled 12/18 headers in text-3, hairline rows, a line-3 totals rule */
-  .tz-grid {
-    width: 100%;
-    border-collapse: separate;
-    border-spacing: 0;
-  }
-  .tz-grid th {
-    font-size: 12px;
-    line-height: 18px;
-    font-weight: var(--ds-weight-regular);
-    color: var(--ds-text-3);
-    background: var(--ds-surface);
-    padding: 7px 8px;
-    border-bottom: 1px solid var(--ds-line-2);
-    text-align: start;
-    white-space: nowrap;
-    position: sticky;
-    top: 0;
-    z-index: 1;
-  }
-  .tz-grid td {
-    padding: 3px 4px;
-    border-bottom: 1px solid var(--ds-line);
-    vertical-align: middle;
-  }
-  .tz-grid tr:hover td {
-    background: var(--ds-hover-row);
-  }
-  .tz-grid tfoot td {
-    font-weight: 600;
-    background: var(--ds-surface);
-    border-top: 1px solid var(--ds-line-3);
-    border-bottom: 0;
-    padding: 8px;
-  }
 }
-
-@layer utilities {
-  /* legacy text colours whose bridge colour is a fill: text in Dusk / gold uses the readable text role */
-  .text-brand {
-    color: var(--ds-accent-text);
-  }
-  .text-gold {
-    color: var(--ds-gold-text);
-  }
-}
-/* ================================ end of legacy aliases ================================ */
 
 @layer base {
   html,
@@ -247,7 +97,7 @@
   }
 }
 
-/* the mark's one colour: Dusk on paper, warm white on charcoal (brief §7; components/brand.tsx) */
+/* the mark's one colour: the accent on paper, warm white on charcoal (components/brand.tsx) */
 @layer components {
   .ds-mark-color {
     color: var(--ds-dusk-700);
@@ -262,7 +112,7 @@
   }
 }
 
-/* boot screen (index.html, before React mounts): the mark's nuqtas set beside the alef, on the canvas */
+/* boot screen (index.html, before React mounts): the placeholder mark's tiles settle, on the canvas */
 .boot {
   height: 100%;
   display: grid;
@@ -289,7 +139,6 @@
   }
   .no-print,
   .ant-layout-sider,
-  .tz-header,
   .ant-message,
   .ant-notification,
   /* floating layers never print (a tooltip left under the pointer would land on the sheet) */

@@ -1,5 +1,6 @@
-// Generic CRUD for master data described in @shared/entities. Values are coerced and validated
-// per field type; entity hooks keep derived data in shape (detail accounts, gold net weight…).
+// Generic CRUD for master data described in @shared/entities. Values are coerced and validated per field type.
+// A module keeps derived data of its entities in shape with `registerEntityHooks` (before/after a row is saved)
+// and protects the rows its own records use from deletion with `registerUsage`.
 import type { Ctx } from "../../context";
 import type { Queryable, Tx } from "../../db";
 import { likeContains } from "../../db";
@@ -10,7 +11,6 @@ import { parseJalaliInput } from "@shared/jalali";
 import { D, isNumeric, normalizeDigits } from "@shared/money";
 import { checkFormat, normalizeIban, normalizeMobile } from "@shared/validate";
 import { uuidv7, isUuid } from "@shared/id";
-import { ensureDetail, archiveDetail } from "../accounting/details";
 
 export function def(key: string): EntityDef {
   const d = ENTITIES[key];
@@ -32,7 +32,7 @@ function coerce(f: FieldDef, raw: unknown): unknown {
       let s = String(raw).trim();
       if (f.format === "mobile") s = normalizeMobile(s);
       if (f.format === "iban") s = normalizeIban(s);
-      if (["nationalId", "postal", "economic", "card", "sayad", "taxGoodsId"].includes(f.format ?? "")) s = normalizeDigits(s).replace(/[\s-]/g, "");
+      if (["nationalId", "postal", "economic", "card"].includes(f.format ?? "")) s = normalizeDigits(s).replace(/[\s-]/g, "");
       if (f.type === "code") s = normalizeDigits(s);
       const max = f.maxLength ?? (f.type === "textarea" ? 4000 : 300);
       if (s.length > max) throw bad(`«${f.label}» حداکثر ${max} نویسه است`);
@@ -49,12 +49,10 @@ function coerce(f: FieldDef, raw: unknown): unknown {
     }
     case "decimal":
     case "money":
-    case "pct":
-    case "weight": {
+    case "pct": {
       if (!isNumeric(raw)) throw bad(`«${f.label}» باید عدد باشد`);
       const d = D(raw as string);
       if (f.type === "pct" && (d.lt(0) || d.gt(1000))) throw bad(`«${f.label}» معتبر نیست`);
-      if (f.type === "weight" && d.lt(0)) throw bad(`«${f.label}» نمی‌تواند منفی باشد`);
       return d.toString();
     }
     case "bool":
@@ -116,13 +114,13 @@ function pickValues(d: EntityDef, fields: FieldDef[], data: Record<string, unkno
   return out;
 }
 
-/** References must point at rows of the same business (ids are global, there are no FKs per org). */
+/** References must point at rows of the same organisation (ids are global, there are no FKs per org). */
 async function checkRefs(tx: Tx, ctx: Ctx, fields: FieldDef[], row: Record<string, unknown>) {
   for (const f of fields) {
     if (f.type !== "ref" || !f.ref) continue;
     const v = row[f.name];
     if (v === null || v === undefined) continue;
-    const table = f.ref === "account" ? "sm_accounts" : ENTITIES[f.ref]?.table;
+    const table = ENTITIES[f.ref]?.table;
     if (!table) continue;
     const found = await tx.one(`select 1 from ${ident(table)} where id = $1 and org_id = $2`, [v, ctx.org.id]);
     if (!found) throw bad(`«${f.label}» پیدا نشد`);
@@ -130,51 +128,24 @@ async function checkRefs(tx: Tx, ctx: Ctx, fields: FieldDef[], row: Record<strin
 }
 
 // ---------- entity hooks ----------
-type Hook = (tx: Tx, ctx: Ctx, row: Record<string, unknown>, prev: Record<string, unknown> | null) => Promise<void>;
 
-const before: Record<string, Hook> = {
-  party: async (_tx, _ctx, row, prev) => {
-    const kind = row.kind ?? prev?.kind;
-    if (!row.name && (row.first_name || row.last_name)) row.name = `${row.first_name ?? ""} ${row.last_name ?? ""}`.trim();
-    if (kind === "company" && !row.company_name && row.name) row.company_name = row.name;
-    if (Array.isArray(row.roles) && row.roles.length === 0) row.roles = ["customer"];
-  },
-  gold_item: async (_tx, _ctx, row, prev) => {
-    const gross = D((row.gross_weight ?? prev?.gross_weight ?? 0) as string);
-    const stone = D((row.stone_weight ?? prev?.stone_weight ?? 0) as string);
-    if (stone.gt(gross)) throw bad("وزن سنگ از وزن کل بیشتر است");
-    row.net_weight = gross.minus(stone).toDecimalPlaces(3).toString();
-    const fin = D((row.fineness ?? prev?.fineness ?? 750) as string);
-    if (fin.lte(0) || fin.gt(1000)) throw bad("عیار باید بین ۱ تا ۱۰۰۰ (در هزار) باشد");
-  },
-  wallet: async (_tx, _ctx, row, prev) => {
-    const chain = String(row.chain ?? prev?.chain ?? "");
-    const addr = String(row.address ?? prev?.address ?? "").trim();
-    row.address = addr;
-    const { isCryptoAddress } = await import("@shared/validate");
-    if (addr && !isCryptoAddress(chain as never, addr)) throw bad("نشانی کیف‌پول با شبکه‌ی انتخاب‌شده جور نیست");
-  },
-  currency: async (_tx, _ctx, row) => {
-    if (row.code) row.code = String(row.code).toUpperCase().replace(/[^A-Z0-9.-]/g, "");
-  },
-  item: async (_tx, _ctx, row, prev) => {
-    const u2 = row.unit2_id ?? prev?.unit2_id;
-    const f2 = row.unit2_factor ?? prev?.unit2_factor;
-    if (u2 && (!f2 || D(f2 as string).lte(0))) throw bad("ضریب واحد فرعی را وارد کنید");
-  },
-};
+/**
+ * A module's code around the generic writes of one of its entities: `before` may adjust or refuse the values about
+ * to be stored (`prev` is the stored row on an update, null on a create), `after` runs once the row is written
+ * (inside the same transaction) to keep derived data of the module in step.
+ */
+export type EntityHook = (tx: Tx, ctx: Ctx, row: Record<string, unknown>, prev: Record<string, unknown> | null) => Promise<void>;
 
-const after: Record<string, Hook> = {};
-for (const key of Object.keys(ENTITIES)) {
-  const d = ENTITIES[key];
-  if (!d.detail) continue;
-  after[key] = async (tx, ctx, row) => {
-    const name = String(row[d.display] ?? "");
-    const detailId = await ensureDetail(tx, ctx.org.id, d.detail!, String(row.id), name, row.detail_id as string | null);
-    if (detailId !== row.detail_id) {
-      await tx.query(`update ${ident(d.table)} set detail_id = $1 where id = $2`, [detailId, row.id]);
-      row.detail_id = detailId;
-    }
+const beforeHooks = new Map<string, EntityHook>();
+const afterHooks = new Map<string, EntityHook>();
+
+/** Registers the hooks of an entity (a later call replaces them). Returns their removal. */
+export function registerEntityHooks(key: string, hooks: { before?: EntityHook; after?: EntityHook }): () => void {
+  if (hooks.before) beforeHooks.set(key, hooks.before);
+  if (hooks.after) afterHooks.set(key, hooks.after);
+  return () => {
+    if (hooks.before && beforeHooks.get(key) === hooks.before) beforeHooks.delete(key);
+    if (hooks.after && afterHooks.get(key) === hooks.after) afterHooks.delete(key);
   };
 }
 
@@ -252,7 +223,7 @@ export async function get(ctx: Ctx, key: string, id: string) {
 /** Compact options for searchable selects. */
 export async function options(ctx: Ctx, key: string, q: string, filters: Record<string, string> = {}, ids: string[] = []) {
   const d = def(key);
-  // selecting a party/item in an invoice only needs to see it
+  // a picker in another module's form only needs to see the choices (see `full` below)
   const params: unknown[] = [ctx.org.id];
   const where = ["org_id = $1", "deleted_at is null"];
   if (d.fields.some((f) => f.name === "is_active")) where.push("is_active");
@@ -265,13 +236,13 @@ export async function options(ctx: Ctx, key: string, q: string, filters: Record<
     where.push(`(${(cols.length ? cols : [d.display]).map((c) => `${ident(c)}::text ilike $${params.length}`).join(" or ")})`);
   }
   for (const [name, value] of Object.entries(filters)) {
-    if (name === "role" && key === "party") {
-      params.push(JSON.stringify([value]));
-      where.push(`roles @> $${params.length}::jsonb`);
-      continue;
-    }
     const f = d.fields.find((x) => x.name === name);
     if (!f) continue;
+    if (f.type === "multiselect") {
+      params.push(JSON.stringify([value]));
+      where.push(`${ident(f.name)} @> $${params.length}::jsonb`);
+      continue;
+    }
     if (value.includes(",")) {
       params.push(`{${value.split(",").map((v) => `"${v.replace(/"/g, "")}"`).join(",")}}`);
       where.push(`${ident(f.name)}::text = any($${params.length}::text[])`);
@@ -281,8 +252,8 @@ export async function options(ctx: Ctx, key: string, q: string, filters: Record<
     where.push(`${ident(f.name)}::text = $${params.length}`);
   }
   const sub = d.sub ? `, ${ident(d.sub)} as sub` : "";
-  // pickers are used everywhere (an invoice needs a customer); full rows only for members who
-  // may view this area, others get just what a picker shows
+  // pickers are used in other areas' forms; full rows only for members who may view this area, others get
+  // just what a picker shows
   const full = ctx.can(d.area, "view");
   const extra = full ? ", *" : d.fields.some((f) => f.name === "code") ? ", code" : "";
   return ctx.db.query(
@@ -305,12 +276,12 @@ async function createIn(tx: Tx, ctx: Ctx, key: string, data: Record<string, unkn
   const row = pickValues(d, fields, data, true);
   await checkRefs(tx, ctx, fields, row);
   if (d.code && !row[d.code.field]) row[d.code.field] = await nextCode(tx, d.table, ctx.org.id, d.code.start, d.code.field);
-  await before[key]?.(tx, ctx, row, null);
+  await beforeHooks.get(key)?.(tx, ctx, row, null);
   row.id = isUuid(data.id) ? data.id : uuidv7();
   row.org_id = ctx.org.id;
   row.origin = ctx.cfg.origin;
   const saved = await insertRow<Record<string, unknown>>(tx, d.table, row);
-  await after[key]?.(tx, ctx, saved, null);
+  await afterHooks.get(key)?.(tx, ctx, saved, null);
   await audit(tx, ctx, "create", key, String(saved.id), String(saved[d.display] ?? ""));
   return saved;
 }
@@ -329,10 +300,10 @@ async function updateIn(tx: Tx, ctx: Ctx, key: string, id: string, data: Record<
   const patch = pickValues(d, fields, data, false);
   await checkRefs(tx, ctx, fields, patch);
   if (d.code && patch[d.code.field] === null) delete patch[d.code.field];
-  await before[key]?.(tx, ctx, patch, prev);
+  await beforeHooks.get(key)?.(tx, ctx, patch, prev);
   patch.origin = ctx.cfg.origin;
   const saved = await updateRow<Record<string, unknown>>(tx, d.table, { id, org_id: ctx.org.id }, patch);
-  await after[key]?.(tx, ctx, saved!, prev);
+  await afterHooks.get(key)?.(tx, ctx, saved!, prev);
   await audit(tx, ctx, "update", key, id, String(saved?.[d.display] ?? ""));
   return saved;
 }
@@ -367,9 +338,6 @@ export function importDate(v: unknown): string | null {
   return parseJalaliInput(s);
 }
 
-/** Entities a missing reference may be created for on the fly (only a name is needed). */
-const AUTO_CREATE = new Set(["unit", "item_category", "party_group", "gold_category"]);
-
 interface RefCache {
   map: Map<string, string | null>;
   createdInRow: string[];
@@ -384,28 +352,20 @@ async function resolveRef(tx: Tx, ctx: Ctx, f: FieldDef, value: unknown, cache: 
     if (id) return id;
     throw bad(`«${f.label}»: «${raw}» پیدا نشد`);
   }
-  let id: string | null = null;
   const text = normalizeDigits(raw).replace(/[يى]/g, "ی").replace(/ك/g, "ک").trim();
-  if (f.ref === "account") {
-    const r = await tx.one<{ id: string }>(
-      `select id from sm_accounts where org_id = $1 and deleted_at is null and (code = $2 or lower(name) = lower($2)) order by is_postable desc limit 1`,
-      [ctx.org.id, text],
-    );
-    id = r?.id ?? null;
-  } else {
-    const rd = ENTITIES[f.ref!];
-    if (!rd) throw bad(`«${f.label}» قابل ورود از فایل نیست`);
-    const hasCode = rd.fields.some((x) => x.name === "code");
-    const r = await tx.one<{ id: string }>(
-      `select id from ${ident(rd.table)} where org_id = $1 and deleted_at is null and (lower(${ident(rd.display)}) = lower($2)${hasCode ? " or code = $2" : ""}) limit 1`,
-      [ctx.org.id, text],
-    );
-    id = r?.id ?? null;
-    if (!id && AUTO_CREATE.has(rd.key) && ctx.can(rd.area, "edit") && (!rd.modules || rd.modules.some((m) => ctx.hasModule(m)))) {
-      const saved = await createIn(tx, ctx, rd.key, { [rd.display]: text });
-      id = String(saved.id);
-      cache.createdInRow.push(key);
-    }
+  const rd = ENTITIES[f.ref!];
+  if (!rd) throw bad(`«${f.label}» قابل ورود از فایل نیست`);
+  const hasCode = rd.fields.some((x) => x.name === "code");
+  const r = await tx.one<{ id: string }>(
+    `select id from ${ident(rd.table)} where org_id = $1 and deleted_at is null and (lower(${ident(rd.display)}) = lower($2)${hasCode ? " or code = $2" : ""}) limit 1`,
+    [ctx.org.id, text],
+  );
+  let id: string | null = r?.id ?? null;
+  // an entity that needs nothing but a name (a category, a location…) is made on the fly when it is missing
+  if (!id && rd.autoCreate && ctx.can(rd.area, "edit") && (!rd.modules || rd.modules.some((m) => ctx.hasModule(m)))) {
+    const saved = await createIn(tx, ctx, rd.key, { [rd.display]: text });
+    id = String(saved.id);
+    cache.createdInRow.push(key);
   }
   cache.map.set(key, id);
   if (!id) throw bad(`«${f.label}»: «${raw}» پیدا نشد`);
@@ -429,8 +389,7 @@ async function importValues(tx: Tx, ctx: Ctx, fields: FieldDef[], raw: Record<st
       case "money":
       case "decimal":
       case "int":
-      case "pct":
-      case "weight": {
+      case "pct": {
         const s = normalizeDigits(String(v)).replace(/[,،٬\s]/g, "").replace(/٫/g, ".").replace(/[٪%]$/, "");
         out[f.name] = s;
         break;
@@ -537,19 +496,15 @@ export async function importRows(ctx: Ctx, key: string, rows: Record<string, unk
   };
 }
 
-/** Where a master row is referenced; used to refuse deleting rows in use. */
-const USAGE: Record<string, [string, string][]> = {
-  party: [["sm_invoices", "party_id"], ["sm_treasury_docs", "party_id"], ["sm_cheques", "party_id"], ["sm_gold_docs", "party_id"], ["sm_fx_deals", "party_id"], ["sm_remittances", "party_id"]],
-  item: [["sm_invoice_lines", "item_id"], ["sm_stock_lines", "item_id"], ["sm_stock_moves", "item_id"]],
-  warehouse: [["sm_stock_moves", "warehouse_id"]],
-  cash_box: [["sm_treasury_lines", "cash_box_id"]],
-  bank_account: [["sm_treasury_lines", "bank_account_id"], ["sm_cheques", "bank_account_id"]],
-  currency: [["sm_voucher_lines", "currency_id"], ["sm_fx_deals", "in_currency_id"], ["sm_fx_deals", "out_currency_id"]],
-  unit: [["sm_items", "unit_id"]],
-  gold_item: [["sm_gold_lines", "gold_item_id"]],
-  gold_category: [["sm_gold_items", "category_id"]],
-  wallet: [["sm_treasury_lines", "wallet_id"]],
-};
+/** Where a master row is referenced (table, column), by entity; a row in use is refused deletion. */
+const USAGE = new Map<string, [string, string][]>();
+
+/** Registers where the rows of an entity are used (a module's records referencing them). Returns its removal. */
+export function registerUsage(key: string, refs: [table: string, column: string][]): () => void {
+  const list = [...(USAGE.get(key) ?? []), ...refs];
+  USAGE.set(key, list);
+  return () => USAGE.set(key, (USAGE.get(key) ?? []).filter((x) => !refs.includes(x)));
+}
 
 export async function remove(ctx: Ctx, key: string, id: string) {
   const d = def(key);
@@ -557,16 +512,17 @@ export async function remove(ctx: Ctx, key: string, id: string) {
   return ctx.write(async (tx) => {
     const prev = await tx.one<Record<string, unknown>>(`select * from ${ident(d.table)} where id = $1 and org_id = $2 and deleted_at is null`, [id, ctx.org.id]);
     if (!prev) throw notFound(`${d.title} پیدا نشد`);
-    if (key === "currency" && prev.is_base) throw conflict("ارز پایه قابل حذف نیست");
-    for (const [table, col] of USAGE[key] ?? []) {
+    for (const [table, col] of USAGE.get(key) ?? []) {
       const used = await tx.one(`select 1 from ${ident(table)} where org_id = $1 and ${ident(col)} = $2 limit 1`, [ctx.org.id, id]);
-      if (used) throw conflict(`این ${d.title} در اسناد استفاده شده و قابل حذف نیست؛ می‌توانید آن را غیرفعال کنید`);
+      if (used) throw conflict(`این ${d.title} در جای دیگری استفاده شده و قابل حذف نیست؛ می‌توانید آن را غیرفعال کنید`);
     }
-    if (prev.detail_id) {
-      const usedDetail = await tx.one(`select 1 from sm_voucher_lines where org_id = $1 and (detail_id = $2 or detail2_id = $2) limit 1`, [ctx.org.id, prev.detail_id]);
-      if (usedDetail) throw conflict(`این ${d.title} گردش حسابداری دارد و قابل حذف نیست؛ می‌توانید آن را غیرفعال کنید`);
-      await archiveDetail(tx, ctx.org.id, prev.detail_id as string);
-      await tx.query(`update sm_details set deleted_at = now() where id = $1`, [prev.detail_id]);
+    // a referencing row of another master entity counts too (e.g. an item of a deleted category)
+    for (const other of Object.values(ENTITIES)) {
+      for (const f of other.fields) {
+        if (f.type !== "ref" || f.ref !== key) continue;
+        const used = await tx.one(`select 1 from ${ident(other.table)} where org_id = $1 and ${ident(f.name)} = $2 and deleted_at is null limit 1`, [ctx.org.id, id]);
+        if (used) throw conflict(`این ${d.title} در «${other.plural}» استفاده شده و قابل حذف نیست؛ می‌توانید آن را غیرفعال کنید`);
+      }
     }
     await tx.query(`update ${ident(d.table)} set deleted_at = now() where id = $1`, [id]);
     await audit(tx, ctx, "delete", key, id, String(prev[d.display] ?? ""));

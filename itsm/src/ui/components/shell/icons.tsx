@@ -1,15 +1,5 @@
-// Shell icons: Lucide at 16 px with a 1.4 px stroke (components.md §0.5), and the custom cheque slip
-// from the brand package's sprite (same 24 grid and stroke).
+// Shell icons: Lucide at 16 px with a 1.4 px stroke (components.md §0.5), and the AI mark drawn to the same 24 grid.
 import { createLucideIcon, type LucideIcon, type LucideProps } from "lucide-react";
-
-/** The cheque slip: a rounded slip, two text lines, an amount box and a signature squiggle. */
-export const ChequeIcon: LucideIcon = createLucideIcon("Cheque", [
-  ["rect", { x: "2", y: "5.5", width: "20", height: "13", rx: "2", key: "slip" }],
-  ["path", { d: "M6 10h6", key: "l1" }],
-  ["path", { d: "M15.5 10h2.5", key: "amt" }],
-  ["path", { d: "M6 14.5h3", key: "l2" }],
-  ["path", { d: "M13.5 14.5c.8-.9 1.6.9 2.4 0s1.6-.9 2.6 0", key: "sig" }],
-]);
 
 /**
  * The AI mark: «AI» in a rounded chip on the 24 grid, for the assistant and every AI feature (it replaces Lucide's

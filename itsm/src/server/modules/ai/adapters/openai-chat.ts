@@ -63,7 +63,8 @@ export function openaiChatAdapter(conn: ResolvedConnection, env: AdapterEnv): Ad
     "content-type": "application/json",
     accept: "text/event-stream",
     ...(key ? { authorization: `Bearer ${key}` } : {}),
-    ...(openrouter ? { "HTTP-Referer": env.publicUrl || "https://siraf.app", "X-Title": APP_NAME_EN } : {}),
+    // OpenRouter's app attribution: the name always, the site only when PUBLIC_URL says what it is
+    ...(openrouter ? { "X-Title": APP_NAME_EN, ...(env.publicUrl ? { "HTTP-Referer": env.publicUrl } : {}) } : {}),
   };
   // parameters a service rejected once are not sent again by this adapter
   const dropped = new Set<string>();

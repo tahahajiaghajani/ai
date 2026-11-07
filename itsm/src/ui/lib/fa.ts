@@ -4,25 +4,17 @@
 const nf = (d = 0, o: Intl.NumberFormatOptions = {}) =>
   new Intl.NumberFormat("fa-IR", { minimumFractionDigits: d, maximumFractionDigits: d, ...o });
 
-/** Plain figure: 1234567 → «۱٬۲۳۴٬۵۶۷». Rial and toman: 0 decimals. Use 0 or 2 decimals per context, never mixed. */
+/** Plain figure: 1234567 → «۱٬۲۳۴٬۵۶۷». Use 0 or 2 decimals per context, never mixed. */
 export const fa = (n: number, decimals = 0) => nf(decimals).format(n);
-
-/** Gold weight, always 3 decimals: 12.345 → «۱۲٫۳۴۵». */
-export const grams = (g: number) => nf(3).format(g);
 
 /** Signed figure for deltas and net changes: «‎+۱۲٬۴۵۰» / «‎−۱۲٬۴۵۰» (LRM + true minus). Render inside an LTR isolate. */
 export const signed = (n: number, decimals = 0) => nf(decimals, { signDisplay: "exceptZero" }).format(n);
 
-/** Accounting negative for printed reports and running balances: −1234567 → «(۱٬۲۳۴٬۵۶۷)». */
+/** Accounting-style negative for printed reports: −1234567 → «(۱٬۲۳۴٬۵۶۷)». */
 export const accounting = (n: number, decimals = 0) => (n < 0 ? `(${fa(-n, decimals)})` : fa(n, decimals));
 
-/** Ledger balance (دفتر کل، معین، صورت‌حساب): «مانده» unsigned plus its «تشخیص» column — debit «بد», credit «بس»,
- *  zero «—». In DS Num (Vazirmatn digits) U+2212 is the same 6 px glyph as the hyphen, so ledgers never rely on the sign. */
-export const balance = (n: number, decimals = 0): [amount: string, side: "بد" | "بس" | "—"] =>
-  n === 0 ? ["—", "—"] : [fa(Math.abs(n), decimals), n > 0 ? "بد" : "بس"];
-
-/** Business document numbers (voucher, invoice, cheque, receipt, the shop's item codes): Persian digits, NO grouping —
- *  58 → «۵۸», 1405 → «۱۴۰۵» (never «۱٬۴۰۵»). Findable by digits alone through normalizeFa. */
+/** Record numbers (a request, an asset tag, a code): Persian digits, NO grouping — 58 → «۵۸», 1405 → «۱۴۰۵» (never
+ *  «۱٬۴۰۵»). Findable by digits alone through normalizeFa. */
 export const docNo = (n: number) => nf(0, { useGrouping: false }).format(n);
 
 /** Percent with ٪ after the number in reading order (its left side) in every context.
@@ -35,7 +27,7 @@ export const compact = (n: number, maxDecimals = 1) =>
   new Intl.NumberFormat("fa-IR", { notation: "compact", maximumFractionDigits: maxDecimals }).format(n);
 
 /** Splits a formatted figure so the decimals can be styled: «۱۲٫۳۴۵» → ["۱۲", "٫۳۴۵"]. They stay full size (`.ds-dec`,
- *  text-2; ink in gold-weight columns) and only step down to 65 % text-3 inside display figures ≥ 24 px (hero, KPI). */
+ *  text-2) and only step down to 65 % text-3 inside display figures ≥ 24 px (hero, KPI). */
 export const splitDecimals = (s: string): [string, string] => {
   const i = s.lastIndexOf("٫");
   return i < 0 ? [s, ""] : [s.slice(0, i), s.slice(i)];

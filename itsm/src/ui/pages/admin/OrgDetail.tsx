@@ -53,7 +53,7 @@ function AiStatus({ orgId, disabled }: { orgId: string; disabled: boolean }) {
     retry: (n, e) => !(e instanceof ApiError && e.status === 404) && n < 2,
   });
   if (q.isLoading) return <Skeleton rows={2} />;
-  const b = q.data?.businesses?.find((x) => x.org_id === orgId);
+  const b = q.data?.orgs?.find((x) => x.org_id === orgId);
   if (!q.data) return <p className="m-0 text-[13px] text-ink-3">گزارش هوش مصنوعی هنوز در دسترس نیست.</p>;
   if (!b || !b.connections)
     return <p className="m-0 text-[13px] text-ink-3">{disabled ? "هوش مصنوعی این سازمان خاموش است." : "این سازمان هنوز کلید هوش مصنوعی نگذاشته است."}</p>;

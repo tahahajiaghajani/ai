@@ -1,6 +1,7 @@
-// /api/o/:org/ai — the business's AI: connections and keys, settings, the assistant (SSE),
-// conversations, proposals, usage, the Windows-app relay, and (mounted below) the AI features of
-// stream D. Request/response shapes: src/shared/ai/api.ts.
+// /api/o/:org/ai — the organisation's AI: connections and keys, settings, the assistant (SSE),
+// conversations, proposals, usage and the Windows-app relay. Request/response shapes: src/shared/ai/api.ts.
+// Later modules that add AI features of their own (summaries, classification…) call `generate` from
+// modules/ai/engine.ts and mount their routes next to these.
 // Permissions: ai:view to ask the assistant (read tools), ai:edit for drafts, ai:full to manage
 // connections, keys, settings, budgets, usage and the activity log; conversations are private to
 // their author.
@@ -12,7 +13,6 @@ import type { AiErrorKind, AiStreamEvent } from "@shared/ai/types";
 import type { AiRelayEvent } from "@shared/ai/api";
 import { aiErrorText } from "@shared/ai/errors";
 import { fromJalali, toJalali, todayISO } from "@shared/jalali";
-import { aiFeatureRoutes } from "./ai-features";
 import {
   appSecretMissing, availablePresets, connectionInputSchema, connectionTestSchema, createConnection, deleteConnection, listConnections,
   publicConnection, refreshModels, resumeConnection, setConnectionKey, testConnection, testUnsaved, updateConnection,
@@ -32,7 +32,7 @@ import { toolsFor } from "../modules/ai/tools";
 
 export const aiRoutes = router();
 
-// AI that cannot answer a plain JSON request (capture, connection tests …) → `ai_<kind>` with the kind in details
+// AI that cannot answer a plain JSON request (connection tests …) → `ai_<kind>` with the kind in details
 aiRoutes.onError((err, c) => errorResponse(asHttpError(err), c));
 
 const HEARTBEAT_MS = 15_000;
@@ -356,7 +356,7 @@ aiRoutes.post("/relay", async (c) => {
   if (ctx.cfg.mode !== "cloud") throw notFound("این مسیر فقط در نسخهٔ وب است");
   if (c.get("session")?.kind !== "device") throw forbidden("فقط نسخهٔ ویندوز متصل به این سازمان می‌تواند از این مسیر استفاده کند");
   ctx.need("ai", "view");
-  // the business's switches (assistant, each feature, document reading) and its data policy bind the Windows app too
+  // the organisation's switches (assistant, files) and its data policy bind the Windows app too
   const relayed = await body(c, relayRequestSchema);
   const env = await loadEnv(ctx);
   const req = redactRelay(relayed, env.settings.data_policy);
@@ -381,4 +381,3 @@ aiRoutes.post("/relay", async (c) => {
   );
 });
 
-aiRoutes.route("/", aiFeatureRoutes);

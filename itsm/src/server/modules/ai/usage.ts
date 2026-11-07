@@ -1,4 +1,4 @@
-// Usage ledger (one row per model call, ok or not) and budgets: the business's monthly cap (this
+// Usage ledger (one row per model call, ok or not) and budgets: the organisation's monthly cap (this
 // Jalali month, never above the platform's ceiling) and each member's daily cap, both in USD
 // estimated from the dated price table. Local and unknown models count as 0.
 import type { Ctx } from "../../context";
@@ -61,7 +61,7 @@ export async function recordUsage(ctx: Ctx, e: UsageEntry): Promise<{ cost_usd: 
   return { cost_usd: cost.usd, priced: cost.priced };
 }
 
-/** First day of this Jalali month and today (ISO dates in the business's time zone). */
+/** First day of this Jalali month and today (ISO dates in the organisation's time zone). */
 export function periodDays(ctx: Ctx): { monthStart: string; today: string } {
   const today = todayISO(orgTimeZone(ctx));
   const j = toJalali(today);
@@ -111,7 +111,7 @@ function totals(r: Record<string, unknown> | null | undefined): AiUsageTotals {
   };
 }
 
-/** Usage between two days (inclusive, business time zone): by day, model, feature and member. */
+/** Usage between two days (inclusive, organisation time zone): by day, model, feature and member. */
 export async function usageReport(ctx: Ctx, from: string, to: string, budget: AiBudgetState): Promise<AiUsageReport> {
   const tz = orgTimeZone(ctx);
   const where = `org_id = $1 and created_at >= ($2::date)::timestamp at time zone $4 and created_at < (($3::date) + 1)::timestamp at time zone $4`;

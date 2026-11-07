@@ -17,8 +17,8 @@ import { useAction, useNotify, useDebounced, useIsPhone } from "../lib/hooks";
 import { errorText } from "../lib/api";
 import { exportExcel } from "../lib/excel";
 import { usePrinting } from "../lib/print";
-import { Money, JDate, Weight, Amount, StatusTag, EmptyState, Chip } from "./display";
-import { NumberInput, MoneyInput, PctInput, WeightInput, DateInput, RefSelect, AccountSelect, FilterChip, DateRangeChip } from "./inputs";
+import { Money, JDate, Amount, StatusTag, EmptyState, Chip } from "./display";
+import { NumberInput, MoneyInput, PctInput, DateInput, RefSelect, FilterChip, DateRangeChip } from "./inputs";
 import { PageHeader } from "./layout";
 import { ImportDrawer } from "./import";
 
@@ -29,9 +29,9 @@ const TOPBAR_OFFSET = 56;
 const SKELETON_ROWS = 8;
 const SKEL_WIDTHS = [72, 58, 84, 64, 90, 52, 76, 66];
 
-/** Columns the kit treats as figures: `className: "ds-num"`, or the old RTL convention `align: "left"`. */
+/** Columns the kit treats as figures: `className: "ds-num"`, or the RTL convention `align: "left"`. */
 function isNumericColumn(c: ColumnType<any>): boolean {
-  return c.align === "left" || /\bsf-num\b/.test(String(c.className ?? ""));
+  return c.align === "left" || /\bds-num\b/.test(String(c.className ?? ""));
 }
 
 /**
@@ -44,7 +44,7 @@ function normalizeColumns<T>(cols: ColumnsType<T>): ColumnsType<T> {
     const col = c as ColumnType<T>;
     if (!isNumericColumn(col)) return c;
     const { align: _align, ...rest } = col;
-    return { ...rest, className: cx(String(col.className ?? "").replace(/\bsf-num\b/, "").trim(), "ds-num"), ellipsis: false };
+    return { ...rest, className: cx(String(col.className ?? "").replace(/\bds-num\b/, "").trim(), "ds-num"), ellipsis: false };
   });
 }
 
@@ -53,7 +53,7 @@ function skeletonColumns<T>(cols: ColumnsType<T>): ColumnsType<T> {
   return cols.map((c, i) => {
     if ("children" in c && c.children) return { ...c, children: skeletonColumns(c.children) };
     const col = c as ColumnType<T>;
-    const numeric = /\bsf-num\b/.test(String(col.className ?? ""));
+    const numeric = /\bds-num\b/.test(String(col.className ?? ""));
     const bare = !col.title;
     return {
       ...col,
@@ -75,9 +75,9 @@ const colKey = (c: ColumnType<any>) => String(c.key ?? (Array.isArray(c.dataInde
 const colTitle = (c: ColumnType<any>) => (typeof c.title === "string" ? c.title : "");
 const isDateCol = (c: ColumnType<any>) => /(^|_|\.)(date|due|at|time|when)($|_)|date$/i.test(colKey(c)) || /تاریخ|سررسید|زمان/.test(colTitle(c));
 const isStatusCol = (c: ColumnType<any>) => /status|state/i.test(colKey(c)) || /^وضعیت/.test(colTitle(c));
-const isFigureCol = (c: ColumnType<any>) => /\bsf-num\b/.test(String(c.className ?? "")) && !isDateCol(c);
+const isFigureCol = (c: ColumnType<any>) => /\bds-num\b/.test(String(c.className ?? "")) && !isDateCol(c);
 const AMOUNT_RE = /amount|total|sum|net|price|value|balance|مبلغ|جمع|مانده|ارزش|کل/i;
-const NAME_RE = /name|party|title|desc|memo|customer|supplier|account|نام|شرح|طرف|شخص|عنوان|مشتری|حساب|دریافت از|پرداخت به|^از$|^به$/i;
+const NAME_RE = /name|title|desc|memo|subject|summary|requester|assignee|person|نام|شرح|عنوان|موضوع|شخص|درخواست‌کننده|مسئول/i;
 
 function cellOf<T>(c: ColumnType<T>, r: T, i: number): ReactNode {
   const di = c.dataIndex;
@@ -92,8 +92,8 @@ function cellOf<T>(c: ColumnType<T>, r: T, i: number): ReactNode {
 }
 
 /**
- * Below 640 px a list row becomes a stack (no sideways scroll, no figure cut at the edge): line 1 the document number
- * and date with the status and row actions at the end, line 2 the party or description, line 3 the amount on its own
+ * Below 640 px a list row becomes a stack (no sideways scroll, no figure cut at the edge): line 1 the record number
+ * and date with the status and row actions at the end, line 2 the name or description, line 3 the amount on its own
  * line, start-aligned, then up to three other columns as quiet «label value» pairs. Returns null when the columns
  * cannot be stacked (grouped headers).
  */
@@ -236,7 +236,7 @@ function FilterBar({ toolbar, tools, onClear }: { toolbar: ReactNode; tools: Rea
   const [sheet, setSheet] = useState(false);
   const all = mergeDateRanges(flattenToolbar(toolbar)).map((e, i) => (e.key == null ? cloneElement(e, { key: `f${i}` }) : e));
   // «پاک کردن» (a `.ds-fclear` link) always stays at the end of the visible row
-  const isClear = (e: ReactElement) => /\bsf-fclear\b/.test(String((e.props as { className?: string }).className ?? ""));
+  const isClear = (e: ReactElement) => /\bds-fclear\b/.test(String((e.props as { className?: string }).className ?? ""));
   // the search always comes first (it is the one that fills the row on a phone)
   const controls = all.filter((e) => !isClear(e));
   const si = controls.findIndex(isSearchInput);
@@ -478,7 +478,7 @@ export function ServerTable<T extends { id?: string }>({
         />
       ) : null}
       <Table<T>
-        className="tz-table"
+        className="ds-table"
         size={size}
         data-density={size === "small" ? "compact" : "comfortable"}
         rowKey={rowKey}
@@ -543,7 +543,7 @@ export function DataTable<T extends object>({ columns, stack = true, size = "sma
   return (
     <Table<T>
       {...rest}
-      className={cx("tz-table", stacked && "is-stacked", className)}
+      className={cx("ds-table", stacked && "is-stacked", className)}
       size={size}
       data-density={size === "small" ? "compact" : "comfortable"}
       columns={stacked ?? cols}
@@ -558,7 +558,7 @@ export function DataTable<T extends object>({ columns, stack = true, size = "sma
 // ---------------------------------------------------------------- cells by field type
 
 /** Strings that are Latin by nature (components.md §4.6): Geist Mono, LTR, as stored. */
-const LATIN_FORMATS = new Set<FieldDef["format"]>(["iban", "card", "email", "sayad", "taxGoodsId"]);
+const LATIN_FORMATS = new Set<FieldDef["format"]>(["iban", "card", "email"]);
 
 export function renderCell(f: FieldDef, v: unknown, row?: Record<string, unknown>): ReactNode {
   if (v === null || v === undefined || v === "") return <span className="ds-zero">—</span>;
@@ -570,8 +570,6 @@ export function renderCell(f: FieldDef, v: unknown, row?: Record<string, unknown
       return <Amount v={v as string} />;
     case "pct":
       return <Amount v={v as string} suffix="٪" />;
-    case "weight":
-      return <Weight v={v as string} />;
     case "date":
       return <JDate v={v as string} />;
     case "bool":
@@ -587,8 +585,7 @@ export function renderCell(f: FieldDef, v: unknown, row?: Record<string, unknown
         </span>
       );
     case "select":
-      if (f.name === "status" || f.name === "kyc_status")
-        return <StatusTag s={String(v)} map={Object.fromEntries((f.options ?? []).map((o) => [o.value, [o.label, o.value === "verified" || o.value === "in_stock" ? "success" : o.value === "rejected" ? "error" : o.value === "none" ? "success" : "default"]]))} />;
+      if (f.name === "status") return <StatusTag s={String(v)} map={Object.fromEntries((f.options ?? []).map((o) => [o.value, [o.label, "default"]]))} />;
       return f.options?.find((o) => o.value === v)?.label ?? String(v);
     case "multiselect":
       return (
@@ -639,8 +636,6 @@ export function FieldInput({ f, ...props }: { f: FieldDef; value?: any; onChange
       return <MoneyInput {...props} />;
     case "pct":
       return <PctInput {...props} />;
-    case "weight":
-      return <WeightInput {...props} />;
     case "bool":
       return <Switch checked={!!props.value} onChange={props.onChange} disabled={props.disabled} />;
     case "date":
@@ -650,7 +645,7 @@ export function FieldInput({ f, ...props }: { f: FieldDef; value?: any; onChange
     case "multiselect":
       return <Select mode={f.options && f.options.length ? "multiple" : "tags"} options={f.options} placeholder="انتخاب…" {...props} />;
     case "ref":
-      return f.ref === "account" ? <AccountSelect allowClear {...props} /> : <RefSelect entity={f.ref!} filters={f.refFilter} allowClear {...props} />;
+      return <RefSelect entity={f.ref!} filters={f.refFilter} allowClear {...props} />;
     case "json":
       return (
         <Input.TextArea
@@ -743,7 +738,7 @@ export async function shrinkImage(file: File, max = 640): Promise<string> {
 // ---------------------------------------------------------------- generated form
 
 /** Short values that may sit two to a row in a sheet (components.md §5: «وزن + عیار»، «نرخ + اجرت»). */
-const SHORT_TYPES = new Set<FieldDef["type"]>(["money", "decimal", "int", "pct", "weight", "date", "code"]);
+const SHORT_TYPES = new Set<FieldDef["type"]>(["money", "decimal", "int", "pct", "date", "code"]);
 
 /**
  * Spans for a sheet: one column, except two neighbouring short fields (figures, dates, codes), which pair up.
@@ -942,7 +937,7 @@ export interface EntityPageProps {
   hideNew?: boolean;
 }
 
-const NUMERIC_TYPES = ["money", "decimal", "int", "weight", "pct"];
+const NUMERIC_TYPES = ["money", "decimal", "int", "pct"];
 
 export function EntityPage({ entity, title, extraColumns = [], rowActions, headerActions, defaultFilters, onOpen, drawerWidth = 560, hideNew }: EntityPageProps) {
   const def = ENTITIES[entity];
@@ -983,9 +978,9 @@ export function EntityPage({ entity, title, extraColumns = [], rowActions, heade
           key: f.name,
           dataIndex: f.name,
           title: f.label,
-          sorter: ["text", "code", "date", "money", "decimal", "int", "weight"].includes(f.type),
+          sorter: ["text", "code", "date", "money", "decimal", "int"].includes(f.type),
           className: numeric || f.type === "date" || f.type === "code" ? "ds-num" : undefined,
-          width: f.type === "money" || f.type === "weight" ? 136 : undefined,
+          width: f.type === "money" ? 136 : undefined,
           render: (v: unknown, row: Record<string, unknown>) => renderCell(f, v, row),
         };
       }),

@@ -1,24 +1,26 @@
-// Online-shop webhooks (/api/hooks/:id), the key-authenticated public API (/api/v1) and
-// integration management (/api/o/:org/integrations).
+// Inbound webhooks (/api/hooks/:id), the key-authenticated public API (/api/v1) and integration management
+// (/api/o/:org/integrations).
+//
+// A webhook stores every signed delivery (sm_integration_events, one row per sender event id) and hands it to
+// the module that registered its topic (`registerTopicHandler` in modules/integrations/service.ts), acting as
+// the organisation's owner. Without a handler the event stays «دریافت شد» for people to see and can be
+// processed later with «تلاش دوباره» once a module understands it. The public API authenticates with an API
+// key (Authorization: Bearer sm_… or X-API-Key); modules mount their own endpoints on `publicApiRoutes` and
+// open their context with `apiCtx`.
 import { z } from "zod";
 import { router, body, type C } from "../http/hono";
-import { bad, forbidden, notFound, unauthorized } from "../http/errors";
+import { AppError, bad, forbidden, notFound, unauthorized } from "../http/errors";
 import { makeCtx, type AuthUser, type Ctx, type MemberRow, type OrgRow, type ServerConfig } from "../context";
 import {
-  createApiKey, createIntegration, findOrCreateCustomer, integrationSecret, loadIntegration, matchItems, normalizeOrder,
-  resolveApiKey, verifySignature, type IntegrationConfig, type IntegrationKind, type NormalizedOrder,
+  MAX_HOOK_BYTES, createApiKey, createIntegration, eventExternalId, eventTopic, handlerFor, integrationSecret, loadIntegration,
+  resolveApiKey, verifySignature, type HookEvent, type IntegrationConfig,
 } from "../modules/integrations/service";
-import { saveInvoiceTx, getInvoice } from "../modules/goods/invoices";
-import { insertRow, nextCode, updateRow } from "../db/sql";
+import { updateRow } from "../db/sql";
 import { uuidv7 } from "@shared/id";
-import { D } from "@shared/money";
-import { todayISO } from "@shared/jalali";
-import { likeContains } from "../db";
-import { normalizeDigits } from "@shared/money";
 import { orgStatus, statusError } from "../modules/platform/org-admin";
 
 /** Act on behalf of the organisation's owner (webhooks and API keys have no signed-in user). */
-async function ownerCtx(cfg: ServerConfig, orgId: string): Promise<Ctx> {
+export async function ownerCtx(cfg: ServerConfig, orgId: string): Promise<Ctx> {
   const org = await cfg.db.one<OrgRow>(`select * from sm_orgs where id = $1 and deleted_at is null`, [orgId]);
   if (!org) throw notFound("سازمان پیدا نشد");
   const member = await cfg.db.one<MemberRow>(
@@ -27,79 +29,36 @@ async function ownerCtx(cfg: ServerConfig, orgId: string): Promise<Ctx> {
   );
   if (!member) throw forbidden("مالک سازمان پیدا نشد");
   const user = await cfg.db.one<AuthUser>(`select id, email, full_name, mobile, is_platform_admin, disabled, prefs from sm_users where id = $1`, [member.user_id]);
-  // a suspended business is closed to keys and shops as to its members (read-only refuses writes in ctx.write)
+  // a suspended organisation is closed to keys and webhooks as to its members (read-only refuses writes in ctx.write)
   const status = await orgStatus(cfg.db, orgId);
   if (status.status === "suspended") throw statusError(status);
   return makeCtx(cfg, user!, org, member, { status });
 }
 
-/** Turn an online order into a sales invoice (draft or posted, per integration settings). */
-async function orderToInvoice(ctx: Ctx, kind: IntegrationKind | "api", config: IntegrationConfig, order: NormalizedOrder, integrationId: string | null = null) {
-  if (!order.lines.length) throw bad("سفارش هیچ قلمی ندارد");
-  const factor = D(config.price_factor || "1");
-  return ctx.write(async (tx) => {
-    const existing = await tx.one<{ id: string; no: number }>(
-      // two shops of one business number their orders independently: an order is a duplicate only
-      // for the shop it came from (older invoices carry no shop and still count for every shop)
-      `select id, no from sm_invoices where org_id = $1 and source = $2 and external_ref = $3 and deleted_at is null
-         and (extra->>'integration_id' is null or extra->>'integration_id' = $4)`,
-      [ctx.org.id, kind, order.external_id, integrationId],
-    );
-    if (existing) return { invoice_id: existing.id, no: existing.no, duplicate: true };
-    const partyId = order.customer.mobile || order.customer.email ? await findOrCreateCustomer(tx, ctx.org.id, ctx.cfg.origin, order.customer) : config.default_party_id ?? null;
-    const matched = await matchItems(tx, ctx.org.id, order.lines);
-    const lines = [];
-    for (const { item_id, line } of matched) {
-      let itemId = item_id;
-      if (!itemId) {
-        // unknown product: created as a service item (no stock) for the accountant to review
-        itemId = uuidv7();
-        await insertRow(tx, "sm_items", {
-          id: itemId, org_id: ctx.org.id, code: await nextCode(tx, "sm_items", ctx.org.id, 10001), name: line.name.slice(0, 200) || "کالای فروشگاه اینترنتی",
-          kind: "service", sku: line.sku || null, sale_price: D(line.unit_price).times(factor).toString(), description: "ساخته‌شده از سفارش فروشگاه اینترنتی", origin: ctx.cfg.origin,
-        }, "id");
-      }
-      const vat = D((ctx.org.settings?.vat_pct as string) ?? "10");
-      let price = D(line.unit_price).times(factor);
-      if (config.prices_include_vat) price = price.div(D(1).plus(vat.div(100)));
-      lines.push({
-        item_id: itemId,
-        qty: line.qty,
-        unit_price: price.toDecimalPlaces(ctx.org.money_decimals + 2).toString(),
-        discount: D(line.discount ?? 0).times(factor).toString(),
-        warehouse_id: config.warehouse_id ?? null,
-      });
-    }
-    const fy = await tx.one(`select 1 from sm_fiscal_years where org_id = $1 and status <> 'closed' and deleted_at is null and start_date <= $2 and end_date >= $2`, [ctx.org.id, order.date]);
-    const date = fy ? order.date : todayISO((ctx.org.settings?.timezone as string) || "Asia/Tehran");
-    const input = {
-      kind: "sale" as const,
-      status: config.post ? ("posted" as const) : ("draft" as const),
-      date,
-      party_id: partyId,
-      warehouse_id: config.warehouse_id ?? null,
-      ref_no: `${kind === "api" ? "API" : kind}#${order.external_id}`.slice(0, 60),
-      additions: D(order.shipping || 0).times(factor).toString(),
-      discount: D(order.discount || 0).times(factor).toString(),
-      notes: `سفارش ${order.external_id} از ${kind === "woocommerce" ? "ووکامرس" : kind === "shopify" ? "شاپیفای" : "فروشگاه اینترنتی"}${order.paid ? " (پرداخت‌شده)" : ""}`,
-      lines,
-    };
-    const extra = integrationId ? { extra: { integration_id: integrationId } } : {};
-    let saved;
-    try {
-      await tx.query("savepoint sm_hook");
-      saved = await saveInvoiceTx(tx, ctx, input as never, null, extra);
-      await tx.query("release savepoint sm_hook");
-    } catch (e) {
-      // e.g. not enough stock to post: keep the order as a draft invoice for review
-      await tx.query("rollback to savepoint sm_hook");
-      if (input.status !== "posted") throw e;
-      saved = await saveInvoiceTx(tx, ctx, { ...input, status: "draft" } as never, null, extra);
-    }
-    await updateRow(tx, "sm_invoices", { id: saved.id, org_id: ctx.org.id }, { source: kind, external_ref: order.external_id, origin: ctx.cfg.origin });
-    return { invoice_id: saved.id, no: (saved as { no?: number }).no ?? null, duplicate: false };
-  });
+type EventRow = { id: string; integration_id: string | null; topic: string; external_id: string | null; payload: unknown };
+
+type Outcome = { handled: false } | { handled: true; ok: true; result: Record<string, unknown> } | { handled: true; ok: false; message: string };
+
+/**
+ * Hand a stored event to the module that handles its topic and record the outcome on the event. Without a
+ * handler the event keeps its status («دریافت شد»).
+ */
+async function processEvent(cfg: ServerConfig, orgId: string, ev: EventRow, integration: HookEvent["integration"]): Promise<Outcome> {
+  const handler = handlerFor(ev.topic);
+  if (!handler) return { handled: false };
+  try {
+    const ctx = await ownerCtx(cfg, orgId);
+    const result = (await handler(ctx, { id: ev.id, topic: ev.topic, external_id: ev.external_id, payload: ev.payload, integration })) ?? {};
+    await cfg.db.query(`update sm_integration_events set status = 'processed', result = $2, error = null where id = $1`, [ev.id, result]);
+    return { handled: true, ok: true, result };
+  } catch (e) {
+    const message = String((e as Error).message ?? e).slice(0, 500);
+    await cfg.db.query(`update sm_integration_events set status = 'failed', error = $2 where id = $1`, [ev.id, message]);
+    return { handled: true, ok: false, message };
+  }
 }
+
+const tooLarge = () => new AppError(413, "too_large", "حجم رویداد بیش از اندازهٔ مجاز است");
 
 // ---------------------------------------------------------------- webhooks (public)
 
@@ -111,117 +70,56 @@ hookRoutes.post("/:id", async (c) => {
   if (!/^[0-9a-f-]{36}$/i.test(id)) throw notFound("اتصال پیدا نشد");
   const integ = await loadIntegration(cfg.db, id);
   if (!integ.is_active) return c.json({ ok: false, message: "این اتصال غیرفعال است" }, 410);
+  if (Number(c.req.header("content-length") ?? 0) > MAX_HOOK_BYTES) throw tooLarge();
   const raw = await c.req.text();
-  const ct = c.req.header("content-type") ?? "";
-  // WooCommerce sends an unsigned form ping when the webhook is created
-  if (integ.kind === "woocommerce" && ct.includes("application/x-www-form-urlencoded") && raw.startsWith("webhook_id=")) return c.json({ ok: true, ping: true });
+  if (Buffer.byteLength(raw, "utf8") > MAX_HOOK_BYTES) throw tooLarge();
   const secret = integrationSecret(cfg.secret, integ.secret);
-  if (!verifySignature(integ.kind, secret, raw, (h) => c.req.header(h))) throw unauthorized("امضای درخواست معتبر نیست");
+  const header = (h: string) => c.req.header(h);
+  if (!verifySignature(secret, raw, header)) throw unauthorized("امضای درخواست معتبر نیست");
   let payload: unknown;
   try {
     payload = JSON.parse(raw);
   } catch {
-    throw bad("بدنه‌ی درخواست JSON نیست");
+    throw bad("بدنهٔ درخواست JSON نیست");
   }
-  const topic = c.req.header("x-wc-webhook-topic") ?? c.req.header("x-shopify-topic") ?? c.req.header("x-taraz-topic") ?? "order";
-  const isOrder = /order/i.test(topic);
-  const order = isOrder ? normalizeOrder(integ.kind, payload, topic) : null;
+  const topic = eventTopic(header, payload);
+  const externalId = eventExternalId(header, payload);
   const eventId = uuidv7();
   const inserted = await cfg.db.one<{ id: string }>(
     `insert into sm_integration_events (id, org_id, integration_id, topic, external_id, payload, status)
-     values ($1, $2, $3, $4, $5, $6, $7) on conflict do nothing returning id`,
-    [eventId, integ.org_id, integ.id, topic, order?.external_id ?? null, payload, isOrder ? "received" : "ignored"],
+     values ($1, $2, $3, $4, $5, $6, 'received') on conflict do nothing returning id`,
+    [eventId, integ.org_id, integ.id, topic, externalId, payload],
   );
   await cfg.db.query(`update sm_integrations set last_event_at = now() where id = $1`, [integ.id]);
+  // a retried delivery (the same sender event id) is stored once
   if (!inserted) return c.json({ ok: true, duplicate: true });
-  if (!order) return c.json({ ok: true, ignored: true });
-  try {
-    const ctx = await ownerCtx(cfg, integ.org_id);
-    const result = await orderToInvoice(ctx, integ.kind, integ.config ?? { post: false }, order, integ.id);
-    await cfg.db.query(`update sm_integration_events set status = 'processed', result = $2 where id = $1`, [eventId, result]);
-    return c.json({ ok: true, ...result });
-  } catch (e) {
-    const message = String((e as Error).message ?? e).slice(0, 500);
-    await cfg.db.query(`update sm_integration_events set status = 'failed', error = $2 where id = $1`, [eventId, message]);
-    // 200 so the shop does not retry forever; the event can be retried from the app
-    return c.json({ ok: false, message });
-  }
+  const ev = { id: eventId, integration_id: integ.id, topic, external_id: externalId, payload };
+  const outcome = await processEvent(cfg, integ.org_id, ev, { id: integ.id, name: integ.name, config: integ.config ?? {} });
+  if (!outcome.handled) return c.json({ ok: true, id: eventId, status: "received" });
+  // 200 even when the handler failed, so the sender does not retry forever; the event is retried from the app
+  if (!outcome.ok) return c.json({ ok: false, id: eventId, status: "failed", message: outcome.message });
+  return c.json({ ok: true, id: eventId, status: "processed", result: outcome.result });
 });
 
 // ---------------------------------------------------------------- public API (/api/v1)
 
 export const publicApiRoutes = router();
 
-async function apiCtx(c: C, scope: "read" | "write"): Promise<Ctx> {
+/** The organisation context of an API key with the given scope (refused without it); modules use it for their endpoints. */
+export async function apiCtx(c: C, scope: "read" | "write"): Promise<Ctx> {
   const cfg = c.get("cfg");
   const auth = c.req.header("authorization");
   const key = auth?.toLowerCase().startsWith("bearer ") ? auth.slice(7).trim() : c.req.header("x-api-key");
   const k = await resolveApiKey(cfg.db, key);
   if (!k) throw unauthorized("کلید API معتبر نیست");
-  if (!k.scopes.includes(scope)) throw forbidden("این کلید اجازه‌ی این کار را ندارد");
+  if (!k.scopes.includes(scope)) throw forbidden("این کلید اجازهٔ این کار را ندارد");
   return ownerCtx(cfg, k.org_id);
 }
 
+/** Checks a key: which organisation it opens. */
 publicApiRoutes.get("/ping", async (c) => {
   const ctx = await apiCtx(c, "read");
-  return c.json({ ok: true, org: { id: ctx.org.id, name: ctx.org.name, base_currency: ctx.org.base_currency } });
-});
-
-publicApiRoutes.get("/items", async (c) => {
-  const ctx = await apiCtx(c, "read");
-  const q = c.req.query("q") ?? "";
-  const n = Math.trunc(Number(c.req.query("page") ?? 1));
-  const page = Number.isFinite(n) ? Math.min(Math.max(1, n), 100_000) : 1;
-  const params: unknown[] = [ctx.org.id];
-  let cond = "i.org_id = $1 and i.deleted_at is null and i.is_active";
-  if (q) {
-    params.push(likeContains(normalizeDigits(q)));
-    cond += ` and (i.name ilike $2 or i.code ilike $2 or i.sku ilike $2 or i.barcode ilike $2)`;
-  }
-  const rows = await ctx.db.query(
-    `select i.id, i.code, i.name, i.kind, i.sku, i.barcode, i.sale_price, i.vat_pct,
-            coalesce((select sum(m.qty) from sm_stock_moves m where m.org_id = i.org_id and m.item_id = i.id), 0) as stock
-     from sm_items i where ${cond} order by i.code limit 100 offset ${(page - 1) * 100}`,
-    params,
-  );
-  return c.json({ items: rows, page });
-});
-
-publicApiRoutes.get("/parties", async (c) => {
-  const ctx = await apiCtx(c, "read");
-  const mobile = c.req.query("mobile");
-  const email = c.req.query("email");
-  const rows = await ctx.db.query(
-    `select id, code, name, mobile, email, national_id from sm_parties where org_id = $1 and deleted_at is null
-       and (($2::text is not null and mobile = $2) or ($3::text is not null and lower(email) = lower($3))) limit 20`,
-    [ctx.org.id, mobile ?? null, email ?? null],
-  );
-  return c.json({ parties: rows });
-});
-
-const apiOrderSchema = z.object({
-  id: z.union([z.string(), z.number()]),
-  date: z.string().optional(),
-  post: z.boolean().optional(),
-  customer: z.object({ name: z.string(), mobile: z.string().nullish(), email: z.string().nullish(), national_id: z.string().nullish(), postal_code: z.string().nullish(), address: z.string().nullish(), city: z.string().nullish() }),
-  items: z.array(z.object({ sku: z.string().nullish(), name: z.string(), qty: z.union([z.string(), z.number()]), price: z.union([z.string(), z.number()]), discount: z.union([z.string(), z.number()]).nullish() })).min(1),
-  shipping: z.union([z.string(), z.number()]).nullish(),
-  discount: z.union([z.string(), z.number()]).nullish(),
-  warehouse_id: z.string().uuid().nullish(),
-});
-
-publicApiRoutes.post("/orders", async (c) => {
-  const ctx = await apiCtx(c, "write");
-  const input = await body(c, apiOrderSchema);
-  const order = normalizeOrder("generic", { ...input, id: String(input.id) }, "order");
-  const result = await orderToInvoice(ctx, "api", { post: !!input.post, warehouse_id: input.warehouse_id ?? null }, order);
-  return c.json({ ok: true, ...result });
-});
-
-publicApiRoutes.get("/invoices/:id", async (c) => {
-  const ctx = await apiCtx(c, "read");
-  const inv = await getInvoice(ctx, c.req.param("id"));
-  return c.json({ invoice: { id: inv.id, kind: inv.kind, no: inv.no, date: inv.date, status: inv.status, total: inv.total, allocated: inv.allocated ?? null, party_id: inv.party_id } });
+  return c.json({ ok: true, org: { id: ctx.org.id, name: ctx.org.name } });
 });
 
 // ---------------------------------------------------------------- management (/api/o/:org/integrations)
@@ -231,7 +129,7 @@ export const integrationRoutes = router();
 integrationRoutes.get("/", async (c) => {
   const ctx = c.get("ctx");
   ctx.need("integrations", "view");
-  const rows = await ctx.db.query(
+  const rows = await ctx.db.query<{ id: string }>(
     `select id, kind, name, config, is_active, last_event_at, created_at,
             (select count(*)::int from sm_integration_events e where e.integration_id = i.id) as events,
             (select count(*)::int from sm_integration_events e where e.integration_id = i.id and e.status = 'failed') as failed
@@ -241,26 +139,32 @@ integrationRoutes.get("/", async (c) => {
   return c.json({ integrations: rows.map((r) => ({ ...r, webhook_path: `/api/hooks/${r.id}` })) });
 });
 
-const configSchema = z.object({
-  post: z.boolean().default(false),
-  warehouse_id: z.string().uuid().nullish(),
-  default_party_id: z.string().uuid().nullish(),
-  prices_include_vat: z.boolean().optional(),
-  price_factor: z.string().max(20).optional(),
-});
+const description = z.string().trim().max(400).nullish();
 
 integrationRoutes.post("/", async (c) => {
   const ctx = c.get("ctx");
-  const input = await body(c, z.object({ kind: z.enum(["woocommerce", "shopify", "generic"]), name: z.string().trim().min(2).max(120), config: configSchema, secret: z.string().max(200).nullish() }));
-  return c.json({ integration: await createIntegration(ctx, input) });
+  const input = await body(c, z.object({
+    name: z.string().trim().min(2, "نام اتصال را وارد کنید").max(120),
+    description,
+    secret: z.union([z.literal(""), z.string().trim().min(16, "کلید امضا دست‌کم ۱۶ نویسه است").max(200)]).nullish(),
+  }));
+  const config: IntegrationConfig = { description: input.description || null };
+  return c.json({ integration: await createIntegration(ctx, { name: input.name, config, secret: input.secret || null }) });
 });
 
 integrationRoutes.patch("/:id", async (c) => {
   const ctx = c.get("ctx");
   ctx.need("integrations", "full");
-  const input = await body(c, z.object({ name: z.string().trim().min(2).max(120).optional(), config: configSchema.optional(), is_active: z.boolean().optional() }));
-  const row = await ctx.write((tx) => updateRow(tx, "sm_integrations", { id: c.req.param("id"), org_id: ctx.org.id }, { ...input, origin: ctx.cfg.origin }, "id, kind, name, config, is_active"));
-  if (!row) throw notFound("اتصال پیدا نشد");
+  const input = await body(c, z.object({ name: z.string().trim().min(2).max(120).optional(), description, is_active: z.boolean().optional() }));
+  const row = await ctx.write(async (tx) => {
+    const cur = await tx.one<{ config: IntegrationConfig }>(`select config from sm_integrations where id = $1 and org_id = $2 and deleted_at is null`, [c.req.param("id"), ctx.org.id]);
+    if (!cur) throw notFound("اتصال پیدا نشد");
+    const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+    if (input.name !== undefined) patch.name = input.name;
+    if (input.is_active !== undefined) patch.is_active = input.is_active;
+    if (input.description !== undefined) patch.config = { ...(cur.config ?? {}), description: input.description || null };
+    return updateRow(tx, "sm_integrations", { id: c.req.param("id"), org_id: ctx.org.id }, patch, "id, kind, name, config, is_active");
+  });
   return c.json({ integration: row });
 });
 
@@ -274,35 +178,44 @@ integrationRoutes.delete("/:id", async (c) => {
 integrationRoutes.get("/events", async (c) => {
   const ctx = c.get("ctx");
   ctx.need("integrations", "view");
+  const integration = c.req.query("integration");
+  const params: unknown[] = [ctx.org.id];
+  if (integration && /^[0-9a-f-]{36}$/i.test(integration)) params.push(integration);
   const rows = await ctx.db.query(
     `select e.id, e.integration_id, e.received_at, e.topic, e.external_id, e.status, e.result, e.error, i.name as integration_name
      from sm_integration_events e left join sm_integrations i on i.id = e.integration_id
-     where e.org_id = $1 order by e.received_at desc limit 200`,
-    [ctx.org.id],
+     where e.org_id = $1 ${params.length > 1 ? "and e.integration_id = $2" : ""} order by e.received_at desc limit 200`,
+    params,
   );
   return c.json({ events: rows });
+});
+
+/** One delivery with its body as the sender sent it. */
+integrationRoutes.get("/events/:id", async (c) => {
+  const ctx = c.get("ctx");
+  ctx.need("integrations", "view");
+  const ev = await ctx.db.one(
+    `select e.id, e.integration_id, e.received_at, e.topic, e.external_id, e.status, e.result, e.error, e.payload, i.name as integration_name
+     from sm_integration_events e left join sm_integrations i on i.id = e.integration_id where e.id = $1 and e.org_id = $2`,
+    [c.req.param("id"), ctx.org.id],
+  );
+  if (!ev) throw notFound("رویداد پیدا نشد");
+  return c.json({ event: ev });
 });
 
 integrationRoutes.post("/events/:id/retry", async (c) => {
   const ctx = c.get("ctx");
   ctx.need("integrations", "edit");
-  const ev = await ctx.db.one<{ id: string; integration_id: string; payload: unknown; topic: string }>(
-    `select id, integration_id, payload, topic from sm_integration_events where id = $1 and org_id = $2`,
+  const ev = await ctx.db.one<EventRow>(
+    `select id, integration_id, topic, external_id, payload from sm_integration_events where id = $1 and org_id = $2`,
     [c.req.param("id"), ctx.org.id],
   );
   if (!ev) throw notFound("رویداد پیدا نشد");
-  const integ = await loadIntegration(ctx.db, ev.integration_id);
-  const order = normalizeOrder(integ.kind, ev.payload, ev.topic);
-  try {
-    const owner = await ownerCtx(ctx.cfg, ctx.org.id);
-    const result = await orderToInvoice(owner, integ.kind, integ.config ?? { post: false }, order, integ.id);
-    await ctx.db.query(`update sm_integration_events set status = 'processed', result = $2, error = null where id = $1`, [ev.id, result]);
-    return c.json({ ok: true, ...result });
-  } catch (e) {
-    const message = String((e as Error).message ?? e).slice(0, 500);
-    await ctx.db.query(`update sm_integration_events set status = 'failed', error = $2 where id = $1`, [ev.id, message]);
-    throw bad(message);
-  }
+  if (!handlerFor(ev.topic)) throw bad(`برای رویدادهای «${ev.topic}» هنوز پردازشی تعریف نشده است`);
+  const integ = ev.integration_id ? await loadIntegration(ctx.db, ev.integration_id).catch(() => null) : null;
+  const outcome = await processEvent(ctx.cfg, ctx.org.id, ev, { id: integ?.id ?? "", name: integ?.name ?? "", config: integ?.config ?? {} });
+  if (outcome.handled && !outcome.ok) throw bad(outcome.message);
+  return c.json({ ok: true, result: outcome.handled ? outcome.result : null });
 });
 
 integrationRoutes.get("/api-keys", async (c) => {
@@ -325,6 +238,7 @@ integrationRoutes.post("/api-keys", async (c) => {
 integrationRoutes.delete("/api-keys/:id", async (c) => {
   const ctx = c.get("ctx");
   ctx.need("integrations", "full");
-  await ctx.db.query(`update sm_api_keys set revoked_at = now() where id = $1 and org_id = $2`, [c.req.param("id"), ctx.org.id]);
+  // revoking closes a door: allowed even while the organisation is read-only
+  await ctx.db.query(`update sm_api_keys set revoked_at = now() where id = $1 and org_id = $2 and revoked_at is null`, [c.req.param("id"), ctx.org.id]);
   return c.json({ ok: true });
 });

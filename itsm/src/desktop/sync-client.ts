@@ -138,7 +138,7 @@ export class SyncClient {
       const exists = await this.o.db.one(`select 1 from sm_orgs where id = $1`, [orgId]);
       const others = await this.o.db.one<{ n: number }>(`select count(*)::int as n from sm_orgs where id <> $1 and deleted_at is null`, [orgId]);
       if (!exists && (others?.n ?? 0) > 0) {
-        // allowed: several businesses side by side; nothing to clear
+        // allowed: several organisations side by side; nothing to clear
       }
     }
     const reg = await this.api<{ device_id: string }>("/sync/register", { url, token, body: { org_id: orgId, device_id: this.o.config.device_id, name: hostname(), platform: "windows", app_version: APP_VERSION } });
@@ -338,7 +338,7 @@ export class SyncClient {
       this.state.running = true;
       try {
         await this.afterUpgrade();
-        // a push the cloud refuses (a business made read-only by the platform admin, an older
+        // a push the cloud refuses (an organisation made read-only by the platform admin, an older
         // server) must not stop this computer from receiving the cloud's changes
         let refused: string | null = null;
         try {

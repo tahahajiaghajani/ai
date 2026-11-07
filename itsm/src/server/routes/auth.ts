@@ -34,7 +34,7 @@ authRoutes.post("/signup", async (c) => {
   if (exists) throw bad("با این ایمیل قبلاً حساب ساخته شده است؛ وارد شوید");
   const recovery = readableCode(4, 4);
   // the first account administers the platform only while no owner email is configured;
-  // otherwise whoever reached a fresh deployment first would see every business
+  // otherwise whoever reached a fresh deployment first would see every organisation
   const isAdmin = bootstrap || (first && !cfg.platformAdmins.length);
   const user = await cfg.db.one<{ id: string }>(
     `insert into sm_users (id, email, full_name, mobile, password_hash, recovery_hash, is_platform_admin)
@@ -75,7 +75,7 @@ authRoutes.post("/login", async (c) => {
   if (!ok && cfg.desktop?.cloudLogin) {
     const r: { ok: boolean; user_id?: string; unreachable?: boolean; limited?: boolean } =
       await cfg.desktop.cloudLogin(input.email, input.password).catch(() => ({ ok: false, unreachable: true }));
-    if (r.limited) throw tooMany("وب‌سایت سیراف تلاش‌های زیاد این حساب را موقتاً نمی‌پذیرد؛ چند دقیقه بعد دوباره امتحان کنید");
+    if (r.limited) throw tooMany("نسخهٔ وب تلاش‌های زیاد این حساب را موقتاً نمی‌پذیرد؛ چند دقیقه بعد دوباره امتحان کنید");
     unreachable = !!r.unreachable;
     if (r.ok && r.user_id) {
       user = await cfg.db.one(`select id, password_hash, disabled from sm_users where id = $1 and lower(email) = $2`, [r.user_id, input.email]);
@@ -94,7 +94,7 @@ authRoutes.post("/login", async (c) => {
   }
   if (cfg.platformAdmins.includes(input.email)) {
     // only while the platform has no active administrator (see sign-up): otherwise whoever made an
-    // account with a listed address first — by sign-up or as a business's new member — would get it
+    // account with a listed address first — by sign-up or as an organisation's new member — would get it
     const promoted = await cfg.db.one(
       `update sm_users set is_platform_admin = true where id = $1 and not is_platform_admin
          and not exists (select 1 from sm_users a where a.is_platform_admin and not a.disabled) returning id`,

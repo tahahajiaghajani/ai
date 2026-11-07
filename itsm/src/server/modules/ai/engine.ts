@@ -1,7 +1,6 @@
-// AI engine — public API. Features (stream D) call `generate` for single answers (explanations,
-// digests, plans, document reading); the assistant loop lives in ./agent.ts. Every call goes
-// through the job's routing chain (fallbacks, holds), the budgets, the usage ledger and the
-// business's data policy.
+// AI engine — public API. A module's AI feature calls `generate` for a single answer (a summary, a classification,
+// reading a document…); the assistant loop lives in ./agent.ts. Every call goes through the job's routing chain
+// (fallbacks, holds), the budgets, the usage ledger and the organisation's data policy.
 import type { z } from "zod";
 import type { Ctx } from "../../context";
 import type { AiEffort, AiErrorKind, AiJob, AiSettings } from "@shared/ai/types";
@@ -27,11 +26,11 @@ export interface GenerateAttachment {
 
 export interface GenerateOptions<S extends z.ZodTypeAny | undefined = undefined> {
   job: AiJob;
-  /** usage-ledger label: "explain" | "capture" | "digest" | "plan" | "forecast" | … */
+  /** usage-ledger label of the feature (registered with registerAiFeature in ./settings), e.g. "summary" */
   feature: string;
   /** stable instructions (cached by providers) */
   system: string;
-  /** the user turn: data and question; untrusted business text must be wrapped as data */
+  /** the user turn: data and question; untrusted text of the organisation must be wrapped as data */
   prompt: string;
   attachments?: GenerateAttachment[];
   /** structured output: the reply is parsed and validated against this schema */
@@ -59,7 +58,7 @@ export async function generate<S extends z.ZodTypeAny | undefined = undefined>(
   const env = await loadEnv(ctx);
   const sw = FEATURE_SWITCH[opts.feature];
   if (sw && !env.settings.features[sw]) throw unavailable(ctx, "disabled");
-  if (opts.attachments?.length && !env.settings.features.capture) throw unavailable(ctx, "disabled");
+  if (opts.attachments?.length && !env.settings.features.files) throw unavailable(ctx, "disabled");
   const parts: Part[] = [
     ...(opts.attachments ?? []).map((a) => ({ type: "file" as const, name: a.name, mime: a.mime, data: a.data })),
     // data blocks are redacted as structured data (names hidden under "aggregates"), the rest as typed text

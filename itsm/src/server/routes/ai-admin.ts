@@ -1,4 +1,4 @@
-// /api/admin/ai — platform AI policy and usage across businesses (never keys, prompts or
+// /api/admin/ai — platform AI policy and usage across organisations (never keys, prompts or
 // conversations). Mounted by ./admin.ts behind the platform-admin check.
 import { router, body } from "../http/hono";
 import { platformAudit } from "../modules/platform/audit";

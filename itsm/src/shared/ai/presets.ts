@@ -1,6 +1,6 @@
 // AI provider presets: what the connection form offers. Client-safe (the settings page imports it).
 // Models listed here are suggestions only — the real list is read from the provider when a key is
-// tested, and the business decides; nothing here ever replaces a model the business chose.
+// tested, and the organisation decides; nothing here ever replaces a model the organisation chose.
 import type { AiProtocol } from "./types";
 
 export type AiRuntime = "web" | "desktop";
@@ -12,9 +12,9 @@ export interface AiPreset {
   /** Persian label of the provider */
   label: string;
   protocol: AiProtocol;
-  /** protocols the business may pick instead (custom services) */
+  /** protocols the organisation may pick instead (custom services) */
   protocols?: AiProtocol[];
-  /** default base URL; null = typed by the business */
+  /** default base URL; null = typed by the organisation */
   base_url: string | null;
   base_url_required: boolean;
   /** other hosts of the same service tried by «آزمایش اتصال» when the default cannot be reached */
@@ -419,7 +419,7 @@ export function presetById(id: string | null | undefined): AiPreset | null {
   return (id && BY_ID.get(id)) || null;
 }
 
-/** Presets a business may pick on this runtime (and under the platform policy). */
+/** Presets an organisation may pick on this runtime (and under the platform policy). */
 export function presetsFor(opts: { desktop: boolean; fake: boolean; allowedPresets?: string[] | null; allowedProtocols?: AiProtocol[] | null }): AiPreset[] {
   return AI_PRESETS.filter(
     (p) =>
@@ -439,5 +439,5 @@ export function modelOptions(preset: AiPreset | null, available: string[] | null
   return [...out];
 }
 
-/** A model id the business may type (provider ids contain letters, digits and . : / @ - _ [ ]). */
+/** A model id the organisation may type (provider ids contain letters, digits and . : / @ - _ [ ]). */
 export const MODEL_ID_RE = /^[\w.:/@[\]+-]{1,160}$/;

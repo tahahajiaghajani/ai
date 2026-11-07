@@ -1,4 +1,4 @@
-// The canvas sidebar (components.md §1.2): business switcher, space switcher, command entry, the
+// The canvas sidebar (components.md §1.2): organisation switcher, space switcher, command entry, the
 // space's nav with section labels and counts, «نشان‌شده‌ها», and the footer with the sync state.
 // `rail` draws the 60 px icon rail (collapsed, or windows narrower than 1100 px).
 import { useMemo, useRef, useState, type ReactNode, type PointerEvent as RPointerEvent } from "react";
@@ -10,7 +10,7 @@ import { useOrg } from "../../lib/org";
 import { useSession } from "../../lib/session";
 import { fa } from "../../lib/fa";
 import { ROLES, type Role } from "@shared/permissions";
-import type { NavCount, Space, SpaceKey } from "../../modules/registry";
+import type { Space, SpaceKey } from "../../modules/registry";
 import { BrandTile } from "../brand";
 import { Ic, Keys } from "./icons";
 import { sectionsOf, spaceOf, useStored, type ShellItem } from "./model";
@@ -42,45 +42,26 @@ export interface SidebarProps {
 }
 
 // ---------------------------------------------------------------- counts
-function useCounts(enabled: { drafts: boolean; cheques: boolean }) {
-  const { api, orgId, fy } = useOrg();
+
+/** The live counts of the rows that have one (modules' cheap queries), by count key; refreshed every two minutes. */
+function useCounts(items: ShellItem[]): Record<string, number> | undefined {
+  const { api, orgId } = useOrg();
+  const defs = useMemo(() => {
+    const seen = new Map<string, NonNullable<ShellItem["count"]>>();
+    for (const i of items) if (i.count && !seen.has(i.count.key)) seen.set(i.count.key, i.count);
+    return [...seen.values()];
+  }, [items]);
   const q = useQuery({
-    queryKey: ["shell-counts", orgId, fy?.id, enabled.drafts, enabled.cheques],
-    queryFn: async () => {
-      const [d, c] = await Promise.all([
-        enabled.drafts
-          ? api
-              .get<{
-                total: number;
-              }>("/accounting/vouchers", { status: "draft", size: 1, ...(fy ? { fiscal_year_id: fy.id } : {}) })
-              .catch(() => null)
-          : null,
-        enabled.cheques
-          ? api
-              .get<{
-                total: number;
-              }>("/treasury/cheques", { direction: "received", overdue: "1", size: 1 })
-              .catch(() => null)
-          : null,
-      ]);
-      return {
-        "draft-vouchers": d?.total ?? 0,
-        "overdue-cheques": c?.total ?? 0,
-      } as Record<NavCount, number>;
-    },
-    enabled: enabled.drafts || enabled.cheques,
+    queryKey: ["shell-counts", orgId, defs.map((d) => d.key).join(",")],
+    queryFn: async () => Object.fromEntries(await Promise.all(defs.map(async (d) => [d.key, await d.load(api).catch(() => 0)] as const))),
+    enabled: defs.length > 0,
     staleTime: 60_000,
     refetchInterval: 120_000,
   });
   return q.data;
 }
 
-const COUNT_HINT: Record<NavCount, string> = {
-  "draft-vouchers": "سند پیش‌نویس",
-  "overdue-cheques": "چک سررسیدگذشته",
-};
-
-// ---------------------------------------------------------------- business switcher
+// ---------------------------------------------------------------- organisation switcher
 function initial(name: string) {
   return name.trim().slice(0, 1);
 }
@@ -232,7 +213,7 @@ function NavRow({
       {item.icon ? <Ic icon={item.icon} /> : <span className="sh-dot" aria-hidden />}
       {rail ? null : <span className="sh-label">{item.label}</span>}
       {!rail && count ? (
-        <span className="sh-count ds-num" title={item.count ? `${fa(count)} ${COUNT_HINT[item.count]}` : undefined}>
+        <span className="sh-count ds-num" title={item.count ? `${fa(count)} ${item.count.hint}` : undefined}>
           {fa(count)}
         </span>
       ) : null}
@@ -333,11 +314,7 @@ function Footer({ rail, onSettings, onNavigate, settingsActive }: { rail?: boole
 // ---------------------------------------------------------------- sidebar
 export function Sidebar(p: SidebarProps) {
   const { items, spaces, space, active, rail, pins } = p;
-  const { can } = useOrg();
-  const counts = useCounts({
-    drafts: can("accounting"),
-    cheques: can("treasury"),
-  });
+  const counts = useCounts(items);
   const [closed, setClosed] = useStored<string[]>("itsm.nav.closed", []);
   const { common, sections } = useMemo(() => sectionsOf(items, space), [items, space]);
   const pinned = useMemo(() => pins.map((k) => items.find((i) => i.key === k)).filter((i): i is ShellItem => !!i), [pins, items]);
@@ -350,7 +327,7 @@ export function Sidebar(p: SidebarProps) {
       item={i}
       active={active?.key === i.key && !bookmark}
       rail={rail}
-      count={i.count ? counts?.[i.count] : undefined}
+      count={i.count ? counts?.[i.count.key] : undefined}
       pinned={pins.includes(i.key)}
       canPin={pins.length < MAX_PINS}
       onTogglePin={() => togglePin(i.key)}

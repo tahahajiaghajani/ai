@@ -1,12 +1,11 @@
-// The glass top bar (components.md §1.3): sidebar toggle and breadcrumb at the start; the fiscal year, the
-// theme and the account menu at the end. No page title: the page owns it. The Windows app is reached from
+// The glass top bar (components.md §1.3): sidebar toggle and breadcrumb at the start; the assistant, the theme
+// and the account menu at the end. No page title: the page owns it. The Windows app is reached from
 // the sidebar footer's state («روی همین رایانه»). Its menus use the strong glass (they float over the
 // page's primary button, which would bleed through the lighter one).
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { Dropdown, Tooltip, type MenuProps } from "antd";
-import { useQueryClient } from "@tanstack/react-query";
-import { PanelRight, Menu, Search, ChevronLeft, ChevronDown, Calendar, Sun, Moon, SunMoon, Check, KeyRound, LogOut, Building2, CircleHelp, ShieldCheck } from "lucide-react";
+import { PanelRight, Menu, Search, ChevronLeft, Sun, Moon, SunMoon, Check, KeyRound, LogOut, Building2, CircleHelp, ShieldCheck } from "lucide-react";
 import { APP_NAME } from "@shared/constants";
 import { useOrg } from "../../lib/org";
 import { useSession } from "../../lib/session";
@@ -85,51 +84,6 @@ function Crumbs({ crumbs, pathKey }: { crumbs: Crumb[]; pathKey: string }) {
         );
       })}
     </nav>
-  );
-}
-
-// ---------------------------------------------------------------- fiscal year
-function FiscalYear() {
-  const { info, fy, setFy } = useOrg();
-  const qc = useQueryClient();
-  if (!info.fiscal_years.length || !fy) return null;
-  const closed = (s: string) => s === "closed";
-  const menu: MenuProps = {
-    items: [
-      {
-        key: "g",
-        type: "group",
-        label: "سال مالی",
-        children: info.fiscal_years.map((f) => ({
-          key: f.id,
-          label: (
-            <span className="sh-menu-row">
-              <span>{f.title}</span>
-              {closed(f.status) ? <span className="sh-menu-meta">بسته</span> : null}
-              {f.id === fy.id ? <Ic icon={Check} className="sh-menu-check" /> : null}
-            </span>
-          ),
-          onClick: () => {
-            if (f.id === fy.id) return;
-            setFy(f.id);
-            qc.invalidateQueries();
-          },
-        })),
-      },
-    ],
-  };
-  return (
-    <Dropdown trigger={["click"]} menu={menu} rootClassName="ds-glass sh-menu sh-menu-strong" placement="bottomLeft">
-      <button type="button" className="sh-fy" aria-label={`سال مالی: ${fy.title}، تغییر سال مالی`}>
-        <Ic icon={Calendar} />
-        <span className="sh-fy-t">
-          {/^سال مالی/.test(fy.title) || !/^سال/.test(fy.title) ? <span className="sh-fy-pre">سال مالی </span> : null}
-          {fy.title.replace(/^سال مالی\s*/, "")}
-        </span>
-        {closed(fy.status) ? <span className="sh-fy-closed">(بسته)</span> : null}
-        <Ic icon={ChevronDown} size={14} className="sh-fy-chev" />
-      </button>
-    </Dropdown>
   );
 }
 
@@ -215,7 +169,7 @@ function Account() {
 }
 
 // ---------------------------------------------------------------- assistant
-/** «دستیار» (Ctrl J): opens «دستیار سیراف»; on phones the AI mark alone. Hidden for people who cannot ask. */
+/** «دستیار» (Ctrl J): opens the assistant; on phones the AI mark alone. Hidden for people who cannot ask. */
 function AssistantButton({ compact }: { compact: boolean }) {
   const canAsk = useCanAsk();
   const status = useAiStatus();
@@ -260,7 +214,6 @@ export function Topbar({ crumbs, pathKey, onToggle, toggleLabel, onSearch, drawe
             <Ic icon={Search} />
           </button>
         ) : null}
-        <FiscalYear />
         <ThemeSwitch />
         <Account />
       </div>

@@ -82,7 +82,7 @@ export async function loadEnv(ctx: Ctx): Promise<AiEnv> {
     loadPolicy(ctx.cfg),
     ctx.cfg.mode === "cloud" ? orgAiDisabled(ctx.db, ctx.org.id).catch(() => false) : false,
   ]);
-  // «مدیریت سامانه» can switch one business off (sm_org_admin) as well as through the policy
+  // «مدیریت سامانه» can switch one organisation off (sm_org_admin) as well as through the policy
   if (offByAdmin && !policy.disabled_orgs.includes(ctx.org.id)) policy.disabled_orgs = [...policy.disabled_orgs, ctx.org.id];
   return { settings, policy };
 }
@@ -146,7 +146,7 @@ async function hold(ctx: Ctx, connectionId: string, model: string, ms: number, k
     .catch(() => undefined);
 }
 
-/** The ordered chain for a job: the business's routing, or every enabled connection with its tier model. */
+/** The ordered chain for a job: the organisation's routing, or every enabled connection with its tier model. */
 export async function chainFor(ctx: Ctx, job: AiJob, env: AiEnv): Promise<{ entries: ChainEntry[]; held: AiErrorKind | null; total: number }> {
   const rows = (await connectionRows(ctx.db, ctx.org.id)).filter((r) => rowAllowed(ctx, r, env.policy));
   const byId = new Map(rows.map((r) => [r.id, r]));
@@ -193,8 +193,7 @@ export async function assertUsable(ctx: Ctx, env: AiEnv): Promise<void> {
 
 /**
  * The second try after a provider rejected a request as invalid: without the effort setting.
- * Files stay: a reading of a document the model never saw (capture caches it for 30 days) or an
- * answer about an attachment it did not get is worse than moving on to the next connection.
+ * Files stay: an answer about an attachment the model never saw is worse than moving on to the next connection.
  */
 function stripForRetry(req: Omit<TurnRequest, "model">): Omit<TurnRequest, "model"> | null {
   if (!req.effort) return null;

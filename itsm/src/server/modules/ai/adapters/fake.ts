@@ -2,8 +2,8 @@
 // touches the network. What the last user message asks decides what it does:
 //   [tool:NAME {json}]      call tool NAME with that input (several directives → parallel calls)
 //   [loop:N NAME {json}]    call NAME again after each result until it ran N times, then answer
-//   «فروش»                  analyze_metric {metric:"sales_amount"} (when the tool is offered)
-//   «پیش‌نویس فاکتور»        propose_invoice {kind:"sale"} (when offered)
+//   «اعضا» / «عضو»           list_members {} (when the tool is offered)
+//   «امروز» / «دسترسی»       get_org_context {} (when offered)
 //   [json:{...}]            structured output: return exactly this JSON (also found in the bytes of an attached file)
 //   [error:KIND]            fail with that AiErrorKind (e.g. rate, auth, region, quota, overloaded)
 //   [refuse]                refuse   ·  [think] stream a short reasoning first  ·  [slow] stream slowly
@@ -32,7 +32,7 @@ function lastUserText(messages: NeutralMessage[]): string {
     const m = messages[i];
     if (m.role !== "user") continue;
     const t = m.parts.filter((p) => p.type === "text").map((p) => (p as { text: string }).text).join("\n");
-    // the business context block is not part of the question
+    // the context block is not part of the question
     if (t.trim() && !m.parts.some((p) => p.type === "tool_result")) return t.replace(/<context>[\s\S]*?<\/context>/g, "").trim();
   }
   return "";
@@ -212,13 +212,13 @@ export function fakeAdapter(connectionId: string): Adapter {
         }
       } else if (!results.length && !req.output) {
         calls = directives(question).filter((d) => offered.has(d.name));
-        if (!calls.length && /پیش‌?نویس فاکتور/.test(question) && offered.has("propose_invoice")) calls = [{ name: "propose_invoice", input: { kind: "sale" } }];
-        else if (!calls.length && /فروش/.test(question) && offered.has("analyze_metric")) calls = [{ name: "analyze_metric", input: { metric: "sales_amount" } }];
+        if (!calls.length && /اعضا|عضو/.test(question) && offered.has("list_members")) calls = [{ name: "list_members", input: {} }];
+        else if (!calls.length && /امروز|دسترسی/.test(question) && offered.has("get_org_context")) calls = [{ name: "get_org_context", input: {} }];
       }
       if (calls.length) {
         const step = req.messages.length;
         const toolCalls: ToolCall[] = calls.map((c, i) => ({ id: `fake_${step}_${i}`, name: c.name, input: c.input }));
-        const text = await emit(results.length ? "" : "برای پاسخ، داده‌ها را از دفاتر می‌خوانم.");
+        const text = await emit(results.length ? "" : "برای پاسخ، داده‌ها را از سامانه می‌خوانم.");
         usage.output = estimate(text) + 20;
         return { text, toolCalls, stop: req.signal?.aborted ? "aborted" : "tool", usage, model: req.model, native: { role: "assistant", content: text || null } };
       }

@@ -1,35 +1,31 @@
-// Integrations: API keys for other programs (and online shops) and webhook receivers that turn
-// online orders (WooCommerce, Shopify or any JSON) into sales invoices automatically — so a
-// business with a website does not need someone to type its orders in.
+// Integrations: API keys for other programs (/api/v1) and inbound webhooks (/api/hooks/:id) that receive signed
+// JSON events from other systems — monitoring, forms, chat tools, another service desk. Every delivery is
+// stored (sm_integration_events, deduplicated by the sender's event id); a module that understands a topic
+// registers a handler with `registerTopicHandler` and turns the event into its own records. Without a
+// handler the event is kept as «دریافت شد» for people to see (and to process later with «تلاش دوباره»).
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { Ctx } from "../../context";
-import type { Db, Tx } from "../../db";
-import { insertRow, nextCode } from "../../db/sql";
+import type { Db } from "../../db";
+import { insertRow } from "../../db/sql";
 import { bad, notFound } from "../../http/errors";
 import { randomToken, sha256 } from "../../auth/password";
 import { uuidv7 } from "@shared/id";
-import { D } from "@shared/money";
-import { normalizeMobile } from "@shared/validate";
-import { ensureDetail } from "../accounting/details";
 import { encryptSecret, decryptSecret } from "./crypto";
 
-export type IntegrationKind = "woocommerce" | "shopify" | "generic";
+/** The only kind today: a webhook that receives signed JSON. Later connectors (directory, e-mail…) add theirs. */
+export type IntegrationKind = "webhook";
 
 export interface IntegrationConfig {
-  /** create invoices as drafts (to review) or post them directly */
-  post: boolean;
-  /** warehouse used for stock moves */
-  warehouse_id?: string | null;
-  /** party used when the order has no identifiable customer */
-  default_party_id?: string | null;
-  /** price includes VAT (most Iranian shops) */
-  prices_include_vat?: boolean;
-  /** shop currency → base: multiply prices (e.g. toman shop on a rial ledger: 10) */
-  price_factor?: string;
+  /** what the sending system is and what it sends (shown on the integrations page) */
+  description?: string | null;
 }
+
+/** The largest webhook body accepted (bytes of the raw text). */
+export const MAX_HOOK_BYTES = 1_000_000;
 
 // ---------------------------------------------------------------- API keys
 
+/** A new API key: `sm_<prefix>_<secret>`. Only its SHA-256 is stored; the key is shown once. */
 export async function createApiKey(ctx: Ctx, name: string, scopes: string[]) {
   ctx.need("integrations", "full");
   const prefix = randomToken(6).replace(/[^A-Za-z0-9]/g, "").slice(0, 8).padEnd(8, "x");
@@ -56,160 +52,91 @@ export async function resolveApiKey(db: Db, key: string | null | undefined): Pro
   return { org_id: row.org_id, scopes: row.scopes ?? [], id: row.id };
 }
 
-// ---------------------------------------------------------------- integrations
+// ---------------------------------------------------------------- webhooks
 
-export async function createIntegration(ctx: Ctx, input: { kind: IntegrationKind; name: string; config: IntegrationConfig; secret?: string | null }) {
+/** A webhook: the secret is chosen by the person (the sending system's own) or made here, and stored encrypted. */
+export async function createIntegration(ctx: Ctx, input: { name: string; config?: IntegrationConfig | null; secret?: string | null }) {
   ctx.need("integrations", "full");
   const secret = input.secret?.trim() || randomToken(24);
   const row = await ctx.write((tx) =>
-    insertRow(tx, "sm_integrations", {
-      id: uuidv7(), org_id: ctx.org.id, kind: input.kind, name: input.name, config: input.config, secret: encryptSecret(ctx.cfg.secret, secret), origin: ctx.cfg.origin,
-    }),
+    insertRow<{ id: string; kind: IntegrationKind; name: string; config: IntegrationConfig; is_active: boolean; created_at: string }>(
+      tx,
+      "sm_integrations",
+      { id: uuidv7(), org_id: ctx.org.id, kind: "webhook", name: input.name, config: input.config ?? {}, secret: encryptSecret(ctx.cfg.secret, secret), created_by: ctx.user.id },
+      "id, kind, name, config, is_active, created_at",
+    ),
   );
   return { ...row, secret, webhook_path: `/api/hooks/${row.id}` };
 }
 
-/** Verify the webhook signature of the shop. */
-export function verifySignature(kind: IntegrationKind, secret: string, raw: string, headers: (h: string) => string | undefined): boolean {
-  const eq = (a: string, b: string) => {
-    const x = Buffer.from(a);
-    const y = Buffer.from(b);
-    return x.length === y.length && timingSafeEqual(x, y);
-  };
-  if (kind === "woocommerce") {
-    const sig = headers("x-wc-webhook-signature");
-    if (!sig) return false;
-    return eq(createHmac("sha256", secret).update(raw, "utf8").digest("base64"), sig);
-  }
-  if (kind === "shopify") {
-    const sig = headers("x-shopify-hmac-sha256");
-    if (!sig) return false;
-    return eq(createHmac("sha256", secret).update(raw, "utf8").digest("base64"), sig);
-  }
-  // generic: header X-Taraz-Signature = hex HMAC-SHA256, or the secret itself in X-Taraz-Secret
-  const hex = headers("x-taraz-signature");
-  if (hex) return eq(createHmac("sha256", secret).update(raw, "utf8").digest("hex"), hex.replace(/^sha256=/, ""));
-  const plain = headers("x-taraz-secret");
-  return !!plain && eq(plain, secret);
+const safeEqual = (a: string, b: string) => {
+  const x = Buffer.from(a);
+  const y = Buffer.from(b);
+  return x.length === y.length && timingSafeEqual(x, y);
+};
+
+/**
+ * Is the delivery signed with the webhook's secret? Accepted, in this order:
+ * - `X-Signature` (or `X-Hub-Signature-256`): the hex HMAC-SHA256 of the raw body, optionally written `sha256=<hex>`;
+ * - `X-Webhook-Secret`: the secret itself (for senders that cannot sign; use it over HTTPS only).
+ */
+export function verifySignature(secret: string, raw: string, headers: (h: string) => string | undefined): boolean {
+  const signed = headers("x-signature") ?? headers("x-hub-signature-256");
+  if (signed) return safeEqual(createHmac("sha256", secret).update(raw, "utf8").digest("hex"), signed.trim().replace(/^sha256=/i, "").toLowerCase());
+  const plain = headers("x-webhook-secret");
+  return !!plain && safeEqual(plain, secret);
 }
 
-export interface NormalizedOrder {
-  external_id: string;
+const field = (body: unknown, keys: string[]): string | null => {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return null;
+  for (const k of keys) {
+    const v = (body as Record<string, unknown>)[k];
+    if ((typeof v === "string" && v.trim()) || typeof v === "number") return String(v).trim();
+  }
+  return null;
+};
+
+/** The event's topic: the `X-Topic` / `X-Event` header, else `topic` / `event` / `type` of the body, else «event». */
+export function eventTopic(headers: (h: string) => string | undefined, body: unknown): string {
+  const t = headers("x-topic") ?? headers("x-event") ?? headers("x-github-event") ?? field(body, ["topic", "event", "type"]) ?? "event";
+  return t.trim().slice(0, 120) || "event";
+}
+
+/** The sender's id of the event (a retried delivery carries the same one and is stored once), or null. */
+export function eventExternalId(headers: (h: string) => string | undefined, body: unknown): string | null {
+  const id = headers("x-event-id") ?? headers("x-delivery-id") ?? headers("x-github-delivery") ?? field(body, ["event_id", "id"]);
+  return id ? id.trim().slice(0, 200) : null;
+}
+
+export interface HookEvent {
+  id: string;
   topic: string;
-  date: string;
-  status: string;
-  customer: { name: string; email?: string | null; mobile?: string | null; national_id?: string | null; postal_code?: string | null; address?: string | null; city?: string | null };
-  lines: { sku?: string | null; name: string; qty: string; unit_price: string; discount?: string }[];
-  shipping: string;
-  discount: string;
-  total: string;
-  paid: boolean;
+  external_id: string | null;
+  payload: unknown;
+  integration: { id: string; name: string; config: IntegrationConfig };
 }
 
-function str(v: unknown): string {
-  return v === null || v === undefined ? "" : String(v);
-}
+/**
+ * What a module does with an event of a topic it understands, as the organisation's owner (`ctx`): it writes
+ * its own records (inside `ctx.write`) and returns a small result that is stored with the event (e.g. the id
+ * of the record it made). Throwing marks the event «ناموفق» with the message.
+ */
+export type TopicHandler = (ctx: Ctx, event: HookEvent) => Promise<Record<string, unknown> | void>;
 
-/** Order payload → our neutral shape. */
-export function normalizeOrder(kind: IntegrationKind, body: any, topic: string): NormalizedOrder {
-  if (kind === "woocommerce") {
-    const b = body.billing ?? {};
-    return {
-      external_id: str(body.id ?? body.number),
-      topic: topic || "order.created",
-      date: str(body.date_created ?? body.date_created_gmt ?? new Date().toISOString()).slice(0, 10),
-      status: str(body.status),
-      customer: {
-        name: `${str(b.first_name)} ${str(b.last_name)}`.trim() || str(b.company) || str(b.email) || "مشتری فروشگاه اینترنتی",
-        email: b.email || null,
-        mobile: b.phone ? normalizeMobile(str(b.phone)) : null,
-        postal_code: b.postcode || null,
-        address: [b.address_1, b.address_2].filter(Boolean).join("، ") || null,
-        city: b.city || null,
-      },
-      lines: (body.line_items ?? []).map((l: any) => ({
-        sku: l.sku || null,
-        name: str(l.name),
-        qty: str(l.quantity || 1),
-        unit_price: D(l.subtotal ?? l.total ?? 0).div(D(l.quantity || 1)).toString(),
-        discount: D(l.subtotal ?? 0).minus(D(l.total ?? l.subtotal ?? 0)).toString(),
-      })),
-      shipping: str(body.shipping_total || 0),
-      discount: "0",
-      total: str(body.total || 0),
-      paid: ["processing", "completed"].includes(str(body.status)) || !!body.date_paid,
-    };
-  }
-  if (kind === "shopify") {
-    const c = body.customer ?? {};
-    const a = body.billing_address ?? body.shipping_address ?? {};
-    return {
-      external_id: str(body.id ?? body.order_number),
-      topic: topic || "orders/create",
-      date: str(body.created_at ?? new Date().toISOString()).slice(0, 10),
-      status: str(body.financial_status),
-      customer: {
-        name: `${str(c.first_name ?? a.first_name)} ${str(c.last_name ?? a.last_name)}`.trim() || str(body.email) || "مشتری فروشگاه اینترنتی",
-        email: body.email || c.email || null,
-        mobile: (a.phone || c.phone) ? normalizeMobile(str(a.phone || c.phone)) : null,
-        postal_code: a.zip || null,
-        address: [a.address1, a.address2].filter(Boolean).join("، ") || null,
-        city: a.city || null,
-      },
-      lines: (body.line_items ?? []).map((l: any) => ({ sku: l.sku || null, name: str(l.title ?? l.name), qty: str(l.quantity || 1), unit_price: str(l.price || 0), discount: str(l.total_discount || 0) })),
-      shipping: str((body.shipping_lines ?? []).reduce((s: ReturnType<typeof D>, x: any) => s.plus(D(x.price ?? 0)), D(0))),
-      discount: str(body.total_discounts || 0),
-      total: str(body.total_price || 0),
-      paid: str(body.financial_status) === "paid",
-    };
-  }
-  // generic JSON
-  const c = body.customer ?? {};
-  return {
-    external_id: str(body.id ?? body.order_id ?? body.number),
-    topic: topic || "order",
-    date: str(body.date ?? new Date().toISOString()).slice(0, 10),
-    status: str(body.status ?? "paid"),
-    customer: { name: str(c.name) || "مشتری فروشگاه اینترنتی", email: c.email ?? null, mobile: c.mobile ? normalizeMobile(str(c.mobile)) : null, national_id: c.national_id ?? null, postal_code: c.postal_code ?? null, address: c.address ?? null, city: c.city ?? null },
-    lines: (body.items ?? body.lines ?? []).map((l: any) => ({ sku: l.sku ?? l.code ?? null, name: str(l.name ?? l.title), qty: str(l.qty ?? l.quantity ?? 1), unit_price: str(l.price ?? l.unit_price ?? 0), discount: str(l.discount ?? 0) })),
-    shipping: str(body.shipping ?? 0),
-    discount: str(body.discount ?? 0),
-    total: str(body.total ?? 0),
-    paid: body.paid !== false,
+const HANDLERS: { match: string | RegExp; handler: TopicHandler }[] = [];
+
+/** Registers the handler of a topic (exact text, or a pattern); the first registered match wins. Returns its removal. */
+export function registerTopicHandler(match: string | RegExp, handler: TopicHandler): () => void {
+  const entry = { match, handler };
+  HANDLERS.push(entry);
+  return () => {
+    const at = HANDLERS.indexOf(entry);
+    if (at >= 0) HANDLERS.splice(at, 1);
   };
 }
 
-/** Find (by mobile, email) or create the customer of an online order. */
-export async function findOrCreateCustomer(tx: Tx, orgId: string, origin: string, c: NormalizedOrder["customer"]): Promise<string> {
-  if (c.mobile) {
-    const r = await tx.one<{ id: string }>(`select id from sm_parties where org_id = $1 and mobile = $2 and deleted_at is null limit 1`, [orgId, c.mobile]);
-    if (r) return r.id;
-  }
-  if (c.email) {
-    const r = await tx.one<{ id: string }>(`select id from sm_parties where org_id = $1 and lower(email) = lower($2) and deleted_at is null limit 1`, [orgId, c.email]);
-    if (r) return r.id;
-  }
-  const id = uuidv7();
-  const code = await nextCode(tx, "sm_parties", orgId, 1001);
-  const detail = await ensureDetail(tx, orgId, "person", id, c.name);
-  await insertRow(tx, "sm_parties", {
-    id, org_id: orgId, code, name: c.name.slice(0, 200), roles: ["customer"], mobile: c.mobile || null, email: c.email || null,
-    national_id: c.national_id || null, postal_code: c.postal_code || null, address: c.address || null, city: c.city || null,
-    detail_id: detail, tags: ["فروشگاه اینترنتی"], origin,
-  }, "id");
-  return id;
-}
-
-/** Match order lines to items by SKU, barcode or exact name. */
-export async function matchItems(tx: Tx, orgId: string, lines: NormalizedOrder["lines"]) {
-  const out: { item_id: string | null; line: NormalizedOrder["lines"][number] }[] = [];
-  for (const l of lines) {
-    let item: { id: string } | null = null;
-    if (l.sku) item = await tx.one(`select id from sm_items where org_id = $1 and deleted_at is null and (sku = $2 or barcode = $2 or code = $2) limit 1`, [orgId, l.sku]);
-    if (!item && l.name) item = await tx.one(`select id from sm_items where org_id = $1 and deleted_at is null and name = $2 limit 1`, [orgId, l.name]);
-    out.push({ item_id: item?.id ?? null, line: l });
-  }
-  return out;
+export function handlerFor(topic: string): TopicHandler | null {
+  return HANDLERS.find((h) => (typeof h.match === "string" ? h.match === topic : h.match.test(topic)))?.handler ?? null;
 }
 
 export async function loadIntegration(db: Db, id: string) {

@@ -1,4 +1,4 @@
-// Read-only presentation helpers: amounts, dates, weights, statuses, empty states, stat tiles, loaders.
+// Read-only presentation helpers: amounts, dates, statuses, empty states, stat tiles, loaders.
 // Number rules (components.md §0.3, §4.2): tabular Persian figures, decimals full size in text-2, a negative is an
 // isolated true minus («−۱۲۳» in an LTR isolate, never red), units small and quiet after a no-break space.
 import "./kit.css";
@@ -6,10 +6,9 @@ import { cloneElement, isValidElement, useLayoutEffect, useRef, useState, type R
 import { Button, Tooltip } from "antd";
 import { Inbox, ChevronLeft, type LucideIcon } from "lucide-react";
 import { D, type Num } from "@shared/money";
-import { formatNumber, faDigits, balanceSide } from "@shared/format";
+import { formatNumber, faDigits } from "@shared/format";
 import { formatJalali, formatJalaliDateTime } from "@shared/jalali";
 import { splitDecimals } from "../lib/fa";
-import { useOrg } from "../lib/org";
 
 const cx = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(" ");
 const NBSP = "\u00a0";
@@ -18,7 +17,7 @@ const MINUS = "\u2212"; // U+2212: the true minus (the hyphen is a different, sh
 /**
  * The figure itself: digits with the decimals in `.ds-dec` (full size, text-2; they step down only inside display
  * figures) and, when negative, an isolated true minus or accounting parentheses. `inkDecimals` keeps the decimals
- * in ink (gold weights: a milligram is money).
+ * in ink (a measure whose last decimal matters).
  */
 export function Figure({ v, dp, minDp, parens, inkDecimals, sign }: { v: Num; dp: number; minDp?: number; parens?: boolean; inkDecimals?: boolean; sign?: boolean }) {
   const r = D(v).toDecimalPlaces(dp);
@@ -42,17 +41,18 @@ const Unit = ({ children }: { children: ReactNode }) => (
   </>
 );
 
-/** Money in the business's currency. `colored` paints money in (positive) green; money out and negatives stay ink. */
-export function Money({ v, dp, zero, colored, parens, className, unit }: { v: Num; dp?: number; zero?: string; colored?: boolean; parens?: boolean; className?: string; unit?: boolean }) {
-  const { org, unit: u } = useOrg();
+/**
+ * An amount of money with `dp` decimals (default 0) and its currency unit after it when given («ریال», «USD»…).
+ * `colored` paints money in (positive) green; money out and negatives stay ink.
+ */
+export function Money({ v, dp = 0, zero, colored, parens, className, unit }: { v: Num; dp?: number; zero?: string; colored?: boolean; parens?: boolean; className?: string; unit?: ReactNode }) {
   const d = D(v);
   if (d.isZero() && zero !== undefined) return <span className={cx("ds-num ds-zero", className)}>{zero}</span>;
-  const places = dp ?? org.money_decimals ?? 0;
-  const pos = d.toDecimalPlaces(places).gt(0);
+  const pos = d.toDecimalPlaces(dp).gt(0);
   return (
     <span className={cx("ds-num", colored && pos && "ds-in-t", className)}>
-      <Figure v={d} dp={places} parens={parens} />
-      {unit ? <Unit>{u}</Unit> : null}
+      <Figure v={d} dp={dp} parens={parens} />
+      {unit ? <Unit>{unit}</Unit> : null}
     </span>
   );
 }
@@ -65,35 +65,6 @@ export function Amount({ v, dp = 8, minDp, zero = "", className, suffix }: { v: 
     <span className={cx("ds-num", className)}>
       <Figure v={d} dp={dp} minDp={minDp} />
       {suffix ? <Unit>{suffix}</Unit> : null}
-    </span>
-  );
-}
-
-/** Gold weight: always 3 decimals, at full size and in ink (components.md §4.7). */
-export function Weight({ v, zero = "", unit = true }: { v: Num; zero?: string; unit?: boolean }) {
-  const d = D(v);
-  if (d.isZero() && zero) return <span className="ds-num ds-zero">{zero}</span>;
-  return (
-    <span className="ds-num">
-      <Figure v={d} dp={3} minDp={3} inkDecimals />
-      {unit ? <Unit>گرم</Unit> : null}
-    </span>
-  );
-}
-
-/** Ledger balance: unsigned «مانده» plus its «تشخیص» (بد / بس); zero is «—» (components.md §0.3). */
-export function Balance({ v, dp }: { v: Num; dp?: number }) {
-  const { org } = useOrg();
-  const d = D(v);
-  if (d.isZero()) return <span className="ds-num ds-zero">—</span>;
-  const side = balanceSide(d);
-  return (
-    <span className="ds-num">
-      <Figure v={d.abs()} dp={dp ?? org.money_decimals ?? 0} />
-      {NBSP}
-      <span className="ds-bal-side" data-side={side === "بد" ? "dr" : "cr"}>
-        {side}
-      </span>
     </span>
   );
 }
@@ -113,20 +84,6 @@ export function Fa({ children }: { children: ReactNode }) {
   return <>{typeof children === "string" || typeof children === "number" ? faDigits(children) : children}</>;
 }
 
-/**
- * A custom price source named next to its prices («منبع: EZRate», the name linked to its site): free plans such as
- * EZRate's ask for it. `bare` leaves out «منبع:» where a column already says it.
- */
-export function SourceCredit({ label, link, bare, className }: { label: string; link?: string | null; bare?: boolean; className?: string }) {
-  const name = link ? <a href={link} target="_blank" rel="noreferrer" className="ds-link">{label}</a> : label;
-  return (
-    <span className={`whitespace-nowrap ${className ?? ""}`}>
-      {bare ? null : "منبع: "}
-      <bdi>{name}</bdi>
-    </span>
-  );
-}
-
 // ---------------------------------------------------------------- status
 
 /** Chip tones (components.md §4.3): tint fill + coloured text + a 5 px nuqta. Info (blue) is retired. */
@@ -142,32 +99,23 @@ export function Chip({ tone = "neutral", fig, dot = true, children, className, t
   );
 }
 
+/** Common record states; a module passes its own map to StatusTag for anything else. */
 const STATUS: Record<string, [string, string]> = {
   draft: ["پیش‌نویس", "default"],
-  posted: ["ثبت‌شده", "processing"],
-  final: ["قطعی", "success"],
-  void: ["باطل", "error"],
-  cancelled: ["لغوشده", "error"],
+  active: ["فعال", "success"],
+  inactive: ["غیرفعال", "default"],
   open: ["باز", "processing"],
-  closing: ["در حال بستن", "warning"],
   closed: ["بسته", "default"],
   pending: ["در انتظار", "warning"],
-  sent: ["ارسال‌شده", "processing"],
-  paid: ["پرداخت‌شده", "success"],
-  returned: ["برگشتی", "error"],
-  in_hand: ["نزد صندوق", "processing"],
-  deposited: ["در جریان وصول", "warning"],
-  cleared: ["وصول‌شده", "success"],
-  bounced: ["برگشتی", "error"],
-  endorsed: ["خرج‌شده", "purple"],
-  issued: ["صادرشده", "processing"],
-  in_stock: ["موجود", "success"],
-  sold: ["فروخته‌شده", "default"],
-  reserved: ["رزرو", "warning"],
-  melted: ["ذوب‌شده", "default"],
-  consigned_out: ["امانی نزد دیگران", "purple"],
-  verified: ["تأییدشده", "success"],
+  in_progress: ["در حال انجام", "processing"],
+  done: ["انجام‌شده", "success"],
+  approved: ["تأییدشده", "success"],
   rejected: ["ردشده", "error"],
+  cancelled: ["لغوشده", "error"],
+  failed: ["ناموفق", "error"],
+  received: ["دریافت شد", "warning"],
+  processed: ["پردازش شد", "success"],
+  archived: ["بایگانی", "default"],
   none: ["ثبت‌نشده", "default"],
 };
 
@@ -197,9 +145,9 @@ function toneOf(key: string, color: string): ChipTone | null {
 }
 
 /**
- * Status is the exception, not the default (components.md §4.3): the normal state («ثبت‌شده»، «پرداخت‌شده») is
- * plain 13 px text-3 text; only what needs attention wears a chip — pending (warning), bounced / void (danger) and
- * draft (neutral). `map` keeps the old `[label, antd colour]` shape.
+ * Status is the exception, not the default (components.md §4.3): the normal state («فعال»، «انجام‌شده») is plain
+ * 13 px text-3 text; only what needs attention wears a chip — pending (warning), failed / rejected (danger) and draft
+ * (neutral). `map` takes `[label, antd colour]` pairs.
  */
 export function StatusTag({ s, map, chip }: { s: string | null | undefined; map?: Record<string, [string, string]>; chip?: boolean }) {
   if (!s) return null;

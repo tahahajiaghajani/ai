@@ -1,9 +1,9 @@
 // Data hooks of the E2 screens over /api/o/:org/ai/*. Every key starts with ["ai", orgId] so one invalidation after a
 // settings change refreshes status, connections and the dashboard cards together.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import type { AiConnectionPublic, AiInsight, AiSettings } from "@shared/ai/types";
+import type { AiConnectionPublic, AiSettings } from "@shared/ai/types";
 import { useOrg } from "../../lib/org";
-import type { AiActionView, AiBriefView, AiPresetView, AiSettingsView, AiStatusView, AiToolCallView, AiUsageView } from "./types";
+import type { AiActionView, AiPresetView, AiSettingsView, AiStatusView, AiToolCallView, AiUsageView } from "./types";
 
 /** Lists may come bare or wrapped ({connections: […]}, {rows: […]}); take the array either way. */
 export function listOf<T>(r: unknown, ...keys: string[]): T[] {
@@ -110,27 +110,3 @@ export function useAiToolCalls(params: Record<string, string | null | undefined>
   });
 }
 
-export function useAiInsights(enabled = true) {
-  const { api, can } = useOrg();
-  const key = useAiKey();
-  return useQuery({
-    queryKey: key("insights"),
-    queryFn: () => api.get("/ai/insights").then((r) => listOf<AiInsight>(r, "insights")),
-    enabled: enabled && can("ai", "view"),
-    staleTime: 5 * 60_000,
-    refetchInterval: 15 * 60_000,
-    retry: false,
-  });
-}
-
-export function useAiBrief(enabled = true) {
-  const { api, can } = useOrg();
-  const key = useAiKey();
-  return useQuery({
-    queryKey: key("brief"),
-    queryFn: () => api.get("/ai/brief").then((r) => objectOf<AiBriefView>(r, "brief")),
-    enabled: enabled && can("ai", "view"),
-    staleTime: 10 * 60_000,
-    retry: false,
-  });
-}

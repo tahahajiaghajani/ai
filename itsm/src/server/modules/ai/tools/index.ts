@@ -1,39 +1,25 @@
-// Tool catalogue (stream D). `toolsFor` returns the tools this caller may use, filtered by the
-// member's permissions, the business's modules and the AI feature switches.
+// The assistant's tool catalogue. The platform offers a few generic tools — who is asking and where (the
+// organisation, today's date in its calendar, the caller's role and access), its members, an exact calculator and
+// charts of rows another tool stored. A module adds its own tools (reading its records, its reports, drafts of its
+// records) with `registerTool`, next to the executors of its proposals (./proposals.ts). `toolsFor` returns the tools
+// this caller may use, filtered by the member's permissions, the organisation's modules and the proposals switch.
 import type { Ctx } from "../../../context";
 import type { AiToolDef } from "./registry";
-import { calculate, getBusinessContext, renderChart } from "./basics";
-import { findRecords, getRecord } from "./records";
-import { runReportTool } from "./reports";
-import { analyzeMetric } from "./metrics";
-import { coinBubbleTool, getRates, positions, priceQuote } from "./market";
-import { chequesCalendarTool, findAnomaliesTool, forecastTool, inventoryAdvice, receivablesCollection } from "./operations";
-import { proposeFxDeal, proposeGoldDoc, proposeInvoice, proposeParty, proposeTreasuryDoc, proposeVoucher } from "./propose";
+import { calculate, getOrgContext, renderChart } from "./basics";
+import { listMembers } from "./members";
 
-export const ALL_TOOLS: AiToolDef[] = [
-  getBusinessContext,
-  findRecords,
-  getRecord,
-  runReportTool,
-  analyzeMetric,
-  calculate,
-  getRates,
-  priceQuote,
-  positions,
-  forecastTool,
-  receivablesCollection,
-  chequesCalendarTool,
-  inventoryAdvice,
-  findAnomaliesTool,
-  coinBubbleTool,
-  renderChart,
-  proposeInvoice,
-  proposeVoucher,
-  proposeTreasuryDoc,
-  proposeGoldDoc,
-  proposeFxDeal,
-  proposeParty,
-] as AiToolDef[];
+export const ALL_TOOLS: AiToolDef[] = [getOrgContext, listMembers, calculate, renderChart] as AiToolDef[];
+
+/** Adds a module's tool (a tool of the same name is replaced). Returns its removal. */
+export function registerTool(tool: AiToolDef): () => void {
+  const at = ALL_TOOLS.findIndex((t) => t.name === tool.name);
+  if (at >= 0) ALL_TOOLS.splice(at, 1, tool);
+  else ALL_TOOLS.push(tool);
+  return () => {
+    const i = ALL_TOOLS.indexOf(tool);
+    if (i >= 0) ALL_TOOLS.splice(i, 1);
+  };
+}
 
 export function toolsFor(ctx: Ctx, opts: { proposals: boolean }): AiToolDef[] {
   return ALL_TOOLS.filter(

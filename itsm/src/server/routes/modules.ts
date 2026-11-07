@@ -1,22 +1,12 @@
-// Business modules mounted under /api/o/:org. Each module owns its routes file.
+// Modules mounted under /api/o/:org (after requireUser, loadOrg and orgAccess, so every handler finds the
+// caller's `ctx`). The platform itself has one: the AI («هوش مصنوعی»). A later module owns its routes file
+// (src/server/routes/<module>.ts) and is mounted here with `moduleRoutes.route("/<module>", <module>Routes)`;
+// its handlers check access with `ctx.need(area, level)` and, for an optional module, `ctx.hasModule(key)`.
+// app.ts mounts this router when the app is created, so a module is added here before that (tests add
+// fixture modules the same way, see tests/fixtures/module.ts).
 import { router } from "../http/hono";
-import { dashboard } from "../modules/dashboard";
-import { treasuryRoutes } from "./treasury";
-import { goodsRoutes } from "./goods";
-import { goldRoutes } from "./gold";
-import { fxRoutes } from "./fx";
 import { aiRoutes } from "./ai";
 
 export const moduleRoutes = router();
 
-moduleRoutes.get("/dashboard", async (c) => {
-  const ctx = c.get("ctx");
-  ctx.need("reports", "view");
-  return c.json(await dashboard(ctx));
-});
-
-moduleRoutes.route("/treasury", treasuryRoutes);
-moduleRoutes.route("/goods", goodsRoutes);
-moduleRoutes.route("/gold", goldRoutes);
-moduleRoutes.route("/fx", fxRoutes);
 moduleRoutes.route("/ai", aiRoutes);

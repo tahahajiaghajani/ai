@@ -124,7 +124,7 @@ export default function Ai() {
       n.error(e);
     }
   };
-  const rows = [...o.businesses].sort((a, b) => Number(b.month.cost_usd) - Number(a.month.cost_usd) || b.connections - a.connections);
+  const rows = [...o.orgs].sort((a, b) => Number(b.month.cost_usd) - Number(a.month.cost_usd) || b.connections - a.connections);
   return (
     <div>
       <PageHeader title="هوش مصنوعی" />
@@ -134,7 +134,7 @@ export default function Ai() {
         </Note>
       ) : null}
       <section className="ad-kpis" aria-label="آمار هوش مصنوعی">
-        <StatCard icon={<AiIcon {...ICON} />} title="سازمان‌های فعال" value={<span className="ds-num">{fa(o.totals.businesses_enabled)}</span>} hint={`از ${fa(o.businesses.length)} سازمان`} />
+        <StatCard icon={<AiIcon {...ICON} />} title="سازمان‌های فعال" value={<span className="ds-num">{fa(o.totals.orgs_enabled)}</span>} hint={`از ${fa(o.orgs.length)} سازمان`} />
         <StatCard icon={<Power {...ICON} />} title="اتصال‌ها" value={<span className="ds-num">{fa(o.totals.connections)}</span>} />
         <StatCard icon={<AiIcon {...ICON} />} title="درخواست‌های این ماه" value={<span className="ds-num">{fa(o.totals.month_calls)}</span>} />
         <StatCard icon={<AiIcon {...ICON} />} title="هزینهٔ این ماه" value={<span className="ds-num ds-latin">{usd(o.totals.month_cost_usd)}</span>} />

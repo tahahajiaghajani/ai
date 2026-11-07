@@ -1,4 +1,4 @@
-// App frame (components.md §1): the canvas sidebar on the right (RTL) with the business and space switchers,
+// App frame (components.md §1): the canvas sidebar on the right (RTL) with the organisation and space switchers,
 // the glass top bar, the content panel and the command palette (Ctrl K); plus PageHeader and Section.
 // The parts live in ./shell/ (Sidebar, Topbar, CommandPalette, model, shell.css).
 import { Children, isValidElement, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
@@ -78,14 +78,14 @@ export function AppShell({ children }: { children: ReactNode }) {
   const rel = useRelPath();
 
   const allItems = useShellItems();
-  // the sidebar's items (create-actions stay in the palette); the route is matched against them so
-  // «سند جدید» highlights «اسناد حسابداری» and its breadcrumb reads «اسناد حسابداری › سند جدید»
+  // the sidebar's items (create-actions stay in the palette); the route is matched against them so a «new record»
+  // page highlights its list and its breadcrumb reads «list › new record»
   const items = useMemo(() => allItems.filter(inSidebar), [allItems]);
   const spaces = useSpaces(items);
   const active = useMemo(() => matchItem(items, rel), [items, rel]);
   const current = routeSpace(active, rel);
   const memory = useSpaceMemory(orgId, current, rel, loc.search);
-  const fallback: SpaceKey = spaces.some((s) => s.key === memory.last) ? memory.last : (spaces[0]?.key ?? "accounting");
+  const fallback: SpaceKey = spaces.some((s) => s.key === memory.last) ? memory.last : (spaces[0]?.key ?? "home");
   const space: SpaceKey = current ?? fallback;
   const [pins, setPins] = useStored<string[]>(`itsm.pins.${orgId}`, []);
 
@@ -93,7 +93,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const firstOf = (s: SpaceKey) => items.find((i) => i.space === s && !i.common)?.path ?? "";
   const onSpace = (s: SpaceKey) => {
     memory.setLast(s);
-    // on a page of every space (پیشخوان، اشخاص) the switch only focuses the nav; elsewhere it opens the
+    // on a page of every space («خانه») the switch only focuses the nav; elsewhere it opens the
     // space's last page (or its first one), so the nav and the page always agree
     if (s === current || current === null) return;
     go(memory.pages[s] ?? firstOf(s));
@@ -130,14 +130,14 @@ export function AppShell({ children }: { children: ReactNode }) {
   const crumbs: Crumb[] = [];
   const spaceLabel = spaceOf(space).label;
   if (!detail && active?.common) {
-    // a page every space shares (پیشخوان، اشخاص) is its own root, never the remembered module: like any
-    // top-level page its name would repeat the H1, so «اشخاص» fades in only once the H1 scrolls away
+    // a page every space shares («خانه») is its own root, never the remembered module: like any top-level page
+    // its name would repeat the H1, so it fades in only once the H1 scrolls away
     crumbs.push({ label: active.label, current: true, reveal: true });
   } else if (!detail && active) {
     crumbs.push({ label: spaceLabel });
     crumbs.push({ label: active.label, current: true, reveal: true });
   } else {
-    // a record of a page every space shares (a person's file) needs no space in front of it
+    // a record of a page every space shares needs no space in front of it
     if (!active?.common) crumbs.push({ label: spaceLabel });
     if (active) crumbs.push({ label: active.label, to: `/${orgId}${active.path ? `/${active.path}` : ""}` });
     if (title && title !== active?.label) crumbs.push({ label: title, current: true });
@@ -164,8 +164,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const commands = useMemo<PaletteCommand[]>(() => {
     const list: PaletteCommand[] = [
       { key: "theme", label: dark ? "پوستهٔ روشن" : "پوستهٔ تیره", icon: dark ? Sun : Moon, keywords: "تم حالت شب روز رنگ", run: toggle },
-      { key: "home", label: "رفتن به پیشخوان", icon: House, keywords: "داشبورد خانه", path: "", run: () => go("") },
-      { key: "about", label: `دربارهٔ ${APP_NAME}`, icon: Info, keywords: "نسخه درباره سیراف اعتبار", path: "help#about", run: () => go("help#about") },
+      { key: "home", label: "رفتن به خانه", icon: House, keywords: "داشبورد پیشخوان شروع", path: "", run: () => go("") },
+      { key: "about", label: `دربارهٔ ${APP_NAME}`, icon: Info, keywords: `نسخه درباره اعتبار ${APP_NAME}`, path: "help#about", run: () => go("help#about") },
     ];
     if (can("ai", "view"))
       list.push(
@@ -294,7 +294,7 @@ export function PageHeader({ title, subtitle, actions, back, extra }: { title: R
 
 export function Section({ title, extra, children, className, bodyClass }: { title?: ReactNode; extra?: ReactNode; children: ReactNode; className?: string; bodyClass?: string }) {
   return (
-    <section className={`tz-card ds-section ${className ?? ""}`}>
+    <section className={`ds-card ds-section ${className ?? ""}`}>
       {title || extra ? (
         <div className="ds-section-h">
           {title ? <h2>{title}</h2> : null}

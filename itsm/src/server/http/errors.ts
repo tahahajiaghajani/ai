@@ -29,11 +29,10 @@ export function dbErrorMessage(e: unknown): AppError | null {
       if (c.includes("code")) return conflict("این کد قبلاً استفاده شده است");
       if (c.includes("_no_")) return conflict("این شماره قبلاً استفاده شده است");
       if (c.includes("email")) return conflict("این ایمیل قبلاً ثبت شده است");
-      if (c.includes("tag")) return conflict("این شماره اتیکت قبلاً ثبت شده است");
       return conflict("این مورد تکراری است");
     }
     case "23503":
-      return conflict("این مورد به داده‌ی دیگری وابسته است");
+      return conflict("این مورد به دادهٔ دیگری وابسته است");
     case "23502":
       return bad("یکی از فیلدهای الزامی خالی است", { column: err.column ?? null });
     case "22P02":

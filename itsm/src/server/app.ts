@@ -7,7 +7,6 @@ import type { ServerConfig } from "./context";
 import { authRoutes } from "./routes/auth";
 import { orgRoutes, orgsRoutes } from "./routes/org";
 import { dataRoutes } from "./routes/data";
-import { accountingRoutes } from "./routes/accounting";
 import { moduleRoutes } from "./routes/modules";
 import { syncRoutes } from "./routes/sync";
 import { hookRoutes, publicApiRoutes, integrationRoutes } from "./routes/integrations";
@@ -73,7 +72,6 @@ export function createApp(cfg: ServerConfig) {
   org.use("*", requireUser, loadOrg);
   org.route("/", orgRoutes);
   org.route("/data", dataRoutes);
-  org.route("/accounting", accountingRoutes);
   org.route("/", moduleRoutes);
   org.route("/integrations", integrationRoutes);
   app.route("/o/:org", org);

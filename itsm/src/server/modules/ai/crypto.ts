@@ -1,14 +1,13 @@
-// Provider keys at rest: AES-256-GCM "v2" envelopes. The data key is derived from this runtime's
-// secret with HKDF (purpose "siraf/ai-keys"; keys of custom price sources use "siraf/price-keys",
-// fx/source-keys.ts); the key id names the secret that sealed it (a
-// changed secret is detected without trying); the additional data binds a ciphertext to its
-// business and connection, so a value copied to another row never opens. Strict: anything that is
-// not a v2 envelope is unreadable — there is no plaintext pass-through.
+// Provider keys at rest: AES-256-GCM "v2" envelopes. The data key is derived from this runtime's secret with HKDF
+// (purpose "itsm/ai-keys"; a module that stores keys of its own passes its own purpose); the key id names the secret
+// that sealed it (a changed secret is detected without trying); the additional data binds a ciphertext to its
+// organisation and connection, so a value copied to another row never opens. Strict: anything that is not a v2
+// envelope is unreadable — there is no plaintext pass-through.
 import { createCipheriv, createDecipheriv, createHash, createHmac, hkdfSync, randomBytes } from "node:crypto";
 
 const VERSION = "v2";
-const PURPOSE = "siraf/ai-keys";
-const FINGERPRINT_PURPOSE = "siraf/ai-key-fingerprint";
+const PURPOSE = "itsm/ai-keys";
+const FINGERPRINT_PURPOSE = "itsm/ai-key-fingerprint";
 
 export class KeyUnreadableError extends Error {
   constructor() {
@@ -23,12 +22,12 @@ export interface KeyBinding {
 }
 
 function derive(secret: string, info: string): Buffer {
-  return Buffer.from(hkdfSync("sha256", Buffer.from(secret, "utf8"), Buffer.from("siraf", "utf8"), Buffer.from(info, "utf8"), 32));
+  return Buffer.from(hkdfSync("sha256", Buffer.from(secret, "utf8"), Buffer.from("itsm", "utf8"), Buffer.from(info, "utf8"), 32));
 }
 
 /** Short id of the runtime secret: tells a changed secret apart from a damaged value. */
 export function secretKeyId(secret: string): string {
-  return createHash("sha256").update(`siraf/kid:${secret}`).digest("hex").slice(0, 8);
+  return createHash("sha256").update(`itsm/kid:${secret}`).digest("hex").slice(0, 8);
 }
 
 function aad(b: KeyBinding): Buffer {

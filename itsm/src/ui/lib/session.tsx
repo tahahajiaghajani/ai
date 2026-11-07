@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import type { ModuleKey } from "@shared/constants";
 import { api } from "./api";
 
 export interface Meta {
@@ -28,12 +29,11 @@ export interface DesktopInfo {
 export interface OrgSummary {
   id: string;
   name: string;
-  business_kind: string;
-  modules: ("goods" | "gold" | "fx")[];
-  base_currency: string;
-  money_decimals: number;
+  modules: ModuleKey[];
   logo: string | null;
+  /** the caller's role (null while a platform admin works there in support mode) */
   role: string | null;
+  support?: { level: "view" | "edit"; expires_at: string } | null;
 }
 
 export interface Me {

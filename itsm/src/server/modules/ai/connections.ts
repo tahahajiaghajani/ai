@@ -1,4 +1,4 @@
-// The business's AI connections (provider, base URL, encrypted key, chosen models): CRUD for
+// The organisation's AI connections (provider, base URL, encrypted key, chosen models): CRUD for
 // members with ai:full, the public view (never the key), decryption only for a call, model lists
 // and «آزمایش اتصال». Connections and keys belong to this runtime (web or Windows app).
 import { z } from "zod";
@@ -11,7 +11,7 @@ import { aiErrorText } from "@shared/ai/errors";
 import { uuidv7 } from "@shared/id";
 import { bad, conflict, notFound } from "../../http/errors";
 import { audit } from "../data/crud";
-import { safeExternalUrl } from "../fx/net";
+import { safeExternalUrl } from "../../net";
 import { cleanKey, decryptKey, encryptKey, keyFingerprint, keyHint, keyReadable, KeyUnreadableError, scrubSecrets } from "./crypto";
 import { createAdapter } from "./adapters";
 import { connectMs } from "./adapters/http";
@@ -69,7 +69,7 @@ function destination(presetId: string, baseUrl: string | null | undefined): stri
   return `${presetId} ${String(baseUrl ?? preset?.base_url ?? "").trim().replace(/\/+$/, "")}`;
 }
 
-/** The platform switched AI off for this business: no provider call at all, tests included. */
+/** The platform switched AI off for this organisation: no provider call at all, tests included. */
 async function assertNotDisabled(ctx: Ctx): Promise<void> {
   const [policy, offByAdmin] = await Promise.all([loadPolicy(ctx.cfg), ctx.cfg.mode === "cloud" ? orgAiDisabled(ctx.db, ctx.org.id).catch(() => false) : false]);
   if (offByAdmin || disabledByPlatform(policy, ctx.org.id)) {
@@ -96,7 +96,7 @@ export const connectionInputSchema = z.object({
 
 export const connectionTestSchema = connectionInputSchema.extend({ connection_id: z.string().uuid().nullish() });
 
-/** Presets this business may use here (runtime, test mode and the platform policy). */
+/** Presets this organisation may use here (runtime, test mode and the platform policy). */
 export async function availablePresets(ctx: Ctx): Promise<AiPreset[]> {
   const policy = await loadPolicy(ctx.cfg);
   return presetsFor({ desktop: ctx.cfg.mode === "desktop", fake: fakeEnabled(), allowedPresets: policy.allowed_presets, allowedProtocols: policy.allowed_protocols });

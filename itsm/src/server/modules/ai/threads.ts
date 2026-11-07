@@ -137,21 +137,16 @@ export async function deleteThread(ctx: Ctx, id: string): Promise<void> {
   await ctx.write((tx) => tx.query(`delete from sm_ai_threads where id = $1`, [id]), { internal: true });
 }
 
-/** Conversations older than the retention period are removed (with their messages and data). */
-/** Read documents (ID cards, cheques: national ids, birth dates, IBANs) live no longer than the retention, and never over 30 days (their cache window). */
-const CAPTURE_PURGE_SQL = `delete from sm_ai_captures where org_id = $1 and created_at < now() - (least(greatest($2::int, 1), 30) * interval '1 day')`;
-
-export async function purgeCaptures(ctx: Ctx, days: number): Promise<void> {
-  await ctx.write((tx) => tx.query(CAPTURE_PURGE_SQL, [ctx.org.id, days]), { internal: true }).catch(() => undefined);
-}
-
+/**
+ * Conversations older than the retention period are removed (with their messages, tool calls and data); pinned ones
+ * stay, and so does a conversation that is answering right now.
+ */
 export async function purgeOld(ctx: Ctx, days: number): Promise<void> {
   await ctx
     .write(
       async (tx) => {
         await tx.query(`delete from sm_ai_threads where org_id = $1 and pinned = false and updated_at < now() - ($2::int * interval '1 day') and (run_until is null or run_until < now())`, [ctx.org.id, days]);
         await tx.query(`delete from sm_ai_data_refs where org_id = $1 and expires_at < now()`, [ctx.org.id]);
-        await tx.query(CAPTURE_PURGE_SQL, [ctx.org.id, days]);
       },
       { internal: true },
     )

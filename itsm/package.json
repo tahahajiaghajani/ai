@@ -1,14 +1,13 @@
 {
-  "name": "siraf",
+  "name": "itsm",
   "version": "1.0.0",
   "private": true,
-  "description": "سیراف — حسابداری و مدیریت کسب‌وکار فارسی: کالا، طلا، صرافی (وب + ویندوز)",
+  "description": "ITSM — سامانهٔ سازمانی مدیریت خدمات فناوری اطلاعات با هوش مصنوعی (وب + ویندوز)",
   "scripts": {
-    "dev": "node scripts/dev.mjs",
+    "dev": "next dev",
     "dev:ui": "vite",
     "build": "npm run build:ui && next build",
     "build:ui": "vite build",
-    "build:local": "node scripts/build-local.mjs",
     "start:local": "tsx scripts/serve-local.mts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",

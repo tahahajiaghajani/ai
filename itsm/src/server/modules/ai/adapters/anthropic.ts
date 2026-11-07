@@ -29,7 +29,7 @@ const BINDING_RE = /bound to a different conversation|prefix_mismatch_behavior/i
  * What a connection turned out not to accept (or to need), kept for the process so that every
  * later request does not pay for the same failed call again: a gateway without the fallback beta
  * or strict tools, or an account that needs `drop_block` for threads whose earlier turns changed
- * (business notes or the tool set edited since).
+ * (organisation notes or the tool set edited since).
  */
 const QUIRKS = new Map<string, { noBetas?: boolean; noStrict?: boolean; dropBlock?: boolean }>();
 function quirks(id: string) {
@@ -293,7 +293,7 @@ export function anthropicAdapter(conn: ResolvedConnection, env: AdapterEnv): Ada
           const status = isApi ? (err as InstanceType<typeof Anthropic.APIError>).status : null;
           const msg = String((err as Error)?.message ?? "");
           if (attempt < 2 && !state.emitted && status === 400) {
-            // preserved thinking: an earlier turn of this thread changed (business notes or the
+            // preserved thinking: an earlier turn of this thread changed (organisation notes or the
             // tool set edited since); its reasoning is dropped instead of failing the thread
             if (!q.dropBlock && anthropicAdaptive(req.model) && BINDING_RE.test(msg)) {
               q.dropBlock = true;

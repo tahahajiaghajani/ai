@@ -1,9 +1,9 @@
-// AES-256-GCM for secrets stored in the database (webhook secrets of online shops).
+// AES-256-GCM for secrets stored in the database (the secrets of inbound webhooks).
 // The key is derived from APP_SECRET (cloud) or the installation secret (desktop).
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 
 function key(appSecret: string) {
-  return createHash("sha256").update(`taraz-secrets:${appSecret}`).digest();
+  return createHash("sha256").update(`itsm-secrets:${appSecret}`).digest();
 }
 
 export function encryptSecret(appSecret: string, plain: string): string {

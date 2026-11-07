@@ -72,7 +72,7 @@ syncRoutes.post("/register", async (c) => {
   const input = await body(c, z.object({ org_id: z.string(), device_id: z.string().uuid().optional(), name: z.string().max(120), platform: z.string().max(40).optional(), app_version: z.string().max(40).optional() }));
   const ctx = await orgCtx(c, input.org_id);
   // A device id is no secret (it rides along as the origin of synced rows): an id registered by
-  // another account or for another business gets a fresh one instead of taking that record over.
+  // another account or for another organisation gets a fresh one instead of taking that record over.
   const save = (id: string) =>
     ctx.db.one<{ id: string }>(
       `insert into sm_devices (id, org_id, user_id, name, platform, app_version) values ($1, $2, $3, $4, $5, $6)
@@ -183,7 +183,7 @@ syncRoutes.post("/push", async (c) => {
       let memberChange: { was: StoredMember | null; next: MemberGrant & { live: boolean } } | null = null;
       if (def.entity === "member") {
         // the members page's rules (routes/org.ts): owners only by owners, nobody changes themselves
-        // or grants above their own access, and the business keeps an active owner
+        // or grants above their own access, and the organisation keeps an active owner
         const was = existing
           ? await tx.one<StoredMember>(`select user_id, role, overrides, is_active, deleted_at from sm_org_members where id = $1`, [agg.id])
           : null;
@@ -260,7 +260,7 @@ syncRoutes.get("/pull", async (c) => {
   // The members' accounts come along so that they can sign in on the desktop. A password hash
   // only goes where the caller could set that password anyway — the rule of «reset password» on
   // the members page: their own account; for a member who manages users, the accounts this
-  // business made that work for it alone (an owner's only to an owner; never a platform admin's).
+  // organisation made that work for it alone (an owner's only to an owner; never a platform admin's).
   // Anyone else signs in on that desktop through the cloud (`password_withheld`), and contact
   // details of other members need the right to see users.
   const share = [ctx.org.id, ctx.user.id, ctx.can("users", "view"), false, ctx.can("users", "full"), ctx.member.role === "owner"];

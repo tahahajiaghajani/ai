@@ -1,0 +1,28 @@
+/* «خانه» (Home.tsx): the welcome card and the organisation at a glance. Tokens only, logical properties only. */
+@layer components {
+  .hm { display: grid; gap: var(--ds-stack); }
+  .hm-grid { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: var(--ds-stack); align-items: start; }
+  @media (max-width: 1023px) { .hm-grid { grid-template-columns: minmax(0, 1fr); } }
+
+  .hm-welcome { display: flex; align-items: center; gap: 16px; }
+  .hm-welcome h2 { margin: 0; font-size: 18px; line-height: 26px; font-weight: 600; color: var(--ds-text); }
+  .hm-welcome p { margin: 2px 0 0; font-size: 13px; line-height: 20px; color: var(--ds-text-2); text-wrap: pretty; }
+
+  .hm-steps { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; margin-block-start: 16px; }
+  .hm-step {
+    display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px; border-radius: var(--ds-radius-lg);
+    background: var(--ds-surface); box-shadow: inset 0 0 0 1px var(--ds-line-2); color: inherit; text-decoration: none;
+    transition: background-color var(--ds-dur-base) var(--ds-ease-out-quad);
+  }
+  .hm-step:focus-visible { outline: 2px solid var(--ds-focus-color); outline-offset: 2px; }
+  @media (hover: hover) and (pointer: fine) { .hm-step:hover { background: var(--ds-hover); transition-duration: 0ms; } }
+  .hm-step-ic { display: grid; place-items: center; flex: none; inline-size: 36px; block-size: 36px; border-radius: 10px; background: var(--ds-sunken); color: var(--ds-text-2); box-shadow: inset 0 0 0 1px var(--ds-line); }
+  .hm-step-t { display: block; font-size: 14px; line-height: 22px; font-weight: 600; color: var(--ds-text); }
+  .hm-step-d { display: block; margin-block-start: 2px; font-size: 12px; line-height: 18px; color: var(--ds-text-3); text-wrap: pretty; }
+
+  .hm-facts { display: grid; gap: 0; margin: 0; }
+  .hm-facts > div { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; min-block-size: 40px; padding-block: 9px; box-shadow: inset 0 -1px 0 var(--ds-line); font-size: 13px; line-height: 20px; }
+  .hm-facts > div:last-child { box-shadow: none; }
+  .hm-facts dt { color: var(--ds-text-3); }
+  .hm-facts dd { margin: 0; min-inline-size: 0; color: var(--ds-text); text-align: end; overflow-wrap: anywhere; }
+}

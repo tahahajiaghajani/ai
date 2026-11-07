@@ -37,7 +37,7 @@ export interface TurnRequest {
   model: string;
   /** stable instructions: frozen so providers can cache them */
   system: string;
-  /** business notes appended after the stable instructions (data, rarely changes) */
+  /** organisation notes appended after the stable instructions (data, rarely changes) */
   systemNotes?: string;
   messages: NeutralMessage[];
   tools?: ToolSpec[];

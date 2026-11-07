@@ -1,5 +1,5 @@
-// The business's AI settings (sm_ai_settings, one JSON per business and runtime) and the
-// platform's AI policy (sm_kv "ai.policy", web version only).
+// The organisation's AI settings (sm_ai_settings, one JSON per organisation and runtime) and the platform's AI
+// policy (sm_kv "ai.policy", web version only).
 import { z } from "zod";
 import type { Ctx, ServerConfig } from "../../context";
 import { pgArray, type Queryable } from "../../db";
@@ -12,23 +12,24 @@ import { bad } from "../../http/errors";
 
 export const JOBS: AiJob[] = AI_JOBS.map((j) => j.key);
 
-/** Features whose own switch must be on for a generate() call with that ledger label. */
-export const FEATURE_SWITCH: Record<string, keyof AiSettings["features"]> = {
-  explain: "explain",
-  capture: "capture",
-  plan: "forecast",
-  forecast: "forecast",
-  brief: "insights",
-  digest: "insights",
-  insights: "insights",
-};
+/**
+ * AI features of modules, by the ledger label their generate() calls name (a summary, a classification…): the switch
+ * of AiSettings.features that must be on for it. A module registers its label with `registerAiFeature`; the web
+ * version relays only the assistant and registered labels for a Windows app.
+ */
+export const FEATURE_SWITCH: Record<string, keyof AiSettings["features"]> = {};
+
+/** Registers a module's AI feature (its ledger label) under one of the switches («دستیار» unless told otherwise). */
+export function registerAiFeature(label: string, sw: keyof AiSettings["features"] = "assistant"): void {
+  FEATURE_SWITCH[label] = sw;
+}
 
 export function defaultSettings(): AiSettings {
   return {
     enabled: true,
     routing: { assistant: [], analysis: [], fast: [], vision: [] },
     effort: { ...DEFAULT_EFFORT },
-    features: { assistant: true, proposals: true, insights: true, explain: true, capture: true, forecast: true },
+    features: { assistant: true, proposals: true, files: true },
     data_policy: "masked",
     budgets: { monthly_usd: null, user_daily_usd: null, alert_pct: 80 },
     instructions: "",
@@ -55,7 +56,12 @@ export function normalizeSettings(raw: unknown): AiSettings {
     enabled: typeof r.enabled === "boolean" ? r.enabled : d.enabled,
     routing,
     effort: { ...d.effort, ...(r.effort ?? {}) },
-    features: { ...d.features, ...(r.features ?? {}) },
+    // known switches only (a stored row of an older build may carry others)
+    features: {
+      assistant: typeof r.features?.assistant === "boolean" ? r.features.assistant : d.features.assistant,
+      proposals: typeof r.features?.proposals === "boolean" ? r.features.proposals : d.features.proposals,
+      files: typeof r.features?.files === "boolean" ? r.features.files : d.features.files,
+    },
     data_policy: r.data_policy === "full" || r.data_policy === "aggregates" || r.data_policy === "masked" ? r.data_policy : d.data_policy,
     budgets: { ...d.budgets, ...(r.budgets ?? {}) },
     instructions: typeof r.instructions === "string" ? r.instructions : "",
@@ -93,7 +99,7 @@ export const settingsPatchSchema = z
     enabled: z.boolean(),
     routing: z.object({ assistant: route, analysis: route, fast: route, vision: route }).partial(),
     effort: z.object({ assistant: effort, analysis: effort, fast: effort, vision: effort }).partial(),
-    features: z.object({ assistant: z.boolean(), proposals: z.boolean(), insights: z.boolean(), explain: z.boolean(), capture: z.boolean(), forecast: z.boolean() }).partial(),
+    features: z.object({ assistant: z.boolean(), proposals: z.boolean(), files: z.boolean() }).partial(),
     data_policy: z.enum(["full", "masked", "aggregates"]),
     budgets: z.object({ monthly_usd: usd, user_daily_usd: usd, alert_pct: z.number().int().min(10).max(100) }).partial(),
     instructions: z.string().max(4000, "یادداشت سازمان حداکثر ۴۰۰۰ نویسه است"),
@@ -103,7 +109,7 @@ export const settingsPatchSchema = z
   })
   .partial();
 
-/** Apply a validated patch (routing entries must name this business's connections). */
+/** Apply a validated patch (routing entries must name this organisation's connections). */
 export async function saveSettings(ctx: Ctx, patch: AiSettingsPatch): Promise<AiSettings> {
   ctx.need("ai", "full");
   const routed = Object.values(patch.routing ?? {}).flatMap((l) => (l ?? []).map((x) => x.connection_id));
@@ -191,12 +197,12 @@ export async function savePolicy(cfg: ServerConfig, patch: z.infer<typeof policy
   return loadPolicy(cfg);
 }
 
-/** The platform turned AI off for this business (or for everyone). */
+/** The platform turned AI off for this organisation (or for everyone). */
 export function disabledByPlatform(policy: AiPolicy, orgId: string): boolean {
   return policy.kill_switch || policy.disabled_orgs.includes(orgId);
 }
 
-/** The lower of the business's own monthly cap and the platform's ceiling. */
+/** The lower of the organisation's own monthly cap and the platform's ceiling. */
 export function monthlyCap(settings: AiSettings, policy: AiPolicy): string | null {
   const a = settings.budgets.monthly_usd;
   const b = policy.default_monthly_cap_usd;

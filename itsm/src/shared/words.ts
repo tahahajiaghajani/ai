@@ -53,14 +53,3 @@ export function numberToWords(value: Num): string {
 export function amountToWords(value: Num, unit = "ریال"): string {
   return `${numberToWords(D(value).toDecimalPlaces(0))} ${unit}`.trim();
 }
-
-/** «دوازده گرم و سیصد و پنجاه سوت» — gold weights (1 g = 1000 sut). */
-export function weightToWords(grams: Num): string {
-  const d = D(grams).abs();
-  const g = d.floor();
-  const sut = d.minus(g).times(1000).toDecimalPlaces(0);
-  const parts: string[] = [];
-  if (!g.isZero()) parts.push(`${integerWords(g.toFixed())} گرم`);
-  if (!sut.isZero()) parts.push(`${integerWords(sut.toFixed())} سوت`);
-  return parts.length ? parts.join(" و ") : "صفر گرم";
-}

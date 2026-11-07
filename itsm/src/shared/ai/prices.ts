@@ -1,4 +1,4 @@
-// Dated price table (USD per million tokens) used to estimate what each AI call cost a business.
+// Dated price table (USD per million tokens) used to estimate what each AI call cost an organisation.
 // Estimates only: providers bill by their own counters; gateways bill in rial at their own rate.
 // Prices of 2 Nov 2026 (provider pages, OpenRouter catalogue); dated rows cover announced changes.
 import { D } from "../money";

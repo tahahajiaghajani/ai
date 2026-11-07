@@ -3,42 +3,14 @@
 import type { AiPageContext } from "@shared/ai/types";
 import { isUuid } from "@shared/id";
 
-/** Detail pages: the route's id is a record the question is probably about. */
-const RECORD_ROUTES: { re: RegExp; type: string }[] = [
-  { re: /^(?:sales|purchases)\/(?:invoices|returns|quotes|orders)\/([^/]+)$/, type: "invoice" },
-  { re: /^accounting\/vouchers\/([^/]+)$/, type: "voucher" },
-  { re: /^parties\/([^/]+)$/, type: "party" },
-  { re: /^treasury\/docs\/([^/]+)$/, type: "treasury_doc" },
-  { re: /^gold\/(?:docs|sale)\/([^/]+)$/, type: "gold_doc" },
-  { re: /^fx\/deals\/([^/]+)(?:\/edit)?$/, type: "fx_deal" },
-  { re: /^fx\/remittances\/([^/]+)$/, type: "remittance" },
-  { re: /^fx\/revaluation\/([^/]+)$/, type: "fx_revaluation" },
-  { re: /^inventory\/docs\/([^/]+)$/, type: "stock_doc" },
-  { re: /^inventory\/count\/([^/]+)$/, type: "stock_count" },
-  { re: /^sales\/price-lists\/([^/]+)$/, type: "price_list" },
-];
+/**
+ * Detail pages: the route's id is a record the question is probably about. Modules add theirs, e.g.
+ * `RECORD_ROUTES.push({ re: /^service-desk\/incidents\/([^/]+)$/, type: "incident" })`.
+ */
+export const RECORD_ROUTES: { re: RegExp; type: string }[] = [];
 
-/** Report pages and the report each one shows (its filters come from the query string). */
-const REPORT_PAGES: Record<string, string> = {
-  "reports/trial-balance": "trial_balance",
-  "reports/ledger": "ledger",
-  "reports/detail-balances": "detail_balances",
-  "reports/journal": "journal",
-  "reports/income-statement": "income_statement",
-  "reports/balance-sheet": "balance_sheet",
-  "sales/reports": "sales",
-  "inventory/stock": "stock",
-  "inventory/kardex": "kardex",
-  "treasury/book": "cash_book",
-  "treasury/cheques": "cheques",
-  "treasury/cheques/issued": "cheques_issued",
-  "gold/reports/stock": "gold_stock",
-  "gold/reports/sales": "gold_sales",
-  "gold/rates": "gold_rates",
-  "fx/positions": "fx_positions",
-  "fx/cash-report": "fx_cash",
-  "fx/rates": "fx_rates",
-};
+/** Report pages and the report each one shows (its filters come from the query string). Modules add theirs. */
+export const REPORT_PAGES: Record<string, string> = {};
 
 /** The query string's filters, bounded (a context is a hint, not a payload). */
 function params(search: string): Record<string, string> | undefined {
@@ -72,7 +44,7 @@ export function pageContext(rel: string, search: string, title: string | null): 
   return ctx;
 }
 
-/** The page title from the window title («فاکتور فروش ۱۲ — سیراف» → «فاکتور فروش ۱۲»). */
+/** The page title from the window title («کاربران و دسترسی‌ها — <app name>» → «کاربران و دسترسی‌ها»). */
 export function titleOf(docTitle: string, appName: string): string | null {
   const t = docTitle.trim();
   if (!t || t === appName) return null;

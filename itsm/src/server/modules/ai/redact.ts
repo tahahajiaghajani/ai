@@ -1,7 +1,7 @@
-// Data policy: what leaves the business for a model. "masked" (default) hides national ids,
-// mobiles, card numbers, IBANs, passport numbers and addresses in tool outputs and prompts;
-// "aggregates" also hides the names of people and parties; "full" sends everything as is.
-// Fields are recognised by their key first (tools name them) and by pattern in free text.
+// Data policy: what leaves the organisation for a model. "masked" (default) hides national ids, mobiles, card
+// numbers, IBANs, passport numbers and addresses in tool outputs and prompts; "aggregates" also hides the names of
+// people; "full" sends everything as is. Fields are recognised by their key first (tools name them) and by pattern
+// in free text.
 import type { AiDataPolicy } from "@shared/ai/types";
 import { isCardNumber, isNationalId } from "@shared/validate";
 
@@ -31,8 +31,8 @@ export function maskText(text: string): string {
 }
 
 const SENSITIVE_KEY = /(^|_)(national_?id|nid|melli|mobile|phone|tel|telephone|fax|card(_no|_number)?|iban|sheba|passport(_no)?|postal(_code)?|zip|address|birth(_date)?|id_card)($|_)/i;
-const NAME_KEY = /^(party|party_name|customer|customer_name|supplier|supplier_name|counterparty|counterparty_name|full_name|person|person_name|payee|payer|drawer|holder|owner_name|beneficiary|sender|receiver|contact|contact_name|first_name|last_name|father_name|member|user_name|created_by_name)$/i;
-const PARTY_TYPES = new Set(["party", "person", "customer", "supplier", "member", "user"]);
+const NAME_KEY = /^(party|party_name|customer|customer_name|supplier|supplier_name|counterparty|counterparty_name|full_name|person|person_name|payee|payer|drawer|holder|owner_name|beneficiary|sender|receiver|contact|contact_name|first_name|last_name|father_name|member|member_name|user_name|created_by_name|requester|requester_name|caller|caller_name|reporter|reporter_name|assignee|assignee_name|agent|agent_name|approver|approver_name|technician|author|author_name|employee|employee_name)$/i;
+const PARTY_TYPES = new Set(["party", "person", "customer", "supplier", "member", "user", "requester", "contact", "employee", "agent"]);
 
 /** Apply the data policy to a JSON value (a copy is returned). */
 export function redactValue(value: unknown, policy: AiDataPolicy): unknown {
@@ -48,8 +48,9 @@ export function redactValue(value: unknown, policy: AiDataPolicy): unknown {
     if (Array.isArray(v)) return v.map((x) => walk(x, key, parentIsParty));
     if (typeof v === "object") {
       const o = v as Record<string, unknown>;
-      // a party row: typed as one, under a party-like key, or carrying a party's id/code (sales by party, statements)
-      const isParty = PARTY_TYPES.has(String(o.type ?? o.kind ?? "")) || /party|customer|supplier/i.test(key) || "party_id" in o || "party_code" in o;
+      // a person's row: typed as one, under a person-like key, or carrying a person's id (members, requesters…)
+      const isParty =
+        PARTY_TYPES.has(String(o.type ?? o.kind ?? "")) || /party|customer|supplier|requester|assignee|member|employee/i.test(key) || "party_id" in o || "party_code" in o || "user_id" in o;
       const out: Record<string, unknown> = {};
       for (const [k, x] of Object.entries(o)) out[k] = walk(x, k, isParty);
       return out;
@@ -106,7 +107,7 @@ export function redactPage<T extends { title?: string; record?: { type: string; 
   const out = { ...page };
   if (out.record) out.record = { ...out.record, label: policy === "aggregates" ? undefined : out.record.label ? maskText(out.record.label) : undefined };
   if (out.title) out.title = policy === "aggregates" && page.record ? undefined : maskText(out.title);
-  // report filters are mostly record ids (party=<uuid>): an id is no personal data and the tools
+  // report filters are mostly record ids (member=<uuid>): an id is no personal data and the tools
   // take it, so it stays; any other value goes through the policy as tool output does
   if (out.report) {
     const params: Record<string, unknown> = {};

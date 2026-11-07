@@ -1,8 +1,7 @@
-// Periods and time buckets for the assistant's tools and the AI features. The model names a
-// Jalali preset («this_month», «last_quarter», «fiscal_year»…) or explicit dates (Jalali
-// «۱۴۰۵/۰۸/۰۱» or ISO); the server resolves them against the business's own "today" and echoes
-// the result with Persian labels, so an answer always states the exact range it covers.
-// Pure: no database access (fiscal years are passed in).
+// Periods and time buckets for the assistant's tools and the AI features of modules. The model names a Jalali
+// preset («this_month», «last_quarter»…) or explicit dates (Jalali «۱۴۰۵/۰۸/۰۱» or ISO); the server resolves them
+// against the organisation's own "today" and echoes the result with Persian labels, so an answer always states the
+// exact range it covers. Pure: no database access.
 import {
   JALALI_MONTHS, addDays, diffDays, formatJalali, fromJalali, jalaliMonthRange, jalaliYearRange, monthLength,
   parseJalaliInput, toFa, toJalali, weekday,
@@ -11,21 +10,13 @@ import { normalizeDigits } from "@shared/money";
 
 export const PERIOD_PRESETS = [
   "today", "yesterday", "this_week", "last_week", "this_month", "last_month", "this_quarter", "last_quarter",
-  "this_year", "last_year", "month_to_date", "year_to_date", "fiscal_year", "last_fiscal_year",
+  "this_year", "last_year", "month_to_date", "year_to_date",
   "last_7_days", "last_30_days", "last_90_days", "last_365_days",
 ] as const;
 export type PeriodPreset = (typeof PERIOD_PRESETS)[number];
 
 export const COMPARE_MODES = ["previous_period", "same_period_last_year"] as const;
 export type CompareMode = (typeof COMPARE_MODES)[number];
-
-export interface FiscalYearLite {
-  id: string;
-  title: string;
-  start_date: string;
-  end_date: string;
-  status?: string;
-}
 
 export interface PeriodInput {
   preset?: PeriodPreset | null;
@@ -89,14 +80,10 @@ function monthShift(jy: number, jm: number, by: number): { jy: number; jm: numbe
   return { jy: Math.floor(i / 12), jm: (i % 12) + 1 };
 }
 
-function currentFiscal(fys: FiscalYearLite[], today: string): FiscalYearLite | null {
-  return fys.find((f) => f.start_date <= today && f.end_date >= today) ?? null;
-}
-
 /** Resolve a preset or explicit dates. `def` is used when nothing is given. */
-export function resolvePeriod(input: PeriodInput | null | undefined, today: string, opts: { fiscalYears?: FiscalYearLite[]; def?: PeriodPreset } = {}): ResolvedPeriod {
+export function resolvePeriod(input: PeriodInput | null | undefined, today: string, opts: { def?: PeriodPreset } = {}): ResolvedPeriod {
   const p = input ?? {};
-  if (p.preset) return presetPeriod(p.preset, today, opts.fiscalYears ?? []);
+  if (p.preset) return presetPeriod(p.preset, today);
   if (p.from || p.to) {
     const from = p.from ? parseDateInput(p.from, today) : null;
     const to = p.to ? parseDateInput(p.to, today) : null;
@@ -106,10 +93,10 @@ export function resolvePeriod(input: PeriodInput | null | undefined, today: stri
     const t = to ?? today;
     return make(f, t, null);
   }
-  return presetPeriod(opts.def ?? "this_month", today, opts.fiscalYears ?? []);
+  return presetPeriod(opts.def ?? "this_month", today);
 }
 
-export function presetPeriod(preset: PeriodPreset, today: string, fiscalYears: FiscalYearLite[] = []): ResolvedPeriod {
+export function presetPeriod(preset: PeriodPreset, today: string): ResolvedPeriod {
   const t = toJalali(today);
   const wd = weekday(today);
   switch (preset) {
@@ -150,21 +137,6 @@ export function presetPeriod(preset: PeriodPreset, today: string, fiscalYears: F
       return make(jalaliMonthRange(t.jy, t.jm).start, today, preset);
     case "year_to_date":
       return make(jalaliYearRange(t.jy).start, today, preset);
-    case "fiscal_year":
-    case "last_fiscal_year": {
-      const cur = currentFiscal(fiscalYears, today);
-      if (preset === "fiscal_year") {
-        if (cur) return make(cur.start_date, cur.end_date, preset);
-        const r = jalaliYearRange(t.jy);
-        return make(r.start, r.end, preset);
-      }
-      const before = fiscalYears
-        .filter((f) => f.end_date < (cur?.start_date ?? today))
-        .sort((a, b) => b.start_date.localeCompare(a.start_date))[0];
-      if (before) return make(before.start_date, before.end_date, preset);
-      const r = jalaliYearRange((cur ? toJalali(cur.start_date).jy : t.jy) - 1);
-      return make(r.start, r.end, preset);
-    }
     case "last_7_days":
       return make(addDays(today, -6), today, preset);
     case "last_30_days":

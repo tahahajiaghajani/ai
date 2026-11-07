@@ -132,7 +132,7 @@ orgRoutes.get("/members", async (c) => {
   const ctx = c.get("ctx");
   ctx.need("users", "view");
   // password_reset: whether «رمز تازه» can work for this member (POST /members/:id/password), told
-  // only to those who may reset (it also says whether the person works for another business)
+  // only to those who may reset (it also says whether the person works for another organisation)
   const rows = await ctx.db.query(
     `select m.id, m.user_id, m.role, m.overrides, m.title, m.is_active, m.created_at, u.email, u.full_name, u.mobile, u.last_login_at, u.disabled,
        ($2::boolean and ${RESETTABLE_SQL("$1", "u")}) as password_reset
@@ -165,7 +165,7 @@ orgRoutes.post("/members", async (c) => {
     const created = !user;
     if (!user) {
       // the platform's administrators (PLATFORM_ADMIN_EMAILS) make their own accounts: one made
-      // here with a password the business chose must never sign in as one
+      // here with a password the organisation chose must never sign in as one
       if (ctx.cfg.platformAdmins.includes(input.email)) throw bad("این نشانی برای مدیر سامانه کنار گذاشته شده است؛ حساب آن را خودش می‌سازد");
       const pw = input.password || (temp = readableCode(3, 4));
       const problem = passwordProblem(pw);
@@ -180,7 +180,7 @@ orgRoutes.post("/members", async (c) => {
     } else {
       await insertRow(tx, "sm_org_members", { id: uuidv7(), org_id: ctx.org.id, user_id: user!.id, role: input.role, title: input.title ?? null, origin: ctx.cfg.origin }, "id");
     }
-    // new_account marks an account this business made (see createdHere: password resets)
+    // new_account marks an account this organisation made (see createdHere: password resets)
     await audit(tx, ctx, "member_add", "member", user!.id, `${input.email} (${ROLES[input.role].title})`, { new_account: created });
     return { user_id: user!.id, created };
   });
@@ -259,8 +259,8 @@ orgRoutes.post("/members/:id/password", async (c) => {
   const grant = { user_id: m.user_id, role: m.role, overrides: m.overrides };
   const refusal = memberChangeProblem(ctx, grant, grant);
   if (refusal) throw forbidden(refusal);
-  // the account is global: anyone can add an existing account to their own business by its e-mail.
-  // A business resets only an account it made itself, for someone who works for no other business,
+  // the account is global: anyone can add an existing account to their own organisation by its e-mail.
+  // An organisation resets only an account it made itself, for someone who works for no other organisation,
   // and never a platform admin's (that one is reset from «مدیریت سامانه»)
   if (!(await createdHere(ctx.db, ctx.org.id, m.user_id)))
     throw forbidden("این حساب پیش از عضویت در این سازمان ساخته شده بود؛ رمز آن را صاحب حساب خودش از «حساب من» عوض می‌کند (یا با کمک مدیر سامانه)");
@@ -288,7 +288,7 @@ orgRoutes.post("/members/:id/password", async (c) => {
 
 // ----- audit log and support sessions -----
 // actor_kind: 'user' (a member), 'support' (the platform admin in a support session) or 'platform'
-// (a change the platform admin made from «مدیریت سامانه», e.g. the business's status)
+// (a change the platform admin made from «مدیریت سامانه», e.g. the organisation's status)
 orgRoutes.get("/audit", async (c: C) => {
   const ctx = c.get("ctx");
   ctx.need("settings", "view");

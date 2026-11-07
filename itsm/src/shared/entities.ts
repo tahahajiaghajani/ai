@@ -53,6 +53,8 @@ export interface EntityDef {
   code?: { field: string; start: number };
   order: string;
   icon?: string;
+  /** a spreadsheet import may create a missing row of this entity from its name alone (categories, locations…) */
+  autoCreate?: boolean;
 }
 
 /** A field every list of master data may share: «فعال». */

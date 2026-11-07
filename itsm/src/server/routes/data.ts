@@ -2,8 +2,6 @@
 import { z } from "zod";
 import { router, body } from "../http/hono";
 import * as crud from "../modules/data/crud";
-import { likeContains } from "../db";
-import { normalizeDigits } from "@shared/money";
 
 export const dataRoutes = router();
 
@@ -29,28 +27,6 @@ dataRoutes.get("/:entity/options", async (c) => {
   const entity = c.req.param("entity");
   const q = c.req.query();
   const ids = (q.ids ?? "").split(",").filter(Boolean);
-  if (entity === "account") {
-    const params: unknown[] = [ctx.org.id];
-    let cond = "org_id = $1 and deleted_at is null and is_active";
-    if (q.postable !== "0") cond += " and is_postable";
-    if (ids.length) {
-      params.push(`{${ids.join(",")}}`);
-      cond += ` and id = any($${params.length}::uuid[])`;
-    } else if (q.q) {
-      params.push(likeContains(normalizeDigits(q.q)));
-      cond += ` and (code ilike $${params.length} or name ilike $${params.length})`;
-    }
-    if (q["f.key"]) {
-      params.push(q["f.key"]);
-      cond += ` and system_key = $${params.length}`;
-    }
-    const rows = await ctx.db.query(
-      `select id, name as label, code as sub, code, name, detail_mode, detail_kinds, fx_mode, currency_id, weight_mode, system_key, level
-       from sm_accounts where ${cond} order by code limit 60`,
-      params,
-    );
-    return c.json({ options: rows });
-  }
   const filters: Record<string, string> = {};
   for (const [k, v] of Object.entries(q)) if (k.startsWith("f.")) filters[k.slice(2)] = v;
   return c.json({ options: await crud.options(ctx, entity, q.q ?? "", filters, ids) });

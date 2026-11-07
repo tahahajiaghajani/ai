@@ -76,14 +76,14 @@ export function useShellItems(): ShellItem[] {
 /** Items the sidebar lists: create-actions live in page headers and the palette («کارها»), counters stay. */
 export const inSidebar = (i: NavItem) => !i.action || !!i.workspace;
 
-/** The segmented control's spaces: enabled modules with at least one non-common item the member may open. */
+/** The segmented control's spaces: those (of enabled modules) with at least one non-common item the member may open. */
 export function useSpaces(items: ShellItem[]): Space[] {
   return useMemo(() => SPACES.filter((s) => items.some((i) => i.space === s.key && !i.common)), [items]);
 }
 
-export const spaceOf = (key: SpaceKey): Space => (key === "settings" ? SETTINGS_SPACE : SPACES.find((s) => s.key === key) ?? SPACES[0]);
+export const spaceOf = (key: SpaceKey): Space => (key === "settings" ? SETTINGS_SPACE : (SPACES.find((s) => s.key === key) ?? SPACES[0]));
 
-/** Path of the org-relative route: `/org/sales/invoices/12` → `sales/invoices/12`. */
+/** Path of the org-relative route: `/org/settings/users` → `settings/users`. */
 export function useRelPath(): string {
   const { orgId } = useOrg();
   const { pathname } = useLocation();
@@ -100,7 +100,7 @@ export function matchItem(items: ShellItem[], rel: string): ShellItem | null {
   return best;
 }
 
-/** The space a route belongs to; null for common pages (پیشخوان، اشخاص) that belong to every space. */
+/** The space a route belongs to; null for common pages («خانه») that belong to every space. */
 export function routeSpace(item: ShellItem | null, rel: string): SpaceKey | null {
   if (item && !item.common) return item.space;
   if (item?.common) return null;
@@ -132,7 +132,7 @@ export function sectionsOf(items: ShellItem[], space: SpaceKey): { common: Shell
 
 /** Keeps the last page of each space and the last space, per organisation. */
 export function useSpaceMemory(orgId: string, current: SpaceKey | null, rel: string, search: string) {
-  const [last, setLast] = useStored<SpaceKey>(`itsm.space.${orgId}`, "accounting");
+  const [last, setLast] = useStored<SpaceKey>(`itsm.space.${orgId}`, "home");
   const [pages, setPages] = useStored<Partial<Record<SpaceKey, string>>>(`itsm.spacePages.${orgId}`, {});
   useEffect(() => {
     if (!current) return;

@@ -177,15 +177,10 @@ export function NumberInput({ value, onChange, decimals = 0, allowNegative, word
   );
 }
 
-/** Money in the organisation's base currency. */
-export function MoneyInput(props: NumberInputProps & { currencyDecimals?: number; showUnit?: boolean }) {
-  const { org, unit } = useOrg();
-  const { currencyDecimals, showUnit, ...rest } = props;
-  return <NumberInput decimals={currencyDecimals ?? org.money_decimals ?? 0} suffix={showUnit ? <span>{unit}</span> : rest.suffix} {...rest} />;
-}
-
-export function WeightInput(props: NumberInputProps) {
-  return <NumberInput decimals={3} suffix={<span>گرم</span>} {...props} />;
+/** An amount of money with `currencyDecimals` decimals (default 0) and, with `unit`, its currency after it. */
+export function MoneyInput(props: NumberInputProps & { currencyDecimals?: number; unit?: ReactNode }) {
+  const { currencyDecimals, unit, ...rest } = props;
+  return <NumberInput decimals={currencyDecimals ?? 0} suffix={unit ? <span>{unit}</span> : rest.suffix} {...rest} />;
 }
 
 export function PctInput(props: NumberInputProps) {
@@ -556,52 +551,6 @@ export function RefSelect({ entity, value, onChange, filters, placeholder, showC
           <span className="ds-opt-main">{opt.label}</span>
         );
       }}
-    />
-  );
-}
-
-export function AccountSelect(props: Omit<RefSelectProps, "entity">) {
-  return <RefSelect entity="account" placeholder="کد یا نام حساب…" popupWidth={360} {...props} />;
-}
-
-export function DetailSelect({ kinds, ...props }: Omit<RefSelectProps, "entity"> & { kinds?: string[] }) {
-  return <RefSelect entity="detail" placeholder="حساب تفصیلی…" filters={kinds && kinds.length ? { kind: kinds.join(",") } : undefined} popupWidth={320} {...props} />;
-}
-
-export function PartySelect({ role, ...props }: Omit<RefSelectProps, "entity"> & { role?: string }) {
-  return (
-    <RefSelect
-      entity="party"
-      placeholder="نام، کد یا موبایل شخص…"
-      filters={role ? { role } : undefined}
-      render={(o) => (
-        <span className="ds-opt">
-          <span className="ds-opt-main">{o.label}</span>
-          <span className="ds-opt-sub">{faDigits(o.mobile ?? o.sub ?? "")}</span>
-        </span>
-      )}
-      {...props}
-    />
-  );
-}
-
-export function CurrencySelect(props: Omit<RefSelectProps, "entity"> & { kind?: "fiat" | "crypto" }) {
-  const { kind, ...rest } = props;
-  return (
-    <RefSelect
-      entity="currency"
-      showCode={false}
-      filters={kind ? { kind } : undefined}
-      placeholder="ارز…"
-      render={(o) => (
-        <span className="ds-opt">
-          <span className="ds-opt-main">{o.label}</span>
-          <span className="ds-opt-sub">
-            <span className="ds-latin font-semibold">{o.code}</span>
-          </span>
-        </span>
-      )}
-      {...rest}
     />
   );
 }

@@ -31,7 +31,7 @@ import { D } from "@shared/money";
 import type { AiStatus } from "@shared/ai/api";
 import { useOrg } from "../../lib/org";
 import { useNotify } from "../../lib/hooks";
-import { ChequeIcon, Ic, Keys, AiIcon } from "../../components/shell/icons";
+import { Ic, Keys, AiIcon } from "../../components/shell/icons";
 import { useRelPath, useShellItems } from "../../components/shell/model";
 import { resolveHref } from "../markdown/links";
 import { openAssistant } from "./bus";
@@ -50,12 +50,8 @@ import "./assistant.css";
 const ICONS: Record<PromptIcon, LucideIcon> = {
   summary: FileText,
   chart: ChartColumn,
-  cheque: ChequeIcon,
   people: Users,
-  cash: Wallet,
-  stock: Package,
-  gold: Gem,
-  fx: ArrowLeftRight,
+  calendar: CalendarDays,
   doc: FileText,
   search: ScanSearch,
   forecast: TrendingUp,

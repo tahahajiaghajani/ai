@@ -1,5 +1,5 @@
 // Windows app → web version relay. When the Windows app is linked to the web version and the
-// business turned on «استفاده از اتصال‌های نسخهٔ وب», model calls that no local connection can
+// organisation turned on «استفاده از اتصال‌های نسخهٔ وب», model calls that no local connection can
 // serve — and, with «اول نسخهٔ وب», every call of the jobs chosen for it, before the local chain —
 // go to POST /api/o/:org/ai/relay of the web version with the device token: the web version
 // runs only the model turn through its own chain (its keys never leave it) and streams the result
@@ -133,22 +133,22 @@ function aborted(): ChainResult {
   };
 }
 
-/** Ledger labels a Windows app may relay: the assistant and the features of engine.ts (with their switches). */
-const RELAY_FEATURES = new Set(["assistant", ...Object.keys(FEATURE_SWITCH)]);
+/** Ledger labels a Windows app may relay: the assistant and the registered features of modules (with their switches). */
+const relayable = (feature: string) => feature === "assistant" || Object.prototype.hasOwnProperty.call(FEATURE_SWITCH, feature);
 /** Output tokens of one relayed turn (the assistant's own per-turn limit). */
 export const RELAY_MAX_TOKENS = 32_000;
 
 /**
- * Web side: the business's switches apply to relayed turns as to its own — the assistant switch
- * for the assistant, each feature's switch, and «document reading» for any file. Throws.
+ * Web side: the organisation's switches apply to relayed turns as to its own — the assistant switch for the
+ * assistant, each feature's switch, and «فایل و تصویر» for any file. Throws.
  */
 export function assertRelayAllowed(ctx: Ctx, settings: AiSettings, body: RelayRequest): void {
   const off = () => new AiUnavailableError("disabled", aiErrorText("disabled", { canManage: ctx.can("ai", "full") }).message);
-  if (!RELAY_FEATURES.has(body.feature)) throw bad("این درخواست هوش مصنوعی شناخته نیست");
+  if (!relayable(body.feature)) throw bad("این درخواست هوش مصنوعی شناخته نیست");
   if ((body.feature === "assistant" || body.job === "assistant") && !settings.features.assistant) throw off();
   const sw = FEATURE_SWITCH[body.feature];
   if (sw && !settings.features[sw]) throw off();
-  if (body.request.messages.some((m) => m.parts.some((p) => p.type === "file")) && !settings.features.capture) throw off();
+  if (body.request.messages.some((m) => m.parts.some((p) => p.type === "file")) && !settings.features.files) throw off();
 }
 
 /**

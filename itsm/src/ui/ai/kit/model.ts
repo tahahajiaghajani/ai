@@ -1,19 +1,20 @@
-// Pure helpers of the AI screens (settings, insights, explain, capture, forecast): Persian labels, confidence levels,
-// chains, budgets and number formatting. No React and no CSS here, so tests can import it in node.
-import type { AiCaptureResult, AiConnectionPublic, AiConnectionStatus, AiDataPolicy, AiEffort, AiErrorKind, AiInsight, AiJob, AiSettings, AiSeverity } from "@shared/ai/types";
-import { AI_CAPTURE_LINE_FIELDS, type AiCaptureField, type AiStatus } from "@shared/ai/api";
+// Pure helpers of the AI screens (settings, the assistant, the home page's AI strip, a module's AI kit): Persian
+// labels, confidence levels, chains, budgets and number formatting. No React and no CSS here, so tests can import it
+// in node.
+import { APP_NAME } from "@shared/constants";
+import type { AiConnectionPublic, AiConnectionStatus, AiDataPolicy, AiEffort, AiErrorKind, AiJob, AiSettings } from "@shared/ai/types";
+import type { AiStatus } from "@shared/ai/api";
 import { AI_SETUP_KINDS } from "@shared/ai/errors";
-import { formatNumber } from "@shared/format";
 
 // ---------------------------------------------------------------- labels
 
 export const JOBS: AiJob[] = ["assistant", "analysis", "fast", "vision"];
 
 export const JOB_LABEL: Record<AiJob, { title: string; about: string; tier: "smart" | "fast" | "vision" }> = {
-  assistant: { title: "دستیار", about: "گفت‌وگو با دستیار و کار با ابزارهای سیراف", tier: "smart" },
-  analysis: { title: "تحلیل و گزارش", about: "تحلیل گزارش‌ها، خلاصهٔ روز و برنامهٔ ماه", tier: "smart" },
+  assistant: { title: "دستیار", about: `گفت‌وگو با دستیار و کار با ابزارهای ${APP_NAME}`, tier: "smart" },
+  analysis: { title: "تحلیل و گزارش", about: "تحلیل گزارش‌ها و خلاصه‌های طولانی", tier: "smart" },
   fast: { title: "کارهای سریع", about: "متن‌های کوتاه، دسته‌بندی و خلاصه‌های ساده", tier: "fast" },
-  vision: { title: "خواندن تصویر و سند", about: "فاکتور خرید، کارت ملی و چک از روی عکس یا PDF", tier: "vision" },
+  vision: { title: "خواندن تصویر و سند", about: "تصویر و PDFی که همراه پرسش فرستاده می‌شود", tier: "vision" },
 };
 
 export const EFFORTS: AiEffort[] = ["low", "medium", "high", "max"];
@@ -39,23 +40,17 @@ export const STATUS_OF_TONE: Record<ConnectionTone, AiConnectionStatus | "off"> 
 
 export const FEATURE_LABEL: Record<keyof AiSettings["features"], { title: string; about: string }> = {
   assistant: { title: "دستیار گفت‌وگو", about: "پرسش از دستیار در همهٔ صفحه‌ها" },
-  proposals: { title: "پیش‌نویس به پیشنهاد دستیار", about: "دستیار پیش‌نویس سند و فاکتور آماده می‌کند؛ ثبت با تأیید شما است" },
-  insights: { title: "بینش‌ها و خلاصهٔ امروز", about: "هشدارهای پیشخوان و خلاصهٔ هر روز" },
-  explain: { title: "تحلیل گزارش‌ها", about: "دکمهٔ «تحلیل با هوش مصنوعی» روی گزارش‌ها" },
-  capture: { title: "خواندن از تصویر", about: "فاکتور خرید، کارت ملی و چک از روی عکس یا PDF" },
-  forecast: { title: "پیش‌بینی و برنامه‌ریزی", about: "جریان نقدی، فروش، نرخ‌ها و برنامهٔ ماه" },
+  proposals: { title: "پیش‌نویس به پیشنهاد دستیار", about: "دستیار پیش‌نویس آماده می‌کند؛ ثبت با تأیید شما است" },
+  files: { title: "فایل و تصویر", about: "فرستادن تصویر و PDF همراه پرسش، و خواندن سند در بخش‌هایی که آن را دارند" },
 };
 
 export const FEATURE_KEYS = Object.keys(FEATURE_LABEL) as (keyof AiSettings["features"])[];
 
 export const POLICY_LABEL: Record<AiDataPolicy, { title: string; about: string }> = {
   masked: { title: "پوشاندن اطلاعات شخصی", about: "کد ملی، موبایل، شمارهٔ کارت، شبا و گذرنامه پیش از ارسال به مدل پوشانده می‌شود." },
-  aggregates: { title: "فقط جمع‌ها", about: "نام اشخاص هم فرستاده نمی‌شود؛ پاسخ‌ها کلی‌تر و بی‌نام‌اند." },
-  full: { title: "بدون پوشاندن", about: "داده‌ها همان‌طور که در سیراف هست به مدل فرستاده می‌شود." },
+  aggregates: { title: "فقط جمع‌ها", about: "نام افراد هم فرستاده نمی‌شود؛ پاسخ‌ها کلی‌تر و بی‌نام‌اند." },
+  full: { title: "بدون پوشاندن", about: `داده‌ها همان‌طور که در ${APP_NAME} هست به مدل فرستاده می‌شود.` },
 };
-
-export const SEVERITY_LABEL: Record<AiSeverity, string> = { critical: "فوری", warning: "مهم", notice: "توجه", info: "برای اطلاع" };
-export const SEVERITY_RANK: Record<AiSeverity, number> = { critical: 0, warning: 1, notice: 2, info: 3 };
 
 /** Persian explanation and remedy of an error class (used when the server sends only the kind). */
 export const ERROR_HELP: Record<AiErrorKind, { title: string; remedy: string }> = {
@@ -188,142 +183,9 @@ export function duration(ms: unknown): string {
 /** Strip spaces and invisible direction marks from a pasted key (what the server does too). */
 export const cleanKey = (s: string) => s.replace(/[\s\p{Cf}]/gu, "");
 
-// ---------------------------------------------------------------- responses of the features (tolerant readers)
+// ---------------------------------------------------------------- errors and the AI strip
 
-const strs = (v: unknown): string[] => (Array.isArray(v) ? v.map((x) => (typeof x === "string" ? x : x && typeof x === "object" && "text" in x ? String((x as { text: unknown }).text) : "")).filter(Boolean) : []);
 const rec = (v: unknown): Record<string, unknown> => (v && typeof v === "object" ? (v as Record<string, unknown>) : {});
-
-/** POST /ai/explain → narrative, key points and follow-up questions, whichever names the server used. */
-export function explainOf(r: unknown): {
-  narrative: string;
-  points: string[];
-  questions: string[];
-  warnings: string[];
-  source: "ai" | "template";
-  model: string | null;
-  /** why the template was shown instead of the model's text */
-  note: string | null;
-} {
-  const o = rec(rec(r).explanation ?? r);
-  const narrative = String(o.narrative ?? o.markdown ?? o.text ?? "").trim();
-  return {
-    narrative,
-    points: strs(o.points ?? o.key_points),
-    questions: strs(o.questions ?? o.follow_ups ?? o.follow_up),
-    warnings: strs(o.warnings),
-    source: o.source === "ai" || (o.source === undefined && !!o.model) ? "ai" : "template",
-    model: typeof o.model === "string" ? o.model : null,
-    note: typeof o.note_fa === "string" && o.note_fa ? o.note_fa : null,
-  };
-}
-
-/** Labels of the fields a capture returns (keys: AI_CAPTURE_FIELDS of @shared/ai/api), in review order. */
-export const CAPTURE_FIELDS: { [K in AiCaptureResult["kind"]]: { key: AiCaptureField<K>; label: string }[] } = {
-  purchase_invoice: [
-    { key: "seller_name", label: "فروشنده" },
-    { key: "seller_national_id", label: "شناسهٔ ملی یا کد ملی فروشنده" },
-    { key: "seller_economic_code", label: "کد اقتصادی فروشنده" },
-    { key: "seller_phone", label: "تلفن فروشنده" },
-    { key: "invoice_no", label: "شمارهٔ فاکتور" },
-    { key: "date", label: "تاریخ" },
-    { key: "subtotal", label: "جمع پیش از مالیات" },
-    { key: "discount", label: "تخفیف" },
-    { key: "tax", label: "مالیات و عوارض" },
-    { key: "total", label: "مبلغ کل" },
-    { key: "currency_unit", label: "واحد پول" },
-  ],
-  id_card: [
-    { key: "first_name", label: "نام" },
-    { key: "last_name", label: "نام خانوادگی" },
-    { key: "national_id", label: "کد ملی" },
-    { key: "birth_date", label: "تاریخ تولد" },
-    { key: "father_name", label: "نام پدر" },
-    { key: "id_doc_no", label: "شمارهٔ سریال کارت" },
-    { key: "expiry", label: "تاریخ انقضا" },
-  ],
-  cheque: [
-    { key: "sayad_id", label: "شناسهٔ صیادی" },
-    { key: "serial_no", label: "شمارهٔ چک" },
-    { key: "amount", label: "مبلغ" },
-    { key: "amount_words", label: "مبلغ به حروف" },
-    { key: "due_date", label: "تاریخ سررسید" },
-    { key: "bank_name", label: "بانک" },
-    { key: "branch_name", label: "شعبه" },
-    { key: "account_owner", label: "صاحب حساب (صادرکننده)" },
-    { key: "account_no", label: "شمارهٔ حساب" },
-    { key: "iban", label: "شبا" },
-    { key: "payee", label: "در وجه" },
-    { key: "issuer_national_id", label: "کد ملی صادرکننده" },
-  ],
-  receipt: [
-    { key: "payer", label: "پرداخت‌کننده" },
-    { key: "payee", label: "دریافت‌کننده" },
-    { key: "amount", label: "مبلغ" },
-    { key: "date", label: "تاریخ" },
-    { key: "reference", label: "شمارهٔ پیگیری" },
-    { key: "bank_name", label: "بانک" },
-    { key: "card_last4", label: "چهار رقم آخر کارت" },
-    { key: "description", label: "شرح" },
-  ],
-};
-
-export const LINE_FIELDS: { key: (typeof AI_CAPTURE_LINE_FIELDS)[number]; label: string; numeric?: boolean }[] = [
-  { key: "description", label: "شرح" },
-  { key: "code", label: "کد" },
-  { key: "qty", label: "مقدار", numeric: true },
-  { key: "unit", label: "واحد" },
-  { key: "unit_price", label: "فی", numeric: true },
-  { key: "discount", label: "تخفیف", numeric: true },
-  { key: "tax", label: "مالیات", numeric: true },
-  { key: "total", label: "مبلغ", numeric: true },
-];
-
-/** Amounts the server normalised to plain digits get their thousands separators back for reading. */
-const AMOUNT_KEYS = new Set(["subtotal", "discount", "tax", "total", "amount"]);
-const shown = (key: string, v: string) => (AMOUNT_KEYS.has(key) && /^-?\d+(\.\d+)?$/.test(v) ? formatNumber(v, { dp: 4, minDp: 0 }) : v);
-
-/**
- * The rows to review: the kind's fields that have a value, in order, then the party the server matched exactly
- * (its name and code). Helper keys the server adds (`*_iso`) are not shown.
- */
-export function captureRows(kind: keyof typeof CAPTURE_FIELDS, fields: Record<string, { value: string | null; confidence: number; note_fa?: string }>) {
-  const has = (k: string) => fields[k] && fields[k].value !== null && String(fields[k].value).trim() !== "";
-  const rows = (CAPTURE_FIELDS[kind] as { key: string; label: string }[])
-    .filter((f) => has(f.key))
-    .map((f) => ({ key: f.key, label: f.label, value: shown(f.key, String(fields[f.key].value)), confidence: fields[f.key].confidence, note: fields[f.key].note_fa ?? null }));
-  if (has("party_id")) rows.push({ key: "party_id", label: "شخص در سیراف", value: fields.party_id.note_fa ?? "پیدا شد", confidence: fields.party_id.confidence, note: "با کد ملی یا کد اقتصادی دقیق پیدا شد" });
-  return rows;
-}
-
-/** Lowest confidence of a line's cells (a line is as sure as its weakest value). */
-export function lineConfidence(line: Record<string, { value: string | null; confidence: number }>): number {
-  const c = Object.values(line).filter((v) => v && v.value !== null).map((v) => v.confidence);
-  return c.length ? Math.min(...c) : 0;
-}
-
-/** «۱۴۰۵/۰۸/۱۱», «1405-08-11» or «2026-11-02» → ISO (Gregorian) day, or null. Jalali needs the converter. */
-export function dayOf(v: string | null | undefined, jalaliToISO: (y: number, m: number, d: number) => string): string | null {
-  if (!v) return null;
-  const s = v.replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d))).replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)));
-  const m = s.match(/(\d{4})\D(\d{1,2})\D(\d{1,2})/);
-  if (!m) return null;
-  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
-  if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
-  if (y < 1700) return jalaliToISO(y, mo, d);
-  return `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-}
-
-/** An amount read from an image («۱٬۲۵۰٬۰۰۰ ریال», "1,250,000") as a plain decimal string, or null. */
-export function amountOf(v: string | null | undefined): string | null {
-  if (!v) return null;
-  const s = v
-    .replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d)))
-    .replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)))
-    .replace(/[٬,\s]/g, "")
-    .replace(/٫/g, ".")
-    .replace(/[^\d.-]/g, "");
-  return /^-?\d+(\.\d+)?$/.test(s) ? s : null;
-}
 
 /** The AI error class of a failed request (the server sends it as the error code or in the details), or null. */
 export function errorKindOf(e: unknown): AiErrorKind | null {
@@ -335,18 +197,9 @@ export function errorKindOf(e: unknown): AiErrorKind | null {
   return null;
 }
 
-// ---------------------------------------------------------------- dashboard
-
-/** Severity first, then newest. Dismissed, done and snoozed insights leave the feed. */
-export function feedOf(list: AiInsight[]): AiInsight[] {
-  return list
-    .filter((i) => i.status === "new" || i.status === "seen")
-    .sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity] || b.created_at.localeCompare(a.created_at));
-}
-
 export type StripKind = "setup" | "budget" | "problem";
 
-/** What the dashboard's AI strip says for this status (ai:full only), or null when all is well or AI is off on purpose. */
+/** What the home page's AI strip says for this status (ai:full only), or null when all is well or AI is off on purpose. */
 export function stripOf(s: AiStatus | undefined): StripKind | null {
   if (!s || !s.can_manage || !s.enabled) return null;
   if (!s.configured) return "setup";

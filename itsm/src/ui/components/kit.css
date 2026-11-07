@@ -115,18 +115,18 @@
 
   /* a list card: the filters row sits ABOVE the card (components.md §2: «one row, above everything it scopes, never
      inside a card»), 12 px over it; the card is the table itself and the table runs to its edges (§4.1) */
-  :is(.tz-card, .ds-card) > .ds-st > .ds-st-bar { padding: 0; margin-block-end: var(--ds-filters-gap); }
-  :is(.tz-card, .ds-card) > .ds-st > .ant-table-wrapper {
+  .ds-card > .ds-st > .ds-st-bar { padding: 0; margin-block-end: var(--ds-filters-gap); }
+  .ds-card > .ds-st > .ant-table-wrapper {
     background: var(--ds-surface); border-radius: var(--ds-radius-lg); box-shadow: var(--ds-shadow-e1);
   }
-  :is(.tz-card, .ds-card) > .ds-st :is(.ant-table-thead > tr > th, .ant-table-tbody > tr > td, .ant-table-summary > tr > td):first-child { padding-inline-start: 20px; }
-  :is(.tz-card, .ds-card) > .ds-st :is(.ant-table-thead > tr > th, .ant-table-tbody > tr > td, .ant-table-summary > tr > td):last-child { padding-inline-end: 16px; }
-  :is(.tz-card, .ds-card) > .ds-st .ant-table-pagination.ant-pagination { margin: 0; padding: 10px 16px; }
-  :is(.tz-card, .ds-card) > .ds-st .ant-table-wrapper .ant-table { border-radius: var(--ds-radius-lg); }
-  :is(.tz-card, .ds-card) > .ds-st .ant-table-wrapper:has(.ant-table-pagination) .ant-table { border-end-start-radius: 0; border-end-end-radius: 0; }
-  :is(.tz-card, .ds-card) > .ds-st .ant-table-wrapper .ant-table-container { border-radius: 0; }
-  :is(.tz-card, .ds-card) > .ds-st .ant-table-tbody > tr:last-child > td { border-block-end-color: transparent; }
-  :is(.tz-card, .ds-card) > .ds-st:has(.ant-table-pagination) .ant-table-tbody > tr:last-child > td { border-block-end-color: var(--ds-line); }
+  .ds-card > .ds-st :is(.ant-table-thead > tr > th, .ant-table-tbody > tr > td, .ant-table-summary > tr > td):first-child { padding-inline-start: 20px; }
+  .ds-card > .ds-st :is(.ant-table-thead > tr > th, .ant-table-tbody > tr > td, .ant-table-summary > tr > td):last-child { padding-inline-end: 16px; }
+  .ds-card > .ds-st .ant-table-pagination.ant-pagination { margin: 0; padding: 10px 16px; }
+  .ds-card > .ds-st .ant-table-wrapper .ant-table { border-radius: var(--ds-radius-lg); }
+  .ds-card > .ds-st .ant-table-wrapper:has(.ant-table-pagination) .ant-table { border-end-start-radius: 0; border-end-end-radius: 0; }
+  .ds-card > .ds-st .ant-table-wrapper .ant-table-container { border-radius: 0; }
+  .ds-card > .ds-st .ant-table-tbody > tr:last-child > td { border-block-end-color: transparent; }
+  .ds-card > .ds-st:has(.ant-table-pagination) .ant-table-tbody > tr:last-child > td { border-block-end-color: var(--ds-line); }
   .ant-table-wrapper .ant-table-sticky-holder { border-radius: 0; }
 
   .ds-card { background: var(--ds-surface); border-radius: var(--ds-radius-lg); box-shadow: var(--ds-shadow-e1); }
@@ -256,7 +256,7 @@
     border-inline-start: 1px solid var(--ds-line); border-block-start: 1px solid var(--ds-line);
   }
   /* a card that only holds a server table hands its surface to the table, so the filters row sits on the canvas */
-  :is(.tz-card, .ds-card):has(> .ds-st:only-child) { padding: 0; background: transparent; box-shadow: none; border-color: transparent; overflow: visible; }
+  .ds-card:has(> .ds-st:only-child) { padding: 0; background: transparent; box-shadow: none; border-color: transparent; overflow: visible; }
 }
 
 @layer components {
@@ -434,9 +434,9 @@
 
 /* ====================================================================== phone: stacked rows (§4.1) */
 @layer components {
-  .ds-st.is-stacked .ant-table-tbody > tr > td.ds-stk-cell, .tz-table.is-stacked .ant-table-tbody > tr > td.ds-stk-cell { padding-block: 10px; padding-inline: 16px; white-space: normal; }
+  .ds-st.is-stacked .ant-table-tbody > tr > td.ds-stk-cell, .ds-table.is-stacked .ant-table-tbody > tr > td.ds-stk-cell { padding-block: 10px; padding-inline: 16px; white-space: normal; }
   /* the stack never widens the table: a long description ellipsizes inside the phone's width */
-  :is(.ds-st, .tz-table).is-stacked .ant-table table { table-layout: fixed !important; inline-size: 100% !important; min-inline-size: 0 !important; }
+  :is(.ds-st, .ds-table).is-stacked .ant-table table { table-layout: fixed !important; inline-size: 100% !important; min-inline-size: 0 !important; }
   .ds-stk { display: flex; flex-direction: column; gap: 2px; min-inline-size: 0; max-inline-size: 100%; overflow: hidden; }
   .ds-stk-l1 { display: flex; align-items: center; gap: 8px; min-block-size: 22px; font-size: 13px; line-height: 20px; color: var(--ds-text-2); }
   .ds-stk-id { color: var(--ds-text); font-weight: 600; }
@@ -452,11 +452,11 @@
   .ds-stk-k { font-size: 12px; color: var(--ds-text-3); }
   .ds-stk .ds-skel { block-size: 10px; margin-block: 5px; }
   /* totals under a stacked list: label and figures wrap on one line instead of overflowing */
-  :is(.ds-st, .tz-table).is-stacked .ant-table-summary > tr { display: flex; flex-wrap: wrap; justify-content: space-between; column-gap: 12px; padding: 8px 16px; }
-  :is(.ds-st, .tz-table).is-stacked .ant-table-summary > tr > td { display: block; padding: 0 !important; border: 0 !important; }
-  :is(.ds-st, .tz-table).is-stacked .ant-table-summary > tr > td:empty { display: none; }
-  :is(.ds-st, .tz-table).is-stacked .ant-table-summary > tr { border-block-start: 1px solid var(--ds-line-3); }
-  :is(.ds-st, .tz-table).is-stacked .ant-pagination { justify-content: center; }
+  :is(.ds-st, .ds-table).is-stacked .ant-table-summary > tr { display: flex; flex-wrap: wrap; justify-content: space-between; column-gap: 12px; padding: 8px 16px; }
+  :is(.ds-st, .ds-table).is-stacked .ant-table-summary > tr > td { display: block; padding: 0 !important; border: 0 !important; }
+  :is(.ds-st, .ds-table).is-stacked .ant-table-summary > tr > td:empty { display: none; }
+  :is(.ds-st, .ds-table).is-stacked .ant-table-summary > tr { border-block-start: 1px solid var(--ds-line-3); }
+  :is(.ds-st, .ds-table).is-stacked .ant-pagination { justify-content: center; }
 }
 
 /* ====================================================================== antd tables everywhere (§4.1) */
