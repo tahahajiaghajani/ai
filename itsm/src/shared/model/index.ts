@@ -4,3 +4,4 @@ export * from "./conditions";
 export * from "./task";
 export * from "./jalali-buckets";
 export * from "./links";
+export * from "./arrangement";

@@ -219,6 +219,13 @@ export interface FormLayout {
   sections?: string[];
   tabs?: string[];
   related?: RelatedList[];
+  /** the organisation's arrangement (form layout designer; the engine sets it from the `custom_field` row "_form") */
+  arrangement?: FormArrangement;
+}
+
+/** Tabs, sections and the order of fields an organisation chose for a table's form (see `model/arrangement.ts`). */
+export interface FormArrangement {
+  tabs: { label: string; sections: { label: string | null; fields: string[] }[] }[];
 }
 
 export interface ListLayout {

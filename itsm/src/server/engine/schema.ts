@@ -1,13 +1,15 @@
 // The organisation's view of the table registry: tenant custom fields (`custom_field` rows named u_* add a field
 // stored in the row's `custom` jsonb; rows named like an existing field relabel it, change its help text or make
-// an optional field required) and tenant choice lists (`choice` rows extend or edit the default options of a list
+// an optional field required; the row named "_form" holds the form's arrangement, `def.form.arrangement`, see
+// @shared/model/arrangement) and tenant choice lists (`choice` rows extend or edit the default options of a list
 // by value; an inactive row hides an option for new values). Every engine path works on these effective
 // definitions, so a custom field is filterable, sortable, validated, audited and synced like a built-in one.
 //
 // Cached per process and organisation; each request re-validates the cache with one small query (the stamp of
 // both tables), so a change made on another cloud instance is seen by the next request.
-import type { FieldDef, FieldType, Option, TableDef } from "@shared/model/types";
+import type { FieldDef, FieldType, FormArrangement, Option, TableDef } from "@shared/model/types";
 import { FIELD_TYPES, COLOR_KEYS } from "@shared/model/types";
+import { FORM_ROW, cleanArrangement } from "@shared/model/arrangement";
 import type { Lookup } from "@shared/model/conditions";
 import { CHOICE_LISTS, TABLES, tableDef } from "@shared/tables";
 import { CUSTOM_FIELD_TYPES } from "@shared/tables/core";
@@ -161,7 +163,13 @@ export function buildSchema(fieldRows: CustomFieldRow[], choiceRows: ChoiceRow[]
     const hit = defs.get(key);
     if (hit) return hit;
     const fields = base.fields.map((f) => ({ ...f }));
+    let arrangement: FormArrangement | null = null;
     for (const r of rows) {
+      // the form layout designer's row: the arrangement of the form, never a field
+      if (r.name === FORM_ROW) {
+        arrangement = cleanArrangement(r.options);
+        continue;
+      }
       const at = fields.findIndex((f) => f.name === r.name);
       if (at >= 0) {
         // an override of an existing field: label, help, list column, "required" for an optional field
@@ -175,7 +183,7 @@ export function buildSchema(fieldRows: CustomFieldRow[], choiceRows: ChoiceRow[]
       const f = customFieldDef(r);
       if (f) fields.push(f);
     }
-    const def = { ...base, fields };
+    const def: TableDef = arrangement ? { ...base, fields, form: { ...base.form, arrangement } } : { ...base, fields };
     defs.set(key, def);
     return def;
   };
