@@ -1,9 +1,9 @@
 {
-  "name": "siraf-desktop",
+  "name": "itsm-desktop",
   "version": "1.0.0",
   "private": true,
-  "description": "سیراف — نسخه‌ی ویندوز (Electron)",
-  "author": "Siraf",
+  "description": "ITSM — نسخهٔ ویندوز (Electron)",
+  "author": "ITSM",
   "scripts": {
     "icons": "node scripts/make-icons.cjs",
     "dist": "electron-builder --win nsis --x64 --publish never",

@@ -1,0 +1,107 @@
+# ITSM (itsm/) — typecheck, tests, database script check and web build; then the Windows installer built and
+# smoke-tested on a real Windows machine, uploaded as an artifact and published on the Releases page.
+# The product's name is provisional: «ITSM» (src/shared/constants.ts). Guide: itsm/docs/DESKTOP_FA.md
+name: "ITSM · CI and Windows installer"
+
+on:
+  pull_request:
+    paths:
+      - "itsm/**"
+      - ".github/workflows/itsm.yml"
+  push:
+    branches: ["**"]
+    paths:
+      - "itsm/**"
+      - ".github/workflows/itsm.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: itsm-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    # a pull request from this repository is already built by the push of its branch
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: itsm
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: itsm/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run check:schema
+      - run: npm run build
+
+  windows:
+    needs: check
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: itsm
+        shell: bash
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            itsm/package-lock.json
+            itsm/desktop/package-lock.json
+      - run: npm ci
+      - run: npm ci
+        working-directory: itsm/desktop
+      - name: Prepare the app (UI, local server, Electron main)
+        run: node scripts/build-desktop.mjs
+      - name: Build the installer
+        working-directory: itsm/desktop
+        run: npx electron-builder --win nsis --x64 --publish never
+      - name: Smoke test — silent install, start, health check, uninstall
+        shell: pwsh
+        working-directory: itsm/desktop
+        run: |
+          $setup = Get-ChildItem release/ITSM-Setup-*.exe | Select-Object -First 1
+          Write-Host "installer: $($setup.Name) $([math]::Round($setup.Length/1MB,1)) MB"
+          Start-Process -FilePath $setup.FullName -ArgumentList '/S' -Wait
+          $app = Join-Path $env:LOCALAPPDATA 'Programs\ITSM\ITSM.exe'
+          if (!(Test-Path $app)) { throw "ITSM.exe was not installed" }
+          $env:ITSM_SMOKE = '1'
+          $env:ITSM_SMOKE_OUT = Join-Path $env:RUNNER_TEMP 'smoke.json'
+          $env:ITSM_DATA_DIR = Join-Path $env:RUNNER_TEMP 'itsm-data'
+          $p = Start-Process -FilePath $app -ArgumentList '--smoke-test' -PassThru -Wait
+          Get-Content $env:ITSM_SMOKE_OUT
+          Get-Content (Join-Path $env:ITSM_DATA_DIR 'logs\app.log') -ErrorAction SilentlyContinue | Select-Object -Last 30
+          if ($p.ExitCode -ne 0) { throw "smoke test failed with exit code $($p.ExitCode)" }
+          $uninst = Join-Path $env:LOCALAPPDATA 'Programs\ITSM\Uninstall ITSM.exe'
+          if (Test-Path $uninst) { Start-Process -FilePath $uninst -ArgumentList '/S' -Wait }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: itsm-windows-installer
+          path: itsm/desktop/release/ITSM-Setup-*.exe
+          if-no-files-found: error
+          retention-days: 30
+      - name: Publish on the Releases page
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=$(node -p "require('./desktop/package.json').version")
+          if [ "${GITHUB_REF_NAME}" = "main" ]; then TAG="itsm-v${VERSION}"; TITLE="ITSM ${VERSION} — نسخهٔ ویندوز"; PRE=""; else TAG="itsm-preview"; TITLE="ITSM ${VERSION} — پیش‌نمایش (${GITHUB_REF_NAME})"; PRE="--prerelease"; fi
+          gh release delete "$TAG" --cleanup-tag -y 2>/dev/null || true
+          gh release create "$TAG" desktop/release/ITSM-Setup-*.exe --target "$GITHUB_SHA" --title "$TITLE" $PRE \
+            --notes "فایل نصب ویندوز «ITSM» (نام موقت؛ سامانهٔ سازمانی مدیریت خدمات فناوری اطلاعات). فایل ITSM-Setup را دانلود کنید (می‌توانید روی فلش هم کپی کنید) و اجرا کنید؛ همه‌چیز خودکار نصب می‌شود. راهنما: itsm/docs/DESKTOP_FA.md"

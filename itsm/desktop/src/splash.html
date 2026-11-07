@@ -4,31 +4,32 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=520, height=320, initial-scale=1">
 <meta name="color-scheme" content="dark">
-<title>سیراف</title>
+<title></title>
 <!--
-  «سیراف» · the Windows splash, 520 × 320 (from the brand package: brand/final/splash.html).
-  Self-contained: inline SVG and CSS, no network. The only external files are the app's own fonts (renderer/fonts/ds/,
-  next to this file in desktop/app): Arad (SIL OFL 1.1, Reserved Font Name «Arad», © The Arad Project Authors; unmodified)
-  and DS Num (a digit-only subset of Vazirmatn, SIL OFL 1.1, © The Vazirmatn Project Authors). The wordmark is outlined
-  (drawn from Arad, OFL), so it needs no font.
+  The Windows splash, 520 × 320. Self-contained: inline SVG and CSS, no network. The only external files are the app's
+  own fonts (renderer/fonts/ds/, next to this file in desktop/app): Arad (SIL OFL 1.1, Reserved Font Name «Arad»,
+  © The Arad Project Authors; unmodified), DS Num (a digit-only subset of Vazirmatn, SIL OFL 1.1, © The Vazirmatn Project
+  Authors) and Geist (SIL OFL 1.1) for Latin letters.
+  The product's name and tagline come from src/shared/constants.ts through the query string (?name=…&tagline=…, set by
+  desktop/src/main.ts), so this file never names the product itself. The mark is the placeholder monogram of
+  src/ui/components/brand.tsx.
   The window is frameless and transparent; .card draws the rounded Dusk surface with a hairline edge.
-  Launch (transform and opacity only): the alef is drawn top to bottom by a sliding pen mask, then the three nuqtas set beside
-  it to its height (60 ms stagger, 450 ms in all); the name and the line follow. Progress is the totals rule drawing from
-  start to end (right → left).
+  Launch (transform and opacity only): the tile settles, the monogram's three bars set one after another (60 ms
+  stagger), then the name and the tagline rise. Progress is the rule drawing from start to end (right → left).
   API for the Electron main process (desktop/src/main.ts, webContents.executeJavaScript):
-    siraf.step(p, cap, "…")  a real stage: jump to p (never backwards) and ease toward cap until the next stage
-    siraf.progress(0…1)      follow real progress exactly
-    siraf.status("…")        the status line, e.g. "باز کردن دفتر…"
-    siraf.version("…")       e.g. "نسخهٔ ۱٫۲٫۰"
-    siraf.ready()            completes the rule; the head nuqta settles as the status dot (then close the window)
+    itsm.step(p, cap, "…")  a real stage: jump to p (never backwards) and ease toward cap until the next stage
+    itsm.progress(0…1)      follow real progress exactly
+    itsm.status("…")        the status line, e.g. "باز کردن داده‌ها…"
+    itsm.version("…")       e.g. "نسخهٔ ۱٫۲٫۰"
+    itsm.ready()            completes the rule; its head settles as the green status dot (then close the window)
   Without calls it eases toward 86 % on its own. Add ?still (or #still) to the URL to render a static frame.
 -->
 <style>
 @font-face{font-family:"DS Num";src:url("renderer/fonts/ds/DSNum.woff2") format("woff2-variations"),url("renderer/fonts/ds/DSNum.woff2") format("woff2");font-weight:100 900;font-style:normal;font-display:block;unicode-range:U+0025,U+002C-002F,U+0030-0039,U+0660-066C,U+06F0-06F9,U+2212}
 @font-face{font-family:"Arad UI";src:url("renderer/fonts/ds/AradVF.woff2") format("woff2-variations"),url("renderer/fonts/ds/AradVF.woff2") format("woff2");font-weight:100 1000;font-style:normal;font-display:block;size-adjust:104%;unicode-range:U+0000-002F,U+003A-0040,U+005B-0060,U+007B-00BF,U+00D7,U+00F7,U+0600-06FF,U+0750-077F,U+08A0-08FF,U+200B-206F,U+25CC,U+FB50-FDFF,U+FE70-FEFF}
+@font-face{font-family:"Geist";src:url("renderer/fonts/ds/Geist-Variable.woff2") format("woff2-variations"),url("renderer/fonts/ds/Geist-Variable.woff2") format("woff2");font-weight:100 900;font-style:normal;font-display:block}
 :root{
   --ease-out:cubic-bezier(.23,1,.32,1);
-  --ink-on-dusk:rgb(255 255 255 / .92);
   --line:rgb(255 248 236 / .14);
   --in:#6DC794;
 }
@@ -36,20 +37,20 @@
 html,body{margin:0;width:520px;height:320px;overflow:hidden;background:transparent}
 .card{position:absolute;inset:0;overflow:hidden;border-radius:12px;background:#240D21;isolation:isolate}
 .card::after{content:"";position:absolute;inset:0;border-radius:inherit;box-shadow:inset 0 0 0 1px rgb(255 248 236 / .09);pointer-events:none}
-body{position:relative;font-family:"DS Num","Arad UI","Segoe UI",Tahoma,sans-serif;font-variation-settings:"DSTY" 3;font-weight:450;color:#fff;-webkit-font-smoothing:antialiased;user-select:none;cursor:default}
+body{position:relative;font-family:"DS Num","Arad UI","Geist","Segoe UI",Tahoma,sans-serif;font-variation-settings:"DSTY" 3;font-weight:450;color:#fff;-webkit-font-smoothing:antialiased;user-select:none;cursor:default}
 .sky{position:absolute;inset:0;background:
   radial-gradient(120% 70% at 85% 118%, rgb(226 134 112 / .30), transparent 62%),
   linear-gradient(162deg, #240D21 0%, #381634 38%, #50224B 72%, #6A2E63 100%)}
 .sky::after{content:"";position:absolute;inset:0;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 1 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");opacity:.07;mix-blend-mode:overlay}
 .edge{position:absolute;inset:0 0 auto 0;height:1px;background:rgb(255 248 236 / .10)}
 
-.lockup{position:absolute;left:139px;top:94px;width:241.195px;height:75.227px;overflow:visible}
-.lockup path{fill:#fff}
-.wipe{animation:wipe 220ms var(--ease-out) both}
+.lockup{position:absolute;left:0;right:0;top:62px;display:flex;flex-direction:column;align-items:center;gap:14px}
+.tile{width:60px;height:60px;border-radius:14px;background:rgb(255 255 255 / .10);box-shadow:inset 0 0 0 1px rgb(255 255 255 / .14);display:grid;place-items:center;animation:settle 320ms var(--ease-out) both}
+.tile svg{width:44px;height:44px;fill:#fff;overflow:visible}
 .n{transform-box:fill-box;transform-origin:50% 50%;animation:set 180ms var(--ease-out) both}
 .n1{animation-delay:150ms}.n2{animation-delay:210ms}.n3{animation-delay:270ms}
-.word{animation:rise 420ms var(--ease-out) 330ms both}
-.tagline{position:absolute;left:0;right:0;top:188px;margin:0;text-align:center;font-size:13.5px;line-height:22px;color:rgb(255 255 255 / .66);animation:fade 420ms var(--ease-out) 500ms both}
+.name{margin:0;font-family:"Geist","Arad UI","DS Num","Segoe UI",sans-serif;font-size:26px;line-height:30px;font-weight:600;letter-spacing:-.01em;animation:rise 420ms var(--ease-out) 330ms both}
+.tagline{margin:0;text-align:center;font-size:13.5px;line-height:22px;color:rgb(255 255 255 / .66);animation:fade 420ms var(--ease-out) 500ms both}
 
 .foot{position:absolute;left:40px;right:40px;top:254px;animation:fade 360ms var(--ease-out) 620ms both}
 .rule{position:relative;height:9px;container-type:inline-size}
@@ -61,13 +62,12 @@ body{position:relative;font-family:"DS Num","Arad UI","Segoe UI",Tahoma,sans-ser
 .ver{color:rgb(255 255 255 / .42)}
 body.done .head{background:var(--in);box-shadow:0 0 0 3px rgb(109 199 148 / .18)}
 
-@keyframes wipe{from{transform:translateY(-60px)}to{transform:none}}
+@keyframes settle{from{opacity:0;transform:scale(.92)}to{opacity:1;transform:none}}
 @keyframes set{from{opacity:0;transform:translateY(-6px) scale(.86)}to{opacity:1;transform:none}}
 @keyframes rise{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
 @keyframes fade{from{opacity:0}to{opacity:1}}
 @media (prefers-reduced-motion:reduce){
-  .wipe{animation:none}
-  .alef,.n,.word{animation:fade 150ms linear both}
+  .tile,.n,.name{animation:fade 150ms linear both}
   .n1,.n2,.n3{animation-delay:0ms}
   .fill,.head{transition:none}
 }
@@ -76,20 +76,20 @@ body.done .head{background:var(--in);box-shadow:0 0 0 3px rgb(109 199 148 / .18)
 <body>
 <main class="card">
 <div class="sky"></div>
-<svg class="lockup" viewBox="4.395 -56 241.195 75.227" role="img" aria-label="سیراف">
-  <path class="word" d="M50.109 -9.608Q51.482 -10.682 52.204 -13.183Q52.891 -15.473 52.891 -18.485Q52.891 -20.448 51.961 -21.989Q51.145 -23.389 49.657 -24.219Q48.251 -25 46.611 -25Q45.008 -25 43.505 -24.096Q42.132 -23.224 41.245 -21.786Q40.374 -20.266 40.374 -18.669Q40.397 -16.764 41.371 -14.962Q42.492 -12.908 44.532 -11.549Q46.868 -10.002 50.109 -9.608ZM12.473 -14.609Q12.473 -12.91 13.136 -11.569Q13.782 -10.166 15.041 -9.362Q16.388 -8.525 18.185 -8.525L34.041 -8.525Q37.422 -8.525 40.258 -8.648Q37.615 -9.3 35.82 -11.291Q34.324 -12.9 33.57 -15.286Q32.925 -17.153 32.925 -18.99Q32.925 -22.688 34.855 -25.899Q36.72 -28.933 39.807 -30.736Q43.047 -32.581 46.672 -32.581Q50.518 -32.581 53.717 -30.757Q56.895 -28.939 58.69 -25.769Q60.599 -22.468 60.599 -18.414Q60.599 -12.374 58.842 -8.091Q57.191 -4.097 54.212 -2.02Q51.375 0 47.771 0L18.067 0Q14.242 0 11.055 -1.877Q7.979 -3.731 6.22 -6.957Q4.395 -10.279 4.395 -14.33Q4.395 -16.022 4.918 -18.552Q5.224 -20.141 6.029 -23.269Q6.061 -23.343 6.084 -23.455Q6.149 -23.663 6.181 -23.792Q6.519 -25.111 6.713 -25.893L14.726 -23.664Q14.212 -21.889 13.795 -20.476Q13.739 -20.206 13.651 -19.924Q12.949 -17.454 12.714 -16.385Q12.473 -15.293 12.473 -14.609ZM70.394 -48L78.4 -56.006L78.4 0L70.394 0L70.394 -48ZM100.815 -3.967L101.353 -15.077Q101.371 -13.281 102.334 -11.74Q103.247 -10.296 104.768 -9.415Q106.374 -8.517 108.17 -8.517L109.58 -8.517L109.58 0L108.17 0Q106.091 0 104.068 -1.092Q101.945 -2.178 100.815 -3.967ZM101.353 -23.769L101.339 -2.126Q101.339 2.652 98.386 7.092Q95.582 11.271 90.963 14.155Q86.322 17.034 81.283 17.75L70.022 19.172L79.683 9.511L79.937 9.473Q83.353 8.973 86.316 7.474Q89.5 5.895 91.328 3.596Q93.335 1.113 93.335 -1.76L93.38 -23.769L101.353 -23.769ZM109.585 -8.517L118.407 -8.517Q119.749 -8.517 120.932 -9.204Q122.066 -9.841 122.703 -10.975Q123.405 -12.158 123.405 -13.499L123.42 -23.769L131.409 -23.769L131.394 -13.499Q131.394 -12.143 132.081 -10.975Q132.751 -9.841 133.852 -9.204Q135.02 -8.517 136.377 -8.517L138.78 -8.517L138.78 0L136.377 0Q133.413 0 131.077 -1.348Q128.944 -2.634 127.392 -4.944Q125.873 -2.634 123.707 -1.348Q121.371 0 118.407 0L109.585 0Q108.282 -0.994 107.783 -2.657Q107.283 -4.243 107.783 -5.844Q108.282 -7.508 109.585 -8.517ZM138.79 -8.517L142.993 -8.517Q144.349 -8.517 145.518 -9.204Q146.651 -9.841 147.289 -10.975Q147.976 -12.143 147.976 -13.499L147.961 -23.769L155.949 -23.769L155.964 -13.499Q155.964 -12.758 156.172 -11.989Q156.591 -10.446 157.784 -9.496Q158.992 -8.517 160.542 -8.517L162.711 -8.517Q164.05 -8.517 165.102 -9.204Q166.101 -9.856 166.687 -10.975Q167.257 -12.125 167.257 -13.499L167.257 -23.769L175.245 -23.769L175.245 -13.499Q175.245 -12.125 175.831 -10.975Q176.384 -9.856 177.416 -9.204Q178.467 -8.517 179.809 -8.517L181.008 -8.517Q182.332 -8.517 183.399 -9.204Q184.446 -9.856 184.999 -10.975Q185.584 -12.125 185.584 -13.499L185.584 -24.754L193.59 -24.754L193.59 -12.971Q193.59 -9.421 191.909 -6.43Q190.29 -3.469 187.448 -1.783Q184.541 0 181.008 0L179.809 0Q177.016 0 174.818 -1.343Q172.776 -2.622 171.259 -4.959Q169.759 -2.622 167.717 -1.343Q165.518 0 162.711 0L160.542 0Q157.692 0 155.474 -1.333Q153.422 -2.604 151.932 -4.884Q150.398 -2.587 148.247 -1.333Q145.927 0 142.993 0L138.79 0Q137.488 -0.994 136.988 -2.657Q136.488 -4.243 136.988 -5.844Q137.488 -7.508 138.79 -8.517ZM46.73 -49.343L52.73 -43.343L46.73 -37.343L40.73 -43.343ZM113.012 7.227L119.012 13.227L113.012 19.227L107.012 13.227ZM125.012 7.227L131.012 13.227L125.012 19.227L119.012 13.227Z"/>
-  <g transform="translate(197.59 -60)">
-    <clipPath id="pen"><rect class="wipe" x="36" y="2" width="16" height="60"/></clipPath>
-    <path class="alef" clip-path="url(#pen)" d="M40 12L48 4V52L40 60Z"/>
-    <path class="n n1" d="M24 12L32 20L24 28L16 20Z"/>
-    <path class="n n2" d="M24 28L32 36L24 44L16 36Z"/>
-    <path class="n n3" d="M24 44L32 52L24 60L16 52Z"/>
-  </g>
-</svg>
-<p class="tagline">هر داد و ستد، به حساب می‌نشیند.</p>
+<div class="lockup">
+  <span class="tile" aria-hidden="true">
+    <svg viewBox="5 5 14 14">
+      <rect class="n n1" x="6" y="6" width="3" height="12"/>
+      <rect class="n n2" x="11" y="6" width="7" height="3"/>
+      <rect class="n n3" x="13" y="9" width="3" height="9"/>
+    </svg>
+  </span>
+  <p class="name" id="name" dir="auto"></p>
+  <p class="tagline" id="tagline"></p>
+</div>
 <div class="foot" aria-live="polite">
   <div class="rule"><div class="track"></div><div class="fill"></div><div class="head"></div></div>
-  <div class="meta"><span class="status" id="status">باز کردن دفتر…</span><span class="ver" id="ver">نسخهٔ ۱٫۰</span></div>
+  <div class="meta"><span class="status" id="status">باز کردن داده‌ها…</span><span class="ver" id="ver"></span></div>
 </div>
 <div class="edge"></div>
 </main>
@@ -98,6 +98,11 @@ body.done .head{background:var(--in);box-shadow:0 0 0 3px rgb(109 199 148 / .18)
   var root = document.documentElement, body = document.body, shown = 0, timer;
   var stage = { from: 0, cap: 0.86, at: performance.now() + 700, tau: 2.6 }, follow = false;
   var still = /still/.test(location.search + location.hash);
+  var q = new URLSearchParams(location.search);
+  var name = q.get('name') || '', tagline = q.get('tagline') || '';
+  document.getElementById('name').textContent = name;
+  document.getElementById('tagline').textContent = tagline;
+  document.title = name;
   function set(p) { p = Math.max(0, Math.min(1, p)); if (p < shown) return; shown = p; root.style.setProperty('--p', p.toFixed(4)); }
   function tick() {
     if (follow) return;

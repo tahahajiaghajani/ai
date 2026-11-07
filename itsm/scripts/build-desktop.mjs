@@ -1,7 +1,9 @@
-// Prepares desktop/app (what electron-builder packages) for the Windows app of «سیراف»: the built SPA, the bundled
-// local server (backend.cjs), the Electron main/preload, the splash, the icons, PGlite and a minimal package.json.
+// Prepares desktop/app (what electron-builder packages) for the Windows app: the built SPA, the bundled local server
+// (backend.cjs), the Electron main/preload, the splash, the icons, PGlite and a minimal package.json whose names come
+// from src/shared/constants.ts.
 //   node scripts/build-desktop.mjs            → then: cd desktop && npx electron-builder --win
-// The splash (desktop/src/splash.html) loads Arad and DS Num from renderer/fonts/ds/, so the SPA build must carry the fonts.
+// The splash (desktop/src/splash.html) loads Arad, DS Num and Geist from renderer/fonts/ds/, so the SPA build must carry
+// the fonts.
 import { build } from "esbuild";
 import { execSync } from "node:child_process";
 import { cpSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from "node:fs";
@@ -13,6 +15,10 @@ const desktop = join(root, "desktop");
 const app = join(desktop, "app");
 const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
 const desktopPkg = JSON.parse(readFileSync(join(desktop, "package.json"), "utf8"));
+
+// the product's name and description, from the one place that defines them
+const constants = await build({ entryPoints: [join(root, "src/shared/constants.ts")], bundle: true, format: "esm", platform: "node", write: false, logLevel: "warning" });
+const C = await import(`data:text/javascript;base64,${Buffer.from(constants.outputFiles[0].text).toString("base64")}`);
 
 rmSync(app, { recursive: true, force: true });
 mkdirSync(app, { recursive: true });
@@ -66,17 +72,17 @@ for (const f of ["icon.png", "icon.ico", "tray.png", "tray@1.5x.png", "tray@2x.p
   if (existsSync(join(desktop, "build", f))) cpSync(join(desktop, "build", f), join(app, f));
 }
 cpSync(join(desktop, "src/splash.html"), join(app, "splash.html"));
-for (const f of ["AradVF.woff2", "DSNum.woff2"]) if (!existsSync(join(app, "renderer/fonts/ds", f))) throw new Error(`renderer/fonts/ds/${f} missing: the splash needs it`);
+for (const f of ["AradVF.woff2", "DSNum.woff2", "Geist-Variable.woff2"]) if (!existsSync(join(app, "renderer/fonts/ds", f))) throw new Error(`renderer/fonts/ds/${f} missing: the splash needs it`);
 
 writeFileSync(
   join(app, "package.json"),
   JSON.stringify(
     {
-      name: "siraf",
-      productName: "Siraf",
+      name: "itsm",
+      productName: C.APP_NAME_EN,
       version: desktopPkg.version ?? pkg.version,
-      description: "سیراف — حسابداری و مدیریت سازمان",
-      author: "Siraf",
+      description: `${C.APP_NAME} — ${C.APP_TAGLINE}`,
+      author: C.APP_NAME_EN,
       license: "UNLICENSED",
       main: "main.cjs",
       dependencies: { "@electric-sql/pglite": pgliteVersion },
@@ -85,5 +91,6 @@ writeFileSync(
     2,
   ),
 );
-if (!existsSync(join(desktop, "build/icon.ico"))) console.warn("! desktop/build/icon.ico missing — run: cd desktop && npm run icons -- <brand/final>");
+if (!existsSync(join(desktop, "build/icon.ico"))) console.warn("! desktop/build/icon.ico missing — run: cd desktop && npm run icons");
+if (C.APP_VERSION !== (desktopPkg.version ?? pkg.version)) console.warn(`! desktop/package.json version ${desktopPkg.version} differs from APP_VERSION ${C.APP_VERSION}`);
 console.log("✓ desktop/app ready");

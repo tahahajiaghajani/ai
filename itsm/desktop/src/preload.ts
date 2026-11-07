@@ -1,5 +1,5 @@
-// Small, safe bridge from the page to the Windows app of «سیراف» (printing, folders, LAN client mode).
-// The page reads it as `window.itsm` (the name from before the rebrand) or `window.itsm`.
+// Small, safe bridge from the page to the Windows app (printing, folders, LAN client mode).
+// The page reads it as `window.itsm` (src/ui/lib/print.ts, src/ui/modules/settings/Desktop.tsx); nothing else is exposed.
 import { contextBridge, ipcRenderer } from "electron";
 
 const bridge = {
@@ -12,8 +12,7 @@ const bridge = {
   setServer: (url: string | null) => ipcRenderer.invoke("itsm:set-server", url),
   relaunch: () => ipcRenderer.invoke("itsm:relaunch"),
 };
-contextBridge.exposeInMainWorld("taraz", bridge);
-contextBridge.exposeInMainWorld("siraf", bridge);
+contextBridge.exposeInMainWorld("itsm", bridge);
 
 // Theme: the page keeps the preference in localStorage["itsm.theme"] and the theme in effect on <html data-theme>
 // (src/ui/lib/theme.tsx). Report both to the main process so the title bar, the window canvas behind the page and the

@@ -14,7 +14,7 @@ import { api, ApiError } from "../../lib/api";
 import { useIsPhone, useNotify } from "../../lib/hooks";
 import { fa } from "../../lib/fa";
 import { AI_PRESETS } from "@shared/ai/presets";
-import type { AiAdminBusiness, AiAdminOverview, AiPolicy } from "@shared/ai/api";
+import type { AiAdminOrg, AiAdminOverview, AiPolicy } from "@shared/ai/api";
 import { ICON, ago, usd, useAdminQuery } from "./ui";
 
 const notReady = (e: unknown) => e instanceof ApiError && e.status === 404;
@@ -115,7 +115,7 @@ export default function Ai() {
 
   const o = overview.data;
   const pol = policy.data?.policy ?? o.policy;
-  const toggle = async (b: AiAdminBusiness, on: boolean) => {
+  const toggle = async (b: AiAdminOrg, on: boolean) => {
     try {
       await api.patch(`/admin/orgs/${b.org_id}`, { ai_disabled: !on });
       n.ok(on ? `هوش مصنوعی «${b.name}» روشن شد.` : `هوش مصنوعی «${b.name}» خاموش شد.`);
@@ -141,7 +141,7 @@ export default function Ai() {
       </section>
       <div className="ad-grid">
         <Card title="سازمان‌ها" flush>
-          <Table<AiAdminBusiness>
+          <Table<AiAdminOrg>
             className="blk-tbl"
             size="middle"
             rowKey="org_id"
@@ -169,11 +169,11 @@ export default function Ai() {
                       key: "s",
                       title: "وضعیت",
                       width: 120,
-                      render: (_: unknown, b: AiAdminBusiness) =>
+                      render: (_: unknown, b: AiAdminOrg) =>
                         !b.connections ? <span className="text-ink-3">—</span> : b.status === "error" ? <Chip tone="danger">خطا</Chip> : b.enabled ? <Chip tone="in">روشن</Chip> : <Chip tone="neutral">خاموش</Chip>,
                     },
-                    { key: "c", title: "این ماه", width: 110, render: (_: unknown, b: AiAdminBusiness) => <span className="ds-num ds-latin">{usd(b.month.cost_usd)}</span> },
-                    { key: "u", title: "آخرین استفاده", width: 120, render: (_: unknown, b: AiAdminBusiness) => <span className="text-ink-2">{ago(b.last_used_at)}</span> },
+                    { key: "c", title: "این ماه", width: 110, render: (_: unknown, b: AiAdminOrg) => <span className="ds-num ds-latin">{usd(b.month.cost_usd)}</span> },
+                    { key: "u", title: "آخرین استفاده", width: 120, render: (_: unknown, b: AiAdminOrg) => <span className="text-ink-2">{ago(b.last_used_at)}</span> },
                   ]),
               {
                 key: "on",

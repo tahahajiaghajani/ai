@@ -1,37 +1,28 @@
-// Electron main process of «سیراف» for Windows.
+// Electron main process of the Windows app.
 // Starts the local server (embedded PostgreSQL + API + UI) in a utility process and shows it in
 // a window. In "client" mode it opens the server of another computer of the office network.
 import { app, BrowserWindow, utilityProcess, ipcMain, shell, dialog, Menu, Tray, nativeImage, nativeTheme, type UtilityProcess } from "electron";
 import { join, isAbsolute } from "node:path";
 import http from "node:http";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync, statSync, renameSync } from "node:fs";
+import { APP_NAME, APP_NAME_EN, APP_TAGLINE } from "../../src/shared/constants";
 
-const APP_TITLE = "سیراف";
-const APP_ID = "ir.siraf.app";
+const APP_TITLE = APP_NAME;
+/** electron-builder.yml `appId` (taskbar grouping, notifications): an internal identifier, kept when the product is renamed. */
+const APP_ID = "app.itsm.desktop";
+/** %APPDATA%\ITSM: Electron's own profile, and the app's data under data\ (also an internal identifier). */
+const APP_DIR_NAME = "ITSM";
 /** The window canvas of each theme (`--ds-canvas` in src/ui/ds/tokens.css), so the window never flashes white. */
 const CANVAS = { light: "#F7F4F0", dark: "#110F0E" } as const;
 type ThemePref = "system" | "light" | "dark";
 type ThemeMode = keyof typeof CANVAS;
 const isSmoke = process.argv.includes("--smoke-test") || process.env.ITSM_SMOKE === "1";
 
-const dataDir = resolveDataDir();
-
-/** %APPDATA%/Siraf/data; a preview installed under the old name «تراز» keeps its data (moved once). */
-function resolveDataDir(): string {
-  if (process.env.ITSM_DATA_DIR) return process.env.ITSM_DATA_DIR;
-  const appData = app.getPath("appData");
-  const next = join(appData, "Siraf", "data");
-  const old = join(appData, "Taraz", "data");
-  if (!existsSync(next) && existsSync(old)) {
-    try {
-      mkdirSync(join(appData, "Siraf"), { recursive: true });
-      renameSync(old, next);
-    } catch {
-      return old;
-    }
-  }
-  return next;
-}
+// set explicitly, so neither the profile nor the data follow package.json's name or the product name
+const appDir = join(app.getPath("appData"), APP_DIR_NAME);
+app.setPath("userData", appDir);
+/** %APPDATA%\ITSM\data (ITSM_DATA_DIR overrides it: the smoke test, a portable copy). */
+const dataDir = process.env.ITSM_DATA_DIR || join(appDir, "data");
 const logDir = join(dataDir, "logs");
 mkdirSync(logDir, { recursive: true });
 const logFile = join(logDir, "app.log");
@@ -93,7 +84,7 @@ function startBackend(): Promise<{ url: string; host: string }> {
   return new Promise((resolve, reject) => {
     const entry = join(__dirname, "backend.cjs");
     backend = utilityProcess.fork(entry, [], {
-      serviceName: "Siraf Server",
+      serviceName: `${APP_NAME_EN} Server`,
       stdio: "pipe",
       env: {
         ...process.env,
@@ -144,8 +135,8 @@ function startBackend(): Promise<{ url: string; host: string }> {
 }
 
 // ---------------------------------------------------------------- splash
-// desktop/src/splash.html (copied next to main.cjs): 520 × 320, frameless, rounded, the three-nuqta launch and a real
-// progress line driven by the stages below through its `itsm.*` API.
+// desktop/src/splash.html (copied next to main.cjs): 520 × 320, frameless, rounded, the monogram's launch and a real
+// progress line driven by the stages below through its `itsm.*` API. The name and tagline come in the query string.
 const SPLASH_MIN_MS = 1100; // let the launch (≈ 1 s) finish even on a fast start
 let splashShownAt = 0;
 let splashLoaded: Promise<void> = Promise.resolve();
@@ -172,7 +163,7 @@ function createSplash() {
     splash!.webContents.once("did-finish-load", () => resolve());
     splash!.webContents.once("did-fail-load", () => resolve());
   });
-  splash.loadFile(join(__dirname, "splash.html"));
+  splash.loadFile(join(__dirname, "splash.html"), { query: { name: APP_NAME, tagline: APP_TAGLINE } });
   splash.once("ready-to-show", () => {
     splashShownAt = Date.now();
     splash?.show();
@@ -214,7 +205,7 @@ function onMigrations(n: number) {
   migrationsSeen += n;
   if (serverReady) return; // a late stdout chunk must not move the status line back
   const p = Math.min(0.6, 0.08 + migrationsSeen * 0.04);
-  splashStep(p, Math.min(0.64, p + 0.06), firstRun ? "ساختن دفتر تازه…" : "به‌روزرسانی دفتر…", 1.5);
+  splashStep(p, Math.min(0.64, p + 0.06), firstRun ? "آماده‌سازی برای نخستین اجرا…" : "به‌روزرسانی داده‌ها…", 1.5);
 }
 
 /** Resolves once the page has replaced the boot screen of index.html with the app and painted text (at most `max` ms). */
@@ -235,9 +226,9 @@ async function appRendered(w: BrowserWindow, max = 6000) {
 function bootStatus(): { text: string; tau: number } {
   if (existsSync(join(dataDir, "restore.pending"))) return { text: "بازگردانی نسخهٔ پشتیبان…", tau: 6 };
   firstRun = !existsSync(join(dataDir, "db"));
-  if (firstRun) return { text: "ساختن دفتر تازه…", tau: 6 };
-  if (process.argv.includes("--updated")) return { text: "به‌روزرسانی دفتر…", tau: 4 };
-  return { text: "باز کردن دفتر…", tau: 2.4 };
+  if (firstRun) return { text: "آماده‌سازی برای نخستین اجرا…", tau: 6 };
+  if (process.argv.includes("--updated")) return { text: "به‌روزرسانی داده‌ها…", tau: 4 };
+  return { text: "باز کردن داده‌ها…", tau: 2.4 };
 }
 
 /** Same origin as the server the window shows (not a prefix test: http://127.0.0.1:3939@evil.example or :39390 pass that). */
@@ -321,10 +312,10 @@ function createTray() {
   // tray.png is the 16 px cut; Electron picks tray@1.5x.png / tray@2x.png on scaled displays
   const img = existsSync(trayIconPath) ? nativeImage.createFromPath(trayIconPath) : nativeImage.createFromPath(join(__dirname, "icon.png")).resize({ width: 16, height: 16 });
   tray = new Tray(img);
-  tray.setToolTip("سیراف — سرور شبکه فعال است");
+  tray.setToolTip(`${APP_NAME} — سرور شبکه فعال است`);
   tray.setContextMenu(
     Menu.buildFromTemplate([
-      { label: "باز کردن سیراف", click: () => (win ? win.show() : createWindow(serverUrl)) },
+      { label: `باز کردن ${APP_NAME}`, click: () => (win ? win.show() : createWindow(serverUrl)) },
       { type: "separator" },
       { label: "خروج کامل", click: () => quit() },
     ]),
@@ -398,7 +389,7 @@ function registerIpc() {
   ipcMain.handle("itsm:save-pdf", async (e, name: string) => {
     if (!fromApp(e)) throw new Error("forbidden");
     // a suggested file name only, never a path
-    const safe = String(name ?? "").replace(/[\\/:*?"<>|\u0000-\u001f]+/g, " ").trim().slice(0, 120) || "siraf";
+    const safe = String(name ?? "").replace(/[\\/:*?"<>|\u0000-\u001f]+/g, " ").trim().slice(0, 120) || APP_NAME_EN;
     const r = await dialog.showSaveDialog({ defaultPath: `${safe}.pdf`, filters: [{ name: "PDF", extensions: ["pdf"] }] });
     if (r.canceled || !r.filePath) return null;
     // the page's own @page size wins (A4 landscape reports and invoices, A5 receipts); A4 when it sets none

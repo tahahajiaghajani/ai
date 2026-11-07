@@ -1,7 +1,9 @@
-# Windows installer of «سیراف» (NSIS, Persian, per-user by default, keeps data on uninstall)
-appId: ir.siraf.app
-productName: Siraf
-copyright: "© سیراف"
+# Windows installer (NSIS, Persian, per-user by default, keeps data on uninstall).
+# The product's name is APP_NAME_EN of src/shared/constants.ts (tests/desktop.test.ts checks productName, executableName,
+# artifactName and shortcutName against it); appId is an internal identifier and stays when the product is renamed.
+appId: app.itsm.desktop
+productName: ITSM
+copyright: "© ITSM"
 directories:
   app: app
   output: release
@@ -23,9 +25,9 @@ win:
     - target: nsis
       arch: [x64]
   icon: build/icon.ico
-  artifactName: "Siraf-Setup-${version}.exe"
-  executableName: Siraf
-  legalTrademarks: "سیراف"
+  artifactName: "ITSM-Setup-${version}.exe"
+  executableName: ITSM
+  legalTrademarks: "ITSM"
   requestedExecutionLevel: asInvoker
 nsis:
   oneClick: false
@@ -45,8 +47,8 @@ nsis:
   unicode: true
   createDesktopShortcut: always
   createStartMenuShortcut: true
-  shortcutName: "سیراف"
-  uninstallDisplayName: "سیراف — حسابداری و مدیریت کسب‌وکار"
+  shortcutName: "ITSM"
+  uninstallDisplayName: "ITSM — مدیریت هوشمند خدمات فناوری اطلاعات"
   menuCategory: false
   runAfterFinish: true
   deleteAppDataOnUninstall: false
