@@ -8,7 +8,7 @@ import type { Queryable } from "../db";
 import { bad, conflict, forbidden, notFound } from "../http/errors";
 import { audit } from "../modules/data/crud";
 import { updateRow } from "../db/sql";
-import { createIn, updateIn, removeIn, loadReadable, requireReadable, defFor, condEnv } from "../engine";
+import { createIn, updateIn, removeIn, loadReadable, requireReadable, defFor, condEnv, readable } from "../engine";
 import { tableDef } from "@shared/tables";
 import type { TableDef } from "@shared/model/types";
 import { FIELD_GROUPS, type FieldGroup } from "@shared/model/types";
@@ -128,6 +128,22 @@ export async function readersOf(cfg: ServerConfig, orgId: string, table: string,
     if (await loadReadable(q, ctx, def, id, env)) out.push(u);
   }
   return out;
+}
+
+/**
+ * Late binding for retrieval (the AI layer's RAG, global search, report drill-downs): which of the candidate `ids` of
+ * `table` the caller may read now — one query through the same predicate as every list. Candidates found through an
+ * index or a vector store are re-checked here before anything reaches a prompt or a screen.
+ */
+export async function readableIds(ctx: Ctx, table: string, ids: string[]): Promise<Set<string>> {
+  const { def } = await defFor(ctx, table);
+  const clean = [...new Set(ids.filter((x) => /^[0-9a-f-]{36}$/i.test(x)).map((x) => x.toLowerCase()))].slice(0, 5000);
+  if (def.virtual || !clean.length) return new Set();
+  const env = await condEnv(ctx);
+  const params: unknown[] = [`{${clean.join(",")}}`];
+  const where = readable(ctx, def, "t", params, env);
+  const rows = await ctx.db.query<{ id: string }>(`select t.id from ${def.table} t where t.id = any($1::uuid[]) and ${where}`, params);
+  return new Set(rows.map((r) => r.id));
 }
 
 // ----- roles --------------------------------------------------------------------------------------------------

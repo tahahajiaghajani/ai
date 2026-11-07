@@ -22,6 +22,8 @@ import {
 import { faDigits } from "@shared/format";
 import { normalizeFa } from "../../lib/fa";
 import { Avatar, ICON, ICON14, Note, cx } from "../../components/blocks";
+import { PERSONA_PRESETS } from "@shared/access";
+import { useMyAccess } from "../access/api";
 
 const LEVELS: Record<Level, string> = { none: "بدون دسترسی", view: "مشاهده", edit: "ثبت و ویرایش", full: "کامل (حذف و تأیید)" };
 /** What each level means for the assistant («هوش مصنوعی» area). */
@@ -96,8 +98,14 @@ export default function Members() {
   const [roleFilter, setRoleFilter] = useState<Role | null>(null);
   const [params] = useSearchParams();
   const [term, setTerm] = useState(() => params.get("q") ?? "");
-  const create = useAction((v: Record<string, unknown>) => api.post("/members", v), {
-    invalidate: [["members"], ["org"]],
+  // the access model's persona preset («پیش‌تنظیم دسترسی»): roles given right after the membership is made
+  const accessAdmin = !!useMyAccess().data?.grants.users?.admin;
+  const create = useAction(async ({ access_preset, ...v }: Record<string, unknown>) => {
+    const r = await api.post<{ user_id: string; temp_password?: string }>("/members", v);
+    if (access_preset && r.user_id) await api.post(`/access/members/${r.user_id}/preset`, { preset: access_preset });
+    return r;
+  }, {
+    invalidate: [["members"], ["org"], ["access"]],
     onSuccess: (r: any) => {
       setAdd(null);
       if (r.temp_password) setTemp(r.temp_password);
@@ -381,6 +389,11 @@ export default function Members() {
           <Form.Item name="password" label="رمز اولیه (اختیاری)" extra="خالی بماند تا رمز تصادفی ساخته و یک بار نمایش داده شود. اگر این ایمیل حساب دارد، همان حساب عضو می‌شود.">
             <Input.Password dir="ltr" />
           </Form.Item>
+          {accessAdmin ? (
+            <Form.Item name="access_preset" label="پیش‌تنظیم دسترسی (اختیاری)" extra="نقش‌های کار با رکوردها؛ بعداً در «دسترسی اعضا» تغییر می‌کند.">
+              <Select allowClear placeholder="بدون پیش‌تنظیم" options={PERSONA_PRESETS.map((p) => ({ value: p.key, label: p.label }))} />
+            </Form.Item>
+          ) : null}
           <div className="flex justify-end gap-2 pt-2">
             <Button onClick={() => setAdd(null)}>انصراف</Button>
             <Button type="primary" htmlType="submit" loading={create.isPending}>

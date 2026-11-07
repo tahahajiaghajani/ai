@@ -14,6 +14,7 @@ import type { ModuleKey } from "@shared/constants";
 import type { OrgApi } from "../lib/api";
 import { homeUi } from "./home";
 import { settingsUi } from "./settings";
+import { accessUi } from "./access";
 
 /** A sidebar space: «خانه», «تنظیمات», or one a module adds (its key, e.g. "service-desk"). */
 export type SpaceKey = string;
@@ -117,7 +118,7 @@ export const HOME_SPACE: Space = { key: "home", label: "خانه", title: "خا�
 export const SETTINGS_SPACE: Space = { key: "settings", label: "تنظیمات", title: "تنظیمات", icon: Settings };
 
 /** The modules of the app, in menu order. A new module adds its ModuleUi here. */
-const UIS: ModuleUi[] = [homeUi, settingsUi];
+const UIS: ModuleUi[] = [homeUi, settingsUi, accessUi];
 
 /** In the order of the segmented control. «تنظیمات» is not a segment: the footer's gear opens it. */
 export const SPACES: Space[] = [HOME_SPACE, ...UIS.flatMap((u) => u.spaces ?? [])];
