@@ -23,7 +23,7 @@ import {
   addJournalIn, createIn, isSystemCtx, orgSchema, orgTz, registerHooks, updateIn, validationError, type WriteArgs,
 } from "../../engine";
 import { activeDelegations, delegateOf } from "./approvals";
-import { config, eqAll, holds, liveRows, ownTable, rulesFor, systemFrom, withWalks, type Row, type ServiceConfig } from "./common";
+import { config, eqAll, holds, liveRow, liveRows, ownTable, rulesFor, systemFrom, withWalks, type Row, type ServiceConfig } from "./common";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const has = (def: TableDef, name: string) => def.fields.some((f) => f.name === name);
@@ -116,7 +116,7 @@ async function mirrorCategory(w: WriteArgs & { row: Row }): Promise<void> {
   const listOf = (r: Row) => (r.parent_id ? `${table}.subcategory` : `${table}.category`);
   const parentValue = async (r: Row) => {
     if (!r.parent_id) return null;
-    const p = (await liveRows(w.tx, sys, "category", eqAll({ id: r.parent_id })))[0];
+    const p = await liveRow(w.tx, sys, "category", r.parent_id);
     return p ? String(p.value) : null;
   };
   const choiceRow = async (list: string, value: string) => (await liveRows(w.tx, sys, "choice", eqAll({ list, value })))[0] ?? null;
@@ -156,7 +156,7 @@ async function checkCategory(w: WriteArgs): Promise<void> {
   if (w.next.parent_id) {
     if (w.next.parent_id === w.next.id) fields.parent_id = "دسته نمی‌تواند زیرمجموعهٔ خودش باشد";
     else {
-      const p = (await liveRows(w.tx, sys, "category", eqAll({ id: w.next.parent_id })))[0];
+      const p = await liveRow(w.tx, sys, "category", w.next.parent_id);
       if (!p || p.table_key !== w.next.table_key) fields.parent_id = "دستهٔ بالادستی از همین جدول نیست";
       else if (p.parent_id) fields.parent_id = "دسته‌ها حداکثر دو سطح دارند (دسته و زیردسته)";
       else if (w.prev) {

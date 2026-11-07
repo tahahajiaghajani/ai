@@ -59,6 +59,22 @@ export async function liveRows(q: Queryable, ctx: Ctx, table: string, where: Con
   return rows.map((r) => fromDb(def, r));
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** One live row of `table` by id through the access rule (conditions have no `id` path), or null. */
+export async function liveRow(q: Queryable, ctx: Ctx, table: string, id: unknown): Promise<Row | null> {
+  if (typeof id !== "string" || !UUID_RE.test(id)) return null;
+  const schema = await orgSchema(ctx, q);
+  const def = schema.def(table) ?? tableDef(table);
+  if (!def || def.virtual) return null;
+  const env = await condEnv(ctx);
+  const params: unknown[] = [];
+  const where = readable(ctx, def, "t", params, env);
+  params.push(id);
+  const row = await q.one<Row>(`select t.* from ${def.table} t where ${where} and t.id = $${params.length}::uuid`, params);
+  return row ? fromDb(def, row) : null;
+}
+
 /** `{ and: [field = value …] }` */
 export const eqAll = (pairs: Record<string, unknown>): Cond => ({ and: Object.entries(pairs).map(([f, v]) => ({ f, op: "eq" as const, v })) });
 

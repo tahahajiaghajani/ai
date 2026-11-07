@@ -23,7 +23,7 @@ import {
   addJournalIn, condEnv, createIn, defFor, emitEvent, isSystemCtx, loadReadable, orgSchema, RefSet, registerHooks, requireReadable, resolveDisplay,
   systemCtx, updateIn, validationError, type WriteArgs,
 } from "../../engine";
-import { config, eqAll, holds, liveRows, ownTable, recordTitle, rulesFor, systemFrom, withWalks, type Row } from "./common";
+import { config, eqAll, holds, liveRow, liveRows, ownTable, recordTitle, rulesFor, systemFrom, withWalks, type Row } from "./common";
 
 const iso = (ms: number) => new Date(ms).toISOString();
 const msOf = (v: unknown): number | null => {
@@ -119,7 +119,7 @@ export async function managerOf(q: Queryable, ctx: Ctx, user: string, depth = 1)
     let next: string | null = p?.manager_id ?? null;
     let unit: string | null = p?.org_unit_id ?? null;
     for (let hops = 0; !next && unit && hops < 30; hops++) {
-      const u = (await liveRows(q, sys, "org_unit", eqAll({ id: unit })))[0];
+      const u = await liveRow(q, sys, "org_unit", unit);
       if (!u) break;
       if (u.manager_id && u.manager_id !== at) next = u.manager_id;
       unit = u.parent_id ?? null;
