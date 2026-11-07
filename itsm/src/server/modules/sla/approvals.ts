@@ -227,8 +227,15 @@ const specOf = (r: Row): RuleSpec => ({
   expireAfter: Number(r.expire_after) > 0 ? Number(r.expire_after) : null,
 });
 
-/** The approval rows of a new round of `spec` for `row` (all levels; later ones wait in sequential mode). */
-async function roundRows(q: Queryable, ctx: Ctx, def: TableDef, row: Row, spec: RuleSpec, round: number, now: number): Promise<Row[]> {
+/**
+ * The approval rows of a new round of `spec` for `row` (all levels; later ones wait in sequential mode). `requestedBy`
+ * is the person whose write or request asked (null: the system). A rule's level left without approvers asks the
+ * requester's manager instead; an ad-hoc request (`managerFallback: false`) names its people and gets no stand-in.
+ */
+async function roundRows(
+  q: Queryable, ctx: Ctx, def: TableDef, row: Row, spec: RuleSpec, round: number, now: number,
+  opts: { requestedBy: string | null; managerFallback: boolean },
+): Promise<Row[]> {
   const delegations = await activeDelegations(q, ctx, "approvals", now);
   const out: Row[] = [];
   for (let i = 0; i < spec.levels.length; i++) {
@@ -236,10 +243,10 @@ async function roundRows(q: Queryable, ctx: Ctx, def: TableDef, row: Row, spec: 
     const active = spec.mode === "parallel" || i === 0;
     const base: Row = {
       table_key: def.key, record_id: String(row.id), rule_id: spec.id, level: i + 1, level_name: level.name ?? null, round,
-      rule: (level.rule ?? "any") as ApprovalRule, threshold: level.threshold ?? null, requested_by: ctx.actor === "system" ? null : ctx.user.id,
+      rule: (level.rule ?? "any") as ApprovalRule, threshold: level.threshold ?? null, requested_by: opts.requestedBy,
     };
     let approvers = await resolveLevel(q, ctx, def, row, level, { allowSelf: spec.allowSelf, delegations });
-    if (!approvers.length) {
+    if (!approvers.length && opts.managerFallback) {
       // nobody left (no members, or only the record's own people): the requester's manager, else the level is skipped
       const who = (def.scope.requester ?? []).map((f) => row[f]).find((v) => typeof v === "string" && v);
       const m = who ? await managerOf(q, ctx, who) : null;
@@ -307,9 +314,9 @@ async function planApprovals(w: WriteArgs): Promise<void> {
       const spec = specOf(r);
       let rows: Row[];
       if (holds(r.auto_approve, row, env, w.def, schema.lookup, false)) {
-        rows = [{ table_key: w.def.key, record_id: String(w.next.id), rule_id: r.id, level: 1, round, rule: "any", state: "approved", decided_at: iso(now), comments: `تأیید خودکار («${spec.name}»)` }];
+        rows = [{ table_key: w.def.key, record_id: String(w.next.id), rule_id: r.id, level: 1, round, rule: "any", state: "approved", requested_at: iso(now), requested_by: isSystemCtx(w.ctx) ? null : w.ctx.user.id, decided_at: iso(now), comments: `تأیید خودکار («${spec.name}»)` }];
       } else {
-        rows = await roundRows(w.tx, sys, w.def, row, spec, round, now);
+        rows = await roundRows(w.tx, sys, w.def, row, spec, round, now, { requestedBy: isSystemCtx(w.ctx) ? null : w.ctx.user.id, managerFallback: true });
         if (spec.mode === "sequential") promote(rows, now, spec.expireAfter);
       }
       plan.create.push(...rows);
@@ -520,11 +527,11 @@ export async function requestApproval(ctx: Ctx, table: string, id: string, input
     const now = Date.now();
     const expire = Number(input.expire_hours) > 0 ? Math.round(Number(input.expire_hours) * 3600) : null;
     const spec: RuleSpec = { id: null, name: "درخواست موردی", mode: "sequential", levels: [level], allowSelf: false, expireAfter: expire, comment: input.comment?.trim().slice(0, 4000) || null };
-    const rows = await roundRows(tx, systemFrom(ctx, ctx.user.id), def, record, spec, round, now);
+    const rows = await roundRows(tx, systemFrom(ctx, ctx.user.id), def, record, spec, round, now, { requestedBy: ctx.user.id, managerFallback: false });
     if (rows.every((r) => r.state === "skipped")) throw validationError({ users: "هیچ‌یک از افراد نام‌برده نمی‌توانند این رکورد را تأیید کنند" });
     const snap = { record_number: def.numbered ? (record.number ?? null) : null, record_title: recordTitle(record, def.display) };
     const created: Row[] = [];
-    for (const r of rows) created.push(await createIn(tx, sys, "approval", { ...r, requested_by: ctx.user.id, ...snap }, { trusted: true }));
+    for (const r of rows) created.push(await createIn(tx, sys, "approval", { ...r, ...snap }, { trusted: true }));
     const agg = aggregate([...existing, ...created] as never[]);
     if (def.fields.some((f) => f.name === "approval") && record.approval !== agg) await updateIn(tx, sys, def.key, id, { approval: agg }, { trusted: true });
     await announceRequested(tx, sys, def, record, created.filter((r) => r.state === "requested"), { adhoc: true });
