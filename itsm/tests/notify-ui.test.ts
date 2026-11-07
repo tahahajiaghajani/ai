@@ -6,8 +6,10 @@ import {
   badgeText, dayGroup, groupByDay, insertAt, joinChange, placeholdersFor, quietProblem, receives, recipientFields, recipientParts,
   setReceive, snoozeOptions, splitChange, ruleTableOk,
 } from "@ui/modules/notify/model";
+import { CHANNEL_POLICIES, EMAIL_POLICIES, channelDefaults } from "@ui/modules/notify/channels";
+import { NOTIFY_TABLES } from "@shared/tables/notify";
 import { DEFAULT_PREFS, type NotifyPrefs } from "@shared/notify";
-import type { Cond } from "@shared/model/conditions";
+import { validateCond, type Cond } from "@shared/model/conditions";
 import type { TableDef } from "@shared/model/types";
 
 const TZ = "Asia/Tehran"; // UTC+03:30, no daylight saving
@@ -169,5 +171,25 @@ describe("template editor", () => {
     expect(insertAt("سلام دنیا", "{{x}}", 5)).toEqual({ value: "سلام {{x}}دنیا", caret: 10 });
     expect(insertAt("abc", "{{x}}", null)).toEqual({ value: "abc{{x}}", caret: 8 });
     expect(insertAt("abc", "{{x}}", 99)).toEqual({ value: "abc{{x}}", caret: 8 });
+  });
+});
+
+describe("channel forms", () => {
+  it("show only the fields a kind uses: policies name real fields with valid conditions", () => {
+    for (const [table, policies] of [["notification_channel", CHANNEL_POLICIES], ["email_channel", EMAIL_POLICIES]] as const) {
+      const def = NOTIFY_TABLES.find((t) => t.key === table)!;
+      for (const p of policies) {
+        expect(validateCond(p.when, def), p.key).toBeNull();
+        for (const a of p.actions) expect(def.fields.some((f) => f.name === a.field), `${p.key}: ${a.field}`).toBe(true);
+        // a stored secret is not sent back to the form: never required there
+        for (const a of p.actions) if (a.mandatory) expect(def.fields.find((f) => f.name === a.field)!.type).not.toBe("secret");
+      }
+    }
+  });
+
+  it("start a new channel from the address (kind, SMS preset)", () => {
+    expect(channelDefaults(new URLSearchParams("preset=kavenegar"))).toMatchObject({ kind: "sms", name: "کاوه‌نگار", sms_method: "POST", sms_content_type: "form" });
+    expect(channelDefaults(new URLSearchParams("kind=telegram"))).toEqual({ kind: "telegram" });
+    expect(channelDefaults(new URLSearchParams("kind=Bad!&preset=nope"))).toEqual({});
   });
 });

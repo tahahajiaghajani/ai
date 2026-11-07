@@ -180,7 +180,7 @@ export default function TemplateEditor() {
           <Card>
             <div className="nf-form">
               <F label="نام" error={errors.name}>
-                <Input value={d.name} maxLength={120} onChange={(e) => set({ name: e.target.value })} disabled={!canWrite} status={errors.name ? "error" : undefined} />
+                <Input value={d.name} maxLength={120} onChange={(e) => set({ name: e.target.value })} disabled={!canWrite} status={errors.name ? "error" : undefined} aria-label="نام" />
               </F>
               <F label="فعال">
                 <Switch checked={d.active} onChange={(v) => set({ active: v })} disabled={!canWrite} aria-label="فعال" />
@@ -225,7 +225,7 @@ export default function TemplateEditor() {
                 />
               </F>
               <F label="توضیح" wide>
-                <Input.TextArea value={d.description} maxLength={2000} autoSize={{ minRows: 2, maxRows: 5 }} onChange={(e) => set({ description: e.target.value })} disabled={!canWrite} />
+                <Input.TextArea value={d.description} maxLength={2000} autoSize={{ minRows: 2, maxRows: 5 }} onChange={(e) => set({ description: e.target.value })} disabled={!canWrite} aria-label="توضیح" />
               </F>
             </div>
           </Card>

@@ -26,7 +26,7 @@
   .nf-center { display: flex; flex-direction: column; gap: 10px; min-block-size: 100%; }
   .nf-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
   .nf-bar .ant-segmented { flex: none; }
-  .nf-kinds { display: flex; gap: 4px; overflow-x: auto; padding-block-end: 2px; scrollbar-width: thin; }
+  .nf-kinds { display: flex; flex-wrap: wrap; gap: 4px; }
   .nf-kind {
     flex: none;
     display: inline-flex;
@@ -89,6 +89,10 @@
   .nf-matrix td.nf-cell, .nf-matrix th.nf-cell { text-align: center; inline-size: 96px; }
   .nf-matrix tbody tr:first-child td { font-weight: var(--ds-weight-medium); color: var(--ds-text); }
   .nf-matrix tbody tr:hover td { background: var(--ds-hover-row); }
+  @media (max-width: 639.98px) {
+    .nf-matrix th, .nf-matrix td { padding: 8px 6px; }
+    .nf-matrix td.nf-cell, .nf-matrix th.nf-cell { inline-size: 64px; }
+  }
   .nf-prefs-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px 16px; }
 
   /* ---- editors (rules and templates) */
@@ -102,6 +106,7 @@
   .nf-field { display: flex; flex-direction: column; gap: 4px; min-inline-size: 0; }
   .nf-field > .nf-label { font-size: 13px; color: var(--ds-text-2); }
   .nf-field > .nf-err { font-size: 12px; color: var(--ds-danger); }
+  .nf-field > .ant-switch { align-self: flex-start; }
   .nf-checks { display: flex; flex-wrap: wrap; gap: 8px 16px; }
   .nf-channels { display: flex; flex-wrap: wrap; gap: 8px; }
 

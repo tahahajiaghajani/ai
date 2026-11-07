@@ -139,7 +139,7 @@ export default function NotificationCenter({ open, onClose }: { open: boolean; o
         ) : !items.length ? (
           <EmptyState compact icon={BellOff} title={emptyTitle} />
         ) : (
-          <div aria-live="polite">
+          <div>
             {groups.map((g) => (
               <section key={g.key} aria-label={g.label}>
                 <h3 className="nf-day">{g.label}</h3>

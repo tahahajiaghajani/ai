@@ -29,13 +29,14 @@ import { NEW_RULE, RecipientsPicker, TableSelect, draftOf, rowOf, type RuleDraft
 import { PreviewPanel } from "./Preview";
 import "./notify.css";
 
+/** A field of the editor: its caption, the control (named with `aria-label`) and the server's problem. */
 function F({ label, error, wide, children }: { label: string; error?: string; wide?: boolean; children: ReactNode }) {
   return (
-    <label className={`nf-field${wide ? " nf-wide" : ""}`}>
+    <div className={`nf-field${wide ? " nf-wide" : ""}`}>
       <span className="nf-label">{label}</span>
       {children}
       {error ? <span className="nf-err">{error}</span> : null}
-    </label>
+    </div>
   );
 }
 
@@ -148,7 +149,7 @@ export default function RuleEditor({ mode }: { mode: "new" | "builtin" | "row" }
             <Card title="چه زمانی">
               <div className="nf-form">
                 <F label="نام" error={errors.name}>
-                  <Input value={d.name} maxLength={120} onChange={(e) => set({ name: e.target.value })} disabled={!canWrite} status={errors.name ? "error" : undefined} />
+                  <Input value={d.name} maxLength={120} onChange={(e) => set({ name: e.target.value })} disabled={!canWrite} status={errors.name ? "error" : undefined} aria-label="نام" />
                 </F>
                 <F label="فعال">
                   <Switch checked={d.active} onChange={(v) => set({ active: v })} disabled={!canWrite} aria-label="فعال" />
@@ -168,12 +169,12 @@ export default function RuleEditor({ mode }: { mode: "new" | "builtin" | "row" }
                 </F>
                 {d.event === "custom" ? (
                   <F label="نام رویداد سفارشی" error={errors.custom_event} wide>
-                    <Input dir="ltr" value={d.custom_event ?? ""} maxLength={80} placeholder="major_declared" onChange={(e) => set({ custom_event: e.target.value || null })} disabled={!canWrite} />
+                    <Input dir="ltr" value={d.custom_event ?? ""} maxLength={80} placeholder="major_declared" onChange={(e) => set({ custom_event: e.target.value || null })} disabled={!canWrite} aria-label="نام رویداد سفارشی" />
                   </F>
                 ) : null}
                 {d.event === "commented" || d.event === "mentioned" ? (
                   <F label="نوع یادداشت (خالی: همه)" wide>
-                    <Checkbox.Group value={d.entry_kinds} options={ENTRY_KIND_OPTIONS.map((o) => ({ value: o.value, label: o.label }))} onChange={(v) => set({ entry_kinds: v as string[] })} disabled={!canWrite} />
+                    <Checkbox.Group value={d.entry_kinds} options={ENTRY_KIND_OPTIONS.map((o) => ({ value: o.value, label: o.label }))} onChange={(v) => set({ entry_kinds: v as string[] })} disabled={!canWrite} aria-label="نوع یادداشت" />
                   </F>
                 ) : null}
                 <div className="nf-field nf-wide">
@@ -208,11 +209,11 @@ export default function RuleEditor({ mode }: { mode: "new" | "builtin" | "row" }
             <Card title="از چه راهی">
               <div className="nf-form">
                 <F label="راه‌های ارسال" error={errors.channels} wide>
-                  <Checkbox.Group value={d.channels} options={CHANNEL_OPTIONS} onChange={(v) => set({ channels: v as NotifyChannel[] })} disabled={!canWrite} />
+                  <Checkbox.Group value={d.channels} options={CHANNEL_OPTIONS} onChange={(v) => set({ channels: v as NotifyChannel[] })} disabled={!canWrite} aria-label="راه‌های ارسال" />
                 </F>
                 {d.channels.includes("webhook") || d.channels.includes("sms") ? (
                   <F label="کانال‌های بیرونی" error={errors.targets} wide>
-                    <RecordSelect table="notification_channel" multiple value={d.targets} onChange={(v) => set({ targets: (v as string[] | null) ?? [] })} display={rec.data?.display} disabled={!canWrite} placeholder="پیام‌رسان، وب‌هوک یا درگاه پیامک" />
+                    <RecordSelect table="notification_channel" multiple value={d.targets} onChange={(v) => set({ targets: (v as string[] | null) ?? [] })} display={rec.data?.display} disabled={!canWrite} placeholder="پیام‌رسان، وب‌هوک یا درگاه پیامک" aria-label="کانال‌های بیرونی" />
                   </F>
                 ) : null}
                 <F label="الگو" error={errors.template_id}>
@@ -225,6 +226,7 @@ export default function RuleEditor({ mode }: { mode: "new" | "builtin" | "row" }
                     disabled={!canWrite}
                     allowClear
                     placeholder="الگوی پیش‌فرض رویداد"
+                    aria-label="الگو"
                   />
                 </F>
                 <F label="شیوه">
@@ -238,7 +240,7 @@ export default function RuleEditor({ mode }: { mode: "new" | "builtin" | "row" }
                   </div>
                 </F>
                 <F label="توضیح" wide>
-                  <Input.TextArea value={d.description ?? ""} maxLength={2000} autoSize={{ minRows: 2, maxRows: 6 }} onChange={(e) => set({ description: e.target.value || null })} disabled={!canWrite} />
+                  <Input.TextArea value={d.description ?? ""} maxLength={2000} autoSize={{ minRows: 2, maxRows: 6 }} onChange={(e) => set({ description: e.target.value || null })} disabled={!canWrite} aria-label="توضیح" />
                 </F>
               </div>
             </Card>
