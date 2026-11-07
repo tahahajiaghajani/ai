@@ -442,6 +442,9 @@ Both are ordinary engine tables (lists, forms, history, sync for free; area `set
   optional field `required`.
 - `choice` rows `{ list, value, label, color, sort_order, parent, active }` extend or edit the default options of a
   list by value; `active: false` hides an option for new values; an empty `sort_order` keeps the default's position.
+- The `custom_field` row named `"_form"` (`FORM_ROW`, `@shared/model/arrangement`) is the form layout designer's
+  arrangement of a table's form — `options: { tabs: [{ label, sections: [{ label, fields }] }] }` — never a field:
+  the engine cleans it (`cleanArrangement`) and serves it as `def.form.arrangement` (docs/spec/UI_RECORDS.md §11).
 
 `orgSchema(ctx)` returns the effective definitions (`def(key)`, `lookup`, `choices(list)`, `lists()`), cached per
 organisation and revalidated on every request with one small query, so a change made on another cloud instance is
