@@ -13,11 +13,12 @@ import { ACCESS_TABLES } from "./access";
 import { NOTIFY_TABLES } from "./notify";
 import { SLA_CHOICE_LISTS, SLA_SERVICE_TABLES } from "./sla";
 import { FLOW_TABLES } from "./flows";
+import { REQUEST_CHOICE_LISTS, REQUEST_TABLES } from "./request";
 
 export { CUSTOM_FIELD_TYPES, VIEW_KINDS } from "./core";
 
 /** Table definitions per module; a module adds its file's export here. */
-const MODULE_TABLES: TableDef[][] = [CORE_TABLES, ACCESS_TABLES, NOTIFY_TABLES, SLA_SERVICE_TABLES, FLOW_TABLES];
+const MODULE_TABLES: TableDef[][] = [CORE_TABLES, ACCESS_TABLES, NOTIFY_TABLES, SLA_SERVICE_TABLES, FLOW_TABLES, REQUEST_TABLES];
 
 /** Every table by key (resolved definitions). */
 export const TABLES = new Map<string, TableDef>();
@@ -187,6 +188,7 @@ export function registerTable(input: TableDef): TableDef {
 setTableLookup((key) => TABLES.get(key));
 for (const [key, options] of Object.entries(CORE_CHOICE_LISTS)) registerChoiceList(key, options);
 for (const [key, options] of Object.entries(SLA_CHOICE_LISTS)) registerChoiceList(key, options);
+for (const [key, options] of Object.entries(REQUEST_CHOICE_LISTS)) registerChoiceList(key, options);
 
 /** The members of the organisation as a reference target (virtual: no table of its own). */
 export const USER_DEF = buildTable(USER_TABLE);
