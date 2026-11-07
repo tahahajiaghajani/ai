@@ -8,7 +8,7 @@ import { NOTIFY_TABLE_KEYS } from "@shared/tables/notify";
 import { tableDef } from "@shared/tables";
 import { onRecordEvent, registerHooks, validationError, type RecordEvent } from "../../engine";
 import type { JobContext } from "../../jobs";
-import { actsHere, sysCtx, systemRows } from "./common";
+import { actsHere, isUuid, sysCtx, systemRows } from "./common";
 import { dispatchEvent, registerDeliveryJobs, scheduleCleanup } from "./deliver";
 import { ensurePoller, registerInboundJobs } from "./inbound";
 import { invalidateRules, ruleProblems, templateProblem } from "./rules";
@@ -25,6 +25,8 @@ export { actsHere } from "./common";
 
 /** The record-event subscriber: service tables keep their caches and pollers; every other event may notify. */
 async function onEvent(e: RecordEvent, jctx: JobContext): Promise<void> {
+  // not about a stored record of an organisation (a synthetic or malformed event): nothing to notify, nothing to retry
+  if (!isUuid(e.org_id) || !isUuid(e.id)) return;
   if (NOTIFY_TABLE_KEYS.has(e.table)) {
     if (e.table === "notification_rule") invalidateRules(e.org_id);
     if (e.table === "email_channel" && e.kind !== "record.deleted" && actsHere(jctx.cfg)) {
