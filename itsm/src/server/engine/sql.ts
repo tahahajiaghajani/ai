@@ -243,6 +243,11 @@ export function writableRule(ctx: Ctx, def: TableDef, alias: string, params: unk
 export function searchSql(def: TableDef, alias: string, q: string, params: unknown[], visible: (f: FieldDef) => boolean = () => true): string | null {
   const raw = String(q ?? "").trim().slice(0, 200);
   if (!raw) return null;
+  // a full record number with its prefix (TODO0000012, todo-12) is looked up by number alone (an index lookup)
+  if (def.numbered && new RegExp(`^${def.numbered.prefix.toLowerCase().replace(/[-_]/g, "[-_]?")}[-_ ]?\\d+$`).test(normalizeSearch(raw).trim())) {
+    const no = parseNumber(def, raw);
+    if (no !== null) return `${alias}.no = ${ph(params, no)}::integer`;
+  }
   const terms = normalizeSearch(raw).split(/\s+/).filter(Boolean).slice(0, 8);
   if (!terms.length) return null;
   let fields = def.fields.filter((f) => f.search && FIELD_TYPES[f.type].sql === "text" && f.type !== "secret" && !f.base && visible(f));
@@ -301,8 +306,11 @@ export function orderSql(def: TableDef, alias: string, sort: string, params: unk
         if (d && !d.custom) expr = `(select sd.${d.name} from ${t.table} sd where sd.id = ${expr})`;
       }
     }
-    out.push(`${expr} ${dir} nulls last`);
+    // columns that are never empty sort plainly, so the (org_id, updated_at desc) / (org_id, no) indexes serve them
+    const notNull = (f!.base && (f!.name === "created_at" || f!.name === "updated_at")) || (f!.name === "number" && def.numbered);
+    out.push(notNull ? `${expr} ${dir}` : `${expr} ${dir} nulls last`);
   }
-  out.push(`${alias}.id ${lastDir}`);
+  // ties by id (not needed after the number, which is unique)
+  if (!/^\s*-?\+?number\s*$/.test(String(sort ?? "").split(",").filter((x) => x.trim()).pop() ?? "") || !def.numbered) out.push(`${alias}.id ${lastDir}`);
   return out.join(", ");
 }

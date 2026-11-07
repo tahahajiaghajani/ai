@@ -69,8 +69,9 @@ export function ddlFor(def: TableDef): string {
     out.push(`create ${unique ? "unique " : ""}index if not exists ${shortName(`${t}_${suffix}`)} on ${t} ${body};`);
   if (def.numbered) idx("no_uk", "(org_id, no)", true);
   idx("rev_idx", "(org_id, rev)");
-  idx("upd_idx", "(org_id, updated_at desc) where deleted_at is null");
-  idx("crt_idx", "(org_id, created_at desc) where deleted_at is null");
+  // the default list orders (newest first, ties by id) read straight from these
+  idx("upd_idx", "(org_id, updated_at desc, id desc) where deleted_at is null");
+  idx("crt_idx", "(org_id, created_at desc, id desc) where deleted_at is null");
   for (const f of def.fields) {
     if (f.base || f.custom) continue;
     if (f.unique) idx(`${f.name}_uk`, `(org_id, ${f.name}) where deleted_at is null`, true);

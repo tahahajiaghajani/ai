@@ -281,7 +281,8 @@ await ctx.write(async (tx) => {
   set readonly fields, field permissions not asked), `keepVersion` (engine stamps that must not invalidate open
   forms), `allowLocked`, `skipAccess` (the caller checked access itself).
 - **Lists**: `filter` (validated; fields the caller may not see refused), `q` (every word must appear in a
-  `search` field, Persian-normalised; or a record number `INC12`/`۱۲`, or an id), `sort` (up to 4 fields; static
+  `search` field, Persian-normalised; or the record number `۱۲` / an id; a full number with its prefix such as
+  `INC0000012` or `inc-12` is looked up by number alone), `sort` (up to 4 fields; static
   choices in option order, users/refs by display text, numbers by counter, empty last; text/markdown/json/arrays are
   not sortable), `view` (a saved view's filter, q, sort, columns, page size are the defaults; your `filter` is ANDed
   to it), `ids`, `total: false` to skip counting.
@@ -513,7 +514,8 @@ The virtual table `user` answers `GET /r/user?q=` (members for pickers: `id`, `n
 
 - One physical table per TableDef: `ddlFor(def)` emits idempotent SQL — base columns, a typed column per field
   (`FIELD_TYPES[type].sql`; bool not null with its default), `no` + generated `number`, indexes (`(org_id, no)`
-  unique, `(org_id, rev)`, `(org_id, updated_at desc)` and `(org_id, created_at desc)` for live rows, the state field,
+  unique, `(org_id, rev)`, `(org_id, updated_at desc, id desc)` and `(org_id, created_at desc, id desc)` for live
+  rows — the default list orders —, the state field,
   every `index: true` field — GIN for arrays —, `unique` fields/combinations), the `sm_sync_touch('<key>')` trigger
   and row level security.
 - Migration `0006_engine_tables` runs `ddlForAll()`; `reconcileSchema(db)` runs after the migrations on both
@@ -536,7 +538,8 @@ The virtual table `user` answers `GET /r/user?q=` (members for pickers: `id`, `n
   them; the desktop↔cloud pattern of `tests/engine-sync.test.ts` (an in-process cloud and desktop with a
   `SyncClient` whose fetch calls the cloud app).
 - Existing suites: `engine-conditions` (evaluate ↔ SQL parity), `engine-records`, `engine-activity`, `engine-jobs`,
-  `engine-ddl`, `engine-access`, `engine-sync`.
+  `engine-ddl`, `engine-access`, `engine-sync`, `engine-performance` (EXPLAIN of the generated page queries on 20 000
+  rows: index scans only; display values in one query per referenced table).
 
 ## 16. Rules of thumb
 
