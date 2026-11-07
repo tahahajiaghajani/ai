@@ -221,18 +221,31 @@ export async function retrieve(ctx: Ctx, query: string, opts: RetrieveOptions = 
         return tx.query<{ id: string }>(sql, [...params, vecText(vec)]);
       });
     };
+    // a vector list that fails (e.g. a model that changed its vector size) is left out; the others still answer
+    const safe = async (f: () => Promise<{ id: string }[]>) => {
+      try {
+        return (await f()).map((r) => r.id);
+      } catch (e) {
+        ctx.cfg.log?.warn?.("ai retrieval: a vector list failed", String((e as Error)?.message ?? e).slice(0, 200));
+        return null;
+      }
+    };
     if (qv && embedder) {
-      const ids = (await knn("vec", qv, embedder.key)).map((r) => r.id);
-      lists.push({ name: "vector", ids, weight: 1 });
+      const ids = await safe(() => knn("vec", qv!, embedder.key));
+      if (ids) lists.push({ name: "vector", ids, weight: 1 });
+      else {
+        info.quality = "local";
+        info.embedder = null;
+      }
     }
-    const local = (await knn("local", lq, null)).map((r) => r.id);
-    lists.push({ name: "local", ids: local, weight: localWeight });
+    const local = await safe(() => knn("local", lq, null));
+    if (local) lists.push({ name: "local", ids: local, weight: localWeight });
   } else {
     // portable: vectors compared in the server over access-filtered candidates (full text, LIKE, the newest chunks)
     const recent = await run<{ id: string }>(unionSql(branches, (b) => `select c.id, extract(epoch from c.created_at)::float8 as score ${join(b)} where ${common(b, "$1", "$2")}`, "score desc", 300), []);
     const pool = [...new Set([...fts, ...like, ...recent.map((r) => r.id)])];
     if (pool.length) {
-      const rows = await ctx.db.query<{ id: string; lvec: unknown; vec: unknown; vec_key: string | null }>(`select id, lvec, vec, vec_key from sm_ai_chunks where id = any($1::uuid[])`, [pgArray(pool)]);
+      const rows = await ctx.db.query<{ id: string; lvec: unknown; vec: unknown; vec_key: string | null }>(`select id, lvec, vec, vec_key from sm_ai_chunks where org_id = $1 and id = any($2::uuid[])`, [ctx.org.id, pgArray(pool)]);
       const rank = (score: (r: (typeof rows)[number]) => number | null) =>
         rows
           .map((r) => ({ id: r.id, s: score(r) }))
@@ -272,7 +285,9 @@ export async function retrieve(ctx: Ctx, query: string, opts: RetrieveOptions = 
     if (!branch) continue;
     const def = branch.def;
     const visible = prov.visibleFields(ctx, def);
-    const ok = list.filter((c) => !visible || ((c.fields ?? []) as string[]).every((f) => visible.has(f)));
+    // every real field of the chunk must be visible (parts that are no field, e.g. a document's pages, follow the record)
+    const real = new Set(def.fields.map((f) => f.name));
+    const ok = list.filter((c) => !visible || ((c.fields ?? []) as string[]).every((f) => !real.has(f) || visible.has(f)));
     if (!ok.length) continue;
     const lp: unknown[] = [pgArray([...new Set(ok.map((c) => c.record_id))])];
     const where = readable(ctx, def, "t", lp, cenv);
