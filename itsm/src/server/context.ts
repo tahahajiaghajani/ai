@@ -42,8 +42,8 @@ export interface DesktopBridge {
    */
   cloudLogin?(email: string, password: string): Promise<{ ok: boolean; user_id?: string; unreachable?: boolean; limited?: boolean }>;
   notifyLocalWrite(): void;
-  /** Fetch an attachment's content from the linked cloud (blobs travel lazily); null when unavailable. */
-  fetchBlob?(orgId: string, sha256: string): Promise<Uint8Array | null>;
+  /** Fetch an attachment's content from the linked cloud (contents travel lazily); null when unavailable. */
+  fetchBlob?(orgId: string, attachmentId: string): Promise<Uint8Array | null>;
 }
 
 export interface ServerConfig {
@@ -68,10 +68,11 @@ export interface ServerConfig {
   /** fetch used for every outbound call (AI providers, integrations; lets tests stub it) */
   fetch: typeof fetch;
   /**
-   * Keeps background work alive after the response (cloud: Next.js `after`, Vercel's waitUntil). The API kicks the
-   * job queue through it after every write request; absent on the desktop (its own timer ticks) and in tests.
+   * Runs background work after the response and keeps the function alive for it (cloud: Next.js `after`, which
+   * uses Vercel's waitUntil). The API ticks the job queue through it after write requests that queued jobs; absent
+   * on the desktop (its own timer ticks every 10 s) and in tests (they tick explicitly).
    */
-  waitUntil?: (work: Promise<unknown>) => void;
+  waitUntil?: (work: () => Promise<unknown>) => void;
 }
 
 export interface AuthUser {

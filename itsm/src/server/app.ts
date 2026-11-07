@@ -2,7 +2,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import type { Env } from "./http/hono";
-import { errorResponse, loadOrg, optionalUser, requireUser, sameOrigin } from "./http/hono";
+import { errorResponse, loadOrg, optionalUser, rateLimit, requireUser, sameOrigin } from "./http/hono";
 import type { ServerConfig } from "./context";
 import { authRoutes } from "./routes/auth";
 import { orgRoutes, orgsRoutes } from "./routes/org";
@@ -12,6 +12,9 @@ import { syncRoutes } from "./routes/sync";
 import { hookRoutes, publicApiRoutes, integrationRoutes } from "./routes/integrations";
 import { localRoutes } from "./routes/local";
 import { adminRoutes } from "./routes/admin";
+import { recordRoutes } from "./routes/records";
+import { takeJobHint, tick } from "./jobs";
+import "./engine";
 import { migrationStatus } from "./db/migrate";
 import { APP_NAME, APP_VERSION, SYNC_PROTOCOL } from "@shared/constants";
 
@@ -64,13 +67,32 @@ export function createApp(cfg: ServerConfig) {
     return c.json({ ok: true });
   });
 
+  // the job queue's heartbeat on the web version: Supabase pg_cron + pg_net, a GitHub Actions schedule or Vercel
+  // cron call it (Bearer CRON_SECRET when it is set; without one, at most every 10 s per instance)
+  app.on(["GET", "POST"], "/cron/tick", async (c) => {
+    const secret = process.env.CRON_SECRET;
+    if (secret && c.req.header("authorization") !== `Bearer ${secret}`) return c.json({ ok: false }, 401);
+    if (!secret) rateLimit("cron-tick", 1, 10_000);
+    const r = await tick(cfg, { budgetMs: 20_000 });
+    return c.json({ ok: true, ...r });
+  });
+
   app.route("/auth", authRoutes);
   app.route("/orgs", orgsRoutes);
   app.route("/admin", adminRoutes);
 
   const org = new Hono<Env>();
   org.use("*", requireUser, loadOrg);
+  // after a write that queued jobs (record events…), the web version runs them once the response is sent
+  org.use("*", async (c, next) => {
+    await next();
+    const m = c.req.method;
+    if (cfg.waitUntil && m !== "GET" && m !== "HEAD" && m !== "OPTIONS" && takeJobHint()) {
+      cfg.waitUntil(() => tick(cfg, { budgetMs: 4000 }).catch((e) => cfg.log.warn("job tick failed", String((e as Error)?.message ?? e))));
+    }
+  });
   org.route("/", orgRoutes);
+  org.route("/", recordRoutes);
   org.route("/data", dataRoutes);
   org.route("/", moduleRoutes);
   org.route("/integrations", integrationRoutes);

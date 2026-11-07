@@ -1,6 +1,9 @@
 // The desktop side of synchronisation with the cloud (the web app on Vercel + Supabase).
 // Local changes are queued by triggers in sm_outbox; every few seconds (and right after a local
 // change) the client pushes them and then pulls everything new from the cloud.
+// Record engine rows: secrets never leave this computer; contents of attachments added here are uploaded after
+// the push; tombstones of the pull delete rows (and a record's journal, history, attachments and links) that the
+// linked account may no longer read; a `reset` (the account's scope epoch moved) reads everything again.
 import type { Db } from "@server/db";
 import type { Logger } from "@server/context";
 import { AGGREGATES, BY_ENTITY, type WireAggregate } from "@server/sync/registry";
@@ -11,6 +14,8 @@ import { SYNC_PROTOCOL, APP_VERSION, APP_NAME } from "@shared/constants";
 import type { LocalConfig } from "./config";
 import { hostname } from "node:os";
 import { bumpLocal } from "@server/live";
+import { tableDef } from "@shared/tables";
+import { stripSecrets } from "@server/engine/sync";
 
 export interface SyncState {
   linked: boolean;
@@ -85,6 +90,47 @@ export class SyncClient {
       throw e;
     } finally {
       clearTimeout(t);
+    }
+  }
+
+  /** A binary GET/PUT against the linked cloud (attachment contents); null on 404. */
+  async raw(path: string, init: { method?: string; body?: Uint8Array; timeout?: number } = {}): Promise<Uint8Array | null> {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), init.timeout ?? 120000);
+    try {
+      const res = await this.f(`${this.base()}/api${path}`, {
+        method: init.method ?? "GET",
+        headers: { authorization: `Bearer ${this.o.config.cloud.token}`, ...(init.body ? { "content-type": "application/octet-stream" } : {}) },
+        body: init.body ? Buffer.from(init.body) : undefined,
+        signal: ctrl.signal,
+      });
+      if (res.status === 404) return null;
+      if (!res.ok) throw new Error(`خطای ${res.status} از سرور ابری`);
+      return new Uint8Array(await res.arrayBuffer());
+    } finally {
+      clearTimeout(t);
+    }
+  }
+
+  /** The content of an attachment from the cloud (opened here for the first time). */
+  async fetchBlob(orgId: string, attachmentId: string): Promise<Uint8Array | null> {
+    if (!this.state.linked || orgId !== this.o.config.cloud.org_id) return null;
+    return this.raw(`/o/${orgId}/attachments/${attachmentId}/content`);
+  }
+
+  /** Upload the contents of attachments added on this computer that the cloud does not have yet. */
+  private async uploadBlobs(attachmentIds: string[]) {
+    const org = this.o.config.cloud.org_id;
+    if (!org || !attachmentIds.length) return;
+    const rows = await this.o.db.query<{ sha256: string }>(
+      `select distinct a.sha256 from sm_attachments a join sm_blobs b on b.org_id = a.org_id and b.sha256 = a.sha256 where a.id = any($1::uuid[])`,
+      [`{${attachmentIds.join(",")}}`],
+    );
+    if (!rows.length) return;
+    const { missing } = await this.api<{ missing: string[] }>(`/o/${org}/blobs/missing`, { body: { sha256: rows.map((r) => r.sha256) } });
+    for (const sha of missing ?? []) {
+      const blob = await this.o.db.one<{ b64: string }>(`select encode(data, 'base64') as b64 from sm_blobs where org_id = $1 and sha256 = $2`, [org, sha]);
+      if (blob) await this.raw(`/o/${org}/blobs/${sha}`, { method: "PUT", body: new Uint8Array(Buffer.from(blob.b64, "base64")) });
     }
   }
 
@@ -227,7 +273,11 @@ export class SyncClient {
       for (const [entity, ids] of byEntity) {
         const def = BY_ENTITY.get(entity);
         if (!def) continue;
-        aggregates.push(...(await readAggregates(this.o.db, def, ids)));
+        const read = await readAggregates(this.o.db, def, ids);
+        // secrets of engine records stay on this computer (each runtime seals its own)
+        const tdef = def.engine === "record" ? tableDef(entity) : undefined;
+        if (tdef) for (const a of read) stripSecrets(tdef, a.row);
+        aggregates.push(...read);
       }
       const found = new Set(aggregates.map((a) => `${a.entity}:${a.id}`));
       for (const q of queued) if (!found.has(`${q.entity}:${q.id}`)) await this.o.db.query(`delete from sm_outbox where entity = $1 and id = $2`, [q.entity, q.id]);
@@ -265,6 +315,9 @@ export class SyncClient {
       });
       // the web version renumbered a record or won a conflict: open screens show its copy
       if (res.results.some((r) => r.renumbered || (r.status === "conflict" && r.aggregate))) bumpLocal(this.o.config.cloud.org_id!);
+      // contents of attachments added here travel separately (the cloud fetches nothing from this computer)
+      const attachments = res.results.filter((r) => r.entity === "attachment" && r.status === "ok").map((r) => r.id);
+      await this.uploadBlobs(attachments).catch((e) => this.o.log.warn("attachment upload failed", String((e as Error).message ?? e)));
       if (queued.length < 200) break;
     }
     this.state.pushed += total;
@@ -277,12 +330,20 @@ export class SyncClient {
     for (let round = 0; round < 10000; round++) {
       const cursor = await this.kvGet<number>("sync.cursor", 0);
       const userCursor = await this.kvGet<number>("sync.user_cursor", 0);
-      const page = await this.api<{ aggregates: WireAggregate[]; users: Record<string, unknown>[]; cursor: number; user_cursor: number; has_more: boolean }>(
-        `/sync/pull?org_id=${this.o.config.cloud.org_id}&cursor=${cursor}&user_cursor=${userCursor}&device_id=${this.o.config.device_id}`,
+      const epoch = await this.kvGet<number | null>("sync.epoch", null);
+      const page = await this.api<{ aggregates: WireAggregate[]; tombstones?: { entity: string; id: string }[]; users: Record<string, unknown>[]; cursor: number; user_cursor: number; has_more: boolean; reset?: boolean; epoch?: number }>(
+        `/sync/pull?org_id=${this.o.config.cloud.org_id}&cursor=${cursor}&user_cursor=${userCursor}&device_id=${this.o.config.device_id}${epoch === null ? "" : `&epoch=${epoch}`}`,
       );
       const orgId = this.o.config.cloud.org_id!;
       await this.o.db.tx(async (tx) => {
         await tx.query("set local itsm.applying = 'on'");
+        const kv = `insert into sm_kv (key, value) values ($1, $2::jsonb) on conflict (key) do update set value = excluded.value, updated_at = now()`;
+        if (page.reset) {
+          // what this account may read changed: read everything again (tombstones drop what it may no longer read)
+          await tx.query(kv, ["sync.cursor", "0"]);
+          await tx.query(kv, ["sync.epoch", JSON.stringify(page.epoch ?? 0)]);
+          return;
+        }
         for (const u of page.users) await this.mergeUser(tx, u);
         const dirty = new Set((await tx.query<{ entity: string; id: string }>(`select entity, id from sm_outbox`)).map((r) => `${r.entity}:${r.id}`));
         const sorted = [...page.aggregates].sort((a, b) => (BY_ENTITY.get(a.entity)?.order ?? 99) - (BY_ENTITY.get(b.entity)?.order ?? 99));
@@ -292,9 +353,24 @@ export class SyncClient {
           await writeAggregate(tx, def, agg, orgId, "local-yields");
           count++;
         }
-        await tx.query(`insert into sm_kv (key, value) values ('sync.cursor', $1::jsonb) on conflict (key) do update set value = excluded.value, updated_at = now()`, [JSON.stringify(page.cursor)]);
-        await tx.query(`insert into sm_kv (key, value) values ('sync.user_cursor', $1::jsonb) on conflict (key) do update set value = excluded.value, updated_at = now()`, [JSON.stringify(page.user_cursor)]);
+        for (const t of page.tombstones ?? []) {
+          const def = BY_ENTITY.get(t.entity);
+          if (!def?.engine || dirty.has(`${t.entity}:${t.id}`)) continue;
+          const gone = await tx.one(`delete from ${ident(def.table)} where id = $1 and org_id = $2 returning id`, [t.id, orgId]);
+          if (def.engine === "record") {
+            // the record's own trail leaves with it
+            await tx.query(`delete from sm_journal where org_id = $1 and record_id = $2`, [orgId, t.id]);
+            await tx.query(`delete from sm_history where org_id = $1 and record_id = $2`, [orgId, t.id]);
+            await tx.query(`delete from sm_attachments where org_id = $1 and record_id = $2`, [orgId, t.id]);
+            await tx.query(`delete from sm_links where org_id = $1 and (from_id = $2 or to_id = $2)`, [orgId, t.id]);
+          }
+          if (gone) count++;
+        }
+        await tx.query(kv, ["sync.cursor", JSON.stringify(page.cursor)]);
+        await tx.query(kv, ["sync.user_cursor", JSON.stringify(page.user_cursor)]);
+        if (page.epoch !== undefined) await tx.query(kv, ["sync.epoch", JSON.stringify(page.epoch)]);
       });
+      if (page.reset) continue;
       if (!page.has_more) break;
     }
     this.state.pulled += count;

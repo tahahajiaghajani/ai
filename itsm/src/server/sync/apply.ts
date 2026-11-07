@@ -136,7 +136,7 @@ export async function writeAggregate(
       const constraint = String(e.constraint ?? e.constraint_name ?? "");
       if (def.numbered && constraint.includes("_no_")) {
         if (side === "incoming-yields") {
-          const to = await nextNo(q, def.table, orgId, def.numbered.byKind ? String(row.kind) : undefined);
+          const to = def.nextNumber ? await def.nextNumber(q, orgId, row) : await nextNo(q, def.table, orgId, def.numbered.byKind ? String(row.kind) : undefined);
           result.renumbered = { column: "no", from: row.no, to };
           row.no = to;
         } else {
@@ -188,7 +188,11 @@ async function moveLocalAside(q: Queryable, def: AggregateDef, orgId: string, in
   }
   const clash = await q.one<{ id: string }>(`select id from ${ident(def.table)} where ${cond}`, params);
   if (!clash) return;
-  const to = column === "no" ? await nextNo(q, def.table, orgId, def.numbered?.byKind ? String(incoming.kind) : undefined) : await nextFreeCode(q, def, orgId);
+  const to = column === "no"
+    ? def.nextNumber
+      ? await def.nextNumber(q, orgId, incoming)
+      : await nextNo(q, def.table, orgId, def.numbered?.byKind ? String(incoming.kind) : undefined)
+    : await nextFreeCode(q, def, orgId);
   await q.query(`update ${ident(def.table)} set ${ident(column)} = $2 where id = $1`, [clash.id, to]);
   if (queue) {
     await q.query(

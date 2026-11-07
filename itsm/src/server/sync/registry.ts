@@ -2,7 +2,14 @@
 // travel and are replaced together. Every root needs the trigger sm_sync_touch('<entity>') in a migration
 // (tests/sync-registry.test.ts checks both). The platform synchronises organisations and their members;
 // modules add their own roots here (or call `registerAggregate`).
+//
+// Record engine tables need nothing here: every TableDef with `features.sync !== false` becomes a root of its own
+// (entity = its key) as soon as it is registered, and the engine's journal, history, attachments and links are
+// roots too. Their pushes and pulls go through the engine's rules (src/server/engine/sync.ts).
 import type { Area } from "@shared/permissions";
+import type { Queryable } from "../db";
+import { onTableRegistered } from "@shared/tables";
+import { allocateNumber } from "../engine/numbering";
 
 export interface ChildDef {
   table: string;
@@ -23,6 +30,13 @@ export interface AggregateDef {
   code?: { column: string; start: number };
   /** apply order (lower first) so referenced rows usually arrive before their users */
   order: number;
+  /**
+   * a record engine root: "record" (a TableDef's table) or one of the engine's own tables. Pushes are checked by
+   * the engine (access provider, values) instead of the area level; pulls are filtered by the access provider.
+   */
+  engine?: "record" | "journal" | "history" | "attachment" | "link";
+  /** the next free number for a renumbered record (default: max(no) + 1 among live rows) */
+  nextNumber?: (q: Queryable, orgId: string, row: Record<string, unknown>) => Promise<number>;
 }
 
 export const AGGREGATES: AggregateDef[] = [
@@ -46,6 +60,28 @@ export function registerAggregate(def: AggregateDef): void {
     BY_TABLE.set(a.table, a);
   }
 }
+
+/** The engine's own synchronised tables (each row belongs to a record, or links two). */
+const ENGINE_SIDE: AggregateDef[] = [
+  { entity: "journal", table: "sm_journal", area: "work", order: 20, engine: "journal" },
+  { entity: "history", table: "sm_history", area: "work", order: 21, engine: "history" },
+  { entity: "attachment", table: "sm_attachments", area: "work", order: 22, engine: "attachment" },
+  { entity: "link", table: "sm_links", area: "work", order: 23, engine: "link" },
+];
+for (const a of ENGINE_SIDE) registerAggregate(a);
+
+// every engine table that synchronises is a root (tables registered later — modules, tests — included)
+onTableRegistered((def) => {
+  if (def.virtual || def.features?.sync === false) return;
+  registerAggregate({
+    entity: def.key,
+    table: def.table,
+    area: def.area,
+    order: 10,
+    engine: "record",
+    ...(def.numbered ? { numbered: { byKind: false }, nextNumber: (q: Queryable, orgId: string) => allocateNumber(q, def, orgId) } : {}),
+  });
+});
 
 export interface WireAggregate {
   entity: string;

@@ -1,6 +1,7 @@
 // Cloud (Vercel) wiring: one Hono app per server instance, Supabase through DATABASE_URL.
 // Environment is read lazily so `next build` passes without any variables.
 import { Hono } from "hono";
+import { after } from "next/server";
 import { createApp } from "./app";
 import { createPostgresDb } from "./db/postgres";
 import { migrate } from "./db/migrate";
@@ -44,6 +45,14 @@ async function build(): Promise<FetchApp> {
     publicUrl: process.env.PUBLIC_URL,
     log: consoleLogger,
     fetch: globalThis.fetch.bind(globalThis),
+    // background work after the response (Next.js `after` keeps the Vercel function alive for it)
+    waitUntil: (work) => {
+      try {
+        after(work);
+      } catch {
+        void work().catch(() => undefined);
+      }
+    },
   });
 }
 

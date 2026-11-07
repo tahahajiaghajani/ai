@@ -118,6 +118,9 @@ export function createBridge(o: { dataDir: string; db: Db & { pg?: PGlite }; con
     notifyLocalWrite() {
       sync.nudge();
     },
+    fetchBlob(orgId: string, attachmentId: string) {
+      return sync.fetchBlob(orgId, attachmentId);
+    },
   };
   return bridge;
 }

@@ -5,6 +5,9 @@
 //       the cloud wins ("conflict") and the desktop receives it with the next pull.
 // pull: everything of the organisation with a revision above the desktop's cursor, a window at
 //       a time. Revisions are handed out in commit order, so a cursor never skips a row.
+// Record engine rows are checked and filtered by the engine (src/server/engine/sync.ts): pushes by the access
+// provider and the engine's values, pulls by what the linked account may read — rows it may no longer read go out
+// as tombstones, and a member whose scope epoch moved is told to read everything again (`reset`).
 import { z } from "zod";
 import { router, body, requireUser, type C } from "../http/hono";
 import { bad, forbidden, notFound } from "../http/errors";
@@ -19,6 +22,7 @@ import { requestMeta, securityEvent, type SecurityEventInput } from "../modules/
 import type { Area, Level, Role } from "@shared/permissions";
 import { SYNC_PROTOCOL } from "@shared/constants";
 import { uuidv7 } from "@shared/id";
+import { afterEnginePush, checkEnginePush, pullEngine, scopeEpoch } from "../engine/sync";
 
 type StoredMember = MemberGrant & { is_active: boolean; deleted_at: string | null };
 
@@ -145,7 +149,8 @@ syncRoutes.post("/push", async (c) => {
         results.push({ entity: agg.entity, id: agg.id, status: "error", message: "نوع داده‌ی ناشناخته" });
         continue;
       }
-      const need = def.entity === "org" ? ctx.can("settings", "full") : def.entity === "member" ? ctx.can("users", "edit") : ctx.can(def.area, "edit");
+      // engine rows are judged by the access provider (checkEnginePush), not by an area level
+      const need = def.engine ? true : def.entity === "org" ? ctx.can("settings", "full") : def.entity === "member" ? ctx.can("users", "edit") : ctx.can(def.area, "edit");
       if (!need) {
         results.push({ entity: agg.entity, id: agg.id, status: "error", message: "دسترسی ویرایش این بخش را ندارید" });
         continue;
@@ -174,8 +179,9 @@ syncRoutes.post("/push", async (c) => {
         results.push({ entity: agg.entity, id: agg.id, status: "conflict", rev: existing.rev, aggregate: winner });
         continue;
       }
-      // a module's own rules for a pushed aggregate (the same rules its routes apply)
-      const ruled = await pushRules.get(def.entity)?.(tx, ctx, agg, existing);
+      // a module's own rules for a pushed aggregate (the same rules its routes apply); the engine's for its rows
+      const engineState: { prev?: Record<string, unknown> | null } = {};
+      const ruled = def.engine ? await checkEnginePush(tx, ctx, def, agg, engineState) : await pushRules.get(def.entity)?.(tx, ctx, agg, existing);
       if (ruled) {
         results.push({ entity: agg.entity, id: agg.id, status: "error", message: ruled });
         continue;
@@ -222,6 +228,7 @@ syncRoutes.post("/push", async (c) => {
       }
       try {
         const r = await writeAggregate(tx, def, { ...agg, row: { ...agg.row, origin: input.device_id } }, ctx.org.id, "incoming-yields");
+        if (def.engine) await afterEnginePush(tx, ctx, def, agg, engineState);
         const now = await tx.one<{ rev: number }>(`select rev from ${ident(def.table)} where id = $1`, [agg.id]);
         results.push({ entity: agg.entity, id: agg.id, status: "ok", rev: now?.rev, renumbered: r.renumbered });
         if (memberChange) memberEvents.push(memberEvent(memberChange.was, memberChange.next));
@@ -246,10 +253,22 @@ syncRoutes.get("/pull", async (c) => {
   const cursor = Math.max(0, Number(q.cursor ?? 0) || 0);
   const userCursor = Math.max(0, Number(q.user_cursor ?? 0) || 0);
   const head = (await ctx.db.one<{ rev: number }>(`select rev from sm_org_sync where org_id = $1`, [ctx.org.id]))?.rev ?? 0;
+  // what this member may read changed since their Windows app last pulled: everything again from the start
+  const epoch = await scopeEpoch(ctx.db, ctx.org.id, ctx.user.id);
+  if (q.epoch !== undefined && Number(q.epoch) !== epoch && cursor > 0) {
+    return c.json({ aggregates: [], tombstones: [], users: [], cursor: 0, user_cursor: userCursor, head, has_more: true, reset: true, epoch });
+  }
   const upto = Math.min(cursor + WINDOW, head);
   const aggregates: WireAggregate[] = [];
+  const tombstones: { entity: string; id: string }[] = [];
   if (upto > cursor) {
     for (const def of AGGREGATES) {
+      if (def.engine) {
+        const part = await pullEngine(ctx, def, cursor, upto);
+        aggregates.push(...part.aggregates);
+        tombstones.push(...part.tombstones);
+        continue;
+      }
       const ids = (await ctx.db.query<{ id: string }>(
         `select id from ${ident(def.table)} where ${def.table === "sm_orgs" ? "id" : "org_id"} = $1 and rev > $2 and rev <= $3 order by rev`,
         [ctx.org.id, cursor, upto],
@@ -293,10 +312,12 @@ syncRoutes.get("/pull", async (c) => {
   }
   return c.json({
     aggregates,
+    tombstones,
     users,
     cursor: upto,
     user_cursor: userCursorNext,
     head,
     has_more: upto < head,
+    epoch,
   });
 });

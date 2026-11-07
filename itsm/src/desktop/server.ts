@@ -11,7 +11,8 @@ import { createPgliteDb } from "@server/db/pglite";
 import { migrate } from "@server/db/migrate";
 import { createApp } from "@server/app";
 import { registerCloudLink } from "@server/modules/ai/relay";
-import { consoleLogger, type Logger } from "@server/context";
+import { consoleLogger, type Logger, type ServerConfig } from "@server/context";
+import { tick } from "@server/jobs";
 import { loadConfig, saveConfig, type LocalConfig } from "./config";
 import { createBridge } from "./bridge";
 import { takePendingRestore, undoRestore, restorePending } from "./backup";
@@ -73,7 +74,7 @@ export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
 
   let server: ReturnType<typeof serve> | null = null;
   const bridge = createBridge({ dataDir: opts.dataDir, db, config, log, save: () => saveConfig(opts.dataDir, config) });
-  const api = createApp({
+  const cfg: ServerConfig = {
     mode: "desktop",
     db,
     secret: config.secret,
@@ -83,7 +84,13 @@ export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
     desktop: bridge,
     log,
     fetch: globalThis.fetch.bind(globalThis),
-  });
+  };
+  const api = createApp(cfg);
+  // the job queue (record events, notifications, SLA timers…) runs every 10 s on this computer
+  const jobTimer = setInterval(() => {
+    void tick(cfg, { budgetMs: 8000 }).catch((e) => log.warn("job tick failed", String((e as Error)?.message ?? e)));
+  }, 10_000);
+  jobTimer.unref?.();
 
   const app = new Hono();
   // Who may reach the API. Before the first account exists every request is trusted as the
@@ -146,6 +153,7 @@ export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
     host,
     config,
     async close() {
+      clearInterval(jobTimer);
       await bridge.stop();
       await new Promise<void>((r) => (server ? server.close(() => r()) : r()));
       await db.close();
