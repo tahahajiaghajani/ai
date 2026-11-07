@@ -105,7 +105,7 @@ export function PlainFrame({ children, wide }: { children: ReactNode; wide?: boo
   return (
     <div className="pg-plain">
       <header className="pg-bar">
-        <Link to="/orgs" aria-label="کسب‌وکارها" className="inline-flex items-center rounded-md p-1">
+        <Link to="/orgs" aria-label="سازمان‌ها" className="inline-flex items-center rounded-md p-1">
           <Logo size={22} />
         </Link>
         <div className="pg-bar-end">
@@ -132,7 +132,7 @@ export function PlainFrame({ children, wide }: { children: ReactNode; wide?: boo
                     ),
                   },
                   { type: "divider" },
-                  { key: "orgs", icon: <Building2 {...ICON} />, label: "کسب‌وکارها", onClick: () => nav("/orgs") },
+                  { key: "orgs", icon: <Building2 {...ICON} />, label: "سازمان‌ها", onClick: () => nav("/orgs") },
                   ...(user.is_platform_admin ? [{ key: "admin", icon: <ShieldCheck {...ICON} />, label: "مدیریت سامانه", onClick: () => nav("/admin") }] : []),
                   { type: "divider" as const },
                   { key: "out", icon: <LogOut {...ICON} />, label: "خروج", onClick: logout },

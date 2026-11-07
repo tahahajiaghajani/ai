@@ -107,7 +107,7 @@ export default function OrgWizard() {
     hasOrgs && !created && step === 0 ? (
       <Link to="/orgs" className="pg-back">
         <ArrowRight {...ICON} aria-hidden />
-        کسب‌وکارها
+        سازمان‌ها
       </Link>
     ) : null;
 
@@ -116,7 +116,7 @@ export default function OrgWizard() {
   let body: ReactNode;
 
   if (created) {
-    title = `کسب‌وکار «${created.name}» آماده است.`;
+    title = `سازمان «${created.name}» آماده است.`;
     subtitle = "کدینگ حساب‌ها، سال مالی، صندوق و انبار بر اساس انتخاب شما ساخته شد. همه‌چیز بعداً در «تنظیمات» تغییرپذیر است.";
     const currency = BASE_CURRENCIES.find((c) => c.code === created.currency)?.title ?? created.currency;
     body = (
@@ -142,7 +142,7 @@ export default function OrgWizard() {
       </>
     );
   } else if (step === 0) {
-    title = "کسب‌وکار تازه";
+    title = "سازمان تازه";
     subtitle = "کار اصلی‌تان چیست؟ بخش‌ها و کدینگ حساب‌ها بر همین پایه آماده می‌شوند.";
     body = <KindCards value={kind} onPick={pick} />;
   } else if (step === 1) {
@@ -197,7 +197,7 @@ export default function OrgWizard() {
       </>
     );
   } else {
-    title = "مشخصات کسب‌وکار";
+    title = "مشخصات سازمان";
     subtitle = "نام، واحد پول و سال مالی کافی است؛ بقیه را هر وقت خواستید کامل کنید.";
     body = (
       <Form
@@ -227,7 +227,7 @@ export default function OrgWizard() {
       >
         {err ? <FormAlert>{err}</FormAlert> : null}
         <div className="grid gap-x-3 sm:grid-cols-2">
-          <Form.Item name="name" label="نام کسب‌وکار" rules={[{ required: true, whitespace: true, message: "نام کسب‌وکار را وارد کنید." }]} className="sm:col-span-2">
+          <Form.Item name="name" label="نام سازمان" rules={[{ required: true, whitespace: true, message: "نام سازمان را وارد کنید." }]} className="sm:col-span-2">
             <Input size="large" placeholder="مثلاً گالری طلای اعتماد" autoFocus />
           </Form.Item>
           <Form.Item name="base_currency" label="واحد پول حساب‌ها" rules={[{ required: true, message: "واحد پول را انتخاب کنید." }]} extra="مبلغ اسناد با این واحد نگه داشته می‌شود.">
@@ -257,7 +257,7 @@ export default function OrgWizard() {
             قبلی
           </Button>
           <Button type="primary" size="large" htmlType="submit" className="pg-grow" loading={busy}>
-            {busy ? "در حال ساخت…" : "ساخت کسب‌وکار"}
+            {busy ? "در حال ساخت…" : "ساخت سازمان"}
           </Button>
         </div>
       </Form>

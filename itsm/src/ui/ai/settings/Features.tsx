@@ -67,7 +67,7 @@ export function FeaturesTab({ settings, mode, linked: linkedView }: { settings: 
   return (
     <div className="bk-card">
       <div className="bk-card-b" style={{ paddingBlock: 0 }}>
-        <Sec title="دستیار" desc="خاموش کردن، همهٔ کارهای هوش مصنوعی این کسب‌وکار را متوقف می‌کند؛ بینش‌ها بدون مدل ادامه دارند.">
+        <Sec title="دستیار" desc="خاموش کردن، همهٔ کارهای هوش مصنوعی این سازمان را متوقف می‌کند؛ بینش‌ها بدون مدل ادامه دارند.">
           <div className="ai-sw">
             <SwitchRow title="دستیار فعال است" about={s.enabled ? "پرسش، تحلیل و خواندن از تصویر برای اعضای مجاز باز است." : "هیچ درخواستی به مدل‌ها فرستاده نمی‌شود."} checked={s.enabled} onChange={(v) => setS({ ...s, enabled: v })} />
           </div>
@@ -101,7 +101,7 @@ export function FeaturesTab({ settings, mode, linked: linkedView }: { settings: 
           </div>
         </Sec>
 
-        <Sec title="دربارهٔ کسب‌وکار و دستورهای تکمیلی" desc="دستیار این متن را مثل یادداشت کسب‌وکار می‌خواند؛ مثلاً لحن پاسخ‌ها یا واحد نمایش مبالغ.">
+        <Sec title="دربارهٔ سازمان و دستورهای تکمیلی" desc="دستیار این متن را مثل یادداشت سازمان می‌خواند؛ مثلاً لحن پاسخ‌ها یا واحد نمایش مبالغ.">
           <Input.TextArea
             value={s.instructions}
             onChange={(e) => setS({ ...s, instructions: e.target.value })}

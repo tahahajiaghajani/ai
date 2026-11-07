@@ -70,7 +70,7 @@ export default function AiSettings() {
       <div>
         <PageHeader title="هوش مصنوعی" />
         <div className="bk-card">
-          <EmptyState icon={ShieldOff} title="دسترسی به تنظیمات هوش مصنوعی ندارید." description="کلیدها و تنظیمات را مالک یا حسابدار کسب‌وکار مدیریت می‌کند." />
+          <EmptyState icon={ShieldOff} title="دسترسی به تنظیمات هوش مصنوعی ندارید." description="کلیدها و تنظیمات را مالک یا حسابدار سازمان مدیریت می‌کند." />
         </div>
       </div>
     );
@@ -103,7 +103,7 @@ export default function AiSettings() {
       />
       {view?.policy.disabled ? (
         <Note tone="warning" className="mb-4">
-          <b>مدیر سامانه هوش مصنوعی را برای این کسب‌وکار خاموش کرده است.</b> تنظیمات می‌ماند و با روشن شدن دوباره به کار می‌افتد.
+          <b>مدیر سامانه هوش مصنوعی را برای این سازمان خاموش کرده است.</b> تنظیمات می‌ماند و با روشن شدن دوباره به کار می‌افتد.
         </Note>
       ) : null}
       <Tabs className="ai-tabs" activeKey={tab} onChange={(k) => setParam({ tab: k === "connections" ? null : k, add: null })} items={TABS.map((t) => ({ key: t.key, label: t.label }))} />

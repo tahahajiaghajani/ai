@@ -71,7 +71,7 @@ const settingsSchema = z.object({
     keep: z.coerce.number().int().min(1).max(1000).optional(),
     every_hours: z.coerce.number().min(1).max(24 * 7).optional(),
   }).strict().optional(),
-  cloud: z.object({ auto_sync: z.boolean().optional(), prices_via_cloud: z.boolean().optional() }).strict().optional(),
+  cloud: z.object({ auto_sync: z.boolean().optional() }).strict().optional(),
 });
 
 localRoutes.get("/settings", async (c) => {

@@ -56,7 +56,7 @@ function AiStatus({ orgId, disabled }: { orgId: string; disabled: boolean }) {
   const b = q.data?.businesses?.find((x) => x.org_id === orgId);
   if (!q.data) return <p className="m-0 text-[13px] text-ink-3">گزارش هوش مصنوعی هنوز در دسترس نیست.</p>;
   if (!b || !b.connections)
-    return <p className="m-0 text-[13px] text-ink-3">{disabled ? "هوش مصنوعی این کسب‌وکار خاموش است." : "این کسب‌وکار هنوز کلید هوش مصنوعی نگذاشته است."}</p>;
+    return <p className="m-0 text-[13px] text-ink-3">{disabled ? "هوش مصنوعی این سازمان خاموش است." : "این سازمان هنوز کلید هوش مصنوعی نگذاشته است."}</p>;
   return (
     <dl className="ad-dl">
       <dt>اتصال‌ها</dt>
@@ -106,7 +106,7 @@ function PlatformState({ d }: { d: Detail }) {
             getFieldValue("status") !== "active" ? (
               <>
                 <p className="-mt-3 mb-3 text-[13px] leading-5 text-ink-3">
-                  {getFieldValue("status") === "suspended" ? "اعضا دیگر به این کسب‌وکار دسترسی ندارند." : "اعضا همه‌چیز را می‌بینند ولی تغییری ثبت نمی‌شود."} دلیل را اعضا می‌بینند.
+                  {getFieldValue("status") === "suspended" ? "اعضا دیگر به این سازمان دسترسی ندارند." : "اعضا همه‌چیز را می‌بینند ولی تغییری ثبت نمی‌شود."} دلیل را اعضا می‌بینند.
                 </p>
                 <Form.Item name="status_reason" label="دلیل" rules={[{ required: true, message: "دلیل را بنویسید." }]}>
                   <Input maxLength={300} />
@@ -129,11 +129,11 @@ function PlatformState({ d }: { d: Detail }) {
             checked={!d.admin.ai_disabled}
             loading={busy === "ai"}
             onChange={(on) => save("ai", { ai_disabled: !on }, on ? "هوش مصنوعی روشن شد." : "هوش مصنوعی خاموش شد.")}
-            aria-label="هوش مصنوعی این کسب‌وکار"
+            aria-label="هوش مصنوعی این سازمان"
           />
           <span>
             <span className="block">هوش مصنوعی</span>
-            <span className="ad-sub">خاموش کردن، همهٔ درخواست‌های هوش مصنوعی این کسب‌وکار را متوقف می‌کند.</span>
+            <span className="ad-sub">خاموش کردن، همهٔ درخواست‌های هوش مصنوعی این سازمان را متوقف می‌کند.</span>
           </span>
         </div>
         <Form.Item name="notes" label="یادداشت داخلی" className="!mb-3 mt-5" extra="فقط مدیران سامانه می‌بینند.">
@@ -163,14 +163,14 @@ export default function OrgDetail({ id }: { id: string }) {
   if (q.error)
     return (
       <div>
-        <PageHeader title="کسب‌وکار" back="/admin/orgs" />
-        <EmptyState icon={Building2} title="این کسب‌وکار پیدا نشد" action={<Button onClick={() => nav("/admin/orgs")}>فهرست کسب‌وکارها</Button>} />
+        <PageHeader title="سازمان" back="/admin/orgs" />
+        <EmptyState icon={Building2} title="این سازمان پیدا نشد" action={<Button onClick={() => nav("/admin/orgs")}>فهرست سازمان‌ها</Button>} />
       </div>
     );
   if (!d)
     return (
       <div>
-        <PageHeader title="کسب‌وکار" back="/admin/orgs" />
+        <PageHeader title="سازمان" back="/admin/orgs" />
         <Skeleton rows={8} />
       </div>
     );
@@ -320,7 +320,7 @@ export default function OrgDetail({ id }: { id: string }) {
                 ))}
               </ul>
             ) : (
-              <p className="m-0 px-5 py-4 text-[13px] text-ink-3">تاکنون حالت پشتیبانی در این کسب‌وکار آغاز نشده است.</p>
+              <p className="m-0 px-5 py-4 text-[13px] text-ink-3">تاکنون حالت پشتیبانی در این سازمان آغاز نشده است.</p>
             )}
           </Card>
         </div>
@@ -366,7 +366,7 @@ export default function OrgDetail({ id }: { id: string }) {
                 ))}
               </ul>
             ) : (
-              <p className="m-0 px-5 py-4 text-[13px] text-ink-3">برنامهٔ ویندوزی به این کسب‌وکار وصل نیست.</p>
+              <p className="m-0 px-5 py-4 text-[13px] text-ink-3">برنامهٔ ویندوزی به این سازمان وصل نیست.</p>
             )}
           </Card>
           <Card title="رویدادهای امنیتی" tools={<Link to={`/admin/security?org=${d.org.id}`} className="ds-link text-[13px]">همه</Link>} flush>

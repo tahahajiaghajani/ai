@@ -5,7 +5,7 @@
 // - below the owner, nobody changes their own role or per-area access, nobody touches a member
 //   who has more access than they do, and nobody gives more access than they have (a member with
 //   «کاربران: ویرایش» cannot make anyone, himself included, a manager «مدیر»);
-// - a business resets the password only of an account it created itself (see `createdHere`).
+// - an organisation resets the password only of an account it created itself (see `createdHere`).
 import type { Queryable } from "../../db";
 import type { Ctx } from "../../context";
 import { memberChangeRule, permissionMap, type MemberGrant } from "@shared/permissions";
@@ -29,10 +29,10 @@ export function memberChangeProblem(ctx: Ctx, before: MemberGrant | null, after:
 }
 
 /**
- * True when this business made the account itself (the members page created it, with a password
- * the business set). Accounts are global: anyone can add an existing account to their own business
+ * True when this organisation made the account itself (the members page created it, with a password
+ * the organisation set). Accounts are global: anyone can add an existing account to their own organisation
  * by its e-mail, so only an account made here may have its password reset here or its password
- * hash handed to the business's Windows apps. Recorded in the business's audit row «member_add»:
+ * hash handed to the organisation's Windows apps. Recorded in the organisation's audit row «member_add»:
  * data.new_account since the review fixes; older rows have no data, but the account and that row
  * were written in the same transaction, so their timestamps (both now()) are equal.
  */
@@ -46,8 +46,8 @@ export async function createdHere(q: Queryable, orgId: string, userId: string): 
 }
 
 /**
- * Whether the business may set a password for these members (POST /members/:id/password): an
- * account it made, that works for no other business and is not a platform admin. One SQL boolean
+ * Whether the organisation may set a password for these members (POST /members/:id/password): an
+ * account it made, that works for no other organisation and is not a platform admin. One SQL boolean
  * per row, for the members list.
  */
 export const RESETTABLE_SQL = (orgParam: string, userAlias: string) =>

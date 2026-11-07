@@ -109,15 +109,15 @@ export default function Setup() {
   if (meta && meta.mode !== "desktop") return <Navigate to="/signup" replace />;
 
   const options: Option[] = [
-    { v: "local", icon: <Monitor {...ICON} />, t: "شروع روی همین رایانه", d: "کسب‌وکار تازه می‌سازید و داده‌ها روی همین ویندوز می‌مانند؛ هر وقت خواستید به نسخهٔ وب وصلش می‌کنید." },
-    { v: "cloud", icon: <CloudDownload {...ICON} />, t: "اتصال به حساب ابری", d: "در نسخهٔ وب حساب و کسب‌وکار دارید؟ داده‌ها دریافت می‌شوند و از این به بعد دو طرف هم‌گام می‌مانند." },
+    { v: "local", icon: <Monitor {...ICON} />, t: "شروع روی همین رایانه", d: "سازمان تازه می‌سازید و داده‌ها روی همین ویندوز می‌مانند؛ هر وقت خواستید به نسخهٔ وب وصلش می‌کنید." },
+    { v: "cloud", icon: <CloudDownload {...ICON} />, t: "اتصال به حساب ابری", d: "در نسخهٔ وب حساب و سازمان دارید؟ داده‌ها دریافت می‌شوند و از این به بعد دو طرف هم‌گام می‌مانند." },
     ...(window.itsm?.setServer
       ? [{ v: "client" as const, icon: <Network {...ICON} />, t: "اتصال به سرور شبکهٔ فروشگاه", d: "سیراف روی رایانهٔ دیگری از شبکهٔ داخلی با «حالت شبکه» روشن است؛ این رایانه فقط به آن وصل می‌شود." }]
       : []),
   ];
 
   const second = mode === "cloud" ? "حساب ابری" : mode === "client" ? "سرور شبکه" : "حساب مدیر";
-  const steps = { labels: ["روش شروع", second, "کسب‌وکار"], current: code ? 2 : step };
+  const steps = { labels: ["روش شروع", second, "سازمان"], current: code ? 2 : step };
   const back = () => {
     setErr(null);
     setStep(0);
@@ -139,7 +139,7 @@ export default function Setup() {
   if (step === 1 && mode === "local") {
     if (code) {
       title = "حساب مدیر ساخته شد";
-      subtitle = "پیش از ساختن کسب‌وکار، کد بازیابی را جای امنی نگه دارید.";
+      subtitle = "پیش از ساختن سازمان، کد بازیابی را جای امنی نگه دارید.";
       body = (
         <RecoveryCode
           code={code}
@@ -177,7 +177,7 @@ export default function Setup() {
               setErr(null);
               try {
                 const r = await api.post<{ orgs: { id: string; name: string }[] }>("/local/cloud/orgs", v);
-                if (!r.orgs.length) throw new Error("در این حساب ابری هنوز کسب‌وکاری ساخته نشده است");
+                if (!r.orgs.length) throw new Error("در این حساب ابری هنوز سازمانی ساخته نشده است");
                 setCloud(v);
                 setOrgs(r.orgs);
               } catch (e) {
@@ -220,8 +220,8 @@ export default function Setup() {
         </>
       );
     } else {
-      title = "کدام کسب‌وکار؟";
-      subtitle = "کسب‌وکاری را که می‌خواهید روی این رایانه دریافت شود انتخاب کنید.";
+      title = "کدام سازمان؟";
+      subtitle = "سازمانی را که می‌خواهید روی این رایانه دریافت شود انتخاب کنید.";
       body = (
         <>
           {err ? <FormAlert>{err}</FormAlert> : null}

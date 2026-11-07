@@ -101,7 +101,7 @@ export interface WriteResult {
 }
 
 /**
- * Write one aggregate. On a unique clash (document number or code):
+ * Write one aggregate. On a unique clash (record number or code):
  * - side "incoming-yields" (server applying a push): the incoming row takes the next free value
  * - side "local-yields" (desktop applying a pull): the local clashing row moves to the next free
  *   value and is queued for push, the cloud row keeps its value
@@ -119,17 +119,15 @@ export async function writeAggregate(
   } else row.org_id = orgId;
   const result: WriteResult = {};
   for (let attempt = 0; attempt < 4; attempt++) {
-    // set once the aggregate itself is written: a failure after that (the bar lines below) is no
-    // clash of this row and is not retried; the savepoint rolls the whole aggregate back
+    // set once the aggregate itself is written: a failure after that (a module's follow-up in `afterWrite`)
+    // is no clash of this row and is not retried; the savepoint rolls the whole aggregate back
     let written = false;
     try {
       await savepoint(q, async () => {
         await upsertRoot(q, def.table, row);
         for (const ch of def.children ?? []) await replaceChildren(q, ch.table, ch.fk, agg.id, agg.children?.[ch.table] ?? [], orgId);
         written = true;
-        // bar lines carry the bar's number (tag_no): keep them in step with the register
-        if (def.entity === "gold_bar") await retagBarLines(q, orgId, agg.id, false);
-        else if (def.entity === "gold_doc") await alignDocBarLines(q, agg.id);
+        await afterWrite.get(def.entity)?.(q, orgId, agg.id);
       });
       return result;
     } catch (e) {
@@ -138,7 +136,7 @@ export async function writeAggregate(
       const constraint = String(e.constraint ?? e.constraint_name ?? "");
       if (def.numbered && constraint.includes("_no_")) {
         if (side === "incoming-yields") {
-          const to = await nextNo(q, def.table, orgId, String(row.fiscal_year_id), def.numbered.byKind ? String(row.kind) : undefined);
+          const to = await nextNo(q, def.table, orgId, def.numbered.byKind ? String(row.kind) : undefined);
           result.renumbered = { column: "no", from: row.no, to };
           row.no = to;
         } else {
@@ -153,25 +151,7 @@ export async function writeAggregate(
         await q.query(`delete from sm_outbox where entity = 'member' and id not in (select id from sm_org_members)`);
         continue;
       }
-      if (def.table === "sm_items" && constraint.includes("rate_key")) {
-        // a board key belongs to one product: the later edit keeps it (updated_at, which syncs
-        // unchanged). When the row being written is the later one, the other holder loses the key
-        // (on a Windows app it is queued, so the cloud hears of it); otherwise the row being
-        // written comes without it — on the cloud the pushing app is told (`renumbered`), on a
-        // Windows app the local holder's push makes the cloud drop it there too
-        const holder = await q.one<{ updated_at: string }>(
-          `select updated_at from sm_items where org_id = $1 and id <> $2 and rate_key = $3 and deleted_at is null`,
-          [orgId, agg.id, row.rate_key],
-        );
-        if (holder && isOlder(row.updated_at, holder.updated_at)) {
-          if (side === "incoming-yields") result.renumbered = { column: "rate_key", from: row.rate_key, to: null };
-          row.rate_key = null;
-        } else {
-          await savepoint(q, () => moveLocalAside(q, def, orgId, row, "rate_key", side === "local-yields"));
-        }
-        continue;
-      }
-      if (def.code && (constraint.includes("code") || constraint.includes("tag"))) {
+      if (def.code && constraint.includes(def.code.column)) {
         const column = def.code.column;
         if (side === "incoming-yields") {
           const to = await nextFreeCode(q, def, orgId);
@@ -188,83 +168,27 @@ export async function writeAggregate(
   return result;
 }
 
-/** Whether a row's updated_at is strictly earlier than another's (a row without one is not). */
-function isOlder(a: unknown, b: unknown): boolean {
-  const ta = a == null ? NaN : new Date(a as string | Date).getTime();
-  const tb = b == null ? NaN : new Date(b as string | Date).getTime();
-  return Number.isFinite(ta) && Number.isFinite(tb) && ta < tb;
-}
-
-/** Next free code; a bar number is never reused, so soft-deleted bars count (as in nextBarNo). */
+/** Next free code of an aggregate with a code column. */
 async function nextFreeCode(q: Queryable, def: AggregateDef, orgId: string): Promise<string> {
-  const column = def.code!.column;
-  const start = def.code!.start || 1;
-  if (def.entity !== "gold_bar") return nextCode(q, def.table, orgId, start, column);
-  const r = await q.one<{ n: string | null }>(
-    `select max(${ident(column)}::numeric) as n from ${ident(def.table)} where org_id = $1 and ${ident(column)} ~ '^[0-9]{1,15}$'`,
-    [orgId],
-  );
-  return String(Math.max(r?.n ? Number(r.n) + 1 : start, start));
+  return nextCode(q, def.table, orgId, def.code!.start || 1, def.code!.column);
 }
 
 /**
- * Document lines of a bar carry its number (tag_no, and extra.bar.bar_no on the line that
- * brought it in): after the bar was renumbered they follow, and their documents get a new
- * revision (cloud) or are queued for upload (`queue`, desktop) so the other side sees it too.
+ * Follow-ups a module needs after one of its aggregates was written by synchronisation (e.g. keeping a
+ * denormalised copy in step), run inside the aggregate's savepoint. Keyed by entity.
  */
-async function retagBarLines(q: Queryable, orgId: string, barId: string, queue: boolean) {
-  const docs = await q.query<{ doc_id: string }>(
-    `update sm_gold_lines l set tag_no = b.bar_no,
-       extra = case when l.extra->'bar' ? 'bar_no' then jsonb_set(l.extra, '{bar,bar_no}', to_jsonb(b.bar_no)) else l.extra end
-     from sm_gold_bars b
-     where b.id = $2 and l.org_id = $1 and l.gold_bar_id = b.id
-       and (l.tag_no is distinct from b.bar_no or (l.extra->'bar' ? 'bar_no' and l.extra->'bar'->>'bar_no' is distinct from b.bar_no))
-     returning l.doc_id`,
-    [orgId, barId],
-  );
-  const ids = [...new Set(docs.map((d) => d.doc_id))];
-  if (!ids.length) return;
-  const arr = `{${ids.join(",")}}`;
-  // an update of the root assigns a new revision on the cloud (itsm.applying keeps updated_at)
-  await q.query(`update sm_gold_docs set rev = rev where id = any($1::uuid[])`, [arr]);
-  if (queue) {
-    await q.query(
-      `insert into sm_outbox (entity, id, changed_at) select 'gold_doc', id, now() from sm_gold_docs where id = any($1::uuid[])
-       on conflict (entity, id) do update set changed_at = now()`,
-      [arr],
-    );
-  }
-}
-
-/** The bar lines of a written document take the current numbers of their bars. */
-async function alignDocBarLines(q: Queryable, docId: string) {
-  await q.query(
-    `update sm_gold_lines l set tag_no = b.bar_no,
-       extra = case when l.extra->'bar' ? 'bar_no' then jsonb_set(l.extra, '{bar,bar_no}', to_jsonb(b.bar_no)) else l.extra end
-     from sm_gold_bars b
-     where l.doc_id = $1 and l.gold_bar_id = b.id and b.org_id = l.org_id
-       and (l.tag_no is distinct from b.bar_no or (l.extra->'bar' ? 'bar_no' and l.extra->'bar'->>'bar_no' is distinct from b.bar_no))`,
-    [docId],
-  );
-}
+export const afterWrite = new Map<string, (q: Queryable, orgId: string, id: string) => Promise<void>>();
 
 async function moveLocalAside(q: Queryable, def: AggregateDef, orgId: string, incoming: Record<string, unknown>, column: string, queue = true) {
   const params: unknown[] = [orgId, incoming.id, incoming[column]];
   let cond = `org_id = $1 and id <> $2 and ${ident(column)} = $3 and deleted_at is null`;
-  if (column === "no") {
-    params.push(incoming.fiscal_year_id);
-    cond += ` and fiscal_year_id = $${params.length}`;
-    if (def.numbered?.byKind) {
-      params.push(incoming.kind);
-      cond += ` and kind = $${params.length}`;
-    }
+  if (column === "no" && def.numbered?.byKind) {
+    params.push(incoming.kind);
+    cond += ` and kind = $${params.length}`;
   }
   const clash = await q.one<{ id: string }>(`select id from ${ident(def.table)} where ${cond}`, params);
   if (!clash) return;
-  let to: unknown;
-  if (column === "no") to = await nextNo(q, def.table, orgId, String(incoming.fiscal_year_id), def.numbered?.byKind ? String(incoming.kind) : undefined);
-  else if (column === "rate_key") to = null;
-  else to = await nextFreeCode(q, def, orgId);
+  const to = column === "no" ? await nextNo(q, def.table, orgId, def.numbered?.byKind ? String(incoming.kind) : undefined) : await nextFreeCode(q, def, orgId);
   await q.query(`update ${ident(def.table)} set ${ident(column)} = $2 where id = $1`, [clash.id, to]);
   if (queue) {
     await q.query(
@@ -272,5 +196,4 @@ async function moveLocalAside(q: Queryable, def: AggregateDef, orgId: string, in
       [def.entity, clash.id],
     );
   }
-  if (def.entity === "gold_bar") await retagBarLines(q, orgId, clash.id, queue);
 }

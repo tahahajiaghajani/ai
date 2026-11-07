@@ -82,7 +82,7 @@ export default function Login() {
       </Form>
       {canSignup ? (
         <p className="pg-alt">
-          کسب‌وکار تازه دارید؟{" "}
+          سازمان تازه دارید؟{" "}
           <Link to="/signup" className="ds-link">
             ساخت حساب
           </Link>

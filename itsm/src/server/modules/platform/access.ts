@@ -1,4 +1,4 @@
-// Access to /o/:org/* beyond membership: the platform admin's support session and the business's
+// Access to /o/:org/* beyond membership: the platform admin's support session and the organisation's
 // platform status. Runs right after loadOrg for every organisation route (routes/org.ts mounts it
 // first under /o/:org); it is idempotent, so it may also be mounted directly after loadOrg.
 import type { MiddlewareHandler } from "hono";
@@ -22,7 +22,7 @@ export const orgAccess: MiddlewareHandler<Env> = async (c, next) => {
     if (!support) throw forbidden(NOT_MEMBER_MESSAGE);
     if (support.level === "view" && !READS.has(c.req.method)) throw forbidden(SUPPORT_VIEW_ONLY_MESSAGE);
   } else if (status.status === "suspended") {
-    // a suspended business is closed to its members; a support session still sees it
+    // a suspended organisation is closed to its members; a support session still sees it
     throw statusError(status);
   }
   c.set("ctx", makeCtx(ctx.cfg, ctx.user, ctx.org, ctx.member, { support, status, request: { method: c.req.method, path: c.req.path } }));

@@ -133,7 +133,7 @@ export default function Members() {
     return want && ok(want) ? want : ([...CORE_ROLES, ...PRESET_ROLES].find(ok) ?? want ?? "viewer");
   };
   // the last active owner keeps the role and stays active
-  const lockedOwner = (m: MemberRow) => (m.role === "owner" && m.is_active && activeOwners <= 1 ? "کسب‌وکار باید دست‌کم یک مالک فعال داشته باشد" : null);
+  const lockedOwner = (m: MemberRow) => (m.role === "owner" && m.is_active && activeOwners <= 1 ? "سازمان باید دست‌کم یک مالک فعال داشته باشد" : null);
   // role and per-area access: owners only by owners, never your own (below the owner), never a member above you
   const accessLock = (m: MemberRow) => rule(grantOf(m), null) ?? lockedOwner(m);
   // activation: never yourself, owners only by owners, never a member above you

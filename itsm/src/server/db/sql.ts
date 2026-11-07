@@ -57,19 +57,24 @@ export async function updateRow<T = Row>(
   return q.one<T>(sql, params);
 }
 
-/** Next document number in a series: max(no) + 1 (callers hold the organisation lock). */
-export async function nextNo(q: Queryable, table: string, orgId: string, fiscalYearId: string, kind?: string): Promise<number> {
-  const params: unknown[] = [orgId, fiscalYearId];
-  let cond = "org_id = $1 and fiscal_year_id = $2 and deleted_at is null";
-  if (kind) {
+/**
+ * Next number of a numbered record: max(no) + 1 within the organisation (and `kind`, when the series is per
+ * kind). Callers hold the organisation's write lock (ctx.write), so two writers never take the same number;
+ * synchronisation moves a number that clashes with another runtime's to the next free one (sync/apply.ts).
+ */
+export async function nextNo(q: Queryable, table: string, orgId: string, kind?: string, column = "no"): Promise<number> {
+  const col = ident(column);
+  const params: unknown[] = [orgId];
+  let cond = "org_id = $1 and deleted_at is null";
+  if (kind !== undefined) {
     params.push(kind);
-    cond += " and kind = $3";
+    cond += " and kind = $2";
   }
-  const r = await q.one<{ n: number }>(`select coalesce(max(no), 0) + 1 as n from ${ident(table)} where ${cond}`, params);
+  const r = await q.one<{ n: number }>(`select coalesce(max(${col}), 0) + 1 as n from ${ident(table)} where ${cond}`, params);
   return Number(r?.n ?? 1);
 }
 
-/** Next numeric code (e.g. parties 1001, 1002 …) among codes that are plain numbers. */
+/** Next numeric code (e.g. 1001, 1002 …) among codes that are plain numbers. */
 export async function nextCode(q: Queryable, table: string, orgId: string, start: number, column = "code"): Promise<string> {
   const col = ident(column);
   const r = await q.one<{ n: string | null }>(

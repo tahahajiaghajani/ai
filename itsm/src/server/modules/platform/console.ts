@@ -1,6 +1,6 @@
-// Read models of «مدیریت سامانه»: the overview, businesses and users, and the admin audit log.
+// Read models of «مدیریت سامانه»: the overview, organisations and users, and the admin audit log.
 // Platform metadata only — names, modules, members, counts, sizes, devices, activity dates, status —
-// never a business's documents (those need a support session) and never a password, key or token.
+// never an organisation's records (those need a support session) and never a password, key or token.
 import type { Db, Queryable } from "../../db";
 import { likeContains, pgArray } from "../../db";
 import type { ServerConfig } from "../../context";
@@ -77,10 +77,8 @@ export async function overview(cfg: ServerConfig) {
     `select
        (select count(*)::int from sm_orgs where deleted_at is null) as orgs_total,
        (select count(*)::int from sm_orgs where deleted_at is null and created_at > now() - interval '30 days') as orgs_new_30d,
-       (select count(*)::int from (
-          select org_id from sm_audit where at > now() - interval '30 days' and org_id is not null and actor_kind = 'user'
-          union select org_id from sm_vouchers where updated_at > now() - interval '30 days') t
-        join sm_orgs o on o.id = t.org_id and o.deleted_at is null) as orgs_active_30d,
+       (select count(distinct t.org_id)::int from sm_audit t join sm_orgs o on o.id = t.org_id and o.deleted_at is null
+         where t.at > now() - interval '30 days' and t.actor_kind = 'user') as orgs_active_30d,
        (select count(*)::int from sm_org_admin a join sm_orgs o on o.id = a.org_id and o.deleted_at is null where a.status = 'read_only') as orgs_read_only,
        (select count(*)::int from sm_org_admin a join sm_orgs o on o.id = a.org_id and o.deleted_at is null where a.status = 'suspended') as orgs_suspended,
        (select count(*)::int from sm_users) as users_total,
@@ -114,8 +112,8 @@ export async function overview(cfg: ServerConfig) {
   for (const c of health.checks) if (c.tone === "danger" || c.tone === "warning") attention.push({ key: c.key, tone: c.tone, title: c.title, detail: c.detail, path: "/admin/health" });
   const failed = n("failed_sign_ins_24h");
   if (failed >= 10) attention.push({ key: "sign_ins", tone: failed >= 50 ? "danger" : "warning", title: "ورودهای ناموفق در ۲۴ ساعت گذشته", detail: `${failed}`, path: "/admin/security?ok=false&kind=sign_in" });
-  if (n("orgs_suspended")) attention.push({ key: "suspended", tone: "neutral", title: "کسب‌وکارهای معلق", detail: `${n("orgs_suspended")}`, path: "/admin/orgs?status=suspended" });
-  if (n("orgs_read_only")) attention.push({ key: "read_only", tone: "neutral", title: "کسب‌وکارهای فقط‌خواندنی", detail: `${n("orgs_read_only")}`, path: "/admin/orgs?status=read_only" });
+  if (n("orgs_suspended")) attention.push({ key: "suspended", tone: "neutral", title: "سازمان‌های معلق", detail: `${n("orgs_suspended")}`, path: "/admin/orgs?status=suspended" });
+  if (n("orgs_read_only")) attention.push({ key: "read_only", tone: "neutral", title: "سازمان‌های فقط‌خواندنی", detail: `${n("orgs_read_only")}`, path: "/admin/orgs?status=read_only" });
 
   return {
     mode: cfg.mode,
@@ -135,7 +133,7 @@ export async function overview(cfg: ServerConfig) {
   };
 }
 
-// ---------------------------------------------------------------- businesses
+// ---------------------------------------------------------------- organisations
 
 export interface OrgListFilter {
   q?: string | null;
@@ -146,9 +144,8 @@ export interface OrgListFilter {
   support?: boolean;
 }
 
-const LAST_ACTIVITY = `greatest(
-  (select max(x.at) from sm_audit x where x.org_id = o.id and x.actor_kind = 'user'),
-  (select max(v.updated_at) from sm_vouchers v where v.org_id = o.id))`;
+/** The last change a member made in the organisation (its audit log). */
+const LAST_ACTIVITY = `(select max(x.at) from sm_audit x where x.org_id = o.id and x.actor_kind = 'user')`;
 
 export async function listOrgs(q: Queryable, f: OrgListFilter = {}) {
   const where = ["o.deleted_at is null"];
@@ -170,13 +167,12 @@ export async function listOrgs(q: Queryable, f: OrgListFilter = {}) {
   }
   if (f.support) where.push(`exists (select 1 from sm_support_sessions s where s.org_id = o.id and s.ended_at is null and s.expires_at > now())`);
   const rows = await q.query<Record<string, unknown> & { last_activity: string | null }>(
-    `select o.id, o.name, o.legal_name, o.business_kind, o.modules, o.base_currency, o.city, o.created_at,
+    `select o.id, o.name, o.legal_name, o.modules, o.city, o.created_at,
             coalesce(a.status, 'active') as status, a.status_reason, coalesce(a.ai_disabled, false) as ai_disabled,
             (select count(*)::int from sm_org_members m where m.org_id = o.id and m.deleted_at is null and m.is_active) as members,
             (select json_build_object('name', u.full_name, 'email', u.email, 'mobile', u.mobile)
                from sm_org_members m join sm_users u on u.id = m.user_id
               where m.org_id = o.id and m.role = 'owner' and m.deleted_at is null and m.is_active order by m.created_at limit 1) as owner,
-            (select count(*)::int from sm_vouchers v where v.org_id = o.id and v.deleted_at is null) as vouchers,
             (select count(*)::int from sm_devices d where d.org_id = o.id and d.revoked_at is null) as devices,
             ${LAST_ACTIVITY} as last_activity,
             exists (select 1 from sm_support_sessions s where s.org_id = o.id and s.ended_at is null and s.expires_at > now()) as support_active
@@ -190,7 +186,7 @@ export async function listOrgs(q: Queryable, f: OrgListFilter = {}) {
   return rows.filter((r) => !r.last_activity || new Date(r.last_activity).getTime() < cutoff);
 }
 
-// tables of a business (roots and children of the synchronised aggregates, plus its audit log)
+// tables of an organisation (roots and children of the synchronised aggregates, plus its audit log)
 let sizeTables: { entity: string; table: string; root: boolean }[] | null = null;
 async function sizeTablesOf(q: Queryable) {
   if (sizeTables) return sizeTables;
@@ -217,7 +213,7 @@ export interface OrgSize {
   bytes: number;
 }
 
-/** Rows and approximate bytes of a business, per kind of record (largest first). */
+/** Rows and approximate bytes of an organisation, per kind of record (largest first). */
 export async function orgSizes(q: Queryable, orgId: string): Promise<{ total_bytes: number; items: OrgSize[] }> {
   const by = new Map<string, OrgSize>();
   for (const t of await sizeTablesOf(q)) {
@@ -238,7 +234,7 @@ export async function orgSizes(q: Queryable, orgId: string): Promise<{ total_byt
 export async function orgDetail(cfg: ServerConfig, orgId: string, adminUserId: string) {
   const db = cfg.db;
   const org = await db.one(
-    `select id, name, legal_name, business_kind, modules, base_currency, province, city, phone, mobile, email, website, created_at, updated_at, logo
+    `select id, name, legal_name, modules, city, phone, email, website, created_at, updated_at, logo
      from sm_orgs where id = $1 and deleted_at is null`,
     [orgId],
   );
@@ -252,7 +248,7 @@ export async function orgDetail(cfg: ServerConfig, orgId: string, adminUserId: s
       `select m.id, m.user_id, m.role, m.title, m.is_active, m.created_at, u.full_name, u.email, u.mobile, u.last_login_at, u.disabled
        from sm_org_members m join sm_users u on u.id = m.user_id
        where m.org_id = $1 and m.deleted_at is null
-       order by case m.role when 'owner' then 0 when 'admin' then 1 when 'accountant' then 2 else 3 end, m.created_at`,
+       order by case m.role when 'owner' then 0 when 'admin' then 1 when 'member' then 2 else 3 end, m.created_at`,
       [orgId],
     ),
     db.query(
@@ -276,7 +272,7 @@ export async function orgDetail(cfg: ServerConfig, orgId: string, adminUserId: s
     sizes,
     support: { active: sessions.find((s) => s.state === "active" && s.admin_user_id === adminUserId) ?? null, sessions },
     events,
-    /** the admin is a member: he opens the business directly, without a support session */
+    /** the admin is a member: he opens the organisation directly, without a support session */
     is_member: !!member,
   };
 }

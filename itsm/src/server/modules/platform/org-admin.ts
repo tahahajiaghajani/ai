@@ -1,6 +1,6 @@
-// Platform status of a business (sm_org_admin): «فعال», «فقط‌خواندنی» (writes refused), «معلق»
-// (closed to its members), internal notes and the per-business AI switch. Only the platform admin
-// changes them (routes/admin.ts); every business reads its own status through ctx.
+// Platform status of an organisation (sm_org_admin): «فعال», «فقط‌خواندنی» (writes refused), «معلق»
+// (closed to its members), internal notes and the per-organisation AI switch. Only the platform admin
+// changes them (routes/admin.ts); every organisation reads its own status through ctx.
 import type { Queryable } from "../../db";
 import type { AuthUser, OrgPlatformStatus, OrgStatus, ServerConfig } from "../../context";
 import { AppError, bad, notFound } from "../../http/errors";
@@ -32,8 +32,8 @@ export async function orgAdminState(q: Queryable, orgId: string): Promise<OrgAdm
 }
 
 /**
- * True when the platform admin switched AI off for this business: the AI engine must then refuse
- * every model call of the business (and say so in its status).
+ * True when the platform admin switched AI off for this organisation: the AI engine must then refuse
+ * every model call of the organisation (and say so in its status).
  */
 export async function orgAiDisabled(q: Queryable, orgId: string): Promise<boolean> {
   const r = await q.one<{ ai_disabled: boolean }>(`select ai_disabled from sm_org_admin where org_id = $1`, [orgId]);
@@ -42,13 +42,13 @@ export async function orgAiDisabled(q: Queryable, orgId: string): Promise<boolea
 
 const withReason = (text: string, reason: string | null) => (reason ? `${text}؛ دلیل: ${reason}` : text);
 
-/** The Persian refusal for a business that is not active (HTTP 423). */
+/** The Persian refusal for an organisation that is not active (HTTP 423). */
 export function statusError(s: OrgPlatformStatus): AppError {
-  if (s.status === "suspended") return new AppError(423, "org_suspended", withReason("این کسب‌وکار از سوی مدیر سامانه معلق شده است", s.reason));
-  return new AppError(423, "org_read_only", withReason("این کسب‌وکار از سوی مدیر سامانه فقط‌خواندنی شده است و تغییر تازه ثبت نمی‌شود", s.reason));
+  if (s.status === "suspended") return new AppError(423, "org_suspended", withReason("این سازمان از سوی مدیر سامانه معلق شده است", s.reason));
+  return new AppError(423, "org_read_only", withReason("این سازمان از سوی مدیر سامانه فقط‌خواندنی شده است و تغییر تازه ثبت نمی‌شود", s.reason));
 }
 
-/** Refuses a write in a business that is read-only or suspended (called inside ctx.write). */
+/** Refuses a write in an organisation that is read-only or suspended (called inside ctx.write). */
 export async function assertWritable(q: Queryable, orgId: string): Promise<void> {
   const s = await orgStatus(q, orgId);
   if (s.status !== "active") throw statusError(s);
@@ -62,8 +62,8 @@ export interface OrgAdminPatch {
 }
 
 /**
- * Changes a business's platform state. A status other than «فعال» needs a reason (members see it);
- * status and AI changes are logged in the business's audit log, note edits only in the platform's.
+ * Changes an organisation's platform state. A status other than «فعال» needs a reason (members see it);
+ * status and AI changes are logged in the organisation's audit log, note edits only in the platform's.
  */
 export async function updateOrgAdmin(
   cfg: ServerConfig,
@@ -74,11 +74,11 @@ export async function updateOrgAdmin(
 ): Promise<OrgAdminState> {
   const db = cfg.db;
   const org = await db.one<{ id: string; name: string }>(`select id, name from sm_orgs where id = $1 and deleted_at is null`, [orgId]);
-  if (!org) throw notFound("کسب‌وکار پیدا نشد");
+  if (!org) throw notFound("سازمان پیدا نشد");
   const before = await orgAdminState(db, orgId);
   const status = patch.status ?? before.status;
   const reason = patch.status !== undefined || patch.status_reason !== undefined ? (patch.status_reason ?? "").trim() || null : before.status_reason;
-  if (status !== "active" && !reason) throw bad("دلیل را بنویسید؛ اعضای کسب‌وکار آن را می‌بینند");
+  if (status !== "active" && !reason) throw bad("دلیل را بنویسید؛ اعضای سازمان آن را می‌بینند");
   const next: OrgAdminState = {
     ...before,
     status,
@@ -105,7 +105,7 @@ export async function updateOrgAdmin(
         action: "org_status",
         entity: "org",
         entity_id: orgId,
-        summary: next.status_reason ? `وضعیت کسب‌وکار: ${title}؛ دلیل: ${next.status_reason}` : `وضعیت کسب‌وکار: ${title}`,
+        summary: next.status_reason ? `وضعیت سازمان: ${title}؛ دلیل: ${next.status_reason}` : `وضعیت سازمان: ${title}`,
         data: { from: before.status, to: next.status, reason: next.status_reason },
       });
     }
@@ -115,10 +115,10 @@ export async function updateOrgAdmin(
         action: "org_ai",
         entity: "org",
         entity_id: orgId,
-        summary: next.ai_disabled ? "هوش مصنوعی این کسب‌وکار از سوی مدیر سامانه خاموش شد" : "هوش مصنوعی این کسب‌وکار دوباره روشن شد",
+        summary: next.ai_disabled ? "هوش مصنوعی این سازمان از سوی مدیر سامانه خاموش شد" : "هوش مصنوعی این سازمان دوباره روشن شد",
         data: { ai_disabled: next.ai_disabled },
       });
-    // internal notes are the platform's: logged without the business, so members never see them
+    // internal notes are the platform's: logged without the organisation, so members never see them
     if (notesChanged)
       await platformAudit(tx, cfg, admin, { org_id: null, action: "org_notes", entity: "org", entity_id: orgId, summary: `یادداشت داخلی «${org.name}» ویرایش شد` });
     return row!;

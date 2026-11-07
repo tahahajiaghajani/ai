@@ -96,7 +96,7 @@ export const settingsPatchSchema = z
     features: z.object({ assistant: z.boolean(), proposals: z.boolean(), insights: z.boolean(), explain: z.boolean(), capture: z.boolean(), forecast: z.boolean() }).partial(),
     data_policy: z.enum(["full", "masked", "aggregates"]),
     budgets: z.object({ monthly_usd: usd, user_daily_usd: usd, alert_pct: z.number().int().min(10).max(100) }).partial(),
-    instructions: z.string().max(4000, "یادداشت کسب‌وکار حداکثر ۴۰۰۰ نویسه است"),
+    instructions: z.string().max(4000, "یادداشت سازمان حداکثر ۴۰۰۰ نویسه است"),
     retention_days: z.number().int().min(7).max(3650),
     use_cloud: z.boolean(),
     cloud_first: z.array(job).max(JOBS.length),

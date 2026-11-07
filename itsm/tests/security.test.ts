@@ -96,12 +96,12 @@ describe("desktop installation administration", () => {
     const seller = new Client(s.app);
     await seller.post("/auth/login", { email: "seller@example.com", password: "seller-pass-1" });
     await seller.get("/local/backups", 403);
-    await seller.post("/orgs", { name: "کسب‌وکار دوم", business_kind: "trading", modules: ["goods"], base_currency: "IRR", fiscal_year: 1405 }, 403);
+    await seller.post("/orgs", { name: "سازمان دوم", business_kind: "trading", modules: ["goods"], base_currency: "IRR", fiscal_year: 1405 }, 403);
     await seller.get("/local/backups", 403);
     await seller.post("/local/backups/restore", { file: "x" }, 403);
     expect(calls).toEqual([]);
     // the installation's administrator still creates businesses
-    await owner.post("/orgs", { name: "کسب‌وکار سوم", business_kind: "trading", modules: ["goods"], base_currency: "IRR", fiscal_year: 1405 });
+    await owner.post("/orgs", { name: "سازمان سوم", business_kind: "trading", modules: ["goods"], base_currency: "IRR", fiscal_year: 1405 });
   });
 });
 

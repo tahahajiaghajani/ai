@@ -279,7 +279,7 @@ async function openAi(page, state) {
   await page.locator('.sa-panel[data-open="true"]').waitFor({ timeout: 15000 });
   if (state.startsWith("live")) {
     const box = page.locator(".sa-comp-in");
-    await box.fill(state === "live" ? "خلاصهٔ امروز کسب‌وکار را با عددها بگو" : LIVE_TOOLS_PROMPT);
+    await box.fill(state === "live" ? "خلاصهٔ امروز سازمان را با عددها بگو" : LIVE_TOOLS_PROMPT);
     await box.press("Enter");
     await page.locator(".sa-msg-a").last().waitFor({ timeout: 15000 });
     await page.waitForFunction(() => !document.querySelector(".sa-msg-a.is-live"), null, { timeout: 60000 });

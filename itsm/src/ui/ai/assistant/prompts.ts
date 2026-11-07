@@ -18,7 +18,7 @@ export interface Suggestion {
 const S = (key: string, icon: PromptIcon, text: string, extra: Partial<Suggestion> = {}): Suggestion => ({ key, icon, text, ...extra });
 
 const GENERAL: Suggestion[] = [
-  S("brief", "summary", "خلاصهٔ امروز کسب‌وکار را با عددها بگو"),
+  S("brief", "summary", "خلاصهٔ امروز سازمان را با عددها بگو"),
   S("sales-month", "chart", "فروش این ماه را با ماه پیش مقایسه کن"),
   S("cheques-week", "cheque", "چک‌های سررسید این هفته کدام‌اند؟"),
   S("debtors", "people", "کدام مشتری‌ها بیشترین بدهی سررسیدگذشته را دارند؟"),
@@ -72,7 +72,7 @@ const BY_PAGE: [prefix: string, list: Suggestion[]][] = [
     "gold",
     [
       S("gd-bubble", "gold", "حباب سکهٔ امامی امروز چقدر است؟", { module: "gold" }),
-      S("gd-position", "gold", "موقعیت طلای کسب‌وکار را به گرم ۷۵۰ بگو", { module: "gold" }),
+      S("gd-position", "gold", "موقعیت طلای سازمان را به گرم ۷۵۰ بگو", { module: "gold" }),
       S("gd-sales", "chart", "فروش طلای این ماه را به تفکیک نوع نشان بده", { module: "gold" }),
       S("gd-quote", "gold", "قیمت فروش یک سکهٔ تمام بهار آزادی را حساب کن", { module: "gold" }),
     ],
@@ -167,7 +167,7 @@ export interface QuickPrompt {
 }
 
 export const QUICK_PROMPTS: QuickPrompt[] = [
-  { key: "q-brief", name: "خلاصهٔ امروز", text: "خلاصهٔ امروز کسب‌وکار را با عددها بگو: فروش، دریافت و پرداخت، چک‌ها و هشدارها." },
+  { key: "q-brief", name: "خلاصهٔ امروز", text: "خلاصهٔ امروز سازمان را با عددها بگو: فروش، دریافت و پرداخت، چک‌ها و هشدارها." },
   { key: "q-sales", name: "فروش ماه", text: "فروش این ماه را با ماه پیش مقایسه کن و نمودارش را نشان بده." },
   { key: "q-cheques", name: "چک‌های هفته", text: "چک‌های دریافتی و پرداختی سررسید این هفته را با جمع هر طرف فهرست کن." },
   { key: "q-debtors", name: "بدهکاران", text: "بدهکاران سررسیدگذشته را به ترتیب مبلغ فهرست کن و احتمال وصول هر کدام را بگو." },
@@ -175,7 +175,7 @@ export const QUICK_PROMPTS: QuickPrompt[] = [
   { key: "q-anomalies", name: "ناهنجاری‌ها", text: "ناهنجاری‌های اسناد این ماه را پیدا کن و هر کدام را توضیح بده." },
   { key: "q-reorder", name: "سفارش دوباره", text: "کالاهایی را که باید دوباره سفارش داد با مقدار پیشنهادی فهرست کن.", module: "goods" },
   { key: "q-bubble", name: "حباب سکه", text: "حباب سکه‌ها را نسبت به میانگین ۳۰ روز گذشته نشان بده.", module: "gold" },
-  { key: "q-gold", name: "موقعیت طلا", text: "موقعیت طلای کسب‌وکار را به گرم خالص و ۷۵۰ معادل با ارزش امروز بگو.", module: "gold" },
+  { key: "q-gold", name: "موقعیت طلا", text: "موقعیت طلای سازمان را به گرم خالص و ۷۵۰ معادل با ارزش امروز بگو.", module: "gold" },
   { key: "q-fx", name: "موقعیت ارزی", text: "موقعیت باز ارزی و سود و زیان امروز را به تفکیک ارز بگو.", module: "fx" },
 ];
 

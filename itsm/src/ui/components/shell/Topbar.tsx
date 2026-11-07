@@ -199,7 +199,7 @@ function Account() {
     },
     { type: "divider" as const },
     { key: "profile", icon: <Ic icon={KeyRound} />, label: "حساب کاربری و رمز", onClick: () => nav(`/${orgId}/settings/account`) },
-    { key: "orgs", icon: <Ic icon={Building2} />, label: "کسب‌وکارها", onClick: () => nav("/orgs") },
+    { key: "orgs", icon: <Ic icon={Building2} />, label: "سازمان‌ها", onClick: () => nav("/orgs") },
     { key: "help", icon: <Ic icon={CircleHelp} />, label: "راهنما و میانبرها", onClick: () => nav(`/${orgId}/help`) },
     ...(me?.user.is_platform_admin ? [{ key: "admin", icon: <Ic icon={ShieldCheck} />, label: "مدیریت سامانه", onClick: () => nav("/admin") }] : []),
     { type: "divider" as const },

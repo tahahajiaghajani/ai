@@ -8,7 +8,7 @@ import { ICON, ThemeToggle } from "../kit";
 
 // the first two sentences of the Persian story (brief §2), for the brand panel
 const STORY =
-  "هزار سال پیش، سیراف در کرانهٔ خلیج فارس بندرِ پررونقِ داد و ستد با چین و هند و آفریقا بود. سیرافِ امروز همان بندر است برای کسب‌وکار شما: کالا، طلا، نقد و چک، حواله و رمزارز به یک‌جا می‌رسند و در یک دفتر می‌نشینند.";
+  "هزار سال پیش، سیراف در کرانهٔ خلیج فارس بندرِ پررونقِ داد و ستد با چین و هند و آفریقا بود. سیرافِ امروز همان بندر است برای سازمان شما: کالا، طلا، نقد و چک، حواله و رمزارز به یک‌جا می‌رسند و در یک دفتر می‌نشینند.";
 
 export interface AuthSteps {
   labels: string[];
@@ -117,7 +117,7 @@ export function AuthLayout({
           <p className="ds-en">{APP_TAGLINE_EN}</p>
           {steps ? null : <p className="ds-story">{STORY}</p>}
           <div className="ds-bfoot">
-            <span>حسابداری و مدیریت کسب‌وکار</span>
+            <span>حسابداری و مدیریت سازمان</span>
             <span className="ds-nuqta" />
             <span>وب و ویندوز</span>
             <span className="ds-nuqta" />

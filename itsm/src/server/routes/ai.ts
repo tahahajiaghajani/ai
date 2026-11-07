@@ -354,7 +354,7 @@ aiRoutes.get("/usage", async (c) => {
 aiRoutes.post("/relay", async (c) => {
   const ctx = c.get("ctx");
   if (ctx.cfg.mode !== "cloud") throw notFound("این مسیر فقط در نسخهٔ وب است");
-  if (c.get("session")?.kind !== "device") throw forbidden("فقط نسخهٔ ویندوز متصل به این کسب‌وکار می‌تواند از این مسیر استفاده کند");
+  if (c.get("session")?.kind !== "device") throw forbidden("فقط نسخهٔ ویندوز متصل به این سازمان می‌تواند از این مسیر استفاده کند");
   ctx.need("ai", "view");
   // the business's switches (assistant, each feature, document reading) and its data policy bind the Windows app too
   const relayed = await body(c, relayRequestSchema);

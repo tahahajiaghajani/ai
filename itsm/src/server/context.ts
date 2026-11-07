@@ -63,7 +63,7 @@ export interface ServerConfig {
   publicUrl?: string;
   desktop?: DesktopBridge;
   log: Logger;
-  /** fetch used for live prices and blockchain lookups (lets tests stub it) */
+  /** fetch used for every outbound call (AI providers, integrations; lets tests stub it) */
   fetch: typeof fetch;
 }
 
@@ -85,23 +85,8 @@ export interface AuthSession {
 }
 
 export interface OrgSettings {
-  vat_pct?: string;
-  money_unit?: string;
+  /** IANA time zone of the organisation (dates of "today", reports, the assistant's calendar) */
   timezone?: string;
-  costing?: "average" | "fifo";
-  allow_negative_stock?: boolean;
-  gold?: {
-    profit_pct?: string;
-    tax_pct?: string;
-    round_step?: string;
-    old_deduction_pct?: string;
-    price_source?: string;
-  };
-  fx?: {
-    providers?: string[];
-    margin_pct?: string;
-    refresh_seconds?: number;
-  };
   print?: Record<string, unknown>;
   [k: string]: unknown;
 }
@@ -110,12 +95,13 @@ export interface OrgRow {
   id: string;
   name: string;
   legal_name: string | null;
-  business_kind: string;
   modules: ModuleKey[];
-  base_currency: string;
-  money_decimals: number;
-  economic_code: string | null;
-  national_id: string | null;
+  phone: string | null;
+  email: string | null;
+  website: string | null;
+  city: string | null;
+  address: string | null;
+  logo: string | null;
   settings: OrgSettings;
   [k: string]: unknown;
 }
@@ -129,7 +115,7 @@ export interface MemberRow {
   is_active: boolean;
 }
 
-/** «حالت پشتیبانی»: the platform admin's time-limited access to a business he is not a member of. */
+/** «حالت پشتیبانی»: the platform admin's time-limited access to an organisation he is not a member of. */
 export type SupportLevel = "view" | "edit";
 export interface SupportSession {
   id: string;
@@ -139,7 +125,7 @@ export interface SupportSession {
   expires_at: string;
 }
 
-/** Platform status of a business (sm_org_admin): read_only refuses writes, suspended closes it to its members. */
+/** Platform status of an organisation (sm_org_admin): read_only refuses writes, suspended closes it to its members. */
 export type OrgStatus = "active" | "read_only" | "suspended";
 export interface OrgPlatformStatus {
   status: OrgStatus;
@@ -148,8 +134,8 @@ export interface OrgPlatformStatus {
 
 export interface WriteOptions {
   /**
-   * Bookkeeping that is not business data (conversation history, caches, usage counters): allowed
-   * while the business is read-only and inside a view-only support session, and not listed as a
+   * Bookkeeping that is not the organisation's data (conversation history, caches, usage counters): allowed
+   * while the organisation is read-only and inside a view-only support session, and not listed as a
    * support change in the audit log.
    */
   internal?: boolean;
@@ -165,14 +151,14 @@ export interface Ctx {
   actor?: "user" | "support";
   /** the active support session when `actor` is "support" */
   support?: SupportSession | null;
-  /** the business's platform status (loaded for /o/:org requests) */
+  /** the organisation's platform status (loaded for /o/:org requests) */
   status?: OrgPlatformStatus | null;
   can(area: Area, level: Level): boolean;
   need(area: Area, level: Level): void;
   /**
    * Run `fn` in a write transaction holding the organisation's write lock. Refused while the
-   * business is read-only or suspended (unless `internal`); inside a support session every change
-   * is tagged and listed in the business's audit log.
+   * organisation is read-only or suspended (unless `internal`); inside a support session every change
+   * is tagged and listed in the organisation's audit log.
    */
   write<T>(fn: (tx: Tx) => Promise<T>, opts?: WriteOptions): Promise<T>;
   hasModule(m: ModuleKey): boolean;
@@ -187,12 +173,12 @@ export async function lockOrg(tx: Tx, orgId: string): Promise<void> {
   );
 }
 
-export const NOT_MEMBER_MESSAGE = "شما عضو این کسب‌وکار نیستید؛ برای کار در آن، از «مدیریت سامانه» حالت پشتیبانی را آغاز کنید";
+export const NOT_MEMBER_MESSAGE = "شما عضو این سازمان نیستید؛ برای کار در آن، از «مدیریت سامانه» حالت پشتیبانی را آغاز کنید";
 export const SUPPORT_VIEW_ONLY_MESSAGE = "حالت پشتیبانی شما فقط برای مشاهده است؛ برای اصلاح، حالت پشتیبانی «مشاهده و اصلاح» را آغاز کنید";
 
 /**
  * The level a support session grants in an area. «مشاهده» sees every area (the assistant stays off:
- * it would spend the business's AI budget); «مشاهده و اصلاح» works like the business's manager,
+ * it would spend the organisation's AI budget); «مشاهده و اصلاح» works like the organisation's manager,
  * except for what would outlive the session: members are never changed, API keys and webhooks are
  * only seen (a key or a webhook secret he chose would keep working after the session ends) and the
  * assistant may draft but AI connections and keys stay with the members (a connection to his own
@@ -213,7 +199,7 @@ export function supportPermissions(level: SupportLevel): Record<Area, Level> {
   return out;
 }
 
-/** A placeholder membership (no id): a platform admin who is not a member of the business. */
+/** A placeholder membership (no id): a platform admin who is not a member of the organisation. */
 export const isOutsider = (member: MemberRow) => !member.id;
 
 export interface CtxOptions {

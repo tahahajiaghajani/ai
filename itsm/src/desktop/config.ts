@@ -17,7 +17,6 @@ export interface LocalConfig {
     email: string | null;
     linked_at: string | null;
     auto_sync: boolean;
-    prices_via_cloud: boolean;
   };
   client: { server_url: string | null };
   created_at: string;
@@ -30,7 +29,7 @@ export function defaultConfig(): LocalConfig {
     port: 3939,
     lan: { enabled: false, port: 3939 },
     backups: { dir: null, auto: true, keep: 30, every_hours: 6 },
-    cloud: { url: null, token: null, org_id: null, email: null, linked_at: null, auto_sync: true, prices_via_cloud: false },
+    cloud: { url: null, token: null, org_id: null, email: null, linked_at: null, auto_sync: true },
     client: { server_url: null },
     created_at: new Date().toISOString(),
   };

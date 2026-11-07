@@ -32,7 +32,7 @@ export const EVENT_KIND: Record<string, string> = {
   user_enabled: "فعال شدن حساب",
   support_start: "آغاز حالت پشتیبانی",
   support_end: "پایان حالت پشتیبانی",
-  org_status: "وضعیت کسب‌وکار",
+  org_status: "وضعیت سازمان",
   ai_key: "کلید هوش مصنوعی",
   price_key: "کلید منبع قیمت",
 };

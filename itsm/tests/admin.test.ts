@@ -55,6 +55,6 @@ describe("memberChangeRule (members page and API)", () => {
     expect(offered).toEqual(["viewer"]);
     expect(memberChangeRule(delegate, g("p", "viewer"), g("p", "viewer", { users: "edit" }))).toBeNull();
     expect(memberChangeRule(delegate, g("p", "viewer"), g("p", "viewer", { users: "full" }))).toMatch(/بیشتر از دسترسی خودتان/);
-    expect(memberChangeRule({ ...actorOf("owner"), support: true }, g("p", "viewer"), g("p", "sales"))).toMatch(/خود کسب‌وکار/);
+    expect(memberChangeRule({ ...actorOf("owner"), support: true }, g("p", "viewer"), g("p", "sales"))).toMatch(/خود سازمان/);
   });
 });

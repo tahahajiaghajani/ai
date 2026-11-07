@@ -1,4 +1,4 @@
-// Business settings (اطلاعات و تنظیمات کسب‌وکار): identity and contact, tax and calculation defaults per module, and
+// Business settings (اطلاعات و تنظیمات سازمان): identity and contact, tax and calculation defaults per module, and
 // the modules themselves. Each tab is one card of titled sections with a sticky save bar.
 import { useState, type ReactNode } from "react";
 import { Button, Form, Input, Select, Switch, Tabs, Checkbox } from "antd";
@@ -54,7 +54,7 @@ export default function OrgSettings() {
 
   return (
     <div>
-      <PageHeader title="کسب‌وکار" subtitle={org.name} />
+      <PageHeader title="سازمان" subtitle={org.name} />
       <Tabs
         activeKey={tab}
         onChange={setTab}
@@ -88,7 +88,7 @@ export default function OrgSettings() {
                 <Form.Item name="address" label="نشانی" className="is-wide"><Input.TextArea autoSize={{ minRows: 2 }} /></Form.Item>
               </div>
             </Sec>
-            <Sec title="لوگو" desc="روی فاکتورها و چاپ‌ها، کنار نام کسب‌وکار.">
+            <Sec title="لوگو" desc="روی فاکتورها و چاپ‌ها، کنار نام سازمان.">
               <Form.Item name="logo"><ImageInput /></Form.Item>
             </Sec>
           </div>

@@ -118,9 +118,9 @@ function OrgArea() {
     return (
       <Result
         status="warning"
-        title="دسترسی به این کسب‌وکار ممکن نیست"
+        title="دسترسی به این سازمان ممکن نیست"
         subTitle={q.error ? errorText(q.error) : undefined}
-        extra={<Button href="/orgs">فهرست کسب‌وکارها</Button>}
+        extra={<Button href="/orgs">فهرست سازمان‌ها</Button>}
       />
     );
   return (

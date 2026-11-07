@@ -234,7 +234,7 @@ function ErrorNote({ m, env }: { m: UiMessage; env: MessageEnv }) {
           تنظیمات هوش مصنوعی
         </button>
       );
-    else extra = <div className="sa-note-x">{kind === "not_configured" ? "از مدیر کسب‌وکار بخواهید هوش مصنوعی را راه‌اندازی کند." : "موضوع را با مدیر کسب‌وکار در میان بگذارید."}</div>;
+    else extra = <div className="sa-note-x">{kind === "not_configured" ? "از مدیر سازمان بخواهید هوش مصنوعی را راه‌اندازی کند." : "موضوع را با مدیر سازمان در میان بگذارید."}</div>;
   } else if (!NO_RETRY.has(kind))
     action = (
       <button type="button" className="sa-mini" onClick={env.retry}>

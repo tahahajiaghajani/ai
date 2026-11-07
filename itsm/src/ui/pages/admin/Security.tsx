@@ -54,7 +54,7 @@ function Events() {
   return (
     <div className="bk-card">
       <div className="ad-filters">
-        <Input allowClear prefix={<Search {...ICON} className="text-ink-3" />} placeholder="ایمیل، نام، کسب‌وکار یا IP" value={q} onChange={(e) => setQ(e.target.value)} aria-label="جست‌وجو" />
+        <Input allowClear prefix={<Search {...ICON} className="text-ink-3" />} placeholder="ایمیل، نام، سازمان یا IP" value={q} onChange={(e) => setQ(e.target.value)} aria-label="جست‌وجو" />
         <Select
           value={kind}
           onChange={(v) => set("kind", v)}
@@ -80,7 +80,7 @@ function Events() {
               setParams(next, { replace: true });
             }}
           >
-            نمایش همهٔ حساب‌ها و کسب‌وکارها
+            نمایش همهٔ حساب‌ها و سازمان‌ها
           </Button>
         ) : null}
       </div>
@@ -131,7 +131,7 @@ function Events() {
                 },
                 {
                   key: "o",
-                  title: "کسب‌وکار",
+                  title: "سازمان",
                   width: 160,
                   ellipsis: true,
                   render: (_: unknown, e: SecurityEvent) => (e.org_id ? <Link to={`/admin/orgs/${e.org_id}`} className="ds-link">{e.org_name}</Link> : <span className="text-ink-3">—</span>),
@@ -175,7 +175,7 @@ function AdminAudit() {
   return (
     <div className="bk-card">
       <div className="ad-filters">
-        <Input allowClear prefix={<Search {...ICON} className="text-ink-3" />} placeholder="شرح، مدیر یا کسب‌وکار" value={q} onChange={(e) => setQ(e.target.value)} aria-label="جست‌وجو" />
+        <Input allowClear prefix={<Search {...ICON} className="text-ink-3" />} placeholder="شرح، مدیر یا سازمان" value={q} onChange={(e) => setQ(e.target.value)} aria-label="جست‌وجو" />
         <Segmented
           value={actor}
           onChange={(v) => setActor(String(v))}

@@ -241,13 +241,13 @@ function LinkModal({ open, onClose, currentOrg }: { open: boolean; onClose: () =
             value={direction}
             onChange={setDirection}
             options={[
-              { value: "upload", label: "بارگذاری کسب‌وکار همین رایانه در فضای ابری (کسب‌وکار در وب ساخته می‌شود)" },
-              { value: "download", label: "دریافت کسب‌وکاری که در وب دارم روی این رایانه" },
+              { value: "upload", label: "بارگذاری سازمان همین رایانه در فضای ابری (سازمان در وب ساخته می‌شود)" },
+              { value: "download", label: "دریافت سازمانی که در وب دارم روی این رایانه" },
             ]}
           />
         </Form.Item>
         {direction === "download" && orgs ? (
-          <Form.Item label="کسب‌وکار ابری">
+          <Form.Item label="سازمان ابری">
             <Select value={target} onChange={setTarget} options={orgs.map((o) => ({ value: o.id, label: o.name }))} />
           </Form.Item>
         ) : null}
@@ -275,7 +275,7 @@ function LinkModal({ open, onClose, currentOrg }: { open: boolean; onClose: () =
             }
           }}
         >
-          {direction === "download" && !orgs ? "ورود و دیدن کسب‌وکارها" : "اتصال و همگام‌سازی"}
+          {direction === "download" && !orgs ? "ورود و دیدن سازمان‌ها" : "اتصال و همگام‌سازی"}
         </Button>
       </Form>
     </Modal>

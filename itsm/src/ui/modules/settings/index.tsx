@@ -16,7 +16,7 @@ export const settingsNav: Omit<NavGroup, "icon" | "space"> = {
   key: "settings",
   label: "تنظیمات",
   items: [
-    { key: "org-settings", label: "کسب‌وکار", path: "settings/org", area: "settings", icon: Building2, keywords: "اطلاعات و تنظیمات کسب‌وکار مالیات ارزش افزوده لوگو ماژول" },
+    { key: "org-settings", label: "سازمان", path: "settings/org", area: "settings", icon: Building2, keywords: "اطلاعات و تنظیمات سازمان مالیات ارزش افزوده لوگو ماژول" },
     { key: "members", label: "کاربران و دسترسی‌ها", path: "settings/users", area: "users", icon: UserCog },
     { key: "ai", label: "هوش مصنوعی", path: "settings/ai", area: "ai", level: "full", icon: AiIcon, keywords: "دستیار کلید API مدل Claude Gemini OpenAI هوش مصنوعی مصرف بودجه" },
     { key: "integrations", label: "اتصال‌ها و API", path: "settings/integrations", area: "integrations", icon: Plug, keywords: "اتصال به فروشگاه اینترنتی ووکامرس شاپیفای وبهوک سایت" },

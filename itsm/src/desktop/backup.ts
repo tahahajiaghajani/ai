@@ -18,15 +18,15 @@ function stamp(d = new Date()) {
 export async function backupNow(pg: PGlite, dir: string, label = "auto"): Promise<{ file: string; size: number }> {
   const blob = await pg.dumpDataDir("gzip");
   const buf = Buffer.from(await blob.arrayBuffer());
-  const file = join(dir, `siraf-${label}-${stamp()}.tar.gz`);
+  const file = join(dir, `itsm-${label}-${stamp()}.tar.gz`);
   writeFileSync(`${file}.part`, buf);
   renameSync(`${file}.part`, file);
   return { file, size: buf.length };
 }
 
-/** Backups are named `siraf-<label>-<stamp>.tar.gz`; copies made under the old name «تراز» (`taraz-…`) stay listed. */
-const BACKUP_FILE = /^(siraf|taraz)-.*\.tar\.gz$/;
-const AUTO_FILE = /^(siraf|taraz)-auto-/;
+/** Backups are named `itsm-<label>-<stamp>.tar.gz` (label: auto, manual, before-restore). */
+const BACKUP_FILE = /^itsm-.*\.tar\.gz$/;
+const AUTO_FILE = /^itsm-auto-/;
 
 export function listBackups(dir: string) {
   if (!existsSync(dir)) return [];

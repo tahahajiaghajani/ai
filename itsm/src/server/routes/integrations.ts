@@ -20,12 +20,12 @@ import { orgStatus, statusError } from "../modules/platform/org-admin";
 /** Act on behalf of the organisation's owner (webhooks and API keys have no signed-in user). */
 async function ownerCtx(cfg: ServerConfig, orgId: string): Promise<Ctx> {
   const org = await cfg.db.one<OrgRow>(`select * from sm_orgs where id = $1 and deleted_at is null`, [orgId]);
-  if (!org) throw notFound("کسب‌وکار پیدا نشد");
+  if (!org) throw notFound("سازمان پیدا نشد");
   const member = await cfg.db.one<MemberRow>(
     `select id, org_id, user_id, role, overrides, is_active from sm_org_members where org_id = $1 and role = 'owner' and is_active and deleted_at is null order by created_at limit 1`,
     [orgId],
   );
-  if (!member) throw forbidden("مالک کسب‌وکار پیدا نشد");
+  if (!member) throw forbidden("مالک سازمان پیدا نشد");
   const user = await cfg.db.one<AuthUser>(`select id, email, full_name, mobile, is_platform_admin, disabled, prefs from sm_users where id = $1`, [member.user_id]);
   // a suspended business is closed to keys and shops as to its members (read-only refuses writes in ctx.write)
   const status = await orgStatus(cfg.db, orgId);

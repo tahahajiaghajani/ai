@@ -224,7 +224,7 @@ function UserSheet({ id, onClose }: { id: string; onClose: () => void }) {
                 icon={<ShieldCheck {...ICON14} />}
                 disabled={u.disabled}
                 onClick={async () => {
-                  if (await n.confirm(`${u.full_name} مدیر سامانه شود؟`, "به همهٔ کاربران، کسب‌وکارها و حالت پشتیبانی دسترسی پیدا می‌کند."))
+                  if (await n.confirm(`${u.full_name} مدیر سامانه شود؟`, "به همهٔ کاربران، سازمان‌ها و حالت پشتیبانی دسترسی پیدا می‌کند."))
                     await run(() => api.post(`/admin/users/${id}/platform-admin`, { granted: true }), "دسترسی مدیر سامانه داده شد.");
                 }}
               >
@@ -233,7 +233,7 @@ function UserSheet({ id, onClose }: { id: string; onClose: () => void }) {
             )}
           </div>
 
-          <Card title="کسب‌وکارها" flush>
+          <Card title="سازمان‌ها" flush>
             {d.memberships.length ? (
               <ul className="ad-list">
                 {d.memberships.map((m) => (
@@ -253,7 +253,7 @@ function UserSheet({ id, onClose }: { id: string; onClose: () => void }) {
                 ))}
               </ul>
             ) : (
-              <p className="m-0 px-5 py-4 text-[13px] text-ink-3">عضو کسب‌وکاری نیست.</p>
+              <p className="m-0 px-5 py-4 text-[13px] text-ink-3">عضو سازمانی نیست.</p>
             )}
           </Card>
 
@@ -380,7 +380,7 @@ export default function Users({ openId }: { openId: string | null }) {
                       </span>
                     ),
                   },
-                  { key: "o", dataIndex: "orgs", title: "کسب‌وکار", width: 90, className: "ds-num", render: (v) => fa(v) },
+                  { key: "o", dataIndex: "orgs", title: "سازمان", width: 90, className: "ds-num", render: (v) => fa(v) },
                   { key: "s", dataIndex: "sessions", title: "نشست باز", width: 90, className: "ds-num", render: (v) => fa(v) },
                   { key: "seen", dataIndex: "last_seen_at", title: "آخرین فعالیت", width: 140, render: (v) => <span className="text-ink-2">{ago(v)}</span> },
                   { key: "f", dataIndex: "failed_24h", title: "ورود ناموفق", width: 100, className: "ds-num", render: (v) => (v ? <span className="text-danger">{fa(v)}</span> : <span className="text-ink-3">—</span>) },

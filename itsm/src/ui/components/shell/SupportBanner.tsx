@@ -80,7 +80,7 @@ function SupportBand() {
         حالت پشتیبانی
       </span>
       <span className="text-ink-2">{support.level_title}</span>
-      {readOnly ? <span className="text-ink-2">· کسب‌وکار {info.status!.status === "suspended" ? "معلق" : "فقط‌خواندنی"} است</span> : null}
+      {readOnly ? <span className="text-ink-2">· سازمان {info.status!.status === "suspended" ? "معلق" : "فقط‌خواندنی"} است</span> : null}
       <Tooltip title={support.reason}>
         <span className="min-w-0 max-w-[36ch] truncate text-ink-3 max-sm:hidden">دلیل: {support.reason}</span>
       </Tooltip>
@@ -104,7 +104,7 @@ function StatusBand() {
     <div role="status" className="no-print flex min-h-10 flex-wrap items-center gap-x-3 gap-y-1 border-b border-line bg-neutral-tint px-4 py-1.5 text-[13px] leading-5 text-ink">
       <span className="inline-flex items-center gap-2 font-semibold">
         <Lock {...ICON} aria-hidden />
-        {s.status === "suspended" ? "این کسب‌وکار معلق است" : "این کسب‌وکار فقط‌خواندنی است"}
+        {s.status === "suspended" ? "این سازمان معلق است" : "این سازمان فقط‌خواندنی است"}
       </span>
       <span className="text-ink-2">{s.reason ? `دلیل: ${s.reason}` : "تغییر تازه ثبت نمی‌شود؛ برای پیگیری با پشتیبانی تماس بگیرید."}</span>
     </div>

@@ -258,8 +258,8 @@ describe("synchronisation edge cases", () => {
 
   it("a second business kept only on the desktop does not leak into the linked one", async () => {
     const p = await linkedPair("two-orgs-owner@example.com");
-    const other = (await p.local.post<{ id: string }>("/orgs", { name: "کسب‌وکار دوم محلی", business_kind: "trading", modules: ["goods"], base_currency: "IRR", fiscal_year: 1405 })).id;
-    const party = (await p.local.post(`/o/${other}/data/party`, { name: "مشتری کسب‌وکار دوم" })).row;
+    const other = (await p.local.post<{ id: string }>("/orgs", { name: "سازمان دوم محلی", business_kind: "trading", modules: ["goods"], base_currency: "IRR", fiscal_year: 1405 })).id;
+    const party = (await p.local.post(`/o/${other}/data/party`, { name: "مشتری سازمان دوم" })).row;
     await p.client.syncNow();
     const leaked = await p.cloudDb.one<{ n: number }>(`select count(*)::int as n from sm_parties where id = $1`, [party.id]);
     expect(leaked!.n).toBe(0);
@@ -278,7 +278,7 @@ describe("synchronisation edge cases", () => {
     const row = await p.cloudDb.one<Record<string, unknown>>(`select * from sm_parties where id = $1`, [model.id]);
     const res = await p.web.post(`/sync/push`, {
       org_id: p.org, device_id: uuidv7(), protocol: SYNC_PROTOCOL,
-      aggregates: [{ entity: "party", id, base_rev: 0, row: { ...row, id, org_id: uuidv7(), name: "از کسب‌وکار دیگر", code: "5001", updated_at: new Date().toISOString() }, children: {} }],
+      aggregates: [{ entity: "party", id, base_rev: 0, row: { ...row, id, org_id: uuidv7(), name: "از سازمان دیگر", code: "5001", updated_at: new Date().toISOString() }, children: {} }],
     });
     expect(res.results[0]).toMatchObject({ status: "error" });
     expect(await p.cloudDb.one(`select 1 from sm_parties where id = $1`, [id])).toBeNull();
@@ -325,7 +325,7 @@ describe("synchronisation edge cases", () => {
     const p = await pair("upload-owner@example.com");
     // the business was made on the Windows app alone, by a local account with the same e-mail
     await p.local.post("/auth/signup", { email: "upload-owner@example.com", password: PASSWORD, full_name: "مالک محلی" });
-    const org = (await p.local.post<{ id: string }>("/orgs", { name: "کسب‌وکار ویندوزی", business_kind: "trading", modules: ["goods"], base_currency: "IRR", fiscal_year: 1405 })).id;
+    const org = (await p.local.post<{ id: string }>("/orgs", { name: "سازمان ویندوزی", business_kind: "trading", modules: ["goods"], base_currency: "IRR", fiscal_year: 1405 })).id;
     await p.local.post(`/o/${org}/data/party`, { name: "مشتری ویندوزی" });
     await p.client.link({ url: p.url, email: "upload-owner@example.com", password: PASSWORD, orgId: org, direction: "upload" });
     expect(p.client.state.last_error).toBeNull();

@@ -465,7 +465,7 @@ export default function Panel({ open, onClose, pending }: { open: boolean; onClo
     );
   } else if (off_) {
     body = (
-      <Hello icon={Power} tone="quiet" title="دستیار خاموش است" text={s.message_fa ?? (canManage ? "دستیار را در تنظیمات هوش مصنوعی روشن کنید." : "از مدیر کسب‌وکار بخواهید دستیار را روشن کند.")}>
+      <Hello icon={Power} tone="quiet" title="دستیار خاموش است" text={s.message_fa ?? (canManage ? "دستیار را در تنظیمات هوش مصنوعی روشن کنید." : "از مدیر سازمان بخواهید دستیار را روشن کند.")}>
         {canManage && s.kind !== "disabled" ? settingsButton("تنظیمات هوش مصنوعی") : null}
       </Hello>
     );
@@ -474,7 +474,7 @@ export default function Panel({ open, onClose, pending }: { open: boolean; onClo
       <Hello
         icon={KeyRound}
         title="هوش مصنوعی هنوز راه‌اندازی نشده است"
-        text={canManage ? "کلید یکی از سرویس‌های هوش مصنوعی را در تنظیمات وارد کنید تا دستیار با داده‌های همین کسب‌وکار پاسخ دهد." : "از مدیر کسب‌وکار بخواهید هوش مصنوعی را راه‌اندازی کند."}
+        text={canManage ? "کلید یکی از سرویس‌های هوش مصنوعی را در تنظیمات وارد کنید تا دستیار با داده‌های همین سازمان پاسخ دهد." : "از مدیر سازمان بخواهید هوش مصنوعی را راه‌اندازی کند."}
       >
         {canManage ? settingsButton("راه‌اندازی هوش مصنوعی") : null}
       </Hello>
@@ -495,7 +495,7 @@ export default function Panel({ open, onClose, pending }: { open: boolean; onClo
     );
   } else if (!snap.messages.length) {
     body = (
-      <Hello icon={AiIcon} title="از داده‌های کسب‌وکار بپرسید" text="پاسخ‌ها از دفترهای همین کسب‌وکار ساخته می‌شود و هر ثبتی پیش از انجام، تأیید شما را می‌خواهد.">
+      <Hello icon={AiIcon} title="از داده‌های سازمان بپرسید" text="پاسخ‌ها از دفترهای همین سازمان ساخته می‌شود و هر ثبتی پیش از انجام، تأیید شما را می‌خواهد.">
         <Suggestions list={suggestions} onPick={pickSuggestion} />
       </Hello>
     );

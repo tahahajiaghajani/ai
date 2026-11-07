@@ -13,7 +13,7 @@ import { businessToday, fiscalYears, moneyInfo, orgTimezone } from "./common";
 
 export const getBusinessContext = defineTool({
   name: "get_business_context",
-  title_fa: "شناخت کسب‌وکار",
+  title_fa: "شناخت سازمان",
   description:
     "Returns the business profile: name, kind, switched-on modules (goods = trading/inventory, gold = jewellery/coins/bars, fx = currency exchange), the base currency and its Persian unit (every amount other tools return is in it unless stated), money decimals, VAT percent, today's date (Gregorian ISO and Jalali, in the business's time zone), fiscal years with their status, and the caller's role and access level per area. Call it first when the question depends on any of these.",
   input: z.object({}),

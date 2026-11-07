@@ -1,5 +1,5 @@
 // Security events (sm_security_events): sign-ins (failed ones too), password changes and resets,
-// member and role changes, platform-admin grants, support sessions, business status, AI key changes.
+// member and role changes, platform-admin grants, support sessions, organisation status, AI and API key changes.
 // Other streams record their own events with `securityEvent(db, e)`. It never throws: a lost log line
 // must not fail the request. Passwords, keys, tokens and session ids are never recorded.
 import type { Context } from "hono";
@@ -12,7 +12,7 @@ export type SecurityEventKind =
   | "sign_in" // ok false: data.reason = unknown_account | wrong_password | disabled | rate_limited
   | "sign_up"
   | "password_change" // by the account itself (ok false: wrong current password)
-  | "password_reset" // by a business manager or the platform admin (data.scope = org | platform, data.reason)
+  | "password_reset" // by an organisation's manager or the platform admin (data.scope = org | platform, data.reason)
   | "password_recover" // with the recovery code (ok false: wrong code)
   | "sessions_revoked" // «خروج از همهٔ دستگاه‌ها»
   | "member_added"
@@ -23,8 +23,9 @@ export type SecurityEventKind =
   | "support_start"
   | "support_end"
   | "org_status"
-  | "ai_key" // AI connection key added, replaced or removed (stream B)
-  | "price_key" // key of a custom price source added, replaced or removed (data.board, data.origin, data.runtime)
+  | "ai_key" // AI connection key added, replaced or removed
+  | "api_key" // an API key created or revoked (data.name, data.prefix)
+  | "webhook" // an inbound webhook created, its secret replaced, or removed
   | (string & {});
 
 export interface SecurityEventInput {

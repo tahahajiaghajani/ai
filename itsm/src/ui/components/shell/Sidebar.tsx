@@ -95,7 +95,7 @@ function BizSwitcher({ rail, onNavigate }: { rail?: boolean; onNavigate?: () => 
     {
       key: "orgs",
       type: "group",
-      label: "کسب‌وکارها",
+      label: "سازمان‌ها",
       children: (me?.orgs ?? []).map((o) => ({
         key: o.id,
         label: (
@@ -117,13 +117,13 @@ function BizSwitcher({ rail, onNavigate }: { rail?: boolean; onNavigate?: () => 
     {
       key: "all",
       icon: <Ic icon={Building2} />,
-      label: "همهٔ کسب‌وکارها",
+      label: "همهٔ سازمان‌ها",
       onClick: () => (onNavigate?.(), nav("/orgs")),
     },
     {
       key: "new",
       icon: <Ic icon={Plus} />,
-      label: "کسب‌وکار تازه",
+      label: "سازمان تازه",
       onClick: () => (onNavigate?.(), nav("/orgs/new")),
     },
   ];
@@ -132,12 +132,12 @@ function BizSwitcher({ rail, onNavigate }: { rail?: boolean; onNavigate?: () => 
     <Dropdown trigger={["click"]} menu={{ items }} rootClassName="ds-glass sh-menu" placement={rail ? "bottomRight" : "bottom"}>
       {rail ? (
         <Tooltip title={org.name} placement="left">
-          <button type="button" className="sh-biz sh-biz-rail" aria-label={`کسب‌وکار: ${org.name}`}>
+          <button type="button" className="sh-biz sh-biz-rail" aria-label={`سازمان: ${org.name}`}>
             {tile}
           </button>
         </Tooltip>
       ) : (
-        <button type="button" className="sh-biz" aria-label={`کسب‌وکار: ${org.name}، تغییر کسب‌وکار`}>
+        <button type="button" className="sh-biz" aria-label={`سازمان: ${org.name}، تغییر سازمان`}>
           {tile}
           <span className="sh-biz-t">
             <span className="sh-biz-name">{org.name}</span>

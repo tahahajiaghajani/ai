@@ -294,7 +294,7 @@ export async function options(ctx: Ctx, key: string, q: string, filters: Record<
 export async function create(ctx: Ctx, key: string, data: Record<string, unknown>) {
   const d = def(key);
   ctx.need(d.area, "edit");
-  if (d.modules && !d.modules.some((m) => ctx.hasModule(m))) throw forbidden("این ماژول برای کسب‌وکار شما فعال نیست");
+  if (d.modules && !d.modules.some((m) => ctx.hasModule(m))) throw forbidden("این ماژول برای سازمان شما فعال نیست");
   return ctx.write((tx) => createIn(tx, ctx, key, data));
 }
 
@@ -487,7 +487,7 @@ const DRY_RUN = Symbol("dry-run");
 export async function importRows(ctx: Ctx, key: string, rows: Record<string, unknown>[], opts: { updateExisting?: boolean; dryRun?: boolean; offset?: number } = {}) {
   const d = def(key);
   ctx.need(d.area, "edit");
-  if (d.modules && !d.modules.some((m) => ctx.hasModule(m))) throw forbidden("این ماژول برای کسب‌وکار شما فعال نیست");
+  if (d.modules && !d.modules.some((m) => ctx.hasModule(m))) throw forbidden("این ماژول برای سازمان شما فعال نیست");
   const fields = importFields(d, ctx.org.modules);
   const results: ImportResult[] = [];
   const cache: RefCache = { map: new Map(), createdInRow: [] };

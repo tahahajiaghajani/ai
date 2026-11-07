@@ -64,15 +64,15 @@ adminRoutes.get("/orgs", async (c) => {
 
 adminRoutes.get("/orgs/:id", async (c) => {
   const id = c.req.param("id");
-  if (!isId(id)) throw notFound("کسب‌وکار پیدا نشد");
+  if (!isId(id)) throw notFound("سازمان پیدا نشد");
   const detail = await orgDetail(c.get("cfg"), id, c.get("user").id);
-  if (!detail) throw notFound("کسب‌وکار پیدا نشد");
+  if (!detail) throw notFound("سازمان پیدا نشد");
   return c.json(detail);
 });
 
 adminRoutes.patch("/orgs/:id", async (c) => {
   const id = c.req.param("id");
-  if (!isId(id)) throw notFound("کسب‌وکار پیدا نشد");
+  if (!isId(id)) throw notFound("سازمان پیدا نشد");
   const input = await body(
     c,
     z.object({
@@ -88,13 +88,13 @@ adminRoutes.patch("/orgs/:id", async (c) => {
 
 adminRoutes.get("/orgs/:id/support", async (c) => {
   const id = c.req.param("id");
-  if (!isId(id)) throw notFound("کسب‌وکار پیدا نشد");
+  if (!isId(id)) throw notFound("سازمان پیدا نشد");
   return c.json({ sessions: await listSupportSessions(c.get("cfg").db, { org_id: id, limit: 100 }) });
 });
 
 adminRoutes.post("/orgs/:id/support", async (c) => {
   const id = c.req.param("id");
-  if (!isId(id)) throw notFound("کسب‌وکار پیدا نشد");
+  if (!isId(id)) throw notFound("سازمان پیدا نشد");
   const input = await body(
     c,
     z.object({

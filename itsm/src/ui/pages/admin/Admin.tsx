@@ -1,5 +1,5 @@
 // «مدیریت سامانه» — the platform admin's console, in its own frame (no business is open here):
-// پیشخوان، کسب‌وکارها، کاربران، هوش مصنوعی، رویدادهای امنیتی، سلامت سامانه. Every section lives at
+// پیشخوان، سازمان‌ها، کاربران، هوش مصنوعی، رویدادهای امنیتی، سلامت سامانه. Every section lives at
 // /admin/<section>; a business opens at /admin/orgs/<id>, an account at /admin/users/<id>.
 import "./admin.css";
 import { lazy, Suspense, type ReactNode } from "react";
@@ -23,7 +23,7 @@ const Health = lazy(() => import("./Health"));
 
 const NAV = [
   { key: "", title: "پیشخوان", icon: Gauge },
-  { key: "orgs", title: "کسب‌وکارها", icon: Building2 },
+  { key: "orgs", title: "سازمان‌ها", icon: Building2 },
   { key: "users", title: "کاربران", icon: Users },
   { key: "ai", title: "هوش مصنوعی", icon: AiIcon },
   { key: "security", title: "رویدادهای امنیتی", icon: ShieldAlert },
@@ -72,7 +72,7 @@ function Frame({ children }: { children: ReactNode }) {
         <Nav support={support} />
         <div className="ad-side-foot">
           <Button type="text" icon={<ArrowRight {...ICON} />} className="!justify-start" onClick={() => nav("/orgs")}>
-            کسب‌وکارهای من
+            سازمان‌های من
           </Button>
           <div className="ad-me">
             <span className="ad-av" aria-hidden>
@@ -96,8 +96,8 @@ function Frame({ children }: { children: ReactNode }) {
               <span className="ad-brand-t">مدیریت سامانه</span>
             </Link>
             <span className="ad-top-end">
-              <Tooltip title="کسب‌وکارهای من">
-                <Button type="text" aria-label="کسب‌وکارهای من" icon={<Building2 {...ICON} />} onClick={() => nav("/orgs")} />
+              <Tooltip title="سازمان‌های من">
+                <Button type="text" aria-label="سازمان‌های من" icon={<Building2 {...ICON} />} onClick={() => nav("/orgs")} />
               </Tooltip>
               <ThemeToggle />
               <Tooltip title="خروج">
@@ -145,7 +145,7 @@ export default function Admin() {
               <Activity size={28} strokeWidth={1.4} absoluteStrokeWidth aria-hidden />
             </span>
             <h2>این بخش فقط برای مدیر سامانه است.</h2>
-            <Button onClick={() => nav("/orgs")}>بازگشت به کسب‌وکارها</Button>
+            <Button onClick={() => nav("/orgs")}>بازگشت به سازمان‌ها</Button>
           </div>
         </div>
       </PlainFrame>

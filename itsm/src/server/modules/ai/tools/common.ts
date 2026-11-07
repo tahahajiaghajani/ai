@@ -230,7 +230,7 @@ export function toBase(value: Num, unit: "base" | "rial" | "toman" | null | unde
   if (!unit || unit === "base") return v.toString();
   if (m.code === "IRR") return unit === "toman" ? v.times(10).toString() : v.toString();
   if (m.code === "IRT") return unit === "rial" ? v.div(10).toString() : v.toString();
-  throw bad(`واحد پول این کسب‌وکار ${m.unit} است؛ مبلغ را به ${m.unit} بدهید`);
+  throw bad(`واحد پول این سازمان ${m.unit} است؛ مبلغ را به ${m.unit} بدهید`);
 }
 
 // ---------------------------------------------------------------- permissions
@@ -249,7 +249,7 @@ export function needAny(ctx: Ctx, pairs: [Area, Level][]) {
 
 export function needModule(ctx: Ctx, m: "goods" | "gold" | "fx") {
   const title = { goods: "کالا و بازرگانی", gold: "طلا و جواهر", fx: "صرافی و ارز" }[m];
-  if (!ctx.hasModule(m)) throw forbidden(`بخش «${title}» برای این کسب‌وکار فعال نیست`);
+  if (!ctx.hasModule(m)) throw forbidden(`بخش «${title}» برای این سازمان فعال نیست`);
 }
 
 // ---------------------------------------------------------------- search and resolution

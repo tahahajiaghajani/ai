@@ -15,6 +15,7 @@ import { consoleLogger, type Logger } from "@server/context";
 import { loadConfig, saveConfig, type LocalConfig } from "./config";
 import { createBridge } from "./bridge";
 import { takePendingRestore, undoRestore, restorePending } from "./backup";
+import { APP_NAME } from "@shared/constants";
 
 export interface LocalOptions {
   dataDir: string;
@@ -68,7 +69,7 @@ export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
 
   const staticDir = resolve(opts.staticDir);
   const indexFile = join(staticDir, "index.html");
-  const indexHtml = () => (existsSync(indexFile) ? readFileSync(indexFile, "utf8") : "<!doctype html><meta charset=utf-8><title>سیراف</title><p>رابط کاربری ساخته نشده است (npm run build:ui)</p>");
+  const indexHtml = () => (existsSync(indexFile) ? readFileSync(indexFile, "utf8") : `<!doctype html><meta charset=utf-8><title>${APP_NAME}</title><p>رابط کاربری ساخته نشده است (npm run build:ui)</p>`);
 
   let server: ReturnType<typeof serve> | null = null;
   const bridge = createBridge({ dataDir: opts.dataDir, db, config, log, save: () => saveConfig(opts.dataDir, config) });

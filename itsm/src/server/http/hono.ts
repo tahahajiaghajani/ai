@@ -53,7 +53,7 @@ export const loadOrg: MiddlewareHandler<Env> = async (c, next) => {
     [orgId, user.id],
   );
   if (!member || !member.is_active) {
-    if (!user.is_platform_admin) throw forbidden("شما عضو این کسب‌وکار نیستید");
+    if (!user.is_platform_admin) throw forbidden("شما عضو این سازمان نیستید");
     member = { id: "", org_id: orgId, user_id: user.id, role: "viewer", overrides: {}, is_active: true };
   }
   c.set("ctx", makeCtx(cfg, user, org, member));

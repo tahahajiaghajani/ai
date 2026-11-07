@@ -26,10 +26,11 @@ export interface SyncState {
 }
 
 /**
- * Outbox entries of rows that belong to another business on this computer (one that is not the
- * linked one): they are kept for a later link but never pushed into the linked organisation.
+ * Outbox entries of rows that belong to another organisation on this computer (one that is not the
+ * linked one): they are kept for a later link but never pushed into the linked organisation. Built on use,
+ * so aggregates registered after this module loaded are covered too.
  */
-const FOREIGN = `coalesce(case o.entity ${AGGREGATES.map(
+const foreign = () => `coalesce(case o.entity ${AGGREGATES.map(
   (d) => `when '${d.entity}' then exists (select 1 from ${ident(d.table)} t where t.id = o.id and t.${d.table === "sm_orgs" ? "id" : "org_id"} <> $1)`,
 ).join(" ")} else false end, false)`;
 
@@ -98,7 +99,6 @@ export class SyncClient {
     return { orgs: r.orgs };
   }
 
-  /** Check a password against the cloud (sign-in on a linked desktop) and pull the user row. */
   /**
    * Check a password against the cloud (sign-in on this computer with an account whose password
    * is not stored here). "wrong" when the cloud answered no, "limited" when it refused for too many
@@ -130,11 +130,11 @@ export class SyncClient {
     if (input.direction === "upload") {
       const local = await this.o.db.query<Record<string, unknown>>(`select * from sm_orgs where deleted_at is null order by created_at`);
       const org = orgId ? local.find((o) => o.id === orgId) : local[0];
-      if (!org) throw new Error("کسب‌وکاری روی این رایانه نیست که بارگذاری شود");
+      if (!org) throw new Error("سازمانی روی این رایانه نیست که بارگذاری شود");
       orgId = String(org.id);
       await this.api("/sync/adopt", { url, token, body: { org } });
     } else {
-      if (!orgId) throw new Error("کسب‌وکار ابری را انتخاب کنید");
+      if (!orgId) throw new Error("سازمان ابری را انتخاب کنید");
       const exists = await this.o.db.one(`select 1 from sm_orgs where id = $1`, [orgId]);
       const others = await this.o.db.one<{ n: number }>(`select count(*)::int as n from sm_orgs where id <> $1 and deleted_at is null`, [orgId]);
       if (!exists && (others?.n ?? 0) > 0) {
@@ -183,12 +183,11 @@ export class SyncClient {
    * (`sync.schema`): the new version may accept them. Everything is read again from the start only
    * when the sync protocol changed (`sync.protocol`): an earlier version dropped the columns and
    * the kinds of data it did not know when it pulled. Rows waiting for upload are skipped by the
-   * pull, the rest is the cloud's copy anyway. Builds that wrote `sync.schema` before
-   * `sync.protocol` existed already read everything under protocol 2.
+   * pull, the rest is the cloud's copy anyway.
    */
   private async afterUpgrade() {
     const schema = await this.kvGet<string | null>("sync.schema", null);
-    const protocol = (await this.kvGet<number | null>("sync.protocol", null)) ?? (schema ? 2 : null);
+    const protocol = await this.kvGet<number | null>("sync.protocol", null);
     if (schema === SCHEMA_VERSION && protocol === SYNC_PROTOCOL) return;
     await this.o.db.tx(async (tx) => {
       const kv = `insert into sm_kv (key, value, updated_at) values ($1, $2::jsonb, now()) on conflict (key) do update set value = excluded.value, updated_at = now()`;
@@ -209,16 +208,16 @@ export class SyncClient {
       this.state.failed = [];
       return;
     }
-    const r = await this.o.db.one<{ n: number }>(`select count(*)::int as n from sm_outbox o where not ${FOREIGN}`, [org]);
+    const r = await this.o.db.one<{ n: number }>(`select count(*)::int as n from sm_outbox o where not ${foreign()}`, [org]);
     this.state.pending = r?.n ?? 0;
-    this.state.failed = await this.o.db.query(`select entity, id, last_error as error from sm_outbox o where attempts >= 5 and not ${FOREIGN} order by changed_at limit 50`, [org]);
+    this.state.failed = await this.o.db.query(`select entity, id, last_error as error from sm_outbox o where attempts >= 5 and not ${foreign()} order by changed_at limit 50`, [org]);
   }
 
   async push(): Promise<number> {
     let total = 0;
     for (let round = 0; round < 50; round++) {
       const queued = await this.o.db.query<{ entity: string; id: string; changed_at: string }>(
-        `select entity, id, changed_at from sm_outbox o where attempts < 5 and not ${FOREIGN} order by changed_at limit 200`,
+        `select entity, id, changed_at from sm_outbox o where attempts < 5 and not ${foreign()} order by changed_at limit 200`,
         [this.o.config.cloud.org_id],
       );
       if (!queued.length) break;
@@ -275,12 +274,6 @@ export class SyncClient {
   async pullAll(opts: { upgrade?: boolean } = {}): Promise<number> {
     let count = 0;
     if (opts.upgrade !== false) await this.afterUpgrade();
-    if (!(await this.kvGet<boolean>("sync.users_v2", false))) {
-      // once after the update: read the members' accounts again, so that password hashes an
-      // earlier version received for accounts this device may not hold are dropped
-      await this.kvSet("sync.user_cursor", 0);
-      await this.kvSet("sync.users_v2", true);
-    }
     for (let round = 0; round < 10000; round++) {
       const cursor = await this.kvGet<number>("sync.cursor", 0);
       const userCursor = await this.kvGet<number>("sync.user_cursor", 0);

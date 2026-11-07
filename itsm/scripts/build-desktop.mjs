@@ -75,7 +75,7 @@ writeFileSync(
       name: "siraf",
       productName: "Siraf",
       version: desktopPkg.version ?? pkg.version,
-      description: "سیراف — حسابداری و مدیریت کسب‌وکار",
+      description: "سیراف — حسابداری و مدیریت سازمان",
       author: "Siraf",
       license: "UNLICENSED",
       main: "main.cjs",

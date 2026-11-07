@@ -622,7 +622,7 @@ describe("the platform's owner (PLATFORM_ADMIN_EMAILS)", () => {
     // sign-up is closed: the second address is no way in once an administrator exists
     await new Client(app).post("/auth/signup", { email: "second@example.com", password: "claimed-pass-1", full_name: "مدعی" }, 403);
     // nor can a business make an account with it and sign in as the platform's administrator
-    const org = (await boss.post<{ id: string }>("/orgs", { name: "کسب‌وکار مالک", business_kind: "trading", modules: ["goods"], base_currency: "IRR", fiscal_year: 1405 })).id;
+    const org = (await boss.post<{ id: string }>("/orgs", { name: "سازمان مالک", business_kind: "trading", modules: ["goods"], base_currency: "IRR", fiscal_year: 1405 })).id;
     await boss.post(`/o/${org}/members`, { email: "second@example.com", full_name: "مدعی", role: "viewer", password: "claimed-pass-1" }, 400);
   });
 

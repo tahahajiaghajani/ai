@@ -36,7 +36,7 @@ const ACTION: Record<string, string> = {
   support_start: "آغاز پشتیبانی",
   support_end: "پایان پشتیبانی",
   support_write: "تغییر",
-  org_status: "وضعیت کسب‌وکار",
+  org_status: "وضعیت سازمان",
   org_ai: "هوش مصنوعی",
 };
 
@@ -59,7 +59,7 @@ const ENTITY: Record<string, string> = {
   gold_doc: "سند طلا",
   gold_rate: "نرخ طلا",
   member: "کاربر",
-  org: "کسب‌وکار",
+  org: "سازمان",
   support_session: "حالت پشتیبانی",
 };
 const entityName = (k: string | null | undefined) => (k ? ENTITY[k] ?? ENTITIES[k]?.title ?? "سایر" : "سایر");
@@ -126,7 +126,7 @@ function SupportSessions() {
         pagination={{ pageSize: 50, hideOnSinglePage: true, size: "small", showSizeChanger: false }}
         scroll={{ x: 900 }}
         tableLayout="fixed"
-        locale={{ emptyText: q.isLoading ? " " : <EmptyState icon={LifeBuoy} title="مدیر سامانه تاکنون در حالت پشتیبانی وارد این کسب‌وکار نشده است" /> }}
+        locale={{ emptyText: q.isLoading ? " " : <EmptyState icon={LifeBuoy} title="مدیر سامانه تاکنون در حالت پشتیبانی وارد این سازمان نشده است" /> }}
         columns={[
           { key: "at", dataIndex: "started_at", title: "آغاز", width: 152, render: (v) => <span className="bk-2"><JDateTime v={v} /></span> },
           {
@@ -173,7 +173,7 @@ function SupportSessions() {
                   size="small"
                   loading={end.isPending && end.variables === r.id}
                   onClick={async () => {
-                    if (await n.confirm("پایان حالت پشتیبانی؟", "مدیر سامانه از این کسب‌وکار خارج می‌شود.", true, "پایان")) end.mutate(r.id);
+                    if (await n.confirm("پایان حالت پشتیبانی؟", "مدیر سامانه از این سازمان خارج می‌شود.", true, "پایان")) end.mutate(r.id);
                   }}
                 >
                   پایان

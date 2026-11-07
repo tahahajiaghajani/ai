@@ -36,7 +36,7 @@ export function SupportDialog({ org, open, onClose }: { org: { id: string; name:
   return (
     <Modal open={open} onCancel={onClose} title={org ? `حالت پشتیبانی در «${org.name}»` : "حالت پشتیبانی"} footer={null} destroyOnHidden width={500}>
       <Form form={form} layout="vertical" requiredMark={false} initialValues={{ level: "view", hours: 1 }} onFinish={submit}>
-        <Note className="mb-4">ورود، دلیل و هر تغییری که بدهید در گزارش رویدادهای این کسب‌وکار دیده می‌شود و مالک می‌تواند آن را پایان دهد.</Note>
+        <Note className="mb-4">ورود، دلیل و هر تغییری که بدهید در گزارش رویدادهای این سازمان دیده می‌شود و مالک می‌تواند آن را پایان دهد.</Note>
         <Form.Item
           name="reason"
           label="دلیل ورود"

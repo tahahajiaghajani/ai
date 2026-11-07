@@ -1,6 +1,6 @@
-// The platform admin's own actions in sm_audit (actor_kind 'platform'): user and business changes
-// made from «مدیریت سامانه». Rows about one business carry its org_id and appear in that
-// business's audit log too; account-level rows (org_id null) only in the console.
+// The platform admin's own actions in sm_audit (actor_kind 'platform'): user and organisation changes
+// made from «مدیریت سامانه». Rows about one organisation carry its org_id and appear in that
+// organisation's audit log too; account-level rows (org_id null) only in the console.
 import type { Queryable } from "../../db";
 import type { AuthUser, ServerConfig } from "../../context";
 import { uuidv7 } from "@shared/id";

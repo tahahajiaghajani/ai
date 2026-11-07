@@ -30,13 +30,13 @@ export default function Orgs() {
         <div>
           {first ? <p className="pg-greet">سلام {first}،</p> : null}
           <div className="pg-ph">
-            <h1 className="ds-t-page">{orgs.length ? "کسب‌وکارهای شما" : "به سیراف خوش آمدید"}</h1>
-            {orgs.length > 1 ? <span className="pg-ph-meta ds-num">{toPersianDigits(String(orgs.length))} کسب‌وکار</span> : null}
+            <h1 className="ds-t-page">{orgs.length ? "سازمان‌های شما" : "به سیراف خوش آمدید"}</h1>
+            {orgs.length > 1 ? <span className="pg-ph-meta ds-num">{toPersianDigits(String(orgs.length))} سازمان</span> : null}
           </div>
         </div>
 
         {orgs.length ? (
-          <nav className="pg-list ds-stagger" aria-label="کسب‌وکارها">
+          <nav className="pg-list ds-stagger" aria-label="سازمان‌ها">
             {orgs.map((o) => {
               const role = o.role ? ROLES[o.role as keyof typeof ROLES]?.title ?? o.role : null;
               const mods = o.modules.map((m) => MODULES.find((x) => x.key === m)?.title).filter(Boolean);
@@ -66,7 +66,7 @@ export default function Orgs() {
                 <Plus {...ICON} />
               </span>
               <span className="min-w-0 flex-1">
-                <span className="pg-org-name">کسب‌وکار تازه</span>
+                <span className="pg-org-name">سازمان تازه</span>
                 <span className="pg-org-meta block">کالا، طلا، صرافی یا خدمات؛ در سه گام</span>
               </span>
               <ChevronLeft {...ICON} className="pg-chev" aria-hidden />
@@ -78,10 +78,10 @@ export default function Orgs() {
               <span className="pg-empty-tile">
                 <Building2 size={28} strokeWidth={1.4} absoluteStrokeWidth aria-hidden />
               </span>
-              <h2>هنوز کسب‌وکاری ندارید.</h2>
-              <p>اولین کسب‌وکارتان را بسازید؛ کدینگ حساب‌ها و سال مالی خودکار آماده می‌شود.</p>
+              <h2>هنوز سازمانی ندارید.</h2>
+              <p>اولین سازمانتان را بسازید؛ کدینگ حساب‌ها و سال مالی خودکار آماده می‌شود.</p>
               <Button type="primary" icon={<Plus {...ICON} />} onClick={() => nav("/orgs/new")}>
-                ساخت کسب‌وکار
+                ساخت سازمان
               </Button>
             </div>
           </div>

@@ -1,4 +1,4 @@
-// «کسب‌وکارها»: every business with its owner, modules, members, Windows apps, last activity and platform
+// «سازمان‌ها»: every business with its owner, modules, members, Windows apps, last activity and platform
 // status; search by name or a member's email/mobile, filters by status, module, inactivity and support.
 import { useState } from "react";
 import { Input, Segmented, Select, Table } from "antd";
@@ -56,10 +56,10 @@ export default function Orgs() {
   const filtered = !!(dq || status || module || extra);
   return (
     <div>
-      <PageHeader title="کسب‌وکارها" subtitle={list.data ? `${fa(rows.length)} کسب‌وکار` : undefined} />
+      <PageHeader title="سازمان‌ها" subtitle={list.data ? `${fa(rows.length)} سازمان` : undefined} />
       <div className="bk-card">
         <div className="ad-filters">
-          <Input allowClear prefix={<Search {...ICON} className="text-ink-3" />} placeholder="نام، ایمیل یا موبایل اعضا" value={q} onChange={(e) => setQ(e.target.value)} aria-label="جست‌وجوی کسب‌وکار" />
+          <Input allowClear prefix={<Search {...ICON} className="text-ink-3" />} placeholder="نام، ایمیل یا موبایل اعضا" value={q} onChange={(e) => setQ(e.target.value)} aria-label="جست‌وجوی سازمان" />
           <Segmented
             value={status}
             onChange={(v) => set("status", String(v))}
@@ -104,13 +104,13 @@ export default function Orgs() {
           pagination={{ pageSize: 50, hideOnSinglePage: true, size: "small", showSizeChanger: false }}
           scroll={phone ? undefined : { x: 1000 }}
           onRow={(r) => ({ onClick: () => nav(`/admin/orgs/${r.id}`), className: "cursor-pointer" })}
-          locale={{ emptyText: list.isLoading ? " " : <EmptyState icon={Building2} title={filtered ? "کسب‌وکاری با این شرایط نیست" : "هنوز کسب‌وکاری ساخته نشده است"} /> }}
+          locale={{ emptyText: list.isLoading ? " " : <EmptyState icon={Building2} title={filtered ? "سازمانی با این شرایط نیست" : "هنوز سازمانی ساخته نشده است"} /> }}
           columns={
             phone
               ? [
                   {
                     key: "m",
-                    title: "کسب‌وکار",
+                    title: "سازمان",
                     render: (_, r) => (
                       <div className="flex min-w-0 items-start gap-3">
                         <div className="min-w-0 flex-1">
@@ -127,7 +127,7 @@ export default function Orgs() {
               : [
                   {
                     key: "name",
-                    title: "کسب‌وکار",
+                    title: "سازمان",
                     render: (_, r) => (
                       <span className="block min-w-0">
                         <span className="flex items-center gap-2 font-medium text-ink">

@@ -9,11 +9,10 @@ import { z } from "zod";
 import { router, body, requireUser, type C } from "../http/hono";
 import { bad, forbidden, notFound } from "../http/errors";
 import { makeCtx, lockOrg, type MemberRow, type OrgRow, type Ctx } from "../context";
+import type { Tx } from "../db";
 import { AGGREGATES, BY_ENTITY, type WireAggregate } from "../sync/registry";
 import { readAggregates, writeAggregate } from "../sync/apply";
 import { ident } from "../db/sql";
-import { pgArray } from "../db";
-import { afterStockChange } from "../modules/goods/stock";
 import { orgStatus, statusError } from "../modules/platform/org-admin";
 import { CREATED_HERE_SQL, memberChangeProblem, OWNER_ONLY_MESSAGE, sameGrant, type MemberGrant } from "../modules/platform/members";
 import { requestMeta, securityEvent, type SecurityEventInput } from "../modules/platform/security";
@@ -36,8 +35,11 @@ function jsonObject(v: unknown): Partial<Record<Area, Level>> {
   return o && typeof o === "object" && !Array.isArray(o) ? (o as Partial<Record<Area, Level>>) : {};
 }
 
-/** documents whose stock moves carry moving-average costs */
-const COSTED = new Set(["invoice", "stock_doc"]);
+/**
+ * Rules a module applies to an aggregate a Windows app pushes (the same ones its routes apply), keyed by
+ * entity: a Persian refusal, or null to write it. `existing` is the stored copy's head (null for a new one).
+ */
+export const pushRules = new Map<string, (tx: Tx, ctx: Ctx, agg: WireAggregate, existing: { org_id: string; rev: number; updated_at: string } | null) => Promise<string | null>>();
 
 export const syncRoutes = router();
 syncRoutes.use("*", requireUser);
@@ -49,12 +51,12 @@ async function orgCtx(c: C, orgId: string): Promise<Ctx> {
   const user = c.get("user");
   if (!/^[0-9a-f-]{36}$/i.test(orgId)) throw bad("شناسه‌ی سازمان معتبر نیست");
   const org = await cfg.db.one<OrgRow>(`select * from sm_orgs where id = $1 and deleted_at is null`, [orgId]);
-  if (!org) throw notFound("کسب‌وکار در فضای ابری پیدا نشد");
+  if (!org) throw notFound("سازمان در فضای ابری پیدا نشد");
   const member = await cfg.db.one<MemberRow>(
     `select id, org_id, user_id, role, overrides, is_active from sm_org_members where org_id = $1 and user_id = $2 and deleted_at is null`,
     [orgId, user.id],
   );
-  if (!member || !member.is_active) throw forbidden("شما عضو این کسب‌وکار نیستید");
+  if (!member || !member.is_active) throw forbidden("شما عضو این سازمان نیستید");
   const status = await orgStatus(cfg.db, orgId);
   if (status.status === "suspended") throw statusError(status);
   return makeCtx(cfg, user, org, member, { status });
@@ -93,7 +95,7 @@ syncRoutes.post("/adopt", async (c) => {
   const exists = await cfg.db.one<{ id: string }>(`select id from sm_orgs where id = $1`, [orgId]);
   if (exists) {
     const m = await cfg.db.one(`select 1 from sm_org_members where org_id = $1 and user_id = $2 and deleted_at is null and role in ('owner','admin')`, [orgId, user.id]);
-    if (!m) throw forbidden("این کسب‌وکار در فضای ابری متعلق به حساب دیگری است");
+    if (!m) throw forbidden("این سازمان در فضای ابری متعلق به حساب دیگری است");
     return c.json({ ok: true, existed: true });
   }
   await cfg.db.tx(async (tx) => {
@@ -137,13 +139,6 @@ syncRoutes.post("/push", async (c) => {
   };
   await ctx.write(async (tx) => {
     await tx.query("set local itsm.applying = 'on'");
-    // stock moves of costed documents before and after they are replaced (see recompute below)
-    const touches: { item_id: string; date: string }[] = [];
-    const movesOf = (id: string) =>
-      tx.query<{ item_id: string; date: string }>(
-        `select item_id, min(date) as date from sm_stock_moves where org_id = $1 and source_id = $2 group by item_id`,
-        [ctx.org.id, id],
-      );
     for (const agg of list as WireAggregate[]) {
       const def = BY_ENTITY.get(agg.entity);
       if (!def) {
@@ -179,33 +174,11 @@ syncRoutes.post("/push", async (c) => {
         results.push({ entity: agg.entity, id: agg.id, status: "conflict", rev: existing.rev, aggregate: winner });
         continue;
       }
-      // fiscal years: the year-end rules of routes/org.ts hold for a Windows app too — closing needs
-      // accounting:full, reopening is the owner's (or a manager's), and the closing and opening
-      // vouchers of a closed year are never changed or removed (reopening the year removes them;
-      // its fiscal_year row comes first in the batch, see the order in the registry)
-      if (def.entity === "fiscal_year" && existing) {
-        const stored = await tx.one<{ status: string }>(`select status from sm_fiscal_years where id = $1`, [agg.id]);
-        const incoming = String(agg.row.status ?? stored?.status ?? "");
-        if (stored?.status === "closed" && incoming !== "closed" && ctx.member.role !== "owner" && ctx.member.role !== "admin") {
-          results.push({ entity: agg.entity, id: agg.id, status: "error", message: "باز کردن دوبارهٔ سال مالی بسته با مالک کسب‌وکار است" });
-          continue;
-        }
-        if (stored?.status !== "closed" && incoming === "closed" && !ctx.can("accounting", "full")) {
-          results.push({ entity: agg.entity, id: agg.id, status: "error", message: "بستن سال مالی به دسترسی کامل حسابداری نیاز دارد" });
-          continue;
-        }
-      }
-      if (def.entity === "voucher" && existing) {
-        const v = await tx.one<{ total_debit: string; total_credit: string; deleted_at: string | null }>(
-          `select v.total_debit, v.total_credit, v.deleted_at from sm_vouchers v join sm_fiscal_years f on f.id = v.source_id
-           where v.id = $1 and v.source_type in ('closing', 'opening') and f.status = 'closed'`,
-          [agg.id],
-        );
-        const same = (a: unknown, b: unknown) => a != null && b != null && String(a) !== "" && Number(a) === Number(b);
-        if (v && !v.deleted_at && (agg.row.deleted_at != null || !same(agg.row.total_debit, v.total_debit) || !same(agg.row.total_credit, v.total_credit))) {
-          results.push({ entity: agg.entity, id: agg.id, status: "error", message: "اسناد اختتامیه و افتتاحیهٔ سال مالی بسته تغییر نمی‌کنند؛ برای تغییر، سال را دوباره باز کنید" });
-          continue;
-        }
+      // a module's own rules for a pushed aggregate (the same rules its routes apply)
+      const ruled = await pushRules.get(def.entity)?.(tx, ctx, agg, existing);
+      if (ruled) {
+        results.push({ entity: agg.entity, id: agg.id, status: "error", message: ruled });
+        continue;
       }
       let memberChange: { was: StoredMember | null; next: MemberGrant & { live: boolean } } | null = null;
       if (def.entity === "member") {
@@ -241,39 +214,19 @@ syncRoutes.post("/push", async (c) => {
             [ctx.org.id, agg.id],
           );
           if (!others?.n) {
-            results.push({ entity: agg.entity, id: agg.id, status: "error", message: "کسب‌وکار باید دست‌کم یک مالک فعال داشته باشد" });
+            results.push({ entity: agg.entity, id: agg.id, status: "error", message: "سازمان باید دست‌کم یک مالک فعال داشته باشد" });
             continue;
           }
         }
         if (!unchanged) memberChange = { was, next };
       }
       try {
-        const costed = COSTED.has(def.entity);
-        if (costed) touches.push(...(await movesOf(agg.id)));
         const r = await writeAggregate(tx, def, { ...agg, row: { ...agg.row, origin: input.device_id } }, ctx.org.id, "incoming-yields");
-        if (costed) touches.push(...(await movesOf(agg.id)));
         const now = await tx.one<{ rev: number }>(`select rev from ${ident(def.table)} where id = $1`, [agg.id]);
         results.push({ entity: agg.entity, id: agg.id, status: "ok", rev: now?.rev, renumbered: r.renumbered });
         if (memberChange) memberEvents.push(memberEvent(memberChange.was, memberChange.next));
       } catch (e) {
         results.push({ entity: agg.entity, id: agg.id, status: "error", message: String((e as Error).message ?? e).slice(0, 300) });
-      }
-    }
-    // A document made offline (often back-dated) changes the moving-average cost of later sales
-    // here; recompute them like a local edit would. The new costs get revisions and flow back to
-    // every device. A failure must not block the upload: costs can be recomputed later.
-    if (touches.length) {
-      await tx.query("set local itsm.applying = 'off'");
-      await tx.query("savepoint sm_recost");
-      try {
-        const goods = await tx.query<{ id: string }>(`select id from sm_items where org_id = $1 and kind = 'goods' and id = any($2::uuid[])`, [ctx.org.id, pgArray([...new Set(touches.map((t) => t.item_id))])]);
-        const keep = new Set(goods.map((g) => g.id));
-        const mine = touches.filter((t) => keep.has(t.item_id));
-        if (mine.length) await afterStockChange(tx, ctx, mine, undefined, { checkNegative: false });
-        await tx.query("release savepoint sm_recost");
-      } catch (e) {
-        await tx.query("rollback to savepoint sm_recost");
-        ctx.cfg.log.warn("cost recompute after push failed", String((e as Error).message ?? e));
       }
     }
   });

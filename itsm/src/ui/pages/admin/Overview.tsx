@@ -43,7 +43,7 @@ export default function Overview() {
           <section className="ad-kpis" aria-label="آمار سامانه">
             <StatCard
               icon={<Building2 {...ICON} />}
-              title="کسب‌وکارها"
+              title="سازمان‌ها"
               value={<span className="ds-num">{fa(k.orgs.total)}</span>}
               hint={`${fa(k.orgs.active_30d)} فعال در ۳۰ روز · ${fa(k.orgs.new_30d)} تازه`}
               onClick={() => nav("/admin/orgs")}
@@ -77,7 +77,7 @@ export default function Overview() {
               icon={<AiIcon {...ICON} />}
               title="هزینهٔ هوش مصنوعی این ماه"
               value={<span className="ds-num ds-latin">{usd(k.ai.cost_month_usd ?? 0)}</span>}
-              hint={k.ai.enabled_orgs === null ? "هنوز کسب‌وکاری کلید نگذاشته" : `${fa(k.ai.enabled_orgs)} کسب‌وکار با هوش مصنوعی · ${fa(k.ai.calls_month ?? 0)} درخواست`}
+              hint={k.ai.enabled_orgs === null ? "هنوز سازمانی کلید نگذاشته" : `${fa(k.ai.enabled_orgs)} سازمان با هوش مصنوعی · ${fa(k.ai.calls_month ?? 0)} درخواست`}
               onClick={() => nav("/admin/ai")}
             />
           </section>
@@ -116,7 +116,7 @@ export default function Overview() {
                 )}
               </Card>
 
-              <Card title="کسب‌وکارهای تازه" tools={<Link to="/admin/orgs" className="ds-link text-[13px]">همه</Link>} flush>
+              <Card title="سازمان‌های تازه" tools={<Link to="/admin/orgs" className="ds-link text-[13px]">همه</Link>} flush>
                 <ul className="ad-list">
                   {d.recent_orgs.map((o) => (
                     <li key={o.id}>

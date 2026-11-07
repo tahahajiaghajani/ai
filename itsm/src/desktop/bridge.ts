@@ -81,13 +81,13 @@ export function createBridge(o: { dataDir: string; db: Db & { pg?: PGlite }; con
       scheduleRestore(o.dataDir, file);
     },
     async getSettings() {
-      return { lan: o.config.lan, backups: o.config.backups, cloud: { url: o.config.cloud.url, auto_sync: o.config.cloud.auto_sync, prices_via_cloud: o.config.cloud.prices_via_cloud } };
+      return { lan: o.config.lan, backups: o.config.backups, cloud: { url: o.config.cloud.url, auto_sync: o.config.cloud.auto_sync } };
     },
     async setSettings(patch: Record<string, unknown>) {
       const p = patch as Partial<LocalConfig> & { cloud?: Partial<LocalConfig["cloud"]> };
       if (p.lan) o.config.lan = { ...o.config.lan, ...p.lan };
       if (p.backups) o.config.backups = { ...o.config.backups, ...p.backups };
-      if (p.cloud) o.config.cloud = { ...o.config.cloud, ...(p.cloud.auto_sync !== undefined ? { auto_sync: !!p.cloud.auto_sync } : {}), ...(p.cloud.prices_via_cloud !== undefined ? { prices_via_cloud: !!p.cloud.prices_via_cloud } : {}) };
+      if (p.cloud) o.config.cloud = { ...o.config.cloud, ...(p.cloud.auto_sync !== undefined ? { auto_sync: !!p.cloud.auto_sync } : {}) };
       o.save();
       return bridge.getSettings();
     },

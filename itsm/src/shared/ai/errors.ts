@@ -20,7 +20,7 @@ export interface AiErrorContext {
   byPlatform?: boolean;
 }
 
-const ASK_MANAGER = "از مدیر کسب‌وکار بخواهید هوش مصنوعی را راه‌اندازی کند";
+const ASK_MANAGER = "از مدیر سازمان بخواهید هوش مصنوعی را راه‌اندازی کند";
 
 export function aiErrorText(kind: AiErrorKind, c: AiErrorContext = {}): AiErrorText {
   const settings = c.canManage ? "در تنظیمات ← هوش مصنوعی" : null;
@@ -29,7 +29,7 @@ export function aiErrorText(kind: AiErrorKind, c: AiErrorContext = {}): AiErrorT
       return {
         title: "کلید پذیرفته نشد",
         message: "سرویس هوش مصنوعی کلید این اتصال را نپذیرفت یا دسترسی آن را بسته است.",
-        remedy: settings ? `${settings} کلید تازه را وارد کنید و اتصال را آزمایش کنید.` : "از مدیر کسب‌وکار بخواهید کلید اتصال را بررسی کند.",
+        remedy: settings ? `${settings} کلید تازه را وارد کنید و اتصال را آزمایش کنید.` : "از مدیر سازمان بخواهید کلید اتصال را بررسی کند.",
       };
     case "region":
       return {
@@ -61,7 +61,7 @@ export function aiErrorText(kind: AiErrorKind, c: AiErrorContext = {}): AiErrorT
       return {
         title: "مدل در دسترس نیست",
         message: "این مدل برای این کلید پیدا نشد یا کنار گذاشته شده است.",
-        remedy: settings ? `${settings} فهرست مدل‌ها را تازه کنید و مدل دیگری انتخاب کنید.` : "از مدیر کسب‌وکار بخواهید مدل دیگری انتخاب کند.",
+        remedy: settings ? `${settings} فهرست مدل‌ها را تازه کنید و مدل دیگری انتخاب کنید.` : "از مدیر سازمان بخواهید مدل دیگری انتخاب کند.",
       };
     case "invalid":
       return {
@@ -90,20 +90,20 @@ export function aiErrorText(kind: AiErrorKind, c: AiErrorContext = {}): AiErrorT
     case "budget":
       return {
         title: "سقف هزینه پر شده است",
-        message: "سقف هزینهٔ هوش مصنوعی این کسب‌وکار یا سقف روزانهٔ شما پر شده است.",
-        remedy: settings ? `${settings} ← مصرف و بودجه می‌توانید سقف را بالا ببرید.` : "از مدیر کسب‌وکار بخواهید سقف هزینه را بالا ببرد.",
+        message: "سقف هزینهٔ هوش مصنوعی این سازمان یا سقف روزانهٔ شما پر شده است.",
+        remedy: settings ? `${settings} ← مصرف و بودجه می‌توانید سقف را بالا ببرید.` : "از مدیر سازمان بخواهید سقف هزینه را بالا ببرد.",
       };
     case "disabled":
       return c.byPlatform
         ? {
             title: "هوش مصنوعی خاموش است",
-            message: "هوش مصنوعی از سوی مدیر سامانه برای این کسب‌وکار خاموش شده است.",
+            message: "هوش مصنوعی از سوی مدیر سامانه برای این سازمان خاموش شده است.",
             remedy: "برای روشن شدن دوباره با پشتیبانی سامانه تماس بگیرید.",
           }
         : {
             title: "هوش مصنوعی خاموش است",
-            message: "هوش مصنوعی یا این قابلیت برای این کسب‌وکار خاموش است.",
-            remedy: settings ? `${settings} روشنش کنید.` : "از مدیر کسب‌وکار بخواهید آن را روشن کند.",
+            message: "هوش مصنوعی یا این قابلیت برای این سازمان خاموش است.",
+            remedy: settings ? `${settings} روشنش کنید.` : "از مدیر سازمان بخواهید آن را روشن کند.",
           };
     case "not_configured":
       return {

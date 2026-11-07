@@ -133,7 +133,7 @@ function BudgetCard({ settings, month, unpriced }: { settings: AiSettings; month
       </div>
       <div className="ai-grid2 mt-5" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))" }}>
         <label className="bk-f">
-          <span className="bk-f-l">سقف ماهانهٔ کسب‌وکار</span>
+          <span className="bk-f-l">سقف ماهانهٔ سازمان</span>
           {money(b.monthly_usd, (v) => setB({ ...b, monthly_usd: v }), "سقف ماهانه")}
         </label>
         <label className="bk-f">

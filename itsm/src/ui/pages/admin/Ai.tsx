@@ -47,13 +47,13 @@ function PolicyCard({ policy }: { policy: AiPolicy }) {
           loading={busy === "kill"}
           aria-label="هوش مصنوعی در کل سامانه"
           onChange={async (on) => {
-            if (!on && !(await n.confirm("خاموش کردن هوش مصنوعی در همهٔ کسب‌وکارها؟", "دستیار و همهٔ قابلیت‌های هوش مصنوعی تا روشن کردن دوباره کار نمی‌کنند.", true, "خاموش کن"))) return;
+            if (!on && !(await n.confirm("خاموش کردن هوش مصنوعی در همهٔ سازمان‌ها؟", "دستیار و همهٔ قابلیت‌های هوش مصنوعی تا روشن کردن دوباره کار نمی‌کنند.", true, "خاموش کن"))) return;
             await put("kill", { kill_switch: !on }, on ? "هوش مصنوعی در سامانه روشن شد." : "هوش مصنوعی در سامانه خاموش شد.");
           }}
         />
         <span>
           <span className="block font-medium">هوش مصنوعی در کل سامانه</span>
-          <span className="ad-sub">کلید توقف اضطراری: با خاموش کردن، هیچ کسب‌وکاری درخواستی به مدل‌ها نمی‌فرستد.</span>
+          <span className="ad-sub">کلید توقف اضطراری: با خاموش کردن، هیچ سازمانی درخواستی به مدل‌ها نمی‌فرستد.</span>
         </span>
       </div>
       <Form
@@ -74,8 +74,8 @@ function PolicyCard({ policy }: { policy: AiPolicy }) {
         </Form.Item>
         <Form.Item
           name="default_monthly_cap_usd"
-          label="سقف ماهانهٔ هر کسب‌وکار (دلار)"
-          extra="بودجهٔ هر کسب‌وکار فقط می‌تواند کمتر از این باشد؛ خالی یعنی بدون سقف."
+          label="سقف ماهانهٔ هر سازمان (دلار)"
+          extra="بودجهٔ هر سازمان فقط می‌تواند کمتر از این باشد؛ خالی یعنی بدون سقف."
           rules={[{ pattern: /^\d+(\.\d{1,2})?$/, message: "عدد درست بنویسید، مثلاً 20 یا 12.5" }]}
         >
           <Input dir="ltr" className="ds-latin" inputMode="decimal" placeholder="20" style={{ maxInlineSize: 160 }} />
@@ -130,17 +130,17 @@ export default function Ai() {
       <PageHeader title="هوش مصنوعی" />
       {pol.kill_switch ? (
         <Note tone="danger" className="mb-4">
-          <b>هوش مصنوعی در کل سامانه خاموش است.</b> هیچ کسب‌وکاری به مدل‌ها درخواست نمی‌فرستد.
+          <b>هوش مصنوعی در کل سامانه خاموش است.</b> هیچ سازمانی به مدل‌ها درخواست نمی‌فرستد.
         </Note>
       ) : null}
       <section className="ad-kpis" aria-label="آمار هوش مصنوعی">
-        <StatCard icon={<AiIcon {...ICON} />} title="کسب‌وکارهای فعال" value={<span className="ds-num">{fa(o.totals.businesses_enabled)}</span>} hint={`از ${fa(o.businesses.length)} کسب‌وکار`} />
+        <StatCard icon={<AiIcon {...ICON} />} title="سازمان‌های فعال" value={<span className="ds-num">{fa(o.totals.businesses_enabled)}</span>} hint={`از ${fa(o.businesses.length)} سازمان`} />
         <StatCard icon={<Power {...ICON} />} title="اتصال‌ها" value={<span className="ds-num">{fa(o.totals.connections)}</span>} />
         <StatCard icon={<AiIcon {...ICON} />} title="درخواست‌های این ماه" value={<span className="ds-num">{fa(o.totals.month_calls)}</span>} />
         <StatCard icon={<AiIcon {...ICON} />} title="هزینهٔ این ماه" value={<span className="ds-num ds-latin">{usd(o.totals.month_cost_usd)}</span>} />
       </section>
       <div className="ad-grid">
-        <Card title="کسب‌وکارها" flush>
+        <Card title="سازمان‌ها" flush>
           <Table<AiAdminBusiness>
             className="bk-tbl"
             size="middle"
@@ -148,11 +148,11 @@ export default function Ai() {
             dataSource={rows}
             pagination={{ pageSize: 30, hideOnSinglePage: true, size: "small", showSizeChanger: false }}
             scroll={phone ? undefined : { x: 720 }}
-            locale={{ emptyText: <EmptyState icon={AiIcon} title="هنوز کسب‌وکاری ساخته نشده است" /> }}
+            locale={{ emptyText: <EmptyState icon={AiIcon} title="هنوز سازمانی ساخته نشده است" /> }}
             columns={[
               {
                 key: "n",
-                title: "کسب‌وکار",
+                title: "سازمان",
                 render: (_, b) => (
                   <span className="block min-w-0">
                     <Link to={`/admin/orgs/${b.org_id}`} className="ds-link block truncate">
