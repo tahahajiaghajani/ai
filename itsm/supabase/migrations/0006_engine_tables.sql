@@ -101,6 +101,65 @@ drop trigger if exists sm_custom_fields_sync on sm_custom_fields;
 create trigger sm_custom_fields_sync before insert or update on sm_custom_fields for each row execute function sm_sync_touch('custom_field');
 alter table sm_custom_fields enable row level security;
 
+-- email_channel: کانال‌های ایمیل
+create table if not exists sm_email_channels (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_email_channels add column if not exists workspace_id uuid;
+alter table sm_email_channels add column if not exists domain_id uuid;
+alter table sm_email_channels add column if not exists unit_id uuid;
+alter table sm_email_channels add column if not exists created_at timestamptz not null default now();
+alter table sm_email_channels add column if not exists created_by uuid;
+alter table sm_email_channels add column if not exists updated_at timestamptz not null default now();
+alter table sm_email_channels add column if not exists updated_by uuid;
+alter table sm_email_channels add column if not exists rev bigint not null default 0;
+alter table sm_email_channels add column if not exists version integer not null default 1;
+alter table sm_email_channels add column if not exists deleted_at timestamptz;
+alter table sm_email_channels add column if not exists origin text;
+alter table sm_email_channels add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_email_channels add column if not exists name text;
+alter table sm_email_channels add column if not exists active boolean not null default true;
+alter table sm_email_channels add column if not exists is_default boolean not null default false;
+alter table sm_email_channels add column if not exists from_name text;
+alter table sm_email_channels add column if not exists from_address text;
+alter table sm_email_channels add column if not exists reply_to text;
+alter table sm_email_channels add column if not exists smtp_host text;
+alter table sm_email_channels add column if not exists smtp_port integer;
+alter table sm_email_channels add column if not exists smtp_security text;
+alter table sm_email_channels add column if not exists smtp_user text;
+alter table sm_email_channels add column if not exists smtp_password text;
+alter table sm_email_channels add column if not exists inbound boolean not null default false;
+alter table sm_email_channels add column if not exists imap_host text;
+alter table sm_email_channels add column if not exists imap_port integer;
+alter table sm_email_channels add column if not exists imap_security text;
+alter table sm_email_channels add column if not exists imap_user text;
+alter table sm_email_channels add column if not exists imap_password text;
+alter table sm_email_channels add column if not exists imap_folder text;
+alter table sm_email_channels add column if not exists target_table text;
+alter table sm_email_channels add column if not exists allow_list jsonb;
+alter table sm_email_channels add column if not exists deny_list jsonb;
+alter table sm_email_channels add column if not exists signature text;
+alter table sm_email_channels add column if not exists description text;
+create index if not exists sm_email_channels_rev_idx on sm_email_channels (org_id, rev);
+create index if not exists sm_email_channels_upd_idx on sm_email_channels (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_email_channels_crt_idx on sm_email_channels (org_id, created_at desc, id desc) where deleted_at is null;
+drop trigger if exists sm_email_channels_sync on sm_email_channels;
+create trigger sm_email_channels_sync before insert or update on sm_email_channels for each row execute function sm_sync_touch('email_channel');
+alter table sm_email_channels enable row level security;
+
 -- group: گروه‌ها
 create table if not exists sm_groups (
   id uuid primary key,
@@ -302,6 +361,253 @@ create index if not exists sm_member_profiles_user_id_idx on sm_member_profiles 
 drop trigger if exists sm_member_profiles_sync on sm_member_profiles;
 create trigger sm_member_profiles_sync before insert or update on sm_member_profiles for each row execute function sm_sync_touch('member_profile');
 alter table sm_member_profiles enable row level security;
+
+-- notification: اعلان‌ها
+create table if not exists sm_notifications (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_notifications add column if not exists workspace_id uuid;
+alter table sm_notifications add column if not exists domain_id uuid;
+alter table sm_notifications add column if not exists unit_id uuid;
+alter table sm_notifications add column if not exists created_at timestamptz not null default now();
+alter table sm_notifications add column if not exists created_by uuid;
+alter table sm_notifications add column if not exists updated_at timestamptz not null default now();
+alter table sm_notifications add column if not exists updated_by uuid;
+alter table sm_notifications add column if not exists rev bigint not null default 0;
+alter table sm_notifications add column if not exists version integer not null default 1;
+alter table sm_notifications add column if not exists deleted_at timestamptz;
+alter table sm_notifications add column if not exists origin text;
+alter table sm_notifications add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_notifications add column if not exists user_id uuid;
+alter table sm_notifications add column if not exists title text;
+alter table sm_notifications add column if not exists body text;
+alter table sm_notifications add column if not exists link text;
+alter table sm_notifications add column if not exists table_key text;
+alter table sm_notifications add column if not exists record_id text;
+alter table sm_notifications add column if not exists record_number text;
+alter table sm_notifications add column if not exists event text;
+alter table sm_notifications add column if not exists kind text;
+alter table sm_notifications add column if not exists actor_id uuid;
+alter table sm_notifications add column if not exists rule_key text;
+alter table sm_notifications add column if not exists read_at timestamptz;
+create index if not exists sm_notifications_rev_idx on sm_notifications (org_id, rev);
+create index if not exists sm_notifications_upd_idx on sm_notifications (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_notifications_crt_idx on sm_notifications (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_notifications_workspace_acc_idx on sm_notifications (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_notifications_unit_acc_idx on sm_notifications (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_notifications_domain_acc_idx on sm_notifications (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_notifications_user_id_idx on sm_notifications (org_id, user_id) where deleted_at is null;
+drop trigger if exists sm_notifications_sync on sm_notifications;
+create trigger sm_notifications_sync before insert or update on sm_notifications for each row execute function sm_sync_touch('notification');
+alter table sm_notifications enable row level security;
+
+-- notification_channel: کانال‌های پیام
+create table if not exists sm_notification_channels (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_notification_channels add column if not exists workspace_id uuid;
+alter table sm_notification_channels add column if not exists domain_id uuid;
+alter table sm_notification_channels add column if not exists unit_id uuid;
+alter table sm_notification_channels add column if not exists created_at timestamptz not null default now();
+alter table sm_notification_channels add column if not exists created_by uuid;
+alter table sm_notification_channels add column if not exists updated_at timestamptz not null default now();
+alter table sm_notification_channels add column if not exists updated_by uuid;
+alter table sm_notification_channels add column if not exists rev bigint not null default 0;
+alter table sm_notification_channels add column if not exists version integer not null default 1;
+alter table sm_notification_channels add column if not exists deleted_at timestamptz;
+alter table sm_notification_channels add column if not exists origin text;
+alter table sm_notification_channels add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_notification_channels add column if not exists name text;
+alter table sm_notification_channels add column if not exists kind text;
+alter table sm_notification_channels add column if not exists active boolean not null default true;
+alter table sm_notification_channels add column if not exists principal_id uuid;
+alter table sm_notification_channels add column if not exists endpoint text;
+alter table sm_notification_channels add column if not exists token text;
+alter table sm_notification_channels add column if not exists chat_id text;
+alter table sm_notification_channels add column if not exists sms_url text;
+alter table sm_notification_channels add column if not exists sms_method text;
+alter table sm_notification_channels add column if not exists sms_content_type text;
+alter table sm_notification_channels add column if not exists sms_sender text;
+alter table sm_notification_channels add column if not exists sms_body text;
+alter table sm_notification_channels add column if not exists sms_headers jsonb;
+alter table sm_notification_channels add column if not exists description text;
+create index if not exists sm_notification_channels_rev_idx on sm_notification_channels (org_id, rev);
+create index if not exists sm_notification_channels_upd_idx on sm_notification_channels (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_notification_channels_crt_idx on sm_notification_channels (org_id, created_at desc, id desc) where deleted_at is null;
+drop trigger if exists sm_notification_channels_sync on sm_notification_channels;
+create trigger sm_notification_channels_sync before insert or update on sm_notification_channels for each row execute function sm_sync_touch('notification_channel');
+alter table sm_notification_channels enable row level security;
+
+-- notification_pref: تنظیمات اعلان
+create table if not exists sm_notification_prefs (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_notification_prefs add column if not exists workspace_id uuid;
+alter table sm_notification_prefs add column if not exists domain_id uuid;
+alter table sm_notification_prefs add column if not exists unit_id uuid;
+alter table sm_notification_prefs add column if not exists created_at timestamptz not null default now();
+alter table sm_notification_prefs add column if not exists created_by uuid;
+alter table sm_notification_prefs add column if not exists updated_at timestamptz not null default now();
+alter table sm_notification_prefs add column if not exists updated_by uuid;
+alter table sm_notification_prefs add column if not exists rev bigint not null default 0;
+alter table sm_notification_prefs add column if not exists version integer not null default 1;
+alter table sm_notification_prefs add column if not exists deleted_at timestamptz;
+alter table sm_notification_prefs add column if not exists origin text;
+alter table sm_notification_prefs add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_notification_prefs add column if not exists user_id uuid;
+alter table sm_notification_prefs add column if not exists optouts jsonb;
+alter table sm_notification_prefs add column if not exists digest text;
+alter table sm_notification_prefs add column if not exists digest_hour integer;
+alter table sm_notification_prefs add column if not exists quiet_from text;
+alter table sm_notification_prefs add column if not exists quiet_to text;
+alter table sm_notification_prefs add column if not exists read_before timestamptz;
+create index if not exists sm_notification_prefs_rev_idx on sm_notification_prefs (org_id, rev);
+create index if not exists sm_notification_prefs_upd_idx on sm_notification_prefs (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_notification_prefs_crt_idx on sm_notification_prefs (org_id, created_at desc, id desc) where deleted_at is null;
+create unique index if not exists sm_notification_prefs_user_id_uk on sm_notification_prefs (org_id, user_id) where deleted_at is null;
+create index if not exists sm_notification_prefs_workspace_acc_idx on sm_notification_prefs (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_notification_prefs_unit_acc_idx on sm_notification_prefs (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_notification_prefs_domain_acc_idx on sm_notification_prefs (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_notification_prefs_user_id_idx on sm_notification_prefs (org_id, user_id) where deleted_at is null;
+drop trigger if exists sm_notification_prefs_sync on sm_notification_prefs;
+create trigger sm_notification_prefs_sync before insert or update on sm_notification_prefs for each row execute function sm_sync_touch('notification_pref');
+alter table sm_notification_prefs enable row level security;
+
+-- notification_rule: قانون‌های اعلان
+create table if not exists sm_notification_rules (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_notification_rules add column if not exists workspace_id uuid;
+alter table sm_notification_rules add column if not exists domain_id uuid;
+alter table sm_notification_rules add column if not exists unit_id uuid;
+alter table sm_notification_rules add column if not exists created_at timestamptz not null default now();
+alter table sm_notification_rules add column if not exists created_by uuid;
+alter table sm_notification_rules add column if not exists updated_at timestamptz not null default now();
+alter table sm_notification_rules add column if not exists updated_by uuid;
+alter table sm_notification_rules add column if not exists rev bigint not null default 0;
+alter table sm_notification_rules add column if not exists version integer not null default 1;
+alter table sm_notification_rules add column if not exists deleted_at timestamptz;
+alter table sm_notification_rules add column if not exists origin text;
+alter table sm_notification_rules add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_notification_rules add column if not exists name text;
+alter table sm_notification_rules add column if not exists active boolean not null default true;
+alter table sm_notification_rules add column if not exists mandatory boolean not null default false;
+alter table sm_notification_rules add column if not exists table_key text;
+alter table sm_notification_rules add column if not exists event text;
+alter table sm_notification_rules add column if not exists custom_event text;
+alter table sm_notification_rules add column if not exists entry_kinds jsonb;
+alter table sm_notification_rules add column if not exists condition jsonb;
+alter table sm_notification_rules add column if not exists recipients jsonb;
+alter table sm_notification_rules add column if not exists notify_actor boolean not null default false;
+alter table sm_notification_rules add column if not exists channels jsonb;
+alter table sm_notification_rules add column if not exists targets jsonb;
+alter table sm_notification_rules add column if not exists template_id uuid;
+alter table sm_notification_rules add column if not exists digest boolean not null default true;
+alter table sm_notification_rules add column if not exists builtin text;
+alter table sm_notification_rules add column if not exists description text;
+create index if not exists sm_notification_rules_rev_idx on sm_notification_rules (org_id, rev);
+create index if not exists sm_notification_rules_upd_idx on sm_notification_rules (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_notification_rules_crt_idx on sm_notification_rules (org_id, created_at desc, id desc) where deleted_at is null;
+create unique index if not exists sm_notification_rules_builtin_uk on sm_notification_rules (org_id, builtin) where deleted_at is null;
+drop trigger if exists sm_notification_rules_sync on sm_notification_rules;
+create trigger sm_notification_rules_sync before insert or update on sm_notification_rules for each row execute function sm_sync_touch('notification_rule');
+alter table sm_notification_rules enable row level security;
+
+-- notification_template: الگوهای اعلان
+create table if not exists sm_notification_templates (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_notification_templates add column if not exists workspace_id uuid;
+alter table sm_notification_templates add column if not exists domain_id uuid;
+alter table sm_notification_templates add column if not exists unit_id uuid;
+alter table sm_notification_templates add column if not exists created_at timestamptz not null default now();
+alter table sm_notification_templates add column if not exists created_by uuid;
+alter table sm_notification_templates add column if not exists updated_at timestamptz not null default now();
+alter table sm_notification_templates add column if not exists updated_by uuid;
+alter table sm_notification_templates add column if not exists rev bigint not null default 0;
+alter table sm_notification_templates add column if not exists version integer not null default 1;
+alter table sm_notification_templates add column if not exists deleted_at timestamptz;
+alter table sm_notification_templates add column if not exists origin text;
+alter table sm_notification_templates add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_notification_templates add column if not exists name text;
+alter table sm_notification_templates add column if not exists event text;
+alter table sm_notification_templates add column if not exists table_key text;
+alter table sm_notification_templates add column if not exists subject text;
+alter table sm_notification_templates add column if not exists body text;
+alter table sm_notification_templates add column if not exists short_text text;
+alter table sm_notification_templates add column if not exists active boolean not null default true;
+alter table sm_notification_templates add column if not exists description text;
+create index if not exists sm_notification_templates_rev_idx on sm_notification_templates (org_id, rev);
+create index if not exists sm_notification_templates_upd_idx on sm_notification_templates (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_notification_templates_crt_idx on sm_notification_templates (org_id, created_at desc, id desc) where deleted_at is null;
+drop trigger if exists sm_notification_templates_sync on sm_notification_templates;
+create trigger sm_notification_templates_sync before insert or update on sm_notification_templates for each row execute function sm_sync_touch('notification_template');
+alter table sm_notification_templates enable row level security;
 
 -- org_unit: واحدهای سازمانی
 create table if not exists sm_org_units (

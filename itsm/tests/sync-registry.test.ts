@@ -35,6 +35,10 @@ const LOCAL_ONLY: Record<string, string> = {
   sm_support_sessions: "super-admin support sessions (web version)",
   sm_security_events: "sign-in and security events",
   sm_org_admin: "platform status and limits of an organisation (web version)",
+  // the notification service (each runtime keeps what it delivered and received)
+  sm_notification_log: "notification deliveries (each runtime logs what it sent)",
+  sm_email_messages: "e-mails sent and received by this runtime (threading, loop protection)",
+  sm_notify_state: "background state of the notification service (IMAP folders)",
 };
 
 describe("sync registry covers every organisation table", () => {

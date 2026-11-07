@@ -138,22 +138,36 @@ async function storeBlob(q: Queryable, orgId: string, sha: string, data: Uint8Ar
 export async function addAttachment(ctx: Ctx, table: string, id: string, file: UploadFile): Promise<AttachmentView> {
   const { def } = await defFor(ctx, table);
   needAttachments(def);
+  checkUpload(ctx, file);
+  const env = await condEnv(ctx);
+  return ctx.write(async (tx) => {
+    const record = await requireReadable(ctx, def, id, env, tx);
+    return addAttachmentIn(tx, ctx, def, String(record.id), file);
+  });
+}
+
+function checkUpload(ctx: Ctx, file: UploadFile): void {
   const max = maxAttachmentBytes(ctx);
   if (file.data.byteLength > max) throw new AppError(413, "too_large", `حجم پیوست بیش از ${Math.round(max / 1024 / 1024).toLocaleString("fa-IR")} مگابایت است`);
   if (!file.data.byteLength) throw bad("فایل خالی است");
+}
+
+/**
+ * Attach a file inside the caller's transaction to a record the caller already checked (server code: e.g. the
+ * attachments of an e-mail that becomes a record, written together with it).
+ */
+export async function addAttachmentIn(tx: Queryable, ctx: Ctx, def: TableDef, recordId: string, file: UploadFile): Promise<AttachmentView> {
+  needAttachments(def);
+  checkUpload(ctx, file);
   const name = safeFileName(file.name);
   const mime = sniffMime(file.data, name);
   const sha = sha256Hex(file.data);
-  const env = await condEnv(ctx);
-  const row = await ctx.write(async (tx) => {
-    const record = await requireReadable(ctx, def, id, env, tx);
-    await storeBlob(tx, ctx.org.id, sha, file.data);
-    return tx.one<Row>(
-      `insert into sm_attachments (id, org_id, table_key, record_id, name, mime, size, sha256, uploaded_by, origin)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) returning *`,
-      [uuidv7(), ctx.org.id, def.key, record.id, name, mime, file.data.byteLength, sha, actorId(ctx), ctx.cfg.origin ?? null],
-    );
-  });
+  await storeBlob(tx, ctx.org.id, sha, file.data);
+  const row = await tx.one<Row>(
+    `insert into sm_attachments (id, org_id, table_key, record_id, name, mime, size, sha256, uploaded_by, origin)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) returning *`,
+    [uuidv7(), ctx.org.id, def.key, recordId, name, mime, file.data.byteLength, sha, actorId(ctx), ctx.cfg.origin ?? null],
+  );
   return view(row!);
 }
 

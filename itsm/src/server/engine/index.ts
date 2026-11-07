@@ -13,7 +13,7 @@ export type { HistoryEntry } from "./history";
 export { addLink, removeLink, listLinks } from "./links";
 export type { LinkView } from "./links";
 export { watch } from "./watchers";
-export { addAttachment, listAttachments, removeAttachment, readAttachment, safeFileName, sniffMime, contentDisposition, maxAttachmentBytes, PREVIEWABLE, DEFAULT_ATTACHMENT_MB } from "./attachments";
+export { addAttachment, addAttachmentIn, listAttachments, removeAttachment, readAttachment, safeFileName, sniffMime, contentDisposition, maxAttachmentBytes, PREVIEWABLE, DEFAULT_ATTACHMENT_MB } from "./attachments";
 export type { AttachmentView, UploadFile } from "./attachments";
 export { exportRows, importRows } from "./transfer";
 export type { ExportParams, ExportResult, ImportParams, ImportResult } from "./transfer";
