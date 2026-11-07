@@ -33,7 +33,8 @@ Contents: [1 Code](#1-code) · [2 Tables](#2-tables) · [3 The graph and its nod
 | `src/server/db/migrations/0011_flows.ts` | runtime tables `sm_flow_runs`, `sm_flow_run_steps`, `sm_flow_waits`, `sm_flow_loop_items`, `sm_flow_timers` |
 | `src/server/modules/flows/executor.ts` | `startRun`, `executeRun`, `resumeFlowWait`, `cancelRun`; job handlers `flows.run`, `flows.resume`, `flows.timer`, `flows.recheck` |
 | `src/server/modules/flows/nodes.ts`, `http.ts` | built-in step handlers |
-| `src/server/modules/flows/registry.ts` | `registerFlowStepHandler`, `registerFlowSkill`, `setFlowBusinessClock` |
+| `src/server/modules/flows/registry.ts` | `registerFlowStepHandler`, `builtinStepHandler`, `registerFlowSkill`, `setFlowBusinessClock` |
+| `src/server/modules/notify/flows.ts`, `src/server/modules/sla/flows.ts` | the services' «ارسال اعلان», «درخواست تأیید» and business clock (§8) |
 | `src/server/modules/flows/triggers.ts` | record-event triggers, condition re-checks, `startCatalogFlows`, `resolveRunAs` |
 | `src/server/modules/flows/scheduler.ts` | the `flows.scheduler` job: scheduled flows and `schedule` records |
 | `src/server/modules/flows/hooks.ts` | engine hooks and record meta of the four tables, `flowsGrant` |
@@ -102,8 +103,8 @@ node's `out`. Exactly one `trigger` node, no edges into it, **no cycles** (repet
 | `update_record` | out, error | `table` (default: trigger table), `record` (default `{{trigger.record.id}}`), `values` `{field: template}` | `id`, `record` |
 | `create_record` | out, error | `table`, `values` | `id`, `number`, `record` |
 | `add_comment` | out, error | `table`, `record`, `kind` (`work_note` \| `comment`), `body` | `entry_id` |
-| `notify` | out, error | `to` (recipients), `subject`, `body`, `table`, `record` | `recipients`, `sent` (+ the service's) |
-| `approval` | approved, rejected, error | `approvers` (recipients), `rule` (`any` \| `all`), `title`, `message`, `table`, `record` | `decision`, `by`, `comment` |
+| `notify` | out, error | `to` (recipients), `subject`, `body`, `table`, `record` | `recipients`, `sent`, `count`, `subject`, `body`, `record` |
+| `approval` | approved, rejected, error | `approvers` (recipients), `rule` (`any` \| `all` \| `count`), `threshold` (count), `title`, `message`, `table`, `record` | `approvers`, `approval_ids`, `round`; then `decision`, `by`, `comment`, `decisions` |
 | `wait_condition` | out, timeout | `table`, `record`, `condition`, `timeout` (duration), `poll` (minutes, default 60) | `matched`, `timed_out` |
 | `wait_duration` | out | `mode` (`duration` \| `until`), `duration` `{amount, unit}`, `business`, `until` (template) | `due_at` |
 | `branch` | yes, no | `mode` (`record`: `table`, `record`, `condition` \| `data`: `rules` `[{left, op, right}]`, `match` `all`\|`any`) | `result` |
@@ -237,31 +238,35 @@ interface WaitRequest { kind: string; key?: string | null; dueAt?: number | null
 ```
 
 The executor ships stand-ins for three node types; the services built next to it replace them by registering their own
-handler — the merge only adds the registration:
+handler when they are installed (`installNotify()`, `installSlaService()`; docs/spec/SERVICES.md).
+`builtinStepHandler(type)` still returns the engine's own handler: a service hands it what it cannot hold, and tests put
+it back with `registerFlowStepHandler(type, builtinStepHandler(type)!)` (`standIns()` in `tests/flows-helpers.ts`).
 
-- **Notifications** — `notify`. Stand-in: resolves the recipients and writes subject/body into the step log
-  (`output.sent: false`). A service handler reads `s.node.config.to` (`{ users, fields, groups }`; resolve with the
-  exported `recipients(s, spec)`), `subject`/`body` (`s.text(...)`), the record (`table`/`record` settings, default
-  `s.triggerRecord`), filters recipients with `readersOf` and renders as each one with `memberCtx`, and should be
-  `transactional: true` so its delivery jobs are queued with the step:
+- **Notifications** — `notify` (`src/server/modules/notify/flows.ts`, transactional). Recipients come from the flow's
+  helpers: `recipients(s, s.node.config.to)` (people and pills, user fields of the record read as the run's identity
+  inside `s.tx`) and `groupMembers(s, groups, ["member", "lead", "observer"])` (within their validity). The step calls
+  `notifyPeople(s.tx, orgId, { table, id, users, event: "custom", label: <flow name>, subject, body, channels:
+  ["in_app", "email"], actor: <the run's actor>, source: "گردش‌کار «…»" })`, so the delivery jobs commit with the step.
+  Subject and body are filled with the run's pills; the service renders and delivers to each person under their own
+  access when the job runs — a recipient who cannot read the record gets nothing (`no_access` in the delivery log),
+  preferences, digests and quiet hours apply. The record is the step's `table`/`record` (default the trigger record);
+  without one the step fails. The stand-in only writes the message into the step log (`sent: false`).
 
-  ```ts
-  registerFlowStepHandler("notify", {
-    transactional: true,
-    async run(s) {
-      const to = await recipients(s, s.node.config.to);
-      const sent = await queueNotifications(s.tx!, s.ctx, { to, subject: s.text(s.node.config.subject), body: s.text(s.node.config.body), record: s.triggerRecord });
-      return { output: { recipients: to.users, sent } };
-    },
-  });
-  ```
-
-- **Approvals** — `approval`. Stand-in: a built-in approval decided on the run's page (`POST /flows/waits/:id/decide`,
-  rules `any`/`all`). A service handler creates its approval rows in `s.tx` (`transactional: true`), returns
-  `{ wait: { kind: "approval", key: "approval:<id>" } }`, and when the decision is made calls, inside its own write
-  transaction, `resumeFlowWait(tx, orgId, "approval:<id>", { port: "approved" | "rejected", decision, by, comment })`;
-  `resume` maps the result to the port (or the default does: `result.port`); `cancel` withdraws open approvals when
-  the run is cancelled. Settings it reads: `approvers`, `rule`, `title`, `message`, `table`, `record`.
+- **Approvals** — `approval` (`src/server/modules/sla/flows.ts`, transactional). The step asks the approvals service
+  for an ad-hoc round of the record (`requestApprovalIn(s.tx, s.ctx, table, id, { users, groups, rule, threshold,
+  name: title, comment: message })` — one level, rule `any`/`all`/`count`, the people, user fields and groups of
+  `approvers`; separation of duties and delegation as for every request; the run's identity must be allowed to change
+  the record; a still-open ad-hoc request of the record is a 409, the error path). The approvers are told by the
+  notification service (`record.approval_requested`) and decide in «تأییدهای من». The step waits with key
+  `approval:<id>` (`roundKey`: the round's first row, the smallest id) and an hourly timer. The service wakes it:
+  subscribers of `record.approval_decided` and of the approval rows' `record.updated` (decisions applied from the
+  other runtime, withdrawals) compute the round's result (`roundResult`) and call `resumeFlowWait` →
+  `{ port: "approved" | "rejected", decision, by, comment, decisions }`; the hourly timer re-reads the round in case
+  a decision arrived without its event (rows pulled by the Windows app). A round withdrawn before its rule was met —
+  the record was resolved or closed, someone withdrew the request — fails the step (`error` port). Cancelling the run
+  withdraws its round (`cancelApprovals(…, { adhocRound })`). A run without a record keeps the stand-in: a built-in
+  approval decided on the run's page (`POST /flows/waits/:id/decide`, rules `any` — the first decision counts —,
+  `all`, `count`).
 
 - **AI skills** — `ai_skill` runs a skill the AI layer registers; without it the step does nothing (`skipped`):
 
@@ -270,8 +275,11 @@ handler — the merge only adds the registration:
     async run(s, inputs) { return { text: await summarize(s.ctx, String(inputs.text)) }; } });
   ```
 
-- **Business time** — `wait_duration` with `business: true` asks `setFlowBusinessClock({ add({ cfg, orgId, from, ms, calendarId }) })`
-  (the SLA calendar service); without a clock it counts calendar time and says so in the step log.
+- **Business time** — `wait_duration` with `business: true` asks `setFlowBusinessClock({ add({ cfg, orgId, from, ms, calendarId }) })`.
+  The SLA service's clock (`slaBusinessClock`) runs `addBusiness` on the organisation's default calendar (or the one
+  named): its working hours and the holidays of its sets — the Iranian official ones by default; no calendar: 24 × 7;
+  a calendar without working hours fails the step. Without a clock the step counts calendar time and says so in the
+  step log.
 - **Catalog** — `startCatalogFlows(q, orgId, order)` (§4).
 
 `GET /flows/catalog` tells the designer which services are installed (`services.notify`, `services.approval`,
@@ -389,7 +397,10 @@ notify/AI handlers), `tests/flows-http.test.ts` (allow-list, auth from secrets n
 timeouts, the SSRF guard), `tests/flows-schedule.test.ts` (recurring records with Jalali pills, scheduled flows, once
 per occurrence, re-planning, errors, the scheduler job, linked Windows apps), `tests/flows-api.test.ts` (publishing,
 immutable versions, run-as rules, run visibility and data redaction, manual runs, webhooks, catalog),
-`tests/flows-ui.test.ts` (the designer's model). Helpers: `tests/flows-helpers.ts`.
+`tests/flows-ui.test.ts` (the designer's model), `tests/flows-services.test.ts` (the services' notify and approval
+handlers and business clock: delivery under each recipient's access, count/all/group approvals resumed by decisions,
+withdrawals, canceled runs, the hourly re-check, the stand-in for runs without a record, Nowruz in working time).
+Helpers: `tests/flows-helpers.ts` (`standIns()` for the executor's suite).
 
 ## 16. Not built yet
 

@@ -271,8 +271,13 @@ export async function decideWait(ctx: Ctx, waitId: string, input: { decision: "a
     const comment = String(input.comment ?? "").trim().slice(0, 2000);
     decisions.push({ by: ctx.user.id, decision, comment, at: new Date().toISOString() });
     const approved = decisions.filter((d) => d.decision === "approved").length;
+    const rejected = decisions.length - approved;
+    // «count»: `threshold` approvals approve; rejected once they can no longer be reached
+    const need = Math.min(Math.max(1, Math.trunc(Number(w.data?.threshold) || 1)), approvers.length);
     const final: "approved" | "rejected" | null =
-      w.data?.rule === "all" ? (decision === "rejected" ? "rejected" : approved >= approvers.length ? "approved" : null) : decision;
+      w.data?.rule === "all" ? (decision === "rejected" ? "rejected" : approved >= approvers.length ? "approved" : null)
+      : w.data?.rule === "count" ? (approved >= need ? "approved" : approvers.length - rejected < need ? "rejected" : null)
+      : decision;
     await tx.query(`update sm_flow_waits set data = $2::jsonb where id = $1`, [w.id, JSON.stringify({ ...w.data, decisions })]);
     if (final) await resumeFlowWait(tx, ctx.org.id, String(w.key), { decision: final, port: final, by: ctx.user.id, comment, decisions });
     return { ok: true as const, final };

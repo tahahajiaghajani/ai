@@ -298,7 +298,7 @@ All under `/api/o/:org`. Configuration itself goes through the generic engine AP
 | `POST /approvals/:id/decide` | `{ decision: "approved"|"rejected", comment? }` (a rejection needs a comment) | `{ approval, aggregate }`; 409 when not open or not yet its turn, 403 by separation of duties, 404 when not the caller's |
 | `POST /approvals/decide` | `{ ids: uuid[] ≤ 200, decision, comment? }` | `{ done, failed: [{ id, message }] }` (each decided on its own) |
 | `GET /approvals/record/:table/:id` | | `{ approvals: ApprovalView[], display, aggregate, can_request }` (the record must be readable) |
-| `POST /approvals/record/:table/:id/request` | `{ users?, groups?, rule?, threshold?, comment?, expire_hours? }` | `{ approvals, aggregate }`; 409 while an ad-hoc request is open (write access to the record) |
+| `POST /approvals/record/:table/:id/request` | `{ users?, groups?, rule?, threshold?, comment?, expire_hours? }` | `{ approvals, aggregate, round }`; 409 while an ad-hoc request is open (write access to the record) |
 | `POST /approvals/record/:table/:id/cancel` | | `{ canceled, aggregate }` — withdraws every open approval |
 | `GET /rules/ui-policies/:table` | | `{ policies: UiPolicy[] }` (read access to the table) |
 
@@ -351,6 +351,11 @@ setOnCallResolver(async (q, ctx, groupId, at) => userId ?? null);               
   tables that have it.
 - Notifications and flows react to `record.sla_warning`, `record.sla_breach`, `record.approval_requested` and
   `record.approval_decided` with `onRecordEvent`.
+- Flows (`src/server/modules/sla/flows.ts`, installed by `installSlaService()`): the flow step «درخواست تأیید» asks
+  for an ad-hoc round with `requestApprovalIn` (inside the step's transaction; rule any / all / count) and is woken
+  by the round's decision (`record.approval_decided`, the rows' `record.updated`) through `resumeFlowWait`; a canceled
+  run withdraws its round (`cancelApprovals(ctx, table, id, { adhocRound })`). «انتظار زمانی» «به وقت کاری» counts
+  working time with `slaBusinessClock` (`addBusiness` on the default calendar). docs/spec/services/flows.md §8.
 
 ## 9. Testing
 

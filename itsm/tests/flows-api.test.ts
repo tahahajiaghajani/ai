@@ -149,7 +149,8 @@ describe("flows API", () => {
 
   it("describes the installed services and skills for the designer", async () => {
     const c = await o.owner.get(`${k.P}/flows/catalog`);
-    expect(c.services).toEqual({ notify: false, approval: false, ai_skill: false });
+    // the notification and approvals services plug in with the app (docs/spec/SERVICES.md); no AI skill yet
+    expect(c.services).toEqual({ notify: true, approval: true, ai_skill: false });
     expect(c.limits.steps).toBe(1000);
   });
 });

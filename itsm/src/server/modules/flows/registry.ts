@@ -109,6 +109,7 @@ export interface WaitCancel {
 
 const handlers = new Map<string, FlowStepHandler>();
 const builtins = new WeakSet<FlowStepHandler>();
+const standIns = new Map<string, FlowStepHandler>();
 
 /** Implement a node type (a later registration replaces the earlier one). Returns an unregister function. */
 export function registerFlowStepHandler(type: string, handler: FlowStepHandler): () => void {
@@ -124,7 +125,16 @@ export function registerFlowStepHandler(type: string, handler: FlowStepHandler):
 /** The flow engine's own implementation of a node type (a service may replace it). */
 export function registerBuiltinStepHandler(type: string, handler: FlowStepHandler): () => void {
   builtins.add(handler);
+  standIns.set(type, handler);
   return registerFlowStepHandler(type, handler);
+}
+
+/**
+ * The engine's own handler of a node type, also once a service replaced it: a service hands it what it cannot hold
+ * (an approval without a record), tests put it back with `registerFlowStepHandler(type, builtinStepHandler(type)!)`.
+ */
+export function builtinStepHandler(type: string): FlowStepHandler | undefined {
+  return standIns.get(type);
 }
 
 export function stepHandler(type: string): FlowStepHandler | undefined {

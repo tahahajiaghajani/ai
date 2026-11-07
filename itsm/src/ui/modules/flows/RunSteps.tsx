@@ -117,7 +117,7 @@ export function RunSteps({ detail }: { detail: FlowRunDetail }) {
         <Note key={w.id} tone="warning">
           <div>
             {w.kind === "approval" ? `در انتظار تأیید: ${String(w.data?.title ?? "")}` : w.kind === "timer" ? "در انتظار زمان" : w.kind === "condition" ? "در انتظار برقرار شدن شرط" : w.kind === "subflow" ? "در انتظار پایان زیرگردش‌کار" : "در انتظار"}
-            {w.due_at ? ` — تا ${formatJalaliDateTime(w.due_at)}` : ""}
+            {w.due_at && w.kind !== "approval" ? ` — تا ${formatJalaliDateTime(w.due_at)}` : ""}
           </div>
           {w.can_decide ? <Decide waitId={w.id} /> : null}
         </Note>

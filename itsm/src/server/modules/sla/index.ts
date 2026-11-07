@@ -13,6 +13,7 @@ import { installSlaEngine } from "./sla";
 import { installApprovals } from "./approvals";
 import { installRules } from "./rules";
 import { installPolicies } from "./policies";
+import { installSlaFlowSteps } from "./flows";
 
 let installed = false;
 
@@ -32,13 +33,16 @@ export function installSlaService(): void {
   approvals.rest();
   sla.rest();
   registerOrgSeed((tx, orgId) => queueSeed(tx, orgId));
+  // flows' «درخواست تأیید» and «به وقت کاری» (docs/spec/SERVICES.md)
+  installSlaFlowSteps();
 }
 
 export { seedCalendars, seedCalendarsIn, holidaysBetween, calendarFor, SEED_DELAY_MS } from "./calendars";
 export { fireTimer, recordTimers, slaTimeline, schedule as scheduleSlaTimer } from "./sla";
 export {
-  decide, decideMany, myApprovals, myApprovalCount, recordApprovals, requestApproval, cancelApprovals, activeDelegations, delegateOf, delegatorsOf, managerOf, registerApproverSource, approverSources,
+  decide, decideMany, myApprovals, myApprovalCount, recordApprovals, requestApproval, requestApprovalIn, cancelApprovals, activeDelegations, delegateOf, delegatorsOf, managerOf, registerApproverSource, approverSources,
 } from "./approvals";
 export { registerPriorityDefault, setOnCallResolver, MAX_RULE_DEPTH } from "./rules";
 export { uiPolicies, policiesOf } from "./policies";
 export { config as slaConfig, forgetConfig } from "./common";
+export { approvalStep, slaBusinessClock, roundKey, roundResult, installSlaFlowSteps } from "./flows";

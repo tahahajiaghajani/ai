@@ -17,13 +17,13 @@ export function installFlows(): void {
   installTriggers();
 }
 
-export { registerFlowStepHandler, registerFlowSkill, setFlowBusinessClock, serviceInstalled, stepHandler, flowSkills } from "./registry";
+export { registerFlowStepHandler, registerFlowSkill, setFlowBusinessClock, serviceInstalled, stepHandler, builtinStepHandler, flowSkills } from "./registry";
 export type { StepContext, StepOutcome, WaitRequest, WaitInfo, WaitCancel, FlowStepHandler, FlowSkill, BusinessClock } from "./registry";
 export { startRun, executeRun, resumeFlowWait, cancelRun, RunAborted } from "./executor";
 export type { StartInput, TriggerData, ExecuteOptions } from "./executor";
 export { startCatalogFlows, startRecordFlows, resolveRunAs, activeFlows } from "./triggers";
 export { runScheduler, ensureScheduler, cleanupRuns } from "./scheduler";
-export { recipients, durationMs } from "./nodes";
+export { recipients, recipientUsers, groupMembers, aboutRecord, durationMs } from "./nodes";
 export { hostAllowed, requestUrl } from "./http";
 export { flowsGrant } from "./hooks";
 export * from "./service";

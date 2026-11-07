@@ -270,6 +270,10 @@ export function validateGraph(input: unknown, vctx: ValidateContext = {}): FlowP
       if (!Number.isInteger(limit) || limit < 1 || limit > FLOW_LIMITS.items) add("error", `حداکثر تعداد باید میان ۱ و ${FLOW_LIMITS.items} باشد`, "limit");
       if (!outs.some((e) => e.port === "each")) add("warning", "خروجی «هر مورد» به گامی وصل نیست");
     }
+    if (n.type === "approval" && n.config.rule === "count") {
+      const t = Number(n.config.threshold ?? 2);
+      if (!Number.isInteger(t) || t < 1 || t > 500) add("error", "تعداد تأیید لازم باید عددی میان ۱ و ۵۰۰ باشد", "threshold");
+    }
     if (n.type === "wait_duration") {
       if ((n.config.mode ?? "duration") === "duration" && isEmpty(n.config.duration)) add("error", "مدت انتظار را وارد کنید", "duration");
     }

@@ -13,6 +13,7 @@ import { dispatchEvent, registerDeliveryJobs, scheduleCleanup } from "./deliver"
 import { ensurePoller, registerInboundJobs } from "./inbound";
 import { invalidateRules, ruleProblems, templateProblem } from "./rules";
 import { channelProblems } from "./channels";
+import { installNotifyFlowStep } from "./flows";
 
 export { dispatchEvent, notifyPeople, prefsOf, type DirectNotify, type SendPayload } from "./deliver";
 export { registerOnCallSource, type OnCallSource } from "./recipients";
@@ -22,6 +23,7 @@ export { renderFor, type EventSnap, type Rendered } from "./render";
 export { BUILTINS, candidateRules, invalidateRules } from "./rules";
 export { outsideRequest, smsRequest } from "./channels";
 export { actsHere } from "./common";
+export { notifyStep, installNotifyFlowStep } from "./flows";
 
 /** The record-event subscriber: service tables keep their caches and pollers; every other event may notify. */
 async function onEvent(e: RecordEvent, jctx: JobContext): Promise<void> {
@@ -49,6 +51,8 @@ export function installNotify(): void {
   onRecordEvent("notify", onEvent);
   registerDeliveryJobs();
   registerInboundJobs();
+  // flows' «ارسال اعلان» (docs/spec/SERVICES.md)
+  installNotifyFlowStep();
 
   registerHooks("notification_rule", {
     beforeWrite(w) {

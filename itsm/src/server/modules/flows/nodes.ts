@@ -8,7 +8,7 @@ import { addJournalIn, condEnv, createIn, defFor, requireReadable, updateIn } fr
 import { FLOW_LIMITS, compareData, nodeTable, type TriggerConfig } from "@shared/flows";
 import { faDigits } from "@shared/format";
 import { businessClock, flowSkill, registerBuiltinStepHandler, type StepContext, type StepOutcome, type WaitInfo } from "./registry";
-import { matchesRecord, parseInstant, readRecord, recordIdOf, storedOutput } from "./records";
+import { matchesRecord, parseInstant, readRecord, readRecordIn, recordIdOf, storedOutput } from "./records";
 import { startRun } from "./executor";
 import { loadVersion } from "./store";
 import { resolveRunAs } from "./triggers";
@@ -63,7 +63,7 @@ const ids = (v: unknown): string[] => {
 
 /**
  * People and groups of a «گیرندگان» / «تأییدکنندگان» setting: members (ids or pills), user fields of the record the
- * step is about (read as the run's identity), groups (ids or pills).
+ * step is about (read as the run's identity, inside `s.tx` for a transactional step), groups (ids or pills).
  */
 export async function recipients(s: StepContext, spec: unknown): Promise<{ users: string[]; groups: string[] }> {
   const r = (spec && typeof spec === "object" ? spec : {}) as { users?: unknown[]; fields?: unknown[]; groups?: unknown[] };
@@ -72,14 +72,34 @@ export async function recipients(s: StepContext, spec: unknown): Promise<{ users
   const fields = (r.fields ?? []).map((f) => String(f)).filter(Boolean);
   if (fields.length) {
     const t = target(s);
-    const rec = await readRecord(s.ctx, t.table, t.id);
+    const rec = s.tx ? await readRecordIn(s.tx, s.ctx, t.table, t.id) : await readRecord(s.ctx, t.table, t.id);
     for (const f of fields) for (const id of ids(rec[f])) if (!users.includes(id)) users.push(id);
   }
   return { users, groups };
 }
 
+/**
+ * Members of groups within their validity (`kinds`: their role in the group; default members and leads), read
+ * through `s.tx` when the step has one.
+ */
+export async function groupMembers(s: StepContext, groups: string[], kinds: readonly string[] = ["member", "lead"]): Promise<string[]> {
+  if (!groups.length) return [];
+  const rows = await (s.tx ?? s.cfg.db).query<{ user_id: string }>(
+    `select distinct user_id from sm_group_members where org_id = $1 and group_id = any($2::uuid[]) and deleted_at is null
+       and coalesce(kind, 'member') = any($3::text[]) and (valid_from is null or valid_from <= now()) and (valid_to is null or valid_to > now())`,
+    [s.orgId, pgArray(groups), pgArray([...kinds])],
+  );
+  return rows.map((r) => r.user_id);
+}
+
+/** Everyone a recipients setting names: its members, the people in its user fields and the members of its groups. */
+export async function recipientUsers(s: StepContext, spec: unknown, kinds?: readonly string[]): Promise<string[]> {
+  const r = await recipients(s, spec);
+  return [...new Set([...r.users, ...(await groupMembers(s, r.groups, kinds))])];
+}
+
 /** The record a notification or an approval is about (null when the step names none and the run has none). */
-function aboutRecord(s: StepContext): { table: string; id: string } | null {
+export function aboutRecord(s: StepContext): { table: string; id: string } | null {
   try {
     return target(s);
   } catch {
@@ -245,32 +265,24 @@ registerBuiltinStepHandler("notify", {
   },
 });
 
-/** Members of groups (members and leads) — approvers of the built-in approval. */
-async function groupMembers(s: StepContext, groups: string[]): Promise<string[]> {
-  if (!groups.length) return [];
-  const rows = await s.cfg.db.query<{ user_id: string }>(
-    `select distinct user_id from sm_group_members where org_id = $1 and group_id = any($2::uuid[]) and deleted_at is null and coalesce(kind, 'member') in ('member', 'lead')`,
-    [s.orgId, pgArray(groups)],
-  );
-  return rows.map((r) => r.user_id);
-}
-
 /**
- * «درخواست تأیید» until the approvals service registers its handler: a built-in approval the approvers decide on the
- * run's page (POST /flows/waits/:id/decide). Rule «any»: the first decision counts; «all»: every approver must
- * approve, one rejection rejects.
+ * «درخواست تأیید» until the approvals service registers its handler (and, with it, for runs without a record): a
+ * built-in approval the approvers decide on the run's page (POST /flows/waits/:id/decide). Rule «any»: the first
+ * decision counts; «all»: every approver must approve, one rejection rejects; «count»: `threshold` approvals approve,
+ * and it is rejected once they can no longer be reached.
  */
 registerBuiltinStepHandler("approval", {
   async run(s) {
-    const r = await recipients(s, s.node.config.approvers);
-    const approvers = [...new Set([...r.users, ...(await groupMembers(s, r.groups))])];
+    const approvers = await recipientUsers(s, s.node.config.approvers);
     if (!approvers.length) return { error: "تأییدکننده‌ای پیدا نشد" };
     const title = s.text(s.node.config.title).slice(0, 300) || "درخواست تأیید";
+    const rule = s.node.config.rule === "all" || s.node.config.rule === "count" ? s.node.config.rule : "any";
+    const threshold = rule === "count" ? Math.min(Math.max(1, Math.trunc(Number(s.node.config.threshold ?? 2)) || 1), approvers.length) : null;
     return {
       wait: {
         kind: "approval",
         key: `approval:flow:${s.run.id}:${s.stepKey}`,
-        data: { approvers, rule: s.node.config.rule === "all" ? "all" : "any", title, message: s.text(s.node.config.message).slice(0, 4000), record: aboutRecord(s), decisions: [] },
+        data: { approvers, rule, threshold, title, message: s.text(s.node.config.message).slice(0, 4000), record: aboutRecord(s), decisions: [] },
       },
       output: { approvers },
     };

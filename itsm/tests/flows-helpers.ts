@@ -1,6 +1,7 @@
 // Helpers of the flows suites (tests/flows-*.test.ts): graphs in a few characters, flows created, published and
 // activated through the API, the job queue drained, timers made due.
 import { tick } from "@server/jobs";
+import { builtinStepHandler, registerFlowStepHandler, setFlowBusinessClock } from "@server/modules/flows";
 import type { EngineOrg } from "./engine-helpers";
 import type { Client } from "./helpers";
 import type { FlowEdge, FlowGraph, FlowNode, NodeType } from "@shared/flows";
@@ -77,3 +78,18 @@ export function flowsKit(o: EngineOrg): FlowsKit {
 
 /** Steps of a run as "node:status[:port]". */
 export const trail = (d: { steps: { node_id: string; status: string; port: string | null }[] }) => d.steps.map((s) => `${s.node_id}:${s.status}${s.port ? `:${s.port}` : ""}`);
+
+/**
+ * The flow engine's own «ارسال اعلان» and «درخواست تأیید» and no business clock — what the executor's suites test; the
+ * notification and SLA services install theirs with the app. Returns a function putting the services back.
+ */
+export function standIns(): () => void {
+  const offs = [
+    registerFlowStepHandler("notify", builtinStepHandler("notify")!),
+    registerFlowStepHandler("approval", builtinStepHandler("approval")!),
+    setFlowBusinessClock(null),
+  ];
+  return () => {
+    for (const off of offs.reverse()) off();
+  };
+}

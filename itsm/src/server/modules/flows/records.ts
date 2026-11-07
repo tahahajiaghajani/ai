@@ -9,7 +9,7 @@ import { refTarget } from "@shared/model/types";
 import { formatJalali, formatJalaliDateTime } from "@shared/jalali";
 import { zonedMidnight } from "@shared/model/jalali-buckets";
 import { FLOW_LIMITS, nodeTable } from "@shared/flows";
-import { RefSet, condEnv, defFor, get, labelOf, list, orgTz, parseDate, parseDateTime, resolveDisplay, toOutput, type OrgSchema } from "../../engine";
+import { RefSet, condEnv, defFor, get, labelOf, list, orgTz, parseDate, parseDateTime, requireReadable, resolveDisplay, toOutput, type OrgSchema } from "../../engine";
 import { access } from "../../access/provider";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -35,6 +35,13 @@ export async function readRecord(ctx: Ctx, table: string, id: string): Promise<R
   const r = await get(ctx, table, id);
   const { def, schema } = await defFor(ctx, table);
   return { ...r.row, $labels: labelsFor(def, r.row, r.display, schema, orgTz(ctx)) };
+}
+
+/** `readRecord` inside a transaction (a transactional step must not read around its own `s.tx`). */
+export async function readRecordIn(q: Queryable, ctx: Ctx, table: string, id: string): Promise<Record<string, unknown>> {
+  const { def } = await defFor(ctx, table, q);
+  const row = await requireReadable(ctx, def, id, await condEnv(ctx), q);
+  return storedOutput(q, ctx, table, row);
 }
 
 /** A row a write just stored, as `ctx` may see it (inside the write's transaction). */

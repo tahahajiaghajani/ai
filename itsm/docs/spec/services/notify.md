@@ -215,6 +215,10 @@ await notifyPeople(tx, orgId, { table: "incident", id, users: [a, b], event: "cu
 const off = registerOnCallSource(async (q, orgId, groupId, at) => ["<user uuid>"]);
 ```
 
+Flows: the service registers the flow step «ارسال اعلان» (`src/server/modules/notify/flows.ts`, installed by
+`installNotify()`): it resolves the step's recipients with the flow's helpers and calls `notifyPeople` inside the step's
+transaction (docs/spec/services/flows.md §8, docs/spec/SERVICES.md).
+
 Raising events: SLA and approvals emit `record.sla_warning`/`record.sla_breached`/`record.approval_requested`/
 `record.approval_decided` with `data.users`/`data.approvers`; anything else emits `record.<name>` and a `custom` rule
 names it. Do not call channels yourself — queue through the service so access, preferences and the log apply.

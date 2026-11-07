@@ -20,7 +20,7 @@ import { access } from "../../access/provider";
 import { registerParticipantSource } from "../../access/predicate";
 import { enqueue, registerJobHandler } from "../../jobs";
 import {
-  addJournalIn, condEnv, createIn, defFor, emitEvent, isSystemCtx, loadReadable, orgSchema, RefSet, registerHooks, requireReadable, resolveDisplay,
+  actorId, addJournalIn, condEnv, createIn, defFor, emitEvent, isSystemCtx, loadReadable, orgSchema, RefSet, registerHooks, requireReadable, resolveDisplay,
   systemCtx, updateIn, validationError, type WriteArgs,
 } from "../../engine";
 import { config, eqAll, holds, liveRow, liveRows, ownTable, recordTitle, rulesFor, systemFrom, withWalks, type Row } from "./common";
@@ -504,44 +504,64 @@ export interface RequestInput {
   comment?: string | null;
   /** hours until the request expires (rejected) */
   expire_hours?: number | null;
+  /** what is asked (the level's name: a flow step's title) */
+  name?: string | null;
 }
 
 /** «درخواست تأیید» on a record the caller may change: one level of the people and groups named. */
-export async function requestApproval(ctx: Ctx, table: string, id: string, input: RequestInput): Promise<{ approvals: Row[]; aggregate: string }> {
+export async function requestApproval(ctx: Ctx, table: string, id: string, input: RequestInput): Promise<{ approvals: Row[]; aggregate: string; round: number }> {
   const { def } = await defFor(ctx, table);
+  requestLevel(def, input);
+  return ctx.write((tx) => requestApprovalIn(tx, ctx, def.key, id, input));
+}
+
+function requestLevel(def: TableDef, input: RequestInput): LevelDef {
   if (ownTable(def.key) || def.virtual) throw bad("این جدول تأیید ندارد");
-  const level: LevelDef = { sources: [], rule: input.rule ?? "any", threshold: input.threshold ?? undefined };
+  const name = typeof input.name === "string" ? input.name.trim().slice(0, 120) : "";
+  const level: LevelDef = { ...(name ? { name } : {}), sources: [], rule: input.rule ?? "any", threshold: input.threshold ?? undefined };
   if (input.users?.length) level.sources.push({ kind: "users", users: input.users });
   if (input.groups?.length) level.sources.push({ kind: "groups", groups: input.groups });
   const problem = levelsProblem([level], (n) => def.fields.find((f) => f.name === n)?.type);
   if (problem) throw validationError({ users: problem });
-  return ctx.write(async (tx) => {
-    const env = await condEnv(ctx);
-    const record = await requireReadable(ctx, def, id, env, tx, { lock: true });
-    if (!isSystemCtx(ctx) && (!access().canWrite(ctx, def, record) || record.$writable === false)) throw forbidden(`اجازهٔ تغییر این ${def.label} را ندارید`);
-    const sys = systemFrom(ctx);
-    const existing = await liveRows(tx, sys, "approval", eqAll({ table_key: def.key, record_id: id }), "t.round, t.level, t.id");
-    const adhoc = existing.filter((r) => !r.rule_id);
-    if (adhoc.some((r) => OPEN.has(r.state))) throw new AppError(409, "conflict", "درخواست تأیید پیشین این رکورد هنوز باز است");
-    const round = Math.max(0, ...adhoc.map((r) => Number(r.round) || 1)) + 1;
-    const now = Date.now();
-    const expire = Number(input.expire_hours) > 0 ? Math.round(Number(input.expire_hours) * 3600) : null;
-    const spec: RuleSpec = { id: null, name: "درخواست موردی", mode: "sequential", levels: [level], allowSelf: false, expireAfter: expire, comment: input.comment?.trim().slice(0, 4000) || null };
-    const rows = await roundRows(tx, systemFrom(ctx, ctx.user.id), def, record, spec, round, now, { requestedBy: ctx.user.id, managerFallback: false });
-    if (rows.every((r) => r.state === "skipped")) throw validationError({ users: "هیچ‌یک از افراد نام‌برده نمی‌توانند این رکورد را تأیید کنند" });
-    const snap = { record_number: def.numbered ? (record.number ?? null) : null, record_title: recordTitle(record, def.display) };
-    const created: Row[] = [];
-    for (const r of rows) created.push(await createIn(tx, sys, "approval", { ...r, ...snap }, { trusted: true }));
-    const agg = aggregate([...existing, ...created] as never[]);
-    if (def.fields.some((f) => f.name === "approval") && record.approval !== agg) await updateIn(tx, sys, def.key, id, { approval: agg }, { trusted: true });
-    await announceRequested(tx, sys, def, record, created.filter((r) => r.state === "requested"), { adhoc: true });
-    if (expire) await scheduleApprovals(tx, ctx.org.id, def.key, id, now + expire * 1000);
-    return { approvals: created, aggregate: agg };
-  });
+  return level;
 }
 
-/** Withdraw the open approvals of a record (its people changed their mind): the round ends as canceled. */
-export async function cancelApprovals(ctx: Ctx, table: string, id: string): Promise<{ canceled: number; aggregate: string }> {
+/**
+ * `requestApproval` inside the caller's write transaction (a flow's «درخواست تأیید» step: its approvals commit with
+ * the step). The request is an ad-hoc round (`rule_id` null) of the record; its rows are returned with the round.
+ */
+export async function requestApprovalIn(tx: Tx, ctx: Ctx, table: string, id: string, input: RequestInput): Promise<{ approvals: Row[]; aggregate: string; round: number }> {
+  const { def } = await defFor(ctx, table, tx);
+  const level = requestLevel(def, input);
+  const env = await condEnv(ctx);
+  const record = await requireReadable(ctx, def, id, env, tx, { lock: true });
+  if (!isSystemCtx(ctx) && (!access().canWrite(ctx, def, record) || record.$writable === false)) throw forbidden(`اجازهٔ تغییر این ${def.label} را ندارید`);
+  const sys = systemFrom(ctx);
+  const existing = await liveRows(tx, sys, "approval", eqAll({ table_key: def.key, record_id: id }), "t.round, t.level, t.id");
+  const adhoc = existing.filter((r) => !r.rule_id);
+  if (adhoc.some((r) => OPEN.has(r.state))) throw new AppError(409, "conflict", "درخواست تأیید پیشین این رکورد هنوز باز است");
+  const round = Math.max(0, ...adhoc.map((r) => Number(r.round) || 1)) + 1;
+  const now = Date.now();
+  const expire = Number(input.expire_hours) > 0 ? Math.round(Number(input.expire_hours) * 3600) : null;
+  const spec: RuleSpec = { id: null, name: "درخواست موردی", mode: "sequential", levels: [level], allowSelf: false, expireAfter: expire, comment: input.comment?.trim().slice(0, 4000) || null };
+  const requestedBy = actorId(ctx);
+  const rows = await roundRows(tx, systemFrom(ctx, requestedBy), def, record, spec, round, now, { requestedBy, managerFallback: false });
+  if (rows.every((r) => r.state === "skipped")) throw validationError({ users: "هیچ‌یک از افراد نام‌برده نمی‌توانند این رکورد را تأیید کنند" });
+  const snap = { record_number: def.numbered ? (record.number ?? null) : null, record_title: recordTitle(record, def.display) };
+  const created: Row[] = [];
+  for (const r of rows) created.push(await createIn(tx, sys, "approval", { ...r, ...snap }, { trusted: true }));
+  const agg = aggregate([...existing, ...created] as never[]);
+  if (def.fields.some((f) => f.name === "approval") && record.approval !== agg) await updateIn(tx, sys, def.key, id, { approval: agg }, { trusted: true });
+  await announceRequested(tx, sys, def, record, created.filter((r) => r.state === "requested"), { adhoc: true });
+  if (expire) await scheduleApprovals(tx, ctx.org.id, def.key, id, now + expire * 1000);
+  return { approvals: created, aggregate: agg, round };
+}
+
+/**
+ * Withdraw the open approvals of a record (its people changed their mind): the round ends as canceled. `adhocRound`
+ * withdraws only that ad-hoc round (the flow that asked for it ended).
+ */
+export async function cancelApprovals(ctx: Ctx, table: string, id: string, opts: { adhocRound?: number } = {}): Promise<{ canceled: number; aggregate: string }> {
   const { def } = await defFor(ctx, table);
   return ctx.write(async (tx) => {
     const env = await condEnv(ctx);
@@ -549,9 +569,10 @@ export async function cancelApprovals(ctx: Ctx, table: string, id: string): Prom
     if (!isSystemCtx(ctx) && (!access().canWrite(ctx, def, record) || record.$writable === false)) throw forbidden(`اجازهٔ تغییر این ${def.label} را ندارید`);
     const sys = systemFrom(ctx);
     const rows = await liveRows(tx, sys, "approval", eqAll({ table_key: def.key, record_id: id }), "t.round, t.level, t.id");
+    const mine = (r: Row) => opts.adhocRound === undefined || (!r.rule_id && Number(r.round) === opts.adhocRound);
     let canceled = 0;
-    for (const r of rows) if (OPEN.has(r.state)) {
-      await updateIn(tx, sys, "approval", r.id, { state: "canceled", decided_at: iso(Date.now()), decided_by: ctx.user.id }, { trusted: true });
+    for (const r of rows) if (OPEN.has(r.state) && mine(r)) {
+      await updateIn(tx, sys, "approval", r.id, { state: "canceled", decided_at: iso(Date.now()), decided_by: actorId(ctx) }, { trusted: true });
       r.state = "canceled";
       canceled++;
     }

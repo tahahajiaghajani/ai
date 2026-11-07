@@ -2,9 +2,9 @@
 // record events, results), approvals inside flows (the built-in stand-in and a registered approvals service),
 // error paths, subflows, the endless-loop and endless-chain guards, the run identity, versions kept by running runs,
 // cancelling, and the step registry the notification / AI services plug into.
-import { describe, it, expect, beforeAll, afterEach } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
 import { engineOrg, type EngineOrg } from "./engine-helpers";
-import { E, N, flowsKit, graph, line, trail, type FlowsKit } from "./flows-helpers";
+import { E, N, flowsKit, graph, line, standIns, trail, type FlowsKit } from "./flows-helpers";
 import { registerFlowSkill, registerFlowStepHandler, resumeFlowWait, setFlowBusinessClock } from "@server/modules/flows";
 
 describe("flow executor", () => {
@@ -14,10 +14,14 @@ describe("flow executor", () => {
   afterEach(() => {
     while (offs.length) offs.pop()!();
   });
+  // the engine's stand-ins (the services' own handlers are tested in flows-services.test.ts)
+  let services = () => {};
   beforeAll(async () => {
     o = await engineOrg();
     k = flowsKit(o);
+    services = standIns();
   });
+  afterAll(() => services());
   const test = async (flow: string, rec?: { id: string }, extra: Record<string, unknown> = {}) =>
     (await o.owner.post(`${k.P}/flows/${flow}/test`, { ...(rec ? { table: "todo", record_id: rec.id } : {}), ...extra })).run.id as string;
   const settle = async (runId: string) => {
