@@ -406,6 +406,12 @@ transitions with `roles` need that area level. The ITSM access model (org tree, 
 separation) replaces it with `setAccessProvider` and calls `bumpScopeEpoch(tx, orgId, userId)` whenever what a
 member may read changes (groups, units, roles).
 
+The ITSM model (`docs/spec/ACCESS.md`) is installed for every server. Its provider implements the optional
+`prepare(ctx, q)`, which `orgSchema` awaits first on every entry point (with the request's transaction when there
+is one), so the synchronous methods find the caller's subject loaded. Its hook sets the access anchors `unit_id` and
+`domain_id` (system base columns the engine now persists when a hook sets them, never from input), and the generated
+DDL indexes the anchor columns and the own user fields of every table with own fields or a group field.
+
 ## 10. Journal, history, watchers, links, attachments
 
 - **Journal** (`sm_journal`, features.journal): kinds `comment` (always public), `work_note` (always internal),

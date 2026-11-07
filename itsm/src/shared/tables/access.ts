@@ -1,9 +1,10 @@
 // The access model's own tables (docs/spec/ACCESS.md): the organisation structure (units, locations), workspaces
 // (ESM service desks), groups and their members, member profiles (unit, manager, roles, delegate…) and the
 // organisation's roles. They are ordinary engine tables — history, sync, the generic API — read in full by every
-// member (`scope.public`: reference data the pickers and the Windows app's own access checks need) and changed only
-// with the grants of their area (`org`, `users`). Server hooks (src/server/access/hooks.ts) keep tree paths, check
-// cycles and role definitions, and bump the members' scope epochs.
+// member with a read grant in their area (`scope.public`: reference data the pickers and the Windows app's own access
+// checks need) and changed only with the write grants of their area (`org`, `users`). Server hooks
+// (src/server/access/hooks.ts) keep tree paths and check cycles and role definitions; triggers (0007_access) move the
+// access version and the members' scope epochs.
 // Imported by the UI: keep it free of server imports.
 import type { Option, TableDef } from "../model/types";
 import { FIELD_GROUPS } from "../model/types";

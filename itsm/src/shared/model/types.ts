@@ -226,7 +226,7 @@ export interface ScopeFields {
   requesterTransitions?: { from?: string[]; to: string }[];
   /** field group whose holders read confidential rows (features.confidential; default "hr" in area hr, else "security") */
   confidentialGroup?: FieldGroup;
-  /** reference data every member reads in full (org structure, roles…); writes still need the area's grants */
+  /** reference data (org structure, roles…): whoever may read the area at all reads every row; writes follow the grants */
   public?: boolean;
 }
 
