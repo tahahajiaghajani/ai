@@ -763,14 +763,17 @@ export async function executeRun(cfg: ServerConfig, runId: string, opts: Execute
     }
     if (opts.resume) await resumeStep(x, opts.resume.waitId, opts.resume.reason);
     const deadline = opts.deadline ?? Date.now() + 8000;
+    let stepped = false;
     while (!x.ended) {
       const token = x.rt.tokens.find((t) => !t.wait);
       if (!token) break;
-      if (Date.now() > deadline) {
+      // at least one step per invocation, so a job claimed at the end of a tick's budget still moves the run
+      if (stepped && Date.now() > deadline) {
         await enqueue(cfg.db, { kind: "flows.run", orgId: run.org_id, payload: { run: run.id }, dedupeKey: `flows.run:${run.id}`, maxAttempts: 20 });
         break;
       }
       await stepToken(x, token);
+      stepped = true;
     }
     if (!x.ended && !x.rt.tokens.length) await endRun(x, "completed", null);
     else if (!x.ended && x.run.state !== stateOf(x)) await cfg.db.tx((tx) => persist(tx, x, { deleteWaits: [], newWaits: [] }));
