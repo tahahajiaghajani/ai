@@ -103,7 +103,8 @@ async function incidentBefore(w: WriteArgs): Promise<void> {
         n.mi_declared_by = w.ctx.actor === "system" ? null : w.ctx.user.id;
       }
       if (n.comm_cadence === null || n.comm_cadence === undefined) n.comm_cadence = cfg.mi_default_cadence;
-      if (!n.next_update_at) n.next_update_at = nextUpdateAt(n.last_update_at ?? now, n.comm_cadence);
+      // the first update is due one cadence after the (re-)declaration
+      n.next_update_at = nextUpdateAt(now, n.comm_cadence);
     }
     if (n.major_state === "downgraded" || n.major_state === "rejected") n.next_update_at = null;
   }
@@ -114,6 +115,9 @@ async function incidentBefore(w: WriteArgs): Promise<void> {
     if (n.next_update_at) n.next_update_at = null;
   } else if (w.changed.has("comm_cadence") && w.op !== "create") {
     n.next_update_at = nextUpdateAt(n.last_update_at ?? n.mi_declared_at ?? now, n.comm_cadence);
+  } else if (!n.next_update_at) {
+    // a reopened major incident: updates are due again
+    n.next_update_at = nextUpdateAt(now, n.comm_cadence);
   }
 }
 

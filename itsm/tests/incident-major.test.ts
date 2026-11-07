@@ -59,6 +59,18 @@ describe("the overlay", () => {
   });
 });
 
+describe("resolving and reopening", () => {
+  it("follows the incident: resolved with it, accepted again with updates due when it reopens", async () => {
+    const x = await w.incident({ impact: "1", urgency: "1" });
+    await w.o.post(`${w.P}/incident/${x.id}/major`, { action: "declare", comm_cadence: 15 });
+    const res = (await w.o.post(`${w.P}/r/incident/${x.id}/transition`, { to: "resolved", data: { close_code: "solved", close_notes: "حل" } })).row;
+    expect([res.major_state, res.next_update_at]).toEqual(["resolved", null]);
+    const back = (await w.o.post(`${w.P}/r/incident/${x.id}/transition`, { to: "in_progress" })).row;
+    expect(back.major_state).toBe("accepted");
+    expect(Date.parse(back.next_update_at) - Date.now()).toBeGreaterThan(14 * 60_000);
+  });
+});
+
 describe("the war room", () => {
   it("projects the history, communications, children and manual events into one timeline", async () => {
     await w.incident({ parent_id: inc.id, short_description: "فروشگاه شعبه ۲ هم متوقف است" });
