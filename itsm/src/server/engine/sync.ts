@@ -115,31 +115,39 @@ async function checkRecord(tx: Tx, ctx: Ctx, def: TableDef, schema: OrgSchema, e
   } else if (!isSystemCtx(ctx) && !access().canCreate(ctx, def, row)) {
     return `اجازهٔ ایجاد ${def.label} را ندارید`;
   }
-  // fields: hidden ones are left as they are; the rest is validated like an API write
+  // fields: hidden ones and ones the account may not write keep the stored values; the rest is validated like an
+  // API write (the desktop's engine applied the same rules, so a difference there is a stale copy, not a change)
   const visible = access().visibleFields(ctx, def);
   const writable = isSystemCtx(ctx) ? null : access().writableFields(ctx, def, prev);
-  const custom = (row.custom && typeof row.custom === "object" ? { ...(row.custom as Row) } : null) as Row | null;
+  const pushedCustom = row.custom && typeof row.custom === "object" ? (row.custom as Row) : {};
+  // custom values: start from the stored ones (hidden and retired fields keep theirs), then the visible ones as pushed
+  const custom: Row = prev && prev.custom && typeof prev.custom === "object" ? { ...(prev.custom as Row) } : {};
   for (const f of def.fields) {
     if (f.base || f.type === "secret") continue;
-    const has = f.custom ? !!custom && f.name in custom : f.name in row;
-    if (!has) continue;
-    if (visible && !visible.has(f.name)) {
-      if (f.custom) delete custom![f.name];
-      else delete row[f.name];
+    const hidden = !!visible && !visible.has(f.name);
+    if (f.custom) {
+      if (hidden) continue;
+      if (!(f.name in pushedCustom) || pushedCustom[f.name] === null) {
+        delete custom[f.name];
+        continue;
+      }
+    } else if (!(f.name in row)) continue;
+    else if (hidden) {
+      delete row[f.name];
       continue;
     }
-    const raw = f.custom ? custom![f.name] : row[f.name];
+    const raw = f.custom ? pushedCustom[f.name] : row[f.name];
     const before = prev ? prev[f.name] : undefined;
     const r = coerceProblem(f, raw, before, schema, env);
     if (r.error) return r.error;
-    const value = f.type === "bool" ? !!r.value : r.value;
-    if (prev && !sameValue(f, before, value) && !f.system && !f.readonly && f.name !== def.states?.field && writable && !writable.has(f.name)) {
-      return `اجازهٔ تغییر «${f.label}» را ندارید`;
-    }
-    if (f.custom) custom![f.name] = value;
-    else row[f.name] = value;
+    let value = f.type === "bool" ? !!r.value : r.value;
+    if (prev && !sameValue(f, before, value) && !f.system && !f.readonly && f.name !== def.states?.field && writable && !writable.has(f.name)) value = before ?? null;
+    if (f.custom) {
+      if (value === null || value === undefined) delete custom[f.name];
+      else custom[f.name] = value;
+    } else row[f.name] = value;
   }
-  if (custom) row.custom = custom;
+  if ("custom" in row || prev) row.custom = custom;
   if (!prev && def.rowAccess?.write && !isSystemCtx(ctx) && !evaluate(def.rowAccess.write, fromDb(def, { ...row }), env, def, schema.lookup)) {
     return `اجازهٔ ایجاد این ${def.label} را ندارید`;
   }

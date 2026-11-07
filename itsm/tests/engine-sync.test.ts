@@ -35,11 +35,16 @@ registerTable({
 const EMAIL = "engine-sync@example.com";
 const PASSWORD = "sync-pass-1405";
 
-/** Hides todos tagged "secret" from members on the cloud only (the desktop runs the default rules). */
+/** Hides todos tagged "secret" (and the custom field u_cost) from members on the cloud only (the desktop runs the default rules). */
 let hideSecret = true;
+let hideCost = false;
 const cloudOnly: AccessProvider = {
   ...defaultProvider,
   name: "cloud-scope",
+  visibleFields(ctx, def) {
+    if (!hideCost || def.key !== "todo" || ctx.cfg.mode !== "cloud" || ctx.actor === "system") return null;
+    return new Set(def.fields.map((f) => f.name).filter((n) => n !== "u_cost"));
+  },
   readWhere(ctx, def, alias, params) {
     const base = defaultProvider.readWhere(ctx, def, alias, params);
     if (!hideSecret || def.key !== "todo" || ctx.cfg.mode !== "cloud" || ctx.actor === "system") return base;
@@ -152,6 +157,25 @@ describe("record engine synchronisation", () => {
     await deskDb.query(`update sm_todos set priority = '2' where id = $1`, [id]);
     await client.syncNow();
     expect((await web.get(`/o/${org}/r/todo/${id}`)).row.priority).toBe("2");
+  });
+
+  it("keeps the cloud's values of fields the account may not see when it pushes a record", async () => {
+    await web.post(`/o/${org}/r/custom_field`, { table_key: "todo", name: "u_cost", label: "هزینه", type: "money" });
+    const id = (await web.post(`/o/${org}/r/todo`, { short_description: "هزینه‌دار" })).row.id;
+    const sys = await systemCtx(cloudCfg, org);
+    await sys.write((tx) => updateIn(tx, sys, "todo", id, { u_cost: "500" }));
+    hideCost = true;
+    try {
+      await client.syncNow();
+      const desk = await deskDb.one<{ custom: Record<string, unknown> }>(`select custom from sm_todos where id = $1`, [id]);
+      expect(desk!.custom).toEqual({}); // never sent to this account
+      await local.patch(`/o/${org}/r/todo/${id}`, { short_description: "هزینه‌دار (ویرایش ویندوز)" });
+      await client.syncNow();
+      const cloud = await cloudDb.one<{ short_description: string; custom: Record<string, unknown> }>(`select short_description, custom from sm_todos where id = $1`, [id]);
+      expect(cloud).toEqual({ short_description: "هزینه‌دار (ویرایش ویندوز)", custom: { u_cost: "500" } });
+    } finally {
+      hideCost = false;
+    }
   });
 
   it("deletes from the desktop what the account may no longer read, and brings it back after a scope change", async () => {

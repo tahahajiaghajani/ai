@@ -491,11 +491,12 @@ The virtual table `user` answers `GET /r/user?q=` (members for pickers: `id`, `n
 - Every TableDef with `features.sync !== false` is a synchronised root automatically (entity = its key; generated in
   `src/server/sync/registry.ts` from `onTableRegistered`), and so are the engine's `journal`, `history`,
   `attachment`, `link`. Nothing to register by hand; a new synced table or column needs a `SYNC_PROTOCOL` bump.
-- **Push** (cloud applying a Windows app's rows): judged by the access provider (create / write / delete, visible and
-  writable fields, `rowAccess`) and the engine's values (types, lengths, choices) — a refusal comes back with the
-  Persian reason and stays in the desktop's outbox; hidden fields and pinned columns (`id`, `org_id`, `no`,
-  `created_*`) keep the cloud's values; references are not re-checked; journal and history rows are immutable (only
-  removal). History is not written again (the desktop's own rows travel); events are emitted with `via: "sync"`.
+- **Push** (cloud applying a Windows app's rows): judged by the access provider (create / write / delete,
+  `rowAccess`) and the engine's values (types, lengths, choices) — a refusal comes back with the Persian reason and
+  stays in the desktop's outbox; fields the account may not see or write, retired custom fields and pinned columns
+  (`id`, `org_id`, `no`, `created_*`) keep the cloud's values; references are not re-checked; journal and history rows
+  are immutable (only removal). History is not written again (the desktop's own rows travel); events are emitted with
+  `via: "sync"`. Hooks do not run again (react to events instead).
 - **Numbers**: both sides allocate from their own counter; on a clash the cloud gives the pushed record the next free
   number (`allocateNumber`) and the desktop takes it over.
 - **Pull**: only rows the linked account may read (provider + row rules; side rows follow their record; internal
