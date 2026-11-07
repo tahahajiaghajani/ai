@@ -1,0 +1,108 @@
+// Who may do what in incident management, under the «نیاز به دانستن» preset: a requester (their own incidents, the
+// requester's whitelist, confirming with a rating), an agent of another group (the desk's incidents do not exist for
+// them, on every path of the module), an auditor (reads, never acts), the restricted security group, and the
+// major-incident manager's grant.
+import { describe, it, expect, beforeAll } from "vitest";
+import { world, type World } from "./incident-helpers";
+
+let w: World;
+let own: Record<string, any>;
+let desk: Record<string, any>;
+beforeAll(async () => {
+  w = await world({ preset: "need_to_know" });
+  own = await w.incident({ short_description: "لپ‌تاپ من روشن نمی‌شود", category: "hardware", subcategory: "hardware.computer" }, w.p.req.client);
+  desk = await w.incident({ short_description: "لپ‌تاپ همکار روشن نمی‌شود", category: "hardware", subcategory: "hardware.computer", caller_id: w.p.req2.userId, assignment_group_id: w.g.desk, assigned_to: w.p.agent.userId });
+});
+
+describe("a requester", () => {
+  it("reads and creates only their own incidents", async () => {
+    expect(own.caller_id).toBe(w.p.req.userId);
+    await w.p.req.client.get(`${w.P}/r/incident/${desk.id}`, 404);
+    await w.p.req.client.get(`${w.P}/incident/${desk.id}/timeline`, 404);
+    await w.p.req.client.get(`${w.P}/incident/${desk.id}/similar`, 404);
+    const hits = (await w.p.req.client.get(`${w.P}/incident/${own.id}/similar`)).hits;
+    expect(hits.map((h: any) => h.id)).not.toContain(desk.id);
+    const d = await w.p.req.client.get(`${w.P}/incident/dashboard`);
+    expect(d.open.total).toBe(1);
+  });
+
+  it("cannot work the incident: no overlay, escalation, merge, timeline or updates", async () => {
+    await w.p.req.client.post(`${w.P}/incident/${own.id}/major`, { action: "propose", reason: "x" }, 403);
+    await w.p.req.client.post(`${w.P}/incident/${own.id}/escalate`, { kind: "hierarchical", reason: "x" }, 403);
+    await w.p.req.client.post(`${w.P}/incident/${own.id}/merge`, { ids: [desk.id] }, 403);
+    await w.p.req.client.post(`${w.P}/incident/${own.id}/timeline`, { kind: "note", title: "x" }, 403);
+    await w.p.req.client.post(`${w.P}/incident/${own.id}/updates`, { audience: "affected", subject: "x", body: "y" }, 403);
+    await w.p.req.client.post(`${w.P}/incident/${own.id}/related`, { mode: "child" }, 403);
+    const r = await w.p.req.client.patch(`${w.P}/r/incident/${own.id}`, { priority: "1" }, 403);
+    expect(r.error.code).toBe("forbidden_field");
+    await w.p.req.client.patch(`${w.P}/r/incident/${own.id}`, { description: "از دیروز" });
+  });
+
+  it("confirms a resolution with a rating, or reopens it", async () => {
+    await w.p.agent.client.post(`${w.P}/r/incident/${own.id}/transition`, { to: "resolved", data: { close_code: "solved", close_notes: "باتری تعویض شد" } });
+    const closed = await w.p.req.client.post(`${w.P}/r/incident/${own.id}/transition`, { to: "closed", data: { satisfaction: 5, satisfaction_comment: "سریع بود" } });
+    expect([closed.row.state, closed.row.satisfaction]).toEqual(["closed", 5]);
+    // a closed incident: a follow-up is the way back
+    const f = await w.p.req.client.post(`${w.P}/incident/${own.id}/related`, { mode: "follow_up" });
+    expect(f.row.follow_up_of).toBe(own.id);
+    expect(f.row.caller_id).toBe(w.p.req.userId);
+  });
+});
+
+describe("an agent of another group (need to know)", () => {
+  it("never sees the desk's incidents on the module's paths", async () => {
+    const other = w.p.other.client;
+    await other.get(`${w.P}/r/incident/${desk.id}`, 404);
+    await other.get(`${w.P}/incident/${desk.id}/timeline`, 404);
+    await other.get(`${w.P}/incident/${desk.id}/readiness`, 404);
+    await other.get(`${w.P}/incident/${desk.id}/known-errors`, 404);
+    await other.post(`${w.P}/incident/${desk.id}/escalate`, { kind: "hierarchical", reason: "x" }, 404);
+    await other.post(`${w.P}/incident/${desk.id}/review`, {}, 404);
+    const mine = await w.incident({ short_description: "لپ‌تاپ روشن نمی‌شود", category: "hardware", subcategory: "hardware.computer", assignment_group_id: w.g.network }, other);
+    expect((await other.get(`${w.P}/incident/${mine.id}/similar`)).hits.map((h: any) => h.id)).not.toContain(desk.id);
+    const r = await other.post(`${w.P}/incident/${mine.id}/merge`, { ids: [desk.id] });
+    expect(r.failed.map((x: any) => x.id)).toEqual([desk.id]);
+    expect(r.failed[0].message).toContain("پیدا نشد");
+  });
+
+  it("the desk's agent works them", async () => {
+    const t = await w.p.agent.client.post(`${w.P}/incident/${desk.id}/timeline`, { kind: "note", title: "بررسی شد" });
+    expect(t.event.title).toBe("بررسی شد");
+    await w.p.agent.client.post(`${w.P}/incident/${desk.id}/major`, { action: "propose", reason: "چند کاربر" });
+    // an agent may not declare (no approve grant); a problem manager neither
+    await w.p.agent.client.post(`${w.P}/incident/${desk.id}/major`, { action: "declare" }, 403);
+    await w.p.pm.client.post(`${w.P}/incident/${desk.id}/major`, { action: "declare" }, 403);
+    // the record tells the screens what the caller may do
+    const meta = (await w.p.agent.client.get(`${w.P}/r/incident/${desk.id}`)).meta.incident;
+    expect(meta).toEqual({ can_work: true, can_manage_major: false, ai: [] });
+    expect((await w.p.mim.client.get(`${w.P}/r/incident/${desk.id}`)).meta.incident.can_manage_major).toBe(true);
+  });
+});
+
+describe("an auditor", () => {
+  it("reads everything but acts on nothing", async () => {
+    const a = w.p.auditor.client;
+    await a.get(`${w.P}/r/incident/${desk.id}`);
+    expect((await a.get(`${w.P}/incident/${desk.id}/timeline`)).items.length).toBeGreaterThan(0);
+    await a.post(`${w.P}/incident/${desk.id}/escalate`, { kind: "hierarchical", reason: "x" }, 403);
+    await a.post(`${w.P}/incident/${desk.id}/timeline`, { kind: "note", title: "x" }, 403);
+    await a.post(`${w.P}/incident/${desk.id}/major`, { action: "reject", reason: "x" }, 403);
+    await a.post(`${w.P}/incident/${desk.id}/merge`, { ids: [own.id] }, 403);
+    await a.post(`${w.P}/incident/seed`, {}, 403);
+    const meta = (await a.get(`${w.P}/r/incident/${desk.id}`)).meta.incident;
+    expect([meta.can_work, meta.can_manage_major]).toEqual([false, false]);
+  });
+});
+
+describe("security incidents", () => {
+  it("are read only by the restricted security group and the people on the record", async () => {
+    await w.o.post(`${w.P}/access/groups/${w.g.security}/members`, { user_ids: [w.p.other.userId] });
+    const sec = await w.incident({ short_description: "بدافزار روی سرور", security_incident: true, caller_id: w.p.req.userId }, w.p.agent.client);
+    await w.p.mim.client.get(`${w.P}/r/incident/${sec.id}`, 404);
+    await w.p.auditor.client.get(`${w.P}/r/incident/${sec.id}`, 404);
+    await w.p.other.client.get(`${w.P}/r/incident/${sec.id}`);
+    await w.p.req.client.get(`${w.P}/r/incident/${sec.id}`);
+    // the agent who opened it keeps it as their own record
+    await w.p.agent.client.get(`${w.P}/r/incident/${sec.id}`);
+  });
+});
