@@ -409,3 +409,17 @@ describe("support sessions", () => {
     await e.owner.post(`/admin/support/${edit.id}/end`);
   });
 });
+
+describe("saved views", () => {
+  it("follow their row rule for members with roles too: shared ones are seen, only the owner changes them", async () => {
+    const shared = (await e.owner.post(`${P}/r/view`, { table_key: "acc_ticket", name: "تیکت‌های باز", shared: true })).row.id;
+    const personal = (await e.owner.post(`${P}/r/view`, { table_key: "acc_ticket", name: "نمای من" })).row.id;
+    const list = await p.req.client.get(`${P}/r/view`);
+    const ids = list.rows.map((r: { id: string }) => r.id);
+    expect(ids).toContain(shared);
+    expect(ids).not.toContain(personal);
+    await p.req.client.patch(`${P}/r/view/${shared}`, { name: "تغییر" }, 403);
+    const mine = (await p.req.client.post(`${P}/r/view`, { table_key: "acc_ticket", name: "نمای درخواست‌دهنده" })).row;
+    expect(mine.owner_id).toBe(p.req.userId);
+  });
+});

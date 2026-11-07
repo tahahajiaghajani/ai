@@ -12,6 +12,7 @@ import { PageHeader } from "../../components/layout";
 import { Chip, EmptyState, Loader } from "../../components/display";
 import { ICON, ICON14, cx } from "../../components/blocks";
 import { KEYS, useAccessAdmin, useTable, type GroupRow, type Rec, type WorkspaceRow } from "./api";
+import { NoAccess } from "./parts";
 
 const COLOR_LABEL: Record<string, string> = {
   gray: "خاکستری", red: "قرمز", orange: "نارنجی", gold: "طلایی", green: "سبز", teal: "فیروزه‌ای", blue: "آبی", indigo: "نیلی", purple: "بنفش", magenta: "سرخابی",
@@ -64,6 +65,8 @@ export default function Workspaces() {
       />
       {rows.isLoading ? (
         <Loader />
+      ) : rows.isError ? (
+        <NoAccess error={rows.error} />
       ) : !rows.data?.length ? (
         <EmptyState
           icon={LayoutGrid}

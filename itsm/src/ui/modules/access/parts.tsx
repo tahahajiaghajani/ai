@@ -9,6 +9,7 @@ import {
 import { areas, AREA_GROUPS, OPS, OP_LABELS, SCOPE_HINTS, SCOPE_LABELS, SCOPED_OPS, type FullGrant, type Scope } from "@shared/access";
 import { normalizeFa } from "../../lib/fa";
 import { ICON14, cx } from "../../components/blocks";
+import { EmptyState } from "../../components/display";
 import { useMembers, useRoles, useTable, type GroupRow, type Rec, type UnitRow, type WorkspaceRow } from "./api";
 
 export const UNIT_ICON: Record<string, LucideIcon> = {
@@ -283,3 +284,14 @@ export function KindLabel({ icon: I, label }: { icon?: LucideIcon; label: string
 }
 
 export { Users };
+
+/** What a page shows when the server refuses the caller (their roles do not reach this part of the settings). */
+export function NoAccess({ error }: { error: unknown }) {
+  const status = (error as { status?: number } | null)?.status;
+  return (
+    <EmptyState
+      title={status === 403 ? "به این بخش دسترسی ندارید" : "این بخش بار نشد"}
+      description={status === 403 ? "دیدن و تغییر آن با مدیر سامانه است." : undefined}
+    />
+  );
+}

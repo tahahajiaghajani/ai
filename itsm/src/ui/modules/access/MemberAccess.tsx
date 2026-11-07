@@ -19,7 +19,7 @@ import { Chip, EmptyState, Loader } from "../../components/display";
 import { DateInput } from "../../components/inputs";
 import { ICON14, Note, Who } from "../../components/blocks";
 import { KEYS, useAccessAdmin, useRoles, useTable, type MemberAccessDetail, type MemberAccessRow, type UnitRow } from "./api";
-import { EffectiveMatrix, MemberSelect, RoleSelect, TreeRefSelect, WorkspaceSelect } from "./parts";
+import { EffectiveMatrix, MemberSelect, NoAccess, RoleSelect, TreeRefSelect, WorkspaceSelect } from "./parts";
 
 export default function MemberAccess() {
   const { api } = useOrg();
@@ -43,6 +43,8 @@ export default function MemberAccess() {
       </div>
       {q.isLoading ? (
         <Loader />
+      ) : q.isError ? (
+        <NoAccess error={q.error} />
       ) : !rows.length ? (
         <EmptyState compact title="عضوی پیدا نشد" />
       ) : (

@@ -13,7 +13,7 @@ import { PageHeader } from "../../components/layout";
 import { Chip, EmptyState, Loader } from "../../components/display";
 import { ICON, ICON14, Who } from "../../components/blocks";
 import { KEYS, useAccessAdmin, useMembers, useMyAccess, useRoles, useTable, type GroupRow, type Rec, type WorkspaceRow } from "./api";
-import { forest, GroupSelect, MemberSelect, RoleSelect, subtreeIds, WorkspaceSelect, type TreeNode } from "./parts";
+import { forest, GroupSelect, MemberSelect, NoAccess, RoleSelect, subtreeIds, WorkspaceSelect, type TreeNode } from "./parts";
 
 interface Membership extends Rec {
   group_id: string;
@@ -61,6 +61,8 @@ export default function Groups() {
       </div>
       {groups.isLoading ? (
         <Loader />
+      ) : groups.isError ? (
+        <NoAccess error={groups.error} />
       ) : !groups.data?.length ? (
         <EmptyState title="هنوز گروهی تعریف نشده است" action={manageOrg ? <Button type="primary" onClick={() => setOpen("new")}>گروه نخست</Button> : undefined} />
       ) : (

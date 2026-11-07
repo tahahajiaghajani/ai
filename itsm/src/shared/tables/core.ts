@@ -119,7 +119,8 @@ const view: TableDef = {
     { name: "group_by", label: "گروه‌بندی", type: "string", maxLength: 60, ltr: true, span: 12 },
     { name: "page_size", label: "اندازهٔ صفحه", type: "int", min: 5, max: 500, span: 6 },
   ],
-  scope: { own: ["owner_id"] },
+  // visibility is the row rule below (own or shared); the access model only asks for some read grant in the area
+  scope: { own: ["owner_id"], public: true },
   rowAccess: {
     read: { or: [{ f: "owner_id", op: "is_me" }, { f: "shared", op: "eq", v: true }] },
     write: { f: "owner_id", op: "is_me" },

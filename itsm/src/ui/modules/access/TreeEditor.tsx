@@ -14,7 +14,7 @@ import { PageHeader } from "../../components/layout";
 import { Chip, EmptyState, Loader } from "../../components/display";
 import { ICON, ICON14, cx } from "../../components/blocks";
 import { KEYS, useAccessAdmin, useTable, type Rec, type UnitRow } from "./api";
-import { forest, MemberSelect, subtreeIds, TreeRefSelect, type TreeNode } from "./parts";
+import { forest, MemberSelect, NoAccess, subtreeIds, TreeRefSelect, type TreeNode } from "./parts";
 
 export interface TreeEditorProps {
   table: "org_unit" | "location";
@@ -157,6 +157,8 @@ export function TreeEditor({ table, title, noun, kinds, icons, defaultKind, extr
       />
       {rows.isLoading ? (
         <Loader />
+      ) : rows.isError ? (
+        <NoAccess error={rows.error} />
       ) : !rows.data?.length && !draft ? (
         <EmptyState
           title={`هنوز ${noun}ی تعریف نشده است`}

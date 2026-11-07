@@ -18,7 +18,7 @@ import { PageHeader, Section } from "../../components/layout";
 import { Chip, EmptyState, Loader } from "../../components/display";
 import { ICON, ICON14, Note, cx } from "../../components/blocks";
 import { KEYS, useAccessAdmin, useMyAccess, useRoles, type RoleView } from "./api";
-import { RoleSelect, scopeOptions } from "./parts";
+import { NoAccess, RoleSelect, scopeOptions } from "./parts";
 
 const EMPTY_ROLE: RoleDef = { key: "", name: "", description: "", persona: "agent", grants: {}, field_groups: [], contains: [], workspaces: "member", domains: "own", active: true };
 
@@ -45,6 +45,8 @@ export default function Roles() {
       {me.data ? <AccessSettings admin={admin} preset={me.data.settings.preset} separation={me.data.settings.domain_separation} /> : null}
       {roles.isLoading ? (
         <Loader />
+      ) : roles.isError ? (
+        <NoAccess error={roles.error} />
       ) : (
         <>
           <Section title="نقش‌های پیش‌فرض">
