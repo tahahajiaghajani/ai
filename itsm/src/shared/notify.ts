@@ -427,7 +427,8 @@ export function renderNodes(nodes: TplNode[], scope: TplScope, mode: "markdown" 
       if (n.op === "truthy") hit = truthy(raw);
       else {
         const vals = Array.isArray(raw) ? raw.map(String) : raw === null || raw === undefined ? [] : [String(raw)];
-        const eq = vals.includes(n.value) || scope.text(n.path) === n.value;
+        // compared with the stored value («resolved») or what people read («حل‌شده»)
+        const eq = vals.includes(n.value) || scope.text(n.path) === n.value || (!n.path.endsWith(".display") && scope.text(`${n.path}.display`) === n.value);
         hit = n.op === "eq" ? eq : !eq;
       }
       if (n.neg) hit = !hit;
@@ -457,7 +458,8 @@ export function relayMarkdown(md: string): string {
 export function escapeMarkdown(s: string): string {
   return s
     .replace(/([\\`*_[\]()<>#|~!{}])/g, "\\$1")
-    .replace(/^(\s*)([-+>=]|\d+[.)])/gm, "$1\\$2");
+    .replace(/^(\s*)([-+>=])/gm, "$1\\$2")
+    .replace(/^(\s*)(\d+)([.)])/gm, "$1$2\\$3");
 }
 
 /** One line of plain text (titles, SMS): whitespace collapsed, Markdown marks of mentions kept readable. */

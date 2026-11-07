@@ -10,7 +10,7 @@ import { bad, forbidden, notFound } from "../../http/errors";
 import { access } from "../../access/provider";
 import { readableIds } from "../../access";
 import { RefSet, condEnv, defFor, get, list, resolveDisplay } from "../../engine";
-import { defOf, errText, isUuid, sysCtx } from "./common";
+import { errText, isUuid, sysCtx } from "./common";
 import { BUILTINS, builtinRule, rowRule, type RuleDef } from "./rules";
 import { defaultTemplate, renderFor, type EventSnap, type TemplateText } from "./render";
 import { emailLayout, markdownToHtml, markdownToText, newMessageId, rememberOutbound, sendMail, emailChannels, type EmailChannelRow } from "./mail";
@@ -21,8 +21,9 @@ import { REJECT_REASONS } from "./inbound";
 import { SKIP_REASONS, type LogRow } from "./log";
 
 /** The caller may read the notification settings (area «اعلان‌ها»). */
-export function needSettings(ctx: Ctx): void {
-  if (!access().canReadTable(ctx, defOf("notification_rule"))) throw forbidden("به تنظیمات اعلان‌ها دسترسی ندارید");
+export async function needSettings(ctx: Ctx): Promise<void> {
+  const { def } = await defFor(ctx, "notification_rule");
+  if (!access().canReadTable(ctx, def)) throw forbidden("به تنظیمات اعلان‌ها دسترسی ندارید");
 }
 
 export interface RuleView extends RuleDef {
@@ -35,7 +36,7 @@ export interface RuleView extends RuleDef {
 
 /** Built-ins (replaced or not) and the organisation's rules. */
 export async function listRules(ctx: Ctx): Promise<{ rules: RuleView[] }> {
-  needSettings(ctx);
+  await needSettings(ctx);
   const r = await list(ctx, "notification_rule", { size: 500, total: false, fields: ["name", "active", "mandatory", "table_key", "event", "custom_event", "entry_kinds", "condition", "recipients", "notify_actor", "channels", "targets", "template_id", "digest", "builtin", "description"] });
   const rows = r.rows.map((x) => ({ ...rowRule(x), version: Number(x.version) }));
   const out: RuleView[] = [];
@@ -60,7 +61,7 @@ export interface PreviewInput {
 
 /** Render a template for the caller on a record they may read (the given one, or the latest one of the table). */
 export async function preview(ctx: Ctx, x: PreviewInput) {
-  needSettings(ctx);
+  await needSettings(ctx);
   if (!(x.event in NOTIFY_EVENTS)) throw bad("رویداد معتبر نیست");
   const { def } = await defFor(ctx, x.table);
   if (def.virtual) throw bad("این جدول رکورد ندارد");
@@ -185,7 +186,7 @@ export async function testChannel(ctx: Ctx, id: string, to?: string | null) {
 
 /** Delivery log, newest first; subjects of records the caller may not read are withheld. */
 export async function deliveryLog(ctx: Ctx, q: { status?: string | null; channel?: string | null; limit?: number; before?: string | null }) {
-  needSettings(ctx);
+  await needSettings(ctx);
   const params: unknown[] = [ctx.org.id];
   const where = ["org_id = $1"];
   if (q.status && ["sent", "failed", "skipped", "held"].includes(q.status)) {
@@ -245,7 +246,7 @@ async function readable(ctx: Ctx, refs: { table: string | null; id: string | nul
 
 /** E-mails sent and received, newest first (subjects of records the caller may not read withheld). */
 export async function emailLog(ctx: Ctx, q: { direction?: string | null; status?: string | null; limit?: number; before?: string | null }) {
-  needSettings(ctx);
+  await needSettings(ctx);
   const params: unknown[] = [ctx.org.id];
   const where = ["org_id = $1"];
   if (q.direction === "in" || q.direction === "out") {
