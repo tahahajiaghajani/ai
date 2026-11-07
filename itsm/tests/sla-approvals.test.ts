@@ -135,6 +135,9 @@ describe("approvals", () => {
     await who.X.client.get(`${P}/r/apv_case/${rec.id}`, 404);
     const list = await mine("A1");
     expect(list.find((a) => a.record_id === rec.id)).toMatchObject({ can_decide: true, table_label: "درخواست خرید", rule_name: "قاعدهٔ any", state: "requested" });
+    // the nav count of «تأییدهای من»
+    expect((await who.A1.client.get(`${P}/approvals/mine/count`)).count).toBe(list.filter((a) => a.state === "requested").length);
+    expect((await who.X.client.get(`${P}/approvals/mine/count`)).count).toBe(0);
 
     const a1 = await rowFor(rec.id, "A1");
     const out = await decide("A1", a1.id, "approved", "بودجه دارد");
@@ -187,6 +190,8 @@ describe("approvals", () => {
     expect(rows.filter((r) => r.level === 2).map((r) => r.approver_id).sort()).toEqual([id("A1"), id("A2"), id("A3")].sort());
     expect(rows.every((r) => r.source === "field" && r.state === "requested")).toBe(true);
 
+    // the rule builder offers the owner sources modules registered
+    expect((await e.owner.get(`${P}/approvals/sources`)).owners).toContain("test_owner");
     await rule("owner", { levels: [{ sources: [{ kind: "owner", of: "test_owner" }] }] });
     const o = await file("owner");
     expect((await rowsOf(o.id)).map((r) => [r.approver_id, r.source])).toEqual([[id("A2"), "owner"]]);
