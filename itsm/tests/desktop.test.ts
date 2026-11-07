@@ -1,10 +1,11 @@
 // The Windows installation: who can reach the local server, backups and restores, the local
 // settings, and the Electron main process (navigation, links and IPC from the page).
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readdirSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readdirSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir, networkInterfaces } from "node:os";
 import { join } from "node:path";
 import http from "node:http";
+import "./fixtures/module";
 import { Client } from "./helpers";
 import { startLocal, type LocalServer } from "@local/server";
 import { scheduleRestore, pruneBackups, listBackups } from "@local/backup";
@@ -13,9 +14,9 @@ import { loadConfig, configPath } from "@local/config";
 const quiet = { info() {}, warn() {}, error() {} };
 const staticDir = join(__dirname, "..", "public");
 const httpClient = (base: string) => new Client({ fetch: (r: Request) => fetch(r) }, base);
-const tmp = () => mkdtempSync(join(tmpdir(), "siraf-desk-"));
+const tmp = () => mkdtempSync(join(tmpdir(), "itsm-desk-"));
 const OWNER = { email: "owner@example.com", password: "s3cret-pass", full_name: "مالک" };
-const ORG = { name: "فروشگاه", business_kind: "trading", modules: ["goods"], base_currency: "IRR", fiscal_year: 1405 };
+const ORG = { name: "دفتر فناوری اطلاعات" };
 
 function lanAddress(): string | null {
   for (const list of Object.values(networkInterfaces())) for (const a of list ?? []) if (a.family === "IPv4" && !a.internal) return a.address;
@@ -45,11 +46,11 @@ describe("restoring a backup", () => {
       let c = httpClient(s.url);
       await c.post("/auth/signup", OWNER);
       const org = (await c.post("/orgs", ORG)).id;
-      await c.post(`/o/${org}/data/party`, { name: "مشتری ماندگار" });
+      await c.post(`/o/${org}/data/test_item`, { name: "قلم ماندگار" });
       await s.close();
 
       mkdirSync(join(dataDir, "backups"), { recursive: true });
-      const broken = join(dataDir, "backups", "siraf-manual-20260101-000000.tar.gz");
+      const broken = join(dataDir, "backups", "itsm-manual-20260101-000000.tar.gz");
       writeFileSync(broken, "not a tarball");
       scheduleRestore(dataDir, broken);
 
@@ -57,8 +58,8 @@ describe("restoring a backup", () => {
       c = httpClient(s.url);
       expect((await c.get("/meta")).first_run).toBe(false);
       await c.post("/auth/login", { email: OWNER.email, password: OWNER.password });
-      const parties = await c.get(`/o/${org}/data/party?q=ماندگار`);
-      expect(parties.total).toBe(1);
+      const items = await c.get(`/o/${org}/data/test_item?q=ماندگار`);
+      expect(items.total).toBe(1);
       expect(existsSync(join(dataDir, "restore.pending"))).toBe(false);
       await s.close();
     } finally {
@@ -73,28 +74,29 @@ describe("restoring a backup", () => {
       let c = httpClient(s.url);
       await c.post("/auth/signup", OWNER);
       const org = (await c.post("/orgs", ORG)).id;
-      await c.post(`/o/${org}/data/party`, { name: "پیش از پشتیبان" });
+      await c.post(`/o/${org}/data/test_item`, { name: "پیش از پشتیبان" });
       const { file } = await c.post<{ file: string }>("/local/backups");
-      await c.post(`/o/${org}/data/party`, { name: "پس از پشتیبان" });
+      expect(file).toMatch(/itsm-manual-\d{8}-\d{6}\.tar\.gz$/);
+      await c.post(`/o/${org}/data/test_item`, { name: "پس از پشتیبان" });
 
       // not a backup: any file of the computer (here the configuration) is refused
       await c.post("/local/backups/restore", { file: configPath(dataDir) }, 400);
       expect(existsSync(join(dataDir, "restore.pending"))).toBe(false);
 
       await c.post("/local/backups/restore", { file });
-      // e.g. a cashier on another computer of the office network keeps working: refused, not silently lost
-      await c.post(`/o/${org}/data/party`, { name: "بعد از دستور بازگردانی" }, 503);
-      expect((await c.get(`/o/${org}/data/party?q=بازگردانی`)).total).toBe(0);
+      // e.g. a colleague on another computer of the office network keeps working: refused, not silently lost
+      await c.post(`/o/${org}/data/test_item`, { name: "بعد از دستور بازگردانی" }, 503);
+      expect((await c.get(`/o/${org}/data/test_item?q=بازگردانی`)).total).toBe(0);
       await s.close();
 
       s = await startLocal({ dataDir, staticDir, port: 0, log: quiet });
       c = httpClient(s.url);
       await c.post("/auth/login", { email: OWNER.email, password: OWNER.password });
-      const names = (await c.get(`/o/${org}/data/party`)).rows.map((r: { name: string }) => r.name);
+      const names = (await c.get(`/o/${org}/data/test_item`)).rows.map((r: { name: string }) => r.name);
       expect(names).toContain("پیش از پشتیبان");
       expect(names).not.toContain("پس از پشتیبان");
       // writable again after the restart
-      await c.post(`/o/${org}/data/party`, { name: "پس از بازگردانی" });
+      await c.post(`/o/${org}/data/test_item`, { name: "پس از بازگردانی" });
       await s.close();
     } finally {
       rmSync(dataDir, { recursive: true, force: true });
@@ -106,7 +108,7 @@ describe("backups folder", () => {
   it("a broken «keep» never deletes every automatic copy", () => {
     const dir = tmp();
     try {
-      for (let i = 0; i < 3; i++) writeFileSync(join(dir, `siraf-auto-2026010${i + 1}-000000.tar.gz`), "x");
+      for (let i = 0; i < 3; i++) writeFileSync(join(dir, `itsm-auto-2026010${i + 1}-000000.tar.gz`), "x");
       pruneBackups(dir, Number("abc"));
       expect(listBackups(dir).length).toBe(3);
       pruneBackups(dir, 2);
@@ -212,6 +214,8 @@ const h = vi.hoisted(() => ({
   external: [] as string[],
   opened: [] as string[],
   relaunched: 0,
+  paths: new Map<string, string>(),
+  splashQuery: null as null | Record<string, string>,
 }));
 
 vi.mock("electron", () => {
@@ -245,7 +249,10 @@ vi.mock("electron", () => {
     destroy() {}
   }
   const app = {
-    getPath: () => tmpdir(),
+    getPath: (name: string) => (name === "appData" ? join(tmpdir(), "AppData", "Roaming") : tmpdir()),
+    setPath: (name: string, p: string) => {
+      h.paths.set(name, p);
+    },
     getVersion: () => "1.0.0",
     requestSingleInstanceLock: () => true,
     setAppUserModelId() {},
@@ -313,10 +320,10 @@ describe("Windows app window and bridge", () => {
       nav({ preventDefault: () => (prevented = true) }, url);
       return prevented;
     };
-    expect(go(`${SERVER}/accounting/vouchers`)).toBe(false);
+    expect(go(`${SERVER}/settings/users`)).toBe(false);
     expect(go("http://127.0.0.1:3939@evil.example/")).toBe(true);
     expect(go("http://127.0.0.1:39390/")).toBe(true);
-    expect(go("data:text/html,<script>siraf.openPath('C:/x')</script>")).toBe(true);
+    expect(go("data:text/html,<script>itsm.openPath('C:/x')</script>")).toBe(true);
   });
 
   it("hands only web links to the system", () => {
@@ -348,5 +355,33 @@ describe("Windows app window and bridge", () => {
     await expect(Promise.resolve().then(() => set(fromElsewhere, "http://192.0.2.50:8080"))).rejects.toThrow();
     expect(h.relaunched).toBe(0);
     expect(readdirSync(dataDir).length).toBe(before);
+  });
+});
+
+describe("Windows app identity", () => {
+  it("keeps Electron's profile and the data under %APPDATA%\\ITSM, set explicitly", () => {
+    // main.ts ran above (client mode, ITSM_DATA_DIR set): the profile path was still pinned to ITSM
+    expect(h.paths.get("userData")).toBe(join(tmpdir(), "AppData", "Roaming", "ITSM"));
+  });
+
+  it("names the installer, the executable and the shortcut after APP_NAME_EN, with the app's own identifiers", async () => {
+    const { APP_NAME_EN, APP_VERSION } = await import("@shared/constants");
+    const yml = readFileSync(join(__dirname, "..", "desktop", "electron-builder.yml"), "utf8");
+    const field = (k: string) => yml.match(new RegExp(`^\\s*${k}:\\s*"?([^"\\n]+)"?\\s*$`, "m"))?.[1];
+    expect(field("appId")).toBe("app.itsm.desktop");
+    expect(field("productName")).toBe(APP_NAME_EN);
+    expect(field("executableName")).toBe(APP_NAME_EN);
+    expect(field("shortcutName")).toBe(APP_NAME_EN);
+    expect(field("artifactName")).toBe(`${APP_NAME_EN}-Setup-\${version}.exe`);
+    const main = readFileSync(join(__dirname, "..", "desktop", "src", "main.ts"), "utf8");
+    expect(main).toContain(`const APP_ID = "app.itsm.desktop"`);
+    const pkg = JSON.parse(readFileSync(join(__dirname, "..", "desktop", "package.json"), "utf8"));
+    expect(pkg.version).toBe(APP_VERSION);
+    // the bridge is exposed under one name only, and every IPC channel is itsm:*
+    const preload = readFileSync(join(__dirname, "..", "desktop", "src", "preload.ts"), "utf8");
+    expect([...preload.matchAll(/exposeInMainWorld\("([^"]+)"/g)].map((m) => m[1])).toEqual(["itsm"]);
+    const channels = [...`${preload}\n${main}`.matchAll(/(?:invoke|send|handle|on)\("([a-z-]+:[a-z-]+)"/g)].map((m) => m[1]);
+    expect(channels.length).toBeGreaterThan(6);
+    for (const ch of channels) expect(ch).toMatch(/^itsm:/);
   });
 });

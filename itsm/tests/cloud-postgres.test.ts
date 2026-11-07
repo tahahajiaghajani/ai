@@ -10,7 +10,8 @@ import { migrate } from "@server/db/migrate";
 import { AGGREGATES } from "@server/sync/registry";
 import { createApp } from "@server/app";
 import type { Db } from "@server/db";
-import { Client, quietLog, accountId } from "./helpers";
+import "./fixtures/module";
+import { Client, quietLog } from "./helpers";
 
 describe("cloud runtime over the PostgreSQL protocol (postgres.js)", () => {
   let pg: PGlite;
@@ -29,7 +30,7 @@ describe("cloud runtime over the PostgreSQL protocol (postgres.js)", () => {
     const app = createApp({ mode: "cloud", db, secret: "s", allowSignup: true, platformAdmins: [], origin: "cloud", log: quietLog, fetch: globalThis.fetch.bind(globalThis) });
     c = new Client(app);
     await c.post("/auth/signup", { email: "cloud@example.com", password: "cloud-pass-1405", full_name: "ابر" });
-    org = (await c.post<{ id: string }>("/orgs", { name: "آزمون ابری", business_kind: "mixed", modules: ["goods", "gold", "fx"], base_currency: "IRR", fiscal_year: 1405 })).id;
+    org = (await c.post<{ id: string }>("/orgs", { name: "آزمون ابری", timezone: "Asia/Tehran" })).id;
   });
 
   afterAll(async () => {
@@ -39,27 +40,30 @@ describe("cloud runtime over the PostgreSQL protocol (postgres.js)", () => {
   });
 
   it("stores json columns as real JSON (not JSON strings)", async () => {
-    const rows = await db.query<{ t: string; m: string }>(`select jsonb_typeof(detail_kinds) as t, (select jsonb_typeof(modules) from sm_orgs where id = $1) as m from sm_accounts where org_id = $1 and system_key = 'cash'`, [org]);
-    expect(rows[0]).toEqual({ t: "array", m: "array" });
     const info = await c.get(`/o/${org}`);
-    expect(info.org.modules).toEqual(["goods", "gold", "fx"]);
-    const acc = await c.get(`/o/${org}/data/account/options?q=صندوق`);
-    expect(Array.isArray(acc.options[0].detail_kinds)).toBe(true);
+    expect(info.org.modules).toEqual([]);
+    expect(info.org.settings.timezone).toBe("Asia/Tehran");
+    const item = (await c.post(`/o/${org}/data/test_item`, { name: "سرور", tags: ["critical", "shared"], data: { rack: "A3", ports: [1, 2] } })).row;
+    const rows = await db.query<{ s: string; t: string; d: string }>(
+      `select (select jsonb_typeof(settings) from sm_orgs where id = $1) as s, jsonb_typeof(tags) as t, jsonb_typeof(data) as d from sm_test_items where id = $2`,
+      [org, item.id],
+    );
+    expect(rows[0]).toEqual({ s: "object", t: "array", d: "object" });
+    const got = await c.get(`/o/${org}/data/test_item/${item.id}`);
+    expect(got.row.tags).toEqual(["critical", "shared"]);
+    expect(got.row.data).toEqual({ rack: "A3", ports: [1, 2] });
   });
 
-  it("creates parties, filters by jsonb roles and posts vouchers", async () => {
-    await c.post(`/o/${org}/data/party`, { name: "تأمین‌کننده", roles: ["supplier"] });
-    const suppliers = await c.get(`/o/${org}/data/party/options?f.role=supplier`);
-    expect(suppliers.options.map((o: { label: string }) => o.label)).toContain("تأمین‌کننده");
-    const cash = await accountId(db, org, "cash");
-    const capital = await accountId(db, org, "capital");
-    const box = await db.one<{ detail_id: string }>(`select detail_id from sm_cash_boxes where org_id = $1`, [org]);
-    const v = await c.post(`/o/${org}/accounting/vouchers`, { date: "2026-06-01", lines: [{ account_id: cash, detail_id: box!.detail_id, debit: "123456789.5" }, { account_id: capital, credit: "123456789.5" }] });
-    const got = await c.get(`/o/${org}/accounting/vouchers/${v.voucher.id}`);
-    expect(got.voucher.total_debit).toBe("123456790"); // rial has no decimals: rounded half-up
-    expect(got.voucher.date).toBe("2026-06-01");
-    const tb = await c.get(`/o/${org}/accounting/reports/trial-balance?level=1`);
-    expect(tb.totals.debit).toBe("123456790");
+  it("filters by jsonb arrays and keeps numerics and dates exact", async () => {
+    await c.post(`/o/${org}/data/test_item`, { name: "یدکی", tags: ["spare"], qty: "123456789.125", starts_on: "2026-06-01" });
+    const spare = await c.get(`/o/${org}/data/test_item/options?f.tags=spare`);
+    expect(spare.options.map((o: { label: string }) => o.label)).toEqual(["یدکی"]);
+    const row = (await c.get(`/o/${org}/data/test_item?q=یدکی`)).rows[0];
+    expect(String(row.qty)).toBe("123456789.125");
+    expect(row.starts_on).toBe("2026-06-01");
+    const d = (await c.post(`/o/${org}/test/docs`, { title: "سند", lines: [{ text: "ردیف", qty: "2.5" }] })).doc;
+    expect(d.no).toBe(1);
+    expect(Number((await c.get(`/o/${org}/test/docs/${d.id}`)).lines[0].qty)).toBe(2.5);
   });
 
   it("serves a sync pull with proper types", async () => {
@@ -67,9 +71,15 @@ describe("cloud runtime over the PostgreSQL protocol (postgres.js)", () => {
     const dev = new Client({ fetch: (r: Request) => createApp({ mode: "cloud", db, secret: "s", allowSignup: true, platformAdmins: [], origin: "cloud", log: quietLog, fetch: globalThis.fetch.bind(globalThis) }).fetch(r) });
     dev.token = login.token;
     const page = await dev.get(`/sync/pull?org_id=${org}&cursor=0`);
-    const accounts = page.aggregates.filter((a: { entity: string }) => a.entity === "account");
-    expect(accounts.length).toBeGreaterThan(100);
-    expect(Array.isArray(accounts.find((a: { row: { system_key: string } }) => a.row.system_key === "cash").row.detail_kinds)).toBe(true);
+    const by = (e: string) => page.aggregates.filter((a: { entity: string }) => a.entity === e);
+    expect(by("org")).toHaveLength(1);
+    expect(by("org")[0].row.settings.timezone).toBe("Asia/Tehran");
+    expect(by("member").map((m: { row: { role: string } }) => m.row.role)).toEqual(["owner"]);
+    const items = by("test_item");
+    expect(items.length).toBe(2);
+    expect(Array.isArray(items.find((a: { row: { name: string } }) => a.row.name === "سرور").row.tags)).toBe(true);
+    const docs = by("test_doc");
+    expect(docs[0].children.sm_test_doc_lines.map((l: { text: string }) => l.text)).toEqual(["ردیف"]);
     expect(page.users[0].email).toBe("cloud@example.com");
   });
 });
