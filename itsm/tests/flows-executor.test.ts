@@ -164,6 +164,9 @@ describe("flow executor", () => {
     const d = await settle(await test(await k.flow({}, g), undefined, { inputs: { names: ["الف", "ب"] } }));
     expect(d.run.state).toBe("completed");
     expect(d.context.vars).toEqual({ last: "ب", count: 3 });
+    // loop items live in their own table while the loop runs, never in the run's state
+    expect(JSON.stringify(d)).not.toContain('"items"');
+    expect(await o.db.one(`select 1 from sm_flow_loop_items where run_id = $1`, [d.run.id])).toBeNull();
     const rows = (await o.owner.post(`${k.P}/r/todo/query`, { filter: { f: "short_description", op: "starts", v: tag }, sort: "number", fields: ["description"] })).rows;
     expect(rows.map((r: any) => r.description)).toEqual(["شماره 0", "شماره 1", "شماره 2"]);
     // an empty loop goes straight to «پس از همه»

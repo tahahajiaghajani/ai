@@ -32,8 +32,11 @@ export interface LoopFrame {
   id: string;
   /** the «برای هر مورد» node */
   node: string;
-  items: unknown[];
+  /** how many items (the items themselves are in sm_flow_loop_items, written once) */
+  count: number;
   index: number;
+  /** the current item ({{item}}) */
+  item: unknown;
   /** live tokens of the current iteration */
   live: number;
   /** where each iteration starts */

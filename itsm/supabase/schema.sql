@@ -1732,6 +1732,14 @@ create index if not exists sm_flow_waits_key_idx on sm_flow_waits (org_id, key) 
 create index if not exists sm_flow_waits_run_idx on sm_flow_waits (run_id);
 alter table sm_flow_waits enable row level security;
 
+create table if not exists sm_flow_loop_items (
+  run_id uuid not null references sm_flow_runs(id) on delete cascade,
+  frame_id text not null,
+  items jsonb not null,
+  primary key (run_id, frame_id)
+);
+alter table sm_flow_loop_items enable row level security;
+
 create table if not exists sm_flow_timers (
   org_id uuid not null references sm_orgs(id) on delete cascade,
   kind text not null,

@@ -131,6 +131,10 @@ interface Exec {
   ident?: Ctx;
   /** the run reached an end (completed, failed or canceled) in this execution */
   ended: boolean;
+  /** items of the run's open loops (sm_flow_loop_items), and what to write or drop with the next save */
+  items: Map<string, unknown[]>;
+  itemsAdd: Map<string, unknown[]>;
+  itemsDrop: Set<string>;
 }
 
 interface Pending {
@@ -183,7 +187,7 @@ function dataFor(x: Exec, token: Token | null): FlowData {
     for (let i = token.frames.length - 1; i >= 0; i--) {
       const f = x.rt.frames[token.frames[i]];
       if (f?.kind === "loop") {
-        out.item = f.items[f.index];
+        out.item = f.item;
         out.item_index = f.index;
         break;
       }
@@ -316,12 +320,16 @@ function settleFork(x: Exec, f: ForkFrame, outer: string[]) {
 
 function nextIteration(x: Exec, f: LoopFrame, outer: string[]) {
   f.index++;
-  if (f.index < f.items.length) {
+  if (f.index < f.count) {
     f.live = 1;
+    f.item = x.items.get(f.id)?.[f.index] ?? null;
     x.rt.tokens.push({ id: nextId(x, "t"), node: f.target, frames: [...outer, f.id] });
     return;
   }
   delete x.rt.frames[f.id];
+  x.items.delete(f.id);
+  x.itemsAdd.delete(f.id);
+  x.itemsDrop.add(f.id);
   const loop = x.nodes.get(f.node);
   if (loop) continueFrom(x, loop, "done", outer);
   else pathEnded(x, outer);
@@ -345,6 +353,16 @@ async function persist(q: Queryable, x: Exec, p: Pending, end?: { state: RunStat
   );
   if (!r) throw new RunAborted("run is no longer open or its lease was lost");
   x.run.state = state;
+  for (const [frame, items] of x.itemsAdd) {
+    await q.query(
+      `insert into sm_flow_loop_items (run_id, frame_id, items) values ($1, $2, $3::jsonb) on conflict (run_id, frame_id) do update set items = excluded.items`,
+      [x.run.id, frame, JSON.stringify(items)],
+    );
+  }
+  for (const frame of x.itemsDrop) await q.query(`delete from sm_flow_loop_items where run_id = $1 and frame_id = $2`, [x.run.id, frame]);
+  if (end) await q.query(`delete from sm_flow_loop_items where run_id = $1`, [x.run.id]);
+  x.itemsAdd.clear();
+  x.itemsDrop.clear();
   if (p.step) await writeStep(q, x.run.org_id, x.run.id, p.step);
   for (const id of p.deleteWaits) await q.query(`delete from sm_flow_waits where id = $1`, [id]);
   for (const w of p.newWaits) {
@@ -382,13 +400,16 @@ async function tagEvents(tx: Tx, x: Exec) {
   );
 }
 
-function snapshot(x: Exec): { rt: Runtime; data: Record<string, any>; state: RunState } {
-  return { rt: structuredClone(x.rt), data: structuredClone(x.data), state: x.run.state };
+function snapshot(x: Exec) {
+  return { rt: structuredClone(x.rt), data: structuredClone(x.data), state: x.run.state, items: new Map(x.items), add: new Map(x.itemsAdd), drop: new Set(x.itemsDrop) };
 }
 function restore(x: Exec, s: ReturnType<typeof snapshot>) {
   x.rt = s.rt;
   x.data = s.data;
   x.run.state = s.state;
+  x.items = s.items;
+  x.itemsAdd = s.add;
+  x.itemsDrop = s.drop;
 }
 
 // ----- ending runs ----------------------------------------------------------------------------------------------
@@ -443,6 +464,7 @@ export async function cancelRun(cfg: ServerConfig, runId: string, reason = "اج
   if (!run) return false;
   const waits = await waitsOf(cfg.db, runId);
   await cfg.db.query(`delete from sm_flow_waits where run_id = $1`, [runId]);
+  await cfg.db.query(`delete from sm_flow_loop_items where run_id = $1`, [runId]);
   const graph = run.graph ?? (run.version_id ? (await loadVersion(cfg.db, run.org_id, run.version_id))?.graph ?? null : null);
   await cancelWaits(cfg, run.org_id, runId, graph, waits);
   await cancelChildren(cfg, runId);
@@ -616,8 +638,11 @@ async function forEachStep(x: Exec, token: Token, node: FlowNode, key: string, s
   const p = controlStep(x, node, key, started, { count: items.length }, items.length && each ? "each" : "done");
   if (!items.length || !each) advance(x, token, node, "done");
   else {
-    const f: LoopFrame = { kind: "loop", id: nextId(x, "l"), node: node.id, items: items.map((i) => capJson(i, 16 * 1024)), index: 0, live: 1, target: each.target };
+    const kept = items.map((i) => capJson(i, 16 * 1024));
+    const f: LoopFrame = { kind: "loop", id: nextId(x, "l"), node: node.id, count: kept.length, index: 0, item: kept[0] ?? null, live: 1, target: each.target };
     x.rt.frames[f.id] = f;
+    x.items.set(f.id, kept);
+    x.itemsAdd.set(f.id, kept);
     token.node = each.target;
     token.frames = [...token.frames, f.id];
   }
@@ -721,6 +746,9 @@ export async function executeRun(cfg: ServerConfig, runId: string, opts: Execute
     worker,
     tz: DEFAULT_TIMEZONE,
     ended: false,
+    items: new Map(),
+    itemsAdd: new Map(),
+    itemsDrop: new Set(),
   };
   try {
     const org = await cfg.db.one<{ settings: Record<string, unknown> | null }>(`select settings from sm_orgs where id = $1`, [run.org_id]);
@@ -729,6 +757,9 @@ export async function executeRun(cfg: ServerConfig, runId: string, opts: Execute
     if (!graph) {
       await endRun(x, "failed", "نسخهٔ گردش‌کار پیدا نشد");
       return { state: x.run.state };
+    }
+    if (Object.values(x.rt.frames).some((f) => f.kind === "loop")) {
+      for (const r of await cfg.db.query<{ frame_id: string; items: unknown[] }>(`select frame_id, items from sm_flow_loop_items where run_id = $1`, [run.id])) x.items.set(r.frame_id, r.items);
     }
     if (opts.resume) await resumeStep(x, opts.resume.waitId, opts.resume.reason);
     const deadline = opts.deadline ?? Date.now() + 8000;

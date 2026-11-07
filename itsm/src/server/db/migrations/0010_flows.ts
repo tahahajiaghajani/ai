@@ -4,6 +4,7 @@
 //                      outputs) and its executor state (`runtime`: tokens and frames of parallel branches and loops),
 //                      the identity it acts as, its depth (flows started by flows) and a lease so one worker runs it
 // - sm_flow_run_steps  the step log: one row per executed step (`key` is the step's idempotency key)
+// - sm_flow_loop_items the items of a running «برای هر مورد» (written once, not with every step)
 // - sm_flow_waits      what waiting steps wait for: a timer, a record condition, an approval, a subflow (`key` finds
 //                      them: "record:<table>:<id>", "approval:<id>", "run:<id>")
 // - sm_flow_timers     the scheduler's plan: next run of every scheduled flow and every `schedule` record
@@ -82,6 +83,14 @@ create table if not exists sm_flow_waits (
 create index if not exists sm_flow_waits_key_idx on sm_flow_waits (org_id, key) where key is not null;
 create index if not exists sm_flow_waits_run_idx on sm_flow_waits (run_id);
 alter table sm_flow_waits enable row level security;
+
+create table if not exists sm_flow_loop_items (
+  run_id uuid not null references sm_flow_runs(id) on delete cascade,
+  frame_id text not null,
+  items jsonb not null,
+  primary key (run_id, frame_id)
+);
+alter table sm_flow_loop_items enable row level security;
 
 create table if not exists sm_flow_timers (
   org_id uuid not null references sm_orgs(id) on delete cascade,
