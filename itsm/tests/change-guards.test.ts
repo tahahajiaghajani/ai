@@ -124,7 +124,10 @@ describe("approvers", () => {
 });
 
 describe("risk and conflicts", () => {
-  const CI = "61616161-6161-4161-8161-616161616161";
+  let CI = ""; // a real CI: references to the CMDB are checked
+  beforeAll(async () => {
+    CI = await w.ci("سرور مشترک");
+  });
 
   it("a person does not set the risk's source: «template» is the template's, and a lower risk by hand needs its reason", async () => {
     const { P, p } = w;
