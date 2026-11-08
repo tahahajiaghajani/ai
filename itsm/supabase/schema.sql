@@ -959,6 +959,421 @@ drop trigger if exists sm_ai_skill_versions_sync on sm_ai_skill_versions;
 create trigger sm_ai_skill_versions_sync before insert or update on sm_ai_skill_versions for each row execute function sm_sync_touch('ai_skill_version');
 alter table sm_ai_skill_versions enable row level security;
 
+-- analytics_config: تنظیمات گزارش‌ها
+create table if not exists sm_analytics_configs (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_analytics_configs add column if not exists workspace_id uuid;
+alter table sm_analytics_configs add column if not exists domain_id uuid;
+alter table sm_analytics_configs add column if not exists unit_id uuid;
+alter table sm_analytics_configs add column if not exists created_at timestamptz not null default now();
+alter table sm_analytics_configs add column if not exists created_by uuid;
+alter table sm_analytics_configs add column if not exists updated_at timestamptz not null default now();
+alter table sm_analytics_configs add column if not exists updated_by uuid;
+alter table sm_analytics_configs add column if not exists rev bigint not null default 0;
+alter table sm_analytics_configs add column if not exists version integer not null default 1;
+alter table sm_analytics_configs add column if not exists deleted_at timestamptz;
+alter table sm_analytics_configs add column if not exists origin text;
+alter table sm_analytics_configs add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_analytics_configs add column if not exists name text;
+alter table sm_analytics_configs add column if not exists config_key text;
+alter table sm_analytics_configs add column if not exists small_cell_k integer;
+alter table sm_analytics_configs add column if not exists snapshot_hour integer;
+alter table sm_analytics_configs add column if not exists keep_days integer;
+alter table sm_analytics_configs add column if not exists backfill_periods integer;
+alter table sm_analytics_configs add column if not exists last_snapshot_on date;
+alter table sm_analytics_configs add column if not exists seeded integer;
+create index if not exists sm_analytics_configs_rev_idx on sm_analytics_configs (org_id, rev);
+create index if not exists sm_analytics_configs_upd_idx on sm_analytics_configs (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_analytics_configs_crt_idx on sm_analytics_configs (org_id, created_at desc, id desc) where deleted_at is null;
+create unique index if not exists sm_analytics_configs_config_key_uk on sm_analytics_configs (org_id, config_key) where deleted_at is null;
+drop trigger if exists sm_analytics_configs_sync on sm_analytics_configs;
+create trigger sm_analytics_configs_sync before insert or update on sm_analytics_configs for each row execute function sm_sync_touch('analytics_config');
+alter table sm_analytics_configs enable row level security;
+
+-- analytics_dashboard: داشبوردها
+create table if not exists sm_analytics_dashboards (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_analytics_dashboards add column if not exists workspace_id uuid;
+alter table sm_analytics_dashboards add column if not exists domain_id uuid;
+alter table sm_analytics_dashboards add column if not exists unit_id uuid;
+alter table sm_analytics_dashboards add column if not exists created_at timestamptz not null default now();
+alter table sm_analytics_dashboards add column if not exists created_by uuid;
+alter table sm_analytics_dashboards add column if not exists updated_at timestamptz not null default now();
+alter table sm_analytics_dashboards add column if not exists updated_by uuid;
+alter table sm_analytics_dashboards add column if not exists rev bigint not null default 0;
+alter table sm_analytics_dashboards add column if not exists version integer not null default 1;
+alter table sm_analytics_dashboards add column if not exists deleted_at timestamptz;
+alter table sm_analytics_dashboards add column if not exists origin text;
+alter table sm_analytics_dashboards add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_analytics_dashboards add column if not exists no integer;
+alter table sm_analytics_dashboards add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 5 then 'DSH' || no::text else 'DSH' || lpad(no::text, 5, '0') end) stored;
+alter table sm_analytics_dashboards add column if not exists name text;
+alter table sm_analytics_dashboards add column if not exists status text;
+alter table sm_analytics_dashboards add column if not exists description text;
+alter table sm_analytics_dashboards add column if not exists folder text;
+alter table sm_analytics_dashboards add column if not exists is_home boolean not null default false;
+alter table sm_analytics_dashboards add column if not exists home_workspaces jsonb;
+alter table sm_analytics_dashboards add column if not exists tv_cycle integer;
+alter table sm_analytics_dashboards add column if not exists refresh_minutes integer;
+alter table sm_analytics_dashboards add column if not exists certified boolean not null default false;
+alter table sm_analytics_dashboards add column if not exists trashed boolean not null default false;
+alter table sm_analytics_dashboards add column if not exists trashed_at timestamptz;
+alter table sm_analytics_dashboards add column if not exists layout jsonb;
+alter table sm_analytics_dashboards add column if not exists filters jsonb;
+alter table sm_analytics_dashboards add column if not exists library_key text;
+alter table sm_analytics_dashboards add column if not exists owner_id uuid;
+alter table sm_analytics_dashboards add column if not exists shares jsonb;
+alter table sm_analytics_dashboards add column if not exists r_users jsonb;
+alter table sm_analytics_dashboards add column if not exists r_groups jsonb;
+alter table sm_analytics_dashboards add column if not exists r_units jsonb;
+alter table sm_analytics_dashboards add column if not exists r_lines jsonb;
+alter table sm_analytics_dashboards add column if not exists r_all boolean not null default false;
+alter table sm_analytics_dashboards add column if not exists w_users jsonb;
+alter table sm_analytics_dashboards add column if not exists w_groups jsonb;
+alter table sm_analytics_dashboards add column if not exists role_keys jsonb;
+create unique index if not exists sm_analytics_dashboards_no_uk on sm_analytics_dashboards (org_id, no);
+create index if not exists sm_analytics_dashboards_rev_idx on sm_analytics_dashboards (org_id, rev);
+create index if not exists sm_analytics_dashboards_upd_idx on sm_analytics_dashboards (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_analytics_dashboards_crt_idx on sm_analytics_dashboards (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_analytics_dashboards_workspace_acc_idx on sm_analytics_dashboards (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_analytics_dashboards_unit_acc_idx on sm_analytics_dashboards (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_analytics_dashboards_domain_acc_idx on sm_analytics_dashboards (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_analytics_dashboards_owner_id_idx on sm_analytics_dashboards (org_id, owner_id) where deleted_at is null;
+drop trigger if exists sm_analytics_dashboards_sync on sm_analytics_dashboards;
+create trigger sm_analytics_dashboards_sync before insert or update on sm_analytics_dashboards for each row execute function sm_sync_touch('analytics_dashboard');
+alter table sm_analytics_dashboards enable row level security;
+
+-- analytics_delivery: گزارش‌های تحویل‌شده
+create table if not exists sm_analytics_deliveries (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_analytics_deliveries add column if not exists workspace_id uuid;
+alter table sm_analytics_deliveries add column if not exists domain_id uuid;
+alter table sm_analytics_deliveries add column if not exists unit_id uuid;
+alter table sm_analytics_deliveries add column if not exists created_at timestamptz not null default now();
+alter table sm_analytics_deliveries add column if not exists created_by uuid;
+alter table sm_analytics_deliveries add column if not exists updated_at timestamptz not null default now();
+alter table sm_analytics_deliveries add column if not exists updated_by uuid;
+alter table sm_analytics_deliveries add column if not exists rev bigint not null default 0;
+alter table sm_analytics_deliveries add column if not exists version integer not null default 1;
+alter table sm_analytics_deliveries add column if not exists deleted_at timestamptz;
+alter table sm_analytics_deliveries add column if not exists origin text;
+alter table sm_analytics_deliveries add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_analytics_deliveries add column if not exists title text;
+alter table sm_analytics_deliveries add column if not exists recipient_id uuid;
+alter table sm_analytics_deliveries add column if not exists status text;
+alter table sm_analytics_deliveries add column if not exists delivered_at timestamptz;
+alter table sm_analytics_deliveries add column if not exists schedule_id uuid;
+alter table sm_analytics_deliveries add column if not exists report_id uuid;
+alter table sm_analytics_deliveries add column if not exists dashboard_id uuid;
+alter table sm_analytics_deliveries add column if not exists rows integer;
+alter table sm_analytics_deliveries add column if not exists summary text;
+alter table sm_analytics_deliveries add column if not exists error text;
+create index if not exists sm_analytics_deliveries_rev_idx on sm_analytics_deliveries (org_id, rev);
+create index if not exists sm_analytics_deliveries_upd_idx on sm_analytics_deliveries (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_analytics_deliveries_crt_idx on sm_analytics_deliveries (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_analytics_deliveries_workspace_acc_idx on sm_analytics_deliveries (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_analytics_deliveries_unit_acc_idx on sm_analytics_deliveries (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_analytics_deliveries_domain_acc_idx on sm_analytics_deliveries (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_analytics_deliveries_recipient_id_idx on sm_analytics_deliveries (org_id, recipient_id) where deleted_at is null;
+drop trigger if exists sm_analytics_deliveries_sync on sm_analytics_deliveries;
+create trigger sm_analytics_deliveries_sync before insert or update on sm_analytics_deliveries for each row execute function sm_sync_touch('analytics_delivery');
+alter table sm_analytics_deliveries enable row level security;
+
+-- analytics_indicator: شاخص‌ها
+create table if not exists sm_analytics_indicators (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_analytics_indicators add column if not exists workspace_id uuid;
+alter table sm_analytics_indicators add column if not exists domain_id uuid;
+alter table sm_analytics_indicators add column if not exists unit_id uuid;
+alter table sm_analytics_indicators add column if not exists created_at timestamptz not null default now();
+alter table sm_analytics_indicators add column if not exists created_by uuid;
+alter table sm_analytics_indicators add column if not exists updated_at timestamptz not null default now();
+alter table sm_analytics_indicators add column if not exists updated_by uuid;
+alter table sm_analytics_indicators add column if not exists rev bigint not null default 0;
+alter table sm_analytics_indicators add column if not exists version integer not null default 1;
+alter table sm_analytics_indicators add column if not exists deleted_at timestamptz;
+alter table sm_analytics_indicators add column if not exists origin text;
+alter table sm_analytics_indicators add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_analytics_indicators add column if not exists no integer;
+alter table sm_analytics_indicators add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 4 then 'KPI' || no::text else 'KPI' || lpad(no::text, 4, '0') end) stored;
+alter table sm_analytics_indicators add column if not exists name text;
+alter table sm_analytics_indicators add column if not exists key text;
+alter table sm_analytics_indicators add column if not exists description text;
+alter table sm_analytics_indicators add column if not exists practice text;
+alter table sm_analytics_indicators add column if not exists unit text;
+alter table sm_analytics_indicators add column if not exists direction text;
+alter table sm_analytics_indicators add column if not exists grain text;
+alter table sm_analytics_indicators add column if not exists decimals integer;
+alter table sm_analytics_indicators add column if not exists active boolean not null default true;
+alter table sm_analytics_indicators add column if not exists formula text;
+alter table sm_analytics_indicators add column if not exists parts jsonb;
+alter table sm_analytics_indicators add column if not exists breakdowns jsonb;
+alter table sm_analytics_indicators add column if not exists target numeric;
+alter table sm_analytics_indicators add column if not exists warn numeric;
+alter table sm_analytics_indicators add column if not exists crit numeric;
+alter table sm_analytics_indicators add column if not exists alert_users jsonb;
+alter table sm_analytics_indicators add column if not exists collect boolean not null default true;
+alter table sm_analytics_indicators add column if not exists score_shares jsonb;
+alter table sm_analytics_indicators add column if not exists certified boolean not null default false;
+alter table sm_analytics_indicators add column if not exists owner_id uuid;
+alter table sm_analytics_indicators add column if not exists formula_version integer;
+alter table sm_analytics_indicators add column if not exists library_key text;
+alter table sm_analytics_indicators add column if not exists collected_at timestamptz;
+alter table sm_analytics_indicators add column if not exists s_users jsonb;
+alter table sm_analytics_indicators add column if not exists s_groups jsonb;
+alter table sm_analytics_indicators add column if not exists s_all boolean not null default false;
+alter table sm_analytics_indicators add column if not exists s_roles jsonb;
+create unique index if not exists sm_analytics_indicators_no_uk on sm_analytics_indicators (org_id, no);
+create index if not exists sm_analytics_indicators_rev_idx on sm_analytics_indicators (org_id, rev);
+create index if not exists sm_analytics_indicators_upd_idx on sm_analytics_indicators (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_analytics_indicators_crt_idx on sm_analytics_indicators (org_id, created_at desc, id desc) where deleted_at is null;
+create unique index if not exists sm_analytics_indicators_key_uk on sm_analytics_indicators (org_id, key) where deleted_at is null;
+create index if not exists sm_analytics_indicators_workspace_acc_idx on sm_analytics_indicators (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_analytics_indicators_unit_acc_idx on sm_analytics_indicators (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_analytics_indicators_domain_acc_idx on sm_analytics_indicators (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_analytics_indicators_owner_id_idx on sm_analytics_indicators (org_id, owner_id) where deleted_at is null;
+drop trigger if exists sm_analytics_indicators_sync on sm_analytics_indicators;
+create trigger sm_analytics_indicators_sync before insert or update on sm_analytics_indicators for each row execute function sm_sync_touch('analytics_indicator');
+alter table sm_analytics_indicators enable row level security;
+
+-- analytics_report: گزارش‌ها
+create table if not exists sm_analytics_reports (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_analytics_reports add column if not exists workspace_id uuid;
+alter table sm_analytics_reports add column if not exists domain_id uuid;
+alter table sm_analytics_reports add column if not exists unit_id uuid;
+alter table sm_analytics_reports add column if not exists created_at timestamptz not null default now();
+alter table sm_analytics_reports add column if not exists created_by uuid;
+alter table sm_analytics_reports add column if not exists updated_at timestamptz not null default now();
+alter table sm_analytics_reports add column if not exists updated_by uuid;
+alter table sm_analytics_reports add column if not exists rev bigint not null default 0;
+alter table sm_analytics_reports add column if not exists version integer not null default 1;
+alter table sm_analytics_reports add column if not exists deleted_at timestamptz;
+alter table sm_analytics_reports add column if not exists origin text;
+alter table sm_analytics_reports add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_analytics_reports add column if not exists no integer;
+alter table sm_analytics_reports add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 5 then 'RPT' || no::text else 'RPT' || lpad(no::text, 5, '0') end) stored;
+alter table sm_analytics_reports add column if not exists name text;
+alter table sm_analytics_reports add column if not exists status text;
+alter table sm_analytics_reports add column if not exists description text;
+alter table sm_analytics_reports add column if not exists folder text;
+alter table sm_analytics_reports add column if not exists table_key text;
+alter table sm_analytics_reports add column if not exists viz text;
+alter table sm_analytics_reports add column if not exists certified boolean not null default false;
+alter table sm_analytics_reports add column if not exists trashed boolean not null default false;
+alter table sm_analytics_reports add column if not exists trashed_at timestamptz;
+alter table sm_analytics_reports add column if not exists spec jsonb;
+alter table sm_analytics_reports add column if not exists spec_version integer;
+alter table sm_analytics_reports add column if not exists owner_id uuid;
+alter table sm_analytics_reports add column if not exists shares jsonb;
+alter table sm_analytics_reports add column if not exists r_users jsonb;
+alter table sm_analytics_reports add column if not exists r_groups jsonb;
+alter table sm_analytics_reports add column if not exists r_units jsonb;
+alter table sm_analytics_reports add column if not exists r_lines jsonb;
+alter table sm_analytics_reports add column if not exists r_all boolean not null default false;
+alter table sm_analytics_reports add column if not exists w_users jsonb;
+alter table sm_analytics_reports add column if not exists w_groups jsonb;
+alter table sm_analytics_reports add column if not exists role_keys jsonb;
+create unique index if not exists sm_analytics_reports_no_uk on sm_analytics_reports (org_id, no);
+create index if not exists sm_analytics_reports_rev_idx on sm_analytics_reports (org_id, rev);
+create index if not exists sm_analytics_reports_upd_idx on sm_analytics_reports (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_analytics_reports_crt_idx on sm_analytics_reports (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_analytics_reports_workspace_acc_idx on sm_analytics_reports (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_analytics_reports_unit_acc_idx on sm_analytics_reports (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_analytics_reports_domain_acc_idx on sm_analytics_reports (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_analytics_reports_owner_id_idx on sm_analytics_reports (org_id, owner_id) where deleted_at is null;
+drop trigger if exists sm_analytics_reports_sync on sm_analytics_reports;
+create trigger sm_analytics_reports_sync before insert or update on sm_analytics_reports for each row execute function sm_sync_touch('analytics_report');
+alter table sm_analytics_reports enable row level security;
+
+-- analytics_schedule: ارسال‌های زمان‌بندی‌شده
+create table if not exists sm_analytics_schedules (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_analytics_schedules add column if not exists workspace_id uuid;
+alter table sm_analytics_schedules add column if not exists domain_id uuid;
+alter table sm_analytics_schedules add column if not exists unit_id uuid;
+alter table sm_analytics_schedules add column if not exists created_at timestamptz not null default now();
+alter table sm_analytics_schedules add column if not exists created_by uuid;
+alter table sm_analytics_schedules add column if not exists updated_at timestamptz not null default now();
+alter table sm_analytics_schedules add column if not exists updated_by uuid;
+alter table sm_analytics_schedules add column if not exists rev bigint not null default 0;
+alter table sm_analytics_schedules add column if not exists version integer not null default 1;
+alter table sm_analytics_schedules add column if not exists deleted_at timestamptz;
+alter table sm_analytics_schedules add column if not exists origin text;
+alter table sm_analytics_schedules add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_analytics_schedules add column if not exists no integer;
+alter table sm_analytics_schedules add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 5 then 'SCD' || no::text else 'SCD' || lpad(no::text, 5, '0') end) stored;
+alter table sm_analytics_schedules add column if not exists name text;
+alter table sm_analytics_schedules add column if not exists active boolean not null default true;
+alter table sm_analytics_schedules add column if not exists report_id uuid;
+alter table sm_analytics_schedules add column if not exists dashboard_id uuid;
+alter table sm_analytics_schedules add column if not exists schedule jsonb;
+alter table sm_analytics_schedules add column if not exists recipients jsonb;
+alter table sm_analytics_schedules add column if not exists recipient_groups jsonb;
+alter table sm_analytics_schedules add column if not exists include_owner boolean not null default true;
+alter table sm_analytics_schedules add column if not exists channels jsonb;
+alter table sm_analytics_schedules add column if not exists formats jsonb;
+alter table sm_analytics_schedules add column if not exists skip_if_empty boolean not null default true;
+alter table sm_analytics_schedules add column if not exists message text;
+alter table sm_analytics_schedules add column if not exists owner_id uuid;
+alter table sm_analytics_schedules add column if not exists next_run_at timestamptz;
+alter table sm_analytics_schedules add column if not exists last_run_at timestamptz;
+alter table sm_analytics_schedules add column if not exists last_result text;
+create unique index if not exists sm_analytics_schedules_no_uk on sm_analytics_schedules (org_id, no);
+create index if not exists sm_analytics_schedules_rev_idx on sm_analytics_schedules (org_id, rev);
+create index if not exists sm_analytics_schedules_upd_idx on sm_analytics_schedules (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_analytics_schedules_crt_idx on sm_analytics_schedules (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_analytics_schedules_workspace_acc_idx on sm_analytics_schedules (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_analytics_schedules_unit_acc_idx on sm_analytics_schedules (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_analytics_schedules_domain_acc_idx on sm_analytics_schedules (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_analytics_schedules_owner_id_idx on sm_analytics_schedules (org_id, owner_id) where deleted_at is null;
+drop trigger if exists sm_analytics_schedules_sync on sm_analytics_schedules;
+create trigger sm_analytics_schedules_sync before insert or update on sm_analytics_schedules for each row execute function sm_sync_touch('analytics_schedule');
+alter table sm_analytics_schedules enable row level security;
+
+-- analytics_score: امتیازهای شاخص
+create table if not exists sm_analytics_scores (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_analytics_scores add column if not exists workspace_id uuid;
+alter table sm_analytics_scores add column if not exists domain_id uuid;
+alter table sm_analytics_scores add column if not exists unit_id uuid;
+alter table sm_analytics_scores add column if not exists created_at timestamptz not null default now();
+alter table sm_analytics_scores add column if not exists created_by uuid;
+alter table sm_analytics_scores add column if not exists updated_at timestamptz not null default now();
+alter table sm_analytics_scores add column if not exists updated_by uuid;
+alter table sm_analytics_scores add column if not exists rev bigint not null default 0;
+alter table sm_analytics_scores add column if not exists version integer not null default 1;
+alter table sm_analytics_scores add column if not exists deleted_at timestamptz;
+alter table sm_analytics_scores add column if not exists origin text;
+alter table sm_analytics_scores add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_analytics_scores add column if not exists indicator_id uuid;
+alter table sm_analytics_scores add column if not exists indicator_key text;
+alter table sm_analytics_scores add column if not exists formula_version integer;
+alter table sm_analytics_scores add column if not exists grain text;
+alter table sm_analytics_scores add column if not exists period_key text;
+alter table sm_analytics_scores add column if not exists period_label text;
+alter table sm_analytics_scores add column if not exists period_start date;
+alter table sm_analytics_scores add column if not exists period_end date;
+alter table sm_analytics_scores add column if not exists breakdown text;
+alter table sm_analytics_scores add column if not exists element text;
+alter table sm_analytics_scores add column if not exists element_label text;
+alter table sm_analytics_scores add column if not exists value numeric;
+alter table sm_analytics_scores add column if not exists status text;
+alter table sm_analytics_scores add column if not exists n integer;
+alter table sm_analytics_scores add column if not exists parts jsonb;
+alter table sm_analytics_scores add column if not exists final boolean not null default false;
+alter table sm_analytics_scores add column if not exists collected_at timestamptz;
+alter table sm_analytics_scores add column if not exists ids jsonb;
+alter table sm_analytics_scores add column if not exists s_users jsonb;
+alter table sm_analytics_scores add column if not exists s_groups jsonb;
+alter table sm_analytics_scores add column if not exists s_all boolean not null default false;
+create index if not exists sm_analytics_scores_rev_idx on sm_analytics_scores (org_id, rev);
+create index if not exists sm_analytics_scores_upd_idx on sm_analytics_scores (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_analytics_scores_crt_idx on sm_analytics_scores (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_analytics_scores_indicator_id_idx on sm_analytics_scores (org_id, indicator_id) where deleted_at is null;
+create unique index if not exists sm_analytics_scores_indicator_id_formula_version_perio_12ed0422 on sm_analytics_scores (org_id, indicator_id, formula_version, period_key, breakdown, element) where deleted_at is null;
+drop trigger if exists sm_analytics_scores_sync on sm_analytics_scores;
+create trigger sm_analytics_scores_sync before insert or update on sm_analytics_scores for each row execute function sm_sync_touch('analytics_score');
+alter table sm_analytics_scores enable row level security;
+
 -- announcement: اطلاعیه‌ها
 create table if not exists sm_announcements (
   id uuid primary key,
