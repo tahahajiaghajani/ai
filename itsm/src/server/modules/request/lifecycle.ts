@@ -26,7 +26,7 @@ import type { JobConfig } from "../../jobs";
 import { prepareSubject, subjectOf } from "../../access";
 import { arr, eqAll, isUuid, liveRow, liveRows, obj, secondsBetween, sysOf, type Row } from "./common";
 import { versionSchema } from "./definition";
-import { canOrder, onBehalfRefusal } from "./entitlement";
+import { canOrder, offeringSnapshot, onBehalfRefusal } from "./entitlement";
 import { calendarOf, createTemplateTasks, deliver, displayOf, flowRunStates, runsActive, startFulfilment } from "./fulfil";
 import { workingDaysDue } from "@shared/request/due";
 
@@ -141,6 +141,15 @@ async function prepareCreate(w: WriteArgs): Promise<void> {
     const why = await onBehalfRefusal(tx, ctx, schema.item, String(n.requested_for));
     if (why) throw validationError({ requested_for: why });
     if (!(await canOrder(tx, ctx, item, String(n.requested_for)))) throw validationError({ cat_item_id: `«${item.name}» برای این شخص در دسترس نیست` });
+  }
+  // the item's service offering (SPF-011) and the entitlement the person had when they ordered (SPF-014)
+  if (isUuid(item.offering_id)) {
+    n.offering_id = item.offering_id;
+    const snap = await offeringSnapshot(tx, ctx, String(n.requested_for), String(item.offering_id));
+    if (snap) {
+      n.entitlement = snap;
+      if (isUuid(snap.service_id)) n.service_id = snap.service_id;
+    }
   }
   const env = await condEnv(ctx);
   const checked = checkAnswers(schema, obj(n.answers), { mode: "order", env });

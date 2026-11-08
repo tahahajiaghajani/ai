@@ -10,6 +10,7 @@
 import type { MyService, ServicePickerHit } from "@shared/service_portfolio/api";
 import { todayISO } from "@shared/jalali";
 import type { Ctx } from "../../context";
+import type { Queryable } from "../../db";
 import { list } from "../../engine";
 import { servicesImpactedBy } from "../cmdb/impact";
 import { CATALOGUE_STATES, isUuid, liveRows, memberAnchors, subscriptionLive, sysOf, type Row } from "./common";
@@ -22,13 +23,13 @@ export function offeringOpenTo(o: Row, a: { groups: string[]; unit: string | nul
 }
 
 /** The live offerings a member may consume, and the agreements that cover them. */
-export async function entitledOfferings(ctx: Ctx, userId: string): Promise<{ offerings: Row[]; agreements: Row[] }> {
+export async function entitledOfferings(ctx: Ctx, userId: string, q: Queryable = ctx.db): Promise<{ offerings: Row[]; agreements: Row[] }> {
   const sys = sysOf(ctx);
-  const a = await memberAnchors(ctx.db, ctx, userId);
-  const offerings = await liveRows(ctx.db, sys, "service_offering", { f: "state", op: "eq", v: "active" }, { order: "t.name", limit: 5000 });
+  const a = await memberAnchors(q, ctx, userId);
+  const offerings = await liveRows(q, sys, "service_offering", { f: "state", op: "eq", v: "active" }, { order: "t.name", limit: 5000 });
   const today = todayISO(String(ctx.org.settings?.timezone ?? "Asia/Tehran"));
   const agreements = a.unit
-    ? (await liveRows(ctx.db, sys, "service_agreement", { and: [{ f: "customer_unit_id", op: "eq", v: a.unit }, { f: "status", op: "eq", v: "active" }] }, { limit: 500 })).filter((g) => (!g.valid_from || g.valid_from <= today) && (!g.valid_to || g.valid_to >= today))
+    ? (await liveRows(q, sys, "service_agreement", { and: [{ f: "customer_unit_id", op: "eq", v: a.unit }, { f: "status", op: "eq", v: "active" }] }, { limit: 500 })).filter((g) => (!g.valid_from || g.valid_from <= today) && (!g.valid_to || g.valid_to >= today))
     : [];
   const covered = new Set<string>();
   for (const g of agreements) {

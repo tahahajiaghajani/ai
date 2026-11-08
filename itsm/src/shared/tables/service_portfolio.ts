@@ -344,8 +344,8 @@ export const SUBSCRIBER_KINDS: Option[] = [yes("user", "فرد", 1), yes("group"
 const subscription: TableDef = {
   key: "service_subscription",
   table: "sm_service_subscriptions",
-  label: "اشتراک خدمت",
-  plural: "اشتراک‌های خدمت",
+  label: "اشتراک اطلاع‌رسانی خدمت",
+  plural: "اشتراک‌های اطلاع‌رسانی خدمت",
   icon: "bell-ring",
   module: "service_portfolio",
   // read with the catalogue: requesters read their own subscriptions (row rule), service readers all of a service's

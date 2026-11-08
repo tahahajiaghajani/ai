@@ -160,6 +160,7 @@ export const CATALOG_ITEM: TableDef = {
     { name: "type", label: "نوع", type: "choice", choices: ITEM_TYPES, default: "standard", required: true, list: true, filter: true, span: 6 },
     { name: "catalog_id", label: "کاتالوگ", type: "ref", ref: "catalog", required: true, list: true, filter: true, index: true, span: 12 },
     { name: "category_id", label: "دسته", type: "ref", ref: "catalog_category", list: true, filter: true, index: true, span: 12 },
+    { name: "offering_id", label: "گزینهٔ خدمت", type: "ref", ref: "service_offering", filter: true, index: true, span: 12, help: "اگر تعیین شود، قلم فقط برای کسانی است که سبد خدمات به این گزینه حق استفاده داده است" },
     { name: "short_description", label: "خلاصه", type: "string", maxLength: 300, search: true, span: 24, ai: { index: true } },
     { name: "description", label: "شرح کامل", type: "markdown", search: true, span: 24, ai: { index: true } },
     { name: "icon", label: "نماد", type: "string", maxLength: 40, ltr: true, span: 8 },
@@ -667,6 +668,8 @@ export const REQUEST_ITEM: TableDef = {
     { name: "access_until", label: "پایان دسترسی", type: "date", filter: true, sort: true, span: 8, section: "انجام" },
     { name: "revoked_at", label: "زمان لغو دسترسی", type: "datetime", readonly: true, span: 8, section: "انجام" },
     { name: "subscription_id", label: "اشتراک", type: "ref", ref: "request_subscription", readonly: true, span: 8, section: "انجام" },
+    // the service offering's entitlement when the item was ordered (SPF-014): offering, service, basis, agreements
+    { name: "entitlement", label: "حق استفاده هنگام سفارش", type: "json", readonly: true, hidden: true, audit: false },
     { name: "flow_runs", label: "اجراهای گردش‌کار", type: "tags", readonly: true, hidden: true, audit: false },
     // the people working its tasks (kept by the roll-up): they read the item and its answers
     { name: "fulfillers", label: "انجام‌دهندگان", type: "users", readonly: true, hidden: true, audit: false },

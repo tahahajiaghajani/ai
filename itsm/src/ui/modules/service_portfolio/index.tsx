@@ -93,7 +93,7 @@ const module = recordModule({
     { table: "customer_review", path: "portfolio/customer-reviews", label: "بازبینی‌های با مشتری", noun: "بازبینی با مشتری", icon: CalendarCheck, section: CUSTOMERS, area: "work", keywords: "بازبینی نشست مشتری صورت‌جلسه CRV" },
     { table: "service_agreement", path: "portfolio/agreements", label: "توافق‌های مشتری", noun: "توافق مشتری", icon: FileSignature, section: CUSTOMERS, area: "work", keywords: "توافق قرارداد سطح خدمت مشتری AGR" },
     {
-      table: "service_subscription", path: "service-subscriptions", label: "اشتراک‌های خدمت", noun: "اشتراک خدمت", icon: BellRing, section: CUSTOMERS, area: "work", keywords: "اشتراک مشترک خدمت",
+      table: "service_subscription", path: "service-subscriptions", label: "اشتراک‌های اطلاع‌رسانی خدمت", noun: "اشتراک اطلاع‌رسانی خدمت", icon: BellRing, section: CUSTOMERS, area: "work", keywords: "اشتراک مشترک خدمت",
       extensions: {
         policies: [
           { key: "sub:user", when: { f: "subscriber_kind", op: "ne", v: "user" }, actions: [{ field: "user_id", visible: false }] },

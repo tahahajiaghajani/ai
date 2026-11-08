@@ -4,7 +4,9 @@
 // `member_profile`. The catalogue, every category on the way down and the item must each allow the person the item
 // is for; the check runs when the catalogue is listed and again when an order is placed, in every channel.
 // Ordering for someone else follows the item's «سفارش برای دیگران»; members who may change others' requests (agents)
-// order for anyone.
+// order for anyone. An item bound to a service offering (catalog_item.offering_id) is also for the people the
+// service portfolio entitles to that offering (SPF-011, SPF-014: `registerOfferingEntitlement`), and each requested
+// item keeps a snapshot of that entitlement (`offeringSnapshot`).
 import { allows, audienceOf, entitled, pathUp, type AudienceDef, type Bindings, type MemberFacts } from "@shared/request/audience";
 import type { ItemSettings } from "@shared/request/form";
 import { grantIn } from "@shared/access";
@@ -13,6 +15,61 @@ import type { Ctx } from "../../context";
 import type { Queryable } from "../../db";
 import { memberCtx, prepareSubject, subjectOf } from "../../access";
 import { eqAll, liveRow, liveRows, sysOf, type Row } from "./common";
+
+// ---------------------------------------------------------------------------------------------------------------
+// Service offerings (the service portfolio plugs in its `entitledOfferings`)
+
+export type OfferingSource = (q: Queryable, ctx: Ctx, userId: string) => Promise<{ offerings: Row[]; agreements: Row[] }>;
+let offeringSource: OfferingSource | null = null;
+
+/** The service portfolio's entitlement of members to offerings (a later registration replaces the earlier one). */
+export function registerOfferingEntitlement(fn: OfferingSource): () => void {
+  offeringSource = fn;
+  return () => {
+    if (offeringSource === fn) offeringSource = null;
+  };
+}
+
+const offeringCache = new WeakMap<Ctx, Map<string, Promise<{ offerings: Row[]; agreements: Row[] }>>>();
+function offeringsOf(q: Queryable, ctx: Ctx, userId: string): Promise<{ offerings: Row[]; agreements: Row[] }> {
+  let m = offeringCache.get(ctx);
+  if (!m) offeringCache.set(ctx, (m = new Map()));
+  let p = m.get(userId);
+  if (!p) m.set(userId, (p = offeringSource!(q, ctx, userId)));
+  return p;
+}
+
+/** Is `userId` entitled to the offering (true without a portfolio, or when the item names none)? */
+async function offeringAllowed(q: Queryable, ctx: Ctx, userId: string, offeringId: unknown): Promise<boolean> {
+  if (!offeringSource || typeof offeringId !== "string" || !offeringId) return true;
+  const { offerings } = await offeringsOf(q, ctx, userId);
+  return offerings.some((o) => String(o.id) === offeringId);
+}
+
+/**
+ * What entitled `userId` to an offering when they ordered (SPF-014), kept on the requested item: the offering and its
+ * service, whether they were entitled, and how — the customer agreements of their unit that cover it, or the
+ * offering being open to them. Null without a portfolio.
+ */
+export async function offeringSnapshot(q: Queryable, ctx: Ctx, userId: string, offeringId: string): Promise<Row | null> {
+  if (!offeringSource) return null;
+  const { offerings, agreements } = await offeringsOf(q, ctx, userId);
+  const o = offerings.find((x) => String(x.id) === offeringId);
+  const offering = o ?? (await liveRow(q, sysOf(ctx), "service_offering", offeringId));
+  const covering = agreements.filter((g) => {
+    const listed = Array.isArray(g.offerings) ? g.offerings.map(String) : [];
+    return listed.length ? listed.includes(offeringId) : !!offering && g.service_id === offering.service_id;
+  });
+  return {
+    offering_id: offeringId,
+    offering: offering?.name ?? null,
+    service_id: offering?.service_id ?? null,
+    entitled: !!o,
+    basis: !o ? "none" : covering.length ? "agreement" : "open",
+    agreements: covering.map((g) => ({ id: String(g.id), name: g.name ?? null, number: g.number ?? null })),
+    checked_at: new Date().toISOString(),
+  };
+}
 
 const factsCache = new WeakMap<Ctx, Map<string, Promise<MemberFacts | null>>>();
 
@@ -150,7 +207,9 @@ export async function entitlementFor(q: Queryable, ctx: Ctx, userId: string): Pr
       for (const it of items) {
         const catalog = it.catalog_id ? index.catalogs.get(String(it.catalog_id)) : undefined;
         const inactive = !catalog || catalog.active === false || categoryChain(index, it.category_id).some((c) => c.active === false);
-        out.set(String(it.id), !!facts && !inactive && entitled(levelsOf(index, it), index.audiences, facts, cond.test));
+        const ok = !!facts && !inactive && entitled(levelsOf(index, it), index.audiences, facts, cond.test);
+        // an item bound to a service offering: only for the people the portfolio entitles to it
+        out.set(String(it.id), ok && (await offeringAllowed(q, ctx, userId, it.offering_id)));
       }
       return out;
     },

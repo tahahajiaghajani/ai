@@ -773,6 +773,7 @@ alter table sm_catalog_items add column if not exists code text;
 alter table sm_catalog_items add column if not exists type text;
 alter table sm_catalog_items add column if not exists catalog_id uuid;
 alter table sm_catalog_items add column if not exists category_id uuid;
+alter table sm_catalog_items add column if not exists offering_id uuid;
 alter table sm_catalog_items add column if not exists short_description text;
 alter table sm_catalog_items add column if not exists description text;
 alter table sm_catalog_items add column if not exists icon text;
@@ -831,6 +832,7 @@ create index if not exists sm_catalog_items_crt_idx on sm_catalog_items (org_id,
 create unique index if not exists sm_catalog_items_code_uk on sm_catalog_items (org_id, code) where deleted_at is null;
 create index if not exists sm_catalog_items_catalog_id_idx on sm_catalog_items (org_id, catalog_id) where deleted_at is null;
 create index if not exists sm_catalog_items_category_id_idx on sm_catalog_items (org_id, category_id) where deleted_at is null;
+create index if not exists sm_catalog_items_offering_id_idx on sm_catalog_items (org_id, offering_id) where deleted_at is null;
 create index if not exists sm_catalog_items_state_idx on sm_catalog_items (org_id, state) where deleted_at is null;
 create index if not exists sm_catalog_items_workspace_acc_idx on sm_catalog_items (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
 create index if not exists sm_catalog_items_unit_acc_idx on sm_catalog_items (org_id, unit_id) where deleted_at is null and unit_id is not null;
@@ -7493,6 +7495,7 @@ alter table sm_request_items add column if not exists requires_confirmation bool
 alter table sm_request_items add column if not exists access_until date;
 alter table sm_request_items add column if not exists revoked_at timestamptz;
 alter table sm_request_items add column if not exists subscription_id uuid;
+alter table sm_request_items add column if not exists entitlement jsonb;
 alter table sm_request_items add column if not exists flow_runs jsonb;
 alter table sm_request_items add column if not exists fulfillers jsonb;
 alter table sm_request_items add column if not exists rating integer;
@@ -8315,7 +8318,7 @@ drop trigger if exists sm_service_score_facts_sync on sm_service_score_facts;
 create trigger sm_service_score_facts_sync before insert or update on sm_service_score_facts for each row execute function sm_sync_touch('service_score_fact');
 alter table sm_service_score_facts enable row level security;
 
--- service_subscription: اشتراک‌های خدمت
+-- service_subscription: اشتراک‌های اطلاع‌رسانی خدمت
 create table if not exists sm_service_subscriptions (
   id uuid primary key,
   org_id uuid not null references sm_orgs(id) on delete cascade,

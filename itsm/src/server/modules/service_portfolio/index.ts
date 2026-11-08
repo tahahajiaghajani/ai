@@ -14,6 +14,8 @@
 // services from CIs), `entitledOfferings` (the request catalogue), `myServices` (the portal), `refreshStatuses`
 // (event management), `registerPortfolioAi` (the AI layer).
 import { registerOrgSeed } from "../orgs/service";
+import { registerOfferingEntitlement } from "../request/entitlement";
+import { entitledOfferings } from "./entitle";
 import { SEED_DELAY_MS } from "../sla";
 import { registerRecordMeta, systemCtx } from "../../engine";
 import { access } from "../../access/provider";
@@ -42,6 +44,8 @@ export function installServicePortfolioModule(): void {
   installPortfolioRag();
   installPortfolioTools();
   installServiceRoles();
+  // the request catalogue: items bound to an offering only for those entitled to it, with a snapshot (SPF-011/014)
+  registerOfferingEntitlement((q, ctx, userId) => entitledOfferings(ctx, userId, q));
   registerRecordMeta("service", async ({ ctx, def, row }) => ({
     service_portfolio: {
       can_write: ctx.actor === "system" || access().canWrite(ctx, def, row),
