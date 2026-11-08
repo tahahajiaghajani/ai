@@ -8,7 +8,7 @@
 // back with every answer; each first page is logged to the knowledge event stream (zero results feed the gap list).
 import type { KbSearchHit, KbSearchParams, KbSearchResult, KbFacet, KbSnippetHit } from "@shared/knowledge/api";
 import { excerpt, parseQuery } from "@shared/knowledge/logic";
-import { searchForm, stem } from "@shared/ai/text";
+import { SEARCH_DROPPED, SEARCH_FOLDS, searchForm, stem } from "@shared/ai/text";
 import type { Ctx } from "../../context";
 import { pgArray } from "../../db";
 import { condEnv, orgSchema, readable } from "../../engine";
@@ -16,17 +16,25 @@ import { LIVE_STATES } from "@shared/tables/knowledge";
 import { holdsInternal, liveRows, rowsById, sysOf, type Row } from "./common";
 import { logEvent } from "./events";
 
+// The SQL twin of `searchForm`, from its own tables (SEARCH_FOLDS, SEARCH_DROPPED): NFKC (ligatures, decomposed
+// letters), lower case, folded letters and digits, every removed mark and invisible or bidi character gone, odd
+// spaces and punctuation as one space, the connectors of identifiers (. _ / : @) as «-» like searchForm's
+// (no quote, backslash or dollar sign in these literals)
+const DIGITS: [string, string][] = [...[..."۰۱۲۳۴۵۶۷۸۹"].map((c, i) => [c, String(i)] as [string, string]), ...[..."٠١٢٣٤٥٦٧٨٩"].map((c, i) => [c, String(i)] as [string, string])];
+const SPACES = "\t\n\r\f\v\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000";
+const PUNCT = "،؛؟٪٫٬«»!?,;\"()[]{}<>|~^*+=#&`";
+const CONNECT = "._/:@";
 const PAIRS: [string, string][] = [
-  ["ي", "ی"], ["ى", "ی"], ["ك", "ک"], ["ە", "ه"], ["أ", "ا"], ["إ", "ا"], ["ٱ", "ا"], ["آ", "ا"], ["ؤ", "و"], ["ئ", "ی"], ["ة", "ه"], ["ۀ", "ه"],
-  ...[..."۰۱۲۳۴۵۶۷۸۹"].map((c, i) => [c, String(i)] as [string, string]),
-  ...[..."٠١٢٣٤٥٦٧٨٩"].map((c, i) => [c, String(i)] as [string, string]),
+  ...SEARCH_FOLDS.map(([a, b]) => [a, b] as [string, string]),
+  ...DIGITS,
+  ...[...SPACES, ...PUNCT].map((c) => [c, " "] as [string, string]),
+  ...[...CONNECT].map((c) => [c, "-"] as [string, string]),
 ];
-const DROP = "‌‍ًٌٍَُِّْٰـء";
-const FROM = PAIRS.map((p) => p[0]).join("") + DROP;
+const FROM = PAIRS.map((p) => p[0]).join("") + [...SEARCH_DROPPED].filter((c) => !PAIRS.some((p) => p[0] === c)).join("");
 const TO = PAIRS.map((p) => p[1]).join("");
 
-/** The SQL twin of `searchForm` for substring matching (lower-cased, letters and digits folded, marks dropped). */
-export const normExpr = (expr: string) => `translate(lower(coalesce(${expr}, '')), '${FROM}', '${TO}')`;
+/** The SQL twin of `searchForm` for substring matching (see above): both sides of every comparison take this form. */
+export const normExpr = (expr: string) => `regexp_replace(translate(lower(normalize(coalesce(${expr}, ''), NFKC)), '${FROM}', '${TO}'), ' {2,}', ' ', 'g')`;
 const likeEsc = (s: string) => s.replace(/[\\%_]/g, (c) => `\\${c}`);
 
 interface Glossary {

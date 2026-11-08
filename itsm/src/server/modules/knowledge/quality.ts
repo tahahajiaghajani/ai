@@ -15,6 +15,7 @@ import type { Ctx } from "../../context";
 import { condEnv, createIn, get, orgSchema, readable, updateIn } from "../../engine";
 import { addDaysISO, baseOf, daysBetween, kbConfig, liveRow, liveRows, sysOf, todayIn, uniq, type Row } from "./common";
 import { queryStats, viewCounts } from "./events";
+import { memberCtx } from "../../access/service";
 import { coachesOf } from "./kcs";
 import { reportGap, topicSignature } from "./feedback";
 
@@ -167,11 +168,21 @@ export async function sampleAqi(sys: Ctx): Promise<number> {
     const pick = [...list].sort((x, y) => String(x.id).localeCompare(String(y.id))).slice(0, cfg.aqi_per_author);
     for (const a of pick) {
       const base = await baseOf(sys.db, sys, a.base_id);
-      const coaches = (await coachesOf(sys.db, sys, a.base_id)).filter((c) => c !== author);
-      const reviewer = coaches[0] ?? (base?.owner_id && base.owner_id !== author ? base.owner_id : null);
+      // the first coach (else the base's owner) who reads the article: a coach licensed for every base may not
+      const candidates = [...(await coachesOf(sys.db, sys, a.base_id)), ...(base?.owner_id ? [base.owner_id] : [])].filter((c, i, all) => c !== author && all.indexOf(c) === i);
+      let reviewer: string | null = null;
+      for (const c of candidates) {
+        const mctx = await memberCtx(sys.cfg, sys.org.id, c).catch(() => null);
+        if (mctx && (await liveRow(sys.db, mctx, "kb_article", a.id))) {
+          reviewer = c;
+          break;
+        }
+      }
       await sys.write(async (tx) => {
         await createIn(tx, sys, "kb_quality_review", { article_id: a.id, version_label: a.version_label ?? null, period, author_id: author, reviewer_id: reviewer, results: {} }, { trusted: true });
-        await createIn(tx, sys, "kb_task", { kind: "aqi", article_id: a.id, priority: "4", assigned_to: reviewer, assignment_group_id: reviewer ? null : base?.manager_group_id ?? cfg.default_group_id, short_description: `ارزیابی کیفیت (${period}): ${String(a.title).slice(0, 140)}` }, { trusted: true });
+        // the title only for a reviewer who reads it; the managers' group gets the article's number
+        const label = reviewer ? String(a.title).slice(0, 140) : String(a.number ?? "");
+        await createIn(tx, sys, "kb_task", { kind: "aqi", article_id: a.id, priority: "4", assigned_to: reviewer, assignment_group_id: reviewer ? null : base?.manager_group_id ?? cfg.default_group_id, short_description: `ارزیابی کیفیت (${period}): ${label}` }, { trusted: true });
       });
       created++;
     }

@@ -9,7 +9,8 @@ import { PNG, raw, upload } from "./engine-helpers";
 import type { Client } from "./helpers";
 import { BY_ENTITY } from "@server/sync/registry";
 import { pullEngine } from "@server/engine/sync";
-import { kbSweep, runPublishingModels } from "@server/modules/knowledge";
+import { kbSweep, runPublishingModels, sampleAqi, searchKnowledge } from "@server/modules/knowledge";
+import { orgSchema } from "@server/engine";
 
 let w: KbWorld;
 const R = (t: string, id?: string) => `${w.P}/r/${t}${id ? `/${id}` : ""}`;
@@ -228,5 +229,50 @@ describe("rows of an article follow its deny lists; feedback and AQI come from t
     await as("other").post(K(`/articles/${a.id}/vote`), { helpful: false });
     await as("other").post(K(`/articles/${a.id}/vote`), { helpful: false });
     expect(Number((await w.o.get(R("kb_article", a.id))).row.helpful_no ?? 0)).toBe(before + 1);
+  });
+});
+
+describe("search folds what Persian keyboards type", () => {
+  it("matches phrases and words typed with ezafe hamza, bidi marks, zero-width spaces and decomposed letters", async () => {
+    const a = await w.published({
+      title: "تنظیم شبکهٔ بی\u200cسیم دفتر",
+      body: "## گام‌ها\n\n1. رمز\u200bعبور شبکه را از پشتیبانی بگیرید\n2. اتصال به VPN\u200f در خانه را امتحان کنید\n3. ا\u0653موزش کوتاه دفتر را ببینید\n",
+    });
+    const ctx = await w.e.ctxOf(w.p.req.userId);
+    await orgSchema(ctx); // loads the access subject, as the API does for each request
+    const hits = async (q: string) => (await searchKnowledge(ctx, { q, semantic: false, log: false })).hits.map((h) => h.id);
+    for (const q of ['"شبکه بی‌سیم"', '"vpn در خانه"', "رمزعبور", "آموزش", '"تنظیم شبکه"']) expect(await hits(q), q).toContain(a.id);
+  });
+});
+
+describe("dashboards and AQI tasks show only what their reader may read", () => {
+  it("keeps the organisation's searches to knowledge managers, masked, and stored counts from requesters", async () => {
+    await as("req").get(K(`/search?q=${encodeURIComponent("رمز وای فای 09121234567")}`));
+    await as("req").get(K(`/search?q=${encodeURIComponent("خطای چاپگر طبقه سوم")}`));
+    const agent = await as("agent").get(K("/dashboard"));
+    expect(agent.queries).toEqual([]);
+    expect(agent.zero).toEqual([]);
+    expect(JSON.stringify(agent)).not.toContain("09121234567");
+    const km = await as("km").get(K("/dashboard"));
+    expect(km.queries.map((q: any) => q.query)).toEqual(expect.arrayContaining(["[متن حساس]"]));
+    expect(JSON.stringify(km)).not.toContain("09121234567");
+    expect(JSON.stringify(km)).toContain("چاپگر");
+    // the stored organisation-wide count of a base is not a requester's to see
+    expect((await as("req").get(R("kb_base", w.bases.guide))).row.article_count).toBeUndefined();
+  });
+
+  it("gives an AQI review only to a coach who reads the article, and its title to nobody else", async () => {
+    await w.e.db.query(`delete from sm_kb_quality_reviews where org_id = $1`, [w.e.org]);
+    await w.o.post(R("kb_licence"), { user_id: w.p.other.userId, level: "coach" });
+    const a = await w.published({ title: "رویهٔ محرمانهٔ حقوق و دستمزد", body: "## گام‌ها\n\n1. فایل حقوق را باز کنید\n2. بررسی کنید\n" }, as("hr"));
+    await as("km").patch(R("kb_article", a.id), { deny_users: [w.p.other.userId] });
+    await w.drain();
+    expect(await statusOf(as("other"), "GET", R("kb_article", a.id))).toBe(404);
+    expect(await sampleAqi(w.sys)).toBeGreaterThan(0);
+    const [review] = (await w.e.db.query<{ reviewer_id: string | null }>(`select reviewer_id from sm_kb_quality_reviews where org_id = $1 and article_id = $2`, [w.e.org, a.id]));
+    expect(review).toBeTruthy();
+    expect(review.reviewer_id).not.toBe(w.p.other.userId);
+    const tasks = (await as("other").post(`${R("kb_task")}/query`, { filter: { f: "kind", op: "eq", v: "aqi" }, fields: ["short_description"] })).rows;
+    expect(JSON.stringify(tasks)).not.toContain("حقوق و دستمزد");
   });
 });

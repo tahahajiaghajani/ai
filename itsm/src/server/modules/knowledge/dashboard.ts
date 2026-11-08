@@ -8,6 +8,7 @@
 // Counts of records come from `aggregate`/`countRows` with the caller's context; event figures from the stream.
 import type { KbCard, KbCount, KbDashboard, KbHome, KbWorkspace } from "@shared/knowledge/api";
 import { ARTICLE_TYPES, LIVE_STATES } from "@shared/tables/knowledge";
+import { scanSensitive } from "@shared/knowledge/logic";
 import type { Ctx } from "../../context";
 import { aggregate, condEnv, orgSchema, readable } from "../../engine";
 import { forbidden } from "../../http/errors";
@@ -67,15 +68,15 @@ const typeLabel = (v: string) => ARTICLE_TYPES.find((t) => t.value === v)?.label
 const STATE_LABELS: Record<string, string> = { draft: "پیش‌نویس", in_review: "در بازبینی", scheduled: "زمان‌بندی‌شده", published: "منتشرشده", pending_retirement: "در انتظار بازنشستگی", retired: "بازنشسته", trashed: "در سطل بازیافت" };
 
 /** Readable resolved incidents in a window and how many of them have a knowledge link (system counts, for rates). */
-async function linkRate(sys: Ctx, since: string): Promise<{ resolved: number; linked: number }> {
-  const schema = await orgSchema(sys);
+async function linkRate(ctx: Ctx, since: string): Promise<{ resolved: number; linked: number }> {
+  const schema = await orgSchema(ctx);
   const def = schema.def("incident");
   if (!def) return { resolved: 0, linked: 0 };
-  const env = await condEnv(sys);
+  const env = await condEnv(ctx);
   const params: unknown[] = [];
-  const where = readable(sys, def, "i", params, env);
+  const where = readable(ctx, def, "i", params, env);
   params.push(since);
-  const r = await sys.db.one<{ n: string | number; l: string | number }>(
+  const r = await ctx.db.one<{ n: string | number; l: string | number }>(
     `select count(*) as n, sum(case when exists (select 1 from sm_links l where l.org_id = i.org_id and l.from_id = i.id and l.to_table = 'kb_article' and l.deleted_at is null) then 1 else 0 end) as l
        from ${def.table} i where ${where} and i.resolved_at > $${params.length}`,
     params,
@@ -127,20 +128,29 @@ export async function kbDashboard(ctx: Ctx, days = 90): Promise<KbDashboard> {
   const byType = await counts(ctx, "article_type");
   const top = await liveRows(ctx.db, ctx, "kb_article", live, { order: "t.view_count desc, t.reuse_count desc", limit: 8 });
   const bottom = await liveRows(ctx.db, ctx, "kb_article", { and: [live, { f: "helpful_no", op: "gte", v: 2 }] }, { order: "(t.helpful_no::float / greatest(1, t.helpful_yes + t.helpful_no)) desc", limit: 8 });
-  const ev = await eventTotals(sys.db, ctx.org.id, days);
-  const queries = await queryStats(sys.db, ctx.org.id, days, { limit: 15 });
-  const zero = await queryStats(sys.db, ctx.org.id, days, { zeroOnly: true, limit: 15 });
+  // the event stream (what everyone typed, sessions, deflection) is the knowledge managers'; query texts that hold
+  // personal or technical data are masked even for them
+  const managers = isKbAdmin(ctx) || writesAll(ctx);
+  const masked = (rows: Awaited<ReturnType<typeof queryStats>>) => rows.map((r) => (scanSensitive(r.query).length ? { ...r, query: "[متن حساس]" } : r));
+  const ev = managers ? await eventTotals(sys.db, ctx.org.id, days) : {};
+  const queries = managers ? masked(await queryStats(sys.db, ctx.org.id, days, { limit: 15 })) : [];
+  const zero = managers ? masked(await queryStats(sys.db, ctx.org.id, days, { zeroOnly: true, limit: 15 })) : [];
   const searches = ev.search ?? 0;
   const zeroCount = zero.reduce((s, z) => s + z.zero, 0);
   const totalsAgg = await aggregate(ctx, "kb_article", { filter: live, metrics: [{ fn: "sum", field: "helpful_yes" }, { fn: "sum", field: "helpful_no" }, { fn: "sum", field: "open_flags" }] });
   const helpful = Number(totalsAgg.totals["sum:helpful_yes"] ?? 0);
   const notHelpful = Number(totalsAgg.totals["sum:helpful_no"] ?? 0);
   const openTasks = await countRows(ctx.db, ctx, "kb_task", { f: "active", op: "eq", v: true });
-  const linksRow = await sys.db.one<{ n: string | number; a: string | number }>(
-    `select count(*) as n, count(distinct to_id) as a from sm_links where org_id = $1 and to_table = 'kb_article' and kind in ('kb_solved_by', 'kb_workaround') and deleted_at is null and created_at > $2`,
-    [ctx.org.id, since],
+  // links to the articles the reader reads; incidents the reader reads
+  const adef = (await orgSchema(ctx)).def("kb_article")!;
+  const lparams: unknown[] = [ctx.org.id, since];
+  const aread = readable(ctx, adef, "a", lparams, await condEnv(ctx));
+  const linksRow = await ctx.db.one<{ n: string | number; a: string | number }>(
+    `select count(*) as n, count(distinct l.to_id) as a from sm_links l join ${adef.table} a on a.id = l.to_id
+      where l.org_id = $1 and l.to_table = 'kb_article' and l.kind in ('kb_solved_by', 'kb_workaround') and l.deleted_at is null and l.created_at > $2 and ${aread}`,
+    lparams,
   );
-  const lr = await linkRate(sys, since);
+  const lr = await linkRate(ctx, since);
   const translated = await countRows(ctx.db, ctx, "kb_article", { and: [live, { f: "translation_of", op: "nempty" }] });
   const stale = await countRows(ctx.db, ctx, "kb_article", { and: [live, { f: "translation_stale", op: "eq", v: true }] });
   const masters = new Set((await liveRows(ctx.db, ctx, "kb_article", { and: [live, { f: "translation_of", op: "nempty" }] }, { limit: 5000 })).map((r) => r.translation_of)).size;
@@ -181,7 +191,7 @@ export async function kbDashboard(ctx: Ctx, days = 90): Promise<KbDashboard> {
     zero,
     events: ev,
     search: { searches, zero_rate: searches ? Math.round((100 * zeroCount) / searches) : 0, click_rate: searches ? Math.round((100 * (ev.click ?? 0)) / searches) : 0 },
-    deflection: await deflection(sys, days, (await kbConfig(ctx.db, sys)).deflection_hours),
+    deflection: managers ? await deflection(sys, days, (await kbConfig(ctx.db, sys)).deflection_hours) : { sessions: 0, deflected: 0, rate: 0, solved_clicks: 0 },
     feedback: { helpful, not_helpful: notHelpful, ratio: helpful + notHelpful ? Math.round((100 * helpful) / (helpful + notHelpful)) : 0, open_flags: Number(totalsAgg.totals["sum:open_flags"] ?? 0), open_tasks: openTasks },
     reuse: { links: Number(linksRow?.n ?? 0), articles_reused: Number(linksRow?.a ?? 0), link_rate: lr.resolved ? Math.round((100 * lr.linked) / lr.resolved) : 0 },
     translation: { masters, translated, stale },
@@ -216,11 +226,12 @@ export async function kbWorkspace(ctx: Ctx): Promise<KbWorkspace> {
   let p12 = { total: 0, met: 0 };
   const idef = schema.def("incident");
   if (idef) {
-    const env = await condEnv(sys);
+    // the incidents the reader reads (never the organisation's count through the system)
+    const env = await condEnv(ctx);
     const params: unknown[] = [];
-    const where = readable(sys, idef, "i", params, env);
+    const where = readable(ctx, idef, "i", params, env);
     params.push(since, before);
-    const r = await sys.db.one<{ n: string | number; m: string | number }>(
+    const r = await ctx.db.one<{ n: string | number; m: string | number }>(
       `select count(*) as n, sum(case when exists (select 1 from sm_links l where l.org_id = i.org_id and l.to_table = 'kb_article' and l.deleted_at is null and l.created_at <= i.resolved_at + interval '5 days' and (l.from_id = i.id or l.to_id = i.id)) then 1 else 0 end) as m
          from ${idef.table} i where ${where} and i.priority in ('1', '2') and i.resolved_at > $${params.length - 1} and i.resolved_at < $${params.length}`,
       params,

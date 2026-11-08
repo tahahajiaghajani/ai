@@ -413,7 +413,8 @@ const base: TableDef = {
     { name: "k_groups", label: "گروه‌های مشارکت‌کننده (محاسبه‌شده)", type: "refs", ref: "group", ...sys, index: true },
     { name: "r_units", label: "واحدهای خواننده (محاسبه‌شده)", type: "refs", ref: "org_unit", ...sys },
     { name: "x_units", label: "واحدهای منع‌شده (محاسبه‌شده)", type: "refs", ref: "org_unit", ...sys },
-    { name: "article_count", label: "مقاله‌های منتشرشده", type: "int", readonly: true, audit: false, default: 0, list: true, sort: true },
+    // counted over the whole organisation (the kb.counts job): agents only; the KB home counts per reader
+    { name: "article_count", label: "مقاله‌های منتشرشده", type: "int", readonly: true, audit: false, default: 0, list: true, sort: true, group: "internal" },
   ],
   states: BASE_STATES,
   unique: [["name"]],
@@ -421,7 +422,7 @@ const base: TableDef = {
   features: { confidential: true },
   rowAccess: { read: BASE_READ },
   form: { sections: [MAIN, AUDIENCE, CONTRIB, POLICY, AI] },
-  list: { columns: ["name", "kind", "read_mode", "owner_id", "article_count", "ai_enabled", "state"], order: "sort_order,name" },
+  list: { columns: ["name", "kind", "read_mode", "owner_id", "ai_enabled", "state"], order: "sort_order,name" },
 };
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -458,14 +459,14 @@ const category: TableDef = {
     { name: "c_groups", label: "گروه‌های خواننده (محاسبه‌شده)", type: "refs", ref: "group", ...sys },
     { name: "c_units", label: "واحدهای خواننده (محاسبه‌شده)", type: "refs", ref: "org_unit", ...sys },
     { name: "m_groups", label: "گروه‌های ویرایشگر (محاسبه‌شده)", type: "refs", ref: "group", ...sys, index: true },
-    { name: "article_count", label: "مقاله‌ها", type: "int", readonly: true, audit: false, default: 0, list: true, sort: true },
+    { name: "article_count", label: "مقاله‌ها", type: "int", readonly: true, audit: false, default: 0, list: true, sort: true, group: "internal" },
     ...contribFields(),
   ],
   states: BASE_STATES,
   scope: { own: [], requester: [] },
   rowAccess: { read: CATEGORY_READ },
   form: { sections: [MAIN, AUDIENCE] },
-  list: { columns: ["name", "base_id", "parent_id", "article_count", "state"], order: "base_id,depth,sort_order,name" },
+  list: { columns: ["name", "base_id", "parent_id", "state"], order: "base_id,depth,sort_order,name" },
 };
 
 // ---------------------------------------------------------------------------------------------------------------

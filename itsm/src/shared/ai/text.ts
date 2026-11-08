@@ -60,6 +60,23 @@ const SEARCH_FOLD: Record<string, string> = {
 };
 
 /**
+ * The character tables of `searchForm` for its SQL twin (knowledge search): every character it removes outright
+ * (marks, tatweel, invisible and bidi controls, ZWNJ, hamza) and the letters it folds — derived from the same tables,
+ * so the two sides agree.
+ */
+export const SEARCH_DROPPED: string = (() => {
+  const re = new RegExp(DROP_RE.source);
+  let out = "";
+  for (let cp = 0; cp <= 0xffff; cp++) {
+    if (cp >= 0xd800 && cp <= 0xdfff) continue;
+    const c = String.fromCharCode(cp);
+    if (re.test(c)) out += c;
+  }
+  return out + ZWNJ + Object.keys(SEARCH_FOLD).filter((k) => !SEARCH_FOLD[k]).join("");
+})();
+export const SEARCH_FOLDS: readonly (readonly [string, string])[] = [...Object.entries(LETTER_MAP), ...Object.entries(SEARCH_FOLD).filter(([, v]) => v)];
+
+/**
  * The search form: what the full-text index, the trigram-style fallback and the local embedder see. Lower-case,
  * ZWNJ removed, letters folded, punctuation as spaces; dots, dashes, slashes, colons, @ and underscores survive only
  * between letters or digits (record numbers, addresses, versions).
