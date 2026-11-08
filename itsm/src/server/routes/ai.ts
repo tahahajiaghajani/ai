@@ -280,10 +280,16 @@ aiRoutes.get("/actions", async (c) => {
     z.object({
       status: z.enum(["proposed", "executing", "executed", "rejected", "expired", "failed"]).optional(),
       mine: z.string().optional(),
+      /** «پیشنهادهای هوش مصنوعی»: routed to me or my groups (agents), or mine */
+      inbox: z.string().optional(),
+      /** every agent proposal the caller may see */
+      agents: z.string().optional(),
+      agent: z.string().regex(/^[0-9a-f-]{36}$/i).optional(),
       limit: z.coerce.number().int().min(1).max(200).optional(),
     }),
   );
-  return c.json({ actions: await listActions(ctx, { status: q.status, mine: q.mine === "1" || q.mine === "true", limit: q.limit }) });
+  const flag = (v?: string) => v === "1" || v === "true";
+  return c.json({ actions: await listActions(ctx, { status: q.status, mine: flag(q.mine), inbox: flag(q.inbox), agents: flag(q.agents), agent: q.agent ?? null, limit: q.limit }) });
 });
 
 aiRoutes.post("/actions/:id/confirm", async (c) => {

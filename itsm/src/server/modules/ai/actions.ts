@@ -5,7 +5,7 @@
 // expire after 24 hours.
 import { createHash } from "node:crypto";
 import type { Ctx } from "../../context";
-import type { AiProposal, AiProposalStatus, AiRef } from "@shared/ai/types";
+import type { AiProposal, AiProposalOutcome, AiProposalStatus, AiRef } from "@shared/ai/types";
 import type { AiActionView } from "@shared/ai/api";
 import type { Area, Level } from "@shared/permissions";
 import { uuidv7 } from "@shared/id";
@@ -17,7 +17,8 @@ import type { FieldGroup } from "@shared/model/types";
 import { access } from "../../access/provider";
 import { readableIds } from "../../access/service";
 import type { AiProposalInput } from "./tools/registry";
-import { executeProposal } from "./tools/proposals";
+import { executeProposalFull, isOutcome } from "./tools/proposals";
+import { condEnv, orgSchema } from "../../engine";
 
 export const PROPOSAL_TTL_MS = 24 * 3600 * 1000;
 
@@ -47,9 +48,19 @@ interface ActionRow {
   fields: string[] | null;
   skill_run_id: string | null;
   principal: string | null;
+  /** an agent's proposal: the agent and its run (docs/spec/AI.md §11.8) */
+  agent_id: string | null;
+  agent_run_id: string | null;
+  /** whom it is routed to (the «پیشنهادهای هوش مصنوعی» inbox) */
+  route_users: string[] | null;
+  route_groups: string[] | null;
+  /** what applying it did, row by row */
+  outcome: AiProposalOutcome | null;
 }
 
-const COLS = `id, org_id, thread_id, message_id, user_id, kind, tool, area, level, payload, payload_hash, preview, status, confirmed_by, confirmed_at, result, error, expires_at, created_at, record_table, record_id, fields, skill_run_id, principal`;
+type Preview = ActionRow["preview"] & { count?: number; agent?: { key: string; name: string } | null };
+
+const COLS = `id, org_id, thread_id, message_id, user_id, kind, tool, area, level, payload, payload_hash, preview, status, confirmed_by, confirmed_at, result, error, expires_at, created_at, record_table, record_id, fields, skill_run_id, principal, agent_id, agent_run_id, route_users, route_groups, outcome`;
 
 /** JSON with object keys sorted at every level: the same text before and after a jsonb round trip (which reorders keys). */
 function canonicalJson(value: unknown): string {
@@ -74,7 +85,7 @@ function effectiveStatus(r: ActionRow): AiProposalStatus {
 }
 
 export function toProposal(r: ActionRow): AiProposal {
-  const p = r.preview;
+  const p = r.preview as Preview;
   return {
     id: r.id,
     kind: r.kind,
@@ -89,24 +100,67 @@ export function toProposal(r: ActionRow): AiProposal {
     result: r.result ?? null,
     error: r.error ?? null,
     expires_at: r.expires_at,
+    ...(typeof p.count === "number" ? { count: p.count } : {}),
+    ...(r.outcome ? { outcome: r.outcome } : {}),
+    ...(p.agent ? { agent: p.agent } : {}),
+    ...(r.record_table ? { record: { table: r.record_table, id: r.record_id } } : {}),
   };
 }
 
-/** Store a proposal returned by a tool (one per tool call: a retried step never doubles it). */
-export async function storeProposal(ctx: Ctx, c: { threadId: string; messageId: string; callId: string; tool: string; proposal: AiProposalInput }): Promise<AiProposal> {
+/** Whom a proposal is routed to and which agent made it (agents, docs/spec/AI.md §11.8). */
+export interface ProposalRouting {
+  agent?: { id: string; key: string; name: string; run_id: string | null } | null;
+  users?: string[];
+  groups?: string[];
+}
+
+const uuidList = (xs: readonly string[] | undefined) => [...new Set((xs ?? []).filter((x) => typeof x === "string" && /^[0-9a-f-]{36}$/i.test(x)).map((x) => x.toLowerCase()))];
+
+function previewOf(p: AiProposalInput & { count?: number }, agent: ProposalRouting["agent"]): Preview {
+  return {
+    title_fa: p.title_fa,
+    summary_fa: p.summary_fa,
+    preview: p.preview,
+    lines: p.lines,
+    line_headers: p.line_headers,
+    warnings: p.warnings,
+    edit_path: p.edit_path,
+    ...(typeof p.count === "number" ? { count: p.count } : {}),
+    ...(agent ? { agent: { key: agent.key, name: agent.name } } : {}),
+  };
+}
+
+/**
+ * Store a proposal returned by a tool (one per tool call: a retried step never doubles it). A proposal about records
+ * (`proposal.record`: the generated record tools) is visible only to people who may read that record — or, for a batch,
+ * every record it names — and every field involved; it is still applied by a person with their own access.
+ */
+export async function storeProposal(
+  ctx: Ctx,
+  c: { threadId: string | null; messageId: string | null; callId: string; tool: string; proposal: AiProposalInput; key?: string; routing?: ProposalRouting; ttlHours?: number },
+): Promise<AiProposal> {
   const p = c.proposal;
   const id = uuidv7();
   // the step's message id is part of the key: providers that omit tool-call ids get made-up ones
   // (call_0_…) that repeat in later turns of the same conversation
-  const key = createHash("sha256").update(`${ctx.org.id}:${c.threadId}:${c.messageId}:${c.callId}`).digest("hex");
-  const preview = { title_fa: p.title_fa, summary_fa: p.summary_fa, preview: p.preview, lines: p.lines, line_headers: p.line_headers, warnings: p.warnings, edit_path: p.edit_path };
+  const key = createHash("sha256").update(c.key ?? `${ctx.org.id}:${c.threadId}:${c.messageId}:${c.callId}`).digest("hex");
+  const agent = c.routing?.agent ?? null;
+  const preview = previewOf(p, agent);
+  const rec = p.record ?? null;
+  const hours = Math.max(1, Math.min(24 * 30, Math.round(c.ttlHours ?? 24)));
   const row = await ctx.write(
     async (tx) => {
       await tx.query(
-        `insert into sm_ai_actions (id, org_id, thread_id, message_id, user_id, kind, tool, area, level, payload, payload_hash, preview, idempotency_key, expires_at)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12::jsonb, $13, now() + interval '24 hours')
+        `insert into sm_ai_actions (id, org_id, thread_id, message_id, user_id, kind, tool, area, level, payload, payload_hash, preview, idempotency_key, expires_at,
+                                    record_table, record_id, fields, principal, agent_id, agent_run_id, route_users, route_groups)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12::jsonb, $13, now() + ($14 || ' hours')::interval,
+                 $15, $16, $17::text[], $18, $19, $20, $21::uuid[], $22::uuid[])
          on conflict (idempotency_key) do nothing`,
-        [id, ctx.org.id, c.threadId, c.messageId, ctx.user.id, p.kind, c.tool, p.area, p.level, JSON.stringify(p.payload ?? null), hashPayload(p.payload), JSON.stringify(preview), key],
+        [
+          id, ctx.org.id, c.threadId, c.messageId, ctx.user.id, p.kind, c.tool, p.area, p.level, JSON.stringify(p.payload ?? null), hashPayload(p.payload), JSON.stringify(preview), key, String(hours),
+          rec?.table ?? null, rec?.id ?? null, rec ? pgArray([...new Set(rec.fields ?? [])]) : null, agent ? "service" : rec ? "person" : null,
+          agent?.id ?? null, agent?.run_id ?? null, pgArray(uuidList(c.routing?.users)), pgArray(uuidList(c.routing?.groups)),
+        ],
       );
       return tx.one<ActionRow>(`select ${COLS} from sm_ai_actions where idempotency_key = $1`, [key]);
     },
@@ -124,24 +178,29 @@ export interface RecordProposalInput extends AiProposalInput {
   principal: "person" | "service";
   /** hours until it expires (default 24; proposals of triggered skills wait longer) */
   ttl_hours?: number;
+  /** an agent's proposal and whom it is routed to */
+  routing?: ProposalRouting;
 }
 
 /** Store a skill's proposal on a record (one per run and kind: a retried job never doubles it). */
 export async function storeRecordProposal(ctx: Ctx, p: RecordProposalInput): Promise<AiProposal> {
   const id = uuidv7();
   const key = createHash("sha256").update(`${ctx.org.id}:skill:${p.run_id ?? id}:${p.kind}`).digest("hex");
-  const preview = { title_fa: p.title_fa, summary_fa: p.summary_fa, preview: p.preview, lines: p.lines, line_headers: p.line_headers, warnings: p.warnings, edit_path: p.edit_path };
+  const agent = p.routing?.agent ?? null;
+  const preview = previewOf(p, agent);
   const hours = Math.max(1, Math.min(24 * 30, Math.round(p.ttl_hours ?? 24)));
   const row = await ctx.write(
     async (tx) => {
       await tx.query(
         `insert into sm_ai_actions (id, org_id, thread_id, message_id, user_id, kind, tool, area, level, payload, payload_hash, preview, idempotency_key, expires_at,
-                                    record_table, record_id, fields, skill_run_id, principal)
-         values ($1, $2, null, null, $3, $4, 'skill', $5, $6, $7::jsonb, $8, $9::jsonb, $10, now() + ($11 || ' hours')::interval, $12, $13, $14::text[], $15, $16)
+                                    record_table, record_id, fields, skill_run_id, principal, agent_id, agent_run_id, route_users, route_groups)
+         values ($1, $2, null, null, $3, $4, 'skill', $5, $6, $7::jsonb, $8, $9::jsonb, $10, now() + ($11 || ' hours')::interval, $12, $13, $14::text[], $15, $16,
+                 $17, $18, $19::uuid[], $20::uuid[])
          on conflict (idempotency_key) do nothing`,
         [
           id, ctx.org.id, ctx.user.id, p.kind, p.area, p.level, JSON.stringify(p.payload ?? null), hashPayload(p.payload), JSON.stringify(preview), key, String(hours),
           p.record.table, p.record.id, pgArray([...new Set(p.fields)]), p.run_id, p.principal,
+          agent?.id ?? null, agent?.run_id ?? null, pgArray(uuidList(p.routing?.users)), pgArray(uuidList(p.routing?.groups)),
         ],
       );
       return tx.one<ActionRow>(`select ${COLS} from sm_ai_actions where idempotency_key = $1`, [key]);
@@ -151,16 +210,22 @@ export async function storeRecordProposal(ctx: Ctx, p: RecordProposalInput): Pro
   return toProposal(row!);
 }
 
-/** May the caller read the record of a skill's proposal and every field it involves (their own access, now)? */
+/**
+ * May the caller read the record of a proposal and every field it involves (their own access, now)? A batch proposal
+ * names no single record: every record it changes is a `@r:` token and must be readable.
+ */
 async function seesRecord(ctx: Ctx, r: Pick<ActionRow, "record_table" | "record_id" | "fields">): Promise<boolean> {
-  if (!r.record_table || !r.record_id) return false;
+  if (!r.record_table) return false;
   const def = tableDef(r.record_table);
   if (!def || def.virtual) return false;
-  try {
-    if (!(await readableIds(ctx, r.record_table, [r.record_id])).has(r.record_id.toLowerCase())) return false;
-  } catch {
-    return false;
-  }
+  await orgSchema(ctx); // the caller's access subject, before the provider is asked anything
+  if (r.record_id) {
+    try {
+      if (!(await readableIds(ctx, r.record_table, [r.record_id])).has(r.record_id.toLowerCase())) return false;
+    } catch {
+      return false;
+    }
+  } else if (!(r.fields ?? []).some((f) => f.startsWith("@r:"))) return false;
   // tokens: a field of the record, `@g:<group>` a field group the run read, `@r:<table>:<id>` a source it used
   const visible = access().visibleFields(ctx, def);
   const sources = new Map<string, string[]>();
@@ -209,7 +274,7 @@ async function actionRow(ctx: Ctx, id: string): Promise<ActionRow> {
  * its author included, and an AI manager without that access does not. The assistant's: its author or an AI manager.
  */
 async function canSee(ctx: Ctx, r: ActionRow): Promise<boolean> {
-  if (r.record_table && r.record_id) return seesRecord(ctx, r);
+  if (r.record_table) return seesRecord(ctx, r);
   return r.user_id === ctx.user.id || ctx.can("ai", "full");
 }
 
@@ -218,7 +283,7 @@ async function canSee(ctx: Ctx, r: ActionRow): Promise<boolean> {
  * level; a skill's — whoever sees it and may use AI (the write is applied with that person's own access, checked again).
  */
 async function canDecide(ctx: Ctx, r: ActionRow): Promise<boolean> {
-  if (r.record_table && r.record_id) return ctx.can("ai", "view") && ctx.can(r.area, r.level) && (await seesRecord(ctx, r));
+  if (r.record_table) return ctx.can("ai", "view") && ctx.can(r.area, r.level) && (await seesRecord(ctx, r));
   return (r.user_id === ctx.user.id || ctx.can("ai", "full")) && ctx.can(r.area, r.level);
 }
 
@@ -265,22 +330,33 @@ export async function confirmAction(ctx: Ctx, id: string): Promise<AiProposal> {
     throw conflict("داده‌های پیشنهاد دست خورده است و اجرا نشد");
   }
   let ref: AiRef;
+  let outcome: AiProposalOutcome | null = null;
   try {
-    ref = await executeProposal(ctx, r.kind, r.payload);
+    const done = await executeProposalFull(ctx, r.kind, r.payload);
+    if (isOutcome(done)) {
+      ref = done.ref;
+      outcome = done.outcome;
+    } else ref = done;
   } catch (e) {
     const msg = e instanceof AppError ? e.message : "اجرای پیشنهاد ناموفق بود";
     if (!(e instanceof AppError)) ctx.cfg.log.error("ai proposal failed", String((e as Error)?.message ?? e));
     await ctx.write((tx) => tx.query(`update sm_ai_actions set status = 'failed', error = $2, updated_at = now() where id = $1`, [id, msg.slice(0, 500)]), { internal: true });
     return toProposal(await actionRow(ctx, id));
   }
+  // a batch whose every row failed applied nothing: it is failed, with the rows' reasons
+  const none = !!outcome && outcome.ok === 0 && outcome.failed > 0;
   await ctx.write(async (tx) => {
-    await tx.query(`update sm_ai_actions set status = 'executed', result = $2::jsonb, error = null, updated_at = now() where id = $1`, [id, JSON.stringify(ref)]);
-    await audit(tx, ctx, "ai_action", r.kind, /^[0-9a-f-]{36}$/i.test(ref.id) ? ref.id : null, `${r.preview.title_fa} (پیشنهاد دستیار، تأیید شد)`, {
+    await tx.query(`update sm_ai_actions set status = $3, result = $2::jsonb, outcome = $4::jsonb, error = $5, updated_at = now() where id = $1`, [
+      id, JSON.stringify(ref), none ? "failed" : "executed", outcome ? JSON.stringify(outcome) : null, none ? "هیچ‌یک از ردیف‌ها ثبت نشد" : null,
+    ]);
+    await audit(tx, ctx, "ai_action", r.kind, /^[0-9a-f-]{36}$/i.test(ref.id) ? ref.id : null, `${r.preview.title_fa} (${r.agent_id ? "پیشنهاد عامل هوش مصنوعی" : "پیشنهاد دستیار"}، تأیید شد)`, {
       source: "ai",
       proposal_id: id,
       thread_id: r.thread_id,
       proposed_by: r.user_id,
+      ...(r.agent_id ? { agent_id: r.agent_id, agent_run_id: r.agent_run_id } : {}),
       result: ref,
+      ...(outcome ? { ok: outcome.ok, failed: outcome.failed } : {}),
     });
   }, { internal: true });
   return toProposal(await actionRow(ctx, id));
@@ -300,12 +376,27 @@ export async function rejectAction(ctx: Ctx, id: string, reason?: string): Promi
   return toProposal(await actionRow(ctx, id));
 }
 
-export async function listActions(ctx: Ctx, opts: { status?: AiProposalStatus; mine?: boolean; limit?: number }): Promise<AiActionView[]> {
+export async function listActions(
+  ctx: Ctx,
+  opts: { status?: AiProposalStatus; mine?: boolean; limit?: number; inbox?: boolean; agents?: boolean; agent?: string | null },
+): Promise<AiActionView[]> {
   const params: unknown[] = [ctx.org.id];
   let where = `a.org_id = $1`;
-  if (opts.mine || !ctx.can("ai", "full")) {
+  if (opts.inbox) {
+    // «پیشنهادهای هوش مصنوعی»: routed to me (or to one of my groups) or made for me; visibility is checked below
+    const env = await condEnv(ctx);
+    params.push(ctx.user.id, pgArray(env.groups ?? []));
+    where += ` and (a.user_id = $${params.length - 1} or $${params.length - 1}::uuid = any(coalesce(a.route_users, '{}')) or coalesce(a.route_groups, '{}') && $${params.length}::uuid[])`;
+  } else if (opts.agents) {
+    // every agent proposal the caller may see (AI managers' overview; each one is still checked below)
+    where += ` and a.agent_id is not null`;
+  } else if (opts.mine || !ctx.can("ai", "full")) {
     params.push(ctx.user.id);
     where += ` and a.user_id = $${params.length}`;
+  }
+  if (opts.agent && /^[0-9a-f-]{36}$/i.test(opts.agent)) {
+    params.push(opts.agent);
+    where += ` and a.agent_id = $${params.length}`;
   }
   if (opts.status === "expired") where += ` and (a.status = 'expired' or (a.status = 'proposed' and a.expires_at <= now()))`;
   else if (opts.status === "proposed") where += ` and a.status = 'proposed' and a.expires_at > now()`;
@@ -322,7 +413,7 @@ export async function listActions(ctx: Ctx, opts: { status?: AiProposalStatus; m
   );
   // a skill's proposals on records: only those whose record and fields the caller sees now (an AI manager too)
   const seen: typeof rows = [];
-  for (const r of rows) if (!r.record_id || (await canSee(ctx, r))) seen.push(r);
+  for (const r of rows) if (!r.record_table || (await canSee(ctx, r))) seen.push(r);
   const decide = new Map<string, boolean>();
   for (const r of seen) decide.set(r.id, effectiveStatus(r) === "proposed" && (await canDecide(ctx, r)));
   return seen.map((r) => ({

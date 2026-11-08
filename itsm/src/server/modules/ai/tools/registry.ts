@@ -34,6 +34,13 @@ export interface AiProposalInput {
   edit_path?: string;
   area: Area;
   level: Level; // level the confirming person needs
+  /**
+   * the record(s) it is about: only people who may read the record — a batch (id null): every `@r:<table>:<id>` token
+   * in `fields` — and every field named in `fields` see the proposal (and only they may apply it, with their own access)
+   */
+  record?: { table: string; id: string | null; fields?: string[] };
+  /** a batch: how many records it changes */
+  count?: number;
 }
 
 export interface ToolResult {

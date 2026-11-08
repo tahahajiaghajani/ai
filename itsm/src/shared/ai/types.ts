@@ -119,6 +119,13 @@ export interface AiRef {
 
 export type AiProposalStatus = "proposed" | "executing" | "executed" | "rejected" | "expired" | "failed";
 
+/** What applying a proposal did, row by row (a batch proposal): counts and each row's result. */
+export interface AiProposalOutcome {
+  ok: number;
+  failed: number;
+  rows: { label: string; ok: boolean; message?: string | null; path?: string | null }[];
+}
+
 /** A write the assistant prepared; nothing happens until a permitted person confirms it. */
 export interface AiProposal {
   id: string;
@@ -136,6 +143,14 @@ export interface AiProposal {
   result?: AiRef | null;
   error?: string | null;
   expires_at: string;
+  /** a batch proposal: how many records it changes (the card shows the count and a sample in `lines`) */
+  count?: number;
+  /** what applying it did, row by row (batch proposals report every row; a failed row never stops the others) */
+  outcome?: AiProposalOutcome | null;
+  /** an AI agent's proposal: the agent (docs/spec/AI.md §11.8) */
+  agent?: { key: string; name: string } | null;
+  /** the record it is about (a batch: the table only) */
+  record?: { table: string; id: string | null } | null;
 }
 
 export interface AiChartSpec {
