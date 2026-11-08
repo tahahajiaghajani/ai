@@ -305,7 +305,8 @@ it back with `registerFlowStepHandler(type, builtinStepHandler(type)!)` (`standI
 { kind: "cron", expr: "30 9 * * 1" }                                    // Gregorian, 0/7 = Sunday
 ```
 
-A monthly day the month does not have (31 in autumn) is skipped; `last` is the month's last day (29/30 in Esfand).
+A monthly day the month does not have (31 in autumn) is skipped; `last` is the month's last day (29/30 in Esfand). A
+yearly date is month-end aware: 30 Esfand runs on 29 Esfand of a common year (not only in leap years).
 `SCHEDULE_PRESETS` offers every day, workdays, every Saturday, the first or last day of each Jalali month, each
 season, Nowruz.
 

@@ -206,8 +206,10 @@ export function nextOccurrence(spec: ScheduleSpec, after: number, tz: string = D
       const t = parseTime(spec.time)!;
       const { jy } = toJalali(localDate(after, tz));
       for (let y = jy; y <= jy + 8; y++) {
-        if (!isValidJalali(y, spec.month, spec.day)) continue;
-        const at = zonedTime(fromJalali(y, spec.month, spec.day), t, tz);
+        // month-end aware: 30 Esfand runs on 29 Esfand of a common year
+        const day = Math.min(spec.day, monthLength(y, spec.month));
+        if (!isValidJalali(y, spec.month, day)) continue;
+        const at = zonedTime(fromJalali(y, spec.month, day), t, tz);
         if (at > after) return at;
       }
       return null;
