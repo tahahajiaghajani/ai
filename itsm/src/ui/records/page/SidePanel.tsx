@@ -105,16 +105,24 @@ function RelatedCard({ schema, ctx, table, field, label }: { schema: Schema; ctx
       }
     >
       {rows.length ? (
-        <ul className="rk-links">
-          {rows.map((r) => (
-            <li key={r.id} className="rk-link-g">
-              <Link className="rk-link-a" to={`/${orgId}/${recordPath(table, r.id)}`}>
-                <RecordNo no={r.number ? String(r.number) : null} />
-                <span className="rk-link-t">{displayText(target, r)}</span>
-              </Link>
-              {stateF ? <FieldValue field={stateF} value={r[stateF.name]} table={table} schema={schema} compact /> : null}
-            </li>
-          ))}
+        // long titles wrap (up to three lines, the whole title on hover) instead of running out of the narrow panel
+        <ul className="rk-rel">
+          {rows.map((r) => {
+            const title = displayText(target, r);
+            return (
+              <li key={r.id} className="rk-rel-i">
+                <Link className="rk-rel-a" to={`/${orgId}/${recordPath(table, r.id)}`} title={title || undefined}>
+                  {r.number ? <RecordNo no={String(r.number)} /> : null}
+                  <span className="rk-rel-t">{title || "—"}</span>
+                </Link>
+                {stateF ? (
+                  <span className="rk-rel-s">
+                    <FieldValue field={stateF} value={r[stateF.name]} table={table} schema={schema} compact />
+                  </span>
+                ) : null}
+              </li>
+            );
+          })}
         </ul>
       ) : list.isLoading ? null : (
         <p className="rk-hint">موردی ندارد.</p>

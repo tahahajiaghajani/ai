@@ -411,12 +411,20 @@
   .rk-file-n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
   .rk-file-m { font-size: 12px; color: var(--ds-text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .rk-links { display: flex; flex-direction: column; gap: 10px; }
+  /* a related list in the side panel: the number above, the title wrapping (three lines at most), the state aside */
+  .rk-rel { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+  .rk-rel-i { display: flex; align-items: flex-start; gap: 8px; min-inline-size: 0; }
+  .rk-rel-a { display: flex; flex-direction: column; gap: 2px; flex: 1; min-inline-size: 0; color: var(--ds-text); text-decoration: none; }
+  .rk-rel-a:hover .rk-rel-t, .rk-rel-a:focus-visible .rk-rel-t { text-decoration: underline; text-underline-offset: 3px; }
+  .rk-rel-a:focus-visible { outline: 2px solid var(--ds-focus-color); outline-offset: 2px; border-radius: var(--ds-radius-sm); }
+  .rk-rel-t { font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; }
+  .rk-rel-s { flex: none; padding-block-start: 1px; }
   .rk-link-g ul { display: flex; flex-direction: column; gap: 4px; margin: 4px 0 0; padding: 0; list-style: none; }
   .rk-link-l { font-size: 12px; color: var(--ds-text-3); }
-  .rk-link-g li { display: flex; align-items: center; gap: 6px; min-inline-size: 0; }
+  .rk-link-g li { display: flex; align-items: flex-start; gap: 6px; min-inline-size: 0; }
   .rk-link-a { display: inline-flex; align-items: center; gap: 6px; flex: 1; min-inline-size: 0; color: var(--ds-text); text-decoration: none; }
   a.rk-link-a:hover .rk-link-t { text-decoration: underline; text-underline-offset: 3px; }
-  .rk-link-t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+  .rk-link-t { font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
   .rk-link-s { font-size: 12px; color: var(--ds-text-3); white-space: nowrap; }
   .rk-more { align-self: flex-start; font-size: 13px; }
   .rk-addlink { display: flex; flex-direction: column; gap: 6px; padding: 8px; border-radius: var(--ds-radius-md); background: var(--ds-sunken); }
