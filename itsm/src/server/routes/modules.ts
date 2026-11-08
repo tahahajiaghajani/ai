@@ -19,6 +19,8 @@ import { installProblemModule } from "../modules/problem";
 import { problemRoutes } from "./problem";
 import { ragRoutes } from "./ai-rag";
 import { installRag } from "../modules/ai/rag";
+import { installChangeModule } from "../modules/change";
+import { changeRoutes } from "./change";
 
 // the ITSM access model is the engine's access provider in every runtime (docs/spec/ACCESS.md)
 installAccessModel();
@@ -35,6 +37,9 @@ installRag();
 installIncidentModule();
 // problem management (docs/modules/problem_FA.md)
 installProblemModule();
+// change enablement (docs/modules/change_FA.md) — after the SLA service: its authorization hook follows the approvals;
+// after incident and problem: «ثبت تغییر» on their records and the suspect-change finder read their tables
+installChangeModule();
 
 export const moduleRoutes = router();
 
@@ -49,3 +54,4 @@ moduleRoutes.route("/rules", ruleRoutes);
 moduleRoutes.route("/flows", flowRoutes);
 moduleRoutes.route("/incident", incidentRoutes);
 moduleRoutes.route("/problem", problemRoutes);
+moduleRoutes.route("/change", changeRoutes);

@@ -21,6 +21,7 @@ import { slaUi } from "./sla";
 import { flowsUi } from "./flows";
 import { incidentUi } from "./incident";
 import { problemUi } from "./problem";
+import { changeUi } from "./change";
 import { docsUi } from "./docs";
 
 /** A sidebar space: «خانه», «تنظیمات», or one a module adds (its key, e.g. "service-desk"). */
@@ -135,6 +136,7 @@ const UIS: ModuleUi[] = [
   flowsUi,
   incidentUi,
   problemUi,
+  changeUi,
   docsUi,
 ];
 
