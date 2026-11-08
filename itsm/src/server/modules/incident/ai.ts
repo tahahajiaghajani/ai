@@ -1,5 +1,5 @@
 // Extension points of the AI layer in incident and problem management — the one place it plugs in (catalogue
-// INC-009/011/019/038/047/049/056/067/068, PRB-012/014/018/021/027; docs/modules/incident_FA.md «هوش مصنوعی»).
+// INC-009/011/019/038/047/049/056/067/068/080, PRB-012/014/018/021/027; docs/modules/incident_FA.md «هوش مصنوعی»).
 //
 // Until the AI layer registers implementations, every feature here has a rule-based fallback (similar incidents,
 // known-error matching, problem candidates, the review draft) or stays hidden in the UI (`aiCapabilities()` tells the
@@ -29,6 +29,8 @@ export interface IncidentAi {
   draftReview?(ctx: Ctx, incidentId: string): Promise<Partial<Record<"summary" | "impact" | "root_cause" | "detection" | "resolution" | "went_well" | "went_wrong" | "lessons", string>>>;
   /** INC-047 major-incident candidates over a recent window (system context of the organisation) */
   detectMajor?(ctx: Ctx, opts: { windowMinutes: number }): Promise<{ incidents: string[]; title: string; confidence: number }[]>;
+  /** INC-080 a narrative of a periodic review over the figures the server computed (`stats`; numbers come from code) */
+  summarizePeriod?(ctx: Ctx, reviewId: string): Promise<{ text: string }>;
 }
 
 export interface ProblemAi {

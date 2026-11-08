@@ -17,19 +17,21 @@ import { incidentConfig, isUuid, liveRow, liveRows, sysOf, type Row } from "./co
 const FIELDS_LIMIT = 5000;
 const DAY = 86_400_000;
 
-/** Incidents of `ctx`'s access whose `field` falls on the local days from..to (inclusive). */
-async function incidentsBetween(ctx: Ctx, field: "opened_at" | "resolved_at", from: string, to: string, tz: string): Promise<PeriodIncident[]> {
+/** Incidents of `ctx`'s access whose `field` falls on the local days from..to (inclusive), at most FIELDS_LIMIT. */
+async function incidentsBetween(ctx: Ctx, field: "opened_at" | "resolved_at", from: string, to: string, tz: string): Promise<PeriodIncident[] & { truncated?: boolean }> {
   // a day of margin on each side in UTC, then the local day decides
   const lo = new Date(Date.parse(`${from}T00:00:00Z`) - DAY).toISOString();
   const hi = new Date(Date.parse(`${to}T00:00:00Z`) + 2 * DAY).toISOString();
   const where: Cond = { and: [{ f: field, op: "gte", v: lo }, { f: field, op: "lt", v: hi }] };
   const rows = await liveRows(ctx.db, ctx, "incident", where, { order: `t.${field}`, limit: FIELDS_LIMIT });
-  return rows.filter((r) => {
+  const out: PeriodIncident[] & { truncated?: boolean } = rows.filter((r) => {
     const t = Date.parse(String(r[field] ?? ""));
     if (Number.isNaN(t)) return false;
     const d = localDate(t, tz);
     return d >= from && d <= to;
   }) as PeriodIncident[];
+  if (rows.length >= FIELDS_LIMIT) out.truncated = true;
+  return out;
 }
 
 const labelOf = (options: Option[]) => (v: string) => options.find((o) => o.value === v)?.label ?? v;
@@ -56,7 +58,7 @@ export async function computePeriodReview(ctx: Ctx, id: string, opts: { overwrit
     incidentsBetween(ctx, "opened_at", addDays(from, -90), addDays(from, -1), tz),
   ]);
   const stats = periodStats(opened, resolved, new Set(before.map((r) => r.subcategory).filter((x): x is string => !!x)), {
-    from, to, bounceAt: cfg.reassignment_alert, seed: id, sampleSize: 10, now: opts.now,
+    from, to, bounceAt: cfg.reassignment_alert, seed: id, sampleSize: 10, now: opts.now, truncated: !!(opened.truncated || resolved.truncated),
   });
   const report = periodReport(stats, {
     priority: labelOf(PRIORITIES),

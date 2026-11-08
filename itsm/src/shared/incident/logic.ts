@@ -537,6 +537,8 @@ export interface PeriodStats {
   new_subcategories: string[];
   /** resolved incidents picked for the quality check */
   sample: string[];
+  /** more incidents than one computation reads: the figures cover the first of them */
+  truncated?: boolean;
 }
 
 /** A stable pseudo-random pick of `n` ids for a seed (the same review always samples the same incidents). */
@@ -568,7 +570,7 @@ export function periodStats(
   opened: readonly PeriodIncident[],
   resolved: readonly PeriodIncident[],
   previousSubcategories: ReadonlySet<string>,
-  opts: { from: string; to: string; bounceAt: number; seed: string; sampleSize?: number; now?: number },
+  opts: { from: string; to: string; bounceAt: number; seed: string; sampleSize?: number; now?: number; truncated?: boolean },
 ): PeriodStats {
   const now = opts.now ?? Date.now();
   const live = opened.filter((r) => !r.merged_into);
@@ -604,6 +606,7 @@ export function periodStats(
     mttr_median: median(done.map((r) => Number(r.time_to_resolve)).filter((x) => Number.isFinite(x) && x >= 0)),
     new_subcategories: subs.filter((s) => !previousSubcategories.has(s)).sort(),
     sample: samplePick(done.map((r) => r.id), opts.seed, opts.sampleSize ?? 10),
+    ...(opts.truncated ? { truncated: true } : {}),
   };
 }
 
@@ -630,6 +633,7 @@ export function periodReport(s: PeriodStats, l: PeriodLabels): string {
     `- میانهٔ زمان حل: ${s.mttr_median === null ? "—" : humanDuration(s.mttr_median * 1000)}`,
     `- نقض یا خطر نقض توافق: ${s.breached} رخداد (${pct(s.breached, s.opened)}٪)`,
     `- بازگشایی‌شده: ${s.reopened} · ارجاع پیاپی: ${s.bounced}`,
+    ...(s.truncated ? ["- رخدادهای این دوره بیش از حد یک محاسبه بود؛ ارقام بخشی از دوره را نشان می‌دهند. دوره را کوتاه‌تر کنید."] : []),
     "",
     "## دسته‌های پرتکرار",
     "",

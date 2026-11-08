@@ -250,5 +250,9 @@ describe("the periodic review's figures", () => {
     expect(md).toContain("- شبکه: 2");
     expect(md).toContain("INC1 قطعی گسترده");
     expect(md).toContain("- hardware.printer");
+    expect(md).not.toContain("بخشی از دوره");
+    const cut = periodStats(opened, resolved, new Set(), { from: "2026-11-01", to: "2026-11-07", bounceAt: 3, seed: "r1", now, truncated: true });
+    expect(cut.truncated).toBe(true);
+    expect(periodReport(cut, { priority: String, category: String, subcategory: String, channel: String, date: String })).toContain("بخشی از دوره");
   });
 });
