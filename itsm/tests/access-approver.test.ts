@@ -55,6 +55,12 @@ describe("the approver grant on changes (a requester with no role in the change 
     // the approvals panel of the record answers them
     const panel = await p.req.client.get(`${P}/approvals/record/change_request/${change.id}`);
     expect(panel.approvals.some((a: any) => a.approver_id === p.req.userId && a.can_decide)).toBe(true);
+    // and «درخواست تأیید» reaches them, rendered from what they may read
+    await w.drain();
+    const inbox = (await p.req.client.get(`${P}/notify/inbox`)).items as { record_id: string; event: string; body: string }[];
+    const asked = inbox.find((x) => x.record_id === change.id && x.event === "approval_requested");
+    expect(asked).toBeTruthy();
+    expect(asked!.body).not.toContain("125000000");
   });
 
   it("does not reveal other rows, lists, aggregates, children, writes or the module's routes", async () => {
