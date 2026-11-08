@@ -133,9 +133,13 @@ describe("ai tools", () => {
     expect(owner).toEqual(expect.arrayContaining(["get_org_context", "list_members", "calculate", "render_chart", "find_test_items", "propose_test_item"]));
     const ownerNoProposals = toolsFor(await ctxAs("owner"), { proposals: false }).map((t) => t.name);
     expect(ownerNoProposals.some((n) => n.startsWith("propose_"))).toBe(false);
-    // a viewer asks and reads, but neither sees members (users: none) nor prepares drafts
-    const viewer = toolsFor(await ctxAs("viewer"), { proposals: true }).map((t) => t.name);
-    expect(viewer).toEqual(["get_org_context", "calculate", "render_chart", "find_test_items"]);
+    // a viewer asks and reads, but neither sees members (users: none) nor prepares drafts (modules' read tools,
+    // such as the CMDB's graph tools, are offered to viewers too)
+    const viewerTools = toolsFor(await ctxAs("viewer"), { proposals: true });
+    const viewer = viewerTools.map((t) => t.name);
+    expect(viewer).toEqual(expect.arrayContaining(["get_org_context", "calculate", "render_chart", "find_test_items"]));
+    expect(viewer).not.toContain("list_members");
+    expect(viewerTools.every((t) => t.kind !== "propose" && (t.level === "view" || t.kind === "meta"))).toBe(true);
     // a member sees members; drafts need the record's own area too
     const member = toolsFor(await ctxAs("member"), { proposals: true }).map((t) => t.name);
     expect(member).toContain("list_members");

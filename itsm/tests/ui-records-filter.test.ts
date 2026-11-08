@@ -134,8 +134,10 @@ describe("fields a filter may name", () => {
     const walked = filterPaths(todo, lookup, { walk: true });
     const email = walked.find((p) => p.path === "caller_id.email");
     expect(email).toMatchObject({ label: "درخواست‌دهنده ← ایمیل", table: "user", via: { name: "caller_id" } });
-    // references to tables that do not exist yet are not walked
-    expect(walked.some((p) => p.path.startsWith("service_id."))).toBe(false);
+    // references to tables that do not exist are not walked (the service portfolio's `service` exists now)
+    const ghost = { ...todo, fields: [...todo.fields, { name: "ghost_id", label: "ناموجود", type: "ref", ref: "no_such_table", filter: true }] } as typeof todo;
+    expect(filterPaths(ghost, lookup, { walk: true }).some((p) => p.path.startsWith("ghost_id."))).toBe(false);
+    expect(walked.some((p) => p.path.startsWith("service_id."))).toBe(true);
   });
 });
 

@@ -170,13 +170,15 @@ const module = recordModule({
 });
 
 // every other module's record that names a CI: the CI, its health and impact, affected services, wrong-CI feedback
+// (not services and offerings: their CI is the portfolio's own)
+const MANAGED_CI = new Set(["service", "service_offering"]);
 registerRecordExtensions("*", {
   sidePanels: [
     {
       key: "cmdb:context",
       title: "پیکربندی و اثر",
       order: 40,
-      when: (ctx) => ctx.def.module !== "cmdb" && ctx.def.fields.some((f) => f.name === "ci_id" && f.type === "ref" && f.ref === "ci") && !!ctx.row.ci_id,
+      when: (ctx) => ctx.def.module !== "cmdb" && !MANAGED_CI.has(ctx.def.key) && ctx.def.fields.some((f) => f.name === "ci_id" && f.type === "ref" && f.ref === "ci") && !!ctx.row.ci_id,
       render: widget(CiContextPanel),
     },
   ],
