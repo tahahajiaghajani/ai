@@ -250,7 +250,7 @@ export async function redactMap(
   ctx: Ctx,
   w: Pick<WalkResult, "depth" | "parent" | "edges" | "more">,
   roots: string[],
-  opts: { overlays?: boolean; asOf?: string | null; truncated?: boolean; severity?: Map<string, { severity: number; absorbed?: boolean }> } = {},
+  opts: { overlays?: boolean; asOf?: string | null; truncated?: boolean; severity?: Map<string, { severity: number; absorbed?: boolean }>; countPlaceholdersOnly?: boolean } = {},
 ): Promise<MapResult> {
   const all = [...w.depth.keys()];
   const rows = await ciRows(q, ctx, all);
@@ -325,7 +325,8 @@ export async function redactMap(
       ended: !!r.valid_to && !opts.asOf,
     });
   }
-  const restricted = all.filter((id) => !can.has(id)).length;
+  // hidden CIs of the walk (with a class filter only the placeholders shown: the count must not tell hidden classes)
+  const restricted = opts.countPlaceholdersOnly ? alias.size : all.filter((id) => !can.has(id)).length;
   return { nodes, edges, truncated: !!opts.truncated, restricted, as_of: opts.asOf ?? null, types: typeInfo(types) };
 }
 
@@ -341,18 +342,20 @@ export async function dependencyMap(ctx: Ctx, query: MapQuery): Promise<MapResul
   const depth = Math.max(1, Math.min(6, query.depth ?? 2));
   const asOf = query.as_of && !Number.isNaN(Date.parse(query.as_of)) ? new Date(query.as_of).toISOString() : null;
   const w = await walk(q, ctx, roots, { depth, direction: query.direction ?? "both", types: query.types?.length ? query.types : null, asOf, maxNodes, includeHidden: query.include_hidden });
-  // a class filter keeps the roots and the paths to the CIs of those classes
+  // a class filter keeps the roots and the paths to the readable CIs of those classes (a hidden CI's class is not the
+  // caller's to filter by: it stays only as a placeholder on such a path)
   if (query.classes?.length) {
     const tree = await classTree(q, ctx);
     const rows = await ciRows(q, ctx, [...w.depth.keys()]);
+    const readable = await readableCis(q, ctx, [...rows.keys()]);
     const wanted = new Set<string>();
-    for (const [id, r] of rows) if (query.classes.some((c) => tree.isA(r.class, c))) wanted.add(id);
+    for (const [id, r] of rows) if (readable.has(id) && query.classes.some((c) => tree.isA(r.class, c))) wanted.add(id);
     const keep = new Set(roots);
     for (const id of wanted) for (let p: string | null | undefined = id; p; p = w.parent.get(p)) keep.add(p);
     for (const id of [...w.depth.keys()]) if (!keep.has(id)) w.depth.delete(id);
     w.edges = w.edges.filter((e) => w.depth.has(e.parent_id) && w.depth.has(e.child_id));
   }
-  return redactMap(q, ctx, w, roots, { overlays: query.overlays !== false, asOf, truncated: w.truncated });
+  return redactMap(q, ctx, w, roots, { overlays: query.overlays !== false, asOf, truncated: w.truncated, countPlaceholdersOnly: !!query.classes?.length });
 }
 
 /** The shortest relationship path between two CIs (both ways, any type), cut to what the caller may read. */

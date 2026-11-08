@@ -5,6 +5,7 @@
 // the latest score is copied onto the service. Roll-ups per portfolio node are averages computed on read.
 import { dailyBars, serviceScore, type ServiceStatus } from "@shared/service_portfolio/logic";
 import { addDays, todayISO } from "@shared/jalali";
+import { zonedMidnight } from "@shared/model/jalali-buckets";
 import { tableDef } from "@shared/tables";
 import type { Ctx } from "../../context";
 import type { Tx } from "../../db";
@@ -38,9 +39,10 @@ export async function scoreDay(tx: Tx, ctx: Ctx, opts: { day?: string; ids?: str
   const ids = services.map((s) => String(s.id));
   const idSet = new Set(ids);
   const cfg = await serviceConfig(tx, sys);
-  // the day's window in UTC, from the local calendar date (bars are sampled; good to the quarter hour)
-  const start = Date.parse(`${day}T00:00:00Z`) - 14 * 3600_000;
-  const end = Date.parse(`${addDays(day, 1)}T00:00:00Z`) + 14 * 3600_000;
+  // the day's window: from local midnight of `day` to the next local midnight in the organisation's zone, so each
+  // incident, breach and rating counts on exactly one day (availability comes from the sampled bars)
+  const start = zonedMidnight(day, tz);
+  const end = zonedMidnight(addDays(day, 1), tz);
   const history = await statusHistory(tx, sys, ids, new Date(start - 86_400_000).toISOString());
   const per = new Map<string, { incidents: number; major: number; breaches: number; problems: number; ratings: number[]; incidentIds: string[] }>(ids.map((id) => [id, { incidents: 0, major: 0, breaches: 0, problems: 0, ratings: [], incidentIds: [] }]));
   const window = [{ f: "opened_at", op: "gte", v: new Date(start).toISOString() }, { f: "opened_at", op: "lt", v: new Date(end).toISOString() }];

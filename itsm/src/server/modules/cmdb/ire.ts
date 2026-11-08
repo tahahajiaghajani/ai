@@ -27,6 +27,9 @@ import { attrField } from "./hooks";
 
 const DAY = 86_400_000;
 const MAX_ITEMS = 1000;
+/** Persian and Arabic-Indic digits and their Latin ones, for SQL `translate` */
+const PERSIAN_DIGITS = "۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩";
+const LATIN_DIGITS = "01234567890123456789";
 
 class DryRun extends Error {
   constructor(public result: IreResult) {
@@ -101,7 +104,8 @@ async function matchEntry(q: Queryable, ctx: Ctx, tree: ClassTree, item: NormIte
     const bare = attr.replace(/^attrs\./, "");
     const col = ciColumnSql("t", attr, params);
     params.push(v);
-    if (bare === "serial_number" || bare === "asset_tag" || bare === "bios_uuid" || bare === "cert_serial" || bare === "imei") parts.push(`upper(replace(${col}, ' ', '')) = $${params.length}`);
+    // case, spaces and the digits' script (rows typed with Persian or Arabic digits before they were stored Latin) aside
+    if (bare === "serial_number" || bare === "asset_tag" || bare === "bios_uuid" || bare === "cert_serial" || bare === "imei") parts.push(`upper(replace(translate(${col}, '${PERSIAN_DIGITS}', '${LATIN_DIGITS}'), ' ', '')) = $${params.length}`);
     else if (bare === "name") parts.push(`lower(${normSql(col)}) = lower(${normSql(`$${params.length}`)})`);
     else if (bare === "cloud_resource_id") parts.push(`${col} = $${params.length}`);
     else parts.push(`lower(${col}) = lower($${params.length})`);

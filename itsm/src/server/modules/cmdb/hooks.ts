@@ -14,6 +14,7 @@
 import { CMDB_CONFIG_DEFAULTS } from "@shared/tables/cmdb";
 import { attrPath, attrProblems, ciValue, keepArchived, normalizeIdent, relLabel } from "@shared/cmdb/logic";
 import type { AttrDef } from "@shared/cmdb/classes";
+import { latinDigits } from "@shared/ai/text";
 import type { FieldDef } from "@shared/model/types";
 import { tableDef } from "@shared/tables";
 import type { Ctx } from "../../context";
@@ -125,6 +126,9 @@ export function attrField(a: AttrDef): FieldDef {
 }
 
 const NORMALIZED = ["mac_address", "hostname", "fqdn"];
+/** Identifiers stored with Latin digits (people type Persian or Arabic ones; identification compares Latin ones). */
+const DIGIT_IDENTS = ["serial_number", "asset_tag", "bios_uuid"];
+const DIGIT_ATTRS = ["cert_serial", "imei"];
 
 async function ciBefore(w: WriteArgs): Promise<void> {
   if (w.op === "delete") return;
@@ -144,6 +148,7 @@ async function ciBefore(w: WriteArgs): Promise<void> {
     if (f === "mac_address" && n[f] && !v) throw validationError({ mac_address: "نشانی MAC معتبر نیست" });
     n[f] = v;
   }
+  for (const f of DIGIT_IDENTS) if (w.changed.has(f) && typeof n[f] === "string") n[f] = latinDigits(n[f]).trim();
   // class attributes: coerce what is set, keep what the class no longer offers (archived values stay)
   const resolved = tree.resolve(String(n.class));
   const defs = new Map((resolved?.allAttrs ?? []).map((a) => [a.name, a]));
@@ -174,6 +179,7 @@ async function ciBefore(w: WriteArgs): Promise<void> {
       }
     }
     if (Object.keys(errors).length) throw validationError(errors);
+    for (const k of DIGIT_ATTRS) if (typeof out[k] === "string") out[k] = latinDigits(out[k] as string).trim();
     n.attrs = out;
   }
   // provenance of what people set by hand (the reconciliation engine weighs it against the sources)

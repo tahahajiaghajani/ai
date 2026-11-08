@@ -9,6 +9,7 @@ import type { Client } from "./helpers";
 import { BY_ENTITY } from "@server/sync/registry";
 import { checkEnginePush, pullEngine } from "@server/engine/sync";
 import { technologyFindings } from "@server/modules/service_portfolio";
+import { scoreDay } from "@server/modules/service_portfolio/score";
 
 let w: CmdbWorld;
 let soc: string;
@@ -233,5 +234,58 @@ describe("the health pass closes only the findings it opens", () => {
     await w.o.patch(R("technology_standard", std.id), { status: "approved" });
     expect(await w.sys.write((tx) => technologyFindings(tx, w.sys))).toMatchObject({ closed: 1 });
     expect(await finding(tech.id)).toMatchObject({ state: "resolved", active: false });
+  });
+});
+
+describe("daily service scores count each record on its local day", () => {
+  it("counts an incident on the day it was opened in the organisation's zone only", async () => {
+    const tr = (t: string, id: string, to: string) => w.o.post(`${R(t, id)}/transition`, { to, data: {} });
+    const svc = (await w.o.post(R("service"), { name: "خدمت امتیاز روزانه", service_type: "business", description: "شرح", owner_id: w.p.so.userId })).row;
+    await tr("service", svc.id, "approved");
+    const off = (await w.o.post(R("service_offering"), { name: "استاندارد", service_id: svc.id })).row;
+    await tr("service_offering", off.id, "active");
+    await tr("service", svc.id, "live");
+    const inc = (await w.o.post(R("incident"), { short_description: "کندی خدمت", service_id: svc.id })).row;
+    // 12:26 in Tehran on 20 October (08:56 UTC)
+    await w.e.db.query(`update sm_incidents set opened_at = '2026-10-20T08:56:00Z' where id = $1`, [inc.id]);
+    const counts: Record<string, number> = {};
+    for (const day of ["2026-10-19", "2026-10-20", "2026-10-21"]) {
+      await w.sys.write((tx) => scoreDay(tx, w.sys, { day, ids: [svc.id] }));
+      const [fact] = (await w.o.post(`${R("service_score_fact")}/query`, { filter: { and: [{ f: "service_id", op: "eq", v: svc.id }, { f: "day", op: "eq", v: day }] }, fields: ["incidents"] })).rows;
+      counts[day] = fact.incidents;
+    }
+    expect(counts).toEqual({ "2026-10-19": 0, "2026-10-20": 1, "2026-10-21": 0 });
+  });
+});
+
+describe("identifiers typed with Persian digits are identified", () => {
+  it("stores serials with Latin digits and matches rows stored before with Persian ones", async () => {
+    const typed = await w.ci({ name: "pc-ali", class: "server", serial_number: "SN-۷۷۱", manufacturer: "HP", asset_tag: "اموال-۱۲" });
+    expect(typed).toMatchObject({ serial_number: "SN-771", asset_tag: "اموال-12" });
+    const r = await w.o.post(C("/ire/items"), { items: [{ class: "server", values: { serial_number: "SN-771", manufacturer: "HP", name: "pc-ali" } }] });
+    expect(r.results[0]).toMatchObject({ ci_id: typed.id });
+    expect(r.results[0].action).not.toBe("created");
+    // a row stored before the digits were normalised
+    const old = await w.ci({ name: "pc-reza", class: "server", serial_number: "SN-882", manufacturer: "HP" });
+    await w.e.db.query(`update sm_cis set serial_number = 'SN-۸۸۲' where id = $1`, [old.id]);
+    const again = await w.o.post(C("/ire/items"), { items: [{ class: "server", values: { serial_number: "sn-882", manufacturer: "HP", ram_mb: 2048 } }] });
+    expect(again.results[0]).toMatchObject({ action: "updated", ci_id: old.id });
+  });
+});
+
+describe("the map's class filter tells nothing about hidden neighbours", () => {
+  it("gives the same answer for any class of a hidden neighbour", async () => {
+    const srv = await w.ci({ name: "grp-map-srv", class: "server", serial_number: "MAP-1", support_group_id: w.g.infra });
+    const sw = await w.ci({ name: "net-map-switch", class: "network_device", serial_number: "MAP-2", support_group_id: w.g.network });
+    await w.rel(srv.id, "depends_on", sw.id);
+    await as("grp").get(R("ci", sw.id), 404);
+    const map = (classes: string[]) => as("grp").post(C("/map"), { roots: [srv.id], classes, depth: 2, direction: "both" });
+    const net = await map(["network_device"]);
+    const dbs = await map(["database"]);
+    expect(net.restricted).toBe(dbs.restricted);
+    expect(net.nodes.map((n: any) => n.id)).toEqual(dbs.nodes.map((n: any) => n.id));
+    expect(JSON.stringify(net)).not.toContain("net-map-switch");
+    // without a filter the map still counts the hidden neighbour
+    expect((await map([])).restricted).toBeGreaterThan(0);
   });
 });
