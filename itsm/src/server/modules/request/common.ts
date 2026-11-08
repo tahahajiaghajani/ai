@@ -7,6 +7,7 @@ import { tableDef } from "@shared/tables";
 import type { Ctx } from "../../context";
 import type { Queryable } from "../../db";
 import { condEnv, fromDb, orgSchema, readable, SYSTEM_USER, toSql } from "../../engine";
+import { access } from "../../access/provider";
 
 export type Row = Record<string, any>;
 
@@ -82,6 +83,14 @@ export async function rowsByIds(q: Queryable, ctx: Ctx, table: string, ids: read
   params.push(`{${list.join(",")}}`);
   const rows = await q.query<Row>(`select t.* from ${def.table} t where ${where} and t.id = any($${params.length}::uuid[])`, params);
   return rows.map((r) => fromDb(def, r));
+}
+
+/** May the caller read / create records of `table`? (the access subject is loaded first) */
+export async function allowed(ctx: Ctx, table: string, op: "read" | "create"): Promise<boolean> {
+  await orgSchema(ctx);
+  const def = tableDef(table);
+  if (!def) return false;
+  return op === "read" ? access().canReadTable(ctx, def) : access().canCreate(ctx, def);
 }
 
 /** `{ and: [field = value …] }` */

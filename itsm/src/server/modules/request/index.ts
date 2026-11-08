@@ -58,11 +58,11 @@ export function installRequestModule(): void {
 }
 
 export { seedRequestDefaultsIn, REQUEST_SEED_VERSION, type SeedCounts } from "./seed";
-export { requestConfig, sysOf, liveRows, liveRow, eqAll, isUuid, type Row, type RequestConfig } from "./common";
+export { requestConfig, sysOf, liveRows, liveRow, eqAll, isUuid, allowed, type Row, type RequestConfig } from "./common";
 export { publishItem, draftSchema, schemaProblems, versionSchema, publishedSchema, itemSettings, type DefinitionProblem } from "./definition";
 export { entitlementFor, canOrder, onBehalfRefusal, memberFacts, catalogIndex } from "./entitlement";
 export { browse, itemForm, checkItem, expandGuide, placeOrder, cartView, addLine, updateLine, removeLine, checkoutCart, updateCart, publicSchema, summaryOf, type OrderInput, type OrderResult, type LineInput, type ItemCard, type BrowseResult, type ItemForm, type CartView, type GuideLine } from "./ordering";
-export { answersView, editAnswers, revealSecret, requestInfo, reorder, changeItem, convertToIncident, progress, type AnswersView, type Progress } from "./actions";
+export { answersView, editAnswers, revealSecret, requestInfo, reorder, changeItem, convertToIncident, progress, giveFeedback, type AnswersView, type Progress } from "./actions";
 export { definition, bindApprovalRule, bindExistingRule, createFlow, copyItem, audienceCheck, fulfilmentGraph, boundCondition, type Definition } from "./builder";
 export { requestDashboard, type RequestDashboard } from "./dashboard";
 export { sweep, stats, ensureSweep, resetSweepThrottle, SWEEP_EVERY, type SweepResult } from "./jobs";

@@ -181,6 +181,21 @@ export async function requestInfo(ctx: Ctx, id: string, input: { message?: strin
   });
 }
 
+/**
+ * The requester's feedback on a delivered or closed item (REQ-046): a rating of 1–5 and a short comment, also after
+ * the item closed (written by the module: closed records refuse ordinary updates).
+ */
+export async function giveFeedback(ctx: Ctx, id: string, input: { rating: number; feedback?: string | null }): Promise<Row> {
+  const row = (await get(ctx, "request_item", id)).row as Row;
+  if (!onRequesterSide(row, ctx.user.id)) throw forbidden("بازخورد را درخواست‌کننده ثبت می‌کند");
+  if (!["delivered", "closed_complete", "closed_incomplete"].includes(String(row.state))) throw bad("بازخورد پس از تحویل ثبت می‌شود");
+  const rating = Math.round(Number(input.rating));
+  if (!(rating >= 1 && rating <= 5)) throw validationError({ rating: "امتیاز میان ۱ و ۵ است" });
+  return ctx.write((tx) =>
+    updateIn(tx, sysOf(ctx, ctx.user.id), "request_item", id, { rating, feedback: (input.feedback ?? "").trim().slice(0, 2000) || null }, { trusted: true, allowLocked: true, keepVersion: true }),
+  );
+}
+
 /** What «سفارش دوباره» starts from (REQ-044): the item and the open answers (never sensitive or secret ones). */
 export async function reorder(ctx: Ctx, id: string): Promise<{ item_id: string; answers: Answers; quantity: number; requested_for: string | null; available: boolean }> {
   const row = (await get(ctx, "request_item", id)).row as Row;

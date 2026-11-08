@@ -179,6 +179,7 @@ async function itemBeforeWrite(w: WriteArgs): Promise<void> {
   const p = w.prev!;
   const person = !w.trusted && !isSystemCtx(w.ctx);
   if (person && w.changed.has("answers")) throw bad("پاسخ‌ها را از «ویرایش پاسخ‌ها» تغییر دهید");
+  if (person && w.changed.has("close_notes") && n.state !== "cancelled" && (await requesterLike(w.tx, w.ctx))) throw validationError({ close_notes: "یادداشت بستن را فقط هنگام لغو می‌نویسید" });
   if (person && (w.changed.has("rating") || w.changed.has("feedback")) && !["delivered", "closed_complete", "closed_incomplete"].includes(String(n.state))) {
     throw validationError({ rating: "بازخورد پس از تحویل ثبت می‌شود" });
   }
@@ -197,6 +198,11 @@ async function itemBeforeWrite(w: WriteArgs): Promise<void> {
     n.info_since = null;
   }
   if (to === "awaiting_approval" && !n.approval_requested_at) n.approval_requested_at = now;
+  // a flow that delivers an item without any task is zero-touch fulfilment (REQ-029)
+  if (to === "delivered" && n.fulfilment === "flow" && !n.zero_touch) {
+    const tasks = await liveRows(w.tx, sysOf(w.ctx), "request_task", eqAll({ request_item_id: n.id }), { limit: 1 });
+    if (!tasks.length) n.zero_touch = true;
+  }
   if (from === "awaiting_approval" && to !== "rejected" && to !== "cancelled" && !n.approved_at) n.approved_at = now;
   if (isItemDone(to)) {
     n.close_code = closeCodeFor(to, n.close_code as string | null);
@@ -473,8 +479,11 @@ export function installLifecycle(): void {
   registerHooks("request_item", { beforeWrite: itemBeforeWrite, validateTransition: itemValidateTransition });
   registerHooks("request_task", { beforeWrite: taskBeforeWrite, afterWrite: taskAfterWrite });
   registerHooks("request", {
-    beforeWrite(w) {
+    async beforeWrite(w) {
       if (w.op === "create" && !w.trusted && !isSystemCtx(w.ctx)) throw forbidden("درخواست خدمت با سفارش از کاتالوگ ثبت می‌شود");
+      if (w.op !== "create" && w.op !== "delete" && !w.trusted && w.changed.has("close_notes") && w.next.state !== "cancelled" && (await requesterLike(w.tx, w.ctx))) {
+        throw validationError({ close_notes: "یادداشت بستن را فقط هنگام لغو می‌نویسید" });
+      }
     },
     validateTransition: requestValidateTransition,
     afterWrite: requestAfterWrite,

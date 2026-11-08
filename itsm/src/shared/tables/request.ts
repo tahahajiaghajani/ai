@@ -611,7 +611,8 @@ export const REQUEST: TableDef = {
     watchers: "watch_list",
     group: "assignment_group_id",
     requester: ["requested_for", "caller_id", "opened_by"],
-    requesterWritable: ["watch_list"],
+    // close notes only with a cancellation (the module refuses them otherwise)
+    requesterWritable: ["watch_list", "close_notes"],
     requesterTransitions: [{ from: REQUEST_OPEN, to: "cancelled" }],
   },
   features: { kanban: "state" },
@@ -687,7 +688,7 @@ export const REQUEST_ITEM: TableDef = {
     watchers: "watch_list",
     group: "assignment_group_id",
     requester: ["requested_for", "caller_id", "opened_by"],
-    requesterWritable: ["watch_list", "rating", "feedback"],
+    requesterWritable: ["watch_list", "rating", "feedback", "close_notes"],
     requesterTransitions: [
       { from: ["delivered"], to: "closed_complete" },
       { from: ["delivered"], to: "in_fulfilment" },

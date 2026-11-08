@@ -18,7 +18,7 @@ import type { Ctx } from "../../context";
 import type { Tx } from "../../db";
 import { createIn, updateIn } from "../../engine";
 import { seedCalendarsIn } from "../sla";
-import { eqAll, liveRows, sysOf, type Row } from "./common";
+import { eqAll, liveRow, liveRows, sysOf, type Row } from "./common";
 import { draftSchema, snapshotIn } from "./definition";
 import { boundCondition, fulfilmentGraph, type TaskStep } from "./builder";
 import { triggerOf } from "../flows";
@@ -463,17 +463,17 @@ async function seedItem(
     const steps = s.flow.steps.map((t) => ({ ...t, group: t.group ? at.groups[t.group] ?? null : null }));
     const graph = fulfilmentGraph(steps, { notify: s.flow.notify ?? null, deliver: !!s.flow.deliver });
     const flow = await createIn(tx, sys, "flow", {
-      name: `انجام: ${s.name}`, active: true, description: `انجام سفارش‌های «${s.name}» (کاتالوگ فناوری اطلاعات)`,
+      name: `انجام: ${s.name}`, active: false, description: `انجام سفارش‌های «${s.name}» (کاتالوگ فناوری اطلاعات)`,
       trigger: "catalog", trigger_table: "request_item", catalog_item: s.code, run_as: "system", graph,
     }, { trusted: true });
     const version = await createIn(tx, sys, "flow_version", { flow_id: flow.id, version_no: 1, title: `انجام: ${s.name} — نسخهٔ ۱`, note: "نسخهٔ نخست", trigger: triggerOf(flow), graph }, { trusted: true });
-    await updateIn(tx, sys, "flow", String(flow.id), { version_id: version.id, version_no: 1, published_at: new Date().toISOString(), dirty: false }, { trusted: true });
+    await updateIn(tx, sys, "flow", String(flow.id), { version_id: version.id, version_no: 1, published_at: new Date().toISOString(), dirty: false, active: true }, { trusted: true });
     await updateIn(tx, sys, "catalog_item", String(item.id), { flow_id: flow.id }, { trusted: true });
     out.created.flow = (out.created.flow ?? 0) + 1;
   }
-  const fresh = (await liveRows(tx, sys, "catalog_item", eqAll({ id: item.id }), { limit: 1 }))[0] ?? item;
+  const fresh = (await liveRow(tx, sys, "catalog_item", item.id)) ?? item;
   await snapshotIn(tx, sys, fresh, await draftSchema(tx, sys, fresh), "نسخهٔ نخست");
-  return (await liveRows(tx, sys, "catalog_item", eqAll({ id: item.id }), { limit: 1 }))[0] ?? item;
+  return (await liveRow(tx, sys, "catalog_item", item.id)) ?? item;
 }
 
 export { ensure as ensureRow };

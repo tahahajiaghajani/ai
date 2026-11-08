@@ -8,8 +8,7 @@ import { ITEM_OPEN } from "@shared/request/logic";
 import { tableDef } from "@shared/tables";
 import type { Ctx } from "../../context";
 import { forbidden } from "../../http/errors";
-import { access } from "../../access/provider";
-import { liveRows, secondsBetween, type Row } from "./common";
+import { allowed, liveRows, secondsBetween, type Row } from "./common";
 import { displayOf } from "./fulfil";
 
 export interface RequestDashboard {
@@ -45,7 +44,7 @@ const count = (rows: Row[], key: (r: Row) => string): { key: string; count: numb
 /** The request dashboard over the last `days` days, through the caller's access. */
 export async function requestDashboard(ctx: Ctx, opts: { days?: number } = {}): Promise<RequestDashboard> {
   const def = tableDef("request_item")!;
-  if (!access().canReadTable(ctx, def)) throw forbidden("به درخواست‌های خدمت دسترسی ندارید");
+  if (!(await allowed(ctx, def.key, "read"))) throw forbidden("به درخواست‌های خدمت دسترسی ندارید");
   const days = Math.max(1, Math.min(365, Math.floor(Number(opts.days) || 30)));
   const now = Date.now();
   const since = new Date(now - days * DAY).toISOString();

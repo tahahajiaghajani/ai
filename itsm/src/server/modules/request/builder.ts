@@ -9,9 +9,8 @@ import type { Cond } from "@shared/model/conditions";
 import type { Ctx } from "../../context";
 import { bad, forbidden, notFound } from "../../http/errors";
 import { createIn, get, updateIn, validationError } from "../../engine";
-import { access } from "../../access/provider";
 import { tableDef } from "@shared/tables";
-import { eqAll, isUuid, liveRow, liveRows, sysOf, type Row } from "./common";
+import { allowed, eqAll, isUuid, liveRow, liveRows, sysOf, type Row } from "./common";
 import { draftSchema, itemFor, schemaProblems, type DefinitionProblem } from "./definition";
 import { catalogIndex, categoryChain, entitlementFor, memberFacts, onBehalfRefusal } from "./entitlement";
 import { displayOf } from "./fulfil";
@@ -78,7 +77,7 @@ export async function definition(ctx: Ctx, id: string): Promise<Definition> {
 export async function bindApprovalRule(ctx: Ctx, id: string, input: { name?: string; mode?: string; levels?: unknown; expire_after?: number | null; remind_every?: number | null }): Promise<Row> {
   const { row } = await itemFor(ctx, id, true);
   const def = tableDef("approval_rule");
-  if (!def || !access().canCreate(ctx, def)) throw forbidden("اجازهٔ ساختن قاعدهٔ تأیید را ندارید");
+  if (!def || !(await allowed(ctx, "approval_rule", "create"))) throw forbidden("اجازهٔ ساختن قاعدهٔ تأیید را ندارید");
   const levels = Array.isArray(input.levels) && input.levels.length ? input.levels : [{ name: "مدیر درخواست‌کننده", sources: [{ kind: "manager" }], rule: "any" }];
   return ctx.write(async (tx) => {
     const rule = await createIn(tx, ctx, "approval_rule", {
@@ -116,7 +115,7 @@ export async function bindExistingRule(ctx: Ctx, id: string, ruleId: string): Pr
 export async function createFlow(ctx: Ctx, id: string): Promise<Row> {
   const { row } = await itemFor(ctx, id, true);
   const def = tableDef("flow");
-  if (!def || !access().canCreate(ctx, def)) throw forbidden("اجازهٔ ساختن گردش‌کار را ندارید");
+  if (!def || !(await allowed(ctx, "flow", "create"))) throw forbidden("اجازهٔ ساختن گردش‌کار را ندارید");
   const graph = fulfilmentGraph([{ title: "انجام {{trigger.record.short_description}}", group: (row.fulfilment_group_id as string) ?? null }]);
   if (hasErrors(validateGraph(graph, { trigger: { kind: "catalog", table: "request_item", run_as: "trigger_user" } }))) throw bad("طرح پیش‌فرض گردش‌کار معتبر نیست");
   return ctx.write(async (tx) => {
@@ -209,7 +208,7 @@ function taskValues(s: TaskStep, i: number, after: string | null): Row {
 /** Copy an item as a draft with its questions, policies, task templates and guide rules. */
 export async function copyItem(ctx: Ctx, id: string): Promise<Row> {
   const { row } = await itemFor(ctx, id);
-  if (!access().canCreate(ctx, tableDef("catalog_item")!)) throw forbidden("اجازهٔ ساختن قلم کاتالوگ را ندارید");
+  if (!(await allowed(ctx, "catalog_item", "create"))) throw forbidden("اجازهٔ ساختن قلم کاتالوگ را ندارید");
   const sys = sysOf(ctx);
   const src = (await liveRow(ctx.db, sys, "catalog_item", id))!;
   const skip = new Set(["id", "version", "number", "code", "state", "version_no", "version_id", "published_at", "dirty", "sle_p50", "sle_p85", "sle_p95", "sle_samples", "orders_90d", "created_at", "created_by", "updated_at", "updated_by", "domain_id", "unit_id"]);

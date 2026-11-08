@@ -10,15 +10,13 @@
 //               POST /builder/:id/flow · POST /builder/:id/copy · GET /builder/:id/audience
 //   other       GET /dashboard · GET /config · POST /seed · POST /ai/generate · POST /ai/prefill
 import { z } from "zod";
-import { tableDef } from "@shared/tables";
 import { checkAnswers, isEmptyAnswer } from "@shared/request/form";
 import { router, body, query } from "../http/hono";
 import { AppError, forbidden } from "../http/errors";
-import { access } from "../access/provider";
 import { condEnv } from "../engine";
 import {
-  addLine, answersView, audienceCheck, bindApprovalRule, bindExistingRule, browse, cartView, changeItem, checkItem, checkoutCart, convertToIncident, copyItem, createFlow,
-  definition, editAnswers, expandGuide, itemForm, placeOrder, progress, promptSafe, publishItem, removeLine, reorder, requestAi, requestAiCapabilities, requestConfig,
+  addLine, allowed, answersView, audienceCheck, bindApprovalRule, bindExistingRule, browse, cartView, changeItem, checkItem, checkoutCart, convertToIncident, copyItem, createFlow,
+  definition, editAnswers, expandGuide, giveFeedback, itemForm, placeOrder, progress, promptSafe, publishItem, removeLine, reorder, requestAi, requestAiCapabilities, requestConfig,
   requestDashboard, requestInfo, revealSecret, seedRequestDefaults, updateCart, updateLine, versionSchema,
 } from "../modules/request";
 
@@ -131,6 +129,11 @@ requestRoutes.post("/items/:id/info", async (c) => {
 
 requestRoutes.get("/items/:id/reorder", async (c) => c.json(await reorder(c.get("ctx"), id(c))));
 
+requestRoutes.post("/items/:id/feedback", async (c) => {
+  const input = await body(c, z.object({ rating: z.number().int().min(1).max(5), feedback: z.string().max(2000).nullish() }));
+  return c.json({ row: await giveFeedback(c.get("ctx"), id(c), input) });
+});
+
 requestRoutes.post("/items/:id/change-item", async (c) => {
   const input = await body(c, z.object({ item_id: UUID, force: z.boolean().optional() }));
   return c.json({ row: await changeItem(c.get("ctx"), id(c), input) });
@@ -181,20 +184,20 @@ requestRoutes.get("/dashboard", async (c) => {
 requestRoutes.get("/config", async (c) => {
   const ctx = c.get("ctx");
   const cfg = await requestConfig(ctx.db, ctx);
-  return c.json({ config: cfg, ai: requestAiCapabilities(), can_admin: access().canCreate(ctx, tableDef("catalog_item")!) });
+  return c.json({ config: cfg, ai: requestAiCapabilities(), can_admin: await allowed(ctx, "catalog_item", "create") });
 });
 
 requestRoutes.post("/seed", async (c) => {
   const ctx = c.get("ctx");
   const input = await body(c, z.object({ force: z.boolean().optional() }));
-  if (!access().canCreate(ctx, tableDef("catalog")!) || !access().canCreate(ctx, tableDef("catalog_item")!)) throw forbidden("افزودن پیش‌فرض‌های کاتالوگ با مدیر کاتالوگ است");
+  if (!(await allowed(ctx, "catalog", "create")) || !(await allowed(ctx, "catalog_item", "create"))) throw forbidden("افزودن پیش‌فرض‌های کاتالوگ با مدیر کاتالوگ است");
   return c.json(await seedRequestDefaults(ctx.cfg, ctx.org.id, { force: input.force ?? true }));
 });
 
 requestRoutes.post("/ai/generate", async (c) => {
   const ctx = c.get("ctx");
   const input = await body(c, z.object({ text: z.string().min(3).max(8000), catalog_id: UUID.nullish() }));
-  if (!access().canCreate(ctx, tableDef("catalog_item")!)) throw forbidden("اجازهٔ ساختن قلم کاتالوگ را ندارید");
+  if (!(await allowed(ctx, "catalog_item", "create"))) throw forbidden("اجازهٔ ساختن قلم کاتالوگ را ندارید");
   const ai = requestAi();
   if (!ai.generateItem) throw notAvailable();
   return c.json({ draft: await ai.generateItem(ctx, { text: input.text, catalogId: input.catalog_id ?? null }) });

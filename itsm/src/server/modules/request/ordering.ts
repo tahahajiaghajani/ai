@@ -15,8 +15,7 @@ import type { Ctx } from "../../context";
 import type { Queryable, Tx } from "../../db";
 import { AppError, bad, forbidden, notFound } from "../../http/errors";
 import { condEnv, createIn, removeIn, updateIn, validationError } from "../../engine";
-import { access } from "../../access/provider";
-import { arr, eqAll, isUuid, liveRow, liveRows, obj, rowsByIds, sysOf, type Row } from "./common";
+import { allowed, arr, eqAll, isUuid, liveRow, liveRows, obj, rowsByIds, sysOf, type Row } from "./common";
 import { versionSchema } from "./definition";
 import { catalogIndex, entitlementFor, onBehalfRefusal } from "./entitlement";
 import { displayOf, producedValues, promiseOf } from "./fulfil";
@@ -90,8 +89,8 @@ export interface BrowseResult {
 }
 
 /** Can the caller see the catalogue at all (read in area catalog)? */
-function needCatalog(ctx: Ctx): void {
-  if (!access().canReadTable(ctx, tableDef("catalog_item")!)) throw forbidden("به کاتالوگ خدمات دسترسی ندارید");
+async function needCatalog(ctx: Ctx): Promise<void> {
+  if (!(await allowed(ctx, "catalog_item", "read"))) throw forbidden("به کاتالوگ خدمات دسترسی ندارید");
 }
 
 /**
@@ -99,7 +98,7 @@ function needCatalog(ctx: Ctx): void {
  * allow, published items they are entitled to (hidden items only when searched or asked for by id), featured first.
  */
 export async function browse(ctx: Ctx, opts: { for?: string | null; catalog?: string | null; category?: string | null; q?: string | null; ids?: string[] } = {}): Promise<BrowseResult> {
-  needCatalog(ctx);
+  await needCatalog(ctx);
   const forUser = isUuid(opts.for) ? opts.for : ctx.user.id;
   const q = ctx.db;
   const sys = sysOf(ctx);
@@ -108,10 +107,9 @@ export async function browse(ctx: Ctx, opts: { for?: string | null; catalog?: st
   if (isUuid(opts.catalog)) where.push({ f: "catalog_id", op: "eq", v: opts.catalog });
   const text = (opts.q ?? "").trim();
   if (text) where.push({ or: ["name", "short_description", "description", "code"].map((f) => ({ f, op: "contains" as const, v: text })) });
-  const ids = (opts.ids ?? []).filter(isUuid);
-  if (ids.length) where.push({ f: "id", op: "in", v: ids });
-  if (!text && !ids.length) where.push({ f: "hidden", op: "ne", v: true });
-  const rows = await liveRows(q, sys, "catalog_item", { and: where }, { order: "t.featured desc, t.sort_order, t.name", limit: 2000 });
+  const ids = new Set((opts.ids ?? []).filter(isUuid).map((x) => x.toLowerCase()));
+  if (!text && !ids.size) where.push({ f: "hidden", op: "ne", v: true });
+  const rows = (await liveRows(q, sys, "catalog_item", { and: where }, { order: "t.featured desc, t.sort_order, t.name", limit: 2000 })).filter((r) => !ids.size || ids.has(String(r.id)));
   const allowed = await ent.check(rows);
   const index = await catalogIndex(q, ctx);
   const catalogs = [...index.catalogs.values()].filter((c) => c.active !== false && ent.allowsLevel(c));
@@ -173,7 +171,7 @@ export interface ItemForm {
 
 /** An item's order form for `forUser` (404 when the person may not see it). */
 export async function itemForm(ctx: Ctx, id: string, opts: { for?: string | null } = {}): Promise<ItemForm> {
-  needCatalog(ctx);
+  await needCatalog(ctx);
   const forUser = isUuid(opts.for) ? opts.for : ctx.user.id;
   const q = ctx.db;
   const item = await liveRow(q, sysOf(ctx), "catalog_item", id);
@@ -373,8 +371,8 @@ async function prepare(q: Queryable, ctx: Ctx, input: OrderInput): Promise<Prepa
 }
 
 /** May the caller order at all (create in area request)? */
-function needOrder(ctx: Ctx): void {
-  if (!access().canCreate(ctx, tableDef("request")!) && !access().canCreate(ctx, tableDef("request_item")!)) throw forbidden("اجازهٔ ثبت درخواست خدمت را ندارید");
+async function needOrder(ctx: Ctx): Promise<void> {
+  if (!(await allowed(ctx, "request_item", "create"))) throw forbidden("اجازهٔ ثبت درخواست خدمت را ندارید");
 }
 
 /**
@@ -383,8 +381,8 @@ function needOrder(ctx: Ctx): void {
  * record-producer line makes its record instead, with the caller's own access (REQ-004).
  */
 export async function placeOrder(ctx: Ctx, input: OrderInput, opts: { inTx?: Tx; afterOrder?: (tx: Tx, result: OrderResult) => Promise<void> } = {}): Promise<OrderResult> {
-  needCatalog(ctx);
-  needOrder(ctx);
+  await needCatalog(ctx);
+  await needOrder(ctx);
   const run = async (tx: Tx): Promise<OrderResult> => {
     const lines = await prepare(tx, ctx, input);
     if (lines.length === 1 && lines[0].schema.item.type === "record_producer") {
@@ -486,7 +484,7 @@ async function currentCart(q: Queryable, ctx: Ctx, create: boolean, tx?: Tx): Pr
 }
 
 export async function cartView(ctx: Ctx): Promise<CartView> {
-  needCatalog(ctx);
+  await needCatalog(ctx);
   const q = ctx.db;
   const cart = (await currentCart(q, ctx, false)) ?? { id: null, name: "سبد سفارش", kind: "cart", user_id: ctx.user.id };
   const lines = cart.id ? await liveRows(q, ctx, "request_cart_line", eqAll({ cart_id: cart.id }), { order: "t.sort_order, t.created_at" }) : [];
@@ -514,8 +512,8 @@ export async function cartView(ctx: Ctx): Promise<CartView> {
 
 /** Add a line to the caller's cart (answers checked now and again at checkout). */
 export async function addLine(ctx: Ctx, input: LineInput & { saved?: boolean }): Promise<Row> {
-  needCatalog(ctx);
-  needOrder(ctx);
+  await needCatalog(ctx);
+  await needOrder(ctx);
   return ctx.write(async (tx) => {
     const [p] = await prepare(tx, ctx, { lines: [input] });
     if (p.schema.item.cart_allowed === false || p.schema.item.type === "record_producer") throw bad(`«${p.item.name}» به سبد افزوده نمی‌شود؛ آن را مستقیم ثبت کنید`);
@@ -564,13 +562,14 @@ export async function removeLine(ctx: Ctx, id: string): Promise<void> {
   await ctx.write(async (tx) => {
     const line = await liveRow(tx, ctx, "request_cart_line", id);
     if (!line) throw notFound("این قلم در سبد شما نیست");
-    await removeIn(tx, ctx, "request_cart_line", id);
+    // a cart line is the caller's own (read through their access): the module removes it for them
+    await removeIn(tx, sysOf(ctx), "request_cart_line", id);
   });
 }
 
 /** Order the cart's lines (not those saved for later); the ordered lines leave the cart. */
 export async function checkoutCart(ctx: Ctx, input: Omit<OrderInput, "lines"> = {}): Promise<OrderResult> {
-  needCatalog(ctx);
+  await needCatalog(ctx);
   return ctx.write(async (tx) => {
     const cart = await currentCart(tx, ctx, false);
     if (!cart) throw bad("سبد شما خالی است");
@@ -596,7 +595,8 @@ export async function checkoutCart(ctx: Ctx, input: Omit<OrderInput, "lines"> = 
     return placeOrder(ctx, order, {
       inTx: tx,
       afterOrder: async (t, result) => {
-        for (const l of lines) await removeIn(t, ctx, "request_cart_line", String(l.id));
+        // the lines are the caller's own (read through their access above); the module removes them
+        for (const l of lines) await removeIn(t, sysOf(ctx), "request_cart_line", String(l.id));
         await updateIn(t, ctx, "request_cart", String(cart.id), { request_id: result.request?.id ?? null }, { trusted: true });
       },
     });
@@ -605,7 +605,7 @@ export async function checkoutCart(ctx: Ctx, input: Omit<OrderInput, "lines"> = 
 
 /** Change the cart's order details (for whom, where, when, cost centre, instructions). */
 export async function updateCart(ctx: Ctx, patch: { requested_for?: string | null; location_id?: string | null; needed_by?: string | null; cost_center_id?: string | null; instructions?: string | null }): Promise<Row> {
-  needCatalog(ctx);
+  await needCatalog(ctx);
   return ctx.write(async (tx) => {
     const cart = (await currentCart(tx, ctx, true, tx))!;
     const values: Row = {};
