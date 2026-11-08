@@ -29,7 +29,7 @@ const S = (key: string, label: string, guidance: string, required = false, inter
 export const BUILTIN_TEMPLATES: Row[] = [
   {
     builtin: "how_to", name: "راهنمای انجام کار", article_type: "how_to", sort_order: 10, description: "انجام یک کار گام‌به‌گام",
-    sections: [S("goal", "کار", "این راهنما چه کاری را ممکن می‌کند؟", true), S("before", "پیش از شروع", "دسترسی‌ها و پیش‌نیازها"), S("steps", "گام‌ها", "گام‌های شماره‌دار و قابل بررسی", true), S("result", "نتیجه", "از کجا بفهمیم کار درست انجام شده است؟")],
+    sections: [S("goal", "کار", "این راهنما چه کاری را ممکن می‌کند؟"), S("before", "پیش از شروع", "دسترسی‌ها و پیش‌نیازها"), S("steps", "گام‌ها", "گام‌های شماره‌دار و قابل بررسی", true), S("result", "نتیجه", "از کجا بفهمیم کار درست انجام شده است؟")],
   },
   { builtin: "faq", name: "پرسش متداول", article_type: "faq", sort_order: 20, description: "یک پرسش و پاسخ کوتاه", sections: [S("question", "پرسش", "پرسش را با واژه‌های کاربر بنویسید", true), S("answer", "پاسخ", "پاسخ کوتاه و دقیق", true)] },
   {
@@ -133,13 +133,13 @@ export async function seedKnowledgeDefaultsIn(tx: Tx, ctx: Ctx, opts: { force?: 
     await ensureRow(tx, sys, out, "approval_rule", { table_key: "kb_version", name: r.name }, {
       condition: { and: [{ f: "state", op: "eq", v: "in_review" }, { f: "needs_approval", op: "eq", v: true }, { f: "approval_mode", op: "eq", v: r.mode }] },
       mode: "parallel", levels: [{ name: "تأییدکنندگان پایگاه", sources: field, rule: r.rule, ...(r.threshold ? { threshold: r.threshold } : {}) }],
-      remind_every: 86_400, expire_after: 14 * 86_400, expire_action: "canceled", sort_order: (i + 1) * 10, active: true,
+      remind_every: 86_400, expire_after: 14 * 86_400, expire_action: "cancel", sort_order: (i + 1) * 10, active: true,
       description: "تأییدکنندگان را پایگاه دانش تعیین می‌کند؛ نویسنده هرگز نسخهٔ خودش را تأیید نمی‌کند",
     });
   }
   await ensureRow(tx, sys, out, "approval_rule", { table_key: "kb_article", name: "بازنشستگی مقالهٔ دانش" }, {
     condition: { f: "state", op: "eq", v: "pending_retirement" }, mode: "parallel", levels: [{ name: "تأییدکنندگان پایگاه", sources: field, rule: "any" }],
-    remind_every: 86_400, expire_after: 14 * 86_400, expire_action: "rejected", sort_order: 40, active: true, description: "درخواست بازنشستگی در پایگاه‌هایی که بازنشستگی را با تأیید می‌خواهند",
+    remind_every: 86_400, expire_after: 14 * 86_400, expire_action: "reject", sort_order: 40, active: true, description: "درخواست بازنشستگی در پایگاه‌هایی که بازنشستگی را با تأیید می‌خواهند",
   });
 
   // the SLA of knowledge tasks (office hours; the default calendar, else around the clock)

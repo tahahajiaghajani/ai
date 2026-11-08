@@ -1,7 +1,8 @@
 // Knowledge management (docs/modules/knowledge_FA.md): tables in src/shared/tables/knowledge.ts, screens in
 // src/ui/modules/knowledge, HTTP API in src/server/routes/knowledge.ts. `installKnowledgeModule()` (once per process,
 // src/server/routes/modules.ts, after the RAG index) wires the module into the platform:
-//   · hooks of its tables (hooks.ts), its link kinds (links.ts), jobs and subscribers (jobs.ts, capture.ts)
+//   · hooks of its tables (hooks.ts), the contributors compiled onto rows for the row rules (contrib.ts), its link
+//     kinds (links.ts), jobs and subscribers (jobs.ts, capture.ts)
 //   · the AI index: articles and answer snippets are RAG sources with their own builders — only live content, the
 //     internal section in the `internal` partition, an article or base answering agents only puts everything there,
 //     «فقط ارجاع» indexes the title and summary only — and an AI-channel rule checked with every question (state,
@@ -23,6 +24,7 @@ import { registerRagSource, type RagPart } from "../ai/rag";
 import type { SeedCounts } from "../incident";
 import { baseOf, categoryOf, contributesTo, liveRows, type Row } from "./common";
 import { installKnowledgeHooks } from "./hooks";
+import { installContributors } from "./contrib";
 import { installLinkKinds } from "./links";
 import { installKnowledgeJobs } from "./jobs";
 import { installCaptureSubscribers } from "./capture";
@@ -93,6 +95,7 @@ export function installKnowledgeModule(): void {
   if (installed) return;
   installed = true;
   installKnowledgeHooks();
+  installContributors();
   installLinkKinds();
   installKnowledgeJobs();
   installCaptureSubscribers();

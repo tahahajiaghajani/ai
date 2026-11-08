@@ -6,7 +6,7 @@
 import type { Ctx } from "../../context";
 import type { Queryable, Tx } from "../../db";
 import { addJournalIn, createIn, defFor, updateIn } from "../../engine";
-import { addDaysISO, liveRows, sysOf, todayIn, type Row } from "./common";
+import { addDaysISO, liveRows, rowsById, sysOf, todayIn, type Row } from "./common";
 
 export type LicenceLevel = "candidate" | "contributor" | "publisher" | "coach" | "kde";
 const ORDER: LicenceLevel[] = ["candidate", "contributor", "publisher", "coach", "kde"];
@@ -35,7 +35,7 @@ export async function coachesOf(q: Queryable, ctx: Ctx, baseId: string): Promise
 async function goExternal(tx: Tx, sys: Ctx, a: Row, why: string): Promise<void> {
   await updateIn(tx, sys, "kb_article", a.id, { visibility: "inherit", kcs_confidence: "validated" }, { trusted: true });
   const { def } = await defFor(sys, "kb_article", tx);
-  const row = (await liveRows(tx, sys, "kb_article", { f: "id", op: "eq", v: a.id }, { limit: 1 }))[0];
+  const row = (await rowsById(tx, sys, "kb_article", [a.id]))[0];
   if (row) await addJournalIn(tx, sys, def, row, { kind: "system", visibility: "internal", body: why }, { trusted: true, author: null });
 }
 

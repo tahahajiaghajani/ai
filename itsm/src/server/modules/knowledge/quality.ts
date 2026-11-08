@@ -32,7 +32,7 @@ export async function checkVersion(ctx: Ctx, versionId: string): Promise<KbVersi
   const cfg = await kbConfig(ctx.db, sys);
   const duplicates: KbVersionCheck["duplicates"] = [];
   if (article && String(v.body ?? "").length > 40) {
-    const others = await liveRows(ctx.db, ctx, "kb_article", { and: [{ f: "base_id", op: "eq", v: article.base_id }, { f: "state", op: "in", v: ["published", "pending_retirement"] }, { f: "id", op: "ne", v: article.id }] }, { limit: 1500 });
+    const others = (await liveRows(ctx.db, ctx, "kb_article", { and: [{ f: "base_id", op: "eq", v: article.base_id }, { f: "state", op: "in", v: ["published", "pending_retirement"] }] }, { limit: 1500 })).filter((o) => o.id !== article.id);
     for (const o of others) {
       const s = similarity({ title: v.title, body: String(v.body ?? "") }, { title: o.title, body: String(o.body ?? "") });
       if (s >= cfg.duplicate_threshold - 10) duplicates.push({ id: o.id, number: o.number ?? null, title: o.title, similarity: s });

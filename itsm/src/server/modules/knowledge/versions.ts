@@ -51,7 +51,13 @@ export async function createArticleIn(tx: Tx, ctx: Ctx, input: NewArticleInput):
   if (!base) throw notFound("پایگاه دانش پیدا نشد");
   const category = input.category_id ? await categoryOf(tx, ctx, input.category_id) : null;
   if (!contributesTo(ctx, base, { category })) throw forbidden("اجازهٔ نوشتن در این پایگاه دانش را ندارید");
-  const template = input.template_id ? await liveRow(tx, sysOf(ctx), "kb_template", input.template_id) : base.default_template_id ? await liveRow(tx, sysOf(ctx), "kb_template", base.default_template_id) : null;
+  // the template asked for, else the active template of the article's type, else the base's default
+  let template = input.template_id ? await liveRow(tx, sysOf(ctx), "kb_template", input.template_id) : null;
+  if (!template && input.article_type) {
+    const [t] = await liveRows(tx, sysOf(ctx), "kb_template", { and: [{ f: "article_type", op: "eq", v: input.article_type }, { f: "active", op: "eq", v: true }] }, { order: "t.sort_order, t.name", limit: 1 });
+    template = t ?? null;
+  }
+  if (!template && base.default_template_id) template = await liveRow(tx, sysOf(ctx), "kb_template", base.default_template_id);
   const skeleton = template ? templateSkeleton(cleanSections(template.sections)) : { body: "", internal: "" };
   const master = input.translation_of ? await articleOf(tx, ctx, input.translation_of) : null;
   const kcs = base.kcs_enabled && !input.kcs_confidence ? "not_validated" : input.kcs_confidence ?? "validated";

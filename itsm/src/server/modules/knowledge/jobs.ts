@@ -16,7 +16,8 @@ import type { Ctx } from "../../context";
 import { addJournalIn, createIn, defFor, onRecordEvent, removeIn, systemCtx, transitionIn, updateIn, type RecordEvent } from "../../engine";
 import { enqueue, registerJobHandler, type JobContext } from "../../jobs";
 import { actsHere, notifyPeople } from "../notify";
-import { activeMembers, addDaysISO, baseOf, countRows, expandUnits, isUuid, kbConfig, liveRow, liveRows, sysOf, todayIn, uniq, type Row } from "./common";
+import { cancelApprovals } from "../sla";
+import { activeMembers, addDaysISO, baseOf, countRows, expandUnits, isUuid, kbConfig, liveRow, liveRows, rowsById, sysOf, todayIn, uniq, type Row } from "./common";
 import { publishIn } from "./versions";
 import { runPublishingModels } from "./kcs";
 import { remindAttestations } from "./attest";
@@ -114,7 +115,7 @@ export async function kbSweep(sys: Ctx, opts: { daily?: boolean } = {}): Promise
   // view counters from the stream
   const views = await viewCounts(sys.db, sys.org.id, null);
   if (views.size) {
-    const arts = await liveRows(sys.db, sys, "kb_article", { f: "id", op: "in", v: [...views.keys()].slice(0, 5000) }, { limit: 5000 });
+    const arts = await rowsById(sys.db, sys, "kb_article", [...views.keys()].slice(0, 5000));
     for (const a of arts) {
       const n = views.get(a.id) ?? 0;
       if (Number(a.view_count ?? 0) !== n) await sys.write((tx) => updateIn(tx, sys, "kb_article", a.id, { view_count: n }, { trusted: true, keepVersion: true, allowLocked: true }));
@@ -200,15 +201,21 @@ async function recompileUnits(sys: Ctx): Promise<void> {
 async function onApproval(e: RecordEvent, jctx: JobContext): Promise<void> {
   if (!actsHere(jctx.cfg) || !isUuid(e.org_id) || !isUuid(e.id)) return;
   const outcome = String(e.data?.outcome ?? "");
-  if (outcome !== "approved" && outcome !== "rejected") return;
+  const decision = String(e.data?.decision ?? "");
   const by = isUuid(e.data?.by) ? String(e.data!.by) : null;
   const sys = await systemCtx(jctx.cfg, e.org_id, by ? { onBehalfOf: by } : undefined);
   const comment = e.data?.comment ? String(e.data.comment) : "";
+  // «یک تأییدکننده کافی است»: the first answer decides — a rejection returns the draft at once (its author gets the
+  // reviewer's comment) and the other reviewers' open approvals are withdrawn; the other modes follow the round
+  const firstAnswer = (mode: unknown) => (mode ?? "any") === "any" && decision === "rejected";
   if (e.table === "kb_version") {
     const v = await liveRow(jctx.db, sys, "kb_version", e.id);
     if (!v || v.state !== "in_review") return;
+    const rejected = outcome === "rejected" || firstAnswer(v.approval_mode);
+    if (outcome !== "approved" && !rejected) return;
+    if (rejected) await cancelApprovals(sys, "kb_version", v.id).catch(() => undefined);
     await sys.write(async (tx) => {
-      if (outcome === "approved") {
+      if (!rejected) {
         await updateIn(tx, sys, "kb_version", v.id, { approved_at: new Date().toISOString(), approved_by: by }, { trusted: true });
         await publishIn(tx, sys, v.id, by);
       } else {
@@ -222,7 +229,10 @@ async function onApproval(e: RecordEvent, jctx: JobContext): Promise<void> {
   if (e.table === "kb_article") {
     const a = await liveRow(jctx.db, sys, "kb_article", e.id);
     if (!a || a.state !== "pending_retirement") return;
-    await sys.write((tx) => transitionIn(tx, sys, "kb_article", a.id, outcome === "approved" ? "retired" : "published", outcome === "approved" ? {} : { retire_reason: null }, { trusted: true }));
+    const rejected = outcome === "rejected" || firstAnswer("any");
+    if (outcome !== "approved" && !rejected) return;
+    if (rejected) await cancelApprovals(sys, "kb_article", a.id).catch(() => undefined);
+    await sys.write((tx) => transitionIn(tx, sys, "kb_article", a.id, rejected ? "published" : "retired", rejected ? { retire_reason: null } : {}, { trusted: true }));
   }
 }
 

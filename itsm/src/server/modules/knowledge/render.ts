@@ -11,7 +11,7 @@ import { searchForm, stem } from "@shared/ai/text";
 import { LIVE_STATES } from "@shared/tables/knowledge";
 import type { Ctx } from "../../context";
 import { get, listAttachments } from "../../engine";
-import { contributesTo, holdsInternal, isKbApprover, liveRows, managesBase, sysOf, todayIn, type Row } from "./common";
+import { contributesTo, holdsInternal, isKbApprover, liveRows, managesBase, rowsById, sysOf, todayIn, type Row } from "./common";
 import { searchKnowledge } from "./search";
 import { logEvent, viewedRecently } from "./events";
 import { openVersion } from "./versions";
@@ -50,11 +50,11 @@ export async function readArticle(ctx: Ctx, id: string, opts: { session_id?: str
   const display = r.display as Record<string, string>;
   const sys = sysOf(ctx);
   const internal = holdsInternal(ctx);
-  const [base] = await liveRows(ctx.db, ctx, "kb_base", { f: "id", op: "eq", v: a.base_id }, { limit: 1 });
-  const baseSys = base ?? (await liveRows(ctx.db, sys, "kb_base", { f: "id", op: "eq", v: a.base_id }, { limit: 1 }))[0] ?? null;
-  const [category] = a.category_id ? await liveRows(ctx.db, ctx, "kb_category", { f: "id", op: "eq", v: a.category_id }, { limit: 1 }) : [];
+  const [base] = await rowsById(ctx.db, ctx, "kb_base", [a.base_id]);
+  const baseSys = base ?? (await rowsById(ctx.db, sys, "kb_base", [a.base_id]))[0] ?? null;
+  const [category] = a.category_id ? await rowsById(ctx.db, ctx, "kb_category", [a.category_id]) : [];
   const pathIds = category ? String(category.path ?? "").split("/").filter(Boolean) : [];
-  const pathRows = pathIds.length ? await liveRows(ctx.db, ctx, "kb_category", { f: "id", op: "in", v: pathIds }) : [];
+  const pathRows = pathIds.length ? await rowsById(ctx.db, ctx, "kb_category", pathIds) : [];
   const path = pathIds.map((pid) => pathRows.find((p) => p.id === pid)).filter((p): p is Row => !!p).map((p) => ({ id: p.id as string, name: String(p.name) }));
 
   const body = await expandBlocks(ctx, String(a.body ?? ""));
@@ -67,7 +67,7 @@ export async function readArticle(ctx: Ctx, id: string, opts: { session_id?: str
   if (a.state === "retired") {
     let link: KbBanner["link"] = null;
     if (a.replaced_by) {
-      const [rep] = await liveRows(ctx.db, ctx, "kb_article", { f: "id", op: "eq", v: a.replaced_by }, { limit: 1 });
+      const [rep] = await rowsById(ctx.db, ctx, "kb_article", [a.replaced_by]);
       if (rep) link = { id: rep.id, title: rep.title, number: rep.number ?? null };
     }
     banners.push({ kind: "retired", tone: "danger", text: link ? "این مقاله بازنشسته شده است؛ مقالهٔ جایگزین را بخوانید." : "این مقاله بازنشسته شده است و ممکن است دیگر درست نباشد.", link });
@@ -85,7 +85,7 @@ export async function readArticle(ctx: Ctx, id: string, opts: { session_id?: str
 
   // translations (master and its translations the reader may read)
   const masterId = a.translation_of ?? a.id;
-  const family = await liveRows(ctx.db, ctx, "kb_article", { and: [{ or: [{ f: "id", op: "eq", v: masterId }, { f: "translation_of", op: "eq", v: masterId }] }, { f: "state", op: "in", v: LIVE_STATES }] }, { limit: 30 });
+  const family = [...(await rowsById(ctx.db, ctx, "kb_article", [masterId], { f: "state", op: "in", v: LIVE_STATES })), ...(await liveRows(ctx.db, ctx, "kb_article", { and: [{ f: "translation_of", op: "eq", v: masterId }, { f: "state", op: "in", v: LIVE_STATES }] }, { limit: 30 }))];
   const translations: KbTranslation[] = family.filter((t) => t.id !== a.id).map((t) => ({ id: t.id, language: t.language ?? "fa", title: t.title, number: t.number ?? null, stale: !!t.translation_stale, master: t.id === masterId }));
 
   // related articles (keyword search on the title and keywords)

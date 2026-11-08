@@ -8,7 +8,7 @@ import type { Queryable } from "../../db";
 import { createIn, get, updateIn } from "../../engine";
 import { bad, forbidden } from "../../http/errors";
 import { notifyPeople } from "../notify";
-import { activeMembers, expandUnits, groupMembers, ids, liveRow, liveRows, sysOf, todayIn, uniq, unitMembers, type Row } from "./common";
+import { activeMembers, expandUnits, groupMembers, ids, liveRow, liveRows, rowsById, sysOf, todayIn, uniq, unitMembers, type Row } from "./common";
 import { logEvent } from "./events";
 
 /** Everyone a campaign addresses (active members). */
@@ -68,7 +68,7 @@ export async function myAttestations(ctx: Ctx): Promise<KbAttestationItem[]> {
   for (const c of camps) {
     const aud = await audienceOf(ctx.db, ctx, c);
     if (!aud.includes(ctx.user.id)) continue;
-    const [article] = await liveRows(ctx.db, ctx, "kb_article", { f: "id", op: "eq", v: c.article_id }, { limit: 1 });
+    const [article] = await rowsById(ctx.db, ctx, "kb_article", [c.article_id]);
     if (!article) continue;
     const [ack] = await liveRows(ctx.db, sys, "kb_ack", { and: [{ f: "attestation_id", op: "eq", v: c.id }, { f: "user_id", op: "eq", v: ctx.user.id }] }, { limit: 1 });
     out.push({ id: c.id, number: c.number ?? null, title: c.title, article_id: c.article_id, article_title: article.title, version_label: c.version_label ?? null, due_at: c.due_at, acked_at: ack?.acked_at ?? null, overdue: !ack && String(c.due_at) < today });

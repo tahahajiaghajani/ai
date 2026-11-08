@@ -13,7 +13,7 @@ import type { Ctx } from "../../context";
 import { pgArray } from "../../db";
 import { condEnv, orgSchema, readable } from "../../engine";
 import { LIVE_STATES } from "@shared/tables/knowledge";
-import { holdsInternal, liveRows, sysOf, type Row } from "./common";
+import { holdsInternal, liveRows, rowsById, sysOf, type Row } from "./common";
 import { logEvent } from "./events";
 
 const PAIRS: [string, string][] = [
@@ -91,8 +91,8 @@ export async function labelsOf(ctx: Ctx, rows: Row[]): Promise<{ bases: Map<stri
   const catIds = [...new Set(rows.map((r) => r.category_id).filter(Boolean))];
   const bases = new Map<string, string>();
   const categories = new Map<string, string>();
-  if (baseIds.length) for (const b of await liveRows(ctx.db, ctx, "kb_base", { f: "id", op: "in", v: baseIds })) bases.set(b.id, b.name);
-  if (catIds.length) for (const c of await liveRows(ctx.db, ctx, "kb_category", { f: "id", op: "in", v: catIds })) categories.set(c.id, c.name);
+  if (baseIds.length) for (const b of await rowsById(ctx.db, ctx, "kb_base", baseIds)) bases.set(b.id, b.name);
+  if (catIds.length) for (const c of await rowsById(ctx.db, ctx, "kb_category", catIds)) categories.set(c.id, c.name);
   return { bases, categories };
 }
 
@@ -116,10 +116,10 @@ export async function searchKnowledge(ctx: Ctx, p: KbSearchParams): Promise<KbSe
   params.push(pgArray(p.include_retired ? [...LIVE_STATES, "retired"] : LIVE_STATES));
   where.push(`t.state = any($${params.length}::text[])`);
 
-  const F = { t: normExpr("t.title"), s: normExpr("t.summary"), k: `${normExpr("t.keywords::text")} || ' ' || ${normExpr("t.tags::text")} || ' ' || ${normExpr("t.doc_number")}`, b: normExpr("t.body"), i: internal ? normExpr("t.internal_body") : "''" };
+  const F = { t: normExpr("t.title"), s: normExpr("t.summary"), k: `${normExpr("t.keywords::text")} || ' ' || ${normExpr("t.tags::text")} || ' ' || ${normExpr("t.doc_number")}`, b: normExpr("t.body"), i: internal ? normExpr("t.internal_body") : "''::text" };
   const like = (term: string) => {
     params.push(`%${likeEsc(term)}%`);
-    return `$${params.length}`;
+    return `$${params.length}::text`;
   };
   const groupSql: { any: string; score: string }[] = [];
   for (const alts of groups) {

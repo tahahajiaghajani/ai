@@ -24,7 +24,7 @@ import { addJournalIn, defFor, registerHooks, transitionIn, updateIn, validation
 import { enqueue } from "../../jobs";
 import { conflict, forbidden } from "../../http/errors";
 import {
-  activeMembers, articleOf, baseOf, categoryOf, contributesTo, countRows, expandUnits, groupMembers, ids, isKbAdmin, isKbApprover, kbConfig, liveRow, liveRows, managesBase, sysOf, uniq, type Row,
+  activeMembers, articleOf, baseOf, categoryOf, contributesTo, countRows, expandUnits, groupMembers, ids, isKbAdmin, isKbApprover, kbConfig, liveRow, liveRows, managesBase, rowsById, sysOf, uniq, type Row,
 } from "./common";
 import { publishIn } from "./versions";
 import { licenceLevel } from "./kcs";
@@ -113,7 +113,7 @@ async function categoryBefore(w: WriteArgs): Promise<void> {
     if (String(parent.path ?? "").includes(`/${n.id}/`)) throw validationError({ parent_id: "این جابه‌جایی دور می‌سازد" });
   }
   if (touched(w, ["featured"]) && ids(n.featured).length) {
-    const arts = await liveRows(w.tx, sys, "kb_article", { f: "id", op: "in", v: ids(n.featured) });
+    const arts = await rowsById(w.tx, sys, "kb_article", ids(n.featured));
     if (arts.some((a) => a.base_id !== n.base_id)) throw validationError({ featured: "مقاله‌های ویژه باید از همین پایگاه باشند" });
   }
   if (touched(w, ["parent_id", "read_mode", "read_users", "read_groups", "read_units", "units_tree", "managed_by_groups", "base_id"])) Object.assign(n, await compileCategory(w.tx, w.ctx, n, parent));

@@ -8,12 +8,30 @@ import type { Ctx } from "../../context";
 import { pgArray, type Queryable } from "../../db";
 import { access } from "../../access/provider";
 import { subjectOf } from "../../access";
-import { orgSchema, orgTz } from "../../engine";
+import { condEnv, fromDb, orgSchema, orgTz, readable, toSql } from "../../engine";
+import type { Cond } from "@shared/model/conditions";
 import { todayISO } from "@shared/jalali";
 import { liveRow, liveRows, sysOf, isUuid, type Row } from "../incident/common";
 
 export { sysOf, liveRow, liveRows, isUuid, type Row };
 export { countRows, eqAll, faList } from "../incident/common";
+
+/** Live rows of `table` with these ids that the context may read (and that match `where`). */
+export async function rowsById(q: Queryable, ctx: Ctx, table: string, idList: unknown[], where: Cond | null = null): Promise<Row[]> {
+  const list = ids(idList);
+  if (!list.length) return [];
+  const schema = await orgSchema(ctx, q);
+  const def = schema.def(table);
+  if (!def || def.virtual) return [];
+  const env = await condEnv(ctx);
+  const params: unknown[] = [];
+  const parts = [readable(ctx, def, "t", params, env)];
+  params.push(pgArray(list));
+  parts.push(`t.id = any($${params.length}::uuid[])`);
+  if (where) parts.push(toSql(where, def, "t", params, env, { ctx, lookup: schema.lookup }));
+  const rows = await q.query<Row>(`select t.* from ${def.table} t where ${parts.join(" and ")}`, params);
+  return rows.map((r) => fromDb(def, r));
+}
 
 export const uniq = <T>(xs: (T | null | undefined)[]): T[] => [...new Set(xs.filter((x): x is T => x !== null && x !== undefined && x !== ("" as unknown as T)))];
 export const ids = (v: unknown): string[] => (Array.isArray(v) ? uniq(v.map((x) => (typeof x === "string" ? x.toLowerCase() : null))).filter(isUuid) : []);

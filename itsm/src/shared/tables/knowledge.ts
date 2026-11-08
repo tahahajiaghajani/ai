@@ -20,7 +20,7 @@
 // Behaviour lives in src/server/modules/knowledge; screens in src/ui/modules/knowledge.
 // Imported by the UI: keep it free of server imports.
 import type { Cond } from "../model/conditions";
-import type { Option, StateModel, TableDef } from "../model/types";
+import type { FieldDef, Option, StateModel, TableDef } from "../model/types";
 import { APPROVAL_STATES, PRIORITIES } from "../model/task";
 import { hideTaskFields } from "./incident";
 
@@ -258,16 +258,24 @@ export const BASE_READ: Cond = {
   ],
 };
 
+/**
+ * Contributors compiled onto the row itself (k_users / k_groups, kept by the module's contrib.ts): a category, snippet
+ * or decision tree carries its base's contributors; an article the base's and its category chain's managed-by groups;
+ * versions, feedback, knowledge tasks, attestations and acknowledgements everyone who works the article. Rules test
+ * own columns only — no dot-walked group test (see engine_requests: a walk compiled to `false` keeps its parameters).
+ */
+const CONTRIBUTORS: Cond[] = [me("k_users"), inGroups("k_groups")];
+
 /** A category: readable base, then the nearest audience on its chain (compiled into c_*) or a contributor. */
 export const CATEGORY_READ: Cond = {
   and: [
     readable("base_id.name"),
-    { or: [{ f: "c_all", op: "eq", v: true }, me("c_users"), inGroups("c_groups"), inUnit("c_units"), me("base_id.k_users"), inGroups("base_id.k_groups"), inGroups("m_groups")] },
+    { or: [{ f: "c_all", op: "eq", v: true }, me("c_users"), inGroups("c_groups"), inUnit("c_units"), ...CONTRIBUTORS, inGroups("m_groups")] },
   ],
 };
 
 /** Contributors of an article: its author, owner and owner group, reviewers, the base's contributors, managed-by groups. */
-const ARTICLE_CONTRIBUTOR: Cond[] = [me("author_id"), me("owner_id"), myGroup("owner_group_id"), me("reviewer_ids"), me("base_id.k_users"), inGroups("base_id.k_groups"), inGroups("category_id.m_groups")];
+const ARTICLE_CONTRIBUTOR: Cond[] = [me("author_id"), me("owner_id"), myGroup("owner_group_id"), me("reviewer_ids"), ...CONTRIBUTORS];
 
 export const ARTICLE_READ: Cond = {
   and: [
@@ -288,26 +296,23 @@ export const ARTICLE_READ: Cond = {
   ],
 };
 
-/** Compliance-based articles are changed only by their people and the base's contributors. */
-export const ARTICLE_WRITE: Cond = { or: [{ f: "governance", op: "ne", v: "compliance" }, me("author_id"), me("owner_id"), myGroup("owner_group_id"), me("base_id.k_users"), inGroups("base_id.k_groups")] };
+/** Compliance-based articles are changed only by their people and the contributors of the base and category. */
+export const ARTICLE_WRITE: Cond = { or: [{ f: "governance", op: "ne", v: "compliance" }, me("author_id"), me("owner_id"), myGroup("owner_group_id"), ...CONTRIBUTORS] };
 
-/** People who work on an article's content (its versions, feedback and tasks), reached through the article. */
-const VIA_ARTICLE: Cond[] = [me("article_id.author_id"), me("article_id.owner_id"), myGroup("article_id.owner_group_id"), me("article_id.base_id.k_users"), inGroups("article_id.base_id.k_groups"), inGroups("article_id.category_id.m_groups")];
-
-export const VERSION_READ: Cond = { or: [me("author_id"), me("reviewer_ids"), ...VIA_ARTICLE] };
-export const FEEDBACK_READ: Cond = { or: [me("user_id"), ...VIA_ARTICLE] };
-export const TASK_READ: Cond = { or: [me("caller_id"), me("requested_for"), me("opened_by"), me("assigned_to"), myGroup("assignment_group_id"), me("watch_list"), ...VIA_ARTICLE] };
+export const VERSION_READ: Cond = { or: [me("author_id"), me("reviewer_ids"), ...CONTRIBUTORS] };
+export const FEEDBACK_READ: Cond = { or: [me("user_id"), ...CONTRIBUTORS] };
+export const TASK_READ: Cond = { or: [me("caller_id"), me("requested_for"), me("opened_by"), me("assigned_to"), myGroup("assignment_group_id"), me("watch_list"), ...CONTRIBUTORS] };
 
 /** Snippets and decision trees follow their base; readers see the published ones. */
 export const SNIPPET_READ: Cond = {
   and: [
     { or: [{ f: "base_id", op: "empty" }, readable("base_id.name")] },
-    { or: [me("owner_id"), myGroup("owner_group_id"), me("base_id.k_users"), inGroups("base_id.k_groups"), { f: "state", op: "eq", v: "published" }] },
+    { or: [me("owner_id"), myGroup("owner_group_id"), ...CONTRIBUTORS, { f: "state", op: "eq", v: "published" }] },
   ],
 };
 export const BLOCK_READ: Cond = { or: [me("owner_id"), myGroup("owner_group_id"), { f: "state", op: "eq", v: "published" }] };
-export const ATTESTATION_READ: Cond = { or: [me("owner_id"), ...VIA_ARTICLE] };
-export const ACK_READ: Cond = { or: [me("user_id"), me("attestation_id.owner_id"), ...VIA_ARTICLE] };
+export const ATTESTATION_READ: Cond = { or: [me("owner_id"), ...CONTRIBUTORS] };
+export const ACK_READ: Cond = { or: [me("user_id"), me("attestation_id.owner_id"), ...CONTRIBUTORS] };
 
 // ---------------------------------------------------------------------------------------------------------------
 // Knowledge bases
@@ -332,7 +337,13 @@ export const BASE_STATES: StateModel = {
   locked: [],
 };
 
-const sys = { system: true, hidden: true, audit: false } as const;
+const sys = { readonly: true, hidden: true, audit: false } as const;
+
+/** The compiled contributors of a row (see CONTRIBUTORS). */
+const contribFields = (): FieldDef[] => [
+  { name: "k_users", label: "افراد مشارکت‌کننده (محاسبه‌شده)", type: "users", ...sys, index: true },
+  { name: "k_groups", label: "گروه‌های مشارکت‌کننده (محاسبه‌شده)", type: "refs", ref: "group", ...sys, index: true },
+];
 
 const base: TableDef = {
   key: "kb_base",
@@ -396,7 +407,7 @@ const base: TableDef = {
     { name: "k_groups", label: "گروه‌های مشارکت‌کننده (محاسبه‌شده)", type: "refs", ref: "group", ...sys, index: true },
     { name: "r_units", label: "واحدهای خواننده (محاسبه‌شده)", type: "refs", ref: "org_unit", ...sys },
     { name: "x_units", label: "واحدهای منع‌شده (محاسبه‌شده)", type: "refs", ref: "org_unit", ...sys },
-    { name: "article_count", label: "مقاله‌های منتشرشده", type: "int", system: true, audit: false, default: 0, list: true, sort: true },
+    { name: "article_count", label: "مقاله‌های منتشرشده", type: "int", readonly: true, audit: false, default: 0, list: true, sort: true },
   ],
   states: BASE_STATES,
   unique: [["name"]],
@@ -435,13 +446,14 @@ const category: TableDef = {
     { name: "read_groups", label: "گروه‌ها", type: "refs", ref: "group", span: 12, section: AUDIENCE },
     { name: "read_units", label: "واحدهای سازمانی", type: "refs", ref: "org_unit", span: 12, section: AUDIENCE },
     { name: "path", label: "مسیر", type: "string", maxLength: 2000, ...sys },
-    { name: "depth", label: "عمق", type: "int", system: true, audit: false, default: 0 },
+    { name: "depth", label: "عمق", type: "int", readonly: true, audit: false, default: 0 },
     { name: "c_all", label: "همهٔ خوانندگان پایگاه", type: "bool", ...sys, default: true },
     { name: "c_users", label: "افراد خواننده (محاسبه‌شده)", type: "users", ...sys },
     { name: "c_groups", label: "گروه‌های خواننده (محاسبه‌شده)", type: "refs", ref: "group", ...sys },
     { name: "c_units", label: "واحدهای خواننده (محاسبه‌شده)", type: "refs", ref: "org_unit", ...sys },
     { name: "m_groups", label: "گروه‌های ویرایشگر (محاسبه‌شده)", type: "refs", ref: "group", ...sys, index: true },
-    { name: "article_count", label: "مقاله‌ها", type: "int", system: true, audit: false, default: 0, list: true, sort: true },
+    { name: "article_count", label: "مقاله‌ها", type: "int", readonly: true, audit: false, default: 0, list: true, sort: true },
+    ...contribFields(),
   ],
   states: BASE_STATES,
   scope: { own: [], requester: [] },
@@ -520,7 +532,7 @@ const article: TableDef = {
     { name: "owner_id", label: "مالک", type: "user", default: "$me", list: true, filter: true, index: true, span: 8, section: OWNERSHIP },
     { name: "owner_group_id", label: "گروه مالک", type: "group", filter: true, index: true, span: 8, section: OWNERSHIP },
     { name: "visibility", label: "دید", type: "choice", choices: VISIBILITIES, default: "inherit", filter: true, span: 8, section: OWNERSHIP },
-    { name: "confidential", label: "فقط کارشناسان", type: "bool", system: true, audit: false, default: false, filter: true, span: 8, section: OWNERSHIP },
+    { name: "confidential", label: "فقط کارشناسان", type: "bool", readonly: true, audit: false, default: false, filter: true, span: 8, section: OWNERSHIP },
     { name: "access_list", label: "خوانندگان ویژهٔ مقالهٔ داخلی", type: "users", span: 8, section: OWNERSHIP },
     { name: "audience_mode", label: "مخاطبان مقاله", type: "choice", choices: AUDIENCE_MODES, default: "inherit", span: 12, section: OWNERSHIP },
     { name: "units_tree", label: "واحدها با زیرمجموعه‌ها", type: "bool", default: true, span: 12, section: OWNERSHIP },
@@ -543,53 +555,54 @@ const article: TableDef = {
     { name: "doc_number", label: "شمارهٔ سند یا بخشنامه", type: "string", maxLength: 80, search: true, span: 12, section: LIFE },
     { name: "issuing_authority", label: "مرجع صادرکننده", type: "string", maxLength: 200, span: 12, section: LIFE },
     { name: "effective_date", label: "تاریخ اجرا", type: "date", sort: true, span: 12, section: LIFE },
-    { name: "last_reviewed_at", label: "آخرین بازبینی", type: "datetime", system: true, sort: true, filter: true, span: 8, section: LIFE },
-    { name: "last_reviewed_by", label: "بازبین", type: "user", system: true, span: 8, section: LIFE },
-    { name: "review_due", label: "موعد بازبینی گذشته", type: "bool", system: true, audit: false, default: false, filter: true, span: 8, section: LIFE },
-    { name: "published_at", label: "زمان انتشار", type: "datetime", system: true, list: true, sort: true, filter: true, span: 8, section: LIFE },
-    { name: "published_by", label: "منتشرکننده", type: "user", system: true, span: 8, section: LIFE },
-    { name: "first_published_at", label: "نخستین انتشار", type: "datetime", system: true, sort: true, filter: true, span: 8, section: LIFE },
-    { name: "retired_at", label: "زمان بازنشستگی", type: "datetime", system: true, sort: true, filter: true, span: 8, section: LIFE },
-    { name: "version_label", label: "نسخه", type: "string", system: true, maxLength: 20, ltr: true, list: true, span: 8, section: LIFE },
-    { name: "major", label: "نسخهٔ اصلی", type: "int", system: true, audit: false, default: 0, span: 8, section: LIFE },
-    { name: "minor", label: "نسخهٔ فرعی", type: "int", system: true, audit: false, default: 0, span: 8, section: LIFE },
+    { name: "last_reviewed_at", label: "آخرین بازبینی", type: "datetime", readonly: true, sort: true, filter: true, span: 8, section: LIFE },
+    { name: "last_reviewed_by", label: "بازبین", type: "user", readonly: true, span: 8, section: LIFE },
+    { name: "review_due", label: "موعد بازبینی گذشته", type: "bool", readonly: true, audit: false, default: false, filter: true, span: 8, section: LIFE },
+    { name: "published_at", label: "زمان انتشار", type: "datetime", readonly: true, list: true, sort: true, filter: true, span: 8, section: LIFE },
+    { name: "published_by", label: "منتشرکننده", type: "user", readonly: true, span: 8, section: LIFE },
+    { name: "first_published_at", label: "نخستین انتشار", type: "datetime", readonly: true, sort: true, filter: true, span: 8, section: LIFE },
+    { name: "retired_at", label: "زمان بازنشستگی", type: "datetime", readonly: true, sort: true, filter: true, span: 8, section: LIFE },
+    { name: "version_label", label: "نسخه", type: "string", readonly: true, maxLength: 20, ltr: true, list: true, span: 8, section: LIFE },
+    { name: "major", label: "نسخهٔ اصلی", type: "int", readonly: true, audit: false, default: 0, span: 8, section: LIFE },
+    { name: "minor", label: "نسخهٔ فرعی", type: "int", readonly: true, audit: false, default: 0, span: 8, section: LIFE },
     { name: "published_version_id", label: "نسخهٔ منتشرشده", type: "ref", ref: "kb_version", ...sys },
     { name: "draft_version_id", label: "پیش‌نویس جاری", type: "ref", ref: "kb_version", ...sys },
-    { name: "has_draft", label: "پیش‌نویس تازه دارد", type: "bool", system: true, audit: false, default: false, filter: true, span: 8, section: LIFE },
+    { name: "has_draft", label: "پیش‌نویس تازه دارد", type: "bool", readonly: true, audit: false, default: false, filter: true, span: 8, section: LIFE },
 
     { name: "service_id", label: "خدمت", type: "ref", ref: "service", filter: true, span: 8, section: RELATIONS },
     { name: "ci_id", label: "پیکربندی (CI)", type: "ref", ref: "ci", filter: true, span: 8, section: RELATIONS },
     { name: "known_error_id", label: "خطای شناخته‌شده", type: "ref", ref: "known_error", filter: true, index: true, span: 8, section: RELATIONS },
     { name: "problem_id", label: "مشکل", type: "ref", ref: "problem", filter: true, span: 8, section: RELATIONS },
     { name: "translation_of", label: "ترجمهٔ", type: "ref", ref: "$self", filter: true, index: true, span: 8, section: RELATIONS },
-    { name: "master_version", label: "نسخهٔ اصلیِ ترجمه‌شده", type: "int", system: true, span: 8, section: RELATIONS },
-    { name: "translation_stale", label: "ترجمه کهنه شده", type: "bool", system: true, audit: false, default: false, filter: true, span: 8, section: RELATIONS },
-    { name: "machine_translated", label: "ترجمهٔ ماشینی", type: "bool", system: true, default: false, filter: true, span: 8, section: RELATIONS },
-    { name: "source_table", label: "جدول منشأ", type: "string", maxLength: 60, system: true, hidden: true },
-    { name: "source_id", label: "رکورد منشأ", type: "string", maxLength: 36, system: true, hidden: true, index: true },
-    { name: "source_number", label: "رکورد منشأ", type: "string", maxLength: 40, system: true, ltr: true, span: 8, section: RELATIONS },
+    { name: "master_version", label: "نسخهٔ اصلیِ ترجمه‌شده", type: "int", readonly: true, span: 8, section: RELATIONS },
+    { name: "translation_stale", label: "ترجمه کهنه شده", type: "bool", readonly: true, audit: false, default: false, filter: true, span: 8, section: RELATIONS },
+    { name: "machine_translated", label: "ترجمهٔ ماشینی", type: "bool", readonly: true, default: false, filter: true, span: 8, section: RELATIONS },
+    { name: "source_table", label: "جدول منشأ", type: "string", maxLength: 60, readonly: true, hidden: true },
+    { name: "source_id", label: "رکورد منشأ", type: "string", maxLength: 36, readonly: true, hidden: true, index: true },
+    { name: "source_number", label: "رکورد منشأ", type: "string", maxLength: 40, readonly: true, ltr: true, span: 8, section: RELATIONS },
 
     { name: "ai_use", label: "استفادهٔ هوش مصنوعی", type: "choice", choices: AI_USES, default: "answer", filter: true, span: 12, section: AI },
     { name: "ai_requesters", label: "در پاسخ به درخواست‌کنندگان", type: "bool", default: true, span: 12, section: AI },
-    { name: "ai_provenance", label: "منشأ هوش مصنوعی", type: "json", system: true, hidden: true },
+    { name: "ai_provenance", label: "منشأ هوش مصنوعی", type: "json", readonly: true, hidden: true },
 
-    { name: "view_count", label: "بازدید", type: "int", system: true, audit: false, default: 0, list: true, sort: true, filter: true, span: 6, section: STATS },
-    { name: "reuse_count", label: "استفادهٔ دوباره", type: "int", system: true, audit: false, default: 0, list: true, sort: true, filter: true, span: 6, section: STATS, help: "شمار رکوردهای متمایزی که با این مقاله حل یا پیوند شده‌اند" },
-    { name: "helpful_yes", label: "مفید بود", type: "int", system: true, audit: false, default: 0, sort: true, span: 6, section: STATS },
-    { name: "helpful_no", label: "مفید نبود", type: "int", system: true, audit: false, default: 0, sort: true, span: 6, section: STATS },
-    { name: "rating_avg", label: "میانگین امتیاز", type: "decimal", system: true, audit: false, sort: true, span: 6, section: STATS },
-    { name: "rating_count", label: "شمار امتیازها", type: "int", system: true, audit: false, default: 0, span: 6, section: STATS },
-    { name: "open_flags", label: "ایرادهای باز", type: "int", system: true, audit: false, default: 0, sort: true, filter: true, span: 6, section: STATS },
-    { name: "health_score", label: "سلامت", type: "int", system: true, audit: false, sort: true, filter: true, span: 6, section: STATS },
-    { name: "quality_score", label: "کیفیت (AQI)", type: "int", system: true, audit: false, sort: true, filter: true, span: 6, section: STATS },
-    { name: "next_action", label: "اقدام پیشنهادی", type: "choice", choices: NEXT_ACTIONS, system: true, audit: false, filter: true, span: 6, section: STATS },
-    { name: "last_used_at", label: "آخرین استفاده", type: "datetime", system: true, audit: false, sort: true, span: 6, section: STATS },
+    { name: "view_count", label: "بازدید", type: "int", readonly: true, audit: false, default: 0, list: true, sort: true, filter: true, span: 6, section: STATS },
+    { name: "reuse_count", label: "استفادهٔ دوباره", type: "int", readonly: true, audit: false, default: 0, list: true, sort: true, filter: true, span: 6, section: STATS, help: "شمار رکوردهای متمایزی که با این مقاله حل یا پیوند شده‌اند" },
+    { name: "helpful_yes", label: "مفید بود", type: "int", readonly: true, audit: false, default: 0, sort: true, span: 6, section: STATS },
+    { name: "helpful_no", label: "مفید نبود", type: "int", readonly: true, audit: false, default: 0, sort: true, span: 6, section: STATS },
+    { name: "rating_avg", label: "میانگین امتیاز", type: "decimal", readonly: true, audit: false, sort: true, span: 6, section: STATS },
+    { name: "rating_count", label: "شمار امتیازها", type: "int", readonly: true, audit: false, default: 0, span: 6, section: STATS },
+    { name: "open_flags", label: "ایرادهای باز", type: "int", readonly: true, audit: false, default: 0, sort: true, filter: true, span: 6, section: STATS },
+    { name: "health_score", label: "سلامت", type: "int", readonly: true, audit: false, sort: true, filter: true, span: 6, section: STATS },
+    { name: "quality_score", label: "کیفیت (AQI)", type: "int", readonly: true, audit: false, sort: true, filter: true, span: 6, section: STATS },
+    { name: "next_action", label: "اقدام پیشنهادی", type: "choice", choices: NEXT_ACTIONS, readonly: true, audit: false, filter: true, span: 6, section: STATS },
+    { name: "last_used_at", label: "آخرین استفاده", type: "datetime", readonly: true, audit: false, sort: true, span: 6, section: STATS },
 
-    { name: "reviewer_ids", label: "بازبین‌ها", type: "users", system: true, hidden: true, audit: false, index: true },
+    { name: "reviewer_ids", label: "بازبین‌ها", type: "users", readonly: true, hidden: true, audit: false, index: true },
     { name: "approval", label: "تأیید بازنشستگی", type: "choice", choices: APPROVAL_STATES, default: "not_requested", readonly: true, filter: true, span: 8, section: LIFE },
     { name: "r_units", label: "واحدهای خواننده (محاسبه‌شده)", type: "refs", ref: "org_unit", ...sys },
     { name: "x_units", label: "واحدهای منع‌شده (محاسبه‌شده)", type: "refs", ref: "org_unit", ...sys },
-    { name: "trashed_at", label: "زمان انتقال به سطل", type: "datetime", system: true, hidden: true, audit: false },
+    { name: "trashed_at", label: "زمان انتقال به سطل", type: "datetime", readonly: true, hidden: true, audit: false },
+    ...contribFields(),
   ],
   states: ARTICLE_STATES,
   scope: { own: ["author_id", "owner_id"], requester: [], group: "owner_group_id", confidentialGroup: "internal" },
@@ -645,10 +658,10 @@ const version: TableDef = {
   display: "title",
   fields: [
     { name: "article_id", label: "مقاله", type: "ref", ref: "kb_article", required: true, list: true, filter: true, index: true, span: 12, section: MAIN },
-    { name: "version_label", label: "نسخه", type: "string", system: true, maxLength: 20, ltr: true, list: true, span: 6, section: MAIN },
+    { name: "version_label", label: "نسخه", type: "string", readonly: true, maxLength: 20, ltr: true, list: true, span: 6, section: MAIN },
     { name: "change_kind", label: "نوع تغییر", type: "choice", choices: [{ value: "minor", label: "ویرایش جزئی" }, { value: "major", label: "نسخهٔ اصلی تازه" }], default: "minor", span: 6, section: MAIN },
-    { name: "major", label: "نسخهٔ اصلی", type: "int", system: true, audit: false, default: 1 },
-    { name: "minor", label: "نسخهٔ فرعی", type: "int", system: true, audit: false, default: 0 },
+    { name: "major", label: "نسخهٔ اصلی", type: "int", readonly: true, audit: false, default: 1 },
+    { name: "minor", label: "نسخهٔ فرعی", type: "int", readonly: true, audit: false, default: 0 },
     { name: "title", label: "عنوان", type: "string", required: true, maxLength: 250, list: true, search: true, span: 24, section: CONTENT },
     { name: "summary", label: "خلاصه", type: "text", maxLength: 1000, span: 24, section: CONTENT },
     { name: "body", label: "متن", type: "markdown", span: 24, section: CONTENT },
@@ -658,21 +671,22 @@ const version: TableDef = {
     { name: "change_note", label: "شرح تغییر", type: "text", maxLength: 2000, list: true, span: 24, section: MAIN },
     { name: "author_id", label: "نویسنده", type: "user", default: "$me", readonly: true, list: true, filter: true, index: true, span: 8, section: MAIN },
     { name: "publish_at", label: "انتشار در", type: "datetime", sort: true, span: 8, section: MAIN, help: "خالی: پس از تأیید منتشر می‌شود" },
-    { name: "submitted_at", label: "زمان ارسال برای بازبینی", type: "datetime", system: true, sort: true, span: 8, section: MAIN },
-    { name: "submitted_by", label: "ارسال‌کننده", type: "user", system: true, span: 8, section: MAIN },
-    { name: "approved_at", label: "زمان تأیید", type: "datetime", system: true, span: 8, section: MAIN },
-    { name: "approved_by", label: "تأییدکننده", type: "user", system: true, span: 8, section: MAIN },
-    { name: "published_at", label: "زمان انتشار", type: "datetime", system: true, sort: true, span: 8, section: MAIN },
-    { name: "published_by", label: "منتشرکننده", type: "user", system: true, span: 8, section: MAIN },
+    { name: "submitted_at", label: "زمان ارسال برای بازبینی", type: "datetime", readonly: true, sort: true, span: 8, section: MAIN },
+    { name: "submitted_by", label: "ارسال‌کننده", type: "user", readonly: true, span: 8, section: MAIN },
+    { name: "approved_at", label: "زمان تأیید", type: "datetime", readonly: true, span: 8, section: MAIN },
+    { name: "approved_by", label: "تأییدکننده", type: "user", readonly: true, span: 8, section: MAIN },
+    { name: "published_at", label: "زمان انتشار", type: "datetime", readonly: true, sort: true, span: 8, section: MAIN },
+    { name: "published_by", label: "منتشرکننده", type: "user", readonly: true, span: 8, section: MAIN },
     { name: "approval", label: "تأیید انتشار", type: "choice", choices: APPROVAL_STATES, default: "not_requested", readonly: true, list: true, filter: true, span: 8, section: MAIN },
-    { name: "needs_approval", label: "نیازمند تأیید", type: "bool", system: true, audit: false, default: false },
-    { name: "approval_mode", label: "روش تأیید", type: "choice", choices: APPROVAL_MODES, system: true, audit: false },
-    { name: "reviewer_ids", label: "بازبین‌ها", type: "users", system: true, list: false, index: true, span: 24, section: MAIN },
-    { name: "ai_provenance", label: "منشأ هوش مصنوعی", type: "json", system: true, hidden: true },
-    { name: "ai_validated_by", label: "تأیید انسانی متن هوش مصنوعی", type: "user", system: true, span: 8, section: MAIN },
+    { name: "needs_approval", label: "نیازمند تأیید", type: "bool", readonly: true, audit: false, default: false },
+    { name: "approval_mode", label: "روش تأیید", type: "choice", choices: APPROVAL_MODES, readonly: true, audit: false },
+    { name: "reviewer_ids", label: "بازبین‌ها", type: "users", readonly: true, list: false, index: true, span: 24, section: MAIN },
+    { name: "ai_provenance", label: "منشأ هوش مصنوعی", type: "json", readonly: true, hidden: true },
+    { name: "ai_validated_by", label: "تأیید انسانی متن هوش مصنوعی", type: "user", readonly: true, span: 8, section: MAIN },
     { name: "content_hash", label: "اثر محتوا", type: "string", maxLength: 80, ...sys },
-    { name: "word_count", label: "شمار واژه‌ها", type: "int", system: true, audit: false, default: 0, span: 8, section: MAIN },
-    { name: "checks", label: "بررسی‌ها", type: "json", system: true, hidden: true, audit: false },
+    { name: "word_count", label: "شمار واژه‌ها", type: "int", readonly: true, audit: false, default: 0, span: 8, section: MAIN },
+    { name: "checks", label: "بررسی‌ها", type: "json", readonly: true, hidden: true, audit: false },
+    ...contribFields(),
   ],
   states: VERSION_STATES,
   scope: { own: ["author_id"], requester: ["author_id"] },
@@ -733,6 +747,7 @@ const feedback: TableDef = {
     { name: "channel", label: "مجرا", type: "choice", choices: KB_CHANNELS, default: "portal", filter: true, span: 8 },
     { name: "state", label: "وضعیت", type: "choice", choices: FEEDBACK_STATES, default: "open", list: true, filter: true, span: 8 },
     { name: "task_id", label: "کار دانش", type: "ref", ref: "kb_task", filter: true, span: 8 },
+    ...contribFields(),
   ],
   scope: { own: ["user_id"], requester: [] },
   rowAccess: { read: FEEDBACK_READ },
@@ -780,13 +795,14 @@ const kbTask: TableDef = {
     { name: "kind", label: "نوع کار", type: "choice", choices: TASK_KINDS, required: true, default: "flag", list: true, filter: true, span: 8 },
     { name: "article_id", label: "مقاله", type: "ref", ref: "kb_article", list: true, filter: true, index: true, span: 8 },
     { name: "gap_id", label: "شکاف دانش", type: "ref", ref: "kb_gap", filter: true, span: 8 },
-    { name: "feedback_count", label: "بازخوردهای جمع‌شده", type: "int", system: true, audit: false, default: 0, span: 8 },
-    { name: "source_table", label: "جدول رکورد", type: "string", maxLength: 60, system: true, hidden: true },
-    { name: "source_id", label: "رکورد", type: "string", maxLength: 36, system: true, hidden: true, index: true },
-    { name: "source_number", label: "رکورد مرتبط", type: "string", maxLength: 40, system: true, ltr: true, span: 8 },
+    { name: "feedback_count", label: "بازخوردهای جمع‌شده", type: "int", readonly: true, audit: false, default: 0, span: 8 },
+    { name: "source_table", label: "جدول رکورد", type: "string", maxLength: 60, readonly: true, hidden: true },
+    { name: "source_id", label: "رکورد", type: "string", maxLength: 36, readonly: true, hidden: true, index: true },
+    { name: "source_number", label: "رکورد مرتبط", type: "string", maxLength: 40, readonly: true, ltr: true, span: 8 },
     { name: "priority", label: "اولویت", type: "choice", choices: PRIORITIES, default: "3" },
     { name: "close_code", label: "نتیجه", type: "choice", choices: "$table.close_code" },
     ...hideTaskFields(["channel", "category", "subcategory", "impact", "urgency", "requested_for", "offering_id", "knowledge", "approval", "escalation", "parent_id", "service_id", "ci_id", "location_id", "time_worked"]),
+    ...contribFields(),
   ],
   states: KB_TASK_STATES,
   scope: {},
@@ -834,8 +850,9 @@ const snippet: TableDef = {
     { name: "owner_group_id", label: "گروه مالک", type: "group", filter: true, span: 8 },
     { name: "valid_to", label: "معتبر تا", type: "date", sort: true, filter: true, span: 8 },
     { name: "visibility", label: "دید", type: "choice", choices: VISIBILITIES, default: "inherit", span: 8 },
-    { name: "confidential", label: "فقط کارشناسان", type: "bool", system: true, audit: false, default: false, filter: true, span: 8 },
+    { name: "confidential", label: "فقط کارشناسان", type: "bool", readonly: true, audit: false, default: false, filter: true, span: 8 },
     { name: "ai_generated", label: "نوشتهٔ هوش مصنوعی", type: "bool", default: false, readonly: true, filter: true, span: 8 },
+    ...contribFields(),
   ],
   states: CONTENT_STATES,
   scope: { own: ["owner_id"], requester: [], group: "owner_group_id", confidentialGroup: "internal" },
@@ -862,8 +879,8 @@ const block: TableDef = {
     { name: "body", label: "متن", type: "markdown", required: true, span: 24 },
     { name: "owner_id", label: "مالک", type: "user", default: "$me", filter: true, index: true, span: 12 },
     { name: "owner_group_id", label: "گروه مالک", type: "group", filter: true, span: 12 },
-    { name: "confidential", label: "فقط کارشناسان", type: "bool", system: true, audit: false, default: false, filter: true, span: 8 },
-    { name: "used_in", label: "مقاله‌های میزبان", type: "refs", ref: "kb_article", system: true, audit: false, span: 24 },
+    { name: "confidential", label: "فقط کارشناسان", type: "bool", readonly: true, audit: false, default: false, filter: true, span: 8 },
+    { name: "used_in", label: "مقاله‌های میزبان", type: "refs", ref: "kb_article", readonly: true, audit: false, span: 24 },
   ],
   states: CONTENT_STATES,
   scope: { own: ["owner_id"], requester: [], group: "owner_group_id", confidentialGroup: "internal" },
@@ -951,16 +968,17 @@ const attestation: TableDef = {
   fields: [
     { name: "title", label: "عنوان", type: "string", required: true, maxLength: 200, list: true, search: true, span: 24 },
     { name: "article_id", label: "مقاله", type: "ref", ref: "kb_article", required: true, list: true, filter: true, index: true, span: 12 },
-    { name: "version_label", label: "نسخهٔ مقاله", type: "string", system: true, maxLength: 20, ltr: true, span: 6 },
+    { name: "version_label", label: "نسخهٔ مقاله", type: "string", readonly: true, maxLength: 20, ltr: true, span: 6 },
     { name: "due_at", label: "موعد", type: "date", required: true, list: true, sort: true, filter: true, span: 6 },
     { name: "owner_id", label: "مسئول", type: "user", default: "$me", list: true, filter: true, index: true, span: 8 },
     { name: "remind_every_days", label: "یادآوری هر (روز)", type: "int", min: 0, max: 60, default: 3, span: 8 },
     { name: "target_users", label: "افراد", type: "users", span: 24 },
     { name: "target_groups", label: "گروه‌ها", type: "refs", ref: "group", span: 12 },
     { name: "target_units", label: "واحدها (با زیرمجموعه‌ها)", type: "refs", ref: "org_unit", span: 12 },
-    { name: "audience_count", label: "مخاطبان", type: "int", system: true, audit: false, default: 0, list: true, span: 8 },
-    { name: "ack_count", label: "تأییدها", type: "int", system: true, audit: false, default: 0, list: true, span: 8 },
-    { name: "reminded_at", label: "آخرین یادآوری", type: "datetime", system: true, audit: false, span: 8 },
+    { name: "audience_count", label: "مخاطبان", type: "int", readonly: true, audit: false, default: 0, list: true, span: 8 },
+    { name: "ack_count", label: "تأییدها", type: "int", readonly: true, audit: false, default: 0, list: true, span: 8 },
+    { name: "reminded_at", label: "آخرین یادآوری", type: "datetime", readonly: true, audit: false, span: 8 },
+    ...contribFields(),
   ],
   states: ATT_STATES,
   scope: { own: ["owner_id"], requester: [] },
@@ -985,6 +1003,7 @@ const ack: TableDef = {
     { name: "user_id", label: "عضو", type: "user", required: true, readonly: true, list: true, filter: true, index: true, span: 12 },
     { name: "version_label", label: "نسخه", type: "string", maxLength: 20, ltr: true, list: true, span: 6 },
     { name: "acked_at", label: "زمان تأیید", type: "datetime", list: true, sort: true, span: 6 },
+    ...contribFields(),
   ],
   unique: [["attestation_id", "user_id"]],
   scope: { own: ["user_id"], requester: [] },
@@ -1065,7 +1084,7 @@ const qualityReview: TableDef = {
     { name: "author_id", label: "نویسنده", type: "user", list: true, filter: true, index: true, span: 12 },
     { name: "reviewer_id", label: "مربی", type: "user", list: true, filter: true, index: true, span: 12 },
     { name: "results", label: "نتیجهٔ چک‌لیست", type: "json", default: {}, span: 24 },
-    { name: "score", label: "امتیاز", type: "int", system: true, list: true, sort: true, span: 8 },
+    { name: "score", label: "امتیاز", type: "int", readonly: true, list: true, sort: true, span: 8 },
     { name: "notes", label: "یادداشت مربی", type: "text", maxLength: 4000, span: 24 },
   ],
   states: QR_STATES,
@@ -1118,7 +1137,7 @@ const gap: TableDef = {
     { name: "base_id", label: "پایگاه پیشنهادی", type: "ref", ref: "kb_base", filter: true, span: 8 },
     { name: "group_id", label: "گروه مسئول", type: "group", filter: true, index: true, span: 8 },
     { name: "article_id", label: "مقالهٔ پوشش‌دهنده", type: "ref", ref: "kb_article", filter: true, span: 8 },
-    { name: "confidential", label: "فقط کارشناسان", type: "bool", default: true, system: true, audit: false },
+    { name: "confidential", label: "فقط کارشناسان", type: "bool", default: true, readonly: true, audit: false },
   ],
   states: GAP_STATES,
   scope: { own: [], requester: [], group: "group_id", confidentialGroup: "internal" },
@@ -1158,7 +1177,7 @@ const duplicate: TableDef = {
     { name: "similarity", label: "شباهت (درصد)", type: "int", list: true, sort: true, span: 8 },
     { name: "method", label: "روش", type: "choice", choices: [{ value: "shingles", label: "هم‌پوشانی متن" }, { value: "semantic", label: "معنایی" }], default: "shingles", span: 8 },
     { name: "pair_key", label: "جفت", type: "string", maxLength: 80, required: true, readonly: true, hidden: true },
-    { name: "confidential", label: "فقط کارشناسان", type: "bool", default: true, system: true, audit: false },
+    { name: "confidential", label: "فقط کارشناسان", type: "bool", default: true, readonly: true, audit: false },
   ],
   states: DUP_STATES,
   unique: [["pair_key"]],
@@ -1208,9 +1227,10 @@ const tree: TableDef = {
     { name: "owner_id", label: "مالک", type: "user", default: "$me", filter: true, span: 8 },
     { name: "owner_group_id", label: "گروه مالک", type: "group", filter: true, span: 8 },
     { name: "visibility", label: "دید", type: "choice", choices: VISIBILITIES, default: "inherit", span: 8 },
-    { name: "confidential", label: "فقط کارشناسان", type: "bool", system: true, audit: false, default: false },
-    { name: "starts", label: "شروع‌ها", type: "int", system: true, audit: false, default: 0, list: true, span: 8 },
-    { name: "finishes", label: "به پاسخ رسید", type: "int", system: true, audit: false, default: 0, list: true, span: 8 },
+    { name: "confidential", label: "فقط کارشناسان", type: "bool", readonly: true, audit: false, default: false },
+    { name: "starts", label: "شروع‌ها", type: "int", readonly: true, audit: false, default: 0, list: true, span: 8 },
+    { name: "finishes", label: "به پاسخ رسید", type: "int", readonly: true, audit: false, default: 0, list: true, span: 8 },
+    ...contribFields(),
   ],
   states: CONTENT_STATES,
   scope: { own: ["owner_id"], requester: [], group: "owner_group_id", confidentialGroup: "internal" },
