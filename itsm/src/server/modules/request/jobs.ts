@@ -94,9 +94,11 @@ export async function sweep(sys: Ctx, now = Date.now()): Promise<SweepResult> {
       out.reminded++;
     }
   }
-  // time-bound access that ended (REQ-031): a revocation task for the fulfilment group
+  // time-bound access that ended (REQ-031): a revocation task for the fulfilment group (marked `revocation`: closing
+  // the item, which usually happens before the access ends, does not cancel it); items closed incomplete may have been
+  // given access too
   const ending = await liveRows(q, sys, "request_item", {
-    and: [{ f: "access_until", op: "lt", v: today(now) }, { f: "revoked_at", op: "empty" }, { f: "state", op: "in", v: ["delivered", "closed_complete"] }],
+    and: [{ f: "access_until", op: "lt", v: today(now) }, { f: "revoked_at", op: "empty" }, { f: "state", op: "in", v: ["delivered", "closed_complete", "closed_incomplete"] }],
   }, { limit: 200 });
   for (const r of ending) {
     await sys.write(async (tx) => {
@@ -106,6 +108,7 @@ export async function sweep(sys: Ctx, now = Date.now()): Promise<SweepResult> {
         assignment_group_id: r.assignment_group_id ?? null,
         instructions: `مهلت دسترسی این قلم (${String(r.access_until)}) به پایان رسید؛ دسترسی را بردارید و این وظیفه را ببندید.`,
         class_of_service: "fixed_date",
+        revocation: true,
       }, { trusted: true });
       await updateIn(tx, sys, "request_item", String(r.id), { revoked_at: iso(now) }, { trusted: true, keepVersion: true, allowLocked: true });
       await emitEvent(tx, sys, { kind: "record.request.access_expired", table: "request_item", id: String(r.id), number: (r.number as string) ?? null, data: { users: [r.requested_for].filter(isUuid) } });

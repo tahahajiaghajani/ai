@@ -571,7 +571,10 @@ export async function removeLine(ctx: Ctx, id: string): Promise<void> {
   });
 }
 
-/** Order the cart's lines (not those saved for later); the ordered lines leave the cart. */
+/** The order details of a cart, cleared once they were ordered. */
+const CART_CLEAR = { requested_for: null, location_id: null, needed_by: null, cost_center_id: null, instructions: null };
+
+/** Order the cart's lines (not those saved for later); the ordered lines leave the cart and so do its details. */
 export async function checkoutCart(ctx: Ctx, input: Omit<OrderInput, "lines"> = {}): Promise<OrderResult> {
   await needCatalog(ctx);
   return ctx.write(async (tx) => {
@@ -601,7 +604,9 @@ export async function checkoutCart(ctx: Ctx, input: Omit<OrderInput, "lines"> = 
       afterOrder: async (t, result) => {
         // the lines are the caller's own (read through their access above); the module removes them
         for (const l of lines) await removeIn(t, sysOf(ctx), "request_cart_line", String(l.id));
-        await updateIn(t, ctx, "request_cart", String(cart.id), { request_id: result.request?.id ?? null }, { trusted: true });
+        // the cart's order details belonged to this order: the next one starts for the caller again, with no
+        // instructions, place, date or cost centre of this one (lines saved for later stay)
+        await updateIn(t, ctx, "request_cart", String(cart.id), { request_id: result.request?.id ?? null, ...CART_CLEAR }, { trusted: true });
       },
     });
   });

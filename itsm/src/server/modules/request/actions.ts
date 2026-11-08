@@ -19,11 +19,16 @@ import { versionSchema } from "./definition";
 import { canOrder } from "./entitlement";
 import { displayOf } from "./fulfil";
 import { publicSchema, summaryOf } from "./ordering";
-import { MASK, requesterLike, splitAnswers, writeFacts } from "./lifecycle";
+import { MASK, modeOn, requesterOn, splitAnswers, writeFacts } from "./lifecycle";
 import { enqueue } from "../../jobs";
 import { JOB_LINK } from "./fulfil";
 
 const onRequesterSide = (row: Row, userId: string) => [row.requested_for, row.caller_id, row.opened_by].includes(userId);
+
+/** Does the caller work this item (full write mode — not their own order, whatever their role elsewhere)? */
+async function works(ctx: Ctx, id: string): Promise<boolean> {
+  return (await modeOn(ctx.db, ctx, "request_item", await liveRow(ctx.db, sysOf(ctx), "request_item", id))) === "full";
+}
 
 /**
  * The sealed secret answers of an item (the caller's access to the item was checked before): read from the column,
@@ -83,7 +88,10 @@ export async function answersView(ctx: Ctx, table: string, id: string): Promise<
     const target = v.type === "user" || v.type === "users" || v.type === "requested_for" ? "user" : v.type === "group" ? "group" : v.type === "location" ? "location" : v.type === "ci" ? "ci" : v.ref_table;
     if (target) for (const x of Array.isArray(value) ? value : [value]) refs.push([target, x]);
   }
-  const reqLike = requester && (await requesterLike(ctx.db, ctx));
+  // the person's own item (an agent's own order too) follows the requester's rules
+  const reqLike = await requesterOn(ctx.db, ctx, "request_item", ritm);
+  // once an approver of the current round decided, the answers they decided on stay until the round is over
+  const decided = ritm.state === "awaiting_approval" && (await decidedThisRound(ctx, String(ritm.id)));
   return {
     item_id: String(ritm.id),
     number: (ritm.number as string) ?? null,
@@ -92,10 +100,17 @@ export async function answersView(ctx: Ctx, table: string, id: string): Promise<
     answers,
     sensitive,
     secrets,
-    can_edit: reqLike ? answersEditable(schema.item.requester_edit, String(ritm.state)) : canWrite && isItemOpen(ritm.state),
+    can_edit: !decided && (reqLike ? answersEditable(schema.item.requester_edit, String(ritm.state)) : canWrite && isItemOpen(ritm.state)),
     can_reveal: canWrite && !reqLike && isItemOpen(ritm.state) && secrets.length > 0,
     display: await displayOf(ctx.db, ctx, refs),
   };
+}
+
+/** Has an approver of the item's current approval round decided (approved or rejected)? */
+async function decidedThisRound(ctx: Ctx, id: string): Promise<boolean> {
+  const rows = await liveRows(ctx.db, sysOf(ctx), "approval", eqAll({ table_key: "request_item", record_id: id }));
+  const round = Math.max(0, ...rows.map((r) => Number(r.round) || 1));
+  return rows.some((r) => (Number(r.round) || 1) === round && (r.state === "approved" || r.state === "rejected"));
 }
 
 async function writable(ctx: Ctx, ritm: Row): Promise<boolean> {
@@ -117,7 +132,7 @@ export async function editAnswers(ctx: Ctx, id: string, input: { answers?: Answe
     throw new AppError(409, "version_conflict", "این قلم در این فاصله تغییر کرده است؛ آن را دوباره باز کنید", { version: ritm.version });
   }
   const schema = (await versionSchema(q, ctx, ritm.item_version_id))!;
-  const reqLike = onRequesterSide(ritm, ctx.user.id) && (await requesterLike(q, ctx));
+  const reqLike = await requesterOn(q, ctx, "request_item", ritm);
   const env = await condEnv(ctx);
   const secretsKept = new Set(view.secrets);
   // values not sent for sensitive questions the caller could not see stay as they are
@@ -171,7 +186,7 @@ export async function requestInfo(ctx: Ctx, id: string, input: { message?: strin
   const message = String(input.message ?? "").trim();
   if (!message) throw validationError({ message: "پرسش خود از درخواست‌کننده را بنویسید" });
   const r = await get(ctx, "request_item", id);
-  if (!r.meta?.canWrite || (await requesterLike(ctx.db, ctx))) throw forbidden("فقط کارشناس از درخواست‌کننده اطلاعات می‌خواهد");
+  if (!(await works(ctx, id))) throw forbidden("فقط کارشناس از درخواست‌کننده اطلاعات می‌خواهد");
   const row = r.row as Row;
   if (!["in_fulfilment", "backordered"].includes(String(row.state))) throw bad("فقط قلمی که در حال انجام است منتظر اطلاعات می‌ماند");
   return ctx.write(async (tx) => {
@@ -210,8 +225,8 @@ export async function reorder(ctx: Ctx, id: string): Promise<{ item_id: string; 
  * them). The item keeps its number, history and links.
  */
 export async function changeItem(ctx: Ctx, id: string, input: { item_id: string; force?: boolean }): Promise<Row> {
-  const r = await get(ctx, "request_item", id);
-  if (!r.meta?.canWrite || (await requesterLike(ctx.db, ctx))) throw forbidden("فقط کارشناس قلم را عوض می‌کند");
+  await get(ctx, "request_item", id);
+  if (!(await works(ctx, id))) throw forbidden("فقط کارشناس قلم را عوض می‌کند");
   const ritm = (await liveRow(ctx.db, sysOf(ctx), "request_item", id))!;
   if (!isItemOpen(ritm.state)) throw bad("فقط قلم باز را می‌توان عوض کرد");
   const target = await liveRow(ctx.db, sysOf(ctx), "catalog_item", input.item_id);
@@ -248,8 +263,8 @@ export async function changeItem(ctx: Ctx, id: string, input: { item_id: string;
  */
 export async function convertToIncident(ctx: Ctx, id: string, input: { note?: string } = {}): Promise<{ table: string; id: string; number: string | null }> {
   if (!tableDef("incident")) throw bad("مدیریت رخداد در این سامانه نصب نیست");
-  const r = await get(ctx, "request_item", id);
-  if (!r.meta?.canWrite || (await requesterLike(ctx.db, ctx))) throw forbidden("فقط کارشناس قلم را تبدیل می‌کند");
+  await get(ctx, "request_item", id);
+  if (!(await works(ctx, id))) throw forbidden("فقط کارشناس قلم را تبدیل می‌کند");
   const ritm = (await liveRow(ctx.db, sysOf(ctx), "request_item", id))!;
   if (!isItemOpen(ritm.state)) throw bad("فقط قلم باز را می‌توان تبدیل کرد");
   const schema = (await versionSchema(ctx.db, ctx, ritm.item_version_id))!;

@@ -5327,6 +5327,7 @@ alter table sm_request_tasks add column if not exists blocked_since timestamptz;
 alter table sm_request_tasks add column if not exists blocked_time bigint;
 alter table sm_request_tasks add column if not exists deviation boolean not null default false;
 alter table sm_request_tasks add column if not exists deviation_note text;
+alter table sm_request_tasks add column if not exists revocation boolean not null default false;
 create unique index if not exists sm_request_tasks_no_uk on sm_request_tasks (org_id, no);
 create index if not exists sm_request_tasks_rev_idx on sm_request_tasks (org_id, rev);
 create index if not exists sm_request_tasks_upd_idx on sm_request_tasks (org_id, updated_at desc, id desc) where deleted_at is null;

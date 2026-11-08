@@ -88,7 +88,7 @@ function valueContext(ctx: Ctx, def: TableDef, schema: OrgSchema, env: CondEnv, 
   return {
     schema,
     tz: env.tz || "Asia/Tehran",
-    seal: (f, plain) => sealSecret(ctx.cfg.secret, ctx.org.id, def.key, f.name, recordId, plain),
+    seal: (f, plain) => sealSecret(ctx.cfg.secret, ctx.org.id, def.key, f.name, recordId, plain, { hint: f.hint }),
   };
 }
 

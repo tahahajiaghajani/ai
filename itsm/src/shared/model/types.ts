@@ -148,6 +148,11 @@ export interface FieldDef {
   group?: FieldGroup;
   /** written to the field history on change (default true; secrets are recorded without values) */
   audit?: boolean;
+  /**
+   * secrets: show the last characters of the value as a hint (default true, for keys and passwords); false for a
+   * secret holding structured text (JSON answers), whose last characters are its contents
+   */
+  hint?: boolean;
   span?: 6 | 8 | 12 | 16 | 18 | 24;
   section?: string;
   tab?: string;

@@ -187,8 +187,12 @@ export function ItemActions({ ctx }: { ctx: RecordContext }) {
   const open = ["pending", "awaiting_approval", "in_fulfilment", "awaiting_info", "backordered"].includes(state);
   const finished = ["delivered", "closed_complete", "closed_incomplete"].includes(state);
   const canWrite = !!ctx.meta.canWrite;
+  const meta = (ctx.meta as { request?: { can_work?: boolean; requester?: boolean; can_order?: boolean } }).request;
   // an agent working the item (a requester may change their own item's notes, not ask, swap or convert it)
-  const works = canWrite && !!(ctx.meta as { request?: { can_work?: boolean } }).request?.can_work;
+  const works = canWrite && !!meta?.can_work;
+  // feedback is the requester side's; ordering again needs the right to order
+  const requesterSide = !!meta?.requester;
+  const mayOrder = !!meta?.can_order;
   // incident management is installed and the person may file incidents
   const hasIncident = !!schema?.def("incident")?.can.create;
   const run = async (fn: () => Promise<unknown>, ok: string) => {
@@ -230,16 +234,18 @@ export function ItemActions({ ctx }: { ctx: RecordContext }) {
           درخواست اطلاعات
         </Button>
       ) : null}
-      {finished && !row.rating ? (
+      {finished && !row.rating && requesterSide ? (
         <Button icon={<MessageSquareHeart {...ICON} />} onClick={() => setDialog("feedback")}>
           بازخورد
         </Button>
       ) : null}
-      <Tooltip title="همین قلم را با همین پاسخ‌ها دوباره سفارش دهید">
-        <Button icon={<RotateCcw {...ICON} />} onClick={again}>
-          سفارش دوباره
-        </Button>
-      </Tooltip>
+      {mayOrder ? (
+        <Tooltip title="همین قلم را با همین پاسخ‌ها دوباره سفارش دهید">
+          <Button icon={<RotateCcw {...ICON} />} onClick={again}>
+            سفارش دوباره
+          </Button>
+        </Tooltip>
+      ) : null}
       {works && open ? (
         <Button icon={<Replace {...ICON} />} onClick={() => setDialog("change")}>
           تغییر قلم
