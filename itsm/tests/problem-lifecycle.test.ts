@@ -178,6 +178,27 @@ describe("problems, incidents and known errors", () => {
   });
 });
 
+describe("templates (problem models)", () => {
+  it("are kept by their group or a manager; a problem from one takes its analysis and tasks", async () => {
+    await w.p.agent.client.post(`${w.P}/r/problem_template`, { name: "بی‌گروه" }, 403);
+    await w.p.agent.client.post(`${w.P}/r/problem_template`, { name: "الگوی میز", assignment_group_id: w.g.desk });
+    const bad = await w.p.pm.client.post(`${w.P}/r/problem_template`, { name: "نوع نادرست", tasks: [{ short_description: "x", task_type: "nope" }] }, 400);
+    expect(JSON.stringify(bad.error)).toContain("نوع کار 1");
+    const t = (await w.p.pm.client.post(`${w.P}/r/problem_template`, {
+      name: "خرابی پایگاه داده", category: "infrastructure", subcategory: "infrastructure.database", rca_method: "fishbone", rca_sections: ["fishbone", "timeline"],
+      tasks: [{ short_description: "گردآوری لاگ‌های پایگاه داده", task_type: "rca" }, { short_description: "پیشنهاد رفع", task_type: "fix", mandatory: false }],
+    })).row;
+    const p = await create({ short_description: "کندی پایگاه دادهٔ مالی", template_id: t.id }, w.p.pm.client);
+    expect([p.rca_method, p.rca_sections]).toEqual(["fishbone", ["fishbone", "timeline"]]);
+    const tasks = (await w.o.post(`${w.P}/r/problem_task/query`, { filter: { f: "problem_id", op: "eq", v: p.id }, sort: "number" })).rows;
+    expect(tasks.map((x: any) => [x.short_description, x.task_type, x.mandatory])).toEqual([["گردآوری لاگ‌های پایگاه داده", "rca", true], ["پیشنهاد رفع", "fix", false]]);
+    expect((await notes("problem", p.id)).map((e) => e.body).join("\n")).toContain("الگوی «خرابی پایگاه داده» به کار رفت و 2 کار ساخته شد");
+    // what the person chose stays theirs
+    const own = await create({ short_description: "کندی دیگر", template_id: t.id, rca_method: "five_whys", rca_sections: ["whys"] }, w.p.pm.client);
+    expect([own.rca_method, own.rca_sections]).toEqual(["five_whys", ["whys"]]);
+  });
+});
+
 describe("candidates", () => {
   it("raise recurring incidents once, skip what an open problem covers, and promote or merge", async () => {
     const ci = uuidv7();

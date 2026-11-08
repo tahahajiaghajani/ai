@@ -355,6 +355,8 @@ export interface TemplateTask {
   description?: string | null;
   assignment_group_id?: string | null;
   mandatory?: boolean;
+  /** problem templates: the task's kind (general, rca, fix) */
+  task_type?: string | null;
 }
 
 /** The tasks of a template's `tasks` JSON (invalid items dropped, at most 30). */
@@ -371,6 +373,7 @@ export function templateTasks(raw: unknown): TemplateTask[] {
       description: typeof t.description === "string" ? t.description : null,
       assignment_group_id: typeof t.assignment_group_id === "string" && /^[0-9a-f-]{36}$/i.test(t.assignment_group_id) ? t.assignment_group_id : null,
       mandatory: t.mandatory !== false,
+      task_type: typeof t.task_type === "string" && /^[a-z_]{1,40}$/.test(t.task_type) ? t.task_type : null,
     });
     if (out.length >= 30) break;
   }

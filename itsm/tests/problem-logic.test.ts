@@ -1,7 +1,7 @@
 // Pure logic of problem management (src/shared/problem/logic.ts): the RCA canvas (cleaning, checks, Markdown), the
 // risk score and technical debt, and the candidate rules over recurring incidents.
 import { describe, it, expect } from "vitest";
-import { candidateGroups, candidateScore, cleanRca, emptyRca, rcaMarkdown, rcaProblem, riskScore, techDebt, type CandidateIncident } from "@shared/problem/logic";
+import { canvasSections, candidateGroups, candidateScore, cleanRca, emptyRca, problemTemplateParams, rcaMarkdown, rcaProblem, riskScore, techDebt, type CandidateIncident } from "@shared/problem/logic";
 import { TABLES } from "@shared/tables";
 import { PROBLEM_CHOICE_LISTS, PROACTIVE_SOURCES } from "@shared/tables/problem";
 
@@ -116,5 +116,19 @@ describe("definitions", () => {
     expect(p.scope.requesterTransitions).toEqual([]);
     expect(TABLES.get("known_error")!.numbered?.prefix).toBe("KE");
     expect(PROBLEM_CHOICE_LISTS["problem.source"].filter((o) => PROACTIVE_SOURCES.includes(o.value))).toHaveLength(6);
+  });
+});
+
+describe("templates and the canvas's sections", () => {
+  it("turn a template into new-problem parameters (lists comma-separated, empty values left out)", () => {
+    expect(problemTemplateParams({ id: "t1", name: "x", short_description: "کندی", category: "infrastructure", rca_sections: ["whys", "fishbone"], impact: "", urgency: null, tasks: [{}] })).toEqual({
+      short_description: "کندی", category: "infrastructure", rca_sections: "whys,fishbone", template_id: "t1",
+    });
+  });
+
+  it("show the sections a problem names, else all", () => {
+    expect([...canvasSections(["timeline", "whys", "bogus"])]).toEqual(["whys", "timeline"]);
+    expect(canvasSections([]).size).toBe(5);
+    expect(canvasSections(null).size).toBe(5);
   });
 });

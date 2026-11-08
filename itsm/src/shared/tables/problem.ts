@@ -67,6 +67,15 @@ export const RCA_METHODS: Option[] = [
   { value: "other", label: "روش دیگر" },
 ];
 
+/** Sections of the RCA canvas a problem (or its template) shows; none chosen = every section. */
+export const RCA_SECTIONS: Option[] = [
+  { value: "whys", label: "پنج چرا", order: 1 },
+  { value: "fishbone", label: "استخوان ماهی", order: 2 },
+  { value: "timeline", label: "خط زمانی", order: 3 },
+  { value: "hypotheses", label: "فرضیه‌ها و شواهد", order: 4 },
+  { value: "is_not", label: "هست / نیست", order: 5 },
+];
+
 export const LIKELIHOODS: Option[] = [
   { value: "1", label: "۱ — زیاد", order: 1 },
   { value: "2", label: "۲ — متوسط", order: 2 },
@@ -177,11 +186,13 @@ const problem: TableDef = {
     { name: "affected_services", label: "خدمت‌های متأثر", type: "refs", ref: "service", span: 12, section: MAIN },
     { name: "affected_cis", label: "پیکربندی‌های متأثر", type: "refs", ref: "ci", span: 12, section: MAIN },
     { name: "first_incident_id", label: "نخستین رخداد", type: "ref", ref: "incident", span: 8, section: MAIN },
+    { name: "template_id", label: "الگو", type: "ref", ref: "problem_template", filter: true, span: 8, section: MAIN },
 
     { name: "symptoms", label: "نشانه‌ها", type: "markdown", span: 24, section: ANALYSIS, ai: { index: true } },
     { name: "workaround", label: "راه‌حل موقت", type: "markdown", span: 24, section: ANALYSIS, ai: { index: true } },
     { name: "cause_code", label: "کد علت", type: "choice", choices: "problem.cause_code", filter: true, span: 8, section: ANALYSIS },
     { name: "rca_method", label: "روش تحلیل", type: "choice", choices: RCA_METHODS, filter: true, span: 8, section: ANALYSIS },
+    { name: "rca_sections", label: "بخش‌های کارگاه تحلیل", type: "multichoice", choices: RCA_SECTIONS, span: 16, section: ANALYSIS, help: "خالی: همهٔ بخش‌ها" },
     { name: "contributing_factors", label: "عوامل مؤثر", type: "multichoice", choices: CONTRIBUTING_FACTORS, filter: true, span: 8, section: ANALYSIS },
     { name: "cause_notes", label: "علت ریشه‌ای", type: "markdown", span: 24, section: ANALYSIS, ai: { index: true } },
     { name: "fix_notes", label: "راه‌حل دائمی", type: "markdown", span: 24, section: ANALYSIS, ai: { index: true } },
@@ -436,6 +447,47 @@ const correctiveAction: TableDef = {
 };
 
 // ---------------------------------------------------------------------------------------------------------------
+// Templates (problem models, catalogue PRB-007): values a new problem starts with, the analysis it runs (method and
+// the canvas's sections) and its tasks; offered to the groups named (or everyone), kept by the group it assigns to.
+
+const problemTemplate: TableDef = {
+  key: "problem_template",
+  table: "sm_problem_templates",
+  label: "الگوی مشکل",
+  plural: "الگوهای مشکل",
+  icon: "layout-template",
+  module: "problem",
+  area: "problem",
+  description: "مدل‌های مشکل: مقدارهای آماده، روش و بخش‌های کارگاه تحلیل و کارهای از پیش تعریف‌شده",
+  display: "name",
+  fields: [
+    { name: "name", label: "نام الگو", type: "string", required: true, maxLength: 120, list: true, search: true, sort: true, span: 12 },
+    { name: "active", label: "فعال", type: "bool", default: true, list: true, filter: true, span: 6 },
+    { name: "sort_order", label: "ترتیب", type: "int", default: 100, sort: true, span: 6 },
+    { name: "short_description", label: "شرح مسئله", type: "string", maxLength: 200, span: 24 },
+    { name: "description", label: "شرح", type: "markdown", span: 24 },
+    { name: "source", label: "منشأ", type: "choice", choices: "problem.source", span: 8 },
+    { name: "category", label: "دسته", type: "choice", choices: "problem.category", list: true, filter: true, span: 8 },
+    { name: "subcategory", label: "زیردسته", type: "choice", choices: "problem.subcategory", dependsOn: "category", span: 8 },
+    { name: "impact", label: "اثر", type: "choice", choices: IMPACTS, span: 8 },
+    { name: "urgency", label: "فوریت", type: "choice", choices: URGENCIES, span: 8 },
+    { name: "likelihood", label: "احتمال تکرار", type: "choice", choices: LIKELIHOODS, span: 8 },
+    { name: "assignment_group_id", label: "گروه مسئول", type: "group", list: true, filter: true, span: 8 },
+    { name: "service_id", label: "خدمت", type: "ref", ref: "service", span: 8 },
+    { name: "ci_id", label: "پیکربندی (CI)", type: "ref", ref: "ci", span: 8 },
+    { name: "rca_method", label: "روش تحلیل", type: "choice", choices: RCA_METHODS, list: true, span: 8 },
+    { name: "rca_sections", label: "بخش‌های کارگاه تحلیل", type: "multichoice", choices: RCA_SECTIONS, span: 16, help: "خالی: همهٔ بخش‌ها" },
+    { name: "tasks", label: "کارهای الگو", type: "json", default: [], span: 24, help: "[{ «short_description»: «…», «task_type»: «rca», «assignment_group_id»: «…», «mandatory»: true }]" },
+    { name: "groups", label: "فقط برای گروه‌های", type: "refs", ref: "group", span: 24, help: "خالی: همهٔ کارشناسان" },
+    { name: "description_note", label: "توضیح برای هماهنگ‌کننده", type: "text", span: 24 },
+  ],
+  unique: [["name"]],
+  // every reader of problems reads templates; the group they assign to (or a manager) keeps them
+  scope: { public: true, group: "assignment_group_id" },
+  list: { columns: ["name", "category", "rca_method", "assignment_group_id", "active"], order: "sort_order,name" },
+};
+
+// ---------------------------------------------------------------------------------------------------------------
 // Settings
 
 export const PROBLEM_CONFIG_DEFAULTS = {
@@ -480,4 +532,4 @@ const problemConfig: TableDef = {
   list: { columns: ["name", "inactivity_days", "monitoring_days"], order: "name" },
 };
 
-export const PROBLEM_TABLES: TableDef[] = [problem, problemTask, knownError, problemCandidate, correctiveAction, problemConfig];
+export const PROBLEM_TABLES: TableDef[] = [problem, problemTask, knownError, problemCandidate, correctiveAction, problemTemplate, problemConfig];

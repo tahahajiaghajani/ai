@@ -2,10 +2,11 @@
 //   queues        «مشکلات من», «در انتظار ارزیابی», «در پایش پس از رفع», and every problem (list, board, saved views)
 //   record pages  problem: «اقدام‌ها» (link incidents, merge duplicates, share the workaround or fix, a known error) and
 //                 the «کارگاه تحلیل علت» tab (RCA canvas); candidate: promote or merge; task: copy findings
-//   lists         known errors (KEDB), candidates (with «اجرای قاعده‌ها»), corrective actions, problem tasks
+//   lists         known errors (KEDB), candidates (with «اجرای قاعده‌ها»), corrective actions, problem tasks;
+//                 «از الگو» on the problem list; templates (problem models) under «تعریف‌ها»
 //   pages         the dashboard; the settings row opens from «تنظیمات رخداد و مشکل»
 import { lazy, Suspense, type ComponentType, type ReactNode } from "react";
-import { Bug, BookAlert, Radar, ShieldCheck, ListTodo, ChartColumn, User, Search, Activity } from "lucide-react";
+import { Bug, BookAlert, Radar, ShieldCheck, ListTodo, ChartColumn, User, Search, Activity, LayoutTemplate } from "lucide-react";
 import type { ModuleUi, NavItem } from "../registry";
 import { recordModule, RecordListRoute } from "../../records/module";
 import { type RecordContext } from "../../records/extensions";
@@ -18,6 +19,7 @@ const Task = lazy(() => import("./ProblemActions").then((m) => ({ default: m.Tas
 const RunCandidates = lazy(() => import("./RunCandidates"));
 const Rca = lazy(() => import("./RcaCanvas"));
 const Dashboard = lazy(() => import("./Dashboard"));
+const TemplatePicker = lazy(() => import("./TemplatePicker"));
 
 const widget = (C: ComponentType<{ ctx: RecordContext }>, key: string) => (ctx: RecordContext): ReactNode => (
   <Suspense key={key} fallback={null}>
@@ -38,7 +40,7 @@ const module = recordModule({
     {
       table: "problem", path: "problems", label: "همهٔ مشکلات", noun: "مشکل", icon: Bug, section: SECTION, area: "work",
       keywords: "مشکل علت ریشه‌ای تحلیل PRB", search: { group: "مشکلات" },
-      list: { preset: { emptyText: "هنوز مشکلی ثبت نشده است" } },
+      list: { preset: { emptyText: "هنوز مشکلی ثبت نشده است" }, actions: <Suspense fallback={null}><TemplatePicker /></Suspense> },
       extensions: {
         headerActions: widget(Actions, "problem-actions"),
         tabs: [{ key: "problem:rca", label: "کارگاه تحلیل علت", order: 1, render: (ctx) => <Suspense fallback={<Loader />}><Rca ctx={ctx} /></Suspense> }],
@@ -68,6 +70,7 @@ const module = recordModule({
       keywords: "کار مشکل تحلیل PTASK",
       extensions: { headerActions: widget(Task, "task-actions") },
     },
+    { table: "problem_template", path: "problems/templates", label: "الگوهای مشکل", noun: "الگوی مشکل", icon: LayoutTemplate, section: "تعریف‌ها", area: "work", search: false, keywords: "الگو مدل مشکل تحلیل علت" },
     { table: "problem_config", path: "problems/settings/record", label: "تنظیمات مشکل", hidden: true, search: false, newAction: false },
   ],
   nav: [{ key: "problem:dashboard", label: "داشبورد مشکلات", path: "problems/dashboard", icon: ChartColumn, section: "گزارش‌ها", area: "work", keywords: "داشبورد مشکل بدهی فنی پارتو" }],

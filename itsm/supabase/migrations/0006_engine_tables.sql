@@ -1850,10 +1850,12 @@ alter table sm_problems add column if not exists pending_reason text;
 alter table sm_problems add column if not exists affected_services jsonb;
 alter table sm_problems add column if not exists affected_cis jsonb;
 alter table sm_problems add column if not exists first_incident_id uuid;
+alter table sm_problems add column if not exists template_id uuid;
 alter table sm_problems add column if not exists symptoms text;
 alter table sm_problems add column if not exists workaround text;
 alter table sm_problems add column if not exists cause_code text;
 alter table sm_problems add column if not exists rca_method text;
+alter table sm_problems add column if not exists rca_sections jsonb;
 alter table sm_problems add column if not exists contributing_factors jsonb;
 alter table sm_problems add column if not exists cause_notes text;
 alter table sm_problems add column if not exists fix_notes text;
@@ -2093,6 +2095,65 @@ create index if not exists sm_problem_tasks_watch_list_gin on sm_problem_tasks u
 drop trigger if exists sm_problem_tasks_sync on sm_problem_tasks;
 create trigger sm_problem_tasks_sync before insert or update on sm_problem_tasks for each row execute function sm_sync_touch('problem_task');
 alter table sm_problem_tasks enable row level security;
+
+-- problem_template: الگوهای مشکل
+create table if not exists sm_problem_templates (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_problem_templates add column if not exists workspace_id uuid;
+alter table sm_problem_templates add column if not exists domain_id uuid;
+alter table sm_problem_templates add column if not exists unit_id uuid;
+alter table sm_problem_templates add column if not exists created_at timestamptz not null default now();
+alter table sm_problem_templates add column if not exists created_by uuid;
+alter table sm_problem_templates add column if not exists updated_at timestamptz not null default now();
+alter table sm_problem_templates add column if not exists updated_by uuid;
+alter table sm_problem_templates add column if not exists rev bigint not null default 0;
+alter table sm_problem_templates add column if not exists version integer not null default 1;
+alter table sm_problem_templates add column if not exists deleted_at timestamptz;
+alter table sm_problem_templates add column if not exists origin text;
+alter table sm_problem_templates add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_problem_templates add column if not exists name text;
+alter table sm_problem_templates add column if not exists active boolean not null default true;
+alter table sm_problem_templates add column if not exists sort_order integer;
+alter table sm_problem_templates add column if not exists short_description text;
+alter table sm_problem_templates add column if not exists description text;
+alter table sm_problem_templates add column if not exists source text;
+alter table sm_problem_templates add column if not exists category text;
+alter table sm_problem_templates add column if not exists subcategory text;
+alter table sm_problem_templates add column if not exists impact text;
+alter table sm_problem_templates add column if not exists urgency text;
+alter table sm_problem_templates add column if not exists likelihood text;
+alter table sm_problem_templates add column if not exists assignment_group_id uuid;
+alter table sm_problem_templates add column if not exists service_id uuid;
+alter table sm_problem_templates add column if not exists ci_id uuid;
+alter table sm_problem_templates add column if not exists rca_method text;
+alter table sm_problem_templates add column if not exists rca_sections jsonb;
+alter table sm_problem_templates add column if not exists tasks jsonb;
+alter table sm_problem_templates add column if not exists groups jsonb;
+alter table sm_problem_templates add column if not exists description_note text;
+create index if not exists sm_problem_templates_rev_idx on sm_problem_templates (org_id, rev);
+create index if not exists sm_problem_templates_upd_idx on sm_problem_templates (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_problem_templates_crt_idx on sm_problem_templates (org_id, created_at desc, id desc) where deleted_at is null;
+create unique index if not exists sm_problem_templates_name_uk on sm_problem_templates (org_id, name) where deleted_at is null;
+create index if not exists sm_problem_templates_workspace_acc_idx on sm_problem_templates (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_problem_templates_unit_acc_idx on sm_problem_templates (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_problem_templates_domain_acc_idx on sm_problem_templates (org_id, domain_id) where deleted_at is null and domain_id is not null;
+drop trigger if exists sm_problem_templates_sync on sm_problem_templates;
+create trigger sm_problem_templates_sync before insert or update on sm_problem_templates for each row execute function sm_sync_touch('problem_template');
+alter table sm_problem_templates enable row level security;
 
 -- role: نقش‌ها
 create table if not exists sm_roles (

@@ -3,10 +3,11 @@
 // status, «هست / نیست» (Kepner-Tregoe) and the conclusion. Stored as the problem's `rca` JSON with the record's version
 // (a colleague's newer save opens the conflict dialog); «انتقال به علت ریشه‌ای» writes the analysis into the problem's
 // cause. With the AI layer on, «پیشنهاد هوش مصنوعی» adds suggested whys and hypotheses for a person to keep or drop.
+// A problem shows the sections it names in «بخش‌های کارگاه تحلیل» (from its template), else all of them.
 import { useEffect, useMemo, useState } from "react";
 import { Button, Input, Popconfirm, Select, Tag } from "antd";
 import { Plus, Save, Trash2, ArrowDownToLine, Sparkles } from "lucide-react";
-import { CONFIDENCE, FISHBONE, HYPOTHESIS_STATES, IS_ISNOT_ROWS, rcaMarkdown, type RcaCanvas } from "@shared/problem/logic";
+import { canvasSections, CONFIDENCE, FISHBONE, HYPOTHESIS_STATES, IS_ISNOT_ROWS, rcaMarkdown, type RcaCanvas } from "@shared/problem/logic";
 import { formatJalaliDateTime } from "@shared/jalali";
 import { useOrg } from "../../lib/org";
 import { useAction } from "../../lib/hooks";
@@ -58,116 +59,127 @@ export default function RcaCanvasTab({ ctx }: { ctx: RecordContext }) {
       }),
   });
 
+  const show = canvasSections(ctx.row.rca_sections);
   return (
     <div className="flex flex-col gap-4">
-      <Section
-        title="پنج چرا"
-        tools={!ro ? (
-          <Button size="small" icon={<Plus {...ICON14} />} onClick={() => setC(addWhy(c))} disabled={c.whys.length >= 10}>
-            چرای بعدی
-          </Button>
-        ) : undefined}
-      >
-        {!c.whys.length ? <p className="text-[13px] text-ink-3">با پرسیدن «چرا؟» از نشانهٔ مشکل شروع کنید و تا رسیدن به علتی که می‌شود برطرفش کرد ادامه دهید.</p> : null}
-        <ol className="flex flex-col gap-2">
-          {c.whys.map((w, i) => (
-            <li key={i} className="grid gap-1.5 sm:grid-cols-[2rem_1fr_1fr_auto] sm:items-start">
-              <span className="ds-num pt-1 text-[13px] text-ink-3">{(i + 1).toLocaleString("fa-IR")}</span>
-              <Input value={w.question} onChange={(e) => setC(setWhy(c, i, { question: e.target.value }))} readOnly={ro} aria-label={`پرسش ${i + 1}`} maxLength={500} />
-              <Input.TextArea value={w.answer} onChange={(e) => setC(setWhy(c, i, { answer: e.target.value }))} readOnly={ro} autoSize={{ minRows: 1, maxRows: 4 }} aria-label={`پاسخ ${i + 1}`} placeholder="زیرا…" />
-              {!ro ? <Button type="text" size="small" aria-label="حذف" icon={<Trash2 {...ICON14} />} onClick={() => setC(removeAt(c, "whys", i))} /> : null}
-            </li>
-          ))}
-        </ol>
-      </Section>
-
-      <Section title="استخوان ماهی (عوامل)">
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          {FISHBONE.map((b) => (
-            <div key={b.key} className="flex flex-col gap-1.5 rounded-md bg-sunken p-2.5">
-              <span className="text-[13px] text-ink-2">{b.label}</span>
-              <div className="flex flex-wrap gap-1">
-                {(c.fishbone[b.key] ?? []).map((x, i) => (
-                  <Tag key={`${x}-${i}`} closable={!ro} onClose={(e) => { e.preventDefault(); setC(removeCause(c, b.key, i)); }}>
-                    {x}
-                  </Tag>
-                ))}
-              </div>
-              {!ro ? (
-                <Input
-                  size="small"
-                  value={cause[b.key] ?? ""}
-                  onChange={(e) => setCause({ ...cause, [b.key]: e.target.value })}
-                  onPressEnter={() => {
-                    setC(addCause(c, b.key, cause[b.key] ?? ""));
-                    setCause({ ...cause, [b.key]: "" });
-                  }}
-                  placeholder="عامل تازه و Enter"
-                  maxLength={300}
-                  aria-label={`عامل تازهٔ ${b.label}`}
-                />
-              ) : null}
-            </div>
-          ))}
-        </div>
-      </Section>
-
-      <Section title="خط زمانی">
-        <ul className="flex flex-col gap-1">
-          {c.timeline.map((t, i) => (
-            <li key={`${t.at}-${i}`} className="flex flex-col gap-0.5 text-[13px] sm:flex-row sm:items-start sm:gap-2">
-              <span className="ds-num shrink-0 text-ink-3 sm:w-[132px]">{t.at && !Number.isNaN(Date.parse(t.at)) ? formatJalaliDateTime(t.at, timezone) : t.at}</span>
-              <span className="min-w-0 flex-1 text-ink">{t.text}</span>
-              {!ro ? <Button type="text" size="small" aria-label="حذف" icon={<Trash2 {...ICON14} />} onClick={() => setC(removeAt(c, "timeline", i))} /> : null}
-            </li>
-          ))}
-        </ul>
-        {!ro ? (
-          <div className="grid gap-2 sm:grid-cols-[minmax(0,15rem)_1fr_auto]">
-            <DateTimeInput value={evAt} onChange={setEvAt} tz={timezone} />
-            <Input value={evText} onChange={(e) => setEvText(e.target.value)} placeholder="چه رخ داد" maxLength={500} onPressEnter={() => { setC(addEvent(c, evAt ?? "", evText)); setEvText(""); }} />
-            <Button icon={<Plus {...ICON14} />} onClick={() => { setC(addEvent(c, evAt ?? "", evText)); setEvText(""); }} disabled={!evText.trim()}>
-              افزودن
+      {show.has("whys") ? (
+        <Section
+          title="پنج چرا"
+          tools={!ro ? (
+            <Button size="small" icon={<Plus {...ICON14} />} onClick={() => setC(addWhy(c))} disabled={c.whys.length >= 10}>
+              چرای بعدی
             </Button>
-          </div>
-        ) : null}
-      </Section>
+          ) : undefined}
+        >
+          {!c.whys.length ? <p className="text-[13px] text-ink-3">با پرسیدن «چرا؟» از نشانهٔ مشکل شروع کنید و تا رسیدن به علتی که می‌شود برطرفش کرد ادامه دهید.</p> : null}
+          <ol className="flex flex-col gap-2">
+            {c.whys.map((w, i) => (
+              <li key={i} className="grid gap-1.5 sm:grid-cols-[2rem_1fr_1fr_auto] sm:items-start">
+                <span className="ds-num pt-1 text-[13px] text-ink-3">{(i + 1).toLocaleString("fa-IR")}</span>
+                <Input value={w.question} onChange={(e) => setC(setWhy(c, i, { question: e.target.value }))} readOnly={ro} aria-label={`پرسش ${i + 1}`} maxLength={500} />
+                <Input.TextArea value={w.answer} onChange={(e) => setC(setWhy(c, i, { answer: e.target.value }))} readOnly={ro} autoSize={{ minRows: 1, maxRows: 4 }} aria-label={`پاسخ ${i + 1}`} placeholder="زیرا…" />
+                {!ro ? <Button type="text" size="small" aria-label="حذف" icon={<Trash2 {...ICON14} />} onClick={() => setC(removeAt(c, "whys", i))} /> : null}
+              </li>
+            ))}
+          </ol>
+        </Section>
+      ) : null}
 
-      <Section
-        title="فرضیه‌ها و شواهد"
-        tools={aiOn && !ro ? (
-          <Button size="small" icon={<Sparkles {...ICON14} />} onClick={() => ai.mutate(undefined)} loading={ai.isPending}>
-            پیشنهاد هوش مصنوعی
-          </Button>
-        ) : undefined}
-      >
-        <ul className="flex flex-col gap-2">
-          {c.hypotheses.map((h) => (
-            <li key={h.id} className="grid gap-1.5 rounded-md bg-sunken p-2.5 lg:grid-cols-[1.4fr_1.4fr_8rem_9rem_auto] lg:items-start">
-              <Input.TextArea value={h.text} onChange={(e) => setC(setHypothesis(c, h.id, { text: e.target.value }))} readOnly={ro} autoSize={{ minRows: 1, maxRows: 4 }} aria-label="فرضیه" />
-              <Input.TextArea value={h.evidence} onChange={(e) => setC(setHypothesis(c, h.id, { evidence: e.target.value }))} readOnly={ro} autoSize={{ minRows: 1, maxRows: 4 }} placeholder="شواهد (رخداد، تغییر، گزارش…)" aria-label="شواهد" />
-              <Select value={h.status} onChange={(v) => setC(setHypothesis(c, h.id, { status: v }))} disabled={ro} options={HYPOTHESIS_STATES.map((s) => ({ value: s.value, label: s.label }))} aria-label="وضعیت فرضیه" />
-              <Select value={h.confidence} onChange={(v) => setC(setHypothesis(c, h.id, { confidence: v }))} disabled={ro} options={CONFIDENCE.map((s) => ({ value: s.value, label: `اطمینان ${s.label}` }))} aria-label="اطمینان" />
-              {!ro ? <Button type="text" size="small" aria-label="حذف" icon={<Trash2 {...ICON14} />} onClick={() => setC(removeAt(c, "hypotheses", c.hypotheses.indexOf(h)))} /> : null}
-            </li>
-          ))}
-        </ul>
-        {!ro ? (
-          <Input value={hyp} onChange={(e) => setHyp(e.target.value)} onPressEnter={() => { setC(addHypothesis(c, hyp)); setHyp(""); }} placeholder="فرضیهٔ تازه و Enter" maxLength={500} aria-label="فرضیهٔ تازه" />
-        ) : null}
-      </Section>
-
-      <Section title="هست / نیست">
-        <div className="grid gap-1.5">
-          {IS_ISNOT_ROWS.map((r) => (
-            <div key={r.key} className="grid gap-1.5 sm:grid-cols-[7rem_1fr_1fr] sm:items-center">
-              <span className="text-[13px] text-ink-2">{r.label}</span>
-              <Input value={c.is_isnot[r.key]?.is ?? ""} onChange={(e) => setC(setIsIsNot(c, r.key, "is", e.target.value))} readOnly={ro} placeholder="هست" aria-label={`${r.label} — هست`} maxLength={500} />
-              <Input value={c.is_isnot[r.key]?.isnot ?? ""} onChange={(e) => setC(setIsIsNot(c, r.key, "isnot", e.target.value))} readOnly={ro} placeholder="نیست (ولی می‌توانست باشد)" aria-label={`${r.label} — نیست`} maxLength={500} />
+      {show.has("fishbone") ? (
+        <Section title="استخوان ماهی (عوامل)">
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {FISHBONE.map((b) => (
+              <div key={b.key} className="flex flex-col gap-1.5 rounded-md bg-sunken p-2.5">
+                <span className="text-[13px] text-ink-2">{b.label}</span>
+                <div className="flex flex-wrap gap-1">
+                  {(c.fishbone[b.key] ?? []).map((x, i) => (
+                    <Tag key={`${x}-${i}`} closable={!ro} onClose={(e) => { e.preventDefault(); setC(removeCause(c, b.key, i)); }}>
+                      {x}
+                    </Tag>
+                  ))}
+                </div>
+                {!ro ? (
+                  <Input
+                    size="small"
+                    value={cause[b.key] ?? ""}
+                    onChange={(e) => setCause({ ...cause, [b.key]: e.target.value })}
+                    onPressEnter={() => {
+                      setC(addCause(c, b.key, cause[b.key] ?? ""));
+                      setCause({ ...cause, [b.key]: "" });
+                    }}
+                    placeholder="عامل تازه و Enter"
+                    maxLength={300}
+                    aria-label={`عامل تازهٔ ${b.label}`}
+                  />
+      ) : null}
             </div>
           ))}
         </div>
       </Section>
+      ) : null}
+
+      {show.has("timeline") ? (
+        <Section title="خط زمانی">
+          <ul className="flex flex-col gap-1">
+            {c.timeline.map((t, i) => (
+              <li key={`${t.at}-${i}`} className="flex flex-col gap-0.5 text-[13px] sm:flex-row sm:items-start sm:gap-2">
+                <span className="ds-num shrink-0 text-ink-3 sm:w-[132px]">{t.at && !Number.isNaN(Date.parse(t.at)) ? formatJalaliDateTime(t.at, timezone) : t.at}</span>
+                <span className="min-w-0 flex-1 text-ink">{t.text}</span>
+                {!ro ? <Button type="text" size="small" aria-label="حذف" icon={<Trash2 {...ICON14} />} onClick={() => setC(removeAt(c, "timeline", i))} /> : null}
+              </li>
+            ))}
+          </ul>
+          {!ro ? (
+            <div className="grid gap-2 sm:grid-cols-[minmax(0,15rem)_1fr_auto]">
+              <DateTimeInput value={evAt} onChange={setEvAt} tz={timezone} />
+              <Input value={evText} onChange={(e) => setEvText(e.target.value)} placeholder="چه رخ داد" maxLength={500} onPressEnter={() => { setC(addEvent(c, evAt ?? "", evText)); setEvText(""); }} />
+              <Button icon={<Plus {...ICON14} />} onClick={() => { setC(addEvent(c, evAt ?? "", evText)); setEvText(""); }} disabled={!evText.trim()}>
+                افزودن
+              </Button>
+            </div>
+      ) : null}
+      </Section>
+      ) : null}
+
+      {show.has("hypotheses") ? (
+        <Section
+          title="فرضیه‌ها و شواهد"
+          tools={aiOn && !ro ? (
+            <Button size="small" icon={<Sparkles {...ICON14} />} onClick={() => ai.mutate(undefined)} loading={ai.isPending}>
+              پیشنهاد هوش مصنوعی
+            </Button>
+          ) : undefined}
+        >
+          <ul className="flex flex-col gap-2">
+            {c.hypotheses.map((h) => (
+              <li key={h.id} className="grid gap-1.5 rounded-md bg-sunken p-2.5 lg:grid-cols-[1.4fr_1.4fr_8rem_9rem_auto] lg:items-start">
+                <Input.TextArea value={h.text} onChange={(e) => setC(setHypothesis(c, h.id, { text: e.target.value }))} readOnly={ro} autoSize={{ minRows: 1, maxRows: 4 }} aria-label="فرضیه" />
+                <Input.TextArea value={h.evidence} onChange={(e) => setC(setHypothesis(c, h.id, { evidence: e.target.value }))} readOnly={ro} autoSize={{ minRows: 1, maxRows: 4 }} placeholder="شواهد (رخداد، تغییر، گزارش…)" aria-label="شواهد" />
+                <Select value={h.status} onChange={(v) => setC(setHypothesis(c, h.id, { status: v }))} disabled={ro} options={HYPOTHESIS_STATES.map((s) => ({ value: s.value, label: s.label }))} aria-label="وضعیت فرضیه" />
+                <Select value={h.confidence} onChange={(v) => setC(setHypothesis(c, h.id, { confidence: v }))} disabled={ro} options={CONFIDENCE.map((s) => ({ value: s.value, label: `اطمینان ${s.label}` }))} aria-label="اطمینان" />
+                {!ro ? <Button type="text" size="small" aria-label="حذف" icon={<Trash2 {...ICON14} />} onClick={() => setC(removeAt(c, "hypotheses", c.hypotheses.indexOf(h)))} /> : null}
+              </li>
+            ))}
+          </ul>
+          {!ro ? (
+            <Input value={hyp} onChange={(e) => setHyp(e.target.value)} onPressEnter={() => { setC(addHypothesis(c, hyp)); setHyp(""); }} placeholder="فرضیهٔ تازه و Enter" maxLength={500} aria-label="فرضیهٔ تازه" />
+      ) : null}
+      </Section>
+      ) : null}
+
+      {show.has("is_not") ? (
+        <Section title="هست / نیست">
+          <div className="grid gap-1.5">
+            {IS_ISNOT_ROWS.map((r) => (
+              <div key={r.key} className="grid gap-1.5 sm:grid-cols-[7rem_1fr_1fr] sm:items-center">
+                <span className="text-[13px] text-ink-2">{r.label}</span>
+                <Input value={c.is_isnot[r.key]?.is ?? ""} onChange={(e) => setC(setIsIsNot(c, r.key, "is", e.target.value))} readOnly={ro} placeholder="هست" aria-label={`${r.label} — هست`} maxLength={500} />
+                <Input value={c.is_isnot[r.key]?.isnot ?? ""} onChange={(e) => setC(setIsIsNot(c, r.key, "isnot", e.target.value))} readOnly={ro} placeholder="نیست (ولی می‌توانست باشد)" aria-label={`${r.label} — نیست`} maxLength={500} />
+              </div>
+            ))}
+          </div>
+        </Section>
+      ) : null}
 
       <Section title="نتیجه">
         <Input.TextArea value={c.conclusion} onChange={(e) => setC({ ...c, conclusion: e.target.value })} readOnly={ro} autoSize={{ minRows: 2, maxRows: 10 }} maxLength={4000} aria-label="نتیجهٔ تحلیل" />

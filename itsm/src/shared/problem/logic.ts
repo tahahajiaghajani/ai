@@ -305,3 +305,33 @@ export function candidateGroups(all: CandidateIncident[], rules: CandidateRules,
   }
   return out.sort((a, b) => b.score - a.score || (a.signature < b.signature ? -1 : 1));
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// Templates (problem models) and the canvas's sections
+
+/** Fields of a problem template that pre-fill a new problem (URL parameters of the new-record page). */
+export const PROBLEM_TEMPLATE_FIELDS = [
+  "short_description", "description", "source", "category", "subcategory", "impact", "urgency", "likelihood", "assignment_group_id", "service_id", "ci_id", "rca_method", "rca_sections",
+] as const;
+
+/** The new-problem parameters of a template row (empty values left out, lists comma-separated) plus `template_id`. */
+export function problemTemplateParams(t: Record<string, unknown>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const f of PROBLEM_TEMPLATE_FIELDS) {
+    const v = t[f];
+    if (Array.isArray(v)) {
+      if (v.length) out[f] = v.map(String).join(",");
+    } else if (v !== null && v !== undefined && v !== "") out[f] = String(v);
+  }
+  if (typeof t.id === "string") out.template_id = t.id;
+  return out;
+}
+
+export const CANVAS_SECTIONS = ["whys", "fishbone", "timeline", "hypotheses", "is_not"] as const;
+export type CanvasSection = (typeof CANVAS_SECTIONS)[number];
+
+/** The canvas sections a problem shows: those it names (its template's), else all; the conclusion always shows. */
+export function canvasSections(raw: unknown): Set<CanvasSection> {
+  const chosen = Array.isArray(raw) ? CANVAS_SECTIONS.filter((x) => raw.includes(x)) : [];
+  return new Set(chosen.length ? chosen : CANVAS_SECTIONS);
+}

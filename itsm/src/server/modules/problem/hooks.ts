@@ -7,17 +7,21 @@
 //   problem_task     not on closed problems; activity on the problem
 //   known_error      publication stamps and the next review; the problem's KE flag, technical debt and risk follow
 //   problem_candidate the incident count follows its incidents
+//   problem_template kept by its group or a manager; its tasks JSON checked. A problem created from one takes its
+//                    analysis method and canvas sections, and (after the save) its tasks
 //   incident         (this module's hook on incident) a changed problem or known error recounts them
 import { stateCategory } from "@shared/model/task";
-import { PROACTIVE_SOURCES } from "@shared/tables/problem";
+import { PROACTIVE_SOURCES, PROBLEM_TASK_TYPES } from "@shared/tables/problem";
+import { templateTasks, templateTasksProblem } from "@shared/incident/logic";
 import { ACTIVE_KE_STATES, cleanRca, rcaProblem, riskScore, techDebt } from "@shared/problem/logic";
 import { addDays, todayISO } from "@shared/jalali";
 import type { Ctx } from "../../context";
 import type { Queryable, Tx } from "../../db";
-import { defFor, orgTz, registerHooks, updateIn, validationError, type WriteArgs } from "../../engine";
+import { addJournalIn, createIn, defFor, orgTz, registerHooks, updateIn, validationError, type WriteArgs } from "../../engine";
 import { forbidden } from "../../http/errors";
 import { countRows, eqAll, faList, liveRow, liveRows, problemConfig, secondsBetween, sysOf, type Row } from "../incident/common";
 import { canWork } from "../incident/major";
+import { assertCanKeep } from "../incident/hooks";
 
 const entering = (w: WriteArgs, state: string) => w.next.state === state && (w.op === "create" || w.prev?.state !== state);
 const isEmpty = (v: unknown) => v === null || v === undefined || (typeof v === "string" && !v.trim());
@@ -29,6 +33,14 @@ async function problemBefore(w: WriteArgs): Promise<void> {
   if (w.op === "delete") return;
   const n = w.next;
   const now = new Date().toISOString();
+  // a problem model: the analysis it runs (what the caller did not choose)
+  if (w.op === "create" && n.template_id) {
+    const t = await liveRow(w.tx, sysOf(w.ctx), "problem_template", n.template_id);
+    if (t) {
+      if (!n.rca_method && t.rca_method) n.rca_method = t.rca_method;
+      if ((!Array.isArray(n.rca_sections) || !n.rca_sections.length) && Array.isArray(t.rca_sections) && t.rca_sections.length) n.rca_sections = t.rca_sections;
+    }
+  }
   if (w.op === "create" || w.changed.has("source")) n.proactive = PROACTIVE_SOURCES.includes(String(n.source ?? ""));
   if (w.op === "create" || w.changed.has("rca")) {
     const p = rcaProblem(n.rca);
@@ -183,14 +195,48 @@ function configBefore(w: WriteArgs): void {
   if (w.op === "delete") throw validationError({ name: "تنظیمات مشکل حذف نمی‌شود؛ مقدارها را تغییر دهید" });
 }
 
+const TASK_TYPES = new Set(PROBLEM_TASK_TYPES.map((o) => o.value));
+
+function templateBefore(w: WriteArgs): void {
+  assertCanKeep(w);
+  if (w.op === "delete" || (w.op !== "create" && !w.changed.has("tasks"))) return;
+  const p = templateTasksProblem(w.next.tasks);
+  if (p) throw validationError({ tasks: p });
+  const bad = templateTasks(w.next.tasks).findIndex((t) => t.task_type && !TASK_TYPES.has(t.task_type));
+  if (bad >= 0) throw validationError({ tasks: `نوع کار ${bad + 1} یکی از «عمومی»، «تحلیل علت» یا «رفع» نیست` });
+}
+
+/** A problem created from a template gets the template's tasks (as the system, for the person who created it). */
+async function problemAfter(w: WriteArgs & { row: Row }): Promise<void> {
+  if (w.op !== "create" || !w.row.template_id) return;
+  const t = await liveRow(w.tx, sysOf(w.ctx), "problem_template", w.row.template_id);
+  if (!t) return;
+  const sys = sysOf(w.ctx, w.ctx.actor === "system" ? null : w.ctx.user.id);
+  const tasks = templateTasks(t.tasks);
+  for (const [i, task] of tasks.entries()) {
+    await createIn(w.tx, sys, "problem_task", {
+      problem_id: w.row.id,
+      short_description: task.short_description,
+      description: task.description ?? null,
+      task_type: task.task_type ?? "general",
+      assignment_group_id: task.assignment_group_id ?? w.row.assignment_group_id ?? null,
+      mandatory: task.mandatory !== false,
+      caller_id: w.ctx.actor === "system" ? null : w.ctx.user.id,
+    }, { trusted: true });
+  }
+  const { def } = await defFor(sysOf(w.ctx), "problem", w.tx);
+  await addJournalIn(w.tx, sysOf(w.ctx), def, w.row, { kind: "system", visibility: "internal", body: `الگوی «${t.name}» به کار رفت${tasks.length ? ` و ${tasks.length} کار ساخته شد` : ""}.` }, { trusted: true, author: w.ctx.actor === "system" ? null : w.ctx.user.id });
+}
+
 /** The hooks of the problem tables (installed once by `installProblemModule`). */
 export function installProblemHooks(): (() => void)[] {
   return [
-    registerHooks("problem", { beforeWrite: problemBefore, guards: { problem_can_close: canClose } }),
+    registerHooks("problem", { beforeWrite: problemBefore, afterWrite: problemAfter, guards: { problem_can_close: canClose } }),
     registerHooks("problem_task", { beforeWrite: taskBefore, afterWrite: taskAfter }),
     registerHooks("known_error", { beforeWrite: keBefore, afterWrite: keAfter }),
     registerHooks("problem_candidate", { beforeWrite: candidateBefore }),
     registerHooks("problem_config", { beforeWrite: configBefore }),
+    registerHooks("problem_template", { beforeWrite: templateBefore }),
     registerHooks("incident", { afterWrite: incidentAfter }),
   ];
 }

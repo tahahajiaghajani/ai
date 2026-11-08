@@ -242,8 +242,8 @@ async function assertWorksIncident(w: WriteArgs, what: string): Promise<void> {
   if (!canWork(w.ctx, def, inc)) throw forbidden(`${what} را کسی می‌سازد که روی ${inc.number ? `رخداد ${inc.number}` : "این رخداد"} کار می‌کند`);
 }
 
-/** Definitions (templates, canned responses): the caller creates only what they could change afterwards. */
-function assertCanKeep(w: WriteArgs): void {
+/** Definitions (templates, canned responses, announcements): the caller creates only what they could change afterwards. */
+export function assertCanKeep(w: WriteArgs): void {
   if (w.op !== "create" || w.ctx.actor === "system" || w.trusted) return;
   if (!access().canWrite(w.ctx, w.def, w.next)) throw forbidden(`ساختن «${w.def.label}» با مدیران رخداد${w.def.scope?.group ? " یا اعضای گروه آن" : ""} است`);
 }
