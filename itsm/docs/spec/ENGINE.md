@@ -134,7 +134,7 @@ virtual `user` (members: `name`, `email`, `title`, `role`, `is_active`).
 | `color` | text | a `COLOR_KEYS` name (never hex) | |
 | `secret` | text | **never returned**: `{ secret: true, hint: "…abcd" }` (`hint: false` on the field: always «…», for structured text) | plain string; send the `{ secret: true }` object back to keep it |
 
-FieldDef options: `required`, `readonly` (shown in its place on the form; ignored in input — hooks and trusted
+FieldDef options: `required`, `noSync` (kept out of Windows-app replicas, §13), `readonly` (shown in its place on the form; ignored in input — hooks and trusted
 server code set it), `hidden` (UI only), `system` (bookkeeping of the engine or a module: ignored in input, set by hooks
 and trusted server code only — never by business rules, flows, question mappings or imports; on forms it sits in
 «اطلاعات سامانه» and never on a new record), `default` (value or `$now`, `$today`, `$me`, `$my_unit`, `$my_domain`),
@@ -535,6 +535,10 @@ The virtual table `user` answers `GET /r/user?q=` (members for pickers: `id`, `n
 - **Scope epochs** (`sm_scope_epochs`): bumped per member when what they may read changes — by trigger on their
   membership (role, per-area access, activation) and by `bumpScopeEpoch(q, orgId, userId)` for everything else. A
   desktop whose epoch is behind is told to `reset` and reads everything again (tombstoning what left its scope).
+- **Fields kept out of replicas** (`FieldDef.noSync`: a requested item's sensitive answers) never go down to a
+  Windows app, even for people holding their field group: pulls leave them (and their history) out, a push never
+  empties them (the replica never had the value; a value typed on the Windows app is taken), and the Windows app
+  clears what it holds once nothing waits for upload. The web version alone keeps them.
 - **Secrets** never travel (each runtime seals its own). **Attachment contents** are fetched lazily by the desktop
   (`DesktopBridge.fetchBlob` → the cloud's content route) and those added offline are uploaded after the push.
 

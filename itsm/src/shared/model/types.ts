@@ -153,6 +153,12 @@ export interface FieldDef {
    * secret holding structured text (JSON answers), whose last characters are its contents
    */
   hint?: boolean;
+  /**
+   * kept out of Windows-app replicas, even for people holding the field's group: pulls leave it out (and its history),
+   * a push never empties it, and a Windows app clears what it holds once nothing waits for upload (sensitive answers;
+   * secrets never travel anyway). The web version alone keeps the value.
+   */
+  noSync?: boolean;
   span?: 6 | 8 | 12 | 16 | 18 | 24;
   section?: string;
   tab?: string;

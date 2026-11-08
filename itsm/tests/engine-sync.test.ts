@@ -28,6 +28,8 @@ registerTable({
   fields: [
     { name: "name", label: "نام", type: "string", required: true },
     { name: "token", label: "کلید", type: "secret" },
+    // kept out of Windows-app replicas (FieldDef.noSync)
+    { name: "note", label: "یادداشت حساس", type: "string", noSync: true },
   ],
   scope: {},
 });
@@ -105,6 +107,21 @@ describe("record engine synchronisation", () => {
     expect(dl.status).toBe(200);
     expect(new Uint8Array(await dl.arrayBuffer())).toEqual(PNG);
     expect(await deskDb.one(`select 1 from sm_blobs`)).toBeTruthy(); // kept for next time
+  });
+
+  it("keeps fields marked noSync out of the Windows app's replica: never pulled, never emptied by a push, cleared after upload", async () => {
+    const made = (await web.post(`/o/${org}/r/vault`, { name: "حساس", note: "فقط روی وب" })).row;
+    await client.syncNow();
+    expect(await deskDb.one(`select name, note from sm_vaults where id = $1`, [made.id])).toEqual({ name: "حساس", note: null });
+    // a change on the Windows app does not empty it on the web version
+    await local.patch(`/o/${org}/r/vault/${made.id}`, { name: "حساس ۲" });
+    await client.syncNow();
+    expect(await cloudDb.one(`select name, note from sm_vaults where id = $1`, [made.id])).toEqual({ name: "حساس ۲", note: "فقط روی وب" });
+    // typed on the Windows app: it reaches the web version, then leaves this computer
+    const here = (await local.post(`/o/${org}/r/vault`, { name: "محلی", note: "تایپ‌شده در ویندوز" })).row;
+    await client.syncNow();
+    expect((await cloudDb.one<{ note: string }>(`select note from sm_vaults where id = $1`, [here.id]))?.note).toBe("تایپ‌شده در ویندوز");
+    expect((await deskDb.one<{ note: string | null }>(`select note from sm_vaults where id = $1`, [here.id]))?.note).toBeNull();
   });
 
   it("never moves secrets: each runtime keeps its own", async () => {

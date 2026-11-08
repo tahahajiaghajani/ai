@@ -652,7 +652,8 @@ export const REQUEST_ITEM: TableDef = {
     { name: "stage", label: "مرحله", type: "choice", choices: "$table.stage", list: true, filter: true, span: 8, section: "سفارش" },
     // answers are checked against the item's version on create; later only «ویرایش پاسخ‌ها» changes them
     { name: "answers", label: "پاسخ‌ها", type: "json", hidden: true, audit: false },
-    { name: "private_answers", label: "پاسخ‌های حساس", type: "json", readonly: true, hidden: true, audit: false, group: "personal" },
+    // sensitive answers: behind the personal field group, and never on a Windows app's replica
+    { name: "private_answers", label: "پاسخ‌های حساس", type: "json", readonly: true, hidden: true, audit: false, group: "personal", noSync: true },
     // sealed JSON of the secret answers: no hint (the last characters of the text are the last answer's)
     { name: "secret_answers", label: "پاسخ‌های محرمانه", type: "secret", system: true, hidden: true, hint: false },
     { name: "price", label: "قیمت واحد", type: "money", readonly: true, span: 8, section: "سفارش" },

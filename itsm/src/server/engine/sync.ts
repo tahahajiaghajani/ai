@@ -42,6 +42,15 @@ export function stripSecrets(def: TableDef, row: Record<string, unknown>): void 
   for (const f of def.fields) if (f.type === "secret" && !f.custom) delete row[f.name];
 }
 
+/** Fields of `def` kept out of Windows-app replicas (`FieldDef.noSync`). */
+export const localOnlyFields = (def: TableDef): FieldDef[] => def.fields.filter((f) => f.noSync && !f.custom && !f.base);
+
+/** Remove what never goes down to a Windows app: secrets and the fields kept out of replicas. */
+export function stripForReplica(def: TableDef, row: Record<string, unknown>): void {
+  stripSecrets(def, row);
+  for (const f of localOnlyFields(def)) delete row[f.name];
+}
+
 /** Bump a member's scope epoch: their Windows app re-reads everything (and drops what they may no longer read). */
 export async function bumpScopeEpoch(q: Queryable, orgId: string, userId: string): Promise<void> {
   await q.query(
@@ -140,6 +149,10 @@ async function checkRecord(tx: Tx, ctx: Ctx, def: TableDef, schema: OrgSchema, e
       continue;
     }
     const raw = f.custom ? pushedCustom[f.name] : row[f.name];
+    if (f.noSync && prev && (raw === null || raw === undefined || raw === "")) {
+      delete row[f.name];
+      continue;
+    }
     const before = prev ? prev[f.name] : undefined;
     const r = coerceProblem(f, raw, before, schema, env);
     if (r.error) return r.error;
@@ -277,6 +290,7 @@ export async function pullEngine(ctx: Ctx, agg: AggregateDef, cursor: number, up
             const def = schema.def(String(r.table_key));
             const visible = def ? access().visibleFields(ctx, def) : null;
             if (visible && !visible.has(String(r.field))) return false;
+            if (def?.fields.some((f) => f.name === r.field && f.noSync)) return false;
           }
           return true;
         })
@@ -290,7 +304,7 @@ export async function pullEngine(ctx: Ctx, agg: AggregateDef, cursor: number, up
     const def = schema.def(agg.entity)!;
     const visible = access().visibleFields(ctx, def);
     for (const a of out.aggregates) {
-      stripSecrets(def, a.row);
+      stripForReplica(def, a.row);
       if (!visible) continue;
       const custom = a.row.custom && typeof a.row.custom === "object" ? (a.row.custom as Row) : null;
       for (const f of def.fields) {
