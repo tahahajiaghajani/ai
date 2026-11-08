@@ -233,6 +233,8 @@ async function ciAfter(w: WriteArgs & { row: Row }): Promise<void> {
 
 /** «عملیاتی» needs what the class asks for (e.g. an owner and a support group). */
 async function canOperate(w: WriteArgs): Promise<string | null> {
+  // the system restoring a state the CI had (a merge undone, a retired CI discovered again) is not asked twice
+  if (w.trusted && isSystem(w.ctx)) return null;
   const tree = await classTree(w.tx, w.ctx);
   const cls = tree.resolve(String(w.next.class));
   const missing = (cls?.operationalRequires ?? []).filter((p) => {
