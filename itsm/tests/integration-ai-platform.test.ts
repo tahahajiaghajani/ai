@@ -86,6 +86,10 @@ describe("change enablement with the AI skills", () => {
     expect(draft.sections.went_well).toContain("موفق");
     const err = await p.agent.client.post(`${P}/change/records/${done.id}/ai/summarize`, {}, 403);
     expect(err.error.code).toBe("ai_not_configured");
+    // the risk explanation catches «no AI» from the registered skill and answers deterministically
+    const risk = await p.agent.client.post(`${P}/change/records/${asked.id}/risk/explain`, {});
+    expect(risk.ai).toBe(false);
+    expect(risk.text.length).toBeGreaterThan(0);
   });
 
   it("with a model: the skills write the pack and the PIR sections (merged over the deterministic draft)", async () => {

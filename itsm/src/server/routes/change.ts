@@ -34,6 +34,7 @@ import {
 import { catalogue, changeFrom, copyChange, createChildren, holdChange, orderStandard, resumeChange, riskView, saveAnswers, startBackout } from "../modules/change/actions";
 import { blackoutsFromHolidays, calendarIcs, calendarView } from "../modules/change/calendar";
 import { changeDashboard } from "../modules/change/dashboard";
+import { aiUnavailable } from "../modules/change/ai";
 import { cabPack, ciTimeline, cycleVotes, detectedChange, evidencePack, impactView, readinessView, similarChanges, suspects } from "../modules/change/insights";
 import { pirReasons } from "@shared/change/logic";
 
@@ -114,7 +115,7 @@ changeRoutes.post("/records/:id/risk/explain", async (c) => {
   if (ai) {
     await get(ctx, "change_request", id);
     // no model (or AI off, or over budget): the deterministic explanation below answers, and says it is not AI
-    const r = await ai(ctx, id).catch((e: unknown) => (e instanceof AppError && e.code.startsWith("ai_") ? null : Promise.reject(e as Error)));
+    const r = await ai(ctx, id).catch((e: unknown) => (aiUnavailable(e) ? null : Promise.reject(e as Error)));
     if (r) return c.json({ text: r.text, ai: true });
   }
   const v = await riskView(ctx, id);
