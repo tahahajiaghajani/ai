@@ -54,7 +54,9 @@ export function installSkillHooks(): void {
     async afterWrite(w) {
       invalidateTriggers(w.ctx.org.id);
       const n = w.next as Record<string, unknown>;
-      if (w.op !== "delete" && n.enabled !== false && strings(n.triggers).includes("schedule")) {
+      // a skill with a schedule was created or its schedule changed (not the round's own «last_scheduled_at» stamp)
+      const scheduleChanged = w.op === "create" || ["triggers", "schedule_minutes", "schedule_filter", "enabled", "tables"].some((f) => w.changed.has(f));
+      if (w.op !== "delete" && scheduleChanged && n.enabled !== false && strings(n.triggers).includes("schedule")) {
         await enqueue(w.tx, { kind: "ai.skills.schedule", orgId: w.ctx.org.id, payload: {}, dedupeKey: "ai.skills.schedule", delayMs: 5_000 });
       }
     },

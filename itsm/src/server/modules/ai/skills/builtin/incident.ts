@@ -11,7 +11,7 @@ import { get, list, orgSchema } from "../../../../engine";
 import { registerIncidentAi, registerProblemAi } from "../../../incident/ai";
 import { retrieve } from "../../rag";
 import { defineSkill } from "../registry";
-import { runSkill } from "../runtime";
+import { runForModule } from "../runtime";
 import type { SkillDef } from "../types";
 import { ruleSummary } from "./generic";
 
@@ -292,7 +292,7 @@ export async function tableChoiceFacts(ctx: Ctx, table: string, names: string[])
 export function installIncidentAi(): (() => void)[] {
   const offIncident = registerIncidentAi({
     async summarize(ctx, incidentId) {
-      const r = await runSkill(ctx, "incident.summary", { table: "incident", id: incidentId });
+      const r = await runForModule(ctx, "incident.summary", { table: "incident", id: incidentId });
       return { text: r.text ?? "", citations: [] };
     },
     async similar(ctx, incidentId, opts) {
@@ -311,7 +311,7 @@ export function installIncidentAi(): (() => void)[] {
     async triage(ctx, draft) {
       const text = [draft.short_description, draft.description].filter((x) => typeof x === "string" && x.trim()).join("\n");
       if (text.trim().length < 3) return [];
-      const r = await runSkill(ctx, "incident.triage_text", { text });
+      const r = await runForModule(ctx, "incident.triage_text", { text });
       const out = ((r.json as { suggestions?: { field: string; value: string; confidence: number; reason?: string }[] } | null)?.suggestions ?? []).filter((s) => s.value);
       const groups = await groupsFacts(ctx);
       return out
@@ -319,26 +319,26 @@ export function installIncidentAi(): (() => void)[] {
         .filter((s) => s.value !== null);
     },
     async suggestResolution(ctx, incidentId) {
-      const r = await runSkill(ctx, "incident.resolution", { table: "incident", id: incidentId });
+      const r = await runForModule(ctx, "incident.resolution", { table: "incident", id: incidentId });
       const by = (f: string) => r.suggestions.find((s) => s.field === f);
       const notes = by("close_notes");
       return { close_notes: String(notes?.value ?? ""), close_code: by("close_code") ? String(by("close_code")!.value) : undefined, confidence: notes?.confidence ?? undefined };
     },
     async draftKnowledge(ctx, incidentId) {
-      const r = await runSkill(ctx, "incident.kb_draft", { table: "incident", id: incidentId });
+      const r = await runForModule(ctx, "incident.kb_draft", { table: "incident", id: incidentId });
       const j = (r.json ?? {}) as { title?: string; body?: string };
       return { title: String(j.title ?? ""), body: String(j.body ?? "") };
     },
     async draftUpdate(ctx, incidentId, audience) {
       const allowed = ["stakeholders", "executives", "users", "technical", "status_page"];
-      const r = await runSkill(ctx, "incident.stakeholder_update", { table: "incident", id: incidentId, params: { audience: allowed.includes(audience) ? audience : "stakeholders" } });
+      const r = await runForModule(ctx, "incident.stakeholder_update", { table: "incident", id: incidentId, params: { audience: allowed.includes(audience) ? audience : "stakeholders" } });
       const j = (r.json ?? {}) as { subject?: string; body?: string };
       return { subject: String(j.subject ?? ""), body: String(j.body ?? "") };
     },
   });
   const offProblem = registerProblemAi({
     async draftRca(ctx, problemId): Promise<Partial<RcaCanvas>> {
-      const r = await runSkill(ctx, "problem.rca", { table: "problem", id: problemId });
+      const r = await runForModule(ctx, "problem.rca", { table: "problem", id: problemId });
       const j = (r.json ?? {}) as { whys?: RcaCanvas["whys"]; fishbone?: Record<string, string[]>; hypotheses?: { text: string; evidence?: string; confidence?: "low" | "medium" | "high" }[]; conclusion?: string };
       const keys = new Set(FISHBONE.map((f) => f.key));
       return {
@@ -350,12 +350,12 @@ export function installIncidentAi(): (() => void)[] {
     },
     // the module falls back to the problem's own fields when this throws (no model, no draft)
     async draftKnownError(ctx, problemId) {
-      const r = await runSkill(ctx, "problem.known_error", { table: "problem", id: problemId });
+      const r = await runForModule(ctx, "problem.known_error", { table: "problem", id: problemId });
       const j = (r.json ?? {}) as { short_description?: string; symptoms?: string; workaround?: string; root_cause?: string };
       return { short_description: String(j.short_description ?? ""), symptoms: String(j.symptoms ?? ""), workaround: String(j.workaround ?? ""), root_cause: j.root_cause ? String(j.root_cause) : undefined };
     },
     async summarize(ctx, problemId) {
-      const r = await runSkill(ctx, "problem.summary", { table: "problem", id: problemId });
+      const r = await runForModule(ctx, "problem.summary", { table: "problem", id: problemId });
       return { text: r.text ?? "" };
     },
   });

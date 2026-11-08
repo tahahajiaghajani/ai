@@ -20,7 +20,7 @@ import { installSkillTriggers } from "./triggers";
 import { installSkillHooks } from "./hooks";
 import { installBuiltinSkills } from "./builtin";
 
-export { runSkill, runResolved, runCore, skillText, skillJson, SKILL_BASE_SYSTEM, zodFromJsonSchema, buildPrompt, assemble } from "./runtime";
+export { runSkill, runResolved, runCore, runForModule, isAiUnavailable, skillText, skillJson, SKILL_BASE_SYSTEM, zodFromJsonSchema, buildPrompt, assemble } from "./runtime";
 export { registerSkill, defineSkill, skillDef, builtinSkills, appliesTo, outputFieldsOf } from "./registry";
 export { keepFromPrompts, keptFromPrompts, promptable } from "./context";
 export { resolveSkill, allSkills, configOf, defaultConfig } from "./config";

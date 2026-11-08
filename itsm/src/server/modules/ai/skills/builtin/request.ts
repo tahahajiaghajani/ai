@@ -12,7 +12,7 @@ import { registerRequestAi, promptSafe, type ItemDraft } from "../../../request/
 import { retrieve } from "../../rag";
 import { keepFromPrompts } from "../context";
 import { defineSkill } from "../registry";
-import { runSkill } from "../runtime";
+import { runForModule } from "../runtime";
 import type { SkillDef } from "../types";
 import { ruleSummary } from "./generic";
 
@@ -113,7 +113,7 @@ export function installRequestAi(): (() => void)[] {
   off.push(
     registerRequestAi({
       async generateItem(ctx, input): Promise<ItemDraft> {
-        const r = await runSkill(ctx, "request.item_generate", { text: input.text });
+        const r = await runForModule(ctx, "request.item_generate", { text: input.text });
         const j = itemSchema.parse(r.json ?? {});
         const vars = j.variables
           .map((v, i) => ({ ...v, name: (v.name.toLowerCase().replace(/[^a-z0-9_]/g, "_").replace(/^[^a-z]+/, "") || `q${i + 1}`).slice(0, 60) }))
@@ -124,7 +124,7 @@ export function installRequestAi(): (() => void)[] {
       async prefill(ctx, input) {
         const safe = promptSafe(input.schema, {}).schema;
         const known = new Set(safe.variables.map((v) => v.name));
-        const r = await runSkill(ctx, "request.prefill", { text: input.text }, { facts: { form: formFacts(safe) } });
+        const r = await runForModule(ctx, "request.prefill", { text: input.text }, { facts: { form: formFacts(safe) } });
         const list = ((r.json as { answers?: { name: string; value: unknown; confidence: number }[] } | null)?.answers ?? []).filter((a) => known.has(a.name) && a.value !== null && a.value !== "");
         return { answers: Object.fromEntries(list.map((a) => [a.name, a.value])), confidence: Object.fromEntries(list.map((a) => [a.name, Math.max(0, Math.min(1, a.confidence))])) };
       },
@@ -135,7 +135,7 @@ export function installRequestAi(): (() => void)[] {
         return r.passages.filter((p) => !seen.has(p.citation.id) && seen.add(p.citation.id)).map((p) => ({ id: p.citation.id, score: Math.max(0, Math.min(1, p.score / best)) }));
       },
       async summarize(ctx, input) {
-        const r = await runSkill(ctx, "request.summary", { table: "request_item", id: input.requestItemId });
+        const r = await runForModule(ctx, "request.summary", { table: "request_item", id: input.requestItemId });
         return { text: r.text ?? "" };
       },
     }),

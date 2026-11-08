@@ -6,7 +6,6 @@
 //   GET  /skills/for/:table              → { skills: SkillCard[] }                           text and table skills
 //   POST /skills/:key/run                SkillRunRequest → SkillRunResult                    (runs as the caller)
 //   POST /skills/:key/run/stream         SkillRunRequest → text/event-stream of SkillStreamEvent
-//   POST /skills/runs/:id/proposal       → { proposal }      turn a run's suggestions into a proposal (its author)
 //   POST /skills/runs/:id/feedback       { rating: 1 | -1 | null, comment? } → { ok }        (its author)
 //   GET  /skills/runs?table&id&mine      → { runs: SkillRunView[] }                           own runs (admins: all)
 //   GET  /skills/admin                   → SkillAdminView                                     (ai:full)

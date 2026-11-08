@@ -4,12 +4,12 @@
 import { z } from "zod";
 import { streamSSE } from "hono/streaming";
 import { router, body, query, errorResponse, type C } from "../http/hono";
-import { AppError, bad } from "../http/errors";
+import { AppError } from "../http/errors";
 import { aiErrorText } from "@shared/ai/errors";
 import type { SkillStreamEvent } from "@shared/ai/skills";
 import { AiUnavailableError, asHttpError } from "../modules/ai/errors";
 import {
-  adminView, copySkill, listRuns, patchSkill, proposeFromRun, publishVersion, rateRun, resolveSkill, runCore, runOwner, runSkill, runEvals, saveEval, savePrincipal, saveVersion,
+  adminView, copySkill, listRuns, patchSkill, publishVersion, rateRun, resolveSkill, runCore, runSkill, runEvals, saveEval, savePrincipal, saveVersion,
   skillsForRecord, skillsForText, testRun, usageRows,
 } from "../modules/ai/skills";
 
@@ -96,17 +96,6 @@ skillRoutes.get("/skills/runs", async (c) => {
 skillRoutes.post("/skills/runs/:id/feedback", async (c) => {
   const p = await body(c, z.object({ rating: z.union([z.literal(1), z.literal(-1), z.null()]), comment: z.string().max(1000).nullish() }));
   return c.json(await rateRun(c.get("ctx"), UUID.parse(c.req.param("id")).toLowerCase(), p.rating, p.comment ?? null));
-});
-
-// a run's writes as a proposal on its record, later (its author only; built again from the stored run, never the client)
-skillRoutes.post("/skills/runs/:id/proposal", async (c) => {
-  const ctx = c.get("ctx");
-  const run = await runOwner(ctx, UUID.parse(c.req.param("id")).toLowerCase());
-  if (!run.table_key || !run.record_id) throw bad("این اجرا به رکوردی وابسته نیست");
-  // run the skill again as the caller: the proposal reflects what they may read and change now
-  const rs = await resolveSkill(ctx, String(run.skill_key));
-  const { result, input } = await runCore(ctx, rs, { table: String(run.table_key), id: String(run.record_id), params: (run.params as Record<string, unknown>) ?? {} }, { propose: false });
-  return c.json({ proposal: await proposeFromRun(ctx, rs, input, result, { principal: "person" }) });
 });
 
 // ---------------------------------------------------------------- administration (ai:full)

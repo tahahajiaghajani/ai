@@ -124,9 +124,9 @@ export async function writeAssist(ctx: Ctx, input: { action: WriteAction; text: 
   if (!(input.action in INSTRUCTIONS)) throw bad("این کار را دستیار نگارش نمی‌شناسد");
   const text = String(input.text ?? "").slice(0, 20_000);
   if (text.trim().length < 2) throw bad("متنی برای بازنویسی انتخاب کنید");
-  const { runSkill } = await import("../ai/skills");
+  const { runForModule } = await import("../ai/skills");
   const s = WRITE_SKILLS[input.action];
-  const r = await runSkill(ctx, s.key, { text, params: { ...(s.params ?? {}), ...(input.instructions ? { house_style: String(input.instructions).slice(0, 1000) } : {}) } });
+  const r = await runForModule(ctx, s.key, { text, params: { ...(s.params ?? {}), ...(input.instructions ? { house_style: String(input.instructions).slice(0, 1000) } : {}) } });
   return { text: String(r.text ?? "").trim(), model: r.model ?? "", rule_based: r.fallback };
 }
 

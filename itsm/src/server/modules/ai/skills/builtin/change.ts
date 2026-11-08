@@ -5,16 +5,15 @@
 // conflicts and its summary. AI never authorizes a change, records a CAB decision or passes a gate.
 import { z } from "zod";
 import type { Ctx } from "../../../../context";
-import type { PlanField, PirSection } from "../../../change/ai";
+import type { PlanField } from "../../../change/ai";
 import { registerChangeAi } from "../../../change/ai";
 import { riskView } from "../../../change/actions";
 import { timelineOf, workbench } from "../../../change";
 import { get, list, listLinks } from "../../../../engine";
 import { formatJalaliDateTime } from "@shared/jalali";
 import { orgTimeZone } from "../../usage";
-import { AiUnavailableError } from "../../engine";
 import { defineSkill } from "../registry";
-import { runSkill } from "../runtime";
+import { runForModule } from "../runtime";
 import type { SkillDef } from "../types";
 import { ruleSummary } from "./generic";
 
@@ -213,35 +212,23 @@ export const changeSkills: SkillDef[] = [
   }),
 ];
 
+// `cabPack` and `draftPir` are not registered: the module's CAB pack and PIR draft would present a draft as AI-written
+// even when no model answered (their call sites cannot tell). Both skills run from the record's «هوش مصنوعی» panel
+// (`change.cab_pack` on a CAB meeting, `change.pir` on a change), labelled as AI or rule-based.
 export function installChangeAi(): (() => void)[] {
   return [
     registerChangeAi({
       async riskNarrative(ctx, changeId) {
-        const r = await runSkill(ctx, "change.risk_narrative", { table: "change_request", id: changeId });
+        const r = await runForModule(ctx, "change.risk_narrative", { table: "change_request", id: changeId });
         return { text: r.text ?? "" };
       },
       async draftPlans(ctx, changeId, fields) {
-        const r = await runSkill(ctx, "change.plans", { table: "change_request", id: changeId });
+        const r = await runForModule(ctx, "change.plans", { table: "change_request", id: changeId });
         const want = new Set(fields.filter((f) => PLAN_FIELDS.includes(f)));
         return Object.fromEntries(r.suggestions.filter((s) => want.has(s.field as PlanField)).map((s) => [s.field, String(s.value ?? "")])) as Partial<Record<PlanField, string>>;
       },
-      async cabPack(ctx, meetingId) {
-        const r = await runSkill(ctx, "change.cab_pack", { table: "cab_meeting", id: meetingId });
-        return { text: r.text ?? "" };
-      },
-      // merged over the module's deterministic draft: without a model the deterministic draft stands alone
-      async draftPir(ctx, changeId) {
-        try {
-          const r = await runSkill(ctx, "change.pir", { table: "change_request", id: changeId });
-          const j = (r.json ?? {}) as Partial<Record<PirSection, string>>;
-          return Object.fromEntries(Object.entries(j).filter(([, v]) => typeof v === "string" && v.trim())) as Partial<Record<PirSection, string>>;
-        } catch (e) {
-          if (e instanceof AiUnavailableError) return {};
-          throw e;
-        }
-      },
       async summarize(ctx, changeId) {
-        const r = await runSkill(ctx, "change.summary", { table: "change_request", id: changeId });
+        const r = await runForModule(ctx, "change.summary", { table: "change_request", id: changeId });
         return { text: r.text ?? "" };
       },
     }),

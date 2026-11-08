@@ -33,6 +33,7 @@ import { subjectOf } from "../../../access/subject";
 import { AppError, bad, forbidden, notFound } from "../../../http/errors";
 import { sysOf } from "../../incident/common";
 import { AiUnavailableError, aiStatus, generate } from "../engine";
+import { asHttpError } from "../errors";
 import { loadSettings } from "../settings";
 import { orgNotes } from "../prompts";
 import { jsonSchemaOf } from "../schema";
@@ -689,6 +690,22 @@ export async function runSkill(ctx: Ctx, key: string, req: SkillRunRequest, opts
   const rs = await resolveSkill(ctx, key, opts.versionId);
   return runResolved(ctx, rs, req, opts);
 }
+
+/**
+ * A run for a module's AI extension point: as the person, never a rule-based fallback (the module has its own
+ * deterministic path, or answers «no AI»), and AI unavailability as the HTTP error of its kind (`ai_not_configured`
+ * with the remedy …) so a module route without its own mapping still answers 4xx in Persian.
+ */
+export async function runForModule(ctx: Ctx, key: string, req: SkillRunRequest, opts: RunOptions = {}): Promise<SkillRunResult> {
+  try {
+    return await runSkill(ctx, key, req, { ...opts, noFallback: true });
+  } catch (e) {
+    throw asHttpError(e);
+  }
+}
+
+/** Is this an «AI cannot answer» error of a module integration (no model, switched off, budget …)? */
+export const isAiUnavailable = (e: unknown): boolean => e instanceof AiUnavailableError || (e instanceof AppError && e.code.startsWith("ai_"));
 
 /** The text of a module integration's answer (a skill run as the person, no proposal, the run stored). */
 export async function skillText(ctx: Ctx, key: string, req: SkillRunRequest): Promise<{ text: string; citations: SkillCitation[]; model: string | null; fallback: boolean }> {

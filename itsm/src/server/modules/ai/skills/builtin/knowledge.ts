@@ -10,7 +10,7 @@ import { get } from "../../../../engine";
 import { registerKnowledgeAi } from "../../../knowledge/ai";
 import { draftOfRecord } from "../../../knowledge/capture";
 import { defineSkill } from "../registry";
-import { runSkill } from "../runtime";
+import { runForModule } from "../runtime";
 import type { SkillDef } from "../types";
 
 const KCS_TABLES = ["incident", "problem", "known_error", "request_item", "change_request"];
@@ -131,28 +131,28 @@ export function installKnowledgeAiSkills(): (() => void)[] {
   return [
     registerKnowledgeAi({
       async draftFromRecord(ctx, table, id) {
-        const r = await runSkill(ctx, "kb.kcs_draft", { table, id });
+        const r = await runForModule(ctx, "kb.kcs_draft", { table, id });
         const j = (r.json ?? {}) as { title?: string; summary?: string; body?: string; keywords?: string[] };
         return { title: String(j.title ?? ""), summary: j.summary, body: String(j.body ?? ""), keywords: j.keywords, model: r.model ?? undefined };
       },
       async prescoreAqi(ctx, reviewId) {
         const review = (await get(ctx, "kb_quality_review", reviewId)).row;
-        const r = await runSkill(ctx, "kb.quality", { table: "kb_article", id: String(review.article_id) });
+        const r = await runForModule(ctx, "kb.quality", { table: "kb_article", id: String(review.article_id) });
         const keys = new Set(DEFAULT_AQI_ITEMS.map((i) => i.key));
         const criteria = ((r.json as { criteria?: { key: string; met: boolean; evidence?: string }[] } | null)?.criteria ?? []).filter((c) => keys.has(c.key));
         return Object.fromEntries(criteria.map((c) => [c.key, { met: !!c.met, evidence: c.evidence }]));
       },
       async judgeDuplicate(ctx, a, b) {
-        const r = await runSkill(ctx, "kb.duplicate", { table: "kb_article", id: a, params: { other: b } });
+        const r = await runForModule(ctx, "kb.duplicate", { table: "kb_article", id: a, params: { other: b } });
         const j = (r.json ?? {}) as { verdict?: "duplicate" | "overlapping" | "distinct" | "contradicting"; merged?: string };
         return { verdict: j.verdict ?? "distinct", merged: j.merged };
       },
       async suggestMetadata(ctx, versionId) {
-        const r = await runSkill(ctx, "kb.metadata", { table: "kb_version", id: versionId });
+        const r = await runForModule(ctx, "kb.metadata", { table: "kb_version", id: versionId });
         return r.suggestions.map((s) => ({ field: s.field, value: s.value, confidence: s.confidence ?? 0.5 }));
       },
       async validate(ctx, versionId) {
-        const r = await runSkill(ctx, "kb.validate", { table: "kb_version", id: versionId });
+        const r = await runForModule(ctx, "kb.validate", { table: "kb_version", id: versionId });
         const j = (r.json ?? {}) as { score?: number; issues?: string[] };
         return { issues: j.issues ?? [], score: typeof j.score === "number" ? j.score : 0 };
       },

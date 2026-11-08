@@ -11,7 +11,7 @@ import { ciSummaryFacts } from "../../../cmdb/facts";
 import { registerPortfolioAi } from "../../../service_portfolio/ai";
 import { serviceScorecard } from "../../../service_portfolio/insights";
 import { defineSkill } from "../registry";
-import { runSkill } from "../runtime";
+import { runForModule } from "../runtime";
 import type { SkillDef } from "../types";
 
 type Row = Record<string, unknown>;
@@ -172,11 +172,11 @@ export function installCmdbAiSkills(): (() => void)[] {
   return [
     registerCmdbAi({
       async summarize(ctx, ciId, facts) {
-        const r = await runSkill(ctx, "cmdb.summary", { table: "ci", id: ciId }, { facts: facts ? { facts } : undefined });
+        const r = await runForModule(ctx, "cmdb.summary", { table: "ci", id: ciId }, { facts: facts ? { facts } : undefined });
         return { text: r.text ?? "" };
       },
       async suggestRelationships(ctx, ciId) {
-        const r = await runSkill(ctx, "cmdb.relationships", { table: "ci", id: ciId });
+        const r = await runForModule(ctx, "cmdb.relationships", { table: "ci", id: ciId });
         const list0 = ((r.json as { suggestions?: { other: string; direction: "parent" | "child"; type: string; score: number; evidence: string }[] } | null)?.suggestions ?? []);
         if (!list0.length) return [];
         const ci = (await get(ctx, "ci", ciId)).row;
@@ -193,7 +193,7 @@ export function installCmdbAiSkills(): (() => void)[] {
         return out;
       },
       async explainDuplicate(ctx, taskId) {
-        const r = await runSkill(ctx, "cmdb.duplicate", { table: "cmdb_dedup_task", id: taskId });
+        const r = await runForModule(ctx, "cmdb.duplicate", { table: "cmdb_dedup_task", id: taskId });
         const j = (r.json ?? {}) as { text?: string; survivor?: string; root_cause?: string };
         let survivor: string | undefined;
         if (j.survivor) {
@@ -203,24 +203,24 @@ export function installCmdbAiSkills(): (() => void)[] {
         return { text: String(j.text ?? ""), survivor_id: survivor, root_cause: j.root_cause };
       },
       async qualityNarrative(ctx, facts) {
-        const r = await runSkill(ctx, "cmdb.quality", {}, { facts: { health: facts } });
+        const r = await runForModule(ctx, "cmdb.quality", {}, { facts: { health: facts } });
         const j = (r.json ?? {}) as { text?: string; recommendations?: { title: string; path?: string }[] };
         return { text: String(j.text ?? ""), recommendations: j.recommendations };
       },
     }),
     registerPortfolioAi({
       async describe(ctx, serviceId, opts) {
-        const r = await runSkill(ctx, "service.describe", { table: "service", id: serviceId, params: { tone: opts.tone ?? "plain" } });
+        const r = await runForModule(ctx, "service.describe", { table: "service", id: serviceId, params: { tone: opts.tone ?? "plain" } });
         const j = (r.json ?? {}) as { description?: string; value_proposition?: string; outcomes?: string; faq?: { q: string; a: string }[] };
         return { description: String(j.description ?? ""), value_proposition: j.value_proposition, outcomes: j.outcomes, faq: j.faq };
       },
       async translate(ctx, serviceId, to) {
-        const r = await runSkill(ctx, "service.translate", { table: "service", id: serviceId, params: { language: to } });
+        const r = await runForModule(ctx, "service.translate", { table: "service", id: serviceId, params: { language: to } });
         const j = (r.json ?? {}) as { name?: string; description?: string };
         return { name: String(j.name ?? ""), description: String(j.description ?? "") };
       },
       async narrative(ctx, serviceId, facts) {
-        const r = await runSkill(ctx, "service.narrative", { table: "service", id: serviceId }, { facts: facts ? { scorecard: facts } : undefined });
+        const r = await runForModule(ctx, "service.narrative", { table: "service", id: serviceId }, { facts: facts ? { scorecard: facts } : undefined });
         return { text: r.text ?? "" };
       },
     }),

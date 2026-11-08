@@ -158,10 +158,11 @@ export async function patchSkill(ctx: Ctx, key: string, patch: SkillConfigPatch)
   if (Array.isArray(data.field_groups) && data.field_groups.some((g) => !(SKILL_FIELD_GROUPS as readonly string[]).includes(String(g)))) throw bad("گروه فیلد معتبر نیست؛ «ai_private» هرگز به مدل نمی‌رسد");
   if (Array.isArray(data.auto_apply) && data.auto_apply.length && rs.def.output !== "fields" && rs.def.output !== "journal") throw bad("اعمال خودکار فقط برای پیشنهاد فیلد یا یادداشت داخلی است");
   if (Array.isArray(data.auto_apply) && data.auto_apply.includes("comment")) throw bad("پاسخ به درخواست‌کننده هرگز خودکار فرستاده نمی‌شود");
+  // written as the platform on the administrator's behalf (their ai:full was checked above; the history names them):
+  // an AI administrator need not also hold an ITSM grant in «ai»
   const sys = sysOf(ctx, ctx.user.id);
   if (rs.row) {
-    // the administrator's own context: the hook re-checks ai:full; field values are checked by the engine
-    await ctx.write((tx) => updateIn(tx, ctx, AI_SKILL, String(rs.row!.id), data, { trusted: true }));
+    await sys.write((tx) => updateIn(tx, sys, AI_SKILL, String(rs.row!.id), data, { trusted: true }));
   } else {
     await sys.write((tx) => createIn(tx, sys, AI_SKILL, { key: rs.def.key, name: rs.def.name, description: rs.def.description, base_key: rs.def.key, builtin: true, ...data }, { trusted: true }));
   }
@@ -193,10 +194,10 @@ export async function saveVersion(ctx: Ctx, key: string, input: { system: string
   const sys = sysOf(ctx, ctx.user.id);
   const max = await ctx.db.one<{ v: number | null }>(`select max(revision)::int as v from sm_ai_skill_versions where org_id = $1 and skill_id = $2 and deleted_at is null`, [ctx.org.id, rs.row.id]);
   const next = (max?.v ?? 0) + 1;
-  const row = await ctx.write((tx) =>
+  const row = await sys.write((tx) =>
     createIn(
       tx,
-      ctx,
+      sys,
       AI_SKILL_VERSION,
       {
         skill_id: rs.row!.id,
@@ -213,7 +214,6 @@ export async function saveVersion(ctx: Ctx, key: string, input: { system: string
       { trusted: true },
     ),
   );
-  void sys;
   return versionView(row);
 }
 
@@ -226,11 +226,12 @@ export async function publishVersion(ctx: Ctx, key: string, versionId: string | 
     const v = await versionRow(ctx, versionId);
     if (!v || v.skill_id !== rs.row.id) throw notFound("نسخهٔ مهارت پیدا نشد");
   }
-  await ctx.write(async (tx) => {
+  const sys = sysOf(ctx, ctx.user.id);
+  await sys.write(async (tx) => {
     const prev = rs.cfg.active_version_id;
-    if (prev && prev !== versionId) await updateIn(tx, ctx, AI_SKILL_VERSION, prev, { state: "retired" }, { trusted: true });
-    if (versionId) await updateIn(tx, ctx, AI_SKILL_VERSION, versionId, { state: "published", published_at: new Date().toISOString(), published_by: ctx.user.id }, { trusted: true });
-    await updateIn(tx, ctx, AI_SKILL, String(rs.row!.id), { active_version_id: versionId }, { trusted: true });
+    if (prev && prev !== versionId) await updateIn(tx, sys, AI_SKILL_VERSION, prev, { state: "retired" }, { trusted: true });
+    if (versionId) await updateIn(tx, sys, AI_SKILL_VERSION, versionId, { state: "published", published_at: new Date().toISOString(), published_by: ctx.user.id }, { trusted: true });
+    await updateIn(tx, sys, AI_SKILL, String(rs.row!.id), { active_version_id: versionId }, { trusted: true });
   });
   return (await adminView(ctx)).skills.find((s) => s.key === key)!;
 }
@@ -246,16 +247,17 @@ export async function copySkill(ctx: Ctx, key: string, input: { key: string; nam
   const { key: _k, name: _n, builtin: _b, base_key: _bk, active_version_id: _a, has_fallback: _h, catalog: _c, surfaces: _s, output_fields: _o, module: _m, target: _t, output: _out, ...config } = rs.cfg;
   void _k, _n, _b, _bk, _a, _h, _c, _s, _o, _m, _t, _out;
   const v = rs.version;
-  await ctx.write(async (tx) => {
-    const row = await createIn(tx, ctx, AI_SKILL, { ...config, key: k, name: input.name.trim(), base_key: rs.def.key, builtin: false, enabled: false }, { trusted: true });
+  const sys = sysOf(ctx, ctx.user.id);
+  await sys.write(async (tx) => {
+    const row = await createIn(tx, sys, AI_SKILL, { ...config, key: k, name: input.name.trim(), base_key: rs.def.key, builtin: false, enabled: false }, { trusted: true });
     const ver = await createIn(
       tx,
-      ctx,
+      sys,
       AI_SKILL_VERSION,
       { skill_id: row.id, revision: 1, label: `${input.name.trim()} — نسخهٔ ۱`, state: "published", system: v.system, template: v.template, output_schema: v.output_schema, temperature: v.temperature, max_tokens: v.max_tokens, note: `رونوشت از «${rs.cfg.name}»`, published_at: new Date().toISOString(), published_by: ctx.user.id },
       { trusted: true },
     );
-    await updateIn(tx, ctx, AI_SKILL, String(row.id), { active_version_id: ver.id }, { trusted: true });
+    await updateIn(tx, sys, AI_SKILL, String(row.id), { active_version_id: ver.id }, { trusted: true });
   });
   return (await adminView(ctx)).skills.find((s) => s.key === k)!;
 }
@@ -301,10 +303,11 @@ export async function saveEval(ctx: Ctx, key: string, input: { id?: string | nul
   await resolveSkill(ctx, key);
   if (!input.name.trim()) throw bad("نام مجموعهٔ ارزیابی را بنویسید");
   if (!input.cases.length) throw bad("دست‌کم یک نمونه بنویسید");
-  const row = await ctx.write((tx) =>
+  const sys = sysOf(ctx, ctx.user.id);
+  const row = await sys.write((tx) =>
     input.id
-      ? updateIn(tx, ctx, AI_SKILL_EVAL, input.id, { name: input.name.trim(), cases: input.cases }, { trusted: true })
-      : createIn(tx, ctx, AI_SKILL_EVAL, { skill_key: key, name: input.name.trim(), cases: input.cases }, { trusted: true }),
+      ? updateIn(tx, sys, AI_SKILL_EVAL, input.id, { name: input.name.trim(), cases: input.cases }, { trusted: true })
+      : createIn(tx, sys, AI_SKILL_EVAL, { skill_key: key, name: input.name.trim(), cases: input.cases }, { trusted: true }),
   );
   return evalView(row);
 }
@@ -402,13 +405,6 @@ export async function rateRun(ctx: Ctx, runId: string, rating: 1 | -1 | null, co
   const sys = sysOf(ctx, ctx.user.id);
   await sys.write((tx) => updateIn(tx, sys, "ai_skill_run", runId, { feedback: rating, feedback_comment: comment?.trim().slice(0, 1000) || null }, { trusted: true }), { internal: true });
   return { ok: true };
-}
-
-/** Its author turns a run's suggestions into a proposal later (the panel's «ثبت پیشنهاد» after a preview). */
-export async function runOwner(ctx: Ctx, runId: string): Promise<Row> {
-  const r = await ctx.db.one<Row>(`select * from sm_ai_skill_runs where org_id = $1 and id = $2 and deleted_at is null`, [ctx.org.id, runId]);
-  if (!r || r.invoker_id !== ctx.user.id) throw notFound("اجرای مهارت پیدا نشد");
-  return r;
 }
 
 /** The service member's roles (an owner sets them: nobody grants roles above their own). */
