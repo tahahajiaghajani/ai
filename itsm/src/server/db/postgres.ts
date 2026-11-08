@@ -2,7 +2,7 @@
 // Use the Supabase *transaction pooler* URL (port 6543) on Vercel; prepared statements are off
 // because the transaction pooler does not support them.
 import postgres from "postgres";
-import { toIsoTimestamp, type Db, type Row, type Tx } from "./index";
+import { runBeforeCommit, toIsoTimestamp, type Db, type Row, type Tx } from "./index";
 
 /**
  * postgres.js lets the server decide parameter types and serialises json/jsonb itself, so
@@ -142,7 +142,9 @@ export function createPostgresDb(opts: PostgresOptions): Db {
       const result = await sql.begin(async (t) => {
         const sp = savepoints(t);
         try {
-          const r = await fn({ ...make(sp.sql), inTx: true });
+          const txq: Tx = { ...make(sp.sql), inTx: true };
+          const r = await fn(txq);
+          await runBeforeCommit(txq);
           await sp.closeAll(true);
           return r;
         } catch (e) {

@@ -2,7 +2,7 @@
 // The data directory is a normal PostgreSQL data folder on disk; queries are serialised by
 // PGlite (one connection), so a transaction holds the database until it ends.
 import { PGlite } from "@electric-sql/pglite";
-import { serializeParam, toIsoTimestamp, type Db, type Row, type Tx } from "./index";
+import { runBeforeCommit, serializeParam, toIsoTimestamp, type Db, type Row, type Tx } from "./index";
 
 export interface PgliteOptions {
   /** folder of the database; omit for an in-memory database (tests) */
@@ -67,7 +67,9 @@ export async function createPgliteDb(opts: PgliteOptions = {}): Promise<Db & { p
             throw e;
           }
         };
-        const r = await fn({ query: track(q.query), one: track(q.one), exec: track(q.exec), inTx: true } as Tx);
+        const txq = { query: track(q.query), one: track(q.one), exec: track(q.exec), inTx: true } as Tx;
+        const r = await fn(txq);
+        await runBeforeCommit(txq);
         // PostgreSQL answers COMMIT of a failed transaction with a silent ROLLBACK, so a statement
         // that failed (and was caught) without a rollback to a savepoint would lose the whole
         // transaction while the caller is told it succeeded. Fail it instead, as postgres.js does.

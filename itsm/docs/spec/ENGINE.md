@@ -327,6 +327,14 @@ table run before those registered for `"*"`, in registration order. Values a `be
 input (no permission checks); history, events and `afterWrite` see them. Never call a model or an external service
 in a hook — enqueue a job. Each `register*` returns an unregister function.
 
+**Once per transaction** — `onBeforeCommit(tx, key, fn)` (from `@server/engine`, implemented by both database
+layers): `fn` runs once, just before `tx` commits, however many writes queued it under the same `key` while it was
+waiting — a roll-up of many child writes (`request.rollup:<id>`: an order's totals, people and state from its items)
+or a recount. It runs in the same transaction (its writes commit with it, a failure rolls everything back), in the
+order the keys were first queued; work it queues runs after it (twenty rounds at most), and a key that already ran
+may run again. Work queued inside a savepoint that rolled back still runs: let it recompute from what is stored.
+Readers inside the same transaction see the result only after the commit point, so keep it to derived data.
+
 ## 7. Events
 
 Every create/update/transition/delete writes events into the job queue **in the same transaction** (outbox):

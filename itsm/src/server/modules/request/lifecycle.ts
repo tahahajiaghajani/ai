@@ -19,7 +19,7 @@ import { add, cmp, isNumeric, mul } from "@shared/money";
 import { grantIn, writeMode } from "@shared/access";
 import { tableDef } from "@shared/tables";
 import type { Ctx } from "../../context";
-import type { Queryable, Tx } from "../../db";
+import { onBeforeCommit, type Queryable, type Tx } from "../../db";
 import { bad, forbidden } from "../../http/errors";
 import { addJournalIn, condEnv, createIn, isSystemCtx, onRecordEvent, registerHooks, removeIn, systemCtx, transitionIn, updateIn, validationError, type RecordEvent, type WriteArgs } from "../../engine";
 import type { JobConfig } from "../../jobs";
@@ -317,7 +317,7 @@ async function advance(w: WriteArgs & { row: Row }): Promise<void> {
   const { tx, ctx } = w;
   const row = w.row;
   if (w.op === "delete") {
-    if (row.request_id) await rollupRequest(tx, ctx, String(row.request_id));
+    if (row.request_id) rollupBeforeCommit(tx, ctx, String(row.request_id));
     return;
   }
   const schema = await cachedSchema(tx, ctx, row.item_version_id);
@@ -359,7 +359,7 @@ async function advance(w: WriteArgs & { row: Row }): Promise<void> {
     }
   }
   if (row.request_id && (w.op === "create" || ["state", "stage", "assigned_to", "assignment_group_id", "total", "quantity", "fulfillers"].some((f) => w.changed.has(f)))) {
-    await rollupRequest(tx, ctx, String(row.request_id));
+    rollupBeforeCommit(tx, ctx, String(row.request_id));
   }
 }
 
@@ -465,6 +465,11 @@ export async function rollupTasks(tx: Tx, ctx: Ctx, ritmId: string, opts: { anno
 // request (the order header)
 
 const rolling = new WeakMap<object, Set<string>>();
+
+/** The order's roll-up, once per transaction however many of its items were written (just before the commit). */
+function rollupBeforeCommit(tx: Tx, ctx: Ctx, requestId: string): void {
+  onBeforeCommit(tx, `request.rollup:${requestId}`, () => rollupRequest(tx, ctx, requestId));
+}
 
 /** An order's state, stage, totals and people from its items. */
 export async function rollupRequest(tx: Tx, ctx: Ctx, requestId: string): Promise<void> {
