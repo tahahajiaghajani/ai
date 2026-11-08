@@ -36,7 +36,8 @@ export default function AskPage({ mode }: { mode: "docs" | "all" }) {
   }
 
   const options = (collections.data ?? []).map((c) => ({ value: c.id, label: c.name }));
-  const scope = docId ? { documents: [docId] } : { collections: chosen.length ? chosen : options.map((o) => o.value) };
+  // nothing chosen: every document the member may read (the server filters by access; no list of ids to outgrow)
+  const scope = docId ? { documents: [docId] } : chosen.length ? { collections: chosen } : { tables: ["doc_document"] };
   const empty = !docId && !options.length;
   return (
     <div>
