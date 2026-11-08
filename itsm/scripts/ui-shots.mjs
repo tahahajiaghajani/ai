@@ -8,6 +8,9 @@
 //   node scripts/ui-shots.mjs [--base http://127.0.0.1:3939] [--email … --password …] [--port 4102] [--out <dir>]
 //        [--paths a,b,c] [--themes light,dark] [--mobile a,b | --no-mobile] [--no-build] [--keep-server]
 //
+// The UI is built into a temporary directory of this checkout (named after a hash of the project path, so worktrees
+// never share one); --no-build serves this checkout's last build there, else its public/.
+//
 // Paths are relative to the organisation (`settings/users`, `` for the home page) unless they start with `/`
 // (`/login`, `/orgs`, `/admin`). `{org}` is replaced by the organisation's id, `{todo}` by a demo «کار» record. A path
 // ending in `@ai` opens the assistant (Ctrl J) before the screenshot. Default: every route of
@@ -23,9 +26,12 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
+import { createHash } from "node:crypto";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const TSX = join(ROOT, "node_modules", ".bin", process.platform === "win32" ? "tsx.cmd" : "tsx");
+// the UI build of this checkout: one directory per project path, so a --no-build run never serves another worktree's UI
+const BUILD_DIR = join(tmpdir(), `itsm-ui-shots-build-${createHash("sha256").update(ROOT).digest("hex").slice(0, 12)}`);
 
 // ---------------------------------------------------------------- internal server mode
 if (process.argv[2] === "--serve-internal") {
@@ -121,7 +127,7 @@ async function stopServer() {
 }
 
 async function startServer() {
-  let staticDir = join(tmpdir(), "itsm-ui-shots-build");
+  let staticDir = BUILD_DIR;
   if (!NO_BUILD) {
     log(`building UI into ${staticDir}`);
     await run(join(ROOT, "node_modules", ".bin", "vite"), ["build", "--logLevel", "warn"], { env: { ITSM_UI_OUT: staticDir }, logFile: join(OUT, "build.log") });
