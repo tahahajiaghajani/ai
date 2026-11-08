@@ -133,6 +133,7 @@ export async function publishIn(tx: Tx, ctx: Ctx, versionId: string, by: string 
   if (!v) throw notFound("نسخه پیدا نشد");
   const article = await articleOf(tx, sys, v.article_id);
   if (!article) throw notFound("مقاله پیدا نشد");
+  if (["retired", "trashed", "pending_retirement"].includes(String(article.state))) throw conflict("مقالهٔ بازنشسته، حذف‌شده یا در انتظار بازنشستگی منتشر نمی‌شود؛ اول آن را بازگردانید");
   const now = new Date().toISOString();
   const later = v.publish_at && Date.parse(v.publish_at) > Date.now() + 30_000;
   if (later) {

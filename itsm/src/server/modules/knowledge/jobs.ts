@@ -62,8 +62,12 @@ export async function kbSweep(sys: Ctx, opts: { daily?: boolean } = {}): Promise
 
   // scheduled publications
   for (const v of await liveRows(sys.db, sys, "kb_version", { and: [{ f: "state", op: "eq", v: "scheduled" }, { f: "publish_at", op: "lte", v: now }] }, { limit: 200 })) {
-    await sys.write((tx) => publishIn(tx, sys, v.id, v.approved_by ?? v.submitted_by ?? null));
-    out.published++;
+    try {
+      await sys.write((tx) => publishIn(tx, sys, v.id, v.approved_by ?? v.submitted_by ?? null));
+      out.published++;
+    } catch {
+      // an article that left publication meanwhile keeps the version as it is (articleAfter returns it to draft)
+    }
   }
   // scheduled retirements
   for (const a of await liveRows(sys.db, sys, "kb_article", { and: [{ f: "state", op: "in", v: ["published", "pending_retirement"] }, { f: "retire_at", op: "lte", v: today }] }, { limit: 200 })) {

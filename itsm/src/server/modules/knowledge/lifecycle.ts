@@ -25,6 +25,7 @@ export async function retireArticle(ctx: Ctx, id: string, input: { reason: strin
       return;
     }
     const needsApproval = !!base?.retire_approval && !isKbApprover(ctx);
+    if (needsApproval && a.state === "pending_retirement") throw conflict("درخواست بازنشستگی این مقاله منتظر تأیید است");
     await transitionIn(tx, ctx, "kb_article", id, needsApproval ? "pending_retirement" : "retired", data, {});
   });
   return get(ctx, "kb_article", id);

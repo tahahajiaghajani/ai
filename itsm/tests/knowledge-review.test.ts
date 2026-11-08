@@ -9,6 +9,7 @@ import { PNG, raw, upload } from "./engine-helpers";
 import type { Client } from "./helpers";
 import { BY_ENTITY } from "@server/sync/registry";
 import { pullEngine } from "@server/engine/sync";
+import { kbSweep } from "@server/modules/knowledge";
 
 let w: KbWorld;
 const R = (t: string, id?: string) => `${w.P}/r/${t}${id ? `/${id}` : ""}`;
@@ -75,3 +76,93 @@ describe("an article's files and comments stay with its people", () => {
   });
 });
 
+const pending = async (who: Client, table: string, id: string) => ((await who.get(`${w.P}/approvals/mine`)).approvals as any[]).filter((x) => x.table_key === table && x.record_id === id);
+const state = async (table: string, id: string) => (await w.o.get(R(table, id))).row.state;
+
+describe("retirement and approval rounds", () => {
+  it("never publishes a retired article: its version waiting for approval or for its date leaves with it", async () => {
+    const a = await w.published({ title: "تنظیم پروکسی مرورگر", body: "## گام‌ها\n\n1. تنظیمات را باز کنید\n2. پروکسی را بنویسید\n" });
+    const d1 = (await as("km").post(K(`/articles/${a.id}/draft`), {})).version;
+    await as("km").patch(R("kb_version", d1.id), { body: "## گام‌ها\n\n1. تنظیمات را باز کنید\n2. پروکسی تازه را بنویسید\n" });
+    expect((await w.submit(d1.id)).state).toBe("in_review");
+    await w.drain();
+    expect(await pending(w.o, "kb_version", d1.id)).toHaveLength(1);
+    await as("km").post(K(`/articles/${a.id}/retire`), { reason: "پروکسی برداشته شد" });
+    expect(await state("kb_article", a.id)).toBe("retired");
+    expect(await state("kb_version", d1.id)).toBe("discarded");
+    expect(await pending(w.o, "kb_version", d1.id)).toHaveLength(0);
+    // a version scheduled for later goes too, and the sweep publishes nothing into a retired article
+    const b = await w.published({ title: "تنظیم چاپ دورو", body: "## گام‌ها\n\n1. چاپگر را انتخاب کنید\n2. دورو را بزنید\n" });
+    const d2 = (await as("km").post(K(`/articles/${b.id}/draft`), {})).version;
+    await as("km").post(K(`/versions/${d2.id}/submit`), { publish_at: new Date(Date.now() + 3 * 86_400_000).toISOString() });
+    await w.drain();
+    await w.decide(w.o, "kb_version", d2.id);
+    expect(await state("kb_version", d2.id)).toBe("scheduled");
+    await as("km").post(K(`/articles/${b.id}/retire`), { reason: "دیگر لازم نیست" });
+    await w.e.db.query(`update sm_kb_versions set publish_at = now() - interval '1 minute' where id = $1`, [d2.id]);
+    await kbSweep(w.sys);
+    expect(await state("kb_article", b.id)).toBe("retired");
+  });
+
+  it("keeps a requested retirement and a retirement date to the approvers", async () => {
+    await w.o.patch(R("kb_base", w.bases.guide), { retire_approval: true });
+    try {
+      const a = await w.published({ title: "راهنمای دستگاه کپی قدیمی", body: "## گام‌ها\n\n1. کاغذ بگذارید\n2. کپی بزنید\n" }, as("agent"));
+      expect((await as("agent").post(K(`/articles/${a.id}/retire`), { reason: "دستگاه جمع شد" })).row.state).toBe("pending_retirement");
+      expect(await statusOf(as("agent"), "POST", `${R("kb_article", a.id)}/transition`, { to: "retired", data: { retire_reason: "دستگاه جمع شد" } })).toBe(409);
+      expect(await statusOf(as("agent"), "POST", K(`/articles/${a.id}/retire`), { reason: "دوباره" })).toBe(409);
+      // the reading view does not offer what the server refuses
+      expect((await read(as("agent"), a.id)).can.retire).toBe(false);
+      expect(await state("kb_article", a.id)).toBe("pending_retirement");
+      // a date retires without approval: in this base only approvers set one
+      const b = await w.published({ title: "راهنمای نمابر قدیمی", body: "## گام‌ها\n\n1. شماره را بگیرید\n2. بفرستید\n" }, as("agent"));
+      const later = new Date(Date.now() + 2 * 86_400_000).toISOString().slice(0, 10);
+      expect(await statusOf(as("agent"), "POST", K(`/articles/${b.id}/retire`), { reason: "نمابر جمع می‌شود", at: later })).toBe(403);
+      expect(await statusOf(as("agent"), "PATCH", R("kb_article", b.id), { retire_at: later })).toBe(403);
+      expect((await w.o.get(R("kb_article", b.id))).row.retire_at ?? null).toBeNull();
+      // the approver decides the request
+      await w.decide(as("km"), "kb_article", a.id);
+      expect(await state("kb_article", a.id)).toBe("retired");
+    } finally {
+      await w.o.patch(R("kb_base", w.bases.guide), { retire_approval: false });
+    }
+  });
+
+  it("starts a new approval round when a version goes back to draft by any path", async () => {
+    await w.o.patch(R("kb_base", w.bases.guide), { approval_mode: "all" });
+    try {
+      const r = await w.article({ title: "تنظیم امضای ایمیل", body: "## گام‌ها\n\n1. تنظیمات را باز کنید\n2. امضا را بنویسید\n" }, as("agent"));
+      expect((await w.submit(r.version.id, as("agent"))).state).toBe("in_review");
+      await w.drain();
+      const first = (await w.o.get(`${w.P}/approvals/record/kb_version/${r.version.id}`)).approvals as any[];
+      expect(first.length).toBeGreaterThanOrEqual(2);
+      await w.decide(as("km"), "kb_version", r.version.id);
+      // back to draft through the record's own transition, rewritten, submitted again
+      await as("agent").post(`${R("kb_version", r.version.id)}/transition`, { to: "draft", data: {} });
+      await as("agent").patch(R("kb_version", r.version.id), { body: "## گام‌ها\n\n1. متن دیگری\n2. کاملاً تازه\n" });
+      expect((await w.submit(r.version.id, as("agent"))).state).toBe("in_review");
+      await w.drain();
+      await w.decide(w.o, "kb_version", r.version.id);
+      // the knowledge manager's approval was for the earlier text: the rewritten one waits for them again
+      expect(await state("kb_version", r.version.id)).toBe("in_review");
+      expect(await pending(as("km"), "kb_version", r.version.id)).toHaveLength(1);
+      await w.decide(as("km"), "kb_version", r.version.id);
+      expect(await state("kb_version", r.version.id)).toBe("published");
+    } finally {
+      await w.o.patch(R("kb_base", w.bases.guide), { approval_mode: "any" });
+    }
+  });
+
+  it("offers review and restore only to those the server lets do them", async () => {
+    const a = await w.published({ title: "راهنمای اسکنر طبقهٔ اول", body: "## گام‌ها\n\n1. سند را بگذارید\n2. اسکن بزنید\n" });
+    const desk = await read(as("agent"), a.id);
+    expect(desk.can.review).toBe(false);
+    expect(await statusOf(as("agent"), "POST", K(`/articles/${a.id}/review`), { outcome: "confirm" })).toBe(403);
+    expect((await read(as("km"), a.id)).can.review).toBe(true);
+    const mine = await w.published({ title: "راهنمای قفل صفحه", body: "## گام‌ها\n\n1. کلید ویندوز و L\n2. تمام\n" }, as("agent"));
+    await as("km").post(K(`/articles/${mine.id}/retire`), { reason: "دیگر لازم نیست" });
+    expect((await read(as("agent"), mine.id)).can.restore).toBe(false);
+    expect(await statusOf(as("agent"), "POST", K(`/articles/${mine.id}/restore`), {})).toBe(403);
+    expect((await read(as("km"), mine.id)).can.restore).toBe(true);
+  });
+});

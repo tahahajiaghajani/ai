@@ -28,6 +28,7 @@ import {
   activeMembers, articleOf, attachmentRefs, baseOf, categoryOf, contributesTo, countRows, expandUnits, groupMembers, holdsInternal, ids, isKbAdmin, isKbApprover, kbConfig, liveRow, liveRows, managesBase, rowsById, sysOf, uniq, type Row,
 } from "./common";
 import { publishIn } from "./versions";
+import { cancelApprovalsIn } from "../sla";
 import { licenceLevel } from "./kcs";
 
 const entering = (w: WriteArgs, state: string) => w.next.state === state && (w.op === "create" || w.prev?.state !== state);
@@ -159,6 +160,10 @@ async function articleBefore(w: WriteArgs): Promise<void> {
     throw validationError({ template_id: "این قالب در این پایگاه مجاز نیست" });
   }
   if (n.replaced_by && n.replaced_by === n.id) throw validationError({ replaced_by: "مقاله جایگزین خودش نیست" });
+  // a retirement date retires the article without approval (the sweep): in a base that asks for it, approvers set it
+  if (!isSys(w.ctx) && !w.trusted && n.retire_at && touched(w, ["retire_at"]) && base.retire_approval && !isKbApprover(w.ctx)) {
+    throw forbidden("بازنشستگی در این پایگاه تأیید می‌خواهد؛ به‌جای تاریخ، «درخواست بازنشستگی» را بزنید");
+  }
   if (n.translation_of && n.translation_of === n.id) throw validationError({ translation_of: "مقاله ترجمهٔ خودش نیست" });
   if (n.article_type === "link" && touched(w, ["article_type", "external_url"]) && !n.external_url && w.op !== "create") throw validationError({ external_url: "نشانی منبع بیرونی را بنویسید" });
   n.confidential = isInternalArticle(n);
@@ -186,10 +191,17 @@ async function articleBefore(w: WriteArgs): Promise<void> {
 async function articleAfter(w: WriteArgs & { row: Row }): Promise<void> {
   if (w.op === "delete") return;
   const sys = sysOf(w.ctx);
+  if (entering(w, "retired") || entering(w, "trashed") || entering(w, "pending_retirement")) {
+    // a version waiting for approval or for its date would publish the article again: it goes back to draft (its
+    // approvals withdrawn, versionAfter); a retired or trashed article's open draft goes with it
+    const gone = !entering(w, "pending_retirement");
+    const open = await liveRows(w.tx, sys, "kb_version", { and: [{ f: "article_id", op: "eq", v: w.row.id }, { f: "state", op: "in", v: gone ? ["draft", "in_review", "scheduled"] : ["in_review", "scheduled"] }] }, { limit: 5 });
+    for (const v of open) {
+      if (v.state !== "draft") await transitionIn(w.tx, sys, "kb_version", v.id, "draft", {}, { trusted: true });
+      if (gone) await transitionIn(w.tx, sys, "kb_version", v.id, "discarded", {}, { trusted: true });
+    }
+  }
   if (entering(w, "retired") || entering(w, "trashed")) {
-    // an open draft goes with it
-    const open = await liveRows(w.tx, sys, "kb_version", { and: [{ f: "article_id", op: "eq", v: w.row.id }, { f: "state", op: "eq", v: "draft" }] }, { limit: 5 });
-    for (const v of open) await transitionIn(w.tx, sys, "kb_version", v.id, "discarded", {}, { trusted: true });
     const { def } = await defFor(sys, "kb_article", w.tx);
     const body = entering(w, "retired") ? `مقاله بازنشسته شد${w.row.retire_reason ? `: ${String(w.row.retire_reason).slice(0, 300)}` : "."}` : "مقاله به سطل بازیافت رفت.";
     await addJournalIn(w.tx, sys, def, w.row, { kind: "system", visibility: "internal", body }, { trusted: true, author: w.ctx.actor === "system" ? null : w.ctx.user.id });
@@ -203,7 +215,9 @@ const articleGuards = {
   async kb_can_retire(w: WriteArgs) {
     if (isSys(w.ctx) || isKbApprover(w.ctx)) return null;
     const base = await baseOf(w.tx, w.ctx, w.next.base_id);
-    return base?.retire_approval && w.prev?.state !== "pending_retirement" ? "بازنشستگی در این پایگاه تأیید می‌خواهد؛ «درخواست بازنشستگی» را بزنید" : null;
+    if (!base?.retire_approval) return null;
+    // a requested retirement is the approvers' to decide (the approval retires it)
+    return w.prev?.state === "pending_retirement" ? "درخواست بازنشستگی منتظر تأیید است؛ تأییدکننده آن را بازنشسته می‌کند" : "بازنشستگی در این پایگاه تأیید می‌خواهد؛ «درخواست بازنشستگی» را بزنید";
   },
   async kb_can_trash(w: WriteArgs) {
     if (isSys(w.ctx)) return null;
@@ -310,7 +324,12 @@ async function versionAfter(w: WriteArgs & { row: Row }): Promise<void> {
     return;
   }
   if (leaving(w, "in_review") || leaving(w, "scheduled")) {
-    if (v.state === "draft") {
+    // whatever the path (the withdraw button, the record's transition, a retirement), its open approvals are
+    // withdrawn, so a resubmission starts a new round and never publishes on approvals of an earlier text
+    if (v.state === "draft" || v.state === "discarded") await cancelApprovalsIn(w.tx, w.ctx, "kb_version", v.id);
+  }
+  if (leaving(w, "in_review") || leaving(w, "scheduled")) {
+    if (v.state === "draft" && article.state !== "pending_retirement") {
       await updateIn(w.tx, sys, "kb_article", article.id, { reviewer_ids: [] }, { trusted: true, keepVersion: true });
       if (!article.published_version_id && ["in_review", "scheduled"].includes(article.state)) await transitionIn(w.tx, sys, "kb_article", article.id, "draft", {}, { trusted: true });
     }

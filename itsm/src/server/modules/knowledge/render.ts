@@ -120,9 +120,11 @@ export async function readArticle(ctx: Ctx, id: string, opts: { session_id?: str
   const can = {
     edit: contributor && !["retired", "trashed"].includes(a.state),
     draft: open?.id ?? null,
-    review: contributor && live,
-    retire: contributor && live && !!meta.canWrite,
-    restore: (a.state === "trashed" || a.state === "retired") && (contributor || isKbApprover(ctx)),
+    // the periodic review changes the article (its writers); a requested retirement is the approvers'; a retired
+    // article returns to publication only with an approver (the transition's level), a trashed one with its people
+    review: contributor && live && !!meta.canWrite,
+    retire: contributor && live && !!meta.canWrite && !(a.state === "pending_retirement" && !!baseSys?.retire_approval && !isKbApprover(ctx)),
+    restore: (a.state === "trashed" && (contributor || isKbApprover(ctx))) || (a.state === "retired" && isKbApprover(ctx)),
     approve: isKbApprover(ctx),
     feedback: live && baseSys?.allow_ratings !== false,
     flag: live,

@@ -12,7 +12,6 @@ import { router, body, errorResponse, query } from "../http/hono";
 import { AppError, bad, forbidden, notFound } from "../http/errors";
 import { asHttpError } from "../modules/ai/errors";
 import { createIn, get, orgSchema, systemCtx, transitionIn, updateIn } from "../engine";
-import { cancelApprovals } from "../modules/sla";
 import { parseFile } from "../modules/ai/rag";
 import { cleanText, detectLang } from "@shared/ai/text";
 import { ARTICLE_TYPES } from "@shared/tables/knowledge";
@@ -234,8 +233,8 @@ knowledgeRoutes.post("/versions/:id/withdraw", async (c) => {
   const v = (await get(ctx, "kb_version", vid)).row as Row;
   if (!["in_review", "scheduled"].includes(String(v.state))) throw bad("این نسخه در بازبینی نیست");
   if (v.author_id !== ctx.user.id && !isKbAdmin(ctx)) throw forbidden("نویسنده نسخه را از بازبینی برمی‌گرداند");
+  // back to draft withdraws its open approvals (the version's hook, whatever the path)
   await ctx.write((tx) => transitionIn(tx, ctx, "kb_version", vid, "draft", {}, {}));
-  await cancelApprovals(ctx, "kb_version", vid).catch(() => undefined);
   const r = await get(ctx, "kb_version", vid);
   return c.json({ row: r.row, display: r.display });
 });

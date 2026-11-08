@@ -567,19 +567,35 @@ export async function cancelApprovals(ctx: Ctx, table: string, id: string, opts:
     const env = await condEnv(ctx);
     const record = await requireReadable(ctx, def, id, env, tx, { lock: true });
     if (!isSystemCtx(ctx) && (!access().canWrite(ctx, def, record) || record.$writable === false)) throw forbidden(`اجازهٔ تغییر این ${def.label} را ندارید`);
-    const sys = systemFrom(ctx);
-    const rows = await liveRows(tx, sys, "approval", eqAll({ table_key: def.key, record_id: id }), "t.round, t.level, t.id");
-    const mine = (r: Row) => opts.adhocRound === undefined || (!r.rule_id && Number(r.round) === opts.adhocRound);
-    let canceled = 0;
-    for (const r of rows) if (OPEN.has(r.state) && mine(r)) {
-      await updateIn(tx, sys, "approval", r.id, { state: "canceled", decided_at: iso(Date.now()), decided_by: actorId(ctx) }, { trusted: true });
-      r.state = "canceled";
-      canceled++;
-    }
-    const agg = aggregate(rows as never[]);
-    if (def.fields.some((f) => f.name === "approval") && record.approval !== agg) await updateIn(tx, sys, def.key, id, { approval: agg }, { trusted: true });
-    return { canceled, aggregate: agg };
+    return cancelOpen(tx, ctx, def, record, opts);
   });
+}
+
+/**
+ * The same inside `tx`, for server code that already decided the record leaves what its approvals were for (a
+ * knowledge version back to draft): no access check; the round ends as canceled.
+ */
+export async function cancelApprovalsIn(tx: Tx, ctx: Ctx, table: string, id: string, opts: { adhocRound?: number } = {}): Promise<{ canceled: number; aggregate: string }> {
+  const sys = systemFrom(ctx);
+  const { def } = await defFor(sys, table, tx);
+  const record = await requireReadable(sys, def, id, await condEnv(sys), tx, { lock: true });
+  return cancelOpen(tx, ctx, def, record, opts);
+}
+
+async function cancelOpen(tx: Tx, ctx: Ctx, def: TableDef, record: Row, opts: { adhocRound?: number }): Promise<{ canceled: number; aggregate: string }> {
+  const id = String(record.id);
+  const sys = systemFrom(ctx);
+  const rows = await liveRows(tx, sys, "approval", eqAll({ table_key: def.key, record_id: id }), "t.round, t.level, t.id");
+  const mine = (r: Row) => opts.adhocRound === undefined || (!r.rule_id && Number(r.round) === opts.adhocRound);
+  let canceled = 0;
+  for (const r of rows) if (OPEN.has(r.state) && mine(r)) {
+    await updateIn(tx, sys, "approval", r.id, { state: "canceled", decided_at: iso(Date.now()), decided_by: actorId(ctx) }, { trusted: true });
+    r.state = "canceled";
+    canceled++;
+  }
+  const agg = aggregate(rows as never[]);
+  if (def.fields.some((f) => f.name === "approval") && record.approval !== agg) await updateIn(tx, sys, def.key, id, { approval: agg }, { trusted: true });
+  return { canceled, aggregate: agg };
 }
 
 // ---------------------------------------------------------------------------------------------------------------
