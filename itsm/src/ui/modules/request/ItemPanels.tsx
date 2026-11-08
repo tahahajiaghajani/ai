@@ -187,6 +187,8 @@ export function ItemActions({ ctx }: { ctx: RecordContext }) {
   const open = ["pending", "awaiting_approval", "in_fulfilment", "awaiting_info", "backordered"].includes(state);
   const finished = ["delivered", "closed_complete", "closed_incomplete"].includes(state);
   const canWrite = !!ctx.meta.canWrite;
+  // an agent working the item (a requester may change their own item's notes, not ask, swap or convert it)
+  const works = canWrite && !!(ctx.meta as { request?: { can_work?: boolean } }).request?.can_work;
   // incident management is installed and the person may file incidents
   const hasIncident = !!schema?.def("incident")?.can.create;
   const run = async (fn: () => Promise<unknown>, ok: string) => {
@@ -223,7 +225,7 @@ export function ItemActions({ ctx }: { ctx: RecordContext }) {
   };
   return (
     <>
-      {canWrite && working ? (
+      {works && working ? (
         <Button icon={<HelpCircle {...ICON} />} onClick={() => setDialog("info")}>
           درخواست اطلاعات
         </Button>
@@ -238,12 +240,12 @@ export function ItemActions({ ctx }: { ctx: RecordContext }) {
           سفارش دوباره
         </Button>
       </Tooltip>
-      {canWrite && open ? (
+      {works && open ? (
         <Button icon={<Replace {...ICON} />} onClick={() => setDialog("change")}>
           تغییر قلم
         </Button>
       ) : null}
-      {canWrite && open && hasIncident ? (
+      {works && open && hasIncident ? (
         <Button icon={<Siren {...ICON} />} onClick={() => setDialog("convert")}>
           تبدیل به رخداد
         </Button>

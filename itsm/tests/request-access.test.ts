@@ -49,6 +49,10 @@ describe("service requests: access", () => {
   });
 
   it("the requester may not change the work: only watchers, feedback and a cancellation", async () => {
+    // the page offers the agents' actions («درخواست اطلاعات», «تغییر قلم», «تبدیل به رخداد») only to those who work items
+    const own = await requester.client.get(`${P}/r/request_item/${adhoc}`);
+    expect(own.meta.canWrite).toBe(true);
+    expect(own.meta.request.can_work).toBe(false);
     await requester.client.patch(`${P}/r/request_item/${adhoc}`, { priority: "1" }, 403);
     await requester.client.post(`${P}/r/request_item/${adhoc}/transition`, { to: "delivered" }, 403);
     await requester.client.post(`${P}/request/items/${adhoc}/info`, { message: "?" }, 403);
@@ -57,6 +61,7 @@ describe("service requests: access", () => {
   it("an agent of the fulfilment group works the item; an agent of another group does not see it", async () => {
     const r = await desk.client.get(`${P}/r/request_item/${adhoc}`);
     expect(r.meta.canWrite).toBe(true);
+    expect(r.meta.request.can_work).toBe(true);
     await desk.client.patch(`${P}/r/request_item/${adhoc}`, { assigned_to: desk.userId });
     await network.client.get(`${P}/r/request_item/${adhoc}`, 404);
     await network.client.get(`${P}/request/answers/request_item/${adhoc}`, 404);

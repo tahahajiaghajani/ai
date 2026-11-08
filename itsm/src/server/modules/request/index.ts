@@ -5,7 +5,8 @@
 //   · hooks of the catalogue's tables (catalog-hooks.ts) and the lifecycle of orders (lifecycle.ts)
 //   · the ITIL priority matrix as the default of requested items, approver sources «مالک قلم کاتالوگ» and «مدیر مرکز
 //     هزینه» for approval rules
-//   · record meta `request` on GET /r/request_item/:id (the AI skills available)
+//   · record meta `request` on GET /r/request_item/:id (the AI skills available; whether the caller works items rather
+//     than following their own: «درخواست اطلاعات», «تغییر قلم», «تبدیل به رخداد»)
 //   · jobs (jobs.ts): flow checks, links, the sweep and nightly statistics
 //   · the seed of a new organisation (seed.ts), queued after the SLA service's calendars
 // Extension points: the AI layer registers its skills with `registerRequestAi` (ai.ts); other modules start
@@ -16,7 +17,7 @@ import { registerOrgSeed } from "../orgs/service";
 import { registerRecordMeta, systemCtx } from "../../engine";
 import { enqueue, registerJobHandler, type JobConfig } from "../../jobs";
 import { installCatalogHooks } from "./catalog-hooks";
-import { installLifecycle } from "./lifecycle";
+import { installLifecycle, requesterLike } from "./lifecycle";
 import { installRequestJobs } from "./jobs";
 import { requestAiCapabilities } from "./ai";
 import { liveRow, sysOf } from "./common";
@@ -49,7 +50,7 @@ export function installRequestModule(): void {
     const unit = req?.cost_center_id ? await liveRow(q, sys, "org_unit", req.cost_center_id) : null;
     return unit?.manager_id ? [String(unit.manager_id)] : [];
   });
-  registerRecordMeta("request_item", () => ({ request: { ai: requestAiCapabilities() } }));
+  registerRecordMeta("request_item", async ({ q, ctx }) => ({ request: { ai: requestAiCapabilities(), can_work: !(await requesterLike(q, ctx)) } }));
   registerJobHandler("request.seed", async (job, jctx) => {
     if (!job.org_id) return;
     await seedRequestDefaults(jctx.cfg, job.org_id);
