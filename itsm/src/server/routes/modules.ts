@@ -19,6 +19,10 @@ import { installProblemModule } from "../modules/problem";
 import { problemRoutes } from "./problem";
 import { ragRoutes } from "./ai-rag";
 import { installRag } from "../modules/ai/rag";
+import { installCmdbModule } from "../modules/cmdb";
+import { cmdbRoutes } from "./cmdb";
+import { installServicePortfolioModule } from "../modules/service_portfolio";
+import { servicePortfolioRoutes } from "./service_portfolio";
 import { installChangeModule } from "../modules/change";
 import { changeRoutes } from "./change";
 import { installRequestModule } from "../modules/request";
@@ -39,6 +43,10 @@ installRag();
 installIncidentModule();
 // problem management (docs/modules/problem_FA.md)
 installProblemModule();
+// configuration management (docs/modules/cmdb_FA.md)
+installCmdbModule();
+// the service portfolio (docs/modules/service_portfolio_FA.md) — after configuration management: services are CIs
+installServicePortfolioModule();
 
 // the modules that work with incidents and problems come after them
 // change enablement (docs/modules/change_FA.md) — after the SLA service: its authorization hook follows the approvals
@@ -59,5 +67,7 @@ moduleRoutes.route("/rules", ruleRoutes);
 moduleRoutes.route("/flows", flowRoutes);
 moduleRoutes.route("/incident", incidentRoutes);
 moduleRoutes.route("/problem", problemRoutes);
+moduleRoutes.route("/cmdb", cmdbRoutes);
+moduleRoutes.route("/service_portfolio", servicePortfolioRoutes);
 moduleRoutes.route("/change", changeRoutes);
 moduleRoutes.route("/request", requestRoutes);

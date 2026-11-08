@@ -16,6 +16,8 @@ import { FLOW_TABLES } from "./flows";
 import { INCIDENT_CHOICE_LISTS, INCIDENT_TABLES } from "./incident";
 import { PROBLEM_CHOICE_LISTS, PROBLEM_TABLES } from "./problem";
 import { DOCS_TABLES } from "./docs";
+import { CMDB_CHOICE_LISTS, CMDB_TABLES } from "./cmdb";
+import { SERVICE_PORTFOLIO_TABLES } from "./service_portfolio";
 import { CHANGE_CHOICE_LISTS, CHANGE_TABLES } from "./change";
 import { REQUEST_CHOICE_LISTS, REQUEST_TABLES } from "./request";
 
@@ -31,6 +33,8 @@ const MODULE_TABLES: TableDef[][] = [
   DOCS_TABLES,
   INCIDENT_TABLES,
   PROBLEM_TABLES,
+  CMDB_TABLES,
+  SERVICE_PORTFOLIO_TABLES,
   CHANGE_TABLES,
   REQUEST_TABLES,
 ];
@@ -205,6 +209,7 @@ for (const [key, options] of Object.entries(CORE_CHOICE_LISTS)) registerChoiceLi
 for (const [key, options] of Object.entries(SLA_CHOICE_LISTS)) registerChoiceList(key, options);
 for (const [key, options] of Object.entries(INCIDENT_CHOICE_LISTS)) registerChoiceList(key, options);
 for (const [key, options] of Object.entries(PROBLEM_CHOICE_LISTS)) registerChoiceList(key, options);
+for (const [key, options] of Object.entries(CMDB_CHOICE_LISTS)) registerChoiceList(key, options);
 for (const [key, options] of Object.entries(CHANGE_CHOICE_LISTS)) registerChoiceList(key, options);
 for (const [key, options] of Object.entries(REQUEST_CHOICE_LISTS)) registerChoiceList(key, options);
 

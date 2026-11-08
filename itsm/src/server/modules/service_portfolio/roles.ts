@@ -1,0 +1,65 @@
+// Service roles in context (catalogue SPF-008): a service names its owner, product owner, owner team, support group,
+// change approvers and stakeholder groups. Two of those roles reach beyond the service record without a global role:
+//   · the owner and the product owner read every record linked to their service — the `service_id` or the affected
+//     services of incidents, problems, changes, requests… (an access-model participant source: read only, never write)
+//   · approval rules name «مالک خدمت» (`{ kind: "owner", of: "service_owner" }`) and «تأییدکنندگان تغییر خدمت»
+//     (`of: "service_change_approvers"`): the owners, or the members of the change-approval group, of the services a
+//     record names (its service, its offering's service, its affected services)
+import type { TableDef } from "@shared/model/types";
+import type { Ctx } from "../../context";
+import type { Queryable } from "../../db";
+import { registerParticipantSource } from "../../access";
+import { registerApproverSource } from "../sla";
+import { groupMembers } from "../notify/recipients";
+import { isUuid, liveRow, liveRows, sysOf, type Row } from "./common";
+
+/** The service fields of a table that link its records to services (never the portfolio's own tables). */
+function serviceLinks(def: TableDef): { single: string[]; multi: string[] } {
+  if (def.virtual || def.module === "service_portfolio") return { single: [], multi: [] };
+  const single = def.fields.filter((f) => f.type === "ref" && f.ref === "service" && f.name === "service_id").map((f) => f.name);
+  const multi = def.fields.filter((f) => f.type === "refs" && f.ref === "service" && f.name === "affected_services").map((f) => f.name);
+  return { single, multi };
+}
+
+/** The services a record names: its service, its offering's service and its affected services. */
+export async function servicesOfRecord(q: Queryable, ctx: Ctx, row: Row): Promise<Row[]> {
+  const ids = new Set<string>();
+  if (isUuid(row.service_id)) ids.add(row.service_id);
+  for (const s of Array.isArray(row.affected_services) ? row.affected_services : []) if (isUuid(s)) ids.add(s);
+  if (isUuid(row.offering_id)) {
+    const o = await liveRow(q, sysOf(ctx), "service_offering", row.offering_id);
+    if (isUuid(o?.service_id)) ids.add(o!.service_id);
+  }
+  if (!ids.size) return [];
+  return liveRows(q, sysOf(ctx), "service", { f: "id", op: "in", v: [...ids] }, { limit: 50 });
+}
+
+export function installServiceRoles(): (() => void)[] {
+  return [
+    registerParticipantSource({
+      name: "service_owners",
+      sql(def, alias, params, userId) {
+        const { single, multi } = serviceLinks(def);
+        if (!single.length && !multi.length) return null;
+        params.push(userId);
+        const u = `$${params.length}::uuid`;
+        const owned = `select s.id from sm_services s where s.org_id = ${alias}.org_id and s.deleted_at is null and (s.owner_id = ${u} or s.product_owner_id = ${u})`;
+        const terms = [
+          ...single.map((f) => `${alias}.${f} in (${owned})`),
+          ...multi.map((f) => `exists (select 1 from sm_services s where s.org_id = ${alias}.org_id and s.deleted_at is null and (s.owner_id = ${u} or s.product_owner_id = ${u}) and coalesce(${alias}.${f} ? s.id::text, false))`),
+        ];
+        return terms.join(" or ");
+      },
+    }),
+    registerApproverSource("service_owner", async (q, ctx, _def, row) => {
+      const services = await servicesOfRecord(q, ctx, row);
+      return [...new Set(services.map((s) => s.owner_id).filter(isUuid))];
+    }),
+    registerApproverSource("service_change_approvers", async (q, ctx, _def, row) => {
+      const services = await servicesOfRecord(q, ctx, row);
+      const groups = services.map((s) => s.change_approval_group_id).filter(isUuid);
+      const people = groups.length ? await groupMembers(sysOf(ctx), groups, q) : [];
+      return [...new Set(people.length ? people : services.map((s) => s.owner_id).filter(isUuid))];
+    }),
+  ];
+}

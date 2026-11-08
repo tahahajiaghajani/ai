@@ -201,7 +201,8 @@ describe("templates (problem models)", () => {
 
 describe("candidates", () => {
   it("raise recurring incidents once, skip what an open problem covers, and promote or merge", async () => {
-    const ci = uuidv7();
+    // a real CI: references to the CMDB are checked now that it exists
+    const ci = (await w.o.post(`${w.P}/r/ci`, { name: `انبار-db-${uuidv7().slice(-6)}`, class: "database" })).row.id as string;
     for (const s of ["پایگاه دادهٔ انبار کند است", "کندی پایگاه دادهٔ انبار", "پایگاه دادهٔ انبار قطع شد"]) await w.incident({ short_description: s, ci_id: ci });
     for (const s of ["وای‌فای طبقه ۲", "وای‌فای قطع است", "وای‌فای ضعیف"]) await w.incident({ short_description: s, category: "network", subcategory: "network.wifi" });
     const first = await w.o.post(`${w.P}/problem/candidates/run`);
