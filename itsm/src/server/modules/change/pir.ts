@@ -9,7 +9,7 @@ import { humanSpan } from "@shared/change/logic";
 import type { Ctx } from "../../context";
 import type { Tx } from "../../db";
 import { createIn, get, list, listLinks, orgTz, updateIn } from "../../engine";
-import { changeAi, type PirSection } from "./ai";
+import { aiUnavailable, changeAi, type PirSection } from "./ai";
 import { changeConfig, countsAsIncident, iso, msOf, sysOf, type Row } from "./common";
 import { earliestStart } from "./schedule";
 
@@ -100,7 +100,18 @@ export async function draftPir(ctx: Ctx, changeId: string): Promise<{ sections: 
   void display;
   const ai = changeAi().draftPir;
   if (!ai) return { sections, ai: false };
-  const extra = await ai(ctx, changeId);
-  for (const [k, v] of Object.entries(extra)) if (typeof v === "string" && v.trim()) sections[k as PirSection] = v;
-  return { sections, ai: true };
+  let extra: Partial<Record<PirSection, string>>;
+  try {
+    extra = await ai(ctx, changeId);
+  } catch (e) {
+    // no model (or none now): the deterministic draft, marked as such
+    if (aiUnavailable(e)) return { sections, ai: false };
+    throw e;
+  }
+  let merged = false;
+  for (const [k, v] of Object.entries(extra)) if (typeof v === "string" && v.trim()) {
+    sections[k as PirSection] = v;
+    merged = true;
+  }
+  return { sections, ai: merged };
 }

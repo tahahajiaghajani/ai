@@ -6,6 +6,7 @@ import type { AuthSession, AuthUser, Ctx, MemberRow, OrgRow, ServerConfig } from
 import { makeCtx } from "../context";
 import { AppError, bad, dbErrorMessage, forbidden, notFound, tooMany, unauthorized, zodToAppError } from "./errors";
 import { resolveToken, tokenFromRequest, clientIp } from "../auth/session";
+import { AiUnavailableError, aiHttpError } from "../modules/ai/errors";
 
 export type Vars = {
   cfg: ServerConfig;
@@ -100,9 +101,14 @@ export function query<T>(c: C, schema: ZodType<T>): T {
   return r.data;
 }
 
+const AI_UNAVAILABLE = "هوش مصنوعی اکنون در دسترس نیست؛ کمی بعد دوباره امتحان کنید";
+
 export function errorResponse(err: unknown, c: Context) {
   let e: AppError;
-  if (err instanceof AppError) e = err;
+  // AI cannot answer now (no model, switched off, budget, provider down…): the Persian answer of its kind, never a 500
+  if (err instanceof AiUnavailableError) e = aiHttpError(err.kind, err.message);
+  else if (err instanceof AppError && err.code.startsWith("ai_") && err.status >= 500) e = new AppError(503, err.code, err.message || AI_UNAVAILABLE, err.details ?? { kind: err.code.slice(3) });
+  else if (err instanceof AppError) e = err;
   else if (err instanceof ZodError) e = zodToAppError(err);
   else {
     const mapped = dbErrorMessage(err);

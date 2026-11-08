@@ -11,6 +11,8 @@
 //     routes write what the person accepted, with their own access);
 //   · AI never authorizes a change, never records a CAB decision and never passes a gate on its own.
 import type { Ctx } from "../../context";
+import { AppError } from "../../http/errors";
+import { AiUnavailableError } from "../ai/errors";
 
 export type PlanField = "implementation_plan" | "backout_plan" | "test_plan" | "communication_plan" | "justification";
 export type PirSection = "side_effects" | "timeline_md" | "went_well" | "went_wrong" | "lessons" | "follow_up";
@@ -58,3 +60,9 @@ export function aiCapabilities(): string[] {
     .filter((k) => typeof (impl as Record<string, unknown>)[k] === "function")
     .map((k) => `change.${k}`);
 }
+
+/**
+ * Is this an «AI cannot answer now» error (no model, switched off, budget, provider down…)? The CAB pack and the PIR
+ * draft treat it as no AI: the deterministic draft, `ai: false` — never a draft presented as AI-written.
+ */
+export const aiUnavailable = (e: unknown): boolean => e instanceof AiUnavailableError || (e instanceof AppError && e.code.startsWith("ai_"));

@@ -11,7 +11,7 @@ import type { Ctx } from "../../context";
 import { create, get, list, listHistory, orgTz } from "../../engine";
 import { bad, forbidden } from "../../http/errors";
 import { recordApprovals } from "../sla";
-import { changeAi } from "./ai";
+import { aiUnavailable, changeAi } from "./ai";
 import { cycleApprovals, tally } from "./authorize";
 import { workbench } from "./cab";
 import { hasTable, isUuid, liveRows, msOf, riskQuestions, sysOf, type Row } from "./common";
@@ -218,7 +218,13 @@ export async function cabPack(ctx: Ctx, meetingId: string): Promise<{ markdown: 
   const ai = changeAi().cabPack;
   if (ai) {
     await get(ctx, "cab_meeting", meetingId);
-    return { markdown: (await ai(ctx, meetingId)).text, ai: true };
+    try {
+      const text = (await ai(ctx, meetingId)).text;
+      if (text.trim()) return { markdown: text, ai: true };
+    } catch (e) {
+      // no model (or none now): the deterministic pack below, marked as such
+      if (!aiUnavailable(e)) throw e;
+    }
   }
   const w = await workbench(ctx, meetingId);
   const m = w.meeting as Row | null;

@@ -5,7 +5,7 @@
 // conflicts and its summary. AI never authorizes a change, records a CAB decision or passes a gate.
 import { z } from "zod";
 import type { Ctx } from "../../../../context";
-import type { PlanField } from "../../../change/ai";
+import type { PirSection, PlanField } from "../../../change/ai";
 import { registerChangeAi } from "../../../change/ai";
 import { riskView } from "../../../change/actions";
 import { timelineOf, workbench } from "../../../change";
@@ -15,6 +15,9 @@ import { orgTimeZone } from "../../usage";
 import { defineSkill } from "../registry";
 import { runForModule } from "../runtime";
 import type { SkillDef } from "../types";
+
+/** The PIR sections the `change.pir` skill drafts (merged over the module's deterministic draft). */
+const PIR_SECTIONS: PirSection[] = ["side_effects", "went_well", "went_wrong", "lessons", "follow_up"];
 import { ruleSummary } from "./generic";
 
 type Row = Record<string, unknown>;
@@ -212,9 +215,9 @@ export const changeSkills: SkillDef[] = [
   }),
 ];
 
-// `cabPack` and `draftPir` are not registered: the module's CAB pack and PIR draft would present a draft as AI-written
-// even when no model answered (their call sites cannot tell). Both skills run from the record's «هوش مصنوعی» panel
-// (`change.cab_pack` on a CAB meeting, `change.pir` on a change), labelled as AI or rule-based.
+// `cabPack` and `draftPir` run as module integrations (no rule-based fallback): when no model can answer, the
+// module catches the «no AI» error and returns its own deterministic pack / draft with `ai: false`, so a draft is
+// never presented as AI-written unless a model wrote it. Both skills also run from the record's «هوش مصنوعی» panel.
 export function installChangeAi(): (() => void)[] {
   return [
     registerChangeAi({
@@ -230,6 +233,17 @@ export function installChangeAi(): (() => void)[] {
       async summarize(ctx, changeId) {
         const r = await runForModule(ctx, "change.summary", { table: "change_request", id: changeId });
         return { text: r.text ?? "" };
+      },
+      async cabPack(ctx, meetingId) {
+        const r = await runForModule(ctx, "change.cab_pack", { table: "cab_meeting", id: meetingId });
+        return { text: r.text ?? "" };
+      },
+      async draftPir(ctx, changeId) {
+        const r = await runForModule(ctx, "change.pir", { table: "change_request", id: changeId });
+        const j = (r.json ?? {}) as Record<string, unknown>;
+        const out: Partial<Record<PirSection, string>> = {};
+        for (const k of PIR_SECTIONS) if (typeof j[k] === "string" && (j[k] as string).trim()) out[k] = j[k] as string;
+        return out;
       },
     }),
   ];

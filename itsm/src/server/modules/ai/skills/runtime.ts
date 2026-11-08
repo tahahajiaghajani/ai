@@ -33,7 +33,6 @@ import { subjectOf } from "../../../access/subject";
 import { AppError, bad, forbidden, notFound } from "../../../http/errors";
 import { sysOf } from "../../incident/common";
 import { AiUnavailableError, aiStatus, generate } from "../engine";
-import { asHttpError } from "../errors";
 import { loadSettings } from "../settings";
 import { orgNotes } from "../prompts";
 import { jsonSchemaOf } from "../schema";
@@ -693,15 +692,12 @@ export async function runSkill(ctx: Ctx, key: string, req: SkillRunRequest, opts
 
 /**
  * A run for a module's AI extension point: as the person, never a rule-based fallback (the module has its own
- * deterministic path, or answers «no AI»), and AI unavailability as the HTTP error of its kind (`ai_not_configured`
- * with the remedy …) so a module route without its own mapping still answers 4xx in Persian.
+ * deterministic path, or answers «no AI»). AI unavailability stays an AiUnavailableError: the module may catch it
+ * (`isAiUnavailable`) and answer without AI, and the platform's errorResponse answers it in Persian with the status
+ * of its kind (`ai_not_configured` with the remedy …, 503 when the provider is down), never a 500.
  */
-export async function runForModule(ctx: Ctx, key: string, req: SkillRunRequest, opts: RunOptions = {}): Promise<SkillRunResult> {
-  try {
-    return await runSkill(ctx, key, req, { ...opts, noFallback: true });
-  } catch (e) {
-    throw asHttpError(e);
-  }
+export function runForModule(ctx: Ctx, key: string, req: SkillRunRequest, opts: RunOptions = {}): Promise<SkillRunResult> {
+  return runSkill(ctx, key, req, { ...opts, noFallback: true });
 }
 
 /** Is this an «AI cannot answer» error of a module integration (no model, switched off, budget …)? */
