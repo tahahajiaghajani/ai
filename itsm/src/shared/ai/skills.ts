@@ -168,6 +168,8 @@ export interface SkillRunRequest {
   /** the text of a text skill (the composer's draft, a field's value) */
   text?: string | null;
   params?: Record<string, unknown>;
+  /** store the output's writes as a proposal on the record (default true; the composer inserts drafts instead) */
+  propose?: boolean;
 }
 
 export interface SkillRunResult {

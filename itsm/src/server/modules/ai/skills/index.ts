@@ -9,7 +9,7 @@
 import type { Ctx } from "../../../context";
 import type { AiProposal } from "@shared/ai/types";
 import type { SkillCard } from "@shared/ai/skills";
-import { get, orgSchema } from "../../../engine";
+import { get, orgSchema, registerRecordMeta } from "../../../engine";
 import { registerAiFeaturePrefix } from "../settings";
 import { recordProposals } from "../actions";
 import { allSkills, withVersion } from "./config";
@@ -67,4 +67,6 @@ export function installAiSkills(): void {
   installSkillExecutors();
   installSkillTriggers();
   installBuiltinSkills();
+  // the record page shows «هوش مصنوعی» to members who may use AI (skills, and their own access, decide the rest)
+  registerRecordMeta("*", async ({ ctx }) => ({ ai_skills: ctx.actor !== "system" && ctx.can("ai", "view") }));
 }

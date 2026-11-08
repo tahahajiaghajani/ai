@@ -26,6 +26,7 @@ const runSchema = z.object({
   id: UUID.nullish(),
   text: z.string().max(20_000).nullish(),
   params: z.record(z.string(), z.union([z.string().max(4000), z.number(), z.boolean(), z.null()])).optional(),
+  propose: z.boolean().optional(),
 });
 
 const key = (c: C) => KEY.parse(c.req.param("key"));
@@ -42,7 +43,7 @@ skillRoutes.get("/skills/text", async (c) => c.json({ skills: await skillsForTex
 skillRoutes.post("/skills/:key/run", async (c) => {
   const ctx = c.get("ctx");
   const p = await body(c, runSchema);
-  return c.json(await runSkill(ctx, key(c), { table: p.table ?? null, id: p.id?.toLowerCase() ?? null, text: p.text ?? null, params: p.params ?? {} }, { propose: true, signal: c.req.raw.signal }));
+  return c.json(await runSkill(ctx, key(c), { table: p.table ?? null, id: p.id?.toLowerCase() ?? null, text: p.text ?? null, params: p.params ?? {} }, { propose: p.propose !== false, signal: c.req.raw.signal }));
 });
 
 const HEARTBEAT_MS = 15_000;
@@ -74,7 +75,7 @@ skillRoutes.post("/skills/:key/run/stream", async (c) => {
     }, HEARTBEAT_MS);
     try {
       emit({ type: "meta", skill: rs.cfg.key, name: rs.cfg.name });
-      const { result } = await runCore(ctx, rs, { table: p.table ?? null, id: p.id?.toLowerCase() ?? null, text: p.text ?? null, params: p.params ?? {} }, { propose: true, signal: ac.signal, onText: (delta) => emit({ type: "text", delta }) });
+      const { result } = await runCore(ctx, rs, { table: p.table ?? null, id: p.id?.toLowerCase() ?? null, text: p.text ?? null, params: p.params ?? {} }, { propose: p.propose !== false, signal: ac.signal, onText: (delta) => emit({ type: "text", delta }) });
       emit({ type: "done", result });
     } catch (e) {
       emit(streamError(c, e));
