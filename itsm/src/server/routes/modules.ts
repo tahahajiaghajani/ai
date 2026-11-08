@@ -19,6 +19,8 @@ import { installProblemModule } from "../modules/problem";
 import { problemRoutes } from "./problem";
 import { ragRoutes } from "./ai-rag";
 import { installRag } from "../modules/ai/rag";
+import { installKnowledgeModule } from "../modules/knowledge";
+import { knowledgeRoutes } from "./knowledge";
 
 // the ITSM access model is the engine's access provider in every runtime (docs/spec/ACCESS.md)
 installAccessModel();
@@ -35,6 +37,8 @@ installRag();
 installIncidentModule();
 // problem management (docs/modules/problem_FA.md)
 installProblemModule();
+// knowledge management (docs/modules/knowledge_FA.md) — after the RAG index and the modules whose records it links
+installKnowledgeModule();
 
 export const moduleRoutes = router();
 
@@ -49,3 +53,4 @@ moduleRoutes.route("/rules", ruleRoutes);
 moduleRoutes.route("/flows", flowRoutes);
 moduleRoutes.route("/incident", incidentRoutes);
 moduleRoutes.route("/problem", problemRoutes);
+moduleRoutes.route("/knowledge", knowledgeRoutes);

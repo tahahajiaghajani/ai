@@ -180,6 +180,7 @@ export const TASK_KINDS: Option[] = [
   { value: "integrity", label: "بررسی یکپارچگی", color: "teal", order: 12 },
   { value: "feedback", label: "بازخورد منفی", color: "orange", order: 13 },
   { value: "update", label: "به‌روزرسانی از منبع", color: "blue", order: 14 },
+  { value: "external", label: "انتشار بیرونی خودکار", color: "green", order: 15 },
 ];
 
 export const LICENCE_LEVELS: Option[] = [
