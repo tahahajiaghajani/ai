@@ -9,7 +9,7 @@ import { notFound } from "../http/errors";
 import { access } from "../access/provider";
 import type { OrgSchema } from "./schema";
 import { readable, writableRule } from "./sql";
-import { secretView } from "./values";
+import { openSecret, secretView } from "./values";
 
 export type Row = Record<string, any>;
 
@@ -72,9 +72,40 @@ export async function loadReadable(q: Queryable, ctx: Ctx, def: TableDef, id: st
   return r ? fromDb(def, r) : null;
 }
 
+/**
+ * May the caller open single records of `def`: their roles read the table's area, or they take part in some of its
+ * rows through a participant grant (an approver of a change without any role in the change area). Lists, aggregates
+ * and exports ask `canReadTable` only.
+ */
+export async function canOpenRecords(ctx: Ctx, def: TableDef, q: Queryable = ctx.db): Promise<boolean> {
+  if (access().canReadTable(ctx, def)) return true;
+  const p = access().participations;
+  return !!p && !def.virtual && (await p.call(access(), ctx, q)).has(def.key);
+}
+
+/**
+ * The plain value of a secret field of record `id` — for trusted server code that checked the caller's access to the
+ * record (and their right to see the secret) itself: a fulfiller revealing a sealed answer, a connection's key used
+ * by a job. Records only ever carry a secret's hint; this reads the stored value (deleted rows never) and opens it with
+ * the organisation's key. Null when empty, or sealed by another runtime's key (each runtime seals its own).
+ */
+export async function readSecret(q: Queryable, ctx: Ctx, def: TableDef, id: string, field: string): Promise<string | null> {
+  const f = def.fields.find((x) => x.name === field);
+  if (!f || f.type !== "secret" || def.virtual) throw new Error(`«${field}» is not a secret field of ${def.key}`);
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return null;
+  const col = f.custom ? `t.custom->>'${f.name}'` : `t.${f.name}`;
+  const r = await q.one<{ v: string | null }>(`select ${col} as v from ${def.table} t where t.org_id = $1 and t.id = $2 and t.deleted_at is null`, [ctx.org.id, id.toLowerCase()]);
+  if (!r?.v) return null;
+  try {
+    return openSecret(ctx.cfg.secret, ctx.org.id, def.key, f.name, id.toLowerCase(), r.v);
+  } catch {
+    return null;
+  }
+}
+
 /** The readable row or 404 «رکورد پیدا نشد» (a row the caller may not read does not exist for them). */
 export async function requireReadable(ctx: Ctx, def: TableDef, id: string, env: CondEnv, q: Queryable = ctx.db, opts: LoadOptions = {}): Promise<Row> {
-  if (!access().canReadTable(ctx, def)) throw notFound(`${def.label} پیدا نشد`);
+  if (!(await canOpenRecords(ctx, def, q))) throw notFound(`${def.label} پیدا نشد`);
   const row = await loadReadable(q, ctx, def, id, env, opts);
   if (!row) throw notFound(`${def.label} پیدا نشد`);
   return row;

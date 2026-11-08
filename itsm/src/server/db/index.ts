@@ -26,6 +26,40 @@ export interface Db extends Queryable {
   close(): Promise<void>;
 }
 
+// ----- before-commit work of a transaction ------------------------------------------------------------------------
+
+type BeforeCommit = () => Promise<void> | void;
+const pending = new WeakMap<Tx, Map<string, BeforeCommit>>();
+/** Rounds of before-commit work one transaction may run (work that queues work again, e.g. a roll-up of a roll-up). */
+const MAX_BEFORE_COMMIT_ROUNDS = 20;
+
+/**
+ * Run `fn` once, at the end of the transaction `tx`, just before it commits — whatever writes queue it, however many
+ * times: work queued under a `key` that is already waiting is not queued again (`request.rollup:<id>`: an order's
+ * totals and state from many item writes, once). The work runs in the same transaction (its writes commit with it,
+ * a failure rolls everything back) in the order it was first queued; work it queues runs after it, a key that already
+ * ran may run again. Work queued inside a savepoint that rolls back still runs — make it recompute from what is
+ * stored. Returns whether it was queued (false: the key was already waiting).
+ */
+export function onBeforeCommit(tx: Tx, key: string, fn: BeforeCommit): boolean {
+  let m = pending.get(tx);
+  if (!m) pending.set(tx, (m = new Map()));
+  if (m.has(key)) return false;
+  m.set(key, fn);
+  return true;
+}
+
+/** Run the transaction's before-commit work (the database layers call it when the transaction's function resolved). */
+export async function runBeforeCommit(tx: Tx): Promise<void> {
+  for (let round = 0; ; round++) {
+    const m = pending.get(tx);
+    if (!m || !m.size) return;
+    if (round >= MAX_BEFORE_COMMIT_ROUNDS) throw new Error(`before-commit work keeps queueing more work: ${[...m.keys()].slice(0, 5).join(", ")}`);
+    pending.delete(tx);
+    for (const fn of m.values()) await fn();
+  }
+}
+
 /** Values are sent as text; the server decides their types from the statement. */
 export function serializeParam(v: unknown): unknown {
   if (v === undefined) return null;

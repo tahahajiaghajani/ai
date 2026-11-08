@@ -10,6 +10,7 @@ import { dataRoutes } from "./routes/data";
 import { moduleRoutes } from "./routes/modules";
 import { syncRoutes } from "./routes/sync";
 import { hookRoutes, publicApiRoutes, integrationRoutes } from "./routes/integrations";
+import { publicRoutes } from "./routes/public";
 import { localRoutes } from "./routes/local";
 import { adminRoutes } from "./routes/admin";
 import { recordRoutes } from "./routes/records";
@@ -104,6 +105,8 @@ export function createApp(cfg: ServerConfig) {
   app.route("/hooks/flows", flowHookRoutes);
   app.route("/hooks", hookRoutes);
   app.route("/v1", publicApiRoutes);
+  // the sign-in-free API of public pages (rate limited; what modules publish on purpose)
+  app.route("/public", publicRoutes);
   if (cfg.mode === "desktop") app.route("/local", localRoutes);
 
   return app;

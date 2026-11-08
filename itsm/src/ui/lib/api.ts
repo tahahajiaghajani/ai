@@ -93,6 +93,11 @@ export const api = {
   stream: (path: string, body: unknown = {}, signal?: AbortSignal) => openStream(path, body, signal),
 };
 
+/** The sign-in-free API of public pages: `publicApi.get("/status/<key>")` → /api/public/status/<key> (rate limited). */
+export const publicApi = {
+  get: <T = any>(path: string, query?: Query) => api.get<T>(`/public${path}`, query),
+};
+
 /** Organisation-scoped client: `orgApi(id).get("/data/party")` → /api/o/:id/data/party */
 export function orgApi(orgId: string) {
   const p = (path: string) => `/o/${orgId}${path}`;

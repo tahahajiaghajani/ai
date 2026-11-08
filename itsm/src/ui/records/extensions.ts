@@ -8,6 +8,7 @@
 import type { ReactNode } from "react";
 import type { Cond } from "@shared/model/conditions";
 import type { OrgApi } from "../lib/api";
+import type { CalendarBand, CalendarTone } from "./model/calendar";
 import type { UiPolicy } from "./model/policies";
 import type { ListMode } from "./model/views";
 import type { DisplayMap, RecordMeta, RecordRow, TableMeta } from "./model/types";
@@ -46,6 +47,8 @@ export interface SidePanelWidget {
   order?: number;
   when?: (ctx: RecordContext) => boolean;
   render: (ctx: RecordContext) => ReactNode;
+  /** also for someone who reads the record only as a participant (an approver without a role in its area) */
+  participants?: boolean;
 }
 
 export interface RecordTab {
@@ -54,6 +57,24 @@ export interface RecordTab {
   order?: number;
   when?: (ctx: RecordContext) => boolean;
   render: (ctx: RecordContext) => ReactNode;
+  /** also for someone who reads the record only as a participant */
+  participants?: boolean;
+}
+
+/**
+ * What a participant without a role in the record's area (`meta.reach === "participant"`: an approver) gets of a
+ * table's extensions: the panels and tabs that say so (the approvals panel); no module actions, composer slots or
+ * module tabs, which call the module's routes the person cannot use.
+ */
+export function forParticipants(ext: RecordExtensions): RecordExtensions {
+  return {
+    path: ext.path,
+    list: ext.list,
+    policies: ext.policies,
+    cardFields: ext.cardFields,
+    sidePanels: (ext.sidePanels ?? []).filter((p) => p.participants),
+    tabs: (ext.tabs ?? []).filter((t) => t.participants),
+  };
 }
 
 export interface MoreAction {
@@ -273,3 +294,32 @@ export function setHolidaySource(fn: HolidaySource | null): void {
   holidaySource = fn;
 }
 export const getHolidaySource = (): HolidaySource | null => holidaySource;
+
+/** Background bands of a calendar or timeline window (maintenance / blackout / freeze windows, outages…), by a key. */
+export interface BandSource {
+  /** part of the cache key (the source and what it depends on) */
+  key: string;
+  load: (api: OrgApi, window: { from: string; to: string }) => Promise<CalendarBand[]>;
+}
+
+/**
+ * How a table's records look on CalendarView and TimelineView, wherever they show (the list's calendar and timeline
+ * modes, a module's page): bands behind them, a tone per record (an outline and an icon: a conflict, a blackout) and
+ * the fields the tone reads. Props of the views override it.
+ */
+export interface CalendarDecor {
+  bands?: BandSource;
+  tone?: (row: RecordRow) => CalendarTone | null;
+  fields?: string[];
+}
+
+const decors = new Map<string, CalendarDecor>();
+
+/** A module's calendar decoration of its table; returns an unregister function. */
+export function registerCalendarDecor(table: string, decor: CalendarDecor): () => void {
+  decors.set(table, decor);
+  return () => {
+    if (decors.get(table) === decor) decors.delete(table);
+  };
+}
+export const calendarDecorOf = (table: string): CalendarDecor => decors.get(table) ?? {};

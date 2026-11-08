@@ -153,6 +153,12 @@ export interface FieldDef {
    * secret holding structured text (JSON answers), whose last characters are its contents
    */
   hint?: boolean;
+  /**
+   * kept out of Windows-app replicas, even for people holding the field's group: pulls leave it out (and its history),
+   * a push never empties it, and a Windows app clears what it holds once nothing waits for upload (sensitive answers;
+   * secrets never travel anyway). The web version alone keeps the value.
+   */
+  noSync?: boolean;
   span?: 6 | 8 | 12 | 16 | 18 | 24;
   section?: string;
   tab?: string;
@@ -213,6 +219,11 @@ export interface ScopeFields {
   own?: string[];
   /** users field of watchers */
   watchers?: string;
+  /**
+   * user fields whose people read the row and nothing more — never write, never through a delegate (a module keeps
+   * them, e.g. the assignees of a requested item's tasks); they pass the confidentiality rule like the own fields
+   */
+  readers?: string[];
   /** group field of the assignment group */
   group?: string;
   /** organisation unit column (default "unit_id") */
@@ -306,8 +317,11 @@ export interface TableDef {
   features?: TableFeatures;
   form?: FormLayout;
   list?: ListLayout;
-  /** fields that make up the RAG document */
-  ai?: { title: string; text: string[] };
+  /**
+   * fields that make up the RAG document; `attachments`: the text of the record's attachments (PDF, Word, Excel, CSV,
+   * HTML, text files) is indexed with it, under the record's access, cited to the record (`features.attachments`)
+   */
+  ai?: { title: string; text: string[]; attachments?: boolean };
   /** combinations of fields unique per organisation among live rows */
   unique?: string[][];
   /**

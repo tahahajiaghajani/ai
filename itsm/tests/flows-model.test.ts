@@ -106,6 +106,9 @@ describe("flows: schedules", () => {
 
   it("repeats yearly on a Jalali date, at intervals, and once", () => {
     expect(nextOccurrence({ kind: "yearly", time: "09:00", month: 1, day: 1 }, jat(1405, 1, 1, 10), TZ)).toBe(jat(1406, 1, 1, 9));
+    // month-end aware: 30 Esfand (a leap year's last day) runs on 29 Esfand of a common year, not years later
+    expect(nextOccurrence({ kind: "yearly", time: "09:00", month: 12, day: 30 }, jat(1404, 1, 1), TZ)).toBe(jat(1404, 12, 29, 9));
+    expect(nextOccurrence({ kind: "yearly", time: "09:00", month: 12, day: 30 }, jat(1408, 1, 1), TZ)).toBe(jat(1408, 12, 30, 9));
     const start = "2026-03-21T00:00:00.000Z";
     expect(nextOccurrence({ kind: "interval", every: 15, unit: "minute", start }, Date.parse("2026-03-21T00:20:00Z"), TZ)).toBe(Date.parse("2026-03-21T00:30:00Z"));
     expect(nextOccurrence({ kind: "interval", every: 2, unit: "hour" }, 1000, TZ)).toBe(1000 + 7_200_000);

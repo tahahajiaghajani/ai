@@ -27,7 +27,7 @@ import { config, eqAll, liveRow, liveRows, systemFrom, type Row } from "./common
 
 const OPEN = new Set(["requested", "waiting"]);
 const WITHDRAWN = new Set(["canceled", "no_longer_required"]);
-const RULES: readonly ApprovalRule[] = ["any", "all", "count"];
+const RULES: readonly ApprovalRule[] = ["any", "all", "count", "first"];
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** waits of the flow engine's built-in approval (`approval:flow:<run>:<step>`) */
 const STAND_IN = "approval:flow:";

@@ -28,9 +28,10 @@ import { condEnv, isSystemCtx } from "./env";
 import { orgSchema, type OrgSchema } from "./schema";
 import { readable, writableRule } from "./sql";
 import { coerceValue, FieldError, KEEP } from "./values";
-import { fromDb, type Row } from "./read";
+import { canOpenRecords, fromDb, type Row } from "./read";
 import { recordEvents, sameValue } from "./write";
 import { emitEvent } from "./events";
+import { emitLinkEvents } from "./links";
 import { filterSide, filtersSide, hooksFor, redactRows, redacts } from "./hooks";
 
 /** Engine-maintained columns a push may not move on an existing row. */
@@ -39,6 +40,15 @@ const PINNED = ["id", "org_id", "no", "created_at", "created_by"];
 /** Remove what never travels from a wire row: secret columns (each runtime seals its own). */
 export function stripSecrets(def: TableDef, row: Record<string, unknown>): void {
   for (const f of def.fields) if (f.type === "secret" && !f.custom) delete row[f.name];
+}
+
+/** Fields of `def` kept out of Windows-app replicas (`FieldDef.noSync`). */
+export const localOnlyFields = (def: TableDef): FieldDef[] => def.fields.filter((f) => f.noSync && !f.custom && !f.base);
+
+/** Remove what never goes down to a Windows app: secrets and the fields kept out of replicas. */
+export function stripForReplica(def: TableDef, row: Record<string, unknown>): void {
+  stripSecrets(def, row);
+  for (const f of localOnlyFields(def)) delete row[f.name];
 }
 
 /** Bump a member's scope epoch: their Windows app re-reads everything (and drops what they may no longer read). */
@@ -57,7 +67,8 @@ export async function scopeEpoch(q: Queryable, orgId: string, userId: string): P
 
 /** Ids of `def` among `ids` the caller may read (deleted rows included). */
 async function readableIds(q: Queryable, ctx: Ctx, def: TableDef | undefined, ids: string[], env: CondEnv): Promise<Set<string>> {
-  if (!def || def.virtual || !ids.length || !access().canReadTable(ctx, def)) return new Set();
+  // participants with a grant of their own (approvers) get the records they take part in on their Windows app too
+  if (!def || def.virtual || !ids.length || !(await canOpenRecords(ctx, def, q))) return new Set();
   const params: unknown[] = [pgArray(ids)];
   const where = readable(ctx, def, "t", params, env, { deleted: "any" });
   const rows = await q.query<{ id: string }>(`select t.id from ${def.table} t where t.id = any($1::uuid[]) and ${where}`, params);
@@ -144,6 +155,10 @@ async function checkRecord(tx: Tx, ctx: Ctx, def: TableDef, schema: OrgSchema, e
       continue;
     }
     const raw = f.custom ? pushedCustom[f.name] : row[f.name];
+    if (f.noSync && prev && (raw === null || raw === undefined || raw === "")) {
+      delete row[f.name];
+      continue;
+    }
     const before = prev ? prev[f.name] : undefined;
     const r = coerceProblem(f, raw, before, schema, env);
     if (r.error) return r.error;
@@ -215,6 +230,13 @@ export async function afterEnginePush(tx: Tx, ctx: Ctx, agg: AggregateDef, wire:
     }
     return;
   }
+  if (agg.engine === "link") {
+    const r = wire.row as Record<string, unknown>;
+    const link = { id: wire.id, kind: String(r.kind), from_table: String(r.from_table), from_id: String(r.from_id), to_table: String(r.to_table), to_id: String(r.to_id) };
+    if (!prev && !r.deleted_at) await emitLinkEvents(tx, ctx, "record.linked", link, "sync");
+    else if (prev && !prev.deleted_at && r.deleted_at) await emitLinkEvents(tx, ctx, "record.unlinked", link, "sync");
+    return;
+  }
   if (agg.engine !== "record") return;
   const schema = await orgSchema(ctx, tx);
   const def = schema.def(agg.entity);
@@ -274,6 +296,7 @@ export async function pullEngine(ctx: Ctx, agg: AggregateDef, cursor: number, up
             const def = schema.def(String(r.table_key));
             const visible = def ? access().visibleFields(ctx, def) : null;
             if (visible && !visible.has(String(r.field))) return false;
+            if (def?.fields.some((f) => f.name === r.field && f.noSync)) return false;
           }
           return true;
         })
@@ -302,7 +325,7 @@ export async function pullEngine(ctx: Ctx, agg: AggregateDef, cursor: number, up
     const def = schema.def(agg.entity)!;
     const visible = access().visibleFields(ctx, def);
     for (const a of out.aggregates) {
-      stripSecrets(def, a.row);
+      stripForReplica(def, a.row);
       if (!visible) continue;
       const custom = a.row.custom && typeof a.row.custom === "object" ? (a.row.custom as Row) : null;
       for (const f of def.fields) {

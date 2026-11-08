@@ -1137,10 +1137,11 @@ create index if not exists sm_approvals_crt_idx on sm_approvals (org_id, created
 create index if not exists sm_approvals_record_id_idx on sm_approvals (org_id, record_id) where deleted_at is null;
 create index if not exists sm_approvals_approver_id_idx on sm_approvals (org_id, approver_id) where deleted_at is null;
 create index if not exists sm_approvals_state_idx on sm_approvals (org_id, state) where deleted_at is null;
+create index if not exists sm_approvals_decided_by_idx on sm_approvals (org_id, decided_by) where deleted_at is null;
+create index if not exists sm_approvals_delegated_from_idx on sm_approvals (org_id, delegated_from) where deleted_at is null;
 create index if not exists sm_approvals_workspace_acc_idx on sm_approvals (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
 create index if not exists sm_approvals_unit_acc_idx on sm_approvals (org_id, unit_id) where deleted_at is null and unit_id is not null;
 create index if not exists sm_approvals_domain_acc_idx on sm_approvals (org_id, domain_id) where deleted_at is null and domain_id is not null;
-create index if not exists sm_approvals_delegated_from_idx on sm_approvals (org_id, delegated_from) where deleted_at is null;
 drop trigger if exists sm_approvals_sync on sm_approvals;
 create trigger sm_approvals_sync before insert or update on sm_approvals for each row execute function sm_sync_touch('approval');
 alter table sm_approvals enable row level security;
@@ -10229,6 +10230,34 @@ create index if not exists sm_kb_events_kind_idx on sm_kb_events (org_id, kind, 
 alter table sm_kb_events enable row level security;
 
 insert into sm_migrations (id) values ('0045_knowledge') on conflict (id) do nothing;
+
+-- ---------------------------------------------------------------------------
+-- 0050_access_locations — دسترسی: مکان عضو در محیط شرط‌ها (مکان من)
+-- ---------------------------------------------------------------------------
+create or replace function sm_access_profile_location() returns trigger language plpgsql as $fn$
+begin
+  if new.location_id is distinct from old.location_id then
+    perform sm_access_bump(new.org_id);
+  end if;
+  return null;
+end
+$fn$;
+
+create or replace function sm_access_locations() returns trigger language plpgsql as $fn$
+begin
+  if tg_op <> 'UPDATE' or new.parent_id is distinct from old.parent_id or new.path is distinct from old.path or new.deleted_at is distinct from old.deleted_at then
+    perform sm_access_bump(coalesce(new.org_id, old.org_id));
+  end if;
+  return null;
+end
+$fn$;
+
+drop trigger if exists sm_member_profiles_location on sm_member_profiles;
+create trigger sm_member_profiles_location after update on sm_member_profiles for each row execute function sm_access_profile_location();
+drop trigger if exists sm_locations_access on sm_locations;
+create trigger sm_locations_access after insert or update or delete on sm_locations for each row execute function sm_access_locations();
+
+insert into sm_migrations (id) values ('0050_access_locations') on conflict (id) do nothing;
 
 -- ---------------------------------------------------------------------------
 -- 0052_ai_skills — مهارت‌های هوش مصنوعی: پیشنهادهای وابسته به رکورد

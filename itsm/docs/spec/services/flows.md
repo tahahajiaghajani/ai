@@ -222,6 +222,12 @@ logged with secret-looking keys masked). Timeout: the step's, at most the connec
 import { registerFlowStepHandler, registerFlowSkill, setFlowBusinessClock, resumeFlowWait, startCatalogFlows } from "@server/modules/flows";
 ```
 
+**`record.flow_ended`** — a run started on a record (`trigger_table` / `trigger_record_id`) tells the record when it
+ends, in the transaction that ended it: `data: { run_id, flow_id, flow_name, state: completed | failed | canceled,
+error, outputs (of «پایان»), test, depth }`. Modules that wait for their flows subscribe to it (`onRecordEvent(name,
+fn, { tables: [...], kinds: ["record.flow_ended"] })`) instead of polling the run: the request module's zero-touch
+check runs when a run of a flow-driven item ends (a failed or canceled run gets the manual fallback task).
+
 **`registerFlowStepHandler(type, handler)`** implements (or replaces) a node type; it returns an unregister function.
 
 ```ts
@@ -299,7 +305,8 @@ it back with `registerFlowStepHandler(type, builtinStepHandler(type)!)` (`standI
 { kind: "cron", expr: "30 9 * * 1" }                                    // Gregorian, 0/7 = Sunday
 ```
 
-A monthly day the month does not have (31 in autumn) is skipped; `last` is the month's last day (29/30 in Esfand).
+A monthly day the month does not have (31 in autumn) is skipped; `last` is the month's last day (29/30 in Esfand). A
+yearly date is month-end aware: 30 Esfand runs on 29 Esfand of a common year (not only in leap years).
 `SCHEDULE_PRESETS` offers every day, workdays, every Saturday, the first or last day of each Jalali month, each
 season, Nowruz.
 

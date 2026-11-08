@@ -19,7 +19,7 @@ import { add, cmp, isNumeric, mul } from "@shared/money";
 import { grantIn, writeMode } from "@shared/access";
 import { tableDef } from "@shared/tables";
 import type { Ctx } from "../../context";
-import type { Queryable, Tx } from "../../db";
+import { onBeforeCommit, type Queryable, type Tx } from "../../db";
 import { bad, forbidden } from "../../http/errors";
 import { addJournalIn, condEnv, createIn, isSystemCtx, onRecordEvent, registerHooks, removeIn, systemCtx, transitionIn, updateIn, validationError, type RecordEvent, type WriteArgs } from "../../engine";
 import type { JobConfig } from "../../jobs";
@@ -28,6 +28,7 @@ import { arr, eqAll, isUuid, liveRow, liveRows, obj, secondsBetween, sysOf, type
 import { versionSchema } from "./definition";
 import { canOrder, offeringSnapshot, onBehalfRefusal } from "./entitlement";
 import { calendarOf, createTemplateTasks, deliver, displayOf, flowRunStates, runsActive, startFulfilment } from "./fulfil";
+import { onApprovalSettled, type ApprovalSettled } from "../sla";
 import { workingDaysDue } from "@shared/request/due";
 
 const WORKING = ["in_fulfilment", "awaiting_info", "backordered"];
@@ -38,10 +39,10 @@ const REQUESTER_FIELDS = ["requested_for", "caller_id"];
 const AGENT_SCOPES = new Set(["group", "unit", "unit_tree", "domain", "all"]);
 const MASK = "••••";
 
-/** Fields of a requested item a question may fill through «نگاشت به فیلد» (never the module's own). */
+/** Fields of a requested item a question may fill through «نگاشت به فیلد» (never the module's own; system fields never). */
 const NOT_MAPPABLE = new Set([
-  "state", "request_id", "cat_item_id", "item_version_id", "category_id", "answers", "private_answers", "secret_answers", "price", "total",
-  "recurring_price", "recurring_frequency", "fulfilment", "approval_rule_id", "produced_table", "produced_id", "flow_runs", "fulfillers",
+  "state", "request_id", "cat_item_id", "item_version_id", "category_id", "answers", "private_answers", "price", "total",
+  "recurring_price", "recurring_frequency", "fulfilment", "approval_rule_id", "produced_table", "produced_id",
   "stage", "approval", "caller_id", "opened_by", "watch_list", "parent_id", "rating", "feedback", "quantity",
 ]);
 
@@ -316,7 +317,7 @@ async function advance(w: WriteArgs & { row: Row }): Promise<void> {
   const { tx, ctx } = w;
   const row = w.row;
   if (w.op === "delete") {
-    if (row.request_id) await rollupRequest(tx, ctx, String(row.request_id));
+    if (row.request_id) rollupBeforeCommit(tx, ctx, String(row.request_id));
     return;
   }
   const schema = await cachedSchema(tx, ctx, row.item_version_id);
@@ -340,11 +341,6 @@ async function advance(w: WriteArgs & { row: Row }): Promise<void> {
     else await startFulfilment(tx, ctx, row, schema);
     return;
   }
-  if (state === "awaiting_approval" && w.changed.has("approval") && schema) {
-    if (row.approval === "rejected") await transitionIn(tx, sys, "request_item", id, "rejected", { close_notes: "در مرحلهٔ تأیید رد شد" }, { trusted: true });
-    else if (row.approval === "approved" || row.approval === "not_requested") await startFulfilment(tx, ctx, row, schema);
-    return;
-  }
   if (w.changed.has("state")) {
     if (state === "delivered" && schema) {
       await startSubscription(tx, ctx, row, schema);
@@ -363,7 +359,7 @@ async function advance(w: WriteArgs & { row: Row }): Promise<void> {
     }
   }
   if (row.request_id && (w.op === "create" || ["state", "stage", "assigned_to", "assignment_group_id", "total", "quantity", "fulfillers"].some((f) => w.changed.has(f)))) {
-    await rollupRequest(tx, ctx, String(row.request_id));
+    rollupBeforeCommit(tx, ctx, String(row.request_id));
   }
 }
 
@@ -384,8 +380,8 @@ async function assertWorksItem(w: WriteArgs): Promise<void> {
   }
   const ritm = await liveRow(w.tx, w.ctx, "request_item", w.next.request_item_id);
   if (!ritm) throw validationError({ request_item_id: "قلم درخواست‌شده پیدا نشد" });
-  // the fulfillers' share of the item does not count: only its group or its assignee
-  if ((await modeOn(w.tx, w.ctx, "request_item", { ...ritm, fulfillers: [] })) !== "full") {
+  // only its group or its assignee (the fulfillers of other tasks read the item, never work it)
+  if ((await modeOn(w.tx, w.ctx, "request_item", ritm)) !== "full") {
     throw forbidden(`وظیفهٔ ${ritm.number ? `قلم ${ritm.number}` : "این قلم"} را کارشناسان گروه انجام آن می‌سازند`);
   }
 }
@@ -469,6 +465,11 @@ export async function rollupTasks(tx: Tx, ctx: Ctx, ritmId: string, opts: { anno
 // request (the order header)
 
 const rolling = new WeakMap<object, Set<string>>();
+
+/** The order's roll-up, once per transaction however many of its items were written (just before the commit). */
+function rollupBeforeCommit(tx: Tx, ctx: Ctx, requestId: string): void {
+  onBeforeCommit(tx, `request.rollup:${requestId}`, () => rollupRequest(tx, ctx, requestId));
+}
 
 /** An order's state, stage, totals and people from its items. */
 export async function rollupRequest(tx: Tx, ctx: Ctx, requestId: string): Promise<void> {
@@ -560,6 +561,19 @@ async function onReply(e: RecordEvent, cfg: JobConfig): Promise<void> {
 
 let installed = false;
 
+/**
+ * A round of an item's approvals settled (decided, expired, withdrawn) in the transaction that settled it: while the
+ * item waits for approval, a rejection rejects it and nothing left to approve starts its fulfilment.
+ */
+async function approvalSettled(s: ApprovalSettled): Promise<void> {
+  const row = s.record;
+  if (row.state !== "awaiting_approval") return;
+  const schema = await cachedSchema(s.tx, s.ctx, row.item_version_id);
+  if (!schema) return;
+  if (s.aggregate === "rejected") await transitionIn(s.tx, sysOf(s.ctx), "request_item", String(row.id), "rejected", { close_notes: "در مرحلهٔ تأیید رد شد" }, { trusted: true });
+  else if (s.aggregate === "approved" || s.aggregate === "not_requested") await startFulfilment(s.tx, s.ctx, row, schema);
+}
+
 /** Register the lifecycle (after the SLA service: the hook on "*" must see approvals planned). */
 export function installLifecycle(): void {
   if (installed) return;
@@ -581,6 +595,7 @@ export function installLifecycle(): void {
       if (w.def.key === "request_item") await advance(w);
     },
   });
+  onApprovalSettled("request_item", approvalSettled);
   onRecordEvent("request.replies", (e, jctx) => onReply(e, jctx.cfg), { tables: ["request_item"], kinds: ["record.commented"] });
 }
 

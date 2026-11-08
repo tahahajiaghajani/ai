@@ -88,7 +88,7 @@ describe("need to know", () => {
     expect(cal.changes.some((x: any) => x.id === change.id)).toBe(false);
   });
 
-  it("an approver outside the change's groups reads it only while their approval is open", async () => {
+  it("an approver outside the change's groups reads it once asked, also after deciding (the approver grant)", async () => {
     const { P, o, p } = w;
     const c = await w.change(manual("moderate"));
     await w.move(c.id, ["assess", "authorize"]);
@@ -97,6 +97,7 @@ describe("need to know", () => {
     expect((await p.other.client.get(`${P}/r/change_request/${c.id}`)).row.id).toBe(c.id);
     const mine = (await p.other.client.get(`${P}/approvals/mine?scope=pending`)).approvals.find((a: any) => a.record_id === c.id);
     await p.other.client.post(`${P}/approvals/${mine.id}/decide`, { decision: "approved" });
-    await p.other.client.get(`${P}/r/change_request/${c.id}`, 404);
+    const after = await p.other.client.get(`${P}/r/change_request/${c.id}`);
+    expect(after.meta.canWrite).toBe(false);
   });
 });

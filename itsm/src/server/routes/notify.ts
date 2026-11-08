@@ -6,7 +6,7 @@ import { z } from "zod";
 import { router, body, query } from "../http/hono";
 import { INBOX_KINDS, NOTIFY_EVENT_KEYS, type InboxKind } from "@shared/notify";
 import { getPrefs, listInbox, markAllRead, markRead, savePrefs, snooze, unreadCount, MAX_SNOOZE_MS } from "../modules/notify/inbox";
-import { checkInbox, deliveryLog, emailLog, inboxStatus, listRules, preview, testChannel, testEmail } from "../modules/notify/admin";
+import { blocksFor, checkInbox, deliveryLog, emailLog, inboxStatus, listRules, preview, testChannel, testEmail } from "../modules/notify/admin";
 
 export const notifyRoutes = router();
 
@@ -69,6 +69,12 @@ notifyRoutes.put("/prefs", async (c) => {
 });
 
 notifyRoutes.get("/rules", async (c) => c.json(await listRules(c.get("ctx"))));
+
+// the modules' content blocks a template of the table may name (`{{block.<key>}}`)
+notifyRoutes.get("/blocks", async (c) => {
+  const q = query(c, z.object({ table: z.string().min(1).max(60).optional() }));
+  return c.json(await blocksFor(c.get("ctx"), q.table ?? null));
+});
 
 notifyRoutes.post("/preview", async (c) => {
   const b = await body(

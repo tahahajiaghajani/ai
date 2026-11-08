@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   agendaOrder, answerOption, applicableQuestions, bandOf, businessDaysBetween, cabRequired, checklistProgress, computeRisk, conflictState, detectConflicts, explainRisk, findSlots,
   humanSpan, leadDaysFor, lifecycleOf, lifecycleProblem, lifecycleSteps, localParts, lockdownApplies, lockedIn, missingFor, nextMeeting, nextState, occurrences, optionsOf, pirReasons,
-  readiness, requiredFor, subtract, successScore, windowApplies, type RiskQuestion, type WindowLike,
+  readiness, requiredFor, shiftJalaliMonths, subtract, successScore, windowApplies, type RiskQuestion, type WindowLike,
 } from "@shared/change/logic";
 import { calendarOf, DEFAULT_HOURS, localInstant } from "@shared/sla/calendar";
 import { fromJalali, weekday } from "@shared/jalali";
@@ -154,6 +154,28 @@ describe("windows on the Jalali calendar", () => {
     const nowruz = occurrences(w({ kind: "freeze", recurrence: "yearly", start_at: iso(at(fromJalali(1404, 1, 1))), end_at: iso(at(fromJalali(1404, 1, 14))) }), at(fromJalali(1405, 1, 5)), at(fromJalali(1405, 1, 6)), TZ);
     expect(nowruz.length).toBe(1);
     expect(localParts(nowruz[0].start, TZ).date).toBe(fromJalali(1405, 1, 1));
+  });
+
+  it("monthly and yearly recurrences are month-end aware and keep their end in calendar terms", () => {
+    // 1403 and 1408 are leap years (30 Esfand), 1404–1407 common
+    expect(shiftJalaliMonths(fromJalali(1405, 6, 31), 1)).toBe(fromJalali(1405, 7, 30));
+    expect(shiftJalaliMonths(fromJalali(1403, 12, 30), 12)).toBe(fromJalali(1404, 12, 29));
+    expect(shiftJalaliMonths(fromJalali(1407, 12, 29), 12)).toBe(fromJalali(1408, 12, 30));
+    expect(shiftJalaliMonths(fromJalali(1405, 1, 15), -2)).toBe(fromJalali(1404, 11, 15));
+    // a yearly freeze from 25 Esfand to 1 Farvardin ends on 1 Farvardin in a leap year too (a day longer)
+    const nowruz = w({ kind: "freeze", recurrence: "yearly", start_at: iso(at(fromJalali(1404, 12, 25))), end_at: iso(at(fromJalali(1405, 1, 1))) });
+    const leap = occurrences(nowruz, at(fromJalali(1408, 12, 20)), at(fromJalali(1409, 1, 10)), TZ);
+    expect(leap.map((o) => [localParts(o.start, TZ).date, localParts(o.end, TZ).date])).toEqual([[fromJalali(1408, 12, 25), fromJalali(1409, 1, 1)]]);
+    const common = occurrences(nowruz, at(fromJalali(1405, 12, 20)), at(fromJalali(1406, 1, 10)), TZ);
+    expect(common.map((o) => [localParts(o.start, TZ).date, localParts(o.end, TZ).date])).toEqual([[fromJalali(1405, 12, 25), fromJalali(1406, 1, 1)]]);
+    expect(leap[0].end - leap[0].start).toBe(common[0].end - common[0].start + 24 * H);
+    // a monthly window of the 31st meets on the 30th of a 30-day month (not skipped)
+    const m31 = occurrences(w({ recurrence: "monthly", start_at: iso(at(fromJalali(1405, 6, 31), 22)), end_at: iso(at(fromJalali(1405, 6, 31), 23)) }), at(fromJalali(1405, 7, 1)), at(fromJalali(1405, 9, 1)), TZ);
+    expect(m31.map((o) => localParts(o.start, TZ).date)).toEqual([fromJalali(1405, 7, 30), fromJalali(1405, 8, 30)]);
+    // a yearly window of 30 Esfand (a leap year) meets on 29 Esfand of a common one
+    const last = occurrences(w({ recurrence: "yearly", start_at: iso(at(fromJalali(1403, 12, 30), 8)), end_at: iso(at(fromJalali(1403, 12, 30), 12)) }), at(fromJalali(1404, 12, 1)), at(fromJalali(1405, 1, 5)), TZ);
+    expect(last.map((o) => localParts(o.start, TZ).date)).toEqual([fromJalali(1404, 12, 29)]);
+    expect(last[0].end - last[0].start).toBe(4 * H);
   });
 
   it("an occurrence that started before the range still counts; until stops a recurrence; inactive windows have none", () => {

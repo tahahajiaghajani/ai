@@ -25,6 +25,7 @@ export const APPROVAL_RULES: Option[] = [
   { value: "all", label: "همه" },
   { value: "count", label: "تعداد مشخص" },
   { value: "percent", label: "درصد مشخص" },
+  { value: "first", label: "نخستین پاسخ (تأیید یا رد) کافی است" },
 ];
 
 export const APPROVAL_MODES: Option[] = [
@@ -113,8 +114,8 @@ const approval: TableDef = {
     { name: "requested_at", label: "زمان درخواست", type: "datetime", readonly: true, sort: true, filter: true, span: 8 },
     { name: "requested_by", label: "درخواست‌شده با", type: "user", readonly: true, span: 8 },
     { name: "decided_at", label: "زمان تصمیم", type: "datetime", readonly: true, sort: true, filter: true, span: 8 },
-    { name: "decided_by", label: "تصمیم‌گیرنده", type: "user", readonly: true, filter: true, span: 8 },
-    { name: "delegated_from", label: "به جانشینی از", type: "user", readonly: true, filter: true, span: 8 },
+    { name: "decided_by", label: "تصمیم‌گیرنده", type: "user", readonly: true, filter: true, index: true, span: 8 },
+    { name: "delegated_from", label: "به جانشینی از", type: "user", readonly: true, filter: true, index: true, span: 8 },
     { name: "reminded_at", label: "آخرین یادآوری", type: "datetime", readonly: true, audit: false, span: 8 },
   ],
   scope: { own: ["approver_id", "delegated_from"] },

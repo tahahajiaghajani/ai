@@ -22,6 +22,7 @@ import { Loader } from "../../components/display";
 
 const Portfolio = lazy(() => import("./Portfolio"));
 const StatusPage = lazy(() => import("./StatusPage"));
+const PublicStatus = lazy(() => import("./PublicStatus"));
 const MyServices = lazy(() => import("./MyServices"));
 const Rationalization = lazy(() => import("./Rationalization"));
 const Capabilities = lazy(() => import("./Capabilities"));
@@ -128,10 +129,14 @@ const module = recordModule({
   segments: { portfolio: "portfolio", services: "portfolio", "service-offerings": "portfolio", "service-subscriptions": "portfolio", status: "portfolio", "my-services": "portfolio" },
 });
 
+// the status page published by its secret link, without signing in (/p/status/:key)
+const publicRoutes = [{ path: "status/:key", element: lazyPage(<PublicStatus />) }];
+
 // the status page and «my services» first, then the overview and the rest of the group
 const [group] = module.nav;
 const first = ["portfolio:status", "portfolio:mine", "portfolio:overview"];
 export const servicePortfolioUi: ModuleUi = {
   ...module,
+  publicRoutes,
   nav: [{ ...group, items: [...first.map((k) => group.items.find((i) => i.key === k)!).filter(Boolean), ...group.items.filter((i) => !first.includes(i.key))] }],
 };

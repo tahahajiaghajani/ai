@@ -71,7 +71,7 @@ export function actionsProblem(
       case "set": {
         const f = typeof a.field === "string" ? opts.field(a.field) : undefined;
         if (!f) return `${at}: فیلد «${String(a.field ?? "")}» در جدول نیست`;
-        if (f.base) return `${at}: «${String(a.field)}» را سامانه نگه می‌دارد`;
+        if (f.base || f.system) return `${at}: «${String(a.field)}» را سامانه نگه می‌دارد`;
         if (opts.stateField && a.field === opts.stateField && opts.timing === "before") return `${at}: وضعیت را با قاعده‌ای «پس از ذخیره» تغییر دهید`;
         if (a.token !== undefined && !["$now", "$today", "$me", "$empty"].includes(String(a.token))) return `${at}: مقدار «${String(a.token)}» شناخته نیست`;
         if (a.from !== undefined && (typeof a.from !== "string" || !opts.field(a.from))) return `${at}: فیلد مبدأ «${String(a.from ?? "")}» در جدول نیست`;

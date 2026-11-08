@@ -1,14 +1,15 @@
 // Pure logic of the change screens (src/ui/modules/change/model.ts): queues valid for the table, the calendar's
-// geometry (days with Fridays and holidays, lanes at the minute, window bands, a month's days), tones and flags,
-// dashboard KPIs and calibration, the CAB workbench's decisions and the questionnaire's progress.
+// geometry on the record kit's (days with Fridays and holidays, lanes at the minute, windows as bands, a month's days),
+// tones and flags, dashboard KPIs and calibration, the CAB workbench's decisions and the questionnaire's progress.
 import { describe, expect, it } from "vitest";
 import { validateCond } from "@shared/model/conditions";
 import { tableDef } from "@shared/tables";
 import { localInstant } from "@shared/sla/calendar";
 import {
-  QUEUES, calibrated, changeTone, changesOn, cleanAnswers, daysOf, decisionsFor, flags, kpiRows, placeBars, progress, rangeMs, topFactors, voteText, weekStart, windowBands, windowsOn,
+  QUEUES, calibrated, changeTone, cleanAnswers, decisionsFor, flags, kpiRows, progress, topFactors, voteText, weekStart, windowBandsOf,
   type QuestionView,
 } from "../src/ui/modules/change/model";
+import { bandsOn, placeBands, placeSpans, scaleDays, spansOn, windowRange } from "../src/ui/records/model/calendar";
 import { CHANGE_POLICIES } from "../src/ui/modules/change/index";
 
 const TZ = "Asia/Tehran";
@@ -29,16 +30,18 @@ describe("queues and policies", () => {
 describe("calendar geometry", () => {
   it("days of a range with Fridays and holidays; a week starts on Saturday", () => {
     expect(weekStart("2026-03-26")).toBe("2026-03-21"); // Thursday → Saturday
-    const days = daysOf("2026-03-21", 7, [{ date: "2026-03-21", title: "نوروز" }], "2026-03-23");
+    const days = scaleDays("2026-03-21", 7, [{ date: "2026-03-21", title: "نوروز" }], "2026-03-23");
     expect(days.map((d) => d.weekday)).toEqual([0, 1, 2, 3, 4, 5, 6]);
     expect(days[0].holiday).toBe("نوروز");
-    expect(days[6].friday).toBe(true);
+    expect(days[0].off).toBe(true);
+    expect(days[6].off).toBe(true);
+    expect(days[3].off).toBe(false);
     expect(days[2].today).toBe(true);
     expect(days[0].jd).toBe(1);
   });
 
   it("bars at the minute, packed into lanes, clipped at the edges", () => {
-    const range = rangeMs("2026-03-21", 7, TZ);
+    const range = windowRange("2026-03-21", 7, TZ);
     const items = [
       { id: "a", s: at("2026-03-21", 10), e: at("2026-03-21", 12) },
       { id: "b", s: at("2026-03-21", 11), e: at("2026-03-22", 1) },
@@ -47,7 +50,7 @@ describe("calendar geometry", () => {
       { id: "x", s: at("2026-03-30", 10), e: at("2026-03-30", 11) },
       { id: "bad", s: "", e: at("2026-03-22") },
     ];
-    const { bars, lanes } = placeBars(items, range, (i) => i.s, (i) => i.e);
+    const { bars, lanes } = placeSpans(items, range, (i) => i.s, (i) => i.e);
     expect(bars.map((b) => b.item.id)).toEqual(["d", "a", "b", "c"]);
     expect(lanes).toBe(2);
     const byId = Object.fromEntries(bars.map((b) => [b.item.id, b]));
@@ -61,16 +64,19 @@ describe("calendar geometry", () => {
   });
 
   it("window bands put blackouts above maintenance; a month day finds its changes and windows", () => {
-    const range = rangeMs("2026-03-21", 7, TZ);
+    const range = windowRange("2026-03-21", 7, TZ);
     const ws = [
       { window_id: "b", name: "ممنوعیت", kind: "blackout", enforcement: "block", start: at("2026-03-22"), end: at("2026-03-23") },
       { window_id: "m", name: "نگهداری", kind: "maintenance", enforcement: "block", start: at("2026-03-26", 22), end: at("2026-03-27", 4) },
     ];
-    expect(windowBands(ws, range).map((b) => b.item.kind)).toEqual(["maintenance", "blackout"]);
-    expect(windowsOn(ws, "2026-03-27", TZ).map((w) => w.window_id)).toEqual(["m"]);
+    const bands = windowBandsOf([...ws, { window_id: "w", name: "هشدار", kind: "freeze", enforcement: "warn", start: at("2026-03-24"), end: at("2026-03-25") }]);
+    expect(placeBands(bands, range).map((b) => b.item.kind)).toEqual(["maintenance", "freeze", "blackout"]);
+    expect(bands.find((b) => b.kind === "freeze")!.title).toContain("فقط هشدار");
+    expect(bandsOn(ws, "2026-03-27", TZ).map((w) => w.window_id)).toEqual(["m"]);
     const changes = [{ id: "1", planned_start: at("2026-03-22", 23), planned_end: at("2026-03-23", 2) }, { id: "2", planned_start: at("2026-03-22", 9), planned_end: at("2026-03-22", 10) }];
-    expect(changesOn(changes, "2026-03-22", TZ).map((c) => c.id)).toEqual(["2", "1"]);
-    expect(changesOn(changes, "2026-03-23", TZ).map((c) => c.id)).toEqual(["1"]);
+    const on = (day: string) => spansOn(changes, day, TZ, (c) => c.planned_start, (c) => c.planned_end).map((c) => c.id);
+    expect(on("2026-03-22")).toEqual(["2", "1"]);
+    expect(on("2026-03-23")).toEqual(["1"]);
   });
 });
 

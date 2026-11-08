@@ -343,7 +343,7 @@ export const BASE_STATES: StateModel = {
   locked: [],
 };
 
-const sys = { readonly: true, hidden: true, audit: false } as const;
+const sys = { system: true, hidden: true, audit: false } as const;
 
 /** The compiled contributors of a row (see CONTRIBUTORS). */
 const contribFields = (): FieldDef[] => [
@@ -625,7 +625,8 @@ const article: TableDef = {
     ],
   },
   list: { columns: ["number", "title", "article_type", "base_id", "state", "version_label", "owner_id", "view_count", "reuse_count", "review_at"], order: "-updated_at" },
-  ai: { title: "title", text: ["summary", "body", "internal_body"] },
+  // attachments are indexed with the article's audience (KB-010; the module's builder decides per article)
+  ai: { title: "title", text: ["summary", "body", "internal_body"], attachments: true },
 };
 
 // ---------------------------------------------------------------------------------------------------------------

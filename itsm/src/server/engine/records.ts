@@ -16,7 +16,7 @@ import { condEnv, isSystemCtx } from "./env";
 import { defFor, type OrgSchema } from "./schema";
 import { fieldExpr, orderSql, pathExpr, readable, searchSql, sortable, toSql } from "./sql";
 import { RefSet, resolveDisplay } from "./display";
-import { fromDb, loadReadable, pathVisible, requireReadable, toOutput, type Row } from "./read";
+import { canOpenRecords, fromDb, loadReadable, pathVisible, requireReadable, toOutput, type Row } from "./read";
 import { metaProvidersFor, redactRows } from "./hooks";
 import { createIn, isLocked, removeIn, savepoint, transitionIn, updateIn, type WriteOptions } from "./write";
 
@@ -61,6 +61,8 @@ export interface RecordMeta {
   locked: boolean;
   /** the caller is on the watch list */
   watching?: boolean;
+  /** "participant": the caller reads this record only through a participant grant (an approver): no area role */
+  reach?: "participant";
   [k: string]: unknown;
 }
 
@@ -153,10 +155,14 @@ async function viewDefaults(ctx: Ctx, def: TableDef, viewId: string, env: CondEn
   };
 }
 
-/** A page of the records of `table` the caller may read. */
+/**
+ * A page of the records of `table` the caller may read. Named records (`ids`) are single-record reads: a participant
+ * with a grant of its own (an approver without a role in the area) gets those it takes part in — notifications and
+ * display values read them that way; any other list needs the area.
+ */
 export async function list(ctx: Ctx, table: string, p: ListParams = {}): Promise<ListResult> {
   const { def, schema } = await defFor(ctx, table);
-  needTable(ctx, def);
+  if (!(p.ids?.length && !p.filter && !p.q && !p.view && (await canOpenRecords(ctx, def)))) needTable(ctx, def);
   const env = await condEnv(ctx);
   if (p.view) {
     const d = await viewDefaults(ctx, def, p.view, env, schema);
@@ -298,6 +304,8 @@ export async function get(ctx: Ctx, table: string, id: string): Promise<RecordRe
   const refs = new RefSet();
   refs.addRow(def, out);
   const [display, meta] = await Promise.all([resolveDisplay(ctx.db, ctx, env, schema, refs), recordMeta(ctx.db, ctx, def, row, env)]);
+  // read only as a participant with a grant of its own (an approver without a role in the area)
+  if (!access().canReadTable(ctx, def)) meta.reach = "participant";
   return { row: out, display, meta };
 }
 

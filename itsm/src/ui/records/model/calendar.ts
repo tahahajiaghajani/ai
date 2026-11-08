@@ -178,3 +178,148 @@ export function timelineBars(events: readonly CalendarEvent[], from: string, to:
   }
   return { bars, lanes: laneEnds.length };
 }
+
+// ---------------------------------------------------------------- timeline at the minute, bands and tones
+
+/** How an item needs attention: an outline and an icon (conflicts, a blackout; late, outside a window). */
+export type CalendarTone = "danger" | "warning";
+
+/**
+ * A background band of a calendar or timeline: a maintenance window, a blackout or freeze period, an outage — any
+ * span of time with a kind (its colour: maintenance, blackout, freeze, information, holiday, danger, warning, info).
+ */
+export interface CalendarBand {
+  id: string;
+  /** ISO date-times (or dates: local midnight) */
+  start: string;
+  end: string;
+  label: string;
+  kind: string;
+  /** the tooltip (default: the label) */
+  title?: string;
+  /** stacking: higher sits on top (default by kind: maintenance < information < freeze < blackout) */
+  rank?: number;
+}
+
+/** The instants a range of local days covers in `tz` ([start of `from`, start of the day after the last)). */
+export function windowRange(from: string, days: number, tz: string): { start: number; end: number } {
+  return { start: zonedMidnight(from, tz), end: zonedMidnight(addDays(from, days), tz) };
+}
+
+/** Epoch ms of a stored instant (an ISO date-time, a bare date as UTC midnight, or epoch ms); null when empty or bad. */
+export function instantOf(v: unknown): number | null {
+  if (v === null || v === undefined || v === "") return null;
+  if (typeof v === "number") return Number.isFinite(v) ? v : null;
+  const t = Date.parse(String(v));
+  return Number.isFinite(t) ? t : null;
+}
+
+export interface Placed<T> {
+  item: T;
+  /** start and width in percent of the range (from the inline start) */
+  left: number;
+  width: number;
+  lane: number;
+  /** the item continues before / after the range */
+  clippedStart: boolean;
+  clippedEnd: boolean;
+}
+
+/**
+ * Items within [start, end) positioned in percent at the minute and packed into lanes (a lane never holds two
+ * overlapping items). Items without valid times or with an end not after the start are left out; `minWidth` (percent)
+ * keeps short items visible.
+ */
+export function placeSpans<T>(items: readonly T[], range: { start: number; end: number }, startOf: (t: T) => unknown, endOf: (t: T) => unknown, minWidth = 0.6): { bars: Placed<T>[]; lanes: number } {
+  const total = range.end - range.start;
+  const rows = items
+    .map((item) => ({ item, s: instantOf(startOf(item)), e: instantOf(endOf(item)) }))
+    .filter((x): x is { item: T; s: number; e: number } => x.s !== null && x.e !== null && x.e > x.s && x.e > range.start && x.s < range.end)
+    .sort((a, b) => a.s - b.s || b.e - a.e);
+  const laneEnds: number[] = [];
+  const bars: Placed<T>[] = [];
+  for (const r of rows) {
+    const s = Math.max(r.s, range.start);
+    const e = Math.min(r.e, range.end);
+    let lane = laneEnds.findIndex((end) => end <= s);
+    if (lane < 0) {
+      lane = laneEnds.length;
+      laneEnds.push(e);
+    } else laneEnds[lane] = e;
+    const left = ((s - range.start) / total) * 100;
+    bars.push({ item: r.item, left, width: Math.min(100 - left, Math.max(minWidth, ((e - s) / total) * 100)), lane, clippedStart: r.s < range.start, clippedEnd: r.e > range.end });
+  }
+  return { bars, lanes: laneEnds.length };
+}
+
+const BAND_RANK: Record<string, number> = { maintenance: 0, information: 1, info: 1, holiday: 1, warning: 2, freeze: 2, danger: 3, blackout: 3 };
+
+/** Bands of the range in stacking order (blackouts and freezes last, so they sit on top), each on the full height. */
+export function placeBands<B extends Pick<CalendarBand, "start" | "end" | "kind" | "rank">>(bands: readonly B[], range: { start: number; end: number }): Placed<B>[] {
+  const rank = (b: B) => b.rank ?? BAND_RANK[b.kind] ?? 0;
+  return [...bands]
+    .sort((a, b) => rank(a) - rank(b))
+    .map((b) => placeSpans([b], range, (x) => x.start, (x) => x.end, 0).bars[0])
+    .filter((x): x is Placed<B> => !!x);
+}
+
+/** Items whose span touches a local day in `tz`, earliest first (a month view's cell). */
+export function spansOn<T>(items: readonly T[], day: string, tz: string, startOf: (t: T) => unknown, endOf: (t: T) => unknown): T[] {
+  const s = zonedMidnight(day, tz);
+  const e = zonedMidnight(addDays(day, 1), tz);
+  return items
+    .filter((x) => {
+      const a = instantOf(startOf(x));
+      const b = instantOf(endOf(x));
+      return a !== null && b !== null && a < e && b > s;
+    })
+    .sort((a, b) => (instantOf(startOf(a)) ?? 0) - (instantOf(startOf(b)) ?? 0));
+}
+
+/** Bands that touch a local day (a month view's chips). */
+export const bandsOn = <B extends Pick<CalendarBand, "start" | "end">>(bands: readonly B[], day: string, tz: string): B[] => spansOn(bands, day, tz, (b) => b.start, (b) => b.end);
+
+export interface ScaleDay {
+  iso: string;
+  /** day and month of the Jalali calendar (a month's name at its first day) */
+  jd: number;
+  jm: number;
+  weekday: number;
+  /** a Friday or an official holiday (its title) */
+  off: boolean;
+  holiday: string | null;
+  half: boolean;
+  today: boolean;
+}
+
+/** The days of a timeline with Fridays and the organisation's holidays marked. */
+export function scaleDays(from: string, n: number, holidays: readonly { date: string; title: string; half?: boolean }[], today: string): ScaleDay[] {
+  const byDate = new Map(holidays.map((h) => [h.date, h]));
+  return Array.from({ length: n }, (_, i) => {
+    const iso = addDays(from, i);
+    const j = toJalali(iso);
+    const h = byDate.get(iso);
+    const wd = weekday(iso);
+    return { iso, jd: j.jd, jm: j.jm, weekday: wd, off: wd === 6 || !!h, holiday: h?.title ?? null, half: !!h?.half, today: iso === today };
+  });
+}
+
+/**
+ * The span of a calendar event as instants: dates cover their local days whole, date-times are as stored; a date-time
+ * start without an end (or with an end before it) lasts an hour.
+ */
+export function eventSpan(e: CalendarEvent, start: FieldDef, end: FieldDef | null, tz: string): { start: number; end: number } {
+  const timed = start.type === "datetime";
+  const from = (timed ? instantOf(e.row[start.name]) : null) ?? zonedMidnight(e.start, tz);
+  let to: number | null = null;
+  if (end?.type === "datetime") to = instantOf(e.row[end.name]);
+  else if (end) to = zonedMidnight(addDays(e.end, 1), tz);
+  if (to === null || to <= from) to = timed ? from + 3600_000 : zonedMidnight(addDays(e.end, 1), tz);
+  return { start: from, end: to };
+}
+
+/** «۲۵ اسفند»: a day and its Jalali month (a timeline's title). */
+export function dayMonthLabel(iso: string): string {
+  const j = toJalali(iso);
+  return `${toFa(j.jd)} ${JALALI_MONTHS[j.jm - 1]}`;
+}

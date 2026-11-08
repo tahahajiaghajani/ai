@@ -16,6 +16,7 @@ import {
   ShoppingBag, ShoppingCart, PackageCheck, ListTodo, Repeat, LibraryBig, FolderTree, Package, ListChecks, UsersRound, ListTree, ChartColumn, Settings2, User, Users, Stamp,
   Hourglass, AlarmClock, ClipboardList, Inbox,
 } from "lucide-react";
+import type { AccessGate } from "@shared/access";
 import type { ModuleUi, NavItem } from "../registry";
 import { recordModule } from "../../records/module";
 import type { RecordContext } from "../../records/extensions";
@@ -49,6 +50,12 @@ const lazyPage = (node: ReactNode) => <Suspense fallback={<Loader />}>{node}</Su
 
 export const SERVICE_SPACE = { key: "service", label: "خدمات", title: "درخواست‌های خدمت و کاتالوگ", icon: ShoppingBag };
 
+/** Who is offered what (the server checks every route again): ordering and one's own orders for everyone; the
+ *  fulfilment queues, lists and dashboard for those who read beyond their own requests; the catalogue's definitions
+ *  for its managers (create in the catalogue area). */
+const FULFILS: AccessGate = { area: "request", scope: "group" };
+const MANAGES_CATALOG: AccessGate = { area: "catalog", op: "create" };
+
 const CATALOG = "کاتالوگ";
 const ICONS: Record<string, typeof ShoppingBag> = { mine: User, unassigned: Users, "my-tasks": ClipboardList, "group-tasks": ListTodo, approval: Stamp, info: Hourglass, overdue: AlarmClock };
 const DONE_ITEM = ["delivered", "closed_complete", "closed_incomplete"];
@@ -58,7 +65,7 @@ const queueNav = (q: Queue, i: number): NavItem => ({
   label: q.label,
   path: q.path,
   icon: ICONS[q.key] ?? Inbox,
-  area: "work",
+  area: "work", access: FULFILS,
   workspace: i === 0,
   keywords: "درخواست خدمت قلم وظیفه صف کارتابل RITM RTSK",
 });
@@ -69,7 +76,7 @@ const module = recordModule({
   group: { key: "request", label: "درخواست‌ها" },
   tables: [
     {
-      table: "request_item", path: "request-items", label: "همهٔ اقلام درخواست‌شده", noun: "قلم درخواست‌شده", icon: PackageCheck, area: "work", newAction: false,
+      table: "request_item", path: "request-items", label: "همهٔ اقلام درخواست‌شده", noun: "قلم درخواست‌شده", icon: PackageCheck, area: "work", access: FULFILS, newAction: false,
       keywords: "قلم درخواست‌شده درخواست خدمت سفارش RITM", search: { group: "اقلام درخواست‌شده" },
       list: { preset: { rowTone: (r) => rowTone(r), emptyText: "هنوز قلمی سفارش داده نشده است" } },
       extensions: {
@@ -90,7 +97,7 @@ const module = recordModule({
       extensions: { cardFields: ["requested_for", "items_count", "stage"] },
     },
     {
-      table: "request_task", path: "request-tasks", label: "همهٔ وظایف انجام", noun: "وظیفهٔ انجام", icon: ListTodo, area: "work",
+      table: "request_task", path: "request-tasks", label: "همهٔ وظایف انجام", noun: "وظیفهٔ انجام", icon: ListTodo, area: "work", access: FULFILS,
       keywords: "وظیفه انجام درخواست RTSK", search: { group: "وظایف انجام" },
       list: { preset: { rowTone: (r) => rowTone(r) } },
       extensions: {
@@ -104,10 +111,10 @@ const module = recordModule({
       },
     },
     { table: "request_subscription", path: "subscriptions", label: "اشتراک‌های خدمت", noun: "اشتراک خدمت", icon: Repeat, section: "اشتراک‌ها", area: "work", keywords: "اشتراک هزینه دوره‌ای مصرف SUB" },
-    { table: "catalog", path: "catalogs", label: "کاتالوگ‌ها", noun: "کاتالوگ", icon: LibraryBig, section: CATALOG, area: "work", keywords: "کاتالوگ خدمات" },
-    { table: "catalog_category", path: "catalog-categories", label: "دسته‌های کاتالوگ", noun: "دستهٔ کاتالوگ", icon: FolderTree, section: CATALOG, area: "work", search: false },
+    { table: "catalog", path: "catalogs", label: "کاتالوگ‌ها", noun: "کاتالوگ", icon: LibraryBig, section: CATALOG, area: "work", access: MANAGES_CATALOG, keywords: "کاتالوگ خدمات" },
+    { table: "catalog_category", path: "catalog-categories", label: "دسته‌های کاتالوگ", noun: "دستهٔ کاتالوگ", icon: FolderTree, section: CATALOG, area: "work", access: MANAGES_CATALOG, search: false },
     {
-      table: "catalog_item", path: "catalog-items", label: "اقلام کاتالوگ", noun: "قلم کاتالوگ", icon: Package, section: CATALOG, area: "work",
+      table: "catalog_item", path: "catalog-items", label: "اقلام کاتالوگ", noun: "قلم کاتالوگ", icon: Package, section: CATALOG, area: "work", access: MANAGES_CATALOG,
       keywords: "قلم کاتالوگ مدل درخواست فرم سفارش ITM", search: { group: "اقلام کاتالوگ" },
       extensions: {
         headerActions: header(CatalogItemActions, "catalog-item-actions"),
@@ -121,9 +128,9 @@ const module = recordModule({
         ],
       },
     },
-    { table: "variable_set", path: "question-sets", label: "مجموعه‌پرسش‌ها", noun: "مجموعه‌پرسش", icon: ListChecks, section: CATALOG, area: "work", search: false, keywords: "مجموعه پرسش متغیر جدول چندسطری" },
-    { table: "catalog_audience", path: "audiences", label: "مخاطبان کاتالوگ", noun: "مخاطب کاتالوگ", icon: UsersRound, section: CATALOG, area: "work", search: false, keywords: "مخاطب استحقاق دسترسی سفارش" },
-    { table: "order_guide_rule", path: "order-guide-rules", label: "قاعده‌های راهنمای سفارش", noun: "قاعدهٔ راهنمای سفارش", icon: ListTree, section: CATALOG, area: "work", search: false, keywords: "راهنمای سفارش بسته" },
+    { table: "variable_set", path: "question-sets", label: "مجموعه‌پرسش‌ها", noun: "مجموعه‌پرسش", icon: ListChecks, section: CATALOG, area: "work", access: MANAGES_CATALOG, search: false, keywords: "مجموعه پرسش متغیر جدول چندسطری" },
+    { table: "catalog_audience", path: "audiences", label: "مخاطبان کاتالوگ", noun: "مخاطب کاتالوگ", icon: UsersRound, section: CATALOG, area: "work", access: MANAGES_CATALOG, search: false, keywords: "مخاطب استحقاق دسترسی سفارش" },
+    { table: "order_guide_rule", path: "order-guide-rules", label: "قاعده‌های راهنمای سفارش", noun: "قاعدهٔ راهنمای سفارش", icon: ListTree, section: CATALOG, area: "work", access: MANAGES_CATALOG, search: false, keywords: "راهنمای سفارش بسته" },
     { table: "catalog_variable", path: "catalog-questions", label: "پرسش‌های فرم", icon: ListChecks, hidden: true, search: false, newAction: false },
     { table: "catalog_ui_policy", path: "catalog-policies", label: "قاعده‌های فرم سفارش", icon: ListChecks, hidden: true, search: false, newAction: false },
     { table: "catalog_task_template", path: "catalog-tasks", label: "الگوهای وظیفه", icon: ListTodo, hidden: true, search: false, newAction: false },
@@ -134,8 +141,8 @@ const module = recordModule({
     { table: "request_cart_line", path: "request-cart-lines", label: "اقلام سبد", icon: ShoppingCart, hidden: true, search: false, newAction: false },
   ],
   nav: [
-    { key: "request:dashboard", label: "داشبورد درخواست‌ها", path: "requests/dashboard", icon: ChartColumn, section: "گزارش‌ها", area: "work", keywords: "داشبورد شاخص زمان انجام رضایت درخواست" },
-    { key: "request:settings", label: "تنظیمات درخواست خدمت", path: "request-settings", icon: Settings2, section: CATALOG, area: "work", keywords: "تنظیمات تأیید خودکار یادآوری پیش‌فرض کاتالوگ" },
+    { key: "request:dashboard", label: "داشبورد درخواست‌ها", path: "requests/dashboard", icon: ChartColumn, section: "گزارش‌ها", area: "work", access: FULFILS, keywords: "داشبورد شاخص زمان انجام رضایت درخواست" },
+    { key: "request:settings", label: "تنظیمات درخواست خدمت", path: "request-settings", icon: Settings2, section: CATALOG, area: "work", access: MANAGES_CATALOG, keywords: "تنظیمات تأیید خودکار یادآوری پیش‌فرض کاتالوگ" },
   ],
   routes: [
     ...QUEUES.map((q) => ({ path: q.path, element: lazyPage(<QueuePage queue={q.key} />) })),

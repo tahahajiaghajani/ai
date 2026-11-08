@@ -4,7 +4,7 @@
 // blackout / freeze windows on the Jalali calendar, conflict detection, free slots, PIR and CAB requirements, the
 // readiness check and team success scores. No server or React imports.
 import type { Cond } from "../model/conditions";
-import { addDays, monthLength, toJalali, weekday } from "../jalali";
+import { addDays, fromJalali, monthLength, toJalali, weekday } from "../jalali";
 import { localInstant, shiftsOf, type BusinessCalendar } from "../sla/calendar";
 import {
   CHANGE_STATES, CONFLICT_KINDS, FAILED_CODES, RISK_LEVELS, RISK_ORDER, STATE_OPTIONS, WINDOW_KINDS,
@@ -409,7 +409,33 @@ const msOf = (v: unknown): number | null => {
   return Number.isFinite(t) ? t : null;
 };
 
-/** Does local date `d` start an occurrence of a recurring window first starting on `first`? */
+/**
+ * The local date `months` Jalali months after `date`, month-end aware: a day the target month does not have becomes
+ * its last day (31 Shahrivar → 30 Mehr; 30 Esfand of a leap year → 29 Esfand), and a date on the last day of its month
+ * stays on the last day (29 Esfand of a common year → 30 Esfand of a leap year).
+ */
+export function shiftJalaliMonths(date: string, months: number): string {
+  const j = toJalali(date);
+  const total = j.jy * 12 + (j.jm - 1) + months;
+  const jy = Math.floor(total / 12);
+  const jm = (total % 12) + 1;
+  const last = monthLength(jy, jm);
+  const jd = j.jd >= monthLength(j.jy, j.jm) ? last : Math.min(j.jd, last);
+  return fromJalali(jy, jm, jd);
+}
+
+/** Jalali months from `a` to `b` (local dates): 1405-01-.. → 1405-03-.. = 2. */
+const monthsBetween = (a: string, b: string) => {
+  const x = toJalali(a);
+  const y = toJalali(b);
+  return y.jy * 12 + y.jm - (x.jy * 12 + x.jm);
+};
+
+/**
+ * Does local date `d` start an occurrence of a recurring window first starting on `first`? Monthly and yearly
+ * recurrences are month-end aware: a day the month does not have falls on its last day (a window of the 31st meets
+ * on the 30th of a 30-day month; one of 30 Esfand on 29 Esfand of a common year).
+ */
 function recurs(w: WindowLike, first: string, d: string): boolean {
   if (d < first) return false;
   if (w.until && d > String(w.until).slice(0, 10)) return false;
@@ -420,8 +446,10 @@ function recurs(w: WindowLike, first: string, d: string): boolean {
       const days = (w.weekdays ?? []).map(Number).filter((n) => n >= 0 && n <= 6);
       return (days.length ? days : [weekday(first)]).includes(weekday(d));
     }
-    case "monthly":
-      return toJalali(d).jd === toJalali(first).jd;
+    case "monthly": {
+      const j = toJalali(d);
+      return j.jd === Math.min(toJalali(first).jd, monthLength(j.jy, j.jm));
+    }
     case "monthly_last": {
       const j = toJalali(d);
       return j.jd === monthLength(j.jy, j.jm);
@@ -429,7 +457,7 @@ function recurs(w: WindowLike, first: string, d: string): boolean {
     case "yearly": {
       const a = toJalali(d);
       const b = toJalali(first);
-      return a.jm === b.jm && a.jd === b.jd;
+      return a.jm === b.jm && a.jd === Math.min(b.jd, monthLength(a.jy, a.jm));
     }
     default:
       return d === first;
@@ -446,6 +474,10 @@ export function occurrences(w: WindowLike, from: number, to: number, tz: string,
   const base = { window_id: w.id, name: String(w.name ?? ""), kind: w.kind, enforcement: w.enforcement === "warn" ? "warn" : "block" };
   if (!w.recurrence || w.recurrence === "none") return s0 < to && e0 > from ? [{ ...base, start: s0, end: e0 }] : [];
   const { date: first, minutes } = localParts(s0, tz);
+  // monthly and yearly occurrences keep their end in calendar terms: a window from 25 Esfand to 1 Farvardin still
+  // ends on 1 Farvardin in a leap year (30 Esfand makes it a day longer); the others keep their length
+  const calendarEnd = w.recurrence === "monthly" || w.recurrence === "monthly_last" || w.recurrence === "yearly";
+  const { date: firstEnd, minutes: endMinutes } = localParts(e0, tz);
   const out: Occurrence[] = [];
   // occurrences starting up to `length` before `from` still reach into the range
   let d = localParts(Math.max(s0, from - length), tz).date;
@@ -453,7 +485,11 @@ export function occurrences(w: WindowLike, from: number, to: number, tz: string,
   for (let guard = 0; d <= last && guard < 4000 && out.length < limit; guard++, d = addDays(d, 1)) {
     if (!recurs(w, first, d)) continue;
     const s = localInstant(d, minutes, tz);
-    const e = s + length;
+    let e = s + length;
+    if (calendarEnd) {
+      const anchored = localInstant(shiftJalaliMonths(firstEnd, monthsBetween(first, d)), endMinutes, tz);
+      if (anchored > s) e = anchored;
+    }
     if (s < to && e > from) out.push({ ...base, start: s, end: e });
   }
   return out;

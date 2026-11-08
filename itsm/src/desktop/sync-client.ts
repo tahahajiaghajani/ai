@@ -15,7 +15,7 @@ import type { LocalConfig } from "./config";
 import { hostname } from "node:os";
 import { bumpLocal } from "@server/live";
 import { tableDef } from "@shared/tables";
-import { stripSecrets } from "@server/engine/sync";
+import { localOnlyFields, stripSecrets } from "@server/engine/sync";
 
 export interface SyncState {
   linked: boolean;
@@ -377,10 +377,35 @@ export class SyncClient {
       if (page.reset) continue;
       if (!page.has_more) break;
     }
+    await this.purgeLocalOnly();
     this.state.pulled += count;
     // open screens refresh what the web version changed
     if (count) bumpLocal(this.o.config.cloud.org_id!);
     return count;
+  }
+
+  /**
+   * Fields kept out of replicas (`FieldDef.noSync`: sensitive answers) leave this computer once nothing waits for
+   * upload: what was typed here went to the web version with the push, and pulls never bring them.
+   */
+  private async purgeLocalOnly() {
+    const orgId = this.o.config.cloud.org_id;
+    if (!orgId) return;
+    for (const def of AGGREGATES) {
+      if (def.engine !== "record") continue;
+      const tdef = tableDef(def.entity);
+      const cols = tdef ? localOnlyFields(tdef).map((f) => f.name) : [];
+      if (!cols.length) continue;
+      await this.o.db.tx(async (tx) => {
+        await tx.query("set local itsm.applying = 'on'");
+        await tx.query(
+          `update ${ident(def.table)} set ${cols.map((c) => `${ident(c)} = null`).join(", ")}
+           where org_id = $1 and (${cols.map((c) => `${ident(c)} is not null`).join(" or ")}) and id not in (select id from sm_outbox where entity = $2)`,
+          [orgId, def.entity],
+        );
+        await tx.query(`delete from sm_history where org_id = $1 and table_key = $2 and field = any($3::text[])`, [orgId, def.entity, `{${cols.join(",")}}`]);
+      });
+    }
   }
 
   /** A cloud user replaces a local user with the same e-mail (references are moved over). */

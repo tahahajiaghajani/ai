@@ -19,7 +19,7 @@ import { enqueue, registerJobHandler, type JobContext } from "../../jobs";
 import { actsHere } from "../notify";
 import { ensureNextMeeting, refreshAgenda } from "./cab";
 import { lockdownDue, startLockdown } from "./lockdown";
-import { changeConfig, countRows, hasTable, iso, liveRows, msOf, type Row } from "./common";
+import { changeConfig, countRows, countsAsIncident, hasTable, iso, liveRow, liveRows, msOf, type Row } from "./common";
 import { CONFLICT_TRACKED, recomputeConflicts } from "./schedule";
 
 export const SWEEP_EVERY = 15 * 60_000;
@@ -142,8 +142,28 @@ export async function sweep(sys: Ctx, deadline = Number.POSITIVE_INFINITY, now =
 }
 
 /**
+ * Keep one change's `incidents_caused` in step at once when a «ناشی از» link to it comes or goes (`record.linked` /
+ * `record.unlinked` of the engine). Returns whether it changed.
+ */
+export async function countCausedFor(sys: Ctx, changeId: string): Promise<boolean> {
+  const from = hasTable("incident") ? `l.from_table = 'incident'` : `l.from_table <> 'change_request'`;
+  return sys.write(async (tx) => {
+    const r = await tx.one<{ n: string | number }>(
+      `select count(*) as n from sm_links l where l.org_id = $1 and l.deleted_at is null and l.kind = 'caused_by' and l.to_table = 'change_request' and l.to_id = $2 and ${from}`,
+      [sys.org.id, changeId],
+    );
+    const change = await liveRow(tx, sys, "change_request", changeId);
+    const n = Number(r?.n ?? 0);
+    if (!change || Number(change.incidents_caused ?? 0) === n) return false;
+    await updateIn(tx, sys, "change_request", changeId, { incidents_caused: n }, { trusted: true, keepVersion: true, allowLocked: true });
+    return true;
+  });
+}
+
+/**
  * Count the incidents linked to each change as «ناشی از» it and keep `incidents_caused` in step (which links count:
- * `countsAsIncident`). Returns updates.
+ * `countsAsIncident`) — the sweep's safety net; links that come and go are counted at once (`countCausedFor`).
+ * Returns updates.
  */
 export async function countCausedIncidents(sys: Ctx): Promise<number> {
   const from = hasTable("incident") ? `l.from_table = 'incident'` : `l.from_table <> 'change_request'`;
@@ -224,6 +244,11 @@ export function installChangeJobs(): (() => void)[] {
     onRecordEvent("change", async (e, jctx) => {
       if (actsHere(jctx.cfg)) await ensureSweep(jctx.db, e.org_id);
     }, { tables: ["change_request", "cab", "change_lockdown"], kinds: ["record.created", "record.state_changed"] }),
+    // «رخدادهای ناشی از این تغییر»: a «ناشی از» link to a change from an incident comes or goes
+    onRecordEvent("change.caused", async (e, jctx) => {
+      if (!actsHere(jctx.cfg) || e.data?.kind !== "caused_by" || e.data?.direction !== "in" || !countsAsIncident(String(e.data?.other_table ?? ""))) return;
+      await countCausedFor(await systemCtx(jctx.cfg, e.org_id), e.id);
+    }, { tables: ["change_request"], kinds: ["record.linked", "record.unlinked"] }),
     registerJobHandler("change.conflicts", async (job, jctx) => {
       if (!job.org_id || typeof job.payload?.id !== "string") return;
       const sys = await systemCtx(jctx.cfg, job.org_id);

@@ -144,6 +144,15 @@ registerRagSource({
 });
 ```
 
+- **Attachments** (`ai: { …, attachments: true }` on a table with `features.attachments`, KB-010): the text of the
+  record's attached files (PDF, Word, Excel, CSV, HTML, text; not images — OCR is per runtime) is part of its document,
+  a part per file and page (`field: "attachment:<id>"`, label «پیوست «name»»), cited to the record and answered only to
+  those who may read the record (no field group unless the builder says otherwise). At most
+  `ATTACHMENT_LIMITS` (20 files, 15 MB each, 200 000 characters per file); a content a Windows app has not fetched yet
+  is read at the next index. Adding or removing a file emits `record.attachment_added` / `record.attachment_removed`
+  and the record is re-indexed. A builder decides per record: `attachments: false` leaves them out (a «فقط ارجاع»
+  article), `attachments: { group: "internal" }` puts their text in a field group (an article answering agents only).
+
 Every part carries its field group; a part whose field is not a real field of the table (e.g. `content` pages) is
 governed by the record's readability only. Builders must be deterministic (the hash decides re-indexing).
 
@@ -457,8 +466,8 @@ public reply never), and stores the rest as a proposal on the record (valid seve
   scoring in evaluation sets (AI-170), a per-skill model override (the tier decides), skills as flow steps
   (`registerFlowSkill`) and as assistant tools beyond the shift handover, and record-less scheduled outputs (a scheduled
   skill runs over records; the handover summary is asked for).
-- Sharing a collection with **roles** and with a unit's **sub-units**: the condition language has no "my roles" or
-  "my ancestors" operator (engine request); share with groups instead.
+- Sharing a collection with **roles**: the condition language has no "my roles" operator; share with groups instead.
+  (A unit with its **sub-units** is the sharing «واحدها با زیرمجموعه‌ها», operator `in_my_unit_line`.)
 - Embeddings through the web version for a Windows app (`relay.ts` carries chat turns only): the Windows app uses its
   own embedding connection (e.g. Ollama `bge-m3`) or the local embedder.
 - OCR text is per runtime (a synced document that needed OCR is read again where a vision model is available).

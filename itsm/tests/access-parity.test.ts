@@ -4,13 +4,13 @@
 // delegates and absences, memberships of every kind including expired ones, built-in and random custom roles) and
 // random records, generated from fixed seeds so a failure replays exactly. Every member is checked with domain
 // separation off and on, plus a support session, for read, write and delete.
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { TICKET, rng } from "./fixtures/access";
 import { createPgliteDb } from "@server/db/pglite";
 import { migrate } from "@server/db/migrate";
 import type { Db } from "@server/db";
-import { buildSubject, loadOrgSnapshot, readSql, writeSql } from "@server/access";
-import { canReadRow, composeEffective, roleCatalog, scopeColumns, scopeMatch, writeMode, SCOPES, type Subject } from "@shared/access";
+import { buildSubject, loadOrgSnapshot, readSql, registerParticipantSource, writeSql } from "@server/access";
+import { canReadRow, composeEffective, grantIn, roleCatalog, scopeColumns, scopeMatch, writeMode, SCOPES, type Subject } from "@shared/access";
 import { tableDef } from "@shared/tables";
 import type { TableDef } from "@shared/model/types";
 
@@ -180,4 +180,87 @@ describe("SQL predicate == in-memory evaluator", () => {
       expect(tally.write).toBeLessThan(tally.read);
     });
   }
+});
+
+
+// Participants and readers: a `scoped` source (adds rows to subjects who read the area), a `grant` source (reads the
+// rows it names without any grant in the area — the approver grant) and a readers field (read only), on the same
+// random organisations. The JS form gets the sources' verdicts as `extra`, exactly as the provider probes them in SQL.
+describe("SQL predicate == in-memory evaluator with participants and readers", () => {
+  const scoped = new Map<string, Set<string>>();
+  const granted = new Map<string, Set<string>>();
+  const off: (() => void)[] = [];
+  const READERS: TableDef = { ...TICKET, scope: { ...TICKET.scope, readers: ["resolved_by"] } };
+  const sqlOf = (m: Map<string, Set<string>>) => (def: TableDef, alias: string, params: unknown[], userId: string) => {
+    if (def.key !== TICKET.key) return null;
+    params.push(`{${[...(m.get(userId) ?? [])].join(",")}}`);
+    return `${alias}.id = any($${params.length}::uuid[])`;
+  };
+
+  beforeAll(() => {
+    off.push(registerParticipantSource({ name: "parity_scoped", sql: sqlOf(scoped) }));
+    off.push(registerParticipantSource({ name: "parity_grant", reach: "grant", sql: sqlOf(granted) }));
+  });
+  afterAll(() => off.forEach((f) => f()));
+
+  for (const seed of [17, 43]) {
+    it(`agrees with sources of both reaches and a readers field (seed ${seed})`, async () => {
+      const { org, users, roles } = await generate(seed);
+      const r = rng(seed * 7 + 1);
+      const tickets = await db.query<Record<string, unknown>>(`select id from ${TICKET.table} where org_id = $1 order by no`, [org]);
+      for (const t of tickets) if (r.chance(0.4)) await db.query(`update ${TICKET.table} set resolved_by = $2 where id = $1`, [t.id, r.pick(users)]);
+      for (const u of users) {
+        scoped.set(u, new Set(r.some(tickets, 0.15).map((t) => String(t.id))));
+        granted.set(u, new Set(r.some(tickets, 0.15).map((t) => String(t.id))));
+      }
+      const snap = await loadOrgSnapshot(db, org);
+      const rows = await db.query<Record<string, unknown>>(`select * from ${TICKET.table} where org_id = $1`, [org]);
+      let none = 0;
+      let viaGrant = 0;
+      for (const def of [TICKET, READERS]) {
+        for (const [i, u] of users.entries()) {
+          for (const [k, domainSeparation] of [false, true, false].entries()) {
+            const { subject: built } = buildSubject(snap, { domainSeparation, preset: "need_to_know" }, org, u, roles[i], null);
+            // the third pass: the same member with no grant in the area (a requester who only approves)
+            const s: Subject = k < 2 ? built : { ...built, eff: { ...built.eff, grants: { ...built.eff.grants, incident: grantIn({ grants: {} }, "incident") } } };
+            const params: unknown[] = [s.orgId];
+            const read = await ids(`select t.id from ${def.table} t where t.org_id = $1 and ${readSql(s, def, "t", params)}`, params);
+            const extra = (row: Record<string, unknown>) => ({ participant: scoped.get(u)!.has(String(row.id)), granted: granted.get(u)!.has(String(row.id)) });
+            const label = `${def === READERS ? "readers" : "sources"} user=${u} roles=${s.eff.roles.join(",")} sep=${domainSeparation}`;
+            expect(read, `read ${label}`).toEqual(rows.filter((row) => canReadRow(s, def, row, extra(row))).map((x) => String(x.id)).sort());
+            // readers and participants never write
+            const wp: unknown[] = [s.orgId];
+            const write = await ids(`select t.id from ${def.table} t where t.org_id = $1 and ${writeSql(s, def, "t", wp)}`, wp);
+            expect(write, `write ${label}`).toEqual(rows.filter((row) => writeMode(s, def, row) !== null).map((x) => String(x.id)).sort());
+            if (grantIn(s.eff, def.area).read === "none") {
+              none++;
+              viaGrant += read.length;
+              // without an area grant, only the rows the grant source names
+              for (const id of read) expect(granted.get(u)!.has(id), `grant only ${label}`).toBe(true);
+            }
+          }
+        }
+      }
+      // the organisations exercise the participant grant
+      expect(none).toBeGreaterThan(0);
+      expect(viaGrant).toBeGreaterThan(0);
+    });
+  }
+
+  it("a readers field reads, never writes, and passes the confidentiality rule", async () => {
+    const { org, users, roles } = await generate(91);
+    const snap = await loadOrgSnapshot(db, org);
+    const [row] = await db.query<Record<string, unknown>>(`select * from ${TICKET.table} where org_id = $1 order by no limit 1`, [org]);
+    const plain = { ...row, confidential: true, caller_id: null, requested_for: null, opened_by: null, assigned_to: null, watch_list: [], access_list: [], assignment_group_id: null, resolved_by: null };
+    let checked = 0;
+    for (const [i, u] of users.entries()) {
+      const { subject } = buildSubject(snap, { domainSeparation: false, preset: "need_to_know" }, org, u, roles[i], null);
+      if (grantIn(subject.eff, "incident").read === "none" || canReadRow(subject, READERS, plain)) continue;
+      const named = { ...plain, resolved_by: u };
+      expect(canReadRow(subject, READERS, named)).toBe(true);
+      expect(writeMode(subject, READERS, named)).toBe(writeMode(subject, READERS, plain));
+      checked++;
+    }
+    expect(checked).toBeGreaterThan(0);
+  });
 });

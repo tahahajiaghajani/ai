@@ -8,6 +8,8 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { Client } from "./helpers";
 import { cmdbWorld, type CmdbWorld } from "./cmdb-helpers";
 import { approverSources } from "@server/modules/sla/approvals";
+import { resetRateLimits } from "@server/http/ratelimit";
+import { PUBLIC_LIMIT } from "@server/routes/public";
 
 let w: CmdbWorld;
 let S: Record<string, any>; // the live service
@@ -121,8 +123,27 @@ describe("the status page", () => {
     const again = await w.o.post(SP("/status/public"), { enabled: true, regenerate: true });
     expect(again.token).not.toBe(on.token);
     await anon.get(`/v1/status/${on.token}`, 404);
+    // the sign-in-free API of public pages answers the same projection
+    const pub = await anon.get(`/public/status/${again.token}`);
+    expect(pub.services.map((s: any) => s.name)).toContain("ایمیل سازمانی");
     await w.o.post(SP("/status/public"), { enabled: false });
     await anon.get(`/v1/status/${again.token}`, 404);
+    await anon.get(`/public/status/${again.token}`, 404);
+  });
+
+  it("limits the requests of one client to the public pages' API", async () => {
+    const on = await w.o.post(SP("/status/public"), { enabled: true });
+    resetRateLimits();
+    const ask = (ip: string) => w.e.app.fetch(new Request(`http://local.test/api/public/status/${on.token}`, { headers: { "x-forwarded-for": `${ip}, 10.0.0.1` } }));
+    for (let i = 0; i < PUBLIC_LIMIT.limit; i++) expect((await ask("203.0.113.7")).status).toBe(200);
+    const over = await ask("203.0.113.7");
+    expect(over.status).toBe(429);
+    expect(Number(over.headers.get("retry-after"))).toBeGreaterThan(0);
+    expect((await over.json()).error.message).toContain("بیش از اندازه");
+    // another client is not held back
+    expect((await ask("198.51.100.2")).status).toBe(200);
+    resetRateLimits();
+    await w.o.post(SP("/status/public"), { enabled: false });
   });
 
   it("lets people subscribe themselves and lists «my services»", async () => {

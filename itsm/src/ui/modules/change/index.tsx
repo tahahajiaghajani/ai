@@ -16,14 +16,17 @@ import {
   GitPullRequestArrow, ListChecks, ClipboardCheck, TriangleAlert, PowerOff, Presentation, ShieldBan, LayoutTemplate, Workflow, CalendarRange, UsersRound, ListOrdered, Gauge,
   CalendarDays, Gavel, Zap, ChartColumn, Settings2, User, Stamp, CalendarClock, Hammer, Siren, Eye, Inbox,
 } from "lucide-react";
+import type { AccessGate } from "@shared/access";
+import { addDays } from "@shared/jalali";
 import type { ModuleUi, NavItem } from "../registry";
 import { recordModule, RecordListRoute } from "../../records/module";
-import { registerRecordExtensions, type RecordContext } from "../../records/extensions";
+import { registerCalendarDecor, registerRecordExtensions, type RecordContext } from "../../records/extensions";
 import { recordsApi } from "../../records/data/api";
 import type { UiPolicy } from "../../records/model/policies";
 import { Loader } from "../../components/display";
 import type { OrgApi } from "../../lib/api";
-import { QUEUES, changeTone, type Queue } from "./model";
+import { QUEUES, changeTone, windowBandsOf, type Queue, type WindowOcc } from "./model";
+import { changeApi } from "./api";
 
 const ChangeActions = lazy(() => import("./ChangeActions"));
 const ChangeCalendar = lazy(() => import("./ChangeCalendar"));
@@ -48,7 +51,12 @@ const widget = (C: ComponentType<{ ctx: RecordContext }>) => (ctx: RecordContext
 );
 const lazyPage = (node: ReactNode) => <Suspense fallback={<Loader />}>{node}</Suspense>;
 
-export const CHANGE_SPACE = { key: "change", label: "تغییر", title: "مدیریت تغییر", icon: GitPullRequestArrow };
+/** Who is offered the change screens (the server checks every route again): readers of the change area; the
+ *  definitions (models, windows, CABs, the questionnaire, templates) for change managers (the area's approve right). */
+const READS: AccessGate = { area: "change" };
+const MANAGES: AccessGate = { area: "change", op: "approve" };
+
+export const CHANGE_SPACE = { key: "change", label: "تغییر", title: "مدیریت تغییر", icon: GitPullRequestArrow, access: READS };
 
 const PLANNING = ["new", "assess", "authorize", "scheduled"];
 const DONE_FIELDS = ["close_code", "close_notes", "requester_confirmed", "implementation_rating", "lessons", "pir_required", "pir_id", "incidents_caused"];
@@ -77,7 +85,7 @@ const queueNav = (q: Queue, i: number): NavItem => ({
   label: q.label,
   path: q.path,
   icon: QUEUE_ICONS[q.key] ?? Inbox,
-  area: "work",
+  area: "work", access: READS,
   workspace: i === 0,
   keywords: "تغییر صف کارتابل RFC",
   ...(i === 0 ? { count: { key: "change:mine", hint: "تغییر باز شما", load: myCount } } : {}),
@@ -94,7 +102,7 @@ const module = recordModule({
   group: { key: "change", label: "تغییرها" },
   tables: [
     {
-      table: "change_request", path: "changes", label: "همهٔ تغییرها", noun: "تغییر", icon: GitPullRequestArrow, area: "work",
+      table: "change_request", path: "changes", label: "همهٔ تغییرها", noun: "تغییر", icon: GitPullRequestArrow, area: "work", access: READS,
       keywords: "تغییر درخواست تغییر RFC CHG استقرار ارتقا", search: { group: "تغییرها" },
       list: { preset: { rowTone, emptyText: "هنوز تغییری ثبت نشده است", board: { cardFields: ["risk", "planned_start", "assigned_to"] } } },
       extensions: {
@@ -117,27 +125,27 @@ const module = recordModule({
         cardFields: ["risk", "planned_start", "assigned_to"],
       },
     },
-    { table: "change_task", path: "change-tasks", label: "کارهای تغییر", noun: "کار تغییر", icon: ListChecks, area: "work", keywords: "کار وظیفه تغییر CTASK", newAction: false },
-    { table: "change_pir", path: "changes/reviews", label: "بازبینی‌های پس از اجرا", noun: "بازبینی پس از اجرا", icon: ClipboardCheck, area: "work", keywords: "بازبینی PIR درس‌آموخته", newAction: false },
-    { table: "cab_meeting", path: "changes/cab-meetings", label: "جلسه‌های CAB", noun: "جلسهٔ CAB", icon: Presentation, area: "work", keywords: "جلسه CAB هیئت صورت‌جلسه" },
-    { table: "change_conflict", path: "changes/conflicts", label: "تداخل‌ها", noun: "تداخل", icon: TriangleAlert, area: "work", keywords: "تداخل برخورد هم‌پوشانی", newAction: false, search: false },
-    { table: "change_outage", path: "changes/outages", label: "قطعی‌های برنامه‌ریزی‌شده", noun: "قطعی برنامه‌ریزی‌شده", icon: PowerOff, area: "work", keywords: "قطعی افت خدمت" },
-    { table: "change_lockdown", path: "changes/lockdowns", label: "قرنطینه‌های تغییرات", noun: "قرنطینهٔ تغییرات", icon: ShieldBan, area: "work", keywords: "قرنطینه توقف تغییرات بحران" },
-    { table: "change_template", path: "changes/templates", label: "الگوها و تغییرهای استاندارد", noun: "الگوی تغییر", icon: LayoutTemplate, section: DEFS, area: "work", keywords: "الگو تغییر استاندارد از پیش مجاز" },
-    { table: "change_model", path: "changes/models", label: "مدل‌های تغییر", noun: "مدل تغییر", icon: Workflow, section: DEFS, area: "work", search: false, keywords: "مدل چرخه عمر مرحله" },
-    { table: "change_window", path: "changes/windows", label: "پنجره‌های زمانی", noun: "پنجرهٔ زمانی", icon: CalendarRange, section: DEFS, area: "work", search: false, keywords: "پنجره نگهداری ممنوعیت انجماد blackout freeze" },
-    { table: "cab", path: "changes/cabs", label: "هیئت‌های CAB", noun: "هیئت CAB", icon: UsersRound, section: DEFS, area: "work", search: false, keywords: "CAB ECAB هیئت مشاوران" },
-    { table: "change_risk_question", path: "changes/risk-questions", label: "پرسش‌نامهٔ ریسک", noun: "پرسش ریسک", icon: ListOrdered, section: DEFS, area: "work", search: false, keywords: "ریسک پرسش‌نامه امتیاز" },
-    { table: "change_success_score", path: "changes/scores", label: "امتیاز موفقیت تیم‌ها", icon: Gauge, section: REPORTS, area: "work", search: false, newAction: false, keywords: "امتیاز موفقیت تیم" },
+    { table: "change_task", path: "change-tasks", label: "کارهای تغییر", noun: "کار تغییر", icon: ListChecks, area: "work", access: READS, keywords: "کار وظیفه تغییر CTASK", newAction: false },
+    { table: "change_pir", path: "changes/reviews", label: "بازبینی‌های پس از اجرا", noun: "بازبینی پس از اجرا", icon: ClipboardCheck, area: "work", access: READS, keywords: "بازبینی PIR درس‌آموخته", newAction: false },
+    { table: "cab_meeting", path: "changes/cab-meetings", label: "جلسه‌های CAB", noun: "جلسهٔ CAB", icon: Presentation, area: "work", access: READS, keywords: "جلسه CAB هیئت صورت‌جلسه" },
+    { table: "change_conflict", path: "changes/conflicts", label: "تداخل‌ها", noun: "تداخل", icon: TriangleAlert, area: "work", access: READS, keywords: "تداخل برخورد هم‌پوشانی", newAction: false, search: false },
+    { table: "change_outage", path: "changes/outages", label: "قطعی‌های برنامه‌ریزی‌شده", noun: "قطعی برنامه‌ریزی‌شده", icon: PowerOff, area: "work", access: READS, keywords: "قطعی افت خدمت" },
+    { table: "change_lockdown", path: "changes/lockdowns", label: "قرنطینه‌های تغییرات", noun: "قرنطینهٔ تغییرات", icon: ShieldBan, area: "work", access: READS, keywords: "قرنطینه توقف تغییرات بحران" },
+    { table: "change_template", path: "changes/templates", label: "الگوها و تغییرهای استاندارد", noun: "الگوی تغییر", icon: LayoutTemplate, section: DEFS, area: "work", access: MANAGES, keywords: "الگو تغییر استاندارد از پیش مجاز" },
+    { table: "change_model", path: "changes/models", label: "مدل‌های تغییر", noun: "مدل تغییر", icon: Workflow, section: DEFS, area: "work", access: MANAGES, search: false, keywords: "مدل چرخه عمر مرحله" },
+    { table: "change_window", path: "changes/windows", label: "پنجره‌های زمانی", noun: "پنجرهٔ زمانی", icon: CalendarRange, section: DEFS, area: "work", access: MANAGES, search: false, keywords: "پنجره نگهداری ممنوعیت انجماد blackout freeze" },
+    { table: "cab", path: "changes/cabs", label: "هیئت‌های CAB", noun: "هیئت CAB", icon: UsersRound, section: DEFS, area: "work", access: MANAGES, search: false, keywords: "CAB ECAB هیئت مشاوران" },
+    { table: "change_risk_question", path: "changes/risk-questions", label: "پرسش‌نامهٔ ریسک", noun: "پرسش ریسک", icon: ListOrdered, section: DEFS, area: "work", access: MANAGES, search: false, keywords: "ریسک پرسش‌نامه امتیاز" },
+    { table: "change_success_score", path: "changes/scores", label: "امتیاز موفقیت تیم‌ها", icon: Gauge, section: REPORTS, area: "work", access: READS, search: false, newAction: false, keywords: "امتیاز موفقیت تیم" },
     { table: "cab_agenda_item", path: "changes/agenda-items", label: "موردهای دستور جلسه", hidden: true, search: false, newAction: false },
     { table: "change_config", path: "changes/settings/record", label: "تنظیمات تغییر", icon: Settings2, hidden: true, search: false, newAction: false },
   ],
   nav: [
-    { key: "change:calendar", label: "تقویم تغییرات", path: "changes/calendar", icon: CalendarDays, area: "work", workspace: true, keywords: "تقویم برنامهٔ تغییرات FSC زمان‌بندی" },
-    { key: "change:cab", label: "میز کار CAB", path: "changes/cab", icon: Gavel, area: "work", keywords: "CAB جلسه تأیید رأی دستور جلسه" },
-    { key: "change:catalog", label: "تغییرهای استاندارد", path: "changes/catalog", icon: Zap, area: "work", keywords: "تغییر استاندارد فهرست از پیش مجاز" },
-    { key: "change:dashboard", label: "داشبورد تغییرات", path: "changes/dashboard", icon: ChartColumn, section: REPORTS, area: "work", keywords: "داشبورد شاخص نرخ موفقیت تغییر" },
-    { key: "change:settings", label: "تنظیمات تغییر", path: "changes/settings", icon: Settings2, section: DEFS, area: "settings", keywords: "تنظیمات ریسک مهلت CAB تغییر" },
+    { key: "change:calendar", label: "تقویم تغییرات", path: "changes/calendar", icon: CalendarDays, area: "work", access: READS, workspace: true, keywords: "تقویم برنامهٔ تغییرات FSC زمان‌بندی" },
+    { key: "change:cab", label: "میز کار CAB", path: "changes/cab", icon: Gavel, area: "work", access: READS, keywords: "CAB جلسه تأیید رأی دستور جلسه" },
+    { key: "change:catalog", label: "تغییرهای استاندارد", path: "changes/catalog", icon: Zap, area: "work", access: READS, keywords: "تغییر استاندارد فهرست از پیش مجاز" },
+    { key: "change:dashboard", label: "داشبورد تغییرات", path: "changes/dashboard", icon: ChartColumn, section: REPORTS, area: "work", access: READS, keywords: "داشبورد شاخص نرخ موفقیت تغییر" },
+    { key: "change:settings", label: "تنظیمات تغییر", path: "changes/settings", icon: Settings2, section: DEFS, area: "settings", access: MANAGES, keywords: "تنظیمات ریسک مهلت CAB تغییر" },
   ],
   routes: [
     ...QUEUES.map((q) => ({ path: q.path, element: <RecordListRoute table="change_request" title={q.label} preset={{ filter: q.filter, sort: q.sort, emptyText: q.empty, rowTone }} /> })),
@@ -158,6 +166,20 @@ const fromButton = (ctx: RecordContext) => (
   </Suspense>
 );
 for (const table of ["incident", "problem", "known_error", "request_item"]) registerRecordExtensions(table, { headerActions: fromButton });
+// the list's calendar and timeline modes: maintenance / blackout / freeze windows behind the changes, conflicts and
+// blackouts outlined (the record kit's bands and tones)
+registerCalendarDecor("change_request", {
+  tone: (r) => changeTone(r),
+  fields: ["conflict_status", "conflict_count", "in_blackout", "outside_window", "is_late", "on_hold"],
+  bands: {
+    key: "change:windows",
+    load: async (api, w) => {
+      // a day on each side covers the window in any time zone (the timeline clips what lies outside)
+      const d = await changeApi.calendar(api, { from: `${addDays(w.from, -1)}T00:00:00Z`, to: `${addDays(w.to, 1)}T23:59:59Z` });
+      return windowBandsOf((d.windows ?? []) as WindowOcc[]);
+    },
+  },
+});
 registerRecordExtensions("incident", {
   sidePanels: [{ key: "change:suspects", title: "تغییرهای مشکوک", order: 40, when: (ctx) => !!ctx.schema.def("change_request"), render: widget(SuspectsPanel) }],
 });

@@ -1,27 +1,28 @@
 // «تقویم تغییرات» — the forward schedule of change (CHG-041): a timeline (a week, two or four) and a Jalali month,
 // Saturday first, with Fridays and official holidays shaded, maintenance / blackout / freeze windows as bands, the
 // changes the person may read as bars packed into lanes (conflicts, blackout and late changes highlighted), active
-// lockdowns on top, filters (types, mine, only with conflicts) and the iCalendar feed (CHG-042). Clicking a change
-// opens it; keyboard: every bar and chip is a button.
+// lockdowns on top, filters (types, mine, only with conflicts) and the iCalendar feed (CHG-042). The drawing is the
+// record kit's (TimelineGrid, the month grid's cells and band chips); the data is the change calendar's own endpoint.
+// Clicking a change opens it; keyboard: every bar and chip is a button.
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 import { useQuery } from "@tanstack/react-query";
-import { Button, Checkbox, Segmented, Select, Space, Tooltip } from "antd";
+import { Button, Checkbox, Segmented, Select, Space } from "antd";
 import { ChevronRight, ChevronLeft, Plus, CalendarDays, Download, OctagonAlert, TriangleAlert } from "lucide-react";
 import { CHANGE_STATES, CHANGE_TYPES } from "@shared/tables/change";
-import { addDays, formatJalaliDateTime, fromJalali, toFa, toJalali, todayISO, JALALI_MONTHS, WEEKDAYS_SHORT } from "@shared/jalali";
+import { addDays, formatJalaliDateTime, fromJalali, toFa, toJalali, todayISO, WEEKDAYS_SHORT } from "@shared/jalali";
 import { useOrg } from "../../lib/org";
 import { PageHeader } from "../../components/layout";
 import { Loader, EmptyState } from "../../components/display";
 import { ICON, ICON14, Note } from "../../components/blocks";
 import { recordPath, newRecordPath } from "../../records";
-import { monthGrid, shiftMonth, monthTitle } from "../../records/model/calendar";
+import { TimelineGrid } from "../../records/board/TimelineGrid";
+import { bandsOn, monthGrid, shiftMonth, monthTitle, spansOn, windowRange, dayMonthLabel } from "../../records/model/calendar";
 import { CHANGE_KEYS, changeApi, type CalendarData } from "./api";
-import { SPANS, changeTone, changesOn, daysOf, flags, placeBars, rangeMs, riskLabel, weekStart, windowBands, windowKindLabel, windowsOn, type Row, type Span, type WindowOcc } from "./model";
+import { SPANS, changeTone, flags, riskLabel, weekStart, windowBandsOf, windowKindLabel, type Row, type Span, type WindowOcc } from "./model";
 import "../../records/records.css";
 import "./change.css";
 
-const LANE = 32;
 const categoryOf = (state: unknown) => CHANGE_STATES.states.find((s) => s.value === state)?.category ?? "new";
 const stateLabel = (state: unknown) => CHANGE_STATES.states.find((s) => s.value === state)?.label ?? String(state ?? "");
 
@@ -41,7 +42,7 @@ export default function ChangeCalendar() {
   const grid = useMemo(() => monthGrid(j.jy, j.jm, today), [j.jy, j.jm, today]);
   const from = mode === "timeline" ? weekStart(anchor) : grid[0][0].iso;
   const count = mode === "timeline" ? days : grid.length * 7;
-  const range = useMemo(() => rangeMs(from, count, timezone), [from, count, timezone]);
+  const range = useMemo(() => windowRange(from, count, timezone), [from, count, timezone]);
   const query = { from: new Date(range.start).toISOString(), to: new Date(range.end).toISOString(), types: types.join(",") || undefined, mine: mine ? "1" : undefined };
   const q = useQuery({ queryKey: CHANGE_KEYS.calendar(orgId, query), queryFn: () => changeApi.calendar(api, query), placeholderData: (prev) => prev });
 
@@ -54,7 +55,7 @@ export default function ChangeCalendar() {
 
   const data = q.data;
   const changes = ((data?.changes ?? []) as Row[]).filter((c) => !onlyFlagged || changeTone(c));
-  const title = mode === "timeline" ? `${formatDay(from)} تا ${formatDay(addDays(from, count - 1))}` : monthTitle(j.jy, j.jm);
+  const title = mode === "timeline" ? `${dayMonthLabel(from)} تا ${dayMonthLabel(addDays(from, count - 1))}` : monthTitle(j.jy, j.jm);
 
   return (
     <div className="chg-cal">
@@ -89,11 +90,11 @@ export default function ChangeCalendar() {
       <div className="chg-legend" aria-label="راهنمای رنگ‌ها">
         {["maintenance", "blackout", "freeze"].map((k) => (
           <span key={k}>
-            <i className="chg-sw" data-k={k} /> {windowKindLabel(k)}
+            <i className="rk-sw" data-k={k} /> {windowKindLabel(k)}
           </span>
         ))}
         <span>
-          <i className="chg-sw" data-k="holiday" /> جمعه و تعطیل رسمی
+          <i className="rk-sw" data-k="holiday" /> جمعه و تعطیل رسمی
         </span>
         <span className="text-danger">
           <OctagonAlert {...ICON14} /> تداخل یا ممنوعیت
@@ -112,7 +113,22 @@ export default function ChangeCalendar() {
       ) : !data ? (
         <EmptyState title="تقویم بارگذاری نشد" />
       ) : mode === "timeline" ? (
-        <Timeline data={data} changes={changes} from={from} days={count} range={range} today={today} timezone={timezone} onOpen={open} />
+        <TimelineGrid
+          from={from}
+          days={count}
+          tz={timezone}
+          today={today}
+          holidays={data.holidays}
+          bands={windowBandsOf(data.windows as WindowOcc[])}
+          items={changes.map((c) => ({ id: String(c.id), start: c.planned_start, end: c.planned_end, label: String(c.short_description ?? ""), number: String(c.number ?? ""), category: categoryOf(c.state), tone: changeTone(c), title: tooltip(c, timezone) }))}
+          onOpen={open}
+          busy={q.isFetching}
+          empty={
+            <>
+              <CalendarDays {...ICON} className="me-1 inline" aria-hidden /> در این بازه تغییری زمان‌بندی نشده است.
+            </>
+          }
+        />
       ) : (
         <Month data={data} changes={changes} grid={grid} today={today} timezone={timezone} onOpen={open} />
       )}
@@ -122,11 +138,6 @@ export default function ChangeCalendar() {
 
 const toJalaliIso = (jy: number, jm: number): string => fromJalali(jy, jm, 1);
 
-function formatDay(iso: string): string {
-  const j = toJalali(iso);
-  return `${toFa(j.jd)} ${JALALI_MONTHS[j.jm - 1]}`;
-}
-
 function tooltip(c: Row, tz: string): string {
   return [
     `${c.number} — ${c.short_description}`,
@@ -134,70 +145,6 @@ function tooltip(c: Row, tz: string): string {
     `${formatJalaliDateTime(c.planned_start, tz)} تا ${formatJalaliDateTime(c.planned_end, tz)}`,
     ...flags(c),
   ].join("\n");
-}
-
-function Timeline({ data, changes, from, days, range, today, timezone, onOpen }: { data: CalendarData; changes: Row[]; from: string; days: number; range: { start: number; end: number }; today: string; timezone: string; onOpen: (id: string) => void }) {
-  const ds = daysOf(from, days, data.holidays, today);
-  const bands = windowBands(data.windows as WindowOcc[], range);
-  const { bars, lanes } = placeBars(changes, range, (c) => c.planned_start, (c) => c.planned_end);
-  const now = Date.now();
-  const nowLeft = now > range.start && now < range.end ? ((now - range.start) / (range.end - range.start)) * 100 : null;
-  return (
-    <div className="chg-tl" style={{ ["--chg-days" as string]: days }}>
-      <div className="chg-tl-in">
-        <div className="chg-tl-head">
-          {ds.map((d) => (
-            <span key={d.iso} className={[d.friday || d.holiday ? "is-off" : "", d.today ? "is-today" : ""].join(" ")} title={d.holiday ?? undefined}>
-              {d.jd === 1 || d.iso === from ? <b>{JALALI_MONTHS[d.jm - 1]}</b> : null}
-              <span>{WEEKDAYS_SHORT[d.weekday]}</span>
-              <span className="ds-num">{toFa(d.jd)}</span>
-            </span>
-          ))}
-        </div>
-        <div className="chg-tl-body" style={{ minBlockSize: Math.max(96, 28 + lanes * LANE) }}>
-          <div className="chg-tl-cols" aria-hidden>
-            {ds.map((d) => (
-              <i key={d.iso} className={d.friday || d.holiday ? "is-off" : undefined} />
-            ))}
-          </div>
-          {bands.map((b, i) => (
-            <Tooltip key={`${b.item.window_id}:${b.item.start}:${i}`} title={`${windowKindLabel(b.item.kind)}: ${b.item.name}${b.item.enforcement === "warn" ? " (فقط هشدار)" : ""}`}>
-              <div className="chg-tl-band" data-k={b.item.kind} style={{ insetInlineStart: `${b.left}%`, inlineSize: `${b.width}%` }}>
-                <span>{b.item.name}</span>
-              </div>
-            </Tooltip>
-          ))}
-          {nowLeft !== null ? <div className="chg-tl-now" style={{ insetInlineStart: `${nowLeft}%` }} aria-hidden /> : null}
-          {bars.map((b) => {
-            const c = b.item;
-            const tone = changeTone(c);
-            return (
-              <Tooltip key={String(c.id)} title={<span style={{ whiteSpace: "pre-line" }}>{tooltip(c, timezone)}</span>}>
-                <button
-                  type="button"
-                  className={`chg-tl-bar${b.clippedStart ? " is-clip-s" : ""}${b.clippedEnd ? " is-clip-e" : ""}`}
-                  data-tone={tone ?? undefined}
-                  data-cat={categoryOf(c.state)}
-                  style={{ insetInlineStart: `${b.left}%`, inlineSize: `${b.width}%`, insetBlockStart: 22 + b.lane * LANE }}
-                  onClick={() => onOpen(String(c.id))}
-                  aria-label={tooltip(c, timezone).replace(/\n/g, "، ")}
-                >
-                  {tone === "danger" ? <OctagonAlert {...ICON14} className="shrink-0 text-danger" aria-hidden /> : tone === "warning" ? <TriangleAlert {...ICON14} className="shrink-0 text-warning" aria-hidden /> : null}
-                  <span className="ds-ltr shrink-0 text-ink-2">{String(c.number ?? "")}</span>
-                  <span className="t">{String(c.short_description ?? "")}</span>
-                </button>
-              </Tooltip>
-            );
-          })}
-          {!bars.length ? (
-            <p className="chg-tl-empty">
-              <CalendarDays {...ICON} className="me-1 inline" aria-hidden /> در این بازه تغییری زمان‌بندی نشده است.
-            </p>
-          ) : null}
-        </div>
-      </div>
-    </div>
-  );
 }
 
 function Month({ data, changes, grid, today, timezone, onOpen }: { data: CalendarData; changes: Row[]; grid: ReturnType<typeof monthGrid>; today: string; timezone: string; onOpen: (id: string) => void }) {
@@ -215,8 +162,8 @@ function Month({ data, changes, grid, today, timezone, onOpen }: { data: Calenda
         <div key={week[0].iso} className="rk-cal-w">
           {week.map((d) => {
             const h = holidays.get(d.iso);
-            const dayChanges = changesOn(changes, d.iso, timezone);
-            const wins = windowsOn(data.windows as WindowOcc[], d.iso, timezone).filter((w) => w.kind !== "information");
+            const dayChanges = spansOn(changes, d.iso, timezone, (c) => c.planned_start, (c) => c.planned_end);
+            const wins = bandsOn(data.windows as WindowOcc[], d.iso, timezone).filter((w) => w.kind !== "information");
             return (
               <div key={d.iso} className={["rk-cal-d", d.inMonth ? "" : "is-out", d.weekday === 6 || h ? "is-off" : "", d.today || d.iso === today ? "is-today" : ""].join(" ")}>
                 <div className="rk-cal-dh">
@@ -224,7 +171,7 @@ function Month({ data, changes, grid, today, timezone, onOpen }: { data: Calenda
                   {h ? <span className="rk-cal-hol">{h.title}</span> : null}
                 </div>
                 {wins.slice(0, 2).map((w, i) => (
-                  <span key={`${w.window_id}:${i}`} className="chg-wchip" data-k={w.kind} title={`${windowKindLabel(w.kind)}: ${w.name}`}>
+                  <span key={`${w.window_id}:${i}`} className="rk-cal-band" data-k={w.kind} title={`${windowKindLabel(w.kind)}: ${w.name}`}>
                     {w.name}
                   </span>
                 ))}

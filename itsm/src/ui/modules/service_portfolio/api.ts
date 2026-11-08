@@ -53,4 +53,5 @@ export const spfApi = {
 };
 
 /** The public status page's address for a key (web version). */
-export const publicStatusUrl = (token: string) => `${window.location.origin}/api/v1/status/${token}`;
+/** The published page people open without signing in (its data: GET /api/public/status/:key). */
+export const publicStatusUrl = (token: string) => `${window.location.origin}/p/status/${token}`;

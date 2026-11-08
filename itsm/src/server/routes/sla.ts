@@ -104,7 +104,7 @@ approvalRoutes.post("/record/:table/:id/request", async (c) => {
     z.object({
       users: z.array(UUID).max(200).optional(),
       groups: z.array(UUID).max(50).optional(),
-      rule: z.enum(["any", "all", "count", "percent"]).optional(),
+      rule: z.enum(["any", "all", "count", "percent", "first"]).optional(),
       threshold: z.number().int().min(1).max(1000).nullish(),
       comment: z.string().max(4000).nullish(),
       expire_hours: z.number().min(0).max(24 * 365).nullish(),

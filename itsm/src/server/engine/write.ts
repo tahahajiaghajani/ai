@@ -4,8 +4,9 @@
 //   behaviours → beforeWrite hooks → row checks (required, dependent choices, conditions, references) →
 //   insert/update → field history → events (outbox) → afterWrite hooks
 //
-// Input rules: unknown keys are refused; base columns (id, number, version, created_*, updated_*…), system fields
-// and readonly fields are ignored (engine-maintained); a field the access provider does not let the caller write
+// Input rules: unknown keys are refused; base columns (id, number, version, created_*, updated_*…) are ignored, and
+// so are system and readonly fields unless the write is trusted (server code stamping its own fields from a service
+// or a job — user input never sets them); a field the access provider does not let the caller write
 // is refused only when its value would change (so a whole row can be sent back). A change of the state field is a
 // transition (allowed transitions, required fields, guards). Records in a locked state category (closed, canceled
 // by default) only accept transitions out of it.
@@ -28,7 +29,7 @@ import { allocateNumber, formatNumber } from "./numbering";
 import { hooksFor, guardFor, type Row, type WriteArgs, type WriteOp } from "./hooks";
 import { writeHistory } from "./history";
 import { changeSummary, emitEvent, type RecordEventInput } from "./events";
-import { fromDb, loadReadable } from "./read";
+import { canOpenRecords, fromDb, loadReadable } from "./read";
 import { notFound } from "../http/errors";
 import { invalidateSchema } from "./schema";
 
@@ -37,7 +38,7 @@ export interface WriteOptions {
   version?: number;
   /** recorded on events */
   via?: "api" | "import" | "sync";
-  /** trusted server code (hooks, flows, modules): may set readonly fields; field permissions are not asked */
+  /** trusted server code (hooks, services, jobs): may set system and readonly fields; field permissions are not asked */
   trusted?: boolean;
   /** an engine stamp that must not invalidate forms people have open: `version` does not move */
   keepVersion?: boolean;
@@ -103,7 +104,8 @@ function coerceInput(def: TableDef, input: Record<string, unknown>, vc: ValueCon
       problems.add(key, `فیلد «${key}» در «${def.label}» وجود ندارد`);
       continue;
     }
-    if (f.system || (f.base && f.name !== "workspace_id") || (f.readonly && !opts.trusted)) continue;
+    // base columns never; system and readonly fields only from trusted server code (hooks, services, jobs)
+    if ((f.base && f.name !== "workspace_id") || ((f.system || f.readonly) && !opts.trusted)) continue;
     const v = problems.try(() => coerceValue(f, raw, vc, prev ? prev[key] : undefined));
     if (v === undefined || v === KEEP) continue;
     values[key] = v;
@@ -504,7 +506,8 @@ async function prepare(tx: Tx, ctx: Ctx, table: string) {
 
 /** Lock and check the row a write starts from (404 when unreadable, 403 without write access, 409 on a stale version). */
 async function startFrom(tx: Tx, ctx: Ctx, def: TableDef, env: CondEnv, id: string, opts: WriteOptions, op: "write" | "delete"): Promise<Row> {
-  if (!access().canReadTable(ctx, def)) throw notFound(`${def.label} پیدا نشد`);
+  // a participant reads the record (an approver), so a write of it is refused rather than answered as unknown
+  if (!(await canOpenRecords(ctx, def, tx))) throw notFound(`${def.label} پیدا نشد`);
   const prev = await loadReadable(tx, ctx, def, id, env, { lock: true });
   if (!prev) throw notFound(`${def.label} پیدا نشد`);
   if (!opts.skipAccess && !isSystemCtx(ctx)) {

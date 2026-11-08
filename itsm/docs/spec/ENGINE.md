@@ -134,8 +134,10 @@ virtual `user` (members: `name`, `email`, `title`, `role`, `is_active`).
 | `color` | text | a `COLOR_KEYS` name (never hex) | |
 | `secret` | text | **never returned**: `{ secret: true, hint: "…abcd" }` (`hint: false` on the field: always «…», for structured text) | plain string; send the `{ secret: true }` object back to keep it |
 
-FieldDef options: `required`, `readonly` (API ignores it; hooks/engine may set it), `hidden` (UI only), `system`
-(engine-maintained, ignored in input), `default` (value or `$now`, `$today`, `$me`, `$my_unit`, `$my_domain`),
+FieldDef options: `required`, `noSync` (kept out of Windows-app replicas, §13), `readonly` (shown in its place on the form; ignored in input — hooks and trusted
+server code set it), `hidden` (UI only), `system` (bookkeeping of the engine or a module: ignored in input, set by hooks
+and trusted server code only — never by business rules, flows, question mappings or imports; on forms it sits in
+«اطلاعات سامانه» and never on a new record), `default` (value or `$now`, `$today`, `$me`, `$my_unit`, `$my_domain`),
 `choices` (options or list key), `dependsOn` (an option's `parent` must equal the parent field's value), `ref`,
 `refFilter` (condition the referenced record must satisfy, enforced on write), `condTable` / `condTableField`,
 `min`/`max`, `maxLength`, `unique`, `list`/`search`/`filter`/`sort`/`index`, `group` (field security group),
@@ -179,6 +181,8 @@ type Cond = { and: Cond[] } | { or: Cond[] } | { not: Cond } | { f: string; op: 
 | `is_my_group` | — | group fields, refs to `group` |
 | `in_my_groups` | — | groups: one of my groups; users: a member of one of my groups |
 | `in_my_unit`, `in_my_unit_tree` | — | users (members of my unit / subtree), refs to `org_unit`, `unit_id` |
+| `in_my_unit_line` | — | a ref or refs to `org_unit` holds my unit or one above it (`env.unitLine`): something shared with a unit reaches its sub-units (document collections «واحدها با زیرمجموعه‌ها»); SQL and JS alike |
+| `is_my_location` | — | a ref or refs to `location` holds my location or one above it (`env.locations`: the member profile's location and its ancestors — a building's or a site's record reaches the people on its floors); SQL and JS alike |
 | `relative` | `{unit, n, dir}` or `{unit, from, to}` | dates and date-times |
 | `changed`, `changes_to`, `changes_from` | — / one | rules only (`validateCond(c, def, { rules: true })`), compare with `env.prev` |
 
@@ -275,10 +279,11 @@ await ctx.write(async (tx) => {
   by `registerRecordMeta` (e.g. `sla`, `viewers`).
 - **Concurrency**: `version` is the concurrency token (moved by every user write; `rev` is the sync revision — do not
   use it). Without `version`, the last writer wins. A write that changes nothing does not move it.
-- **Input rules**: unknown keys → 400; base columns, `system` and `readonly` fields are ignored; a field outside the
+- **Input rules**: unknown keys → 400; base columns are ignored, and so are `system` and `readonly` fields unless the
+  write is `trusted` (server code: a module stamping its own fields from a service or a job); a field outside the
   provider's `writableFields` → 403 `forbidden_field` *only if its value would change* (a whole row can be sent back).
 - **WriteOptions**: `version`, `via` (`"api" | "import" | "sync"`, recorded on events), `trusted` (server code: may
-  set readonly fields, field permissions not asked), `keepVersion` (engine stamps that must not invalidate open
+  set system and readonly fields, field permissions not asked), `keepVersion` (engine stamps that must not invalidate open
   forms), `allowLocked`, `skipAccess` (the caller checked access itself).
 - **Lists**: `filter` (validated; fields the caller may not see refused), `q` (every word must appear in a
   `search` field, Persian-normalised; or the record number `۱۲` / an id; a full number with its prefix such as
@@ -297,7 +302,9 @@ await ctx.write(async (tx) => {
   orgId, { onBehalfOf })` (a context in which the platform itself acts — allowed everything in its organisation by
   the provider, writes still hold the write lock), `condEnv(ctx)`, `orgSchema(ctx)` (effective defs with tenant
   customisation), `loadReadable`/`requireReadable`, `toOutput`, `RefSet` + `resolveDisplay` (display values for
-  your own queries), `allocateNumber`, `openSecret`.
+  your own queries), `allocateNumber`, `openSecret`, `readSecret(q, ctx, def, id, field)` (the plain value of a secret
+  field for trusted server code that checked the caller's access itself — records only ever carry the hint; null
+  when empty or sealed by another runtime's key; never query the column yourself).
 
 ## 6. Hooks
 
@@ -330,6 +337,14 @@ It runs on `get`, `list` (and so exports) and sync pulls, never for the system; 
 fields. A sync push that sends a redacted value back unchanged keeps the stored value (so a Windows app never
 overwrites a full copy with its reader's view).
 
+**Once per transaction** — `onBeforeCommit(tx, key, fn)` (from `@server/engine`, implemented by both database
+layers): `fn` runs once, just before `tx` commits, however many writes queued it under the same `key` while it was
+waiting — a roll-up of many child writes (`request.rollup:<id>`: an order's totals, people and state from its items)
+or a recount. It runs in the same transaction (its writes commit with it, a failure rolls everything back), in the
+order the keys were first queued; work it queues runs after it (twenty rounds at most), and a key that already ran
+may run again. Work queued inside a savepoint that rolled back still runs: let it recompute from what is stored.
+Readers inside the same transaction see the result only after the commit point, so keep it to derived data.
+
 ## 7. Events
 
 Every create/update/transition/delete writes events into the job queue **in the same transaction** (outbox):
@@ -342,6 +357,9 @@ Every create/update/transition/delete writes events into the job queue **in the 
 | `record.assigned` | `assigned_to: { from, to }`, `assignment_group: { from, to }` (on create too when set) |
 | `record.deleted` | — |
 | `record.commented` | `entry: { id, kind, visibility }` |
+| `record.linked` / `record.unlinked` | on both records of a link: `data: { link_id, kind, direction: "out" \| "in", other_table, other_id }` (also for links a Windows app pushed, `via: "sync"`) |
+| `record.flow_ended` | a flow run started on the record ended: `data: { run_id, flow_id, flow_name, state: completed \| failed \| canceled, error, outputs, test }` (flows, §8 of services/flows.md) |
+| `record.attachment_added` / `record.attachment_removed` | a file was attached to / removed from the record: `data: { attachment_id, name, mime }` (the AI index re-reads tables with `ai.attachments`) |
 
 One update may emit several (updated + state_changed + assigned). Subscribe without touching the engine:
 
@@ -435,7 +453,10 @@ DDL indexes the anchor columns and the own user fields of every table with own f
   blocks; modules add kinds with `registerLinkKind(key, { out, in })`), stored once from → to and listed on both
   records with the label of their direction («ناشی از» / «علت»). Adding needs write access to the record it is added
   from (features.links) and read access to the other; symmetric kinds are unique in both directions; lists leave out
-  links whose other record the caller may not read.
+  links whose other record the caller may not read. `addLinkIn(tx, ctx, table, id, input)` / `removeLinkIn(tx, ctx,
+  table, id, linkId)` do the same inside a module's write (the change made from an incident and its «آغازشده از»
+  link commit together); both emit `record.linked` / `record.unlinked` on both records, so a counter follows at once
+  (the change module's «رخدادهای ناشی از این تغییر»).
 - **Attachments** (`sm_attachments` + `sm_blobs` deduplicated per organisation by sha256): whoever may read a record
   may attach; removing needs write access or being the uploader. Limit: org setting `attachment_max_mb` (default 10;
   the web platform caps request bodies at ~4.5 MB). Names are made safe (no paths, control/bidi characters, reserved
@@ -522,6 +543,10 @@ The virtual table `user` answers `GET /r/user?q=` (members for pickers: `id`, `n
 - **Scope epochs** (`sm_scope_epochs`): bumped per member when what they may read changes — by trigger on their
   membership (role, per-area access, activation) and by `bumpScopeEpoch(q, orgId, userId)` for everything else. A
   desktop whose epoch is behind is told to `reset` and reads everything again (tombstoning what left its scope).
+- **Fields kept out of replicas** (`FieldDef.noSync`: a requested item's sensitive answers) never go down to a
+  Windows app, even for people holding their field group: pulls leave them (and their history) out, a push never
+  empties them (the replica never had the value; a value typed on the Windows app is taken), and the Windows app
+  clears what it holds once nothing waits for upload. The web version alone keeps them.
 - **Secrets** never travel (each runtime seals its own). **Attachment contents** are fetched lazily by the desktop
   (`DesktopBridge.fetchBlob` → the cloud's content route) and those added offline are uploaded after the push.
 

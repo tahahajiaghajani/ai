@@ -229,7 +229,7 @@ export function installDocs(): void {
       if (n.classification === "secret") n.ai_enabled = false;
       const problems: Record<string, string> = {};
       if (n.sharing === "groups" && !(Array.isArray(n.share_groups) && n.share_groups.length)) problems.share_groups = "گروه‌هایی را که مجموعه با آن‌ها به اشتراک گذاشته می‌شود انتخاب کنید";
-      if (n.sharing === "units" && !(Array.isArray(n.share_units) && n.share_units.length)) problems.share_units = "واحدهایی را که مجموعه با آن‌ها به اشتراک گذاشته می‌شود انتخاب کنید";
+      if ((n.sharing === "units" || n.sharing === "unit_trees") && !(Array.isArray(n.share_units) && n.share_units.length)) problems.share_units = "واحدهایی را که مجموعه با آن‌ها به اشتراک گذاشته می‌شود انتخاب کنید";
       if (Object.keys(problems).length) throw validationError(problems);
     },
   });

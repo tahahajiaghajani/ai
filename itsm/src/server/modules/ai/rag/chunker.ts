@@ -39,6 +39,11 @@ export interface RagDocument {
   number?: string | null;
   lang?: string | null;
   parts: RagPart[];
+  /**
+   * the record's attachments (tables with `ai.attachments`): false leaves them out (a builder's choice for this record);
+   * `group`: the field group their text carries (default none: whoever reads the record)
+   */
+  attachments?: { group?: FieldGroup | null } | false;
 }
 
 export interface ChunkOptions {

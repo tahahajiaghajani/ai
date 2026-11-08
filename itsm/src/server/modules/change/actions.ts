@@ -10,7 +10,7 @@ import { explainRisk, leadDaysFor, lockdownApplies, optionsOf } from "@shared/ch
 import { HOLD_REASONS } from "@shared/tables/change";
 import type { Ctx } from "../../context";
 import { access } from "../../access/provider";
-import { addJournalIn, addLink, create, createIn, defFor, get, list, transition, update, updateIn } from "../../engine";
+import { addJournalIn, addLinkIn, create, createIn, defFor, get, list, savepoint, transition, update, updateIn } from "../../engine";
 import { bad, conflict, forbidden } from "../../http/errors";
 import { aiCapabilities } from "./ai";
 import { changeConfig, hasTable, isUuid, liveRow, liveRows, msOf, sysOf, type Row } from "./common";
@@ -211,12 +211,14 @@ export async function changeFrom(ctx: Ctx, table: string, sourceId: string, inpu
     ...(isUuid(src.workspace_id) ? { workspace_id: src.workspace_id } : {}),
   };
   for (const [k, v] of Object.entries(input)) if (v !== undefined) values[k] = v;
+  // the change, its origin and its links commit together
   const created = await ctx.write(async (tx) => {
     const row = await createIn(tx, ctx, "change_request", values);
-    return updateIn(tx, sysOf(ctx), "change_request", String(row.id), { origin_table: table, origin_id: sourceId }, { trusted: true, keepVersion: true });
+    const stored = await updateIn(tx, sysOf(ctx), "change_request", String(row.id), { origin_table: table, origin_id: sourceId }, { trusted: true, keepVersion: true });
+    await addLinkIn(tx, ctx, "change_request", String(stored.id), { kind: "initiated_by", table, id: sourceId });
+    if (table === "problem" || table === "known_error") await savepoint(tx, () => addLinkIn(tx, ctx, "change_request", String(stored.id), { kind: "fixes", table, id: sourceId })).catch(() => undefined);
+    return stored;
   });
-  await addLink(ctx, "change_request", String(created.id), { kind: "initiated_by", table, id: sourceId });
-  if (table === "problem" || table === "known_error") await addLink(ctx, "change_request", String(created.id), { kind: "fixes", table, id: sourceId }).catch(() => undefined);
   return (await get(ctx, "change_request", String(created.id))).row;
 }
 

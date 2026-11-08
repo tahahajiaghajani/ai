@@ -67,11 +67,14 @@ export function sysCtx(cfg: JobConfig, orgId: string): Promise<Ctx> {
 /** The org-relative path of a record in the app (the UI maps it to the module's own page). */
 export const recordAppPath = (table: string, id: string) => `r/${table}/${id}`;
 
-/** An absolute link to a record when the web version's address is known (PUBLIC_URL), else the app path. */
-export function recordUrl(cfg: Partial<ServerConfig>, orgId: string, table: string, id: string): string {
+/** An absolute link to an organisation-relative app path when the web version's address is known (PUBLIC_URL), else the app path. */
+export function appUrl(cfg: Partial<ServerConfig>, orgId: string, appPath: string): string {
   const base = (cfg.publicUrl ?? "").replace(/\/+$/, "");
-  const path = `/${orgId}/${recordAppPath(table, id)}`;
+  const path = `/${orgId}/${appPath.replace(/^\/+/, "")}`;
   return base ? `${base}${path}` : path;
 }
+
+/** An absolute link to a record when the web version's address is known (PUBLIC_URL), else the app path. */
+export const recordUrl = (cfg: Partial<ServerConfig>, orgId: string, table: string, id: string): string => appUrl(cfg, orgId, recordAppPath(table, id));
 
 export const errText = (e: unknown) => String((e as Error)?.message ?? e).slice(0, 1000);

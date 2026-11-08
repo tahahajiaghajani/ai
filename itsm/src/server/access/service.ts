@@ -15,7 +15,7 @@ import { FIELD_GROUPS, type FieldGroup } from "@shared/model/types";
 import {
   areas, builtinRoles, compactGrant, diffRole, explainRow, fullGrant, grantIn, hiddenFields, isBuiltinRole,
   PERSONA_PRESETS, roleClosure, writeMode, DESK_PRESETS,
-  type DeskPreset, type FullGrant, type Grants, type RoleChange, type RoleDef, type RowExplanation, type Subject,
+  type DeskPreset, type FullGrant, type Grants, type Persona, type RoleChange, type RoleDef, type RowExplanation, type RowExtra, type Subject,
 } from "@shared/access";
 import { accessSettings, buildSubject, catalogOf, prepareSubject, snapshotFor, subjectOf, type AccessSettings } from "./subject";
 import { participantSources, readSql } from "./predicate";
@@ -91,6 +91,38 @@ export function summarize(s: Subject, settings: AccessSettings): AccessSummary {
     delegators: s.delegators,
     settings: { domain_separation: settings.domainSeparation, preset: settings.preset },
   };
+}
+
+/**
+ * What the shell needs to show only what the member may open (GET /api/o/:org, `access`): the grant of every
+ * registered area, the roles and the working persona — requester (no operational role), agent or admin. Nav items
+ * and spaces name an area and a level (docs/spec/UI_RECORDS.md); the server still checks every route.
+ */
+export interface ShellAccess {
+  grants: Record<string, FullGrant>;
+  roles: string[];
+  legacy: boolean;
+  persona: Persona;
+}
+
+const PERSONA_RANK: Record<Persona, number> = { requester: 0, agent: 1, admin: 2 };
+
+export async function shellAccess(ctx: Ctx): Promise<ShellAccess> {
+  await prepareSubject(ctx);
+  const s = subjectOf(ctx);
+  const grants: Record<string, FullGrant> = {};
+  for (const a of areas()) grants[a.key] = grantIn(s.eff, a.key);
+  for (const k of Object.keys(s.eff.grants)) if (k !== "*" && !grants[k]) grants[k] = grantIn(s.eff, k);
+  let persona: Persona = "requester";
+  if (s.kind !== "user") persona = "admin";
+  else {
+    const catalog = catalogOf(await snapshotFor(ctx), accessSettings(ctx.org));
+    for (const key of s.eff.roles) {
+      const p = catalog.get(key)?.persona;
+      if (p && PERSONA_RANK[p] > PERSONA_RANK[persona]) persona = p;
+    }
+  }
+  return { grants, roles: s.eff.roles, legacy: s.eff.legacy, persona };
 }
 
 /** The caller's own effective access (GET /access/me). */
@@ -477,7 +509,7 @@ export interface AccessCheck {
   legacy: boolean;
   field_groups: FieldGroup[];
   hidden_fields: { name: string; label: string; group: FieldGroup }[];
-  can: { read_table: boolean; create: boolean };
+  can: { read_table: boolean; create: boolean; participant_only?: true };
   record?: {
     id: string;
     label: string;
@@ -509,14 +541,14 @@ export async function checkAccess(ctx: Ctx, input: { user_id: string; table: str
       return { name: n, label: f.label, group: f.group! };
     }),
     can: { read_table: g.read !== "none", create: g.create },
+    // tables read only as a participant with a grant of its own (an approver without a role in the area)
+    ...(g.read === "none" && (await access().participations?.(target, ctx.db))?.has(def.key) ? { participant_only: true } : {}),
   };
   if (input.record_id) {
     // the checker never tells about a record its user may not read
     const mine = await requireReadable(ctx, def, input.record_id, await condEnv(ctx));
     const row = await ctx.db.one<Record<string, unknown>>(`select * from ${def.table} where id = $1 and org_id = $2`, [mine.id, ctx.org.id]);
-    const participant = await participantOf(ctx.db, s, def, String(mine.id), false);
-    const boundedParticipant = await participantOf(ctx.db, s, def, String(mine.id), true);
-    const explanation = explainRow(s, def, row!, { ...(participant === null ? {} : { participant }), ...(boundedParticipant === null ? {} : { boundedParticipant }) });
+    const explanation = explainRow(s, def, row!, await participantOf(ctx.db, s, def, String(mine.id)));
     const params: unknown[] = [String(mine.id)];
     const sql = readSql(s, def, "t", params);
     const probe = await ctx.db.one(`select 1 from ${def.table} t where t.id = $1 and ${sql}`, params);
@@ -539,21 +571,33 @@ export async function checkAccess(ctx: Ctx, input: { user_id: string; table: str
  */
 export async function explainAccess(ctx: Ctx, def: TableDef, row: Record<string, unknown>): Promise<RowExplanation> {
   const s = (await prepareSubject(ctx)).subject;
-  const participant = row.id ? await participantOf(ctx.db, s, def, String(row.id), false) : null;
-  const boundedParticipant = row.id ? await participantOf(ctx.db, s, def, String(row.id), true) : null;
-  return explainRow(s, def, row, { ...(participant === null ? {} : { participant }), ...(boundedParticipant === null ? {} : { boundedParticipant }) });
+  return explainRow(s, def, row, row.id ? await participantOf(ctx.db, s, def, String(row.id)) : {});
 }
 
-/** Is the subject a participant of the record through a registered source (null when no source applies)? */
-async function participantOf(q: Queryable, s: Subject, def: TableDef, id: string, bounded: boolean): Promise<boolean | null> {
-  const params: unknown[] = [id];
-  const terms = participantSources()
-    .filter((src) => !!src.bounded === bounded)
-    .map((src) => src.sql(def, "t", params, s.userId))
-    .filter((x): x is string => !!x);
-  if (!terms.length) return null;
-  const r = await q.one(`select 1 from ${def.table} t where t.id = $1 and (${terms.join(" or ")})`, params);
-  return !!r;
+/**
+ * Is the subject a participant of the record through the registered sources — `participant` for sources of reach
+ * «scoped», `granted` for those of reach «grant», `boundedParticipant` / `boundedGranted` for the bounded ones of
+ * each reach (each left out when no such source applies to the table)?
+ */
+async function participantOf(q: Queryable, s: Subject, def: TableDef, id: string): Promise<RowExtra> {
+  const out: RowExtra = {};
+  const kinds = [
+    { key: "participant", reach: "scoped", bounded: false },
+    { key: "granted", reach: "grant", bounded: false },
+    { key: "boundedParticipant", reach: "scoped", bounded: true },
+    { key: "boundedGranted", reach: "grant", bounded: true },
+  ] as const;
+  for (const k of kinds) {
+    const params: unknown[] = [id];
+    const terms = participantSources()
+      .filter((src) => (src.reach ?? "scoped") === k.reach && !!src.bounded === k.bounded)
+      .map((src) => src.sql(def, "t", params, s.userId))
+      .filter((x): x is string => !!x);
+    if (!terms.length) continue;
+    const r = await q.one(`select 1 from ${def.table} t where t.id = $1 and (${terms.join(" or ")})`, params);
+    out[k.key] = !!r;
+  }
+  return out;
 }
 
 function recordLabel(def: TableDef, row: Record<string, unknown>): string {

@@ -14,6 +14,7 @@ export const DOC_SHARING: Option[] = [
   { value: "private", label: "خصوصی", color: "gray" },
   { value: "groups", label: "گروه‌ها", color: "blue" },
   { value: "units", label: "واحدهای سازمانی", color: "teal" },
+  { value: "unit_trees", label: "واحدها با زیرمجموعه‌ها", color: "teal" },
   { value: "everyone", label: "همه", color: "green" },
 ];
 
@@ -40,7 +41,8 @@ export const DOC_LANGS: Option[] = [
 
 /**
  * Who reads a collection (on top of a read grant in `knowledge`): its owner, the people named, members of the groups
- * (sharing «گروه‌ها»), members of the units — the unit itself, not its sub-units — (sharing «واحدها»), or everyone.
+ * (sharing «گروه‌ها»), members of the units — the unit itself (sharing «واحدها») or with its sub-units («واحدها با
+ * زیرمجموعه‌ها», `in_my_unit_line`) —, or everyone.
  */
 export const COLLECTION_READ: Cond = {
   or: [
@@ -48,6 +50,7 @@ export const COLLECTION_READ: Cond = {
     { f: "share_users", op: "is_me" },
     { and: [{ f: "sharing", op: "eq", v: "groups" }, { f: "share_groups", op: "in_my_groups" }] },
     { and: [{ f: "sharing", op: "eq", v: "units" }, { f: "share_units", op: "in_my_unit" }] },
+    { and: [{ f: "sharing", op: "eq", v: "unit_trees" }, { f: "share_units", op: "in_my_unit_line" }] },
     { f: "sharing", op: "eq", v: "everyone" },
   ],
 };

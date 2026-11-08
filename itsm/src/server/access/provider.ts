@@ -43,6 +43,13 @@ export interface AccessProvider {
   /** The caller's identity for conditions: groups, unit, time zone… (cached per request by the engine). */
   env(ctx: Ctx): Promise<CondEnv>;
   /**
+   * Tables in which the caller reads some rows only as a participant with a grant of its own (an approver, a
+   * service's owner) although no role reads the table's area: single-record reads (`get`, `requireReadable`) and
+   * the table's meta open for them; lists, aggregates, exports and module routes keep asking `canReadTable`.
+   * A provider without participants leaves it out.
+   */
+  participations?(ctx: Ctx, q: Queryable): Promise<ReadonlySet<string>>;
+  /**
    * Load whatever the synchronous methods above need about the caller (their roles, groups, units…) through `q` —
    * the request's transaction when there is one. The engine awaits it before any other call for a context
    * (`orgSchema`); a provider that needs nothing leaves it out.

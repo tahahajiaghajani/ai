@@ -214,6 +214,10 @@ function leafBody(leaf: Leaf, def: TableDef, alias: string, params: unknown[], e
       return anyOf(userish ? env.unitUsers ?? [] : env.unitId ? [env.unitId] : []);
     case "in_my_unit_tree":
       return anyOf(userish ? env.unitTreeUsers ?? [] : env.unitTree ?? []);
+    case "in_my_unit_line":
+      return anyOf(env.unitLine ?? []);
+    case "is_my_location":
+      return anyOf(env.locations ?? []);
     case "changed":
     case "changes_to":
     case "changes_from":

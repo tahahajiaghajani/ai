@@ -12,7 +12,7 @@
 import { enqueue, registerJobHandler } from "../../jobs";
 import type { Ctx, ServerConfig } from "../../context";
 import { pgArray, type Queryable, type Tx } from "../../db";
-import { condEnv, orgSchema, systemCtx } from "../../engine";
+import { condEnv, emitOrgEvent, orgSchema, systemCtx } from "../../engine";
 import { memberCtx } from "../../access";
 import { uuidv7 } from "@shared/id";
 import { faDigits } from "@shared/format";
@@ -376,6 +376,7 @@ async function persist(q: Queryable, x: Exec, p: Pending, end?: { state: RunStat
       await enqueue(q, { kind: "flows.timer", orgId: x.run.org_id, payload: { run: x.run.id, wait: w.id }, runAt: new Date(due), dedupeKey: `flows.timer:${w.id}`, maxAttempts: 20 });
     }
   }
+  if (end) await runEnded(q, x.run, end.state, end.error ?? null, x.data.outputs ?? {});
   if (end && x.run.parent_run_id) {
     await resumeFlowWait(q, x.run.org_id, `run:${x.run.id}`, {
       state: end.state,
@@ -413,6 +414,18 @@ function restore(x: Exec, s: ReturnType<typeof snapshot>) {
 }
 
 // ----- ending runs ----------------------------------------------------------------------------------------------
+
+/**
+ * `record.flow_ended` on the record a run was started on (in the transaction that ended it): its state (completed,
+ * failed, canceled), error and outputs — modules waiting for their flows react to it instead of polling the run.
+ */
+async function runEnded(q: Queryable, run: RunRow, state: RunState, error: string | null, outputs: Record<string, unknown>): Promise<void> {
+  if (!run.trigger_table || !run.trigger_record_id) return;
+  await emitOrgEvent(q, run.org_id, {
+    kind: "record.flow_ended", table: run.trigger_table, id: run.trigger_record_id, actor: null,
+    data: { run_id: run.id, flow_id: run.flow_id, flow_name: run.flow_name, state, error, outputs: capJson(outputs), test: !!run.test, depth: run.depth },
+  });
+}
 
 function waitInfo(w: WaitRow, reason: WaitInfo["reason"]): WaitInfo {
   return { id: w.id, kind: w.kind, key: w.key, dueAt: w.due_at ? Date.parse(String(w.due_at)) : null, data: w.data ?? {}, result: w.result ?? null, reason: w.result ? "result" : reason };
@@ -459,6 +472,7 @@ export async function cancelRun(cfg: ServerConfig, runId: string, reason = "اج
       [runId, reason],
     );
     if (r?.parent_run_id) await resumeFlowWait(tx, r.org_id, `run:${r.id}`, { state: "canceled", port: "error", error: reason, outputs: {} });
+    if (r) await runEnded(tx, r, "canceled", reason, {});
     return r;
   });
   if (!run) return false;

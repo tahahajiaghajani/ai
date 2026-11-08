@@ -164,7 +164,7 @@ and breaches to the cloud (its timers travel there).
 | --- | --- |
 | `table_key`, `condition` | approvals are requested when the condition **becomes** true on a write (on create, or by a change that makes it hold); a rule with an open round is not asked again |
 | `mode` | `sequential` (levels one after another) or `parallel` |
-| `levels` | `[{ name?, sources: Source[], rule: any|all|count|percent, threshold? }]` (≤ 10; default: the requester's manager) |
+| `levels` | `[{ name?, sources: Source[], rule: any|all|count|percent|first, threshold? }]` (≤ 10; default: the requester's manager) |
 | `auto_approve` | a condition that approves at once (a single approved row, `تأیید خودکار`) |
 | `allow_self_approval` | lift separation of duties |
 | `remind_every`, `expire_after`, `expire_action` | seconds; after the deadline an open approval is `rejected` (default), `approved` or `canceled` |
@@ -192,7 +192,8 @@ and who decided it.
 ### Semantics
 
 - A level is approved when its rule is met (`any` 1 · `all` n · `count` min(t, n) · `percent` ⌈n·p/100⌉) and rejected
-  as soon as it can no longer be; the open rows of a decided level become `no_longer_required`. In sequential mode the
+  as soon as it can no longer be; `first` is settled by the first answer, approval or rejection («یک پاسخ کافی است»:
+  knowledge's «یک تأییدکننده کافی است»). The open rows of a decided level become `no_longer_required`. In sequential mode the
   next level opens (`waiting` → `requested`) only then. A rejected level rejects the round.
 - The record's `approval` field (task tables: `not_requested` / `requested` / `approved` / `rejected`) is the aggregate
   over the rules' latest rounds: rejected > requested > approved.
@@ -206,8 +207,21 @@ and who decided it.
   the open approvals on the approver's behalf. Chains are followed up to three steps, never in a circle.
 - A record that reaches a done state (resolved, closed, canceled) withdraws its open approvals (`no_longer_required`).
 - Reminders and expiry run as the job `approval.timer` (one per record, dedupe key `approval.timer:<table>:<id>`).
-- **Read access**: the access model's participant source `approvals` lets an approver (and their delegate) read a
-  record of a table with an `approval` field while their approval is `requested`.
+- **Read access — the approver grant**: the access model's participant source `approvals` (reach `grant`,
+  docs/spec/ACCESS.md §6–7) lets whoever has or had an approval on a record of a table with an `approval` field read
+  that record — its approver, the person they stood in for, whoever decided it and, while it is open, the
+  approver's delegate; every state but `skipped`. It holds without any role in the record's area (a requester asked
+  to approve a change), under the domain and confidentiality rules and the field groups of their own roles; it
+  never writes, and lists, aggregates and the module's routes stay closed (the record opens from «تأییدهای من»).
+- **Modules react in the same transaction** (§8): `onApprovalSettled(table, fn)` runs when a round settles —
+  `approved` or `rejected` by a decision or an expiry, `canceled` by a withdrawal — with `{ tx, ctx, def, record,
+  rule_id, round, outcome, aggregate, by }`; a module that throws rolls the decision back. Rounds born settled
+  (auto-approval) and rounds a re-run replaces do not call it (the write that made them sees them).
+  `cancelApprovalsIn(tx, ctx, table, id, { adhocRound?, state?: canceled|no_longer_required, comment? })` withdraws
+  inside the caller's transaction; `rerunApprovalRules(ctx, table, id, { comment?, decided? })` (and `…In`) plans a
+  record's approvals again when what they depend on changed: open rounds are withdrawn (`canceled`, with the
+  comment) and every active rule whose condition holds now starts a new round (auto-approval included); a rule whose
+  latest round is decided is left alone unless `decided`.
 - Events: `record.approval_requested` per (rule, round, level) opened — `data: { rule_id, round, level, approval_ids,
   approvers, due_at, adhoc?, reminder? }`; `record.approval_decided` — `data: { approval_id, rule_id, round, level,
   decision: approved|rejected|expired, by, on_behalf_of, comment, outcome }`. A decision on a record with a journal
@@ -338,12 +352,20 @@ The sources: `setHolidaySource` and `setPolicySource` (§2, §5). Screens invali
 ## 8. Extension points for modules
 
 ```ts
-import { registerPriorityDefault, registerApproverSource, setOnCallResolver } from "@server/modules/sla";
+import { registerPriorityDefault, registerApproverSource, setOnCallResolver, onApprovalSettled, cancelApprovalsIn, rerunApprovalRulesIn } from "@server/modules/sla";
 
 registerPriorityDefault("incident");                         // ITIL impact × urgency until the organisation defines a matrix
 registerApproverSource("service_owner", async (q, ctx, def, row) => [ /* user ids */ ]);   // levels: { kind: "owner", of: "service_owner" }
 setOnCallResolver(async (q, ctx, groupId, at) => userId ?? null);                        // assignment method "oncall"
+onApprovalSettled("change_request", async ({ tx, ctx, record, outcome, aggregate, by }) => { /* move the record on */ });
+await cancelApprovalsIn(tx, ctx, "change_request", id, { state: "no_longer_required", comment: "…" });   // in your write
+await rerunApprovalRulesIn(tx, ctx, "request_item", id, { comment: "پاسخ‌ها تغییر کرد" });           // ask again
 ```
+
+- Do not mirror the record's `approval` field in a hook to learn about decisions: react in `onApprovalSettled` (the
+  change module settles its authorization cycle there; requested items reject or start fulfilment there). Knowledge's
+  «یک تأییدکننده کافی است» is the level rule `first`: it publishes, returns or retires on the round's outcome
+  (`record.approval_decided`) and no longer withdraws the other reviewers' approvals itself.
 
 - A table takes part in approvals by having an `approval` choice field (task tables do) — the field, the participant
   read access and the record panel follow. Any table can be the target of approval rules, SLAs and rules.

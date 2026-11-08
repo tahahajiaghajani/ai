@@ -1,7 +1,8 @@
 // What the notification settings pages do besides the generic record API: the rule list with the built-ins, a
 // preview of a template on a sample record (rendered under the caller's OWN access — an admin never previews what they
-// may not read), test messages through a channel, «بررسی صندوق اکنون», and the delivery and e-mail logs (the subject
-// of a delivery about a record the caller may not read is not shown).
+// may not read), the modules' content blocks a template may name, test messages through a channel, «بررسی صندوق
+// اکنون», and the delivery and e-mail logs (the subject of a delivery about a record the caller may not read is not
+// shown).
 import { tableDef } from "@shared/tables";
 import { NOTIFY_EVENTS, parseTemplate, type NotifyEvent } from "@shared/notify";
 import { APP_NAME } from "@shared/constants";
@@ -13,6 +14,7 @@ import { RefSet, condEnv, defFor, get, list, resolveDisplay } from "../../engine
 import { errText, isUuid, sysCtx } from "./common";
 import { BUILTINS, builtinRule, rowRule, type RuleDef } from "./rules";
 import { defaultTemplate, renderFor, type EventSnap, type TemplateText } from "./render";
+import { templateBlocks, type TemplateBlockInfo } from "./blocks";
 import { emailLayout, markdownToHtml, markdownToText, newMessageId, rememberOutbound, sendMail, emailChannels, type EmailChannelRow } from "./mail";
 import { channelRows, sendOutside, sendSms } from "./channels";
 import { getState, pollChannel, type PollState } from "./inbound";
@@ -47,6 +49,14 @@ export async function listRules(ctx: Ctx): Promise<{ rules: RuleView[] }> {
   }
   for (const row of rows) if (!row.builtin) out.push({ ...row, is_builtin: false, replaces: null });
   return { rules: out };
+}
+
+/** The content blocks a template may name (`{{block.<key>}}`): those of the table's, or every block for «*». */
+export async function blocksFor(ctx: Ctx, table: string | null): Promise<{ blocks: TemplateBlockInfo[] }> {
+  await needSettings(ctx);
+  if (!table || table === "*") return { blocks: templateBlocks() };
+  const { def } = await defFor(ctx, table);
+  return { blocks: def.virtual ? [] : templateBlocks(def) };
 }
 
 export interface PreviewInput {

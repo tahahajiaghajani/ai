@@ -26,7 +26,7 @@ Contents: [1 Layout of the kit](#1-layout-of-the-kit) · [2 A module in ten line
 | `records/filter/FilterBuilder.tsx` | the condition builder |
 | `records/list/*` | `RecordList` with its toolbar (views, columns), bulk bar, export/import |
 | `records/page/*` | `RecordPage`: header, form, transition and conflict dialogs, side panel, activity stream with composer |
-| `records/board/*` | `KanbanBoard`, `CalendarView`, `TimelineView` |
+| `records/board/*` | `KanbanBoard`, `CalendarView`, `TimelineView`, `TimelineGrid` |
 | `records/admin/*` | designers: custom fields, choice lists, form layouts, saved views |
 | `records/extensions.ts` | per-table extension registry, record paths, pluggable policy and holiday sources |
 | `records/module.tsx` | `recordModule()` and `recordSearch()`; lazy route components |
@@ -64,9 +64,24 @@ export const incidentUi = recordModule({
 **with the table's path** — so every link to these records (references, links, kanban cards, search hits) opens the
 module's pages. Tables a module does not register still work at `r/<table>`.
 
-`RecordTableEntry`: `table`, `path`, `label`, `noun`, `icon`, `section`, `space`, `area`, `level`, `keywords`,
-`hidden` (routes only), `workspace`, `count` (a live nav count), `search` (`false` or `{ group, minLength }`),
-`newAction`, `list: { title, preset, actions }`, `extensions`.
+`RecordTableEntry`: `table`, `path`, `label`, `noun`, `icon`, `section`, `space`, `area`, `level`, `access`,
+`keywords`, `hidden` (routes only), `workspace`, `count` (a live nav count), `search` (`false` or `{ group,
+minLength }`), `newAction`, `list: { title, preset, actions }`, `extensions`.
+
+**Who is offered what.** `area`/`level` gate by the membership areas (`work`, `settings`…); `access` gates by the
+ITSM access model: `{ area, op?: read|create|write|delete|approve|admin, scope? }` — read/write/delete need at least
+`scope` (default `own`), create/approve/admin the flag. Nav items, spaces (`Space.access`), palette searches and
+table entries take it (a table's «… تازه» needs create in the same area). The shell evaluates it with the member's
+effective grants that `GET /api/o/:org` sends (`access: { grants, roles, legacy, persona }`; `useOrg().allows(gate)`,
+`useOrg().persona`; pure `gateAllows` in `@shared/access`) and hides what does not pass — a space with nothing left is
+not offered. The server still checks every route. Patterns: a module's space `{ area: "change" }`, work queues
+`{ area: "request", scope: "group" }` (not a requester's own scope), definitions `{ area: "catalog", op: "create" }` /
+`{ area: "change", op: "approve" }` / `{ area: "knowledge", op: "admin" }`.
+
+**Participants.** A record read only through a participant grant (an approver without a role in its area) comes
+with `meta.reach = "participant"`, and its table's meta with `can.participant`: the page shows the form and the
+activity, no related lists, and only the side panels and tabs that declare `participants: true` (the approvals
+panel) — module actions, composer slots and module tabs call routes the person cannot use.
 
 A module that needs its own page composes the components instead:
 
@@ -219,11 +234,23 @@ out of the value. The sentence under it is `describe()` from `@shared/model/cond
   Saturday first; Fridays and holidays (from `setHolidaySource`) shaded; today ringed; «+n مورد دیگر». Drag a record
   to another day — a date-time keeps its local time, an end moves with its start — or use «انتقال به» in its popover.
   A day's «+» starts a new record on that day. Phones get dots and the chosen day's agenda.
-- `TimelineView` (`def`, `schema`, `start`, `end`, `filter`, `q`, `onOpen`): bars on a day scale (two weeks, four
-  weeks, three months) packed into lanes, clipped ends marked, Fridays/holidays shaded, today marked.
+- `TimelineView` (`def`, `schema`, `start`, `end`, `filter`, `q`, `onOpen`): bars positioned **to the minute** (a
+  date covers its local days whole; a date-time start without an end lasts an hour) on two weeks, four weeks or three
+  months, packed into lanes, clipped ends marked, Fridays/holidays shaded, today and «now» marked.
+- Both take `bands?: BandSource` (`{ key, load(api, { from, to }) → CalendarBand[] }`: maintenance / blackout / freeze
+  windows, outages — a band has `start`, `end`, `label`, `kind` (its colour: maintenance, blackout, freeze,
+  information, holiday, danger, warning, info), `title?`, `rank?`), `tone?: (row) => "danger" | "warning" | null` (an
+  outline and an icon: a conflict, a blackout) and `fields?` (what the tone reads). A module registers them once for
+  its table — `registerCalendarDecor("change_request", { bands, tone, fields })` — and the list's calendar and timeline
+  modes use them; props override. The calendar shows a day's bands as chips (`rk-cal-band`), the timeline behind its
+  bars; a legend uses the swatch `rk-sw[data-k]`.
+- `TimelineGrid` (`from`, `days`, `tz`, `today`, `holidays?`, `bands?`, `items: TimelineItem[]`, `onOpen`, `empty?`):
+  the drawing alone, for a module's own data — `TimelineItem { id, start, end, label, number?, color?, category?,
+  tone?, title? }`. The change calendar draws its timeline with it (its data stays the change calendar's endpoint).
 
-The geometry (`monthGrid`, `weekOf`, `windowFilter`, `shiftValue`, `moveEvent`, `timelineBars`, `planDrop`,
-`choiceColumns`) is pure and tested.
+The geometry (`monthGrid`, `weekOf`, `windowFilter`, `shiftValue`, `moveEvent`, `timelineBars`, `windowRange`,
+`placeSpans`, `placeBands`, `spansOn`, `bandsOn`, `scaleDays`, `eventSpan`, `planDrop`, `choiceColumns`) is pure and
+tested.
 
 ## 9. UI policies
 

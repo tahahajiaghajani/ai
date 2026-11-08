@@ -9,6 +9,7 @@
 //     the article's and the base's AI switches, «سری»); retrieval joins every chunk to its article through the
 //     reader's access, so audiences restrict AI answers exactly as they restrict reading
 //   · record meta `knowledge` on GET /r/kb_article/:id (may the caller write, the open draft, the base)
+//   · the notification templates' block `{{block.kb_suggestions}}` (suggest.ts, KB-051)
 //   · the seed of a new organisation (seed.ts), queued after the SLA service's calendars
 // Extension points: `registerKnowledgeAi` (ai.ts) for the AI layer's knowledge skills; other modules link records to
 // articles with the engine's links of the kinds in KB_LINK_KINDS and ask for suggestions with `suggestForRecord`.
@@ -31,6 +32,7 @@ import { installCaptureSubscribers } from "./capture";
 import { openVersion } from "./versions";
 import { registerKnowledgeAiFeatures, knowledgeAiCapabilities } from "./ai";
 import { seedKnowledgeDefaultsIn } from "./seed";
+import { installKbTemplateBlock } from "./suggest";
 
 let installed = false;
 
@@ -50,7 +52,8 @@ async function blocksFor(q: Queryable, sys: Ctx, md: string): Promise<{ public: 
 function installRagSources(): void {
   registerRagSource({
     table: "kb_article",
-    version: "k1",
+    // k2: attachments indexed with the article (re-indexes every article once)
+    version: "k2",
     async build({ ctx, q, row }) {
       if (!LIVE_STATES.includes(String(row.state))) return null;
       const base = await baseOf(q, ctx, row.base_id);
@@ -70,7 +73,9 @@ function installRagSources(): void {
         if (kw.length) parts.push({ field: "keywords", label: "کلیدواژه‌ها", text: kw.join("، "), group, format: "text" });
       }
       if (!parts.length && title) parts.push({ field: "title", label: "عنوان", text: title, group, format: "text" });
-      return { title, titleField: "title", titleGroup: group, number: (row.number as string) ?? null, lang: (row.language as string) ?? null, parts };
+      // attachments (KB-010) answer with the article's audience; «فقط ارجاع» leaves them out like the body
+      const attachments = row.ai_use === "link_only" ? (false as const) : { group };
+      return { title, titleField: "title", titleGroup: group, number: (row.number as string) ?? null, lang: (row.language as string) ?? null, parts, attachments };
     },
     path: (id) => `knowledge/a/${id}`,
     aiWhere: (t) =>
@@ -100,6 +105,7 @@ export function installKnowledgeModule(): void {
   installKnowledgeJobs();
   installCaptureSubscribers();
   installRagSources();
+  installKbTemplateBlock();
   registerKnowledgeAiFeatures();
   registerRecordMeta("kb_article", async ({ q, ctx, row }) => {
     const base = await baseOf(q, ctx, row.base_id);

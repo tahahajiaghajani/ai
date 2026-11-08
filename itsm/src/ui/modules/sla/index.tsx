@@ -148,6 +148,8 @@ registerRecordExtensions("*", {
       order: 5,
       when: (ctx) => !OWN.has(ctx.table) && ctx.def.fields.some((f) => f.name === "approval"),
       render: widget(ApprovalsPanel),
+      // an approver without a role in the record's area decides here
+      participants: true,
     },
   ],
   tabs: [

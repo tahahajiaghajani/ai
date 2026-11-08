@@ -2,13 +2,15 @@
 // `ai: { index, redact }`, `features.rag`), and modules may register a custom document builder for a table
 // (`registerRagSource`) — e.g. the smart documents, whose text lives in pages. A builder runs as the system in a job and
 // returns the parts with their field groups; the chunker keeps groups apart and retrieval drops a part a caller may not
-// see. Fields of the `ai_private` group and secrets are never indexed.
+// see. Fields of the `ai_private` group and secrets are never indexed. A table with `ai.attachments` also indexes the
+// text of its records' attachments, a part per file (and page), cited to the record and read with the record's access.
 import type { Ctx } from "../../../context";
 import type { Queryable } from "../../../db";
 import type { FieldDef, TableDef } from "@shared/model/types";
 import { TABLES } from "@shared/tables";
 import { maskText } from "../redact";
 import type { RagDocument, RagPart } from "./chunker";
+import { fileKind, parseFile } from "./parsers";
 
 export type { RagDocument, RagPart };
 
@@ -108,11 +110,55 @@ export function defaultDocument(def: TableDef, row: Record<string, unknown>): Ra
   };
 }
 
-/** The document of a record: the table's registered builder, or the TableDef default. */
+/** What of a record's attachments the index reads (`ai.attachments`). */
+export const ATTACHMENT_LIMITS = { files: 20, bytes: 15 * 1024 * 1024, chars: 200_000 } as const;
+
+/**
+ * The text of a record's attachments as parts of its document: one part per file and page, labelled with the file's
+ * name, in `group` (default none: whoever reads the record). Images (OCR is per runtime), unknown types, files over
+ * the size limit and contents a Windows app has not fetched yet are left out; each file gives at most
+ * `ATTACHMENT_LIMITS.chars` characters.
+ */
+export async function attachmentParts(q: Queryable, orgId: string, table: string, id: string, group: RagPart["group"] = null): Promise<RagPart[]> {
+  const rows = await q.query<{ id: string; name: string; mime: string; size: number; sha256: string }>(
+    `select id, name, mime, size, sha256 from sm_attachments where org_id = $1 and table_key = $2 and record_id = $3 and deleted_at is null order by created_at, id limit ${ATTACHMENT_LIMITS.files}`,
+    [orgId, table, id],
+  );
+  const parts: RagPart[] = [];
+  for (const a of rows) {
+    const kind = fileKind(a.name, a.mime);
+    if (Number(a.size) > ATTACHMENT_LIMITS.bytes || kind === "image" || kind === "other") continue;
+    const blob = await q.one<{ b64: string }>(`select encode(data, 'base64') as b64 from sm_blobs where org_id = $1 and sha256 = $2`, [orgId, a.sha256]);
+    if (!blob) continue;
+    const parsed = await parseFile(a.name, a.mime, new Uint8Array(Buffer.from(blob.b64, "base64"))).catch(() => null);
+    if (!parsed || parsed.kind !== "text") continue;
+    let budget: number = ATTACHMENT_LIMITS.chars;
+    const many = parsed.pages.length > 1;
+    for (const p of parsed.pages) {
+      const text = p.text.trim().slice(0, budget);
+      if (!text) continue;
+      budget -= text.length;
+      parts.push({ field: `attachment:${a.id}`, label: `پیوست «${a.name}»`, text, group, page: many ? p.page : null, format: "text" });
+      if (budget <= 0) break;
+    }
+  }
+  return parts;
+}
+
+/** The document of a record: the table's registered builder, or the TableDef default; with its attachments' text when the table asks. */
 export async function buildDocument(args: RagBuildArgs): Promise<RagDocument | null> {
   const src = SOURCES.get(args.def.key);
-  if (src) return src.build(args);
-  return defaultDocument(args.def, args.row);
+  const doc = src ? await src.build(args) : defaultDocument(args.def, args.row);
+  if (!args.def.ai?.attachments || !args.def.features?.attachments || (doc && doc.attachments === false)) return doc;
+  const extra = await attachmentParts(args.q, args.ctx.org.id, args.def.key, String(args.row.id), doc?.attachments ? (doc.attachments.group ?? null) : null);
+  if (!extra.length) return doc;
+  if (doc) return { ...doc, parts: [...doc.parts, ...extra] };
+  // nothing but attachments: still findable by them, under the record's title
+  if (src) return null;
+  const titleName = args.def.ai.title ?? args.def.display;
+  const tf = args.def.fields.find((f) => f.name === titleName);
+  const hidden = !tf || tf.type === "secret" || tf.group === "ai_private";
+  return { title: hidden ? "" : String(args.row[titleName] ?? "").trim(), titleField: hidden ? null : titleName, titleGroup: hidden ? null : (tf?.group ?? null), number: recordNumber(args.def, args.row), parts: extra };
 }
 
 /** In-app path of a cited record (the module's own page when its source says so). */

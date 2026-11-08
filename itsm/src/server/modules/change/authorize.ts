@@ -19,7 +19,7 @@ import type { TableDef } from "@shared/model/types";
 import type { Ctx } from "../../context";
 import type { Queryable, Tx } from "../../db";
 import { addJournalIn, emitEvent, registerHooks, savepoint, transitionIn, updateIn, type WriteArgs } from "../../engine";
-import { registerApproverSource } from "../sla";
+import { cancelApprovalsIn, onApprovalSettled, registerApproverSource } from "../sla";
 import { actorOf, changeConfig, eqAll, iso, liveRow, liveRows, msOf, sysOf, type Row } from "./common";
 import { impactProvider } from "./impact";
 
@@ -127,12 +127,10 @@ export function installApproverSources(): (() => void)[] {
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-// Reactions (a "*" hook installed after the SLA service: the approval rows of the write exist when it runs)
-//
-// While a change waits in «در انتظار تأیید» its `approval` field holds the aggregate of the CURRENT cycle only (the
-// service's aggregate also counts the latest rounds of rules that matched in earlier cycles). So whenever a decision
-// completes the cycle, the service's aggregate differs from the stored one, it rewrites the field and this hook
-// re-evaluates the cycle in the same transaction.
+// Reactions: entering «در انتظار تأیید» is a "*" hook installed after the SLA service (the approval rows of the write
+// exist when it runs); every round that settles later — a decision, an expiry, a withdrawal — calls the approvals
+// service's `onApprovalSettled` in its own transaction, which settles the cycle. While a change waits in «در انتظار
+// تأیید» its `approval` field holds the aggregate of the CURRENT cycle only.
 
 async function note(tx: Tx, ctx: Ctx, def: TableDef, row: Row, body: string, actor: string | null): Promise<void> {
   await addJournalIn(tx, sysOf(ctx, actor), def, row, { kind: "system", body }, { trusted: true, author: actor });
@@ -140,15 +138,7 @@ async function note(tx: Tx, ctx: Ctx, def: TableDef, row: Row, body: string, act
 
 /** Withdraw the change's open approvals (canceled when it went back, no longer required when authorized by hand). */
 async function withdrawOpen(tx: Tx, ctx: Ctx, change: Row, state: "canceled" | "no_longer_required", comment: string): Promise<number> {
-  const sys = sysOf(ctx);
-  const rows = await liveRows(tx, sys, "approval", eqAll({ table_key: "change_request", record_id: String(change.id) }));
-  let n = 0;
-  for (const r of rows) {
-    if (!OPEN.has(r.state)) continue;
-    await updateIn(tx, sys, "approval", r.id, { state, decided_at: iso(Date.now()), comments: comment }, { trusted: true });
-    n++;
-  }
-  return n;
+  return (await cancelApprovalsIn(tx, sysOf(ctx), "change_request", String(change.id), { state, comment })).canceled;
 }
 
 const people = (...xs: unknown[]): string[] => [...new Set(xs.filter((x): x is string => typeof x === "string" && !!x))];
@@ -202,15 +192,18 @@ async function react(w: WriteArgs & { row: Row }): Promise<void> {
     if (n) await note(w.tx, w.ctx, w.def, row, back ? `${n} تأیید باز پس گرفته شد (تغییر از «در انتظار تأیید» برگشت).` : `تغییر به‌دست دارندهٔ اختیار تأیید مجاز شد؛ ${n} تأیید باز دیگر لازم نیست.`, actor);
     return;
   }
-  if (row.state !== "authorize") return;
-  const entering = !prev || prev.state !== "authorize";
-  if (!entering && !w.changed.has("approval")) return;
-  await settleCycle(w.tx, w.ctx, w.def, row, actor);
+  // entering it: nothing to approve, auto-approval or the first open round (later rounds settle through the service)
+  if (row.state === "authorize" && (!prev || prev.state !== "authorize")) await settleCycle(w.tx, w.ctx, w.def, row, actor);
 }
 
 /** The reactions to approvals; call after `installSlaService()` (its approval rows must exist when this runs). */
 export function installAuthorization(): (() => void)[] {
-  return [registerHooks("*", { afterWrite: (w) => react(w as WriteArgs & { row: Row }) }), ...installApproverSources()];
+  return [
+    registerHooks("*", { afterWrite: (w) => react(w as WriteArgs & { row: Row }) }),
+    // a round of the change's approvals settled (decided, expired, withdrawn): the cycle may be complete
+    onApprovalSettled("change_request", (s) => (s.record.state === "authorize" ? settleCycle(s.tx, s.ctx, s.def, s.record, s.by).then(() => undefined) : undefined)),
+    ...installApproverSources(),
+  ];
 }
 
 /** The approval rows of a change the caller may decide now (as its approver or an approver's delegate). */
