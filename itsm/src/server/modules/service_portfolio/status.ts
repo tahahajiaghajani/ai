@@ -185,9 +185,30 @@ export async function orgOfStatusToken(q: Queryable, token: string): Promise<str
   return rows[0]?.org_id ?? null;
 }
 
-/** The public projection: no ids of records, no subscriptions, no numbers. */
+/**
+ * The public projection — only what the organisation published on the page: each service's name, status, since, the
+ * owner's message, its bars and availability and the group it is listed under. No record ids (an opaque position
+ * key instead), numbers, internal classification (tier), subscriptions or management keys.
+ */
 export function publicView(p: StatusPage): StatusPage {
-  return { ...p, services: p.services.map((s) => ({ ...s, id: s.id.slice(-8), number: null, subscribed: undefined })) };
+  return {
+    title: p.title,
+    overall: p.overall,
+    days: p.days,
+    updated_at: p.updated_at,
+    services: p.services.map((s, i) => ({
+      id: `s${i + 1}`,
+      number: null,
+      name: s.name,
+      status: s.status,
+      since: s.since,
+      note: s.note,
+      bars: s.bars.map((b) => ({ day: b.day, status: b.status, availability: b.availability, ...(b.empty ? { empty: true } : {}) })),
+      availability: s.availability,
+      tier: null,
+      group: s.group,
+    })),
+  };
 }
 
 /** Tell a service's subscribers that it is being phased out or was retired (SPF-002), on their subscriptions. */
