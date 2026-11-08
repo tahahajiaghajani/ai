@@ -497,6 +497,7 @@ export const FINDING_KINDS: Option[] = [
   yes("wrong_ci", "پیکربندی نادرست روی کار", 8, "purple"),
   yes("expiring", "رو به انقضا", 9, "gold"),
   yes("drift", "انحراف", 10, "red"),
+  yes("technology", "فناوری خارج از استاندارد", 11, "orange"),
 ];
 
 const SEVERITIES: Option[] = [yes("high", "زیاد", 1, "red"), yes("medium", "متوسط", 2, "orange"), yes("low", "کم", 3, "gray")];

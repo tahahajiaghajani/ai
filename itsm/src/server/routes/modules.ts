@@ -21,6 +21,8 @@ import { ragRoutes } from "./ai-rag";
 import { installRag } from "../modules/ai/rag";
 import { installCmdbModule } from "../modules/cmdb";
 import { cmdbRoutes } from "./cmdb";
+import { installServicePortfolioModule } from "../modules/service_portfolio";
+import { servicePortfolioRoutes } from "./service_portfolio";
 
 // the ITSM access model is the engine's access provider in every runtime (docs/spec/ACCESS.md)
 installAccessModel();
@@ -39,6 +41,8 @@ installIncidentModule();
 installProblemModule();
 // configuration management (docs/modules/cmdb_FA.md)
 installCmdbModule();
+// the service portfolio (docs/modules/service_portfolio_FA.md) — after configuration management: services are CIs
+installServicePortfolioModule();
 
 export const moduleRoutes = router();
 
@@ -54,3 +58,4 @@ moduleRoutes.route("/flows", flowRoutes);
 moduleRoutes.route("/incident", incidentRoutes);
 moduleRoutes.route("/problem", problemRoutes);
 moduleRoutes.route("/cmdb", cmdbRoutes);
+moduleRoutes.route("/service_portfolio", servicePortfolioRoutes);

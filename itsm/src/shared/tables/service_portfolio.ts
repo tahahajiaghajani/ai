@@ -179,6 +179,7 @@ const service: TableDef = {
     { name: "status", label: "وضعیت جاری", type: "choice", choices: SERVICE_STATUSES, default: "operational", readonly: true, list: true, filter: true, span: 8, section: S_STATUS },
     { name: "status_override", label: "تعیین وضعیت", type: "choice", choices: STATUS_OVERRIDES, default: "auto", span: 8, section: S_STATUS },
     { name: "status_since", label: "از", type: "datetime", readonly: true, sort: true, span: 8, section: S_STATUS },
+    { name: "status_reason", label: "علت وضعیت", type: "string", maxLength: 200, readonly: true, audit: false, span: 24, section: S_STATUS },
     { name: "status_note", label: "پیام وضعیت", type: "text", span: 24, section: S_STATUS, help: "روی صفحهٔ وضعیت دیده می‌شود" },
     { name: "on_status_page", label: "در صفحهٔ وضعیت", type: "bool", default: false, filter: true, list: true, span: 8, section: S_STATUS },
 
@@ -189,6 +190,7 @@ const service: TableDef = {
     { name: "cost_model", label: "مدل هزینه", type: "text", group: "financial", span: 16, section: S_MORE },
     { name: "last_reviewed_at", label: "آخرین بازبینی", type: "date", filter: true, sort: true, span: 8, section: S_MORE },
     { name: "review_months", label: "بازبینی هر چند ماه", type: "int", min: 0, max: 60, default: 12, span: 8, section: S_MORE },
+    { name: "review_warned_for", label: "یادآوری بازبینی برای", type: "date", system: true, hidden: true, audit: false },
     { name: "retire_reason", label: "دلیل کنارگذاری", type: "text", span: 24, section: S_MORE },
     { name: "approved_at", label: "زمان تأیید", type: "datetime", system: true, span: 8, section: S_MORE },
     { name: "live_at", label: "زمان زنده شدن", type: "datetime", system: true, sort: true, span: 8, section: S_MORE },
@@ -720,6 +722,8 @@ const capability: TableDef = {
 
 export const SERVICE_CONFIG_DEFAULTS = {
   status_page_title: "وضعیت خدمات",
+  status_page_public: false,
+  review_warn_days: 14,
   w_availability: 40,
   w_incidents: 30,
   w_breaches: 20,
@@ -743,6 +747,9 @@ const serviceConfig: TableDef = {
     { name: "config_key", label: "کلید", type: "string", required: true, default: "default", maxLength: 40, hidden: true, unique: true },
     { name: "status_page_title", label: "عنوان صفحهٔ وضعیت", type: "string", maxLength: 80, default: SERVICE_CONFIG_DEFAULTS.status_page_title, span: 12 },
     { name: "notify_subscribers", label: "خبر تغییر وضعیت به مشترکان", type: "bool", default: true, span: 12 },
+    { name: "status_page_public", label: "صفحهٔ وضعیت عمومی (بدون ورود)", type: "bool", default: false, span: 12, help: "با پیوند محرمانه، برای وب‌سایت یا اینترانت" },
+    { name: "status_page_token", label: "کلید پیوند عمومی", type: "string", maxLength: 80, system: true, hidden: true, audit: false, index: true },
+    { name: "review_warn_days", label: "یادآوری بازبینی (روز پیش از موعد)", type: "int", min: 0, max: 90, default: 14, span: 12 },
     { name: "w_availability", label: "وزن دسترس‌پذیری", type: "int", min: 0, max: 100, default: SERVICE_CONFIG_DEFAULTS.w_availability, span: 6 },
     { name: "w_incidents", label: "وزن رخدادها", type: "int", min: 0, max: 100, default: SERVICE_CONFIG_DEFAULTS.w_incidents, span: 6 },
     { name: "w_breaches", label: "وزن نقض توافق", type: "int", min: 0, max: 100, default: SERVICE_CONFIG_DEFAULTS.w_breaches, span: 6 },
