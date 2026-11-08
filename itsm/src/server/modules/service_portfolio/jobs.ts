@@ -95,7 +95,7 @@ export function installPortfolioJobs(): (() => void)[] {
   return [
     onRecordEvent("service_portfolio.status", async (e, jctx) => {
       if (!actsHere(jctx.cfg) || !touchesStatus(e)) return;
-      await enqueue(jctx.db, { kind: "service.status", orgId: e.org_id, delayMs: 3_000, dedupeKey: "service.status", maxAttempts: 5 });
+      await enqueue(jctx.db, { kind: "service.status", orgId: e.org_id, dedupeKey: "service.status", maxAttempts: 5 });
     }, { tables: ["incident", "ci", "service"], kinds: ["record.created", "record.updated", "record.state_changed", "record.deleted"] }),
     registerJobHandler("service.status", async (job, jctx) => {
       const sys = await sysFor(job, jctx);
