@@ -482,6 +482,463 @@ drop trigger if exists sm_calendars_sync on sm_calendars;
 create trigger sm_calendars_sync before insert or update on sm_calendars for each row execute function sm_sync_touch('calendar');
 alter table sm_calendars enable row level security;
 
+-- catalog: کاتالوگ‌ها
+create table if not exists sm_catalogs (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_catalogs add column if not exists workspace_id uuid;
+alter table sm_catalogs add column if not exists domain_id uuid;
+alter table sm_catalogs add column if not exists unit_id uuid;
+alter table sm_catalogs add column if not exists created_at timestamptz not null default now();
+alter table sm_catalogs add column if not exists created_by uuid;
+alter table sm_catalogs add column if not exists updated_at timestamptz not null default now();
+alter table sm_catalogs add column if not exists updated_by uuid;
+alter table sm_catalogs add column if not exists rev bigint not null default 0;
+alter table sm_catalogs add column if not exists version integer not null default 1;
+alter table sm_catalogs add column if not exists deleted_at timestamptz;
+alter table sm_catalogs add column if not exists origin text;
+alter table sm_catalogs add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_catalogs add column if not exists name text;
+alter table sm_catalogs add column if not exists active boolean not null default true;
+alter table sm_catalogs add column if not exists sort_order integer;
+alter table sm_catalogs add column if not exists description text;
+alter table sm_catalogs add column if not exists icon text;
+alter table sm_catalogs add column if not exists color text;
+alter table sm_catalogs add column if not exists category_order text;
+alter table sm_catalogs add column if not exists banner text;
+alter table sm_catalogs add column if not exists owner_id uuid;
+alter table sm_catalogs add column if not exists managers jsonb;
+alter table sm_catalogs add column if not exists available_for jsonb;
+alter table sm_catalogs add column if not exists not_available_for jsonb;
+create index if not exists sm_catalogs_rev_idx on sm_catalogs (org_id, rev);
+create index if not exists sm_catalogs_upd_idx on sm_catalogs (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_catalogs_crt_idx on sm_catalogs (org_id, created_at desc, id desc) where deleted_at is null;
+create unique index if not exists sm_catalogs_name_uk on sm_catalogs (org_id, name) where deleted_at is null;
+create index if not exists sm_catalogs_workspace_acc_idx on sm_catalogs (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_catalogs_unit_acc_idx on sm_catalogs (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_catalogs_domain_acc_idx on sm_catalogs (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_catalogs_owner_id_idx on sm_catalogs (org_id, owner_id) where deleted_at is null;
+create index if not exists sm_catalogs_managers_gin on sm_catalogs using gin (managers);
+drop trigger if exists sm_catalogs_sync on sm_catalogs;
+create trigger sm_catalogs_sync before insert or update on sm_catalogs for each row execute function sm_sync_touch('catalog');
+alter table sm_catalogs enable row level security;
+
+-- catalog_audience: مخاطبان کاتالوگ
+create table if not exists sm_catalog_audiences (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_catalog_audiences add column if not exists workspace_id uuid;
+alter table sm_catalog_audiences add column if not exists domain_id uuid;
+alter table sm_catalog_audiences add column if not exists unit_id uuid;
+alter table sm_catalog_audiences add column if not exists created_at timestamptz not null default now();
+alter table sm_catalog_audiences add column if not exists created_by uuid;
+alter table sm_catalog_audiences add column if not exists updated_at timestamptz not null default now();
+alter table sm_catalog_audiences add column if not exists updated_by uuid;
+alter table sm_catalog_audiences add column if not exists rev bigint not null default 0;
+alter table sm_catalog_audiences add column if not exists version integer not null default 1;
+alter table sm_catalog_audiences add column if not exists deleted_at timestamptz;
+alter table sm_catalog_audiences add column if not exists origin text;
+alter table sm_catalog_audiences add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_catalog_audiences add column if not exists name text;
+alter table sm_catalog_audiences add column if not exists match text;
+alter table sm_catalog_audiences add column if not exists active boolean not null default true;
+alter table sm_catalog_audiences add column if not exists users jsonb;
+alter table sm_catalog_audiences add column if not exists groups jsonb;
+alter table sm_catalog_audiences add column if not exists units jsonb;
+alter table sm_catalog_audiences add column if not exists include_subunits boolean not null default true;
+alter table sm_catalog_audiences add column if not exists locations jsonb;
+alter table sm_catalog_audiences add column if not exists include_sublocations boolean not null default true;
+alter table sm_catalog_audiences add column if not exists roles jsonb;
+alter table sm_catalog_audiences add column if not exists personas jsonb;
+alter table sm_catalog_audiences add column if not exists vip_only boolean not null default false;
+alter table sm_catalog_audiences add column if not exists condition jsonb;
+alter table sm_catalog_audiences add column if not exists description text;
+create index if not exists sm_catalog_audiences_rev_idx on sm_catalog_audiences (org_id, rev);
+create index if not exists sm_catalog_audiences_upd_idx on sm_catalog_audiences (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_catalog_audiences_crt_idx on sm_catalog_audiences (org_id, created_at desc, id desc) where deleted_at is null;
+create unique index if not exists sm_catalog_audiences_name_uk on sm_catalog_audiences (org_id, name) where deleted_at is null;
+drop trigger if exists sm_catalog_audiences_sync on sm_catalog_audiences;
+create trigger sm_catalog_audiences_sync before insert or update on sm_catalog_audiences for each row execute function sm_sync_touch('catalog_audience');
+alter table sm_catalog_audiences enable row level security;
+
+-- catalog_category: دسته‌های کاتالوگ
+create table if not exists sm_catalog_categories (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_catalog_categories add column if not exists workspace_id uuid;
+alter table sm_catalog_categories add column if not exists domain_id uuid;
+alter table sm_catalog_categories add column if not exists unit_id uuid;
+alter table sm_catalog_categories add column if not exists created_at timestamptz not null default now();
+alter table sm_catalog_categories add column if not exists created_by uuid;
+alter table sm_catalog_categories add column if not exists updated_at timestamptz not null default now();
+alter table sm_catalog_categories add column if not exists updated_by uuid;
+alter table sm_catalog_categories add column if not exists rev bigint not null default 0;
+alter table sm_catalog_categories add column if not exists version integer not null default 1;
+alter table sm_catalog_categories add column if not exists deleted_at timestamptz;
+alter table sm_catalog_categories add column if not exists origin text;
+alter table sm_catalog_categories add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_catalog_categories add column if not exists name text;
+alter table sm_catalog_categories add column if not exists catalog_id uuid;
+alter table sm_catalog_categories add column if not exists parent_id uuid;
+alter table sm_catalog_categories add column if not exists sort_order integer;
+alter table sm_catalog_categories add column if not exists active boolean not null default true;
+alter table sm_catalog_categories add column if not exists description text;
+alter table sm_catalog_categories add column if not exists icon text;
+alter table sm_catalog_categories add column if not exists available_for jsonb;
+alter table sm_catalog_categories add column if not exists not_available_for jsonb;
+create index if not exists sm_catalog_categories_rev_idx on sm_catalog_categories (org_id, rev);
+create index if not exists sm_catalog_categories_upd_idx on sm_catalog_categories (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_catalog_categories_crt_idx on sm_catalog_categories (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_catalog_categories_catalog_id_idx on sm_catalog_categories (org_id, catalog_id) where deleted_at is null;
+drop trigger if exists sm_catalog_categories_sync on sm_catalog_categories;
+create trigger sm_catalog_categories_sync before insert or update on sm_catalog_categories for each row execute function sm_sync_touch('catalog_category');
+alter table sm_catalog_categories enable row level security;
+
+-- catalog_item: اقلام کاتالوگ
+create table if not exists sm_catalog_items (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_catalog_items add column if not exists workspace_id uuid;
+alter table sm_catalog_items add column if not exists domain_id uuid;
+alter table sm_catalog_items add column if not exists unit_id uuid;
+alter table sm_catalog_items add column if not exists created_at timestamptz not null default now();
+alter table sm_catalog_items add column if not exists created_by uuid;
+alter table sm_catalog_items add column if not exists updated_at timestamptz not null default now();
+alter table sm_catalog_items add column if not exists updated_by uuid;
+alter table sm_catalog_items add column if not exists rev bigint not null default 0;
+alter table sm_catalog_items add column if not exists version integer not null default 1;
+alter table sm_catalog_items add column if not exists deleted_at timestamptz;
+alter table sm_catalog_items add column if not exists origin text;
+alter table sm_catalog_items add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_catalog_items add column if not exists no integer;
+alter table sm_catalog_items add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 5 then 'ITM' || no::text else 'ITM' || lpad(no::text, 5, '0') end) stored;
+alter table sm_catalog_items add column if not exists name text;
+alter table sm_catalog_items add column if not exists code text;
+alter table sm_catalog_items add column if not exists type text;
+alter table sm_catalog_items add column if not exists catalog_id uuid;
+alter table sm_catalog_items add column if not exists category_id uuid;
+alter table sm_catalog_items add column if not exists short_description text;
+alter table sm_catalog_items add column if not exists description text;
+alter table sm_catalog_items add column if not exists icon text;
+alter table sm_catalog_items add column if not exists color text;
+alter table sm_catalog_items add column if not exists sort_order integer;
+alter table sm_catalog_items add column if not exists owner_id uuid;
+alter table sm_catalog_items add column if not exists editors jsonb;
+alter table sm_catalog_items add column if not exists featured boolean not null default false;
+alter table sm_catalog_items add column if not exists hidden boolean not null default false;
+alter table sm_catalog_items add column if not exists ad_hoc boolean not null default false;
+alter table sm_catalog_items add column if not exists content_url text;
+alter table sm_catalog_items add column if not exists button_label text;
+alter table sm_catalog_items add column if not exists title_template text;
+alter table sm_catalog_items add column if not exists on_behalf text;
+alter table sm_catalog_items add column if not exists multi_user boolean not null default false;
+alter table sm_catalog_items add column if not exists cart_allowed boolean not null default true;
+alter table sm_catalog_items add column if not exists quantity_allowed boolean not null default false;
+alter table sm_catalog_items add column if not exists max_quantity integer;
+alter table sm_catalog_items add column if not exists requester_edit boolean not null default true;
+alter table sm_catalog_items add column if not exists requester_cancel text;
+alter table sm_catalog_items add column if not exists requires_confirmation boolean not null default true;
+alter table sm_catalog_items add column if not exists price numeric;
+alter table sm_catalog_items add column if not exists recurring_price numeric;
+alter table sm_catalog_items add column if not exists recurring_frequency text;
+alter table sm_catalog_items add column if not exists show_price boolean not null default true;
+alter table sm_catalog_items add column if not exists creates_subscription boolean not null default false;
+alter table sm_catalog_items add column if not exists delivery_days integer;
+alter table sm_catalog_items add column if not exists calendar_id uuid;
+alter table sm_catalog_items add column if not exists fulfilment_group_id uuid;
+alter table sm_catalog_items add column if not exists flow_id uuid;
+alter table sm_catalog_items add column if not exists approval_rule_id uuid;
+alter table sm_catalog_items add column if not exists target_table text;
+alter table sm_catalog_items add column if not exists field_map jsonb;
+alter table sm_catalog_items add column if not exists std_change_template text;
+alter table sm_catalog_items add column if not exists variable_sets jsonb;
+alter table sm_catalog_items add column if not exists stages jsonb;
+alter table sm_catalog_items add column if not exists available_for jsonb;
+alter table sm_catalog_items add column if not exists not_available_for jsonb;
+alter table sm_catalog_items add column if not exists conversational boolean not null default true;
+alter table sm_catalog_items add column if not exists review_interval_days integer;
+alter table sm_catalog_items add column if not exists next_review_at date;
+alter table sm_catalog_items add column if not exists version_no integer;
+alter table sm_catalog_items add column if not exists version_id uuid;
+alter table sm_catalog_items add column if not exists published_at timestamptz;
+alter table sm_catalog_items add column if not exists dirty boolean not null default false;
+alter table sm_catalog_items add column if not exists sle_p50 bigint;
+alter table sm_catalog_items add column if not exists sle_p85 bigint;
+alter table sm_catalog_items add column if not exists sle_p95 bigint;
+alter table sm_catalog_items add column if not exists sle_samples integer;
+alter table sm_catalog_items add column if not exists orders_90d integer;
+alter table sm_catalog_items add column if not exists state text;
+create unique index if not exists sm_catalog_items_no_uk on sm_catalog_items (org_id, no);
+create index if not exists sm_catalog_items_rev_idx on sm_catalog_items (org_id, rev);
+create index if not exists sm_catalog_items_upd_idx on sm_catalog_items (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_catalog_items_crt_idx on sm_catalog_items (org_id, created_at desc, id desc) where deleted_at is null;
+create unique index if not exists sm_catalog_items_code_uk on sm_catalog_items (org_id, code) where deleted_at is null;
+create index if not exists sm_catalog_items_catalog_id_idx on sm_catalog_items (org_id, catalog_id) where deleted_at is null;
+create index if not exists sm_catalog_items_category_id_idx on sm_catalog_items (org_id, category_id) where deleted_at is null;
+create index if not exists sm_catalog_items_state_idx on sm_catalog_items (org_id, state) where deleted_at is null;
+create index if not exists sm_catalog_items_workspace_acc_idx on sm_catalog_items (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_catalog_items_unit_acc_idx on sm_catalog_items (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_catalog_items_domain_acc_idx on sm_catalog_items (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_catalog_items_owner_id_idx on sm_catalog_items (org_id, owner_id) where deleted_at is null;
+create index if not exists sm_catalog_items_editors_gin on sm_catalog_items using gin (editors);
+drop trigger if exists sm_catalog_items_sync on sm_catalog_items;
+create trigger sm_catalog_items_sync before insert or update on sm_catalog_items for each row execute function sm_sync_touch('catalog_item');
+alter table sm_catalog_items enable row level security;
+
+-- catalog_item_version: نسخه‌های قلم کاتالوگ
+create table if not exists sm_catalog_item_versions (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_catalog_item_versions add column if not exists workspace_id uuid;
+alter table sm_catalog_item_versions add column if not exists domain_id uuid;
+alter table sm_catalog_item_versions add column if not exists unit_id uuid;
+alter table sm_catalog_item_versions add column if not exists created_at timestamptz not null default now();
+alter table sm_catalog_item_versions add column if not exists created_by uuid;
+alter table sm_catalog_item_versions add column if not exists updated_at timestamptz not null default now();
+alter table sm_catalog_item_versions add column if not exists updated_by uuid;
+alter table sm_catalog_item_versions add column if not exists rev bigint not null default 0;
+alter table sm_catalog_item_versions add column if not exists version integer not null default 1;
+alter table sm_catalog_item_versions add column if not exists deleted_at timestamptz;
+alter table sm_catalog_item_versions add column if not exists origin text;
+alter table sm_catalog_item_versions add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_catalog_item_versions add column if not exists title text;
+alter table sm_catalog_item_versions add column if not exists item_id uuid;
+alter table sm_catalog_item_versions add column if not exists version_no integer;
+alter table sm_catalog_item_versions add column if not exists note text;
+alter table sm_catalog_item_versions add column if not exists schema jsonb;
+create index if not exists sm_catalog_item_versions_rev_idx on sm_catalog_item_versions (org_id, rev);
+create index if not exists sm_catalog_item_versions_upd_idx on sm_catalog_item_versions (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_catalog_item_versions_crt_idx on sm_catalog_item_versions (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_catalog_item_versions_item_id_idx on sm_catalog_item_versions (org_id, item_id) where deleted_at is null;
+create unique index if not exists sm_catalog_item_versions_item_id_version_no_uk on sm_catalog_item_versions (org_id, item_id, version_no) where deleted_at is null;
+drop trigger if exists sm_catalog_item_versions_sync on sm_catalog_item_versions;
+create trigger sm_catalog_item_versions_sync before insert or update on sm_catalog_item_versions for each row execute function sm_sync_touch('catalog_item_version');
+alter table sm_catalog_item_versions enable row level security;
+
+-- catalog_task_template: الگوهای وظیفهٔ انجام
+create table if not exists sm_catalog_task_templates (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_catalog_task_templates add column if not exists workspace_id uuid;
+alter table sm_catalog_task_templates add column if not exists domain_id uuid;
+alter table sm_catalog_task_templates add column if not exists unit_id uuid;
+alter table sm_catalog_task_templates add column if not exists created_at timestamptz not null default now();
+alter table sm_catalog_task_templates add column if not exists created_by uuid;
+alter table sm_catalog_task_templates add column if not exists updated_at timestamptz not null default now();
+alter table sm_catalog_task_templates add column if not exists updated_by uuid;
+alter table sm_catalog_task_templates add column if not exists rev bigint not null default 0;
+alter table sm_catalog_task_templates add column if not exists version integer not null default 1;
+alter table sm_catalog_task_templates add column if not exists deleted_at timestamptz;
+alter table sm_catalog_task_templates add column if not exists origin text;
+alter table sm_catalog_task_templates add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_catalog_task_templates add column if not exists short_description text;
+alter table sm_catalog_task_templates add column if not exists sort_order integer;
+alter table sm_catalog_task_templates add column if not exists item_id uuid;
+alter table sm_catalog_task_templates add column if not exists assignment_group_id uuid;
+alter table sm_catalog_task_templates add column if not exists phase text;
+alter table sm_catalog_task_templates add column if not exists depends_on_previous boolean not null default true;
+alter table sm_catalog_task_templates add column if not exists requester_visible boolean not null default false;
+alter table sm_catalog_task_templates add column if not exists class_of_service text;
+alter table sm_catalog_task_templates add column if not exists condition jsonb;
+alter table sm_catalog_task_templates add column if not exists instructions text;
+alter table sm_catalog_task_templates add column if not exists checklist jsonb;
+alter table sm_catalog_task_templates add column if not exists active boolean not null default true;
+create index if not exists sm_catalog_task_templates_rev_idx on sm_catalog_task_templates (org_id, rev);
+create index if not exists sm_catalog_task_templates_upd_idx on sm_catalog_task_templates (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_catalog_task_templates_crt_idx on sm_catalog_task_templates (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_catalog_task_templates_item_id_idx on sm_catalog_task_templates (org_id, item_id) where deleted_at is null;
+drop trigger if exists sm_catalog_task_templates_sync on sm_catalog_task_templates;
+create trigger sm_catalog_task_templates_sync before insert or update on sm_catalog_task_templates for each row execute function sm_sync_touch('catalog_task_template');
+alter table sm_catalog_task_templates enable row level security;
+
+-- catalog_ui_policy: سیاست‌های فرم سفارش
+create table if not exists sm_catalog_ui_policies (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_catalog_ui_policies add column if not exists workspace_id uuid;
+alter table sm_catalog_ui_policies add column if not exists domain_id uuid;
+alter table sm_catalog_ui_policies add column if not exists unit_id uuid;
+alter table sm_catalog_ui_policies add column if not exists created_at timestamptz not null default now();
+alter table sm_catalog_ui_policies add column if not exists created_by uuid;
+alter table sm_catalog_ui_policies add column if not exists updated_at timestamptz not null default now();
+alter table sm_catalog_ui_policies add column if not exists updated_by uuid;
+alter table sm_catalog_ui_policies add column if not exists rev bigint not null default 0;
+alter table sm_catalog_ui_policies add column if not exists version integer not null default 1;
+alter table sm_catalog_ui_policies add column if not exists deleted_at timestamptz;
+alter table sm_catalog_ui_policies add column if not exists origin text;
+alter table sm_catalog_ui_policies add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_catalog_ui_policies add column if not exists name text;
+alter table sm_catalog_ui_policies add column if not exists item_id uuid;
+alter table sm_catalog_ui_policies add column if not exists set_id uuid;
+alter table sm_catalog_ui_policies add column if not exists applies_to text;
+alter table sm_catalog_ui_policies add column if not exists condition jsonb;
+alter table sm_catalog_ui_policies add column if not exists actions jsonb;
+alter table sm_catalog_ui_policies add column if not exists message text;
+alter table sm_catalog_ui_policies add column if not exists sort_order integer;
+alter table sm_catalog_ui_policies add column if not exists active boolean not null default true;
+create index if not exists sm_catalog_ui_policies_rev_idx on sm_catalog_ui_policies (org_id, rev);
+create index if not exists sm_catalog_ui_policies_upd_idx on sm_catalog_ui_policies (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_catalog_ui_policies_crt_idx on sm_catalog_ui_policies (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_catalog_ui_policies_item_id_idx on sm_catalog_ui_policies (org_id, item_id) where deleted_at is null;
+create index if not exists sm_catalog_ui_policies_set_id_idx on sm_catalog_ui_policies (org_id, set_id) where deleted_at is null;
+drop trigger if exists sm_catalog_ui_policies_sync on sm_catalog_ui_policies;
+create trigger sm_catalog_ui_policies_sync before insert or update on sm_catalog_ui_policies for each row execute function sm_sync_touch('catalog_ui_policy');
+alter table sm_catalog_ui_policies enable row level security;
+
+-- catalog_variable: پرسش‌های فرم
+create table if not exists sm_catalog_variables (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_catalog_variables add column if not exists workspace_id uuid;
+alter table sm_catalog_variables add column if not exists domain_id uuid;
+alter table sm_catalog_variables add column if not exists unit_id uuid;
+alter table sm_catalog_variables add column if not exists created_at timestamptz not null default now();
+alter table sm_catalog_variables add column if not exists created_by uuid;
+alter table sm_catalog_variables add column if not exists updated_at timestamptz not null default now();
+alter table sm_catalog_variables add column if not exists updated_by uuid;
+alter table sm_catalog_variables add column if not exists rev bigint not null default 0;
+alter table sm_catalog_variables add column if not exists version integer not null default 1;
+alter table sm_catalog_variables add column if not exists deleted_at timestamptz;
+alter table sm_catalog_variables add column if not exists origin text;
+alter table sm_catalog_variables add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_catalog_variables add column if not exists label text;
+alter table sm_catalog_variables add column if not exists name text;
+alter table sm_catalog_variables add column if not exists type text;
+alter table sm_catalog_variables add column if not exists item_id uuid;
+alter table sm_catalog_variables add column if not exists set_id uuid;
+alter table sm_catalog_variables add column if not exists sort_order integer;
+alter table sm_catalog_variables add column if not exists required boolean not null default false;
+alter table sm_catalog_variables add column if not exists readonly boolean not null default false;
+alter table sm_catalog_variables add column if not exists hidden boolean not null default false;
+alter table sm_catalog_variables add column if not exists width text;
+alter table sm_catalog_variables add column if not exists field_class text;
+alter table sm_catalog_variables add column if not exists default_value text;
+alter table sm_catalog_variables add column if not exists choices jsonb;
+alter table sm_catalog_variables add column if not exists ref_table text;
+alter table sm_catalog_variables add column if not exists ref_filter jsonb;
+alter table sm_catalog_variables add column if not exists min numeric;
+alter table sm_catalog_variables add column if not exists max numeric;
+alter table sm_catalog_variables add column if not exists max_length integer;
+alter table sm_catalog_variables add column if not exists price_per_unit numeric;
+alter table sm_catalog_variables add column if not exists regex text;
+alter table sm_catalog_variables add column if not exists regex_message text;
+alter table sm_catalog_variables add column if not exists help text;
+alter table sm_catalog_variables add column if not exists placeholder text;
+alter table sm_catalog_variables add column if not exists map_to text;
+alter table sm_catalog_variables add column if not exists active boolean not null default true;
+create index if not exists sm_catalog_variables_rev_idx on sm_catalog_variables (org_id, rev);
+create index if not exists sm_catalog_variables_upd_idx on sm_catalog_variables (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_catalog_variables_crt_idx on sm_catalog_variables (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_catalog_variables_item_id_idx on sm_catalog_variables (org_id, item_id) where deleted_at is null;
+create index if not exists sm_catalog_variables_set_id_idx on sm_catalog_variables (org_id, set_id) where deleted_at is null;
+drop trigger if exists sm_catalog_variables_sync on sm_catalog_variables;
+create trigger sm_catalog_variables_sync before insert or update on sm_catalog_variables for each row execute function sm_sync_touch('catalog_variable');
+alter table sm_catalog_variables enable row level security;
+
 -- category: دسته‌بندی‌ها
 create table if not exists sm_categories (
   id uuid primary key,
@@ -3048,6 +3505,53 @@ drop trigger if exists sm_notification_templates_sync on sm_notification_templat
 create trigger sm_notification_templates_sync before insert or update on sm_notification_templates for each row execute function sm_sync_touch('notification_template');
 alter table sm_notification_templates enable row level security;
 
+-- order_guide_rule: قاعده‌های راهنمای سفارش
+create table if not exists sm_order_guide_rules (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_order_guide_rules add column if not exists workspace_id uuid;
+alter table sm_order_guide_rules add column if not exists domain_id uuid;
+alter table sm_order_guide_rules add column if not exists unit_id uuid;
+alter table sm_order_guide_rules add column if not exists created_at timestamptz not null default now();
+alter table sm_order_guide_rules add column if not exists created_by uuid;
+alter table sm_order_guide_rules add column if not exists updated_at timestamptz not null default now();
+alter table sm_order_guide_rules add column if not exists updated_by uuid;
+alter table sm_order_guide_rules add column if not exists rev bigint not null default 0;
+alter table sm_order_guide_rules add column if not exists version integer not null default 1;
+alter table sm_order_guide_rules add column if not exists deleted_at timestamptz;
+alter table sm_order_guide_rules add column if not exists origin text;
+alter table sm_order_guide_rules add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_order_guide_rules add column if not exists name text;
+alter table sm_order_guide_rules add column if not exists guide_id uuid;
+alter table sm_order_guide_rules add column if not exists item_id uuid;
+alter table sm_order_guide_rules add column if not exists condition jsonb;
+alter table sm_order_guide_rules add column if not exists mandatory boolean not null default false;
+alter table sm_order_guide_rules add column if not exists selected boolean not null default true;
+alter table sm_order_guide_rules add column if not exists cascade boolean not null default true;
+alter table sm_order_guide_rules add column if not exists quantity integer;
+alter table sm_order_guide_rules add column if not exists sort_order integer;
+alter table sm_order_guide_rules add column if not exists active boolean not null default true;
+create index if not exists sm_order_guide_rules_rev_idx on sm_order_guide_rules (org_id, rev);
+create index if not exists sm_order_guide_rules_upd_idx on sm_order_guide_rules (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_order_guide_rules_crt_idx on sm_order_guide_rules (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_order_guide_rules_guide_id_idx on sm_order_guide_rules (org_id, guide_id) where deleted_at is null;
+drop trigger if exists sm_order_guide_rules_sync on sm_order_guide_rules;
+create trigger sm_order_guide_rules_sync before insert or update on sm_order_guide_rules for each row execute function sm_sync_touch('order_guide_rule');
+alter table sm_order_guide_rules enable row level security;
+
 -- org_unit: واحدهای سازمانی
 create table if not exists sm_org_units (
   id uuid primary key,
@@ -3526,6 +4030,584 @@ drop trigger if exists sm_problem_templates_sync on sm_problem_templates;
 create trigger sm_problem_templates_sync before insert or update on sm_problem_templates for each row execute function sm_sync_touch('problem_template');
 alter table sm_problem_templates enable row level security;
 
+-- request: درخواست‌های خدمت
+create table if not exists sm_requests (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_requests add column if not exists workspace_id uuid;
+alter table sm_requests add column if not exists domain_id uuid;
+alter table sm_requests add column if not exists unit_id uuid;
+alter table sm_requests add column if not exists created_at timestamptz not null default now();
+alter table sm_requests add column if not exists created_by uuid;
+alter table sm_requests add column if not exists updated_at timestamptz not null default now();
+alter table sm_requests add column if not exists updated_by uuid;
+alter table sm_requests add column if not exists rev bigint not null default 0;
+alter table sm_requests add column if not exists version integer not null default 1;
+alter table sm_requests add column if not exists deleted_at timestamptz;
+alter table sm_requests add column if not exists origin text;
+alter table sm_requests add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_requests add column if not exists no integer;
+alter table sm_requests add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 7 then 'REQ' || no::text else 'REQ' || lpad(no::text, 7, '0') end) stored;
+alter table sm_requests add column if not exists short_description text;
+alter table sm_requests add column if not exists description text;
+alter table sm_requests add column if not exists state text;
+alter table sm_requests add column if not exists priority text;
+alter table sm_requests add column if not exists impact text;
+alter table sm_requests add column if not exists urgency text;
+alter table sm_requests add column if not exists category text;
+alter table sm_requests add column if not exists subcategory text;
+alter table sm_requests add column if not exists channel text;
+alter table sm_requests add column if not exists caller_id uuid;
+alter table sm_requests add column if not exists requested_for uuid;
+alter table sm_requests add column if not exists opened_by uuid;
+alter table sm_requests add column if not exists opened_at timestamptz;
+alter table sm_requests add column if not exists assignment_group_id uuid;
+alter table sm_requests add column if not exists assigned_to uuid;
+alter table sm_requests add column if not exists service_id uuid;
+alter table sm_requests add column if not exists offering_id uuid;
+alter table sm_requests add column if not exists ci_id uuid;
+alter table sm_requests add column if not exists location_id uuid;
+alter table sm_requests add column if not exists due_at timestamptz;
+alter table sm_requests add column if not exists resolved_at timestamptz;
+alter table sm_requests add column if not exists resolved_by uuid;
+alter table sm_requests add column if not exists closed_at timestamptz;
+alter table sm_requests add column if not exists closed_by uuid;
+alter table sm_requests add column if not exists close_code text;
+alter table sm_requests add column if not exists close_notes text;
+alter table sm_requests add column if not exists parent_id uuid;
+alter table sm_requests add column if not exists watch_list jsonb;
+alter table sm_requests add column if not exists approval text;
+alter table sm_requests add column if not exists escalation integer;
+alter table sm_requests add column if not exists reassignment_count integer;
+alter table sm_requests add column if not exists reopen_count integer;
+alter table sm_requests add column if not exists time_worked bigint;
+alter table sm_requests add column if not exists first_response_at timestamptz;
+alter table sm_requests add column if not exists active boolean not null default true;
+alter table sm_requests add column if not exists sla_due timestamptz;
+alter table sm_requests add column if not exists knowledge boolean not null default false;
+alter table sm_requests add column if not exists needed_by date;
+alter table sm_requests add column if not exists cost_center_id uuid;
+alter table sm_requests add column if not exists items_count integer;
+alter table sm_requests add column if not exists total_price numeric;
+alter table sm_requests add column if not exists recurring_total numeric;
+alter table sm_requests add column if not exists stage text;
+alter table sm_requests add column if not exists fulfillers jsonb;
+create unique index if not exists sm_requests_no_uk on sm_requests (org_id, no);
+create index if not exists sm_requests_rev_idx on sm_requests (org_id, rev);
+create index if not exists sm_requests_upd_idx on sm_requests (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_requests_crt_idx on sm_requests (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_requests_state_idx on sm_requests (org_id, state) where deleted_at is null;
+create index if not exists sm_requests_assignment_group_id_idx on sm_requests (org_id, assignment_group_id) where deleted_at is null;
+create index if not exists sm_requests_assigned_to_idx on sm_requests (org_id, assigned_to) where deleted_at is null;
+create index if not exists sm_requests_workspace_acc_idx on sm_requests (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_requests_unit_acc_idx on sm_requests (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_requests_domain_acc_idx on sm_requests (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_requests_caller_id_idx on sm_requests (org_id, caller_id) where deleted_at is null;
+create index if not exists sm_requests_requested_for_idx on sm_requests (org_id, requested_for) where deleted_at is null;
+create index if not exists sm_requests_opened_by_idx on sm_requests (org_id, opened_by) where deleted_at is null;
+create index if not exists sm_requests_fulfillers_gin on sm_requests using gin (fulfillers);
+create index if not exists sm_requests_watch_list_gin on sm_requests using gin (watch_list);
+drop trigger if exists sm_requests_sync on sm_requests;
+create trigger sm_requests_sync before insert or update on sm_requests for each row execute function sm_sync_touch('request');
+alter table sm_requests enable row level security;
+
+-- request_answer: پاسخ‌های سفارش
+create table if not exists sm_request_answers (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_request_answers add column if not exists workspace_id uuid;
+alter table sm_request_answers add column if not exists domain_id uuid;
+alter table sm_request_answers add column if not exists unit_id uuid;
+alter table sm_request_answers add column if not exists created_at timestamptz not null default now();
+alter table sm_request_answers add column if not exists created_by uuid;
+alter table sm_request_answers add column if not exists updated_at timestamptz not null default now();
+alter table sm_request_answers add column if not exists updated_by uuid;
+alter table sm_request_answers add column if not exists rev bigint not null default 0;
+alter table sm_request_answers add column if not exists version integer not null default 1;
+alter table sm_request_answers add column if not exists deleted_at timestamptz;
+alter table sm_request_answers add column if not exists origin text;
+alter table sm_request_answers add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_request_answers add column if not exists label text;
+alter table sm_request_answers add column if not exists variable text;
+alter table sm_request_answers add column if not exists request_item_id uuid;
+alter table sm_request_answers add column if not exists item_id uuid;
+alter table sm_request_answers add column if not exists value_text text;
+alter table sm_request_answers add column if not exists value_num numeric;
+alter table sm_request_answers add column if not exists value_date date;
+alter table sm_request_answers add column if not exists requested_for uuid;
+alter table sm_request_answers add column if not exists caller_id uuid;
+alter table sm_request_answers add column if not exists assignment_group_id uuid;
+create index if not exists sm_request_answers_rev_idx on sm_request_answers (org_id, rev);
+create index if not exists sm_request_answers_upd_idx on sm_request_answers (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_request_answers_crt_idx on sm_request_answers (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_request_answers_variable_idx on sm_request_answers (org_id, variable) where deleted_at is null;
+create index if not exists sm_request_answers_request_item_id_idx on sm_request_answers (org_id, request_item_id) where deleted_at is null;
+create index if not exists sm_request_answers_item_id_idx on sm_request_answers (org_id, item_id) where deleted_at is null;
+create index if not exists sm_request_answers_workspace_acc_idx on sm_request_answers (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_request_answers_unit_acc_idx on sm_request_answers (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_request_answers_domain_acc_idx on sm_request_answers (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_request_answers_requested_for_idx on sm_request_answers (org_id, requested_for) where deleted_at is null;
+create index if not exists sm_request_answers_caller_id_idx on sm_request_answers (org_id, caller_id) where deleted_at is null;
+drop trigger if exists sm_request_answers_sync on sm_request_answers;
+create trigger sm_request_answers_sync before insert or update on sm_request_answers for each row execute function sm_sync_touch('request_answer');
+alter table sm_request_answers enable row level security;
+
+-- request_cart: سبدهای سفارش
+create table if not exists sm_request_carts (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_request_carts add column if not exists workspace_id uuid;
+alter table sm_request_carts add column if not exists domain_id uuid;
+alter table sm_request_carts add column if not exists unit_id uuid;
+alter table sm_request_carts add column if not exists created_at timestamptz not null default now();
+alter table sm_request_carts add column if not exists created_by uuid;
+alter table sm_request_carts add column if not exists updated_at timestamptz not null default now();
+alter table sm_request_carts add column if not exists updated_by uuid;
+alter table sm_request_carts add column if not exists rev bigint not null default 0;
+alter table sm_request_carts add column if not exists version integer not null default 1;
+alter table sm_request_carts add column if not exists deleted_at timestamptz;
+alter table sm_request_carts add column if not exists origin text;
+alter table sm_request_carts add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_request_carts add column if not exists name text;
+alter table sm_request_carts add column if not exists kind text;
+alter table sm_request_carts add column if not exists user_id uuid;
+alter table sm_request_carts add column if not exists requested_for uuid;
+alter table sm_request_carts add column if not exists location_id uuid;
+alter table sm_request_carts add column if not exists needed_by date;
+alter table sm_request_carts add column if not exists cost_center_id uuid;
+alter table sm_request_carts add column if not exists instructions text;
+alter table sm_request_carts add column if not exists request_id uuid;
+alter table sm_request_carts add column if not exists checked_out_at timestamptz;
+create index if not exists sm_request_carts_rev_idx on sm_request_carts (org_id, rev);
+create index if not exists sm_request_carts_upd_idx on sm_request_carts (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_request_carts_crt_idx on sm_request_carts (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_request_carts_user_id_idx on sm_request_carts (org_id, user_id) where deleted_at is null;
+create index if not exists sm_request_carts_workspace_acc_idx on sm_request_carts (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_request_carts_unit_acc_idx on sm_request_carts (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_request_carts_domain_acc_idx on sm_request_carts (org_id, domain_id) where deleted_at is null and domain_id is not null;
+drop trigger if exists sm_request_carts_sync on sm_request_carts;
+create trigger sm_request_carts_sync before insert or update on sm_request_carts for each row execute function sm_sync_touch('request_cart');
+alter table sm_request_carts enable row level security;
+
+-- request_cart_line: اقلام سبد
+create table if not exists sm_request_cart_lines (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_request_cart_lines add column if not exists workspace_id uuid;
+alter table sm_request_cart_lines add column if not exists domain_id uuid;
+alter table sm_request_cart_lines add column if not exists unit_id uuid;
+alter table sm_request_cart_lines add column if not exists created_at timestamptz not null default now();
+alter table sm_request_cart_lines add column if not exists created_by uuid;
+alter table sm_request_cart_lines add column if not exists updated_at timestamptz not null default now();
+alter table sm_request_cart_lines add column if not exists updated_by uuid;
+alter table sm_request_cart_lines add column if not exists rev bigint not null default 0;
+alter table sm_request_cart_lines add column if not exists version integer not null default 1;
+alter table sm_request_cart_lines add column if not exists deleted_at timestamptz;
+alter table sm_request_cart_lines add column if not exists origin text;
+alter table sm_request_cart_lines add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_request_cart_lines add column if not exists title text;
+alter table sm_request_cart_lines add column if not exists cart_id uuid;
+alter table sm_request_cart_lines add column if not exists user_id uuid;
+alter table sm_request_cart_lines add column if not exists item_id uuid;
+alter table sm_request_cart_lines add column if not exists version_id uuid;
+alter table sm_request_cart_lines add column if not exists quantity integer;
+alter table sm_request_cart_lines add column if not exists price numeric;
+alter table sm_request_cart_lines add column if not exists requested_for uuid;
+alter table sm_request_cart_lines add column if not exists requested_for_list jsonb;
+alter table sm_request_cart_lines add column if not exists answers jsonb;
+alter table sm_request_cart_lines add column if not exists saved boolean not null default false;
+alter table sm_request_cart_lines add column if not exists guide_id uuid;
+alter table sm_request_cart_lines add column if not exists sort_order integer;
+create index if not exists sm_request_cart_lines_rev_idx on sm_request_cart_lines (org_id, rev);
+create index if not exists sm_request_cart_lines_upd_idx on sm_request_cart_lines (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_request_cart_lines_crt_idx on sm_request_cart_lines (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_request_cart_lines_cart_id_idx on sm_request_cart_lines (org_id, cart_id) where deleted_at is null;
+create index if not exists sm_request_cart_lines_user_id_idx on sm_request_cart_lines (org_id, user_id) where deleted_at is null;
+create index if not exists sm_request_cart_lines_workspace_acc_idx on sm_request_cart_lines (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_request_cart_lines_unit_acc_idx on sm_request_cart_lines (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_request_cart_lines_domain_acc_idx on sm_request_cart_lines (org_id, domain_id) where deleted_at is null and domain_id is not null;
+drop trigger if exists sm_request_cart_lines_sync on sm_request_cart_lines;
+create trigger sm_request_cart_lines_sync before insert or update on sm_request_cart_lines for each row execute function sm_sync_touch('request_cart_line');
+alter table sm_request_cart_lines enable row level security;
+
+-- request_config: تنظیمات درخواست خدمت
+create table if not exists sm_request_configs (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_request_configs add column if not exists workspace_id uuid;
+alter table sm_request_configs add column if not exists domain_id uuid;
+alter table sm_request_configs add column if not exists unit_id uuid;
+alter table sm_request_configs add column if not exists created_at timestamptz not null default now();
+alter table sm_request_configs add column if not exists created_by uuid;
+alter table sm_request_configs add column if not exists updated_at timestamptz not null default now();
+alter table sm_request_configs add column if not exists updated_by uuid;
+alter table sm_request_configs add column if not exists rev bigint not null default 0;
+alter table sm_request_configs add column if not exists version integer not null default 1;
+alter table sm_request_configs add column if not exists deleted_at timestamptz;
+alter table sm_request_configs add column if not exists origin text;
+alter table sm_request_configs add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_request_configs add column if not exists name text;
+alter table sm_request_configs add column if not exists confirm_days integer;
+alter table sm_request_configs add column if not exists info_reminder_days integer;
+alter table sm_request_configs add column if not exists info_cancel_days integer;
+alter table sm_request_configs add column if not exists sle_window_days integer;
+alter table sm_request_configs add column if not exists default_group_id uuid;
+alter table sm_request_configs add column if not exists calendar_id uuid;
+alter table sm_request_configs add column if not exists seeded boolean not null default false;
+alter table sm_request_configs add column if not exists seed_version integer;
+create index if not exists sm_request_configs_rev_idx on sm_request_configs (org_id, rev);
+create index if not exists sm_request_configs_upd_idx on sm_request_configs (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_request_configs_crt_idx on sm_request_configs (org_id, created_at desc, id desc) where deleted_at is null;
+drop trigger if exists sm_request_configs_sync on sm_request_configs;
+create trigger sm_request_configs_sync before insert or update on sm_request_configs for each row execute function sm_sync_touch('request_config');
+alter table sm_request_configs enable row level security;
+
+-- request_item: اقلام درخواست‌شده
+create table if not exists sm_request_items (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_request_items add column if not exists workspace_id uuid;
+alter table sm_request_items add column if not exists domain_id uuid;
+alter table sm_request_items add column if not exists unit_id uuid;
+alter table sm_request_items add column if not exists created_at timestamptz not null default now();
+alter table sm_request_items add column if not exists created_by uuid;
+alter table sm_request_items add column if not exists updated_at timestamptz not null default now();
+alter table sm_request_items add column if not exists updated_by uuid;
+alter table sm_request_items add column if not exists rev bigint not null default 0;
+alter table sm_request_items add column if not exists version integer not null default 1;
+alter table sm_request_items add column if not exists deleted_at timestamptz;
+alter table sm_request_items add column if not exists origin text;
+alter table sm_request_items add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_request_items add column if not exists no integer;
+alter table sm_request_items add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 7 then 'RITM' || no::text else 'RITM' || lpad(no::text, 7, '0') end) stored;
+alter table sm_request_items add column if not exists short_description text;
+alter table sm_request_items add column if not exists description text;
+alter table sm_request_items add column if not exists state text;
+alter table sm_request_items add column if not exists priority text;
+alter table sm_request_items add column if not exists impact text;
+alter table sm_request_items add column if not exists urgency text;
+alter table sm_request_items add column if not exists category text;
+alter table sm_request_items add column if not exists subcategory text;
+alter table sm_request_items add column if not exists channel text;
+alter table sm_request_items add column if not exists caller_id uuid;
+alter table sm_request_items add column if not exists requested_for uuid;
+alter table sm_request_items add column if not exists opened_by uuid;
+alter table sm_request_items add column if not exists opened_at timestamptz;
+alter table sm_request_items add column if not exists assignment_group_id uuid;
+alter table sm_request_items add column if not exists assigned_to uuid;
+alter table sm_request_items add column if not exists service_id uuid;
+alter table sm_request_items add column if not exists offering_id uuid;
+alter table sm_request_items add column if not exists ci_id uuid;
+alter table sm_request_items add column if not exists location_id uuid;
+alter table sm_request_items add column if not exists due_at timestamptz;
+alter table sm_request_items add column if not exists resolved_at timestamptz;
+alter table sm_request_items add column if not exists resolved_by uuid;
+alter table sm_request_items add column if not exists closed_at timestamptz;
+alter table sm_request_items add column if not exists closed_by uuid;
+alter table sm_request_items add column if not exists close_code text;
+alter table sm_request_items add column if not exists close_notes text;
+alter table sm_request_items add column if not exists parent_id uuid;
+alter table sm_request_items add column if not exists watch_list jsonb;
+alter table sm_request_items add column if not exists approval text;
+alter table sm_request_items add column if not exists escalation integer;
+alter table sm_request_items add column if not exists reassignment_count integer;
+alter table sm_request_items add column if not exists reopen_count integer;
+alter table sm_request_items add column if not exists time_worked bigint;
+alter table sm_request_items add column if not exists first_response_at timestamptz;
+alter table sm_request_items add column if not exists active boolean not null default true;
+alter table sm_request_items add column if not exists sla_due timestamptz;
+alter table sm_request_items add column if not exists knowledge boolean not null default false;
+alter table sm_request_items add column if not exists request_id uuid;
+alter table sm_request_items add column if not exists cat_item_id uuid;
+alter table sm_request_items add column if not exists item_version_id uuid;
+alter table sm_request_items add column if not exists category_id uuid;
+alter table sm_request_items add column if not exists quantity integer;
+alter table sm_request_items add column if not exists stage text;
+alter table sm_request_items add column if not exists answers jsonb;
+alter table sm_request_items add column if not exists private_answers jsonb;
+alter table sm_request_items add column if not exists secret_answers text;
+alter table sm_request_items add column if not exists price numeric;
+alter table sm_request_items add column if not exists total numeric;
+alter table sm_request_items add column if not exists recurring_price numeric;
+alter table sm_request_items add column if not exists recurring_frequency text;
+alter table sm_request_items add column if not exists cost numeric;
+alter table sm_request_items add column if not exists ad_hoc boolean not null default false;
+alter table sm_request_items add column if not exists fulfilment text;
+alter table sm_request_items add column if not exists approval_rule_id uuid;
+alter table sm_request_items add column if not exists produced_table text;
+alter table sm_request_items add column if not exists produced_id text;
+alter table sm_request_items add column if not exists requires_confirmation boolean not null default false;
+alter table sm_request_items add column if not exists access_until date;
+alter table sm_request_items add column if not exists revoked_at timestamptz;
+alter table sm_request_items add column if not exists subscription_id uuid;
+alter table sm_request_items add column if not exists flow_runs jsonb;
+alter table sm_request_items add column if not exists fulfillers jsonb;
+alter table sm_request_items add column if not exists rating integer;
+alter table sm_request_items add column if not exists feedback text;
+alter table sm_request_items add column if not exists sle_p85 bigint;
+alter table sm_request_items add column if not exists approval_requested_at timestamptz;
+alter table sm_request_items add column if not exists approved_at timestamptz;
+alter table sm_request_items add column if not exists fulfilment_started_at timestamptz;
+alter table sm_request_items add column if not exists info_requested boolean not null default false;
+alter table sm_request_items add column if not exists info_since timestamptz;
+alter table sm_request_items add column if not exists info_wait bigint;
+alter table sm_request_items add column if not exists reminded_at timestamptz;
+alter table sm_request_items add column if not exists zero_touch boolean not null default false;
+create unique index if not exists sm_request_items_no_uk on sm_request_items (org_id, no);
+create index if not exists sm_request_items_rev_idx on sm_request_items (org_id, rev);
+create index if not exists sm_request_items_upd_idx on sm_request_items (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_request_items_crt_idx on sm_request_items (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_request_items_state_idx on sm_request_items (org_id, state) where deleted_at is null;
+create index if not exists sm_request_items_assignment_group_id_idx on sm_request_items (org_id, assignment_group_id) where deleted_at is null;
+create index if not exists sm_request_items_assigned_to_idx on sm_request_items (org_id, assigned_to) where deleted_at is null;
+create index if not exists sm_request_items_request_id_idx on sm_request_items (org_id, request_id) where deleted_at is null;
+create index if not exists sm_request_items_cat_item_id_idx on sm_request_items (org_id, cat_item_id) where deleted_at is null;
+create index if not exists sm_request_items_workspace_acc_idx on sm_request_items (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_request_items_unit_acc_idx on sm_request_items (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_request_items_domain_acc_idx on sm_request_items (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_request_items_caller_id_idx on sm_request_items (org_id, caller_id) where deleted_at is null;
+create index if not exists sm_request_items_requested_for_idx on sm_request_items (org_id, requested_for) where deleted_at is null;
+create index if not exists sm_request_items_opened_by_idx on sm_request_items (org_id, opened_by) where deleted_at is null;
+create index if not exists sm_request_items_fulfillers_gin on sm_request_items using gin (fulfillers);
+create index if not exists sm_request_items_watch_list_gin on sm_request_items using gin (watch_list);
+drop trigger if exists sm_request_items_sync on sm_request_items;
+create trigger sm_request_items_sync before insert or update on sm_request_items for each row execute function sm_sync_touch('request_item');
+alter table sm_request_items enable row level security;
+
+-- request_subscription: اشتراک‌های خدمت
+create table if not exists sm_request_subscriptions (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_request_subscriptions add column if not exists workspace_id uuid;
+alter table sm_request_subscriptions add column if not exists domain_id uuid;
+alter table sm_request_subscriptions add column if not exists unit_id uuid;
+alter table sm_request_subscriptions add column if not exists created_at timestamptz not null default now();
+alter table sm_request_subscriptions add column if not exists created_by uuid;
+alter table sm_request_subscriptions add column if not exists updated_at timestamptz not null default now();
+alter table sm_request_subscriptions add column if not exists updated_by uuid;
+alter table sm_request_subscriptions add column if not exists rev bigint not null default 0;
+alter table sm_request_subscriptions add column if not exists version integer not null default 1;
+alter table sm_request_subscriptions add column if not exists deleted_at timestamptz;
+alter table sm_request_subscriptions add column if not exists origin text;
+alter table sm_request_subscriptions add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_request_subscriptions add column if not exists no integer;
+alter table sm_request_subscriptions add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 6 then 'SUB' || no::text else 'SUB' || lpad(no::text, 6, '0') end) stored;
+alter table sm_request_subscriptions add column if not exists name text;
+alter table sm_request_subscriptions add column if not exists item_id uuid;
+alter table sm_request_subscriptions add column if not exists subscriber_id uuid;
+alter table sm_request_subscriptions add column if not exists request_item_id uuid;
+alter table sm_request_subscriptions add column if not exists quantity integer;
+alter table sm_request_subscriptions add column if not exists recurring_price numeric;
+alter table sm_request_subscriptions add column if not exists recurring_frequency text;
+alter table sm_request_subscriptions add column if not exists start_on date;
+alter table sm_request_subscriptions add column if not exists end_on date;
+alter table sm_request_subscriptions add column if not exists notes text;
+alter table sm_request_subscriptions add column if not exists state text;
+create unique index if not exists sm_request_subscriptions_no_uk on sm_request_subscriptions (org_id, no);
+create index if not exists sm_request_subscriptions_rev_idx on sm_request_subscriptions (org_id, rev);
+create index if not exists sm_request_subscriptions_upd_idx on sm_request_subscriptions (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_request_subscriptions_crt_idx on sm_request_subscriptions (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_request_subscriptions_state_idx on sm_request_subscriptions (org_id, state) where deleted_at is null;
+create index if not exists sm_request_subscriptions_workspace_acc_idx on sm_request_subscriptions (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_request_subscriptions_unit_acc_idx on sm_request_subscriptions (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_request_subscriptions_domain_acc_idx on sm_request_subscriptions (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_request_subscriptions_subscriber_id_idx on sm_request_subscriptions (org_id, subscriber_id) where deleted_at is null;
+drop trigger if exists sm_request_subscriptions_sync on sm_request_subscriptions;
+create trigger sm_request_subscriptions_sync before insert or update on sm_request_subscriptions for each row execute function sm_sync_touch('request_subscription');
+alter table sm_request_subscriptions enable row level security;
+
+-- request_task: وظایف انجام
+create table if not exists sm_request_tasks (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_request_tasks add column if not exists workspace_id uuid;
+alter table sm_request_tasks add column if not exists domain_id uuid;
+alter table sm_request_tasks add column if not exists unit_id uuid;
+alter table sm_request_tasks add column if not exists created_at timestamptz not null default now();
+alter table sm_request_tasks add column if not exists created_by uuid;
+alter table sm_request_tasks add column if not exists updated_at timestamptz not null default now();
+alter table sm_request_tasks add column if not exists updated_by uuid;
+alter table sm_request_tasks add column if not exists rev bigint not null default 0;
+alter table sm_request_tasks add column if not exists version integer not null default 1;
+alter table sm_request_tasks add column if not exists deleted_at timestamptz;
+alter table sm_request_tasks add column if not exists origin text;
+alter table sm_request_tasks add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_request_tasks add column if not exists no integer;
+alter table sm_request_tasks add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 7 then 'RTSK' || no::text else 'RTSK' || lpad(no::text, 7, '0') end) stored;
+alter table sm_request_tasks add column if not exists short_description text;
+alter table sm_request_tasks add column if not exists description text;
+alter table sm_request_tasks add column if not exists state text;
+alter table sm_request_tasks add column if not exists priority text;
+alter table sm_request_tasks add column if not exists impact text;
+alter table sm_request_tasks add column if not exists urgency text;
+alter table sm_request_tasks add column if not exists category text;
+alter table sm_request_tasks add column if not exists subcategory text;
+alter table sm_request_tasks add column if not exists channel text;
+alter table sm_request_tasks add column if not exists caller_id uuid;
+alter table sm_request_tasks add column if not exists requested_for uuid;
+alter table sm_request_tasks add column if not exists opened_by uuid;
+alter table sm_request_tasks add column if not exists opened_at timestamptz;
+alter table sm_request_tasks add column if not exists assignment_group_id uuid;
+alter table sm_request_tasks add column if not exists assigned_to uuid;
+alter table sm_request_tasks add column if not exists service_id uuid;
+alter table sm_request_tasks add column if not exists offering_id uuid;
+alter table sm_request_tasks add column if not exists ci_id uuid;
+alter table sm_request_tasks add column if not exists location_id uuid;
+alter table sm_request_tasks add column if not exists due_at timestamptz;
+alter table sm_request_tasks add column if not exists resolved_at timestamptz;
+alter table sm_request_tasks add column if not exists resolved_by uuid;
+alter table sm_request_tasks add column if not exists closed_at timestamptz;
+alter table sm_request_tasks add column if not exists closed_by uuid;
+alter table sm_request_tasks add column if not exists close_code text;
+alter table sm_request_tasks add column if not exists close_notes text;
+alter table sm_request_tasks add column if not exists parent_id uuid;
+alter table sm_request_tasks add column if not exists watch_list jsonb;
+alter table sm_request_tasks add column if not exists approval text;
+alter table sm_request_tasks add column if not exists escalation integer;
+alter table sm_request_tasks add column if not exists reassignment_count integer;
+alter table sm_request_tasks add column if not exists reopen_count integer;
+alter table sm_request_tasks add column if not exists time_worked bigint;
+alter table sm_request_tasks add column if not exists first_response_at timestamptz;
+alter table sm_request_tasks add column if not exists active boolean not null default true;
+alter table sm_request_tasks add column if not exists sla_due timestamptz;
+alter table sm_request_tasks add column if not exists knowledge boolean not null default false;
+alter table sm_request_tasks add column if not exists request_item_id uuid;
+alter table sm_request_tasks add column if not exists request_id uuid;
+alter table sm_request_tasks add column if not exists template_id uuid;
+alter table sm_request_tasks add column if not exists sort_order integer;
+alter table sm_request_tasks add column if not exists depends_on uuid;
+alter table sm_request_tasks add column if not exists requester_visible boolean not null default false;
+alter table sm_request_tasks add column if not exists instructions text;
+alter table sm_request_tasks add column if not exists checklist jsonb;
+alter table sm_request_tasks add column if not exists class_of_service text;
+alter table sm_request_tasks add column if not exists blocked boolean not null default false;
+alter table sm_request_tasks add column if not exists blocked_reason text;
+alter table sm_request_tasks add column if not exists blocked_since timestamptz;
+alter table sm_request_tasks add column if not exists blocked_time bigint;
+alter table sm_request_tasks add column if not exists deviation boolean not null default false;
+alter table sm_request_tasks add column if not exists deviation_note text;
+create unique index if not exists sm_request_tasks_no_uk on sm_request_tasks (org_id, no);
+create index if not exists sm_request_tasks_rev_idx on sm_request_tasks (org_id, rev);
+create index if not exists sm_request_tasks_upd_idx on sm_request_tasks (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_request_tasks_crt_idx on sm_request_tasks (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_request_tasks_state_idx on sm_request_tasks (org_id, state) where deleted_at is null;
+create index if not exists sm_request_tasks_assignment_group_id_idx on sm_request_tasks (org_id, assignment_group_id) where deleted_at is null;
+create index if not exists sm_request_tasks_assigned_to_idx on sm_request_tasks (org_id, assigned_to) where deleted_at is null;
+create index if not exists sm_request_tasks_request_item_id_idx on sm_request_tasks (org_id, request_item_id) where deleted_at is null;
+create index if not exists sm_request_tasks_request_id_idx on sm_request_tasks (org_id, request_id) where deleted_at is null;
+create index if not exists sm_request_tasks_workspace_acc_idx on sm_request_tasks (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_request_tasks_unit_acc_idx on sm_request_tasks (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_request_tasks_domain_acc_idx on sm_request_tasks (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_request_tasks_requested_for_idx on sm_request_tasks (org_id, requested_for) where deleted_at is null;
+create index if not exists sm_request_tasks_watch_list_gin on sm_request_tasks using gin (watch_list);
+drop trigger if exists sm_request_tasks_sync on sm_request_tasks;
+create trigger sm_request_tasks_sync before insert or update on sm_request_tasks for each row execute function sm_sync_touch('request_task');
+alter table sm_request_tasks enable row level security;
+
 -- role: نقش‌ها
 create table if not exists sm_roles (
   id uuid primary key,
@@ -3873,6 +4955,51 @@ create index if not exists sm_ui_policies_crt_idx on sm_ui_policies (org_id, cre
 drop trigger if exists sm_ui_policies_sync on sm_ui_policies;
 create trigger sm_ui_policies_sync before insert or update on sm_ui_policies for each row execute function sm_sync_touch('ui_policy');
 alter table sm_ui_policies enable row level security;
+
+-- variable_set: مجموعه‌پرسش‌ها
+create table if not exists sm_variable_sets (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_variable_sets add column if not exists workspace_id uuid;
+alter table sm_variable_sets add column if not exists domain_id uuid;
+alter table sm_variable_sets add column if not exists unit_id uuid;
+alter table sm_variable_sets add column if not exists created_at timestamptz not null default now();
+alter table sm_variable_sets add column if not exists created_by uuid;
+alter table sm_variable_sets add column if not exists updated_at timestamptz not null default now();
+alter table sm_variable_sets add column if not exists updated_by uuid;
+alter table sm_variable_sets add column if not exists rev bigint not null default 0;
+alter table sm_variable_sets add column if not exists version integer not null default 1;
+alter table sm_variable_sets add column if not exists deleted_at timestamptz;
+alter table sm_variable_sets add column if not exists origin text;
+alter table sm_variable_sets add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_variable_sets add column if not exists name text;
+alter table sm_variable_sets add column if not exists code text;
+alter table sm_variable_sets add column if not exists multi_row boolean not null default false;
+alter table sm_variable_sets add column if not exists min_rows integer;
+alter table sm_variable_sets add column if not exists max_rows integer;
+alter table sm_variable_sets add column if not exists shared boolean not null default true;
+alter table sm_variable_sets add column if not exists active boolean not null default true;
+alter table sm_variable_sets add column if not exists description text;
+create index if not exists sm_variable_sets_rev_idx on sm_variable_sets (org_id, rev);
+create index if not exists sm_variable_sets_upd_idx on sm_variable_sets (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_variable_sets_crt_idx on sm_variable_sets (org_id, created_at desc, id desc) where deleted_at is null;
+create unique index if not exists sm_variable_sets_code_uk on sm_variable_sets (org_id, code) where deleted_at is null;
+drop trigger if exists sm_variable_sets_sync on sm_variable_sets;
+create trigger sm_variable_sets_sync before insert or update on sm_variable_sets for each row execute function sm_sync_touch('variable_set');
+alter table sm_variable_sets enable row level security;
 
 -- view: نماهای ذخیره‌شده
 create table if not exists sm_views (

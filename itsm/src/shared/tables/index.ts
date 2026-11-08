@@ -17,6 +17,7 @@ import { INCIDENT_CHOICE_LISTS, INCIDENT_TABLES } from "./incident";
 import { PROBLEM_CHOICE_LISTS, PROBLEM_TABLES } from "./problem";
 import { DOCS_TABLES } from "./docs";
 import { CHANGE_CHOICE_LISTS, CHANGE_TABLES } from "./change";
+import { REQUEST_CHOICE_LISTS, REQUEST_TABLES } from "./request";
 
 export { CUSTOM_FIELD_TYPES, VIEW_KINDS } from "./core";
 
@@ -31,6 +32,7 @@ const MODULE_TABLES: TableDef[][] = [
   INCIDENT_TABLES,
   PROBLEM_TABLES,
   CHANGE_TABLES,
+  REQUEST_TABLES,
 ];
 
 /** Every table by key (resolved definitions). */
@@ -204,6 +206,7 @@ for (const [key, options] of Object.entries(SLA_CHOICE_LISTS)) registerChoiceLis
 for (const [key, options] of Object.entries(INCIDENT_CHOICE_LISTS)) registerChoiceList(key, options);
 for (const [key, options] of Object.entries(PROBLEM_CHOICE_LISTS)) registerChoiceList(key, options);
 for (const [key, options] of Object.entries(CHANGE_CHOICE_LISTS)) registerChoiceList(key, options);
+for (const [key, options] of Object.entries(REQUEST_CHOICE_LISTS)) registerChoiceList(key, options);
 
 /** The members of the organisation as a reference target (virtual: no table of its own). */
 export const USER_DEF = buildTable(USER_TABLE);
