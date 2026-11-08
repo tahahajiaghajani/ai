@@ -65,6 +65,8 @@ registerTable({
     { name: "data", label: "داده", type: "json" },
     { name: "mail", label: "ایمیل", type: "email" },
     { name: "stars", label: "امتیاز", type: "rating" },
+    { name: "loc", label: "مکان", type: "ref", ref: "location" },
+    { name: "locs", label: "مکان‌ها", type: "refs", ref: "location" },
   ],
   scope: {},
   features: { sync: false },
@@ -78,6 +80,11 @@ const G1 = id(801);
 const G2 = id(802);
 const UNIT = id(701);
 const SUBUNIT = id(702);
+// the member sits on a floor (L3) of a building (L2) on a site (L1); L9 is another building
+const L1 = id(601);
+const L2 = id(602);
+const L3 = id(603);
+const L9 = id(609);
 const R1 = id(101);
 const R2 = id(102);
 const R3 = id(103);
@@ -94,6 +101,7 @@ const ENV: CondEnv = {
   unitTree: [UNIT, SUBUNIT],
   unitUsers: [U1],
   unitTreeUsers: [U1, U3],
+  locations: [L1, L2, L3],
 };
 
 const REFS = [
@@ -108,26 +116,31 @@ const ROWS: Fx[] = [
     id: id(1), title: "سرور ايميل از کار افتاد", body: "کاربر گفت ۱۲ بار امتحان کرد و نمي‌شود", qty: 5, price: "1.50", flag: true,
     day: "2026-03-21", at: "2026-03-24T20:30:00.000Z", spent: 3600, kind: "a", kinds: ["a", "b"], tags: ["شبکه", "ایمیل"],
     ref_id: R1, refs: [R1, R2], who: U1, whos: [U1, U2], team: G1, data: { x: 1 }, mail: "a@example.com", stars: 4, unit_id: UNIT,
+    loc: L2, locs: [L9, L3],
   },
   {
     id: id(2), title: "Printer jam 50%", body: "paper_jam in tray", qty: 0, price: "2.25", flag: false,
     day: "2026-03-20", at: "2026-03-20T20:29:59.999Z", spent: 60, kind: "b", kinds: ["c"], tags: ["چاپ"],
     ref_id: R2, refs: [R3], who: U2, whos: [U3], team: G2, data: [], mail: "b@test.org", stars: 1, unit_id: SUBUNIT,
+    loc: L9, locs: [L9],
   },
   {
     id: id(3), title: "", body: null, qty: null, price: null, flag: false,
     day: null, at: null, spent: null, kind: null, kinds: null, tags: [], ref_id: null, refs: null, who: null, whos: [],
     team: null, data: null, mail: null, stars: null, unit_id: null,
+    loc: null, locs: null,
   },
   {
     id: id(4), title: "درخواست مجوز VPN", body: "می‌شود سريع؟", qty: -3, price: "-0.5", flag: true,
     day: "2026-02-19", at: "2026-01-01T00:00:00.000Z", spent: 0, kind: "c", kinds: ["a"], tags: ["شبکه"],
     ref_id: R3, refs: [R2], who: U3, whos: [U1], team: null, data: {}, mail: "c@example.com", stars: 5, unit_id: UNIT,
+    loc: L1, locs: [],
   },
   {
     id: id(5), title: "سرور بک‌آپ", body: "next week", qty: 12, price: "100", flag: false,
     day: "2026-04-01", at: "2026-03-28T10:00:00.000Z", spent: 7200, kind: "a", kinds: [], tags: null,
     ref_id: id(999), refs: [id(999)], who: U2, whos: null, team: G1, data: { y: [1] }, mail: "d@example.com", stars: 3, unit_id: null,
+    loc: L3, locs: [L1],
   },
 ];
 
@@ -256,6 +269,10 @@ const CONDS: Cond[] = [
   { f: "team", op: "in_my_groups" },
   { f: "unit_id", op: "in_my_unit" },
   { f: "unit_id", op: "in_my_unit_tree" },
+  // my location and those I am in (an outage at the building or the site reaches its floors; not another building)
+  { f: "loc", op: "is_my_location" },
+  { f: "locs", op: "is_my_location" },
+  { not: { f: "loc", op: "is_my_location" } },
   { f: "data", op: "empty" },
   { f: "data", op: "nempty" },
   // dot-walks
@@ -296,7 +313,7 @@ describe("conditions: evaluate (JS) and toSql (SQL) agree", () => {
     for (const r of REFS) await db.query(`insert into sm_cond_refs (id, org_id, name, owner, level, parent_id) values ($1, $2, $3, $4, $5, $6)`, [r.id, org, r.name, r.owner, r.level, r.parent_id]);
     const cols = Object.keys(ROWS[0]);
     for (const [i, r] of ROWS.entries()) {
-      const json = new Set(["kinds", "tags", "refs", "whos", "data"]);
+      const json = new Set(["kinds", "tags", "refs", "whos", "data", "locs"]);
       const params = cols.map((k) => (json.has(k) ? (r[k] === null ? null : JSON.stringify(r[k])) : r[k]));
       await db.query(
         `insert into sm_cond_rows (org_id, no, ${cols.join(", ")}) values ($1, $2, ${cols.map((k, j) => `$${j + 3}${json.has(k) ? "::jsonb" : ""}`).join(", ")})`,

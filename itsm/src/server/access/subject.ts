@@ -27,12 +27,21 @@ export function accessSettings(org: Pick<OrgRow, "settings">): AccessSettings {
 
 // ----- the organisation snapshot ------------------------------------------------------------------------------
 
+/** A member's location and every location above it (`is_my_location`), from the location tree's paths. */
+export function locationsOf(snap: Pick<Snapshot, "locations">, locationId: string | null): string[] {
+  if (!locationId || !snap.locations?.has(locationId)) return [];
+  const path = snap.locations.get(locationId)!;
+  const ids = path.split("/").filter((x) => snap.locations!.has(x));
+  return [...new Set([...ids, locationId])].sort();
+}
+
 interface UnitRow { id: string; parent_id: string | null; path: string | null; manager_id: string | null; is_domain: boolean; active: boolean }
 interface GroupRow { id: string; parent_id: string | null; restricted: boolean; active: boolean; roles: string[] | null; workspace_id: string | null }
 interface WorkspaceRow { id: string; secure: boolean; active: boolean }
 export interface ProfileRow {
   user_id: string;
   org_unit_id: string | null;
+  location_id?: string | null;
   manager_id: string | null;
   delegate_id: string | null;
   out_of_office: boolean;
@@ -48,6 +57,8 @@ export interface Snapshot {
   version: number;
   roles: RoleDef[];
   units: Map<string, UnitRow>;
+  /** location id → its path (`/a/b/c/`: the location and those above it) */
+  locations?: Map<string, string>;
   groups: Map<string, GroupRow>;
   workspaces: Map<string, WorkspaceRow>;
   profiles: Map<string, ProfileRow>;
@@ -72,7 +83,7 @@ const arr = (v: unknown): string[] => (Array.isArray(v) ? v.map(String) : []);
 
 /** Load the organisation's access tables (not cached when read inside a transaction: it may roll back). */
 async function loadSnapshot(q: Queryable, orgId: string, version: number): Promise<Snapshot> {
-  const [roles, units, groups, workspaces, profiles, memberships] = await Promise.all([
+  const [roles, units, groups, workspaces, profiles, memberships, locations] = await Promise.all([
     q.query<RoleDef & { active: boolean }>(
       `select key, name, description, persona, grants, field_groups, contains, workspaces, domains, active from sm_roles where org_id = $1 and deleted_at is null`,
       [orgId],
@@ -81,11 +92,12 @@ async function loadSnapshot(q: Queryable, orgId: string, version: number): Promi
     q.query<GroupRow>(`select id, parent_id, restricted, active, roles, workspace_id from sm_groups where org_id = $1 and deleted_at is null`, [orgId]),
     q.query<WorkspaceRow>(`select id, secure, active from sm_workspaces where org_id = $1 and deleted_at is null`, [orgId]),
     q.query<ProfileRow>(
-      `select user_id, org_unit_id, manager_id, delegate_id, out_of_office, ooo_until, domain_unit_id, roles, workspaces, persona
+      `select user_id, org_unit_id, location_id, manager_id, delegate_id, out_of_office, ooo_until, domain_unit_id, roles, workspaces, persona
        from sm_member_profiles where org_id = $1 and deleted_at is null`,
       [orgId],
     ),
     q.query<MembershipRow>(`select group_id, user_id, kind, valid_from, valid_to from sm_group_members where org_id = $1 and deleted_at is null`, [orgId]),
+    q.query<{ id: string; path: string | null }>(`select id, path from sm_locations where org_id = $1 and deleted_at is null`, [orgId]),
   ]);
   const children = new Map<string, string[]>();
   for (const g of groups) if (g.parent_id) children.set(g.parent_id, [...(children.get(g.parent_id) ?? []), g.id]);
@@ -104,6 +116,7 @@ async function loadSnapshot(q: Queryable, orgId: string, version: number): Promi
       active: r.active !== false,
     })),
     units: new Map(units.map((u) => [u.id, u])),
+    locations: new Map(locations.map((l) => [l.id, l.path ?? `/${l.id}/`])),
     groups: new Map(groups.map((g) => [g.id, { ...g, roles: arr(g.roles) }])),
     workspaces: new Map(workspaces.map((w) => [w.id, w])),
     profiles: new Map(profiles.map((p) => [p.user_id, { ...p, roles: arr(p.roles), workspaces: arr(p.workspaces) }])),
@@ -268,6 +281,7 @@ export function buildSubject(snap: Snapshot, settings: AccessSettings, orgId: st
     unitTree,
     unitUsers: unitId ? profiles.filter((p) => p.org_unit_id === unitId).map((p) => p.user_id).sort() : [],
     unitTreeUsers: profiles.filter((p) => p.org_unit_id && treeSet.has(p.org_unit_id)).map((p) => p.user_id).sort(),
+    locations: locationsOf(snap, profile?.location_id ?? null),
     domainId,
   };
   return { subject, env, until };

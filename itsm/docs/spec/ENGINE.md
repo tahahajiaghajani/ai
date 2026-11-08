@@ -181,6 +181,7 @@ type Cond = { and: Cond[] } | { or: Cond[] } | { not: Cond } | { f: string; op: 
 | `is_my_group` | — | group fields, refs to `group` |
 | `in_my_groups` | — | groups: one of my groups; users: a member of one of my groups |
 | `in_my_unit`, `in_my_unit_tree` | — | users (members of my unit / subtree), refs to `org_unit`, `unit_id` |
+| `is_my_location` | — | a ref or refs to `location` holds my location or one above it (`env.locations`: the member profile's location and its ancestors — a building's or a site's record reaches the people on its floors); SQL and JS alike |
 | `relative` | `{unit, n, dir}` or `{unit, from, to}` | dates and date-times |
 | `changed`, `changes_to`, `changes_from` | — / one | rules only (`validateCond(c, def, { rules: true })`), compare with `env.prev` |
 
