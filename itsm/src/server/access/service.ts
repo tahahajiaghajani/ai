@@ -15,7 +15,7 @@ import { FIELD_GROUPS, type FieldGroup } from "@shared/model/types";
 import {
   areas, builtinRoles, compactGrant, diffRole, explainRow, fullGrant, grantIn, hiddenFields, isBuiltinRole,
   PERSONA_PRESETS, roleClosure, writeMode, DESK_PRESETS,
-  type DeskPreset, type FullGrant, type Grants, type RoleChange, type RoleDef, type RowExplanation, type RowExtra, type Subject,
+  type DeskPreset, type FullGrant, type Grants, type Persona, type RoleChange, type RoleDef, type RowExplanation, type RowExtra, type Subject,
 } from "@shared/access";
 import { accessSettings, buildSubject, catalogOf, prepareSubject, snapshotFor, subjectOf, type AccessSettings } from "./subject";
 import { participantSources, readSql } from "./predicate";
@@ -91,6 +91,38 @@ export function summarize(s: Subject, settings: AccessSettings): AccessSummary {
     delegators: s.delegators,
     settings: { domain_separation: settings.domainSeparation, preset: settings.preset },
   };
+}
+
+/**
+ * What the shell needs to show only what the member may open (GET /api/o/:org, `access`): the grant of every
+ * registered area, the roles and the working persona — requester (no operational role), agent or admin. Nav items
+ * and spaces name an area and a level (docs/spec/UI_RECORDS.md); the server still checks every route.
+ */
+export interface ShellAccess {
+  grants: Record<string, FullGrant>;
+  roles: string[];
+  legacy: boolean;
+  persona: Persona;
+}
+
+const PERSONA_RANK: Record<Persona, number> = { requester: 0, agent: 1, admin: 2 };
+
+export async function shellAccess(ctx: Ctx): Promise<ShellAccess> {
+  await prepareSubject(ctx);
+  const s = subjectOf(ctx);
+  const grants: Record<string, FullGrant> = {};
+  for (const a of areas()) grants[a.key] = grantIn(s.eff, a.key);
+  for (const k of Object.keys(s.eff.grants)) if (k !== "*" && !grants[k]) grants[k] = grantIn(s.eff, k);
+  let persona: Persona = "requester";
+  if (s.kind !== "user") persona = "admin";
+  else {
+    const catalog = catalogOf(await snapshotFor(ctx), accessSettings(ctx.org));
+    for (const key of s.eff.roles) {
+      const p = catalog.get(key)?.persona;
+      if (p && PERSONA_RANK[p] > PERSONA_RANK[persona]) persona = p;
+    }
+  }
+  return { grants, roles: s.eff.roles, legacy: s.eff.legacy, persona };
 }
 
 /** The caller's own effective access (GET /access/me). */

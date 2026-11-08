@@ -18,6 +18,7 @@ import { insertRow, updateRow } from "../db/sql";
 import { isEmail } from "@shared/validate";
 import { audit } from "../modules/data/crud";
 import { pulse } from "../live";
+import { shellAccess } from "../access/service";
 
 const timezoneSchema = z.string().trim().max(64).refine(isTimeZone, "منطقهٔ زمانی معتبر نیست");
 const modulesSchema = z.array(z.string().max(40)).max(50);
@@ -75,6 +76,8 @@ orgRoutes.get("/", async (c) => {
     support: s ? { active: true, id: s.id, level: s.level, level_title: SUPPORT_LEVEL_TITLE[s.level], reason: s.reason, started_at: s.started_at, expires_at: s.expires_at } : null,
     // the organisation's platform status: read_only refuses changes (members still see everything)
     status: { status: ctx.status?.status ?? "active", reason: ctx.status?.reason ?? null },
+    // the member's effective ITSM access: nav items and spaces name an area and a level (the server checks again)
+    access: await shellAccess(ctx),
   });
 });
 

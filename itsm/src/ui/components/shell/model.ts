@@ -48,7 +48,7 @@ export function useStored<T>(key: string, fallback: T): [T, (v: T | ((p: T) => T
 
 // ---------------------------------------------------------------- visible nav
 export function useVisibleNav(): NavGroup[] {
-  const { can, has } = useOrg();
+  const { can, has, allows } = useOrg();
   const { meta } = useSession();
   return useMemo(
     () =>
@@ -59,12 +59,13 @@ export function useVisibleNav(): NavGroup[] {
             (i) =>
               (!i.module || has(i.module)) &&
               (!i.area || can(i.area, i.level ?? "view")) &&
+              (!i.access || allows(i.access)) &&
               (!i.desktopOnly || meta?.mode === "desktop") &&
               (!i.cloudOnly || meta?.mode === "cloud"),
           ),
         }))
         .filter((g) => g.items.length),
-    [can, has, meta?.mode],
+    [can, has, allows, meta?.mode],
   );
 }
 
@@ -76,9 +77,10 @@ export function useShellItems(): ShellItem[] {
 /** Items the sidebar lists: create-actions live in page headers and the palette («کارها»), counters stay. */
 export const inSidebar = (i: NavItem) => !i.action || !!i.workspace;
 
-/** The segmented control's spaces: those (of enabled modules) with at least one non-common item the member may open. */
+/** The segmented control's spaces: those (of enabled modules) the member's access opens, with a non-common item. */
 export function useSpaces(items: ShellItem[]): Space[] {
-  return useMemo(() => SPACES.filter((s) => items.some((i) => i.space === s.key && !i.common)), [items]);
+  const { allows } = useOrg();
+  return useMemo(() => SPACES.filter((s) => (!s.access || allows(s.access)) && items.some((i) => i.space === s.key && !i.common)), [items, allows]);
 }
 
 export const spaceOf = (key: SpaceKey): Space => (key === "settings" ? SETTINGS_SPACE : (SPACES.find((s) => s.key === key) ?? SPACES[0]));

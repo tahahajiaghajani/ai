@@ -128,7 +128,7 @@ const GROUP_ORDER = ["اخیر", "کارها", "صفحه‌ها", ...SEARCHES.ma
 
 function Palette({ onClose, commands }: { onClose: () => void; commands: PaletteCommand[] }) {
   const items = useShellItems();
-  const { orgId, api, can, has } = useOrg();
+  const { orgId, api, can, has, allows } = useOrg();
   const nav = useNavigate();
   const rel = useRelPath();
   const { search } = useLocation();
@@ -158,7 +158,7 @@ function Palette({ onClose, commands }: { onClose: () => void; commands: Palette
   };
 
   // records: every search a module registered that this member may use (members by name or e-mail today)
-  const searches = SEARCHES.filter((x) => (!x.module || has(x.module)) && (!x.area || can(x.area, x.level ?? "view")));
+  const searches = SEARCHES.filter((x) => (!x.module || has(x.module)) && (!x.area || can(x.area, x.level ?? "view")) && (!x.access || allows(x.access)));
   const found = useQueries({
     queries: searches.map((x) => ({
       queryKey: ["palette-search", orgId, x.key, dq],

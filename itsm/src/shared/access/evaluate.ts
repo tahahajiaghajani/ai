@@ -273,6 +273,30 @@ export function hiddenFields(s: Subject, def: TableDef): string[] {
   return def.fields.filter((f) => f.group && !s.eff.fieldGroups.includes(f.group)).map((f) => f.name);
 }
 
+/**
+ * What a nav item, a space or a palette search needs of the member's ITSM access to be offered (the server still
+ * checks every route): an area, an operation (default read) and, for read / write / delete, the least scope
+ * (default own) — `{ area: "request", scope: "group" }` is a fulfilment queue, `{ area: "catalog", op: "create" }`
+ * the catalogue's definitions, `{ area: "change" }` the change space.
+ */
+export interface AccessGate {
+  area: string;
+  op?: "read" | "create" | "write" | "delete" | "approve" | "admin";
+  scope?: Scope;
+}
+
+/** Does a member with `grants` (per area, from the shell's access) pass `gate`? Without grants (an older server), yes. */
+export function gateAllows(grants: Readonly<Record<string, FullGrant>> | null | undefined, gate: AccessGate): boolean {
+  if (!grants) return true;
+  const g = grants[gate.area] ?? grants["*"];
+  if (!g) return false;
+  const op = gate.op ?? "read";
+  if (op === "create" || op === "approve" || op === "admin") return !!g[op];
+  return SCOPE_ORDER.indexOf(g[op]) >= SCOPE_ORDER.indexOf(gate.scope ?? "own");
+}
+
+const SCOPE_ORDER: Scope[] = ["none", "own", "group", "unit", "unit_tree", "domain", "all"];
+
 /** The subject's grant in the table's area. */
 export const tableGrant = (s: Subject, def: TableDef): FullGrant => grantIn(s.eff, def.area);
 

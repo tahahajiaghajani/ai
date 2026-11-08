@@ -10,6 +10,7 @@
 import type { ReactNode } from "react";
 import { House, Settings, type LucideIcon } from "lucide-react";
 import type { Area, Level } from "@shared/permissions";
+import type { AccessGate } from "@shared/access";
 import type { ModuleKey } from "@shared/constants";
 import type { OrgApi } from "../lib/api";
 import { homeUi } from "./home";
@@ -46,6 +47,8 @@ export interface NavItem {
   path: string; // relative to /:org/
   area?: Area;
   level?: Level;
+  /** the member's ITSM access this item needs (an area, an operation, the least scope); hidden otherwise */
+  access?: AccessGate;
   module?: ModuleKey;
   desktopOnly?: boolean;
   cloudOnly?: boolean;
@@ -88,6 +91,8 @@ export interface Space {
   title: string;
   icon: LucideIcon;
   module?: ModuleKey;
+  /** the member's ITSM access the space needs (besides having an item to show) */
+  access?: AccessGate;
 }
 
 /** One row a palette search found. */
@@ -108,6 +113,7 @@ export interface PaletteSearch {
   icon: LucideIcon;
   area?: Area;
   level?: Level;
+  access?: AccessGate;
   module?: ModuleKey;
   /** shortest query it runs for (default 2) */
   minLength?: number;

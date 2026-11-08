@@ -6,6 +6,7 @@
 import { lazy, type ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import type { Area, Level } from "@shared/permissions";
+import type { AccessGate } from "@shared/access";
 import type { AppRoute, ModuleUi, NavCount, NavGroup, NavItem, PaletteSearch, Space, SpaceKey } from "../modules/registry";
 import { recordsApi } from "./data/api";
 import { displayText } from "./model/schema";
@@ -29,6 +30,8 @@ export interface RecordTableEntry {
   space?: SpaceKey;
   area?: Area;
   level?: Level;
+  /** the member's ITSM access the table's nav item needs (its «… تازه» needs create in the same area) */
+  access?: AccessGate;
   keywords?: string;
   /** routes only, no nav item */
   hidden?: boolean;
@@ -74,13 +77,14 @@ export function RecordPageRoute(p: { table?: string; id?: string; extensions?: R
 }
 
 /** A command-palette search of a table: number or words, five hits, each opening its record. */
-export function recordSearch(table: string, o: { key?: string; group: string; icon: LucideIcon; area?: Area; level?: Level; minLength?: number }): PaletteSearch {
+export function recordSearch(table: string, o: { key?: string; group: string; icon: LucideIcon; area?: Area; level?: Level; access?: AccessGate; minLength?: number }): PaletteSearch {
   return {
     key: o.key ?? `records:${table}`,
     group: o.group,
     icon: o.icon,
     area: o.area,
     level: o.level,
+    access: o.access,
     minLength: o.minLength ?? 2,
     async run(api, q) {
       const meta = await recordsApi.table(api, table).catch(() => null);
@@ -107,15 +111,15 @@ export function recordModule(spec: RecordModuleSpec): ModuleUi {
   for (const t of spec.tables) {
     registerRecordExtensions(t.table, { ...(t.extensions ?? {}), path: t.path });
     if (!t.hidden)
-      items.push({ key: `${spec.key}:${t.table}`, label: t.label, path: t.path, icon: t.icon, section: t.section, area: t.area, level: t.level, keywords: t.keywords, workspace: t.workspace, count: t.count });
+      items.push({ key: `${spec.key}:${t.table}`, label: t.label, path: t.path, icon: t.icon, section: t.section, area: t.area, level: t.level, access: t.access, keywords: t.keywords, workspace: t.workspace, count: t.count });
     if (t.newAction !== false)
-      items.push({ key: `${spec.key}:${t.table}:new`, label: `${t.noun ?? t.label} تازه`, path: `${t.path}/new`, icon: t.icon, area: t.area, level: "edit", action: true, keywords: t.keywords });
+      items.push({ key: `${spec.key}:${t.table}:new`, label: `${t.noun ?? t.label} تازه`, path: `${t.path}/new`, icon: t.icon, area: t.area, level: "edit", access: t.access ? { area: t.access.area, op: "create" } : undefined, action: true, keywords: t.keywords });
     routes.push(
       { path: t.path, element: <RecordListRoute table={t.table} title={t.list?.title} preset={t.list?.preset} actions={t.list?.actions} /> },
       { path: `${t.path}/new`, element: <RecordPageRoute table={t.table} id="new" /> },
       { path: `${t.path}/:id`, element: <RecordPageRoute table={t.table} /> },
     );
-    if (t.search !== false && t.icon) searches.push(recordSearch(t.table, { group: t.search?.group ?? t.label, icon: t.icon, area: t.area, level: t.level, minLength: t.search?.minLength }));
+    if (t.search !== false && t.icon) searches.push(recordSearch(t.table, { group: t.search?.group ?? t.label, icon: t.icon, area: t.area, level: t.level, access: t.access, minLength: t.search?.minLength }));
   }
   const groups: NavGroup[] = [{ key: spec.group.key, label: spec.group.label, space, items: [...items, ...(spec.nav ?? [])] }];
   return {

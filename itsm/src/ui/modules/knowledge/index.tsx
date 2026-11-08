@@ -15,6 +15,7 @@ import {
   BookOpenText, BookMarked, ChartColumn, ClipboardCheck, FileCheck2, FilePen, FolderTree, Gauge, GitBranch, Layers, LayoutTemplate, Library, ListTodo, MessageSquareQuote, MessagesSquare, Puzzle, Search, Settings2, ShieldCheck,
   Signpost, SpellCheck, Star, TriangleAlert, Copy, BellRing, Award, Network, ListFilter,
 } from "lucide-react";
+import type { AccessGate } from "@shared/access";
 import type { ModuleUi, NavItem } from "../registry";
 import { recordModule, RecordListRoute } from "../../records/module";
 import { registerRecordExtensions, type RecordContext } from "../../records/extensions";
@@ -58,6 +59,14 @@ const page = (node: ReactNode) => <Suspense fallback={<Loader />}>{node}</Suspen
 
 export const KNOWLEDGE_SPACE = { key: "knowledge", label: "دانش", title: "مدیریت دانش", icon: BookOpenText };
 
+/** Who is offered what (the server checks every route again): reading for everyone; drafts, reviews and knowledge
+ *  tasks, snippets, blocks and decision trees for authors; curation (campaigns, quality, the manager's desk and
+ *  dashboard) for those who change all knowledge;
+ *  the definitions for its administrators. */
+const AUTHORS: AccessGate = { area: "knowledge", op: "create" };
+const CURATES: AccessGate = { area: "knowledge", op: "write", scope: "all" };
+const ADMINISTERS: AccessGate = { area: "knowledge", op: "admin" };
+
 const ME = (f: string) => ({ f, op: "is_me" as const });
 const OPEN_VERSION = { f: "state", op: "in" as const, v: ["draft", "in_review", "scheduled"] };
 const MY_DRAFTS = { and: [ME("author_id"), OPEN_VERSION] };
@@ -85,13 +94,13 @@ registerRecordExtensions("known_error", { headerActions: header("kb-known-error"
 
 const NAV: NavItem[] = [
   { key: "kb:home", label: "مرکز دانش", path: "kb", icon: BookOpenText, area: "work", workspace: true, keywords: "دانش مقاله راهنما پایگاه دانش خودیاری KB" },
-  { key: "kb:drafts", label: "پیش‌نویس‌های من", path: "kb/drafts", icon: FilePen, area: "work", workspace: true, keywords: "پیش‌نویس مقاله نسخه" },
-  { key: "kb:reviews", label: "بازبینی‌های من", path: "kb/reviews", icon: ClipboardCheck, area: "work", workspace: true, keywords: "بازبینی تأیید انتشار مقاله", count: { key: "kb:reviews", hint: "نسخهٔ منتظر بازبینی شما", load: reviewCount } },
+  { key: "kb:drafts", label: "پیش‌نویس‌های من", path: "kb/drafts", icon: FilePen, area: "work", access: AUTHORS, workspace: true, keywords: "پیش‌نویس مقاله نسخه" },
+  { key: "kb:reviews", label: "بازبینی‌های من", path: "kb/reviews", icon: ClipboardCheck, area: "work", access: AUTHORS, workspace: true, keywords: "بازبینی تأیید انتشار مقاله", count: { key: "kb:reviews", hint: "نسخهٔ منتظر بازبینی شما", load: reviewCount } },
   { key: "kb:acknowledge", label: "خواندن و تأیید", path: "kb/acknowledge", icon: FileCheck2, area: "work", keywords: "خط‌مشی بخشنامه تأیید مطالعه سند" },
-  { key: "kb:workspace", label: "میز مدیر دانش", path: "kb/workspace", icon: Gauge, section: S_REPORTS, area: "work", keywords: "مدیر دانش سلامت تکراری کمبود روال" },
-  { key: "kb:dashboard", label: "داشبورد دانش", path: "kb/dashboard", icon: ChartColumn, section: S_REPORTS, area: "work", keywords: "داشبورد جست‌وجو پیشگیری بازخورد استفادهٔ دوباره" },
+  { key: "kb:workspace", label: "میز مدیر دانش", path: "kb/workspace", icon: Gauge, section: S_REPORTS, area: "work", access: CURATES, keywords: "مدیر دانش سلامت تکراری کمبود روال" },
+  { key: "kb:dashboard", label: "داشبورد دانش", path: "kb/dashboard", icon: ChartColumn, section: S_REPORTS, area: "work", access: CURATES, keywords: "داشبورد جست‌وجو پیشگیری بازخورد استفادهٔ دوباره" },
   { key: "kb:search", label: "جست‌وجو در دانش", path: "kb/search", icon: Search, area: "work", action: true, keywords: "جست‌وجو دانش مقاله" },
-  { key: "kb:new", label: "مقالهٔ تازه", path: "kb/new", icon: FilePen, area: "work", action: true, keywords: "نوشتن مقاله دانش تازه" },
+  { key: "kb:new", label: "مقالهٔ تازه", path: "kb/new", icon: FilePen, area: "work", access: AUTHORS, action: true, keywords: "نوشتن مقاله دانش تازه" },
 ];
 
 const module = recordModule({
@@ -117,18 +126,18 @@ const module = recordModule({
       },
     },
     { table: "kb_version", path: "kb/versions", label: "نسخه‌های مقاله", noun: "نسخه", icon: GitBranch, area: "work", hidden: true, search: false, newAction: false, extensions: { headerActions: header("kb-version-actions", VersionRecordActions) } },
-    { table: "kb_task", path: "kb/tasks", label: "کارهای دانش", noun: "کار دانش", icon: ListTodo, area: "work", workspace: true, keywords: "کار دانش بازبینی ایراد کمبود KBT", list: { preset: { quick: ["open"], emptyText: "کار دانشی نیست" } } },
-    { table: "kb_snippet", path: "kb/snippets", label: "پاسخ‌های کوتاه", noun: "پاسخ کوتاه", icon: MessageSquareQuote, section: S_CONTENT, area: "work", keywords: "پاسخ کوتاه پرسش متداول FAQ" },
-    { table: "kb_block", path: "kb/blocks", label: "بلوک‌های بازکاربرد", noun: "بلوک", icon: Puzzle, section: S_CONTENT, area: "work", keywords: "بلوک متن مشترک تکرار" },
-    { table: "kb_decision_tree", path: "kb/trees", label: "درخت‌های تصمیم", noun: "درخت تصمیم", icon: Signpost, section: S_CONTENT, area: "work", keywords: "درخت تصمیم عیب‌یابی گام به گام", extensions: { headerActions: header("kb-tree-actions", TreeRecordActions) } },
-    { table: "kb_attestation", path: "kb/attestations", label: "کارزارهای تأیید مطالعه", noun: "کارزار", icon: ShieldCheck, section: S_CONTENT, area: "work", keywords: "خط‌مشی بخشنامه تأیید مطالعه" },
+    { table: "kb_task", path: "kb/tasks", label: "کارهای دانش", noun: "کار دانش", icon: ListTodo, area: "work", access: AUTHORS, workspace: true, keywords: "کار دانش بازبینی ایراد کمبود KBT", list: { preset: { quick: ["open"], emptyText: "کار دانشی نیست" } } },
+    { table: "kb_snippet", path: "kb/snippets", label: "پاسخ‌های کوتاه", noun: "پاسخ کوتاه", icon: MessageSquareQuote, section: S_CONTENT, area: "work", access: AUTHORS, keywords: "پاسخ کوتاه پرسش متداول FAQ" },
+    { table: "kb_block", path: "kb/blocks", label: "بلوک‌های بازکاربرد", noun: "بلوک", icon: Puzzle, section: S_CONTENT, area: "work", access: AUTHORS, keywords: "بلوک متن مشترک تکرار" },
+    { table: "kb_decision_tree", path: "kb/trees", label: "درخت‌های تصمیم", noun: "درخت تصمیم", icon: Signpost, section: S_CONTENT, area: "work", access: AUTHORS, keywords: "درخت تصمیم عیب‌یابی گام به گام", extensions: { headerActions: header("kb-tree-actions", TreeRecordActions) } },
+    { table: "kb_attestation", path: "kb/attestations", label: "کارزارهای تأیید مطالعه", noun: "کارزار", icon: ShieldCheck, section: S_CONTENT, area: "work", access: CURATES, keywords: "خط‌مشی بخشنامه تأیید مطالعه" },
     { table: "kb_ack", path: "kb/acks", label: "تأییدهای مطالعه", noun: "تأیید مطالعه", icon: FileCheck2, area: "work", hidden: true, search: false, newAction: false },
     { table: "kb_subscription", path: "kb/subscriptions", label: "دنبال‌شده‌های من", noun: "اشتراک", icon: BellRing, area: "work", search: false, newAction: false, keywords: "دنبال کردن اشتراک اعلان مقاله" },
-    { table: "kb_feedback", path: "kb/feedback", label: "بازخوردها", noun: "بازخورد", icon: MessagesSquare, section: S_QUALITY, area: "work", search: false, newAction: false, keywords: "بازخورد رأی امتیاز گزارش ایراد" },
-    { table: "kb_gap", path: "kb/gaps", label: "کمبودهای دانش", noun: "کمبود دانش", icon: TriangleAlert, section: S_QUALITY, area: "work", keywords: "کمبود دانش جست‌وجوی بی‌نتیجه" },
-    { table: "kb_duplicate", path: "kb/duplicates", label: "مقاله‌های تکراری", noun: "جفت تکراری", icon: Copy, section: S_QUALITY, area: "work", search: false, newAction: false },
-    { table: "kb_quality_review", path: "kb/quality-reviews", label: "بازبینی‌های کیفیت", noun: "بازبینی کیفیت", icon: Star, section: S_QUALITY, area: "work", keywords: "AQI کیفیت محتوا چک‌لیست" },
-    { table: "kb_base", path: "kb/bases", label: "پایگاه‌های دانش", noun: "پایگاه دانش", icon: BookMarked, section: S_DEFS, area: "work", keywords: "پایگاه دانش مخاطبان مشارکت تأیید",
+    { table: "kb_feedback", path: "kb/feedback", label: "بازخوردها", noun: "بازخورد", icon: MessagesSquare, section: S_QUALITY, area: "work", access: CURATES, search: false, newAction: false, keywords: "بازخورد رأی امتیاز گزارش ایراد" },
+    { table: "kb_gap", path: "kb/gaps", label: "کمبودهای دانش", noun: "کمبود دانش", icon: TriangleAlert, section: S_QUALITY, area: "work", access: CURATES, keywords: "کمبود دانش جست‌وجوی بی‌نتیجه" },
+    { table: "kb_duplicate", path: "kb/duplicates", label: "مقاله‌های تکراری", noun: "جفت تکراری", icon: Copy, section: S_QUALITY, area: "work", access: CURATES, search: false, newAction: false },
+    { table: "kb_quality_review", path: "kb/quality-reviews", label: "بازبینی‌های کیفیت", noun: "بازبینی کیفیت", icon: Star, section: S_QUALITY, area: "work", access: CURATES, keywords: "AQI کیفیت محتوا چک‌لیست" },
+    { table: "kb_base", path: "kb/bases", label: "پایگاه‌های دانش", noun: "پایگاه دانش", icon: BookMarked, section: S_DEFS, area: "work", access: ADMINISTERS, keywords: "پایگاه دانش مخاطبان مشارکت تأیید",
       extensions: {
         policies: [
           { key: "kb:base-audience", when: { f: "read_mode", op: "ne", v: "audience" }, actions: ["read_users", "read_groups", "read_units", "units_tree"].map((field) => ({ field, visible: false })) },
@@ -138,15 +147,15 @@ const module = recordModule({
         ],
       },
     },
-    { table: "kb_category", path: "kb/categories", label: "دسته‌ها", noun: "دسته", icon: FolderTree, section: S_DEFS, area: "work", keywords: "دسته پوشه درخت مقاله",
+    { table: "kb_category", path: "kb/categories", label: "دسته‌ها", noun: "دسته", icon: FolderTree, section: S_DEFS, area: "work", access: ADMINISTERS, keywords: "دسته پوشه درخت مقاله",
       extensions: { policies: [{ key: "kb:cat-audience", when: { f: "read_mode", op: "ne", v: "audience" }, actions: ["read_users", "read_groups", "read_units", "units_tree"].map((field) => ({ field, visible: false })) }] },
     },
-    { table: "kb_template", path: "kb/templates", label: "قالب‌های مقاله", noun: "قالب", icon: LayoutTemplate, section: S_DEFS, area: "work", keywords: "قالب KCS پرسش متداول راهنما بخش" },
-    { table: "kb_glossary", path: "kb/glossary", label: "واژه‌نامه", noun: "واژه", icon: SpellCheck, section: S_DEFS, area: "work", keywords: "واژه‌نامه هم‌معنی برابر مصوب فرهنگستان" },
-    { table: "kb_search_rule", path: "kb/search-rules", label: "قاعده‌های جست‌وجو", noun: "قاعدهٔ جست‌وجو", icon: ListFilter, section: S_DEFS, area: "work", search: false, keywords: "جست‌وجو سنجاق پنهان تقویت" },
-    { table: "kb_licence", path: "kb/licences", label: "مجوزهای KCS", noun: "مجوز", icon: Award, section: S_DEFS, area: "work", keywords: "KCS مجوز منتشرکننده مربی" },
-    { table: "kb_domain", path: "kb/domains", label: "حوزه‌های دانش", noun: "حوزهٔ دانش", icon: Network, section: S_DEFS, area: "work", keywords: "حوزه دانش متخصص روال" },
-    { table: "kb_config", path: "kb/settings", label: "تنظیمات دانش", noun: "تنظیمات", icon: Settings2, section: S_DEFS, area: "settings", search: false, newAction: false, keywords: "تنظیمات دانش بازبینی اعتبار سطل" },
+    { table: "kb_template", path: "kb/templates", label: "قالب‌های مقاله", noun: "قالب", icon: LayoutTemplate, section: S_DEFS, area: "work", access: ADMINISTERS, keywords: "قالب KCS پرسش متداول راهنما بخش" },
+    { table: "kb_glossary", path: "kb/glossary", label: "واژه‌نامه", noun: "واژه", icon: SpellCheck, section: S_DEFS, area: "work", access: ADMINISTERS, keywords: "واژه‌نامه هم‌معنی برابر مصوب فرهنگستان" },
+    { table: "kb_search_rule", path: "kb/search-rules", label: "قاعده‌های جست‌وجو", noun: "قاعدهٔ جست‌وجو", icon: ListFilter, section: S_DEFS, area: "work", access: ADMINISTERS, search: false, keywords: "جست‌وجو سنجاق پنهان تقویت" },
+    { table: "kb_licence", path: "kb/licences", label: "مجوزهای KCS", noun: "مجوز", icon: Award, section: S_DEFS, area: "work", access: ADMINISTERS, keywords: "KCS مجوز منتشرکننده مربی" },
+    { table: "kb_domain", path: "kb/domains", label: "حوزه‌های دانش", noun: "حوزهٔ دانش", icon: Network, section: S_DEFS, area: "work", access: ADMINISTERS, keywords: "حوزه دانش متخصص روال" },
+    { table: "kb_config", path: "kb/settings", label: "تنظیمات دانش", noun: "تنظیمات", icon: Settings2, section: S_DEFS, area: "settings", access: ADMINISTERS, search: false, newAction: false, keywords: "تنظیمات دانش بازبینی اعتبار سطل" },
   ],
   nav: NAV.filter((n) => n.section || n.action),
   routes: [

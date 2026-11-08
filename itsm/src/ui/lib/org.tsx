@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { orgApi, type OrgApi } from "./api";
 import type { Area, Level } from "@shared/permissions";
 import { LEVEL_ORDER } from "@shared/permissions";
+import { gateAllows, type AccessGate, type FullGrant, type Persona } from "@shared/access";
 import { DEFAULT_TIMEZONE, type ModuleKey } from "@shared/constants";
 import { formatNumber } from "@shared/format";
 import type { Num } from "@shared/money";
@@ -31,6 +32,8 @@ export interface OrgInfo {
   support?: OrgSupport | null;
   /** the organisation's platform status: read_only refuses changes, suspended closes it to members */
   status?: { status: OrgStatus; reason: string | null };
+  /** the member's effective ITSM access: grants per area, roles, working persona (nav items and spaces name a gate) */
+  access?: { grants: Record<string, FullGrant>; roles: string[]; legacy: boolean; persona: Persona };
 }
 
 export type OrgStatus = "active" | "read_only" | "suspended";
@@ -51,6 +54,10 @@ interface OrgValue {
   org: OrgInfo["org"];
   api: OrgApi;
   can: (area: Area, level?: Level) => boolean;
+  /** the member's ITSM access passes `gate` (an area, an operation, the least scope) — what to offer in the shell */
+  allows: (gate: AccessGate) => boolean;
+  /** requester (no operational role), agent or admin */
+  persona: Persona;
   has: (m: ModuleKey) => boolean;
   /** the organisation's IANA time zone (today's date, reports) */
   timezone: string;
@@ -88,6 +95,8 @@ export function OrgProvider({ orgId, info, children }: { orgId: string; info: Or
       org: info.org,
       api: orgApi(orgId),
       can: (area, level = "view") => LEVEL_ORDER.indexOf(perms[area] ?? "none") >= LEVEL_ORDER.indexOf(level),
+      allows: (gate) => gateAllows(info.access?.grants, gate),
+      persona: info.access?.persona ?? "agent",
       has: (m) => (info.org.modules ?? []).includes(m),
       timezone: info.org.settings?.timezone || DEFAULT_TIMEZONE,
       num: (v, dp = 0) => formatNumber(v, { dp }),

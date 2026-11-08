@@ -286,7 +286,10 @@ engine tables around it.
   of the `ai_private` group never reach a prompt. Autonomous agents act through a member context of their own
   principal (later). Counts are never taken from pre-filtered candidates.
 - **Sync**: automatic (pulls filtered by `readWhere`, epochs and tombstones above).
-- **Access checks in other modules' UIs**: `GET /access/me` (effective grants per area, field groups, groups, workspaces).
+- **Access checks in other modules' UIs**: `GET /access/me` (effective grants per area, field groups, groups,
+  workspaces); the shell gets the grants per area, the roles and the working persona with the organisation
+  (`GET /api/o/:org` → `access`, `shellAccess` in `service.ts`) and gates nav items, spaces and palette searches with
+  `{ area, op?, scope? }` (`gateAllows`, docs/spec/UI_RECORDS.md §2).
 
 ## 12. Declaring tables and areas
 

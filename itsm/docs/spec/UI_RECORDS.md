@@ -64,9 +64,24 @@ export const incidentUi = recordModule({
 **with the table's path** — so every link to these records (references, links, kanban cards, search hits) opens the
 module's pages. Tables a module does not register still work at `r/<table>`.
 
-`RecordTableEntry`: `table`, `path`, `label`, `noun`, `icon`, `section`, `space`, `area`, `level`, `keywords`,
-`hidden` (routes only), `workspace`, `count` (a live nav count), `search` (`false` or `{ group, minLength }`),
-`newAction`, `list: { title, preset, actions }`, `extensions`.
+`RecordTableEntry`: `table`, `path`, `label`, `noun`, `icon`, `section`, `space`, `area`, `level`, `access`,
+`keywords`, `hidden` (routes only), `workspace`, `count` (a live nav count), `search` (`false` or `{ group,
+minLength }`), `newAction`, `list: { title, preset, actions }`, `extensions`.
+
+**Who is offered what.** `area`/`level` gate by the membership areas (`work`, `settings`…); `access` gates by the
+ITSM access model: `{ area, op?: read|create|write|delete|approve|admin, scope? }` — read/write/delete need at least
+`scope` (default `own`), create/approve/admin the flag. Nav items, spaces (`Space.access`), palette searches and
+table entries take it (a table's «… تازه» needs create in the same area). The shell evaluates it with the member's
+effective grants that `GET /api/o/:org` sends (`access: { grants, roles, legacy, persona }`; `useOrg().allows(gate)`,
+`useOrg().persona`; pure `gateAllows` in `@shared/access`) and hides what does not pass — a space with nothing left is
+not offered. The server still checks every route. Patterns: a module's space `{ area: "change" }`, work queues
+`{ area: "request", scope: "group" }` (not a requester's own scope), definitions `{ area: "catalog", op: "create" }` /
+`{ area: "change", op: "approve" }` / `{ area: "knowledge", op: "admin" }`.
+
+**Participants.** A record read only through a participant grant (an approver without a role in its area) comes
+with `meta.reach = "participant"`, and its table's meta with `can.participant`: the page shows the form and the
+activity, no related lists, and only the side panels and tabs that declare `participants: true` (the approvals
+panel) — module actions, composer slots and module tabs call routes the person cannot use.
 
 A module that needs its own page composes the components instead:
 
