@@ -69,11 +69,11 @@ export function ragTables(): TableDef[] {
 
 const TEXT_TYPES = new Set(["string", "text", "markdown"]);
 
-/** Fields of the default document: `ai.text`, plus fields marked `ai.index`, minus `ai.index: false`, secrets and ai_private. */
+/** Fields of the default document: `ai.text`, plus fields marked `ai.index`, minus `ai.index: false`, secrets, ai_private and fields kept out of replicas (`noSync`). */
 export function documentFields(def: TableDef): FieldDef[] {
   const named = new Set(def.ai?.text ?? []);
   return def.fields.filter((f) => {
-    if (f.type === "secret" || f.group === "ai_private" || f.ai?.index === false) return false;
+    if (f.type === "secret" || f.group === "ai_private" || f.noSync || f.ai?.index === false) return false;
     if (!TEXT_TYPES.has(f.type)) return false;
     if (f.name === (def.ai?.title ?? def.display)) return false;
     return named.has(f.name) || f.ai?.index === true || (!def.ai && def.features?.rag === true && f.search === true);

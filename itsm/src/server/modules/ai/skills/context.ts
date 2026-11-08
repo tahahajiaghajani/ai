@@ -49,6 +49,8 @@ export function allowedGroups(cfg: Pick<SkillConfig, "field_groups">): Set<Field
 export function promptable(def: TableDef, f: FieldDef, groups: Set<FieldGroup>, explicit: Set<string> | null): boolean {
   if (f.type === "secret") return false;
   if (f.group === "ai_private") return false;
+  // kept out of Windows-app replicas (a requested item's sensitive answers…): never a model's input either
+  if (f.noSync) return false;
   if (f.group && !groups.has(f.group)) return false;
   if (keptFromPrompts(def.key).has(f.name)) return false;
   if (explicit) return explicit.has(f.name);

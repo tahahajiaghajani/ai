@@ -13,8 +13,26 @@ import { get, list, listLinks } from "../../../../engine";
 import { formatJalaliDateTime } from "@shared/jalali";
 import { orgTimeZone } from "../../usage";
 import { defineSkill } from "../registry";
-import { runForModule } from "../runtime";
+import { assertCanRun, runForModule, runResolved } from "../runtime";
+import { resolveSkill } from "../config";
+import { AiUnavailableError } from "../../errors";
+import { AppError } from "../../../../http/errors";
 import type { SkillDef } from "../types";
+
+/**
+ * A module run whose button has a deterministic answer of its own (the CAB pack, the PIR draft): a person who may not
+ * use the skill (no AI for them, the skill switched off, not their role) gets that answer, so the refusal is «no AI».
+ */
+async function runOrNoAi(ctx: Ctx, key: string, req: { table: string; id: string }) {
+  const rs = await resolveSkill(ctx, key);
+  try {
+    await assertCanRun(ctx, rs, {});
+  } catch (e) {
+    if (e instanceof AppError && e.status === 403) throw new AiUnavailableError("disabled", e.message);
+    throw e;
+  }
+  return runResolved(ctx, rs, req, { noFallback: true });
+}
 
 /** The PIR sections the `change.pir` skill drafts (merged over the module's deterministic draft). */
 const PIR_SECTIONS: PirSection[] = ["side_effects", "went_well", "went_wrong", "lessons", "follow_up"];
@@ -235,11 +253,11 @@ export function installChangeAi(): (() => void)[] {
         return { text: r.text ?? "" };
       },
       async cabPack(ctx, meetingId) {
-        const r = await runForModule(ctx, "change.cab_pack", { table: "cab_meeting", id: meetingId });
+        const r = await runOrNoAi(ctx, "change.cab_pack", { table: "cab_meeting", id: meetingId });
         return { text: r.text ?? "" };
       },
       async draftPir(ctx, changeId) {
-        const r = await runForModule(ctx, "change.pir", { table: "change_request", id: changeId });
+        const r = await runOrNoAi(ctx, "change.pir", { table: "change_request", id: changeId });
         const j = (r.json ?? {}) as Record<string, unknown>;
         const out: Partial<Record<PirSection, string>> = {};
         for (const k of PIR_SECTIONS) if (typeof j[k] === "string" && (j[k] as string).trim()) out[k] = j[k] as string;

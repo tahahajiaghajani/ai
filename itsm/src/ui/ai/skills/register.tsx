@@ -13,8 +13,10 @@ registerRecordExtensions("*", {
       key: "ai:skills",
       title: "هوش مصنوعی",
       order: 15,
-      // members who may use AI (the server's record meta): what each skill reads is decided by their own access
+      // members who may use AI (the server's record meta): what each skill reads is decided by their own access —
+      // an approver who reads the record only through the approver grant runs skills on it too (field groups apply)
       when: (ctx) => !!(ctx.meta as Record<string, unknown>).ai_skills,
+      participants: true,
       render: (ctx) => (
         <Suspense fallback={null}>
           <RecordAiPanel ctx={ctx} />
