@@ -36,6 +36,9 @@ export function clearFakeInbox(): void {
   FAKE_INBOX.length = 0;
 }
 
+/** Scripted answers (tests): the next turns that would answer (not call a tool) return these texts first, in order. */
+export const FAKE_QUEUE: string[] = [];
+
 function logTurn(req: TurnRequest): void {
   const text = req.messages
     .flatMap((m) => m.parts.map((p) => (p.type === "text" ? p.text : p.type === "tool_result" ? p.content : "")))
@@ -276,7 +279,9 @@ export function fakeAdapter(connectionId: string): Adapter {
 
       let answer: string;
       const grounded = /<data name="sources">\n([^\n]*)\n<\/data>/.exec(question);
-      if (grounded && !req.output) {
+      if (FAKE_QUEUE.length) {
+        answer = FAKE_QUEUE.shift()!;
+      } else if (grounded && !req.output) {
         answer = groundedAnswer(grounded[1], question);
       } else if (req.output) {
         answer = jsonDirective(question, req.messages) ?? JSON.stringify(sampleFor(req.output.schema));

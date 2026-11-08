@@ -56,7 +56,7 @@ async function triggered(cfg: ServerConfig, orgId: string): Promise<ResolvedSkil
 
 /** Queue one triggered run of a skill on a record (deduplicated while it waits). */
 export async function queueSkillRun(cfg: ServerConfig, orgId: string, key: string, table: string, id: string, why: string): Promise<void> {
-  await cfg.db.tx((tx) => enqueue(tx, { kind: "ai.skill.run", orgId, payload: { key, table, id, why }, dedupeKey: `skill:${key}:${id}`, delayMs: 1500, maxAttempts: 4 }));
+  await cfg.db.tx((tx) => enqueue(tx, { kind: "ai.skill.run", orgId, payload: { key, table, id, why }, dedupeKey: `skill:${key}:${id}`, maxAttempts: 4 }));
 }
 
 /** Make sure the organisation's schedule round is queued (when a skill with a schedule is saved). */
