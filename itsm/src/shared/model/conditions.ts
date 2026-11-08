@@ -161,6 +161,25 @@ export interface ResolvedPath {
   hops: { def: TableDef; field: FieldDef }[];
 }
 
+const idFields = new Map<string, FieldDef>();
+/**
+ * The record id as a condition field: a base column that is not one of a table's fields (forms and lists never show
+ * it), but conditions may name it as the last step of a path (`{ f: "id", op: "in", v }`, `"service_id.id"`). It is a
+ * reference to the table itself, so it takes the reference operators (eq, in, empty…). Not on the virtual user table
+ * (its rows are memberships keyed by `user_id`).
+ */
+export function idField(def: TableDef): FieldDef | undefined {
+  if (def.virtual) return undefined;
+  let f = idFields.get(def.key);
+  if (!f) idFields.set(def.key, (f = { name: "id", label: "شناسه", type: "ref", ref: def.key, system: true, base: true, hidden: true, audit: false }));
+  return f;
+}
+
+/** The field `name` of `def` for conditions: its own fields, or the base column `id`. */
+export function condField(def: TableDef, name: string): FieldDef | undefined {
+  return def.fields.find((x) => x.name === name) ?? (name === "id" ? idField(def) : undefined);
+}
+
 /** Resolve "field", "ref.field" or "ref.ref.field" against `def`; null when a step does not exist. */
 export function resolvePath(def: TableDef, path: string, lookup: Lookup = globalLookup): ResolvedPath | null {
   const parts = String(path).split(".");
@@ -168,7 +187,8 @@ export function resolvePath(def: TableDef, path: string, lookup: Lookup = global
   const hops: ResolvedPath["hops"] = [];
   let at = def;
   for (let i = 0; i < parts.length; i++) {
-    const field = at.fields.find((x) => x.name === parts[i]);
+    // the base column `id` ends a path (walking through it would only return to the same row)
+    const field = i === parts.length - 1 ? condField(at, parts[i]) : at.fields.find((x) => x.name === parts[i]);
     if (!field) return null;
     if (i === parts.length - 1) return { field, def: at, hops };
     if (field.type !== "ref" && field.type !== "user" && field.type !== "group") return null;

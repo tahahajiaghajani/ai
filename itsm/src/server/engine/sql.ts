@@ -5,7 +5,7 @@
 import type { FieldDef, FieldType, TableDef } from "@shared/model/types";
 import { FIELD_TYPES, refTarget } from "@shared/model/types";
 import {
-  envNow, envTz, normalizeSearch, operand, relativeWindow, resolvePath, SEARCH_FROM, SEARCH_TO,
+  condField, envNow, envTz, normalizeSearch, operand, relativeWindow, resolvePath, SEARCH_FROM, SEARCH_TO,
   type Cond, type CondEnv, type Leaf, type Lookup,
 } from "@shared/model/conditions";
 import { windowDates, windowInstants } from "@shared/model/jalali-buckets";
@@ -76,7 +76,7 @@ export function pathExpr(def: TableDef, path: string, alias: string, params: unk
   if (!r) throw new Error(`unknown field path "${path}" on ${def.key}`);
   const root = opts.root ?? alias;
   const walk = (at: TableDef, a: string, parts: string[]): string => {
-    const f = at.fields.find((x) => x.name === parts[0])!;
+    const f = (parts.length === 1 ? condField(at, parts[0]) : at.fields.find((x) => x.name === parts[0]))!;
     const base = fieldExpr(at, f, a);
     if (parts.length === 1) return base;
     const targetKey = refTarget(f, at.key)!;
@@ -95,6 +95,22 @@ export function pathExpr(def: TableDef, path: string, alias: string, params: unk
 const iso = (ms: number) => new Date(ms).toISOString();
 
 function leafSql(leaf: Leaf, def: TableDef, alias: string, params: unknown[], env: CondEnv, opts: SqlOptions): string {
+  const mark = params.length;
+  const sql = leafBody(leaf, def, alias, params, env, opts);
+  // a test that compiles to a constant (an empty «my groups», an invalid operand…) does not use the dot-walk's
+  // subquery — drop the parameters it pushed (the linked table's access check), or PostgreSQL rejects the query for
+  // parameters it cannot type
+  if (params.length > mark && !placeholdersAbove(sql, mark)) params.length = mark;
+  return sql;
+}
+
+/** Does `sql` reference a placeholder numbered above `mark`? */
+function placeholdersAbove(sql: string, mark: number): boolean {
+  for (const m of sql.matchAll(/\$(\d+)/g)) if (Number(m[1]) > mark) return true;
+  return false;
+}
+
+function leafBody(leaf: Leaf, def: TableDef, alias: string, params: unknown[], env: CondEnv, opts: SqlOptions): string {
   const { expr, field, def: owner } = pathExpr(def, leaf.f, alias, params, env, opts);
   const type = field.type;
   const info = FIELD_TYPES[type];

@@ -44,7 +44,8 @@ export function pathVisible(ctx: Ctx, def: TableDef, path: string, schema: OrgSc
   for (const s of steps) {
     if (s.def.key !== def.key && !access().canReadTable(ctx, s.def)) return false;
     const visible = access().visibleFields(ctx, s.def);
-    if (visible && !visible.has(s.field.name)) return false;
+    // the record id (a base column) is visible wherever its row is
+    if (visible && !visible.has(s.field.name) && !(s.field.base && s.field.name === "id")) return false;
     if (s.field.type === "secret" && steps.length > 1) return false;
   }
   return true;

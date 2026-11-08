@@ -1,8 +1,8 @@
 // Contributors compiled onto rows (k_users / k_groups), so that the row rules of the knowledge tables test the row's own
-// columns (src/shared/tables/knowledge.ts, CONTRIBUTORS). Two reasons: the engine compiles a dot-walked group test
-// (`base_id.k_groups in_my_groups`) of a member without groups to `false` but keeps the parameters of the walk, which
-// PostgreSQL refuses ("could not determine data type of parameter $n") — an engine request; and an own column is far
-// cheaper than a correlated sub-query, with its own access predicate, on every row of every read.
+// columns (src/shared/tables/knowledge.ts, CONTRIBUTORS): an own column is far cheaper than a correlated sub-query,
+// with its own access predicate, on every row of every read. (A dot-walked group test such as
+// `base_id.k_groups in_my_groups` also works since the engine drops the walk's parameters when the test compiles to a
+// constant — tests/integration-platform.test.ts.)
 //
 //   kb_category, kb_snippet, kb_decision_tree   the base's contributors
 //   kb_article                                  the base's contributors and the managed-by groups of its category chain
