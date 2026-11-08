@@ -232,7 +232,7 @@ describe("service requests: lifecycle", () => {
       expect((await k.ritm(id)).state).toBe("in_fulfilment");
     });
 
-    it("cancelling the last open item one by one cancels the order with the item's note", async () => {
+    it("cancelling the last open item cancels the order with the item's note", async () => {
       const item = await k.item("other_request");
       const r = await order(requester, [{ item_id: item.id, answers: { subject: "میز تازه", details: "برای اتاق ۲۱۰" } }]);
       await k.drain();
