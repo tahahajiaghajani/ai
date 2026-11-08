@@ -110,6 +110,23 @@ export const PERIOD_TRIGGERS: Option[] = [
   { value: "manual", label: "به تشخیص مسئول", order: 5 },
 ];
 
+export const INTERACTION_CHANNELS: Option[] = [
+  { value: "phone", label: "تلفن", order: 1 },
+  { value: "chat", label: "گفتگوی برخط", order: 2 },
+  { value: "walk_in", label: "مراجعهٔ حضوری", order: 3 },
+  { value: "messenger", label: "پیام‌رسان", order: 4 },
+  { value: "email", label: "ایمیل", order: 5 },
+];
+
+export const WRAP_UP_CODES: Option[] = [
+  { value: "incident", label: "رخداد ثبت شد", order: 1 },
+  { value: "first_contact", label: "در همان تماس حل شد", order: 2 },
+  { value: "information", label: "پاسخ به پرسش", order: 3 },
+  { value: "transferred", label: "به گروه دیگر منتقل شد", order: 4 },
+  { value: "abandoned", label: "قطع یا رها شد", order: 5 },
+  { value: "other", label: "سایر", order: 6 },
+];
+
 export const ANNOUNCEMENT_KINDS: Option[] = [
   { value: "outage", label: "قطعی", color: "red", order: 1 },
   { value: "degradation", label: "اختلال یا کندی", color: "orange", order: 2 },
@@ -535,6 +552,58 @@ const incidentPeriodReview: TableDef = {
 };
 
 // ---------------------------------------------------------------------------------------------------------------
+// Interactions (catalogue INC-044): a phone call, chat or walk-in with its transcript and wrap-up, linked to the
+// incident it raised (POST /incident/interactions/:id/incident) and closed with it. The caller reads their own (the
+// portal later); agents of its group keep it.
+
+export const INTERACTION_STATES: StateModel = {
+  field: "state",
+  initial: "open",
+  states: [
+    { value: "open", label: "باز", category: "active", color: "teal" },
+    { value: "closed", label: "پایان‌یافته", category: "closed", color: "gray" },
+    { value: "canceled", label: "لغوشده", category: "canceled", color: "gray" },
+  ],
+  transitions: [
+    { from: ["open"], to: "closed", label: "پایان تعامل", requires: ["wrap_up"] },
+    { from: ["open"], to: "canceled", label: "لغو" },
+    { from: ["closed"], to: "open", label: "بازگشایی" },
+  ],
+  locked: ["canceled"],
+};
+
+const interaction: TableDef = {
+  key: "interaction",
+  table: "sm_interactions",
+  label: "تعامل",
+  plural: "تعامل‌ها",
+  icon: "phone-call",
+  module: "incident",
+  area: "incident",
+  description: "تماس تلفنی، گفتگو یا مراجعهٔ حضوری با متن گفتگو و نتیجهٔ تماس؛ به رخدادی که ساخته پیوند می‌خورد و با آن بسته می‌شود",
+  numbered: { prefix: "INT", pad: 7 },
+  display: "short_description",
+  fields: [
+    { name: "short_description", label: "موضوع", type: "string", required: true, maxLength: 200, list: true, search: true, sort: true, span: 24 },
+    { name: "channel", label: "مجرا", type: "choice", choices: INTERACTION_CHANNELS, default: "phone", required: true, list: true, filter: true, span: 8 },
+    { name: "caller_id", label: "تماس‌گیرنده", type: "user", list: true, filter: true, index: true, span: 8 },
+    { name: "agent_id", label: "کارشناس", type: "user", default: "$me", list: true, filter: true, index: true, span: 8 },
+    { name: "assignment_group_id", label: "گروه", type: "group", filter: true, index: true, span: 8 },
+    { name: "started_at", label: "آغاز", type: "datetime", default: "$now", list: true, sort: true, filter: true, span: 8 },
+    { name: "ended_at", label: "پایان", type: "datetime", sort: true, span: 8 },
+    { name: "duration", label: "مدت", type: "duration", readonly: true, audit: false, sort: true, span: 8 },
+    { name: "transcript", label: "متن گفتگو", type: "markdown", search: true, span: 24 },
+    { name: "wrap_up", label: "نتیجهٔ تماس", type: "choice", choices: WRAP_UP_CODES, list: true, filter: true, span: 8 },
+    { name: "incident_id", label: "رخداد", type: "ref", ref: "incident", list: true, filter: true, index: true, span: 8 },
+    { name: "wrap_up_notes", label: "یادداشت پایانی", type: "text", span: 24 },
+  ],
+  states: INTERACTION_STATES,
+  scope: { own: ["agent_id", "caller_id"], requester: ["caller_id"], group: "assignment_group_id", requesterWritable: [], requesterTransitions: [] },
+  features: { journal: true, attachments: true },
+  list: { columns: ["number", "short_description", "channel", "caller_id", "agent_id", "state", "wrap_up", "started_at", "incident_id"], order: "-started_at" },
+};
+
+// ---------------------------------------------------------------------------------------------------------------
 // Outage announcements (catalogue INC-043): a banner with a window and an audience. Kept by the group that owns it
 // (or a manager); people read the ones on air for them through GET /incident/announcements, never the table itself.
 
@@ -654,4 +723,4 @@ const incidentConfig: TableDef = {
   list: { columns: ["name", "auto_close_days", "reopen_window_days"], order: "name" },
 };
 
-export const INCIDENT_TABLES: TableDef[] = [incident, incidentTask, incidentReview, incidentPeriodReview, incidentTemplate, incidentResponse, announcement, incidentConfig];
+export const INCIDENT_TABLES: TableDef[] = [incident, incidentTask, incidentReview, incidentPeriodReview, interaction, incidentTemplate, incidentResponse, announcement, incidentConfig];

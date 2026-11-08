@@ -2048,6 +2048,66 @@ drop trigger if exists sm_incident_templates_sync on sm_incident_templates;
 create trigger sm_incident_templates_sync before insert or update on sm_incident_templates for each row execute function sm_sync_touch('incident_template');
 alter table sm_incident_templates enable row level security;
 
+-- interaction: تعامل‌ها
+create table if not exists sm_interactions (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_interactions add column if not exists workspace_id uuid;
+alter table sm_interactions add column if not exists domain_id uuid;
+alter table sm_interactions add column if not exists unit_id uuid;
+alter table sm_interactions add column if not exists created_at timestamptz not null default now();
+alter table sm_interactions add column if not exists created_by uuid;
+alter table sm_interactions add column if not exists updated_at timestamptz not null default now();
+alter table sm_interactions add column if not exists updated_by uuid;
+alter table sm_interactions add column if not exists rev bigint not null default 0;
+alter table sm_interactions add column if not exists version integer not null default 1;
+alter table sm_interactions add column if not exists deleted_at timestamptz;
+alter table sm_interactions add column if not exists origin text;
+alter table sm_interactions add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_interactions add column if not exists no integer;
+alter table sm_interactions add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 7 then 'INT' || no::text else 'INT' || lpad(no::text, 7, '0') end) stored;
+alter table sm_interactions add column if not exists short_description text;
+alter table sm_interactions add column if not exists channel text;
+alter table sm_interactions add column if not exists caller_id uuid;
+alter table sm_interactions add column if not exists agent_id uuid;
+alter table sm_interactions add column if not exists assignment_group_id uuid;
+alter table sm_interactions add column if not exists started_at timestamptz;
+alter table sm_interactions add column if not exists ended_at timestamptz;
+alter table sm_interactions add column if not exists duration bigint;
+alter table sm_interactions add column if not exists transcript text;
+alter table sm_interactions add column if not exists wrap_up text;
+alter table sm_interactions add column if not exists incident_id uuid;
+alter table sm_interactions add column if not exists wrap_up_notes text;
+alter table sm_interactions add column if not exists state text;
+create unique index if not exists sm_interactions_no_uk on sm_interactions (org_id, no);
+create index if not exists sm_interactions_rev_idx on sm_interactions (org_id, rev);
+create index if not exists sm_interactions_upd_idx on sm_interactions (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_interactions_crt_idx on sm_interactions (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_interactions_caller_id_idx on sm_interactions (org_id, caller_id) where deleted_at is null;
+create index if not exists sm_interactions_agent_id_idx on sm_interactions (org_id, agent_id) where deleted_at is null;
+create index if not exists sm_interactions_assignment_group_id_idx on sm_interactions (org_id, assignment_group_id) where deleted_at is null;
+create index if not exists sm_interactions_incident_id_idx on sm_interactions (org_id, incident_id) where deleted_at is null;
+create index if not exists sm_interactions_state_idx on sm_interactions (org_id, state) where deleted_at is null;
+create index if not exists sm_interactions_workspace_acc_idx on sm_interactions (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_interactions_unit_acc_idx on sm_interactions (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_interactions_domain_acc_idx on sm_interactions (org_id, domain_id) where deleted_at is null and domain_id is not null;
+drop trigger if exists sm_interactions_sync on sm_interactions;
+create trigger sm_interactions_sync before insert or update on sm_interactions for each row execute function sm_sync_touch('interaction');
+alter table sm_interactions enable row level security;
+
 -- known_error: خطاهای شناخته‌شده
 create table if not exists sm_known_errors (
   id uuid primary key,

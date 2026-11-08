@@ -58,4 +58,5 @@ export { registerIncidentAi, registerProblemAi, incidentAi, problemAi, aiCapabil
 export { createFromAlert, type AlertInput } from "./alerts";
 export { activeAnnouncements, announceFromIncident, audienceOf, endWithIncident, expireAnnouncements } from "./announce";
 export { computePeriodReview, ensurePeriodReview } from "./period";
+export { incidentFromInteraction, closeInteractions } from "./interaction";
 export { openMandatoryTasks } from "./hooks";

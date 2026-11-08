@@ -10,7 +10,8 @@
 //                               a reply of the requester to an incident awaiting them: back to work
 //                               a public reply on a parent: copied to its open children (settings: propagate_comments)
 //   job incident.cascade        resolves the open children of a resolved parent, 50 at a time
-//                               resolved, closed or canceled: its announcements on air end (`end_with_incident`)
+//                               resolved, closed or canceled: its announcements on air end (`end_with_incident`) and
+//                               its interactions still open close with it
 //   job incident.sweep          every 15 minutes per organisation while there is something to watch: auto-close of
 //                               resolved incidents after N working days, reminders to requesters who are awaited and
 //                               then resolution «بی‌پاسخ», warnings when a major incident's stakeholder update is late,
@@ -24,6 +25,7 @@ import { countRows, eqAll, incidentConfig, isUuid, liveRow, liveRows, sysOf, typ
 import { draftReview, officeCalendar } from "./major";
 import { endWithIncident, expireAnnouncements } from "./announce";
 import { ensurePeriodReview } from "./period";
+import { closeInteractions } from "./interaction";
 
 export const SWEEP_EVERY = 15 * 60_000;
 const lastSweep = new Map<string, number>();
@@ -117,7 +119,10 @@ async function react(e: RecordEvent, jctx: JobContext): Promise<void> {
     const kids = cfg.cascade_children ? await countRows(jctx.db, sys, "incident", { and: [{ f: "parent_id", op: "eq", v: e.id }, { f: "active", op: "eq", v: true }] }) : 0;
     if (kids) await enqueue(jctx.db, { kind: "incident.cascade", orgId: e.org_id, payload: { id: e.id, actor: e.actor }, dedupeKey: `incident.cascade:${e.id}` });
   }
-  if (e.kind === "record.state_changed" && ["resolved", "closed", "canceled"].includes(String(e.to ?? ""))) await endWithIncident(sys, e.id, e.number ?? null);
+  if (e.kind === "record.state_changed" && ["resolved", "closed", "canceled"].includes(String(e.to ?? ""))) {
+    await endWithIncident(sys, e.id, e.number ?? null);
+    await closeInteractions(sys, e.id);
+  }
   if (e.kind === "record.updated" && e.changes?.major_state) await onMajor(sys, e, jctx, String(e.changes.major_state.to ?? ""));
   if (e.kind === "record.updated") await onReassigned(sys, e, jctx);
   if (e.kind === "record.commented") await onCommented(sys, e, jctx);

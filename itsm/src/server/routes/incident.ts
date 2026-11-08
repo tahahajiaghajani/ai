@@ -10,7 +10,7 @@ import { access } from "../access/provider";
 import { defFor, get } from "../engine";
 import { MANUAL_KINDS, TIMELINE_KINDS, type TimelineKind } from "@shared/incident/logic";
 import {
-  activeAnnouncements, addTimelineEvent, aiCapabilities, announceFromIncident, applyKnownError, AUDIENCES, changeTimelineEvent, computePeriodReview, createRelated, draftReview, escalate, incidentAi, incidentConfig, incidentDashboard,
+  activeAnnouncements, addTimelineEvent, aiCapabilities, announceFromIncident, applyKnownError, AUDIENCES, changeTimelineEvent, computePeriodReview, createRelated, draftReview, escalate, incidentAi, incidentConfig, incidentDashboard, incidentFromInteraction,
   knownErrorMatches, majorAction, mergeIncidents, promoteEntry, readiness, seedIncidentDefaults, sendUpdate, similarIncidents, timelineOf, type Audience,
 } from "../modules/incident";
 import { seedProblemDefaults } from "../modules/problem";
@@ -55,6 +55,9 @@ incidentRoutes.post("/period-reviews/:id/compute", async (c) => {
   const input = await body(c, z.object({ overwrite: z.boolean().optional() }));
   return c.json(await computePeriodReview(c.get("ctx"), id(c.req.param("id")), { overwrite: input.overwrite }));
 });
+
+// an incident from a call, chat or walk-in (linked to it; the interaction closes with the incident)
+incidentRoutes.post("/interactions/:id/incident", async (c) => c.json(await incidentFromInteraction(c.get("ctx"), id(c.req.param("id")))));
 
 incidentRoutes.get("/dashboard", async (c) => {
   const q = query(c, z.object({ days: z.coerce.number().int().min(7).max(365).optional() }));

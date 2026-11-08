@@ -6,11 +6,12 @@
 //                 problems, the review), side panels (major incident, similar incidents, matching known errors),
 //                 canned responses in the composer, UI policies (hold reason, major-incident fields, the rating)
 //   pages         the major incident's war room (with «اطلاعیهٔ قطعی»), the dashboard, the module's settings
-//   lists         tasks, post-incident reviews, outage announcements (on air above the queues), periodic reviews
+//   lists         interactions («ثبت رخداد»), tasks, post-incident reviews, outage announcements (on air above the
+//                 queues), periodic reviews
 //                 («محاسبهٔ آمار» and the «آمار دوره» tab, under «گزارش‌ها»); definitions: templates, canned responses
 // Only light modules are imported here; every component loads with its page.
 import { lazy, Suspense, type ComponentType, type ReactNode } from "react";
-import { Siren, ListChecks, ClipboardCheck, LayoutTemplate, MessageSquareText, Settings2, ChartColumn, User, Users, Flame, Timer, Hourglass, CheckCheck, OctagonAlert, Inbox, Megaphone, CalendarCheck } from "lucide-react";
+import { Siren, ListChecks, ClipboardCheck, LayoutTemplate, MessageSquareText, Settings2, ChartColumn, User, Users, Flame, Timer, Hourglass, CheckCheck, OctagonAlert, Inbox, Megaphone, CalendarCheck, PhoneCall } from "lucide-react";
 import type { ModuleUi, NavItem } from "../registry";
 import { recordModule, RecordListRoute } from "../../records/module";
 import { registerRecordExtensions, type RecordContext, type ComposerContext } from "../../records/extensions";
@@ -30,6 +31,7 @@ const Settings = lazy(() => import("./Settings"));
 const QueuePage = lazy(() => import("./QueuePage"));
 const TemplatePicker = lazy(() => import("./TemplatePicker"));
 const PeriodActions = lazy(() => import("./PeriodReview").then((m) => ({ default: m.PeriodActions })));
+const InteractionActions = lazy(() => import("./InteractionActions"));
 const PeriodStatsTab = lazy(() => import("./PeriodReview").then((m) => ({ default: m.PeriodStatsTab })));
 
 /** A record-page widget that loads with first use. */
@@ -106,6 +108,19 @@ const module = recordModule({
         ],
       },
     },
+    {
+      table: "interaction", path: "interactions", label: "تعامل‌ها", noun: "تعامل", icon: PhoneCall, area: "work",
+      keywords: "تعامل تماس تلفن گفتگو مراجعه حضوری INT",
+      list: { preset: { quick: ["open"], emptyText: "تعاملی ثبت نشده است" } },
+      extensions: {
+        headerActions: (ctx) => (
+          <Suspense key="interaction-actions" fallback={null}>
+            <InteractionActions ctx={ctx} />
+          </Suspense>
+        ),
+        policies: [{ key: "interaction:open", when: { f: "state", op: "eq", v: "open" }, actions: [{ field: "duration", visible: false }] }],
+      },
+    },
     { table: "incident_task", path: "incident-tasks", label: "کارهای رخداد", noun: "کار رخداد", icon: ListChecks, area: "work", keywords: "کار وظیفه رخداد ITASK", newAction: false },
     { table: "incident_review", path: "incident-reviews", label: "بازبینی‌های پس از رخداد", noun: "بازبینی پس از رخداد", icon: ClipboardCheck, area: "work", keywords: "بازبینی PIR گزارش درس‌آموخته", newAction: false },
     {
@@ -135,7 +150,7 @@ const module = recordModule({
     { path: "incidents/settings", element: lazyPage(<Settings />) },
     { path: "incidents/:id/war-room", element: lazyPage(<WarRoom />) },
   ],
-  segments: { incidents: "operations", "incident-tasks": "operations", "incident-reviews": "operations", "incident-period-reviews": "operations", announcements: "operations" },
+  segments: { incidents: "operations", "incident-tasks": "operations", "incident-reviews": "operations", "incident-period-reviews": "operations", announcements: "operations", interactions: "operations" },
 });
 
 // queues first, then every incident and the rest of the group

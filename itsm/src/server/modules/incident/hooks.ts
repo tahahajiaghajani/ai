@@ -17,6 +17,7 @@
 //   incident_template: the tasks JSON; templates and canned responses are created only by those who may keep them
 //   announcement: its window and audience, the incident it names, publishing stamps
 //   incident_period_review: not a requester's; a period that ends after it starts
+//   interaction: not a requester's; a readable incident (required by the wrap-up «رخداد ثبت شد»); end and duration
 //
 // Reactions that must happen once (notifications, cascades, auto problems and reviews) are event subscribers
 // (jobs.ts), never hooks: hooks do not run again when the cloud applies a Windows app's push.
@@ -356,6 +357,26 @@ function periodBefore(w: WriteArgs): void {
   if (from && to && to < from) throw validationError({ period_to: "پایان دوره باید پس از آغاز آن باشد" });
 }
 
+/**
+ * Interactions: recorded by agents (never a requester); the incident they name must be one the author may read; the
+ * wrap-up «رخداد ثبت شد» needs that incident; when one ends, its end and duration are kept.
+ */
+async function interactionBefore(w: WriteArgs): Promise<void> {
+  if (w.op === "delete") return;
+  const n = w.next;
+  if (w.op === "create" && !w.trusted && requesterOnly(w.ctx, w.def.area)) throw forbidden("ثبت تعامل با کارشناسان است");
+  if (n.incident_id && (w.op === "create" || w.changed.has("incident_id")) && w.ctx.actor !== "system" && !w.trusted) {
+    if (!(await liveRow(w.tx, w.ctx, "incident", n.incident_id))) throw validationError({ incident_id: "رخداد پیدا نشد" });
+  }
+  if (n.wrap_up === "incident" && !n.incident_id) throw validationError({ incident_id: "برای نتیجهٔ «رخداد ثبت شد»، رخداد را مشخص کنید" });
+  if (entering(w, "closed") && !n.ended_at) n.ended_at = new Date().toISOString();
+  if (w.op === "create" || w.changed.has("ended_at") || w.changed.has("started_at") || entering(w, "closed")) {
+    const d = secondsBetween(n.started_at, n.ended_at);
+    if (n.ended_at && d === null) throw validationError({ ended_at: "پایان باید پس از آغاز باشد" });
+    n.duration = d;
+  }
+}
+
 function configBefore(w: WriteArgs): void {
   if (w.op === "delete") throw new AppError(409, "conflict", "تنظیمات رخداد حذف نمی‌شود؛ مقدارها را تغییر دهید");
 }
@@ -373,6 +394,7 @@ export function installIncidentHooks(): (() => void)[] {
     registerHooks("incident_response", { beforeWrite: assertCanKeep }),
     registerHooks("announcement", { beforeWrite: announcementBefore }),
     registerHooks("incident_period_review", { beforeWrite: periodBefore }),
+    registerHooks("interaction", { beforeWrite: interactionBefore }),
     registerHooks("incident_config", { beforeWrite: configBefore }),
   ];
 }
