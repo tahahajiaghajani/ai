@@ -16,6 +16,8 @@ import { FLOW_TABLES } from "./flows";
 import { INCIDENT_CHOICE_LISTS, INCIDENT_TABLES } from "./incident";
 import { PROBLEM_CHOICE_LISTS, PROBLEM_TABLES } from "./problem";
 import { DOCS_TABLES } from "./docs";
+import { CMDB_CHOICE_LISTS, CMDB_TABLES } from "./cmdb";
+import { SERVICE_PORTFOLIO_TABLES } from "./service_portfolio";
 
 export { CUSTOM_FIELD_TYPES, VIEW_KINDS } from "./core";
 
@@ -29,6 +31,8 @@ const MODULE_TABLES: TableDef[][] = [
   DOCS_TABLES,
   INCIDENT_TABLES,
   PROBLEM_TABLES,
+  CMDB_TABLES,
+  SERVICE_PORTFOLIO_TABLES,
 ];
 
 /** Every table by key (resolved definitions). */
@@ -201,6 +205,7 @@ for (const [key, options] of Object.entries(CORE_CHOICE_LISTS)) registerChoiceLi
 for (const [key, options] of Object.entries(SLA_CHOICE_LISTS)) registerChoiceList(key, options);
 for (const [key, options] of Object.entries(INCIDENT_CHOICE_LISTS)) registerChoiceList(key, options);
 for (const [key, options] of Object.entries(PROBLEM_CHOICE_LISTS)) registerChoiceList(key, options);
+for (const [key, options] of Object.entries(CMDB_CHOICE_LISTS)) registerChoiceList(key, options);
 
 /** The members of the organisation as a reference target (virtual: no table of its own). */
 export const USER_DEF = buildTable(USER_TABLE);
