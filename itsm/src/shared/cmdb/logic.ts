@@ -611,9 +611,12 @@ export function diffSnapshots(before: SnapItem[], after: SnapItem[], opts: { inc
 // Identification (catalogue CMDB-023)
 
 /** The comparable form of an identifier: MAC addresses as aa:bb:…, serials upper-case, names Persian-normalised. */
+/** Persian and Arabic-Indic digits → ASCII (identifiers are often typed on a Persian keyboard). */
+const latinDigits = (s: string) => s.replace(/[\u06F0-\u06F9]/g, (d) => String(d.charCodeAt(0) - 0x06f0)).replace(/[\u0660-\u0669]/g, (d) => String(d.charCodeAt(0) - 0x0660));
+
 export function normalizeIdent(attr: string, value: unknown): string | null {
   if (value === null || value === undefined) return null;
-  let s = String(value).trim();
+  let s = latinDigits(String(value)).trim();
   if (!s) return null;
   const bare = attr.replace(/^attrs\./, "");
   if (bare === "mac_address") {

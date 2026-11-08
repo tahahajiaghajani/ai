@@ -5,12 +5,84 @@ import { CMDB_CONFIG_DEFAULTS, type CmdbConfig } from "@shared/tables/cmdb";
 import { BUILTIN_CLASSES, BUILTIN_REL_TYPES, ClassTree, classFromRow, relTypeFromRow, type RelTypeInfo } from "@shared/cmdb/logic";
 import type { Ctx } from "../../context";
 import type { Queryable } from "../../db";
-import { liveRows, sysOf, type Row } from "../incident/common";
+import { isUuid, sysOf, type Row } from "../incident/common";
 import { grantIn } from "@shared/access/model";
+import type { Cond } from "@shared/model/conditions";
+import { tableDef } from "@shared/tables";
 import { subjectOf } from "../../access";
-import { orgSchema } from "../../engine";
+import { condEnv, fromDb, orgSchema, readable, toSql } from "../../engine";
+import { pgArray } from "../../db";
 
-export { liveRows, liveRow, countRows, eqAll, isUuid, sysOf, UUID, type Row } from "../incident/common";
+export { liveRow, countRows, eqAll, isUuid, sysOf, UUID, type Row } from "../incident/common";
+
+type IdLeaf = { f: "id"; op: string; v: unknown };
+const isIdLeaf = (c: unknown): c is IdLeaf => !!c && typeof c === "object" && (c as { f?: unknown }).f === "id";
+
+/** Split the record-id leaves (`{ f: "id", … }`, at the top or in a top-level «and») from the rest of a condition. */
+function splitIds(where: Cond | null): { rest: Cond | null; ids: IdLeaf[] } {
+  if (!where) return { rest: null, ids: [] };
+  if (isIdLeaf(where)) return { rest: null, ids: [where] };
+  const parts = (where as { and?: unknown[] }).and;
+  if (!Array.isArray(parts)) return { rest: where, ids: [] };
+  const ids: IdLeaf[] = [];
+  const rest: Cond[] = [];
+  for (const c of parts) {
+    if (isIdLeaf(c)) ids.push(c);
+    else if (c && typeof c === "object" && Array.isArray((c as { and?: unknown[] }).and)) {
+      const inner = splitIds(c as Cond);
+      ids.push(...inner.ids);
+      if (inner.rest) rest.push(inner.rest);
+    } else rest.push(c as Cond);
+  }
+  return { rest: rest.length ? (rest.length === 1 ? rest[0] : ({ and: rest } as Cond)) : null, ids };
+}
+
+/** SQL of a record-id leaf on alias `t` (ids are a base column, not a field of the condition language). */
+function idSql(leaf: IdLeaf, params: unknown[]): string {
+  const list = (Array.isArray(leaf.v) ? leaf.v : [leaf.v]).filter(isUuid).map((x) => x.toLowerCase());
+  switch (leaf.op) {
+    case "eq":
+    case "in":
+      if (!list.length) return "false";
+      params.push(pgArray(list));
+      return `t.id = any($${params.length}::uuid[])`;
+    case "ne":
+    case "nin":
+      if (!list.length) return "true";
+      params.push(pgArray(list));
+      return `not (t.id = any($${params.length}::uuid[]))`;
+    case "gt":
+    case "gte":
+    case "lt":
+    case "lte": {
+      if (!list[0]) return "true";
+      params.push(list[0]);
+      const op = ({ gt: ">", gte: ">=", lt: "<", lte: "<=" } as Record<string, string>)[leaf.op];
+      return `t.id ${op} $${params.length}::uuid`;
+    }
+    default:
+      throw new Error(`unsupported id condition "${leaf.op}"`);
+  }
+}
+
+/**
+ * Live rows of `table` the context may read, filtered by `where` (a condition), in `order`, at most `limit` — as the
+ * incident module's helper, and record ids may be filtered with `{ f: "id", op: "in" | "eq" | "nin" | "gt" …, v }`
+ * (ids are a base column the condition language does not name).
+ */
+export async function liveRows(q: Queryable, ctx: Ctx, table: string, where: Cond | null = null, opts: { order?: string; limit?: number } = {}): Promise<Row[]> {
+  const schema = await orgSchema(ctx, q);
+  const def = schema.def(table) ?? tableDef(table);
+  if (!def || def.virtual) return [];
+  const env = await condEnv(ctx);
+  const params: unknown[] = [];
+  const { rest, ids } = splitIds(where);
+  const parts = [readable(ctx, def, "t", params, env), ...ids.map((leaf) => idSql(leaf, params))];
+  if (rest) parts.push(toSql(rest, def, "t", params, env, { ctx, lookup: schema.lookup }));
+  const limit = opts.limit ? ` limit ${Math.max(1, Math.min(10_000, Math.floor(opts.limit)))}` : "";
+  const rows = await q.query<Row>(`select t.* from ${def.table} t where ${parts.join(" and ")} order by ${opts.order ?? "t.id"}${limit}`, params);
+  return rows.map((r) => fromDb(def, r));
+}
 
 const TTL = 30_000;
 const trees = new Map<string, { at: number; tree: ClassTree }>();

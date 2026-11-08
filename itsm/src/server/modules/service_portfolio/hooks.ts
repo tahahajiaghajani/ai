@@ -356,7 +356,7 @@ export function installPortfolioHooks(): (() => void)[] {
     registerHooks("service_subscription", { beforeWrite: subscriptionBefore }),
     registerHooks("service_agreement", { beforeWrite: agreementBefore }),
     registerHooks("portfolio_node", { beforeWrite: treeBefore("portfolio_node", 6, "depth") }),
-    registerHooks("business_capability", { beforeWrite: treeBefore("business_capability", 5, "level") }),
+    registerHooks("business_capability", { beforeWrite: treeBefore("business_capability", 3, "level") }),
     registerHooks("service_proposal", { beforeWrite: proposalBefore, afterWrite: proposalAfter, guards: { proposal_can_charter: proposalCanCharter } }),
     registerHooks("service_design_package", { beforeWrite: designBefore, guards: { design_ready: designReady } }),
     registerHooks("app_assessment", { afterWrite: assessmentAfter }),

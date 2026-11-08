@@ -366,9 +366,10 @@ const subscription: TableDef = {
     { name: "origin_kind", label: "منشأ", type: "choice", choices: [yes("manual", "دستی", 1), yes("self", "خود مشترک", 2), yes("rule", "قاعده", 3)], default: "manual", filter: true, span: 8 },
     { name: "label", label: "اشتراک", type: "string", system: true, maxLength: 300, search: true, audit: false, list: true, span: 24 },
   ],
+  // writes follow the area's grants (service owners and catalogue managers); people subscribe themselves through
+  // POST /service_portfolio/services/:id/subscribe
   rowAccess: {
     read: { or: [{ f: "user_id", op: "is_me" }, { f: "group_id", op: "is_my_group" }, { f: "org_unit_id", op: "in_my_unit" }, { f: "service_id.name", op: "nempty" }] },
-    write: { f: "service_id.name", op: "nempty" },
   },
   scope: { own: ["user_id"], group: "group_id" },
   list: { columns: ["label", "service_id", "offering_id", "subscriber_kind", "valid_to"], order: "-created_at" },

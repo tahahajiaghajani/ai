@@ -44,9 +44,8 @@ export function layoutMap(map: Pick<MapResult, "nodes" | "edges">, direction: Ma
   for (const n of map.nodes) {
     const p = g.node(n.id) as { x: number; y: number; width: number; height: number } | undefined;
     if (!p) continue;
-    // React Flow works left to right; a right-to-left layout mirrors x so the roots sit on the reader's right
-    const x = direction === "RL" ? -p.x : p.x;
-    out.set(n.id, { x: Math.round(x - p.width / 2), y: Math.round(p.y - p.height / 2), w: p.width, h: p.height });
+    // dagre's «RL» already puts the first rank (the dependents) on the right, where a Persian reader starts
+    out.set(n.id, { x: Math.round(p.x - p.width / 2), y: Math.round(p.y - p.height / 2), w: p.width, h: p.height });
   }
   return out;
 }
