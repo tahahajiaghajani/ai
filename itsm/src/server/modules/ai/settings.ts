@@ -36,6 +36,24 @@ export function defaultSettings(): AiSettings {
     retention_days: 90,
     use_cloud: false,
     cloud_first: [],
+    rag: defaultRag(),
+  };
+}
+
+/** «نمایه و بازیابی»: on, automatic embedding connection, no re-ranking, summaries of uploads, 8 passages. */
+export function defaultRag(): AiSettings["rag"] {
+  return { enabled: true, embed_connection_id: null, rerank: false, summaries: true, top_k: 8 };
+}
+
+function normalizeRag(raw: unknown): AiSettings["rag"] {
+  const d = defaultRag();
+  const r = (raw && typeof raw === "object" ? raw : {}) as Partial<AiSettings["rag"]>;
+  return {
+    enabled: typeof r.enabled === "boolean" ? r.enabled : d.enabled,
+    embed_connection_id: typeof r.embed_connection_id === "string" && /^[0-9a-f-]{36}$/i.test(r.embed_connection_id) ? r.embed_connection_id : null,
+    rerank: typeof r.rerank === "boolean" ? r.rerank : d.rerank,
+    summaries: typeof r.summaries === "boolean" ? r.summaries : d.summaries,
+    top_k: typeof r.top_k === "number" && Number.isInteger(r.top_k) && r.top_k >= 2 && r.top_k <= 20 ? r.top_k : d.top_k,
   };
 }
 
@@ -69,6 +87,7 @@ export function normalizeSettings(raw: unknown): AiSettings {
     use_cloud: typeof r.use_cloud === "boolean" ? r.use_cloud : d.use_cloud,
     // known jobs only, each once, in the jobs' own order
     cloud_first: Array.isArray(r.cloud_first) ? JOBS.filter((j) => (r.cloud_first as unknown[]).includes(j)) : d.cloud_first,
+    rag: normalizeRag(r.rag),
   };
 }
 
@@ -106,13 +125,22 @@ export const settingsPatchSchema = z
     retention_days: z.number().int().min(7).max(3650),
     use_cloud: z.boolean(),
     cloud_first: z.array(job).max(JOBS.length),
+    rag: z
+      .object({
+        enabled: z.boolean(),
+        embed_connection_id: z.string().uuid().nullable(),
+        rerank: z.boolean(),
+        summaries: z.boolean(),
+        top_k: z.number().int().min(2, "دست‌کم ۲ بخش").max(20, "حداکثر ۲۰ بخش"),
+      })
+      .partial(),
   })
   .partial();
 
 /** Apply a validated patch (routing entries must name this organisation's connections). */
 export async function saveSettings(ctx: Ctx, patch: AiSettingsPatch): Promise<AiSettings> {
   ctx.need("ai", "full");
-  const routed = Object.values(patch.routing ?? {}).flatMap((l) => (l ?? []).map((x) => x.connection_id));
+  const routed = [...Object.values(patch.routing ?? {}).flatMap((l) => (l ?? []).map((x) => x.connection_id)), ...(patch.rag?.embed_connection_id ? [patch.rag.embed_connection_id] : [])];
   if (routed.length) {
     const rows = await ctx.db.query<{ id: string }>(`select id from sm_ai_connections where org_id = $1 and deleted_at is null and id = any($2::uuid[])`, [ctx.org.id, pgArray([...new Set(routed)])]);
     const ok = new Set(rows.map((r) => r.id));
@@ -127,6 +155,7 @@ export async function saveSettings(ctx: Ctx, patch: AiSettingsPatch): Promise<Ai
       effort: { ...cur.effort, ...(patch.effort ?? {}) },
       features: { ...cur.features, ...(patch.features ?? {}) },
       budgets: { ...cur.budgets, ...(patch.budgets ?? {}) },
+      rag: { ...cur.rag, ...(patch.rag ?? {}) },
       // «اول نسخهٔ وب» belongs to the Windows app: the web version has no web version to ask first
       ...(ctx.cfg.mode === "cloud" ? { cloud_first: [] } : {}),
     });
@@ -148,6 +177,7 @@ export function visibleSettings(s: AiSettings, canManage: boolean): AiSettings {
     cloud_first: [],
     budgets: { monthly_usd: null, user_daily_usd: null, alert_pct: s.budgets.alert_pct },
     instructions: "",
+    rag: { ...s.rag, embed_connection_id: null },
   };
 }
 

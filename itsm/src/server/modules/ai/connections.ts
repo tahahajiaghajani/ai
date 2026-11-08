@@ -4,9 +4,9 @@
 import { z } from "zod";
 import type { Ctx, ServerConfig } from "../../context";
 import { pgArray, type Queryable } from "../../db";
-import type { AiConnectionPublic, AiErrorKind, AiProtocol, AiTestReport } from "@shared/ai/types";
+import type { AiConnectionPublic, AiEmbedConfig, AiErrorKind, AiProtocol, AiTestReport } from "@shared/ai/types";
 import type { AiConnectionInput } from "@shared/ai/api";
-import { AI_PRESETS, MODEL_ID_RE, presetById, presetsFor, type AiPreset } from "@shared/ai/presets";
+import { AI_EMBED_APIS, AI_PRESETS, MODEL_ID_RE, presetById, presetsFor, type AiPreset } from "@shared/ai/presets";
 import { aiErrorText } from "@shared/ai/errors";
 import { uuidv7 } from "@shared/id";
 import { bad, conflict, notFound } from "../../http/errors";
@@ -14,6 +14,7 @@ import { audit } from "../data/crud";
 import { safeExternalUrl } from "../../net";
 import { cleanKey, decryptKey, encryptKey, keyFingerprint, keyHint, keyReadable, KeyUnreadableError, scrubSecrets } from "./crypto";
 import { createAdapter } from "./adapters";
+import { embedApiOf, embedCall } from "./adapters/embed";
 import { connectMs } from "./adapters/http";
 import { fakeEnabled } from "./adapters/fake";
 import { ProviderError, type AdapterEnv, type ResolvedConnection } from "./types";
@@ -44,6 +45,8 @@ export interface ConnRow {
   priority: number;
   /** the provider's free plan: calls cost nothing in the usage ledger (0018) */
   free_tier: boolean;
+  /** the embedding model of retrieval (null: this connection does not embed) */
+  embed: AiEmbedConfig | null;
   created_by: string | null;
   updated_at: string;
 }
@@ -80,6 +83,36 @@ async function assertNotDisabled(ctx: Ctx): Promise<void> {
 
 const modelList = z.array(z.string().trim().regex(MODEL_ID_RE, "شناسهٔ مدل معتبر نیست")).max(8);
 
+const embedInput = z
+  .object({
+    model: z.union([z.literal(""), z.string().trim().regex(MODEL_ID_RE, "شناسهٔ مدل بردارسازی معتبر نیست")]).nullish(),
+    dims: z.number().int().min(8, "اندازهٔ بردار دست‌کم ۸ است").max(8192, "اندازهٔ بردار حداکثر ۸۱۹۲ است").nullish(),
+    api: z.enum(AI_EMBED_APIS as [AiEmbedConfig["api"], ...AiEmbedConfig["api"][]]).optional(),
+  })
+  .nullish();
+
+/**
+ * The embedding capability a connection gets from the form: a typed model (with the preset's or protocol's API style),
+ * null to remove it; an embedding-only service starts with its first suggested model.
+ */
+export function embedConfigOf(preset: AiPreset, protocol: AiProtocol, input: AiConnectionInput["embed"] | undefined, current: AiEmbedConfig | null, creating: boolean): AiEmbedConfig | null {
+  if (input === undefined) {
+    if (!creating) return current;
+    if (!preset.embed_only || !preset.embed?.models.length) return null;
+    return { model: preset.embed.models[0], dims: preset.embed.dims ?? null, api: preset.embed.api };
+  }
+  const model = String(input?.model ?? "").trim();
+  if (!model) {
+    if (preset.embed_only) throw bad("برای این سرویس، مدل بردارسازی را وارد کنید");
+    return null;
+  }
+  const api = input?.api ?? preset.embed?.api ?? embedApiOf(protocol);
+  if (!api) throw bad("این سرویس مدل بردارسازی ندارد؛ برای «نمایه و بازیابی» اتصال دیگری بسازید");
+  if (api === "fake" && !fakeEnabled()) throw bad("بردارساز آزمایشی فقط در حالت آزمایش در دسترس است");
+  const dims = input && "dims" in input ? (input.dims ?? null) : (current?.model === model ? current.dims : (preset.embed?.dims ?? null));
+  return { model, dims, api };
+}
+
 export const connectionInputSchema = z.object({
   preset: z.string().max(40),
   label: z.string().trim().max(80).optional(),
@@ -90,6 +123,7 @@ export const connectionInputSchema = z.object({
   enabled: z.boolean().optional(),
   priority: z.number().int().min(0).max(1000).optional(),
   free_tier: z.boolean().optional(),
+  embed: embedInput,
   /** PATCH only: drop the stored key on purpose (a key-required service refuses it) */
   remove_key: z.boolean().optional(),
 });
@@ -162,12 +196,13 @@ export function toPublic(cfg: ServerConfig, row: ConnRow, pausedUntil: string | 
     enabled: row.enabled,
     priority: row.priority,
     free_tier: !!row.free_tier,
+    embed: row.embed ?? null,
     created_by_name: row.created_by ? (names?.get(row.created_by) ?? null) : null,
     updated_at: row.updated_at,
   };
 }
 
-const COLS = `id, org_id, label, preset, protocol, base_url, secret_enc, key_hint, key_fp, models, available_models, models_at, status, last_error, checked_at, enabled, priority, free_tier, created_by, updated_at`;
+const COLS = `id, org_id, label, preset, protocol, base_url, secret_enc, key_hint, key_fp, models, available_models, models_at, status, last_error, checked_at, enabled, priority, free_tier, embed, created_by, updated_at`;
 
 export async function connectionRows(q: Queryable, orgId: string): Promise<ConnRow[]> {
   return q.query<ConnRow>(`select ${COLS} from sm_ai_connections where org_id = $1 and deleted_at is null order by priority, created_at`, [orgId]);
@@ -266,12 +301,13 @@ export async function createConnection(ctx: Ctx, input: AiConnectionInput): Prom
     vision: input.models?.vision ?? preset.models.vision,
   };
   const label = input.label?.trim() || preset.label;
+  const embed = embedConfigOf(preset, protocol, input.embed, null, true);
   await ctx.write(async (tx) => {
     const pr = input.priority ?? (await tx.one<{ n: number }>(`select coalesce(max(priority) + 1, 0)::int as n from sm_ai_connections where org_id = $1 and deleted_at is null`, [ctx.org.id]))?.n ?? 0;
     await tx.query(
-      `insert into sm_ai_connections (id, org_id, label, preset, protocol, base_url, secret_enc, key_hint, key_fp, models, enabled, priority, created_by, updated_by, free_tier)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12, $13, $13, $14)`,
-      [id, ctx.org.id, label, preset.id, protocol, baseUrl, sealed?.enc ?? null, sealed?.hint ?? null, sealed?.fp ?? null, JSON.stringify(models), input.enabled ?? true, pr, ctx.user.id, input.free_tier ?? false],
+      `insert into sm_ai_connections (id, org_id, label, preset, protocol, base_url, secret_enc, key_hint, key_fp, models, enabled, priority, created_by, updated_by, free_tier, embed)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12, $13, $13, $14, $15::jsonb)`,
+      [id, ctx.org.id, label, preset.id, protocol, baseUrl, sealed?.enc ?? null, sealed?.hint ?? null, sealed?.fp ?? null, JSON.stringify(models), input.enabled ?? true, pr, ctx.user.id, input.free_tier ?? false, embed ? JSON.stringify(embed) : null],
     );
     await audit(tx, ctx, "ai_connection_create", "ai_connection", id, `اتصال هوش مصنوعی «${label}» ساخته شد`, { preset: preset.id, key: sealed ? sealed.hint : null });
   });
@@ -298,7 +334,9 @@ export async function updateConnection(ctx: Ctx, id: string, patch: Partial<AiCo
   const cur = modelsOf(row);
   const models = { smart: patch.models?.smart ?? cur.smart, fast: patch.models?.fast ?? cur.fast, vision: patch.models?.vision ?? cur.vision };
   const label = patch.label?.trim() || row.label;
+  const embed = embedConfigOf(preset, protocol, patch.embed, row.embed ?? null, false);
   await ctx.write(async (tx) => {
+    await tx.query(`update sm_ai_connections set embed = $3::jsonb where org_id = $1 and id = $2`, [ctx.org.id, id, embed ? JSON.stringify(embed) : null]);
     await tx.query(
       `update sm_ai_connections set label = $3, preset = $4, protocol = $5, base_url = $6, models = $7::jsonb, enabled = $8, priority = $9,
          secret_enc = case when $15 then null else coalesce($10, secret_enc) end, key_hint = case when $15 then null else coalesce($11, key_hint) end,
@@ -363,19 +401,22 @@ export async function markConnection(ctx: Ctx, id: string, outcome: { ok: true }
 const TEST_SYSTEM = "You check that an API connection works. Answer in Persian with at most five words.";
 const TEST_PROMPT = "فقط بنویس: سلام";
 
-/** «آزمایش اتصال»: read the model list, then one short real reply from each model. */
-export async function testResolved(ctx: Ctx, conn: ResolvedConnection, models: string[], persistId: string | null, free = false): Promise<AiTestReport> {
+/** «آزمایش اتصال»: read the model list, then one short real reply from each model (and one vector from the embedding model). */
+export async function testResolved(ctx: Ctx, conn: ResolvedConnection, models: string[], persistId: string | null, free = false, embed: AiEmbedConfig | null = null): Promise<AiTestReport> {
   const started = Date.now();
   const adapter = createAdapter(conn, adapterEnv(ctx.cfg));
   let available: string[] | undefined;
-  try {
-    available = (await adapter.listModels(AbortSignal.timeout(20_000))).slice(0, 500);
-  } catch {
-    available = undefined; // some gateways have no model list; the replies below decide
+  if (!conn.preset.embed_only) {
+    try {
+      available = (await adapter.listModels(AbortSignal.timeout(20_000))).slice(0, 500);
+    } catch {
+      available = undefined; // some gateways have no model list; the replies below decide
+    }
   }
   const tryModels = [...new Set(models.filter(Boolean))].slice(0, 4);
-  if (!tryModels.length && available?.length) tryModels.push(available[0]);
+  if (!tryModels.length && available?.length && !embed) tryModels.push(available[0]);
   const rows: AiTestReport["models"] = [];
+  if (embed) rows.push(await testEmbedding(ctx, conn, embed, persistId, free));
   for (const model of tryModels) {
     const t0 = Date.now();
     try {
@@ -415,6 +456,23 @@ export async function testResolved(ctx: Ctx, conn: ResolvedConnection, models: s
   return { ok, ms: Date.now() - started, models: rows, available_models: available, route: "direct" };
 }
 
+/** One real vector from the connection's embedding model (a row of «آزمایش اتصال»). */
+async function testEmbedding(ctx: Ctx, conn: ResolvedConnection, embed: AiEmbedConfig, persistId: string | null, free: boolean): Promise<AiTestReport["models"][number]> {
+  const t0 = Date.now();
+  const local = conn.preset.region === "local";
+  try {
+    const r = await embedCall(conn, embed, ["آزمایش اتصال بردارسازی"], "query", adapterEnv(ctx.cfg), AbortSignal.timeout(connectMs(conn) > 60_000 ? 180_000 : 60_000));
+    const ms = Date.now() - t0;
+    await recordUsage(ctx, { feature: "rag_embed", job: "embed", connection_id: persistId, preset: conn.preset.id, model: embed.model, usage: { input: r.tokens, output: 0, cache_read: 0, cache_write: 0, reasoning: 0 }, local, free, ms, ok: true });
+    return { model: embed.model, ok: true, ms, reply: `بردار ${r.vectors[0].length} بُعدی` };
+  } catch (e) {
+    const pe = e instanceof ProviderError ? e : new ProviderError("other", String((e as Error)?.message ?? e));
+    const ms = Date.now() - t0;
+    await recordUsage(ctx, { feature: "rag_embed", job: "embed", connection_id: persistId, preset: conn.preset.id, model: embed.model, local, free, ms, ok: false, error_kind: pe.kind });
+    return { model: embed.model, ok: false, ms, kind: pe.kind, message_fa: aiErrorText(pe.kind, { canManage: true, desktop: ctx.cfg.mode === "desktop" }).message, provider_message: scrubSecrets(pe.message, [conn.key]).slice(0, 400) };
+  }
+}
+
 export async function testConnection(ctx: Ctx, id: string, models?: string[]): Promise<AiTestReport> {
   ctx.need("ai", "full");
   await assertNotDisabled(ctx);
@@ -427,7 +485,7 @@ export async function testConnection(ctx: Ctx, id: string, models?: string[]): P
     return { ok: false, ms: 0, models: [{ model: "", ok: false, ms: 0, kind: pe.kind ?? "other", message_fa: pe.message }], route: "direct" };
   }
   const m = modelsOf(row);
-  return testResolved(ctx, conn, models?.length ? models : [...m.smart.slice(0, 1), ...m.fast.slice(0, 1), ...m.vision.slice(0, 1)], id, !!row.free_tier);
+  return testResolved(ctx, conn, models?.length ? models : [...m.smart.slice(0, 1), ...m.fast.slice(0, 1), ...m.vision.slice(0, 1)], id, !!row.free_tier, models?.length ? null : (row.embed ?? null));
 }
 
 /**
@@ -457,7 +515,7 @@ export async function testUnsaved(ctx: Ctx, input: AiConnectionInput & { connect
   if (!key && preset.key_required) throw bad("کلید API را وارد کنید");
   const conn: ResolvedConnection = { id: input.connection_id ?? "unsaved", label: input.label ?? preset.label, preset, protocol, baseUrl, key };
   const models = [...(input.models?.smart ?? preset.models.smart).slice(0, 1), ...(input.models?.fast ?? preset.models.fast).slice(0, 1), ...(input.models?.vision ?? preset.models.vision).slice(0, 1)];
-  return testResolved(ctx, conn, models, null, !!input.free_tier);
+  return testResolved(ctx, conn, models, null, !!input.free_tier, embedConfigOf(preset, protocol, input.embed, null, true));
 }
 
 export async function refreshModels(ctx: Ctx, id: string): Promise<{ models: string[]; connection: AiConnectionPublic }> {

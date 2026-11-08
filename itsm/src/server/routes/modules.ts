@@ -17,6 +17,8 @@ import { installIncidentModule } from "../modules/incident";
 import { incidentRoutes } from "./incident";
 import { installProblemModule } from "../modules/problem";
 import { problemRoutes } from "./problem";
+import { ragRoutes } from "./ai-rag";
+import { installRag } from "../modules/ai/rag";
 
 // the ITSM access model is the engine's access provider in every runtime (docs/spec/ACCESS.md)
 installAccessModel();
@@ -26,6 +28,9 @@ installNotify();
 // calendars, SLAs, approvals and the rules of records (docs/spec/services/sla.md)
 installSlaService();
 
+// the AI index, retrieval, cited answers and the smart documents library (docs/spec/AI.md)
+installRag();
+
 // incident management (docs/modules/incident_FA.md) — after the SLA service: one of its hooks must run after the matrix
 installIncidentModule();
 // problem management (docs/modules/problem_FA.md)
@@ -34,6 +39,7 @@ installProblemModule();
 export const moduleRoutes = router();
 
 moduleRoutes.route("/ai", aiRoutes);
+moduleRoutes.route("/ai", ragRoutes);
 moduleRoutes.route("/access", accessRoutes);
 moduleRoutes.route("/notify", notifyRoutes);
 moduleRoutes.route("/calendars", calendarRoutes);

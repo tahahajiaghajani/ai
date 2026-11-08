@@ -7,6 +7,9 @@
 //   [json:{...}]            structured output: return exactly this JSON (also found in the bytes of an attached file)
 //   [error:KIND]            fail with that AiErrorKind (e.g. rate, auth, region, quota, overloaded)
 //   [refuse]                refuse   ·  [think] stream a short reasoning first  ·  [slow] stream slowly
+//   <data name="sources">   (a cited-answer prompt) quote the first sentence of each source that shares a word with
+//                           the question, cited [n]; none → the abstention sentence; [uncited] adds a sentence
+//                           without a source
 // After tool results it answers in Persian, quoting the numbers the tools returned.
 import type { AiErrorKind } from "@shared/ai/types";
 import { ProviderError, type Adapter, type NeutralMessage, type ToolCall, type TurnRequest, type TurnResult } from "../types";
@@ -161,6 +164,28 @@ export function sampleFor(schema: unknown, depth = 0): unknown {
   }
 }
 
+/** A cited answer from a sources block: the first sentence of each source sharing a word with the question, cited. */
+function groundedAnswer(json: string, prompt: string): string {
+  let sources: { n: number; text: string }[] = [];
+  try {
+    sources = JSON.parse(json) as { n: number; text: string }[];
+  } catch {
+    sources = [];
+  }
+  const q = /<question>\n([\s\S]*?)\n<\/question>/.exec(prompt)?.[1] ?? "";
+  const words = q
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter((w) => w.length > 2 && !/\[/.test(w));
+  const lines = sources
+    .filter((s) => words.some((w) => s.text.toLowerCase().includes(w)))
+    .slice(0, 3)
+    .map((s) => `${(s.text.split(/(?<=[.!?؟])\s+|\n/u)[0] ?? s.text).trim().slice(0, 200)} [${s.n}]`);
+  if (!lines.length) return "در منابع در دسترس شما پاسخی پیدا نشد";
+  if (/\[uncited\]/.test(q)) lines.push("این جمله ساختگی است و از هیچ منبعی نیامده است و نباید پذیرفته شود.");
+  return lines.join("\n");
+}
+
 function estimate(text: string): number {
   return Math.max(1, Math.ceil(text.length / 4));
 }
@@ -224,7 +249,10 @@ export function fakeAdapter(connectionId: string): Adapter {
       }
 
       let answer: string;
-      if (req.output) {
+      const grounded = /<data name="sources">\n([^\n]*)\n<\/data>/.exec(question);
+      if (grounded && !req.output) {
+        answer = groundedAnswer(grounded[1], question);
+      } else if (req.output) {
         answer = jsonDirective(question, req.messages) ?? JSON.stringify(sampleFor(req.output.schema));
       } else if (results.length) {
         const lines = results.map((r) => {

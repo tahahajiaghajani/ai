@@ -15,6 +15,7 @@ import { SLA_CHOICE_LISTS, SLA_SERVICE_TABLES } from "./sla";
 import { FLOW_TABLES } from "./flows";
 import { INCIDENT_CHOICE_LISTS, INCIDENT_TABLES } from "./incident";
 import { PROBLEM_CHOICE_LISTS, PROBLEM_TABLES } from "./problem";
+import { DOCS_TABLES } from "./docs";
 
 export { CUSTOM_FIELD_TYPES, VIEW_KINDS } from "./core";
 
@@ -25,6 +26,7 @@ const MODULE_TABLES: TableDef[][] = [
   NOTIFY_TABLES,
   SLA_SERVICE_TABLES,
   FLOW_TABLES,
+  DOCS_TABLES,
   INCIDENT_TABLES,
   PROBLEM_TABLES,
 ];

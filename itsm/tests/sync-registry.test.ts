@@ -25,6 +25,11 @@ const LOCAL_ONLY: Record<string, string> = {
   sm_ai_tool_calls: "audit of the assistant's tool calls",
   sm_ai_actions: "proposals waiting for a person's confirmation",
   sm_ai_data_refs: "tables and charts referenced from answers",
+  // AI index (retrieval): each runtime indexes the records it holds, with its own embedding model
+  sm_ai_rag_docs: "AI index: one row per indexed record (hash, version, anchors)",
+  sm_ai_chunks: "AI index: chunks with full-text and vector embeddings",
+  sm_ai_doc_pages: "text read from smart documents on this runtime",
+  sm_ai_rag_runs: "AI index runs (backfills, re-embedding, reconciliation)",
   // record engine bookkeeping of each runtime
   sm_numbers: "record number counters (each runtime its own; sync renumbers on a clash)",
   sm_jobs: "job queue and outbox of record events (each runtime runs its own)",

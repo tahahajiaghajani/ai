@@ -38,6 +38,8 @@ export interface GenerateOptions<S extends z.ZodTypeAny | undefined = undefined>
   effort?: AiEffort;
   maxTokens?: number;
   signal?: AbortSignal;
+  /** the answer as it is written (plain-text answers; a streamed answer is never asked again of another model) */
+  onText?: (delta: string) => void;
 }
 
 export interface GenerateResult<T = unknown> {
@@ -78,6 +80,7 @@ export async function generate<S extends z.ZodTypeAny | undefined = undefined>(
         maxTokens: opts.maxTokens ?? 16_000,
         signal: opts.signal,
       },
+      hooks: opts.onText && !opts.schema ? { onText: opts.onText } : undefined,
     });
   let r = await run();
   if (r.result.stop === "refusal") throw unavailable(ctx, "refusal");

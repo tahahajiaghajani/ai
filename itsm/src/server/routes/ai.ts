@@ -29,6 +29,7 @@ import { assertRelayAllowed, cloudLink, redactRelay, relayRequestSchema, relayTo
 import { fakeEnabled } from "../modules/ai/adapters/fake";
 import { pgArray } from "../db";
 import { toolsFor } from "../modules/ai/tools";
+import { ragConfigChanged } from "../modules/ai/rag/admin";
 
 export const aiRoutes = router();
 
@@ -109,6 +110,7 @@ aiRoutes.put("/settings", async (c) => {
   ctx.need("ai", "full");
   const patch = await body(c, settingsPatchSchema);
   const settings = await saveSettings(ctx, patch);
+  if (patch.rag) await ragConfigChanged(ctx);
   const policy = await loadPolicy(ctx.cfg);
   return c.json({
     settings,
@@ -130,13 +132,17 @@ aiRoutes.get("/connections", async (c) => {
 aiRoutes.post("/connections", async (c) => {
   const ctx = c.get("ctx");
   ctx.need("ai", "full");
-  return c.json(await createConnection(ctx, await body(c, connectionInputSchema)));
+  const out = await createConnection(ctx, await body(c, connectionInputSchema));
+  if (out.connection.embed) await ragConfigChanged(ctx);
+  return c.json(out);
 });
 
 aiRoutes.patch("/connections/:id", async (c) => {
   const ctx = c.get("ctx");
   ctx.need("ai", "full");
-  return c.json(await updateConnection(ctx, c.req.param("id"), await body(c, connectionInputSchema.partial())));
+  const out = await updateConnection(ctx, c.req.param("id"), await body(c, connectionInputSchema.partial()));
+  await ragConfigChanged(ctx);
+  return c.json(out);
 });
 
 aiRoutes.delete("/connections/:id", async (c) => {

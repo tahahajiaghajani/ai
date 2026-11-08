@@ -35,7 +35,7 @@ await build({
   format: "cjs",
   target: "node22",
   tsconfig: join(root, "tsconfig.json"),
-  external: ["@electric-sql/pglite", "@electric-sql/pglite/*"],
+  external: ["@electric-sql/pglite", "@electric-sql/pglite/*", "@electric-sql/pglite-pgvector"],
   minify: true,
   sourcemap: false,
   legalComments: "none",
@@ -67,6 +67,14 @@ cpSync(pgliteSrc, join(app, "node_modules/@electric-sql/pglite"), {
   dereference: true,
   filter: (src) => !src.endsWith(".map") && !src.endsWith(".d.ts") && !src.endsWith(".d.cts"),
 });
+// pgvector for PGlite (the AI index's vector search; the app falls back to float arrays without it)
+const vectorSrc = join(root, "node_modules/@electric-sql/pglite-pgvector");
+const vectorVersion = JSON.parse(readFileSync(join(vectorSrc, "package.json"), "utf8")).version;
+cpSync(vectorSrc, join(app, "node_modules/@electric-sql/pglite-pgvector"), {
+  recursive: true,
+  dereference: true,
+  filter: (src) => !src.endsWith(".map") && !src.endsWith(".d.ts") && !src.endsWith(".d.cts"),
+});
 // window icon (.ico on Windows: its hand-pixelled small cuts), tray cuts (16 / 24 / 32 px) and the splash
 for (const f of ["icon.png", "icon.ico", "tray.png", "tray@1.5x.png", "tray@2x.png"]) {
   if (existsSync(join(desktop, "build", f))) cpSync(join(desktop, "build", f), join(app, f));
@@ -85,7 +93,7 @@ writeFileSync(
       author: C.APP_NAME_EN,
       license: "UNLICENSED",
       main: "main.cjs",
-      dependencies: { "@electric-sql/pglite": pgliteVersion },
+      dependencies: { "@electric-sql/pglite": pgliteVersion, "@electric-sql/pglite-pgvector": vectorVersion },
     },
     null,
     2,
