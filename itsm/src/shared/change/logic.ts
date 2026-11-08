@@ -172,6 +172,7 @@ export interface RiskQuestion {
   condition?: Cond | null;
   active?: boolean;
   sort_order?: number;
+  help?: string | null;
 }
 
 export interface RiskBands {

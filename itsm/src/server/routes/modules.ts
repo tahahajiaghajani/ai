@@ -13,6 +13,8 @@ import { notifyRoutes } from "./notify";
 import { installNotify } from "../modules/notify";
 import { installSlaService } from "../modules/sla";
 import { approvalRoutes, calendarRoutes, ruleRoutes, slaRoutes } from "./sla";
+import { installChangeModule } from "../modules/change";
+import { changeRoutes } from "./change";
 
 // the ITSM access model is the engine's access provider in every runtime (docs/spec/ACCESS.md)
 installAccessModel();
@@ -21,6 +23,8 @@ installNotify();
 
 // calendars, SLAs, approvals and the rules of records (docs/spec/services/sla.md)
 installSlaService();
+// change enablement (docs/modules/change_FA.md) — after the SLA service: its authorization hook follows the approvals
+installChangeModule();
 
 export const moduleRoutes = router();
 
@@ -32,3 +36,4 @@ moduleRoutes.route("/sla", slaRoutes);
 moduleRoutes.route("/approvals", approvalRoutes);
 moduleRoutes.route("/rules", ruleRoutes);
 moduleRoutes.route("/flows", flowRoutes);
+moduleRoutes.route("/change", changeRoutes);

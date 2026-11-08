@@ -149,6 +149,7 @@ export async function riskQuestions(q: Queryable, ctx: Ctx): Promise<RiskQuestio
     condition: r.condition ?? null,
     active: true,
     sort_order: Number(r.sort_order ?? 100),
+    help: typeof r.help === "string" && r.help ? r.help : null,
   }));
 }
 
