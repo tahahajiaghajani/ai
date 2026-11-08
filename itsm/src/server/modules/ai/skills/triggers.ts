@@ -122,16 +122,22 @@ export function installSkillTriggers(): void {
     async (e, jctx) => {
       if (e.via === "sync" || AI_KEYS.has(e.table)) return;
       const kind = EVENT_KIND[e.kind];
-      if (!kind) return;
-      const cfg = jctx.cfg as ServerConfig;
-      const skills = await triggered(cfg, e.org_id);
-      if (!skills.length) return;
-      const want = skills.filter((s) => matches(s, kind, e.table));
-      if (!want.length) return;
-      const principal = await principalOf(cfg.db, e.org_id);
-      // nothing to run as, or the member's own write (never a loop)
-      if (!principal.user_id || !principal.active || e.actor === principal.user_id) return;
-      for (const s of want) await queueSkillRun(cfg, e.org_id, s.cfg.key, e.table, e.id, kind);
+      const def = tableDef(e.table);
+      if (!kind || !def || def.virtual) return;
+      // never in the way of the event's other subscribers: a trigger that cannot be read or queued is logged and missed
+      try {
+        const cfg = jctx.cfg as ServerConfig;
+        const skills = await triggered(cfg, e.org_id);
+        if (!skills.length) return;
+        const want = skills.filter((s) => matches(s, kind, e.table));
+        if (!want.length) return;
+        const principal = await principalOf(cfg.db, e.org_id);
+        // nothing to run as, or the member's own write (never a loop)
+        if (!principal.user_id || !principal.active || e.actor === principal.user_id) return;
+        for (const s of want) await queueSkillRun(cfg, e.org_id, s.cfg.key, e.table, e.id, kind);
+      } catch (err) {
+        jctx.log.warn("ai skill trigger not queued", String((err as Error)?.message ?? err));
+      }
     },
     { kinds: Object.keys(EVENT_KIND) as RecordEventKind[] },
   );

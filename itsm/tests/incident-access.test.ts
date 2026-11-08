@@ -100,7 +100,8 @@ describe("an agent of another group (need to know)", () => {
     expect((await w.o.get(`${w.P}/incident/${desk.id}/readiness`)).tasks.map((t: any) => t.number)).toEqual([hidden.number]);
     // the record tells the screens what the caller may do
     const meta = (await w.p.agent.client.get(`${w.P}/r/incident/${desk.id}`)).meta.incident;
-    expect(meta).toEqual({ can_work: true, can_manage_major: false, ai: [] });
+    // `ai`: the AI skills the screens may offer (the AI layer registers them when the app is created)
+    expect(meta).toEqual({ can_work: true, can_manage_major: false, ai: expect.arrayContaining(["incident.summarize", "incident.draftUpdate"]) });
     expect((await w.p.mim.client.get(`${w.P}/r/incident/${desk.id}`)).meta.incident.can_manage_major).toBe(true);
   });
 });
