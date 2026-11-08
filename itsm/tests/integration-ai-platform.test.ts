@@ -181,3 +181,26 @@ describe("an event-triggered skill on a confidential incident", () => {
     await o.patch(`${P}/ai/skills/admin/note.draft`, { triggers: ["manual"], events: [] });
   });
 });
+
+describe("fields kept out of replicas (noSync) and secrets never reach a skill's model", () => {
+  it("every registered table: such a field is neither promptable (all field groups, even named explicitly) nor in a RAG document", async () => {
+    const { TABLES } = await import("@shared/tables");
+    const { promptable } = await import("@server/modules/ai/skills");
+    const { documentFields } = await import("@server/modules/ai/rag/registry");
+    const { SKILL_FIELD_GROUPS } = await import("@shared/ai/skills");
+    const groups = new Set(SKILL_FIELD_GROUPS);
+    const checked: string[] = [];
+    for (const def of TABLES.values()) {
+      const rag = new Set(documentFields(def).map((f) => f.name));
+      for (const f of def.fields) {
+        if (!f.noSync && f.type !== "secret") continue;
+        checked.push(`${def.key}.${f.name}`);
+        expect(promptable(def, f, groups, null), `${def.key}.${f.name}`).toBe(false);
+        expect(promptable(def, f, groups, new Set([f.name])), `${def.key}.${f.name} (named)`).toBe(false);
+        expect(rag.has(f.name), `${def.key}.${f.name} (RAG)`).toBe(false);
+      }
+    }
+    // the requested item's sensitive answers (P2's first noSync field) are among them
+    expect(checked).toContain("request_item.private_answers");
+  });
+});
