@@ -20,6 +20,7 @@ import { createIn, registerHooks, transitionIn, updateIn, validationError, type 
 import { countRows, liveRow, liveRows, isUuid, sysOf, type Row } from "../cmdb/common";
 import { servicesImpactedBy } from "../cmdb/impact";
 import { notifyLifecycle } from "./status";
+import { isPortfolioManager } from "./common";
 
 const TIER_CRITICALITY: Record<string, string> = { tier_1: "1", tier_2: "2", tier_3: "3", tier_4: "4" };
 
@@ -344,6 +345,14 @@ async function adminWrite(w: WriteArgs): Promise<void> {
   if (w.op !== "update" || w.ctx.actor === "system" || w.trusted) return;
   if (w.changed.has("owner_id") && w.prev?.owner_id === w.ctx.user.id && w.next.owner_id !== w.ctx.user.id && !w.next.owner_group_id) {
     throw forbidden("پیش از واگذاری خدمت، تیم مالک را مشخص کنید");
+  }
+  // the owner and the product owner read every record linked to the service (roles.ts): naming oneself is taking a
+  // role, which only portfolio managers do (ACCESS invariant 6)
+  const me = w.ctx.user.id;
+  const self = (["owner_id", "product_owner_id"] as const).filter((f) => w.changed.has(f) && w.next[f] === me);
+  const holds = w.prev?.owner_id === me || w.prev?.product_owner_id === me;
+  if (self.length && !holds && !(await isPortfolioManager(w.ctx, w.tx))) {
+    throw forbidden(self.includes("owner_id") ? "خودتان را مالک این خدمت نمی‌توانید بگذارید؛ این کار با مدیر سبد خدمات است" : "خودتان را مالک محصول این خدمت نمی‌توانید بگذارید؛ این کار با مدیر سبد خدمات است");
   }
 }
 

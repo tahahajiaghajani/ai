@@ -12,10 +12,14 @@ import { pgArray } from "../db";
 /**
  * A module's extra participants of a record (e.g. the approvers of a pending approval): a SQL predicate on the row
  * aliased `alias` that holds when `userId` takes part in it, or null when the source does not apply to the table.
- * Participants read the record like its own people do (subject to the domain and confidentiality rules).
+ * Participants read the record like its own people do (subject to the domain and confidentiality rules) — unless the
+ * source is `bounded`: then they read it like department heads do, within secure workspaces and restricted groups
+ * (ACCESS §6, §15.5: a role in context that the record does not name passes no restriction).
  */
 export interface ParticipantSource {
   name: string;
+  /** participants who never pass a secure workspace or a restricted group they are outside (e.g. a service's owners) */
+  bounded?: boolean;
   sql(def: TableDef, alias: string, params: unknown[], userId: string): string | null;
 }
 
@@ -102,6 +106,18 @@ class Builder {
       if (t !== "false") terms.push(t);
     }
     for (const src of sources) {
+      if (src.bounded) continue;
+      const t = src.sql(def, this.alias, this.params, this.s.userId);
+      if (t) terms.push(`(${t})`);
+    }
+    return or(terms);
+  }
+
+  /** participants of bounded sources (they read within secure workspaces and restricted groups only) */
+  boundedParticipant(def: TableDef): string {
+    const terms: string[] = [];
+    for (const src of sources) {
+      if (!src.bounded) continue;
       const t = src.sql(def, this.alias, this.params, this.s.userId);
       if (t) terms.push(`(${t})`);
     }
@@ -203,7 +219,7 @@ function readTerms(s: Subject, def: TableDef, alias: string, params: unknown[]):
   if (c.public) return org;
   const b = new Builder(s, c, alias, params);
   const restricted = b.restricted();
-  const terms = [b.own(def), and([b.scope(g.read, false), b.workspace(), restricted]), and([b.requesterSide(), b.secure(), restricted])];
+  const terms = [b.own(def), and([b.scope(g.read, false), b.workspace(), restricted]), and([or([b.requesterSide(), b.boundedParticipant(def)]), b.secure(), restricted])];
   return and([org, b.domain(), b.confidential(hasGroup(s, c.confidentialGroup)), or(terms)]);
 }
 

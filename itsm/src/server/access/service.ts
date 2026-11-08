@@ -514,8 +514,9 @@ export async function checkAccess(ctx: Ctx, input: { user_id: string; table: str
     // the checker never tells about a record its user may not read
     const mine = await requireReadable(ctx, def, input.record_id, await condEnv(ctx));
     const row = await ctx.db.one<Record<string, unknown>>(`select * from ${def.table} where id = $1 and org_id = $2`, [mine.id, ctx.org.id]);
-    const participant = await participantOf(ctx.db, s, def, String(mine.id));
-    const explanation = explainRow(s, def, row!, participant === null ? {} : { participant });
+    const participant = await participantOf(ctx.db, s, def, String(mine.id), false);
+    const boundedParticipant = await participantOf(ctx.db, s, def, String(mine.id), true);
+    const explanation = explainRow(s, def, row!, { ...(participant === null ? {} : { participant }), ...(boundedParticipant === null ? {} : { boundedParticipant }) });
     const params: unknown[] = [String(mine.id)];
     const sql = readSql(s, def, "t", params);
     const probe = await ctx.db.one(`select 1 from ${def.table} t where t.id = $1 and ${sql}`, params);
@@ -538,14 +539,16 @@ export async function checkAccess(ctx: Ctx, input: { user_id: string; table: str
  */
 export async function explainAccess(ctx: Ctx, def: TableDef, row: Record<string, unknown>): Promise<RowExplanation> {
   const s = (await prepareSubject(ctx)).subject;
-  const participant = row.id ? await participantOf(ctx.db, s, def, String(row.id)) : null;
-  return explainRow(s, def, row, participant === null ? {} : { participant });
+  const participant = row.id ? await participantOf(ctx.db, s, def, String(row.id), false) : null;
+  const boundedParticipant = row.id ? await participantOf(ctx.db, s, def, String(row.id), true) : null;
+  return explainRow(s, def, row, { ...(participant === null ? {} : { participant }), ...(boundedParticipant === null ? {} : { boundedParticipant }) });
 }
 
 /** Is the subject a participant of the record through a registered source (null when no source applies)? */
-async function participantOf(q: Queryable, s: Subject, def: TableDef, id: string): Promise<boolean | null> {
+async function participantOf(q: Queryable, s: Subject, def: TableDef, id: string, bounded: boolean): Promise<boolean | null> {
   const params: unknown[] = [id];
   const terms = participantSources()
+    .filter((src) => !!src.bounded === bounded)
     .map((src) => src.sql(def, "t", params, s.userId))
     .filter((x): x is string => !!x);
   if (!terms.length) return null;

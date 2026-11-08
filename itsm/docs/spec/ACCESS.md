@@ -139,7 +139,7 @@ readable(s, T, r) =
   ¬ domainOk ∨ ¬ confidentialOk                       → false
   own ∨ participant                                   → true
   scope(g.read) ∧ workspaceOk ∧ restrictedOk          → true
-  requesterSide ∧ secureOk ∧ restrictedOk             → true
+  (requesterSide ∨ bounded) ∧ secureOk ∧ restrictedOk → true
                                                       → false
 ```
 
@@ -149,6 +149,7 @@ readable(s, T, r) =
 | confidentialOk | `r.confidential` is not true, or the subject carries the table's confidential field group (default hr in area hr, else security), or `r.<group>` ∈ `s.groups`, or the subject is in an assignee or requester field, or on `r.access_list` |
 | own | the subject is in an own field (`scope.own` ∪ `scope.requester`; users fields hold them), in `scope.watchers`, or an assignee field holds one of `s.delegators` |
 | participant | a registered participant source holds (e.g. an approver of a pending approval) — SQL only, §7 |
+| bounded | a registered `bounded` participant source holds (a service's owner or product owner reading the records linked to the service) — SQL only, §7 |
 | scope(group) | `r.<group>` ∈ `s.groups` (for writes: `s.writeGroups`) |
 | scope(unit) | scope(group) ∨ `r.unit_id` = `s.unitId` |
 | scope(unit_tree) | scope(group) ∨ `r.unit_id` ∈ `s.unitTree` |
@@ -191,9 +192,11 @@ field and GIN on users arrays (watchers), on top of `index: true` fields such as
 10 000 tickets the page queries of a requester, a need-to-know agent and a department head use indexes only
 (`tests/access-performance.test.ts`).
 
-`registerParticipantSource({ name, sql(def, alias, params, userId) })` adds participants: the approvals service
-registers `exists (select 1 from sm_approvals a where a.table_key = '<key>' and a.record_id = <alias>.id and …)`.
-A source must push its own parameters and must not put `$` in string literals.
+`registerParticipantSource({ name, bounded?, sql(def, alias, params, userId) })` adds participants: the approvals
+service registers `exists (select 1 from sm_approvals a where a.table_key = '<key>' and a.record_id = <alias>.id and
+…)`. A source must push its own parameters and must not put `$` in string literals. A `bounded` source (the service
+portfolio's «service_owners») names people the record itself does not: its term is OR-ed with requesterSide, so it
+passes the member-workspace rule but never a secure workspace or a restricted group the subject is outside (§15.5).
 
 ## 8. Writes
 

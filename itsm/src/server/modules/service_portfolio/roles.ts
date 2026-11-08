@@ -1,7 +1,9 @@
 // Service roles in context (catalogue SPF-008): a service names its owner, product owner, owner team, support group,
 // change approvers and stakeholder groups. Two of those roles reach beyond the service record without a global role:
 //   · the owner and the product owner read every record linked to their service — the `service_id` or the affected
-//     services of incidents, problems, changes, requests… (an access-model participant source: read only, never write)
+//     services of incidents, problems, changes, requests… (an access-model participant source: read only, never write,
+//     bounded — a record in a secure workspace or a restricted group stays with that workspace's or group's members).
+//     Only portfolio managers name themselves owner or product owner of a service that exists (hooks.ts).
 //   · approval rules name «مالک خدمت» (`{ kind: "owner", of: "service_owner" }`) and «تأییدکنندگان تغییر خدمت»
 //     (`of: "service_change_approvers"`): the owners, or the members of the change-approval group, of the services a
 //     record names (its service, its offering's service, its affected services)
@@ -39,6 +41,8 @@ export function installServiceRoles(): (() => void)[] {
   return [
     registerParticipantSource({
       name: "service_owners",
+      // a role in context the linked record does not name: never past its secure workspace or restricted group
+      bounded: true,
       sql(def, alias, params, userId) {
         const { single, multi } = serviceLinks(def);
         if (!single.length && !multi.length) return null;

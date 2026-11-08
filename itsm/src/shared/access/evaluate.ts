@@ -194,6 +194,8 @@ export function requesterSideMatch(s: Subject, c: ScopeColumns, row: Row): boole
 export interface RowExtra {
   /** the subject is a participant through a registered source (an open approval, …), checked in SQL */
   participant?: boolean;
+  /** … through a bounded source (a service's owners): within secure workspaces and restricted groups only */
+  boundedParticipant?: boolean;
 }
 
 /** May `s` read `row` of `def`? */
@@ -208,7 +210,7 @@ export function canReadRow(s: Subject, def: TableDef, row: Row, extra: RowExtra 
   if (!domainOk(s, c, row) || !confidentialOk(s, c, row)) return false;
   if (ownMatch(s, c, row) || extra.participant) return true;
   if (scopeMatch(s, c, row, g.read) && workspaceOk(s, c, row) && restrictedOk(s, c, row)) return true;
-  return requesterSideMatch(s, c, row) && secureOk(s, c, row) && restrictedOk(s, c, row);
+  return (requesterSideMatch(s, c, row) || !!extra.boundedParticipant) && secureOk(s, c, row) && restrictedOk(s, c, row);
 }
 
 /**
@@ -337,6 +339,9 @@ export function explainRow(s: Subject, def: TableDef, row: Row, extra: RowExtra 
     detail: own ? (own.endsWith(":delegate") ? `جانشین کسی است که «${fieldLabel(own)}» این رکورد است` : `کاربر «${fieldLabel(own)}» این رکورد است`) : "کاربر در فیلدهای مالکیت این رکورد نیست",
   });
   if (extra.participant !== undefined) layers.push({ key: "participant", label: "مشارکت", ok: !!extra.participant, detail: extra.participant ? "کاربر در تأیید یا مشارکتی باز روی این رکورد است" : "مشارکتی در کار نیست" });
+  if (extra.boundedParticipant !== undefined) {
+    layers.push({ key: "participant", label: "نقش در خدمت", ok: !!extra.boundedParticipant, detail: extra.boundedParticipant ? "کاربر نقشی در خدمت این رکورد دارد (جز در فضای کاری امن یا گروه محدودی که عضو آن نیست)" : "کاربر نقشی در خدمت این رکورد ندارد" });
+  }
   const sOk = scopeMatch(s, c, row, g.read);
   layers.push({ key: "scope", label: "دامنهٔ دید نقش", ok: g.read === "none" || g.read === "own" ? null : sOk, detail: `دامنهٔ «${SCOPE_LABELS[g.read]}» ${sOk ? "این رکورد را در بر می‌گیرد" : "این رکورد را در بر نمی‌گیرد"}` });
   const wOk = workspaceOk(s, c, row);
@@ -356,7 +361,8 @@ export function explainRow(s: Subject, def: TableDef, row: Row, extra: RowExtra 
     else if (own) via = "own";
     else if (extra.participant) via = "participant";
     else if (sOk && wOk && rOk) via = "scope";
-    else via = "requester_side";
+    else if (rs) via = "requester_side";
+    else via = "participant";
   }
   return { read, write, delete: del, via, layers };
 }

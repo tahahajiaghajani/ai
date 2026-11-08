@@ -72,3 +72,31 @@ describe("imports change only what the importer may change", () => {
     expect(admin.results[0].changed).toContain("owned_by");
   });
 });
+
+describe("a service's owners read its records within the record's restrictions", () => {
+  it("reads linked incidents, never one of a restricted group they are outside", async () => {
+    const svc = (await w.o.post(R("service"), { name: "خدمت حقوق و دستمزد", service_type: "business", description: "x", owner_id: w.p.req.userId })).row;
+    const open = (await as("am").post(R("incident"), { short_description: "کندی سامانهٔ حقوق", assignment_group_id: w.g.infra, service_id: svc.id })).row;
+    const plain = (await as("am").post(R("incident"), { short_description: "کندی سامانهٔ دیگر", assignment_group_id: w.g.infra })).row;
+    const secret = (await as("am").post(R("incident"), { short_description: "نفوذ به سامانهٔ حقوق", assignment_group_id: soc, service_id: svc.id })).row;
+    // a requester reads their own records only: the service role is what lets them read the linked one
+    expect((await as("req").get(R("incident", open.id))).row.id).toBe(open.id);
+    await as("req").get(R("incident", plain.id), 404);
+    await as("req").get(R("incident", secret.id), 404);
+    const listed = (await as("req").post(`${R("incident")}/query`, { filter: { f: "service_id", op: "eq", v: svc.id }, fields: ["number"] })).rows.map((r: any) => r.id);
+    expect(listed).toContain(open.id);
+    expect(listed).not.toContain(secret.id);
+    // the access checker explains it the same way
+    const why = await w.o.post(`${w.P}/access/check`, { user_id: w.p.req.userId, table: "incident", record_id: open.id });
+    expect(why.record).toMatchObject({ sql_read: true, explanation: { read: true, via: "participant" } });
+  });
+
+  it("lets only portfolio managers name themselves owner or product owner", async () => {
+    const svc = (await w.o.post(R("service"), { name: "خدمت ایمیل سازمانی", service_type: "business", description: "x", owner_id: w.p.cm.userId, relationship_manager_id: w.p.so.userId })).row;
+    await as("so").patch(R("service", svc.id), { product_owner_id: w.p.so.userId }, 403);
+    await as("so").patch(R("service", svc.id), { owner_id: w.p.so.userId }, 403);
+    // naming someone else is a writer's call; a portfolio manager names anyone
+    expect((await as("so").patch(R("service", svc.id), { product_owner_id: w.p.agent.userId })).row.product_owner_id).toBe(w.p.agent.userId);
+    expect((await w.o.patch(R("service", svc.id), { product_owner_id: w.p.so.userId })).row.product_owner_id).toBe(w.p.so.userId);
+  });
+});
