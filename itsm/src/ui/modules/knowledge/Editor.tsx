@@ -317,7 +317,8 @@ export default function Editor() {
     const at = imageAt.current;
     if (!at || !vals) return;
     try {
-      const att = await uploadAttachment(orgId, "kb_article", articleId, f);
+      // the draft keeps its images; publishing moves the ones the text shows to the article
+      const att = await uploadAttachment(orgId, "kb_version", versionId, f);
       const field = at.field;
       const r = insertImage(String(vals[field] ?? ""), at.s, at.e, att.id, f.name.replace(/\.[a-z0-9]+$/i, ""));
       set({ [field]: r.text });

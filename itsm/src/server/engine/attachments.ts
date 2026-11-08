@@ -21,6 +21,7 @@ import { actorId, condEnv, isSystemCtx } from "./env";
 import { defFor } from "./schema";
 import { RefSet, resolveDisplay } from "./display";
 import { requireReadable, type Row } from "./read";
+import { checkSide, filterSide } from "./hooks";
 
 export const DEFAULT_ATTACHMENT_MB = 10;
 const HARD_MAX_MB = 100;
@@ -142,6 +143,7 @@ export async function addAttachment(ctx: Ctx, table: string, id: string, file: U
   const env = await condEnv(ctx);
   return ctx.write(async (tx) => {
     const record = await requireReadable(ctx, def, id, env, tx);
+    await checkSide({ tx, ctx, def, record, kind: "attachment" });
     return addAttachmentIn(tx, ctx, def, String(record.id), file);
   });
 }
@@ -171,16 +173,32 @@ export async function addAttachmentIn(tx: Queryable, ctx: Ctx, def: TableDef, re
   return view(row!);
 }
 
+/**
+ * Move attachments of one record to another inside `tx` (server code: a knowledge draft's images go to its article
+ * when the draft is published). Their ids stay, so text that references them keeps working.
+ */
+export async function moveAttachmentsIn(tx: Queryable, ctx: Ctx, from: { table: string; id: string }, to: { table: string; id: string }, ids: string[]): Promise<number> {
+  const list = [...new Set(ids)].filter((x) => /^[0-9a-f-]{36}$/i.test(x));
+  if (!list.length) return 0;
+  const rows = await tx.query<{ id: string }>(
+    `update sm_attachments set table_key = $3, record_id = $4, updated_at = now()
+     where org_id = $1 and table_key = $2 and record_id = $5 and id = any($6::uuid[]) and deleted_at is null returning id`,
+    [ctx.org.id, from.table, to.table, to.id, from.id, pgArray(list)],
+  );
+  return rows.length;
+}
+
 /** Attachments of a record the caller may read, newest last. */
 export async function listAttachments(ctx: Ctx, table: string, id: string): Promise<{ attachments: AttachmentView[]; display: Record<string, string> }> {
   const { def, schema } = await defFor(ctx, table);
   needAttachments(def);
   const env = await condEnv(ctx);
-  await requireReadable(ctx, def, id, env);
-  const rows = await ctx.db.query<Row>(
+  const record = await requireReadable(ctx, def, id, env);
+  const all = await ctx.db.query<Row>(
     `select * from sm_attachments where org_id = $1 and table_key = $2 and record_id = $3 and deleted_at is null order by created_at, id`,
     [ctx.org.id, def.key, id],
   );
+  const rows = await filterSide({ q: ctx.db, ctx, def, record, kind: "attachment", rows: all });
   const refs = new RefSet();
   for (const r of rows) refs.add("user", r.uploaded_by);
   return { attachments: rows.map(view), display: await resolveDisplay(ctx.db, ctx, env, schema, refs) };
@@ -211,9 +229,10 @@ export async function readAttachment(ctx: Ctx, attachmentId: string): Promise<{ 
     throw notFound("پیوست پیدا نشد");
   });
   const env = await condEnv(ctx);
-  await requireReadable(ctx, def, att.record_id, env).catch(() => {
+  const record = await requireReadable(ctx, def, att.record_id, env).catch(() => {
     throw notFound("پیوست پیدا نشد");
   });
+  if (!(await filterSide({ q: ctx.db, ctx, def, record, kind: "attachment", rows: [att] })).length) throw notFound("پیوست پیدا نشد");
   let blob = await ctx.db.one<{ b64: string }>(`select encode(data, 'base64') as b64 from sm_blobs where org_id = $1 and sha256 = $2`, [ctx.org.id, att.sha256]);
   if (!blob && ctx.cfg.desktop?.fetchBlob) {
     const data = await ctx.cfg.desktop.fetchBlob(ctx.org.id, att.id).catch(() => null);

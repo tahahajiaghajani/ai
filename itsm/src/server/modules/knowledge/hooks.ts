@@ -20,11 +20,12 @@ import { cleanSections, contentHash, isInternalArticle, missingSections, nextVer
 import { stateCategory } from "@shared/model/task";
 import type { Ctx } from "../../context";
 import type { Tx } from "../../db";
-import { addJournalIn, defFor, registerHooks, transitionIn, updateIn, validationError, type WriteArgs } from "../../engine";
+import { addJournalIn, defFor, registerHooks, transitionIn, updateIn, validationError, type SideArgs, type SideFilterArgs, type WriteArgs } from "../../engine";
+import { access } from "../../access/provider";
 import { enqueue } from "../../jobs";
 import { conflict, forbidden } from "../../http/errors";
 import {
-  activeMembers, articleOf, baseOf, categoryOf, contributesTo, countRows, expandUnits, groupMembers, ids, isKbAdmin, isKbApprover, kbConfig, liveRow, liveRows, managesBase, rowsById, sysOf, uniq, type Row,
+  activeMembers, articleOf, attachmentRefs, baseOf, categoryOf, contributesTo, countRows, expandUnits, groupMembers, holdsInternal, ids, isKbAdmin, isKbApprover, kbConfig, liveRow, liveRows, managesBase, rowsById, sysOf, uniq, type Row,
 } from "./common";
 import { publishIn } from "./versions";
 import { licenceLevel } from "./kcs";
@@ -473,6 +474,37 @@ function duplicateBefore(w: WriteArgs): void {
   w.next.pair_key = `${a}:${b}`.slice(0, 80);
 }
 
+// ---------------------------------------------------------------------------------------------------------------
+// kb_article attachments and journal: the article's people add and see them; a reader sees the files its published
+// text shows (those of the internal section with «داخلی») and only their own journal entries — reader comments go to
+// feedback, which each person sees for themselves
+
+async function worksOn(q: Tx | SideFilterArgs["q"], ctx: Ctx, a: Row): Promise<boolean> {
+  if (isSys(ctx)) return true;
+  const base = await baseOf(q, ctx, a.base_id);
+  const category = a.category_id ? await categoryOf(q, ctx, a.category_id) : null;
+  return contributesTo(ctx, base, { category, article: a });
+}
+
+async function articleSideBefore(s: SideArgs): Promise<void> {
+  if (isSys(s.ctx)) return;
+  if (!(await worksOn(s.tx, s.ctx, s.record))) {
+    throw forbidden(s.kind === "attachment" ? "پیوست مقاله را نویسندگان آن می‌گذارند" : "نظر خود دربارهٔ مقاله را با «بازخورد» بفرستید");
+  }
+  if (s.kind === "attachment") {
+    const { def } = await defFor(s.ctx, "kb_article", s.tx);
+    if (!access().canWrite(s.ctx, def, s.record) || s.record.$writable === false) throw forbidden("اجازهٔ تغییر این مقاله را ندارید؛ تصویرها را در پیش‌نویس بگذارید");
+  }
+}
+
+async function articleSideFilter(s: SideFilterArgs): Promise<Row[]> {
+  if (await worksOn(s.q, s.ctx, s.record)) return s.rows;
+  if (s.kind === "journal") return s.rows.filter((r) => r.author === s.ctx.user.id);
+  const shown = new Set(attachmentRefs(s.record.body));
+  if (holdsInternal(s.ctx)) for (const id of attachmentRefs(s.record.internal_body)) shown.add(id);
+  return s.rows.filter((r) => shown.has(String(r.id)));
+}
+
 let installed = false;
 
 export function installKnowledgeHooks(): void {
@@ -480,7 +512,7 @@ export function installKnowledgeHooks(): void {
   installed = true;
   registerHooks("kb_base", { beforeWrite: baseBefore, afterWrite: baseAfter });
   registerHooks("kb_category", { beforeWrite: categoryBefore, afterWrite: categoryAfter });
-  registerHooks("kb_article", { beforeWrite: articleBefore, afterWrite: articleAfter, guards: articleGuards });
+  registerHooks("kb_article", { beforeWrite: articleBefore, afterWrite: articleAfter, guards: articleGuards, beforeSide: articleSideBefore, filterSide: articleSideFilter });
   registerHooks("kb_version", { beforeWrite: versionBefore, afterWrite: versionAfter, guards: versionGuards });
   registerHooks("kb_feedback", { beforeWrite: feedbackBefore, afterWrite: feedbackAfter });
   registerHooks("kb_task", { beforeWrite: taskBefore, afterWrite: taskAfter });

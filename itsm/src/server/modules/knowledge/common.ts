@@ -57,6 +57,9 @@ export const isKbAdmin = (ctx: Ctx): boolean => ctx.actor === "system" || !!kbGr
 export const isKbApprover = (ctx: Ctx): boolean => ctx.actor === "system" || !!kbGrant(ctx).approve;
 /** Writes every article it can read (knowledge managers). */
 export const writesAll = (ctx: Ctx): boolean => ctx.actor === "system" || kbGrant(ctx).write === "all";
+/** Attachments a text names: images `![…](attachment:<id>)` and links `[…](attachment:<id>)`. */
+export const attachmentRefs = (md: unknown): string[] => [...String(md ?? "").matchAll(/attachment:([0-9a-f-]{36})/gi)].map((m) => m[1].toLowerCase());
+
 /** May write knowledge at all (drafts, versions). */
 export const canAuthor = (ctx: Ctx): boolean => ctx.actor === "system" || !!kbGrant(ctx).create;
 

@@ -28,6 +28,7 @@ async function mine(ctx: Ctx, articleId: string, kinds: string[]): Promise<Row |
 export async function vote(ctx: Ctx, articleId: string, input: { helpful: boolean; reason?: string | null; comment?: string | null; session_id?: string | null; channel?: string | null }) {
   const { a, base } = await readableArticle(ctx, articleId);
   if (base && base.allow_ratings === false) throw forbidden("رأی دادن در این پایگاه خاموش است");
+  if (base && base.allow_comments === false && String(input.comment ?? "").trim()) throw forbidden("نظر خوانندگان در این پایگاه بسته است");
   const kind = input.helpful ? "helpful" : "not_helpful";
   const sys = asMember(ctx);
   const prev = ctx.actor === "system" ? null : await mine(ctx, articleId, ["helpful", "not_helpful"]);

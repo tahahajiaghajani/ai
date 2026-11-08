@@ -690,7 +690,7 @@ const version: TableDef = {
   ],
   states: VERSION_STATES,
   scope: { own: ["author_id"], requester: ["author_id"] },
-  features: { journal: true, history: true },
+  features: { journal: true, history: true, attachments: true },
   rowAccess: { read: VERSION_READ },
   form: { sections: [MAIN, CONTENT] },
   list: { columns: ["version_label", "title", "state", "author_id", "approval", "change_note", "updated_at"], order: "-major,-minor,-created_at" },

@@ -16,6 +16,9 @@
 // - redactRows removes, from rows the caller may read, the parts that copy other records they may not (a baseline's
 //   snapshot of CIs): records, lists and exports, and sync pulls (a push that sends a redacted value back unchanged
 //   keeps the stored one).
+// - beforeSide refuses an attachment or a journal entry a person adds through the API; filterSide narrows the
+//   attachments and journal entries of a readable record to those the caller may see (lists, attachment content,
+//   sync pulls).
 // Each register* returns a function that removes the registration (tests).
 import type { CondEnv } from "@shared/model/conditions";
 import type { TableDef, Transition } from "@shared/model/types";
@@ -47,6 +50,26 @@ export interface WriteArgs {
   trusted?: boolean;
 }
 
+/** An attachment or a journal entry a person is adding to a readable record (`journal`: the entry's kind). */
+export interface SideArgs {
+  tx: Tx;
+  ctx: Ctx;
+  def: TableDef;
+  record: Row;
+  kind: "attachment" | "journal";
+  journal?: { kind: string };
+}
+
+/** Attachments or journal entries (rows of sm_attachments / sm_journal) of one readable record. */
+export interface SideFilterArgs {
+  q: Queryable;
+  ctx: Ctx;
+  def: TableDef;
+  record: Row;
+  kind: "attachment" | "journal";
+  rows: Row[];
+}
+
 /** A row a Windows app pushed (the cloud applying it): hooks do not run again, but may refuse it. */
 export interface PushArgs {
   tx: Tx;
@@ -74,6 +97,10 @@ export interface TableHooks {
    * Rows are in engine shape; a list row holds only its selected fields.
    */
   redactRows?(q: Queryable, ctx: Ctx, def: TableDef, rows: Row[]): Promise<void> | void;
+  /** a person adds an attachment or a journal entry (server code that adds them does not ask): throw to refuse */
+  beforeSide?(s: SideArgs): Promise<void> | void;
+  /** the attachments or journal entries of a record the caller may see (never called for the system) */
+  filterSide?(s: SideFilterArgs): Promise<Row[]> | Row[];
 }
 
 const registry = new Map<string, TableHooks[]>();
@@ -97,6 +124,22 @@ export async function redactRows(q: Queryable, ctx: Ctx, def: TableDef, rows: Ro
   if (!rows.length || ctx.actor === "system") return;
   for (const h of hooksFor(def.key)) if (h.redactRows) await h.redactRows(q, ctx, def, rows);
 }
+
+/** Ask the table's beforeSide hooks about an attachment or a journal entry a person adds. */
+export async function checkSide(s: SideArgs): Promise<void> {
+  for (const h of hooksFor(s.def.key)) if (h.beforeSide) await h.beforeSide(s);
+}
+
+/** The table's filterSide hooks applied to a record's attachments or journal entries (the system sees them all). */
+export async function filterSide(s: SideFilterArgs): Promise<Row[]> {
+  if (s.ctx.actor === "system") return s.rows;
+  let rows = s.rows;
+  for (const h of hooksFor(s.def.key)) if (h.filterSide && rows.length) rows = await h.filterSide({ ...s, rows });
+  return rows;
+}
+
+/** Does a module narrow the attachments or journal entries of `table` (filterSide)? */
+export const filtersSide = (table: string): boolean => hooksFor(table).some((h) => !!h.filterSide);
 
 /** The guard of that name for `table` (undefined when no module registered it). */
 export function guardFor(table: string, name: string) {

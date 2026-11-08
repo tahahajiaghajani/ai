@@ -7,9 +7,9 @@
 import { versionLabel, nextVersion, isInternalArticle, templateSkeleton, cleanSections, lineDiff, diffStats, type DiffLine } from "@shared/knowledge/logic";
 import type { Ctx } from "../../context";
 import type { Tx } from "../../db";
-import { addJournalIn, createIn, defFor, emitEvent, get, transitionIn, updateIn } from "../../engine";
+import { addJournalIn, createIn, defFor, emitEvent, get, moveAttachmentsIn, transitionIn, updateIn } from "../../engine";
 import { bad, conflict, forbidden, notFound } from "../../http/errors";
-import { addDaysISO, articleOf, baseOf, categoryOf, contributesTo, liveRow, liveRows, sysOf, todayIn, uniq, type Row } from "./common";
+import { addDaysISO, articleOf, attachmentRefs, baseOf, categoryOf, contributesTo, liveRow, liveRows, sysOf, todayIn, uniq, type Row } from "./common";
 
 const CONTENT = ["title", "summary", "body", "internal_body", "keywords", "tags"] as const;
 const OPEN_VERSION = ["draft", "in_review", "scheduled"];
@@ -179,6 +179,8 @@ export async function publishIn(tx: Tx, ctx: Ctx, versionId: string, by: string 
   if (!article.valid_from) patch.valid_from = today;
   if (article.state === "published") await updateIn(tx, sys, "kb_article", article.id, patch, { trusted: true });
   else await transitionIn(tx, sys, "kb_article", article.id, "published", patch, { trusted: true });
+  // the draft's files its published text shows go with it to the article (readers see only those, render.ts)
+  await moveAttachmentsIn(tx, sys, { table: "kb_version", id: v.id }, { table: "kb_article", id: article.id }, attachmentRefs(`${v.body ?? ""}\n${v.internal_body ?? ""}`));
 
   const { def } = await defFor(sys, "kb_article", tx);
   const stored = (await articleOf(tx, sys, article.id))!;

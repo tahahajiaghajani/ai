@@ -31,7 +31,7 @@ import { coerceValue, FieldError, KEEP } from "./values";
 import { fromDb, type Row } from "./read";
 import { recordEvents, sameValue } from "./write";
 import { emitEvent } from "./events";
-import { hooksFor, redactRows, redacts } from "./hooks";
+import { filterSide, filtersSide, hooksFor, redactRows, redacts } from "./hooks";
 
 /** Engine-maintained columns a push may not move on an existing row. */
 const PINNED = ["id", "org_id", "no", "created_at", "created_by"];
@@ -279,6 +279,21 @@ export async function pullEngine(ctx: Ctx, agg: AggregateDef, cursor: number, up
         })
         .map((r) => String(r.id)),
     );
+    // attachments and journal entries a module narrows per record (e.g. a knowledge article's draft images)
+    if ((agg.engine === "attachment" || agg.engine === "journal") && !isSystemCtx(ctx)) {
+      const groups = new Map<string, Row[]>();
+      for (const r of rows) {
+        if (!ok.has(String(r.id)) || !filtersSide(String(r.table_key))) continue;
+        const key = `${r.table_key}:${r.record_id}`;
+        groups.set(key, [...(groups.get(key) ?? []), r]);
+      }
+      for (const list of groups.values()) {
+        const def = schema.def(String(list[0].table_key));
+        const record = def ? await ctx.db.one<Row>(`select * from ${def.table} where id = $1 and org_id = $2`, [list[0].record_id, ctx.org.id]) : null;
+        const shown = def && record ? new Set((await filterSide({ q: ctx.db, ctx, def, record, kind: agg.engine, rows: list })).map((r) => String(r.id))) : new Set<string>();
+        for (const r of list) if (!shown.has(String(r.id))) ok.delete(String(r.id));
+      }
+    }
   }
   const okIds = rows.filter((r) => ok.has(String(r.id))).map((r) => String(r.id));
   for (const r of rows) if (!ok.has(String(r.id))) out.tombstones.push({ entity: agg.entity, id: String(r.id) });

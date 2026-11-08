@@ -15,6 +15,7 @@ import { actorId, condEnv } from "./env";
 import { defFor } from "./schema";
 import { RefSet, resolveDisplay } from "./display";
 import { requireReadable, type Row } from "./read";
+import { checkSide, filterSide } from "./hooks";
 import { emitEvent } from "./events";
 import { writeHistory } from "./history";
 
@@ -122,6 +123,7 @@ export async function addJournal(ctx: Ctx, table: string, id: string, input: Jou
   const env = await condEnv(ctx);
   const entry = await ctx.write(async (tx) => {
     const row = await requireReadable(ctx, def, id, env, tx);
+    if (!opts.trusted) await checkSide({ tx, ctx, def, record: row, kind: "journal", journal: { kind: input.kind ?? "comment" } });
     return addJournalIn(tx, ctx, def, row, input, opts);
   });
   const refs = new RefSet();
@@ -155,7 +157,7 @@ export async function listJournal(ctx: Ctx, table: string, id: string, opts: { k
   const { def, schema } = await defFor(ctx, table);
   needJournal(def);
   const env = await condEnv(ctx);
-  await requireReadable(ctx, def, id, env);
+  const record = await requireReadable(ctx, def, id, env);
   const params: unknown[] = [ctx.org.id, def.key, id];
   const where = ["org_id = $1", "table_key = $2", "record_id = $3", "deleted_at is null"];
   if (!access().hasFieldGroup(ctx, "internal")) where.push(`visibility = 'public'`);
@@ -169,7 +171,8 @@ export async function listJournal(ctx: Ctx, table: string, id: string, opts: { k
   }
   const limit = Math.min(Math.max(opts.limit ?? 200, 1), 1000);
   const rows = await ctx.db.query<Row>(`select * from sm_journal where ${where.join(" and ")} order by created_at desc, id desc limit ${limit}`, params);
-  const entries = await shape(ctx.db, ctx, rows.reverse());
+  const shown = await filterSide({ q: ctx.db, ctx, def, record, kind: "journal", rows: rows.reverse() });
+  const entries = await shape(ctx.db, ctx, shown);
   const refs = new RefSet();
   for (const e of entries) refs.add("user", e.author);
   return { entries, display: await resolveDisplay(ctx.db, ctx, env, schema, refs) };
