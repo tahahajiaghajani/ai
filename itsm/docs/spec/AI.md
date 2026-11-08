@@ -379,11 +379,14 @@ registerSkill(defineSkill({
    through `list`), unchanged values dropped; citations only of the passages given (`[n]` markers of unknown sources
    removed); store the run; with `propose`, store the writes as a proposal.
 
-Module integrations call `runSkill` with the person's `ctx` and map the answer to the interface they implement:
+Module integrations call `runForModule` (the person's `ctx`, no rule-based fallback — the module's own deterministic
+path or its «no AI» answer stands —, AI unavailability as the HTTP error `ai_<kind>` with its remedy) and map the answer
+to the interface they implement:
 `registerIncidentAi` (summary, similar incidents by retrieval, triage of a draft, resolution notes, KCS draft,
-stakeholder updates), `registerProblemAi` (RCA, known-error draft, summary), `registerChangeAi` (risk narrative with
-the deterministic explanation as fallback, plan drafts, CAB pack with a deterministic fallback, PIR sections — empty
-without a model so the deterministic draft stands — summary), `registerRequestAi` (catalogue item from text, order-form
+stakeholder updates), `registerProblemAi` (RCA, known-error draft, summary), `registerChangeAi` (risk narrative — the
+route answers with the deterministic explanation and `ai: false` when no model can —, plan drafts, summary; the CAB
+pack and the PIR draft are panel skills, `change.cab_pack` and `change.pir`, because the module's pack and PIR call
+sites would present a deterministic draft as AI-written), `registerRequestAi` (catalogue item from text, order-form
 pre-fill over `promptSafe` questions, item matching by retrieval, summary), `registerKnowledgeAi` (KCS draft over the
 module's scrubbed capture, AQI pre-scoring, duplicate judge, metadata, validation; the editor's writing assistant runs
 the generic writing skills), `registerCmdbAi` (relationship suggestions mapped to readable CIs, duplicate explanation,
