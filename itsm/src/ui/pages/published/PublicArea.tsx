@@ -1,7 +1,8 @@
-// Sign-in-free pages (/p/…; this folder is not named "public": that is the build output): what an organisation published on purpose — the service status page by its secret link,
+// Sign-in-free pages (/p/…): what an organisation published on purpose — the service status page by its secret link,
 // next public knowledge. Modules add their pages with `ModuleUi.publicRoutes` (paths under /p/); a page reads only the
-// sign-in-free API (`publicGet`, /api/public, rate limited) — never an organisation's API, which needs a session. The
-// frame is quiet: the product's mark, the page, a line that says it is a published page. RTL, tokens only.
+// sign-in-free API (`publicApi`, /api/public, rate limited) — never an organisation's API, which needs a session. The
+// frame is quiet: the product's mark, the page, a line that says it is a published page. RTL, tokens only. (The folder
+// is not named "public": that name is the build output's and ignored by git.)
 import { Suspense, type ReactNode } from "react";
 import { Routes, Route } from "react-router";
 import { Compass } from "lucide-react";
