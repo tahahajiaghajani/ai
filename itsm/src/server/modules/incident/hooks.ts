@@ -19,12 +19,16 @@
 // Reactions that must happen once (notifications, cascades, auto problems and reviews) are event subscribers
 // (jobs.ts), never hooks: hooks do not run again when the cloud applies a Windows app's push.
 import { stateCategory } from "@shared/model/task";
+import type { FieldDef } from "@shared/model/types";
 import { majorCandidate, nextUpdateAt, reopenAllowed, templateTasks, templateTasksProblem } from "@shared/incident/logic";
+import { INCIDENT_REQUESTER_FIELDS } from "@shared/tables/incident";
 import { addJournalIn, createIn, defFor, registerHooks, updateIn, validationError, type WriteArgs } from "../../engine";
-import { AppError } from "../../http/errors";
+import { access } from "../../access/provider";
+import { AppError, forbidden } from "../../http/errors";
 import type { Ctx } from "../../context";
 import type { Queryable } from "../../db";
-import { eqAll, faList, incidentConfig, liveRow, liveRows, secondsBetween, sysOf, type Row } from "./common";
+import { eqAll, faList, incidentConfig, liveRow, liveRows, requesterOnly, secondsBetween, sysOf, type Row } from "./common";
+import { canWork } from "./major";
 
 const DONE = ["resolved", "closed", "canceled"];
 const entering = (w: WriteArgs, state: string) => w.next.state === state && (w.op === "create" || w.prev?.state !== state);
@@ -33,8 +37,28 @@ const changed = (w: WriteArgs, f: string) => w.op === "create" ? w.next[f] !== n
 // ---------------------------------------------------------------------------------------------------------------
 // incident: before the platform's hooks
 
+const REQUESTER_FIELDS = new Set(INCIDENT_REQUESTER_FIELDS);
+/** A field's default when it is a plain value (`$me`, `$now`… are the engine's to fill). */
+const plainDefault = (f: FieldDef): unknown => (typeof f.default === "string" && f.default.startsWith("$") ? null : f.default ?? (f.type === "bool" ? false : null));
+
+/**
+ * A requester files an incident; the desk's fields are not theirs: values a requester-only caller sent for them are
+ * dropped (as ITSM tools ignore fields a user may not create), and the incident starts in the model's first state.
+ */
+function requesterCreate(w: WriteArgs): void {
+  const model = w.def.states;
+  if (model && w.next[model.field] !== model.initial) throw forbidden(`رخداد تازه فقط در وضعیت «${model.states.find((s) => s.value === model.initial)?.label ?? model.initial}» ثبت می‌شود`);
+  for (const name of w.input ?? []) {
+    if (REQUESTER_FIELDS.has(name) || name.startsWith("u_") || name === model?.field) continue;
+    const f = w.def.fields.find((x) => x.name === name);
+    if (!f || f.base || f.system || f.readonly) continue; // the engine keeps those to itself
+    w.next[name] = plainDefault(f);
+  }
+}
+
 async function incidentBefore(w: WriteArgs): Promise<void> {
   if (w.op === "delete") return;
+  if (w.op === "create" && !w.trusted && requesterOnly(w.ctx, w.def.area)) requesterCreate(w);
   const n = w.next;
   const now = new Date().toISOString();
   const def = w.def;
@@ -205,9 +229,28 @@ async function canReopen(w: WriteArgs): Promise<string | null> {
 // ---------------------------------------------------------------------------------------------------------------
 // incident_task, incident_review, incident_template
 
+/**
+ * Tasks and reviews belong to the people working the incident: a caller (not the system) who adds one, or moves one to
+ * another incident, must be able to read that incident and work it as an agent — not only as its requester.
+ */
+async function assertWorksIncident(w: WriteArgs, what: string): Promise<void> {
+  if (w.ctx.actor === "system" || w.trusted) return;
+  const inc = await liveRow(w.tx, w.ctx, "incident", w.next.incident_id);
+  if (!inc) throw validationError({ incident_id: "رخداد پیدا نشد" });
+  const { def } = await defFor(w.ctx, "incident", w.tx);
+  if (!canWork(w.ctx, def, inc)) throw forbidden(`${what} را کسی می‌سازد که روی ${inc.number ? `رخداد ${inc.number}` : "این رخداد"} کار می‌کند`);
+}
+
+/** Definitions (templates, canned responses): the caller creates only what they could change afterwards. */
+function assertCanKeep(w: WriteArgs): void {
+  if (w.op !== "create" || w.ctx.actor === "system" || w.trusted) return;
+  if (!access().canWrite(w.ctx, w.def, w.next)) throw forbidden(`ساختن «${w.def.label}» با مدیران رخداد${w.def.scope?.group ? " یا اعضای گروه آن" : ""} است`);
+}
+
 async function taskBefore(w: WriteArgs): Promise<void> {
   if (w.op !== "create" && !w.changed.has("incident_id")) return;
   if (w.op === "delete") return;
+  await assertWorksIncident(w, "کار رخداد");
   const inc = await liveRow(w.tx, sysOf(w.ctx), "incident", w.next.incident_id);
   if (!inc) return; // the engine's reference check answers
   const cat = stateCategory((await defFor(sysOf(w.ctx), "incident", w.tx)).def.states, inc.state);
@@ -231,6 +274,7 @@ async function taskAfter(w: WriteArgs & { row: Row }): Promise<void> {
 async function reviewBefore(w: WriteArgs): Promise<void> {
   if (w.op === "delete") return;
   const n = w.next;
+  if (w.op === "create" || w.changed.has("incident_id")) await assertWorksIncident(w, "بازبینی پس از رخداد");
   if (w.op === "create") {
     const inc = await liveRow(w.tx, sysOf(w.ctx), "incident", n.incident_id);
     if (inc) {
@@ -267,6 +311,7 @@ async function canPublish(w: WriteArgs): Promise<string | null> {
 }
 
 function templateBefore(w: WriteArgs): void {
+  assertCanKeep(w);
   if (w.op === "delete" || (w.op !== "create" && !w.changed.has("tasks"))) return;
   const p = templateTasksProblem(w.next.tasks);
   if (p) throw validationError({ tasks: p });
@@ -286,6 +331,7 @@ export function installIncidentHooks(): (() => void)[] {
     registerHooks("incident_task", { beforeWrite: taskBefore, afterWrite: taskAfter }),
     registerHooks("incident_review", { beforeWrite: reviewBefore, afterWrite: reviewAfter, guards: { review_can_publish: canPublish } }),
     registerHooks("incident_template", { beforeWrite: templateBefore }),
+    registerHooks("incident_response", { beforeWrite: assertCanKeep }),
     registerHooks("incident_config", { beforeWrite: configBefore }),
   ];
 }

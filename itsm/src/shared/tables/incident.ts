@@ -143,6 +143,17 @@ export const INCIDENT_STATES: StateModel = {
   locked: ["closed", "canceled"],
 };
 
+/**
+ * What a caller who is only a requester in the area may set when filing an incident (the portal's form). Everything
+ * else — assignment, impact and priority, codes, links, the major-incident overlay — is the desk's: the server drops
+ * such values (custom fields stay the requester's), and the incident starts «جدید».
+ */
+export const INCIDENT_REQUESTER_FIELDS: readonly string[] = [
+  "short_description", "description", "caller_id", "requested_for", "channel", "category", "subcategory", "urgency",
+  "service_id", "offering_id", "ci_id", "location_id", "affected_services", "affected_cis", "affected_users",
+  "detected_at", "security_incident", "template_id", "watch_list",
+];
+
 const MAIN = "اصلی";
 const SERVICE = "خدمت و پیکربندی";
 const TIMES = "زمان‌ها";
@@ -410,7 +421,8 @@ const incidentTemplate: TableDef = {
     { name: "description_note", label: "توضیح برای کارشناس", type: "text", span: 24 },
   ],
   unique: [["name"]],
-  scope: { public: true },
+  // everyone reads templates; the group they assign to (or a manager) keeps them
+  scope: { public: true, group: "assignment_group_id" },
   list: { columns: ["name", "category", "assignment_group_id", "active"], order: "sort_order,name" },
 };
 
@@ -428,12 +440,14 @@ const incidentResponse: TableDef = {
     { name: "name", label: "نام", type: "string", required: true, maxLength: 120, list: true, search: true, sort: true, span: 12 },
     { name: "kind", label: "برای", type: "choice", choices: RESPONSE_KINDS, default: "both", list: true, filter: true, span: 6 },
     { name: "active", label: "فعال", type: "bool", default: true, list: true, filter: true, span: 6 },
-    { name: "category", label: "دسته", type: "choice", choices: "incident.category", filter: true, span: 12 },
-    { name: "sort_order", label: "ترتیب", type: "int", default: 100, sort: true, span: 12 },
+    { name: "category", label: "دسته", type: "choice", choices: "incident.category", filter: true, span: 8 },
+    { name: "group_id", label: "گروه مالک", type: "group", filter: true, span: 8, help: "اعضای این گروه آن را نگه می‌دارند؛ خالی: فقط مدیران" },
+    { name: "sort_order", label: "ترتیب", type: "int", default: 100, sort: true, span: 8 },
     { name: "body", label: "متن", type: "markdown", required: true, search: true, span: 24, help: "جای‌نگهدارها: {{caller}} {{number}} {{title}} {{assignee}} {{me}} {{group}}" },
   ],
   unique: [["name"]],
-  scope: { public: true },
+  // everyone reads canned responses; the owning group (or a manager) keeps them
+  scope: { public: true, group: "group_id" },
   list: { columns: ["name", "kind", "category", "active"], order: "sort_order,name" },
 };
 

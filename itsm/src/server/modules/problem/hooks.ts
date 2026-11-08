@@ -15,7 +15,9 @@ import { addDays, todayISO } from "@shared/jalali";
 import type { Ctx } from "../../context";
 import type { Queryable, Tx } from "../../db";
 import { defFor, orgTz, registerHooks, updateIn, validationError, type WriteArgs } from "../../engine";
+import { forbidden } from "../../http/errors";
 import { countRows, eqAll, faList, liveRow, liveRows, problemConfig, secondsBetween, sysOf, type Row } from "../incident/common";
+import { canWork } from "../incident/major";
 
 const entering = (w: WriteArgs, state: string) => w.next.state === state && (w.op === "create" || w.prev?.state !== state);
 const isEmpty = (v: unknown) => v === null || v === undefined || (typeof v === "string" && !v.trim());
@@ -124,6 +126,12 @@ async function closedProblem(q: Queryable, ctx: Ctx, id: unknown): Promise<Row |
 
 async function taskBefore(w: WriteArgs): Promise<void> {
   if (w.op === "delete" || (w.op !== "create" && !w.changed.has("problem_id"))) return;
+  // tasks belong to the people working the problem (the system's own writes aside)
+  if (w.ctx.actor !== "system" && !w.trusted) {
+    const p = await liveRow(w.tx, w.ctx, "problem", w.next.problem_id);
+    if (!p) throw validationError({ problem_id: "مشکل پیدا نشد" });
+    if (!canWork(w.ctx, (await defFor(w.ctx, "problem", w.tx)).def, p)) throw forbidden(`کار مشکل را کسی می‌سازد که روی ${p.number ? `مشکل ${p.number}` : "این مشکل"} کار می‌کند`);
+  }
   if (await closedProblem(w.tx, w.ctx, w.next.problem_id)) throw validationError({ problem_id: "این مشکل بسته شده است و کار تازه نمی‌پذیرد" });
   if (w.op === "create" && !w.next.assignment_group_id) {
     const p = await liveRow(w.tx, sysOf(w.ctx), "problem", w.next.problem_id);

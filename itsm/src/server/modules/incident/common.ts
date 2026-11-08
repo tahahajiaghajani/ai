@@ -3,12 +3,14 @@
 // modules' settings rows with their defaults. Every read of engine tables here goes through `readable`, so the same
 // helpers are safe with a member's context.
 import type { Cond } from "@shared/model/conditions";
+import { grantIn } from "@shared/access/model";
 import { tableDef } from "@shared/tables";
 import { INCIDENT_CONFIG_DEFAULTS, type IncidentConfig } from "@shared/tables/incident";
 import { PROBLEM_CONFIG_DEFAULTS, type ProblemConfig } from "@shared/tables/problem";
 import type { Ctx } from "../../context";
 import type { Queryable } from "../../db";
 import { condEnv, fromDb, orgSchema, readable, SYSTEM_USER, toSql } from "../../engine";
+import { subjectOf } from "../../access";
 
 export type Row = Record<string, any>;
 
@@ -69,6 +71,16 @@ export async function liveRow(q: Queryable, ctx: Ctx, table: string, id: unknown
   params.push(id.toLowerCase());
   const row = await q.one<Row>(`select t.* from ${def.table} t where ${where} and t.id = $${params.length}::uuid`, params);
   return row ? fromDb(def, row) : null;
+}
+
+/**
+ * Is the caller only a requester in `area` — a write scope of none or own, the platform's create-on-behalf rule
+ * (docs/spec/ACCESS.md §8)? Such a caller files records for themselves; the agent's fields are not theirs to set.
+ */
+export function requesterOnly(ctx: Ctx, area: string): boolean {
+  if (ctx.actor === "system") return false;
+  const g = grantIn(subjectOf(ctx).eff, area);
+  return g.write === "none" || g.write === "own";
 }
 
 /** `{ and: [field = value …] }` */

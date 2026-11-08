@@ -38,6 +38,24 @@ describe("a requester", () => {
     await w.p.req.client.patch(`${w.P}/r/incident/${own.id}`, { description: "از دیروز" });
   });
 
+  it("files incidents, not the desk's part: agent fields dropped, «جدید» only, no tasks, reviews or definitions", async () => {
+    const r = w.p.req.client;
+    const filed = await w.incident({ short_description: "چاپگر طبقهٔ دوم کار نمی‌کند", urgency: "1", impact: "1", priority: "1", assignment_group_id: w.g.network, close_notes: "حل شد", workaround: "خاموش و روشن", bridge_url: "https://meet.example.com/x", escalation: 3, stakeholders: [w.p.req2.userId] }, r);
+    const row = (await w.o.get(`${w.P}/r/incident/${filed.id}`)).row;
+    // impact is the desk's assessment: urgency 1 × impact 3 → priority 3; the assignment rules pick the group
+    expect([row.impact, row.urgency, row.priority, row.assignment_group_id]).toEqual(["3", "1", "3", w.g.desk]);
+    expect([row.escalation, row.close_notes, row.workaround, row.bridge_url, row.stakeholders]).toEqual([0, null, null, null, []]);
+    expect(row.caller_id).toBe(w.p.req.userId);
+    const resolved = await r.post(`${w.P}/r/incident`, { short_description: "x", state: "resolved", close_code: "solved", close_notes: "x" }, 403);
+    expect(resolved.error.message).toContain("جدید");
+    // tasks and reviews belong to the people working the incident; definitions to their keepers
+    await r.post(`${w.P}/r/incident_task`, { incident_id: own.id, short_description: "x" }, 403);
+    await r.post(`${w.P}/r/incident_task`, { incident_id: desk.id, short_description: "x" }, 400);
+    await r.post(`${w.P}/r/incident_review`, { incident_id: own.id, title: "x" }, 403);
+    await r.post(`${w.P}/r/incident_template`, { name: "الگوی من" }, 403);
+    await r.post(`${w.P}/r/incident_response`, { name: "پاسخ من", body: "x" }, 403);
+  });
+
   it("confirms a resolution with a rating, or reopens it", async () => {
     await w.p.agent.client.post(`${w.P}/r/incident/${own.id}/transition`, { to: "resolved", data: { close_code: "solved", close_notes: "باتری تعویض شد" } });
     const closed = await w.p.req.client.post(`${w.P}/r/incident/${own.id}/transition`, { to: "closed", data: { satisfaction: 5, satisfaction_comment: "سریع بود" } });
@@ -84,6 +102,28 @@ describe("an agent of another group (need to know)", () => {
     const meta = (await w.p.agent.client.get(`${w.P}/r/incident/${desk.id}`)).meta.incident;
     expect(meta).toEqual({ can_work: true, can_manage_major: false, ai: [] });
     expect((await w.p.mim.client.get(`${w.P}/r/incident/${desk.id}`)).meta.incident.can_manage_major).toBe(true);
+  });
+});
+
+describe("child records and definitions", () => {
+  it("tasks are added by those working the incident or problem; templates and responses by their group or a manager", async () => {
+    // the other group's agent cannot read the desk's incident (need to know), the desk's agent works it
+    await w.p.other.client.post(`${w.P}/r/incident_task`, { incident_id: desk.id, short_description: "x" }, 400);
+    const t = await w.p.agent.client.post(`${w.P}/r/incident_task`, { incident_id: desk.id, short_description: "بررسی کابل", assignment_group_id: w.g.network });
+    expect(t.row.assignment_group_id).toBe(w.g.network);
+    // a template is kept by the group it assigns to, or by a manager
+    const mineT = await w.p.agent.client.post(`${w.P}/r/incident_template`, { name: "الگوی میز", assignment_group_id: w.g.desk });
+    await w.p.agent.client.patch(`${w.P}/r/incident_template/${mineT.row.id}`, { description_note: "پیش از ثبت، شمارهٔ اموال را بپرسید", version: mineT.row.version });
+    await w.p.agent.client.post(`${w.P}/r/incident_template`, { name: "الگوی شبکه", assignment_group_id: w.g.network }, 403);
+    await w.p.agent.client.post(`${w.P}/r/incident_template`, { name: "الگوی همگانی" }, 403);
+    await w.p.mim.client.post(`${w.P}/r/incident_template`, { name: "الگوی همگانی" });
+    // canned responses: the owning group's members or a manager
+    await w.p.agent.client.post(`${w.P}/r/incident_response`, { name: "پاسخ میز", body: "سلام", group_id: w.g.desk });
+    await w.p.agent.client.post(`${w.P}/r/incident_response`, { name: "پاسخ همگانی", body: "سلام" }, 403);
+    // problems: the network group's problem is not the desk agent's to add tasks to
+    const prb = (await w.p.pm.client.post(`${w.P}/r/problem`, { short_description: "قطعی‌های پیاپی سوئیچ", assignment_group_id: w.g.network })).row;
+    await w.p.agent.client.post(`${w.P}/r/problem_task`, { problem_id: prb.id, short_description: "x" }, 400);
+    await w.p.other.client.post(`${w.P}/r/problem_task`, { problem_id: prb.id, short_description: "بررسی لاگ سوئیچ" });
   });
 });
 
