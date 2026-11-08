@@ -33,6 +33,8 @@ const DiffPage = lazy(() => import("./DiffPage"));
 const Workspace = lazy(() => import("./Workspace"));
 const Dashboard = lazy(() => import("./Dashboard"));
 const Acknowledge = lazy(() => import("./Acknowledge"));
+const TreePlayer = lazy(() => import("./TreePlayer"));
+const TreeRecordActions = lazy(() => import("./ArticleActions").then((m) => ({ default: m.TreeRecordActions })));
 const ByNumber = lazy(() => import("./Acknowledge").then((m) => ({ default: m.ByNumber })));
 const RecordPanel = lazy(() => import("./RecordPanel"));
 const ArticleRecordActions = lazy(() => import("./ArticleActions").then((m) => ({ default: m.ArticleRecordActions })));
@@ -109,7 +111,7 @@ const module = recordModule({
     { table: "kb_task", path: "kb/tasks", label: "کارهای دانش", noun: "کار دانش", icon: ListTodo, area: "work", workspace: true, keywords: "کار دانش بازبینی ایراد کمبود KBT", list: { preset: { quick: ["open"], emptyText: "کار دانشی نیست" } } },
     { table: "kb_snippet", path: "kb/snippets", label: "پاسخ‌های کوتاه", noun: "پاسخ کوتاه", icon: MessageSquareQuote, section: S_CONTENT, area: "work", keywords: "پاسخ کوتاه پرسش متداول FAQ" },
     { table: "kb_block", path: "kb/blocks", label: "بلوک‌های بازکاربرد", noun: "بلوک", icon: Puzzle, section: S_CONTENT, area: "work", keywords: "بلوک متن مشترک تکرار" },
-    { table: "kb_decision_tree", path: "kb/trees", label: "درخت‌های تصمیم", noun: "درخت تصمیم", icon: Signpost, section: S_CONTENT, area: "work", keywords: "درخت تصمیم عیب‌یابی گام به گام" },
+    { table: "kb_decision_tree", path: "kb/trees", label: "درخت‌های تصمیم", noun: "درخت تصمیم", icon: Signpost, section: S_CONTENT, area: "work", keywords: "درخت تصمیم عیب‌یابی گام به گام", extensions: { headerActions: header("kb-tree-actions", TreeRecordActions) } },
     { table: "kb_attestation", path: "kb/attestations", label: "کارزارهای تأیید مطالعه", noun: "کارزار", icon: ShieldCheck, section: S_CONTENT, area: "work", keywords: "خط‌مشی بخشنامه تأیید مطالعه" },
     { table: "kb_ack", path: "kb/acks", label: "تأییدهای مطالعه", noun: "تأیید مطالعه", icon: FileCheck2, area: "work", hidden: true, search: false, newAction: false },
     { table: "kb_subscription", path: "kb/subscriptions", label: "دنبال‌شده‌های من", noun: "اشتراک", icon: BellRing, area: "work", search: false, newAction: false, keywords: "دنبال کردن اشتراک اعلان مقاله" },
@@ -149,6 +151,7 @@ const module = recordModule({
     { path: "kb/workspace", element: page(<Workspace />) },
     { path: "kb/dashboard", element: page(<Dashboard />) },
     { path: "kb/acknowledge", element: page(<Acknowledge />) },
+    { path: "kb/tree/:id", element: page(<TreePlayer />) },
     { path: "kb/drafts", element: <RecordListRoute table="kb_version" title="پیش‌نویس‌های من" preset={{ filter: MY_DRAFTS, columns: ["title", "version_label", "state", "approval", "updated_at"], sort: "-updated_at", emptyText: "پیش‌نویس بازی ندارید" }} /> },
     { path: "kb/reviews", element: <RecordListRoute table="kb_version" title="بازبینی‌های من" preset={{ filter: MY_REVIEWS, columns: ["title", "version_label", "author_id", "submitted_at", "change_note"], sort: "submitted_at", emptyText: "نسخه‌ای منتظر بازبینی شما نیست" }} /> },
   ],

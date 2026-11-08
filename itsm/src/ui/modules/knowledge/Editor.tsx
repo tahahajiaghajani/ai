@@ -337,7 +337,7 @@ export default function Editor() {
 
   const assistMenu = useMemo(() => {
     const actions = meta.data?.write_actions ?? {};
-    if (!(meta.data?.ai ?? []).length || !Object.keys(actions).length) return null;
+    if (!(meta.data?.ai ?? []).includes("write") || !Object.keys(actions).length) return null;
     return Object.entries(actions).map(([k, label]) => ({ key: k, label }));
   }, [meta.data]);
 

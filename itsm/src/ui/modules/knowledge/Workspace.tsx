@@ -7,8 +7,8 @@ import "./knowledge.css";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { useQuery } from "@tanstack/react-query";
-import { Button, Dropdown, Modal, Progress, Space } from "antd";
-import { ArrowLeftRight, GitMerge, PlayCircle, UserRoundCog } from "lucide-react";
+import { Button, Dropdown, Modal, Progress, Select, Space } from "antd";
+import { ArrowLeftRight, FileUp, GitMerge, PlayCircle, UserRoundCog } from "lucide-react";
 import type { KbCard } from "@shared/knowledge/api";
 import { useOrg } from "../../lib/org";
 import { useAction } from "../../lib/hooks";
@@ -17,7 +17,7 @@ import { PageHeader } from "../../components/layout";
 import { Card } from "../../components/blocks";
 import { EmptyState, JDate, Loader, StatCard } from "../../components/display";
 import { recordPath, RecordSelect } from "../../records";
-import { KB_KEYS, kbApi, useKbRefresh } from "./api";
+import { importFiles, KB_KEYS, kbApi, useKbHome, useKbRefresh, type ImportResult } from "./api";
 import { faNum } from "./model";
 
 const I16 = { size: 16, strokeWidth: 1.4, absoluteStrokeWidth: true } as const;
@@ -40,12 +40,64 @@ function Articles({ items, extra }: { items: (KbCard & { health_score?: number |
   );
 }
 
+/** «درون‌ریزی»: Markdown, text, HTML, Word and PDF files become drafts of a base (titles from the first heading). */
+function ImportDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { orgId } = useOrg();
+  const nav = useNavigate();
+  const home = useKbHome();
+  const refresh = useKbRefresh();
+  const bases = (home.data?.bases ?? []).filter((b) => b.contribute);
+  const [base, setBase] = useState<string | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
+  const [result, setResult] = useState<ImportResult | null>(null);
+  const run = useAction(() => importFiles(orgId, (base ?? bases[0]?.id)!, files), {
+    onSuccess: (r) => {
+      setResult(r);
+      setFiles([]);
+      void refresh();
+    },
+  });
+  const close = () => {
+    setResult(null);
+    setFiles([]);
+    onClose();
+  };
+  return (
+    <Modal open={open} title="درون‌ریزی مقاله‌ها" okText="درون‌ریزی" cancelText="بستن" onOk={() => run.mutate()} okButtonProps={{ disabled: !files.length || !(base ?? bases[0]?.id) }} confirmLoading={run.isPending} onCancel={close} destroyOnHidden>
+      <div className="flex flex-col gap-3">
+        <Select className="w-full" value={base ?? bases[0]?.id} onChange={setBase} options={bases.map((b) => ({ value: b.id, label: b.name }))} aria-label="پایگاه دانش" />
+        <label className="flex cursor-pointer flex-col items-center gap-1 rounded-md border border-dashed border-line-2 px-4 py-6 text-center text-[13px] text-ink-2 hover:border-line-3">
+          <FileUp size={20} strokeWidth={1.4} className="text-ink-3" />
+          {files.length ? `${faNum(files.length)} پرونده انتخاب شد` : "پرونده‌های Markdown، متن، HTML، Word یا PDF (تا ۲۰ پرونده، روی هم ۲۰ مگابایت)"}
+          <input type="file" multiple accept=".md,.markdown,.txt,.html,.htm,.docx,.pdf" className="hidden" onChange={(e) => setFiles([...(e.target.files ?? [])].slice(0, 20))} />
+        </label>
+        <p className="m-0 text-[12px] text-ink-3">هر پرونده پیش‌نویسی تازه می‌شود؛ عنوان از نخستین سرتیتر یا نام پرونده است. پیش از انتشار آن‌ها را بخوانید.</p>
+        {result ? (
+          <div className="flex flex-col gap-1 text-[13px]">
+            {result.created.map((c) => (
+              <button key={c.id} type="button" className="ds-link border-0 bg-transparent p-0 text-start" onClick={() => (close(), nav(`/${orgId}/kb/a/${c.id}`))}>
+                ✓ {c.title}
+              </button>
+            ))}
+            {result.failed.map((f) => (
+              <span key={f.name} className="text-danger">
+                ✕ {f.name}: {f.message}
+              </span>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    </Modal>
+  );
+}
+
 export default function Workspace() {
   const { api, orgId } = useOrg();
   const nav = useNavigate();
   const refresh = useKbRefresh();
   const w = useQuery({ queryKey: KB_KEYS.workspace(orgId), queryFn: () => kbApi.workspace(api), retry: false });
   const [reown, setReown] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [from, setFrom] = useState<string | null>(null);
   const [to, setTo] = useState<string | null>(null);
   const sweep = useAction(() => kbApi.sweep(api), { success: "بررسی‌های دانش اجرا شد", onSuccess: () => void refresh() });
@@ -72,6 +124,9 @@ export default function Workspace() {
         title="میز مدیر دانش"
         actions={
           <Space>
+            <Button icon={<FileUp {...I16} />} onClick={() => setImporting(true)}>
+              درون‌ریزی
+            </Button>
             <Button icon={<UserRoundCog {...I16} />} onClick={() => setReown(true)}>
               انتقال مالکیت
             </Button>
@@ -214,6 +269,7 @@ export default function Workspace() {
           </ul>
         </Card>
       ) : null}
+      <ImportDialog open={importing} onClose={() => setImporting(false)} />
       <Modal open={reown} title="انتقال مالکیت مقاله‌ها" okText="انتقال" cancelText="انصراف" okButtonProps={{ disabled: !from || !to || from === to, icon: <ArrowLeftRight size={14} strokeWidth={1.4} /> }} onOk={() => move.mutate()} confirmLoading={move.isPending} onCancel={() => setReown(false)} destroyOnHidden>
         <div className="flex flex-col gap-3">
           <RecordSelect table="user" value={from} onChange={(v) => setFrom((v as string) || null)} placeholder="مالک کنونی (مثلاً همکاری که رفته است)" />

@@ -4,7 +4,7 @@
 // «مقالهٔ دانش» (creates or opens its known-error article).
 import { useNavigate } from "react-router";
 import { Button, Tooltip } from "antd";
-import { BookOpenText, GitCompare, PencilLine, RotateCcw, ShieldCheck, SquarePen } from "lucide-react";
+import { BookOpenText, GitCompare, PencilLine, Play, RotateCcw, ShieldCheck, SquarePen } from "lucide-react";
 import { useOrg } from "../../lib/org";
 import { useAction } from "../../lib/hooks";
 import type { RecordContext } from "../../records";
@@ -75,6 +75,16 @@ export function VersionRecordActions({ ctx }: { ctx: RecordContext }) {
         </Button>
       ) : null}
     </>
+  );
+}
+
+export function TreeRecordActions({ ctx }: { ctx: RecordContext }) {
+  const { orgId } = useOrg();
+  const nav = useNavigate();
+  return (
+    <Button type="primary" icon={<Play {...I16} />} onClick={() => nav(`/${orgId}/kb/tree/${ctx.row.id}`)}>
+      اجرای درخت
+    </Button>
   );
 }
 

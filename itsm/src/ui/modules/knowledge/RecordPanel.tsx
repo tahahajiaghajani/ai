@@ -7,12 +7,12 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Button, Dropdown, Input, Modal, Tooltip } from "antd";
-import { BookPlus, Check, CornerDownLeft, FilePen, Lock, MoreHorizontal, Search, Unlink } from "lucide-react";
+import { BookPlus, Check, CornerDownLeft, FilePen, Lock, MoreHorizontal, Search, Sparkles, Unlink } from "lucide-react";
 import { useOrg } from "../../lib/org";
 import { useAction } from "../../lib/hooks";
 import { Loader } from "../../components/display";
 import { recordsApi, type RecordContext } from "../../records";
-import { KB_KEYS, kbApi, kbSession, useKbRefresh } from "./api";
+import { KB_KEYS, kbApi, kbSession, useKbMeta, useKbRefresh } from "./api";
 import { LINK_KINDS } from "./model";
 
 const I14 = { size: 14, strokeWidth: 1.4, absoluteStrokeWidth: true } as const;
@@ -25,6 +25,8 @@ export default function RecordPanel({ ctx }: { ctx: RecordContext }) {
   const [asked, setAsked] = useState("");
   const [detach, setDetach] = useState<{ link_id: string; title: string } | null>(null);
   const [reason, setReason] = useState("");
+  const meta = useKbMeta();
+  const ai = (meta.data?.ai ?? []).includes("draft");
   const table = ctx.table;
   const id = ctx.row.id;
   const p = useQuery({ queryKey: [...KB_KEYS.record(orgId, table, id), asked], queryFn: () => kbApi.record(api, table, id, asked || null), staleTime: 60_000 });
@@ -52,7 +54,7 @@ export default function RecordPanel({ ctx }: { ctx: RecordContext }) {
     success: "پیوند مقاله در پاسخ به درخواست‌کننده فرستاده شد",
     onSuccess: () => ctx.refresh(),
   });
-  const capture = useAction((wip: boolean) => kbApi.capture(api, { table, id, wip, title: wip ? asked || p.data?.query || null : null }), {
+  const capture = useAction((how: boolean | "ai") => kbApi.capture(api, { table, id, wip: how === true, ai: how === "ai", title: how === true ? asked || p.data?.query || null : null }), {
     success: (d) => (d.article.kcs_confidence === "wip" ? "مقالهٔ در حال کار ساخته شد" : "پیش‌نویس مقاله از این رکورد ساخته شد"),
     onSuccess: (d) => {
       done();
@@ -152,6 +154,13 @@ export default function RecordPanel({ ctx }: { ctx: RecordContext }) {
           <Button size="small" icon={<BookPlus {...I14} />} onClick={() => capture.mutate(false)} loading={capture.isPending && capture.variables === false}>
             نوشتن مقاله از این رکورد
           </Button>
+          {ai ? (
+            <Tooltip title="پیش‌نویس را هوش مصنوعی از شرح و راه‌حل این رکورد می‌نویسد؛ شما می‌خوانید و منتشر می‌کنید">
+              <Button size="small" type="text" icon={<Sparkles {...I14} />} onClick={() => capture.mutate("ai")} loading={capture.isPending && capture.variables === "ai"}>
+                پیش‌نویس با هوش مصنوعی
+              </Button>
+            </Tooltip>
+          ) : null}
           {!d.suggestions.length ? (
             <Tooltip title="مقالهٔ کوتاهِ «در حال کار» تا همکارانی که همین را جست‌وجو می‌کنند آن را ببینند و کامل کنند">
               <Button size="small" type="text" onClick={() => capture.mutate(true)} loading={capture.isPending && capture.variables === true}>

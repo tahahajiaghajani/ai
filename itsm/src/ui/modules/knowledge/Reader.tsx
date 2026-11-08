@@ -8,8 +8,8 @@
 import "./knowledge.css";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
-import { Button, Dropdown, Input, Modal, Radio, Select, Space, Tag, Tooltip } from "antd";
-import { Bell, BellOff, BookOpenText, CircleCheck, Clock, Download, Eye, Flag, History, Languages, Lock, MoreHorizontal, PencilLine, RotateCcw, ShieldCheck, Sparkles, Star, ThumbsDown, ThumbsUp, Archive, UserSearch } from "lucide-react";
+import { Button, Checkbox, Dropdown, Input, Modal, Radio, Select, Space, Tag, Tooltip } from "antd";
+import { Bell, BellOff, BookOpenText, CircleCheck, Clock, Download, ExternalLink, Eye, Flag, History, Languages, Link2, Lock, MoreHorizontal, PencilLine, Printer, RotateCcw, ShieldCheck, Sparkles, Star, ThumbsDown, ThumbsUp, Archive, UserSearch } from "lucide-react";
 import type { KbReadView } from "@shared/knowledge/api";
 import { useOrg } from "../../lib/org";
 import { useAction } from "../../lib/hooks";
@@ -19,7 +19,7 @@ import { Note } from "../../components/blocks";
 import { EmptyState, JDate, Loader } from "../../components/display";
 import { attachmentUrl, recordPath, RecordSelect } from "../../records";
 import { ArticleBody } from "./ArticleBody";
-import { kbApi, kbSession, useKbRead, useKbRefresh } from "./api";
+import { kbApi, kbSession, useKbMeta, useKbRead, useKbRefresh } from "./api";
 import { activeHeading, faNum, FLAG_REASONS, helpfulLine, languageLabel, LANGUAGES, NOT_HELPFUL_REASONS, readingLabel } from "./model";
 import { wordCount } from "@shared/knowledge/logic";
 
@@ -172,6 +172,9 @@ function Actions({ v }: { v: KbReadView }) {
   const [replacement, setReplacement] = useState<string | null>(null);
   const [translateOpen, setTranslateOpen] = useState(false);
   const [lang, setLang] = useState("en");
+  const [machine, setMachine] = useState(false);
+  const meta = useKbMeta();
+  const ai = (meta.data?.ai ?? []).includes("translate");
   const [explainOpen, setExplainOpen] = useState(false);
   const [who, setWho] = useState<string | null>(null);
   const [explained, setExplained] = useState<Awaited<ReturnType<typeof kbApi.explain>> | null>(null);
@@ -185,7 +188,7 @@ function Actions({ v }: { v: KbReadView }) {
     },
   });
   const restore = useAction(() => kbApi.restore(api, id), { success: "مقاله بازگردانده شد", onSuccess: () => void refresh() });
-  const translate = useAction(() => kbApi.translate(api, id, lang), { success: "پیش‌نویس ترجمه ساخته شد", onSuccess: (d) => nav(`/${orgId}/kb/edit/${d.version.id}`) });
+  const translate = useAction(() => kbApi.translate(api, id, lang, machine && ai), { success: (d) => (d.article.machine_translated ? "ترجمهٔ ماشینی آماده شد؛ پیش از انتشار آن را بخوانید" : "پیش‌نویس ترجمه ساخته شد"), onSuccess: (d) => nav(`/${orgId}/kb/edit/${d.version.id}`) });
   const explain = useAction((user: string) => kbApi.explain(api, id, user), { onSuccess: (d) => setExplained(d) });
   const items = [
     { key: "record", icon: <History {...I14} />, label: "نسخه‌ها و جزئیات", onClick: () => nav(`/${orgId}/${recordPath("kb_article", id)}`) },
@@ -221,7 +224,14 @@ function Actions({ v }: { v: KbReadView }) {
         </div>
       </Modal>
       <Modal open={translateOpen} title="ترجمهٔ مقاله" okText="ساخت پیش‌نویس ترجمه" cancelText="انصراف" onOk={() => translate.mutate()} confirmLoading={translate.isPending} onCancel={() => setTranslateOpen(false)} destroyOnHidden>
-        <Select className="w-full" value={lang} onChange={setLang} options={LANGUAGES.filter((l) => l.value !== (v.article.language ?? "fa"))} aria-label="زبان ترجمه" />
+        <div className="flex flex-col gap-3">
+          <Select className="w-full" value={lang} onChange={setLang} options={LANGUAGES.filter((l) => l.value !== (v.article.language ?? "fa"))} aria-label="زبان ترجمه" />
+          {ai ? (
+            <Checkbox checked={machine} onChange={(e) => setMachine(e.target.checked)}>
+              ترجمهٔ ماشینی با هوش مصنوعی (برچسب می‌خورد و پیش از انتشار باید تأیید شود)
+            </Checkbox>
+          ) : null}
+        </div>
       </Modal>
       <Modal open={explainOpen} title="چه کسی این مقاله را می‌بیند؟" footer={null} onCancel={() => (setExplainOpen(false), setExplained(null))} destroyOnHidden>
         <div className="flex flex-col gap-3">
@@ -390,6 +400,20 @@ export default function Reader() {
             </details>
           ) : null}
 
+          {a.article_type === "link" && a.external_url ? (
+            <div className="mb-5">
+              <Note
+                action={
+                  <Button type="primary" size="small" href={String(a.external_url)} target="_blank" rel="noopener noreferrer nofollow" icon={<ExternalLink {...I14} />}>
+                    رفتن به منبع
+                  </Button>
+                }
+              >
+                این مقاله به منبعی بیرون از مرکز دانش می‌رود: <bdi className="ds-ltr">{String(a.external_url).replace(/^https?:\/\//, "").slice(0, 80)}</bdi>
+              </Note>
+            </div>
+          ) : null}
+
           <ArticleBody text={v.body} />
 
           {v.internal_body ? (
@@ -472,6 +496,14 @@ export default function Reader() {
               <Toc toc={v.toc} active={active} />
             </>
           ) : null}
+          <div className="mt-6 flex flex-col items-start gap-1">
+            <Button size="small" type="text" icon={<Printer {...I14} />} onClick={() => window.print()}>
+              چاپ یا PDF
+            </Button>
+            <Button size="small" type="text" icon={<Link2 {...I14} />} onClick={() => void navigator.clipboard?.writeText(`${window.location.origin}/${orgId}/kb/a/${a.id}`).catch(() => undefined)}>
+              رونوشت پیوند
+            </Button>
+          </div>
           {v.base ? (
             <div className="mt-6 text-[12px] text-ink-3">
               <Tooltip title="همهٔ مقاله‌های این پایگاه">

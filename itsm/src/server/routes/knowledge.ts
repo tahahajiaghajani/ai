@@ -331,6 +331,19 @@ knowledgeRoutes.post("/gaps", async (c) => {
   return c.json(await reportGap(ctx, { text: p.text, kind: "reported", record: p.record ?? null, base_id: p.base_id ?? null }));
 });
 
+/** A walk through a decision tree the caller may read: started or reached an outcome (counters and the stream). */
+knowledgeRoutes.post("/trees/:id/event", async (c) => {
+  const p = await body(c, z.object({ kind: z.enum(["start", "finish"]), node: text(80).nullish(), session_id: session }));
+  const ctx = c.get("ctx");
+  const tid = id(c.req.param("id"));
+  const t = (await get(ctx, "kb_decision_tree", tid)).row as Row; // 404 unless readable
+  const sys = sysOf(ctx);
+  const field = p.kind === "start" ? "starts" : "finishes";
+  await sys.write((tx) => updateIn(tx, sys, "kb_decision_tree", tid, { [field]: Number(t[field] ?? 0) + 1 }, { trusted: true, keepVersion: true }));
+  await logEvent(ctx.db, ctx, { kind: "tree", session_id: p.session_id ?? null, channel: "tree", data: { tree: tid, step: p.kind, node: p.node ?? null } });
+  return c.json({ ok: true });
+});
+
 // ---------------------------------------------------------------------------------------------------------------
 // read and acknowledge
 

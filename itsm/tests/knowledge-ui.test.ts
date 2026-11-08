@@ -10,7 +10,7 @@ import remarkGfm from "remark-gfm";
 import { headings } from "@shared/knowledge/logic";
 import {
   activeHeading, calloutOf, categoryTree, draftChanges, helpfulLine, highlight, insertArticleLink, insertBlock, insertBlockRef, insertCallout, insertCode, insertImage, insertTable, readSearch, readingMinutes,
-  remarkCallouts, remarkSlugs, takesKnowledge, toggleHeading, urlTransform, writeSearch,
+  remarkCallouts, remarkSlugs, takesKnowledge, toggleHeading, treeNodes, urlTransform, writeSearch,
 } from "../src/ui/modules/knowledge/model";
 
 const render = (md: string) => renderToStaticMarkup(createElement(ReactMarkdown, { remarkPlugins: [remarkGfm, remarkSlugs(md), remarkCallouts], skipHtml: true, urlTransform }, md));
@@ -138,3 +138,26 @@ describe("drafts and panels", () => {
     expect(takesKnowledge({ key: "ci", features: { links: true }, fields: f(["name"]) })).toBe(false);
   });
 });
+
+describe("decision trees", () => {
+  it("reads nodes as stored, drops malformed ones and options, and finds the start", () => {
+    const { nodes, start } = treeNodes(
+      [
+        { id: "q1", question: "روشن است؟", options: [{ label: "بله", next: "a1" }, { label: "", next: "a1" }, { label: "نه" }] },
+        { id: "a1", outcome: "تمام", article_id: "0190A8A2-1111-7000-8000-000000000001" },
+        { id: "q1", text: "تکراری" },
+        { text: "بی‌شناسه" },
+        null,
+      ],
+      "missing",
+    );
+    expect([...nodes.keys()]).toEqual(["q1", "a1"]);
+    expect(start).toBe("q1");
+    expect(nodes.get("q1")!.text).toBe("روشن است؟");
+    expect(nodes.get("q1")!.options).toEqual([{ label: "بله", next: "a1" }]);
+    expect(nodes.get("a1")!.article_id).toBe("0190a8a2-1111-7000-8000-000000000001");
+    expect(treeNodes("x").start).toBeNull();
+    expect(treeNodes([{ id: "a" }, { id: "b" }], "b").start).toBe("b");
+  });
+});
+

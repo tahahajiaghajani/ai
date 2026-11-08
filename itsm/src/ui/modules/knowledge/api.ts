@@ -3,7 +3,7 @@
 // (retire, restore, review), translations, links to records and capture, acknowledgements, the dashboard, the
 // workspace and the AI helpers — typed calls and React Query hooks. Light on purpose: the module's index imports it.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import type { OrgApi } from "../../lib/api";
+import { ApiError, type OrgApi } from "../../lib/api";
 import { useOrg } from "../../lib/org";
 import { registerLiveQueries } from "../../lib/live";
 import type {
@@ -103,6 +103,7 @@ export const kbApi = {
   capture: (api: OrgApi, a: { table: string; id: string; wip?: boolean; title?: string | null; base_id?: string | null; ai?: boolean }) => api.post<{ article: Row; version: Row | null }>("/knowledge/capture", a),
   fromKnownError: (api: OrgApi, id: string) => api.post<{ article: Row; existing: boolean }>(`/knowledge/known-errors/${enc(id)}/article`, {}),
   reportGap: (api: OrgApi, text: string, record?: { table: string; id: string; number?: string | null } | null) => api.post<{ gap_id: string; number: string | null }>("/knowledge/gaps", { text, record: record ?? null }),
+  treeEvent: (api: OrgApi, id: string, kind: "start" | "finish", node?: string | null) => api.post<{ ok: true }>(`/knowledge/trees/${enc(id)}/event`, { kind, node: node ?? null, session_id: kbSession() }),
   attestations: (api: OrgApi) => api.get<{ items: KbAttestationItem[] }>("/knowledge/attestations/mine"),
   ack: (api: OrgApi, id: string) => api.post<Record<string, unknown>>(`/knowledge/attestations/${enc(id)}/ack`, {}),
   dashboard: (api: OrgApi, days: number) => api.get<KbDashboard>("/knowledge/dashboard", { days }),
@@ -113,6 +114,36 @@ export const kbApi = {
   write: (api: OrgApi, action: string, text: string, base_id?: string | null) => api.post<{ text: string; model?: string | null }>("/knowledge/ai/write", { action, text, base_id: base_id ?? null }),
   skill: (api: OrgApi, skill: string, id?: string | null, other?: string | null) => api.post<Record<string, unknown>>(`/knowledge/ai/${enc(skill)}`, { id: id ?? null, other: other ?? null }),
 };
+
+export interface ImportResult {
+  created: { id: string; number: string | null; title: string }[];
+  failed: { name: string; message: string }[];
+}
+
+/** Files (Markdown, text, HTML, Word, PDF) become drafts of a base (multipart; the server reads and checks them). */
+export async function importFiles(orgId: string, baseId: string, files: File[]): Promise<ImportResult> {
+  const form = new FormData();
+  form.append("base_id", baseId);
+  for (const f of files) form.append("file", f, f.name);
+  let res: Response;
+  try {
+    res = await fetch(`/api/o/${enc(orgId)}/knowledge/import`, { method: "POST", body: form, credentials: "same-origin" });
+  } catch {
+    throw new ApiError(0, "network", "ارتباط با سرور برقرار نشد؛ اتصال را بررسی کنید");
+  }
+  const text = await res.text();
+  let data: (ImportResult & { error?: { code?: string; message?: string } }) | null = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = null;
+  }
+  if (!res.ok || !data || !Array.isArray(data.created)) {
+    if (res.status === 401) window.dispatchEvent(new CustomEvent("itsm:unauthorized"));
+    throw new ApiError(res.status, data?.error?.code ?? "error", res.status === 413 ? "پرونده‌ها بزرگ‌تر از ۲۰ مگابایت است" : (data?.error?.message ?? "درون‌ریزی انجام نشد"));
+  }
+  return { created: data.created, failed: data.failed ?? [] };
+}
 
 export function useKbMeta() {
   const { api, orgId } = useOrg();

@@ -342,6 +342,42 @@ export const LANGUAGES: { value: string; label: string }[] = [
 
 export const languageLabel = (code: string | null | undefined) => LANGUAGES.find((l) => l.value === code)?.label ?? (code ?? "");
 
+// ---------------------------------------------------------------- decision trees
+
+export interface TreeStep {
+  id: string;
+  title: string | null;
+  text: string | null;
+  options: { label: string; next: string }[];
+  article_id: string | null;
+  outcome: string | null;
+}
+
+/** The nodes of a decision tree as stored (malformed entries dropped) and where it starts. */
+export function treeNodes(raw: unknown, start?: string | null): { nodes: Map<string, TreeStep>; start: string | null } {
+  const nodes = new Map<string, TreeStep>();
+  for (const r of Array.isArray(raw) ? raw : []) {
+    if (!r || typeof r !== "object") continue;
+    const o = r as Record<string, unknown>;
+    const id = String(o.id ?? "").trim();
+    if (!id || nodes.has(id)) continue;
+    const options = (Array.isArray(o.options) ? o.options : [])
+      .map((x) => (x && typeof x === "object" ? { label: String((x as Record<string, unknown>).label ?? "").trim(), next: String((x as Record<string, unknown>).next ?? "").trim() } : null))
+      .filter((x): x is { label: string; next: string } => !!x && !!x.label && !!x.next);
+    const text = o.text ?? o.question ?? o.answer;
+    nodes.set(id, {
+      id,
+      title: o.title ? String(o.title) : null,
+      text: text ? String(text) : null,
+      options,
+      article_id: typeof o.article_id === "string" && /^[0-9a-f-]{36}$/i.test(o.article_id) ? o.article_id.toLowerCase() : null,
+      outcome: o.outcome ? String(o.outcome) : null,
+    });
+  }
+  const first = start && nodes.has(start) ? start : (nodes.keys().next().value ?? null);
+  return { nodes, start: first };
+}
+
 /** Is a table one whose records the knowledge panel belongs on (a task-like engine table with links, not knowledge's own)? */
 export function takesKnowledge(def: { key: string; module?: string; features?: { links?: boolean }; fields: { name: string }[] }): boolean {
   if (def.key.startsWith("kb_") || def.module === "knowledge") return false;

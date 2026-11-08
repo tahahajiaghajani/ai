@@ -271,3 +271,53 @@ describe("quality loop and the manager's screens", () => {
     expect(again.existing).toBe(true);
   });
 });
+
+describe("import and decision trees", () => {
+  const importFile = async (as: { cookie?: string }, baseId: string, files: { name: string; text: string; type: string }[]) => {
+    const form = new FormData();
+    form.append("base_id", baseId);
+    for (const f of files) form.append("file", new File([Buffer.from(f.text, "utf8")], f.name, { type: f.type }));
+    const headers: Record<string, string> = {};
+    if (as.cookie) headers.cookie = as.cookie;
+    const res = await w.e.app.fetch(new Request(`http://local.test/api${P()}/knowledge/import`, { method: "POST", headers, body: form }));
+    return { status: res.status, body: JSON.parse(await res.text()) };
+  };
+
+  it("imports Markdown and text files as drafts (title from the first heading; same title refused)", async () => {
+    const r = await importFile(w.p.km.client as never, w.bases.guide, [
+      { name: "printer.md", text: "# نصب چاپگر رنگی\n\n## گام‌ها\n\n1. درایور را نصب کنید\n", type: "text/markdown" },
+      { name: "notes.txt", text: "یادداشت‌های پشتیبانی تلفن همراه", type: "text/plain" },
+      { name: "again.md", text: "# نصب چاپگر رنگی\n\nتکراری\n", type: "text/markdown" },
+    ]);
+    expect(r.status).toBe(200);
+    expect(r.body.created.map((c: any) => c.title)).toEqual(["نصب چاپگر رنگی", "notes"]);
+    expect(r.body.failed.map((f: any) => f.name)).toEqual(["again.md"]);
+    const a = (await w.o.get(`${P()}/r/kb_article/${r.body.created[0].id}`)).row;
+    expect(a.state).toBe("draft");
+    const v = (await w.o.get(`${P()}/r/kb_version/${a.draft_version_id}`)).row;
+    expect(v.body).toContain("درایور را نصب کنید");
+    expect(v.body).not.toContain("# نصب چاپگر رنگی");
+    expect((await importFile(w.p.req.client as never, w.bases.guide, [{ name: "x.md", text: "# x", type: "text/markdown" }])).body.failed.length).toBe(1);
+  });
+
+  it("walks a decision tree and counts starts and outcomes for readers", async () => {
+    const t = (await w.p.km.client.post(`${P()}/r/kb_decision_tree`, {
+      title: "چاپ نمی‌شود",
+      base_id: w.bases.guide,
+      start: "q1",
+      nodes: [
+        { id: "q1", text: "چاپگر روشن است؟", options: [{ label: "بله", next: "q2" }, { label: "نه", next: "a1" }] },
+        { id: "q2", text: "کاغذ گیر کرده؟", options: [{ label: "بله", next: "a2" }] },
+        { id: "a1", outcome: "چاپگر را روشن کنید" },
+        { id: "a2", outcome: "کاغذ را بیرون بکشید", article_id: printer.id },
+      ],
+    })).row;
+    expect(await statusOf(w.p.km.client, "POST", `${P()}/r/kb_decision_tree`, { title: "بد", base_id: w.bases.guide, nodes: [{ id: "x", options: [{ label: "?", next: "nowhere" }] }] })).toBe(400);
+    await w.p.km.client.post(`${P()}/r/kb_decision_tree/${t.id}/transition`, { to: "published" });
+    await w.p.req.client.post(`${P()}/knowledge/trees/${t.id}/event`, { kind: "start", node: "q1" });
+    await w.p.req.client.post(`${P()}/knowledge/trees/${t.id}/event`, { kind: "finish", node: "a2" });
+    const after = (await w.o.get(`${P()}/r/kb_decision_tree/${t.id}`)).row;
+    expect([after.starts, after.finishes]).toEqual([1, 1]);
+  });
+});
+
