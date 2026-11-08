@@ -85,26 +85,26 @@ const inAuthorize = (...more: Cond[]): Cond => ({ and: [{ f: "state", op: "eq", 
 export function approvalRules(): Row[] {
   return [
     {
-      name: "تغییر عادی کم‌ریسک ← مدیر درخواست‌دهنده", sort_order: 10, mode: "sequential", expire_after: 5 * 24 * H, remind_every: 24 * H, expire_action: "rejected",
+      name: "تغییر عادی کم‌ریسک ← مدیر درخواست‌دهنده", sort_order: 10, mode: "sequential", expire_after: 5 * 24 * H, remind_every: 24 * H, expire_action: "reject",
       condition: inAuthorize({ f: "type", op: "eq", v: "normal" }, { f: "risk", op: "eq", v: "low" }),
       auto_approve: { and: [{ f: "backout_tested", op: "eq", v: true }, { f: "conflict_count", op: "eq", v: 0 }, { f: "risk_score", op: "lt", v: 15 }] },
       levels: [{ name: "مدیر درخواست‌دهنده", sources: [{ kind: "manager" }], rule: "any" }],
       description: "اگر برنامهٔ بازگشت آزموده شده، تداخلی نیست و امتیاز ریسک کمتر از ۱۵ است، خودکار تأیید می‌شود (تأیید بر پایهٔ شواهد).",
     },
     {
-      name: "تغییر عادی با ریسک متوسط ← مدیر تغییر", sort_order: 20, mode: "sequential", expire_after: 5 * 24 * H, remind_every: 24 * H, expire_action: "rejected",
+      name: "تغییر عادی با ریسک متوسط ← مدیر تغییر", sort_order: 20, mode: "sequential", expire_after: 5 * 24 * H, remind_every: 24 * H, expire_action: "reject",
       condition: inAuthorize({ f: "type", op: "eq", v: "normal" }, { f: "risk", op: "eq", v: "moderate" }),
       levels: [{ name: "مدیر تغییر", sources: [{ kind: "owner", of: "change_manager" }], rule: "any" }],
       description: "مدیر تغییرِ ثبت‌شده روی تغییر، وگرنه اعضای گروه مدیران تغییر.",
     },
     {
-      name: "تغییر عادی پرریسک ← هیئت CAB", sort_order: 30, mode: "sequential", expire_after: 10 * 24 * H, remind_every: 24 * H, expire_action: "rejected",
+      name: "تغییر عادی پرریسک ← هیئت CAB", sort_order: 30, mode: "sequential", expire_after: 10 * 24 * H, remind_every: 24 * H, expire_action: "reject",
       condition: inAuthorize({ f: "type", op: "eq", v: "normal" }, { f: "risk", op: "in", v: ["high", "very_high"] }),
       levels: [{ name: "هیئت CAB", sources: [{ kind: "owner", of: "cab" }], rule: "percent", threshold: 50 }],
       description: "بیش از نیمی از اعضای CAB (رأی در جلسه یا در «تأییدهای من»).",
     },
     {
-      name: "تغییر اضطراری ← هیئت اضطراری (ECAB)", sort_order: 40, mode: "sequential", expire_after: 8 * H, remind_every: H, expire_action: "rejected",
+      name: "تغییر اضطراری ← هیئت اضطراری (ECAB)", sort_order: 40, mode: "sequential", expire_after: 8 * H, remind_every: H, expire_action: "reject",
       condition: inAuthorize({ f: "type", op: "eq", v: "emergency" }),
       levels: [{ name: "هیئت اضطراری", sources: [{ kind: "owner", of: "ecab" }], rule: "any" }],
       description: "یک عضو هیئت اضطراری کافی است؛ مستندسازی پس از اجرا کامل می‌شود.",

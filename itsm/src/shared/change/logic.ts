@@ -130,8 +130,11 @@ export function requiredFor(state: string, model: ModelLike | null | undefined, 
   return [...new Set(list)];
 }
 
-/** The fields locked in `state` (cumulative: a state's locks hold in every later state). */
-export function lockedIn(state: string, model: ModelLike | null | undefined): string[] {
+/**
+ * The fields locked in `state` (cumulative: a state's locks hold in every later state). Documentation a model defers
+ * (emergency changes) stays open until the change closes.
+ */
+export function lockedIn(state: string, model: ModelLike | null | undefined, type?: unknown): string[] {
   const at = orderOf(state);
   if (at < 0) return [];
   const out = new Set<string>();
@@ -139,6 +142,8 @@ export function lockedIn(state: string, model: ModelLike | null | undefined): st
     const custom = model?.locks && typeof model.locks === "object" ? model.locks[s] : undefined;
     for (const f of Array.isArray(custom) ? strList(custom) : (DEFAULT_LOCKS[s] ?? [])) out.add(f);
   }
+  const deferred = model ? !!model.docs_deferred : type === "emergency";
+  if (deferred) for (const f of DEFERRED_DOCS) out.delete(f);
   return [...out];
 }
 

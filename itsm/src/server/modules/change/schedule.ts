@@ -150,24 +150,52 @@ export const CONFLICT_TRACKED = ["new", "assess", "authorize", "scheduled", "imp
 
 const same = (a: unknown, b: unknown) => (a ?? null) === (b ?? null) || (msOf(a) !== null && msOf(a) === msOf(b));
 
+/** What a change's conflict detection decided: the conflicts found, the stored rows, and the change's flags. */
+export interface ConflictPlan {
+  found: ConflictFound[];
+  existing: Row[];
+  flags: { conflict_status: string; conflict_count: number; conflict_checked_at: string; in_blackout: boolean; outside_window: boolean };
+}
+
 /**
- * Detect a change's conflicts again and store them: a conflict found before keeps its review (status, justification)
- * by its key; one no longer found stays with `active: false` (its review survives when it comes back). The change gets
- * its conflict status, open count, blackout and window flags. Returns the other changes involved before or now.
+ * Plan a change's conflicts (reads only, so a hook may call it before the row is stored): what is found now, the rows
+ * stored before (their reviews survive by key), and the flags the change gets — status, open count, blackout and
+ * window flags. A change no longer tracked (implemented, closed) keeps its status and finds nothing.
  */
-export async function recomputeConflicts(tx: Tx, ctx: Ctx, id: string): Promise<{ others: string[]; added: number; open: number }> {
+export async function planConflicts(q: Queryable, ctx: Ctx, row: Row): Promise<ConflictPlan> {
   const sys = sysOf(ctx);
-  const row = await liveRow(tx, sys, "change_request", id);
-  if (!row) return { others: [], added: 0, open: 0 };
-  const cfg = await changeConfig(tx, sys);
   const tracked = CONFLICT_TRACKED.includes(String(row.state));
-  const found = tracked ? await detectFor(tx, sys, row, cfg) : [];
-  const existing = await liveRows(tx, sys, "change_conflict", eqAll({ change_id: id }));
+  const found = tracked ? await detectFor(q, sys, row, await changeConfig(q, sys)) : [];
+  const existing = row.id ? await liveRows(q, sys, "change_conflict", eqAll({ change_id: String(row.id) })) : [];
   const byKey = new Map(existing.map((r) => [String(r.key), r]));
+  const rows = found.map((f) => ({ active: true, status: byKey.get(f.key)?.status ?? "detected" }));
+  const st = conflictState(rows);
+  return {
+    found,
+    existing,
+    flags: {
+      conflict_status: tracked ? st.status : (row.conflict_status ?? "not_checked"),
+      conflict_count: st.open,
+      conflict_checked_at: iso(Date.now()),
+      in_blackout: found.some((f) => f.kind === "blackout" || f.kind === "freeze"),
+      outside_window: found.some((f) => f.kind === "outside_window"),
+    },
+  };
+}
+
+/**
+ * Store a plan's conflict rows: a conflict found before keeps its review (status, justification) by its key; one no
+ * longer found stays with `active: false` (its review survives when it comes back). Returns the other changes
+ * involved before or now, and how many conflicts are new (announced with `record.change.conflict_detected`).
+ */
+export async function storeConflicts(tx: Tx, ctx: Ctx, row: Row, plan: ConflictPlan): Promise<{ others: string[]; added: number; open: number }> {
+  const sys = sysOf(ctx);
+  const id = String(row.id);
+  const byKey = new Map(plan.existing.map((r) => [String(r.key), r]));
   const now = iso(Date.now());
   const people = { assignment_group_id: row.assignment_group_id ?? null, assigned_to: row.assigned_to ?? null, change_owner_id: row.change_owner_id ?? null };
   let added = 0;
-  for (const f of found) {
+  for (const f of plan.found) {
     const values: Row = {
       summary: f.summary.slice(0, 300), kind: f.kind, other_change_id: f.other_change_id ?? null, window_id: f.window_id ?? null, lockdown_id: f.lockdown_id ?? null,
       ci_id: f.ci_id ?? null, service_id: f.service_id ?? null, overlap_start: iso(f.overlap_start), overlap_end: iso(f.overlap_end), active: true, ...people,
@@ -182,27 +210,28 @@ export async function recomputeConflicts(tx: Tx, ctx: Ctx, id: string): Promise<
     }
   }
   for (const stale of byKey.values()) if (stale.active !== false) await updateIn(tx, sys, "change_conflict", stale.id, { active: false }, { trusted: true, keepVersion: true });
-  const rows = await liveRows(tx, sys, "change_conflict", eqAll({ change_id: id }));
-  const live = rows.filter((r) => r.active !== false);
-  const st = conflictState(rows);
-  const patch: Row = {
-    conflict_status: tracked ? st.status : row.conflict_status ?? "not_checked",
-    conflict_count: st.open,
-    conflict_checked_at: now,
-    in_blackout: live.some((r) => r.kind === "blackout" || r.kind === "freeze"),
-    outside_window: live.some((r) => r.kind === "outside_window"),
-  };
-  if (Object.entries(patch).some(([k, v]) => k !== "conflict_checked_at" && !same(row[k], v)) || !row.conflict_checked_at) {
-    await updateIn(tx, sys, "change_request", id, patch, { trusted: true, keepVersion: true });
-  }
   if (added) {
     const users = [row.change_owner_id, row.assigned_to, row.change_manager_id].filter((x): x is string => typeof x === "string" && !!x);
     await emitEvent(tx, sys, { kind: "record.change.conflict_detected", table: "change_request", id, number: row.number ?? null, actor: null, data: { users: [...new Set(users)], count: added } });
   }
   const others = new Set<string>();
-  for (const f of found) if (f.other_change_id) others.add(f.other_change_id);
-  for (const r of existing) if (r.other_change_id) others.add(String(r.other_change_id));
-  return { others: [...others], added, open: st.open };
+  for (const f of plan.found) if (f.other_change_id) others.add(f.other_change_id);
+  for (const r of plan.existing) if (r.other_change_id) others.add(String(r.other_change_id));
+  return { others: [...others], added, open: plan.flags.conflict_count };
+}
+
+/** Detect a stored change's conflicts again, store them and bring its flags in step (jobs, «بررسی دوباره»). */
+export async function recomputeConflicts(tx: Tx, ctx: Ctx, id: string): Promise<{ others: string[]; added: number; open: number }> {
+  const sys = sysOf(ctx);
+  const row = await liveRow(tx, sys, "change_request", id);
+  if (!row) return { others: [], added: 0, open: 0 };
+  const plan = await planConflicts(tx, sys, row);
+  const r = await storeConflicts(tx, sys, row, plan);
+  const patch: Row = plan.flags;
+  if (Object.entries(patch).some(([k, v]) => k !== "conflict_checked_at" && !same(row[k], v)) || !row.conflict_checked_at) {
+    await updateIn(tx, sys, "change_request", id, patch, { trusted: true, keepVersion: true });
+  }
+  return r;
 }
 
 /** Bring a change's conflict status and open count in step with its conflict rows (after a person's review). */

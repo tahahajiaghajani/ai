@@ -41,7 +41,7 @@ import {
 import { impactedServicesOf } from "./impact";
 import { applyLockdown, releaseLockdown } from "./lockdown";
 import { ensurePir } from "./pir";
-import { holdsOn, leadDays, recomputeConflicts, scheduleBlocks, syncConflictState, teamScoreOf } from "./schedule";
+import { holdsOn, leadDays, planConflicts, scheduleBlocks, storeConflicts, syncConflictState, teamScoreOf, type ConflictPlan } from "./schedule";
 import { activateTasks, blockingDeps, createTemplateTasks, openMandatoryTasks, taskMayRun, templateTasksProblem } from "./tasks";
 
 type W = WriteArgs;
@@ -65,6 +65,9 @@ export const CONFLICT_TRIGGERS = [
 ];
 /** States before implementation, in which the schedule and the notice still matter. */
 const PLANNING = ["new", "assess", "authorize", "scheduled"];
+
+/** Conflict plans of the writes of a transaction, from beforeWrite to afterWrite (by change id). */
+const conflictPlans = new WeakMap<Tx, Map<string, ConflictPlan>>();
 
 const forwardMove = (from: string, to: string) => to !== "canceled" && STATE_ORDER.indexOf(to as never) > STATE_ORDER.indexOf(from as never);
 
@@ -139,7 +142,7 @@ async function changeBefore(w: W): Promise<void> {
 
   // field locks of the current state (a person's edits; the system and trusted code keep their stamps)
   if (!creating && p && person(w)) {
-    for (const f of lockedIn(String(p.state), m)) {
+    for (const f of lockedIn(String(p.state), m, n.type)) {
       if (w.changed.has(f) && w.input?.has(f)) fields[f] = `«${fieldLabel("change_request", f)}» از مرحلهٔ «${stateLabel(p.state)}» به بعد تغییر نمی‌کند`;
     }
   }
@@ -190,6 +193,15 @@ async function changeBefore(w: W): Promise<void> {
   if (changed("affected_cis") || changed("ci_id")) {
     const svc = await impactedServicesOf(w.tx, sys, scopeOf(n).cis);
     if (svc !== null) n.impacted_services = svc;
+  }
+
+  // conflicts with other changes, windows and lockdowns: the flags land in this write, the rows after it
+  if (creating ? !!(n.planned_start && n.planned_end) : CONFLICT_TRIGGERS.some((f) => w.changed.has(f))) {
+    const plan = await planConflicts(w.tx, sys, n);
+    Object.assign(n, plan.flags);
+    let m = conflictPlans.get(w.tx);
+    if (!m) conflictPlans.set(w.tx, (m = new Map()));
+    m.set(String(n.id), plan);
   }
 
   // risk, notice and «دیرهنگام» (each needs the other: the notice depends on the risk, the risk on lateness)
@@ -317,9 +329,11 @@ async function changeAfter(w: WA): Promise<void> {
     }
   }
 
-  // conflicts: this change now, the changes it meets (before or now) by job
-  if (creating ? !!(row.planned_start && row.planned_end) : CONFLICT_TRIGGERS.some((f) => w.changed.has(f))) {
-    const r = await recomputeConflicts(w.tx, w.ctx, id);
+  // conflicts planned before the write: their rows now, the changes they meet (before or now) by job
+  const plan = conflictPlans.get(w.tx)?.get(id);
+  if (plan) {
+    conflictPlans.get(w.tx)!.delete(id);
+    const r = await storeConflicts(w.tx, w.ctx, row, plan);
     for (const o of r.others) await enqueue(w.tx, { kind: "change.conflicts", orgId: w.ctx.org.id, payload: { id: o }, dedupeKey: `change.conflicts:${o}`, delayMs: 500 });
   }
 

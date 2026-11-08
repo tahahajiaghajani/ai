@@ -77,25 +77,28 @@ export async function cabFor(q: Queryable, ctx: Ctx, change: Row, emergency = fa
   return (await pick(change.cab_id)) ?? (await pick(cfg.default_cab_id)) ?? (await liveRows(q, sys, "cab", { and: [{ f: "kind", op: "eq", v: "change" }, { f: "active", op: "eq", v: true }] }, { order: "t.name", limit: 1 }))[0] ?? null;
 }
 
+/** Separation of duties beyond the approvals service's own (requester side and assignee): not the coordinator. */
+const others = (row: Row, people: string[]): string[] => people.filter((u) => u !== row.change_owner_id);
+
 /** The approver sources of change rules (registered once). */
 export function installApproverSources(): (() => void)[] {
   return [
     registerApproverSource("change_manager", async (q, ctx, _def, row) => {
-      if (typeof row.change_manager_id === "string" && row.change_manager_id) return [row.change_manager_id];
+      if (typeof row.change_manager_id === "string" && row.change_manager_id && row.change_manager_id !== row.change_owner_id) return [row.change_manager_id];
       const cfg = await changeConfig(q, ctx);
       if (cfg.change_manager_group_id) {
-        const people = await groupUsers(q, ctx, [cfg.change_manager_group_id]);
+        const people = others(row, await groupUsers(q, ctx, [cfg.change_manager_group_id]));
         if (people.length) return people;
       }
-      return roleHolders(q, ctx, "change_manager");
+      return others(row, await roleHolders(q, ctx, "change_manager"));
     }),
     registerApproverSource("cab", async (q, ctx, _def, row) => {
       const cab = await cabFor(q, ctx, row);
-      return cab ? cabPeople(q, ctx, cab) : [];
+      return cab ? others(row, await cabPeople(q, ctx, cab)) : [];
     }),
     registerApproverSource("ecab", async (q, ctx, _def, row) => {
       const cab = await cabFor(q, ctx, row, true);
-      return cab ? cabPeople(q, ctx, cab) : [];
+      return cab ? others(row, await cabPeople(q, ctx, cab)) : [];
     }),
     registerApproverSource("service_owner", async (q, ctx, _def, row) => {
       const owners = impactProvider().owners;
