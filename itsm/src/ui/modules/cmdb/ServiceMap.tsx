@@ -164,7 +164,7 @@ function Inner({ map, direction = "TB", selected, onSelect, onExpand, severities
     >
       <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
       <Controls position="bottom-left" showInteractive={false} aria-label="بزرگ‌نمایی" />
-      {minimap ? <MiniMap position="bottom-right" pannable zoomable ariaLabel="نمای کلی" style={{ width: 150, height: 100 }} nodeColor={(n) => familyColor((n.data as CardData).n.family)} /> : null}
+      {minimap && map.nodes.length > 12 ? <MiniMap position="bottom-right" pannable zoomable ariaLabel="نمای کلی" style={{ width: 150, height: 100 }} nodeColor={(n) => familyColor((n.data as CardData).n.family)} /> : null}
     </ReactFlow>
   );
 }

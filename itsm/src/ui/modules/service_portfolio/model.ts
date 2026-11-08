@@ -42,6 +42,7 @@ export function headline(overall: ServiceStatus, services: Pick<StatusPageServic
 
 /** «۱۴۰۵/۰۸/۱۷ — قطعی بخشی — دسترس‌پذیری ۹۸٫۵٪» for a day bar. */
 export function barTitle(b: DayBar): string {
+  if (b.empty) return `${formatJalali(b.day)} — داده‌ای نیست`;
   const pct = `${faDigits(b.availability.toFixed(b.availability % 1 ? 2 : 0).replace(".", "٫"))}٪`;
   return `${formatJalali(b.day)} — ${statusLabel(b.status)} — دسترس‌پذیری ${pct}`;
 }

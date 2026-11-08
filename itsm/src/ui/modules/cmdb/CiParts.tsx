@@ -8,7 +8,7 @@ import { Link } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { App, Button, Checkbox, Input, Segmented, Select, Space, Table, Tooltip } from "antd";
 import { Activity, GitFork, Lock, RefreshCw, Zap } from "lucide-react";
-import type { AttrDef } from "@shared/cmdb/classes";
+import { HEALTH_ISSUES, type AttrDef } from "@shared/cmdb/classes";
 import type { ClassFamily } from "@shared/cmdb/classes";
 import { faDigits } from "@shared/format";
 import { useOrg } from "../../lib/org";
@@ -56,7 +56,11 @@ export function CiHealthPanel({ ctx }: { ctx: RecordContext }) {
   const { message } = App.useApp();
   const row = ctx.row as Record<string, unknown>;
   const health = (row.health ?? {}) as { issues?: string[]; missing?: string[]; violations?: string[] };
-  const issues = [...new Set([...(Array.isArray(row.health_issues) ? (row.health_issues as string[]) : []), ...(health.issues ?? [])])];
+  const issues = [...new Set([...(Array.isArray(row.health_issues) ? (row.health_issues as string[]) : []), ...(health.issues ?? [])])].map((k) => HEALTH_ISSUES.find((o) => o.value === k)?.label ?? k);
+  // missing fields and class attributes by their Persian labels
+  const attrs = ciMeta(ctx)?.attrs ?? [];
+  const fieldLabel = (p: string) => (p.startsWith("attrs.") ? attrs.find((a) => a.name === p.slice(6))?.label : ctx.def.fields.find((f) => f.name === p)?.label) ?? p;
+  const missing = (health.missing ?? []).map(fieldLabel);
   const run = useMutation({
     mutationFn: () => cmdbApi.ciHealth(api, String(ctx.row.id)),
     onSuccess: () => {
@@ -82,7 +86,7 @@ export function CiHealthPanel({ ctx }: { ctx: RecordContext }) {
       ) : score !== null && score !== undefined ? (
         <p className="text-ink-3">ایرادی پیدا نشد.</p>
       ) : null}
-      {health.missing?.length ? <p className="text-ink-3">خالی: {health.missing.join("، ")}</p> : null}
+      {missing.length ? <p className="text-ink-3">خالی: {missing.join("، ")}</p> : null}
       <div className="flex items-center justify-between gap-2 text-ink-3">
         <span>آخرین کشف</span>
         <JDateTime v={row.last_discovered_at as string | null} />

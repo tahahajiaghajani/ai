@@ -44,7 +44,8 @@ describe("the status page's bars", () => {
     const { bars } = dailyBars("operational", [{ at: "2026-06-09T00:00:00Z", from: "major_outage", to: "operational" }], 3, now, "UTC");
     expect(bars.find((b) => b.day === "2026-06-08")!.status).toBe("major_outage");
     const young = dailyBars("operational", [], 10, now, "UTC", "2026-06-09T00:00:00Z");
-    expect(young.bars.length).toBe(2);
+    expect(young.bars.length).toBe(10);
+    expect(young.bars.filter((b) => b.empty).map((b) => b.day)).toEqual(["2026-06-01", "2026-06-02", "2026-06-03", "2026-06-04", "2026-06-05", "2026-06-06", "2026-06-07", "2026-06-08"]);
     expect(young.availability).toBe(100);
   });
 });

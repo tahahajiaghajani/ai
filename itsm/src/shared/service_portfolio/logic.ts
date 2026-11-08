@@ -48,6 +48,8 @@ export interface DayBar {
   status: ServiceStatus;
   /** 0–100: time not in a partial or major outage */
   availability: number;
+  /** a day before the service existed (no data: drawn as an empty slot) */
+  empty?: boolean;
 }
 
 const DOWN = new Set(["partial_outage", "major_outage"]);
@@ -58,9 +60,10 @@ export function localDay(ms: number, tz: string): string {
 }
 
 /**
- * Daily bars over the last `days` days from the status history (changes in any order; `current` is the status now).
- * Days are cut at midnight UTC offsets of `tz` approximately by sampling every 15 minutes — exact enough for bars and
- * a percentage, and independent of daylight-saving rules.
+ * Daily bars over the last `days` days from the status history (changes in any order; `current` is the status now):
+ * one bar per local day of `tz`, oldest first, days before `since` (the service went live) marked empty. Days are cut
+ * by sampling every 15 minutes and at `now` — exact enough for bars and a percentage, and independent of daylight
+ * saving rules.
  */
 export function dailyBars(current: string, changes: StatusChange[], days: number, now: number, tz: string, since?: string | null): { bars: DayBar[]; availability: number } {
   const sorted = [...changes].filter((c) => !Number.isNaN(Date.parse(c.at))).sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
@@ -85,7 +88,7 @@ export function dailyBars(current: string, changes: StatusChange[], days: number
   let idx = 0;
   let cur = statusAt(start) as ServiceStatus;
   while (idx < sorted.length && Date.parse(sorted[idx].at) <= start) idx++;
-  for (let t = start; t <= now; t += step) {
+  for (let t = start; t <= now; t = t < now && t + step > now ? now : t + step) {
     while (idx < sorted.length && Date.parse(sorted[idx].at) <= t) cur = sorted[idx++].to as ServiceStatus;
     if (!Number.isNaN(born) && t < born) continue;
     const day = localDay(t, tz);
@@ -100,7 +103,14 @@ export function dailyBars(current: string, changes: StatusChange[], days: number
     }
     byDay.set(day, d);
   }
-  const bars = [...byDay].map(([day, d]) => ({ day, status: d.worst, availability: d.total ? Math.round((d.up / d.total) * 10000) / 100 : 100 })).slice(-days);
+  // every local day of the window (the oldest partial day of the sampling left out), empty before the service existed
+  const bars: DayBar[] = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const day = localDay(now - i * 86_400_000, tz);
+    if (bars.length && bars[bars.length - 1].day === day) continue;
+    const d = byDay.get(day);
+    bars.push(d && d.total ? { day, status: d.worst, availability: Math.round((d.up / d.total) * 10000) / 100 } : { day, status: "operational", availability: 100, empty: true });
+  }
   return { bars, availability: total ? Math.round((up / total) * 10000) / 100 : 100 };
 }
 

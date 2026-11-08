@@ -27,7 +27,7 @@ export function DayBars({ s, compact }: { s: Pick<StatusPageService, "bars" | "a
     <div className="spf-bars" role="img" aria-label={`${s.name}: دسترس‌پذیری ${pct(s.availability / 100, 2)} در ${fa(bars.length)} روز`}>
       {bars.map((b) => (
         <Tooltip key={b.day} title={barTitle(b)} mouseEnterDelay={0.05}>
-          <span style={{ background: statusColor(b.status) }} />
+          <span className={b.empty ? "is-empty" : undefined} style={b.empty ? undefined : { background: statusColor(b.status) }} />
         </Tooltip>
       ))}
     </div>

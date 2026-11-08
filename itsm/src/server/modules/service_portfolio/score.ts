@@ -78,7 +78,7 @@ export async function scoreDay(tx: Tx, ctx: Ctx, opts: { day?: string; ids?: str
     // availability of that day: the bars of the window that ends at the day's end
     const { bars } = dailyBars(current, changes, 2, Math.min(Date.now(), Date.parse(`${addDays(day, 1)}T00:00:00Z`)), tz, s.live_at ?? s.created_at ?? null);
     const bar = bars.find((b) => b.day === day);
-    const availability = bar ? bar.availability : null;
+    const availability = bar && !bar.empty ? bar.availability : null;
     const csat = p.ratings.length ? Math.round((p.ratings.reduce((a, b) => a + b, 0) / p.ratings.length) * 100) / 100 : null;
     const target = s.availability_target !== null && s.availability_target !== undefined ? Number(s.availability_target) : null;
     const { score, components } = serviceScore({ availability, target, incidents: p.incidents, major: p.major, breaches: p.breaches, csat }, w);

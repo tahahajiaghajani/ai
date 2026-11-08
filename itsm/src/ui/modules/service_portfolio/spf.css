@@ -143,3 +143,7 @@
   background: color-mix(in oklab, var(--spf-c, var(--ds-line-3)) 12%, var(--ds-surface));
   color: var(--ds-text-2);
 }
+.spf-bars > span.is-empty {
+  background: var(--ds-line);
+  opacity: 0.7;
+}

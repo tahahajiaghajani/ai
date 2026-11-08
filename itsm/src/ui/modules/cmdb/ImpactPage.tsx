@@ -97,7 +97,7 @@ export default function ImpactPage() {
         </span>
       ),
     },
-    { title: "رده", dataIndex: "tier", key: "tier", width: 110, render: (v: string | null) => (v ? label(CI_TIERS, v) : "—") },
+    { title: "رده", dataIndex: "tier", key: "tier", width: 110, render: (v: string | null) => (v ? <span title={label(CI_TIERS, v)}>{label(CI_TIERS, v).split(" — ")[0]}</span> : "—") },
     { title: "شدت اثر", dataIndex: "severity", key: "severity", width: 170, render: (v: number) => <SeverityMeter value={v} /> },
     { title: "صفحهٔ وضعیت", dataIndex: "on_status_page", key: "page", width: 110, render: (v: boolean) => (v ? <Chip tone="neutral">منتشرشده</Chip> : <span className="text-ink-3">—</span>) },
   ];
@@ -134,7 +134,7 @@ export default function ImpactPage() {
         <CiPicker multiple value={cis} onChange={(v) => set({ ci: (Array.isArray(v) ? v : v ? [v] : []).join(",") || null })} placeholder="پیکربندی‌هایی که از کار می‌افتند" style={{ minWidth: 300, flex: "1 1 300px" }} aria-label="پیکربندی‌های منشأ" />
         <Segmented value={state} options={SIM_STATES.map((s) => ({ value: s.value, label: s.label }))} onChange={(v) => set({ state: String(v) === "down" ? null : String(v) })} aria-label="وضعیت فرضی" />
         <Select value={depth} onChange={(v) => set({ depth: String(v) })} options={[2, 4, 6, 8, 12, 20].map((d) => ({ value: d, label: `تا ${faDigits(d)} گام` }))} style={{ width: 120 }} aria-label="عمق" />
-        <DateInput value={asOf ?? undefined} onChange={(v) => set({ as_of: v })} placeholder="امروز" allowClear aria-label="تاریخ نقشه" />
+        <DateInput value={asOf ?? undefined} onChange={(v) => set({ as_of: v })} placeholder="امروز" allowClear aria-label="تاریخ نقشه" style={{ width: 150 }} />
       </div>
       {!cis.length ? (
         <EmptyState title="پیکربندی‌ای انتخاب نشده" description="پیکربندی‌هایی را که از کار می‌افتند یا تغییر می‌کنند انتخاب کنید تا دامنهٔ اثر آن‌ها روی خدمت‌ها دیده شود." icon={Zap} />
