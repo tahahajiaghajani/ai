@@ -74,7 +74,7 @@ async function fromArticle(w: WriteArgs): Promise<void> {
 // after-write: a change of who contributes flows down (job)
 
 const later = (w: WriteArgs, payload: Row, key: string) =>
-  enqueue(w.tx, { kind: "kb.contrib", orgId: w.ctx.org.id, payload, dedupeKey: `kb.contrib:${key}`, delayMs: 1_000 });
+  enqueue(w.tx, { kind: "kb.contrib", orgId: w.ctx.org.id, payload, dedupeKey: `kb.contrib:${key}` });
 
 async function baseAfter(w: WriteArgs & { row: Row }): Promise<void> {
   if (w.op === "update" && (w.changed.has("k_users") || w.changed.has("k_groups"))) await later(w, { base_id: w.row.id }, w.row.id);
