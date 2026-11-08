@@ -6,7 +6,7 @@
 import { addDays, todayISO } from "@shared/jalali";
 import type { Ctx } from "../../context";
 import type { Tx } from "../../db";
-import { createIn, updateIn } from "../../engine";
+import { createIn, savepoint, transitionIn } from "../../engine";
 import { servicesImpactedBy } from "../cmdb/impact";
 import { isUuid, liveRows, sysOf, type Row } from "./common";
 
@@ -70,8 +70,13 @@ export async function technologyFindings(tx: Tx, ctx: Ctx): Promise<{ opened: nu
   }
   for (const f of open) {
     if (wanted.has(String(f.dedupe_key))) continue;
-    await updateIn(tx, sys, "cmdb_finding", f.id, { active: false }, { trusted: true }).catch(() => undefined);
-    closed++;
+    // `active` follows the state (a system field): the finding is resolved, unless someone is working on it
+    try {
+      await savepoint(tx, () => transitionIn(tx, sys, "cmdb_finding", f.id, "resolved", { close_notes: "فناوری دیگر پرخطر نیست (بررسی خودکار)" }, { trusted: true }));
+      closed++;
+    } catch {
+      // a state with no way to «resolved» keeps the finding open for its owner
+    }
   }
   return { opened, closed };
 }

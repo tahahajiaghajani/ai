@@ -18,6 +18,8 @@ import { edgesAround } from "./graph";
 const DAY = 86_400_000;
 export const AUTO_FINDINGS = ["missing_owner", "orphan", "stale", "audit"] as const;
 const MAX_NEW_FINDINGS = 200;
+/** Dedupe-key prefixes of the findings the health pass opens (and so may close). */
+export const HEALTH_KEYS = ["missing_owner:", "orphan:", "stale:", "rule:"];
 
 interface RuleRow {
   id: string;
@@ -184,10 +186,12 @@ export async function computeHealth(q: Tx, ctx: Ctx, opts: { ids?: string[]; aft
     for (const r of failed) if (r.creates_findings) toOpen.push({ key: `rule:${r.id}:${ci.id}`, ci, kind: r.kind === "audit" ? "audit" : "data_quality", title: `«${ci.name}»: ${r.name}`.slice(0, 200), detail: r.name, severity: r.severity, rule: r.id, due: r.due_days });
   }
   for (const f of toOpen) wantKeys.add(f.key);
-  // close automatic findings whose issue is gone (only those of the CIs and rules looked at now)
+  // close automatic findings whose issue is gone (only those of the CIs and rules looked at now, and only the kinds this
+  // pass opens: wrong-CI feedback, technology standards and policies are other passes' findings)
   for (const f of open) {
     if (wantKeys.has(String(f.dedupe_key))) continue;
     if (!ids.includes(f.ci_id)) continue;
+    if (!HEALTH_KEYS.some((p) => String(f.dedupe_key ?? "").startsWith(p))) continue;
     try {
       await transitionIn(q, sys, "cmdb_finding", f.id, "resolved", { close_notes: "ایراد برطرف شد (بررسی خودکار)" }, { trusted: true });
       out.findings_closed++;

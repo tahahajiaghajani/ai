@@ -8,6 +8,7 @@ import { cmdbWorld, type CmdbWorld } from "./cmdb-helpers";
 import type { Client } from "./helpers";
 import { BY_ENTITY } from "@server/sync/registry";
 import { checkEnginePush, pullEngine } from "@server/engine/sync";
+import { technologyFindings } from "@server/modules/service_portfolio";
 
 let w: CmdbWorld;
 let soc: string;
@@ -213,3 +214,24 @@ describe("configuration control, redundancy groups and certification stay with t
   });
 });
 
+describe("the health pass closes only the findings it opens", () => {
+  it("keeps wrong-CI and technology findings open; the technology pass resolves its own", async () => {
+    const ci = await w.ci({ name: "health-own", class: "server", serial_number: "HO-1", owned_by: w.p.am.userId, support_group_id: w.g.infra, os: "Windows Server 2008 R2" });
+    const right = await w.ci({ name: "health-right", class: "server", serial_number: "HO-2", owned_by: w.p.am.userId, support_group_id: w.g.infra });
+    const inc = (await w.o.post(R("incident"), { short_description: "سرور پاسخ نمی‌دهد", ci_id: ci.id })).row;
+    const wrong = (await w.o.post(C("/wrong-ci"), { table: "incident", id: inc.id, correct_ci_id: right.id })).finding_id;
+    const std = (await w.o.post(R("technology_standard"), { name: "Windows Server 2008", status: "prohibited", match_field: "os" })).row;
+    await w.sys.write((tx) => technologyFindings(tx, w.sys));
+    const finding = async (id: string) => (await w.o.get(R("cmdb_finding", id))).row;
+    const [tech] = (await w.o.post(`${R("cmdb_finding")}/query`, { filter: { and: [{ f: "ci_id", op: "eq", v: ci.id }, { f: "kind", op: "eq", v: "technology" }] }, fields: ["state"] })).rows;
+    expect(tech).toBeTruthy();
+    await w.o.post(C(`/ci/${ci.id}/health`), {});
+    await w.drain();
+    expect(await finding(wrong)).toMatchObject({ state: "new", active: true });
+    expect(await finding(tech.id)).toMatchObject({ state: "new", active: true });
+    // the standard no longer flags the CI: its pass resolves the finding (the state, not a write of `active`)
+    await w.o.patch(R("technology_standard", std.id), { status: "approved" });
+    expect(await w.sys.write((tx) => technologyFindings(tx, w.sys))).toMatchObject({ closed: 1 });
+    expect(await finding(tech.id)).toMatchObject({ state: "resolved", active: false });
+  });
+});
