@@ -28,6 +28,7 @@ import { arr, eqAll, isUuid, liveRow, liveRows, obj, secondsBetween, sysOf, type
 import { versionSchema } from "./definition";
 import { canOrder, offeringSnapshot, onBehalfRefusal } from "./entitlement";
 import { calendarOf, createTemplateTasks, deliver, displayOf, flowRunStates, runsActive, startFulfilment } from "./fulfil";
+import { onApprovalSettled, type ApprovalSettled } from "../sla";
 import { workingDaysDue } from "@shared/request/due";
 
 const WORKING = ["in_fulfilment", "awaiting_info", "backordered"];
@@ -340,11 +341,6 @@ async function advance(w: WriteArgs & { row: Row }): Promise<void> {
     else await startFulfilment(tx, ctx, row, schema);
     return;
   }
-  if (state === "awaiting_approval" && w.changed.has("approval") && schema) {
-    if (row.approval === "rejected") await transitionIn(tx, sys, "request_item", id, "rejected", { close_notes: "در مرحلهٔ تأیید رد شد" }, { trusted: true });
-    else if (row.approval === "approved" || row.approval === "not_requested") await startFulfilment(tx, ctx, row, schema);
-    return;
-  }
   if (w.changed.has("state")) {
     if (state === "delivered" && schema) {
       await startSubscription(tx, ctx, row, schema);
@@ -560,6 +556,19 @@ async function onReply(e: RecordEvent, cfg: JobConfig): Promise<void> {
 
 let installed = false;
 
+/**
+ * A round of an item's approvals settled (decided, expired, withdrawn) in the transaction that settled it: while the
+ * item waits for approval, a rejection rejects it and nothing left to approve starts its fulfilment.
+ */
+async function approvalSettled(s: ApprovalSettled): Promise<void> {
+  const row = s.record;
+  if (row.state !== "awaiting_approval") return;
+  const schema = await cachedSchema(s.tx, s.ctx, row.item_version_id);
+  if (!schema) return;
+  if (s.aggregate === "rejected") await transitionIn(s.tx, sysOf(s.ctx), "request_item", String(row.id), "rejected", { close_notes: "در مرحلهٔ تأیید رد شد" }, { trusted: true });
+  else if (s.aggregate === "approved" || s.aggregate === "not_requested") await startFulfilment(s.tx, s.ctx, row, schema);
+}
+
 /** Register the lifecycle (after the SLA service: the hook on "*" must see approvals planned). */
 export function installLifecycle(): void {
   if (installed) return;
@@ -581,6 +590,7 @@ export function installLifecycle(): void {
       if (w.def.key === "request_item") await advance(w);
     },
   });
+  onApprovalSettled("request_item", approvalSettled);
   onRecordEvent("request.replies", (e, jctx) => onReply(e, jctx.cfg), { tables: ["request_item"], kinds: ["record.commented"] });
 }
 

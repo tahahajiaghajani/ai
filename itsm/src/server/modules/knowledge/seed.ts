@@ -22,7 +22,40 @@ import { ensureRow, type SeedCounts } from "../incident";
 import { liveRows, sysOf, type Row } from "./common";
 import { createArticleIn, publishIn } from "./versions";
 
-export const KNOWLEDGE_SEED_VERSION = 1;
+export const KNOWLEDGE_SEED_VERSION = 2;
+
+/** The seeded approval rules whose «یک تأییدکننده کافی است» means the first answer decides (approvals rule `first`). */
+const FIRST_ANSWER_RULES: [string, string][] = [["kb_version", "انتشار مقالهٔ دانش (یک تأییدکننده)"], ["kb_article", "بازنشستگی مقالهٔ دانش"]];
+
+/**
+ * Bring an organisation seeded by an earlier version up to date, without seeding anything again (idempotent):
+ * v2 — the seeded «یک تأییدکننده» rules decide on the first answer, approval or rejection (rule `first`), unless
+ * their levels were changed since.
+ */
+export async function upgradeKnowledgeSeedIn(tx: Tx, ctx: Ctx, cfg: Row): Promise<boolean> {
+  const sys = sysOf(ctx);
+  const from = Number(cfg.seeded ?? 0);
+  if (from < 1 || from >= KNOWLEDGE_SEED_VERSION) return false;
+  if (from < 2) {
+    for (const [table, name] of FIRST_ANSWER_RULES) {
+      const [rule] = await liveRows(tx, sys, "approval_rule", { and: [{ f: "table_key", op: "eq", v: table }, { f: "name", op: "eq", v: name }] }, { limit: 1 });
+      const levels = Array.isArray(rule?.levels) ? (rule!.levels as Row[]) : [];
+      if (rule && levels.length === 1 && (levels[0].rule ?? "any") === "any") {
+        await updateIn(tx, sys, "approval_rule", String(rule.id), { levels: [{ ...levels[0], rule: "first" }] }, { trusted: true });
+      }
+    }
+  }
+  await updateIn(tx, sys, "kb_config", String(cfg.id), { seeded: KNOWLEDGE_SEED_VERSION }, { trusted: true });
+  return true;
+}
+
+/** `upgradeKnowledgeSeedIn` in a write of its own (the daily sweep: organisations seeded by an earlier version). */
+export async function upgradeKnowledgeSeed(ctx: Ctx): Promise<boolean> {
+  const sys = sysOf(ctx);
+  const [cfg] = await liveRows(sys.db, sys, "kb_config", null, { order: "t.created_at", limit: 1 });
+  if (!cfg || Number(cfg.seeded ?? 0) < 1 || Number(cfg.seeded) >= KNOWLEDGE_SEED_VERSION) return false;
+  return sys.write((tx) => upgradeKnowledgeSeedIn(tx, sys, cfg));
+}
 
 const S = (key: string, label: string, guidance: string, required = false, internal = false) => ({ key, label, guidance, required, internal });
 
@@ -105,7 +138,11 @@ export async function seedKnowledgeDefaultsIn(tx: Tx, ctx: Ctx, opts: { force?: 
   const sys = sysOf(ctx);
   const out: SeedCounts = { skipped: false, created: {} };
   const [cfg] = await liveRows(tx, sys, "kb_config", null, { order: "t.created_at", limit: 1 });
-  if (cfg && Number(cfg.seeded ?? 0) >= KNOWLEDGE_SEED_VERSION && !opts.force) return { ...out, skipped: true };
+  // seeded before: only the upgrades of later versions (never the defaults again)
+  if (cfg && Number(cfg.seeded ?? 0) >= 1 && !opts.force) {
+    await upgradeKnowledgeSeedIn(tx, sys, cfg);
+    return { ...out, skipped: true };
+  }
   const managers = await ensureRow(tx, sys, out, "group", { name: "مدیران دانش" }, { types: ["assignment", "approval"], description: "مالک پایگاه‌های دانش، کارهای بی‌مالک دانش و شکاف‌ها؛ تأییدکنندهٔ انتشار" });
   const config = cfg ?? (await ensureRow(tx, sys, out, "kb_config", { config_key: "default" }, { name: "تنظیمات دانش", default_group_id: managers.id }));
 
@@ -125,7 +162,8 @@ export async function seedKnowledgeDefaultsIn(tx: Tx, ctx: Ctx, opts: { force?: 
   // approvals service: publishing (as the base says) and retirement
   const field = [{ kind: "field", field: "reviewer_ids" }];
   const approvalRules: Row[] = [
-    { name: "انتشار مقالهٔ دانش (یک تأییدکننده)", mode: "any", rule: "any" },
+    // «یک تأییدکننده کافی است»: the first answer decides, approval or rejection
+    { name: "انتشار مقالهٔ دانش (یک تأییدکننده)", mode: "any", rule: "first" },
     { name: "انتشار مقالهٔ دانش (همهٔ تأییدکنندگان)", mode: "all", rule: "all" },
     { name: "انتشار مقالهٔ دانش (بیشتر تأییدکنندگان)", mode: "majority", rule: "percent", threshold: 51 },
   ];
@@ -138,7 +176,7 @@ export async function seedKnowledgeDefaultsIn(tx: Tx, ctx: Ctx, opts: { force?: 
     });
   }
   await ensureRow(tx, sys, out, "approval_rule", { table_key: "kb_article", name: "بازنشستگی مقالهٔ دانش" }, {
-    condition: { f: "state", op: "eq", v: "pending_retirement" }, mode: "parallel", levels: [{ name: "تأییدکنندگان پایگاه", sources: field, rule: "any" }],
+    condition: { f: "state", op: "eq", v: "pending_retirement" }, mode: "parallel", levels: [{ name: "تأییدکنندگان پایگاه", sources: field, rule: "first" }],
     remind_every: 86_400, expire_after: 14 * 86_400, expire_action: "reject", sort_order: 40, active: true, description: "درخواست بازنشستگی در پایگاه‌هایی که بازنشستگی را با تأیید می‌خواهند",
   });
 

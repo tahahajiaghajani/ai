@@ -4,10 +4,11 @@
 //
 // A rule asks for approval in levels; each level names its approvers through sources (people, groups' members, the
 // requester's manager, a user or group field of the record, a module's owner source) and a rule over them:
-//   any — one approval is enough · all — everyone · count — n of them · percent — p % of them (rounded up).
+//   any — one approval is enough · all — everyone · count — n of them · percent — p % of them (rounded up) ·
+//   first — the first answer settles the level, approval or rejection («یک پاسخ کافی است»).
 // A level is rejected as soon as its rule can no longer be met. Levels run one after another («پشت سر هم») or all at
 // once («هم‌زمان»); a rule's round is approved when every level is, rejected when one is.
-export type ApprovalRule = "any" | "all" | "count" | "percent";
+export type ApprovalRule = "any" | "all" | "count" | "percent" | "first";
 export type ApprovalState = "waiting" | "requested" | "approved" | "rejected" | "canceled" | "skipped" | "no_longer_required";
 export type Outcome = "approved" | "rejected" | "pending";
 export type Aggregate = "not_requested" | "requested" | "approved" | "rejected";
@@ -41,9 +42,16 @@ export function needed(rule: ApprovalRule | string | null | undefined, threshold
 }
 
 /** What the rows of one level add up to: approved, rejected (the rule can no longer be met) or still pending. */
-export function levelOutcome(rows: readonly { state: string }[], rule: ApprovalRule | string | null | undefined, threshold?: number | null): Outcome | "skipped" | null {
+export function levelOutcome(rows: readonly { state: string; decided_at?: unknown }[], rule: ApprovalRule | string | null | undefined, threshold?: number | null): Outcome | "skipped" | null {
   const live = rows.filter((r) => COUNTED.has(r.state));
   if (!live.length) return rows.some((r) => r.state === "skipped" || r.state === "approved") ? "skipped" : null;
+  if (rule === "first") {
+    // the first answer settles it (the service withdraws the others at once; the earliest wins should two exist)
+    const answered = live.filter((r) => r.state === "approved" || r.state === "rejected");
+    if (!answered.length) return "pending";
+    const at = (r: { decided_at?: unknown }) => (typeof r.decided_at === "string" ? Date.parse(r.decided_at) : Number.POSITIVE_INFINITY) || 0;
+    return answered.reduce((x, y) => (at(y) < at(x) ? y : x)).state as Outcome;
+  }
   const a = live.filter((r) => r.state === "approved").length;
   const r = live.filter((x) => x.state === "rejected").length;
   const need = needed(rule, threshold, live.length);
@@ -54,6 +62,7 @@ export function levelOutcome(rows: readonly { state: string }[], rule: ApprovalR
 
 export interface ApprovalRowLike {
   state: string;
+  decided_at?: unknown;
   level: number;
   rule?: string | null;
   threshold?: number | null;
@@ -98,7 +107,7 @@ export function aggregate(rows: readonly ApprovalRowLike[]): Aggregate {
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const RULES = ["any", "all", "count", "percent"];
+const RULES = ["any", "all", "count", "percent", "first"];
 
 /**
  * Why `raw` is not a valid list of levels (Persian), or null. `fieldType` answers the type of a field of the rule's

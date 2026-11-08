@@ -195,7 +195,7 @@ export const NODE_TYPES: Record<NodeType, NodeTypeDef> = {
         label: "قاعده",
         kind: "select",
         default: "any",
-        options: [{ value: "any", label: "تأیید یک نفر کافی است" }, { value: "all", label: "همه باید تأیید کنند" }, { value: "count", label: "تعداد معینی تأیید کنند" }],
+        options: [{ value: "any", label: "تأیید یک نفر کافی است" }, { value: "all", label: "همه باید تأیید کنند" }, { value: "count", label: "تعداد معینی تأیید کنند" }, { value: "first", label: "نخستین پاسخ (تأیید یا رد) کافی است" }],
       },
       { key: "threshold", label: "تعداد تأیید لازم", kind: "number", default: 2, showIf: { key: "rule", in: ["count"] } },
       { key: "title", label: "عنوان", kind: "template", required: true },

@@ -273,6 +273,7 @@ export function ruleText(rule: ApprovalRule | string | undefined, threshold?: nu
   if (rule === "all") return "همه باید تأیید کنند";
   if (rule === "count") return `${toFa(Math.max(1, Number(threshold) || 1))} نفر باید تأیید کنند`;
   if (rule === "percent") return `${toFa(Math.min(100, Math.max(1, Number(threshold) || 1)))}٪ باید تأیید کنند`;
+  if (rule === "first") return "نخستین پاسخ، تأیید یا رد، تصمیم را می‌گیرد";
   return "یک تأیید کافی است";
 }
 

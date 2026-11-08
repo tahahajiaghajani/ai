@@ -197,6 +197,49 @@ async function resolveLevel(q: Queryable, ctx: Ctx, def: TableDef, row: Row, lev
 }
 
 // ---------------------------------------------------------------------------------------------------------------
+// Rounds that settle: the modules' same-transaction reaction (docs/spec/services/sla.md §4)
+
+/** A round of a record's approvals that just settled, in the transaction of the decision, expiry or withdrawal. */
+export interface ApprovalSettled {
+  tx: Tx;
+  /** the system acting in the organisation */
+  ctx: Ctx;
+  def: TableDef;
+  /** the record as it is now (its `approval` field already holds the new aggregate) */
+  record: Row;
+  /** the rule of the round (null: an ad-hoc request) */
+  rule_id: string | null;
+  round: number;
+  outcome: "approved" | "rejected" | "canceled";
+  /** the record's approvals altogether (its `approval` field): not_requested / requested / approved / rejected */
+  aggregate: string;
+  /** who decided or withdrew it (null: an expiry or the system) */
+  by: string | null;
+}
+
+export type ApprovalSettledFn = (s: ApprovalSettled) => Promise<void> | void;
+
+const settledHooks: { table: string; fn: ApprovalSettledFn }[] = [];
+
+/**
+ * React to a round of `table`'s approvals settling — approved, rejected (a decision or an expiry) or canceled
+ * (withdrawn) — inside the transaction that settled it ("*": every table). Rounds created settled (auto-approval)
+ * and rounds a re-run replaces do not call it: the write that made them sees them. Returns an unregister function.
+ */
+export function onApprovalSettled(table: string, fn: ApprovalSettledFn): () => void {
+  const h = { table, fn };
+  settledHooks.push(h);
+  return () => {
+    const i = settledHooks.indexOf(h);
+    if (i >= 0) settledHooks.splice(i, 1);
+  };
+}
+
+async function fireSettled(s: ApprovalSettled): Promise<void> {
+  for (const h of [...settledHooks]) if (h.table === "*" || h.table === s.def.key) await h.fn(s);
+}
+
+// ---------------------------------------------------------------------------------------------------------------
 // Requesting (on writes)
 
 interface Plan {
@@ -378,7 +421,7 @@ async function scheduleApprovals(q: Queryable, orgId: string, table: string, id:
  * Bring the round (`ruleId`, `round`) of a record in step with its rows: a decided level withdraws its open rows and
  * opens the next one; a rejected round withdraws everything still open. Then the record's `approval` follows.
  */
-async function settle(tx: Tx, sys: Ctx, def: TableDef, record: Row, ruleId: string | null, round: number): Promise<{ aggregate: string; opened: Row[] }> {
+async function settle(tx: Tx, sys: Ctx, def: TableDef, record: Row, ruleId: string | null, round: number, by: string | null = null): Promise<{ aggregate: string; opened: Row[] }> {
   const now = Date.now();
   const cfg = await config(tx, sys);
   const rule = ruleId ? cfg.rows.approval_rule.find((r) => r.id === ruleId) : null;
@@ -418,6 +461,9 @@ async function settle(tx: Tx, sys: Ctx, def: TableDef, record: Row, ruleId: stri
     await announceRequested(tx, sys, def, record, opened);
     if (expireAfter || Number(rule?.remind_every) > 0) await scheduleApprovals(tx, sys.org.id, def.key, String(record.id), now + 1000);
   }
+  // the round was open (a decision or an expiry of one of its rows): settled now?
+  const outcome = roundOutcome(mine as never[]);
+  if (outcome === "approved" || outcome === "rejected") await fireSettled({ tx, ctx: sys, def, record, rule_id: ruleId, round, outcome, aggregate: agg, by });
   return { aggregate: agg, opened };
 }
 
@@ -465,7 +511,7 @@ export async function decide(ctx: Ctx, id: string, input: DecideInput): Promise<
     const values: Row = { state: input.decision, decided_at: iso(Date.now()), decided_by: me, comments: comment || a.comments || null };
     if (who.onBehalfOf) values.delegated_from = who.onBehalfOf;
     const stored = await updateIn(tx, sys, "approval", id, values, { trusted: true });
-    const settled = await settle(tx, sys, def, record, a.rule_id ?? null, Number(a.round) || 1);
+    const settled = await settle(tx, sys, def, record, a.rule_id ?? null, Number(a.round) || 1, me);
     if (def.features?.journal) {
       const verb = input.decision === "approved" ? "تأیید کرد" : "رد کرد";
       const body = `${ctx.user.full_name || ctx.user.email} ${verb}${who.onBehalfOf ? " (به جانشینی)" : ""}${comment ? `: ${comment}` : ""}`;
@@ -558,29 +604,126 @@ export async function requestApprovalIn(tx: Tx, ctx: Ctx, table: string, id: str
   return { approvals: created, aggregate: agg, round };
 }
 
+export interface CancelOptions {
+  /** only this ad-hoc round (the flow that asked for it ended) */
+  adhocRound?: number;
+  /** `canceled` (default: its people changed their mind) or `no_longer_required` (the record moved on without them) */
+  state?: "canceled" | "no_longer_required";
+  /** the note on the withdrawn rows */
+  comment?: string | null;
+}
+
 /**
  * Withdraw the open approvals of a record (its people changed their mind): the round ends as canceled. `adhocRound`
  * withdraws only that ad-hoc round (the flow that asked for it ended).
  */
-export async function cancelApprovals(ctx: Ctx, table: string, id: string, opts: { adhocRound?: number } = {}): Promise<{ canceled: number; aggregate: string }> {
+export async function cancelApprovals(ctx: Ctx, table: string, id: string, opts: CancelOptions = {}): Promise<{ canceled: number; aggregate: string }> {
   const { def } = await defFor(ctx, table);
-  return ctx.write(async (tx) => {
-    const env = await condEnv(ctx);
-    const record = await requireReadable(ctx, def, id, env, tx, { lock: true });
-    if (!isSystemCtx(ctx) && (!access().canWrite(ctx, def, record) || record.$writable === false)) throw forbidden(`اجازهٔ تغییر این ${def.label} را ندارید`);
-    const sys = systemFrom(ctx);
-    const rows = await liveRows(tx, sys, "approval", eqAll({ table_key: def.key, record_id: id }), "t.round, t.level, t.id");
-    const mine = (r: Row) => opts.adhocRound === undefined || (!r.rule_id && Number(r.round) === opts.adhocRound);
-    let canceled = 0;
-    for (const r of rows) if (OPEN.has(r.state) && mine(r)) {
-      await updateIn(tx, sys, "approval", r.id, { state: "canceled", decided_at: iso(Date.now()), decided_by: actorId(ctx) }, { trusted: true });
-      r.state = "canceled";
-      canceled++;
+  return ctx.write((tx) => cancelApprovalsIn(tx, ctx, def.key, id, opts));
+}
+
+/**
+ * `cancelApprovals` inside the caller's write transaction (a module withdrawing a record's approvals as part of its
+ * own write). Every round that loses its open rows settles as `canceled` (`onApprovalSettled`).
+ */
+export async function cancelApprovalsIn(tx: Tx, ctx: Ctx, table: string, id: string, opts: CancelOptions = {}): Promise<{ canceled: number; aggregate: string }> {
+  const { def } = await defFor(ctx, table, tx);
+  const env = await condEnv(ctx);
+  const record = await requireReadable(ctx, def, id, env, tx, { lock: true });
+  if (!isSystemCtx(ctx) && (!access().canWrite(ctx, def, record) || record.$writable === false)) throw forbidden(`اجازهٔ تغییر این ${def.label} را ندارید`);
+  const sys = systemFrom(ctx);
+  const rows = await liveRows(tx, sys, "approval", eqAll({ table_key: def.key, record_id: id }), "t.round, t.level, t.id");
+  const mine = (r: Row) => opts.adhocRound === undefined || (!r.rule_id && Number(r.round) === opts.adhocRound);
+  const state = opts.state ?? "canceled";
+  const rounds = new Map<string, { rule: string | null; round: number }>();
+  let canceled = 0;
+  for (const r of rows) if (OPEN.has(r.state) && mine(r)) {
+    const values: Row = { state, decided_at: iso(Date.now()), decided_by: actorId(ctx) };
+    if (opts.comment) values.comments = String(opts.comment).slice(0, 4000);
+    await updateIn(tx, sys, "approval", r.id, values, { trusted: true });
+    r.state = state;
+    rounds.set(`${r.rule_id ?? ""}:${r.round}`, { rule: (r.rule_id as string) ?? null, round: Number(r.round) || 1 });
+    canceled++;
+  }
+  const agg = aggregate(rows as never[]);
+  let fresh = record;
+  if (def.fields.some((f) => f.name === "approval") && record.approval !== agg) fresh = await updateIn(tx, sys, def.key, id, { approval: agg }, { trusted: true });
+  for (const r of rounds.values()) await fireSettled({ tx, ctx: sys, def, record: fresh, rule_id: r.rule, round: r.round, outcome: "canceled", aggregate: agg, by: actorId(ctx) });
+  return { canceled, aggregate: agg };
+}
+
+export interface RerunOptions {
+  /** why the record's approvals are asked again (the comment of the new rows: «پاسخ‌ها تغییر کرد») */
+  comment?: string | null;
+  /** also ask again the rules whose latest round was already decided */
+  decided?: boolean;
+}
+
+/**
+ * Plan a record's approvals again after what they depend on changed (a requested item's answers): every open round
+ * is withdrawn (`canceled`, with the comment) and each active rule of the table whose condition holds now starts a
+ * new round — auto-approval included; a rule whose condition no longer holds just loses its open round. Rules whose
+ * latest round is decided are left alone unless `decided`. Replaced rounds do not call `onApprovalSettled`; the new
+ * ones settle later. Returns what was withdrawn and started and the record's aggregate.
+ */
+export async function rerunApprovalRules(ctx: Ctx, table: string, id: string, opts: RerunOptions = {}): Promise<{ canceled: number; started: number; aggregate: string }> {
+  const { def } = await defFor(ctx, table);
+  return ctx.write((tx) => rerunApprovalRulesIn(tx, ctx, def.key, id, opts));
+}
+
+/** `rerunApprovalRules` inside the caller's write transaction. */
+export async function rerunApprovalRulesIn(tx: Tx, ctx: Ctx, table: string, id: string, opts: RerunOptions = {}): Promise<{ canceled: number; started: number; aggregate: string }> {
+  const { def } = await defFor(ctx, table, tx);
+  if (ownTable(def.key) || def.virtual) throw bad("این جدول تأیید ندارد");
+  const env = await condEnv(ctx);
+  const record = await requireReadable(ctx, def, id, env, tx, { lock: true });
+  if (!isSystemCtx(ctx) && (!access().canWrite(ctx, def, record) || record.$writable === false)) throw forbidden(`اجازهٔ تغییر این ${def.label} را ندارید`);
+  const sys = systemFrom(ctx);
+  const cfg = await config(tx, sys);
+  const rules = rulesFor(cfg, "approval_rule", def.key);
+  const existing = await liveRows(tx, sys, "approval", eqAll({ table_key: def.key, record_id: id }), "t.round, t.level, t.created_at, t.id");
+  const schema = await orgSchema(sys, tx);
+  const now = Date.now();
+  const renv: CondEnv = { ...env, now };
+  const row = await withWalks(tx, def, ctx.org.id, { ...record, org_id: ctx.org.id }, rules.flatMap((r) => [r.condition, r.auto_approve]), renv, schema.lookup);
+  const comment = opts.comment ? String(opts.comment).trim().slice(0, 4000) || null : null;
+  const requestedBy = actorId(ctx);
+  let canceled = 0;
+  const created: Row[] = [];
+  let timers = false;
+  const withdraw = async (r: Row) => {
+    await updateIn(tx, sys, "approval", r.id, { state: "canceled", decided_at: iso(now), decided_by: requestedBy, comments: comment ?? "تأیید دوباره خواسته شد" }, { trusted: true });
+    r.state = "canceled";
+    canceled++;
+  };
+  for (const r of rules) {
+    const mine = existing.filter((x) => x.rule_id === r.id);
+    const latest = Math.max(0, ...mine.map((x) => Number(x.round) || 1));
+    const open = mine.filter((x) => OPEN.has(x.state));
+    const decidedLatest = !open.length && mine.some((x) => (Number(x.round) || 1) === latest);
+    for (const x of open) await withdraw(x);
+    if (!holds(r.condition, row, renv, def, schema.lookup, true)) continue;
+    if (decidedLatest && !opts.decided) continue;
+    const round = latest + 1;
+    const spec = specOf(r);
+    let rows: Row[];
+    if (holds(r.auto_approve, row, renv, def, schema.lookup, false)) {
+      rows = [{ table_key: def.key, record_id: id, rule_id: r.id, level: 1, round, rule: "any", state: "approved", requested_at: iso(now), requested_by: requestedBy, decided_at: iso(now), comments: `تأیید خودکار («${spec.name}»)` }];
+    } else {
+      rows = await roundRows(tx, sys, def, row, { ...spec, comment: comment ?? spec.comment }, round, now, { requestedBy, managerFallback: true });
+      if (spec.mode === "sequential") promote(rows, now, spec.expireAfter);
     }
-    const agg = aggregate(rows as never[]);
-    if (def.fields.some((f) => f.name === "approval") && record.approval !== agg) await updateIn(tx, sys, def.key, id, { approval: agg }, { trusted: true });
-    return { canceled, aggregate: agg };
-  });
+    const snap = { record_number: def.numbered ? (record.number ?? null) : null, record_title: recordTitle(record, def.display) };
+    for (const x of rows) created.push(await createIn(tx, sys, "approval", { ...x, ...snap }, { trusted: true }));
+    if (spec.expireAfter || Number(r.remind_every) > 0) timers = true;
+  }
+  // ad-hoc rounds still open are withdrawn too (they were asked about what changed)
+  for (const x of existing) if (!x.rule_id && OPEN.has(x.state)) await withdraw(x);
+  const agg = aggregate([...existing, ...created] as never[]);
+  if (def.fields.some((f) => f.name === "approval") && record.approval !== agg) await updateIn(tx, sys, def.key, id, { approval: agg }, { trusted: true });
+  await announceRequested(tx, sys, def, record, created.filter((x) => x.state === "requested"), { rerun: true });
+  if (timers) await scheduleApprovals(tx, ctx.org.id, def.key, id, now + 1000);
+  return { canceled, started: created.length, aggregate: agg };
 }
 
 // ---------------------------------------------------------------------------------------------------------------

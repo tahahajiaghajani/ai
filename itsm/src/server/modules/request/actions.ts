@@ -13,7 +13,7 @@ import { AppError, bad, forbidden, notFound } from "../../http/errors";
 import { addJournalIn, condEnv, createIn, get, list, openSecret, transitionIn, updateIn, validationError } from "../../engine";
 import { access } from "../../access/provider";
 import { securityEvent } from "../platform/security";
-import { notifyPeople } from "../notify";
+import { rerunApprovalRulesIn } from "../sla";
 import { eqAll, isUuid, liveRow, liveRows, obj, offeredChoice, sysOf, type Row } from "./common";
 import { versionSchema } from "./definition";
 import { canOrder } from "./entitlement";
@@ -158,11 +158,8 @@ export async function editAnswers(ctx: Ctx, id: string, input: { answers?: Answe
     await writeFacts(tx, ctx, { ...ritm, ...row }, schema);
     const note = changed.length ? `پاسخ‌ها ویرایش شد: ${changed.join("، ")}` : "پاسخ‌ها ویرایش شد";
     await addJournalIn(tx, sys, tableDef("request_item")!, ritm, { kind: "system", body: note }, { trusted: true });
-    if (ritm.state === "awaiting_approval") {
-      const open = await liveRows(tx, sysOf(ctx), "approval", eqAll({ table_key: "request_item", record_id: id, state: "requested" }));
-      const users = [...new Set(open.map((a) => a.approver_id).filter(isUuid))];
-      if (users.length) await notifyPeople(tx, ctx.org.id, { table: "request_item", id, users, label: "پاسخ‌های قلم در انتظار تأیید تغییر کرد", subject: "پاسخ‌های {{record.display}} تغییر کرد", body: `${note}\n\nپیش از تصمیم، پاسخ‌های تازه را ببینید.`, actor: ctx.user.id, source: "درخواست خدمت" });
-    }
+    // the approvers decide on the answers as they are now: their open round is asked again (with the note)
+    if (ritm.state === "awaiting_approval") await rerunApprovalRulesIn(tx, sysOf(ctx), "request_item", id, { comment: `${note} — پیش از تصمیم، پاسخ‌های تازه را ببینید.` });
   });
   return answersView(ctx, "request_item", id);
 }

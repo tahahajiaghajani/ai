@@ -16,9 +16,9 @@ import type { Ctx } from "../../context";
 import { addJournalIn, createIn, defFor, onRecordEvent, removeIn, systemCtx, transitionIn, updateIn, type RecordEvent } from "../../engine";
 import { enqueue, registerJobHandler, type JobContext } from "../../jobs";
 import { actsHere, notifyPeople } from "../notify";
-import { cancelApprovals } from "../sla";
 import { activeMembers, addDaysISO, baseOf, countRows, expandUnits, isUuid, kbConfig, liveRow, liveRows, rowsById, sysOf, todayIn, uniq, type Row } from "./common";
 import { publishIn } from "./versions";
+import { upgradeKnowledgeSeed } from "./seed";
 import { runPublishingModels } from "./kcs";
 import { remindAttestations } from "./attest";
 import { computeHealth, detectGaps, findDuplicates, integrityChecks, sampleAqi } from "./quality";
@@ -201,19 +201,16 @@ async function recompileUnits(sys: Ctx): Promise<void> {
 async function onApproval(e: RecordEvent, jctx: JobContext): Promise<void> {
   if (!actsHere(jctx.cfg) || !isUuid(e.org_id) || !isUuid(e.id)) return;
   const outcome = String(e.data?.outcome ?? "");
-  const decision = String(e.data?.decision ?? "");
   const by = isUuid(e.data?.by) ? String(e.data!.by) : null;
   const sys = await systemCtx(jctx.cfg, e.org_id, by ? { onBehalfOf: by } : undefined);
   const comment = e.data?.comment ? String(e.data.comment) : "";
-  // «یک تأییدکننده کافی است»: the first answer decides — a rejection returns the draft at once (its author gets the
-  // reviewer's comment) and the other reviewers' open approvals are withdrawn; the other modes follow the round
-  const firstAnswer = (mode: unknown) => (mode ?? "any") === "any" && decision === "rejected";
+  // the round decides — «یک تأییدکننده کافی است» is the approvals rule `first` (the first answer, approval or
+  // rejection, settles it and the service withdraws the others); a rejection returns the draft with the comment
+  if (outcome !== "approved" && outcome !== "rejected") return;
+  const rejected = outcome === "rejected";
   if (e.table === "kb_version") {
     const v = await liveRow(jctx.db, sys, "kb_version", e.id);
     if (!v || v.state !== "in_review") return;
-    const rejected = outcome === "rejected" || firstAnswer(v.approval_mode);
-    if (outcome !== "approved" && !rejected) return;
-    if (rejected) await cancelApprovals(sys, "kb_version", v.id).catch(() => undefined);
     await sys.write(async (tx) => {
       if (!rejected) {
         await updateIn(tx, sys, "kb_version", v.id, { approved_at: new Date().toISOString(), approved_by: by }, { trusted: true });
@@ -229,9 +226,6 @@ async function onApproval(e: RecordEvent, jctx: JobContext): Promise<void> {
   if (e.table === "kb_article") {
     const a = await liveRow(jctx.db, sys, "kb_article", e.id);
     if (!a || a.state !== "pending_retirement") return;
-    const rejected = outcome === "rejected" || firstAnswer("any");
-    if (outcome !== "approved" && !rejected) return;
-    if (rejected) await cancelApprovals(sys, "kb_article", a.id).catch(() => undefined);
     await sys.write((tx) => transitionIn(tx, sys, "kb_article", a.id, rejected ? "published" : "retired", rejected ? { retire_reason: null } : {}, { trusted: true }));
   }
 }
@@ -296,6 +290,8 @@ export function installKnowledgeJobs(): void {
     const payload = (job.payload ?? {}) as { daily_on?: string };
     const today = todayIn(sys);
     const daily = payload.daily_on !== today;
+    // an organisation seeded by an earlier version gets the seed's upgrades (rules only, never the defaults again)
+    if (daily) await upgradeKnowledgeSeed(sys);
     await kbSweep(sys, { daily });
     if (daily) await jctx.save({ ...payload, daily_on: today });
     return { again: KB_SWEEP_EVERY };

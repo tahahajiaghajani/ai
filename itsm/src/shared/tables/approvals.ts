@@ -25,6 +25,7 @@ export const APPROVAL_RULES: Option[] = [
   { value: "all", label: "همه" },
   { value: "count", label: "تعداد مشخص" },
   { value: "percent", label: "درصد مشخص" },
+  { value: "first", label: "نخستین پاسخ (تأیید یا رد) کافی است" },
 ];
 
 export const APPROVAL_MODES: Option[] = [
