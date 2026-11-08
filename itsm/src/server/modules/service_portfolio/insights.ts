@@ -162,7 +162,7 @@ export async function rationalization(ctx: Ctx): Promise<{ rows: Rationalization
   }
   // requests per service, when a request table with a service field exists in this build
   let requests: Map<string, number> | null = null;
-  for (const t of ["request_item", "request", "sc_req_item"]) {
+  for (const t of ["request_item", "request"]) {
     const def = tableDef(t);
     if (!def || !def.fields.some((f) => f.name === "service_id")) continue;
     if (!(await readsTable(ctx, t))) break;
