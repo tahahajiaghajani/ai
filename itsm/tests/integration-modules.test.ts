@@ -17,9 +17,11 @@ import { PLANS } from "./change-helpers";
 type Who = { client: Client; userId: string };
 const HOUR = 3_600_000;
 const ago = (hours: number) => new Date(Date.now() - hours * HOUR).toISOString();
-const CI = "51515151-5151-4151-8151-515151515151";
-const CI_OTHER = "52525252-5252-4252-8252-525252525252";
-const SERVICE = "53535353-5353-4353-8353-535353535353";
+// real CIs and a service: references to the CMDB and the portfolio are checked
+let CI = "";
+let CI_OTHER = "";
+let CI_ELSEWHERE = "";
+let SERVICE = "";
 
 let e: EngineOrg;
 let P = "";
@@ -60,10 +62,23 @@ beforeAll(async () => {
   e = await engineOrg();
   P = `/o/${e.org}`;
   o = e.owner;
-  // the modules' seeds in the order of routes/modules.ts (incident and problem, then change, then requests)
+  // the modules' seeds in the order of routes/modules.ts (incident and problem, the CMDB and the portfolio, then
+  // change, then requests)
   await o.post(`${P}/incident/seed`, {});
+  await o.post(`${P}/cmdb/seed`, {});
+  await o.post(`${P}/service_portfolio/seed`, {});
   await o.post(`${P}/change/seed`, {});
   await o.post(`${P}/request/seed`, {});
+  const ci = async (name: string, cls: string) => (await o.post(`${P}/r/ci`, { name, class: cls, state: "operational" })).row.id as string;
+  CI = await ci("سوئیچ هسته", "network_device");
+  CI_OTHER = await ci("سرور پرداخت", "server");
+  CI_ELSEWHERE = await ci("سرور بایگانی", "server");
+  const svc = (await o.post(`${P}/r/service`, { name: "پرداخت الکترونیک", service_type: "business", description: "پرداخت", owner_id: e.ownerId })).row;
+  await o.post(`${P}/r/service/${svc.id}/transition`, { to: "approved" });
+  const off = (await o.post(`${P}/r/service_offering`, { name: "استاندارد", service_id: svc.id })).row;
+  await o.post(`${P}/r/service_offering/${off.id}/transition`, { to: "active" });
+  await o.post(`${P}/r/service/${svc.id}/transition`, { to: "live" });
+  SERVICE = svc.id;
   g.desk = await groupId("میز خدمت");
   g.security = await groupId("امنیت اطلاعات");
   g.desktop = await groupId("پشتیبانی کاربران");
@@ -126,7 +141,7 @@ describe("change ↔ incident and problem", () => {
   it("suspects of a real incident: changes on its CIs and services that ended before it began", async () => {
     const onCi = await implemented({ ci_id: CI_OTHER, affected_cis: [CI_OTHER], short_description: "به‌روزرسانی سفت‌افزار" }, 3, 2);
     const onService = await implemented({ affected_services: [SERVICE], short_description: "جابه‌جایی پایگاه داده" }, 5, 4);
-    const elsewhere = await implemented({ ci_id: "54545454-5454-4454-8454-545454545454", short_description: "تغییر نامرتبط" }, 3, 2);
+    const elsewhere = await implemented({ ci_id: CI_ELSEWHERE, short_description: "تغییر نامرتبط" }, 3, 2);
     // the incident's main CI is another one; the suspect's CI is among those it affects
     const inc = (await agent.client.post(`${P}/r/incident`, { short_description: "خطای پرداخت", ci_id: CI, affected_cis: [CI_OTHER], service_id: SERVICE, assignment_group_id: g.network })).row;
     const s = await agent.client.get(`${P}/change/suspects?incident=${inc.id}`);

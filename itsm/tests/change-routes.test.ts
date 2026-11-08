@@ -8,12 +8,13 @@ import { computeSuccessScores, countCausedIncidents, registerChangeAi, sweep } f
 import { at, world, HOUR, type World } from "./change-helpers";
 
 let w: World;
-const CI3 = "33333333-3333-4333-8333-333333333333";
+let CI3 = ""; // a real CI: references to the CMDB are checked
 const manual = (risk: string) => ({ risk, risk_source: "manual", risk_override_reason: "ارزیابی کارشناس" });
 const soon = (minutes: number) => new Date(Date.now() + minutes * 60_000).toISOString();
 
 beforeAll(async () => {
   w = await world();
+  CI3 = await w.ci("سرور وب");
 }, 120_000);
 
 /** A standard change from the catalogue, scheduled now and taken to implementation with its tasks done. */
@@ -111,7 +112,7 @@ describe("insights", () => {
 
   it("detects configuration changes without an authorized change, lists a CI's changes and suspects", async () => {
     const { P, p } = w;
-    const CI4 = "44444444-4444-4444-8444-444444444444";
+    const CI4 = await w.ci("سرور فایل");
     const lone = await p.agent.client.post(`${P}/change/detected`, { ci_id: CI4, summary: "تغییر پیکربندی سرور بدون درخواست" });
     expect(lone.authorized).toBe(false);
     expect(lone.change.type).toBe("latent");

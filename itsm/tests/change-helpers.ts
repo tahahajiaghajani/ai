@@ -26,6 +26,8 @@ export interface World {
   get(id: string, as?: Client): Promise<Record<string, any>>;
   /** the approvals of a change */
   approvals(id: string): Promise<Record<string, any>[]>;
+  /** a real CI (references to the CMDB are checked), created by the owner */
+  ci(name: string, data?: Record<string, unknown>): Promise<string>;
 }
 
 const ROLES: Record<Who, string> = { cm: "change_manager", cab1: "cab_member", cab2: "cab_member", cab3: "cab_member", agent: "agent", other: "agent", req: "requester", mgr: "team_lead", auditor: "auditor" };
@@ -85,7 +87,8 @@ export async function world(): Promise<World> {
     return row;
   };
   const approvals = async (id: string) => (await o.get(`${P}/approvals/record/change_request/${id}`)).approvals as Record<string, any>[];
-  return { e, P, o, p, g: { network, servers, managers, board }, sys, drain, change, move, get, approvals };
+  const ci = async (name: string, data: Record<string, unknown> = {}) => (await o.post(`${P}/r/ci`, { name, class: "server", state: "operational", ...data })).row.id as string;
+  return { e, P, o, p, g: { network, servers, managers, board }, sys, drain, change, move, get, approvals, ci };
 }
 
 /** Move a timestamp column of a row (test set-up only). */

@@ -7,13 +7,16 @@ import { localInstant } from "@shared/sla/calendar";
 import { at, world, type World } from "./change-helpers";
 
 let w: World;
-const CI = "11111111-1111-4111-8111-111111111111";
-const CI2 = "22222222-2222-4222-8222-222222222222";
+// real CIs: references to the CMDB are checked
+let CI = "";
+let CI2 = "";
 const conflictsOf = async (id: string) =>
   (await w.o.get(`${w.P}/r/change_conflict?filter=${encodeURIComponent(JSON.stringify({ f: "change_id", op: "eq", v: id }))}&size=50`)).rows as Record<string, any>[];
 
 beforeAll(async () => {
   w = await world();
+  CI = await w.ci("سرور برنامهٔ حقوق");
+  CI2 = await w.ci("سرور پایگاه داده", { class: "database" });
 }, 120_000);
 
 describe("conflicts between changes", () => {
