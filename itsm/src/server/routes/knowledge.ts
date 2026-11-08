@@ -60,11 +60,13 @@ const searchQuery = z.object({
   session: session,
   channel: text(20).optional(),
   retired: z.enum(["0", "1"]).optional(),
+  /** 0: not logged (type-ahead, previews) — the analytics count finished searches only */
+  log: z.enum(["0", "1"]).optional(),
 });
 
 knowledgeRoutes.get("/search", async (c) => {
   const p = query(c, searchQuery);
-  return c.json(await searchKnowledge(c.get("ctx"), { q: p.q ?? "", base_id: p.base, category_id: p.category, type: p.type, language: p.language, sort: p.sort, page: p.page, size: p.size, session_id: p.session ?? null, channel: p.channel ?? "search", include_retired: p.retired === "1" }));
+  return c.json(await searchKnowledge(c.get("ctx"), { q: p.q ?? "", base_id: p.base, category_id: p.category, type: p.type, language: p.language, sort: p.sort, page: p.page, size: p.size, session_id: p.session ?? null, channel: p.channel ?? "search", include_retired: p.retired === "1", log: p.log !== "0" }));
 });
 
 knowledgeRoutes.post("/suggest", async (c) => {
