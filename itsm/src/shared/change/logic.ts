@@ -215,7 +215,10 @@ export function optionsOf(q: Pick<RiskQuestion, "kind" | "options">): RiskOption
   const raw = Array.isArray(q.options) ? q.options : [];
   const clean = raw
     .filter((o) => o && typeof o === "object" && (typeof o.value === "string" || typeof o.value === "number"))
-    .map((o) => ({ value: String(o.value), label: String(o.label ?? o.value), score: clamp(Number(o.score) || 0, 0, 10), max: o.max === null || o.max === undefined || o.max === "" ? null : Number(o.max) }));
+    .map((o) => {
+      const max = (o as { max?: unknown }).max;
+      return { value: String(o.value), label: String(o.label ?? o.value), score: clamp(Number(o.score) || 0, 0, 10), max: max === null || max === undefined || max === "" ? null : Number(max) };
+    });
   if (q.kind === "yes_no" && !clean.length) return [{ value: "yes", label: "بله", score: 10 }, { value: "no", label: "خیر", score: 0 }];
   return clean;
 }
