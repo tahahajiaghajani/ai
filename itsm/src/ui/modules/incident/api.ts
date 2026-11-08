@@ -6,10 +6,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { OrgApi } from "../../lib/api";
 import { useOrg } from "../../lib/org";
 import { registerLiveQueries } from "../../lib/live";
-import type { Bucket, IncidentDashboard, KnownErrorHit, Readiness, SimilarHit } from "@shared/incident/api";
+import type { AnnouncementItem, Bucket, IncidentDashboard, KnownErrorHit, Readiness, SimilarHit } from "@shared/incident/api";
 import type { TimelineItem, TimelineKind } from "@shared/incident/logic";
 
-export type { IncidentDashboard, Bucket, TimelineItem, TimelineKind, SimilarHit, KnownErrorHit, Readiness };
+export type { IncidentDashboard, Bucket, TimelineItem, TimelineKind, SimilarHit, KnownErrorHit, Readiness, AnnouncementItem };
 
 export const INCIDENT_KEYS = {
   all: (org: string) => ["incident", org] as const,
@@ -19,6 +19,7 @@ export const INCIDENT_KEYS = {
   readiness: (org: string, id: string) => ["incident", org, "readiness", id] as const,
   timeline: (org: string, id: string) => ["incident", org, "timeline", id] as const,
   dashboard: (org: string, days: number) => ["incident", org, "dashboard", days] as const,
+  announcements: (org: string) => ["incident", org, "announcements"] as const,
 };
 registerLiveQueries("incident");
 
@@ -57,7 +58,15 @@ export const incidentApi = {
   seed: (api: OrgApi) => api.post<{ incident: { skipped: boolean; created: Record<string, number> }; problem: { skipped: boolean; created: Record<string, number> } }>("/incident/seed"),
   problemFrom: (api: OrgApi, incident_ids: string[]) => api.post<{ problem: { id: string; number: string }; done: string[]; failed: { id: string; message: string }[] }>("/problem/from-incidents", { incident_ids }),
   ai: (api: OrgApi, id: string, skill: string, body: Record<string, unknown> = {}) => api.post(`/incident/${id}/ai/${skill}`, body),
+  announcements: (api: OrgApi) => api.get<{ items: AnnouncementItem[] }>("/incident/announcements"),
+  announce: (api: OrgApi, id: string) => api.post<{ row: { id: string; number: string }; created: boolean }>(`/incident/${id}/announcement`),
 };
+
+/** The announcements on air for me (refreshed every two minutes and with the module's live updates). */
+export function useAnnouncements() {
+  const { api, orgId } = useOrg();
+  return useQuery({ queryKey: INCIDENT_KEYS.announcements(orgId), queryFn: () => incidentApi.announcements(api), staleTime: 60_000, refetchInterval: 120_000 });
+}
 
 export function useIncidentMeta() {
   const { api, orgId } = useOrg();

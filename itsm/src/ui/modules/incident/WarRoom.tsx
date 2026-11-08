@@ -6,7 +6,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { Button, Checkbox, Form, Input, Modal, Segmented, Select, Tooltip } from "antd";
-import { Star, Trash2, Plus, Send, ExternalLink, ClipboardCheck } from "lucide-react";
+import { Star, Trash2, Plus, Send, ExternalLink, ClipboardCheck, Megaphone } from "lucide-react";
 import { MANUAL_KINDS, TIMELINE_KINDS, type TimelineKind } from "@shared/incident/logic";
 import { MAJOR_STATES } from "@shared/tables/incident";
 import { formatJalaliDateTime } from "@shared/jalali";
@@ -46,6 +46,7 @@ export default function WarRoom() {
   const toggleKey = useAction(({ ev, key }: { ev: string; key: boolean }) => incidentApi.keyEvent(api, id, ev, key), { onSuccess: after });
   const remove = useAction((ev: string) => incidentApi.removeEvent(api, id, ev), { success: "رویداد حذف شد.", onSuccess: after });
   const review = useAction(() => incidentApi.review(api, id), { onSuccess: (d) => nav(`/${orgId}/${recordPath("incident_review", d.row.id)}`) });
+  const announce = useAction(() => incidentApi.announce(api, id), { onSuccess: (d) => nav(`/${orgId}/${recordPath("announcement", d.row.id)}`) });
   const saveRole = useAction((data: Record<string, unknown>) => recordsApi.update(api, "incident", id, data, rec.data?.row.version as number | undefined), { success: "ذخیره شد.", onSuccess: after });
 
   const items = useMemo(() => visibleTimeline(tl.data?.items ?? [], keyOnly), [tl.data, keyOnly]);
@@ -76,6 +77,11 @@ export default function WarRoom() {
             {row.bridge_url ? (
               <Button icon={<ExternalLink {...ICON14} />} href={String(row.bridge_url)} target="_blank" rel="noreferrer noopener">
                 جلسهٔ هماهنگی
+              </Button>
+            ) : null}
+            {may ? (
+              <Button icon={<Megaphone {...ICON14} />} onClick={() => announce.mutate(undefined)} loading={announce.isPending}>
+                اطلاعیهٔ قطعی
               </Button>
             ) : null}
             {may ? (

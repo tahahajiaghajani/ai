@@ -1,10 +1,11 @@
 // Pure logic of incident management (src/shared/incident/logic.ts): similarity and known-error matching, the
 // major-incident criteria and actions, the update cadence, the reopen window, the timeline (stored events, checks,
-// order), the review draft, canned-response placeholders, templates, durations and working days.
+// order), the review draft, canned-response placeholders, templates, durations, working days and announcements.
 import { describe, it, expect } from "vitest";
 import {
-  addWorkingDays, eventProblem, fillPlaceholders, humanDuration, knownErrorMatch, localDate, majorActionAllowed, majorCandidate, nextUpdateAt, overlap,
-  reopenAllowed, reviewDraft, similarity, sortTimeline, storedEvents, templateParams, templateTasks, templateTasksProblem, words, SIMILAR_MIN,
+  addWorkingDays, announcementActive, announcementProblem, announcementReaches, eventProblem, fillPlaceholders, humanDuration, knownErrorMatch, localDate, majorActionAllowed,
+  majorCandidate, nextUpdateAt, overlap, reopenAllowed, reviewDraft, similarity, sortTimeline, storedEvents, templateParams, templateTasks, templateTasksProblem, words, SIMILAR_MIN,
+  type AudienceMember,
 } from "@shared/incident/logic";
 import { calendarOf, DEFAULT_HOURS } from "@shared/sla/calendar";
 import { INCIDENT_CHOICE_LISTS, INCIDENT_CONFIG_DEFAULTS, MAJOR_STATES } from "@shared/tables/incident";
@@ -165,7 +166,7 @@ describe("durations and working days", () => {
 
 describe("definitions", () => {
   it("registers the module's tables, choice lists and defaults", () => {
-    for (const k of ["incident", "incident_task", "incident_review", "incident_template", "incident_response", "incident_config"]) expect(TABLES.get(k), k).toBeTruthy();
+    for (const k of ["incident", "incident_task", "incident_review", "incident_template", "incident_response", "announcement", "incident_config"]) expect(TABLES.get(k), k).toBeTruthy();
     const inc = TABLES.get("incident")!;
     expect(inc.numbered?.prefix).toBe("INC");
     expect(inc.states?.transitions.find((t) => t.to === "on_hold")?.requires).toEqual(["hold_reason"]);
@@ -175,5 +176,38 @@ describe("definitions", () => {
     expect(Object.keys(INCIDENT_CHOICE_LISTS)).toEqual(["incident.channel", "incident.hold_reason", "incident.close_code", "incident.cause_code", "incident.category", "incident.subcategory"]);
     expect(INCIDENT_CHOICE_LISTS["incident.subcategory"].every((o) => o.parent)).toBe(true);
     expect(INCIDENT_CONFIG_DEFAULTS.auto_close_days).toBe(3);
+  });
+});
+
+describe("announcements", () => {
+  const now = Date.parse("2026-11-08T10:00:00Z");
+  const member = (over: Partial<AudienceMember> = {}): AudienceMember => ({ userId: "u1", agent: false, groups: ["g1"], units: ["unit-a", "unit-root"], location: "loc1", ...over });
+
+  it("are on air when published and inside their window", () => {
+    expect(announcementActive({ state: "published" }, now)).toBe(true);
+    expect(announcementActive({ state: "draft" }, now)).toBe(false);
+    expect(announcementActive({ state: "published", starts_at: "2026-11-08T11:00:00Z" }, now)).toBe(false);
+    expect(announcementActive({ state: "published", starts_at: "2026-11-08T09:00:00Z", ends_at: "2026-11-08T10:00:00Z" }, now)).toBe(false);
+    expect(announcementActive({ state: "published", starts_at: "2026-11-08T09:00:00Z", ends_at: "2026-11-08T10:30:00Z" }, now)).toBe(true);
+  });
+
+  it("reach everyone, agents only, or the named groups, unit trees, locations and people", () => {
+    expect(announcementReaches({ audience: "everyone" }, member())).toBe(true);
+    expect(announcementReaches({}, member())).toBe(true);
+    expect(announcementReaches({ audience: "agents" }, member())).toBe(false);
+    expect(announcementReaches({ audience: "agents" }, member({ agent: true }))).toBe(true);
+    expect(announcementReaches({ audience: "targeted", groups: ["g2"] }, member())).toBe(false);
+    expect(announcementReaches({ audience: "targeted", groups: ["g2", "g1"] }, member())).toBe(true);
+    expect(announcementReaches({ audience: "targeted", units: ["unit-root"] }, member())).toBe(true);
+    expect(announcementReaches({ audience: "targeted", locations: ["loc1"] }, member())).toBe(true);
+    expect(announcementReaches({ audience: "targeted", locations: ["loc1"] }, member({ location: null }))).toBe(false);
+    expect(announcementReaches({ audience: "targeted", users: ["u1"] }, member({ groups: [] }))).toBe(true);
+  });
+
+  it("need a window that ends after it starts and a target when targeted", () => {
+    expect(announcementProblem({ audience: "everyone" })).toBeNull();
+    expect(announcementProblem({ starts_at: "2026-11-08T10:00:00Z", ends_at: "2026-11-08T09:00:00Z" })?.ends_at).toContain("پس از آغاز");
+    expect(announcementProblem({ audience: "targeted", groups: [] })?.audience).toContain("دست‌کم");
+    expect(announcementProblem({ audience: "targeted", users: ["u1"] })).toBeNull();
   });
 });

@@ -102,6 +102,19 @@ export const REVIEW_TRIGGERS: Option[] = [
   { value: "manual", label: "به تشخیص مسئول" },
 ];
 
+export const ANNOUNCEMENT_KINDS: Option[] = [
+  { value: "outage", label: "قطعی", color: "red", order: 1 },
+  { value: "degradation", label: "اختلال یا کندی", color: "orange", order: 2 },
+  { value: "maintenance", label: "نگهداری برنامه‌ریزی‌شده", color: "blue", order: 3 },
+  { value: "info", label: "اطلاع‌رسانی", color: "gray", order: 4 },
+];
+
+export const ANNOUNCEMENT_AUDIENCES: Option[] = [
+  { value: "everyone", label: "همهٔ کاربران", order: 1 },
+  { value: "agents", label: "فقط کارشناسان", order: 2 },
+  { value: "targeted", label: "گروه‌ها، واحدها، مکان‌ها یا افراد مشخص", order: 3 },
+];
+
 export const RESPONSE_KINDS: Option[] = [
   { value: "both", label: "پاسخ و یادداشت" },
   { value: "comment", label: "پاسخ به درخواست‌دهنده" },
@@ -452,6 +465,66 @@ const incidentResponse: TableDef = {
 };
 
 // ---------------------------------------------------------------------------------------------------------------
+// Outage announcements (catalogue INC-043): a banner with a window and an audience. Kept by the group that owns it
+// (or a manager); people read the ones on air for them through GET /incident/announcements, never the table itself.
+
+export const ANNOUNCEMENT_STATES: StateModel = {
+  field: "state",
+  initial: "draft",
+  states: [
+    { value: "draft", label: "پیش‌نویس", category: "new", color: "blue" },
+    { value: "published", label: "منتشرشده", category: "active", color: "green" },
+    { value: "ended", label: "پایان‌یافته", category: "closed", color: "gray" },
+    { value: "canceled", label: "لغوشده", category: "canceled", color: "gray" },
+  ],
+  transitions: [
+    { from: ["draft"], to: "published", label: "انتشار", requires: ["title", "body"], roles: { area: "incident", level: "edit" } },
+    { from: ["published"], to: "ended", label: "پایان اطلاعیه" },
+    { from: ["ended"], to: "published", label: "انتشار دوباره", roles: { area: "incident", level: "edit" } },
+    { from: ["draft"], to: "canceled", label: "لغو" },
+  ],
+  locked: ["canceled"],
+};
+
+const AUDIENCE = "مخاطبان";
+
+const announcement: TableDef = {
+  key: "announcement",
+  table: "sm_announcements",
+  label: "اطلاعیه",
+  plural: "اطلاعیه‌ها",
+  icon: "megaphone",
+  module: "incident",
+  area: "incident",
+  description: "اطلاعیهٔ قطعی، اختلال یا نگهداری برای کاربران و کارشناسان، با بازهٔ نمایش و مخاطبان مشخص",
+  numbered: { prefix: "ANN", pad: 5 },
+  display: "title",
+  fields: [
+    { name: "title", label: "عنوان", type: "string", required: true, maxLength: 160, list: true, search: true, sort: true, span: 24 },
+    { name: "body", label: "متن", type: "markdown", search: true, span: 24, help: "چه چیزی متأثر است، از کی، و کی خبر بعدی می‌رسد" },
+    { name: "kind", label: "نوع", type: "choice", choices: ANNOUNCEMENT_KINDS, default: "outage", required: true, list: true, filter: true, span: 8 },
+    { name: "starts_at", label: "نمایش از", type: "datetime", list: true, sort: true, filter: true, span: 8, help: "خالی: از لحظهٔ انتشار" },
+    { name: "ends_at", label: "نمایش تا", type: "datetime", list: true, sort: true, filter: true, span: 8, help: "خالی: تا پایان دستی یا حل رخداد" },
+    { name: "incident_id", label: "رخداد", type: "ref", ref: "incident", list: true, filter: true, index: true, span: 12 },
+    { name: "end_with_incident", label: "با حل رخداد پایان یابد", type: "bool", default: true, span: 12 },
+    { name: "assignment_group_id", label: "گروه", type: "group", filter: true, index: true, span: 12, help: "اعضای این گروه اطلاعیه را نگه می‌دارند؛ خالی: فقط مدیران" },
+    { name: "owner_id", label: "مسئول", type: "user", default: "$me", filter: true, span: 12 },
+    { name: "audience", label: "مخاطبان", type: "choice", choices: ANNOUNCEMENT_AUDIENCES, default: "everyone", required: true, list: true, filter: true, span: 24, section: AUDIENCE },
+    { name: "groups", label: "گروه‌ها", type: "refs", ref: "group", span: 12, section: AUDIENCE },
+    { name: "units", label: "واحدهای سازمانی (با زیرمجموعه‌ها)", type: "refs", ref: "org_unit", span: 12, section: AUDIENCE },
+    { name: "locations", label: "مکان‌ها", type: "refs", ref: "location", span: 12, section: AUDIENCE },
+    { name: "users", label: "افراد", type: "users", span: 12, section: AUDIENCE },
+    { name: "published_at", label: "زمان انتشار", type: "datetime", system: true, sort: true, span: 8 },
+    { name: "published_by", label: "منتشرکننده", type: "user", system: true, span: 8 },
+    { name: "ended_at", label: "زمان پایان", type: "datetime", system: true, sort: true, span: 8 },
+  ],
+  states: ANNOUNCEMENT_STATES,
+  scope: { group: "assignment_group_id" },
+  form: { sections: [MAIN, AUDIENCE] },
+  list: { columns: ["number", "title", "kind", "state", "audience", "starts_at", "ends_at", "incident_id"], order: "-created_at" },
+};
+
+// ---------------------------------------------------------------------------------------------------------------
 // The module's settings (one row per organisation; the server falls back to these defaults without it)
 
 export const INCIDENT_CONFIG_DEFAULTS = {
@@ -509,4 +582,4 @@ const incidentConfig: TableDef = {
   list: { columns: ["name", "auto_close_days", "reopen_window_days"], order: "name" },
 };
 
-export const INCIDENT_TABLES: TableDef[] = [incident, incidentTask, incidentReview, incidentTemplate, incidentResponse, incidentConfig];
+export const INCIDENT_TABLES: TableDef[] = [incident, incidentTask, incidentReview, incidentTemplate, incidentResponse, announcement, incidentConfig];

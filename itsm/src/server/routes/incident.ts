@@ -10,7 +10,7 @@ import { access } from "../access/provider";
 import { defFor, get } from "../engine";
 import { MANUAL_KINDS, TIMELINE_KINDS, type TimelineKind } from "@shared/incident/logic";
 import {
-  addTimelineEvent, aiCapabilities, applyKnownError, AUDIENCES, changeTimelineEvent, createRelated, draftReview, escalate, incidentAi, incidentConfig, incidentDashboard,
+  activeAnnouncements, addTimelineEvent, aiCapabilities, announceFromIncident, applyKnownError, AUDIENCES, changeTimelineEvent, createRelated, draftReview, escalate, incidentAi, incidentConfig, incidentDashboard,
   knownErrorMatches, majorAction, mergeIncidents, promoteEntry, readiness, seedIncidentDefaults, sendUpdate, similarIncidents, timelineOf, type Audience,
 } from "../modules/incident";
 import { seedProblemDefaults } from "../modules/problem";
@@ -46,6 +46,9 @@ incidentRoutes.get("/meta", async (c) => {
     manual_kinds: MANUAL_KINDS,
   });
 });
+
+// the outage announcements on air for the caller (every member: the audience decides, not the table's access)
+incidentRoutes.get("/announcements", async (c) => c.json(await activeAnnouncements(c.get("ctx"))));
 
 incidentRoutes.get("/dashboard", async (c) => {
   const q = query(c, z.object({ days: z.coerce.number().int().min(7).max(365).optional() }));
@@ -135,6 +138,9 @@ incidentRoutes.patch("/:id/timeline/:eventId", async (c) => {
 });
 
 incidentRoutes.delete("/:id/timeline/:eventId", async (c) => c.json(await changeTimelineEvent(c.get("ctx"), id(c.req.param("id")), id(c.req.param("eventId")), { remove: true })));
+
+// the incident's outage announcement: its live one, or a new draft from the incident (the war room)
+incidentRoutes.post("/:id/announcement", async (c) => c.json(await announceFromIncident(c.get("ctx"), id(c.req.param("id")))));
 
 incidentRoutes.post("/:id/updates", async (c) => {
   const input = await body(c, z.object({

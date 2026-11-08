@@ -433,3 +433,63 @@ export function addWorkingDays(cal: BusinessCalendar | null, start: number, n: n
   }
   return start + n * 86_400_000;
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// Outage announcements (catalogue INC-043)
+
+export interface AnnouncementLike {
+  state?: unknown;
+  starts_at?: unknown;
+  ends_at?: unknown;
+  audience?: unknown;
+  groups?: unknown;
+  units?: unknown;
+  locations?: unknown;
+  users?: unknown;
+}
+
+/** Who reads the banner: their groups, their unit with the units above it, their location, and whether they are an agent. */
+export interface AudienceMember {
+  userId: string;
+  agent: boolean;
+  groups: readonly string[];
+  /** the member's unit and every unit above it */
+  units: readonly string[];
+  location: string | null;
+}
+
+const ids = (v: unknown): string[] => (Array.isArray(v) ? v.map(String) : []);
+
+/** Is the announcement on air at `now` (published, started, not over)? */
+export function announcementActive(a: AnnouncementLike, now = Date.now()): boolean {
+  if (a.state !== "published") return false;
+  const from = Date.parse(String(a.starts_at ?? ""));
+  const to = Date.parse(String(a.ends_at ?? ""));
+  return (Number.isNaN(from) || from <= now) && (Number.isNaN(to) || to > now);
+}
+
+/** Does the announcement reach the member: everyone, agents only, or a target they belong to (group, unit tree, location, person)? */
+export function announcementReaches(a: AnnouncementLike, m: AudienceMember): boolean {
+  if (a.audience === "agents") return m.agent;
+  if (a.audience !== "targeted") return true;
+  const groups = new Set(m.groups);
+  const units = new Set(m.units);
+  return (
+    ids(a.users).includes(m.userId) ||
+    ids(a.groups).some((g) => groups.has(g)) ||
+    ids(a.units).some((u) => units.has(u)) ||
+    (!!m.location && ids(a.locations).includes(m.location))
+  );
+}
+
+/** Why an announcement cannot be saved as it is (Persian, per field), or null. */
+export function announcementProblem(a: AnnouncementLike): Record<string, string> | null {
+  const out: Record<string, string> = {};
+  const from = Date.parse(String(a.starts_at ?? ""));
+  const to = Date.parse(String(a.ends_at ?? ""));
+  if (!Number.isNaN(from) && !Number.isNaN(to) && to <= from) out.ends_at = "پایان باید پس از آغاز باشد";
+  if (a.audience === "targeted" && ![a.groups, a.units, a.locations, a.users].some((v) => ids(v).length)) {
+    out.audience = "دست‌کم یک گروه، واحد، مکان یا فرد را برای مخاطبان مشخص کنید";
+  }
+  return Object.keys(out).length ? out : null;
+}

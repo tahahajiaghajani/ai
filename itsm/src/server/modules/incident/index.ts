@@ -56,4 +56,5 @@ export { sweep, ensureSweep, resetSweepThrottle, SWEEP_EVERY, type SweepResult }
 export { incidentDashboard, type IncidentDashboard } from "./dashboard";
 export { registerIncidentAi, registerProblemAi, incidentAi, problemAi, aiCapabilities, type IncidentAi, type ProblemAi } from "./ai";
 export { createFromAlert, type AlertInput } from "./alerts";
+export { activeAnnouncements, announceFromIncident, audienceOf, endWithIncident, expireAnnouncements } from "./announce";
 export { openMandatoryTasks } from "./hooks";

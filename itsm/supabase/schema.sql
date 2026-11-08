@@ -736,6 +736,69 @@ insert into sm_migrations (id) values ('0005_engine') on conflict (id) do nothin
 -- ---------------------------------------------------------------------------
 -- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها)
 -- ---------------------------------------------------------------------------
+-- announcement: اطلاعیه‌ها
+create table if not exists sm_announcements (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_announcements add column if not exists workspace_id uuid;
+alter table sm_announcements add column if not exists domain_id uuid;
+alter table sm_announcements add column if not exists unit_id uuid;
+alter table sm_announcements add column if not exists created_at timestamptz not null default now();
+alter table sm_announcements add column if not exists created_by uuid;
+alter table sm_announcements add column if not exists updated_at timestamptz not null default now();
+alter table sm_announcements add column if not exists updated_by uuid;
+alter table sm_announcements add column if not exists rev bigint not null default 0;
+alter table sm_announcements add column if not exists version integer not null default 1;
+alter table sm_announcements add column if not exists deleted_at timestamptz;
+alter table sm_announcements add column if not exists origin text;
+alter table sm_announcements add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_announcements add column if not exists no integer;
+alter table sm_announcements add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 5 then 'ANN' || no::text else 'ANN' || lpad(no::text, 5, '0') end) stored;
+alter table sm_announcements add column if not exists title text;
+alter table sm_announcements add column if not exists body text;
+alter table sm_announcements add column if not exists kind text;
+alter table sm_announcements add column if not exists starts_at timestamptz;
+alter table sm_announcements add column if not exists ends_at timestamptz;
+alter table sm_announcements add column if not exists incident_id uuid;
+alter table sm_announcements add column if not exists end_with_incident boolean not null default true;
+alter table sm_announcements add column if not exists assignment_group_id uuid;
+alter table sm_announcements add column if not exists owner_id uuid;
+alter table sm_announcements add column if not exists audience text;
+alter table sm_announcements add column if not exists groups jsonb;
+alter table sm_announcements add column if not exists units jsonb;
+alter table sm_announcements add column if not exists locations jsonb;
+alter table sm_announcements add column if not exists users jsonb;
+alter table sm_announcements add column if not exists published_at timestamptz;
+alter table sm_announcements add column if not exists published_by uuid;
+alter table sm_announcements add column if not exists ended_at timestamptz;
+alter table sm_announcements add column if not exists state text;
+create unique index if not exists sm_announcements_no_uk on sm_announcements (org_id, no);
+create index if not exists sm_announcements_rev_idx on sm_announcements (org_id, rev);
+create index if not exists sm_announcements_upd_idx on sm_announcements (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_announcements_crt_idx on sm_announcements (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_announcements_incident_id_idx on sm_announcements (org_id, incident_id) where deleted_at is null;
+create index if not exists sm_announcements_assignment_group_id_idx on sm_announcements (org_id, assignment_group_id) where deleted_at is null;
+create index if not exists sm_announcements_state_idx on sm_announcements (org_id, state) where deleted_at is null;
+create index if not exists sm_announcements_workspace_acc_idx on sm_announcements (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_announcements_unit_acc_idx on sm_announcements (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_announcements_domain_acc_idx on sm_announcements (org_id, domain_id) where deleted_at is null and domain_id is not null;
+drop trigger if exists sm_announcements_sync on sm_announcements;
+create trigger sm_announcements_sync before insert or update on sm_announcements for each row execute function sm_sync_touch('announcement');
+alter table sm_announcements enable row level security;
+
 -- approval: تأییدها
 create table if not exists sm_approvals (
   id uuid primary key,

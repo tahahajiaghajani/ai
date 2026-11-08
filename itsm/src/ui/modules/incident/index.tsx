@@ -5,11 +5,12 @@
 //   record page   quick actions (assign to me, escalate, the major-incident overlay, child / copy / follow-up, merge,
 //                 problems, the review), side panels (major incident, similar incidents, matching known errors),
 //                 canned responses in the composer, UI policies (hold reason, major-incident fields, the rating)
-//   pages         the major incident's war room, the dashboard, the module's settings
-//   definitions   tasks, post-incident reviews, templates, canned responses
+//   pages         the major incident's war room (with «اطلاعیهٔ قطعی»), the dashboard, the module's settings
+//   lists         tasks, post-incident reviews, outage announcements (on air above the queues); definitions:
+//                 templates, canned responses
 // Only light modules are imported here; every component loads with its page.
 import { lazy, Suspense, type ComponentType, type ReactNode } from "react";
-import { Siren, ListChecks, ClipboardCheck, LayoutTemplate, MessageSquareText, Settings2, ChartColumn, User, Users, Flame, Timer, Hourglass, CheckCheck, OctagonAlert, Inbox } from "lucide-react";
+import { Siren, ListChecks, ClipboardCheck, LayoutTemplate, MessageSquareText, Settings2, ChartColumn, User, Users, Flame, Timer, Hourglass, CheckCheck, OctagonAlert, Inbox, Megaphone } from "lucide-react";
 import type { ModuleUi, NavItem } from "../registry";
 import { recordModule, RecordListRoute } from "../../records/module";
 import { registerRecordExtensions, type RecordContext, type ComposerContext } from "../../records/extensions";
@@ -105,6 +106,7 @@ const module = recordModule({
     },
     { table: "incident_task", path: "incident-tasks", label: "کارهای رخداد", noun: "کار رخداد", icon: ListChecks, area: "work", keywords: "کار وظیفه رخداد ITASK", newAction: false },
     { table: "incident_review", path: "incident-reviews", label: "بازبینی‌های پس از رخداد", noun: "بازبینی پس از رخداد", icon: ClipboardCheck, area: "work", keywords: "بازبینی PIR گزارش درس‌آموخته", newAction: false },
+    { table: "announcement", path: "announcements", label: "اطلاعیه‌ها", noun: "اطلاعیه", icon: Megaphone, area: "work", keywords: "اطلاعیه قطعی اختلال نگهداری بنر اعلان همگانی ANN" },
     { table: "incident_template", path: "incidents/templates", label: "الگوهای رخداد", noun: "الگوی رخداد", icon: LayoutTemplate, section: "تعریف‌ها", area: "work", search: false, keywords: "الگو مدل رخداد" },
     { table: "incident_response", path: "incidents/responses", label: "پاسخ‌های آماده", noun: "پاسخ آماده", icon: MessageSquareText, section: "تعریف‌ها", area: "work", search: false, keywords: "پاسخ آماده متن آماده ماکرو" },
     { table: "incident_config", path: "incidents/settings/record", label: "تنظیمات رخداد", icon: Settings2, hidden: true, search: false, newAction: false },
@@ -119,7 +121,7 @@ const module = recordModule({
     { path: "incidents/settings", element: lazyPage(<Settings />) },
     { path: "incidents/:id/war-room", element: lazyPage(<WarRoom />) },
   ],
-  segments: { incidents: "operations", "incident-tasks": "operations", "incident-reviews": "operations" },
+  segments: { incidents: "operations", "incident-tasks": "operations", "incident-reviews": "operations", announcements: "operations" },
 });
 
 // queues first, then every incident and the rest of the group

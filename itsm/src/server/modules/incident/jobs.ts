@@ -10,9 +10,11 @@
 //                               a reply of the requester to an incident awaiting them: back to work
 //                               a public reply on a parent: copied to its open children (settings: propagate_comments)
 //   job incident.cascade        resolves the open children of a resolved parent, 50 at a time
+//                               resolved, closed or canceled: its announcements on air end (`end_with_incident`)
 //   job incident.sweep          every 15 minutes per organisation while there is something to watch: auto-close of
 //                               resolved incidents after N working days, reminders to requesters who are awaited and
-//                               then resolution «بی‌پاسخ», warnings when a major incident's stakeholder update is late
+//                               then resolution «بی‌پاسخ», warnings when a major incident's stakeholder update is late,
+//                               announcements whose window is over ended
 import { addWorkingDays } from "@shared/incident/logic";
 import { addJournalIn, defFor, emitEvent, listJournal, onRecordEvent, systemCtx, transitionIn, updateIn, type RecordEvent } from "../../engine";
 import { enqueue, registerJobHandler, type JobContext } from "../../jobs";
@@ -20,6 +22,7 @@ import type { Ctx } from "../../context";
 import { actsHere, notifyPeople } from "../notify";
 import { countRows, eqAll, incidentConfig, isUuid, liveRow, liveRows, sysOf, type Row } from "./common";
 import { draftReview, officeCalendar } from "./major";
+import { endWithIncident, expireAnnouncements } from "./announce";
 
 export const SWEEP_EVERY = 15 * 60_000;
 const lastSweep = new Map<string, number>();
@@ -113,6 +116,7 @@ async function react(e: RecordEvent, jctx: JobContext): Promise<void> {
     const kids = cfg.cascade_children ? await countRows(jctx.db, sys, "incident", { and: [{ f: "parent_id", op: "eq", v: e.id }, { f: "active", op: "eq", v: true }] }) : 0;
     if (kids) await enqueue(jctx.db, { kind: "incident.cascade", orgId: e.org_id, payload: { id: e.id, actor: e.actor }, dedupeKey: `incident.cascade:${e.id}` });
   }
+  if (e.kind === "record.state_changed" && ["resolved", "closed", "canceled"].includes(String(e.to ?? ""))) await endWithIncident(sys, e.id, e.number ?? null);
   if (e.kind === "record.updated" && e.changes?.major_state) await onMajor(sys, e, jctx, String(e.changes.major_state.to ?? ""));
   if (e.kind === "record.updated") await onReassigned(sys, e, jctx);
   if (e.kind === "record.commented") await onCommented(sys, e, jctx);
@@ -162,13 +166,15 @@ export interface SweepResult {
   reminded: number;
   resolved: number;
   warned: number;
+  /** announcements whose window was over */
+  ended: number;
   /** something is still to watch (the sweep runs again) */
   pending: boolean;
 }
 
 /** One pass over an organisation's incidents (runs as the system; also called by tests). */
 export async function sweep(sys: Ctx, deadline = Number.POSITIVE_INFINITY, now = Date.now()): Promise<SweepResult> {
-  const out: SweepResult = { closed: 0, reminded: 0, resolved: 0, warned: 0, pending: false };
+  const out: SweepResult = { closed: 0, reminded: 0, resolved: 0, warned: 0, ended: 0, pending: false };
   const cfg = await incidentConfig(sys.db, sys);
   const cal = await officeCalendar(sys.db, sys);
   const late = () => Date.now() > deadline;
@@ -229,6 +235,13 @@ export async function sweep(sys: Ctx, deadline = Number.POSITIVE_INFINITY, now =
       }
       await updateIn(tx, sys, "incident", r.id, { update_warned_at: new Date(now).toISOString() }, { trusted: true, keepVersion: true });
     }).then(() => out.warned++, (e) => sys.cfg.log?.warn?.("incident update warning", { id: r.id, error: (e as Error).message }));
+  }
+
+  // announcements whose window is over
+  if (!late()) {
+    const a = await expireAnnouncements(sys, now);
+    out.ended = a.ended;
+    if (a.live) out.pending = true;
   }
   return out;
 }

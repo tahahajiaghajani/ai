@@ -14,13 +14,14 @@
 //   incident_task: not on closed incidents
 //   incident_review: defaults from the incident; publishing needs an owner on every preventive action and marks the
 //     major incident «بازبینی انجام شد»
-//   incident_template: the tasks JSON
+//   incident_template: the tasks JSON; templates and canned responses are created only by those who may keep them
+//   announcement: its window and audience, the incident it names, publishing stamps
 //
 // Reactions that must happen once (notifications, cascades, auto problems and reviews) are event subscribers
 // (jobs.ts), never hooks: hooks do not run again when the cloud applies a Windows app's push.
 import { stateCategory } from "@shared/model/task";
 import type { FieldDef } from "@shared/model/types";
-import { majorCandidate, nextUpdateAt, reopenAllowed, templateTasks, templateTasksProblem } from "@shared/incident/logic";
+import { announcementProblem, majorCandidate, nextUpdateAt, reopenAllowed, templateTasks, templateTasksProblem } from "@shared/incident/logic";
 import { INCIDENT_REQUESTER_FIELDS } from "@shared/tables/incident";
 import { addJournalIn, createIn, defFor, registerHooks, updateIn, validationError, type WriteArgs } from "../../engine";
 import { access } from "../../access/provider";
@@ -317,6 +318,34 @@ function templateBefore(w: WriteArgs): void {
   if (p) throw validationError({ tasks: p });
 }
 
+/**
+ * Announcements: kept by their group or a manager, a window that ends after it starts, a target when the audience is
+ * targeted, an incident the author may read; publishing stamps when and by whom (and «from now» when no start is set).
+ */
+const ANNOUNCEMENT_TARGETS = ["starts_at", "ends_at", "audience", "groups", "units", "locations", "users"];
+
+async function announcementBefore(w: WriteArgs): Promise<void> {
+  if (w.op === "delete") return;
+  assertCanKeep(w);
+  const n = w.next;
+  if (w.op === "create" || ANNOUNCEMENT_TARGETS.some((f) => w.changed.has(f))) {
+    const problem = announcementProblem(n);
+    if (problem) throw validationError(problem);
+  }
+  if (n.incident_id && (w.op === "create" || w.changed.has("incident_id")) && w.ctx.actor !== "system" && !w.trusted) {
+    if (!(await liveRow(w.tx, w.ctx, "incident", n.incident_id))) throw validationError({ incident_id: "رخداد پیدا نشد" });
+  }
+  const now = new Date().toISOString();
+  if (entering(w, "published")) {
+    if (n.ends_at && Date.parse(n.ends_at) <= Date.now()) throw validationError({ ends_at: "بازهٔ نمایش این اطلاعیه گذشته است؛ «نمایش تا» را تغییر دهید" });
+    if (!n.starts_at) n.starts_at = now;
+    n.published_at = now;
+    n.published_by = w.ctx.actor === "system" ? null : w.ctx.user.id;
+    n.ended_at = null;
+  }
+  if (entering(w, "ended")) n.ended_at = now;
+}
+
 function configBefore(w: WriteArgs): void {
   if (w.op === "delete") throw new AppError(409, "conflict", "تنظیمات رخداد حذف نمی‌شود؛ مقدارها را تغییر دهید");
 }
@@ -332,6 +361,7 @@ export function installIncidentHooks(): (() => void)[] {
     registerHooks("incident_review", { beforeWrite: reviewBefore, afterWrite: reviewAfter, guards: { review_can_publish: canPublish } }),
     registerHooks("incident_template", { beforeWrite: templateBefore }),
     registerHooks("incident_response", { beforeWrite: assertCanKeep }),
+    registerHooks("announcement", { beforeWrite: announcementBefore }),
     registerHooks("incident_config", { beforeWrite: configBefore }),
   ];
 }

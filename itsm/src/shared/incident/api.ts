@@ -87,3 +87,17 @@ export interface Outcome {
   done: string[];
   failed: { id: string; message: string }[];
 }
+
+/** An announcement on air for the caller (GET /incident/announcements). */
+export interface AnnouncementItem {
+  id: string;
+  number: string | null;
+  title: string;
+  body: string | null;
+  /** outage | degradation | maintenance | info */
+  kind: string;
+  starts_at: string | null;
+  ends_at: string | null;
+  /** the incident it is about, when the caller may read it */
+  incident: { id: string; number: string | null } | null;
+}
