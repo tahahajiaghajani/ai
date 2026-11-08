@@ -436,6 +436,38 @@ function Evals({ s, onSaved }: { s: SkillAdminItem; onSaved: () => void }) {
   );
 }
 
+const isoDay = (d: Date) => d.toISOString().slice(0, 10);
+
+/** Usage of one skill over the last 30 days (this runtime's runs; model calls are also in «مصرف و بودجه»). */
+function SkillUsage({ s }: { s: SkillAdminItem }) {
+  const { api, orgId } = useOrg();
+  const to = isoDay(new Date());
+  const from = isoDay(new Date(Date.now() - 30 * 86_400_000));
+  const q = useQuery({ queryKey: SKILL_KEYS.usage(orgId, from, to), queryFn: () => skillsApi.usage(api, from, to) });
+  if (q.isLoading) return <Skeleton rows={3} />;
+  const u = (q.data?.rows ?? []).find((r) => r.skill === s.key);
+  if (!u) return <p className="text-[13px] text-ink-3">در ۳۰ روز گذشته اجرا نشده است.</p>;
+  const rows: [string, string][] = [
+    ["اجرا", fa(u.runs)],
+    ["ناموفق", fa(u.errors)],
+    ["با قاعده (بی‌مدل)", fa(u.fallbacks)],
+    ["خوب بود / خوب نبود", `${fa(u.up)} / ${fa(u.down)}`],
+    ["واژه‌های ورودی و خروجی", `${fa(u.tokens_in)} / ${fa(u.tokens_out)}`],
+    ["هزینهٔ برآوردی (دلار)", fa(Number(u.cost_usd), 4)],
+    ["میانگین زمان (ثانیه)", fa(u.avg_ms / 1000, 1)],
+  ];
+  return (
+    <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-[13px]">
+      {rows.map(([k, v]) => (
+        <div key={k} className="contents">
+          <dt className="text-ink-3">{k}</dt>
+          <dd className="ds-num m-0">{v}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
 function CopyForm({ s, onSaved }: { s: SkillAdminItem; onSaved: () => void }) {
   const { api } = useOrg();
   const n = useNotify();
@@ -600,6 +632,7 @@ export function SkillsTab() {
               { key: "prompts", label: "درخواست و نسخه‌ها", children: <Prompts s={current} onSaved={refresh} /> },
               { key: "test", label: "آزمون", children: <TestRun s={current} /> },
               { key: "evals", label: "ارزیابی", children: <Evals s={current} onSaved={refresh} /> },
+              { key: "usage", label: "مصرف", children: <SkillUsage s={current} /> },
               { key: "copy", label: "رونوشت", children: <CopyForm s={current} onSaved={refresh} /> },
             ]}
           />
