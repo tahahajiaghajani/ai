@@ -1,0 +1,299 @@
+/* Configuration management screens: the dependency map, impact bars and the class tree. Tokens only (src/ui/ds). */
+
+.cm-canvas {
+  position: relative;
+  background: var(--ds-sunken);
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-radius-lg);
+  overflow: hidden;
+  min-height: 280px;
+}
+.cm-canvas .react-flow {
+  --xy-edge-stroke-default: var(--ds-line-3);
+  --xy-edge-stroke-selected-default: var(--ds-accent);
+  --xy-background-pattern-dots-color-default: var(--ds-line-2);
+  --xy-minimap-background-color-default: var(--ds-surface);
+  --xy-controls-button-background-color-default: var(--ds-surface);
+  --xy-controls-button-background-color-hover-default: var(--ds-accent-tint);
+  --xy-controls-button-color-default: var(--ds-text-2);
+  --xy-controls-button-border-color-default: var(--ds-line);
+  --xy-edge-label-background-color-default: var(--ds-surface);
+  --xy-edge-label-color-default: var(--ds-text-2);
+  background: transparent;
+}
+.cm-canvas .react-flow__attribution {
+  display: none;
+}
+.cm-canvas .react-flow__edge-textbg {
+  fill: var(--ds-surface);
+}
+.cm-canvas .react-flow__edge-text {
+  font-family: var(--ds-font-sans);
+  font-size: 11px;
+  fill: var(--ds-text-3);
+}
+.cm-canvas .cm-edge path {
+  stroke: var(--cm-edge, var(--ds-line-3));
+  stroke-width: 1.4;
+}
+.cm-canvas .cm-edge.is-soft path {
+  stroke-dasharray: 5 4;
+  stroke: var(--ds-line-3);
+}
+.cm-canvas .cm-edge.is-ended {
+  opacity: 0.35;
+}
+.cm-canvas .cm-edge.is-path path {
+  stroke: var(--ds-accent);
+  stroke-width: 2.2;
+}
+.cm-canvas .cm-edge.is-dim {
+  opacity: 0.25;
+}
+.cm-handle {
+  opacity: 0;
+  width: 6px;
+  height: 6px;
+  min-width: 0;
+  min-height: 0;
+  border: 0;
+  pointer-events: none;
+}
+
+.cm-node {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 228px;
+  height: 66px;
+  padding: 8px 10px;
+  background: var(--ds-surface);
+  border: 1px solid var(--ds-line-2);
+  border-inline-start: 4px solid var(--cm-fam, var(--ds-line-3));
+  border-radius: var(--ds-radius-md);
+  box-shadow: var(--ds-shadow-e1);
+  color: var(--ds-text);
+  font-family: var(--ds-font-sans);
+  cursor: pointer;
+  transition: box-shadow 120ms ease-out, opacity 120ms ease-out;
+}
+.cm-node:hover {
+  box-shadow: var(--ds-shadow-e2);
+}
+.cm-node.is-sel {
+  outline: 2px solid var(--ds-accent);
+  outline-offset: 2px;
+}
+.cm-node.is-root {
+  background: var(--ds-raised);
+  box-shadow: 0 0 0 3px var(--ds-accent-tint), var(--ds-shadow-e1);
+}
+.cm-node.is-dim {
+  opacity: 0.35;
+}
+.cm-node.is-path {
+  box-shadow: 0 0 0 2px var(--ds-accent), var(--ds-shadow-e2);
+}
+.cm-node[data-sev] {
+  background: color-mix(in oklab, var(--cm-sev) 10%, var(--ds-surface));
+  border-color: color-mix(in oklab, var(--cm-sev) 45%, var(--ds-line-2));
+}
+.cm-node.is-down .cm-node-icon {
+  color: var(--ds-danger);
+}
+.cm-node-icon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border-radius: var(--ds-radius-sm);
+  background: color-mix(in oklab, var(--cm-fam, var(--ds-line-3)) 14%, var(--ds-surface));
+  color: var(--cm-fam, var(--ds-text-3));
+}
+.cm-node-body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+  gap: 2px;
+}
+.cm-node-name {
+  font-size: 13px;
+  font-weight: var(--ds-weight-medium);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cm-node-meta {
+  display: flex;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--ds-text-3);
+  min-width: 0;
+}
+.cm-node-no {
+  flex: none;
+}
+.cm-node-badges {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+  flex: none;
+}
+.cm-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 16px;
+  padding: 0 5px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: var(--ds-weight-medium);
+  background: var(--ds-neutral-tint);
+  color: var(--ds-text-2);
+  font-variant-numeric: tabular-nums;
+}
+.cm-badge.is-bad {
+  background: var(--ds-danger-tint);
+  color: var(--ds-danger);
+}
+.cm-badge.is-warn {
+  background: var(--ds-warning-tint);
+  color: var(--ds-warning);
+}
+.cm-badge.is-sev {
+  background: color-mix(in oklab, var(--cm-sev) 18%, var(--ds-surface));
+  color: var(--ds-text);
+}
+.cm-badge.is-more {
+  background: var(--ds-accent-tint);
+  color: var(--ds-accent-text);
+}
+.cm-node.is-ghost {
+  width: 132px;
+  height: 40px;
+  justify-content: center;
+  gap: 6px;
+  border: 1px dashed var(--ds-line-3);
+  border-inline-start-width: 1px;
+  background: var(--ds-well);
+  color: var(--ds-text-3);
+  font-size: 12px;
+  box-shadow: none;
+}
+
+/* map page: canvas beside the details panel; stacked on phones */
+.cm-map-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 12px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .cm-map-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.cm-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  font-size: 12px;
+  color: var(--ds-text-3);
+}
+.cm-legend i {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  margin-inline-end: 4px;
+  vertical-align: -1px;
+}
+.cm-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+/* severity meter (impact lists) */
+.cm-meter {
+  display: block;
+  height: 6px;
+  width: 100%;
+  min-width: 48px;
+  border-radius: 3px;
+  background: var(--ds-sunken);
+  overflow: hidden;
+}
+.cm-meter > span {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+}
+
+/* impact path breadcrumbs */
+.cm-path {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 4px;
+  font-size: 12px;
+  color: var(--ds-text-3);
+}
+.cm-path b {
+  color: var(--ds-text-2);
+  font-weight: var(--ds-weight-medium);
+}
+
+/* class manager tree */
+.cm-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.cm-tree button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 30px;
+  padding: 4px 8px;
+  border-radius: var(--ds-radius-sm);
+  background: transparent;
+  color: var(--ds-text-2);
+  text-align: start;
+  font-size: 13px;
+  border: 0;
+  cursor: pointer;
+}
+.cm-tree button:hover {
+  background: var(--ds-sunken);
+}
+.cm-tree button[aria-current="true"] {
+  background: var(--ds-accent-tint);
+  color: var(--ds-text);
+}
+.cm-tree .is-abstract {
+  color: var(--ds-text-3);
+}
+.cm-split {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .cm-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.cm-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}

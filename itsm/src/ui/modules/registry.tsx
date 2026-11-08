@@ -22,6 +22,7 @@ import { flowsUi } from "./flows";
 import { incidentUi } from "./incident";
 import { problemUi } from "./problem";
 import { docsUi } from "./docs";
+import { cmdbUi } from "./cmdb";
 
 /** A sidebar space: «خانه», «تنظیمات», or one a module adds (its key, e.g. "service-desk"). */
 export type SpaceKey = string;
@@ -136,6 +137,7 @@ const UIS: ModuleUi[] = [
   incidentUi,
   problemUi,
   docsUi,
+  cmdbUi,
 ];
 
 /** In the order of the segmented control. «تنظیمات» is not a segment: the footer's gear opens it. */
