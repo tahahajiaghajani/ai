@@ -36,6 +36,7 @@ const Acknowledge = lazy(() => import("./Acknowledge"));
 const TreePlayer = lazy(() => import("./TreePlayer"));
 const TreeRecordActions = lazy(() => import("./ArticleActions").then((m) => ({ default: m.TreeRecordActions })));
 const ByNumber = lazy(() => import("./Acknowledge").then((m) => ({ default: m.ByNumber })));
+const ToArticles = lazy(() => import("./Acknowledge").then((m) => ({ default: m.ToArticles })));
 const RecordPanel = lazy(() => import("./RecordPanel"));
 const ArticleRecordActions = lazy(() => import("./ArticleActions").then((m) => ({ default: m.ArticleRecordActions })));
 const VersionRecordActions = lazy(() => import("./ArticleActions").then((m) => ({ default: m.VersionRecordActions })));
@@ -144,6 +145,7 @@ const module = recordModule({
     { path: "kb", element: page(<Home />) },
     { path: "kb/search", element: page(<SearchPage />) },
     { path: "kb/new", element: page(<NewArticle />) },
+    { path: "kb/a", element: page(<ToArticles />) },
     { path: "kb/a/:id", element: page(<Reader />) },
     { path: "kb/n/:number", element: page(<ByNumber />) },
     { path: "kb/edit/:versionId", element: page(<Editor />) },
@@ -169,6 +171,10 @@ const module = recordModule({
   ],
   segments: { kb: "knowledge" },
 });
+
+// links to an article (notifications, references, lists, the palette) open the reading view; the record form stays
+// at kb/articles/:id («نسخه‌ها و جزئیات» on the reading view)
+registerRecordExtensions("kb_article", { path: "kb/a" });
 
 // the pages first (the home, the member's own queues), then the tables and the rest of the group
 const [group] = module.nav;

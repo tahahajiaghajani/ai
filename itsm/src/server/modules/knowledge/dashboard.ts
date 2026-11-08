@@ -232,12 +232,12 @@ export async function kbWorkspace(ctx: Ctx): Promise<KbWorkspace> {
   const trans = await countRows(ctx.db, ctx, "kb_article", { and: [live, { f: "translation_of", op: "nempty" }] });
   const transOk = await countRows(ctx.db, ctx, "kb_article", { and: [live, { f: "translation_of", op: "nempty" }, { f: "translation_stale", op: "eq", v: false }] });
   const cards0 = [
-    { key: "reviews", label: "در انتظار تأیید شما", count: reviews.length, tone: reviews.length ? "warning" : "ok", path: "knowledge/workspace#reviews" },
-    { key: "tasks", label: "کارهای دانش باز", count: tasks.length, tone: tasks.length ? "info" : "ok", path: "knowledge/tasks" },
-    { key: "expiring", label: "نیازمند بازبینی یا رو به انقضا", count: expiringRows.length, tone: expiringRows.length ? "warning" : "ok", path: "knowledge/workspace#expiring" },
-    { key: "flagged", label: "گزارش ایراد باز", count: flaggedRows.length, tone: flaggedRows.length ? "danger" : "ok", path: "knowledge/workspace#flagged" },
-    { key: "duplicates", label: "احتمالاً تکراری", count: dupRows.length, tone: dupRows.length ? "warning" : "ok", path: "knowledge/workspace#duplicates" },
-    { key: "gaps", label: "شکاف‌های دانش", count: gaps.length, tone: gaps.length ? "info" : "ok", path: "knowledge/gaps" },
+    { key: "reviews", label: "در انتظار تأیید شما", count: reviews.length, tone: reviews.length ? "warning" : "ok", path: "kb/reviews" },
+    { key: "tasks", label: "کارهای دانش باز", count: tasks.length, tone: tasks.length ? "info" : "ok", path: "kb/tasks" },
+    { key: "expiring", label: "نیازمند بازبینی یا رو به انقضا", count: expiringRows.length, tone: expiringRows.length ? "warning" : "ok", path: "kb/workspace#expiring" },
+    { key: "flagged", label: "گزارش ایراد باز", count: flaggedRows.length, tone: flaggedRows.length ? "danger" : "ok", path: "kb/workspace#flagged" },
+    { key: "duplicates", label: "احتمالاً تکراری", count: dupRows.length, tone: dupRows.length ? "warning" : "ok", path: "kb/duplicates" },
+    { key: "gaps", label: "شکاف‌های دانش", count: gaps.length, tone: gaps.length ? "info" : "ok", path: "kb/gaps" },
   ] as KbWorkspace["cards"];
   return {
     cards: cards0,

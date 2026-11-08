@@ -138,7 +138,12 @@ export default function Workspace() {
       />
       <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
         {d.cards.map((c) => (
-          <StatCard key={c.key} title={c.label} value={<span className={`ds-num ${c.tone === "danger" && c.count ? "text-danger" : ""}`}>{faNum(c.count)}</span>} onClick={c.path ? () => nav(`/${orgId}/${c.path}`) : undefined} />
+          <StatCard
+            key={c.key}
+            title={c.label}
+            value={<span className={`ds-num ${c.tone === "danger" && c.count ? "text-danger" : ""}`}>{faNum(c.count)}</span>}
+            onClick={c.path ? () => (c.path.startsWith("kb/workspace#") ? document.getElementById(c.path.split("#")[1])?.scrollIntoView({ behavior: "smooth" }) : nav(`/${orgId}/${c.path}`)) : undefined}
+          />
         ))}
       </div>
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
@@ -180,12 +185,16 @@ export default function Workspace() {
             <p className="text-[13px] text-ink-3">کار بازی نیست.</p>
           )}
         </Card>
-        <Card title="نزدیک به پایان اعتبار">
-          <Articles items={d.expiring} />
-        </Card>
-        <Card title="گزارش‌شده از سوی خوانندگان">
-          <Articles items={d.flagged} />
-        </Card>
+        <div id="expiring" className="scroll-mt-20">
+          <Card title="نزدیک به پایان اعتبار">
+            <Articles items={d.expiring} />
+          </Card>
+        </div>
+        <div id="flagged" className="scroll-mt-20">
+          <Card title="گزارش‌شده از سوی خوانندگان">
+            <Articles items={d.flagged} />
+          </Card>
+        </div>
         <Card title="ناسالم‌ترین مقاله‌ها">
           <Articles items={d.unhealthy} extra={(a) => <>سلامت <span className="ds-num">{faNum(a.health_score ?? 0)}</span> · {ACTION[a.next_action ?? "none"] ?? a.next_action}</>} />
         </Card>

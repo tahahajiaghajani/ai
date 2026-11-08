@@ -51,6 +51,16 @@ export default function Acknowledge() {
   );
 }
 
+/** kb/a (the table path the record pages go back to): the list of every article. */
+export function ToArticles() {
+  const { orgId } = useOrg();
+  const nav = useNavigate();
+  useEffect(() => {
+    void nav(`/${orgId}/kb/articles`, { replace: true });
+  }, [nav, orgId]);
+  return <Loader />;
+}
+
 export function ByNumber() {
   const { number = "" } = useParams();
   const { api, orgId } = useOrg();

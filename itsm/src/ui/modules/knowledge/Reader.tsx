@@ -17,7 +17,7 @@ import { errorText } from "../../lib/api";
 import { PageHeader } from "../../components/layout";
 import { Note } from "../../components/blocks";
 import { EmptyState, JDate, Loader } from "../../components/display";
-import { attachmentUrl, recordPath, RecordSelect } from "../../records";
+import { attachmentUrl, RecordSelect } from "../../records";
 import { ArticleBody } from "./ArticleBody";
 import { kbApi, kbSession, useKbMeta, useKbRead, useKbRefresh } from "./api";
 import { activeHeading, faNum, FLAG_REASONS, helpfulLine, languageLabel, LANGUAGES, NOT_HELPFUL_REASONS, readingLabel } from "./model";
@@ -191,7 +191,7 @@ function Actions({ v }: { v: KbReadView }) {
   const translate = useAction(() => kbApi.translate(api, id, lang, machine && ai), { success: (d) => (d.article.machine_translated ? "ترجمهٔ ماشینی آماده شد؛ پیش از انتشار آن را بخوانید" : "پیش‌نویس ترجمه ساخته شد"), onSuccess: (d) => nav(`/${orgId}/kb/edit/${d.version.id}`) });
   const explain = useAction((user: string) => kbApi.explain(api, id, user), { onSuccess: (d) => setExplained(d) });
   const items = [
-    { key: "record", icon: <History {...I14} />, label: "نسخه‌ها و جزئیات", onClick: () => nav(`/${orgId}/${recordPath("kb_article", id)}`) },
+    { key: "record", icon: <History {...I14} />, label: "نسخه‌ها و جزئیات", onClick: () => nav(`/${orgId}/kb/articles/${id}`) },
     ...(v.can.review ? [{ key: "review", icon: <ShieldCheck {...I14} />, label: "هنوز درست است (بازبینی شد)", onClick: () => reviewed.mutate() }] : []),
     ...(v.can.edit && !v.article.translation_of ? [{ key: "translate", icon: <Languages {...I14} />, label: "ترجمه به زبان دیگر", onClick: () => setTranslateOpen(true) }] : []),
     ...(v.can.retire ? [{ key: "retire", icon: <Archive {...I14} />, label: "بازنشسته کردن…", danger: true, onClick: () => setRetireOpen(true) }] : []),

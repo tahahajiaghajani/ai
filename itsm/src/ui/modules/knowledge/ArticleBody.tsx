@@ -3,7 +3,7 @@
 // copy-link button; `> [!NOTE]` … `> [!CAUTION]` are callouts; code blocks are LTR with «رونوشت»; images come only from
 // the article's own attachments (`attachment:<id>` — a remote image would tell its server who reads the article);
 // links to other articles (`kb:KB000123`) and in-app paths stay in the app, web links open in a new tab.
-import { memo, useRef, useState, type ReactNode } from "react";
+import { memo, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -64,8 +64,8 @@ export interface ArticleBodyProps {
   className?: string;
 }
 
-function ArticleBodyImpl({ text, preview, className }: ArticleBodyProps) {
-  const { orgId } = useOrg();
+/** The components of the reading view (stable per organisation and mode, so headings are not remounted). */
+function makeComponents(orgId: string, preview: boolean): Components {
   const heading = (Tag: "h2" | "h3" | "h4") =>
     function H({ children, id }: { children?: ReactNode; id?: string }) {
       return (
@@ -75,7 +75,7 @@ function ArticleBodyImpl({ text, preview, className }: ArticleBodyProps) {
         </Tag>
       );
     };
-  const components: Components = {
+  return {
     h1: heading("h2"),
     h2: heading("h2"),
     h3: heading("h3"),
@@ -136,6 +136,11 @@ function ArticleBodyImpl({ text, preview, className }: ArticleBodyProps) {
       );
     },
   };
+}
+
+function ArticleBodyImpl({ text, preview, className }: ArticleBodyProps) {
+  const { orgId } = useOrg();
+  const components = useMemo(() => makeComponents(orgId, !!preview), [orgId, preview]);
   return (
     <div className={`kb-prose ${className ?? ""}`}>
       <ReactMarkdown remarkPlugins={[remarkGfm, remarkSlugs(text), remarkCallouts]} skipHtml urlTransform={urlTransform} components={components}>
