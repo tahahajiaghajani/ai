@@ -170,11 +170,14 @@ describe("background work", () => {
     await o.patch(`${P}/r/change_config/${cfg.id}`, { stale_draft_days: 0, review_auto_close_days: 0, version: after.version });
   });
 
-  it("counts change-caused records and scores the teams", async () => {
+  it("counts change-caused incidents and scores the teams", async () => {
     const { P, p } = w;
     const c = await w.change({ ...manual("low"), type: "latent", actual_start: at(-1), actual_end: at(-1, 10) });
     await w.move(c.id, ["review"], p.agent.client, { close_code: "successful_issues" });
-    const todo = (await p.agent.client.post(`${P}/r/todo`, { short_description: "خطای پس از تغییر" })).row;
+    const incident = (await p.agent.client.post(`${P}/r/incident`, { short_description: "خطای پس از تغییر", assignment_group_id: w.g.network })).row;
+    await p.agent.client.post(`${P}/r/incident/${incident.id}/links`, { kind: "caused_by", table: "change_request", id: c.id });
+    // with incident management installed only incidents count, not other records linked «ناشی از» the change
+    const todo = (await p.agent.client.post(`${P}/r/todo`, { short_description: "کار پس از تغییر" })).row;
     await p.agent.client.post(`${P}/r/todo/${todo.id}/links`, { kind: "caused_by", table: "change_request", id: c.id });
     expect(await countCausedIncidents(w.sys)).toBeGreaterThanOrEqual(1);
     expect((await w.get(c.id)).incidents_caused).toBe(1);

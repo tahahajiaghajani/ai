@@ -9,7 +9,7 @@
 //                 scheduling and impact), UI policies of the form
 //   lists         tasks, reviews, conflicts, outages, CAB meetings, lockdowns; definitions: templates and standard
 //                 changes, models, windows, CABs, the risk questionnaire; the teams' success scores
-//   elsewhere     «ثبت تغییر» on incidents, problems and known errors; «تغییرهای مشکوک» on incidents (when installed)
+//   elsewhere     «ثبت تغییر» on incidents, problems, known errors and requested items; «تغییرهای مشکوک» on incidents
 // Only light modules are imported here; every component loads with its page.
 import { lazy, Suspense, type ComponentType, type ReactNode } from "react";
 import {
@@ -150,14 +150,17 @@ const module = recordModule({
   segments: { changes: "change", "change-tasks": "change" },
 });
 
-// «ثبت تغییر» on the records a change is often initiated from, and the suspect-change finder on incidents
+// «ثبت تغییر» on the records a change is often initiated from, and the suspect-change finder on incidents (for those
+// who read changes)
 const fromButton = (ctx: RecordContext) => (
   <Suspense key="change-from" fallback={null}>
     <ChangeFromButton ctx={ctx} />
   </Suspense>
 );
-for (const table of ["incident", "problem", "known_error"]) registerRecordExtensions(table, { headerActions: fromButton });
-registerRecordExtensions("incident", { sidePanels: [{ key: "change:suspects", title: "تغییرهای مشکوک", order: 40, render: widget(SuspectsPanel) }] });
+for (const table of ["incident", "problem", "known_error", "request_item"]) registerRecordExtensions(table, { headerActions: fromButton });
+registerRecordExtensions("incident", {
+  sidePanels: [{ key: "change:suspects", title: "تغییرهای مشکوک", order: 40, when: (ctx) => !!ctx.schema.def("change_request"), render: widget(SuspectsPanel) }],
+});
 
 // queues first, then every change and the rest of the group
 const [group] = module.nav;

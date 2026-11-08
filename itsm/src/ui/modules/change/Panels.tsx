@@ -259,7 +259,7 @@ export function SuspectsPanel({ ctx }: { ctx: RecordContext }) {
   );
 }
 
-/** On an incident, problem or known error: «ثبت تغییر» — a change initiated by this record (CHG-002). */
+/** On an incident, problem, known error or requested item: «ثبت تغییر» — a change initiated by this record (CHG-002). */
 export function ChangeFromButton({ ctx }: { ctx: RecordContext }) {
   const { api, orgId } = useOrg();
   const nav = useNavigate();
@@ -267,6 +267,8 @@ export function ChangeFromButton({ ctx }: { ctx: RecordContext }) {
     success: (d) => `تغییر ${String(d.row.number)} ثبت شد.`,
     onSuccess: (d) => nav(`/${orgId}/${recordPath("change_request", String(d.row.id))}`),
   });
+  // only for those who may register changes (not a requester following their own incident)
+  if (!ctx.schema.def("change_request")?.can.create) return null;
   return (
     <Button size="small" icon={<GitPullRequestArrow {...ICON14} />} loading={go.isPending} onClick={() => go.mutate(undefined)}>
       ثبت تغییر

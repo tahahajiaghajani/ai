@@ -18,7 +18,7 @@ import { pgArray } from "../../db";
 import { enqueue, registerJobHandler, type JobContext } from "../../jobs";
 import { actsHere } from "../notify";
 import { ensureNextMeeting, refreshAgenda } from "./cab";
-import { changeConfig, countRows, iso, liveRows, msOf, type Row } from "./common";
+import { changeConfig, countRows, hasTable, iso, liveRows, msOf, type Row } from "./common";
 import { CONFLICT_TRACKED, recomputeConflicts } from "./schedule";
 
 export const SWEEP_EVERY = 15 * 60_000;
@@ -131,11 +131,15 @@ export async function sweep(sys: Ctx, deadline = Number.POSITIVE_INFINITY, now =
   return out;
 }
 
-/** Count the incidents linked to each change as «ناشی از» it and keep `incidents_caused` in step. Returns updates. */
+/**
+ * Count the incidents linked to each change as «ناشی از» it and keep `incidents_caused` in step (which links count:
+ * `countsAsIncident`). Returns updates.
+ */
 export async function countCausedIncidents(sys: Ctx): Promise<number> {
+  const from = hasTable("incident") ? `l.from_table = 'incident'` : `l.from_table <> 'change_request'`;
   const counts = await sys.db.query<{ id: string; n: string | number }>(
     `select l.to_id as id, count(*) as n from sm_links l
-      where l.org_id = $1 and l.deleted_at is null and l.kind = 'caused_by' and l.to_table = 'change_request' and l.from_table <> 'change_request'
+      where l.org_id = $1 and l.deleted_at is null and l.kind = 'caused_by' and l.to_table = 'change_request' and ${from}
       group by l.to_id`,
     [sys.org.id],
   );

@@ -10,7 +10,7 @@ import type { Ctx } from "../../context";
 import type { Tx } from "../../db";
 import { createIn, get, list, listLinks, orgTz, updateIn } from "../../engine";
 import { changeAi, type PirSection } from "./ai";
-import { changeConfig, iso, msOf, sysOf, type Row } from "./common";
+import { changeConfig, countsAsIncident, iso, msOf, sysOf, type Row } from "./common";
 import { earliestStart } from "./schedule";
 
 const reasonLabel = (v: string) => PIR_REASONS.find((o) => o.value === v)?.label ?? v;
@@ -68,7 +68,9 @@ export async function draftPir(ctx: Ctx, changeId: string): Promise<{ sections: 
   const tz = orgTz(ctx);
   const tasks = await list(ctx, "change_task", { filter: { f: "change_id", op: "eq", v: changeId }, size: 200, fields: ["number", "short_description", "state", "mandatory", "close_notes"], total: false });
   const links = (await listLinks(ctx, "change_request", changeId)).links;
-  const incidents = links.filter((l) => l.kind === "caused_by" && l.direction === "in");
+  // what the change caused: every record linked «ناشی از» it is a side effect; the incidents among them are counted
+  const caused = links.filter((l) => l.kind === "caused_by" && l.direction === "in");
+  const incidents = caused.filter((l) => countsAsIncident(l.other.table));
   const code = String(c.close_code ?? "");
   const codeLabel = CHANGE_CLOSE_CODES.find((o) => o.value === code)?.label ?? "ثبت نشده";
   const failed = FAILED_CODES.includes(code);
@@ -87,8 +89,8 @@ export async function draftPir(ctx: Ctx, changeId: string): Promise<{ sections: 
   if (incidents.length) wrong.push(`${incidents.length} رخداد به این تغییر نسبت داده شده است.`);
   const sections: Record<PirSection, string> = {
     timeline_md: timelineOf(c, tz),
-    side_effects: incidents.length
-      ? incidents.map((l) => `- ${l.other.number ?? ""} ${l.other.display ?? ""}`.trim()).join("\n")
+    side_effects: caused.length
+      ? caused.map((l) => `- ${l.other.number ?? ""} ${l.other.display ?? ""}`.trim()).join("\n")
       : "رخدادی به این تغییر نسبت داده نشده است.",
     went_well: well.map((x) => `- ${x}`).join("\n"),
     went_wrong: wrong.map((x) => `- ${x}`).join("\n"),

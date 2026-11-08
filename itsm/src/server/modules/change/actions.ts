@@ -171,7 +171,11 @@ export async function startBackout(ctx: Ctx, id: string, input: { note: string }
 
 const ORIGIN_TABLES = ["incident", "problem", "known_error", "request", "request_item", "release", "todo", "change_request"];
 
-/** A change from another record: its context copied, «آغازشده از» linked (problems also «رفع می‌کند»). */
+/**
+ * A change from another record: its context copied, «آغازشده از» linked (problems also «رفع می‌کند»). A change from a
+ * confidential record (a security incident) carries its title and description, so it is confidential too and keeps
+ * the record's access list: the group it is assigned to and the people on it read it, not every reader of changes.
+ */
 export async function changeFrom(ctx: Ctx, table: string, sourceId: string, input: Row): Promise<Row> {
   if (!ORIGIN_TABLES.includes(table) || !hasTable(table)) throw bad("از این نوع رکورد نمی‌توان تغییر ساخت");
   const { row: src, display } = await get(ctx, table, sourceId);
@@ -185,6 +189,7 @@ export async function changeFrom(ctx: Ctx, table: string, sourceId: string, inpu
     ...(isUuid(src.service_id) ? { service_id: src.service_id } : {}),
     ...(isUuid(src.ci_id) ? { ci_id: src.ci_id } : {}),
     ...(isUuid(src.assignment_group_id) ? { assignment_group_id: src.assignment_group_id } : {}),
+    ...(src.confidential === true ? { confidential: true, ...(Array.isArray(src.access_list) && src.access_list.length ? { access_list: src.access_list } : {}) } : {}),
   };
   for (const [k, v] of Object.entries(input)) if (v !== undefined) values[k] = v;
   const created = await ctx.write(async (tx) => {

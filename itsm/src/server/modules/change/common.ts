@@ -107,6 +107,13 @@ export const eqAll = (pairs: Record<string, unknown>): Cond => ({ and: Object.en
 /** Does the organisation have this table (a module of a parallel branch may not be installed yet)? */
 export const hasTable = (key: string): boolean => !!tableDef(key) && !tableDef(key)!.virtual;
 
+/**
+ * Does a «ناشی از» link from a record of `table` count as an incident the change caused (CHG-054)? Only incidents
+ * where incident management is installed (a problem or a request caused by a change is a side effect, not an
+ * incident); without it any record but another change stands in (a «کار»).
+ */
+export const countsAsIncident = (table: string): boolean => (hasTable("incident") ? table === "incident" : table !== "change_request");
+
 /** The organisation's change settings (its row, else the defaults). */
 export async function changeConfig(q: Queryable, ctx: Ctx): Promise<ChangeConfig & { id: string | null; seeded: number }> {
   const [row] = await liveRows(q, sysOf(ctx), "change_config", null, { order: "t.created_at", limit: 1 });

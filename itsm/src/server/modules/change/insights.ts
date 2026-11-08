@@ -93,32 +93,34 @@ export async function similarChanges(ctx: Ctx, id: string, limit = 8): Promise<R
 
 /**
  * Changes that may have caused an incident (CHG-055): implemented (or being implemented) in the hours before it, on
- * its CI or service; scored by what they share and how close in time they were.
+ * its CIs or services (the main ones and those it affects); scored by what they share and how close in time they were.
+ * An incident begins when it was detected (the desk back-dates `detected_at`), else when it was logged.
  */
 export async function suspects(ctx: Ctx, input: { incident?: string; ci?: string; service?: string; at?: string; hours?: number }): Promise<Row> {
-  let ci = isUuid(input.ci) ? input.ci : null;
-  let service = isUuid(input.service) ? input.service : null;
+  const cis = new Set<string>(isUuid(input.ci) ? [input.ci] : []);
+  const services = new Set<string>(isUuid(input.service) ? [input.service] : []);
   let at = msOf(input.at) ?? Date.now();
   if (input.incident) {
     if (!hasTable("incident")) throw bad("ماژول رخداد نصب نیست");
     const { row } = await get(ctx, "incident", input.incident);
-    ci = ci ?? (isUuid(row.ci_id) ? row.ci_id : null);
-    service = service ?? (isUuid(row.service_id) ? row.service_id : null);
-    at = msOf(input.at) ?? msOf(row.opened_at) ?? at;
+    const scope = scopeOf(row);
+    for (const x of scope.cis) if (isUuid(x)) cis.add(x);
+    for (const x of scope.services) if (isUuid(x)) services.add(x);
+    at = msOf(input.at) ?? msOf(row.detected_at) ?? msOf(row.opened_at) ?? at;
   }
   const hours = Math.max(1, Math.min(24 * 14, input.hours ?? 72));
   const since = at - hours * 3_600_000;
   const touches: Row[] = [];
-  if (ci) touches.push({ f: "ci_id", op: "eq", v: ci }, { f: "affected_cis", op: "contains", v: ci });
-  if (service) touches.push({ f: "service_id", op: "eq", v: service }, { f: "affected_services", op: "contains", v: service }, { f: "impacted_services", op: "contains", v: service });
+  if (cis.size) touches.push({ f: "ci_id", op: "in", v: [...cis] }, { f: "affected_cis", op: "in", v: [...cis] });
+  if (services.size) touches.push({ f: "service_id", op: "in", v: [...services] }, { f: "affected_services", op: "in", v: [...services] }, { f: "impacted_services", op: "in", v: [...services] });
   const when = { or: [{ f: "state", op: "eq", v: "implement" }, { and: [{ f: "actual_end", op: "gte", v: new Date(since).toISOString() }, { f: "actual_start", op: "lte", v: new Date(at).toISOString() }] }] };
   const filter = touches.length ? { and: [{ or: touches }, when] } : when;
   const rows = (await list(ctx, "change_request", { filter: filter as never, sort: "-actual_start", size: 100, fields: [...SIMILAR_FIELDS, "actual_start", "assigned_to", "assignment_group_id"], total: false })).rows;
   const items = rows
     .map((c) => {
       const s = scopeOf(c);
-      const sameCi = !!ci && s.cis.includes(ci);
-      const sameService = !!service && s.services.includes(service);
+      const sameCi = s.cis.some((x) => cis.has(x));
+      const sameService = s.services.some((x) => services.has(x));
       const end = msOf(c.actual_end) ?? Date.now();
       const gap = Math.max(0, at - end);
       const recency = gap <= 3_600_000 ? 3 : gap <= 6 * 3_600_000 ? 2 : gap <= 24 * 3_600_000 ? 1 : 0.5;
