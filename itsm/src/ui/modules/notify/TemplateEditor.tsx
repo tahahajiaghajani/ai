@@ -1,11 +1,12 @@
 // «الگوی اعلان»: subject, Markdown body and the short text of SMS and messengers, with the placeholders of the chosen
-// table (a click inserts one at the caret of the field last edited), problems of the template language shown as
-// you type, the event's default text as a starting point, and a live preview on a sample record.
+// table and the modules' content blocks it may name (a click inserts one at the caret of the field last edited),
+// problems of the template language shown as you type, the event's default text as a starting point, and a live
+// preview on a sample record.
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useNavigate, useParams } from "react-router";
 import { Button, Input, Popconfirm, Select, Switch, type InputRef } from "antd";
 import type { TextAreaRef } from "antd/es/input/TextArea";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FileText, Trash2, Wand2 } from "lucide-react";
 import { DEFAULT_TEMPLATES, NOTIFY_EVENTS, NOTIFY_EVENT_KEYS, parseTemplate, type NotifyEvent } from "@shared/notify";
 import { useOrg } from "../../lib/org";
@@ -18,7 +19,7 @@ import { useRecord, useSchema, keys as recordKeys } from "../../records/data/hoo
 import { recordsApi } from "../../records/data/api";
 import { fieldErrorsOf } from "../../records/model/types";
 import { tablePath } from "../../records/extensions";
-import { insertAt, placeholderTag, placeholdersFor } from "./model";
+import { insertAt, placeholderTag, placeholdersFor, type TemplateBlockInfo } from "./model";
 import { TableSelect } from "./parts";
 import { PreviewPanel } from "./Preview";
 import "./notify.css";
@@ -88,7 +89,14 @@ export default function TemplateEditor() {
   const set = (p: Partial<TemplateDraft>) => d && setDraft({ ...d, ...p });
   const canWrite = isNew ? !!schema?.def("notification_template")?.can.create : !!rec.data?.meta.canWrite;
   const def = d?.table_key ? schema?.def(d.table_key) : undefined;
-  const placeholders = useMemo(() => placeholdersFor(def), [def]);
+  const blockTable = d?.table_key ?? "*";
+  const blocks = useQuery({
+    queryKey: ["notify-blocks", orgId, blockTable],
+    queryFn: () => api.get<{ blocks: TemplateBlockInfo[] }>("/notify/blocks", { table: blockTable }),
+    staleTime: 5 * 60_000,
+    enabled: !!d,
+  });
+  const placeholders = useMemo(() => placeholdersFor(def, blocks.data?.blocks ?? []), [def, blocks.data]);
   const problems = useMemo(
     () => ({ subject: parseTemplate(d?.subject).error, body: parseTemplate(d?.body).error, short_text: parseTemplate(d?.short_text).error }),
     [d?.subject, d?.body, d?.short_text],
@@ -235,7 +243,13 @@ export default function TemplateEditor() {
               <ul className="nf-ph" aria-label="جای‌نگهدارها">
                 {placeholders.map((p) => (
                   <li key={p.path}>
-                    <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => insert(p.path)} disabled={!canWrite} title={`افزودن به ${slot === "subject" ? "موضوع" : slot === "body" ? "متن" : "متن کوتاه"}`}>
+                    <button
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => insert(p.path)}
+                      disabled={!canWrite}
+                      title={`${p.description ? `${p.description} — ` : ""}افزودن به ${slot === "subject" ? "موضوع" : slot === "body" ? "متن" : "متن کوتاه"}`}
+                    >
                       <span>{p.label}</span>
                       <code>{placeholderTag(p.path)}</code>
                     </button>

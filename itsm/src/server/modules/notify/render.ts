@@ -2,7 +2,8 @@
 // with the recipient's context (`memberCtx`), so a recipient who cannot read it gets nothing (null), fields they may
 // not see are absent and render as «(محدود)», references they may not read stay unnamed, dot-walks into records
 // they may not read yield nothing, the change list leaves out hidden fields and an internal journal entry is only
-// quoted to holders of the «internal» field group. Templates (`@shared/notify`) are filled from that view.
+// quoted to holders of the «internal» field group. Templates (`@shared/notify`) are filled from that view; the content
+// blocks of modules (`{{block.<key>}}`, blocks.ts) render under the same context.
 import type { FieldDef, TableDef } from "@shared/model/types";
 import { FIELD_TYPES, refTarget } from "@shared/model/types";
 import { APP_NAME } from "@shared/constants";
@@ -14,8 +15,9 @@ import {
 } from "@shared/notify";
 import type { Ctx, ServerConfig } from "../../context";
 import { access } from "../../access/provider";
-import { RefSet, condEnv, defFor, labelOf, list, pathVisible, resolveDisplay, type OrgSchema } from "../../engine";
-import { recordAppPath, recordUrl, tzOf } from "./common";
+import { RefSet, canOpenRecords, condEnv, defFor, labelOf, list, pathVisible, resolveDisplay, type OrgSchema } from "../../engine";
+import { appUrl, recordAppPath, recordUrl, tzOf } from "./common";
+import { blockFields, renderBlocks } from "./blocks";
 
 /** What a queued delivery keeps of its event. */
 export interface EventSnap {
@@ -64,12 +66,13 @@ export interface Rendered {
 export const RESTRICTED = "(محدود)";
 
 /** Special placeholders (not fields of the record). */
-const SPECIAL = /^(record|event|actor|recipient|org|app)\.|^(link|changes|comment|number)$/;
+const SPECIAL = /^(record|event|actor|recipient|org|app|block)\.|^(link|changes|comment|number)$/;
 
 /** The record as the recipient sees it, or null when they may not read it. */
 export async function recipientView(rctx: Ctx, table: string, id: string, paths: string[]) {
   const { def, schema } = await defFor(rctx, table);
-  if (def.virtual || !access().canReadTable(rctx, def)) return null;
+  // the recipient's roles read the area, or they take part in the record (an approver without a role in it)
+  if (def.virtual || !(await canOpenRecords(rctx, def))) return null;
   const has = (n: string) => def.fields.some((f) => f.name === n);
   const plain = new Set<string>([def.display]);
   if (def.states) plain.add(def.states.field);
@@ -138,6 +141,8 @@ export interface RenderOptions {
   cfg: Partial<ServerConfig>;
   /** the journal entry of a commented / mentioned event, read by the caller */
   entry?: { body: string; kind: string; visibility: string } | null;
+  /** where a failing content block is reported (the message still goes out without it) */
+  log?: (msg: string, data: Record<string, unknown>) => void;
 }
 
 /**
@@ -147,9 +152,12 @@ export interface RenderOptions {
 export async function renderFor(rctx: Ctx, ev: EventSnap, tpl: TemplateText, opts: RenderOptions): Promise<Rendered | null> {
   if (opts.entry && opts.entry.visibility === "internal" && !access().hasFieldGroup(rctx, "internal")) return null;
   const paths = templatePaths(tpl.subject, tpl.body, tpl.short_text ?? null);
-  const view = await recipientView(rctx, ev.table, ev.id, paths);
+  const { def: tdef } = await defFor(rctx, ev.table);
+  const view = await recipientView(rctx, ev.table, ev.id, [...paths, ...blockFields(paths, tdef)]);
   if (!view) return null;
   const { def, schema, row } = view;
+  // the modules' content blocks the template names, rendered as the recipient
+  const blocks = await renderBlocks(paths, { ctx: rctx, def, id: ev.id, row, event: ev.event, link: (p) => appUrl(opts.cfg, rctx.org.id, p) }, opts.log);
   const env = await condEnv(rctx);
   const tz = tzOf(rctx.org);
   const visible = access().visibleFields(rctx, def);
@@ -229,6 +237,10 @@ export async function renderFor(rctx: Ctx, ev: EventSnap, tpl: TemplateText, opt
       case "app.name":
         return { text: APP_NAME, raw: APP_NAME };
     }
+    if (path.startsWith("block.")) {
+      const b = blocks.get(path);
+      return { text: b?.text ?? "", raw: b ? b.text : null };
+    }
     if (path.startsWith("event.")) {
       const v = ev.data?.[path.slice(6)];
       const scalar = v === null || v === undefined || typeof v === "object" ? "" : String(v);
@@ -264,6 +276,7 @@ export async function renderFor(rctx: Ctx, ev: EventSnap, tpl: TemplateText, opt
       if (p === "link") return url;
       if (p === "changes") return changeLines(true).join("\n");
       if (p === "comment") return comment ? relayMarkdown(comment) : "";
+      if (p.startsWith("block.")) return blocks.get(p)?.markdown ?? "";
       if (SPECIAL.test(p) || p.endsWith(".display") || p.includes(".")) return null;
       const r = field(p);
       if (!r.f || typeof r.raw !== "string") return null;

@@ -1,14 +1,16 @@
 // Notification rules end to end on an in-memory server: built-in rules, the organisation's rules and conditions
 // (`changes_to` against the value before the change), recipient resolution (assignee, requester, watchers, groups,
 // roles, fields, mentions), the actor left out, per-recipient access (no access → nothing; hidden fields →
-// «(محدود)»; internal notes only for the «internal» field group), preferences (opt-outs, mandatory rules), the inbox
-// API and the delivery log.
+// «(محدود)»; internal notes only for the «internal» field group), the modules' content blocks rendered as the
+// recipient, preferences (opt-outs, mandatory rules), the inbox API and the delivery log.
 import { describe, it, expect, beforeAll } from "vitest";
 import { engineOrg, type EngineOrg } from "./engine-helpers";
 import type { Client } from "./helpers";
 import { registerTable } from "@shared/tables";
 import { tick } from "@server/jobs";
 import { formatMention } from "@ui/records/model/mentions";
+import { registerTemplateBlock, renderFor, type EventSnap } from "@server/modules/notify";
+import { memberCtx } from "@server/access";
 
 registerTable({
   key: "nt_ticket",
@@ -319,5 +321,53 @@ describe("preferences and the inbox", () => {
     expect(r.entries.length).toBeGreaterThan(5);
     expect(r.entries.some((x: { status: string; reason_label: string | null }) => x.status === "skipped" && x.reason_label)).toBe(true);
     await agent.client.get(`${P}/notify/log`, 403);
+  });
+});
+
+describe("content blocks of modules (`{{block.<key>}}`)", () => {
+  it("render as the recipient; empty, failing, unknown and other tables' blocks leave nothing; the editor lists the table's", async () => {
+    const off = [
+      registerTemplateBlock("nt_echo", {
+        label: "پژواک آزمون",
+        tables: ["nt_ticket"],
+        fields: ["cost_note"],
+        async render({ ctx, row, link }) {
+          return { markdown: `**${ctx.user.email}** [x](${link("kb")}) ${row.cost_note ?? "—"}`, text: `برای ${ctx.user.email}` };
+        },
+      }),
+      registerTemplateBlock("nt_empty", { label: "خالی", async render() { return null; } }),
+      registerTemplateBlock("nt_fail", { label: "خراب", async render() { throw new Error("boom"); } }),
+      registerTemplateBlock("nt_other", { label: "جدول دیگر", tables: ["incident"], async render() { return { markdown: "OTHER" }; } }),
+    ];
+    try {
+      const t = (await e.owner.post(`${P}/r/nt_ticket`, { short_description: "بلوک‌ها", caller_id: req.userId, cost_note: "۵۰۰ هزار" })).row;
+      const tpl = { subject: "{{block.nt_echo}}", body: "A {{block.nt_echo}}\n{{#if block.nt_empty}}EMPTY{{else}}none{{/if}}\n[{{block.nt_fail}}]\n{{block.nt_other}}{{block.nt_unknown}}", short_text: null };
+      const ev: EventSnap = { event: "created", kind: "record.created", table: "nt_ticket", id: t.id, number: t.number, actor: e.ownerId, at: new Date().toISOString() };
+      const failed: unknown[] = [];
+      const forAdmin = (await renderFor(await memberCtx(e.cfg, e.org, admin.userId), ev, tpl, { cfg: { ...e.cfg, publicUrl: "https://itsm.example/" }, log: (_m, d) => failed.push(d.block) }))!;
+      expect(forAdmin.body).toContain("**admin@example.com**");
+      expect(forAdmin.body).toContain(`[x](https://itsm.example/${e.org}/kb)`);
+      expect(forAdmin.body).toContain("۵۰۰ هزار");
+      expect(forAdmin.body).toContain("none");
+      expect(forAdmin.body).not.toContain("EMPTY");
+      expect(forAdmin.body).toContain("[]");
+      expect(forAdmin.body).not.toContain("OTHER");
+      expect(forAdmin.title).toBe("برای admin@example.com");
+      expect(failed).toEqual(["block.nt_fail"]);
+      // the requester reads their own ticket, but not the «financial» field the block asked for
+      const forReq = (await renderFor(await memberCtx(e.cfg, e.org, req.userId), ev, tpl, { cfg: e.cfg }))!;
+      expect(forReq.body).toContain("**req@example.com**");
+      expect(forReq.body).not.toContain("۵۰۰ هزار");
+      // someone who may not read the record gets nothing at all
+      expect(await renderFor(await memberCtx(e.cfg, e.org, req2.userId), ev, tpl, { cfg: e.cfg })).toBeNull();
+      // the template editor: the table's blocks, or every block for «*»
+      const keys = async (q: string) => ((await e.owner.get(`${P}/notify/blocks${q}`)).blocks as { key: string; path: string }[]).map((b) => b.key);
+      expect(await keys("?table=nt_ticket")).toEqual(expect.arrayContaining(["nt_echo", "nt_empty", "nt_fail"]));
+      expect(await keys("?table=nt_ticket")).not.toContain("nt_other");
+      expect(await keys("")).toEqual(expect.arrayContaining(["nt_echo", "nt_other"]));
+      await agentB.client.get(`${P}/notify/blocks`, 403);
+    } finally {
+      for (const f of off) f();
+    }
   });
 });

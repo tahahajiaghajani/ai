@@ -9,6 +9,7 @@
 //     the article's and the base's AI switches, «سری»); retrieval joins every chunk to its article through the
 //     reader's access, so audiences restrict AI answers exactly as they restrict reading
 //   · record meta `knowledge` on GET /r/kb_article/:id (may the caller write, the open draft, the base)
+//   · the notification templates' block `{{block.kb_suggestions}}` (suggest.ts, KB-051)
 //   · the seed of a new organisation (seed.ts), queued after the SLA service's calendars
 // Extension points: `registerKnowledgeAi` (ai.ts) for the AI layer's knowledge skills; other modules link records to
 // articles with the engine's links of the kinds in KB_LINK_KINDS and ask for suggestions with `suggestForRecord`.
@@ -31,6 +32,7 @@ import { installCaptureSubscribers } from "./capture";
 import { openVersion } from "./versions";
 import { registerKnowledgeAiFeatures, knowledgeAiCapabilities } from "./ai";
 import { seedKnowledgeDefaultsIn } from "./seed";
+import { installKbTemplateBlock } from "./suggest";
 
 let installed = false;
 
@@ -100,6 +102,7 @@ export function installKnowledgeModule(): void {
   installKnowledgeJobs();
   installCaptureSubscribers();
   installRagSources();
+  installKbTemplateBlock();
   registerKnowledgeAiFeatures();
   registerRecordMeta("kb_article", async ({ q, ctx, row }) => {
     const base = await baseOf(q, ctx, row.base_id);

@@ -20,6 +20,7 @@ export { registerOnCallSource, type OnCallSource } from "./recipients";
 export { setTransportFactory, markdownToHtml, markdownToText, emailLayout, type TransportFactory } from "./mail";
 export { setMailboxOpener, ingestMessage, pollChannel, stripQuoted, loopReason, type MailboxOpener, type MailboxSession } from "./inbound";
 export { renderFor, type EventSnap, type Rendered } from "./render";
+export { registerTemplateBlock, templateBlocks, type TemplateBlock, type TemplateBlockInput } from "./blocks";
 export { BUILTINS, candidateRules, invalidateRules } from "./rules";
 export { outsideRequest, smsRequest } from "./channels";
 export { actsHere } from "./common";

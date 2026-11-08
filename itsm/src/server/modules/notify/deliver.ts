@@ -349,7 +349,7 @@ export async function runSend(job: Job, jctx: JobContext): Promise<void> {
   const tpl = await templateOf(sys, p.rule);
   let r: Rendered | null;
   try {
-    r = await renderFor(rctx, p.ev, tpl, { cfg, entry });
+    r = await renderFor(rctx, p.ev, tpl, { cfg, entry, log: (m, d) => jctx.log.warn(m, d) });
   } catch (e) {
     if (e instanceof AppError && e.status === 404) r = null;
     else throw e;
@@ -412,7 +412,7 @@ export async function runHook(job: Job, jctx: JobContext): Promise<void> {
   const entry = p.ev.entry ? await loadEntry(jctx.db, p.org, p.ev.table, p.ev.id, p.ev.entry.id) : null;
   let r: Rendered | null;
   try {
-    r = await renderFor(rctx, p.ev, await templateOf(sys, p.rule), { cfg, entry });
+    r = await renderFor(rctx, p.ev, await templateOf(sys, p.rule), { cfg, entry, log: (m, d) => jctx.log.warn(m, d) });
   } catch (e) {
     if (e instanceof AppError && e.status === 404) r = null;
     else throw e;
@@ -467,7 +467,7 @@ export async function runFlush(job: Job, jctx: JobContext): Promise<void> {
     }
     const ev = h.payload.ev;
     const entry = ev.entry ? await loadEntry(jctx.db, org, ev.table, ev.id, ev.entry.id) : null;
-    const r = ev.entry && !entry ? null : await renderFor(rctx, ev, await templateOf(sys, h.payload.rule), { cfg, entry }).catch(() => null);
+    const r = ev.entry && !entry ? null : await renderFor(rctx, ev, await templateOf(sys, h.payload.rule), { cfg, entry, log: (m, d) => jctx.log.warn(m, d) }).catch(() => null);
     if (!r) await settleHeld(jctx.db, h.id, "skipped", { reason: "no_access" });
     else items.push({ h, r, ev });
   }

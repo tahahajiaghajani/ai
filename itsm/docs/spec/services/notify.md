@@ -120,11 +120,34 @@ Subject, Markdown body and short text with placeholders — parsed and rendered 
 {{event.label}}  {{event.from}}  {{event.to}}  {{changes}}  {{comment}}
 {{actor.name}}  {{recipient.name}}  {{org.name}}  {{app.name}}
 {{priority}}  {{assigned_to.display}}  {{assigned_to.email}}      ← fields and dot-walks (≤ 3 levels)
+{{block.kb_suggestions}}                                            ← a module's content block
 {{#if priority == "1"}}فوری{{else}}عادی{{/if}}   {{#unless description}}…{{/unless}}   (== != and truthiness)
 ```
 
 Values inserted into Markdown are escaped (a record's title cannot add links or formatting); `changes`, `comment`,
 Markdown fields and `link` are inserted as safe Markdown. A rule without a template uses `DEFAULT_TEMPLATES[event]`.
+
+**Content blocks of modules** (`src/server/modules/notify/blocks.ts`): a module registers content of its own that a
+template names as `{{block.<key>}}` — knowledge's `kb_suggestions` puts up to three live articles that best match the
+record and that **the recipient** may read, linked to their reading view, into «درخواست شما ثبت شد» (KB-051). A block
+renders for each recipient under that recipient's context, after the record view (it gets the row as they see it,
+plus the `fields` it declares, absent when they may not see them), returns safe Markdown (the module escapes values)
+and plain text for subjects and SMS, or nothing — `{{#if block.kb_suggestions}}مقاله‌های پیشنهادی:…{{/if}}` then
+hides the heading. A failing block renders nothing and is logged (`notification block failed`); the message still
+goes out. `tables` (keys or a test of the table) limits where the editor offers it; unknown blocks render empty.
+
+```ts
+import { registerTemplateBlock } from "@server/modules/notify";
+
+registerTemplateBlock("kb_suggestions", {
+  label: "مقاله‌های پیشنهادی دانش",
+  tables: (def) => def.module !== "knowledge" && !!def.features?.links,
+  fields: ["short_description", "description"],
+  async render({ ctx, def, id, row, event, link }) {   // ctx: the recipient's; link("kb/a/<id>") → absolute URL
+    return { markdown: "- [عنوان](https://…)", text: "عنوان https://…" };   // or null
+  },
+});
+```
 E-mail: a Persian RTL HTML layout (`emailLayout`: product name from `APP_NAME`, the organisation's name, an action
 button to the record, the channel's signature) with a plain-text alternative; Markdown is rendered by a small strict
 renderer (everything escaped, links only `http(s)`/`mailto`).
@@ -241,6 +264,7 @@ tables: `/api/o/:org/r/notification_rule` … (generic list, get, create, update
 | `GET /prefs` · `PUT /prefs` | `{ optouts?, digest?, digest_hour?, quiet_from?, quiet_to? }` | `{ prefs }` |
 | `GET /rules` | | `{ rules: RuleView[] }` built-ins (`is_builtin`, or replaced: `replaces`) and the organisation's |
 | `POST /preview` | `{ table, event, record_id?, template_id? \| subject, body, short_text }` | `{ record, problems, subject, body, short, html }` |
+| `GET /blocks` | `table` (a table key; absent or `*`: every block) | `{ blocks: { key, path, label, description }[] }` the modules' content blocks a template of the table may name |
 | `GET /log` | `status`, `channel`, `limit` (≤ 200), `before` | `{ entries, display, more }` |
 | `GET /email-log` | `direction` (`in`/`out`), `status`, `limit`, `before` | `{ messages, more }` |
 | `POST /email-channels/:id/test` | `{ to? }` (default: the caller) | `{ ok, to, message_id, response }` |
@@ -290,7 +314,8 @@ POST /api/o/<org>/r/notification_rule
 
 `tests/notify-template.test.ts` (template language, preferences helpers, adapters' requests),
 `tests/notify-rules.test.ts` (rules end to end: built-ins, conditions with `changes_to`, recipients, actor, access
-filtering, field masks, internal notes, mentions, opt-outs, mandatory, inbox, snooze, log),
+filtering, field masks, internal notes, content blocks rendered as the recipient, mentions, opt-outs, mandatory,
+inbox, snooze, log; knowledge's `kb_suggestions` block in `tests/knowledge-flow.test.ts`),
 `tests/notify-email.test.ts` (SMTP through a fake transport with Persian subjects and RTL HTML, threading, quiet
 hours and digests, e-mail to record with fixture messages — threading, loop protection, allow/deny lists — the IMAP
 poll, Slack/Telegram/SMS through a stub fetch), `tests/notify-ui.test.ts` (the screens' pure logic). No network.

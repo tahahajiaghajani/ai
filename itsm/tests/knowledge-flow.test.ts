@@ -1,6 +1,7 @@
 // Knowledge in the flow of work and the quality loop: Persian search (letter forms, digits, half-spaces, stems, phrases,
 // glossary synonyms, the organisation's rules, facets, sorting, zero results logged for the gap list), suggestions next
-// to an incident, attaching an article (reuse counted once per record, detaching with a reason), capturing a KCS draft
+// to an incident (and in the notification block «مقاله‌های پیشنهادی», KB-051), attaching an article (reuse counted once
+// per record, detaching with a reason), capturing a KCS draft
 // from a resolved incident (people scrubbed), WIP articles, the known-error article, flags collected into one knowledge
 // task per article, subscribers told about a new version, translations that go stale when the master moves on, read
 // and acknowledge, the sweep's health and duplicates, the dashboard and the knowledge manager's workspace.
@@ -8,6 +9,8 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { kbWorld, statusOf, type KbWorld } from "./knowledge-helpers";
 import { kbSweep } from "@server/modules/knowledge";
 import { searchForm } from "@shared/ai/text";
+import { renderFor, type EventSnap } from "@server/modules/notify";
+import { memberCtx } from "@server/access";
 
 let w: KbWorld;
 const P = () => w.P;
@@ -92,6 +95,31 @@ describe("knowledge next to an incident", () => {
     // a requester reading their own incident gets no linking
     const mine = await w.p.req.client.get(`${P()}/knowledge/records/incident/${inc.id}`);
     expect(mine.can.link).toBe(false);
+  });
+
+  it("the notification block «مقاله‌های پیشنهادی» lists articles the recipient may read, linked (KB-051)", async () => {
+    const agentsOnly = await w.published({ base_id: w.bases.agents, title: "چاپگر طبقهٔ سوم کاغذ گیر می‌اندازد: غلتک", body: "## مسئله\n\nچاپگر کاغذ گیر می‌اندازد\n\n## محیط\n\nطبقهٔ سوم\n\n## راه‌حل\n\n1. غلتک را تمیز کنید\n" });
+    const tpl = { subject: "{{record.number}} ثبت شد", body: "ثبت شد.{{#if block.kb_suggestions}}\n\nشاید این‌ها کمک کنند:\n\n{{block.kb_suggestions}}{{/if}}", short_text: "{{block.kb_suggestions}}" };
+    const ev: EventSnap = { event: "created", kind: "record.created", table: "incident", id: inc.id, number: inc.number, actor: w.p.agent.userId, at: new Date().toISOString() };
+    const cfg = { ...w.e.cfg, publicUrl: "https://itsm.example" };
+    // the requester: the article of the users' guide, not the agents' one
+    const forReq = (await renderFor(await memberCtx(w.e.cfg, w.e.org, w.p.req.userId), ev, tpl, { cfg }))!;
+    expect(forReq.body).toContain("شاید این‌ها کمک کنند");
+    expect(forReq.body).toContain(`](https://itsm.example/${w.e.org}/kb/a/${printer.id})`);
+    expect(forReq.body).not.toContain(agentsOnly.id);
+    expect(forReq.short).toContain(printer.title);
+    expect(forReq.body.split("\n").filter((l) => l.startsWith("- ")).length).toBeLessThanOrEqual(3);
+    // the agent also gets the agents' article
+    const forAgent = (await renderFor(await memberCtx(w.e.cfg, w.e.org, w.p.agent.userId), ev, tpl, { cfg }))!;
+    expect(forAgent.body).toContain(`kb/a/${agentsOnly.id}`);
+    // nothing matches: the heading goes with the block
+    const other = (await w.p.agent.client.post(`${P()}/r/incident`, { short_description: "zzqxw qqvvz", caller_id: w.p.req.userId, assignment_group_id: w.g.desk })).row;
+    const none = (await renderFor(await memberCtx(w.e.cfg, w.e.org, w.p.req.userId), { ...ev, id: other.id, number: other.number }, tpl, { cfg }))!;
+    expect(none.body).toBe("ثبت شد.");
+    // the template editor offers it on work tables, not on knowledge's own
+    const keys = async (t: string) => ((await w.o.get(`${P()}/notify/blocks?table=${t}`)).blocks as { key: string }[]).map((b) => b.key);
+    expect(await keys("incident")).toContain("kb_suggestions");
+    expect(await keys("kb_article")).not.toContain("kb_suggestions");
   });
 
   it("attaching counts the reuse once per record; detaching needs a reason and recounts", async () => {

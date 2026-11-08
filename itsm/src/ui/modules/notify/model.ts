@@ -141,14 +141,28 @@ export interface Placeholder {
   /** what goes between the braces */
   path: string;
   label: string;
-  group: "common" | "field";
+  group: "common" | "field" | "block";
+  /** what a module's content block puts there */
+  description?: string | null;
+}
+
+/** A module's content block a template may name (`GET /notify/blocks`). */
+export interface TemplateBlockInfo {
+  key: string;
+  path: string;
+  label: string;
+  description: string | null;
 }
 
 const DISPLAYED = new Set(["ref", "refs", "user", "users", "group", "choice", "multichoice"]);
 
-/** Placeholders the template editor offers: the common ones, then the table's fields (`.display` for references). */
-export function placeholdersFor(def: Pick<TableDef, "fields"> | undefined): Placeholder[] {
+/**
+ * Placeholders the template editor offers: the common ones, the modules' content blocks of the table (suggested
+ * articles…), then the table's fields (`.display` for references).
+ */
+export function placeholdersFor(def: Pick<TableDef, "fields"> | undefined, blocks: readonly TemplateBlockInfo[] = []): Placeholder[] {
   const out: Placeholder[] = COMMON_PLACEHOLDERS.map((p) => ({ ...p, group: "common" as const }));
+  for (const b of blocks) out.push({ path: b.path, label: b.label, group: "block", description: b.description });
   for (const f of def?.fields ?? []) {
     if (f.hidden || f.type === "secret" || f.type === "json") continue;
     out.push({ path: f.name, label: f.label, group: "field" });
