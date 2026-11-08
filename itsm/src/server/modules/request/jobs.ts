@@ -1,6 +1,7 @@
 // Background work of the request module (on the web version and on Windows apps that are not linked to it —
 // `actsHere`: a linked Windows app pushes its writes and the web version reacts):
-//   request.flows   the zero-touch check of a flow-driven item (fulfil.ts `checkFlows`), polling with back-off
+//   flows           the zero-touch check of a flow-driven item (fulfil.ts `checkFlows`) when one of its runs ends
+//                   (`record.flow_ended`); `request.flows` jobs queued by earlier versions check once
 //   request.link    links a record an item produced or was converted into (after the write committed)
 //   request.sweep   every 15 minutes while there is something to watch: delivered items confirmed automatically
 //                   after N working days (REQ-046), reminders and auto-cancel of items waiting for the requester
@@ -192,15 +193,16 @@ export function installRequestJobs(): void {
   if (installed) return;
   installed = true;
   onRecordEvent("request.sweep", react, { tables: ["request_item", "request"], kinds: ["record.created", "record.state_changed"] });
+  // a run of a flow-driven item ended: check the item now (the flow service tells, nothing polls)
+  onRecordEvent("request.flows", async (e, jctx) => {
+    if (!actsHere(jctx.cfg) || !isUuid(e.id) || e.data?.test) return;
+    await checkFlows(jctx.cfg, e.org_id, e.id);
+  }, { tables: ["request_item"], kinds: ["record.flow_ended"] });
+  // checks queued by earlier versions (they polled): once, the run's end event does the rest
   registerJobHandler(JOB_FLOWS, async (job, jctx) => {
     if (!job.org_id || !actsHere(jctx.cfg)) return;
     const id = String(job.payload.id ?? "");
-    if (!isUuid(id)) return;
-    const r = await checkFlows(jctx.cfg, job.org_id, id);
-    if (r === "done") return;
-    const n = Number(job.payload.n ?? 0) + 1;
-    await jctx.save({ ...job.payload, n });
-    return { again: Math.min(30 * 60_000, 60_000 * 2 ** Math.min(n, 5)) };
+    if (isUuid(id)) await checkFlows(jctx.cfg, job.org_id, id);
   });
   registerJobHandler(JOB_LINK, async (job, jctx) => {
     if (!job.org_id) return;

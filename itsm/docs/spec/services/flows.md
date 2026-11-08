@@ -222,6 +222,12 @@ logged with secret-looking keys masked). Timeout: the step's, at most the connec
 import { registerFlowStepHandler, registerFlowSkill, setFlowBusinessClock, resumeFlowWait, startCatalogFlows } from "@server/modules/flows";
 ```
 
+**`record.flow_ended`** — a run started on a record (`trigger_table` / `trigger_record_id`) tells the record when it
+ends, in the transaction that ended it: `data: { run_id, flow_id, flow_name, state: completed | failed | canceled,
+error, outputs (of «پایان»), test, depth }`. Modules that wait for their flows subscribe to it (`onRecordEvent(name,
+fn, { tables: [...], kinds: ["record.flow_ended"] })`) instead of polling the run: the request module's zero-touch
+check runs when a run of a flow-driven item ends (a failed or canceled run gets the manual fallback task).
+
 **`registerFlowStepHandler(type, handler)`** implements (or replaces) a node type; it returns an unregister function.
 
 ```ts

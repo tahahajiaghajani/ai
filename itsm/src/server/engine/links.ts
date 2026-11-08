@@ -2,12 +2,14 @@
 // «علت». A link is stored once (from → to) and listed on both records with the label of its direction
 // (LINK_KINDS, src/shared/model/links.ts; modules add kinds with registerLinkKind). Only records the caller may
 // read take part: adding needs write access to the record the link is added from and read access to the other;
-// lists leave out links whose other record the caller may not read.
+// lists leave out links whose other record the caller may not read. Adding and removing emit `record.linked` /
+// `record.unlinked` on both records (in the same transaction: `addLinkIn` / `removeLinkIn` inside a module's write),
+// so counters like «رخدادهای ناشی از این تغییر» follow at once.
 import { LINK_KINDS } from "@shared/model/links";
 import type { TableDef } from "@shared/model/types";
 import { uuidv7 } from "@shared/id";
 import type { Ctx } from "../context";
-import { pgArray } from "../db";
+import { pgArray, type Queryable, type Tx } from "../db";
 import { bad, conflict, forbidden, notFound } from "../http/errors";
 import { access } from "../access/provider";
 import { actorId, condEnv, isSystemCtx } from "./env";
@@ -15,6 +17,7 @@ import { defFor, type OrgSchema } from "./schema";
 import { fieldExpr, readable } from "./sql";
 import { labelOf } from "./display";
 import { requireReadable, type Row } from "./read";
+import { emitEvent } from "./events";
 
 export interface LinkView {
   id: string;
@@ -36,9 +39,51 @@ function needLinks(def: TableDef) {
   if (!def.features?.links) throw bad(`«${def.plural}» پیوند ندارد`);
 }
 
+export interface LinkInput {
+  kind: string;
+  table: string;
+  id: string;
+  note?: string | null;
+}
+
+/** A stored link as the events carry it. */
+interface LinkRow {
+  id: string;
+  kind: string;
+  from_table: string;
+  from_id: string;
+  to_table: string;
+  to_id: string;
+}
+
+/**
+ * `record.linked` / `record.unlinked` on both records of a link: `data: { link_id, kind, direction, other_table,
+ * other_id }` — `direction` "out" on the record the link goes from, "in" on the other one.
+ */
+export async function emitLinkEvents(q: Queryable, ctx: Ctx, kind: "record.linked" | "record.unlinked", link: LinkRow, via?: "api" | "sync"): Promise<void> {
+  const sides: [string, string, "out" | "in", string, string][] = [
+    [link.from_table, link.from_id, "out", link.to_table, link.to_id],
+    [link.to_table, link.to_id, "in", link.from_table, link.from_id],
+  ];
+  for (const [table, id, direction, otherTable, otherId] of sides) {
+    await emitEvent(q, ctx, { kind, table, id, ...(via ? { via } : {}), data: { link_id: link.id, kind: link.kind, direction, other_table: otherTable, other_id: otherId } });
+  }
+}
+
 /** Link record `id` of `table` to another record. */
-export async function addLink(ctx: Ctx, table: string, id: string, input: { kind: string; table: string; id: string; note?: string | null }): Promise<LinkView> {
-  const { def, schema } = await defFor(ctx, table);
+export async function addLink(ctx: Ctx, table: string, id: string, input: LinkInput): Promise<LinkView> {
+  const linkId = await ctx.write((tx) => addLinkIn(tx, ctx, table, id, input));
+  const { links } = await listLinks(ctx, table, id);
+  return links.find((l) => l.id === linkId)!;
+}
+
+/**
+ * `addLink` inside the caller's write transaction (a module linking the record it creates to its source); the same
+ * checks — write access to the record the link is added from, read access to the other, no duplicates. Returns the
+ * link's id; `record.linked` is emitted on both records.
+ */
+export async function addLinkIn(tx: Tx, ctx: Ctx, table: string, id: string, input: LinkInput): Promise<string> {
+  const { def, schema } = await defFor(ctx, table, tx);
   needLinks(def);
   if (!LINK_KINDS[input.kind]) throw bad("نوع پیوند معتبر نیست");
   const other = schema.def(input.table);
@@ -46,42 +91,44 @@ export async function addLink(ctx: Ctx, table: string, id: string, input: { kind
   if (input.id === id) throw bad("رکورد را نمی‌توان به خودش پیوند داد");
   const note = input.note ? String(input.note).trim().slice(0, 500) || null : null;
   const env = await condEnv(ctx);
-  const linkId = await ctx.write(async (tx) => {
-    const from = await requireReadable(ctx, def, id, env, tx);
-    if (!isSystemCtx(ctx) && (!access().canWrite(ctx, def, from) || from.$writable === false)) throw forbidden(`اجازهٔ تغییر این ${def.label} را ندارید`);
-    await requireReadable(ctx, other, input.id, env, tx);
-    const params = [ctx.org.id, input.kind, id, input.id];
-    const dup = await tx.one(
-      `select 1 from sm_links where org_id = $1 and kind = $2 and deleted_at is null and ((from_id = $3 and to_id = $4)${symmetric(input.kind) ? " or (from_id = $4 and to_id = $3)" : ""})`,
-      params,
-    );
-    if (dup) throw conflict("این پیوند از پیش وجود دارد");
-    const lid = uuidv7();
-    await tx.query(
-      `insert into sm_links (id, org_id, kind, from_table, from_id, to_table, to_id, note, created_by, origin) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-      [lid, ctx.org.id, input.kind, def.key, id, other.key, input.id, note, actorId(ctx), ctx.cfg.origin ?? null],
-    );
-    return lid;
-  });
-  const { links } = await listLinks(ctx, table, id);
-  return links.find((l) => l.id === linkId)!;
+  const from = await requireReadable(ctx, def, id, env, tx);
+  if (!isSystemCtx(ctx) && (!access().canWrite(ctx, def, from) || from.$writable === false)) throw forbidden(`اجازهٔ تغییر این ${def.label} را ندارید`);
+  await requireReadable(ctx, other, input.id, env, tx);
+  const params = [ctx.org.id, input.kind, id, input.id];
+  const dup = await tx.one(
+    `select 1 from sm_links where org_id = $1 and kind = $2 and deleted_at is null and ((from_id = $3 and to_id = $4)${symmetric(input.kind) ? " or (from_id = $4 and to_id = $3)" : ""})`,
+    params,
+  );
+  if (dup) throw conflict("این پیوند از پیش وجود دارد");
+  const lid = uuidv7();
+  await tx.query(
+    `insert into sm_links (id, org_id, kind, from_table, from_id, to_table, to_id, note, created_by, origin) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+    [lid, ctx.org.id, input.kind, def.key, id, other.key, input.id, note, actorId(ctx), ctx.cfg.origin ?? null],
+  );
+  await emitLinkEvents(tx, ctx, "record.linked", { id: lid, kind: input.kind, from_table: def.key, from_id: id, to_table: other.key, to_id: input.id });
+  return lid;
 }
 
 /** Remove a link of record `id` (write access to the record is needed). */
 export async function removeLink(ctx: Ctx, table: string, id: string, linkId: string): Promise<{ ok: true }> {
-  const { def } = await defFor(ctx, table);
+  await ctx.write((tx) => removeLinkIn(tx, ctx, table, id, linkId));
+  return { ok: true };
+}
+
+/** `removeLink` inside the caller's write transaction; `record.unlinked` is emitted on both records. */
+export async function removeLinkIn(tx: Tx, ctx: Ctx, table: string, id: string, linkId: string): Promise<void> {
+  const { def } = await defFor(ctx, table, tx);
   needLinks(def);
   const env = await condEnv(ctx);
-  await ctx.write(async (tx) => {
-    const row = await requireReadable(ctx, def, id, env, tx);
-    if (!isSystemCtx(ctx) && (!access().canWrite(ctx, def, row) || row.$writable === false)) throw forbidden(`اجازهٔ تغییر این ${def.label} را ندارید`);
-    const done = await tx.one(
-      `update sm_links set deleted_at = now(), updated_at = now() where id = $1 and org_id = $2 and (from_id = $3 or to_id = $3) and deleted_at is null returning id`,
-      [linkId, ctx.org.id, id],
-    );
-    if (!done) throw notFound("پیوند پیدا نشد");
-  });
-  return { ok: true };
+  const row = await requireReadable(ctx, def, id, env, tx);
+  if (!isSystemCtx(ctx) && (!access().canWrite(ctx, def, row) || row.$writable === false)) throw forbidden(`اجازهٔ تغییر این ${def.label} را ندارید`);
+  const done = await tx.one<LinkRow>(
+    `update sm_links set deleted_at = now(), updated_at = now() where id = $1 and org_id = $2 and (from_id = $3 or to_id = $3) and deleted_at is null
+     returning id, kind, from_table, from_id, to_table, to_id`,
+    [linkId, ctx.org.id, id],
+  );
+  if (!done) throw notFound("پیوند پیدا نشد");
+  await emitLinkEvents(tx, ctx, "record.unlinked", done);
 }
 
 /** Links of a record whose other side the caller may read. */

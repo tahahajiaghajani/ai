@@ -31,6 +31,7 @@ import { coerceValue, FieldError, KEEP } from "./values";
 import { canOpenRecords, fromDb, type Row } from "./read";
 import { recordEvents, sameValue } from "./write";
 import { emitEvent } from "./events";
+import { emitLinkEvents } from "./links";
 import { hooksFor } from "./hooks";
 
 /** Engine-maintained columns a push may not move on an existing row. */
@@ -208,6 +209,13 @@ export async function afterEnginePush(tx: Tx, ctx: Ctx, agg: AggregateDef, wire:
       const r = wire.row;
       await emitEvent(tx, ctx, { kind: "record.commented", table: String(r.table_key), id: String(r.record_id), entry: { id: wire.id, kind: String(r.kind), visibility: String(r.visibility) }, actor: (r.author as string | null) ?? null, via: "sync" });
     }
+    return;
+  }
+  if (agg.engine === "link") {
+    const r = wire.row as Record<string, unknown>;
+    const link = { id: wire.id, kind: String(r.kind), from_table: String(r.from_table), from_id: String(r.from_id), to_table: String(r.to_table), to_id: String(r.to_id) };
+    if (!prev && !r.deleted_at) await emitLinkEvents(tx, ctx, "record.linked", link, "sync");
+    else if (prev && !prev.deleted_at && r.deleted_at) await emitLinkEvents(tx, ctx, "record.unlinked", link, "sync");
     return;
   }
   if (agg.engine !== "record") return;

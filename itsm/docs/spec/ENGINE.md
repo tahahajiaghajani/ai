@@ -300,7 +300,9 @@ await ctx.write(async (tx) => {
   orgId, { onBehalfOf })` (a context in which the platform itself acts — allowed everything in its organisation by
   the provider, writes still hold the write lock), `condEnv(ctx)`, `orgSchema(ctx)` (effective defs with tenant
   customisation), `loadReadable`/`requireReadable`, `toOutput`, `RefSet` + `resolveDisplay` (display values for
-  your own queries), `allocateNumber`, `openSecret`.
+  your own queries), `allocateNumber`, `openSecret`, `readSecret(q, ctx, def, id, field)` (the plain value of a secret
+  field for trusted server code that checked the caller's access itself — records only ever carry the hint; null
+  when empty or sealed by another runtime's key; never query the column yourself).
 
 ## 6. Hooks
 
@@ -347,6 +349,8 @@ Every create/update/transition/delete writes events into the job queue **in the 
 | `record.assigned` | `assigned_to: { from, to }`, `assignment_group: { from, to }` (on create too when set) |
 | `record.deleted` | — |
 | `record.commented` | `entry: { id, kind, visibility }` |
+| `record.linked` / `record.unlinked` | on both records of a link: `data: { link_id, kind, direction: "out" \| "in", other_table, other_id }` (also for links a Windows app pushed, `via: "sync"`) |
+| `record.flow_ended` | a flow run started on the record ended: `data: { run_id, flow_id, flow_name, state: completed \| failed \| canceled, error, outputs, test }` (flows, §8 of services/flows.md) |
 
 One update may emit several (updated + state_changed + assigned). Subscribe without touching the engine:
 
@@ -440,7 +444,10 @@ DDL indexes the anchor columns and the own user fields of every table with own f
   blocks; modules add kinds with `registerLinkKind(key, { out, in })`), stored once from → to and listed on both
   records with the label of their direction («ناشی از» / «علت»). Adding needs write access to the record it is added
   from (features.links) and read access to the other; symmetric kinds are unique in both directions; lists leave out
-  links whose other record the caller may not read.
+  links whose other record the caller may not read. `addLinkIn(tx, ctx, table, id, input)` / `removeLinkIn(tx, ctx,
+  table, id, linkId)` do the same inside a module's write (the change made from an incident and its «آغازشده از»
+  link commit together); both emit `record.linked` / `record.unlinked` on both records, so a counter follows at once
+  (the change module's «رخدادهای ناشی از این تغییر»).
 - **Attachments** (`sm_attachments` + `sm_blobs` deduplicated per organisation by sha256): whoever may read a record
   may attach; removing needs write access or being the uploader. Limit: org setting `attachment_max_mb` (default 10;
   the web platform caps request bodies at ~4.5 MB). Names are made safe (no paths, control/bidi characters, reserved

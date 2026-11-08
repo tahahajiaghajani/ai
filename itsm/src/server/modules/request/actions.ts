@@ -10,7 +10,7 @@ import { DEFAULT_STAGES, STAGES, ORDERABLE_TYPES } from "@shared/request/vocab";
 import { tableDef } from "@shared/tables";
 import type { Ctx } from "../../context";
 import { AppError, bad, forbidden, notFound } from "../../http/errors";
-import { addJournalIn, condEnv, createIn, get, list, openSecret, transitionIn, updateIn, validationError } from "../../engine";
+import { addJournalIn, condEnv, createIn, get, list, readSecret, transitionIn, updateIn, validationError } from "../../engine";
 import { access } from "../../access/provider";
 import { securityEvent } from "../platform/security";
 import { rerunApprovalRulesIn } from "../sla";
@@ -30,15 +30,11 @@ async function works(ctx: Ctx, id: string): Promise<boolean> {
   return (await modeOn(ctx.db, ctx, "request_item", await liveRow(ctx.db, sysOf(ctx), "request_item", id))) === "full";
 }
 
-/**
- * The sealed secret answers of an item (the caller's access to the item was checked before): read from the column,
- * since records only ever carry a secret's hint.
- */
+/** The sealed secret answers of an item (the caller's access to the item was checked before; `readSecret`). */
 async function secretAnswers(ctx: Ctx, id: string): Promise<Answers> {
-  const raw = await ctx.db.one<{ v: string | null }>(`select secret_answers as v from sm_request_items where org_id = $1 and id = $2 and deleted_at is null`, [ctx.org.id, id]);
-  if (!raw?.v) return {};
+  const plain = await readSecret(ctx.db, ctx, tableDef("request_item")!, id, "secret_answers");
   try {
-    return obj(JSON.parse(openSecret(ctx.cfg.secret, ctx.org.id, "request_item", "secret_answers", id, raw.v) ?? "{}"));
+    return obj(JSON.parse(plain ?? "{}"));
   } catch {
     return {};
   }

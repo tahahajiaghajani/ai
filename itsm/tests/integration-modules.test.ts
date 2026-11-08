@@ -166,7 +166,10 @@ describe("change ↔ incident and problem", () => {
     await agent.client.post(`${P}/r/incident/${inc.id}/links`, { kind: "caused_by", table: "change_request", id: c.id });
     const prb = (await agent.client.post(`${P}/r/problem`, { short_description: "ناپایداری پس از ارتقا", assignment_group_id: g.network })).row;
     await agent.client.post(`${P}/r/problem/${prb.id}/links`, { kind: "caused_by", table: "change_request", id: c.id });
-    expect(await countCausedIncidents(sys)).toBeGreaterThanOrEqual(1);
+    // at once: the link events (record.linked) count it, the sweep is only a safety net
+    await drain();
+    expect((await row("sm_change_requests", c.id)).incidents_caused).toBe(1);
+    expect(await countCausedIncidents(sys)).toBe(0);
     expect((await row("sm_change_requests", c.id)).incidents_caused).toBe(1);
     // once more: nothing to update
     await countCausedIncidents(sys);
@@ -177,7 +180,7 @@ describe("change ↔ incident and problem", () => {
     // the link removed: the count follows
     const link = (await linksOf(agent.client, "incident", inc.id)).find((l) => l.kind === "caused_by")!;
     await agent.client.del(`${P}/r/incident/${inc.id}/links/${link.id}`);
-    await countCausedIncidents(sys);
+    await drain();
     expect((await row("sm_change_requests", c.id)).incidents_caused).toBe(0);
   });
 });

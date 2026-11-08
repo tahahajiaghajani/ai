@@ -184,10 +184,8 @@ export async function startFulfilment(tx: Tx, ctx: Ctx, ritm: Row, schema: FormS
   }
   if (mode === "flow") {
     const runs = await startFlows(tx, ctx, live, schema, flows);
-    if (runs.length) {
-      await updateIn(tx, sys, "request_item", String(ritm.id), { flow_runs: [...arr<string>(live.flow_runs), ...runs] }, { trusted: true, keepVersion: true });
-      await enqueue(tx, { kind: JOB_FLOWS, orgId: ctx.org.id, payload: { id: ritm.id, n: 0 }, delayMs: 60_000, dedupeKey: `${JOB_FLOWS}:${ritm.id}`, maxAttempts: 8 });
-    }
+    // each run tells the item when it ends (`record.flow_ended`): the zero-touch check follows then, no polling
+    if (runs.length) await updateIn(tx, sys, "request_item", String(ritm.id), { flow_runs: [...arr<string>(live.flow_runs), ...runs] }, { trusted: true, keepVersion: true });
   }
 }
 
@@ -235,9 +233,9 @@ export async function flowRunStates(q: Queryable, orgId: string, ids: readonly s
 export const runsActive = (runs: readonly { state: string }[]) => runs.some((r) => ACTIVE_RUN.has(r.state));
 
 /**
- * The flow check of one item (job `request.flows`): while a run is active, check again later; a failed or canceled
- * run gets a manual fallback task (once); when every run ended and the item has no tasks it is delivered without a
- * person (zero-touch); with tasks, the task roll-up delivers it.
+ * The flow check of one item, when one of its runs ended (`record.flow_ended`): while a run is still active, the next
+ * end checks again; a failed or canceled run gets a manual fallback task (once); when every run ended and the item
+ * has no tasks it is delivered without a person (zero-touch); with tasks, the task roll-up delivers it.
  */
 export async function checkFlows(cfg: JobConfig, orgId: string, id: string): Promise<"wait" | "done"> {
   const sys = await systemCtx(cfg, orgId);

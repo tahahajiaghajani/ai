@@ -81,8 +81,13 @@ export function onRecordEvent(name: string, fn: RecordEventHandler, opts: { tabl
 
 /** Write an event into the outbox (inside the caller's transaction). */
 export async function emitEvent(q: Queryable, ctx: Ctx, e: RecordEventInput): Promise<void> {
-  const event: RecordEvent = { ...e, org_id: ctx.org.id, actor: e.actor === undefined ? actorId(ctx) : e.actor, at: new Date().toISOString() };
-  await enqueue(q, { kind: event.kind, orgId: ctx.org.id, payload: event as unknown as Record<string, unknown>, maxAttempts: 10 });
+  await emitOrgEvent(q, ctx.org.id, { ...e, actor: e.actor === undefined ? actorId(ctx) : e.actor });
+}
+
+/** `emitEvent` for code that acts for an organisation without a request context (the flow executor). */
+export async function emitOrgEvent(q: Queryable, orgId: string, e: RecordEventInput): Promise<void> {
+  const event: RecordEvent = { ...e, org_id: orgId, actor: e.actor ?? null, at: new Date().toISOString() };
+  await enqueue(q, { kind: event.kind, orgId, payload: event as unknown as Record<string, unknown>, maxAttempts: 10 });
 }
 
 async function deliver(job: Job, jctx: JobContext): Promise<void> {
