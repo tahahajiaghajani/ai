@@ -22,6 +22,15 @@ export function citationHref(href: string, citations: Pick<AiCitation, "n" | "pa
   return c ? safePath(c.path) : null;
 }
 
+/**
+ * The line under an answer (AI disclosure): what wrote it — the model from the member's sources, or no model (the
+ * related passages as they are). None for an abstention, which shows no sources and nothing to check.
+ */
+export function answerLabel(r: { abstained: boolean; synthesized: boolean } | null | undefined): string | null {
+  if (r?.abstained) return null;
+  return r && !r.synthesized ? "بخش‌های مرتبط، بدون جمع‌بندی هوش مصنوعی" : "نوشتهٔ هوش مصنوعی از منابع شما؛ پیش از استفاده بررسی کنید";
+}
+
 /** How a citation is labelled: «رخداد INC0000012 · ص ۳». */
 export function citationLabel(c: Pick<AiCitation, "table_label" | "number" | "page" | "page_end" | "field_label">): string {
   const parts = [c.number ? `${c.table_label} ${c.number}` : c.table_label];
@@ -48,6 +57,14 @@ export function coveredParagraphs(page: string, passage: string): number[] {
 
 /** Paragraphs of a page (as the viewer shows them). */
 export const paragraphs = (page: string): string[] => page.split(/\n{2,}/);
+
+/** Lines of a paragraph for the viewer: markdown heading markers («## نصب») shown as a heading without the marks. */
+export function paragraphLines(para: string): { text: string; heading: boolean }[] {
+  return para.split("\n").map((line) => {
+    const m = /^\s{0,3}#{1,6}\s+(.*?)\s*#*\s*$/.exec(line);
+    return m ? { text: m[1], heading: true } : { text: line, heading: false };
+  });
+}
 
 export const DOC_STATUS_TONE: Record<AiDocStatus, "neutral" | "warning" | "danger" | null> = {
   ingesting: "neutral",

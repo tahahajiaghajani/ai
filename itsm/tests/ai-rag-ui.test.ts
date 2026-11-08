@@ -3,7 +3,7 @@
 // page, and the shell entries (nav, routes, the command palette's «پرسش از هوش مصنوعی» row).
 import { describe, expect, it } from "vitest";
 import type { AiCitation } from "@shared/ai/rag";
-import { acceptedFile, backendLabel, citationHref, citationLabel, coveredParagraphs, linkCitations, qualityLabel, runLabel, runStats } from "../src/ui/ai/ask/model";
+import { acceptedFile, answerLabel, backendLabel, citationHref, citationLabel, coveredParagraphs, linkCitations, paragraphLines, qualityLabel, runLabel, runStats } from "../src/ui/ai/ask/model";
 import { NAV, ROUTES, SEARCHES } from "../src/ui/modules/registry";
 
 const cite = (n: number, path: string, extra: Partial<AiCitation> = {}): AiCitation => ({
@@ -31,6 +31,14 @@ describe("citations in answers", () => {
     expect(citationLabel(cite(1, "a", { page: 3, page_end: 4 }))).toBe("سند · ص ۳–۴");
     expect(citationLabel(cite(1, "a", { table_label: "رخداد", number: "INC0000012", field_label: "شرح", page: null }))).toBe("رخداد INC0000012 · شرح");
   });
+
+  it("discloses who wrote an answer, and labels no abstention", () => {
+    expect(answerLabel(null)).toMatch(/نوشتهٔ هوش مصنوعی/);
+    expect(answerLabel({ abstained: false, synthesized: true })).toMatch(/نوشتهٔ هوش مصنوعی/);
+    expect(answerLabel({ abstained: false, synthesized: false })).toMatch(/بدون جمع‌بندی/);
+    expect(answerLabel({ abstained: true, synthesized: false })).toBeNull();
+    expect(answerLabel({ abstained: true, synthesized: true })).toBeNull();
+  });
 });
 
 describe("the document viewer", () => {
@@ -38,6 +46,15 @@ describe("the document viewer", () => {
     const page = "مقدمهٔ سند درباره شبکه\n\nبرای اتصال VPN برنامه را نصب كنيد و پورت 443 را باز کنید\n\nپایان";
     expect(coveredParagraphs(page, "برای اتصال VPN برنامه را نصب کنید و پورت ۴۴۳ را باز کنید")).toEqual([1]);
     expect(coveredParagraphs(page, "متنی دیگر")).toEqual([]);
+  });
+
+  it("shows markdown headings of a page as headings, without their marks", () => {
+    expect(paragraphLines("## خطای ۶۱۹\nدرگاه ۴۴۳ را باز کنید.")).toEqual([
+      { text: "خطای ۶۱۹", heading: true },
+      { text: "درگاه ۴۴۳ را باز کنید.", heading: false },
+    ]);
+    expect(paragraphLines("# عنوان #")).toEqual([{ text: "عنوان", heading: true }]);
+    expect(paragraphLines("#هشتگ و C# بدون فاصله")).toEqual([{ text: "#هشتگ و C# بدون فاصله", heading: false }]);
   });
 
   it("accepts the file types the server reads", () => {

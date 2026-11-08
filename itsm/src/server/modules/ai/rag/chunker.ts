@@ -68,7 +68,7 @@ export interface Chunk {
   tokens: number;
 }
 
-export const CHUNKER_VERSION = "c1";
+export const CHUNKER_VERSION = "c2";
 const DEFAULTS: Required<ChunkOptions> = { max: 700, min: 350, overlap: 80, parentMax: 1600 };
 
 interface Block {
@@ -252,9 +252,12 @@ export function chunkDocument(doc: RagDocument, options: ChunkOptions = {}): Chu
       sectionOfChild.push(cur.section);
     };
     sections.forEach((sec, si) => {
-      // a new section starts a new chunk once the current one is big enough; a new page always does (page anchors)
+      // a new section starts a new chunk once the current one is big enough; a new page always does, and text with a
+      // page never shares a chunk with text without one (a document's summary stays apart from its pages), so every
+      // citation's page anchor holds for its whole passage
       const lastPage = cur?.blocks[cur.blocks.length - 1]?.page ?? null;
-      if (cur && (cur.tokens >= o.min || (lastPage !== null && lastPage !== sec[0].page))) {
+      const pageBreak = !!cur?.blocks.length && lastPage !== (sec[0].page ?? null);
+      if (cur && (cur.tokens >= o.min || pageBreak)) {
         emit();
         cur = null;
       }

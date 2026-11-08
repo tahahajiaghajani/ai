@@ -83,7 +83,9 @@ FNV-1a into 384 dimensions, log-damped, unit length — deterministic, offline, 
 
 **Chunking** (`chunker.ts`): text of different field groups is never mixed (one partition per group; the title, which
 prefixes every chunk's embedded text, adds its own group); markdown headings form a breadcrumb; lists, tables and code
-stay whole; chunks of ~700 tokens (sections merged up to ~350, never across pages), up to 80 tokens of overlap inside a
+stay whole; chunks of ~700 tokens (sections merged up to ~350, never across pages, and text without a page — a
+document's summary — never shares a chunk with a page, so a citation's page holds for its whole passage), up to 80
+tokens of overlap inside a
 section, long blocks split by sentences; a section split over several chunks gets a `parent` chunk (small-to-big:
 answers carry the section). Passages keep the text as written; embedding and search normalise it.
 
@@ -163,7 +165,11 @@ const { passages, info } = await retrieve(ctx, "VPN خطای 619", {
    record's current version; the source's AI-channel rule (`aiWhere`); the scope. Lists: full text, LIKE, the
    provider vector (when an embedding model is active and answers the query), the local vector.
 2. **Fusion** — reciprocal rank fusion (`fuse`, k = 60; weights full text 1, provider vector 1, local vector 0.6 — 1
-   without a provider vector — LIKE 0.5). Optional re-ranking by the `fast` model (`rag_rerank`, passages as data).
+   without a provider vector — LIKE 0.5). The local embedder knows spelling, not meaning, so in a broad search a
+   local-vector hit that no other list found stays only when its cosine similarity reaches 0.1 and half of the best
+   local match (`pruneLocal`): a question the index holds nothing about returns nothing instead of nearest-neighbour
+   noise; a narrow scope (`records`, `documents`) keeps every hit («summarise this» shares no words with the text).
+   Optional re-ranking by the `fast` model (`rag_rerank`, passages as data).
 3. **Late binding** — the fused hits are re-checked through the same predicate, the member's `visibleFields`, the
    version and the AI-channel rule before anything is returned; citation titles come from the display field only when
    the member may see it.

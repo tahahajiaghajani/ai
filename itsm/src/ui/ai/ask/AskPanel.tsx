@@ -15,7 +15,7 @@ import { errorText } from "../../lib/api";
 import { Chip } from "../../components/display";
 import { Markdown } from "../markdown/Markdown";
 import { askStream } from "./api";
-import { citationHref, citationLabel, linkCitations } from "./model";
+import { answerLabel, citationHref, citationLabel, linkCitations } from "./model";
 
 const ICON = { size: 16, strokeWidth: 1.4, absoluteStrokeWidth: true } as const;
 
@@ -151,7 +151,7 @@ export function AskPanel({ scope, placeholder = "پرسش خود را بنویس
                 hrefOf={(p) => `/${orgId}/${p}`}
                 onNavigate={open}
               />
-              <div className="ask-label">{result?.synthesized === false ? "بخش‌های مرتبط، بدون جمع‌بندی هوش مصنوعی" : "نوشتهٔ هوش مصنوعی از منابع شما؛ پیش از استفاده بررسی کنید"}</div>
+              {answerLabel(result) ? <div className="ask-label">{answerLabel(result)}</div> : null}
             </div>
           ) : null}
           {result?.note && result.synthesized === false ? <div className="ask-note">{result.note.split("؛")[0]}</div> : null}

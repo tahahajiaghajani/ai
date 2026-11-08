@@ -219,6 +219,9 @@
     padding: 2px 6px;
     border-radius: var(--ds-radius-sm, 6px);
   }
+  .docv-h {
+    font-weight: var(--ds-weight-strong);
+  }
   .docv-para.is-hl {
     background: var(--ds-accent-tint);
     box-shadow: inset 3px 0 0 var(--ds-accent-bar, var(--ds-accent));

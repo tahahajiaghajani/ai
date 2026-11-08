@@ -53,6 +53,20 @@ export interface RetrieveResult {
 
 const LIST = 60;
 const RRF_K = 60;
+/**
+ * The local embedder knows spelling, not meaning: its nearest neighbours that no other list found are mostly noise. In a
+ * broad search such a hit stays only when its cosine similarity reaches LOCAL_FLOOR and half of the best local match;
+ * a narrow scope (records or documents the member chose) keeps every hit.
+ */
+const LOCAL_FLOOR = 0.1;
+const LOCAL_RELATIVE = 0.5;
+
+/** Local-vector hits worth keeping (see LOCAL_FLOOR): found by another list too, or close enough to the question. */
+export function pruneLocal(local: string[], sim: Map<string, number>, other: Set<string>): string[] {
+  const best = local.reduce((m, id) => Math.max(m, sim.get(id) ?? 0), 0);
+  const min = Math.max(LOCAL_FLOOR, best * LOCAL_RELATIVE);
+  return local.filter((id) => other.has(id) || (sim.get(id) ?? 0) >= min);
+}
 
 /** Reciprocal-rank fusion: Σ weight / (k + rank) over the lists an id appears in (rank from 1). */
 export function fuse(lists: { ids: string[]; weight: number }[], k = RRF_K): Map<string, number> {
@@ -202,6 +216,8 @@ export async function retrieve(ctx: Ctx, query: string, opts: RetrieveOptions = 
     info.quality = "provider";
   }
   const localWeight = qv ? 0.6 : 1;
+  // cosine similarity of the local-vector hits to the question (for pruneLocal)
+  const localSim = new Map<string, number>();
 
   if (backend.kind === "pgvector") {
     const { type, op } = vectorSql(backend);
@@ -213,33 +229,37 @@ export async function retrieve(ctx: Ctx, query: string, opts: RetrieveOptions = 
       const qcast = col === "local" ? `${type}(${LOCAL_DIMS})` : ann && dims ? `${type}(${dims})` : type;
       const keyCond = col === "local" ? `c.lvec_v is not null` : `c.vec_key = '${key!.replace(/'/g, "''")}' and c.vec_v is not null`;
       const sql = unionSql(branches, (b) => `select c.id, (${expr} ${op} ${ph(1)}::${qcast})::float8 as score ${join(b)} where ${common(b, "$1", "$2")} and ${keyCond}`, "score asc");
-      if (!ann) return run<{ id: string }>(sql, [vecText(vec)]);
+      if (!ann) return run<{ id: string; score: number }>(sql, [vecText(vec)]);
       // HNSW with filters: search on until enough rows pass the access filter (pgvector 0.8 iterative scans)
       return ctx.db.tx(async (tx) => {
         await tx.exec(`set local hnsw.ef_search = 200`);
         if (backend.version && Number(backend.version.split(".")[1]) >= 8) await tx.exec(`set local hnsw.iterative_scan = relaxed_order`);
-        return tx.query<{ id: string }>(sql, [...params, vecText(vec)]);
+        return tx.query<{ id: string; score: number }>(sql, [...params, vecText(vec)]);
       });
     };
     // a vector list that fails (e.g. a model that changed its vector size) is left out; the others still answer
-    const safe = async (f: () => Promise<{ id: string }[]>) => {
+    const safe = async (f: () => Promise<{ id: string; score: number }[]>) => {
       try {
-        return (await f()).map((r) => r.id);
+        return await f();
       } catch (e) {
         ctx.cfg.log?.warn?.("ai retrieval: a vector list failed", String((e as Error)?.message ?? e).slice(0, 200));
         return null;
       }
     };
     if (qv && embedder) {
-      const ids = await safe(() => knn("vec", qv!, embedder.key));
-      if (ids) lists.push({ name: "vector", ids, weight: 1 });
+      const rows = await safe(() => knn("vec", qv!, embedder.key));
+      if (rows) lists.push({ name: "vector", ids: rows.map((r) => r.id), weight: 1 });
       else {
         info.quality = "local";
         info.embedder = null;
       }
     }
     const local = await safe(() => knn("local", lq, null));
-    if (local) lists.push({ name: "local", ids: local, weight: localWeight });
+    if (local) {
+      // the cosine distance of pgvector is 1 − similarity
+      for (const r of local) localSim.set(r.id, 1 - Number(r.score));
+      lists.push({ name: "local", ids: local.map((r) => r.id), weight: localWeight });
+    }
   } else {
     // portable: vectors compared in the server over access-filtered candidates (full text, LIKE, the newest chunks)
     const recent = await run<{ id: string }>(unionSql(branches, (b) => `select c.id, extract(epoch from c.created_at)::float8 as score ${join(b)} where ${common(b, "$1", "$2")}`, "score desc", 300), []);
@@ -251,14 +271,19 @@ export async function retrieve(ctx: Ctx, query: string, opts: RetrieveOptions = 
           .map((r) => ({ id: r.id, s: score(r) }))
           .filter((x): x is { id: string; s: number } => x.s !== null && x.s > 0)
           .sort((a, b) => b.s - a.s)
-          .slice(0, LIST)
-          .map((x) => x.id);
+          .slice(0, LIST);
       if (qv && embedder) {
-        const ids = rank((r) => (r.vec_key === embedder.key ? cosine(parseVector(r.vec) ?? [], qv!) : null));
+        const ids = rank((r) => (r.vec_key === embedder.key ? cosine(parseVector(r.vec) ?? [], qv!) : null)).map((x) => x.id);
         lists.push({ name: "vector", ids, weight: 1 });
       }
-      lists.push({ name: "local", ids: rank((r) => cosine(parseVector(r.lvec) ?? [], lq)), weight: localWeight });
+      const local = rank((r) => cosine(parseVector(r.lvec) ?? [], lq));
+      for (const x of local) localSim.set(x.id, x.s);
+      lists.push({ name: "local", ids: local.map((x) => x.id), weight: localWeight });
     }
+  }
+  const localList = lists.find((l) => l.name === "local");
+  if (localList && !(opts.records?.length || opts.documents?.length)) {
+    localList.ids = pruneLocal(localList.ids, localSim, new Set(lists.filter((l) => l !== localList).flatMap((l) => l.ids)));
   }
   for (const l of lists) info.lists[l.name] = l.ids.length;
 

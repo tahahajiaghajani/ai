@@ -2,7 +2,7 @@
 // highlighted and scrolled into view when the page is opened from an answer (?page=…&hl=<chunk>), the AI summary
 // (labelled), and the actions: ask about this document, edit its details, read it again, download the file.
 import "../../ai/ask/ask.css";
-import { useEffect, useMemo } from "react";
+import { Fragment, useEffect, useMemo } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "antd";
@@ -15,7 +15,7 @@ import { PageHeader } from "../../components/layout";
 import { Card, Note } from "../../components/blocks";
 import { Chip, EmptyState, Skeleton } from "../../components/display";
 import { RAG_KEYS, useDocPages, type DocumentRow } from "../../ai/ask/api";
-import { coveredParagraphs, DOC_STATUS_TONE, paragraphs } from "../../ai/ask/model";
+import { coveredParagraphs, DOC_STATUS_TONE, paragraphLines, paragraphs } from "../../ai/ask/model";
 
 const ICON = { size: 16, strokeWidth: 1.4, absoluteStrokeWidth: true } as const;
 const label = (opts: { value: string; label: string }[], v: string | null | undefined) => opts.find((o) => o.value === v)?.label ?? "";
@@ -141,7 +141,12 @@ export default function Viewer() {
               <div className="docv-page-h">صفحهٔ {fa(p.page)}</div>
               {paragraphs(p.text).map((para, i) => (
                 <p key={i} className={`docv-para ${marked.get(p.page)?.has(i) ? "is-hl" : ""}`}>
-                  {para}
+                  {paragraphLines(para).map((l, j) => (
+                    <Fragment key={j}>
+                      {j ? "\n" : null}
+                      {l.heading ? <span className="docv-h">{l.text}</span> : l.text}
+                    </Fragment>
+                  ))}
                 </p>
               ))}
             </section>

@@ -7,7 +7,7 @@ import writeXlsxFile from "write-excel-file/node";
 import { detectLang, estimateTokens, normalizeFa, queryTerms, searchForm, stem } from "@shared/ai/text";
 import { chunkDocument, blocksOf, type RagDocument } from "@server/modules/ai/rag/chunker";
 import { cosine, foldVector, localEmbed, LOCAL_DIMS } from "@server/modules/ai/rag/local-embed";
-import { fuse, tsQueryOf } from "@server/modules/ai/rag/retrieve";
+import { fuse, pruneLocal, tsQueryOf } from "@server/modules/ai/rag/retrieve";
 import { checkCitations, askPrompt } from "@server/modules/ai/rag/ask";
 import { htmlToText, parseCsv, parseFile } from "@server/modules/ai/rag/parsers";
 import { defaultDocument } from "@server/modules/ai/rag/registry";
@@ -128,6 +128,28 @@ describe("chunker", () => {
     expect(children[0].parent).toBeNull();
   });
 
+  it("never merges text without a page (a document's summary) into a page's chunk, however short both are", () => {
+    const doc: RagDocument = {
+      title: "راهنمای VPN",
+      parts: [
+        { field: "summary", text: "خلاصهٔ کوتاه راهنما.", format: "text" },
+        { field: "content", text: "# نصب\n\nنرم‌افزار را نصب کنید.", page: 1, format: "markdown" },
+        { field: "content", text: "خطای ۶۱۹: درگاه ۴۴۳ را باز کنید.", page: 2, format: "markdown" },
+      ],
+    };
+    const chunks = chunkDocument(doc);
+    expect(chunks.map((c) => [c.field, c.page, c.pageEnd])).toEqual([
+      ["summary", null, null],
+      ["content", 1, 1],
+      ["content", 2, 2],
+    ]);
+    expect(chunks[1].heading).toBe("نصب");
+    // records (no pages) still merge their small fields into one chunk
+    const rec = chunkDocument({ title: "قطعی ایمیل", parts: [{ field: "description", text: "شرح کوتاه" }, { field: "close_notes", text: "راه‌حل کوتاه" }] });
+    expect(rec).toHaveLength(1);
+    expect(rec[0].fields).toEqual(["description", "close_notes"]);
+  });
+
   it("builds the default document from TableDef.ai (title, text fields, groups; no secrets, no ai_private)", () => {
     const todo = tableDef("todo")!;
     const doc = defaultDocument(todo, { short_description: "چاپگر", description: "کاغذ گیر کرده", close_notes: null, number: "TODO0000001" });
@@ -175,6 +197,21 @@ describe("hybrid fusion", () => {
     expect(order.indexOf("c")).toBeLessThan(order.indexOf("b"));
     expect(f.get("a")).toBeCloseTo(1 / 61 + 1 / 62, 10);
     expect(f.get("d")).toBeCloseTo(0.5 / 61, 10);
+  });
+
+  it("drops weak local-vector neighbours that no other list found (noise), keeps the rest", () => {
+    const sim = new Map([["a", 0.52], ["b", 0.3], ["c", 0.2], ["d", 0.05], ["e", 0.01]]);
+    // e is weak but full text found it too; c is under half the best match; d is under the floor
+    expect(pruneLocal(["a", "b", "c", "d", "e"], sim, new Set(["e"]))).toEqual(["a", "b", "e"]);
+    // only weak neighbours (a question about something the index does not hold): nothing
+    expect(pruneLocal(["d", "e"], new Map([["d", 0.06], ["e", 0.04]]), new Set())).toEqual([]);
+    // a typo found by the local vectors alone stays
+    expect(pruneLocal(["p", "q"], new Map([["p", 0.21], ["q", 0.06]]), new Set())).toEqual(["p"]);
+    // the local embedder's spread on real text: the relevant passage clears the floor, the others do not
+    const docs = ["اگر هنگام اتصال VPN خطای ۶۱۹ دیدید، درگاه ۴۴۳ را باز کنید.", "تمدید گواهی SSL درگاه", "سفارش غلتک یدکی چاپگر", "گزارش ماهانهٔ رخدادها"];
+    const q = localEmbed("خطای ۶۱۹ در VPN");
+    const s2 = new Map(docs.map((d, i) => [String(i), cosine(q, localEmbed(d))]));
+    expect(pruneLocal(["0", "1", "2", "3"], s2, new Set())).toEqual(["0"]);
   });
 
   it("builds a safe prefix tsquery from terms", () => {

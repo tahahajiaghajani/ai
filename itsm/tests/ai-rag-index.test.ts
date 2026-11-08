@@ -160,6 +160,16 @@ describe("retrieval", () => {
     expect(r.passages.every((p) => p.citation.id === vpn)).toBe(true);
     expect((await retrieve(owner, "چاپگر", { tables: ["todo"] })).passages.every((p) => p.citation.table === "todo")).toBe(true);
   });
+
+  it("returns no local-vector noise for a question the index holds nothing about, but a chosen record still answers", async () => {
+    const off = await retrieve(owner, "دستور پخت قورمه سبزی");
+    expect(off.passages).toEqual([]);
+    expect(off.info.lists.local).toBe(0);
+    // a record the member chose answers whatever the words (e.g. «summarise this»)
+    const scoped = await retrieve(owner, "دستور پخت قورمه سبزی", { records: [{ table: "rag_ticket", id: vpn }] });
+    expect(scoped.passages.length).toBeGreaterThan(0);
+    expect(scoped.passages.every((p) => p.citation.id === vpn)).toBe(true);
+  });
 });
 
 describe("provider embeddings", () => {
