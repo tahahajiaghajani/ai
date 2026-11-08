@@ -44,6 +44,7 @@ import {
 import { impactedServicesOf } from "./impact";
 import { lockdownDue, releaseLockdown, startLockdown } from "./lockdown";
 import { ensurePir } from "./pir";
+import { lockdownOnMajor, resumeWaitingOn } from "./linked";
 import { holdsOn, leadDays, planConflicts, riskFor, scheduleBlocks, storeConflicts, syncConflictState, teamScoreOf, type ConflictPlan } from "./schedule";
 import { activateTasks, blockingDeps, createTemplateTasks, openMandatoryTasks, taskMayRun, templateTasksProblem } from "./tasks";
 
@@ -376,6 +377,9 @@ async function templateOutcome(w: WA, row: Row): Promise<void> {
   }
 }
 
+/** States in which a change has been implemented. */
+const IMPLEMENTED = ["review", "closed"];
+
 async function changeAfter(w: WA): Promise<void> {
   if (w.op === "delete") return;
   const row = w.row;
@@ -423,6 +427,14 @@ async function changeAfter(w: WA): Promise<void> {
   }
 
   if (w.changed.has("state") && row.state === "closed" && row.template_id) await templateOutcome(w, row);
+
+  // implemented (first «بازبینی» or «بسته»): incidents and problems waiting on this change move on (linked.ts)
+  if (!creating && w.changed.has("state") && IMPLEMENTED.includes(String(row.state)) && !IMPLEMENTED.includes(String(prev?.state))) {
+    const r = await resumeWaitingOn(w.tx, w.ctx, row, actorOf(w.ctx));
+    const moved = r.incidents.length + r.problems.length;
+    if (moved) await note(w, row, `رکوردهای منتظر این تغییر خبر گرفتند: ${moved.toLocaleString("fa-IR")} رکورد (رخداد و مشکل).`);
+    if (r.failed.length) await note(w, row, `این رکوردها منتظر تغییر ماندند: ${r.failed.join("، ")}`, "work_note");
+  }
 
   // what was authorized changed: authorize again (CHG-005)
   if (!creating && person(w) && prev?.state === "scheduled" && row.state === "scheduled") {
@@ -752,6 +764,8 @@ export function installChangeHooks(): (() => void)[] {
     registerHooks("change_conflict", { beforeWrite: conflictBefore, afterWrite: conflictAfter }),
     registerHooks("change_pir", { beforeWrite: pirBefore, afterWrite: pirAfter }),
     registerHooks("change_lockdown", { beforeWrite: lockdownBefore, afterWrite: lockdownAfter }),
+    // a declared major incident may start a lockdown (settings «قرنطینهٔ خودکار با اعلام رخداد عمده»)
+    registerHooks("incident", { afterWrite: (w) => lockdownOnMajor(w) }),
     registerHooks("change_config", { beforeWrite: configBefore }),
     registerHooks("change_risk_question", { beforeWrite: questionBefore }),
     registerHooks("change_outage", { beforeWrite: outageBefore }),

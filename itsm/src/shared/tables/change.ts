@@ -924,7 +924,8 @@ const changeLockdown: TableDef = {
     { name: "starts_at", label: "شروع", type: "datetime", default: "$now", required: true, list: true, sort: true, span: 8 },
     { name: "ends_at", label: "پایان پیش‌بینی‌شده", type: "datetime", sort: true, span: 8 },
     { name: "hold_in_flight", label: "تغییرهای در جریان متوقف شوند", type: "bool", default: true, span: 8 },
-    { name: "incident_id", label: "رخداد عمده", type: "ref", ref: "incident", filter: true, span: 8 },
+    // only major incidents (proposed, declared or past): the lockdown is their response
+    { name: "incident_id", label: "رخداد عمده", type: "ref", ref: "incident", refFilter: { f: "major_state", op: "in", v: ["proposed", "accepted", "resolved", "pir_done"] }, filter: true, span: 8 },
     { name: "services", label: "خدمت‌ها", type: "refs", ref: "service", span: 12 },
     { name: "cis", label: "پیکربندی‌ها", type: "refs", ref: "ci", span: 12 },
     { name: "scope_condition", label: "شرط تغییرها", type: "conditions", condTable: "change_request", span: 24, help: "خالی و بدون خدمت یا پیکربندی: همهٔ تغییرها" },
@@ -991,6 +992,8 @@ export const CHANGE_CONFIG_DEFAULTS = {
   success_window_days: 90,
   window_alert_minutes: 60,
   related_ci_conflicts: true,
+  /** declaring a major incident starts a lockdown of its services and CIs (off by default) */
+  lockdown_on_major: false,
 };
 export type ChangeConfig = typeof CHANGE_CONFIG_DEFAULTS;
 
@@ -1028,6 +1031,7 @@ const changeConfig: TableDef = {
     { name: "window_alert_minutes", label: "یادآوری پیش از شروع پنجره (دقیقه)", type: "int", min: 0, max: 1440, default: CHANGE_CONFIG_DEFAULTS.window_alert_minutes, span: 6, section: POLICY },
     { name: "success_window_days", label: "بازهٔ امتیاز موفقیت (روز)", type: "int", min: 7, max: 730, default: CHANGE_CONFIG_DEFAULTS.success_window_days, span: 6, section: POLICY },
     { name: "related_ci_conflicts", label: "تداخل پیکربندی‌های وابسته (از CMDB)", type: "bool", default: true, span: 6, section: POLICY },
+    { name: "lockdown_on_major", label: "قرنطینهٔ خودکار با اعلام رخداد عمده", type: "bool", default: false, span: 6, section: POLICY, help: "تغییرهای خدمت‌ها و پیکربندی‌های رخداد (یا همهٔ تغییرها) تا پایان قرنطینه متوقف می‌شوند" },
     { name: "cab_risks", label: "ریسک‌هایی که CAB لازم دارند", type: "multichoice", choices: RISK_LEVELS, default: CHANGE_CONFIG_DEFAULTS.cab_risks, span: 12, section: CAB_SECTION },
     { name: "change_manager_group_id", label: "گروه مدیران تغییر", type: "group", span: 12, section: CAB_SECTION },
     { name: "default_cab_id", label: "CAB پیش‌فرض", type: "ref", ref: "cab", span: 12, section: CAB_SECTION },

@@ -1139,6 +1139,7 @@ alter table sm_change_configs add column if not exists stale_draft_days integer;
 alter table sm_change_configs add column if not exists window_alert_minutes integer;
 alter table sm_change_configs add column if not exists success_window_days integer;
 alter table sm_change_configs add column if not exists related_ci_conflicts boolean not null default true;
+alter table sm_change_configs add column if not exists lockdown_on_major boolean not null default false;
 alter table sm_change_configs add column if not exists cab_risks jsonb;
 alter table sm_change_configs add column if not exists change_manager_group_id uuid;
 alter table sm_change_configs add column if not exists default_cab_id uuid;
