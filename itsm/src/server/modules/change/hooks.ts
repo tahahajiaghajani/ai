@@ -31,6 +31,7 @@ import {
 import { CHANGE_TYPES, FAILED_CODES, HOLD_REASONS, TASK_DONE } from "@shared/tables/change";
 import type { Ctx } from "../../context";
 import type { Tx } from "../../db";
+import { access } from "../../access/provider";
 import { addJournalIn, defFor, emitEvent, isSystemCtx, registerHooks, savepoint, transitionIn, updateIn, validationError, type WriteArgs } from "../../engine";
 import { forbidden } from "../../http/errors";
 import { enqueue } from "../../jobs";
@@ -378,6 +379,18 @@ async function changeAfter(w: WA): Promise<void> {
     for (const o of r.others) await enqueue(w.tx, { kind: "change.conflicts", orgId: w.ctx.org.id, payload: { id: o }, dedupeKey: `change.conflicts:${o}` });
   }
 
+  // its tasks and review keep the change's confidentiality (their hooks merge it in)
+  if (!creating && SECRECY.some((f) => w.changed.has(f))) {
+    const rows = [
+      ...(await liveRows(w.tx, sys, "change_task", eqAll({ change_id: id }), { limit: 500 })).map((r) => ["change_task", r] as const),
+      ...(await liveRows(w.tx, sys, "change_pir", eqAll({ change_id: id }), { limit: 50 })).map((r) => ["change_pir", r] as const),
+    ];
+    for (const [table, r] of rows) {
+      const patch: Row = { confidential: row.confidential === true, ...(row.confidential === true ? {} : { access_list: r.access_list ?? [] }), ...secrecyOf(row, r, false) };
+      if (Object.entries(patch).some(([k, v]) => JSON.stringify(r[k] ?? null) !== JSON.stringify(v ?? null))) await updateIn(w.tx, sys, table, String(r.id), patch, { trusted: true, keepVersion: true, allowLocked: true });
+    }
+  }
+
   if (!creating && w.changed.has("state") && (row.state === "implement" || row.state === "review")) await activateTasks(w.tx, w.ctx, id);
 
   // the post-implementation review, when one is needed
@@ -407,14 +420,52 @@ async function changeAfter(w: WA): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------------------------------------------
+// rows of a change: tasks, reviews, agenda items, outages, conflicts
+
+/**
+ * A row that hangs off a change (a task, a review, an agenda item, a planned outage, a conflict) is the business of the
+ * people working that change: a person who adds one, or moves one to another change, must read the change and be able
+ * to change it. A change they cannot read answers like one that does not exist.
+ */
+async function assertWorksChange(w: W, what: string): Promise<void> {
+  if (!person(w) || (w.op !== "create" && !w.changed.has("change_id"))) return;
+  const change = await liveRow(w.tx, w.ctx, "change_request", w.next.change_id);
+  if (!change) throw validationError({ change_id: `«${w.def.fields.find((f) => f.name === "change_id")?.label ?? "تغییر"}» پیدا نشد` });
+  const { def } = await defFor(w.ctx, "change_request", w.tx);
+  if (!access().canWrite(w.ctx, def, change)) throw forbidden(`${what} را کسی می‌سازد که روی ${change.number ? `تغییر ${change.number}` : "این تغییر"} کار می‌کند`);
+}
+
+/** Fields that carry a change's confidentiality to what is made from it. */
+const SECRECY = ["confidential", "access_list", "workspace_id"];
+
+/**
+ * The confidentiality a task or review of `change` takes from it: confidential with the change's readers (its access
+ * list, implementer, coordinator and change manager — its group reads through the row's own group) when the change is,
+ * and the change's workspace.
+ */
+function secrecyOf(change: Row, row: Row, merge = true): Row {
+  const out: Row = {};
+  if (change.confidential === true) {
+    const own = merge && Array.isArray(row.access_list) ? row.access_list : [];
+    const people = [...(Array.isArray(change.access_list) ? change.access_list : []), change.assigned_to, change.change_owner_id, change.change_manager_id, ...own];
+    out.confidential = true;
+    out.access_list = [...new Set(people.filter((x): x is string => typeof x === "string" && !!x))];
+  }
+  if (change.workspace_id && row.workspace_id !== change.workspace_id) out.workspace_id = change.workspace_id;
+  return out;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
 // change_task
 
 async function taskBefore(w: W): Promise<void> {
   if (w.op === "delete") return;
+  await assertWorksChange(w, "کار تغییر");
   const n = w.next;
   const sys = sysOf(w.ctx);
   const fields: Record<string, string> = {};
   const change = n.change_id ? await liveRow(w.tx, sys, "change_request", n.change_id) : null;
+  if (change && (w.op === "create" || w.changed.has("change_id") || SECRECY.some((f) => w.changed.has(f)))) Object.assign(n, secrecyOf(change, n));
   if (w.op === "create") {
     if (change && ["closed", "canceled"].includes(String(change.state))) throw validationError({ change_id: "به تغییر بسته یا لغوشده کار افزوده نمی‌شود" });
     if (change && !n.assignment_group_id) n.assignment_group_id = change.assignment_group_id ?? null;
@@ -565,6 +616,8 @@ async function meetingAfter(w: WA): Promise<void> {
 }
 
 async function agendaBefore(w: W): Promise<void> {
+  if (w.op === "delete") return;
+  await assertWorksChange(w, "مورد دستور جلسه");
   if (w.op !== "create" || !blank(w.next.title) || !w.next.change_id) return;
   const c = await liveRow(w.tx, sysOf(w.ctx), "change_request", w.next.change_id);
   if (c) w.next.title = String(c.number ?? "").slice(0, 60);
@@ -573,8 +626,10 @@ async function agendaBefore(w: W): Promise<void> {
 // ---------------------------------------------------------------------------------------------------------------
 // conflicts, reviews, lockdowns, settings, questions, outages
 
-function conflictBefore(w: W): void {
-  if (w.op === "delete" || !person(w) || !w.changed.has("status")) return;
+async function conflictBefore(w: W): Promise<void> {
+  if (w.op === "delete") return;
+  await assertWorksChange(w, "تداخل");
+  if (!person(w) || !w.changed.has("status")) return;
   if ((w.next.status === "ignored" || w.next.status === "resolved") && blank(w.next.justification)) throw validationError({ justification: "برای بستن تداخل، دلیل را بنویسید" });
 }
 
@@ -583,8 +638,13 @@ async function conflictAfter(w: WA): Promise<void> {
   await syncConflictState(w.tx, w.ctx, String(w.row.change_id));
 }
 
-function pirBefore(w: W): void {
+async function pirBefore(w: W): Promise<void> {
   if (w.op === "delete") return;
+  await assertWorksChange(w, "بازبینی پس از اجرا");
+  if (w.op === "create" || w.changed.has("change_id") || SECRECY.some((f) => w.changed.has(f))) {
+    const change = await liveRow(w.tx, sysOf(w.ctx), "change_request", w.next.change_id);
+    if (change) Object.assign(w.next, secrecyOf(change, w.next));
+  }
   if (entering(w, "completed")) w.next.completed_at = nowIso();
   else if (w.changed.has("state") && w.next.state !== "completed") w.next.completed_at = null;
 }
@@ -593,7 +653,8 @@ async function pirAfter(w: WA): Promise<void> {
   if (w.op === "delete" || !entering(w, "completed")) return;
   const sys = sysOf(w.ctx);
   const change = await liveRow(w.tx, sys, "change_request", w.row.change_id);
-  if (!change) return;
+  // only the change's own review speaks for it (its lessons, «تغییر را می‌توان بست»)
+  if (!change || change.pir_id !== w.row.id) return;
   if (blank(change.lessons) && !blank(w.row.lessons)) await updateIn(w.tx, sys, "change_request", String(change.id), { lessons: w.row.lessons }, { trusted: true, keepVersion: true });
   const { def } = await defFor(sys, "change_request", w.tx);
   const actor = actorOf(w.ctx);
@@ -647,8 +708,9 @@ async function questionBefore(w: W): Promise<void> {
   if (Array.isArray(raw)) n.options = opts;
 }
 
-function outageBefore(w: W): void {
+async function outageBefore(w: W): Promise<void> {
   if (w.op === "delete") return;
+  await assertWorksChange(w, "قطعی برنامه‌ریزی‌شده");
   const s = msOf(w.next.starts_at);
   const e = msOf(w.next.ends_at);
   if (s !== null && e !== null && e <= s) throw validationError({ ends_at: "پایان قطعی باید پس از شروع آن باشد" });

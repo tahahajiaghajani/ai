@@ -57,6 +57,9 @@ const COPY_SECTIONS: Record<string, string[]> = {
 
 const pick = (row: Row, names: string[]): Row => Object.fromEntries(names.filter((n) => row[n] !== undefined && row[n] !== null && !(Array.isArray(row[n]) && !row[n].length)).map((n) => [n, row[n]]));
 
+/** What every copy and child takes whatever the sections: the source's confidentiality, readers and workspace. */
+const SECRECY = ["confidential", "access_list", "workspace_id"];
+
 /**
  * Copy a change (catalogue «کپی تغییر»): the chosen sections and its tasks; with `dates`, one copy per date (recurring
  * scheduled changes). The copies are new drafts the caller owns. A copy of a standard change is a new order of its
@@ -65,7 +68,7 @@ const pick = (row: Row, names: string[]): Row => Object.fromEntries(names.filter
 export async function copyChange(ctx: Ctx, id: string, input: { sections?: string[]; tasks?: boolean; dates?: { start: string; end: string }[] }): Promise<Row[]> {
   const { row } = await get(ctx, "change_request", id);
   const sections = (input.sections?.length ? input.sections : ["main", "scope", "plans"]).filter((s) => COPY_SECTIONS[s]);
-  const base = pick(row, sections.flatMap((s) => COPY_SECTIONS[s]));
+  const base = pick(row, [...sections.flatMap((s) => COPY_SECTIONS[s]), ...SECRECY]);
   if (row.type === "latent") base.type = "normal";
   if (row.type === "standard") {
     const t = isUuid(row.template_id) ? await liveRow(ctx.db, sysOf(ctx), "change_template", row.template_id) : null;
@@ -112,7 +115,7 @@ export async function createChildren(ctx: Ctx, parentId: string, input: { cis?: 
   const cis = (input.cis ?? []).filter(isUuid).slice(0, 50);
   const titles = (input.titles ?? []).map((t) => String(t).trim()).filter(Boolean).slice(0, 50);
   if (!cis.length && !titles.length) throw bad("پیکربندی‌ها یا عنوان تغییرهای فرزند را بدهید");
-  const base = pick(parent, [...COPY_SECTIONS.main, ...COPY_SECTIONS.plans, ...COPY_SECTIONS.schedule, "service_id", "outage_expected", "outage_minutes"]);
+  const base = pick(parent, [...COPY_SECTIONS.main, ...COPY_SECTIONS.plans, ...COPY_SECTIONS.schedule, "service_id", "outage_expected", "outage_minutes", ...SECRECY]);
   return ctx.write(async (tx) => {
     const out: Row[] = [];
     const items = cis.length ? cis.map((ci, i) => ({ ci, title: titles[i] ?? null })) : titles.map((t) => ({ ci: null as string | null, title: t }));
@@ -184,11 +187,17 @@ const ORIGIN_TABLES = ["incident", "problem", "known_error", "request", "request
  * A change from another record: its context copied, «آغازشده از» linked (problems also «رفع می‌کند»). A change from a
  * confidential record (a security incident) carries its title and description, so it is confidential too and keeps
  * the record's access list: the group it is assigned to and the people on it read it, not every reader of changes.
+ * For the same reason it stays in the record's workspace (a secure workspace keeps it from outsiders), and a record
+ * of a restricted group keeps that group.
  */
 export async function changeFrom(ctx: Ctx, table: string, sourceId: string, input: Row): Promise<Row> {
   if (!ORIGIN_TABLES.includes(table) || !hasTable(table)) throw bad("از این نوع رکورد نمی‌توان تغییر ساخت");
   const { row: src, display } = await get(ctx, table, sourceId);
   const { def: sdef } = await defFor(ctx, table);
+  if (isUuid(src.assignment_group_id) && input.assignment_group_id && input.assignment_group_id !== src.assignment_group_id) {
+    const group = await liveRow(ctx.db, sysOf(ctx), "group", src.assignment_group_id);
+    if (group?.restricted === true) throw bad(`این رکورد در گروه محدود «${group.name}» است؛ تغییرِ ساخته‌شده از آن هم به همین گروه سپرده می‌شود`);
+  }
   const title = String(src[sdef.display] ?? src.short_description ?? src.title ?? "").slice(0, 180);
   const number = src.number ?? display[sourceId] ?? "";
   const values: Row = {
@@ -199,6 +208,7 @@ export async function changeFrom(ctx: Ctx, table: string, sourceId: string, inpu
     ...(isUuid(src.ci_id) ? { ci_id: src.ci_id } : {}),
     ...(isUuid(src.assignment_group_id) ? { assignment_group_id: src.assignment_group_id } : {}),
     ...(src.confidential === true ? { confidential: true, ...(Array.isArray(src.access_list) && src.access_list.length ? { access_list: src.access_list } : {}) } : {}),
+    ...(isUuid(src.workspace_id) ? { workspace_id: src.workspace_id } : {}),
   };
   for (const [k, v] of Object.entries(input)) if (v !== undefined) values[k] = v;
   const created = await ctx.write(async (tx) => {

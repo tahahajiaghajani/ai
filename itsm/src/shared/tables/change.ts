@@ -482,7 +482,8 @@ const changeTask: TableDef = {
   ],
   states: CHANGE_TASK_STATES,
   scope: { ...TASK_SCOPE, own: [...(TASK_SCOPE.own ?? []), "change_owner_id"], requester: ["requested_for", "caller_id", "opened_by"] },
-  features: { calendar: { start: "planned_start", end: "planned_end" } },
+  // a task of a confidential change is confidential too (its readers follow the change: hooks.ts)
+  features: { confidential: true, calendar: { start: "planned_start", end: "planned_end" } },
   list: { columns: ["number", "short_description", "change_id", "task_type", "state", "assignment_group_id", "assigned_to", "planned_start"], order: "sort_order,number" },
 };
 
@@ -861,7 +862,8 @@ const changePir: TableDef = {
   ],
   states: PIR_STATES,
   scope: { own: ["owner_id"], requester: [], group: "assignment_group_id" },
-  features: { journal: true, attachments: true, watchers: true, links: true, rag: true },
+  // the review of a confidential change is confidential too (its readers follow the change: hooks.ts)
+  features: { journal: true, attachments: true, watchers: true, links: true, rag: true, confidential: true },
   list: { columns: ["number", "title", "change_id", "state", "owner_id", "due_at"], order: "-created_at" },
   ai: { title: "title", text: ["side_effects", "went_well", "went_wrong", "lessons"] },
 };
