@@ -189,7 +189,7 @@ export default function ImportPage() {
               </label>
               <label className="flex flex-col gap-1 text-[13px]">
                 <span className="text-ink-2">منبع داده (اعتبار و اولویت)</span>
-                <Select allowClear value={source ?? undefined} onChange={(v) => setSource(v ?? null)} options={(sources.data?.rows ?? []).map((s) => ({ value: String(s.id), label: String(s.name) }))} placeholder="ورود از فایل" aria-label="منبع داده" />
+                <Select allowClear value={source ?? undefined} onChange={(v) => setSource(v ?? null)} options={(sources.data?.rows ?? []).filter((s) => s.kind !== "manual").map((s) => ({ value: String(s.id), label: String(s.name) }))} placeholder="ورود از فایل" aria-label="منبع داده" />
               </label>
               {raw ? (
                 <label className="flex flex-col gap-1 text-[13px]">

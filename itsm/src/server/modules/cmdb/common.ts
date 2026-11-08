@@ -91,6 +91,13 @@ export const CI_COLUMNS = new Set([
 export const SOURCE_FIELDS = [...CI_COLUMNS].filter((f) => f !== "class" && f !== "state");
 
 /**
+ * CI fields that decide who reads, changes and approves changes to a CI (its people and groups). An import names them
+ * when it brings a CI in; on a CI that exists, only a CMDB administrator's import (or the system) changes them —
+ * others change ownership by hand, where the record's own write rules apply.
+ */
+export const ANCHOR_FIELDS: ReadonlySet<string> = new Set(["owned_by", "managed_by", "used_by", "support_group_id", "managed_by_group_id", "change_approval_group_id"]);
+
+/**
  * May the caller administer the CMDB — classes, relationship types, identification, reconciliation and data-quality
  * rules, policies, imports of the whole organisation (the area's `admin` grant: configuration managers and tenant
  * administrators)? The system always may.

@@ -20,9 +20,9 @@ import type { Ctx } from "../../context";
 import { pgArray } from "../../db";
 import type { Queryable, Tx } from "../../db";
 import { AppError, bad, forbidden, notFound } from "../../http/errors";
-import { condEnv, createIn, normSql, optionsOf, orgSchema, readable, savepoint, transitionIn, updateIn } from "../../engine";
+import { condEnv, createIn, loadReadable, normSql, optionsOf, orgSchema, readable, savepoint, transitionIn, updateIn } from "../../engine";
 import { access } from "../../access/provider";
-import { classTree, cmdbConfig, ciColumnSql, eqAll, isUuid, liveRow, liveRows, relTypes, SOURCE_FIELDS, sysOf, type Row } from "./common";
+import { ANCHOR_FIELDS, classTree, cmdbConfig, ciColumnSql, eqAll, isCmdbAdmin, isUuid, liveRow, liveRows, relTypes, SOURCE_FIELDS, sysOf, type Row } from "./common";
 import { attrField } from "./hooks";
 
 const DAY = 86_400_000;
@@ -48,6 +48,7 @@ interface Source {
   priority: number;
   stale_after_days: number;
   default_class: string | null;
+  owner_id: string | null;
 }
 
 /** The identification entries for a class: rules of the class and its ancestors, most specific first. */
@@ -219,7 +220,19 @@ interface ReconRule {
 
 async function loadSources(q: Queryable, ctx: Ctx): Promise<Map<string, Source>> {
   const rows = await liveRows(q, sysOf(ctx), "cmdb_data_source", null, { limit: 1000 });
-  return new Map(rows.map((r) => [r.id, { id: r.id, key: r.id, name: r.name, kind: r.kind, priority: Number(r.priority ?? 100), stale_after_days: Number(r.stale_after_days ?? 30), default_class: r.default_class ?? null }]));
+  return new Map(rows.map((r) => [r.id, { id: r.id, key: r.id, name: r.name, kind: r.kind, priority: Number(r.priority ?? 100), stale_after_days: Number(r.stale_after_days ?? 30), default_class: r.default_class ?? null, owner_id: r.owner_id ?? null }]));
+}
+
+/**
+ * May the caller import as this source? Nobody imports as «ثبت دستی» (hand entries are not an import). A source as
+ * authoritative as hand entries (its priority at or below the settings' manual priority) overrides what people set,
+ * so only CMDB administrators and the source's own person use it; any other source is open to whoever may import.
+ */
+function checkSource(ctx: Ctx, src: Source | null, manualPriority: number, admin: boolean): void {
+  if (!src) return;
+  if (src.kind === "manual") throw forbidden(`«${src.name}» منبع ویرایش دستی است، نه ورود داده؛ منبع دیگری انتخاب کنید`);
+  if (ctx.actor === "system" || admin || (src.owner_id && src.owner_id === ctx.user.id)) return;
+  if (src.priority <= manualPriority) throw forbidden(`منبع «${src.name}» هم‌تراز ویرایش دستی معتبر است؛ ورود داده با آن کار مدیر پیکربندی یا مسئول منبع است`);
 }
 
 /** Priority and allowed age of a source for an attribute of a class (its reconciliation rule, else the source's). */
@@ -317,12 +330,19 @@ export async function createOrUpdate(ctx: Ctx, input: IreInput): Promise<IreResu
   if (input.items.length > MAX_ITEMS) throw bad(`در هر بار حداکثر ${MAX_ITEMS} قلم`);
   const schema0 = await orgSchema(ctx);
   const ciDef = schema0.def("ci") ?? tableDef("ci")!;
-  if (ctx.actor !== "system" && !access().canCreate(ctx, ciDef, null)) throw forbidden("ورود داده به پایگاه پیکربندی با مدیران پیکربندی و دارایی است");
+  const people = ctx.actor !== "system";
+  if (people && !access().canCreate(ctx, ciDef, null)) throw forbidden("ورود داده به پایگاه پیکربندی با مدیران پیکربندی و دارایی است");
+  // an import changes what the caller may change by hand: CIs they may write, and their ownership only as an administrator
+  const admin = !people || (await isCmdbAdmin(ctx));
   const sources = await loadSources(ctx.db, ctx);
   const src = input.source_id ? sources.get(input.source_id) ?? null : null;
   if (input.source_id && !src) throw notFound("منبع داده پیدا نشد");
+  checkSource(ctx, src, (await cmdbConfig(ctx.db, ctx)).manual_priority, admin);
   const run = async (tx: Tx): Promise<IreResult> => {
     const sys = sysOf(ctx, ctx.actor === "system" ? null : ctx.user.id);
+    const env = await condEnv(ctx);
+    /** the CI as the caller reads it (null: they may not), for matches and relationship targets */
+    const asCaller = (id: string) => (people ? loadReadable(tx, ctx, ciDef, id, env) : liveRow(tx, sys, "ci", id));
     const tree = await classTree(tx, ctx);
     const types = await relTypes(tx, ctx);
     const cfg = await cmdbConfig(tx, ctx);
@@ -367,6 +387,13 @@ export async function createOrUpdate(ctx: Ctx, input: IreInput): Promise<IreResu
             if (target) parents.set(rel.type, target);
           }
           const idf = await identifyItem(tx, ctx, tree, normalized, parents);
+          if (idf.match && people) {
+            // identification sees every CI; the update is the caller's: a CI they may not read or change is not theirs to
+            // reconcile (nor to name in the result)
+            const seen = await asCaller(idf.match.id);
+            if (!seen) return { ...base, matched_by: idf.entry, message: "این قلم با پیکربندی‌ای می‌خورد که به آن دسترسی ندارید؛ به‌روزرسانی آن با مدیر پیکربندی است" };
+            if (!access().canWrite(ctx, ciDef, seen) || seen.$writable === false) return { ...base, number: seen.number ?? null, matched_by: idf.entry, message: `این قلم با «${seen.number ?? seen.name}» می‌خورد که اجازهٔ تغییرش را ندارید` };
+          }
           if (!idf.match && idf.candidates.length > 1) {
             const task = await ensureDedupTask(tx, ctx, idf.candidates.map((c) => c.id), `منبع «${src?.name ?? "ورود داده"}» قلمی گزارش کرد که با «${idf.entry}» به ${idf.candidates.length} پیکربندی می‌خورد`, { source: src?.id ?? null });
             return { ...base, action: "duplicate" as const, matched_by: idf.entry, dedup_task_id: task.id, message: `${idf.candidates.length} پیکربندی هم‌شناسه؛ برای بررسی «${task.number}» ساخته شد` };
@@ -414,6 +441,11 @@ export async function createOrUpdate(ctx: Ctx, input: IreInput): Promise<IreResu
           };
           for (const [k, v] of Object.entries(values)) {
             if (k === "state") continue;
+            if (!admin && ANCHOR_FIELDS.has(k)) {
+              // who owns and approves a CI that exists is not an import's to change (see ANCHOR_FIELDS)
+              if (!same(v, cur[k])) skipped.push(k);
+              continue;
+            }
             if (consider(k, v, cur[k])) patch[k] = v;
           }
           const attrs = { ...((cur.attrs ?? {}) as Record<string, unknown>) };
@@ -439,7 +471,7 @@ export async function createOrUpdate(ctx: Ctx, input: IreInput): Promise<IreResu
             matched_by: idf.entry, changed, skipped: skipped.length ? skipped : undefined,
           };
         });
-        if (r.ci_id) ciOf.set(i, r.ci_id);
+        if (r.ci_id && r.action !== "error") ciOf.set(i, r.ci_id);
         results.set(i, problems.has(i) ? { ...r, message: [r.message, problems.get(i)].filter(Boolean).join("؛ ") } : r);
       } catch (e) {
         results.set(i, { ...base, action: "error", message: (e as Error).message });
@@ -452,13 +484,15 @@ export async function createOrUpdate(ctx: Ctx, input: IreInput): Promise<IreResu
       for (const rel of items[i].relations) {
         try {
           if (!types.get(rel.type)) throw new AppError(400, "validation", `نوع رابطهٔ «${rel.type}» پیدا نشد`);
+          // the item's own CI is one the caller created or may change (above); the other end must be one they may read —
+          // the relationship hook's rule (change one of the two CIs) through the import
           let target: string | null = null;
           if (typeof rel.item === "number") target = ciOf.get(rel.item) ?? null;
-          else if (isUuid(rel.ci_id)) target = (await liveRow(tx, sysOf(ctx), "ci", rel.ci_id))?.id ?? null;
+          else if (isUuid(rel.ci_id)) target = (await asCaller(rel.ci_id))?.id ?? null;
           else if (rel.match?.values) {
             const mcls = String(rel.match.class ?? "ci");
             const idf = await identifyItem(tx, ctx, tree, { class: tree.get(mcls) ? mcls : "ci", values: rel.match.values, attrs: {}, relations: [] });
-            target = idf.match?.id ?? null;
+            target = idf.match && (await asCaller(idf.match.id)) ? idf.match.id : null;
           }
           if (!target || target === from) {
             out.relations.failed++;
@@ -543,6 +577,11 @@ export async function startRun(ctx: Ctx, input: { name: string; source_id?: stri
   const schema = await orgSchema(ctx);
   const ciDef = schema.def("ci") ?? tableDef("ci")!;
   if (ctx.actor !== "system" && !access().canCreate(ctx, ciDef, null)) throw forbidden("ورود داده به پایگاه پیکربندی با مدیران پیکربندی و دارایی است");
+  if (input.source_id) {
+    const src = (await loadSources(ctx.db, ctx)).get(input.source_id);
+    if (!src) throw notFound("منبع داده پیدا نشد");
+    checkSource(ctx, src, (await cmdbConfig(ctx.db, ctx)).manual_priority, ctx.actor === "system" || (await isCmdbAdmin(ctx)));
+  }
   return ctx.write((tx) =>
     createIn(tx, sysOf(ctx, ctx.actor === "system" ? null : ctx.user.id), "cmdb_import_run", {
       name: input.name.slice(0, 160), source_id: input.source_id ?? null, class: input.class ?? null, file_name: input.file_name ?? null, dry_run: !!input.dry_run,
