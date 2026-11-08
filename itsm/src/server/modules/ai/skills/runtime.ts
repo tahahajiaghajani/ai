@@ -35,6 +35,7 @@ import { sysOf } from "../../incident/common";
 import { AiUnavailableError, aiStatus, generate } from "../engine";
 import { loadSettings } from "../settings";
 import { orgNotes } from "../prompts";
+import { jsonSchemaOf } from "../schema";
 import { orgTimeZone, periodDays } from "../usage";
 import type { RetrievedPassage } from "../rag";
 import { allowedGroups, defaultQuery, ground, languageOf, loadJournal, loadLinks, loadRecord, loadRelated, promptValue } from "./context";
@@ -117,12 +118,14 @@ export function zodFromJsonSchema(schema: unknown, depth = 0): z.ZodTypeAny {
   return nullable ? out.nullable() : out;
 }
 
-const SUGGESTIONS = (fields: string[]) =>
+// the provider is shown the fields it may suggest (an enum); the answer is read leniently: an unknown field is dropped
+// by the shaping below instead of invalidating every other suggestion
+const SUGGESTIONS = (fields: string[], strict: boolean) =>
   z.object({
     suggestions: z
       .array(
         z.object({
-          field: fields.length ? z.enum(fields as [string, ...string[]]) : z.string(),
+          field: strict && fields.length ? z.enum(fields as [string, ...string[]]) : z.string(),
           value: z.union([z.string(), z.number(), z.boolean(), z.array(z.string()), z.null()]),
           confidence: z.number().min(0).max(1).optional(),
           reason: z.string().max(600).optional(),
@@ -135,7 +138,10 @@ const SUGGESTIONS = (fields: string[]) =>
 function answerSchema(rs: ResolvedSkill, table: TableDef | null): { zod: z.ZodTypeAny; json?: Record<string, unknown> } | null {
   const { def, version } = rs;
   if (def.output === "text" || def.output === "journal") return null;
-  if (def.output === "fields") return { zod: SUGGESTIONS(outputFieldsOf(def, table)) };
+  if (def.output === "fields") {
+    const fields = outputFieldsOf(def, table);
+    return { zod: SUGGESTIONS(fields, false), json: jsonSchemaOf(SUGGESTIONS(fields, true)) };
+  }
   if (version.output_schema && !schemaShapeProblem(version.output_schema)) return { zod: zodFromJsonSchema(version.output_schema), json: version.output_schema as Record<string, unknown> };
   return def.schema ? { zod: def.schema } : { zod: z.object({}).passthrough() };
 }
@@ -152,8 +158,9 @@ export async function callerRoles(ctx: Ctx): Promise<string[]> {
   }
 }
 
+/** May a member with these roles use the skill? Tenant administrators hold every grant, so every skill. */
 export function rolesAllow(cfg: Pick<SkillConfig, "roles">, roles: string[]): boolean {
-  return !cfg.roles.length || roles.some((r) => cfg.roles.includes(r));
+  return !cfg.roles.length || roles.includes("tenant_admin") || roles.some((r) => cfg.roles.includes(r));
 }
 
 /** AI availability per tier, computed once per request (a missing model is the usual reason, with its remedy). */
