@@ -80,6 +80,7 @@ const G1 = id(801);
 const G2 = id(802);
 const UNIT = id(701);
 const SUBUNIT = id(702);
+const PARENT_UNIT = id(700);
 // the member sits on a floor (L3) of a building (L2) on a site (L1); L9 is another building
 const L1 = id(601);
 const L2 = id(602);
@@ -101,6 +102,8 @@ const ENV: CondEnv = {
   unitTree: [UNIT, SUBUNIT],
   unitUsers: [U1],
   unitTreeUsers: [U1, U3],
+  // my unit and the one above it: something shared with the parent reaches me, not my sub-unit's
+  unitLine: [PARENT_UNIT, UNIT],
   locations: [L1, L2, L3],
 };
 
@@ -269,6 +272,8 @@ const CONDS: Cond[] = [
   { f: "team", op: "in_my_groups" },
   { f: "unit_id", op: "in_my_unit" },
   { f: "unit_id", op: "in_my_unit_tree" },
+  { f: "unit_id", op: "in_my_unit_line" },
+  { not: { f: "unit_id", op: "in_my_unit_line" } },
   // my location and those I am in (an outage at the building or the site reaches its floors; not another building)
   { f: "loc", op: "is_my_location" },
   { f: "locs", op: "is_my_location" },

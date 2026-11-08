@@ -308,8 +308,8 @@ Placeholders, filled by later briefs:
 
 ## 12. Not built yet
 
-- Sharing a collection with **roles** and with a unit's **sub-units**: the condition language has no "my roles" or
-  "my ancestors" operator (engine request); share with groups instead.
+- Sharing a collection with **roles**: the condition language has no "my roles" operator; share with groups instead.
+  (A unit with its **sub-units** is the sharing «واحدها با زیرمجموعه‌ها», operator `in_my_unit_line`.)
 - Embeddings through the web version for a Windows app (`relay.ts` carries chat turns only): the Windows app uses its
   own embedding connection (e.g. Ollama `bge-m3`) or the local embedder.
 - OCR text is per runtime (a synced document that needed OCR is read again where a vision model is available).

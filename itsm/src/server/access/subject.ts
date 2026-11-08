@@ -161,6 +161,15 @@ function subtree(snap: Snapshot, rootIds: (string | null | undefined)[]): string
   return [...out].sort();
 }
 
+/** A unit and every unit above it (`in_my_unit_line`), from the unit tree's paths. */
+export function unitLineOf(snap: Pick<Snapshot, "units">, unitId: string | null): string[] {
+  if (!unitId || !snap.units.has(unitId)) return [];
+  const path = snap.units.get(unitId)!.path ?? `/${unitId}/`;
+  const ids = path.split("/").filter((x) => snap.units.has(x));
+  if (!ids.includes(unitId)) ids.push(unitId);
+  return [...new Set(ids)].sort();
+}
+
 /** The groups below `ids` (not including them). */
 function groupDescendants(snap: Snapshot, ids: string[]): string[] {
   const out = new Set<string>();
@@ -281,6 +290,7 @@ export function buildSubject(snap: Snapshot, settings: AccessSettings, orgId: st
     unitTree,
     unitUsers: unitId ? profiles.filter((p) => p.org_unit_id === unitId).map((p) => p.user_id).sort() : [],
     unitTreeUsers: profiles.filter((p) => p.org_unit_id && treeSet.has(p.org_unit_id)).map((p) => p.user_id).sort(),
+    unitLine: unitLineOf(snap, unitId),
     locations: locationsOf(snap, profile?.location_id ?? null),
     domainId,
   };

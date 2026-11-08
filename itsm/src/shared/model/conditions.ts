@@ -27,7 +27,7 @@ import { DATE_UNITS, windowDates, windowInstants, zonedMidnight, type DateUnit, 
 export type Op =
   | "eq" | "ne" | "in" | "nin" | "lt" | "lte" | "gt" | "gte" | "between"
   | "contains" | "ncontains" | "starts" | "ends" | "empty" | "nempty"
-  | "is_me" | "is_my_group" | "in_my_groups" | "in_my_unit" | "in_my_unit_tree" | "is_my_location"
+  | "is_me" | "is_my_group" | "in_my_groups" | "in_my_unit" | "in_my_unit_tree" | "in_my_unit_line" | "is_my_location"
   | "relative" | "changed" | "changes_to" | "changes_from";
 
 export interface Leaf {
@@ -66,6 +66,8 @@ export interface CondEnv {
   unitTree?: string[];
   unitUsers?: string[];
   unitTreeUsers?: string[];
+  /** my organisation unit and every unit above it (`in_my_unit_line`: something shared with a unit reaches its sub-units) */
+  unitLine?: string[];
   /** my location (the member profile's) and every location above it (floor → building → site → city…) */
   locations?: string[];
   /** rules only: the row before the change (null when the record is being created) */
@@ -95,6 +97,7 @@ export const OPS: Record<Op, { label: string; value: ValueShape; rule?: boolean;
   in_my_groups: { label: "از اعضای گروه‌های من است", value: "none" },
   in_my_unit: { label: "در واحد من است", value: "none" },
   in_my_unit_tree: { label: "در واحد من یا زیرمجموعهٔ آن است", value: "none" },
+  in_my_unit_line: { label: "واحد من یا واحدی بالاتر از آن است", value: "none" },
   is_my_location: { label: "مکان من است (یا مکانی که من در آن هستم)", value: "none" },
   relative: { label: "در بازهٔ", value: "relative" },
   changed: { label: "تغییر کرد", value: "none", rule: true },
@@ -118,9 +121,9 @@ export function opsFor(type: FieldType, target?: string | null): Op[] {
   if (type === "user") ops = [...CHOICE_OPS, "is_me", "in_my_groups", "in_my_unit", "in_my_unit_tree"];
   else if (type === "users") ops = [...ARRAY_OPS, "is_me", "in_my_groups", "in_my_unit", "in_my_unit_tree"];
   else if (type === "group" || (type === "ref" && target === "group")) ops = [...CHOICE_OPS, "is_my_group", "in_my_groups"];
-  else if (type === "ref") ops = target === "org_unit" ? [...CHOICE_OPS, "in_my_unit", "in_my_unit_tree"] : target === "location" ? [...CHOICE_OPS, "is_my_location"] : CHOICE_OPS;
+  else if (type === "ref") ops = target === "org_unit" ? [...CHOICE_OPS, "in_my_unit", "in_my_unit_tree", "in_my_unit_line"] : target === "location" ? [...CHOICE_OPS, "is_my_location"] : CHOICE_OPS;
   else if (type === "refs")
-    ops = target === "group" ? [...ARRAY_OPS, "is_my_group", "in_my_groups"] : target === "org_unit" ? [...ARRAY_OPS, "in_my_unit", "in_my_unit_tree"] : target === "location" ? [...ARRAY_OPS, "is_my_location"] : ARRAY_OPS;
+    ops = target === "group" ? [...ARRAY_OPS, "is_my_group", "in_my_groups"] : target === "org_unit" ? [...ARRAY_OPS, "in_my_unit", "in_my_unit_tree", "in_my_unit_line"] : target === "location" ? [...ARRAY_OPS, "is_my_location"] : ARRAY_OPS;
   else if (info.array) ops = ARRAY_OPS;
   else if (info.numeric) ops = NUM_OPS;
   else if (type === "bool") ops = ["eq", "ne", "empty", "nempty"];
@@ -443,6 +446,9 @@ function evalLeaf(leaf: Leaf, row: Record<string, unknown>, env: CondEnv, def?: 
       return type === "user" || type === "users" ? anyOf(value, env.unitUsers ?? []) : anyOf(value, env.unitId ? [env.unitId] : []);
     case "in_my_unit_tree":
       return anyOf(value, type === "user" || type === "users" ? env.unitTreeUsers ?? [] : env.unitTree ?? []);
+    case "in_my_unit_line":
+      // the record's unit (or one of them) is mine or above mine: shared with a unit, its sub-units are in
+      return anyOf(value, env.unitLine ?? []);
     case "is_my_location":
       // the record's location (or one of them) is mine or one I am in: an outage at the building reaches its floors
       return anyOf(value, env.locations ?? []);
@@ -669,6 +675,8 @@ export function describe(cond: Cond | null | undefined, def: TableDef, opts: Des
         return `${label} در واحد من است`;
       case "in_my_unit_tree":
         return `${label} در واحد من یا زیرمجموعه‌های آن است`;
+      case "in_my_unit_line":
+        return f.type === "refs" ? `${label} شامل واحد من یا واحدی بالاتر از آن است` : `${label} واحد من یا واحدی بالاتر از آن است`;
       case "is_my_location":
         return f.type === "refs" ? `${label} شامل مکان من است` : `${label} مکان من (یا مکانی که در آن هستم) است`;
       case "relative":
