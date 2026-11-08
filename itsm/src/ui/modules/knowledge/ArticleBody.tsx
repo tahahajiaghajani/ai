@@ -9,61 +9,12 @@ import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Button, Tooltip } from "antd";
 import { Check, Copy, ImageOff, Info, Lightbulb, Link2, OctagonAlert, ShieldAlert, TriangleAlert } from "lucide-react";
-import { headings } from "@shared/knowledge/logic";
 import { useOrg } from "../../lib/org";
 import { attachmentUrl } from "../../records";
-import { CALLOUTS, calloutOf, KB_LINK, type CalloutKind } from "./model";
+import { CALLOUTS, KB_LINK, remarkCallouts, remarkSlugs, urlTransform, type CalloutKind } from "./model";
 
 const I14 = { size: 14, strokeWidth: 1.4, absoluteStrokeWidth: true } as const;
 const CALLOUT_ICON: Record<CalloutKind, typeof Info> = { note: Info, tip: Lightbulb, important: ShieldAlert, warning: TriangleAlert, caution: OctagonAlert };
-
-// ---------------------------------------------------------------- remark plugins (mdast, minimal local types)
-
-interface MdNode {
-  type: string;
-  depth?: number;
-  value?: string;
-  children?: MdNode[];
-  position?: { start: { offset?: number } };
-  data?: { hName?: string; hProperties?: Record<string, unknown> };
-}
-
-/** Top-level ATX headings of levels 1–4 get the slugs `headings()` computed for the same text, in order. */
-const remarkSlugs = (source: string) => () => (tree: MdNode) => {
-  const slugs = headings(source).map((h) => h.slug);
-  let i = 0;
-  for (const n of tree.children ?? []) {
-    if (n.type !== "heading" || (n.depth ?? 9) > 4) continue;
-    const at = n.position?.start.offset ?? -1;
-    if (at < 0 || !/^\s{0,3}#/.test(source.slice(at, at + 4))) continue;
-    const slug = slugs[i++];
-    if (slug) n.data = { ...(n.data ?? {}), hProperties: { ...(n.data?.hProperties ?? {}), id: slug } };
-  }
-};
-
-/** `> [!WARNING]` block quotes become `<aside class="kb-callout" data-kind="warning">` (the marker removed). */
-const remarkCallouts = () => (tree: MdNode) => {
-  const walk = (n: MdNode) => {
-    for (const c of n.children ?? []) {
-      if (c.type === "blockquote") {
-        const p = c.children?.[0];
-        const t = p?.type === "paragraph" ? p.children?.[0] : undefined;
-        const hit = t?.type === "text" ? calloutOf(String(t.value ?? "")) : null;
-        if (hit && t && p) {
-          t.value = hit.rest.replace(/^\s*\n/, "");
-          if (!t.value && (p.children?.length ?? 0) > 1 && p.children![1].type === "break") p.children!.splice(1, 1);
-          if (!t.value && (p.children?.length ?? 0) === 1) c.children!.shift();
-          c.data = { hName: "aside", hProperties: { className: ["kb-callout", `is-${CALLOUTS[hit.kind].tone}`], "data-kind": hit.kind, role: "note" } };
-        }
-      }
-      walk(c);
-    }
-  };
-  walk(tree);
-};
-
-/** Keeps the URLs the components decide on; anything else (javascript:, data:, …) becomes nothing. */
-const urlTransform = (url: string) => (/^(https?:|mailto:|attachment:|kb:|#|\/)/i.test(url) ? url : "");
 
 const textOf = (children: ReactNode): string =>
   typeof children === "string" ? children : Array.isArray(children) ? children.map(textOf).join("") : children && typeof children === "object" && "props" in (children as object) ? textOf((children as { props: { children?: ReactNode } }).props.children) : "";

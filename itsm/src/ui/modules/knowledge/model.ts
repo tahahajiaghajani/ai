@@ -2,7 +2,7 @@
 // callouts, code, tables, images, blocks, links to articles), callouts in the reading view (GitHub-style
 // `> [!note]`), reading time, highlighted excerpts, the search page's URL state, the category tree, the table of
 // contents' active heading, what a draft changed, and the labels and tones the screens share. No React, no antd.
-import { highlightRanges } from "@shared/knowledge/logic";
+import { headings, highlightRanges } from "@shared/knowledge/logic";
 import { searchForm } from "@shared/ai/text";
 import { toPersianDigits } from "../../lib/fa";
 import type { KbCategoryNode } from "@shared/knowledge/api";
@@ -115,6 +115,54 @@ export function calloutOf(firstText: string): { kind: CalloutKind; rest: string 
   if (!m) return null;
   return { kind: m[1].toLowerCase() as CalloutKind, rest: firstText.slice(m[0].length) };
 }
+
+// ---------------------------------------------------------------- remark plugins of the reading view (mdast, minimal local types)
+
+interface MdNode {
+  type: string;
+  depth?: number;
+  value?: string;
+  children?: MdNode[];
+  position?: { start: { offset?: number } };
+  data?: { hName?: string; hProperties?: Record<string, unknown> };
+}
+
+/** Top-level ATX headings of levels 1–4 get the slugs `headings()` computed for the same text, in order. */
+export const remarkSlugs = (source: string) => () => (tree: MdNode) => {
+  const slugs = headings(source).map((h) => h.slug);
+  let i = 0;
+  for (const n of tree.children ?? []) {
+    if (n.type !== "heading" || (n.depth ?? 9) > 4) continue;
+    const at = n.position?.start.offset ?? -1;
+    if (at < 0 || !/^\s{0,3}#/.test(source.slice(at, at + 4))) continue;
+    const slug = slugs[i++];
+    if (slug) n.data = { ...(n.data ?? {}), hProperties: { ...(n.data?.hProperties ?? {}), id: slug } };
+  }
+};
+
+/** `> [!WARNING]` block quotes become `<aside class="kb-callout" data-kind="warning">` (the marker removed). */
+export const remarkCallouts = () => (tree: MdNode) => {
+  const walk = (n: MdNode) => {
+    for (const c of n.children ?? []) {
+      if (c.type === "blockquote") {
+        const p = c.children?.[0];
+        const t = p?.type === "paragraph" ? p.children?.[0] : undefined;
+        const hit = t?.type === "text" ? calloutOf(String(t.value ?? "")) : null;
+        if (hit && t && p) {
+          t.value = hit.rest.replace(/^\s*\n/, "");
+          if (!t.value && (p.children?.length ?? 0) > 1 && p.children![1].type === "break") p.children!.splice(1, 1);
+          if (!t.value && (p.children?.length ?? 0) === 1) c.children!.shift();
+          c.data = { hName: "aside", hProperties: { className: ["kb-callout", `is-${CALLOUTS[hit.kind].tone}`], "data-kind": hit.kind, role: "note" } };
+        }
+      }
+      walk(c);
+    }
+  };
+  walk(tree);
+};
+
+/** Keeps the URLs the components decide on; anything else (javascript:, data:, …) becomes nothing. */
+export const urlTransform = (url: string) => (/^(https?:|mailto:|attachment:|kb:|#|\/)/i.test(url) ? url : "");
 
 // ---------------------------------------------------------------- reading
 
