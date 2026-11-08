@@ -232,6 +232,19 @@ describe("service requests: lifecycle", () => {
       expect((await k.ritm(id)).state).toBe("in_fulfilment");
     });
 
+    it("cancelling the last open item one by one cancels the order with the item's note", async () => {
+      const item = await k.item("other_request");
+      const r = await order(requester, [{ item_id: item.id, answers: { subject: "میز تازه", details: "برای اتاق ۲۱۰" } }]);
+      await k.drain();
+      const ritm = await k.ritm(r.items[0].id);
+      expect(ritm.state).toBe("in_fulfilment");
+      await agent.client.post(`${P}/r/request_item/${ritm.id}/transition`, { to: "cancelled", data: { close_notes: "با واحد پشتیبانی هماهنگ شد" } });
+      expect((await k.ritm(ritm.id)).state).toBe("cancelled");
+      const [header] = await k.rows("request", "id = $2", [r.request.id]);
+      expect(header.state).toBe("cancelled");
+      expect(header.close_notes).toBe("با واحد پشتیبانی هماهنگ شد");
+    });
+
     it("cancelling a whole order before approval cancels its items", async () => {
       const vpn = await k.item("vpn_access");
       const r = await order(requester, [{ item_id: vpn.id, answers: { device: "company", os: "windows", end_date: "2030-01-01", reason: "دورکاری" } }]);
@@ -331,12 +344,17 @@ describe("service requests: lifecycle", () => {
 
     it("a record producer creates its record with the requester's own access", async () => {
       const item = await k.item("report_issue");
+      // incident management is installed: «گزارش مشکل» files an incident (a «کار» without it)
+      expect(item.target_table).toBe("incident");
       const r = await order(requester, [{ item_id: item.id, answers: { subject: "چاپگر کار نمی‌کند", details: "طبقهٔ سوم", urgency: "2" } }]);
       expect(r.request).toBeNull();
-      expect(r.produced.table).toBe("todo");
-      const [todo] = await k.rows("todo", "id = $2", [r.produced.id]);
-      expect(todo.short_description).toBe("چاپگر کار نمی‌کند");
-      expect(todo.description).toBe("طبقهٔ سوم");
+      expect(r.produced.table).toBe("incident");
+      const [inc] = await k.rows("incident", "id = $2", [r.produced.id]);
+      expect(inc.short_description).toBe("چاپگر کار نمی‌کند");
+      expect(inc.description).toBe("طبقهٔ سوم");
+      expect(inc.urgency).toBe("2");
+      expect(inc.caller_id).toBe(requester.userId);
+      expect((await requester.client.get(`${P}/r/incident/${inc.id}`)).row.id).toBe(inc.id);
     });
   });
 

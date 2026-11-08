@@ -187,7 +187,8 @@ export function ItemActions({ ctx }: { ctx: RecordContext }) {
   const open = ["pending", "awaiting_approval", "in_fulfilment", "awaiting_info", "backordered"].includes(state);
   const finished = ["delivered", "closed_complete", "closed_incomplete"].includes(state);
   const canWrite = !!ctx.meta.canWrite;
-  const hasIncident = !!schema?.def("incident");
+  // incident management is installed and the person may file incidents
+  const hasIncident = !!schema?.def("incident")?.can.create;
   const run = async (fn: () => Promise<unknown>, ok: string) => {
     setBusy(true);
     try {

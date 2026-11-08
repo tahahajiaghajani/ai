@@ -417,6 +417,12 @@ export async function rollupRequest(tx: Tx, ctx: Ctx, requestId: string): Promis
   const group = items.find((i) => i.assignment_group_id)?.assignment_group_id ?? null;
   if (!req.assignment_group_id && group) patch.assignment_group_id = group;
   if (r && r.stage !== req.stage) patch.stage = r.stage;
+  // the order's own «لغو درخواست» (the model's first way to «لغوشده») asks for a note: when every item was cancelled
+  // one by one (or converted into an incident), the order closes with the last item's note
+  if (r?.state === "cancelled" && r.state !== req.state && !String(req.close_notes ?? "").trim()) {
+    const notes = items.map((i) => String(i.close_notes ?? "").trim()).filter(Boolean);
+    patch.close_notes = notes[notes.length - 1] ?? "همهٔ اقلام این درخواست لغو شد";
+  }
   if (r && r.state !== req.state) {
     let m = rolling.get(tx);
     if (!m) rolling.set(tx, (m = new Set()));

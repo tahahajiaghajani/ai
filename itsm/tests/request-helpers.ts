@@ -26,6 +26,7 @@ export interface RequestKit {
 const TABLES: Record<string, string> = {
   catalog: "sm_catalogs", request: "sm_requests", request_item: "sm_request_items", request_task: "sm_request_tasks", request_answer: "sm_request_answers",
   catalog_item: "sm_catalog_items", request_subscription: "sm_request_subscriptions", todo: "sm_todos", flow: "sm_flows", approval: "sm_approvals",
+  incident: "sm_incidents",
 };
 
 export async function requestKit(): Promise<RequestKit> {

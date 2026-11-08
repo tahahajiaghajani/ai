@@ -6,7 +6,7 @@ import type { Cond } from "@shared/model/conditions";
 import { tableDef } from "@shared/tables";
 import type { Ctx } from "../../context";
 import type { Queryable } from "../../db";
-import { condEnv, fromDb, orgSchema, readable, SYSTEM_USER, toSql } from "../../engine";
+import { condEnv, fromDb, optionsOf, orgSchema, readable, SYSTEM_USER, toSql } from "../../engine";
 import { access } from "../../access/provider";
 
 export type Row = Record<string, any>;
@@ -91,6 +91,19 @@ export async function allowed(ctx: Ctx, table: string, op: "read" | "create"): P
   const def = tableDef(table);
   if (!def) return false;
   return op === "read" ? access().canReadTable(ctx, def) : access().canCreate(ctx, def);
+}
+
+/**
+ * `value` when the organisation's options of the choice field `table`.`field` offer it (and it is active), else null.
+ * An order's channel the record it makes does not know (an incident has no «دستیار هوشمند», «زمان‌بندی» or
+ * «گردش‌کار») is left out, so that record's default applies instead of failing the order.
+ */
+export async function offeredChoice(q: Queryable, ctx: Ctx, table: string, field: string, value: unknown): Promise<string | null> {
+  if (typeof value !== "string" || !value) return null;
+  const schema = await orgSchema(ctx, q);
+  const f = (schema.def(table) ?? tableDef(table))?.fields.find((x) => x.name === field);
+  if (!f || f.type !== "choice") return null;
+  return optionsOf(f, schema).some((o) => o.value === value && o.active !== false) ? value : null;
 }
 
 /** `{ and: [field = value …] }` */

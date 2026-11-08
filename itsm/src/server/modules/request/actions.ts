@@ -14,7 +14,7 @@ import { addJournalIn, condEnv, createIn, get, list, openSecret, transitionIn, u
 import { access } from "../../access/provider";
 import { securityEvent } from "../platform/security";
 import { notifyPeople } from "../notify";
-import { eqAll, isUuid, liveRow, liveRows, obj, sysOf, type Row } from "./common";
+import { eqAll, isUuid, liveRow, liveRows, obj, offeredChoice, sysOf, type Row } from "./common";
 import { versionSchema } from "./definition";
 import { canOrder } from "./entitlement";
 import { displayOf } from "./fulfil";
@@ -254,12 +254,14 @@ export async function convertToIncident(ctx: Ctx, id: string, input: { note?: st
   if (!isItemOpen(ritm.state)) throw bad("فقط قلم باز را می‌توان تبدیل کرد");
   const schema = (await versionSchema(ctx.db, ctx, ritm.item_version_id))!;
   const display = await displayOf(ctx.db, ctx, [["user", ritm.requested_for]]);
+  // the item's channel when incidents know it (not «دستیار هوشمند», «زمان‌بندی» or «گردش‌کار»), else the incident's default
+  const channel = await offeredChoice(ctx.db, ctx, "incident", "channel", ritm.channel);
   return ctx.write(async (tx) => {
     const inc = await createIn(tx, ctx, "incident", {
       short_description: ritm.short_description,
       description: [`از ${ritm.number ?? "قلم درخواست‌شده"} تبدیل شد.`, input.note?.trim() || "", summaryOf(schema, obj(ritm.answers), display)].filter(Boolean).join("\n\n"),
       caller_id: ritm.requested_for ?? ritm.caller_id ?? null,
-      channel: ritm.channel ?? null,
+      ...(channel ? { channel } : {}),
     });
     await transitionIn(tx, sysOf(ctx, ctx.user.id), "request_item", id, "cancelled", { close_code: "converted", close_notes: `به رخداد ${inc.number ?? ""} تبدیل شد`.trim() }, { trusted: true });
     await enqueue(tx, { kind: JOB_LINK, orgId: ctx.org.id, payload: { from_table: "request_item", from_id: id, kind: "related", to_table: "incident", to_id: inc.id }, maxAttempts: 5 });

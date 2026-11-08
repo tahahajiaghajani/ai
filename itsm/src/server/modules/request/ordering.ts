@@ -15,7 +15,7 @@ import type { Ctx } from "../../context";
 import type { Queryable, Tx } from "../../db";
 import { AppError, bad, forbidden, notFound } from "../../http/errors";
 import { condEnv, createIn, removeIn, updateIn, validationError } from "../../engine";
-import { allowed, arr, eqAll, isUuid, liveRow, liveRows, obj, rowsByIds, sysOf, type Row } from "./common";
+import { allowed, arr, eqAll, isUuid, liveRow, liveRows, obj, offeredChoice, rowsByIds, sysOf, type Row } from "./common";
 import { versionSchema } from "./definition";
 import { catalogIndex, entitlementFor, onBehalfRefusal } from "./entitlement";
 import { displayOf, producedValues, promiseOf } from "./fulfil";
@@ -446,7 +446,11 @@ async function produce(tx: Tx, ctx: Ctx, l: Prepared, input: OrderInput): Promis
   const display = await displayOf(tx, ctx, [["user", person]]);
   if (def.fields.some((f) => f.name === "short_description") && !values.short_description) values.short_description = titleOf(l.schema, l.answers, { requestedFor: person, display });
   if (def.fields.some((f) => f.name === "caller_id") && !values.caller_id) values.caller_id = person;
-  if (def.fields.some((f) => f.name === "channel") && !values.channel && input.channel) values.channel = input.channel;
+  if (!values.channel) {
+    // the order's channel when the target knows it (an incident has no «دستیار هوشمند»), else the target's default
+    const channel = await offeredChoice(tx, ctx, target, "channel", input.channel);
+    if (channel) values.channel = channel;
+  }
   const summary = summaryOf(l.schema, l.answers, display);
   if (def.fields.some((f) => f.name === "description") && !values.description) values.description = summary;
   // the person's own access decides (a requester creates what they could create by hand)
