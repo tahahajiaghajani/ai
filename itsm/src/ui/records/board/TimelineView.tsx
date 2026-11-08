@@ -1,24 +1,23 @@
-// TimelineView: records with a start and an end as horizontal bars on a Jalali day scale (two weeks, four weeks or
-// three months), packed into lanes so overlapping records never share a row, Fridays and holidays shaded, today
-// marked; a bar that continues outside the window says so. Click a bar to open its record. The change and project
-// modules build their schedules on it.
+// TimelineView: records with a start and an end as bars on a Jalali timeline (two weeks, four weeks or three months),
+// positioned to the minute (dates cover their days whole), packed into lanes so overlapping records never share a row,
+// Fridays and holidays shaded, today marked, background bands (a module's windows, outages…) and a tone per record (an
+// outline and an icon for what needs attention) — from the props or the table's registered calendar decoration. A bar
+// that continues outside the window says so. Click a bar to open its record. The drawing is TimelineGrid.
 import { useMemo, useState } from "react";
-import { Button, Segmented, Tooltip } from "antd";
+import { Button, Segmented } from "antd";
 import { ChevronRight, ChevronLeft } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import type { Cond } from "@shared/model/conditions";
-import { JALALI_MONTHS, addDays, formatJalali, toFa, toJalali, todayISO, weekday } from "@shared/jalali";
-import { faDigits } from "@shared/format";
+import { addDays, formatJalali, formatJalaliDateTime, todayISO, weekday } from "@shared/jalali";
 import { useOrg } from "../../lib/org";
-import { cx } from "../../components/blocks";
-import { getHolidaySource } from "../extensions";
+import { calendarDecorOf, getHolidaySource, type BandSource } from "../extensions";
 import { useMe, useRecordList } from "../data/hooks";
 import { andAll } from "../model/filter";
-import { daysBetween, timelineBars, toEvents, windowFilter } from "../model/calendar";
+import { eventSpan, toEvents, windowFilter, type CalendarTone } from "../model/calendar";
 import { displayText, fieldOf, stateOf, type Schema } from "../model/schema";
 import { stateColor } from "../model/colors";
 import type { RecordRow, TableMeta } from "../model/types";
-import { RecordNo } from "../fields/display";
+import { TimelineGrid, type TimelineItem } from "./TimelineGrid";
 import "../records.css";
 
 const I16 = { size: 16, strokeWidth: 1.4, absoluteStrokeWidth: true } as const;
@@ -33,11 +32,21 @@ export interface TimelineViewProps {
   filter: Cond | null;
   q?: string;
   onOpen: (row: RecordRow) => void;
+  /** background bands of the window (default: the table's calendar decoration) */
+  bands?: BandSource;
+  /** what needs attention on a record (default: the table's calendar decoration) */
+  tone?: (row: RecordRow) => CalendarTone | null;
+  /** further fields the tone reads */
+  fields?: string[];
 }
 
-export function TimelineView({ def, start, end, filter, q, onOpen }: TimelineViewProps) {
+export function TimelineView({ def, start, end, filter, q, onOpen, ...props }: TimelineViewProps) {
   const { api, orgId } = useOrg();
   const { tz } = useMe();
+  const decor = calendarDecorOf(def.key);
+  const bandSource = props.bands ?? decor.bands;
+  const tone = props.tone ?? decor.tone;
+  const extra = props.fields ?? decor.fields;
   const today = todayISO(tz);
   const [span, setSpan] = useState<Span>("4w");
   const [from, setFrom] = useState(() => addDays(today, -weekday(today) - 7));
@@ -51,21 +60,32 @@ export function TimelineView({ def, start, end, filter, q, onOpen }: TimelineVie
       q: q || undefined,
       sort: start,
       size: 500,
-      fields: [...new Set(["number", def.display, start, end, ...(def.states ? [def.states.field] : [])])],
+      fields: [...new Set(["number", def.display, start, end, ...(def.states ? [def.states.field] : []), ...(extra ?? [])])],
       total: false,
     }),
-    [filter, startF, endF, from, to, q, start, end, def],
+    [filter, startF, endF, from, to, q, start, end, def, extra],
   );
   const list = useRecordList(def.key, query, { enabled: !!startF });
   const holidaySource = getHolidaySource();
   const holidays = useQuery({ queryKey: ["records-holidays", orgId, from, to], queryFn: () => holidaySource!(api, from, to), enabled: !!holidaySource, staleTime: 24 * 3600_000 });
-  const off = useMemo(() => new Set((holidays.data ?? []).map((h) => h.date)), [holidays.data]);
-  const scale = useMemo(() => daysBetween(from, to), [from, to]);
-  const { bars, lanes } = useMemo(() => (startF ? timelineBars(toEvents(list.data?.rows ?? [], startF, endF, tz), from, to) : { bars: [], lanes: 0 }), [list.data, startF, endF, tz, from, to]);
+  const bands = useQuery({ queryKey: ["records-bands", orgId, bandSource?.key, from, to], queryFn: () => bandSource!.load(api, { from, to }), enabled: !!bandSource, staleTime: 5 * 60_000 });
+  const rows = list.data?.rows;
+  const items = useMemo<TimelineItem[]>(() => {
+    if (!startF) return [];
+    const at = (ms: number) => formatJalaliDateTime(new Date(ms).toISOString(), tz);
+    return toEvents(rows ?? [], startF, endF, tz).map((e) => {
+      const s = def.states ? stateOf(def, e.row[def.states.field]) : undefined;
+      const label = displayText(def, e.row) || String(e.row.number ?? "");
+      const sp = eventSpan(e, startF, endF, tz);
+      const from = startF.type === "datetime" ? at(sp.start) : formatJalali(e.start, { style: "long" });
+      const until = endF?.type === "datetime" ? at(sp.end) : formatJalali(e.end, { style: "long" });
+      const title = `${e.row.number ? `${e.row.number} — ` : ""}${label}\n${from} تا ${until}`;
+      return { id: e.id, start: sp.start, end: sp.end, label, number: e.row.number ? String(e.row.number) : null, color: stateColor(s?.color, s?.category), category: s?.category, tone: tone?.(e.row) ?? null, title };
+    });
+  }, [rows, startF, endF, tz, def, tone]);
 
   if (!startF) return <p className="rk-hint">فیلد شروع این خط زمانی («{start}») در این جدول نیست.</p>;
-  const months = groupMonths(scale);
-  const wide = days > 40;
+  const byId = new Map((rows ?? []).map((r) => [r.id, r]));
   return (
     <div className="rk-tl" aria-busy={list.isFetching || undefined}>
       <div className="rk-cal-tb">
@@ -89,59 +109,20 @@ export function TimelineView({ def, start, end, filter, q, onOpen }: TimelineVie
           ]}
         />
       </div>
-      <div className="rk-tl-scroll">
-        <div className={cx("rk-tl-grid", wide && "is-wide")} style={{ ["--rk-days" as string]: String(days) }}>
-          <div className="rk-tl-months" aria-hidden>
-            {months.map((m) => (
-              <span key={m.key} style={{ gridColumn: `${m.offset + 1} / span ${m.span}` }}>
-                {m.label}
-              </span>
-            ))}
-          </div>
-          <div className="rk-tl-days" aria-hidden>
-            {scale.map((d, i) => (
-              <span key={d} className={cx(weekday(d) === 6 || off.has(d) ? "is-off" : undefined, d === today && "is-today")} style={{ gridColumn: i + 1 }}>
-                {wide && toJalali(d).jd % 7 !== 1 ? "" : faDigits(toJalali(d).jd)}
-              </span>
-            ))}
-          </div>
-          <div className="rk-tl-body" style={{ gridTemplateRows: `repeat(${Math.max(lanes, 1)}, var(--rk-tl-row))` }}>
-            {scale.map((d, i) => (weekday(d) === 6 || off.has(d) || d === today ? <i key={d} className={cx("rk-tl-shade", d === today && "is-today")} style={{ gridColumn: i + 1, gridRow: `1 / span ${Math.max(lanes, 1)}` }} aria-hidden /> : null))}
-            {bars.map((b) => {
-              const s = def.states ? stateOf(def, b.event.row[def.states.field]) : undefined;
-              const label = displayText(def, b.event.row);
-              return (
-                <Tooltip key={b.event.id} title={`${b.event.row.number ?? ""} ${label} — ${formatJalali(b.event.start, { style: "long" })} تا ${formatJalali(b.event.end, { style: "long" })}`} mouseEnterDelay={0.4}>
-                  <button
-                    type="button"
-                    className={cx("rk-bar", b.clippedStart && "is-cs", b.clippedEnd && "is-ce")}
-                    data-c={stateColor(s?.color, s?.category)}
-                    style={{ gridColumn: `${b.offset + 1} / span ${b.span}`, gridRow: b.lane + 1 }}
-                    onClick={() => onOpen(b.event.row)}
-                  >
-                    {/* a short bar has room for the title only (the tooltip has the rest) */}
-                    {b.span > (wide ? 8 : 3) ? <RecordNo no={b.event.row.number ? String(b.event.row.number) : null} /> : null}
-                    <span className="rk-bar-t">{label || b.event.row.number}</span>
-                  </button>
-                </Tooltip>
-              );
-            })}
-          </div>
-          {!list.isLoading && !bars.length ? <p className="rk-tl-empty">در این بازه موردی نیست.</p> : null}
-        </div>
-      </div>
+      <TimelineGrid
+        from={from}
+        days={days}
+        tz={tz}
+        today={today}
+        holidays={holidays.data ?? []}
+        bands={bands.data ?? []}
+        items={items}
+        busy={list.isLoading}
+        onOpen={(id) => {
+          const r = byId.get(id);
+          if (r) onOpen(r);
+        }}
+      />
     </div>
   );
-}
-
-function groupMonths(days: string[]): { key: string; label: string; offset: number; span: number }[] {
-  const out: { key: string; label: string; offset: number; span: number }[] = [];
-  days.forEach((d, i) => {
-    const j = toJalali(d);
-    const key = `${j.jy}-${j.jm}`;
-    const last = out[out.length - 1];
-    if (last && last.key === key) last.span++;
-    else out.push({ key, label: `${JALALI_MONTHS[j.jm - 1]} ${toFa(j.jy)}`, offset: i, span: 1 });
-  });
-  return out;
 }

@@ -1,9 +1,10 @@
-// Pure logic of the change screens (tests/change-ui.test.ts): the queues, the calendar's geometry (days with Fridays
-// and holidays, window bands, change bars packed into lanes at the minute), tones of changes and windows, KPI rows of
-// the dashboard, the CAB workbench's decision options and the questionnaire's progress. No React, no antd.
+// Pure logic of the change screens (tests/change-ui.test.ts): the queues, the calendar's spans and windows as the record
+// kit's bands (its geometry — days, bands, bars at the minute — is the kit's, records/model/calendar.ts), tones of
+// changes and windows, KPI rows of the dashboard, the CAB workbench's decision options and the questionnaire's
+// progress. No React, no antd.
 import type { Cond } from "@shared/model/conditions";
-import { addDays, toJalali, weekday } from "@shared/jalali";
-import { localInstant } from "@shared/sla/calendar";
+import { addDays, weekday } from "@shared/jalali";
+import type { CalendarBand } from "../../records/model/calendar";
 import { answerOption, conflictLabel, riskLabel, windowKindLabel, type RiskOption } from "@shared/change/logic";
 
 export type Row = Record<string, any>;
@@ -83,78 +84,6 @@ export const SPANS: { value: Span; label: string; days: number }[] = [
 /** The Saturday of the week of `iso` (local dates). */
 export const weekStart = (iso: string): string => addDays(iso, -weekday(iso));
 
-export interface Day {
-  iso: string;
-  /** day of the Jalali month */
-  jd: number;
-  /** Jalali month (for month starts) */
-  jm: number;
-  weekday: number;
-  friday: boolean;
-  holiday: string | null;
-  half: boolean;
-  today: boolean;
-}
-
-/** The days of a range with Fridays and the official holidays marked. */
-export function daysOf(from: string, n: number, holidays: readonly { date: string; title: string; half?: boolean }[], today: string): Day[] {
-  const byDate = new Map(holidays.map((h) => [h.date, h]));
-  return Array.from({ length: n }, (_, i) => {
-    const iso = addDays(from, i);
-    const j = toJalali(iso);
-    const h = byDate.get(iso);
-    const wd = weekday(iso);
-    return { iso, jd: j.jd, jm: j.jm, weekday: wd, friday: wd === 6, holiday: h?.title ?? null, half: !!h?.half, today: iso === today };
-  });
-}
-
-/** The instants a range of local days covers in `tz`. */
-export function rangeMs(from: string, days: number, tz: string): { start: number; end: number } {
-  return { start: localInstant(from, 0, tz), end: localInstant(addDays(from, days), 0, tz) };
-}
-
-export interface Placed<T> {
-  item: T;
-  /** start and width in percent of the range (inline-start based) */
-  left: number;
-  width: number;
-  lane: number;
-  clippedStart: boolean;
-  clippedEnd: boolean;
-}
-
-const msOf = (v: unknown): number | null => {
-  if (v === null || v === undefined || v === "") return null;
-  const t = Date.parse(String(v));
-  return Number.isFinite(t) ? t : null;
-};
-
-/**
- * Bars of items within [start, end), packed into lanes (a lane never holds two overlapping bars), positioned in
- * percent at the minute. Items without valid times are left out; a minimum width keeps short changes visible.
- */
-export function placeBars<T>(items: readonly T[], range: { start: number; end: number }, startOf: (t: T) => unknown, endOf: (t: T) => unknown, minWidth = 0.6): { bars: Placed<T>[]; lanes: number } {
-  const total = range.end - range.start;
-  const rows = items
-    .map((item) => ({ item, s: msOf(startOf(item)), e: msOf(endOf(item)) }))
-    .filter((x): x is { item: T; s: number; e: number } => x.s !== null && x.e !== null && x.e > x.s && x.e > range.start && x.s < range.end)
-    .sort((a, b) => a.s - b.s || b.e - a.e);
-  const laneEnds: number[] = [];
-  const bars: Placed<T>[] = [];
-  for (const r of rows) {
-    const s = Math.max(r.s, range.start);
-    const e = Math.min(r.e, range.end);
-    let lane = laneEnds.findIndex((end) => end <= s);
-    if (lane < 0) {
-      lane = laneEnds.length;
-      laneEnds.push(e);
-    } else laneEnds[lane] = e;
-    const left = ((s - range.start) / total) * 100;
-    bars.push({ item: r.item, left, width: Math.min(100 - left, Math.max(minWidth, ((e - s) / total) * 100)), lane, clippedStart: r.s < range.start, clippedEnd: r.e > range.end });
-  }
-  return { bars, lanes: laneEnds.length };
-}
-
 export interface WindowOcc {
   window_id: string;
   name: string;
@@ -164,33 +93,16 @@ export interface WindowOcc {
   end: string;
 }
 
-/** Window occurrences as bands of the range (blackouts and freezes first, so they sit on top). */
-export function windowBands(windows: readonly WindowOcc[], range: { start: number; end: number }): Placed<WindowOcc>[] {
-  const order: Record<string, number> = { maintenance: 0, information: 1, freeze: 2, blackout: 3 };
-  const sorted = [...windows].sort((a, b) => (order[a.kind] ?? 0) - (order[b.kind] ?? 0));
-  return sorted
-    .map((w) => placeBars([w], range, (x) => x.start, (x) => x.end, 0).bars[0])
-    .filter((b): b is Placed<WindowOcc> => !!b);
-}
-
-/** Changes of a local day (month view): those whose planned window touches it, earliest first. */
-export function changesOn<T extends Row>(changes: readonly T[], day: string, tz: string): T[] {
-  const s = localInstant(day, 0, tz);
-  const e = localInstant(addDays(day, 1), 0, tz);
-  return changes
-    .filter((c) => {
-      const a = msOf(c.planned_start);
-      const b = msOf(c.planned_end);
-      return a !== null && b !== null && a < e && b > s;
-    })
-    .sort((a, b) => (msOf(a.planned_start) ?? 0) - (msOf(b.planned_start) ?? 0));
-}
-
-/** Windows that touch a local day (month view shading). */
-export function windowsOn(windows: readonly WindowOcc[], day: string, tz: string): WindowOcc[] {
-  const s = localInstant(day, 0, tz);
-  const e = localInstant(addDays(day, 1), 0, tz);
-  return windows.filter((w) => (msOf(w.start) ?? 0) < e && (msOf(w.end) ?? 0) > s);
+/** Window occurrences as the kit's calendar bands (their kind is the band's colour; «فقط هشدار» in the tooltip). */
+export function windowBandsOf(windows: readonly WindowOcc[]): CalendarBand[] {
+  return windows.map((w, i) => ({
+    id: `${w.window_id}:${w.start}:${i}`,
+    start: w.start,
+    end: w.end,
+    label: w.name,
+    kind: w.kind,
+    title: `${windowKindLabel(w.kind)}: ${w.name}${w.enforcement === "warn" ? " (فقط هشدار)" : ""}`,
+  }));
 }
 
 export const WINDOW_TONE: Record<string, string> = { blackout: "danger", freeze: "freeze", maintenance: "maintenance", information: "info" };

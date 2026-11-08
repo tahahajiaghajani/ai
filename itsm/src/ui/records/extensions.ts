@@ -8,6 +8,7 @@
 import type { ReactNode } from "react";
 import type { Cond } from "@shared/model/conditions";
 import type { OrgApi } from "../lib/api";
+import type { CalendarBand, CalendarTone } from "./model/calendar";
 import type { UiPolicy } from "./model/policies";
 import type { ListMode } from "./model/views";
 import type { DisplayMap, RecordMeta, RecordRow, TableMeta } from "./model/types";
@@ -268,3 +269,32 @@ export function setHolidaySource(fn: HolidaySource | null): void {
   holidaySource = fn;
 }
 export const getHolidaySource = (): HolidaySource | null => holidaySource;
+
+/** Background bands of a calendar or timeline window (maintenance / blackout / freeze windows, outages…), by a key. */
+export interface BandSource {
+  /** part of the cache key (the source and what it depends on) */
+  key: string;
+  load: (api: OrgApi, window: { from: string; to: string }) => Promise<CalendarBand[]>;
+}
+
+/**
+ * How a table's records look on CalendarView and TimelineView, wherever they show (the list's calendar and timeline
+ * modes, a module's page): bands behind them, a tone per record (an outline and an icon: a conflict, a blackout) and
+ * the fields the tone reads. Props of the views override it.
+ */
+export interface CalendarDecor {
+  bands?: BandSource;
+  tone?: (row: RecordRow) => CalendarTone | null;
+  fields?: string[];
+}
+
+const decors = new Map<string, CalendarDecor>();
+
+/** A module's calendar decoration of its table; returns an unregister function. */
+export function registerCalendarDecor(table: string, decor: CalendarDecor): () => void {
+  decors.set(table, decor);
+  return () => {
+    if (decors.get(table) === decor) decors.delete(table);
+  };
+}
+export const calendarDecorOf = (table: string): CalendarDecor => decors.get(table) ?? {};

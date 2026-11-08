@@ -17,14 +17,16 @@ import {
   CalendarDays, Gavel, Zap, ChartColumn, Settings2, User, Stamp, CalendarClock, Hammer, Siren, Eye, Inbox,
 } from "lucide-react";
 import type { AccessGate } from "@shared/access";
+import { addDays } from "@shared/jalali";
 import type { ModuleUi, NavItem } from "../registry";
 import { recordModule, RecordListRoute } from "../../records/module";
-import { registerRecordExtensions, type RecordContext } from "../../records/extensions";
+import { registerCalendarDecor, registerRecordExtensions, type RecordContext } from "../../records/extensions";
 import { recordsApi } from "../../records/data/api";
 import type { UiPolicy } from "../../records/model/policies";
 import { Loader } from "../../components/display";
 import type { OrgApi } from "../../lib/api";
-import { QUEUES, changeTone, type Queue } from "./model";
+import { QUEUES, changeTone, windowBandsOf, type Queue, type WindowOcc } from "./model";
+import { changeApi } from "./api";
 
 const ChangeActions = lazy(() => import("./ChangeActions"));
 const ChangeCalendar = lazy(() => import("./ChangeCalendar"));
@@ -164,6 +166,20 @@ const fromButton = (ctx: RecordContext) => (
   </Suspense>
 );
 for (const table of ["incident", "problem", "known_error", "request_item"]) registerRecordExtensions(table, { headerActions: fromButton });
+// the list's calendar and timeline modes: maintenance / blackout / freeze windows behind the changes, conflicts and
+// blackouts outlined (the record kit's bands and tones)
+registerCalendarDecor("change_request", {
+  tone: (r) => changeTone(r),
+  fields: ["conflict_status", "conflict_count", "in_blackout", "outside_window", "is_late", "on_hold"],
+  bands: {
+    key: "change:windows",
+    load: async (api, w) => {
+      // a day on each side covers the window in any time zone (the timeline clips what lies outside)
+      const d = await changeApi.calendar(api, { from: `${addDays(w.from, -1)}T00:00:00Z`, to: `${addDays(w.to, 1)}T23:59:59Z` });
+      return windowBandsOf((d.windows ?? []) as WindowOcc[]);
+    },
+  },
+});
 registerRecordExtensions("incident", {
   sidePanels: [{ key: "change:suspects", title: "تغییرهای مشکوک", order: 40, when: (ctx) => !!ctx.schema.def("change_request"), render: widget(SuspectsPanel) }],
 });

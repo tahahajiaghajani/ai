@@ -10,7 +10,7 @@ import { activityCounts, filterActivity, groupChanges, mergeActivity } from "../
 import { formatMention, insertMention, isMentionHref, mentionAt, mentionedIds } from "../src/ui/records/model/mentions";
 import { changedValues, formatDuration, sameValue, splitDuration, valueText } from "../src/ui/records/model/values";
 import { otherViewers, slaText, slaTimers, viewersText } from "../src/ui/records/model/sla";
-import { dayOf, eventsOn, monthGrid, moveEvent, shiftMonth, shiftValue, timelineBars, toEvents, weekOf, weekTitle, windowFilter } from "../src/ui/records/model/calendar";
+import { dayMonthLabel, dayOf, eventSpan, eventsOn, monthGrid, moveEvent, placeBands, placeSpans, scaleDays, shiftMonth, shiftValue, timelineBars, toEvents, weekOf, weekTitle, windowFilter, windowRange } from "../src/ui/records/model/calendar";
 import { aggregateColumns, boardField, choiceColumns, planDrop, wipState } from "../src/ui/records/model/kanban";
 import { defaultView, emptyListState, groupViews, readListState, stateOfView, viewBody, viewDirty, writeListState } from "../src/ui/records/model/views";
 import { offeredOptions, optionLabel, recordLabel } from "../src/ui/records/model/schema";
@@ -251,6 +251,48 @@ describe("calendar and timeline", () => {
     expect(t.bars.find((b) => b.event.id === "a")).toMatchObject({ offset: 0, span: 3, clippedStart: true, lane: 0 });
     expect(t.bars.find((b) => b.event.id === "b")).toMatchObject({ lane: 1 });
     expect(t.bars.find((b) => b.event.id === "c")).toMatchObject({ offset: 3, lane: 0 });
+  });
+});
+
+describe("the timeline at the minute, bands and tones", () => {
+  const TZ = "Asia/Tehran";
+  it("positions spans in percent of the window, packs lanes, clips the edges", () => {
+    const range = windowRange("2026-03-21", 2, TZ); // 48 hours from local midnight
+    expect(range.end - range.start).toBe(48 * 3600_000);
+    const h = (n: number) => new Date(range.start + n * 3600_000).toISOString();
+    const items = [
+      { id: "a", s: h(6), e: h(18) },
+      { id: "b", s: h(12), e: h(30) },
+      { id: "c", s: h(-5), e: h(3) },
+      { id: "z", s: h(5), e: h(5) },
+    ];
+    const { bars, lanes } = placeSpans(items, range, (i) => i.s, (i) => i.e);
+    expect(bars.map((b) => b.item.id)).toEqual(["c", "a", "b"]);
+    expect(lanes).toBe(2);
+    expect(bars[0]).toMatchObject({ left: 0, clippedStart: true, lane: 0 });
+    expect(bars[1].left).toBeCloseTo(12.5, 6);
+    expect(bars[1].width).toBeCloseTo(25, 6);
+    expect(bars[2].lane).toBe(1);
+  });
+
+  it("stacks bands by kind (blackouts on top) unless they name a rank", () => {
+    const range = windowRange("2026-03-21", 7, TZ);
+    const b = (id: string, kind: string, rank?: number) => ({ id, kind, label: id, start: "2026-03-22T00:00:00Z", end: "2026-03-23T00:00:00Z", rank });
+    expect(placeBands([b("x", "blackout"), b("m", "maintenance"), b("f", "freeze")], range).map((p) => p.item.id)).toEqual(["m", "f", "x"]);
+    expect(placeBands([b("x", "blackout", -1), b("m", "maintenance")], range).map((p) => p.item.id)).toEqual(["x", "m"]);
+  });
+
+  it("days of a timeline mark Fridays and holidays; a record's span covers its days or its times", () => {
+    const days = scaleDays("2026-03-20", 3, [{ date: "2026-03-21", title: "نوروز" }, { date: "2026-03-22", title: "نیم‌روز", half: true }], "2026-03-22");
+    expect(days.map((d) => [d.off, d.holiday, d.half, d.today])).toEqual([[true, null, false, false], [true, "نوروز", false, false], [true, "نیم‌روز", true, true]]);
+    expect(dayMonthLabel("2026-03-21")).toBe("۱ فروردین");
+    const dateF = { name: "due", label: "موعد", type: "date" } as const;
+    const timeF = { name: "at", label: "زمان", type: "datetime" } as const;
+    const [byDay] = toEvents([{ id: "d", version: 1, due: "2026-03-21" }], dateF as never, null, TZ);
+    const d = eventSpan(byDay, dateF as never, null, TZ);
+    expect(d.end - d.start).toBe(24 * 3600_000);
+    const [timed] = toEvents([{ id: "t", version: 1, at: "2026-03-21T06:00:00Z" }], timeF as never, null, TZ);
+    expect(eventSpan(timed, timeF as never, null, TZ)).toEqual({ start: Date.parse("2026-03-21T06:00:00Z"), end: Date.parse("2026-03-21T07:00:00Z") });
   });
 });
 

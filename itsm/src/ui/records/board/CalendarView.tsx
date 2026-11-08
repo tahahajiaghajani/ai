@@ -2,7 +2,9 @@
 // a week of day columns, Saturday first, Fridays and the organisation's holidays (when the calendar service
 // provides them) shaded, today ringed. Drag a record to another day to reschedule it (a date-time keeps its time);
 // the same move is in each record's popover («انتقال به») for keyboard and touch. An empty day starts a new record
-// on that day. On a phone the month shows dots and the chosen day's records below.
+// on that day. On a phone the month shows dots and the chosen day's records below. Background bands (a module's
+// windows, outages…) show as chips of their days and a record's tone as an outline — from the props or the table's
+// registered calendar decoration.
 import { useMemo, useState, type DragEvent } from "react";
 import { useNavigate } from "react-router";
 import { Button, Popover, Segmented, Tooltip } from "antd";
@@ -15,10 +17,10 @@ import { useOrg } from "../../lib/org";
 import { useIsPhone, useNotify } from "../../lib/hooks";
 import { DateInput } from "../../components/inputs";
 import { cx } from "../../components/blocks";
-import { getHolidaySource, newRecordPath, type Holiday } from "../extensions";
+import { calendarDecorOf, getHolidaySource, newRecordPath, type BandSource, type Holiday } from "../extensions";
 import { useMe, useRecordActions, useRecordList } from "../data/hooks";
 import { andAll } from "../model/filter";
-import { eventsOn, monthGrid, monthTitle, moveEvent, shiftMonth, startValueFor, toEvents, weekOf, weekTitle, windowFilter, type CalendarEvent, type DayCell } from "../model/calendar";
+import { bandsOn, eventsOn, monthGrid, monthTitle, moveEvent, shiftMonth, startValueFor, toEvents, weekOf, weekTitle, windowFilter, type CalendarEvent, type CalendarTone, type DayCell } from "../model/calendar";
 import { displayText, fieldOf, stateOf, type Schema } from "../model/schema";
 import { stateColor } from "../model/colors";
 import { isConflict, type RecordRow, type TableMeta } from "../model/types";
@@ -37,15 +39,27 @@ export interface CalendarViewProps {
   filter: Cond | null;
   q?: string;
   onOpen: (row: RecordRow) => void;
+  /** background bands of the window (default: the table's calendar decoration) */
+  bands?: BandSource;
+  /** what needs attention on a record (default: the table's calendar decoration) */
+  tone?: (row: RecordRow) => CalendarTone | null;
+  /** further fields the tone reads */
+  fields?: string[];
 }
 
-export function CalendarView({ def, start, end, filter, q, onOpen }: CalendarViewProps) {
+const MAX_BANDS = 2;
+
+export function CalendarView({ def, start, end, filter, q, onOpen, ...props }: CalendarViewProps) {
   const { api, orgId } = useOrg();
   const { tz } = useMe();
   const n = useNotify();
   const nav = useNavigate();
   const phone = useIsPhone();
   const actions = useRecordActions(def.key);
+  const decor = calendarDecorOf(def.key);
+  const bandSource = props.bands ?? decor.bands;
+  const tone = props.tone ?? decor.tone;
+  const extra = props.fields ?? decor.fields;
   const startF = fieldOf(def, start);
   const endF = end ? (fieldOf(def, end) ?? null) : null;
   const today = todayISO(tz);
@@ -63,10 +77,10 @@ export function CalendarView({ def, start, end, filter, q, onOpen }: CalendarVie
       q: q || undefined,
       sort: start,
       size: 500,
-      fields: [...new Set(["number", def.display, start, ...(end ? [end] : []), ...(def.states ? [def.states.field] : [])])],
+      fields: [...new Set(["number", def.display, start, ...(end ? [end] : []), ...(def.states ? [def.states.field] : []), ...(extra ?? [])])],
       total: false,
     }),
-    [filter, startF, endF, from, to, q, start, end, def],
+    [filter, startF, endF, from, to, q, start, end, def, extra],
   );
   const list = useRecordList(def.key, query, { enabled: !!startF });
   const holidaySource = getHolidaySource();
@@ -77,6 +91,7 @@ export function CalendarView({ def, start, end, filter, q, onOpen }: CalendarVie
     staleTime: 24 * 3600_000,
   });
   const holidayMap = useMemo(() => new Map<string, Holiday>((holidays.data ?? []).map((h) => [h.date, h])), [holidays.data]);
+  const bands = useQuery({ queryKey: ["records-bands", orgId, bandSource?.key, from, to], queryFn: () => bandSource!.load(api, { from, to }), enabled: !!bandSource, staleTime: 5 * 60_000 });
 
   // optimistic reschedules: a record shows on its new day until the list reloads
   const [moved, setMoved] = useState<Map<string, Record<string, string | null>>>(new Map());
@@ -121,6 +136,7 @@ export function CalendarView({ def, start, end, filter, q, onOpen }: CalendarVie
   const dayCell = (d: DayCell) => {
     const list = eventsOn(events, d.iso);
     const hol = holidayMap.get(d.iso);
+    const dayBands = bands.data?.length ? bandsOn(bands.data, d.iso, tz) : [];
     const off = d.weekday === 6 || !!hol;
     return (
       <div
@@ -148,12 +164,19 @@ export function CalendarView({ def, start, end, filter, q, onOpen }: CalendarVie
             </Tooltip>
           ) : null}
         </div>
+        {!phone
+          ? dayBands.slice(0, MAX_BANDS).map((b, i) => (
+              <span key={`${b.id}:${i}`} className="rk-cal-band" data-k={b.kind} title={b.title ?? b.label}>
+                {b.label}
+              </span>
+            ))
+          : null}
         {phone ? (
           list.length ? <span className="rk-cal-dots" aria-hidden>{list.slice(0, 3).map((e) => <i key={e.id} data-c={colorOf(def, e.row)} />)}</span> : null
         ) : (
           <div className="rk-cal-evs">
             {(view === "week" ? list : list.slice(0, MAX_IN_CELL)).map((e) => (
-              <EventChip key={e.id} e={e} def={def} tz={tz} day={d.iso} onOpen={onOpen} onMove={reschedule} startF={startF.type} />
+              <EventChip key={e.id} e={e} def={def} tz={tz} day={d.iso} onOpen={onOpen} onMove={reschedule} startF={startF.type} tone={tone?.(e.row) ?? null} />
             ))}
             {view === "month" && list.length > MAX_IN_CELL ? (
               <Popover
@@ -163,7 +186,7 @@ export function CalendarView({ def, start, end, filter, q, onOpen }: CalendarVie
                 content={
                   <div className="rk-cal-more">
                     {list.map((e) => (
-                      <EventChip key={e.id} e={e} def={def} tz={tz} day={d.iso} onOpen={onOpen} onMove={reschedule} startF={startF.type} />
+                      <EventChip key={e.id} e={e} def={def} tz={tz} day={d.iso} onOpen={onOpen} onMove={reschedule} startF={startF.type} tone={tone?.(e.row) ?? null} />
                     ))}
                   </div>
                 }
@@ -238,7 +261,7 @@ const colorOf = (def: TableMeta, row: RecordRow) => {
   return stateColor(s?.color, s?.category);
 };
 
-function EventChip({ e, def, tz, day, onOpen, onMove, startF }: { e: CalendarEvent; def: TableMeta; tz: string; day: string; onOpen: (r: RecordRow) => void; onMove: (e: CalendarEvent, day: string) => void; startF: string }) {
+function EventChip({ e, def, tz, day, onOpen, onMove, startF, tone }: { e: CalendarEvent; def: TableMeta; tz: string; day: string; onOpen: (r: RecordRow) => void; onMove: (e: CalendarEvent, day: string) => void; startF: string; tone: CalendarTone | null }) {
   const [open, setOpen] = useState(false);
   const time = startF === "datetime" && e.at !== null && e.start === day ? formatJalaliDateTime(new Date(e.at).toISOString(), tz).split(" ")[1] : null;
   const multi = e.start !== e.end;
@@ -269,6 +292,7 @@ function EventChip({ e, def, tz, day, onOpen, onMove, startF }: { e: CalendarEve
         type="button"
         className={cx("rk-ev", multi && "is-multi", e.start !== day && "is-cont")}
         data-c={colorOf(def, e.row)}
+        data-tone={tone ?? undefined}
         draggable
         onDragStart={(ev) => {
           ev.dataTransfer.setData("text/x-record", e.id);
