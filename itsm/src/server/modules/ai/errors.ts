@@ -18,8 +18,3 @@ const STATUS: Partial<Record<AiErrorKind, number>> = { not_configured: 403, disa
 export function aiHttpError(kind: AiErrorKind, message: string): AppError {
   return new AppError(STATUS[kind] ?? 503, `ai_${kind}`, message, { kind });
 }
-
-/** An AiUnavailableError as that HTTP error; anything else unchanged. */
-export function asHttpError(e: unknown): unknown {
-  return e instanceof AiUnavailableError ? aiHttpError(e.kind, e.message) : e;
-}

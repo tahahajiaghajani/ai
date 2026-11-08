@@ -20,7 +20,7 @@ import {
 import { loadPolicy, saveSettings, settingsPatchSchema, visibleSettings, disabledByPlatform } from "../modules/ai/settings";
 import { loadEnv, runTurn } from "../modules/ai/chain";
 import { statusView } from "../modules/ai/engine";
-import { AiUnavailableError, asHttpError } from "../modules/ai/errors";
+import { AiUnavailableError } from "../modules/ai/errors";
 import { AGENT_LIMITS, abortLocal, continueChat, startChat, type Emit } from "../modules/ai/agent";
 import { deleteThread, getData, listThreads, messageViews, ownThread, patchThread, rateMessage, requestStop, threadDetail } from "../modules/ai/threads";
 import { confirmAction, listActions, rejectAction } from "../modules/ai/actions";
@@ -34,7 +34,7 @@ import { ragConfigChanged } from "../modules/ai/rag/admin";
 export const aiRoutes = router();
 
 // AI that cannot answer a plain JSON request (connection tests …) → `ai_<kind>` with the kind in details
-aiRoutes.onError((err, c) => errorResponse(asHttpError(err), c));
+aiRoutes.onError(errorResponse); // «no AI» is answered in Persian by errorResponse itself
 
 const HEARTBEAT_MS = 15_000;
 

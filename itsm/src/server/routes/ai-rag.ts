@@ -9,14 +9,14 @@ import { AppError, bad } from "../http/errors";
 import type { AiAskEvent } from "@shared/ai/rag";
 import { aiErrorText } from "@shared/ai/errors";
 import { DOC_COLLECTION, DOC_DOCUMENT } from "@shared/tables/docs";
-import { AiUnavailableError, asHttpError } from "../modules/ai/errors";
+import { AiUnavailableError } from "../modules/ai/errors";
 import {
   askWithCitations, documentPages, publicPassages, queueBackfill, queueReconcile, ragStatus, reingestDocument, removeOwned, retrieve, uploadDocument,
 } from "../modules/ai/rag";
 
 export const ragRoutes = router();
 
-ragRoutes.onError((err, c) => errorResponse(asHttpError(err), c));
+ragRoutes.onError(errorResponse); // «no AI» is answered in Persian by errorResponse itself
 
 const scopeSchema = z
   .object({

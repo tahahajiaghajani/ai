@@ -7,7 +7,7 @@ import { router, body, query, errorResponse, type C } from "../http/hono";
 import { AppError } from "../http/errors";
 import { aiErrorText } from "@shared/ai/errors";
 import type { SkillStreamEvent } from "@shared/ai/skills";
-import { AiUnavailableError, asHttpError } from "../modules/ai/errors";
+import { AiUnavailableError } from "../modules/ai/errors";
 import {
   adminView, copySkill, listRuns, patchSkill, publishVersion, rateRun, resolveSkill, runCore, runSkill, runEvals, saveEval, savePrincipal, saveVersion,
   skillsForRecord, skillsForText, testRun, usageRows,
@@ -15,7 +15,7 @@ import {
 
 export const skillRoutes = router();
 
-skillRoutes.onError((err, c) => errorResponse(asHttpError(err), c));
+skillRoutes.onError(errorResponse); // «no AI» is answered in Persian by errorResponse itself
 
 const UUID = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, "شناسه معتبر نیست");
 const KEY = z.string().regex(/^[a-z][a-z0-9_.]{0,79}$/, "کلید مهارت معتبر نیست");

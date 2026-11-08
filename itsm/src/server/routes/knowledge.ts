@@ -10,7 +10,6 @@ import { z } from "zod";
 import { bodyLimit } from "hono/body-limit";
 import { router, body, errorResponse, query } from "../http/hono";
 import { AppError, bad, forbidden, notFound } from "../http/errors";
-import { asHttpError } from "../modules/ai/errors";
 import { createIn, get, orgSchema, systemCtx, transitionIn, updateIn } from "../engine";
 import { parseFile } from "../modules/ai/rag";
 import { cleanText, detectLang } from "@shared/ai/text";
@@ -30,7 +29,7 @@ const TABLE = z.string().regex(/^[a-z][a-z0-9_]{0,62}$/, "جدول معتبر ن
 const session = text(80).nullish();
 
 export const knowledgeRoutes = router();
-knowledgeRoutes.onError((err, c) => errorResponse(err instanceof AppError ? err : asHttpError(err), c));
+knowledgeRoutes.onError(errorResponse); // «no AI» is answered in Persian by errorResponse itself
 // the caller's access subject is loaded once, before the module asks who they are (grants, groups, field groups)
 knowledgeRoutes.use("*", async (c, next) => {
   await orgSchema(c.get("ctx"));
