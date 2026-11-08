@@ -142,6 +142,21 @@ describe("change enablement with the AI skills", () => {
     expect(inbox()).toContain("987654321");
     await o.patch(`${P}/ai/skills/admin/record.summary`, { field_groups: [] });
   });
+
+  it("the same approver without AI access: the record page offers no «هوش مصنوعی» panel and a run is refused", async () => {
+    const { P, p } = w;
+    await w.e.db.query(`update sm_org_members set overrides = '{"ai":"none"}'::jsonb where org_id = $1 and user_id = $2`, [w.e.org, p.req.userId]);
+    try {
+      const page = await p.req.client.get(`${P}/r/change_request/${asked.id}`);
+      expect(page.meta.reach).toBe("participant"); // still reads it through the approver grant
+      expect(page.meta.ai_skills).toBe(false);
+      clearFakeInbox();
+      await p.req.client.post(`${P}/ai/skills/record.summary/run`, { table: "change_request", id: asked.id }, 403);
+      expect(inbox()).toBe("");
+    } finally {
+      await w.e.db.query(`update sm_org_members set overrides = '{}'::jsonb where org_id = $1 and user_id = $2`, [w.e.org, p.req.userId]);
+    }
+  });
 });
 
 describe("an event-triggered skill on a confidential incident", () => {
