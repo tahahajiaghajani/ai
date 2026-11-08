@@ -5,8 +5,9 @@
 // allows it) and delegation (an absent approver's delegate is asked instead). Levels run one after another or all at
 // once; each level's rule (any / all / count / percent) decides it. The record's `approval` field follows the
 // aggregate; `record.approval_requested` and `record.approval_decided` are emitted for notifications and flows.
-// Approvers (and their delegates) read the record while their approval is pending (participant source of the access
-// model). Reminders and expiry run as the job `approval.timer`.
+// Whoever has or had an approval on a record reads it — the approver grant, a participant source of reach «grant» of
+// the access model: even a requester with no role in the record's area (field groups and confidentiality still apply).
+// Reminders and expiry run as the job `approval.timer`.
 import type { CondEnv } from "@shared/model/conditions";
 import type { TableDef } from "@shared/model/types";
 import { DONE_CATEGORIES, stateCategory } from "@shared/model/task";
@@ -706,6 +707,11 @@ async function approvalTimer(sys: Ctx, table: string, id: string): Promise<numbe
 // ---------------------------------------------------------------------------------------------------------------
 // Installation
 
+/** Members who named `u` (a SQL uuid expression) their delegate for approvals, in force now. */
+const delegatorsSql = (u: string) =>
+  `select d.from_user from sm_delegations d where d.to_user = ${u} and d.active and d.deleted_at is null
+     and d.starts_at <= now() and (d.ends_at is null or d.ends_at > now()) and d.scopes ? 'approvals'`;
+
 /** Hooks, the participant source and the job of approvals; `plan` runs after the other rules (installed late). */
 export function installApprovals(): { apply: () => void; plan: () => void; rest: () => void } {
   return {
@@ -744,18 +750,29 @@ export function installApprovals(): { apply: () => void; plan: () => void; rest:
           if (Object.keys(fields).length) throw validationError(fields);
         },
       });
-      // approvers (and their delegates) read the record while their approval is pending
+      // the approver grant: whoever has or had an approval on a record reads it (the approver, the person they stood
+      // in for, whoever decided it, and the delegate of an open one) — even without any role in its area
       registerParticipantSource({
         name: "approvals",
+        reach: "grant",
         sql(def, alias, params, userId) {
           if (def.virtual || ownTable(def.key) || !def.fields.some((f) => f.name === "approval")) return null;
           params.push(def.key);
           const k = `$${params.length}`;
           params.push(userId);
           const u = `$${params.length}::uuid`;
-          return `${alias}.id = any(array(select a.record_id::uuid from sm_approvals a where a.table_key = ${k} and a.state = 'requested' and a.deleted_at is null
-            and (a.approver_id = ${u} or a.approver_id in (select d.from_user from sm_delegations d where d.to_user = ${u} and d.active and d.deleted_at is null
-              and d.starts_at <= now() and (d.ends_at is null or d.ends_at > now()) and d.scopes ? 'approvals'))))`;
+          return `${alias}.id = any(array(select a.record_id::uuid from sm_approvals a where a.table_key = ${k} and a.deleted_at is null and a.state <> 'skipped'
+            and (a.approver_id = ${u} or a.delegated_from = ${u} or a.decided_by = ${u}
+              or (a.state in ('requested', 'waiting') and a.approver_id in (${delegatorsSql(u)})))))`;
+        },
+        async tables(q, orgId, userId) {
+          const rows = await q.query<{ table_key: string }>(
+            `select distinct a.table_key from sm_approvals a where a.org_id = $1 and a.deleted_at is null and a.state <> 'skipped'
+              and (a.approver_id = $2::uuid or a.delegated_from = $2::uuid or a.decided_by = $2::uuid
+                or (a.state in ('requested', 'waiting') and a.approver_id in (${delegatorsSql("$2::uuid")})))`,
+            [orgId, userId],
+          );
+          return rows.map((r) => r.table_key);
         },
       });
       registerJobHandler("approval.timer", async (job, jctx) => {

@@ -213,6 +213,11 @@ export interface ScopeFields {
   own?: string[];
   /** users field of watchers */
   watchers?: string;
+  /**
+   * user fields whose people read the row and nothing more — never write, never through a delegate (a module keeps
+   * them, e.g. the assignees of a requested item's tasks); they pass the confidentiality rule like the own fields
+   */
+  readers?: string[];
   /** group field of the assignment group */
   group?: string;
   /** organisation unit column (default "unit_id") */

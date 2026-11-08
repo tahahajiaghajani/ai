@@ -97,24 +97,30 @@ describe("service requests: access", () => {
     await network.client.get(`${P}/request/answers/request_task/${sourcing.id}`, 404);
   });
 
-  it("an assigned fulfiller of a task reads and updates the item like its assignee, but cannot cancel the whole order", async () => {
+  it("an assigned fulfiller of a task reads the item and its order, read only (fulfillers are readers)", async () => {
     const tasks = await k.rows("request_task", "request_item_id = $2", [laptop]);
     const sourcing = tasks.find((t) => t.short_description === "تأمین و آماده‌سازی لپ‌تاپ")!;
     await buyer.client.patch(`${P}/r/request_task/${sourcing.id}`, { assigned_to: buyer.userId });
+    expect((await k.ritm(laptop)).fulfillers).toContain(buyer.userId);
     const item = await buyer.client.get(`${P}/r/request_item/${laptop}`);
     expect(item.row.id).toBe(laptop);
-    expect(item.meta.canWrite).toBe(true);
+    // the item is the fulfilment group's work: the task's assignee reads it, never changes it
+    expect(item.meta.canWrite).toBe(false);
+    await buyer.client.patch(`${P}/r/request_item/${laptop}`, { priority: "2" }, 403);
+    await buyer.client.post(`${P}/request/items/${laptop}/info`, { message: "?" }, 403);
     const req = (await k.ritm(laptop)).request_id;
-    expect((await buyer.client.get(`${P}/r/request/${req}`)).row.id).toBe(req);
-    // a second item of the same order, fulfilled by another group: the buyer may not cancel it through the header
+    const header = await buyer.client.get(`${P}/r/request/${req}`);
+    expect(header.row.id).toBe(req);
+    expect(header.meta.canWrite).toBe(false);
+    // the assignee of one item of an order reads the order header but cannot cancel the order through it
     const other = await k.item("other_request");
     const mail = await k.item("mailbox");
     const order = await requester.client.post(`${P}/request/order`, { lines: [{ item_id: other.id, answers: { subject: "الف", details: "ب" } }, { item_id: mail.id, answers: { mailbox_type: "personal" } }] });
     const [first] = order.items;
     await k.o.owner.patch(`${P}/r/request_item/${first.id}`, { assigned_to: buyer.userId });
-    expect((await buyer.client.get(`${P}/r/request/${order.request.id}`)).meta.canWrite).toBe(true);
-    const e = await buyer.client.post(`${P}/r/request/${order.request.id}/transition`, { to: "cancelled", data: { close_notes: "x" } }, 409);
-    expect(e.error.message).toContain("جداگانه لغو کنید");
+    expect((await buyer.client.get(`${P}/r/request_item/${first.id}`)).meta.canWrite).toBe(true);
+    expect((await buyer.client.get(`${P}/r/request/${order.request.id}`)).meta.canWrite).toBe(false);
+    await buyer.client.post(`${P}/r/request/${order.request.id}/transition`, { to: "cancelled", data: { close_notes: "x" } }, 403);
     expect((await k.ritm(order.items[1].id)).state).not.toBe("cancelled");
   });
 

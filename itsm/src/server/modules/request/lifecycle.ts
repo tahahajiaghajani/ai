@@ -38,10 +38,10 @@ const REQUESTER_FIELDS = ["requested_for", "caller_id"];
 const AGENT_SCOPES = new Set(["group", "unit", "unit_tree", "domain", "all"]);
 const MASK = "••••";
 
-/** Fields of a requested item a question may fill through «نگاشت به فیلد» (never the module's own). */
+/** Fields of a requested item a question may fill through «نگاشت به فیلد» (never the module's own; system fields never). */
 const NOT_MAPPABLE = new Set([
-  "state", "request_id", "cat_item_id", "item_version_id", "category_id", "answers", "private_answers", "secret_answers", "price", "total",
-  "recurring_price", "recurring_frequency", "fulfilment", "approval_rule_id", "produced_table", "produced_id", "flow_runs", "fulfillers",
+  "state", "request_id", "cat_item_id", "item_version_id", "category_id", "answers", "private_answers", "price", "total",
+  "recurring_price", "recurring_frequency", "fulfilment", "approval_rule_id", "produced_table", "produced_id",
   "stage", "approval", "caller_id", "opened_by", "watch_list", "parent_id", "rating", "feedback", "quantity",
 ]);
 
@@ -384,8 +384,8 @@ async function assertWorksItem(w: WriteArgs): Promise<void> {
   }
   const ritm = await liveRow(w.tx, w.ctx, "request_item", w.next.request_item_id);
   if (!ritm) throw validationError({ request_item_id: "قلم درخواست‌شده پیدا نشد" });
-  // the fulfillers' share of the item does not count: only its group or its assignee
-  if ((await modeOn(w.tx, w.ctx, "request_item", { ...ritm, fulfillers: [] })) !== "full") {
+  // only its group or its assignee (the fulfillers of other tasks read the item, never work it)
+  if ((await modeOn(w.tx, w.ctx, "request_item", ritm)) !== "full") {
     throw forbidden(`وظیفهٔ ${ritm.number ? `قلم ${ritm.number}` : "این قلم"} را کارشناسان گروه انجام آن می‌سازند`);
   }
 }

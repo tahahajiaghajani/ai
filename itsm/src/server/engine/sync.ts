@@ -28,7 +28,7 @@ import { condEnv, isSystemCtx } from "./env";
 import { orgSchema, type OrgSchema } from "./schema";
 import { readable, writableRule } from "./sql";
 import { coerceValue, FieldError, KEEP } from "./values";
-import { fromDb, type Row } from "./read";
+import { canOpenRecords, fromDb, type Row } from "./read";
 import { recordEvents, sameValue } from "./write";
 import { emitEvent } from "./events";
 import { hooksFor } from "./hooks";
@@ -57,7 +57,8 @@ export async function scopeEpoch(q: Queryable, orgId: string, userId: string): P
 
 /** Ids of `def` among `ids` the caller may read (deleted rows included). */
 async function readableIds(q: Queryable, ctx: Ctx, def: TableDef | undefined, ids: string[], env: CondEnv): Promise<Set<string>> {
-  if (!def || def.virtual || !ids.length || !access().canReadTable(ctx, def)) return new Set();
+  // participants with a grant of their own (approvers) get the records they take part in on their Windows app too
+  if (!def || def.virtual || !ids.length || !(await canOpenRecords(ctx, def, q))) return new Set();
   const params: unknown[] = [pgArray(ids)];
   const where = readable(ctx, def, "t", params, env, { deleted: "any" });
   const rows = await q.query<{ id: string }>(`select t.id from ${def.table} t where t.id = any($1::uuid[]) and ${where}`, params);

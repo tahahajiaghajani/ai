@@ -337,7 +337,7 @@ export const BASE_STATES: StateModel = {
   locked: [],
 };
 
-const sys = { readonly: true, hidden: true, audit: false } as const;
+const sys = { system: true, hidden: true, audit: false } as const;
 
 /** The compiled contributors of a row (see CONTRIBUTORS). */
 const contribFields = (): FieldDef[] => [

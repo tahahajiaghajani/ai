@@ -18,7 +18,7 @@ import { EmptyState } from "../../components/display";
 import { Note } from "../../components/blocks";
 import { PageHeader } from "../../components/layout";
 import { useMe, useRecord, useRecordActions, useTableDef } from "../data/hooks";
-import { extensionsFor, extensionsVersion, getPolicySource, recordPath, tablePath, type RecordContext, type RecordExtensions } from "../extensions";
+import { extensionsFor, extensionsVersion, forParticipants, getPolicySource, recordPath, tablePath, type RecordContext, type RecordExtensions } from "../extensions";
 import { formLayout } from "../model/layout";
 import { formState, missingRequired, type UiPolicy } from "../model/policies";
 import { recordLabel, displayText, fieldOf, isEmptyValue, type Schema } from "../model/schema";
@@ -267,7 +267,7 @@ function ViewRecord({ def, schema, id, extensions, back }: { def: TableMeta; sch
   const nav = useNavigate();
   const n = useNotify();
   const { userId, env, tz } = useMe();
-  const { ext, policies } = useExtensions(def.key, extensions);
+  const { ext: allExt, policies } = useExtensions(def.key, extensions);
   const actions = useRecordActions(def.key);
   const rec = useRecord(def.key, id);
   const [mode, setMode] = useState<"view" | "edit">("view");
@@ -412,10 +412,13 @@ function ViewRecord({ def, schema, id, extensions, back }: { def: TableMeta; sch
   }
   if (!row || !meta || !ctx) return <PageSkeleton />;
 
+  // an approver without a role in the area reads the record and decides; the module's own widgets are not for them
+  const participant = meta.reach === "participant";
+  const ext = participant ? forParticipants(allExt) : allExt;
   const title = displayText(def, row) || recordLabel(def, row) || def.label;
   const newer = mode === "edit" && base && row.version > base.version;
-  const related = (def.form?.related ?? [])
-    .filter((r) => !!schema.def(r.table))
+  const related = (participant ? [] : def.form?.related ?? [])
+    .filter((r) => !!schema.def(r.table) && !schema.def(r.table)!.can.participant)
     .map((r) => ({
       key: `rel:${r.table}:${r.field}`,
       label: r.label ?? schema.def(r.table)!.plural,

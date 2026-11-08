@@ -46,6 +46,8 @@ export interface SidePanelWidget {
   order?: number;
   when?: (ctx: RecordContext) => boolean;
   render: (ctx: RecordContext) => ReactNode;
+  /** also for someone who reads the record only as a participant (an approver without a role in its area) */
+  participants?: boolean;
 }
 
 export interface RecordTab {
@@ -54,6 +56,24 @@ export interface RecordTab {
   order?: number;
   when?: (ctx: RecordContext) => boolean;
   render: (ctx: RecordContext) => ReactNode;
+  /** also for someone who reads the record only as a participant */
+  participants?: boolean;
+}
+
+/**
+ * What a participant without a role in the record's area (`meta.reach === "participant"`: an approver) gets of a
+ * table's extensions: the panels and tabs that say so (the approvals panel); no module actions, composer slots or
+ * module tabs, which call the module's routes the person cannot use.
+ */
+export function forParticipants(ext: RecordExtensions): RecordExtensions {
+  return {
+    path: ext.path,
+    list: ext.list,
+    policies: ext.policies,
+    cardFields: ext.cardFields,
+    sidePanels: (ext.sidePanels ?? []).filter((p) => p.participants),
+    tabs: (ext.tabs ?? []).filter((t) => t.participants),
+  };
 }
 
 export interface MoreAction {

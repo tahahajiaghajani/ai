@@ -604,12 +604,13 @@ export const REQUEST: TableDef = {
     { name: "total_price", label: "مبلغ کل", type: "money", readonly: true, list: true, span: 8, section: "سفارش" },
     { name: "recurring_total", label: "هزینهٔ دوره‌ای", type: "money", readonly: true, span: 8, section: "سفارش" },
     { name: "stage", label: "مرحله", type: "choice", choices: "request_item.stage", readonly: true, list: true, filter: true, span: 8, section: "سفارش" },
-    // the people working its items and tasks (kept by the roll-up): they read the order header
-    { name: "fulfillers", label: "انجام‌دهندگان", type: "users", readonly: true, hidden: true, audit: false },
+    // the people working its items and tasks (kept by the roll-up): they read the order header, never change it
+    { name: "fulfillers", label: "انجام‌دهندگان", type: "users", system: true, hidden: true, audit: false },
   ],
   states: REQUEST_STATES,
   scope: {
-    own: ["caller_id", "requested_for", "opened_by", "assigned_to", "fulfillers"],
+    own: ["caller_id", "requested_for", "opened_by", "assigned_to"],
+    readers: ["fulfillers"],
     watchers: "watch_list",
     group: "assignment_group_id",
     requester: ["requested_for", "caller_id", "opened_by"],
@@ -653,7 +654,7 @@ export const REQUEST_ITEM: TableDef = {
     { name: "answers", label: "پاسخ‌ها", type: "json", hidden: true, audit: false },
     { name: "private_answers", label: "پاسخ‌های حساس", type: "json", readonly: true, hidden: true, audit: false, group: "personal" },
     // sealed JSON of the secret answers: no hint (the last characters of the text are the last answer's)
-    { name: "secret_answers", label: "پاسخ‌های محرمانه", type: "secret", readonly: true, hidden: true, hint: false },
+    { name: "secret_answers", label: "پاسخ‌های محرمانه", type: "secret", system: true, hidden: true, hint: false },
     { name: "price", label: "قیمت واحد", type: "money", readonly: true, span: 8, section: "سفارش" },
     { name: "total", label: "مبلغ", type: "money", readonly: true, list: true, span: 8, section: "سفارش" },
     { name: "recurring_price", label: "هزینهٔ دوره‌ای", type: "money", readonly: true, span: 8, section: "سفارش" },
@@ -669,10 +670,10 @@ export const REQUEST_ITEM: TableDef = {
     { name: "revoked_at", label: "زمان لغو دسترسی", type: "datetime", readonly: true, span: 8, section: "انجام" },
     { name: "subscription_id", label: "اشتراک", type: "ref", ref: "request_subscription", readonly: true, span: 8, section: "انجام" },
     // the service offering's entitlement when the item was ordered (SPF-014): offering, service, basis, agreements
-    { name: "entitlement", label: "حق استفاده هنگام سفارش", type: "json", readonly: true, hidden: true, audit: false },
-    { name: "flow_runs", label: "اجراهای گردش‌کار", type: "tags", readonly: true, hidden: true, audit: false },
-    // the people working its tasks (kept by the roll-up): they read the item and its answers
-    { name: "fulfillers", label: "انجام‌دهندگان", type: "users", readonly: true, hidden: true, audit: false },
+    { name: "entitlement", label: "حق استفاده هنگام سفارش", type: "json", system: true, hidden: true, audit: false },
+    { name: "flow_runs", label: "اجراهای گردش‌کار", type: "tags", system: true, hidden: true, audit: false },
+    // the people working its tasks (kept by the roll-up): they read the item and its answers, never change it
+    { name: "fulfillers", label: "انجام‌دهندگان", type: "users", system: true, hidden: true, audit: false },
     // the requester's feedback once the item is delivered (REQ-046)
     { name: "rating", label: "رضایت از انجام", type: "rating", min: 1, max: 5, span: 8, section: "بازخورد" },
     { name: "feedback", label: "نظر درخواست‌کننده", type: "text", maxLength: 2000, span: 16, section: "بازخورد" },
@@ -689,7 +690,8 @@ export const REQUEST_ITEM: TableDef = {
   ],
   states: REQUEST_ITEM_STATES,
   scope: {
-    own: ["caller_id", "requested_for", "opened_by", "assigned_to", "fulfillers"],
+    own: ["caller_id", "requested_for", "opened_by", "assigned_to"],
+    readers: ["fulfillers"],
     watchers: "watch_list",
     group: "assignment_group_id",
     requester: ["requested_for", "caller_id", "opened_by"],

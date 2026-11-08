@@ -65,11 +65,13 @@ describe("pure rule helpers", () => {
   });
 
   it("checks business-rule actions and fills templates", () => {
-    const fields: Record<string, { type: string; base?: boolean }> = { note: { type: "string" }, state: { type: "choice" }, reviewer: { type: "user" }, org_id: { type: "uuid", base: true } };
+    const fields: Record<string, { type: string; base?: boolean; system?: boolean }> = { note: { type: "string" }, state: { type: "choice" }, reviewer: { type: "user" }, org_id: { type: "uuid", base: true }, reopen_count: { type: "int", system: true } };
     const opts = (timing: string) => ({ field: (n: string) => fields[n], table: (k: string) => k === "rule_note", stateField: "state", timing });
     expect(actionsProblem([{ type: "set", field: "note", value: "x" }, { type: "work_note", body: "یادداشت" }], opts("before"))).toBeNull();
     expect(actionsProblem([{ type: "set", field: "nope" }], opts("before"))).toContain("«nope»");
     expect(actionsProblem([{ type: "set", field: "org_id" }], opts("before"))).toContain("سامانه");
+    // system fields are the engine's and the modules' bookkeeping: a rule (configuration) never sets them
+    expect(actionsProblem([{ type: "set", field: "reopen_count", value: 0 }], opts("after"))).toContain("سامانه");
     expect(actionsProblem([{ type: "set", field: "state", value: "closed" }], opts("before"))).toContain("پس از ذخیره");
     expect(actionsProblem([{ type: "set", field: "state", value: "closed" }], opts("after"))).toBeNull();
     expect(actionsProblem([{ type: "watcher", op: "add", field: "note" }], opts("after"))).toContain("کاربر نیست");

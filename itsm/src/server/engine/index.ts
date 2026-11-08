@@ -29,7 +29,7 @@ export type { OrgSchema } from "./schema";
 export { condEnv, systemCtx, actorId, isSystemCtx, orgTz, SYSTEM_USER } from "./env";
 export { coerceValue, validateRow, checkRefs, parseDate, parseDateTime, openSecret, secretView, Problems, FieldError, validationError, TEXT_LIMITS } from "./values";
 export { toSql, readable, writableRule, searchSql, orderSql, pathExpr, fieldExpr, normSql, parseNumber } from "./sql";
-export { loadReadable, requireReadable, toOutput, fromDb, pathVisible } from "./read";
+export { loadReadable, requireReadable, canOpenRecords, toOutput, fromDb, pathVisible } from "./read";
 export { RefSet, resolveDisplay, labelOf } from "./display";
 export { bumpScopeEpoch, scopeEpoch } from "./sync";
 export { ddlFor, ddlForAll, reconcileSchema } from "./ddl";

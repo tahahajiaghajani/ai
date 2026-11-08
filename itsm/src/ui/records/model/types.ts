@@ -5,7 +5,8 @@ import type { Option, StateCategory, TableDef } from "@shared/model/types";
 
 /** A table as GET /meta/tables returns it: the organisation's effective definition and what the caller may do. */
 export interface TableMeta extends TableDef {
-  can: { read: true; create: boolean };
+  /** `participant`: only the records the person takes part in open (an approver without a role in the area) */
+  can: { read: true; create: boolean; participant?: true };
 }
 
 export interface TablesPayload {
@@ -42,6 +43,8 @@ export interface RecordMeta {
   transitions: RecordTransition[];
   locked: boolean;
   watching?: boolean;
+  /** "participant": the person reads this record only as a participant with a grant of its own (an approver) */
+  reach?: "participant";
   sla?: unknown;
   viewers?: unknown;
   [k: string]: unknown;

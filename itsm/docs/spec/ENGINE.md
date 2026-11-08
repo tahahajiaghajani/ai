@@ -134,8 +134,10 @@ virtual `user` (members: `name`, `email`, `title`, `role`, `is_active`).
 | `color` | text | a `COLOR_KEYS` name (never hex) | |
 | `secret` | text | **never returned**: `{ secret: true, hint: "…abcd" }` (`hint: false` on the field: always «…», for structured text) | plain string; send the `{ secret: true }` object back to keep it |
 
-FieldDef options: `required`, `readonly` (API ignores it; hooks/engine may set it), `hidden` (UI only), `system`
-(engine-maintained, ignored in input), `default` (value or `$now`, `$today`, `$me`, `$my_unit`, `$my_domain`),
+FieldDef options: `required`, `readonly` (shown in its place on the form; ignored in input — hooks and trusted
+server code set it), `hidden` (UI only), `system` (bookkeeping of the engine or a module: ignored in input, set by hooks
+and trusted server code only — never by business rules, flows, question mappings or imports; on forms it sits in
+«اطلاعات سامانه» and never on a new record), `default` (value or `$now`, `$today`, `$me`, `$my_unit`, `$my_domain`),
 `choices` (options or list key), `dependsOn` (an option's `parent` must equal the parent field's value), `ref`,
 `refFilter` (condition the referenced record must satisfy, enforced on write), `condTable` / `condTableField`,
 `min`/`max`, `maxLength`, `unique`, `list`/`search`/`filter`/`sort`/`index`, `group` (field security group),
@@ -275,10 +277,11 @@ await ctx.write(async (tx) => {
   by `registerRecordMeta` (e.g. `sla`, `viewers`).
 - **Concurrency**: `version` is the concurrency token (moved by every user write; `rev` is the sync revision — do not
   use it). Without `version`, the last writer wins. A write that changes nothing does not move it.
-- **Input rules**: unknown keys → 400; base columns, `system` and `readonly` fields are ignored; a field outside the
+- **Input rules**: unknown keys → 400; base columns are ignored, and so are `system` and `readonly` fields unless the
+  write is `trusted` (server code: a module stamping its own fields from a service or a job); a field outside the
   provider's `writableFields` → 403 `forbidden_field` *only if its value would change* (a whole row can be sent back).
 - **WriteOptions**: `version`, `via` (`"api" | "import" | "sync"`, recorded on events), `trusted` (server code: may
-  set readonly fields, field permissions not asked), `keepVersion` (engine stamps that must not invalidate open
+  set system and readonly fields, field permissions not asked), `keepVersion` (engine stamps that must not invalidate open
   forms), `allowLocked`, `skipAccess` (the caller checked access itself).
 - **Lists**: `filter` (validated; fields the caller may not see refused), `q` (every word must appear in a
   `search` field, Persian-normalised; or the record number `۱۲` / an id; a full number with its prefix such as

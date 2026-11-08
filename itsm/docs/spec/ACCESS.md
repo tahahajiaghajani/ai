@@ -134,10 +134,10 @@ readable(s, T, r) =
   s is the system                                     → true
   r.org_id ≠ s.org                                    → false
   T is virtual (members)                              → true
-  g.read = none                                       → false
+  g.read = none                                       → granted ∧ domainOk ∧ confidentialOk
   T.scope.public                                      → true
   ¬ domainOk ∨ ¬ confidentialOk                       → false
-  own ∨ participant                                   → true
+  own ∨ reader ∨ participant ∨ granted                → true
   scope(g.read) ∧ workspaceOk ∧ restrictedOk          → true
   requesterSide ∧ secureOk ∧ restrictedOk             → true
                                                       → false
@@ -146,9 +146,11 @@ readable(s, T, r) =
 | Term | Holds when |
 | --- | --- |
 | domainOk | separation is off, or a role reaches every domain, or `r.domain_id` is null or in `s.domainTree` |
-| confidentialOk | `r.confidential` is not true, or the subject carries the table's confidential field group (default hr in area hr, else security), or `r.<group>` ∈ `s.groups`, or the subject is in an assignee or requester field, or on `r.access_list` |
+| confidentialOk | `r.confidential` is not true, or the subject carries the table's confidential field group (default hr in area hr, else security), or `r.<group>` ∈ `s.groups`, or the subject is in an assignee, requester or readers field, or on `r.access_list` |
 | own | the subject is in an own field (`scope.own` ∪ `scope.requester`; users fields hold them), in `scope.watchers`, or an assignee field holds one of `s.delegators` |
-| participant | a registered participant source holds (e.g. an approver of a pending approval) — SQL only, §7 |
+| reader | the subject is in a `scope.readers` field (read only: never write, never a delegate's) |
+| participant | a registered participant source of reach `scoped` holds — SQL only, §7 |
+| granted | a registered participant source of reach `grant` holds (the approver grant: the subject has or had an approval on the record; the owners of a service the record names) — SQL only, §7 |
 | scope(group) | `r.<group>` ∈ `s.groups` (for writes: `s.writeGroups`) |
 | scope(unit) | scope(group) ∨ `r.unit_id` = `s.unitId` |
 | scope(unit_tree) | scope(group) ∨ `r.unit_id` ∈ `s.unitTree` |
@@ -159,7 +161,11 @@ readable(s, T, r) =
 | restrictedOk | `r.<group>` null or not a restricted group the subject is outside |
 | requesterSide | the table has requester fields and `r.unit_id` ∈ `s.managedTree` (department heads) or a requester field holds one of `s.reportees` (line managers) |
 
-Notes. Own records pass the workspace and restricted-group rules (a requester always sees their HR case; the requester
+Notes. A `grant` participant is a read grant of its own, limited to the rows its source names: it reads them even
+when its roles give nothing in the area (a requester who approves a change, a manager approving a staff member's
+catalogue item), always subject to the domain and confidentiality rules; field groups still decide which fields it
+sees (and internal journal entries need `internal`), and it never writes. A `scoped` participant only adds rows to a
+subject whose roles read the area at all (read ≥ own). Own records pass the workspace and restricted-group rules (a requester always sees their HR case; the requester
 of a restricted group's ticket still sees it) but never the domain and confidentiality rules. Requester-side
 visibility is read-only and passes the member-workspace rule (a department head sees the facilities requests of
 their people) but not secure workspaces or restricted groups. Deleted rows are not filtered by the rule (the engine
@@ -191,9 +197,20 @@ field and GIN on users arrays (watchers), on top of `index: true` fields such as
 10 000 tickets the page queries of a requester, a need-to-know agent and a department head use indexes only
 (`tests/access-performance.test.ts`).
 
-`registerParticipantSource({ name, sql(def, alias, params, userId) })` adds participants: the approvals service
-registers `exists (select 1 from sm_approvals a where a.table_key = '<key>' and a.record_id = <alias>.id and …)`.
-A source must push its own parameters and must not put `$` in string literals.
+`registerParticipantSource({ name, reach, sql(def, alias, params, userId) })` adds participants. `reach: "scoped"`
+(the default) adds rows to subjects who read the area at all; `reach: "grant"` reads the rows it names without an
+area grant (domain and confidentiality still apply). Built-in sources: «approvals» (grant — the approver, the delegate
+of an open approval and whoever decided one, in every state but «skipped»: whoever has or had an approval on a record
+reads it) and «service_owners» of the service portfolio (grant — the owner and product owner of a service read the
+records naming it). A source must push its own parameters and must not put `$` in string literals; its predicate
+returns null for tables it does not apply to.
+
+Single-record reads (`get`, `requireReadable` — journal, history, attachments, links, the approvals panel — and the
+table's meta) open for a subject whose roles do not read the area when a `grant` source applies to the table
+(`participates(ctx, def)`); lists, aggregates, exports, search and module routes keep asking `canReadTable` (area
+read), so a grant participant reaches the records it takes part in from «تأییدهای من» or a notification, never a
+queue of the area. The record's meta says `reach: "participant"` then, and the record page shows only the extensions
+that declare `participants: true` (the approvals panel).
 
 ## 8. Writes
 
@@ -280,6 +297,7 @@ A module names its area (`registerArea` for a new one) and the scope columns in 
 | `own` | user fields that make a record the subject's own | task: caller_id, requested_for, opened_by, assigned_to |
 | `requester` | requester-side own fields, in priority order: whose record it is (anchors, managers' visibility, create on behalf) | `own` minus `assigned_to` (task: requested_for, caller_id, opened_by) |
 | `watchers` | users field of watchers | task: watch_list |
+| `readers` | user fields whose people read the record and nothing more: never write, never through a delegate; they pass the confidentiality rule like the record's own people (a module keeps them, e.g. the assignees of a requested item's tasks in `fulfillers`) | none |
 | `group` | the assignment group field | task: assignment_group_id |
 | `unit`, `domain`, `workspace` | anchor columns | unit_id, domain_id, workspace_id |
 | `requesterWritable` | fields a requester-only subject may change | task: description, urgency, watch_list |

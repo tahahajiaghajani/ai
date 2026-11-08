@@ -7,9 +7,29 @@ import type { TableDef } from "@shared/model/types";
 import {
   canReadRow, canTransitionRow, grantIn, hasGroup, hiddenFields, scopeColumns, writeMode, type Subject,
 } from "@shared/access";
+import type { Ctx } from "../context";
+import type { Queryable } from "../db";
 import type { AccessProvider } from "./provider";
-import { readSql } from "./predicate";
+import { participantSources, readSql } from "./predicate";
 import { prepareSubject, preparedOf, subjectOf } from "./subject";
+import { physicalTables } from "@shared/tables";
+
+/** Per request: the tables a member takes part in through `grant` participant sources (one query per source). */
+const participationCache = new WeakMap<Ctx, Promise<ReadonlySet<string>>>();
+
+async function participationsOf(ctx: Ctx, q: Queryable): Promise<ReadonlySet<string>> {
+  const s = subjectOf(ctx);
+  if (s.kind !== "user") return new Set();
+  const out = new Set<string>();
+  for (const src of participantSources()) {
+    if ((src.reach ?? "scoped") !== "grant") continue;
+    const applies = physicalTables().filter((d) => src.sql(d, "t", [], s.userId) !== null);
+    if (!applies.length) continue;
+    const named = src.tables ? new Set(await src.tables(q, s.orgId, s.userId)) : null;
+    for (const d of applies) if (!named || named.has(d.key)) out.add(d.key);
+  }
+  return out;
+}
 
 const visibleCache = new WeakMap<Subject, Map<TableDef, ReadonlySet<string> | null>>();
 
@@ -63,6 +83,11 @@ export const itsmProvider: AccessProvider = {
   },
   canTransition(ctx, def, row, t) {
     return canTransitionRow(subjectOf(ctx), def, row, t);
+  },
+  participations(ctx, q) {
+    let p = participationCache.get(ctx);
+    if (!p) participationCache.set(ctx, (p = participationsOf(ctx, q)));
+    return p;
   },
   async env(ctx) {
     const b = preparedOf(ctx) ?? (await prepareSubject(ctx));

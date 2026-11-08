@@ -15,7 +15,7 @@ import { FIELD_GROUPS, type FieldGroup } from "@shared/model/types";
 import {
   areas, builtinRoles, compactGrant, diffRole, explainRow, fullGrant, grantIn, hiddenFields, isBuiltinRole,
   PERSONA_PRESETS, roleClosure, writeMode, DESK_PRESETS,
-  type DeskPreset, type FullGrant, type Grants, type RoleChange, type RoleDef, type RowExplanation, type Subject,
+  type DeskPreset, type FullGrant, type Grants, type RoleChange, type RoleDef, type RowExplanation, type RowExtra, type Subject,
 } from "@shared/access";
 import { accessSettings, buildSubject, catalogOf, prepareSubject, snapshotFor, subjectOf, type AccessSettings } from "./subject";
 import { participantSources, readSql } from "./predicate";
@@ -477,7 +477,7 @@ export interface AccessCheck {
   legacy: boolean;
   field_groups: FieldGroup[];
   hidden_fields: { name: string; label: string; group: FieldGroup }[];
-  can: { read_table: boolean; create: boolean };
+  can: { read_table: boolean; create: boolean; participant_only?: true };
   record?: {
     id: string;
     label: string;
@@ -509,13 +509,14 @@ export async function checkAccess(ctx: Ctx, input: { user_id: string; table: str
       return { name: n, label: f.label, group: f.group! };
     }),
     can: { read_table: g.read !== "none", create: g.create },
+    // tables read only as a participant with a grant of its own (an approver without a role in the area)
+    ...(g.read === "none" && (await access().participations?.(target, ctx.db))?.has(def.key) ? { participant_only: true } : {}),
   };
   if (input.record_id) {
     // the checker never tells about a record its user may not read
     const mine = await requireReadable(ctx, def, input.record_id, await condEnv(ctx));
     const row = await ctx.db.one<Record<string, unknown>>(`select * from ${def.table} where id = $1 and org_id = $2`, [mine.id, ctx.org.id]);
-    const participant = await participantOf(ctx.db, s, def, String(mine.id));
-    const explanation = explainRow(s, def, row!, participant === null ? {} : { participant });
+    const explanation = explainRow(s, def, row!, await participantOf(ctx.db, s, def, String(mine.id)));
     const params: unknown[] = [String(mine.id)];
     const sql = readSql(s, def, "t", params);
     const probe = await ctx.db.one(`select 1 from ${def.table} t where t.id = $1 and ${sql}`, params);
@@ -538,19 +539,27 @@ export async function checkAccess(ctx: Ctx, input: { user_id: string; table: str
  */
 export async function explainAccess(ctx: Ctx, def: TableDef, row: Record<string, unknown>): Promise<RowExplanation> {
   const s = (await prepareSubject(ctx)).subject;
-  const participant = row.id ? await participantOf(ctx.db, s, def, String(row.id)) : null;
-  return explainRow(s, def, row, participant === null ? {} : { participant });
+  return explainRow(s, def, row, row.id ? await participantOf(ctx.db, s, def, String(row.id)) : {});
 }
 
-/** Is the subject a participant of the record through a registered source (null when no source applies)? */
-async function participantOf(q: Queryable, s: Subject, def: TableDef, id: string): Promise<boolean | null> {
-  const params: unknown[] = [id];
-  const terms = participantSources()
-    .map((src) => src.sql(def, "t", params, s.userId))
-    .filter((x): x is string => !!x);
-  if (!terms.length) return null;
-  const r = await q.one(`select 1 from ${def.table} t where t.id = $1 and (${terms.join(" or ")})`, params);
-  return !!r;
+/**
+ * Is the subject a participant of the record through the registered sources — `participant` for sources of reach
+ * «scoped», `granted` for those of reach «grant» (each left out when no such source applies to the table)?
+ */
+async function participantOf(q: Queryable, s: Subject, def: TableDef, id: string): Promise<RowExtra> {
+  const out: RowExtra = {};
+  for (const reach of ["scoped", "grant"] as const) {
+    const params: unknown[] = [id];
+    const terms = participantSources()
+      .filter((src) => (src.reach ?? "scoped") === reach)
+      .map((src) => src.sql(def, "t", params, s.userId))
+      .filter((x): x is string => !!x);
+    if (!terms.length) continue;
+    const r = await q.one(`select 1 from ${def.table} t where t.id = $1 and (${terms.join(" or ")})`, params);
+    if (reach === "scoped") out.participant = !!r;
+    else out.granted = !!r;
+  }
+  return out;
 }
 
 function recordLabel(def: TableDef, row: Record<string, unknown>): string {

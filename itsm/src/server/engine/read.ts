@@ -72,9 +72,20 @@ export async function loadReadable(q: Queryable, ctx: Ctx, def: TableDef, id: st
   return r ? fromDb(def, r) : null;
 }
 
+/**
+ * May the caller open single records of `def`: their roles read the table's area, or they take part in some of its
+ * rows through a participant grant (an approver of a change without any role in the change area). Lists, aggregates
+ * and exports ask `canReadTable` only.
+ */
+export async function canOpenRecords(ctx: Ctx, def: TableDef, q: Queryable = ctx.db): Promise<boolean> {
+  if (access().canReadTable(ctx, def)) return true;
+  const p = access().participations;
+  return !!p && !def.virtual && (await p.call(access(), ctx, q)).has(def.key);
+}
+
 /** The readable row or 404 «رکورد پیدا نشد» (a row the caller may not read does not exist for them). */
 export async function requireReadable(ctx: Ctx, def: TableDef, id: string, env: CondEnv, q: Queryable = ctx.db, opts: LoadOptions = {}): Promise<Row> {
-  if (!access().canReadTable(ctx, def)) throw notFound(`${def.label} پیدا نشد`);
+  if (!(await canOpenRecords(ctx, def, q))) throw notFound(`${def.label} پیدا نشد`);
   const row = await loadReadable(q, ctx, def, id, env, opts);
   if (!row) throw notFound(`${def.label} پیدا نشد`);
   return row;

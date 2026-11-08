@@ -7,16 +7,28 @@ import type { TableDef } from "@shared/model/types";
 import {
   grantIn, restrictedOutside, scopeColumns, secureOutside, type Scope, type ScopeColumns, type Subject,
 } from "@shared/access";
-import { pgArray } from "../db";
+import { pgArray, type Queryable } from "../db";
 
 /**
- * A module's extra participants of a record (e.g. the approvers of a pending approval): a SQL predicate on the row
- * aliased `alias` that holds when `userId` takes part in it, or null when the source does not apply to the table.
- * Participants read the record like its own people do (subject to the domain and confidentiality rules).
+ * A module's extra participants of a record (e.g. the approvers of an approval): a SQL predicate on the row aliased
+ * `alias` that holds when `userId` takes part in it, or null when the source does not apply to the table.
+ * Participants read the record like its own people do (subject to the domain and confidentiality rules), never
+ * write it. docs/spec/ACCESS.md §6–7.
  */
 export interface ParticipantSource {
   name: string;
+  /**
+   * `scoped` (default): the people it names read the record only when their roles read the table's area at all
+   * (read ≥ own) — the source adds rows, never an area. `grant`: a read grant of its own, limited to the rows it
+   * names — they read them even without any grant in the area (approvers, service owners).
+   */
+  reach?: "scoped" | "grant";
   sql(def: TableDef, alias: string, params: unknown[], userId: string): string | null;
+  /**
+   * `grant` sources: the tables in which `userId` takes part in some row right now (one cheap query), so that
+   * single-record reads and the table's meta open for them; without it, every table the source applies to.
+   */
+  tables?(q: Queryable, orgId: string, userId: string): Promise<string[]>;
 }
 
 const sources: ParticipantSource[] = [];
@@ -31,6 +43,14 @@ export function registerParticipantSource(src: ParticipantSource): () => void {
 }
 
 export const participantSources = (): readonly ParticipantSource[] => sources;
+
+const reachOf = (src: ParticipantSource) => src.reach ?? "scoped";
+
+/** Does a `grant` participant source apply to the table (may some subject read rows of it without an area grant)? */
+export function grantSourcesFor(def: TableDef): ParticipantSource[] {
+  if (def.virtual) return [];
+  return sources.filter((src) => reachOf(src) === "grant" && src.sql(def, "t", [], "00000000-0000-0000-0000-000000000000") !== null);
+}
 
 class Builder {
   private me: { uuid?: string; text?: string } = {};
@@ -82,12 +102,13 @@ class Builder {
     return this.nullOrAny(this.c.domain, this.s.domainTree);
   }
 
-  confidential(hasGroup: boolean): string {
+  /** the confidentiality rule; readers pass it for reading only */
+  confidential(hasGroup: boolean, write = false): string {
     const c = this.c;
     if (!c.confidential || hasGroup) return "true";
     const allow = [
       c.group ? this.holdsAny(c.group, false, this.s.groups) : "false",
-      ...[...c.assignee, ...c.requester].map((f) => this.holdsMe(f.name, f.array)),
+      ...[...c.assignee, ...c.requester, ...(write ? [] : c.readers)].map((f) => this.holdsMe(f.name, f.array)),
       c.accessList ? this.holdsMe(c.accessList, true) : "false",
     ].filter((x) => x !== "false");
     return `(not coalesce(${this.col("confidential")}, false)${allow.length ? ` or ${allow.join(" or ")}` : ""})`;
@@ -95,13 +116,24 @@ class Builder {
 
   own(def: TableDef): string {
     const c = this.c;
-    const terms = c.own.map((f) => this.holdsMe(f.name, f.array));
+    const terms = [...c.own, ...c.readers].map((f) => this.holdsMe(f.name, f.array));
     if (c.watchers) terms.push(this.holdsMe(c.watchers, true));
     for (const f of c.assignee) {
       const t = this.holdsAny(f.name, f.array, this.s.delegators);
       if (t !== "false") terms.push(t);
     }
     for (const src of sources) {
+      const t = src.sql(def, this.alias, this.params, this.s.userId);
+      if (t) terms.push(`(${t})`);
+    }
+    return or(terms);
+  }
+
+  /** The participant sources of reach `grant` (the approver grant…): they read the row without an area grant. */
+  granted(def: TableDef): string {
+    const terms: string[] = [];
+    for (const src of sources) {
+      if (reachOf(src) !== "grant") continue;
       const t = src.sql(def, this.alias, this.params, this.s.userId);
       if (t) terms.push(`(${t})`);
     }
@@ -198,8 +230,14 @@ function readTerms(s: Subject, def: TableDef, alias: string, params: unknown[]):
   const org = `${alias}.org_id = $${params.length}`;
   if (s.kind === "system" || def.virtual) return org;
   const g = grantIn(s.eff, def.area);
-  if (g.read === "none") return "false";
   const c = scopeColumns(def);
+  if (g.read === "none") {
+    // the participant grant: rows a `grant` source names, under the domain and confidentiality rules
+    const b = new Builder(s, c, alias, params);
+    const granted = b.granted(def);
+    if (granted === "false") return "false";
+    return and([org, b.domain(), b.confidential(hasGroup(s, c.confidentialGroup)), granted]);
+  }
   if (c.public) return org;
   const b = new Builder(s, c, alias, params);
   const restricted = b.restricted();
@@ -228,5 +266,5 @@ function writeTerms(s: Subject, def: TableDef, alias: string, params: unknown[],
   const b = new Builder(s, c, alias, params);
   const terms = [b.assigneeOwn(), and([b.scope(scope, true), b.workspace(), b.restricted()])];
   if (op === "write" || !c.requesterWritable) terms.push(b.requesterOwn());
-  return and([org, b.domain(), b.confidential(hasGroup(s, c.confidentialGroup)), or(terms)]);
+  return and([org, b.domain(), b.confidential(hasGroup(s, c.confidentialGroup), true), or(terms)]);
 }

@@ -52,6 +52,8 @@ export interface ScopeColumns {
   requester: { name: string; array: boolean }[];
   /** own fields that are not requester-side (the assignee) */
   assignee: { name: string; array: boolean }[];
+  /** read-only participants named on the row (`scope.readers`): they read it, never change it */
+  readers: { name: string; array: boolean }[];
   watchers: string | null;
   group: string | null;
   unit: string;
@@ -82,12 +84,14 @@ export function scopeColumns(def: TableDef): ScopeColumns {
   const own = list([...new Set([...(s.own ?? []), ...requesterNames])]);
   const requester = list(requesterNames);
   const assignee = own.filter((f) => !requesterNames.includes(f.name));
+  const readers = list((s.readers ?? []).filter((n) => !own.some((f) => f.name === n)));
   const groupField = s.group && field(s.group) ? s.group : null;
   const confidential = !!def.features?.confidential;
   c = {
     own,
     requester,
     assignee,
+    readers,
     watchers: s.watchers && field(s.watchers) ? s.watchers : null,
     group: groupField,
     unit: s.unit ?? "unit_id",
@@ -125,15 +129,18 @@ export function hasGroup(s: Subject, g: FieldGroup): boolean {
   return s.kind === "system" || s.eff.fieldGroups.includes(g);
 }
 
-export function confidentialOk(s: Subject, c: ScopeColumns, row: Row): boolean {
+/** The confidentiality rule; readers pass it for reading only (naming someone a reader never lets them write). */
+export function confidentialOk(s: Subject, c: ScopeColumns, row: Row, write = false): boolean {
   if (!c.confidential || row.confidential !== true || hasGroup(s, c.confidentialGroup)) return true;
   if (c.group && holdsAny(row[c.group], s.groups)) return true;
-  if ([...c.assignee, ...c.requester].some((f) => holds(row[f.name], s.userId))) return true;
+  if ([...c.assignee, ...c.requester, ...(write ? [] : c.readers)].some((f) => holds(row[f.name], s.userId))) return true;
   return !!c.accessList && holds(row[c.accessList], s.userId);
 }
 
+/** The own (or readers) field that names the subject, the watch list, or an assignee field of a delegator. */
 export function ownMatch(s: Subject, c: ScopeColumns, row: Row): string | null {
   for (const f of c.own) if (holds(row[f.name], s.userId)) return f.name;
+  for (const f of c.readers) if (holds(row[f.name], s.userId)) return f.name;
   if (c.watchers && holds(row[c.watchers], s.userId)) return c.watchers;
   for (const f of c.assignee) if (holdsAny(row[f.name], s.delegators)) return `${f.name}:delegate`;
   return null;
@@ -192,8 +199,13 @@ export function requesterSideMatch(s: Subject, c: ScopeColumns, row: Row): boole
 // ----- decisions --------------------------------------------------------------------------------------------------
 
 export interface RowExtra {
-  /** the subject is a participant through a registered source (an open approval, …), checked in SQL */
+  /** the subject is a participant through a registered source of reach `scoped` (checked in SQL) */
   participant?: boolean;
+  /**
+   * the subject is a participant through a source of reach `grant` (has or had an approval on the record, owns a
+   * service it names…): a read grant of its own, limited to that row (checked in SQL)
+   */
+  granted?: boolean;
 }
 
 /** May `s` read `row` of `def`? */
@@ -202,11 +214,12 @@ export function canReadRow(s: Subject, def: TableDef, row: Row, extra: RowExtra 
   if (row.org_id !== undefined && row.org_id !== s.orgId) return false;
   if (def.virtual) return true;
   const g = grantIn(s.eff, def.area);
-  if (g.read === "none") return false;
   const c = scopeColumns(def);
+  // the participant grant (approvers…): no role reads the area, the record names the subject; restrictions hold
+  if (g.read === "none") return !!extra.granted && domainOk(s, c, row) && confidentialOk(s, c, row);
   if (c.public) return true;
   if (!domainOk(s, c, row) || !confidentialOk(s, c, row)) return false;
-  if (ownMatch(s, c, row) || extra.participant) return true;
+  if (ownMatch(s, c, row) || extra.participant || extra.granted) return true;
   if (scopeMatch(s, c, row, g.read) && workspaceOk(s, c, row) && restrictedOk(s, c, row)) return true;
   return requesterSideMatch(s, c, row) && secureOk(s, c, row) && restrictedOk(s, c, row);
 }
@@ -224,7 +237,7 @@ export function writeMode(s: Subject, def: TableDef, row: Row, op: "write" | "de
   const scope = op === "write" ? g.write : g.delete;
   if (scope === "none") return null;
   const c = scopeColumns(def);
-  if (!domainOk(s, c, row) || !confidentialOk(s, c, row)) return null;
+  if (!domainOk(s, c, row) || !confidentialOk(s, c, row, true)) return null;
   if (assigneeOwn(s, c, row)) return "full";
   if (scopeMatch(s, c, row, scope, true) && workspaceOk(s, c, row) && restrictedOk(s, c, row)) return "full";
   if (requesterOwn(s, c, row)) {
@@ -333,10 +346,22 @@ export function explainRow(s: Subject, def: TableDef, row: Row, extra: RowExtra 
   layers.push({
     key: "own",
     label: "مالکیت یا مشارکت",
-    ok: c.own.length || c.watchers ? !!own : null,
+    ok: c.own.length || c.readers.length || c.watchers ? !!own : null,
     detail: own ? (own.endsWith(":delegate") ? `جانشین کسی است که «${fieldLabel(own)}» این رکورد است` : `کاربر «${fieldLabel(own)}» این رکورد است`) : "کاربر در فیلدهای مالکیت این رکورد نیست",
   });
-  if (extra.participant !== undefined) layers.push({ key: "participant", label: "مشارکت", ok: !!extra.participant, detail: extra.participant ? "کاربر در تأیید یا مشارکتی باز روی این رکورد است" : "مشارکتی در کار نیست" });
+  if (extra.participant !== undefined || extra.granted !== undefined) {
+    const p = !!extra.participant || !!extra.granted;
+    layers.push({
+      key: "participant",
+      label: "مشارکت",
+      ok: p,
+      detail: extra.granted
+        ? "کاربر تأییدکنندهٔ این رکورد است یا بوده، یا مالک خدمتی است که رکورد به آن پیوسته است؛ این مشارکت به‌تنهایی خواندن همین رکورد را می‌دهد"
+        : extra.participant
+          ? "کاربر در مشارکتی روی این رکورد است"
+          : "مشارکتی در کار نیست",
+    });
+  }
   const sOk = scopeMatch(s, c, row, g.read);
   layers.push({ key: "scope", label: "دامنهٔ دید نقش", ok: g.read === "none" || g.read === "own" ? null : sOk, detail: `دامنهٔ «${SCOPE_LABELS[g.read]}» ${sOk ? "این رکورد را در بر می‌گیرد" : "این رکورد را در بر نمی‌گیرد"}` });
   const wOk = workspaceOk(s, c, row);
@@ -352,9 +377,10 @@ export function explainRow(s: Subject, def: TableDef, row: Row, extra: RowExtra 
   layers.push({ key: "requester_side", label: "مدیر واحد یا مدیر مستقیم", ok: c.requester.length ? rs : null, detail: rs ? "رکورد از آنِ یکی از افراد واحد یا زیردستان کاربر است" : "رکورد از آنِ افراد زیر نظر کاربر نیست" });
   let via: RowExplanation["via"] = null;
   if (read) {
-    if (c.public) via = "public";
+    if (g.read === "none") via = "participant";
+    else if (c.public) via = "public";
     else if (own) via = "own";
-    else if (extra.participant) via = "participant";
+    else if (extra.participant || extra.granted) via = "participant";
     else if (sOk && wOk && rOk) via = "scope";
     else via = "requester_side";
   }

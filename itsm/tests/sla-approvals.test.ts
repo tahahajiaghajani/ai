@@ -131,7 +131,7 @@ describe("approvals", () => {
     expect(asked).toHaveLength(1);
     expect([...asked[0].approvers].sort()).toEqual([id("A1"), id("A2")].sort());
 
-    // the approvers read the record while their approval is pending; others do not
+    // the approvers read the record once asked; others do not
     await who.A1.client.get(`${P}/r/apv_case/${rec.id}`, 200);
     await who.X.client.get(`${P}/r/apv_case/${rec.id}`, 404);
     const list = await mine("A1");
@@ -149,8 +149,10 @@ describe("approvals", () => {
     expect(await events("record.approval_decided", rec.id)).toEqual([expect.objectContaining({ decision: "approved", by: id("A1"), outcome: "approved" })]);
     const journal = await e.owner.get(`${P}/r/apv_case/${rec.id}/journal`);
     expect(journal.entries.some((x: { kind: string; body: string }) => x.kind === "approval" && x.body.includes("تأیید کرد"))).toBe(true);
-    // decided: the record is no longer theirs to read, and the decision cannot be taken twice
-    await who.A1.client.get(`${P}/r/apv_case/${rec.id}`, 404);
+    // decided: the approver grant keeps the record readable (whoever has or had an approval on it), never writable;
+    // the decision cannot be taken twice
+    expect((await who.A1.client.get(`${P}/r/apv_case/${rec.id}`, 200)).meta.canWrite).toBe(false);
+    await who.X.client.get(`${P}/r/apv_case/${rec.id}`, 404);
     await decide("A1", a1.id, "rejected", "اشتباه شد", 409);
     expect(await mine("A1")).not.toContainEqual(expect.objectContaining({ record_id: rec.id }));
   });

@@ -27,6 +27,8 @@ import { config, eqAll, holds, liveRow, liveRows, ownTable, rulesFor, systemFrom
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const has = (def: TableDef, name: string) => def.fields.some((f) => f.name === name);
+/** Engine and module bookkeeping a rule (configuration, not server code) never sets. */
+const systemField = (def: TableDef, name: string) => def.fields.some((f) => f.name === name && (f.system || f.base));
 const tableProblem = (key: unknown): string | null => {
   const t = tableDef(String(key ?? ""));
   if (!t || t.virtual) return `جدول «${String(key ?? "")}» وجود ندارد`;
@@ -220,7 +222,7 @@ async function beforeRules(cfg: ServiceConfig, w: WriteArgs, matrix: Matrix | nu
     const later: RuleAction[] = [];
     for (const a of (Array.isArray(r.actions) ? r.actions : []) as RuleAction[]) {
       if (a.type === "abort") throw new AppError(400, "rule", a.message);
-      if (a.type === "set" && has(w.def, a.field)) {
+      if (a.type === "set" && has(w.def, a.field) && !systemField(w.def, a.field)) {
         w.next[a.field] = setValue(a, w, row);
         set.add(a.field);
       } else if (a.type === "watcher") {
@@ -244,7 +246,7 @@ async function runLater(w: WriteArgs & { row: Row }, rule: Row, actions: RuleAct
   const values: Row = {};
   for (const a of actions) {
     if (a.type === "abort") throw new AppError(400, "rule", a.message);
-    if (a.type === "set" && has(w.def, a.field)) values[a.field] = setValue(a, w, row);
+    if (a.type === "set" && has(w.def, a.field) && !systemField(w.def, a.field)) values[a.field] = setValue(a, w, row);
     else if (a.type === "watcher") {
       const field = w.def.scope.watchers ?? "watch_list";
       const list = watchers(w, row, a, values[field] ?? row[field]);
@@ -253,7 +255,8 @@ async function runLater(w: WriteArgs & { row: Row }, rule: Row, actions: RuleAct
       await addJournalIn(w.tx, sys, w.def, row, { kind: "work_note", body: String(fillTemplate(a.body, row) ?? ""), data: { business_rule: rule.id } }, { trusted: true });
     } else if (a.type === "create") {
       const data: Row = {};
-      for (const [k, v] of Object.entries(a.values ?? {})) data[k] = fillTemplate(v, row);
+      const target = tableDef(a.table);
+      for (const [k, v] of Object.entries(a.values ?? {})) if (!target || !systemField(target, k)) data[k] = fillTemplate(v, row);
       await createIn(w.tx, sys, a.table, data, { trusted: true });
     }
   }

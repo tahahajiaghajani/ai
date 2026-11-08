@@ -182,10 +182,11 @@ create index if not exists sm_approvals_crt_idx on sm_approvals (org_id, created
 create index if not exists sm_approvals_record_id_idx on sm_approvals (org_id, record_id) where deleted_at is null;
 create index if not exists sm_approvals_approver_id_idx on sm_approvals (org_id, approver_id) where deleted_at is null;
 create index if not exists sm_approvals_state_idx on sm_approvals (org_id, state) where deleted_at is null;
+create index if not exists sm_approvals_decided_by_idx on sm_approvals (org_id, decided_by) where deleted_at is null;
+create index if not exists sm_approvals_delegated_from_idx on sm_approvals (org_id, delegated_from) where deleted_at is null;
 create index if not exists sm_approvals_workspace_acc_idx on sm_approvals (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
 create index if not exists sm_approvals_unit_acc_idx on sm_approvals (org_id, unit_id) where deleted_at is null and unit_id is not null;
 create index if not exists sm_approvals_domain_acc_idx on sm_approvals (org_id, domain_id) where deleted_at is null and domain_id is not null;
-create index if not exists sm_approvals_delegated_from_idx on sm_approvals (org_id, delegated_from) where deleted_at is null;
 drop trigger if exists sm_approvals_sync on sm_approvals;
 create trigger sm_approvals_sync before insert or update on sm_approvals for each row execute function sm_sync_touch('approval');
 alter table sm_approvals enable row level security;
