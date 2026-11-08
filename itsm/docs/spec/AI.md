@@ -389,13 +389,17 @@ registerSkill(defineSkill({
    removed); store the run; with `propose`, store the writes as a proposal.
 
 Module integrations call `runForModule` (the person's `ctx`, no rule-based fallback — the module's own deterministic
-path or its «no AI» answer stands —, AI unavailability as the HTTP error `ai_<kind>` with its remedy) and map the answer
-to the interface they implement:
+path or its «no AI» answer stands) and map the answer to the interface they implement. AI unavailability stays an
+`AiUnavailableError`: a module with a deterministic answer catches it (`isAiUnavailable`) and answers without AI;
+otherwise the platform's `errorResponse` (src/server/http/hono.ts) answers it as `ai_<kind>` with its Persian message
+and the status of its kind (403 not configured / switched off / budget, 429 rate or quota, 503 when the provider is
+down — never a 500; an `AppError` with an `ai_*` code and a 5xx status becomes 503 too):
 `registerIncidentAi` (summary, similar incidents by retrieval, triage of a draft, resolution notes, KCS draft,
 stakeholder updates), `registerProblemAi` (RCA, known-error draft, summary), `registerChangeAi` (risk narrative — the
-route answers with the deterministic explanation and `ai: false` when no model can —, plan drafts, summary; the CAB
-pack and the PIR draft are panel skills, `change.cab_pack` and `change.pir`, because the module's pack and PIR call
-sites would present a deterministic draft as AI-written), `registerRequestAi` (catalogue item from text, order-form
+route answers with the deterministic explanation and `ai: false` when no model can —, plan drafts, summary, the CAB
+pack `change.cab_pack` and the PIR draft `change.pir`: the module's `cabPack` and `draftPir` treat «no AI» — no model,
+a provider failure, a person who may not use the skill — as no AI and return their deterministic draft with
+`ai: false`, so a draft is marked AI-written only when a model wrote it), `registerRequestAi` (catalogue item from text, order-form
 pre-fill over `promptSafe` questions, item matching by retrieval, summary), `registerKnowledgeAi` (KCS draft over the
 module's scrubbed capture, AQI pre-scoring, duplicate judge, metadata, validation; the editor's writing assistant runs
 the generic writing skills), `registerCmdbAi` (relationship suggestions mapped to readable CIs, duplicate explanation,
