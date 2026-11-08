@@ -167,6 +167,14 @@ async function articleBefore(w: WriteArgs): Promise<void> {
   if (n.translation_of && n.translation_of === n.id) throw validationError({ translation_of: "مقاله ترجمهٔ خودش نیست" });
   if (n.article_type === "link" && touched(w, ["article_type", "external_url"]) && !n.external_url && w.op !== "create") throw validationError({ external_url: "نشانی منبع بیرونی را بنویسید" });
   n.confidential = isInternalArticle(n);
+  // published content turning from internal to external through an edit of the record (type, KCS confidence,
+  // visibility) reaches requesters without a new version: knowledge approvers decide it, and only text without
+  // sensitive data goes out (the check a submission makes, kb_can_submit)
+  if (!isSys(w.ctx) && !w.trusted && w.op !== "create" && w.prev?.confidential && !n.confidential && w.prev?.published_version_id && base.kind !== "internal") {
+    if (!isKbApprover(w.ctx)) throw forbidden("بیرونی‌شدن مقالهٔ داخلی (نوع، اطمینان KCS یا دید) با تأییدکنندهٔ دانش است؛ نسخهٔ تازه بفرستید");
+    const found = scanSensitive(`${n.title}\n${n.summary ?? ""}\n${n.body ?? ""}`);
+    if (found.length) throw conflict(`در متنی که درخواست‌کنندگان خواهند دید ${[...new Set(found.map((f) => f.label))].join("، ")} هست؛ آن را حذف کنید یا به بخش داخلی ببرید`);
+  }
   n.workspace_id = base.workspace_id ?? null;
   if (touched(w, ["read_units", "units_tree"])) n.r_units = await expandUnits(w.tx, w.ctx, n.read_units, n.units_tree !== false);
   if (touched(w, ["deny_units"])) n.x_units = await expandUnits(w.tx, w.ctx, n.deny_units, true);
@@ -379,6 +387,8 @@ export async function recountFeedback(tx: Tx, ctx: Ctx, articleId: string): Prom
 
 async function feedbackBefore(w: WriteArgs): Promise<void> {
   if (w.op === "delete") return;
+  // votes, ratings, flags and comments come through the article's routes (one per reader, on an article they read)
+  if (w.op === "create" && !isSys(w.ctx) && !w.trusted) throw forbidden("بازخورد را از صفحهٔ مقاله بفرستید");
   const n = w.next;
   if (n.kind === "flag" && !n.reason) throw validationError({ reason: "دلیل گزارش را انتخاب کنید" });
   if (n.kind === "rating" && !(Number(n.rating) >= 1 && Number(n.rating) <= 5)) throw validationError({ rating: "امتیازی از ۱ تا ۵ بدهید" });
@@ -472,6 +482,11 @@ async function attestationBefore(w: WriteArgs): Promise<void> {
 async function qualityBefore(w: WriteArgs): Promise<void> {
   if (w.op === "delete") return;
   const n = w.next;
+  // the monthly sample creates reviews (a coach for each); people record results, never invent reviews or reviewers
+  if (!isSys(w.ctx) && !w.trusted) {
+    if (w.op === "create") throw forbidden("ارزیابی‌های کیفیت را نمونه‌گیری ماهانه می‌سازد");
+    if (["reviewer_id", "author_id", "article_id"].some((f) => w.changed.has(f)) && !isKbAdmin(w.ctx)) throw forbidden("مربی و مقالهٔ ارزیابی را مدیر دانش تعیین می‌کند");
+  }
   if (!isSys(w.ctx) && !w.trusted && n.reviewer_id !== w.ctx.user.id && !isKbAdmin(w.ctx) && w.changed.has("results")) throw forbidden("نتیجهٔ ارزیابی را مربی ثبت می‌کند");
   const cfg = await kbConfig(w.tx, w.ctx);
   const { aqiScore } = await import("@shared/knowledge/logic");

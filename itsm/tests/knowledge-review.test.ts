@@ -9,7 +9,7 @@ import { PNG, raw, upload } from "./engine-helpers";
 import type { Client } from "./helpers";
 import { BY_ENTITY } from "@server/sync/registry";
 import { pullEngine } from "@server/engine/sync";
-import { kbSweep } from "@server/modules/knowledge";
+import { kbSweep, runPublishingModels } from "@server/modules/knowledge";
 
 let w: KbWorld;
 const R = (t: string, id?: string) => `${w.P}/r/${t}${id ? `/${id}` : ""}`;
@@ -164,5 +164,69 @@ describe("retirement and approval rounds", () => {
     expect((await read(as("agent"), mine.id)).can.restore).toBe(false);
     expect(await statusOf(as("agent"), "POST", K(`/articles/${mine.id}/restore`), {})).toBe(403);
     expect((await read(as("km"), mine.id)).can.restore).toBe(true);
+  });
+});
+
+describe("content reaches requesters only through the checks", () => {
+  it("keeps an internal article with sensitive data internal when a field edit would turn it external", async () => {
+    const body = "## چه زمانی\n\nوقتی سرویس فایل پاسخ نمی‌دهد\n\n## گام‌ها\n\n1. سرویس روی FS01.corp.local (10.10.2.5) را دوباره راه بیندازید\n2. نتیجه را بررسی کنید\n";
+    const a = await w.published({ title: "راه‌اندازی دوبارهٔ سرویس فایل", article_type: "procedure", body }, as("agent"));
+    expect(a.state).toBe("published");
+    expect(await statusOf(as("req"), "GET", K(`/articles/${a.id}/read`))).toBe(404);
+    expect(await statusOf(as("agent"), "PATCH", R("kb_article", a.id), { article_type: "how_to" })).toBe(403);
+    expect(await statusOf(as("km"), "PATCH", R("kb_article", a.id), { article_type: "how_to" })).toBe(409);
+    expect(await statusOf(as("req"), "GET", K(`/articles/${a.id}/read`))).toBe(404);
+  });
+
+  it("lets a publishing model move only text without sensitive data, asking a person otherwise", async () => {
+    await w.o.patch(R("kb_base", w.bases.guide), { publishing_model: "reuse", external_after_reuses: 1 });
+    try {
+      const dirty = await w.published({ title: "بازیابی کارساز چاپ", body: "## گام‌ها\n\n1. به کارساز چاپ وصل شوید\n2. صف را پاک کنید\n" });
+      const clean = await w.published({ title: "پاک کردن صف چاپ", body: "## گام‌ها\n\n1. صف چاپ را باز کنید\n2. کارها را لغو کنید\n" });
+      // internal articles (not yet validated) skip the requester check on submission: one names an internal host
+      for (const id of [dirty.id, clean.id]) await w.e.db.query(`update sm_kb_articles set kcs_confidence = 'not_validated', confidential = true, reuse_count = 4 where id = $1`, [id]);
+      await w.e.db.query(`update sm_kb_articles set body = $2 where id = $1`, [dirty.id, "## گام‌ها\n\n1. به PRN02.corp.local با نشانی 10.10.4.7 وصل شوید\n2. صف را پاک کنید\n"]);
+      const r = await runPublishingModels(w.sys);
+      expect(r.external).toBe(1);
+      expect((await w.o.get(R("kb_article", clean.id))).row.confidential).toBe(false);
+      expect((await w.o.get(R("kb_article", dirty.id))).row.confidential).toBe(true);
+      const tasks = (await w.o.post(`${R("kb_task")}/query`, { filter: { and: [{ f: "article_id", op: "eq", v: dirty.id }, { f: "active", op: "eq", v: true }] }, fields: ["kind", "short_description"] })).rows;
+      expect(tasks).toHaveLength(1);
+      await runPublishingModels(w.sys);
+      expect((await w.o.post(`${R("kb_task")}/query`, { filter: { f: "article_id", op: "eq", v: dirty.id }, fields: ["kind"] })).rows).toHaveLength(1);
+    } finally {
+      await w.o.patch(R("kb_base", w.bases.guide), { publishing_model: "jit" });
+    }
+  });
+});
+
+describe("rows of an article follow its deny lists; feedback and AQI come from the service paths", () => {
+  it("hides versions and feedback of an article from a contributor it denies", async () => {
+    const base = (await w.o.post(R("kb_base"), { name: "پایگاه سیاست‌های کارکنان", kind: "internal", contrib_groups: [w.g.network], read_mode: "everyone", publish_approval: false })).row;
+    await w.drain();
+    const a = await w.published({ base_id: base.id, title: "سیاست اضافه‌کار", body: "## سیاست\n\n1. اضافه‌کار با تأیید مدیر است\n2. سقف ماهانه دارد\n" });
+    await as("agent").post(K(`/articles/${a.id}/vote`), { helpful: true });
+    const versions = (await w.o.post(`${R("kb_version")}/query`, { filter: { f: "article_id", op: "eq", v: a.id }, fields: ["state"] })).rows;
+    expect(versions.length).toBeGreaterThan(0);
+    // a contributor of the base reads them, until the article denies them
+    expect((await as("other").get(R("kb_version", versions[0].id))).row.id).toBe(versions[0].id);
+    await as("km").patch(R("kb_article", a.id), { deny_users: [w.p.other.userId] });
+    await w.drain();
+    expect(await statusOf(as("other"), "GET", R("kb_article", a.id))).toBe(404);
+    expect(await statusOf(as("other"), "GET", R("kb_version", versions[0].id))).toBe(404);
+    expect((await as("other").post(`${R("kb_version")}/query`, { filter: { f: "article_id", op: "eq", v: a.id }, fields: ["title", "body"] })).rows).toEqual([]);
+    expect((await as("other").post(`${R("kb_feedback")}/query`, { filter: { f: "article_id", op: "eq", v: a.id }, fields: ["kind"] })).rows).toEqual([]);
+  });
+
+  it("refuses votes and quality reviews made up through the record API", async () => {
+    const a = await w.published({ title: "تنظیم پست صوتی", body: "## گام‌ها\n\n1. شماره را بگیرید\n2. پیام بگذارید\n" });
+    const before = Number((await w.o.get(R("kb_article", a.id))).row.helpful_no ?? 0);
+    expect(await statusOf(as("other"), "POST", R("kb_feedback"), { article_id: a.id, kind: "not_helpful" })).toBe(403);
+    expect(await statusOf(as("other"), "POST", R("kb_quality_review"), { article_id: a.id, reviewer_id: w.p.other.userId, author_id: w.p.km.userId, results: {} })).toBe(403);
+    expect(Number((await w.o.get(R("kb_article", a.id))).row.helpful_no ?? 0)).toBe(before);
+    // the article's route still takes a reader's vote (one per reader)
+    await as("other").post(K(`/articles/${a.id}/vote`), { helpful: false });
+    await as("other").post(K(`/articles/${a.id}/vote`), { helpful: false });
+    expect(Number((await w.o.get(R("kb_article", a.id))).row.helpful_no ?? 0)).toBe(before + 1);
   });
 });

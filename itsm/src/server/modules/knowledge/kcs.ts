@@ -5,6 +5,7 @@
 // closes it first. Run by the sweep (jobs.ts) as the system.
 import type { Ctx } from "../../context";
 import type { Queryable, Tx } from "../../db";
+import { scanSensitive } from "@shared/knowledge/logic";
 import { addJournalIn, createIn, defFor, updateIn } from "../../engine";
 import { addDaysISO, liveRows, rowsById, sysOf, todayIn, type Row } from "./common";
 
@@ -31,12 +32,26 @@ export async function coachesOf(q: Queryable, ctx: Ctx, baseId: string): Promise
   return [...new Set(rows.filter((r) => (!r.base_id || r.base_id === baseId) && (!r.expires_at || String(r.expires_at) >= today)).map((r) => String(r.user_id)))];
 }
 
-/** Make an internal article external (validated, the base's audience) and say why in its journal. */
-async function goExternal(tx: Tx, sys: Ctx, a: Row, why: string): Promise<void> {
+/**
+ * Make an internal article external (validated, the base's audience) and say why in its journal — unless its text
+ * has data requesters must not see (the submission's check): then an open knowledge task asks a person to clean it
+ * and nothing moves. Returns whether the article went out.
+ */
+async function goExternal(tx: Tx, sys: Ctx, a: Row, why: string): Promise<boolean> {
+  const found = scanSensitive(`${a.title}\n${a.summary ?? ""}\n${a.body ?? ""}`);
+  if (found.length) {
+    const title = `انتشار بیرونی متوقف شد: ${String(a.title).slice(0, 140)}`;
+    const description = `متن این مقاله ${[...new Set(found.map((f) => f.label))].join("، ")} دارد و برای درخواست‌کنندگان منتشر نشد. آن را حذف کنید یا به بخش داخلی ببرید؛ مدل انتشار پایگاه پس از آن دوباره آن را بیرونی می‌کند.`;
+    const [open] = await liveRows(tx, sys, "kb_task", { and: [{ f: "article_id", op: "eq", v: a.id }, { f: "kind", op: "eq", v: "external" }, { f: "active", op: "eq", v: true }] }, { limit: 1 });
+    if (!open) await createIn(tx, sys, "kb_task", { kind: "external", article_id: a.id, priority: "3", short_description: title, description }, { trusted: true });
+    else if (open.short_description !== title) await updateIn(tx, sys, "kb_task", open.id, { short_description: title, description }, { trusted: true });
+    return false;
+  }
   await updateIn(tx, sys, "kb_article", a.id, { visibility: "inherit", kcs_confidence: "validated" }, { trusted: true });
   const { def } = await defFor(sys, "kb_article", tx);
   const row = (await rowsById(tx, sys, "kb_article", [a.id]))[0];
   if (row) await addJournalIn(tx, sys, def, row, { kind: "system", visibility: "internal", body: why }, { trusted: true, author: null });
+  return true;
 }
 
 /** The publishing models of every base that has one (once per sweep). Returns how many articles moved. */
@@ -50,8 +65,7 @@ export async function runPublishingModels(sys: Ctx): Promise<{ external: number;
     }, { limit: 200 });
     for (const a of ready) {
       if (b.publishing_model === "reuse") {
-        await sys.write((tx) => goExternal(tx, sys, a, `پس از ${n} بار استفادهٔ دوباره برای درخواست‌کنندگان منتشر شد (مدل انتشار پایگاه).`));
-        out.external++;
+        if (await sys.write((tx) => goExternal(tx, sys, a, `پس از ${n} بار استفادهٔ دوباره برای درخواست‌کنندگان منتشر شد (مدل انتشار پایگاه).`))) out.external++;
         continue;
       }
       // conveyor belt: a task that publishes when it is still open after the window
@@ -68,12 +82,13 @@ export async function runPublishingModels(sys: Ctx): Promise<{ external: number;
         );
         out.queued++;
       } else if (t.active && t.due_at && Date.parse(t.due_at) <= Date.now()) {
-        await sys.write(async (tx) => {
-          await goExternal(tx, sys, a, "نوار نقالهٔ انتشار: کسی جلوی انتشار بیرونی را نگرفت؛ برای درخواست‌کنندگان منتشر شد.");
+        const went = await sys.write(async (tx) => {
+          if (!(await goExternal(tx, sys, a, "نوار نقالهٔ انتشار: کسی جلوی انتشار بیرونی را نگرفت؛ برای درخواست‌کنندگان منتشر شد."))) return false;
           const { transitionIn } = await import("../../engine");
           await transitionIn(tx, sys, "kb_task", t.id, "done", { close_code: "fixed", close_notes: "به‌طور خودکار منتشر شد" }, { trusted: true });
+          return true;
         });
-        out.external++;
+        if (went) out.external++;
       }
     }
   }

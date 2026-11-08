@@ -299,9 +299,15 @@ export const ARTICLE_READ: Cond = {
 /** Compliance-based articles are changed only by their people and the contributors of the base and category. */
 export const ARTICLE_WRITE: Cond = { or: [{ f: "governance", op: "ne", v: "compliance" }, me("author_id"), me("owner_id"), myGroup("owner_group_id"), ...CONTRIBUTORS] };
 
-export const VERSION_READ: Cond = { or: [me("author_id"), me("reviewer_ids"), ...CONTRIBUTORS] };
-export const FEEDBACK_READ: Cond = { or: [me("user_id"), ...CONTRIBUTORS] };
-export const TASK_READ: Cond = { or: [me("assigned_to"), myGroup("assignment_group_id"), me("watch_list"), ...CONTRIBUTORS] };
+/**
+ * Rows that belong to an article (versions, feedback, tasks, attestations, acknowledgements) are read only by those
+ * who read the article: its deny lists, audience and base apply to its contributors' copies too.
+ */
+const WITH_ARTICLE: Cond = readable("article_id.title");
+
+export const VERSION_READ: Cond = { and: [WITH_ARTICLE, { or: [me("author_id"), me("reviewer_ids"), ...CONTRIBUTORS] }] };
+export const FEEDBACK_READ: Cond = { and: [WITH_ARTICLE, { or: [me("user_id"), ...CONTRIBUTORS] }] };
+export const TASK_READ: Cond = { and: [{ or: [{ f: "article_id", op: "empty" }, WITH_ARTICLE] }, { or: [me("assigned_to"), myGroup("assignment_group_id"), me("watch_list"), ...CONTRIBUTORS] }] };
 
 /** Snippets and decision trees follow their base; readers see the published ones. */
 export const SNIPPET_READ: Cond = {
@@ -311,8 +317,8 @@ export const SNIPPET_READ: Cond = {
   ],
 };
 export const BLOCK_READ: Cond = { or: [me("owner_id"), myGroup("owner_group_id"), { f: "state", op: "eq", v: "published" }] };
-export const ATTESTATION_READ: Cond = { or: [me("owner_id"), ...CONTRIBUTORS] };
-export const ACK_READ: Cond = { or: [me("user_id"), me("attestation_id.owner_id"), ...CONTRIBUTORS] };
+export const ATTESTATION_READ: Cond = { and: [WITH_ARTICLE, { or: [me("owner_id"), ...CONTRIBUTORS] }] };
+export const ACK_READ: Cond = { and: [WITH_ARTICLE, { or: [me("user_id"), me("attestation_id.owner_id"), ...CONTRIBUTORS] }] };
 
 // ---------------------------------------------------------------------------------------------------------------
 // Knowledge bases
