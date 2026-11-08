@@ -205,6 +205,18 @@ export async function recomputeConflicts(tx: Tx, ctx: Ctx, id: string): Promise<
   return { others: [...others], added, open: st.open };
 }
 
+/** Bring a change's conflict status and open count in step with its conflict rows (after a person's review). */
+export async function syncConflictState(tx: Tx, ctx: Ctx, changeId: string): Promise<void> {
+  const sys = sysOf(ctx);
+  const row = await liveRow(tx, sys, "change_request", changeId);
+  if (!row) return;
+  const st = conflictState(await liveRows(tx, sys, "change_conflict", eqAll({ change_id: changeId })));
+  const status = CONFLICT_TRACKED.includes(String(row.state)) ? st.status : (row.conflict_status ?? "not_checked");
+  if (status !== row.conflict_status || st.open !== Number(row.conflict_count ?? 0)) {
+    await updateIn(tx, sys, "change_request", changeId, { conflict_status: status, conflict_count: st.open }, { trusted: true, keepVersion: true });
+  }
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // Lead time and free slots
 
@@ -224,8 +236,8 @@ export async function leadDays(q: Queryable, ctx: Ctx, plannedStart: unknown, fr
   return businessDaysBetween(cal, from, s);
 }
 
-/** The start of the working day on which the notice of `days` working days ends (the default calendar). */
-async function earliestStart(q: Queryable, ctx: Ctx, days: number, from: number): Promise<number> {
+/** The start of the `days`-th working day after `from`'s day on the default calendar (`from` itself for 0 days). */
+export async function earliestStart(q: Queryable, ctx: Ctx, days: number, from: number): Promise<number> {
   if (days <= 0) return from;
   const tz = orgTz(ctx);
   const cal = await defaultCalendar(q, ctx);

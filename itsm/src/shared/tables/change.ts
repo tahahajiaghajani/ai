@@ -403,7 +403,8 @@ const changeRequest: TableDef = {
     ...TASK_SCOPE,
     // the coordinator and the change manager work the change like its implementer
     own: [...(TASK_SCOPE.own ?? []), "change_owner_id", "change_manager_id"],
-    requester: ["requested_for", "caller_id", "opened_by"],
+    // the coordinator is on the requester side too: the approvals' separation of duties keeps them from approving
+    requester: ["requested_for", "caller_id", "opened_by", "change_owner_id"],
     requesterWritable: ["description", "urgency", "watch_list", "requester_confirmed"],
     requesterTransitions: [{ from: ["new"], to: "canceled" }],
   },

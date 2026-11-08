@@ -152,6 +152,18 @@ export async function riskQuestions(q: Queryable, ctx: Ctx): Promise<RiskQuestio
   }));
 }
 
+/** The transaction's clock: the instant every row written in it carries as `created_at` (DB `now()`). */
+export async function dbNow(q: Queryable): Promise<string> {
+  const r = await q.one<{ t: unknown }>("select now() as t");
+  const t = r?.t instanceof Date ? r.t : new Date(String(r?.t ?? Date.now()));
+  return Number.isFinite(t.getTime()) ? t.toISOString() : new Date().toISOString();
+}
+
+/** The Persian label of a field of a table (its name when unknown). */
+export function fieldLabel(table: string, name: string): string {
+  return tableDef(table)?.fields.find((f) => f.name === name)?.label ?? name;
+}
+
 /** Persian list «الف، ب و ج». */
 export function faList(xs: string[]): string {
   if (xs.length <= 1) return xs.join("");

@@ -17,9 +17,9 @@ import { nextState, lifecycleOf } from "@shared/change/logic";
 import type { TableDef } from "@shared/model/types";
 import type { Ctx } from "../../context";
 import type { Queryable, Tx } from "../../db";
-import { addJournalIn, emitEvent, isSystemCtx, registerHooks, transitionIn, updateIn, type WriteArgs } from "../../engine";
+import { addJournalIn, emitEvent, registerHooks, savepoint, transitionIn, updateIn, type WriteArgs } from "../../engine";
 import { registerApproverSource } from "../sla";
-import { changeConfig, eqAll, iso, liveRow, liveRows, msOf, sysOf, type Row } from "./common";
+import { actorOf, changeConfig, eqAll, iso, liveRow, liveRows, msOf, sysOf, type Row } from "./common";
 import { impactProvider } from "./impact";
 
 const OPEN = new Set(["requested", "waiting"]);
@@ -106,59 +106,84 @@ export function installApproverSources(): (() => void)[] {
 
 // ---------------------------------------------------------------------------------------------------------------
 // Reactions (a "*" hook installed after the SLA service: the approval rows of the write exist when it runs)
+//
+// While a change waits in «در انتظار تأیید» its `approval` field holds the aggregate of the CURRENT cycle only (the
+// service's aggregate also counts the latest rounds of rules that matched in earlier cycles). So whenever a decision
+// completes the cycle, the service's aggregate differs from the stored one, it rewrites the field and this hook
+// re-evaluates the cycle in the same transaction.
 
 async function note(tx: Tx, ctx: Ctx, def: TableDef, row: Row, body: string, actor: string | null): Promise<void> {
   await addJournalIn(tx, sysOf(ctx, actor), def, row, { kind: "system", body }, { trusted: true, author: actor });
 }
 
-async function withdrawOpen(tx: Tx, ctx: Ctx, change: Row): Promise<number> {
+/** Withdraw the change's open approvals (canceled when it went back, no longer required when authorized by hand). */
+async function withdrawOpen(tx: Tx, ctx: Ctx, change: Row, state: "canceled" | "no_longer_required", comment: string): Promise<number> {
   const sys = sysOf(ctx);
   const rows = await liveRows(tx, sys, "approval", eqAll({ table_key: "change_request", record_id: String(change.id) }));
   let n = 0;
   for (const r of rows) {
     if (!OPEN.has(r.state)) continue;
-    await updateIn(tx, sys, "approval", r.id, { state: "canceled", decided_at: iso(Date.now()), comments: "تغییر به ارزیابی یا پیش‌نویس برگشت" }, { trusted: true });
-    r.state = "canceled";
+    await updateIn(tx, sys, "approval", r.id, { state, decided_at: iso(Date.now()), comments: comment }, { trusted: true });
     n++;
   }
-  if (n) {
-    const agg = aggregate(rows as never[]);
-    if (change.approval !== agg) await updateIn(tx, sys, "change_request", String(change.id), { approval: agg }, { trusted: true, keepVersion: true });
-  }
   return n;
+}
+
+const people = (...xs: unknown[]): string[] => [...new Set(xs.filter((x): x is string => typeof x === "string" && !!x))];
+
+/**
+ * Settle the current authorization cycle of a change in «در انتظار تأیید»: rejected → back to the draft with
+ * «ردشده؛ نیازمند بازنگری»; still open → the field shows «درخواست شده»; approved (or nothing to ask) → the next state
+ * of its model. A refusal of that move (a blackout, a lockdown, a missing field) leaves the change waiting with a note.
+ */
+export async function settleCycle(tx: Tx, ctx: Ctx, def: TableDef, row: Row, actor: string | null): Promise<string | null> {
+  const id = String(row.id);
+  const rows = await cycleApprovals(tx, ctx, row);
+  const t = tally(rows);
+  const sys = sysOf(ctx, actor);
+  if (t.outcome === "rejected") {
+    await transitionIn(tx, sys, "change_request", id, "new", { status_reason: "rejected", approval: "rejected" }, { trusted: true });
+    await note(tx, ctx, def, row, "تغییر تأیید نشد و به پیش‌نویس برگشت؛ پس از بازنگری دوباره برای تأیید بفرستید.", actor);
+    await emitEvent(tx, sys, { kind: "record.change.rejected", table: "change_request", id, number: row.number ?? null, data: { users: people(row.change_owner_id, row.caller_id, row.opened_by) } });
+    return "rejected";
+  }
+  if (t.open) {
+    if (row.approval !== "requested") await updateIn(tx, sysOf(ctx), "change_request", id, { approval: "requested" }, { trusted: true, keepVersion: true });
+    return null;
+  }
+  const to = nextState(lifecycleOf(row.model_states, row.type), "authorize");
+  if (!to) return null;
+  try {
+    await savepoint(tx, () => transitionIn(tx, sys, "change_request", id, to, { approval: rows.length ? "approved" : (row.approval ?? "not_requested") }, { trusted: true }));
+  } catch (e) {
+    const why = e instanceof Error ? e.message : String(e);
+    await note(tx, ctx, def, row, `تأییدهای لازم داده شد اما تغییر به «${to === "implement" ? "در حال اجرا" : "زمان‌بندی‌شده"}» نرفت: ${why}. پس از رفع مشکل، آن را دستی ادامه دهید.`, actor);
+    if (row.approval !== "approved" && rows.length) await updateIn(tx, sysOf(ctx), "change_request", id, { approval: "approved" }, { trusted: true, keepVersion: true });
+    return null;
+  }
+  const why = rows.length ? (t.approved ? "همهٔ تأییدهای لازم داده شد" : "تأیید خودکار شد") : "قاعدهٔ تأییدی برای این تغییر نبود";
+  await note(tx, ctx, def, row, `${why}؛ تغییر به «${to === "implement" ? "در حال اجرا" : "زمان‌بندی‌شده"}» رفت.`, actor);
+  await emitEvent(tx, sys, { kind: "record.change.authorized", table: "change_request", id, number: row.number ?? null, data: { users: people(row.change_owner_id, row.assigned_to, row.caller_id) } });
+  return to;
 }
 
 async function react(w: WriteArgs & { row: Row }): Promise<void> {
   if (w.def.key !== "change_request" || w.op === "delete") return;
   const row = w.row;
   const prev = w.prev;
-  const actor = isSystemCtx(w.ctx) ? null : w.ctx.user.id;
-  // moved back by a person (or a flow): the cycle's open approvals are no longer asked
-  if (prev?.state === "authorize" && (row.state === "new" || row.state === "assess")) {
-    const n = await withdrawOpen(w.tx, w.ctx, row);
-    if (n) await note(w.tx, w.ctx, w.def, row, `${n} تأیید باز پس گرفته شد (تغییر از «در انتظار تأیید» برگشت).`, actor);
+  const actor = actorOf(w.ctx);
+  // left «در انتظار تأیید»: back (or canceled) withdraws the cycle's open approvals; forward by hand (an approver with
+  // the change area's approve right) makes them no longer required
+  if (prev?.state === "authorize" && row.state !== "authorize") {
+    const back = row.state === "new" || row.state === "assess" || row.state === "canceled";
+    const n = await withdrawOpen(w.tx, w.ctx, row, back ? "canceled" : "no_longer_required", back ? "تغییر از «در انتظار تأیید» برگشت" : "تغییر بدون این تأیید مجاز شد");
+    if (n) await note(w.tx, w.ctx, w.def, row, back ? `${n} تأیید باز پس گرفته شد (تغییر از «در انتظار تأیید» برگشت).` : `تغییر به‌دست دارندهٔ اختیار تأیید مجاز شد؛ ${n} تأیید باز دیگر لازم نیست.`, actor);
     return;
   }
   if (row.state !== "authorize") return;
   const entering = !prev || prev.state !== "authorize";
   if (!entering && !w.changed.has("approval")) return;
-  const rows = await cycleApprovals(w.tx, w.ctx, row);
-  const t = tally(rows);
-  const lifecycle = lifecycleOf(row.model_states, row.type);
-  const sys = sysOf(w.ctx, actor);
-  if (t.open) return;
-  if (t.outcome === "rejected") {
-    await transitionIn(w.tx, sys, "change_request", String(row.id), "new", { status_reason: "rejected" }, { trusted: true });
-    await note(w.tx, w.ctx, w.def, row, "تغییر تأیید نشد و به پیش‌نویس برگشت؛ پس از بازنگری دوباره برای تأیید بفرستید.", actor);
-    const users = [row.change_owner_id, row.caller_id, row.opened_by].filter((x): x is string => typeof x === "string" && !!x);
-    await emitEvent(w.tx, sys, { kind: "record.change.rejected", table: "change_request", id: String(row.id), number: row.number ?? null, data: { users: [...new Set(users)] } });
-    return;
-  }
-  const to = nextState(lifecycle, "authorize");
-  if (!to) return;
-  await transitionIn(w.tx, sys, "change_request", String(row.id), to, {}, { trusted: true });
-  const why = rows.length ? (t.approved ? "همهٔ تأییدهای لازم داده شد" : "تأیید خودکار شد") : "قاعدهٔ تأییدی برای این تغییر نبود";
-  await note(w.tx, w.ctx, w.def, row, `${why}؛ تغییر به «${to === "implement" ? "در حال اجرا" : "زمان‌بندی‌شده"}» رفت.`, actor);
+  await settleCycle(w.tx, w.ctx, w.def, row, actor);
 }
 
 /** The reactions to approvals; call after `installSlaService()` (its approval rows must exist when this runs). */
