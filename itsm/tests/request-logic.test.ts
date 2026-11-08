@@ -44,7 +44,7 @@ describe("order forms", () => {
     const def = formDef(laptop);
     expect(def.virtual).toBe(true);
     expect(def.fields.map((f) => f.name)).toEqual(["model", "extras", "ram_gb", "replace", "old_asset", "note", "pin", "address", "users"]);
-    expect(def.fields.find((f) => f.name === "model")?.choices?.map((c) => c.value)).toEqual(["std", "pro"]);
+    expect((def.fields.find((f) => f.name === "model")?.choices as { value: string }[]).map((c) => c.value)).toEqual(["std", "pro"]);
     expect(def.fields.find((f) => f.name === "pin")?.type).toBe("secret");
   });
 
