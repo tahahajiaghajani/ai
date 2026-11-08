@@ -211,7 +211,7 @@ export const CLASS_LIBRARY: ClassSeed[] = [
       { name: "ports", label: "تعداد درگاه", type: "int", min: 0, max: 1024 },
       { name: "mgmt_ip", label: "IP مدیریتی", type: "ip", ltr: true, identifier: true },
     ],
-    controlled: ["firmware"],
+    controlled: ["attrs.firmware"],
   },
   { key: "router", label: "مسیریاب", parent: "network_device", family: "hardware", icon: "router" },
   { key: "switch", label: "سوئیچ", parent: "network_device", family: "hardware", icon: "network" },
