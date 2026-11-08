@@ -6,7 +6,7 @@
 //     CAB and the emergency CAB (ECAB)
 //   · approval rules through the approvals service — low risk: the requester's manager (evidence-based auto-approval
 //     when the backout plan is tested, nothing conflicts and the score is very low); moderate: a change manager; high
-//     and very high: the CAB (majority); emergency: the ECAB (any member)
+//     and very high: the CAB (a strict majority); emergency: the ECAB (any member)
 //   · notification rules for the module's moments (rejected, authorized, window starting, overrun, conflicts, CAB
 //     questions, emergency changes, failed changes, stakeholders, lockdowns, suspended standard changes)
 //   · the SLA «زمان تأیید تغییر عادی» (five working days on the office calendar) and two UI policies
@@ -25,7 +25,19 @@ import { createIn, orgTz, updateIn } from "../../engine";
 import { seedCalendarsIn } from "../sla";
 import { eqAll, iso, liveRows, sysOf, type Row } from "./common";
 
-export const CHANGE_SEED_VERSION = 1;
+/**
+ * Version of the defaults. An organisation seeded at an older version gets only the upgrade steps it lacks
+ * (`UPGRADES`), never the whole seed again (what it deleted stays deleted).
+ */
+export const CHANGE_SEED_VERSION = 2;
+
+/** The seeded CAB rule's name (its quorum is a strict majority: «بیش از نیمی»). */
+export const CAB_RULE_NAME = "تغییر عادی پرریسک ← هیئت CAB";
+/**
+ * The CAB's share: ⌈0.51·n⌉ approvals are always more than half (exactly ⌊n/2⌋ + 1 up to 50 approvers); 50 % approved
+ * on a tie, and a two-member board on a single yes.
+ */
+export const CAB_MAJORITY = 51;
 
 export interface SeedCounts {
   skipped: boolean;
@@ -98,9 +110,9 @@ export function approvalRules(): Row[] {
       description: "مدیر تغییرِ ثبت‌شده روی تغییر، وگرنه اعضای گروه مدیران تغییر.",
     },
     {
-      name: "تغییر عادی پرریسک ← هیئت CAB", sort_order: 30, mode: "sequential", expire_after: 10 * 24 * H, remind_every: 24 * H, expire_action: "reject",
+      name: CAB_RULE_NAME, sort_order: 30, mode: "sequential", expire_after: 10 * 24 * H, remind_every: 24 * H, expire_action: "reject",
       condition: inAuthorize({ f: "type", op: "eq", v: "normal" }, { f: "risk", op: "in", v: ["high", "very_high"] }),
-      levels: [{ name: "هیئت CAB", sources: [{ kind: "owner", of: "cab" }], rule: "percent", threshold: 50 }],
+      levels: [{ name: "هیئت CAB", sources: [{ kind: "owner", of: "cab" }], rule: "percent", threshold: CAB_MAJORITY }],
       description: "بیش از نیمی از اعضای CAB (رأی در جلسه یا در «تأییدهای من»).",
     },
     {
@@ -254,12 +266,32 @@ async function officeCalendar(tx: Tx, sys: Ctx, out: SeedCounts): Promise<string
   return (rows.find((r) => r.active !== false && r.is_default) ?? rows.find((r) => r.active !== false))?.id ?? null;
 }
 
+/** Steps that bring an organisation seeded at version `v - 1` to version `v` (keyed by `v`). */
+const UPGRADES: Record<number, (tx: Tx, sys: Ctx, out: SeedCounts) => Promise<void>> = {
+  // the seeded CAB rule approved on a tie (50 %): a strict majority, unless the organisation changed the rule
+  2: async (tx, sys, out) => {
+    for (const r of await liveRows(tx, sys, "approval_rule", eqAll({ table_key: "change_request", name: CAB_RULE_NAME }))) {
+      const levels = Array.isArray(r.levels) ? (r.levels as Row[]) : [];
+      if (!levels.some((l) => l.rule === "percent" && Number(l.threshold) === 50)) continue;
+      const next = levels.map((l) => (l.rule === "percent" && Number(l.threshold) === 50 ? { ...l, threshold: CAB_MAJORITY } : l));
+      await updateIn(tx, sys, "approval_rule", String(r.id), { levels: next }, { trusted: true });
+      out.created.approval_rule_upgraded = (out.created.approval_rule_upgraded ?? 0) + 1;
+    }
+  },
+};
+
 /** Add the defaults inside `tx` as the system. */
 export async function seedChangeDefaultsIn(tx: Tx, ctx: Ctx, opts: { force?: boolean } = {}): Promise<SeedCounts> {
   const sys = sysOf(ctx);
   const out: SeedCounts = { skipped: false, created: {} };
   const [cfg] = await liveRows(tx, sys, "change_config", null, { order: "t.created_at", limit: 1 });
-  if (cfg && Number(cfg.seeded ?? 0) >= CHANGE_SEED_VERSION && !opts.force) return { ...out, skipped: true };
+  const seeded = Number(cfg?.seeded ?? 0);
+  if (cfg && seeded >= CHANGE_SEED_VERSION && !opts.force) return { ...out, skipped: true };
+  if (cfg && seeded >= 1 && !opts.force) {
+    for (let v = seeded + 1; v <= CHANGE_SEED_VERSION; v++) await UPGRADES[v]?.(tx, sys, out);
+    await updateIn(tx, sys, "change_config", String(cfg.id), { seeded: CHANGE_SEED_VERSION }, { trusted: true });
+    return out;
+  }
   const config = cfg ?? (await ensure(tx, sys, out, "change_config", { config_key: "default" }, { name: "تنظیمات تغییر" }));
 
   for (const m of SEED_MODELS) await ensure(tx, sys, out, "change_model", { name: m.name }, m);
@@ -305,6 +337,8 @@ export async function seedChangeDefaultsIn(tx: Tx, ctx: Ctx, opts: { force?: boo
 
   for (const t of SEED_TEMPLATES) await ensure(tx, sys, out, "change_template", { name: t.name }, { ...t, state: t.kind === "standard" ? "published" : "draft" });
 
+  // rows that existed before (a forced seed of an older organisation) get the upgrades too (each is idempotent)
+  for (let v = 2; v <= CHANGE_SEED_VERSION; v++) await UPGRADES[v]?.(tx, sys, out);
   const patch: Row = { seeded: CHANGE_SEED_VERSION };
   if (!config.default_cab_id) patch.default_cab_id = cab.id;
   if (!config.emergency_cab_id) patch.emergency_cab_id = ecab.id;

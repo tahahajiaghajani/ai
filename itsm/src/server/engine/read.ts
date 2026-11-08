@@ -29,7 +29,7 @@ export function toOutput(def: TableDef, row: Row, visible: ReadonlySet<string> |
     if (f.name === "number") continue;
     let v = row[f.name];
     if (v === undefined) continue;
-    if (f.type === "secret") v = secretView(v);
+    if (f.type === "secret") v = secretView(v, { hint: f.hint });
     else if (FIELD_TYPES[f.type].array && v === null) v = [];
     out[f.name] = v;
   }

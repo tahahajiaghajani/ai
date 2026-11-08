@@ -10,6 +10,8 @@ import {
 import { calendarOf, DEFAULT_HOURS, localInstant } from "@shared/sla/calendar";
 import { fromJalali, weekday } from "@shared/jalali";
 import { CHANGE_CONFIG_DEFAULTS } from "@shared/tables/change";
+import { levelOutcome, needed } from "@shared/sla/approvals";
+import { approvalRules, CAB_RULE_NAME } from "@server/modules/change/seed";
 
 const TZ = "Asia/Tehran";
 const H = 3_600_000;
@@ -107,6 +109,22 @@ describe("risk engine", () => {
     expect(explainRisk(low, { manual: { level: "high", reason: "دلیل" } })).toContain("دلیل");
   });
 
+  it("a questionnaire answered in part counts its unanswered mandatory questions at their worst", () => {
+    const qs = [Q("q1", "choice", [{ value: "x", label: "کم", score: 0 }, { value: "y", label: "زیاد", score: 10 }], 2), Q("q2", "yes_no", [], 1), Q("q3", "choice", [{ value: "a", label: "الف", score: 2 }, { value: "b", label: "ب", score: 7 }], 1)];
+    const change = { type: "normal", impact: "1", outage_expected: true, outage_minutes: 120 };
+    const none = computeRisk({ change, questions: qs, answers: {}, bands });
+    const best = computeRisk({ change, questions: qs, answers: { q1: "x" }, bands });
+    // q2 (yes/no: worst 10) and q3 (worst 7) count at their worst: (0·2 + 10·1 + 7·1) / (10·4)
+    expect(best.questionnaire.score).toBe(43);
+    expect(best.questionnaire.missing.length).toBe(2);
+    expect(best.score).toBeGreaterThan(computeRisk({ change, questions: qs, answers: { q1: "x", q2: "no", q3: "a" }, bands }).score);
+    expect(none.questionnaire.score).toBeNull();
+    expect(explainRisk(best)).toContain("بدترین پاسخ");
+    // a question that is not mandatory does not count when unanswered
+    const optional = computeRisk({ change, questions: [qs[0], { ...qs[1], mandatory: false }], answers: { q1: "x" }, bands });
+    expect(optional.questionnaire.score).toBe(0);
+  });
+
   it("bands", () => {
     expect([0, 25, 26, 50, 51, 75, 76, 100].map((s) => bandOf(s, bands))).toEqual(["low", "low", "moderate", "moderate", "high", "high", "very_high", "very_high"]);
   });
@@ -188,6 +206,22 @@ describe("conflicts", () => {
     expect(inside).toEqual([]);
   });
 
+  it("a maintenance window the change is bound to counts wherever its occurrences fall; an excluded change is still seen", () => {
+    const weekly = { id: "w1", name: "پنجرهٔ هفتگی", scoped: false, applies: true };
+    // chosen, but no occurrence within a day of the change: still outside it
+    const far = detectConflicts({ change: { ...base, maintenance_window_id: "w1" }, others: [], occurrences: [], maintenanceWindows: [weekly] });
+    expect(far.map((c) => c.kind)).toEqual(["outside_window"]);
+    expect(far[0].window_id).toBe("w1");
+    expect(far[0].summary).toContain("پنجرهٔ هفتگی");
+    // not chosen and not scoped: it does not bind the change
+    expect(detectConflicts({ change: base, others: [], occurrences: [], maintenanceWindows: [weekly] })).toEqual([]);
+    // a scoped window that applies binds it too; one that does not apply does not
+    expect(detectConflicts({ change: base, others: [], occurrences: [], maintenanceWindows: [{ ...weekly, scoped: true }] }).map((c) => c.kind)).toEqual(["outside_window"]);
+    expect(detectConflicts({ change: base, others: [], occurrences: [], maintenanceWindows: [{ ...weekly, scoped: true, applies: false }] })).toEqual([]);
+    // the other change left out of detection keeps none of its own conflicts, but this one still sees it
+    expect(detectConflicts({ change: base, others: [other({ ci_id: "ci1", exclude_conflicts: true })], occurrences: [] }).map((c) => c.kind)).toEqual(["same_ci"]);
+  });
+
   it("lockdowns hold every non-emergency change unless scoped", () => {
     expect(lockdownApplies({ id: "l", starts_at: "" }, { type: "normal" })).toBe(true);
     expect(lockdownApplies({ id: "l", starts_at: "" }, { type: "emergency" })).toBe(false);
@@ -221,6 +255,18 @@ describe("slots and notice", () => {
 });
 
 describe("CAB, review, readiness, scores", () => {
+  it("the seeded CAB rule needs more than half of the board: never a tie, never one yes of two", () => {
+    const rule = approvalRules().find((r) => r.name === CAB_RULE_NAME)!;
+    const level = (rule.levels as { rule: string; threshold: number }[])[0];
+    expect(level.rule).toBe("percent");
+    const votes = (yes: number, no: number, open: number) => [...Array(yes).fill({ state: "approved" }), ...Array(no).fill({ state: "rejected" }), ...Array(open).fill({ state: "requested" })];
+    expect(levelOutcome(votes(2, 2, 0), level.rule, level.threshold)).toBe("rejected");
+    expect(levelOutcome(votes(1, 0, 1), level.rule, level.threshold)).toBe("pending");
+    expect(levelOutcome(votes(3, 1, 0), level.rule, level.threshold)).toBe("approved");
+    for (let n = 1; n <= 50; n++) expect(needed(level.rule, level.threshold, n)).toBe(Math.floor(n / 2) + 1);
+    for (let n = 51; n <= 100; n++) expect(needed(level.rule, level.threshold, n)).toBeGreaterThan(n / 2);
+  });
+
   it("CAB by policy, type and risk; PIR reasons", () => {
     expect(cabRequired({ type: "normal", risk: "high" }, null, ["high"])).toBe(true);
     expect(cabRequired({ type: "normal", risk: "low" }, null, ["high"])).toBe(false);

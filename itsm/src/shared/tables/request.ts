@@ -651,7 +651,8 @@ export const REQUEST_ITEM: TableDef = {
     // answers are checked against the item's version on create; later only «ویرایش پاسخ‌ها» changes them
     { name: "answers", label: "پاسخ‌ها", type: "json", hidden: true, audit: false },
     { name: "private_answers", label: "پاسخ‌های حساس", type: "json", readonly: true, hidden: true, audit: false, group: "personal" },
-    { name: "secret_answers", label: "پاسخ‌های محرمانه", type: "secret", readonly: true, hidden: true },
+    // sealed JSON of the secret answers: no hint (the last characters of the text are the last answer's)
+    { name: "secret_answers", label: "پاسخ‌های محرمانه", type: "secret", readonly: true, hidden: true, hint: false },
     { name: "price", label: "قیمت واحد", type: "money", readonly: true, span: 8, section: "سفارش" },
     { name: "total", label: "مبلغ", type: "money", readonly: true, list: true, span: 8, section: "سفارش" },
     { name: "recurring_price", label: "هزینهٔ دوره‌ای", type: "money", readonly: true, span: 8, section: "سفارش" },
@@ -736,6 +737,8 @@ export const REQUEST_TASK: TableDef = {
     { name: "blocked_time", label: "زمان مسدود بودن", type: "duration", readonly: true, span: 8, section: "جریان کار" },
     { name: "deviation", label: "خارج از دستورالعمل", type: "bool", default: false, filter: true, span: 8, section: "جریان کار" },
     { name: "deviation_note", label: "شرح انحراف", type: "string", maxLength: 300, span: 16, section: "جریان کار" },
+    // the revocation of time-bound access (the sweep makes it): it outlives the item, which closes before access ends
+    { name: "revocation", label: "لغو دسترسی", type: "bool", default: false, readonly: true, filter: true, span: 8, section: "جریان کار" },
   ],
   states: REQUEST_TASK_STATES,
   scope: {

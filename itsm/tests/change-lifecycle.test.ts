@@ -28,6 +28,26 @@ describe("change models and the seed", () => {
     expect(Object.values(forced.created).reduce((a: number, b) => a + Number(b), 0)).toBe(0);
   });
 
+  it("the CAB decides by a strict majority; an organisation seeded before gets that upgrade and nothing else", async () => {
+    const { P, o, e } = w;
+    const id = (await o.get(`${P}/r/approval_rule?size=50`)).rows.find((r: any) => r.table_key === "change_request" && r.name.includes("هیئت CAB")).id;
+    const ruleOf = async () => (await o.get(`${P}/r/approval_rule/${id}`)).row;
+    const rule = await ruleOf();
+    expect(rule.levels[0].threshold).toBe(51);
+    // as seeded by the first version: the CAB rule at 50 %, and a window the organisation removed since
+    await e.db.query("update sm_approval_rules set levels = $2::jsonb where id = $1", [rule.id, JSON.stringify([{ ...rule.levels[0], threshold: 50 }])]);
+    await e.db.query("update sm_change_configs set seeded = 1 where org_id = $1", [e.org]);
+    const windows = (await o.get(`${P}/r/change_window?size=50`)).rows;
+    const fiscal = windows.find((x: any) => x.name.includes("سال مالی"));
+    await o.del(`${P}/r/change_window/${fiscal.id}`);
+    const upgraded = await o.post(`${P}/change/seed`, {});
+    expect(upgraded.skipped).toBe(false);
+    expect(upgraded.created).toEqual({ approval_rule_upgraded: 1 });
+    expect((await ruleOf()).levels[0].threshold).toBe(51);
+    expect((await o.get(`${P}/r/change_window?size=50`)).rows.length).toBe(windows.length - 1);
+    expect((await o.post(`${P}/change/seed`, {})).skipped).toBe(true);
+  });
+
   it("a new change takes its type's default model, the lifecycle, a calculated risk and a conflict check", async () => {
     const c = await w.change();
     expect(c.number).toMatch(/^CHG\d{7}$/);

@@ -13,7 +13,7 @@ import { access } from "../../access/provider";
 import { addJournalIn, addLink, create, createIn, defFor, get, list, transition, update, updateIn } from "../../engine";
 import { bad, conflict, forbidden } from "../../http/errors";
 import { aiCapabilities } from "./ai";
-import { changeConfig, hasTable, isUuid, liveRows, msOf, sysOf, type Row } from "./common";
+import { changeConfig, hasTable, isUuid, liveRow, liveRows, msOf, sysOf, type Row } from "./common";
 import { activeLockdowns, holdsOn, lockdownLike, riskFor, teamScoreOf } from "./schedule";
 
 /** The risk of a change as its panel shows it: questions with options, answers, factors, explanation, notice. */
@@ -57,18 +57,30 @@ const COPY_SECTIONS: Record<string, string[]> = {
 
 const pick = (row: Row, names: string[]): Row => Object.fromEntries(names.filter((n) => row[n] !== undefined && row[n] !== null && !(Array.isArray(row[n]) && !row[n].length)).map((n) => [n, row[n]]));
 
+/** What every copy and child takes whatever the sections: the source's confidentiality, readers and workspace. */
+const SECRECY = ["confidential", "access_list", "workspace_id"];
+
 /**
  * Copy a change (catalogue «کپی تغییر»): the chosen sections and its tasks; with `dates`, one copy per date (recurring
- * scheduled changes). The copies are new drafts the caller owns.
+ * scheduled changes). The copies are new drafts the caller owns. A copy of a standard change is a new order of its
+ * template while that is still a published standard change (the template brings its tasks), else a normal change.
  */
 export async function copyChange(ctx: Ctx, id: string, input: { sections?: string[]; tasks?: boolean; dates?: { start: string; end: string }[] }): Promise<Row[]> {
   const { row } = await get(ctx, "change_request", id);
   const sections = (input.sections?.length ? input.sections : ["main", "scope", "plans"]).filter((s) => COPY_SECTIONS[s]);
-  const base = pick(row, sections.flatMap((s) => COPY_SECTIONS[s]));
+  const base = pick(row, [...sections.flatMap((s) => COPY_SECTIONS[s]), ...SECRECY]);
   if (row.type === "latent") base.type = "normal";
+  if (row.type === "standard") {
+    const t = isUuid(row.template_id) ? await liveRow(ctx.db, sysOf(ctx), "change_template", row.template_id) : null;
+    if (t && t.kind === "standard" && t.state === "published") base.template_id = row.template_id;
+    else {
+      base.type = "normal";
+      delete base.model_id;
+    }
+  }
   const dates = (input.dates ?? []).slice(0, 20);
   for (const d of dates) if (!(msOf(d.start) !== null && msOf(d.end) !== null && msOf(d.end)! > msOf(d.start)!)) throw bad("بازه‌های زمانی معتبر نیستند");
-  const tasks = input.tasks !== false ? (await list(ctx, "change_task", { filter: { f: "change_id", op: "eq", v: id }, sort: "sort_order", size: 200, total: false })).rows : [];
+  const tasks = input.tasks !== false && !base.template_id ? (await list(ctx, "change_task", { filter: { f: "change_id", op: "eq", v: id }, sort: "sort_order", size: 200, total: false })).rows : [];
   return ctx.write(async (tx) => {
     const out: Row[] = [];
     for (const d of dates.length ? dates : [null]) {
@@ -103,7 +115,7 @@ export async function createChildren(ctx: Ctx, parentId: string, input: { cis?: 
   const cis = (input.cis ?? []).filter(isUuid).slice(0, 50);
   const titles = (input.titles ?? []).map((t) => String(t).trim()).filter(Boolean).slice(0, 50);
   if (!cis.length && !titles.length) throw bad("پیکربندی‌ها یا عنوان تغییرهای فرزند را بدهید");
-  const base = pick(parent, [...COPY_SECTIONS.main, ...COPY_SECTIONS.plans, ...COPY_SECTIONS.schedule, "service_id", "outage_expected", "outage_minutes"]);
+  const base = pick(parent, [...COPY_SECTIONS.main, ...COPY_SECTIONS.plans, ...COPY_SECTIONS.schedule, "service_id", "outage_expected", "outage_minutes", ...SECRECY]);
   return ctx.write(async (tx) => {
     const out: Row[] = [];
     const items = cis.length ? cis.map((ci, i) => ({ ci, title: titles[i] ?? null })) : titles.map((t) => ({ ci: null as string | null, title: t }));
@@ -175,11 +187,17 @@ const ORIGIN_TABLES = ["incident", "problem", "known_error", "request", "request
  * A change from another record: its context copied, «آغازشده از» linked (problems also «رفع می‌کند»). A change from a
  * confidential record (a security incident) carries its title and description, so it is confidential too and keeps
  * the record's access list: the group it is assigned to and the people on it read it, not every reader of changes.
+ * For the same reason it stays in the record's workspace (a secure workspace keeps it from outsiders), and a record
+ * of a restricted group keeps that group.
  */
 export async function changeFrom(ctx: Ctx, table: string, sourceId: string, input: Row): Promise<Row> {
   if (!ORIGIN_TABLES.includes(table) || !hasTable(table)) throw bad("از این نوع رکورد نمی‌توان تغییر ساخت");
   const { row: src, display } = await get(ctx, table, sourceId);
   const { def: sdef } = await defFor(ctx, table);
+  if (isUuid(src.assignment_group_id) && input.assignment_group_id && input.assignment_group_id !== src.assignment_group_id) {
+    const group = await liveRow(ctx.db, sysOf(ctx), "group", src.assignment_group_id);
+    if (group?.restricted === true) throw bad(`این رکورد در گروه محدود «${group.name}» است؛ تغییرِ ساخته‌شده از آن هم به همین گروه سپرده می‌شود`);
+  }
   const title = String(src[sdef.display] ?? src.short_description ?? src.title ?? "").slice(0, 180);
   const number = src.number ?? display[sourceId] ?? "";
   const values: Row = {
@@ -190,6 +208,7 @@ export async function changeFrom(ctx: Ctx, table: string, sourceId: string, inpu
     ...(isUuid(src.ci_id) ? { ci_id: src.ci_id } : {}),
     ...(isUuid(src.assignment_group_id) ? { assignment_group_id: src.assignment_group_id } : {}),
     ...(src.confidential === true ? { confidential: true, ...(Array.isArray(src.access_list) && src.access_list.length ? { access_list: src.access_list } : {}) } : {}),
+    ...(isUuid(src.workspace_id) ? { workspace_id: src.workspace_id } : {}),
   };
   for (const [k, v] of Object.entries(input)) if (v !== undefined) values[k] = v;
   const created = await ctx.write(async (tx) => {

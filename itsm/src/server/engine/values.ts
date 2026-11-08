@@ -455,13 +455,17 @@ const SECRET_PURPOSE = "itsm/record-secrets";
 
 const binding = (orgId: string, table: string, field: string, recordId: string) => ({ orgId, connectionId: `${table}.${field}:${recordId}` });
 
-export function sealSecret(secret: string, orgId: string, table: string, field: string, recordId: string, plain: string): string {
-  return JSON.stringify({ v: encryptKey(secret, binding(orgId, table, field, recordId), plain, SECRET_PURPOSE), h: keyHint(plain) });
+export function sealSecret(secret: string, orgId: string, table: string, field: string, recordId: string, plain: string, opts: { hint?: boolean } = {}): string {
+  return JSON.stringify({ v: encryptKey(secret, binding(orgId, table, field, recordId), plain, SECRET_PURPOSE), h: opts.hint === false ? "…" : keyHint(plain) });
 }
 
-/** What callers see of a stored secret: `{ secret: true, hint }` (null when none is stored). */
-export function secretView(stored: unknown): { secret: true; hint: string } | null {
+/**
+ * What callers see of a stored secret: `{ secret: true, hint }` (null when none is stored). A field without hints
+ * (`FieldDef.hint: false`) shows «…» whatever was stored.
+ */
+export function secretView(stored: unknown, opts: { hint?: boolean } = {}): { secret: true; hint: string } | null {
   if (stored === null || stored === undefined || stored === "") return null;
+  if (opts.hint === false) return { secret: true, hint: "…" };
   try {
     const o = JSON.parse(String(stored)) as { h?: string };
     return { secret: true, hint: String(o.h ?? "…") };

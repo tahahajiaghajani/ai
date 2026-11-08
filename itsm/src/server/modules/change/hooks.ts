@@ -20,28 +20,31 @@
 //   change_task: inherits from its change, dependencies of the same change; guard change_task_ready; dependents become
 //     ready when a task is done
 //   change_template, change_window, cab, cab_meeting, change_conflict, change_pir, change_lockdown, change_config,
-//   change_risk_question, change_outage: validation, stamps and their reactions
+//   change_risk_question, change_outage: validation, stamps and their reactions; the definitions (models, windows,
+//   CABs, questions, lockdowns, scores) only by holders of the change manager's authority
 //
 // The approvals' reactions (the authorization cycle) are a "*" hook in authorize.ts installed after the SLA service.
 import {
   cabRequired, computeRisk, explainRisk, leadDaysFor, lifecycleOf, lifecycleProblem, lockedIn, missingFor, optionsOf, pirReasons, REAUTH_FIELDS, scopeOf, stateLabel,
   STATE_ORDER, applicableQuestions, windowKindLabel, type ModelLike,
 } from "@shared/change/logic";
-import { FAILED_CODES, HOLD_REASONS, TASK_DONE } from "@shared/tables/change";
+import { CHANGE_TYPES, FAILED_CODES, HOLD_REASONS, TASK_DONE } from "@shared/tables/change";
 import type { Ctx } from "../../context";
 import type { Tx } from "../../db";
+import { access } from "../../access/provider";
 import { addJournalIn, defFor, emitEvent, isSystemCtx, registerHooks, savepoint, transitionIn, updateIn, validationError, type WriteArgs } from "../../engine";
+import { forbidden } from "../../http/errors";
 import { enqueue } from "../../jobs";
 import { notifyPeople } from "../notify";
-import { cabFor, cabPeople } from "./authorize";
+import { cabFits, cabFor, cabPeople, changeManagers } from "./authorize";
 import { refreshAgenda } from "./cab";
 import {
-  actorOf, changeConfig, countRows, dbNow, eqAll, faList, fieldLabel, isUuid, liveRow, liveRows, modelLike, msOf, riskQuestions, sysOf, type Row,
+  actorOf, changeConfig, countRows, dbNow, eqAll, faList, fieldLabel, isUuid, liveRow, liveRows, managesChanges, modelLike, msOf, riskQuestions, sysOf, type Row,
 } from "./common";
 import { impactedServicesOf } from "./impact";
-import { applyLockdown, releaseLockdown } from "./lockdown";
+import { lockdownDue, releaseLockdown, startLockdown } from "./lockdown";
 import { ensurePir } from "./pir";
-import { holdsOn, leadDays, planConflicts, scheduleBlocks, storeConflicts, syncConflictState, teamScoreOf, type ConflictPlan } from "./schedule";
+import { holdsOn, leadDays, planConflicts, riskFor, scheduleBlocks, storeConflicts, syncConflictState, teamScoreOf, type ConflictPlan } from "./schedule";
 import { activateTasks, blockingDeps, createTemplateTasks, openMandatoryTasks, taskMayRun, templateTasksProblem } from "./tasks";
 
 type W = WriteArgs;
@@ -52,6 +55,7 @@ const entering = (w: W, state: string) => w.next.state === state && (w.op === "c
 const person = (w: W) => !isSystemCtx(w.ctx) && !w.trusted;
 const blank = (v: unknown) => v === null || v === undefined || (typeof v === "string" && !v.trim()) || (Array.isArray(v) && !v.length);
 const nowIso = () => new Date().toISOString();
+const typeLabel = (v: unknown) => CHANGE_TYPES.find((o) => o.value === v)?.label ?? String(v ?? "");
 
 /** Fields the risk depends on (besides the state). */
 const RISK_INPUTS = [
@@ -63,6 +67,8 @@ const RISK_INPUTS = [
 export const CONFLICT_TRIGGERS = [
   "planned_start", "planned_end", "state", "affected_cis", "affected_services", "impacted_services", "ci_id", "service_id", "assigned_to", "maintenance_window_id", "exclude_conflicts", "type",
 ];
+/** The change's own people: they never approve or authorize it (requester side, implementer, coordinator). */
+const OWN_PEOPLE = ["requested_for", "caller_id", "opened_by", "assigned_to", "change_owner_id"];
 /** States before implementation, in which the schedule and the notice still matter. */
 const PLANNING = ["new", "assess", "authorize", "scheduled"];
 
@@ -113,6 +119,11 @@ async function changeBefore(w: W): Promise<void> {
   const changed = (f: string) => (creating ? !blank(n[f]) : w.changed.has(f));
   const stateMoved = creating || w.changed.has("state");
 
+  // the risk's source is the module's to say: «template» comes only from a standard template applied on create (a
+  // person's «template» counts as not given)
+  const sourceIgnored = person(w) && !!w.input?.has("risk_source") && n.risk_source === "template";
+  if (sourceIgnored) n.risk_source = p?.risk_source ?? null;
+
   // a template fills the empty fields of a new change
   if (creating && n.template_id) {
     const t = await liveRow(w.tx, sys, "change_template", n.template_id);
@@ -120,9 +131,10 @@ async function changeBefore(w: W): Promise<void> {
     else if (t.kind === "standard" && t.state !== "published") fields.template_id = `تغییر استاندارد «${t.name}» منتشر نشده است`;
     else applyTemplate(n, t);
   }
-  if (n.type === "latent") n.retrospective = true;
-
   // the model decides the type; a type without a model takes its default model; the lifecycle is snapshotted
+  const askedType = String(n.type ?? "normal");
+  // a model the person picked themselves (not one a template or the type's default brings)
+  const pickedModel = person(w) && !!w.input?.has("model_id") && !!n.model_id && (creating || w.changed.has("model_id"));
   let model: Row | null = null;
   if (creating || w.changed.has("model_id") || w.changed.has("type") || !Array.isArray(n.model_states) || !n.model_states.length) {
     if (n.model_id && (creating || w.changed.has("model_id") || !w.changed.has("type"))) {
@@ -137,7 +149,29 @@ async function changeBefore(w: W): Promise<void> {
     }
     n.model_states = lifecycleOf(model?.states, n.type);
   } else if (n.model_id) model = await liveRow(w.tx, sys, "change_model", n.model_id);
+  if (n.type === "latent") n.retrospective = true;
   const m: ModelLike | null = modelLike(model);
+
+  // A person's change skips authorization only the ways the process allows: it is standard only as an order of a
+  // published standard change of the catalogue (and keeps that template), and a model of another type than the one
+  // asked for, or a normal or emergency model without «در انتظار تأیید», is the change managers' choice. (Copies,
+  // «ثبت تغییر» from other records and the generic API all pass here.)
+  if (person(w)) {
+    if (n.type === "standard" && (creating || ["type", "model_id", "template_id"].some((f) => w.changed.has(f)))) {
+      const t = isUuid(n.template_id) ? await liveRow(w.tx, sys, "change_template", n.template_id) : null;
+      if (!t || t.kind !== "standard" || t.state !== "published") fields.type = "تغییر استاندارد فقط از کاتالوگ تغییرهای استاندارد (الگوی منتشرشده) ثبت می‌شود";
+      else if (!creating && w.changed.has("template_id")) fields.template_id = "الگوی تغییر استاندارد پس از ثبت عوض نمی‌شود";
+    }
+    if (pickedModel && model && !fields.type) {
+      const other = !!model.type && model.type !== askedType;
+      const unauthorized = (n.type === "normal" || n.type === "emergency") && !lifecycleOf(n.model_states, n.type).includes("authorize");
+      if ((other || unauthorized) && !(await managesChanges(w.tx, w.ctx))) {
+        fields.model_id = other
+          ? `مدل «${model.name}» برای تغییرهای «${typeLabel(model.type)}» است؛ نوع تغییر را عوض کنید یا مدلی از همین نوع برگزینید`
+          : `مدل «${model.name}» مرحلهٔ «در انتظار تأیید» ندارد؛ انتخاب آن با مدیران تغییر است`;
+      }
+    }
+  }
   const cfg = await changeConfig(w.tx, sys);
 
   // field locks of the current state (a person's edits; the system and trusted code keep their stamps)
@@ -145,6 +179,14 @@ async function changeBefore(w: W): Promise<void> {
     for (const f of lockedIn(String(p.state), m, n.type)) {
       if (w.changed.has(f) && w.input?.has(f)) fields[f] = `«${fieldLabel("change_request", f)}» از مرحلهٔ «${stateLabel(p.state)}» به بعد تغییر نمی‌کند`;
     }
+  }
+
+  // who approves is not the author's to pick: a change manager named on the change is one, its CAB an active board
+  // of its kind (the approver sources pass over anything else as well)
+  if (person(w)) {
+    const given = (f: string) => !!w.input?.has(f) && !blank(n[f]) && changed(f);
+    if (given("change_manager_id") && !(await changeManagers(w.tx, sys)).includes(String(n.change_manager_id))) fields.change_manager_id = "«مدیر تغییر» باید یکی از مدیران تغییر باشد";
+    if (given("cab_id") && !cabFits(await liveRow(w.tx, sys, "cab", n.cab_id), n.type === "emergency")) fields.cab_id = n.type === "emergency" ? "هیئت تغییر اضطراری باید هیئت اضطراری فعال باشد" : "هیئت CAB باید فعال باشد و هیئت اضطراری نباشد";
   }
 
   // on hold
@@ -195,6 +237,11 @@ async function changeBefore(w: W): Promise<void> {
     if (svc !== null) n.impacted_services = svc;
   }
 
+  // leaving a change out of conflict detection is the change managers' call (it clears the gate before approval)
+  if (person(w) && (creating ? !!n.exclude_conflicts : w.changed.has("exclude_conflicts")) && !(await managesChanges(w.tx, w.ctx))) {
+    fields.exclude_conflicts = "کنار گذاشتن تغییر از بررسی تداخل با مدیران تغییر است";
+  }
+
   // conflicts with other changes, windows and lockdowns: the flags land in this write, the rows after it
   if (creating ? !!(n.planned_start && n.planned_end) : CONFLICT_TRIGGERS.some((f) => w.changed.has(f))) {
     const plan = await planConflicts(w.tx, sys, n);
@@ -222,7 +269,11 @@ async function changeBefore(w: W): Promise<void> {
         result = computeRisk({ change: n, questions, answers: n.risk_answers, teamScore: team, bands: cfg });
       }
     }
-    if (person(w) && w.input?.has("risk") && !w.input?.has("risk_source") && n.risk && n.risk !== result.level && n.risk_source !== "template") n.risk_source = "manual";
+    // «template» holds only for a standard change of its template; a person who sets a risk other than the calculated
+    // one sets it by hand (a reason is required) — on a template's change too
+    if (n.risk_source === "template" && !(n.type === "standard" && n.template_id)) n.risk_source = "calculated";
+    const setByHand = person(w) && w.input?.has("risk") && (!w.input?.has("risk_source") || sourceIgnored) && (n.risk_source !== "template" || (!creating && w.changed.has("risk")));
+    if (setByHand && n.risk && n.risk !== result.level) n.risk_source = "manual";
     if (!n.risk_source) n.risk_source = "calculated";
     if (n.risk_source === "calculated" || !n.risk) n.risk = result.level;
     if (n.risk_source === "manual" && n.risk !== result.level && blank(n.risk_override_reason) && person(w)) fields.risk_override_reason = "دلیل تعیین دستی ریسک را بنویسید";
@@ -253,6 +304,11 @@ async function changeGuard(w: W & { transition: NonNullable<W["transition"]> }):
   const lp = lifecycleProblem(lifecycle, from, to);
   if (lp) return lp;
   const forward = forwardMove(from, to);
+  // authorized by hand (the approvals' own completion is the system's): never by the change's own people
+  if (from === "authorize" && (to === "scheduled" || to === "implement") && person(w)) {
+    const me = w.ctx.user.id;
+    if (OWN_PEOPLE.some((f) => n[f] === me)) return "تغییری را که درخواست‌دهنده، مجری یا هماهنگ‌کنندهٔ آن هستید خودتان مجاز نمی‌کنید";
+  }
   const holdLabel = () => HOLD_REASONS.find((o) => o.value === n.on_hold_reason)?.label ?? "بدون دلیل";
   if (n.on_hold && forward) return `این تغییر متوقف است (${holdLabel()})؛ پیش از ادامه، توقف را بردارید`;
   const cfg = await changeConfig(w.tx, sys);
@@ -265,6 +321,13 @@ async function changeGuard(w: W & { transition: NonNullable<W["transition"]> }):
   if (forward && to === "authorize" && n.type !== "emergency" && !isSystemCtx(w.ctx)) {
     const open = await countRows(w.tx, sys, "change_conflict", { and: [{ f: "change_id", op: "eq", v: n.id }, { f: "active", op: "eq", v: true }, { f: "status", op: "eq", v: "detected" }] });
     if (open) return `${open} تداخل بررسی‌نشده دارد؛ پیش از درخواست تأیید، تداخل‌ها را بررسی کنید`;
+    // the questionnaire's mandatory questions are answered before approval is asked (a manual risk, with its reason,
+    // stands in for the questionnaire's verdict)
+    if (person(w) && n.risk_source !== "manual") {
+      const { result } = await riskFor(w.tx, sys, n, cfg);
+      const missing = result.questionnaire.missing;
+      if (missing.length) return `پرسش‌نامهٔ ریسک کامل نیست (${missing.length} پرسش لازم بی‌پاسخ، مانند «${missing[0]}»)؛ پیش از درخواست تأیید به آن‌ها پاسخ دهید`;
+    }
   }
   if (forward && (to === "scheduled" || to === "implement")) {
     const b = await scheduleBlocks(w.tx, sys, n);
@@ -337,6 +400,18 @@ async function changeAfter(w: WA): Promise<void> {
     for (const o of r.others) await enqueue(w.tx, { kind: "change.conflicts", orgId: w.ctx.org.id, payload: { id: o }, dedupeKey: `change.conflicts:${o}` });
   }
 
+  // its tasks and review keep the change's confidentiality (their hooks merge it in)
+  if (!creating && SECRECY.some((f) => w.changed.has(f))) {
+    const rows = [
+      ...(await liveRows(w.tx, sys, "change_task", eqAll({ change_id: id }), { limit: 500 })).map((r) => ["change_task", r] as const),
+      ...(await liveRows(w.tx, sys, "change_pir", eqAll({ change_id: id }), { limit: 50 })).map((r) => ["change_pir", r] as const),
+    ];
+    for (const [table, r] of rows) {
+      const patch: Row = { confidential: row.confidential === true, ...(row.confidential === true ? {} : { access_list: r.access_list ?? [] }), ...secrecyOf(row, r, false) };
+      if (Object.entries(patch).some(([k, v]) => JSON.stringify(r[k] ?? null) !== JSON.stringify(v ?? null))) await updateIn(w.tx, sys, table, String(r.id), patch, { trusted: true, keepVersion: true, allowLocked: true });
+    }
+  }
+
   if (!creating && w.changed.has("state") && (row.state === "implement" || row.state === "review")) await activateTasks(w.tx, w.ctx, id);
 
   // the post-implementation review, when one is needed
@@ -366,14 +441,52 @@ async function changeAfter(w: WA): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------------------------------------------
+// rows of a change: tasks, reviews, agenda items, outages, conflicts
+
+/**
+ * A row that hangs off a change (a task, a review, an agenda item, a planned outage, a conflict) is the business of the
+ * people working that change: a person who adds one, or moves one to another change, must read the change and be able
+ * to change it. A change they cannot read answers like one that does not exist.
+ */
+async function assertWorksChange(w: W, what: string): Promise<void> {
+  if (!person(w) || (w.op !== "create" && !w.changed.has("change_id"))) return;
+  const change = await liveRow(w.tx, w.ctx, "change_request", w.next.change_id);
+  if (!change) throw validationError({ change_id: `«${w.def.fields.find((f) => f.name === "change_id")?.label ?? "تغییر"}» پیدا نشد` });
+  const { def } = await defFor(w.ctx, "change_request", w.tx);
+  if (!access().canWrite(w.ctx, def, change)) throw forbidden(`${what} را کسی می‌سازد که روی ${change.number ? `تغییر ${change.number}` : "این تغییر"} کار می‌کند`);
+}
+
+/** Fields that carry a change's confidentiality to what is made from it. */
+const SECRECY = ["confidential", "access_list", "workspace_id"];
+
+/**
+ * The confidentiality a task or review of `change` takes from it: confidential with the change's readers (its access
+ * list, implementer, coordinator and change manager — its group reads through the row's own group) when the change is,
+ * and the change's workspace.
+ */
+function secrecyOf(change: Row, row: Row, merge = true): Row {
+  const out: Row = {};
+  if (change.confidential === true) {
+    const own = merge && Array.isArray(row.access_list) ? row.access_list : [];
+    const people = [...(Array.isArray(change.access_list) ? change.access_list : []), change.assigned_to, change.change_owner_id, change.change_manager_id, ...own];
+    out.confidential = true;
+    out.access_list = [...new Set(people.filter((x): x is string => typeof x === "string" && !!x))];
+  }
+  if (change.workspace_id && row.workspace_id !== change.workspace_id) out.workspace_id = change.workspace_id;
+  return out;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
 // change_task
 
 async function taskBefore(w: W): Promise<void> {
   if (w.op === "delete") return;
+  await assertWorksChange(w, "کار تغییر");
   const n = w.next;
   const sys = sysOf(w.ctx);
   const fields: Record<string, string> = {};
   const change = n.change_id ? await liveRow(w.tx, sys, "change_request", n.change_id) : null;
+  if (change && (w.op === "create" || w.changed.has("change_id") || SECRECY.some((f) => w.changed.has(f)))) Object.assign(n, secrecyOf(change, n));
   if (w.op === "create") {
     if (change && ["closed", "canceled"].includes(String(change.state))) throw validationError({ change_id: "به تغییر بسته یا لغوشده کار افزوده نمی‌شود" });
     if (change && !n.assignment_group_id) n.assignment_group_id = change.assignment_group_id ?? null;
@@ -423,6 +536,18 @@ async function taskAfter(w: WA): Promise<void> {
 // ---------------------------------------------------------------------------------------------------------------
 // templates, windows, CABs and meetings
 
+/**
+ * The module's definitions — models (lifecycles), windows, CABs, the risk questionnaire, lockdowns, success scores —
+ * shape every team's changes: which states they pass, who approves them, when they may run. A person creates, changes
+ * or removes one only with the change manager's authority, whatever the table's own scope would let them write (a
+ * window's or a CAB's group, a CAB's chair). The system and trusted code (the seed, the sweep) are not asked.
+ */
+async function assertDefines(w: W): Promise<void> {
+  if (!person(w) || (await managesChanges(w.tx, w.ctx))) return;
+  const verb = w.op === "create" ? "ساختن" : w.op === "delete" ? "حذف" : "تغییر";
+  throw forbidden(`${verb} «${w.def.label}» با مدیران تغییر است`);
+}
+
 function templateBefore(w: W): void {
   if (w.op === "delete") return;
   const n = w.next;
@@ -441,7 +566,8 @@ function templateBefore(w: W): void {
 
 const WINDOW_MAX: Record<string, number> = { daily: 86_400_000, weekly: 7 * 86_400_000 };
 
-function windowBefore(w: W): void {
+async function windowBefore(w: W): Promise<void> {
+  await assertDefines(w);
   if (w.op === "delete") return;
   const n = w.next;
   const fields: Record<string, string> = {};
@@ -461,7 +587,8 @@ async function windowAfter(w: WA): Promise<void> {
   await enqueue(w.tx, { kind: "change.recheck", orgId: w.ctx.org.id, dedupeKey: "change.recheck" });
 }
 
-function cabBefore(w: W): void {
+async function cabBefore(w: W): Promise<void> {
+  await assertDefines(w);
   if (w.op === "delete") return;
   const n = w.next;
   if (!blank(n.meeting_time) && !/^([01]?\d|2[0-3]):[0-5]\d$/.test(String(n.meeting_time).trim())) throw validationError({ meeting_time: "ساعت جلسه را به شکل «۱۰:۰۰» بنویسید" });
@@ -510,6 +637,8 @@ async function meetingAfter(w: WA): Promise<void> {
 }
 
 async function agendaBefore(w: W): Promise<void> {
+  if (w.op === "delete") return;
+  await assertWorksChange(w, "مورد دستور جلسه");
   if (w.op !== "create" || !blank(w.next.title) || !w.next.change_id) return;
   const c = await liveRow(w.tx, sysOf(w.ctx), "change_request", w.next.change_id);
   if (c) w.next.title = String(c.number ?? "").slice(0, 60);
@@ -518,8 +647,10 @@ async function agendaBefore(w: W): Promise<void> {
 // ---------------------------------------------------------------------------------------------------------------
 // conflicts, reviews, lockdowns, settings, questions, outages
 
-function conflictBefore(w: W): void {
-  if (w.op === "delete" || !person(w) || !w.changed.has("status")) return;
+async function conflictBefore(w: W): Promise<void> {
+  if (w.op === "delete") return;
+  await assertWorksChange(w, "تداخل");
+  if (!person(w) || !w.changed.has("status")) return;
   if ((w.next.status === "ignored" || w.next.status === "resolved") && blank(w.next.justification)) throw validationError({ justification: "برای بستن تداخل، دلیل را بنویسید" });
 }
 
@@ -528,8 +659,13 @@ async function conflictAfter(w: WA): Promise<void> {
   await syncConflictState(w.tx, w.ctx, String(w.row.change_id));
 }
 
-function pirBefore(w: W): void {
+async function pirBefore(w: W): Promise<void> {
   if (w.op === "delete") return;
+  await assertWorksChange(w, "بازبینی پس از اجرا");
+  if (w.op === "create" || w.changed.has("change_id") || SECRECY.some((f) => w.changed.has(f))) {
+    const change = await liveRow(w.tx, sysOf(w.ctx), "change_request", w.next.change_id);
+    if (change) Object.assign(w.next, secrecyOf(change, w.next));
+  }
   if (entering(w, "completed")) w.next.completed_at = nowIso();
   else if (w.changed.has("state") && w.next.state !== "completed") w.next.completed_at = null;
 }
@@ -538,14 +674,16 @@ async function pirAfter(w: WA): Promise<void> {
   if (w.op === "delete" || !entering(w, "completed")) return;
   const sys = sysOf(w.ctx);
   const change = await liveRow(w.tx, sys, "change_request", w.row.change_id);
-  if (!change) return;
+  // only the change's own review speaks for it (its lessons, «تغییر را می‌توان بست»)
+  if (!change || change.pir_id !== w.row.id) return;
   if (blank(change.lessons) && !blank(w.row.lessons)) await updateIn(w.tx, sys, "change_request", String(change.id), { lessons: w.row.lessons }, { trusted: true, keepVersion: true });
   const { def } = await defFor(sys, "change_request", w.tx);
   const actor = actorOf(w.ctx);
   await addJournalIn(w.tx, sysOf(w.ctx, actor), def, change, { kind: "system", body: `بازبینی پس از اجرا (${w.row.number}) انجام شد؛ تغییر را می‌توان بست.` }, { trusted: true, author: actor });
 }
 
-function lockdownBefore(w: W): void {
+async function lockdownBefore(w: W): Promise<void> {
+  await assertDefines(w);
   if (w.op === "delete") return;
   const s = msOf(w.next.starts_at);
   const e = msOf(w.next.ends_at);
@@ -559,10 +697,10 @@ function lockdownBefore(w: W): void {
 async function lockdownAfter(w: WA): Promise<void> {
   if (w.op === "delete") return;
   const actor = actorOf(w.ctx);
-  if (w.op === "create" && w.row.state === "active" && w.row.hold_in_flight !== false && (msOf(w.row.starts_at) ?? 0) <= Date.now() + 60_000) {
-    const held = await applyLockdown(w.tx, w.ctx, w.row, actor);
-    if (held) await updateIn(w.tx, sysOf(w.ctx), "change_lockdown", String(w.row.id), { held_count: held }, { trusted: true, keepVersion: true });
-  } else if (entering(w, "released")) await releaseLockdown(w.tx, w.ctx, w.row, actor);
+  if (entering(w, "released")) await releaseLockdown(w.tx, w.ctx, w.row, actor);
+  // a lockdown that has started holds the changes in flight once (created now, or moved to a start that passed);
+  // one that starts later is applied by the sweep when its start comes
+  else if ((w.op === "create" || w.changed.has("starts_at") || w.changed.has("hold_in_flight")) && lockdownDue(w.row, Date.now() + 60_000)) await startLockdown(w.tx, w.ctx, w.row, actor);
 }
 
 function configBefore(w: W): void {
@@ -574,7 +712,8 @@ function configBefore(w: W): void {
   if (!(a < b && b < c)) throw validationError({ risk_high_from: "آستانه‌های ریسک باید به ترتیب «متوسط < زیاد < بسیار زیاد» باشند" });
 }
 
-function questionBefore(w: W): void {
+async function questionBefore(w: W): Promise<void> {
+  await assertDefines(w);
   if (w.op === "delete") return;
   const n = w.next;
   const raw = n.options;
@@ -590,8 +729,9 @@ function questionBefore(w: W): void {
   if (Array.isArray(raw)) n.options = opts;
 }
 
-function outageBefore(w: W): void {
+async function outageBefore(w: W): Promise<void> {
   if (w.op === "delete") return;
+  await assertWorksChange(w, "قطعی برنامه‌ریزی‌شده");
   const s = msOf(w.next.starts_at);
   const e = msOf(w.next.ends_at);
   if (s !== null && e !== null && e <= s) throw validationError({ ends_at: "پایان قطعی باید پس از شروع آن باشد" });
@@ -603,6 +743,8 @@ export function installChangeHooks(): (() => void)[] {
     registerHooks("change_request", { beforeWrite: changeBefore, afterWrite: changeAfter, guards: { change_lifecycle: (w) => changeGuard(w) } }),
     registerHooks("change_task", { beforeWrite: taskBefore, afterWrite: taskAfter, guards: { change_task_ready: (w) => taskReady(w) } }),
     registerHooks("change_template", { beforeWrite: templateBefore }),
+    registerHooks("change_model", { beforeWrite: assertDefines }),
+    registerHooks("change_success_score", { beforeWrite: assertDefines }),
     registerHooks("change_window", { beforeWrite: windowBefore, afterWrite: windowAfter }),
     registerHooks("cab", { beforeWrite: cabBefore }),
     registerHooks("cab_meeting", { beforeWrite: meetingBefore, afterWrite: meetingAfter }),

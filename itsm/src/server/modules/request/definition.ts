@@ -4,7 +4,7 @@
 // schema every requested item ordered from it keeps, so later edits never change history or running fulfilment.
 // Changing any part of a published item marks it «تغییر منتشرنشده» until it is published again.
 import { CHOICE_TYPES, NO_VALUE_TYPES, variableType, type FieldClass, type ItemType, type VariableType } from "@shared/request/vocab";
-import { NAME_RE, RESERVED_NAMES, policyProblem, type FormSchema, type GridDef, type ItemSettings, type PolicyDef, type TaskTemplateDef, type VarDef } from "@shared/request/form";
+import { isPrivateClass, NAME_RE, RESERVED_NAMES, policyProblem, type FormSchema, type GridDef, type ItemSettings, type PolicyDef, type TaskTemplateDef, type VarDef } from "@shared/request/form";
 import type { Cond } from "@shared/model/conditions";
 import { tableDef } from "@shared/tables";
 import type { Ctx } from "../../context";
@@ -201,6 +201,8 @@ export function schemaProblems(schema: FormSchema, opts: { guideRules?: number }
     if (seen.has(v.name)) err(`نام فنی «${v.name}» دو بار آمده است (پرسش‌ها و مجموعه‌پرسش‌ها نام یکسان نگیرند)`, v.name);
     seen.add(v.name);
     if (RESERVED_NAMES.has(v.name)) err(`نام فنی «${v.name}» رزرو شده است`, v.name);
+    // a field of a record is read by everyone who reads the record: a secret or sensitive answer is never mapped there
+    if (v.map_to && (v.type === "secret" || isPrivateClass(v.field_class))) err(`پرسش «${v.label}» محرمانه یا حساس است و به فیلد «${v.map_to}» نگاشته نمی‌شود`, v.name);
     checkVar(v, "");
   }
   for (const g of schema.grids) {

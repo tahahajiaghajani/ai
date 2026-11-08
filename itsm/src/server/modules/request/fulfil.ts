@@ -123,10 +123,21 @@ export function producedValues(schema: FormSchema, answers: Answers, ritm: Row, 
   const def = tableDef(target);
   if (!def) return {};
   const writable = new Set(def.fields.filter((f) => !f.system && !f.readonly && !f.base).map((f) => f.name));
+  // only open answers reach the other table, by mapping or by template: never a secret or a sensitive answer, which
+  // would be stored there in clear for everyone who reads it (and indexed for the AI)
+  const open = openAnswers(schema, answers);
   const out: Row = {};
-  for (const [k, v] of Object.entries(obj(schema.item.field_map))) if (writable.has(k)) out[k] = renderValue(v, answers, ritm);
-  for (const v of schema.variables) if (v.map_to && writable.has(v.map_to) && answers[v.name] !== undefined && !isPrivateClass(v.field_class)) out[v.map_to] = answers[v.name];
+  for (const [k, v] of Object.entries(obj(schema.item.field_map))) if (writable.has(k)) out[k] = renderValue(v, open, ritm);
+  for (const v of schema.variables) if (v.map_to && writable.has(v.map_to) && open[v.name] !== undefined) out[v.map_to] = open[v.name];
   return out;
+}
+
+/** The answers without secret and sensitive ones (questions of type secret, the sensitive and secret classes). */
+export function openAnswers(schema: FormSchema, answers: Answers): Answers {
+  const closed = new Set<string>();
+  for (const v of schema.variables) if (v.type === "secret" || isPrivateClass(v.field_class)) closed.add(v.name);
+  for (const g of schema.grids) if (g.columns.some((c) => c.type === "secret" || isPrivateClass(c.field_class))) closed.add(g.code);
+  return Object.fromEntries(Object.entries(answers).filter(([k]) => !closed.has(k)));
 }
 
 /** The record of a target table an item makes (as the system acting for the requester); null when nothing is set. */

@@ -262,8 +262,10 @@ export const CHANGE_STATES: StateModel = {
     { from: ["new", "assess"], to: "authorize", label: "درخواست تأیید", guard: "change_lifecycle" },
     { from: ["new", "assess"], to: "scheduled", label: "زمان‌بندی", guard: "change_lifecycle" },
     { from: ["new"], to: "review", label: "ثبت به‌عنوان اجراشده", guard: "change_lifecycle" },
-    { from: ["authorize"], to: "scheduled", label: "تأیید و زمان‌بندی", roles: { area: "change", level: "full" }, guard: "change_lifecycle" },
-    { from: ["authorize"], to: "implement", label: "تأیید و شروع اجرا", roles: { area: "change", level: "full" }, guard: "change_lifecycle" },
+    // manual authorization: change managers only (the change area's approve right alone — team leads, service-desk
+    // managers — is not enough); the guard keeps the change's own people from authorizing it
+    { from: ["authorize"], to: "scheduled", label: "تأیید و زمان‌بندی", roles: { area: "change", level: "full", roles: ["change_manager", "tenant_admin"] }, guard: "change_lifecycle" },
+    { from: ["authorize"], to: "implement", label: "تأیید و شروع اجرا", roles: { area: "change", level: "full", roles: ["change_manager", "tenant_admin"] }, guard: "change_lifecycle" },
     { from: ["scheduled"], to: "implement", label: "شروع اجرا", guard: "change_lifecycle" },
     { from: ["implement"], to: "review", label: "پایان اجرا", requires: ["close_code"], guard: "change_lifecycle" },
     { from: ["review"], to: "closed", label: "بستن", requires: ["close_code", "close_notes"], guard: "change_lifecycle" },
@@ -480,7 +482,8 @@ const changeTask: TableDef = {
   ],
   states: CHANGE_TASK_STATES,
   scope: { ...TASK_SCOPE, own: [...(TASK_SCOPE.own ?? []), "change_owner_id"], requester: ["requested_for", "caller_id", "opened_by"] },
-  features: { calendar: { start: "planned_start", end: "planned_end" } },
+  // a task of a confidential change is confidential too (its readers follow the change: hooks.ts)
+  features: { confidential: true, calendar: { start: "planned_start", end: "planned_end" } },
   list: { columns: ["number", "short_description", "change_id", "task_type", "state", "assignment_group_id", "assigned_to", "planned_start"], order: "sort_order,number" },
 };
 
@@ -859,7 +862,8 @@ const changePir: TableDef = {
   ],
   states: PIR_STATES,
   scope: { own: ["owner_id"], requester: [], group: "assignment_group_id" },
-  features: { journal: true, attachments: true, watchers: true, links: true, rag: true },
+  // the review of a confidential change is confidential too (its readers follow the change: hooks.ts)
+  features: { journal: true, attachments: true, watchers: true, links: true, rag: true, confidential: true },
   list: { columns: ["number", "title", "change_id", "state", "owner_id", "due_at"], order: "-created_at" },
   ai: { title: "title", text: ["side_effects", "went_well", "went_wrong", "lessons"] },
 };
@@ -928,6 +932,8 @@ const changeLockdown: TableDef = {
     { name: "released_at", label: "زمان پایان", type: "datetime", system: true, span: 8 },
     { name: "released_by", label: "پایان‌دهنده", type: "user", system: true, span: 8 },
     { name: "held_count", label: "تغییرهای متوقف‌شده", type: "int", readonly: true, default: 0, audit: false, span: 8 },
+    // when its start came and the changes in flight were put on hold (the sweep applies a lockdown that starts later)
+    { name: "applied_at", label: "زمان اعمال", type: "datetime", readonly: true, audit: false, span: 8 },
   ],
   states: LOCKDOWN_STATES,
   scope: { public: true },

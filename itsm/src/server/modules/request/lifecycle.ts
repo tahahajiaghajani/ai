@@ -16,7 +16,7 @@ import { cancelRefusal, closeCodeFor, isItemDone, isItemOpen, isTaskDone, readyT
 import { answerText, checkAnswers, isEmptyAnswer, priceOf, titleOf, type Answers, type FormSchema } from "@shared/request/form";
 import { ORDERABLE_TYPES } from "@shared/request/vocab";
 import { add, cmp, isNumeric, mul } from "@shared/money";
-import { grantIn } from "@shared/access";
+import { grantIn, writeMode } from "@shared/access";
 import { tableDef } from "@shared/tables";
 import type { Ctx } from "../../context";
 import type { Queryable, Tx } from "../../db";
@@ -24,7 +24,6 @@ import { bad, forbidden } from "../../http/errors";
 import { addJournalIn, condEnv, createIn, isSystemCtx, onRecordEvent, registerHooks, removeIn, systemCtx, transitionIn, updateIn, validationError, type RecordEvent, type WriteArgs } from "../../engine";
 import type { JobConfig } from "../../jobs";
 import { prepareSubject, subjectOf } from "../../access";
-import { access } from "../../access/provider";
 import { arr, eqAll, isUuid, liveRow, liveRows, obj, secondsBetween, sysOf, type Row } from "./common";
 import { versionSchema } from "./definition";
 import { canOrder, onBehalfRefusal } from "./entitlement";
@@ -32,6 +31,10 @@ import { calendarOf, createTemplateTasks, deliver, displayOf, flowRunStates, run
 import { workingDaysDue } from "@shared/request/due";
 
 const WORKING = ["in_fulfilment", "awaiting_info", "backordered"];
+/** Fields of a requested item that are its work, not the order's: a requester's own create leaves them to the desk. */
+const WORK_FIELDS = ["assignment_group_id", "assigned_to", "impact", "urgency", "priority", "due_at", "close_code", "close_notes", "stage"];
+/** Requester fields of an item that its facts, its requester-visible tasks and a single-item order follow. */
+const REQUESTER_FIELDS = ["requested_for", "caller_id"];
 const AGENT_SCOPES = new Set(["group", "unit", "unit_tree", "domain", "all"]);
 const MASK = "••••";
 
@@ -53,12 +56,25 @@ export function cachedSchema(q: Queryable, ctx: Ctx, versionId: unknown): Promis
   return p;
 }
 
-/** Is the acting member only a requester in the area (write scope none or own)? */
+/** Is the acting member only a requester in the area (write scope none or own)? Creates only: rows ask `modeOn`. */
 export async function requesterLike(q: Queryable, ctx: Ctx): Promise<boolean> {
   if (isSystemCtx(ctx)) return false;
   await prepareSubject(ctx, q);
   return !AGENT_SCOPES.has(grantIn(subjectOf(ctx).eff, "request").write);
 }
+
+/**
+ * How the acting person reaches a row of `table` (the access model's write mode): «requester» — only through its
+ * requester fields, their own order whatever their role elsewhere (an agent ordering for themselves follows the item's
+ * requester rules) —, «full» — they work it (group, assignee, a fulfiller) —, or null. The system works everything.
+ */
+export async function modeOn(q: Queryable, ctx: Ctx, table: string, row: Row | null | undefined): Promise<"full" | "requester" | null> {
+  if (isSystemCtx(ctx)) return "full";
+  if (!row) return null;
+  await prepareSubject(ctx, q);
+  return writeMode(subjectOf(ctx), tableDef(table)!, row);
+}
+export const requesterOn = async (q: Queryable, ctx: Ctx, table: string, row: Row | null | undefined): Promise<boolean> => (await modeOn(q, ctx, table, row)) === "requester";
 
 const onRequesterSide = (row: Row | null, userId: string) => !!row && [row.requested_for, row.caller_id, row.opened_by].includes(userId);
 
@@ -118,6 +134,9 @@ async function prepareCreate(w: WriteArgs): Promise<void> {
   if (!n.requested_for) throw validationError({ requested_for: "درخواست برای چه کسی است؟" });
   // people's own writes (the generic API, imports): the same checks as checkout
   if (!w.trusted && !isSystemCtx(ctx)) {
+    // a requester orders an item; its work (group, assignee, impact and priority, due date, closing) is the desk's and
+    // the module's — what ordering (POST /request/order) never takes is not theirs to set here either
+    if (await requesterLike(tx, ctx)) for (const f of WORK_FIELDS) if (w.input?.has(f)) n[f] = w.def.fields.find((x) => x.name === f)?.default ?? null;
     if (item.state !== "published") throw validationError({ cat_item_id: `«${item.name}» در کاتالوگ نیست` });
     const why = await onBehalfRefusal(tx, ctx, schema.item, String(n.requested_for));
     if (why) throw validationError({ requested_for: why });
@@ -180,7 +199,9 @@ async function itemBeforeWrite(w: WriteArgs): Promise<void> {
   const p = w.prev!;
   const person = !w.trusted && !isSystemCtx(w.ctx);
   if (person && w.changed.has("answers")) throw bad("پاسخ‌ها را از «ویرایش پاسخ‌ها» تغییر دهید");
-  if (person && w.changed.has("close_notes") && n.state !== "cancelled" && (await requesterLike(w.tx, w.ctx))) throw validationError({ close_notes: "یادداشت بستن را فقط هنگام لغو می‌نویسید" });
+  if (person && w.changed.has("close_notes") && n.state !== "cancelled" && (await requesterOn(w.tx, w.ctx, "request_item", p))) throw validationError({ close_notes: "یادداشت بستن را فقط هنگام لغو می‌نویسید" });
+  // the quantity is priced (and approved) with the order; it does not change afterwards
+  if (person && w.changed.has("quantity")) throw validationError({ quantity: "تعداد پس از سفارش تغییر نمی‌کند؛ قلم را لغو و دوباره سفارش دهید" });
   if (person && (w.changed.has("rating") || w.changed.has("feedback")) && !["delivered", "closed_complete", "closed_incomplete"].includes(String(n.state))) {
     throw validationError({ rating: "بازخورد پس از تحویل ثبت می‌شود" });
   }
@@ -218,7 +239,7 @@ async function itemBeforeWrite(w: WriteArgs): Promise<void> {
 
 async function itemValidateTransition(w: WriteArgs & { transition: { to: string } }): Promise<string | null> {
   if (w.transition.to !== "cancelled" || isSystemCtx(w.ctx) || !onRequesterSide(w.prev, w.ctx.user.id)) return null;
-  if (!(await requesterLike(w.tx, w.ctx))) return null;
+  if (!(await requesterOn(w.tx, w.ctx, "request_item", w.prev))) return null;
   const schema = await cachedSchema(w.tx, w.ctx, w.prev?.item_version_id);
   return cancelRefusal(schema?.item.requester_cancel, String(w.prev?.state));
 }
@@ -261,6 +282,26 @@ async function startSubscription(tx: Tx, ctx: Ctx, ritm: Row, schema: FormSchema
   await updateIn(tx, sys, "request_item", String(ritm.id), { subscription_id: sub.id }, { trusted: true, keepVersion: true, allowLocked: true });
 }
 
+/**
+ * The item's requester side changed (an order placed for the wrong person, corrected): its requester-visible tasks are
+ * shown to the new person, and an order of this item alone (or led by it) names them too — the old one keeps nothing.
+ */
+async function followRequester(tx: Tx, ctx: Ctx, ritm: Row): Promise<void> {
+  const sys = sysOf(ctx);
+  for (const t of await liveRows(tx, sys, "request_task", eqAll({ request_item_id: ritm.id }))) {
+    const want = t.requester_visible ? (ritm.requested_for ?? null) : null;
+    if ((t.requested_for ?? null) !== want) await updateIn(tx, sys, "request_task", String(t.id), { requested_for: want }, { trusted: true, keepVersion: true, allowLocked: true });
+  }
+  if (!isUuid(ritm.request_id)) return;
+  const req = await liveRow(tx, sys, "request", ritm.request_id);
+  if (!req) return;
+  const items = await liveRows(tx, sys, "request_item", eqAll({ request_id: ritm.request_id }), { order: "t.created_at, t.id" });
+  if (items[0]?.id !== ritm.id) return;
+  const patch: Row = {};
+  for (const f of REQUESTER_FIELDS) if ((req[f] ?? null) !== (ritm[f] ?? null)) patch[f] = ritm[f] ?? null;
+  if (Object.keys(patch).length) await updateIn(tx, sys, "request", String(req.id), patch, { trusted: true, keepVersion: true, allowLocked: true });
+}
+
 /** After the SLA service's hooks: move the item on, keep its tasks and facts in step, roll the order up. */
 async function advance(w: WriteArgs & { row: Row }): Promise<void> {
   const { tx, ctx } = w;
@@ -275,11 +316,14 @@ async function advance(w: WriteArgs & { row: Row }): Promise<void> {
   if (w.op === "create" && schema) {
     await writeFacts(tx, ctx, row, schema);
     await createTemplateTasks(tx, ctx, row, schema, "before_approval");
-  } else if (w.changed.has("assignment_group_id")) {
+  } else if (w.changed.has("assignment_group_id") || REQUESTER_FIELDS.some((f) => w.changed.has(f))) {
+    // the facts carry the item's group and requester side (who reads them follows the item)
+    const facts = { assignment_group_id: row.assignment_group_id ?? null, requested_for: row.requested_for ?? null, caller_id: row.caller_id ?? null };
     for (const f of await liveRows(tx, sys, "request_answer", eqAll({ request_item_id: id }))) {
-      await updateIn(tx, sys, "request_answer", String(f.id), { assignment_group_id: row.assignment_group_id ?? null }, { trusted: true, keepVersion: true });
+      await updateIn(tx, sys, "request_answer", String(f.id), facts, { trusted: true, keepVersion: true });
     }
   }
+  if (w.op !== "create" && REQUESTER_FIELDS.some((f) => w.changed.has(f))) await followRequester(tx, ctx, row);
   const state = String(row.state);
   if (state === "pending" && schema && (w.op === "create" || w.changed.has("approval") || w.changed.has("state"))) {
     if (row.approval === "requested") await transitionIn(tx, sys, "request_item", id, "awaiting_approval", {}, { trusted: true });
@@ -302,9 +346,9 @@ async function advance(w: WriteArgs & { row: Row }): Promise<void> {
     }
     if (state === "closed_complete" && schema) await startSubscription(tx, ctx, row, schema);
     if (isItemDone(state)) {
-      // the work stops with the item
+      // the work stops with the item — not the revocation of time-bound access, which outlives it
       for (const t of await liveRows(tx, sys, "request_task", eqAll({ request_item_id: id }))) {
-        if (isTaskDone(t.state)) continue;
+        if (isTaskDone(t.state) || t.revocation === true) continue;
         await transitionIn(tx, sys, "request_task", String(t.id), t.state === "pending" ? "skipped" : "cancelled", { close_notes: "قلم درخواست‌شده بسته شد" }, { trusted: true });
       }
     }
@@ -317,8 +361,29 @@ async function advance(w: WriteArgs & { row: Row }): Promise<void> {
 // ---------------------------------------------------------------------------------------------------------------
 // request_task
 
+/**
+ * Tasks are the work of the people who fulfil the item: a person adds one only to an item they reach through its group
+ * or as its assignee — not as its requester, nor as a fulfiller of another task (a task's assignee becomes a fulfiller
+ * of the item, which would let anyone who may order read and change anyone's item and reveal its secrets). An item
+ * they cannot read answers like one that does not exist. A task stays with its item.
+ */
+async function assertWorksItem(w: WriteArgs): Promise<void> {
+  if (w.trusted || isSystemCtx(w.ctx)) return;
+  if (w.op !== "create") {
+    if (w.changed.has("request_item_id")) throw validationError({ request_item_id: "وظیفه به قلم دیگری منتقل نمی‌شود؛ برای آن قلم وظیفهٔ تازه بسازید" });
+    return;
+  }
+  const ritm = await liveRow(w.tx, w.ctx, "request_item", w.next.request_item_id);
+  if (!ritm) throw validationError({ request_item_id: "قلم درخواست‌شده پیدا نشد" });
+  // the fulfillers' share of the item does not count: only its group or its assignee
+  if ((await modeOn(w.tx, w.ctx, "request_item", { ...ritm, fulfillers: [] })) !== "full") {
+    throw forbidden(`وظیفهٔ ${ritm.number ? `قلم ${ritm.number}` : "این قلم"} را کارشناسان گروه انجام آن می‌سازند`);
+  }
+}
+
 async function taskBeforeWrite(w: WriteArgs): Promise<void> {
   if (w.op === "delete") return;
+  await assertWorksItem(w);
   const n = w.next;
   const sys = sysOf(w.ctx);
   if (w.op === "create") {
@@ -338,6 +403,8 @@ async function taskBeforeWrite(w: WriteArgs): Promise<void> {
   } else if (w.changed.has("requester_visible") || w.changed.has("request_item_id")) {
     const ritm = await liveRow(w.tx, sys, "request_item", n.request_item_id);
     n.requested_for = n.requester_visible && ritm ? (ritm.requested_for ?? null) : null;
+    // moved by the module: the order follows the item
+    if (w.changed.has("request_item_id") && ritm) n.request_id = ritm.request_id ?? null;
   }
   if (w.changed.has("blocked")) {
     const now = new Date().toISOString();
@@ -356,6 +423,7 @@ async function taskAfterWrite(w: WriteArgs & { row: Row }): Promise<void> {
   const row = w.row;
   const ritmId = String(row.request_item_id ?? "");
   if (!isUuid(ritmId)) return;
+  if (w.op !== "create" && w.changed.has("request_item_id") && isUuid(w.prev?.request_item_id)) await rollupTasks(w.tx, w.ctx, String(w.prev!.request_item_id));
   const stateChanged = w.op === "create" || w.op === "delete" || w.changed.has("state");
   if (!stateChanged && !w.changed.has("assigned_to")) return;
   const sys = sysOf(w.ctx);
@@ -441,15 +509,15 @@ async function requestValidateTransition(w: WriteArgs & { transition: { to: stri
   if (w.transition.to !== "cancelled" || isSystemCtx(w.ctx)) return null;
   const sys = sysOf(w.ctx);
   const items = await liveRows(w.tx, sys, "request_item", eqAll({ request_id: w.prev!.id }));
-  const requester = onRequesterSide(w.prev, w.ctx.user.id) && (await requesterLike(w.tx, w.ctx));
-  const itemDef = tableDef("request_item")!;
   for (const i of items) {
     if (!isItemOpen(i.state)) continue;
-    if (requester) {
+    // each item as the person reaches it: their own under its cancel policy, one they work as it is
+    const mode = await modeOn(w.tx, w.ctx, "request_item", i);
+    if (mode === "requester") {
       const schema = await cachedSchema(w.tx, w.ctx, i.item_version_id);
       const why = cancelRefusal(schema?.item.requester_cancel, String(i.state));
       if (why) return `«${i.short_description}»: ${why}`;
-    } else if (!access().canWrite(w.ctx, itemDef, i)) {
+    } else if (mode !== "full") {
       // a fulfiller of one item does not cancel the items of other groups through the order
       return `لغو «${i.short_description}» برای شما مجاز نیست؛ اقلام را جداگانه لغو کنید`;
     }
@@ -492,7 +560,7 @@ export function installLifecycle(): void {
   registerHooks("request", {
     async beforeWrite(w) {
       if (w.op === "create" && !w.trusted && !isSystemCtx(w.ctx)) throw forbidden("درخواست خدمت با سفارش از کاتالوگ ثبت می‌شود");
-      if (w.op !== "create" && w.op !== "delete" && !w.trusted && w.changed.has("close_notes") && w.next.state !== "cancelled" && (await requesterLike(w.tx, w.ctx))) {
+      if (w.op !== "create" && w.op !== "delete" && !w.trusted && w.changed.has("close_notes") && w.next.state !== "cancelled" && (await requesterOn(w.tx, w.ctx, "request", w.prev))) {
         throw validationError({ close_notes: "یادداشت بستن را فقط هنگام لغو می‌نویسید" });
       }
     },

@@ -132,7 +132,7 @@ virtual `user` (members: `name`, `email`, `title`, `role`, `is_active`).
 | `refs`, `users` | jsonb | `string[]` of ids | |
 | `json`, `conditions` | jsonb | JSON | value or JSON text; conditions are validated against `condTable` / the table named by `condTableField` |
 | `color` | text | a `COLOR_KEYS` name (never hex) | |
-| `secret` | text | **never returned**: `{ secret: true, hint: "…abcd" }` | plain string; send the `{ secret: true }` object back to keep it |
+| `secret` | text | **never returned**: `{ secret: true, hint: "…abcd" }` (`hint: false` on the field: always «…», for structured text) | plain string; send the `{ secret: true }` object back to keep it |
 
 FieldDef options: `required`, `readonly` (API ignores it; hooks/engine may set it), `hidden` (UI only), `system`
 (engine-maintained, ignored in input), `default` (value or `$now`, `$today`, `$me`, `$my_unit`, `$my_domain`),

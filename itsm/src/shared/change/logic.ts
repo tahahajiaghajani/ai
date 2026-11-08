@@ -267,11 +267,21 @@ export function computeRisk(input: { change: Row; questions: readonly RiskQuesti
   let max = 0;
   const missing: string[] = [];
   const picked: RiskResult["answers"] = [];
+  // a questionnaire answered in part counts its unanswered mandatory questions at their worst option: answering only
+  // the favourable questions never lowers the risk (with no answer at all, the profile alone decides)
+  const started = input.questions.some((q) => answerOption(q, answers[q.id]) !== null);
   for (const q of input.questions) {
     const w = clamp(Number(q.weight) || 0, 0, 10);
     const o = answerOption(q, answers[q.id]);
     if (!o) {
-      if (q.mandatory !== false) missing.push(q.question);
+      if (q.mandatory !== false) {
+        missing.push(q.question);
+        if (started) {
+          const opts = optionsOf(q);
+          got += (opts.length ? Math.max(...opts.map((x) => x.score)) : 10) * w;
+          max += 10 * w;
+        }
+      }
       continue;
     }
     got += o.score * w;
@@ -347,7 +357,7 @@ export function explainRisk(r: RiskResult, opts: { manual?: { level: string; rea
   } else if (r.questionnaire.total) {
     lines.push("", "پرسش‌نامهٔ ارزیابی ریسک هنوز پر نشده است؛ ریسک فقط از عامل‌های خودکار حساب شده است.");
   }
-  if (r.questionnaire.missing.length) lines.push("", `${r.questionnaire.missing.length} پرسش لازم بی‌پاسخ مانده است.`);
+  if (r.questionnaire.missing.length) lines.push("", `${r.questionnaire.missing.length} پرسش لازم بی‌پاسخ مانده است${r.questionnaire.score !== null ? " و با بدترین پاسخ خود شمرده شده است" : ""}.`);
   return lines.join("\n");
 }
 
@@ -530,6 +540,11 @@ export function detectConflicts(input: {
   change: Row;
   others: readonly Row[];
   occurrences: readonly (Occurrence & { scoped: boolean; applies: boolean })[];
+  /**
+   * The active maintenance windows themselves (not only the occurrences near the change): the one it chose and the
+   * scoped ones that apply bind it wherever their next occurrence falls.
+   */
+  maintenanceWindows?: readonly { id: string; name: string; scoped: boolean; applies: boolean }[];
   lockdowns?: readonly (LockdownLike & { applies: boolean })[];
   related?: ReadonlyMap<string, readonly string[]>;
   tzDate?: (ms: number) => string;
@@ -542,7 +557,8 @@ export function detectConflicts(input: {
   const mine = scopeOf(c);
   const no = (r: Row) => String(r.number ?? "").trim() || "تغییر دیگر";
   for (const o of input.others) {
-    if (o.id === c.id || o.exclude_conflicts || !CONFLICTING_STATES.includes(String(o.state))) continue;
+    // another change left out of detection keeps none of its own conflicts, but this one still sees it
+    if (o.id === c.id || !CONFLICTING_STATES.includes(String(o.state))) continue;
     const os = msOf(o.planned_start);
     const oe = msOf(o.planned_end);
     if (os === null || oe === null || os >= e || oe <= s) continue;
@@ -564,7 +580,8 @@ export function detectConflicts(input: {
   const day = input.tzDate ?? ((ms: number) => new Date(ms).toISOString().slice(0, 10));
   const maintenance: (Occurrence & { scoped: boolean; applies: boolean })[] = [];
   const chosen = c.maintenance_window_id ? String(c.maintenance_window_id) : null;
-  let hasMaintenance = false;
+  const binding = (input.maintenanceWindows ?? []).filter((m) => m.id === chosen || (m.scoped && m.applies));
+  let hasMaintenance = binding.length > 0;
   for (const occ of input.occurrences) {
     if (occ.kind === "maintenance") {
       if (occ.window_id === chosen || (occ.scoped && occ.applies)) {
@@ -581,8 +598,10 @@ export function detectConflicts(input: {
     });
   }
   if (hasMaintenance && !maintenance.some((m) => m.start <= s && m.end >= e)) {
-    const w = maintenance.find((m) => m.window_id === chosen) ?? maintenance[0];
-    out.push({ key: `outside_window:${w.window_id}`, kind: "outside_window", summary: `بیرون از پنجرهٔ نگهداری «${w.name}»`, window_id: w.window_id, overlap_start: s, overlap_end: e });
+    const near = maintenance.find((m) => m.window_id === chosen) ?? maintenance[0];
+    const far = binding.find((m) => m.id === chosen) ?? binding[0];
+    const w = near ? { id: near.window_id, name: near.name } : { id: far.id, name: far.name };
+    out.push({ key: `outside_window:${w.id}`, kind: "outside_window", summary: `بیرون از پنجرهٔ نگهداری «${w.name}»`, window_id: w.id, overlap_start: s, overlap_end: e });
   }
   for (const l of input.lockdowns ?? []) {
     if (!l.applies) continue;
