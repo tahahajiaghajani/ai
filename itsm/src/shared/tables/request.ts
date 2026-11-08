@@ -528,7 +528,8 @@ export const REQUEST_ITEM_STATES: StateModel = {
     { value: "cancelled", label: "لغوشده", category: "canceled", color: "gray" },
   ],
   transitions: [
-    { from: ["in_fulfilment", "backordered"], to: "awaiting_info", label: "درخواست اطلاعات" },
+    // «درخواست اطلاعات» (POST /request/items/:id/info) asks the requester a question and moves the item here
+    { from: ["in_fulfilment", "backordered"], to: "awaiting_info", label: "درخواست اطلاعات", roles: SYSTEM_ONLY("request") },
     { from: ["awaiting_info", "backordered"], to: "in_fulfilment", label: "ادامهٔ انجام" },
     { from: ["delivered"], to: "in_fulfilment", label: "تحویل را نمی‌پذیرم" },
     { from: ["in_fulfilment", "awaiting_info"], to: "backordered", label: "در انتظار تأمین" },

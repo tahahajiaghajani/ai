@@ -171,13 +171,13 @@ export async function requestInfo(ctx: Ctx, id: string, input: { message?: strin
   const message = String(input.message ?? "").trim();
   if (!message) throw validationError({ message: "پرسش خود از درخواست‌کننده را بنویسید" });
   const r = await get(ctx, "request_item", id);
-  if (!r.meta?.canWrite) throw forbidden("اجازهٔ تغییر این قلم را ندارید");
+  if (!r.meta?.canWrite || (await requesterLike(ctx.db, ctx))) throw forbidden("فقط کارشناس از درخواست‌کننده اطلاعات می‌خواهد");
   const row = r.row as Row;
   if (!["in_fulfilment", "backordered"].includes(String(row.state))) throw bad("فقط قلمی که در حال انجام است منتظر اطلاعات می‌ماند");
   return ctx.write(async (tx) => {
-    const moved = await transitionIn(tx, ctx, "request_item", id, "awaiting_info", {});
-    await addJournalIn(tx, ctx, tableDef("request_item")!, moved, { kind: "comment", body: message });
-    return moved;
+    // the question goes out as the person; the move is the module's (the transition is not offered on its own)
+    await addJournalIn(tx, ctx, tableDef("request_item")!, row, { kind: "comment", body: message });
+    return transitionIn(tx, sysOf(ctx, ctx.user.id), "request_item", id, "awaiting_info", {}, { trusted: true });
   });
 }
 

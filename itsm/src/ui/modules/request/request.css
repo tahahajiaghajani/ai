@@ -9,6 +9,10 @@
   .rq-q { grid-column: span 2; min-inline-size: 0; }
   .rq-q.is-half { grid-column: span 1; }
   .rq-q .blk-f { margin: 0; }
+  /* a choice shown as segments never widens the form: it scrolls inside its own box */
+  .rq-q .ant-segmented { max-inline-size: 100%; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }
+  .rq-preview .rq-grid { grid-template-columns: minmax(0, 1fr); }
+  .rq-preview .rq-q, .rq-preview .rq-q.is-half, .rq-preview .rq-label { grid-column: 1 / -1; }
   .rq-req { color: var(--ds-danger); margin-inline-start: 2px; }
   .rq-err { color: var(--ds-danger); font-size: 12px; margin-block-start: 4px; }
   .rq-label { grid-column: span 2; font-weight: var(--ds-weight-medium); color: var(--ds-text-2); padding-block: 4px; }
