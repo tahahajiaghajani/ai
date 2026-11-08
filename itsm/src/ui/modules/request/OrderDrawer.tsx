@@ -13,10 +13,11 @@ import { useNotify } from "../../lib/hooks";
 import { ApiError, errorText } from "../../lib/api";
 import { Field, ICON } from "../../components/blocks";
 import { Loader } from "../../components/display";
-import { RecordMarkdown, UserSelect, recordPath, useMe } from "../../records";
+import { RecordMarkdown, UserSelect, recordPath, useMe, useSchema } from "../../records";
 import { OrderForm, initialAnswers } from "./OrderForm";
 import { requestApi, useItemForm, useRequestConfig, useRequestRefresh, type CartLine, type OrderResult } from "./api";
-import { answerErrors, lineErrors } from "./model";
+import { answerErrors, lineErrors, orderDoneLabel } from "./model";
+import { orderAssist, typedText } from "./slots";
 
 export interface OrderDrawerProps {
   itemId: string | null;
@@ -36,6 +37,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 export function useOrderDone() {
   const { orgId } = useOrg();
   const navigate = useNavigate();
+  const { schema } = useSchema();
   return (r: OrderResult) => {
     const target = r.produced ? { table: r.produced.table, id: r.produced.id, number: r.produced.number } : r.request ? { table: "request", id: r.request.id, number: r.request.number } : null;
     Modal.success({
@@ -46,7 +48,7 @@ export function useOrderDone() {
           {r.items.length ? <p>{r.items.length.toLocaleString("fa-IR")} قلم ثبت شد؛ پیشرفت هر قلم را در صفحهٔ سفارش ببینید.</p> : null}
         </div>
       ),
-      okText: target ? "دیدن سفارش" : "باشه",
+      okText: orderDoneLabel(target, target ? schema?.def(target.table)?.label : null),
       onOk: () => {
         if (target) navigate(`/${orgId}/${recordPath(target.table, target.id)}`);
       },
@@ -71,6 +73,7 @@ export default function OrderDrawer({ itemId, forUser, open, onClose, initial, l
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState<"order" | "cart" | "save" | "ai" | null>(null);
   const [text, setText] = useState("");
+  const assist = orderAssist();
 
   useEffect(() => {
     if (!form) return;
@@ -214,6 +217,7 @@ export default function OrderDrawer({ itemId, forUser, open, onClose, initial, l
             </Field>
           ) : null}
           <OrderForm schema={form.schema} answers={answers} onChange={setAnswers} errors={errors} display={form.display} summary={summary} />
+          {assist && itemId && !line ? assist({ itemId, itemType: String(form.schema.item.type), text: typedText(answers), onSolved: onClose }) : null}
           {problem ? <Alert type="error" title={problem} /> : null}
         </div>
       ) : null}

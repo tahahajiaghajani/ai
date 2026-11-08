@@ -22,9 +22,11 @@ import { recordsApi } from "../../records/data/api";
 import { Loader } from "../../components/display";
 import type { OrgApi } from "../../lib/api";
 import { kbApi } from "./api";
+import { registerOrderAssist } from "../request/slots";
 import { takesKnowledge } from "./model";
 
 const Home = lazy(() => import("./Home"));
+const Deflection = lazy(() => import("./Deflection"));
 const SearchPage = lazy(() => import("./SearchPage"));
 const Reader = lazy(() => import("./Reader"));
 const Editor = lazy(() => import("./Editor"));
@@ -73,6 +75,12 @@ const reviewCount = async (api: OrgApi) => (await recordsApi.list(api, "kb_versi
 registerRecordExtensions("*", {
   sidePanels: [{ key: "knowledge:panel", title: "دانش", order: 20, when: (ctx) => takesKnowledge(ctx.def), render: widget(RecordPanel) }],
 });
+// ordering in the catalogue (and «گزارش مشکل»): articles for what the person types, «مشکلم حل شد» (KB-050)
+registerOrderAssist((p) => (
+  <Suspense fallback={null}>
+    <Deflection {...p} />
+  </Suspense>
+));
 registerRecordExtensions("known_error", { headerActions: header("kb-known-error", KnownErrorActions) });
 
 const NAV: NavItem[] = [

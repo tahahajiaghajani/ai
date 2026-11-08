@@ -255,3 +255,13 @@ export function cartState(lines: readonly CartLineLike[]): { ready: number; save
     blocked: lines.filter((l) => !l.saved && !!l.problem).length,
   };
 }
+
+/**
+ * The confirmation button after an order: «دیدن سفارش» for an order, otherwise the record the form produced by its
+ * table («دیدن رخداد» for «گزارش مشکل», «دیدن تغییر»…); `label` is the produced table's singular label.
+ */
+export function orderDoneLabel(target: { table: string } | null, label?: string | null): string {
+  if (!target) return "باشه";
+  if (target.table === "request") return "دیدن سفارش";
+  return `دیدن ${label?.trim() || "رکورد"}`;
+}
