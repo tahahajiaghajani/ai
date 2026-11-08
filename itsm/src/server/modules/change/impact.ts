@@ -1,7 +1,7 @@
-// The CMDB's hook into change enablement (catalogue CHG-017, CHG-045, CHG-030, CHG-054). Configuration items and
-// services arrive with the CMDB module (a parallel branch); until it registers its provider the change keeps the CIs
-// and services people pick (`affected_cis`, `affected_services`) and computes no impact — conflicts then compare the
-// picked CIs and services only. Contract for the CMDB module:
+// The CMDB's hook into change enablement (catalogue CHG-017, CHG-045, CHG-030, CHG-054). Configuration management
+// registers its provider when it is installed (src/server/modules/cmdb/change.ts); without a provider the change keeps
+// the CIs and services people pick (`affected_cis`, `affected_services`) and computes no impact — conflicts then
+// compare the picked CIs and services only. Contract:
 //
 //   registerImpactProvider({
 //     impactedServices: async (q, ctx, ciIds, { depth }) => serviceIds,      // upstream services of the CIs (depth-limited)

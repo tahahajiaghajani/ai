@@ -180,6 +180,38 @@ function mergePreset(a: ListPreset | undefined, b: ListPreset): ListPreset {
   };
 }
 
+// ---------------------------------------------------------------- reference pickers
+
+/** What a module's picker of its own table's records gets in record forms (instead of the generic RecordSelect). */
+export interface RefPickerProps {
+  value: string | string[] | null;
+  onChange: (v: string | string[] | null) => void;
+  multiple: boolean;
+  disabled?: boolean;
+  placeholder?: string;
+  allowClear?: boolean;
+  autoFocus?: boolean;
+  "aria-label"?: string;
+}
+
+const PICKERS = new Map<string, (p: RefPickerProps) => ReactNode>();
+
+/**
+ * The picker of a target table for every reference field to it (the CMDB's CiPicker for `ci`): record forms and
+ * inline edits use it when the field has no `refFilter` of its own. A later registration replaces the earlier one.
+ */
+export function registerRefPicker(table: string, render: (p: RefPickerProps) => ReactNode): () => void {
+  PICKERS.set(table, render);
+  version++;
+  return () => {
+    if (PICKERS.get(table) === render) PICKERS.delete(table);
+    version++;
+  };
+}
+
+/** The registered picker of a target table, if any. */
+export const refPickerFor = (table: string): ((p: RefPickerProps) => ReactNode) | undefined => PICKERS.get(table);
+
 // ---------------------------------------------------------------- paths
 
 /** Org-relative base path of a table's pages: the module's, else the generic `r/<table>`. */

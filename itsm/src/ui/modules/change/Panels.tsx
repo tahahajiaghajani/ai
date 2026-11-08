@@ -172,6 +172,16 @@ export function ScheduleTab({ ctx }: { ctx: RecordContext }) {
   const slots = useQuery({ queryKey: CHANGE_KEYS.record(orgId, r.id, "slots", `${days}:${r.version}`), queryFn: () => changeApi.slots(api, r.id, days) });
   const impact = useQuery({ queryKey: CHANGE_KEYS.record(orgId, r.id, "impact", r.version), queryFn: () => changeApi.impact(api, r.id) });
   const canPick = !!ctx.meta.canWrite && ["new", "assess", "authorize", "scheduled"].includes(String(r.state));
+  const [simulating, setSimulating] = useState(false);
+  const simulate = async () => {
+    setSimulating(true);
+    try {
+      await changeApi.simulate(api, r.id, `اثر ${String(r.number ?? "تغییر")}`, impact.data?.cis ?? []);
+      await impact.refetch();
+    } finally {
+      setSimulating(false);
+    }
+  };
   return (
     <div className="flex max-w-3xl flex-col gap-6">
       <section className="flex flex-col gap-2" aria-label="زمان‌های پیشنهادی">
@@ -225,6 +235,30 @@ export function ScheduleTab({ ctx }: { ctx: RecordContext }) {
               ))}
             </div>
             {!impact.data.provider ? <span className="text-[12px] text-ink-3">نمودار وابستگی پیکربندی‌ها (CMDB) هنوز وصل نیست؛ خدمت‌های اثرپذیر پس از نصب آن خودکار حساب می‌شوند.</span> : null}
+            {impact.data.provider ? (
+              <div className="flex flex-col gap-1.5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[13px] text-ink-2">شبیه‌سازی‌های اثر</span>
+                  {impact.data.cis.length ? (
+                    <Button size="small" loading={simulating} onClick={() => void simulate()}>
+                      شبیه‌سازی از کار افتادن
+                    </Button>
+                  ) : null}
+                </div>
+                {impact.data.simulations.length ? (
+                  <ul className="flex flex-col gap-1">
+                    {impact.data.simulations.map((s) => (
+                      <li key={s.id} className="flex flex-col">
+                        {s.mine ? <Link className="ds-link text-[13px]" to={recordPath("ci_impact_sim", s.id)}>{s.name}</Link> : <span className="text-[13px]">{s.name}</span>}
+                        {s.summary ? <span className="text-[12px] text-ink-3">{s.summary}</span> : null}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <span className="text-[12px] text-ink-3">هنوز شبیه‌سازی‌ای برای این تغییر ذخیره نشده است.</span>
+                )}
+              </div>
+            ) : null}
           </>
         ) : (
           <Loader />

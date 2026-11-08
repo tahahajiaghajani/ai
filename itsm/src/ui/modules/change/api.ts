@@ -116,7 +116,10 @@ export const changeApi = {
   checkConflicts: (api: OrgApi, id: string) => api.post<{ added: number; open: number }>(`${rec(id)}/conflicts/check`),
   slots: (api: OrgApi, id: string, days: number) => api.get<Slots>(`${rec(id)}/slots`, { days }),
   readiness: (api: OrgApi, id: string) => api.get<Readiness>(`${rec(id)}/readiness`),
-  impact: (api: OrgApi, id: string) => api.get<{ cis: string[]; services: string[]; impacted: string[]; provider: boolean; display: Record<string, string> }>(`${rec(id)}/impact`),
+  impact: (api: OrgApi, id: string) =>
+    api.get<{ cis: string[]; services: string[]; impacted: string[]; provider: boolean; simulations: { id: string; name: string; sim_state: string | null; summary: string | null; owner_id: string | null; mine: boolean; created_at: string | null }[]; display: Record<string, string> }>(`${rec(id)}/impact`),
+  /** a what-if simulation of the change's CIs saved with the change (configuration management) */
+  simulate: (api: OrgApi, id: string, name: string, ciIds: string[]) => api.post<{ id: string; summary: string }>("/cmdb/impact/save", { name, ci_ids: ciIds.slice(0, 50), state: "down", linked_table: "change_request", linked_id: id }),
   similar: (api: OrgApi, id: string) => api.get<{ items: Row[]; summary: { total: number; failed: number; failure_rate: number } | null }>(`${rec(id)}/similar`),
   evidence: (api: OrgApi, id: string) => api.get<{ markdown: string }>(`${rec(id)}/evidence`),
   votes: (api: OrgApi, id: string) => api.get<Votes>(`${rec(id)}/votes`),

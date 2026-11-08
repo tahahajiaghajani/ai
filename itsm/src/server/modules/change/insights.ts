@@ -14,7 +14,7 @@ import { recordApprovals } from "../sla";
 import { changeAi } from "./ai";
 import { cycleApprovals, tally } from "./authorize";
 import { workbench } from "./cab";
-import { hasTable, isUuid, msOf, riskQuestions, sysOf, type Row } from "./common";
+import { hasTable, isUuid, liveRows, msOf, riskQuestions, sysOf, type Row } from "./common";
 import { impactProvider } from "./impact";
 import { holdsOn } from "./schedule";
 
@@ -38,9 +38,17 @@ export async function readinessView(ctx: Ctx, id: string): Promise<Row> {
 export async function impactView(ctx: Ctx, id: string): Promise<Row> {
   const { row, display } = await get(ctx, "change_request", id);
   const s = scopeOf(row);
+  // what-if simulations saved for this change in configuration management (POST /cmdb/impact/save with
+  // linked_table/linked_id): a simulation is its author's record, but whoever reads the change reads the analyses
+  // kept with it — name, summary and author (`mine`: the caller's own, which opens as a record)
+  let simulations: Row[] = [];
+  if (hasTable("ci_impact_sim")) {
+    const sims = await liveRows(ctx.db, sysOf(ctx), "ci_impact_sim", { and: [{ f: "linked_table", op: "eq", v: "change_request" }, { f: "linked_id", op: "eq", v: String(row.id) }] }, { order: "t.created_at desc", limit: 20 });
+    simulations = sims.map((r) => ({ id: String(r.id), name: String(r.name ?? ""), sim_state: r.sim_state ?? null, summary: r.summary ?? null, owner_id: r.owner_id ?? null, mine: ctx.actor !== "system" && r.owner_id === ctx.user?.id, created_at: r.created_at ?? null }));
+  }
   return {
     cis: s.cis, services: Array.isArray(row.affected_services) ? row.affected_services : [], impacted: Array.isArray(row.impacted_services) ? row.impacted_services : [],
-    primary: { ci: row.ci_id ?? null, service: row.service_id ?? null }, provider: !!impactProvider().impactedServices, display,
+    primary: { ci: row.ci_id ?? null, service: row.service_id ?? null }, provider: !!impactProvider().impactedServices, simulations, display,
   };
 }
 

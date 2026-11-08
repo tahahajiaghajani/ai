@@ -20,6 +20,7 @@ import { offeredOptions, targetOf, valuesOf, type Schema } from "../model/schema
 import { splitDuration } from "../model/values";
 import type { DisplayMap, TableMeta } from "../model/types";
 import { MarkdownEditor } from "./MarkdownEditor";
+import { refPickerFor } from "../extensions";
 import { RecordSelect } from "./RecordSelect";
 import { ChoiceTag } from "./display";
 import { FilterBuilder } from "../filter/FilterBuilder";
@@ -187,6 +188,13 @@ export function FieldInput(p: FieldInputProps) {
     case "refs":
     case "group": {
       const target = targetOf(f, def) ?? (f.type === "group" ? "group" : "");
+      // a module's own picker of its records (the CMDB's CI picker), unless the field narrows its targets itself
+      const picker = (f.type === "ref" || f.type === "refs") && !f.refFilter ? refPickerFor(target) : undefined;
+      if (picker)
+        return picker({
+          value: (value as string | string[] | null) ?? null, onChange: (v) => onChange(v), multiple: f.type === "refs",
+          disabled, placeholder: f.placeholder, allowClear: !f.required, autoFocus, "aria-label": label,
+        });
       return (
         <RecordSelect
           {...common}

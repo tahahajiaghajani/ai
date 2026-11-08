@@ -21,6 +21,7 @@ import { installCmdbRag } from "./rag";
 import { cmdbAiCapabilities, installCmdbTools } from "./ai";
 import { classTree } from "./common";
 import { seedCmdbDefaultsIn, type SeedCounts } from "./seed";
+import { installCmdbChangeLink } from "./change";
 
 let installed = false;
 
@@ -37,6 +38,8 @@ export function installCmdbModule(): void {
   installCmdbJobs();
   installCmdbRag();
   installCmdbTools();
+  // change enablement: impacted services, related-CI conflicts and the owners of «service_owner» (change/impact.ts)
+  installCmdbChangeLink();
   registerRecordMeta("ci", async ({ q, ctx, def, row }) => {
     const tree = await classTree(q, ctx);
     const cls = tree.resolve(String(row.class));
@@ -57,6 +60,7 @@ export function installCmdbModule(): void {
 export { CMDB_SEED_VERSION, seedCmdbDefaultsIn } from "./seed";
 export { classTree, relTypes, cmdbConfig, invalidateCmdbCache } from "./common";
 export { dependencyMap, pathBetween, walk, redactMap, readableCis, overlays } from "./graph";
+export { relatedCis, recordOwners, CMDB_IMPACT_PROVIDER } from "./change";
 export { impactAnalysis, servicesImpactedBy, computeImpact, impactText, SERVICE_CLASSES } from "./impact";
 export { createOrUpdate, identifyOnly, identifyItem, startRun, finishRun, mapRow, ensureDedupTask, mayWrite } from "./ire";
 export { computeHealth, healthSummary, storeFacts } from "./health";

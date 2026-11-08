@@ -102,7 +102,8 @@ describe("insights", () => {
     expect(similar.items.map((x: any) => x.id)).toContain(a.id);
     const impact = await p.agent.client.get(`${P}/change/records/${b.id}/impact`);
     expect(impact.cis).toEqual([CI3]);
-    expect(impact.provider).toBe(false);
+    expect(impact.provider).toBe(true); // the CMDB is the impact provider (tests/integration-cmdb.test.ts)
+    expect(impact.impacted).toEqual([]); // a CI nothing depends on reaches no service
     const evidence = await p.agent.client.get(`${P}/change/records/${a.id}/evidence`);
     expect(evidence.markdown).toContain("پروندهٔ شواهد");
     const draft = await p.agent.client.get(`${P}/change/records/${a.id}/pir-draft`);

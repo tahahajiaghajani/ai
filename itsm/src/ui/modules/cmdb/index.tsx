@@ -17,11 +17,12 @@ import {
 } from "lucide-react";
 import type { ModuleUi, NavItem } from "../registry";
 import { recordModule, RecordListRoute } from "../../records/module";
-import { registerRecordExtensions, type RecordContext } from "../../records/extensions";
+import { registerRecordExtensions, registerRefPicker, type RecordContext } from "../../records/extensions";
 import { recordsApi } from "../../records/data/api";
 import { Loader } from "../../components/display";
 import type { OrgApi } from "../../lib/api";
 import type { Cond } from "@shared/model/conditions";
+import { CiPicker } from "./CiPicker";
 
 const Workspace = lazy(() => import("./Workspace"));
 const MapPage = lazy(() => import("./MapPage"));
@@ -184,10 +185,15 @@ registerRecordExtensions("*", {
   ],
 });
 
+// every reference field to a CI (incident, problem, change, request, knowledge…): the CI picker with class and host lines
+registerRefPicker("ci", (p) => (
+  <CiPicker value={p.value} onChange={(v) => p.onChange(v)} multiple={p.multiple} disabled={p.disabled} placeholder={p.placeholder} allowClear={p.allowClear} autoFocus={p.autoFocus} aria-label={p["aria-label"]} style={{ width: "100%" }} />
+));
+
 const [group] = module.nav;
 export const cmdbUi: ModuleUi = {
   ...module,
   nav: [{ ...group, items: [...group.items.filter((i) => i.key === "cmdb:workspace"), ...CI_QUEUES.map(queueNav), ...group.items.filter((i) => i.key !== "cmdb:workspace")] }],
 };
 
-export { CiPicker } from "./CiPicker";
+export { CiPicker };

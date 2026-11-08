@@ -21,11 +21,12 @@ function serviceLinks(def: TableDef): { single: string[]; multi: string[] } {
   return { single, multi };
 }
 
-/** The services a record names: its service, its offering's service and its affected services. */
+/** The services a record names: its service, its offering's service, its affected and impacted services. */
 export async function servicesOfRecord(q: Queryable, ctx: Ctx, row: Row): Promise<Row[]> {
   const ids = new Set<string>();
   if (isUuid(row.service_id)) ids.add(row.service_id);
-  for (const s of Array.isArray(row.affected_services) ? row.affected_services : []) if (isUuid(s)) ids.add(s);
+  // affected services, and those a change's CIs reach (computed from the CMDB)
+  for (const s of [...(Array.isArray(row.affected_services) ? row.affected_services : []), ...(Array.isArray(row.impacted_services) ? row.impacted_services : [])]) if (isUuid(s)) ids.add(s);
   if (isUuid(row.offering_id)) {
     const o = await liveRow(q, sysOf(ctx), "service_offering", row.offering_id);
     if (isUuid(o?.service_id)) ids.add(o!.service_id);

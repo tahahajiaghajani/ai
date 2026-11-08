@@ -1,7 +1,7 @@
 // The CI picker of every module (catalogue CMDB-016): CIs the person may read by number or words of their name, with
 // the class and a secondary line (host name, serial, user); a requester sees only the CIs they own or use. Restrict it
 // to a class and its descendants with `cls`; `mine` for «دستگاه من». Incident, problem and change forms use it for
-// their CI fields (registered here for every ref field to `ci` through `CiPickerField`).
+// their CI fields: index.tsx registers it with `registerRefPicker("ci")` for every reference field to a CI.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Select, Spin } from "antd";
 import { useQuery } from "@tanstack/react-query";
