@@ -7,7 +7,8 @@ import { registerLinkKind } from "@shared/model/links";
 import type { Ctx } from "../../context";
 import type { Queryable, Tx } from "../../db";
 import { addJournalIn, addLink, defFor, get, listLinks, removeLink, updateIn, type LinkView } from "../../engine";
-import { bad, notFound } from "../../http/errors";
+import { bad, forbidden, notFound } from "../../http/errors";
+import { requesterOnly } from "../incident/common";
 import { articleOf, isUuid, liveRow, sysOf } from "./common";
 import { logEvent } from "./events";
 
@@ -64,8 +65,19 @@ export async function linkedArticles(ctx: Ctx, table: string, id: string): Promi
 }
 
 /** Attach an article to a record (the caller writes the record and reads the article). */
+/**
+ * Does the caller work records of this table (an agent's write scope, not the requester side)? Reuse is the desk's
+ * judgement that an article solved a record; a requester's write access to their own record does not make one.
+ */
+export async function worksRecords(ctx: Ctx, table: string): Promise<boolean> {
+  if (ctx.actor === "system") return true;
+  const { def } = await defFor(ctx, table);
+  return !requesterOnly(ctx, def.area);
+}
+
 export async function attachArticle(ctx: Ctx, input: { table: string; id: string; article_id: string; kind?: KbLinkKind; note?: string | null; query?: string | null; session_id?: string | null }) {
   const kind = input.kind ?? "kb_solved_by";
+  if (!(await worksRecords(ctx, input.table))) throw forbidden("پیوند مقاله به رکورد با کارشناسانی است که روی آن کار می‌کنند");
   if (!(kind in KB_LINK_KINDS) || kind === "kb_created_from") throw bad("نوع پیوند معتبر نیست");
   if (!isUuid(input.id) || !isUuid(input.article_id)) throw bad("شناسه معتبر نیست");
   await get(ctx, "kb_article", input.article_id); // 404 unless readable
@@ -80,6 +92,7 @@ export async function attachArticle(ctx: Ctx, input: { table: string; id: string
 export async function detachArticle(ctx: Ctx, input: { table: string; id: string; link_id: string; reason: string }) {
   const reason = String(input.reason ?? "").trim();
   if (reason.length < 3) throw bad("دلیل جدا کردن مقاله را بنویسید");
+  if (!(await worksRecords(ctx, input.table))) throw forbidden("پیوند مقاله به رکورد با کارشناسانی است که روی آن کار می‌کنند");
   const linked = (await linkedArticles(ctx, input.table, input.id)).find((l) => l.link_id === input.link_id);
   if (!linked) throw notFound("پیوند پیدا نشد");
   await removeLink(ctx, input.table, input.id, input.link_id);

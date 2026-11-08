@@ -8,7 +8,7 @@ import { defFor, get } from "../../engine";
 import { access } from "../../access/provider";
 import { canAuthor, kbConfig, liveRows, sysOf, type Row } from "./common";
 import { searchKnowledge } from "./search";
-import { linkedArticles } from "./links";
+import { linkedArticles, worksRecords } from "./links";
 import { logEvent } from "./events";
 
 /** The query a record suggests: its title, the start of its description and its category's label. */
@@ -31,7 +31,7 @@ export async function suggestForRecord(ctx: Ctx, table: string, id: string, opts
   const suggestions: KbSuggestion[] = (res?.hits ?? []).map((h) => ({ ...h, linked: linkedIds.get(h.id) ?? null })).filter((h) => !h.linked).slice(0, cfg.suggest_limit);
   const [captured] = await liveRows(ctx.db, ctx, "kb_article", { and: [{ f: "source_id", op: "eq", v: id }, { f: "state", op: "ne", v: "trashed" }] }, { order: "t.created_at desc", limit: 1 });
   if (suggestions.length) await logEvent(ctx.db, ctx, { kind: "suggest", record_table: table, record_id: id, query: q, results: suggestions.length, channel: "record", session_id: opts.session_id ?? null });
-  const canWrite = !!(r.meta as { canWrite?: boolean }).canWrite && !!def.features?.links;
+  const canWrite = !!(r.meta as { canWrite?: boolean }).canWrite && !!def.features?.links && (await worksRecords(ctx, table));
   return {
     linked,
     suggestions,

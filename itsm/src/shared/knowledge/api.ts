@@ -24,6 +24,8 @@ export interface KbCard {
   internal: boolean;
   version_label: string | null;
   review_due: boolean;
+  /** a KCS work-in-progress article (agents only): being written while the issue is worked */
+  wip?: boolean;
 }
 
 export interface KbSearchParams {

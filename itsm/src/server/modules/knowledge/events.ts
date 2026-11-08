@@ -88,10 +88,10 @@ export interface QueryStat {
   last_at: string;
 }
 
-/** Search analytics over a window: top queries, zero-result queries, clicks (click-through), by normalised query. */
+/** Search analytics over a window: top queries, zero-result queries (a relaxed search — no article had every word — counts as one: it found nothing the reader asked for), clicks (click-through), by normalised query. */
 export async function queryStats(q: Queryable, orgId: string, days: number, opts: { zeroOnly?: boolean; limit?: number } = {}): Promise<QueryStat[]> {
   const rows = await q.query<{ query: string; searches: string | number; zero: string | number; clicks: string | number; last_at: string }>(
-    `with s as (select query, session_id, at, results from sm_kb_events where org_id = $1 and kind = 'search' and query is not null and query <> '' and at > now() - ($2 || ' days')::interval),
+    `with s as (select query, session_id, at, case when (data ->> 'relaxed') = 'true' then 0 else results end as results from sm_kb_events where org_id = $1 and kind = 'search' and query is not null and query <> '' and at > now() - ($2 || ' days')::interval),
           c as (select query, count(*) as clicks from sm_kb_events where org_id = $1 and kind = 'click' and query is not null and at > now() - ($2 || ' days')::interval group by query)
      select s.query, count(*) as searches, sum(case when coalesce(s.results, 0) = 0 then 1 else 0 end) as zero, coalesce(max(c.clicks), 0) as clicks, max(s.at) as last_at
        from s left join c on c.query = s.query

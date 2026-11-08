@@ -225,7 +225,7 @@ const CONTENT = ["title", "summary", "body", "internal_body", "keywords", "tags"
 /** The checks a draft carries (quality score, blocking items, sensitive data in what reaches requesters). */
 async function versionChecks(tx: Tx, ctx: Ctx, v: Row, article: Row, base: Row | null) {
   const template = article.template_id ? await liveRow(tx, sysOf(ctx), "kb_template", article.template_id) : null;
-  const sections = template ? cleanSections(template.sections) : [];
+  const sections = template && (article.language ?? "fa") === "fa" ? cleanSections(template.sections) : [];
   const external = !!base && base.kind !== "internal" && !isInternalArticle(article);
   const r = qualityChecks({ title: v.title, summary: v.summary, body: v.body, internal_body: v.internal_body, article_type: article.article_type, keywords: v.keywords, sections, external });
   return { report: r, sections, external };

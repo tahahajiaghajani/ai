@@ -301,7 +301,7 @@ export const ARTICLE_WRITE: Cond = { or: [{ f: "governance", op: "ne", v: "compl
 
 export const VERSION_READ: Cond = { or: [me("author_id"), me("reviewer_ids"), ...CONTRIBUTORS] };
 export const FEEDBACK_READ: Cond = { or: [me("user_id"), ...CONTRIBUTORS] };
-export const TASK_READ: Cond = { or: [me("caller_id"), me("requested_for"), me("opened_by"), me("assigned_to"), myGroup("assignment_group_id"), me("watch_list"), ...CONTRIBUTORS] };
+export const TASK_READ: Cond = { or: [me("assigned_to"), myGroup("assignment_group_id"), me("watch_list"), ...CONTRIBUTORS] };
 
 /** Snippets and decision trees follow their base; readers see the published ones. */
 export const SNIPPET_READ: Cond = {

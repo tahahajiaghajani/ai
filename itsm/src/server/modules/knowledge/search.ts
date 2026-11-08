@@ -66,7 +66,7 @@ async function rulesFor(ctx: Ctx, q: string): Promise<Rule[]> {
   return rows.filter((r) => searchForm(r.query) && norm.includes(searchForm(r.query))).map((r) => ({ kind: r.kind, articles: Array.isArray(r.articles) ? r.articles : [] }));
 }
 
-const CARD_COLS = ["id", "number", "title", "summary", "article_type", "base_id", "category_id", "language", "state", "published_at", "last_reviewed_at", "view_count", "reuse_count", "helpful_yes", "helpful_no", "confidential", "version_label", "review_due", "translation_of", "updated_at"];
+const CARD_COLS = ["id", "number", "title", "summary", "article_type", "base_id", "category_id", "language", "state", "kcs_confidence", "published_at", "last_reviewed_at", "view_count", "reuse_count", "helpful_yes", "helpful_no", "confidential", "version_label", "review_due", "translation_of", "updated_at"];
 
 /** Readable live articles by id (cards), in the order given. */
 export async function cardsByIds(ctx: Ctx, idsIn: string[], opts: { states?: string[] } = {}): Promise<Row[]> {
@@ -114,7 +114,8 @@ export async function searchKnowledge(ctx: Ctx, p: KbSearchParams): Promise<KbSe
   const params: unknown[] = [];
   const where = [readable(ctx, def, "t", params, env)];
   params.push(pgArray(p.include_retired ? [...LIVE_STATES, "retired"] : LIVE_STATES));
-  where.push(`t.state = any($${params.length}::text[])`);
+  // agents also find work-in-progress articles (KCS «searching is creating»); readers never do
+  where.push(internal ? `(t.state = any($${params.length}::text[]) or (t.state = 'draft' and t.kcs_confidence = 'wip'))` : `t.state = any($${params.length}::text[])`);
 
   const F = { t: normExpr("t.title"), s: normExpr("t.summary"), k: `${normExpr("t.keywords::text")} || ' ' || ${normExpr("t.tags::text")} || ' ' || ${normExpr("t.doc_number")}`, b: normExpr("t.body"), i: internal ? normExpr("t.internal_body") : "''::text" };
   const like = (term: string) => {
@@ -224,7 +225,7 @@ export async function searchKnowledge(ctx: Ctx, p: KbSearchParams): Promise<KbSe
   const pageRows = filtered.slice((page - 1) * size, page * size);
 
   // the page: cards with excerpts (internal text only for agents)
-  const cards = await cardsByIds(ctx, pageRows.map((r) => r.id), { states: p.include_retired ? [...LIVE_STATES, "retired"] : undefined });
+  const cards = await cardsByIds(ctx, pageRows.map((r) => r.id), { states: [...LIVE_STATES, ...(p.include_retired ? ["retired"] : []), ...(internal ? ["draft"] : [])] });
   const bodies = new Map<string, { body: string; internal: string }>();
   if (cards.length) {
     const params2: unknown[] = [];
@@ -281,6 +282,7 @@ export function cardOf(c: Row, labels: { bases: Map<string, string>; categories:
     internal: c.confidential === true,
     version_label: c.version_label ?? null,
     review_due: c.review_due === true,
+    wip: c.state === "draft" && c.kcs_confidence === "wip",
   };
 }
 
