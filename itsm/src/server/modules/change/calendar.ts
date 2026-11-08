@@ -3,6 +3,7 @@
 // planned outages, lockdowns and the official holidays of the default working calendar; an iCalendar feed of the same
 // (CHG-042, read with the caller's access); and blackouts made from the official holidays of a Jalali year.
 import { jalaliYearRange, addDays } from "@shared/jalali";
+import { riskLabel } from "@shared/change/logic";
 import { localInstant } from "@shared/sla/calendar";
 import type { Ctx } from "../../context";
 import { access } from "../../access/provider";
@@ -98,7 +99,7 @@ export async function calendarIcs(ctx: Ctx, input: CalendarQuery, labels: { stat
     lines.push(
       "BEGIN:VEVENT", `UID:${c.id}@change.itsm`, `DTSTAMP:${stamp}`, `DTSTART:${icsTime(c.planned_start)}`, `DTEND:${icsTime(c.planned_end)}`,
       `SUMMARY:${icsText(`${c.number} — ${c.short_description}`)}`,
-      `DESCRIPTION:${icsText(`وضعیت: ${labels.state(String(c.state))}\nریسک: ${c.risk ?? "—"}`)}`,
+      `DESCRIPTION:${icsText(`وضعیت: ${labels.state(String(c.state))}\nریسک: ${riskLabel(c.risk)}`)}`,
       `CATEGORIES:${icsText(String(c.type ?? ""))}`, "END:VEVENT",
     );
   }
