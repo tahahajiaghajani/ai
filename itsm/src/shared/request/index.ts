@@ -4,3 +4,4 @@ export * from "./vocab";
 export * from "./form";
 export * from "./audience";
 export * from "./due";
+export * from "./logic";
