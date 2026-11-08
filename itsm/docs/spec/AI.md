@@ -144,6 +144,15 @@ registerRagSource({
 });
 ```
 
+- **Attachments** (`ai: { …, attachments: true }` on a table with `features.attachments`, KB-010): the text of the
+  record's attached files (PDF, Word, Excel, CSV, HTML, text; not images — OCR is per runtime) is part of its document,
+  a part per file and page (`field: "attachment:<id>"`, label «پیوست «name»»), cited to the record and answered only to
+  those who may read the record (no field group unless the builder says otherwise). At most
+  `ATTACHMENT_LIMITS` (20 files, 15 MB each, 200 000 characters per file); a content a Windows app has not fetched yet
+  is read at the next index. Adding or removing a file emits `record.attachment_added` / `record.attachment_removed`
+  and the record is re-indexed. A builder decides per record: `attachments: false` leaves them out (a «فقط ارجاع»
+  article), `attachments: { group: "internal" }` puts their text in a field group (an article answering agents only).
+
 Every part carries its field group; a part whose field is not a real field of the table (e.g. `content` pages) is
 governed by the record's readability only. Builders must be deterministic (the hash decides re-indexing).
 

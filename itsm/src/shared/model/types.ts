@@ -317,8 +317,11 @@ export interface TableDef {
   features?: TableFeatures;
   form?: FormLayout;
   list?: ListLayout;
-  /** fields that make up the RAG document */
-  ai?: { title: string; text: string[] };
+  /**
+   * fields that make up the RAG document; `attachments`: the text of the record's attachments (PDF, Word, Excel, CSV,
+   * HTML, text files) is indexed with it, under the record's access, cited to the record (`features.attachments`)
+   */
+  ai?: { title: string; text: string[]; attachments?: boolean };
   /** combinations of fields unique per organisation among live rows */
   unique?: string[][];
   /**

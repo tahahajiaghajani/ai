@@ -352,6 +352,7 @@ Every create/update/transition/delete writes events into the job queue **in the 
 | `record.commented` | `entry: { id, kind, visibility }` |
 | `record.linked` / `record.unlinked` | on both records of a link: `data: { link_id, kind, direction: "out" \| "in", other_table, other_id }` (also for links a Windows app pushed, `via: "sync"`) |
 | `record.flow_ended` | a flow run started on the record ended: `data: { run_id, flow_id, flow_name, state: completed \| failed \| canceled, error, outputs, test }` (flows, §8 of services/flows.md) |
+| `record.attachment_added` / `record.attachment_removed` | a file was attached to / removed from the record: `data: { attachment_id, name, mime }` (the AI index re-reads tables with `ai.attachments`) |
 
 One update may emit several (updated + state_changed + assigned). Subscribe without touching the engine:
 

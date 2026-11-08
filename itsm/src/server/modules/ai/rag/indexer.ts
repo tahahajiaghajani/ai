@@ -502,7 +502,7 @@ export function installIndexer(): void {
         await enqueue(jctx.db, { kind: RAG_JOBS.index, orgId: e.org_id, payload: { table: e.table, id: e.id }, delayMs: 15_000, dedupeKey: `${RAG_JOBS.index}:${e.table}:${e.id}` }).catch(() => undefined);
       }
     },
-    { kinds: ["record.created", "record.updated", "record.deleted"] },
+    { kinds: ["record.created", "record.updated", "record.deleted", "record.attachment_added", "record.attachment_removed"] },
   );
 }
 

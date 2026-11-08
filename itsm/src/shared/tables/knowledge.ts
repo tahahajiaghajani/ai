@@ -618,7 +618,8 @@ const article: TableDef = {
     ],
   },
   list: { columns: ["number", "title", "article_type", "base_id", "state", "version_label", "owner_id", "view_count", "reuse_count", "review_at"], order: "-updated_at" },
-  ai: { title: "title", text: ["summary", "body", "internal_body"] },
+  // attachments are indexed with the article's audience (KB-010; the module's builder decides per article)
+  ai: { title: "title", text: ["summary", "body", "internal_body"], attachments: true },
 };
 
 // ---------------------------------------------------------------------------------------------------------------

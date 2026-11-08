@@ -6,6 +6,9 @@
 // direction-override characters, no reserved Windows names); the content type is sniffed from the bytes, and only
 // raster images are ever served inline (never SVG or HTML).
 //
+// Adding and removing emit `record.attachment_added` / `record.attachment_removed` (data: attachment_id, name, mime)
+// in the same transaction — the AI index re-reads the text of a table with `ai.attachments`.
+//
 // The Windows app receives attachment metadata through sync and fetches a content the first time it is opened
 // (`DesktopBridge.fetchBlob`, an authenticated request to the cloud's content route); contents of attachments
 // added offline are uploaded after the push (PUT /o/:org/blobs/:sha256).
@@ -21,6 +24,7 @@ import { actorId, condEnv, isSystemCtx } from "./env";
 import { defFor } from "./schema";
 import { RefSet, resolveDisplay } from "./display";
 import { requireReadable, type Row } from "./read";
+import { emitEvent } from "./events";
 
 export const DEFAULT_ATTACHMENT_MB = 10;
 const HARD_MAX_MB = 100;
@@ -168,6 +172,7 @@ export async function addAttachmentIn(tx: Queryable, ctx: Ctx, def: TableDef, re
      values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) returning *`,
     [uuidv7(), ctx.org.id, def.key, recordId, name, mime, file.data.byteLength, sha, actorId(ctx), ctx.cfg.origin ?? null],
   );
+  await emitEvent(tx, ctx, { kind: "record.attachment_added", table: def.key, id: recordId, data: { attachment_id: row!.id, name, mime } });
   return view(row!);
 }
 
@@ -198,6 +203,7 @@ export async function removeAttachment(ctx: Ctx, table: string, id: string, atta
     const mine = att.uploaded_by && att.uploaded_by === ctx.user.id;
     if (!mine && !isSystemCtx(ctx) && (!access().canWrite(ctx, def, record) || record.$writable === false)) throw forbidden("اجازهٔ حذف این پیوست را ندارید");
     await tx.query(`update sm_attachments set deleted_at = now(), updated_at = now() where id = $1`, [att.id]);
+    await emitEvent(tx, ctx, { kind: "record.attachment_removed", table: def.key, id: String(record.id), data: { attachment_id: att.id, name: att.name, mime: att.mime } });
   });
   return { ok: true };
 }
