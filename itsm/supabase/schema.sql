@@ -1211,6 +1211,7 @@ alter table sm_corrective_actions add column if not exists action_type text;
 alter table sm_corrective_actions add column if not exists problem_id uuid;
 alter table sm_corrective_actions add column if not exists review_id uuid;
 alter table sm_corrective_actions add column if not exists incident_id uuid;
+alter table sm_corrective_actions add column if not exists period_review_id uuid;
 alter table sm_corrective_actions add column if not exists tracker_url text;
 alter table sm_corrective_actions add column if not exists evidence text;
 create unique index if not exists sm_corrective_actions_no_uk on sm_corrective_actions (org_id, no);
@@ -1222,6 +1223,7 @@ create index if not exists sm_corrective_actions_assignment_group_id_idx on sm_c
 create index if not exists sm_corrective_actions_assigned_to_idx on sm_corrective_actions (org_id, assigned_to) where deleted_at is null;
 create index if not exists sm_corrective_actions_problem_id_idx on sm_corrective_actions (org_id, problem_id) where deleted_at is null;
 create index if not exists sm_corrective_actions_review_id_idx on sm_corrective_actions (org_id, review_id) where deleted_at is null;
+create index if not exists sm_corrective_actions_period_review_id_idx on sm_corrective_actions (org_id, period_review_id) where deleted_at is null;
 create index if not exists sm_corrective_actions_workspace_acc_idx on sm_corrective_actions (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
 create index if not exists sm_corrective_actions_unit_acc_idx on sm_corrective_actions (org_id, unit_id) where deleted_at is null and unit_id is not null;
 create index if not exists sm_corrective_actions_domain_acc_idx on sm_corrective_actions (org_id, domain_id) where deleted_at is null and domain_id is not null;
@@ -1708,6 +1710,7 @@ alter table sm_incident_configs add column if not exists reassignment_alert inte
 alter table sm_incident_configs add column if not exists cascade_children boolean not null default true;
 alter table sm_incident_configs add column if not exists propagate_comments boolean not null default true;
 alter table sm_incident_configs add column if not exists security_group_id uuid;
+alter table sm_incident_configs add column if not exists period_review_days integer;
 alter table sm_incident_configs add column if not exists mi_candidate_priorities jsonb;
 alter table sm_incident_configs add column if not exists mi_candidate_affected integer;
 alter table sm_incident_configs add column if not exists mi_default_cadence integer;
@@ -1722,6 +1725,66 @@ create unique index if not exists sm_incident_configs_config_key_uk on sm_incide
 drop trigger if exists sm_incident_configs_sync on sm_incident_configs;
 create trigger sm_incident_configs_sync before insert or update on sm_incident_configs for each row execute function sm_sync_touch('incident_config');
 alter table sm_incident_configs enable row level security;
+
+-- incident_period_review: بازبینی‌های دوره‌ای رخدادها
+create table if not exists sm_incident_period_reviews (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_incident_period_reviews add column if not exists workspace_id uuid;
+alter table sm_incident_period_reviews add column if not exists domain_id uuid;
+alter table sm_incident_period_reviews add column if not exists unit_id uuid;
+alter table sm_incident_period_reviews add column if not exists created_at timestamptz not null default now();
+alter table sm_incident_period_reviews add column if not exists created_by uuid;
+alter table sm_incident_period_reviews add column if not exists updated_at timestamptz not null default now();
+alter table sm_incident_period_reviews add column if not exists updated_by uuid;
+alter table sm_incident_period_reviews add column if not exists rev bigint not null default 0;
+alter table sm_incident_period_reviews add column if not exists version integer not null default 1;
+alter table sm_incident_period_reviews add column if not exists deleted_at timestamptz;
+alter table sm_incident_period_reviews add column if not exists origin text;
+alter table sm_incident_period_reviews add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_incident_period_reviews add column if not exists no integer;
+alter table sm_incident_period_reviews add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 5 then 'IPR' || no::text else 'IPR' || lpad(no::text, 5, '0') end) stored;
+alter table sm_incident_period_reviews add column if not exists title text;
+alter table sm_incident_period_reviews add column if not exists period_from date;
+alter table sm_incident_period_reviews add column if not exists period_to date;
+alter table sm_incident_period_reviews add column if not exists review_trigger text;
+alter table sm_incident_period_reviews add column if not exists owner_id uuid;
+alter table sm_incident_period_reviews add column if not exists participants jsonb;
+alter table sm_incident_period_reviews add column if not exists assignment_group_id uuid;
+alter table sm_incident_period_reviews add column if not exists computed_at timestamptz;
+alter table sm_incident_period_reviews add column if not exists sample_ids jsonb;
+alter table sm_incident_period_reviews add column if not exists stats jsonb;
+alter table sm_incident_period_reviews add column if not exists report text;
+alter table sm_incident_period_reviews add column if not exists findings text;
+alter table sm_incident_period_reviews add column if not exists model_updates text;
+alter table sm_incident_period_reviews add column if not exists state text;
+create unique index if not exists sm_incident_period_reviews_no_uk on sm_incident_period_reviews (org_id, no);
+create index if not exists sm_incident_period_reviews_rev_idx on sm_incident_period_reviews (org_id, rev);
+create index if not exists sm_incident_period_reviews_upd_idx on sm_incident_period_reviews (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_incident_period_reviews_crt_idx on sm_incident_period_reviews (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_incident_period_reviews_owner_id_idx on sm_incident_period_reviews (org_id, owner_id) where deleted_at is null;
+create index if not exists sm_incident_period_reviews_assignment_group_id_idx on sm_incident_period_reviews (org_id, assignment_group_id) where deleted_at is null;
+create index if not exists sm_incident_period_reviews_state_idx on sm_incident_period_reviews (org_id, state) where deleted_at is null;
+create index if not exists sm_incident_period_reviews_workspace_acc_idx on sm_incident_period_reviews (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_incident_period_reviews_unit_acc_idx on sm_incident_period_reviews (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_incident_period_reviews_domain_acc_idx on sm_incident_period_reviews (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_incident_period_reviews_participants_gin on sm_incident_period_reviews using gin (participants);
+drop trigger if exists sm_incident_period_reviews_sync on sm_incident_period_reviews;
+create trigger sm_incident_period_reviews_sync before insert or update on sm_incident_period_reviews for each row execute function sm_sync_touch('incident_period_review');
+alter table sm_incident_period_reviews enable row level security;
 
 -- incident_response: پاسخ‌های آماده
 create table if not exists sm_incident_responses (

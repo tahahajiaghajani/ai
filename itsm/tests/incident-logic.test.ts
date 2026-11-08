@@ -1,11 +1,12 @@
 // Pure logic of incident management (src/shared/incident/logic.ts): similarity and known-error matching, the
 // major-incident criteria and actions, the update cadence, the reopen window, the timeline (stored events, checks,
-// order), the review draft, canned-response placeholders, templates, durations, working days and announcements.
+// order), the review draft, canned-response placeholders, templates, durations, working days, announcements and the
+// periodic review's figures.
 import { describe, it, expect } from "vitest";
 import {
   addWorkingDays, announcementActive, announcementProblem, announcementReaches, eventProblem, fillPlaceholders, humanDuration, knownErrorMatch, localDate, majorActionAllowed,
-  majorCandidate, nextUpdateAt, overlap, reopenAllowed, reviewDraft, similarity, sortTimeline, storedEvents, templateParams, templateTasks, templateTasksProblem, words, SIMILAR_MIN,
-  type AudienceMember,
+  majorCandidate, nextUpdateAt, overlap, periodReport, periodStats, reopenAllowed, reviewDraft, samplePick, similarity, sortTimeline, storedEvents, templateParams, templateTasks,
+  templateTasksProblem, words, SIMILAR_MIN, type AudienceMember, type PeriodIncident,
 } from "@shared/incident/logic";
 import { calendarOf, DEFAULT_HOURS } from "@shared/sla/calendar";
 import { INCIDENT_CHOICE_LISTS, INCIDENT_CONFIG_DEFAULTS, MAJOR_STATES } from "@shared/tables/incident";
@@ -209,5 +210,45 @@ describe("announcements", () => {
     expect(announcementProblem({ starts_at: "2026-11-08T10:00:00Z", ends_at: "2026-11-08T09:00:00Z" })?.ends_at).toContain("پس از آغاز");
     expect(announcementProblem({ audience: "targeted", groups: [] })?.audience).toContain("دست‌کم");
     expect(announcementProblem({ audience: "targeted", users: ["u1"] })).toBeNull();
+  });
+});
+
+describe("the periodic review's figures", () => {
+  const now = Date.parse("2026-11-08T10:00:00Z");
+  const inc = (id: string, over: Partial<PeriodIncident> = {}): PeriodIncident => ({ id, number: `INC${id}`, priority: "3", category: "network", subcategory: "network.wifi", channel: "phone", ...over });
+  const opened = [
+    inc("1", { major_state: "accepted", priority: "1", short_description: "قطعی گسترده", sla_due: "2026-11-01T10:00:00Z", resolved_at: "2026-11-01T12:00:00Z", time_to_resolve: 7200, reopen_count: 1 }),
+    inc("2", { category: "hardware", subcategory: "hardware.printer", sla_due: "2026-11-09T10:00:00Z", reassignment_count: 4 }),
+    inc("3", { sla_due: "2026-11-07T10:00:00Z" }),
+    inc("4", { merged_into: "1" }),
+  ];
+  const resolved = [opened[0], inc("5", { time_to_resolve: 3600 }), inc("6", { time_to_resolve: 600 })];
+
+  it("count what was opened and resolved (merged duplicates out), breaches, reopenings, bounces and new kinds", () => {
+    const s = periodStats(opened, resolved, new Set(["network.wifi"]), { from: "2026-11-01", to: "2026-11-07", bounceAt: 3, seed: "r1", now });
+    expect([s.opened, s.resolved, s.breached, s.reopened, s.bounced]).toEqual([3, 3, 2, 1, 1]);
+    expect(s.by_priority).toEqual({ "1": 1, "3": 2 });
+    expect(s.top_categories).toEqual([{ key: "network", count: 2 }, { key: "hardware", count: 1 }]);
+    expect(s.majors).toEqual([{ id: "1", number: "INC1", title: "قطعی گسترده" }]);
+    expect(s.mttr_median).toBe(3600);
+    expect(s.new_subcategories).toEqual(["hardware.printer"]);
+    expect([...s.sample].sort()).toEqual(["1", "5", "6"]);
+  });
+
+  it("sample the same incidents for the same review", () => {
+    const ids = Array.from({ length: 40 }, (_, i) => `id-${i}`);
+    expect(samplePick(ids, "review-a", 10)).toEqual(samplePick([...ids].reverse(), "review-a", 10));
+    expect(samplePick(ids, "review-a", 10)).toHaveLength(10);
+    expect(samplePick(ids, "review-a", 10)).not.toEqual(samplePick(ids, "review-b", 10));
+  });
+
+  it("draft a Persian report with the period, the frequent categories, major incidents and new kinds", () => {
+    const s = periodStats(opened, resolved, new Set(), { from: "2026-11-01", to: "2026-11-07", bounceAt: 3, seed: "r1", now });
+    const md = periodReport(s, { priority: (v) => `P${v}`, category: (v) => (v === "network" ? "شبکه" : v), subcategory: (v) => v, channel: (v) => v, date: (iso) => iso });
+    expect(md).toContain("## خلاصهٔ دوره (2026-11-01 تا 2026-11-07)");
+    expect(md).toContain("3 رخداد ثبت شد و 3 رخداد حل شد");
+    expect(md).toContain("- شبکه: 2");
+    expect(md).toContain("INC1 قطعی گسترده");
+    expect(md).toContain("- hardware.printer");
   });
 });

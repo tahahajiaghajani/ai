@@ -14,7 +14,7 @@
 //   job incident.sweep          every 15 minutes per organisation while there is something to watch: auto-close of
 //                               resolved incidents after N working days, reminders to requesters who are awaited and
 //                               then resolution «بی‌پاسخ», warnings when a major incident's stakeholder update is late,
-//                               announcements whose window is over ended
+//                               announcements whose window is over ended, the next periodic review drafted when due
 import { addWorkingDays } from "@shared/incident/logic";
 import { addJournalIn, defFor, emitEvent, listJournal, onRecordEvent, systemCtx, transitionIn, updateIn, type RecordEvent } from "../../engine";
 import { enqueue, registerJobHandler, type JobContext } from "../../jobs";
@@ -23,6 +23,7 @@ import { actsHere, notifyPeople } from "../notify";
 import { countRows, eqAll, incidentConfig, isUuid, liveRow, liveRows, sysOf, type Row } from "./common";
 import { draftReview, officeCalendar } from "./major";
 import { endWithIncident, expireAnnouncements } from "./announce";
+import { ensurePeriodReview } from "./period";
 
 export const SWEEP_EVERY = 15 * 60_000;
 const lastSweep = new Map<string, number>();
@@ -168,13 +169,15 @@ export interface SweepResult {
   warned: number;
   /** announcements whose window was over */
   ended: number;
+  /** the periodic review drafted by this pass, if any */
+  period_review: string | null;
   /** something is still to watch (the sweep runs again) */
   pending: boolean;
 }
 
 /** One pass over an organisation's incidents (runs as the system; also called by tests). */
 export async function sweep(sys: Ctx, deadline = Number.POSITIVE_INFINITY, now = Date.now()): Promise<SweepResult> {
-  const out: SweepResult = { closed: 0, reminded: 0, resolved: 0, warned: 0, ended: 0, pending: false };
+  const out: SweepResult = { closed: 0, reminded: 0, resolved: 0, warned: 0, ended: 0, period_review: null, pending: false };
   const cfg = await incidentConfig(sys.db, sys);
   const cal = await officeCalendar(sys.db, sys);
   const late = () => Date.now() > deadline;
@@ -242,6 +245,15 @@ export async function sweep(sys: Ctx, deadline = Number.POSITIVE_INFINITY, now =
     const a = await expireAnnouncements(sys, now);
     out.ended = a.ended;
     if (a.live) out.pending = true;
+  }
+
+  // the next periodic review, when due
+  if (!late()) {
+    const r = await ensurePeriodReview(sys, now).catch((e) => {
+      sys.cfg.log?.warn?.("incident period review", { error: (e as Error).message });
+      return null;
+    });
+    out.period_review = (r?.id as string | undefined) ?? null;
   }
   return out;
 }

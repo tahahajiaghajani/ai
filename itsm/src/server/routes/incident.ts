@@ -10,7 +10,7 @@ import { access } from "../access/provider";
 import { defFor, get } from "../engine";
 import { MANUAL_KINDS, TIMELINE_KINDS, type TimelineKind } from "@shared/incident/logic";
 import {
-  activeAnnouncements, addTimelineEvent, aiCapabilities, announceFromIncident, applyKnownError, AUDIENCES, changeTimelineEvent, createRelated, draftReview, escalate, incidentAi, incidentConfig, incidentDashboard,
+  activeAnnouncements, addTimelineEvent, aiCapabilities, announceFromIncident, applyKnownError, AUDIENCES, changeTimelineEvent, computePeriodReview, createRelated, draftReview, escalate, incidentAi, incidentConfig, incidentDashboard,
   knownErrorMatches, majorAction, mergeIncidents, promoteEntry, readiness, seedIncidentDefaults, sendUpdate, similarIncidents, timelineOf, type Audience,
 } from "../modules/incident";
 import { seedProblemDefaults } from "../modules/problem";
@@ -49,6 +49,12 @@ incidentRoutes.get("/meta", async (c) => {
 
 // the outage announcements on air for the caller (every member: the audience decides, not the table's access)
 incidentRoutes.get("/announcements", async (c) => c.json(await activeAnnouncements(c.get("ctx"))));
+
+// a periodic review's figures, sample and report draft (`overwrite`: replace the report the reviewers edited)
+incidentRoutes.post("/period-reviews/:id/compute", async (c) => {
+  const input = await body(c, z.object({ overwrite: z.boolean().optional() }));
+  return c.json(await computePeriodReview(c.get("ctx"), id(c.req.param("id")), { overwrite: input.overwrite }));
+});
 
 incidentRoutes.get("/dashboard", async (c) => {
   const q = query(c, z.object({ days: z.coerce.number().int().min(7).max(365).optional() }));

@@ -16,6 +16,7 @@
 //     major incident «بازبینی انجام شد»
 //   incident_template: the tasks JSON; templates and canned responses are created only by those who may keep them
 //   announcement: its window and audience, the incident it names, publishing stamps
+//   incident_period_review: not a requester's; a period that ends after it starts
 //
 // Reactions that must happen once (notifications, cascades, auto problems and reviews) are event subscribers
 // (jobs.ts), never hooks: hooks do not run again when the cloud applies a Windows app's push.
@@ -346,6 +347,15 @@ async function announcementBefore(w: WriteArgs): Promise<void> {
   if (entering(w, "ended")) n.ended_at = now;
 }
 
+/** Periodic reviews: run by agents and managers (never a requester), over a period that ends after it starts. */
+function periodBefore(w: WriteArgs): void {
+  if (w.op === "delete") return;
+  if (w.op === "create" && !w.trusted && requesterOnly(w.ctx, w.def.area)) throw forbidden("بازبینی دوره‌ای رخدادها با کارشناسان و مدیران است");
+  const from = String(w.next.period_from ?? "");
+  const to = String(w.next.period_to ?? "");
+  if (from && to && to < from) throw validationError({ period_to: "پایان دوره باید پس از آغاز آن باشد" });
+}
+
 function configBefore(w: WriteArgs): void {
   if (w.op === "delete") throw new AppError(409, "conflict", "تنظیمات رخداد حذف نمی‌شود؛ مقدارها را تغییر دهید");
 }
@@ -362,6 +372,7 @@ export function installIncidentHooks(): (() => void)[] {
     registerHooks("incident_template", { beforeWrite: templateBefore }),
     registerHooks("incident_response", { beforeWrite: assertCanKeep }),
     registerHooks("announcement", { beforeWrite: announcementBefore }),
+    registerHooks("incident_period_review", { beforeWrite: periodBefore }),
     registerHooks("incident_config", { beforeWrite: configBefore }),
   ];
 }

@@ -60,6 +60,7 @@ export const incidentApi = {
   ai: (api: OrgApi, id: string, skill: string, body: Record<string, unknown> = {}) => api.post(`/incident/${id}/ai/${skill}`, body),
   announcements: (api: OrgApi) => api.get<{ items: AnnouncementItem[] }>("/incident/announcements"),
   announce: (api: OrgApi, id: string) => api.post<{ row: { id: string; number: string }; created: boolean }>(`/incident/${id}/announcement`),
+  computePeriod: (api: OrgApi, id: string, overwrite = false) => api.post<{ row: Record<string, unknown> }>(`/incident/period-reviews/${id}/compute`, { overwrite }),
 };
 
 /** The announcements on air for me (refreshed every two minutes and with the module's live updates). */

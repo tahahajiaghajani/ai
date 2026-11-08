@@ -373,7 +373,7 @@ export function templateTasks(raw: unknown): TemplateTask[] {
       description: typeof t.description === "string" ? t.description : null,
       assignment_group_id: typeof t.assignment_group_id === "string" && /^[0-9a-f-]{36}$/i.test(t.assignment_group_id) ? t.assignment_group_id : null,
       mandatory: t.mandatory !== false,
-      task_type: typeof t.task_type === "string" && /^[a-z_]{1,40}$/.test(t.task_type) ? t.task_type : null,
+      ...(typeof t.task_type === "string" && /^[a-z_]{1,40}$/.test(t.task_type) ? { task_type: t.task_type } : {}),
     });
     if (out.length >= 30) break;
   }
@@ -495,4 +495,159 @@ export function announcementProblem(a: AnnouncementLike): Record<string, string>
     out.audience = "دست‌کم یک گروه، واحد، مکان یا فرد را برای مخاطبان مشخص کنید";
   }
   return Object.keys(out).length ? out : null;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Periodic incident review (catalogue INC-080): the period's figures, a sample for the quality check, the report draft
+
+export interface PeriodIncident {
+  id: string;
+  number?: string | null;
+  short_description?: string | null;
+  priority?: string | null;
+  category?: string | null;
+  subcategory?: string | null;
+  channel?: string | null;
+  major_state?: string | null;
+  opened_at?: string | null;
+  resolved_at?: string | null;
+  sla_due?: string | null;
+  reopen_count?: number | null;
+  reassignment_count?: number | null;
+  time_to_resolve?: number | null;
+  merged_into?: string | null;
+}
+
+export interface PeriodStats {
+  from: string;
+  to: string;
+  opened: number;
+  resolved: number;
+  by_priority: Record<string, number>;
+  top_categories: { key: string; count: number }[];
+  by_channel: Record<string, number>;
+  majors: { id: string; number: string | null; title: string }[];
+  /** resolved after the SLA's due time, or still open past it */
+  breached: number;
+  reopened: number;
+  /** reassigned at least as often as the settings' alert */
+  bounced: number;
+  mttr_median: number | null;
+  /** subcategories first seen in the period (none in the 90 days before it) */
+  new_subcategories: string[];
+  /** resolved incidents picked for the quality check */
+  sample: string[];
+}
+
+/** A stable pseudo-random pick of `n` ids for a seed (the same review always samples the same incidents). */
+export function samplePick(ids: readonly string[], seed: string, n: number): string[] {
+  const hash = (s: string) => {
+    let h = 2166136261;
+    for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
+    return h >>> 0;
+  };
+  return [...new Set(ids)]
+    .map((id) => ({ id, h: hash(`${seed}:${id}`) }))
+    .sort((a, b) => a.h - b.h || a.id.localeCompare(b.id))
+    .slice(0, Math.max(0, n))
+    .map((x) => x.id);
+}
+
+const median = (xs: number[]): number | null => {
+  if (!xs.length) return null;
+  const s = [...xs].sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : Math.round((s[m - 1] + s[m]) / 2);
+};
+
+/**
+ * The figures of a period from the incidents opened in it (`opened`), those resolved in it (`resolved`) and the
+ * subcategories seen in the 90 days before it. Merged duplicates are left out, as on the dashboard.
+ */
+export function periodStats(
+  opened: readonly PeriodIncident[],
+  resolved: readonly PeriodIncident[],
+  previousSubcategories: ReadonlySet<string>,
+  opts: { from: string; to: string; bounceAt: number; seed: string; sampleSize?: number; now?: number },
+): PeriodStats {
+  const now = opts.now ?? Date.now();
+  const live = opened.filter((r) => !r.merged_into);
+  const done = resolved.filter((r) => !r.merged_into);
+  const count = (xs: readonly PeriodIncident[], key: keyof PeriodIncident) => {
+    const out: Record<string, number> = {};
+    for (const r of xs) {
+      const k = String(r[key] ?? "") || "—";
+      out[k] = (out[k] ?? 0) + 1;
+    }
+    return out;
+  };
+  const late = (r: PeriodIncident) => {
+    const due = Date.parse(String(r.sla_due ?? ""));
+    if (Number.isNaN(due)) return false;
+    const end = Date.parse(String(r.resolved_at ?? ""));
+    return (Number.isNaN(end) ? now : end) > due;
+  };
+  const cats = count(live, "category");
+  const subs = [...new Set(live.map((r) => r.subcategory).filter((x): x is string => !!x))];
+  return {
+    from: opts.from,
+    to: opts.to,
+    opened: live.length,
+    resolved: done.length,
+    by_priority: count(live, "priority"),
+    top_categories: Object.entries(cats).map(([key, n]) => ({ key, count: n })).sort((a, b) => b.count - a.count || a.key.localeCompare(b.key)).slice(0, 8),
+    by_channel: count(live, "channel"),
+    majors: live.filter((r) => ["accepted", "resolved", "pir_done"].includes(String(r.major_state ?? ""))).map((r) => ({ id: r.id, number: r.number ?? null, title: String(r.short_description ?? "") })),
+    breached: live.filter(late).length,
+    reopened: live.filter((r) => Number(r.reopen_count ?? 0) > 0).length,
+    bounced: opts.bounceAt > 0 ? live.filter((r) => Number(r.reassignment_count ?? 0) >= opts.bounceAt).length : 0,
+    mttr_median: median(done.map((r) => Number(r.time_to_resolve)).filter((x) => Number.isFinite(x) && x >= 0)),
+    new_subcategories: subs.filter((s) => !previousSubcategories.has(s)).sort(),
+    sample: samplePick(done.map((r) => r.id), opts.seed, opts.sampleSize ?? 10),
+  };
+}
+
+/** Labels the report uses (choice labels, Jalali dates, durations). */
+export interface PeriodLabels {
+  priority: (v: string) => string;
+  category: (v: string) => string;
+  subcategory: (v: string) => string;
+  channel: (v: string) => string;
+  date: (iso: string) => string;
+}
+
+/** The report draft of a period (Persian Markdown) — the reviewers add findings, model updates and actions. */
+export function periodReport(s: PeriodStats, l: PeriodLabels): string {
+  const pct = (n: number, d: number) => (d ? Math.round((n / d) * 100) : 0);
+  const list = (o: Record<string, number>, label: (v: string) => string) =>
+    Object.entries(o).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k === "—" ? "نامشخص" : label(k)}: ${n}`).join("، ") || "—";
+  const lines = [
+    `## خلاصهٔ دوره (${l.date(s.from)} تا ${l.date(s.to)})`,
+    "",
+    `- ${s.opened} رخداد ثبت شد و ${s.resolved} رخداد حل شد.`,
+    `- اولویت‌ها: ${list(s.by_priority, l.priority)}`,
+    `- مجراها: ${list(s.by_channel, l.channel)}`,
+    `- میانهٔ زمان حل: ${s.mttr_median === null ? "—" : humanDuration(s.mttr_median * 1000)}`,
+    `- نقض یا خطر نقض توافق: ${s.breached} رخداد (${pct(s.breached, s.opened)}٪)`,
+    `- بازگشایی‌شده: ${s.reopened} · ارجاع پیاپی: ${s.bounced}`,
+    "",
+    "## دسته‌های پرتکرار",
+    "",
+    ...(s.top_categories.length ? s.top_categories.map((c) => `- ${c.key === "—" ? "بدون دسته" : l.category(c.key)}: ${c.count}`) : ["- —"]),
+    "",
+    "## رخدادهای عمده",
+    "",
+    ...(s.majors.length ? s.majors.map((m) => `- ${m.number ?? ""} ${m.title}`.trim()) : ["- رخداد عمده‌ای در این دوره نبود."]),
+    "",
+    "## نوع‌های تازهٔ رخداد",
+    "",
+    ...(s.new_subcategories.length ? s.new_subcategories.map((x) => `- ${l.subcategory(x)}`) : ["- نوع تازه‌ای دیده نشد."]),
+    "",
+    "## پرسش‌های بازبینی",
+    "",
+    "- آیا الگوها، دسته‌ها و قاعده‌های ارجاع با رخدادهای این دوره می‌خوانند؟",
+    "- کدام رخدادهای تکراری باید «مشکل» شوند؟",
+    `- نمونهٔ ${s.sample.length} رخداد حل‌شده را از نظر کیفیت ثبت، یادداشت حل و کد علت بررسی کنید.`,
+  ];
+  return lines.join("\n");
 }

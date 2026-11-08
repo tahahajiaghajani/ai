@@ -9,7 +9,7 @@
 //   · two assignment groups («میز خدمت», «امنیت اطلاعات» — restricted) and their assignment rules
 //   · notification rules (on top of the platform's built-ins: priority 1 created, high-priority assignment to a
 //     group's manager, reopened, awaiting the requester, SLA warnings and breaches of P1/P2, major incidents, notes on
-//     major incidents) and a UI policy (a declared major incident needs its manager)
+//     major incidents, a drafted periodic review) and a UI policy (a declared major incident needs its manager)
 //   · templates (incident models) and canned responses
 // Every item is created only when no live row with its natural key exists; once the defaults were added, a second run
 // adds nothing unless forced (an administrator's «افزودن پیش‌فرض‌ها» re-adds what was deleted).
@@ -118,6 +118,16 @@ function slaDefinitions(office: string | null, always: string | null): Row[] {
 
 /** Notification rules of incidents (additions to the platform's built-ins, never copies of them). */
 function notificationRules(): Row[] {
+  return [...incidentRules(), periodReviewRule()];
+}
+
+/** A drafted periodic review reaches its owner and the incident managers. */
+const periodReviewRule = (): Row => ({
+  table_key: "incident_period_review", name: "بازبینی دوره‌ای رخدادها آماده است", event: "created", recipients: { fields: ["owner_id"], roles: ["incident_manager"] },
+  channels: ["in_app", "email"], active: true, notify_actor: false, digest: false, mandatory: false,
+});
+
+function incidentRules(): Row[] {
   const high = prio(["1", "2"]);
   return [
     { name: "رخداد اولویت ۱ ثبت شد", event: "created", condition: prio("1"), recipients: { assignment_group: true, group_manager: true, roles: ["incident_manager"] }, channels: ["in_app", "email"] },
@@ -178,7 +188,7 @@ export async function seedIncidentDefaultsIn(tx: Tx, ctx: Ctx, opts: { force?: b
   await ensure(tx, sys, out, "assignment_rule", { table_key: "incident", name: "رخدادهای دیگر ← میز خدمت" }, { group_id: desk.id, method: "least_loaded", sort_order: 100 });
 
   for (const d of slaDefinitions(cals.office, cals.always)) await ensure(tx, sys, out, "sla_definition", { table_key: "incident", name: d.name }, d);
-  for (const r of notificationRules()) await ensure(tx, sys, out, "notification_rule", { table_key: "incident", name: r.name }, r);
+  for (const r of notificationRules()) await ensure(tx, sys, out, "notification_rule", { table_key: r.table_key, name: r.name }, r);
   await ensure(tx, sys, out, "ui_policy", { table_key: "incident", name: "رخداد عمده مدیر لازم دارد" }, {
     condition: { f: "major_state", op: "eq", v: "accepted" }, actions: [{ field: "mi_manager_id", mandatory: true }], sort_order: 100,
   });

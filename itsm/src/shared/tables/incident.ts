@@ -102,6 +102,14 @@ export const REVIEW_TRIGGERS: Option[] = [
   { value: "manual", label: "به تشخیص مسئول" },
 ];
 
+export const PERIOD_TRIGGERS: Option[] = [
+  { value: "scheduled", label: "دوره‌ای", order: 1 },
+  { value: "major", label: "رخدادهای عمده", order: 2 },
+  { value: "breaches", label: "نقض توافق‌ها", order: 3 },
+  { value: "new_types", label: "نوع‌های تازهٔ رخداد", order: 4 },
+  { value: "manual", label: "به تشخیص مسئول", order: 5 },
+];
+
 export const ANNOUNCEMENT_KINDS: Option[] = [
   { value: "outage", label: "قطعی", color: "red", order: 1 },
   { value: "degradation", label: "اختلال یا کندی", color: "orange", order: 2 },
@@ -465,6 +473,68 @@ const incidentResponse: TableDef = {
 };
 
 // ---------------------------------------------------------------------------------------------------------------
+// Periodic incident reviews (catalogue INC-080): every few months (the settings; the sweep drafts one) or after major
+// incidents, breaches or new kinds of incident — the period's figures and a sample computed by the server
+// (POST /incident/period-reviews/:id/compute), the report, findings, model updates and improvement actions.
+
+export const PERIOD_REVIEW_STATES: StateModel = {
+  field: "state",
+  initial: "draft",
+  states: [
+    { value: "draft", label: "پیش‌نویس", category: "new", color: "blue" },
+    { value: "in_review", label: "در جلسهٔ بازبینی", category: "active", color: "teal" },
+    { value: "completed", label: "انجام شد", category: "resolved", color: "green" },
+    { value: "canceled", label: "لغوشده", category: "canceled", color: "gray" },
+  ],
+  transitions: [
+    { from: ["draft"], to: "in_review", label: "شروع بازبینی" },
+    { from: ["in_review"], to: "draft", label: "بازگشت به پیش‌نویس" },
+    { from: ["draft", "in_review"], to: "completed", label: "پایان بازبینی", requires: ["findings"] },
+    { from: ["completed"], to: "in_review", label: "بازگشایی", roles: { area: "incident", level: "full" } },
+    { from: ["draft", "in_review"], to: "canceled", label: "لغو" },
+  ],
+  locked: ["canceled"],
+};
+
+const PERIOD = "گزارش و یافته‌ها";
+
+const incidentPeriodReview: TableDef = {
+  key: "incident_period_review",
+  table: "sm_incident_period_reviews",
+  label: "بازبینی دوره‌ای رخدادها",
+  plural: "بازبینی‌های دوره‌ای رخدادها",
+  icon: "calendar-check",
+  module: "incident",
+  area: "incident",
+  description: "مرور رخدادهای یک دوره: آمار، رخدادهای عمده، نقض‌ها، نوع‌های تازه، نمونهٔ کیفیت، به‌روزرسانی مدل‌ها و اقدام‌های بهبود",
+  numbered: { prefix: "IPR", pad: 5 },
+  display: "title",
+  fields: [
+    { name: "title", label: "عنوان", type: "string", required: true, maxLength: 200, list: true, search: true, sort: true, span: 24 },
+    { name: "period_from", label: "از تاریخ", type: "date", required: true, list: true, sort: true, filter: true, span: 8 },
+    { name: "period_to", label: "تا تاریخ", type: "date", required: true, list: true, sort: true, filter: true, span: 8 },
+    { name: "review_trigger", label: "دلیل بازبینی", type: "choice", choices: PERIOD_TRIGGERS, default: "manual", filter: true, span: 8 },
+    { name: "owner_id", label: "مسئول", type: "user", default: "$me", list: true, filter: true, index: true, span: 8 },
+    { name: "participants", label: "شرکت‌کنندگان", type: "users", span: 16 },
+    { name: "assignment_group_id", label: "گروه", type: "group", filter: true, index: true, span: 8 },
+    { name: "computed_at", label: "زمان محاسبهٔ آمار", type: "datetime", readonly: true, audit: false, sort: true, span: 8 },
+    { name: "sample_ids", label: "نمونهٔ رخدادها برای بررسی کیفیت", type: "refs", ref: "incident", readonly: true, span: 24 },
+    { name: "stats", label: "آمار دوره", type: "json", readonly: true, hidden: true, audit: false, default: {} },
+    { name: "report", label: "گزارش", type: "markdown", span: 24, section: PERIOD, help: "«محاسبهٔ آمار» پیش‌نویس آن را می‌نویسد" },
+    { name: "findings", label: "یافته‌ها", type: "markdown", span: 24, section: PERIOD },
+    { name: "model_updates", label: "به‌روزرسانی مدل‌ها، الگوها، دسته‌ها و قاعده‌ها", type: "markdown", span: 24, section: PERIOD },
+  ],
+  states: PERIOD_REVIEW_STATES,
+  scope: { own: ["owner_id", "participants"], group: "assignment_group_id" },
+  features: { journal: true, attachments: true },
+  form: {
+    sections: [MAIN, PERIOD],
+    related: [{ table: "corrective_action", field: "period_review_id", label: "اقدام‌های بهبود", columns: ["number", "short_description", "action_type", "state", "assigned_to", "due_at"] }],
+  },
+  list: { columns: ["number", "title", "period_from", "period_to", "review_trigger", "state", "owner_id"], order: "-period_to" },
+};
+
+// ---------------------------------------------------------------------------------------------------------------
 // Outage announcements (catalogue INC-043): a banner with a window and an audience. Kept by the group that owns it
 // (or a manager); people read the ones on air for them through GET /incident/announcements, never the table itself.
 
@@ -539,6 +609,7 @@ export const INCIDENT_CONFIG_DEFAULTS = {
   mi_auto_problem: true,
   mi_auto_review: true,
   review_due_days: 5,
+  period_review_days: 90,
   cascade_children: true,
   propagate_comments: true,
   security_group_id: null as string | null,
@@ -569,6 +640,7 @@ const incidentConfig: TableDef = {
     { name: "cascade_children", label: "حل رخداد والد، فرزندان را هم حل کند", type: "bool", default: true, span: 8, section: BEHAVIOUR },
     { name: "propagate_comments", label: "پاسخ‌های رخداد والد به فرزندان برسد", type: "bool", default: true, span: 8, section: BEHAVIOUR },
     { name: "security_group_id", label: "گروه رخدادهای امنیتی", type: "group", span: 8, section: BEHAVIOUR },
+    { name: "period_review_days", label: "بازبینی دوره‌ای هر چند روز", type: "int", min: 0, max: 365, default: INCIDENT_CONFIG_DEFAULTS.period_review_days, span: 8, section: BEHAVIOUR, help: "پیش‌نویس بازبینی دوره‌ای خودکار ساخته می‌شود؛ صفر: هرگز" },
     { name: "mi_candidate_priorities", label: "اولویت‌های نامزد رخداد عمده", type: "multichoice", choices: PRIORITIES, default: INCIDENT_CONFIG_DEFAULTS.mi_candidate_priorities, span: 12, section: MAJOR_SECTION },
     { name: "mi_candidate_affected", label: "کاربران متأثر برای نامزدی", type: "int", min: 0, max: 100000, default: INCIDENT_CONFIG_DEFAULTS.mi_candidate_affected, span: 12, section: MAJOR_SECTION, help: "صفر: این معیار به کار نمی‌رود" },
     { name: "mi_default_cadence", label: "فاصلهٔ پیش‌فرض اطلاع‌رسانی (دقیقه)", type: "int", min: 0, max: 1440, default: INCIDENT_CONFIG_DEFAULTS.mi_default_cadence, span: 8, section: MAJOR_SECTION },
@@ -582,4 +654,4 @@ const incidentConfig: TableDef = {
   list: { columns: ["name", "auto_close_days", "reopen_window_days"], order: "name" },
 };
 
-export const INCIDENT_TABLES: TableDef[] = [incident, incidentTask, incidentReview, incidentTemplate, incidentResponse, announcement, incidentConfig];
+export const INCIDENT_TABLES: TableDef[] = [incident, incidentTask, incidentReview, incidentPeriodReview, incidentTemplate, incidentResponse, announcement, incidentConfig];
