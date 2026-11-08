@@ -72,10 +72,10 @@ export default function Dashboard() {
             <StatCard title="گزارش‌های باز" value={<span className="ds-num">{faNum(d.feedback.open_flags)}</span>} hint={`${faNum(d.feedback.open_tasks)} کار دانش باز`} />
           </div>
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-            <StatCard title="جست‌وجو" value={<span className="ds-num">{faNum(d.search.searches)}</span>} hint={`بی‌نتیجه ${ratio(d.search.zero_rate)} · کلیک ${ratio(d.search.click_rate)}`} />
+            <StatCard title="جست‌وجو" value={<span className="ds-num">{faNum(d.search.searches)}</span>} hint={`بی‌نتیجه ${ratio(d.search.zero_rate)}، کلیک ${ratio(d.search.click_rate)}`} />
             <StatCard title="پیشگیری از درخواست" value={<span className="ds-num">{ratio(d.deflection.rate)}</span>} hint={`${faNum(d.deflection.deflected)} از ${faNum(d.deflection.sessions)} نشست`} />
-            <StatCard title="مفید بودن" value={<span className="ds-num">{ratio(d.feedback.ratio)}</span>} hint={`${faNum(d.feedback.helpful)} مفید · ${faNum(d.feedback.not_helpful)} نامفید`} />
-            <StatCard title="استفادهٔ دوباره" value={<span className="ds-num">{faNum(d.reuse.links)}</span>} hint={`${faNum(d.reuse.articles_reused)} مقاله · نرخ پیوند ${ratio(d.reuse.link_rate)}`} />
+            <StatCard title="مفید بودن" value={<span className="ds-num">{ratio(d.feedback.ratio)}</span>} hint={`${faNum(d.feedback.helpful)} مفید، ${faNum(d.feedback.not_helpful)} نامفید`} />
+            <StatCard title="استفادهٔ دوباره" value={<span className="ds-num">{faNum(d.reuse.links)}</span>} hint={`${faNum(d.reuse.articles_reused)} مقاله، نرخ پیوند ${ratio(d.reuse.link_rate)}`} />
           </div>
           <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
             <Card title="بر پایهٔ وضعیت">
@@ -126,7 +126,7 @@ export default function Dashboard() {
                       {a.title}
                     </Link>
                     <span className="shrink-0 text-[12px] text-ink-3">
-                      <span className="ds-num">{faNum(a.view_count)}</span> بازدید · <span className="ds-num">{faNum(a.reuse_count)}</span> استفاده
+                      <span className="ds-num">{faNum(a.view_count)}</span> بازدید، <span className="ds-num">{faNum(a.reuse_count)}</span> استفاده
                     </span>
                   </li>
                 ))}
@@ -158,7 +158,7 @@ export default function Dashboard() {
             </Card>
             <Card title="دانش از کار روزانه (KCS)">
               <p className="m-0 text-[13px] text-ink-2">
-                <span className="ds-num">{faNum(d.capture.from_records)}</span> مقاله از رکوردها · <span className="ds-num">{faNum(d.capture.external)}</span> بیرونی‌شده · ۹۰/۰: <span className="ds-num">{ratio(d.capture.ratio_90_0)}</span>
+                <span className="ds-num">{faNum(d.capture.from_records)}</span> مقاله از رکوردها، <span className="ds-num">{faNum(d.capture.external)}</span> بیرونی‌شده، ۹۰/۰: <span className="ds-num">{ratio(d.capture.ratio_90_0)}</span>
               </p>
             </Card>
             <Card title="کیفیت محتوا (AQI)">

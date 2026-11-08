@@ -30,7 +30,7 @@ export default function DiffPage() {
   const a = sp.get("a") || published || rows[1]?.id || "";
   const b = sp.get("b") || rows[0]?.id || "";
   const d = useQuery({ queryKey: KB_KEYS.diff(orgId, a, b), queryFn: () => kbApi.diff(api, a, b), enabled: !!a && !!b && a !== b });
-  const options = useMemo(() => rows.map((r) => ({ value: r.id, label: `${faNum(String(r.version_label ?? ""))} · ${STATE[String(r.state)] ?? r.state}${r.change_note ? ` · ${String(r.change_note).slice(0, 40)}` : ""}` })), [rows]);
+  const options = useMemo(() => rows.map((r) => ({ value: r.id, label: `نسخهٔ ${faNum(String(r.version_label ?? ""))}، ${STATE[String(r.state)] ?? r.state}${r.change_note ? `، ${String(r.change_note).slice(0, 40)}` : ""}` })), [rows]);
   const pick = (k: "a" | "b", v: string) => {
     const next = new URLSearchParams(sp);
     next.set(k, v);

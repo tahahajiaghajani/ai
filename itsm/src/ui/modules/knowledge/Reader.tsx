@@ -302,7 +302,7 @@ export default function Reader() {
     a.last_reviewed_at ? (
       <span key="r">
         <ShieldCheck {...I14} /> بازبینی <JDate v={a.last_reviewed_at} />
-        {v.reviewer_name ? ` · ${v.reviewer_name}` : ""}
+        {v.reviewer_name ? ` به دست ${v.reviewer_name}` : ""}
       </span>
     ) : null,
     <span key="t">
@@ -385,7 +385,7 @@ export default function Reader() {
                 <Link key={t.id} to={`/${orgId}/kb/a/${t.id}`} className="ds-link">
                   {languageLabel(t.language)}
                   {t.master ? " (اصلی)" : ""}
-                  {t.stale ? " · کهنه" : ""}
+                  {t.stale ? " (کهنه)" : ""}
                 </Link>
               ))}
             </div>
@@ -463,7 +463,7 @@ export default function Reader() {
               <Sparkles {...I14} />
               {v.provenance.machine_translated ? "ترجمهٔ ماشینی" : "نوشته‌شده با کمک هوش مصنوعی"}
               {v.provenance.model ? ` (${v.provenance.model})` : ""}
-              {v.provenance.validated_by_name ? ` · تأییدشده به دست ${v.provenance.validated_by_name}` : " · هنوز کسی آن را تأیید نکرده است"}
+              {v.provenance.validated_by_name ? `، تأییدشده به دست ${v.provenance.validated_by_name}` : "، هنوز کسی آن را تأیید نکرده است"}
             </p>
           ) : null}
 

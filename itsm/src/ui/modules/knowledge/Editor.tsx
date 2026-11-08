@@ -140,7 +140,15 @@ function Checks({ versionId, savedAt }: { versionId: string; savedAt: number }) 
     <div className="flex flex-col gap-3">
       <div className="flex items-baseline gap-2">
         <span className="ds-t-figure ds-num">{faNum(d.score)}</span>
-        <span className="text-[13px] text-ink-3">از ۱۰۰ · {faNum(d.words)} واژه · خوانایی {faNum(d.readability)}</span>
+        <span className="flex flex-wrap gap-x-3 text-[13px] text-ink-3">
+          <span>از ۱۰۰</span>
+          <span>
+            <bdi className="ds-num">{faNum(d.words)}</bdi> واژه
+          </span>
+          <span>
+            خوانایی <bdi className="ds-num">{faNum(d.readability)}</bdi>
+          </span>
+        </span>
       </div>
       {d.missing.length ? <Note tone="danger">بخش‌های الزامی قالب خالی‌اند: {d.missing.map((m) => `«${m}»`).join("، ")}</Note> : null}
       {d.findings.length ? (

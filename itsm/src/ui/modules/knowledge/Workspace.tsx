@@ -196,7 +196,7 @@ export default function Workspace() {
           </Card>
         </div>
         <Card title="ناسالم‌ترین مقاله‌ها">
-          <Articles items={d.unhealthy} extra={(a) => <>سلامت <span className="ds-num">{faNum(a.health_score ?? 0)}</span> · {ACTION[a.next_action ?? "none"] ?? a.next_action}</>} />
+          <Articles items={d.unhealthy} extra={(a) => <>سلامت <span className="ds-num">{faNum(a.health_score ?? 0)}</span>، {ACTION[a.next_action ?? "none"] ?? a.next_action}</>} />
         </Card>
         <Card title="احتمالاً تکراری">
           {d.duplicates.length ? (

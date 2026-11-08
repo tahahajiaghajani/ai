@@ -118,7 +118,7 @@ export default function SearchPage() {
               <div className="px-4">
                 <p className="m-0 pt-3 text-[12px] text-ink-3">
                   <span className="ds-num">{faNum(res.total)}</span> مقاله
-                  {res.semantic ? " · همراه با مقاله‌هایی که از معنای پرسش پیدا شد" : ""}
+                  {res.semantic ? "، همراه با مقاله‌هایی که از معنای پرسش پیدا شد" : ""}
                 </p>
                 {res.hits.map((h, i) => (
                   <div key={h.id} className="kb-hit">
