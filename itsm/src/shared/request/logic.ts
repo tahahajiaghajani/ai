@@ -39,11 +39,18 @@ const STATE_STAGE: Record<ItemState, string> = {
 const TERMINAL = new Set(["completed", "rejected", "cancelled"]);
 const WORKING = new Set(["in_fulfilment", "awaiting_info", "backordered"]);
 const MOVABLE = new Set(["sourcing", "fulfilment", "delivery"]);
+/** A stage the bar does not show: the working stage first (waiting for stock is still fulfilment), else earlier ones. */
+const FALLBACK: Record<string, string[]> = {
+  approval: ["submitted"],
+  sourcing: ["fulfilment", "approval", "submitted"],
+  fulfilment: ["sourcing", "approval", "submitted"],
+  delivery: ["fulfilment", "sourcing", "approval", "submitted"],
+};
 
 /**
  * The requester-facing stage of an item in `state` (REQ-023). `stages` is the item's progress bar (default
- * submitted → approval → fulfilment → delivery → completed): a stage the bar does not show falls back to the
- * closest earlier one it does. `current` keeps a stage a flow set on purpose while the state stays the same.
+ * submitted → approval → fulfilment → delivery → completed): a stage the bar does not show falls back to the working
+ * stage, else to the closest earlier one it shows. `current` keeps a stage a flow set on purpose while the item works.
  */
 export function stageFor(state: string, stages?: readonly string[] | null, current?: string | null): string {
   const bar = stages?.length ? stages : DEFAULT_STAGES;
@@ -52,8 +59,7 @@ export function stageFor(state: string, stages?: readonly string[] | null, curre
   // while the work runs a flow may move the stage on («تأمین»، «تحویل» before the item is formally delivered)
   if (current && WORKING.has(state) && bar.includes(current) && MOVABLE.has(current)) return current;
   if (bar.includes(natural)) return natural;
-  const order = ["submitted", "approval", "sourcing", "fulfilment", "delivery"];
-  for (let i = order.indexOf(natural); i >= 0; i--) if (bar.includes(order[i])) return order[i];
+  for (const s of FALLBACK[natural] ?? []) if (bar.includes(s)) return s;
   return bar[0] ?? natural;
 }
 

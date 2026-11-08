@@ -24,6 +24,7 @@ import { bad, forbidden } from "../../http/errors";
 import { addJournalIn, condEnv, createIn, isSystemCtx, onRecordEvent, registerHooks, removeIn, systemCtx, transitionIn, updateIn, validationError, type RecordEvent, type WriteArgs } from "../../engine";
 import type { JobConfig } from "../../jobs";
 import { prepareSubject, subjectOf } from "../../access";
+import { access } from "../../access/provider";
 import { arr, eqAll, isUuid, liveRow, liveRows, obj, secondsBetween, sysOf, type Row } from "./common";
 import { versionSchema } from "./definition";
 import { canOrder, onBehalfRefusal } from "./entitlement";
@@ -435,12 +436,16 @@ async function requestValidateTransition(w: WriteArgs & { transition: { to: stri
   const sys = sysOf(w.ctx);
   const items = await liveRows(w.tx, sys, "request_item", eqAll({ request_id: w.prev!.id }));
   const requester = onRequesterSide(w.prev, w.ctx.user.id) && (await requesterLike(w.tx, w.ctx));
+  const itemDef = tableDef("request_item")!;
   for (const i of items) {
     if (!isItemOpen(i.state)) continue;
     if (requester) {
       const schema = await cachedSchema(w.tx, w.ctx, i.item_version_id);
       const why = cancelRefusal(schema?.item.requester_cancel, String(i.state));
       if (why) return `«${i.short_description}»: ${why}`;
+    } else if (!access().canWrite(w.ctx, itemDef, i)) {
+      // a fulfiller of one item does not cancel the items of other groups through the order
+      return `لغو «${i.short_description}» برای شما مجاز نیست؛ اقلام را جداگانه لغو کنید`;
     }
   }
   return null;
