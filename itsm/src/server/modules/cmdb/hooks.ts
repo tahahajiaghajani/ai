@@ -18,7 +18,7 @@ import type { FieldDef } from "@shared/model/types";
 import { tableDef } from "@shared/tables";
 import type { Ctx } from "../../context";
 import { conflict, forbidden } from "../../http/errors";
-import { coerceValue, createIn, orgSchema, orgTz, registerHooks, updateIn, validationError, type WriteArgs } from "../../engine";
+import { coerceValue, condEnv, createIn, loadReadable, orgSchema, orgTz, registerHooks, updateIn, validationError, type WriteArgs } from "../../engine";
 import { access } from "../../access/provider";
 import { enqueue } from "../../jobs";
 import { classTree, cmdbConfig, CI_COLUMNS, countRows, eqAll, invalidateCmdbCache, isCmdbAdmin, isUuid, liveRow, liveRows, relTypes, sysOf, type Row } from "./common";
@@ -200,12 +200,18 @@ async function ciBefore(w: WriteArgs): Promise<void> {
   // configuration control: controlled attributes change only with an authorising change
   if (w.op !== "create" && resolved?.allControlled.length) {
     const hit = resolved.allControlled.filter((p) => (p.startsWith("attrs.") ? w.changed.has("attrs") && JSON.stringify(ciValue(w.prev ?? {}, p) ?? null) !== JSON.stringify(ciValue(n, p) ?? null) : w.changed.has(p)));
-    const authorised = !!n.change_id && (w.changed.has("change_id") || !!w.input?.has("change_id"));
+    // the write names the change itself, and the change authorises it now (see authorisingChange)
+    const given = !!n.change_id && !!w.input?.has("change_id");
+    const authorised = hit.length > 0 && given && (await authorisingChange(w, String(n.change_id), String(n.id)));
     if (hit.length && !authorised) {
       const cfg = await cmdbConfig(w.tx, w.ctx);
       if (cfg.controlled_mode === "block" && people) {
         const labels = hit.map((p) => (p.startsWith("attrs.") ? defs.get(p.slice(6))?.label ?? p : tableDef("ci")?.fields.find((f) => f.name === p)?.label ?? p));
-        throw validationError({ change_id: `«${labels.join("»، «")}» تحت کنترل تغییر است؛ «تغییر مجوز» را مشخص کنید` });
+        throw validationError({
+          change_id: given
+            ? `این تغییر ویرایش «${labels.join("»، «")}» را مجاز نمی‌کند: تغییر باید زمان‌بندی‌شده یا در حال اجرا باشد و این پیکربندی را نام ببرد`
+            : `«${labels.join("»، «")}» تحت کنترل تغییر است؛ «تغییر مجوز» را مشخص کنید`,
+        });
       }
       if (cfg.controlled_mode !== "off") {
         const changes = hit.map((p) => ({ attribute: p, expected: ciValue(w.prev ?? {}, p) ?? null, actual: ciValue(n, p) ?? null }));
@@ -213,6 +219,28 @@ async function ciBefore(w: WriteArgs): Promise<void> {
       }
     }
   }
+}
+
+/** States in which a change authorises work on its CIs (approved and scheduled, or being implemented). */
+const AUTHORISING_STATES = ["scheduled", "implement"];
+
+/**
+ * Does this change authorise an edit of controlled attributes of the CI now: one the editor may read, authorised
+ * (scheduled or being implemented, never a draft or a closed one) and naming the CI (its CI or affected CIs)?
+ */
+async function authorisingChange(w: WriteArgs, changeId: string, ciId: string): Promise<boolean> {
+  const change = await liveRow(w.tx, w.ctx, "change_request", changeId);
+  if (!change || !AUTHORISING_STATES.includes(String(change.state))) return false;
+  return change.ci_id === ciId || (Array.isArray(change.affected_cis) && change.affected_cis.includes(ciId));
+}
+
+/** The CI as the caller may write it (readable, the provider's write rule and the table's row rule), else null. */
+async function writableCi(w: WriteArgs, id: unknown): Promise<Row | null> {
+  if (!isUuid(id)) return null;
+  const schema = await orgSchema(w.ctx, w.tx);
+  const def = schema.def("ci") ?? tableDef("ci")!;
+  const row = await loadReadable(w.tx, w.ctx, def, id, await condEnv(w.ctx));
+  return row && row.$writable !== false && access().canWrite(w.ctx, def, row) ? row : null;
 }
 
 async function ciAfter(w: WriteArgs & { row: Row }): Promise<void> {
@@ -301,6 +329,19 @@ async function groupBefore(w: WriteArgs): Promise<void> {
   if (n.kind === "redundancy") {
     if (!n.ci_id) throw validationError({ ci_id: "گروه افزونگی پیکربندی خوشه را لازم دارد" });
     if (!n.min_up && !n.min_up_pct) throw validationError({ min_up: "کمینهٔ اعضای سالم یا درصد آن را مشخص کنید" });
+    // a redundancy group softens the impact on its cluster (and the services above it): it is the cluster's writers'
+    // to define, over members they may read, and a cluster has one
+    if (!isSystem(w.ctx) && !w.trusted && (w.op === "create" || ["kind", "ci_id", "members", "min_up", "min_up_pct", "active"].some((f) => w.changed.has(f)))) {
+      if (!(await writableCi(w, n.ci_id))) throw forbidden("گروه افزونگی را کسی تعریف می‌کند که اجازهٔ تغییر پیکربندی خوشه را دارد");
+      const members = (Array.isArray(n.members) ? n.members : []).filter(isUuid);
+      if (members.length && (await liveRows(w.tx, w.ctx, "ci", { f: "id", op: "in", v: members })).length !== new Set(members).size) {
+        throw validationError({ members: "همهٔ اعضا باید پیکربندی‌هایی باشند که به آن‌ها دسترسی دارید" });
+      }
+    }
+    if (n.active !== false && (w.op === "create" || ["kind", "ci_id", "active"].some((f) => w.changed.has(f)))) {
+      const others = await liveRows(w.tx, sysOf(w.ctx), "ci_group", { and: [{ f: "kind", op: "eq", v: "redundancy" }, { f: "active", op: "eq", v: true }, { f: "ci_id", op: "eq", v: n.ci_id }] }, { limit: 2 });
+      if (others.some((g) => g.id !== n.id)) throw conflict("این خوشه گروه افزونگی فعال دارد؛ همان را ویرایش کنید");
+    }
   }
   if (n.kind === "dynamic" && n.condition) n.member_count = await countRows(w.tx, sysOf(w.ctx), "ci", n.condition);
   else n.member_count = Array.isArray(n.members) ? n.members.length : 0;
@@ -375,6 +416,8 @@ async function certTaskAfter(w: WriteArgs & { row: Row }): Promise<void> {
   for (const id of (w.row.ci_ids ?? []).filter(isUuid)) {
     const ci = await liveRow(w.tx, sys, "ci", id);
     if (!ci) continue;
+    // an owner certifies their own CIs: those of the task's assignee, or ones the person completing it may change
+    if (!isSystem(w.ctx) && ci.owned_by !== w.row.assigned_to && !(await writableCi(w, id))) continue;
     await updateIn(w.tx, sys, "ci", id, { certified_at: at, certified_by: isSystem(w.ctx) ? null : w.ctx.user.id }, { trusted: true, keepVersion: true, allowLocked: true });
     confirmed++;
   }

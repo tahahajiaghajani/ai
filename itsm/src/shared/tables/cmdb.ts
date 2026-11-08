@@ -997,7 +997,7 @@ const certTask: TableDef = {
   display: "short_description",
   fields: [
     { name: "campaign_id", label: "دوره", type: "ref", ref: "ci_cert_campaign", required: true, list: true, filter: true, index: true, span: 12 },
-    { name: "ci_ids", label: "پیکربندی‌ها", type: "refs", ref: "ci", span: 24 },
+    { name: "ci_ids", label: "پیکربندی‌ها", type: "refs", ref: "ci", readonly: true, span: 24, help: "دورهٔ تأیید آن‌ها را از پیکربندی‌های مالک وظیفه برمی‌دارد" },
     { name: "corrections", label: "اصلاحات لازم", type: "text", span: 24, help: "اگر ویژگی یا رابطه‌ای نادرست است اینجا بنویسید" },
     { name: "confirmed_count", label: "تأییدشده", type: "int", readonly: true, audit: false, span: 8 },
     ...hidden(WORK_HIDDEN),

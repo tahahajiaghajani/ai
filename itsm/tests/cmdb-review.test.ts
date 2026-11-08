@@ -128,7 +128,7 @@ describe("copies of CI data follow the readability of the CIs", () => {
     const cm = await w.e.ctxOf(w.p.cm.userId);
     const pulled = (await pullEngine(cm, agg, 0, Number.MAX_SAFE_INTEGER)).aggregates.find((a) => a.id === b.id)!;
     expect(JSON.stringify(pulled.row.items)).not.toContain("fw-soc-secret");
-    const wire = { ...pulled, row: { ...pulled.row, name: "خط مبنای SOC (نام تازه)" } };
+    const wire: typeof pulled = { ...pulled, row: { ...pulled.row, name: "خط مبنای SOC (نام تازه)" } };
     expect(await cm.write((tx) => checkEnginePush(tx, cm, agg, wire, {}))).toBeNull();
     expect(JSON.stringify(wire.row.items)).toContain("fw-soc-secret");
   });
@@ -157,3 +157,59 @@ describe("copies of CI data follow the readability of the CIs", () => {
     expect(JSON.stringify(seen)).not.toContain("fw-soc-run");
   });
 });
+
+describe("configuration control, redundancy groups and certification stay with the CIs' people", () => {
+  it("accepts a controlled edit only with a change that authorises it now and names the CI", async () => {
+    const cls = (await w.o.post(`${R("ci_class")}/query`, { filter: { f: "key", op: "eq", v: "server" }, fields: ["key", "controlled_attrs"] })).rows[0];
+    const cfg = (await w.o.post(`${R("cmdb_config")}/query`, { fields: ["controlled_mode"] })).rows[0];
+    await w.o.patch(R("ci_class", cls.id), { controlled_attrs: ["os_version"] });
+    await w.o.patch(R("cmdb_config", cfg.id), { controlled_mode: "block" });
+    try {
+      const ci = await w.ci({ name: "ctl-srv", class: "server", serial_number: "CTL-1", os_version: "1", support_group_id: w.g.infra });
+      await as("am").patch(R("ci", ci.id), { os_version: "2" }, 400);
+      const unrelated = (await w.o.post(R("change_request"), { short_description: "تغییر بی‌ربط" })).row;
+      await as("am").patch(R("ci", ci.id), { os_version: "2", change_id: unrelated.id }, 400);
+      const naming = (await w.o.post(R("change_request"), { short_description: "ارتقای سیستم‌عامل", ci_id: ci.id })).row;
+      await as("am").patch(R("ci", ci.id), { os_version: "2", change_id: naming.id }, 400); // a draft authorises nothing
+      await w.e.db.query(`update sm_change_requests set state = 'implement' where id = $1`, [naming.id]);
+      expect((await as("am").patch(R("ci", ci.id), { os_version: "2", change_id: naming.id })).row.os_version).toBe("2");
+      await w.e.db.query(`update sm_change_requests set state = 'closed' where id = $1`, [naming.id]);
+      await as("am").patch(R("ci", ci.id), { os_version: "3", change_id: naming.id }, 400); // no replay after the change
+    } finally {
+      await w.o.patch(R("cmdb_config", cfg.id), { controlled_mode: "flag" });
+      await w.o.patch(R("ci_class", cls.id), { controlled_attrs: [] });
+    }
+  });
+
+  it("lets only the cluster's writers define its one redundancy group", async () => {
+    const cluster = await w.ci({ name: "infra-cluster-r", class: "cluster", owned_by: w.p.am.userId, support_group_id: w.g.infra });
+    const n1 = await w.ci({ name: "infra-n1", class: "server", serial_number: "N1-R", support_group_id: w.g.infra });
+    const mine = await w.ci({ name: "net-healthy", class: "server", serial_number: "NET-H", support_group_id: w.g.network });
+    await w.rel(n1.id, "member_of", cluster.id);
+    const before = (await w.o.post(C("/impact"), { ci_ids: [n1.id] })).cis.find((c: any) => c.id === cluster.id);
+    expect(before.severity).toBe(1);
+    await as("am2").post(R("ci_group"), { name: "افزونگی جعلی", kind: "redundancy", ci_id: cluster.id, members: [n1.id, mine.id], min_up: 1, owner_group_id: w.g.network }, 403);
+    expect((await w.o.post(C("/impact"), { ci_ids: [n1.id] })).cis.find((c: any) => c.id === cluster.id).severity).toBe(1);
+    // the cluster's own people define it — once
+    const g = (await as("am").post(R("ci_group"), { name: "افزونگی خوشه", kind: "redundancy", ci_id: cluster.id, min_up: 1, owner_group_id: w.g.infra })).row;
+    await w.o.post(R("ci_group"), { name: "افزونگی دوم", kind: "redundancy", ci_id: cluster.id, min_up: 1 }, 409);
+    expect(g.id).toBeTruthy();
+  });
+
+  it("certifies only the CIs of the task's owner", async () => {
+    const own = await w.ci({ name: "cert-own", class: "server", serial_number: "CERT-1", owned_by: w.p.am.userId, support_group_id: w.g.infra });
+    const foreign = await w.ci({ name: "cert-foreign", class: "server", serial_number: "CERT-2", owned_by: w.p.am2.userId, support_group_id: w.g.network });
+    const campaign = (await w.o.post(R("ci_cert_campaign"), { name: "تأیید پاییز", condition: { f: "id", op: "eq", v: own.id }, due_at: new Date(Date.now() + 14 * 86_400_000).toISOString() })).row;
+    await w.o.post(`${R("ci_cert_campaign", campaign.id)}/transition`, { to: "active", data: {} });
+    const [task] = (await as("am").post(`${R("ci_cert_task")}/query`, { filter: { f: "campaign_id", op: "eq", v: campaign.id }, fields: ["ci_ids", "state", "assigned_to"] })).rows;
+    expect(task.ci_ids).toEqual([own.id]);
+    await as("am").patch(R("ci_cert_task", task.id), { ci_ids: [own.id, foreign.id] }).catch(() => undefined);
+    // even a task listing someone else's CI does not certify it for them
+    await w.e.db.query(`update sm_ci_cert_tasks set ci_ids = $2::jsonb where id = $1`, [task.id, JSON.stringify([own.id, foreign.id])]);
+    const states = (await w.o.get(`${R("ci_cert_task", task.id)}`)).meta.transitions.map((t: any) => t.to);
+    await as("am").post(`${R("ci_cert_task", task.id)}/transition`, { to: states.includes("done") ? "done" : states[0], data: {} });
+    expect((await w.o.get(R("ci", own.id))).row.certified_by).toBe(w.p.am.userId);
+    expect((await w.o.get(R("ci", foreign.id))).row.certified_by ?? null).toBeNull();
+  });
+});
+
