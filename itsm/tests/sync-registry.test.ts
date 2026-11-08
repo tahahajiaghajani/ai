@@ -25,6 +25,9 @@ const LOCAL_ONLY: Record<string, string> = {
   sm_ai_tool_calls: "audit of the assistant's tool calls",
   sm_ai_actions: "proposals waiting for a person's confirmation",
   sm_ai_data_refs: "tables and charts referenced from answers",
+  // AI skills: the run log is private to each run's author and kept by the runtime that ran it (the skills, their
+  // versions and evaluation sets are engine tables and travel)
+  sm_ai_skill_runs: "AI skill runs of this runtime (private to their authors)",
   // AI index (retrieval): each runtime indexes the records it holds, with its own embedding model
   sm_ai_rag_docs: "AI index: one row per indexed record (hash, version, anchors)",
   sm_ai_chunks: "AI index: chunks with full-text and vector embeddings",

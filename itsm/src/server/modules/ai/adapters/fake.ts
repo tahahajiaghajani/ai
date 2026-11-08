@@ -20,6 +20,31 @@ export function fakeEnabled(): boolean {
   return process.env.ITSM_AI_FAKE === "1";
 }
 
+/** What the fake model received, newest last (at most 300): tests assert on exactly what reached "the model". */
+export interface FakeTurnLog {
+  model: string;
+  system: string;
+  /** every text part of every message, in order (tool results included) */
+  text: string;
+  schema: boolean;
+  at: number;
+}
+export const FAKE_INBOX: FakeTurnLog[] = [];
+
+/** Empties the fake model's inbox (tests). */
+export function clearFakeInbox(): void {
+  FAKE_INBOX.length = 0;
+}
+
+function logTurn(req: TurnRequest): void {
+  const text = req.messages
+    .flatMap((m) => m.parts.map((p) => (p.type === "text" ? p.text : p.type === "tool_result" ? p.content : "")))
+    .filter(Boolean)
+    .join("\n");
+  FAKE_INBOX.push({ model: req.model, system: `${req.system}${req.systemNotes ? `\n${req.systemNotes}` : ""}`, text, schema: !!req.output, at: Date.now() });
+  if (FAKE_INBOX.length > 300) FAKE_INBOX.splice(0, FAKE_INBOX.length - 300);
+}
+
 const sleep = (ms: number, signal?: AbortSignal) =>
   new Promise<void>((ok) => {
     if (signal?.aborted) return ok();
@@ -197,6 +222,7 @@ export function fakeAdapter(connectionId: string): Adapter {
       return [...FAKE_MODELS];
     },
     async turn(req: TurnRequest, hooks): Promise<TurnResult> {
+      logTurn(req);
       const question = lastUserText(req.messages);
       const results = currentResults(req.messages);
       const promptChars = req.system.length + JSON.stringify(req.messages).length;

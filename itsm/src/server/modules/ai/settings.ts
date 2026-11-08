@@ -24,6 +24,20 @@ export function registerAiFeature(label: string, sw: keyof AiSettings["features"
   FEATURE_SWITCH[label] = sw;
 }
 
+/** Ledger label prefixes of a family of features (the skills' «skill:<key>», one label per skill an organisation defines). */
+const FEATURE_PREFIXES: [string, keyof AiSettings["features"]][] = [];
+
+/** Registers every label starting with `prefix` under a switch (the skills framework: «skill:»). */
+export function registerAiFeaturePrefix(prefix: string, sw: keyof AiSettings["features"] = "assistant"): void {
+  if (!FEATURE_PREFIXES.some(([p]) => p === prefix)) FEATURE_PREFIXES.push([prefix, sw]);
+}
+
+/** The switch of a ledger label (exact registrations first, then prefixes), or undefined for an unknown label. */
+export function featureSwitch(label: string): keyof AiSettings["features"] | undefined {
+  if (Object.prototype.hasOwnProperty.call(FEATURE_SWITCH, label)) return FEATURE_SWITCH[label];
+  return FEATURE_PREFIXES.find(([p]) => label.startsWith(p))?.[1];
+}
+
 export function defaultSettings(): AiSettings {
   return {
     enabled: true,

@@ -12,6 +12,10 @@ import { uuidv7 } from "@shared/id";
 import { pgArray } from "../../db";
 import { AppError, conflict, forbidden, notFound } from "../../http/errors";
 import { audit } from "../data/crud";
+import { tableDef } from "@shared/tables";
+import type { FieldGroup } from "@shared/model/types";
+import { access } from "../../access/provider";
+import { readableIds } from "../../access/service";
 import type { AiProposalInput } from "./tools/registry";
 import { executeProposal } from "./tools/proposals";
 
@@ -37,9 +41,15 @@ interface ActionRow {
   error: string | null;
   expires_at: string;
   created_at: string;
+  /** a skill's proposal: the record it would change and the fields it touches (null for the assistant's) */
+  record_table: string | null;
+  record_id: string | null;
+  fields: string[] | null;
+  skill_run_id: string | null;
+  principal: string | null;
 }
 
-const COLS = `id, org_id, thread_id, message_id, user_id, kind, tool, area, level, payload, payload_hash, preview, status, confirmed_by, confirmed_at, result, error, expires_at, created_at`;
+const COLS = `id, org_id, thread_id, message_id, user_id, kind, tool, area, level, payload, payload_hash, preview, status, confirmed_by, confirmed_at, result, error, expires_at, created_at, record_table, record_id, fields, skill_run_id, principal`;
 
 /** JSON with object keys sorted at every level: the same text before and after a jsonb round trip (which reorders keys). */
 function canonicalJson(value: unknown): string {
@@ -105,6 +115,82 @@ export async function storeProposal(ctx: Ctx, c: { threadId: string; messageId: 
   return toProposal(row!);
 }
 
+/** What a skill hands over to be stored as a proposal on a record (see ./skills/proposals.ts). */
+export interface RecordProposalInput extends AiProposalInput {
+  record: { table: string; id: string };
+  /** fields the proposal reads or changes: only people who see all of them see the proposal */
+  fields: string[];
+  run_id: string | null;
+  principal: "person" | "service";
+  /** hours until it expires (default 24; proposals of triggered skills wait longer) */
+  ttl_hours?: number;
+}
+
+/** Store a skill's proposal on a record (one per run and kind: a retried job never doubles it). */
+export async function storeRecordProposal(ctx: Ctx, p: RecordProposalInput): Promise<AiProposal> {
+  const id = uuidv7();
+  const key = createHash("sha256").update(`${ctx.org.id}:skill:${p.run_id ?? id}:${p.kind}`).digest("hex");
+  const preview = { title_fa: p.title_fa, summary_fa: p.summary_fa, preview: p.preview, lines: p.lines, line_headers: p.line_headers, warnings: p.warnings, edit_path: p.edit_path };
+  const hours = Math.max(1, Math.min(24 * 30, Math.round(p.ttl_hours ?? 24)));
+  const row = await ctx.write(
+    async (tx) => {
+      await tx.query(
+        `insert into sm_ai_actions (id, org_id, thread_id, message_id, user_id, kind, tool, area, level, payload, payload_hash, preview, idempotency_key, expires_at,
+                                    record_table, record_id, fields, skill_run_id, principal)
+         values ($1, $2, null, null, $3, $4, 'skill', $5, $6, $7::jsonb, $8, $9::jsonb, $10, now() + ($11 || ' hours')::interval, $12, $13, $14::text[], $15, $16)
+         on conflict (idempotency_key) do nothing`,
+        [
+          id, ctx.org.id, ctx.user.id, p.kind, p.area, p.level, JSON.stringify(p.payload ?? null), hashPayload(p.payload), JSON.stringify(preview), key, String(hours),
+          p.record.table, p.record.id, pgArray([...new Set(p.fields)]), p.run_id, p.principal,
+        ],
+      );
+      return tx.one<ActionRow>(`select ${COLS} from sm_ai_actions where idempotency_key = $1`, [key]);
+    },
+    { internal: true },
+  );
+  return toProposal(row!);
+}
+
+/** May the caller read the record of a skill's proposal and every field it involves (their own access, now)? */
+async function seesRecord(ctx: Ctx, r: Pick<ActionRow, "record_table" | "record_id" | "fields">): Promise<boolean> {
+  if (!r.record_table || !r.record_id) return false;
+  const def = tableDef(r.record_table);
+  if (!def || def.virtual) return false;
+  try {
+    if (!(await readableIds(ctx, r.record_table, [r.record_id])).has(r.record_id.toLowerCase())) return false;
+  } catch {
+    return false;
+  }
+  // tokens: a field of the record, `@g:<group>` a field group the run read, `@r:<table>:<id>` a source it used
+  const visible = access().visibleFields(ctx, def);
+  const sources = new Map<string, string[]>();
+  for (const f of r.fields ?? []) {
+    if (f.startsWith("@g:")) {
+      if (!access().hasFieldGroup(ctx, f.slice(3) as FieldGroup)) return false;
+    } else if (f.startsWith("@r:")) {
+      const [, t, sid] = f.split(":");
+      if (t && sid) sources.set(t, [...(sources.get(t) ?? []), sid]);
+    } else if (visible && !visible.has(f)) return false;
+  }
+  for (const [t, ids] of sources) {
+    const ok = await readableIds(ctx, t, ids).catch(() => new Set<string>());
+    if (ids.some((x) => !ok.has(x.toLowerCase()))) return false;
+  }
+  return true;
+}
+
+/** Open proposals of skills on one record that the caller may see (the record's «هوش مصنوعی» panel). */
+export async function recordProposals(ctx: Ctx, table: string, id: string): Promise<AiProposal[]> {
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return [];
+  const rows = await ctx.db.query<ActionRow>(
+    `select ${COLS} from sm_ai_actions where org_id = $1 and record_table = $2 and record_id = $3 and status = 'proposed' and expires_at > now() order by created_at desc limit 30`,
+    [ctx.org.id, table, id.toLowerCase()],
+  );
+  const out: AiProposal[] = [];
+  for (const r of rows) if (await canSee(ctx, r)) out.push(toProposal(r));
+  return out;
+}
+
 export async function proposalViews(ctx: Ctx, ids: string[]): Promise<AiProposal[]> {
   if (!ids.length) return [];
   const rows = await ctx.db.query<ActionRow>(`select ${COLS} from sm_ai_actions where org_id = $1 and id = any($2::uuid[])`, [ctx.org.id, pgArray(ids)]);
@@ -118,13 +204,26 @@ async function actionRow(ctx: Ctx, id: string): Promise<ActionRow> {
   return r;
 }
 
-/** May the caller decide about this proposal: its author or an AI manager, with the document's own level. */
-function canDecide(ctx: Ctx, r: ActionRow): boolean {
+/**
+ * Who sees a proposal. A skill's proposal on a record: whoever may read that record and every field it involves, now —
+ * its author included, and an AI manager without that access does not. The assistant's: its author or an AI manager.
+ */
+async function canSee(ctx: Ctx, r: ActionRow): Promise<boolean> {
+  if (r.record_table && r.record_id) return seesRecord(ctx, r);
+  return r.user_id === ctx.user.id || ctx.can("ai", "full");
+}
+
+/**
+ * May the caller decide about this proposal: the assistant's — its author or an AI manager, with the document's own
+ * level; a skill's — whoever sees it and may use AI (the write is applied with that person's own access, checked again).
+ */
+async function canDecide(ctx: Ctx, r: ActionRow): Promise<boolean> {
+  if (r.record_table && r.record_id) return ctx.can("ai", "view") && ctx.can(r.area, r.level) && (await seesRecord(ctx, r));
   return (r.user_id === ctx.user.id || ctx.can("ai", "full")) && ctx.can(r.area, r.level);
 }
 
-function assertVisible(ctx: Ctx, r: ActionRow) {
-  if (r.user_id !== ctx.user.id && !ctx.can("ai", "full")) throw notFound("پیشنهاد پیدا نشد");
+async function assertVisible(ctx: Ctx, r: ActionRow): Promise<void> {
+  if (!(await canSee(ctx, r))) throw notFound("پیشنهاد پیدا نشد");
 }
 
 const STATUS_FA: Record<AiProposalStatus, string> = {
@@ -139,8 +238,8 @@ const STATUS_FA: Record<AiProposalStatus, string> = {
 export async function confirmAction(ctx: Ctx, id: string): Promise<AiProposal> {
   ctx.need("ai", "view");
   let r = await actionRow(ctx, id);
-  assertVisible(ctx, r);
-  if (!canDecide(ctx, r)) throw forbidden("برای تأیید این پیشنهاد، دسترسی همان بخش را لازم دارید");
+  await assertVisible(ctx, r);
+  if (!(await canDecide(ctx, r))) throw forbidden(r.record_table ? "برای اعمال این پیشنهاد باید رکورد و همهٔ فیلدهای آن را ببینید" : "برای تأیید این پیشنهاد، دسترسی همان بخش را لازم دارید");
   const status = effectiveStatus(r);
   if (status === "executed") return toProposal(r);
   if (status === "expired") {
@@ -190,8 +289,8 @@ export async function confirmAction(ctx: Ctx, id: string): Promise<AiProposal> {
 export async function rejectAction(ctx: Ctx, id: string, reason?: string): Promise<AiProposal> {
   ctx.need("ai", "view");
   const r = await actionRow(ctx, id);
-  assertVisible(ctx, r);
-  if (r.user_id !== ctx.user.id && !canDecide(ctx, r)) throw forbidden();
+  await assertVisible(ctx, r);
+  if (r.user_id !== ctx.user.id && !(await canDecide(ctx, r))) throw forbidden();
   const status = effectiveStatus(r);
   if (status !== "proposed") throw conflict(`این پیشنهاد ${STATUS_FA[status]} است`);
   await ctx.write(
@@ -221,7 +320,12 @@ export async function listActions(ctx: Ctx, opts: { status?: AiProposalStatus; m
      where ${where} order by a.created_at desc limit $${params.length}`,
     params,
   );
-  return rows.map((r) => ({
+  // a skill's proposals on records: only those whose record and fields the caller sees now (an AI manager too)
+  const seen: typeof rows = [];
+  for (const r of rows) if (!r.record_id || (await canSee(ctx, r))) seen.push(r);
+  const decide = new Map<string, boolean>();
+  for (const r of seen) decide.set(r.id, effectiveStatus(r) === "proposed" && (await canDecide(ctx, r)));
+  return seen.map((r) => ({
     ...toProposal(r),
     thread_id: r.user_id === ctx.user.id ? r.thread_id : null,
     area: r.area,
@@ -230,6 +334,6 @@ export async function listActions(ctx: Ctx, opts: { status?: AiProposalStatus; m
     confirmed_by: r.confirmed_by ? { id: r.confirmed_by, name: r.confirmer_name } : null,
     confirmed_at: r.confirmed_at,
     created_at: r.created_at,
-    can_decide: effectiveStatus(r) === "proposed" && canDecide(ctx, r),
+    can_decide: decide.get(r.id) ?? false,
   }));
 }

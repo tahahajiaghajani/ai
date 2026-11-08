@@ -29,6 +29,8 @@ import { installRequestModule } from "../modules/request";
 import { requestRoutes } from "./request";
 import { installKnowledgeModule } from "../modules/knowledge";
 import { knowledgeRoutes } from "./knowledge";
+import { installAiSkills } from "../modules/ai/skills";
+import { skillRoutes } from "./ai-skills";
 
 // the ITSM access model is the engine's access provider in every runtime (docs/spec/ACCESS.md)
 installAccessModel();
@@ -58,10 +60,14 @@ installRequestModule();
 // knowledge management (docs/modules/knowledge_FA.md) — after the RAG index and the modules whose records it links
 installKnowledgeModule();
 
+// the AI skills (docs/spec/AI.md §11) — after every module whose AI extension points they implement
+installAiSkills();
+
 export const moduleRoutes = router();
 
 moduleRoutes.route("/ai", aiRoutes);
 moduleRoutes.route("/ai", ragRoutes);
+moduleRoutes.route("/ai", skillRoutes);
 moduleRoutes.route("/access", accessRoutes);
 moduleRoutes.route("/notify", notifyRoutes);
 moduleRoutes.route("/calendars", calendarRoutes);

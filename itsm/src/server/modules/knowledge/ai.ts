@@ -101,21 +101,33 @@ const SYSTEM = [
   "Never add facts, settings, names, numbers or commands that are not in the text.",
 ].join("\n");
 
-/** The writing assistant: one action over a piece of the article. */
+/** The editor's actions as the AI layer's writing skills (src/server/modules/ai/skills/builtin/generic.ts). */
+const WRITE_SKILLS: Record<WriteAction, { key: string; params?: Record<string, string> }> = {
+  improve: { key: "text.improve" },
+  shorten: { key: "text.shorten" },
+  formal: { key: "text.formal" },
+  friendly: { key: "text.tone", params: { tone: "friendly" } },
+  fix: { key: "text.fix" },
+  expand: { key: "text.rewrite", params: { action: "expand" } },
+  simplify: { key: "text.rewrite", params: { action: "simplify" } },
+  steps: { key: "text.rewrite", params: { action: "steps" } },
+  title: { key: "text.rewrite", params: { action: "title" } },
+  summary: { key: "text.rewrite", params: { action: "summary" } },
+  portal: { key: "text.rewrite", params: { action: "portal" } },
+};
+
+/**
+ * The writing assistant: one action over a piece of the article, run as a skill of the AI layer (configured, logged
+ * and rated like every skill; the base's description is its house style).
+ */
 export async function writeAssist(ctx: Ctx, input: { action: WriteAction; text: string; instructions?: string | null }) {
   if (!(input.action in INSTRUCTIONS)) throw bad("این کار را دستیار نگارش نمی‌شناسد");
   const text = String(input.text ?? "").slice(0, 20_000);
   if (text.trim().length < 2) throw bad("متنی برای بازنویسی انتخاب کنید");
-  const extra = input.instructions ? `\nHouse style of this knowledge base: ${String(input.instructions).slice(0, 1000)}` : "";
-  const r = await generate(ctx, {
-    job: "fast",
-    feature: "kb_write",
-    system: SYSTEM + extra,
-    prompt: `${INSTRUCTIONS[input.action]}\nReturn JSON {"text": "..."} with the result.\n\n${dataBlock("text", text)}`,
-    schema: z.object({ text: z.string() }),
-    maxTokens: 4000,
-  });
-  return { text: String(r.object?.text ?? r.text ?? "").trim(), model: r.model };
+  const { runSkill } = await import("../ai/skills");
+  const s = WRITE_SKILLS[input.action];
+  const r = await runSkill(ctx, s.key, { text, params: { ...(s.params ?? {}), ...(input.instructions ? { house_style: String(input.instructions).slice(0, 1000) } : {}) } });
+  return { text: String(r.text ?? "").trim(), model: r.model ?? "", rule_based: r.fallback };
 }
 
 /** A machine translation draft of an article's published content (the glossary's approved terms injected). */
