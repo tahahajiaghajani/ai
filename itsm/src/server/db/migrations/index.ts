@@ -10,6 +10,7 @@ import notify from "./0010_notify";
 import flows from "./0011_flows";
 import aiRag from "./0020_ai_rag";
 import knowledge from "./0045_knowledge";
+import aiSkills from "./0052_ai_skills";
 import { ddlForAll } from "../../engine/ddl";
 
 export interface Migration {
@@ -38,6 +39,7 @@ export const MIGRATIONS: Migration[] = [
   { id: "0011_flows", title: "گردش‌کارها: اجراها، گزارش گام‌ها، انتظارها و زمان‌بندی", sql: flows },
   { id: "0020_ai_rag", title: "هوش مصنوعی: نمایه و بازیابی (قطعه‌ها، بردارها، متن اسناد هوشمند)", sql: aiRag },
   { id: "0045_knowledge", title: "مدیریت دانش: جریان رویدادهای دانش (جست‌وجو، بازدید، رأی، پیوند، حل بدون درخواست)", sql: knowledge },
+  { id: "0052_ai_skills", title: "مهارت‌های هوش مصنوعی: پیشنهادهای وابسته به رکورد", sql: aiSkills },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].id;

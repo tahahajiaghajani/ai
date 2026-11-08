@@ -1,0 +1,39 @@
+/* The AI skills surfaces: the record panel «هوش مصنوعی», the composer's and fields' AI menus, the admin «مهارت‌ها». */
+.sk-list { display: flex; flex-direction: column; gap: 2px; }
+.sk-row { display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 4px 6px; border-radius: var(--ds-radius-sm); }
+.sk-row:hover { background: var(--ds-hover); }
+.sk-row-t { flex: 1; min-width: 0; font-size: 13px; color: var(--ds-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sk-row.is-off .sk-row-t { color: var(--ds-text-3); }
+.sk-row-tag { font-size: 11px; color: var(--ds-text-3); }
+.sk-params { display: grid; gap: 8px; padding: 8px; margin-block: 4px 8px; border: 1px solid var(--ds-line); border-radius: var(--ds-radius-md); background: var(--ds-sunken); }
+.sk-out { margin-block-start: 8px; border: 1px solid var(--ds-line-2); border-radius: var(--ds-radius-md); background: var(--ds-surface); }
+.sk-out-h { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-block-end: 1px solid var(--ds-line); font-size: 13px; font-weight: var(--ds-weight-medium); color: var(--ds-text); }
+.sk-out-b { padding: 10px; font-size: 13px; color: var(--ds-text); max-height: 420px; overflow: auto; }
+.sk-out-f { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 10px; border-block-start: 1px solid var(--ds-line); }
+.sk-label { display: flex; align-items: center; gap: 6px; padding: 6px 10px; font-size: 11.5px; color: var(--ds-text-3); background: var(--ds-sunken); border-block-start: 1px solid var(--ds-line); }
+.sk-diff { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.sk-diff th { text-align: start; font-weight: var(--ds-weight-medium); color: var(--ds-text-2); padding: 4px 6px; border-block-end: 1px solid var(--ds-line); }
+.sk-diff td { padding: 6px; vertical-align: top; border-block-end: 1px solid var(--ds-line); }
+.sk-diff .is-old { color: var(--ds-text-3); text-decoration: line-through; text-decoration-color: var(--ds-line-3); }
+.sk-diff .is-new { color: var(--ds-text); }
+.sk-cites { display: flex; flex-wrap: wrap; gap: 4px 10px; padding: 6px 10px; font-size: 12px; border-block-start: 1px solid var(--ds-line); }
+.sk-cites a { color: var(--ds-accent-text); }
+.sk-runs { display: flex; flex-direction: column; gap: 6px; margin-block-start: 6px; }
+.sk-run { padding: 6px 8px; border: 1px solid var(--ds-line); border-radius: var(--ds-radius-sm); font-size: 12.5px; }
+.sk-run-h { display: flex; align-items: center; gap: 6px; color: var(--ds-text-2); }
+.sk-run-b { margin-block-start: 4px; color: var(--ds-text-2); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.sk-sec { margin-block-start: 12px; font-size: 12px; color: var(--ds-text-3); }
+.sk-stream { white-space: pre-wrap; color: var(--ds-text-2); }
+/* the admin tab */
+.sk-admin { display: grid; gap: 16px; }
+.sk-grp-t { font-size: 12.5px; font-weight: var(--ds-weight-medium); color: var(--ds-text-2); margin-block: 4px 6px; }
+.sk-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 8px 10px; border-block-end: 1px solid var(--ds-line); }
+.sk-item:last-child { border-block-end: 0; }
+.sk-item-t { font-size: 13.5px; color: var(--ds-text); }
+.sk-item-d { font-size: 12px; color: var(--ds-text-3); margin-block-start: 2px; }
+.sk-item-m { display: flex; flex-wrap: wrap; gap: 6px; margin-block-start: 4px; font-size: 11.5px; color: var(--ds-text-3); }
+.sk-code { font-family: var(--ds-font-mono); font-size: 12px; direction: ltr; text-align: left; }
+.sk-dl { margin: 0; padding: 8px; max-height: 340px; overflow: auto; border: 1px solid var(--ds-line); border-radius: var(--ds-radius-sm); background: var(--ds-sunken); font-family: var(--ds-font-mono); font-size: 12px; direction: rtl; }
+.sk-dl .is-add { background: var(--ds-in-tint); }
+.sk-dl .is-del { background: var(--ds-danger-tint); text-decoration: line-through; text-decoration-color: var(--ds-line-3); }
+.sk-dl div { white-space: pre-wrap; padding-inline: 4px; }

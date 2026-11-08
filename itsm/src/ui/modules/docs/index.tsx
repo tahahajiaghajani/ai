@@ -7,6 +7,8 @@ import { BookOpenText, FileSearch, Library, MessageSquareText, Sparkles } from "
 import { recordModule, RecordPageRoute } from "../../records/module";
 import { registerRecordExtensions } from "../../records/extensions";
 import { recordSearch } from "../../records/module";
+// the AI skills of every record page (the «هوش مصنوعی» panel, the composer's and rich-text fields' AI menus)
+import "../../ai/skills/register";
 
 const LibraryPage = lazy(() => import("./Library"));
 const Viewer = lazy(() => import("./Viewer"));

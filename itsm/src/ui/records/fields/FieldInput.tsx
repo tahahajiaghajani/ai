@@ -20,6 +20,7 @@ import { offeredOptions, targetOf, valuesOf, type Schema } from "../model/schema
 import { splitDuration } from "../model/values";
 import type { DisplayMap, TableMeta } from "../model/types";
 import { MarkdownEditor } from "./MarkdownEditor";
+import { fieldAssistFor } from "../extensions";
 import { refPickerFor } from "../extensions";
 import { RecordSelect } from "./RecordSelect";
 import { ChoiceTag } from "./display";
@@ -107,7 +108,18 @@ export function FieldInput(p: FieldInputProps) {
       return compact ? (
         <Input.TextArea {...common} value={String(value ?? "")} onChange={(e) => onChange(e.target.value || null)} autoSize={{ minRows: 1, maxRows: 6 }} />
       ) : (
-        <MarkdownEditor id={id} value={String(value ?? "")} onChange={(v) => onChange(v === "" ? null : v)} disabled={disabled} status={status} autoFocus={autoFocus} aria-label={label} placeholder={f.placeholder} display={display} />
+        <MarkdownEditor
+          id={id}
+          value={String(value ?? "")}
+          onChange={(v) => onChange(v === "" ? null : v)}
+          disabled={disabled}
+          status={status}
+          autoFocus={autoFocus}
+          aria-label={label}
+          placeholder={f.placeholder}
+          display={display}
+          tools={!disabled ? fieldAssistFor()?.({ table: def.key, field: f.name, label: f.label, value: String(value ?? ""), setValue: (v) => onChange(v === "" ? null : v) }) : undefined}
+        />
       );
     case "int":
       return <NumberInput {...common} value={value as string | number | null} decimals={0} allowNegative={(f.min ?? 0) < 0} onChange={(v) => onChange(v === null ? null : Number(v))} onPressEnter={onCommit} />;

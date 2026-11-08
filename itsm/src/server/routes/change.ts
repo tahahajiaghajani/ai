@@ -24,7 +24,7 @@ import { z } from "zod";
 import { STATE_OPTIONS, WINDOW_KINDS } from "@shared/tables/change";
 import { explainRisk } from "@shared/change/logic";
 import { router, body, query, type C } from "../http/hono";
-import { forbidden } from "../http/errors";
+import { AppError, forbidden } from "../http/errors";
 import { access } from "../access/provider";
 import { defFor, get } from "../engine";
 import {
@@ -113,7 +113,9 @@ changeRoutes.post("/records/:id/risk/explain", async (c) => {
   const ai = changeAi().riskNarrative;
   if (ai) {
     await get(ctx, "change_request", id);
-    return c.json({ text: (await ai(ctx, id)).text, ai: true });
+    // no model (or AI off, or over budget): the deterministic explanation below answers, and says it is not AI
+    const r = await ai(ctx, id).catch((e: unknown) => (e instanceof AppError && e.code.startsWith("ai_") ? null : Promise.reject(e as Error)));
+    if (r) return c.json({ text: r.text, ai: true });
   }
   const v = await riskView(ctx, id);
   return c.json({ text: explainRisk(v.result, { manual: v.risk_source !== "calculated" ? { level: String(v.risk), reason: v.risk_override_reason } : null }), ai: false });

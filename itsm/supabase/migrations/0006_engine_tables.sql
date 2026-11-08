@@ -4,6 +4,229 @@ create table if not exists sm_migrations (id text primary key, applied_at timest
 -- ---------------------------------------------------------------------------
 -- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها)
 -- ---------------------------------------------------------------------------
+-- ai_skill: مهارت‌های هوش مصنوعی
+create table if not exists sm_ai_skills (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_ai_skills add column if not exists workspace_id uuid;
+alter table sm_ai_skills add column if not exists domain_id uuid;
+alter table sm_ai_skills add column if not exists unit_id uuid;
+alter table sm_ai_skills add column if not exists created_at timestamptz not null default now();
+alter table sm_ai_skills add column if not exists created_by uuid;
+alter table sm_ai_skills add column if not exists updated_at timestamptz not null default now();
+alter table sm_ai_skills add column if not exists updated_by uuid;
+alter table sm_ai_skills add column if not exists rev bigint not null default 0;
+alter table sm_ai_skills add column if not exists version integer not null default 1;
+alter table sm_ai_skills add column if not exists deleted_at timestamptz;
+alter table sm_ai_skills add column if not exists origin text;
+alter table sm_ai_skills add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_ai_skills add column if not exists key text;
+alter table sm_ai_skills add column if not exists name text;
+alter table sm_ai_skills add column if not exists description text;
+alter table sm_ai_skills add column if not exists module text;
+alter table sm_ai_skills add column if not exists base_key text;
+alter table sm_ai_skills add column if not exists builtin boolean not null default false;
+alter table sm_ai_skills add column if not exists enabled boolean not null default true;
+alter table sm_ai_skills add column if not exists target text;
+alter table sm_ai_skills add column if not exists output text;
+alter table sm_ai_skills add column if not exists tables jsonb;
+alter table sm_ai_skills add column if not exists tier text;
+alter table sm_ai_skills add column if not exists grounding text;
+alter table sm_ai_skills add column if not exists grounding_k integer;
+alter table sm_ai_skills add column if not exists collections jsonb;
+alter table sm_ai_skills add column if not exists triggers jsonb;
+alter table sm_ai_skills add column if not exists events jsonb;
+alter table sm_ai_skills add column if not exists condition jsonb;
+alter table sm_ai_skills add column if not exists schedule_minutes integer;
+alter table sm_ai_skills add column if not exists schedule_filter jsonb;
+alter table sm_ai_skills add column if not exists roles jsonb;
+alter table sm_ai_skills add column if not exists field_groups jsonb;
+alter table sm_ai_skills add column if not exists auto_apply jsonb;
+alter table sm_ai_skills add column if not exists daily_limit integer;
+alter table sm_ai_skills add column if not exists user_daily_limit integer;
+alter table sm_ai_skills add column if not exists active_version_id uuid;
+alter table sm_ai_skills add column if not exists last_scheduled_at timestamptz;
+create index if not exists sm_ai_skills_rev_idx on sm_ai_skills (org_id, rev);
+create index if not exists sm_ai_skills_upd_idx on sm_ai_skills (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_ai_skills_crt_idx on sm_ai_skills (org_id, created_at desc, id desc) where deleted_at is null;
+create unique index if not exists sm_ai_skills_key_uk on sm_ai_skills (org_id, key) where deleted_at is null;
+drop trigger if exists sm_ai_skills_sync on sm_ai_skills;
+create trigger sm_ai_skills_sync before insert or update on sm_ai_skills for each row execute function sm_sync_touch('ai_skill');
+alter table sm_ai_skills enable row level security;
+
+-- ai_skill_eval: مجموعه‌های ارزیابی مهارت
+create table if not exists sm_ai_skill_evals (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_ai_skill_evals add column if not exists workspace_id uuid;
+alter table sm_ai_skill_evals add column if not exists domain_id uuid;
+alter table sm_ai_skill_evals add column if not exists unit_id uuid;
+alter table sm_ai_skill_evals add column if not exists created_at timestamptz not null default now();
+alter table sm_ai_skill_evals add column if not exists created_by uuid;
+alter table sm_ai_skill_evals add column if not exists updated_at timestamptz not null default now();
+alter table sm_ai_skill_evals add column if not exists updated_by uuid;
+alter table sm_ai_skill_evals add column if not exists rev bigint not null default 0;
+alter table sm_ai_skill_evals add column if not exists version integer not null default 1;
+alter table sm_ai_skill_evals add column if not exists deleted_at timestamptz;
+alter table sm_ai_skill_evals add column if not exists origin text;
+alter table sm_ai_skill_evals add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_ai_skill_evals add column if not exists skill_key text;
+alter table sm_ai_skill_evals add column if not exists name text;
+alter table sm_ai_skill_evals add column if not exists cases jsonb;
+alter table sm_ai_skill_evals add column if not exists last_score numeric;
+alter table sm_ai_skill_evals add column if not exists last_run_at timestamptz;
+alter table sm_ai_skill_evals add column if not exists last_model text;
+alter table sm_ai_skill_evals add column if not exists last_results jsonb;
+create index if not exists sm_ai_skill_evals_rev_idx on sm_ai_skill_evals (org_id, rev);
+create index if not exists sm_ai_skill_evals_upd_idx on sm_ai_skill_evals (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_ai_skill_evals_crt_idx on sm_ai_skill_evals (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_ai_skill_evals_skill_key_idx on sm_ai_skill_evals (org_id, skill_key) where deleted_at is null;
+drop trigger if exists sm_ai_skill_evals_sync on sm_ai_skill_evals;
+create trigger sm_ai_skill_evals_sync before insert or update on sm_ai_skill_evals for each row execute function sm_sync_touch('ai_skill_eval');
+alter table sm_ai_skill_evals enable row level security;
+
+-- ai_skill_run: اجراهای مهارت
+create table if not exists sm_ai_skill_runs (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_ai_skill_runs add column if not exists workspace_id uuid;
+alter table sm_ai_skill_runs add column if not exists domain_id uuid;
+alter table sm_ai_skill_runs add column if not exists unit_id uuid;
+alter table sm_ai_skill_runs add column if not exists created_at timestamptz not null default now();
+alter table sm_ai_skill_runs add column if not exists created_by uuid;
+alter table sm_ai_skill_runs add column if not exists updated_at timestamptz not null default now();
+alter table sm_ai_skill_runs add column if not exists updated_by uuid;
+alter table sm_ai_skill_runs add column if not exists rev bigint not null default 0;
+alter table sm_ai_skill_runs add column if not exists version integer not null default 1;
+alter table sm_ai_skill_runs add column if not exists deleted_at timestamptz;
+alter table sm_ai_skill_runs add column if not exists origin text;
+alter table sm_ai_skill_runs add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_ai_skill_runs add column if not exists skill_key text;
+alter table sm_ai_skill_runs add column if not exists skill_id uuid;
+alter table sm_ai_skill_runs add column if not exists version_id uuid;
+alter table sm_ai_skill_runs add column if not exists version_no integer;
+alter table sm_ai_skill_runs add column if not exists invoker_id uuid;
+alter table sm_ai_skill_runs add column if not exists principal text;
+alter table sm_ai_skill_runs add column if not exists table_key text;
+alter table sm_ai_skill_runs add column if not exists record_id text;
+alter table sm_ai_skill_runs add column if not exists record_number text;
+alter table sm_ai_skill_runs add column if not exists input_hash text;
+alter table sm_ai_skill_runs add column if not exists params jsonb;
+alter table sm_ai_skill_runs add column if not exists status text;
+alter table sm_ai_skill_runs add column if not exists output_kind text;
+alter table sm_ai_skill_runs add column if not exists output_text text;
+alter table sm_ai_skill_runs add column if not exists output_json jsonb;
+alter table sm_ai_skill_runs add column if not exists citations jsonb;
+alter table sm_ai_skill_runs add column if not exists model text;
+alter table sm_ai_skill_runs add column if not exists connection text;
+alter table sm_ai_skill_runs add column if not exists tokens_in integer;
+alter table sm_ai_skill_runs add column if not exists tokens_out integer;
+alter table sm_ai_skill_runs add column if not exists cost_usd text;
+alter table sm_ai_skill_runs add column if not exists latency_ms integer;
+alter table sm_ai_skill_runs add column if not exists error text;
+alter table sm_ai_skill_runs add column if not exists proposal_id text;
+alter table sm_ai_skill_runs add column if not exists feedback integer;
+alter table sm_ai_skill_runs add column if not exists feedback_comment text;
+create index if not exists sm_ai_skill_runs_rev_idx on sm_ai_skill_runs (org_id, rev);
+create index if not exists sm_ai_skill_runs_upd_idx on sm_ai_skill_runs (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_ai_skill_runs_crt_idx on sm_ai_skill_runs (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_ai_skill_runs_skill_key_idx on sm_ai_skill_runs (org_id, skill_key) where deleted_at is null;
+create index if not exists sm_ai_skill_runs_invoker_id_idx on sm_ai_skill_runs (org_id, invoker_id) where deleted_at is null;
+create index if not exists sm_ai_skill_runs_record_id_idx on sm_ai_skill_runs (org_id, record_id) where deleted_at is null;
+create index if not exists sm_ai_skill_runs_workspace_acc_idx on sm_ai_skill_runs (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_ai_skill_runs_unit_acc_idx on sm_ai_skill_runs (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_ai_skill_runs_domain_acc_idx on sm_ai_skill_runs (org_id, domain_id) where deleted_at is null and domain_id is not null;
+drop trigger if exists sm_ai_skill_runs_sync on sm_ai_skill_runs;
+alter table sm_ai_skill_runs enable row level security;
+
+-- ai_skill_version: نسخه‌های مهارت
+create table if not exists sm_ai_skill_versions (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_ai_skill_versions add column if not exists workspace_id uuid;
+alter table sm_ai_skill_versions add column if not exists domain_id uuid;
+alter table sm_ai_skill_versions add column if not exists unit_id uuid;
+alter table sm_ai_skill_versions add column if not exists created_at timestamptz not null default now();
+alter table sm_ai_skill_versions add column if not exists created_by uuid;
+alter table sm_ai_skill_versions add column if not exists updated_at timestamptz not null default now();
+alter table sm_ai_skill_versions add column if not exists updated_by uuid;
+alter table sm_ai_skill_versions add column if not exists rev bigint not null default 0;
+alter table sm_ai_skill_versions add column if not exists version integer not null default 1;
+alter table sm_ai_skill_versions add column if not exists deleted_at timestamptz;
+alter table sm_ai_skill_versions add column if not exists origin text;
+alter table sm_ai_skill_versions add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_ai_skill_versions add column if not exists skill_id uuid;
+alter table sm_ai_skill_versions add column if not exists revision integer;
+alter table sm_ai_skill_versions add column if not exists label text;
+alter table sm_ai_skill_versions add column if not exists state text;
+alter table sm_ai_skill_versions add column if not exists system text;
+alter table sm_ai_skill_versions add column if not exists template text;
+alter table sm_ai_skill_versions add column if not exists output_schema jsonb;
+alter table sm_ai_skill_versions add column if not exists temperature numeric;
+alter table sm_ai_skill_versions add column if not exists max_tokens integer;
+alter table sm_ai_skill_versions add column if not exists note text;
+alter table sm_ai_skill_versions add column if not exists published_at timestamptz;
+alter table sm_ai_skill_versions add column if not exists published_by uuid;
+create index if not exists sm_ai_skill_versions_rev_idx on sm_ai_skill_versions (org_id, rev);
+create index if not exists sm_ai_skill_versions_upd_idx on sm_ai_skill_versions (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_ai_skill_versions_crt_idx on sm_ai_skill_versions (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_ai_skill_versions_skill_id_idx on sm_ai_skill_versions (org_id, skill_id) where deleted_at is null;
+drop trigger if exists sm_ai_skill_versions_sync on sm_ai_skill_versions;
+create trigger sm_ai_skill_versions_sync before insert or update on sm_ai_skill_versions for each row execute function sm_sync_touch('ai_skill_version');
+alter table sm_ai_skill_versions enable row level security;
+
 -- announcement: اطلاعیه‌ها
 create table if not exists sm_announcements (
   id uuid primary key,

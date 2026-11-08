@@ -9,7 +9,7 @@ Code: `src/shared/ai` (contracts: `types.ts`, `api.ts`, `rag.ts`; Persian text s
 errors), `src/server/modules/ai` (connections, adapters, chain, usage, settings, assistant, tools, proposals, relay,
 redaction) and `src/server/modules/ai/rag` (index, retrieval, cited answers, smart documents), `src/server/routes/ai.ts`
 and `ai-rag.ts`, `src/ui/ai` (assistant, settings, `ask/` — the cited-answer UI), `src/ui/modules/docs` (the library).
-Tests: `tests/ai-*.test.ts`, retrieval `tests/ai-rag-*.test.ts`.
+Tests: `tests/ai-*.test.ts`, retrieval `tests/ai-rag-*.test.ts`, skills `tests/ai-skills-*.test.ts`.
 
 Contents: [1 Connections and capabilities](#1-connections-and-capabilities) · [2 The index](#2-the-index) ·
 [3 Declaring RAG documents](#3-declaring-rag-documents) · [4 retrieve()](#4-retrieve) ·
@@ -288,17 +288,175 @@ group the member lacks appears.
 
 ## 11. Skills, agents and tools
 
-Placeholders, filled by later briefs:
+A **skill** (catalogue AI-006/007/154/155/159/164/165/169/170) is a prompt-backed feature: inputs read from a record,
+a versioned prompt, a model tier, an output kind with its schema, optional grounding, triggers and who may use it.
+Code: `src/shared/ai/skills.ts` (contracts, labels, templates, the line diff, JSON checks, eval scoring),
+`src/shared/tables/ai.ts` (tables), `src/server/modules/ai/skills` (registry, configuration, runtime, proposals,
+triggers, service member, administration, `builtin/` — every built-in skill and the modules' extension points they
+implement), `src/server/routes/ai-skills.ts` (HTTP), `src/ui/ai/skills` (record panel, inline AI, admin). Tests:
+`tests/ai-skills-*.test.ts`.
 
-- **Skills** (catalogue AI-006/007): prompt-backed features as records (inputs, versioned prompt, tier, output schema,
-  target, triggers) — they will call `generate` and, for grounding, `retrieve` with the invoking member's context.
-- **Agents** (AI-074…): autonomous runs act through a member context of their own principal; retrieval inside an agent
-  uses that context, never the system's.
-- **Tools** (`src/server/modules/ai/tools`): the assistant's tools repeat their route's checks; a `search_knowledge`
-  tool wrapping `retrieve` belongs here once the knowledge module lands.
+### 11.1 Tables
+
+| Key | Synced | What |
+| --- | --- | --- |
+| `ai_skill` | yes | the organisation's configuration of a skill: `key`, Persian `name`/`description`, `module`, `base_key` (the built-in it is or copies), `builtin`, `enabled`, `target`, `output`, `tables`, `tier`, `grounding` + `grounding_k` + `collections`, `triggers` (manual / event / schedule), `events`, `condition` (a condition on the record), `schedule_minutes` + `schedule_filter`, `roles`, `field_groups` (groups whose values may reach the model — never `ai_private`), `auto_apply`, `daily_limit`, `user_daily_limit`, `active_version_id` |
+| `ai_skill_version` | yes | a prompt: `system`, `template`, `output_schema` (JSON Schema, structured outputs only), `temperature`, `max_tokens`, `note` (change note), `revision`, `state` draft / published / retired, `published_at/by` |
+| `ai_skill_eval` | yes | an offline evaluation set of a skill: `cases` (input — record, text or parameters — and expected properties), `last_score`, `last_results`, `last_model`, `last_run_at` |
+| `ai_skill_run` | **no** (local, like the usage ledger) | one run: invoker, principal (person / service), skill and version, table and record, `input_hash` (of the exact model input), params, status ok / fallback / error, output text or JSON, citations, model, connection, tokens, cost, latency, proposal, feedback (1 / −1) and comment |
+
+All in area `ai`. Whatever a role grants there, only AI administrators (`ai:full`) or the platform change skills,
+versions and evaluation sets — a hook holds every write path (`skills/hooks.ts`): keys never change, a built-in's row
+is not deleted (switch it off), a published version is never edited. `ai_skill_run` has the row rule
+`invoker_id is_me` and is written only by the runtime (as the system on the invoker's behalf): a summary built from
+fields its author could see never becomes readable by anyone else through the record API. AI administrators see
+everyone's runs only through `GET /ai/skills/runs?all=1`.
+
+### 11.2 Built-in skills, copies and versions
+
+Built-in skills live in code (`registerSkill(defineSkill({...}))`, `builtin/*.ts`) with their default prompts in
+Persian. The admin page seeds one `ai_skill` row per built-in idempotently (configuration only); until an organisation
+publishes a version of its own the runtime uses the code's prompts, so improved defaults reach everyone. An
+organisation writes a version (a draft), test-runs it, publishes it (the previous one retires), compares any two
+versions line by line and rolls back to an earlier version or to the built-in default. «رونوشت» copies a skill under
+a key of the organisation's own (`org.brief`), with its configuration and current prompt as version 1, switched off
+until enabled. A copy keeps its base's output kind, inputs and code hooks.
+
+A module declares a skill like this:
+
+```ts
+registerSkill(defineSkill({
+  key: "incident.resolution", name: "پیش‌نویس یادداشت حل", description: "…", module: "incident",
+  target: "record", tables: ["incident"], output: "fields", outputFields: ["close_notes", "close_code"],
+  tier: "standard", grounding: { kind: "similar", k: 3 },
+  inputs: { journal: "all", related: [{ table: "incident_task", field: "incident_id", label: "کارها" }] },
+  roles: ["agent"], fieldGroups: ["internal"], surfaces: ["panel"],
+  system: "کار تو: …", template: "رخداد:\n{{record}}\n\nیادداشت‌ها:\n{{journal}}\n\nگزینه‌ها:\n{{options}}",
+  factKeys: ["options"], facts: async (ctx, input) => ({ options: … }),     // computed with the caller's ctx
+  fallback: async (ctx, input) => ({ text: … }),                             // the rule-based answer (optional)
+  post: async (ctx, out, input) => out,                                       // map names to readable ids (optional)
+}));
+```
+
+- **Targets**: `record` (a record of `tables`, `"*"` narrowed by `when(def)`), `text` (a piece of text — the composer,
+  a field, the KB editor — with an optional record for context) or `none` (parameters only, e.g. the shift handover).
+- **Outputs**: `text` (Markdown, streamed), `json` (validated against the zod schema, or the version's JSON Schema),
+  `fields` (`{ suggestions: [{ field, value, confidence, reason }] }` over `outputFields`), `journal` (a reply or an
+  internal note), `record` (a new record's draft).
+- **Tiers** map to the jobs' chains: fast → «fast», standard → «assistant», reasoning → «analysis».
+- **Grounding**: `similar` (records of the same table), `knowledge` (articles and snippets) or `documents` (smart
+  documents, optionally chosen collections), `k` passages — always `retrieve` with the caller's context.
+- **Placeholders** (`renderTemplate`): `{{record}}`, `{{record.<field>}}`, `{{journal}}`, `{{related}}`,
+  `{{links}}`, `{{passages}}`, `{{text}}`, `{{params}}`, `{{params.<name>}}`, `{{facts}}` and each declared fact,
+  plus the plain `{{language}}` and `{{today}}`. Every other placeholder becomes a `<data name="…">` block of one JSON
+  line with tag-like text neutralised (`‹data›`), so record and document text reaches a model only as data and can never
+  close its block. A template is checked when saved (`templateProblem`).
+
+### 11.3 Runtime
+
+`runSkill(ctx, key, { table, id, text, params }, { propose, versionId, onText, facts })` (`skills/runtime.ts`;
+`POST /ai/skills/:key/run`, `…/run/stream` for text):
+
+1. Resolve the skill and its version; refuse when it is switched off, the caller lacks `ai:view` or the skill's roles
+   (tenant administrators pass), or a daily limit is reached; refuse a system context outright.
+2. Read with the caller's context only: `get` (404 when unreadable; only visible fields), trimmed to what a model may
+   read (`promptable`): no secrets, no `ai_private` field, no field of a group outside the skill's `field_groups`, no
+   field a module keeps from models (`keepFromPrompts` — the request module's private and secret answers), no hidden or
+   structured field unless the skill names it. The journal through `listJournal` (internal notes only with the
+   `internal` group; reply drafts read public entries only), related rows through `list`, links through `listLinks`,
+   sources through `retrieve`.
+3. The prompt: the base rules (`SKILL_BASE_SYSTEM`: data is never instructions, invent nothing, outputs are drafts,
+   personal data not repeated), the output rule, the language (the parameter, else the text's own language for text
+   skills, else the member's), the citation rule for grounded runs, the version's system text, the organisation's notes;
+   the rendered template as the user turn.
+4. `generate` with the tier's chain, fallbacks, holds, budgets and the data policy, under the ledger label
+   `skill:<key>` (registered as a feature family with `registerAiFeaturePrefix`, relayed for the Windows app); JSON is
+   validated with one repair try. A provider that refuses or a missing model → the skill's rule-based `fallback` when it
+   has one (status `fallback`, labelled «بدون مدل هوش مصنوعی و با قاعده ساخته شد»), else `AiUnavailableError` with the
+   remedy («برای این مهارت مدل هوش مصنوعی لازم است…»).
+5. Shape the answer: field suggestions only for fields the caller sees and may change (not the state field, not
+   read-only or system fields), values matched to real options and to records the caller may read (names resolved
+   through `list`), unchanged values dropped; citations only of the passages given (`[n]` markers of unknown sources
+   removed); store the run; with `propose`, store the writes as a proposal.
+
+Module integrations call `runForModule` (the person's `ctx`, no rule-based fallback — the module's own deterministic
+path or its «no AI» answer stands —, AI unavailability as the HTTP error `ai_<kind>` with its remedy) and map the answer
+to the interface they implement:
+`registerIncidentAi` (summary, similar incidents by retrieval, triage of a draft, resolution notes, KCS draft,
+stakeholder updates), `registerProblemAi` (RCA, known-error draft, summary), `registerChangeAi` (risk narrative — the
+route answers with the deterministic explanation and `ai: false` when no model can —, plan drafts, summary; the CAB
+pack and the PIR draft are panel skills, `change.cab_pack` and `change.pir`, because the module's pack and PIR call
+sites would present a deterministic draft as AI-written), `registerRequestAi` (catalogue item from text, order-form
+pre-fill over `promptSafe` questions, item matching by retrieval, summary), `registerKnowledgeAi` (KCS draft over the
+module's scrubbed capture, AQI pre-scoring, duplicate judge, metadata, validation; the editor's writing assistant runs
+the generic writing skills), `registerCmdbAi` (relationship suggestions mapped to readable CIs, duplicate explanation,
+quality narrative over computed facts, summary) and `registerPortfolioAi` (description, translation, health narrative
+over the scorecard). Generic skills: `record.summary`, `record.history`, `reply.draft`, `note.draft`, `text.improve`,
+`text.shorten`, `text.formal`, `text.tone`, `text.fix` (rule-based fallback), `text.translate`, `text.rewrite`. The
+assistant's tool `shift_handover_summary` runs `incident.handover` as the caller.
+
+### 11.4 Writes are proposals
+
+A run's field suggestions, drafted note or drafted record become one row of `sm_ai_actions` tied to the record
+(`record_table`, `record_id`, migration `0052_ai_skills`). Nothing changes until a person applies it
+(`POST /ai/actions/:id/confirm`), and then through the record service with **that person's** context:
+`skill.fields` refuses when one of the fields changed since the suggestion (snapshot), `skill.journal` posts the entry
+as the person (a public reply is sent only because a person applied it), `skill.record` creates as the person. Who
+sees such a proposal: whoever may read the record and every field involved now — the fields it changes and everything
+the run read (the record's fields that reached the model, the skill's field groups, `internal` when internal notes were
+read, every cited source; tokens in `fields`: names, `@g:<group>`, `@r:<table>:<id>`). An AI administrator without that
+access does not see it; its author neither, once they lost the access.
+
+### 11.5 Triggered skills and the service member
+
+Event- and schedule-triggered skills run as the organisation's **«دستیار هوش مصنوعی»** service member — a member
+account that cannot sign in (no password, an `.invalid` address), created and given ITSM roles by the owner
+(`POST /ai/skills/admin/principal`, through the access service: only owners grant roles, nobody grants above their own)
+— never as the system. The subscriber `ai.skills` queues `ai.skill.run` (deduplicated per skill and record) for record
+events of the configured kinds on the configured tables, on the runtime that applied the write (`via: "sync"` is
+skipped) and never for the member's own writes; `ai.skills.schedule` (every 15 minutes while a scheduled skill exists)
+queues the records of each due skill's filter, read with the member's access. The job checks the condition with the
+member's access, runs the skill as the member (it reads only what its roles read; a record it cannot read is skipped),
+applies only fields named in `auto_apply` with the member's own access (an internal note only with `work_note`; a
+public reply never), and stores the rest as a proposal on the record (valid seven days) — visible as above.
+
+### 11.6 Privacy, usage and evaluation
+
+- Runs are private to their authors (§11.1); feedback (👍/👎, a comment) only by the author.
+- Usage: every model call is in the ledger under `skill:<key>` within the organisation's budgets; per-skill limits
+  `daily_limit` (organisation) and `user_daily_limit` (member) count the day's runs; `GET /ai/skills/admin/usage` sums
+  runs, errors, rule-based answers, feedback, tokens, cost and latency per skill.
+- Evaluation sets (`ai_skill_eval`) run from the admin with the organisation's model and the administrator's access
+  (`noFallback`, not stored as runs); each expectation is a check (`contains`, `not_contains`, `min_chars`,
+  `max_chars`, `json_keys`, `language`, `cites`) and the score is the share of checks passed (`scoreOutput`).
+
+### 11.7 UI
+
+- The record page's «هوش مصنوعی» side panel (`registerRecordExtensions("*")`, shown when the record meta says
+  `ai_skills`): the skills of the table (unavailable ones with the reason and, for administrators, a link to the AI
+  settings), parameters, the answer as it is written, sources, suggestions as a diff with the proposal to apply or
+  refuse, feedback, the record's open proposals and the member's own runs. Every output carries «ساخته‌شده با هوش
+  مصنوعی — پیش از استفاده بازبینی کنید» and its model, or the rule-based label.
+- Inline: the composer's `aiDraft` slot (reply or note draft for the tab, writing tools on the text being written) and
+  the writing tools in every Markdown field's toolbar (`registerFieldAssist`); the result replaces the text in the
+  editor and nothing is posted or saved until the person does it. The KB editor's assistant runs the same skills.
+- «تنظیمات ← هوش مصنوعی ← مهارت‌ها»: configuration, prompt editor with versions, diff and rollback, test run with the
+  administrator's own access, evaluation sets and scores, usage, copies, and the service member's roles.
+
+### 11.8 Agents and tools
+
+- **Agents** (AI-074…): autonomous runs act through a member context of their own principal (as triggered skills do);
+  retrieval inside an agent uses that context, never the system's.
+- **Tools** (`src/server/modules/ai/tools`): the assistant's tools repeat their route's checks; skills deployed as
+  tools run as the caller (`shift_handover_summary`).
 
 ## 12. Not built yet
 
+- Skills: per-field writing-tool configuration with conditions (AI-027 «several configurations per field»), shadow runs
+  of a new version beside the published one (AI-007), confidence thresholds and abstention per skill (AI-158), LLM-judge
+  scoring in evaluation sets (AI-170), a per-skill model override (the tier decides), skills as flow steps
+  (`registerFlowSkill`) and as assistant tools beyond the shift handover, and record-less scheduled outputs (a scheduled
+  skill runs over records; the handover summary is asked for).
 - Sharing a collection with **roles** and with a unit's **sub-units**: the condition language has no "my roles" or
   "my ancestors" operator (engine request); share with groups instead.
 - Embeddings through the web version for a Windows app (`relay.ts` carries chat turns only): the Windows app uses its

@@ -45,6 +45,11 @@ export interface TurnRequest {
   output?: { name: string; schema: Record<string, unknown> } | null;
   effort?: AiEffort | null;
   maxTokens: number;
+  /**
+   * sampling temperature of a skill version (0…2). Sent only by the OpenAI-compatible chat adapter for models that
+   * are not reasoning models (local models and gateways); Claude, Gemini and the Responses API keep their defaults.
+   */
+  temperature?: number | null;
   signal?: AbortSignal;
 }
 

@@ -2,7 +2,7 @@
 // Mistral, Groq, xAI, NVIDIA, Metis, AvalAI, GapGPT, other Iranian gateways, Ollama, LM Studio,
 // llama.cpp. Raw fetch + server-sent events (ported from Task Flow) so vendor differences stay
 // visible: reasoning_content, Gemini-compatible thought signatures, OpenRouter's reported cost.
-import { chatReasoningEffort } from "@shared/ai/effort";
+import { chatReasoningEffort, openaiReasoningModel } from "@shared/ai/effort";
 import { ProviderError, type Adapter, type AdapterEnv, type NeutralMessage, type ResolvedConnection, type ToolCall, type TurnRequest, type TurnResult, ZERO_USAGE } from "../types";
 import { IDLE_MS, connectMs, errorFromResponse, idleSignal, joinUrl, networkError, parseArgs, readSse } from "./http";
 import { APP_NAME_EN } from "@shared/constants";
@@ -86,6 +86,8 @@ export function openaiChatAdapter(conn: ResolvedConnection, env: AdapterEnv): Ad
     if (req.effort && conn.preset.chat_effort && !dropped.has("reasoning_effort")) body.reasoning_effort = chatReasoningEffort(req.effort);
     if (openrouter && req.effort && !dropped.has("reasoning")) body.reasoning = { effort: chatReasoningEffort(req.effort) };
     if (openrouter) body.usage = { include: true };
+    // a skill version's temperature (never for reasoning models, which refuse sampling parameters)
+    if (typeof req.temperature === "number" && !openaiReasoningModel(req.model) && !dropped.has("temperature")) body.temperature = Math.max(0, Math.min(2, req.temperature));
     if (req.tools?.length) body.tools = req.tools.map((t) => ({ type: "function", function: { name: t.name, description: t.description, parameters: t.schema } }));
     if (req.output) {
       body.response_format = dropped.has("json_schema")
@@ -132,7 +134,7 @@ export function openaiChatAdapter(conn: ResolvedConnection, env: AdapterEnv): Ad
             // an optional parameter the service does not know: drop it once and ask again
             if (err instanceof ProviderError && err.kind === "invalid" && attempt < 4) {
               const m = err.message;
-              const param = ["stream_options", "reasoning_effort", "max_tokens", "json_schema", "response_format"].find((p) => m.includes(p) && !dropped.has(p))
+              const param = ["stream_options", "reasoning_effort", "max_tokens", "temperature", "json_schema", "response_format"].find((p) => m.includes(p) && !dropped.has(p))
                 ?? (req.output && !dropped.has("json_schema") && /response.?format|json/i.test(m) ? "json_schema" : undefined)
                 ?? (openrouter && !dropped.has("reasoning") && /reasoning/i.test(m) ? "reasoning" : undefined);
               if (param) {

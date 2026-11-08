@@ -180,6 +180,31 @@ function mergePreset(a: ListPreset | undefined, b: ListPreset): ListPreset {
   };
 }
 
+// ---------------------------------------------------------------- tools of rich-text fields
+
+/** What a rich-text field's tools get (the AI layer's writing tools): the field, its text and how to replace it. */
+export interface FieldAssistContext {
+  table: string;
+  field: string;
+  label: string;
+  value: string;
+  setValue: (text: string) => void;
+}
+
+let fieldAssist: ((c: FieldAssistContext) => ReactNode) | null = null;
+
+/** Tools shown at the end of every Markdown field's toolbar (one registration; a later one replaces it). */
+export function registerFieldAssist(render: (c: FieldAssistContext) => ReactNode): () => void {
+  fieldAssist = render;
+  version++;
+  return () => {
+    if (fieldAssist === render) fieldAssist = null;
+    version++;
+  };
+}
+
+export const fieldAssistFor = (): ((c: FieldAssistContext) => ReactNode) | null => fieldAssist;
+
 // ---------------------------------------------------------------- reference pickers
 
 /** What a module's picker of its own table's records gets in record forms (instead of the generic RecordSelect). */

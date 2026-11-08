@@ -21,6 +21,7 @@ import { SERVICE_PORTFOLIO_TABLES } from "./service_portfolio";
 import { CHANGE_CHOICE_LISTS, CHANGE_TABLES } from "./change";
 import { REQUEST_CHOICE_LISTS, REQUEST_TABLES } from "./request";
 import { KNOWLEDGE_CHOICE_LISTS, KNOWLEDGE_TABLES } from "./knowledge";
+import { AI_TABLES } from "./ai";
 
 export { CUSTOM_FIELD_TYPES, VIEW_KINDS } from "./core";
 
@@ -39,6 +40,7 @@ const MODULE_TABLES: TableDef[][] = [
   CHANGE_TABLES,
   REQUEST_TABLES,
   KNOWLEDGE_TABLES,
+  AI_TABLES,
 ];
 
 /** Every table by key (resolved definitions). */

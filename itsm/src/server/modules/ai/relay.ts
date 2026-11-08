@@ -11,7 +11,7 @@ import type { AiRelayEvent } from "@shared/ai/api";
 import { aiErrorText } from "@shared/ai/errors";
 import { bad } from "../../http/errors";
 import { AiUnavailableError } from "./errors";
-import { FEATURE_SWITCH } from "./settings";
+import { featureSwitch } from "./settings";
 import { readSse } from "./adapters/http";
 import type { ChainResult, RunOptions } from "./chain";
 import { recordUsage } from "./usage";
@@ -134,7 +134,7 @@ function aborted(): ChainResult {
 }
 
 /** Ledger labels a Windows app may relay: the assistant and the registered features of modules (with their switches). */
-const relayable = (feature: string) => feature === "assistant" || Object.prototype.hasOwnProperty.call(FEATURE_SWITCH, feature);
+const relayable = (feature: string) => feature === "assistant" || featureSwitch(feature) !== undefined;
 /** Output tokens of one relayed turn (the assistant's own per-turn limit). */
 export const RELAY_MAX_TOKENS = 32_000;
 
@@ -146,7 +146,7 @@ export function assertRelayAllowed(ctx: Ctx, settings: AiSettings, body: RelayRe
   const off = () => new AiUnavailableError("disabled", aiErrorText("disabled", { canManage: ctx.can("ai", "full") }).message);
   if (!relayable(body.feature)) throw bad("این درخواست هوش مصنوعی شناخته نیست");
   if ((body.feature === "assistant" || body.job === "assistant") && !settings.features.assistant) throw off();
-  const sw = FEATURE_SWITCH[body.feature];
+  const sw = featureSwitch(body.feature);
   if (sw && !settings.features[sw]) throw off();
   if (body.request.messages.some((m) => m.parts.some((p) => p.type === "file")) && !settings.features.files) throw off();
 }

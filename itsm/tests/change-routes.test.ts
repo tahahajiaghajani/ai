@@ -4,7 +4,7 @@
 // (window reminders, overruns, stale drafts, review auto-close), success scores, change-caused incident counts and the
 // automatic suspension of a standard change that failed twice.
 import { describe, expect, it, beforeAll } from "vitest";
-import { computeSuccessScores, countCausedIncidents, registerChangeAi, sweep } from "@server/modules/change";
+import { changeAi, computeSuccessScores, countCausedIncidents, registerChangeAi, sweep } from "@server/modules/change";
 import { at, world, HOUR, type World } from "./change-helpers";
 
 let w: World;
@@ -214,6 +214,9 @@ describe("AI extension points", () => {
   it("answers 409 without the AI layer and serves a registered skill to whoever may read the change", async () => {
     const { P, p } = w;
     const c = await w.change();
+    // the AI skills register an implementation when the app is created: set it aside for this test, restore it after
+    const layer = changeAi();
+    registerChangeAi({});
     const none = await p.agent.client.post(`${P}/change/records/${c.id}/ai/summarize`, {}, 409);
     expect(none.error.code).toBe("ai_unavailable");
     const off = registerChangeAi({ summarize: async (_ctx, id) => ({ text: `خلاصهٔ ${id}` }), similar: async () => [] });
@@ -225,6 +228,7 @@ describe("AI extension points", () => {
       await p.agent.client.post(`${P}/change/records/${c.id}/ai/draftPlans`, {}, 409);
     } finally {
       off();
+      registerChangeAi(layer);
     }
   });
 });

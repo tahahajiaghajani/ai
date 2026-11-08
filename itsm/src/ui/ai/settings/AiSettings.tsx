@@ -1,4 +1,4 @@
-// Settings → «هوش مصنوعی» (ai:full): the organisation's own AI engine. Six tabs — «اتصال‌ها» (keys and providers, with a
+// Settings → «هوش مصنوعی» (ai:full): the organisation's own AI engine. Seven tabs (with «مهارت‌ها», ../skills/Admin.tsx) — «اتصال‌ها» (keys and providers, with a
 // per-model connection test), «کارها و مدل‌ها» (which model does which job, in what order, with what effort),
 // «نمایه و بازیابی» (the embedding model, the index per table and collection, rebuilds, a retrieval test box),
 // «قابلیت‌ها و حریم خصوصی», «مصرف و بودجه» and «فعالیت دستیار». Members without ai:full see a short no-access state.
@@ -21,11 +21,13 @@ import { FeaturesTab } from "./Features";
 import { UsageTab } from "./Usage";
 import { ActivityTab } from "./Activity";
 import { RetrievalTab } from "./Retrieval";
+import { SkillsTab } from "../skills/Admin";
 
 const TABS = [
   { key: "connections", label: "اتصال‌ها" },
   { key: "jobs", label: "کارها و مدل‌ها" },
   { key: "retrieval", label: "نمایه و بازیابی" },
+  { key: "skills", label: "مهارت‌ها" },
   { key: "features", label: "قابلیت‌ها و حریم خصوصی" },
   { key: "usage", label: "مصرف و بودجه" },
   { key: "activity", label: "فعالیت دستیار" },
@@ -121,6 +123,8 @@ export default function AiSettings() {
           adding={adding}
           onAdding={(v) => setParam({ add: v ? "1" : null })}
         />
+      ) : tab === "skills" ? (
+        <SkillsTab />
       ) : !s ? (
         settings.error ? (
           <div className="blk-card">

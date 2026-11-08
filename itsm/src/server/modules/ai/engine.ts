@@ -11,7 +11,7 @@ import { assertUsable, chainFor, loadEnv, runTurn, unavailable, WEB_LABEL, webFi
 import { appSecretMissing } from "./connections";
 import { redactDataBlocks, redactPrompt } from "./redact";
 import { dropNulls, jsonSchemaOf } from "./schema";
-import { disabledByPlatform, FEATURE_SWITCH } from "./settings";
+import { disabledByPlatform, featureSwitch } from "./settings";
 import { budgetState } from "./usage";
 import { parseJsonLoose } from "./adapters/http";
 import type { Part } from "./types";
@@ -37,7 +37,11 @@ export interface GenerateOptions<S extends z.ZodTypeAny | undefined = undefined>
   schema?: S;
   effort?: AiEffort;
   maxTokens?: number;
+  /** sampling temperature (skills' versions); only OpenAI-compatible chat services of non-reasoning models get it */
+  temperature?: number | null;
   signal?: AbortSignal;
+  /** the raw JSON Schema sent to the provider instead of the zod schema's (a skill version's own output schema) */
+  jsonSchema?: Record<string, unknown>;
   /** the answer as it is written (plain-text answers; a streamed answer is never asked again of another model) */
   onText?: (delta: string) => void;
 }
@@ -58,7 +62,7 @@ export async function generate<S extends z.ZodTypeAny | undefined = undefined>(
 ): Promise<GenerateResult<S extends z.ZodTypeAny ? z.infer<S> : null>> {
   if (!ctx.can("ai", "view")) throw unavailable(ctx, "disabled");
   const env = await loadEnv(ctx);
-  const sw = FEATURE_SWITCH[opts.feature];
+  const sw = featureSwitch(opts.feature);
   if (sw && !env.settings.features[sw]) throw unavailable(ctx, "disabled");
   if (opts.attachments?.length && !env.settings.features.files) throw unavailable(ctx, "disabled");
   const parts: Part[] = [
@@ -66,7 +70,7 @@ export async function generate<S extends z.ZodTypeAny | undefined = undefined>(
     // data blocks are redacted as structured data (names hidden under "aggregates"), the rest as typed text
     { type: "text", text: redactPrompt(redactDataBlocks(opts.prompt, env.settings.data_policy), env.settings.data_policy) },
   ];
-  const output = opts.schema ? { name: "result", schema: jsonSchemaOf(opts.schema) } : null;
+  const output = opts.schema ? { name: "result", schema: opts.jsonSchema ?? jsonSchemaOf(opts.schema) } : null;
   const run = async (extra?: string) =>
     runTurn(ctx, {
       job: opts.job,
@@ -78,6 +82,7 @@ export async function generate<S extends z.ZodTypeAny | undefined = undefined>(
         output,
         effort: opts.effort ?? env.settings.effort[opts.job],
         maxTokens: opts.maxTokens ?? 16_000,
+        ...(typeof opts.temperature === "number" ? { temperature: opts.temperature } : {}),
         signal: opts.signal,
       },
       hooks: opts.onText && !opts.schema ? { onText: opts.onText } : undefined,
