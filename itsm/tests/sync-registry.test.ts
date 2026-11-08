@@ -28,6 +28,8 @@ const LOCAL_ONLY: Record<string, string> = {
   // AI index (retrieval): each runtime indexes the records it holds, with its own embedding model
   sm_ai_rag_docs: "AI index: one row per indexed record (hash, version, anchors)",
   sm_ai_chunks: "AI index: chunks with full-text and vector embeddings",
+  // knowledge: each runtime keeps the stream of what happened on it (searches, views, votes); the records travel
+  sm_kb_events: "knowledge event stream of this runtime (search analytics, views, deflection)",
   sm_ai_doc_pages: "text read from smart documents on this runtime",
   sm_ai_rag_runs: "AI index runs (backfills, re-embedding, reconciliation)",
   // record engine bookkeeping of each runtime

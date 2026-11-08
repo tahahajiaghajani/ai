@@ -20,6 +20,7 @@ import { CMDB_CHOICE_LISTS, CMDB_TABLES } from "./cmdb";
 import { SERVICE_PORTFOLIO_TABLES } from "./service_portfolio";
 import { CHANGE_CHOICE_LISTS, CHANGE_TABLES } from "./change";
 import { REQUEST_CHOICE_LISTS, REQUEST_TABLES } from "./request";
+import { KNOWLEDGE_CHOICE_LISTS, KNOWLEDGE_TABLES } from "./knowledge";
 
 export { CUSTOM_FIELD_TYPES, VIEW_KINDS } from "./core";
 
@@ -37,6 +38,7 @@ const MODULE_TABLES: TableDef[][] = [
   SERVICE_PORTFOLIO_TABLES,
   CHANGE_TABLES,
   REQUEST_TABLES,
+  KNOWLEDGE_TABLES,
 ];
 
 /** Every table by key (resolved definitions). */
@@ -212,6 +214,7 @@ for (const [key, options] of Object.entries(PROBLEM_CHOICE_LISTS)) registerChoic
 for (const [key, options] of Object.entries(CMDB_CHOICE_LISTS)) registerChoiceList(key, options);
 for (const [key, options] of Object.entries(CHANGE_CHOICE_LISTS)) registerChoiceList(key, options);
 for (const [key, options] of Object.entries(REQUEST_CHOICE_LISTS)) registerChoiceList(key, options);
+for (const [key, options] of Object.entries(KNOWLEDGE_CHOICE_LISTS)) registerChoiceList(key, options);
 
 /** The members of the organisation as a reference target (virtual: no table of its own). */
 export const USER_DEF = buildTable(USER_TABLE);

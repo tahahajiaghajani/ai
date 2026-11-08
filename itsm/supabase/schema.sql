@@ -5540,6 +5540,1303 @@ drop trigger if exists sm_interactions_sync on sm_interactions;
 create trigger sm_interactions_sync before insert or update on sm_interactions for each row execute function sm_sync_touch('interaction');
 alter table sm_interactions enable row level security;
 
+-- kb_ack: تأییدهای مطالعه
+create table if not exists sm_kb_acks (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_kb_acks add column if not exists workspace_id uuid;
+alter table sm_kb_acks add column if not exists domain_id uuid;
+alter table sm_kb_acks add column if not exists unit_id uuid;
+alter table sm_kb_acks add column if not exists created_at timestamptz not null default now();
+alter table sm_kb_acks add column if not exists created_by uuid;
+alter table sm_kb_acks add column if not exists updated_at timestamptz not null default now();
+alter table sm_kb_acks add column if not exists updated_by uuid;
+alter table sm_kb_acks add column if not exists rev bigint not null default 0;
+alter table sm_kb_acks add column if not exists version integer not null default 1;
+alter table sm_kb_acks add column if not exists deleted_at timestamptz;
+alter table sm_kb_acks add column if not exists origin text;
+alter table sm_kb_acks add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_kb_acks add column if not exists attestation_id uuid;
+alter table sm_kb_acks add column if not exists article_id uuid;
+alter table sm_kb_acks add column if not exists user_id uuid;
+alter table sm_kb_acks add column if not exists version_label text;
+alter table sm_kb_acks add column if not exists acked_at timestamptz;
+alter table sm_kb_acks add column if not exists k_users jsonb;
+alter table sm_kb_acks add column if not exists k_groups jsonb;
+create index if not exists sm_kb_acks_rev_idx on sm_kb_acks (org_id, rev);
+create index if not exists sm_kb_acks_upd_idx on sm_kb_acks (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_kb_acks_crt_idx on sm_kb_acks (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_kb_acks_attestation_id_idx on sm_kb_acks (org_id, attestation_id) where deleted_at is null;
+create index if not exists sm_kb_acks_article_id_idx on sm_kb_acks (org_id, article_id) where deleted_at is null;
+create index if not exists sm_kb_acks_user_id_idx on sm_kb_acks (org_id, user_id) where deleted_at is null;
+create index if not exists sm_kb_acks_k_users_gin on sm_kb_acks using gin (k_users);
+create index if not exists sm_kb_acks_k_groups_gin on sm_kb_acks using gin (k_groups);
+create unique index if not exists sm_kb_acks_attestation_id_user_id_uk on sm_kb_acks (org_id, attestation_id, user_id) where deleted_at is null;
+create index if not exists sm_kb_acks_workspace_acc_idx on sm_kb_acks (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_kb_acks_unit_acc_idx on sm_kb_acks (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_kb_acks_domain_acc_idx on sm_kb_acks (org_id, domain_id) where deleted_at is null and domain_id is not null;
+drop trigger if exists sm_kb_acks_sync on sm_kb_acks;
+create trigger sm_kb_acks_sync before insert or update on sm_kb_acks for each row execute function sm_sync_touch('kb_ack');
+alter table sm_kb_acks enable row level security;
+
+-- kb_article: مقاله‌های دانش
+create table if not exists sm_kb_articles (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_kb_articles add column if not exists workspace_id uuid;
+alter table sm_kb_articles add column if not exists domain_id uuid;
+alter table sm_kb_articles add column if not exists unit_id uuid;
+alter table sm_kb_articles add column if not exists created_at timestamptz not null default now();
+alter table sm_kb_articles add column if not exists created_by uuid;
+alter table sm_kb_articles add column if not exists updated_at timestamptz not null default now();
+alter table sm_kb_articles add column if not exists updated_by uuid;
+alter table sm_kb_articles add column if not exists rev bigint not null default 0;
+alter table sm_kb_articles add column if not exists version integer not null default 1;
+alter table sm_kb_articles add column if not exists deleted_at timestamptz;
+alter table sm_kb_articles add column if not exists origin text;
+alter table sm_kb_articles add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_kb_articles add column if not exists no integer;
+alter table sm_kb_articles add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 6 then 'KB' || no::text else 'KB' || lpad(no::text, 6, '0') end) stored;
+alter table sm_kb_articles add column if not exists title text;
+alter table sm_kb_articles add column if not exists summary text;
+alter table sm_kb_articles add column if not exists body text;
+alter table sm_kb_articles add column if not exists internal_body text;
+alter table sm_kb_articles add column if not exists keywords jsonb;
+alter table sm_kb_articles add column if not exists tags jsonb;
+alter table sm_kb_articles add column if not exists article_type text;
+alter table sm_kb_articles add column if not exists template_id uuid;
+alter table sm_kb_articles add column if not exists language text;
+alter table sm_kb_articles add column if not exists external_url text;
+alter table sm_kb_articles add column if not exists base_id uuid;
+alter table sm_kb_articles add column if not exists category_id uuid;
+alter table sm_kb_articles add column if not exists author_id uuid;
+alter table sm_kb_articles add column if not exists owner_id uuid;
+alter table sm_kb_articles add column if not exists owner_group_id uuid;
+alter table sm_kb_articles add column if not exists visibility text;
+alter table sm_kb_articles add column if not exists confidential boolean not null default false;
+alter table sm_kb_articles add column if not exists access_list jsonb;
+alter table sm_kb_articles add column if not exists audience_mode text;
+alter table sm_kb_articles add column if not exists units_tree boolean not null default true;
+alter table sm_kb_articles add column if not exists read_users jsonb;
+alter table sm_kb_articles add column if not exists read_groups jsonb;
+alter table sm_kb_articles add column if not exists read_units jsonb;
+alter table sm_kb_articles add column if not exists deny_users jsonb;
+alter table sm_kb_articles add column if not exists deny_groups jsonb;
+alter table sm_kb_articles add column if not exists deny_units jsonb;
+alter table sm_kb_articles add column if not exists kcs_confidence text;
+alter table sm_kb_articles add column if not exists governance text;
+alter table sm_kb_articles add column if not exists classification text;
+alter table sm_kb_articles add column if not exists valid_from date;
+alter table sm_kb_articles add column if not exists valid_to date;
+alter table sm_kb_articles add column if not exists review_at date;
+alter table sm_kb_articles add column if not exists retire_at date;
+alter table sm_kb_articles add column if not exists retire_reason text;
+alter table sm_kb_articles add column if not exists replaced_by uuid;
+alter table sm_kb_articles add column if not exists doc_number text;
+alter table sm_kb_articles add column if not exists issuing_authority text;
+alter table sm_kb_articles add column if not exists effective_date date;
+alter table sm_kb_articles add column if not exists last_reviewed_at timestamptz;
+alter table sm_kb_articles add column if not exists last_reviewed_by uuid;
+alter table sm_kb_articles add column if not exists review_due boolean not null default false;
+alter table sm_kb_articles add column if not exists published_at timestamptz;
+alter table sm_kb_articles add column if not exists published_by uuid;
+alter table sm_kb_articles add column if not exists first_published_at timestamptz;
+alter table sm_kb_articles add column if not exists retired_at timestamptz;
+alter table sm_kb_articles add column if not exists version_label text;
+alter table sm_kb_articles add column if not exists major integer;
+alter table sm_kb_articles add column if not exists minor integer;
+alter table sm_kb_articles add column if not exists published_version_id uuid;
+alter table sm_kb_articles add column if not exists draft_version_id uuid;
+alter table sm_kb_articles add column if not exists has_draft boolean not null default false;
+alter table sm_kb_articles add column if not exists service_id uuid;
+alter table sm_kb_articles add column if not exists ci_id uuid;
+alter table sm_kb_articles add column if not exists known_error_id uuid;
+alter table sm_kb_articles add column if not exists problem_id uuid;
+alter table sm_kb_articles add column if not exists translation_of uuid;
+alter table sm_kb_articles add column if not exists master_version integer;
+alter table sm_kb_articles add column if not exists translation_stale boolean not null default false;
+alter table sm_kb_articles add column if not exists machine_translated boolean not null default false;
+alter table sm_kb_articles add column if not exists source_table text;
+alter table sm_kb_articles add column if not exists source_id text;
+alter table sm_kb_articles add column if not exists source_number text;
+alter table sm_kb_articles add column if not exists ai_use text;
+alter table sm_kb_articles add column if not exists ai_requesters boolean not null default true;
+alter table sm_kb_articles add column if not exists ai_provenance jsonb;
+alter table sm_kb_articles add column if not exists view_count integer;
+alter table sm_kb_articles add column if not exists reuse_count integer;
+alter table sm_kb_articles add column if not exists helpful_yes integer;
+alter table sm_kb_articles add column if not exists helpful_no integer;
+alter table sm_kb_articles add column if not exists rating_avg numeric;
+alter table sm_kb_articles add column if not exists rating_count integer;
+alter table sm_kb_articles add column if not exists open_flags integer;
+alter table sm_kb_articles add column if not exists health_score integer;
+alter table sm_kb_articles add column if not exists quality_score integer;
+alter table sm_kb_articles add column if not exists next_action text;
+alter table sm_kb_articles add column if not exists last_used_at timestamptz;
+alter table sm_kb_articles add column if not exists reviewer_ids jsonb;
+alter table sm_kb_articles add column if not exists approval text;
+alter table sm_kb_articles add column if not exists r_units jsonb;
+alter table sm_kb_articles add column if not exists x_units jsonb;
+alter table sm_kb_articles add column if not exists trashed_at timestamptz;
+alter table sm_kb_articles add column if not exists k_users jsonb;
+alter table sm_kb_articles add column if not exists k_groups jsonb;
+alter table sm_kb_articles add column if not exists state text;
+create unique index if not exists sm_kb_articles_no_uk on sm_kb_articles (org_id, no);
+create index if not exists sm_kb_articles_rev_idx on sm_kb_articles (org_id, rev);
+create index if not exists sm_kb_articles_upd_idx on sm_kb_articles (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_kb_articles_crt_idx on sm_kb_articles (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_kb_articles_base_id_idx on sm_kb_articles (org_id, base_id) where deleted_at is null;
+create index if not exists sm_kb_articles_category_id_idx on sm_kb_articles (org_id, category_id) where deleted_at is null;
+create index if not exists sm_kb_articles_author_id_idx on sm_kb_articles (org_id, author_id) where deleted_at is null;
+create index if not exists sm_kb_articles_owner_id_idx on sm_kb_articles (org_id, owner_id) where deleted_at is null;
+create index if not exists sm_kb_articles_owner_group_id_idx on sm_kb_articles (org_id, owner_group_id) where deleted_at is null;
+create index if not exists sm_kb_articles_known_error_id_idx on sm_kb_articles (org_id, known_error_id) where deleted_at is null;
+create index if not exists sm_kb_articles_translation_of_idx on sm_kb_articles (org_id, translation_of) where deleted_at is null;
+create index if not exists sm_kb_articles_source_id_idx on sm_kb_articles (org_id, source_id) where deleted_at is null;
+create index if not exists sm_kb_articles_reviewer_ids_gin on sm_kb_articles using gin (reviewer_ids);
+create index if not exists sm_kb_articles_k_users_gin on sm_kb_articles using gin (k_users);
+create index if not exists sm_kb_articles_k_groups_gin on sm_kb_articles using gin (k_groups);
+create index if not exists sm_kb_articles_state_idx on sm_kb_articles (org_id, state) where deleted_at is null;
+create index if not exists sm_kb_articles_workspace_acc_idx on sm_kb_articles (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_kb_articles_unit_acc_idx on sm_kb_articles (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_kb_articles_domain_acc_idx on sm_kb_articles (org_id, domain_id) where deleted_at is null and domain_id is not null;
+drop trigger if exists sm_kb_articles_sync on sm_kb_articles;
+create trigger sm_kb_articles_sync before insert or update on sm_kb_articles for each row execute function sm_sync_touch('kb_article');
+alter table sm_kb_articles enable row level security;
+
+-- kb_attestation: کارزارهای تأیید مطالعه
+create table if not exists sm_kb_attestations (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_kb_attestations add column if not exists workspace_id uuid;
+alter table sm_kb_attestations add column if not exists domain_id uuid;
+alter table sm_kb_attestations add column if not exists unit_id uuid;
+alter table sm_kb_attestations add column if not exists created_at timestamptz not null default now();
+alter table sm_kb_attestations add column if not exists created_by uuid;
+alter table sm_kb_attestations add column if not exists updated_at timestamptz not null default now();
+alter table sm_kb_attestations add column if not exists updated_by uuid;
+alter table sm_kb_attestations add column if not exists rev bigint not null default 0;
+alter table sm_kb_attestations add column if not exists version integer not null default 1;
+alter table sm_kb_attestations add column if not exists deleted_at timestamptz;
+alter table sm_kb_attestations add column if not exists origin text;
+alter table sm_kb_attestations add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_kb_attestations add column if not exists no integer;
+alter table sm_kb_attestations add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 6 then 'ATT' || no::text else 'ATT' || lpad(no::text, 6, '0') end) stored;
+alter table sm_kb_attestations add column if not exists title text;
+alter table sm_kb_attestations add column if not exists article_id uuid;
+alter table sm_kb_attestations add column if not exists version_label text;
+alter table sm_kb_attestations add column if not exists due_at date;
+alter table sm_kb_attestations add column if not exists owner_id uuid;
+alter table sm_kb_attestations add column if not exists remind_every_days integer;
+alter table sm_kb_attestations add column if not exists target_users jsonb;
+alter table sm_kb_attestations add column if not exists target_groups jsonb;
+alter table sm_kb_attestations add column if not exists target_units jsonb;
+alter table sm_kb_attestations add column if not exists audience_count integer;
+alter table sm_kb_attestations add column if not exists ack_count integer;
+alter table sm_kb_attestations add column if not exists reminded_at timestamptz;
+alter table sm_kb_attestations add column if not exists k_users jsonb;
+alter table sm_kb_attestations add column if not exists k_groups jsonb;
+alter table sm_kb_attestations add column if not exists state text;
+create unique index if not exists sm_kb_attestations_no_uk on sm_kb_attestations (org_id, no);
+create index if not exists sm_kb_attestations_rev_idx on sm_kb_attestations (org_id, rev);
+create index if not exists sm_kb_attestations_upd_idx on sm_kb_attestations (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_kb_attestations_crt_idx on sm_kb_attestations (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_kb_attestations_article_id_idx on sm_kb_attestations (org_id, article_id) where deleted_at is null;
+create index if not exists sm_kb_attestations_owner_id_idx on sm_kb_attestations (org_id, owner_id) where deleted_at is null;
+create index if not exists sm_kb_attestations_k_users_gin on sm_kb_attestations using gin (k_users);
+create index if not exists sm_kb_attestations_k_groups_gin on sm_kb_attestations using gin (k_groups);
+create index if not exists sm_kb_attestations_state_idx on sm_kb_attestations (org_id, state) where deleted_at is null;
+create index if not exists sm_kb_attestations_workspace_acc_idx on sm_kb_attestations (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_kb_attestations_unit_acc_idx on sm_kb_attestations (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_kb_attestations_domain_acc_idx on sm_kb_attestations (org_id, domain_id) where deleted_at is null and domain_id is not null;
+drop trigger if exists sm_kb_attestations_sync on sm_kb_attestations;
+create trigger sm_kb_attestations_sync before insert or update on sm_kb_attestations for each row execute function sm_sync_touch('kb_attestation');
+alter table sm_kb_attestations enable row level security;
+
+-- kb_base: پایگاه‌های دانش
+create table if not exists sm_kb_bases (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_kb_bases add column if not exists workspace_id uuid;
+alter table sm_kb_bases add column if not exists domain_id uuid;
+alter table sm_kb_bases add column if not exists unit_id uuid;
+alter table sm_kb_bases add column if not exists created_at timestamptz not null default now();
+alter table sm_kb_bases add column if not exists created_by uuid;
+alter table sm_kb_bases add column if not exists updated_at timestamptz not null default now();
+alter table sm_kb_bases add column if not exists updated_by uuid;
+alter table sm_kb_bases add column if not exists rev bigint not null default 0;
+alter table sm_kb_bases add column if not exists version integer not null default 1;
+alter table sm_kb_bases add column if not exists deleted_at timestamptz;
+alter table sm_kb_bases add column if not exists origin text;
+alter table sm_kb_bases add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_kb_bases add column if not exists name text;
+alter table sm_kb_bases add column if not exists kind text;
+alter table sm_kb_bases add column if not exists description text;
+alter table sm_kb_bases add column if not exists icon text;
+alter table sm_kb_bases add column if not exists color text;
+alter table sm_kb_bases add column if not exists sort_order integer;
+alter table sm_kb_bases add column if not exists owner_id uuid;
+alter table sm_kb_bases add column if not exists manager_group_id uuid;
+alter table sm_kb_bases add column if not exists classification text;
+alter table sm_kb_bases add column if not exists languages jsonb;
+alter table sm_kb_bases add column if not exists read_mode text;
+alter table sm_kb_bases add column if not exists units_tree boolean not null default true;
+alter table sm_kb_bases add column if not exists read_users jsonb;
+alter table sm_kb_bases add column if not exists read_groups jsonb;
+alter table sm_kb_bases add column if not exists read_units jsonb;
+alter table sm_kb_bases add column if not exists deny_users jsonb;
+alter table sm_kb_bases add column if not exists deny_groups jsonb;
+alter table sm_kb_bases add column if not exists deny_units jsonb;
+alter table sm_kb_bases add column if not exists contrib_mode text;
+alter table sm_kb_bases add column if not exists contrib_users jsonb;
+alter table sm_kb_bases add column if not exists contrib_groups jsonb;
+alter table sm_kb_bases add column if not exists nocontrib_users jsonb;
+alter table sm_kb_bases add column if not exists nocontrib_groups jsonb;
+alter table sm_kb_bases add column if not exists publish_approval boolean not null default true;
+alter table sm_kb_bases add column if not exists approval_mode text;
+alter table sm_kb_bases add column if not exists retire_approval boolean not null default false;
+alter table sm_kb_bases add column if not exists approvers jsonb;
+alter table sm_kb_bases add column if not exists approver_groups jsonb;
+alter table sm_kb_bases add column if not exists allowed_templates jsonb;
+alter table sm_kb_bases add column if not exists default_template_id uuid;
+alter table sm_kb_bases add column if not exists default_valid_days integer;
+alter table sm_kb_bases add column if not exists review_days integer;
+alter table sm_kb_bases add column if not exists review_policy text;
+alter table sm_kb_bases add column if not exists kcs_enabled boolean not null default false;
+alter table sm_kb_bases add column if not exists publishing_model text;
+alter table sm_kb_bases add column if not exists external_after_reuses integer;
+alter table sm_kb_bases add column if not exists conveyor_days integer;
+alter table sm_kb_bases add column if not exists allow_comments boolean not null default true;
+alter table sm_kb_bases add column if not exists allow_ratings boolean not null default true;
+alter table sm_kb_bases add column if not exists ai_enabled boolean not null default true;
+alter table sm_kb_bases add column if not exists ai_requesters boolean not null default true;
+alter table sm_kb_bases add column if not exists confidential boolean not null default false;
+alter table sm_kb_bases add column if not exists k_users jsonb;
+alter table sm_kb_bases add column if not exists k_groups jsonb;
+alter table sm_kb_bases add column if not exists r_units jsonb;
+alter table sm_kb_bases add column if not exists x_units jsonb;
+alter table sm_kb_bases add column if not exists article_count integer;
+alter table sm_kb_bases add column if not exists access_list jsonb;
+alter table sm_kb_bases add column if not exists state text;
+create index if not exists sm_kb_bases_rev_idx on sm_kb_bases (org_id, rev);
+create index if not exists sm_kb_bases_upd_idx on sm_kb_bases (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_kb_bases_crt_idx on sm_kb_bases (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_kb_bases_owner_id_idx on sm_kb_bases (org_id, owner_id) where deleted_at is null;
+create index if not exists sm_kb_bases_manager_group_id_idx on sm_kb_bases (org_id, manager_group_id) where deleted_at is null;
+create index if not exists sm_kb_bases_k_users_gin on sm_kb_bases using gin (k_users);
+create index if not exists sm_kb_bases_k_groups_gin on sm_kb_bases using gin (k_groups);
+create index if not exists sm_kb_bases_state_idx on sm_kb_bases (org_id, state) where deleted_at is null;
+create unique index if not exists sm_kb_bases_name_uk on sm_kb_bases (org_id, name) where deleted_at is null;
+create index if not exists sm_kb_bases_workspace_acc_idx on sm_kb_bases (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_kb_bases_unit_acc_idx on sm_kb_bases (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_kb_bases_domain_acc_idx on sm_kb_bases (org_id, domain_id) where deleted_at is null and domain_id is not null;
+drop trigger if exists sm_kb_bases_sync on sm_kb_bases;
+create trigger sm_kb_bases_sync before insert or update on sm_kb_bases for each row execute function sm_sync_touch('kb_base');
+alter table sm_kb_bases enable row level security;
+
+-- kb_block: بلوک‌های دانش
+create table if not exists sm_kb_blocks (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_kb_blocks add column if not exists workspace_id uuid;
+alter table sm_kb_blocks add column if not exists domain_id uuid;
+alter table sm_kb_blocks add column if not exists unit_id uuid;
+alter table sm_kb_blocks add column if not exists created_at timestamptz not null default now();
+alter table sm_kb_blocks add column if not exists created_by uuid;
+alter table sm_kb_blocks add column if not exists updated_at timestamptz not null default now();
+alter table sm_kb_blocks add column if not exists updated_by uuid;
+alter table sm_kb_blocks add column if not exists rev bigint not null default 0;
+alter table sm_kb_blocks add column if not exists version integer not null default 1;
+alter table sm_kb_blocks add column if not exists deleted_at timestamptz;
+alter table sm_kb_blocks add column if not exists origin text;
+alter table sm_kb_blocks add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_kb_blocks add column if not exists no integer;
+alter table sm_kb_blocks add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 6 then 'KBB' || no::text else 'KBB' || lpad(no::text, 6, '0') end) stored;
+alter table sm_kb_blocks add column if not exists title text;
+alter table sm_kb_blocks add column if not exists visibility text;
+alter table sm_kb_blocks add column if not exists body text;
+alter table sm_kb_blocks add column if not exists owner_id uuid;
+alter table sm_kb_blocks add column if not exists owner_group_id uuid;
+alter table sm_kb_blocks add column if not exists confidential boolean not null default false;
+alter table sm_kb_blocks add column if not exists used_in jsonb;
+alter table sm_kb_blocks add column if not exists access_list jsonb;
+alter table sm_kb_blocks add column if not exists state text;
+create unique index if not exists sm_kb_blocks_no_uk on sm_kb_blocks (org_id, no);
+create index if not exists sm_kb_blocks_rev_idx on sm_kb_blocks (org_id, rev);
+create index if not exists sm_kb_blocks_upd_idx on sm_kb_blocks (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_kb_blocks_crt_idx on sm_kb_blocks (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_kb_blocks_owner_id_idx on sm_kb_blocks (org_id, owner_id) where deleted_at is null;
+create index if not exists sm_kb_blocks_state_idx on sm_kb_blocks (org_id, state) where deleted_at is null;
+create index if not exists sm_kb_blocks_workspace_acc_idx on sm_kb_blocks (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_kb_blocks_unit_acc_idx on sm_kb_blocks (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_kb_blocks_domain_acc_idx on sm_kb_blocks (org_id, domain_id) where deleted_at is null and domain_id is not null;
+drop trigger if exists sm_kb_blocks_sync on sm_kb_blocks;
+create trigger sm_kb_blocks_sync before insert or update on sm_kb_blocks for each row execute function sm_sync_touch('kb_block');
+alter table sm_kb_blocks enable row level security;
+
+-- kb_category: دسته‌های دانش
+create table if not exists sm_kb_categories (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_kb_categories add column if not exists workspace_id uuid;
+alter table sm_kb_categories add column if not exists domain_id uuid;
+alter table sm_kb_categories add column if not exists unit_id uuid;
+alter table sm_kb_categories add column if not exists created_at timestamptz not null default now();
+alter table sm_kb_categories add column if not exists created_by uuid;
+alter table sm_kb_categories add column if not exists updated_at timestamptz not null default now();
+alter table sm_kb_categories add column if not exists updated_by uuid;
+alter table sm_kb_categories add column if not exists rev bigint not null default 0;
+alter table sm_kb_categories add column if not exists version integer not null default 1;
+alter table sm_kb_categories add column if not exists deleted_at timestamptz;
+alter table sm_kb_categories add column if not exists origin text;
+alter table sm_kb_categories add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_kb_categories add column if not exists name text;
+alter table sm_kb_categories add column if not exists base_id uuid;
+alter table sm_kb_categories add column if not exists parent_id uuid;
+alter table sm_kb_categories add column if not exists sort_order integer;
+alter table sm_kb_categories add column if not exists icon text;
+alter table sm_kb_categories add column if not exists description text;
+alter table sm_kb_categories add column if not exists featured jsonb;
+alter table sm_kb_categories add column if not exists managed_by_groups jsonb;
+alter table sm_kb_categories add column if not exists read_mode text;
+alter table sm_kb_categories add column if not exists units_tree boolean not null default true;
+alter table sm_kb_categories add column if not exists read_users jsonb;
+alter table sm_kb_categories add column if not exists read_groups jsonb;
+alter table sm_kb_categories add column if not exists read_units jsonb;
+alter table sm_kb_categories add column if not exists path text;
+alter table sm_kb_categories add column if not exists depth integer;
+alter table sm_kb_categories add column if not exists c_all boolean not null default true;
+alter table sm_kb_categories add column if not exists c_users jsonb;
+alter table sm_kb_categories add column if not exists c_groups jsonb;
+alter table sm_kb_categories add column if not exists c_units jsonb;
+alter table sm_kb_categories add column if not exists m_groups jsonb;
+alter table sm_kb_categories add column if not exists article_count integer;
+alter table sm_kb_categories add column if not exists k_users jsonb;
+alter table sm_kb_categories add column if not exists k_groups jsonb;
+alter table sm_kb_categories add column if not exists state text;
+create index if not exists sm_kb_categories_rev_idx on sm_kb_categories (org_id, rev);
+create index if not exists sm_kb_categories_upd_idx on sm_kb_categories (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_kb_categories_crt_idx on sm_kb_categories (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_kb_categories_base_id_idx on sm_kb_categories (org_id, base_id) where deleted_at is null;
+create index if not exists sm_kb_categories_parent_id_idx on sm_kb_categories (org_id, parent_id) where deleted_at is null;
+create index if not exists sm_kb_categories_m_groups_gin on sm_kb_categories using gin (m_groups);
+create index if not exists sm_kb_categories_k_users_gin on sm_kb_categories using gin (k_users);
+create index if not exists sm_kb_categories_k_groups_gin on sm_kb_categories using gin (k_groups);
+create index if not exists sm_kb_categories_state_idx on sm_kb_categories (org_id, state) where deleted_at is null;
+drop trigger if exists sm_kb_categories_sync on sm_kb_categories;
+create trigger sm_kb_categories_sync before insert or update on sm_kb_categories for each row execute function sm_sync_touch('kb_category');
+alter table sm_kb_categories enable row level security;
+
+-- kb_config: تنظیمات دانش
+create table if not exists sm_kb_configs (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_kb_configs add column if not exists workspace_id uuid;
+alter table sm_kb_configs add column if not exists domain_id uuid;
+alter table sm_kb_configs add column if not exists unit_id uuid;
+alter table sm_kb_configs add column if not exists created_at timestamptz not null default now();
+alter table sm_kb_configs add column if not exists created_by uuid;
+alter table sm_kb_configs add column if not exists updated_at timestamptz not null default now();
+alter table sm_kb_configs add column if not exists updated_by uuid;
+alter table sm_kb_configs add column if not exists rev bigint not null default 0;
+alter table sm_kb_configs add column if not exists version integer not null default 1;
+alter table sm_kb_configs add column if not exists deleted_at timestamptz;
+alter table sm_kb_configs add column if not exists origin text;
+alter table sm_kb_configs add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_kb_configs add column if not exists name text;
+alter table sm_kb_configs add column if not exists config_key text;
+alter table sm_kb_configs add column if not exists default_group_id uuid;
+alter table sm_kb_configs add column if not exists review_remind_days integer;
+alter table sm_kb_configs add column if not exists negative_ratio integer;
+alter table sm_kb_configs add column if not exists negative_min_votes integer;
+alter table sm_kb_configs add column if not exists trash_days integer;
+alter table sm_kb_configs add column if not exists events_days integer;
+alter table sm_kb_configs add column if not exists deflection_hours integer;
+alter table sm_kb_configs add column if not exists aqi_per_author integer;
+alter table sm_kb_configs add column if not exists aqi_items jsonb;
+alter table sm_kb_configs add column if not exists duplicate_threshold integer;
+alter table sm_kb_configs add column if not exists suggest_limit integer;
+alter table sm_kb_configs add column if not exists stale_days integer;
+alter table sm_kb_configs add column if not exists capture_on_resolve boolean not null default true;
+alter table sm_kb_configs add column if not exists ack_suggestions boolean not null default false;
+alter table sm_kb_configs add column if not exists seeded integer;
+create index if not exists sm_kb_configs_rev_idx on sm_kb_configs (org_id, rev);
+create index if not exists sm_kb_configs_upd_idx on sm_kb_configs (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_kb_configs_crt_idx on sm_kb_configs (org_id, created_at desc, id desc) where deleted_at is null;
+create unique index if not exists sm_kb_configs_config_key_uk on sm_kb_configs (org_id, config_key) where deleted_at is null;
+drop trigger if exists sm_kb_configs_sync on sm_kb_configs;
+create trigger sm_kb_configs_sync before insert or update on sm_kb_configs for each row execute function sm_sync_touch('kb_config');
+alter table sm_kb_configs enable row level security;
+
+-- kb_decision_tree: درخت‌های تصمیم
+create table if not exists sm_kb_decision_trees (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_kb_decision_trees add column if not exists workspace_id uuid;
+alter table sm_kb_decision_trees add column if not exists domain_id uuid;
+alter table sm_kb_decision_trees add column if not exists unit_id uuid;
+alter table sm_kb_decision_trees add column if not exists created_at timestamptz not null default now();
+alter table sm_kb_decision_trees add column if not exists created_by uuid;
+alter table sm_kb_decision_trees add column if not exists updated_at timestamptz not null default now();
+alter table sm_kb_decision_trees add column if not exists updated_by uuid;
+alter table sm_kb_decision_trees add column if not exists rev bigint not null default 0;
+alter table sm_kb_decision_trees add column if not exists version integer not null default 1;
+alter table sm_kb_decision_trees add column if not exists deleted_at timestamptz;
+alter table sm_kb_decision_trees add column if not exists origin text;
+alter table sm_kb_decision_trees add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_kb_decision_trees add column if not exists no integer;
+alter table sm_kb_decision_trees add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 5 then 'KDT' || no::text else 'KDT' || lpad(no::text, 5, '0') end) stored;
+alter table sm_kb_decision_trees add column if not exists title text;
+alter table sm_kb_decision_trees add column if not exists base_id uuid;
+alter table sm_kb_decision_trees add column if not exists description text;
+alter table sm_kb_decision_trees add column if not exists nodes jsonb;
+alter table sm_kb_decision_trees add column if not exists start text;
+alter table sm_kb_decision_trees add column if not exists owner_id uuid;
+alter table sm_kb_decision_trees add column if not exists owner_group_id uuid;
+alter table sm_kb_decision_trees add column if not exists visibility text;
+alter table sm_kb_decision_trees add column if not exists confidential boolean not null default false;
+alter table sm_kb_decision_trees add column if not exists starts integer;
+alter table sm_kb_decision_trees add column if not exists finishes integer;
+alter table sm_kb_decision_trees add column if not exists k_users jsonb;
+alter table sm_kb_decision_trees add column if not exists k_groups jsonb;
+alter table sm_kb_decision_trees add column if not exists access_list jsonb;
+alter table sm_kb_decision_trees add column if not exists state text;
+create unique index if not exists sm_kb_decision_trees_no_uk on sm_kb_decision_trees (org_id, no);
+create index if not exists sm_kb_decision_trees_rev_idx on sm_kb_decision_trees (org_id, rev);
+create index if not exists sm_kb_decision_trees_upd_idx on sm_kb_decision_trees (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_kb_decision_trees_crt_idx on sm_kb_decision_trees (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_kb_decision_trees_k_users_gin on sm_kb_decision_trees using gin (k_users);
+create index if not exists sm_kb_decision_trees_k_groups_gin on sm_kb_decision_trees using gin (k_groups);
+create index if not exists sm_kb_decision_trees_state_idx on sm_kb_decision_trees (org_id, state) where deleted_at is null;
+create index if not exists sm_kb_decision_trees_workspace_acc_idx on sm_kb_decision_trees (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_kb_decision_trees_unit_acc_idx on sm_kb_decision_trees (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_kb_decision_trees_domain_acc_idx on sm_kb_decision_trees (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_kb_decision_trees_owner_id_idx on sm_kb_decision_trees (org_id, owner_id) where deleted_at is null;
+drop trigger if exists sm_kb_decision_trees_sync on sm_kb_decision_trees;
+create trigger sm_kb_decision_trees_sync before insert or update on sm_kb_decision_trees for each row execute function sm_sync_touch('kb_decision_tree');
+alter table sm_kb_decision_trees enable row level security;
+
+-- kb_domain: حوزه‌های دانش
+create table if not exists sm_kb_domains (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_kb_domains add column if not exists workspace_id uuid;
+alter table sm_kb_domains add column if not exists domain_id uuid;
+alter table sm_kb_domains add column if not exists unit_id uuid;
+alter table sm_kb_domains add column if not exists created_at timestamptz not null default now();
+alter table sm_kb_domains add column if not exists created_by uuid;
+alter table sm_kb_domains add column if not exists updated_at timestamptz not null default now();
+alter table sm_kb_domains add column if not exists updated_by uuid;
+alter table sm_kb_domains add column if not exists rev bigint not null default 0;
+alter table sm_kb_domains add column if not exists version integer not null default 1;
+alter table sm_kb_domains add column if not exists deleted_at timestamptz;
+alter table sm_kb_domains add column if not exists origin text;
+alter table sm_kb_domains add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_kb_domains add column if not exists name text;
+alter table sm_kb_domains add column if not exists kde_id uuid;
+alter table sm_kb_domains add column if not exists bases jsonb;
+alter table sm_kb_domains add column if not exists categories jsonb;
+alter table sm_kb_domains add column if not exists capture_days integer;
+alter table sm_kb_domains add column if not exists description text;
+alter table sm_kb_domains add column if not exists active boolean not null default true;
+create index if not exists sm_kb_domains_rev_idx on sm_kb_domains (org_id, rev);
+create index if not exists sm_kb_domains_upd_idx on sm_kb_domains (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_kb_domains_crt_idx on sm_kb_domains (org_id, created_at desc, id desc) where deleted_at is null;
+create unique index if not exists sm_kb_domains_name_uk on sm_kb_domains (org_id, name) where deleted_at is null;
+drop trigger if exists sm_kb_domains_sync on sm_kb_domains;
+create trigger sm_kb_domains_sync before insert or update on sm_kb_domains for each row execute function sm_sync_touch('kb_domain');
+alter table sm_kb_domains enable row level security;
+
+-- kb_duplicate: مقاله‌های احتمالاً تکراری
+create table if not exists sm_kb_duplicates (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_kb_duplicates add column if not exists workspace_id uuid;
+alter table sm_kb_duplicates add column if not exists domain_id uuid;
+alter table sm_kb_duplicates add column if not exists unit_id uuid;
+alter table sm_kb_duplicates add column if not exists created_at timestamptz not null default now();
+alter table sm_kb_duplicates add column if not exists created_by uuid;
+alter table sm_kb_duplicates add column if not exists updated_at timestamptz not null default now();
+alter table sm_kb_duplicates add column if not exists updated_by uuid;
+alter table sm_kb_duplicates add column if not exists rev bigint not null default 0;
+alter table sm_kb_duplicates add column if not exists version integer not null default 1;
+alter table sm_kb_duplicates add column if not exists deleted_at timestamptz;
+alter table sm_kb_duplicates add column if not exists origin text;
+alter table sm_kb_duplicates add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_kb_duplicates add column if not exists article_a uuid;
+alter table sm_kb_duplicates add column if not exists article_b uuid;
+alter table sm_kb_duplicates add column if not exists similarity integer;
+alter table sm_kb_duplicates add column if not exists method text;
+alter table sm_kb_duplicates add column if not exists pair_key text;
+alter table sm_kb_duplicates add column if not exists confidential boolean not null default true;
+alter table sm_kb_duplicates add column if not exists access_list jsonb;
+alter table sm_kb_duplicates add column if not exists state text;
+create index if not exists sm_kb_duplicates_rev_idx on sm_kb_duplicates (org_id, rev);
+create index if not exists sm_kb_duplicates_upd_idx on sm_kb_duplicates (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_kb_duplicates_crt_idx on sm_kb_duplicates (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_kb_duplicates_article_a_idx on sm_kb_duplicates (org_id, article_a) where deleted_at is null;
+create index if not exists sm_kb_duplicates_article_b_idx on sm_kb_duplicates (org_id, article_b) where deleted_at is null;
+create index if not exists sm_kb_duplicates_state_idx on sm_kb_duplicates (org_id, state) where deleted_at is null;
+create unique index if not exists sm_kb_duplicates_pair_key_uk on sm_kb_duplicates (org_id, pair_key) where deleted_at is null;
+drop trigger if exists sm_kb_duplicates_sync on sm_kb_duplicates;
+create trigger sm_kb_duplicates_sync before insert or update on sm_kb_duplicates for each row execute function sm_sync_touch('kb_duplicate');
+alter table sm_kb_duplicates enable row level security;
+
+-- kb_feedback: بازخوردهای مقاله
+create table if not exists sm_kb_feedback (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_kb_feedback add column if not exists workspace_id uuid;
+alter table sm_kb_feedback add column if not exists domain_id uuid;
+alter table sm_kb_feedback add column if not exists unit_id uuid;
+alter table sm_kb_feedback add column if not exists created_at timestamptz not null default now();
+alter table sm_kb_feedback add column if not exists created_by uuid;
+alter table sm_kb_feedback add column if not exists updated_at timestamptz not null default now();
+alter table sm_kb_feedback add column if not exists updated_by uuid;
+alter table sm_kb_feedback add column if not exists rev bigint not null default 0;
+alter table sm_kb_feedback add column if not exists version integer not null default 1;
+alter table sm_kb_feedback add column if not exists deleted_at timestamptz;
+alter table sm_kb_feedback add column if not exists origin text;
+alter table sm_kb_feedback add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_kb_feedback add column if not exists article_id uuid;
+alter table sm_kb_feedback add column if not exists version_label text;
+alter table sm_kb_feedback add column if not exists kind text;
+alter table sm_kb_feedback add column if not exists user_id uuid;
+alter table sm_kb_feedback add column if not exists reason text;
+alter table sm_kb_feedback add column if not exists rating integer;
+alter table sm_kb_feedback add column if not exists comment text;
+alter table sm_kb_feedback add column if not exists channel text;
+alter table sm_kb_feedback add column if not exists state text;
+alter table sm_kb_feedback add column if not exists task_id uuid;
+alter table sm_kb_feedback add column if not exists k_users jsonb;
+alter table sm_kb_feedback add column if not exists k_groups jsonb;
+create index if not exists sm_kb_feedback_rev_idx on sm_kb_feedback (org_id, rev);
+create index if not exists sm_kb_feedback_upd_idx on sm_kb_feedback (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_kb_feedback_crt_idx on sm_kb_feedback (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_kb_feedback_article_id_idx on sm_kb_feedback (org_id, article_id) where deleted_at is null;
+create index if not exists sm_kb_feedback_user_id_idx on sm_kb_feedback (org_id, user_id) where deleted_at is null;
+create index if not exists sm_kb_feedback_k_users_gin on sm_kb_feedback using gin (k_users);
+create index if not exists sm_kb_feedback_k_groups_gin on sm_kb_feedback using gin (k_groups);
+create index if not exists sm_kb_feedback_workspace_acc_idx on sm_kb_feedback (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_kb_feedback_unit_acc_idx on sm_kb_feedback (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_kb_feedback_domain_acc_idx on sm_kb_feedback (org_id, domain_id) where deleted_at is null and domain_id is not null;
+drop trigger if exists sm_kb_feedback_sync on sm_kb_feedback;
+create trigger sm_kb_feedback_sync before insert or update on sm_kb_feedback for each row execute function sm_sync_touch('kb_feedback');
+alter table sm_kb_feedback enable row level security;
+
+-- kb_gap: شکاف‌های دانش
+create table if not exists sm_kb_gaps (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_kb_gaps add column if not exists workspace_id uuid;
+alter table sm_kb_gaps add column if not exists domain_id uuid;
+alter table sm_kb_gaps add column if not exists unit_id uuid;
+alter table sm_kb_gaps add column if not exists created_at timestamptz not null default now();
+alter table sm_kb_gaps add column if not exists created_by uuid;
+alter table sm_kb_gaps add column if not exists updated_at timestamptz not null default now();
+alter table sm_kb_gaps add column if not exists updated_by uuid;
+alter table sm_kb_gaps add column if not exists rev bigint not null default 0;
+alter table sm_kb_gaps add column if not exists version integer not null default 1;
+alter table sm_kb_gaps add column if not exists deleted_at timestamptz;
+alter table sm_kb_gaps add column if not exists origin text;
+alter table sm_kb_gaps add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_kb_gaps add column if not exists no integer;
+alter table sm_kb_gaps add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 6 then 'KGP' || no::text else 'KGP' || lpad(no::text, 6, '0') end) stored;
+alter table sm_kb_gaps add column if not exists title text;
+alter table sm_kb_gaps add column if not exists kind text;
+alter table sm_kb_gaps add column if not exists signature text;
+alter table sm_kb_gaps add column if not exists demand integer;
+alter table sm_kb_gaps add column if not exists score integer;
+alter table sm_kb_gaps add column if not exists last_seen_at timestamptz;
+alter table sm_kb_gaps add column if not exists samples jsonb;
+alter table sm_kb_gaps add column if not exists outline text;
+alter table sm_kb_gaps add column if not exists base_id uuid;
+alter table sm_kb_gaps add column if not exists group_id uuid;
+alter table sm_kb_gaps add column if not exists article_id uuid;
+alter table sm_kb_gaps add column if not exists confidential boolean not null default true;
+alter table sm_kb_gaps add column if not exists access_list jsonb;
+alter table sm_kb_gaps add column if not exists state text;
+create unique index if not exists sm_kb_gaps_no_uk on sm_kb_gaps (org_id, no);
+create index if not exists sm_kb_gaps_rev_idx on sm_kb_gaps (org_id, rev);
+create index if not exists sm_kb_gaps_upd_idx on sm_kb_gaps (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_kb_gaps_crt_idx on sm_kb_gaps (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_kb_gaps_signature_idx on sm_kb_gaps (org_id, signature) where deleted_at is null;
+create index if not exists sm_kb_gaps_group_id_idx on sm_kb_gaps (org_id, group_id) where deleted_at is null;
+create index if not exists sm_kb_gaps_state_idx on sm_kb_gaps (org_id, state) where deleted_at is null;
+create index if not exists sm_kb_gaps_workspace_acc_idx on sm_kb_gaps (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_kb_gaps_unit_acc_idx on sm_kb_gaps (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_kb_gaps_domain_acc_idx on sm_kb_gaps (org_id, domain_id) where deleted_at is null and domain_id is not null;
+drop trigger if exists sm_kb_gaps_sync on sm_kb_gaps;
+create trigger sm_kb_gaps_sync before insert or update on sm_kb_gaps for each row execute function sm_sync_touch('kb_gap');
+alter table sm_kb_gaps enable row level security;
+
+-- kb_glossary: واژه‌نامهٔ سازمان
+create table if not exists sm_kb_glossary (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_kb_glossary add column if not exists workspace_id uuid;
+alter table sm_kb_glossary add column if not exists domain_id uuid;
+alter table sm_kb_glossary add column if not exists unit_id uuid;
+alter table sm_kb_glossary add column if not exists created_at timestamptz not null default now();
+alter table sm_kb_glossary add column if not exists created_by uuid;
+alter table sm_kb_glossary add column if not exists updated_at timestamptz not null default now();
+alter table sm_kb_glossary add column if not exists updated_by uuid;
+alter table sm_kb_glossary add column if not exists rev bigint not null default 0;
+alter table sm_kb_glossary add column if not exists version integer not null default 1;
+alter table sm_kb_glossary add column if not exists deleted_at timestamptz;
+alter table sm_kb_glossary add column if not exists origin text;
+alter table sm_kb_glossary add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_kb_glossary add column if not exists term text;
+alter table sm_kb_glossary add column if not exists approved_fa text;
+alter table sm_kb_glossary add column if not exists synonyms jsonb;
+alter table sm_kb_glossary add column if not exists definition text;
+alter table sm_kb_glossary add column if not exists language text;
+alter table sm_kb_glossary add column if not exists active boolean not null default true;
+create index if not exists sm_kb_glossary_rev_idx on sm_kb_glossary (org_id, rev);
+create index if not exists sm_kb_glossary_upd_idx on sm_kb_glossary (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_kb_glossary_crt_idx on sm_kb_glossary (org_id, created_at desc, id desc) where deleted_at is null;
+create unique index if not exists sm_kb_glossary_term_uk on sm_kb_glossary (org_id, term) where deleted_at is null;
+drop trigger if exists sm_kb_glossary_sync on sm_kb_glossary;
+create trigger sm_kb_glossary_sync before insert or update on sm_kb_glossary for each row execute function sm_sync_touch('kb_glossary');
+alter table sm_kb_glossary enable row level security;
+
+-- kb_licence: مجوزهای KCS
+create table if not exists sm_kb_licences (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_kb_licences add column if not exists workspace_id uuid;
+alter table sm_kb_licences add column if not exists domain_id uuid;
+alter table sm_kb_licences add column if not exists unit_id uuid;
+alter table sm_kb_licences add column if not exists created_at timestamptz not null default now();
+alter table sm_kb_licences add column if not exists created_by uuid;
+alter table sm_kb_licences add column if not exists updated_at timestamptz not null default now();
+alter table sm_kb_licences add column if not exists updated_by uuid;
+alter table sm_kb_licences add column if not exists rev bigint not null default 0;
+alter table sm_kb_licences add column if not exists version integer not null default 1;
+alter table sm_kb_licences add column if not exists deleted_at timestamptz;
+alter table sm_kb_licences add column if not exists origin text;
+alter table sm_kb_licences add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_kb_licences add column if not exists user_id uuid;
+alter table sm_kb_licences add column if not exists level text;
+alter table sm_kb_licences add column if not exists base_id uuid;
+alter table sm_kb_licences add column if not exists coach_id uuid;
+alter table sm_kb_licences add column if not exists granted_at date;
+alter table sm_kb_licences add column if not exists expires_at date;
+alter table sm_kb_licences add column if not exists evidence text;
+alter table sm_kb_licences add column if not exists state text;
+create index if not exists sm_kb_licences_rev_idx on sm_kb_licences (org_id, rev);
+create index if not exists sm_kb_licences_upd_idx on sm_kb_licences (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_kb_licences_crt_idx on sm_kb_licences (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_kb_licences_user_id_idx on sm_kb_licences (org_id, user_id) where deleted_at is null;
+create index if not exists sm_kb_licences_state_idx on sm_kb_licences (org_id, state) where deleted_at is null;
+drop trigger if exists sm_kb_licences_sync on sm_kb_licences;
+create trigger sm_kb_licences_sync before insert or update on sm_kb_licences for each row execute function sm_sync_touch('kb_licence');
+alter table sm_kb_licences enable row level security;
+
+-- kb_quality_review: ارزیابی‌های کیفیت (AQI)
+create table if not exists sm_kb_quality_reviews (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_kb_quality_reviews add column if not exists workspace_id uuid;
+alter table sm_kb_quality_reviews add column if not exists domain_id uuid;
+alter table sm_kb_quality_reviews add column if not exists unit_id uuid;
+alter table sm_kb_quality_reviews add column if not exists created_at timestamptz not null default now();
+alter table sm_kb_quality_reviews add column if not exists created_by uuid;
+alter table sm_kb_quality_reviews add column if not exists updated_at timestamptz not null default now();
+alter table sm_kb_quality_reviews add column if not exists updated_by uuid;
+alter table sm_kb_quality_reviews add column if not exists rev bigint not null default 0;
+alter table sm_kb_quality_reviews add column if not exists version integer not null default 1;
+alter table sm_kb_quality_reviews add column if not exists deleted_at timestamptz;
+alter table sm_kb_quality_reviews add column if not exists origin text;
+alter table sm_kb_quality_reviews add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_kb_quality_reviews add column if not exists article_id uuid;
+alter table sm_kb_quality_reviews add column if not exists version_label text;
+alter table sm_kb_quality_reviews add column if not exists period text;
+alter table sm_kb_quality_reviews add column if not exists author_id uuid;
+alter table sm_kb_quality_reviews add column if not exists reviewer_id uuid;
+alter table sm_kb_quality_reviews add column if not exists results jsonb;
+alter table sm_kb_quality_reviews add column if not exists score integer;
+alter table sm_kb_quality_reviews add column if not exists notes text;
+alter table sm_kb_quality_reviews add column if not exists state text;
+create index if not exists sm_kb_quality_reviews_rev_idx on sm_kb_quality_reviews (org_id, rev);
+create index if not exists sm_kb_quality_reviews_upd_idx on sm_kb_quality_reviews (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_kb_quality_reviews_crt_idx on sm_kb_quality_reviews (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_kb_quality_reviews_article_id_idx on sm_kb_quality_reviews (org_id, article_id) where deleted_at is null;
+create index if not exists sm_kb_quality_reviews_author_id_idx on sm_kb_quality_reviews (org_id, author_id) where deleted_at is null;
+create index if not exists sm_kb_quality_reviews_reviewer_id_idx on sm_kb_quality_reviews (org_id, reviewer_id) where deleted_at is null;
+create index if not exists sm_kb_quality_reviews_state_idx on sm_kb_quality_reviews (org_id, state) where deleted_at is null;
+create index if not exists sm_kb_quality_reviews_workspace_acc_idx on sm_kb_quality_reviews (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_kb_quality_reviews_unit_acc_idx on sm_kb_quality_reviews (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_kb_quality_reviews_domain_acc_idx on sm_kb_quality_reviews (org_id, domain_id) where deleted_at is null and domain_id is not null;
+drop trigger if exists sm_kb_quality_reviews_sync on sm_kb_quality_reviews;
+create trigger sm_kb_quality_reviews_sync before insert or update on sm_kb_quality_reviews for each row execute function sm_sync_touch('kb_quality_review');
+alter table sm_kb_quality_reviews enable row level security;
+
+-- kb_search_rule: قاعده‌های جست‌وجوی دانش
+create table if not exists sm_kb_search_rules (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_kb_search_rules add column if not exists workspace_id uuid;
+alter table sm_kb_search_rules add column if not exists domain_id uuid;
+alter table sm_kb_search_rules add column if not exists unit_id uuid;
+alter table sm_kb_search_rules add column if not exists created_at timestamptz not null default now();
+alter table sm_kb_search_rules add column if not exists created_by uuid;
+alter table sm_kb_search_rules add column if not exists updated_at timestamptz not null default now();
+alter table sm_kb_search_rules add column if not exists updated_by uuid;
+alter table sm_kb_search_rules add column if not exists rev bigint not null default 0;
+alter table sm_kb_search_rules add column if not exists version integer not null default 1;
+alter table sm_kb_search_rules add column if not exists deleted_at timestamptz;
+alter table sm_kb_search_rules add column if not exists origin text;
+alter table sm_kb_search_rules add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_kb_search_rules add column if not exists query text;
+alter table sm_kb_search_rules add column if not exists kind text;
+alter table sm_kb_search_rules add column if not exists active boolean not null default true;
+alter table sm_kb_search_rules add column if not exists articles jsonb;
+alter table sm_kb_search_rules add column if not exists note text;
+create index if not exists sm_kb_search_rules_rev_idx on sm_kb_search_rules (org_id, rev);
+create index if not exists sm_kb_search_rules_upd_idx on sm_kb_search_rules (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_kb_search_rules_crt_idx on sm_kb_search_rules (org_id, created_at desc, id desc) where deleted_at is null;
+drop trigger if exists sm_kb_search_rules_sync on sm_kb_search_rules;
+create trigger sm_kb_search_rules_sync before insert or update on sm_kb_search_rules for each row execute function sm_sync_touch('kb_search_rule');
+alter table sm_kb_search_rules enable row level security;
+
+-- kb_snippet: پاسخ‌های کوتاه
+create table if not exists sm_kb_snippets (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_kb_snippets add column if not exists workspace_id uuid;
+alter table sm_kb_snippets add column if not exists domain_id uuid;
+alter table sm_kb_snippets add column if not exists unit_id uuid;
+alter table sm_kb_snippets add column if not exists created_at timestamptz not null default now();
+alter table sm_kb_snippets add column if not exists created_by uuid;
+alter table sm_kb_snippets add column if not exists updated_at timestamptz not null default now();
+alter table sm_kb_snippets add column if not exists updated_by uuid;
+alter table sm_kb_snippets add column if not exists rev bigint not null default 0;
+alter table sm_kb_snippets add column if not exists version integer not null default 1;
+alter table sm_kb_snippets add column if not exists deleted_at timestamptz;
+alter table sm_kb_snippets add column if not exists origin text;
+alter table sm_kb_snippets add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_kb_snippets add column if not exists no integer;
+alter table sm_kb_snippets add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 6 then 'KBS' || no::text else 'KBS' || lpad(no::text, 6, '0') end) stored;
+alter table sm_kb_snippets add column if not exists question text;
+alter table sm_kb_snippets add column if not exists answer text;
+alter table sm_kb_snippets add column if not exists base_id uuid;
+alter table sm_kb_snippets add column if not exists source_article_id uuid;
+alter table sm_kb_snippets add column if not exists language text;
+alter table sm_kb_snippets add column if not exists owner_id uuid;
+alter table sm_kb_snippets add column if not exists owner_group_id uuid;
+alter table sm_kb_snippets add column if not exists valid_to date;
+alter table sm_kb_snippets add column if not exists visibility text;
+alter table sm_kb_snippets add column if not exists confidential boolean not null default false;
+alter table sm_kb_snippets add column if not exists ai_generated boolean not null default false;
+alter table sm_kb_snippets add column if not exists k_users jsonb;
+alter table sm_kb_snippets add column if not exists k_groups jsonb;
+alter table sm_kb_snippets add column if not exists access_list jsonb;
+alter table sm_kb_snippets add column if not exists state text;
+create unique index if not exists sm_kb_snippets_no_uk on sm_kb_snippets (org_id, no);
+create index if not exists sm_kb_snippets_rev_idx on sm_kb_snippets (org_id, rev);
+create index if not exists sm_kb_snippets_upd_idx on sm_kb_snippets (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_kb_snippets_crt_idx on sm_kb_snippets (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_kb_snippets_base_id_idx on sm_kb_snippets (org_id, base_id) where deleted_at is null;
+create index if not exists sm_kb_snippets_owner_id_idx on sm_kb_snippets (org_id, owner_id) where deleted_at is null;
+create index if not exists sm_kb_snippets_k_users_gin on sm_kb_snippets using gin (k_users);
+create index if not exists sm_kb_snippets_k_groups_gin on sm_kb_snippets using gin (k_groups);
+create index if not exists sm_kb_snippets_state_idx on sm_kb_snippets (org_id, state) where deleted_at is null;
+create index if not exists sm_kb_snippets_workspace_acc_idx on sm_kb_snippets (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_kb_snippets_unit_acc_idx on sm_kb_snippets (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_kb_snippets_domain_acc_idx on sm_kb_snippets (org_id, domain_id) where deleted_at is null and domain_id is not null;
+drop trigger if exists sm_kb_snippets_sync on sm_kb_snippets;
+create trigger sm_kb_snippets_sync before insert or update on sm_kb_snippets for each row execute function sm_sync_touch('kb_snippet');
+alter table sm_kb_snippets enable row level security;
+
+-- kb_subscription: اشتراک‌های دانش
+create table if not exists sm_kb_subscriptions (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_kb_subscriptions add column if not exists workspace_id uuid;
+alter table sm_kb_subscriptions add column if not exists domain_id uuid;
+alter table sm_kb_subscriptions add column if not exists unit_id uuid;
+alter table sm_kb_subscriptions add column if not exists created_at timestamptz not null default now();
+alter table sm_kb_subscriptions add column if not exists created_by uuid;
+alter table sm_kb_subscriptions add column if not exists updated_at timestamptz not null default now();
+alter table sm_kb_subscriptions add column if not exists updated_by uuid;
+alter table sm_kb_subscriptions add column if not exists rev bigint not null default 0;
+alter table sm_kb_subscriptions add column if not exists version integer not null default 1;
+alter table sm_kb_subscriptions add column if not exists deleted_at timestamptz;
+alter table sm_kb_subscriptions add column if not exists origin text;
+alter table sm_kb_subscriptions add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_kb_subscriptions add column if not exists user_id uuid;
+alter table sm_kb_subscriptions add column if not exists target_table text;
+alter table sm_kb_subscriptions add column if not exists target_id text;
+alter table sm_kb_subscriptions add column if not exists target_label text;
+alter table sm_kb_subscriptions add column if not exists events jsonb;
+create index if not exists sm_kb_subscriptions_rev_idx on sm_kb_subscriptions (org_id, rev);
+create index if not exists sm_kb_subscriptions_upd_idx on sm_kb_subscriptions (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_kb_subscriptions_crt_idx on sm_kb_subscriptions (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_kb_subscriptions_user_id_idx on sm_kb_subscriptions (org_id, user_id) where deleted_at is null;
+create index if not exists sm_kb_subscriptions_target_id_idx on sm_kb_subscriptions (org_id, target_id) where deleted_at is null;
+create unique index if not exists sm_kb_subscriptions_user_id_target_table_target_id_uk on sm_kb_subscriptions (org_id, user_id, target_table, target_id) where deleted_at is null;
+create index if not exists sm_kb_subscriptions_workspace_acc_idx on sm_kb_subscriptions (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_kb_subscriptions_unit_acc_idx on sm_kb_subscriptions (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_kb_subscriptions_domain_acc_idx on sm_kb_subscriptions (org_id, domain_id) where deleted_at is null and domain_id is not null;
+drop trigger if exists sm_kb_subscriptions_sync on sm_kb_subscriptions;
+create trigger sm_kb_subscriptions_sync before insert or update on sm_kb_subscriptions for each row execute function sm_sync_touch('kb_subscription');
+alter table sm_kb_subscriptions enable row level security;
+
+-- kb_task: کارهای دانش
+create table if not exists sm_kb_tasks (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_kb_tasks add column if not exists workspace_id uuid;
+alter table sm_kb_tasks add column if not exists domain_id uuid;
+alter table sm_kb_tasks add column if not exists unit_id uuid;
+alter table sm_kb_tasks add column if not exists created_at timestamptz not null default now();
+alter table sm_kb_tasks add column if not exists created_by uuid;
+alter table sm_kb_tasks add column if not exists updated_at timestamptz not null default now();
+alter table sm_kb_tasks add column if not exists updated_by uuid;
+alter table sm_kb_tasks add column if not exists rev bigint not null default 0;
+alter table sm_kb_tasks add column if not exists version integer not null default 1;
+alter table sm_kb_tasks add column if not exists deleted_at timestamptz;
+alter table sm_kb_tasks add column if not exists origin text;
+alter table sm_kb_tasks add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_kb_tasks add column if not exists no integer;
+alter table sm_kb_tasks add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 6 then 'KBT' || no::text else 'KBT' || lpad(no::text, 6, '0') end) stored;
+alter table sm_kb_tasks add column if not exists short_description text;
+alter table sm_kb_tasks add column if not exists description text;
+alter table sm_kb_tasks add column if not exists state text;
+alter table sm_kb_tasks add column if not exists priority text;
+alter table sm_kb_tasks add column if not exists impact text;
+alter table sm_kb_tasks add column if not exists urgency text;
+alter table sm_kb_tasks add column if not exists category text;
+alter table sm_kb_tasks add column if not exists subcategory text;
+alter table sm_kb_tasks add column if not exists channel text;
+alter table sm_kb_tasks add column if not exists caller_id uuid;
+alter table sm_kb_tasks add column if not exists requested_for uuid;
+alter table sm_kb_tasks add column if not exists opened_by uuid;
+alter table sm_kb_tasks add column if not exists opened_at timestamptz;
+alter table sm_kb_tasks add column if not exists assignment_group_id uuid;
+alter table sm_kb_tasks add column if not exists assigned_to uuid;
+alter table sm_kb_tasks add column if not exists service_id uuid;
+alter table sm_kb_tasks add column if not exists offering_id uuid;
+alter table sm_kb_tasks add column if not exists ci_id uuid;
+alter table sm_kb_tasks add column if not exists location_id uuid;
+alter table sm_kb_tasks add column if not exists due_at timestamptz;
+alter table sm_kb_tasks add column if not exists resolved_at timestamptz;
+alter table sm_kb_tasks add column if not exists resolved_by uuid;
+alter table sm_kb_tasks add column if not exists closed_at timestamptz;
+alter table sm_kb_tasks add column if not exists closed_by uuid;
+alter table sm_kb_tasks add column if not exists close_code text;
+alter table sm_kb_tasks add column if not exists close_notes text;
+alter table sm_kb_tasks add column if not exists parent_id uuid;
+alter table sm_kb_tasks add column if not exists watch_list jsonb;
+alter table sm_kb_tasks add column if not exists approval text;
+alter table sm_kb_tasks add column if not exists escalation integer;
+alter table sm_kb_tasks add column if not exists reassignment_count integer;
+alter table sm_kb_tasks add column if not exists reopen_count integer;
+alter table sm_kb_tasks add column if not exists time_worked bigint;
+alter table sm_kb_tasks add column if not exists first_response_at timestamptz;
+alter table sm_kb_tasks add column if not exists active boolean not null default true;
+alter table sm_kb_tasks add column if not exists sla_due timestamptz;
+alter table sm_kb_tasks add column if not exists knowledge boolean not null default false;
+alter table sm_kb_tasks add column if not exists kind text;
+alter table sm_kb_tasks add column if not exists article_id uuid;
+alter table sm_kb_tasks add column if not exists gap_id uuid;
+alter table sm_kb_tasks add column if not exists feedback_count integer;
+alter table sm_kb_tasks add column if not exists source_table text;
+alter table sm_kb_tasks add column if not exists source_id text;
+alter table sm_kb_tasks add column if not exists source_number text;
+alter table sm_kb_tasks add column if not exists k_users jsonb;
+alter table sm_kb_tasks add column if not exists k_groups jsonb;
+create unique index if not exists sm_kb_tasks_no_uk on sm_kb_tasks (org_id, no);
+create index if not exists sm_kb_tasks_rev_idx on sm_kb_tasks (org_id, rev);
+create index if not exists sm_kb_tasks_upd_idx on sm_kb_tasks (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_kb_tasks_crt_idx on sm_kb_tasks (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_kb_tasks_state_idx on sm_kb_tasks (org_id, state) where deleted_at is null;
+create index if not exists sm_kb_tasks_assignment_group_id_idx on sm_kb_tasks (org_id, assignment_group_id) where deleted_at is null;
+create index if not exists sm_kb_tasks_assigned_to_idx on sm_kb_tasks (org_id, assigned_to) where deleted_at is null;
+create index if not exists sm_kb_tasks_article_id_idx on sm_kb_tasks (org_id, article_id) where deleted_at is null;
+create index if not exists sm_kb_tasks_source_id_idx on sm_kb_tasks (org_id, source_id) where deleted_at is null;
+create index if not exists sm_kb_tasks_k_users_gin on sm_kb_tasks using gin (k_users);
+create index if not exists sm_kb_tasks_k_groups_gin on sm_kb_tasks using gin (k_groups);
+create index if not exists sm_kb_tasks_workspace_acc_idx on sm_kb_tasks (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_kb_tasks_unit_acc_idx on sm_kb_tasks (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_kb_tasks_domain_acc_idx on sm_kb_tasks (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_kb_tasks_caller_id_idx on sm_kb_tasks (org_id, caller_id) where deleted_at is null;
+create index if not exists sm_kb_tasks_requested_for_idx on sm_kb_tasks (org_id, requested_for) where deleted_at is null;
+create index if not exists sm_kb_tasks_opened_by_idx on sm_kb_tasks (org_id, opened_by) where deleted_at is null;
+create index if not exists sm_kb_tasks_watch_list_gin on sm_kb_tasks using gin (watch_list);
+drop trigger if exists sm_kb_tasks_sync on sm_kb_tasks;
+create trigger sm_kb_tasks_sync before insert or update on sm_kb_tasks for each row execute function sm_sync_touch('kb_task');
+alter table sm_kb_tasks enable row level security;
+
+-- kb_template: قالب‌های مقاله
+create table if not exists sm_kb_templates (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_kb_templates add column if not exists workspace_id uuid;
+alter table sm_kb_templates add column if not exists domain_id uuid;
+alter table sm_kb_templates add column if not exists unit_id uuid;
+alter table sm_kb_templates add column if not exists created_at timestamptz not null default now();
+alter table sm_kb_templates add column if not exists created_by uuid;
+alter table sm_kb_templates add column if not exists updated_at timestamptz not null default now();
+alter table sm_kb_templates add column if not exists updated_by uuid;
+alter table sm_kb_templates add column if not exists rev bigint not null default 0;
+alter table sm_kb_templates add column if not exists version integer not null default 1;
+alter table sm_kb_templates add column if not exists deleted_at timestamptz;
+alter table sm_kb_templates add column if not exists origin text;
+alter table sm_kb_templates add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_kb_templates add column if not exists name text;
+alter table sm_kb_templates add column if not exists article_type text;
+alter table sm_kb_templates add column if not exists active boolean not null default true;
+alter table sm_kb_templates add column if not exists description text;
+alter table sm_kb_templates add column if not exists sections jsonb;
+alter table sm_kb_templates add column if not exists sort_order integer;
+alter table sm_kb_templates add column if not exists builtin text;
+create index if not exists sm_kb_templates_rev_idx on sm_kb_templates (org_id, rev);
+create index if not exists sm_kb_templates_upd_idx on sm_kb_templates (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_kb_templates_crt_idx on sm_kb_templates (org_id, created_at desc, id desc) where deleted_at is null;
+create unique index if not exists sm_kb_templates_name_uk on sm_kb_templates (org_id, name) where deleted_at is null;
+drop trigger if exists sm_kb_templates_sync on sm_kb_templates;
+create trigger sm_kb_templates_sync before insert or update on sm_kb_templates for each row execute function sm_sync_touch('kb_template');
+alter table sm_kb_templates enable row level security;
+
+-- kb_version: نسخه‌های مقاله
+create table if not exists sm_kb_versions (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_kb_versions add column if not exists workspace_id uuid;
+alter table sm_kb_versions add column if not exists domain_id uuid;
+alter table sm_kb_versions add column if not exists unit_id uuid;
+alter table sm_kb_versions add column if not exists created_at timestamptz not null default now();
+alter table sm_kb_versions add column if not exists created_by uuid;
+alter table sm_kb_versions add column if not exists updated_at timestamptz not null default now();
+alter table sm_kb_versions add column if not exists updated_by uuid;
+alter table sm_kb_versions add column if not exists rev bigint not null default 0;
+alter table sm_kb_versions add column if not exists version integer not null default 1;
+alter table sm_kb_versions add column if not exists deleted_at timestamptz;
+alter table sm_kb_versions add column if not exists origin text;
+alter table sm_kb_versions add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_kb_versions add column if not exists article_id uuid;
+alter table sm_kb_versions add column if not exists version_label text;
+alter table sm_kb_versions add column if not exists change_kind text;
+alter table sm_kb_versions add column if not exists major integer;
+alter table sm_kb_versions add column if not exists minor integer;
+alter table sm_kb_versions add column if not exists title text;
+alter table sm_kb_versions add column if not exists summary text;
+alter table sm_kb_versions add column if not exists body text;
+alter table sm_kb_versions add column if not exists internal_body text;
+alter table sm_kb_versions add column if not exists keywords jsonb;
+alter table sm_kb_versions add column if not exists tags jsonb;
+alter table sm_kb_versions add column if not exists change_note text;
+alter table sm_kb_versions add column if not exists author_id uuid;
+alter table sm_kb_versions add column if not exists publish_at timestamptz;
+alter table sm_kb_versions add column if not exists submitted_at timestamptz;
+alter table sm_kb_versions add column if not exists submitted_by uuid;
+alter table sm_kb_versions add column if not exists approved_at timestamptz;
+alter table sm_kb_versions add column if not exists approved_by uuid;
+alter table sm_kb_versions add column if not exists published_at timestamptz;
+alter table sm_kb_versions add column if not exists published_by uuid;
+alter table sm_kb_versions add column if not exists approval text;
+alter table sm_kb_versions add column if not exists needs_approval boolean not null default false;
+alter table sm_kb_versions add column if not exists approval_mode text;
+alter table sm_kb_versions add column if not exists reviewer_ids jsonb;
+alter table sm_kb_versions add column if not exists ai_provenance jsonb;
+alter table sm_kb_versions add column if not exists ai_validated_by uuid;
+alter table sm_kb_versions add column if not exists content_hash text;
+alter table sm_kb_versions add column if not exists word_count integer;
+alter table sm_kb_versions add column if not exists checks jsonb;
+alter table sm_kb_versions add column if not exists k_users jsonb;
+alter table sm_kb_versions add column if not exists k_groups jsonb;
+alter table sm_kb_versions add column if not exists state text;
+create index if not exists sm_kb_versions_rev_idx on sm_kb_versions (org_id, rev);
+create index if not exists sm_kb_versions_upd_idx on sm_kb_versions (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_kb_versions_crt_idx on sm_kb_versions (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_kb_versions_article_id_idx on sm_kb_versions (org_id, article_id) where deleted_at is null;
+create index if not exists sm_kb_versions_author_id_idx on sm_kb_versions (org_id, author_id) where deleted_at is null;
+create index if not exists sm_kb_versions_reviewer_ids_gin on sm_kb_versions using gin (reviewer_ids);
+create index if not exists sm_kb_versions_k_users_gin on sm_kb_versions using gin (k_users);
+create index if not exists sm_kb_versions_k_groups_gin on sm_kb_versions using gin (k_groups);
+create index if not exists sm_kb_versions_state_idx on sm_kb_versions (org_id, state) where deleted_at is null;
+create index if not exists sm_kb_versions_workspace_acc_idx on sm_kb_versions (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_kb_versions_unit_acc_idx on sm_kb_versions (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_kb_versions_domain_acc_idx on sm_kb_versions (org_id, domain_id) where deleted_at is null and domain_id is not null;
+drop trigger if exists sm_kb_versions_sync on sm_kb_versions;
+create trigger sm_kb_versions_sync before insert or update on sm_kb_versions for each row execute function sm_sync_touch('kb_version');
+alter table sm_kb_versions enable row level security;
+
 -- known_error: خطاهای شناخته‌شده
 create table if not exists sm_known_errors (
   id uuid primary key,
@@ -8665,3 +9962,37 @@ end
 $do$;
 
 insert into sm_migrations (id) values ('0020_ai_rag') on conflict (id) do nothing;
+
+-- ---------------------------------------------------------------------------
+-- 0045_knowledge — مدیریت دانش: جریان رویدادهای دانش (جست‌وجو، بازدید، رأی، پیوند، حل بدون درخواست)
+-- ---------------------------------------------------------------------------
+create table if not exists sm_kb_events (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  at timestamptz not null default now(),
+  -- search | view | click | vote | rating | flag | link | unlink | deflect | suggest | create | attest | tree
+  kind text not null,
+  user_id uuid,
+  -- the browser session (deflection: search → view → no request)
+  session_id text,
+  -- requester | agent
+  persona text,
+  -- portal | record | search | chat | api
+  channel text,
+  article_id uuid,
+  record_table text,
+  record_id uuid,
+  -- the search form of the query (Persian-normalised) and how many results it found
+  query text,
+  results int,
+  position int,
+  value int,
+  data jsonb
+);
+create index if not exists sm_kb_events_org_at_idx on sm_kb_events (org_id, at desc);
+create index if not exists sm_kb_events_article_idx on sm_kb_events (org_id, article_id, at desc) where article_id is not null;
+create index if not exists sm_kb_events_user_idx on sm_kb_events (org_id, user_id, at desc) where user_id is not null;
+create index if not exists sm_kb_events_kind_idx on sm_kb_events (org_id, kind, at desc);
+alter table sm_kb_events enable row level security;
+
+insert into sm_migrations (id) values ('0045_knowledge') on conflict (id) do nothing;

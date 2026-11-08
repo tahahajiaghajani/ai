@@ -27,6 +27,8 @@ import { installChangeModule } from "../modules/change";
 import { changeRoutes } from "./change";
 import { installRequestModule } from "../modules/request";
 import { requestRoutes } from "./request";
+import { installKnowledgeModule } from "../modules/knowledge";
+import { knowledgeRoutes } from "./knowledge";
 
 // the ITSM access model is the engine's access provider in every runtime (docs/spec/ACCESS.md)
 installAccessModel();
@@ -53,6 +55,8 @@ installServicePortfolioModule();
 installChangeModule();
 // service requests and the catalogue (docs/modules/request_FA.md) — after the SLA service: its hook on "*" must see approvals planned
 installRequestModule();
+// knowledge management (docs/modules/knowledge_FA.md) — after the RAG index and the modules whose records it links
+installKnowledgeModule();
 
 export const moduleRoutes = router();
 
@@ -71,3 +75,4 @@ moduleRoutes.route("/cmdb", cmdbRoutes);
 moduleRoutes.route("/service_portfolio", servicePortfolioRoutes);
 moduleRoutes.route("/change", changeRoutes);
 moduleRoutes.route("/request", requestRoutes);
+moduleRoutes.route("/knowledge", knowledgeRoutes);
