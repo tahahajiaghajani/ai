@@ -6,6 +6,8 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { cmdbWorld, type CmdbWorld } from "./cmdb-helpers";
 import type { Client } from "./helpers";
+import { BY_ENTITY } from "@server/sync/registry";
+import { checkEnginePush, pullEngine } from "@server/engine/sync";
 
 let w: CmdbWorld;
 let soc: string;
@@ -98,5 +100,60 @@ describe("a service's owners read its records within the record's restrictions",
     // naming someone else is a writer's call; a portfolio manager names anyone
     expect((await as("so").patch(R("service", svc.id), { product_owner_id: w.p.agent.userId })).row.product_owner_id).toBe(w.p.agent.userId);
     expect((await w.o.patch(R("service", svc.id), { product_owner_id: w.p.so.userId })).row.product_owner_id).toBe(w.p.so.userId);
+  });
+});
+
+describe("copies of CI data follow the readability of the CIs", () => {
+  it("shows a baseline's snapshot, its comparison and its sync copy without the CIs a reader may not read", async () => {
+    const fw = await w.ci({ name: "fw-soc-secret", class: "server", serial_number: "SOC-BL-1", ip_address: "10.9.9.9", support_group_id: soc }, as("am"));
+    const srv = await w.ci({ name: "srv-bl-open", class: "server", serial_number: "OPEN-BL-1", support_group_id: w.g.infra }, as("am"));
+    await w.rel(srv.id, "depends_on", fw.id, {}, as("am"));
+    const b = (await as("am").post(R("ci_baseline"), { name: "خط مبنای SOC", scope_kind: "cis", ci_ids: [fw.id, srv.id] })).row;
+    expect((await as("am").post(C(`/baselines/${b.id}/snapshot`), {})).item_count).toBe(2);
+    await as("am2").get(R("ci", fw.id), 404);
+    const rec = (await as("am2").get(R("ci_baseline", b.id))).row;
+    expect(rec.items.map((x: any) => x.id)).toEqual([srv.id]);
+    expect(rec.items[0].rels).toEqual([]);
+    const listed = (await as("am2").post(`${R("ci_baseline")}/query`, { filter: { f: "id", op: "eq", v: b.id }, fields: ["items"] })).rows[0];
+    const cmp = await as("am2").get(C(`/baselines/${b.id}/compare`));
+    for (const out of [rec, listed, cmp]) {
+      expect(JSON.stringify(out)).not.toContain("fw-soc-secret");
+      expect(JSON.stringify(out)).not.toContain("10.9.9.9");
+    }
+    expect(cmp.diff.removed).toEqual([]);
+    // its people still see all of it
+    expect((await as("am").get(R("ci_baseline", b.id))).row.items).toHaveLength(2);
+    // a Windows app gets the reader's copy, and sending that copy back keeps the stored snapshot
+    const agg = BY_ENTITY.get("ci_baseline")!;
+    const cm = await w.e.ctxOf(w.p.cm.userId);
+    const pulled = (await pullEngine(cm, agg, 0, Number.MAX_SAFE_INTEGER)).aggregates.find((a) => a.id === b.id)!;
+    expect(JSON.stringify(pulled.row.items)).not.toContain("fw-soc-secret");
+    const wire = { ...pulled, row: { ...pulled.row, name: "خط مبنای SOC (نام تازه)" } };
+    expect(await cm.write((tx) => checkEnginePush(tx, cm, agg, wire, {}))).toBeNull();
+    expect(JSON.stringify(wire.row.items)).toContain("fw-soc-secret");
+  });
+
+  it("names duplicates by number and keeps their task with the CIs' restricted group", async () => {
+    await w.ci({ name: "fw-soc-a", class: "server", serial_number: "SOC-DUP-1", support_group_id: soc }, as("am"));
+    await w.ci({ name: "fw-soc-b", class: "server", serial_number: "SOC-DUP-1", support_group_id: soc }, as("am"));
+    const r = await as("am").post(C("/ire/items"), { items: [{ class: "server", values: { serial_number: "SOC-DUP-1", name: "fw-soc-c" } }] });
+    expect(r.results[0].action).toBe("duplicate");
+    const task = (await as("am").get(R("cmdb_dedup_task", r.results[0].dedup_task_id))).row;
+    expect(task.short_description).not.toMatch(/fw-soc-/);
+    expect(task.assignment_group_id).toBe(soc);
+    await as("am2").get(R("cmdb_dedup_task", task.id), 404);
+    await as("agent").get(R("cmdb_dedup_task", task.id), 404);
+  });
+
+  it("keeps an import run's row results to readers of the CIs they name", async () => {
+    await w.ci({ name: "fw-soc-run", class: "server", serial_number: "SOC-RUN-1", manufacturer: "Cisco", support_group_id: soc }, as("am"));
+    const run = (await as("am").post(C("/import/runs"), { name: "ورود SOC", class: "server" })).run;
+    const batch = await as("am").post(C(`/import/runs/${run.id}/batch`), { rows: [{ serial_number: "SOC-RUN-1", manufacturer: "Cisco", os: "IOS-XE" }] });
+    expect(batch.updated).toBe(1);
+    expect(JSON.stringify((await as("am").get(R("cmdb_import_run", run.id))).row.results)).toContain("fw-soc-run");
+    const seen = (await as("am2").get(R("cmdb_import_run", run.id))).row;
+    expect(seen.results).toHaveLength(1);
+    expect(seen.results[0]).toMatchObject({ action: "updated", ci_id: null, number: null, name: null });
+    expect(JSON.stringify(seen)).not.toContain("fw-soc-run");
   });
 });

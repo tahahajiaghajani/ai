@@ -126,7 +126,7 @@ export async function applyPolicies(sys: Ctx): Promise<{ affected: number; skipp
             const key = `policy:${p.id}:${r.id}`;
             const [open] = await liveRows(tx, sys, "cmdb_finding", { and: [{ f: "dedupe_key", op: "eq", v: key }, { f: "active", op: "eq", v: true }] }, { limit: 1 });
             if (!open) {
-              await createIn(tx, sys, "cmdb_finding", { short_description: `«${r.name}»: ${p.name}`.slice(0, 200), ci_id: r.id, kind: "stale", severity: "low", detail: p.description ?? p.name, dedupe_key: key, auto: true, assigned_to: r.owned_by ?? null, assignment_group_id: r.support_group_id ?? null }, { trusted: true });
+              await createIn(tx, sys, "cmdb_finding", { short_description: `«${r.name}»: ${p.name}`.slice(0, 200), ci_id: r.id, kind: "stale", severity: "low", detail: p.description ?? p.name, dedupe_key: key, auto: true, assigned_to: r.owned_by ?? null, assignment_group_id: r.support_group_id ?? null, workspace_id: r.workspace_id ?? null }, { trusted: true });
             }
           }
         });

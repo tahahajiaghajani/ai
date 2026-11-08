@@ -200,7 +200,7 @@ export async function computeHealth(q: Tx, ctx: Ctx, opts: { ids?: string[]; aft
     if (out.findings_opened >= MAX_NEW_FINDINGS) break;
     await createIn(q, sys, "cmdb_finding", {
       short_description: f.title, ci_id: f.ci.id, kind: f.kind, severity: f.severity, rule_id: f.rule ?? null, detail: f.detail, dedupe_key: f.key, auto: true,
-      assigned_to: f.ci.owned_by ?? null, assignment_group_id: f.ci.support_group_id ?? null,
+      assigned_to: f.ci.owned_by ?? null, assignment_group_id: f.ci.support_group_id ?? null, workspace_id: f.ci.workspace_id ?? null,
       due_at: f.due ? new Date(now + f.due * DAY).toISOString() : null,
     }, { trusted: true });
     out.findings_opened++;

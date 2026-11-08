@@ -273,17 +273,26 @@ export function mayWrite(meta: Provenance | undefined, locked: boolean, mine: { 
 // ---------------------------------------------------------------------------------------------------------------
 // De-duplication tasks
 
-/** The open de-duplication task of these candidates, or a new one (one per candidate set). */
+/**
+ * The open de-duplication task of these candidates, or a new one (one per candidate set). The task names the CIs by
+ * number only and takes their anchors — a restricted support group first, else the first one's group, and their
+ * workspace — so it is read where the CIs are read.
+ */
 export async function ensureDedupTask(tx: Tx, ctx: Ctx, candidates: string[], reason: string, opts: { source?: string | null; score?: number } = {}): Promise<Row> {
   const sys = sysOf(ctx);
   const list = [...new Set(candidates)].sort();
   const key = list.join(",").slice(0, 600);
   const [open] = await liveRows(tx, sys, "cmdb_dedup_task", { and: [{ f: "candidate_key", op: "eq", v: key }, { f: "active", op: "eq", v: true }] }, { limit: 1 });
   if (open) return open;
-  const names = (await liveRows(tx, sys, "ci", { f: "id", op: "in", v: list })).map((r) => String(r.name));
+  const cis = await liveRows(tx, sys, "ci", { f: "id", op: "in", v: list }, { order: "t.number" });
+  const groups = [...new Set(cis.map((c) => c.support_group_id).filter(isUuid))];
+  const restricted = new Set(groups.length ? (await liveRows(tx, sys, "group", { and: [{ f: "id", op: "in", v: groups }, { f: "restricted", op: "eq", v: true }] })).map((g) => g.id) : []);
+  const anchor = cis.find((c) => restricted.has(c.support_group_id)) ?? cis.find((c) => isUuid(c.support_group_id));
+  const numbers = cis.map((r) => String(r.number ?? "")).filter(Boolean);
   return createIn(tx, sys, "cmdb_dedup_task", {
-    short_description: `پیکربندی‌های تکراری محتمل: ${[...new Set(names)].slice(0, 3).join("، ")}`.slice(0, 200),
+    short_description: `پیکربندی‌های تکراری محتمل: ${numbers.slice(0, 3).join("، ")}${numbers.length > 3 ? " …" : ""}`.slice(0, 200),
     candidates: list, reason, score: opts.score ?? 90, source_id: opts.source ?? null,
+    assignment_group_id: anchor?.support_group_id ?? null, workspace_id: anchor?.workspace_id ?? cis.find((c) => c.workspace_id)?.workspace_id ?? null,
   }, { trusted: true });
 }
 

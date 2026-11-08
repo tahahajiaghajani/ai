@@ -31,7 +31,7 @@ import { coerceValue, FieldError, KEEP } from "./values";
 import { fromDb, type Row } from "./read";
 import { recordEvents, sameValue } from "./write";
 import { emitEvent } from "./events";
-import { hooksFor } from "./hooks";
+import { hooksFor, redactRows, redacts } from "./hooks";
 
 /** Engine-maintained columns a push may not move on an existing row. */
 const PINNED = ["id", "org_id", "no", "created_at", "created_by"];
@@ -115,6 +115,12 @@ async function checkRecord(tx: Tx, ctx: Ctx, def: TableDef, schema: OrgSchema, e
     for (const c of PINNED) if (c in row || c === "no") row[c] = prev[c];
   } else if (!isSystemCtx(ctx) && !access().canCreate(ctx, def, row)) {
     return `اجازهٔ ایجاد ${def.label} را ندارید`;
+  }
+  // copies the pull sent redacted (redactRows) that come back unchanged keep the stored values
+  if (prev && !isSystemCtx(ctx) && redacts(def.key)) {
+    const seen: Row = { ...prev };
+    await redactRows(tx, ctx, def, [seen]);
+    for (const f of def.fields) if (!f.base && !f.custom && f.name in row && !sameValue(f, seen[f.name], prev[f.name]) && sameValue(f, row[f.name], seen[f.name])) row[f.name] = prev[f.name];
   }
   // fields: hidden ones and ones the account may not write keep the stored values; the rest is validated like an
   // API write (the desktop's engine applied the same rules, so a difference there is a stale copy, not a change)
@@ -290,6 +296,7 @@ export async function pullEngine(ctx: Ctx, agg: AggregateDef, cursor: number, up
         else delete a.row[f.name];
       }
     }
+    await redactRows(ctx.db, ctx, def, out.aggregates.map((a) => a.row));
   }
   return out;
 }

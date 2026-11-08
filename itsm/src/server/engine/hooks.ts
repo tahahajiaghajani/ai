@@ -13,6 +13,9 @@
 //   service here — enqueue a job instead).
 // - validateTransition / guards return a Persian refusal or null. A guard is named by a transition's `guard`.
 // - registerRecordMeta adds keys to the `meta` of GET /r/:table/:id (e.g. the SLA module's `sla` timers).
+// - redactRows removes, from rows the caller may read, the parts that copy other records they may not (a baseline's
+//   snapshot of CIs): records, lists and exports, and sync pulls (a push that sends a redacted value back unchanged
+//   keeps the stored one).
 // Each register* returns a function that removes the registration (tests).
 import type { CondEnv } from "@shared/model/conditions";
 import type { TableDef, Transition } from "@shared/model/types";
@@ -66,6 +69,11 @@ export interface TableHooks {
   guards?: Record<string, (w: WriteArgs & { transition: Transition }) => Promise<HookResult> | HookResult>;
   /** a sync push of a record (rules with side effects ran where the person acted): a Persian refusal or null */
   validatePush?(p: PushArgs): Promise<HookResult> | HookResult;
+  /**
+   * Redact, in place, what readable rows copy from records the caller may not read (never called for the system).
+   * Rows are in engine shape; a list row holds only its selected fields.
+   */
+  redactRows?(q: Queryable, ctx: Ctx, def: TableDef, rows: Row[]): Promise<void> | void;
 }
 
 const registry = new Map<string, TableHooks[]>();
@@ -79,6 +87,15 @@ export function registerHooks(table: string, hooks: TableHooks): () => void {
 /** Hooks that apply to `table`: its own first, then the "*" ones, each in registration order. */
 export function hooksFor(table: string): TableHooks[] {
   return [...(registry.get(table) ?? []), ...(registry.get("*") ?? [])];
+}
+
+/** Does a module redact rows of `table` (redactRows)? */
+export const redacts = (table: string): boolean => hooksFor(table).some((h) => !!h.redactRows);
+
+/** Apply the table's redactRows hooks to rows the caller reads (the system reads them whole). */
+export async function redactRows(q: Queryable, ctx: Ctx, def: TableDef, rows: Row[]): Promise<void> {
+  if (!rows.length || ctx.actor === "system") return;
+  for (const h of hooksFor(def.key)) if (h.redactRows) await h.redactRows(q, ctx, def, rows);
 }
 
 /** The guard of that name for `table` (undefined when no module registered it). */

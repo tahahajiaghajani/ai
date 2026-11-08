@@ -12,7 +12,7 @@ import { conflict, forbidden, notFound } from "../../http/errors";
 import { createIn, orgSchema, updateIn } from "../../engine";
 import { access } from "../../access/provider";
 import { classTree, eqAll, isUuid, liveRow, liveRows, sysOf, type Row } from "./common";
-import { edgesAround } from "./graph";
+import { edgesAround, readableCis } from "./graph";
 
 export const MAX_BASELINE = 2000;
 
@@ -48,6 +48,37 @@ export async function snapshotOf(q: Queryable, ctx: Ctx, cis: Row[], withRels: b
     for (const [k, v] of Object.entries((c.attrs ?? {}) as Record<string, unknown>)) if (v !== null && v !== undefined && v !== "") values[`attrs.${k}`] = v;
     return { id: c.id, number: c.number ?? null, name: c.name, class: c.class, state: c.state, values, rels: (rels.get(c.id) ?? []).sort((a, b) => `${a.dir}${a.type}${a.other}`.localeCompare(`${b.dir}${b.type}${b.other}`)) };
   });
+}
+
+/**
+ * A stored snapshot as the caller may see it: the CIs they may read, with relationships to CIs they may read (a
+ * baseline keeps what its taker could read, which may be more than its reader can).
+ */
+export async function visibleSnapshot(q: Queryable, ctx: Ctx, items: SnapItem[]): Promise<SnapItem[]> {
+  if (ctx.actor === "system" || !items.length) return items;
+  const ids = new Set<string>();
+  for (const it of items) {
+    if (isUuid(it?.id)) ids.add(it.id);
+    for (const r of Array.isArray(it?.rels) ? it.rels : []) if (isUuid(r?.other)) ids.add(r.other);
+  }
+  const can = await readableCis(q, ctx, [...ids]);
+  return items.filter((it) => can.has(it?.id)).map((it) => ({ ...it, rels: (Array.isArray(it.rels) ? it.rels : []).filter((r) => can.has(r?.other)) }));
+}
+
+/** Rows of `ci_baseline` (redactRows): the snapshot shows the CIs the reader may read, nothing of the others. */
+export async function redactBaselines(q: Queryable, ctx: Ctx, _def: unknown, rows: Row[]): Promise<void> {
+  for (const r of rows) if (Array.isArray(r.items)) r.items = await visibleSnapshot(q, ctx, r.items as SnapItem[]);
+}
+
+/** Rows of `cmdb_import_run` (redactRows): a row result names a CI only for readers of that CI. */
+export async function redactRunResults(q: Queryable, ctx: Ctx, _def: unknown, rows: Row[]): Promise<void> {
+  const ids = [...new Set(rows.flatMap((r) => (Array.isArray(r.results) ? r.results : []).map((x: Row) => x?.ci_id).filter(isUuid)))];
+  if (!ids.length) return;
+  const can = await readableCis(q, ctx, ids);
+  for (const r of rows) {
+    if (!Array.isArray(r.results)) continue;
+    r.results = r.results.map((x: Row) => (isUuid(x?.ci_id) && !can.has(x.ci_id) ? { ...x, ci_id: null, number: null, name: null, changed: undefined, skipped: undefined } : x));
+  }
 }
 
 /** The CIs a baseline covers now, as the caller may read them. */
@@ -93,14 +124,15 @@ export async function compareBaseline(ctx: Ctx, id: string, against: string | nu
   const q = ctx.db;
   const b = await liveRow(q, ctx, "ci_baseline", id);
   if (!b) throw notFound("خط مبنا پیدا نشد");
-  const before: SnapItem[] = Array.isArray(b.items) ? b.items : [];
+  // both sides as the caller may see them: a CI they may not read is in neither (never «removed»)
+  const before = await visibleSnapshot(q, ctx, Array.isArray(b.items) ? b.items : []);
   let after: SnapItem[];
   let afterLabel = "وضعیت فعلی";
   let afterAt: string | null = new Date().toISOString();
   if (against) {
     const o = await liveRow(q, ctx, "ci_baseline", against);
     if (!o) throw notFound("خط مبنای دوم پیدا نشد");
-    after = Array.isArray(o.items) ? o.items : [];
+    after = await visibleSnapshot(q, ctx, Array.isArray(o.items) ? o.items : []);
     afterLabel = `${o.number ?? ""} ${o.name}`.trim();
     afterAt = o.taken_at ?? null;
   } else {
@@ -138,7 +170,7 @@ export async function driftFromBaseline(ctx: Ctx, id: string): Promise<{ created
         await createIn(tx, sys, "ci_drift", {
           short_description: `«${m.name}»: «${r.labels[f.field] ?? f.field}» با خط مبنا فرق دارد`.slice(0, 200),
           ci_id: m.id, attribute: f.field, expected: text(f.before), actual: text(f.after), baseline_id: id, dedupe_key: key,
-          assignment_group_id: ci?.support_group_id ?? null, assigned_to: ci?.owned_by ?? null,
+          assignment_group_id: ci?.support_group_id ?? null, assigned_to: ci?.owned_by ?? null, workspace_id: ci?.workspace_id ?? null,
         }, { trusted: true });
         created++;
       }
@@ -167,7 +199,7 @@ export async function recordDrift(tx: Tx, ctx: Ctx, ciId: string, changes: { att
       short_description: `«${ci.name}»: «${label}» بدون تغییر مجاز عوض شد`.slice(0, 200),
       ci_id: ciId, attribute: c.attribute, expected: text(c.expected), actual: text(c.actual), dedupe_key: key,
       description: via === "manual" ? "ویرایش دستی" : "گزارش منبع داده",
-      assignment_group_id: ci.support_group_id ?? null, assigned_to: ci.owned_by ?? null, source_id: ci.discovery_source_id ?? null,
+      assignment_group_id: ci.support_group_id ?? null, assigned_to: ci.owned_by ?? null, workspace_id: ci.workspace_id ?? null, source_id: ci.discovery_source_id ?? null,
     }, { trusted: true });
     n++;
   }

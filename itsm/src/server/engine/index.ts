@@ -19,7 +19,7 @@ export { exportRows, importRows } from "./transfer";
 export type { ExportParams, ExportResult, ImportParams, ImportResult } from "./transfer";
 export { tablesMeta, tableMeta } from "./meta";
 export type { TableMeta } from "./meta";
-export { registerHooks, registerRecordMeta, hooksFor } from "./hooks";
+export { registerHooks, registerRecordMeta, hooksFor, redactRows } from "./hooks";
 export type { TableHooks, WriteArgs, WriteOp, MetaArgs, MetaProvider, PushArgs } from "./hooks";
 export { onRecordEvent, emitEvent } from "./events";
 export type { RecordEvent, RecordEventKind, RecordEventHandler, RecordEventInput } from "./events";

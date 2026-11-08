@@ -17,7 +17,7 @@ import { defFor, type OrgSchema } from "./schema";
 import { fieldExpr, orderSql, pathExpr, readable, searchSql, sortable, toSql } from "./sql";
 import { RefSet, resolveDisplay } from "./display";
 import { fromDb, loadReadable, pathVisible, requireReadable, toOutput, type Row } from "./read";
-import { metaProvidersFor } from "./hooks";
+import { metaProvidersFor, redactRows } from "./hooks";
 import { createIn, isLocked, removeIn, savepoint, transitionIn, updateIn, type WriteOptions } from "./write";
 
 export interface ListParams {
@@ -197,6 +197,7 @@ export async function list(ctx: Ctx, table: string, p: ListParams = {}): Promise
     else total = Number((await ctx.db.one<{ n: number }>(`select count(*)::int as n from ${def.table} t where ${whereSql}`, countParams))?.n ?? 0);
   }
   const out = rows.map((r) => outputSelected(def, r, sel));
+  await redactRows(ctx.db, ctx, def, out);
   const refs = new RefSet();
   for (const r of out) {
     refs.addRow(def, r, sel.fields);
@@ -291,6 +292,7 @@ export async function get(ctx: Ctx, table: string, id: string): Promise<RecordRe
   }
   const env = await condEnv(ctx);
   const row = await requireReadable(ctx, def, id, env);
+  await redactRows(ctx.db, ctx, def, [row]);
   const visible = access().visibleFields(ctx, def);
   const out = toOutput(def, row, visible);
   const refs = new RefSet();

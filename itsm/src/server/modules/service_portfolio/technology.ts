@@ -64,7 +64,7 @@ export async function technologyFindings(tx: Tx, ctx: Ctx): Promise<{ opened: nu
     await createIn(tx, sys, "cmdb_finding", {
       short_description: `«${ci.name}» روی «${std.name}${std.product_version ? ` ${std.product_version}` : ""}» (${why})`.slice(0, 200), ci_id: ci.id, kind: "technology",
       severity: std.status === "prohibited" || why.startsWith("پشتیبانی") ? "high" : "medium", detail: std.notes ?? `استاندارد فناوری: ${std.name}`, dedupe_key: key, auto: true,
-      assigned_to: ci.owned_by ?? null, assignment_group_id: ci.support_group_id ?? null,
+      assigned_to: ci.owned_by ?? null, assignment_group_id: ci.support_group_id ?? null, workspace_id: ci.workspace_id ?? null,
     }, { trusted: true });
     opened++;
   }

@@ -292,7 +292,7 @@ cmdbRoutes.post("/wrong-ci", async (c) => {
     if (open || !ci) return { finding_id: open?.id ?? null };
     const f = await createIn(tx, sysOf(ctx, ctx.user.id), "cmdb_finding", {
       short_description: `«${ci.name}» به اشتباه روی ${rec.row.number ?? def.label} ثبت شده بود`.slice(0, 200), ci_id: ci.id, kind: "wrong_ci", severity: "low", dedupe_key: key, auto: true,
-      detail: input.note ?? null, assigned_to: ci.owned_by ?? null, assignment_group_id: ci.support_group_id ?? null,
+      detail: input.note ?? null, assigned_to: ci.owned_by ?? null, assignment_group_id: ci.support_group_id ?? null, workspace_id: ci.workspace_id ?? null,
     }, { trusted: true });
     return { finding_id: f.id };
   });

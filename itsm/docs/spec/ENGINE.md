@@ -324,6 +324,12 @@ table run before those registered for `"*"`, in registration order. Values a `be
 input (no permission checks); history, events and `afterWrite` see them. Never call a model or an external service
 in a hook — enqueue a job. Each `register*` returns an unregister function.
 
+`redactRows(q, ctx, def, rows)` is the one read hook: a table whose rows keep copies of other records' data (a CI
+baseline's snapshot, an import run's row results) removes, in place, what the reader may not read of those records.
+It runs on `get`, `list` (and so exports) and sync pulls, never for the system; list rows hold only their selected
+fields. A sync push that sends a redacted value back unchanged keeps the stored value (so a Windows app never
+overwrites a full copy with its reader's view).
+
 ## 7. Events
 
 Every create/update/transition/delete writes events into the job queue **in the same transaction** (outbox):

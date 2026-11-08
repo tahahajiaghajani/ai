@@ -22,6 +22,7 @@ import { coerceValue, createIn, orgSchema, orgTz, registerHooks, updateIn, valid
 import { access } from "../../access/provider";
 import { enqueue } from "../../jobs";
 import { classTree, cmdbConfig, CI_COLUMNS, countRows, eqAll, invalidateCmdbCache, isCmdbAdmin, isUuid, liveRow, liveRows, relTypes, sysOf, type Row } from "./common";
+import { redactBaselines, redactRunResults } from "./baseline";
 
 const KEY = /^[a-z][a-z0-9_]{0,62}$/;
 const isSystem = (ctx: Ctx) => ctx.actor === "system";
@@ -431,7 +432,9 @@ export function installCmdbHooks(): (() => void)[] {
     registerHooks("ci_rel", { beforeWrite: relBefore, afterWrite: relAfter }),
     registerHooks("ci_group", { beforeWrite: groupBefore }),
     registerHooks("cmdb_rule", { beforeWrite: ruleBefore }),
-    registerHooks("ci_baseline", { beforeWrite: baselineBefore, guards: { baseline_has_items: baselineHasItems } }),
+    registerHooks("ci_baseline", { beforeWrite: baselineBefore, guards: { baseline_has_items: baselineHasItems }, redactRows: redactBaselines }),
+    // copies of CI data in a run's row results follow the CIs' readability
+    registerHooks("cmdb_import_run", { redactRows: redactRunResults }),
     registerHooks("ci_cert_campaign", { beforeWrite: campaignBefore, afterWrite: campaignAfter, guards: { campaign_can_start: campaignCanStart } }),
     registerHooks("ci_cert_task", { afterWrite: certTaskAfter }),
     registerHooks("cmdb_dedup_task", { beforeWrite: dedupBefore }),
