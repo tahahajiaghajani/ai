@@ -129,6 +129,11 @@ export interface ModuleUi {
   /** first path segment → space, for its routes that are not nav items (editors, detail pages) */
   segments?: Record<string, SpaceKey>;
   searches?: PaletteSearch[];
+  /**
+   * sign-in-free pages under /p/ (what an organisation published on purpose: the status page by its secret link…);
+   * they read only the sign-in-free API (`publicApi`, /api/public)
+   */
+  publicRoutes?: AppRoute[];
 }
 
 /** «خانه»: the space of the home page; the only space until a module adds one. */
@@ -165,3 +170,6 @@ export const NAV: NavGroup[] = UIS.flatMap((u) => u.nav);
 export const ROUTES: AppRoute[] = UIS.flatMap((u) => u.routes);
 
 export const SEARCHES: PaletteSearch[] = UIS.flatMap((u) => u.searches ?? []);
+
+/** The sign-in-free pages of every module (paths under /p/). */
+export const PUBLIC_ROUTES: AppRoute[] = UIS.flatMap((u) => u.publicRoutes ?? []);

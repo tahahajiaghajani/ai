@@ -3,7 +3,8 @@
 // API (/r/service…); these routes are what it cannot express: the status page and its public link, self-service
 // subscriptions, the owner's scorecard, portfolio reports, rationalization, catalogue health, technology risk,
 // «my services» and entitlements, the service picker and affected services from CIs, and the AI skills (409 until
-// the AI layer registers them). The public status page is GET /api/v1/status/:key (no sign-in; a projection).
+// the AI layer registers them). The public status page is GET /api/public/status/:key (no sign-in, rate limited; a
+// projection), also at its first address GET /api/v1/status/:key; the page people open is /p/status/:key.
 import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import { router, body, query } from "../http/hono";
@@ -13,6 +14,9 @@ import { createIn, defFor, removeIn, systemCtx, updateIn } from "../engine";
 import { todayISO } from "@shared/jalali";
 import type { ServiceMeta, ServicePickerHit } from "@shared/service_portfolio/api";
 import { publicApiRoutes } from "./integrations";
+import { PUBLIC_LIMIT, publicRoutes } from "./public";
+import { rateLimit } from "../http/ratelimit";
+import type { C } from "../http/hono";
 import { servicesImpactedBy } from "../modules/cmdb/impact";
 import {
   catalogueHealth, entitledOfferings, isPortfolioManager, myServices, orgOfStatusToken, portfolioAi, portfolioAiCapabilities, portfolioReport, publicView,
@@ -263,7 +267,7 @@ servicePortfolioRoutes.post("/ai/gaps", async (c) => {
 // ---------------------------------------------------------------------------------------------------------------
 // The public status page (no sign-in): GET /api/v1/status/:key — published services only, as a projection
 
-publicApiRoutes.get("/status/:key", async (c) => {
+async function publicStatus(c: C) {
   const cfg = c.get("cfg");
   const orgId = await orgOfStatusToken(cfg.db, c.req.param("key") ?? "");
   if (!orgId) throw notFound("صفحهٔ وضعیت پیدا نشد");
@@ -273,5 +277,8 @@ publicApiRoutes.get("/status/:key", async (c) => {
   c.header("Cache-Control", "public, max-age=60");
   c.header("Access-Control-Allow-Origin", "*");
   return c.json(page);
-});
+}
+
+publicRoutes.get("/status/:key", publicStatus);
+publicApiRoutes.get("/status/:key", rateLimit(PUBLIC_LIMIT), publicStatus);
 

@@ -16,6 +16,7 @@ const Setup = lazy(() => import("./pages/auth/Setup"));
 const Orgs = lazy(() => import("./pages/orgs/Orgs"));
 const OrgWizard = lazy(() => import("./pages/orgs/OrgWizard"));
 const Admin = lazy(() => import("./pages/admin/Admin"));
+const PublicArea = lazy(() => import("./pages/published/PublicArea"));
 
 /** True once `ms` have passed since mount: quick loads never flash a loader (components.md §8). */
 function useAfter(ms: number) {
@@ -151,6 +152,8 @@ export function App() {
         <Route path="/orgs" element={<RequireAuth><Orgs /></RequireAuth>} />
         <Route path="/orgs/new" element={<RequireAuth><OrgWizard /></RequireAuth>} />
         <Route path="/admin/*" element={<RequireAuth><Admin /></RequireAuth>} />
+        {/* sign-in-free pages an organisation published (no session needed) */}
+        <Route path="/p/*" element={<PublicArea />} />
         <Route path="/:org/*" element={<RequireAuth><OrgArea /></RequireAuth>} />
       </Routes>
     </Suspense>

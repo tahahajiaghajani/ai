@@ -43,3 +43,17 @@ notification and SLA services do, for «ارسال اعلان» and «درخوا
 catalog flows with `startCatalogFlows`, and wake a waiting step of its own with `resumeFlowWait(tx, orgId, key, result)`
 inside the transaction that decided. Records written by a run carry `$flow` in their events, so a module's own
 subscribers can tell automation from people.
+
+## Public pages without sign-in
+
+What an organisation publishes on purpose is served without a session, and nothing else: modules mount endpoints on
+`publicRoutes` (`src/server/routes/public.ts`, `/api/public/…`) and pages on `ModuleUi.publicRoutes` (the SPA's `/p/…`,
+outside the signed-in shell, in `PublicFrame`; they read only `publicApi` from `src/ui/lib/api.ts`). Every public
+request is rate limited per client (`rateLimit` in `src/server/http/ratelimit.ts`, `PUBLIC_LIMIT`: 120 a minute, 429
+with `Retry-After` and a Persian message; counters per process), GETs are readable from any origin and marked
+`noindex`. A handler opens no member context: it resolves the module's own published token (rotatable, revocable) to
+an organisation, reads as the system and returns a projection of what was published — never record ids, numbers or
+people. The service status page is the first: `GET /api/public/status/:key` (also `GET /api/v1/status/:key`, rate
+limited) and the page `/p/status/:key` (`src/ui/modules/service_portfolio/PublicStatus.tsx`); the portfolio manager's
+«انتشار عمومی» hands out that page's link. Public knowledge (KB-031, anonymous read ACC-004) plugs in the same way
+once the knowledge module publishes bases for it (not built yet).

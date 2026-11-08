@@ -34,7 +34,8 @@ export function DayBars({ s, compact }: { s: Pick<StatusPageService, "bars" | "a
   );
 }
 
-function ServiceRow({ s, onToggle, busy }: { s: StatusPageService; onToggle?: () => void; busy?: boolean }) {
+/** One service of the page: status, message, day bars (and «خبرم کن» in the organisation; not on the published page). */
+export function ServiceRow({ s, onToggle, busy }: { s: StatusPageService; onToggle?: () => void; busy?: boolean }) {
   return (
     <li className="spf-row">
       <div className="flex items-center justify-between gap-3">
