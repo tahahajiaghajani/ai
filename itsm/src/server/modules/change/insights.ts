@@ -73,6 +73,16 @@ export async function similarChanges(ctx: Ctx, id: string, limit = 8): Promise<R
     .filter((c) => c.score > 0)
     .sort((a, b) => b.score - a.score)
     .slice(0, Math.max(1, Math.min(30, limit)));
+  // the AI layer's semantic neighbours, re-read with the caller's access (CHG-071)
+  const ai = changeAi().similar;
+  if (ai) {
+    const hits = (await ai(ctx, id, { limit: Math.max(1, Math.min(30, limit)) })).filter((h) => h.id !== id && !scored.some((c) => c.id === h.id));
+    if (hits.length) {
+      const extra = await list(ctx, "change_request", { ids: hits.map((h) => h.id), size: hits.length, fields: SIMILAR_FIELDS, total: false });
+      for (const c of extra.rows) scored.push({ ...c, score: Math.round((hits.find((h) => h.id === c.id)?.score ?? 0) * 300) / 100, semantic: true });
+    }
+    scored.sort((a, b) => b.score - a.score);
+  }
   const done = scored.filter((c) => c.close_code);
   const failed = done.filter((c) => c.close_code === "unsuccessful" || c.close_code === "backed_out").length;
   return {

@@ -18,6 +18,7 @@
 //   GET  /catalog · POST /catalog/:id/order      the standard-change catalogue
 //   GET  /cab/workbench · POST /cab/:cab/next · POST /cab/meetings/:id/refresh · …/items/:item/decide
 //   GET  /cab/meetings/:id/minutes · /pack · POST /cab/meetings/:id/complete
+//   POST /records/:id/ai/:skill · GET /ai/standard-candidates   the AI layer's skills, when registered (409 otherwise)
 //   GET  /suspects · POST /detected · GET /ci/:id/timeline · GET /dashboard
 import { z } from "zod";
 import { STATE_OPTIONS, WINDOW_KINDS } from "@shared/tables/change";
@@ -195,6 +196,40 @@ changeRoutes.post("/from/:table/:id", async (c) => {
     planned_start: INSTANT.optional(), planned_end: INSTANT.optional(), assignment_group_id: UUID.optional(),
   }));
   return c.json({ row: await changeFrom(c.get("ctx"), table, UUID.parse(c.req.param("id")), input) });
+});
+
+// ----- AI skills (when the AI layer registered them; src/server/modules/change/ai.ts) ------------------------------
+
+const SKILLS = ["summarize", "draftPlans", "riskAnswers", "validate", "draftPir"] as const;
+
+changeRoutes.post("/records/:id/ai/:skill", async (c) => {
+  const ctx = c.get("ctx");
+  const id = UUID.parse(c.req.param("id"));
+  const skill = z.enum(SKILLS).parse(c.req.param("skill"));
+  const input = await body(c, z.object({ fields: z.array(z.enum(["implementation_plan", "backout_plan", "test_plan", "communication_plan", "justification"])).max(5).optional() }));
+  await get(ctx, "change_request", id);
+  const ai = changeAi();
+  const none = () => c.json({ error: { code: "ai_unavailable", message: "این کار هوش مصنوعی برای تغییرها راه‌اندازی نشده است" } }, 409);
+  switch (skill) {
+    case "summarize":
+      return ai.summarize ? c.json(await ai.summarize(ctx, id)) : none();
+    case "draftPlans":
+      return ai.draftPlans ? c.json({ drafts: await ai.draftPlans(ctx, id, input.fields?.length ? input.fields : ["implementation_plan", "backout_plan", "test_plan"]) }) : none();
+    case "riskAnswers":
+      return ai.riskAnswers ? c.json({ answers: await ai.riskAnswers(ctx, id) }) : none();
+    case "validate":
+      return ai.validate ? c.json(await ai.validate(ctx, id)) : none();
+    default:
+      return ai.draftPir ? c.json({ sections: await ai.draftPir(ctx, id) }) : none();
+  }
+});
+
+changeRoutes.get("/ai/standard-candidates", async (c) => {
+  const ctx = await needChanges(c);
+  const ai = changeAi().standardCandidates;
+  if (!ai) return c.json({ error: { code: "ai_unavailable", message: "پیشنهاد تغییر استاندارد با هوش مصنوعی راه‌اندازی نشده است" } }, 409);
+  const q = query(c, z.object({ days: z.coerce.number().int().min(30).max(730).optional() }));
+  return c.json({ candidates: await ai(ctx, { windowDays: q.days ?? 180 }) });
 });
 
 // ----- the standard-change catalogue ---------------------------------------------------------------------------

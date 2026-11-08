@@ -4,7 +4,7 @@
 // (window reminders, overruns, stale drafts, review auto-close), success scores, change-caused incident counts and the
 // automatic suspension of a standard change that failed twice.
 import { describe, expect, it, beforeAll } from "vitest";
-import { computeSuccessScores, countCausedIncidents, sweep } from "@server/modules/change";
+import { computeSuccessScores, countCausedIncidents, registerChangeAi, sweep } from "@server/modules/change";
 import { at, world, HOUR, type World } from "./change-helpers";
 
 let w: World;
@@ -202,5 +202,24 @@ describe("background work", () => {
     expect(t.state).toBe("suspended");
     const catalogue = (await p.agent.client.get(`${P}/change/catalog`)).items.map((x: any) => x.id);
     expect(catalogue).not.toContain(template!.id);
+  });
+});
+
+describe("AI extension points", () => {
+  it("answers 409 without the AI layer and serves a registered skill to whoever may read the change", async () => {
+    const { P, p } = w;
+    const c = await w.change();
+    const none = await p.agent.client.post(`${P}/change/records/${c.id}/ai/summarize`, {}, 409);
+    expect(none.error.code).toBe("ai_unavailable");
+    const off = registerChangeAi({ summarize: async (_ctx, id) => ({ text: `خلاصهٔ ${id}` }), similar: async () => [] });
+    try {
+      const r = await p.agent.client.post(`${P}/change/records/${c.id}/ai/summarize`, {});
+      expect(r.text).toBe(`خلاصهٔ ${c.id}`);
+      expect((await p.agent.client.get(`${P}/r/change_request/${c.id}`)).meta.change.ai).toEqual(expect.arrayContaining(["change.summarize", "change.similar"]));
+      await p.req.client.post(`${P}/change/records/${c.id}/ai/summarize`, {}, 404);
+      await p.agent.client.post(`${P}/change/records/${c.id}/ai/draftPlans`, {}, 409);
+    } finally {
+      off();
+    }
   });
 });
