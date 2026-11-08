@@ -42,9 +42,9 @@ import {
   actorOf, changeConfig, countRows, dbNow, eqAll, faList, fieldLabel, isUuid, liveRow, liveRows, managesChanges, modelLike, msOf, riskQuestions, sysOf, type Row,
 } from "./common";
 import { impactedServicesOf } from "./impact";
-import { applyLockdown, releaseLockdown } from "./lockdown";
+import { lockdownDue, releaseLockdown, startLockdown } from "./lockdown";
 import { ensurePir } from "./pir";
-import { holdsOn, leadDays, planConflicts, scheduleBlocks, storeConflicts, syncConflictState, teamScoreOf, type ConflictPlan } from "./schedule";
+import { holdsOn, leadDays, planConflicts, riskFor, scheduleBlocks, storeConflicts, syncConflictState, teamScoreOf, type ConflictPlan } from "./schedule";
 import { activateTasks, blockingDeps, createTemplateTasks, openMandatoryTasks, taskMayRun, templateTasksProblem } from "./tasks";
 
 type W = WriteArgs;
@@ -118,6 +118,11 @@ async function changeBefore(w: W): Promise<void> {
   const fields: Record<string, string> = {};
   const changed = (f: string) => (creating ? !blank(n[f]) : w.changed.has(f));
   const stateMoved = creating || w.changed.has("state");
+
+  // the risk's source is the module's to say: «template» comes only from a standard template applied on create (a
+  // person's «template» counts as not given)
+  const sourceIgnored = person(w) && !!w.input?.has("risk_source") && n.risk_source === "template";
+  if (sourceIgnored) n.risk_source = p?.risk_source ?? null;
 
   // a template fills the empty fields of a new change
   if (creating && n.template_id) {
@@ -232,6 +237,11 @@ async function changeBefore(w: W): Promise<void> {
     if (svc !== null) n.impacted_services = svc;
   }
 
+  // leaving a change out of conflict detection is the change managers' call (it clears the gate before approval)
+  if (person(w) && (creating ? !!n.exclude_conflicts : w.changed.has("exclude_conflicts")) && !(await managesChanges(w.tx, w.ctx))) {
+    fields.exclude_conflicts = "کنار گذاشتن تغییر از بررسی تداخل با مدیران تغییر است";
+  }
+
   // conflicts with other changes, windows and lockdowns: the flags land in this write, the rows after it
   if (creating ? !!(n.planned_start && n.planned_end) : CONFLICT_TRIGGERS.some((f) => w.changed.has(f))) {
     const plan = await planConflicts(w.tx, sys, n);
@@ -259,7 +269,11 @@ async function changeBefore(w: W): Promise<void> {
         result = computeRisk({ change: n, questions, answers: n.risk_answers, teamScore: team, bands: cfg });
       }
     }
-    if (person(w) && w.input?.has("risk") && !w.input?.has("risk_source") && n.risk && n.risk !== result.level && n.risk_source !== "template") n.risk_source = "manual";
+    // «template» holds only for a standard change of its template; a person who sets a risk other than the calculated
+    // one sets it by hand (a reason is required) — on a template's change too
+    if (n.risk_source === "template" && !(n.type === "standard" && n.template_id)) n.risk_source = "calculated";
+    const setByHand = person(w) && w.input?.has("risk") && (!w.input?.has("risk_source") || sourceIgnored) && (n.risk_source !== "template" || (!creating && w.changed.has("risk")));
+    if (setByHand && n.risk && n.risk !== result.level) n.risk_source = "manual";
     if (!n.risk_source) n.risk_source = "calculated";
     if (n.risk_source === "calculated" || !n.risk) n.risk = result.level;
     if (n.risk_source === "manual" && n.risk !== result.level && blank(n.risk_override_reason) && person(w)) fields.risk_override_reason = "دلیل تعیین دستی ریسک را بنویسید";
@@ -307,6 +321,13 @@ async function changeGuard(w: W & { transition: NonNullable<W["transition"]> }):
   if (forward && to === "authorize" && n.type !== "emergency" && !isSystemCtx(w.ctx)) {
     const open = await countRows(w.tx, sys, "change_conflict", { and: [{ f: "change_id", op: "eq", v: n.id }, { f: "active", op: "eq", v: true }, { f: "status", op: "eq", v: "detected" }] });
     if (open) return `${open} تداخل بررسی‌نشده دارد؛ پیش از درخواست تأیید، تداخل‌ها را بررسی کنید`;
+    // the questionnaire's mandatory questions are answered before approval is asked (a manual risk, with its reason,
+    // stands in for the questionnaire's verdict)
+    if (person(w) && n.risk_source !== "manual") {
+      const { result } = await riskFor(w.tx, sys, n, cfg);
+      const missing = result.questionnaire.missing;
+      if (missing.length) return `پرسش‌نامهٔ ریسک کامل نیست (${missing.length} پرسش لازم بی‌پاسخ، مانند «${missing[0]}»)؛ پیش از درخواست تأیید به آن‌ها پاسخ دهید`;
+    }
   }
   if (forward && (to === "scheduled" || to === "implement")) {
     const b = await scheduleBlocks(w.tx, sys, n);
@@ -676,10 +697,10 @@ async function lockdownBefore(w: W): Promise<void> {
 async function lockdownAfter(w: WA): Promise<void> {
   if (w.op === "delete") return;
   const actor = actorOf(w.ctx);
-  if (w.op === "create" && w.row.state === "active" && w.row.hold_in_flight !== false && (msOf(w.row.starts_at) ?? 0) <= Date.now() + 60_000) {
-    const held = await applyLockdown(w.tx, w.ctx, w.row, actor);
-    if (held) await updateIn(w.tx, sysOf(w.ctx), "change_lockdown", String(w.row.id), { held_count: held }, { trusted: true, keepVersion: true });
-  } else if (entering(w, "released")) await releaseLockdown(w.tx, w.ctx, w.row, actor);
+  if (entering(w, "released")) await releaseLockdown(w.tx, w.ctx, w.row, actor);
+  // a lockdown that has started holds the changes in flight once (created now, or moved to a start that passed);
+  // one that starts later is applied by the sweep when its start comes
+  else if ((w.op === "create" || w.changed.has("starts_at") || w.changed.has("hold_in_flight")) && lockdownDue(w.row, Date.now() + 60_000)) await startLockdown(w.tx, w.ctx, w.row, actor);
 }
 
 function configBefore(w: W): void {

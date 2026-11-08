@@ -1,6 +1,7 @@
 // Change lockdowns (catalogue CHG-046): during a crisis or a major incident every change — or the changes of some
-// services, CIs or a condition — stops; only emergency changes may proceed. Starting a lockdown puts the changes in
-// flight (scheduled, being implemented) on hold with the reason «قرنطینهٔ تغییرات» when `hold_in_flight` is set; the
+// services, CIs or a condition — stops; only emergency changes may proceed. The start of a lockdown (at once, or later
+// through the sweep) puts the changes in flight (scheduled, being implemented) on hold with the reason «قرنطینهٔ
+// تغییرات» when `hold_in_flight` is set, once (`applied_at`); the
 // lifecycle guard refuses scheduling or implementing a non-emergency change it covers; ending it resumes the changes it
 // held (unless another active lockdown still covers them). Conflicts of kind «lockdown» show the overlap on the calendar.
 import { lockdownApplies } from "@shared/change/logic";
@@ -8,7 +9,7 @@ import type { Ctx } from "../../context";
 import type { Tx } from "../../db";
 import { addJournalIn, defFor, emitEvent, updateIn } from "../../engine";
 import { enqueue } from "../../jobs";
-import { eqAll, liveRows, sysOf, type Row } from "./common";
+import { eqAll, liveRows, msOf, sysOf, type Row } from "./common";
 import { activeLockdowns, holdsOn, lockdownLike } from "./schedule";
 
 /** States whose changes a lockdown holds. */
@@ -29,6 +30,19 @@ export async function applyLockdown(tx: Tx, ctx: Ctx, lockdown: Row, actor: stri
   await emitEvent(tx, sys, { kind: "record.change_lockdown.started", table: "change_lockdown", id: String(lockdown.id), number: lockdown.number ?? null, data: { held: n } });
   await enqueue(tx, { kind: "change.recheck", orgId: ctx.org.id, dedupeKey: "change.recheck" });
   return n;
+}
+
+/** Is the lockdown active, holding changes in flight, started by `at` and not applied yet? */
+export const lockdownDue = (l: Row, at: number): boolean => l.state === "active" && l.hold_in_flight !== false && !l.applied_at && (msOf(l.starts_at) ?? 0) <= at;
+
+/**
+ * Apply a lockdown whose start has come, once: the changes in flight it covers go on hold and it records when
+ * (`applied_at`) and how many. Called on create, when its start moves into the past, and by the sweep.
+ */
+export async function startLockdown(tx: Tx, ctx: Ctx, lockdown: Row, actor: string | null): Promise<number> {
+  const held = await applyLockdown(tx, ctx, lockdown, actor);
+  await updateIn(tx, sysOf(ctx), "change_lockdown", String(lockdown.id), { held_count: Number(lockdown.held_count ?? 0) + held, applied_at: new Date().toISOString() }, { trusted: true, keepVersion: true });
+  return held;
 }
 
 /** Resume the changes a lockdown held (those no other active lockdown covers). Returns how many. */

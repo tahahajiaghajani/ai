@@ -932,6 +932,8 @@ const changeLockdown: TableDef = {
     { name: "released_at", label: "زمان پایان", type: "datetime", system: true, span: 8 },
     { name: "released_by", label: "پایان‌دهنده", type: "user", system: true, span: 8 },
     { name: "held_count", label: "تغییرهای متوقف‌شده", type: "int", readonly: true, default: 0, audit: false, span: 8 },
+    // when its start came and the changes in flight were put on hold (the sweep applies a lockdown that starts later)
+    { name: "applied_at", label: "زمان اعمال", type: "datetime", readonly: true, audit: false, span: 8 },
   ],
   states: LOCKDOWN_STATES,
   scope: { public: true },

@@ -123,6 +123,62 @@ describe("approvers", () => {
   });
 });
 
+describe("risk and conflicts", () => {
+  const CI = "61616161-6161-4161-8161-616161616161";
+
+  it("a person does not set the risk's source: «template» is the template's, and a lower risk by hand needs its reason", async () => {
+    const { P, p } = w;
+    const c = await w.change({ impact: "1", outage_expected: true, outage_minutes: 120 });
+    expect(c.risk_source).toBe("calculated");
+    expect(c.risk_calculated).not.toBe("low");
+    let row = await w.get(c.id, p.agent.client);
+    const e = await p.agent.client.patch(`${P}/r/change_request/${c.id}`, { risk: "low", risk_source: "template", version: row.version }, 400);
+    expect(e.error.details.fields.risk_override_reason).toBeTruthy();
+    row = await w.get(c.id, p.agent.client);
+    expect(row.risk_source).toBe("calculated");
+    expect(row.risk).toBe(row.risk_calculated);
+    const byHand = (await p.agent.client.patch(`${P}/r/change_request/${c.id}`, { risk: "low", risk_source: "template", risk_override_reason: "بازه‌ای کوتاه در شب", version: row.version })).row;
+    expect(byHand.risk_source).toBe("manual");
+    expect(byHand.risk).toBe("low");
+  });
+
+  it("answering only the favourable questions does not lower the risk; approval waits for the mandatory answers", async () => {
+    const { P, p } = w;
+    const c = await w.change({ impact: "1", outage_expected: true, outage_minutes: 120 });
+    const v = await p.agent.client.get(`${P}/change/records/${c.id}/risk`);
+    expect(v.result.questionnaire.score).toBeNull();
+    const first = v.questions.find((q: any) => q.kind !== "number");
+    const best = first.options.reduce((a: any, b: any) => (b.score < a.score ? b : a)).value;
+    const part = await p.agent.client.put(`${P}/change/records/${c.id}/risk`, { answers: { [first.id]: best }, version: v.version });
+    expect(part.result.score).toBeGreaterThanOrEqual(v.result.score);
+    const assessed = await w.move(c.id, ["assess"]);
+    const refused = await p.agent.client.post(`${P}/r/change_request/${c.id}/transition`, { to: "authorize", version: assessed.version }, 409);
+    expect(refused.error.message).toContain("پرسش‌نامهٔ ریسک");
+    const all = Object.fromEntries(v.questions.map((q: any) => [q.id, q.kind === "number" ? 0 : q.options[0].value]));
+    const done = await p.agent.client.put(`${P}/change/records/${c.id}/risk`, { answers: all, version: assessed.version });
+    expect(done.result.questionnaire.missing.length).toBe(0);
+    expect((await w.move(c.id, ["authorize"])).state).toBe("authorize");
+  });
+
+  it("leaving a change out of conflict detection is the change managers' call; the other change keeps its conflict", async () => {
+    const { P, p } = w;
+    const a = await w.change({ ...manual("moderate"), affected_cis: [CI], planned_start: at(30, 8), planned_end: at(30, 10) });
+    await w.move(a.id, ["assess"]);
+    const b = await w.change({ ...manual("moderate"), affected_cis: [CI], planned_start: at(30, 9), planned_end: at(30, 11), assignment_group_id: w.g.servers }, p.other.client);
+    expect(b.conflict_count).toBe(1);
+    const mine = await w.get(a.id, p.agent.client);
+    const refused = await p.agent.client.patch(`${P}/r/change_request/${a.id}`, { exclude_conflicts: true, version: mine.version }, 400);
+    expect(refused.error.details.fields.exclude_conflicts).toBeTruthy();
+    const cm = await w.get(a.id, p.cm.client);
+    const excluded = (await p.cm.client.patch(`${P}/r/change_request/${a.id}`, { exclude_conflicts: true, version: cm.version })).row;
+    expect(excluded.conflict_count).toBe(0);
+    await w.drain();
+    const other = await w.get(b.id);
+    expect(other.conflict_status).toBe("conflict");
+    expect(other.conflict_count).toBe(1);
+  });
+});
+
 describe("manual authorization", () => {
   it("is not for team leads, and never for the change's own requester, implementer or coordinator", async () => {
     const { P, p, o } = w;

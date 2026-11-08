@@ -1883,6 +1883,7 @@ alter table sm_change_lockdowns add column if not exists reason text;
 alter table sm_change_lockdowns add column if not exists released_at timestamptz;
 alter table sm_change_lockdowns add column if not exists released_by uuid;
 alter table sm_change_lockdowns add column if not exists held_count integer;
+alter table sm_change_lockdowns add column if not exists applied_at timestamptz;
 alter table sm_change_lockdowns add column if not exists state text;
 create unique index if not exists sm_change_lockdowns_no_uk on sm_change_lockdowns (org_id, no);
 create index if not exists sm_change_lockdowns_rev_idx on sm_change_lockdowns (org_id, rev);

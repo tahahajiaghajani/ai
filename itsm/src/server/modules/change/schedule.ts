@@ -134,15 +134,18 @@ export async function detectFor(q: Queryable, ctx: Ctx, row: Row, cfg: ChangeCon
   );
   const holds = await holdsOn(q, ctx, row);
   const occs: (Occurrence & { scoped: boolean; applies: boolean })[] = [];
+  const maintenanceWindows: { id: string; name: string; scoped: boolean; applies: boolean }[] = [];
   for (const w of await activeWindows(q, ctx)) {
     const wl = windowLike(w);
     const applies = windowApplies(wl, row, holds);
-    // a maintenance occurrence must contain the whole window: look a day around it
+    if (wl.kind === "maintenance") maintenanceWindows.push({ id: String(wl.id), name: String(wl.name ?? ""), scoped: scopedWindow(wl), applies });
+    // a maintenance occurrence must contain the whole window: look a day around it (the windows themselves say
+    // whether the change is bound to one at all)
     for (const o of occurrences(wl, s - 86_400_000, e + 86_400_000, tz)) occs.push({ ...o, scoped: scopedWindow(wl), applies });
   }
   const lockdowns = (await activeLockdowns(q, ctx)).map((l) => ({ ...lockdownLike(l), applies: lockdownApplies(lockdownLike(l), row, holds) }));
   const related = cfg.related_ci_conflicts ? await relatedCisOf(q, sys, scopeOf(row).cis) : undefined;
-  return detectConflicts({ change: row, others, occurrences: occs, lockdowns, related, tzDate: (ms) => localParts(ms, tz).date });
+  return detectConflicts({ change: row, others, occurrences: occs, maintenanceWindows, lockdowns, related, tzDate: (ms) => localParts(ms, tz).date });
 }
 
 /** States in which a change's conflicts are kept up to date. */

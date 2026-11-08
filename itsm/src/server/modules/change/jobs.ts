@@ -4,7 +4,7 @@
 //   · change.sweep       every 15 minutes while the organisation has changes in flight:
 //       – «شروع پنجره» reminders before a scheduled change starts and overrun alerts of implementations past their end
 //       – review auto-close and stale-draft cancellation (when the settings ask for them)
-//       – lockdowns whose end passed are released
+//       – lockdowns whose start came are applied (changes in flight on hold), those whose end passed are released
 //       – the next meeting of every CAB with a weekly schedule, and its agenda
 //       – change-caused incidents (links «ناشی از» from incidents) counted on the changes (CHG-054)
 //       – once a day: the teams' change success scores (CHG-022)
@@ -18,6 +18,7 @@ import { pgArray } from "../../db";
 import { enqueue, registerJobHandler, type JobContext } from "../../jobs";
 import { actsHere } from "../notify";
 import { ensureNextMeeting, refreshAgenda } from "./cab";
+import { lockdownDue, startLockdown } from "./lockdown";
 import { changeConfig, countRows, hasTable, iso, liveRows, msOf, type Row } from "./common";
 import { CONFLICT_TRACKED, recomputeConflicts } from "./schedule";
 
@@ -42,6 +43,7 @@ export interface SweepResult {
   overruns: number;
   closed: number;
   canceled: number;
+  started: number;
   released: number;
   meetings: number;
   incidents: number;
@@ -51,7 +53,7 @@ export interface SweepResult {
 
 /** One pass of the sweep as the system of an organisation (`now` for tests). */
 export async function sweep(sys: Ctx, deadline = Number.POSITIVE_INFINITY, now = Date.now()): Promise<SweepResult> {
-  const out: SweepResult = { reminded: 0, overruns: 0, closed: 0, canceled: 0, released: 0, meetings: 0, incidents: 0, scores: 0, pending: false };
+  const out: SweepResult = { reminded: 0, overruns: 0, closed: 0, canceled: 0, started: 0, released: 0, meetings: 0, incidents: 0, scores: 0, pending: false };
   const db = sys.db;
   const cfg = await changeConfig(db, sys);
   const late = () => Date.now() > deadline;
@@ -97,6 +99,14 @@ export async function sweep(sys: Ctx, deadline = Number.POSITIVE_INFINITY, now =
       const ok = await sys.write((tx) => savepoint(tx, () => transitionIn(tx, sys, "change_request", String(c.id), "canceled", { close_code: "auto_canceled", close_notes: `پیش‌نویس ${staleDays} روز بی‌تغییر ماند و خودکار لغو شد.` }, { trusted: true })).then(() => true, () => false));
       if (ok) out.canceled++;
     }
+  }
+
+  // lockdowns whose start came since they were made: the changes in flight go on hold (once)
+  for (const l of await liveRows(db, sys, "change_lockdown", { and: [{ f: "state", op: "eq", v: "active" }, { f: "applied_at", op: "empty" }, { f: "starts_at", op: "lte", v: iso(now) }] }, { limit: 50 })) {
+    if (late()) return { ...out, pending: true };
+    if (!lockdownDue(l, now) || (msOf(l.ends_at) !== null && msOf(l.ends_at)! <= now)) continue;
+    await sys.write((tx) => startLockdown(tx, sys, l, null));
+    out.started++;
   }
 
   // lockdowns whose end passed

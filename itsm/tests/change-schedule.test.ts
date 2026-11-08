@@ -4,7 +4,8 @@
 // from the official holidays.
 import { describe, expect, it, beforeAll } from "vitest";
 import { localInstant } from "@shared/sla/calendar";
-import { at, world, type World } from "./change-helpers";
+import { sweep } from "@server/modules/change";
+import { at, DAY, HOUR, world, type World } from "./change-helpers";
 
 let w: World;
 const CI = "11111111-1111-4111-8111-111111111111";
@@ -46,6 +47,10 @@ describe("conflicts between changes", () => {
     // a re-check keeps the review
     await p.other.client.post(`${P}/change/records/${b.id}/conflicts/check`, {});
     expect((await conflictsOf(b.id))[0].status).toBe("ignored");
+    // approval also needs the questionnaire answered
+    const risk = await p.other.client.get(`${P}/change/records/${b.id}/risk`);
+    const answers = Object.fromEntries(risk.questions.map((q: any) => [q.id, q.kind === "number" ? 0 : q.options[0].value]));
+    await p.other.client.put(`${P}/change/records/${b.id}/risk`, { answers, version: risk.version });
     const moved = await w.move(b.id, ["authorize"], p.other.client, {});
     expect(moved.state).toBe("authorize");
     // moving one change away removes the conflict on both
@@ -74,6 +79,20 @@ describe("windows", () => {
     expect(ok.state).toBe("scheduled");
   });
 
+  it("a change bound to the weekly maintenance window is outside it even days away from its next occurrence", async () => {
+    const { P, o } = w;
+    const weekly = (await o.get(`${P}/r/change_window?size=50`)).rows.find((x: any) => x.kind === "maintenance" && x.recurrence === "weekly");
+    // a Monday noon two weeks ahead: the Thursday-night window has no occurrence within a day of it
+    const d = new Date(Date.now() + 14 * DAY);
+    while (d.getUTCDay() !== 1) d.setTime(d.getTime() + DAY);
+    d.setUTCHours(9, 0, 0, 0);
+    const c = await w.change({ maintenance_window_id: weekly.id, planned_start: d.toISOString(), planned_end: new Date(d.getTime() + 2 * HOUR).toISOString() });
+    expect(c.outside_window).toBe(true);
+    expect(c.conflict_status).toBe("conflict");
+    const kinds = (await conflictsOf(c.id)).map((x) => x.kind);
+    expect(kinds).toContain("outside_window");
+  });
+
   it("a maintenance window of a CI: outside it is flagged and the assistant proposes slots inside it", async () => {
     const { P, o, p } = w;
     const day = at(40, 0).slice(0, 10);
@@ -97,6 +116,28 @@ describe("windows", () => {
 });
 
 describe("lockdowns", () => {
+  it("a lockdown that starts later holds the changes in flight when its start comes, once", async () => {
+    const { P, o, p, sys } = w;
+    const item = (await p.agent.client.get(`${P}/change/catalog`)).items.find((x: any) => x.name.includes("گواهی"));
+    const scheduled = (await p.agent.client.post(`${P}/change/catalog/${item.id}/order`, { planned_start: at(8, 9), planned_end: at(8, 10), assignment_group_id: w.g.network, submit: true })).change;
+    expect(scheduled.state).toBe("scheduled");
+    const soon = new Date(Date.now() + 5 * 60_000).toISOString();
+    const lock = (await o.post(`${P}/r/change_lockdown`, { title: "قرنطینهٔ برنامه‌ریزی‌شده", starts_at: soon, reason: "مهاجرت مرکز داده" })).row;
+    expect(lock.held_count).toBe(0);
+    expect((await w.get(scheduled.id)).on_hold).toBe(false);
+    const later = Date.now() + 30 * 60_000;
+    expect((await sweep(sys, Number.POSITIVE_INFINITY, later)).started).toBe(1);
+    const held = await w.get(scheduled.id);
+    expect(held.on_hold).toBe(true);
+    expect(held.lockdown_id).toBe(lock.id);
+    const applied = (await o.get(`${P}/r/change_lockdown/${lock.id}`)).row;
+    expect(applied.applied_at).toBeTruthy();
+    expect(applied.held_count).toBeGreaterThanOrEqual(1);
+    expect((await sweep(sys, Number.POSITIVE_INFINITY, later)).started).toBe(0);
+    await o.post(`${P}/r/change_lockdown/${lock.id}/transition`, { to: "released" });
+    expect((await w.get(scheduled.id)).on_hold).toBe(false);
+  });
+
   it("holds changes in flight, refuses scheduling others and resumes them when released", async () => {
     const { P, o, p } = w;
     const item = (await p.agent.client.get(`${P}/change/catalog`)).items.find((x: any) => x.name.includes("گواهی"));
