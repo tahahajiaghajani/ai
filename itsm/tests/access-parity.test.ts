@@ -184,11 +184,15 @@ describe("SQL predicate == in-memory evaluator", () => {
 
 
 // Participants and readers: a `scoped` source (adds rows to subjects who read the area), a `grant` source (reads the
-// rows it names without any grant in the area — the approver grant) and a readers field (read only), on the same
-// random organisations. The JS form gets the sources' verdicts as `extra`, exactly as the provider probes them in SQL.
+// rows it names without any grant in the area — the approver grant), `bounded` sources of both reaches (never past a
+// secure workspace or a restricted group — the service owners) and a readers field (read only), on the same random
+// organisations. The JS form gets the sources' verdicts as `extra`, exactly as the provider probes them in SQL.
 describe("SQL predicate == in-memory evaluator with participants and readers", () => {
   const scoped = new Map<string, Set<string>>();
   const granted = new Map<string, Set<string>>();
+  // bounded sources (a service's owners): never past a secure workspace or a restricted group, with either reach
+  const boundedScoped = new Map<string, Set<string>>();
+  const boundedGranted = new Map<string, Set<string>>();
   const off: (() => void)[] = [];
   const READERS: TableDef = { ...TICKET, scope: { ...TICKET.scope, readers: ["resolved_by"] } };
   const sqlOf = (m: Map<string, Set<string>>) => (def: TableDef, alias: string, params: unknown[], userId: string) => {
@@ -200,6 +204,8 @@ describe("SQL predicate == in-memory evaluator with participants and readers", (
   beforeAll(() => {
     off.push(registerParticipantSource({ name: "parity_scoped", sql: sqlOf(scoped) }));
     off.push(registerParticipantSource({ name: "parity_grant", reach: "grant", sql: sqlOf(granted) }));
+    off.push(registerParticipantSource({ name: "parity_bounded_scoped", bounded: true, sql: sqlOf(boundedScoped) }));
+    off.push(registerParticipantSource({ name: "parity_bounded_grant", reach: "grant", bounded: true, sql: sqlOf(boundedGranted) }));
   });
   afterAll(() => off.forEach((f) => f()));
 
@@ -212,6 +218,8 @@ describe("SQL predicate == in-memory evaluator with participants and readers", (
       for (const u of users) {
         scoped.set(u, new Set(r.some(tickets, 0.15).map((t) => String(t.id))));
         granted.set(u, new Set(r.some(tickets, 0.15).map((t) => String(t.id))));
+        boundedScoped.set(u, new Set(r.some(tickets, 0.15).map((t) => String(t.id))));
+        boundedGranted.set(u, new Set(r.some(tickets, 0.15).map((t) => String(t.id))));
       }
       const snap = await loadOrgSnapshot(db, org);
       const rows = await db.query<Record<string, unknown>>(`select * from ${TICKET.table} where org_id = $1`, [org]);
@@ -225,7 +233,12 @@ describe("SQL predicate == in-memory evaluator with participants and readers", (
             const s: Subject = k < 2 ? built : { ...built, eff: { ...built.eff, grants: { ...built.eff.grants, incident: grantIn({ grants: {} }, "incident") } } };
             const params: unknown[] = [s.orgId];
             const read = await ids(`select t.id from ${def.table} t where t.org_id = $1 and ${readSql(s, def, "t", params)}`, params);
-            const extra = (row: Record<string, unknown>) => ({ participant: scoped.get(u)!.has(String(row.id)), granted: granted.get(u)!.has(String(row.id)) });
+            const extra = (row: Record<string, unknown>) => ({
+              participant: scoped.get(u)!.has(String(row.id)),
+              granted: granted.get(u)!.has(String(row.id)),
+              boundedParticipant: boundedScoped.get(u)!.has(String(row.id)),
+              boundedGranted: boundedGranted.get(u)!.has(String(row.id)),
+            });
             const label = `${def === READERS ? "readers" : "sources"} user=${u} roles=${s.eff.roles.join(",")} sep=${domainSeparation}`;
             expect(read, `read ${label}`).toEqual(rows.filter((row) => canReadRow(s, def, row, extra(row))).map((x) => String(x.id)).sort());
             // readers and participants never write
@@ -236,7 +249,7 @@ describe("SQL predicate == in-memory evaluator with participants and readers", (
               none++;
               viaGrant += read.length;
               // without an area grant, only the rows the grant source names
-              for (const id of read) expect(granted.get(u)!.has(id), `grant only ${label}`).toBe(true);
+              for (const id of read) expect(granted.get(u)!.has(id) || boundedGranted.get(u)!.has(id), `grant only ${label}`).toBe(true);
             }
           }
         }
