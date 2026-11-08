@@ -9,8 +9,9 @@
 //   · a round rejected → back to the draft with «ردشده؛ نیازمند بازنگری» and a note;
 //   · a person moving the change back (revert, re-assessment) withdraws the cycle's open approvals.
 //
-// Approver sources for the rules' levels: «change_manager» (the change's manager, else the change managers' group of
-// the settings, else holders of the role), «cab» and «ecab» (the members of the change's CAB / the emergency CAB) and
+// Approver sources for the rules' levels: «change_manager» (the change's manager when that person is a change manager,
+// else the change managers' group of the settings, else holders of the role), «cab» and «ecab» (the members of the
+// change's CAB when it is an active board of its kind, else the default / the emergency CAB) and
 // «service_owner» (from the CMDB's provider, src/server/modules/change/impact.ts).
 import { aggregate } from "@shared/sla/approvals";
 import { nextState, lifecycleOf } from "@shared/change/logic";
@@ -65,16 +66,32 @@ export async function cabPeople(q: Queryable, ctx: Ctx, cab: Row): Promise<strin
   return [...new Set([...(Array.isArray(cab.members) ? cab.members : []), ...fromGroup, ...(cab.manager_id ? [cab.manager_id] : [])].map(String))];
 }
 
-/** The CAB a change goes to (its own, else the default CAB; for an emergency the ECAB of the settings). */
+/** May `cab` decide a change of this kind: active, and an emergency board exactly for emergencies? */
+export const cabFits = (cab: Row | null | undefined, emergency: boolean): boolean => !!cab && cab.active !== false && (cab.kind === "emergency") === emergency;
+
+/**
+ * The CAB a change goes to (its own, else the default CAB; for an emergency the ECAB of the settings). Inactive boards
+ * are passed over; so is the change's own board (its writers set it) when it is of the other kind — an emergency
+ * board for a normal change.
+ */
 export async function cabFor(q: Queryable, ctx: Ctx, change: Row, emergency = false): Promise<Row | null> {
   const sys = sysOf(ctx);
   const cfg = await changeConfig(q, sys);
-  const pick = async (id: unknown) => (id ? await liveRow(q, sys, "cab", id) : null);
+  const pick = async (id: unknown, fits: (cab: Row) => boolean = (cab) => cab.active !== false) => {
+    const cab = id ? await liveRow(q, sys, "cab", id) : null;
+    return cab && fits(cab) ? cab : null;
+  };
   if (emergency) {
     const e = (await pick(cfg.emergency_cab_id)) ?? (await liveRows(q, sys, "cab", { and: [{ f: "kind", op: "eq", v: "emergency" }, { f: "active", op: "eq", v: true }] }, { order: "t.name", limit: 1 }))[0];
     if (e) return e;
   }
-  return (await pick(change.cab_id)) ?? (await pick(cfg.default_cab_id)) ?? (await liveRows(q, sys, "cab", { and: [{ f: "kind", op: "eq", v: "change" }, { f: "active", op: "eq", v: true }] }, { order: "t.name", limit: 1 }))[0] ?? null;
+  return (await pick(change.cab_id, (cab) => cabFits(cab, false))) ?? (await pick(cfg.default_cab_id)) ?? (await liveRows(q, sys, "cab", { and: [{ f: "kind", op: "eq", v: "change" }, { f: "active", op: "eq", v: true }] }, { order: "t.name", limit: 1 }))[0] ?? null;
+}
+
+/** The change managers of the organisation: holders of the role and members of the settings' change managers' group. */
+export async function changeManagers(q: Queryable, ctx: Ctx): Promise<string[]> {
+  const cfg = await changeConfig(q, ctx);
+  return [...new Set([...(await roleHolders(q, ctx, "change_manager")), ...(cfg.change_manager_group_id ? await groupUsers(q, ctx, [cfg.change_manager_group_id]) : [])])];
 }
 
 /** Separation of duties beyond the approvals service's own (requester side and assignee): not the coordinator. */
@@ -84,7 +101,9 @@ const others = (row: Row, people: string[]): string[] => people.filter((u) => u 
 export function installApproverSources(): (() => void)[] {
   return [
     registerApproverSource("change_manager", async (q, ctx, _def, row) => {
-      if (typeof row.change_manager_id === "string" && row.change_manager_id && row.change_manager_id !== row.change_owner_id) return [row.change_manager_id];
+      // the change's own change manager — only when that person is one (a change's writers set the field)
+      const named = typeof row.change_manager_id === "string" && row.change_manager_id && row.change_manager_id !== row.change_owner_id ? row.change_manager_id : null;
+      if (named && (await changeManagers(q, ctx)).includes(named)) return [named];
       const cfg = await changeConfig(q, ctx);
       if (cfg.change_manager_group_id) {
         const people = others(row, await groupUsers(q, ctx, [cfg.change_manager_group_id]));

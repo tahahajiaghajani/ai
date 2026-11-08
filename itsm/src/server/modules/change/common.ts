@@ -2,13 +2,15 @@
 // reads of live rows through the access rule (the system reads its whole organisation), the module's settings row and
 // the per-transaction caches of models and questions. Every read of engine tables here goes through `readable`, so
 // the same helpers are safe with a member's context.
+import { grantIn } from "@shared/access";
 import type { Cond } from "@shared/model/conditions";
 import { tableDef } from "@shared/tables";
 import { CHANGE_CONFIG_DEFAULTS, type ChangeConfig } from "@shared/tables/change";
 import type { ModelLike, RiskQuestion } from "@shared/change/logic";
 import type { Ctx } from "../../context";
 import type { Queryable } from "../../db";
-import { condEnv, fromDb, orgSchema, readable, SYSTEM_USER, toSql } from "../../engine";
+import { prepareSubject, subjectOf } from "../../access";
+import { condEnv, fromDb, isSystemCtx, orgSchema, readable, SYSTEM_USER, toSql } from "../../engine";
 
 export type Row = Record<string, any>;
 
@@ -47,6 +49,23 @@ export function sysOf(ctx: Ctx, onBehalfOf: string | null = null): Ctx {
   };
   m.set(key, sys);
   return sys;
+}
+
+/** Roles that carry the change manager's authority (docs/spec/ACCESS.md §12: a transition limited to named roles). */
+export const CHANGE_AUTHORITY = ["change_manager", "tenant_admin"];
+
+/**
+ * Does the acting person hold the change manager's authority — the change area's approve right as a change manager
+ * (or a tenant administrator)? Manual authorization, the module's definitions (models, windows, CABs, the risk
+ * questionnaire, lockdowns), models of another type or without authorization and leaving a change out of conflict
+ * detection need it; team leads and service-desk managers approve in their groups but hold none of this. The system
+ * and trusted server code always do.
+ */
+export async function managesChanges(q: Queryable, ctx: Ctx): Promise<boolean> {
+  if (isSystemCtx(ctx)) return true;
+  await prepareSubject(ctx, q);
+  const s = subjectOf(ctx);
+  return grantIn(s.eff, "change").approve && CHANGE_AUTHORITY.some((k) => s.eff.roles.includes(k));
 }
 
 /** The member who acted (null: the system). */

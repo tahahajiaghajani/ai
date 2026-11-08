@@ -262,8 +262,10 @@ export const CHANGE_STATES: StateModel = {
     { from: ["new", "assess"], to: "authorize", label: "درخواست تأیید", guard: "change_lifecycle" },
     { from: ["new", "assess"], to: "scheduled", label: "زمان‌بندی", guard: "change_lifecycle" },
     { from: ["new"], to: "review", label: "ثبت به‌عنوان اجراشده", guard: "change_lifecycle" },
-    { from: ["authorize"], to: "scheduled", label: "تأیید و زمان‌بندی", roles: { area: "change", level: "full" }, guard: "change_lifecycle" },
-    { from: ["authorize"], to: "implement", label: "تأیید و شروع اجرا", roles: { area: "change", level: "full" }, guard: "change_lifecycle" },
+    // manual authorization: change managers only (the change area's approve right alone — team leads, service-desk
+    // managers — is not enough); the guard keeps the change's own people from authorizing it
+    { from: ["authorize"], to: "scheduled", label: "تأیید و زمان‌بندی", roles: { area: "change", level: "full", roles: ["change_manager", "tenant_admin"] }, guard: "change_lifecycle" },
+    { from: ["authorize"], to: "implement", label: "تأیید و شروع اجرا", roles: { area: "change", level: "full", roles: ["change_manager", "tenant_admin"] }, guard: "change_lifecycle" },
     { from: ["scheduled"], to: "implement", label: "شروع اجرا", guard: "change_lifecycle" },
     { from: ["implement"], to: "review", label: "پایان اجرا", requires: ["close_code"], guard: "change_lifecycle" },
     { from: ["review"], to: "closed", label: "بستن", requires: ["close_code", "close_notes"], guard: "change_lifecycle" },

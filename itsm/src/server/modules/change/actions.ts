@@ -13,7 +13,7 @@ import { access } from "../../access/provider";
 import { addJournalIn, addLink, create, createIn, defFor, get, list, transition, update, updateIn } from "../../engine";
 import { bad, conflict, forbidden } from "../../http/errors";
 import { aiCapabilities } from "./ai";
-import { changeConfig, hasTable, isUuid, liveRows, msOf, sysOf, type Row } from "./common";
+import { changeConfig, hasTable, isUuid, liveRow, liveRows, msOf, sysOf, type Row } from "./common";
 import { activeLockdowns, holdsOn, lockdownLike, riskFor, teamScoreOf } from "./schedule";
 
 /** The risk of a change as its panel shows it: questions with options, answers, factors, explanation, notice. */
@@ -59,16 +59,25 @@ const pick = (row: Row, names: string[]): Row => Object.fromEntries(names.filter
 
 /**
  * Copy a change (catalogue «کپی تغییر»): the chosen sections and its tasks; with `dates`, one copy per date (recurring
- * scheduled changes). The copies are new drafts the caller owns.
+ * scheduled changes). The copies are new drafts the caller owns. A copy of a standard change is a new order of its
+ * template while that is still a published standard change (the template brings its tasks), else a normal change.
  */
 export async function copyChange(ctx: Ctx, id: string, input: { sections?: string[]; tasks?: boolean; dates?: { start: string; end: string }[] }): Promise<Row[]> {
   const { row } = await get(ctx, "change_request", id);
   const sections = (input.sections?.length ? input.sections : ["main", "scope", "plans"]).filter((s) => COPY_SECTIONS[s]);
   const base = pick(row, sections.flatMap((s) => COPY_SECTIONS[s]));
   if (row.type === "latent") base.type = "normal";
+  if (row.type === "standard") {
+    const t = isUuid(row.template_id) ? await liveRow(ctx.db, sysOf(ctx), "change_template", row.template_id) : null;
+    if (t && t.kind === "standard" && t.state === "published") base.template_id = row.template_id;
+    else {
+      base.type = "normal";
+      delete base.model_id;
+    }
+  }
   const dates = (input.dates ?? []).slice(0, 20);
   for (const d of dates) if (!(msOf(d.start) !== null && msOf(d.end) !== null && msOf(d.end)! > msOf(d.start)!)) throw bad("بازه‌های زمانی معتبر نیستند");
-  const tasks = input.tasks !== false ? (await list(ctx, "change_task", { filter: { f: "change_id", op: "eq", v: id }, sort: "sort_order", size: 200, total: false })).rows : [];
+  const tasks = input.tasks !== false && !base.template_id ? (await list(ctx, "change_task", { filter: { f: "change_id", op: "eq", v: id }, sort: "sort_order", size: 200, total: false })).rows : [];
   return ctx.write(async (tx) => {
     const out: Row[] = [];
     for (const d of dates.length ? dates : [null]) {

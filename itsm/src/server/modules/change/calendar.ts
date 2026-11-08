@@ -10,7 +10,7 @@ import { access } from "../../access/provider";
 import { createIn, defFor, list, orgTz } from "../../engine";
 import { bad, forbidden } from "../../http/errors";
 import { holidaysBetween } from "../sla";
-import { iso, liveRows, msOf, sysOf, type Row } from "./common";
+import { iso, liveRows, managesChanges, msOf, sysOf, type Row } from "./common";
 import { occurrencesBetween } from "./schedule";
 
 const DAY = 86_400_000;
@@ -119,7 +119,8 @@ export async function calendarIcs(ctx: Ctx, input: CalendarQuery, labels: { stat
  */
 export async function blackoutsFromHolidays(ctx: Ctx, input: { year: number; enforcement?: "block" | "warn" }): Promise<{ created: number; skipped: number }> {
   const { def } = await defFor(ctx, "change_window");
-  if (!access().canCreate(ctx, def, null)) throw forbidden("اجازهٔ افزودن پنجرهٔ زمانی را ندارید");
+  // windows shape every team's changes: the change manager's authority, like the window table itself (hooks.ts)
+  if (!access().canCreate(ctx, def, null) || !(await managesChanges(ctx.db, ctx))) throw forbidden("افزودن پنجرهٔ زمانی با مدیران تغییر است");
   const range = jalaliYearRange(input.year);
   const days = (await holidaysBetween(ctx.db, ctx, range.start, range.end, null)).filter((h) => !h.half).sort((a, b) => a.date.localeCompare(b.date));
   const tz = orgTz(ctx);

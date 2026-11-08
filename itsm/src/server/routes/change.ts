@@ -192,7 +192,8 @@ changeRoutes.post("/records/:id/backout", async (c) => {
 changeRoutes.post("/from/:table/:id", async (c) => {
   const table = TABLE.parse(c.req.param("table"));
   const input = await body(c, z.object({
-    type: z.enum(["standard", "normal", "emergency"]).optional(), short_description: z.string().min(1).max(200).optional(), template_id: UUID.optional(),
+    // a standard change comes from the catalogue (its published template), never from the type alone
+    type: z.enum(["normal", "emergency"]).optional(), short_description: z.string().min(1).max(200).optional(), template_id: UUID.optional(),
     planned_start: INSTANT.optional(), planned_end: INSTANT.optional(), assignment_group_id: UUID.optional(),
   }));
   return c.json({ row: await changeFrom(c.get("ctx"), table, UUID.parse(c.req.param("id")), input) });
