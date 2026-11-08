@@ -77,7 +77,7 @@ function installRagSources(): void {
       const attachments = row.ai_use === "link_only" ? (false as const) : { group };
       return { title, titleField: "title", titleGroup: group, number: (row.number as string) ?? null, lang: (row.language as string) ?? null, parts, attachments };
     },
-    path: (id) => `knowledge/a/${id}`,
+    path: (id) => `kb/a/${id}`,
     aiWhere: (t) =>
       `${t}.state in ('published', 'pending_retirement') and coalesce(${t}.ai_use, 'answer') <> 'none' and coalesce(${t}.classification, '') <> 'secret' and exists (select 1 from sm_kb_bases kb where kb.id = ${t}.base_id and kb.org_id = ${t}.org_id and kb.deleted_at is null and kb.ai_enabled and coalesce(kb.classification, '') <> 'secret')`,
   });
@@ -90,7 +90,7 @@ function installRagSources(): void {
       const group = base?.ai_requesters === false ? ("internal" as const) : null;
       return { title: String(row.question ?? ""), titleField: "question", titleGroup: group, number: (row.number as string) ?? null, lang: (row.language as string) ?? null, parts: [{ field: "answer", label: "پاسخ", text: String(row.answer ?? ""), group, format: "text" }] };
     },
-    path: (id) => `knowledge/snippets/${id}`,
+    path: (id) => `kb/snippets/${id}`,
     aiWhere: (t) =>
       `${t}.state = 'published' and (${t}.valid_to is null or ${t}.valid_to >= current_date) and (${t}.base_id is null or exists (select 1 from sm_kb_bases kb where kb.id = ${t}.base_id and kb.org_id = ${t}.org_id and kb.deleted_at is null and kb.ai_enabled and coalesce(kb.classification, '') <> 'secret'))`,
   });

@@ -61,6 +61,9 @@ export function registerRecordPath(type: string, path: PathOf): void {
   RECORD_PATHS.set(type, path);
 }
 
+/** The record types with a registered in-app path (the route-table test walks them). */
+export const recordPathTypes = (): string[] => [...RECORD_PATHS.keys()];
+
 /** In-app path (without the org prefix) of a record. */
 export function pathOf(type: string, id: string, extra: Record<string, string | null | undefined> = {}): string | undefined {
   return RECORD_PATHS.get(type)?.(id, extra);

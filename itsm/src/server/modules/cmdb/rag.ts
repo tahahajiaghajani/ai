@@ -12,7 +12,7 @@ export function installCmdbRag(): () => void {
   return registerRagSource({
     table: "ci",
     version: "cmdb1",
-    path: (id) => `cmdb/cis/${id}`,
+    path: (id) => `cis/${id}`,
     async build({ ctx, q, row }) {
       const tree = await classTree(q, ctx);
       const cls = tree.resolve(String(row.class));
