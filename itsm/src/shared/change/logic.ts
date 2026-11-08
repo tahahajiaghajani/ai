@@ -774,7 +774,7 @@ export function agendaOrder(a: Row, b: Row): number {
 /** The next meeting of a CAB that meets every week on `weekday` (0 = Saturday) at `time`, from `after` (instants). */
 export function nextMeeting(weekdayNo: number, time: string, minutes: number, after: number, tz: string): { start: number; end: number } | null {
   const m = /^(\d{1,2}):(\d{2})$/.exec(String(time ?? "").trim());
-  if (!m || !(weekdayNo >= 0 && weekdayNo <= 6)) return null;
+  if (!m || !(weekdayNo >= 0 && weekdayNo <= 6) || Number(m[1]) > 23 || Number(m[2]) > 59) return null;
   const at = Number(m[1]) * 60 + Number(m[2]);
   let d = localParts(after, tz).date;
   for (let i = 0; i < 15; i++, d = addDays(d, 1)) {

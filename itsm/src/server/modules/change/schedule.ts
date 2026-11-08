@@ -154,6 +154,8 @@ const same = (a: unknown, b: unknown) => (a ?? null) === (b ?? null) || (msOf(a)
 export interface ConflictPlan {
   found: ConflictFound[];
   existing: Row[];
+  /** other changes to check again: tracked changes sharing the window and scope, and those whose conflicts name this one */
+  neighbours: string[];
   flags: { conflict_status: string; conflict_count: number; conflict_checked_at: string; in_blackout: boolean; outside_window: boolean };
 }
 
@@ -173,6 +175,7 @@ export async function planConflicts(q: Queryable, ctx: Ctx, row: Row): Promise<C
   return {
     found,
     existing,
+    neighbours: row.id ? await neighboursOf(q, sys, row) : [],
     flags: {
       conflict_status: tracked ? st.status : (row.conflict_status ?? "not_checked"),
       conflict_count: st.open,
@@ -181,6 +184,28 @@ export async function planConflicts(q: Queryable, ctx: Ctx, row: Row): Promise<C
       outside_window: found.some((f) => f.kind === "outside_window"),
     },
   };
+}
+
+/**
+ * Changes another write of `row` may affect: tracked changes (drafts too — they see the changes they collide with)
+ * overlapping its planned window on a shared CI, service or implementer, and the changes whose conflicts name it.
+ */
+async function neighboursOf(q: Queryable, sys: Ctx, row: Row): Promise<string[]> {
+  const out = new Set<string>();
+  for (const r of await liveRows(q, sys, "change_conflict", { and: [{ f: "other_change_id", op: "eq", v: String(row.id) }, { f: "active", op: "eq", v: true }] }, { limit: 500 })) out.add(String(r.change_id));
+  const s = msOf(row.planned_start);
+  const e = msOf(row.planned_end);
+  if (s !== null && e !== null && e > s) {
+    const mine = scopeOf(row);
+    const near = await liveRows(q, sys, "change_request", { and: [{ f: "state", op: "in", v: CONFLICT_TRACKED }, { f: "planned_start", op: "lt", v: iso(e) }, { f: "planned_end", op: "gt", v: iso(s) }] }, { limit: 500 });
+    for (const o of near) {
+      if (o.id === row.id) continue;
+      const theirs = scopeOf(o);
+      if (mine.cis.some((x) => theirs.cis.includes(x)) || mine.services.some((x) => theirs.services.includes(x)) || (!!row.assigned_to && o.assigned_to === row.assigned_to)) out.add(String(o.id));
+    }
+  }
+  out.delete(String(row.id));
+  return [...out];
 }
 
 /**
@@ -217,6 +242,8 @@ export async function storeConflicts(tx: Tx, ctx: Ctx, row: Row, plan: ConflictP
   const others = new Set<string>();
   for (const f of plan.found) if (f.other_change_id) others.add(f.other_change_id);
   for (const r of plan.existing) if (r.other_change_id) others.add(String(r.other_change_id));
+  for (const n of plan.neighbours) others.add(n);
+  others.delete(id);
   return { others: [...others], added, open: plan.flags.conflict_count };
 }
 

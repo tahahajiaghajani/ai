@@ -27,7 +27,7 @@ export async function applyLockdown(tx: Tx, ctx: Ctx, lockdown: Row, actor: stri
     n++;
   }
   await emitEvent(tx, sys, { kind: "record.change_lockdown.started", table: "change_lockdown", id: String(lockdown.id), number: lockdown.number ?? null, data: { held: n } });
-  await enqueue(tx, { kind: "change.recheck", orgId: ctx.org.id, dedupeKey: "change.recheck", delayMs: 1000 });
+  await enqueue(tx, { kind: "change.recheck", orgId: ctx.org.id, dedupeKey: "change.recheck" });
   return n;
 }
 
@@ -48,6 +48,6 @@ export async function releaseLockdown(tx: Tx, ctx: Ctx, lockdown: Row, actor: st
     }
   }
   await emitEvent(tx, sys, { kind: "record.change_lockdown.released", table: "change_lockdown", id: String(lockdown.id), number: lockdown.number ?? null, data: { resumed: n } });
-  await enqueue(tx, { kind: "change.recheck", orgId: ctx.org.id, dedupeKey: "change.recheck", delayMs: 1000 });
+  await enqueue(tx, { kind: "change.recheck", orgId: ctx.org.id, dedupeKey: "change.recheck" });
   return n;
 }

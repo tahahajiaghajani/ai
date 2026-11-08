@@ -334,7 +334,7 @@ async function changeAfter(w: WA): Promise<void> {
   if (plan) {
     conflictPlans.get(w.tx)!.delete(id);
     const r = await storeConflicts(w.tx, w.ctx, row, plan);
-    for (const o of r.others) await enqueue(w.tx, { kind: "change.conflicts", orgId: w.ctx.org.id, payload: { id: o }, dedupeKey: `change.conflicts:${o}`, delayMs: 500 });
+    for (const o of r.others) await enqueue(w.tx, { kind: "change.conflicts", orgId: w.ctx.org.id, payload: { id: o }, dedupeKey: `change.conflicts:${o}` });
   }
 
   if (!creating && w.changed.has("state") && (row.state === "implement" || row.state === "review")) await activateTasks(w.tx, w.ctx, id);
@@ -458,7 +458,7 @@ function windowBefore(w: W): void {
 
 async function windowAfter(w: WA): Promise<void> {
   // windows decide blackout and maintenance conflicts: recheck the changes still to come
-  await enqueue(w.tx, { kind: "change.recheck", orgId: w.ctx.org.id, dedupeKey: "change.recheck", delayMs: 1000 });
+  await enqueue(w.tx, { kind: "change.recheck", orgId: w.ctx.org.id, dedupeKey: "change.recheck" });
 }
 
 function cabBefore(w: W): void {
