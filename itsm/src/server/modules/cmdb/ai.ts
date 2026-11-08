@@ -83,7 +83,7 @@ const impactTool = defineTool({
         truncated: r.cis.length > 25,
       },
       summary_fa: `${r.counts.services} خدمت و ${r.counts.cis} پیکربندی متأثر`,
-      refs: [{ type: "ci", id: ci.id, label: ci.name, path: `cmdb/cis/${ci.id}` }],
+      refs: [{ type: "ci", id: ci.id, label: ci.name, path: `cis/${ci.id}` }],
     };
   },
 });
