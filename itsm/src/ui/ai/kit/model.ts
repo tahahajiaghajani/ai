@@ -42,6 +42,8 @@ export const FEATURE_LABEL: Record<keyof AiSettings["features"], { title: string
   assistant: { title: "دستیار گفت‌وگو", about: "پرسش از دستیار در همهٔ صفحه‌ها" },
   proposals: { title: "پیش‌نویس به پیشنهاد دستیار", about: "دستیار پیش‌نویس آماده می‌کند؛ ثبت با تأیید شما است" },
   files: { title: "فایل و تصویر", about: "فرستادن تصویر و PDF همراه پرسش، و خواندن سند در بخش‌هایی که آن را دارند" },
+  agents: { title: "عامل‌های هوش مصنوعی", about: "عامل‌ها با هویت و نقش‌های خودشان اجرا می‌شوند؛ خاموش کردن، همهٔ عامل‌ها را در گام بعدشان متوقف می‌کند" },
+  virtual_agent: { title: "دستیار مجازی درخواست‌کنندگان", about: "دستیار مجازی برای فهم پرسش و نوشتن پاسخ از مدل کمک می‌گیرد؛ بی‌آن با کلیدواژه‌ها کار می‌کند" },
 };
 
 export const FEATURE_KEYS = Object.keys(FEATURE_LABEL) as (keyof AiSettings["features"])[];

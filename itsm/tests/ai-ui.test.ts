@@ -52,7 +52,7 @@ const status = (o: Partial<AiStatus> = {}): AiStatus => ({
   can_use: true,
   can_propose: true,
   can_manage: true,
-  features: { assistant: true, proposals: true, files: true },
+  features: { assistant: true, proposals: true, files: true, agents: true, virtual_agent: true },
   budget: { state: "ok", month_usd: "0", month_cap_usd: null, today_usd: "0", today_cap_usd: null, alert_pct: 80 },
   model: null,
   connection: null,

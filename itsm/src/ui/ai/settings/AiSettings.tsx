@@ -40,7 +40,7 @@ export function withDefaults(s: Partial<Settings> | null | undefined): Settings 
     enabled: s?.enabled ?? true,
     routing: { assistant: [], analysis: [], fast: [], vision: [], ...(s?.routing ?? {}) },
     effort: { assistant: "medium", analysis: "high", fast: "low", vision: "low", ...(s?.effort ?? {}) },
-    features: { assistant: true, proposals: true, files: true, ...(s?.features ?? {}) },
+    features: { assistant: true, proposals: true, files: true, agents: true, virtual_agent: true, ...(s?.features ?? {}) },
     data_policy: s?.data_policy ?? "masked",
     budgets: { monthly_usd: null, user_daily_usd: null, alert_pct: 80, ...(s?.budgets ?? {}) },
     instructions: s?.instructions ?? "",

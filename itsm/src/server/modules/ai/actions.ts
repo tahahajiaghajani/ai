@@ -54,13 +54,15 @@ interface ActionRow {
   /** whom it is routed to (the «پیشنهادهای هوش مصنوعی» inbox) */
   route_users: string[] | null;
   route_groups: string[] | null;
+  /** only the people it is routed to may apply it (an agent's «اقدام پس از تأیید») */
+  route_only: boolean | null;
   /** what applying it did, row by row */
   outcome: AiProposalOutcome | null;
 }
 
 type Preview = ActionRow["preview"] & { count?: number; agent?: { key: string; name: string } | null };
 
-const COLS = `id, org_id, thread_id, message_id, user_id, kind, tool, area, level, payload, payload_hash, preview, status, confirmed_by, confirmed_at, result, error, expires_at, created_at, record_table, record_id, fields, skill_run_id, principal, agent_id, agent_run_id, route_users, route_groups, outcome`;
+const COLS = `id, org_id, thread_id, message_id, user_id, kind, tool, area, level, payload, payload_hash, preview, status, confirmed_by, confirmed_at, result, error, expires_at, created_at, record_table, record_id, fields, skill_run_id, principal, agent_id, agent_run_id, route_users, route_groups, route_only, outcome`;
 
 /** JSON with object keys sorted at every level: the same text before and after a jsonb round trip (which reorders keys). */
 function canonicalJson(value: unknown): string {
@@ -112,6 +114,8 @@ export interface ProposalRouting {
   agent?: { id: string; key: string; name: string; run_id: string | null } | null;
   users?: string[];
   groups?: string[];
+  /** only the people routed to may apply it (they still need to read the record and every field involved) */
+  only?: boolean;
 }
 
 const uuidList = (xs: readonly string[] | undefined) => [...new Set((xs ?? []).filter((x) => typeof x === "string" && /^[0-9a-f-]{36}$/i.test(x)).map((x) => x.toLowerCase()))];
@@ -152,14 +156,14 @@ export async function storeProposal(
     async (tx) => {
       await tx.query(
         `insert into sm_ai_actions (id, org_id, thread_id, message_id, user_id, kind, tool, area, level, payload, payload_hash, preview, idempotency_key, expires_at,
-                                    record_table, record_id, fields, principal, agent_id, agent_run_id, route_users, route_groups)
+                                    record_table, record_id, fields, principal, agent_id, agent_run_id, route_users, route_groups, route_only)
          values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12::jsonb, $13, now() + ($14 || ' hours')::interval,
-                 $15, $16, $17::text[], $18, $19, $20, $21::uuid[], $22::uuid[])
+                 $15, $16, $17::text[], $18, $19, $20, $21::uuid[], $22::uuid[], $23)
          on conflict (idempotency_key) do nothing`,
         [
           id, ctx.org.id, c.threadId, c.messageId, ctx.user.id, p.kind, c.tool, p.area, p.level, JSON.stringify(p.payload ?? null), hashPayload(p.payload), JSON.stringify(preview), key, String(hours),
           rec?.table ?? null, rec?.id ?? null, rec ? pgArray([...new Set(rec.fields ?? [])]) : null, agent ? "service" : rec ? "person" : null,
-          agent?.id ?? null, agent?.run_id ?? null, pgArray(uuidList(c.routing?.users)), pgArray(uuidList(c.routing?.groups)),
+          agent?.id ?? null, agent?.run_id ?? null, pgArray(uuidList(c.routing?.users)), pgArray(uuidList(c.routing?.groups)), !!c.routing?.only,
         ],
       );
       return tx.one<ActionRow>(`select ${COLS} from sm_ai_actions where idempotency_key = $1`, [key]);
@@ -193,14 +197,14 @@ export async function storeRecordProposal(ctx: Ctx, p: RecordProposalInput): Pro
     async (tx) => {
       await tx.query(
         `insert into sm_ai_actions (id, org_id, thread_id, message_id, user_id, kind, tool, area, level, payload, payload_hash, preview, idempotency_key, expires_at,
-                                    record_table, record_id, fields, skill_run_id, principal, agent_id, agent_run_id, route_users, route_groups)
+                                    record_table, record_id, fields, skill_run_id, principal, agent_id, agent_run_id, route_users, route_groups, route_only)
          values ($1, $2, null, null, $3, $4, 'skill', $5, $6, $7::jsonb, $8, $9::jsonb, $10, now() + ($11 || ' hours')::interval, $12, $13, $14::text[], $15, $16,
-                 $17, $18, $19::uuid[], $20::uuid[])
+                 $17, $18, $19::uuid[], $20::uuid[], $21)
          on conflict (idempotency_key) do nothing`,
         [
           id, ctx.org.id, ctx.user.id, p.kind, p.area, p.level, JSON.stringify(p.payload ?? null), hashPayload(p.payload), JSON.stringify(preview), key, String(hours),
           p.record.table, p.record.id, pgArray([...new Set(p.fields)]), p.run_id, p.principal,
-          agent?.id ?? null, agent?.run_id ?? null, pgArray(uuidList(p.routing?.users)), pgArray(uuidList(p.routing?.groups)),
+          agent?.id ?? null, agent?.run_id ?? null, pgArray(uuidList(p.routing?.users)), pgArray(uuidList(p.routing?.groups)), !!p.routing?.only,
         ],
       );
       return tx.one<ActionRow>(`select ${COLS} from sm_ai_actions where idempotency_key = $1`, [key]);
@@ -283,8 +287,17 @@ async function canSee(ctx: Ctx, r: ActionRow): Promise<boolean> {
  * level; a skill's — whoever sees it and may use AI (the write is applied with that person's own access, checked again).
  */
 async function canDecide(ctx: Ctx, r: ActionRow): Promise<boolean> {
+  if (r.route_only && !(await routedTo(ctx, r))) return false;
   if (r.record_table) return ctx.can("ai", "view") && ctx.can(r.area, r.level) && (await seesRecord(ctx, r));
   return (r.user_id === ctx.user.id || ctx.can("ai", "full")) && ctx.can(r.area, r.level);
+}
+
+/** Is the caller one of the people a proposal is routed to (named, or a member of a named group)? */
+async function routedTo(ctx: Ctx, r: Pick<ActionRow, "route_users" | "route_groups">): Promise<boolean> {
+  if ((r.route_users ?? []).includes(ctx.user.id)) return true;
+  if (!(r.route_groups ?? []).length) return false;
+  const env = await condEnv(ctx);
+  return (env.groups ?? []).some((g) => (r.route_groups ?? []).includes(g));
 }
 
 async function assertVisible(ctx: Ctx, r: ActionRow): Promise<void> {
@@ -374,6 +387,50 @@ export async function rejectAction(ctx: Ctx, id: string, reason?: string): Promi
     { internal: true },
   );
   return toProposal(await actionRow(ctx, id));
+}
+
+/**
+ * An agent applies its own proposal (autonomy «اقدام خودکار», an action on its whitelist): with its principal's member
+ * context — the record service checks that access exactly as for a person — audited as «ai_action» with the agent and
+ * its run. The proposal must be the principal's own, still open and unchanged.
+ */
+export async function applyByAgent(pctx: Ctx, id: string): Promise<AiProposal> {
+  const r = await actionRow(pctx, id);
+  if (r.user_id !== pctx.user.id || !r.agent_id) throw forbidden("این پیشنهاد از این عامل نیست");
+  if (r.record_table && !(await seesRecord(pctx, r))) throw forbidden("عامل این رکورد را نمی‌بیند");
+  const claimed = await pctx.write(
+    (tx) => tx.one(`update sm_ai_actions set status = 'executing', confirmed_by = $2, confirmed_at = now(), updated_at = now() where id = $1 and status = 'proposed' and expires_at > now() returning id`, [id, pctx.user.id]),
+    { internal: true },
+  );
+  if (!claimed) return toProposal(await actionRow(pctx, id));
+  if (hashPayload(r.payload) !== r.payload_hash) {
+    await pctx.write((tx) => tx.query(`update sm_ai_actions set status = 'failed', error = $2, updated_at = now() where id = $1`, [id, "داده‌های پیشنهاد دست خورده است"]), { internal: true });
+    return toProposal(await actionRow(pctx, id));
+  }
+  let ref: AiRef;
+  let outcome: AiProposalOutcome | null = null;
+  try {
+    const done = await executeProposalFull(pctx, r.kind, r.payload);
+    if (isOutcome(done)) {
+      ref = done.ref;
+      outcome = done.outcome;
+    } else ref = done;
+  } catch (e) {
+    const msg = e instanceof AppError ? e.message : "اجرای اقدام ناموفق بود";
+    await pctx.write((tx) => tx.query(`update sm_ai_actions set status = 'failed', error = $2, updated_at = now() where id = $1`, [id, msg.slice(0, 500)]), { internal: true });
+    return toProposal(await actionRow(pctx, id));
+  }
+  await pctx.write(async (tx) => {
+    await tx.query(`update sm_ai_actions set status = 'executed', result = $2::jsonb, outcome = $3::jsonb, updated_at = now() where id = $1`, [id, JSON.stringify(ref), outcome ? JSON.stringify(outcome) : null]);
+    await audit(tx, pctx, "ai_action", r.kind, /^[0-9a-f-]{36}$/i.test(ref.id) ? ref.id : null, `${r.preview.title_fa} (اقدام خودکار عامل هوش مصنوعی)`, {
+      source: "ai_agent",
+      proposal_id: id,
+      agent_id: r.agent_id,
+      agent_run_id: r.agent_run_id,
+      result: ref,
+    });
+  }, { internal: true });
+  return toProposal(await actionRow(pctx, id));
 }
 
 export async function listActions(

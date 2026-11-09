@@ -22,6 +22,7 @@ import { CHANGE_CHOICE_LISTS, CHANGE_TABLES } from "./change";
 import { REQUEST_CHOICE_LISTS, REQUEST_TABLES } from "./request";
 import { KNOWLEDGE_CHOICE_LISTS, KNOWLEDGE_TABLES } from "./knowledge";
 import { AI_TABLES } from "./ai";
+import { AI_AGENT_TABLES } from "./ai-agents";
 
 export { CUSTOM_FIELD_TYPES, VIEW_KINDS } from "./core";
 
@@ -41,6 +42,7 @@ const MODULE_TABLES: TableDef[][] = [
   REQUEST_TABLES,
   KNOWLEDGE_TABLES,
   AI_TABLES,
+  AI_AGENT_TABLES,
 ];
 
 /** Every table by key (resolved definitions). */

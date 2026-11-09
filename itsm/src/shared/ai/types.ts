@@ -89,6 +89,8 @@ export interface AiSettings {
     assistant: boolean;
     proposals: boolean; // the assistant may prepare drafts for confirmation
     files: boolean; // images and PDFs may be sent to the models (questions with files, a module's document reading)
+    agents: boolean; // AI agents run (the organisation's kill switch: off stops every agent at its next step)
+    virtual_agent: boolean; // the virtual agent («دستیار مجازی») answers requesters with a model (rule-based routing stays)
   };
   /** masked = national ids, mobiles, card numbers and IBANs are masked before anything reaches a model */
   data_policy: AiDataPolicy;
