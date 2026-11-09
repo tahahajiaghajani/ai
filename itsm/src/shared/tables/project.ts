@@ -321,7 +321,8 @@ const project: TableDef = {
   states: PROJECT_STATES,
   scope: { own: ["project_manager_id", "sponsor_id"], readers: ["team"], requester: [], group: "assignment_group_id", watchers: "watch_list" },
   features: { journal: true, attachments: true, watchers: true, links: true, approvals: true, rag: true, kanban: "state", calendar: { start: "planned_start", end: "planned_end" } },
-  ai: { title: "name", text: ["description", "objectives", "scope_in", "lessons"] },
+  // the charter, business case and minutes attached to a project are part of its AI document (read only by its readers)
+  ai: { title: "name", text: ["description", "objectives", "scope_in", "lessons"], attachments: true },
   form: {
     sections: [P_MAIN, P_PLAN],
     tabs: ["جزئیات", P_CHARTER, P_STATUS, P_CLOSE],

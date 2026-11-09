@@ -9,7 +9,6 @@
 //   lists         projects, tasks, demands, portfolios, RAID, status reports, allocations, time entries
 //   elsewhere     «ساخت پروژه» on problems, changes and requested items
 import { lazy, Suspense, type ComponentType, type ReactNode } from "react";
-import { useParams } from "react-router";
 import {
   FolderKanban, ListTree, Lightbulb, Briefcase, ShieldAlert, FileChartColumn, UsersRound, Timer, User, TriangleAlert, ListTodo, Clock, Stamp, LayoutDashboard, Kanban, Grid3x3, Inbox,
 } from "lucide-react";
@@ -19,14 +18,13 @@ import { recordModule, RecordListRoute } from "../../records/module";
 import { registerRecordExtensions, type RecordContext } from "../../records/extensions";
 import { recordsApi } from "../../records/data/api";
 import { Loader } from "../../components/display";
-import { PageHeader } from "../../components/layout";
 import type { OrgApi } from "../../lib/api";
 import { QUEUES, type Queue } from "./model";
 
 const Demands = lazy(() => import("./Demands"));
 const Portfolio = lazy(() => import("./Portfolio").then((m) => ({ default: m.Portfolio })));
 const Resources = lazy(() => import("./Portfolio").then((m) => ({ default: m.Resources })));
-const GanttChart = lazy(() => import("./Gantt").then((m) => ({ default: m.GanttChart })));
+const GanttPage = lazy(() => import("./GanttPage"));
 const ProjectActions = lazy(() => import("./Panels").then((m) => ({ default: m.ProjectActions })));
 const HealthPanel = lazy(() => import("./Panels").then((m) => ({ default: m.HealthPanel })));
 const GanttTab = lazy(() => import("./Panels").then((m) => ({ default: m.GanttTab })));
@@ -58,19 +56,6 @@ const queueNav = (q: Queue, i: number): NavItem => ({
   workspace: i === 0, keywords: "پروژه صف کار زمان",
   ...(i === 0 ? { count: { key: "project:mine", hint: "پروژهٔ باز شما", load: myCount } } : {}),
 });
-
-/** The full-width Gantt of a project (projects/:id/gantt). */
-function GanttPage() {
-  const { id = "" } = useParams();
-  return (
-    <div className="flex flex-col gap-4">
-      <PageHeader title="برنامهٔ زمانی پروژه" />
-      <Suspense fallback={<Loader />}>
-        <GanttChart projectId={id} />
-      </Suspense>
-    </div>
-  );
-}
 
 const module = recordModule({
   key: "project",
@@ -109,7 +94,7 @@ const module = recordModule({
     { path: "projects/portfolio", element: lazyPage(<Portfolio />) },
     { path: "projects/demand-board", element: lazyPage(<Demands />) },
     { path: "projects/resources", element: lazyPage(<Resources />) },
-    { path: "projects/:id/gantt", element: <GanttPage /> },
+    { path: "projects/:id/gantt", element: lazyPage(<GanttPage />) },
   ],
   segments: { projects: "project", "project-tasks": "project", demands: "project", portfolios: "project" },
 });

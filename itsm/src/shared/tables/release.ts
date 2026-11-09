@@ -367,7 +367,8 @@ const release: TableDef = {
     requesterTransitions: [{ from: ["draft"], to: "canceled" }],
   },
   features: { sla: true, approvals: true, rag: true, kanban: "state", calendar: { start: "planned_start", end: "planned_end" } },
-  ai: { title: "short_description", text: ["version_name", "description", "release_notes", "deployment_plan", "rollback_plan", "lessons"] },
+  // attached test reports, runbooks and sign-offs are part of the release's AI document (read only by its readers)
+  ai: { title: "short_description", text: ["version_name", "description", "release_notes", "deployment_plan", "rollback_plan", "lessons"], attachments: true },
   form: {
     sections: [MAIN, SCOPE_SECTION, SCHEDULE],
     tabs: ["جزئیات", PLANS, READY, CLOSURE],
