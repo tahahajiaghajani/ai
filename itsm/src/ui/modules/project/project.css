@@ -1,0 +1,39 @@
+/* The light Gantt and the resource heat map of the project screens (design-system tokens only). */
+.pj-gantt { display: grid; grid-template-columns: minmax(220px, 34%) 1fr; border: 1px solid var(--ds-line); border-radius: 10px; overflow: hidden; background: var(--ds-surface); }
+.pj-gantt-head { display: contents; }
+.pj-gantt-head > div { background: var(--ds-sunken); border-block-end: 1px solid var(--ds-line); padding: 6px 10px; font-size: 12px; color: var(--ds-text-3); min-block-size: 30px; }
+.pj-gantt-scale { position: relative; }
+.pj-gantt-scale span { position: absolute; inset-block-start: 6px; font-size: 11px; color: var(--ds-text-3); white-space: nowrap; transform: translateX(50%); }
+.pj-row { display: contents; }
+.pj-row > div { border-block-end: 1px solid var(--ds-line); min-block-size: 34px; }
+.pj-name { display: flex; align-items: center; gap: 6px; padding: 4px 10px; font-size: 13px; min-inline-size: 0; }
+.pj-name .pj-wbs { color: var(--ds-text-3); font-size: 12px; min-inline-size: 2.5em; }
+.pj-name .pj-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pj-name.is-phase .pj-title { font-weight: var(--ds-weight-medium, 500); }
+.pj-track { position: relative; }
+.pj-today { position: absolute; inset-block: 0; inline-size: 0; border-inline-start: 1.5px dashed var(--ds-danger); z-index: 2; pointer-events: none; }
+.pj-bar { position: absolute; inset-block-start: 9px; block-size: 16px; border-radius: 4px; background: color-mix(in oklab, var(--ds-accent) 28%, transparent); border: 1px solid color-mix(in oklab, var(--ds-accent) 55%, transparent); overflow: hidden; z-index: 1; }
+.pj-bar.is-critical { background: color-mix(in oklab, var(--ds-danger) 22%, transparent); border-color: color-mix(in oklab, var(--ds-danger) 55%, transparent); }
+.pj-bar.is-phase { inset-block-start: 12px; block-size: 10px; background: color-mix(in oklab, var(--ds-text-2) 30%, transparent); border-color: color-mix(in oklab, var(--ds-text-2) 50%, transparent); }
+.pj-bar.is-done { background: color-mix(in oklab, var(--ds-in) 30%, transparent); border-color: color-mix(in oklab, var(--ds-in) 55%, transparent); }
+.pj-bar .pj-progress { position: absolute; inset-block: 0; inset-inline-start: 0; background: color-mix(in oklab, var(--ds-accent) 55%, transparent); }
+.pj-bar.is-critical .pj-progress { background: color-mix(in oklab, var(--ds-danger) 50%, transparent); }
+.pj-baseline { position: absolute; inset-block-start: 27px; block-size: 3px; border-radius: 2px; background: var(--ds-text-4, var(--ds-line-3)); z-index: 0; }
+.pj-milestone { position: absolute; inset-block-start: 10px; inline-size: 14px; block-size: 14px; transform: translateX(50%) rotate(45deg); background: var(--ds-accent); border-radius: 2px; z-index: 1; }
+.pj-milestone.is-critical { background: var(--ds-danger); }
+.pj-milestone.is-done { background: var(--ds-in); }
+.pj-legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12px; color: var(--ds-text-3); }
+.pj-legend i { display: inline-block; inline-size: 18px; block-size: 8px; border-radius: 3px; margin-inline-end: 6px; vertical-align: middle; }
+
+.pj-heat { border-collapse: separate; border-spacing: 2px; font-size: 12px; }
+.pj-heat th { font-weight: normal; color: var(--ds-text-3); padding: 4px 6px; white-space: nowrap; }
+.pj-heat td { min-inline-size: 44px; block-size: 30px; text-align: center; border-radius: 4px; }
+.pj-heat td[data-load="low"] { background: var(--ds-sunken); color: var(--ds-text-4, var(--ds-text-3)); }
+.pj-heat td[data-load="ok"] { background: color-mix(in oklab, var(--ds-in) 18%, transparent); }
+.pj-heat td[data-load="high"] { background: color-mix(in oklab, var(--ds-warning) 22%, transparent); }
+.pj-heat td[data-load="over"] { background: color-mix(in oklab, var(--ds-danger) 24%, transparent); font-weight: var(--ds-weight-medium, 500); }
+
+.pj-board { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(240px, 1fr); gap: 12px; overflow-x: auto; padding-block-end: 6px; }
+.pj-col { display: flex; flex-direction: column; gap: 8px; background: var(--ds-sunken); border-radius: 10px; padding: 8px; min-block-size: 120px; }
+.pj-card { display: flex; flex-direction: column; gap: 6px; background: var(--ds-surface); border: 1px solid var(--ds-line); border-radius: 8px; padding: 10px; }
+.pj-score { font-size: 18px; color: var(--ds-text); }

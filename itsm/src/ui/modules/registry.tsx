@@ -30,6 +30,7 @@ import { servicePortfolioUi } from "./service_portfolio";
 import { knowledgeUi } from "./knowledge";
 import { releaseUi } from "./release";
 import { devopsUi } from "./devops";
+import { projectUi } from "./project";
 
 /** A sidebar space: «خانه», «تنظیمات», or one a module adds (its key, e.g. "service-desk"). */
 export type SpaceKey = string;
@@ -161,6 +162,7 @@ const UIS: ModuleUi[] = [
   knowledgeUi,
   releaseUi,
   devopsUi,
+  projectUi,
 ];
 
 /** In the order of the segmented control. «تنظیمات» is not a segment: the footer's gear opens it. */
