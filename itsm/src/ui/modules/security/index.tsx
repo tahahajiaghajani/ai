@@ -191,7 +191,20 @@ const grc = recordModule({
     { table: "grc_control_test", path: "grc/tests", label: "آزمون‌های کنترل", noun: "آزمون کنترل", icon: FlaskConical, area: "work", access: COMP, keywords: "آزمون خودارزیابی نمونه" },
     { table: "grc_evidence", path: "grc/evidence", label: "شواهد انطباق", noun: "شاهد انطباق", icon: FileCheck, area: "work", access: COMP, keywords: "شاهد انطباق ممیزی" },
     { table: "grc_issue", path: "grc/issues", label: "مسائل", noun: "مسئله", icon: CircleAlert, area: "work", access: COMP, keywords: "مسئله عدم انطباق رفع" },
-    { table: "grc_policy", path: "grc/policies", label: "خط‌مشی‌ها", noun: "خط‌مشی", icon: ScrollText, area: "work", access: COMP, keywords: "خط‌مشی استاندارد روال" },
+    {
+      table: "grc_policy", path: "grc/policies", label: "خط‌مشی‌ها", noun: "خط‌مشی", icon: ScrollText, area: "work", access: COMP, keywords: "خط‌مشی استاندارد روال",
+      extensions: {
+        policies: [
+          {
+            key: "grc:published",
+            when: { f: "state", op: "eq", v: "published" },
+            actions: ["title", "kind", "version_label", "classification", "summary", "body", "requirements", "effective_at"].map((field) => ({ field, readonly: true })),
+            message: "متن منتشرشده فقط با «ویرایش تازه» و تأیید دوباره تغییر می‌کند.",
+            on: "update",
+          },
+        ],
+      },
+    },
     { table: "grc_policy_campaign", path: "grc/campaigns", label: "کارزارهای پذیرش", noun: "کارزار پذیرش", icon: Megaphone, area: "work", access: COMP, keywords: "پذیرش خط‌مشی خواندم و می‌پذیرم", extensions: { sidePanels: [{ key: "grc:camp", title: "وضعیت پذیرش", order: 1, render: widget(CampaignPanel), participants: true }] } },
     { table: "grc_policy_ack", path: "grc/acks", label: "پذیرش‌ها", icon: Stamp, area: "work", access: COMP, hidden: true, search: false, newAction: false },
     { table: "grc_policy_exception", path: "grc/waivers", label: "استثناهای خط‌مشی", noun: "استثنای خط‌مشی", icon: FileExclamationPoint, area: "work", access: COMP, keywords: "استثنا معافیت خط‌مشی" },

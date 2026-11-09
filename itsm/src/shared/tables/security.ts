@@ -1235,6 +1235,8 @@ const grcPolicy: TableDef = {
     { name: "published_at", label: "زمان انتشار", type: "datetime", system: true, sort: true, span: 8 },
     { name: "published_by", label: "منتشرکننده", type: "user", system: true, span: 8 },
     { name: "revision", label: "شمار ویرایش", type: "int", system: true, default: 0, span: 8 },
+    // the review date the owner was last told about (the hourly sweep tells once per date)
+    { name: "review_noticed_for", label: "اعلان بازنگری برای", type: "date", system: true, hidden: true, audit: false },
   ],
   states: POLICY_STATES,
   scope: { own: ["owner_id", "approver_id"], group: "assignment_group_id", requester: ["owner_id"] },

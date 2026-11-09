@@ -132,12 +132,13 @@ export interface SweepResult {
   tests: number;
   indicators: number;
   reminders: number;
+  reviews: number;
 }
 
 const WARNED = "warned_at";
 
 export async function securitySweep(sys: Ctx): Promise<SweepResult> {
-  const out: SweepResult = { clocks: 0, overdue: 0, expired: 0, warned: 0, tests: 0, indicators: 0, reminders: 0 };
+  const out: SweepResult = { clocks: 0, overdue: 0, expired: 0, warned: 0, tests: 0, indicators: 0, reminders: 0, reviews: 0 };
   const q = sys.db;
   const cfg = await securityConfig(q, sys);
   const today = todayOf(sys);
@@ -217,10 +218,14 @@ export async function securitySweep(sys: Ctx): Promise<SweepResult> {
     }
   }
 
-  // policies due for review: a note to the owner once (on the day the review falls due)
-  for (const p of await liveRows(q, sys, "grc_policy", { and: [{ f: "state", op: "eq", v: "published" }, { f: "next_review_at", op: "eq", v: today }] }, { limit: 100 })) {
-    if (!isUuid(p.owner_id)) continue;
-    await sys.write((tx) => notifyPeople(tx, sys.org.id, { table: "grc_policy", id: p.id, users: [p.owner_id], event: "custom", label: "بازنگری خط‌مشی", subject: `موعد بازنگری «${String(p.title).slice(0, 120)}» رسیده است`, body: "متن را بازنگری و نسخهٔ تازه را برای تأیید بفرستید، یا بدون تغییر دوباره منتشر کنید.", channels: ["in_app", "email"], source: "امنیت و انطباق" }));
+  // policies due for review: a note to the owner once per review date (the sweep runs hourly)
+  for (const p of await liveRows(q, sys, "grc_policy", { and: [{ f: "state", op: "eq", v: "published" }, { f: "next_review_at", op: "lte", v: today }] }, { limit: 200 })) {
+    if (!isUuid(p.owner_id) || !p.next_review_at || String(p.review_noticed_for ?? "") === String(p.next_review_at)) continue;
+    await sys.write(async (tx) => {
+      await updateIn(tx, sys, "grc_policy", p.id, { review_noticed_for: p.next_review_at }, { trusted: true, keepVersion: true });
+      await notifyPeople(tx, sys.org.id, { table: "grc_policy", id: p.id, users: [p.owner_id], event: "custom", label: "بازنگری خط‌مشی", subject: `موعد بازنگری «${String(p.title).slice(0, 120)}» رسیده است`, body: "با «ویرایش تازه» متن را بازنگری کنید و برای تأیید بفرستید؛ اگر تغییری لازم نیست همان متن را دوباره برای تأیید و انتشار بفرستید.", channels: ["in_app", "email"], source: "امنیت و انطباق" });
+    });
+    out.reviews++;
   }
 
   out.tests = await planControlTests(sys);

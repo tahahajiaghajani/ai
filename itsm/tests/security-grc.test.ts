@@ -123,9 +123,25 @@ describe("policies and acknowledgement campaigns", () => {
     const st = await w.p.grc.client.get(`${w.P}/security/policies/campaigns/${camp.id}/status`);
     expect(st.acknowledged).toBe(1);
     expect(st.rate).toBe(100);
+    // what people accepted changes only through a new edition; the review date may move
+    await w.p.grc.client.patch(`${w.P}/r/grc_policy/${pol.id}`, { body: "استفاده از حافظهٔ USB شخصی آزاد است.", version: pol.version }, 400);
+    const past = new Date(Date.now() - 3 * 86_400_000).toISOString().slice(0, 10);
+    pol = (await w.p.grc.client.patch(`${w.P}/r/grc_policy/${pol.id}`, { next_review_at: past, version: pol.version })).row;
+    expect(pol.body).toMatch(/ممنوع/);
+    // the owner hears once that the review is due, however often the sweep runs
+    await w.drain();
+    const notices = async () =>
+      (await w.e.db.query(`select id from sm_notification_log where org_id = $1 and record_id = $2 and recipient_id = $3 and channel = 'in_app' and subject like '%بازنگری%'`, [w.e.org, pol.id, w.p.grc.userId])).length;
+    expect(await notices()).toBe(0);
+    await securitySweep(w.sys);
+    await securitySweep(w.sys);
+    await w.drain();
+    expect(await notices()).toBe(1);
     // a new edition goes back to draft with the next version label
     pol = (await w.p.grc.client.post(`${w.P}/r/grc_policy/${pol.id}/transition`, { to: "draft", version: pol.version })).row;
     expect(pol.version_label).toBe("1.1");
+    pol = (await w.p.grc.client.patch(`${w.P}/r/grc_policy/${pol.id}`, { body: "حافظهٔ USB فقط با رمزنگاری و تأیید واحد امنیت مجاز است.", version: pol.version })).row;
+    expect(pol.body).toMatch(/رمزنگاری/);
   });
 });
 

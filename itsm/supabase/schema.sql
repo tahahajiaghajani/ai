@@ -5688,6 +5688,7 @@ alter table sm_grc_policies add column if not exists approval text;
 alter table sm_grc_policies add column if not exists published_at timestamptz;
 alter table sm_grc_policies add column if not exists published_by uuid;
 alter table sm_grc_policies add column if not exists revision integer;
+alter table sm_grc_policies add column if not exists review_noticed_for date;
 alter table sm_grc_policies add column if not exists state text;
 create unique index if not exists sm_grc_policies_no_uk on sm_grc_policies (org_id, no);
 create index if not exists sm_grc_policies_rev_idx on sm_grc_policies (org_id, rev);

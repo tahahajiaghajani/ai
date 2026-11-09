@@ -519,9 +519,24 @@ async function evidenceHasFiles(w: WriteArgs): Promise<string | null> {
 // ---------------------------------------------------------------------------------------------------------------
 // Policies, campaigns, waivers, audits, profiles, privacy
 
+/** What people read and accept: a published policy changes them only through «ویرایش تازه» and a new approval. */
+const POLICY_CONTENT = ["title", "kind", "version_label", "classification", "summary", "body", "requirements", "effective_at"];
+const PUBLISHED_REFUSAL = "متن خط‌مشی منتشرشده فقط با «ویرایش تازه» و تأیید دوباره تغییر می‌کند";
+
+/** The content fields an edit of a policy that stays published would change (null when there are none). */
+function publishedContentEdit(prev: Row | null | undefined, next: Row, changedFields: Set<string>): string[] | null {
+  if (prev?.state !== "published" || next.state !== "published") return null;
+  const touched = POLICY_CONTENT.filter((f) => changedFields.has(f));
+  return touched.length ? touched : null;
+}
+
 async function policyBefore(w: WriteArgs): Promise<void> {
   if (w.op === "delete") return;
   const n = w.next;
+  if (w.op === "update" && w.ctx.actor !== "system") {
+    const refusal = publishedContentEdit(w.prev, n, w.changed);
+    if (refusal) throw validationError(Object.fromEntries(refusal.map((f) => [f, PUBLISHED_REFUSAL])));
+  }
   if (entering(w, "published")) {
     const today = todayOf(w.ctx);
     const cfg = await securityConfig(w.tx, w.ctx);
@@ -764,7 +779,12 @@ export function installSecurityHooks(): void {
   registerHooks("grc_control_test", { beforeWrite: testBefore, afterWrite: testAfter });
   registerHooks("grc_evidence", { beforeWrite: grcEvidenceBefore, guards: { grc_evidence_has_files: evidenceHasFiles } });
   for (const t of ["grc_issue", "grc_finding", "grc_risk_action"]) registerHooks(t, { beforeWrite: overdueBefore });
-  registerHooks("grc_policy", { beforeWrite: policyBefore, guards: { grc_policy_publish: policyPublish } });
+  registerHooks("grc_policy", {
+    beforeWrite: policyBefore,
+    guards: { grc_policy_publish: policyPublish },
+    // a Windows app's push is held to the same rule (hooks do not run again for it)
+    validatePush: (p) => (publishedContentEdit(p.prev, p.next, p.changed) ? PUBLISHED_REFUSAL : null),
+  });
   registerHooks("grc_policy_campaign", { beforeWrite: campaignBefore, guards: { grc_campaign_start: campaignStart } });
   registerHooks("grc_policy_exception", { beforeWrite: waiverBefore, guards: { sec_exception_valid: waiverValid } });
   registerHooks("grc_audit", { beforeWrite: auditBefore, guards: { grc_audit_can_close: auditCanClose } });
