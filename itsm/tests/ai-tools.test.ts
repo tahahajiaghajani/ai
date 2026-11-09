@@ -261,9 +261,10 @@ describe("ai tools", () => {
     const ref = await executeProposal(owner, "test_item", p.proposal!.payload);
     expect(ref).toMatchObject({ type: "test_item", label: "روتر شعبه" });
     expect(await db.one(`select code from sm_test_items where id = $1`, [ref.id])).toEqual({ code: "1002" });
-    // the platform proposes nothing itself: modules' executors, besides the AI skills framework's own (skill.*) and the
-    // generated record tools' (record.*: the record service with the confirming person's access)
-    expect(Object.keys(EXECUTORS).filter((k) => !k.startsWith("skill.") && !k.startsWith("record."))).toEqual(["test_item"]);
+    // the platform proposes nothing itself: modules' executors, besides the AI skills framework's own (skill.*), the
+    // generated record tools' (record.*: the record service with the confirming person's access) and the module tools'
+    // over a module's own route (request.order: the request module's ordering route, ai/tools/modules.ts)
+    expect(Object.keys(EXECUTORS).filter((k) => !k.startsWith("skill.") && !k.startsWith("record.") && k !== "request.order").sort()).toEqual(["test_item"]);
     // a module's read tool repeats its route's permission check
     const found = await run("find_test_items", { query: "سوئیچ" }, await ctxAs("viewer"));
     expect(found.data.items.map((i: { name: string }) => i.name)).toEqual(["سوئیچ هسته"]);
