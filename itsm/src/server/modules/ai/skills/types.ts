@@ -156,6 +156,11 @@ export interface RunOptions {
   ephemeral?: boolean;
   /** facts a module computed for this run (numbers from code: a scorecard, health facts, a form) — data blocks too */
   facts?: Record<string, unknown>;
+  /**
+   * tables whose data a module's facts carry (a report's numbers, an insight's): their data-use policy applies to the
+   * call on top of the tables the run itself read (datause.ts)
+   */
+  dataTables?: string[];
   signal?: AbortSignal;
   onText?: (delta: string) => void;
 }

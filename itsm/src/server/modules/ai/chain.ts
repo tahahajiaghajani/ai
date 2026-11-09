@@ -18,6 +18,7 @@ import { AiUnavailableError } from "./errors";
 import { cloudLink, relayTurn, type CloudLink } from "./relay";
 import { disabledByPlatform, loadPolicy, loadSettings } from "./settings";
 import { budgetState, recordUsage } from "./usage";
+import { dataUsePlan, isLocalConnection, refuseNever, refuseNoLocal } from "./datause";
 import { orgAiDisabled } from "../platform/org-admin";
 import { BlockedAddressError, ProviderError, type TurnHooks, type TurnRequest, type TurnResult } from "./types";
 
@@ -182,6 +183,11 @@ export interface RunOptions {
   hooks?: TurnHooks;
   threadId?: string | null;
   env?: AiEnv;
+  /**
+   * the tables whose data the request carries: the data-use policy of each (datause.ts) decides which connections may
+   * answer — none («هرگز»), the local ones only («فقط محلی»), or any
+   */
+  tables?: string[];
 }
 
 /** Throws AiUnavailableError when AI is off or over budget for this member. */
@@ -228,7 +234,12 @@ async function askWebFirst(ctx: Ctx, link: CloudLink, opts: RunOptions): Promise
 export async function runTurn(ctx: Ctx, opts: RunOptions): Promise<ChainResult> {
   const env = opts.env ?? (await loadEnv(ctx));
   await assertUsable(ctx, env);
-  const link = webLink(ctx, env);
+  // the data-use policy of the tables in the request, before any call: never → refused; local → local connections
+  // only, and never the web version's (a relay leaves this computer)
+  const plan = opts.tables?.length ? await dataUsePlan(ctx, opts.tables) : null;
+  if (plan?.use === "never") await refuseNever(ctx, plan, opts.feature);
+  const localOnly = plan?.use === "local";
+  const link = localOnly ? null : webLink(ctx, env);
   // the Windows app with «اول نسخهٔ وب» on for this job: a model on this computer (minutes for the assistant's long
   // first prompt without a graphics card) answers only when the web version cannot
   let webError: AiUnavailableError | null = null;
@@ -237,7 +248,17 @@ export async function runTurn(ctx: Ctx, opts: RunOptions): Promise<ChainResult> 
     if (!(first instanceof AiUnavailableError)) return first;
     webError = first;
   }
-  const { entries, held, total } = await chainFor(ctx, opts.job, env);
+  const chain = await chainFor(ctx, opts.job, env);
+  const { held, total } = chain;
+  let entries = chain.entries;
+  if (localOnly) {
+    entries = entries.filter((e) => isLocalConnection(e.row));
+    if (!entries.length) {
+      const configured = (await connectionRows(ctx.db, ctx.org.id)).some((r) => rowAllowed(ctx, r, env.policy) && isLocalConnection(r));
+      if (configured) throw unavailable(ctx, held ?? "rate");
+      await refuseNoLocal(ctx, plan!, opts.feature);
+    }
+  }
 
   if (!entries.length) {
     if (webError) throw webError;

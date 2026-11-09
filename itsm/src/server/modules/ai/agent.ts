@@ -20,6 +20,7 @@ import { AiUnavailableError } from "./errors";
 import { assertUsable, chainFor, loadEnv, runTurn, unavailable, WEB_LABEL, webFirst, webLink, type AiEnv } from "./chain";
 import { ASSISTANT_SYSTEM, contextBlock, orgNotes } from "./prompts";
 import { redactPrompt, redactValue } from "./redact";
+import { assertToolData, conversationTables, dataUsePlan, DATA_TABLES_KEY, isLocalConnection, refTables, strictestPii, toolTables } from "./datause";
 import { dropNulls, jsonSchemaOf } from "./schema";
 import {
   acquireRun, createThread, emptyUi, history, insertStep, insertUserMessage, logToolCall, ownThread, putData, purgeOld, releaseRun, renewRun, stopRequested, threadTitle,
@@ -104,6 +105,8 @@ function usedTools(messages: NeutralMessage[]): string[] {
 }
 
 interface RunState {
+  /** a local connection can answer this conversation (data of «فقط محلی» tables may join it) */
+  localAvailable?: boolean;
   ctx: Ctx;
   env: AiEnv;
   thread: ThreadRow;
@@ -149,7 +152,11 @@ export async function startChat(ctx: Ctx, req: AiChatRequest, emit: Emit, client
   try {
     if (!req.thread_id) void purgeOld(ctx, env.settings.retention_days);
     const prior = await history(ctx, thread.id);
-    const block = await contextBlock(ctx, req.context ?? thread.context, env.settings.data_policy);
+    // a page whose table may not reach every model: its record's title stays out of the question (datause.ts)
+    const page = req.context ?? thread.context;
+    const pagePlan = page?.record?.type ? await dataUsePlan(ctx, [page.record.type]) : null;
+    const pageForModel = page && pagePlan && pagePlan.use !== "cloud" ? { ...page, title: undefined, record: page.record ? { type: page.record.type, id: page.record.id } : null } : page;
+    const block = await contextBlock(ctx, pageForModel, env.settings.data_policy);
     // files without a question: the model is asked what they are and what can be done with them
     const question = text || "(The person sent the attached file(s) without a question: say briefly what they contain and what you can do with them in this app.)";
     const modelText = `${block}\n\n${redactPrompt(question, env.settings.data_policy)}`;
@@ -204,7 +211,9 @@ async function runAnswer(s: RunState): Promise<void> {
   const specs = toolSpecs(tools);
   // «اول نسخهٔ وب»: the web version's chain picks the model, so none is named in advance
   const viaWeb = !!webFirst(ctx, env, "assistant");
-  const first = viaWeb ? undefined : (await chainFor(ctx, "assistant", env)).entries[0];
+  const chain = await chainFor(ctx, "assistant", env);
+  s.localAvailable = chain.entries.some((e) => isLocalConnection(e.row));
+  const first = viaWeb ? undefined : chain.entries[0];
   emit({ type: "meta", thread_id: thread.id, message_id: s.answerId, model: first?.model ?? null, connection: first?.row.label ?? (viaWeb ? WEB_LABEL : null) });
 
   let usage: Usage = { ...ZERO_USAGE };
@@ -260,6 +269,8 @@ async function runAnswer(s: RunState): Promise<void> {
           feature: "assistant",
           env,
           threadId: thread.id,
+          // every table whose data the conversation holds: their data-use policy picks the models that may answer
+          tables: conversationTables(s.messages, (n) => byName.get(n)?.tables ?? []),
           hooks: {
             onText: (d) => {
               // a new step's text starts a new paragraph, as the stored answer joins its steps
@@ -432,12 +443,19 @@ async function runTools(
         const issues = parsed.error.issues.slice(0, 5).map((i) => `${i.path.join(".") || "input"}: ${i.message}`).join("; ");
         throw new AppError(400, "invalid_input", `Invalid input for ${call.name}: ${issues}`);
       }
+      // the data-use policy of the tables the call reads, before it runs (a «هرگز» table is never read for a model)
+      const called = toolTables(call.name, parsed.data, def.tables ?? []);
+      await assertToolData(ctx, called, "assistant", !!s.localAvailable);
       // the step's deadline bounds the tools too: a tool still running when it fires is answered
       // with an error (its query may finish in the background; nothing of it is used)
       res = deadline ? await untilAborted(def.run(ctx, parsed.data, rt), deadline) : await def.run(ctx, parsed.data, rt);
+      // tables the result refers to that the call did not name (a knowledge search over every source)
+      const extra = refTables(res.refs).filter((t) => !called.includes(t));
+      const plan = await assertToolData(ctx, [...called, ...extra], "assistant", !!s.localAvailable);
       ok = true;
       summary = res.summary_fa;
-      let data: unknown = redactValue(res.data, policy);
+      let data: unknown = redactValue(res.data, strictestPii(policy, plan.pii));
+      if (extra.length && data && typeof data === "object" && !Array.isArray(data)) data = { ...(data as Record<string, unknown>), [DATA_TABLES_KEY]: extra };
       if (res.proposal) {
         const proposal = await storeProposal(ctx, { threadId: thread.id, messageId, callId: call.id, tool: call.name, proposal: res.proposal });
         ui.proposals.push(proposal.id);

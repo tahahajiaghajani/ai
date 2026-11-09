@@ -872,6 +872,95 @@ create index if not exists sm_ai_agent_runs_domain_acc_idx on sm_ai_agent_runs (
 drop trigger if exists sm_ai_agent_runs_sync on sm_ai_agent_runs;
 alter table sm_ai_agent_runs enable row level security;
 
+-- ai_data_policy: سیاست‌های دادهٔ هوش مصنوعی
+create table if not exists sm_ai_data_policies (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_ai_data_policies add column if not exists workspace_id uuid;
+alter table sm_ai_data_policies add column if not exists domain_id uuid;
+alter table sm_ai_data_policies add column if not exists unit_id uuid;
+alter table sm_ai_data_policies add column if not exists created_at timestamptz not null default now();
+alter table sm_ai_data_policies add column if not exists created_by uuid;
+alter table sm_ai_data_policies add column if not exists updated_at timestamptz not null default now();
+alter table sm_ai_data_policies add column if not exists updated_by uuid;
+alter table sm_ai_data_policies add column if not exists rev bigint not null default 0;
+alter table sm_ai_data_policies add column if not exists version integer not null default 1;
+alter table sm_ai_data_policies add column if not exists deleted_at timestamptz;
+alter table sm_ai_data_policies add column if not exists origin text;
+alter table sm_ai_data_policies add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_ai_data_policies add column if not exists table_key text;
+alter table sm_ai_data_policies add column if not exists use text;
+alter table sm_ai_data_policies add column if not exists pii text;
+alter table sm_ai_data_policies add column if not exists note text;
+create index if not exists sm_ai_data_policies_rev_idx on sm_ai_data_policies (org_id, rev);
+create index if not exists sm_ai_data_policies_upd_idx on sm_ai_data_policies (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_ai_data_policies_crt_idx on sm_ai_data_policies (org_id, created_at desc, id desc) where deleted_at is null;
+create unique index if not exists sm_ai_data_policies_table_key_uk on sm_ai_data_policies (org_id, table_key) where deleted_at is null;
+drop trigger if exists sm_ai_data_policies_sync on sm_ai_data_policies;
+create trigger sm_ai_data_policies_sync before insert or update on sm_ai_data_policies for each row execute function sm_sync_touch('ai_data_policy');
+alter table sm_ai_data_policies enable row level security;
+
+-- ai_digest: خلاصه‌های بینش
+create table if not exists sm_ai_digests (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_ai_digests add column if not exists workspace_id uuid;
+alter table sm_ai_digests add column if not exists domain_id uuid;
+alter table sm_ai_digests add column if not exists unit_id uuid;
+alter table sm_ai_digests add column if not exists created_at timestamptz not null default now();
+alter table sm_ai_digests add column if not exists created_by uuid;
+alter table sm_ai_digests add column if not exists updated_at timestamptz not null default now();
+alter table sm_ai_digests add column if not exists updated_by uuid;
+alter table sm_ai_digests add column if not exists rev bigint not null default 0;
+alter table sm_ai_digests add column if not exists version integer not null default 1;
+alter table sm_ai_digests add column if not exists deleted_at timestamptz;
+alter table sm_ai_digests add column if not exists origin text;
+alter table sm_ai_digests add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_ai_digests add column if not exists title text;
+alter table sm_ai_digests add column if not exists recipient_id uuid;
+alter table sm_ai_digests add column if not exists period text;
+alter table sm_ai_digests add column if not exists period_key text;
+alter table sm_ai_digests add column if not exists insights integer;
+alter table sm_ai_digests add column if not exists body text;
+alter table sm_ai_digests add column if not exists delivered_at timestamptz;
+create index if not exists sm_ai_digests_rev_idx on sm_ai_digests (org_id, rev);
+create index if not exists sm_ai_digests_upd_idx on sm_ai_digests (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_ai_digests_crt_idx on sm_ai_digests (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_ai_digests_recipient_id_idx on sm_ai_digests (org_id, recipient_id) where deleted_at is null;
+create unique index if not exists sm_ai_digests_recipient_id_period_period_key_uk on sm_ai_digests (org_id, recipient_id, period, period_key) where deleted_at is null;
+create index if not exists sm_ai_digests_workspace_acc_idx on sm_ai_digests (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_ai_digests_unit_acc_idx on sm_ai_digests (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_ai_digests_domain_acc_idx on sm_ai_digests (org_id, domain_id) where deleted_at is null and domain_id is not null;
+drop trigger if exists sm_ai_digests_sync on sm_ai_digests;
+create trigger sm_ai_digests_sync before insert or update on sm_ai_digests for each row execute function sm_sync_touch('ai_digest');
+alter table sm_ai_digests enable row level security;
+
 -- ai_skill: مهارت‌های هوش مصنوعی
 create table if not exists sm_ai_skills (
   id uuid primary key,

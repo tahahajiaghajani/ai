@@ -45,6 +45,8 @@ import { installVirtualAgent } from "../modules/ai/va";
 import { vaRoutes } from "./ai-va";
 import { installAiMl } from "../modules/ai/ml";
 import { mlRoutes } from "./ai-ml";
+import { installAiGovernance } from "../modules/ai/governance";
+import { governanceRoutes } from "./ai-governance";
 
 // the ITSM access model is the engine's access provider in every runtime (docs/spec/ACCESS.md)
 installAccessModel();
@@ -91,6 +93,8 @@ installAiAgents();
 installVirtualAgent();
 // predictive AI (docs/spec/AI.md §13) — after the modules whose tables it learns from and the SLA rules it serves
 installAiMl();
+// AI governance (docs/spec/AI.md §14): the data-use policy per table and the console
+installAiGovernance();
 
 export const moduleRoutes = router();
 
@@ -100,6 +104,7 @@ moduleRoutes.route("/ai", skillRoutes);
 moduleRoutes.route("/ai", agentRoutes);
 moduleRoutes.route("/ai", vaRoutes);
 moduleRoutes.route("/ai", mlRoutes);
+moduleRoutes.route("/ai", governanceRoutes);
 moduleRoutes.route("/access", accessRoutes);
 moduleRoutes.route("/notify", notifyRoutes);
 moduleRoutes.route("/calendars", calendarRoutes);

@@ -17,7 +17,7 @@ export type AiConnectionStatus = "unchecked" | "ok" | "error" | "paused";
 /** Error classes, normalised across providers (Persian explanations live in src/shared/ai/errors.ts). */
 export type AiErrorKind =
   | "auth" | "region" | "quota" | "rate" | "overloaded" | "model" | "invalid" | "refusal"
-  | "timeout" | "network" | "budget" | "disabled" | "not_configured" | "empty" | "other";
+  | "timeout" | "network" | "budget" | "disabled" | "not_configured" | "empty" | "policy" | "other";
 
 /** A connection as the UI sees it. The key itself never leaves the server. */
 export interface AiConnectionPublic {

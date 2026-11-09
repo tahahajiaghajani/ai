@@ -71,6 +71,7 @@ async function ocrFile(ctx: Ctx, file: { name: string; mime: string; data: Uint8
     system: OCR_SYSTEM,
     prompt: `Transcribe every page of the attached file «${file.name.replace(/[«»<>]/g, " ")}».`,
     attachments: [{ name: file.name, mime: file.mime, data: Buffer.from(file.data).toString("base64") }],
+    tables: ["doc_document"],
     schema: z.object({ pages: z.array(z.object({ page: z.number().int().min(1).max(10_000), text: z.string().max(200_000) })).max(2000) }),
     maxTokens: 32_000,
   });
@@ -143,7 +144,7 @@ async function summarise(ctx: Ctx, title: string, pages: ParsedPage[]): Promise<
   const text = clipTokens(pages.map((p) => p.text).join("\n\n"), 6000);
   if (text.length < 200) return null;
   try {
-    const r = await generate(ctx, { job: "fast", feature: "doc_summary", system: SUMMARY_SYSTEM, prompt: dataBlock("document", { title, text }), maxTokens: 700, effort: "low" });
+    const r = await generate(ctx, { job: "fast", feature: "doc_summary", system: SUMMARY_SYSTEM, prompt: dataBlock("document", { title, text }), maxTokens: 700, effort: "low", tables: ["doc_document"] });
     return r.text.trim().slice(0, 2000) || null;
   } catch {
     return null;

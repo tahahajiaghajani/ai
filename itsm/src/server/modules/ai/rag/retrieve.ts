@@ -403,6 +403,7 @@ async function rerank(ctx: Ctx, query: string, passages: RetrievedPassage[], sig
     schema: z.object({ order: z.array(z.number().int()) }),
     effort: "low",
     maxTokens: 800,
+    tables: [...new Set(passages.map((p) => p.citation.table))],
     signal,
   });
   const order = (r.object?.order ?? []).filter((n) => n >= 1 && n <= passages.length);

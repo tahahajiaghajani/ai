@@ -143,13 +143,14 @@ export async function translateDraft(ctx: Ctx, input: { title: string; summary?:
     prompt: `Return JSON {"title": "...", "summary": "...", "body": "..."}.\n\n${dataBlock("glossary", terms)}\n${dataBlock("article", { title: input.title, summary: input.summary ?? "", body: input.body.slice(0, 60_000) })}`,
     schema: z.object({ title: z.string(), summary: z.string().optional(), body: z.string() }),
     maxTokens: 16_000,
+    tables: ["kb_article"],
   });
   if (!r.object) throw bad("ترجمه ساخته نشد");
   return { ...r.object, model: r.model };
 }
 
 /** A KCS draft from the scrubbed capture of a record (the built-in KB-066). */
-export async function draftWithAi(ctx: Ctx, capture: { title: string; body: string; internal_body: string; keywords: string[]; number?: string | null }) {
+export async function draftWithAi(ctx: Ctx, capture: { title: string; body: string; internal_body: string; keywords: string[]; number?: string | null }, table?: string) {
   const r = await generate(ctx, {
     job: "assistant",
     feature: "kb_draft",
@@ -157,6 +158,8 @@ export async function draftWithAi(ctx: Ctx, capture: { title: string; body: stri
     prompt: `Return JSON {"title": "...", "summary": "...", "body": "... Markdown with ## sections ...", "keywords": ["..."]}.\n\n${dataBlock("ticket", capture)}`,
     schema: z.object({ title: z.string(), summary: z.string().optional(), body: z.string(), keywords: z.array(z.string()).optional() }),
     maxTokens: 6000,
+    // the ticket's table: its data-use policy applies to the capture
+    tables: table ? [table, "kb_article"] : ["kb_article"],
   });
   if (!r.object) throw bad("پیش‌نویس ساخته نشد");
   return { ...r.object, model: r.model };

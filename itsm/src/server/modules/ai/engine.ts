@@ -10,6 +10,7 @@ import { AiUnavailableError } from "./errors";
 import { assertUsable, chainFor, loadEnv, runTurn, unavailable, WEB_LABEL, webFirst, webLink, type AiEnv } from "./chain";
 import { appSecretMissing } from "./connections";
 import { redactDataBlocks, redactPrompt } from "./redact";
+import { dataUsePlan, strictestPii } from "./datause";
 import { dropNulls, jsonSchemaOf } from "./schema";
 import { disabledByPlatform, featureSwitch } from "./settings";
 import { budgetState } from "./usage";
@@ -44,6 +45,11 @@ export interface GenerateOptions<S extends z.ZodTypeAny | undefined = undefined>
   jsonSchema?: Record<string, unknown>;
   /** the answer as it is written (plain-text answers; a streamed answer is never asked again of another model) */
   onText?: (delta: string) => void;
+  /**
+   * the tables whose data the prompt carries: their data-use policy decides which models may answer (none, local ones
+   * only, any) and may ask for stricter masking than the organisation's (datause.ts)
+   */
+  tables?: string[];
 }
 
 export interface GenerateResult<T = unknown> {
@@ -65,10 +71,13 @@ export async function generate<S extends z.ZodTypeAny | undefined = undefined>(
   const sw = featureSwitch(opts.feature);
   if (sw && !env.settings.features[sw]) throw unavailable(ctx, "disabled");
   if (opts.attachments?.length && !env.settings.features.files) throw unavailable(ctx, "disabled");
+  // a table may ask for stricter masking than the organisation's: the strictest of the call's tables applies
+  const plan = opts.tables?.length ? await dataUsePlan(ctx, opts.tables) : null;
+  const pii = strictestPii(env.settings.data_policy, plan?.pii);
   const parts: Part[] = [
     ...(opts.attachments ?? []).map((a) => ({ type: "file" as const, name: a.name, mime: a.mime, data: a.data })),
     // data blocks are redacted as structured data (names hidden under "aggregates"), the rest as typed text
-    { type: "text", text: redactPrompt(redactDataBlocks(opts.prompt, env.settings.data_policy), env.settings.data_policy) },
+    { type: "text", text: redactPrompt(redactDataBlocks(opts.prompt, pii), pii) },
   ];
   const output = opts.schema ? { name: "result", schema: opts.jsonSchema ?? jsonSchemaOf(opts.schema) } : null;
   const run = async (extra?: string) =>
@@ -76,6 +85,7 @@ export async function generate<S extends z.ZodTypeAny | undefined = undefined>(
       job: opts.job,
       feature: opts.feature,
       env,
+      tables: opts.tables,
       request: {
         system: opts.system,
         messages: [{ role: "user", parts: extra ? [...parts, { type: "text", text: extra }] : parts }],

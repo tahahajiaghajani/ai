@@ -303,7 +303,7 @@ knowledgeRoutes.post("/capture", async (c) => {
     ctx.need("ai", "view");
     const { draft, record } = await draftOfRecord(ctx, p.table, rid);
     const ext = knowledgeAi().draftFromRecord;
-    const ai = ext ? await ext(ctx, p.table, rid) : await draftWithAi(ctx, { ...draft, number: record.number ?? null });
+    const ai = ext ? await ext(ctx, p.table, rid) : await draftWithAi(ctx, { ...draft, number: record.number ?? null }, p.table);
     const created = await captureFromRecord(ctx, { table: p.table, id: rid, base_id: p.base_id, category_id: p.category_id, template_id: p.template_id, title: ai.title });
     const sys = sysOf(ctx, ctx.user.id);
     const provenance = { model: ai.model ?? null, prompt_version: "kb.draft.1", source_refs: [String(record.number ?? rid)], kind: "draft" };

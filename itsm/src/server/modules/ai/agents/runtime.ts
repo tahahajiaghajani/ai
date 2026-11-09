@@ -29,7 +29,8 @@ import { AppError } from "../../../http/errors";
 import { liveRows } from "../../incident/common";
 import { notifyPeople } from "../../notify";
 import { AiUnavailableError } from "../errors";
-import { loadEnv, runTurn } from "../chain";
+import { chainFor, loadEnv, runTurn } from "../chain";
+import { assertToolData, conversationTables, DATA_TABLES_KEY, isLocalConnection, refTables, strictestPii, toolTables } from "../datause";
 import { orgNotes } from "../prompts";
 import { redactDataBlocks, redactValue } from "../redact";
 import { dropNulls, jsonSchemaOf } from "../schema";
@@ -210,6 +211,8 @@ interface Live {
   steps: AgentStep[];
   proposals: string[];
   counts: { step_count: number; tool_calls: number; actions: number; applied: number; tokens_in: number; tokens_out: number; cost: string };
+  /** a local connection can answer this agent (data of «فقط محلی» tables may join its conversation) */
+  localAvailable?: boolean;
 }
 
 const numOf = (v: unknown) => (typeof v === "number" ? v : Number(v ?? 0) || 0);
@@ -321,10 +324,17 @@ async function callTool(l: Live, call: ToolCall, byName: Map<string, AiToolDef>,
       step.error = "سقف اقدام‌های این اجرا پر شده است";
       return { content: JSON.stringify({ error: "The action budget of this run is used up. Do not propose more; write your report now." }), ok: false, step, stop: "budget" };
     }
+    // the data-use policy of the tables the call reads (datause.ts): before it runs, and of the records it returns
+    const feature = `agent:${l.a.key}`.slice(0, 40);
+    const called = toolTables(call.name, parsed.data, def.tables ?? []);
+    await assertToolData(l.pctx, called, feature, !!l.localAvailable);
     const res = await def.run(l.pctx, parsed.data, rt);
+    const extra = refTables(res.refs).filter((t) => !called.includes(t));
+    const plan = await assertToolData(l.pctx, [...called, ...extra], feature, !!l.localAvailable);
     step.ok = true;
     step.summary = res.summary_fa ?? null;
-    let data: unknown = redactValue(res.data, policy);
+    let data: unknown = redactValue(res.data, strictestPii(policy, plan.pii));
+    if (extra.length && data && typeof data === "object" && !Array.isArray(data)) data = { ...(data as Record<string, unknown>), [DATA_TABLES_KEY]: extra };
     if (res.proposal) {
       l.counts.actions++;
       const p = res.proposal;
@@ -398,12 +408,15 @@ async function step(l: Live): Promise<{ more: boolean; wait?: number }> {
   const last = l.counts.step_count + 1 >= a.max_steps;
   const specs = last ? undefined : [...tools].sort((x, y) => x.name.localeCompare(y.name)).map((t) => ({ name: t.name, description: t.description, schema: jsonSchemaOf(t.input) }));
   const messages = last ? [...state.messages, { role: "user" as const, parts: [{ type: "text" as const, text: "Step limit reached: write your report now from what the tool results above show; call no tool." }] }] : state.messages;
+  l.localAvailable = (await chainFor(pctx, tierJob(a.tier), env)).entries.some((e) => isLocalConnection(e.row));
   let result;
   try {
     result = await runTurn(pctx, {
       job: tierJob(a.tier),
       feature: `agent:${a.key}`.slice(0, 40),
       env,
+      // the run's record and every table whose data the conversation holds: their data-use policy picks the models
+      tables: [...new Set([...(record ? [record.table] : []), ...conversationTables(messages, (n) => byName.get(n)?.tables ?? [])])],
       request: { system: AGENT_SYSTEM, systemNotes: orgNotes(env.settings.instructions), messages, tools: specs?.length ? specs : undefined, maxTokens: AGENT_RUN_LIMITS.maxTokens, signal: AbortSignal.timeout(AGENT_RUN_LIMITS.stepMs) },
     });
   } catch (e) {

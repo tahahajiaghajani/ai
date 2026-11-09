@@ -43,7 +43,7 @@ const REF_ICON: Record<string, LucideIcon> = {
 };
 
 /** Errors only someone who manages AI can fix (keys, budget, switches). */
-const ADMIN_KINDS = new Set<AiErrorKind>(["not_configured", "disabled", "auth", "region", "quota", "model", "budget"]);
+const ADMIN_KINDS = new Set<AiErrorKind>(["not_configured", "disabled", "auth", "region", "quota", "model", "budget", "policy"]);
 const NO_RETRY = new Set<AiErrorKind>(["refusal", ...ADMIN_KINDS]);
 
 export interface MessageEnv {

@@ -156,7 +156,7 @@ export async function* readFrames(body: ReadableStream<Uint8Array>, onActivity?:
 
 // ---------------------------------------------------------------- errors
 
-const ERROR_KINDS = new Set<AiErrorKind>(["auth", "region", "quota", "rate", "overloaded", "model", "invalid", "refusal", "timeout", "network", "budget", "disabled", "not_configured", "empty", "other"]);
+const ERROR_KINDS = new Set<AiErrorKind>(["auth", "region", "quota", "rate", "overloaded", "model", "invalid", "refusal", "timeout", "network", "budget", "disabled", "not_configured", "empty", "policy", "other"]);
 
 /** An error event for a request the server refused before streaming (or a network failure). */
 export function errorEvent(e: unknown): Extract<AiStreamEvent, { type: "error" }> {
