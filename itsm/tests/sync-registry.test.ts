@@ -41,6 +41,13 @@ const LOCAL_ONLY: Record<string, string> = {
   sm_kb_events: "knowledge event stream of this runtime (search analytics, views, deflection)",
   sm_ai_doc_pages: "text read from smart documents on this runtime",
   sm_ai_rag_runs: "AI index runs (backfills, re-embedding, reconciliation)",
+  // predictive AI and insights (docs/spec/AI.md §13–14): each runtime trains its classical models on the data it holds
+  // and keeps their outputs; governance logs record what this runtime refused
+  sm_ai_models: "classical models of this runtime (registry, metrics, parameters)",
+  sm_ai_predictions: "predictions of this runtime's models (shown to readers of their records)",
+  sm_ai_clusters: "clusters of similar records (problem candidates) of this runtime",
+  sm_ai_insights: "insight cards computed by this runtime (shown to readers of all their records)",
+  sm_ai_guard_log: "data-use policy blocks, guardrails and refusals of this runtime",
   // record engine bookkeeping of each runtime
   sm_numbers: "record number counters (each runtime its own; sync renumbers on a clash)",
   sm_jobs: "job queue and outbox of record events (each runtime runs its own)",

@@ -43,7 +43,7 @@ export {
   decide, decideMany, myApprovals, myApprovalCount, recordApprovals, requestApproval, requestApprovalIn, cancelApprovals, activeDelegations, delegateOf, delegatorsOf, managerOf, registerApproverSource, approverSources,
   cancelApprovalsIn, rerunApprovalRules, rerunApprovalRulesIn, onApprovalSettled, settledVerdict, type ApprovalSettled, type ApprovalSettledFn, type CancelOptions, type RerunOptions,
 } from "./approvals";
-export { registerPriorityDefault, setOnCallResolver, MAX_RULE_DEPTH } from "./rules";
+export { registerPriorityDefault, setOnCallResolver, setAssignmentPredictor, MAX_RULE_DEPTH, type AssignmentPredictor } from "./rules";
 export { uiPolicies, policiesOf } from "./policies";
 export { config as slaConfig, forgetConfig } from "./common";
 export { approvalStep, slaBusinessClock, roundKey, roundResult, installSlaFlowSteps } from "./flows";

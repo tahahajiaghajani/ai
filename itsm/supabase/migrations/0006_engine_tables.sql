@@ -1105,6 +1105,7 @@ alter table sm_assignment_rules add column if not exists group_id uuid;
 alter table sm_assignment_rules add column if not exists method text;
 alter table sm_assignment_rules add column if not exists user_id uuid;
 alter table sm_assignment_rules add column if not exists skills jsonb;
+alter table sm_assignment_rules add column if not exists ai_group boolean not null default false;
 alter table sm_assignment_rules add column if not exists sort_order integer;
 alter table sm_assignment_rules add column if not exists active boolean not null default true;
 alter table sm_assignment_rules add column if not exists description text;
