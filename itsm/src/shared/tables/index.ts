@@ -22,6 +22,9 @@ import { CHANGE_CHOICE_LISTS, CHANGE_TABLES } from "./change";
 import { REQUEST_CHOICE_LISTS, REQUEST_TABLES } from "./request";
 import { KNOWLEDGE_CHOICE_LISTS, KNOWLEDGE_TABLES } from "./knowledge";
 import { AI_TABLES } from "./ai";
+import { ITAM_CHOICE_LISTS, ITAM_TABLES } from "./itam";
+import { SUPPLIER_CHOICE_LISTS, SUPPLIER_TABLES } from "./supplier";
+import { FINANCIAL_CHOICE_LISTS, FINANCIAL_TABLES } from "./financial";
 
 export { CUSTOM_FIELD_TYPES, VIEW_KINDS } from "./core";
 
@@ -41,6 +44,9 @@ const MODULE_TABLES: TableDef[][] = [
   REQUEST_TABLES,
   KNOWLEDGE_TABLES,
   AI_TABLES,
+  ITAM_TABLES,
+  SUPPLIER_TABLES,
+  FINANCIAL_TABLES,
 ];
 
 /** Every table by key (resolved definitions). */
@@ -217,6 +223,9 @@ for (const [key, options] of Object.entries(CMDB_CHOICE_LISTS)) registerChoiceLi
 for (const [key, options] of Object.entries(CHANGE_CHOICE_LISTS)) registerChoiceList(key, options);
 for (const [key, options] of Object.entries(REQUEST_CHOICE_LISTS)) registerChoiceList(key, options);
 for (const [key, options] of Object.entries(KNOWLEDGE_CHOICE_LISTS)) registerChoiceList(key, options);
+for (const [key, options] of Object.entries(ITAM_CHOICE_LISTS)) registerChoiceList(key, options);
+for (const [key, options] of Object.entries(SUPPLIER_CHOICE_LISTS)) registerChoiceList(key, options);
+for (const [key, options] of Object.entries(FINANCIAL_CHOICE_LISTS)) registerChoiceList(key, options);
 
 /** The members of the organisation as a reference target (virtual: no table of its own). */
 export const USER_DEF = buildTable(USER_TABLE);
