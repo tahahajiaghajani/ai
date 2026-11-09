@@ -1,6 +1,8 @@
 // Release management: seeds, the template's set-up, readiness checks, the go/no-go decision and the lifecycle guards.
 import { describe, expect, it, beforeAll } from "vitest";
 import { world, at, type World } from "./release-helpers";
+import { renderBlocks, templateBlocks } from "@server/modules/notify/blocks";
+import { tableDef } from "@shared/tables";
 
 let w: World;
 
@@ -128,5 +130,20 @@ describe("release rules", () => {
     const win = (await w.o.post(`${w.P}/r/release_window`, { name: "پنجرهٔ آزمایشی تک‌ظرفیتی", kind: "slot", capacity: 1, start_at: at(3, 18), end_at: at(3, 21) })).row;
     await w.release({ window_id: win.id });
     await w.p.dev.client.post(`${w.P}/r/release`, { short_description: "انتشار دوم", type: "minor", window_id: win.id }, 409);
+  });
+});
+
+describe("the notification template block", () => {
+  it("renders the readiness of a release for a recipient who reads it, nothing for one who does not", async () => {
+    const rel = await w.release({ short_description: "انتشار با بلوک اعلان" });
+    await w.drain();
+    expect(templateBlocks(tableDef("release")!).some((b) => b.key === "release_readiness")).toBe(true);
+    const input = async (userId: string) => ({ ctx: await w.e.ctxOf(userId), def: tableDef("release")!, id: rel.id, row: { go_no_go: "pending", risk_band: rel.risk_band ?? null }, event: "custom", link: (p: string) => `https://itsm.example.com/${w.e.org}/${p}` });
+    const shown = await renderBlocks(["block.release_readiness"], await input(w.p.rm.userId));
+    const md = shown.get("block.release_readiness")?.markdown ?? "";
+    expect(md).toContain("آمادگی");
+    expect(md).toContain("بررسی‌های بازدارندهٔ باز");
+    const hidden = await renderBlocks(["block.release_readiness"], await input(w.p.req.userId));
+    expect(hidden.get("block.release_readiness")?.markdown ?? "").toBe("");
   });
 });

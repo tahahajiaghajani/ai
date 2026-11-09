@@ -5,7 +5,8 @@
 //   · hooks of its tables and the guards «release_go», «release_emergency», «release_task_ready», «deployment_gate»
 //   · the go/no-go decision on the approvals service (onApprovalSettled) and the approver source «release_manager»
 //   · jobs, the sweep and the subscribers (links, changes, new incidents)
-//   · the AI skills release.notes / release.deployment_risk / release.briefing (rule-based fallbacks)
+//   · the AI skills release.notes / release.deployment_risk / release.briefing (rule-based fallbacks) and the
+//     notification template block {{block.release_readiness}}
 //   · record meta `release` on GET /r/release/:id (whether the caller holds the release manager's authority)
 //   · the seed of a new organisation (seed.ts), queued after the SLA service's calendars and the change module's seed
 // Extension points: deployments are shared with DevOps (src/server/modules/devops writes them from pipelines);
@@ -20,6 +21,7 @@ import { installReleaseHooks } from "./hooks";
 import { installDecisionHooks } from "./decision";
 import { installReleaseJobs } from "./jobs";
 import { installReleaseSkills } from "./ai";
+import { installReleaseBlocks } from "./blocks";
 import { RELEASE_MANAGERS_GROUP, seedReleaseDefaultsIn, type SeedCounts } from "./seed";
 import { eqAll, liveRows, managesReleases, sysOf, type Row } from "./common";
 
@@ -40,6 +42,7 @@ export function installReleaseModule(): void {
   installDecisionHooks();
   installReleaseJobs();
   installReleaseSkills();
+  installReleaseBlocks();
   // «مدیر انتشار» in approval rules: the record's release manager when they hold the authority, else the release
   // managers' group, else every holder of the role — never the person who carries out the deployment
   registerApproverSource("release_manager", async (q, ctx, _def, row) => {
