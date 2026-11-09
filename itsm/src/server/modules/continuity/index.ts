@@ -31,7 +31,7 @@ export function installContinuityModule(): void {
 }
 
 export { seedContinuityDefaultsIn, CONTINUITY_SEED_VERSION, TEMPLATE_IMPACTS, type SeedCounts } from "./seed";
-export { continuityConfig } from "./common";
+export { continuityConfig, isContinuityManager } from "./common";
 export { availabilityReport, availabilityFor, serviceTrend, type AvailabilityReport, type ServiceAvailability, type ServiceTrend } from "./availability";
 export { startExercise, markStep, finishExercise, biaFromTemplate, continuityDashboard, outageFromIncident, type ContinuityDashboard } from "./operations";
 export { proposeFromIncident, proposeEnd, continuitySweep } from "./jobs";

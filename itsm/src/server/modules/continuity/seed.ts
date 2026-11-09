@@ -1,7 +1,8 @@
 // Day-one defaults of availability and continuity (Persian, idempotent): the settings row (with the `seeded` marker),
 // the BIA template «الگوی تحلیل اثر کسب‌وکار» (categories × time buckets with typical ratings, tolerance «زیاد»,
 // guidance for respondents and an MBCO prompt) and a recovery-plan template «الگوی طرح بازیابی خدمت» with its
-// steps — the starting point of a service's DR plan and of its exercises.
+// steps — the starting point of a service's DR plan and of its exercises; and the custom role «مدیر تداوم و
+// دسترس‌پذیری» (administrators give it) that approves analyses and plans.
 import type { Ctx } from "../../context";
 import type { Tx } from "../../db";
 import { createIn, updateIn } from "../../engine";
@@ -69,6 +70,12 @@ export async function seedContinuityDefaultsIn(tx: Tx, ctx: Ctx, opts: { force?:
     review_months: 12,
   });
   for (const [seq, title, role, offset] of STEPS) await ensure(tx, sys, out, "plan_step", { plan_id: plan.id, seq }, { title, role, rto_offset_minutes: offset });
+  await ensure(tx, sys, out, "role", { key: "continuity_manager" }, {
+    name: "مدیر تداوم و دسترس‌پذیری", persona: "agent", workspaces: "member", domains: "own", active: true,
+    description: "قطعی‌ها، ظرفیت، تحلیل‌های اثر، طرح‌های تداوم و مانورها؛ تأیید تحلیل اثر و طرح",
+    grants: { continuity: { read: "all", write: "all", delete: "all", create: true, approve: true, admin: true } },
+    field_groups: ["internal", "personal"], contains: ["agent"],
+  });
   await updateIn(tx, sys, "continuity_config", String(config.id), { seeded: CONTINUITY_SEED_VERSION }, { trusted: true });
   return out;
 }

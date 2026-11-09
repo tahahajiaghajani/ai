@@ -2,9 +2,10 @@
 // report and a service's trend, a declared major incident proposing an outage and its resolution proposing the end,
 // capacity records fed by monitoring events (and the owner told on crossing), a BIA from the template with the
 // proposed RTO and its checks, a plan's exercise (start, steps, result) marking the plan tested, the dashboard, and
-// who may read it.
+// who may read it; the defaults (idempotent, kept for continuity managers).
 import { beforeAll, describe, expect, it } from "vitest";
 import { eventWorld, type EventWorld } from "./event-helpers";
+import { seedContinuityDefaults } from "@server/modules/continuity";
 
 let w: EventWorld;
 let service = "";
@@ -67,7 +68,8 @@ describe("outages and availability", () => {
 
 describe("capacity", () => {
   it("follows monitoring values, rates them and tells the owner on crossing", async () => {
-    const rec = (await w.o.post(`${w.P}/r/capacity_record`, { name: "دیسک داده db01", ci_id: w.ci.db, metric: "disk_used", unit: "GB", capacity: "100", event_match: "db01/disk_used", owner_id: w.p.ops.userId })).row;
+    const rec = (await w.o.post(`${w.P}/r/capacity_record`, { name: "دیسک داده db01", ci_id: w.ci.db, metric: "disk_used", unit: "GB", capacity: "100", event_match: " DB01/Disk_Used ", owner_id: w.p.ops.userId })).row;
+    expect(rec.event_match).toBe("db01/disk_used");
     expect(rec.status).toBe("unknown");
     const s = await w.source({ name: "ظرفیت" });
     await w.send(s.key, { title: "disk used", host: "db01", metric: "disk_used", value: 95, severity: "info", event_id: "c1" });
@@ -123,5 +125,20 @@ describe("business impact, plans and exercises", () => {
     await w.p.agent.client.get(`${w.P}/r/outage`, 403);
     await w.p.auditor.client.get(`${w.P}/continuity/dashboard`);
     await w.p.req.client.get(`${w.P}/continuity/availability`, 403);
+  });
+});
+
+describe("seed", () => {
+  it("is idempotent, re-adds what was deleted, and only a continuity manager runs it", async () => {
+    expect((await seedContinuityDefaults(w.e.cfg, w.e.org)).skipped).toBe(true);
+    expect((await seedContinuityDefaults(w.e.cfg, w.e.org, { force: true })).created).toEqual({});
+    const [step] = await q("plan_step", { f: "seq", op: "eq", v: 6 });
+    await w.o.del(`${w.P}/r/plan_step/${step.id}`);
+    expect((await w.o.post(`${w.P}/continuity/seed`, {})).created).toEqual({ plan_step: 1 });
+    const roles = (await w.o.get(`${w.P}/access/roles`)).roles as Row[];
+    expect(roles.map((r) => r.key)).toContain("continuity_manager");
+    // the operations manager writes its group's continuity records but approves nothing: no defaults either
+    await w.p.mgr.client.post(`${w.P}/continuity/seed`, {}, 403);
+    await w.p.agent.client.post(`${w.P}/continuity/seed`, {}, 403);
   });
 });

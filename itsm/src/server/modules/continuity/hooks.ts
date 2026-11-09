@@ -53,6 +53,8 @@ async function capacityBefore(w: WriteArgs): Promise<void> {
   const crit = pct(n.critical_pct) ?? 90;
   if (warn > crit) throw validationError({ warning_pct: "آستانهٔ اخطار باید کمتر از آستانهٔ بحرانی باشد" });
   if (n.capacity !== null && n.capacity !== undefined && !(Number(n.capacity) > 0)) throw validationError({ capacity: "ظرفیت باید بیشتر از صفر باشد" });
+  // «میزبان/سنجه» or «سنجه», matched case-insensitively against monitoring events
+  if (typeof n.event_match === "string") n.event_match = n.event_match.trim().toLowerCase() || null;
   const s = capacityStatus(n.utilisation, n.capacity, warn, crit);
   n.utilisation_pct = s.pct === null ? null : String(s.pct);
   n.status = s.status;
@@ -140,7 +142,14 @@ async function exerciseBefore(w: WriteArgs): Promise<void> {
 
 async function exerciseAfter(w: WriteArgs): Promise<void> {
   if (w.op === "delete" || w.via === "sync" || !w.changed.has("state") || w.next.state !== "results" || !isUuid(w.next.plan_id)) return;
-  const day = (w.next.ended_at ? String(w.next.ended_at) : new Date().toISOString()).slice(0, 10);
+  // the organisation's calendar day of the end (an exercise ending after midnight UTC is still «today» in Tehran)
+  const ended = msOf(w.next.ended_at) ?? Date.now();
+  let day: string;
+  try {
+    day = new Intl.DateTimeFormat("en-CA", { timeZone: orgTz(w.ctx), year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(ended));
+  } catch {
+    day = new Date(ended).toISOString().slice(0, 10);
+  }
   await updateIn(w.tx, sysOf(w.ctx), "continuity_plan", String(w.next.plan_id), { last_tested_at: day, last_test_result: w.next.result ?? null }, { trusted: true, keepVersion: true, allowLocked: true });
 }
 

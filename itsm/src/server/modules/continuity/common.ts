@@ -3,7 +3,9 @@ import { CONTINUITY_CONFIG_DEFAULTS, type ContinuityConfig } from "@shared/table
 import type { Ctx } from "../../context";
 import type { Queryable } from "../../db";
 import { liveRows, liveRow, isUuid, sysOf, eqAll, type Row } from "../incident/common";
-import { orgTz } from "../../engine";
+import { orgSchema, orgTz } from "../../engine";
+import { grantIn } from "@shared/access/model";
+import { subjectOf } from "../../access";
 
 export { liveRows, liveRow, isUuid, sysOf, eqAll, orgTz, type Row };
 
@@ -20,3 +22,16 @@ export const msOf = (v: unknown): number | null => {
   const t = Date.parse(String(v));
   return Number.isFinite(t) ? t : null;
 };
+
+/** Does the caller manage continuity (approve or administer in area `continuity`): approvals, defaults? */
+export async function isContinuityManager(ctx: Ctx, q?: Queryable): Promise<boolean> {
+  if (ctx.actor === "system") return true;
+  // the access subject is loaded by the engine's first entry point
+  await orgSchema(ctx, q);
+  try {
+    const g = grantIn(subjectOf(ctx).eff, "continuity");
+    return !!(g.approve || g.admin);
+  } catch {
+    return false;
+  }
+}

@@ -6,9 +6,8 @@
 import { z } from "zod";
 import { router, body, query } from "../http/hono";
 import { forbidden } from "../http/errors";
-import { access } from "../access/provider";
-import { defFor, get } from "../engine";
-import { availabilityReport, biaFromTemplate, continuityDashboard, finishExercise, markStep, outageFromIncident, seedContinuityDefaults, serviceTrend, startExercise } from "../modules/continuity";
+import { get } from "../engine";
+import { availabilityReport, biaFromTemplate, continuityDashboard, finishExercise, isContinuityManager, markStep, outageFromIncident, seedContinuityDefaults, serviceTrend, startExercise } from "../modules/continuity";
 import { compositeAvailability, type Component } from "@shared/continuity/logic";
 
 const UUID = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, "شناسه معتبر نیست");
@@ -19,8 +18,7 @@ export const continuityRoutes = router();
 
 continuityRoutes.post("/seed", async (c) => {
   const ctx = c.get("ctx");
-  const { def } = await defFor(ctx, "continuity_plan");
-  if (!access().canCreate(ctx, def, null)) throw forbidden("افزودن پیش‌فرض‌ها با مدیر تداوم است");
+  if (!(await isContinuityManager(ctx))) throw forbidden("افزودن پیش‌فرض‌ها با مدیر تداوم است");
   const input = await body(c, z.object({ force: z.boolean().optional() }));
   return c.json(await seedContinuityDefaults(ctx.cfg, ctx.org.id, { force: input.force ?? true }));
 });
