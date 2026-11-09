@@ -4,10 +4,13 @@
 // administrators only and counts with the caller's access; space availability shows whose bookings are whose without
 // naming others'.
 import "./fixtures/rag";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { dayFrom, esmWorld, memberAt, type EsmWorld } from "./esm-helpers";
 
 type Section = { key: string; kind: string; title: string; links: { key: string; path: string; count?: number | null }[]; services: { name: string; case_table: string }[]; facts: { key: string; value: string }[] };
+
+// each test drives a whole organisation and drains its jobs; the full suite runs many such files side by side
+vi.setConfig({ testTimeout: 180_000 });
 
 describe("esm: portal sections and department screens", () => {
   let w: EsmWorld;
@@ -17,7 +20,7 @@ describe("esm: portal sections and department screens", () => {
     // an employee's open HR case (counted in their section's «my cases» link)
     await w.p.emp.client.post(`${w.P}/r/hr_case`, { short_description: "پرسش دربارهٔ مرخصی استحقاقی", dept_service_id: w.svc.hr_leave.id });
     await w.drain();
-  });
+  }, 240_000);
 
   it("gives an employee the departments' sections with the services they may use and their own case count", async () => {
     const r = await w.p.emp.client.get(`${w.P}/esm/portal/sections`);

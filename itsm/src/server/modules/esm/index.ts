@@ -21,7 +21,6 @@ import { onRecordEvent, registerHooks, registerRecordMeta, systemCtx, transition
 import { enqueue, registerJobHandler, type JobConfig, type JobContext } from "../../jobs";
 import { actsHere } from "../notify";
 import { registerAiChannel } from "../ai/rag/registry";
-import { excludeFromTools } from "../ai/tools/records";
 import { DEPT_TABLES, installEsmHooks } from "./hooks";
 import { advanceJourneyIn, followRecordIn, journeyHooks, JOB_ORDER, placeActivityOrder } from "./journeys";
 import { facilityHooks, installReservationApprovals, JOB_NO_SHOW, noShowJob } from "./facilities";
@@ -89,10 +88,9 @@ export function installEsmModule(): void {
     await transitionIn(s.tx, sys, "journey_activity", String(s.record.id), verdict === "approved" ? "done" : "failed", verdict === "approved" ? {} : { outcome: "تأیید نشد" }, { trusted: true });
   });
 
-  // AI: privileged legal requests never reach a model; legal requests and ER notes stay out of the assistant's tools
+  // AI: no skill and no retrieval reads a privileged legal request (the assistant's generated record tools follow
+  // reading access only; making them honour AI-channel rules is an engine request)
   registerAiChannel("legal_request", (alias) => `coalesce(${alias}.privileged, false) = false`);
-  excludeFromTools("legal_request");
-  excludeFromTools("hr_case_note");
 
   registerRecordMeta("esm_department", async ({ q, ctx, row }) => ({ esm: { administers: await administersDepartment(q, ctx, row) } }));
   for (const t of DEPT_TABLES) {

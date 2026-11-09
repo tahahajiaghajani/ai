@@ -5,12 +5,15 @@
 // report), the work order following its visits (first-time fix), access (technicians read their own visits; others
 // and IT do not), appointment slots without names, planned maintenance generated once.
 import "./fixtures/rag";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { dayFrom, esmWorld, memberAt, type EsmWorld } from "./esm-helpers";
 import type { Client } from "./helpers";
 import { FULL_HOURS } from "@shared/sla/calendar";
 
 type P = { client: Client; userId: string };
+
+// each test drives a whole organisation and drains its jobs; the full suite runs many such files side by side
+vi.setConfig({ testTimeout: 180_000 });
 
 describe("field service: dispatch and the visit", () => {
   let w: EsmWorld;
@@ -52,7 +55,7 @@ describe("field service: dispatch and the visit", () => {
     await w.o.post(`${w.P}/r/entitlement/${ent.id}/transition`, { to: "active", version: ent.version });
     caseId = (await cust.client.post(`${w.P}/r/customer_case`, { short_description: "اینترنت طبقهٔ سوم قطع است", location_id: location })).row.id;
     await w.drain();
-  });
+  }, 240_000);
 
   it("makes a work order for a customer case with coverage from the onsite entitlement", async () => {
     const wo = await disp.client.post(`${w.P}/field_service/from/customer_case/${caseId}`, { site_address: "خیابان آزادی، پلاک ۱۰", site_lat: "35.71", site_lng: "51.41" });

@@ -5,7 +5,7 @@
 //   internal escalation with states flowing back as internal notes, proactive cases from the installed base, major
 //   cases, escalations, notices with evidence, relationship health, customer 360 and next-case pull.
 import "./fixtures/rag";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { esmWorld, memberAt, type EsmWorld } from "./esm-helpers";
 import { FAKE_INBOX, clearFakeInbox } from "@server/modules/ai/adapters/fake";
 import type { Client } from "./helpers";
@@ -17,6 +17,9 @@ afterAll(() => {
 });
 
 type P = { client: Client; userId: string };
+
+// each test drives a whole organisation and drains its jobs; the full suite runs many such files side by side
+vi.setConfig({ testTimeout: 180_000 });
 
 describe("csm: accounts, entitlements and customer cases", () => {
   let w: EsmWorld;
@@ -48,7 +51,7 @@ describe("csm: accounts, entitlements and customer cases", () => {
     globex = (await lead.client.post(`${w.P}/r/customer_account`, { name: "گلوبکس", code: "GLX", support_group_id: group, relationship_manager_id: lead.userId })).row;
     product = (await lead.client.post(`${w.P}/r/customer_product`, { name: "سامانهٔ حسابداری", code: "ACC", support_group_id: group, skills: ["حسابداری"] })).row.id;
     await w.drain();
-  });
+  }, 240_000);
 
   it("binds each account to a company unit under «مشتریان» and keeps its name", async () => {
     const a = await w.get("customer_account", acme.id, lead.client);

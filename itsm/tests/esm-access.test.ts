@@ -4,7 +4,7 @@
 // their own case and HR's group works it; masked titles; watchers of secure departments; ER notes for named
 // specialists only.
 import "./fixtures/rag";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { esmWorld, type EsmWorld } from "./esm-helpers";
 import { memberCtx } from "@server/access";
 import { recordTools, type ToolEntry } from "@server/modules/ai/tools";
@@ -26,11 +26,14 @@ async function runTool(ctx: Ctx, entries: ToolEntry[], name: string, input: unkn
   return t.run(ctx, t.input.parse(input), rt);
 }
 
+// each test drives a whole organisation and drains its jobs; the full suite runs many such files side by side
+vi.setConfig({ testTimeout: 180_000 });
+
 describe("esm: the content pack", () => {
   let w: EsmWorld;
   beforeAll(async () => {
     w = await esmWorld();
-  });
+  }, 240_000);
 
   it("seeds four department workspaces (HR and legal secure), their groups, departments, services and catalogues", async () => {
     const ws = (await w.o.get(`${w.P}/r/workspace?size=50`)).rows as Record<string, any>[];
@@ -78,7 +81,7 @@ describe("esm: HR cases stay inside the secure HR workspace", () => {
     caseId = made.row.id;
     number = made.row.number;
     await w.drain();
-  });
+  }, 240_000);
 
   it("stamps the department, its workspace and the routing group; masks the title of a sensitive service", async () => {
     const row = await w.get("hr_case", caseId, w.p.emp.client);

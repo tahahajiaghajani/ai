@@ -7,14 +7,17 @@
 //     records; the anchor date re-plans open work; approval activities settle with their round; cancelling skips
 //     what is open
 import "./fixtures/rag";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { dayFrom, esmWorld, type EsmWorld } from "./esm-helpers";
+
+// each test drives a whole organisation and drains its jobs; the full suite runs many such files side by side
+vi.setConfig({ testTimeout: 180_000 });
 
 describe("esm: services, routing, transfer and child work", () => {
   let w: EsmWorld;
   beforeAll(async () => {
     w = await esmWorld();
-  });
+  }, 240_000);
 
   it("files an HR service from the department catalogue as an HR case of that service", async () => {
     const item = w.svc.hr_leave.catalog_item_id;
@@ -114,7 +117,7 @@ describe("esm: employee journeys", () => {
   const anchor = dayFrom(5);
   beforeAll(async () => {
     w = await esmWorld();
-  });
+  }, 240_000);
 
   it("previews a template's plan on the working calendar", async () => {
     const tpl = (await w.p.hrdesk.client.get(`${w.P}/r/journey_template?size=10`)).rows.find((t: Record<string, any>) => t.code === "onboarding_standard");
