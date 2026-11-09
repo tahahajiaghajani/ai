@@ -35,6 +35,8 @@ import { installDevopsModule } from "../modules/devops";
 import { devopsRoutes } from "./devops";
 import { installProjectModule } from "../modules/project";
 import { projectRoutes } from "./project";
+import { installAnalyticsModule } from "../modules/analytics";
+import { analyticsRoutes } from "./analytics";
 import { installAiSkills } from "../modules/ai/skills";
 import { skillRoutes } from "./ai-skills";
 
@@ -72,6 +74,8 @@ installReleaseModule();
 installDevopsModule();
 // project and portfolio management (docs/modules/project_FA.md) — its gate runs on the approvals service
 installProjectModule();
+// analytics, reporting and KPIs (docs/modules/analytics_FA.md) — after every module whose tables it reports on
+installAnalyticsModule();
 
 // the AI skills (docs/spec/AI.md §11) — after every module whose AI extension points they implement
 installAiSkills();
@@ -98,3 +102,4 @@ moduleRoutes.route("/knowledge", knowledgeRoutes);
 moduleRoutes.route("/release", releaseRoutes);
 moduleRoutes.route("/devops", devopsRoutes);
 moduleRoutes.route("/project", projectRoutes);
+moduleRoutes.route("/analytics", analyticsRoutes);

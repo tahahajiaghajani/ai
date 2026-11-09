@@ -25,6 +25,7 @@ import { AI_TABLES } from "./ai";
 import { RELEASE_CHOICE_LISTS, RELEASE_TABLES } from "./release";
 import { DEVOPS_TABLES } from "./devops";
 import { PROJECT_CHOICE_LISTS, PROJECT_TABLES } from "./project";
+import { ANALYTICS_TABLES } from "./analytics";
 
 export { CUSTOM_FIELD_TYPES, VIEW_KINDS } from "./core";
 
@@ -47,6 +48,7 @@ const MODULE_TABLES: TableDef[][] = [
   RELEASE_TABLES,
   DEVOPS_TABLES,
   PROJECT_TABLES,
+  ANALYTICS_TABLES,
 ];
 
 /** Every table by key (resolved definitions). */
