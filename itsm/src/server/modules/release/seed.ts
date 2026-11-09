@@ -13,13 +13,15 @@
 //     service owner), deployments to protected environments (release managers)
 //   · notification rules (decision recorded, deployed to production, early life support ended, deployment failed,
 //     readiness overdue) and the SLA «زمان تصمیم اجرای انتشار» (two working days in readiness)
+//   · a template flow (inactive until published): a failed production deployment tells its release manager and
+//     implementer at once
 // Every item is created only when no live row with its natural key exists; a second run adds nothing unless forced.
 import { currentJalaliYear, fromJalali, todayISO } from "@shared/jalali";
 import { localInstant } from "@shared/sla/calendar";
 import { DORA_DEFINITIONS } from "@shared/devops/logic";
 import type { Ctx } from "../../context";
 import type { Tx } from "../../db";
-import { createIn, orgTz, updateIn } from "../../engine";
+import { createIn, orgTz, savepoint, updateIn } from "../../engine";
 import { seedCalendarsIn } from "../sla";
 import { eqAll, liveRows, sysOf, type Row } from "./common";
 
@@ -190,6 +192,33 @@ export function notificationRules(): Row[] {
   ].map((r) => ({ active: true, notify_actor: false, digest: false, mandatory: false, ...r }));
 }
 
+/** The template flow of the module (inactive: an administrator publishes and switches it on). */
+export const FAILED_DEPLOYMENT_FLOW = (): Row => ({
+  name: "استقرار عملیاتی ناموفق ← خبر فوری به مدیر انتشار",
+  active: false,
+  description: "الگو: وقتی استقرار در محیط عملیاتی ناموفق می‌شود یا بازگردانده می‌شود، مدیر انتشار و مجری آن فوراً خبردار شوند. پیش از استفاده منتشر و فعال کنید.",
+  trigger: "record",
+  trigger_table: "deployment",
+  trigger_events: ["state_changed"],
+  trigger_condition: { and: [{ f: "is_production", op: "eq", v: true }, { f: "state", op: "in", v: ["failed", "rolled_back"] }] },
+  run_as: "trigger_user",
+  graph: {
+    nodes: [
+      { id: "trigger", type: "trigger", config: {}, position: { x: 0, y: 0 } },
+      {
+        id: "notify1", type: "notify", label: "خبر به مدیر انتشار و مجری", position: { x: 0, y: 140 },
+        config: {
+          to: { fields: ["release_manager_id", "assigned_to"] },
+          subject: "استقرار {{trigger.record.number}} در محیط عملیاتی ناموفق بود",
+          body: "استقرار «{{trigger.record.short_description}}» ناموفق بود یا بازگردانده شد. برنامهٔ بازگشت و رخدادهای پس از استقرار را بررسی کنید.",
+        },
+      },
+    ],
+    edges: [{ id: "trigger-out-notify1", source: "trigger", target: "notify1" }],
+    layout: { direction: "TB" },
+  },
+});
+
 async function officeCalendar(tx: Tx, sys: Ctx, out: SeedCounts): Promise<string | null> {
   let rows = await liveRows(tx, sys, "calendar", null, { order: "t.created_at" });
   if (!rows.length) {
@@ -234,6 +263,9 @@ export async function seedReleaseDefaultsIn(tx: Tx, ctx: Ctx, opts: { force?: bo
     breach_actions: [{ type: "notify", roles: ["release_manager"] }],
     description: "تصمیم اجرا یا توقف در دو روز کاری (۱۶ ساعت کاری) از ورود انتشار به «آمادگی و تصمیم».",
   });
+
+  const flow = FAILED_DEPLOYMENT_FLOW();
+  await savepoint(tx, () => ensure(tx, sys, out, "flow", { name: flow.name }, flow)).catch(() => undefined);
 
   const patch: Row = { seeded: RELEASE_SEED_VERSION };
   if (!config.dora_definitions) patch.dora_definitions = DORA_DEFINITIONS;

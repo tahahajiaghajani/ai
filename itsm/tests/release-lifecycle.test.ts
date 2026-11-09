@@ -24,6 +24,9 @@ describe("release seed", () => {
     const cfgId = (await w.o.get(`${w.P}/r/release_config?size=5`)).rows[0].id;
     const cfg = await w.get("release_config", cfgId);
     expect(cfg.dora_definitions?.cfr?.name).toBe("نرخ شکست تغییر");
+    const flows = (await w.o.get(`${w.P}/r/flow?size=50`)).rows as Record<string, any>[];
+    const template = flows.find((f) => f.name.includes("استقرار عملیاتی ناموفق"));
+    expect(template?.active).toBe(false);
     const forced = await w.o.post(`${w.P}/release/seed`, { force: true });
     expect(Object.values(forced.created ?? {}).reduce((s: number, n) => s + Number(n), 0)).toBe(0);
   });
