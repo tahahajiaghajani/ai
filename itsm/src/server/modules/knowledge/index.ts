@@ -23,7 +23,7 @@ import { registerOrgSeed } from "../orgs/service";
 import { SEED_DELAY_MS } from "../sla";
 import { registerAiChannel, registerRagSource, type RagPart } from "../ai/rag";
 import type { SeedCounts } from "../incident";
-import { baseOf, categoryOf, contributesTo, liveRows, type Row } from "./common";
+import { attachmentRefs, baseOf, categoryOf, contributesTo, liveRows, type Row } from "./common";
 import { installKnowledgeHooks } from "./hooks";
 import { installContributors } from "./contrib";
 import { installLinkKinds } from "./links";
@@ -58,8 +58,9 @@ const kbArticleChannel = (t: string) => `coalesce(${t}.ai_use, 'answer') <> 'non
 function installRagSources(): void {
   registerRagSource({
     table: "kb_article",
-    // k2: attachments indexed with the article (re-indexes every article once)
-    version: "k2",
+    // k2: attachments indexed with the article; k3: only the files its text shows, each with the audience of that text
+    // (re-indexes every article once)
+    version: "k3",
     async build({ ctx, q, row }) {
       if (!LIVE_STATES.includes(String(row.state))) return null;
       const base = await baseOf(q, ctx, row.base_id);
@@ -79,8 +80,13 @@ function installRagSources(): void {
         if (kw.length) parts.push({ field: "keywords", label: "کلیدواژه‌ها", text: kw.join("، "), group, format: "text" });
       }
       if (!parts.length && title) parts.push({ field: "title", label: "عنوان", text: title, group, format: "text" });
-      // attachments (KB-010) answer with the article's audience; «فقط ارجاع» leaves them out like the body
-      const attachments = row.ai_use === "link_only" ? (false as const) : { group };
+      // attachments (KB-010): only the files the article's text shows — those of the body with the article's audience,
+      // those only the internal part shows for agents (as the attachments API shows them); a file attached but shown by
+      // neither is never indexed; «فقط ارجاع» leaves them out like the body
+      const shown = new Map<string, RagPart["group"]>();
+      for (const id of attachmentRefs(row.internal_body)) shown.set(id.toLowerCase(), "internal");
+      for (const id of attachmentRefs(row.body)) shown.set(id.toLowerCase(), group);
+      const attachments = row.ai_use === "link_only" ? (false as const) : { group, files: [...shown].map(([id, g]) => ({ id, group: g ?? null })) };
       return { title, titleField: "title", titleGroup: group, number: (row.number as string) ?? null, lang: (row.language as string) ?? null, parts, attachments };
     },
     path: (id) => `kb/a/${id}`,

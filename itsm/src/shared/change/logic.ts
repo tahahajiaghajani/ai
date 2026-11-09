@@ -411,18 +411,24 @@ const msOf = (v: unknown): number | null => {
 
 /**
  * The local date `months` Jalali months after `date`, month-end aware: a day the target month does not have becomes
- * its last day (31 Shahrivar → 30 Mehr; 30 Esfand of a leap year → 29 Esfand), and a date on the last day of its month
- * stays on the last day (29 Esfand of a common year → 30 Esfand of a leap year).
+ * its last day (31 Shahrivar → 30 Mehr; 30 Esfand of a leap year → 29 Esfand), and — unless `keepLastDay` is false — a
+ * date on the last day of its month stays on the last day (29 Esfand of a common year → 30 Esfand of a leap year).
  */
-export function shiftJalaliMonths(date: string, months: number): string {
+export function shiftJalaliMonths(date: string, months: number, keepLastDay = true): string {
   const j = toJalali(date);
   const total = j.jy * 12 + (j.jm - 1) + months;
   const jy = Math.floor(total / 12);
   const jm = (total % 12) + 1;
   const last = monthLength(jy, jm);
-  const jd = j.jd >= monthLength(j.jy, j.jm) ? last : Math.min(j.jd, last);
+  const jd = keepLastDay && j.jd >= monthLength(j.jy, j.jm) ? last : Math.min(j.jd, last);
   return fromJalali(jy, jm, jd);
 }
+
+/** Is a local date the last day of its Jalali month? */
+const monthEnd = (date: string) => {
+  const j = toJalali(date);
+  return j.jd >= monthLength(j.jy, j.jm);
+};
 
 /** Jalali months from `a` to `b` (local dates): 1405-01-.. → 1405-03-.. = 2. */
 const monthsBetween = (a: string, b: string) => {
@@ -479,15 +485,22 @@ export function occurrences(w: WindowLike, from: number, to: number, tz: string,
   const calendarEnd = w.recurrence === "monthly" || w.recurrence === "monthly_last" || w.recurrence === "yearly";
   const { date: firstEnd, minutes: endMinutes } = localParts(e0, tz);
   const out: Occurrence[] = [];
-  // occurrences starting up to `length` before `from` still reach into the range
-  let d = localParts(Math.max(s0, from - length), tz).date;
+  // occurrences starting up to `length` before `from` still reach into the range — and a monthly or yearly one may be
+  // up to two days longer than the first (a 31-day month after a 29-day one), so the scan starts that much earlier
+  const reach = length + (calendarEnd ? 3 * 86_400_000 : 0);
+  let d = localParts(Math.max(s0, from - reach), tz).date;
   const last = localParts(to, tz).date;
+  const firstAtEnd = monthEnd(first);
   for (let guard = 0; d <= last && guard < 4000 && out.length < limit; guard++, d = addDays(d, 1)) {
     if (!recurs(w, first, d)) continue;
     const s = localInstant(d, minutes, tz);
     let e = s + length;
     if (calendarEnd) {
-      const anchored = localInstant(shiftJalaliMonths(firstEnd, monthsBetween(first, d)), endMinutes, tz);
+      // an end on its month's last day stays on the last day only when the occurrence starts at a month's end too (the
+      // last day of each month, or a start that fell on it); otherwise it keeps its day number (a window of the 29th
+      // ends on the 29th, never on the 31st)
+      const keepLastDay = w.recurrence === "monthly_last" || (firstAtEnd && monthEnd(d));
+      const anchored = localInstant(shiftJalaliMonths(firstEnd, monthsBetween(first, d), keepLastDay), endMinutes, tz);
       if (anchored > s) e = anchored;
     }
     if (s < to && e > from) out.push({ ...base, start: s, end: e });

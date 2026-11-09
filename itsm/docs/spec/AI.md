@@ -152,7 +152,11 @@ registerRagSource({
   `ATTACHMENT_LIMITS` (20 files, 15 MB each, 200 000 characters per file); a content a Windows app has not fetched yet
   is read at the next index. Adding or removing a file emits `record.attachment_added` / `record.attachment_removed`
   and the record is re-indexed. A builder decides per record: `attachments: false` leaves them out (a «فقط ارجاع»
-  article), `attachments: { group: "internal" }` puts their text in a field group (an article answering agents only).
+  article), `attachments: { group: "internal" }` puts their text in a field group (an article answering agents only),
+  `attachments: { files: [{ id, group }] }` indexes only those files, each in its group. A table that shows each reader
+  only some of its files (`filterSide`) indexes only the files its builder names — never one the attachments API would
+  hide: a knowledge article indexes the files its body shows (with the article's audience) and those only its internal
+  part shows (group `internal`), and nothing else.
 
 Every part carries its field group; a part whose field is not a real field of the table (e.g. `content` pages) is
 governed by the record's readability only. Builders must be deterministic (the hash decides re-indexing).

@@ -178,6 +178,28 @@ describe("windows on the Jalali calendar", () => {
     expect(last[0].end - last[0].start).toBe(4 * H);
   });
 
+  it("a month-end end stays on the last day only for occurrences that start at a month's end", () => {
+    // a blackout every month on the 29th, 20:00–23:00, created on 29 Esfand 1404 (the last day of a 29-day Esfand):
+    // three hours on the 29th of every month, never until the 31st
+    const blackout = w({ kind: "blackout", recurrence: "monthly", start_at: iso(at(fromJalali(1404, 12, 29), 20)), end_at: iso(at(fromJalali(1404, 12, 29), 23)) });
+    const spring = occurrences(blackout, at(fromJalali(1405, 1, 1)), at(fromJalali(1405, 3, 1)), TZ);
+    expect(spring.map((o) => [localParts(o.start, TZ).date, localParts(o.end, TZ).date])).toEqual([
+      [fromJalali(1405, 1, 29), fromJalali(1405, 1, 29)],
+      [fromJalali(1405, 2, 29), fromJalali(1405, 2, 29)],
+    ]);
+    for (const o of spring) expect(o.end - o.start).toBe(3 * H);
+    // nothing on the 30th or 31st of a 31-day month
+    expect(occurrences(blackout, at(fromJalali(1405, 1, 30)), at(fromJalali(1405, 2, 1)), TZ)).toEqual([]);
+  });
+
+  it("an occurrence longer than the first (a month-end window in a longer month) is found by a range at its end", () => {
+    // a monthly freeze from 25 Mehr 12:00 to 1 Aban 12:00 (six days) runs from 25 Farvardin to 1 Ordibehesht (seven):
+    // a change on 1 Ordibehesht 08:00–10:00 falls inside it
+    const freeze = w({ kind: "freeze", recurrence: "monthly", start_at: iso(at(fromJalali(1404, 7, 25), 12)), end_at: iso(at(fromJalali(1404, 8, 1), 12)) });
+    const hit = occurrences(freeze, at(fromJalali(1405, 2, 1), 8), at(fromJalali(1405, 2, 1), 10), TZ);
+    expect(hit.map((o) => [localParts(o.start, TZ).date, localParts(o.end, TZ).date])).toEqual([[fromJalali(1405, 1, 25), fromJalali(1405, 2, 1)]]);
+  });
+
   it("an occurrence that started before the range still counts; until stops a recurrence; inactive windows have none", () => {
     const daily = w({ recurrence: "daily", start_at: iso(at("2026-04-01", 23)), end_at: iso(at("2026-04-02", 2)), until: "2026-04-03" });
     const occ = occurrences(daily, at("2026-04-02", 1), at("2026-04-10"), TZ);

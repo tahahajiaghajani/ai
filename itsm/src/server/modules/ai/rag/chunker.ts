@@ -41,9 +41,11 @@ export interface RagDocument {
   parts: RagPart[];
   /**
    * the record's attachments (tables with `ai.attachments`): false leaves them out (a builder's choice for this record);
-   * `group`: the field group their text carries (default none: whoever reads the record)
+   * `group`: the field group their text carries (default none: whoever reads the record); `files`: only these files,
+   * each in its own group (a table that shows readers only some of its files — `filterSide` — names them, or none is
+   * indexed)
    */
-  attachments?: { group?: FieldGroup | null } | false;
+  attachments?: { group?: FieldGroup | null; files?: { id: string; group: FieldGroup | null }[] } | false;
 }
 
 export interface ChunkOptions {

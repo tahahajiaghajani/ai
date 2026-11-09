@@ -9,6 +9,8 @@ import type { Queryable } from "../../../db";
 import type { FieldDef, TableDef } from "@shared/model/types";
 import { TABLES } from "@shared/tables";
 import { ident } from "../../../db/sql";
+import { pgArray } from "../../../db";
+import { filtersSide } from "../../../engine/hooks";
 import { maskText } from "../redact";
 import type { RagDocument, RagPart } from "./chunker";
 import { fileKind, parseFile } from "./parsers";
@@ -149,17 +151,21 @@ export const ATTACHMENT_LIMITS = { files: 20, bytes: 15 * 1024 * 1024, chars: 20
 
 /**
  * The text of a record's attachments as parts of its document: one part per file and page, labelled with the file's
- * name, in `group` (default none: whoever reads the record). Images (OCR is per runtime), unknown types, files over
- * the size limit and contents a Windows app has not fetched yet are left out; each file gives at most
- * `ATTACHMENT_LIMITS.chars` characters.
+ * name, in `group` (default none: whoever reads the record) — or, with `files`, only those files, each in its own
+ * group. Images (OCR is per runtime), unknown types, files over the size limit and contents a Windows app has not
+ * fetched yet are left out; each file gives at most `ATTACHMENT_LIMITS.chars` characters.
  */
-export async function attachmentParts(q: Queryable, orgId: string, table: string, id: string, group: RagPart["group"] = null): Promise<RagPart[]> {
+export async function attachmentParts(q: Queryable, orgId: string, table: string, id: string, group: RagPart["group"] = null, files?: { id: string; group: RagPart["group"] }[]): Promise<RagPart[]> {
+  if (files && !files.length) return [];
+  const only = files ? new Map(files.map((f) => [f.id.toLowerCase(), f.group ?? null])) : null;
   const rows = await q.query<{ id: string; name: string; mime: string; size: number; sha256: string }>(
-    `select id, name, mime, size, sha256 from sm_attachments where org_id = $1 and table_key = $2 and record_id = $3 and deleted_at is null order by created_at, id limit ${ATTACHMENT_LIMITS.files}`,
-    [orgId, table, id],
+    `select id, name, mime, size, sha256 from sm_attachments where org_id = $1 and table_key = $2 and record_id = $3 and deleted_at is null${only ? " and id = any($4::uuid[])" : ""}
+     order by created_at, id limit ${ATTACHMENT_LIMITS.files}`,
+    only ? [orgId, table, id, pgArray([...only.keys()])] : [orgId, table, id],
   );
   const parts: RagPart[] = [];
   for (const a of rows) {
+    const fileGroup = only ? (only.get(String(a.id).toLowerCase()) ?? null) : group;
     const kind = fileKind(a.name, a.mime);
     if (Number(a.size) > ATTACHMENT_LIMITS.bytes || kind === "image" || kind === "other") continue;
     const blob = await q.one<{ b64: string }>(`select encode(data, 'base64') as b64 from sm_blobs where org_id = $1 and sha256 = $2`, [orgId, a.sha256]);
@@ -172,7 +178,7 @@ export async function attachmentParts(q: Queryable, orgId: string, table: string
       const text = p.text.trim().slice(0, budget);
       if (!text) continue;
       budget -= text.length;
-      parts.push({ field: `attachment:${a.id}`, label: `پیوست «${a.name}»`, text, group, page: many ? p.page : null, format: "text" });
+      parts.push({ field: `attachment:${a.id}`, label: `پیوست «${a.name}»`, text, group: fileGroup, page: many ? p.page : null, format: "text" });
       if (budget <= 0) break;
     }
   }
@@ -184,7 +190,11 @@ export async function buildDocument(args: RagBuildArgs): Promise<RagDocument | n
   const src = SOURCES.get(args.def.key);
   const doc = src ? await src.build(args) : defaultDocument(args.def, args.row);
   if (!args.def.ai?.attachments || !args.def.features?.attachments || (doc && doc.attachments === false)) return doc;
-  const extra = await attachmentParts(args.q, args.ctx.org.id, args.def.key, String(args.row.id), doc?.attachments ? (doc.attachments.group ?? null) : null);
+  const named = doc?.attachments ? doc.attachments.files : undefined;
+  // a table that shows each reader only some of its files (`filterSide`) indexes only the files its builder names: the
+  // index never answers with a file the attachments API would hide
+  if (!named && filtersSide(args.def.key)) return doc;
+  const extra = await attachmentParts(args.q, args.ctx.org.id, args.def.key, String(args.row.id), doc?.attachments ? (doc.attachments.group ?? null) : null, named);
   if (!extra.length) return doc;
   if (doc) return { ...doc, parts: [...doc.parts, ...extra] };
   // nothing but attachments: still findable by them, under the record's title
