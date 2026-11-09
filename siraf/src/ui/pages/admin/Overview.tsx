@@ -7,11 +7,13 @@ import { PageHeader } from "../../components/layout";
 import { Skeleton, StatCard } from "../../components/display";
 import { Card } from "../../modules/reports/kit";
 import { fa } from "../../lib/fa";
-import { ICON, EVENT_KIND, When, ago, bytes, eventDetail, usd, useAdminQuery, type SecurityEvent } from "./ui";
+import { ICON, EVENT_KIND, LoadFailed, When, ago, bytes, eventDetail, usd, useAdminQuery, type SecurityEvent } from "./ui";
 import { timeLeft } from "../../components/shell/SupportBanner";
 
 interface OverviewData {
   mode: "cloud" | "desktop";
+  /** parts the server left out because they failed or took too long (older servers do not send it) */
+  partial?: string[];
   kpis: {
     orgs: { total: number; active_30d: number; new_30d: number; read_only: number; suspended: number };
     users: { total: number; active_today: number; active_7d: number; disabled: number; admins: number; new_30d: number };
@@ -33,34 +35,38 @@ export default function Overview() {
   const d = q.data;
   const k = d?.kpis;
   const ratio = k?.db.limit ? k.db.bytes / k.db.limit : 0;
+  // the main figures did not arrive: dashes instead of zeros that look real
+  const noFigures = !!d?.partial?.includes("figures");
+  const noAi = !!d?.partial?.includes("ai");
+  const num = (v: number) => <span className="sf-num">{noFigures ? "—" : fa(v)}</span>;
   return (
     <div>
       <PageHeader title="پیشخوان" subtitle={d ? (d.mode === "cloud" ? "نسخهٔ وب" : "نسخهٔ ویندوز") : undefined} />
       {!k ? (
-        <Skeleton rows={6} />
+        q.error ? <LoadFailed error={q.error} onRetry={() => q.refetch()} retrying={q.isFetching} title="پیشخوان بارگذاری نشد" /> : <Skeleton rows={6} />
       ) : (
         <>
           <section className="ad-kpis" aria-label="آمار سامانه">
             <StatCard
               icon={<Building2 {...ICON} />}
               title="کسب‌وکارها"
-              value={<span className="sf-num">{fa(k.orgs.total)}</span>}
-              hint={`${fa(k.orgs.active_30d)} فعال در ۳۰ روز · ${fa(k.orgs.new_30d)} تازه`}
+              value={num(k.orgs.total)}
+              hint={noFigures ? undefined : `${fa(k.orgs.active_30d)} فعال در ۳۰ روز · ${fa(k.orgs.new_30d)} تازه`}
               onClick={() => nav("/admin/orgs")}
             />
             <StatCard
               icon={<Users {...ICON} />}
               title="کاربران فعال امروز"
-              value={<span className="sf-num">{fa(k.users.active_today)}</span>}
-              hint={`${fa(k.users.active_7d)} در ۷ روز · از ${fa(k.users.total)} حساب`}
+              value={num(k.users.active_today)}
+              hint={noFigures ? undefined : `${fa(k.users.active_7d)} در ۷ روز · از ${fa(k.users.total)} حساب`}
               onClick={() => nav("/admin/users")}
             />
             <StatCard
               icon={<Database {...ICON} />}
               title="حجم پایگاه داده"
-              value={<span className="sf-num">{bytes(k.db.bytes)}</span>}
+              value={<span className="sf-num">{noFigures ? "—" : bytes(k.db.bytes)}</span>}
               hint={
-                k.db.limit ? (
+                noFigures ? undefined : k.db.limit ? (
                   <>
                     <div className="ad-meter" data-tone={ratio >= 0.9 ? "danger" : ratio >= 0.7 ? "warning" : undefined} role="meter" aria-label="سهم مصرف‌شده از طرح رایگان" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(ratio * 100)}>
                       <i style={{ inlineSize: `${Math.max(1, Math.min(100, ratio * 100))}%` }} />
@@ -76,8 +82,8 @@ export default function Overview() {
             <StatCard
               icon={<AiIcon {...ICON} />}
               title="هزینهٔ هوش مصنوعی این ماه"
-              value={<span className="sf-num sf-latin">{usd(k.ai.cost_month_usd ?? 0)}</span>}
-              hint={k.ai.enabled_orgs === null ? "هنوز کسب‌وکاری کلید نگذاشته" : `${fa(k.ai.enabled_orgs)} کسب‌وکار با هوش مصنوعی · ${fa(k.ai.calls_month ?? 0)} درخواست`}
+              value={<span className="sf-num sf-latin">{noAi ? "—" : usd(k.ai.cost_month_usd ?? 0)}</span>}
+              hint={noAi ? undefined : k.ai.enabled_orgs === null ? "هنوز کسب‌وکاری کلید نگذاشته" : `${fa(k.ai.enabled_orgs)} کسب‌وکار با هوش مصنوعی · ${fa(k.ai.calls_month ?? 0)} درخواست`}
               onClick={() => nav("/admin/ai")}
             />
           </section>
@@ -138,12 +144,12 @@ export default function Overview() {
 
             <div className="ad-stack">
               <section className="ad-kpis ad-kpis-2">
-                <StatCard icon={<Monitor {...ICON} />} title="برنامهٔ ویندوز" value={<span className="sf-num">{fa(k.devices.total)}</span>} hint={`${fa(k.devices.active_7d)} همگام در ۷ روز`} />
+                <StatCard icon={<Monitor {...ICON} />} title="برنامهٔ ویندوز" value={num(k.devices.total)} hint={noFigures ? undefined : `${fa(k.devices.active_7d)} همگام در ۷ روز`} />
                 <StatCard
                   icon={<ShieldAlert {...ICON} />}
                   title="ورود ناموفق در ۲۴ ساعت"
-                  value={<span className="sf-num">{fa(k.security.failed_sign_ins_24h)}</span>}
-                  hint={`${fa(k.security.events_24h)} رویداد امنیتی`}
+                  value={num(k.security.failed_sign_ins_24h)}
+                  hint={noFigures ? undefined : `${fa(k.security.events_24h)} رویداد امنیتی`}
                   onClick={() => nav("/admin/security?kind=sign_in&ok=false")}
                 />
               </section>

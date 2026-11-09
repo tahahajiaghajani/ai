@@ -14,7 +14,7 @@ import { useDebounced, useIsPhone, useNotify } from "../../lib/hooks";
 import { useSession } from "../../lib/session";
 import { fa } from "../../lib/fa";
 import { ROLES, type Role } from "@shared/permissions";
-import { ICON, ICON14, EVENT_KIND, StatusChip, When, ago, eventDetail, useAdminQuery, type OrgStatus, type SecurityEvent } from "./ui";
+import { ICON, ICON14, EVENT_KIND, LoadFailed, StatusChip, When, ago, eventDetail, useAdminQuery, type OrgStatus, type SecurityEvent } from "./ui";
 
 interface UserRow {
   id: string;
@@ -140,7 +140,7 @@ function UserSheet({ id, onClose }: { id: string; onClose: () => void }) {
   return (
     <Drawer open onClose={onClose} size={560} title={u?.full_name ?? "کاربر"} destroyOnHidden>
       {!u ? (
-        <Skeleton rows={8} />
+        q.error ? <LoadFailed error={q.error} onRetry={() => q.refetch()} retrying={q.isFetching} /> : <Skeleton rows={8} />
       ) : (
         <div className="ad-stack">
           <div>

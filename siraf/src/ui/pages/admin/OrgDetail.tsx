@@ -17,7 +17,7 @@ import { ROLES, type Role } from "@shared/permissions";
 import type { AiAdminOverview } from "@shared/ai/api";
 import { SupportDialog } from "./SupportDialog";
 import { timeLeft } from "../../components/shell/SupportBanner";
-import { ICON, EVENT_KIND, Mods, ORG_STATUS, StatusChip, When, ago, bytes, eventDetail, kindTitle, usd, useAdminQuery, type OrgStatus, type SecurityEvent } from "./ui";
+import { ICON, EVENT_KIND, LoadFailed, Mods, ORG_STATUS, StatusChip, When, ago, bytes, eventDetail, kindTitle, usd, useAdminQuery, type OrgStatus, type SecurityEvent } from "./ui";
 
 interface SupportRow {
   id: string;
@@ -160,11 +160,15 @@ export default function OrgDetail({ id }: { id: string }) {
   const qc = useQueryClient();
   const [dialog, setDialog] = useState(false);
   const d = q.data;
-  if (q.error)
+  if (q.error && !d)
     return (
       <div>
         <PageHeader title="کسب‌وکار" back="/admin/orgs" />
-        <EmptyState icon={Building2} title="این کسب‌وکار پیدا نشد" action={<Button onClick={() => nav("/admin/orgs")}>فهرست کسب‌وکارها</Button>} />
+        {q.error instanceof ApiError && q.error.status === 404 ? (
+          <EmptyState icon={Building2} title="این کسب‌وکار پیدا نشد" action={<Button onClick={() => nav("/admin/orgs")}>فهرست کسب‌وکارها</Button>} />
+        ) : (
+          <LoadFailed error={q.error} onRetry={() => q.refetch()} retrying={q.isFetching} />
+        )}
       </div>
     );
   if (!d)
