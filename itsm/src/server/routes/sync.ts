@@ -22,7 +22,7 @@ import { requestMeta, securityEvent, type SecurityEventInput } from "../modules/
 import type { Area, Level, Role } from "@shared/permissions";
 import { SYNC_PROTOCOL } from "@shared/constants";
 import { uuidv7 } from "@shared/id";
-import { afterEnginePush, checkEnginePush, pullEngine, scopeEpoch } from "../engine/sync";
+import { afterEnginePush, checkEnginePush, pullEngine, replicaRows, scopeEpoch } from "../engine/sync";
 
 type StoredMember = MemberGrant & { is_active: boolean; deleted_at: string | null };
 
@@ -174,7 +174,19 @@ syncRoutes.post("/push", async (c) => {
       if (existing && existing.rev > agg.base_rev && new Date(existing.updated_at).getTime() > new Date(String(agg.row.updated_at ?? 0)).getTime()) {
         // the cloud copy wins; hand it back, since the desktop may already have pulled past it.
         // Checked before the members' rules: an outdated row is not written, so it is not judged
-        // either (refusing it would leave the desktop with its outdated copy for good)
+        // either (refusing it would leave the desktop with its outdated copy for good). An engine
+        // row goes back exactly as a pull would send it to this account — and a row it may not
+        // read is not handed back at all
+        if (def.engine) {
+          const stored = await tx.query<Record<string, unknown>>(`select * from ${ident(def.table)} where id = $1 and org_id = $2`, [agg.id, ctx.org.id]);
+          const seen = await replicaRows(tx, ctx, def, stored);
+          if (!seen.aggregates.length) {
+            results.push({ entity: agg.entity, id: agg.id, status: "skipped", message: "این مورد در دسترس شما نیست" });
+            continue;
+          }
+          results.push({ entity: agg.entity, id: agg.id, status: "conflict", rev: existing.rev, aggregate: seen.aggregates[0] });
+          continue;
+        }
         const [winner] = await readAggregates(tx, def, [agg.id]);
         results.push({ entity: agg.entity, id: agg.id, status: "conflict", rev: existing.rev, aggregate: winner });
         continue;

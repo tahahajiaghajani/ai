@@ -21,7 +21,7 @@ import { access } from "../../access/provider";
 import { registerParticipantSource } from "../../access/predicate";
 import { enqueue, registerJobHandler } from "../../jobs";
 import {
-  actorId, addJournalIn, condEnv, createIn, defFor, emitEvent, isSystemCtx, loadReadable, orgSchema, RefSet, registerHooks, requireReadable, resolveDisplay,
+  actorId, addJournalIn, bumpScopeEpoch, condEnv, createIn, defFor, emitEvent, isSystemCtx, loadReadable, orgSchema, RefSet, registerHooks, requireReadable, resolveDisplay,
   systemCtx, updateIn, validationError, type WriteArgs,
 } from "../../engine";
 import { config, eqAll, holds, liveRow, liveRows, ownTable, recordTitle, rulesFor, systemFrom, withWalks, type Row } from "./common";
@@ -860,9 +860,12 @@ async function approvalTimer(sys: Ctx, table: string, id: string): Promise<numbe
 // ---------------------------------------------------------------------------------------------------------------
 // Installation
 
-/** Members who named `u` (a SQL uuid expression) their delegate for approvals, in force now. */
-const delegatorsSql = (u: string) =>
-  `select d.from_user from sm_delegations d where d.to_user = ${u} and d.active and d.deleted_at is null
+/**
+ * Members who named `u` (a SQL uuid expression) their delegate for approvals in the organisation `org` (a SQL uuid
+ * expression), in force now — a delegation of another organisation never counts.
+ */
+const delegatorsSql = (u: string, org: string) =>
+  `select d.from_user from sm_delegations d where d.to_user = ${u} and d.org_id = ${org} and d.active and d.deleted_at is null
      and d.starts_at <= now() and (d.ends_at is null or d.ends_at > now()) and d.scopes ? 'approvals'`;
 
 /** Hooks, the participant source and the job of approvals; `plan` runs after the other rules (installed late). */
@@ -902,6 +905,16 @@ export function installApprovals(): { apply: () => void; plan: () => void; rest:
           if (s !== null && e !== null && e <= s) fields.ends_at = "پایان جانشینی باید پس از آغاز آن باشد";
           if (Object.keys(fields).length) throw validationError(fields);
         },
+        // the grant of a delegation starts and ends with time, when nothing is written: the scope epochs of both
+        // members move then too (a write moves them at once — trigger sm_access_delegations)
+        async afterWrite(w) {
+          if (w.op === "delete" || !w.row) return;
+          const users = [w.row.from_user, w.row.to_user].filter((x): x is string => typeof x === "string");
+          for (const at of [msOf(w.row.starts_at), msOf(w.row.ends_at)]) {
+            if (at === null || at <= Date.now()) continue;
+            await enqueue(w.tx, { kind: "approval.delegation_epoch", orgId: w.ctx.org.id, payload: { users, at }, delayMs: at - Date.now() + 1000, dedupeKey: `delegation_epoch:${String(w.row.id)}:${at}` });
+          }
+        },
       });
       // the approver grant: whoever has or had an approval on a record reads it (the approver, the person they stood
       // in for, whoever decided it, and the delegate of an open one) — even without any role in its area
@@ -916,17 +929,23 @@ export function installApprovals(): { apply: () => void; plan: () => void; rest:
           const u = `$${params.length}::uuid`;
           return `${alias}.id = any(array(select a.record_id::uuid from sm_approvals a where a.table_key = ${k} and a.deleted_at is null and a.state <> 'skipped'
             and (a.approver_id = ${u} or a.delegated_from = ${u} or a.decided_by = ${u}
-              or (a.state in ('requested', 'waiting') and a.approver_id in (${delegatorsSql(u)})))))`;
+              or (a.state in ('requested', 'waiting') and a.approver_id in (${delegatorsSql(u, "a.org_id")})))))`;
         },
         async tables(q, orgId, userId) {
           const rows = await q.query<{ table_key: string }>(
             `select distinct a.table_key from sm_approvals a where a.org_id = $1 and a.deleted_at is null and a.state <> 'skipped'
               and (a.approver_id = $2::uuid or a.delegated_from = $2::uuid or a.decided_by = $2::uuid
-                or (a.state in ('requested', 'waiting') and a.approver_id in (${delegatorsSql("$2::uuid")})))`,
+                or (a.state in ('requested', 'waiting') and a.approver_id in (${delegatorsSql("$2::uuid", "$1::uuid")})))`,
             [orgId, userId],
           );
           return rows.map((r) => r.table_key);
         },
+      });
+      registerJobHandler("approval.delegation_epoch", async (job, jctx) => {
+        if (!job.org_id) return;
+        for (const u of Array.isArray(job.payload?.users) ? (job.payload.users as unknown[]) : []) {
+          if (typeof u === "string" && /^[0-9a-f-]{36}$/i.test(u)) await bumpScopeEpoch(jctx.cfg.db, job.org_id, u);
+        }
       });
       registerJobHandler("approval.timer", async (job, jctx) => {
         if (!job.org_id || !job.payload?.table || !job.payload?.id) return;

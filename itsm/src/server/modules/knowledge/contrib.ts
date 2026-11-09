@@ -13,7 +13,7 @@
 // Changes flow down with the job `kb.contrib` — a base → its categories, snippets, trees and articles; a category →
 // its articles; an article → its children — in bounded batches that queue themselves again until nothing is stale.
 import type { Ctx } from "../../context";
-import { condEnv, orgSchema, readable, registerHooks, systemCtx, updateIn, type WriteArgs } from "../../engine";
+import { condEnv, orgSchema, readable, registerHooks, systemCtx, updateIn, type PushArgs, type WriteArgs } from "../../engine";
 import { enqueue, registerJobHandler } from "../../jobs";
 import { ids, isUuid, liveRow, liveRows, sysOf, type Row } from "./common";
 
@@ -136,16 +136,36 @@ export async function propagateContrib(sys: Ctx, p: { base_id?: string; category
   return more;
 }
 
+// ---------------------------------------------------------------------------------------------------------------
+// a row pushed from a Windows app: its compiled contributors are the cloud's computation, never the push's
+
+async function baseDerived(p: PushArgs): Promise<Row> {
+  const base = p.next.base_id ? await liveRow(p.tx, sysOf(p.ctx), "kb_base", p.next.base_id) : null;
+  return { ...baseContrib(base) };
+}
+
+async function articleDerived(p: PushArgs): Promise<Row> {
+  const sys = sysOf(p.ctx);
+  const base = await liveRow(p.tx, sys, "kb_base", p.next.base_id);
+  const category = p.next.category_id ? await liveRow(p.tx, sys, "kb_category", p.next.category_id) : null;
+  return { ...articleContrib(base, category) };
+}
+
+async function childDerived(p: PushArgs): Promise<Row> {
+  const article = p.next.article_id ? await liveRow(p.tx, sysOf(p.ctx), "kb_article", p.next.article_id) : null;
+  return { ...workersOf(article) };
+}
+
 let installed = false;
 
 export function installContributors(): void {
   if (installed) return;
   installed = true;
   registerHooks("kb_base", { afterWrite: baseAfter });
-  registerHooks("kb_category", { beforeWrite: fromBase, afterWrite: categoryAfter });
-  registerHooks("kb_article", { beforeWrite: articleBefore, afterWrite: articleAfter });
-  for (const t of ["kb_snippet", "kb_decision_tree"]) registerHooks(t, { beforeWrite: fromBase });
-  for (const t of ARTICLE_CHILDREN) registerHooks(t, { beforeWrite: fromArticle });
+  registerHooks("kb_category", { beforeWrite: fromBase, afterWrite: categoryAfter, derivePush: baseDerived });
+  registerHooks("kb_article", { beforeWrite: articleBefore, afterWrite: articleAfter, derivePush: articleDerived });
+  for (const t of ["kb_snippet", "kb_decision_tree"]) registerHooks(t, { beforeWrite: fromBase, derivePush: baseDerived });
+  for (const t of ARTICLE_CHILDREN) registerHooks(t, { beforeWrite: fromArticle, derivePush: childDerived });
   registerJobHandler("kb.contrib", async (job, jctx) => {
     if (!job.org_id) return;
     const sys = await systemCtx(jctx.cfg, job.org_id);

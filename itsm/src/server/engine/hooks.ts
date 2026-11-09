@@ -93,6 +93,12 @@ export interface TableHooks {
   /** a sync push of a record (rules with side effects ran where the person acted): a Persian refusal or null */
   validatePush?(p: PushArgs): Promise<HookResult> | HookResult;
   /**
+   * A record a member pushed from a Windows app: the values of the fields the module derives from other data (compiled
+   * audiences, access flags…), as the cloud computes them — they are never taken from the push. Runs before
+   * `validatePush`; never for the system.
+   */
+  derivePush?(p: PushArgs): Promise<Row | null | void> | Row | null | void;
+  /**
    * Redact, in place, what readable rows copy from records the caller may not read (never called for the system).
    * Rows are in engine shape; a list row holds only its selected fields.
    */

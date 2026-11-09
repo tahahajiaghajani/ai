@@ -4,14 +4,18 @@
 //   table registry (src/server/sync/registry.ts), plus the engine's own roots: journal, history, attachment, link.
 // - Push (the cloud applying a Windows app's changes): `checkEnginePush` holds each row to the same rules as the
 //   API — the access provider (create / write / delete, writable and visible fields, the table's row rules), the
-//   engine's value validation (types, lengths, choices) and immutability of the journal and the history — and
-//   `afterEnginePush` emits the record events of the change (`via: "sync"`). History rows are not written again
+//   engine's value validation (types, lengths, choices), the state model (a change of state is a transition the
+//   account may take, with its required fields, guard and checks), a requester's own record changing only in its
+//   requester fields (system and readonly fields keep the cloud's values; the engine's effects of their transition are
+//   the cloud's own), journal entries and history in the pushing account's name only, and immutability of the journal
+//   and the history — and `afterEnginePush` emits the record events of the change (`via: "sync"`). History rows are not written again
 //   (the desktop's own travel with the push); references are not re-checked (the desktop checked them, and a
 //   referenced row may arrive later in the same push). Numbered records that clash take the next free number.
 // - Pull: `pullEngine` sends only rows the linked account may read (the provider's readWhere, the table's row
 //   rules, the record of a journal/history/attachment/link row, internal journal visibility, visible history
 //   fields); a row that changed but is no longer readable goes out as a tombstone, so the Windows app deletes it
-//   (with its journal, history, attachments and links). Fields the account may not see are left out.
+//   (with its journal, history, attachments and links). Fields the account may not see are left out. A push that
+//   lost to a newer cloud copy gets that copy back through the same projection (`replicaRows`), never more.
 // - Secrets never travel: each runtime seals its own with its own key.
 // - Scope epochs (sm_scope_epochs): bumped for a member when what they may read changes (their role or access by
 //   the platform's trigger; groups, units and roles of the ITSM access model through `bumpScopeEpoch`). A Windows
@@ -29,10 +33,11 @@ import { orgSchema, type OrgSchema } from "./schema";
 import { readable, writableRule } from "./sql";
 import { coerceValue, FieldError, KEEP } from "./values";
 import { canOpenRecords, fromDb, type Row } from "./read";
-import { recordEvents, sameValue } from "./write";
+import { recordEvents, sameValue, stateEffects } from "./write";
 import { emitEvent } from "./events";
 import { emitLinkEvents } from "./links";
-import { filterSide, filtersSide, hooksFor, redactRows, redacts } from "./hooks";
+import { filterSide, filtersSide, guardFor, hooksFor, redactRows, redacts } from "./hooks";
+import { transitionsFrom } from "@shared/model/task";
 
 /** Engine-maintained columns a push may not move on an existing row. */
 const PINNED = ["id", "org_id", "no", "created_at", "created_by"];
@@ -170,6 +175,21 @@ async function checkRecord(tx: Tx, ctx: Ctx, def: TableDef, schema: OrgSchema, e
     } else row[f.name] = value;
   }
   if ("custom" in row || prev) row.custom = custom;
+  if (prev && !isSystemCtx(ctx)) {
+    const refusal = await checkPushedChange(tx, ctx, def, env, prev, row);
+    if (refusal) return refusal;
+  }
+  // fields a module derives from other data (compiled audiences, access flags): the cloud's computation, never the push's
+  const derives = isSystemCtx(ctx) ? [] : hooksFor(def.key).filter((h) => h.derivePush);
+  if (derives.length && !(row.deleted_at && !prev?.deleted_at)) {
+    const next = fromDb(def, { ...(prev ?? {}), ...row });
+    const changed = new Set<string>();
+    for (const f of def.fields) if (!f.base && (prev ? !sameValue(f, prev[f.name], next[f.name]) : !isEmptyValue(next[f.name]))) changed.add(f.name);
+    for (const h of derives) {
+      const values = await h.derivePush!({ tx, ctx, def, prev, next, changed, env });
+      if (values) for (const [k, v] of Object.entries(values)) if (def.fields.some((f) => f.name === k && !f.base)) row[k] = v;
+    }
+  }
   if (!prev && def.rowAccess?.write && !isSystemCtx(ctx) && !evaluate(def.rowAccess.write, fromDb(def, { ...row }), env, def, schema.lookup)) {
     return `اجازهٔ ایجاد این ${def.label} را ندارید`;
   }
@@ -186,6 +206,59 @@ async function checkRecord(tx: Tx, ctx: Ctx, def: TableDef, schema: OrgSchema, e
       const refusal = await h.validatePush!({ tx, ctx, def, prev, next, changed, env });
       if (refusal) return refusal;
     }
+  }
+  return null;
+}
+
+const isEmptyValue = (v: unknown) => v === null || v === undefined || v === "" || (Array.isArray(v) && !v.length);
+
+/**
+ * A pushed change of an existing record by a member (not the system), held to what the API lets that member do:
+ *   · a change of the state field is a transition of the table's model from the stored state that the member may take
+ *     (`canTransition`), with its required fields, its guard and the modules' transition checks — never a jump;
+ *   · on a record the member reaches only as its requester (`writeMode` "requester"), system and readonly fields keep
+ *     the cloud's values (only module code sets them, and it ran where the person acted only for the person's own
+ *     changes), and the engine's own effects of the transition (resolved/closed stamps, `active`…) are the cloud's.
+ * Normalises `row` in place; returns a Persian refusal or null.
+ */
+async function checkPushedChange(tx: Tx, ctx: Ctx, def: TableDef, env: CondEnv, prev: Row, row: Row): Promise<string | null> {
+  const prov = access();
+  const requester = prov.writeMode?.(ctx, def, prev) === "requester";
+  if (requester) {
+    for (const f of def.fields) {
+      if (f.base || f.custom || f.name === def.states?.field || !(f.system || f.readonly) || !(f.name in row)) continue;
+      row[f.name] = prev[f.name] ?? null;
+    }
+  }
+  const model = def.states;
+  if (!model || !(model.field in row)) return null;
+  const field = def.fields.find((f) => f.name === model.field);
+  if (!field || sameValue(field, prev[model.field], row[model.field])) return null;
+  const t = transitionsFrom(model, prev[model.field]).find((x) => x.to === row[model.field]);
+  const name = (v: unknown) => model.states.find((s) => s.value === v)?.label ?? String(v ?? "");
+  if (!t) return `«${def.label}» از «${name(prev[model.field])}» به «${name(row[model.field])}» نمی‌رود`;
+  if (!prov.canTransition(ctx, def, prev, t)) return `اجازهٔ «${t.label}» را ندارید`;
+  const next: Row = { ...prev, ...row };
+  for (const r of t.requires ?? []) {
+    if (isEmptyValue(next[r])) return `برای «${t.label}»، «${def.fields.find((f) => f.name === r)?.label ?? r}» را وارد کنید`;
+  }
+  const changed = new Set<string>();
+  for (const f of def.fields) if (!f.base && f.name in row && !sameValue(f, prev[f.name], row[f.name])) changed.add(f.name);
+  const w = { tx, ctx, def, op: "update" as const, next, prev, changed, transition: t, env, input: new Set(Object.keys(row)), via: "sync" as const, trusted: false };
+  if (t.guard) {
+    const guard = guardFor(def.key, t.guard);
+    const refusal = guard ? await guard(w) : `شرط «${t.guard}» برای «${t.label}» تعریف نشده است`;
+    if (refusal) return refusal;
+  }
+  for (const h of hooksFor(def.key)) {
+    const refusal = await h.validateTransition?.(w);
+    if (refusal) return refusal;
+  }
+  if (requester) {
+    // the engine's effects of the transition, as the cloud stamps them
+    const effects = new Set<string>();
+    stateEffects(def, prev, next, ctx.user.id, new Date().toISOString(), effects);
+    for (const k of effects) row[k] = next[k];
   }
   return null;
 }
@@ -216,6 +289,22 @@ async function checkSide(tx: Tx, ctx: Ctx, agg: AggregateDef, schema: OrgSchema,
   }
   if (agg.engine === "journal" && (row.visibility === "internal" || prev?.visibility === "internal") && !isSystemCtx(ctx) && !access().hasFieldGroup(ctx, "internal")) {
     return "اجازهٔ ثبت یادداشت داخلی را ندارید";
+  }
+  // a new journal entry or history row comes in the pushing account's name (or as the system's note of something they
+  // did): never someone else's; anything but a comment or a work note — approvals, system notes, history — only on a
+  // record they may change (where they acted)
+  if (!prev && !isSystemCtx(ctx) && (agg.engine === "journal" || agg.engine === "history")) {
+    const who = agg.engine === "journal" ? row.author : row.actor;
+    if (who !== null && who !== undefined && String(who) !== ctx.user.id) return "این مورد به نام کس دیگری است و از برنامهٔ ویندوز پذیرفته نمی‌شود";
+    const kind = String(row.kind ?? "comment");
+    if (agg.engine === "history" || (kind !== "comment" && kind !== "work_note")) {
+      const def = schema.def(String(row.table_key));
+      const rec = def ? await tx.one<Row>(`select * from ${def.table} where id = $1`, [row.record_id]) : null;
+      if (!def || !rec || !(await canWriteRow(tx, ctx, def, fromDb(def, rec), env, "write"))) return `اجازهٔ تغییر این ${def?.label ?? "رکورد"} را ندارید`;
+    }
+    if (agg.engine === "journal" && (kind === "comment" || kind === "work_note") && String(who ?? "") !== ctx.user.id) {
+      return "یادداشت و پاسخ از برنامهٔ ویندوز فقط به نام خود شما ثبت می‌شود";
+    }
   }
   return null;
 }
@@ -264,15 +353,25 @@ export interface EnginePull {
 
 /** Engine rows of a pull window (rev in (cursor, upto]) as the linked account may see them. */
 export async function pullEngine(ctx: Ctx, agg: AggregateDef, cursor: number, upto: number): Promise<EnginePull> {
-  const out: EnginePull = { aggregates: [], tombstones: [] };
   const rows = await ctx.db.query<Row>(`select * from ${agg.table} where org_id = $1 and rev > $2 and rev <= $3 order by rev`, [ctx.org.id, cursor, upto]);
+  return replicaRows(ctx.db, ctx, agg, rows);
+}
+
+/**
+ * Stored engine rows as the linked account may have them on its Windows app: rows it may not read become tombstones;
+ * the others leave out what never goes down — secrets and fields kept out of replicas, fields it may not see, values a
+ * module redacts, side rows a module narrows or internal entries it may not read. The pull and the answer to a push
+ * that lost to a newer cloud copy (POST /sync/push) share it. `q`: the caller's transaction, when there is one.
+ */
+export async function replicaRows(q: Queryable, ctx: Ctx, agg: AggregateDef, rows: Row[]): Promise<EnginePull> {
+  const out: EnginePull = { aggregates: [], tombstones: [] };
   if (!rows.length) return out;
-  const schema = await orgSchema(ctx);
+  const schema = await orgSchema(ctx, q);
   const env = await condEnv(ctx);
   let ok: Set<string>;
   if (agg.engine === "record") {
     const def = schema.def(agg.entity);
-    ok = await readableIds(ctx.db, ctx, def, rows.map((r) => String(r.id)), env);
+    ok = await readableIds(q, ctx, def, rows.map((r) => String(r.id)), env);
   } else {
     // side rows follow their record(s)
     const byTable = new Map<string, Set<string>>();
@@ -284,7 +383,7 @@ export async function pullEngine(ctx: Ctx, agg: AggregateDef, cursor: number, up
       } else need(r.table_key, r.record_id);
     }
     const readableRecords = new Set<string>();
-    for (const [t, ids] of byTable) for (const id of await readableIds(ctx.db, ctx, schema.def(t), [...ids], env)) readableRecords.add(`${t}:${id}`);
+    for (const [t, ids] of byTable) for (const id of await readableIds(q, ctx, schema.def(t), [...ids], env)) readableRecords.add(`${t}:${id}`);
     const internal = isSystemCtx(ctx) || access().hasFieldGroup(ctx, "internal");
     ok = new Set(
       rows
@@ -312,15 +411,15 @@ export async function pullEngine(ctx: Ctx, agg: AggregateDef, cursor: number, up
       }
       for (const list of groups.values()) {
         const def = schema.def(String(list[0].table_key));
-        const record = def ? await ctx.db.one<Row>(`select * from ${def.table} where id = $1 and org_id = $2`, [list[0].record_id, ctx.org.id]) : null;
-        const shown = def && record ? new Set((await filterSide({ q: ctx.db, ctx, def, record, kind: agg.engine, rows: list })).map((r) => String(r.id))) : new Set<string>();
+        const record = def ? await q.one<Row>(`select * from ${def.table} where id = $1 and org_id = $2`, [list[0].record_id, ctx.org.id]) : null;
+        const shown = def && record ? new Set((await filterSide({ q, ctx, def, record, kind: agg.engine, rows: list })).map((r) => String(r.id))) : new Set<string>();
         for (const r of list) if (!shown.has(String(r.id))) ok.delete(String(r.id));
       }
     }
   }
   const okIds = rows.filter((r) => ok.has(String(r.id))).map((r) => String(r.id));
   for (const r of rows) if (!ok.has(String(r.id))) out.tombstones.push({ entity: agg.entity, id: String(r.id) });
-  out.aggregates = await readAggregates(ctx.db, agg, okIds);
+  out.aggregates = await readAggregates(q, agg, okIds);
   if (agg.engine === "record") {
     const def = schema.def(agg.entity)!;
     const visible = access().visibleFields(ctx, def);
@@ -334,7 +433,7 @@ export async function pullEngine(ctx: Ctx, agg: AggregateDef, cursor: number, up
         else delete a.row[f.name];
       }
     }
-    await redactRows(ctx.db, ctx, def, out.aggregates.map((a) => a.row));
+    await redactRows(q, ctx, def, out.aggregates.map((a) => a.row));
   }
   return out;
 }

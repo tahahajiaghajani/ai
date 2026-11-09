@@ -250,7 +250,9 @@ that declare `participants: true` (the approvals panel).
     themselves a group's lead.
   - *Trees*: paths, cycles, children (§2). *Workspaces*: one default.
 - **Sync pushes** are judged by the same provider on the cloud (`canCreate`, `canWrite`/`canDelete` on the stored row,
-  hidden and unwritable fields keep the cloud's values); hooks do not run again there.
+  hidden and unwritable fields keep the cloud's values, a change of state is a transition the member may take, a
+  requester's own record keeps its system and readonly fields, derived access columns are recomputed by their module's
+  `derivePush`); hooks do not run again there (docs/spec/ENGINE.md §13).
 
 ## 9. Field security
 

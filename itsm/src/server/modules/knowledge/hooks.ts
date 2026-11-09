@@ -20,7 +20,7 @@ import { cleanSections, contentHash, isInternalArticle, missingSections, nextVer
 import { stateCategory } from "@shared/model/task";
 import type { Ctx } from "../../context";
 import type { Tx } from "../../db";
-import { addJournalIn, defFor, registerHooks, transitionIn, updateIn, validationError, type SideArgs, type SideFilterArgs, type WriteArgs } from "../../engine";
+import { addJournalIn, defFor, registerHooks, transitionIn, updateIn, validationError, type PushArgs, type SideArgs, type SideFilterArgs, type WriteArgs } from "../../engine";
 import { access } from "../../access/provider";
 import { enqueue } from "../../jobs";
 import { conflict, forbidden } from "../../http/errors";
@@ -539,6 +539,31 @@ async function articleSideFilter(s: SideFilterArgs): Promise<Row[]> {
   return s.rows.filter((r) => shown.has(String(r.id)));
 }
 
+// ---------------------------------------------------------------------------------------------------------------
+// an article pushed from a Windows app: its access columns are the cloud's computation, and the gate of an internal
+// article going out holds as on the API (a member could have bypassed it on their own computer)
+
+async function articleDerivedAccess(p: PushArgs): Promise<Row> {
+  const n = p.next;
+  const base = await baseOf(p.tx, p.ctx, n.base_id);
+  return {
+    confidential: isInternalArticle(n),
+    r_units: await expandUnits(p.tx, p.ctx, n.read_units, n.units_tree !== false),
+    x_units: await expandUnits(p.tx, p.ctx, n.deny_units, true),
+    workspace_id: base?.workspace_id ?? n.workspace_id ?? null,
+  };
+}
+
+async function articlePushGate(p: PushArgs): Promise<string | null> {
+  const prev = p.prev;
+  if (!prev || !prev.confidential || p.next.confidential || !prev.published_version_id) return null;
+  const base = await baseOf(p.tx, p.ctx, p.next.base_id);
+  if (base?.kind === "internal") return null;
+  if (!isKbApprover(p.ctx)) return "بیرونی‌شدن مقالهٔ داخلی (نوع، اطمینان KCS یا دید) با تأییدکنندهٔ دانش است؛ نسخهٔ تازه بفرستید";
+  const found = scanSensitive(`${p.next.title}\n${p.next.summary ?? ""}\n${p.next.body ?? ""}`);
+  return found.length ? `در متنی که درخواست‌کنندگان خواهند دید ${[...new Set(found.map((f) => f.label))].join("، ")} هست؛ آن را حذف کنید یا به بخش داخلی ببرید` : null;
+}
+
 let installed = false;
 
 export function installKnowledgeHooks(): void {
@@ -546,7 +571,15 @@ export function installKnowledgeHooks(): void {
   installed = true;
   registerHooks("kb_base", { beforeWrite: baseBefore, afterWrite: baseAfter });
   registerHooks("kb_category", { beforeWrite: categoryBefore, afterWrite: categoryAfter });
-  registerHooks("kb_article", { beforeWrite: articleBefore, afterWrite: articleAfter, guards: articleGuards, beforeSide: articleSideBefore, filterSide: articleSideFilter });
+  registerHooks("kb_article", {
+    beforeWrite: articleBefore,
+    afterWrite: articleAfter,
+    guards: articleGuards,
+    beforeSide: articleSideBefore,
+    filterSide: articleSideFilter,
+    derivePush: articleDerivedAccess,
+    validatePush: articlePushGate,
+  });
   registerHooks("kb_version", { beforeWrite: versionBefore, afterWrite: versionAfter, guards: versionGuards });
   registerHooks("kb_feedback", { beforeWrite: feedbackBefore, afterWrite: feedbackAfter });
   registerHooks("kb_task", { beforeWrite: taskBefore, afterWrite: taskAfter });

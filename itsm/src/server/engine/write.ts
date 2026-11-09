@@ -139,7 +139,7 @@ const has = (def: TableDef, name: string) => def.fields.some((f) => f.name === n
  * also stamps resolved_at when it is empty); back to an open category from a done one → reopen_count + 1 and the
  * resolved/closed stamps cleared; `active` follows the category.
  */
-function stateEffects(def: TableDef, prev: Row | null, next: Row, actor: string | null, now: string, changed: Set<string>) {
+export function stateEffects(def: TableDef, prev: Row | null, next: Row, actor: string | null, now: string, changed: Set<string>) {
   const model = def.states;
   if (!model) return;
   const field = model.field;

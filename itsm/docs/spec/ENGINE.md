@@ -534,7 +534,17 @@ The virtual table `user` answers `GET /r/user?q=` (members for pickers: `id`, `n
   stays in the desktop's outbox; fields the account may not see or write, retired custom fields and pinned columns
   (`id`, `org_id`, `no`, `created_*`) keep the cloud's values; references are not re-checked; journal and history rows
   are immutable (only removal). History is not written again (the desktop's own rows travel); events are emitted with
-  `via: "sync"`. Hooks do not run again (react to events instead).
+  `via: "sync"`. Hooks do not run again (react to events instead). What the API holds a member to holds for their push
+  too: a change of the state field is a transition of the model from the stored state that the account may take
+  (`canTransition`, its `requires`, its guard, the modules' `validateTransition`) — never a jump; on a record the account
+  reaches only as its requester (provider `writeMode` "requester") system and readonly fields keep the cloud's values
+  and the engine's effects of the transition (resolved/closed stamps, `active`) are the cloud's own; fields a module
+  derives from other data are recomputed by its `derivePush` hook (knowledge: compiled contributors, audience units,
+  the internal flag) and never taken from the push; a new journal entry or history row is in the account's own name
+  (or the system's note of something they did), and anything but a comment or a work note needs write access to its
+  record. A push that lost to a newer cloud copy (`conflict`) gets that copy back through the pull's projection
+  (`replicaRows`: readability, replica-only fields, hidden fields, redaction, side filters) — a row the account may not
+  read is answered `skipped`, with nothing of it.
 - **Numbers**: both sides allocate from their own counter; on a clash the cloud gives the pushed record the next free
   number (`allocateNumber`) and the desktop takes it over.
 - **Pull**: only rows the linked account may read (provider + row rules; side rows follow their record; internal
@@ -542,7 +552,9 @@ The virtual table `user` answers `GET /r/user?q=` (members for pickers: `id`, `n
   changed but is no longer readable is sent as a **tombstone** and the desktop deletes it with its journal, history,
   attachments and links.
 - **Scope epochs** (`sm_scope_epochs`): bumped per member when what they may read changes — by trigger on their
-  membership (role, per-area access, activation) and by `bumpScopeEpoch(q, orgId, userId)` for everything else. A
+  membership (role, per-area access, activation), on the access tables (0007), on participant grants (0053: a service's
+  owner and product owner, delegations, approvals; a delegation that starts or ends with time through the job
+  `approval.delegation_epoch`) and by `bumpScopeEpoch(q, orgId, userId)` for everything else. A
   desktop whose epoch is behind is told to `reset` and reads everything again (tombstoning what left its scope).
 - **Fields kept out of replicas** (`FieldDef.noSync`: a requested item's sensitive answers) never go down to a
   Windows app, even for people holding their field group: pulls leave them (and their history) out, a push never
