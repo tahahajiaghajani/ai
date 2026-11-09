@@ -37,6 +37,10 @@ import { installProjectModule } from "../modules/project";
 import { projectRoutes } from "./project";
 import { installAnalyticsModule } from "../modules/analytics";
 import { analyticsRoutes } from "./analytics";
+import { installEventModule } from "../modules/event";
+import { eventRoutes } from "./event";
+import { installContinuityModule } from "../modules/continuity";
+import { continuityRoutes } from "./continuity";
 import { installAiSkills } from "../modules/ai/skills";
 import { skillRoutes } from "./ai-skills";
 import { installAiAgents } from "../modules/ai/agents";
@@ -78,6 +82,10 @@ installReleaseModule();
 installDevopsModule();
 // project and portfolio management (docs/modules/project_FA.md) — its gate runs on the approvals service
 installProjectModule();
+// event management, AIOps light and on-call (docs/modules/event_FA.md) — after incidents, the CMDB and change
+installEventModule();
+// availability, capacity and continuity (docs/modules/continuity_FA.md) — after the event module (capacity sink)
+installContinuityModule();
 // analytics, reporting and KPIs (docs/modules/analytics_FA.md) — after every module whose tables it reports on
 installAnalyticsModule();
 
@@ -113,3 +121,5 @@ moduleRoutes.route("/release", releaseRoutes);
 moduleRoutes.route("/devops", devopsRoutes);
 moduleRoutes.route("/project", projectRoutes);
 moduleRoutes.route("/analytics", analyticsRoutes);
+moduleRoutes.route("/event", eventRoutes);
+moduleRoutes.route("/continuity", continuityRoutes);

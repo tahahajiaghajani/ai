@@ -33,6 +33,8 @@ import { releaseUi } from "./release";
 import { devopsUi } from "./devops";
 import { projectUi } from "./project";
 import { analyticsUi } from "./analytics";
+import { eventUi } from "./event";
+import { continuityUi } from "./continuity";
 
 /** A sidebar space: «خانه», «تنظیمات», or one a module adds (its key, e.g. "service-desk"). */
 export type SpaceKey = string;
@@ -167,6 +169,8 @@ const UIS: ModuleUi[] = [
   devopsUi,
   projectUi,
   analyticsUi,
+  eventUi,
+  continuityUi,
 ];
 
 /** In the order of the segmented control. «تنظیمات» is not a segment: the footer's gear opens it. */
