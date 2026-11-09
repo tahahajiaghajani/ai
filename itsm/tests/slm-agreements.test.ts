@@ -128,14 +128,14 @@ describe("an agreement from a template, through its lifecycle", () => {
     expect(row.state).toBe("active");
     expect(row.status).toBe("active");
     expect(row.next_review_at).toBeTruthy();
-    const d = (await o.get(`${P}/r/sla_definition/${targets.find((t) => t.kind === "timer").definition_id}`)).row;
+    const d = (await o.get(`${P}/r/sla_definition/${targets.find((t) => t.kind === "timer")!.definition_id}`)).row;
     expect(d.active).toBe(true);
     a = row;
   });
 
   it("measures live compliance from the SLA service's timers, with breaches", async () => {
     // a resolution target of one second for priority 2, on a 24×7 clock, to produce one met and one breached record
-    const t = targets.find((x) => x.timer_target === "resolution");
+    const t = targets.find((x) => x.timer_target === "resolution")!;
     const tight = (await p.slm.client.patch(`${P}/r/slm_target/${t.id}`, { p2_hours: 0.0005 })).row;
     expect(tight.generated).toBe(true);
     const mk = async (title: string) => (await o.post(`${P}/r/incident`, { short_description: title, impact: "1", urgency: "2", service_id: svc.id, caller_id: p.contact.userId })).row;
@@ -165,7 +165,7 @@ describe("an agreement from a template, through its lifecycle", () => {
   });
 
   it("closes a period with credits for missed targets that have tiers", async () => {
-    const t = targets.find((x) => x.timer_target === "resolution");
+    const t = targets.find((x) => x.timer_target === "resolution")!;
     await o.patch(`${P}/r/slm_target/${t.id}`, { credit_tiers: [{ below: 90, pct: 5 }, { below: 60, pct: 10 }], credit_cap_pct: "8" });
     await o.patch(`${P}/r/service_agreement/${a.id}`, { monthly_fee: "1000000" });
     const sys = await systemCtx(e.cfg, e.org);
