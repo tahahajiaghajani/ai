@@ -1,4 +1,4 @@
-// «دانش» in the portal (PTL-020): the knowledge a requester may read — never articles «فقط کارشناسان» nor internal
+// «دانش» in the portal (PTL-001, PTL-035): the knowledge a requester may read — never articles «فقط کارشناسان» nor internal
 // bases, even for an agent browsing the portal — searched with the knowledge module's search (logged in the knowledge
 // session, so a search that ends in reading counts as deflection), by base, with the most read and the newest.
 import { useState } from "react";

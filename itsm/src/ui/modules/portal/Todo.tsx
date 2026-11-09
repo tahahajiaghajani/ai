@@ -1,4 +1,4 @@
-// «کارهای من» (PTL-018, PTL-019): what waits for the person — approvals they are asked for (a manager approving their
+// «کارهای من» (PTL-012): what waits for the person — approvals they are asked for (a manager approving their
 // people's requests reads the request through the approver's grant), surveys, policies to read and acknowledge, and
 // their requests where the desk waits for their answer. Each opens its own page in the portal.
 import { Link } from "react-router";

@@ -1,4 +1,4 @@
-// An article in the portal (PTL-021): the knowledge module's reading view for a requester — the title, summary and
+// An article in the portal (PTL-001, PTL-035): the knowledge module's reading view for a requester — the title, summary and
 // banners, the body (never the internal section, which the server withholds anyway), related public articles, «آیا
 // این مقاله کمک کرد؟» with a reason when it did not, stars where the base takes ratings, «خواندم و می‌پذیرم» when the
 // person must acknowledge it, and a way forward when it did not help (report the problem with the article's title).

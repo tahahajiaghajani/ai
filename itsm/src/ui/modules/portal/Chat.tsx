@@ -1,4 +1,4 @@
-// The virtual agent in the portal (PTL-024…028): a conversation with the organisation's assistant on the same brain the
+// The virtual agent in the portal (PTL-016, PTL-017): a conversation with the organisation's assistant on the same brain the
 // messengers use (`virtualAgentClient`, every step with the person's own access) — answers written from the knowledge
 // they may read with numbered sources, the status of their own tickets, ordering with one question at a time and a
 // confirmation before anything is created, reporting an issue, and handing the conversation to a person at any time.

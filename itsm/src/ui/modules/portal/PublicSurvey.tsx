@@ -1,4 +1,4 @@
-// A survey by its signed link, without signing in (/p/survey/:token, PTL-039): what e-mails and messengers carry. The
+// A survey by its signed link, without signing in (/p/survey/:token, PTL-038): what e-mails and messengers carry. The
 // page shows only the survey and its questions — never the record, its number or any person — and answers once.
 import { useParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";

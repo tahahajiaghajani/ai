@@ -1,4 +1,4 @@
-// «نمایه و اعلان‌ها» (PTL-030…033): who the person is to the desk (name, unit, place, manager — from their profile),
+// «نمایه و اعلان‌ها» (PTL-015, PTL-022): who the person is to the desk (name, unit, place, manager — from their profile),
 // what they are told and how (the notification service's own preferences: per event and channel, e-mail digests, quiet
 // hours), their messenger accounts — linked only by a one-time code they send to the organisation's bot, listed and
 // unlinked here — who stands in for them while they are away (approvals, assigned work, notices), and which portal

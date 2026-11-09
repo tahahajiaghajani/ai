@@ -1,4 +1,4 @@
-// «آمار درگاه» (PTL-045, PTL-046): how people use self-service over a period — visitors and searches a day, searches
+// «آمار درگاه» (PTL-050, PTL-051): how people use self-service over a period — visitors and searches a day, searches
 // that found nothing (knowledge gaps to write), AI answers, deflections (a search or an article that ended without a
 // ticket), orders and reports from the portal; the assistant's conversations by channel, hand-offs and containment; the
 // messaging connectors' traffic and linked accounts; survey response and satisfaction. Counts only, never people.

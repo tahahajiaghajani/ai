@@ -1,4 +1,4 @@
-// The published knowledge pages, without signing in (/p/kb/:token…, PTL-022, KB-031): what a knowledge publisher chose
+// The published knowledge pages, without signing in (/p/kb/:token…, PTL-033, KB-031): what a knowledge publisher chose
 // to show everyone — external bases, articles that are public by every rule (never internal, confidential or narrowed),
 // searched by words, read with their images described and links to other public articles kept, «مفید بود؟» counted.
 // The page holds no ids, numbers or names (the server sends an opaque slug per article) and reads only /api/public.

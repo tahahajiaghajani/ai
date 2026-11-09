@@ -1,13 +1,13 @@
-// «تنظیم درگاه» (PTL-040…044) for catalogue administrators: the home page of each portal as a list of sections —
+// «تنظیم درگاه» (PTL-002, PTL-004, PTL-033) for catalogue administrators: the home page of each portal as a list of sections —
 // switch on or off, reorder, rename, set how many items, write the text sections, add more — saved as a draft,
 // previewed as people will see it (`?preview=1`), then published (the server checks the layout and bumps its version);
 // the portal's look (name, colours, logo, privacy notice) is its record; the knowledge published without sign-in
 // (for knowledge publishers) with its secret address; and the defaults to create again.
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Alert, App, Button, Input, InputNumber, Popconfirm, Select, Skeleton, Switch, Tooltip } from "antd";
-import { ArrowDown, ArrowUp, Copy, Eye, Plus, RefreshCw, Rocket, Save, Settings2, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Copy, Eye, ImageUp, Plus, RefreshCw, Rocket, Save, Settings2, Trash2 } from "lucide-react";
 import { DEFAULT_LAYOUT, PORTAL_WIDGETS, addableWidgets, layoutProblems, moveWidget, newWidget, normalizeLayout, type WidgetInstance, type WidgetType } from "@shared/portal/logic";
 import { formatJalaliDateTime } from "@shared/jalali";
 import { useOrg } from "../../lib/org";
@@ -15,7 +15,7 @@ import { errorText } from "../../lib/api";
 import { PageHeader } from "../../components/layout";
 import { Card, Note } from "../../components/blocks";
 import { Chip, EmptyState } from "../../components/display";
-import { recordsApi } from "../../records";
+import { recordsApi, uploadAttachment } from "../../records";
 import { PORTAL_KEYS, portalApi } from "./api";
 import { I16 } from "./parts";
 import "./portal.css";
@@ -228,6 +228,46 @@ function PublicKnowledge() {
   );
 }
 
+/** The portal's logo: an image attached to the portal's record (its id in `logo_id`), shown in the portal's header. */
+function Logo({ row, onSaved }: { row: Record<string, unknown> & { id: string; version: number }; onSaved: () => void }) {
+  const { api, orgId } = useOrg();
+  const { message } = App.useApp();
+  const [busy, setBusy] = useState(false);
+  const input = useRef<HTMLInputElement>(null);
+  const id = typeof row.logo_id === "string" && row.logo_id ? row.logo_id : null;
+  const set = async (file: File | null) => {
+    setBusy(true);
+    try {
+      let logo: string | null = null;
+      if (file) {
+        if (!/^image\/(png|jpeg|webp|gif)$/.test(file.type) || file.size > 1024 * 1024) throw new Error("نشان باید تصویر PNG، JPG یا WebP و کمتر از یک مگابایت باشد");
+        logo = String((await uploadAttachment(orgId, "portal", row.id, file)).id);
+      }
+      await recordsApi.update(api, "portal", row.id, { logo_id: logo }, row.version);
+      message.success(logo ? "نشان درگاه گذاشته شد" : "نشان برداشته شد");
+      onSaved();
+    } catch (e) {
+      message.error(errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <span className="inline-flex items-center gap-2">
+      {id ? <img src={`/api/o/${orgId}/portal/logo/${row.id}?v=${id.slice(0, 8)}`} alt="نشان درگاه" className="h-8 w-8 rounded-sm object-contain" /> : null}
+      <input ref={input} type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden onChange={(e) => { const f = e.target.files?.[0] ?? null; e.target.value = ""; if (f) void set(f); }} />
+      <Button size="small" icon={<ImageUp {...I16} />} loading={busy} onClick={() => input.current?.click()}>
+        {id ? "نشان تازه" : "گذاشتن نشان"}
+      </Button>
+      {id ? (
+        <Button size="small" type="text" disabled={busy} onClick={() => void set(null)}>
+          برداشتن نشان
+        </Button>
+      ) : null}
+    </span>
+  );
+}
+
 export default function PortalAdmin() {
   const { api, orgId } = useOrg();
   const { message } = App.useApp();
@@ -235,7 +275,7 @@ export default function PortalAdmin() {
   const [seeding, setSeeding] = useState(false);
   const q = useQuery({
     queryKey: [...PORTAL_KEYS.all(orgId), "admin", "portals"],
-    queryFn: () => recordsApi.list(api, "portal", { size: 50, sort: "sort_order", fields: ["name", "active", "layout", "published_layout", "layout_version", "published_at", "sort_order"] }),
+    queryFn: () => recordsApi.list(api, "portal", { size: 50, sort: "sort_order", fields: ["name", "active", "layout", "published_layout", "layout_version", "published_at", "sort_order", "logo_id"] }),
   });
   const rows = (q.data?.rows ?? []) as (Record<string, unknown> & { id: string; version: number })[];
   const row = rows.find((r) => r.id === sel) ?? rows[0] ?? null;
@@ -276,8 +316,9 @@ export default function PortalAdmin() {
           <div className="flex flex-wrap items-center gap-3">
             {rows.length > 1 ? <Select value={row.id} onChange={setSel} options={rows.map((r) => ({ value: r.id, label: String(r.name) }))} style={{ minInlineSize: 220 }} aria-label="درگاه" /> : <span className="font-medium text-ink">{String(row.name)}</span>}
             {row.active === false ? <Chip tone="warning">غیرفعال</Chip> : null}
+            <Logo row={row} onSaved={() => void q.refetch()} />
             <Link className="ds-link inline-flex items-center gap-1 text-[13px]" to={`/${orgId}/portal-admin/portals/${row.id}`}>
-              <Settings2 {...I16} /> نام، رنگ، نشان، پانویس و حریم خصوصی
+              <Settings2 {...I16} /> نام، رنگ، پانویس و حریم خصوصی
             </Link>
           </div>
           <LayoutEditor row={row} onSaved={() => void q.refetch()} />

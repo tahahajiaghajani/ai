@@ -1,4 +1,4 @@
-// An approval for the person asked to give it (PTL-019): what is asked — the request's title and description, who it
+// An approval for the person asked to give it (PTL-012, PTL-034): what is asked — the request's title and description, who it
 // is for, the answers of the order and its requester-safe facts (read through the approver's grant on that record) —
 // and «تأیید» / «رد» with a comment (a rejection says why). Decided approvals show their outcome.
 import { useState } from "react";

@@ -1,4 +1,4 @@
-// A request's page for the person who asked (PTL-014…017): where it stands (four steps, never internal states), the
+// A request's page for the person who asked (PTL-011): where it stands (four steps, never internal states), the
 // next promise of the desk, an outage it belongs to, the answers of the order, the conversation with the desk — public
 // replies only, never internal notes — with a composer (text, files, suggested replies), the files of the record that
 // are not behind an internal note, and what the person may do: confirm the resolution with a rating, reopen with a

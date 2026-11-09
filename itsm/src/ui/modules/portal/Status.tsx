@@ -1,4 +1,4 @@
-// «وضعیت خدمات» in the portal (PTL-005): today's status of the services the organisation shows on its status page,
+// «وضعیت خدمات» in the portal (PTL-014): today's status of the services the organisation shows on its status page,
 // the owner's message, availability and one bar a day — the service portfolio's own page parts — with «خبرم کن» to be
 // told when a service changes, and the announcements on air for the person above it.
 import { useState } from "react";

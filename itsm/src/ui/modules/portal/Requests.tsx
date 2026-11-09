@@ -1,4 +1,4 @@
-// «درخواست‌های من» (PTL-012, PTL-013): everything the person asked for or reported, in every department, in one list —
+// «درخواست‌های من» (PTL-010, PTL-034): everything the person asked for or reported, in every department, in one list —
 // theirs, those shared with them (they watch them) and, for managers, their people's («تیم من»); open, closed or all,
 // with a filter box and pages. The records the server lists are only those the person may read.
 import { useState } from "react";

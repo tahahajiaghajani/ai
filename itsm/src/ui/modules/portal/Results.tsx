@@ -1,4 +1,4 @@
-// «نتیجهٔ نظرسنجی‌ها» (PTL-040): for those who manage surveys — responses and response rate, CSAT (the share of 4–5),
+// «نتیجهٔ نظرسنجی‌ها» (PTL-038…040): for those who manage surveys — responses and response rate, CSAT (the share of 4–5),
 // NPS, effort, happiness and lost time over a period, by week or month, the spread of the scores, by group, and the
 // latest comments (anonymous answers carry no record or person). One survey or all.
 import { useState } from "react";
