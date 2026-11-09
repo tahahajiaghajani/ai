@@ -520,6 +520,12 @@ interface Generated {
   usage: { input: number; output: number; cost_usd: string | null };
 }
 
+/** The tables whose data a run puts in its prompt (`@r:<table>:<id>` tokens name the related and linked rows). */
+export function inputTables(input: SkillRuntimeInput, extra: readonly string[] = []): string[] {
+  const fromTokens = [...input.reads.related, ...input.reads.links].map((t) => t.split(":")[1]).filter(Boolean);
+  return [...new Set([input.table, ...fromTokens, ...input.links.map((l) => l.table), ...input.passages.map((p) => p.citation.table), ...extra].filter((t): t is string => !!t))];
+}
+
 async function callModel(ctx: Ctx, rs: ResolvedSkill, input: SkillRuntimeInput, facts: Record<string, unknown>, opts: RunOptions): Promise<Generated & { hash: string }> {
   const { def, cfg, version } = rs;
   const { system, prompt, hash } = await buildPrompt(ctx, rs, input, facts);
@@ -529,6 +535,8 @@ async function callModel(ctx: Ctx, rs: ResolvedSkill, input: SkillRuntimeInput, 
     feature: `skill:${cfg.key}`.slice(0, 40),
     system,
     prompt,
+    // the data-use policy of every table the run read: the record, related rows, links, sources, the module's facts
+    tables: inputTables(input, opts.dataTables),
     ...(shape ? { schema: shape.zod, ...(shape.json ? { jsonSchema: shape.json } : {}) } : {}),
     maxTokens: version.max_tokens ?? def.maxTokens ?? (def.output === "text" || def.output === "journal" ? 4000 : 6000),
     temperature: version.temperature,

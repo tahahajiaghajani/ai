@@ -57,6 +57,12 @@ import { installFinancialModule } from "../modules/financial";
 import { financialRoutes } from "./financial";
 import { installPortalModule } from "../modules/portal";
 import { portalRoutes } from "./portal";
+import { installAiMl } from "../modules/ai/ml";
+import { mlRoutes } from "./ai-ml";
+import { installAiGovernance } from "../modules/ai/governance";
+import { governanceRoutes } from "./ai-governance";
+import { installInsights } from "../modules/ai/insights";
+import { insightRoutes } from "./ai-insights";
 
 // the ITSM access model is the engine's access provider in every runtime (docs/spec/ACCESS.md)
 installAccessModel();
@@ -115,6 +121,12 @@ installAiAgents();
 installVirtualAgent();
 // the self-service portal and its channels (docs/modules/portal_FA.md) — after the virtual agent it talks through
 installPortalModule();
+// predictive AI (docs/spec/AI.md §13) — after the modules whose tables it learns from and the SLA rules it serves
+installAiMl();
+// AI governance (docs/spec/AI.md §14): the data-use policy per table and the console
+installAiGovernance();
+// insights (docs/spec/AI.md §16): daily and weekly cards, digests by role
+installInsights();
 
 export const moduleRoutes = router();
 
@@ -123,6 +135,9 @@ moduleRoutes.route("/ai", ragRoutes);
 moduleRoutes.route("/ai", skillRoutes);
 moduleRoutes.route("/ai", agentRoutes);
 moduleRoutes.route("/ai", vaRoutes);
+moduleRoutes.route("/ai", mlRoutes);
+moduleRoutes.route("/ai", governanceRoutes);
+moduleRoutes.route("/ai", insightRoutes);
 moduleRoutes.route("/access", accessRoutes);
 moduleRoutes.route("/notify", notifyRoutes);
 moduleRoutes.route("/calendars", calendarRoutes);

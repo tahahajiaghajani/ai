@@ -298,6 +298,15 @@ export function setOnCallResolver(fn: OnCall | null): void {
   onCall = fn;
 }
 
+/** The group a model predicts for a record being written (the AI layer's classifier), when it is confident enough. */
+export type AssignmentPredictor = (q: Queryable, ctx: Ctx, def: TableDef, row: Record<string, unknown>) => Promise<{ group: string; confidence: number } | null>;
+let predictor: AssignmentPredictor | null = null;
+
+/** The AI layer's predictor behind «گروه با پیش‌بینی هوش مصنوعی» of assignment rules. */
+export function setAssignmentPredictor(fn: AssignmentPredictor | null): void {
+  predictor = fn;
+}
+
 /** Members (and leads) of a group who can take work now: valid membership, active member, not away. */
 async function candidates(q: Queryable, ctx: Ctx, groupId: string): Promise<string[]> {
   const sys = systemFrom(ctx);
@@ -376,9 +385,17 @@ async function assignmentRules(cfg: ServiceConfig, w: WriteArgs): Promise<void> 
   const row = await withWalks(w.tx, w.def, w.ctx.org.id, { ...w.next, org_id: w.ctx.org.id }, rules.map((r) => r.condition), env, schema.lookup);
   for (const r of rules) {
     if (!holds(r.condition, row, env, w.def, schema.lookup, true)) continue;
-    if (r.group_id) w.next[group] = r.group_id;
+    // «گروه با پیش‌بینی هوش مصنوعی»: the model's group when it is confident enough, else the rule's own group; with
+    // neither, the next rule decides
+    let groupId: string | null = r.group_id ?? null;
+    if (r.ai_group && predictor) {
+      const p = await predictor(w.tx, w.ctx, w.def, w.next).catch(() => null);
+      if (p) groupId = p.group;
+    }
+    if (r.ai_group && !groupId) continue;
+    if (groupId) w.next[group] = groupId;
     if (assignee) {
-      let user = await pickUser(w.tx, w.ctx, w.def, r);
+      let user = await pickUser(w.tx, w.ctx, w.def, { ...r, group_id: groupId });
       if (user) {
         // someone away hands their new work to their delegate
         const delegations = await activeDelegations(w.tx, w.ctx, "assignments");
@@ -408,8 +425,8 @@ function checkRuleRow(kind: "business_rule" | "assignment_rule" | "priority_matr
     } else if (kind === "assignment_rule") {
       if (!t.scope.group || !field(t.scope.group)) fields.table_key = "این جدول گروه پشتیبانی ندارد";
       const m = String(w.next.method ?? "fixed");
-      if (m !== "fixed" && !w.next.group_id) fields.group_id = "برای این روش، گروه را برگزینید";
-      if (m === "fixed" && !w.next.group_id && !w.next.user_id) fields.group_id = "گروه یا کارشناس را برگزینید";
+      if (m !== "fixed" && !w.next.group_id && !w.next.ai_group) fields.group_id = "برای این روش، گروه را برگزینید";
+      if (m === "fixed" && !w.next.group_id && !w.next.user_id && !w.next.ai_group) fields.group_id = "گروه یا کارشناس را برگزینید";
     } else {
       const names = [w.next.impact_field || "impact", w.next.urgency_field || "urgency", w.next.priority_field || "priority"];
       const missing = names.find((n) => field(n)?.type !== "choice");

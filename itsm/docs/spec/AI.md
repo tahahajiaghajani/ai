@@ -9,13 +9,17 @@ Code: `src/shared/ai` (contracts: `types.ts`, `api.ts`, `rag.ts`; Persian text s
 errors), `src/server/modules/ai` (connections, adapters, chain, usage, settings, assistant, tools, proposals, relay,
 redaction) and `src/server/modules/ai/rag` (index, retrieval, cited answers, smart documents), `src/server/routes/ai.ts`
 and `ai-rag.ts`, `src/ui/ai` (assistant, settings, `ask/` — the cited-answer UI), `src/ui/modules/docs` (the library).
-Tests: `tests/ai-*.test.ts`, retrieval `tests/ai-rag-*.test.ts`, skills `tests/ai-skills-*.test.ts`.
+Tests: `tests/ai-*.test.ts`, retrieval `tests/ai-rag-*.test.ts`, skills `tests/ai-skills-*.test.ts`. Predictive models,
+governance, «پرسش تحلیلی» and insights (§12–16): `src/server/modules/ai/{ml,governance,insights}`, `datause.ts`,
+`nlreport.ts`, `src/ui/ai/{ml,governance,insights,askreport}`; tests `tests/ai-ml-*.test.ts`, `tests/ai-insights-*.test.ts`.
 
 Contents: [1 Connections and capabilities](#1-connections-and-capabilities) · [2 The index](#2-the-index) ·
 [3 Declaring RAG documents](#3-declaring-rag-documents) · [4 retrieve()](#4-retrieve) ·
 [5 askWithCitations()](#5-askwithcitations) · [6 Smart documents](#6-smart-documents) ·
 [7 Permission rules](#7-permission-rules) · [8 HTTP API](#8-http-api) · [9 UI](#9-ui) · [10 Testing](#10-testing) ·
-[11 Skills, agents and tools](#11-skills-agents-and-tools) · [12 Not built yet](#12-not-built-yet)
+[11 Skills, agents and tools](#11-skills-agents-and-tools) · [12 Predictive models and governance: where](#12-predictive-models-and-governance-where) ·
+[13 Predictive models](#13-predictive-models) · [14 Governance](#14-governance) ·
+[15 «پرسش تحلیلی»](#15-پرسش-تحلیلی--natural-language--report) · [16 Insights](#16-insights) · [17 Not built yet](#17-not-built-yet)
 
 ---
 
@@ -598,7 +602,232 @@ use), `va_conversation` and `va_message` (local, private to the requester, runti
   summary when one may be used) becomes an incident the requester files, or, when they may not file one, an interaction
   the service desk picks up.
 
-## 12. Not built yet
+## 12. Predictive models and governance: where
+
+Predictive models (§13), governance and the data-use policy (§14), «پرسش تحلیلی» (§15) and insights (§16) are built on
+the same promise as the rest of this document: numbers come from code — classical models trained in TypeScript per
+organisation, the report engine and the record engine's aggregates — and a language model only phrases narratives over
+those numbers, under the data-use policy of every table whose data it would see. Their tables are local to each runtime
+(`sm_ai_models`, `sm_ai_predictions`, `sm_ai_clusters`, `sm_ai_insights`, `sm_ai_guard_log`; migration `0064_ai_ml`)
+except the two engine tables `ai_data_policy` and `ai_digest` (`src/shared/tables/ai-governance.ts`). Extension points:
+`registerPredictionTarget`, `registerRiskModel` (`ml/specs.ts`), `setAssignmentPredictor` (SLA service),
+`registerDashboardSlot` (analytics UI), `registerHomeWidget` (home UI) and the record kit's `createAssist` slot.
+
+## 13. Predictive models
+
+Classical models written in TypeScript, trained per organisation on its own data, on every runtime (the Windows app
+trains on the data it holds): no model service, no network. Code `src/server/modules/ai/ml` (`core/` the pure
+algorithms; `specs`, `store`, `data`, `train`, `score`, `risk-models`, `clusters`, `kbdup`, `forecast`, `views`,
+`jobs`), routes `src/server/routes/ai-ml.ts`, contracts `src/shared/ai/ml.ts`, screens `src/ui/ai/ml`. Tests
+`tests/ai-ml-core.test.ts` (algorithms on fixtures and synthetic series), `ai-ml-predict.test.ts`, `ai-ml-risk.test.ts`,
+`ai-ml-kbdup.test.ts`, `ai-ml-ui.test.ts`.
+
+### 13.1 Which models
+
+`modelSpecs(schema)` derives them from the metadata, so a module added later (ESM, security, ITAM…) is covered as it is:
+
+| Kind | Where | Output |
+|---|---|---|
+| `classifier` | every task table (`extends: "task"`) with a text field | one per target it has among `category`, `assignment_group_id`, `priority`, `service_id`; `TARGET_INPUTS` names the categorical fields each reads besides the text; more with `registerPredictionTarget(table, field, inputs)` |
+| `duplicate` | every task table with a text; knowledge articles | a new record's likely duplicate among the recent ones (local vectors); articles of one base that say the same by meaning (§13.4) |
+| `cluster` | task tables with `problem_id` | clusters of unlinked records → problem candidates (§13.4) |
+| `risk` | tables with `features.sla`; `change_request` | SLA breach probability of open records; change failure probability (`registerRiskModel` for more) |
+
+A field reaches a model only when a generated AI tool could show it (`toolField`: never a secret, `ai_private`, a field
+kept from prompts or out of replicas) and it belongs to no field group, so «چرا؟» never names what a reader of the
+record may not see. Confidential records and secure workspaces are never training data (`trainableSql`).
+
+The registry `sm_ai_models` (local runtime table, migration `0064_ai_ml`; one row per spec, kept in step by `syncModels`
+— a table or field that is gone marks its model `retired`) holds kind, table, target, inputs, enabled, status (`new`,
+`training`, `ready`, `below_baseline`, `insufficient`, `failed`, `retired`), version, seed, `threshold_show`,
+`threshold_apply`, schedule (daily/weekly/monthly/manual), the metrics and baseline of the current version, a short
+history of earlier versions and the trained parameters.
+
+### 13.2 Training
+
+- Jobs on every runtime: `ai.ml.tick` (every 15 minutes per organisation; queued by record events and the routes) syncs
+  the registry and queues what is due; `ai.ml.train` one model (the administrator's «آموزش دوباره» forces it);
+  `ai.ml.risk` scores the open records of a risk model; `ai.ml.score` one record (its classifiers and likely duplicate).
+- Classifiers: the records of the last year whose target is set; tokens are Persian-normalised words (`@shared/ai/text`:
+  normalisation, stop words, light stemming), word pairs and `@field=value` tokens of the inputs; TF-IDF (sublinear tf,
+  smoothed idf, unit length); multinomial naive Bayes and softmax logistic regression (SGD, L2) on a seeded stratified
+  80/20 holdout — the better one is kept and calibrated (temperature). Metrics: accuracy, macro-F1, per-class
+  precision/recall/F1/support, coverage and accuracy above each confidence threshold.
+- Risk models: logistic regression (Adam, L2; one-hot categories, standardised numbers) split by time (older 80% train);
+  metrics AUC, Brier score and skill, calibration bins.
+- **Used only when better than a baseline**: the majority class (accuracy and macro-F1) for classifiers, the base rate
+  (Brier) for risk models. Otherwise the run is stored «زیر خط پایه» with its metrics and no prediction is made until a
+  later run beats it. Fewer than 50 examples: `insufficient`, with the count in Persian.
+- Deterministic: the same rows and seed give the same model and metrics (`mulberry32`, canonical ordering). Incremental
+  where it pays: a scheduled run with no row of the table changed since the last training keeps the model as it is.
+
+### 13.3 Scoring and triage
+
+- Classifiers run in-process: when a record is created or its text changes (stored in `sm_ai_predictions`: value,
+  score, alternatives, reasons — the strongest token weights — and what became of it: `open`, `applied`,
+  `auto_applied`, `dismissed`, `outcome`), for a draft being typed (`POST /ai/ml/predict`, with the person's own
+  values, nothing stored) and for the record page (computed again from the row as the viewer sees it, §13.6).
+- Triage: an assignment rule with «گروه با پیش‌بینی هوش مصنوعی» (`assignment_rule.ai_group`) takes the model's group
+  only at or above the model's `threshold_apply` (set by an AI administrator; empty = never) — else the rule's own group,
+  or the next rule. Such an assignment is recorded as `auto_applied`. The SLA service exposes the hook
+  (`setAssignmentPredictor`); the AI layer registers it.
+- When the real value is set later the prediction records the outcome (agreement rates in the governance console).
+- SLA breach (`risk:sla:<table>`): a finished SLA is one example at a quarter, half or three quarters of its target
+  (chosen by its id), with the record's priority, category, group, service and channel, the SLA definition, the share
+  of time elapsed, the record's age, its group's open work then, the start hour, weekday and off-hours; open SLAs are
+  scored every few minutes with the same features. Change failure (`risk:change_failure`): implemented changes, failed
+  or backed out or with incidents caused, by type, category, declared risk, priority, group, model, CIs touched, lead
+  time, window length, night and weekend starts, an untested backout, conflicts and CAB. Bands: «خطر زیاد» at or above
+  the model's alert threshold, «متوسط» from half of it.
+
+### 13.4 Duplicates and problem candidates
+
+- Ticket duplicates: a new record against the records of its table created in the last 14 days (local vectors,
+  `threshold_show` 0.82); the pair is shown only to someone who reads both.
+- Knowledge articles (`duplicate:kb_article`, daily): the mean of each published article's chunk vectors of the
+  organisation's embedding model (from the AI index, no model call) compared within each base; pairs at or above
+  `threshold_show` (0.9) become `kb_duplicate` rows with method «معنایی» for the knowledge staff, once per pair. Without
+  an embedding model nothing is proposed (the knowledge module's nightly text comparison remains).
+- Clusters (`cluster:<table>`, daily): records of the last 60 days not linked to a problem are embedded locally and
+  clustered (leader clustering seeded into spherical k-means, a density filter: at least 4 members and cohesion 0.5);
+  clusters close to an open problem's text, or repeating one a person dismissed or turned into a problem, are dropped.
+  Shown with **late binding**: a viewer sees only the members they read, label words come from those members, and a
+  cluster is listed only while at least 3 of its members are readable to them. «ثبت مسئله» creates it with the
+  viewer's access (their create right) and links the members they may update; «نه» dismisses the cluster.
+
+### 13.5 Forecasts and anomalies
+
+`GET /ai/ml/forecast?table&by&value&grain&horizon`: daily or weekly counts of a table — whole or for one service,
+group or channel — counted by the engine with the **viewer's** access (`aggregate`), 26 weeks or 105 weeks of history.
+Daily: ETS / Holt-Winters / seasonal naive chosen by backtest (the analytics toolkit), with the Iranian week as the
+season (period 7, Saturday first — the Friday and Thursday pattern is learnt, not assumed); Jalali holidays of the
+organisation's calendars are replaced by their weekday's normal level before fitting and get their own measured factor
+(the median holiday ratio) in the forecast; p10–p90 band. Weekly (Jalali weeks): a yearly season once two years exist.
+The backtest gives MAE, MASE (below 1 = better than «no change») and the band's coverage. Anomalies of the history:
+generalised ESD on seasonal residuals. Staffing hints per day: people for the median and the busy case = forecast ÷
+(productive hours × 60 ÷ handling minutes), the handling minutes from the median time worked per record (30 without
+data), assumptions shown — a hint, never a roster. Volume spikes, alert storms and reopen-rate shifts become insight cards
+(§16) and, when chosen, notifications.
+
+### 13.6 What people see
+
+A prediction is shown to whoever may read its record, and only through what they see of it: the record is read with
+the viewer's access (404 otherwise); a classifier's suggestion is computed from the row as they see it and shown only
+for a field they see; «چرا؟» names words of the visible text and values of visible fields; a duplicate needs both
+records readable; labels of groups, services and records are resolved with the viewer's access. «اعمال» writes the
+field through the record service with the viewer's access; «رد» records the dismissal. The record page's side panel
+«پیش‌بینی هوشمند» (registered on `"*"` for task tables with models) and the create form's suggestions (`createAssist`
+slot of the record kit) are the UI. Models, their metrics and thresholds are for AI administrators only.
+
+### 13.7 HTTP API
+
+Under `/api/o/:org/ai`: `GET /ml/records/:table/:id`, `POST /ml/predict` (draft values), `POST
+/ml/predictions/:id/apply|dismiss`, `GET /ml/forecast`, `GET /ml/clusters`, `POST /ml/clusters/:id/dismiss|problem`;
+AI administrators: `GET /ml/models`, `PATCH /ml/models/:key` (enabled, thresholds, schedule, seed — audited
+`ai.model.update`), `POST /ml/models/:key/train`.
+
+## 14. Governance
+
+### 14.1 The console
+
+«تنظیمات ← هوش مصنوعی ← حاکمیت» (`src/ui/ai/governance`, routes `/api/o/:org/ai/governance/*`, `ai:full` only;
+`src/server/modules/ai/governance`). Counts and configuration only — no record content, and skill runs stay private to
+their authors (feedback is counted, never quoted):
+
+| Section | Endpoint | What |
+|---|---|---|
+| نمای کلی | `overview` | features and their switches, connections (local or not), skills, agents, predictive models, the service member, capabilities registered by modules |
+| مدل‌های پیش‌بین | `/ml/models` | status, metrics against the baseline, history of versions, thresholds, schedule, «آموزش دوباره» |
+| مصرف و هزینه | `usage?days` | calls, errors, tokens, cost and latency per day, feature and model |
+| کیفیت و ارزیابی | `quality` | the latest score of each skill's evaluation set (§11.6) and model metrics over versions |
+| بازخورد | `feedback` | 👍/👎 per skill, what became of predictions (applied, auto-applied, dismissed, agreed with the outcome), proposals by status |
+| سیاست داده | `data-policies`, `PUT data-policies/:table` | §14.2 |
+| نظارت انسانی | `oversight` | whether proposals need a person, agents' autonomy and approvers, skills and models that apply on their own and their thresholds |
+| امتناع‌ها | `guard-log?kind` | data-use blocks (`policy`), questions beyond the asker's access (`access`, the reason only), agent guardrail blocks (`guardrail`), budget stops (`budget`, once a member a day) and answers a model refused (`refusal`, from the usage ledger) |
+| شناسنامه‌ها | `model-cards` | per skill, agent and model: purpose, data, inputs, outputs, evaluation, limits, oversight, version |
+| خروجی | `export?days` | one JSON of all of the above for audit |
+
+### 14.2 Data-use policy per table
+
+The organisation's data policy (`redact.ts`: what is masked before anything leaves) extended to **where** a table's
+data may go — one engine row per table, `ai_data_policy` (synced: one policy for the web version and the Windows app;
+only AI administrators write it; a missing row means «مدل‌های ابری و محلی» and the organisation's masking):
+
+- `cloud` — any connection of the chain; `local` — only connections on the organisation's own computers: the local
+  presets (Ollama, LM Studio, llama.cpp) and any connection whose address is loopback or a private network, never the
+  web version's connections through the relay; `never` — no model at all.
+- `pii`: `inherit`, or stricter than the organisation's: `masked` (identifiers) or `aggregates` (identifiers and names).
+- **Enforced by the chain before any call**: every model call that carries record data names its tables (`tables` of
+  `generate` / `runTurn`; skills from their record and inputs; retrieval from its hits; the assistant and agents from
+  every tool result in the conversation, `data_tables` in tool results); `runTurn` applies the strictest rule: `never`
+  → refused (`AiUnavailableError("policy")`), `local` → the chain filtered to local connections (refused when none is
+  set up); the strictest masking applies. A tool whose result may not join the conversation is refused before it runs
+  and after (`assertToolData`); the page context of the assistant drops labels of non-cloud tables. Cloud embedding
+  models never receive chunks of restricted tables (they keep local vectors). Every refusal is logged (§14.1).
+
+## 15. «پرسش تحلیلی» — natural language → report
+
+`askReport(ctx, question)` (`src/server/modules/ai/nlreport.ts`, the analytics module's `registerAnalyticsAi` hook;
+`POST /api/o/:org/ai/ask-report`, `POST /ai/ask-report/save`):
+
+1. A model turns the question into a report **definition** (skill `analytics.ask`: JSON over the catalogue of tables
+   the asker may read — names, labels, option values, never record data): table, filters as a condition AST, group by
+   (Jalali day/week/month/quarter/year buckets), measures, chart type.
+2. The definition is checked against the metadata **and** the asker's access before anything runs (`askRefusal`): an
+   unknown table or field, a table they may not read, a field they do not see on any hop of a path → refused with a
+   Persian reason, never quietly replaced; the refusal goes to the governance log.
+3. The numbers are computed by the analytics engine (`runReport`, SQL over `readable(asker)`) — never by a model.
+4. A narrative describes those numbers only (skill `analytics.narrate` under the table's data-use policy), else
+   sentences built from them.
+
+The answer card: how the question was read (chips), chart and table, the narrative, «باز کردن به‌صورت گزارش» (saved as
+the asker's own analytics report, with their create right) and «باز کردن در طراح». Without a model the analytics
+module's rule-based reader answers what it understands; otherwise a guided start in the report designer and example
+questions over the asker's own tables. The box is on dashboards (`registerDashboardSlot`), the page «پرسش تحلیلی»
+(`ai/ask-report?q=`), and the command palette offers it for any typed question. Tests `tests/ai-ml-askreport.test.ts`.
+
+## 16. Insights
+
+Code `src/server/modules/ai/insights` (`compute`, `views`, `index`), routes `src/server/routes/ai-insights.ts`, screens
+`src/ui/ai/insights`. Tests `tests/ai-insights-visibility.test.ts`.
+
+### 16.1 What is computed
+
+Per organisation, as the system, with the engine's aggregates — for yesterday (after the hour set in «بینش‌ها») and on
+Saturday for last Iranian week, idempotently (`sm_ai_insights`, unique per period, kind, table and subject):
+
+- every task table: volume against the previous period with the breakdown that moved most (category, service, group or
+  channel — the drivers), a spike against the same weekday of the eight weeks before (seasonal robust z), open work and
+  its ageing, resolution time, the reopen rate against the four periods before;
+- tables whose records carry SLAs: compliance of the SLAs that ended and the definitions that breached most;
+- tables with a change outcome: the share of implemented changes that succeeded;
+- requested items: fulfilment time and the items that took longest;
+- tables of the event module: alert storms (the last hour against the 48 before).
+
+Each card keeps its numbers, drivers and severity, and what it was computed over: its table, the condition of its
+rows, the fields it grouped or measured by and the records its drivers name.
+
+### 16.2 The visibility rule
+
+Insights are computed once for the organisation, so a card is shown to a member only when they could have computed it
+themselves: (1) they read the card's table and see every field it grouped or measured by; (2) they read **every**
+record of its condition — the engine's count of those records with their access equals the count without (live,
+checked when they look: a record that became confidential since hides the card); (3) they read every record its drivers
+name. Otherwise nothing of it is shown, not even its title; the page says how many of the period's cards are not
+theirs. A narrative (skill `insights.narrate`) is written from the card's numbers only, with the numbers shown beside
+it, under the data-use policy of the card's table; a model's narrative is cached on the card for everyone who passes
+the rule. Without a model the cards show their numbers and drivers.
+
+### 16.3 Digests and notifications
+
+Settings (AI administrators, on the page «بینش‌ها»; `AiSettings.insights`): on/off, the hour, digests (off / daily /
+weekly), the roles that receive them, immediate notification of critical anomalies; «محاسبه اکنون» and «فرستادن
+خلاصه» run a period now. A digest is built per recipient from the cards that recipient may see (`ai_digest`
+rows, one per recipient and period, readable by the recipient only) and sent through the notification service
+(`notifyPeople`); the runtime that acts for the organisation sends them (a linked Windows app leaves them to the web
+version). The cards appear on the home page (`registerHomeWidget`), the home dashboard and the page «بینش‌ها».
+
+## 17. Not built yet
 
 - Agents: approvals of an agent's proposals through the approvals service (they are routed to the approvers and
   notified instead: a record's `approval` field means the record's own approval), agents as flow steps, an undo journal
@@ -621,3 +850,14 @@ use), `va_conversation` and `va_message` (local, private to the requester, runti
   LLM judge, semantic caches keyed by ACL fingerprints (catalogue AI-011/012/013), connectors (AI-015), document
   comparison and extraction (AI-122/123), attachments of other records as sources (AI-124), per-agent source scopes
   (AI-125).
+
+- Predictive models: embedding-based ticket duplicates and clusters with the organisation's embedding model (they use
+  the local vectors; knowledge articles use the organisation's model), models shared between the web version and the
+  Windows app (each runtime trains on what it holds; thresholds and switches are per runtime), feature importance
+  beyond the strongest weights, a model per service or group, forecasts of channels the data does not record.
+- Insights: alert storms need the event module's tables (none in the base product); fulfilment time is computed for
+  requested items only; narratives in the background need the AI service member (otherwise the numbers and drivers
+  are shown and a reader may ask for a narrative).
+- Governance: prompt-injection detection (record text always reaches models as data, §7), retention settings of the
+  guard log (kept like the usage ledger), per-table policies for the virtual agent's requester conversations beyond the
+  tables its tools read.

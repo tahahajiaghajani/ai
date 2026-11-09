@@ -16,6 +16,7 @@ import { list, orgSchema } from "../../../engine";
 import { bad, forbidden } from "../../../http/errors";
 import { defineTool, type AiToolDef, type ToolResult } from "../tools/registry";
 import { selectRecordTools, toolCatalog, TOOLS_PER_TURN } from "../tools";
+import { logGuard } from "../datause";
 import { resolveSkill, runSkill } from "../skills";
 
 /** Registered tools an agent is never given: charts are the assistant's, starting agents is people's. */
@@ -127,30 +128,40 @@ function stripFields(a: AgentConfig, table: string, data: unknown): unknown {
   return d;
 }
 
+const proposalTable = (payload: unknown): string | null => {
+  const p = payload && typeof payload === "object" ? (payload as Record<string, unknown>) : {};
+  return typeof p.table === "string" ? p.table : null;
+};
+
 /** A tool wrapped by the agent's guardrails (see the file's head). */
 function guarded(a: AgentConfig, t: AiToolDef, table: string | null): AiToolDef {
   return {
     ...t,
     async run(ctx, input, rt) {
       const p = (input ?? {}) as Record<string, unknown>;
+      // every block is written to the governance log (docs/spec/AI.md §14.1) before the tool fails
+      const block = async (message: string, tables: (string | null)[]) => {
+        await logGuard(ctx, { kind: "guardrail", feature: `agent:${a.key}`, tables: tables.filter((x): x is string => !!x && !!tableDef(x)), detail: message });
+        return forbidden(message);
+      };
       for (const k of ["table", "to_table"]) {
-        if (typeof p[k] === "string" && tableForbidden(a, p[k] as string)) throw forbidden(`جدول «${p[k]}» برای این عامل ممنوع است`);
+        if (typeof p[k] === "string" && tableForbidden(a, p[k] as string)) throw await block(`جدول «${p[k]}» برای این عامل ممنوع است`, [p[k] as string]);
       }
       // the tables a module tool reads or writes (a catalogue order writes requests), whatever its input says
-      for (const x of t.tables ?? []) if (tableForbidden(a, x)) throw forbidden(`جدول «${x}» برای این عامل ممنوع است`);
+      for (const x of t.tables ?? []) if (tableForbidden(a, x)) throw await block(`جدول «${x}» برای این عامل ممنوع است`, [x]);
       // what a tool groups, measures, sorts or filters by returns those values: only fields the agent may see
       const tbl0 = table ?? (typeof p.table === "string" ? p.table : null);
       if (tbl0) {
         for (const path of inputPaths(p)) {
           const problem = agentPathProblem(a, tbl0, path);
-          if (problem) throw forbidden(problem);
+          if (problem) throw await block(problem, [tbl0]);
         }
       }
       rt = { ...rt, limits: { table: (x) => !tableForbidden(a, x), field: (x, f) => agentSees(a, x, f), groups: a.field_groups } };
       const res = await t.run(ctx, input, rt);
       if (res.proposal) {
         const problem = guardrailProblem(a, res.proposal);
-        if (problem) throw forbidden(`${problem}؛ این پیشنهاد ساخته نشد`);
+        if (problem) throw await block(`${problem}؛ این پیشنهاد ساخته نشد`, [proposalTable(res.proposal.payload) ?? tbl0]);
       }
       const tbl = table ?? (typeof p.table === "string" ? p.table : null);
       return tbl ? { ...res, data: stripFields(a, tbl, res.data) } : res;

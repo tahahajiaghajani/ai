@@ -6,7 +6,8 @@
 // Shift+arrows resize the focused widget; the widget library adds saved reports, quick definitions, indicators,
 // scorecards and notes; layouts never overlap (the shared layout model compacts them). The member's home dashboard
 // (their workspace's, else one marked for everyone) is the same page without an id.
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as RPointerEvent } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as RPointerEvent } from "react";
+import { dashboardSlots } from "./slots";
 import { useNavigate, useParams } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, Drawer, Dropdown, Input, InputNumber, Modal, Segmented, Select, Space, Switch, Tooltip } from "antd";
@@ -197,6 +198,7 @@ function Board({ view, home, canAuthor, canAdmin }: { view: DashboardView; home:
     <div className="flex flex-col gap-3">
       {header}
       {view.description && !edit ? <p className="an-desc">{view.description}</p> : null}
+      {!edit && !tv ? dashboardSlots().map((s) => <Fragment key={s.key}>{s.render({ home, dashboardId: view.id })}</Fragment>) : null}
       {body}
       {tv ? (
         <div className="an-tv" role="dialog" aria-label={`${view.name} — حالت نمایشگر`}>

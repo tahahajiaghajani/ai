@@ -125,8 +125,20 @@ function directives(text: string): { name: string; input: Record<string, unknown
 /** A `[json:{…}]` directive in the question, or in the bytes of an attached file (scanned documents in screenshots). */
 function jsonDirective(question: string, messages: NeutralMessage[]): string | null {
   const find = (t: string) => {
-    const i = t.indexOf("[json:");
-    return i < 0 ? null : (objectAt(t, i + 6)?.json ?? null);
+    // a question a skill put in a data block arrives JSON-escaped: read the directive as it was typed too
+    const unescaped = t.replace(/\\\\/g, "\u0000").replace(/\\"/g, '"').replace(/\u0000/g, "\\");
+    for (const text of t === unescaped ? [t] : [t, unescaped]) {
+      const i = text.indexOf("[json:");
+      const raw = i < 0 ? null : (objectAt(text, i + 6)?.json ?? null);
+      if (!raw) continue;
+      try {
+        JSON.parse(raw);
+        return raw;
+      } catch {
+        // not valid here: the next reading
+      }
+    }
+    return null;
   };
   const q = find(question);
   if (q) return q;

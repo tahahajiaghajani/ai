@@ -128,6 +128,8 @@ export async function askWithCitations(ctx: Ctx, question: string, scope: AiAskS
       feature: "rag_ask",
       system: ASK_SYSTEM,
       prompt: askPrompt(question, passages),
+      // the data-use policy of every source table (a «فقط محلی» source keeps the answer on local models)
+      tables: [...new Set(passages.map((p) => p.citation.table))],
       maxTokens: 2500,
       effort: "low",
       signal: opts.signal,

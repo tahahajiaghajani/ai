@@ -139,6 +139,9 @@ describe("agents run as their principal", () => {
     const s = r.steps.find((x) => x.tool === "draft_update_incident")!;
     expect(s.ok).toBe(false);
     expect(s.error).toContain("ممنوع");
+    // the block is in the governance log (docs/spec/AI.md §14.1)
+    const log = await w.o.get(`${w.P}/ai/governance/guard-log?kind=guardrail`);
+    expect(log.entries.some((e: { feature: string; tables: string[]; detail: string }) => e.feature === "agent:t_guard" && e.tables.includes("incident") && e.detail.includes("impact"))).toBe(true);
     // forbidden tables: the table's tools are not offered at all
     await w.o.patch(`${w.P}/ai/agents/admin/t_guard`, { forbidden_tables: ["incident"] }, 400).catch(() => undefined);
   });

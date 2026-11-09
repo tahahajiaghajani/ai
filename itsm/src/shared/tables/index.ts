@@ -34,6 +34,7 @@ import { SUPPLIER_CHOICE_LISTS, SUPPLIER_TABLES } from "./supplier";
 import { FINANCIAL_CHOICE_LISTS, FINANCIAL_TABLES } from "./financial";
 import { SECURITY_CHOICE_LISTS, SECURITY_TABLES } from "./security";
 import { PORTAL_TABLES } from "./portal";
+import { AI_GOVERNANCE_TABLES } from "./ai-governance";
 
 export { CUSTOM_FIELD_TYPES, VIEW_KINDS } from "./core";
 
@@ -65,6 +66,7 @@ const MODULE_TABLES: TableDef[][] = [
   FINANCIAL_TABLES,
   SECURITY_TABLES,
   PORTAL_TABLES,
+  AI_GOVERNANCE_TABLES,
 ];
 
 /** Every table by key (resolved definitions). */

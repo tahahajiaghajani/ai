@@ -9,7 +9,7 @@ export class AiUnavailableError extends Error {
   }
 }
 
-const STATUS: Partial<Record<AiErrorKind, number>> = { not_configured: 403, disabled: 403, budget: 403, rate: 429, quota: 429, invalid: 400 };
+const STATUS: Partial<Record<AiErrorKind, number>> = { not_configured: 403, disabled: 403, budget: 403, policy: 403, rate: 429, quota: 429, invalid: 400 };
 
 /**
  * AI cannot answer a plain JSON request: an HTTP error whose code is `ai_<kind>` and whose details carry the kind,

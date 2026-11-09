@@ -17,7 +17,7 @@ export type AiConnectionStatus = "unchecked" | "ok" | "error" | "paused";
 /** Error classes, normalised across providers (Persian explanations live in src/shared/ai/errors.ts). */
 export type AiErrorKind =
   | "auth" | "region" | "quota" | "rate" | "overloaded" | "model" | "invalid" | "refusal"
-  | "timeout" | "network" | "budget" | "disabled" | "not_configured" | "empty" | "other";
+  | "timeout" | "network" | "budget" | "disabled" | "not_configured" | "empty" | "policy" | "other";
 
 /** A connection as the UI sees it. The key itself never leaves the server. */
 export interface AiConnectionPublic {
@@ -107,6 +107,20 @@ export interface AiSettings {
   cloud_first: AiJob[];
   /** «نمایه و بازیابی» (retrieval) */
   rag: AiRagSettings;
+  /** «بینش‌ها» (docs/spec/AI.md §16): daily and weekly insight cards, digests by role, anomaly alerts */
+  insights: AiInsightSettings;
+}
+
+export interface AiInsightSettings {
+  enabled: boolean;
+  /** the hour of the organisation's day after which yesterday's insights are computed (0–23) */
+  hour: number;
+  /** digests by notification: off, the daily insights, or the weekly ones (Saturday, the Iranian week) */
+  digest: "off" | "daily" | "weekly";
+  /** roles whose members receive the digest (each gets only insights they may see) */
+  roles: string[];
+  /** notify the digest's recipients of a critical anomaly at once */
+  notify_anomalies: boolean;
 }
 
 // ---------------------------------------------------------------- assistant: references, proposals, events

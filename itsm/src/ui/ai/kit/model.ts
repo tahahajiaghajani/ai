@@ -70,6 +70,7 @@ export const ERROR_HELP: Record<AiErrorKind, { title: string; remedy: string }> 
   disabled: { title: "هوش مصنوعی خاموش است", remedy: "در «قابلیت‌ها و حریم خصوصی» روشنش کنید." },
   not_configured: { title: "هوش مصنوعی راه‌اندازی نشده است", remedy: "در «اتصال‌ها» یک کلید API اضافه کنید." },
   empty: { title: "پاسخی نیامد", remedy: "دوباره امتحان کنید." },
+  policy: { title: "سیاست دادهٔ سازمان اجازه نمی‌دهد", remedy: "سیاست دادهٔ این جدول در «حاکمیت هوش مصنوعی» آمده است؛ برای جدول‌های «فقط محلی» یک مدل محلی اضافه کنید." },
   other: { title: "خطای سرویس", remedy: "کمی بعد دوباره امتحان کنید." },
 };
 

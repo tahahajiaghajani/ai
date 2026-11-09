@@ -20,6 +20,7 @@ import { enqueue, registerJobHandler, type Job, type JobConfig, type JobContext,
 import { loadEnv, type AiEnv } from "../chain";
 import { chunkDocument, CHUNKER_VERSION, type Chunk } from "./chunker";
 import { activeEmbedder, embedTexts, EmbedUnavailableError, type EmbedderInfo } from "./embed";
+import { dataUsePlan, isLocalConnection, tablePolicies } from "../datause";
 import { localEmbed } from "./local-embed";
 import { buildDocument, isRagTable, ragSource, ragTables } from "./registry";
 import { ensureAnnIndexes, parseVector, replaceChunks, setChunkVectors, storeBackend, type ChunkWrite, type StoreBackend } from "./store";
@@ -82,6 +83,17 @@ export async function scheduleEmbed(db: Db, orgId: string, delayMs = 0): Promise
   await enqueue(db, { kind: RAG_JOBS.embed, orgId, payload: {}, delayMs: Math.max(0, Math.round(delayMs)), dedupeKey: RAG_JOBS.embed, maxAttempts: 20 }).catch(() => undefined);
 }
 
+/**
+ * May the active embedding model read this table's text: its data-use policy (datause.ts) — «هرگز» no model, «فقط
+ * محلی» a model on the organisation's own computers only.
+ */
+export async function embeddable(s: Pick<IndexSession, "sys" | "embedder">, table: string): Promise<boolean> {
+  if (!s.embedder) return false;
+  const plan = await dataUsePlan(s.sys, [table]);
+  if (plan.use === "never") return false;
+  return plan.use === "cloud" || isLocalConnection(s.embedder.row);
+}
+
 /** Provider vectors for these texts, or null (the model is unavailable: the session remembers it). */
 async function providerVectors(s: IndexSession, texts: string[]): Promise<number[][] | null> {
   if (!s.embedder || s.embedDown || !texts.length) return s.embedder && texts.length ? null : [];
@@ -142,7 +154,8 @@ export async function indexRecord(s: IndexSession, table: string, id: string, op
     `select hash, vec_key, vec_pending, chunks, status from sm_ai_rag_docs where org_id = $1 and table_key = $2 and record_id = $3`,
     [orgId, table, id],
   );
-  const key = s.embedder?.key ?? null;
+  // a table whose data-use policy keeps it from this embedding model is searched by full text and local vectors only
+  const key = s.embedder && (await embeddable(s, table)) ? s.embedder.key : null;
 
   // unchanged content: only the version and the access anchors move (and missing provider vectors are added)
   if (prev && prev.hash === hash && prev.status === "ok" && !opts.force) {
@@ -230,6 +243,10 @@ export async function embedMissing(s: IndexSession, scope: { table: string; id: 
     params.push(scope.table, scope.id);
     where += ` and table_key = $3 and record_id = $4`;
   }
+  // tables the model may not read keep local vectors only (datause.ts): never selected for it
+  const local = isLocalConnection(s.embedder.row);
+  const kept = [...(await tablePolicies(s.sys)).entries()].filter(([, p]) => p.use === "never" || (p.use === "local" && !local)).map(([t]) => t);
+  if (kept.length) where += ` and not (table_key = any($${params.push(`{${kept.join(",")}}`)}::text[]))`;
   const limit = "limit" in scope ? scope.limit : 2000;
   const rows = await db.query<{ id: string; text: string; heading: string | null; table_key: string; record_id: string }>(
     `select c.id, c.text, c.heading, c.table_key, c.record_id from sm_ai_chunks c where ${where} order by c.record_id, c.ord limit ${limit}`,

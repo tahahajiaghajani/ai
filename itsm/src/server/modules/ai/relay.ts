@@ -65,6 +65,8 @@ export const relayRequestSchema = z.object({
     effort: z.enum(["low", "medium", "high", "max"]).nullish(),
     maxTokens: z.number().int().min(1).max(128_000),
   }),
+  /** the tables whose data the request carries: the web version applies the organisation's data-use policy too */
+  tables: z.array(z.string().regex(/^[a-z][a-z0-9_]{0,62}$/)).max(200).optional(),
 });
 export type RelayRequest = z.infer<typeof relayRequestSchema>;
 
@@ -75,7 +77,7 @@ export type RelayRequest = z.infer<typeof relayRequestSchema>;
 export async function relayTurn(ctx: Ctx, link: CloudLink, opts: RunOptions, startMs?: number): Promise<ChainResult> {
   if (link.org_id !== ctx.org.id) throw new AiUnavailableError("not_configured", aiErrorText("not_configured", { canManage: ctx.can("ai", "full"), desktop: true }).message);
   const { signal, ...request } = opts.request;
-  const body: RelayRequest = { job: opts.job, feature: opts.feature, request: request as RelayRequest["request"] };
+  const body: RelayRequest = { job: opts.job, feature: opts.feature, request: request as RelayRequest["request"], ...(opts.tables?.length ? { tables: opts.tables } : {}) };
   const t0 = Date.now();
   const start = new AbortController();
   const timer = startMs ? setTimeout(() => start.abort(), startMs) : null;
@@ -189,5 +191,6 @@ export function relayToRun(body: RelayRequest, signal: AbortSignal): RunOptions 
     job: body.job,
     feature: body.feature,
     request: { ...request, maxTokens: Math.min(request.maxTokens, RELAY_MAX_TOKENS), signal },
+    ...(body.tables?.length ? { tables: body.tables } : {}),
   };
 }

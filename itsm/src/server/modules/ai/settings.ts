@@ -51,6 +51,24 @@ export function defaultSettings(): AiSettings {
     use_cloud: false,
     cloud_first: [],
     rag: defaultRag(),
+    insights: defaultInsights(),
+  };
+}
+
+/** «بینش‌ها»: on, computed after 6 in the morning, a weekly digest to the desk's managers, anomalies notified. */
+export function defaultInsights(): AiSettings["insights"] {
+  return { enabled: true, hour: 6, digest: "weekly", roles: ["service_desk_manager", "team_lead", "tenant_admin"], notify_anomalies: true };
+}
+
+function normalizeInsights(raw: unknown): AiSettings["insights"] {
+  const d = defaultInsights();
+  const r = (raw && typeof raw === "object" ? raw : {}) as Partial<AiSettings["insights"]>;
+  return {
+    enabled: typeof r.enabled === "boolean" ? r.enabled : d.enabled,
+    hour: typeof r.hour === "number" && Number.isInteger(r.hour) && r.hour >= 0 && r.hour <= 23 ? r.hour : d.hour,
+    digest: r.digest === "off" || r.digest === "daily" || r.digest === "weekly" ? r.digest : d.digest,
+    roles: Array.isArray(r.roles) ? [...new Set(r.roles.filter((x): x is string => typeof x === "string" && /^[a-z][a-z0-9_]{0,59}$/.test(x)))].slice(0, 20) : d.roles,
+    notify_anomalies: typeof r.notify_anomalies === "boolean" ? r.notify_anomalies : d.notify_anomalies,
   };
 }
 
@@ -104,6 +122,7 @@ export function normalizeSettings(raw: unknown): AiSettings {
     // known jobs only, each once, in the jobs' own order
     cloud_first: Array.isArray(r.cloud_first) ? JOBS.filter((j) => (r.cloud_first as unknown[]).includes(j)) : d.cloud_first,
     rag: normalizeRag(r.rag),
+    insights: normalizeInsights(r.insights),
   };
 }
 
@@ -150,6 +169,15 @@ export const settingsPatchSchema = z
         top_k: z.number().int().min(2, "دست‌کم ۲ بخش").max(20, "حداکثر ۲۰ بخش"),
       })
       .partial(),
+    insights: z
+      .object({
+        enabled: z.boolean(),
+        hour: z.number().int().min(0).max(23),
+        digest: z.enum(["off", "daily", "weekly"]),
+        roles: z.array(z.string().regex(/^[a-z][a-z0-9_]{0,59}$/, "کلید نقش معتبر نیست")).max(20),
+        notify_anomalies: z.boolean(),
+      })
+      .partial(),
   })
   .partial();
 
@@ -172,6 +200,7 @@ export async function saveSettings(ctx: Ctx, patch: AiSettingsPatch): Promise<Ai
       features: { ...cur.features, ...(patch.features ?? {}) },
       budgets: { ...cur.budgets, ...(patch.budgets ?? {}) },
       rag: { ...cur.rag, ...(patch.rag ?? {}) },
+      insights: { ...cur.insights, ...(patch.insights ?? {}) },
       // «اول نسخهٔ وب» belongs to the Windows app: the web version has no web version to ask first
       ...(ctx.cfg.mode === "cloud" ? { cloud_first: [] } : {}),
     });

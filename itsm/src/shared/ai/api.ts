@@ -135,6 +135,7 @@ export type AiSettingsPatch = Partial<{
   use_cloud: boolean;
   cloud_first: AiJob[];
   rag: Partial<AiSettings["rag"]>;
+  insights: Partial<AiSettings["insights"]>;
 }>;
 
 export interface AiSettingsView {
