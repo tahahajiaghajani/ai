@@ -160,6 +160,7 @@ slmRoutes.get("/reviews/:id/pack", async (c) => {
 
 slmRoutes.post("/reviews/:id/pack", async (c) => {
   const { ctx, id, review, meta } = await readableReview(c);
+  if (["closed", "canceled"].includes(String(review.state))) throw conflict("بستهٔ بازبینی بسته یا لغوشده دوباره ساخته نمی‌شود");
   if (!meta.canWrite) throw forbidden("ساختن بستهٔ بازبینی با کسانی است که بازبینی را تغییر می‌دهند");
   if (review.state === "scheduled") {
     await ctx.write((tx) => transitionIn(tx, ctx, "slm_review", id, "prepared"));
