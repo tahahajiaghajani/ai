@@ -619,8 +619,8 @@ Classical models written in TypeScript, trained per organisation on its own data
 trains on the data it holds): no model service, no network. Code `src/server/modules/ai/ml` (`core/` the pure
 algorithms; `specs`, `store`, `data`, `train`, `score`, `risk-models`, `clusters`, `kbdup`, `forecast`, `views`,
 `jobs`), routes `src/server/routes/ai-ml.ts`, contracts `src/shared/ai/ml.ts`, screens `src/ui/ai/ml`. Tests
-`tests/ai-ml-core.test.ts` (algorithms on fixtures and synthetic series), `ai-ml-predict.test.ts`, `ai-ml-kbdup.test.ts`,
-`ai-ml-ui.test.ts`.
+`tests/ai-ml-core.test.ts` (algorithms on fixtures and synthetic series), `ai-ml-predict.test.ts`, `ai-ml-risk.test.ts`,
+`ai-ml-kbdup.test.ts`, `ai-ml-ui.test.ts`.
 
 ### 13.1 Which models
 
