@@ -329,6 +329,11 @@ export interface TableDef {
    * HTML, text files) is indexed with it, under the record's access, cited to the record (`features.attachments`)
    */
   ai?: { title: string; text: string[]; attachments?: boolean };
+  /**
+   * the table's AI data-use policy while the organisation has set none for it (docs/spec/AI.md §14.2): «فقط محلی»
+   * (`local`: only models on the organisation's own computers) or «هرگز» (`never`: no model). Unset: any model.
+   */
+  dataUse?: "local" | "never";
   /** combinations of fields unique per organisation among live rows */
   unique?: string[][];
   /**

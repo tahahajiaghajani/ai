@@ -63,7 +63,7 @@ export function installPortalModule(): void {
 }
 
 export { seedPortalDefaultsIn, seedPortalDefaultsWith, PORTAL_SEED_VERSION, PRIVACY_NOTICE, type SeedCounts } from "./seed";
-export { registerPortalItems, portalItemTables, managesPortal, managesSurveys, managesChannels, publishesKnowledge, logEvent, logPortalEvent, type PortalItemTable } from "./common";
+export { registerPortalItems, registerPortalLink, moduleLinksFor, portalItemTables, managesPortal, managesSurveys, managesChannels, publishesKnowledge, logEvent, logPortalEvent, type PortalItemTable, type PortalModuleLink } from "./common";
 export { portalConfig, portalsFor, currentPortal, choosePortal, favoritesOf, toggleFavorite, publishLayout, portalLogo } from "./config";
 export { portalHome, catalogPage, topicPage, quickLinks, topics, trendingItemIds, recentItemIds } from "./home";
 export { myItems, ticketView, replyToTicket, ticketAction, managesPeople, requesterFields } from "./items";

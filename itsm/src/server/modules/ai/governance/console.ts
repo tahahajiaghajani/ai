@@ -10,7 +10,7 @@ import type { Ctx } from "../../../context";
 import { bad } from "../../../http/errors";
 import { create, list, orgSchema, update } from "../../../engine";
 import { connectionRows } from "../connections";
-import { isLocalConnection } from "../datause";
+import { defaultDataUse, isLocalConnection } from "../datause";
 import { loadEnv } from "../chain";
 import { disabledByPlatform, FEATURE_SWITCH } from "../settings";
 import { principalOf } from "../skills/principal";
@@ -184,7 +184,8 @@ export async function dataPolicies(ctx: Ctx): Promise<DataPolicyRow[]> {
       table: def.key,
       label: def.plural,
       module: def.module,
-      use: (r?.use as DataPolicyRow["use"]) ?? "cloud",
+      // no row: the table's own default (security records are «فقط محلی» or «هرگز» until an AI administrator decides)
+      use: (r?.use as DataPolicyRow["use"]) ?? defaultDataUse(def.key),
       pii: (r?.pii as DataPolicyRow["pii"]) ?? "inherit",
       note: (r?.note as string | null) ?? null,
       explicit: !!r,

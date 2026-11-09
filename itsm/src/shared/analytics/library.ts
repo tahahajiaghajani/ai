@@ -1,7 +1,8 @@
 // The ITSM KPI library (catalogue ANA-002) and the dashboards seeded with it: MTTA, MTTR, first-contact resolution,
 // reopen rate, SLA compliance, backlog and its ageing, major incidents, CSAT; change success, emergency share,
 // change-caused incidents, lead time; the DORA metrics and release/project KPIs; request fulfilment time, zero-touch share, request SLA and CSAT; problem and
-// knowledge measures. Each indicator names the tables and fields it reads; the seed adds only those whose tables and
+// knowledge measures; security (open security incidents, MTTC, overdue vulnerabilities, control test pass rate, risks
+// above appetite) and the portal (CSAT, the virtual agent's deflection, the self-service share). Each indicator names the tables and fields it reads; the seed adds only those whose tables and
 // fields exist in the organisation (modules not installed are skipped) — `libraryFor(lookup)`.
 // Stored snapshots of these org-wide indicators are readable only by the roles in `score_roles` (the definitions and
 // the live values — computed with each viewer's access — are for everyone who reads reports).
@@ -34,6 +35,8 @@ export const PRACTICES: { value: string; label: string }[] = [
   { value: "asset", label: "دارایی و مجوز" },
   { value: "supplier", label: "تأمین‌کننده و قرارداد" },
   { value: "financial", label: "مالی" },
+  { value: "security", label: "امنیت، ریسک و انطباق" },
+  { value: "portal", label: "درگاه و سلف‌سرویس" },
   { value: "other", label: "سایر" },
 ];
 
@@ -53,6 +56,12 @@ const ASSET_READERS = ["asset_manager", "tenant_admin"];
 const SUPPLIER_READERS = ["asset_manager", "procurement_manager", "tenant_admin"];
 // stored budget figures go only to those of these roles who hold the «مالی» field group (the amounts' group)
 const FINANCE_READERS = ["it_finance", "asset_manager", "tenant_admin"];
+// stored security scores: never the tenant administrator (outside the secure workspace) — the security manager for
+// security incidents, with the vulnerability or GRC manager for their own measures
+const SOC_READERS = ["security_manager"];
+const VULN_READERS = ["security_manager", "vulnerability_manager"];
+const GRC_READERS = ["security_manager", "grc_manager"];
+const PORTAL_READERS = ["service_desk_manager", "tenant_admin"];
 const ALERT_DONE = { f: "state", op: "in", v: ["cleared", "closed"] } as const;
 /**
  * Production deployments that finished (the DORA population): succeeded, failed or rolled back, also once closed. A
@@ -377,6 +386,73 @@ export const KPI_LIBRARY: LibraryIndicator[] = [
       { name: "budget", table: "budget_line", fn: "sum", field: "amount", date_field: "period_id.start_date", filter: { f: "budget_id.state", op: "in", v: ["approved", "locked"] } },
     ],
     target: 100, warn: 105, crit: 115, score_roles: FINANCE_READERS, collect: true,
+  },
+  // ----- security operations, vulnerabilities, compliance and risk (the security module installed) ---------------------
+  // live values run as each viewer: outside the secure workspace they count nothing; stored scores go to SOC_READERS…
+  {
+    key: "security.open_incidents", name: "رخدادهای امنیتی باز", practice: "security", unit: "count", direction: "down", grain: "day",
+    description: "رخدادهای امنیتی بازِ لحظهٔ اندازه‌گیری، با تفکیک شدت. فقط اعضای مرکز عملیات امنیت عددها را می‌بینند.",
+    formula: "open", parts: [{ name: "open", table: "sec_incident", fn: "count", filter: OPEN }],
+    breakdowns: ["severity"], score_roles: SOC_READERS, collect: true,
+  },
+  {
+    key: "security.mttc", name: "میانگین زمان مهار رخداد امنیتی (MTTC)", practice: "security", unit: "duration", direction: "down", grain: "month",
+    description: "میانگین زمان از کشف تا مهار رخدادهای امنیتی‌ای که در دوره مهار شدند.",
+    formula: "mttc", parts: [{ name: "mttc", table: "sec_incident", fn: "avg", field: "time_to_contain", date_field: "contained_at", filter: { f: "time_to_contain", op: "nempty" } }],
+    breakdowns: ["severity"], score_roles: SOC_READERS, collect: true,
+  },
+  {
+    key: "security.vuln_overdue", name: "آسیب‌پذیری‌های گذشته از موعد رفع", practice: "security", unit: "count", direction: "down", grain: "day",
+    description: "یافته‌های آسیب‌پذیری بازی که از موعد رفع گذشته‌اند (در لحظهٔ اندازه‌گیری)، با تفکیک ردهٔ ریسک.",
+    formula: "overdue", parts: [{ name: "overdue", table: "sec_vuln_item", fn: "count", filter: { and: [{ f: "overdue", op: "eq", v: true }, { f: "state", op: "in", v: ["open", "in_remediation", "deferred"] }] } }],
+    target: 0, warn: 5, crit: 20, breakdowns: ["risk_rating"], score_roles: VULN_READERS, collect: true,
+  },
+  {
+    key: "security.control_pass_rate", name: "نرخ موفقیت آزمون کنترل‌ها", practice: "security", unit: "percent", direction: "up", grain: "quarter",
+    description: "سهم آزمون‌های کنترلِ ثبت‌شده در دوره که نتیجهٔ «اثربخش» داشتند.",
+    formula: "passed / tested * 100",
+    parts: [
+      { name: "passed", table: "grc_control_test", fn: "count", date_field: "completed_at", filter: { f: "conclusion", op: "eq", v: "effective" } },
+      { name: "tested", table: "grc_control_test", fn: "count", date_field: "completed_at", filter: { f: "conclusion", op: "nempty" } },
+    ],
+    target: 90, warn: 80, crit: 65, score_roles: GRC_READERS, collect: true,
+  },
+  {
+    key: "security.risks_above_appetite", name: "ریسک‌های بالاتر از اشتها", practice: "security", unit: "count", direction: "down", grain: "day",
+    description: "ریسک‌های فعال ثبت‌شده که ریسک باقی‌مانده‌شان بالاتر از اشتهای ریسک سازمان است (در لحظهٔ اندازه‌گیری).",
+    formula: "above", parts: [{ name: "above", table: "grc_risk", fn: "count", filter: { and: [{ f: "above_appetite", op: "eq", v: true }, { f: "state", op: "nin", v: ["closed", "retired"] }] } }],
+    target: 0, warn: 3, crit: 8, breakdowns: ["residual_rating"], score_roles: GRC_READERS, collect: true,
+  },
+  // ----- the self-service portal (the portal module installed) ---------------------------------------------------------
+  {
+    key: "portal.csat", name: "رضایت پاسخ‌دهندگان نظرسنجی (CSAT)", practice: "portal", unit: "percent", direction: "up", grain: "month",
+    description: "سهم پاسخ‌های «راضی» (امتیاز رضایت در آستانهٔ هر نظرسنجی یا بالاتر) از همهٔ پاسخ‌های امتیازدارِ نظرسنجی‌های دوره.",
+    formula: "satisfied / rated * 100",
+    parts: [
+      { name: "satisfied", table: "survey_response", fn: "count", date_field: "submitted_at", filter: { and: [{ f: "csat", op: "nempty" }, { f: "satisfied", op: "eq", v: true }] } },
+      { name: "rated", table: "survey_response", fn: "count", date_field: "submitted_at", filter: { f: "csat", op: "nempty" } },
+    ],
+    target: 85, warn: 75, crit: 60, breakdowns: ["survey_id"], score_roles: PORTAL_READERS, collect: true, requires: ["portal"],
+  },
+  {
+    key: "portal.deflection", name: "نرخ پیشگیری دستیار مجازی", practice: "portal", unit: "percent", direction: "up", grain: "month",
+    description: "سهم گفتگوهای دستیار مجازی دوره (درگاه، ابزارک و پیام‌رسان‌ها) که بی‌واگذاری به کارشناس پایان یافتند — درخواستی که به میز خدمت نرسید.",
+    formula: "contained / conversations * 100",
+    parts: [
+      { name: "contained", table: "va_conversation", fn: "count", date_field: "created_at", filter: { and: [{ f: "state", op: "ne", v: "handoff" }, { f: "handoff_id", op: "empty" }] } },
+      { name: "conversations", table: "va_conversation", fn: "count", date_field: "created_at" },
+    ],
+    target: 60, warn: 45, crit: 30, breakdowns: ["channel"], score_roles: PORTAL_READERS, collect: true, requires: ["portal"],
+  },
+  {
+    key: "portal.self_service_share", name: "سهم سلف‌سرویس از رخدادها", practice: "portal", unit: "percent", direction: "up", grain: "month",
+    description: "سهم رخدادهای ثبت‌شدهٔ دوره که کاربران خودشان از درگاه، دستیار مجازی یا پیام‌رسان‌ها ثبت کردند.",
+    formula: "self / all * 100",
+    parts: [
+      { name: "self", table: "incident", fn: "count", date_field: "created_at", filter: { f: "channel", op: "in", v: ["portal", "chat", "messenger"] } },
+      { name: "all", table: "incident", fn: "count", date_field: "created_at" },
+    ],
+    target: 60, warn: 45, crit: 30, breakdowns: ["channel"], score_roles: PORTAL_READERS, collect: true, requires: ["portal"],
   },
   // ----- knowledge and service levels -------------------------------------------------------------------------------
   {

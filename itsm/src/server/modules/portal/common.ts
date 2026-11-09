@@ -82,6 +82,48 @@ export function registerPortalItems(t: PortalItemTable): () => void {
 }
 
 export const portalItemTables = (): readonly PortalItemTable[] => ITEM_TABLES;
+
+// ---------------------------------------------------------------------------------------------------------------
+// Quick links of other modules (a page of the signed-in app every member may open: «گزارش ایمیل فیشینگ»…)
+
+export interface PortalModuleLink {
+  key: string;
+  name: string;
+  /** an app path relative to /:org/ («security/report») — opened in the app, not a new tab */
+  path: string;
+  description?: string | null;
+  /** a lucide icon name */
+  icon?: string | null;
+  section?: string | null;
+  /** further words the portal's search finds it by */
+  keywords?: string | null;
+  sort_order?: number;
+  /** shown to this member now (the module's tables exist here, the member may use the page) */
+  available(ctx: Ctx): Promise<boolean>;
+}
+
+const MODULE_LINKS = new Map<string, PortalModuleLink>();
+
+/** Another module's page as a quick link of the portal (and a link under the portal's search). */
+export function registerPortalLink(link: PortalModuleLink): () => void {
+  MODULE_LINKS.set(link.key, link);
+  return () => {
+    if (MODULE_LINKS.get(link.key) === link) MODULE_LINKS.delete(link.key);
+  };
+}
+
+/** The registered module links this member is offered (a failing check leaves its link out). */
+export async function moduleLinksFor(ctx: Ctx): Promise<PortalModuleLink[]> {
+  const out: PortalModuleLink[] = [];
+  for (const l of MODULE_LINKS.values()) {
+    try {
+      if (await l.available(ctx)) out.push(l);
+    } catch {
+      // one module's trouble never hides the portal's own links
+    }
+  }
+  return out.sort((a, b) => (a.sort_order ?? 100) - (b.sort_order ?? 100) || a.name.localeCompare(b.name, "fa"));
+}
 export const portalItemTable = (table: string): PortalItemTable | undefined => ITEM_TABLES.find((t) => t.table === table);
 
 // ---------------------------------------------------------------------------------------------------------------

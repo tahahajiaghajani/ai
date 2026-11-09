@@ -6,6 +6,8 @@
 // with the person's context (`AUDIENCE_COND`). Each part fails on its own: the page shows what it could read.
 import type { Cond } from "@shared/model/conditions";
 import { AUDIENCE_COND, type WidgetType } from "@shared/portal/logic";
+import { STATUS_RANK, type ServiceStatus } from "@shared/service_portfolio/logic";
+import { tableDef } from "@shared/tables";
 import type { ArticleLite, CategoryLite, ItemLite, LinkLite, PortalCatalog, PortalConfig, PortalHome, TopicLite, TopicPage } from "@shared/portal/api";
 import type { Ctx } from "../../context";
 import { aggregate, list } from "../../engine";
@@ -16,7 +18,7 @@ import { kbHome, cardsByIds, labelsOf } from "../knowledge";
 import { myAttestations } from "../knowledge";
 import { statusPage } from "../service_portfolio";
 import { myApprovalCount } from "../sla";
-import { DAY_MS, isUuid, liveRow, liveRows, sysOf, type Row } from "./common";
+import { DAY_MS, isUuid, liveRow, liveRows, moduleLinksFor, sysOf, type PortalModuleLink, type Row } from "./common";
 import { favoritesOf } from "./config";
 import { myItems } from "./items";
 import { pendingInvitations } from "./surveys";
@@ -125,8 +127,23 @@ export async function audienceRows(ctx: Ctx, table: "portal_link" | "portal_topi
   }
 }
 
+/** A module's page as a quick link (security's «گزارش ایمیل فیشینگ»…): opened in the app. */
+const moduleLinkLite = (l: PortalModuleLink): LinkLite => ({
+  id: `module:${l.key}`,
+  name: l.name,
+  url: l.path,
+  description: l.description ?? null,
+  icon: l.icon ?? null,
+  section: l.section ?? null,
+  new_tab: false,
+  internal: true,
+});
+
+/** The portal's quick links for this member: the administrators' links, then the pages other modules registered. */
 export async function quickLinks(ctx: Ctx, limit = 50): Promise<LinkLite[]> {
-  return (await audienceRows(ctx, "portal_link", null, limit)).map(linkLite);
+  const own = (await audienceRows(ctx, "portal_link", null, limit)).map(linkLite);
+  const modules = ctx.actor === "system" ? [] : (await moduleLinksFor(ctx)).map(moduleLinkLite);
+  return [...modules, ...own].slice(0, Math.max(1, limit));
 }
 
 export async function topics(ctx: Ctx, parent: string | null = null): Promise<TopicLite[]> {
@@ -190,6 +207,42 @@ export async function catalogPage(ctx: Ctx, opts: { category?: string | null; q?
 }
 
 // ---------------------------------------------------------------------------------------------------------------
+// Today's service status
+
+const OUTAGE_STATUS: Record<string, ServiceStatus> = { outage: "major_outage", degradation: "degraded", planned: "maintenance" };
+
+/**
+ * The service status card: the services the organisation publishes on its status page (the service portfolio's status
+ * of each business service, never a CI), each at least as bad as an ongoing outage the continuity module recorded on it
+ * (a full outage with partial impact counts as a partial outage). Only the service's name, status and the owner's
+ * published note reach the page — never an outage's title, cause, CI or incident.
+ */
+export async function statusCard(ctx: Ctx): Promise<PortalHome["status"]> {
+  const p = await statusPage(ctx, { days: 7 });
+  if (!p.services.length) return null;
+  const worse = new Map<string, ServiceStatus>();
+  if (tableDef("outage")) {
+    const ids = p.services.map((s) => s.id).filter(isUuid);
+    const ongoing = ids.length
+      ? await liveRows(ctx.db, sysOf(ctx), "outage", { and: [{ f: "state", op: "eq", v: "ongoing" }, { f: "service_id", op: "in", v: ids }, { f: "begin_at", op: "lte", v: new Date().toISOString() }] }, { limit: 500 }).catch(() => [] as Row[])
+      : [];
+    for (const o of ongoing) {
+      let st = OUTAGE_STATUS[String(o.outage_type)] ?? "degraded";
+      if (st === "major_outage" && Number(o.impact_pct ?? 100) < 100) st = "partial_outage";
+      const cur = worse.get(String(o.service_id));
+      if (!cur || STATUS_RANK[st] > STATUS_RANK[cur]) worse.set(String(o.service_id), st);
+    }
+  }
+  const rows = p.services.map((s) => {
+    const o = worse.get(s.id);
+    return { name: s.name, status: o && STATUS_RANK[o] > STATUS_RANK[s.status] ? o : s.status, note: s.note };
+  });
+  rows.sort((a, x) => STATUS_RANK[x.status] - STATUS_RANK[a.status]);
+  const overall = rows.reduce<ServiceStatus>((acc, r) => (STATUS_RANK[r.status] > STATUS_RANK[acc] ? r.status : acc), p.overall);
+  return { overall, services: rows.slice(0, 8) };
+}
+
+// ---------------------------------------------------------------------------------------------------------------
 // The home page
 
 async function part<T>(on: boolean, fn: () => Promise<T>, empty: T): Promise<T> {
@@ -227,12 +280,7 @@ export async function portalHome(ctx: Ctx, cfg: PortalConfig): Promise<PortalHom
       const cards = [...h.popular, ...h.featured, ...h.recent].filter((c, i, a) => !c.internal && a.findIndex((x) => x.id === c.id) === i);
       return cards.slice(0, lim("knowledge", 5)).map((c) => ({ id: c.id, number: c.number, title: c.title, summary: c.summary, base_name: c.base_name, helpful_yes: c.helpful_yes }) as ArticleLite);
     }, [] as ArticleLite[]),
-    part(has("status"), async () => {
-      const p = await statusPage(ctx, { days: 7 });
-      if (!p.services.length) return null;
-      const services = [...p.services].sort((a, x) => (a.status === "operational" ? 1 : 0) - (x.status === "operational" ? 1 : 0)).slice(0, 8);
-      return { overall: p.overall, services: services.map((s) => ({ name: s.name, status: s.status, note: s.note })) };
-    }, null as PortalHome["status"]),
+    part(has("status"), () => statusCard(ctx), null as PortalHome["status"]),
   ]);
 
   const items = b?.items ?? [];

@@ -1945,3 +1945,32 @@ export const SECURITY_TABLES: TableDef[] = [
   grcAudit, grcFinding, grcCsfProfile, grcRegAlert, grcRopa, grcDsr,
   grcRisk, grcRiskMatrix, grcRiskAppetite, grcRiskAction, grcRiskAcceptance, grcKri, grcRiskEvent,
 ];
+
+/**
+ * Default AI data-use policies (docs/spec/AI.md §14.2) of the records that must not leave the organisation: the secure
+ * workspace's tables, vulnerability findings, reviews, the risk register and records of personal data go to local
+ * models only; forensic evidence, caller verifications, raw scan imports and data-subject requests to no model at all.
+ * An AI administrator may still set another policy per table («حاکمیت هوش مصنوعی»); reference content (frameworks,
+ * controls, published policies, playbooks) keeps the organisation's default.
+ */
+export const SECURITY_DATA_USE: Record<string, "local" | "never"> = {
+  sec_incident: "local",
+  sec_task: "local",
+  sec_observable: "local",
+  sec_reg_clock: "local",
+  sec_vuln_item: "local",
+  sec_vuln_remediation: "local",
+  sec_vuln_exception: "local",
+  sec_review: "local",
+  grc_audit: "local",
+  grc_finding: "local",
+  grc_ropa: "local",
+  grc_risk: "local",
+  grc_risk_acceptance: "local",
+  grc_risk_event: "local",
+  sec_evidence: "never",
+  sec_verification: "never",
+  sec_scan_import: "never",
+  grc_dsr: "never",
+};
+for (const t of SECURITY_TABLES) if (SECURITY_DATA_USE[t.key]) t.dataUse = SECURITY_DATA_USE[t.key];

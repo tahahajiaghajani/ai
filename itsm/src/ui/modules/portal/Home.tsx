@@ -15,7 +15,7 @@ import { iconOf } from "../request/icons";
 import type { WidgetInstance } from "@shared/portal/logic";
 import { PORTAL_WIDGETS } from "@shared/portal/logic";
 import { PORTAL_KEYS, portalApi, usePortalHome, type PortalConfig, type PortalHome } from "./api";
-import { greeting, portalPath } from "./model";
+import { appPath, greeting, portalPath } from "./model";
 import { Empty, I16, I20, ItemTile, Section, TicketRow } from "./parts";
 import { usePageTitle } from "../../components/shell/context";
 import { SearchBar } from "./SearchBar";
@@ -232,17 +232,27 @@ function Widget({ w, home, cfg }: { w: WidgetInstance; home: PortalHome; cfg: Po
           <div className="pt-grid is-small">
             {home.links.map((l) => {
               const Icon = iconOf(l.icon);
-              return (
-                <a key={l.id} href={l.url} target={l.new_tab ? "_blank" : undefined} rel="noopener noreferrer" className="pt-tile">
+              const body = (
+                <>
                   <span className="pt-tile-ic" aria-hidden>
                     <Icon {...I20} />
                   </span>
                   <span className="pt-tile-b">
                     <span className="pt-tile-t">
-                      {l.name} {l.new_tab ? <ExternalLink size={12} aria-label="(در زبانهٔ تازه)" /> : null}
+                      {l.name} {l.new_tab && !l.internal ? <ExternalLink size={12} aria-label="(در زبانهٔ تازه)" /> : null}
                     </span>
                     {l.description ? <span className="pt-tile-d">{l.description}</span> : null}
                   </span>
+                </>
+              );
+              // a page of the app another module offers (security's «گزارش ایمیل فیشینگ»…) opens here, not in a new tab
+              return l.internal ? (
+                <Link key={l.id} to={appPath(orgId, l.url)} className="pt-tile">
+                  {body}
+                </Link>
+              ) : (
+                <a key={l.id} href={l.url} target={l.new_tab ? "_blank" : undefined} rel="noopener noreferrer" className="pt-tile">
+                  {body}
                 </a>
               );
             })}

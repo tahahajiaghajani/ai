@@ -177,11 +177,18 @@ export async function viewOf(ctx: Ctx, r: InsightRow): Promise<InsightView> {
 /** The cards a member may see (the rule above), with the count of those they may not. */
 export async function visibleInsights(ctx: Ctx, rows: readonly InsightRow[]): Promise<{ views: InsightView[]; hidden: number }> {
   const cache = new VisibilityCache(ctx);
+  const schema = await orgSchema(ctx);
   const views: InsightView[] = [];
   let hidden = 0;
   for (const r of rows) {
     if (await canSee(ctx, r, cache)) views.push(await viewOf(ctx, r));
-    else hidden++;
+    else {
+      // counted only on tables of which the member reads some record: a table wholly closed to them (a secure
+      // workspace's security incidents) does not even show as a number
+      const table = r.scope?.table || r.table_key;
+      const def = schema.def(table);
+      if (def && !def.virtual && access().canReadTable(ctx, def) && (await cache.mine(table, { and: [] }).catch(() => 0)) > 0) hidden++;
+    }
   }
   return { views, hidden };
 }

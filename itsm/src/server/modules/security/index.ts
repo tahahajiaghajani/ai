@@ -9,10 +9,12 @@
 //   · the AI index and channels (rag.ts), the policy-campaign audience as a participant grant, the AI skills (ai.ts)
 //   · the link kind «ارتقا به / ارتقایافته از» between IT and security incidents
 //   · record meta `security` (AI skills; for security records, the read audit) and the seed of a new organisation
+//   · «گزارش ایمیل فیشینگ» as a quick link of the self-service portal (`registerPortalLink`)
 // Extension points: `importScan` (scanner connectors), `reportPhishing` (an inbound mailbox), `autoPromote`,
 // `measureIndicators` / `indicatorValue` (the analytics module wires these as indicators at integration).
 import { registerLinkKind } from "@shared/model/links";
-import { registerRecordMeta, systemCtx } from "../../engine";
+import { orgSchema, registerRecordMeta, systemCtx } from "../../engine";
+import { registerPortalLink } from "../portal/common";
 import { enqueue, registerJobHandler, type JobConfig } from "../../jobs";
 import { registerOrgSeed } from "../orgs/service";
 import { SEED_DELAY_MS } from "../sla";
@@ -50,6 +52,17 @@ export function installSecurityModule(): void {
       return { security: { ai: securityAiCapabilities() } };
     });
   }
+  // «گزارش ایمیل فیشینگ» in the self-service portal (quick links and search) for every member, while the tables exist
+  registerPortalLink({
+    key: "security.report_phishing",
+    name: "گزارش ایمیل فیشینگ",
+    path: "security/report",
+    description: "رایانامهٔ مشکوک را برای تیم امنیت بفرستید",
+    icon: "shield-check",
+    keywords: "فیشینگ رایانامهٔ مشکوک ایمیل مشکوک کلاهبرداری امنیت",
+    sort_order: 10,
+    available: async (ctx) => ctx.actor !== "system" && !!(await orgSchema(ctx)).def("sec_incident"),
+  });
   registerJobHandler("security.seed", async (job, jctx) => {
     if (!job.org_id) return;
     await seedSecurityDefaults(jctx.cfg, job.org_id);

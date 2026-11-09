@@ -31,7 +31,9 @@ export const PRACTICE_OPTIONS: Option[] = [
   { value: "asset", label: "دارایی و مجوز", color: "indigo", order: 12 },
   { value: "supplier", label: "تأمین‌کننده و قرارداد", color: "teal", order: 13 },
   { value: "financial", label: "مالی", color: "gold", order: 14 },
-  { value: "other", label: "سایر", color: "gray", order: 15 },
+  { value: "security", label: "امنیت، ریسک و انطباق", color: "red", order: 15 },
+  { value: "portal", label: "درگاه و سلف‌سرویس", color: "blue", order: 16 },
+  { value: "other", label: "سایر", color: "gray", order: 17 },
 ];
 
 export const UNIT_OPTIONS: Option[] = [

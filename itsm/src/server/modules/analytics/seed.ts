@@ -22,8 +22,11 @@ import { eqAll, liveRows, sysOf, type Row } from "./common";
  * 3: the event (alert MTTA/MTTR, noise, on-call load), continuity (availability against target, unplanned downtime),
  *    ITAM (stock below reorder, licence compliance), supplier (contracts expiring) and financial (budget against
  *    actual — scores only for holders of the «مالی» field group) indicators, each only when its module is installed.
+ * 4: the security (open security incidents by severity, MTTC, overdue vulnerabilities, control test pass rate, risks
+ *    above appetite — scores only for security and compliance roles) and portal (CSAT, the virtual agent's deflection,
+ *    the self-service share) indicators, each only when its module is installed.
  */
-export const ANALYTICS_SEED_VERSION = 3;
+export const ANALYTICS_SEED_VERSION = 4;
 
 export interface SeedCounts {
   skipped: boolean;

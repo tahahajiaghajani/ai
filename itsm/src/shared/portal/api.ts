@@ -79,6 +79,8 @@ export interface LinkLite {
   icon: string | null;
   section: string | null;
   new_tab: boolean;
+  /** a page of the signed-in app (`url` is a path relative to /:org/), registered by another module */
+  internal?: boolean;
 }
 
 export interface ArticleLite {

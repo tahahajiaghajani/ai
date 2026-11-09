@@ -13,7 +13,7 @@
 import type { AiDataPolicy } from "@shared/ai/types";
 import { AI_DATA_POLICY } from "@shared/tables/ai-governance";
 import { presetById } from "@shared/ai/presets";
-import { tableDef } from "@shared/tables";
+import { TABLES, tableDef } from "@shared/tables";
 import { uuidv7 } from "@shared/id";
 import type { Ctx } from "../../context";
 import { registerHooks } from "../../engine";
@@ -56,9 +56,17 @@ export async function tablePolicies(ctx: Ctx): Promise<Map<string, TablePolicy>>
     const pii: AiDataPolicy | null = r.pii === "masked" || r.pii === "aggregates" ? r.pii : null;
     out.set(r.table_key, { use, pii });
   }
+  // a table that ships with a stricter default (the security module's records) keeps it until a policy row says otherwise
+  for (const def of defaultPolicies()) if (!out.has(def.key)) out.set(def.key, { use: def.dataUse!, pii: null });
   cache.set(ctx.org.id, { at: Date.now(), rows: out });
   return out;
 }
+
+/** Tables whose definition carries a default data-use policy (`TableDef.dataUse`). */
+const defaultPolicies = () => [...TABLES.values()].filter((d) => d.dataUse === "local" || d.dataUse === "never");
+
+/** The policy a table has while the organisation has set none (its definition's default, else «ابری و محلی»). */
+export const defaultDataUse = (table: string): DataUse => tableDef(table)?.dataUse ?? "cloud";
 
 const PII_RANK: Record<AiDataPolicy, number> = { full: 0, masked: 1, aggregates: 2 };
 

@@ -9,7 +9,7 @@ import type { Ctx } from "../../context";
 import { browse } from "../request";
 import { searchKnowledge } from "../knowledge";
 import { activeAnnouncements } from "../incident";
-import { logEvent } from "./common";
+import { logEvent, moduleLinksFor } from "./common";
 import { audienceRows } from "./home";
 import { myItems } from "./items";
 
@@ -49,12 +49,15 @@ export async function portalSearch(ctx: Ctx, qIn: string, opts: { session?: stri
     safe(() => audienceRows(ctx, "portal_topic"), []),
     safe(async () => (await activeAnnouncements(ctx)).items, []),
   ]);
+  // pages other modules offer every member (security's «گزارش ایمیل فیشینگ»…), opened in the app
+  const moduleLinks = await safe(() => moduleLinksFor(ctx), []);
 
   const hits: PortalSearchHit[] = [];
   for (const h of (kb?.hits ?? []).filter((x) => !x.internal).slice(0, size)) hits.push({ kind: "article", id: h.id, title: h.title, snippet: h.snippet || h.summary, path: `portal/kb/${h.id}`, meta: h.base_name });
   for (const it of (catalog?.items ?? []).slice(0, size)) hits.push({ kind: "item", id: it.id, title: it.name, snippet: it.short_description, path: `portal/items/${it.id}`, meta: it.promise || null });
   for (const r of records?.items ?? []) hits.push({ kind: "record", id: r.id, title: r.title, snippet: null, path: `portal/t/${r.table}/${r.id}`, meta: [r.number, r.stage_label].filter(Boolean).join(" · ") });
   for (const l of links.filter((x) => matches(`${x.name} ${x.description ?? ""} ${x.section_name ?? ""}`, q)).slice(0, size)) hits.push({ kind: "link", id: String(l.id), title: String(l.name), snippet: (l.description as string) ?? null, path: String(l.url), external: true });
+  for (const l of moduleLinks.filter((x) => matches(`${x.name} ${x.description ?? ""} ${x.keywords ?? ""}`, q)).slice(0, 3)) hits.push({ kind: "link", id: `module:${l.key}`, title: l.name, snippet: l.description ?? null, path: l.path });
   for (const t of topicRows.filter((x) => matches(`${x.name} ${x.description ?? ""}`, q)).slice(0, size)) hits.push({ kind: "topic", id: String(t.id), title: String(t.name), snippet: (t.description as string) ?? null, path: `portal/topics/${t.id}` });
   for (const a of announcements.filter((x) => matches(`${x.title} ${x.body ?? ""}`, q)).slice(0, 3)) hits.push({ kind: "announcement", id: a.id, title: a.title, snippet: excerpt(a.body), path: "portal" });
 
