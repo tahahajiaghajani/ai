@@ -10,6 +10,7 @@ import { z } from "zod";
 import type { Ctx } from "../../../context";
 import type { AgentConfig } from "@shared/ai/agents";
 import { fieldForbidden, guardrailProblem, skillToolName, tableForbidden, toolAllowed } from "@shared/ai/agents";
+import { tableDef } from "@shared/tables";
 import { list, orgSchema } from "../../../engine";
 import { bad, forbidden } from "../../../http/errors";
 import { defineTool, type AiToolDef, type ToolResult } from "../tools/registry";
@@ -64,17 +65,29 @@ function skillTool(key: string, name: string, description: string, target: strin
   });
 }
 
-/** Remove forbidden fields from what a read tool of `table` returns (a record, rows, the legend). */
+/**
+ * May a field of `table` reach this agent's model: not forbidden by its guardrails, and — for a field of a field group —
+ * only when the agent's `field_groups` name the group (as for skills; `ai_private` never reaches a model anyway).
+ */
+export function agentSees(a: AgentConfig, table: string, field: string): boolean {
+  if (fieldForbidden(a, table, field)) return false;
+  const group = tableDef(table)?.fields.find((f) => f.name === field)?.group;
+  return !group || a.field_groups.includes(group);
+}
+
+/** Remove what the agent may not see from what a read tool of `table` returns (a record, rows, the legend). */
 function stripFields(a: AgentConfig, table: string, data: unknown): unknown {
-  if (!a.forbidden_fields.length || !data || typeof data !== "object") return data;
+  if (!data || typeof data !== "object") return data;
   const drop = (o: unknown) => {
     if (!o || typeof o !== "object" || Array.isArray(o)) return o;
-    return Object.fromEntries(Object.entries(o as Record<string, unknown>).filter(([k]) => !fieldForbidden(a, table, k)));
+    return Object.fromEntries(Object.entries(o as Record<string, unknown>).filter(([k]) => agentSees(a, table, k)));
   };
   const d = { ...(data as Record<string, unknown>) };
   if (d.record) d.record = drop(d.record);
   if (Array.isArray(d.rows)) d.rows = d.rows.map(drop);
   if (d.fields) d.fields = drop(d.fields);
+  // internal notes reach the model only with the «internal» group (as for skills)
+  if (Array.isArray(d.notes) && !a.field_groups.includes("internal")) d.notes = d.notes.filter((n) => !(n && typeof n === "object" && (n as { visibility?: string }).visibility === "internal"));
   return d;
 }
 

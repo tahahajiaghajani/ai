@@ -41,7 +41,7 @@ import { shapeRow, shownFields } from "../tools/fields";
 import { principalCtx } from "../skills/principal";
 import type { NeutralMessage, ToolCall } from "../types";
 import { agentRowById, configOf } from "./config";
-import { agentTools } from "./tools";
+import { agentSees, agentTools } from "./tools";
 
 type Row = Record<string, unknown>;
 
@@ -199,7 +199,7 @@ async function recordData(pctx: Ctx, a: AgentConfig, table: string, id: string):
   if (!def) return null;
   const r = await get(pctx, table, id).catch(() => null);
   if (!r) return null;
-  const fields = shownFields(pctx, def).filter((f) => !a.forbidden_fields.includes(f.name) && !a.forbidden_fields.includes(`${table}.${f.name}`));
+  const fields = shownFields(pctx, def).filter((f) => agentSees(a, table, f.name));
   const data = shapeRow(schema, def, r.row, r.display, orgTimeZone(pctx), fields);
   const number = typeof r.row.number === "string" ? r.row.number : null;
   const title = r.display[id] ?? (typeof r.row[def.display] === "string" ? String(r.row[def.display]) : "");

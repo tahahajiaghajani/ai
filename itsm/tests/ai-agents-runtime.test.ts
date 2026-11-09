@@ -214,6 +214,18 @@ describe("agents run as their principal", () => {
     else expect([403, 404]).toContain(generic.status);
   });
 
+  it("keeps internal notes away from its model unless it was given the «internal» group", async () => {
+    await w.o.post(`${w.P}/r/incident/${inc}/journal`, { kind: "work_note", body: "یادداشت داخلی ویژهٔ کارشناسان" });
+    await agent("t_groups", { goal: `[tool:history_incident {"id":"${inc}"}]`, tools: ["history_incident", "get_incident"] });
+    clearFakeInbox();
+    expect((await run("t_groups")).status).toBe("done");
+    expect(FAKE_INBOX.map((t) => t.text).join("\n")).not.toContain("یادداشت داخلی ویژهٔ کارشناسان");
+    await w.o.patch(`${w.P}/ai/agents/admin/t_groups`, { field_groups: ["internal"] });
+    clearFakeInbox();
+    expect((await run("t_groups")).status).toBe("done");
+    expect(FAKE_INBOX.map((t) => t.text).join("\n")).toContain("یادداشت داخلی ویژهٔ کارشناسان");
+  });
+
   it("starts from a record event, never for its own principal's writes", async () => {
     await agent("t_event", { triggers: ["event"], events: ["created"], tables: ["incident"], goal: "رخداد تازه را بسنج.", tools: ["get_incident"] });
     const n0 = ((await w.o.get(`${w.P}/ai/agents/runs?agent=t_event`)).runs as AgentRunView[]).length;
