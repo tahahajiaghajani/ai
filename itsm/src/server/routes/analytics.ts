@@ -282,9 +282,11 @@ analyticsRoutes.post("/certify", async (c) => {
   const ctx = c.get("ctx");
   await needAdmin(ctx);
   const input = await body(c, z.object({ table: defTable.exclude(["analytics_schedule"]), id: UUID, certified: z.boolean() }));
-  const row = await liveRow(ctx.db, ctx, input.table, input.id.toLowerCase());
+  // a report administrator certifies any definition by its id (governance), on their own behalf in the history
+  const sys = sysOf(ctx, ctx.user.id);
+  const row = await liveRow(ctx.db, sys, input.table, input.id.toLowerCase());
   if (!row) throw notFound("تعریف پیدا نشد");
-  const out = await ctx.write((tx) => updateIn(tx, ctx, input.table, row.id, { certified: input.certified }, { trusted: true }));
+  const out = await ctx.write((tx) => updateIn(tx, sys, input.table, row.id, { certified: input.certified }, { trusted: true }));
   return c.json({ row: out });
 });
 
