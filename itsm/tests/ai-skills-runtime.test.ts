@@ -179,8 +179,10 @@ describe("AI skills: runtime and administration", () => {
     expect(ran[0].last_results.length).toBe(2);
     expect(ran[0].last_score).toBeGreaterThan(0);
     expect(ran[0].last_model).toMatch(/^fake-/);
-    const today = new Date().toISOString().slice(0, 10);
-    const usage = (await w.o.get(`${P()}/ai/skills/admin/usage?from=2020-01-01&to=${today}`)).rows as { skill: string; runs: number }[];
+    // usage is counted per day of the organisation's time zone: from 20:30 UTC it is already tomorrow in Tehran, so the
+    // window ends a day after the UTC date (the test passes at any hour)
+    const until = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+    const usage = (await w.o.get(`${P()}/ai/skills/admin/usage?from=2020-01-01&to=${until}`)).rows as { skill: string; runs: number }[];
     expect(usage.find((u) => u.skill === "record.summary")!.runs).toBeGreaterThan(0);
   });
 
