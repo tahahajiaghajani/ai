@@ -20,6 +20,31 @@ export function fromDb(def: TableDef, r: Row): Row {
   return r;
 }
 
+/** Rows one query of `selectRows` reads at most; a larger limit is read page by page. */
+export const SELECT_PAGE = 10_000;
+
+/**
+ * The rows of `select t.* from <table> t where …` (`sql`, with its `params`) in `order`, at most `limit` (all when
+ * null), in engine shape. More than a page is read in pages of SELECT_PAGE, ordered with the id as the tie-breaker so
+ * pages neither skip nor repeat a row — a large limit is never cut silently.
+ */
+export async function selectRows(q: Queryable, def: TableDef, sql: string, params: unknown[], order: string, limit: number | null): Promise<Row[]> {
+  const want = limit ? Math.max(1, Math.floor(limit)) : null;
+  if (want === null || want <= SELECT_PAGE) {
+    const rows = await q.query<Row>(`${sql} order by ${order}${want ? ` limit ${want}` : ""}`, params);
+    return rows.map((r) => fromDb(def, r));
+  }
+  const stable = /\bt\.id\b/.test(order) ? order : `${order}, t.id`;
+  const out: Row[] = [];
+  for (let offset = 0; offset < want; offset += SELECT_PAGE) {
+    const n = Math.min(SELECT_PAGE, want - offset);
+    const rows = await q.query<Row>(`${sql} order by ${stable} limit ${n} offset ${offset}`, params);
+    for (const r of rows) out.push(fromDb(def, r));
+    if (rows.length < n) break;
+  }
+  return out;
+}
+
 /** What a caller sees of a row: id, version, number and the visible fields. */
 export function toOutput(def: TableDef, row: Row, visible: ReadonlySet<string> | null): Row {
   const out: Row = { id: row.id, version: row.version ?? 1 };

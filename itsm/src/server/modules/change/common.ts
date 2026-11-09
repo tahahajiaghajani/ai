@@ -11,7 +11,7 @@ import type { Ctx } from "../../context";
 import type { Queryable } from "../../db";
 import { prepareSubject, subjectOf } from "../../access";
 import { access } from "../../access/provider";
-import { condEnv, fromDb, isSystemCtx, loadReadable, orgSchema, readable, SYSTEM_USER, toSql } from "../../engine";
+import { condEnv, fromDb, isSystemCtx, loadReadable, orgSchema, readable, selectRows, SYSTEM_USER, toSql } from "../../engine";
 
 export type Row = Record<string, any>;
 
@@ -89,9 +89,8 @@ export async function liveRows(q: Queryable, ctx: Ctx, table: string, where: Con
     });
     parts.push(sql);
   }
-  const limit = opts.limit ? ` limit ${Math.max(1, Math.min(10_000, Math.floor(opts.limit)))}` : "";
-  const rows = await q.query<Row>(`select t.* from ${def.table} t where ${parts.join(" and ")} order by ${opts.order ?? "t.id"}${limit}`, params);
-  return rows.map((r) => fromDb(def, r));
+  // all rows up to the limit (more than a page is read page by page; never cut silently)
+  return selectRows(q, def, `select t.* from ${def.table} t where ${parts.join(" and ")}`, params, opts.order ?? "t.id", opts.limit ?? null);
 }
 
 /** One live row by id through the access rule, or null. */

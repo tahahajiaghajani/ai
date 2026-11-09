@@ -30,7 +30,7 @@ export type { OrgSchema } from "./schema";
 export { condEnv, systemCtx, actorId, isSystemCtx, orgTz, SYSTEM_USER } from "./env";
 export { coerceValue, validateRow, checkRefs, parseDate, parseDateTime, openSecret, secretView, Problems, FieldError, validationError, TEXT_LIMITS } from "./values";
 export { toSql, readable, writableRule, searchSql, orderSql, pathExpr, fieldExpr, normSql, parseNumber } from "./sql";
-export { loadReadable, requireReadable, canOpenRecords, readSecret, toOutput, fromDb, pathVisible } from "./read";
+export { loadReadable, requireReadable, canOpenRecords, readSecret, toOutput, fromDb, pathVisible, selectRows, SELECT_PAGE } from "./read";
 export { onBeforeCommit } from "../db";
 export { RefSet, resolveDisplay, labelOf } from "./display";
 export { bumpScopeEpoch, scopeEpoch } from "./sync";

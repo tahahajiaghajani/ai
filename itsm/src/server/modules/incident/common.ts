@@ -9,7 +9,7 @@ import { INCIDENT_CONFIG_DEFAULTS, type IncidentConfig } from "@shared/tables/in
 import { PROBLEM_CONFIG_DEFAULTS, type ProblemConfig } from "@shared/tables/problem";
 import type { Ctx } from "../../context";
 import type { Queryable } from "../../db";
-import { condEnv, fromDb, orgSchema, readable, SYSTEM_USER, toSql } from "../../engine";
+import { condEnv, fromDb, orgSchema, readable, selectRows, SYSTEM_USER, toSql } from "../../engine";
 import { subjectOf } from "../../access";
 
 export type Row = Record<string, any>;
@@ -45,7 +45,10 @@ export function sysOf(ctx: Ctx, onBehalfOf: string | null = null): Ctx {
   return sys;
 }
 
-/** Live rows of `table` the context may read, filtered by `where` (a condition), in `order`, at most `limit`. */
+/**
+ * Live rows of `table` the context may read, filtered by `where` (a condition), in `order`, at most `limit` — all of
+ * them up to `limit` (more than a page is read page by page: `selectRows`).
+ */
 export async function liveRows(q: Queryable, ctx: Ctx, table: string, where: Cond | null = null, opts: { order?: string; limit?: number } = {}): Promise<Row[]> {
   const schema = await orgSchema(ctx, q);
   const def = schema.def(table) ?? tableDef(table);
@@ -54,9 +57,7 @@ export async function liveRows(q: Queryable, ctx: Ctx, table: string, where: Con
   const params: unknown[] = [];
   const parts = [readable(ctx, def, "t", params, env)];
   if (where) parts.push(toSql(where, def, "t", params, env, { ctx, lookup: schema.lookup }));
-  const limit = opts.limit ? ` limit ${Math.max(1, Math.min(10_000, Math.floor(opts.limit)))}` : "";
-  const rows = await q.query<Row>(`select t.* from ${def.table} t where ${parts.join(" and ")} order by ${opts.order ?? "t.id"}${limit}`, params);
-  return rows.map((r) => fromDb(def, r));
+  return selectRows(q, def, `select t.* from ${def.table} t where ${parts.join(" and ")}`, params, opts.order ?? "t.id", opts.limit ?? null);
 }
 
 /** One live row by id through the access rule, or null. */
