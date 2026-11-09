@@ -2,8 +2,9 @@
 // worst severity, counts, team and incident, and its alerts under it; lone alerts after the groups. Refreshed live
 // («زنده») and every 15 seconds. Keyboard (physical keys, so the Persian layout works too): J/K or the arrows move,
 // Enter opens, A acknowledges, S takes, W assigns to a colleague, I raises an incident, C closes, Z snoozes an hour,
-// X selects, G folds a group, / searches; on a group the action applies to all its open alerts. A side card shows the focused group's
-// rule-based summary and probable causes, with the AI narration on demand (rule-based without a model).
+// X selects, G folds a group, / searches; on a group the action applies to all its open alerts. A side card shows
+// the focused group's rule-based summary and probable causes, with the AI narration on demand (rule-based without a
+// model).
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
