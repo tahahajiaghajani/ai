@@ -4,7 +4,7 @@ import { grantIn } from "@shared/access/model";
 import { ANALYTICS_CONFIG_DEFAULTS, type AnalyticsConfig } from "@shared/tables/analytics";
 import type { Ctx } from "../../context";
 import type { Queryable } from "../../db";
-import { subjectOf } from "../../access";
+import { prepareSubject, subjectOf } from "../../access";
 import { liveRows, sysOf } from "../incident";
 
 export { liveRows, liveRow, sysOf, isUuid, eqAll, countRows, type Row } from "../incident";
@@ -27,6 +27,11 @@ export function canAdmin(ctx: Ctx): boolean {
 export function canRead(ctx: Ctx): boolean {
   if (ctx.actor === "system") return true;
   return grantIn(subjectOf(ctx).eff, AREA).read !== "none";
+}
+
+/** Load the caller's access subject (the checks above read it synchronously). */
+export async function ready(ctx: Ctx): Promise<void> {
+  if (ctx.actor !== "system") await prepareSubject(ctx);
 }
 
 /** The roles the caller holds (containment resolved). */

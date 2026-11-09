@@ -25,7 +25,7 @@ import { registerSkill, defineSkill } from "../ai/skills/registry";
 import { isAiUnavailable, runForModule } from "../ai/skills/runtime";
 import { registerTool } from "../ai/tools";
 import { defineTool } from "../ai/tools/registry";
-import { canRead } from "./common";
+import { canRead, ready } from "./common";
 import { runReport } from "./query";
 import { scorecard } from "./indicators";
 
@@ -286,6 +286,7 @@ const reportTool = defineTool({
   area: "ai",
   level: "view",
   async run(ctx, input) {
+    await ready(ctx);
     if (!canRead(ctx)) return { data: { allowed: false, reason: "no access to reports" }, summary_fa: "دسترسی به گزارش‌ها ندارید" };
     const preset = TIME_PRESETS.find((p) => p.key === input.window);
     const spec: ReportSpec = {
@@ -325,6 +326,7 @@ const scorecardTool = defineTool({
   area: "ai",
   level: "view",
   async run(ctx, input) {
+    await ready(ctx);
     if (!canRead(ctx)) return { data: { allowed: false, reason: "no access to reports" }, summary_fa: "دسترسی به گزارش‌ها ندارید" };
     const { items } = await scorecard(ctx, { practice: input.practice, trend: 2 });
     return {

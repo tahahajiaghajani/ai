@@ -25,6 +25,7 @@ import {
 import { canEditDefinition } from "../modules/analytics/dashboards";
 import { liveRow, liveRows, sysOf } from "../modules/analytics/common";
 import type { Ctx } from "../context";
+import { prepareSubject } from "../access";
 
 const UUID = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, "شناسه معتبر نیست");
 const id = (v: string | undefined) => UUID.parse(v ?? "").toLowerCase();
@@ -32,11 +33,12 @@ const anyJson = z.any();
 const spec = z.any().refine((v) => v && typeof v === "object" && typeof v.table === "string", "تعریف گزارش معتبر نیست") as z.ZodType<ReportSpec>;
 const values = z.record(z.string(), z.unknown()).default({}) as z.ZodType<FilterValues>;
 
-const need = (ctx: Ctx) => {
+const need = async (ctx: Ctx) => {
+  await prepareSubject(ctx);
   if (!canRead(ctx)) throw forbidden("به گزارش‌ها دسترسی ندارید");
 };
-const needAdmin = (ctx: Ctx) => {
-  need(ctx);
+const needAdmin = async (ctx: Ctx) => {
+  await need(ctx);
   if (!canAdmin(ctx)) throw forbidden("این کار با مدیر گزارش‌هاست");
 };
 
@@ -46,7 +48,7 @@ export const analyticsRoutes = router();
 
 analyticsRoutes.get("/meta", async (c) => {
   const ctx = c.get("ctx");
-  need(ctx);
+  await need(ctx);
   const schema = await orgSchema(ctx);
   const cfg = await analyticsConfig(ctx.db, ctx);
   const tables: AnalyticsMeta["tables"] = [];
@@ -73,7 +75,7 @@ async function withFilters(ctx: Ctx, s: ReportSpec, filters: DashboardFilter[] |
 
 analyticsRoutes.post("/run", async (c) => {
   const ctx = c.get("ctx");
-  need(ctx);
+  await need(ctx);
   const input = await body(c, z.object({ spec, extra: anyJson.nullish(), filters: z.array(anyJson).max(8).optional(), values: values.optional() })) as RunInput;
   const s = await withFilters(ctx, input.spec, input.filters, input.values);
   return c.json(await runReport(ctx, s, { extra: (input.extra as Cond | null) ?? null }));
@@ -88,7 +90,7 @@ async function readableReport(ctx: Ctx, reportId: string) {
 
 analyticsRoutes.post("/reports/:id/run", async (c) => {
   const ctx = c.get("ctx");
-  need(ctx);
+  await need(ctx);
   const input = await body(c, z.object({ extra: anyJson.nullish(), filters: z.array(anyJson).max(8).optional(), values: values.optional() }));
   const r = await readableReport(ctx, id(c.req.param("id")));
   const s = await withFilters(ctx, r.spec as ReportSpec, input.filters as DashboardFilter[] | undefined, input.values);
@@ -115,7 +117,7 @@ async function xlsxResponse(ctx: Ctx, title: string, s: ReportSpec): Promise<Res
 
 analyticsRoutes.post("/xlsx", async (c) => {
   const ctx = c.get("ctx");
-  need(ctx);
+  await need(ctx);
   const input = await body(c, z.object({ spec, title: z.string().max(150).optional(), filters: z.array(anyJson).max(8).optional(), values: values.optional() }));
   const s = await withFilters(ctx, input.spec, input.filters as DashboardFilter[] | undefined, input.values);
   return xlsxResponse(ctx, input.title?.trim() || "گزارش", s);
@@ -123,7 +125,7 @@ analyticsRoutes.post("/xlsx", async (c) => {
 
 analyticsRoutes.get("/reports/:id/xlsx", async (c) => {
   const ctx = c.get("ctx");
-  need(ctx);
+  await need(ctx);
   const r = await readableReport(ctx, id(c.req.param("id")));
   return xlsxResponse(ctx, String(r.name), r.spec as ReportSpec);
 });
@@ -132,13 +134,13 @@ analyticsRoutes.get("/reports/:id/xlsx", async (c) => {
 
 analyticsRoutes.get("/dashboards/:id", async (c) => {
   const ctx = c.get("ctx");
-  need(ctx);
+  await need(ctx);
   return c.json(await dashboardView(ctx, id(c.req.param("id"))));
 });
 
 analyticsRoutes.post("/dashboards/:id/widgets/:wid", async (c) => {
   const ctx = c.get("ctx");
-  need(ctx);
+  await need(ctx);
   const input = await body(c, z.object({ values: values.optional() }));
   const wid = z.string().regex(/^[a-z0-9_-]{1,40}$/i, "ابزارک معتبر نیست").parse(c.req.param("wid"));
   return c.json(await runWidget(ctx, id(c.req.param("id")), wid, input.values ?? {}));
@@ -147,7 +149,7 @@ analyticsRoutes.post("/dashboards/:id/widgets/:wid", async (c) => {
 /** A widget being designed (not saved yet), run as the caller with the dashboard's controls. */
 analyticsRoutes.post("/widgets/preview", async (c) => {
   const ctx = c.get("ctx");
-  need(ctx);
+  await need(ctx);
   const input = await body(c, z.object({ widget: anyJson, filters: z.array(anyJson).max(8).optional(), values: values.optional() }));
   const w = input.widget as Widget;
   if (!w || typeof w !== "object" || !["report", "indicator", "scorecard", "text"].includes(String(w.kind))) throw bad("ابزارک معتبر نیست");
@@ -156,7 +158,7 @@ analyticsRoutes.post("/widgets/preview", async (c) => {
 
 analyticsRoutes.get("/home", async (c) => {
   const ctx = c.get("ctx");
-  need(ctx);
+  await need(ctx);
   return c.json(await homeDashboard(ctx));
 });
 
@@ -164,7 +166,7 @@ analyticsRoutes.get("/home", async (c) => {
 
 analyticsRoutes.get("/scorecard", async (c) => {
   const ctx = c.get("ctx");
-  need(ctx);
+  await need(ctx);
   const q = query(c, z.object({ practice: z.string().max(20).optional(), ids: z.string().max(4000).optional(), keys: z.string().max(4000).optional(), trend: z.coerce.number().int().min(2).max(24).optional() }));
   const ids = q.ids ? q.ids.split(",").filter((x) => UUID.safeParse(x).success) : undefined;
   const keys = q.keys ? q.keys.split(",").filter(Boolean).slice(0, 50) : undefined;
@@ -173,7 +175,7 @@ analyticsRoutes.get("/scorecard", async (c) => {
 
 analyticsRoutes.get("/indicators/:id/hub", async (c) => {
   const ctx = c.get("ctx");
-  need(ctx);
+  await need(ctx);
   const hub = await indicatorHub(ctx, id(c.req.param("id")), { canCollect: canAdmin(ctx) });
   const narrative: IndicatorHubView["narrative"] = hub.item.restricted ? null : { text: indicatorNarrative(hub.item, hub.breakdowns), ai: false };
   const out: IndicatorHubView = { ...hub, narrative };
@@ -182,14 +184,14 @@ analyticsRoutes.get("/indicators/:id/hub", async (c) => {
 
 analyticsRoutes.post("/indicators/:id/collect", async (c) => {
   const ctx = c.get("ctx");
-  needAdmin(ctx);
+  await needAdmin(ctx);
   return c.json(await collectNow(ctx, id(c.req.param("id")), true));
 });
 
 /** Validate an indicator being written (formula, parts) and compute its current value as the caller. */
 analyticsRoutes.post("/indicators/check", async (c) => {
   const ctx = c.get("ctx");
-  need(ctx);
+  await need(ctx);
   const input = await body(c, z.object({ formula: z.string().max(500), parts: z.array(anyJson).max(10), breakdowns: z.array(z.string().max(80)).max(5).optional(), grain: z.enum(["day", "week", "month", "quarter", "year"]).optional() }));
   const schema = await orgSchema(ctx);
   const problem = indicatorProblem({ formula: input.formula, parts: input.parts as never, breakdowns: input.breakdowns ?? [] }, schema.lookup);
@@ -201,7 +203,7 @@ analyticsRoutes.post("/indicators/check", async (c) => {
 
 analyticsRoutes.post("/collect", async (c) => {
   const ctx = c.get("ctx");
-  needAdmin(ctx);
+  await needAdmin(ctx);
   const r = await snapshotStep(ctx.cfg, ctx.org.id, { since: new Date().toISOString(), deadline: Date.now() + 60_000 });
   return c.json(r);
 });
@@ -210,7 +212,7 @@ analyticsRoutes.post("/collect", async (c) => {
 
 analyticsRoutes.post("/ask", async (c) => {
   const ctx = c.get("ctx");
-  need(ctx);
+  await need(ctx);
   const input = await body(c, z.object({ question: z.string().trim().min(2, "پرسش کوتاه است").max(500) }));
   const r = await questionToReport(ctx, input.question);
   let result: AskResult["result"] = null;
@@ -229,7 +231,7 @@ analyticsRoutes.post("/ask", async (c) => {
 
 analyticsRoutes.post("/narrate", async (c) => {
   const ctx = c.get("ctx");
-  need(ctx);
+  await need(ctx);
   const input = await body(c, z.object({ spec: spec.optional(), report_id: UUID.optional(), title: z.string().max(150).optional() }));
   let s = input.spec ?? null;
   let title = input.title ?? "گزارش";
@@ -247,14 +249,14 @@ analyticsRoutes.post("/narrate", async (c) => {
 
 analyticsRoutes.post("/export", async (c) => {
   const ctx = c.get("ctx");
-  need(ctx);
+  await need(ctx);
   const input = await body(c, z.object({ reports: z.array(UUID).max(100).optional(), dashboards: z.array(UUID).max(100).optional(), indicators: z.array(UUID).max(100).optional() }));
   return c.json(await exportBundle(ctx, input));
 });
 
 analyticsRoutes.post("/import", async (c) => {
   const ctx = c.get("ctx");
-  need(ctx);
+  await need(ctx);
   const input = await body(c, z.object({ bundle: anyJson, folder: z.string().max(80).nullish() }));
   return c.json(await importBundle(ctx, input.bundle, { folder: input.folder ?? null }));
 });
@@ -263,7 +265,7 @@ analyticsRoutes.post("/import", async (c) => {
 
 analyticsRoutes.post("/schedules/:id/send", async (c) => {
   const ctx = c.get("ctx");
-  need(ctx);
+  await need(ctx);
   const sid = id(c.req.param("id"));
   const s = await liveRow(ctx.db, ctx, "analytics_schedule", sid);
   if (!s) throw notFound("زمان‌بندی پیدا نشد");
@@ -278,7 +280,7 @@ const defTable = z.enum(DEFINITION_TABLES);
 
 analyticsRoutes.post("/certify", async (c) => {
   const ctx = c.get("ctx");
-  needAdmin(ctx);
+  await needAdmin(ctx);
   const input = await body(c, z.object({ table: defTable.exclude(["analytics_schedule"]), id: UUID, certified: z.boolean() }));
   const row = await liveRow(ctx.db, ctx, input.table, input.id.toLowerCase());
   if (!row) throw notFound("تعریف پیدا نشد");
@@ -288,7 +290,7 @@ analyticsRoutes.post("/certify", async (c) => {
 
 analyticsRoutes.post("/transfer", async (c) => {
   const ctx = c.get("ctx");
-  needAdmin(ctx);
+  await needAdmin(ctx);
   const input = await body(c, z.object({ table: defTable, id: UUID, owner_id: UUID }));
   const sys = sysOf(ctx);
   const row = await liveRow(ctx.db, sys, input.table, input.id.toLowerCase());
@@ -302,7 +304,7 @@ analyticsRoutes.post("/transfer", async (c) => {
 
 analyticsRoutes.post("/copy", async (c) => {
   const ctx = c.get("ctx");
-  need(ctx);
+  await need(ctx);
   if (!canAuthor(ctx)) throw forbidden("ساختن گزارش و داشبورد برای شما مجاز نیست");
   const input = await body(c, z.object({ table: z.enum(["analytics_report", "analytics_dashboard"]), id: UUID, name: z.string().trim().min(1).max(150).optional() }));
   const row = await liveRow(ctx.db, ctx, input.table, input.id.toLowerCase());
@@ -319,7 +321,7 @@ analyticsRoutes.post("/copy", async (c) => {
 /** May the caller change this definition? (the screens offer «ویرایش» only then; the server checks every write) */
 analyticsRoutes.get("/can-edit/:table/:id", async (c) => {
   const ctx = c.get("ctx");
-  need(ctx);
+  await need(ctx);
   const table = defTable.parse(c.req.param("table"));
   const row = await liveRow(ctx.db, ctx, table, id(c.req.param("id")));
   if (!row) throw notFound("تعریف پیدا نشد");
@@ -330,7 +332,7 @@ analyticsRoutes.get("/can-edit/:table/:id", async (c) => {
 
 analyticsRoutes.get("/library", async (c) => {
   const ctx = c.get("ctx");
-  need(ctx);
+  await need(ctx);
   const schema = await orgSchema(ctx);
   const have = await liveRows(ctx.db, sysOf(ctx), "analytics_indicator", { f: "key", op: "nempty" }, { limit: 500 });
   const dash = await liveRows(ctx.db, sysOf(ctx), "analytics_dashboard", { f: "library_key", op: "nempty" }, { limit: 100 });
@@ -347,7 +349,7 @@ analyticsRoutes.get("/library", async (c) => {
 
 analyticsRoutes.post("/seed", async (c) => {
   const ctx = c.get("ctx");
-  needAdmin(ctx);
+  await needAdmin(ctx);
   const input = await body(c, z.object({ force: z.boolean().optional() }));
   return c.json(await seedAnalyticsDefaults(ctx.cfg, ctx.org.id, { force: input.force ?? false }));
 });
@@ -355,7 +357,7 @@ analyticsRoutes.post("/seed", async (c) => {
 /** The engine table definitions of a report's table, checked for the caller (the designer's field lists). */
 analyticsRoutes.get("/tables/:table", async (c) => {
   const ctx = c.get("ctx");
-  need(ctx);
+  await need(ctx);
   const { def } = await defFor(ctx, c.req.param("table"));
   if (def.virtual || !access().canReadTable(ctx, def)) throw forbidden(`به «${def.plural}» دسترسی ندارید`);
   const visible = access().visibleFields(ctx, def);
