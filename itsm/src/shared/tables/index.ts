@@ -22,6 +22,7 @@ import { CHANGE_CHOICE_LISTS, CHANGE_TABLES } from "./change";
 import { REQUEST_CHOICE_LISTS, REQUEST_TABLES } from "./request";
 import { KNOWLEDGE_CHOICE_LISTS, KNOWLEDGE_TABLES } from "./knowledge";
 import { AI_TABLES } from "./ai";
+import { SECURITY_CHOICE_LISTS, SECURITY_TABLES } from "./security";
 
 export { CUSTOM_FIELD_TYPES, VIEW_KINDS } from "./core";
 
@@ -41,6 +42,7 @@ const MODULE_TABLES: TableDef[][] = [
   REQUEST_TABLES,
   KNOWLEDGE_TABLES,
   AI_TABLES,
+  SECURITY_TABLES,
 ];
 
 /** Every table by key (resolved definitions). */
@@ -217,6 +219,7 @@ for (const [key, options] of Object.entries(CMDB_CHOICE_LISTS)) registerChoiceLi
 for (const [key, options] of Object.entries(CHANGE_CHOICE_LISTS)) registerChoiceList(key, options);
 for (const [key, options] of Object.entries(REQUEST_CHOICE_LISTS)) registerChoiceList(key, options);
 for (const [key, options] of Object.entries(KNOWLEDGE_CHOICE_LISTS)) registerChoiceList(key, options);
+for (const [key, options] of Object.entries(SECURITY_CHOICE_LISTS)) registerChoiceList(key, options);
 
 /** The members of the organisation as a reference target (virtual: no table of its own). */
 export const USER_DEF = buildTable(USER_TABLE);
