@@ -227,6 +227,9 @@ export function releaseTone(r: Row, now = Date.now()): "danger" | "warning" | nu
   const target = ms(r.readiness_target_at);
   const preparing = ["draft", "planning", "build", "test", "readiness"].includes(String(r.state));
   if (preparing && target !== null && target < now && Number(r.checks_failed ?? 0) + Number(r.checks_pending ?? 0) > 0) return "danger";
+  // still being prepared after its delivery date
+  const end = ms(r.planned_end);
+  if (preparing && end !== null && end < now) return "danger";
   if (r.risk_band === "high" || Number(r.checks_failed ?? 0) > 0) return "warning";
   return null;
 }

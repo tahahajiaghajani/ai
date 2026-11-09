@@ -117,6 +117,13 @@ describe("release rules", () => {
     await w.p.dev.client.patch(`${w.P}/r/release/${parent.id}`, { parent_release_id: child.id, version: parent.version }, 400);
   });
 
+  it("the policy's least notice from registration to delivery holds, except for emergencies", async () => {
+    const r = await w.p.dev.client.post(`${w.P}/r/release`, { short_description: "انتشار عمدهٔ عجولانه", type: "major", planned_start: at(1), planned_end: at(5, 18) }, 400);
+    expect(JSON.stringify(r)).toContain("روز فاصله");
+    const urgent = await w.release({ type: "emergency", short_description: "رفع فوری", planned_start: at(0), planned_end: at(1) });
+    expect(urgent.type).toBe("emergency");
+  });
+
   it("a release window's capacity is enforced", async () => {
     const win = (await w.o.post(`${w.P}/r/release_window`, { name: "پنجرهٔ آزمایشی تک‌ظرفیتی", kind: "slot", capacity: 1, start_at: at(3, 18), end_at: at(3, 21) })).row;
     await w.release({ window_id: win.id });

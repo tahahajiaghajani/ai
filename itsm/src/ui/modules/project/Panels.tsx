@@ -11,6 +11,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, Form, Input, Modal, Progress, Space } from "antd";
 import { Camera, Copy, FileText, FolderPlus, RefreshCw } from "lucide-react";
 import { toFa, todayISO } from "@shared/jalali";
+import { earnedValue } from "@shared/project/logic";
 import { useOrg } from "../../lib/org";
 import { useAction } from "../../lib/hooks";
 import { Chip } from "../../components/display";
@@ -59,8 +60,11 @@ export function ProjectActions({ ctx }: { ctx: RecordContext }) {
 }
 
 export function HealthPanel({ ctx }: { ctx: RecordContext }) {
+  const { timezone } = useOrg();
   const r = ctx.row as Row;
   const reasons = Array.isArray(r.health_reasons) ? (r.health_reasons as Row[]) : [];
+  // earned value from the budget the person may read (financial fields; absent → no EVM)
+  const ev = typeof r.budget === "string" || typeof r.budget === "number" ? earnedValue({ budget: r.budget, actual_cost: r.actual_cost, pct: r.pct_complete, planned_start: r.planned_start, planned_end: r.planned_end, today: todayISO(timezone) }) : null;
   return (
     <div className="flex flex-col gap-2 text-[13px]">
       <div className="flex items-center gap-2">
@@ -79,6 +83,13 @@ export function HealthPanel({ ctx }: { ctx: RecordContext }) {
         <li>ریسک‌های مهم باز: <span className="ds-num">{toFa(r.open_risks ?? 0)}</span></li>
         {r.schedule_variance_days !== null && r.schedule_variance_days !== undefined ? <li>انحراف زمان: <span className="ds-num">{toFa(r.schedule_variance_days)}</span> روز</li> : null}
       </ul>
+      {ev ? (
+        <ul className="flex flex-col gap-0.5 border-t border-line pt-2 text-[12px] text-ink-2" aria-label="ارزش کسب‌شده">
+          <li>شاخص عملکرد زمان (SPI): <span className="ds-num">{ev.spi === null ? "—" : toFa(ev.spi)}</span></li>
+          <li>شاخص عملکرد هزینه (CPI): <span className="ds-num">{ev.cpi === null ? "—" : toFa(ev.cpi)}</span></li>
+          {ev.eac !== null ? <li>برآورد هزینهٔ پایان (EAC): <span className="ds-num">{ev.eac.toLocaleString("fa-IR")}</span> ریال</li> : null}
+        </ul>
+      ) : null}
     </div>
   );
 }

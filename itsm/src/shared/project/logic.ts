@@ -412,3 +412,40 @@ export function heatMap(allocs: readonly AllocLike[], weeks: readonly string[], 
     return { user_id, weeks: ws, peak: Math.max(0, ...ws.map((w) => w.load)) };
   }).sort((a, b) => b.peak - a.peak);
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// Earned value (PRJ-041)
+
+export interface EarnedValue {
+  /** budget at completion */
+  bac: number;
+  /** planned value: the budget of the work planned to be done by today */
+  pv: number;
+  /** earned value: the budget of the work done (progress × budget) */
+  ev: number;
+  /** actual cost */
+  ac: number;
+  /** schedule and cost performance indices (null without a base) */
+  spi: number | null;
+  cpi: number | null;
+  /** estimate at completion (BAC ÷ CPI) */
+  eac: number | null;
+}
+
+/** Earned value of a project from its budget, progress, planned dates and actual cost (null without a budget). */
+export function earnedValue(i: { budget: unknown; actual_cost: unknown; pct: unknown; planned_start?: string | null; planned_end?: string | null; today: string }): EarnedValue | null {
+  const bac = Number(i.budget);
+  if (!Number.isFinite(bac) || bac <= 0) return null;
+  const ac = Number.isFinite(Number(i.actual_cost)) ? Number(i.actual_cost) : 0;
+  const pct = Math.min(100, Math.max(0, Number(i.pct) || 0));
+  let planned = 0;
+  if (i.planned_start && i.planned_end && i.planned_end > i.planned_start) {
+    const total = daysBetween(i.planned_start, i.planned_end);
+    planned = Math.min(1, Math.max(0, daysBetween(i.planned_start, i.today) / total));
+  }
+  const pv = Math.round(bac * planned);
+  const ev = Math.round((bac * pct) / 100);
+  const r3 = (x: number) => Math.round(x * 1000) / 1000;
+  const cpi = ac > 0 ? r3(ev / ac) : null;
+  return { bac, pv, ev, ac, spi: pv > 0 ? r3(ev / pv) : null, cpi, eac: cpi && cpi > 0 ? Math.round(bac / cpi) : null };
+}

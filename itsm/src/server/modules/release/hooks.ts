@@ -45,6 +45,13 @@ async function releaseBefore(w: WriteArgs): Promise<void> {
   const start = msOf(next.planned_start);
   const end = msOf(next.planned_end);
   if (start !== null && end !== null && end < start) throw bad("تاریخ عرضه پیش از شروع برنامه‌ریزی‌شده است");
+  // the policy's least notice between registration and delivery (REL-002); the emergency procedure has none
+  if (end !== null && next.type !== "emergency" && !w.trusted && (op === "create" || w.changed.has("planned_end") || w.changed.has("type")) && RELEASE_PREPARING.includes(String(next.state ?? "draft"))) {
+    const policy = (await liveRows(tx, sys, "release_policy", { f: "active", op: "eq", v: true })).find((p) => p.type === next.type && Number(p.min_lead_days ?? 0) > 0);
+    const registered = msOf(next.created_at) ?? Date.now();
+    const days = Number(policy?.min_lead_days ?? 0);
+    if (policy && end - registered < days * 86_400_000) throw bad(`خط‌مشی «${policy.name}» دست‌کم ${days.toLocaleString("fa-IR")} روز فاصله از ثبت تا عرضه می‌خواهد؛ تاریخ عرضه را دیرتر بگذارید یا رویهٔ اضطراری را به کار ببرید`);
+  }
   if (isUuid(next.window_id) && (w.changed.has("window_id") || op === "create")) {
     const win = await liveRow(tx, sys, "release_window", next.window_id);
     if (win && Number(win.capacity ?? 0) > 0) {
