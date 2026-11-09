@@ -8932,6 +8932,1326 @@ drop trigger if exists sm_goods_receipt_lines_sync on sm_goods_receipt_lines;
 create trigger sm_goods_receipt_lines_sync before insert or update on sm_goods_receipt_lines for each row execute function sm_sync_touch('goods_receipt_line');
 alter table sm_goods_receipt_lines enable row level security;
 
+-- grc_audit: ممیزی‌ها
+create table if not exists sm_grc_audits (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_grc_audits add column if not exists workspace_id uuid;
+alter table sm_grc_audits add column if not exists domain_id uuid;
+alter table sm_grc_audits add column if not exists unit_id uuid;
+alter table sm_grc_audits add column if not exists created_at timestamptz not null default now();
+alter table sm_grc_audits add column if not exists created_by uuid;
+alter table sm_grc_audits add column if not exists updated_at timestamptz not null default now();
+alter table sm_grc_audits add column if not exists updated_by uuid;
+alter table sm_grc_audits add column if not exists rev bigint not null default 0;
+alter table sm_grc_audits add column if not exists version integer not null default 1;
+alter table sm_grc_audits add column if not exists deleted_at timestamptz;
+alter table sm_grc_audits add column if not exists origin text;
+alter table sm_grc_audits add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_grc_audits add column if not exists no integer;
+alter table sm_grc_audits add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 5 then 'AUD' || no::text else 'AUD' || lpad(no::text, 5, '0') end) stored;
+alter table sm_grc_audits add column if not exists title text;
+alter table sm_grc_audits add column if not exists kind text;
+alter table sm_grc_audits add column if not exists framework_id uuid;
+alter table sm_grc_audits add column if not exists lead_auditor_id uuid;
+alter table sm_grc_audits add column if not exists auditee_owner_id uuid;
+alter table sm_grc_audits add column if not exists auditors jsonb;
+alter table sm_grc_audits add column if not exists auditee_units jsonb;
+alter table sm_grc_audits add column if not exists assignment_group_id uuid;
+alter table sm_grc_audits add column if not exists planned_start date;
+alter table sm_grc_audits add column if not exists planned_end date;
+alter table sm_grc_audits add column if not exists scope_text text;
+alter table sm_grc_audits add column if not exists independence_ok boolean not null default false;
+alter table sm_grc_audits add column if not exists independence_note text;
+alter table sm_grc_audits add column if not exists conclusion text;
+alter table sm_grc_audits add column if not exists state text;
+create unique index if not exists sm_grc_audits_no_uk on sm_grc_audits (org_id, no);
+create index if not exists sm_grc_audits_rev_idx on sm_grc_audits (org_id, rev);
+create index if not exists sm_grc_audits_upd_idx on sm_grc_audits (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_grc_audits_crt_idx on sm_grc_audits (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_grc_audits_lead_auditor_id_idx on sm_grc_audits (org_id, lead_auditor_id) where deleted_at is null;
+create index if not exists sm_grc_audits_state_idx on sm_grc_audits (org_id, state) where deleted_at is null;
+create index if not exists sm_grc_audits_workspace_acc_idx on sm_grc_audits (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_grc_audits_unit_acc_idx on sm_grc_audits (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_grc_audits_domain_acc_idx on sm_grc_audits (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_grc_audits_auditors_gin on sm_grc_audits using gin (auditors);
+drop trigger if exists sm_grc_audits_sync on sm_grc_audits;
+create trigger sm_grc_audits_sync before insert or update on sm_grc_audits for each row execute function sm_sync_touch('grc_audit');
+alter table sm_grc_audits enable row level security;
+
+-- grc_control: کتابخانهٔ کنترل‌ها
+create table if not exists sm_grc_controls (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_grc_controls add column if not exists workspace_id uuid;
+alter table sm_grc_controls add column if not exists domain_id uuid;
+alter table sm_grc_controls add column if not exists unit_id uuid;
+alter table sm_grc_controls add column if not exists created_at timestamptz not null default now();
+alter table sm_grc_controls add column if not exists created_by uuid;
+alter table sm_grc_controls add column if not exists updated_at timestamptz not null default now();
+alter table sm_grc_controls add column if not exists updated_by uuid;
+alter table sm_grc_controls add column if not exists rev bigint not null default 0;
+alter table sm_grc_controls add column if not exists version integer not null default 1;
+alter table sm_grc_controls add column if not exists deleted_at timestamptz;
+alter table sm_grc_controls add column if not exists origin text;
+alter table sm_grc_controls add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_grc_controls add column if not exists no integer;
+alter table sm_grc_controls add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 5 then 'CTL' || no::text else 'CTL' || lpad(no::text, 5, '0') end) stored;
+alter table sm_grc_controls add column if not exists name text;
+alter table sm_grc_controls add column if not exists code text;
+alter table sm_grc_controls add column if not exists objective text;
+alter table sm_grc_controls add column if not exists owner_id uuid;
+alter table sm_grc_controls add column if not exists assignment_group_id uuid;
+alter table sm_grc_controls add column if not exists active boolean not null default true;
+alter table sm_grc_controls add column if not exists type text;
+alter table sm_grc_controls add column if not exists nature text;
+alter table sm_grc_controls add column if not exists frequency text;
+alter table sm_grc_controls add column if not exists cia jsonb;
+alter table sm_grc_controls add column if not exists concepts jsonb;
+alter table sm_grc_controls add column if not exists requirements jsonb;
+alter table sm_grc_controls add column if not exists implementation_status text;
+alter table sm_grc_controls add column if not exists effectiveness text;
+alter table sm_grc_controls add column if not exists test_procedure text;
+alter table sm_grc_controls add column if not exists last_tested_at timestamptz;
+alter table sm_grc_controls add column if not exists next_test_due date;
+alter table sm_grc_controls add column if not exists indicator text;
+alter table sm_grc_controls add column if not exists indicator_threshold numeric;
+alter table sm_grc_controls add column if not exists indicator_value numeric;
+alter table sm_grc_controls add column if not exists indicator_status text;
+alter table sm_grc_controls add column if not exists indicator_at timestamptz;
+create unique index if not exists sm_grc_controls_no_uk on sm_grc_controls (org_id, no);
+create index if not exists sm_grc_controls_rev_idx on sm_grc_controls (org_id, rev);
+create index if not exists sm_grc_controls_upd_idx on sm_grc_controls (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_grc_controls_crt_idx on sm_grc_controls (org_id, created_at desc, id desc) where deleted_at is null;
+create unique index if not exists sm_grc_controls_code_uk on sm_grc_controls (org_id, code) where deleted_at is null;
+create index if not exists sm_grc_controls_owner_id_idx on sm_grc_controls (org_id, owner_id) where deleted_at is null;
+create index if not exists sm_grc_controls_assignment_group_id_idx on sm_grc_controls (org_id, assignment_group_id) where deleted_at is null;
+create index if not exists sm_grc_controls_workspace_acc_idx on sm_grc_controls (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_grc_controls_unit_acc_idx on sm_grc_controls (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_grc_controls_domain_acc_idx on sm_grc_controls (org_id, domain_id) where deleted_at is null and domain_id is not null;
+drop trigger if exists sm_grc_controls_sync on sm_grc_controls;
+create trigger sm_grc_controls_sync before insert or update on sm_grc_controls for each row execute function sm_sync_touch('grc_control');
+alter table sm_grc_controls enable row level security;
+
+-- grc_control_test: آزمون‌ها و خودارزیابی‌های کنترل
+create table if not exists sm_grc_control_tests (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_grc_control_tests add column if not exists workspace_id uuid;
+alter table sm_grc_control_tests add column if not exists domain_id uuid;
+alter table sm_grc_control_tests add column if not exists unit_id uuid;
+alter table sm_grc_control_tests add column if not exists created_at timestamptz not null default now();
+alter table sm_grc_control_tests add column if not exists created_by uuid;
+alter table sm_grc_control_tests add column if not exists updated_at timestamptz not null default now();
+alter table sm_grc_control_tests add column if not exists updated_by uuid;
+alter table sm_grc_control_tests add column if not exists rev bigint not null default 0;
+alter table sm_grc_control_tests add column if not exists version integer not null default 1;
+alter table sm_grc_control_tests add column if not exists deleted_at timestamptz;
+alter table sm_grc_control_tests add column if not exists origin text;
+alter table sm_grc_control_tests add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_grc_control_tests add column if not exists no integer;
+alter table sm_grc_control_tests add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 6 then 'TST' || no::text else 'TST' || lpad(no::text, 6, '0') end) stored;
+alter table sm_grc_control_tests add column if not exists control_id uuid;
+alter table sm_grc_control_tests add column if not exists kind text;
+alter table sm_grc_control_tests add column if not exists planned_for date;
+alter table sm_grc_control_tests add column if not exists tester_id uuid;
+alter table sm_grc_control_tests add column if not exists assignment_group_id uuid;
+alter table sm_grc_control_tests add column if not exists period_start date;
+alter table sm_grc_control_tests add column if not exists period_end date;
+alter table sm_grc_control_tests add column if not exists population integer;
+alter table sm_grc_control_tests add column if not exists sample_size integer;
+alter table sm_grc_control_tests add column if not exists exceptions integer;
+alter table sm_grc_control_tests add column if not exists procedure text;
+alter table sm_grc_control_tests add column if not exists result_notes text;
+alter table sm_grc_control_tests add column if not exists conclusion text;
+alter table sm_grc_control_tests add column if not exists evidence_hash text;
+alter table sm_grc_control_tests add column if not exists completed_at timestamptz;
+alter table sm_grc_control_tests add column if not exists issue_id uuid;
+alter table sm_grc_control_tests add column if not exists state text;
+create unique index if not exists sm_grc_control_tests_no_uk on sm_grc_control_tests (org_id, no);
+create index if not exists sm_grc_control_tests_rev_idx on sm_grc_control_tests (org_id, rev);
+create index if not exists sm_grc_control_tests_upd_idx on sm_grc_control_tests (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_grc_control_tests_crt_idx on sm_grc_control_tests (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_grc_control_tests_control_id_idx on sm_grc_control_tests (org_id, control_id) where deleted_at is null;
+create index if not exists sm_grc_control_tests_tester_id_idx on sm_grc_control_tests (org_id, tester_id) where deleted_at is null;
+create index if not exists sm_grc_control_tests_state_idx on sm_grc_control_tests (org_id, state) where deleted_at is null;
+create index if not exists sm_grc_control_tests_workspace_acc_idx on sm_grc_control_tests (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_grc_control_tests_unit_acc_idx on sm_grc_control_tests (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_grc_control_tests_domain_acc_idx on sm_grc_control_tests (org_id, domain_id) where deleted_at is null and domain_id is not null;
+drop trigger if exists sm_grc_control_tests_sync on sm_grc_control_tests;
+create trigger sm_grc_control_tests_sync before insert or update on sm_grc_control_tests for each row execute function sm_sync_touch('grc_control_test');
+alter table sm_grc_control_tests enable row level security;
+
+-- grc_csf_profile: پروفایل‌های NIST CSF
+create table if not exists sm_grc_csf_profiles (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_grc_csf_profiles add column if not exists workspace_id uuid;
+alter table sm_grc_csf_profiles add column if not exists domain_id uuid;
+alter table sm_grc_csf_profiles add column if not exists unit_id uuid;
+alter table sm_grc_csf_profiles add column if not exists created_at timestamptz not null default now();
+alter table sm_grc_csf_profiles add column if not exists created_by uuid;
+alter table sm_grc_csf_profiles add column if not exists updated_at timestamptz not null default now();
+alter table sm_grc_csf_profiles add column if not exists updated_by uuid;
+alter table sm_grc_csf_profiles add column if not exists rev bigint not null default 0;
+alter table sm_grc_csf_profiles add column if not exists version integer not null default 1;
+alter table sm_grc_csf_profiles add column if not exists deleted_at timestamptz;
+alter table sm_grc_csf_profiles add column if not exists origin text;
+alter table sm_grc_csf_profiles add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_grc_csf_profiles add column if not exists no integer;
+alter table sm_grc_csf_profiles add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 5 then 'PRF' || no::text else 'PRF' || lpad(no::text, 5, '0') end) stored;
+alter table sm_grc_csf_profiles add column if not exists name text;
+alter table sm_grc_csf_profiles add column if not exists kind text;
+alter table sm_grc_csf_profiles add column if not exists owner_id uuid;
+alter table sm_grc_csf_profiles add column if not exists assignment_group_id uuid;
+alter table sm_grc_csf_profiles add column if not exists tier text;
+alter table sm_grc_csf_profiles add column if not exists target_tier text;
+alter table sm_grc_csf_profiles add column if not exists scope_text text;
+alter table sm_grc_csf_profiles add column if not exists items jsonb;
+alter table sm_grc_csf_profiles add column if not exists gap_total integer;
+alter table sm_grc_csf_profiles add column if not exists scored integer;
+alter table sm_grc_csf_profiles add column if not exists action_plan text;
+create unique index if not exists sm_grc_csf_profiles_no_uk on sm_grc_csf_profiles (org_id, no);
+create index if not exists sm_grc_csf_profiles_rev_idx on sm_grc_csf_profiles (org_id, rev);
+create index if not exists sm_grc_csf_profiles_upd_idx on sm_grc_csf_profiles (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_grc_csf_profiles_crt_idx on sm_grc_csf_profiles (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_grc_csf_profiles_workspace_acc_idx on sm_grc_csf_profiles (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_grc_csf_profiles_unit_acc_idx on sm_grc_csf_profiles (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_grc_csf_profiles_domain_acc_idx on sm_grc_csf_profiles (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_grc_csf_profiles_owner_id_idx on sm_grc_csf_profiles (org_id, owner_id) where deleted_at is null;
+drop trigger if exists sm_grc_csf_profiles_sync on sm_grc_csf_profiles;
+create trigger sm_grc_csf_profiles_sync before insert or update on sm_grc_csf_profiles for each row execute function sm_sync_touch('grc_csf_profile');
+alter table sm_grc_csf_profiles enable row level security;
+
+-- grc_dsr: درخواست‌های صاحبان داده
+create table if not exists sm_grc_dsrs (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_grc_dsrs add column if not exists workspace_id uuid;
+alter table sm_grc_dsrs add column if not exists domain_id uuid;
+alter table sm_grc_dsrs add column if not exists unit_id uuid;
+alter table sm_grc_dsrs add column if not exists created_at timestamptz not null default now();
+alter table sm_grc_dsrs add column if not exists created_by uuid;
+alter table sm_grc_dsrs add column if not exists updated_at timestamptz not null default now();
+alter table sm_grc_dsrs add column if not exists updated_by uuid;
+alter table sm_grc_dsrs add column if not exists rev bigint not null default 0;
+alter table sm_grc_dsrs add column if not exists version integer not null default 1;
+alter table sm_grc_dsrs add column if not exists deleted_at timestamptz;
+alter table sm_grc_dsrs add column if not exists origin text;
+alter table sm_grc_dsrs add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_grc_dsrs add column if not exists no integer;
+alter table sm_grc_dsrs add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 6 then 'DSR' || no::text else 'DSR' || lpad(no::text, 6, '0') end) stored;
+alter table sm_grc_dsrs add column if not exists subject_name text;
+alter table sm_grc_dsrs add column if not exists subject_contact text;
+alter table sm_grc_dsrs add column if not exists kind text;
+alter table sm_grc_dsrs add column if not exists received_at timestamptz;
+alter table sm_grc_dsrs add column if not exists due_at timestamptz;
+alter table sm_grc_dsrs add column if not exists ropa_id uuid;
+alter table sm_grc_dsrs add column if not exists assigned_to uuid;
+alter table sm_grc_dsrs add column if not exists assignment_group_id uuid;
+alter table sm_grc_dsrs add column if not exists details text;
+alter table sm_grc_dsrs add column if not exists response text;
+alter table sm_grc_dsrs add column if not exists overdue boolean not null default false;
+alter table sm_grc_dsrs add column if not exists state text;
+create unique index if not exists sm_grc_dsrs_no_uk on sm_grc_dsrs (org_id, no);
+create index if not exists sm_grc_dsrs_rev_idx on sm_grc_dsrs (org_id, rev);
+create index if not exists sm_grc_dsrs_upd_idx on sm_grc_dsrs (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_grc_dsrs_crt_idx on sm_grc_dsrs (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_grc_dsrs_state_idx on sm_grc_dsrs (org_id, state) where deleted_at is null;
+create index if not exists sm_grc_dsrs_workspace_acc_idx on sm_grc_dsrs (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_grc_dsrs_unit_acc_idx on sm_grc_dsrs (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_grc_dsrs_domain_acc_idx on sm_grc_dsrs (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_grc_dsrs_assigned_to_idx on sm_grc_dsrs (org_id, assigned_to) where deleted_at is null;
+drop trigger if exists sm_grc_dsrs_sync on sm_grc_dsrs;
+create trigger sm_grc_dsrs_sync before insert or update on sm_grc_dsrs for each row execute function sm_sync_touch('grc_dsr');
+alter table sm_grc_dsrs enable row level security;
+
+-- grc_evidence: شواهد انطباق
+create table if not exists sm_grc_evidence (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_grc_evidence add column if not exists workspace_id uuid;
+alter table sm_grc_evidence add column if not exists domain_id uuid;
+alter table sm_grc_evidence add column if not exists unit_id uuid;
+alter table sm_grc_evidence add column if not exists created_at timestamptz not null default now();
+alter table sm_grc_evidence add column if not exists created_by uuid;
+alter table sm_grc_evidence add column if not exists updated_at timestamptz not null default now();
+alter table sm_grc_evidence add column if not exists updated_by uuid;
+alter table sm_grc_evidence add column if not exists rev bigint not null default 0;
+alter table sm_grc_evidence add column if not exists version integer not null default 1;
+alter table sm_grc_evidence add column if not exists deleted_at timestamptz;
+alter table sm_grc_evidence add column if not exists origin text;
+alter table sm_grc_evidence add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_grc_evidence add column if not exists no integer;
+alter table sm_grc_evidence add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 6 then 'EVI' || no::text else 'EVI' || lpad(no::text, 6, '0') end) stored;
+alter table sm_grc_evidence add column if not exists title text;
+alter table sm_grc_evidence add column if not exists kind text;
+alter table sm_grc_evidence add column if not exists control_id uuid;
+alter table sm_grc_evidence add column if not exists test_id uuid;
+alter table sm_grc_evidence add column if not exists audit_id uuid;
+alter table sm_grc_evidence add column if not exists finding_id uuid;
+alter table sm_grc_evidence add column if not exists requirement_id uuid;
+alter table sm_grc_evidence add column if not exists period_start date;
+alter table sm_grc_evidence add column if not exists period_end date;
+alter table sm_grc_evidence add column if not exists due_at date;
+alter table sm_grc_evidence add column if not exists owner_id uuid;
+alter table sm_grc_evidence add column if not exists assignment_group_id uuid;
+alter table sm_grc_evidence add column if not exists sha256 text;
+alter table sm_grc_evidence add column if not exists submitted_at timestamptz;
+alter table sm_grc_evidence add column if not exists description text;
+alter table sm_grc_evidence add column if not exists review_notes text;
+alter table sm_grc_evidence add column if not exists state text;
+create unique index if not exists sm_grc_evidence_no_uk on sm_grc_evidence (org_id, no);
+create index if not exists sm_grc_evidence_rev_idx on sm_grc_evidence (org_id, rev);
+create index if not exists sm_grc_evidence_upd_idx on sm_grc_evidence (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_grc_evidence_crt_idx on sm_grc_evidence (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_grc_evidence_control_id_idx on sm_grc_evidence (org_id, control_id) where deleted_at is null;
+create index if not exists sm_grc_evidence_test_id_idx on sm_grc_evidence (org_id, test_id) where deleted_at is null;
+create index if not exists sm_grc_evidence_audit_id_idx on sm_grc_evidence (org_id, audit_id) where deleted_at is null;
+create index if not exists sm_grc_evidence_owner_id_idx on sm_grc_evidence (org_id, owner_id) where deleted_at is null;
+create index if not exists sm_grc_evidence_state_idx on sm_grc_evidence (org_id, state) where deleted_at is null;
+create index if not exists sm_grc_evidence_workspace_acc_idx on sm_grc_evidence (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_grc_evidence_unit_acc_idx on sm_grc_evidence (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_grc_evidence_domain_acc_idx on sm_grc_evidence (org_id, domain_id) where deleted_at is null and domain_id is not null;
+drop trigger if exists sm_grc_evidence_sync on sm_grc_evidence;
+create trigger sm_grc_evidence_sync before insert or update on sm_grc_evidence for each row execute function sm_sync_touch('grc_evidence');
+alter table sm_grc_evidence enable row level security;
+
+-- grc_finding: یافته‌های ممیزی
+create table if not exists sm_grc_findings (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_grc_findings add column if not exists workspace_id uuid;
+alter table sm_grc_findings add column if not exists domain_id uuid;
+alter table sm_grc_findings add column if not exists unit_id uuid;
+alter table sm_grc_findings add column if not exists created_at timestamptz not null default now();
+alter table sm_grc_findings add column if not exists created_by uuid;
+alter table sm_grc_findings add column if not exists updated_at timestamptz not null default now();
+alter table sm_grc_findings add column if not exists updated_by uuid;
+alter table sm_grc_findings add column if not exists rev bigint not null default 0;
+alter table sm_grc_findings add column if not exists version integer not null default 1;
+alter table sm_grc_findings add column if not exists deleted_at timestamptz;
+alter table sm_grc_findings add column if not exists origin text;
+alter table sm_grc_findings add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_grc_findings add column if not exists no integer;
+alter table sm_grc_findings add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 6 then 'FND' || no::text else 'FND' || lpad(no::text, 6, '0') end) stored;
+alter table sm_grc_findings add column if not exists title text;
+alter table sm_grc_findings add column if not exists audit_id uuid;
+alter table sm_grc_findings add column if not exists kind text;
+alter table sm_grc_findings add column if not exists requirement_id uuid;
+alter table sm_grc_findings add column if not exists control_id uuid;
+alter table sm_grc_findings add column if not exists owner_id uuid;
+alter table sm_grc_findings add column if not exists assignment_group_id uuid;
+alter table sm_grc_findings add column if not exists due_at date;
+alter table sm_grc_findings add column if not exists description text;
+alter table sm_grc_findings add column if not exists root_cause text;
+alter table sm_grc_findings add column if not exists action_plan text;
+alter table sm_grc_findings add column if not exists overdue boolean not null default false;
+alter table sm_grc_findings add column if not exists state text;
+create unique index if not exists sm_grc_findings_no_uk on sm_grc_findings (org_id, no);
+create index if not exists sm_grc_findings_rev_idx on sm_grc_findings (org_id, rev);
+create index if not exists sm_grc_findings_upd_idx on sm_grc_findings (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_grc_findings_crt_idx on sm_grc_findings (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_grc_findings_audit_id_idx on sm_grc_findings (org_id, audit_id) where deleted_at is null;
+create index if not exists sm_grc_findings_owner_id_idx on sm_grc_findings (org_id, owner_id) where deleted_at is null;
+create index if not exists sm_grc_findings_state_idx on sm_grc_findings (org_id, state) where deleted_at is null;
+create index if not exists sm_grc_findings_workspace_acc_idx on sm_grc_findings (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_grc_findings_unit_acc_idx on sm_grc_findings (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_grc_findings_domain_acc_idx on sm_grc_findings (org_id, domain_id) where deleted_at is null and domain_id is not null;
+drop trigger if exists sm_grc_findings_sync on sm_grc_findings;
+create trigger sm_grc_findings_sync before insert or update on sm_grc_findings for each row execute function sm_sync_touch('grc_finding');
+alter table sm_grc_findings enable row level security;
+
+-- grc_framework: چارچوب‌ها و مقررات
+create table if not exists sm_grc_frameworks (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_grc_frameworks add column if not exists workspace_id uuid;
+alter table sm_grc_frameworks add column if not exists domain_id uuid;
+alter table sm_grc_frameworks add column if not exists unit_id uuid;
+alter table sm_grc_frameworks add column if not exists created_at timestamptz not null default now();
+alter table sm_grc_frameworks add column if not exists created_by uuid;
+alter table sm_grc_frameworks add column if not exists updated_at timestamptz not null default now();
+alter table sm_grc_frameworks add column if not exists updated_by uuid;
+alter table sm_grc_frameworks add column if not exists rev bigint not null default 0;
+alter table sm_grc_frameworks add column if not exists version integer not null default 1;
+alter table sm_grc_frameworks add column if not exists deleted_at timestamptz;
+alter table sm_grc_frameworks add column if not exists origin text;
+alter table sm_grc_frameworks add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_grc_frameworks add column if not exists name text;
+alter table sm_grc_frameworks add column if not exists key text;
+alter table sm_grc_frameworks add column if not exists active boolean not null default true;
+alter table sm_grc_frameworks add column if not exists kind text;
+alter table sm_grc_frameworks add column if not exists edition text;
+alter table sm_grc_frameworks add column if not exists publisher text;
+alter table sm_grc_frameworks add column if not exists placeholder boolean not null default false;
+alter table sm_grc_frameworks add column if not exists requirement_count integer;
+alter table sm_grc_frameworks add column if not exists compliance_pct numeric;
+alter table sm_grc_frameworks add column if not exists description text;
+create index if not exists sm_grc_frameworks_rev_idx on sm_grc_frameworks (org_id, rev);
+create index if not exists sm_grc_frameworks_upd_idx on sm_grc_frameworks (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_grc_frameworks_crt_idx on sm_grc_frameworks (org_id, created_at desc, id desc) where deleted_at is null;
+create unique index if not exists sm_grc_frameworks_key_uk on sm_grc_frameworks (org_id, key) where deleted_at is null;
+drop trigger if exists sm_grc_frameworks_sync on sm_grc_frameworks;
+create trigger sm_grc_frameworks_sync before insert or update on sm_grc_frameworks for each row execute function sm_sync_touch('grc_framework');
+alter table sm_grc_frameworks enable row level security;
+
+-- grc_issue: مسائل و رفع آن‌ها
+create table if not exists sm_grc_issues (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_grc_issues add column if not exists workspace_id uuid;
+alter table sm_grc_issues add column if not exists domain_id uuid;
+alter table sm_grc_issues add column if not exists unit_id uuid;
+alter table sm_grc_issues add column if not exists created_at timestamptz not null default now();
+alter table sm_grc_issues add column if not exists created_by uuid;
+alter table sm_grc_issues add column if not exists updated_at timestamptz not null default now();
+alter table sm_grc_issues add column if not exists updated_by uuid;
+alter table sm_grc_issues add column if not exists rev bigint not null default 0;
+alter table sm_grc_issues add column if not exists version integer not null default 1;
+alter table sm_grc_issues add column if not exists deleted_at timestamptz;
+alter table sm_grc_issues add column if not exists origin text;
+alter table sm_grc_issues add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_grc_issues add column if not exists no integer;
+alter table sm_grc_issues add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 6 then 'ISS' || no::text else 'ISS' || lpad(no::text, 6, '0') end) stored;
+alter table sm_grc_issues add column if not exists title text;
+alter table sm_grc_issues add column if not exists source text;
+alter table sm_grc_issues add column if not exists severity text;
+alter table sm_grc_issues add column if not exists due_at date;
+alter table sm_grc_issues add column if not exists control_id uuid;
+alter table sm_grc_issues add column if not exists test_id uuid;
+alter table sm_grc_issues add column if not exists finding_id uuid;
+alter table sm_grc_issues add column if not exists risk_id uuid;
+alter table sm_grc_issues add column if not exists owner_id uuid;
+alter table sm_grc_issues add column if not exists assignment_group_id uuid;
+alter table sm_grc_issues add column if not exists description text;
+alter table sm_grc_issues add column if not exists remediation_plan text;
+alter table sm_grc_issues add column if not exists overdue boolean not null default false;
+alter table sm_grc_issues add column if not exists notes text;
+alter table sm_grc_issues add column if not exists state text;
+create unique index if not exists sm_grc_issues_no_uk on sm_grc_issues (org_id, no);
+create index if not exists sm_grc_issues_rev_idx on sm_grc_issues (org_id, rev);
+create index if not exists sm_grc_issues_upd_idx on sm_grc_issues (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_grc_issues_crt_idx on sm_grc_issues (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_grc_issues_control_id_idx on sm_grc_issues (org_id, control_id) where deleted_at is null;
+create index if not exists sm_grc_issues_owner_id_idx on sm_grc_issues (org_id, owner_id) where deleted_at is null;
+create index if not exists sm_grc_issues_assignment_group_id_idx on sm_grc_issues (org_id, assignment_group_id) where deleted_at is null;
+create index if not exists sm_grc_issues_state_idx on sm_grc_issues (org_id, state) where deleted_at is null;
+create index if not exists sm_grc_issues_workspace_acc_idx on sm_grc_issues (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_grc_issues_unit_acc_idx on sm_grc_issues (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_grc_issues_domain_acc_idx on sm_grc_issues (org_id, domain_id) where deleted_at is null and domain_id is not null;
+drop trigger if exists sm_grc_issues_sync on sm_grc_issues;
+create trigger sm_grc_issues_sync before insert or update on sm_grc_issues for each row execute function sm_sync_touch('grc_issue');
+alter table sm_grc_issues enable row level security;
+
+-- grc_kri: شاخص‌های کلیدی ریسک
+create table if not exists sm_grc_kris (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_grc_kris add column if not exists workspace_id uuid;
+alter table sm_grc_kris add column if not exists domain_id uuid;
+alter table sm_grc_kris add column if not exists unit_id uuid;
+alter table sm_grc_kris add column if not exists created_at timestamptz not null default now();
+alter table sm_grc_kris add column if not exists created_by uuid;
+alter table sm_grc_kris add column if not exists updated_at timestamptz not null default now();
+alter table sm_grc_kris add column if not exists updated_by uuid;
+alter table sm_grc_kris add column if not exists rev bigint not null default 0;
+alter table sm_grc_kris add column if not exists version integer not null default 1;
+alter table sm_grc_kris add column if not exists deleted_at timestamptz;
+alter table sm_grc_kris add column if not exists origin text;
+alter table sm_grc_kris add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_grc_kris add column if not exists name text;
+alter table sm_grc_kris add column if not exists risk_id uuid;
+alter table sm_grc_kris add column if not exists indicator text;
+alter table sm_grc_kris add column if not exists direction text;
+alter table sm_grc_kris add column if not exists warn_at numeric;
+alter table sm_grc_kris add column if not exists breach_at numeric;
+alter table sm_grc_kris add column if not exists owner_id uuid;
+alter table sm_grc_kris add column if not exists assignment_group_id uuid;
+alter table sm_grc_kris add column if not exists last_value numeric;
+alter table sm_grc_kris add column if not exists status text;
+alter table sm_grc_kris add column if not exists measured_at timestamptz;
+create index if not exists sm_grc_kris_rev_idx on sm_grc_kris (org_id, rev);
+create index if not exists sm_grc_kris_upd_idx on sm_grc_kris (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_grc_kris_crt_idx on sm_grc_kris (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_grc_kris_risk_id_idx on sm_grc_kris (org_id, risk_id) where deleted_at is null;
+create index if not exists sm_grc_kris_workspace_acc_idx on sm_grc_kris (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_grc_kris_unit_acc_idx on sm_grc_kris (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_grc_kris_domain_acc_idx on sm_grc_kris (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_grc_kris_owner_id_idx on sm_grc_kris (org_id, owner_id) where deleted_at is null;
+drop trigger if exists sm_grc_kris_sync on sm_grc_kris;
+create trigger sm_grc_kris_sync before insert or update on sm_grc_kris for each row execute function sm_sync_touch('grc_kri');
+alter table sm_grc_kris enable row level security;
+
+-- grc_policy: خط‌مشی‌ها و استانداردها
+create table if not exists sm_grc_policies (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_grc_policies add column if not exists workspace_id uuid;
+alter table sm_grc_policies add column if not exists domain_id uuid;
+alter table sm_grc_policies add column if not exists unit_id uuid;
+alter table sm_grc_policies add column if not exists created_at timestamptz not null default now();
+alter table sm_grc_policies add column if not exists created_by uuid;
+alter table sm_grc_policies add column if not exists updated_at timestamptz not null default now();
+alter table sm_grc_policies add column if not exists updated_by uuid;
+alter table sm_grc_policies add column if not exists rev bigint not null default 0;
+alter table sm_grc_policies add column if not exists version integer not null default 1;
+alter table sm_grc_policies add column if not exists deleted_at timestamptz;
+alter table sm_grc_policies add column if not exists origin text;
+alter table sm_grc_policies add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_grc_policies add column if not exists no integer;
+alter table sm_grc_policies add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 5 then 'POL' || no::text else 'POL' || lpad(no::text, 5, '0') end) stored;
+alter table sm_grc_policies add column if not exists title text;
+alter table sm_grc_policies add column if not exists kind text;
+alter table sm_grc_policies add column if not exists version_label text;
+alter table sm_grc_policies add column if not exists classification text;
+alter table sm_grc_policies add column if not exists owner_id uuid;
+alter table sm_grc_policies add column if not exists approver_id uuid;
+alter table sm_grc_policies add column if not exists assignment_group_id uuid;
+alter table sm_grc_policies add column if not exists effective_at date;
+alter table sm_grc_policies add column if not exists next_review_at date;
+alter table sm_grc_policies add column if not exists summary text;
+alter table sm_grc_policies add column if not exists body text;
+alter table sm_grc_policies add column if not exists requirements jsonb;
+alter table sm_grc_policies add column if not exists approval text;
+alter table sm_grc_policies add column if not exists published_at timestamptz;
+alter table sm_grc_policies add column if not exists published_by uuid;
+alter table sm_grc_policies add column if not exists revision integer;
+alter table sm_grc_policies add column if not exists review_noticed_for date;
+alter table sm_grc_policies add column if not exists state text;
+create unique index if not exists sm_grc_policies_no_uk on sm_grc_policies (org_id, no);
+create index if not exists sm_grc_policies_rev_idx on sm_grc_policies (org_id, rev);
+create index if not exists sm_grc_policies_upd_idx on sm_grc_policies (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_grc_policies_crt_idx on sm_grc_policies (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_grc_policies_owner_id_idx on sm_grc_policies (org_id, owner_id) where deleted_at is null;
+create index if not exists sm_grc_policies_state_idx on sm_grc_policies (org_id, state) where deleted_at is null;
+create index if not exists sm_grc_policies_workspace_acc_idx on sm_grc_policies (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_grc_policies_unit_acc_idx on sm_grc_policies (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_grc_policies_domain_acc_idx on sm_grc_policies (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_grc_policies_approver_id_idx on sm_grc_policies (org_id, approver_id) where deleted_at is null;
+drop trigger if exists sm_grc_policies_sync on sm_grc_policies;
+create trigger sm_grc_policies_sync before insert or update on sm_grc_policies for each row execute function sm_sync_touch('grc_policy');
+alter table sm_grc_policies enable row level security;
+
+-- grc_policy_ack: پذیرش‌های خط‌مشی
+create table if not exists sm_grc_policy_acks (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_grc_policy_acks add column if not exists workspace_id uuid;
+alter table sm_grc_policy_acks add column if not exists domain_id uuid;
+alter table sm_grc_policy_acks add column if not exists unit_id uuid;
+alter table sm_grc_policy_acks add column if not exists created_at timestamptz not null default now();
+alter table sm_grc_policy_acks add column if not exists created_by uuid;
+alter table sm_grc_policy_acks add column if not exists updated_at timestamptz not null default now();
+alter table sm_grc_policy_acks add column if not exists updated_by uuid;
+alter table sm_grc_policy_acks add column if not exists rev bigint not null default 0;
+alter table sm_grc_policy_acks add column if not exists version integer not null default 1;
+alter table sm_grc_policy_acks add column if not exists deleted_at timestamptz;
+alter table sm_grc_policy_acks add column if not exists origin text;
+alter table sm_grc_policy_acks add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_grc_policy_acks add column if not exists campaign_id uuid;
+alter table sm_grc_policy_acks add column if not exists policy_id uuid;
+alter table sm_grc_policy_acks add column if not exists user_id uuid;
+alter table sm_grc_policy_acks add column if not exists version_label text;
+alter table sm_grc_policy_acks add column if not exists acked_at timestamptz;
+create index if not exists sm_grc_policy_acks_rev_idx on sm_grc_policy_acks (org_id, rev);
+create index if not exists sm_grc_policy_acks_upd_idx on sm_grc_policy_acks (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_grc_policy_acks_crt_idx on sm_grc_policy_acks (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_grc_policy_acks_campaign_id_idx on sm_grc_policy_acks (org_id, campaign_id) where deleted_at is null;
+create index if not exists sm_grc_policy_acks_policy_id_idx on sm_grc_policy_acks (org_id, policy_id) where deleted_at is null;
+create index if not exists sm_grc_policy_acks_user_id_idx on sm_grc_policy_acks (org_id, user_id) where deleted_at is null;
+create unique index if not exists sm_grc_policy_acks_campaign_id_user_id_uk on sm_grc_policy_acks (org_id, campaign_id, user_id) where deleted_at is null;
+create index if not exists sm_grc_policy_acks_workspace_acc_idx on sm_grc_policy_acks (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_grc_policy_acks_unit_acc_idx on sm_grc_policy_acks (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_grc_policy_acks_domain_acc_idx on sm_grc_policy_acks (org_id, domain_id) where deleted_at is null and domain_id is not null;
+drop trigger if exists sm_grc_policy_acks_sync on sm_grc_policy_acks;
+create trigger sm_grc_policy_acks_sync before insert or update on sm_grc_policy_acks for each row execute function sm_sync_touch('grc_policy_ack');
+alter table sm_grc_policy_acks enable row level security;
+
+-- grc_policy_campaign: کارزارهای پذیرش خط‌مشی
+create table if not exists sm_grc_policy_campaigns (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_grc_policy_campaigns add column if not exists workspace_id uuid;
+alter table sm_grc_policy_campaigns add column if not exists domain_id uuid;
+alter table sm_grc_policy_campaigns add column if not exists unit_id uuid;
+alter table sm_grc_policy_campaigns add column if not exists created_at timestamptz not null default now();
+alter table sm_grc_policy_campaigns add column if not exists created_by uuid;
+alter table sm_grc_policy_campaigns add column if not exists updated_at timestamptz not null default now();
+alter table sm_grc_policy_campaigns add column if not exists updated_by uuid;
+alter table sm_grc_policy_campaigns add column if not exists rev bigint not null default 0;
+alter table sm_grc_policy_campaigns add column if not exists version integer not null default 1;
+alter table sm_grc_policy_campaigns add column if not exists deleted_at timestamptz;
+alter table sm_grc_policy_campaigns add column if not exists origin text;
+alter table sm_grc_policy_campaigns add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_grc_policy_campaigns add column if not exists no integer;
+alter table sm_grc_policy_campaigns add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 6 then 'PAC' || no::text else 'PAC' || lpad(no::text, 6, '0') end) stored;
+alter table sm_grc_policy_campaigns add column if not exists title text;
+alter table sm_grc_policy_campaigns add column if not exists policy_id uuid;
+alter table sm_grc_policy_campaigns add column if not exists version_label text;
+alter table sm_grc_policy_campaigns add column if not exists due_at date;
+alter table sm_grc_policy_campaigns add column if not exists owner_id uuid;
+alter table sm_grc_policy_campaigns add column if not exists assignment_group_id uuid;
+alter table sm_grc_policy_campaigns add column if not exists remind_every_days integer;
+alter table sm_grc_policy_campaigns add column if not exists target_all boolean not null default false;
+alter table sm_grc_policy_campaigns add column if not exists target_users jsonb;
+alter table sm_grc_policy_campaigns add column if not exists target_groups jsonb;
+alter table sm_grc_policy_campaigns add column if not exists target_units jsonb;
+alter table sm_grc_policy_campaigns add column if not exists audience_count integer;
+alter table sm_grc_policy_campaigns add column if not exists ack_count integer;
+alter table sm_grc_policy_campaigns add column if not exists reminded_at timestamptz;
+alter table sm_grc_policy_campaigns add column if not exists state text;
+create unique index if not exists sm_grc_policy_campaigns_no_uk on sm_grc_policy_campaigns (org_id, no);
+create index if not exists sm_grc_policy_campaigns_rev_idx on sm_grc_policy_campaigns (org_id, rev);
+create index if not exists sm_grc_policy_campaigns_upd_idx on sm_grc_policy_campaigns (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_grc_policy_campaigns_crt_idx on sm_grc_policy_campaigns (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_grc_policy_campaigns_policy_id_idx on sm_grc_policy_campaigns (org_id, policy_id) where deleted_at is null;
+create index if not exists sm_grc_policy_campaigns_owner_id_idx on sm_grc_policy_campaigns (org_id, owner_id) where deleted_at is null;
+create index if not exists sm_grc_policy_campaigns_state_idx on sm_grc_policy_campaigns (org_id, state) where deleted_at is null;
+create index if not exists sm_grc_policy_campaigns_workspace_acc_idx on sm_grc_policy_campaigns (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_grc_policy_campaigns_unit_acc_idx on sm_grc_policy_campaigns (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_grc_policy_campaigns_domain_acc_idx on sm_grc_policy_campaigns (org_id, domain_id) where deleted_at is null and domain_id is not null;
+drop trigger if exists sm_grc_policy_campaigns_sync on sm_grc_policy_campaigns;
+create trigger sm_grc_policy_campaigns_sync before insert or update on sm_grc_policy_campaigns for each row execute function sm_sync_touch('grc_policy_campaign');
+alter table sm_grc_policy_campaigns enable row level security;
+
+-- grc_policy_exception: استثناهای خط‌مشی
+create table if not exists sm_grc_policy_exceptions (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_grc_policy_exceptions add column if not exists workspace_id uuid;
+alter table sm_grc_policy_exceptions add column if not exists domain_id uuid;
+alter table sm_grc_policy_exceptions add column if not exists unit_id uuid;
+alter table sm_grc_policy_exceptions add column if not exists created_at timestamptz not null default now();
+alter table sm_grc_policy_exceptions add column if not exists created_by uuid;
+alter table sm_grc_policy_exceptions add column if not exists updated_at timestamptz not null default now();
+alter table sm_grc_policy_exceptions add column if not exists updated_by uuid;
+alter table sm_grc_policy_exceptions add column if not exists rev bigint not null default 0;
+alter table sm_grc_policy_exceptions add column if not exists version integer not null default 1;
+alter table sm_grc_policy_exceptions add column if not exists deleted_at timestamptz;
+alter table sm_grc_policy_exceptions add column if not exists origin text;
+alter table sm_grc_policy_exceptions add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_grc_policy_exceptions add column if not exists no integer;
+alter table sm_grc_policy_exceptions add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 6 then 'WVR' || no::text else 'WVR' || lpad(no::text, 6, '0') end) stored;
+alter table sm_grc_policy_exceptions add column if not exists title text;
+alter table sm_grc_policy_exceptions add column if not exists policy_id uuid;
+alter table sm_grc_policy_exceptions add column if not exists expires_at date;
+alter table sm_grc_policy_exceptions add column if not exists justification text;
+alter table sm_grc_policy_exceptions add column if not exists compensating_controls text;
+alter table sm_grc_policy_exceptions add column if not exists risk_accepted boolean not null default false;
+alter table sm_grc_policy_exceptions add column if not exists requested_by uuid;
+alter table sm_grc_policy_exceptions add column if not exists approver_id uuid;
+alter table sm_grc_policy_exceptions add column if not exists assignment_group_id uuid;
+alter table sm_grc_policy_exceptions add column if not exists approval text;
+alter table sm_grc_policy_exceptions add column if not exists approved_at timestamptz;
+alter table sm_grc_policy_exceptions add column if not exists warned_at timestamptz;
+alter table sm_grc_policy_exceptions add column if not exists notes text;
+alter table sm_grc_policy_exceptions add column if not exists state text;
+create unique index if not exists sm_grc_policy_exceptions_no_uk on sm_grc_policy_exceptions (org_id, no);
+create index if not exists sm_grc_policy_exceptions_rev_idx on sm_grc_policy_exceptions (org_id, rev);
+create index if not exists sm_grc_policy_exceptions_upd_idx on sm_grc_policy_exceptions (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_grc_policy_exceptions_crt_idx on sm_grc_policy_exceptions (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_grc_policy_exceptions_policy_id_idx on sm_grc_policy_exceptions (org_id, policy_id) where deleted_at is null;
+create index if not exists sm_grc_policy_exceptions_state_idx on sm_grc_policy_exceptions (org_id, state) where deleted_at is null;
+create index if not exists sm_grc_policy_exceptions_workspace_acc_idx on sm_grc_policy_exceptions (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_grc_policy_exceptions_unit_acc_idx on sm_grc_policy_exceptions (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_grc_policy_exceptions_domain_acc_idx on sm_grc_policy_exceptions (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_grc_policy_exceptions_requested_by_idx on sm_grc_policy_exceptions (org_id, requested_by) where deleted_at is null;
+create index if not exists sm_grc_policy_exceptions_approver_id_idx on sm_grc_policy_exceptions (org_id, approver_id) where deleted_at is null;
+drop trigger if exists sm_grc_policy_exceptions_sync on sm_grc_policy_exceptions;
+create trigger sm_grc_policy_exceptions_sync before insert or update on sm_grc_policy_exceptions for each row execute function sm_sync_touch('grc_policy_exception');
+alter table sm_grc_policy_exceptions enable row level security;
+
+-- grc_reg_alert: هشدارهای تغییر مقررات
+create table if not exists sm_grc_reg_alerts (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_grc_reg_alerts add column if not exists workspace_id uuid;
+alter table sm_grc_reg_alerts add column if not exists domain_id uuid;
+alter table sm_grc_reg_alerts add column if not exists unit_id uuid;
+alter table sm_grc_reg_alerts add column if not exists created_at timestamptz not null default now();
+alter table sm_grc_reg_alerts add column if not exists created_by uuid;
+alter table sm_grc_reg_alerts add column if not exists updated_at timestamptz not null default now();
+alter table sm_grc_reg_alerts add column if not exists updated_by uuid;
+alter table sm_grc_reg_alerts add column if not exists rev bigint not null default 0;
+alter table sm_grc_reg_alerts add column if not exists version integer not null default 1;
+alter table sm_grc_reg_alerts add column if not exists deleted_at timestamptz;
+alter table sm_grc_reg_alerts add column if not exists origin text;
+alter table sm_grc_reg_alerts add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_grc_reg_alerts add column if not exists no integer;
+alter table sm_grc_reg_alerts add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 5 then 'RAL' || no::text else 'RAL' || lpad(no::text, 5, '0') end) stored;
+alter table sm_grc_reg_alerts add column if not exists title text;
+alter table sm_grc_reg_alerts add column if not exists issuer text;
+alter table sm_grc_reg_alerts add column if not exists published_on date;
+alter table sm_grc_reg_alerts add column if not exists effective_on date;
+alter table sm_grc_reg_alerts add column if not exists summary text;
+alter table sm_grc_reg_alerts add column if not exists requirements jsonb;
+alter table sm_grc_reg_alerts add column if not exists controls jsonb;
+alter table sm_grc_reg_alerts add column if not exists policies jsonb;
+alter table sm_grc_reg_alerts add column if not exists impact text;
+alter table sm_grc_reg_alerts add column if not exists owner_id uuid;
+alter table sm_grc_reg_alerts add column if not exists assignment_group_id uuid;
+alter table sm_grc_reg_alerts add column if not exists rationale text;
+alter table sm_grc_reg_alerts add column if not exists action_plan text;
+alter table sm_grc_reg_alerts add column if not exists state text;
+create unique index if not exists sm_grc_reg_alerts_no_uk on sm_grc_reg_alerts (org_id, no);
+create index if not exists sm_grc_reg_alerts_rev_idx on sm_grc_reg_alerts (org_id, rev);
+create index if not exists sm_grc_reg_alerts_upd_idx on sm_grc_reg_alerts (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_grc_reg_alerts_crt_idx on sm_grc_reg_alerts (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_grc_reg_alerts_state_idx on sm_grc_reg_alerts (org_id, state) where deleted_at is null;
+create index if not exists sm_grc_reg_alerts_workspace_acc_idx on sm_grc_reg_alerts (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_grc_reg_alerts_unit_acc_idx on sm_grc_reg_alerts (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_grc_reg_alerts_domain_acc_idx on sm_grc_reg_alerts (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_grc_reg_alerts_owner_id_idx on sm_grc_reg_alerts (org_id, owner_id) where deleted_at is null;
+drop trigger if exists sm_grc_reg_alerts_sync on sm_grc_reg_alerts;
+create trigger sm_grc_reg_alerts_sync before insert or update on sm_grc_reg_alerts for each row execute function sm_sync_touch('grc_reg_alert');
+alter table sm_grc_reg_alerts enable row level security;
+
+-- grc_requirement: الزام‌ها و بیانیهٔ کاربست‌پذیری
+create table if not exists sm_grc_requirements (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_grc_requirements add column if not exists workspace_id uuid;
+alter table sm_grc_requirements add column if not exists domain_id uuid;
+alter table sm_grc_requirements add column if not exists unit_id uuid;
+alter table sm_grc_requirements add column if not exists created_at timestamptz not null default now();
+alter table sm_grc_requirements add column if not exists created_by uuid;
+alter table sm_grc_requirements add column if not exists updated_at timestamptz not null default now();
+alter table sm_grc_requirements add column if not exists updated_by uuid;
+alter table sm_grc_requirements add column if not exists rev bigint not null default 0;
+alter table sm_grc_requirements add column if not exists version integer not null default 1;
+alter table sm_grc_requirements add column if not exists deleted_at timestamptz;
+alter table sm_grc_requirements add column if not exists origin text;
+alter table sm_grc_requirements add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_grc_requirements add column if not exists framework_id uuid;
+alter table sm_grc_requirements add column if not exists code text;
+alter table sm_grc_requirements add column if not exists level integer;
+alter table sm_grc_requirements add column if not exists title text;
+alter table sm_grc_requirements add column if not exists title_en text;
+alter table sm_grc_requirements add column if not exists theme text;
+alter table sm_grc_requirements add column if not exists parent_code text;
+alter table sm_grc_requirements add column if not exists sort_order integer;
+alter table sm_grc_requirements add column if not exists attributes jsonb;
+alter table sm_grc_requirements add column if not exists description text;
+alter table sm_grc_requirements add column if not exists applicable boolean not null default true;
+alter table sm_grc_requirements add column if not exists justification text;
+alter table sm_grc_requirements add column if not exists owner_id uuid;
+alter table sm_grc_requirements add column if not exists implementation text;
+alter table sm_grc_requirements add column if not exists compliance text;
+alter table sm_grc_requirements add column if not exists control_count integer;
+alter table sm_grc_requirements add column if not exists soa_state text;
+alter table sm_grc_requirements add column if not exists soa_approved_by uuid;
+alter table sm_grc_requirements add column if not exists soa_approved_at timestamptz;
+create index if not exists sm_grc_requirements_rev_idx on sm_grc_requirements (org_id, rev);
+create index if not exists sm_grc_requirements_upd_idx on sm_grc_requirements (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_grc_requirements_crt_idx on sm_grc_requirements (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_grc_requirements_framework_id_idx on sm_grc_requirements (org_id, framework_id) where deleted_at is null;
+create index if not exists sm_grc_requirements_owner_id_idx on sm_grc_requirements (org_id, owner_id) where deleted_at is null;
+create unique index if not exists sm_grc_requirements_framework_id_code_uk on sm_grc_requirements (org_id, framework_id, code) where deleted_at is null;
+drop trigger if exists sm_grc_requirements_sync on sm_grc_requirements;
+create trigger sm_grc_requirements_sync before insert or update on sm_grc_requirements for each row execute function sm_sync_touch('grc_requirement');
+alter table sm_grc_requirements enable row level security;
+
+-- grc_risk: ثبت ریسک‌ها
+create table if not exists sm_grc_risks (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_grc_risks add column if not exists workspace_id uuid;
+alter table sm_grc_risks add column if not exists domain_id uuid;
+alter table sm_grc_risks add column if not exists unit_id uuid;
+alter table sm_grc_risks add column if not exists created_at timestamptz not null default now();
+alter table sm_grc_risks add column if not exists created_by uuid;
+alter table sm_grc_risks add column if not exists updated_at timestamptz not null default now();
+alter table sm_grc_risks add column if not exists updated_by uuid;
+alter table sm_grc_risks add column if not exists rev bigint not null default 0;
+alter table sm_grc_risks add column if not exists version integer not null default 1;
+alter table sm_grc_risks add column if not exists deleted_at timestamptz;
+alter table sm_grc_risks add column if not exists origin text;
+alter table sm_grc_risks add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_grc_risks add column if not exists no integer;
+alter table sm_grc_risks add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 5 then 'RSK' || no::text else 'RSK' || lpad(no::text, 5, '0') end) stored;
+alter table sm_grc_risks add column if not exists title text;
+alter table sm_grc_risks add column if not exists category text;
+alter table sm_grc_risks add column if not exists cause text;
+alter table sm_grc_risks add column if not exists event text;
+alter table sm_grc_risks add column if not exists consequence text;
+alter table sm_grc_risks add column if not exists owner_id uuid;
+alter table sm_grc_risks add column if not exists reporter_id uuid;
+alter table sm_grc_risks add column if not exists reporter_role text;
+alter table sm_grc_risks add column if not exists assignment_group_id uuid;
+alter table sm_grc_risks add column if not exists services jsonb;
+alter table sm_grc_risks add column if not exists cis jsonb;
+alter table sm_grc_risks add column if not exists matrix_id uuid;
+alter table sm_grc_risks add column if not exists inherent_likelihood text;
+alter table sm_grc_risks add column if not exists inherent_impact text;
+alter table sm_grc_risks add column if not exists inherent_score integer;
+alter table sm_grc_risks add column if not exists inherent_rating text;
+alter table sm_grc_risks add column if not exists controls jsonb;
+alter table sm_grc_risks add column if not exists control_effectiveness text;
+alter table sm_grc_risks add column if not exists residual_likelihood text;
+alter table sm_grc_risks add column if not exists residual_impact text;
+alter table sm_grc_risks add column if not exists residual_score integer;
+alter table sm_grc_risks add column if not exists residual_rating text;
+alter table sm_grc_risks add column if not exists target_likelihood text;
+alter table sm_grc_risks add column if not exists target_impact text;
+alter table sm_grc_risks add column if not exists target_score integer;
+alter table sm_grc_risks add column if not exists appetite_score integer;
+alter table sm_grc_risks add column if not exists above_appetite boolean not null default false;
+alter table sm_grc_risks add column if not exists sle numeric;
+alter table sm_grc_risks add column if not exists aro numeric;
+alter table sm_grc_risks add column if not exists ale numeric;
+alter table sm_grc_risks add column if not exists treatment text;
+alter table sm_grc_risks add column if not exists review_due date;
+alter table sm_grc_risks add column if not exists last_reviewed_at timestamptz;
+alter table sm_grc_risks add column if not exists treatment_plan text;
+alter table sm_grc_risks add column if not exists notes text;
+alter table sm_grc_risks add column if not exists state text;
+create unique index if not exists sm_grc_risks_no_uk on sm_grc_risks (org_id, no);
+create index if not exists sm_grc_risks_rev_idx on sm_grc_risks (org_id, rev);
+create index if not exists sm_grc_risks_upd_idx on sm_grc_risks (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_grc_risks_crt_idx on sm_grc_risks (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_grc_risks_owner_id_idx on sm_grc_risks (org_id, owner_id) where deleted_at is null;
+create index if not exists sm_grc_risks_assignment_group_id_idx on sm_grc_risks (org_id, assignment_group_id) where deleted_at is null;
+create index if not exists sm_grc_risks_state_idx on sm_grc_risks (org_id, state) where deleted_at is null;
+create index if not exists sm_grc_risks_workspace_acc_idx on sm_grc_risks (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_grc_risks_unit_acc_idx on sm_grc_risks (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_grc_risks_domain_acc_idx on sm_grc_risks (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_grc_risks_reporter_id_idx on sm_grc_risks (org_id, reporter_id) where deleted_at is null;
+drop trigger if exists sm_grc_risks_sync on sm_grc_risks;
+create trigger sm_grc_risks_sync before insert or update on sm_grc_risks for each row execute function sm_sync_touch('grc_risk');
+alter table sm_grc_risks enable row level security;
+
+-- grc_risk_acceptance: پذیرش‌های ریسک
+create table if not exists sm_grc_risk_acceptances (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_grc_risk_acceptances add column if not exists workspace_id uuid;
+alter table sm_grc_risk_acceptances add column if not exists domain_id uuid;
+alter table sm_grc_risk_acceptances add column if not exists unit_id uuid;
+alter table sm_grc_risk_acceptances add column if not exists created_at timestamptz not null default now();
+alter table sm_grc_risk_acceptances add column if not exists created_by uuid;
+alter table sm_grc_risk_acceptances add column if not exists updated_at timestamptz not null default now();
+alter table sm_grc_risk_acceptances add column if not exists updated_by uuid;
+alter table sm_grc_risk_acceptances add column if not exists rev bigint not null default 0;
+alter table sm_grc_risk_acceptances add column if not exists version integer not null default 1;
+alter table sm_grc_risk_acceptances add column if not exists deleted_at timestamptz;
+alter table sm_grc_risk_acceptances add column if not exists origin text;
+alter table sm_grc_risk_acceptances add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_grc_risk_acceptances add column if not exists no integer;
+alter table sm_grc_risk_acceptances add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 6 then 'RAC' || no::text else 'RAC' || lpad(no::text, 6, '0') end) stored;
+alter table sm_grc_risk_acceptances add column if not exists risk_id uuid;
+alter table sm_grc_risk_acceptances add column if not exists expires_at date;
+alter table sm_grc_risk_acceptances add column if not exists accepted_by uuid;
+alter table sm_grc_risk_acceptances add column if not exists requested_by uuid;
+alter table sm_grc_risk_acceptances add column if not exists assignment_group_id uuid;
+alter table sm_grc_risk_acceptances add column if not exists residual_score integer;
+alter table sm_grc_risk_acceptances add column if not exists conditions text;
+alter table sm_grc_risk_acceptances add column if not exists approval text;
+alter table sm_grc_risk_acceptances add column if not exists accepted_at timestamptz;
+alter table sm_grc_risk_acceptances add column if not exists warned_at timestamptz;
+alter table sm_grc_risk_acceptances add column if not exists notes text;
+alter table sm_grc_risk_acceptances add column if not exists state text;
+create unique index if not exists sm_grc_risk_acceptances_no_uk on sm_grc_risk_acceptances (org_id, no);
+create index if not exists sm_grc_risk_acceptances_rev_idx on sm_grc_risk_acceptances (org_id, rev);
+create index if not exists sm_grc_risk_acceptances_upd_idx on sm_grc_risk_acceptances (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_grc_risk_acceptances_crt_idx on sm_grc_risk_acceptances (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_grc_risk_acceptances_risk_id_idx on sm_grc_risk_acceptances (org_id, risk_id) where deleted_at is null;
+create index if not exists sm_grc_risk_acceptances_accepted_by_idx on sm_grc_risk_acceptances (org_id, accepted_by) where deleted_at is null;
+create index if not exists sm_grc_risk_acceptances_state_idx on sm_grc_risk_acceptances (org_id, state) where deleted_at is null;
+create index if not exists sm_grc_risk_acceptances_workspace_acc_idx on sm_grc_risk_acceptances (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_grc_risk_acceptances_unit_acc_idx on sm_grc_risk_acceptances (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_grc_risk_acceptances_domain_acc_idx on sm_grc_risk_acceptances (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_grc_risk_acceptances_requested_by_idx on sm_grc_risk_acceptances (org_id, requested_by) where deleted_at is null;
+drop trigger if exists sm_grc_risk_acceptances_sync on sm_grc_risk_acceptances;
+create trigger sm_grc_risk_acceptances_sync before insert or update on sm_grc_risk_acceptances for each row execute function sm_sync_touch('grc_risk_acceptance');
+alter table sm_grc_risk_acceptances enable row level security;
+
+-- grc_risk_action: اقدام‌های درمان ریسک
+create table if not exists sm_grc_risk_actions (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_grc_risk_actions add column if not exists workspace_id uuid;
+alter table sm_grc_risk_actions add column if not exists domain_id uuid;
+alter table sm_grc_risk_actions add column if not exists unit_id uuid;
+alter table sm_grc_risk_actions add column if not exists created_at timestamptz not null default now();
+alter table sm_grc_risk_actions add column if not exists created_by uuid;
+alter table sm_grc_risk_actions add column if not exists updated_at timestamptz not null default now();
+alter table sm_grc_risk_actions add column if not exists updated_by uuid;
+alter table sm_grc_risk_actions add column if not exists rev bigint not null default 0;
+alter table sm_grc_risk_actions add column if not exists version integer not null default 1;
+alter table sm_grc_risk_actions add column if not exists deleted_at timestamptz;
+alter table sm_grc_risk_actions add column if not exists origin text;
+alter table sm_grc_risk_actions add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_grc_risk_actions add column if not exists no integer;
+alter table sm_grc_risk_actions add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 6 then 'RTA' || no::text else 'RTA' || lpad(no::text, 6, '0') end) stored;
+alter table sm_grc_risk_actions add column if not exists title text;
+alter table sm_grc_risk_actions add column if not exists risk_id uuid;
+alter table sm_grc_risk_actions add column if not exists owner_id uuid;
+alter table sm_grc_risk_actions add column if not exists due_at date;
+alter table sm_grc_risk_actions add column if not exists assignment_group_id uuid;
+alter table sm_grc_risk_actions add column if not exists change_id uuid;
+alter table sm_grc_risk_actions add column if not exists overdue boolean not null default false;
+alter table sm_grc_risk_actions add column if not exists notes text;
+alter table sm_grc_risk_actions add column if not exists state text;
+create unique index if not exists sm_grc_risk_actions_no_uk on sm_grc_risk_actions (org_id, no);
+create index if not exists sm_grc_risk_actions_rev_idx on sm_grc_risk_actions (org_id, rev);
+create index if not exists sm_grc_risk_actions_upd_idx on sm_grc_risk_actions (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_grc_risk_actions_crt_idx on sm_grc_risk_actions (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_grc_risk_actions_risk_id_idx on sm_grc_risk_actions (org_id, risk_id) where deleted_at is null;
+create index if not exists sm_grc_risk_actions_owner_id_idx on sm_grc_risk_actions (org_id, owner_id) where deleted_at is null;
+create index if not exists sm_grc_risk_actions_state_idx on sm_grc_risk_actions (org_id, state) where deleted_at is null;
+create index if not exists sm_grc_risk_actions_workspace_acc_idx on sm_grc_risk_actions (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_grc_risk_actions_unit_acc_idx on sm_grc_risk_actions (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_grc_risk_actions_domain_acc_idx on sm_grc_risk_actions (org_id, domain_id) where deleted_at is null and domain_id is not null;
+drop trigger if exists sm_grc_risk_actions_sync on sm_grc_risk_actions;
+create trigger sm_grc_risk_actions_sync before insert or update on sm_grc_risk_actions for each row execute function sm_sync_touch('grc_risk_action');
+alter table sm_grc_risk_actions enable row level security;
+
+-- grc_risk_appetite: اشتها و تحمل ریسک
+create table if not exists sm_grc_risk_appetites (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_grc_risk_appetites add column if not exists workspace_id uuid;
+alter table sm_grc_risk_appetites add column if not exists domain_id uuid;
+alter table sm_grc_risk_appetites add column if not exists unit_id uuid;
+alter table sm_grc_risk_appetites add column if not exists created_at timestamptz not null default now();
+alter table sm_grc_risk_appetites add column if not exists created_by uuid;
+alter table sm_grc_risk_appetites add column if not exists updated_at timestamptz not null default now();
+alter table sm_grc_risk_appetites add column if not exists updated_by uuid;
+alter table sm_grc_risk_appetites add column if not exists rev bigint not null default 0;
+alter table sm_grc_risk_appetites add column if not exists version integer not null default 1;
+alter table sm_grc_risk_appetites add column if not exists deleted_at timestamptz;
+alter table sm_grc_risk_appetites add column if not exists origin text;
+alter table sm_grc_risk_appetites add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_grc_risk_appetites add column if not exists category text;
+alter table sm_grc_risk_appetites add column if not exists appetite_score integer;
+alter table sm_grc_risk_appetites add column if not exists tolerance_score integer;
+alter table sm_grc_risk_appetites add column if not exists statement text;
+create index if not exists sm_grc_risk_appetites_rev_idx on sm_grc_risk_appetites (org_id, rev);
+create index if not exists sm_grc_risk_appetites_upd_idx on sm_grc_risk_appetites (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_grc_risk_appetites_crt_idx on sm_grc_risk_appetites (org_id, created_at desc, id desc) where deleted_at is null;
+create unique index if not exists sm_grc_risk_appetites_category_uk on sm_grc_risk_appetites (org_id, category) where deleted_at is null;
+drop trigger if exists sm_grc_risk_appetites_sync on sm_grc_risk_appetites;
+create trigger sm_grc_risk_appetites_sync before insert or update on sm_grc_risk_appetites for each row execute function sm_sync_touch('grc_risk_appetite');
+alter table sm_grc_risk_appetites enable row level security;
+
+-- grc_risk_event: رویدادهای زیان
+create table if not exists sm_grc_risk_events (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_grc_risk_events add column if not exists workspace_id uuid;
+alter table sm_grc_risk_events add column if not exists domain_id uuid;
+alter table sm_grc_risk_events add column if not exists unit_id uuid;
+alter table sm_grc_risk_events add column if not exists created_at timestamptz not null default now();
+alter table sm_grc_risk_events add column if not exists created_by uuid;
+alter table sm_grc_risk_events add column if not exists updated_at timestamptz not null default now();
+alter table sm_grc_risk_events add column if not exists updated_by uuid;
+alter table sm_grc_risk_events add column if not exists rev bigint not null default 0;
+alter table sm_grc_risk_events add column if not exists version integer not null default 1;
+alter table sm_grc_risk_events add column if not exists deleted_at timestamptz;
+alter table sm_grc_risk_events add column if not exists origin text;
+alter table sm_grc_risk_events add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_grc_risk_events add column if not exists no integer;
+alter table sm_grc_risk_events add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 5 then 'LOSS' || no::text else 'LOSS' || lpad(no::text, 5, '0') end) stored;
+alter table sm_grc_risk_events add column if not exists title text;
+alter table sm_grc_risk_events add column if not exists risk_id uuid;
+alter table sm_grc_risk_events add column if not exists incident_id uuid;
+alter table sm_grc_risk_events add column if not exists occurred_at timestamptz;
+alter table sm_grc_risk_events add column if not exists loss_amount numeric;
+alter table sm_grc_risk_events add column if not exists recovered_amount numeric;
+alter table sm_grc_risk_events add column if not exists owner_id uuid;
+alter table sm_grc_risk_events add column if not exists assignment_group_id uuid;
+alter table sm_grc_risk_events add column if not exists description text;
+alter table sm_grc_risk_events add column if not exists state text;
+create unique index if not exists sm_grc_risk_events_no_uk on sm_grc_risk_events (org_id, no);
+create index if not exists sm_grc_risk_events_rev_idx on sm_grc_risk_events (org_id, rev);
+create index if not exists sm_grc_risk_events_upd_idx on sm_grc_risk_events (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_grc_risk_events_crt_idx on sm_grc_risk_events (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_grc_risk_events_risk_id_idx on sm_grc_risk_events (org_id, risk_id) where deleted_at is null;
+create index if not exists sm_grc_risk_events_state_idx on sm_grc_risk_events (org_id, state) where deleted_at is null;
+create index if not exists sm_grc_risk_events_workspace_acc_idx on sm_grc_risk_events (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_grc_risk_events_unit_acc_idx on sm_grc_risk_events (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_grc_risk_events_domain_acc_idx on sm_grc_risk_events (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_grc_risk_events_owner_id_idx on sm_grc_risk_events (org_id, owner_id) where deleted_at is null;
+drop trigger if exists sm_grc_risk_events_sync on sm_grc_risk_events;
+create trigger sm_grc_risk_events_sync before insert or update on sm_grc_risk_events for each row execute function sm_sync_touch('grc_risk_event');
+alter table sm_grc_risk_events enable row level security;
+
+-- grc_risk_matrix: ماتریس‌ها و مقیاس‌های ریسک
+create table if not exists sm_grc_risk_matrices (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_grc_risk_matrices add column if not exists workspace_id uuid;
+alter table sm_grc_risk_matrices add column if not exists domain_id uuid;
+alter table sm_grc_risk_matrices add column if not exists unit_id uuid;
+alter table sm_grc_risk_matrices add column if not exists created_at timestamptz not null default now();
+alter table sm_grc_risk_matrices add column if not exists created_by uuid;
+alter table sm_grc_risk_matrices add column if not exists updated_at timestamptz not null default now();
+alter table sm_grc_risk_matrices add column if not exists updated_by uuid;
+alter table sm_grc_risk_matrices add column if not exists rev bigint not null default 0;
+alter table sm_grc_risk_matrices add column if not exists version integer not null default 1;
+alter table sm_grc_risk_matrices add column if not exists deleted_at timestamptz;
+alter table sm_grc_risk_matrices add column if not exists origin text;
+alter table sm_grc_risk_matrices add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_grc_risk_matrices add column if not exists name text;
+alter table sm_grc_risk_matrices add column if not exists revision integer;
+alter table sm_grc_risk_matrices add column if not exists is_default boolean not null default false;
+alter table sm_grc_risk_matrices add column if not exists likelihood_labels jsonb;
+alter table sm_grc_risk_matrices add column if not exists impact_labels jsonb;
+alter table sm_grc_risk_matrices add column if not exists cells jsonb;
+alter table sm_grc_risk_matrices add column if not exists description text;
+create index if not exists sm_grc_risk_matrices_rev_idx on sm_grc_risk_matrices (org_id, rev);
+create index if not exists sm_grc_risk_matrices_upd_idx on sm_grc_risk_matrices (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_grc_risk_matrices_crt_idx on sm_grc_risk_matrices (org_id, created_at desc, id desc) where deleted_at is null;
+drop trigger if exists sm_grc_risk_matrices_sync on sm_grc_risk_matrices;
+create trigger sm_grc_risk_matrices_sync before insert or update on sm_grc_risk_matrices for each row execute function sm_sync_touch('grc_risk_matrix');
+alter table sm_grc_risk_matrices enable row level security;
+
+-- grc_ropa: ثبت فعالیت‌های پردازش
+create table if not exists sm_grc_ropa (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_grc_ropa add column if not exists workspace_id uuid;
+alter table sm_grc_ropa add column if not exists domain_id uuid;
+alter table sm_grc_ropa add column if not exists unit_id uuid;
+alter table sm_grc_ropa add column if not exists created_at timestamptz not null default now();
+alter table sm_grc_ropa add column if not exists created_by uuid;
+alter table sm_grc_ropa add column if not exists updated_at timestamptz not null default now();
+alter table sm_grc_ropa add column if not exists updated_by uuid;
+alter table sm_grc_ropa add column if not exists rev bigint not null default 0;
+alter table sm_grc_ropa add column if not exists version integer not null default 1;
+alter table sm_grc_ropa add column if not exists deleted_at timestamptz;
+alter table sm_grc_ropa add column if not exists origin text;
+alter table sm_grc_ropa add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_grc_ropa add column if not exists no integer;
+alter table sm_grc_ropa add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 5 then 'ROPA' || no::text else 'ROPA' || lpad(no::text, 5, '0') end) stored;
+alter table sm_grc_ropa add column if not exists name text;
+alter table sm_grc_ropa add column if not exists legal_basis text;
+alter table sm_grc_ropa add column if not exists purpose text;
+alter table sm_grc_ropa add column if not exists data_categories jsonb;
+alter table sm_grc_ropa add column if not exists subject_categories jsonb;
+alter table sm_grc_ropa add column if not exists special_data boolean not null default false;
+alter table sm_grc_ropa add column if not exists recipients text;
+alter table sm_grc_ropa add column if not exists retention text;
+alter table sm_grc_ropa add column if not exists transfers text;
+alter table sm_grc_ropa add column if not exists systems jsonb;
+alter table sm_grc_ropa add column if not exists owner_id uuid;
+alter table sm_grc_ropa add column if not exists assignment_group_id uuid;
+alter table sm_grc_ropa add column if not exists dpia_required boolean not null default false;
+alter table sm_grc_ropa add column if not exists dpia_result text;
+alter table sm_grc_ropa add column if not exists dpia_date date;
+alter table sm_grc_ropa add column if not exists dpia_measures text;
+create unique index if not exists sm_grc_ropa_no_uk on sm_grc_ropa (org_id, no);
+create index if not exists sm_grc_ropa_rev_idx on sm_grc_ropa (org_id, rev);
+create index if not exists sm_grc_ropa_upd_idx on sm_grc_ropa (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_grc_ropa_crt_idx on sm_grc_ropa (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_grc_ropa_workspace_acc_idx on sm_grc_ropa (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_grc_ropa_unit_acc_idx on sm_grc_ropa (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_grc_ropa_domain_acc_idx on sm_grc_ropa (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_grc_ropa_owner_id_idx on sm_grc_ropa (org_id, owner_id) where deleted_at is null;
+drop trigger if exists sm_grc_ropa_sync on sm_grc_ropa;
+create trigger sm_grc_ropa_sync before insert or update on sm_grc_ropa for each row execute function sm_sync_touch('grc_ropa');
+alter table sm_grc_ropa enable row level security;
+
 -- group: گروه‌ها
 create table if not exists sm_groups (
   id uuid primary key,
@@ -14859,6 +16179,988 @@ create index if not exists sm_schedules_crt_idx on sm_schedules (org_id, created
 drop trigger if exists sm_schedules_sync on sm_schedules;
 create trigger sm_schedules_sync before insert or update on sm_schedules for each row execute function sm_sync_touch('schedule');
 alter table sm_schedules enable row level security;
+
+-- sec_config: تنظیمات امنیت
+create table if not exists sm_sec_configs (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_sec_configs add column if not exists workspace_id uuid;
+alter table sm_sec_configs add column if not exists domain_id uuid;
+alter table sm_sec_configs add column if not exists unit_id uuid;
+alter table sm_sec_configs add column if not exists created_at timestamptz not null default now();
+alter table sm_sec_configs add column if not exists created_by uuid;
+alter table sm_sec_configs add column if not exists updated_at timestamptz not null default now();
+alter table sm_sec_configs add column if not exists updated_by uuid;
+alter table sm_sec_configs add column if not exists rev bigint not null default 0;
+alter table sm_sec_configs add column if not exists version integer not null default 1;
+alter table sm_sec_configs add column if not exists deleted_at timestamptz;
+alter table sm_sec_configs add column if not exists origin text;
+alter table sm_sec_configs add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_sec_configs add column if not exists name text;
+alter table sm_sec_configs add column if not exists config_key text;
+alter table sm_sec_configs add column if not exists secure_workspace_id uuid;
+alter table sm_sec_configs add column if not exists soc_group_id uuid;
+alter table sm_sec_configs add column if not exists auto_promote boolean not null default true;
+alter table sm_sec_configs add column if not exists auto_playbook boolean not null default true;
+alter table sm_sec_configs add column if not exists sir_weights jsonb;
+alter table sm_sec_configs add column if not exists ai_max_classification text;
+alter table sm_sec_configs add column if not exists vuln_group_id uuid;
+alter table sm_sec_configs add column if not exists vuln_sla_critical integer;
+alter table sm_sec_configs add column if not exists vuln_sla_high integer;
+alter table sm_sec_configs add column if not exists vuln_sla_medium integer;
+alter table sm_sec_configs add column if not exists vuln_sla_low integer;
+alter table sm_sec_configs add column if not exists autoclose_missing boolean not null default true;
+alter table sm_sec_configs add column if not exists exception_warn_days integer;
+alter table sm_sec_configs add column if not exists review_changes boolean not null default true;
+alter table sm_sec_configs add column if not exists grc_group_id uuid;
+alter table sm_sec_configs add column if not exists policy_review_months integer;
+alter table sm_sec_configs add column if not exists seeded integer;
+create index if not exists sm_sec_configs_rev_idx on sm_sec_configs (org_id, rev);
+create index if not exists sm_sec_configs_upd_idx on sm_sec_configs (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_sec_configs_crt_idx on sm_sec_configs (org_id, created_at desc, id desc) where deleted_at is null;
+create unique index if not exists sm_sec_configs_config_key_uk on sm_sec_configs (org_id, config_key) where deleted_at is null;
+drop trigger if exists sm_sec_configs_sync on sm_sec_configs;
+create trigger sm_sec_configs_sync before insert or update on sm_sec_configs for each row execute function sm_sync_touch('sec_config');
+alter table sm_sec_configs enable row level security;
+
+-- sec_evidence: شواهد و زنجیرهٔ حضانت
+create table if not exists sm_sec_evidence (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_sec_evidence add column if not exists workspace_id uuid;
+alter table sm_sec_evidence add column if not exists domain_id uuid;
+alter table sm_sec_evidence add column if not exists unit_id uuid;
+alter table sm_sec_evidence add column if not exists created_at timestamptz not null default now();
+alter table sm_sec_evidence add column if not exists created_by uuid;
+alter table sm_sec_evidence add column if not exists updated_at timestamptz not null default now();
+alter table sm_sec_evidence add column if not exists updated_by uuid;
+alter table sm_sec_evidence add column if not exists rev bigint not null default 0;
+alter table sm_sec_evidence add column if not exists version integer not null default 1;
+alter table sm_sec_evidence add column if not exists deleted_at timestamptz;
+alter table sm_sec_evidence add column if not exists origin text;
+alter table sm_sec_evidence add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_sec_evidence add column if not exists no integer;
+alter table sm_sec_evidence add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 6 then 'EVD' || no::text else 'EVD' || lpad(no::text, 6, '0') end) stored;
+alter table sm_sec_evidence add column if not exists title text;
+alter table sm_sec_evidence add column if not exists kind text;
+alter table sm_sec_evidence add column if not exists sec_incident_id uuid;
+alter table sm_sec_evidence add column if not exists sha256 text;
+alter table sm_sec_evidence add column if not exists description text;
+alter table sm_sec_evidence add column if not exists collected_at timestamptz;
+alter table sm_sec_evidence add column if not exists collected_by uuid;
+alter table sm_sec_evidence add column if not exists custodian_id uuid;
+alter table sm_sec_evidence add column if not exists location text;
+alter table sm_sec_evidence add column if not exists legal_hold boolean not null default false;
+alter table sm_sec_evidence add column if not exists assignment_group_id uuid;
+alter table sm_sec_evidence add column if not exists custody_log jsonb;
+alter table sm_sec_evidence add column if not exists notes text;
+alter table sm_sec_evidence add column if not exists confidential boolean not null default false;
+alter table sm_sec_evidence add column if not exists access_list jsonb;
+alter table sm_sec_evidence add column if not exists state text;
+create unique index if not exists sm_sec_evidence_no_uk on sm_sec_evidence (org_id, no);
+create index if not exists sm_sec_evidence_rev_idx on sm_sec_evidence (org_id, rev);
+create index if not exists sm_sec_evidence_upd_idx on sm_sec_evidence (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_sec_evidence_crt_idx on sm_sec_evidence (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_sec_evidence_sec_incident_id_idx on sm_sec_evidence (org_id, sec_incident_id) where deleted_at is null;
+create index if not exists sm_sec_evidence_sha256_idx on sm_sec_evidence (org_id, sha256) where deleted_at is null;
+create index if not exists sm_sec_evidence_state_idx on sm_sec_evidence (org_id, state) where deleted_at is null;
+create index if not exists sm_sec_evidence_workspace_acc_idx on sm_sec_evidence (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_sec_evidence_unit_acc_idx on sm_sec_evidence (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_sec_evidence_domain_acc_idx on sm_sec_evidence (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_sec_evidence_custodian_id_idx on sm_sec_evidence (org_id, custodian_id) where deleted_at is null;
+create index if not exists sm_sec_evidence_collected_by_idx on sm_sec_evidence (org_id, collected_by) where deleted_at is null;
+drop trigger if exists sm_sec_evidence_sync on sm_sec_evidence;
+create trigger sm_sec_evidence_sync before insert or update on sm_sec_evidence for each row execute function sm_sync_touch('sec_evidence');
+alter table sm_sec_evidence enable row level security;
+
+-- sec_incident: رخدادهای امنیتی
+create table if not exists sm_sec_incidents (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_sec_incidents add column if not exists workspace_id uuid;
+alter table sm_sec_incidents add column if not exists domain_id uuid;
+alter table sm_sec_incidents add column if not exists unit_id uuid;
+alter table sm_sec_incidents add column if not exists created_at timestamptz not null default now();
+alter table sm_sec_incidents add column if not exists created_by uuid;
+alter table sm_sec_incidents add column if not exists updated_at timestamptz not null default now();
+alter table sm_sec_incidents add column if not exists updated_by uuid;
+alter table sm_sec_incidents add column if not exists rev bigint not null default 0;
+alter table sm_sec_incidents add column if not exists version integer not null default 1;
+alter table sm_sec_incidents add column if not exists deleted_at timestamptz;
+alter table sm_sec_incidents add column if not exists origin text;
+alter table sm_sec_incidents add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_sec_incidents add column if not exists no integer;
+alter table sm_sec_incidents add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 7 then 'SIR' || no::text else 'SIR' || lpad(no::text, 7, '0') end) stored;
+alter table sm_sec_incidents add column if not exists short_description text;
+alter table sm_sec_incidents add column if not exists description text;
+alter table sm_sec_incidents add column if not exists state text;
+alter table sm_sec_incidents add column if not exists priority text;
+alter table sm_sec_incidents add column if not exists impact text;
+alter table sm_sec_incidents add column if not exists urgency text;
+alter table sm_sec_incidents add column if not exists category text;
+alter table sm_sec_incidents add column if not exists subcategory text;
+alter table sm_sec_incidents add column if not exists channel text;
+alter table sm_sec_incidents add column if not exists caller_id uuid;
+alter table sm_sec_incidents add column if not exists requested_for uuid;
+alter table sm_sec_incidents add column if not exists opened_by uuid;
+alter table sm_sec_incidents add column if not exists opened_at timestamptz;
+alter table sm_sec_incidents add column if not exists assignment_group_id uuid;
+alter table sm_sec_incidents add column if not exists assigned_to uuid;
+alter table sm_sec_incidents add column if not exists service_id uuid;
+alter table sm_sec_incidents add column if not exists offering_id uuid;
+alter table sm_sec_incidents add column if not exists ci_id uuid;
+alter table sm_sec_incidents add column if not exists location_id uuid;
+alter table sm_sec_incidents add column if not exists due_at timestamptz;
+alter table sm_sec_incidents add column if not exists resolved_at timestamptz;
+alter table sm_sec_incidents add column if not exists resolved_by uuid;
+alter table sm_sec_incidents add column if not exists closed_at timestamptz;
+alter table sm_sec_incidents add column if not exists closed_by uuid;
+alter table sm_sec_incidents add column if not exists close_code text;
+alter table sm_sec_incidents add column if not exists close_notes text;
+alter table sm_sec_incidents add column if not exists parent_id uuid;
+alter table sm_sec_incidents add column if not exists watch_list jsonb;
+alter table sm_sec_incidents add column if not exists approval text;
+alter table sm_sec_incidents add column if not exists escalation integer;
+alter table sm_sec_incidents add column if not exists reassignment_count integer;
+alter table sm_sec_incidents add column if not exists reopen_count integer;
+alter table sm_sec_incidents add column if not exists time_worked bigint;
+alter table sm_sec_incidents add column if not exists first_response_at timestamptz;
+alter table sm_sec_incidents add column if not exists active boolean not null default true;
+alter table sm_sec_incidents add column if not exists sla_due timestamptz;
+alter table sm_sec_incidents add column if not exists knowledge boolean not null default false;
+alter table sm_sec_incidents add column if not exists severity text;
+alter table sm_sec_incidents add column if not exists business_impact text;
+alter table sm_sec_incidents add column if not exists classification text;
+alter table sm_sec_incidents add column if not exists risk_score integer;
+alter table sm_sec_incidents add column if not exists source text;
+alter table sm_sec_incidents add column if not exists attack_vector text;
+alter table sm_sec_incidents add column if not exists mitre_techniques jsonb;
+alter table sm_sec_incidents add column if not exists lead_id uuid;
+alter table sm_sec_incidents add column if not exists playbook_id uuid;
+alter table sm_sec_incidents add column if not exists major boolean not null default false;
+alter table sm_sec_incidents add column if not exists personal_data_breach boolean not null default false;
+alter table sm_sec_incidents add column if not exists records_affected integer;
+alter table sm_sec_incidents add column if not exists affected_users jsonb;
+alter table sm_sec_incidents add column if not exists affected_cis jsonb;
+alter table sm_sec_incidents add column if not exists affected_services jsonb;
+alter table sm_sec_incidents add column if not exists affected_data text;
+alter table sm_sec_incidents add column if not exists it_incident_id uuid;
+alter table sm_sec_incidents add column if not exists problem_id uuid;
+alter table sm_sec_incidents add column if not exists first_malicious_at timestamptz;
+alter table sm_sec_incidents add column if not exists detected_at timestamptz;
+alter table sm_sec_incidents add column if not exists contained_at timestamptz;
+alter table sm_sec_incidents add column if not exists eradicated_at timestamptz;
+alter table sm_sec_incidents add column if not exists recovered_at timestamptz;
+alter table sm_sec_incidents add column if not exists time_to_detect bigint;
+alter table sm_sec_incidents add column if not exists time_to_contain bigint;
+alter table sm_sec_incidents add column if not exists time_to_recover bigint;
+alter table sm_sec_incidents add column if not exists regulatory boolean not null default false;
+alter table sm_sec_incidents add column if not exists regulatory_overdue boolean not null default false;
+alter table sm_sec_incidents add column if not exists root_cause text;
+alter table sm_sec_incidents add column if not exists actions_taken text;
+alter table sm_sec_incidents add column if not exists lessons text;
+alter table sm_sec_incidents add column if not exists pir_done_at timestamptz;
+alter table sm_sec_incidents add column if not exists confidential boolean not null default false;
+alter table sm_sec_incidents add column if not exists access_list jsonb;
+create unique index if not exists sm_sec_incidents_no_uk on sm_sec_incidents (org_id, no);
+create index if not exists sm_sec_incidents_rev_idx on sm_sec_incidents (org_id, rev);
+create index if not exists sm_sec_incidents_upd_idx on sm_sec_incidents (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_sec_incidents_crt_idx on sm_sec_incidents (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_sec_incidents_state_idx on sm_sec_incidents (org_id, state) where deleted_at is null;
+create index if not exists sm_sec_incidents_assignment_group_id_idx on sm_sec_incidents (org_id, assignment_group_id) where deleted_at is null;
+create index if not exists sm_sec_incidents_assigned_to_idx on sm_sec_incidents (org_id, assigned_to) where deleted_at is null;
+create index if not exists sm_sec_incidents_lead_id_idx on sm_sec_incidents (org_id, lead_id) where deleted_at is null;
+create index if not exists sm_sec_incidents_it_incident_id_idx on sm_sec_incidents (org_id, it_incident_id) where deleted_at is null;
+create index if not exists sm_sec_incidents_workspace_acc_idx on sm_sec_incidents (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_sec_incidents_unit_acc_idx on sm_sec_incidents (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_sec_incidents_domain_acc_idx on sm_sec_incidents (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_sec_incidents_caller_id_idx on sm_sec_incidents (org_id, caller_id) where deleted_at is null;
+create index if not exists sm_sec_incidents_opened_by_idx on sm_sec_incidents (org_id, opened_by) where deleted_at is null;
+create index if not exists sm_sec_incidents_watch_list_gin on sm_sec_incidents using gin (watch_list);
+drop trigger if exists sm_sec_incidents_sync on sm_sec_incidents;
+create trigger sm_sec_incidents_sync before insert or update on sm_sec_incidents for each row execute function sm_sync_touch('sec_incident');
+alter table sm_sec_incidents enable row level security;
+
+-- sec_observable: نشانگرها و اطلاعات تهدید
+create table if not exists sm_sec_observables (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_sec_observables add column if not exists workspace_id uuid;
+alter table sm_sec_observables add column if not exists domain_id uuid;
+alter table sm_sec_observables add column if not exists unit_id uuid;
+alter table sm_sec_observables add column if not exists created_at timestamptz not null default now();
+alter table sm_sec_observables add column if not exists created_by uuid;
+alter table sm_sec_observables add column if not exists updated_at timestamptz not null default now();
+alter table sm_sec_observables add column if not exists updated_by uuid;
+alter table sm_sec_observables add column if not exists rev bigint not null default 0;
+alter table sm_sec_observables add column if not exists version integer not null default 1;
+alter table sm_sec_observables add column if not exists deleted_at timestamptz;
+alter table sm_sec_observables add column if not exists origin text;
+alter table sm_sec_observables add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_sec_observables add column if not exists value text;
+alter table sm_sec_observables add column if not exists type text;
+alter table sm_sec_observables add column if not exists normalized text;
+alter table sm_sec_observables add column if not exists verdict text;
+alter table sm_sec_observables add column if not exists confidence integer;
+alter table sm_sec_observables add column if not exists tlp text;
+alter table sm_sec_observables add column if not exists is_ioc boolean not null default false;
+alter table sm_sec_observables add column if not exists source text;
+alter table sm_sec_observables add column if not exists mitre jsonb;
+alter table sm_sec_observables add column if not exists incidents jsonb;
+alter table sm_sec_observables add column if not exists sightings integer;
+alter table sm_sec_observables add column if not exists first_seen timestamptz;
+alter table sm_sec_observables add column if not exists last_seen timestamptz;
+alter table sm_sec_observables add column if not exists expires_at timestamptz;
+alter table sm_sec_observables add column if not exists enrichment jsonb;
+alter table sm_sec_observables add column if not exists enriched_at timestamptz;
+alter table sm_sec_observables add column if not exists assignment_group_id uuid;
+alter table sm_sec_observables add column if not exists notes text;
+create index if not exists sm_sec_observables_rev_idx on sm_sec_observables (org_id, rev);
+create index if not exists sm_sec_observables_upd_idx on sm_sec_observables (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_sec_observables_crt_idx on sm_sec_observables (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_sec_observables_normalized_idx on sm_sec_observables (org_id, normalized) where deleted_at is null;
+create index if not exists sm_sec_observables_assignment_group_id_idx on sm_sec_observables (org_id, assignment_group_id) where deleted_at is null;
+create unique index if not exists sm_sec_observables_type_normalized_uk on sm_sec_observables (org_id, type, normalized) where deleted_at is null;
+create index if not exists sm_sec_observables_workspace_acc_idx on sm_sec_observables (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_sec_observables_unit_acc_idx on sm_sec_observables (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_sec_observables_domain_acc_idx on sm_sec_observables (org_id, domain_id) where deleted_at is null and domain_id is not null;
+drop trigger if exists sm_sec_observables_sync on sm_sec_observables;
+create trigger sm_sec_observables_sync before insert or update on sm_sec_observables for each row execute function sm_sync_touch('sec_observable');
+alter table sm_sec_observables enable row level security;
+
+-- sec_playbook: دستورالعمل‌های پاسخ
+create table if not exists sm_sec_playbooks (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_sec_playbooks add column if not exists workspace_id uuid;
+alter table sm_sec_playbooks add column if not exists domain_id uuid;
+alter table sm_sec_playbooks add column if not exists unit_id uuid;
+alter table sm_sec_playbooks add column if not exists created_at timestamptz not null default now();
+alter table sm_sec_playbooks add column if not exists created_by uuid;
+alter table sm_sec_playbooks add column if not exists updated_at timestamptz not null default now();
+alter table sm_sec_playbooks add column if not exists updated_by uuid;
+alter table sm_sec_playbooks add column if not exists rev bigint not null default 0;
+alter table sm_sec_playbooks add column if not exists version integer not null default 1;
+alter table sm_sec_playbooks add column if not exists deleted_at timestamptz;
+alter table sm_sec_playbooks add column if not exists origin text;
+alter table sm_sec_playbooks add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_sec_playbooks add column if not exists name text;
+alter table sm_sec_playbooks add column if not exists category text;
+alter table sm_sec_playbooks add column if not exists active boolean not null default true;
+alter table sm_sec_playbooks add column if not exists auto_apply boolean not null default true;
+alter table sm_sec_playbooks add column if not exists revision integer;
+alter table sm_sec_playbooks add column if not exists steps jsonb;
+alter table sm_sec_playbooks add column if not exists description text;
+create index if not exists sm_sec_playbooks_rev_idx on sm_sec_playbooks (org_id, rev);
+create index if not exists sm_sec_playbooks_upd_idx on sm_sec_playbooks (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_sec_playbooks_crt_idx on sm_sec_playbooks (org_id, created_at desc, id desc) where deleted_at is null;
+drop trigger if exists sm_sec_playbooks_sync on sm_sec_playbooks;
+create trigger sm_sec_playbooks_sync before insert or update on sm_sec_playbooks for each row execute function sm_sync_touch('sec_playbook');
+alter table sm_sec_playbooks enable row level security;
+
+-- sec_reg_clock: ساعت‌های اطلاع‌رسانی الزامی
+create table if not exists sm_sec_reg_clocks (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_sec_reg_clocks add column if not exists workspace_id uuid;
+alter table sm_sec_reg_clocks add column if not exists domain_id uuid;
+alter table sm_sec_reg_clocks add column if not exists unit_id uuid;
+alter table sm_sec_reg_clocks add column if not exists created_at timestamptz not null default now();
+alter table sm_sec_reg_clocks add column if not exists created_by uuid;
+alter table sm_sec_reg_clocks add column if not exists updated_at timestamptz not null default now();
+alter table sm_sec_reg_clocks add column if not exists updated_by uuid;
+alter table sm_sec_reg_clocks add column if not exists rev bigint not null default 0;
+alter table sm_sec_reg_clocks add column if not exists version integer not null default 1;
+alter table sm_sec_reg_clocks add column if not exists deleted_at timestamptz;
+alter table sm_sec_reg_clocks add column if not exists origin text;
+alter table sm_sec_reg_clocks add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_sec_reg_clocks add column if not exists no integer;
+alter table sm_sec_reg_clocks add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 6 then 'REG' || no::text else 'REG' || lpad(no::text, 6, '0') end) stored;
+alter table sm_sec_reg_clocks add column if not exists sec_incident_id uuid;
+alter table sm_sec_reg_clocks add column if not exists regime_id uuid;
+alter table sm_sec_reg_clocks add column if not exists aware_at timestamptz;
+alter table sm_sec_reg_clocks add column if not exists authority text;
+alter table sm_sec_reg_clocks add column if not exists owner_id uuid;
+alter table sm_sec_reg_clocks add column if not exists next_stage text;
+alter table sm_sec_reg_clocks add column if not exists next_due_at timestamptz;
+alter table sm_sec_reg_clocks add column if not exists overdue boolean not null default false;
+alter table sm_sec_reg_clocks add column if not exists deadlines jsonb;
+alter table sm_sec_reg_clocks add column if not exists reference text;
+alter table sm_sec_reg_clocks add column if not exists submitted_at timestamptz;
+alter table sm_sec_reg_clocks add column if not exists assignment_group_id uuid;
+alter table sm_sec_reg_clocks add column if not exists notes text;
+alter table sm_sec_reg_clocks add column if not exists state text;
+create unique index if not exists sm_sec_reg_clocks_no_uk on sm_sec_reg_clocks (org_id, no);
+create index if not exists sm_sec_reg_clocks_rev_idx on sm_sec_reg_clocks (org_id, rev);
+create index if not exists sm_sec_reg_clocks_upd_idx on sm_sec_reg_clocks (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_sec_reg_clocks_crt_idx on sm_sec_reg_clocks (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_sec_reg_clocks_sec_incident_id_idx on sm_sec_reg_clocks (org_id, sec_incident_id) where deleted_at is null;
+create index if not exists sm_sec_reg_clocks_state_idx on sm_sec_reg_clocks (org_id, state) where deleted_at is null;
+create index if not exists sm_sec_reg_clocks_workspace_acc_idx on sm_sec_reg_clocks (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_sec_reg_clocks_unit_acc_idx on sm_sec_reg_clocks (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_sec_reg_clocks_domain_acc_idx on sm_sec_reg_clocks (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_sec_reg_clocks_owner_id_idx on sm_sec_reg_clocks (org_id, owner_id) where deleted_at is null;
+drop trigger if exists sm_sec_reg_clocks_sync on sm_sec_reg_clocks;
+create trigger sm_sec_reg_clocks_sync before insert or update on sm_sec_reg_clocks for each row execute function sm_sync_touch('sec_reg_clock');
+alter table sm_sec_reg_clocks enable row level security;
+
+-- sec_reg_regime: مقررات اطلاع‌رسانی
+create table if not exists sm_sec_reg_regimes (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_sec_reg_regimes add column if not exists workspace_id uuid;
+alter table sm_sec_reg_regimes add column if not exists domain_id uuid;
+alter table sm_sec_reg_regimes add column if not exists unit_id uuid;
+alter table sm_sec_reg_regimes add column if not exists created_at timestamptz not null default now();
+alter table sm_sec_reg_regimes add column if not exists created_by uuid;
+alter table sm_sec_reg_regimes add column if not exists updated_at timestamptz not null default now();
+alter table sm_sec_reg_regimes add column if not exists updated_by uuid;
+alter table sm_sec_reg_regimes add column if not exists rev bigint not null default 0;
+alter table sm_sec_reg_regimes add column if not exists version integer not null default 1;
+alter table sm_sec_reg_regimes add column if not exists deleted_at timestamptz;
+alter table sm_sec_reg_regimes add column if not exists origin text;
+alter table sm_sec_reg_regimes add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_sec_reg_regimes add column if not exists name text;
+alter table sm_sec_reg_regimes add column if not exists key text;
+alter table sm_sec_reg_regimes add column if not exists active boolean not null default true;
+alter table sm_sec_reg_regimes add column if not exists authority text;
+alter table sm_sec_reg_regimes add column if not exists personal_data boolean not null default false;
+alter table sm_sec_reg_regimes add column if not exists placeholder boolean not null default false;
+alter table sm_sec_reg_regimes add column if not exists stages jsonb;
+alter table sm_sec_reg_regimes add column if not exists description text;
+create index if not exists sm_sec_reg_regimes_rev_idx on sm_sec_reg_regimes (org_id, rev);
+create index if not exists sm_sec_reg_regimes_upd_idx on sm_sec_reg_regimes (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_sec_reg_regimes_crt_idx on sm_sec_reg_regimes (org_id, created_at desc, id desc) where deleted_at is null;
+create unique index if not exists sm_sec_reg_regimes_key_uk on sm_sec_reg_regimes (org_id, key) where deleted_at is null;
+drop trigger if exists sm_sec_reg_regimes_sync on sm_sec_reg_regimes;
+create trigger sm_sec_reg_regimes_sync before insert or update on sm_sec_reg_regimes for each row execute function sm_sync_touch('sec_reg_regime');
+alter table sm_sec_reg_regimes enable row level security;
+
+-- sec_review: بازبینی‌های امنیتی
+create table if not exists sm_sec_reviews (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_sec_reviews add column if not exists workspace_id uuid;
+alter table sm_sec_reviews add column if not exists domain_id uuid;
+alter table sm_sec_reviews add column if not exists unit_id uuid;
+alter table sm_sec_reviews add column if not exists created_at timestamptz not null default now();
+alter table sm_sec_reviews add column if not exists created_by uuid;
+alter table sm_sec_reviews add column if not exists updated_at timestamptz not null default now();
+alter table sm_sec_reviews add column if not exists updated_by uuid;
+alter table sm_sec_reviews add column if not exists rev bigint not null default 0;
+alter table sm_sec_reviews add column if not exists version integer not null default 1;
+alter table sm_sec_reviews add column if not exists deleted_at timestamptz;
+alter table sm_sec_reviews add column if not exists origin text;
+alter table sm_sec_reviews add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_sec_reviews add column if not exists no integer;
+alter table sm_sec_reviews add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 6 then 'SRV' || no::text else 'SRV' || lpad(no::text, 6, '0') end) stored;
+alter table sm_sec_reviews add column if not exists title text;
+alter table sm_sec_reviews add column if not exists kind text;
+alter table sm_sec_reviews add column if not exists change_id uuid;
+alter table sm_sec_reviews add column if not exists due_at timestamptz;
+alter table sm_sec_reviews add column if not exists flags jsonb;
+alter table sm_sec_reviews add column if not exists reviewer_id uuid;
+alter table sm_sec_reviews add column if not exists assignment_group_id uuid;
+alter table sm_sec_reviews add column if not exists decision text;
+alter table sm_sec_reviews add column if not exists findings text;
+alter table sm_sec_reviews add column if not exists conditions text;
+alter table sm_sec_reviews add column if not exists state text;
+create unique index if not exists sm_sec_reviews_no_uk on sm_sec_reviews (org_id, no);
+create index if not exists sm_sec_reviews_rev_idx on sm_sec_reviews (org_id, rev);
+create index if not exists sm_sec_reviews_upd_idx on sm_sec_reviews (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_sec_reviews_crt_idx on sm_sec_reviews (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_sec_reviews_change_id_idx on sm_sec_reviews (org_id, change_id) where deleted_at is null;
+create index if not exists sm_sec_reviews_state_idx on sm_sec_reviews (org_id, state) where deleted_at is null;
+create index if not exists sm_sec_reviews_workspace_acc_idx on sm_sec_reviews (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_sec_reviews_unit_acc_idx on sm_sec_reviews (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_sec_reviews_domain_acc_idx on sm_sec_reviews (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_sec_reviews_reviewer_id_idx on sm_sec_reviews (org_id, reviewer_id) where deleted_at is null;
+drop trigger if exists sm_sec_reviews_sync on sm_sec_reviews;
+create trigger sm_sec_reviews_sync before insert or update on sm_sec_reviews for each row execute function sm_sync_touch('sec_review');
+alter table sm_sec_reviews enable row level security;
+
+-- sec_scan_import: ورودهای پویش
+create table if not exists sm_sec_scan_imports (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_sec_scan_imports add column if not exists workspace_id uuid;
+alter table sm_sec_scan_imports add column if not exists domain_id uuid;
+alter table sm_sec_scan_imports add column if not exists unit_id uuid;
+alter table sm_sec_scan_imports add column if not exists created_at timestamptz not null default now();
+alter table sm_sec_scan_imports add column if not exists created_by uuid;
+alter table sm_sec_scan_imports add column if not exists updated_at timestamptz not null default now();
+alter table sm_sec_scan_imports add column if not exists updated_by uuid;
+alter table sm_sec_scan_imports add column if not exists rev bigint not null default 0;
+alter table sm_sec_scan_imports add column if not exists version integer not null default 1;
+alter table sm_sec_scan_imports add column if not exists deleted_at timestamptz;
+alter table sm_sec_scan_imports add column if not exists origin text;
+alter table sm_sec_scan_imports add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_sec_scan_imports add column if not exists no integer;
+alter table sm_sec_scan_imports add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 6 then 'SCN' || no::text else 'SCN' || lpad(no::text, 6, '0') end) stored;
+alter table sm_sec_scan_imports add column if not exists name text;
+alter table sm_sec_scan_imports add column if not exists scanner text;
+alter table sm_sec_scan_imports add column if not exists format text;
+alter table sm_sec_scan_imports add column if not exists imported_at timestamptz;
+alter table sm_sec_scan_imports add column if not exists imported_by uuid;
+alter table sm_sec_scan_imports add column if not exists hosts integer;
+alter table sm_sec_scan_imports add column if not exists finding_count integer;
+alter table sm_sec_scan_imports add column if not exists created_count integer;
+alter table sm_sec_scan_imports add column if not exists updated_count integer;
+alter table sm_sec_scan_imports add column if not exists reopened_count integer;
+alter table sm_sec_scan_imports add column if not exists closed_count integer;
+alter table sm_sec_scan_imports add column if not exists unmatched_count integer;
+alter table sm_sec_scan_imports add column if not exists skipped_count integer;
+alter table sm_sec_scan_imports add column if not exists covered_cis jsonb;
+alter table sm_sec_scan_imports add column if not exists errors jsonb;
+create unique index if not exists sm_sec_scan_imports_no_uk on sm_sec_scan_imports (org_id, no);
+create index if not exists sm_sec_scan_imports_rev_idx on sm_sec_scan_imports (org_id, rev);
+create index if not exists sm_sec_scan_imports_upd_idx on sm_sec_scan_imports (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_sec_scan_imports_crt_idx on sm_sec_scan_imports (org_id, created_at desc, id desc) where deleted_at is null;
+drop trigger if exists sm_sec_scan_imports_sync on sm_sec_scan_imports;
+create trigger sm_sec_scan_imports_sync before insert or update on sm_sec_scan_imports for each row execute function sm_sync_touch('sec_scan_import');
+alter table sm_sec_scan_imports enable row level security;
+
+-- sec_task: کارهای پاسخ
+create table if not exists sm_sec_tasks (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_sec_tasks add column if not exists workspace_id uuid;
+alter table sm_sec_tasks add column if not exists domain_id uuid;
+alter table sm_sec_tasks add column if not exists unit_id uuid;
+alter table sm_sec_tasks add column if not exists created_at timestamptz not null default now();
+alter table sm_sec_tasks add column if not exists created_by uuid;
+alter table sm_sec_tasks add column if not exists updated_at timestamptz not null default now();
+alter table sm_sec_tasks add column if not exists updated_by uuid;
+alter table sm_sec_tasks add column if not exists rev bigint not null default 0;
+alter table sm_sec_tasks add column if not exists version integer not null default 1;
+alter table sm_sec_tasks add column if not exists deleted_at timestamptz;
+alter table sm_sec_tasks add column if not exists origin text;
+alter table sm_sec_tasks add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_sec_tasks add column if not exists no integer;
+alter table sm_sec_tasks add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 7 then 'SIT' || no::text else 'SIT' || lpad(no::text, 7, '0') end) stored;
+alter table sm_sec_tasks add column if not exists short_description text;
+alter table sm_sec_tasks add column if not exists description text;
+alter table sm_sec_tasks add column if not exists state text;
+alter table sm_sec_tasks add column if not exists priority text;
+alter table sm_sec_tasks add column if not exists impact text;
+alter table sm_sec_tasks add column if not exists urgency text;
+alter table sm_sec_tasks add column if not exists category text;
+alter table sm_sec_tasks add column if not exists subcategory text;
+alter table sm_sec_tasks add column if not exists channel text;
+alter table sm_sec_tasks add column if not exists caller_id uuid;
+alter table sm_sec_tasks add column if not exists requested_for uuid;
+alter table sm_sec_tasks add column if not exists opened_by uuid;
+alter table sm_sec_tasks add column if not exists opened_at timestamptz;
+alter table sm_sec_tasks add column if not exists assignment_group_id uuid;
+alter table sm_sec_tasks add column if not exists assigned_to uuid;
+alter table sm_sec_tasks add column if not exists service_id uuid;
+alter table sm_sec_tasks add column if not exists offering_id uuid;
+alter table sm_sec_tasks add column if not exists ci_id uuid;
+alter table sm_sec_tasks add column if not exists location_id uuid;
+alter table sm_sec_tasks add column if not exists due_at timestamptz;
+alter table sm_sec_tasks add column if not exists resolved_at timestamptz;
+alter table sm_sec_tasks add column if not exists resolved_by uuid;
+alter table sm_sec_tasks add column if not exists closed_at timestamptz;
+alter table sm_sec_tasks add column if not exists closed_by uuid;
+alter table sm_sec_tasks add column if not exists close_code text;
+alter table sm_sec_tasks add column if not exists close_notes text;
+alter table sm_sec_tasks add column if not exists parent_id uuid;
+alter table sm_sec_tasks add column if not exists watch_list jsonb;
+alter table sm_sec_tasks add column if not exists approval text;
+alter table sm_sec_tasks add column if not exists escalation integer;
+alter table sm_sec_tasks add column if not exists reassignment_count integer;
+alter table sm_sec_tasks add column if not exists reopen_count integer;
+alter table sm_sec_tasks add column if not exists time_worked bigint;
+alter table sm_sec_tasks add column if not exists first_response_at timestamptz;
+alter table sm_sec_tasks add column if not exists active boolean not null default true;
+alter table sm_sec_tasks add column if not exists sla_due timestamptz;
+alter table sm_sec_tasks add column if not exists knowledge boolean not null default false;
+alter table sm_sec_tasks add column if not exists sec_incident_id uuid;
+alter table sm_sec_tasks add column if not exists phase text;
+alter table sm_sec_tasks add column if not exists mandatory boolean not null default true;
+alter table sm_sec_tasks add column if not exists sort_order integer;
+alter table sm_sec_tasks add column if not exists action text;
+alter table sm_sec_tasks add column if not exists action_target text;
+alter table sm_sec_tasks add column if not exists requires_approval boolean not null default false;
+alter table sm_sec_tasks add column if not exists executed_at timestamptz;
+alter table sm_sec_tasks add column if not exists executed_by uuid;
+alter table sm_sec_tasks add column if not exists action_result text;
+create unique index if not exists sm_sec_tasks_no_uk on sm_sec_tasks (org_id, no);
+create index if not exists sm_sec_tasks_rev_idx on sm_sec_tasks (org_id, rev);
+create index if not exists sm_sec_tasks_upd_idx on sm_sec_tasks (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_sec_tasks_crt_idx on sm_sec_tasks (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_sec_tasks_state_idx on sm_sec_tasks (org_id, state) where deleted_at is null;
+create index if not exists sm_sec_tasks_assignment_group_id_idx on sm_sec_tasks (org_id, assignment_group_id) where deleted_at is null;
+create index if not exists sm_sec_tasks_assigned_to_idx on sm_sec_tasks (org_id, assigned_to) where deleted_at is null;
+create index if not exists sm_sec_tasks_sec_incident_id_idx on sm_sec_tasks (org_id, sec_incident_id) where deleted_at is null;
+create index if not exists sm_sec_tasks_workspace_acc_idx on sm_sec_tasks (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_sec_tasks_unit_acc_idx on sm_sec_tasks (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_sec_tasks_domain_acc_idx on sm_sec_tasks (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_sec_tasks_caller_id_idx on sm_sec_tasks (org_id, caller_id) where deleted_at is null;
+create index if not exists sm_sec_tasks_requested_for_idx on sm_sec_tasks (org_id, requested_for) where deleted_at is null;
+create index if not exists sm_sec_tasks_opened_by_idx on sm_sec_tasks (org_id, opened_by) where deleted_at is null;
+create index if not exists sm_sec_tasks_watch_list_gin on sm_sec_tasks using gin (watch_list);
+drop trigger if exists sm_sec_tasks_sync on sm_sec_tasks;
+create trigger sm_sec_tasks_sync before insert or update on sm_sec_tasks for each row execute function sm_sync_touch('sec_task');
+alter table sm_sec_tasks enable row level security;
+
+-- sec_verification: احراز هویت‌های تماس‌گیرنده
+create table if not exists sm_sec_verifications (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_sec_verifications add column if not exists workspace_id uuid;
+alter table sm_sec_verifications add column if not exists domain_id uuid;
+alter table sm_sec_verifications add column if not exists unit_id uuid;
+alter table sm_sec_verifications add column if not exists created_at timestamptz not null default now();
+alter table sm_sec_verifications add column if not exists created_by uuid;
+alter table sm_sec_verifications add column if not exists updated_at timestamptz not null default now();
+alter table sm_sec_verifications add column if not exists updated_by uuid;
+alter table sm_sec_verifications add column if not exists rev bigint not null default 0;
+alter table sm_sec_verifications add column if not exists version integer not null default 1;
+alter table sm_sec_verifications add column if not exists deleted_at timestamptz;
+alter table sm_sec_verifications add column if not exists origin text;
+alter table sm_sec_verifications add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_sec_verifications add column if not exists user_id uuid;
+alter table sm_sec_verifications add column if not exists record_table text;
+alter table sm_sec_verifications add column if not exists record_id text;
+alter table sm_sec_verifications add column if not exists record_number text;
+alter table sm_sec_verifications add column if not exists channel text;
+alter table sm_sec_verifications add column if not exists status text;
+alter table sm_sec_verifications add column if not exists code_hash text;
+alter table sm_sec_verifications add column if not exists expires_at timestamptz;
+alter table sm_sec_verifications add column if not exists attempts integer;
+alter table sm_sec_verifications add column if not exists requested_by uuid;
+alter table sm_sec_verifications add column if not exists verified_at timestamptz;
+create index if not exists sm_sec_verifications_rev_idx on sm_sec_verifications (org_id, rev);
+create index if not exists sm_sec_verifications_upd_idx on sm_sec_verifications (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_sec_verifications_crt_idx on sm_sec_verifications (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_sec_verifications_user_id_idx on sm_sec_verifications (org_id, user_id) where deleted_at is null;
+create index if not exists sm_sec_verifications_record_id_idx on sm_sec_verifications (org_id, record_id) where deleted_at is null;
+create index if not exists sm_sec_verifications_workspace_acc_idx on sm_sec_verifications (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_sec_verifications_unit_acc_idx on sm_sec_verifications (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_sec_verifications_domain_acc_idx on sm_sec_verifications (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_sec_verifications_requested_by_idx on sm_sec_verifications (org_id, requested_by) where deleted_at is null;
+drop trigger if exists sm_sec_verifications_sync on sm_sec_verifications;
+create trigger sm_sec_verifications_sync before insert or update on sm_sec_verifications for each row execute function sm_sync_touch('sec_verification');
+alter table sm_sec_verifications enable row level security;
+
+-- sec_vuln_exception: استثناهای آسیب‌پذیری
+create table if not exists sm_sec_vuln_exceptions (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_sec_vuln_exceptions add column if not exists workspace_id uuid;
+alter table sm_sec_vuln_exceptions add column if not exists domain_id uuid;
+alter table sm_sec_vuln_exceptions add column if not exists unit_id uuid;
+alter table sm_sec_vuln_exceptions add column if not exists created_at timestamptz not null default now();
+alter table sm_sec_vuln_exceptions add column if not exists created_by uuid;
+alter table sm_sec_vuln_exceptions add column if not exists updated_at timestamptz not null default now();
+alter table sm_sec_vuln_exceptions add column if not exists updated_by uuid;
+alter table sm_sec_vuln_exceptions add column if not exists rev bigint not null default 0;
+alter table sm_sec_vuln_exceptions add column if not exists version integer not null default 1;
+alter table sm_sec_vuln_exceptions add column if not exists deleted_at timestamptz;
+alter table sm_sec_vuln_exceptions add column if not exists origin text;
+alter table sm_sec_vuln_exceptions add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_sec_vuln_exceptions add column if not exists no integer;
+alter table sm_sec_vuln_exceptions add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 6 then 'EXC' || no::text else 'EXC' || lpad(no::text, 6, '0') end) stored;
+alter table sm_sec_vuln_exceptions add column if not exists title text;
+alter table sm_sec_vuln_exceptions add column if not exists kind text;
+alter table sm_sec_vuln_exceptions add column if not exists vulnerability_id uuid;
+alter table sm_sec_vuln_exceptions add column if not exists expires_at date;
+alter table sm_sec_vuln_exceptions add column if not exists items jsonb;
+alter table sm_sec_vuln_exceptions add column if not exists justification text;
+alter table sm_sec_vuln_exceptions add column if not exists vex_justification text;
+alter table sm_sec_vuln_exceptions add column if not exists compensating_controls text;
+alter table sm_sec_vuln_exceptions add column if not exists requested_by uuid;
+alter table sm_sec_vuln_exceptions add column if not exists approver_id uuid;
+alter table sm_sec_vuln_exceptions add column if not exists assignment_group_id uuid;
+alter table sm_sec_vuln_exceptions add column if not exists approval text;
+alter table sm_sec_vuln_exceptions add column if not exists approved_at timestamptz;
+alter table sm_sec_vuln_exceptions add column if not exists approved_by uuid;
+alter table sm_sec_vuln_exceptions add column if not exists warned_at timestamptz;
+alter table sm_sec_vuln_exceptions add column if not exists notes text;
+alter table sm_sec_vuln_exceptions add column if not exists state text;
+create unique index if not exists sm_sec_vuln_exceptions_no_uk on sm_sec_vuln_exceptions (org_id, no);
+create index if not exists sm_sec_vuln_exceptions_rev_idx on sm_sec_vuln_exceptions (org_id, rev);
+create index if not exists sm_sec_vuln_exceptions_upd_idx on sm_sec_vuln_exceptions (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_sec_vuln_exceptions_crt_idx on sm_sec_vuln_exceptions (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_sec_vuln_exceptions_state_idx on sm_sec_vuln_exceptions (org_id, state) where deleted_at is null;
+create index if not exists sm_sec_vuln_exceptions_workspace_acc_idx on sm_sec_vuln_exceptions (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_sec_vuln_exceptions_unit_acc_idx on sm_sec_vuln_exceptions (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_sec_vuln_exceptions_domain_acc_idx on sm_sec_vuln_exceptions (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_sec_vuln_exceptions_requested_by_idx on sm_sec_vuln_exceptions (org_id, requested_by) where deleted_at is null;
+create index if not exists sm_sec_vuln_exceptions_approver_id_idx on sm_sec_vuln_exceptions (org_id, approver_id) where deleted_at is null;
+drop trigger if exists sm_sec_vuln_exceptions_sync on sm_sec_vuln_exceptions;
+create trigger sm_sec_vuln_exceptions_sync before insert or update on sm_sec_vuln_exceptions for each row execute function sm_sync_touch('sec_vuln_exception');
+alter table sm_sec_vuln_exceptions enable row level security;
+
+-- sec_vuln_item: موردهای آسیب‌پذیر
+create table if not exists sm_sec_vuln_items (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_sec_vuln_items add column if not exists workspace_id uuid;
+alter table sm_sec_vuln_items add column if not exists domain_id uuid;
+alter table sm_sec_vuln_items add column if not exists unit_id uuid;
+alter table sm_sec_vuln_items add column if not exists created_at timestamptz not null default now();
+alter table sm_sec_vuln_items add column if not exists created_by uuid;
+alter table sm_sec_vuln_items add column if not exists updated_at timestamptz not null default now();
+alter table sm_sec_vuln_items add column if not exists updated_by uuid;
+alter table sm_sec_vuln_items add column if not exists rev bigint not null default 0;
+alter table sm_sec_vuln_items add column if not exists version integer not null default 1;
+alter table sm_sec_vuln_items add column if not exists deleted_at timestamptz;
+alter table sm_sec_vuln_items add column if not exists origin text;
+alter table sm_sec_vuln_items add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_sec_vuln_items add column if not exists no integer;
+alter table sm_sec_vuln_items add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 7 then 'VIT' || no::text else 'VIT' || lpad(no::text, 7, '0') end) stored;
+alter table sm_sec_vuln_items add column if not exists title text;
+alter table sm_sec_vuln_items add column if not exists vulnerability_id uuid;
+alter table sm_sec_vuln_items add column if not exists ci_id uuid;
+alter table sm_sec_vuln_items add column if not exists host text;
+alter table sm_sec_vuln_items add column if not exists ip_address text;
+alter table sm_sec_vuln_items add column if not exists port integer;
+alter table sm_sec_vuln_items add column if not exists protocol text;
+alter table sm_sec_vuln_items add column if not exists service_id uuid;
+alter table sm_sec_vuln_items add column if not exists source text;
+alter table sm_sec_vuln_items add column if not exists scanner_ref text;
+alter table sm_sec_vuln_items add column if not exists dedupe_key text;
+alter table sm_sec_vuln_items add column if not exists first_detected_at timestamptz;
+alter table sm_sec_vuln_items add column if not exists last_seen_at timestamptz;
+alter table sm_sec_vuln_items add column if not exists times_seen integer;
+alter table sm_sec_vuln_items add column if not exists last_scan_id uuid;
+alter table sm_sec_vuln_items add column if not exists missing_since timestamptz;
+alter table sm_sec_vuln_items add column if not exists proof text;
+alter table sm_sec_vuln_items add column if not exists cvss_score numeric;
+alter table sm_sec_vuln_items add column if not exists epss numeric;
+alter table sm_sec_vuln_items add column if not exists kev boolean not null default false;
+alter table sm_sec_vuln_items add column if not exists asset_criticality text;
+alter table sm_sec_vuln_items add column if not exists exposure text;
+alter table sm_sec_vuln_items add column if not exists compensating text;
+alter table sm_sec_vuln_items add column if not exists risk_score integer;
+alter table sm_sec_vuln_items add column if not exists risk_rating text;
+alter table sm_sec_vuln_items add column if not exists ssvc text;
+alter table sm_sec_vuln_items add column if not exists risk_factors jsonb;
+alter table sm_sec_vuln_items add column if not exists due_at timestamptz;
+alter table sm_sec_vuln_items add column if not exists overdue boolean not null default false;
+alter table sm_sec_vuln_items add column if not exists sla_due timestamptz;
+alter table sm_sec_vuln_items add column if not exists assignment_group_id uuid;
+alter table sm_sec_vuln_items add column if not exists assigned_to uuid;
+alter table sm_sec_vuln_items add column if not exists remediation_id uuid;
+alter table sm_sec_vuln_items add column if not exists change_id uuid;
+alter table sm_sec_vuln_items add column if not exists exception_id uuid;
+alter table sm_sec_vuln_items add column if not exists vex_status text;
+alter table sm_sec_vuln_items add column if not exists vex_justification text;
+alter table sm_sec_vuln_items add column if not exists fixed_at timestamptz;
+alter table sm_sec_vuln_items add column if not exists verified_at timestamptz;
+alter table sm_sec_vuln_items add column if not exists reopen_count integer;
+alter table sm_sec_vuln_items add column if not exists close_notes text;
+alter table sm_sec_vuln_items add column if not exists watch_list jsonb;
+alter table sm_sec_vuln_items add column if not exists state text;
+create unique index if not exists sm_sec_vuln_items_no_uk on sm_sec_vuln_items (org_id, no);
+create index if not exists sm_sec_vuln_items_rev_idx on sm_sec_vuln_items (org_id, rev);
+create index if not exists sm_sec_vuln_items_upd_idx on sm_sec_vuln_items (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_sec_vuln_items_crt_idx on sm_sec_vuln_items (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_sec_vuln_items_vulnerability_id_idx on sm_sec_vuln_items (org_id, vulnerability_id) where deleted_at is null;
+create index if not exists sm_sec_vuln_items_ci_id_idx on sm_sec_vuln_items (org_id, ci_id) where deleted_at is null;
+create index if not exists sm_sec_vuln_items_host_idx on sm_sec_vuln_items (org_id, host) where deleted_at is null;
+create index if not exists sm_sec_vuln_items_dedupe_key_idx on sm_sec_vuln_items (org_id, dedupe_key) where deleted_at is null;
+create index if not exists sm_sec_vuln_items_risk_rating_idx on sm_sec_vuln_items (org_id, risk_rating) where deleted_at is null;
+create index if not exists sm_sec_vuln_items_assignment_group_id_idx on sm_sec_vuln_items (org_id, assignment_group_id) where deleted_at is null;
+create index if not exists sm_sec_vuln_items_assigned_to_idx on sm_sec_vuln_items (org_id, assigned_to) where deleted_at is null;
+create index if not exists sm_sec_vuln_items_remediation_id_idx on sm_sec_vuln_items (org_id, remediation_id) where deleted_at is null;
+create index if not exists sm_sec_vuln_items_state_idx on sm_sec_vuln_items (org_id, state) where deleted_at is null;
+create unique index if not exists sm_sec_vuln_items_dedupe_key_uk on sm_sec_vuln_items (org_id, dedupe_key) where deleted_at is null;
+create index if not exists sm_sec_vuln_items_workspace_acc_idx on sm_sec_vuln_items (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_sec_vuln_items_unit_acc_idx on sm_sec_vuln_items (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_sec_vuln_items_domain_acc_idx on sm_sec_vuln_items (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_sec_vuln_items_watch_list_gin on sm_sec_vuln_items using gin (watch_list);
+drop trigger if exists sm_sec_vuln_items_sync on sm_sec_vuln_items;
+create trigger sm_sec_vuln_items_sync before insert or update on sm_sec_vuln_items for each row execute function sm_sync_touch('sec_vuln_item');
+alter table sm_sec_vuln_items enable row level security;
+
+-- sec_vuln_remediation: گروه‌های رفع آسیب‌پذیری
+create table if not exists sm_sec_vuln_remediations (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_sec_vuln_remediations add column if not exists workspace_id uuid;
+alter table sm_sec_vuln_remediations add column if not exists domain_id uuid;
+alter table sm_sec_vuln_remediations add column if not exists unit_id uuid;
+alter table sm_sec_vuln_remediations add column if not exists created_at timestamptz not null default now();
+alter table sm_sec_vuln_remediations add column if not exists created_by uuid;
+alter table sm_sec_vuln_remediations add column if not exists updated_at timestamptz not null default now();
+alter table sm_sec_vuln_remediations add column if not exists updated_by uuid;
+alter table sm_sec_vuln_remediations add column if not exists rev bigint not null default 0;
+alter table sm_sec_vuln_remediations add column if not exists version integer not null default 1;
+alter table sm_sec_vuln_remediations add column if not exists deleted_at timestamptz;
+alter table sm_sec_vuln_remediations add column if not exists origin text;
+alter table sm_sec_vuln_remediations add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_sec_vuln_remediations add column if not exists no integer;
+alter table sm_sec_vuln_remediations add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 6 then 'VG' || no::text else 'VG' || lpad(no::text, 6, '0') end) stored;
+alter table sm_sec_vuln_remediations add column if not exists title text;
+alter table sm_sec_vuln_remediations add column if not exists vulnerability_id uuid;
+alter table sm_sec_vuln_remediations add column if not exists basis text;
+alter table sm_sec_vuln_remediations add column if not exists assignment_group_id uuid;
+alter table sm_sec_vuln_remediations add column if not exists assigned_to uuid;
+alter table sm_sec_vuln_remediations add column if not exists due_at timestamptz;
+alter table sm_sec_vuln_remediations add column if not exists item_count integer;
+alter table sm_sec_vuln_remediations add column if not exists open_count integer;
+alter table sm_sec_vuln_remediations add column if not exists change_id uuid;
+alter table sm_sec_vuln_remediations add column if not exists solution text;
+alter table sm_sec_vuln_remediations add column if not exists state text;
+create unique index if not exists sm_sec_vuln_remediations_no_uk on sm_sec_vuln_remediations (org_id, no);
+create index if not exists sm_sec_vuln_remediations_rev_idx on sm_sec_vuln_remediations (org_id, rev);
+create index if not exists sm_sec_vuln_remediations_upd_idx on sm_sec_vuln_remediations (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_sec_vuln_remediations_crt_idx on sm_sec_vuln_remediations (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_sec_vuln_remediations_vulnerability_id_idx on sm_sec_vuln_remediations (org_id, vulnerability_id) where deleted_at is null;
+create index if not exists sm_sec_vuln_remediations_assignment_group_id_idx on sm_sec_vuln_remediations (org_id, assignment_group_id) where deleted_at is null;
+create index if not exists sm_sec_vuln_remediations_state_idx on sm_sec_vuln_remediations (org_id, state) where deleted_at is null;
+create index if not exists sm_sec_vuln_remediations_workspace_acc_idx on sm_sec_vuln_remediations (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_sec_vuln_remediations_unit_acc_idx on sm_sec_vuln_remediations (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_sec_vuln_remediations_domain_acc_idx on sm_sec_vuln_remediations (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_sec_vuln_remediations_assigned_to_idx on sm_sec_vuln_remediations (org_id, assigned_to) where deleted_at is null;
+drop trigger if exists sm_sec_vuln_remediations_sync on sm_sec_vuln_remediations;
+create trigger sm_sec_vuln_remediations_sync before insert or update on sm_sec_vuln_remediations for each row execute function sm_sync_touch('sec_vuln_remediation');
+alter table sm_sec_vuln_remediations enable row level security;
+
+-- sec_vulnerability: کتابخانهٔ آسیب‌پذیری‌ها
+create table if not exists sm_sec_vulnerabilities (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_sec_vulnerabilities add column if not exists workspace_id uuid;
+alter table sm_sec_vulnerabilities add column if not exists domain_id uuid;
+alter table sm_sec_vulnerabilities add column if not exists unit_id uuid;
+alter table sm_sec_vulnerabilities add column if not exists created_at timestamptz not null default now();
+alter table sm_sec_vulnerabilities add column if not exists created_by uuid;
+alter table sm_sec_vulnerabilities add column if not exists updated_at timestamptz not null default now();
+alter table sm_sec_vulnerabilities add column if not exists updated_by uuid;
+alter table sm_sec_vulnerabilities add column if not exists rev bigint not null default 0;
+alter table sm_sec_vulnerabilities add column if not exists version integer not null default 1;
+alter table sm_sec_vulnerabilities add column if not exists deleted_at timestamptz;
+alter table sm_sec_vulnerabilities add column if not exists origin text;
+alter table sm_sec_vulnerabilities add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_sec_vulnerabilities add column if not exists cve_id text;
+alter table sm_sec_vulnerabilities add column if not exists title text;
+alter table sm_sec_vulnerabilities add column if not exists severity text;
+alter table sm_sec_vulnerabilities add column if not exists cvss_score numeric;
+alter table sm_sec_vulnerabilities add column if not exists cvss_version text;
+alter table sm_sec_vulnerabilities add column if not exists cvss_vector text;
+alter table sm_sec_vulnerabilities add column if not exists epss numeric;
+alter table sm_sec_vulnerabilities add column if not exists epss_percentile numeric;
+alter table sm_sec_vulnerabilities add column if not exists kev boolean not null default false;
+alter table sm_sec_vulnerabilities add column if not exists kev_due date;
+alter table sm_sec_vulnerabilities add column if not exists exploit_maturity text;
+alter table sm_sec_vulnerabilities add column if not exists published_at date;
+alter table sm_sec_vulnerabilities add column if not exists cwe text;
+alter table sm_sec_vulnerabilities add column if not exists vendor text;
+alter table sm_sec_vulnerabilities add column if not exists product text;
+alter table sm_sec_vulnerabilities add column if not exists source text;
+alter table sm_sec_vulnerabilities add column if not exists affected_versions text;
+alter table sm_sec_vulnerabilities add column if not exists fixed_versions text;
+alter table sm_sec_vulnerabilities add column if not exists description text;
+alter table sm_sec_vulnerabilities add column if not exists solution text;
+alter table sm_sec_vulnerabilities add column if not exists advisories text;
+alter table sm_sec_vulnerabilities add column if not exists open_items integer;
+alter table sm_sec_vulnerabilities add column if not exists last_seen_at timestamptz;
+create index if not exists sm_sec_vulnerabilities_rev_idx on sm_sec_vulnerabilities (org_id, rev);
+create index if not exists sm_sec_vulnerabilities_upd_idx on sm_sec_vulnerabilities (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_sec_vulnerabilities_crt_idx on sm_sec_vulnerabilities (org_id, created_at desc, id desc) where deleted_at is null;
+create unique index if not exists sm_sec_vulnerabilities_cve_id_uk on sm_sec_vulnerabilities (org_id, cve_id) where deleted_at is null;
+drop trigger if exists sm_sec_vulnerabilities_sync on sm_sec_vulnerabilities;
+create trigger sm_sec_vulnerabilities_sync before insert or update on sm_sec_vulnerabilities for each row execute function sm_sync_touch('sec_vulnerability');
+alter table sm_sec_vulnerabilities enable row level security;
 
 -- service: خدمت‌ها
 create table if not exists sm_services (

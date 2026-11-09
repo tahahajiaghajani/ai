@@ -42,6 +42,8 @@ import { eventRoutes } from "./event";
 import { installContinuityModule } from "../modules/continuity";
 import { continuityRoutes } from "./continuity";
 import { installAiSkills } from "../modules/ai/skills";
+import { installSecurityModule } from "../modules/security";
+import { securityRoutes } from "./security";
 import { skillRoutes } from "./ai-skills";
 import { installAiAgents } from "../modules/ai/agents";
 import { agentRoutes } from "./ai-agents";
@@ -97,6 +99,9 @@ installProjectModule();
 installEventModule();
 // availability, capacity and continuity (docs/modules/continuity_FA.md) — after the event module (capacity sink)
 installContinuityModule();
+// security operations, vulnerability response and GRC (docs/modules/security_FA.md) — after the SLA service, the RAG
+// index and the modules whose records it links (incidents, CIs, changes); before analytics, which reports on its tables
+installSecurityModule();
 // analytics, reporting and KPIs (docs/modules/analytics_FA.md) — after every module whose tables it reports on
 installAnalyticsModule();
 
@@ -137,3 +142,4 @@ moduleRoutes.route("/continuity", continuityRoutes);
 moduleRoutes.route("/itam", itamRoutes);
 moduleRoutes.route("/supplier", supplierRoutes);
 moduleRoutes.route("/financial", financialRoutes);
+moduleRoutes.route("/security", securityRoutes);
