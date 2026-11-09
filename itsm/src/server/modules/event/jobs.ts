@@ -9,8 +9,9 @@
 //   · an alert that opens (created open, or back to open) starts its escalation; leaving «باز» stops it (hook)
 //   · an alert that clears may resolve its incident; an incident that is resolved acknowledges its alerts
 import { SEVERITY_ORDER } from "@shared/tables/event";
+import { formatJalaliDateTime } from "@shared/jalali";
 import type { Ctx } from "../../context";
-import { onRecordEvent, removeIn, systemCtx, transitionIn, updateIn, createIn, type RecordEvent } from "../../engine";
+import { onRecordEvent, orgTz, removeIn, systemCtx, transitionIn, updateIn, createIn, type RecordEvent } from "../../engine";
 import { enqueue, registerJobHandler, PermanentJobError, type JobContext } from "../../jobs";
 import { actsHere } from "../notify";
 import { eventConfig, isUuid, liveRow, liveRows, msOf, sysOf, type Row } from "./common";
@@ -96,7 +97,7 @@ export async function sweep(sys: Ctx, deadline = Number.POSITIVE_INFINITY, now =
       await sys.write(async (tx) => {
         const alert = await createIn(tx, sys, "alert", {
           short_description: `ضربان منبع «${s.name}» نرسید`,
-          description: `از ${new Date(last).toISOString()} رویدادی از این منبع نرسیده است (ضربان هر ${Number(s.heartbeat_minutes).toLocaleString("fa-IR")} دقیقه).`,
+          description: `از ${formatJalaliDateTime(new Date(last).toISOString(), orgTz(sys))} رویدادی از این منبع نرسیده است (ضربان هر ${Number(s.heartbeat_minutes).toLocaleString("fa-IR")} دقیقه).`,
           severity: "major",
           source_id: s.id,
           metric: "heartbeat",
