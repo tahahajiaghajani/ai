@@ -37,6 +37,10 @@ import { installProjectModule } from "../modules/project";
 import { projectRoutes } from "./project";
 import { installAnalyticsModule } from "../modules/analytics";
 import { analyticsRoutes } from "./analytics";
+import { installSlmModule } from "../modules/slm";
+import { slmRoutes } from "./slm";
+import { installWorkforceModule } from "../modules/workforce";
+import { workforceRoutes } from "./workforce";
 import { installAiSkills } from "../modules/ai/skills";
 import { skillRoutes } from "./ai-skills";
 import { installAiAgents } from "../modules/ai/agents";
@@ -80,6 +84,10 @@ installDevopsModule();
 installProjectModule();
 // analytics, reporting and KPIs (docs/modules/analytics_FA.md) — after every module whose tables it reports on
 installAnalyticsModule();
+// service level management (docs/modules/slm_FA.md) — after the service portfolio (its agreements) and analytics
+installSlmModule();
+// workforce and agent experience (docs/modules/workforce_FA.md) — after service level management (agent home reads it)
+installWorkforceModule();
 
 // the AI skills (docs/spec/AI.md §11) — after every module whose AI extension points they implement
 installAiSkills();
@@ -113,3 +121,5 @@ moduleRoutes.route("/release", releaseRoutes);
 moduleRoutes.route("/devops", devopsRoutes);
 moduleRoutes.route("/project", projectRoutes);
 moduleRoutes.route("/analytics", analyticsRoutes);
+moduleRoutes.route("/slm", slmRoutes);
+moduleRoutes.route("/workforce", workforceRoutes);
