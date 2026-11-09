@@ -20,6 +20,7 @@ import { ICON14 } from "../../components/blocks";
 import type { RecordContext } from "../../records/extensions";
 import { Narrative } from "../kit/Narrative";
 import { ProposalCard } from "../assistant/ProposalCard";
+import { RecordAgents } from "../agents/RecordAgents";
 import { SKILL_KEYS, runStream, skillsApi, useOwnRuns, useRecordSkills } from "./api";
 import { confidenceWord, defaultParams, missingParams, panelSkills, resultMarkdown } from "./model";
 
@@ -277,6 +278,7 @@ export default function RecordAiPanel({ ctx }: { ctx: RecordContext }) {
         </div>
       ) : null}
       {result ? <SkillResult result={result} onProposal={onProposal} /> : null}
+      <RecordAgents table={table} id={id} />
       {proposals.length ? (
         <>
           <div className="sk-sec">پیشنهادهای باز این رکورد</div>
