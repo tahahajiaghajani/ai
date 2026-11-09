@@ -290,20 +290,18 @@ async function checkSide(tx: Tx, ctx: Ctx, agg: AggregateDef, schema: OrgSchema,
   if (agg.engine === "journal" && (row.visibility === "internal" || prev?.visibility === "internal") && !isSystemCtx(ctx) && !access().hasFieldGroup(ctx, "internal")) {
     return "اجازهٔ ثبت یادداشت داخلی را ندارید";
   }
-  // a new journal entry or history row comes in the pushing account's name (or as the system's note of something they
-  // did): never someone else's; anything but a comment or a work note — approvals, system notes, history — only on a
-  // record they may change (where they acted)
+  // a new journal entry or history row comes in the pushing account's name, or with no author (the system's note of
+  // something module code did while they acted) — never in someone else's; anything but their own comment or work note
+  // (approvals, the system's notes, history) only on a record they may change (where they acted)
   if (!prev && !isSystemCtx(ctx) && (agg.engine === "journal" || agg.engine === "history")) {
     const who = agg.engine === "journal" ? row.author : row.actor;
-    if (who !== null && who !== undefined && String(who) !== ctx.user.id) return "این مورد به نام کس دیگری است و از برنامهٔ ویندوز پذیرفته نمی‌شود";
+    const own = who !== null && who !== undefined && String(who) === ctx.user.id;
+    if (who !== null && who !== undefined && !own) return "این مورد به نام کس دیگری است و از برنامهٔ ویندوز پذیرفته نمی‌شود";
     const kind = String(row.kind ?? "comment");
-    if (agg.engine === "history" || (kind !== "comment" && kind !== "work_note")) {
+    if (!(agg.engine === "journal" && own && (kind === "comment" || kind === "work_note"))) {
       const def = schema.def(String(row.table_key));
       const rec = def ? await tx.one<Row>(`select * from ${def.table} where id = $1`, [row.record_id]) : null;
       if (!def || !rec || !(await canWriteRow(tx, ctx, def, fromDb(def, rec), env, "write"))) return `اجازهٔ تغییر این ${def?.label ?? "رکورد"} را ندارید`;
-    }
-    if (agg.engine === "journal" && (kind === "comment" || kind === "work_note") && String(who ?? "") !== ctx.user.id) {
-      return "یادداشت و پاسخ از برنامهٔ ویندوز فقط به نام خود شما ثبت می‌شود";
     }
   }
   return null;

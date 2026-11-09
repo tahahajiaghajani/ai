@@ -84,12 +84,16 @@ describe("sync review: the incident organisation", () => {
       entry({ kind: "comment", visibility: "public", body: "پاسخ کارشناس جعلی", author: w.p.agent.userId }),
     ]);
     expect(forged.map((r) => r.status)).toEqual(["error", "error"]);
+    // a «system» note with no author only from someone who may change the record (where module code acted for them):
+    // never from a reader
+    expect((await push(w.p.auditor.client, w.e.org, [entry({ kind: "system", visibility: "public", body: "یادداشت سامانه‌ای جعلی", author: null })]))[0].status).toBe("error");
     // their own comment lands
     expect((await push(w.p.req.client, w.e.org, [entry({ kind: "comment", visibility: "public", body: "پاسخ دوم من", author: w.p.req.userId })]))[0].status).toBe("ok");
     const bodies = ((await w.o.get(`${w.P}/r/incident/${id}/journal`)).entries as { body: string }[]).map((e) => e.body);
     expect(bodies).toContain("پاسخ دوم من");
     expect(bodies).not.toContain("تأیید شد");
     expect(bodies).not.toContain("پاسخ کارشناس جعلی");
+    expect(bodies).not.toContain("یادداشت سامانه‌ای جعلی");
     // a history row in someone else's name: refused
     await w.o.patch(`${w.P}/r/incident/${id}`, { description: "شرح دوم" });
     const h = (await w.e.db.one<Record<string, unknown>>(`select * from sm_history where org_id = $1 and record_id = $2 order by at desc limit 1`, [w.e.org, id]))!;
