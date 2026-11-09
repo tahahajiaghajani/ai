@@ -16,6 +16,7 @@ import { condEnv, createIn, onBeforeCommit, orgSchema, updateIn } from "../../en
 import { computeImpact } from "../cmdb/impact";
 import { holds, withWalks } from "../sla/common";
 import { idList, isUuid, liveRow, liveRows, msOf, type Row } from "./common";
+import { attachToIncident } from "./incidents";
 
 const MIN = 60_000;
 
@@ -71,6 +72,10 @@ export async function correlate(tx: Tx, sys: Ctx, alert: Row, now = Date.now(), 
       const existing = related.find((o) => isUuid(o.group_id));
       const group = existing ? await liveRow(tx, sys, "alert_group", existing.group_id) : null;
       if (group && !["resolved", "closed"].includes(String(group.state))) {
+        // a dependency explains the group better than a shared CI or service: it becomes a topology group of the root
+        if (group.reason !== "topology" || (root && group.ci_id !== root)) {
+          await updateIn(tx, sys, "alert_group", String(group.id), { reason: "topology", rule_id: rule.id, ci_id: root ?? group.ci_id ?? alert.ci_id }, { trusted: true, keepVersion: true });
+        }
         await join(tx, sys, group, [alert, ...related.filter((o) => !isUuid(o.group_id))]);
         return group;
       }
@@ -111,12 +116,32 @@ async function open(tx: Tx, sys: Ctx, rule: Row, reason: string, key: string, al
   return group;
 }
 
-/** Put alerts into a group (and queue its roll-up). */
+/** Put alerts into a group (and queue its roll-up); the group's incident, if any, covers them too. */
 export async function join(tx: Tx, sys: Ctx, group: Row, alerts: Row[]): Promise<void> {
   for (const a of alerts) {
     if (a.group_id === group.id) continue;
     await updateIn(tx, sys, "alert", String(a.id), { group_id: group.id }, { trusted: true, keepVersion: true, allowLocked: true });
     a.group_id = group.id;
+  }
+  // one incident per situation: the group's, else the first a member already has
+  let incident: string | null = isUuid(group.incident_id) ? group.incident_id : null;
+  let auto = false;
+  if (!incident) {
+    const members = await liveRows(tx, sys, "alert", { and: [{ f: "group_id", op: "eq", v: group.id }, { f: "incident_id", op: "nempty" }] }, { order: "t.created_at", limit: 1 });
+    const holder = members[0] ?? alerts.find((a) => isUuid(a.incident_id));
+    if (holder) {
+      incident = String(holder.incident_id);
+      auto = !!holder.incident_auto_resolve;
+      await updateIn(tx, sys, "alert_group", String(group.id), { incident_id: incident }, { trusted: true, keepVersion: true });
+      group.incident_id = incident;
+    }
+  } else {
+    const [holder] = await liveRows(tx, sys, "alert", { and: [{ f: "group_id", op: "eq", v: group.id }, { f: "incident_id", op: "eq", v: incident }] }, { limit: 1 });
+    auto = !!holder?.incident_auto_resolve;
+  }
+  if (incident) {
+    const open = await liveRows(tx, sys, "alert", { and: [{ f: "group_id", op: "eq", v: group.id }, { f: "state", op: "in", v: ALERT_OPEN_STATES }, { or: [{ f: "incident_id", op: "empty" }, { f: "incident_id", op: "ne", v: incident }] }] }, { limit: 200 });
+    await attachToIncident(tx, sys, incident, open.filter((a) => !isUuid(a.incident_id)), auto);
   }
   queueRollup(tx, sys, String(group.id));
 }

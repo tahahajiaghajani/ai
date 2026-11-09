@@ -31,6 +31,8 @@ import { installKnowledgeModule } from "../modules/knowledge";
 import { knowledgeRoutes } from "./knowledge";
 import { installEventModule } from "../modules/event";
 import { eventRoutes } from "./event";
+import { installContinuityModule } from "../modules/continuity";
+import { continuityRoutes } from "./continuity";
 import { installAiSkills } from "../modules/ai/skills";
 import { skillRoutes } from "./ai-skills";
 
@@ -64,6 +66,8 @@ installKnowledgeModule();
 
 // event management, AIOps light and on-call (docs/modules/event_FA.md) — after incidents, the CMDB and change
 installEventModule();
+// availability, capacity and continuity (docs/modules/continuity_FA.md) — after the event module (capacity sink)
+installContinuityModule();
 
 // the AI skills (docs/spec/AI.md §11) — after every module whose AI extension points they implement
 installAiSkills();
@@ -88,3 +92,4 @@ moduleRoutes.route("/change", changeRoutes);
 moduleRoutes.route("/request", requestRoutes);
 moduleRoutes.route("/knowledge", knowledgeRoutes);
 moduleRoutes.route("/event", eventRoutes);
+moduleRoutes.route("/continuity", continuityRoutes);

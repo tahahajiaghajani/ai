@@ -6,7 +6,8 @@
 // an incident acknowledges its still-open alerts (they stop paging) — never loops, since cleared alerts do nothing.
 import type { Ctx } from "../../context";
 import type { Tx } from "../../db";
-import { addLinkIn, condEnv, orgSchema, transitionIn, updateIn } from "../../engine";
+import { addLinkIn, condEnv, defFor, orgSchema, transitionIn, updateIn } from "../../engine";
+import { workNote } from "../incident/major";
 import { enqueue } from "../../jobs";
 import { createFromAlert, type AlertInput } from "../incident/alerts";
 import { holds, withWalks } from "../sla/common";
@@ -57,6 +58,30 @@ export async function raiseIncident(tx: Tx, sys: Ctx, alert: Row, o: { rule?: Ro
   }
   if (group && group.incident_id !== incident.id) await updateIn(tx, sys, "alert_group", String(group.id), { incident_id: incident.id }, { trusted: true, keepVersion: true });
   return { incident, created };
+}
+
+/**
+ * Alerts that joined a correlated group whose incident exists follow it: they get the incident, its link and the
+ * group's auto-resolution, and the incident a note (one incident per situation; member alerts on its timeline).
+ */
+export async function attachToIncident(tx: Tx, sys: Ctx, incidentId: string, alerts: Row[], autoResolve: boolean): Promise<number> {
+  const incident = await liveRow(tx, sys, "incident", incidentId);
+  if (!incident) return 0;
+  let n = 0;
+  const added: string[] = [];
+  for (const a of alerts) {
+    if (a.incident_id === incidentId) continue;
+    await updateIn(tx, sys, "alert", String(a.id), { incident_id: incidentId, incident_auto_resolve: autoResolve }, { trusted: true, keepVersion: true, allowLocked: true });
+    await addLinkIn(tx, sys, "alert", String(a.id), { kind: "raised", table: "incident", id: incidentId }).catch(() => undefined);
+    a.incident_id = incidentId;
+    added.push(String(a.number ?? a.id));
+    n++;
+  }
+  if (added.length) {
+    const { def } = await defFor(sys, "incident", tx);
+    await workNote(tx, sys, def, incident, `هشدارهای هم‌بستهٔ تازه به این رخداد افزوده شد: ${added.join("، ")}`, { alerts: added });
+  }
+  return n;
 }
 
 /** The first active alert→incident rule that holds for the alert (severity at least the rule's, its condition). */
