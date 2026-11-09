@@ -283,9 +283,9 @@ export async function applyDirectory(ctx: Ctx, sourceId: string, runId: string, 
   const run = await ctx.db.one<{ plan: DirPlan | null; started_at: string | Date; kind: string; status: string }>(`select plan, started_at, kind, status from sm_directory_runs where id = $1 and org_id = $2 and source_id = $3`, [runId, ctx.org.id, sourceId]);
   if (!run || run.kind !== "preview" || run.status !== "done" || !run.plan) throw notFound("پیش‌نمایشی با این شناسه نیست");
   if (Date.now() - new Date(run.started_at).getTime() > 24 * HOUR) throw conflict("این پیش‌نمایش کهنه است؛ دوباره پیش‌نمایش بگیرید");
-  const plan = opts.roles || src.auto_roles ? run.plan : withoutRoleGrants(run.plan);
-  const result = await applyPlan(ctx, src, plan, opts.roles || !!src.auto_roles);
-  await storeRun(ctx, sourceId, "apply", plan, "done");
+  const roles = opts.roles || !!src.auto_roles;
+  const result = await applyPlan(ctx, src, run.plan, roles);
+  await storeRun(ctx, sourceId, "apply", roles ? run.plan : withoutRoleGrants(run.plan), "done");
   const next = Number(src.schedule_hours ?? 0) > 0 ? new Date(Date.now() + Number(src.schedule_hours) * HOUR).toISOString() : null;
   await markSource(ctx, src, { health: "ok", last_run_at: new Date().toISOString(), next_run_at: next, approved_by: ctx.user.id, last_summary: summary(result) });
   if (next) await ctx.write((tx) => enqueue(tx, { kind: "integration.directory.sync", orgId: ctx.org.id, payload: { id: sourceId }, runAt: next, dedupeKey: `directory:${sourceId}`, maxAttempts: 2 }));
@@ -340,7 +340,7 @@ export function installDirectoryJobs(): void {
     try {
       const entries = await readLdap(cfg, sys, src);
       const plan = await planFor(ctx, src, entries);
-      const result = await applyPlan(ctx, src, src.auto_roles ? plan : withoutRoleGrants(plan), !!src.auto_roles);
+      const result = await applyPlan(ctx, src, plan, !!src.auto_roles);
       await storeRun(ctx, String(src.id), "apply", plan, "done");
       await markSource(sys, src, { health: "ok", last_run_at: new Date().toISOString(), next_run_at: new Date(Date.now() + Number(src.schedule_hours) * HOUR).toISOString(), last_summary: summary(result) });
       await intLog(cfg.db, { org_id: job.org_id, kind: "directory", ref_id: String(src.id), actor: ctx.user.id, ok: true, summary: summary(result) });
