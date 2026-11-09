@@ -278,18 +278,33 @@ describe("leak tests: random organisations", () => {
   beforeAll(() => {
     process.env.ITSM_AI_FAKE = "1";
   });
+  // one organisation per seed, probed member by member (each member is its own case, so a slow machine under parallel
+  // load never runs the whole organisation against one timeout); every member and the owner are still probed with
+  // every query, and the seed must return something to someone
+  const MEMBERS = 6;
   for (const [seed, portable] of [[11, false], [23, false], [37, true]] as const) {
-    it(`seed ${seed} (${portable ? "portable store" : "pgvector"}): nothing outside each member's access`, async () => {
-      const { e, members, ids, tag } = await randomOrg(seed, portable);
-      const queries = ["مشکل شبکه", ...ids.flatMap((_, i) => { const t = tokens(tag, i); return [t.P, t.I, t.H, t.A]; })];
+    describe(`seed ${seed} (${portable ? "portable store" : "pgvector"})`, () => {
+      let org: Awaited<ReturnType<typeof randomOrg>>;
+      let queries: string[] = [];
       let total = 0;
-      for (const m of [...members, e.ownerId]) {
-        const ctx = await memberCtx(e.cfg, e.org, m);
-        const { violations, seen } = await probe(ctx, m, queries, ids, tag, { ask: m === members[0] });
-        expect(violations).toEqual([]);
-        total += seen;
+      beforeAll(async () => {
+        org = await randomOrg(seed, portable);
+        expect(org.members.length).toBe(MEMBERS);
+        queries = ["مشکل شبکه", ...org.ids.flatMap((_, i) => { const t = tokens(org.tag, i); return [t.P, t.I, t.H, t.A]; })];
+      }, 300_000);
+      for (let i = 0; i <= MEMBERS; i++) {
+        const label = i === MEMBERS ? "the owner" : `member ${i}`;
+        it(`${label}: nothing outside their access`, async () => {
+          const m = i === MEMBERS ? org.e.ownerId : org.members[i];
+          const ctx = await memberCtx(org.e.cfg, org.e.org, m);
+          const { violations, seen } = await probe(ctx, m, queries, org.ids, org.tag, { ask: i === 0 });
+          expect(violations).toEqual([]);
+          total += seen;
+        }, 120_000);
       }
-      expect(total).toBeGreaterThan(0);
-    }, 120_000);
+      it("someone gets passages back (the probes are not vacuous)", () => {
+        expect(total).toBeGreaterThan(0);
+      });
+    });
   }
 });
