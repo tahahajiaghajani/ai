@@ -8830,6 +8830,8 @@ alter table sm_release_configs add column if not exists release_on_production bo
 alter table sm_release_configs add column if not exists update_cmdb_versions boolean not null default true;
 alter table sm_release_configs add column if not exists tag_els_incidents boolean not null default true;
 alter table sm_release_configs add column if not exists default_change_template_id uuid;
+alter table sm_release_configs add column if not exists dora_days integer;
+alter table sm_release_configs add column if not exists dora_definitions jsonb;
 alter table sm_release_configs add column if not exists seeded integer;
 create index if not exists sm_release_configs_rev_idx on sm_release_configs (org_id, rev);
 create index if not exists sm_release_configs_upd_idx on sm_release_configs (org_id, updated_at desc, id desc) where deleted_at is null;

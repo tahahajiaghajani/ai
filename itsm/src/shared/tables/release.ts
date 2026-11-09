@@ -161,15 +161,8 @@ export const WINDOW_RECURRENCES: Option[] = [
   { value: "monthly_last", label: "آخرین روز هر ماه" },
   { value: "yearly", label: "سالانه" },
 ];
-export const WEEKDAY_OPTIONS: Option[] = [
-  { value: "6", label: "شنبه" },
-  { value: "0", label: "یکشنبه" },
-  { value: "1", label: "دوشنبه" },
-  { value: "2", label: "سه‌شنبه" },
-  { value: "3", label: "چهارشنبه" },
-  { value: "4", label: "پنجشنبه" },
-  { value: "5", label: "جمعه" },
-];
+/** Weekdays of a window (0 = Saturday, the numbering of the shared window expansion `occurrences`). */
+export const WEEKDAY_OPTIONS: Option[] = ["شنبه", "یکشنبه", "دوشنبه", "سه‌شنبه", "چهارشنبه", "پنجشنبه", "جمعه"].map((label, i) => ({ value: String(i), label, order: i + 1 }));
 
 export const DEFECT_SEVERITIES: Option[] = [
   { value: "critical", label: "بحرانی", color: "red", order: 1 },
