@@ -1,5 +1,6 @@
 // Pure helpers of the enterprise service screens (tested in tests/esm-ui.test.ts): where each department's case table
 // lives in the app, the journey tracker's phases and readiness, and the booking grid's free hours.
+import { toFa } from "@shared/jalali";
 import type { Cond } from "@shared/model/conditions";
 import { ACTIVITY_STATES, JOURNEY_PHASES, JOURNEY_STATES } from "@shared/tables/esm";
 import type { ChipTone } from "../../components/display";
@@ -73,7 +74,7 @@ export function readiness(j: Row): { ready: boolean; text: string } {
   const total = Number(j.day_one_total ?? 0);
   const done = Number(j.day_one_done ?? 0);
   if (!total) return { ready: true, text: "فعالیت روز نخستی ندارد" };
-  return done >= total ? { ready: true, text: "برای روز نخست آماده است" } : { ready: false, text: `${total - done} از ${total} کار روز نخست مانده است` };
+  return done >= total ? { ready: true, text: "برای روز نخست آماده است" } : { ready: false, text: `${toFa(total - done)} از ${toFa(total)} کار روز نخست مانده است` };
 }
 
 /** Free half-hours of a space between `from` and `to` given its busy spans (ISO instants). */

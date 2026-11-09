@@ -110,6 +110,7 @@ export function Dashboard() {
   const q = useQuery({ queryKey: CSM_KEYS.dashboard(orgId), queryFn: () => csmApi.dashboard(api) });
   const meta = useQuery({ queryKey: CSM_KEYS.meta(orgId), queryFn: () => csmApi.meta(api) });
   const health = useAction(() => csmApi.refreshHealth(api), { success: (d) => `سلامت ${toFa(d.accounts)} حساب دوباره محاسبه شد` });
+  const seed = useAction(() => csmApi.seed(api), { success: "نقش‌ها، گروه، توافق‌ها، اعلان‌ها و شاخص‌های خدمات مشتریان افزوده شد", invalidate: [CSM_KEYS.meta(orgId)] });
   const d = q.data;
   const bars = (rows: { key: string; label: string; count: number }[], display?: Record<string, string>) => {
     const max = Math.max(1, ...rows.map((r) => r.count));
@@ -129,7 +130,17 @@ export function Dashboard() {
   };
   return (
     <div className="flex flex-col gap-4">
-      <PageHeader title="داشبورد خدمات مشتریان" actions={meta.data?.manages ? <Button onClick={() => health.mutate(undefined)} loading={health.isPending}>محاسبهٔ دوبارهٔ سلامت حساب‌ها</Button> : null} />
+      <PageHeader
+        title="داشبورد خدمات مشتریان"
+        actions={
+          meta.data?.manages ? (
+            <div className="flex flex-wrap gap-2">
+              {!meta.data.seeded ? <Button onClick={() => seed.mutate(undefined)} loading={seed.isPending}>افزودن پیش‌فرض‌ها</Button> : null}
+              <Button onClick={() => health.mutate(undefined)} loading={health.isPending}>محاسبهٔ دوبارهٔ سلامت حساب‌ها</Button>
+            </div>
+          ) : null
+        }
+      />
       {q.isLoading ? (
         <Loader />
       ) : !d ? (

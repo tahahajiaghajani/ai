@@ -9,14 +9,13 @@
 import { lazy, Suspense, type ComponentType, type ReactNode } from "react";
 import { HardHat, Wrench, ClipboardList, Map, UserCog, Cog, CalendarCog, Timer, LayoutGrid, Smartphone, LayoutDashboard, Inbox, User, Clock } from "lucide-react";
 import type { AccessGate } from "@shared/access";
-import type { Cond } from "@shared/model/conditions";
 import type { ModuleUi, NavItem } from "../registry";
 import { recordModule, RecordListRoute } from "../../records/module";
 import { registerRecordExtensions, type RecordContext } from "../../records/extensions";
 import { recordsApi } from "../../records/data/api";
 import { Loader } from "../../components/display";
 import type { OrgApi } from "../../lib/api";
-import { OPEN_VISIT } from "./model";
+import { QUEUES, type Queue } from "./model";
 
 const DispatchBoard = lazy(() => import("./Board"));
 const MyDay = lazy(() => import("./MyDay"));
@@ -43,29 +42,13 @@ const ADMIN: AccessGate = { area: "field_service", op: "admin" };
 
 export const FIELD_SPACE = { key: "field", label: "میدانی", title: "خدمات میدانی", icon: HardHat, access: READS };
 
-interface Queue {
-  key: string;
-  label: string;
-  path: string;
-  table: string;
-  filter: Cond;
-  sort: string;
-  empty: string;
-  icon: typeof Inbox;
-  access: AccessGate;
-}
-
-const QUEUES: Queue[] = [
-  { key: "mine", table: "wo_task", label: "بازدیدهای من", path: "field/my-visits", icon: User, access: READS, sort: "scheduled_start", filter: { and: [{ f: "technician_id", op: "is_me" }, { f: "state", op: "in", v: OPEN_VISIT }] }, empty: "بازدید بازی به شما سپرده نشده است" },
-  { key: "dispatch", table: "wo_task", label: "منتظر توزیع", path: "field/pending-dispatch", icon: Inbox, access: DISPATCH, sort: "priority,sla_due", filter: { f: "state", op: "eq", v: "pending_dispatch" }, empty: "وظیفه‌ای منتظر توزیع نیست" },
-  { key: "parts", table: "wo_task", label: "منتظر قطعه", path: "field/pending-parts", icon: Clock, access: DISPATCH, sort: "updated_at", filter: { f: "state", op: "eq", v: "pending_parts" }, empty: "بازدیدی منتظر قطعه نیست" },
-  { key: "open_wo", table: "work_order", label: "دستورهای کار باز گروه من", path: "field/open-work-orders", icon: HardHat, access: DISPATCH, sort: "priority,opened_at", filter: { and: [{ f: "assignment_group_id", op: "is_my_group" }, { f: "active", op: "eq", v: true }] }, empty: "دستور کار بازی در گروه‌های شما نیست" },
-];
+const QUEUE_ICONS: Record<string, typeof Inbox> = { mine: User, dispatch: Inbox, parts: Clock, open_wo: HardHat };
+const QUEUE_ACCESS: Record<string, AccessGate> = { mine: READS, dispatch: DISPATCH, parts: DISPATCH, open_wo: DISPATCH };
 
 const myCount = async (api: OrgApi) => (await recordsApi.list(api, "wo_task", { filter: QUEUES[0].filter, size: 1, fields: ["number"], total: true })).total ?? 0;
 
 const queueNav = (q: Queue, i: number): NavItem => ({
-  key: `field:q:${q.key}`, label: q.label, path: q.path, icon: q.icon, area: "work", access: q.access, workspace: i < 2, keywords: "بازدید وظیفه تکنسین دستور کار صف",
+  key: `field:q:${q.key}`, label: q.label, path: q.path, icon: QUEUE_ICONS[q.key] ?? Inbox, area: "work", access: QUEUE_ACCESS[q.key] ?? READS, workspace: i < 2, keywords: "بازدید وظیفه تکنسین دستور کار صف",
   ...(i === 0 ? { count: { key: "field:mine", hint: "بازدید باز شما", load: myCount } } : {}),
 });
 

@@ -84,11 +84,22 @@ export function Dashboard() {
   const q = useQuery({ queryKey: FIELD_KEYS.dashboard(orgId), queryFn: () => fieldApi.dashboard(api) });
   const meta = useQuery({ queryKey: FIELD_KEYS.meta(orgId), queryFn: () => fieldApi.meta(api) });
   const run = useAction(() => fieldApi.runMaintenance(api), { success: (d) => (d.generated ? `${toFa(d.generated)} دستور کار نگهداری ساخته شد` : "نگهداری سررسیده‌ای نبود"), invalidate: [FIELD_KEYS.dashboard(orgId)] });
+  const seed = useAction(() => fieldApi.seed(api), { success: "نقش‌ها، گروه، الگوها، توافق‌ها و شاخص‌های خدمات میدانی افزوده شد", invalidate: [FIELD_KEYS.meta(orgId)] });
   const d = q.data;
   const pct = (v: number | null | undefined) => (v === null || v === undefined ? "—" : `${toFa(v)}٪`);
   return (
     <div className="flex flex-col gap-4">
-      <PageHeader title="داشبورد خدمات میدانی" actions={meta.data?.dispatches ? <Button icon={<Wrench {...ICON} />} onClick={() => run.mutate(undefined)} loading={run.isPending}>ساخت نگهداری‌های سررسیده</Button> : null} />
+      <PageHeader
+        title="داشبورد خدمات میدانی"
+        actions={
+          meta.data?.dispatches ? (
+            <div className="flex flex-wrap gap-2">
+              {!meta.data.seeded ? <Button onClick={() => seed.mutate(undefined)} loading={seed.isPending}>افزودن پیش‌فرض‌ها</Button> : null}
+              <Button icon={<Wrench {...ICON} />} onClick={() => run.mutate(undefined)} loading={run.isPending}>ساخت نگهداری‌های سررسیده</Button>
+            </div>
+          ) : null
+        }
+      />
       {q.isLoading ? (
         <Loader />
       ) : !d ? (

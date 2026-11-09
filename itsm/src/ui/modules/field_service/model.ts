@@ -2,6 +2,7 @@
 // (the hours a day shows, bars, the time under a drop), the steps a technician may take in each state of a visit, the
 // checklist's answers and the KPI tones.
 import { toFa } from "@shared/jalali";
+import type { Cond } from "@shared/model/conditions";
 import { WO_TASK_STATES } from "@shared/tables/field_service";
 import type { ChipTone } from "../../components/display";
 
@@ -131,6 +132,23 @@ export function stepsFor(state: unknown): StepButton[] {
 
 export const taskState = (v: unknown) => WO_TASK_STATES.states.find((s) => s.value === v);
 export const OPEN_VISIT = ["assigned", "accepted", "en_route", "on_site", "on_hold", "pending_parts"];
+
+export interface Queue {
+  key: string;
+  label: string;
+  path: string;
+  table: string;
+  filter: Cond;
+  sort: string;
+  empty: string;
+}
+
+export const QUEUES: Queue[] = [
+  { key: "mine", table: "wo_task", label: "بازدیدهای من", path: "field/my-visits", sort: "scheduled_start", filter: { and: [{ f: "technician_id", op: "is_me" }, { f: "state", op: "in", v: OPEN_VISIT }] }, empty: "بازدید بازی به شما سپرده نشده است" },
+  { key: "dispatch", table: "wo_task", label: "منتظر توزیع", path: "field/pending-dispatch", sort: "priority,sla_due", filter: { f: "state", op: "eq", v: "pending_dispatch" }, empty: "وظیفه‌ای منتظر توزیع نیست" },
+  { key: "parts", table: "wo_task", label: "منتظر قطعه", path: "field/pending-parts", sort: "updated_at", filter: { f: "state", op: "eq", v: "pending_parts" }, empty: "بازدیدی منتظر قطعه نیست" },
+  { key: "open_wo", table: "work_order", label: "دستورهای کار باز گروه من", path: "field/open-work-orders", sort: "priority,opened_at", filter: { and: [{ f: "assignment_group_id", op: "is_my_group" }, { f: "active", op: "eq", v: true }] }, empty: "دستور کار بازی در گروه‌های شما نیست" },
+];
 
 /** The answers to send with «کار انجام شد»: only the checklist's keys, numbers as numbers. */
 export function cleanAnswers(items: readonly { key: string; type: string }[], answers: Record<string, unknown>): Record<string, unknown> {
