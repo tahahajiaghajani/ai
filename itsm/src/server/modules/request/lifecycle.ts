@@ -568,6 +568,8 @@ let installed = false;
 async function approvalSettled(s: ApprovalSettled): Promise<void> {
   const row = s.record;
   if (row.state !== "awaiting_approval") return;
+  // approvals withdrawn are not approvals: the item keeps waiting until someone asks again (or it is cancelled)
+  if (s.outcome === "canceled") return;
   const schema = await cachedSchema(s.tx, s.ctx, row.item_version_id);
   if (!schema) return;
   if (s.aggregate === "rejected") await transitionIn(s.tx, sysOf(s.ctx), "request_item", String(row.id), "rejected", { close_notes: "در مرحلهٔ تأیید رد شد" }, { trusted: true });

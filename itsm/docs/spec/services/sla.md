@@ -216,7 +216,12 @@ and who decided it.
 - **Modules react in the same transaction** (§8): `onApprovalSettled(table, fn)` runs when a round settles —
   `approved` or `rejected` by a decision or an expiry, `canceled` by a withdrawal — with `{ tx, ctx, def, record,
   rule_id, round, outcome, aggregate, by }`; a module that throws rolls the decision back. Rounds born settled
-  (auto-approval) and rounds a re-run replaces do not call it (the write that made them sees them).
+  (auto-approval) and rounds a re-run replaces do not call it (the write that made them sees them) — but a re-run
+  that leaves nothing open settles once as `replanned` with the record's aggregate, so the record never waits with
+  nothing to decide. A withdrawn round (`canceled`) never counts as an approval: a requested item keeps waiting, a
+  change goes back to «ارزیابی». Withdrawing through `POST /approvals/record/:table/:id/cancel` is for holders of the
+  area's approve right (every open round) or whoever asked for an ad-hoc round (that round) — never someone who
+  reaches the record only as its requester.
   `cancelApprovalsIn(tx, ctx, table, id, { adhocRound?, state?: canceled|no_longer_required, comment? })` withdraws
   inside the caller's transaction; `rerunApprovalRules(ctx, table, id, { comment?, decided? })` (and `…In`) plans a
   record's approvals again when what they depend on changed: open rounds are withdrawn (`canceled`, with the

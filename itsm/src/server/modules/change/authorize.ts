@@ -179,6 +179,14 @@ export async function settleCycle(tx: Tx, ctx: Ctx, def: TableDef, row: Row, act
   return to;
 }
 
+/** The cycle's approvals were withdrawn: when nothing is open any more, the change goes back to «ارزیابی» (or «پیش‌نویس»). */
+async function withdrawnCycle(tx: Tx, ctx: Ctx, def: TableDef, row: Row, actor: string | null): Promise<void> {
+  if (tally(await cycleApprovals(tx, ctx, row)).open) return;
+  const to = lifecycleOf(row.model_states, row.type).includes("assess") ? "assess" : "new";
+  await transitionIn(tx, sysOf(ctx, actor), "change_request", String(row.id), to, { approval: "not_requested" }, { trusted: true });
+  await note(tx, ctx, def, row, "تأییدهای تغییر پس گرفته شد؛ تغییر برای ارزیابی دوباره برگشت و پیش از اجرا باید دوباره تأیید شود.", actor);
+}
+
 async function react(w: WriteArgs & { row: Row }): Promise<void> {
   if (w.def.key !== "change_request" || w.op === "delete") return;
   const row = w.row;
@@ -201,7 +209,12 @@ export function installAuthorization(): (() => void)[] {
   return [
     registerHooks("*", { afterWrite: (w) => react(w as WriteArgs & { row: Row }) }),
     // a round of the change's approvals settled (decided, expired, withdrawn): the cycle may be complete
-    onApprovalSettled("change_request", (s) => (s.record.state === "authorize" ? settleCycle(s.tx, s.ctx, s.def, s.record, s.by).then(() => undefined) : undefined)),
+    onApprovalSettled("change_request", (s) => {
+      if (s.record.state !== "authorize") return undefined;
+      // approvals withdrawn are not approvals: with nothing left open the change goes back to be assessed again
+      if (s.outcome === "canceled") return withdrawnCycle(s.tx, s.ctx, s.def, s.record, s.by);
+      return settleCycle(s.tx, s.ctx, s.def, s.record, s.by).then(() => undefined);
+    }),
     ...installApproverSources(),
   ];
 }

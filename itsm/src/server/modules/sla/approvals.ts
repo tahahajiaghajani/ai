@@ -19,6 +19,8 @@ import { pgArray } from "../../db";
 import { AppError, bad, forbidden, notFound } from "../../http/errors";
 import { access } from "../../access/provider";
 import { registerParticipantSource } from "../../access/predicate";
+import { subjectOf } from "../../access";
+import { grantIn } from "@shared/access/model";
 import { enqueue, registerJobHandler } from "../../jobs";
 import {
   actorId, addJournalIn, bumpScopeEpoch, condEnv, createIn, defFor, emitEvent, isSystemCtx, loadReadable, orgSchema, RefSet, registerHooks, requireReadable, resolveDisplay,
@@ -210,7 +212,8 @@ export interface ApprovalSettled {
   /** the rule of the round (null: an ad-hoc request) */
   rule_id: string | null;
   round: number;
-  outcome: "approved" | "rejected" | "canceled";
+  /** `replanned`: a re-run of the record's rules left nothing open (see `aggregate`) */
+  outcome: "approved" | "rejected" | "canceled" | "replanned";
   /** the record's approvals altogether (its `approval` field): not_requested / requested / approved / rejected */
   aggregate: string;
   /** who decided or withdrew it (null: an expiry or the system) */
@@ -224,7 +227,9 @@ const settledHooks: { table: string; fn: ApprovalSettledFn }[] = [];
 /**
  * React to a round of `table`'s approvals settling — approved, rejected (a decision or an expiry) or canceled
  * (withdrawn) — inside the transaction that settled it ("*": every table). Rounds created settled (auto-approval)
- * and rounds a re-run replaces do not call it: the write that made them sees them. Returns an unregister function.
+ * and rounds a re-run replaces do not call it: the write that made them sees them — except that a re-run leaving
+ * nothing open (every new round auto-approved, or no rule asking any more) settles once as `replanned` with the
+ * record's aggregate. A withdrawn round (`canceled`) never counts as an approval. Returns an unregister function.
  */
 export function onApprovalSettled(table: string, fn: ApprovalSettledFn): () => void {
   const h = { table, fn };
@@ -615,14 +620,26 @@ export interface CancelOptions {
 
 /**
  * Withdraw the open approvals of a record (its people changed their mind): the round ends as canceled. `adhocRound`
- * withdraws only that ad-hoc round (the flow that asked for it ended).
+ * withdraws only that ad-hoc round (the flow that asked for it ended). Who may: holders of the area's approve right
+ * (every open round), or whoever asked for an ad-hoc round (that round) — never someone who reaches the record only as
+ * its requester; a withdrawn round never counts as an approval (`onApprovalSettled`).
  */
 export async function cancelApprovals(ctx: Ctx, table: string, id: string, opts: CancelOptions = {}): Promise<{ canceled: number; aggregate: string }> {
   const { def } = await defFor(ctx, table);
   return ctx.write(async (tx) => {
     const env = await condEnv(ctx);
     const record = await requireReadable(ctx, def, id, env, tx, { lock: true });
-    if (!isSystemCtx(ctx) && (!access().canWrite(ctx, def, record) || record.$writable === false)) throw forbidden(`اجازهٔ تغییر این ${def.label} را ندارید`);
+    if (isSystemCtx(ctx)) return cancelOpen(tx, ctx, def, record, opts);
+    const denied = forbidden("پس گرفتن تأییدها با تأییدکنندگان این بخش یا کسی است که آن تأیید را خواسته است");
+    if (!access().canWrite(ctx, def, record) || record.$writable === false) throw forbidden(`اجازهٔ تغییر این ${def.label} را ندارید`);
+    if (access().writeMode?.(ctx, def, record) === "requester") throw denied;
+    if (grantIn(subjectOf(ctx).eff, def.area).approve) return cancelOpen(tx, ctx, def, record, opts);
+    // their own ad-hoc request only
+    const me = ctx.user.id;
+    const asked = (r: Row) => !r.rule_id && r.requested_by === me;
+    const open = (await liveRows(tx, systemFrom(ctx), "approval", eqAll({ table_key: def.key, record_id: String(record.id) }), "t.round, t.level, t.id")).filter((r) => OPEN.has(r.state));
+    const mine = open.filter((r) => asked(r) && (opts.adhocRound === undefined || Number(r.round) === opts.adhocRound));
+    if (!mine.length || open.some((r) => !asked(r) && (opts.adhocRound === undefined || (!r.rule_id && Number(r.round) === opts.adhocRound)))) throw denied;
     return cancelOpen(tx, ctx, def, record, opts);
   });
 }
@@ -695,9 +712,16 @@ export async function rerunApprovalRulesIn(tx: Tx, ctx: Ctx, table: string, id: 
   // ad-hoc rounds still open are withdrawn too (they were asked about what changed)
   for (const x of existing) if (!x.rule_id && OPEN.has(x.state)) await withdraw(x);
   const agg = aggregate([...existing, ...created] as never[]);
-  if (def.fields.some((f) => f.name === "approval") && record.approval !== agg) await updateIn(tx, sys, def.key, id, { approval: agg }, { trusted: true });
+  let fresh = record;
+  if (def.fields.some((f) => f.name === "approval") && record.approval !== agg) fresh = await updateIn(tx, sys, def.key, id, { approval: agg }, { trusted: true });
   await announceRequested(tx, sys, def, record, created.filter((x) => x.state === "requested"), { rerun: true });
   if (timers) await scheduleApprovals(tx, ctx.org.id, def.key, id, now + 1000);
+  // what was waiting was withdrawn and nothing is open now (auto-approved, or no rule asks any more): the record moves
+  // on as after any settled round — it never stays waiting with nothing to decide
+  if (canceled && ![...existing, ...created].some((x) => OPEN.has(x.state))) {
+    const last = created[created.length - 1] ?? null;
+    await fireSettled({ tx, ctx: sys, def, record: fresh, rule_id: (last?.rule_id as string) ?? null, round: Number(last?.round) || 0, outcome: "replanned", aggregate: agg, by: requestedBy });
+  }
   return { canceled, started: created.length, aggregate: agg };
 }
 
