@@ -13,7 +13,8 @@ import { tableDef } from "@shared/tables";
 import { noticeDate, addJalaliMonths } from "@shared/supplier/logic";
 import { COVERAGE_KINDS } from "@shared/tables/supplier";
 import { D, mul, round } from "@shared/money";
-import { createIn, pushGuard, registerHooks, transitionIn, updateIn, type WriteArgs } from "../../engine";
+import { createIn, orgSchema, pushGuard, registerHooks, transitionIn, updateIn, type WriteArgs } from "../../engine";
+import { holds, withWalks } from "../sla/common";
 import { access } from "../../access/provider";
 import { bad, conflict, forbidden } from "../../http/errors";
 import { isUuid, liveRow, liveRows, orgToday, sysOf } from "../itam/common";
@@ -146,8 +147,15 @@ export function installSupplierHooks(): (() => void)[] {
           // it): never straight from draft or negotiation, never after a rejection
           if (w.next.approval === "rejected") return "تأیید این قرارداد رد شده است؛ پس از اصلاح، دوباره «ارسال برای تأیید» را بزنید";
           if (w.prev?.state === "pending_approval" && w.next.approval === "requested") return "قرارداد در انتظار تأیید است";
-          const rules = await liveRows(w.tx, sysOf(w.ctx), "approval_rule", { and: [{ f: "table_key", op: "eq", v: "contract" }, { f: "active", op: "eq", v: true }] } as Cond, { limit: 1 });
-          if (rules.length && w.next.approval !== "approved") return "قرارداد پیش از فعال شدن به تأیید می‌رسد؛ «ارسال برای تأیید» را بزنید";
+          if (w.next.approval === "approved") return null;
+          // a rule that would ask for approval of this contract once submitted (its condition on the contract in
+          // «در انتظار تأیید», as the approvals service evaluates it)
+          const rules = await liveRows(w.tx, sysOf(w.ctx), "approval_rule", { and: [{ f: "table_key", op: "eq", v: "contract" }, { f: "active", op: "eq", v: true }] } as Cond, { limit: 100 });
+          if (!rules.length) return null;
+          const schema = await orgSchema(w.ctx, w.tx);
+          const conds = rules.map((r) => r.condition);
+          const probe = await withWalks(w.tx, w.def, w.ctx.org.id, { ...w.next, state: "pending_approval", org_id: w.ctx.org.id }, conds, w.env, schema.lookup);
+          if (rules.some((r) => holds(r.condition, probe, w.env, w.def, schema.lookup, true))) return "قرارداد پیش از فعال شدن به تأیید می‌رسد؛ «ارسال برای تأیید» را بزنید";
           return null;
         },
       },

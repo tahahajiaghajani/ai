@@ -73,6 +73,23 @@ describe("contracts and the ledger", () => {
   });
 });
 
+describe("contract approval rules that do not apply", () => {
+  it("leaves direct activation to contracts no active rule would ask approval for", async () => {
+    const seeded = await w.idOf("approval_rule", "name", "تأیید قرارداد");
+    await w.o.patch(`${w.P}/r/approval_rule/${seeded}`, { active: false });
+    const rule = (await w.o.post(`${w.P}/r/approval_rule`, { table_key: "contract", name: "تأیید قراردادهای ابری", active: true, mode: "sequential", condition: { and: [{ f: "state", op: "eq", v: "pending_approval" }, { f: "contract_type", op: "eq", v: "cloud" }] }, levels: [{ name: "مدیر", sources: [{ kind: "manager" }], rule: "any" }] })).row;
+    try {
+      const support = (await w.p.am.client.post(`${w.P}/r/contract`, { name: "پشتیبانی چاپگرها", supplier_id: sup, contract_type: "support", start_date: today(), end_date: addDays(today(), 365) })).row;
+      expect((await w.p.am.client.post(`${w.P}/r/contract/${support.id}/transition`, { to: "active" })).row.state).toBe("active");
+      const cloud = (await w.p.am.client.post(`${w.P}/r/contract`, { name: "میزبانی ابری تازه", supplier_id: sup, contract_type: "cloud", start_date: today(), end_date: addDays(today(), 365) })).row;
+      expect(await code(w.p.am.client.post(`${w.P}/r/contract/${cloud.id}/transition`, { to: "active" }))).toBe(409);
+    } finally {
+      await w.o.patch(`${w.P}/r/approval_rule/${rule.id}`, { active: false });
+      await w.o.patch(`${w.P}/r/approval_rule/${seeded}`, { active: true });
+    }
+  });
+});
+
 describe("acknowledgements", () => {
   it("lets only the holder accept or decline, and sign only with that decision", async () => {
     const a = await w.asset({ serial_number: "RF-ACK-1" });
