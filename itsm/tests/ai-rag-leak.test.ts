@@ -165,7 +165,9 @@ describe("leak tests: the built-in roles on a hand-built organisation", () => {
       expect(violations).toEqual([]);
       // members who read anything at all get passages back
       if ((await readableIds(ctx, "rag_ticket", ids)).size) expect(seen).toBeGreaterThan(0);
-    });
+      // every query of the probe, with and without an answer: ~16 s alone, several times that when the whole suite
+      // shares the machine (each installed module adds tables to the index the probe crosses)
+    }, 240_000);
   }
 
   it("finds what the member may read (recall of the canaries, not only absence of leaks)", async () => {
