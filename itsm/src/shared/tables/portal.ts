@@ -428,7 +428,8 @@ const question: TableDef = {
     { name: "options", label: "گزینه‌ها", type: "tags", span: 24, help: "برای «یک گزینه» و «چند گزینه»" },
     { name: "help", label: "راهنمای کوتاه", type: "string", maxLength: 200, span: 24 },
   ],
-  scope: {},
+  // parent-scoped (ACCESS §7): read only by those who may read its survey
+  scope: { parent: "survey_id" },
   list: { columns: ["survey_id", "sort_order", "label", "kind", "metric", "required"], order: "survey_id,sort_order" },
 };
 
@@ -453,7 +454,8 @@ const trigger: TableDef = {
     { name: "cooldown_days", label: "فاصلهٔ دو نظرسنجی برای یک نفر (روز)", type: "int", min: 0, max: 365, default: 7, span: 8 },
     { name: "channels", label: "راه دعوت", type: "multichoice", choices: NOTIFY_WAYS, default: ["in_app", "email"], span: 8 },
   ],
-  scope: {},
+  // parent-scoped (ACCESS §7): read only by those who may read its survey
+  scope: { parent: "survey_id" },
   list: { columns: ["name", "survey_id", "table_key", "fire_on", "sample_pct", "active"], order: "name" },
 };
 
