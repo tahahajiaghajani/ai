@@ -124,6 +124,13 @@ workforceRoutes.get("/coverage", async (c) => {
   return c.json({ rows: await coverageReport(ctx, { group: q.group ?? null }) });
 });
 
+// the catalogue for people without the area's grants (the generic list is for managers; single rows open to everyone)
+workforceRoutes.get("/skills/catalogue", async (c) => {
+  const ctx = await needAgent(c);
+  const rows = await liveRows(ctx.db, sysOf(ctx), "wfm_skill", { f: "active", op: "eq", v: true }, { order: "t.category, t.name", limit: 2000 });
+  return c.json({ skills: rows.map((r) => ({ id: r.id, name: r.name, category: r.category ?? null, sfia_code: r.sfia_code ?? null, description: r.description ?? null })) });
+});
+
 workforceRoutes.get("/skills/mine", async (c) => {
   const ctx = await needAgent(c);
   const rows = await liveRows(ctx.db, ctx, "wfm_person_skill", { f: "user_id", op: "eq", v: ctx.user.id }, { order: "t.created_at", limit: 500 });
