@@ -54,14 +54,18 @@ const isTaskTable = (table: string) => {
 };
 
 async function onEvent(e: RecordEvent, jctx: JobContext): Promise<void> {
-  if (!actsHere(jctx.cfg) || e.via === "sync") return;
+  if (!e.org_id || !actsHere(jctx.cfg) || e.via === "sync") return;
+  const resolved = e.kind === "record.state_changed" && e.to_category === "resolved" && isTaskTable(e.table);
+  const published = e.table === "kb_article" && e.kind === "record.state_changed" && e.to === "published";
+  const surveyed = e.table === "survey_response" && e.kind === "record.created";
+  if (!resolved && !published && !surveyed) return; // most events earn nothing: no context needed
   const sys = await systemCtx(jctx.cfg, e.org_id);
-  if (e.kind === "record.state_changed" && e.to_category === "resolved" && isTaskTable(e.table)) {
+  if (resolved) {
     const rec = await liveRow(jctx.db, sys, e.table, e.id);
     if (rec) await sys.write((tx) => awardResolution(tx, sys, e.table, rec));
     return;
   }
-  if (e.table === "kb_article" && e.kind === "record.state_changed" && e.to === "published") {
+  if (published) {
     const art = await liveRow(jctx.db, sys, "kb_article", e.id);
     const author = art?.author_id ?? art?.created_by;
     if (art && isUuid(author)) {
@@ -70,7 +74,7 @@ async function onEvent(e: RecordEvent, jctx: JobContext): Promise<void> {
     }
     return;
   }
-  if (e.table === "survey_response" && e.kind === "record.created") {
+  if (surveyed) {
     const r = await liveRow(jctx.db, sys, "survey_response", e.id);
     if (!r || Number(r.csat ?? 0) < 4 || !r.table_key || !isUuid(r.record_id) || !tableDef(String(r.table_key))) return;
     const rec = await liveRow(jctx.db, sys, String(r.table_key), r.record_id);

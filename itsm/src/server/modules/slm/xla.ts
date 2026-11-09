@@ -105,7 +105,7 @@ export function installXla(): (() => void)[] {
   const off: (() => void)[] = [];
   off.push(
     onRecordEvent("slm.xla", async (e, jctx) => {
-      if (!actsHere(jctx.cfg) || e.table.startsWith("slm_") || e.via === "sync") return;
+      if (!e.org_id || !actsHere(jctx.cfg) || e.table.startsWith("slm_") || e.via === "sync") return;
       const def = tableDef(e.table);
       if (!def || def.virtual || !def.states) return;
       const sys = await systemCtx(jctx.cfg, e.org_id);
