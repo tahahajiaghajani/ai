@@ -12,7 +12,7 @@ import { world, type World } from "./incident-helpers";
 import { create, systemCtx } from "@server/engine";
 import { memberCtx, readableIds } from "@server/access";
 import { FAKE_INBOX, FAKE_QUEUE, clearFakeInbox } from "@server/modules/ai/adapters/fake";
-import { principalEmail, runSkill } from "@server/modules/ai/skills";
+import { principalOf, runSkill } from "@server/modules/ai/skills";
 import { SKILL_AI_LABEL } from "@shared/ai/skills";
 
 const before = process.env.ITSM_AI_FAKE;
@@ -105,9 +105,19 @@ describe("AI skills: access and safety", () => {
     clearFakeInbox();
     await w.p.req.client.post(`${P()}/ai/skills/record.summary/run`, { table: "incident", id: inc });
     expect(inbox()).not.toContain(T.note);
+    // internal notes are of the «internal» group: a skill the administrator has not allowed it never reads them…
     clearFakeInbox();
     await w.p.agent.client.post(`${P()}/ai/skills/record.summary/run`, { table: "incident", id: inc });
-    expect(inbox()).toContain(T.note); // the agent reads internal notes: their own summary may use them
+    expect(inbox()).not.toContain(T.note);
+    // …one allowed it (the incident summary, by default) reads them for an agent, who reads them anyway
+    clearFakeInbox();
+    await w.p.agent.client.post(`${P()}/ai/skills/incident.summary/run`, { table: "incident", id: inc });
+    expect(inbox()).toContain(T.note);
+    await w.o.patch(`${P()}/ai/skills/admin/record.summary`, { field_groups: ["internal"] });
+    clearFakeInbox();
+    await w.p.agent.client.post(`${P()}/ai/skills/record.summary/run`, { table: "incident", id: inc });
+    expect(inbox()).toContain(T.note);
+    await w.o.patch(`${P()}/ai/skills/admin/record.summary`, { field_groups: [] });
     clearFakeInbox();
     const draft = await w.p.agent.client.post(`${P()}/ai/skills/reply.draft/run`, { table: "incident", id: inc, params: { intent: "update" } });
     expect(inbox()).not.toContain(T.note); // a reply goes to the requester: only public text reached the model
@@ -170,7 +180,7 @@ describe("AI skills: access and safety", () => {
     // included); an internal note is drafted for every new incident
     const principal = (await w.o.post(`${P()}/ai/skills/admin/principal`, { roles: ["incident_manager"] })).principal;
     expect(principal.active).toBe(true);
-    const svc = await w.e.db.one<{ id: string }>(`select id from sm_users where email = $1`, [principalEmail(w.e.org)]);
+    const svc = { id: (await principalOf(w.e.db, w.e.org)).user_id! };
     expect(svc!.id).toBe(principal.user_id);
     await w.o.patch(`${P()}/ai/skills/admin/note.draft`, { triggers: ["manual", "event"], events: ["created"] });
     clearFakeInbox();

@@ -15,7 +15,7 @@ import { errorResponse } from "@server/http/hono";
 import { AppError } from "@server/http/errors";
 import { AiUnavailableError } from "@server/modules/ai/errors";
 import { FAKE_INBOX, FAKE_QUEUE, clearFakeInbox } from "@server/modules/ai/adapters/fake";
-import { principalEmail } from "@server/modules/ai/skills";
+import { principalOf } from "@server/modules/ai/skills";
 import { changeAi } from "@server/modules/change/ai";
 
 const before = process.env.ITSM_AI_FAKE;
@@ -170,7 +170,7 @@ describe("an event-triggered skill on a confidential incident", () => {
   it("runs as «دستیار هوش مصنوعی» on it; an agent outside the confidential list never sees the proposal", async () => {
     const { P, o, p } = w;
     const principal = (await o.post(`${P}/ai/skills/admin/principal`, { roles: ["incident_manager"] })).principal;
-    const svc = await w.e.db.one<{ id: string }>(`select id from sm_users where email = $1`, [principalEmail(w.e.org)]);
+    const svc = { id: (await principalOf(w.e.db, w.e.org)).user_id! };
     expect(svc!.id).toBe(principal.user_id);
     await o.patch(`${P}/ai/skills/admin/note.draft`, { triggers: ["manual", "event"], events: ["created"] });
     clearFakeInbox();

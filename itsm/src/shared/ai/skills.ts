@@ -226,6 +226,8 @@ export interface SkillRunView {
   feedback: 1 | -1 | null;
   feedback_comment: string | null;
   created_at: string;
+  /** the caller may not read the run's record or something it read (now): only its metadata is shown */
+  restricted?: boolean;
 }
 
 /** Configuration of a skill (the organisation's row merged over the built-in default). */

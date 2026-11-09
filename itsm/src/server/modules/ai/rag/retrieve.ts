@@ -44,6 +44,10 @@ export interface RetrievedPassage extends AiPassage {
   /** the enclosing section's text (the passage itself when it is a whole section) */
   context: string;
   version: number | null;
+  /** the field groups of the chunk's partition (server only: whoever is shown text built from it must carry them) */
+  groups: string[];
+  /** the fields the chunk was built from (server only) */
+  fields: string[];
 }
 
 export interface RetrieveResult {
@@ -338,6 +342,8 @@ export async function retrieve(ctx: Ctx, query: string, opts: RetrieveOptions = 
         score: Number((score.get(c.id) ?? 0).toFixed(6)),
         context: c.text,
         version: c.version,
+        groups: [...((c.groups ?? []) as string[])],
+        fields: [...((c.fields ?? []) as string[])],
         citation: {
           n: 0,
           table: def.key,

@@ -43,6 +43,7 @@ export interface JournalData {
   kind_label: string;
   visibility: "public" | "internal";
   author: string | null;
+  /** when, in the organisation's local Jalali time (as the prompt shows every date) */
   at: string;
   body: string;
 }
@@ -58,10 +59,17 @@ export interface SkillRuntimeInput {
   journal: JournalData[];
   related: Record<string, Record<string, unknown>[]>;
   links: { kind: string; table: string; number: string | null; title: string; state: string | null }[];
+  /**
+   * The rows behind `related` and `links` (`@r:<table>:<id>` tokens, never shown to the model): whoever sees a proposal
+   * built from a template that showed them must read them too.
+   */
+  reads: { related: string[]; links: string[] };
   passages: RetrievedPassage[];
   language: "fa" | "en";
   /** true when an event or a schedule started the run (the service member's access) */
   triggered: boolean;
+  /** the field groups this skill may read (its configuration; never `ai_private`) — on top of what the caller sees */
+  fieldGroups: FieldGroup[];
 }
 
 /** What a skill (the model, a fallback or a post-processor) answered, before the runtime shapes and checks it. */

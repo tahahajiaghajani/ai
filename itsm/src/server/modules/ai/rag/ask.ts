@@ -37,7 +37,7 @@ export interface AskOptions {
 
 /** Passages as the API returns them (without the server-side context). */
 export function publicPassages(ps: RetrievedPassage[]): AiPassage[] {
-  return ps.map(({ context: _c, version: _v, ...p }) => p);
+  return ps.map(({ context: _c, version: _v, groups: _g, fields: _f, ...p }) => p);
 }
 
 const neutral = (s: string) => s.replace(/</g, "‹").replace(/>/g, "›");

@@ -222,7 +222,8 @@ that declare `participants: true` (the approvals panel).
 - **canWrite / canDelete** (`writeMode(s, T, r, op)`): `domainOk ∧ confidentialOk ∧ (assignee or delegate of the
   assignee ∨ (scope(write | delete, using writeGroups) ∧ workspaceOk ∧ restrictedOk) ∨ requester)`. The result is
   `full`, or `requester` when the subject reaches the row only through a requester field of a table that declares
-  `scope.requesterWritable` (requesters never delete such rows), or null.
+  `scope.requesterWritable` (requesters never delete such rows), or null — told by the provider's `writeMode` (who
+  works a record: deciding its AI proposals needs `full`).
 - **writableFields**: in `requester` mode only `scope.requesterWritable` (task: description, urgency, watch_list);
   otherwise every visible field. A change outside it is 403 `forbidden_field` «اجازهٔ تغییر «…» را ندارید» (the
   state field goes through transitions). Requesters add public comments and attachments to readable records (the

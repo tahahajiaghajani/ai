@@ -5,18 +5,25 @@
 // goes through the record service with the member's own access.
 // The account cannot sign in (no password; an address that receives no mail), appears in the members list like any
 // member, and is switched off by deactivating its membership.
+// It is found by its membership, never by an address: each one gets a random address in the reserved domain
+// `service.invalid` (sign-up and invitations refuse every `.invalid` address — `isReservedEmail`), and an account
+// with such an address that can sign in (a password, a recovery code or a session) is never taken for it.
+import { randomUUID } from "node:crypto";
 import type { Ctx, ServerConfig } from "../../../context";
 import type { Queryable } from "../../../db";
 import { insertRow } from "../../../db/sql";
 import { uuidv7 } from "@shared/id";
-import { forbidden } from "../../../http/errors";
+import { conflict, forbidden } from "../../../http/errors";
 import { audit } from "../../data/crud";
 import { memberCtx, saveMemberAccess } from "../../../access/service";
 
 export const PRINCIPAL_NAME = "دستیار هوش مصنوعی";
 
-/** The service member's address (one per organisation; `.invalid` never receives mail). */
-export const principalEmail = (orgId: string) => `ai-assistant+${orgId}@service.invalid`;
+/** The reserved domain of service accounts (`.invalid` never receives mail; nobody signs up or is invited in it). */
+export const SERVICE_DOMAIN = "service.invalid";
+
+/** A new service member's address: random, so nobody can sign it up ahead of the organisation. */
+export const newPrincipalEmail = () => `ai-assistant+${randomUUID()}@${SERVICE_DOMAIN}`;
 
 export interface PrincipalState {
   user_id: string | null;
@@ -25,14 +32,32 @@ export interface PrincipalState {
   active: boolean;
 }
 
+interface ServiceAccount {
+  id: string;
+  full_name: string;
+  active: boolean;
+  /** a password, a recovery code or a session: someone signs in with it — never the service member */
+  can_sign_in: boolean;
+  removed: boolean;
+}
+
+/** The organisation's members whose account has a service address (its service member, and anything posing as one). */
+async function serviceAccounts(q: Queryable, orgId: string): Promise<ServiceAccount[]> {
+  return q.query<ServiceAccount>(
+    `select u.id, u.full_name, (m.is_active and m.deleted_at is null and not u.disabled) as active,
+            (u.password_hash is not null or u.recovery_hash is not null
+              or exists (select 1 from sm_sessions s where s.user_id = u.id)) as can_sign_in,
+            (m.deleted_at is not null) as removed
+     from sm_users u join sm_org_members m on m.user_id = u.id and m.org_id = $1
+     where lower(u.email) like $2
+     order by m.created_at, m.id`,
+    [orgId, `ai-assistant+%@${SERVICE_DOMAIN}`],
+  );
+}
+
 /** The organisation's service member, if one was set up. */
 export async function principalOf(q: Queryable, orgId: string): Promise<PrincipalState> {
-  const r = await q.one<{ id: string; full_name: string; active: boolean }>(
-    `select u.id, u.full_name, (m.is_active and m.deleted_at is null and not u.disabled) as active
-     from sm_users u join sm_org_members m on m.user_id = u.id and m.org_id = $1
-     where lower(u.email) = lower($2)`,
-    [orgId, principalEmail(orgId)],
-  );
+  const r = (await serviceAccounts(q, orgId)).find((a) => !a.can_sign_in);
   if (!r) return { user_id: null, name: null, roles: [], active: false };
   const p = await q.one<{ roles: unknown }>(`select roles from sm_member_profiles where org_id = $1 and user_id = $2 and deleted_at is null`, [orgId, r.id]);
   const roles = Array.isArray(p?.roles) ? (p!.roles as unknown[]).filter((x): x is string => typeof x === "string") : [];
@@ -49,15 +74,23 @@ export async function principalCtx(cfg: ServerConfig, orgId: string): Promise<Ct
 /**
  * Set up (or change) the service member: created on first use, its ITSM roles set through the access service — so the
  * usual rules hold: only an owner grants roles, nobody grants more than they have. `active: false` switches it off.
+ * Never adopts an existing account: the member is the organisation's own (found by its membership) or a new account.
  */
 export async function setPrincipal(ctx: Ctx, input: { roles: string[]; active?: boolean }): Promise<PrincipalState> {
   ctx.need("ai", "full");
   ctx.need("users", "edit");
   if (ctx.actor === "support") throw forbidden("حساب دستیار هوش مصنوعی را مدیر خود سازمان می‌سازد");
-  const email = principalEmail(ctx.org.id);
   const userId = await ctx.write(async (tx) => {
-    let user = await tx.one<{ id: string }>(`select id from sm_users where lower(email) = lower($1)`, [email]);
-    if (!user) user = await insertRow<{ id: string }>(tx, "sm_users", { id: uuidv7(), email, full_name: PRINCIPAL_NAME, password_hash: null }, "id");
+    const accounts = await serviceAccounts(tx, ctx.org.id);
+    // a member with a service address that someone signs in with (made before such addresses were reserved) is
+    // never given the service member's roles: the owner removes it first
+    if (accounts.some((a) => a.can_sign_in && !a.removed)) {
+      throw conflict("عضوی با نشانی حساب خدمت در سازمان هست که می‌تواند وارد سامانه شود؛ نخست او را از اعضا بردارید");
+    }
+    const own = accounts.find((a) => !a.can_sign_in);
+    const user = own
+      ? { id: own.id }
+      : await insertRow<{ id: string }>(tx, "sm_users", { id: uuidv7(), email: newPrincipalEmail(), full_name: PRINCIPAL_NAME, password_hash: null }, "id");
     const m = await tx.one<{ id: string; deleted_at: string | null }>(`select id, deleted_at from sm_org_members where org_id = $1 and user_id = $2`, [ctx.org.id, user.id]);
     const active = input.active !== false;
     if (!m) {

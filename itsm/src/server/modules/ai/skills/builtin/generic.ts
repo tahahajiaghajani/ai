@@ -5,11 +5,27 @@
 import type { TableDef } from "@shared/model/types";
 import { formatJalaliDateTime } from "@shared/jalali";
 import { listHistory } from "../../../../engine";
+import type { HistoryEntry } from "../../../../engine";
 import { orgTimeZone } from "../../usage";
+import { promptable } from "../context";
 import type { SkillDef, SkillRawOutput, SkillRuntimeInput } from "../types";
 import { defineSkill } from "../registry";
 
 const CONFIG_MODULES = new Set(["ai", "access", "core", "notify", "flows", "sla"]);
+
+/**
+ * History entries of fields that may reach this skill's model — the same rule as the record's own fields (no secret,
+ * `ai_private`, sync-excluded or kept field, no field group the skill may not read), whatever the caller sees.
+ */
+function promptableHistory(input: SkillRuntimeInput, entries: HistoryEntry[]): HistoryEntry[] {
+  const tdef = input.record?.def;
+  if (!tdef) return [];
+  const groups = new Set(input.fieldGroups);
+  return entries.filter((e) => {
+    const f = tdef.fields.find((x) => x.name === e.field);
+    return !!f && promptable(tdef, f, groups, null);
+  });
+}
 
 /** Records people work on (not configuration tables of the platform). */
 export const workRecord = (t: TableDef) => !CONFIG_MODULES.has(t.module) && !t.virtual && !t.scope?.public;
@@ -108,7 +124,7 @@ export const genericSkills: SkillDef[] = [
       const h = await listHistory(ctx, input.record.table, input.record.id, { limit: 60 }).catch(() => ({ entries: [], display: {} as Record<string, string> }));
       const show = (v: unknown) => (v === null || v === undefined || v === "" ? "—" : typeof v === "string" ? ((h.display as Record<string, string>)[v] ?? v).slice(0, 300) : JSON.stringify(v).slice(0, 300));
       return {
-        history: [...h.entries].reverse().map((e) => ({ فیلد: e.label, از: show(e.old), به: show(e.new), توسط: e.actor ? ((h.display as Record<string, string>)[e.actor] ?? "—") : "سامانه", زمان: formatJalaliDateTime(e.at, tz) })),
+        history: promptableHistory(input, [...h.entries].reverse()).map((e) => ({ فیلد: e.label, از: show(e.old), به: show(e.new), توسط: e.actor ? ((h.display as Record<string, string>)[e.actor] ?? "—") : "سامانه", زمان: formatJalaliDateTime(e.at, tz) })),
       };
     },
     fallback: async (ctx, input) => {
@@ -116,7 +132,7 @@ export const genericSkills: SkillDef[] = [
       const tz = orgTimeZone(ctx);
       const h = await listHistory(ctx, input.record.table, input.record.id, { limit: 30 }).catch(() => ({ entries: [], display: {} as Record<string, string> }));
       const d = h.display as Record<string, string>;
-      const lines = [...h.entries].reverse().map((e) => `- ${formatJalaliDateTime(e.at, tz)} — ${e.actor ? (d[e.actor] ?? "—") : "سامانه"}: «${e.label}» ${e.old === null || e.old === undefined ? "" : `از ${typeof e.old === "string" ? (d[e.old] ?? e.old) : JSON.stringify(e.old)} `}به ${typeof e.new === "string" ? (d[e.new] ?? e.new) : JSON.stringify(e.new)}`);
+      const lines = promptableHistory(input, [...h.entries].reverse()).map((e) => `- ${formatJalaliDateTime(e.at, tz)} — ${e.actor ? (d[e.actor] ?? "—") : "سامانه"}: «${e.label}» ${e.old === null || e.old === undefined ? "" : `از ${typeof e.old === "string" ? (d[e.old] ?? e.old) : JSON.stringify(e.old)} `}به ${typeof e.new === "string" ? (d[e.new] ?? e.new) : JSON.stringify(e.new)}`);
       return { text: lines.length ? lines.join("\n") : "تغییری ثبت نشده است." };
     },
   }),

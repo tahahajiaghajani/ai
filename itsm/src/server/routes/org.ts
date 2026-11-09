@@ -15,7 +15,7 @@ import { createdHere, memberChangeProblem, RESETTABLE_SQL } from "../modules/pla
 import { hashPassword, passwordProblem, readableCode } from "../auth/password";
 import { uuidv7 } from "@shared/id";
 import { insertRow, updateRow } from "../db/sql";
-import { isEmail } from "@shared/validate";
+import { isEmail, isReservedEmail } from "@shared/validate";
 import { audit } from "../modules/data/crud";
 import { pulse } from "../live";
 import { shellAccess } from "../access/service";
@@ -153,7 +153,8 @@ orgRoutes.post("/members", async (c) => {
   const ctx = c.get("ctx");
   ctx.need("users", "edit");
   const input = await body(c, z.object({
-    email: z.string().trim().toLowerCase().refine(isEmail, "ایمیل معتبر نیست"),
+    // service accounts (the reserved `.invalid` domain) are never invited: the AI service member is set up on its own page
+    email: z.string().trim().toLowerCase().refine(isEmail, "ایمیل معتبر نیست").refine((e) => !isReservedEmail(e), "این نشانی برای حساب‌های خدمت سامانه کنار گذاشته شده است"),
     full_name: z.string().trim().min(2, "نام را وارد کنید").max(120),
     role: roleSchema,
     title: z.string().trim().max(80).nullish(),

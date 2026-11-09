@@ -41,7 +41,7 @@ import type { RetrievedPassage } from "../rag";
 import { allowedGroups, defaultQuery, ground, languageOf, loadJournal, loadLinks, loadRecord, loadRelated, promptValue } from "./context";
 import { resolveSkill, type ResolvedSkill } from "./config";
 import { appliesTo, outputFieldsOf } from "./registry";
-import { proposeFromRun } from "./proposals";
+import { clearanceOf, proposeFromRun } from "./proposals";
 import type { RunOptions, SkillDef, SkillRawOutput, SkillRuntimeInput } from "./types";
 
 // ---------------------------------------------------------------- the base rules every skill runs under
@@ -274,21 +274,27 @@ export async function assemble(ctx: Ctx, rs: ResolvedSkill, req: SkillRunRequest
     journal: [],
     related: {},
     links: [],
+    reads: { related: [], links: [] },
     passages: [],
     language: "fa",
     triggered: !!opts.triggered,
+    fieldGroups: [...allowedGroups(cfg)],
   };
   input.language = languageOf(ctx, input, def.target);
   if (record) {
-    const mode = def.inputs?.journal ?? "all";
+    // internal notes are of the «internal» group: they reach a model only when the skill may read that group (and the
+    // caller reads them — listJournal); otherwise the skill reads public entries only
+    const asked = def.inputs?.journal ?? "all";
+    const mode = asked === "all" && !allowedGroups(cfg).has("internal") ? "public" : asked;
     const [journal, related, links] = await Promise.all([
       loadJournal(ctx, record, mode, def.inputs?.journalLimit ?? 30),
       loadRelated(ctx, record, def, cfg),
-      def.inputs?.links === false ? Promise.resolve([]) : loadLinks(ctx, record),
+      def.inputs?.links === false ? Promise.resolve({ data: [], refs: [] }) : loadLinks(ctx, record),
     ]);
     input.journal = journal;
-    input.related = related;
-    input.links = links;
+    input.related = related.data;
+    input.links = links.data;
+    input.reads = { related: related.refs, links: links.refs };
   }
   input.passages = await ground(ctx, def, cfg, input);
   return input;
@@ -446,6 +452,9 @@ export async function shapeSuggestions(ctx: Ctx, rs: ResolvedSkill, input: Skill
   const tdef = rec.def;
   const allowed = new Set(outputFieldsOf(rs.def, tdef));
   const visible = access().visibleFields(ctx, tdef);
+  // fields the caller may change: none when they may not write the record at all (writableFields alone answers what
+  // they could set if they could write it)
+  if (!access().canWrite(ctx, tdef, { ...rec.row, org_id: rec.row.org_id ?? ctx.org.id })) return [];
   const writable = access().writableFields(ctx, tdef, rec.row);
   const groups = allowedGroups(rs.cfg);
   const tz = orgTimeZone(ctx);
@@ -543,6 +552,8 @@ async function callModel(ctx: Ctx, rs: ResolvedSkill, input: SkillRuntimeInput, 
 interface StoredRun {
   rs: ResolvedSkill;
   input: SkillRuntimeInput;
+  /** what the run read (see `clearanceOf`): the run's output is shown only to people who may read all of it */
+  clearance: string[];
   status: "ok" | "fallback" | "error";
   text: string | null;
   json: unknown;
@@ -583,6 +594,7 @@ async function storeRun(ctx: Ctx, s: StoredRun): Promise<string | null> {
             output_text: s.text ? s.text.slice(0, 60_000) : null,
             output_json: s.json ?? null,
             citations: s.citations.length ? s.citations : null,
+            clearance: s.clearance,
             model: s.model,
             connection: s.connection ? s.connection.slice(0, 120) : null,
             tokens_in: s.usage.input,
@@ -632,7 +644,7 @@ export async function runCore(ctx: Ctx, rs: ResolvedSkill, req: SkillRunRequest,
     } else {
       if (!opts.ephemeral) {
         const message = e instanceof AiUnavailableError || e instanceof AppError ? e.message : aiErrorText("other").message;
-        await storeRun(ctx, { rs, input, status: "error", text: null, json: null, citations: [], model: null, connection: null, usage: { input: 0, output: 0, cost_usd: null }, ms: Date.now() - t0, hash: null, error: message, principal });
+        await storeRun(ctx, { rs, input, clearance: clearanceOf(rs, input, []), status: "error", text: null, json: null, citations: [], model: null, connection: null, usage: { input: 0, output: 0, cost_usd: null }, ms: Date.now() - t0, hash: null, error: message, principal });
       }
       if (e instanceof AiUnavailableError && !rs.def.fallback && e.kind === "not_configured") throw new AiUnavailableError(e.kind, `${SKILL_NO_MODEL}`);
       throw e;
@@ -650,6 +662,8 @@ export async function runCore(ctx: Ctx, rs: ResolvedSkill, req: SkillRunRequest,
     : await storeRun(ctx, {
         rs,
         input,
+        // a «fields» run shows each field's current value: those fields are read too
+        clearance: clearanceOf(rs, input, suggestions.map((x) => x.field)),
         status: gen.fallback ? "fallback" : "ok",
         text: text ?? (suggestions.length ? suggestions.map((s) => `- ${s.label}: ${s.display}`).join("\n") : null),
         json: rs.def.output === "fields" ? { suggestions } : json,

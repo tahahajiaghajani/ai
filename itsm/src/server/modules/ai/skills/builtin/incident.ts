@@ -7,9 +7,11 @@
 import { z } from "zod";
 import type { Ctx } from "../../../../context";
 import { FISHBONE, type RcaCanvas } from "@shared/problem/logic";
+import { formatJalaliDateTime } from "@shared/jalali";
 import { get, list, orgSchema } from "../../../../engine";
 import { registerIncidentAi, registerProblemAi } from "../../../incident/ai";
 import { retrieve } from "../../rag";
+import { orgTimeZone } from "../../usage";
 import { defineSkill } from "../registry";
 import { runForModule } from "../runtime";
 import type { SkillDef } from "../types";
@@ -34,6 +36,7 @@ export const incidentSkills: SkillDef[] = [
     output: "text",
     tier: "fast",
     inputs: { journal: "all", journalLimit: 40, related: [{ table: "incident_task", field: "incident_id", label: "کارهای رخداد", fields: ["number", "short_description", "state", "assigned_to"], limit: 15 }] },
+    fieldGroups: ["internal"], // it reads the work notes (the «internal» group)
     surfaces: ["panel", "module"],
     order: 5,
     system: "کار تو: خلاصهٔ یک رخداد برای کارشناس یا مدیری که تازه به آن رسیده است، با این بخش‌ها: «مسئله»، «اثر و فوریت»، «کارهای انجام‌شده»، «وضعیت کنونی و گام بعدی»؛ اگر حل شده، «راه‌حل». کوتاه و دقیق.",
@@ -170,6 +173,7 @@ export const incidentSkills: SkillDef[] = [
       },
     ],
     roles: ["agent"],
+    fieldGroups: ["internal"], // it reads the work notes (the «internal» group)
     surfaces: ["panel", "module"],
     order: 50,
     system: `کار تو: پیش‌نویس پیام اطلاع‌رسانی یک رخداد عمده برای مخاطب خواسته‌شده: چه چیزی متأثر است، از کی، راه‌حل موقت، زمان تخمینی (فقط اگر در داده هست) و زمان پیام بعدی. برای مدیران و کاربران بی‌اصطلاح فنی و کوتاه؛ برای تیم فنی دقیق‌تر. پیام برای «صفحهٔ وضعیت» و «کاربران متأثر» هیچ جزئیات داخلی، نام کارشناس یا علت حدسی ندارد.`,
@@ -253,6 +257,7 @@ export const problemSkills: SkillDef[] = [
     output: "text",
     tier: "fast",
     inputs: { journal: "all", journalLimit: 30, related: [{ table: "problem_task", field: "problem_id", label: "کارهای مشکل", fields: ["number", "short_description", "state"], limit: 20 }] },
+    fieldGroups: ["internal"], // it reads the work notes (the «internal» group)
     surfaces: ["panel", "module"],
     order: 5,
     system: `کار تو: خلاصهٔ یک مشکل با بخش‌های «مسئله و اثر»، «رخدادهای مرتبط»، «تحلیل تاکنون»، «کارهای باز و گام بعدی».`,
@@ -270,7 +275,9 @@ async function openIncidents(ctx: Ctx): Promise<Record<string, unknown>[]> {
     fields: ["number", "short_description", "state", "priority", "assigned_to", "sla_due", "hold_reason"],
     total: false,
   }).catch(() => null);
-  return (r?.rows ?? []).map((x) => ({ شماره: x.number, عنوان: x.short_description, وضعیت: x.state, اولویت: x.priority, کارشناس: x.assigned_to ? (r!.display[String(x.assigned_to)] ?? null) : null, موعد: x.sla_due ?? null, دلیل_انتظار: x.hold_reason ?? null }));
+  const tz = orgTimeZone(ctx);
+  // deadlines in the organisation's local Jalali time (the prompt's «today» is Jalali too)
+  return (r?.rows ?? []).map((x) => ({ شماره: x.number, عنوان: x.short_description, وضعیت: x.state, اولویت: x.priority, کارشناس: x.assigned_to ? (r!.display[String(x.assigned_to)] ?? null) : null, موعد: x.sla_due ? formatJalaliDateTime(String(x.sla_due), tz) : null, دلیل_انتظار: x.hold_reason ?? null }));
 }
 
 /** Options of choice fields of a table as the organisation configured them (the values a skill may suggest). */

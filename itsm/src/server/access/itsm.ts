@@ -63,6 +63,9 @@ export const itsmProvider: AccessProvider = {
   canWrite(ctx, def, row) {
     return writeMode(subjectOf(ctx), def, row) !== null;
   },
+  writeMode(ctx, def, row) {
+    return writeMode(subjectOf(ctx), def, row);
+  },
   canDelete(ctx, def, row) {
     return writeMode(subjectOf(ctx), def, row, "delete") === "full";
   },

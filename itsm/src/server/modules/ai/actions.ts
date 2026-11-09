@@ -18,6 +18,8 @@ import { access } from "../../access/provider";
 import { readableIds } from "../../access/service";
 import type { AiProposalInput } from "./tools/registry";
 import { executeProposal } from "./tools/proposals";
+import { liveRow, sysOf } from "../incident/common";
+import { orgSchema } from "../../engine";
 
 export const PROPOSAL_TTL_MS = 24 * 3600 * 1000;
 
@@ -126,14 +128,34 @@ export interface RecordProposalInput extends AiProposalInput {
   ttl_hours?: number;
 }
 
-/** Store a skill's proposal on a record (one per run and kind: a retried job never doubles it). */
+/**
+ * Store a skill's proposal on a record (one per run and kind: a retried job never doubles it). A proposer keeps one
+ * open proposal per skill, kind and record: when the same proposal is still open nothing new is stored (a scheduled or
+ * event re-run on an unchanged record), and a different one replaces the open one (it expires as superseded).
+ */
 export async function storeRecordProposal(ctx: Ctx, p: RecordProposalInput): Promise<AiProposal> {
   const id = uuidv7();
   const key = createHash("sha256").update(`${ctx.org.id}:skill:${p.run_id ?? id}:${p.kind}`).digest("hex");
   const preview = { title_fa: p.title_fa, summary_fa: p.summary_fa, preview: p.preview, lines: p.lines, line_headers: p.line_headers, warnings: p.warnings, edit_path: p.edit_path };
   const hours = Math.max(1, Math.min(24 * 30, Math.round(p.ttl_hours ?? 24)));
+  const skill = p.payload && typeof p.payload === "object" ? String((p.payload as Record<string, unknown>).skill ?? "") : "";
+  const hash = hashPayload(p.payload);
   const row = await ctx.write(
     async (tx) => {
+      const open = await tx.query<ActionRow>(
+        `select ${COLS} from sm_ai_actions
+         where org_id = $1 and record_table = $2 and record_id = $3 and kind = $4 and user_id = $5 and coalesce(payload->>'skill', '') = $6
+           and status = 'proposed' and expires_at > now() and idempotency_key <> $7`,
+        [ctx.org.id, p.record.table, p.record.id, p.kind, ctx.user.id, skill, key],
+      );
+      const same = open.find((o) => o.payload_hash === hash);
+      if (same) return same;
+      if (open.length) {
+        await tx.query(`update sm_ai_actions set status = 'expired', error = $2, updated_at = now() where id = any($1::uuid[]) and status = 'proposed'`, [
+          pgArray(open.map((o) => o.id)),
+          "پیشنهاد تازه‌تری جای آن را گرفت",
+        ]);
+      }
       await tx.query(
         `insert into sm_ai_actions (id, org_id, thread_id, message_id, user_id, kind, tool, area, level, payload, payload_hash, preview, idempotency_key, expires_at,
                                     record_table, record_id, fields, skill_run_id, principal)
@@ -148,33 +170,106 @@ export async function storeRecordProposal(ctx: Ctx, p: RecordProposalInput): Pro
     },
     { internal: true },
   );
-  return toProposal(row!);
+  return { ...toProposal(row!), can_decide: await canDecide(ctx, row!) };
+}
+
+/** Something AI produced from a record and other sources: a skill's proposal or a stored run. */
+export interface ClearedItem {
+  key: string;
+  /** the record it was made from (null: a run on a text) */
+  table: string | null;
+  id: string | null;
+  /** what it read (see `clearanceOf`); null: unknown (a run stored before runs kept it) */
+  tokens: string[] | null;
+}
+
+/**
+ * Which items the caller may read now, with their own access: the record (readable), and every token — a field of the
+ * record (visible), `@g:<group>` (carried), `@f:<table>:<field>` (visible), `@r:<table>:<id>` (readable). Unknown
+ * tokens (null) pass only when `unknownOk` says so. One readable-ids query per table, whatever the number of items.
+ */
+export async function clearedItems(ctx: Ctx, items: ClearedItem[], unknownOk: (item: ClearedItem) => boolean = () => false): Promise<Set<string>> {
+  // the organisation's definitions: the engine's columns (number, created_at…) and custom fields are fields there, as
+  // when the run listed what it read
+  const schema = await orgSchema(ctx);
+  const tableDef = (t: string) => schema.def(t) ?? null;
+  const wanted = new Map<string, Set<string>>();
+  const want = (t: string, id: string) => {
+    if (!/^[0-9a-f-]{36}$/i.test(id) || !tableDef(t)) return;
+    if (!wanted.has(t)) wanted.set(t, new Set());
+    wanted.get(t)!.add(id.toLowerCase());
+  };
+  for (const it of items) {
+    if (it.table && it.id) want(it.table, it.id);
+    for (const f of it.tokens ?? []) {
+      if (!f.startsWith("@r:")) continue;
+      const [, t, sid] = f.split(":");
+      if (t && sid) want(t, sid);
+    }
+  }
+  const readable = new Map<string, Set<string>>();
+  for (const [t, ids] of wanted) readable.set(t, await readableIds(ctx, t, [...ids]).catch(() => new Set<string>()));
+  const reads = (t: string, id: string) => !!readable.get(t)?.has(id.toLowerCase());
+  const out = new Set<string>();
+  for (const it of items) {
+    const def = it.table ? tableDef(it.table) : null;
+    if (it.table && (!def || def.virtual || !it.id || !reads(it.table, it.id))) continue;
+    if (!it.tokens) {
+      if (unknownOk(it)) out.add(it.key);
+      continue;
+    }
+    const visible = def ? access().visibleFields(ctx, def) : null;
+    let ok = true;
+    for (const f of it.tokens) {
+      if (f.startsWith("@g:")) ok = access().hasFieldGroup(ctx, f.slice(3) as FieldGroup);
+      else if (f.startsWith("@f:")) {
+        const [, t, name] = f.split(":");
+        const other = t ? tableDef(t) : null;
+        const seen = other ? access().visibleFields(ctx, other) : null;
+        ok = !!other && !!name && !(seen && other.fields.some((x) => x.name === name) && !seen.has(name));
+      } else if (f.startsWith("@r:")) {
+        const [, t, sid] = f.split(":");
+        ok = !!t && !!sid && reads(t, sid);
+      } else ok = !def || !visible || visible.has(f);
+      if (!ok) break;
+    }
+    if (ok) out.add(it.key);
+  }
+  return out;
 }
 
 /** May the caller read the record of a skill's proposal and every field it involves (their own access, now)? */
-async function seesRecord(ctx: Ctx, r: Pick<ActionRow, "record_table" | "record_id" | "fields">): Promise<boolean> {
+async function seesRecord(ctx: Ctx, r: Pick<ActionRow, "id" | "record_table" | "record_id" | "fields">): Promise<boolean> {
   if (!r.record_table || !r.record_id) return false;
-  const def = tableDef(r.record_table);
-  if (!def || def.virtual) return false;
-  try {
-    if (!(await readableIds(ctx, r.record_table, [r.record_id])).has(r.record_id.toLowerCase())) return false;
-  } catch {
-    return false;
+  const seen = await clearedItems(ctx, [{ key: r.id, table: r.record_table, id: r.record_id, tokens: r.fields ?? [] }]);
+  return seen.has(r.id);
+}
+
+/**
+ * May the caller make the change a skill's proposal describes, themselves: they work the record (full write — not a
+ * requester's own fields, not only reading it), may set every field it changes, may post its note (an internal one
+ * needs «internal»), may create the record it drafts. Reading the record is not enough to apply — or to reject — it.
+ */
+async function mayApply(ctx: Ctx, r: ActionRow): Promise<boolean> {
+  const schema = await orgSchema(ctx);
+  const def = r.record_table ? schema.def(r.record_table) : null;
+  if (!def || def.virtual || !r.record_id) return false;
+  const prov = access();
+  await prov.prepare?.(ctx, ctx.db);
+  const row = await liveRow(ctx.db, sysOf(ctx), def.key, r.record_id);
+  if (!row) return false;
+  const mode = prov.writeMode ? prov.writeMode(ctx, def, row) : prov.canWrite(ctx, def, row) ? "full" : null;
+  if (mode !== "full") return false;
+  const p = (r.payload && typeof r.payload === "object" ? r.payload : {}) as Record<string, unknown>;
+  if (r.kind === "skill.fields") {
+    const writable = prov.writableFields(ctx, def, row);
+    const data = p.data && typeof p.data === "object" ? Object.keys(p.data as object) : [];
+    return !writable || data.every((f) => writable.has(f));
   }
-  // tokens: a field of the record, `@g:<group>` a field group the run read, `@r:<table>:<id>` a source it used
-  const visible = access().visibleFields(ctx, def);
-  const sources = new Map<string, string[]>();
-  for (const f of r.fields ?? []) {
-    if (f.startsWith("@g:")) {
-      if (!access().hasFieldGroup(ctx, f.slice(3) as FieldGroup)) return false;
-    } else if (f.startsWith("@r:")) {
-      const [, t, sid] = f.split(":");
-      if (t && sid) sources.set(t, [...(sources.get(t) ?? []), sid]);
-    } else if (visible && !visible.has(f)) return false;
-  }
-  for (const [t, ids] of sources) {
-    const ok = await readableIds(ctx, t, ids).catch(() => new Set<string>());
-    if (ids.some((x) => !ok.has(x.toLowerCase()))) return false;
+  if (r.kind === "skill.journal") return p.kind !== "work_note" || prov.hasFieldGroup(ctx, "internal");
+  if (r.kind === "skill.record") {
+    const t = typeof p.table === "string" ? schema.def(p.table) : null;
+    return !!t && !t.virtual && prov.canCreate(ctx, t);
   }
   return true;
 }
@@ -187,7 +282,7 @@ export async function recordProposals(ctx: Ctx, table: string, id: string): Prom
     [ctx.org.id, table, id.toLowerCase()],
   );
   const out: AiProposal[] = [];
-  for (const r of rows) if (await canSee(ctx, r)) out.push(toProposal(r));
+  for (const r of rows) if (await canSee(ctx, r)) out.push({ ...toProposal(r), can_decide: await canDecide(ctx, r) });
   return out;
 }
 
@@ -215,10 +310,11 @@ async function canSee(ctx: Ctx, r: ActionRow): Promise<boolean> {
 
 /**
  * May the caller decide about this proposal: the assistant's — its author or an AI manager, with the document's own
- * level; a skill's — whoever sees it and may use AI (the write is applied with that person's own access, checked again).
+ * level; a skill's — whoever sees it, may use AI and may make its change themselves (`mayApply`: they work the record;
+ * the write is applied with that person's own access, checked again).
  */
 async function canDecide(ctx: Ctx, r: ActionRow): Promise<boolean> {
-  if (r.record_table && r.record_id) return ctx.can("ai", "view") && ctx.can(r.area, r.level) && (await seesRecord(ctx, r));
+  if (r.record_table && r.record_id) return ctx.can("ai", "view") && ctx.can(r.area, r.level) && (await seesRecord(ctx, r)) && (await mayApply(ctx, r));
   return (r.user_id === ctx.user.id || ctx.can("ai", "full")) && ctx.can(r.area, r.level);
 }
 
@@ -270,6 +366,14 @@ export async function confirmAction(ctx: Ctx, id: string): Promise<AiProposal> {
   } catch (e) {
     const msg = e instanceof AppError ? e.message : "اجرای پیشنهاد ناموفق بود";
     if (!(e instanceof AppError)) ctx.cfg.log.error("ai proposal failed", String((e as Error)?.message ?? e));
+    if (e instanceof AppError && e.status === 403 && r.record_table) {
+      // the person may not make this change: the proposal stays open for those who may (it never fails for them)
+      await ctx.write(
+        (tx) => tx.query(`update sm_ai_actions set status = 'proposed', confirmed_by = null, confirmed_at = null, updated_at = now() where id = $1 and status = 'executing'`, [id]),
+        { internal: true },
+      );
+      throw e;
+    }
     await ctx.write((tx) => tx.query(`update sm_ai_actions set status = 'failed', error = $2, updated_at = now() where id = $1`, [id, msg.slice(0, 500)]), { internal: true });
     return toProposal(await actionRow(ctx, id));
   }

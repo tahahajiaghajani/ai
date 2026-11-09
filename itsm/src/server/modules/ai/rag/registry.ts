@@ -8,6 +8,7 @@ import type { Ctx } from "../../../context";
 import type { Queryable } from "../../../db";
 import type { FieldDef, TableDef } from "@shared/model/types";
 import { TABLES } from "@shared/tables";
+import { ident } from "../../../db/sql";
 import { maskText } from "../redact";
 import type { RagDocument, RagPart } from "./chunker";
 import { fileKind, parseFile } from "./parsers";
@@ -38,9 +39,42 @@ export interface RagSource {
    * with every retrieval, on top of the caller's read access.
    */
   aiWhere?(alias: string, params: unknown[]): string;
+  /**
+   * The record's own AI-use rule, whatever its state (an article «هرگز» or «سری», a base or a collection with AI off):
+   * when it does not hold, no skill reads the record — not even a draft being worked on. Default: `aiWhere`.
+   */
+  aiChannel?(alias: string, params: unknown[]): string;
 }
 
 const SOURCES = new Map<string, RagSource>();
+const CHANNELS = new Map<string, (alias: string, params: unknown[]) => string>();
+
+/** The AI-use rule of a table that is no RAG source (an article's drafts follow their article). */
+export function registerAiChannel(table: string, rule: (alias: string, params: unknown[]) => string): () => void {
+  CHANNELS.set(table, rule);
+  return () => {
+    if (CHANNELS.get(table) === rule) CHANNELS.delete(table);
+  };
+}
+
+/**
+ * Does the record's AI-use rule hold (`aiChannel` of its source or a registered rule; none = yes)? Read as stored —
+ * the caller's access to the record is checked by whoever loads it.
+ */
+export async function aiChannelOpen(q: Queryable, orgId: string, table: string, id: string): Promise<boolean> {
+  const src = SOURCES.get(table);
+  const rule = CHANNELS.get(table) ?? src?.aiChannel ?? src?.aiWhere;
+  if (!rule) return true;
+  const def = TABLES.get(table);
+  if (!def || !/^[0-9a-f-]{36}$/i.test(id)) return false;
+  const params: unknown[] = [id, orgId];
+  const cond = rule("t", params);
+  const r = await q.one<{ ok: number }>(`select 1 as ok from ${ident(def.table)} t where t.id = $1::uuid and t.org_id = $2::uuid and t.deleted_at is null and (${cond})`, params);
+  return !!r;
+}
+
+/** The refusal when a record is closed to AI. */
+export const AI_CLOSED = "این رکورد برای هوش مصنوعی بسته است";
 
 /** A module's own document builder for one of its tables (replaces the TableDef default). */
 export function registerRagSource(src: RagSource): () => void {

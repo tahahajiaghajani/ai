@@ -31,6 +31,11 @@ export interface AccessProvider {
   canCreate(ctx: Ctx, def: TableDef, row?: Row | null): boolean;
   /** May the caller change this (readable) row? */
   canWrite(ctx: Ctx, def: TableDef, row: Row): boolean;
+  /**
+   * How the caller may change this row: "full" (they work it), "requester" (their own record: only its requester
+   * fields and transitions) or null. A provider without a requester mode leaves it out (`canWrite` means full).
+   */
+  writeMode?(ctx: Ctx, def: TableDef, row: Row): "full" | "requester" | null;
   canDelete(ctx: Ctx, def: TableDef, row: Row): boolean;
   /** Fields the caller may see (null = all). Hidden fields are stripped from every output and refused in filters. */
   visibleFields(ctx: Ctx, def: TableDef): ReadonlySet<string> | null;

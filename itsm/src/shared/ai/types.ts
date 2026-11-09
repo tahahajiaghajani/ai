@@ -136,6 +136,8 @@ export interface AiProposal {
   result?: AiRef | null;
   error?: string | null;
   expires_at: string;
+  /** a skill's proposal on a record: may the caller apply or reject it (they work the record); absent = yes */
+  can_decide?: boolean;
 }
 
 export interface AiChartSpec {

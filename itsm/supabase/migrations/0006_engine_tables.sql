@@ -156,6 +156,7 @@ alter table sm_ai_skill_runs add column if not exists output_kind text;
 alter table sm_ai_skill_runs add column if not exists output_text text;
 alter table sm_ai_skill_runs add column if not exists output_json jsonb;
 alter table sm_ai_skill_runs add column if not exists citations jsonb;
+alter table sm_ai_skill_runs add column if not exists clearance jsonb;
 alter table sm_ai_skill_runs add column if not exists model text;
 alter table sm_ai_skill_runs add column if not exists connection text;
 alter table sm_ai_skill_runs add column if not exists tokens_in integer;

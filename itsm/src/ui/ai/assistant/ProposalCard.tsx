@@ -45,6 +45,8 @@ export function ProposalCard({ proposal, onChange, onNavigate }: { proposal: AiP
   const edit = safePath(proposal.edit_path);
   const result = proposal.result ? safePath(proposal.result.path) : null;
   const open = status === "proposed";
+  // a skill's proposal on a record: only those who work the record apply or reject it
+  const decidable = proposal.can_decide !== false;
 
   const decide = async (what: "confirm" | "reject") => {
     if (busy) return;
@@ -123,7 +125,9 @@ export function ProposalCard({ proposal, onChange, onNavigate }: { proposal: AiP
         </ul>
       ) : null}
       <footer className="sa-prop-f">
-        {open ? (
+        {open && !decidable ? (
+          <div className="sa-prop-done is-quiet">کسانی که روی این رکورد کار می‌کنند این پیشنهاد را اعمال یا رد می‌کنند.</div>
+        ) : open ? (
           <>
             <div className="sa-prop-act">
               <Button type="primary" size="small" loading={busy === "confirm"} disabled={!!busy} onClick={() => decide("confirm")}>

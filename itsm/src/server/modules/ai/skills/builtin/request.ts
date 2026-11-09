@@ -95,6 +95,7 @@ export const requestSkills: SkillDef[] = [
     output: "text",
     tier: "fast",
     inputs: { journal: "all", journalLimit: 30, related: [{ table: "request_task", field: "request_item_id", label: "کارهای انجام", fields: ["number", "short_description", "state", "assigned_to"], limit: 20 }] },
+    fieldGroups: ["internal"], // it reads the work notes (the «internal» group)
     surfaces: ["panel"],
     order: 5,
     system: "کار تو: خلاصهٔ یک قلم درخواست برای کارشناس انجام یا تأییدکننده: «چه سفارش داده شده»، «وضعیت تأیید و انجام»، «کارها»، «گام بعدی».",

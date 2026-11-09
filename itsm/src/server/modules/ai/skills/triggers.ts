@@ -16,7 +16,9 @@ import { tableDef } from "@shared/tables";
 import { addJournal, list, onRecordEvent, orgSchema, systemCtx, update, updateIn } from "../../../engine";
 import type { RecordEventKind } from "../../../engine";
 import { enqueue, registerJobHandler } from "../../../jobs";
+import { pgArray } from "../../../db";
 import { AppError } from "../../../http/errors";
+import { access } from "../../../access/provider";
 import { AiUnavailableError } from "../engine";
 import { allSkills, resolveSkill, type ResolvedSkill } from "./config";
 import { appliesTo } from "./registry";
@@ -64,27 +66,53 @@ export async function ensureSkillSchedule(cfg: ServerConfig, orgId: string): Pro
   await cfg.db.tx((tx) => enqueue(tx, { kind: "ai.skills.schedule", orgId, payload: {}, dedupeKey: "ai.skills.schedule", delayMs: 5_000 }));
 }
 
+/** When the service member last ran a skill on each of these records (ms; records it never ran on are absent). */
+async function lastRuns(cfg: ServerConfig, orgId: string, key: string, userId: string, ids: string[]): Promise<Map<string, number>> {
+  if (!ids.length) return new Map();
+  const rows = await cfg.db.query<{ record_id: string; at: string }>(
+    `select record_id, max(created_at) as at from sm_ai_skill_runs
+     where org_id = $1 and skill_key = $2 and invoker_id = $3 and record_id = any($4::text[]) and status <> 'error' and deleted_at is null
+     group by record_id`,
+    [orgId, key, userId, pgArray(ids)],
+  );
+  return new Map(rows.map((r) => [String(r.record_id), Date.parse(String(r.at))]));
+}
+
 function matches(s: ResolvedSkill, kind: SkillEventKind, table: string): boolean {
   if (!s.cfg.triggers.includes("event") || !s.cfg.events.includes(kind)) return false;
   const t = tableDef(table);
   return !!t && !t.virtual && appliesTo(s.def, s.cfg.tables, t);
 }
 
-/** Apply what the auto-apply list allows, with the service member's access; the rest stays a proposal. */
-async function autoApply(pctx: Ctx, rs: ResolvedSkill, table: string, id: string, result: SkillRunResult): Promise<SkillRunResult> {
+/**
+ * Apply what the auto-apply list allows, with the service member's access, against the record as the run read it (its
+ * version: a change a person made while the model was answering is never overwritten); the rest stays a proposal. When
+ * the member may not make the change, or the record changed since, everything stays a proposal: nothing here ever
+ * fails the job (which would run the model again).
+ */
+async function autoApply(pctx: Ctx, rs: ResolvedSkill, input: SkillRuntimeInput, result: SkillRunResult): Promise<SkillRunResult> {
   const allow = new Set(rs.cfg.auto_apply);
-  if (!allow.size) return result;
-  if (result.suggestions.length) {
-    const now = result.suggestions.filter((s) => allow.has(s.field));
-    if (now.length) {
-      await update(pctx, table, id, Object.fromEntries(now.map((s) => [s.field, s.value])));
-      return { ...result, suggestions: result.suggestions.filter((s) => !allow.has(s.field)) };
+  const rec = input.record;
+  if (!allow.size || !rec) return result;
+  try {
+    if (result.suggestions.length) {
+      const now = result.suggestions.filter((s) => allow.has(s.field));
+      if (now.length) {
+        const row = { ...rec.row, org_id: rec.row.org_id ?? pctx.org.id };
+        const writable = access().writableFields(pctx, rec.def, row);
+        if (!access().canWrite(pctx, rec.def, row) || (writable && now.some((s) => !writable.has(s.field)))) return result;
+        await update(pctx, rec.table, rec.id, Object.fromEntries(now.map((s) => [s.field, s.value])), rec.version !== null ? { version: rec.version } : {});
+        return { ...result, suggestions: result.suggestions.filter((s) => !allow.has(s.field)) };
+      }
     }
-  }
-  // an internal note when the list says so; a reply to a requester is never sent without a person
-  if (result.journal && result.journal.kind === "work_note" && allow.has(AUTO_WORK_NOTE)) {
-    await addJournal(pctx, table, id, { kind: "work_note", body: `${result.journal.body}\n\n_${rs.cfg.name} — ساخته‌شده با هوش مصنوعی_` });
-    return { ...result, journal: null };
+    // an internal note when the list says so; a reply to a requester is never sent without a person
+    if (result.journal && result.journal.kind === "work_note" && allow.has(AUTO_WORK_NOTE)) {
+      await addJournal(pctx, rec.table, rec.id, { kind: "work_note", body: `${result.journal.body}\n\n_${rs.cfg.name} — ساخته‌شده با هوش مصنوعی_` });
+      return { ...result, journal: null };
+    }
+  } catch (e) {
+    // refused (403), changed meanwhile (409) or any other refusal: a person decides instead
+    pctx.cfg.log.warn("ai skill auto-apply skipped", `${rs.cfg.key} ${rec.table}/${rec.id}: ${String((e as Error)?.message ?? e)}`);
   }
   return result;
 }
@@ -108,9 +136,15 @@ export async function runTriggered(cfg: ServerConfig, orgId: string, key: string
     if (e instanceof AiUnavailableError || e instanceof AppError) return { ran: false, proposal: null };
     throw e;
   }
-  result = await autoApply(pctx, rs, table, id, result);
-  const proposal = await proposeFromRun(pctx, rs, input, result, { principal: "service" });
-  return { ran: true, proposal: proposal?.id ?? null };
+  // the model has answered and the run is stored: from here on nothing fails the job (a retry would run it again)
+  try {
+    result = await autoApply(pctx, rs, input, result);
+    const proposal = await proposeFromRun(pctx, rs, input, result, { principal: "service" });
+    return { ran: true, proposal: proposal?.id ?? null };
+  } catch (e) {
+    pctx.cfg.log.warn("ai skill proposal not stored", `${rs.cfg.key} ${table}/${id}: ${String((e as Error)?.message ?? e)}`);
+    return { ran: true, proposal: null };
+  }
 }
 
 let installed = false;
@@ -164,8 +198,14 @@ export function installSkillTriggers(): void {
         const tdef = schema.def(table);
         if (!tdef || !appliesTo(s.def, s.cfg.tables, tdef)) continue;
         const filter = s.cfg.schedule_filter && typeof s.cfg.schedule_filter === "object" ? (s.cfg.schedule_filter as Cond) : null;
-        const rows = await list(pctx, table, { filter, size: 25, sort: "-updated_at", fields: ["id"], total: false }).catch(() => null);
-        for (const r of rows?.rows ?? []) await queueSkillRun(cfg, job.org_id, s.cfg.key, table, String(r.id), "schedule");
+        const rows = (await list(pctx, table, { filter, size: 25, sort: "-updated_at", fields: ["id", "updated_at"], total: false }).catch(() => null))?.rows ?? [];
+        // a record nobody changed since the skill last ran on it is not run again (its proposal still stands)
+        const ran = await lastRuns(cfg, job.org_id, s.cfg.key, pctx.user.id, rows.map((r) => String(r.id)));
+        for (const r of rows) {
+          const at = ran.get(String(r.id));
+          if (at !== undefined && Date.parse(String(r.updated_at ?? 0)) <= at) continue;
+          await queueSkillRun(cfg, job.org_id, s.cfg.key, table, String(r.id), "schedule");
+        }
       }
       if (s.row?.id) await sys.write((tx) => updateIn(tx, sys, "ai_skill", String(s.row!.id), { last_scheduled_at: new Date().toISOString() }, { trusted: true, keepVersion: true }), { internal: true });
     }

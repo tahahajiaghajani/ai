@@ -24,7 +24,7 @@ export { runSkill, runResolved, runCore, runForModule, isAiUnavailable, skillTex
 export { registerSkill, defineSkill, skillDef, builtinSkills, appliesTo, outputFieldsOf } from "./registry";
 export { keepFromPrompts, keptFromPrompts, promptable } from "./context";
 export { resolveSkill, allSkills, configOf, defaultConfig } from "./config";
-export { principalCtx, principalOf, principalEmail, setPrincipal, PRINCIPAL_NAME } from "./principal";
+export { principalCtx, principalOf, setPrincipal, PRINCIPAL_NAME, SERVICE_DOMAIN } from "./principal";
 export { runTriggered, queueSkillRun, ensureSkillSchedule, invalidateTriggers } from "./triggers";
 export { proposeFromRun, clearanceOf } from "./proposals";
 export * from "./admin";

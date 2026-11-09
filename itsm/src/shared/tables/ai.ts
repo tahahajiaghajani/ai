@@ -7,7 +7,8 @@
 // administrators (a hook holds every write path to that, whatever the area grant says).
 // `ai_skill_run` is the private log of runs: local to each runtime (like the usage ledger and conversations), readable
 // only by the member who started the run (row rule), written only by the runtime; AI administrators see the log
-// through the skills admin, never through the generic API.
+// through the skills admin, never through the generic API — and anyone sees a run's output only while they may read
+// its record and everything it read (`clearance`), otherwise only its metadata.
 // Imported by the UI: keep it free of server imports.
 import type { Option, TableDef } from "../model/types";
 import { SKILL_EVENTS, SKILL_GROUNDINGS, SKILL_OUTPUTS, SKILL_TARGETS, SKILL_TIERS, SKILL_TRIGGERS } from "../ai/skills";
@@ -140,6 +141,9 @@ const run: TableDef = {
     { name: "output_text", label: "خروجی", type: "markdown", readonly: true },
     { name: "output_json", label: "خروجی ساختاریافته", type: "json", readonly: true },
     { name: "citations", label: "منابع", type: "json", readonly: true },
+    // what the run read (the proposals' tokens: fields, `@g:` groups, `@f:` fields of sources, `@r:` records): its
+    // output is shown only to people who may read all of it now — its author too
+    { name: "clearance", label: "آنچه خوانده شد", type: "json", readonly: true, hidden: true },
     { name: "model", label: "مدل", type: "string", maxLength: 120, readonly: true, ltr: true, list: true, span: 8 },
     { name: "connection", label: "اتصال", type: "string", maxLength: 120, readonly: true, span: 8 },
     { name: "tokens_in", label: "واژه‌های ورودی", type: "int", readonly: true, span: 6 },

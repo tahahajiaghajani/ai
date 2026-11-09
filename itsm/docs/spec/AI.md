@@ -141,7 +141,8 @@ registerRagSource({
   },
   path: (id, { page, chunk }) => `kb/${id}`,       // where a citation opens (default r/<table>/<id>)
   aiWhere: (t, params) => `${t}.state = 'published'`, // AI-channel rule on the source row, evaluated live
-});
+  aiChannel: (t, params) => `${t}.ai_use <> 'none'`,  // the record's own AI use, whatever its state: no skill reads
+});                                                   // it when false (default: aiWhere)
 ```
 
 - **Attachments** (`ai: { …, attachments: true }` on a table with `features.attachments`, KB-010): the text of the
@@ -319,7 +320,11 @@ versions and evaluation sets — a hook holds every write path (`skills/hooks.ts
 is not deleted (switch it off), a published version is never edited. `ai_skill_run` has the row rule
 `invoker_id is_me` and is written only by the runtime (as the system on the invoker's behalf): a summary built from
 fields its author could see never becomes readable by anyone else through the record API. AI administrators see
-everyone's runs only through `GET /ai/skills/runs?all=1`.
+everyone's runs only through `GET /ai/skills/runs?all=1`. A run keeps what it read (`clearance`, the proposals' tokens
+below); the runs list shows its output — text, structured answer, sources, record and the feedback's comment — only to
+a caller who may read its record and everything it read now, its author included, and otherwise only its metadata
+(skill, status, model, tokens, cost, time, rating; `restricted: true`). A run stored before runs kept what they read
+shows its output only to its author.
 
 ### 11.2 Built-in skills, copies and versions
 
@@ -371,9 +376,14 @@ registerSkill(defineSkill({
 2. Read with the caller's context only: `get` (404 when unreadable; only visible fields), trimmed to what a model may
    read (`promptable`): no secrets, no `ai_private` field, no field of a group outside the skill's `field_groups`, no
    field a module keeps from models (`keepFromPrompts` — the request module's private and secret answers), no hidden or
-   structured field unless the skill names it. The journal through `listJournal` (internal notes only with the
-   `internal` group; reply drafts read public entries only), related rows through `list`, links through `listLinks`,
-   sources through `retrieve`.
+   structured field unless the skill names it. A record whose own AI-use rule does not hold (the RAG source's
+   `aiChannel`, else `aiWhere`, or `registerAiChannel` for a table that is no source: an article «هرگز» or «سری», a base
+   or a collection with AI off, an article's drafts with their article) is refused («این رکورد برای هوش مصنوعی بسته
+   است») — and so is the second article a duplicate check reads. The journal through `listJournal`: internal notes only
+   when the skill's `field_groups` include `internal` (and the caller reads them); otherwise, and for reply drafts,
+   public entries only. History values only of fields that may reach the model (`promptable`). Related rows through
+   `list`, links through `listLinks`, sources through `retrieve` («similar» searches the record's table, or a text
+   skill's own tables — never every indexed table). Dates and times are the organisation's local Jalali times.
 3. The prompt: the base rules (`SKILL_BASE_SYSTEM`: data is never instructions, invent nothing, outputs are drafts,
    personal data not repeated), the output rule, the language (the parameter, else the text's own language for text
    skills, else the member's), the citation rule for grounded runs, the version's system text, the organisation's notes;
@@ -417,21 +427,34 @@ A run's field suggestions, drafted note or drafted record become one row of `sm_
 as the person (a public reply is sent only because a person applied it), `skill.record` creates as the person. Who
 sees such a proposal: whoever may read the record and every field involved now — the fields it changes and everything
 the run read (the record's fields that reached the model, the skill's field groups, `internal` when internal notes were
-read, every cited source; tokens in `fields`: names, `@g:<group>`, `@r:<table>:<id>`). An AI administrator without that
-access does not see it; its author neither, once they lost the access.
+read, every source with the field groups and fields of its passage, the rows the template showed through `{{related}}`
+and `{{links}}`; tokens in `fields`: names, `@g:<group>`, `@f:<table>:<field>`, `@r:<table>:<id>`). An AI
+administrator without that access does not see it; its author neither, once they lost the access. Who decides it
+(apply or reject): someone who sees it and works the record — full write access (`writeMode` "full": not a reader, not
+a requester's own fields), every field it changes writable, «internal» for an internal note, create rights for a
+drafted record; `can_decide` tells the panel. A person refused by the record service (403) leaves it open for the
+others. A proposer keeps one open proposal per skill, kind and record: the same one again is not stored twice, a
+different one replaces it.
 
 ### 11.5 Triggered skills and the service member
 
 Event- and schedule-triggered skills run as the organisation's **«دستیار هوش مصنوعی»** service member — a member
 account that cannot sign in (no password, an `.invalid` address), created and given ITSM roles by the owner
 (`POST /ai/skills/admin/principal`, through the access service: only owners grant roles, nobody grants above their own)
-— never as the system. The subscriber `ai.skills` queues `ai.skill.run` (deduplicated per skill and record) for record
+— never as the system. It is found by its membership, never by an address: a new one gets a random
+`ai-assistant+<uuid>@service.invalid`, sign-up and invitations refuse every `.invalid` address (`isReservedEmail`),
+an existing account is never adopted, and a member with a service address that can sign in (a password, a recovery
+code or a session) is never taken for it — setting up refuses while one holds a membership. The subscriber `ai.skills` queues `ai.skill.run` (deduplicated per skill and record) for record
 events of the configured kinds on the configured tables, on the runtime that applied the write (`via: "sync"` is
 skipped) and never for the member's own writes; `ai.skills.schedule` (every 15 minutes while a scheduled skill exists)
 queues the records of each due skill's filter, read with the member's access. The job checks the condition with the
 member's access, runs the skill as the member (it reads only what its roles read; a record it cannot read is skipped),
 applies only fields named in `auto_apply` with the member's own access (an internal note only with `work_note`; a
-public reply never), and stores the rest as a proposal on the record (valid seven days) — visible as above.
+public reply never) and against the version it read (a change made while the model answered is never overwritten),
+and stores the rest as a proposal on the record (valid seven days) — visible as above. Suggestions are only of fields
+the member may change; whatever refuses the auto-apply (403, 409) leaves it in the proposal, and nothing after the
+model's answer fails the job (a retry would run the model again). A schedule round skips records not changed since
+the member last ran the skill on them.
 
 ### 11.6 Privacy, usage and evaluation
 

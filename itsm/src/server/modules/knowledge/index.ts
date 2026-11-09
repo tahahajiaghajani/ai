@@ -21,7 +21,7 @@ import { registerRecordMeta, systemCtx } from "../../engine";
 import { enqueue, registerJobHandler, type JobConfig } from "../../jobs";
 import { registerOrgSeed } from "../orgs/service";
 import { SEED_DELAY_MS } from "../sla";
-import { registerRagSource, type RagPart } from "../ai/rag";
+import { registerAiChannel, registerRagSource, type RagPart } from "../ai/rag";
 import type { SeedCounts } from "../incident";
 import { baseOf, categoryOf, contributesTo, liveRows, type Row } from "./common";
 import { installKnowledgeHooks } from "./hooks";
@@ -48,6 +48,12 @@ async function blocksFor(q: Queryable, sys: Ctx, md: string): Promise<{ public: 
   const rows = await liveRows(q, sys, "kb_block", { and: [{ f: "number", op: "in", v: refs }, { f: "state", op: "eq", v: "published" }] }, { limit: 200 });
   return { public: rows.filter((b) => !b.confidential).map((b) => String(b.body ?? "")), internal: rows.filter((b) => b.confidential).map((b) => String(b.body ?? "")) };
 }
+
+/** A base that allows AI and is not «سری». */
+const kbBaseOpen = (t: string) =>
+  `exists (select 1 from sm_kb_bases kb where kb.id = ${t}.base_id and kb.org_id = ${t}.org_id and kb.deleted_at is null and kb.ai_enabled and coalesce(kb.classification, '') <> 'secret')`;
+/** An article's own AI use, whatever its state: not «هرگز», not «سری», in a base that allows AI. */
+const kbArticleChannel = (t: string) => `coalesce(${t}.ai_use, 'answer') <> 'none' and coalesce(${t}.classification, '') <> 'secret' and ${kbBaseOpen(t)}`;
 
 function installRagSources(): void {
   registerRagSource({
@@ -78,9 +84,12 @@ function installRagSources(): void {
       return { title, titleField: "title", titleGroup: group, number: (row.number as string) ?? null, lang: (row.language as string) ?? null, parts, attachments };
     },
     path: (id) => `kb/a/${id}`,
-    aiWhere: (t) =>
-      `${t}.state in ('published', 'pending_retirement') and coalesce(${t}.ai_use, 'answer') <> 'none' and coalesce(${t}.classification, '') <> 'secret' and exists (select 1 from sm_kb_bases kb where kb.id = ${t}.base_id and kb.org_id = ${t}.org_id and kb.deleted_at is null and kb.ai_enabled and coalesce(kb.classification, '') <> 'secret')`,
+    // answers use published articles only; a skill on the article (a draft's quality, a duplicate) follows its own AI use
+    aiWhere: (t) => `${t}.state in ('published', 'pending_retirement') and ${kbArticleChannel(t)}`,
+    aiChannel: (t) => kbArticleChannel(t),
   });
+  // an article's drafts follow their article's AI use
+  registerAiChannel("kb_version", (t) => `exists (select 1 from sm_kb_articles a where a.id = ${t}.article_id and a.org_id = ${t}.org_id and a.deleted_at is null and ${kbArticleChannel("a")})`);
   registerRagSource({
     table: "kb_snippet",
     version: "s1",
@@ -91,8 +100,8 @@ function installRagSources(): void {
       return { title: String(row.question ?? ""), titleField: "question", titleGroup: group, number: (row.number as string) ?? null, lang: (row.language as string) ?? null, parts: [{ field: "answer", label: "پاسخ", text: String(row.answer ?? ""), group, format: "text" }] };
     },
     path: (id) => `kb/snippets/${id}`,
-    aiWhere: (t) =>
-      `${t}.state = 'published' and (${t}.valid_to is null or ${t}.valid_to >= current_date) and (${t}.base_id is null or exists (select 1 from sm_kb_bases kb where kb.id = ${t}.base_id and kb.org_id = ${t}.org_id and kb.deleted_at is null and kb.ai_enabled and coalesce(kb.classification, '') <> 'secret'))`,
+    aiWhere: (t) => `${t}.state = 'published' and (${t}.valid_to is null or ${t}.valid_to >= current_date) and (${t}.base_id is null or ${kbBaseOpen(t)})`,
+    aiChannel: (t) => `(${t}.base_id is null or ${kbBaseOpen(t)})`,
   });
 }
 

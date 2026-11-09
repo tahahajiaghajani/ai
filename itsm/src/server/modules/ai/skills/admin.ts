@@ -18,9 +18,11 @@ import { bad, conflict, forbidden, notFound } from "../../../http/errors";
 import { liveRows, sysOf } from "../../incident/common";
 import { listRoles } from "../../../access/service";
 import { aiStatus } from "../engine";
+import { clearedItems } from "../actions";
 import { orgTimeZone } from "../usage";
 import { allSkills, resolveSkill, skillRow, versionOf, versionRow, defaultVersion, type ResolvedSkill } from "./config";
 import { builtinSkills, isSkillKey, skillDef } from "./registry";
+import type { SkillDef } from "./types";
 import { runResolved, runSkill } from "./runtime";
 import { principalOf, setPrincipal } from "./principal";
 
@@ -32,6 +34,29 @@ function needAdmin(ctx: Ctx) {
 
 const num = (v: unknown) => (typeof v === "number" ? v : Number(v ?? 0) || 0);
 
+/** The organisation's row of a built-in skill as first stored: its whole default configuration. */
+function seedRowOf(d: SkillDef): Record<string, unknown> {
+  return {
+    key: d.key,
+    name: d.name,
+    description: d.description,
+    module: d.module,
+    base_key: d.key,
+    builtin: true,
+    enabled: true,
+    target: d.target,
+    output: d.output,
+    tables: d.tables === "*" ? ["*"] : d.tables,
+    tier: d.tier,
+    grounding: d.grounding?.kind ?? "none",
+    grounding_k: d.grounding?.k ?? 5,
+    triggers: d.triggers?.length ? d.triggers : ["manual"],
+    events: d.events ?? [],
+    roles: d.roles ?? [],
+    field_groups: d.fieldGroups ?? [],
+  };
+}
+
 /** Rows for the built-ins the organisation has none of yet (idempotent; configuration only). */
 export async function seedSkillRows(ctx: Ctx): Promise<number> {
   const sys = sysOf(ctx);
@@ -42,31 +67,7 @@ export async function seedSkillRows(ctx: Ctx): Promise<number> {
     for (const d of missing) {
       const exists = await tx.one(`select 1 from sm_ai_skills where org_id = $1 and key = $2 and deleted_at is null`, [ctx.org.id, d.key]);
       if (exists) continue;
-      await createIn(
-        tx,
-        sys,
-        AI_SKILL,
-        {
-          key: d.key,
-          name: d.name,
-          description: d.description,
-          module: d.module,
-          base_key: d.key,
-          builtin: true,
-          enabled: true,
-          target: d.target,
-          output: d.output,
-          tables: d.tables === "*" ? ["*"] : d.tables,
-          tier: d.tier,
-          grounding: d.grounding?.kind ?? "none",
-          grounding_k: d.grounding?.k ?? 5,
-          triggers: d.triggers?.length ? d.triggers : ["manual"],
-          events: d.events ?? [],
-          roles: d.roles ?? [],
-          field_groups: d.fieldGroups ?? [],
-        },
-        { trusted: true },
-      );
+      await createIn(tx, sys, AI_SKILL, seedRowOf(d), { trusted: true });
     }
   }, { internal: true });
   return missing.length;
@@ -142,9 +143,13 @@ const PATCHABLE = new Set([
   "roles", "field_groups", "auto_apply", "daily_limit", "user_daily_limit",
 ]);
 
-/** Change a skill's configuration (its row is created first when the organisation has none). */
+/**
+ * Change a skill's configuration. A built-in's row is created first with its whole default configuration (roles, field
+ * groups, grounding, tier…): a patch of one setting never resets the others to the table's empty defaults.
+ */
 export async function patchSkill(ctx: Ctx, key: string, patch: SkillConfigPatch): Promise<SkillAdminItem> {
   needAdmin(ctx);
+  await seedSkillRows(ctx);
   const rs = await resolveSkill(ctx, key);
   const data: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(patch)) {
@@ -164,7 +169,7 @@ export async function patchSkill(ctx: Ctx, key: string, patch: SkillConfigPatch)
   if (rs.row) {
     await sys.write((tx) => updateIn(tx, sys, AI_SKILL, String(rs.row!.id), data, { trusted: true }));
   } else {
-    await sys.write((tx) => createIn(tx, sys, AI_SKILL, { key: rs.def.key, name: rs.def.name, description: rs.def.description, base_key: rs.def.key, builtin: true, ...data }, { trusted: true }));
+    await sys.write((tx) => createIn(tx, sys, AI_SKILL, { ...seedRowOf(rs.def), ...data }, { trusted: true }));
   }
   return (await adminView(ctx)).skills.find((s) => s.key === key)!;
 }
@@ -345,12 +350,16 @@ export async function usageRows(ctx: Ctx, from: string, to: string): Promise<Ski
 
 // ---------------------------------------------------------------- runs (their authors; AI administrators)
 
-const RUN_COLS = `r.id, r.skill_key, r.table_key, r.record_id, r.record_number, r.status, r.output_kind, r.output_text, r.output_json, r.citations, r.model, r.tokens_in, r.tokens_out,
-  r.cost_usd, r.latency_ms, r.error, r.principal, r.invoker_id, r.feedback, r.feedback_comment, r.created_at, u.full_name as invoker_name`;
+const RUN_COLS = `r.id, r.skill_key, r.table_key, r.record_id, r.record_number, r.status, r.output_kind, r.output_text, r.output_json, r.citations, r.clearance, r.model,
+  r.tokens_in, r.tokens_out, r.cost_usd, r.latency_ms, r.error, r.principal, r.invoker_id, r.feedback, r.feedback_comment, r.created_at, u.full_name as invoker_name`;
 
 /**
  * Runs as their author sees them: one's own (of a record, or all); an AI administrator may ask for everyone's (the
- * governance view). Nobody else ever reads a run — the generic record API holds the same rule.
+ * governance view). Nobody else ever reads a run — the generic record API holds the same rule. A run's output (its
+ * text, structured answer, sources, record and the feedback's comment) is shown only while the caller may read its
+ * record and everything it read (`clearance`, checked like a proposal's) — otherwise only its metadata (skill, status,
+ * model, tokens, cost, time, the rating), `restricted`. A run stored before runs kept what they read shows its output
+ * only to its author.
  */
 export async function listRuns(ctx: Ctx, opts: { table?: string | null; id?: string | null; all?: boolean; limit?: number }): Promise<SkillRunView[]> {
   ctx.need("ai", "view");
@@ -371,30 +380,45 @@ export async function listRuns(ctx: Ctx, opts: { table?: string | null; id?: str
   params.push(Math.min(Math.max(opts.limit ?? 30, 1), 200));
   const rows = await ctx.db.query<Row>(`select ${RUN_COLS} from sm_ai_skill_runs r left join sm_users u on u.id = r.invoker_id where ${where} order by r.created_at desc limit $${params.length}`, params);
   const names = new Map((await allSkills(ctx)).map((s) => [s.cfg.key, s.cfg.name]));
-  return rows.map((r) => ({
-    id: String(r.id),
-    skill: String(r.skill_key),
-    name: names.get(String(r.skill_key)) ?? String(r.skill_key),
-    table: (r.table_key as string) ?? null,
-    record_id: (r.record_id as string) ?? null,
-    number: (r.record_number as string) ?? null,
-    status: (r.status as SkillRunView["status"]) ?? "ok",
-    output: (r.output_kind as SkillRunView["output"]) ?? "text",
-    text: (r.output_text as string) ?? null,
-    json: r.output_json ?? null,
-    citations: Array.isArray(r.citations) ? (r.citations as SkillRunView["citations"]) : [],
-    model: (r.model as string) ?? null,
-    tokens_in: num(r.tokens_in),
-    tokens_out: num(r.tokens_out),
-    cost_usd: (r.cost_usd as string) ?? null,
-    latency_ms: num(r.latency_ms),
-    error: (r.error as string) ?? null,
-    principal: r.principal === "service" ? "service" : "person",
-    invoker: { id: String(r.invoker_id), name: (r.invoker_name as string) ?? null },
-    feedback: r.feedback === 1 || r.feedback === -1 ? (r.feedback as 1 | -1) : null,
-    feedback_comment: (r.feedback_comment as string) ?? null,
-    created_at: String(r.created_at),
-  }));
+  const mine = new Set(rows.filter((r) => String(r.invoker_id) === ctx.user.id).map((r) => String(r.id)));
+  const cleared = await clearedItems(
+    ctx,
+    rows.map((r) => ({
+      key: String(r.id),
+      table: r.record_id ? String(r.table_key ?? "") : null,
+      id: r.record_id ? String(r.record_id) : null,
+      tokens: Array.isArray(r.clearance) ? (r.clearance as unknown[]).filter((x): x is string => typeof x === "string") : null,
+    })),
+    (it) => mine.has(it.key),
+  );
+  return rows.map((r) => {
+    const shown = cleared.has(String(r.id));
+    return {
+      id: String(r.id),
+      skill: String(r.skill_key),
+      name: names.get(String(r.skill_key)) ?? String(r.skill_key),
+      table: (r.table_key as string) ?? null,
+      record_id: shown ? ((r.record_id as string) ?? null) : null,
+      number: shown ? ((r.record_number as string) ?? null) : null,
+      status: (r.status as SkillRunView["status"]) ?? "ok",
+      output: (r.output_kind as SkillRunView["output"]) ?? "text",
+      text: shown ? ((r.output_text as string) ?? null) : null,
+      json: shown ? (r.output_json ?? null) : null,
+      citations: shown && Array.isArray(r.citations) ? (r.citations as SkillRunView["citations"]) : [],
+      model: (r.model as string) ?? null,
+      tokens_in: num(r.tokens_in),
+      tokens_out: num(r.tokens_out),
+      cost_usd: (r.cost_usd as string) ?? null,
+      latency_ms: num(r.latency_ms),
+      error: (r.error as string) ?? null,
+      principal: r.principal === "service" ? "service" : "person",
+      invoker: { id: String(r.invoker_id), name: (r.invoker_name as string) ?? null },
+      feedback: r.feedback === 1 || r.feedback === -1 ? (r.feedback as 1 | -1) : null,
+      feedback_comment: shown ? ((r.feedback_comment as string) ?? null) : null,
+      created_at: String(r.created_at),
+      restricted: !shown,
+    };
+  });
 }
 
 /** 👍/👎 and a comment on a run (its author only). */

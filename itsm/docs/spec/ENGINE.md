@@ -411,6 +411,7 @@ interface AccessProvider {
   canReadTable(ctx, def): boolean;
   canCreate(ctx, def, row?): boolean;
   canWrite(ctx, def, row): boolean;
+  writeMode?(ctx, def, row): "full" | "requester" | null; // optional: how (absent = canWrite means full)
   canDelete(ctx, def, row): boolean;
   visibleFields(ctx, def): ReadonlySet<string> | null;  // null = all
   writableFields(ctx, def, row | null): ReadonlySet<string> | null;

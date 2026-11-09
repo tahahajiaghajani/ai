@@ -83,6 +83,14 @@ export function isEmail(input: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(input ?? "").trim());
 }
 
+/**
+ * An address nobody signs up or is invited with: the `.invalid` top-level domain never receives mail and is reserved
+ * for the platform's service accounts (the AI service member's `…@service.invalid`).
+ */
+export function isReservedEmail(input: string): boolean {
+  return /@(?:[^\s@]*\.)?invalid\.?$/i.test(String(input ?? "").trim());
+}
+
 /** Persian message for a named validator, or null when valid. Used by both forms and the API. */
 export function checkFormat(kind: string, value: string): string | null {
   if (value === null || value === undefined || String(value).trim() === "") return null;

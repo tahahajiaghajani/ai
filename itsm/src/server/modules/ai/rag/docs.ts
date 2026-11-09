@@ -216,6 +216,9 @@ export function installDocs(): void {
     // AI uses a document only while its collection allows it (and never a «سری» one) — checked live with every question
     aiWhere: (alias) =>
       `exists (select 1 from sm_doc_collections k where k.id = ${alias}.collection_id and k.org_id = ${alias}.org_id and k.deleted_at is null and k.ai_enabled and k.classification <> 'secret')`,
+    // a skill on the document itself follows the same switch
+    aiChannel: (alias) =>
+      `exists (select 1 from sm_doc_collections k where k.id = ${alias}.collection_id and k.org_id = ${alias}.org_id and k.deleted_at is null and k.ai_enabled and k.classification <> 'secret')`,
   });
 
   registerHooks(DOC_COLLECTION, {

@@ -7,6 +7,8 @@ import { z } from "zod";
 import type { Ctx } from "../../../../context";
 import { DEFAULT_AQI_ITEMS } from "@shared/tables/knowledge";
 import { get } from "../../../../engine";
+import { bad } from "../../../../http/errors";
+import { AI_CLOSED, aiChannelOpen } from "../../rag";
 import { registerKnowledgeAi } from "../../../knowledge/ai";
 import { draftOfRecord } from "../../../knowledge/capture";
 import { defineSkill } from "../registry";
@@ -16,8 +18,9 @@ import type { SkillDef } from "../types";
 const KCS_TABLES = ["incident", "problem", "known_error", "request_item", "change_request"];
 
 async function articleFacts(ctx: Ctx, id: string) {
-  // the other article as the caller reads it: its public text only
+  // the other article as the caller reads it: its public text only — and only when it is open to AI
   const { row } = await get(ctx, "kb_article", id);
+  if (!(await aiChannelOpen(ctx.db, ctx.org.id, "kb_article", id))) throw bad(AI_CLOSED);
   return { عنوان: row.title ?? null, خلاصه: row.summary ?? null, متن: typeof row.body === "string" ? row.body.slice(0, 12_000) : null };
 }
 

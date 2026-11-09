@@ -8,9 +8,11 @@ import { accessibleOrgs } from "../modules/platform/support";
 import { firstRateLimitHit, requestMeta, securityEvent } from "../modules/platform/security";
 import { AppError } from "../http/errors";
 import { uuidv7 } from "@shared/id";
-import { isEmail } from "@shared/validate";
+import { isEmail, isReservedEmail } from "@shared/validate";
 
 const email = z.string().trim().toLowerCase().refine(isEmail, "ایمیل معتبر نیست");
+/** A new account's address: never one of the reserved service domain (`isReservedEmail`). */
+const newEmail = email.refine((e) => !isReservedEmail(e), "این نشانی برای حساب‌های خدمت سامانه کنار گذاشته شده است");
 
 export const authRoutes = router();
 
@@ -20,7 +22,7 @@ const hasActiveAdmin = async (db: import("../db").Db) =>
 authRoutes.post("/signup", async (c) => {
   const cfg = c.get("cfg");
   limitByIp(c, "signup", 10, 3600000);
-  const input = await body(c, z.object({ email, password: z.string(), full_name: z.string().trim().min(2, "نام را کامل وارد کنید").max(120), mobile: z.string().trim().max(20).optional() }));
+  const input = await body(c, z.object({ email: newEmail, password: z.string(), full_name: z.string().trim().min(2, "نام را کامل وارد کنید").max(120), mobile: z.string().trim().max(20).optional() }));
   const count = await cfg.db.one<{ n: number }>(`select count(*)::int as n from sm_users`);
   const first = (count?.n ?? 0) === 0;
   // An address in PLATFORM_ADMIN_EMAILS is no proof of owning it (nothing is e-mailed): it opens a

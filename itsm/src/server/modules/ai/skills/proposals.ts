@@ -6,11 +6,12 @@
 // Who sees a proposal on a record: whoever may read the record and every field involved — the fields it changes AND
 // what the run read: the record's fields that reached the model, the field groups it was allowed, internal notes if
 // any were read, and every source a grounded run used. A proposal is never a way to see something one could not read.
-// (Tokens in `fields`: a field name, `@g:<group>` a field group, `@r:<table>:<id>` a record that must be readable.)
+// (Tokens in `fields`: a field name, `@g:<group>` a field group, `@r:<table>:<id>` a record that must be readable,
+// `@f:<table>:<field>` a field of another table that must be visible.)
 import { z } from "zod";
 import type { Ctx } from "../../../context";
 import type { AiProposal, AiRef } from "@shared/ai/types";
-import { SKILL_AI_LABEL, type SkillRunResult } from "@shared/ai/skills";
+import { SKILL_AI_LABEL, placeholdersOf, type SkillRunResult } from "@shared/ai/skills";
 import { tableDef } from "@shared/tables";
 import { addJournal, create, get, update } from "../../../engine";
 import { conflict } from "../../../http/errors";
@@ -23,13 +24,25 @@ import type { SkillRuntimeInput } from "./types";
 const UUID = z.string().regex(/^[0-9a-f-]{36}$/i);
 const pct = (v: number | null) => (v === null ? "—" : `${Math.round(v * 100).toLocaleString("fa-IR")}٪`);
 
-/** What a viewer must be able to read to see a proposal made from this run. */
+/**
+ * What a viewer must be able to read to see a proposal made from this run: the record's fields that reached the model,
+ * the field groups the skill was allowed, internal notes if any were read, every source of a grounded run — the record,
+ * the field groups of its passage (an article's internal text is in group «internal») and its fields —, and the rows
+ * the template showed through `{{related}}` and `{{links}}`.
+ */
 export function clearanceOf(rs: ResolvedSkill, input: SkillRuntimeInput, extraFields: string[]): string[] {
   const out = new Set<string>(extraFields);
   for (const f of input.record?.fields ?? []) out.add(f.name);
   for (const g of rs.cfg.field_groups) out.add(`@g:${g}`);
   if (input.journal.some((j) => j.visibility === "internal")) out.add("@g:internal");
-  for (const p of input.passages) out.add(`@r:${p.citation.table}:${p.citation.id}`);
+  for (const p of input.passages) {
+    out.add(`@r:${p.citation.table}:${p.citation.id}`);
+    for (const g of p.groups ?? []) out.add(`@g:${g}`);
+    for (const f of p.fields ?? []) out.add(`@f:${p.citation.table}:${f}`);
+  }
+  const shown = new Set(placeholdersOf(rs.version.template).map((n) => n.split(".")[0]));
+  if (shown.has("related")) for (const t of input.reads?.related ?? []) out.add(t);
+  if (shown.has("links")) for (const t of input.reads?.links ?? []) out.add(t);
   return [...out];
 }
 

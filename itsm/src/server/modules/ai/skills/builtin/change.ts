@@ -137,6 +137,7 @@ export const changeSkills: SkillDef[] = [
     grounding: { kind: "similar", k: 3 },
     inputs: { journal: "all", journalLimit: 20 },
     roles: ["agent"],
+    fieldGroups: ["internal"], // it reads the work notes (the «internal» group)
     surfaces: ["panel", "module"],
     order: 20,
     system: "کار تو: پیش‌نویس برنامه‌های یک درخواست تغییر: برنامهٔ اجرا (گام‌های شماره‌دار با پیش‌نیاز و وارسی)، برنامهٔ بازگشت (کی و چگونه)، برنامهٔ آزمون (چه چیزی نشان می‌دهد تغییر موفق بوده) و برنامهٔ اطلاع‌رسانی. از تغییرهای مشابه (منابع) الگو بگیر اما جزئیات این تغییر را بنویس. فیلدی را که داده‌اش نیست پیشنهاد نده.",
@@ -185,6 +186,7 @@ export const changeSkills: SkillDef[] = [
     tier: "standard",
     inputs: { journal: "all", journalLimit: 30 },
     roles: ["agent"],
+    fieldGroups: ["internal"], // it reads the work notes (the «internal» group)
     surfaces: ["module"],
     system: "کار تو: پیش‌نویس بازبینی پس از اجرای یک تغییر با زبانی بدون سرزنش: اثرهای جانبی، آنچه خوب پیش رفت، آنچه خوب پیش نرفت، درس‌ها و کارهای پیگیری (فهرست‌وار). فقط از داده‌ها، زمان‌بندی، کارها و رکوردهای ناشی از تغییر.",
     template: "تغییر:\n{{record}}\n\nزمان‌بندی:\n{{timeline}}\n\nکارها:\n{{tasks}}\n\nرکوردهای ناشی از این تغییر:\n{{caused}}\n\nیادداشت‌ها:\n{{journal}}",
@@ -225,6 +227,7 @@ export const changeSkills: SkillDef[] = [
     output: "text",
     tier: "fast",
     inputs: { journal: "all", journalLimit: 30, related: [{ table: "change_task", field: "change_id", label: "کارهای تغییر", fields: ["number", "short_description", "state"], limit: 20 }] },
+    fieldGroups: ["internal"], // it reads the work notes (the «internal» group)
     surfaces: ["panel", "module"],
     order: 5,
     system: "کار تو: خلاصهٔ یک درخواست تغییر با بخش‌های «هدف»، «برنامه»، «ریسک و اثر»، «وضعیت و گام بعدی»؛ اگر اجرا شده «نتیجه».",

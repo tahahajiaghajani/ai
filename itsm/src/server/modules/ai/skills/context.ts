@@ -13,7 +13,7 @@ import { answerLanguage } from "@shared/ai/skills";
 import { get, list, listJournal, listLinks, orgSchema } from "../../../engine";
 import type { OrgSchema } from "../../../engine";
 import { bad } from "../../../http/errors";
-import { retrieve, type RetrievedPassage } from "../rag";
+import { AI_CLOSED, aiChannelOpen, retrieve, type RetrievedPassage } from "../rag";
 import { orgTimeZone } from "../usage";
 import type { JournalData, PromptField, RecordData, SkillDef, SkillRuntimeInput } from "./types";
 import type { SkillConfig } from "@shared/ai/skills";
@@ -103,6 +103,8 @@ export async function loadRecord(ctx: Ctx, table: string, id: string, def: Skill
   const tdef = schema.def(table);
   if (!tdef || tdef.virtual) throw bad("این جدول شناخته نیست");
   const r = await get(ctx, table, id); // 404 unless the caller may read it
+  // the record's own AI-use rule (an article «هرگز» or «سری», a base or a collection with AI off): never to a model
+  if (!(await aiChannelOpen(ctx.db, ctx.org.id, table, id))) throw bad(AI_CLOSED);
   const row = r.row as Record<string, unknown>;
   const groups = allowedGroups(cfg);
   const explicit = def.inputs?.fields?.length ? new Set([...def.inputs.fields, tdef.display]) : null;
@@ -135,6 +137,7 @@ export async function loadRecord(ctx: Ctx, table: string, id: string, def: Skill
 export async function loadJournal(ctx: Ctx, rec: RecordData, mode: "all" | "public" | "none", limit = 30): Promise<JournalData[]> {
   if (mode === "none" || !rec.def.features?.journal) return [];
   const { entries, display } = await listJournal(ctx, rec.table, rec.id, { limit: Math.min(Math.max(limit, 1), 60) });
+  const tz = orgTimeZone(ctx);
   return entries
     .filter((e) => e.kind in JOURNAL_LABEL)
     .filter((e) => mode === "all" || e.visibility === "public")
@@ -143,14 +146,19 @@ export async function loadJournal(ctx: Ctx, rec: RecordData, mode: "all" | "publ
       kind_label: JOURNAL_LABEL[e.kind] ?? e.kind,
       visibility: e.visibility as "public" | "internal",
       author: e.author ? (display[e.author] ?? null) : null,
-      at: e.created_at,
+      // the organisation's local time in Jalali, as every other date of a prompt (never a raw UTC timestamp)
+      at: formatJalaliDateTime(e.created_at, tz),
       body: clip(String(e.body ?? ""), 2000),
     }));
 }
 
-/** Rows related to the record (children, reviews …) with the caller's access, formatted like the record's fields. */
-export async function loadRelated(ctx: Ctx, rec: RecordData, def: SkillDef, cfg: SkillConfig): Promise<Record<string, Record<string, unknown>[]>> {
+/**
+ * Rows related to the record (children, reviews …) with the caller's access, formatted like the record's fields; `refs`
+ * names each row read (`@r:<table>:<id>`).
+ */
+export async function loadRelated(ctx: Ctx, rec: RecordData, def: SkillDef, cfg: SkillConfig): Promise<{ data: Record<string, Record<string, unknown>[]>; refs: string[] }> {
   const out: Record<string, Record<string, unknown>[]> = {};
+  const refs: string[] = [];
   const schema = await orgSchema(ctx);
   const groups = allowedGroups(cfg);
   const tz = orgTimeZone(ctx);
@@ -159,6 +167,7 @@ export async function loadRelated(ctx: Ctx, rec: RecordData, def: SkillDef, cfg:
     if (!rdef || rdef.virtual) continue;
     const res = await list(ctx, rel.table, { filter: { f: rel.field, op: "eq", v: rec.id }, size: Math.min(rel.limit ?? 10, 30), fields: rel.fields, total: false }).catch(() => null);
     if (!res) continue;
+    for (const row of res.rows) if (row.id) refs.push(`@r:${rel.table}:${String(row.id)}`);
     out[rel.label] = res.rows.map((row) => {
       const o: Record<string, unknown> = {};
       if (row.number) o["شماره"] = row.number;
@@ -170,14 +179,18 @@ export async function loadRelated(ctx: Ctx, rec: RecordData, def: SkillDef, cfg:
       return o;
     });
   }
-  return out;
+  return { data: out, refs };
 }
 
-/** Links of the record to records the caller may read. */
-export async function loadLinks(ctx: Ctx, rec: RecordData): Promise<SkillRuntimeInput["links"]> {
-  if (!rec.def.features?.links) return [];
+/** Links of the record to records the caller may read; `refs` names each linked record (`@r:<table>:<id>`). */
+export async function loadLinks(ctx: Ctx, rec: RecordData): Promise<{ data: SkillRuntimeInput["links"]; refs: string[] }> {
+  if (!rec.def.features?.links) return { data: [], refs: [] };
   const { links } = await listLinks(ctx, rec.table, rec.id).catch(() => ({ links: [] }));
-  return links.slice(0, 30).map((l) => ({ kind: l.label, table: l.other.table, number: l.other.number, title: l.other.display, state: l.other.state_label }));
+  const shown = links.slice(0, 30);
+  return {
+    data: shown.map((l) => ({ kind: l.label, table: l.other.table, number: l.other.number, title: l.other.display, state: l.other.state_label })),
+    refs: shown.map((l) => `@r:${l.other.table}:${l.other.id}`),
+  };
 }
 
 /** The search of a grounded skill: the record's title and description (or the text). */
@@ -196,8 +209,11 @@ export async function ground(ctx: Ctx, def: SkillDef, cfg: SkillConfig, input: S
   const q = (def.query ?? defaultQuery)(input);
   if (q.trim().length < 2) return [];
   const k = Math.max(1, Math.min(12, cfg.grounding_k));
-  const tables =
-    cfg.grounding === "similar" ? [input.table ?? ""].filter(Boolean) : cfg.grounding === "knowledge" ? ["kb_article", "kb_snippet"] : ["doc_document"];
+  // «similar»: records of the record's own table — or, for a text skill run without a record (the new-incident form's
+  // triage, a catalogue item from a description), of the skill's tables; never every indexed table
+  const similar = input.table ? [input.table] : cfg.tables.filter((t) => t !== "*");
+  if (cfg.grounding === "similar" && !similar.length) return [];
+  const tables = cfg.grounding === "similar" ? similar : cfg.grounding === "knowledge" ? ["kb_article", "kb_snippet"] : ["doc_document"];
   const scope = cfg.grounding === "documents" && cfg.collections.length ? { collections: cfg.collections } : { tables };
   const r = await retrieve(ctx, q, { ...scope, k: k + 2 }).catch(() => ({ passages: [] as RetrievedPassage[] }));
   const passages = r.passages.filter((p) => !(input.id && p.citation.id === input.id)).slice(0, k);
