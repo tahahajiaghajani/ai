@@ -14,6 +14,7 @@ import accessLocations from "./0050_access_locations";
 import aiSkills from "./0052_ai_skills";
 import grantEpochs from "./0053_grant_epochs";
 import aiAgents from "./0058_ai_agents";
+import adminIntegration from "./0080_admin_integration";
 import { ddlForAll } from "../../engine/ddl";
 
 export interface Migration {
@@ -46,6 +47,7 @@ export const MIGRATIONS: Migration[] = [
   { id: "0052_ai_skills", title: "مهارت‌های هوش مصنوعی: پیشنهادهای وابسته به رکورد", sql: aiSkills },
   { id: "0053_grant_epochs", title: "دسترسی: بازخوانی برنامهٔ ویندوز وقتی دسترسی مالکان خدمت، تأییدکنندگان و جانشینان تغییر می‌کند", sql: grantEpochs },
   { id: "0058_ai_agents", title: "عامل‌های هوش مصنوعی: پیشنهادهای عامل‌ها، مسیر رسیدگی و نتیجهٔ هر ردیف", sql: aiAgents },
+  { id: "0080_admin_integration", title: "مدیریت و اتصال‌ها: طرح‌ها، کلیدهای قابلیت، اطلاعیه‌ها، پشتیبان‌ها، کلیدهای API کاربران یکپارچه‌سازی، گزارش اتصال‌ها و فهرست کاربران", sql: adminIntegration },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].id;

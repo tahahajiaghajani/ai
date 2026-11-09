@@ -27,6 +27,8 @@ import { DEVOPS_TABLES } from "./devops";
 import { PROJECT_CHOICE_LISTS, PROJECT_TABLES } from "./project";
 import { ANALYTICS_TABLES } from "./analytics";
 import { AI_AGENT_TABLES } from "./ai-agents";
+import { ADMIN_TABLES } from "./admin";
+import { INTEGRATION_TABLES } from "./integration";
 
 export { CUSTOM_FIELD_TYPES, VIEW_KINDS } from "./core";
 
@@ -51,6 +53,8 @@ const MODULE_TABLES: TableDef[][] = [
   PROJECT_TABLES,
   ANALYTICS_TABLES,
   AI_AGENT_TABLES,
+  ADMIN_TABLES,
+  INTEGRATION_TABLES,
 ];
 
 /** Every table by key (resolved definitions). */
