@@ -24,7 +24,9 @@ export const PRACTICE_OPTIONS: Option[] = [
   { value: "knowledge", label: "دانش", color: "purple", order: 5 },
   { value: "sla", label: "سطح خدمت", color: "gold", order: 6 },
   { value: "cmdb", label: "پیکربندی", color: "indigo", order: 7 },
-  { value: "other", label: "سایر", color: "gray", order: 8 },
+  { value: "release", label: "انتشار و دواپس", color: "magenta", order: 8 },
+  { value: "project", label: "پروژه", color: "green", order: 9 },
+  { value: "other", label: "سایر", color: "gray", order: 10 },
 ];
 
 export const UNIT_OPTIONS: Option[] = [

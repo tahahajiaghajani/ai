@@ -17,7 +17,8 @@ import type { Tx } from "../../db";
 import { createIn, orgSchema, updateIn } from "../../engine";
 import { eqAll, liveRows, sysOf, type Row } from "./common";
 
-export const ANALYTICS_SEED_VERSION = 1;
+/** 2: the DORA metrics, release/project KPIs and the «انتشار و دواپس» dashboard (release module installed). */
+export const ANALYTICS_SEED_VERSION = 2;
 
 export interface SeedCounts {
   skipped: boolean;
@@ -28,6 +29,7 @@ export interface SeedCounts {
 const CURATORS: Record<string, string[]> = {
   service_desk: ["service_desk_manager", "tenant_admin"],
   change_management: ["change_manager", "tenant_admin"],
+  release_devops: ["release_manager", "tenant_admin"],
 };
 
 async function ensure(tx: Tx, sys: Ctx, out: SeedCounts, table: string, key: Record<string, unknown>, values: Row): Promise<{ row: Row; created: boolean }> {

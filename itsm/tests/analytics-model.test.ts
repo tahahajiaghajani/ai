@@ -219,7 +219,7 @@ describe("the KPI library", () => {
     for (const k of KPI_LIBRARY) expect([k.key, indicatorProblem(k, lookup)]).toEqual([k.key, null]);
     expect(libraryFor(lookup).length).toBe(KPI_LIBRARY.length);
     expect(dashboardsFor(lookup).map((d) => d.key)).toEqual(LIBRARY_DASHBOARDS.map((d) => d.key));
-    expect(LIBRARY_DASHBOARDS.map((d) => d.name)).toEqual(["داشبورد میز خدمت", "داشبورد مدیریت تغییر"]);
+    expect(LIBRARY_DASHBOARDS.map((d) => d.name)).toEqual(["داشبورد میز خدمت", "داشبورد مدیریت تغییر", "داشبورد انتشار و دواپس"]);
   });
 
   it("a module that is not installed contributes nothing (its tables are missing at seed time)", () => {
@@ -227,7 +227,13 @@ describe("the KPI library", () => {
     const keys = libraryFor(noChange).map((k) => k.key);
     expect(keys.some((k) => k.startsWith("change."))).toBe(false);
     expect(keys).toContain("incident.mttr");
-    expect(dashboardsFor(noChange).map((d) => d.key)).toEqual(["service_desk"]);
+    expect(dashboardsFor(noChange).map((d) => d.key)).toEqual(["service_desk", "release_devops"]);
+    // without the release module: no DORA metric, no release KPI, no release dashboard
+    const noRelease = (k: string) => (["deployment", "release"].includes(k) ? undefined : tableDef(k));
+    const rest = libraryFor(noRelease).map((k) => k.key);
+    expect(rest.some((k) => k.startsWith("devops.") || k.startsWith("release."))).toBe(false);
+    expect(rest).toContain("project.on_schedule");
+    expect(dashboardsFor(noRelease).map((d) => d.key)).toEqual(["service_desk", "change_management"]);
   });
 
   it("seeded layouts resolve indicator keys and drop unknown ones; curators edit, readers view", () => {

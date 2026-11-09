@@ -1,11 +1,11 @@
 // The ITSM KPI library (catalogue ANA-002) and the dashboards seeded with it: MTTA, MTTR, first-contact resolution,
 // reopen rate, SLA compliance, backlog and its ageing, major incidents, CSAT; change success, emergency share,
-// change-caused incidents, lead time; request fulfilment time, zero-touch share, request SLA and CSAT; problem and
+// change-caused incidents, lead time; the DORA metrics and release/project KPIs; request fulfilment time, zero-touch share, request SLA and CSAT; problem and
 // knowledge measures. Each indicator names the tables and fields it reads; the seed adds only those whose tables and
 // fields exist in the organisation (modules not installed are skipped) — `libraryFor(lookup)`.
 // Stored snapshots of these org-wide indicators are readable only by the roles in `score_roles` (the definitions and
 // the live values — computed with each viewer's access — are for everyone who reads reports).
-import type { Lookup } from "../model/conditions";
+import type { Cond, Lookup } from "../model/conditions";
 import type { DashboardFilter, DashboardLayout, IndicatorDef, ReportSpec, Share, Widget } from "./types";
 import { indicatorProblem } from "./kpi";
 import { specProblem } from "./model";
@@ -25,6 +25,8 @@ export const PRACTICES: { value: string; label: string }[] = [
   { value: "knowledge", label: "دانش" },
   { value: "sla", label: "سطح خدمت" },
   { value: "cmdb", label: "پیکربندی" },
+  { value: "release", label: "انتشار و دواپس" },
+  { value: "project", label: "پروژه" },
   { value: "other", label: "سایر" },
 ];
 
@@ -34,6 +36,15 @@ const LAST_7_DAYS = { unit: "day", from: -6, to: 0 } as const;
 const INCIDENT_READERS = ["service_desk_manager", "incident_manager", "tenant_admin"];
 const CHANGE_READERS = ["change_manager", "service_desk_manager", "tenant_admin"];
 const REQUEST_READERS = ["service_desk_manager", "tenant_admin"];
+const RELEASE_READERS = ["release_manager", "change_manager", "tenant_admin"];
+// «مدیر پروژه» is the project module's organisation role (seeded with it)
+const PROJECT_READERS = ["project_manager", "tenant_admin"];
+/** Production deployments that finished (the DORA population): succeeded or closed, failed or rolled back. */
+const PROD = { f: "is_production", op: "eq", v: true } as const;
+const PROD_FINISHED_STATES = { f: "state", op: "in", v: ["succeeded", "closed", "failed", "rolled_back"] } as const;
+const PROD_OK_STATES = { f: "state", op: "in", v: ["succeeded", "closed"] } as const;
+const PROD_FINISHED: Cond = { and: [PROD, PROD_FINISHED_STATES] };
+const PROD_OK: Cond = { and: [PROD, PROD_OK_STATES] };
 
 export const KPI_LIBRARY: LibraryIndicator[] = [
   // ----- incident ---------------------------------------------------------------------------------------------------
@@ -205,6 +216,73 @@ export const KPI_LIBRARY: LibraryIndicator[] = [
     ],
     target: 85, warn: 75, crit: 60, score_roles: REQUEST_READERS, collect: true,
   },
+  // ----- release and DevOps: the DORA metrics (the release module's tables; seeded only when it is installed) --------
+  {
+    key: "devops.deployment_frequency", name: "تناوب استقرار (DORA)", practice: "release", unit: "count", direction: "up", grain: "week",
+    description: "استقرارهای موفق در محیط عملیاتی که در دوره پایان یافتند.",
+    formula: "ok", parts: [{ name: "ok", table: "deployment", fn: "count", date_field: "actual_end", filter: PROD_OK }],
+    breakdowns: ["service_id", "environment_id"], score_roles: RELEASE_READERS, collect: true,
+  },
+  {
+    key: "devops.lead_time", name: "زمان تحویل تغییر (DORA)", practice: "release", unit: "duration", direction: "down", grain: "month",
+    description: "میانهٔ زمان از نخستین کامیت تا استقرار موفق عملیاتی، برای استقرارهایی که در دوره پایان یافتند.",
+    formula: "lead", parts: [{ name: "lead", table: "deployment", fn: "median", field: "lead_time", date_field: "actual_end", filter: { and: [PROD, PROD_OK_STATES, { f: "lead_time", op: "nempty" }] } }],
+    target: 86_400, warn: 604_800, crit: 2_592_000, breakdowns: ["service_id"], score_roles: RELEASE_READERS, collect: true,
+  },
+  {
+    key: "devops.change_failure_rate", name: "نرخ شکست تغییر (DORA)", practice: "release", unit: "percent", direction: "down", grain: "month",
+    description: "سهم استقرارهای عملیاتی پایان‌یافتهٔ دوره که ناموفق بودند، بازگردانده شدند یا رخداد ساختند.",
+    formula: "failed / finished * 100",
+    parts: [
+      { name: "failed", table: "deployment", fn: "count", date_field: "actual_end", filter: { and: [PROD, PROD_FINISHED_STATES, { f: "change_failure", op: "eq", v: true }] } },
+      { name: "finished", table: "deployment", fn: "count", date_field: "actual_end", filter: PROD_FINISHED },
+    ],
+    target: 5, warn: 15, crit: 30, breakdowns: ["service_id"], score_roles: RELEASE_READERS, collect: true,
+  },
+  {
+    key: "devops.time_to_restore", name: "زمان بازیابی خدمت (DORA)", practice: "release", unit: "duration", direction: "down", grain: "month",
+    description: "میانهٔ زمان از پایان استقرار ناموفق عملیاتی تا بازیابی خدمت، برای بازیابی‌های دوره.",
+    formula: "restore",
+    parts: [{ name: "restore", table: "deployment", fn: "median", field: "restored_at", from: "actual_end", date_field: "restored_at", filter: { and: [{ f: "is_production", op: "eq", v: true }, { f: "change_failure", op: "eq", v: true }] } }],
+    target: 3_600, warn: 86_400, crit: 604_800, breakdowns: ["service_id"], score_roles: RELEASE_READERS, collect: true,
+  },
+  {
+    key: "release.on_time", name: "انتشارهای به‌موقع", practice: "release", unit: "percent", direction: "up", grain: "quarter",
+    description: "سهم انتشارهایی که در دوره در محیط عملیاتی مستقر شدند و تا تاریخ برنامه‌ریزی‌شده عرضه شدند.",
+    formula: "on_time / deployed * 100",
+    parts: [
+      { name: "on_time", table: "release", fn: "count", date_field: "deployed_at", filter: { f: "on_schedule", op: "eq", v: true } },
+      { name: "deployed", table: "release", fn: "count", date_field: "deployed_at", filter: { f: "deployed_at", op: "nempty" } },
+    ],
+    target: 90, warn: 75, crit: 60, breakdowns: ["type"], score_roles: RELEASE_READERS, collect: true,
+  },
+  {
+    key: "release.emergency_share", name: "سهم انتشارهای اضطراری", practice: "release", unit: "percent", direction: "down", grain: "quarter",
+    description: "سهم انتشارهای اضطراری از همهٔ انتشارهایی که در دوره در محیط عملیاتی مستقر شدند.",
+    formula: "emergency / deployed * 100",
+    parts: [
+      { name: "emergency", table: "release", fn: "count", date_field: "deployed_at", filter: { f: "type", op: "eq", v: "emergency" } },
+      { name: "deployed", table: "release", fn: "count", date_field: "deployed_at", filter: { f: "deployed_at", op: "nempty" } },
+    ],
+    target: 5, warn: 10, crit: 20, score_roles: RELEASE_READERS, collect: true,
+  },
+  // ----- projects (the project module's tables; seeded only when it is installed) -------------------------------------
+  {
+    key: "project.off_track", name: "پروژه‌های خارج از روال", practice: "project", unit: "count", direction: "down", grain: "day",
+    description: "پروژه‌های در جریان با سلامت «قرمز» در لحظهٔ اندازه‌گیری؛ روند آن از عکس‌های روزانه ساخته می‌شود.",
+    formula: "red", parts: [{ name: "red", table: "project", fn: "count", filter: { and: [{ f: "state", op: "in", v: ["approved", "planning", "executing", "closing", "on_hold"] }, { f: "health", op: "eq", v: "red" }] } }],
+    target: 0, warn: 2, crit: 5, breakdowns: ["type"], score_roles: PROJECT_READERS, collect: true,
+  },
+  {
+    key: "project.on_schedule", name: "پروژه‌های بسته‌شدهٔ به‌موقع", practice: "project", unit: "percent", direction: "up", grain: "quarter",
+    description: "سهم پروژه‌هایی که در دوره بسته شدند و انحراف زمانشان صفر یا کمتر بود.",
+    formula: "on_time / closed * 100",
+    parts: [
+      { name: "on_time", table: "project", fn: "count", date_field: "actual_end", filter: { and: [{ f: "state", op: "eq", v: "closed" }, { f: "schedule_variance_days", op: "lte", v: 0 }] } },
+      { name: "closed", table: "project", fn: "count", date_field: "actual_end", filter: { f: "state", op: "eq", v: "closed" } },
+    ],
+    target: 80, warn: 65, crit: 50, breakdowns: ["type"], score_roles: PROJECT_READERS, collect: true,
+  },
   // ----- knowledge and service levels -------------------------------------------------------------------------------
   {
     key: "knowledge.published", name: "مقاله‌های تازه منتشرشده", practice: "knowledge", unit: "count", direction: "up", grain: "month",
@@ -308,6 +386,29 @@ export const LIBRARY_DASHBOARDS: LibraryDashboard[] = [
         w("risk", 4, 9, 8, 6, { title: "نرخ شکست به تفکیک ریسک", spec: r({ table: "change_request", time: { field: "actual_end", window: { unit: "day", from: -179, to: 0 } }, filter: { f: "close_code", op: "in", v: ["successful", "successful_issues", "unsuccessful", "backed_out"] }, measures: [{ fn: "ratio", filter: { f: "close_code", op: "in", v: ["unsuccessful", "backed_out"] }, label: "نرخ شکست" }], dims: [{ field: "risk" }], viz: "column", sort: { by: "key", dir: "asc" } }) }),
         w("upcoming", 0, 15, 12, 6, { title: "تغییرهای هفت روز پیش رو", spec: r({ table: "change_request", time: { field: "planned_start", window: { unit: "day", from: 0, to: 6 } }, measures: [], dims: [], columns: ["number", "short_description", "type", "risk", "planned_start", "assigned_to"], viz: "list", options: { order: "planned_start" } }) }),
         { id: "score", kind: "scorecard", x: 0, y: 21, w: 12, h: 6, title: "کارت امتیاز تغییر", indicator_keys: ["change.success_rate", "change.emergency_rate", "change.caused_incidents", "change.lead_time"] },
+      ],
+    },
+  },
+  {
+    key: "release_devops",
+    name: "داشبورد انتشار و دواپس",
+    description: "چهار شاخص DORA از استقرارهای عملیاتی، انتشارهای به‌موقع و اضطراری، استقرارها در هر هفته و نتیجهٔ آن‌ها — هر بیننده فقط استقرارهای مجاز خودش را می‌بیند.",
+    table: "deployment",
+    is_home: false,
+    shares: roleShares(["release_manager", "change_manager", "release_engineer", "auditor"]),
+    filters: [
+      { key: "time", kind: "time", label: "بازهٔ زمانی" },
+      { key: "service", kind: "field", field: "service_id", label: "خدمت" },
+    ],
+    layout: {
+      widgets: [
+        { id: "k1", kind: "indicator", x: 0, y: 0, w: 3, h: 3, indicator_key: "devops.deployment_frequency" },
+        { id: "k2", kind: "indicator", x: 3, y: 0, w: 3, h: 3, indicator_key: "devops.lead_time" },
+        { id: "k3", kind: "indicator", x: 6, y: 0, w: 3, h: 3, indicator_key: "devops.change_failure_rate" },
+        { id: "k4", kind: "indicator", x: 9, y: 0, w: 3, h: 3, indicator_key: "devops.time_to_restore" },
+        w("weekly", 0, 3, 8, 6, { title: "استقرارهای عملیاتی در هر هفته", spec: r({ table: "deployment", time: { field: "actual_end", window: { unit: "week", from: -11, to: 0 } }, filter: PROD_FINISHED, measures: [{ fn: "count" }], dims: [{ field: "actual_end", bucket: "week" }, { field: "change_failure" }], viz: "column", options: { stacked: true } }) }),
+        w("states", 8, 3, 4, 6, { title: "نتیجهٔ استقرارها", spec: r({ table: "deployment", time: { field: "actual_end", window: { unit: "day", from: -89, to: 0 } }, filter: PROD_FINISHED, measures: [{ fn: "count" }], dims: [{ field: "state" }], viz: "donut" }) }),
+        { id: "score", kind: "scorecard", x: 0, y: 9, w: 12, h: 6, title: "کارت امتیاز انتشار", indicator_keys: ["devops.deployment_frequency", "devops.lead_time", "devops.change_failure_rate", "devops.time_to_restore", "release.on_time", "release.emergency_share"] },
       ],
     },
   },
