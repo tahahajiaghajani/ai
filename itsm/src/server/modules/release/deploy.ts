@@ -57,8 +57,10 @@ async function restoreFailures(tx: Tx, ctx: Ctx, dep: Row): Promise<void> {
   const sys = sysOf(ctx);
   const at = msOf(dep.actual_end);
   if (at === null) return;
-  const scope = isUuid(dep.service_id) ? { f: "service_id", op: "eq", v: dep.service_id } : isUuid(dep.release_id) ? { f: "release_id", op: "eq", v: dep.release_id } : null;
-  if (!scope) return;
+  // the same thing deployed again: the service, else the pipeline, the release or the connection it came from
+  const by = (["service_id", "pipeline_id", "release_id", "connection_id"] as const).find((f) => isUuid(dep[f]));
+  if (!by) return;
+  const scope = { f: by, op: "eq", v: dep[by] };
   const failed = await liveRows(tx, sys, "deployment", { and: [scope as never, { f: "environment_id", op: "eq", v: dep.environment_id }, { f: "state", op: "in", v: DEPLOYMENT_FAILED }, { f: "restored_at", op: "empty" }] });
   for (const f of failed) {
     if (f.id === dep.id || (msOf(f.actual_end) ?? Infinity) > at) continue;

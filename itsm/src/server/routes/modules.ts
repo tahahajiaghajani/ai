@@ -31,6 +31,8 @@ import { installKnowledgeModule } from "../modules/knowledge";
 import { knowledgeRoutes } from "./knowledge";
 import { installReleaseModule } from "../modules/release";
 import { releaseRoutes } from "./release";
+import { installDevopsModule } from "../modules/devops";
+import { devopsRoutes } from "./devops";
 import { installAiSkills } from "../modules/ai/skills";
 import { skillRoutes } from "./ai-skills";
 
@@ -64,6 +66,8 @@ installKnowledgeModule();
 
 // release and deployment management (docs/modules/release_FA.md) — after the change module: deployments move changes
 installReleaseModule();
+// DevOps (docs/modules/devops_FA.md) — after release management: pipelines write its deployments
+installDevopsModule();
 
 // the AI skills (docs/spec/AI.md §11) — after every module whose AI extension points they implement
 installAiSkills();
@@ -88,3 +92,4 @@ moduleRoutes.route("/change", changeRoutes);
 moduleRoutes.route("/request", requestRoutes);
 moduleRoutes.route("/knowledge", knowledgeRoutes);
 moduleRoutes.route("/release", releaseRoutes);
+moduleRoutes.route("/devops", devopsRoutes);
