@@ -45,5 +45,10 @@ export async function analyticsConfig(q: Queryable, ctx: Ctx): Promise<Analytics
   return { ...out, id: row?.id ?? null, seeded: Number(row?.seeded ?? 0), last_snapshot_on: row?.last_snapshot_on ?? null };
 }
 
-/** A number from a database value (postgres.js returns numerics as text), or null. */
-export const num = (v: unknown): number | null => (v === null || v === undefined || v === "" ? null : Number.isFinite(Number(v)) ? Number(v) : null);
+/** A number from a database value (postgres.js returns numerics as text), or null; float noise of SQL statistics
+ *  (7.200000000000001) rounded away at nine decimals. */
+export const num = (v: unknown): number | null => {
+  if (v === null || v === undefined || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.round(n * 1e9) / 1e9 : null;
+};

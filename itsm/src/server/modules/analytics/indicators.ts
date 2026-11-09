@@ -46,6 +46,9 @@ export function indicatorOf(row: Row): IndicatorDef & { id: string; formula_vers
 
 const additive = (p: IndicatorPart) => MEASURES[p.fn]?.additive && !p.from;
 
+/** A text column that may be empty: the engine stores "" as null, so the organisation-wide row is the empty one. */
+const textIs = (f: string, v: string): Cond => (v ? { f, op: "eq", v } : { f, op: "empty" });
+
 function partSpec(p: IndicatorPart, filter: Cond | null, extra: Partial<ReportSpec> = {}): ReportSpec {
   return { v: 1, table: p.table, filter, measures: [{ fn: p.fn, field: p.field ?? null, from: p.from ?? null }], dims: [], viz: "score", ...extra };
 }
@@ -130,7 +133,7 @@ async function liveTrend(ctx: Ctx, ind: IndicatorDef, periods: PeriodInfo[], now
 
 /** Stored total scores the caller may read (newest last), or null when they may read none. */
 async function storedSeries(ctx: Ctx, ind: { id: string; formula_version: number }, limit = 24, breakdown = ""): Promise<{ points: ScorePoint[]; rows: Row[] } | null> {
-  const rows = await liveRows(ctx.db, ctx, "analytics_score", { and: [{ f: "indicator_id", op: "eq", v: ind.id }, { f: "formula_version", op: "eq", v: ind.formula_version }, { f: "breakdown", op: "eq", v: breakdown }] }, { order: "t.period_key desc, t.element", limit: breakdown ? 500 : limit }).catch(() => []);
+  const rows = await liveRows(ctx.db, ctx, "analytics_score", { and: [{ f: "indicator_id", op: "eq", v: ind.id }, { f: "formula_version", op: "eq", v: ind.formula_version }, textIs("breakdown", breakdown)] }, { order: "t.period_key desc, t.element", limit: breakdown ? 500 : limit }).catch(() => []);
   if (!rows.length) {
     // readable but not collected yet vs not readable: ask for any one score of the indicator
     return null;
@@ -282,7 +285,7 @@ export interface CollectResult {
 async function upsertScore(sys: Ctx, ind: Row, def: IndicatorDef, period: PeriodInfo, final: boolean, breakdown: string, element: { key: string; label: string; value: number | null; parts: Record<string, number | null>; n: number }, ids: string[] | null): Promise<{ id: string; worsened: boolean }> {
   const status: KpiStatus = kpiStatus(element.value, def);
   const key = { indicator_id: ind.id, formula_version: Number(ind.formula_version ?? 1), period_key: period.key, breakdown, element: element.key };
-  const [found] = await liveRows(sys.db, sys, "analytics_score", { and: Object.entries(key).map(([f, v]) => ({ f, op: "eq" as const, v })) }, { limit: 1 });
+  const [found] = await liveRows(sys.db, sys, "analytics_score", { and: Object.entries(key).map(([f, v]) => (typeof v === "string" ? textIs(f, v) : ({ f, op: "eq", v } as Cond))) }, { limit: 1 });
   const data: Row = {
     ...key,
     indicator_key: ind.key,
@@ -318,7 +321,7 @@ export async function collectIndicator(sys: Ctx, row: Row, opts: { now?: number;
   const tz = orgTz(sys);
   const now = opts.now ?? Date.now();
   const timed = def.parts.some((p) => !!p.date_field || hasPeriod(p.filter));
-  const existing = await liveRows(sys.db, sys, "analytics_score", { and: [{ f: "indicator_id", op: "eq", v: row.id }, { f: "formula_version", op: "eq", v: def.formula_version }, { f: "breakdown", op: "eq", v: "" }] }, { limit: 1 });
+  const existing = await liveRows(sys.db, sys, "analytics_score", { and: [{ f: "indicator_id", op: "eq", v: row.id }, { f: "formula_version", op: "eq", v: def.formula_version }, textIs("breakdown", "")] }, { limit: 1 });
   const back = timed ? (existing.length ? 1 : Math.max(1, opts.backfill ?? 6)) : 0;
   let scores = 0;
   let alerts = 0;

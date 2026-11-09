@@ -136,8 +136,12 @@ describe("stored snapshots of org-wide indicators", () => {
     for (const c of [w.p.agent.client, w.p.other.client, w.p.auditor.client]) expect((await c.get(`${w.P}/r/analytics_score?size=50`)).rows).toEqual([]);
     const mim = await w.p.mim.client.get(`${w.P}/r/analytics_score?size=200`);
     expect(mim.rows.length).toBeGreaterThan(0);
-    const sdm = await w.sdm.client.get(`${w.P}/r/analytics_score?size=200`);
-    expect(sdm.rows.length).toBe(all.rows.length);
+    // the service-desk manager reads every incident score (a role the incident indicators name), the owner more
+    const incidentScores = { f: "indicator_key", op: "starts", v: "incident." };
+    const ownerInc = await w.o.post(`${w.P}/r/analytics_score/query`, { filter: incidentScores, size: 1, total: true });
+    const sdmInc = await w.sdm.client.post(`${w.P}/r/analytics_score/query`, { filter: incidentScores, size: 1, total: true });
+    expect(sdmInc.total).toBe(ownerInc.total);
+    expect(sdmInc.total).toBeGreaterThan(0);
   });
 
   it("the scorecard shows live values as the viewer, and stored series only to score readers", async () => {

@@ -56,9 +56,10 @@ export async function compileFor(q: Queryable, orgId: string, input: unknown, op
   return { shares, compiled: compileShares(shares, (r) => holders.get(r) ?? []) };
 }
 
-/** An indicator's score readers: the same compilation, kept in its `s_*` columns. */
-export function scoreColumns(c: CompiledShares): { s_users: string[]; s_groups: string[]; s_all: boolean; s_roles: string[] } {
-  return { s_users: c.r_users, s_groups: c.r_groups, s_all: c.r_all, s_roles: c.role_keys };
+/** An indicator's score readers: the same compilation, kept in its `s_*` columns — and its owner, who defined it. */
+export function scoreColumns(c: CompiledShares, ownerId?: string | null): { s_users: string[]; s_groups: string[]; s_all: boolean; s_roles: string[] } {
+  const users = ownerId && UUID.test(ownerId) && !c.r_users.includes(ownerId.toLowerCase()) ? [...c.r_users, ownerId.toLowerCase()].sort() : c.r_users;
+  return { s_users: users, s_groups: c.r_groups, s_all: c.r_all, s_roles: c.role_keys };
 }
 
 const same = (a: unknown, b: unknown) => JSON.stringify([...((a as string[]) ?? [])].sort()) === JSON.stringify([...((b as string[]) ?? [])].sort());
@@ -82,8 +83,9 @@ export async function recomputeRoleShares(sys: Ctx): Promise<number> {
   const inds = await liveRows(sys.db, sys, "analytics_indicator", { f: "s_roles", op: "nempty" }, { limit: 5000 });
   for (const r of inds) {
     const { compiled } = await compileFor(sys.db, sys.org.id, r.score_shares ?? [], { check: false, holders });
-    if (same(compiled.r_users, r.s_users)) continue;
-    await sys.write((tx) => restampIndicator(tx, sys, r, scoreColumns(compiled)));
+    const cols = scoreColumns(compiled, r.owner_id);
+    if (same(cols.s_users, r.s_users)) continue;
+    await sys.write((tx) => restampIndicator(tx, sys, r, cols));
     changed++;
   }
   return changed;

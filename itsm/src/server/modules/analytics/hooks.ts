@@ -129,12 +129,17 @@ export function installAnalyticsHooks(): void {
       // a new formula is a new series: stored scores of the old one stay as they were (lineage)
       if (w.op === "update" && ["formula", "parts", "grain"].some((f) => w.changed.has(f))) w.next.formula_version = Number(w.prev?.formula_version ?? 1) + 1;
       uncertify(w, ["formula", "parts", "grain", "target", "warn", "crit"]);
-      await sharing(w, "score_shares", (c) => scoreColumns(c));
+      await sharing(w, "score_shares", (c) => scoreColumns(c, w.next.owner_id));
+      // the owner reads the scores of what they defined: a new owner is a new reader
+      if (w.op === "update" && w.changed.has("owner_id") && !w.changed.has("score_shares")) {
+        const { compiled } = await compileFor(w.tx, w.ctx.org.id, w.next.score_shares ?? [], { check: false });
+        Object.assign(w.next, scoreColumns(compiled, w.next.owner_id));
+      }
       if (w.next.active && w.next.collect && (w.op === "create" || w.changed.has("collect") || w.changed.has("active"))) await ensureTick(w.tx, w.ctx.org.id);
     },
     async afterWrite(w) {
       // the stored scores carry their readers: follow a change of the indicator's score readers
-      if (w.op === "update" && w.changed.has("score_shares")) {
+      if (w.op === "update" && (w.changed.has("score_shares") || w.changed.has("owner_id"))) {
         const sys = await systemCtx(w.ctx.cfg, w.ctx.org.id);
         await restampIndicator(w.tx, { ...sys, db: w.ctx.db }, w.next, { s_users: w.next.s_users ?? [], s_groups: w.next.s_groups ?? [], s_all: !!w.next.s_all, s_roles: w.next.s_roles ?? [] });
       }
@@ -187,7 +192,7 @@ export function installAnalyticsHooks(): void {
     if (!row) return;
     const field = table === "analytics_indicator" ? "score_shares" : "shares";
     const { compiled } = await compileFor(jctx.db, job.org_id, row[field] ?? [], { check: false });
-    if (table === "analytics_indicator") await sys.write((tx) => restampIndicator(tx, sys, row, scoreColumns(compiled)));
+    if (table === "analytics_indicator") await sys.write((tx) => restampIndicator(tx, sys, row, scoreColumns(compiled, row.owner_id)));
     else await sys.write((tx) => updateIn(tx, sys, table, id, { ...compiled }, { trusted: true, keepVersion: true }));
   });
   onRecordEvent(
