@@ -1,7 +1,7 @@
 // Tables of DevOps (docs/modules/devops_FA.md, catalogue docs/catalog/g3_change.md «Module: devops»): connections to
 // repository and pipeline tools (GitHub, GitLab, Azure DevOps, Jenkins or any tool through the generic format) with a
 // webhook secret sealed by the engine, repositories and pipelines mapped to services, the raw inbound events (signed,
-// idempotent by delivery id; kept on the web version only), the normalised development data (commits, pull requests,
+// idempotent by delivery id; kept on the runtime that received them — the web version), the normalised development data (commits, pull requests,
 // builds — linked to records by the record numbers they mention), deployment gate requests (the pipeline asks before
 // it deploys; evidence hash-chained), and the technical debt register. Deployments themselves are the release module's
 // `deployment` table. Everything is in the access area `release`. Behaviour: src/server/modules/devops; pure logic
@@ -232,7 +232,7 @@ const commit: TableDef = {
   ],
   unique: [["repository_id", "sha"]],
   scope: { public: true },
-  features: { sync: false, history: false },
+  features: { history: false },
   list: { columns: ["committed_at", "sha", "message", "author_name", "repository_id"], order: "-committed_at" },
 };
 
@@ -261,7 +261,7 @@ const pullRequest: TableDef = {
   ],
   unique: [["repository_id", "pr_number"]],
   scope: { public: true },
-  features: { sync: false, history: false },
+  features: { history: false },
   list: { columns: ["pr_number", "title", "state", "author", "repository_id", "merged_at"], order: "-opened_at" },
 };
 
@@ -296,7 +296,7 @@ const build: TableDef = {
   ],
   unique: [["connection_id", "external_id"]],
   scope: { public: true },
-  features: { sync: false, history: false },
+  features: { history: false },
   list: { columns: ["started_at", "run_number", "pipeline_id", "status", "branch", "duration", "tests_failed"], order: "-started_at" },
 };
 

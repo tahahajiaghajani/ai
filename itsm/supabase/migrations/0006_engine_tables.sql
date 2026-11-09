@@ -4437,6 +4437,7 @@ create index if not exists sm_dev_builds_started_at_idx on sm_dev_builds (org_id
 create index if not exists sm_dev_builds_keys_gin on sm_dev_builds using gin (keys);
 create unique index if not exists sm_dev_builds_connection_id_external_id_uk on sm_dev_builds (org_id, connection_id, external_id) where deleted_at is null;
 drop trigger if exists sm_dev_builds_sync on sm_dev_builds;
+create trigger sm_dev_builds_sync before insert or update on sm_dev_builds for each row execute function sm_sync_touch('dev_build');
 alter table sm_dev_builds enable row level security;
 
 -- dev_commit: کامیت‌ها
@@ -4485,6 +4486,7 @@ create index if not exists sm_dev_commits_committed_at_idx on sm_dev_commits (or
 create index if not exists sm_dev_commits_keys_gin on sm_dev_commits using gin (keys);
 create unique index if not exists sm_dev_commits_repository_id_sha_uk on sm_dev_commits (org_id, repository_id, sha) where deleted_at is null;
 drop trigger if exists sm_dev_commits_sync on sm_dev_commits;
+create trigger sm_dev_commits_sync before insert or update on sm_dev_commits for each row execute function sm_sync_touch('dev_commit');
 alter table sm_dev_commits enable row level security;
 
 -- dev_event: رویدادهای دریافتی
@@ -4631,6 +4633,7 @@ create index if not exists sm_dev_pull_requests_repository_id_idx on sm_dev_pull
 create index if not exists sm_dev_pull_requests_keys_gin on sm_dev_pull_requests using gin (keys);
 create unique index if not exists sm_dev_pull_requests_repository_id_pr_number_uk on sm_dev_pull_requests (org_id, repository_id, pr_number) where deleted_at is null;
 drop trigger if exists sm_dev_pull_requests_sync on sm_dev_pull_requests;
+create trigger sm_dev_pull_requests_sync before insert or update on sm_dev_pull_requests for each row execute function sm_sync_touch('dev_pull_request');
 alter table sm_dev_pull_requests enable row level security;
 
 -- dev_repository: مخزن‌های کد
