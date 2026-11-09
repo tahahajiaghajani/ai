@@ -9076,6 +9076,7 @@ alter table sm_portals add column if not exists published_layout jsonb;
 alter table sm_portals add column if not exists layout_version integer;
 alter table sm_portals add column if not exists published_at timestamptz;
 alter table sm_portals add column if not exists published_by uuid;
+alter table sm_portals add column if not exists seeded integer;
 create index if not exists sm_portals_rev_idx on sm_portals (org_id, rev);
 create index if not exists sm_portals_upd_idx on sm_portals (org_id, updated_at desc, id desc) where deleted_at is null;
 create index if not exists sm_portals_crt_idx on sm_portals (org_id, created_at desc, id desc) where deleted_at is null;
@@ -9184,98 +9185,6 @@ create index if not exists sm_portal_channel_identities_unit_acc_idx on sm_porta
 create index if not exists sm_portal_channel_identities_domain_acc_idx on sm_portal_channel_identities (org_id, domain_id) where deleted_at is null and domain_id is not null;
 drop trigger if exists sm_portal_channel_identities_sync on sm_portal_channel_identities;
 alter table sm_portal_channel_identities enable row level security;
-
--- portal_channel_message: پیام‌های کانال
-create table if not exists sm_portal_channel_messages (
-  id uuid primary key,
-  org_id uuid not null references sm_orgs(id) on delete cascade,
-  workspace_id uuid,
-  domain_id uuid,
-  unit_id uuid,
-  created_at timestamptz not null default now(),
-  created_by uuid,
-  updated_at timestamptz not null default now(),
-  updated_by uuid,
-  rev bigint not null default 0,
-  version integer not null default 1,
-  deleted_at timestamptz,
-  origin text,
-  custom jsonb not null default '{}'::jsonb
-);
-alter table sm_portal_channel_messages add column if not exists workspace_id uuid;
-alter table sm_portal_channel_messages add column if not exists domain_id uuid;
-alter table sm_portal_channel_messages add column if not exists unit_id uuid;
-alter table sm_portal_channel_messages add column if not exists created_at timestamptz not null default now();
-alter table sm_portal_channel_messages add column if not exists created_by uuid;
-alter table sm_portal_channel_messages add column if not exists updated_at timestamptz not null default now();
-alter table sm_portal_channel_messages add column if not exists updated_by uuid;
-alter table sm_portal_channel_messages add column if not exists rev bigint not null default 0;
-alter table sm_portal_channel_messages add column if not exists version integer not null default 1;
-alter table sm_portal_channel_messages add column if not exists deleted_at timestamptz;
-alter table sm_portal_channel_messages add column if not exists origin text;
-alter table sm_portal_channel_messages add column if not exists custom jsonb not null default '{}'::jsonb;
-alter table sm_portal_channel_messages add column if not exists channel_id uuid;
-alter table sm_portal_channel_messages add column if not exists direction text;
-alter table sm_portal_channel_messages add column if not exists status text;
-alter table sm_portal_channel_messages add column if not exists message_key text;
-alter table sm_portal_channel_messages add column if not exists external_id text;
-alter table sm_portal_channel_messages add column if not exists user_id uuid;
-alter table sm_portal_channel_messages add column if not exists text text;
-alter table sm_portal_channel_messages add column if not exists conversation_id text;
-alter table sm_portal_channel_messages add column if not exists error text;
-create index if not exists sm_portal_channel_messages_rev_idx on sm_portal_channel_messages (org_id, rev);
-create index if not exists sm_portal_channel_messages_upd_idx on sm_portal_channel_messages (org_id, updated_at desc, id desc) where deleted_at is null;
-create index if not exists sm_portal_channel_messages_crt_idx on sm_portal_channel_messages (org_id, created_at desc, id desc) where deleted_at is null;
-create index if not exists sm_portal_channel_messages_channel_id_idx on sm_portal_channel_messages (org_id, channel_id) where deleted_at is null;
-create index if not exists sm_portal_channel_messages_message_key_idx on sm_portal_channel_messages (org_id, message_key) where deleted_at is null;
-drop trigger if exists sm_portal_channel_messages_sync on sm_portal_channel_messages;
-alter table sm_portal_channel_messages enable row level security;
-
--- portal_event: رویدادهای درگاه
-create table if not exists sm_portal_events (
-  id uuid primary key,
-  org_id uuid not null references sm_orgs(id) on delete cascade,
-  workspace_id uuid,
-  domain_id uuid,
-  unit_id uuid,
-  created_at timestamptz not null default now(),
-  created_by uuid,
-  updated_at timestamptz not null default now(),
-  updated_by uuid,
-  rev bigint not null default 0,
-  version integer not null default 1,
-  deleted_at timestamptz,
-  origin text,
-  custom jsonb not null default '{}'::jsonb
-);
-alter table sm_portal_events add column if not exists workspace_id uuid;
-alter table sm_portal_events add column if not exists domain_id uuid;
-alter table sm_portal_events add column if not exists unit_id uuid;
-alter table sm_portal_events add column if not exists created_at timestamptz not null default now();
-alter table sm_portal_events add column if not exists created_by uuid;
-alter table sm_portal_events add column if not exists updated_at timestamptz not null default now();
-alter table sm_portal_events add column if not exists updated_by uuid;
-alter table sm_portal_events add column if not exists rev bigint not null default 0;
-alter table sm_portal_events add column if not exists version integer not null default 1;
-alter table sm_portal_events add column if not exists deleted_at timestamptz;
-alter table sm_portal_events add column if not exists origin text;
-alter table sm_portal_events add column if not exists custom jsonb not null default '{}'::jsonb;
-alter table sm_portal_events add column if not exists kind text;
-alter table sm_portal_events add column if not exists user_id uuid;
-alter table sm_portal_events add column if not exists channel text;
-alter table sm_portal_events add column if not exists query text;
-alter table sm_portal_events add column if not exists results integer;
-alter table sm_portal_events add column if not exists value integer;
-alter table sm_portal_events add column if not exists ref_table text;
-alter table sm_portal_events add column if not exists ref_id text;
-alter table sm_portal_events add column if not exists data jsonb;
-create index if not exists sm_portal_events_rev_idx on sm_portal_events (org_id, rev);
-create index if not exists sm_portal_events_upd_idx on sm_portal_events (org_id, updated_at desc, id desc) where deleted_at is null;
-create index if not exists sm_portal_events_crt_idx on sm_portal_events (org_id, created_at desc, id desc) where deleted_at is null;
-create index if not exists sm_portal_events_kind_idx on sm_portal_events (org_id, kind) where deleted_at is null;
-create index if not exists sm_portal_events_user_id_idx on sm_portal_events (org_id, user_id) where deleted_at is null;
-drop trigger if exists sm_portal_events_sync on sm_portal_events;
-alter table sm_portal_events enable row level security;
 
 -- portal_feedback: بازخوردها
 create table if not exists sm_portal_feedback (
@@ -14081,3 +13990,49 @@ create index if not exists sm_ai_actions_agent_idx on sm_ai_actions (org_id, age
 create index if not exists sm_ai_actions_open_idx on sm_ai_actions (org_id, status, created_at desc) where status = 'proposed';
 
 insert into sm_migrations (id) values ('0058_ai_agents') on conflict (id) do nothing;
+
+-- ---------------------------------------------------------------------------
+-- 0067_portal — درگاه سلف‌سرویس: جریان رویدادهای درگاه و گزارش پیام‌های کانال‌های پیام‌رسان
+-- ---------------------------------------------------------------------------
+create table if not exists sm_portal_events (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  at timestamptz not null default now(),
+  -- search | click | answer | deflect | order | report | home | widget_search | public_view | public_search | public_vote | survey
+  kind text not null,
+  user_id uuid,
+  session_id text,
+  -- portal | widget | public | messenger
+  channel text,
+  query text,
+  results int,
+  value int,
+  ref_table text,
+  ref_id uuid,
+  data jsonb
+);
+create index if not exists sm_portal_events_org_at_idx on sm_portal_events (org_id, at desc);
+create index if not exists sm_portal_events_kind_idx on sm_portal_events (org_id, kind, at desc);
+alter table sm_portal_events enable row level security;
+
+create table if not exists sm_portal_channel_log (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  at timestamptz not null default now(),
+  channel_id uuid not null,
+  -- in | out
+  direction text not null,
+  -- received | replied | linked | unlinked | ignored | rate_limited | duplicate | failed | sent
+  status text not null,
+  message_key text,
+  external_id text,
+  user_id uuid,
+  text text,
+  conversation_id uuid,
+  error text
+);
+create index if not exists sm_portal_channel_log_org_at_idx on sm_portal_channel_log (org_id, channel_id, at desc);
+create unique index if not exists sm_portal_channel_log_msg_key on sm_portal_channel_log (org_id, channel_id, message_key) where direction = 'in' and message_key is not null;
+alter table sm_portal_channel_log enable row level security;
+
+insert into sm_migrations (id) values ('0067_portal') on conflict (id) do nothing;

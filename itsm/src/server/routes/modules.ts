@@ -43,6 +43,8 @@ import { installAiAgents } from "../modules/ai/agents";
 import { agentRoutes } from "./ai-agents";
 import { installVirtualAgent } from "../modules/ai/va";
 import { vaRoutes } from "./ai-va";
+import { installPortalModule } from "../modules/portal";
+import { portalRoutes } from "./portal";
 
 // the ITSM access model is the engine's access provider in every runtime (docs/spec/ACCESS.md)
 installAccessModel();
@@ -87,6 +89,8 @@ installAiSkills();
 installAiAgents();
 // the virtual agent's brain (docs/spec/AI.md §11.9) — the portal builds its requester UI
 installVirtualAgent();
+// the self-service portal and its channels (docs/modules/portal_FA.md) — after the virtual agent it talks through
+installPortalModule();
 
 export const moduleRoutes = router();
 
@@ -113,3 +117,4 @@ moduleRoutes.route("/release", releaseRoutes);
 moduleRoutes.route("/devops", devopsRoutes);
 moduleRoutes.route("/project", projectRoutes);
 moduleRoutes.route("/analytics", analyticsRoutes);
+moduleRoutes.route("/portal", portalRoutes);

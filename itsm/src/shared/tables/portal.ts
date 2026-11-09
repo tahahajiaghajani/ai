@@ -12,12 +12,12 @@
 //   · survey, survey_question, survey_trigger, survey_invitation, survey_response — CSAT/CES/NPS/XLA and pulse
 //                         surveys (PTL-038…040): definitions, when they are sent, the invitations (signed, single-use
 //                         links) and the answers, anonymous ones without respondent, invitation or record
-//   · portal_channel, portal_channel_identity, portal_link_code, portal_channel_message — messaging connectors
-//                         (Telegram, Bale, a generic webhook; PTL-019/022): web version only (the public endpoints live
-//                         there), chat users mapped to members only through a one-time code, an inbound log
+//   · portal_channel, portal_channel_identity, portal_link_code — messaging connectors (Telegram, Bale, a generic
+//                         webhook; PTL-019/022): web version only (the public endpoints live there), chat users mapped
+//                         to members only through a one-time code
 //   · portal_widget       the website widget (PTL-025): allowed origins, what guests may search
-//   · portal_event        the portal's own analytics stream (searches, answers, deflections, widget and public pages;
-//                         PTL-050), local to each runtime and never readable through the record API
+// The portal's analytics stream (searches, answers, deflections, widget and public pages; PTL-050) and the messaging
+// connectors' delivery log are local runtime tables (migration 0067_portal: sm_portal_events, sm_portal_channel_log).
 //
 // Access (docs/spec/ACCESS.md): definitions live in the areas of what they are about — the portal's look and its
 // content in `catalog` (requesters read the catalogue; the portal's routes read these rows as the system and filter
@@ -25,7 +25,7 @@
 // group's records, the service desk manager all), feedback in `request` (the desk works it; complaints and privacy
 // requests are confidential: the group, the submitter and the access list only), connectors and the widget in
 // `integrations`, public knowledge in `knowledge`. Rows written only by the module (invitations, responses,
-// identities, codes, the inbound log, events) are guarded by its hooks.
+// identities, codes) are guarded by its hooks.
 // Imported by the UI: keep it free of server imports.
 import { NEVER } from "../model/conditions";
 import type { FieldDef, Option, StateModel, TableDef } from "../model/types";
@@ -123,6 +123,7 @@ export const CHANNEL_AUTH: Option[] = [
   { value: "path", label: "فقط کلید نشانی (کم‌امن‌تر)", order: 3 },
 ];
 
+/** Outcomes of a messaging connector's deliveries (sm_portal_channel_log). */
 export const MESSAGE_STATUSES: Option[] = [
   { value: "received", label: "دریافت شد", color: "blue", order: 1 },
   { value: "replied", label: "پاسخ داده شد", color: "green", order: 2 },
@@ -189,6 +190,7 @@ const portal: TableDef = {
     { name: "layout_version", label: "نسخهٔ چیدمان", type: "int", default: 0, readonly: true, audit: false, span: 8, section: BEHAVIOUR },
     { name: "published_at", label: "زمان انتشار چیدمان", type: "datetime", readonly: true, audit: false, span: 8, section: BEHAVIOUR },
     { name: "published_by", label: "منتشرکنندهٔ چیدمان", type: "user", readonly: true, audit: false, span: 8, section: BEHAVIOUR },
+    { name: "seeded", label: "پیش‌فرض‌ها افزوده شد", type: "int", readonly: true, hidden: true, default: 0 },
   ],
   scope: { public: true },
   features: { attachments: true },
@@ -288,7 +290,7 @@ const kbPublication: TableDef = {
   display: "name",
   fields: [
     { name: "name", label: "نام", type: "string", required: true, maxLength: 120, list: true, search: true, sort: true, span: 12, section: MAIN },
-    { name: "active", label: "منتشر شود", type: "bool", default: false, list: true, filter: true, span: 6, section: MAIN },
+    { name: "active", label: "منتشرشده", type: "bool", default: false, readonly: true, list: true, filter: true, span: 6, section: MAIN, help: "با «انتشار عمومی» در صفحهٔ دانش عمومی روشن و خاموش می‌شود" },
     { name: "allow_feedback", label: "«مفید بود؟» برای خوانندگان", type: "bool", default: true, span: 6, section: MAIN },
     { name: "bases", label: "پایگاه‌های دانش", type: "refs", ref: "kb_base", required: true, span: 24, section: MAIN, help: "فقط پایگاه‌های بیرونی با خوانندگان «همه»؛ از هر پایگاه فقط مقاله‌های منتشرشده با طبقه‌بندی «عمومی»" },
     { name: "title", label: "عنوان صفحه", type: "string", maxLength: 120, default: "مرکز راهنما", span: 12, section: MAIN },
@@ -611,33 +613,6 @@ const linkCode: TableDef = {
   list: { columns: ["user_id", "expires_at", "used_at"], order: "-created_at" },
 };
 
-const message: TableDef = {
-  key: "portal_channel_message",
-  table: "sm_portal_channel_messages",
-  label: "پیام کانال",
-  plural: "پیام‌های کانال",
-  icon: "message-square",
-  module: "portal",
-  area: "integrations",
-  description: "گزارش پیام‌های دریافتی و ارسالی کانال‌های پیام‌رسان (برای پیگیری خطا؛ پس از ۳۰ روز پاک می‌شود)",
-  display: "status",
-  fields: [
-    { name: "channel_id", label: "کانال", type: "ref", ref: "portal_channel", required: true, readonly: true, index: true, span: 12 },
-    { name: "direction", label: "جهت", type: "choice", choices: [{ value: "in", label: "دریافتی" }, { value: "out", label: "ارسالی" }], readonly: true, span: 6 },
-    { name: "status", label: "وضعیت", type: "choice", choices: MESSAGE_STATUSES, default: "received", readonly: true, span: 6 },
-    { name: "message_key", label: "شناسهٔ پیام", type: "string", maxLength: 120, ltr: true, readonly: true, index: true, span: 12 },
-    { name: "external_id", label: "شناسهٔ گفتگو", type: "string", maxLength: 80, ltr: true, readonly: true, span: 12 },
-    { name: "user_id", label: "کاربر", type: "user", readonly: true, span: 12 },
-    { name: "text", label: "متن", type: "text", maxLength: 2000, readonly: true },
-    { name: "conversation_id", label: "گفتگوی دستیار", type: "string", maxLength: 36, ltr: true, readonly: true },
-    { name: "error", label: "خطا", type: "string", maxLength: 500, readonly: true },
-  ],
-  scope: {},
-  rowAccess: { read: NEVER },
-  features: { sync: false, history: false },
-  list: { columns: ["channel_id", "direction", "status", "created_at"], order: "-created_at" },
-};
-
 const widget: TableDef = {
   key: "portal_widget",
   table: "sm_portal_widgets",
@@ -665,37 +640,8 @@ const widget: TableDef = {
   list: { columns: ["name", "active", "allowed_origins", "updated_at"], order: "name" },
 };
 
-// ---------------------------------------------------------------------------------------------------------------
-// The portal's analytics stream (local to each runtime; read only through the module's routes)
-
-const event: TableDef = {
-  key: "portal_event",
-  table: "sm_portal_events",
-  label: "رویداد درگاه",
-  plural: "رویدادهای درگاه",
-  icon: "activity",
-  module: "portal",
-  area: "reports",
-  display: "kind",
-  fields: [
-    { name: "kind", label: "نوع", type: "string", required: true, maxLength: 30, ltr: true, readonly: true, index: true, span: 8 },
-    { name: "user_id", label: "کاربر", type: "user", readonly: true, index: true, span: 8 },
-    { name: "channel", label: "مجرا", type: "string", maxLength: 20, ltr: true, readonly: true, span: 8 },
-    { name: "query", label: "پرسش", type: "string", maxLength: 300, readonly: true, span: 24 },
-    { name: "results", label: "شمار نتیجه", type: "int", readonly: true, span: 8 },
-    { name: "value", label: "مقدار", type: "int", readonly: true, span: 8 },
-    { name: "ref_table", label: "جدول", type: "string", maxLength: 60, ltr: true, readonly: true, span: 8 },
-    { name: "ref_id", label: "رکورد", type: "string", maxLength: 36, ltr: true, readonly: true, span: 8 },
-    { name: "data", label: "داده", type: "json", readonly: true },
-  ],
-  scope: {},
-  rowAccess: { read: NEVER },
-  features: { sync: false, history: false },
-  list: { columns: ["kind", "user_id", "query", "results", "created_at"], order: "-created_at" },
-};
-
 export const PORTAL_TABLES: TableDef[] = [
   portal, link, topic, pref, kbPublication, feedback,
   survey, question, trigger, invitation, response,
-  channel, identity, linkCode, message, widget, event,
+  channel, identity, linkCode, widget,
 ];
