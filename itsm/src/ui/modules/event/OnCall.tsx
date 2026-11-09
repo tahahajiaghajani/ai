@@ -7,10 +7,11 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, DatePicker, Dropdown, Segmented, Space } from "antd";
+import { Button, Dropdown, Popover, Segmented, Select, Space } from "antd";
 import { ChevronLeft, ChevronRight, Download, UserRoundCheck } from "lucide-react";
 import { addDays, formatJalaliDateTime, todayISO, weekday } from "@shared/jalali";
 import { RESTRICTIONS } from "@shared/tables/event";
+import { zonedTime } from "@shared/flows/schedule";
 import { useOrg } from "../../lib/org";
 import { useNotify } from "../../lib/hooks";
 import { errorText } from "../../lib/api";
@@ -18,6 +19,7 @@ import { fa } from "../../lib/fa";
 import { PageHeader } from "../../components/layout";
 import { Card, ICON14 } from "../../components/blocks";
 import { EmptyState, Loader } from "../../components/display";
+import { DateInput } from "../../components/inputs";
 import { recordPath, newRecordPath } from "../../records/extensions";
 import { TimelineGrid } from "../../records/board/TimelineGrid";
 import { windowRange, dayMonthLabel } from "../../records/model/calendar";
@@ -65,12 +67,8 @@ export default function OnCall() {
       n.error(errorText(e));
     }
   };
-  const tomorrow8 = () => {
-    const d = new Date();
-    d.setDate(d.getDate() + 1);
-    d.setHours(8, 0, 0, 0);
-    return d.toISOString();
-  };
+  // 8:00 tomorrow in the organisation's zone (not the browser's)
+  const tomorrow8 = () => new Date(zonedTime(addDays(today, 1), 8 * 60, timezone)).toISOString();
   const icsHref = `/api/o/${encodeURIComponent(orgId)}/event/oncall/mine.ics`;
 
   return (
@@ -136,16 +134,7 @@ export default function OnCall() {
                   <span className="ds-num text-[13px] text-ink-2">
                     {dayMonthLabel(anchor)} تا {dayMonthLabel(addDays(anchor, days - 1))}
                   </span>
-                  <DatePicker.RangePicker
-                    showTime
-                    size="small"
-                    placeholder={["جایگزینی از", "تا"]}
-                    aria-label="بازهٔ جایگزینی"
-                    disabled={!view?.can_take}
-                    onChange={(v) => {
-                      if (v?.[0] && v?.[1]) void take({ start_at: v[0].toDate().toISOString(), end_at: v[1].toDate().toISOString() });
-                    }}
-                  />
+                  <TakeWindow tz={timezone} today={today} disabled={!view?.can_take} onTake={(start_at, end_at) => void take({ start_at, end_at })} />
                 </div>
                 {!view ? (
                   <Loader />
@@ -193,5 +182,56 @@ export default function OnCall() {
         </>
       )}
     </div>
+  );
+}
+
+const HOURS = Array.from({ length: 24 }, (_, h) => ({ value: h, label: `${fa(h)}:۰۰` }));
+
+/** «جایگزینی در بازهٔ دلخواه»: Jalali days and whole hours in the organisation's zone. */
+function TakeWindow({ tz, today, disabled, onTake }: { tz: string; today: string; disabled: boolean; onTake: (start: string, end: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [fromDay, setFromDay] = useState<string | null>(today);
+  const [fromHour, setFromHour] = useState(20);
+  const [toDay, setToDay] = useState<string | null>(addDays(today, 1));
+  const [toHour, setToHour] = useState(8);
+  const start = fromDay ? zonedTime(fromDay, fromHour * 60, tz) : NaN;
+  const end = toDay ? zonedTime(toDay, toHour * 60, tz) : NaN;
+  const valid = Number.isFinite(start) && Number.isFinite(end) && end > start;
+  return (
+    <Popover
+      open={open}
+      onOpenChange={setOpen}
+      trigger="click"
+      title="جایگزینی در بازهٔ دلخواه"
+      content={
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-2">
+            <span className="w-6 text-[13px] text-ink-2">از</span>
+            <DateInput value={fromDay} onChange={setFromDay} size="small" aria-label="روز شروع" />
+            <Select size="small" value={fromHour} onChange={setFromHour} options={HOURS} aria-label="ساعت شروع" className="w-24" />
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="w-6 text-[13px] text-ink-2">تا</span>
+            <DateInput value={toDay} onChange={setToDay} size="small" aria-label="روز پایان" />
+            <Select size="small" value={toHour} onChange={setToHour} options={HOURS} aria-label="ساعت پایان" className="w-24" />
+          </div>
+          <Button
+            type="primary"
+            size="small"
+            disabled={!valid}
+            onClick={() => {
+              onTake(new Date(start).toISOString(), new Date(end).toISOString());
+              setOpen(false);
+            }}
+          >
+            ثبت جایگزینی
+          </Button>
+        </div>
+      }
+    >
+      <Button size="small" disabled={disabled}>
+        بازهٔ دلخواه…
+      </Button>
+    </Popover>
   );
 }
