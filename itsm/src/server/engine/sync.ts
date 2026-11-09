@@ -39,8 +39,11 @@ import { emitLinkEvents } from "./links";
 import { filterSide, filtersSide, guardFor, hooksFor, redactRows, redacts } from "./hooks";
 import { transitionsFrom } from "@shared/model/task";
 
-/** Base columns a module's `derivePush` may set: the access anchors it copies (an alert's from its CI). */
-const DERIVED_ANCHORS = ["unit_id", "domain_id"];
+/**
+ * Base columns a module's `derivePush` may set: the access anchors it copies (an alert's unit and domain from its CI)
+ * or forces (the security module's records live in its secure workspace, whatever a Windows app pushed).
+ */
+const DERIVED_ANCHORS = ["unit_id", "domain_id", "workspace_id"];
 
 /** Engine-maintained columns a push may not move on an existing row. */
 const PINNED = ["id", "org_id", "no", "created_at", "created_by"];

@@ -31,7 +31,7 @@ import {
   aboveAppetite, annualLoss, csfGap, kriStatus, nextDeadline, nextTestDue, normalizeObservable, phaseStamps, refang, regDeadlines, riskRating, riskScore,
   secondsBetween, sirPriority, sirRiskScore, suggestedResidual, testEffectiveness, detectObservableType, cvssSeverity, type Deadline,
 } from "@shared/security/logic";
-import { addJournalIn, createIn, onBeforeCommit, registerHooks, transitionIn, updateIn, validationError, type PushArgs, type WriteArgs } from "../../engine";
+import { addJournalIn, createIn, onBeforeCommit, pushGuard, registerHooks, transitionIn, updateIn, validationError, type PushArgs, type WriteArgs } from "../../engine";
 import { enqueue } from "../../jobs";
 import { forbidden } from "../../http/errors";
 import { grantIn } from "@shared/access/model";
@@ -165,6 +165,16 @@ async function taskAfter(w: WriteArgs & { row: Row }): Promise<void> {
     body: `اقدام مهار «${label}»${w.row.action_target ? ` روی «${w.row.action_target}»` : ""} با کار ${w.row.number ?? ""} انجام شد (تأیید: ${w.row.approval === "approved" ? "دارد" : "ندارد"}).${w.row.action_result ? `\nنتیجه: ${w.row.action_result}` : ""}`,
     data: { task: w.row.id, action: w.row.action, target: w.row.action_target ?? null },
   }, { trusted: true, author: actorOf(w.ctx) });
+}
+
+function taskDerived(p: PushArgs): Row {
+  return p.next.action && p.next.action !== "none" ? { requires_approval: true } : {};
+}
+
+function taskPush(p: PushArgs): string | null {
+  const completing = p.next.state === "closed_complete" && p.prev?.state !== "closed_complete";
+  if (completing && p.next.requires_approval === true && p.next.approval !== "approved") return "اقدام مهار پیش از انجام، تأیید انسانی می‌خواهد (کار را «شروع» کنید تا تأیید درخواست شود)";
+  return null;
 }
 
 function canComplete(w: WriteArgs): string | null {
@@ -775,7 +785,10 @@ let installed = false;
 export function installSecurityHooks(): void {
   if (installed) return;
   installed = true;
-  for (const t of SECURE_TABLES) registerHooks(t, { beforeWrite: secureBefore, derivePush: t === "sec_incident" ? sirDerived : secureDerived });
+  // a Windows push runs no beforeWrite: only members of the secure workspace create its records there too
+  for (const t of SECURE_TABLES) registerHooks(t, { beforeWrite: secureBefore, derivePush: t === "sec_incident" ? sirDerived : secureDerived, validatePush: pushGuard(secureBefore) });
+  // a containment action always asks for approval, and is completed only once approved — also from a Windows push
+  registerHooks("sec_task", { derivePush: taskDerived, validatePush: taskPush });
   registerHooks("sec_incident", { beforeWrite: sirBefore, afterWrite: sirAfter, guards: { sec_can_review: canReview, sec_can_close: canClose } });
   registerHooks("sec_task", { beforeWrite: taskBefore, afterWrite: taskAfter, guards: { sec_task_can_complete: canComplete } });
   registerHooks("sec_observable", { beforeWrite: observableBefore });

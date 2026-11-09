@@ -12,7 +12,7 @@
 import { normalizeLayout } from "@shared/portal/logic";
 import { originOf } from "@shared/portal/logic";
 import { tableDef } from "@shared/tables";
-import { registerHooks, type WriteArgs } from "../../engine";
+import { pushGuard, registerHooks, type PushArgs, type WriteArgs } from "../../engine";
 import { bad, forbidden } from "../../http/errors";
 import { publishesKnowledge, type Row } from "./common";
 import { requesterFields } from "./items";
@@ -29,6 +29,60 @@ const METRIC_KINDS: Record<string, string[]> = {
   lost_time: ["minutes"],
 };
 
+async function topicCycle(w: WriteArgs): Promise<void> {
+  if (w.op === "delete" || !w.changed.has("parent_id") || !w.next.parent_id) return;
+  // walk up from the new parent: the topic itself must not appear
+  let cur: unknown = w.next.parent_id;
+  for (let i = 0; i < 20 && typeof cur === "string"; i++) {
+    if (cur === w.next.id) throw bad("موضوع نمی‌تواند زیر خودش یا زیرموضوع‌هایش باشد");
+    const r = await w.tx.one<{ parent_id: string | null }>(`select parent_id from sm_portal_topics where org_id = $1 and id = $2 and deleted_at is null`, [w.ctx.org.id, cur]);
+    cur = r?.parent_id ?? null;
+  }
+}
+
+function questionGuard(w: WriteArgs): void {
+  if (w.op === "delete") return;
+  const n = w.next as Row;
+  const kind = String(n.kind ?? "rating");
+  const metric = String(n.metric ?? "none");
+  if (metric !== "none" && !(METRIC_KINDS[metric] ?? []).includes(kind)) throw bad("نوع پاسخ با شاخص این پرسش جور نیست");
+  const options = Array.isArray(n.options) ? (n.options as string[]).filter((o) => String(o).trim()) : [];
+  if ((kind === "choice" || kind === "multi") && options.length < 2) throw bad("پرسش چندگزینه‌ای دست‌کم دو گزینه لازم دارد");
+}
+
+function triggerGuard(w: WriteArgs): void {
+  if (w.op === "delete") return;
+  const key = String((w.next as Row).table_key ?? "");
+  const def = tableDef(key);
+  if (!def || def.virtual || !def.states) throw bad("جدولی با این کلید و با وضعیت پیدا نشد");
+  if (!requesterFields(def).length) throw bad("رکوردهای این جدول درخواست‌کننده ندارند");
+  const cats = new Set(def.states.states.map((s) => s.category));
+  if (!cats.has(String((w.next as Row).fire_on ?? "resolved") as never)) throw bad("رکوردهای این جدول به این وضعیت نمی‌رسند");
+  if (key.startsWith("survey") || def.module === "portal" && key !== "portal_feedback") throw bad("این جدول نظرسنجی نمی‌گیرد");
+}
+
+/** The member a Windows app pushes for. */
+const memberOf = (p: PushArgs): string => (p.ctx.actor === "system" ? "" : p.ctx.user.id);
+
+/** An invitation from a Windows app: only its own member's, only marked answered (the web version sends them). */
+function invitationPush(p: PushArgs): string | null {
+  if (!p.prev) return "دعوت نظرسنجی را فقط نسخهٔ وب می‌فرستد";
+  if (String(p.prev.user_id ?? "") !== memberOf(p)) return "دعوت نظرسنجی دیگران از برنامهٔ ویندوز پذیرفته نمی‌شود";
+  const allowed = new Set(["status", "answered_at", "updated_at", "updated_by", "version"]);
+  if ([...p.changed].some((f) => !allowed.has(f))) return "از دعوت نظرسنجی فقط پاسخ داده‌شدنش از برنامهٔ ویندوز می‌رسد";
+  return null;
+}
+
+/** An answer from a Windows app: new, by its member (or anonymous), to an invitation of theirs. */
+async function responsePush(p: PushArgs): Promise<string | null> {
+  if (p.prev) return "پاسخ نظرسنجی پس از ثبت تغییر نمی‌کند";
+  const me = memberOf(p);
+  if (p.next.respondent_id && String(p.next.respondent_id) !== me) return "پاسخ نظرسنجی به نام دیگری پذیرفته نمی‌شود";
+  if (!p.next.invitation_id) return p.next.respondent_id ? null : "پاسخ بی‌نام فقط از نسخهٔ وب پذیرفته می‌شود";
+  const inv = await p.tx.one<{ user_id: string | null }>(`select user_id from sm_survey_invitations where org_id = $1 and id = $2 and deleted_at is null`, [p.ctx.org.id, p.next.invitation_id]);
+  return inv && String(inv.user_id ?? "") === me ? null : "این دعوت نظرسنجی از آنِ شما نیست";
+}
+
 let installed = false;
 export function installPortalHooks(): void {
   if (installed) return;
@@ -39,34 +93,34 @@ export function installPortalHooks(): void {
       if (w.op === "delete") return;
       if (w.changed.has("layout") && w.next.layout !== null && w.next.layout !== undefined) w.next.layout = normalizeLayout(w.next.layout);
     },
+    // a Windows push runs no beforeWrite: the cloud keeps the layout clean there too
+    derivePush: (p) => (p.next.layout !== null && p.next.layout !== undefined ? { layout: normalizeLayout(p.next.layout) } : null),
   });
 
-  registerHooks("portal_topic", {
-    async beforeWrite(w) {
-      if (w.op === "delete" || !w.changed.has("parent_id") || !w.next.parent_id) return;
-      // walk up from the new parent: the topic itself must not appear
-      let cur: unknown = w.next.parent_id;
-      for (let i = 0; i < 20 && typeof cur === "string"; i++) {
-        if (cur === w.next.id) throw bad("موضوع نمی‌تواند زیر خودش یا زیرموضوع‌هایش باشد");
-        const r = await w.tx.one<{ parent_id: string | null }>(`select parent_id from sm_portal_topics where org_id = $1 and id = $2 and deleted_at is null`, [w.ctx.org.id, cur]);
-        cur = r?.parent_id ?? null;
-      }
-    },
-  });
+  registerHooks("portal_topic", { validatePush: pushGuard(topicCycle) });
+  registerHooks("portal_topic", { beforeWrite: topicCycle });
 
-  registerHooks("portal_pref", { beforeWrite: (w) => runtimeOnly(w, "ترجیح‌های درگاه") });
-  registerHooks("survey_invitation", { beforeWrite: (w) => runtimeOnly(w, "دعوت‌های نظرسنجی") });
-  registerHooks("survey_response", { beforeWrite: (w) => runtimeOnly(w, "پاسخ‌های نظرسنجی") });
+  // the module's own rows: from a Windows app (whose portal wrote them for its signed-in member) only that member's —
+  // their preferences, their answer to an invitation of theirs, the invitation marked answered — never anyone else's
+  registerHooks("portal_pref", { beforeWrite: (w) => runtimeOnly(w, "ترجیح‌های درگاه"), validatePush: (p) => (String(p.next.user_id ?? "") === memberOf(p) ? null : "ترجیح‌های درگاه دیگران از برنامهٔ ویندوز پذیرفته نمی‌شود") });
+  registerHooks("survey_invitation", { beforeWrite: (w) => runtimeOnly(w, "دعوت‌های نظرسنجی"), validatePush: invitationPush });
+  registerHooks("survey_response", { beforeWrite: (w) => runtimeOnly(w, "پاسخ‌های نظرسنجی"), validatePush: responsePush });
   registerHooks("portal_channel_identity", { beforeWrite: (w) => runtimeOnly(w, "حساب‌های پیام‌رسان") });
   registerHooks("portal_link_code", { beforeWrite: (w) => runtimeOnly(w, "کدهای اتصال") });
 
-  registerHooks("portal_kb_publication", {
-    async beforeWrite(w) {
-      if (w.ctx.actor === "system" || w.trusted) return;
-      if (!(await publishesKnowledge(w.ctx))) throw forbidden("انتشار عمومی دانش با تأییدکنندگان و مدیران دانش است");
-    },
-  });
+  const publishGuard = async (w: WriteArgs) => {
+    if (w.ctx.actor === "system" || w.trusted) return;
+    if (!(await publishesKnowledge(w.ctx))) throw forbidden("انتشار عمومی دانش با تأییدکنندگان و مدیران دانش است");
+  };
+  registerHooks("portal_kb_publication", { beforeWrite: publishGuard, validatePush: pushGuard(publishGuard) });
 
+  registerHooks("portal_feedback", {
+    // complaints and privacy requests stay confidential when a Windows app pushes them
+    derivePush: (p) => ({
+      ...(p.next.kind === "complaint" || p.next.kind === "privacy" ? { confidential: true } : {}),
+      ...(p.next.kind !== "privacy" ? { privacy_right: null } : {}),
+    }),
+  });
   registerHooks("portal_feedback", {
     beforeWrite(w) {
       if (w.op === "delete") return;
@@ -80,30 +134,10 @@ export function installPortalHooks(): void {
     },
   });
 
-  registerHooks("survey_question", {
-    beforeWrite(w) {
-      if (w.op === "delete") return;
-      const n = w.next as Row;
-      const kind = String(n.kind ?? "rating");
-      const metric = String(n.metric ?? "none");
-      if (metric !== "none" && !(METRIC_KINDS[metric] ?? []).includes(kind)) throw bad("نوع پاسخ با شاخص این پرسش جور نیست");
-      const options = Array.isArray(n.options) ? (n.options as string[]).filter((o) => String(o).trim()) : [];
-      if ((kind === "choice" || kind === "multi") && options.length < 2) throw bad("پرسش چندگزینه‌ای دست‌کم دو گزینه لازم دارد");
-    },
-  });
-
-  registerHooks("survey_trigger", {
-    beforeWrite(w) {
-      if (w.op === "delete") return;
-      const key = String((w.next as Row).table_key ?? "");
-      const def = tableDef(key);
-      if (!def || def.virtual || !def.states) throw bad("جدولی با این کلید و با وضعیت پیدا نشد");
-      if (!requesterFields(def).length) throw bad("رکوردهای این جدول درخواست‌کننده ندارند");
-      const cats = new Set(def.states.states.map((s) => s.category));
-      if (!cats.has(String((w.next as Row).fire_on ?? "resolved") as never)) throw bad("رکوردهای این جدول به این وضعیت نمی‌رسند");
-      if (key.startsWith("survey") || def.module === "portal" && key !== "portal_feedback") throw bad("این جدول نظرسنجی نمی‌گیرد");
-    },
-  });
+  registerHooks("survey_question", { validatePush: pushGuard(questionGuard) });
+  registerHooks("survey_trigger", { validatePush: pushGuard(triggerGuard) });
+  registerHooks("survey_question", { beforeWrite: questionGuard });
+  registerHooks("survey_trigger", { beforeWrite: triggerGuard });
 
   registerHooks("portal_widget", {
     beforeWrite(w) {

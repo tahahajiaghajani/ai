@@ -26,6 +26,9 @@ import { libraryFor } from "@shared/analytics/library";
 import { tableDef } from "@shared/tables";
 import { SECURE_TABLES, SECURITY_DATA_USE } from "@shared/tables/security";
 import { resetRateLimits } from "@server/http/ratelimit";
+import { SYNC_PROTOCOL } from "@shared/constants";
+import { uuidv7 } from "@shared/id";
+import type { Client } from "./helpers";
 import { secWorld, type SecWorld } from "./security-helpers";
 
 const before = process.env.ITSM_AI_FAKE;
@@ -35,6 +38,15 @@ afterAll(() => {
 });
 
 const TOKEN = "sirPolicyZ9";
+type Result = { entity: string; id: string; status: string; message?: string };
+async function push(c: Client, org: string, aggregates: { entity: string; id: string; base_rev: number; row: Record<string, unknown> }[]): Promise<Result[]> {
+  return (await c.post(`/sync/push`, { org_id: org, device_id: uuidv7(), protocol: SYNC_PROTOCOL, aggregates })).results as Result[];
+}
+/** A stored row in the shape a Windows app pushes it, with `patch` and a later stamp. */
+async function rowOf(table: string, id: string, patch: Record<string, unknown>): Promise<{ row: Record<string, unknown>; rev: number }> {
+  const r = (await w.e.db.one<Record<string, unknown>>(`select * from ${tableDef(table)!.table} where id = $1`, [id]))!;
+  return { row: { ...JSON.parse(JSON.stringify(r)), ...patch, updated_at: new Date(Date.now() + 5_000).toISOString() }, rev: Number(r.rev) };
+}
 let w: SecWorld;
 let sir: Record<string, any>;
 const ctxOf = (userId: string): Promise<Ctx> => memberCtx(w.e.cfg, w.e.org, userId);
@@ -185,5 +197,51 @@ describe("the AI data-use policy of security tables", () => {
     const a = await askReport(ciso, "تعداد رخدادهای امنیتی بر اساس شدت").catch(() => null);
     if (a?.narrative) expect(a.narrative.ai).toBe(false);
     expect(FAKE_INBOX.map((t) => t.text).join("\n")).not.toContain(TOKEN);
+  });
+});
+
+describe("Windows pushes of the merged modules' tables", () => {
+  it("security: only SOC members create secure-workspace records; a containment action always waits for approval", async () => {
+    const id = uuidv7();
+    const r1 = (await push(w.p.analyst.client, w.e.org, [{ entity: "sec_task", id, base_rev: 0, row: { id, org_id: w.e.org, short_description: "کار از بیرون", sec_incident_id: sir.id, state: "new", updated_at: new Date().toISOString() } }]))[0];
+    expect(r1.status).toBe("error");
+    expect(await w.e.db.one(`select 1 from ${tableDef("sec_task")!.table} where id = $1`, [id])).toBeFalsy();
+    const task = (await w.p.soc.client.post(`${w.P}/r/sec_task`, { short_description: "جداسازی میزبان", sec_incident_id: sir.id })).row;
+    // the action without approval: the flag comes from the cloud, never from the push
+    let p = await rowOf("sec_task", task.id, { action: "isolate_host", requires_approval: false });
+    expect((await push(w.p.soc.client, w.e.org, [{ entity: "sec_task", id: task.id, base_rev: p.rev, row: p.row }]))[0].status).toBe("ok");
+    expect((await w.e.db.one<{ requires_approval: boolean }>(`select requires_approval from ${tableDef("sec_task")!.table} where id = $1`, [task.id]))!.requires_approval).toBe(true);
+    // a security incident a SOC member's Windows app pushes lands in the secure workspace, confidential
+    const sid = uuidv7();
+    const at = new Date().toISOString();
+    const rs = (await push(w.p.soc.client, w.e.org, [{ entity: "sec_incident", id: sid, base_rev: 0, row: { id: sid, org_id: w.e.org, short_description: "رخداد از برنامهٔ ویندوز", category: "malware", severity: "3", business_impact: "3", state: "draft", workspace_id: null, confidential: false, opened_by: w.p.soc.userId, updated_at: at, created_at: at } }]))[0];
+    expect([rs.status, rs.message ?? null]).toEqual(["ok", null]);
+    const stored = (await w.e.db.one<{ workspace_id: string | null; confidential: boolean }>(`select workspace_id, confidential from ${tableDef("sec_incident")!.table} where id = $1`, [sid]))!;
+    expect(stored).toEqual({ workspace_id: w.ws, confidential: true });
+    await w.p.agent.client.get(`${w.P}/r/sec_incident/${sid}`, 404);
+    // completing it unapproved from a Windows app is refused
+    p = await rowOf("sec_task", task.id, { state: "closed_complete" });
+    expect((await push(w.p.soc.client, w.e.org, [{ entity: "sec_task", id: task.id, base_rev: p.rev, row: p.row }]))[0].status).toBe("error");
+  });
+
+  it("portal: complaints stay confidential, answers and preferences are their member's, public knowledge is the approvers'", async () => {
+    // a complaint filed on a Windows app arrives confidential, whatever the app sent
+    const fb = uuidv7();
+    const at = new Date().toISOString();
+    const rf = (await push(w.p.req.client, w.e.org, [{ entity: "portal_feedback", id: fb, base_rev: 0, row: { id: fb, org_id: w.e.org, kind: "complaint", confidential: false, short_description: "رفتار نامناسب", caller_id: w.p.req.userId, opened_by: w.p.req.userId, state: "new", channel: "portal", updated_at: at, created_at: at } }]))[0];
+    expect([rf.status, rf.message ?? null]).toEqual(["ok", null]);
+    expect((await w.e.db.one<{ confidential: boolean }>(`select confidential from ${tableDef("portal_feedback")!.table} where id = $1`, [fb]))!.confidential).toBe(true);
+    // an answer in someone else's name, or to someone else's invitation
+    const survey = (await w.e.db.one<{ id: string }>(`select id from ${tableDef("survey")!.table} where org_id = $1 and deleted_at is null limit 1`, [w.e.org]))!;
+    const forged = uuidv7();
+    const now = new Date().toISOString();
+    const r1 = (await push(w.p.req.client, w.e.org, [{ entity: "survey_response", id: forged, base_rev: 0, row: { id: forged, org_id: w.e.org, survey_id: survey.id, respondent_id: w.p.agent.userId, csat: 1, satisfied: false, submitted_at: now, updated_at: now } }]))[0];
+    expect(r1.status).toBe("error");
+    const pref = uuidv7();
+    const r2 = (await push(w.p.req.client, w.e.org, [{ entity: "portal_pref", id: pref, base_rev: 0, row: { id: pref, org_id: w.e.org, user_id: w.p.agent.userId, updated_at: now } }]))[0];
+    expect(r2.status).toBe("error");
+    const pub = uuidv7();
+    const r3 = (await push(w.p.agent.client, w.e.org, [{ entity: "portal_kb_publication", id: pub, base_rev: 0, row: { id: pub, org_id: w.e.org, name: "دور زدن", bases: [], updated_at: now } }]))[0];
+    expect(r3.status).toBe("error");
   });
 });
