@@ -977,6 +977,8 @@ const releaseConfig: TableDef = {
     { name: "update_cmdb_versions", label: "به‌روزرسانی نسخهٔ پیکربندی‌ها پس از استقرار موفق", type: "bool", default: true, span: 12 },
     { name: "tag_els_incidents", label: "پیوند خودکار رخدادهای دورهٔ پشتیبانی آغازین", type: "bool", default: true, span: 12 },
     { name: "default_change_template_id", label: "الگوی تغییر استاندارد خط لوله‌ها", type: "ref", ref: "change_template", span: 12 },
+    { name: "dora_days", label: "بازهٔ شاخص‌های DORA (روز)", type: "int", min: 7, max: 365, default: 90, span: 12 },
+    { name: "dora_definitions", label: "تعریف و آستانه‌های شاخص‌های DORA", type: "json", span: 24, help: "تعریف هر شاخص، فرمول و آستانه‌های ممتاز، بالا و متوسط" },
     { name: "seeded", label: "پیش‌فرض‌ها افزوده شد", type: "int", readonly: true, default: 0, hidden: true },
   ],
   scope: { public: true },
