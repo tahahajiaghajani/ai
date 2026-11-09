@@ -1,6 +1,8 @@
 // Day-one defaults of release and deployment management (Persian, idempotent, as the system):
 //   · the settings row (release_config) with the DORA definitions and thresholds; it records the seed (`seeded`)
-//   · the group «مدیران انتشار» (role release_manager): go/no-go, waivers, deployment approvals
+//   · the group «مدیران انتشار» (role release_manager): go/no-go, waivers, deployment approvals; the organisation role
+//     «مهندس انتشار» (release_engineer): works the releases, deployments and changes of their groups (agents only read
+//     releases)
 //   · the readiness check library (automatic rules and manual checks) and the release policy of each type (major,
 //     minor, patch, emergency: decision required, early life support, lead time, the emergency procedure)
 //   · release templates — the readiness checklist template of a major release with its phase tasks, a minor release
@@ -23,6 +25,14 @@ import { eqAll, liveRows, sysOf, type Row } from "./common";
 
 export const RELEASE_SEED_VERSION = 1;
 export const RELEASE_MANAGERS_GROUP = "مدیران انتشار";
+
+/** The organisation role of release engineers (a role row; the built-in roles stay in code). */
+export const RELEASE_ENGINEER_ROLE: Row = {
+  key: "release_engineer", name: "مهندس انتشار", persona: "agent", workspaces: "member", domains: "own", active: true,
+  description: "کار روی انتشارها، استقرارها و تغییرهای گروه‌های خود؛ دیدن همهٔ انتشارها، پیکربندی و دانش",
+  grants: { release: { read: "all", create: true, write: "group" }, change: { read: "all", create: true, write: "group" } },
+  field_groups: ["internal", "personal"], contains: ["agent"],
+};
 
 export interface SeedCounts {
   skipped: boolean;
@@ -199,6 +209,8 @@ export async function seedReleaseDefaultsIn(tx: Tx, ctx: Ctx, opts: { force?: bo
   const config = cfg ?? (await ensure(tx, sys, out, "release_config", { config_key: "default" }, { name: "تنظیمات انتشار", dora_definitions: DORA_DEFINITIONS }));
 
   await ensure(tx, sys, out, "group", { name: RELEASE_MANAGERS_GROUP }, { types: ["approval"], roles: ["release_manager"], description: "مدیران انتشار: تصمیم اجرا یا توقف، چشم‌پوشی از بررسی‌های آمادگی و تأیید استقرار در محیط‌های حفاظت‌شده" });
+
+  await ensure(tx, sys, out, "role", { key: RELEASE_ENGINEER_ROLE.key }, RELEASE_ENGINEER_ROLE);
 
   const checkIds: Record<string, string> = {};
   for (const c of SEED_CHECKS) checkIds[String(c.key)] = String((await ensure(tx, sys, out, "release_check", { key: c.key }, { active: true, ...c })).id);

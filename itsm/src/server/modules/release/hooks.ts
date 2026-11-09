@@ -75,7 +75,12 @@ async function releaseBefore(w: WriteArgs): Promise<void> {
     if (to === "on_hold" && prev) next.state_before_hold = prev.state;
     if (["planning", "build"].includes(to) && !next.actual_start) next.actual_start = now();
     if (to === "deploying" && prev?.state === "readiness" && next.go_no_go === "no_go") throw conflict("تصمیم «توقف» برای این انتشار ثبت شده است");
-    if (["test", "build"].includes(to) && prev?.state === "readiness") next.go_no_go = "pending";
+    // a new decision cycle starts on entering readiness (a No-Go stays visible while the release goes back)
+    if (to === "readiness" && prev?.state !== "readiness") {
+      next.go_no_go = "pending";
+      next.go_no_go_at = null;
+      next.go_conditions = null;
+    }
     if (to === "review" || to === "closed") next.actual_end = next.actual_end ?? now();
   }
   if (w.changed.has("deployed_at") || (next.deployed_at && (next.els_end_at === null || next.els_end_at === undefined))) {
@@ -113,8 +118,21 @@ async function decisionRequired(w: WriteArgs): Promise<boolean> {
   return own ? own.go_no_go_required !== false : true;
 }
 
+/**
+ * The module's definitions — templates, policies, the check library, environments, windows and the settings — are
+ * the release manager's (the release area's approve right): a role that may create releases does not change the rules
+ * they are judged by. The system and trusted server code (the seed) always may.
+ */
+export const DEFINITION_TABLES = ["release_template", "release_policy", "release_check", "release_environment", "release_window", "release_config"];
+
+async function definitionsGuard(w: WriteArgs): Promise<void> {
+  if (w.trusted || w.ctx.actor === "system") return;
+  if (!(await managesReleases(w.tx, w.ctx))) throw forbidden(`تعریف «${w.def.label}» با مدیر انتشار است`);
+}
+
 export function installReleaseHooks(): (() => void)[] {
   return [
+    ...DEFINITION_TABLES.map((t) => registerHooks(t, { beforeWrite: definitionsGuard })),
     registerHooks("release", {
       beforeWrite: releaseBefore,
       afterWrite: releaseAfter,

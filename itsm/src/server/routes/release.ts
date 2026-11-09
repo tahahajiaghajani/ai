@@ -70,7 +70,7 @@ releaseRoutes.post("/seed", async (c) => {
   const ctx = c.get("ctx");
   const input = await body(c, z.object({ force: z.boolean().optional() }));
   const { def } = await defFor(ctx, "release_config");
-  if (!access().canCreate(ctx, def, null)) throw forbidden("افزودن پیش‌فرض‌های انتشار با مدیر سامانه است");
+  if (!access().canCreate(ctx, def, null) || !(await managesReleases(ctx.db, ctx))) throw forbidden("افزودن پیش‌فرض‌های انتشار با مدیر انتشار یا مدیر سامانه است");
   return c.json(await seedReleaseDefaults(ctx.cfg, ctx.org.id, { force: input.force }));
 });
 
