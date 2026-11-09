@@ -71,9 +71,45 @@ export interface AttentionItem {
   path: string;
 }
 
-export async function overview(cfg: ServerConfig) {
+/** How long one part of the dashboard may take before it is left out (the platform cuts a request at 60 s). */
+export const OVERVIEW_PART_MS = 15_000;
+
+const PART_TITLE: Record<string, string> = {
+  figures: "آمار کلی",
+  ai: "هوش مصنوعی",
+  health: "سلامت سامانه",
+  support: "پشتیبانی فعال",
+  recent_orgs: "کسب‌وکارهای تازه",
+  recent_events: "رویدادهای امنیتی",
+};
+
+/**
+ * One part of the dashboard. A failure or a slow answer leaves that part empty, notes it in `failed` and the
+ * server log, and never holds up or breaks the rest of the page.
+ */
+async function overviewPart<T>(cfg: ServerConfig, name: string, failed: string[], work: () => Promise<T>, fallback: T, ms = OVERVIEW_PART_MS): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      work(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`no answer within ${ms} ms`)), ms);
+      }),
+    ]);
+  } catch (e) {
+    failed.push(name);
+    cfg.log.warn("admin overview: part failed", { part: name, err: String((e as Error)?.message ?? e).slice(0, 300) });
+    return fallback;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export async function overview(cfg: ServerConfig, opts: { partMs?: number } = {}) {
   const db = cfg.db;
-  const k = await db.one<Record<string, number>>(
+  const leftOut: string[] = [];
+  const part = <T>(name: string, work: () => Promise<T>, fallback: T) => overviewPart(cfg, name, leftOut, work, fallback, opts.partMs);
+  const k = await part("figures", () => db.one<Record<string, number>>(
     `select
        (select count(*)::int from tz_orgs where deleted_at is null) as orgs_total,
        (select count(*)::int from tz_orgs where deleted_at is null and created_at > now() - interval '30 days') as orgs_new_30d,
@@ -95,23 +131,37 @@ export async function overview(cfg: ServerConfig) {
        (select count(*)::int from tz_security_events where at > now() - interval '1 day' and kind = 'sign_in' and not ok) as failed_sign_ins_24h,
        (select count(*)::int from tz_support_sessions where ended_at is null and expires_at > now()) as support_active,
        pg_database_size(current_database())::bigint as db_bytes`,
-  );
+  ), null);
   const n = (key: string) => Number(k?.[key] ?? 0);
   const [ai, health, support, recentOrgs, recentEvents] = await Promise.all([
-    aiFigures(db),
-    systemHealth(cfg),
-    listSupportSessions(db, { active: true, limit: 20 }),
-    db.query<{ id: string; name: string; created_at: string; owner_name: string | null }>(
-      `select o.id, o.name, o.created_at,
-              (select u.full_name from tz_org_members m join tz_users u on u.id = m.user_id
-               where m.org_id = o.id and m.role = 'owner' and m.deleted_at is null order by m.created_at limit 1) as owner_name
-       from tz_orgs o where o.deleted_at is null order by o.created_at desc limit 5`,
+    part("ai", () => aiFigures(db), { enabled_orgs: null, calls_month: null, errors_month: null, cost_month_usd: null } as AiFigures),
+    part("health", () => systemHealth(cfg), null),
+    part("support", () => listSupportSessions(db, { active: true, limit: 20 }), [] as SupportSessionRow[]),
+    part(
+      "recent_orgs",
+      () =>
+        db.query<{ id: string; name: string; created_at: string; owner_name: string | null }>(
+          `select o.id, o.name, o.created_at,
+                  (select u.full_name from tz_org_members m join tz_users u on u.id = m.user_id
+                   where m.org_id = o.id and m.role = 'owner' and m.deleted_at is null order by m.created_at limit 1) as owner_name
+           from tz_orgs o where o.deleted_at is null order by o.created_at desc limit 5`,
+        ),
+      [],
     ),
-    listSecurityEvents(db, { limit: 6 }),
+    part("recent_events", () => listSecurityEvents(db, { limit: 6 }), [] as SecurityEventRow[]),
   ]);
 
   const attention: AttentionItem[] = [];
-  for (const c of health.checks) if (c.tone === "danger" || c.tone === "warning") attention.push({ key: c.key, tone: c.tone, title: c.title, detail: c.detail, path: "/admin/health" });
+  if (leftOut.length) {
+    attention.push({
+      key: "overview_partial",
+      tone: "warning",
+      title: "بخشی از پیشخوان خوانده نشد",
+      detail: leftOut.map((f) => PART_TITLE[f] ?? f).join("، "),
+      path: "/admin/health",
+    });
+  }
+  for (const c of health?.checks ?? []) if (c.tone === "danger" || c.tone === "warning") attention.push({ key: c.key, tone: c.tone, title: c.title, detail: c.detail, path: "/admin/health" });
   const failed = n("failed_sign_ins_24h");
   if (failed >= 10) attention.push({ key: "sign_ins", tone: failed >= 50 ? "danger" : "warning", title: "ورودهای ناموفق در ۲۴ ساعت گذشته", detail: `${failed}`, path: "/admin/security?ok=false&kind=sign_in" });
   if (n("orgs_suspended")) attention.push({ key: "suspended", tone: "neutral", title: "کسب‌وکارهای معلق", detail: `${n("orgs_suspended")}`, path: "/admin/orgs?status=suspended" });
@@ -119,6 +169,8 @@ export async function overview(cfg: ServerConfig) {
 
   return {
     mode: cfg.mode,
+    /** parts left out because they failed or took too long (figures, ai, health, support, recent_orgs, recent_events) */
+    partial: leftOut,
     kpis: {
       orgs: { total: n("orgs_total"), active_30d: n("orgs_active_30d"), new_30d: n("orgs_new_30d"), read_only: n("orgs_read_only"), suspended: n("orgs_suspended") },
       users: { total: n("users_total"), active_today: n("users_active_today"), active_7d: n("users_active_7d"), disabled: n("users_disabled"), admins: n("users_admins"), new_30d: n("users_new_30d") },

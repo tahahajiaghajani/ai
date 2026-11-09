@@ -44,6 +44,11 @@ export function dbErrorMessage(e: unknown): AppError | null {
     case "40001":
     case "40P01":
       return new AppError(503, "retry", "سیستم مشغول است؛ دوباره امتحان کنید");
+    // postgres.js: every pooled connection stayed busy (cloud, src/server/db/postgres.ts queue_timeout)
+    case "QUEUE_TIMEOUT":
+    // a statement that ran past the database's statement_timeout
+    case "57014":
+      return new AppError(503, "retry", "پایگاه داده دیر پاسخ داد؛ چند لحظهٔ دیگر دوباره امتحان کنید");
     default:
       return null;
   }

@@ -1,9 +1,11 @@
 // Shared parts of «مدیریت سامانه»: titles of statuses and events, small display helpers and the data hooks.
 import type { ReactNode } from "react";
+import { Button } from "antd";
+import { CloudOff, RefreshCw } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import { api } from "../../lib/api";
+import { api, ApiError } from "../../lib/api";
 import { fa, jDate, jTime } from "../../lib/fa";
-import { Chip, type ChipTone } from "../../components/display";
+import { Chip, EmptyState, type ChipTone } from "../../components/display";
 import { BUSINESS_KINDS, MODULES } from "@shared/constants";
 
 export const ICON = { size: 16, strokeWidth: 1.4, absoluteStrokeWidth: true } as const;
@@ -151,6 +153,26 @@ export function Empty({ icon, title, action }: { icon: ReactNode; title: string;
       <div className="sf-empty-title">{title}</div>
       {action ? <div className="sf-empty-act">{action}</div> : null}
     </div>
+  );
+}
+
+/**
+ * A section whose data did not arrive: the server's reason and «دوباره», instead of a loading skeleton that never
+ * ends (a request that failed or was cut off by the platform's time limit).
+ */
+export function LoadFailed({ error, onRetry, retrying, title = "این بخش بارگذاری نشد" }: { error: unknown; onRetry: () => void; retrying?: boolean; title?: string }) {
+  const reason = error instanceof ApiError ? error.message : "ارتباط با سرور برقرار نشد؛ اتصال را بررسی کنید";
+  return (
+    <EmptyState
+      icon={CloudOff}
+      title={title}
+      description={reason}
+      action={
+        <Button icon={<RefreshCw {...ICON} />} loading={retrying} onClick={onRetry}>
+          دوباره
+        </Button>
+      }
+    />
   );
 }
 

@@ -22,6 +22,13 @@ export function qs(params?: Query): string {
   return out ? `?${out}` : "";
 }
 
+/** The reason of a failed answer that carries no message of ours (a gateway's or the platform's own page). */
+function statusText(status: number): string {
+  if (status === 504) return "سرور در زمان مقرر پاسخ نداد؛ چند لحظهٔ دیگر دوباره امتحان کنید";
+  if (status === 502 || status === 503) return "سرور موقتاً در دسترس نیست؛ کمی بعد دوباره امتحان کنید";
+  return `خطای ${status}`;
+}
+
 async function request<T>(method: string, path: string, body?: unknown, query?: Query): Promise<T> {
   let res: Response;
   try {
@@ -44,7 +51,12 @@ async function request<T>(method: string, path: string, body?: unknown, query?: 
   if (!res.ok) {
     const e = data?.error;
     if (res.status === 401 && path !== "/auth/login" && path !== "/auth/me") window.dispatchEvent(new CustomEvent("taraz:unauthorized"));
-    throw new ApiError(res.status, e?.code ?? "error", e?.message ?? `خطای ${res.status}`, e?.details);
+    throw new ApiError(res.status, e?.code ?? "error", e?.message ?? statusText(res.status), e?.details);
+  }
+  // an HTML page where JSON was expected (a proxy, a captive portal or a stale cache answered): an error, not an
+  // empty answer that leaves a page waiting
+  if (text && data === null && /text\/html/i.test(res.headers.get("content-type") ?? "")) {
+    throw new ApiError(res.status, "bad_response", "پاسخ سرور خوانده نشد؛ صفحه را دوباره باز کنید");
   }
   return data as T;
 }
@@ -78,7 +90,7 @@ async function openStream(path: string, body: unknown, signal?: AbortSignal): Pr
     }
     const e = data?.error;
     if (res.status === 401) window.dispatchEvent(new CustomEvent("taraz:unauthorized"));
-    throw new ApiError(res.status, e?.code ?? "error", e?.message ?? `خطای ${res.status}`, e?.details);
+    throw new ApiError(res.status, e?.code ?? "error", e?.message ?? statusText(res.status), e?.details);
   }
   if (!res.body) throw new ApiError(0, "network", "پاسخ سرور خوانده نشد؛ دوباره تلاش کنید");
   return res;

@@ -6,7 +6,7 @@ import { PageHeader } from "../../components/layout";
 import { Skeleton, StatCard } from "../../components/display";
 import { Card } from "../../modules/reports/kit";
 import { fa } from "../../lib/fa";
-import { ICON, When, bytes, useAdminQuery } from "./ui";
+import { ICON, LoadFailed, When, bytes, useAdminQuery } from "./ui";
 
 interface Health {
   ok: boolean;
@@ -36,7 +36,7 @@ export default function HealthPage() {
         }
       />
       {!h ? (
-        <Skeleton rows={6} />
+        q.error ? <LoadFailed error={q.error} onRetry={() => q.refetch()} retrying={q.isFetching} /> : <Skeleton rows={6} />
       ) : (
         <>
           <section className="ad-kpis" aria-label="خلاصه">

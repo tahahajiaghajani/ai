@@ -1,6 +1,6 @@
 // Cloud adapter: Supabase PostgreSQL through postgres.js.
 // Use the Supabase *transaction pooler* URL (port 6543) on Vercel; prepared statements are off
-// because the transaction pooler does not support them.
+// because the transaction pooler does not support them, and so is pipelining (see postgresOptions).
 import postgres from "postgres";
 import { toIsoTimestamp, type Db, type Row, type Tx } from "./index";
 
@@ -100,13 +100,23 @@ function savepoints(t: postgres.TransactionSql) {
   };
 }
 
-export function createPostgresDb(opts: PostgresOptions): Db {
-  const sql = postgres(opts.url, {
+/**
+ * Supabase's shared transaction pooler (Supavisor) loses queries that are pipelined, i.e. sent on a
+ * connection while an earlier query there is still unanswered: they never get an answer and the request
+ * waits until the platform's time limit (porsager/postgres#970, supabase/supavisor#1239). postgres.js 4
+ * pipelines by default once every pooled connection is busy, which every `Promise.all` wider than the pool
+ * did (the platform dashboard on each load). So one query per connection at a time, and a query that waits
+ * for a free connection longer than `queue_timeout` fails with QUEUE_TIMEOUT instead of hanging.
+ */
+export function postgresOptions(opts: PostgresOptions) {
+  return {
     prepare: false,
     max: opts.max ?? 3,
+    max_pipeline: 1,
+    queue_timeout: 25,
     idle_timeout: 20,
     connect_timeout: 15,
-    ssl: opts.ssl === false ? false : "require",
+    ssl: opts.ssl === false ? (false as const) : ("require" as const),
     onnotice: () => {},
     connection: { application_name: "taraz" },
     types: {
@@ -118,7 +128,11 @@ export function createPostgresDb(opts: PostgresOptions): Db {
       json: { to: 114, from: [114], serialize: jsonSerialize, parse: (x: string) => JSON.parse(x) },
       jsonb: { to: 3802, from: [3802], serialize: jsonSerialize, parse: (x: string) => JSON.parse(x) },
     },
-  });
+  } satisfies postgres.Options<Record<string, postgres.PostgresType>>;
+}
+
+export function createPostgresDb(opts: PostgresOptions): Db {
+  const sql = postgres(opts.url, postgresOptions(opts));
 
   const make = (s: postgres.Sql | postgres.TransactionSql): Pick<Tx, "query" | "one" | "exec"> => ({
     async query<T = Row>(text: string, params: unknown[] = []): Promise<T[]> {
