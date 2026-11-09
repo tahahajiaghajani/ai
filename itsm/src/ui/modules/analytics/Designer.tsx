@@ -25,7 +25,7 @@ import { PageHeader } from "../../components/layout";
 import { EmptyState, Loader } from "../../components/display";
 import { Card, ICON14, Note, cx } from "../../components/blocks";
 import { DateInput } from "../../components/inputs";
-import { FilterBuilder, newRecordPath, recordsApi, useSchema } from "../../records";
+import { FilterBuilder, newRecordPath, recordsApi, useMe, useSchema } from "../../records";
 import type { Schema } from "../../records/model/schema";
 import { analyticsApi, ANALYTICS_KEYS, downloadXlsx, saveJson } from "./api";
 import { ResultCard, ShareEditor, useAnalyticsMeta, VIZ_ICONS } from "./parts";
@@ -55,6 +55,7 @@ export default function Designer() {
   const navigate = useNavigate();
   const meta = useAnalyticsMeta();
   const { schema } = useSchema();
+  const { userId } = useMe();
   const isNew = id === "new";
   const rec = useQuery({ queryKey: ["records", orgId, "analytics_report", id], queryFn: () => recordsApi.get(api, "analytics_report", id), enabled: !isNew });
   const [spec, setSpec] = useState<ReportSpec | null>(null);
@@ -191,7 +192,7 @@ export default function Designer() {
               <Select value={info.status} onChange={(v) => setInfo({ ...info, status: v })} options={ANALYTICS_STATUS.map((o) => ({ value: o.value, label: o.label }))} aria-label="وضعیت" disabled={!canWrite} style={{ minWidth: 120 }} />
             </div>
             <Input.TextArea value={info.description} onChange={(e) => setInfo({ ...info, description: e.target.value })} placeholder="شرح (برای چه کسی و چه تصمیمی)" autoSize={{ minRows: 1, maxRows: 4 }} maxLength={2000} aria-label="شرح" disabled={!canWrite} />
-            <ShareEditor value={info.shares} onChange={(shares) => setInfo({ ...info, shares })} disabled={!canWrite || (!isNew && rec.data?.row.owner_id !== undefined && !rec.data?.meta?.canWrite)} />
+            <ShareEditor value={info.shares} onChange={(shares) => setInfo({ ...info, shares })} disabled={!canWrite || (!isNew && rec.data?.row.owner_id !== userId && !meta.data.can_admin)} />
           </Section>
           <SourceSection spec={spec} tables={meta.data.tables} schema={schema} onChange={(table) => {
             const d = schema.def(table);

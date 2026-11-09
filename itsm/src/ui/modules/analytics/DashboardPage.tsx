@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as RPointerEvent } from "react";
 import { useNavigate, useParams } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Drawer, Dropdown, Input, Modal, Segmented, Select, Space, Tooltip } from "antd";
+import { Button, Drawer, Dropdown, Input, InputNumber, Modal, Segmented, Select, Space, Switch, Tooltip } from "antd";
 import { BadgeCheck, CalendarClock, Copy, FileJson, GripVertical, LayoutDashboard, MoreHorizontal, Pencil, Plus, Printer, RefreshCw, Save, Settings2, Trash2, Tv, X } from "lucide-react";
 import { COLS, MAX_WIDGETS, ROW_PX, WIDGET_KINDS, addWidget, compact, layoutRows, moveWidget, nudge, removeWidget, resizeWidget } from "@shared/analytics/layout";
 import { TIME_PRESETS, VIZ, VIZ_TYPES, starterSpec } from "@shared/analytics/model";
@@ -23,10 +23,10 @@ import { errorText } from "../../lib/api";
 import { PageHeader } from "../../components/layout";
 import { EmptyState, Loader } from "../../components/display";
 import { ICON14, Note, cx } from "../../components/blocks";
-import { RecordMarkdown, RecordSelect, newRecordPath, recordsApi, useSchema } from "../../records";
+import { RecordMarkdown, RecordSelect, newRecordPath, recordsApi, useMe, useSchema } from "../../records";
 import { optionsOf } from "../../records/model/schema";
 import { analyticsApi, ANALYTICS_KEYS, saveJson } from "./api";
-import { KpiTile, RestrictedNote, ResultCard, statusText, useAnalyticsMeta } from "./parts";
+import { KpiTile, RestrictedNote, ResultCard, ShareEditor, statusText, useAnalyticsMeta } from "./parts";
 import { DeltaBadge, Sparkline } from "./Chart";
 import { exactValue } from "./model";
 import "./analytics.css";
@@ -90,6 +90,7 @@ function Board({ view, home, canAuthor, canAdmin }: { view: DashboardView; home:
   const [settingsOf, setSettingsOf] = useState<string | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [settings, setSettings] = useState(false);
   const layout = edit ? draft : view.layout;
   const shown = layout.widgets.filter((w) => (w.tab ?? null) === tab);
 
@@ -124,7 +125,7 @@ function Board({ view, home, canAuthor, canAdmin }: { view: DashboardView; home:
     { key: "schedule", icon: <CalendarClock {...ICON14} />, label: "ارسال زمان‌بندی‌شده", onClick: () => navigate(`/${orgId}/${newRecordPath("analytics_schedule")}?dashboard_id=${view.id}&name=${encodeURIComponent(view.name)}`) },
     { key: "json", icon: <FileJson {...ICON14} />, label: "خروجی JSON", onClick: () => analyticsApi.exportBundle(api, { dashboards: [view.id] }).then((b) => saveJson(view.name, b)).catch((e) => n.error(e)) },
     ...(canAuthor ? [{ key: "copy", icon: <Copy {...ICON14} />, label: "رونوشت برای خودم", onClick: () => analyticsApi.copy(api, "analytics_dashboard", view.id).then((r) => navigate(`/${orgId}/analytics/dashboards/${r.row.id}`)).catch((e) => n.error(e)) }] : []),
-    ...(view.can_edit ? [{ key: "record", icon: <Settings2 {...ICON14} />, label: "نام، اشتراک و تنظیمات", onClick: () => navigate(`/${orgId}/analytics/dashboards/${view.id}/settings`) }] : []),
+    ...(view.can_edit ? [{ key: "record", icon: <Settings2 {...ICON14} />, label: "نام، اشتراک و تنظیمات", onClick: () => setSettings(true) }] : []),
     ...(canAdmin ? [{ key: "certify", icon: <BadgeCheck {...ICON14} />, label: view.certified ? "برداشتن تأیید" : "تأیید داشبورد", onClick: () => analyticsApi.certify(api, "analytics_dashboard", view.id, !view.certified).then(() => qc.invalidateQueries({ queryKey: ANALYTICS_KEYS.dashboard(orgId, view.id) })).catch((e) => n.error(e)) }] : []),
   ];
 
@@ -223,6 +224,7 @@ function Board({ view, home, canAuthor, canAdmin }: { view: DashboardView; home:
         onClose={() => setSettingsOf(null)}
         onChange={(w) => setDraft((d) => ({ ...d, widgets: d.widgets.map((x) => (x.id === w.id ? w : x)) }))}
       />
+      <DashboardSettings open={settings} onClose={() => setSettings(false)} id={view.id} canAdmin={canAdmin} />
       <FiltersEditor open={filtersOpen} onClose={() => setFiltersOpen(false)} filters={filters} tabs={draft.tabs ?? []} onChange={(f, t) => { setFilters(f); setDraft((d) => ({ ...d, tabs: t, widgets: d.widgets.map((w) => (w.tab && !t.some((x) => x.key === w.tab) ? { ...w, tab: null } : w)) })); }} />
     </div>
   );
@@ -573,3 +575,61 @@ function FiltersEditor({ open, onClose, filters, tabs, onChange }: { open: boole
   );
 }
 
+
+/** The dashboard's name, description, folder, home flags (everyone / workspaces), TV and refresh timing and sharing. */
+function DashboardSettings({ open, onClose, id, canAdmin }: { open: boolean; onClose: () => void; id: string; canAdmin: boolean }) {
+  const { api, orgId } = useOrg();
+  const n = useNotify();
+  const qc = useQueryClient();
+  const { userId } = useMe();
+  const rec = useQuery({ queryKey: ["records", orgId, "analytics_dashboard", id], queryFn: () => recordsApi.get(api, "analytics_dashboard", id), enabled: open });
+  const [v, setV] = useState<Record<string, unknown> | null>(null);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    if (open && rec.data) setV({ ...rec.data.row });
+    if (!open) setV(null);
+  }, [open, rec.data]);
+  const set = (patch: Record<string, unknown>) => setV((x) => (x ? { ...x, ...patch } : x));
+  const owner = rec.data?.row.owner_id === userId;
+  const save = async () => {
+    if (!v || !rec.data) return;
+    setSaving(true);
+    try {
+      const data: Record<string, unknown> = { name: v.name, description: v.description ?? null, folder: v.folder ?? null, is_home: !!v.is_home, home_workspaces: v.home_workspaces ?? [], tv_cycle: v.tv_cycle, refresh_minutes: v.refresh_minutes };
+      if (owner || canAdmin) data.shares = v.shares ?? [];
+      await recordsApi.update(api, "analytics_dashboard", id, data, rec.data.row.version);
+      n.ok("تنظیمات داشبورد ذخیره شد");
+      await qc.invalidateQueries({ queryKey: ANALYTICS_KEYS.dashboard(orgId, id) });
+      await qc.invalidateQueries({ queryKey: ["records", orgId, "analytics_dashboard", id] });
+      onClose();
+    } catch (e) {
+      n.error(e);
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <Modal open={open} onCancel={onClose} onOk={save} confirmLoading={saving} okText="ذخیره" cancelText="انصراف" title="نام، اشتراک و تنظیمات" destroyOnHidden width={640}>
+      {!v ? (
+        <Loader />
+      ) : (
+        <div className="flex flex-col gap-3">
+          <Input value={String(v.name ?? "")} onChange={(e) => set({ name: e.target.value })} placeholder="نام" maxLength={150} aria-label="نام" />
+          <Input value={String(v.folder ?? "")} onChange={(e) => set({ folder: e.target.value || null })} placeholder="پوشه" maxLength={80} aria-label="پوشه" />
+          <Input.TextArea value={String(v.description ?? "")} onChange={(e) => set({ description: e.target.value || null })} placeholder="شرح" autoSize={{ minRows: 1, maxRows: 4 }} maxLength={2000} aria-label="شرح" />
+          <label className="an-switch">
+            <Switch size="small" checked={!!v.is_home} onChange={(c) => set({ is_home: c })} />
+            صفحهٔ خانهٔ همهٔ خوانندگان
+          </label>
+          <RecordSelect table="workspace" multiple value={(v.home_workspaces as string[]) ?? []} onChange={(x) => set({ home_workspaces: x })} placeholder="داشبورد خانهٔ این فضاهای کاری" aria-label="فضاهای کاری" allowClear />
+          <div className="an-row">
+            <InputNumber min={5} max={600} value={Number(v.tv_cycle ?? 20)} onChange={(x) => set({ tv_cycle: Number(x) || 20 })} addonBefore="گردش نمایشگر (ثانیه)" aria-label="گردش زبانه‌ها در حالت نمایشگر" />
+            <InputNumber min={1} max={120} value={Number(v.refresh_minutes ?? 5)} onChange={(x) => set({ refresh_minutes: Number(x) || 5 })} addonBefore="تازه‌سازی (دقیقه)" aria-label="تازه‌سازی داده" />
+          </div>
+          <h3 className="an-h3">اشتراک</h3>
+          <ShareEditor value={(v.shares as never) ?? []} onChange={(shares) => set({ shares })} disabled={!owner && !canAdmin} />
+        </div>
+      )}
+    </Modal>
+  );
+}
