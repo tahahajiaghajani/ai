@@ -149,9 +149,9 @@ function LayoutEditor({ row, onSaved }: { row: Record<string, unknown> & { id: s
         <div className="flex flex-wrap items-center gap-2 border-t border-line px-4 py-3">
           <Plus {...I16} aria-hidden className="text-ink-3" />
           <Select<WidgetType>
+            key={`add-${layout.length}`}
             size="small"
             placeholder="افزودن بخش"
-            value={null as unknown as WidgetType}
             style={{ minInlineSize: 220 }}
             options={addable.map((d) => ({ value: d.type, label: d.label }))}
             onChange={(t) => set([...layout, newWidget(layout, t)])}
