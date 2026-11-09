@@ -436,7 +436,7 @@ function Oversight() {
   );
 }
 
-const GUARD_KINDS: Record<string, string> = { policy: "سیاست داده", guardrail: "محدودیت عامل", refusal: "امتناع مدل", injection: "تزریق دستور", budget: "بودجه" };
+const GUARD_KINDS: Record<string, string> = { policy: "سیاست داده", access: "خارج از دسترسی", guardrail: "محدودیت عامل", refusal: "امتناع مدل", budget: "سقف بودجه" };
 
 function Guard() {
   const { api, orgId } = useOrg();

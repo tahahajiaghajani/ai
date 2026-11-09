@@ -26,7 +26,7 @@ governanceRoutes.get("/governance/feedback", async (c) => {
 });
 
 governanceRoutes.get("/governance/guard-log", async (c) => {
-  const q = query(c, z.object({ kind: z.enum(["policy", "guardrail", "refusal", "injection", "budget"]).optional(), limit: z.coerce.number().int().min(1).max(1000).optional() }));
+  const q = query(c, z.object({ kind: z.enum(["policy", "access", "guardrail", "refusal", "budget"]).optional(), limit: z.coerce.number().int().min(1).max(1000).optional() }));
   return c.json({ entries: await guardLog(c.get("ctx"), q) });
 });
 

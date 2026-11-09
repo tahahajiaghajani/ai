@@ -154,10 +154,16 @@ export async function feedbackReport(ctx: Ctx, days = 90): Promise<GovernanceFee
 export async function guardLog(ctx: Ctx, opts: { kind?: string; limit?: number } = {}): Promise<GuardEntry[]> {
   ctx.need("ai", "full");
   const params: unknown[] = [ctx.org.id];
-  const kind = opts.kind ? ` and g.kind = $${params.push(opts.kind)}` : "";
+  const kind = opts.kind ? ` where x.kind = $${params.push(opts.kind)}` : "";
+  // the log itself, and the answers a model refused (already in the usage ledger, not written twice)
   const rows = await ctx.db.query<{ id: string; at: string; kind: string; feature: string | null; tables: string[]; user: string | null; detail: string | null }>(
-    `select g.id, g.at, g.kind, g.feature, g.tables, u.full_name as user, g.detail from sm_ai_guard_log g left join sm_users u on u.id = g.user_id
-     where g.org_id = $1${kind} order by g.at desc limit ${Math.max(1, Math.min(1000, opts.limit ?? 200))}`,
+    `select x.id, x.at, x.kind, x.feature, x.tables, u.full_name as user, x.detail from (
+       select g.id::text as id, g.at, g.kind, g.feature, g.tables, g.user_id, g.detail from sm_ai_guard_log g where g.org_id = $1
+       union all
+       select a.id::text, a.created_at, 'refusal', a.feature, '{}'::text[], a.user_id, 'مدل ' || coalesce(a.model, '') || ' از پاسخ امتناع کرد'
+         from sm_ai_usage a where a.org_id = $1 and a.error_kind = 'refusal'
+     ) x left join sm_users u on u.id = x.user_id${kind}
+     order by x.at desc limit ${Math.max(1, Math.min(1000, opts.limit ?? 200))}`,
     params,
   );
   return rows.map((r) => ({ ...r, tables: r.tables ?? [] }));

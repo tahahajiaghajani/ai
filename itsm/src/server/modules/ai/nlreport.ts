@@ -27,6 +27,7 @@ import { askTables, designerPath, ruleNarrative, type AnalyticsAi, type Narrativ
 import { canAuthor, canRead, isRestricted, modelKeptField, narrativeFacts, registerAnalyticsAi, runReport } from "../analytics";
 import { ready } from "../analytics/common";
 import { isAiUnavailable, runForModule } from "./skills/runtime";
+import { logGuard } from "./datause";
 
 /** Every field path a definition names (measures, their filters, breakdowns, the period, columns, the filter). */
 export function specPaths(spec: ReportSpec): string[] {
@@ -119,6 +120,8 @@ async function modelDefinition(ctx: Ctx, question: string): Promise<{ spec: Repo
     if (!out.spec) return { spec: null, refusal: out.problem?.trim() || "پرسش روشن نبود؛ جدول، سنجه یا بازهٔ زمانی را روشن‌تر بنویسید." };
     const spec = { v: 1, ...out.spec } as ReportSpec;
     const refusal = await askRefusal(ctx, spec);
+    // a question that reached beyond the asker's access goes to the governance log (the reason, never the question)
+    if (refusal) await logGuard(ctx, { kind: "access", feature: "analytics.ask", tables: TABLES.has(String(spec.table)) ? [String(spec.table)] : [], detail: refusal });
     return refusal ? { spec: null, refusal } : { spec: normalizeSpec(spec), refusal: null };
   } catch (e) {
     if (isAiUnavailable(e)) return null;

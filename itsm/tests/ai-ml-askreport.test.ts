@@ -99,6 +99,12 @@ describe("with a model", () => {
     const r = await ask(w.p.agent.client, directive({ table: hidden!.table, measures: [{ fn: "count" }], dims: [{ field: hidden!.field }], viz: "table" }));
     expect(r.result).toBeNull();
     expect(r.refusal).toMatch(/خواندنی نیست/);
+    // the refusal is in the governance log with its reason (never the question), for AI administrators only
+    const log = (await w.o.get(`${w.P}/ai/governance/guard-log?kind=access`)).entries as { feature: string; tables: string[]; detail: string }[];
+    const hit = log.find((e) => e.feature === "analytics.ask" && e.tables.includes(hidden!.table));
+    expect(hit?.detail).toMatch(/خواندنی نیست/);
+    expect(JSON.stringify(log)).not.toContain("[json:");
+    await w.p.agent.client.get(`${w.P}/ai/governance/guard-log`, 403);
   });
 
   it("saves the answer as the asker's own report", async () => {

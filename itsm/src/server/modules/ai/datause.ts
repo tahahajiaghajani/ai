@@ -114,7 +114,7 @@ export function policyMessage(plan: DataUsePlan, reason: "never" | "local"): str
 }
 
 /** A refusal or hold-back of the AI layer, kept for the governance console (never fails the caller). */
-export async function logGuard(ctx: Ctx, e: { kind: "policy" | "guardrail" | "refusal" | "injection" | "budget"; feature?: string | null; tables?: string[]; detail?: string | null }): Promise<void> {
+export async function logGuard(ctx: Ctx, e: { kind: "policy" | "guardrail" | "access" | "budget"; feature?: string | null; tables?: string[]; detail?: string | null }): Promise<void> {
   await ctx
     .write(
       (tx) =>

@@ -142,4 +142,15 @@ describe("the governance console", () => {
     const cards = await w.o.get(`${w.P}/ai/governance/model-cards`);
     expect(cards.cards.some((c: any) => c.kind === "skill")).toBe(true);
   });
+
+  it("lists the answers a model refused beside the policy blocks", async () => {
+    await w.e.db.query(`insert into sm_ai_usage (org_id, feature, model, ok, error_kind) values ($1, 'assistant', 'model-x', false, 'refusal')`, [w.e.org]);
+    const log = await w.o.get(`${w.P}/ai/governance/guard-log?kind=refusal`);
+    expect(log.entries[0]).toMatchObject({ kind: "refusal", feature: "assistant" });
+    expect(log.entries[0].detail).toMatch(/model-x/);
+    const all = await w.o.get(`${w.P}/ai/governance/guard-log`);
+    const kinds = all.entries.map((e: any) => e.kind);
+    expect(kinds).toContain("policy");
+    expect(kinds).toContain("refusal");
+  });
 });

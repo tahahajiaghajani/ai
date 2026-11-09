@@ -9,7 +9,7 @@
 //   · requested items: fulfilment time (created → closed) and the items that took longest;
 //   · tables of the event module: alert storms (the last hour against the 48 before).
 // Each card keeps WHAT it was computed over — its table, the condition of its rows, the fields it grouped or measured
-// by, the records its drivers name — for the visibility rule (./visibility.ts).
+// by, the records its drivers name — for the visibility rule (./views.ts).
 import { addDays, formatJalali, weekday } from "@shared/jalali";
 import type { Cond } from "@shared/model/conditions";
 import type { TableDef } from "@shared/model/types";
