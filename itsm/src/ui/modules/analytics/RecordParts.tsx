@@ -55,8 +55,7 @@ export function SendNow({ ctx }: { ctx: RecordContext }) {
       setBusy(true);
       try {
         const r = await analyticsApi.send(api, ctx.row.id);
-        const sent = r.outcomes.filter((o) => o.status === "sent").length;
-        n.ok(`${faDigits(sent)} از ${faDigits(r.outcomes.length)} گیرنده گزارش را دریافت کردند`);
+        n.ok(r.queued ? `ارسال برای ${faDigits(r.recipients)} گیرنده آغاز شد؛ نتیجه در «آخرین نتیجه» می‌آید` : "زمان‌بندی پیدا نشد");
         ctx.refresh();
       } catch (e) {
         n.error(e);

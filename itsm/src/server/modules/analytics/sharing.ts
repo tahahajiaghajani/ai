@@ -5,6 +5,8 @@
 // roles (profile and group roles, containment, the membership role of members without ITSM roles), and recomputed
 // by the job `analytics.shares` whenever profiles, groups, memberships or roles change (and daily as a fallback).
 import { compileShares, cleanShares, sharesProblem } from "@shared/analytics/share";
+import { grantIn } from "@shared/access/model";
+import { tableDef } from "@shared/tables";
 import type { CompiledShares, Share } from "@shared/analytics/types";
 import type { Ctx } from "../../context";
 import type { Queryable } from "../../db";
@@ -34,6 +36,33 @@ export async function roleHolders(q: Queryable, orgId: string): Promise<Map<stri
   return new Map([...out].map(([k, v]) => [k, [...v].sort()]));
 }
 
+/** Members who administer reports (the reports area's admin right; active members only), from one access snapshot. */
+export async function reportAdmins(q: Queryable, orgId: string): Promise<Set<string>> {
+  const snap = await loadOrgSnapshot(q, orgId);
+  const org = await q.one<{ settings: Record<string, unknown> | null }>(`select settings from sm_orgs where id = $1`, [orgId]);
+  const settings = accessSettings({ settings: (org?.settings ?? {}) as never });
+  const members = await q.query<{ user_id: string; role: string; overrides: Record<string, unknown> | null }>(
+    `select user_id, role, overrides from sm_org_members where org_id = $1 and deleted_at is null and is_active`,
+    [orgId],
+  );
+  const out = new Set<string>();
+  for (const m of members) {
+    const built = buildSubject(snap, settings, orgId, m.user_id, m.role as never, m.overrides);
+    if (built.subject.kind === "user" && grantIn(built.subject.eff, "reports").admin) out.add(m.user_id.toLowerCase());
+  }
+  return out;
+}
+
+/**
+ * Does an indicator's owner read its stored scores? Stored scores are the whole organisation's numbers: only a report
+ * administrator who owns an indicator reads them as its owner — anyone else only through `score_shares`, which report
+ * administrators set.
+ */
+export async function ownerReadsScores(q: Queryable, orgId: string, ownerId: unknown, admins?: Set<string>): Promise<boolean> {
+  if (typeof ownerId !== "string" || !UUID.test(ownerId)) return false;
+  return (admins ?? (await reportAdmins(q, orgId))).has(ownerId.toLowerCase());
+}
+
 /** Check that every shared group, unit and person exists in the organisation (Persian refusal otherwise). */
 async function checkTargets(q: Queryable, orgId: string, shares: Share[]): Promise<void> {
   const ids = (kind: Share["kind"][]) => [...new Set(shares.filter((s) => kind.includes(s.kind) && s.id && UUID.test(s.id)).map((s) => s.id!.toLowerCase()))];
@@ -56,10 +85,13 @@ export async function compileFor(q: Queryable, orgId: string, input: unknown, op
   return { shares, compiled: compileShares(shares, (r) => holders.get(r) ?? []) };
 }
 
-/** An indicator's score readers: the same compilation, kept in its `s_*` columns — and its owner, who defined it. */
-export function scoreColumns(c: CompiledShares, ownerId?: string | null): { s_users: string[]; s_groups: string[]; s_all: boolean; s_roles: string[] } {
-  const users = ownerId && UUID.test(ownerId) && !c.r_users.includes(ownerId.toLowerCase()) ? [...c.r_users, ownerId.toLowerCase()].sort() : c.r_users;
-  return { s_users: users, s_groups: c.r_groups, s_all: c.r_all, s_roles: c.role_keys };
+/**
+ * An indicator's score readers: the same compilation, kept in its `s_*` columns — and its owner when the owner may read
+ * organisation-wide scores (`ownerReads`: a report administrator, see ownerReadsScores).
+ */
+export function scoreColumns(c: CompiledShares, ownerId?: string | null, ownerReads = false): { s_users: string[]; s_groups: string[]; s_all: boolean; s_roles: string[] } {
+  const users = ownerReads && ownerId && UUID.test(ownerId) && !c.r_users.includes(ownerId.toLowerCase()) ? [...c.r_users, ownerId.toLowerCase()].sort() : c.r_users;
+  return { s_users: [...users].sort(), s_groups: [...c.r_groups].sort(), s_all: c.r_all, s_roles: c.role_keys };
 }
 
 const same = (a: unknown, b: unknown) => JSON.stringify([...((a as string[]) ?? [])].sort()) === JSON.stringify([...((b as string[]) ?? [])].sort());
@@ -80,10 +112,12 @@ export async function recomputeRoleShares(sys: Ctx): Promise<number> {
       changed++;
     }
   }
-  const inds = await liveRows(sys.db, sys, "analytics_indicator", { f: "s_roles", op: "nempty" }, { limit: 5000 });
+  // every indicator: its role readers, and its owner only while the owner administers reports
+  const admins = await reportAdmins(sys.db, sys.org.id);
+  const inds = await liveRows(sys.db, sys, "analytics_indicator", null, { limit: 5000 });
   for (const r of inds) {
     const { compiled } = await compileFor(sys.db, sys.org.id, r.score_shares ?? [], { check: false, holders });
-    const cols = scoreColumns(compiled, r.owner_id);
+    const cols = scoreColumns(compiled, r.owner_id, admins.has(String(r.owner_id ?? "").toLowerCase()));
     if (same(cols.s_users, r.s_users)) continue;
     await sys.write((tx) => restampIndicator(tx, sys, r, cols));
     changed++;
@@ -91,15 +125,21 @@ export async function recomputeRoleShares(sys: Ctx): Promise<number> {
   return changed;
 }
 
-/** New score readers on an indicator and every stored score of it (scores carry their own reader columns). */
+/**
+ * New score readers on an indicator and every stored score of it (scores carry their own reader columns): one
+ * set-based statement over all its scores, however many (the sync trigger stamps each changed row as an update would).
+ */
 export async function restampIndicator(q: Queryable, sys: Ctx, ind: Row, cols: ReturnType<typeof scoreColumns>): Promise<void> {
   await updateIn(q as never, sys, "analytics_indicator", ind.id, cols, { trusted: true, keepVersion: true });
-  const scores = await liveRows(q, sys, "analytics_score", { f: "indicator_id", op: "eq", v: ind.id }, { limit: 20_000 });
-  const next = { s_users: cols.s_users, s_groups: cols.s_groups, s_all: cols.s_all };
-  for (const s of scores) {
-    if (same(s.s_users, next.s_users) && same(s.s_groups, next.s_groups) && !!s.s_all === next.s_all) continue;
-    await updateIn(q as never, sys, "analytics_score", s.id, next, { trusted: true, keepVersion: true });
-  }
+  const table = tableDef("analytics_score")!.table;
+  const users = JSON.stringify(cols.s_users);
+  const groups = JSON.stringify(cols.s_groups);
+  await q.query(
+    `update ${table} set s_users = $3::jsonb, s_groups = $4::jsonb, s_all = $5, updated_at = now()
+      where org_id = $1 and indicator_id = $2 and deleted_at is null
+        and (s_users is distinct from $3::jsonb or s_groups is distinct from $4::jsonb or s_all is distinct from $5)`,
+    [sys.org.id, ind.id, users, groups, !!cols.s_all],
+  );
 }
 
 const ACCESS_TABLES = ["member_profile", "group_member", "group", "role"];

@@ -17,7 +17,9 @@ import { PageHeader } from "../../components/layout";
 import { EmptyState, Loader } from "../../components/display";
 import { ICON14, cx } from "../../components/blocks";
 import { recordsApi, UserChip, useSchema } from "../../records";
+import { DEFINITION_WRITE } from "@shared/tables/analytics";
 import { analyticsApi, saveJson } from "./api";
+import { definitionActions } from "./model";
 import { useAnalyticsMeta, VIZ_ICONS } from "./parts";
 import "./analytics.css";
 
@@ -49,6 +51,12 @@ export default function Library({ kind }: { kind: Kind }) {
     queryKey: key,
     queryFn: () => recordsApi.list(api, table, { filter, q: q || undefined, size: 200, sort: "name", fields: ["name", "folder", "owner_id", "updated_at", "certified", "status", "description", ...(kind === "reports" ? ["viz", "table_key"] : ["is_home"])], total: true }),
   });
+  // the rows of this page the viewer may change (owner or editor): only those offer the recycle bin
+  const editable = useQuery({
+    queryKey: [...key, "editable"],
+    queryFn: () => recordsApi.list(api, table, { filter: { and: [filter, DEFINITION_WRITE] }, q: q || undefined, size: 200, sort: "name", fields: ["name"], total: false }),
+  });
+  const canEdit = useMemo(() => new Set((editable.data?.rows ?? []).map((r) => String(r.id))), [editable.data]);
   const folders = useQuery({
     queryKey: ["records", orgId, "list", table, "folders"],
     queryFn: () => recordsApi.aggregate(api, table, { filter: { f: "trashed", op: "eq", v: false }, groupBy: ["folder"], limit: 100 }),
@@ -160,22 +168,21 @@ export default function Library({ kind }: { kind: Kind }) {
                 <div className="an-def-meta">
                   <UserChip id={String(r.owner_id ?? "")} display={list.data?.display} compact />
                   <span className="an-muted">{formatJalaliDateTime(String(r.updated_at ?? ""), timezone)}</span>
-                  <Dropdown
-                    trigger={["click"]}
-                    menu={{
-                      items:
-                        tab === "trash"
-                          ? [{ key: "restore", icon: <RotateCcw {...ICON14} />, label: "بازگرداندن", onClick: () => trash(r, false) }]
-                          : [
-                              { key: "open", label: "باز کردن", onClick: () => open(r.id) },
-                              ...(meta.data?.can_author ? [{ key: "copy", icon: <Copy {...ICON14} />, label: "رونوشت", onClick: () => analyticsApi.copy(api, table, r.id).then((x) => open(x.row.id)).catch((e) => n.error(e)) }] : []),
-                              { key: "json", icon: <FileJson {...ICON14} />, label: "خروجی JSON", onClick: () => analyticsApi.exportBundle(api, kind === "reports" ? { reports: [r.id] } : { dashboards: [r.id] }).then((b) => saveJson(String(r.name), b)).catch((e) => n.error(e)) },
-                              { key: "trash", icon: <Trash2 {...ICON14} />, label: "انتقال به سطل بازیافت", danger: true, onClick: () => trash(r, true) },
-                            ],
-                    }}
-                  >
-                    <Button size="small" type="text" icon={<MoreHorizontal {...ICON14} />} aria-label={`کارهای «${r.name}»`} />
-                  </Dropdown>
+                  {(() => {
+                    const all = {
+                      restore: { key: "restore", icon: <RotateCcw {...ICON14} />, label: "بازگرداندن", onClick: () => trash(r, false) },
+                      open: { key: "open", label: "باز کردن", onClick: () => open(r.id) },
+                      copy: { key: "copy", icon: <Copy {...ICON14} />, label: "رونوشت", onClick: () => analyticsApi.copy(api, table, r.id).then((x) => open(x.row.id)).catch((e) => n.error(e)) },
+                      json: { key: "json", icon: <FileJson {...ICON14} />, label: "خروجی JSON", onClick: () => analyticsApi.exportBundle(api, kind === "reports" ? { reports: [r.id] } : { dashboards: [r.id] }).then((b) => saveJson(String(r.name), b)).catch((e) => n.error(e)) },
+                      trash: { key: "trash", icon: <Trash2 {...ICON14} />, label: "انتقال به سطل بازیافت", danger: true, onClick: () => trash(r, true) },
+                    };
+                    const items = definitionActions(tab, { canEdit: canEdit.has(String(r.id)), canAuthor: !!meta.data?.can_author }).map((k) => all[k]);
+                    return items.length ? (
+                      <Dropdown trigger={["click"]} menu={{ items }}>
+                        <Button size="small" type="text" icon={<MoreHorizontal {...ICON14} />} aria-label={`کارهای «${r.name}»`} />
+                      </Dropdown>
+                    ) : null;
+                  })()}
                 </div>
               </li>
             );

@@ -20,10 +20,10 @@ import type { DashboardFilter, FilterValues, ReportSpec, Widget } from "@shared/
 import { applyDashboardFilters } from "@shared/analytics/model";
 import {
   analyticsAiCapabilities, analyticsConfig, canAdmin, canAuthor, canRead, collectNow, dashboardView, ensureTick, exportBundle, homeDashboard, importBundle, indicatorHub,
-  isRestricted, narrate, narrativeFacts, questionToReport, runOne, runReport, runSchedule, runWidget, scorecard, seedAnalyticsDefaults, resultSheet, workbook, fileName,
+  isRestricted, modelKeptField, narrate, narrativeFacts, questionToReport, runOne, runReport, runSchedule, runWidget, scorecard, seedAnalyticsDefaults, resultSheet, workbook, fileName,
   aboutSheet, snapshotStep, scoreItem, indicatorNarrative,
 } from "../modules/analytics";
-import { canEditDefinition } from "../modules/analytics/dashboards";
+import { canEditDefinition, openableDefinition } from "../modules/analytics/dashboards";
 import { liveRow, liveRows, sysOf } from "../modules/analytics/common";
 import type { Ctx } from "../context";
 import { prepareSubject } from "../access";
@@ -90,9 +90,9 @@ analyticsRoutes.post("/run", async (c) => {
   return c.json(await runReport(ctx, s, { extra: (input.extra as Cond | null) ?? null }));
 });
 
-/** A saved report the caller may read (404 otherwise). */
+/** A saved report the caller may read (404 otherwise; one in the recycle bin only for those who may restore it). */
 async function readableReport(ctx: Ctx, reportId: string) {
-  const r = await liveRow(ctx.db, ctx, "analytics_report", reportId);
+  const r = await openableDefinition(ctx, "analytics_report", reportId);
   if (!r) throw notFound("گزارش پیدا نشد یا با شما به اشتراک گذاشته نشده است");
   return r;
 }
@@ -251,7 +251,8 @@ analyticsRoutes.post("/narrate", async (c) => {
   }
   if (!s) throw bad("گزارشی برای شرح داده نشده است");
   const result = await runReport(ctx, s);
-  return c.json(await narrate(ctx, narrativeFacts(title, s, result)));
+  // labels of a field kept from models never go to one: the rule-based sentences describe those
+  return c.json(await narrate(ctx, narrativeFacts(title, s, result), { model: !(await modelKeptField(ctx, s)) }));
 });
 
 // ----- export and import -----------------------------------------------------------------------------------------------
@@ -279,8 +280,8 @@ analyticsRoutes.post("/schedules/:id/send", async (c) => {
   const s = await liveRow(ctx.db, ctx, "analytics_schedule", sid);
   if (!s) throw notFound("زمان‌بندی پیدا نشد");
   if (s.owner_id !== ctx.user.id && !canAdmin(ctx)) throw forbidden("فقط مالک زمان‌بندی آن را می‌فرستد");
-  const outcomes = await runSchedule(ctx.cfg, ctx, sid, { manual: true });
-  return c.json({ outcomes });
+  // queued as a delivery job; what each recipient got stays on their own delivery row
+  return c.json(await runSchedule(ctx, sid));
 });
 
 // ----- administration of definitions -----------------------------------------------------------------------------------

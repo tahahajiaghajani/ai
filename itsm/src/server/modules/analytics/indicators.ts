@@ -179,6 +179,8 @@ export async function scoreItem(ctx: Ctx, row: Row, opts: { now?: number; trend?
     certified: ind.certified,
   };
   const env = await condEnv(ctx);
+  // what the delta compares when the previous period comes from stored (organisation-wide) scores
+  let comparable: { current: number | null; previous: number | null } | null = null;
   const stored = readsScores(ctx, row, (env.groups ?? []) as string[]) ? await storedSeries(ctx, ind, n) : null;
   base.stored = stored?.points ?? (readsScores(ctx, row, (env.groups ?? []) as string[]) ? [] : null);
   try {
@@ -195,9 +197,12 @@ export async function scoreItem(ctx: Ctx, row: Row, opts: { now?: number; trend?
         const prev = await evaluatePeriod(ctx, ind, previous, { tz, now });
         base.previous = { ...previous, ...prev.total };
       } else {
-        // point-in-time parts: the past only comes from stored snapshots
+        // point-in-time parts: the past only comes from stored snapshots — the organisation's numbers, comparable only
+        // with the stored number of the current period, never with the viewer's live value (their own scope)
         const prevStored = stored?.rows.find((r) => r.period_key === previous.key);
+        const curStored = stored?.rows.find((r) => r.period_key === current.key);
         base.previous = { ...previous, value: prevStored ? num(prevStored.value) : null, parts: {}, n: 0 };
+        comparable = { current: curStored ? num(curStored.value) : null, previous: base.previous.value };
       }
       base.trend = [];
     }
@@ -207,7 +212,7 @@ export async function scoreItem(ctx: Ctx, row: Row, opts: { now?: number; trend?
     return base;
   }
   base.status = kpiStatus(base.current.value, ind);
-  base.delta = deltaPct(base.current.value, base.previous.value);
+  base.delta = comparable ? deltaPct(comparable.current, comparable.previous) : deltaPct(base.current.value, base.previous.value);
   return base;
 }
 
@@ -281,11 +286,15 @@ export interface CollectResult {
   skipped: string[];
 }
 
-/** Upsert one score row (system). Returns its id and whether its status turned red. */
+/**
+ * Upsert one score row (system). Returns its id and whether its status turned red. The row is looked up inside the
+ * write, under a transaction lock on its key: two collectors at once (the daily job and «عکس اکنون») update one row —
+ * the unique index cannot bind the organisation-wide total, whose breakdown and element are stored empty (NULL).
+ */
 async function upsertScore(sys: Ctx, ind: Row, def: IndicatorDef, period: PeriodInfo, final: boolean, breakdown: string, element: { key: string; label: string; value: number | null; parts: Record<string, number | null>; n: number }, ids: string[] | null): Promise<{ id: string; worsened: boolean }> {
   const status: KpiStatus = kpiStatus(element.value, def);
   const key = { indicator_id: ind.id, formula_version: Number(ind.formula_version ?? 1), period_key: period.key, breakdown, element: element.key };
-  const [found] = await liveRows(sys.db, sys, "analytics_score", { and: Object.entries(key).map(([f, v]) => (typeof v === "string" ? textIs(f, v) : ({ f, op: "eq", v } as Cond))) }, { limit: 1 });
+  const lookup = { and: Object.entries(key).map(([f, v]) => (typeof v === "string" ? textIs(f, v) : ({ f, op: "eq", v } as Cond))) };
   const data: Row = {
     ...key,
     indicator_key: ind.key,
@@ -306,6 +315,8 @@ async function upsertScore(sys: Ctx, ind: Row, def: IndicatorDef, period: Period
     ...(ids ? { ids } : {}),
   };
   return sys.write(async (tx) => {
+    await tx.query(`select pg_advisory_xact_lock(hashtext($1))`, [`analytics_score:${sys.org.id}:${key.indicator_id}:${key.formula_version}:${key.period_key}:${breakdown}:${element.key}`]);
+    const [found] = await liveRows(tx, sys, "analytics_score", lookup, { limit: 1 });
     if (found) {
       await updateIn(tx, sys, "analytics_score", found.id, data, { trusted: true });
       return { id: found.id as string, worsened: !breakdown && status === "bad" && found.status !== "bad" };

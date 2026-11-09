@@ -36,7 +36,17 @@ export function snapshotDue(cfg: { last_snapshot_on: string | null; snapshot_hou
   return String(cfg.last_snapshot_on ?? "").slice(0, 10) !== todayISO(tz) && hourIn(tz, now) >= cfg.snapshot_hour;
 }
 
-/** Collect what is left of today's snapshot (indicators not collected since `since`); true when everything is done. */
+/**
+ * When a run of a long job stops: halfway through the budget it has left (at least a second later). The tick's budget
+ * is small on a Windows app (8 s) and after a web write (4 s): a fixed margin would leave no time at all. Every run
+ * still does at least one unit of work before it looks (an indicator, a recipient), so a job always progresses.
+ */
+export const stopAt = (deadline: number, now = Date.now()): number => now + Math.max(1_000, (deadline - now) / 2);
+
+/**
+ * Collect what is left of today's snapshot (indicators not collected since `since`); true when everything is done. At
+ * least one indicator is collected before the deadline is looked at.
+ */
 export async function snapshotStep(cfg: ServerConfig, orgId: string, opts: { since: string; deadline: number; now?: number }): Promise<{ done: boolean; scores: number; alerts: number; skipped: string[] }> {
   const sys = await systemCtx(cfg, orgId);
   const conf = await analyticsConfig(cfg.db, sys);
@@ -48,11 +58,13 @@ export async function snapshotStep(cfg: ServerConfig, orgId: string, opts: { sin
     { order: "t.collected_at nulls first, t.id", limit: 200 },
   );
   const out = { done: true, scores: 0, alerts: 0, skipped: [] as string[] };
+  let collected = 0;
   for (const r of rows) {
-    if (Date.now() > opts.deadline) {
+    if (collected > 0 && Date.now() > opts.deadline) {
       out.done = false;
       break;
     }
+    collected++;
     try {
       const x = await collectIndicator(sys, r, { now: opts.now, backfill: conf.backfill_periods });
       out.scores += x.scores;
@@ -96,7 +108,7 @@ export function installAnalyticsJobs(): void {
     if (!orgId || !actsHere(jctx.cfg)) return;
     const payload = (job.payload ?? {}) as { since?: string };
     const since = payload.since ?? new Date().toISOString();
-    const r = await snapshotStep(jctx.cfg as ServerConfig, orgId, { since, deadline: jctx.deadline - 15_000 });
+    const r = await snapshotStep(jctx.cfg as ServerConfig, orgId, { since, deadline: stopAt(jctx.deadline) });
     if (!r.done) {
       await jctx.save({ since });
       return { again: 0 };
@@ -104,27 +116,40 @@ export function installAnalyticsJobs(): void {
     if (r.skipped.length) jctx.log.warn("analytics: indicators skipped", r.skipped.slice(0, 5).join(" | "));
   });
 
+  // one occurrence of a schedule (`at`: when it was due, or when «ارسال اکنون» asked — `manual`), every recipient with
+  // their own access. Progress is saved after each recipient (a retried job never sends to them again), and one
+  // recipient's failure is that recipient's outcome: the run always finishes and moves the schedule on, so the tick
+  // never queues the same occurrence afresh.
   registerJobHandler("analytics.deliver", async (job, jctx) => {
     const orgId = job.org_id;
     if (!orgId || !actsHere(jctx.cfg)) return;
     const cfg = jctx.cfg as ServerConfig;
-    const payload = (job.payload ?? {}) as { id?: string; at?: string; done?: string[]; outcomes?: DeliveryOutcome[] };
+    const payload = (job.payload ?? {}) as { id?: string; at?: string; manual?: boolean; done?: string[]; outcomes?: DeliveryOutcome[] };
     const sys = await systemCtx(cfg, orgId);
     const s = await liveRow(jctx.db, sys, "analytics_schedule", payload.id);
-    if (!s || !s.active) return;
+    if (!s || (!s.active && !payload.manual)) return;
     // a second job queued while the first was still sending finds the occurrence already delivered
-    if (!payload.done?.length && payload.at && s.next_run_at && Date.parse(String(s.next_run_at)) > Date.parse(payload.at)) return;
+    if (!payload.manual && !payload.done?.length && payload.at && s.next_run_at && Date.parse(String(s.next_run_at)) > Date.parse(payload.at)) return;
     const done = new Set(payload.done ?? []);
     const outcomes = [...(payload.outcomes ?? [])];
+    const stop = stopAt(jctx.deadline);
+    let sent = 0;
     for (const u of await recipientsOf(sys, s)) {
       if (done.has(u)) continue;
-      if (Date.now() > jctx.deadline - 10_000) {
-        await jctx.save({ ...payload, done: [...done], outcomes });
-        return { again: 0 };
+      if (sent > 0 && Date.now() > stop) return { again: 0 };
+      let outcome: DeliveryOutcome;
+      try {
+        outcome = await deliverTo(cfg, sys, s, u);
+      } catch (e) {
+        // one recipient's failure never stops (or repeats) the others
+        jctx.log.warn("analytics: delivery failed", e instanceof Error ? e.message : String(e));
+        outcome = { user: u, status: "failed", delivery_id: null };
       }
-      outcomes.push(await deliverTo(cfg, sys, s, u));
+      outcomes.push(outcome);
       done.add(u);
+      sent++;
+      await jctx.save({ ...payload, done: [...done], outcomes });
     }
-    await finishRun(sys, s, outcomes);
+    await finishRun(sys, s, outcomes, { manual: !!payload.manual });
   });
 }

@@ -17,6 +17,7 @@ import type { ServerConfig } from "../../context";
 import { memberCtx } from "../../access";
 import { addAttachmentIn, createIn, defFor, orgSchema, orgTz, updateIn } from "../../engine";
 import { notifyPeople } from "../notify";
+import { enqueue } from "../../jobs";
 import { canRead, isUuid, liveRow, liveRows, sysOf, type Row } from "./common";
 import { runOne } from "./dashboards";
 import { isRestricted, runReport } from "./query";
@@ -208,11 +209,15 @@ export async function deliverTo(cfg: ServerConfig, sys: Ctx, s: Row, userId: str
   return { user: userId, status: "sent", delivery_id: id };
 }
 
-/** Advance a schedule after a run (system): the next occurrence and what happened. */
+/**
+ * Advance a schedule after a run (system): the next occurrence and how many recipients it reached. What each recipient
+ * got (sent, empty under their access, no access) stays on their own delivery row: the owner — who chose the report,
+ * its filter and the recipients — learns nothing about records only a recipient may read.
+ */
 export async function finishRun(sys: Ctx, s: Row, outcomes: DeliveryOutcome[], opts: { now?: number; manual?: boolean } = {}): Promise<void> {
   const now = opts.now ?? Date.now();
-  const n = (st: DeliveryStatus) => outcomes.filter((o) => o.status === st).length;
-  const result = `${faDigits(n("sent"))} ارسال، ${faDigits(n("empty"))} خالی، ${faDigits(n("no_access"))} بدون دسترسی، ${faDigits(n("failed"))} ناموفق`;
+  const failed = outcomes.filter((o) => o.status === "failed").length;
+  const result = `${faDigits(outcomes.length - failed)} گیرنده پردازش شد، ${faDigits(failed)} ناموفق`;
   const patch: Row = { last_run_at: new Date(now).toISOString(), last_result: result };
   if (!opts.manual) {
     const next = s.active ? nextOccurrence(s.schedule as ScheduleSpec, now + 1000, orgTz(sys)) : null;
@@ -227,13 +232,16 @@ export async function dueSchedules(sys: Ctx, now = Date.now()): Promise<Row[]> {
   return liveRows(sys.db, sys, "analytics_schedule", { and: [{ f: "active", op: "eq", v: true }, { f: "next_run_at", op: "lte", v: new Date(now).toISOString() }] }, { order: "t.next_run_at", limit: 50 });
 }
 
-/** Run a schedule now for every recipient (the owner's «ارسال اکنون»; tests). */
-export async function runSchedule(cfg: ServerConfig, ctx: Ctx, id: string, opts: { now?: number; manual?: boolean } = {}): Promise<DeliveryOutcome[]> {
+/**
+ * The owner's «ارسال اکنون»: the occurrence is queued as a delivery job (progress saved per recipient, never sent twice
+ * when the request or a worker stops halfway). Answers how many recipients it goes to — never what each one got.
+ */
+export async function runSchedule(ctx: Ctx, id: string, opts: { now?: number } = {}): Promise<{ queued: boolean; recipients: number }> {
   const sys = sysOf(ctx);
   const s = await liveRow(sys.db, sys, "analytics_schedule", id);
-  if (!s) return [];
-  const outcomes: DeliveryOutcome[] = [];
-  for (const u of await recipientsOf(sys, s)) outcomes.push(await deliverTo(cfg, sys, s, u, opts));
-  await finishRun(sys, s, outcomes, opts);
-  return outcomes;
+  if (!s) return { queued: false, recipients: 0 };
+  const recipients = (await recipientsOf(sys, s)).length;
+  const at = new Date(opts.now ?? Date.now()).toISOString();
+  await enqueue(ctx.db, { kind: "analytics.deliver", orgId: ctx.org.id, payload: { id: s.id, at, manual: true }, dedupeKey: `analytics.deliver.manual:${s.id}`, maxAttempts: 3 });
+  return { queued: true, recipients };
 }

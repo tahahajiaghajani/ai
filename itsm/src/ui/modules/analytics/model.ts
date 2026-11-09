@@ -204,3 +204,10 @@ export const exactValue = (v: number | null | undefined, unit: MeasureUnit, deci
 
 /** Persian label of a record count. */
 export const recordsLabel = (n: number) => `${new Intl.NumberFormat("fa-IR").format(n)} رکورد`;
+
+/** The actions the library offers on one definition: moving to and from the recycle bin only to those who may change it
+ * (its owner and editors — the table's write rule), copying to authors. */
+export function definitionActions(tab: "all" | "mine" | "certified" | "trash", o: { canEdit: boolean; canAuthor: boolean }): ("open" | "copy" | "json" | "trash" | "restore")[] {
+  if (tab === "trash") return o.canEdit ? ["restore"] : [];
+  return ["open", ...(o.canAuthor ? (["copy"] as const) : []), "json", ...(o.canEdit ? (["trash"] as const) : [])];
+}

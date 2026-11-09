@@ -56,7 +56,7 @@ export { scorecard, scoreItem, indicatorHub, indicatorOf, collectIndicator, coll
 export { dashboardView, runWidget, runOne, homeDashboard, canEditDefinition } from "./dashboards";
 export { runSchedule, deliverTo, recipientsOf, dueSchedules, type DeliveryOutcome } from "./delivery";
 export { exportBundle, importBundle } from "./bundle";
-export { registerAnalyticsAi, analyticsAi, analyticsAiCapabilities, questionToReport, narrate, narrativeFacts, ruleNarrative, indicatorNarrative, type AnalyticsAi, type NarrativeFacts } from "./ai";
+export { registerAnalyticsAi, analyticsAi, analyticsAiCapabilities, questionToReport, narrate, narrativeFacts, modelKeptField, ruleNarrative, indicatorNarrative, type AnalyticsAi, type NarrativeFacts } from "./ai";
 export { ensureTick, snapshotStep, snapshotDue, hourIn, TICK_EVERY } from "./jobs";
 export { recomputeRoleShares, roleHolders, compileFor } from "./sharing";
 export { analyticsConfig, canAdmin, canAuthor, canRead } from "./common";

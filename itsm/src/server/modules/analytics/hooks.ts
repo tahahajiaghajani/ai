@@ -5,16 +5,16 @@
 // next run computed, and the tables the module alone writes (scores, deliveries) refused to everyone else.
 import { cleanLayout } from "@shared/analytics/layout";
 import { normalizeSpec, specProblem } from "@shared/analytics/model";
-import { indicatorProblem } from "@shared/analytics/kpi";
-import type { DashboardFilter, ReportSpec } from "@shared/analytics/types";
+import { bindPeriod, indicatorProblem } from "@shared/analytics/kpi";
+import type { DashboardFilter, IndicatorPart, ReportSpec } from "@shared/analytics/types";
 import { nextOccurrence, scheduleProblem, type ScheduleSpec } from "@shared/flows";
 import type { Ctx } from "../../context";
 import { bad, forbidden } from "../../http/errors";
 import { access } from "../../access/provider";
-import { orgSchema, orgTz, pushGuard, registerHooks, onRecordEvent, systemCtx, updateIn, type PushArgs, type WriteArgs } from "../../engine";
+import { checkFilter, orgSchema, orgTz, pathVisible, pushGuard, registerHooks, onRecordEvent, systemCtx, updateIn, type PushArgs, type WriteArgs } from "../../engine";
 import { enqueue, registerJobHandler } from "../../jobs";
-import { canAdmin, isUuid, liveRow, type Row } from "./common";
-import { compileFor, restampIndicator, scoreColumns } from "./sharing";
+import { canAdmin, isUuid, liveRow, sysOf, type Row } from "./common";
+import { compileFor, ownerReadsScores, restampIndicator, scoreColumns } from "./sharing";
 import { ensureTick } from "./jobs";
 
 const isSystem = (ctx: Ctx) => ctx.actor === "system";
@@ -70,6 +70,57 @@ function checkFilters(input: unknown): DashboardFilter[] {
   });
 }
 
+/** A period a part's filter placeholders are checked with. */
+const SAMPLE_PERIOD = { start: "2026-03-21T00:00:00.000Z", end: "2026-04-21T00:00:00.000Z" };
+const READERS_ONLY_ADMIN = "خوانندگان امتیازهای ذخیره‌شده (عدد کل سازمان) را مدیر گزارش‌ها تعیین می‌کند";
+const OWNER_ONLY_ADMIN = "مالک شاخص را مدیر گزارش‌ها تغییر می‌دهد";
+const COLLECT_ONLY_ADMIN = "عکس روزانهٔ شاخص (امتیازهای کل سازمان) را مدیر گزارش‌ها روشن می‌کند";
+
+/**
+ * An indicator as its writer may define it (the API's and a Windows app's push alike): a valid formula over tables the
+ * writer reads, every measured, dated and broken-down field and every filter checked against the writer's visible
+ * fields; who reads its stored scores (organisation-wide numbers), who owns it and whether it is collected daily are a
+ * report administrator's. The system and trusted server code (the library, the seed) define any.
+ */
+async function indicatorRules(w: WriteArgs): Promise<void> {
+  if (w.op === "delete") return;
+  const writer = !isSystem(w.ctx) && !w.trusted;
+  if (w.op === "update" && w.changed.has("key")) throw bad("کلید شاخص پس از ساخت تغییر نمی‌کند");
+  if (w.op === "create" || ["formula", "parts", "breakdowns"].some((f) => w.changed.has(f))) {
+    const schema = await orgSchema(w.ctx, w.tx);
+    const problem = indicatorProblem({ formula: String(w.next.formula ?? ""), parts: w.next.parts, breakdowns: w.next.breakdowns ?? [] }, schema.lookup);
+    if (problem) throw bad(problem);
+    if (writer) {
+      for (const p of w.next.parts as IndicatorPart[]) {
+        const def = schema.def(p.table);
+        if (!def) continue;
+        if (!access().canReadTable(w.ctx, def)) throw forbidden(`به «${def.plural}» دسترسی ندارید`);
+        for (const path of [p.field, p.from, p.date_field, ...((w.next.breakdowns ?? []) as string[])]) {
+          if (path && !pathVisible(w.ctx, def, String(path), schema)) throw forbidden(`فیلد «${path}» در «${def.label}» در دسترس شما نیست`);
+        }
+        if (p.filter) checkFilter(w.ctx, def, schema, bindPeriod(p.filter, SAMPLE_PERIOD));
+      }
+    }
+  }
+  if (!writer || canAdmin(w.ctx)) return;
+  if (w.op === "create") {
+    if (Array.isArray(w.next.score_shares) && w.next.score_shares.length) throw forbidden(READERS_ONLY_ADMIN);
+    if (isUuid(w.next.owner_id) && w.next.owner_id !== w.ctx.user.id) throw forbidden(OWNER_ONLY_ADMIN);
+    // nobody but report administrators reads organisation-wide scores of it: nothing to collect
+    w.next.collect = false;
+    return;
+  }
+  if (w.changed.has("score_shares")) throw forbidden(READERS_ONLY_ADMIN);
+  if (w.changed.has("owner_id")) throw forbidden(OWNER_ONLY_ADMIN);
+  if (w.changed.has("collect") && w.next.collect) throw forbidden(COLLECT_ONLY_ADMIN);
+}
+
+/** Does the indicator's (new) owner read its stored scores (a report administrator)? */
+async function ownerReads(w: { tx: WriteArgs["tx"]; ctx: Ctx }, ownerId: unknown): Promise<boolean> {
+  if (!isSystem(w.ctx) && ownerId === w.ctx.user.id) return canAdmin(w.ctx);
+  return ownerReadsScores(w.tx, w.ctx.org.id, ownerId);
+}
+
 /**
  * A Windows app's push runs no beforeWrite. Its sharing is compiled here, in the push's transaction, from the pushed
  * `shares` (the row columns the row rules test are never taken from the push), and what only a report administrator
@@ -78,8 +129,10 @@ function checkFilters(input: unknown): DashboardFilter[] {
 async function derivedOnPush(p: PushArgs): Promise<Row> {
   const field = p.def.key === "analytics_indicator" ? "score_shares" : "shares";
   const { shares, compiled } = await compileFor(p.tx, p.ctx.org.id, p.next[field] ?? [], { check: false }).catch(() => compileFor(p.tx, p.ctx.org.id, p.prev?.[field] ?? [], { check: false }));
-  const out: Row = { [field]: shares, ...(field === "score_shares" ? scoreColumns(compiled, p.next.owner_id) : compiled) };
-  if (!canAdmin(p.ctx)) out.certified = p.prev ? !!p.prev.certified && !["spec", "table_key", "layout", "filters", "formula", "parts", "grain", "target", "warn", "crit"].some((f) => p.changed.has(f)) : false;
+  const out: Row = { [field]: shares, ...(field === "score_shares" ? scoreColumns(compiled, p.next.owner_id, await ownerReads(p, p.next.owner_id)) : compiled) };
+  if (!canAdmin(p.ctx)) out.certified = p.prev ? !!p.prev.certified && !["spec", "table_key", "layout", "filters", "formula", "parts", "grain", "target", "warn", "crit", "score_shares", "owner_id"].some((f) => p.changed.has(f)) : false;
+  // a new indicator of someone who does not administer reports is not collected (nobody else reads its scores)
+  if (p.def.key === "analytics_indicator" && !p.prev && !canAdmin(p.ctx)) out.collect = false;
   if (p.def.key === "analytics_report") out.spec_version = p.prev ? Number(p.prev.spec_version ?? 1) + (p.changed.has("spec") ? 1 : 0) : 1;
   if (p.def.key === "analytics_indicator") out.formula_version = p.prev ? Number(p.prev.formula_version ?? 1) + (["formula", "parts", "grain"].some((f) => p.changed.has(f)) ? 1 : 0) : 1;
   return out;
@@ -90,7 +143,8 @@ async function derivedOnPush(p: PushArgs): Promise<Row> {
 async function definitionOnPush(w: WriteArgs): Promise<void> {
   const field = w.def.key === "analytics_indicator" ? "score_shares" : "shares";
   if (w.def.key === "analytics_report" && (!w.prev || w.changed.has("spec") || w.changed.has("table_key"))) await checkSpec(w, w.next.spec);
-  if (w.def.key === "analytics_indicator" && w.prev && w.changed.has("key")) throw bad("کلید شاخص پس از ساخت تغییر نمی‌کند");
+  // an indicator pushed from a Windows app is held to the same rules as one saved here
+  if (w.def.key === "analytics_indicator") await indicatorRules(w);
   if (!w.prev || w.changed.has(field)) {
     if (w.prev && field === "shares" && !isOwner(w) && !canAdmin(w.ctx)) throw forbidden("فقط مالک (یا مدیر گزارش‌ها) اشتراک را تغییر می‌دهد");
     await compileFor(w.tx, w.ctx.org.id, w.next[field] ?? []);
@@ -147,34 +201,27 @@ export function installAnalyticsHooks(): void {
   registerHooks("analytics_indicator", {
     async beforeWrite(w) {
       if (w.op === "delete") return;
-      if (w.op === "update" && w.changed.has("key")) throw bad("کلید شاخص پس از ساخت تغییر نمی‌کند");
-      if (w.op === "create" || ["formula", "parts", "breakdowns"].some((f) => w.changed.has(f))) {
-        const schema = await orgSchema(w.ctx, w.tx);
-        const problem = indicatorProblem({ formula: String(w.next.formula ?? ""), parts: w.next.parts, breakdowns: w.next.breakdowns ?? [] }, schema.lookup);
-        if (problem) throw bad(problem);
-        if (!isSystem(w.ctx)) {
-          for (const p of w.next.parts as { table: string }[]) {
-            const def = schema.def(p.table);
-            if (def && !access().canReadTable(w.ctx, def)) throw forbidden(`به «${def.plural}» دسترسی ندارید`);
-          }
-        }
-      }
+      await indicatorRules(w);
       // a new formula is a new series: stored scores of the old one stay as they were (lineage)
       if (w.op === "update" && ["formula", "parts", "grain"].some((f) => w.changed.has(f))) w.next.formula_version = Number(w.prev?.formula_version ?? 1) + 1;
-      uncertify(w, ["formula", "parts", "grain", "target", "warn", "crit"]);
-      await sharing(w, "score_shares", (c) => scoreColumns(c, w.next.owner_id));
-      // the owner reads the scores of what they defined: a new owner is a new reader
+      uncertify(w, ["formula", "parts", "grain", "target", "warn", "crit", "score_shares", "owner_id"]);
+      if (w.op === "create" || w.changed.has("score_shares")) {
+        const reads = await ownerReads(w, w.next.owner_id);
+        await sharing(w, "score_shares", (c) => scoreColumns(c, w.next.owner_id, reads));
+      }
+      // an owner who administers reports reads the scores of what they own: a new owner is a new reader (or none)
       if (w.op === "update" && w.changed.has("owner_id") && !w.changed.has("score_shares")) {
         const { compiled } = await compileFor(w.tx, w.ctx.org.id, w.next.score_shares ?? [], { check: false });
-        Object.assign(w.next, scoreColumns(compiled, w.next.owner_id));
+        Object.assign(w.next, scoreColumns(compiled, w.next.owner_id, await ownerReads(w, w.next.owner_id)));
       }
       if (w.next.active && w.next.collect && (w.op === "create" || w.changed.has("collect") || w.changed.has("active"))) await ensureTick(w.tx, w.ctx.org.id);
     },
     async afterWrite(w) {
-      // the stored scores carry their readers: follow a change of the indicator's score readers
+      // the stored scores carry their readers: follow a change of the indicator's score readers — inside this write's
+      // transaction, with a system context that runs no query of its own (PGlite has one connection: a query outside
+      // the open transaction would wait for it forever)
       if (w.op === "update" && (w.changed.has("score_shares") || w.changed.has("owner_id"))) {
-        const sys = await systemCtx(w.ctx.cfg, w.ctx.org.id);
-        await restampIndicator(w.tx, { ...sys, db: w.ctx.db }, w.next, { s_users: w.next.s_users ?? [], s_groups: w.next.s_groups ?? [], s_all: !!w.next.s_all, s_roles: w.next.s_roles ?? [] });
+        await restampIndicator(w.tx, sysOf(w.ctx), w.next, { s_users: w.next.s_users ?? [], s_groups: w.next.s_groups ?? [], s_all: !!w.next.s_all, s_roles: w.next.s_roles ?? [] });
       }
     },
   });
@@ -226,7 +273,7 @@ export function installAnalyticsHooks(): void {
     if (!row) return;
     const field = table === "analytics_indicator" ? "score_shares" : "shares";
     const { compiled } = await compileFor(jctx.db, job.org_id, row[field] ?? [], { check: false });
-    if (table === "analytics_indicator") await sys.write((tx) => restampIndicator(tx, sys, row, scoreColumns(compiled, row.owner_id)));
+    if (table === "analytics_indicator") await sys.write(async (tx) => restampIndicator(tx, sys, row, scoreColumns(compiled, row.owner_id, await ownerReadsScores(tx, job.org_id!, row.owner_id))));
     else await sys.write((tx) => updateIn(tx, sys, table, id, { ...compiled }, { trusted: true, keepVersion: true }));
   });
   onRecordEvent(

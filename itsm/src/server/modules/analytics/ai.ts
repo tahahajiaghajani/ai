@@ -16,7 +16,7 @@ import { deltaPct, formatValue, STATUS_LABELS, UNITS } from "@shared/analytics/k
 import type { ReportResult, ReportSpec, ScorecardItem } from "@shared/analytics/types";
 import type { Breakdown } from "@shared/analytics/api";
 import { DATE_UNITS } from "@shared/model/jalali-buckets";
-import { isNever } from "@shared/model/conditions";
+import { condPaths, isNever, resolvePath } from "@shared/model/conditions";
 import { faDigits } from "@shared/format";
 import { todayISO } from "@shared/jalali";
 import { TABLES } from "@shared/tables";
@@ -27,6 +27,7 @@ import { registerSkill, defineSkill } from "../ai/skills/registry";
 import { isAiUnavailable, runForModule } from "../ai/skills/runtime";
 import { registerTool } from "../ai/tools";
 import { defineTool } from "../ai/tools/registry";
+import { toolField } from "../ai/tools/fields";
 import { canRead, ready } from "./common";
 import { runReport } from "./query";
 import { scorecard } from "./indicators";
@@ -169,9 +170,36 @@ export function indicatorNarrative(i: ScorecardItem, breakdowns: Breakdown[]): s
   return faDigits(out.join(" "));
 }
 
-/** A narrative of a result: the AI layer's when registered and available, else the rule-based sentences. */
-export async function narrate(ctx: Ctx, facts: NarrativeFacts): Promise<{ text: string; ai: boolean }> {
-  if (impl.narrate) {
+/**
+ * The first field of a definition that must never reach a model (docs/spec/AI.md §11.8), as «table: field», or null: a
+ * measured, grouped, dated or filtered path any hop of which a generated tool would not show — kept from prompts by its
+ * module (request answers, REQ-041), `ai_private`, opaque or never synced. Group labels and totals of such a field are
+ * its values.
+ */
+export async function modelKeptField(ctx: Ctx, spec: ReportSpec): Promise<string | null> {
+  const schema = await orgSchema(ctx);
+  const def = schema.def(spec.table);
+  if (!def) return null;
+  const paths = [
+    ...spec.measures.flatMap((m) => [m.field, m.from, ...condPaths(m.filter ?? null)]),
+    ...spec.dims.map((d) => d.field),
+    spec.time?.field,
+    ...condPaths(spec.filter ?? null),
+  ].filter((p): p is string => typeof p === "string" && !!p);
+  for (const path of paths) {
+    const r = resolvePath(def, path, schema.lookup);
+    if (!r) continue;
+    for (const step of [...r.hops, { def: r.def, field: r.field }]) if (!toolField(step.def, step.field)) return `${step.def.label}: ${step.field.label}`;
+  }
+  return null;
+}
+
+/**
+ * A narrative of a result: the AI layer's when registered and available, else the rule-based sentences. `model: false`
+ * (a definition over a field kept from models) never asks a model.
+ */
+export async function narrate(ctx: Ctx, facts: NarrativeFacts, opts: { model?: boolean } = {}): Promise<{ text: string; ai: boolean }> {
+  if (impl.narrate && opts.model !== false) {
     try {
       const r = await impl.narrate(ctx, facts);
       if (r.text?.trim()) return { text: r.text.trim(), ai: true };
@@ -313,6 +341,9 @@ const reportTool = defineTool({
       limit: input.group_by?.length === 1 ? 30 : null,
       sort: { by: "value", dir: "desc" },
     };
+    // what a generated tool never shows a model, this tool never computes for one (its labels are the values)
+    const kept = await modelKeptField(ctx, spec);
+    if (kept) return { data: { allowed: false, reason: `«${kept}» never reaches a model; ask the person to run this report in the designer` }, summary_fa: `«${kept}» به مدل داده نمی‌شود` };
     const r = await runReport(ctx, spec);
     const m = r.measures[0];
     const path = designerPath(spec, `${m?.label ?? "گزارش"} — ${r.table_label}`);

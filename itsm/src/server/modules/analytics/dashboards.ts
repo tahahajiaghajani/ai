@@ -9,9 +9,9 @@ import type { DashboardFilter, DashboardLayout, FilterValues, ReportSpec, Widget
 import type { DashboardView, HomeDashboard, WidgetRun } from "@shared/analytics/api";
 import type { Ctx } from "../../context";
 import { notFound } from "../../http/errors";
-import { access } from "../../access/provider";
 import { subjectOf } from "../../access";
-import { defFor, orgSchema } from "../../engine";
+import { orgSchema } from "../../engine";
+import { mayWriteRecord } from "../change/common";
 import { isUuid, liveRow, liveRows, num, type Row } from "./common";
 import { isRestricted, runReport } from "./query";
 import { scorecard, scoreItem } from "./indicators";
@@ -21,8 +21,18 @@ const RESTRICTED = "این ابزارک داده‌ای را نشان می‌د�
 /** May the caller change this definition (the area's write right and the row rule: owner or editor)? */
 export async function canEditDefinition(ctx: Ctx, table: string, row: Row): Promise<boolean> {
   if (ctx.actor === "system") return true;
-  const { def } = await defFor(ctx, table);
-  return access().canWrite(ctx, def, row);
+  return mayWriteRecord(ctx.db, ctx, table, row.id);
+}
+
+/**
+ * A definition the caller may open: readable, and — while it is in the recycle bin — only for those who may change it
+ * (who can restore it); for everyone else it is gone (404), shared or not.
+ */
+export async function openableDefinition(ctx: Ctx, table: "analytics_report" | "analytics_dashboard", id: string): Promise<Row | null> {
+  const row = await liveRow(ctx.db, ctx, table, id);
+  if (!row) return null;
+  if (row.trashed && !(await canEditDefinition(ctx, table, row))) return null;
+  return row;
 }
 
 function layoutOf(row: Row): DashboardLayout {
@@ -32,7 +42,7 @@ function layoutOf(row: Row): DashboardLayout {
 
 /** A readable dashboard as the caller may see it (404 when they may not read it, or it is in the recycle bin for others). */
 export async function dashboardView(ctx: Ctx, id: string): Promise<DashboardView> {
-  const row = await liveRow(ctx.db, ctx, "analytics_dashboard", id);
+  const row = await openableDefinition(ctx, "analytics_dashboard", id);
   if (!row) throw notFound("داشبورد پیدا نشد یا با شما به اشتراک گذاشته نشده است");
   return viewOf(ctx, row);
 }
@@ -72,7 +82,7 @@ async function widgetSpec(ctx: Ctx, w: Widget): Promise<{ spec: ReportSpec; repo
 
 /** One widget of a dashboard, computed as the caller with the dashboard's controls applied. */
 export async function runWidget(ctx: Ctx, dashboardId: string, widgetId: string, values: FilterValues = {}, opts: { now?: number } = {}): Promise<WidgetRun> {
-  const row = await liveRow(ctx.db, ctx, "analytics_dashboard", dashboardId);
+  const row = await openableDefinition(ctx, "analytics_dashboard", dashboardId);
   if (!row) throw notFound("داشبورد پیدا نشد یا با شما به اشتراک گذاشته نشده است");
   const w = layoutOf(row).widgets.find((x) => x.id === widgetId);
   if (!w) throw notFound("ابزارک پیدا نشد");

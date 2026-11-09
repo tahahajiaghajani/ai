@@ -155,12 +155,16 @@ describe("scheduled deliveries", () => {
     // the report is shared with the network group so its members read it
     const row = (await w.sdm.client.get(`${w.P}/r/analytics_report/${report.id}`)).row;
     await w.sdm.client.patch(`${w.P}/r/analytics_report/${report.id}`, { shares: [{ kind: "group", id: w.g.network }, { kind: "group", id: w.g.desk }], version: row.version });
+    // «ارسال اکنون» queues the occurrence: the owner learns how many recipients, never what each one got
     const r = await w.sdm.client.post(`${w.P}/analytics/schedules/${schedule.id}/send`, {});
-    const by = Object.fromEntries(r.outcomes.map((o: any) => [o.user, o]));
-    expect(by[w.sdm.userId].status).toBe("sent");
-    expect(by[w.p.agent.userId].status).toBe("sent");
-    expect(by[w.p.other.userId].status).toBe("sent");
-    expect(by[w.p.req.userId].status).toBe("no_access");
+    expect(r).toEqual({ queued: true, recipients: 4 });
+    await w.drain();
+    const statuses = await w.e.db.query<{ recipient_id: string; status: string }>(`select recipient_id, status from sm_analytics_deliveries where org_id = $1 and schedule_id = $2`, [w.e.org, schedule.id]);
+    const by = Object.fromEntries(statuses.map((o) => [o.recipient_id, o.status]));
+    expect(by[w.sdm.userId]).toBe("sent");
+    expect(by[w.p.agent.userId]).toBe("sent");
+    expect(by[w.p.other.userId]).toBe("sent");
+    expect(by[w.p.req.userId]).toBe("no_access");
     const mine = (await w.p.other.client.get(`${w.P}/r/analytics_delivery?size=10`)).rows;
     expect(mine.length).toBe(1);
     expect(mine[0].recipient_id).toBe(w.p.other.userId);
@@ -178,14 +182,22 @@ describe("scheduled deliveries", () => {
     const queued = await w.e.db.one<{ n: number }>(`select count(*)::int as n from sm_jobs where kind = 'notify.send' and org_id = $1`, [w.e.org]);
     expect(queued!.n).toBeGreaterThanOrEqual(3);
     const s = (await w.sdm.client.get(`${w.P}/r/analytics_schedule/${schedule.id}`)).row;
-    expect(s.last_result).toContain("ارسال");
+    expect(s.last_result).toContain("۴ گیرنده پردازش شد");
+    expect(s.last_result).not.toContain("دسترسی");
   });
 
   it("an empty report is skipped and logged when the schedule says so", async () => {
     const empty = (await w.sdm.client.post(`${w.P}/r/analytics_report`, { name: "رخدادهای گروه میز", spec: { ...spec, filter: { f: "assignment_group_id", op: "eq", v: w.g.desk } }, shares: [{ kind: "group", id: w.g.network }] })).row;
     const s = (await w.sdm.client.post(`${w.P}/r/analytics_schedule`, { name: "خالی", report_id: empty.id, schedule: { kind: "weekly", time: "09:00", weekdays: [0] }, recipients: [w.p.other.userId], include_owner: false, channels: ["in_app"], formats: ["summary"], skip_if_empty: true })).row;
     const r = await w.sdm.client.post(`${w.P}/analytics/schedules/${s.id}/send`, {});
-    expect(r.outcomes).toEqual([expect.objectContaining({ user: w.p.other.userId, status: "empty" })]);
+    expect(r).toEqual({ queued: true, recipients: 1 });
+    await w.drain();
+    // empty under the recipient's access: logged on the recipient's own delivery, reported to the owner as processed
+    const rows = await w.e.db.query<{ recipient_id: string; status: string }>(`select recipient_id, status from sm_analytics_deliveries where org_id = $1 and schedule_id = $2`, [w.e.org, s.id]);
+    expect(rows).toEqual([expect.objectContaining({ recipient_id: w.p.other.userId, status: "empty" })]);
+    const after = (await w.sdm.client.get(`${w.P}/r/analytics_schedule/${s.id}`)).row;
+    expect(after.last_result).toContain("۱ گیرنده پردازش شد");
+    expect(after.last_result).not.toContain("خالی");
   });
 
   it("the tick delivers what is due and moves the schedule to its next occurrence", async () => {
