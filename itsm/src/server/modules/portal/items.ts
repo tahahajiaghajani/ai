@@ -289,6 +289,9 @@ export async function ticketView(ctx: Ctx, table: string, id: string): Promise<P
 
   const invitation = await pendingInvitationFor(ctx, table, id).catch(() => null);
   const rating = typeof row.satisfaction === "number" ? row.satisfaction : typeof row.rating === "number" ? row.rating : null;
+  // the official answer of feedback, or the resolution notes — only when the person's field groups show the field
+  const shows = (n: string) => def.fields.some((f) => f.name === n) && (!visible || visible.has(n)) && typeof row[n] === "string" && String(row[n]).trim() !== "";
+  const resolution = shows("response") ? String(row.response) : card.stage === "done" || card.stage === "closed" ? (shows("close_notes") ? String(row.close_notes) : null) : null;
   return {
     ...card,
     description: typeof row.description === "string" ? row.description : null,
@@ -304,6 +307,7 @@ export async function ticketView(ctx: Ctx, table: string, id: string): Promise<P
     survey: invitation ? { invitation_id: invitation } : null,
     answers,
     rating,
+    resolution,
   };
 }
 

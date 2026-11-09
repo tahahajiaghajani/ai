@@ -175,6 +175,8 @@ export interface PortalTicket extends PortalTicketCard {
   answers: { label: string; value: string }[];
   /** the satisfaction the caller gave, when the table keeps one */
   rating: number | null;
+  /** the desk's official answer (feedback) or resolution notes, when the person's field groups show them */
+  resolution: string | null;
 }
 
 export interface PortalSearchHit {
