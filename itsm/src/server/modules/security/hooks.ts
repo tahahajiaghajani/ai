@@ -298,7 +298,7 @@ function playbookBefore(w: WriteArgs): void {
     if (!s || typeof s.title !== "string" || !s.title.trim() || s.title.length > 200) throw validationError({ steps: "هر گام عنوانی تا ۲۰۰ نویسه می‌خواهد" });
     if (s.phase && !PHASES.some((p) => p.value === s.phase)) throw validationError({ steps: `مرحلهٔ «${s.phase}» شناخته نیست` });
   }
-  if (w.op === "update" && w.changed.has("steps")) w.next.revision = Number(w.prev?.revision ?? 1) + 1;
+  if (w.op !== "create" && w.changed.has("steps")) w.next.revision = Number(w.prev?.revision ?? 1) + 1;
 }
 
 function configBefore(w: WriteArgs): void {
@@ -322,7 +322,7 @@ async function vulnBefore(w: WriteArgs): Promise<void> {
 }
 
 async function vulnAfter(w: WriteArgs & { row: Row }): Promise<void> {
-  if (w.op !== "update") return;
+  if (w.op === "create" || w.op === "delete") return;
   if (!["cvss_score", "epss", "kev", "kev_due", "exploit_maturity"].some((f) => w.changed.has(f))) return;
   await enqueue(w.tx, { kind: "security.rescore", orgId: w.ctx.org.id, payload: { vulnerability_id: w.row.id }, dedupeKey: `security.rescore:${w.row.id}`, maxAttempts: 5 });
 }
@@ -342,7 +342,7 @@ async function itemBefore(w: WriteArgs): Promise<void> {
     if (!asset) throw validationError({ ci_id: "پیکربندی یا میزبان را مشخص کنید" });
     n.dedupe_key = `${asset}|${n.vulnerability_id}`;
   }
-  if (w.op === "update" && w.changed.has("state")) {
+  if (w.op !== "create" && w.changed.has("state")) {
     const from = String(w.prev?.state ?? "");
     if (n.state === "fixed") n.fixed_at = now;
     if (n.state === "closed" && !n.verified_at) n.verified_at = now;
@@ -419,7 +419,7 @@ function requirementBefore(w: WriteArgs): void {
   if (w.op === "delete") return;
   const n = w.next;
   if (typeof n.code === "string") n.code = n.code.trim();
-  if (!w.trusted && w.op === "update" && (w.changed.has("applicable") || w.changed.has("justification"))) {
+  if (!w.trusted && w.op !== "create" && (w.changed.has("applicable") || w.changed.has("justification"))) {
     n.soa_state = "draft";
     n.soa_approved_by = null;
     n.soa_approved_at = null;
@@ -436,7 +436,7 @@ async function requirementAfter(w: WriteArgs & { row: Row }): Promise<void> {
   const ctx = w.ctx;
   const tx = w.tx;
   if (w.op === "create" || w.op === "delete" || w.changed.has("applicable")) {
-    if (w.op === "update") onBeforeCommit(tx, `grc.req:${row.id}`, () => recomputeRequirements(tx, ctx, [row.id]));
+    if (w.op !== "create" && w.op !== "delete") onBeforeCommit(tx, `grc.req:${row.id}`, () => recomputeRequirements(tx, ctx, [row.id]));
     if (isUuid(row.framework_id)) onBeforeCommit(tx, `grc.fw:${row.framework_id}`, () => recomputeFramework(tx, ctx, row.framework_id));
   }
 }
@@ -452,7 +452,7 @@ async function controlAfter(w: WriteArgs & { row: Row }): Promise<void> {
   const row = w.op === "delete" ? w.prev : w.row;
   if (!row) return;
   const watch = ["requirements", "implementation_status", "effectiveness", "indicator_status", "active"];
-  if (w.op === "update" && !watch.some((f) => w.changed.has(f))) return;
+  if (w.op !== "create" && w.op !== "delete" && !watch.some((f) => w.changed.has(f))) return;
   const reqs = new Set([...ids(row.requirements), ...ids(w.prev?.requirements)]);
   const ctx = w.ctx;
   const tx = w.tx;
@@ -531,7 +531,7 @@ async function policyBefore(w: WriteArgs): Promise<void> {
     if (!n.effective_at) n.effective_at = today;
     n.next_review_at = addMonths(today, Number(cfg.policy_review_months) || 12);
   }
-  if (w.op === "update" && w.prev?.state === "published" && n.state === "draft") {
+  if (w.op !== "create" && w.prev?.state === "published" && n.state === "draft") {
     const m = /^(\d+)\.(\d+)$/.exec(String(n.version_label ?? ""));
     if (m && n.version_label === w.prev?.version_label) n.version_label = `${m[1]}.${Number(m[2]) + 1}`;
   }
@@ -673,7 +673,7 @@ async function riskBefore(w: WriteArgs): Promise<void> {
   }
   if (w.ctx.actor !== "system" && (w.op === "create" || w.changed.has("state") || ASSESSMENT.some((f) => w.changed.has(f)))) {
     n.last_reviewed_at = iso();
-    if (w.op === "update" && !w.changed.has("review_due")) n.review_due = addMonths(todayOf(w.ctx), 6);
+    if (w.op !== "create" && !w.changed.has("review_due")) n.review_due = addMonths(todayOf(w.ctx), 6);
   }
 }
 
