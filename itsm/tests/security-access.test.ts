@@ -169,7 +169,8 @@ describe("module routes and tools", () => {
     // the code reached the caller's inbox (they read their own incident)
     await w.drain();
     const inbox = await w.p.req.client.get(`${w.P}/notify/inbox`);
-    const code = /(\d{6})/.exec(JSON.stringify(inbox).replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d))))?.[1];
+    // the code itself, not six digits of an id or a number elsewhere in the inbox
+    const code = /رمز تأیید هویت(?: شما)?:? (\d{6})(?!\d)/.exec(JSON.stringify(inbox).replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d))))?.[1];
     expect(code).toBeTruthy();
     const ok = await w.p.agent.client.post(`${w.P}/security/verify/${v.id}/check`, { code });
     expect(ok.status).toBe("verified");
