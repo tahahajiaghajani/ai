@@ -258,7 +258,10 @@ export async function modelCards(ctx: Ctx): Promise<ModelCard[]> {
       inputs: m.inputs,
       outputs: m.kind === "classifier" ? "سه مقدار محتمل با اطمینان و واژه‌های اثرگذار" : m.kind === "risk" ? "احتمال و عامل‌های اثرگذار" : "رکوردهای مشابه یا خوشه‌ها",
       evaluation: m.beats_baseline ? evaluation : `${evaluation} — از خط پایه بهتر نیست و به کار نمی‌رود`,
-      limitations: KIND_LIMITS[m.kind] ?? [],
+      limitations:
+        m.key === "duplicate:kb_article"
+          ? ["با بردارهای مدل بردارسازی سازمان کار می‌کند؛ بی آن چیزی پیشنهاد نمی‌دهد", "هر جفت پیشنهاد است و کارشناسان دانش ادغامش را تصمیم می‌گیرند"]
+          : (KIND_LIMITS[m.kind] ?? []),
       oversight: m.threshold_apply !== null ? `اعمال خودکار از اطمینان ${pct(m.threshold_apply)}؛ بقیه پیشنهاد است` : "فقط پیشنهاد؛ هر اعمال با دسترسی خود کاربر",
       version: m.version ? String(m.version) : null,
       updated_at: m.trained_at,

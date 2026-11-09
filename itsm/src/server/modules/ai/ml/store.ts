@@ -83,7 +83,7 @@ export async function modelRow(q: Queryable, orgId: string, key: string): Promis
 /** Defaults of a new model: classifiers suggest from 50%, never apply by themselves; a first training soon. */
 function defaults(spec: ModelSpec): { threshold_show: number; schedule: TrainSchedule } {
   if (spec.kind === "risk") return { threshold_show: spec.def.alert ?? 0.6, schedule: "weekly" };
-  if (spec.kind === "duplicate") return { threshold_show: 0.82, schedule: "manual" };
+  if (spec.kind === "duplicate") return spec.pass ? { threshold_show: 0.9, schedule: "daily" } : { threshold_show: 0.82, schedule: "manual" };
   if (spec.kind === "cluster") return { threshold_show: 0.5, schedule: "daily" };
   return { threshold_show: 0.5, schedule: "weekly" };
 }

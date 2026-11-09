@@ -3,7 +3,8 @@
 //   · `ai.ml.tick` every 15 minutes per organisation: keeps the registry in step with the schema, queues the training
 //     runs that are due and the risk scoring of open records; reschedules itself. Queued by record events and the
 //     /ai/ml routes, so every organisation that works gets it.
-//   · `ai.ml.train` one model: a classifier or a risk model (./train.ts), a cluster run (./clusters.ts) — the
+//   · `ai.ml.train` one model: a classifier or a risk model (./train.ts), a cluster run (./clusters.ts), the semantic
+//     pass over knowledge articles (./kbdup.ts) — the
 //     administrator's «آموزش دوباره» sets `force`.
 //   · `ai.ml.risk` one risk model: scores every open record of its table.
 //   · `ai.ml.score` one record: its classifiers' predictions and its likely duplicate (record events of task tables).
@@ -13,6 +14,7 @@ import { onRecordEvent, orgSchema, systemCtx } from "../../../engine";
 import { enqueue, registerJobHandler } from "../../../jobs";
 import { tableDef } from "@shared/tables";
 import { runClusters } from "./clusters";
+import { semanticKbDuplicates } from "./kbdup";
 import { scoreRecord, scoreRisks } from "./score";
 import { modelSpecs, textFields, type ModelSpec } from "./specs";
 import { modelRow, modelRows, recordOutcome, saveTraining, syncModels } from "./store";
@@ -43,6 +45,11 @@ export async function runModel(cfg: ServerConfig, orgId: string, key: string, op
     return r;
   }
   if (spec.kind === "duplicate") {
+    if (spec.pass === "kb_semantic") {
+      const r = await semanticKbDuplicates(sys, Number(m.threshold_show));
+      await saveTraining(sys, m, { status: r.note ? "insufficient" : "ready", metrics: { ...r }, baseline: null, beats: !r.note, params: null, rows: r.articles, error: r.note, summary: { pairs: r.pairs, articles: r.articles } });
+      return r;
+    }
     await saveTraining(sys, m, { status: "ready", metrics: null, baseline: null, beats: true, params: null, rows: 0, error: null, summary: {} });
     return null;
   }

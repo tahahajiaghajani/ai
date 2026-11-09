@@ -3,7 +3,8 @@
 //   · classifiers — every task table (`extends: "task"`) with a text to read gets one per target field it has among
 //     category, assignment group, priority and service (`TARGET_INPUTS`), plus what modules register with
 //     `registerPredictionTarget`;
-//   · duplicates — every task table with a text: new records against the recent ones of the same table;
+//   · duplicates — every task table with a text: new records against the recent ones of the same table; knowledge
+//     articles of one base by meaning (./kbdup.ts, with the organisation's embedding model);
 //   · clusters — task tables with a problem reference (`problem_id`): unlinked records of the last 60 days;
 //   · risk models — SLA breach for every table whose records carry SLAs (`features.sla`), and those registered with
 //     `registerRiskModel` (the change failure model below, registered when the change table exists).
@@ -55,6 +56,8 @@ export interface ClassifierSpec extends BaseSpec {
 export interface DuplicateSpec extends BaseSpec {
   kind: "duplicate";
   text: string[];
+  /** a pass over a whole table instead of new records against recent ones (./kbdup.ts: knowledge articles by meaning) */
+  pass?: "kb_semantic";
 }
 
 export interface ClusterSpec extends BaseSpec {
@@ -172,6 +175,11 @@ export function modelSpecs(schema: OrgSchema): ModelSpec[] {
       const r = slaRiskDef(def);
       out.push({ key: r.key, kind: "risk", name: r.name, table: def.key, target: "breach", inputs: r.features.map((x) => x.name), def: r });
     }
+  }
+  // knowledge articles that say the same in other words, when the knowledge module is there (./kbdup.ts)
+  const kb = schema.def("kb_article");
+  if (kb && schema.def("kb_duplicate")) {
+    out.push({ key: "duplicate:kb_article", kind: "duplicate", name: `${kb.plural} هم‌معنا (تکراری)`, table: kb.key, target: null, text: ["title", "body"], inputs: [], pass: "kb_semantic" });
   }
   for (const r of riskModels.values()) {
     if (!schema.def(r.table) || (r.when && !r.when(schema))) continue;
