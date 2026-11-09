@@ -11,7 +11,7 @@ import type { Ctx } from "../../context";
 import type { Tx } from "../../db";
 import { addJournalIn, createIn, emitEvent, get, orgSchema, transitionIn, updateIn } from "../../engine";
 import { bad, conflict, forbidden, notFound } from "../../http/errors";
-import { onApprovalSettled } from "../sla";
+import { onApprovalSettled, settledVerdict } from "../sla";
 import { copyOf, evaluateChecksIn } from "./checks";
 import { ids, liveRow, managesReleases, sysOf, type Row } from "./common";
 
@@ -78,9 +78,13 @@ export const readinessOfRows = readinessOf;
 /** Settled approval rounds of a release in readiness become its decision. */
 export function installDecisionHooks(): (() => void)[] {
   return [
-    onApprovalSettled("release", async ({ tx, ctx, record, outcome, by }) => {
-      if (record.state !== "readiness" || outcome === "canceled") return;
-      if (outcome === "approved") {
+    onApprovalSettled("release", async (s) => {
+      const { tx, ctx, record, by } = s;
+      // the release's approvals as a whole (a re-run that left nothing open is `replanned`, never a rejection; a
+      // withdrawal never approves)
+      const verdict = settledVerdict(s);
+      if (record.state !== "readiness" || !verdict) return;
+      if (verdict === "approved") {
         // a Go only when nothing blocks; otherwise the approvers' yes is noted and the manager decides
         const r = await evaluateChecksIn(tx, ctx, String(record.id));
         if (!r.readiness.ready) {

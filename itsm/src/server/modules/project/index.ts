@@ -8,7 +8,7 @@
 //   · the AI skill project.status_summary; record meta `project`; the seed of a new organisation
 import { PROJECT_RUNNING } from "@shared/tables/project";
 import { registerOrgSeed } from "../orgs/service";
-import { onApprovalSettled, registerApproverSource, SEED_DELAY_MS } from "../sla";
+import { onApprovalSettled, registerApproverSource, SEED_DELAY_MS, settledVerdict } from "../sla";
 import { access } from "../../access/provider";
 import { onRecordEvent, registerRecordMeta, systemCtx, transitionIn } from "../../engine";
 import { enqueue, registerJobHandler, type JobConfig, type JobContext } from "../../jobs";
@@ -47,9 +47,12 @@ export function installProjectModule(): void {
     const p = await liveRow(q, ctx, "portfolio", row.portfolio_id);
     return [p?.manager_id ?? p?.owner_id].filter((x): x is string => typeof x === "string" && !!x && x !== row.project_manager_id);
   });
-  onApprovalSettled("project", async ({ tx, ctx, record, outcome }) => {
-    if (record.state !== "gate" || outcome === "canceled") return;
-    await transitionIn(tx, ctx, "project", String(record.id), outcome === "approved" ? "approved" : "proposed", {}, { trusted: true });
+  onApprovalSettled("project", async (s) => {
+    const { tx, ctx, record } = s;
+    // a re-run that left nothing open is `replanned` (read from the aggregate, never a rejection); a withdrawal waits
+    const verdict = settledVerdict(s);
+    if (record.state !== "gate" || !verdict) return;
+    await transitionIn(tx, ctx, "project", String(record.id), verdict === "approved" ? "approved" : "proposed", {}, { trusted: true });
   });
   registerRecordMeta("project", async ({ q, ctx, def, row }) => ({ project: { can_work: access().canWrite(ctx, def, row), manages: await managesProjects(q, ctx) } }));
   registerJobHandler("project.recalc", async (job, jctx) => {

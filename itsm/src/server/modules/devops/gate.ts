@@ -15,7 +15,7 @@ import type { ServerConfig, Ctx } from "../../context";
 import type { Tx } from "../../db";
 import { actorId, createIn, emitEvent, savepoint, transitionIn, updateIn, type WriteArgs } from "../../engine";
 import { forbidden } from "../../http/errors";
-import { onApprovalSettled } from "../sla";
+import { onApprovalSettled, settledVerdict } from "../sla";
 import { occurrencesBetween } from "../change";
 import { freezesFor } from "../release/checks";
 import { matchEnvironment } from "@shared/devops/logic";
@@ -180,9 +180,12 @@ export async function timeoutGates(sys: Ctx, now = Date.now()): Promise<number> 
 /** A settled approval round of a pending gate decides it. */
 export function installGateApprovals(): (() => void)[] {
   return [
-    onApprovalSettled("change_gate", async ({ tx, ctx, record, outcome, by }) => {
-      if (record.state !== "pending" || outcome === "canceled") return;
-      const to = outcome === "approved" ? "approved" : "rejected";
+    onApprovalSettled("change_gate", async (s) => {
+      const { tx, ctx, record, by } = s;
+      // the gate's approvals as a whole: `replanned` is read from the aggregate, a withdrawal leaves it pending
+      const verdict = settledVerdict(s);
+      if (record.state !== "pending" || !verdict) return;
+      const to = verdict;
       await transitionIn(tx, ctx, "change_gate", String(record.id), to, to === "rejected" ? { reason: "تأییدکنندگان استقرار را رد کردند" } : {}, { trusted: true });
       await updateIn(tx, ctx, "change_gate", String(record.id), { decided_by: by }, { trusted: true, keepVersion: true, allowLocked: true });
     }),

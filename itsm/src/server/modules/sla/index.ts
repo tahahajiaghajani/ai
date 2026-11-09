@@ -41,7 +41,7 @@ export { seedCalendars, seedCalendarsIn, holidaysBetween, calendarFor, SEED_DELA
 export { fireTimer, recordTimers, slaTimeline, schedule as scheduleSlaTimer } from "./sla";
 export {
   decide, decideMany, myApprovals, myApprovalCount, recordApprovals, requestApproval, requestApprovalIn, cancelApprovals, activeDelegations, delegateOf, delegatorsOf, managerOf, registerApproverSource, approverSources,
-  cancelApprovalsIn, rerunApprovalRules, rerunApprovalRulesIn, onApprovalSettled, type ApprovalSettled, type ApprovalSettledFn, type CancelOptions, type RerunOptions,
+  cancelApprovalsIn, rerunApprovalRules, rerunApprovalRulesIn, onApprovalSettled, settledVerdict, type ApprovalSettled, type ApprovalSettledFn, type CancelOptions, type RerunOptions,
 } from "./approvals";
 export { registerPriorityDefault, setOnCallResolver, MAX_RULE_DEPTH } from "./rules";
 export { uiPolicies, policiesOf } from "./policies";

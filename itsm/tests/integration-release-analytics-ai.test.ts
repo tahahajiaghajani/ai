@@ -17,6 +17,7 @@ import { recordProposals, storeProposal } from "@server/modules/ai/actions";
 import { isServiceEmail, principalOf, setPrincipal } from "@server/modules/ai/skills/principal";
 import { resolveSkill } from "@server/modules/ai/skills";
 import { runReport } from "@server/modules/analytics/query";
+import { settledVerdict } from "@server/modules/sla";
 import { designerPath } from "@server/modules/analytics/ai";
 import { tableDef, physicalTables } from "@shared/tables";
 import { BUILTIN_KEYS } from "@shared/access/builtins";
@@ -266,5 +267,17 @@ describe("release, analytics and AI together", () => {
     // the change dashboard reaches the release manager
     const dash = ((await w.p.rm.client.get(`${w.P}/r/analytics_dashboard?size=50`)).rows as { name: string }[]).map((d) => d.name);
     expect(dash).toEqual(expect.arrayContaining(["داشبورد مدیریت تغییر", "داشبورد انتشار و دواپس"]));
+  });
+
+  it("release go/no-go, project gates and deployment gates read a settled round the same way (a re-run is never a rejection)", () => {
+    expect(settledVerdict({ outcome: "approved", aggregate: "approved" })).toBe("approved");
+    expect(settledVerdict({ outcome: "rejected", aggregate: "rejected" })).toBe("rejected");
+    // a re-run of the rules that left nothing open: approved or nothing asks any more — never a rejection
+    expect(settledVerdict({ outcome: "replanned", aggregate: "approved" })).toBe("approved");
+    expect(settledVerdict({ outcome: "replanned", aggregate: "not_requested" })).toBe("approved");
+    expect(settledVerdict({ outcome: "replanned", aggregate: "rejected" })).toBe("rejected");
+    // a withdrawal never approves; a round approved while another rule's round is open waits
+    expect(settledVerdict({ outcome: "canceled", aggregate: "approved" })).toBeNull();
+    expect(settledVerdict({ outcome: "approved", aggregate: "requested" })).toBeNull();
   });
 });

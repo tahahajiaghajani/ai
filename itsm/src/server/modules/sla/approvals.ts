@@ -231,6 +231,20 @@ const settledHooks: { table: string; fn: ApprovalSettledFn }[] = [];
  * nothing open (every new round auto-approved, or no rule asking any more) settles once as `replanned` with the
  * record's aggregate. A withdrawn round (`canceled`) never counts as an approval. Returns an unregister function.
  */
+/**
+ * What a settled round means for a record that waits on its approvals as a whole: «approved» when the record's
+ * approvals are approved (or nothing asks any more), «rejected» when they are rejected, null while another round is
+ * still open or when the round was withdrawn (a withdrawal never approves). A `replanned` settlement is read from the
+ * aggregate the same way — never as a rejection.
+ */
+export function settledVerdict(s: Pick<ApprovalSettled, "outcome" | "aggregate">): "approved" | "rejected" | null {
+  if (s.outcome === "canceled") return null;
+  if (s.aggregate === "rejected") return "rejected";
+  if (s.aggregate === "approved" || s.aggregate === "not_requested") return "approved";
+  if (s.outcome === "rejected") return "rejected";
+  return null;
+}
+
 export function onApprovalSettled(table: string, fn: ApprovalSettledFn): () => void {
   const h = { table, fn };
   settledHooks.push(h);
