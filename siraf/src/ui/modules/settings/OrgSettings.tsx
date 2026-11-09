@@ -50,6 +50,29 @@ export default function OrgSettings() {
   });
   const s = org.settings ?? {};
   const editable = can("settings", "edit");
+  // the exchange defaults are the board's own settings (PUT /fx/settings), which take «صرافی: کامل»
+  const fxEditable = editable && can("fx", "full");
+  // The gold and exchange defaults belong to the boards' own settings and go through their validated routes: PATCH
+  // /o/:org refuses settings.gold and settings.fx, which also hold the price sources. Only fields that changed are sent,
+  // so an untouched section needs no access and re-checks nothing.
+  const saveSettings = useAction(
+    async ({ gold, fx, ...rest }: Record<string, any>) => {
+      const changed = (now: Record<string, unknown> = {}, was: Record<string, unknown> = {}) =>
+        Object.fromEntries(Object.entries(now).filter(([k, x]) => x !== undefined && String(x ?? "") !== String(was[k] ?? "")));
+      const g = has("gold") ? changed(gold, s.gold) : {};
+      const f = has("fx") && fxEditable ? changed(fx, s.fx) : {};
+      if ("refresh_seconds" in f) f.refresh_seconds = f.refresh_seconds === null || f.refresh_seconds === "" ? null : Number(f.refresh_seconds);
+      if (Object.keys(g).length) await api.put("/gold/settings", g);
+      if (Object.keys(f).length) await api.put("/fx/settings", f);
+      return api.patch("", { settings: rest });
+    },
+    {
+      success: "تنظیمات ذخیره شد.",
+      onSuccess: () => {
+        for (const queryKey of [["org", orgId], ["me"], ["gold-settings"], ["fx-settings"], ["fx-board"]]) qc.invalidateQueries({ queryKey });
+      },
+    },
+  );
   const ltr = { dir: "ltr" as const, className: "sf-num", style: { textAlign: "right" as const } };
 
   return (
@@ -104,7 +127,7 @@ export default function OrgSettings() {
           requiredMark={false}
           disabled={!editable}
           initialValues={{ ...s, gold: s.gold ?? {}, fx: s.fx ?? {}, moadian: s.moadian ?? {} }}
-          onFinish={(v) => save.mutate({ settings: { ...v, gold: { ...(s.gold ?? {}), ...(v.gold ?? {}) }, fx: { ...(s.fx ?? {}), ...(v.fx ?? {}) } } })}
+          onFinish={(v) => saveSettings.mutate(v)}
           className="bk-card"
         >
           <div className="px-5">
@@ -137,15 +160,15 @@ export default function OrgSettings() {
               </Sec>
             ) : null}
             {has("fx") ? (
-              <Sec title="صرافی" desc="حاشیهٔ خرید و فروش و به‌روزرسانی قیمت زنده.">
+              <Sec title="صرافی" desc={editable && !fxEditable ? "حاشیهٔ خرید و فروش و به‌روزرسانی قیمت زنده؛ تغییرشان با دسترسی «کامل» صرافی است." : "حاشیهٔ خرید و فروش و به‌روزرسانی قیمت زنده."}>
                 <div className="bk-grid3">
-                  <Form.Item name={["fx", "margin_pct"]} label="حاشیه روی نرخ بازار"><PctInput /></Form.Item>
-                  <Form.Item name={["fx", "refresh_seconds"]} label="به‌روزرسانی قیمت زنده" extra="بر حسب ثانیه"><NumberInput suffix="ثانیه" /></Form.Item>
+                  <Form.Item name={["fx", "margin_pct"]} label="حاشیه روی نرخ بازار"><PctInput disabled={!fxEditable} /></Form.Item>
+                  <Form.Item name={["fx", "refresh_seconds"]} label="به‌روزرسانی قیمت زنده" extra="بر حسب ثانیه"><NumberInput suffix="ثانیه" disabled={!fxEditable} /></Form.Item>
                 </div>
               </Sec>
             ) : null}
           </div>
-          {editable ? <SaveBar loading={save.isPending} /> : null}
+          {editable ? <SaveBar loading={saveSettings.isPending} /> : null}
         </Form>
       ) : (
         <Form key="modules" layout="vertical" disabled={!can("settings", "full")} initialValues={{ modules: org.modules }} onFinish={(v) => save.mutate(v)} className="bk-card">

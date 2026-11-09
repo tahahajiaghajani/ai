@@ -1,7 +1,7 @@
 // Exchange settings (settings.fx of the organisation): price providers and their order, board
 // margin, live refresh interval, KYC threshold, overdraft rule and custom price sources. The keys of
 // custom sources are not settings: each runtime keeps its own in tz_price_keys (source-keys.ts).
-import type { Ctx } from "../../context";
+import type { Ctx, OrgRow } from "../../context";
 import { bad } from "../../http/errors";
 import { D, isNumeric } from "@shared/money";
 import { cleanSourceLabel, cleanSourceLink, hostOf, sourceOrigin } from "@shared/price-source";
@@ -9,13 +9,23 @@ import { fxSettings, PROVIDERS, type CustomSource, type FxSettings } from "./com
 import { safeExternalUrl } from "./net";
 import { keyedOrigins, keyedSourceProblem, publicKeys, saveKeys, type KeyChange } from "./source-keys";
 
+/**
+ * Who may change the board's sources («تنظیمات نرخ و منابع قیمت»: custom sources and their keys). Only they see the custom
+ * sources' URLs, which may still carry an owner's key written into them before {key} and headers.
+ */
+export const canManageFxSources = (ctx: Ctx) => ctx.can("fx", "full");
+
+/** The exchange settings as `ctx` may read them: the custom sources without their URLs for those who may not manage them. */
+export function fxSettingsFor(ctx: Ctx, org: Pick<OrgRow, "settings"> = ctx.org): FxSettings {
+  const s = fxSettings(org);
+  return canManageFxSources(ctx) ? s : { ...s, custom: s.custom.map((c) => ({ ...c, url: "" })) };
+}
+
 export async function readSettings(ctx: Ctx) {
   ctx.need("fx", "view");
-  const s = fxSettings(ctx.org);
-  // custom URLs may still carry an owner's key written into them before {key}
-  const full = ctx.can("fx", "full");
+  const full = canManageFxSources(ctx);
   return {
-    settings: full ? s : { ...s, custom: s.custom.map((c) => ({ ...c, url: "" })) },
+    settings: fxSettingsFor(ctx),
     providers: PROVIDERS,
     can_edit: full,
     // the keys of custom sources saved on this runtime («…abcd» only), for those who may change them

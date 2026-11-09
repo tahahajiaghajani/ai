@@ -262,3 +262,128 @@ describe("what a desktop receives when it synchronises", () => {
     expect(again.device_id).toBe(mine.device_id);
   });
 });
+
+describe("custom price-source URLs: who reads them, and what writes them", () => {
+  // keys written straight into a source's URL, from before {key} and key headers (Navasan's ?api_key=, a gold feed's token)
+  const FX_KEY = "nav-Legacy3Month-7Q2wX9";
+  const GOLD_KEY = "gold-feed-token-55aa1c";
+  const FX_URL = `https://api.navasan.tech/latest/?api_key=${FX_KEY}`;
+  const GOLD_URL = `https://prices.example.com/v1/gold.json?token=${GOLD_KEY}`;
+  let app: App;
+  let db: Db;
+  let org: string;
+  let owner: Client;
+  let viewer: Client;
+  let cashier: Client;
+  let accountant: Client;
+  let editor: Client;
+  const stored = async () => (await db.one<{ settings: Record<string, any> }>(`select settings from tz_orgs where id = $1`, [org]))!.settings;
+  const urls = (custom: { url: string }[]) => custom.map((x) => x.url);
+
+  beforeAll(async () => {
+    const s = await makeServer();
+    db = s.db;
+    // a network address of its own, so that sign-ups and logins here do not count against other tests
+    app = { fetch: (r: Request) => (r.headers.set("x-forwarded-for", "10.61.0.2"), s.app.fetch(r)) };
+    owner = new Client(app);
+    org = await signupWithOrg(owner);
+    await owner.put(`/o/${org}/fx/settings`, {
+      providers: ["custom", "tgju"],
+      custom: [
+        { code: "USD", url: FX_URL, path: "usd_sell.value", unit: "base", factor: "10" },
+        { code: "EUR", url: FX_URL, path: "eur.value", unit: "base", factor: "10", label: "Navasan", link: "https://navasan.tech" },
+      ],
+    });
+    await owner.put(`/o/${org}/gold/settings`, { price_source: { url: GOLD_URL, unit: "rial", label: "طلای نمونه", paths: { gram18: "data.g18" } } });
+    const member = async (email: string, full_name: string, role: string) => {
+      await owner.post(`/o/${org}/members`, { email, full_name, role, password: "member-pass-1" });
+      const c = new Client(app);
+      await c.post("/auth/login", { email, password: "member-pass-1" });
+      return c;
+    };
+    viewer = await member("price-viewer@example.com", "ناظر", "viewer");
+    cashier = await member("price-cashier@example.com", "صندوقدار", "cashier");
+    accountant = await member("price-acc@example.com", "حسابدار", "accountant");
+    // a viewer who may also edit the business's settings: enough for the gold source, not for the exchange's sources
+    editor = await member("price-editor@example.com", "ویرایشگر تنظیمات", "viewer");
+    const { members } = await owner.get(`/o/${org}/members`);
+    const id = members.find((m: { email: string }) => m.email === "price-editor@example.com").id;
+    await owner.patch(`/o/${org}/members/${id}`, { overrides: { settings: "edit" } });
+  });
+
+  it("keeps the sources' URLs from members who may not change them: the business payload and the boards' settings", async () => {
+    for (const c of [viewer, cashier]) {
+      const info = await c.get(`/o/${org}`);
+      const gold = await c.get(`/o/${org}/gold/settings`);
+      const fx = await c.get(`/o/${org}/fx/settings`);
+      for (const answer of [info, gold, fx]) {
+        expect(JSON.stringify(answer)).not.toContain(FX_KEY);
+        expect(JSON.stringify(answer)).not.toContain(GOLD_KEY);
+      }
+      // the sources are still there without their URLs: the boards name them and «منبع دلخواه» stays on
+      expect(info.org.settings.fx.custom.map((x: { code: string; url: string }) => [x.code, x.url])).toEqual([["USD", ""], ["EUR", ""]]);
+      expect(info.org.settings.fx.custom[1]).toMatchObject({ label: "Navasan", link: "https://navasan.tech" });
+      expect(info.org.settings.fx).toMatchObject({ providers: ["custom", "tgju"], refresh_seconds: 60 });
+      expect(info.org.settings.gold.price_source).toMatchObject({ url: "", label: "طلای نمونه", paths: { gram18: "data.g18" } });
+      expect(gold.settings.price_source).toMatchObject({ url: "", label: "طلای نمونه" });
+      expect(gold.price_key).toBeNull();
+    }
+  });
+
+  it("still shows them to the members who manage the sources", async () => {
+    for (const c of [owner, accountant]) {
+      const info = await c.get(`/o/${org}`);
+      expect(urls(info.org.settings.fx.custom)).toEqual([FX_URL, FX_URL]);
+      expect(info.org.settings.gold.price_source.url).toBe(GOLD_URL);
+      expect((await c.get(`/o/${org}/gold/settings`)).settings.price_source.url).toBe(GOLD_URL);
+      expect(urls((await c.get(`/o/${org}/fx/settings`)).settings.custom)).toEqual([FX_URL, FX_URL]);
+    }
+    // settings:edit manages the gold source («تنظیمات قیمت و محاسبه»), the exchange's sources take fx:full
+    const info = await editor.get(`/o/${org}`);
+    expect(info.org.settings.gold.price_source.url).toBe(GOLD_URL);
+    expect(urls(info.org.settings.fx.custom)).toEqual(["", ""]);
+    expect((await editor.get(`/o/${org}/gold/settings`)).settings.price_source.url).toBe(GOLD_URL);
+    // PATCH /o/:org answers with the business as the member may read it
+    const patched = await editor.patch(`/o/${org}`, { phone: "02100000002" });
+    expect(patched.org.phone).toBe("02100000002");
+    expect(patched.org.settings.gold.price_source.url).toBe(GOLD_URL);
+    expect(JSON.stringify(patched)).not.toContain(FX_KEY);
+  });
+
+  it("keeps the sync pull whole: a cashier's Windows app asks the sources itself", async () => {
+    const { rev } = (await db.one<{ rev: number }>(`select rev from tz_orgs where id = $1`, [org]))!;
+    const pull = await cashier.get(`/sync/pull?org_id=${org}&cursor=${Number(rev) - 1}&user_cursor=0`);
+    const row = pull.aggregates.find((a: { entity: string }) => a.entity === "org").row;
+    expect(urls(row.settings.fx.custom)).toEqual([FX_URL, FX_URL]);
+    expect(row.settings.gold.price_source.url).toBe(GOLD_URL);
+  });
+
+  it("refuses settings.fx and settings.gold through PATCH /o/:org: only the boards' own routes write them, with their checks", async () => {
+    const before = await stored();
+    const fx = await owner.patch(`/o/${org}`, { settings: { fx: { custom: [{ code: "USD", url: "https://collector.example.com/usd", path: "usd" }] } } }, 400);
+    expect(fx.error.message).toContain("/fx/settings");
+    const gold = await owner.patch(`/o/${org}`, { settings: { gold: { price_source: { url: "https://collector.example.com/gold", paths: { gram18: "g18" } } } } }, 400);
+    expect(gold.error.message).toContain("/gold/settings");
+    // nor a default kept next to the sources, nor a null that would replace a whole group
+    await owner.patch(`/o/${org}`, { settings: { fx: { refresh_seconds: 5 } } }, 400);
+    await accountant.patch(`/o/${org}`, { settings: { gold: null, vat_pct: "10" } }, 400);
+    expect(await stored()).toEqual(before);
+    // the business's own settings still save, and leave the boards' settings as they were
+    await owner.patch(`/o/${org}`, { settings: { vat_pct: "10", timezone: "Asia/Tehran" } });
+    const after = await stored();
+    expect(after).toMatchObject({ vat_pct: "10", timezone: "Asia/Tehran" });
+    expect(after.fx).toEqual(before.fx);
+    expect(after.gold).toEqual(before.gold);
+    // the business settings page saves the boards' defaults through their own routes: checked, and the sources kept
+    await owner.put(`/o/${org}/fx/settings`, { refresh_seconds: 5 }, 400);
+    await owner.put(`/o/${org}/fx/settings`, { margin_pct: "1", refresh_seconds: 30 });
+    await owner.put(`/o/${org}/gold/settings`, { profit_pct: "8" });
+    const saved = await stored();
+    expect(saved.fx).toMatchObject({ margin_pct: "1", refresh_seconds: 30 });
+    expect(urls(saved.fx.custom)).toEqual([FX_URL, FX_URL]);
+    expect(saved.gold).toMatchObject({ profit_pct: "8", price_source: { url: GOLD_URL } });
+    // without «صرافی: کامل» the exchange's defaults stay closed (the page shows them disabled), the gold ones do not
+    await editor.put(`/o/${org}/fx/settings`, { margin_pct: "2" }, 403);
+    await editor.put(`/o/${org}/gold/settings`, { profit_pct: "9" });
+  });
+});

@@ -81,7 +81,7 @@ export interface CustomSource {
   link?: string | null;
 }
 
-/** A stored row as the settings hold it: written by this module, but also by sync and PATCH /o/:org unchecked. */
+/** A stored row as the settings hold it: written by this module, but also by a sync, unchecked. */
 function parseCustom(raw: unknown): CustomSource | null {
   if (!raw || typeof raw !== "object") return null;
   const c = raw as Record<string, unknown>;

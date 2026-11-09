@@ -10,7 +10,9 @@ import { seedGoldCatalogue } from "../modules/gold/catalogue";
 import { closeFiscalYear, reopenFiscalYear } from "../modules/accounting/closing";
 import { AREAS, permissionMap, ROLES, type Area, type Level, type Role } from "@shared/permissions";
 import { APP_NAME, BUSINESS_KINDS, BASE_CURRENCIES, type ModuleKey } from "@shared/constants";
-import { supportPermissions } from "../context";
+import { supportPermissions, type Ctx, type OrgRow } from "../context";
+import { canManageFxSources, fxSettingsFor } from "../modules/fx/settings";
+import { canManageGoldSource, goldSettingsFor } from "../modules/gold/settings";
 import { orgAccess } from "../modules/platform/access";
 import { accessibleOrgs, endSupport, listSupportSessions, SUPPORT_LEVEL_TITLE } from "../modules/platform/support";
 import { requestMeta, securityEvent } from "../modules/platform/security";
@@ -68,6 +70,24 @@ orgRoutes.use("*", orgAccess);
 // «زنده»: a token that changes whenever this business's data changes (src/server/live.ts)
 orgRoutes.get("/pulse", async (c) => c.json({ pulse: await pulse(c.get("ctx")) }));
 
+/**
+ * The business row as this member may read it (GET and PATCH /o/:org). A custom price source may still carry a key
+ * written into its URL before {key} and headers, so its URL goes only to those who may change the source, as in the
+ * boards' own settings: settings.fx.custom[].url with fx:full, settings.gold.price_source.url with gold:full or
+ * settings:edit. The sync pull still carries the settings whole: every runtime asks the sources itself.
+ */
+function orgPayload(ctx: Ctx, org: OrgRow): OrgRow {
+  const settings: Record<string, unknown> = { ...(org.settings ?? {}) };
+  const plain = (x: unknown): x is Record<string, unknown> => !!x && typeof x === "object" && !Array.isArray(x);
+  if (plain(settings.fx) && settings.fx.custom != null && !canManageFxSources(ctx)) {
+    settings.fx = { ...settings.fx, custom: fxSettingsFor(ctx, org).custom };
+  }
+  if (plain(settings.gold) && settings.gold.price_source != null && !canManageGoldSource(ctx)) {
+    settings.gold = { ...settings.gold, price_source: goldSettingsFor(ctx, org).price_source };
+  }
+  return { ...org, settings: settings as OrgRow["settings"] };
+}
+
 orgRoutes.get("/", async (c) => {
   const ctx = c.get("ctx");
   const [fiscalYears, base, counts] = await Promise.all([
@@ -77,7 +97,7 @@ orgRoutes.get("/", async (c) => {
   ]);
   const s = ctx.support ?? null;
   return c.json({
-    org: ctx.org,
+    org: orgPayload(ctx, ctx.org),
     member: s
       ? { role: ctx.member.role, title: `پشتیبانی ${APP_NAME}`, permissions: supportPermissions(s.level) }
       : { role: ctx.member.role, title: ROLES[ctx.member.role]?.title, permissions: permissionMap(ctx.member.role, ctx.member.overrides) },
@@ -113,10 +133,15 @@ orgRoutes.patch("/", async (c) => {
     modules: modulesSchema.optional(),
   }));
   const { settings, modules, ...profile } = input;
+  // settings.fx and settings.gold hold the boards' price sources (URLs, key headers): only the boards' own validated
+  // routes save them (PUT /fx/settings, PUT /gold/settings), never a merge here
+  if (settings && (settings.fx !== undefined || settings.gold !== undefined)) {
+    throw bad("تنظیمات طلا و صرافی از اینجا ذخیره نمی‌شوند؛ از «تنظیمات قیمت و محاسبه»ی طلا و «تنظیمات نرخ و منابع قیمت» صرافی (PUT /gold/settings و PUT /fx/settings) ذخیره کنید");
+  }
   const result = await ctx.write(async (tx) => {
     const patch: Record<string, unknown> = { ...profile, origin: ctx.cfg.origin };
     if (settings) {
-      // one level deep: a form that saves part of settings.fx / settings.gold keeps the rest
+      // one level deep: a form that saves part of a group (settings.moadian) keeps the rest of it
       const prev = (ctx.org.settings ?? {}) as Record<string, unknown>;
       const merged: Record<string, unknown> = { ...prev };
       for (const [k, v] of Object.entries(settings as Record<string, unknown>)) {
@@ -131,9 +156,9 @@ orgRoutes.patch("/", async (c) => {
       patch.modules = modules;
       await addModuleData(tx, ctx.org.id, ctx.org.modules, modules, ctx.cfg.origin);
     }
-    return updateRow(tx, "tz_orgs", { id: ctx.org.id }, patch);
+    return updateRow<OrgRow>(tx, "tz_orgs", { id: ctx.org.id }, patch);
   });
-  return c.json({ org: result });
+  return c.json({ org: result && orgPayload(ctx, result) });
 });
 
 /** When a module is switched on later: add its accounts, currencies and defaults. */

@@ -5,7 +5,7 @@ import { bad, forbidden } from "../http/errors";
 import { D, isNumeric } from "@shared/money";
 import { priceBullion, priceJewelry, priceOldGold, quoteBullion, quoteParsian, weightForBudget, type WageType } from "@shared/gold";
 import { productQuote } from "@shared/gold-quote";
-import { goldSettings, moneyStep, quoteEnv, saveGoldSettings } from "../modules/gold/settings";
+import { canManageGoldSource, goldSettings, goldSettingsFor, moneyStep, quoteEnv, saveGoldSettings } from "../modules/gold/settings";
 import { addRate, deleteRate, fetchLive, latestRate, latestWithChange, listRates } from "../modules/gold/rates";
 import { bulkCreateItems, itemByTag, listCoins, listItems, setReserved } from "../modules/gold/items";
 import { cancelDoc, createDoc, deleteDoc, docSchema, listDocs, postDoc, prepare, readDoc, updateDoc } from "../modules/gold/docs";
@@ -35,7 +35,7 @@ const page = (q: Record<string, string>) => ({ page: q.page ? Number(q.page) || 
  * Null when this runtime keeps none for the source's address (or the reader may not manage the settings).
  */
 async function priceKey(ctx: Ctx) {
-  if (!ctx.can("gold", "full") && !ctx.can("settings", "edit")) return null;
+  if (!canManageGoldSource(ctx)) return null;
   const origin = sourceOrigin(goldSettings(ctx.org).price_source?.url);
   return (await publicKeys(ctx, "gold")).find((k) => k.origin === origin) ?? null;
 }
@@ -43,12 +43,13 @@ async function priceKey(ctx: Ctx) {
 goldRoutes.get("/settings", async (c) => {
   const ctx = c.get("ctx");
   ctx.need("gold", "view");
-  return c.json({ settings: goldSettings(ctx.org), kinds: KINDS, price_key: await priceKey(ctx), runtime: ctx.cfg.mode });
+  // the custom source's URL only for those who may change it: it may still carry a key written into it
+  return c.json({ settings: goldSettingsFor(ctx), kinds: KINDS, price_key: await priceKey(ctx), runtime: ctx.cfg.mode });
 });
 
 goldRoutes.put("/settings", async (c) => {
   const ctx = c.get("ctx");
-  if (!ctx.can("gold", "full") && !ctx.can("settings", "edit")) throw forbidden();
+  if (!canManageGoldSource(ctx)) throw forbidden();
   const input = await body(
     c,
     z.object({
