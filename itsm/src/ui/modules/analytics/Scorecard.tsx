@@ -11,7 +11,7 @@ import { Camera, LayoutGrid, Rows3, Pencil } from "lucide-react";
 import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip as RTooltip, XAxis, YAxis, Legend } from "recharts";
 import { PRACTICE_OPTIONS } from "@shared/tables/analytics";
 import { GRAIN_OPTIONS } from "@shared/tables/analytics";
-import { STATUS_LABELS, UNITS } from "@shared/analytics/kpi";
+import { UNITS } from "@shared/analytics/kpi";
 import { faDigits } from "@shared/format";
 import { useOrg } from "../../lib/org";
 import { useNotify } from "../../lib/hooks";
@@ -21,7 +21,7 @@ import { EmptyState, Loader, Chip } from "../../components/display";
 import { Card, ICON14 } from "../../components/blocks";
 import { recordPath, tablePath, useSchema } from "../../records";
 import { analyticsApi, ANALYTICS_KEYS } from "./api";
-import { CHIP_TONE, KpiTile, RestrictedNote } from "./parts";
+import { CHIP_TONE, KpiTile, RestrictedNote, statusText } from "./parts";
 import { DeltaBadge } from "./Chart";
 import { ScorecardTable } from "./DashboardPage";
 import { axisValue, exactValue, recordsHref, STATUS_TONE } from "./model";
@@ -122,7 +122,7 @@ export function IndicatorHub() {
               <div className="an-muted">{i.current.label}</div>
               <div className="an-hub-val ds-t-figure">{exactValue(i.current.value, i.unit, i.decimals)}</div>
               <Space size={8} wrap>
-                <Chip tone={CHIP_TONE[STATUS_TONE[i.status]]}>{STATUS_LABELS[i.status]}</Chip>
+                <Chip tone={CHIP_TONE[STATUS_TONE[i.status]]}>{statusText(i)}</Chip>
                 <DeltaBadge delta={i.delta} direction={i.direction} />
                 <span className="an-muted">دورهٔ پیش: {exactValue(i.previous.value, i.unit, i.decimals)}</span>
               </Space>

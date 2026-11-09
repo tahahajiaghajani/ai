@@ -94,7 +94,16 @@ function tooltipFor(data: ChartData) {
 // ----- column / bar / line / area --------------------------------------------------------------------------------------
 
 function Cartesian({ spec, result: r, height, onElement, compact }: ResultViewProps) {
-  const data = useMemo(() => chartData(r), [r]);
+  // the previous period on the same axis (by position: the n-th bucket of each window), dashed; new row objects — the
+  // chart library freezes the data it is given
+  const m0 = r.measures[0];
+  const prevKey = r.previous && r.dims.length === 1 && m0 && r.previous.rows.length ? "_prev" : null;
+  const data = useMemo(() => {
+    const d = chartData(r);
+    if (!prevKey || !m0) return d;
+    const rows: Record<string, unknown>[] = d.rows.map((row, i) => ({ ...row, [prevKey]: r.previous!.rows[i]?.values[m0.key] ?? null }));
+    return { ...d, rows };
+  }, [r, prevKey, m0]);
   const horizontal = spec.viz === "bar";
   const stacked = !!spec.options?.stacked || !!spec.options?.percent;
   const percent = !!spec.options?.percent;
@@ -124,10 +133,6 @@ function Cartesian({ spec, result: r, height, onElement, compact }: ResultViewPr
     <YAxis orientation="right" tickLine={false} axisLine={false} tick={AXIS_TICK} tickFormatter={fmtAxis} width={48} tickCount={4} allowDecimals={data.unit !== "count"} />
   );
   const aria = ariaOf(r, spec);
-  // the previous period on the same axis (by position: the n-th bucket of each window), dashed
-  const m0 = r.measures[0];
-  const prevKey = r.previous && r.dims.length === 1 && m0 && r.previous.rows.length ? "_prev" : null;
-  if (prevKey) data.rows.forEach((row, i) => (row[prevKey] = r.previous!.rows[i]?.values[m0!.key] ?? null));
   if (spec.viz === "line" || spec.viz === "area") {
     const Chart = spec.viz === "line" ? LineChart : AreaChart;
     return (

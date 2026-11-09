@@ -44,6 +44,8 @@ const needAdmin = async (ctx: Ctx) => {
 
 export const analyticsRoutes = router();
 
+const PREFERRED_TABLES = ["incident", "request_item", "change_request", "problem", "request", "known_error", "incident_task", "change_task", "request_task", "kb_article", "ci", "task_sla"];
+
 // ----- meta ------------------------------------------------------------------------------------------------------------
 
 analyticsRoutes.get("/meta", async (c) => {
@@ -57,6 +59,12 @@ analyticsRoutes.get("/meta", async (c) => {
     if (!def || def.virtual || def.module === "analytics" || !access().canReadTable(ctx, def)) continue;
     tables.push({ key: def.key, label: def.label, plural: def.plural, module: def.module ?? null });
   }
+  // the work tables first (the designer's default source), then the rest by name
+  const rank = (k: string) => {
+    const i = PREFERRED_TABLES.indexOf(k);
+    return i < 0 ? PREFERRED_TABLES.length : i;
+  };
+  tables.sort((a, b) => rank(a.key) - rank(b.key) || a.plural.localeCompare(b.plural, "fa"));
   // organisations created before the module get their tick (deliveries, snapshots) the first time anyone looks
   if (cfg.seeded) await ensureTick(ctx.db, ctx.org.id).catch(() => undefined);
   const meta: AnalyticsMeta = { can_author: canAuthor(ctx), can_admin: canAdmin(ctx), k: cfg.small_cell_k, tables, ai: analyticsAiCapabilities(), seeded: cfg.seeded > 0, timezone: orgTz(ctx) };

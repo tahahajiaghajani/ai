@@ -130,6 +130,9 @@ export function ResultCard({
   );
 }
 
+/** «بی‌داده» when the period has no value yet; otherwise the status against the target. */
+export const statusText = (item: Pick<ScorecardItem, "status" | "current">) => (item.current.value === null ? "بی‌داده" : STATUS_LABELS[item.status]);
+
 /** Statuses as the kit's chip tones. */
 export const CHIP_TONE: Record<string, ChipTone> = { ok: "in", warn: "warning", bad: "danger", neutral: "neutral" };
 
@@ -152,7 +155,7 @@ export function KpiTile({ item, onOpen, compact }: { item: ScorecardItem; onOpen
     >
       <div className="an-kpi-head">
         <span className="an-kpi-name">{item.name}</span>
-        {item.restricted ? null : <Chip tone={CHIP_TONE[STATUS_TONE[item.status]]}>{STATUS_LABELS[item.status]}</Chip>}
+        {item.restricted ? null : <Chip tone={CHIP_TONE[STATUS_TONE[item.status]]}>{statusText(item)}</Chip>}
       </div>
       {item.restricted ? (
         <RestrictedNote reason={item.restricted} />

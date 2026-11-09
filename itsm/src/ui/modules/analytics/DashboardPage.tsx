@@ -26,10 +26,9 @@ import { ICON14, Note, cx } from "../../components/blocks";
 import { RecordMarkdown, RecordSelect, newRecordPath, recordsApi, useSchema } from "../../records";
 import { optionsOf } from "../../records/model/schema";
 import { analyticsApi, ANALYTICS_KEYS, saveJson } from "./api";
-import { KpiTile, RestrictedNote, ResultCard, useAnalyticsMeta } from "./parts";
+import { KpiTile, RestrictedNote, ResultCard, statusText, useAnalyticsMeta } from "./parts";
 import { DeltaBadge, Sparkline } from "./Chart";
 import { exactValue } from "./model";
-import { STATUS_LABELS } from "@shared/analytics/kpi";
 import "./analytics.css";
 
 const GAP = 12;
@@ -426,7 +425,7 @@ export function ScorecardTable({ items, onOpen }: { items: ScorecardItem[]; onOp
               <td className="an-num">{i.restricted ? "—" : exactValue(i.current.value, i.unit, i.decimals)}</td>
               <td>{i.restricted ? null : <DeltaBadge delta={i.delta} direction={i.direction} />}</td>
               <td className="an-num">{i.target === null ? "—" : exactValue(i.target, i.unit, i.decimals)}</td>
-              <td>{i.restricted ? <span className="an-muted">در دسترس نیست</span> : <span className={cx("an-status", `is-${i.status}`)}>{STATUS_LABELS[i.status]}</span>}</td>
+              <td>{i.restricted ? <span className="an-muted">در دسترس نیست</span> : <span className={cx("an-status", `is-${i.status}`)}>{statusText(i)}</span>}</td>
               <td style={{ width: 120 }}>{i.restricted ? null : <Sparkline points={i.trend.length ? i.trend : (i.stored ?? [])} target={i.target} height={28} />}</td>
             </tr>
           ))}
