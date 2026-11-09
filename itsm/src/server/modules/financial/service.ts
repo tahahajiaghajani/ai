@@ -293,6 +293,7 @@ export async function calculateRun(ctx: Ctx, runId: string): Promise<{ total_poo
   const { from, to } = await runPeriods(ctx, run);
   const rules = await liveRows(ctx.db, sys, "allocation_rule", { f: "active", op: "eq", v: true } as Cond, { order: "t.sort_order nulls last, t.name", limit: 500 });
   const results: Row[] = [];
+  const drivers: { key: string; driver: number }[] = [];
   let pool = D(0);
   let allocated = D(0);
   const hashInput: unknown[] = [];
@@ -305,6 +306,7 @@ export async function calculateRun(ctx: Ctx, runId: string): Promise<{ total_poo
     pool = pool.plus(amount);
     const targets = await liveRows(ctx.db, sys, "allocation_target", { f: "rule_id", op: "eq", v: rule.id } as Cond, { limit: 500 });
     const weights = await weightsFor(sys, String(rule.method), targets);
+    drivers.push(...weights.map((x) => ({ key: x.key, driver: x.driver })));
     hashInput.push({ rule: rule.id, version: rule.version, amount: amount.toString(), weights });
     const parts = allocate(amount.toString(), weights);
     for (const part of parts) {
@@ -334,11 +336,8 @@ export async function calculateRun(ctx: Ctx, runId: string): Promise<{ total_poo
       await removeIn(tx, sys, "allocation_result", old.id);
     }
     for (const r of results) await createIn(tx, sys, "allocation_result", { run_id: runId, ...r }, { trusted: true });
-    for (const rule of rules) {
-      const targets = await liveRows(tx, sys, "allocation_target", { f: "rule_id", op: "eq", v: rule.id } as Cond, { limit: 500 });
-      const weights = await weightsFor(sys, String(rule.method), targets);
-      for (const w of weights) await updateIn(tx, sys, "allocation_target", w.key, { driver_value: String(w.driver) }, { trusted: true, keepVersion: true });
-    }
+    // the drivers were computed before this transaction (PGlite has one connection: no reads around it in here)
+    for (const d of drivers) await updateIn(tx, sys, "allocation_target", d.key, { driver_value: String(d.driver) }, { trusted: true, keepVersion: true });
     await updateIn(tx, sys, "allocation_run", runId, { total_pool: pool.toString(), total_allocated: allocated.toString(), unallocated: pool.minus(allocated).toString(), calculated_at: new Date().toISOString(), input_hash: inputHash(hashInput) }, { trusted: true });
     if (run.state === "draft") await transitionIn(tx, sys, "allocation_run", runId, "calculated", {});
   });
