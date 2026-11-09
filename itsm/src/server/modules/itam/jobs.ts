@@ -188,7 +188,9 @@ async function onRequestItem(e: RecordEvent, sys: Ctx): Promise<void> {
       const rdef = tableDef("request_item");
       if (notes.length && rdef) await addJournalIn(tx, sys, rdef, item, { kind: "work_note", body: `از موجودی رزرو شد: ${notes.join("، ")}` }, { trusted: true });
       const buy = bindings.find((b) => b.raise_purchase);
-      if (missing > 0 && buy) {
+      // an item that comes back into fulfilment (from «در انتظار اطلاعات» or «پس‌افت») already has its requisition
+      const bought = missing > 0 && buy ? await liveRows(tx, sys, "purchase_requisition", { and: [{ f: "request_item_id", op: "eq", v: item.id }, { f: "state", op: "nin", v: ["rejected", "canceled"] }] } as Cond, { limit: 1 }) : [];
+      if (missing > 0 && buy && !bought.length) {
         const prq = await createIn(tx, sys, "purchase_requisition", {
           title: `تأمین برای ${item.number ?? "قلم درخواست"}`, source: "request", request_item_id: item.id, requested_for: item.requested_for ?? item.caller_id ?? null,
           justification: `موجودی کافی برای «${item.short_description ?? ""}» نیست (${missing} عدد).`,
