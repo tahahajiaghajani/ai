@@ -82,7 +82,7 @@ export const ALL_LIMIT_KEYS = LIMIT_KEYS;
 // ---------------------------------------------------------------- feature flags
 
 export async function flagRows(q: Queryable): Promise<FlagRow[]> {
-  const rows = await q.query<FlagRow>(`select key, label, description, stage, percent, plans, orgs_on, orgs_off, tenant_toggle from sm_feature_flags order by key`);
+  const rows = await q.query<FlagRow>(`select key, label, description, stage, percent, plans, orgs_on, orgs_off, tenant_toggle from sm_platform_flags order by key`);
   return rows.map((f) => ({ ...f, plans: f.plans ?? [], orgs_on: f.orgs_on ?? [], orgs_off: f.orgs_off ?? [] }));
 }
 

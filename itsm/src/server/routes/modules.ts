@@ -43,6 +43,8 @@ import { installAiAgents } from "../modules/ai/agents";
 import { agentRoutes } from "./ai-agents";
 import { installVirtualAgent } from "../modules/ai/va";
 import { vaRoutes } from "./ai-va";
+import { installAdminModule } from "../modules/admin";
+import { adminTenantRoutes } from "./admin-tenant";
 
 // the ITSM access model is the engine's access provider in every runtime (docs/spec/ACCESS.md)
 installAccessModel();
@@ -80,6 +82,8 @@ installDevopsModule();
 installProjectModule();
 // analytics, reporting and KPIs (docs/modules/analytics_FA.md) — after every module whose tables it reports on
 installAnalyticsModule();
+// the administration consoles (docs/modules/admin_FA.md) — studio, imports, exports, seats, notices; its AI skills before installAiSkills
+installAdminModule();
 
 // the AI skills (docs/spec/AI.md §11) — after every module whose AI extension points they implement
 installAiSkills();
@@ -113,3 +117,4 @@ moduleRoutes.route("/release", releaseRoutes);
 moduleRoutes.route("/devops", devopsRoutes);
 moduleRoutes.route("/project", projectRoutes);
 moduleRoutes.route("/analytics", analyticsRoutes);
+moduleRoutes.route("/admin", adminTenantRoutes);

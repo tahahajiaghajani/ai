@@ -3,7 +3,7 @@
 // feature flags, announcements to organisations, the job monitor, the version and upgrade status and the audit log of
 // every organisation. Every change is written to sm_audit as the platform's own action (actor_kind 'platform').
 import type { AuthUser, ServerConfig } from "../../context";
-import type { Queryable } from "../../db";
+import { pgArray, type Queryable } from "../../db";
 import { uuidv7 } from "@shared/id";
 import { APP_VERSION, SYNC_PROTOCOL } from "@shared/constants";
 import { bad, conflict, notFound } from "../../http/errors";
@@ -49,10 +49,10 @@ export async function savePlan(cfg: ServerConfig, admin: Admin, key: string, inp
     if (input.is_default) await tx.query(`update sm_plans set is_default = false where key <> $1`, [key]);
     await tx.query(
       `insert into sm_plans (key, name, description, limits, features, sort_order, is_default, active, updated_by, updated_at)
-       values ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, now())
+       values ($1, $2, $3, $4::jsonb, $5::text[], $6, $7, $8, $9, now())
        on conflict (key) do update set name = excluded.name, description = excluded.description, limits = excluded.limits, features = excluded.features,
          sort_order = excluded.sort_order, is_default = excluded.is_default or sm_plans.is_default and not $10, active = excluded.active, updated_by = excluded.updated_by, updated_at = now()`,
-      [key, input.name.trim(), input.description ?? null, JSON.stringify(limits), input.features ?? [], input.sort_order ?? 0, !!input.is_default, input.active !== false, admin.id, input.is_default === false],
+      [key, input.name.trim(), input.description ?? null, JSON.stringify(limits), pgArray(input.features ?? []), input.sort_order ?? 0, !!input.is_default, input.active !== false, admin.id, input.is_default === false],
     );
     const def = await tx.one<{ n: number }>(`select count(*)::int as n from sm_plans where is_default`);
     if (!def?.n) throw bad("یک طرح باید پیش‌فرض بماند");
@@ -140,11 +140,11 @@ export async function saveFlag(cfg: ServerConfig, admin: Admin, key: string, inp
   const off = uuids(input.orgs_off).filter((x) => !on.includes(x));
   await cfg.db.tx(async (tx) => {
     await tx.query(
-      `insert into sm_feature_flags (key, label, description, stage, percent, plans, orgs_on, orgs_off, tenant_toggle, updated_by, updated_at)
-       values ($1, $2, $3, $4, $5, $6, $7::uuid[], $8::uuid[], $9, $10, now())
+      `insert into sm_platform_flags (key, label, description, stage, percent, plans, orgs_on, orgs_off, tenant_toggle, updated_by, updated_at)
+       values ($1, $2, $3, $4, $5, $6::text[], $7::uuid[], $8::uuid[], $9, $10, now())
        on conflict (key) do update set label = excluded.label, description = excluded.description, stage = excluded.stage, percent = excluded.percent,
          plans = excluded.plans, orgs_on = excluded.orgs_on, orgs_off = excluded.orgs_off, tenant_toggle = excluded.tenant_toggle, updated_by = excluded.updated_by, updated_at = now()`,
-      [key, input.label.trim(), input.description ?? null, input.stage, Math.max(0, Math.min(100, Math.round(input.percent ?? 100))), input.plans ?? [], on, off, input.tenant_toggle !== false, admin.id],
+      [key, input.label.trim(), input.description ?? null, input.stage, Math.max(0, Math.min(100, Math.round(input.percent ?? 100))), pgArray(input.plans ?? []), pgArray(on), pgArray(off), input.tenant_toggle !== false, admin.id],
     );
     await platformAudit(tx, cfg, admin, { action: "flag_save", entity: "flag", summary: `قابلیت «${input.label}» (${key}): ${input.stage}`, data: { key, ...input, orgs_on: on, orgs_off: off } });
   });
@@ -153,7 +153,7 @@ export async function saveFlag(cfg: ServerConfig, admin: Admin, key: string, inp
 
 export async function deleteFlag(cfg: ServerConfig, admin: Admin, key: string): Promise<void> {
   await cfg.db.tx(async (tx) => {
-    const r = await tx.one(`delete from sm_feature_flags where key = $1 returning key`, [key]);
+    const r = await tx.one(`delete from sm_platform_flags where key = $1 returning key`, [key]);
     if (!r) throw notFound("قابلیت پیدا نشد");
     await platformAudit(tx, cfg, admin, { action: "flag_delete", entity: "flag", summary: `حذف کلید قابلیت ${key}`, data: { key } });
   });
@@ -208,10 +208,10 @@ export async function saveAnnouncement(cfg: ServerConfig, admin: Admin, id: stri
     }
     await tx.query(
       `insert into sm_platform_announcements (id, title, body, severity, audience, org_ids, plans, starts_at, ends_at, created_by)
-       values ($1, $2, $3, $4, $5, $6::uuid[], $7, coalesce($8::timestamptz, now()), $9, $10)
+       values ($1, $2, $3, $4, $5, $6::uuid[], $7::text[], coalesce($8::timestamptz, now()), $9, $10)
        on conflict (id) do update set title = excluded.title, body = excluded.body, severity = excluded.severity, audience = excluded.audience,
          org_ids = excluded.org_ids, plans = excluded.plans, starts_at = excluded.starts_at, ends_at = excluded.ends_at, updated_at = now()`,
-      [rowId, input.title.trim(), input.body ?? "", input.severity, input.audience, uuids(input.org_ids), input.plans ?? [], input.starts_at ?? null, input.ends_at ?? null, admin.id],
+      [rowId, input.title.trim(), input.body ?? "", input.severity, input.audience, pgArray(uuids(input.org_ids)), pgArray(input.plans ?? []), input.starts_at ?? null, input.ends_at ?? null, admin.id],
     );
     await platformAudit(tx, cfg, admin, { action: "announcement_save", entity: "announcement", entity_id: rowId, summary: `اطلاعیهٔ «${input.title}»` });
   });
@@ -221,7 +221,7 @@ export async function saveAnnouncement(cfg: ServerConfig, admin: Admin, id: stri
 /** The organisations an announcement reaches. */
 async function audienceOrgs(q: Queryable, a: AnnouncementRow): Promise<string[]> {
   if (a.audience === "orgs") {
-    return (await q.query<{ id: string }>(`select id from sm_orgs where id = any($1::uuid[]) and deleted_at is null`, [a.org_ids])).map((r) => r.id);
+    return (await q.query<{ id: string }>(`select id from sm_orgs where id = any($1::uuid[]) and deleted_at is null`, [pgArray(a.org_ids ?? [])])).map((r) => r.id);
   }
   const rows = await q.query<{ id: string; plan: string | null }>(
     `select o.id, a.limits->>'plan' as plan from sm_orgs o left join sm_org_admin a on a.org_id = o.id where o.deleted_at is null order by o.created_at`,

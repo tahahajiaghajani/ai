@@ -7,6 +7,7 @@ import type { MiddlewareHandler } from "hono";
 import { router, body, requireUser, type Env } from "../http/hono";
 import { forbidden, notFound } from "../http/errors";
 import { aiAdminRoutes } from "./ai-admin";
+import { platformConsoleRoutes } from "./admin-platform";
 import { adminAudit, listOrgs, listUsers, orgDetail, overview, userDetail } from "../modules/platform/console";
 import { systemHealth } from "../modules/platform/health";
 import { listSecurityEvents, requestMeta } from "../modules/platform/security";
@@ -23,6 +24,8 @@ const requireAdmin: MiddlewareHandler<Env> = async (c, next) => {
 export const adminRoutes = router();
 adminRoutes.use("*", requireUser, requireAdmin);
 adminRoutes.route("/ai", aiAdminRoutes);
+// plans and limits, feature flags, announcements, jobs, backups, version, audit of every organisation (admin module)
+adminRoutes.route("/", platformConsoleRoutes);
 
 const isId = (s: string) => /^[0-9a-f-]{36}$/i.test(s);
 const qs = (v: string | undefined) => (v ?? "").trim() || null;

@@ -111,8 +111,8 @@ async function runBackup(cfg: ServerConfig, id: string): Promise<void> {
     if (gz.length > MAX_BACKUP_BYTES) throw new PermanentJobError("حجم پشتیبان از سقف پشتیبان منطقی بیشتر است؛ از پشتیبان پایگاه داده استفاده کنید");
     const rows = Object.values(file.tables).reduce((a, r) => a + r.length, 0);
     await cfg.db.query(
-      `update sm_backups set status = 'done', content = $2, bytes = $3, sha256 = $4, tables = $5, rows = $6, finished_at = now(), error = null where id = $1`,
-      [id, gz, gz.length, createHash("sha256").update(gz).digest("hex"), Object.keys(file.tables).length, rows],
+      `update sm_backups set status = 'done', content = decode($2, 'base64'), bytes = $3, sha256 = $4, tables = $5, rows = $6, finished_at = now(), error = null where id = $1`,
+      [id, gz.toString("base64"), gz.length, createHash("sha256").update(gz).digest("hex"), Object.keys(file.tables).length, rows],
     );
     // keep the newest ones
     await cfg.db.query(
@@ -175,7 +175,7 @@ function cast(col: Column, v: unknown): { sql: string; value: unknown } {
   if (v === null || v === undefined) return { sql: "null", value: undefined };
   if (col.type === "jsonb" || col.type === "json") return { sql: "::jsonb", value: JSON.stringify(v) };
   if (col.type.endsWith("[]")) return { sql: `::${col.type}`, value: `{${(Array.isArray(v) ? v : []).map((x) => `"${String(x).replace(/(["\\])/g, "\\$1")}"`).join(",")}}` };
-  if (col.type === "bytea") return { sql: "", value: Buffer.from(String(v), "base64") };
+  if (col.type === "bytea") return { sql: "decode", value: String(v) };
   return { sql: "", value: v };
 }
 
@@ -190,7 +190,10 @@ async function insertRows(tx: Tx, table: string, cols: Column[], rows: Record<st
       const { sql, value } = cast(c, r[c.name]);
       names.push(c.name);
       if (sql === "null") exprs.push("null");
-      else {
+      else if (sql === "decode") {
+        params.push(value);
+        exprs.push(`decode($${params.length}, 'base64')`);
+      } else {
         params.push(value);
         exprs.push(`$${params.length}${sql}`);
       }
@@ -260,7 +263,7 @@ export async function restoreBackup(cfg: ServerConfig, admin: AuthUser, id: stri
       await insertRows(tx, t, cols, out);
     }
     for (const b of file.blobs ?? []) {
-      await tx.query(`insert into sm_blobs (org_id, sha256, size, data) values ($1, $2, $3, $4) on conflict do nothing`, [newOrg, b.sha256, b.size, Buffer.from(b.data, "base64")]);
+      await tx.query(`insert into sm_blobs (org_id, sha256, size, data) values ($1, $2, $3, decode($4, 'base64')) on conflict do nothing`, [newOrg, b.sha256, b.size, b.data]);
     }
     await platformAudit(tx, cfg, admin, { org_id: newOrg, action: "backup_restore", entity: "backup", entity_id: id, summary: `بازیابی پشتیبان در سازمان تازهٔ «${name}»`, data: { source_org: file.org.id, rows: count } });
   });

@@ -4,7 +4,7 @@
 //   · sm_plans — plans and their limits (members, custom tables and fields, integration users, API rate …) and the
 //     feature flags they include; an organisation's plan and its own overrides live in sm_org_admin.limits
 //     ({ plan, <limit>: n }). One plan is the default of organisations without one.
-//   · sm_feature_flags — every optional capability with its stage (off / beta / on), roll-out share, the plans that
+//   · sm_platform_flags — every optional capability with its stage (off / beta / on), roll-out share, the plans that
 //     include it, organisations switched on or off by name, and whether tenant administrators may switch it off.
 //   · sm_platform_announcements — announcements to every organisation, to named ones or to plans; publishing one
 //     materialises a «اطلاعیهٔ سامانه» record (system_notice) in each targeted organisation and tells its members.
@@ -45,7 +45,7 @@ insert into sm_plans (key, name, description, limits, features, sort_order, is_d
    '{}'::jsonb, '{}', 30, false)
 on conflict (key) do nothing;
 
-create table if not exists sm_feature_flags (
+create table if not exists sm_platform_flags (
   key text primary key,
   label text not null,
   description text,
@@ -58,8 +58,8 @@ create table if not exists sm_feature_flags (
   updated_by uuid,
   updated_at timestamptz not null default now()
 );
-alter table sm_feature_flags enable row level security;
-insert into sm_feature_flags (key, label, description, stage, plans) values
+alter table sm_platform_flags enable row level security;
+insert into sm_platform_flags (key, label, description, stage, plans) values
   ('public_api', 'API رکوردها', 'API یکپارچهٔ REST با کلیدهای کاربران یکپارچه‌سازی و سند OpenAPI', 'on', '{standard,enterprise}'),
   ('webhooks', 'وب‌هوک‌های خروجی و ورودی', 'اشتراک رویداد رکوردها و نقطه‌های دریافت', 'on', '{standard,enterprise}'),
   ('directory_sync', 'همگام‌سازی LDAP و Active Directory', 'ورود و به‌روزرسانی اعضا و گروه‌ها از فهرست کاربران', 'on', '{enterprise}'),
