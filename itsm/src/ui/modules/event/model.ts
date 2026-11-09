@@ -99,8 +99,8 @@ export function ago(iso: string | null | undefined, now = Date.now()): string {
 /** «۲ ساعت و ۵ دقیقه» (milliseconds); empty for null. */
 export function durationText(ms: number | null | undefined): string {
   if (ms === null || ms === undefined || !Number.isFinite(ms)) return "";
+  if (ms < 60_000) return `${nf(Math.max(0, Math.round(ms / 1000)))} ثانیه`;
   const total = Math.round(ms / 60_000);
-  if (total < 1) return `${nf(Math.max(0, Math.round(ms / 1000)))} ثانیه`;
   const d = Math.floor(total / 1440);
   const h = Math.floor((total % 1440) / 60);
   const m = total % 60;

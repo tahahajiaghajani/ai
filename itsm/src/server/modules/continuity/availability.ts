@@ -28,9 +28,15 @@ export interface AvailabilityReport {
 
 const SERVICE_FIELDS = ["number", "name", "tier", "availability_target", "calendar_id", "state", "status"];
 
+/**
+ * Availability is for continuity readers and for those who look after services (create in area `service`: portfolio
+ * managers and owners) — not for everyone who may browse the catalogue.
+ */
 async function needServices(ctx: Ctx) {
   const { def } = await defFor(ctx, "service");
   if (!access().canReadTable(ctx, def)) throw forbidden("به خدمت‌ها دسترسی ندارید");
+  const outage = (await defFor(ctx, "outage")).def;
+  if (!access().canReadTable(ctx, outage) && !access().canCreate(ctx, def, null)) throw forbidden("دسترس‌پذیری خدمت‌ها برای تیم تداوم و مالکان خدمت است");
 }
 
 /** Outages of the services overlapping [from, to) (system rights). */
@@ -93,6 +99,7 @@ export interface ServiceTrend {
 /** One service over the last `count` periods, with the outages of the latest ones the caller may read. */
 export async function serviceTrend(ctx: Ctx, serviceId: string, unit: PeriodUnit, count = 12, now = Date.now()): Promise<ServiceTrend> {
   if (!isUuid(serviceId)) throw notFound("خدمت پیدا نشد");
+  await needServices(ctx);
   const svc = (await list(ctx, "service", { ids: [serviceId], size: 1, fields: SERVICE_FIELDS, total: false })).rows[0];
   if (!svc) throw notFound("خدمت پیدا نشد");
   const tz = orgTz(ctx);

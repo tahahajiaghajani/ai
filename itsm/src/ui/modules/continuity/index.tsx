@@ -54,7 +54,7 @@ const module = recordModule({
     { table: "continuity_config", path: "continuity/settings", label: "تنظیمات تداوم", icon: Settings2, hidden: true, search: false, newAction: false },
   ],
   nav: [
-    { key: "continuity:availability", label: "دسترس‌پذیری خدمت‌ها", path: "continuity/availability", icon: Activity, section: SECTION, access: { area: "service" }, keywords: "دسترس‌پذیری MTBF MTRS هدف بودجهٔ خطا" },
+    { key: "continuity:availability", label: "دسترس‌پذیری خدمت‌ها", path: "continuity/availability", icon: Activity, section: SECTION, access: GATE, keywords: "دسترس‌پذیری MTBF MTRS هدف بودجهٔ خطا" },
     { key: "continuity:dashboard", label: "داشبورد تداوم", path: "continuity/dashboard", icon: ChartColumn, section: "گزارش‌ها", access: GATE, keywords: "داشبورد تداوم پوشش BIA طرح مانور RTO" },
   ],
   routes: [
@@ -72,5 +72,6 @@ export const continuityUi: ModuleUi = {
 };
 
 registerRecordExtensions("incident", { headerActions: widget(OutageFromIncident, "continuity-outage") });
-registerRecordExtensions("service", { sidePanels: [{ key: "continuity:availability", title: "دسترس‌پذیری", order: 4, render: widget(ServiceAvailability) }] });
+// for those who look after the service (its availability is the continuity team's and the owners' business)
+registerRecordExtensions("service", { sidePanels: [{ key: "continuity:availability", title: "دسترس‌پذیری", order: 4, when: (ctx) => !!ctx.meta.canWrite, render: widget(ServiceAvailability) }] });
 registerCalendarDecor("outage", { tone: (row) => (row.outage_type === "outage" ? "danger" : row.outage_type === "degradation" ? "warning" : null), fields: ["outage_type"] });

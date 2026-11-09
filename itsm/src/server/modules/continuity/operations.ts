@@ -63,9 +63,10 @@ export async function finishExercise(ctx: Ctx, id: string, input: { result: stri
 
 /** A new BIA draft from the template (or another BIA): its matrix, tolerance, guidance and MBCO. */
 export async function biaFromTemplate(ctx: Ctx, input: { template_id?: string | null; title: string; service_id?: string | null; activity?: string | null }): Promise<Row> {
+  const FIELDS = ["title", "impacts", "tolerance", "mbco", "notes"];
   const tpl = input.template_id
-    ? (await list(ctx, "bia", { ids: [input.template_id], size: 1, total: false })).rows[0]
-    : (await list(ctx, "bia", { filter: { f: "is_template", op: "eq", v: true } as never, size: 1, sort: "created_at", total: false })).rows[0];
+    ? (await list(ctx, "bia", { ids: [input.template_id], size: 1, fields: FIELDS, total: false })).rows[0]
+    : (await list(ctx, "bia", { filter: { f: "is_template", op: "eq", v: true } as never, size: 1, sort: "created_at", fields: FIELDS, total: false })).rows[0];
   if (!tpl) throw notFound("الگوی تحلیل اثر پیدا نشد");
   const r = await create(ctx, "bia", {
     title: input.title,

@@ -33,6 +33,8 @@ const LOCAL_ONLY: Record<string, string> = {
   sm_ai_chunks: "AI index: chunks with full-text and vector embeddings",
   // knowledge: each runtime keeps the stream of what happened on it (searches, views, votes); the records travel
   sm_kb_events: "knowledge event stream of this runtime (search analytics, views, deflection)",
+  // event management: raw monitoring events stay with the runtime that received them (short retention); alerts travel
+  sm_events: "raw monitoring events of this runtime (normalised deliveries; their alerts are synchronised)",
   sm_ai_doc_pages: "text read from smart documents on this runtime",
   sm_ai_rag_runs: "AI index runs (backfills, re-embedding, reconciliation)",
   // record engine bookkeeping of each runtime

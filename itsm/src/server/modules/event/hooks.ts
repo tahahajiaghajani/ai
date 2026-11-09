@@ -136,6 +136,9 @@ function ruleBefore(w: WriteArgs): void {
     throw validationError({ set_severity: "برای «تغییر و غنی‌سازی» دست‌کم یک مقدار تازه یا الگوی استخراج تعیین کنید" });
   }
   if (n.action === "threshold" && !(Number(n.threshold_count) >= 2)) throw validationError({ threshold_count: "آستانه دست‌کم دو رویداد است" });
+  // dropping every event by mistake: «نادیده گرفتن» and «سرکوب» need a condition, a pattern or a source
+  const empty = !n.condition || (typeof n.condition === "object" && !Object.keys(n.condition as object).length);
+  if ((n.action === "ignore" || n.action === "suppress") && empty && !n.pattern && !n.source_id) throw validationError({ condition: "برای نادیده گرفتن یا سرکوب، شرط، الگو یا منبع را تعیین کنید؛ این قاعده همهٔ رویدادها را کنار می‌گذاشت" });
 }
 
 function correlationBefore(w: WriteArgs): void {

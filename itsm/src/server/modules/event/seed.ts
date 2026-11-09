@@ -123,7 +123,7 @@ export async function seedEventDefaultsIn(tx: Tx, ctx: Ctx, opts: { force?: bool
   await ensure(tx, sys, out, "role", { key: "ops_engineer" }, {
     name: "مهندس عملیات و کشیک", persona: "agent", workspaces: "member", domains: "own", active: true,
     description: "کار روی هشدارها و گروه‌های هم‌بستهٔ تیم خود، جایگزینی کشیک و فراخوان‌ها؛ دیدن تداوم",
-    grants: { event: grant("all", "group"), oncall: grant("all", "group"), continuity: grant("all") },
+    grants: { event: grant("all", "group", { create: false }), oncall: grant("all", "group", { create: false }), continuity: grant("all") },
     field_groups: ["internal", "personal"], contains: ["agent"],
   });
   await ensure(tx, sys, out, "role", { key: "ops_manager" }, {
