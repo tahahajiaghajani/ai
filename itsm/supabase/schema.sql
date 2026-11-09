@@ -5195,6 +5195,66 @@ drop trigger if exists sm_contract_coverages_sync on sm_contract_coverages;
 create trigger sm_contract_coverages_sync before insert or update on sm_contract_coverages for each row execute function sm_sync_touch('contract_coverage');
 alter table sm_contract_coverages enable row level security;
 
+-- contract_guarantee: ضمانت‌نامه‌ها و سپرده‌ها
+create table if not exists sm_contract_guarantees (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_contract_guarantees add column if not exists workspace_id uuid;
+alter table sm_contract_guarantees add column if not exists domain_id uuid;
+alter table sm_contract_guarantees add column if not exists unit_id uuid;
+alter table sm_contract_guarantees add column if not exists created_at timestamptz not null default now();
+alter table sm_contract_guarantees add column if not exists created_by uuid;
+alter table sm_contract_guarantees add column if not exists updated_at timestamptz not null default now();
+alter table sm_contract_guarantees add column if not exists updated_by uuid;
+alter table sm_contract_guarantees add column if not exists rev bigint not null default 0;
+alter table sm_contract_guarantees add column if not exists version integer not null default 1;
+alter table sm_contract_guarantees add column if not exists deleted_at timestamptz;
+alter table sm_contract_guarantees add column if not exists origin text;
+alter table sm_contract_guarantees add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_contract_guarantees add column if not exists no integer;
+alter table sm_contract_guarantees add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 6 then 'GRT' || no::text else 'GRT' || lpad(no::text, 6, '0') end) stored;
+alter table sm_contract_guarantees add column if not exists contract_id uuid;
+alter table sm_contract_guarantees add column if not exists kind text;
+alter table sm_contract_guarantees add column if not exists form text;
+alter table sm_contract_guarantees add column if not exists issuer text;
+alter table sm_contract_guarantees add column if not exists reference_no text;
+alter table sm_contract_guarantees add column if not exists amount numeric;
+alter table sm_contract_guarantees add column if not exists issue_date date;
+alter table sm_contract_guarantees add column if not exists expiry_date date;
+alter table sm_contract_guarantees add column if not exists release_due date;
+alter table sm_contract_guarantees add column if not exists released_at timestamptz;
+alter table sm_contract_guarantees add column if not exists owner_id uuid;
+alter table sm_contract_guarantees add column if not exists note text;
+alter table sm_contract_guarantees add column if not exists reminded jsonb;
+alter table sm_contract_guarantees add column if not exists state text;
+create unique index if not exists sm_contract_guarantees_no_uk on sm_contract_guarantees (org_id, no);
+create index if not exists sm_contract_guarantees_rev_idx on sm_contract_guarantees (org_id, rev);
+create index if not exists sm_contract_guarantees_upd_idx on sm_contract_guarantees (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_contract_guarantees_crt_idx on sm_contract_guarantees (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_contract_guarantees_contract_id_idx on sm_contract_guarantees (org_id, contract_id) where deleted_at is null;
+create index if not exists sm_contract_guarantees_expiry_date_idx on sm_contract_guarantees (org_id, expiry_date) where deleted_at is null;
+create index if not exists sm_contract_guarantees_state_idx on sm_contract_guarantees (org_id, state) where deleted_at is null;
+create index if not exists sm_contract_guarantees_workspace_acc_idx on sm_contract_guarantees (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_contract_guarantees_unit_acc_idx on sm_contract_guarantees (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_contract_guarantees_domain_acc_idx on sm_contract_guarantees (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_contract_guarantees_owner_id_idx on sm_contract_guarantees (org_id, owner_id) where deleted_at is null;
+drop trigger if exists sm_contract_guarantees_sync on sm_contract_guarantees;
+create trigger sm_contract_guarantees_sync before insert or update on sm_contract_guarantees for each row execute function sm_sync_touch('contract_guarantee');
+alter table sm_contract_guarantees enable row level security;
+
 -- contract_line: سطرهای قرارداد
 create table if not exists sm_contract_lines (
   id uuid primary key,

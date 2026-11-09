@@ -72,6 +72,15 @@ async function lineBefore(w: WriteArgs): Promise<void> {
   n.amount = n.unit_price === null || n.unit_price === undefined || n.unit_price === "" ? null : round(mul(n.quantity ?? 1, n.unit_price), 0);
 }
 
+async function guaranteeBefore(w: WriteArgs): Promise<void> {
+  await needContractWrite(w);
+  if (w.op === "delete") return;
+  const n = w.next;
+  if (n.issue_date && n.expiry_date && n.expiry_date < n.issue_date) throw bad("پایان اعتبار پیش از تاریخ صدور است");
+  if (w.op !== "create" && w.changed.has("expiry_date")) n.reminded = {};
+  if (entering(w, "released")) n.released_at = new Date().toISOString();
+}
+
 const TARGET_FIELD: Record<string, string> = { asset: "asset_id", ci: "ci_id", service: "service_id", software_model: "software_model_id", location: "location_id" };
 
 async function coverageBefore(w: WriteArgs): Promise<void> {
@@ -128,6 +137,7 @@ export function installSupplierHooks(): (() => void)[] {
     registerHooks("contract_line", { beforeWrite: lineBefore }),
     registerHooks("contract_coverage", { beforeWrite: coverageBefore }),
     registerHooks("contract_obligation", { beforeWrite: obligationBefore, afterWrite: obligationAfter }),
+    registerHooks("contract_guarantee", { beforeWrite: guaranteeBefore }),
     registerHooks("supplier_review", {
       beforeWrite(w) {
         if (w.op === "delete") return;

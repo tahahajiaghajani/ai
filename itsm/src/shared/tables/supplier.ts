@@ -370,6 +370,70 @@ const contractObligation: TableDef = {
 };
 
 // ---------------------------------------------------------------------------------------------------------------
+// Guarantees, bonds and retention (SUP-012)
+
+export const GUARANTEE_KINDS: Option[] = ordered([
+  o("bid", "ضمانت‌نامهٔ شرکت در مناقصه", "gray"), o("performance", "ضمانت‌نامهٔ انجام تعهدات", "blue"), o("advance", "ضمانت‌نامهٔ پیش‌پرداخت", "teal"),
+  o("retention", "سپردهٔ حسن انجام کار (کسور)", "gold"), o("warranty", "ضمانت‌نامهٔ دورهٔ تضمین", "green"), o("insurance", "بیمه‌نامه", "purple"), o("other", "سایر", "gray"),
+]);
+
+export const GUARANTEE_FORMS: Option[] = ordered([
+  o("bank_guarantee", "ضمانت‌نامهٔ بانکی", "blue"), o("insurance_policy", "بیمه‌نامه", "purple"), o("cheque", "چک", "gold"), o("promissory_note", "سفته", "orange"),
+  o("cash", "واریز نقدی یا کسر از پرداخت", "green"), o("other", "سایر", "gray"),
+]);
+
+export const GUARANTEE_STATES: StateModel = {
+  field: "state",
+  initial: "active",
+  states: [
+    { value: "active", label: "در اعتبار", category: "active", color: "green" },
+    { value: "expired", label: "منقضی", category: "waiting", color: "orange" },
+    { value: "released", label: "آزادشده", category: "closed", color: "gray" },
+    { value: "forfeited", label: "ضبط‌شده", category: "resolved", color: "red" },
+    { value: "canceled", label: "لغوشده", category: "canceled", color: "gray" },
+  ],
+  transitions: [
+    { from: ["active", "expired"], to: "released", label: "آزادسازی" },
+    { from: ["active", "expired"], to: "forfeited", label: "ضبط", requires: ["note"] },
+    { from: ["active"], to: "expired", label: "منقضی شد" },
+    { from: ["expired"], to: "active", label: "تمدید شد", requires: ["expiry_date"] },
+    { from: ["active"], to: "canceled", label: "لغو" },
+  ],
+};
+
+const contractGuarantee: TableDef = {
+  key: "contract_guarantee",
+  table: "sm_contract_guarantees",
+  label: "ضمانت‌نامه یا سپرده",
+  plural: "ضمانت‌نامه‌ها و سپرده‌ها",
+  icon: "landmark",
+  module: "supplier",
+  area: "contract",
+  description: "ضمانت‌نامه‌های بانکی، بیمه‌نامه‌ها و سپرده‌های حسن انجام کار هر قرارداد با موعد اعتبار و آزادسازی",
+  numbered: { prefix: "GRT", pad: 6 },
+  display: "reference_no",
+  fields: [
+    { name: "contract_id", label: "قرارداد", type: "ref", ref: "contract", required: true, list: true, filter: true, index: true, span: 12 },
+    { name: "kind", label: "نوع", type: "choice", choices: GUARANTEE_KINDS, default: "performance", required: true, list: true, filter: true, span: 12 },
+    { name: "form", label: "شکل", type: "choice", choices: GUARANTEE_FORMS, default: "bank_guarantee", filter: true, span: 8 },
+    { name: "issuer", label: "صادرکننده (بانک یا بیمه)", type: "string", maxLength: 120, search: true, span: 8 },
+    { name: "reference_no", label: "شمارهٔ ضمانت‌نامه", type: "string", maxLength: 60, ltr: true, search: true, list: true, span: 8 },
+    { name: "amount", label: "مبلغ", type: "money", list: true, sort: true, span: 8, group: "financial" },
+    { name: "issue_date", label: "تاریخ صدور", type: "date", span: 8 },
+    { name: "expiry_date", label: "پایان اعتبار", type: "date", list: true, sort: true, filter: true, index: true, span: 8, help: "یادآوری تمدید یا آزادسازی پیش از این تاریخ می‌آید" },
+    { name: "release_due", label: "موعد آزادسازی", type: "date", sort: true, span: 8, help: "برای سپرده: پایان دورهٔ تضمین" },
+    { name: "released_at", label: "زمان آزادسازی", type: "datetime", readonly: true, span: 8 },
+    { name: "owner_id", label: "پیگیری‌کننده", type: "user", default: "$me", list: true, filter: true, span: 8 },
+    { name: "note", label: "یادداشت", type: "text", span: 24 },
+    { name: "reminded", label: "یادآوری‌های فرستاده", type: "json", system: true, hidden: true, audit: false },
+  ],
+  states: GUARANTEE_STATES,
+  scope: { own: ["owner_id"] },
+  features: { journal: true, attachments: true },
+  list: { columns: ["number", "contract_id", "kind", "reference_no", "amount", "expiry_date", "state"], order: "expiry_date" },
+};
+
+// ---------------------------------------------------------------------------------------------------------------
 // Performance (SUP-020/021)
 
 const scorecard: TableDef = {
@@ -478,4 +542,4 @@ const config: TableDef = {
   list: { columns: ["name", "expire_auto"], order: "name" },
 };
 
-export const SUPPLIER_TABLES: TableDef[] = [supplier, supplierContact, contract, contractLine, contractCoverage, contractObligation, scorecard, review, config];
+export const SUPPLIER_TABLES: TableDef[] = [supplier, supplierContact, contract, contractLine, contractCoverage, contractObligation, contractGuarantee, scorecard, review, config];

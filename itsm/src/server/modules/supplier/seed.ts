@@ -20,6 +20,8 @@ function notificationRules(): Row[] {
     { table_key: "contract", name: "قرارداد منقضی شد", event: "custom", custom_event: "contract.expired", recipients: { event_users: true, roles: ["asset_manager"] }, channels: ["in_app", "email"] },
     { table_key: "contract", name: "قرارداد خودکار تمدید شد", event: "custom", custom_event: "contract.auto_renewed", recipients: { event_users: true }, channels: ["in_app"] },
     { table_key: "contract_obligation", name: "موعد تعهد قراردادی نزدیک یا گذشته است", event: "custom", custom_event: "contract.obligation_due", recipients: { event_users: true }, channels: ["in_app", "email"] },
+    { table_key: "contract_guarantee", name: "ضمانت‌نامه رو به پایان اعتبار است", event: "custom", custom_event: "contract.guarantee_due", recipients: { event_users: true, roles: ["asset_manager"] }, channels: ["in_app", "email"] },
+    { table_key: "contract_guarantee", name: "اعتبار ضمانت‌نامه تمام شد", event: "custom", custom_event: "contract.guarantee_expired", recipients: { event_users: true }, channels: ["in_app", "email"] },
   ].map((r) => ({ ...base, ...r }));
 }
 

@@ -64,7 +64,7 @@ export function endOutcome(c: ContractLike, today: string): { action: "none" } |
 
 export interface CalendarEntry {
   date: string;
-  kind: "notice" | "end" | "renewal" | "warranty" | "lease" | "entitlement" | "obligation";
+  kind: "notice" | "end" | "renewal" | "warranty" | "lease" | "entitlement" | "obligation" | "guarantee";
   table: string;
   id: string;
   title: string;
@@ -80,6 +80,7 @@ export const ENTRY_LABELS: Record<CalendarEntry["kind"], string> = {
   lease: "پایان اجاره",
   entitlement: "پایان مجوز",
   obligation: "موعد تعهد",
+  guarantee: "پایان اعتبار ضمانت‌نامه",
 };
 
 /** Entries grouped by Jalali month from `from` for `months` months (empty months kept, in order). */

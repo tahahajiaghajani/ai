@@ -3,7 +3,7 @@
 // (calendar mode by end date; header actions «تمدید» and «استخراج بندها»), lines, coverage, obligations, reviews and
 // scorecards, the «تقویم تمدید» page and the settings.
 import { lazy } from "react";
-import { Building2, CalendarRange, Contact, FileSignature, List, ShieldCheck, ListChecks, Gauge, MessagesSquare, Settings2 } from "lucide-react";
+import { Building2, CalendarRange, Contact, FileSignature, List, ShieldCheck, ListChecks, Gauge, MessagesSquare, Settings2, Landmark } from "lucide-react";
 import type { AccessGate } from "@shared/access";
 import type { ModuleUi } from "../registry";
 import { recordModule } from "../../records/module";
@@ -38,6 +38,7 @@ const module = recordModule({
     { table: "supplier_review", path: "supplier/reviews", label: "بازبینی‌ها", noun: "بازبینی", icon: MessagesSquare, section: SUP, area: "work", access: VENDOR, search: false, keywords: "بازبینی QBR جلسه" },
     { table: "supplier_scorecard", path: "supplier/scorecards", label: "کارنامه‌ها", icon: Gauge, section: SUP, area: "work", access: VENDOR, search: false, newAction: false },
     { table: "contract_obligation", path: "supplier/obligations", label: "تعهدهای قراردادی", noun: "تعهد", icon: ListChecks, area: "work", access: CONTRACT, keywords: "تعهد موعد گزارش بیمه‌نامه" },
+    { table: "contract_guarantee", path: "supplier/guarantees", label: "ضمانت‌نامه‌ها و سپرده‌ها", noun: "ضمانت‌نامه", icon: Landmark, area: "work", access: CONTRACT, search: false, keywords: "ضمانت‌نامه بانکی سپرده حسن انجام کار بیمه‌نامه پیش‌پرداخت" },
     { table: "contract_coverage", path: "supplier/coverage", label: "پوشش قراردادها", noun: "پوشش", icon: ShieldCheck, area: "work", access: CONTRACT, search: false },
     { table: "contract_line", path: "supplier/contract-lines", label: "سطرهای قرارداد", icon: List, hidden: true, search: false, newAction: false },
     { table: "supplier_config", path: "supplier/settings", label: "تنظیمات قراردادها", icon: Settings2, section: DEF, area: "settings", search: false, newAction: false },

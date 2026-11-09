@@ -19,7 +19,7 @@ import { Money } from "../itam/parts";
 import { supplierApi, SUPPLIER_KEYS } from "./api";
 
 const TONE: Record<CalendarEntry["kind"], "warning" | "danger" | "neutral" | "in" | "accent"> = {
-  notice: "danger", end: "warning", renewal: "accent", warranty: "neutral", lease: "neutral", entitlement: "warning", obligation: "neutral",
+  notice: "danger", end: "warning", renewal: "accent", warranty: "neutral", lease: "neutral", entitlement: "warning", obligation: "neutral", guarantee: "warning",
 };
 
 function Entry({ e }: { e: CalendarEntry }) {

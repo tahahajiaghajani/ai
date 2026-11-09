@@ -42,6 +42,8 @@ export async function renewals(ctx: Ctx, months = 12): Promise<Renewals> {
     }
     const o = await list(ctx, "contract_obligation", { filter: { and: [{ f: "state", op: "in", v: ["open", "in_progress", "waiting"] }, window("due_date")] }, size: 500, total: false, fields: ["number", "title", "due_date"] }).catch(() => null);
     for (const x of o?.rows ?? []) entries.push({ date: String(x.due_date), kind: "obligation", table: "contract_obligation", id: String(x.id), title: String(x.title ?? ""), number: (x.number as string) ?? null });
+    const g = await list(ctx, "contract_guarantee", { filter: { and: [{ f: "state", op: "eq", v: "active" }, window("expiry_date")] }, size: 500, total: false, fields: ["number", "reference_no", "kind", "expiry_date", "amount"] }).catch(() => null);
+    for (const x of g?.rows ?? []) entries.push({ date: String(x.expiry_date), kind: "guarantee", table: "contract_guarantee", id: String(x.id), title: String(x.reference_no ?? x.number ?? ""), number: (x.number as string) ?? null, amount: financial ? ((x.amount as string) ?? null) : null });
   }
   if (await holds(ctx, "software", "read")) {
     const s = await list(ctx, "saas_subscription", { filter: { and: [{ f: "state", op: "in", v: ["trial", "active", "cancel_pending"] }, window("renewal_date")] }, size: 500, total: false, fields: ["number", "name", "renewal_date", "annual_cost"] });
@@ -196,10 +198,10 @@ export async function computeScorecards(sys: Ctx): Promise<{ suppliers: number }
 // ---------------------------------------------------------------------------------------------------------------
 // The daily sweep (SUP-009/011)
 
-export async function supplierSweep(sys: Ctx): Promise<{ reminders: number; expired: number; renewed: number; overdue: number }> {
+export async function supplierSweep(sys: Ctx): Promise<{ reminders: number; expired: number; renewed: number; overdue: number; guarantees: number }> {
   const cfg = await supplierConfig(sys.db, sys);
   const today = orgToday(sys);
-  const out = { reminders: 0, expired: 0, renewed: 0, overdue: 0 };
+  const out = { reminders: 0, expired: 0, renewed: 0, overdue: 0, guarantees: 0 };
   const contracts = await liveRows(sys.db, sys, "contract", { f: "state", op: "eq", v: "active" } as Cond, { limit: 20000 });
   for (const c of contracts) {
     const outcome = endOutcome(c, today);
@@ -240,6 +242,27 @@ export async function supplierSweep(sys: Ctx): Promise<{ reminders: number; expi
       await updateIn(tx, sys, "contract_obligation", o.id, { reminded: { due: o.due_date, sent: [...sent, stage] } }, { trusted: true, keepVersion: true });
     });
     out.overdue++;
+  }
+  // guarantees and deposits (SUP-012): reminders before the end of validity (60, 30, 7 days), then «منقضی»
+  const guarantees = await liveRows(sys.db, sys, "contract_guarantee", { and: [{ f: "state", op: "eq", v: "active" }, { f: "expiry_date", op: "nempty" }] } as Cond, { limit: 5000 });
+  for (const g of guarantees) {
+    const users = [g.owner_id].filter(isUuid);
+    if (String(g.expiry_date) < today) {
+      await sys.write(async (tx) => {
+        await transitionIn(tx, sys, "contract_guarantee", g.id, "expired", {});
+        await emitEvent(tx, sys, { kind: "record.contract.guarantee_expired", table: "contract_guarantee", id: g.id, number: g.number ?? null, data: { users, expiry_date: g.expiry_date } });
+      });
+      out.guarantees++;
+      continue;
+    }
+    const sent = Array.isArray((g.reminded as Row | null)?.expiry) ? ((g.reminded as Row).expiry as number[]) : [];
+    const r = dueReminder(g.expiry_date, today, [60, 30, 7], sent);
+    if (!r) continue;
+    await sys.write(async (tx) => {
+      await emitEvent(tx, sys, { kind: "record.contract.guarantee_due", table: "contract_guarantee", id: g.id, number: g.number ?? null, data: { users, days_left: r.days_left, expiry_date: g.expiry_date } });
+      await updateIn(tx, sys, "contract_guarantee", g.id, { reminded: { ...((g.reminded ?? {}) as Row), expiry: [...sent, r.threshold, ...r.skipped] } }, { trusted: true, keepVersion: true });
+    });
+    out.guarantees++;
   }
   return out;
 }

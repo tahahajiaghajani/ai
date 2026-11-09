@@ -129,6 +129,23 @@ describe("contracts", () => {
     expect(Number(row.value)).toBe(700_000_000);
   });
 
+  it("reminds before a guarantee's validity ends, then marks it expired and releases it", async () => {
+    const lease = await w.idOf("contract", "name", "اجارهٔ چاپگرهای چندکاره (نمونه)");
+    const g = (await w.p.am.client.post(`${w.P}/r/contract_guarantee`, { contract_id: lease, kind: "performance", form: "bank_guarantee", issuer: "بانک ملت", reference_no: "BG-77", amount: "500000000", issue_date: addDays(today(), -300), expiry_date: addDays(today(), 25) })).row;
+    const mine = async () => (await events("record.contract.guarantee_due")).filter((e) => e.id === g.id);
+    await supplierSweep(w.sys);
+    await supplierSweep(w.sys);
+    expect(await mine()).toHaveLength(1);
+    expect((await mine())[0].data.days_left).toBe(25);
+    await w.p.am.client.patch(`${w.P}/r/contract_guarantee/${g.id}`, { expiry_date: addDays(today(), -1) });
+    await supplierSweep(w.sys);
+    expect((await w.o.get(`${w.P}/r/contract_guarantee/${g.id}`)).row.state).toBe("expired");
+    await w.p.am.client.post(`${w.P}/r/contract_guarantee/${g.id}/transition`, { to: "released" });
+    expect((await w.o.get(`${w.P}/r/contract_guarantee/${g.id}`)).row.released_at).toBeTruthy();
+    await w.p.req.client.get(`${w.P}/r/contract_guarantee/${g.id}`, 404);
+    await w.p.agent.client.post(`${w.P}/r/contract_guarantee`, { contract_id: lease, reference_no: "X" }, 403);
+  });
+
   it("reminds an obligation once when it comes due and once when it is overdue", async () => {
     const uc = await w.idOf("contract", "name", "اجارهٔ چاپگرهای چندکاره (نمونه)");
     const o = (await w.p.am.client.post(`${w.P}/r/contract_obligation`, { contract_id: uc, title: "ارسال بیمه‌نامه", party: "supplier", due_date: addDays(today(), 3) })).row;
